@@ -285,6 +285,8 @@ function isAgentLiveProtocolContractRelevant(file) {
   return (
     file ===
       "packages/agent/daemon/liveprotocol/schema/agent-activity-live-event.schema.json" ||
+    file ===
+      "packages/agent/daemon/liveprotocol/schema/agent-activity-live-wire-contract.json" ||
     file === "packages/agent/daemon/liveprotocol/protocol_revision.gen.go" ||
     file === "packages/agent/activity-core/src/liveProtocolRevision.gen.ts" ||
     file ===

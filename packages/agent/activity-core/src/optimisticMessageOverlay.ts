@@ -18,11 +18,34 @@ export interface AgentActivityOptimisticApplyResult {
   reason?: "append_without_anchor" | "identity_mismatch";
 }
 
+export interface AgentActivityOptimisticMessageScope {
+  workspaceId: string;
+  agentSessionId: string;
+}
+
 export interface AgentActivityOptimisticMessageOverlay {
   apply(event: AgentActivityLiveEvent): AgentActivityOptimisticApplyResult;
-  reconcile(canonicalMessages: readonly AgentActivityMessage[]): void;
-  clearSession(workspaceId: string, agentSessionId: string): void;
+  /**
+   * Replaces the authoritative base for one Session after a successful read.
+   *
+   * Ordinary optimistic projections are discarded because the read is now the
+   * best known truth. An explicitly terminal optimistic projection remains
+   * visible over a nonterminal canonical message until canonical truth also
+   * reaches a terminal state.
+   */
+  reconcile(
+    scope: AgentActivityOptimisticMessageScope,
+    canonicalMessages: readonly AgentActivityMessage[]
+  ): void;
+  /**
+   * Drops all cached state for one Session when the host removes or rebinds
+   * that Session. A stream discontinuity should instead complete an
+   * authoritative read and call reconcile so a confirmed optimistic terminal
+   * projection remains visible until canonical terminal truth arrives.
+   */
+  reset(scope: AgentActivityOptimisticMessageScope): void;
   project(
+    scope: AgentActivityOptimisticMessageScope,
     canonicalMessages: readonly AgentActivityMessage[]
   ): AgentActivityMessage[];
 }
@@ -30,6 +53,7 @@ export interface AgentActivityOptimisticMessageOverlay {
 interface OptimisticEntry {
   message: AgentActivityMessage;
   payloadUnset: ReadonlySet<string>;
+  explicitlyTerminal: boolean;
 }
 
 export function createAgentActivityOptimisticMessageOverlay(): AgentActivityOptimisticMessageOverlay {
@@ -44,33 +68,46 @@ export function createAgentActivityOptimisticMessageOverlay(): AgentActivityOpti
       return applyMessageDelta(event);
     },
 
-    reconcile(messages) {
-      canonical.clear();
-      for (const message of messages) {
+    reconcile(scope, messages) {
+      const normalized = normalizeCanonicalMessages(scope, messages);
+      const prefix = scopePrefix(scope);
+      deleteScopeEntries(canonical, prefix);
+      for (const message of normalized) {
         const key = messageKey(message);
         canonical.set(key, cloneMessage(message));
-        if (isTerminalMessage(message)) {
+      }
+      for (const [key, entry] of optimistic) {
+        if (!key.startsWith(prefix)) {
+          continue;
+        }
+        const canonicalMessage = canonical.get(key);
+        if (
+          !entry.explicitlyTerminal ||
+          (canonicalMessage !== undefined &&
+            isTerminalMessage(canonicalMessage))
+        ) {
           optimistic.delete(key);
         }
       }
     },
 
-    clearSession(workspaceId, agentSessionId) {
-      const prefix = identityPrefix(workspaceId, agentSessionId);
-      for (const key of optimistic.keys()) {
-        if (key.startsWith(prefix)) optimistic.delete(key);
-      }
-      for (const key of canonical.keys()) {
-        if (key.startsWith(prefix)) canonical.delete(key);
-      }
+    reset(scope) {
+      const prefix = scopePrefix(scope);
+      deleteScopeEntries(optimistic, prefix);
+      deleteScopeEntries(canonical, prefix);
     },
 
-    project(messages) {
+    project(scope, messages) {
+      const normalized = normalizeCanonicalMessages(scope, messages);
       const byKey = new Map<string, AgentActivityMessage>();
-      for (const message of messages) {
+      for (const message of normalized) {
         byKey.set(messageKey(message), cloneMessage(message));
       }
+      const prefix = scopePrefix(scope);
       for (const [key, entry] of optimistic) {
+        if (!key.startsWith(prefix)) {
+          continue;
+        }
         const base = byKey.get(key) ?? canonical.get(key);
         byKey.set(
           key,
@@ -173,7 +210,10 @@ export function createAgentActivityOptimisticMessageOverlay(): AgentActivityOpti
     }
     optimistic.set(key, {
       message: next,
-      payloadUnset
+      payloadUnset,
+      explicitlyTerminal:
+        (optimistic.get(key)?.explicitlyTerminal ?? false) ||
+        deltaIsExplicitlyTerminal(data)
     });
     return { applied: true, needsReconcile: false };
   }
@@ -204,8 +244,18 @@ function materialize(
 
 function isTerminalMessage(message: AgentActivityMessage): boolean {
   if (message.completedAtUnixMs !== undefined) return true;
+  return isTerminalStatus(message.status);
+}
+
+function deltaIsExplicitlyTerminal(
+  data: AgentActivityMessageDeltaEvent["data"]
+): boolean {
+  return data.completedAtUnixMs !== undefined || isTerminalStatus(data.status);
+}
+
+function isTerminalStatus(status: string | null | undefined): boolean {
   return ["completed", "failed", "canceled", "interrupted"].includes(
-    message.status ?? ""
+    status ?? ""
   );
 }
 
@@ -219,6 +269,39 @@ function messageKey(message: AgentActivityMessage): string {
 
 function identityPrefix(workspaceId: string, agentSessionId: string): string {
   return `${workspaceId}\u0000${agentSessionId}\u0000`;
+}
+
+function scopePrefix(scope: AgentActivityOptimisticMessageScope): string {
+  return identityPrefix(scope.workspaceId, scope.agentSessionId);
+}
+
+function normalizeCanonicalMessages(
+  scope: AgentActivityOptimisticMessageScope,
+  messages: readonly AgentActivityMessage[]
+): AgentActivityMessage[] {
+  return messages.map((message) => {
+    if (
+      (message.workspaceId !== undefined &&
+        message.workspaceId !== scope.workspaceId) ||
+      message.agentSessionId !== scope.agentSessionId
+    ) {
+      throw new Error(
+        "canonical Agent activity message is outside the optimistic overlay scope"
+      );
+    }
+    return cloneMessage({
+      ...message,
+      workspaceId: scope.workspaceId
+    });
+  });
+}
+
+function deleteScopeEntries<T>(entries: Map<string, T>, prefix: string): void {
+  for (const key of entries.keys()) {
+    if (key.startsWith(prefix)) {
+      entries.delete(key);
+    }
+  }
 }
 
 function cloneMessage(message: AgentActivityMessage): AgentActivityMessage {

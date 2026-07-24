@@ -130,6 +130,12 @@ func (n *acpTurnNormalizer) AppendAssistantChunk(session Session, turnID string,
 		n.assistantSegmentCompleted = false
 	}
 	liveOperation := n.mergeAssistantText(chunk)
+	if liveOperation == nil {
+		// Duplicate and backtracking provider snapshots do not change the
+		// normalized message. Suppress them here so they cannot fall through
+		// the stream projection as full precommit message_update snapshots.
+		return nil
+	}
 	event := n.assistantSnapshotEvent(session, turnID, messageStreamStateStreaming)
 	attachTextLiveOperation(&event, liveOperation, RoleAssistant, "text")
 	return []activityshared.Event{event}

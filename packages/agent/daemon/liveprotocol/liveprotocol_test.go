@@ -329,7 +329,6 @@ func mustMessageDelta(t *testing.T, messageID string, operation *MessageContentO
 
 func mustTerminalTurnUpdate(t *testing.T) Event {
 	t.Helper()
-	activeTurnID := "owner-turn"
 	outcome := "completed"
 	settledAt := int64(20)
 	data := TurnUpdateData{
@@ -337,7 +336,7 @@ func mustTerminalTurnUpdate(t *testing.T) Event {
 		AgentSessionID:   "owner-session",
 		EventType:        EventTypeTurnUpdate,
 		OccurredAtUnixMS: 20,
-		ActiveTurnID:     &activeTurnID,
+		ActiveTurnID:     nil,
 		Turn: EventTurn{
 			TurnID:          "owner-turn",
 			AgentSessionID:  "owner-session",

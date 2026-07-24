@@ -19,7 +19,7 @@ export interface AgentActivityMessageDeltaEvent {
     workspaceId: string;
     agentSessionId: string;
     messageId: string;
-    turnId?: string;
+    turnId: string;
     role: string;
     kind: string;
     occurredAtUnixMs: number;

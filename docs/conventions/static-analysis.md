@@ -105,11 +105,12 @@ cannot observe transient files and fail nondeterministically.
 
 The optimistic AgentGUI live fast lane is schema-backed separately from the
 canonical cloud event. `pnpm check:agent-live-protocol-generated` hashes the
-live `message_delta` schema together with the reused canonical
-`turn_update`, `interaction_update`, and `session_audit` variants, then checks
-the committed Go and TypeScript revision constants. Change either schema and
-run `pnpm generate:agent-live-protocol`; do not hand-edit the generated
-revision files.
+live `message_delta` schema, the declarative protobuf-wire/control contract,
+and the reused canonical `turn_update`, `interaction_update`, and
+`session_audit` variants. It also generates the Go wire field and delivery-kind
+constants and checks the committed Go and TypeScript revision outputs. Change
+either contract and run `pnpm generate:agent-live-protocol`; do not hand-edit
+the generated revision or wire-constant files.
 
 The Agent GUI provider identity catalog under
 `packages/agent/gui/generated/providerIdentityCatalog.ts` is generated from the

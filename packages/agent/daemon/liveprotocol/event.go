@@ -85,12 +85,26 @@ func validateEvent(event Event) error {
 	}
 	switch event.EventType {
 	case EventTypeMessageDelta:
+		record, err := requiredJSONFields(
+			event.Data,
+			"workspaceId",
+			"agentSessionId",
+			"messageId",
+			"turnId",
+			"role",
+			"kind",
+			"occurredAtUnixMs",
+		)
+		if err != nil {
+			return err
+		}
 		var data MessageDeltaData
 		if err := strictDecode(event.Data, &data); err != nil {
 			return err
 		}
 		if data.WorkspaceID != event.WorkspaceID || data.AgentSessionID != event.AgentSessionID ||
-			strings.TrimSpace(data.MessageID) == "" || strings.TrimSpace(data.Role) == "" ||
+			strings.TrimSpace(data.MessageID) == "" || strings.TrimSpace(data.TurnID) == "" ||
+			strings.TrimSpace(data.Role) == "" ||
 			strings.TrimSpace(data.Kind) == "" || data.OccurredAtUnixMS <= 0 {
 			return fmt.Errorf("%w: invalid message delta identity", ErrInvalidLiveEvent)
 		}
@@ -99,19 +113,33 @@ func validateEvent(event Event) error {
 		if !hasMutation {
 			return fmt.Errorf("%w: empty message delta", ErrInvalidLiveEvent)
 		}
+		contentRaw, hasContent := record["content"]
+		if hasContent && data.Content == nil {
+			return fmt.Errorf("%w: content must be an operation object", ErrInvalidLiveEvent)
+		}
 		if data.Content != nil {
+			contentRecord, err := requiredJSONFields(contentRaw, "operation")
+			if err != nil {
+				return err
+			}
 			switch data.Content.Operation {
 			case "append_text":
+				if _, ok := contentRecord["text"]; !ok {
+					return fmt.Errorf("%w: append_text requires text", ErrInvalidLiveEvent)
+				}
 				if len(data.Content.Value) != 0 {
 					return fmt.Errorf("%w: append_text cannot carry value", ErrInvalidLiveEvent)
 				}
 			case "set":
-				if len(data.Content.Value) == 0 {
+				if _, ok := contentRecord["value"]; !ok || len(data.Content.Value) == 0 {
 					return fmt.Errorf("%w: set requires value", ErrInvalidLiveEvent)
 				}
 			default:
 				return fmt.Errorf("%w: unknown content operation", ErrInvalidLiveEvent)
 			}
+		}
+		if err := validatePayloadMutation(record, data); err != nil {
+			return err
 		}
 	case EventTypeTurnUpdate:
 		record, err := requiredJSONFields(event.Data, "workspaceId", "agentSessionId", "eventType", "occurredAtUnixMs", "activeTurnId", "turn")
@@ -134,6 +162,9 @@ func validateEvent(event Event) error {
 			(data.Turn.Outcome != nil && !validTurnOutcome(*data.Turn.Outcome)) {
 			return fmt.Errorf("%w: invalid turn vocabulary", ErrInvalidLiveEvent)
 		}
+		if err := validateTurnUpdate(data); err != nil {
+			return err
+		}
 	case EventTypeInteractionUpdate:
 		record, err := requiredJSONFields(event.Data, "workspaceId", "agentSessionId", "eventType", "occurredAtUnixMs", "interaction")
 		if err != nil {
@@ -154,6 +185,17 @@ func validateEvent(event Event) error {
 		if !validInteractionKind(data.Interaction.Kind) || !validInteractionStatus(data.Interaction.Status) {
 			return fmt.Errorf("%w: invalid interaction vocabulary", ErrInvalidLiveEvent)
 		}
+		if data.OccurredAtUnixMS < 0 || data.Interaction.CreatedAtUnixMS < 0 ||
+			data.Interaction.UpdatedAtUnixMS < 0 {
+			return fmt.Errorf("%w: invalid interaction timestamp", ErrInvalidLiveEvent)
+		}
+		for name, raw := range map[string]json.RawMessage{
+			"input": data.Interaction.Input, "output": data.Interaction.Output, "metadata": data.Interaction.Metadata,
+		} {
+			if err := validateJSONObjectOrNull(raw, name); err != nil {
+				return err
+			}
+		}
 	case EventTypeSessionAudit:
 		record, err := requiredJSONFields(event.Data, "workspaceId", "agentSessionId", "eventType", "audit")
 		if err != nil {
@@ -168,13 +210,130 @@ func validateEvent(event Event) error {
 		}
 		if data.EventType != event.EventType || data.WorkspaceID != event.WorkspaceID ||
 			data.AgentSessionID != event.AgentSessionID || strings.TrimSpace(data.Audit.AuditID) == "" ||
-			strings.TrimSpace(data.Audit.Role) == "" || data.Audit.Version <= 0 || len(data.Audit.Payload) == 0 {
+			strings.TrimSpace(data.Audit.Role) == "" || data.Audit.OccurredAtUnixMS <= 0 ||
+			data.Audit.Version <= 0 || len(data.Audit.Payload) == 0 {
 			return fmt.Errorf("%w: invalid session audit identity", ErrInvalidLiveEvent)
+		}
+		if err := validateJSONObject(data.Audit.Payload, "audit payload"); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("%w: unsupported event type %q", ErrInvalidLiveEvent, event.EventType)
 	}
 	return nil
+}
+
+func validatePayloadMutation(record map[string]json.RawMessage, data MessageDeltaData) error {
+	if raw, ok := record["payloadSet"]; ok {
+		if len(data.PayloadSet) == 0 {
+			return fmt.Errorf("%w: payloadSet must not be empty", ErrInvalidLiveEvent)
+		}
+		if err := validateJSONObject(raw, "payloadSet"); err != nil {
+			return err
+		}
+		for key := range data.PayloadSet {
+			if key == "" {
+				return fmt.Errorf("%w: payloadSet contains an empty key", ErrInvalidLiveEvent)
+			}
+		}
+	}
+	if _, ok := record["payloadUnset"]; ok {
+		if len(data.PayloadUnset) == 0 {
+			return fmt.Errorf("%w: payloadUnset must not be empty", ErrInvalidLiveEvent)
+		}
+		seen := make(map[string]struct{}, len(data.PayloadUnset))
+		for _, key := range data.PayloadUnset {
+			if key == "" {
+				return fmt.Errorf("%w: payloadUnset contains an empty key", ErrInvalidLiveEvent)
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return fmt.Errorf("%w: payloadUnset contains duplicate key %q", ErrInvalidLiveEvent, key)
+			}
+			seen[key] = struct{}{}
+		}
+	}
+	if raw, ok := record["semantics"]; ok {
+		if err := validateJSONObject(raw, "semantics"); err != nil {
+			return err
+		}
+	}
+	if data.StartedAtUnixMS != nil && *data.StartedAtUnixMS < 0 {
+		return fmt.Errorf("%w: startedAtUnixMs must be non-negative", ErrInvalidLiveEvent)
+	}
+	if data.CompletedAtUnixMS != nil && *data.CompletedAtUnixMS < 0 {
+		return fmt.Errorf("%w: completedAtUnixMs must be non-negative", ErrInvalidLiveEvent)
+	}
+	return nil
+}
+
+func validateTurnUpdate(data TurnUpdateData) error {
+	turn := data.Turn
+	if data.OccurredAtUnixMS < 0 || turn.StartedAtUnixMS < 0 || turn.UpdatedAtUnixMS < 0 ||
+		(turn.SettledAtUnixMS != nil && *turn.SettledAtUnixMS < 0) ||
+		(turn.SourceGoalRevision != nil && *turn.SourceGoalRevision < 0) ||
+		(turn.SourceGoalRepairEpoch != nil && *turn.SourceGoalRepairEpoch < 0) {
+		return fmt.Errorf("%w: invalid turn timestamp or revision", ErrInvalidLiveEvent)
+	}
+	if turn.SourceGoalOperationID != nil && strings.TrimSpace(*turn.SourceGoalOperationID) == "" {
+		return fmt.Errorf("%w: empty source goal operation identity", ErrInvalidLiveEvent)
+	}
+	for _, reference := range turn.CapabilityRefs {
+		if reference.Capability != "tutti" || reference.Source != "slash_command" {
+			return fmt.Errorf("%w: invalid turn capability reference", ErrInvalidLiveEvent)
+		}
+	}
+	if turn.Error != nil && strings.TrimSpace(turn.Error.Message) == "" {
+		return fmt.Errorf("%w: turn error requires a message", ErrInvalidLiveEvent)
+	}
+	if turn.CompletedCommand != nil &&
+		(!validCompletedCommandKind(turn.CompletedCommand.Kind) ||
+			!validCompletedCommandStatus(turn.CompletedCommand.Status)) {
+		return fmt.Errorf("%w: invalid completed command", ErrInvalidLiveEvent)
+	}
+	if turn.Phase == "settled" {
+		if data.ActiveTurnID != nil || turn.Outcome == nil || turn.SettledAtUnixMS == nil {
+			return fmt.Errorf("%w: settled turn has inconsistent terminal fields", ErrInvalidLiveEvent)
+		}
+		return nil
+	}
+	if data.ActiveTurnID == nil || strings.TrimSpace(*data.ActiveTurnID) != turn.TurnID ||
+		turn.Outcome != nil || turn.SettledAtUnixMS != nil {
+		return fmt.Errorf("%w: active turn has inconsistent non-terminal fields", ErrInvalidLiveEvent)
+	}
+	return nil
+}
+
+func validCompletedCommandKind(value string) bool {
+	switch value {
+	case "compact", "review", "undo", "goal":
+		return true
+	default:
+		return false
+	}
+}
+
+func validCompletedCommandStatus(value string) bool {
+	switch value {
+	case "completed", "failed", "canceled":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateJSONObject(raw json.RawMessage, field string) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return fmt.Errorf("%w: %s must be an object", ErrInvalidLiveEvent, field)
+	}
+	return nil
+}
+
+func validateJSONObjectOrNull(raw json.RawMessage, field string) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+	return validateJSONObject(raw, field)
 }
 
 func requiredJSONFields(raw []byte, fields ...string) (map[string]json.RawMessage, error) {

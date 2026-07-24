@@ -9,26 +9,10 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
-const (
-	frameRevisionField   = 1
-	frameStreamIDField   = 2
-	frameBindingIDField  = 3
-	frameEpochField      = 4
-	frameDeliveriesField = 5
-
-	deliverySeqField           = 1
-	deliveryKindField          = 2
-	deliveryEventField         = 3
-	deliveryDiscontinuityField = 4
-	deliveryAttachmentField    = 5
-	deliveryGoalField          = 6
-	deliveryReadyField         = 7
-	deliveryRejectedField      = 8
-)
-
 // EncodeFrame uses a deliberately small protobuf wire schema. The containing
 // gRPC contract transports these bytes opaquely, so every Go consumer shares
-// this codec and no generated transport DTO can drift from it.
+// this codec and no generated transport DTO can drift from it. Field numbers
+// and delivery-kind values are generated from the revisioned wire contract.
 func EncodeFrame(frame Frame) ([]byte, error) {
 	if err := validateFrame(frame); err != nil {
 		return nil, err
@@ -316,7 +300,8 @@ func validateDelivery(delivery Delivery) error {
 		count = boolCount(delivery.GoalChanged != nil)
 		if delivery.GoalChanged != nil &&
 			(strings.TrimSpace(delivery.GoalChanged.WorkspaceID) == "" ||
-				strings.TrimSpace(delivery.GoalChanged.AgentSessionID) == "") {
+				strings.TrimSpace(delivery.GoalChanged.AgentSessionID) == "" ||
+				delivery.GoalChanged.Revision < 0) {
 			return ErrInvalidFrame
 		}
 	case DeliveryKindStreamReady:

@@ -774,12 +774,35 @@ The desktop service owns the event-stream connection. Canonical
 `message_update` snapshots remain the hydration and cloud-reconcile contract.
 The local/shared optimistic fast lane instead carries schema-backed
 `message_delta` events produced by the provider normalizer: the transport must
-never derive deltas by comparing snapshots. A host materializes these deltas in
-the activity-core optimistic overlay, projects that overlay over its latest
-canonical message base, and dispatches ordinary messages to the engine. A
-sequence gap, discontinuity, recovered connection, or unanchored append
-schedules authoritative reconciliation. UI consumers never retain transport
-epoch/sequence state or distinguish local from shared activity sources.
+never derive deltas by comparing snapshots. Every `message_delta` is scoped to
+a real persisted Turn; session-level notices continue to use explicit audit or
+state semantics.
+
+The Go live-protocol adapter owns the complete fast-lane envelope on both sides
+of a device link: schema validation, recipient identity projection,
+protobuf-wire framing, batching, replay/resume, sequence-gap detection, and
+typed rejection. Recipient projection rewrites only the closed workspace,
+Session, and Turn identity fields. Opaque business values remain
+`json.RawMessage`, including file paths and large JSON integers, so transport
+does not sanitize or reinterpret renderer data. The exact protocol revision
+covers the event schema, protobuf field numbers, delivery-kind values, and JSON
+control shapes. A revision mismatch is an explicit rejection followed by
+canonical reconciliation; it is not a compatibility conversion path.
+
+Frames are bounded but not fragmented. The publisher may coalesce only adjacent
+pure `append_text` operations for the same message and Turn; status, payload,
+semantic, or lifecycle mutations remain separate deliveries. A single delivery
+over the configured safe limit is replaced with a `delivery_too_large`
+discontinuity carrying reconcile keys, and the caller falls back to canonical
+data. This avoids maintaining a second chunk assembly protocol while ensuring
+that the final oversized event is not silently lost.
+
+A host materializes accepted deltas in the activity-core optimistic overlay,
+projects that overlay over its latest canonical message base, and dispatches
+ordinary messages to the engine. A sequence gap, discontinuity, recovered
+connection, or unanchored append schedules authoritative reconciliation. UI
+consumers never retain transport epoch/sequence state or distinguish local from
+shared activity sources.
 
 Hosts may accept older provider/runtime reports with missing transcript
 ownership or ordering fields, but those gaps must be filled before events enter
@@ -805,8 +828,14 @@ the normalized event is applied:
 - materialize optimistic `message_delta` events before dispatching ordinary
   messages into the engine; never replay an append operation log over a newer
   canonical base
+- scope every optimistic overlay operation by workspace and Session; a
+  successful authoritative message read clears nonterminal optimistic state for
+  that scope before accepting later deltas
 - keep a newer optimistic terminal projection over a cloud nonterminal, and
   clear it when canonical terminal truth arrives
+- after a gap, discontinuity, or reconnect, complete an authoritative read and
+  reconcile the overlay; use an unconditional overlay reset only when removing
+  or rebinding the Session
 - reconcile `turn_update` and `interaction_update` through a full session pull
 - preserve whether a reconcile was realtime-triggered until its authoritative
   session is applied; if the authoritative fetch fails, restore that provenance

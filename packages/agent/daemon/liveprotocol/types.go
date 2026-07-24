@@ -28,15 +28,6 @@ var (
 
 type DeliveryKind uint8
 
-const (
-	DeliveryKindEvent DeliveryKind = iota + 1
-	DeliveryKindDiscontinuity
-	DeliveryKindAttachmentChanged
-	DeliveryKindGoalChanged
-	DeliveryKindStreamReady
-	DeliveryKindRejected
-)
-
 type EventType string
 
 const (
@@ -60,7 +51,7 @@ type MessageDeltaData struct {
 	WorkspaceID       string                     `json:"workspaceId"`
 	AgentSessionID    string                     `json:"agentSessionId"`
 	MessageID         string                     `json:"messageId"`
-	TurnID            string                     `json:"turnId,omitempty"`
+	TurnID            string                     `json:"turnId"`
 	Role              string                     `json:"role"`
 	Kind              string                     `json:"kind"`
 	OccurredAtUnixMS  int64                      `json:"occurredAtUnixMs"`
@@ -167,6 +158,9 @@ type ReconcileKey struct {
 	RequestID      string `json:"requestId,omitempty"`
 }
 
+// The JSON controls below are revisioned by
+// schema/agent-activity-live-wire-contract.json. Keep their field shapes and
+// closed vocabularies aligned with that declarative contract.
 type Discontinuity struct {
 	Reason        string         `json:"reason"`
 	ReconcileKeys []ReconcileKey `json:"reconcileKeys,omitempty"`

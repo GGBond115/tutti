@@ -18,12 +18,15 @@ func NewRecipientProjector(context ProjectionContext) (*RecipientProjector, erro
 	return &RecipientProjector{context: context}, nil
 }
 
-// Project rewrites only AgentGUI identity fields. Business payload, paths and
-// arbitrary nested content remain byte-for-byte equivalent after JSON
-// round-tripping; no transport policy leaks into renderer state.
+// Project rewrites only AgentGUI identity fields. Typed projection keeps
+// arbitrary business payloads in json.RawMessage fields so numeric values and
+// nested content are not coerced while the closed identities are rewritten.
 func (p *RecipientProjector) Project(event Event) (Event, error) {
 	if p == nil {
 		return Event{}, fmt.Errorf("%w: nil projector", ErrInvalidLiveEvent)
+	}
+	if err := validateEvent(event); err != nil {
+		return Event{}, err
 	}
 	if owner := strings.TrimSpace(p.context.OwnerWorkspaceID); owner != "" && event.WorkspaceID != owner {
 		return Event{}, fmt.Errorf("%w: unexpected owner workspace", ErrInvalidLiveEvent)
@@ -31,17 +34,12 @@ func (p *RecipientProjector) Project(event Event) (Event, error) {
 	if owner := strings.TrimSpace(p.context.OwnerAgentSessionID); owner != "" && event.AgentSessionID != owner {
 		return Event{}, fmt.Errorf("%w: unexpected owner session", ErrInvalidLiveEvent)
 	}
-	var data map[string]any
-	if err := json.Unmarshal(event.Data, &data); err != nil {
-		return Event{}, fmt.Errorf("%w: %v", ErrInvalidLiveEvent, err)
+	raw, err := projectEventData(event, p.context)
+	if err != nil {
+		return Event{}, err
 	}
-	rewriteClosedEventIdentity(event.EventType, data, p.context)
 	event.WorkspaceID = p.context.RecipientWorkspaceID
 	event.AgentSessionID = p.context.RecipientAgentSessionID
-	raw, err := json.Marshal(data)
-	if err != nil {
-		return Event{}, fmt.Errorf("%w: %v", ErrInvalidLiveEvent, err)
-	}
 	event.Data = raw
 	if err := validateEvent(event); err != nil {
 		return Event{}, err
@@ -49,45 +47,74 @@ func (p *RecipientProjector) Project(event Event) (Event, error) {
 	return event, nil
 }
 
-func rewriteClosedEventIdentity(eventType EventType, data map[string]any, context ProjectionContext) {
-	rewriteDirectIdentity(data, context)
-	rewriteTurn := func(record map[string]any) {
-		rewriteDirectIdentity(record, context)
-		rewriteExactString(record, "turnId", context.CanonicalTurnID, context.CallerTurnID)
-	}
-	switch eventType {
+func projectEventData(event Event, context ProjectionContext) ([]byte, error) {
+	var data any
+	switch event.EventType {
 	case EventTypeMessageDelta:
-		rewriteExactString(data, "turnId", context.CanonicalTurnID, context.CallerTurnID)
+		var value MessageDeltaData
+		if err := json.Unmarshal(event.Data, &value); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidLiveEvent, err)
+		}
+		value.WorkspaceID = projectedString(value.WorkspaceID, context.OwnerWorkspaceID, context.RecipientWorkspaceID)
+		value.AgentSessionID = projectedString(value.AgentSessionID, context.OwnerAgentSessionID, context.RecipientAgentSessionID)
+		value.TurnID = projectedString(value.TurnID, context.CanonicalTurnID, context.CallerTurnID)
+		data = value
 	case EventTypeTurnUpdate:
-		rewriteExactString(data, "activeTurnId", context.CanonicalTurnID, context.CallerTurnID)
-		if turn, ok := data["turn"].(map[string]any); ok {
-			rewriteTurn(turn)
+		var value TurnUpdateData
+		if err := json.Unmarshal(event.Data, &value); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidLiveEvent, err)
 		}
+		value.WorkspaceID = projectedString(value.WorkspaceID, context.OwnerWorkspaceID, context.RecipientWorkspaceID)
+		value.AgentSessionID = projectedString(value.AgentSessionID, context.OwnerAgentSessionID, context.RecipientAgentSessionID)
+		value.ActiveTurnID = projectedStringPointer(value.ActiveTurnID, context.CanonicalTurnID, context.CallerTurnID)
+		value.Turn.AgentSessionID = projectedString(value.Turn.AgentSessionID, context.OwnerAgentSessionID, context.RecipientAgentSessionID)
+		value.Turn.TurnID = projectedString(value.Turn.TurnID, context.CanonicalTurnID, context.CallerTurnID)
+		data = value
 	case EventTypeInteractionUpdate:
-		if interaction, ok := data["interaction"].(map[string]any); ok {
-			rewriteTurn(interaction)
-			// Turn-scoped provider requests may use the canonical turn identity
-			// itself. Only that exact identity is projected.
-			rewriteExactString(interaction, "requestId", context.CanonicalTurnID, context.CallerTurnID)
+		var value InteractionUpdateData
+		if err := json.Unmarshal(event.Data, &value); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidLiveEvent, err)
 		}
+		value.WorkspaceID = projectedString(value.WorkspaceID, context.OwnerWorkspaceID, context.RecipientWorkspaceID)
+		value.AgentSessionID = projectedString(value.AgentSessionID, context.OwnerAgentSessionID, context.RecipientAgentSessionID)
+		value.Interaction.AgentSessionID = projectedString(value.Interaction.AgentSessionID, context.OwnerAgentSessionID, context.RecipientAgentSessionID)
+		value.Interaction.TurnID = projectedString(value.Interaction.TurnID, context.CanonicalTurnID, context.CallerTurnID)
+		// Turn-scoped provider requests may use the canonical turn identity
+		// itself. Only that exact identity is projected.
+		value.Interaction.RequestID = projectedString(value.Interaction.RequestID, context.CanonicalTurnID, context.CallerTurnID)
+		data = value
 	case EventTypeSessionAudit:
-		// Audit payload is business content; only direct data identity is
-		// projected.
+		var value SessionAuditData
+		if err := json.Unmarshal(event.Data, &value); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidLiveEvent, err)
+		}
+		value.WorkspaceID = projectedString(value.WorkspaceID, context.OwnerWorkspaceID, context.RecipientWorkspaceID)
+		value.AgentSessionID = projectedString(value.AgentSessionID, context.OwnerAgentSessionID, context.RecipientAgentSessionID)
+		data = value
+	default:
+		return nil, fmt.Errorf("%w: unsupported event type %q", ErrInvalidLiveEvent, event.EventType)
 	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidLiveEvent, err)
+	}
+	return raw, nil
 }
 
-func rewriteDirectIdentity(record map[string]any, context ProjectionContext) {
-	rewriteExactString(record, "workspaceId", context.OwnerWorkspaceID, context.RecipientWorkspaceID)
-	rewriteExactString(record, "agentSessionId", context.OwnerAgentSessionID, context.RecipientAgentSessionID)
+func projectedString(current, expected, replacement string) string {
+	if replacement == "" || (expected != "" && current != expected) {
+		return current
+	}
+	return replacement
 }
 
-func rewriteExactString(record map[string]any, key, expected, replacement string) {
-	if replacement == "" {
-		return
+func projectedStringPointer(current *string, expected, replacement string) *string {
+	if current == nil {
+		return nil
 	}
-	current, ok := record[key].(string)
-	if !ok || (expected != "" && current != expected) {
-		return
+	projected := projectedString(*current, expected, replacement)
+	if projected == *current {
+		return current
 	}
-	record[key] = replacement
+	return &projected
 }

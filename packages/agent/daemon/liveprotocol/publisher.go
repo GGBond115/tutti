@@ -2,6 +2,7 @@ package liveprotocol
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -17,14 +18,15 @@ type replayEntry struct {
 type Publisher struct {
 	mu sync.Mutex
 
-	config       PublisherConfig
-	nextSeq      uint64
-	pending      []Delivery
-	pendingBytes int
-	pendingSince time.Time
-	replay       []replayEntry
-	replayBytes  int
-	settledTurns map[string]struct{}
+	config              PublisherConfig
+	nextSeq             uint64
+	pending             []Delivery
+	pendingBytes        int
+	pendingSince        time.Time
+	pendingAppendInputs int
+	replay              []replayEntry
+	replayBytes         int
+	settledTurns        map[string]struct{}
 }
 
 func NewPublisher(config PublisherConfig) (*Publisher, error) {
@@ -42,8 +44,12 @@ func (p *Publisher) Publish(input PublishInput) ([]Frame, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	turnID, terminal := liveEventTurnFence(input.Event)
-	if turnID != "" {
+	delivery, size, err := deliveryFromInput(input)
+	if err != nil {
+		return nil, err
+	}
+	turnID, terminal, rejectAfterTerminal := liveEventTurnFence(input.Event)
+	if turnID != "" && rejectAfterTerminal {
 		if _, settled := p.settledTurns[turnID]; settled {
 			p.nextSeq++
 			delivery := Delivery{
@@ -59,23 +65,23 @@ func (p *Publisher) Publish(input PublishInput) ([]Frame, error) {
 			}
 			p.pending = append(p.pending, delivery)
 			p.pendingBytes += estimateDeliverySize(delivery)
+			p.pendingAppendInputs = 0
 			return p.flushLocked()
 		}
 	}
-	delivery, size, err := deliveryFromInput(input)
-	if err != nil {
-		return nil, err
-	}
 	if p.coalesceAppendText(delivery) {
+		p.pendingAppendInputs++
 		p.pendingBytes = estimateDeliveriesSize(p.pending)
-		if p.pendingBytes < p.config.BatchTargetBytes && len(p.pending) < p.config.BatchDeliveries && !input.Immediate {
+		if p.pendingBytes < p.config.BatchTargetBytes &&
+			p.pendingAppendInputs < p.config.BatchDeliveries &&
+			!input.Immediate {
 			return nil, nil
 		}
 		return p.flushLocked()
 	}
 	p.nextSeq++
 	delivery.Seq = p.nextSeq
-	if size > p.config.DeliveryMaxBytes {
+	if size > p.deliveryMaxBytes() {
 		delivery = Delivery{
 			Seq:  p.nextSeq,
 			Kind: DeliveryKindDiscontinuity,
@@ -84,13 +90,22 @@ func (p *Publisher) Publish(input PublishInput) ([]Frame, error) {
 				ReconcileKeys: reconcileKeysForEvent(input.Event),
 			},
 		}
-		size = estimateDeliverySize(delivery)
+		size, err = validatedDeliverySize(delivery)
+		if err != nil {
+			p.nextSeq--
+			return nil, err
+		}
 	}
 	if len(p.pending) == 0 {
 		p.pendingSince = p.config.Now()
 	}
 	p.pending = append(p.pending, delivery)
 	p.pendingBytes += size
+	if isPureAppendTextDelivery(delivery) {
+		p.pendingAppendInputs = 1
+	} else {
+		p.pendingAppendInputs = 0
+	}
 	immediate := input.Immediate || terminal || delivery.Kind != DeliveryKindEvent
 	if !immediate && len(p.pending) < p.config.BatchDeliveries && p.pendingBytes < p.config.BatchTargetBytes {
 		return nil, nil
@@ -102,28 +117,29 @@ func (p *Publisher) Publish(input PublishInput) ([]Frame, error) {
 	return frames, err
 }
 
-func liveEventTurnFence(event *Event) (turnID string, terminal bool) {
+func liveEventTurnFence(event *Event) (turnID string, terminal, rejectAfterTerminal bool) {
 	if event == nil {
-		return "", false
+		return "", false, false
 	}
 	switch event.EventType {
 	case EventTypeMessageDelta:
 		var data MessageDeltaData
 		if json.Unmarshal(event.Data, &data) == nil {
-			return strings.TrimSpace(data.TurnID), false
+			return strings.TrimSpace(data.TurnID), false, true
 		}
 	case EventTypeTurnUpdate:
 		var data TurnUpdateData
 		if json.Unmarshal(event.Data, &data) == nil {
-			return strings.TrimSpace(data.Turn.TurnID), data.Turn.Phase == "settled"
+			terminal := data.Turn.Phase == "settled"
+			return strings.TrimSpace(data.Turn.TurnID), terminal, !terminal
 		}
 	case EventTypeInteractionUpdate:
 		var data InteractionUpdateData
 		if json.Unmarshal(event.Data, &data) == nil {
-			return strings.TrimSpace(data.Interaction.TurnID), false
+			return strings.TrimSpace(data.Interaction.TurnID), false, false
 		}
 	}
-	return "", false
+	return "", false, false
 }
 
 func (p *Publisher) Flush() (*Frame, error) {
@@ -193,17 +209,21 @@ func deliveryFromInput(input PublishInput) (Delivery, int, error) {
 		}
 		delivery = Delivery{Kind: DeliveryKindEvent, Event: raw}
 	case input.Discontinuity != nil:
-		delivery = Delivery{Kind: DeliveryKindDiscontinuity, Discontinuity: input.Discontinuity}
+		delivery = cloneDelivery(Delivery{Kind: DeliveryKindDiscontinuity, Discontinuity: input.Discontinuity})
 	case input.AttachmentChanged != nil:
-		delivery = Delivery{Kind: DeliveryKindAttachmentChanged, AttachmentChanged: input.AttachmentChanged}
+		delivery = cloneDelivery(Delivery{Kind: DeliveryKindAttachmentChanged, AttachmentChanged: input.AttachmentChanged})
 	case input.GoalChanged != nil:
-		delivery = Delivery{Kind: DeliveryKindGoalChanged, GoalChanged: input.GoalChanged}
+		delivery = cloneDelivery(Delivery{Kind: DeliveryKindGoalChanged, GoalChanged: input.GoalChanged})
 	case input.StreamReady != nil:
-		delivery = Delivery{Kind: DeliveryKindStreamReady, StreamReady: input.StreamReady}
+		delivery = cloneDelivery(Delivery{Kind: DeliveryKindStreamReady, StreamReady: input.StreamReady})
 	case input.Rejected != nil:
-		delivery = Delivery{Kind: DeliveryKindRejected, Rejected: input.Rejected}
+		delivery = cloneDelivery(Delivery{Kind: DeliveryKindRejected, Rejected: input.Rejected})
 	}
-	return delivery, estimateDeliverySize(delivery), nil
+	size, err := validatedDeliverySize(deliveryWithSeq(delivery))
+	if err != nil {
+		return Delivery{}, 0, err
+	}
+	return delivery, size, nil
 }
 
 func (p *Publisher) flushLocked() ([]Frame, error) {
@@ -215,13 +235,15 @@ func (p *Publisher) flushLocked() ([]Frame, error) {
 		StreamID:         p.config.StreamID,
 		BindingID:        p.config.BindingID,
 		Epoch:            p.config.Epoch,
-		Deliveries:       append([]Delivery(nil), p.pending...),
+		Deliveries:       cloneDeliveries(p.pending),
 	}
 	raw, err := EncodeFrame(frame)
 	if err != nil {
+		p.rollbackPendingLocked()
 		return nil, err
 	}
 	if len(raw) > p.config.FrameMaxBytes {
+		p.rollbackPendingLocked()
 		return nil, ErrFrameTooLarge
 	}
 	now := p.config.Now()
@@ -234,8 +256,21 @@ func (p *Publisher) flushLocked() ([]Frame, error) {
 	p.pending = nil
 	p.pendingBytes = 0
 	p.pendingSince = time.Time{}
+	p.pendingAppendInputs = 0
 	p.pruneReplayLocked()
 	return []Frame{frame}, nil
+}
+
+func (p *Publisher) rollbackPendingLocked() {
+	if len(p.pending) == 0 {
+		return
+	}
+	p.nextSeq = p.pending[0].Seq - 1
+	clear(p.pending)
+	p.pending = nil
+	p.pendingBytes = 0
+	p.pendingSince = time.Time{}
+	p.pendingAppendInputs = 0
 }
 
 func (p *Publisher) pruneReplayLocked() {
@@ -248,6 +283,7 @@ func (p *Publisher) pruneReplayLocked() {
 	}
 	if remove > 0 {
 		copy(p.replay, p.replay[remove:])
+		clear(p.replay[len(p.replay)-remove:])
 		p.replay = p.replay[:len(p.replay)-remove]
 	}
 }
@@ -262,7 +298,8 @@ func (p *Publisher) coalesceAppendText(next Delivery) bool {
 	}
 	leftEvent, leftData, leftOK := messageAppendFromRaw(last.Event)
 	rightEvent, rightData, rightOK := messageAppendFromRaw(next.Event)
-	if !leftOK || !rightOK || leftEvent.WorkspaceID != rightEvent.WorkspaceID ||
+	if !leftOK || !rightOK || !isPureAppendTextDelta(leftData) || !isPureAppendTextDelta(rightData) ||
+		leftEvent.WorkspaceID != rightEvent.WorkspaceID ||
 		leftEvent.AgentSessionID != rightEvent.AgentSessionID ||
 		leftData.MessageID != rightData.MessageID || leftData.TurnID != rightData.TurnID ||
 		leftData.Role != rightData.Role || leftData.Kind != rightData.Kind {
@@ -277,11 +314,35 @@ func (p *Publisher) coalesceAppendText(next Delivery) bool {
 		return false
 	}
 	raw, err := MarshalEvent(merged)
-	if err != nil || len(raw) > p.config.DeliveryMaxBytes {
+	if err != nil {
+		return false
+	}
+	size, err := validatedDeliverySize(Delivery{Seq: last.Seq, Kind: DeliveryKindEvent, Event: raw})
+	if err != nil || size > p.deliveryMaxBytes() {
 		return false
 	}
 	last.Event = raw
 	return true
+}
+
+func isPureAppendTextDelivery(delivery Delivery) bool {
+	if delivery.Kind != DeliveryKindEvent {
+		return false
+	}
+	_, data, ok := messageAppendFromRaw(delivery.Event)
+	return ok && isPureAppendTextDelta(data)
+}
+
+func isPureAppendTextDelta(data MessageDeltaData) bool {
+	return data.Content != nil &&
+		data.Content.Operation == "append_text" &&
+		len(data.Content.Value) == 0 &&
+		len(data.PayloadSet) == 0 &&
+		len(data.PayloadUnset) == 0 &&
+		data.Status == nil &&
+		len(data.Semantics) == 0 &&
+		data.StartedAtUnixMS == nil &&
+		data.CompletedAtUnixMS == nil
 }
 
 func messageAppendFromRaw(raw []byte) (Event, MessageDeltaData, bool) {
@@ -347,14 +408,32 @@ func applyPublisherDefaults(config *PublisherConfig) {
 }
 
 func estimateDeliverySize(delivery Delivery) int {
-	raw, err := encodeDelivery(deliveryWithSeq(delivery))
+	size, err := validatedDeliverySize(deliveryWithSeq(delivery))
 	if err == nil {
-		return len(raw)
+		return size
 	}
 	if delivery.Kind == DeliveryKindEvent {
 		return len(delivery.Event) + 32
 	}
 	return 256
+}
+
+func validatedDeliverySize(delivery Delivery) (int, error) {
+	raw, err := encodeDelivery(deliveryWithSeq(delivery))
+	if err == nil {
+		return len(raw), nil
+	}
+	if errors.Is(err, ErrDeliveryTooLarge) {
+		return DefaultDeliveryMaxBytes + 1, nil
+	}
+	return 0, err
+}
+
+func (p *Publisher) deliveryMaxBytes() int {
+	if p.config.DeliveryMaxBytes < DefaultDeliveryMaxBytes {
+		return p.config.DeliveryMaxBytes
+	}
+	return DefaultDeliveryMaxBytes
 }
 
 func estimateDeliveriesSize(deliveries []Delivery) int {
@@ -395,6 +474,14 @@ func cloneDelivery(delivery Delivery) Delivery {
 	if delivery.Rejected != nil {
 		value := *delivery.Rejected
 		cloned.Rejected = &value
+	}
+	return cloned
+}
+
+func cloneDeliveries(deliveries []Delivery) []Delivery {
+	cloned := make([]Delivery, len(deliveries))
+	for index, delivery := range deliveries {
+		cloned[index] = cloneDelivery(delivery)
 	}
 	return cloned
 }

@@ -35,7 +35,8 @@ export { parseInlineActivityMessages } from "./inlineActivityMessages.ts";
 export {
   createAgentActivityOptimisticMessageOverlay,
   type AgentActivityOptimisticApplyResult,
-  type AgentActivityOptimisticMessageOverlay
+  type AgentActivityOptimisticMessageOverlay,
+  type AgentActivityOptimisticMessageScope
 } from "./optimisticMessageOverlay.ts";
 export {
   agentActivitySessionMessageWindowFromDescendingPage,

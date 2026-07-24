@@ -30,7 +30,8 @@ func NewSubscriber(config SubscriberConfig) (*Subscriber, error) {
 
 func (s *Subscriber) Apply(frame Frame) ApplyResult {
 	result := ApplyResult{LastContiguousSeq: s.lastContiguousSeq}
-	if frame.ProtocolRevision != s.revision {
+	revisionRejection := isTypedProtocolRevisionRejection(frame)
+	if frame.ProtocolRevision != s.revision && !revisionRejection {
 		result.ReconcileRequired, result.Reason = true, "protocol_mismatch"
 		return result
 	}
@@ -64,6 +65,11 @@ func (s *Subscriber) Apply(frame Frame) ApplyResult {
 		}
 	}
 	return result
+}
+
+func isTypedProtocolRevisionRejection(frame Frame) bool {
+	return isTypedRejectionFrame(frame) &&
+		frame.Deliveries[0].Rejected.Reason == RejectionProtocolRevisionMismatch
 }
 
 func (s *Subscriber) ResumeCursor() ResumeRequest {

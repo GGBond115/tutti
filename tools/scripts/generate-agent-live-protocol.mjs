@@ -9,6 +9,10 @@ const schemaPath = resolve(
   repoRoot,
   "packages/agent/daemon/liveprotocol/schema/agent-activity-live-event.schema.json"
 );
+const wireContractPath = resolve(
+  repoRoot,
+  "packages/agent/daemon/liveprotocol/schema/agent-activity-live-wire-contract.json"
+);
 const canonicalPath = resolve(
   repoRoot,
   "packages/events/protocol/definitions/agent/activity.updated.event.json"
@@ -24,6 +28,7 @@ const tsOutputPath = resolve(
 const checkOnly = process.argv.includes("--check");
 
 const liveSchema = JSON.parse(readFileSync(schemaPath, "utf8"));
+const wireContract = JSON.parse(readFileSync(wireContractPath, "utf8"));
 const canonicalDefinition = JSON.parse(readFileSync(canonicalPath, "utf8"));
 const canonicalVariants = [
   "session_audit",
@@ -38,11 +43,34 @@ const canonicalVariants = [
   }
   return variant;
 });
+validateWireContract(wireContract);
 const digest = createHash("sha256")
-  .update(JSON.stringify({ liveSchema, canonicalVariants }))
+  .update(JSON.stringify({ liveSchema, wireContract, canonicalVariants }))
   .digest("hex")
   .slice(0, 16);
 const revision = `sha256:${digest}`;
+const goWireFieldConstants = [
+  ...wireContract.frameFields,
+  ...wireContract.deliveryFields
+];
+const goWireFieldConstantWidth = Math.max(
+  ...goWireFieldConstants.map((field) => field.goConstant.length)
+);
+const goWireFieldDeclarations = goWireFieldConstants
+  .map(
+    (field) =>
+      `\t${field.goConstant.padEnd(goWireFieldConstantWidth)} = ${field.number} // ${field.name}: ${field.wireType}`
+  )
+  .join("\n");
+const goDeliveryKindConstantWidth = Math.max(
+  ...wireContract.deliveryKinds.map((kind) => kind.goConstant.length)
+);
+const goDeliveryKindConstants = wireContract.deliveryKinds
+  .map(
+    (kind) =>
+      `\t${kind.goConstant.padEnd(goDeliveryKindConstantWidth)} DeliveryKind = ${kind.value} // payload: ${kind.payloadField}`
+  )
+  .join("\n");
 
 const outputs = new Map([
   [
@@ -52,6 +80,17 @@ const outputs = new Map([
 package liveprotocol
 
 const ProtocolRevision = ${JSON.stringify(revision)}
+
+// Protobuf-wire field numbers and delivery kinds are generated from
+// schema/agent-activity-live-wire-contract.json. They participate in
+// ProtocolRevision and must not be edited independently.
+const (
+${goWireFieldDeclarations}
+)
+
+const (
+${goDeliveryKindConstants}
+)
 `
   ],
   [
@@ -74,5 +113,72 @@ for (const [path, expected] of outputs) {
     }
   } else {
     writeFileSync(path, expected);
+  }
+}
+
+function validateWireContract(contract) {
+  if (
+    contract?.encoding !== "protobuf-wire" ||
+    !Array.isArray(contract.frameFields) ||
+    !Array.isArray(contract.deliveryFields) ||
+    !Array.isArray(contract.deliveryKinds) ||
+    typeof contract.controls !== "object" ||
+    contract.controls === null
+  ) {
+    throw new Error("Agent live wire contract has an invalid root shape");
+  }
+
+  validateNumberedEntries(contract.frameFields, "frame field");
+  validateNumberedEntries(contract.deliveryFields, "delivery field");
+  validateNumberedEntries(contract.deliveryKinds, "delivery kind", "value");
+
+  const deliveryFieldNames = new Set(
+    contract.deliveryFields.map((field) => field.name)
+  );
+  for (const kind of contract.deliveryKinds) {
+    if (!deliveryFieldNames.has(kind.payloadField)) {
+      throw new Error(
+        `delivery kind ${kind.name} references unknown payload field ${kind.payloadField}`
+      );
+    }
+  }
+  for (const requiredControl of [
+    "discontinuity",
+    "attachmentChanged",
+    "goalChanged",
+    "streamReady",
+    "rejected"
+  ]) {
+    if (!(requiredControl in contract.controls)) {
+      throw new Error(`wire contract is missing ${requiredControl} control`);
+    }
+  }
+}
+
+function validateNumberedEntries(entries, label, numberKey = "number") {
+  const names = new Set();
+  const constants = new Set();
+  const numbers = new Set();
+  for (const entry of entries) {
+    if (
+      typeof entry?.name !== "string" ||
+      entry.name.length === 0 ||
+      typeof entry?.goConstant !== "string" ||
+      entry.goConstant.length === 0 ||
+      !Number.isSafeInteger(entry?.[numberKey]) ||
+      entry[numberKey] <= 0
+    ) {
+      throw new Error(`${label} has an invalid declaration`);
+    }
+    if (
+      names.has(entry.name) ||
+      constants.has(entry.goConstant) ||
+      numbers.has(entry[numberKey])
+    ) {
+      throw new Error(`${label} declarations must be unique`);
+    }
+    names.add(entry.name);
+    constants.add(entry.goConstant);
+    numbers.add(entry[numberKey]);
   }
 }
