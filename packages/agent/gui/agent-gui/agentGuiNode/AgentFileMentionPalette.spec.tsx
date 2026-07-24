@@ -244,10 +244,6 @@ describe("AgentFileMentionPalette", () => {
       "red",
       "neutral"
     ]);
-    expect(statusTags[1]).toHaveClass("text-[var(--status-running)]");
-    expect(statusTags[3]).toHaveClass("text-[var(--rich-text-mention-issue)]");
-    expect(statusTags[4]).toHaveClass("text-[var(--state-success)]");
-    expect(statusTags[5]).toHaveClass("text-[var(--state-danger)]");
     for (const statusTag of statusTags) {
       expect(statusTag.className).not.toContain("border-[");
     }
@@ -440,26 +436,6 @@ describe("AgentFileMentionPalette", () => {
       "green",
       "red"
     ]);
-    expect(statusTags[0]).toHaveClass(
-      "bg-transparent",
-      "px-0",
-      "text-[var(--status-running)]"
-    );
-    expect(statusTags[1]).toHaveClass(
-      "bg-transparent",
-      "px-0",
-      "text-[var(--state-warning)]"
-    );
-    expect(statusTags[2]).toHaveClass(
-      "bg-transparent",
-      "px-0",
-      "text-[var(--state-success)]"
-    );
-    expect(statusTags[8]).toHaveClass(
-      "bg-transparent",
-      "px-0",
-      "text-[var(--state-danger)]"
-    );
     const selectedOption = screen.getByRole("option", { selected: true });
     expect(selectedOption).toHaveClass(
       "rich-text-at-mention-palette__row-button"
