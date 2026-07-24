@@ -1,9 +1,7 @@
 export type { AgentActivityAdapter } from "./adapter.ts";
 export { AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION } from "./liveProtocolRevision.gen.ts";
-export type {
-  AgentActivityLiveEvent,
-  AgentActivityMessageDeltaEvent
-} from "./liveEvent.types.ts";
+export type { AgentActivityLiveEvent } from "./liveEvent.types.ts";
+export { parseAgentActivityMessageDeltaEvent } from "./liveEventParsing.ts";
 export type { AgentActivityComposerModelConfiguration } from "./composerModelConfiguration.types.ts";
 export type { AgentActivityDisplayStatus } from "./displayStatus.types.ts";
 export type { AgentActivityRailPlacement } from "./railPlacement.types.ts";
@@ -310,6 +308,7 @@ export type {
   AgentActivitySetCollaborationAdoptionInput,
   AgentActivityCompletedCommand,
   AgentActivityMessage,
+  AgentActivityMessageDeltaEvent,
   AgentActivityMessageSemantics,
   AgentActivityLoadComposerOptionsInput,
   AgentActivityMessageOrder,

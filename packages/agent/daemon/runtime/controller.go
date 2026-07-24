@@ -26,6 +26,7 @@ type execMetadataContextKey struct{}
 type Controller struct {
 	startMu                     sync.Mutex
 	mu                          sync.Mutex
+	streamObserverMu            sync.RWMutex
 	sessions                    map[string]Session
 	adapters                    map[string]Adapter
 	adapterResolver             AdapterResolver
@@ -40,6 +41,20 @@ type Controller struct {
 	reporter                    DurableActivityReporter
 	reportQueue                 *reportRequestQueue
 	terminalInteractions        terminalInteractiveDispositionStore
+	streamObserver              RuntimeStreamEventObserver
+}
+
+// RuntimeStreamEventObserver receives the ordered precommit stream projection
+// synchronously with the per-session EventHub fan-out. Implementations must
+// remain lightweight: the ordering guarantee prevents a durable terminal
+// confirmation from overtaking its preceding optimistic deltas.
+type RuntimeStreamEventObserver interface {
+	ObserveRuntimeStreamEvents(
+		context.Context,
+		string,
+		string,
+		[]StreamEvent,
+	) error
 }
 
 type sessionLifecycleLock struct {

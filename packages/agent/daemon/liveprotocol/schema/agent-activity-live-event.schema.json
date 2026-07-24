@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tutti.dev/schemas/agent-activity-live-event.json",
   "title": "AgentActivityLiveEvent",
-  "description": "Lossy optimistic AgentGUI event contract. Canonical cloud agent.activity.updated remains unchanged.",
+  "description": "Lossy optimistic AgentGUI event contract. The public agent.activity.updated WebSocket may carry the same live variants before canonical confirmation.",
   "oneOf": [
     {
       "$ref": "#/$defs/messageDelta"
@@ -178,13 +178,13 @@
       ]
     },
     "turnUpdate": {
-      "$ref": "../../../../events/protocol/definitions/agent/activity.updated.event.json#/payloadSchema/oneOf/4"
-    },
-    "interactionUpdate": {
       "$ref": "../../../../events/protocol/definitions/agent/activity.updated.event.json#/payloadSchema/oneOf/5"
     },
+    "interactionUpdate": {
+      "$ref": "../../../../events/protocol/definitions/agent/activity.updated.event.json#/payloadSchema/oneOf/6"
+    },
     "sessionAudit": {
-      "$ref": "../../../../events/protocol/definitions/agent/activity.updated.event.json#/payloadSchema/oneOf/3"
+      "$ref": "../../../../events/protocol/definitions/agent/activity.updated.event.json#/payloadSchema/oneOf/4"
     }
   }
 }

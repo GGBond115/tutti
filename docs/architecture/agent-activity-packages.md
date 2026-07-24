@@ -613,8 +613,8 @@ the exact durable Turn id, while historical imports without trustworthy
 provider turn boundaries stay session-scoped (`turnId = null`); import must not
 manufacture one live synthetic Turn per transcript message.
 
-It should not know how a host connects to `tuttid`, opens SSE streams, resolves
-workspace paths, or talks to Electron.
+It should not know how a host connects to `tuttid`, subscribes to the
+business-event WebSocket, resolves workspace paths, or talks to Electron.
 
 ### `apps/desktop`
 
@@ -624,7 +624,7 @@ capabilities into `agent-activity-core`.
 It owns:
 
 - `tuttid` client calls
-- SSE connection implementation
+- business-event WebSocket connection implementation
 - backend base URL and authentication details
 - preload/runtime/file adapters
 - `IWorkspaceAgentActivityService` and the desktop
@@ -770,13 +770,20 @@ launchers must re-authenticate and resolve it before using any concrete provider
 invocation. UI packages must keep `provider` as the real provider identity and
 must not synthesize providers for shared or remote targets.
 
-The desktop service owns the event-stream connection. Canonical
-`message_update` snapshots remain the hydration and cloud-reconcile contract.
-The local/shared optimistic fast lane instead carries schema-backed
-`message_delta` events produced by the provider normalizer: the transport must
-never derive deltas by comparing snapshots. Every `message_delta` is scoped to
-a real persisted Turn; session-level notices continue to use explicit audit or
-state semantics.
+The desktop service owns one business-event WebSocket at `/v1/events/ws`.
+Canonical `message_update` snapshots remain the hydration, terminal
+confirmation, and cloud-reconcile contract. During normalized provider
+text/reasoning streaming, the same `agent.activity.updated` topic carries
+schema-backed `message_delta` events produced by the provider normalizer; the
+transport must never derive deltas by comparing snapshots. The runtime
+publishes each delta to the business-event bridge before its per-Session
+runtime fan-out and before enqueueing the durable report, so a later committed
+terminal confirmation cannot overtake the optimistic prefix. The post-commit
+projection suppresses only the redundant nonterminal text/reasoning snapshot
+already represented by that delta. Tool, audit, imported, unprojected, and
+terminal updates retain their existing canonical publication semantics. Every
+`message_delta` is scoped to a real persisted Turn; session-level notices
+continue to use explicit audit or state semantics.
 
 The Go live-protocol adapter owns the complete fast-lane envelope on both sides
 of a device link: schema validation, recipient identity projection,
@@ -797,12 +804,13 @@ discontinuity carrying reconcile keys, and the caller falls back to canonical
 data. This avoids maintaining a second chunk assembly protocol while ensuring
 that the final oversized event is not silently lost.
 
-A host materializes accepted deltas in the activity-core optimistic overlay,
-projects that overlay over its latest canonical message base, and dispatches
-ordinary messages to the engine. A sequence gap, discontinuity, recovered
-connection, or unanchored append schedules authoritative reconciliation. UI
-consumers never retain transport epoch/sequence state or distinguish local from
-shared activity sources.
+A host materializes accepted deltas in the activity-core optimistic overlay and
+projects that overlay over its latest canonical message base. The Tutti desktop
+receives local deltas through the business-event WebSocket; shared-device hosts
+receive the same event contract through the framed Go live protocol. A sequence
+gap, discontinuity, recovered connection, invalid payload, or unanchored append
+schedules authoritative reconciliation. UI consumers never retain transport
+epoch/sequence state or distinguish local from shared activity sources.
 
 Hosts may accept older provider/runtime reports with missing transcript
 ownership or ordering fields, but those gaps must be filled before events enter

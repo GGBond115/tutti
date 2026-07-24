@@ -5,8 +5,10 @@ import (
 	"strings"
 	"time"
 
+	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 )
 
@@ -34,7 +36,7 @@ func (p *ActivityProjection) ObserveCommitted(ctx context.Context, delta agentho
 		p.observeSessionState(ctx, committed.Input, committed.Reply)
 	}
 	if committed := delta.SessionMessages; committed != nil {
-		p.publishCommittedMessages(ctx, committed.Input.WorkspaceID, committed.Input.AgentSessionID, committed.Result.Messages)
+		p.publishCommittedMessages(ctx, committed.Input, committed.Result.Messages)
 		p.observeSessionMessages(ctx, committed.Input, committed.Reply)
 	}
 	for _, settled := range delta.RootTurnsSettled {
@@ -91,11 +93,17 @@ func committedSessionVersion(delta agenthost.CommittedDelta, invalidated agentho
 	return version
 }
 
-func (p *ActivityProjection) publishCommittedMessages(ctx context.Context, workspaceID, fallbackSessionID string, messages []agentactivitybiz.Message) {
+func (p *ActivityProjection) publishCommittedMessages(
+	ctx context.Context,
+	input canonical.ReportSessionMessagesInput,
+	messages []agentactivitybiz.Message,
+) {
+	messages = canonicalMessagesForRealtimePublish(input, messages)
 	if len(messages) == 0 {
 		return
 	}
-	publishedAgentSessionID := canonicalMessageUpdateSessionID(fallbackSessionID, messages)
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	publishedAgentSessionID := canonicalMessageUpdateSessionID(input.AgentSessionID, messages)
 	for start := 0; start < len(messages); {
 		if strings.TrimSpace(messages[start].Kind) == "session_audit" {
 			p.publishActivityUpdated(ctx, workspaceID, publishedAgentSessionID, "session_audit", activitySessionAuditEventPayload(workspaceID, publishedAgentSessionID, messages[start]))
@@ -114,4 +122,39 @@ func (p *ActivityProjection) publishCommittedMessages(ctx context.Context, works
 		})
 		start = end
 	}
+}
+
+// canonicalMessagesForRealtimePublish removes only runtime messages whose
+// nonterminal state was already emitted as an ordered message_delta. Storage
+// remains authoritative and unchanged; terminal, session-level, imported, and
+// otherwise non-runtime updates still publish full canonical snapshots.
+func canonicalMessagesForRealtimePublish(
+	input canonical.ReportSessionMessagesInput,
+	messages []agentactivitybiz.Message,
+) []agentactivitybiz.Message {
+	if strings.TrimSpace(input.SessionOrigin) != agentsessionstore.WorkspaceAgentSessionOriginRuntime {
+		return messages
+	}
+	filtered := make([]agentactivitybiz.Message, 0, len(messages))
+	for _, message := range messages {
+		if strings.TrimSpace(message.Kind) == "session_audit" ||
+			strings.TrimSpace(message.TurnID) == "" ||
+			!isOptimisticRuntimeTextMessage(message) {
+			filtered = append(filtered, message)
+		}
+	}
+	return filtered
+}
+
+func isOptimisticRuntimeTextMessage(message agentactivitybiz.Message) bool {
+	switch strings.TrimSpace(message.Kind) {
+	case "text", "reasoning":
+	default:
+		return false
+	}
+	if strings.TrimSpace(message.Status) != "streaming" {
+		return false
+	}
+	contentMode, _ := message.Payload["contentMode"].(string)
+	return strings.TrimSpace(contentMode) == "snapshot"
 }
