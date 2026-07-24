@@ -42,6 +42,117 @@ func TestACPNormalizerProjectsSemanticMessageDeltaWithoutSnapshotDiff(t *testing
 	}
 }
 
+func TestSnapshotNormalizerProjectsSuffixAppendAndFullRewrite(t *testing.T) {
+	t.Parallel()
+	session := reportTestSession()
+
+	tests := []struct {
+		name  string
+		apply func(*acpTurnNormalizer, string) []activityshared.Event
+		role  string
+		kind  string
+	}{
+		{
+			name: "assistant",
+			apply: func(normalizer *acpTurnNormalizer, snapshot string) []activityshared.Event {
+				return normalizer.ApplyStreamingAssistantSnapshot(
+					session,
+					"turn-1",
+					snapshot,
+					"assistant-1",
+				)
+			},
+			role: RoleAssistant,
+			kind: "text",
+		},
+		{
+			name: "thinking",
+			apply: func(normalizer *acpTurnNormalizer, snapshot string) []activityshared.Event {
+				return normalizer.ApplyStreamingThinkingSnapshot(
+					session,
+					"turn-1",
+					snapshot,
+					"thinking-1",
+				)
+			},
+			role: RoleAssistantThinking,
+			kind: "reasoning",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			normalizer := newACPTurnNormalizer()
+
+			assertSnapshotLiveOperation(
+				t,
+				test.apply(normalizer, "Hel"),
+				test.role,
+				test.kind,
+				"set",
+				"Hel",
+			)
+			assertSnapshotLiveOperation(
+				t,
+				test.apply(normalizer, "Hello"),
+				test.role,
+				test.kind,
+				"append_text",
+				"lo",
+			)
+			if duplicate := test.apply(normalizer, "Hello"); len(duplicate) != 0 {
+				t.Fatalf("duplicate snapshot events = %#v, want none", duplicate)
+			}
+			assertSnapshotLiveOperation(
+				t,
+				test.apply(normalizer, "Help"),
+				test.role,
+				test.kind,
+				"set",
+				"Help",
+			)
+		})
+	}
+}
+
+func assertSnapshotLiveOperation(
+	t *testing.T,
+	events []activityshared.Event,
+	wantRole string,
+	wantKind string,
+	wantOperation string,
+	wantContent string,
+) {
+	t.Helper()
+	if len(events) != 1 {
+		t.Fatalf("events = %#v, want one snapshot event", events)
+	}
+	event := events[0]
+	if string(event.Payload.Role) != wantRole ||
+		event.Payload.Metadata[liveMessageKindMetadataKey] != wantKind {
+		t.Fatalf("snapshot identity = role %q metadata %#v", event.Payload.Role, event.Payload.Metadata)
+	}
+	operation, ok := event.Payload.Metadata[liveContentOperationMetadataKey].(*liveprotocol.MessageContentOperation)
+	if !ok || operation == nil || operation.Operation != wantOperation {
+		t.Fatalf("live operation = %#v, want %q", operation, wantOperation)
+	}
+	switch wantOperation {
+	case "append_text":
+		if operation.Text != wantContent || len(operation.Value) != 0 {
+			t.Fatalf("append operation = %#v, want suffix %q", operation, wantContent)
+		}
+	case "set":
+		var content string
+		if err := json.Unmarshal(operation.Value, &content); err != nil {
+			t.Fatal(err)
+		}
+		if content != wantContent || operation.Text != "" {
+			t.Fatalf("set operation = %#v content %q, want %q", operation, content, wantContent)
+		}
+	}
+}
+
 func TestThinkingDeltaPreservesAssistantThinkingRole(t *testing.T) {
 	t.Parallel()
 	session := reportTestSession()

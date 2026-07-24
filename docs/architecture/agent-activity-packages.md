@@ -785,6 +785,13 @@ terminal updates retain their existing canonical publication semantics. Every
 `message_delta` is scoped to a real persisted Turn; session-level notices
 continue to use explicit audit or state semantics.
 
+Provider normalizers must retain enough per-message state to preserve semantic
+operations. The first cumulative text/reasoning snapshot uses `set`; a later
+snapshot with the previous value as an exact prefix uses `append_text` with only
+the suffix. Duplicate snapshots are dropped, while a rewrite or backtrack that
+cannot prove the prefix relation uses `set`. Transport and renderer layers must
+not rediscover this relationship by diffing full snapshots.
+
 The Go live-protocol adapter owns the complete fast-lane envelope on both sides
 of a device link: schema validation, recipient identity projection,
 protobuf-wire framing, batching, replay/resume, sequence-gap detection, and
