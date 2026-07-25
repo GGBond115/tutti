@@ -178,6 +178,76 @@ func TestCodexAppServerCommandOutputDeltaUsesToolOutputFastLane(t *testing.T) {
 	}
 }
 
+func TestCodexAppServerCommandOutputDeltaBeforeItemStartPreservesPrefix(t *testing.T) {
+	t.Parallel()
+	session := reportTestSession()
+	session.ProviderSessionID = "thread-1"
+	normalizer := newACPTurnNormalizer()
+	reducer := newCodexAppServerReducer(&CodexAppServerAdapter{})
+
+	for _, chunk := range []string{"first\n", "second\n"} {
+		early := reducer.ReduceNotification(
+			nil,
+			session,
+			"turn-1",
+			acpMessage{
+				Method: appServerNotifyCommandOutputDelta,
+				Params: mustJSONRawMessage(t, map[string]any{
+					"threadId": "thread-1",
+					"turnId":   "provider-turn-1",
+					"itemId":   "command-1",
+					"delta":    chunk,
+				}),
+			},
+			normalizer,
+			nil,
+		)
+		if len(early.Events) != 0 {
+			t.Fatalf("early events for %q = %#v, want no output before its anchor", chunk, early.Events)
+		}
+	}
+
+	started := reducer.ReduceNotification(
+		nil,
+		session,
+		"turn-1",
+		acpMessage{
+			Method: appServerNotifyItemStarted,
+			Params: mustJSONRawMessage(t, map[string]any{
+				"threadId": "thread-1",
+				"turnId":   "provider-turn-1",
+				"item": map[string]any{
+					"type": "commandExecution", "id": "command-1",
+					"command": "printf first", "status": "inProgress",
+				},
+			}),
+		},
+		normalizer,
+		nil,
+	)
+	if len(started.Events) != 2 ||
+		started.Events[0].Type != activityshared.EventCallStarted ||
+		started.Events[1].Type != activityshared.EventCallStarted {
+		t.Fatalf("started events = %#v, want anchor followed by buffered prefix", started.Events)
+	}
+	report := reportActivityInput(session, started.Events)
+	if len(report.MessageUpdates) != 2 {
+		t.Fatalf("report = %#v, want anchor and cumulative prefix", report)
+	}
+	startMessageID := report.MessageUpdates[0].MessageID
+	if report.MessageUpdates[1].MessageID != startMessageID {
+		t.Fatalf(
+			"message ids = %q / %q, want one canonical tool row",
+			startMessageID,
+			report.MessageUpdates[1].MessageID,
+		)
+	}
+	output, _ := report.MessageUpdates[1].Payload["output"].(map[string]any)
+	if output["text"] != "first\nsecond\n" {
+		t.Fatalf("persisted buffered prefix = %#v", output)
+	}
+}
+
 // appServerUserInputAnswers is the codex-specific translation of the GUI's
 // interactive answer payload into codex's requestUserInput response. The GUI
 // contract (packages/agent/gui shared/agentConversation/interactiveAnswerPayload.ts)

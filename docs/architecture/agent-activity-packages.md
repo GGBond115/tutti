@@ -825,8 +825,14 @@ canonical tool-call anchor; provider-normalizer event ids are internal
 lifecycle identities and must not create a second optimistic row. The first
 output uses `set`; later `append_text` operations carry the prior UTF-8 byte
 length as `offsetBytes`. A missing anchor or offset mismatch triggers canonical
-reconciliation instead of guessed concatenation. Completed, failed, canceled,
-and rewritten tool results remain full canonical `message_update` snapshots.
+reconciliation instead of guessed concatenation. When an explicit provider
+output notification races immediately ahead of its `item/started`, the
+provider normalizer may retain that prefix in a bounded pre-anchor buffer, but
+it must emit nothing until the real anchor arrives; it then publishes the
+anchor first and the retained prefix as `set`. An unmatched or oversized
+prefix is dropped with diagnostics rather than inventing a tool row.
+Completed, failed, canceled, and rewritten tool results remain full canonical
+`message_update` snapshots.
 
 The Go live-protocol adapter owns the complete fast-lane envelope on both sides
 of a device link: schema validation, recipient identity projection,

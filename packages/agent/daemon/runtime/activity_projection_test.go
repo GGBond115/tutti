@@ -243,16 +243,46 @@ func TestExplicitToolOutputDeltaPersistsSnapshotAndProjectsOffsetAppend(t *testi
 	}
 }
 
-func TestToolOutputDeltaRequiresKnownStartAnchor(t *testing.T) {
+func TestToolOutputDeltaWaitsForKnownStartAnchor(t *testing.T) {
 	t.Parallel()
+	session := reportTestSession()
 	normalizer := newACPTurnNormalizer()
 	if events := normalizer.AppendToolOutputDelta(
-		reportTestSession(),
+		session,
 		"turn-1",
 		"missing-command",
-		"unsafe",
+		"first",
 	); len(events) != 0 {
-		t.Fatalf("orphan output events = %#v", events)
+		t.Fatalf("pre-anchor output events = %#v, want no invented anchor", events)
+	}
+	started, ok := normalizer.ToolCallEvents(session, "turn-1", map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    "missing-command",
+		"title":         "printf",
+		"kind":          "execute",
+		"status":        "in_progress",
+	})
+	if !ok || len(started) != 2 {
+		t.Fatalf("started = %#v, ok = %v, want anchor followed by buffered output", started, ok)
+	}
+	if started[0].Type != activityshared.EventCallStarted ||
+		started[1].Type != activityshared.EventCallStarted {
+		t.Fatalf("started events = %#v", started)
+	}
+	stream := ProjectActivityEventsToStreamEvents(session, started)
+	if len(stream) != 2 ||
+		stream[0].EventType != StreamEventMessageUpdate ||
+		stream[1].EventType != StreamEventMessageDelta {
+		t.Fatalf("stream = %#v, want canonical anchor then live output", stream)
+	}
+	var delta liveprotocol.MessageDeltaData
+	if err := json.Unmarshal(stream[1].Data.(liveprotocol.Event).Data, &delta); err != nil {
+		t.Fatal(err)
+	}
+	if delta.ToolOutput == nil ||
+		delta.ToolOutput.Operation != "set" ||
+		delta.ToolOutput.Text != "first" {
+		t.Fatalf("buffered tool output = %#v", delta.ToolOutput)
 	}
 }
 

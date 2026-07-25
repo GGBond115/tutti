@@ -27,6 +27,8 @@ type acpTurnNormalizer struct {
 	toolCallsSeen             map[string]bool
 	pendingToolCalls          map[string]pendingToolCallSnapshot
 	toolOutputText            map[string]string
+	earlyToolOutput           map[string]earlyToolOutputSnapshot
+	earlyToolOutputBytes      int
 	fileChanges               map[string]any
 	compactionMu              sync.Mutex
 	compactionMessageID       string
@@ -116,6 +118,7 @@ func newACPTurnNormalizer() *acpTurnNormalizer {
 		toolCallsSeen:    make(map[string]bool),
 		pendingToolCalls: make(map[string]pendingToolCallSnapshot),
 		toolOutputText:   make(map[string]string),
+		earlyToolOutput:  make(map[string]earlyToolOutputSnapshot),
 	}
 }
 
@@ -419,6 +422,7 @@ func (n *acpTurnNormalizer) ToolCallEvents(session Session, turnID string, updat
 		}
 		return appendTurnFileChangesEvent(nil, []activityshared.Event{event}, event), true
 	}
+	rawToolCallID := firstNonEmpty(asString(update["toolCallId"]), asString(update["id"]))
 	eventID := n.toolItemID(update)
 	if eventID == "" {
 		return nil, false
@@ -430,6 +434,7 @@ func (n *acpTurnNormalizer) ToolCallEvents(session Session, turnID string, updat
 	n.trackToolCallEvent(event)
 	events := n.Finish(session, turnID, messageStreamStateCompleted)
 	events = append(events, event)
+	events = append(events, n.consumeEarlyToolOutput(session, turnID, rawToolCallID)...)
 	events = appendTurnFileChangesEvent(n, events, event)
 	return events, true
 }
@@ -481,79 +486,16 @@ func (n *acpTurnNormalizer) StandardToolCallEvents(session Session, turnID strin
 		}
 		return appendTurnFileChangesEvent(nil, []activityshared.Event{event}, event), true
 	}
+	rawToolCallID := firstNonEmpty(asString(update["toolCallId"]), asString(update["callId"]), asString(update["id"]))
 	event, ok := n.StandardToolCallEvent(session, turnID, updateType, update)
 	if !ok {
 		return nil, false
 	}
 	events := n.Finish(session, turnID, messageStreamStateCompleted)
 	events = append(events, event)
+	events = append(events, n.consumeEarlyToolOutput(session, turnID, rawToolCallID)...)
 	events = appendTurnFileChangesEvent(n, events, event)
 	return events, true
-}
-
-// AppendToolOutputDelta projects an explicit provider-ordered tool output
-// chunk onto the stable tool_call message created by the corresponding start
-// event. It keeps the cumulative snapshot on the activity event for local
-// persistence while attaching only the semantic operation used by the live
-// fast lane. Callers must not feed inferred or arbitrary structured payloads
-// into this method.
-func (n *acpTurnNormalizer) AppendToolOutputDelta(
-	session Session,
-	turnID string,
-	rawToolCallID string,
-	delta string,
-) []activityshared.Event {
-	if n == nil || delta == "" {
-		return nil
-	}
-	eventID := n.knownToolItemID(rawToolCallID)
-	pending, ok := n.pendingToolCalls[eventID]
-	if !ok || strings.TrimSpace(eventID) == "" {
-		// An output delta without its start anchor is unsafe to invent: the
-		// transport sequence/reconcile path will recover from an actual gap.
-		return nil
-	}
-	current := n.toolOutputText[eventID]
-	next := current + delta
-	payload := clonePayload(pending.payload)
-	if payload == nil {
-		payload = map[string]any{}
-	}
-	output := payloadMap(payload, "output")
-	output = clonePayload(output)
-	if output == nil {
-		output = map[string]any{}
-	}
-	output["text"] = next
-	payload["output"] = output
-	payload["status"] = string(activityshared.ActivityStatusRunning)
-
-	operation := &liveprotocol.MessageToolOutputOperation{
-		Operation: "set",
-		Text:      next,
-	}
-	if current != "" {
-		offset := int64(len(current))
-		operation = &liveprotocol.MessageToolOutputOperation{
-			Operation:   "append_text",
-			Text:        delta,
-			OffsetBytes: &offset,
-		}
-	}
-	event := newTurnActivityEventWithID(
-		session,
-		eventID,
-		EventCallStarted,
-		turnID,
-		messageStreamStateStreaming,
-		"",
-		stringFromPayload(payload, "name"),
-		payload,
-	)
-	attachToolOutputLiveOperation(&event, operation)
-	n.toolOutputText[eventID] = next
-	n.trackToolCallEvent(event)
-	return []activityshared.Event{event}
 }
 
 func appendTurnFileChangesEvent(
