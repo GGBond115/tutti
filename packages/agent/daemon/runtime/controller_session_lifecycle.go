@@ -159,6 +159,7 @@ func (c *Controller) Resume(ctx context.Context, input ResumeInput) (Session, er
 		AgentTargetID:           strings.TrimSpace(input.AgentTargetID),
 		Provider:                provider,
 		ProviderSessionID:       providerSessionID,
+		Resumable:               input.Resumable,
 		CWD:                     strings.TrimSpace(input.CWD),
 		Env:                     append([]string(nil), input.Env...),
 		Status:                  firstNonEmpty(normalizeSessionStatus(input.Status), SessionStatusReady),

@@ -286,6 +286,18 @@ func (s *SQLiteWorkspaceStore) ListSessionTurnSummaries(ctx context.Context, inp
 	return store.ListSessionTurnSummaries(ctx, input)
 }
 
+func (s *SQLiteWorkspaceStore) GetProviderSessionResumeEvidence(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+) (storesqlite.ProviderSessionResumeEvidence, error) {
+	store, err := s.store(workspaceID)
+	if err != nil {
+		return storesqlite.ProviderSessionResumeEvidence{}, err
+	}
+	return store.GetProviderSessionResumeEvidence(ctx, workspaceID, sessionID)
+}
+
 func (s *SQLiteWorkspaceStore) PrepareSubmitClaim(ctx context.Context, input storesqlite.SubmitClaimPrepare) (storesqlite.SubmitClaim, bool, error) {
 	store, err := s.store(input.WorkspaceID)
 	if err != nil {

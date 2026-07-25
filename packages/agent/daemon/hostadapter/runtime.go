@@ -299,7 +299,8 @@ func (a *RuntimeController) fromSession(session agentruntime.Session) host.Provi
 	return host.ProviderRuntimeSession{
 		ID: session.AgentSessionID, WorkspaceID: session.RoomID, UserID: a.currentUserID(),
 		AgentTargetID: session.AgentTargetID, Provider: session.Provider, ProviderSessionID: session.ProviderSessionID,
-		Cwd: session.CWD, Env: append([]string(nil), session.Env...), Settings: settings,
+		Resumable: session.Resumable,
+		Cwd:       session.CWD, Env: append([]string(nil), session.Env...), Settings: settings,
 		RuntimeContext: cloneMap(session.RuntimeContext), Status: session.Status,
 		TurnLifecycle: hostTurnLifecyclePointer(session.TurnLifecycle), SubmitAvailability: hostSubmitAvailability(session.SubmitAvailability),
 		Visible: session.Visible, Title: session.Title, InitialTitleEstablished: session.InitialTitleEstablished,
@@ -323,6 +324,7 @@ func (a *RuntimeController) sessionWithState(session agentruntime.Session) host.
 	if state.ProviderSessionID != "" {
 		result.ProviderSessionID = state.ProviderSessionID
 	}
+	result.Resumable = result.Resumable || state.Resumable
 	if state.Status != "" {
 		result.Status = state.Status
 	}
@@ -354,7 +356,8 @@ func runtimeResumeInput(input host.RuntimeResumeInput) agentruntime.ResumeInput 
 	return agentruntime.ResumeInput{
 		RoomID: input.WorkspaceID, AgentSessionID: input.AgentSessionID, AgentTargetID: input.AgentTargetID,
 		Provider: input.Provider, ProviderSessionID: input.ProviderSessionID, CWD: input.Cwd,
-		Env: append([]string(nil), input.Env...), Title: input.Title, Status: input.Status, Visible: input.Visible,
+		Resumable: input.Resumable,
+		Env:       append([]string(nil), input.Env...), Title: input.Title, Status: input.Status, Visible: input.Visible,
 		RuntimeContext: cloneMap(input.RuntimeContext), ProviderTargetRef: cloneMap(input.ProviderTargetRef),
 		PermissionModeID: input.Settings.PermissionModeID, Settings: runtimeSettings(input.Settings),
 		CreatedAtUnixMS: input.CreatedAtUnixMS, UpdatedAtUnixMS: input.UpdatedAtUnixMS,

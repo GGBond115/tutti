@@ -109,6 +109,9 @@ func runResumePersistedSession(ctx context.Context, driver Driver) error {
 	fixture := Fixture{Session: &SessionSeed{
 		WorkspaceID: "workspace-1", AgentSessionID: "session-resume", Provider: "codex",
 		ProviderSessionID: "provider-session-1", Cwd: "/workspace", Title: "Persisted", InitialTitleEstablished: true,
+	}, Turn: &TurnSeed{
+		TurnID: "turn-established", Phase: canonical.TurnPhaseSettled,
+		Outcome: canonical.TurnOutcomeCompleted, RootProviderTurnID: "provider-turn-1",
 	}}
 	if err := driver.Reset(ctx, fixture); err != nil {
 		return err
@@ -122,6 +125,39 @@ func runResumePersistedSession(ctx context.Context, driver Driver) error {
 	}
 	if metrics := driver.Metrics(); metrics.ResumeCalls != 1 || metrics.StartCalls != 0 {
 		return fmt.Errorf("resume calls resume=%d start=%d", metrics.ResumeCalls, metrics.StartCalls)
+	}
+	return nil
+}
+
+func runRejectUnestablishedProviderSession(ctx context.Context, driver Driver) error {
+	for _, live := range []bool{false, true} {
+		fixture := Fixture{
+			Session: &SessionSeed{
+				WorkspaceID: "workspace-1", AgentSessionID: "session-unestablished", Provider: "codex",
+				ProviderSessionID: "provider-session-unestablished", Cwd: "/workspace", Live: live,
+			},
+			Turn: &TurnSeed{
+				TurnID: "turn-canceled-before-provider-start", Phase: canonical.TurnPhaseSettled,
+				Outcome: canonical.TurnOutcomeCanceled,
+			},
+		}
+		if err := driver.Reset(ctx, fixture); err != nil {
+			return err
+		}
+		_, err := driver.EnsureSession(ctx, agenthost.SessionRef{
+			WorkspaceID: "workspace-1", AgentSessionID: "session-unestablished",
+		})
+		if !errors.Is(err, agenthost.ErrProviderSessionNotEstablished) {
+			return fmt.Errorf("unestablished provider session live=%v error=%v", live, err)
+		}
+		if metrics := driver.Metrics(); metrics.ResumeCalls != 0 || metrics.StartCalls != 0 {
+			return fmt.Errorf(
+				"unestablished provider session live=%v calls resume=%d start=%d",
+				live,
+				metrics.ResumeCalls,
+				metrics.StartCalls,
+			)
+		}
 	}
 	return nil
 }

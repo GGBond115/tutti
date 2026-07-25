@@ -9,6 +9,7 @@ var (
 	ErrInvalidArgument                  = errors.New("invalid agent session request")
 	ErrRailPlacementConflict            = errors.New("agent session rail placement conflicts with canonical state")
 	ErrSessionNotFound                  = errors.New("workspace agent session not found")
+	ErrProviderSessionNotEstablished    = errors.New("provider session was never established")
 	ErrSubmitDeliveryUnknown            = errors.New("agent submit delivery is still being confirmed")
 	ErrSessionTitleTooLong              = errors.New("agent session title is too long")
 	ErrRuntimeSessionDisconnected       = errors.New("agent runtime session is disconnected")

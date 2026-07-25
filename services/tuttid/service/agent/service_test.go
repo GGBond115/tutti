@@ -7610,6 +7610,7 @@ func (f *fakeRuntime) Exec(_ context.Context, input RuntimeExecInput) (RuntimeEx
 	key := input.WorkspaceID + ":" + input.AgentSessionID
 	if session, ok := f.sessions[key]; ok {
 		session.Status = "working"
+		session.Resumable = true
 		if strings.TrimSpace(input.InitialTitle) != "" &&
 			!session.InitialTitleEstablished {
 			session.Title = strings.TrimSpace(input.InitialTitle)
@@ -7700,6 +7701,7 @@ func (f *fakeRuntime) Resume(_ context.Context, input RuntimeResumeInput) (Provi
 		AgentTargetID:     input.AgentTargetID,
 		Provider:          input.Provider,
 		ProviderSessionID: input.ProviderSessionID,
+		Resumable:         input.Resumable,
 		Cwd:               input.Cwd,
 		Env:               append([]string(nil), input.Env...),
 		Settings:          cloneComposerSettingsPointer(&input.Settings),

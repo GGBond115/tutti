@@ -83,6 +83,7 @@ type ResumeInput struct {
 	AgentTargetID     string
 	Provider          string
 	ProviderSessionID string
+	Resumable         bool
 	CWD               string
 	Env               []string
 	Title             string
@@ -261,6 +262,7 @@ type Session struct {
 	AgentTargetID      string              `json:"agentTargetId,omitempty"`
 	Provider           string              `json:"provider"`
 	ProviderSessionID  string              `json:"providerSessionId"`
+	Resumable          bool                `json:"resumable"`
 	CWD                string              `json:"cwd,omitempty"`
 	Env                []string            `json:"-"`
 	Status             string              `json:"status"`
@@ -305,6 +307,7 @@ type SessionStateSnapshot struct {
 	AgentTargetID      string                    `json:"agentTargetId,omitempty"`
 	Provider           string                    `json:"provider"`
 	ProviderSessionID  string                    `json:"providerSessionId,omitempty"`
+	Resumable          bool                      `json:"resumable"`
 	Status             string                    `json:"status"`
 	TurnLifecycle      *TurnLifecycle            `json:"turnLifecycle,omitempty"`
 	SubmitAvailability *SubmitAvailability       `json:"submitAvailability,omitempty"`

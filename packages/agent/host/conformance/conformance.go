@@ -33,6 +33,7 @@ type TurnSeed struct {
 	TurnID                  string
 	Phase                   string
 	Outcome                 string
+	RootProviderTurnID      string
 	FinalAssistantMessageID string
 	StartedAtUnixMS         int64
 	SettledAtUnixMS         int64

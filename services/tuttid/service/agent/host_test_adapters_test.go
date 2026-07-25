@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
@@ -129,6 +130,49 @@ func (a serviceHostStore) GetTurn(ctx context.Context, workspaceID, sessionID, t
 		return storesqlite.Turn{}, false, nil
 	}
 	return a.service.TurnStore.GetTurn(ctx, workspaceID, sessionID, turnID)
+}
+
+func (a serviceHostStore) GetProviderSessionResumeEvidence(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+) (storesqlite.ProviderSessionResumeEvidence, error) {
+	if a.service == nil {
+		return storesqlite.ProviderSessionResumeEvidence{}, nil
+	}
+	if a.service.TurnStore == nil {
+		return storesqlite.ProviderSessionResumeEvidence{HasTurns: true, Established: true}, nil
+	}
+	turns, err := a.service.TurnStore.ListSessionTurns(ctx, workspaceID, sessionID)
+	if err != nil {
+		return storesqlite.ProviderSessionResumeEvidence{}, err
+	}
+	// Older service tests model an established persisted session without
+	// seeding its canonical turns. Keep those fixtures meaningful; the
+	// unestablished-session conformance case seeds an explicit turn with no
+	// provider root id and therefore still exercises the rejection path.
+	if len(turns) == 0 {
+		return storesqlite.ProviderSessionResumeEvidence{HasTurns: true, Established: true}, nil
+	}
+	evidence := storesqlite.ProviderSessionResumeEvidence{HasTurns: len(turns) > 0}
+	for _, turn := range turns {
+		if strings.TrimSpace(turn.Phase) == storesqlite.TurnPhaseSettled {
+			evidence.HasSettledTurn = true
+		}
+		if strings.TrimSpace(turn.RootProviderTurnID) != "" {
+			evidence.Established = true
+			break
+		}
+	}
+	// This adapter is test-only. The shared fake runtime acknowledges Exec
+	// synchronously, so expose that acknowledgement as the canonical evidence
+	// that production receives through root_provider_turn.started persistence.
+	if !evidence.Established {
+		if session, ok := a.service.controller().Session(workspaceID, sessionID); ok {
+			evidence.Established = session.Resumable
+		}
+	}
+	return evidence, nil
 }
 
 func (a serviceHostStore) FindTurnByClientSubmitID(ctx context.Context, workspaceID, sessionID, clientSubmitID string) (string, bool, error) {

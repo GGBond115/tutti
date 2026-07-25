@@ -14,7 +14,7 @@ func TestPublishedScenarioCatalogsHaveUniqueNames(t *testing.T) {
 	}{
 		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 19},
 		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 14},
-		{name: "resume policy", scenarios: ResumePolicyScenarios(), wantCount: 4},
+		{name: "resume policy", scenarios: ResumePolicyScenarios(), wantCount: 5},
 		{name: "submission fence", scenarios: SubmissionFenceScenarios(), wantCount: 1},
 		{name: "title policy", scenarios: TitlePolicyScenarios(), wantCount: 1},
 		{name: "coordinator", scenarios: CoordinatorScenarios(), wantCount: 7},

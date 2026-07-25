@@ -127,6 +127,7 @@ func (a agentRuntimeAdapter) CanResume(input agentservice.RuntimeResumeInput) bo
 		AgentTargetID:     input.AgentTargetID,
 		Provider:          input.Provider,
 		ProviderSessionID: input.ProviderSessionID,
+		Resumable:         input.Resumable,
 		CWD:               input.Cwd,
 		Env:               append([]string(nil), input.Env...),
 		Title:             input.Title,
@@ -361,6 +362,7 @@ func (a agentRuntimeAdapter) Resume(ctx context.Context, input agentservice.Runt
 		AgentTargetID:     input.AgentTargetID,
 		Provider:          input.Provider,
 		ProviderSessionID: input.ProviderSessionID,
+		Resumable:         input.Resumable,
 		CWD:               input.Cwd,
 		Env:               append([]string(nil), input.Env...),
 		Title:             input.Title,
@@ -472,6 +474,7 @@ func agentRuntimeSession(session agentruntime.Session) agentservice.ProviderRunt
 		AgentTargetID:           session.AgentTargetID,
 		Provider:                session.Provider,
 		ProviderSessionID:       session.ProviderSessionID,
+		Resumable:               session.Resumable,
 		Cwd:                     session.CWD,
 		Env:                     append([]string(nil), session.Env...),
 		Settings:                agentRuntimeComposerSettings(session.Settings),
@@ -497,6 +500,7 @@ func (a agentRuntimeAdapter) runtimeSessionWithState(session agentruntime.Sessio
 	if state.ProviderSessionID != "" {
 		result.ProviderSessionID = state.ProviderSessionID
 	}
+	result.Resumable = result.Resumable || state.Resumable
 	if state.Status != "" {
 		result.Status = state.Status
 	}

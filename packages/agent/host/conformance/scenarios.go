@@ -55,6 +55,7 @@ func Scenarios() []Scenario {
 
 func ResumePolicyScenarios() []Scenario {
 	return []Scenario{
+		{Name: "reject provider session that never established", run: runRejectUnestablishedProviderSession},
 		{Name: "resume imported session by recreate policy", run: runResumeImportedSession},
 		{Name: "reject imported session without resume support", run: runRejectUnsupportedImport},
 		{Name: "reject child independent resume", run: runRejectChildResume},

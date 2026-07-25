@@ -92,6 +92,7 @@ type ProviderRuntimeSession struct {
 	AgentTargetID           string
 	Provider                string
 	ProviderSessionID       string
+	Resumable               bool
 	Cwd                     string
 	Env                     []string
 	Settings                *ComposerSettings
@@ -138,6 +139,7 @@ type RuntimeResumeInput struct {
 	AgentTargetID          string
 	Provider               string
 	ProviderSessionID      string
+	Resumable              bool
 	Cwd                    string
 	Env                    []string
 	Title                  string

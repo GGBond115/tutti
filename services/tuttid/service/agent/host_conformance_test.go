@@ -412,6 +412,7 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 		d.turns.turns[seed.AgentSessionID+":"+turn.TurnID] = agentactivitybiz.Turn{
 			WorkspaceID: seed.WorkspaceID, AgentSessionID: seed.AgentSessionID,
 			TurnID: turn.TurnID, Phase: turn.Phase, Outcome: turn.Outcome,
+			RootProviderTurnID:      turn.RootProviderTurnID,
 			FinalAssistantMessageID: turn.FinalAssistantMessageID,
 			StartedAtUnixMS:         turn.StartedAtUnixMS, SettledAtUnixMS: turn.SettledAtUnixMS, Origin: turn.Origin,
 		}
@@ -421,6 +422,7 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 		d.turns.turns[seed.AgentSessionID+":"+turn.TurnID] = agentactivitybiz.Turn{
 			WorkspaceID: seed.WorkspaceID, AgentSessionID: seed.AgentSessionID,
 			TurnID: turn.TurnID, Phase: turn.Phase, Outcome: turn.Outcome,
+			RootProviderTurnID:      turn.RootProviderTurnID,
 			FinalAssistantMessageID: turn.FinalAssistantMessageID,
 			StartedAtUnixMS:         turn.StartedAtUnixMS, SettledAtUnixMS: turn.SettledAtUnixMS, Origin: turn.Origin,
 		}

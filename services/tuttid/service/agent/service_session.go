@@ -18,6 +18,7 @@ func runtimeResumeInputFromRuntimeSession(session ProviderRuntimeSession) Runtim
 		AgentTargetID:     strings.TrimSpace(session.AgentTargetID),
 		Provider:          strings.TrimSpace(session.Provider),
 		ProviderSessionID: strings.TrimSpace(session.ProviderSessionID),
+		Resumable:         session.Resumable,
 		Cwd:               strings.TrimSpace(session.Cwd),
 		Env:               append([]string(nil), session.Env...),
 		Title:             strings.TrimSpace(session.Title),
