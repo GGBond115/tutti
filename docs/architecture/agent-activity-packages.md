@@ -862,6 +862,14 @@ discontinuity carrying reconcile keys, and the caller falls back to canonical
 data. This avoids maintaining a second chunk assembly protocol while ensuring
 that the final oversized event is not silently lost.
 
+The publisher also keeps a bounded FIFO of the most recent settled Turn ids.
+Those fences convert late text or tool deltas into scoped discontinuities
+without allowing a long-lived stream to accumulate one permanent map entry per
+historical Turn. The retention bound is independent of canonical history:
+evicted Turns remain durable, and the activity-core overlay independently
+rejects a nonterminal delta against known terminal message truth so any later
+uncertainty still converges through authoritative reconciliation.
+
 A host materializes accepted deltas in the activity-core optimistic overlay and
 projects that overlay over its latest canonical message base. The Tutti desktop
 receives local deltas through the business-event WebSocket; shared-device hosts

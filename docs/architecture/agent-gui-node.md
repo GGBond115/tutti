@@ -65,8 +65,9 @@ Realtime events reduce latency but are not automatically complete truth:
   `/v1/events/ws` business-event WebSocket
 - continuous, version-complete `message_update` events may merge inline
 - terminal `message_update` is the durable confirmation; message version gaps,
-  invalid/unanchored deltas, reconnects, Turn, Interaction, and state changes
-  trigger authoritative reconciliation
+  invalid/unanchored deltas, nonterminal deltas after known terminal message
+  truth, reconnects, Turn, Interaction, and state changes trigger authoritative
+  reconciliation
 - event publication or observer failure cannot roll back a committed canonical transaction
 
 ### 1.6 Identity and correlation are explicit

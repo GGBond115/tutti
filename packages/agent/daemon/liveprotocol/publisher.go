@@ -15,6 +15,8 @@ type replayEntry struct {
 	at       time.Time
 }
 
+const settledTurnRetention = 256
+
 type Publisher struct {
 	mu sync.Mutex
 
@@ -27,6 +29,7 @@ type Publisher struct {
 	replay              []replayEntry
 	replayBytes         int
 	settledTurns        map[string]struct{}
+	settledTurnOrder    []string
 }
 
 func NewPublisher(config PublisherConfig) (*Publisher, error) {
@@ -112,9 +115,23 @@ func (p *Publisher) Publish(input PublishInput) ([]Frame, error) {
 	}
 	frames, err := p.flushLocked()
 	if err == nil && terminal && turnID != "" {
-		p.settledTurns[turnID] = struct{}{}
+		p.recordSettledTurnLocked(turnID)
 	}
 	return frames, err
+}
+
+func (p *Publisher) recordSettledTurnLocked(turnID string) {
+	if _, exists := p.settledTurns[turnID]; exists {
+		return
+	}
+	if len(p.settledTurnOrder) == settledTurnRetention {
+		delete(p.settledTurns, p.settledTurnOrder[0])
+		copy(p.settledTurnOrder, p.settledTurnOrder[1:])
+		p.settledTurnOrder[len(p.settledTurnOrder)-1] = turnID
+	} else {
+		p.settledTurnOrder = append(p.settledTurnOrder, turnID)
+	}
+	p.settledTurns[turnID] = struct{}{}
 }
 
 func liveEventTurnFence(event *Event) (turnID string, terminal, rejectAfterTerminal bool) {

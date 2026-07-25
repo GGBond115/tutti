@@ -183,6 +183,50 @@ test("keeps an explicitly terminal optimistic projection until canonical becomes
   assert.equal(canonicalTerminal[0]?.payload.text, "canonical final");
 });
 
+test("rejects a nonterminal delta after canonical terminal truth", () => {
+  const overlay = createAgentActivityOptimisticMessageOverlay();
+  const terminal = canonical({
+    status: "completed",
+    completedAtUnixMs: 30,
+    payload: { text: "final", content: "final" }
+  });
+  overlay.reconcile(scope, [terminal]);
+
+  assert.deepEqual(
+    overlay.apply(delta({ operation: "append_text", text: " late" })),
+    {
+      applied: false,
+      needsReconcile: true,
+      reason: "late_after_terminal"
+    }
+  );
+  assert.equal(overlay.project(scope, [terminal])[0]?.payload.text, "final");
+});
+
+test("allows a terminal set to correct an earlier terminal projection", () => {
+  const overlay = createAgentActivityOptimisticMessageOverlay();
+  const terminal = canonical({
+    status: "completed",
+    completedAtUnixMs: 30,
+    payload: { text: "first final", content: "first final" }
+  });
+  overlay.reconcile(scope, [terminal]);
+
+  assert.deepEqual(
+    overlay.apply(
+      delta({ operation: "set", value: "corrected final" }, "completed")
+    ),
+    {
+      applied: true,
+      needsReconcile: false
+    }
+  );
+  assert.equal(
+    overlay.project(scope, [terminal])[0]?.payload.text,
+    "corrected final"
+  );
+});
+
 test("normalizes missing canonical workspace identity without duplicate messages or a false missing anchor", () => {
   const overlay = createAgentActivityOptimisticMessageOverlay();
   const withoutWorkspace = canonical({

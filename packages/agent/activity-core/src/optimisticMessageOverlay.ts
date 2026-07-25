@@ -18,6 +18,7 @@ export interface AgentActivityOptimisticApplyResult {
   reason?:
     | "append_without_anchor"
     | "identity_mismatch"
+    | "late_after_terminal"
     | "tool_output_offset_mismatch";
 }
 
@@ -140,6 +141,17 @@ export function createAgentActivityOptimisticMessageOverlay(): AgentActivityOpti
     const key = liveMessageKey(event);
     const existing =
       optimistic.get(key)?.message ?? canonical.get(key) ?? undefined;
+    if (
+      existing &&
+      isTerminalMessage(existing) &&
+      !deltaIsExplicitlyTerminal(data)
+    ) {
+      return {
+        applied: false,
+        needsReconcile: true,
+        reason: "late_after_terminal"
+      };
+    }
     if (data.content?.operation === "append_text" && !existing) {
       return {
         applied: false,

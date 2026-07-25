@@ -3,6 +3,7 @@ package liveprotocol
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -353,5 +354,59 @@ func TestPublisherAllowsCommittedInteractionAndDuplicateTerminalAfterFence(t *te
 		lateFrames[0].Deliveries[0].Kind != DeliveryKindDiscontinuity ||
 		lateFrames[0].Deliveries[0].Discontinuity.Reason != "late_after_terminal" {
 		t.Fatalf("late message was not fenced: %#v", lateFrames)
+	}
+}
+
+func TestPublisherBoundsSettledTurnFences(t *testing.T) {
+	t.Parallel()
+
+	publisher, err := NewPublisher(PublisherConfig{
+		StreamID: "stream-1", BindingID: "binding-1", Epoch: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < settledTurnRetention+1; index++ {
+		turnID := fmt.Sprintf("turn-%d", index)
+		outcome := "completed"
+		settledAt := int64(index + 1)
+		event, eventErr := NewTurnUpdateEvent(TurnUpdateData{
+			WorkspaceID:      "owner-workspace",
+			AgentSessionID:   "owner-session",
+			EventType:        EventTypeTurnUpdate,
+			OccurredAtUnixMS: int64(index + 1),
+			Turn: EventTurn{
+				TurnID:          turnID,
+				AgentSessionID:  "owner-session",
+				Phase:           "settled",
+				Origin:          "user_prompt",
+				Outcome:         &outcome,
+				StartedAtUnixMS: 1,
+				UpdatedAtUnixMS: int64(index + 1),
+				SettledAtUnixMS: &settledAt,
+				FileChanges:     json.RawMessage(`null`),
+			},
+		})
+		if eventErr != nil {
+			t.Fatal(eventErr)
+		}
+		if _, eventErr = publisher.Publish(PublishInput{Event: &event}); eventErr != nil {
+			t.Fatal(eventErr)
+		}
+	}
+	if len(publisher.settledTurns) != settledTurnRetention ||
+		len(publisher.settledTurnOrder) != settledTurnRetention {
+		t.Fatalf(
+			"settled fences = map:%d order:%d, want %d",
+			len(publisher.settledTurns),
+			len(publisher.settledTurnOrder),
+			settledTurnRetention,
+		)
+	}
+	if _, retained := publisher.settledTurns["turn-0"]; retained {
+		t.Fatal("oldest settled turn fence was not evicted")
+	}
+	if _, retained := publisher.settledTurns[fmt.Sprintf("turn-%d", settledTurnRetention)]; !retained {
+		t.Fatal("newest settled turn fence was not retained")
 	}
 }
