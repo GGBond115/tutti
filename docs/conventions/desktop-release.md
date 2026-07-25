@@ -114,6 +114,15 @@ Vendored Node bundles (`claude-sdk-sidecar`, `browser-mcp`) must stay free of pl
 Contents/Resources/bin/tuttid
 ```
 
+The Electron `app.asar` file list is allowlisted to built `out/**` runtime
+outputs plus the package manifest. Do not package repository `src/**`, tests,
+scripts, or documentation into the application archive. Production
+`node_modules` dependencies remain managed by `electron-builder`.
+Assets served through `tutti-asset://` must be emitted explicitly into
+`out/renderer/assets/tutti-asset/<route>` and resolved by that exact route.
+Packaged builds must not depend on repository source paths or hashed filename
+prefix scans as a runtime fallback.
+
 On Windows the bundled daemon filename is `tuttid.exe`.
 
 Expected release artifacts include:

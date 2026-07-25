@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -5,6 +6,7 @@ import { PerfMonitorVitePlugin } from "@tutti-os/rrt-plugin-vite";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import type { PluginOption } from "vite";
 import { waitForRendererWarmupPlugin } from "../../tools/scripts/renderer-dev-warmup.mjs";
+import { tuttiAssetProtocolAssets } from "./src/main/host/tuttiAssetProtocolAssets.ts";
 
 const aliases = {
   "@app/renderer": resolve("../../packages/agent/gui/app/renderer"),
@@ -89,6 +91,25 @@ const rendererWarmupEntryUrls = [
   "/src/app/windows/workspace/StandaloneAgentWorkspaceWindow.tsx"
 ];
 
+function emitTuttiAssetProtocolAssetsPlugin(): PluginOption {
+  return {
+    name: "emit-tutti-asset-protocol-assets",
+    apply: "build",
+    async buildStart(): Promise<void> {
+      for (const [route, sourceRelativePath] of Object.entries(
+        tuttiAssetProtocolAssets
+      )) {
+        const source = await readFile(resolve(sourceRelativePath));
+        this.emitFile({
+          type: "asset",
+          fileName: `assets/tutti-asset/${route}`,
+          source
+        });
+      }
+    }
+  };
+}
+
 function envFlagEnabled(value: string | undefined): boolean {
   return /^(1|true|yes|on)$/iu.test(value?.trim() ?? "");
 }
@@ -172,6 +193,7 @@ export default defineConfig({
   renderer: {
     server: devServer,
     plugins: [
+      emitTuttiAssetProtocolAssetsPlugin(),
       waitForRendererWarmupPlugin({
         entryUrls: rendererWarmupEntryUrls
       }),

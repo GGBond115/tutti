@@ -40,6 +40,12 @@ const desktopBuildIconPath = new URL(
   import.meta.url
 );
 
+test("desktop package includes runtime outputs without repository source", async () => {
+  const packageJson = JSON.parse(await readFile(desktopPackagePath, "utf8"));
+
+  assert.deepEqual(packageJson.build.files, ["out/**", "package.json"]);
+});
+
 test("desktop release workflow uses the published desktop package name", async () => {
   const packageJson = JSON.parse(await readFile(desktopPackagePath, "utf8"));
   const workflow = await readFile(workflowPath, "utf8");
