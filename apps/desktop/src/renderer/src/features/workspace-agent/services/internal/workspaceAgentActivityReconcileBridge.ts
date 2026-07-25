@@ -1,9 +1,8 @@
 import {
-  type AgentActivityMessage,
   type AgentActivityMessagePage,
   type AgentActivitySession,
-  type AgentActivitySessionMessageWindow,
-  type AgentActivitySnapshot
+  type AgentActivitySnapshot,
+  type SessionDetailSnapshotReceivedIntent
 } from "@tutti-os/agent-activity-core";
 import {
   agentActivitySessionMessageWindowFromDescendingPage,
@@ -275,13 +274,10 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
   protected upsertAuthoritativeSessionDetail(
     detail: AgentActivitySessionDetail,
     source: string,
-    options: {
-      live?: boolean;
-      messages?: readonly AgentActivityMessage[];
-      sessionMessageWindows?: readonly (AgentActivitySessionMessageWindow & {
-        agentSessionId: string;
-      })[];
-    } = {}
+    options: Pick<
+      SessionDetailSnapshotReceivedIntent,
+      "live" | "messages" | "sessionMessageWindows"
+    > = {}
   ): void {
     const workspaceId = normalizeWorkspaceId(detail.session.workspaceId);
     const agentSessionId = detail.session.agentSessionId;

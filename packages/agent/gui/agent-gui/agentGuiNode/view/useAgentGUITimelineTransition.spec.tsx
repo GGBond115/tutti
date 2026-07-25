@@ -11,45 +11,16 @@ afterEach(() => {
 });
 
 describe("useAgentGUITimelineTransition", () => {
-  it("does not add a render when a fast transition commits", () => {
+  it("keeps the previous timeline without flashing a skeleton for a fast load", () => {
     vi.useFakeTimers();
     let renderCount = 0;
     const conversationA = conversation("conversation-a");
     const conversationB = conversation("conversation-b");
-    const { rerender } = renderHook(
+    const { result, rerender } = renderHook(
       (input: TimelineTransitionInput) => {
         renderCount += 1;
         return useAgentGUITimelineTransition(input);
       },
-      {
-        initialProps: {
-          activeConversationId: "conversation-a",
-          availability: "ready",
-          conversation: conversationA
-        } as TimelineTransitionInput
-      }
-    );
-
-    rerender({
-      activeConversationId: "conversation-b",
-      availability: "loading",
-      conversation: null
-    });
-    rerender({
-      activeConversationId: "conversation-b",
-      availability: "ready",
-      conversation: conversationB
-    });
-
-    expect(renderCount).toBe(3);
-  });
-
-  it("keeps the previous timeline without flashing a skeleton for a fast load", () => {
-    vi.useFakeTimers();
-    const conversationA = conversation("conversation-a");
-    const conversationB = conversation("conversation-b");
-    const { result, rerender } = renderHook(
-      (input: TimelineTransitionInput) => useAgentGUITimelineTransition(input),
       {
         initialProps: {
           activeConversationId: "conversation-a",
@@ -80,6 +51,7 @@ describe("useAgentGUITimelineTransition", () => {
     expect(result.current.conversation).toBe(conversationB);
     expect(result.current.showTimelineSkeleton).toBe(false);
     expect(result.current.timelineConversationId).toBe("conversation-b");
+    expect(renderCount).toBe(3);
   });
 
   it("reveals the conversation skeleton after 300ms", () => {

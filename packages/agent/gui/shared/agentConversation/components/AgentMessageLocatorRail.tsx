@@ -47,13 +47,7 @@ export function AgentMessageLocatorRail({
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [shouldRenderPanel, setShouldRenderPanel] = useState(false);
   const [activeKey, setActiveKey] = useState<string | null>(null);
-  const {
-    pendingReverseSelectionRef,
-    scrollIntentRef,
-    selectedKey,
-    selectionDirectionRef,
-    setSelectedKey
-  } = useAgentMessageLocatorSelection({
+  const { selectItem, selectedKey } = useAgentMessageLocatorSelection({
     items,
     locatorRef,
     virtualSelectionSource
@@ -229,10 +223,7 @@ export function AgentMessageLocatorRail({
     });
   };
   const handleLocateItem = (item: AgentMessageLocatorItem): void => {
-    selectionDirectionRef.current = 0;
-    scrollIntentRef.current = null;
-    pendingReverseSelectionRef.current = null;
-    setSelectedKey(item.key);
+    selectItem(item.key);
     setActiveKey(item.key);
     markItemRead(item.key);
     onLocate(item);

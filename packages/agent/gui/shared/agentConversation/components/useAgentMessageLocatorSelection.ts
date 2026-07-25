@@ -3,9 +3,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type Dispatch,
-  type RefObject,
-  type SetStateAction
+  type RefObject
 } from "react";
 import type { AgentMessageLocatorItem } from "./agentTranscriptModel";
 import { escapeCssString } from "./agentTranscriptModel";
@@ -22,17 +20,8 @@ export interface AgentMessageLocatorVirtualSelectionSource {
 }
 
 interface AgentMessageLocatorSelection {
-  pendingReverseSelectionRef: RefObject<{
-    count: number;
-    key: string;
-  } | null>;
-  scrollIntentRef: RefObject<{
-    direction: -1 | 1;
-    expiresAt: number;
-  } | null>;
+  selectItem(itemKey: string): void;
   selectedKey: string | null;
-  selectionDirectionRef: RefObject<-1 | 0 | 1>;
-  setSelectedKey: Dispatch<SetStateAction<string | null>>;
 }
 
 export function useAgentMessageLocatorSelection({
@@ -257,12 +246,16 @@ export function useAgentMessageLocatorSelection({
     };
   }, [items, locatorRef, virtualSelectionReady, virtualSelectionSource]);
 
+  const selectItem = (itemKey: string): void => {
+    selectionDirectionRef.current = 0;
+    scrollIntentRef.current = null;
+    pendingReverseSelectionRef.current = null;
+    setSelectedKey(itemKey);
+  };
+
   return {
-    pendingReverseSelectionRef,
-    scrollIntentRef,
-    selectedKey,
-    selectionDirectionRef,
-    setSelectedKey
+    selectItem,
+    selectedKey
   };
 }
 

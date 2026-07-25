@@ -568,25 +568,18 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
 
   if (shouldVirtualize) {
     const usesFallbackVirtualItems = virtualScrollElement === null;
+    const fallbackStartIndex = Math.max(
+      0,
+      turnGroups.length - AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT
+    );
     const virtualItems = usesFallbackVirtualItems
       ? turnGroups
           .slice(-AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT)
           .map((group, fallbackIndex) => ({
-            index:
-              turnGroups.length -
-              Math.min(
-                turnGroups.length,
-                AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT
-              ) +
-              fallbackIndex,
+            index: fallbackStartIndex + fallbackIndex,
             key: group.key,
             start:
-              (turnGroups.length -
-                Math.min(
-                  turnGroups.length,
-                  AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT
-                ) +
-                fallbackIndex) *
+              (fallbackStartIndex + fallbackIndex) *
               AGENT_TRANSCRIPT_ESTIMATED_TURN_HEIGHT_PX
           }))
       : rowVirtualizer.getVirtualItems();

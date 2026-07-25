@@ -9,6 +9,7 @@ import type {
   AgentTranscriptTurnAttachment,
   AgentTranscriptVirtualScrollController
 } from "../../../shared/agentConversation/components/AgentTranscriptView";
+import { userScrollBehavior } from "./agentGUIDetailScrollHelpers";
 
 const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
   [];
@@ -103,13 +104,10 @@ export function setTimelineScrollTopWithUserTransition(
   element: HTMLElement,
   top: number
 ): void {
-  const reducedMotion =
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (typeof element.scrollTo === "function") {
     element.scrollTo({
       top,
-      behavior: reducedMotion ? "auto" : "smooth"
+      behavior: userScrollBehavior()
     });
     return;
   }

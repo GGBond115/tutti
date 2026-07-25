@@ -66,6 +66,17 @@ import type {
   AgentTranscriptVirtualScrollController
 } from "./AgentTranscriptView";
 
+const TRANSCRIPT_LABELS = {
+  thinkingLabel: "Thought process",
+  toolCallsLabel: (count: number) => `Tool calls (${count})`,
+  processing: "Planning next moves",
+  turnSummary: "Changed files"
+};
+const TRANSCRIPT_LABELS_WITH_LOCATOR = {
+  ...TRANSCRIPT_LABELS,
+  userMessageLocator: "User messages"
+};
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -103,12 +114,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       >
         <AgentTranscriptView
           conversation={conversationWithRows(12)}
-          labels={{
-            thinkingLabel: "Thought process",
-            toolCallsLabel: (count) => `Tool calls (${count})`,
-            processing: "Planning next moves",
-            turnSummary: "Changed files"
-          }}
+          labels={TRANSCRIPT_LABELS}
         />
       </div>
     );
@@ -130,12 +136,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       >
         <AgentTranscriptView
           conversation={conversationWithMultiRowTurns(40)}
-          labels={{
-            thinkingLabel: "Thought process",
-            toolCallsLabel: (count) => `Tool calls (${count})`,
-            processing: "Planning next moves",
-            turnSummary: "Changed files"
-          }}
+          labels={TRANSCRIPT_LABELS}
         />
       </div>
     );
@@ -183,12 +184,7 @@ describe("AgentTranscriptView virtual rendering", () => {
     render(
       <AgentTranscriptView
         conversation={conversationWithMultiRowTurns(40)}
-        labels={{
-          thinkingLabel: "Thought process",
-          toolCallsLabel: (count) => `Tool calls (${count})`,
-          processing: "Planning next moves",
-          turnSummary: "Changed files"
-        }}
+        labels={TRANSCRIPT_LABELS}
       />
     );
 
@@ -218,12 +214,7 @@ describe("AgentTranscriptView virtual rendering", () => {
         <AgentTranscriptView
           conversation={conversationWithMultiRowTurns(40)}
           virtualScrollControllerRef={virtualScrollController}
-          labels={{
-            thinkingLabel: "Thought process",
-            toolCallsLabel: (count) => `Tool calls (${count})`,
-            processing: "Planning next moves",
-            turnSummary: "Changed files"
-          }}
+          labels={TRANSCRIPT_LABELS}
         />
       </div>
     );
@@ -252,16 +243,10 @@ describe("AgentTranscriptView virtual rendering", () => {
         } as DOMRect;
       }
     );
-    const labels = {
-      thinkingLabel: "Thought process",
-      toolCallsLabel: (count: number) => `Tool calls (${count})`,
-      processing: "Planning next moves",
-      turnSummary: "Changed files"
-    };
     const rendered = render(
       <AgentTranscriptView
         conversation={conversationWithMultiRowTurns(40)}
-        labels={labels}
+        labels={TRANSCRIPT_LABELS}
         virtualListLayoutRevision={0}
       />,
       { container: timeline }
@@ -277,7 +262,7 @@ describe("AgentTranscriptView virtual rendering", () => {
     rendered.rerender(
       <AgentTranscriptView
         conversation={conversationWithMultiRowTurns(40)}
-        labels={labels}
+        labels={TRANSCRIPT_LABELS}
         virtualListLayoutRevision={1}
       />
     );
@@ -300,12 +285,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       >
         <AgentTranscriptView
           conversation={conversationWithCollapsibleTurns(40)}
-          labels={{
-            thinkingLabel: "Thought process",
-            toolCallsLabel: (count) => `Tool calls (${count})`,
-            processing: "Planning next moves",
-            turnSummary: "Changed files"
-          }}
+          labels={TRANSCRIPT_LABELS}
         />
       </div>
     );
@@ -383,12 +363,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       >
         <AgentTranscriptView
           conversation={conversationWithCollapsibleTurns(2)}
-          labels={{
-            thinkingLabel: "Thought process",
-            toolCallsLabel: (count) => `Tool calls (${count})`,
-            processing: "Planning next moves",
-            turnSummary: "Changed files"
-          }}
+          labels={TRANSCRIPT_LABELS}
         />
       </div>
     );
@@ -422,12 +397,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       >
         <AgentTranscriptView
           conversation={conversationWithRows(30)}
-          labels={{
-            thinkingLabel: "Thought process",
-            toolCallsLabel: (count) => `Tool calls (${count})`,
-            processing: "Planning next moves",
-            turnSummary: "Changed files"
-          }}
+          labels={TRANSCRIPT_LABELS}
         />
       </div>
     );
@@ -460,12 +430,7 @@ describe("AgentTranscriptView virtual rendering", () => {
               "![Preview](preview.png)"
             ].join("\n")
           })}
-          labels={{
-            thinkingLabel: "Thought process",
-            toolCallsLabel: (count) => `Tool calls (${count})`,
-            processing: "Planning next moves",
-            turnSummary: "Changed files"
-          }}
+          labels={TRANSCRIPT_LABELS}
         />
       </div>
     );
@@ -488,12 +453,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       >
         <AgentTranscriptView
           conversation={conversationWithRows(200)}
-          labels={{
-            thinkingLabel: "Thought process",
-            toolCallsLabel: (count) => `Tool calls (${count})`,
-            processing: "Planning next moves",
-            turnSummary: "Changed files"
-          }}
+          labels={TRANSCRIPT_LABELS}
         />
       </div>
     );
@@ -518,13 +478,7 @@ describe("AgentTranscriptView virtual rendering", () => {
         <div data-slot="scroll-area-content">
           <AgentTranscriptView
             conversation={conversationWithMultiRowTurns(40)}
-            labels={{
-              thinkingLabel: "Thought process",
-              toolCallsLabel: (count) => `Tool calls (${count})`,
-              processing: "Planning next moves",
-              turnSummary: "Changed files",
-              userMessageLocator: "User messages"
-            }}
+            labels={TRANSCRIPT_LABELS_WITH_LOCATOR}
           />
         </div>
       </div>
@@ -561,13 +515,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       >
         <AgentTranscriptView
           conversation={conversationWithMultiRowTurns(40)}
-          labels={{
-            thinkingLabel: "Thought process",
-            toolCallsLabel: (count) => `Tool calls (${count})`,
-            processing: "Planning next moves",
-            turnSummary: "Changed files",
-            userMessageLocator: "User messages"
-          }}
+          labels={TRANSCRIPT_LABELS_WITH_LOCATOR}
         />
       </div>
     );
@@ -606,13 +554,7 @@ describe("AgentTranscriptView virtual rendering", () => {
     render(
       <AgentTranscriptView
         conversation={conversationWithMultiRowTurns(40)}
-        labels={{
-          thinkingLabel: "Thought process",
-          toolCallsLabel: (count) => `Tool calls (${count})`,
-          processing: "Planning next moves",
-          turnSummary: "Changed files",
-          userMessageLocator: "User messages"
-        }}
+        labels={TRANSCRIPT_LABELS_WITH_LOCATOR}
       />,
       { container: timeline }
     );
@@ -681,13 +623,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       >
         <AgentTranscriptView
           conversation={sparseUserConversation}
-          labels={{
-            thinkingLabel: "Thought process",
-            toolCallsLabel: (count) => `Tool calls (${count})`,
-            processing: "Planning next moves",
-            turnSummary: "Changed files",
-            userMessageLocator: "User messages"
-          }}
+          labels={TRANSCRIPT_LABELS_WITH_LOCATOR}
         />
       </div>
     );
@@ -725,12 +661,7 @@ describe("AgentTranscriptView virtual rendering", () => {
               }
             ]}
             turnAttachmentLocatorRef={locateAttachment}
-            labels={{
-              thinkingLabel: "Thought process",
-              toolCallsLabel: (count) => `Tool calls (${count})`,
-              processing: "Planning next moves",
-              turnSummary: "Changed files"
-            }}
+            labels={TRANSCRIPT_LABELS}
           />
         </div>
       </div>
@@ -745,12 +676,6 @@ describe("AgentTranscriptView virtual rendering", () => {
 
   it("keeps the timeline viewport bound across long-short-long switches", async () => {
     virtualizerMockState.virtualIndexes = [10];
-    const labels = {
-      thinkingLabel: "Thought process",
-      toolCallsLabel: (count: number) => `Tool calls (${count})`,
-      processing: "Planning next moves",
-      turnSummary: "Changed files"
-    };
     const { rerender } = render(
       <div
         data-testid="agent-gui-timeline"
@@ -758,7 +683,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       >
         <AgentTranscriptView
           conversation={conversationWithMultiRowTurns(40)}
-          labels={labels}
+          labels={TRANSCRIPT_LABELS}
         />
       </div>
     );
@@ -777,7 +702,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       >
         <AgentTranscriptView
           conversation={conversationWithRows(2)}
-          labels={labels}
+          labels={TRANSCRIPT_LABELS}
         />
       </div>
     );
@@ -795,7 +720,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       >
         <AgentTranscriptView
           conversation={conversationWithMultiRowTurns(40)}
-          labels={labels}
+          labels={TRANSCRIPT_LABELS}
         />
       </div>
     );
@@ -818,15 +743,12 @@ describe("AgentTranscriptView virtual rendering", () => {
         }
       }
     };
-    const labels = {
-      thinkingLabel: "Thought process",
-      toolCallsLabel: (count: number) => `Tool calls (${count})`,
-      processing: "Planning next moves",
-      turnSummary: "Changed files"
-    };
     const rendered = render(
       <div data-testid="agent-gui-timeline">
-        <AgentTranscriptView conversation={firstConversation} labels={labels} />
+        <AgentTranscriptView
+          conversation={firstConversation}
+          labels={TRANSCRIPT_LABELS}
+        />
       </div>
     );
     const firstGetItemKey = vi
@@ -837,7 +759,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       <div data-testid="agent-gui-timeline">
         <AgentTranscriptView
           conversation={secondConversation}
-          labels={labels}
+          labels={TRANSCRIPT_LABELS}
         />
       </div>
     );

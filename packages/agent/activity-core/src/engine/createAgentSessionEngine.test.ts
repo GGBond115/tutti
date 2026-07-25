@@ -9,7 +9,8 @@ import type {
   EngineExternalCommand,
   EngineScheduler
 } from "./types.ts";
-import type { AgentActivitySession, AgentActivityTurn } from "../types.ts";
+import type { AgentActivityTurn } from "../types.ts";
+import type { AgentActivitySessionInput } from "../sessionNormalization.ts";
 
 // Event-interleaving tests over synthetic entities: the engine loop is driven
 // by a manual clock/scheduler so every timing case is an explicit, enumerable
@@ -741,42 +742,16 @@ function activityTurn(
 
 function activitySession(
   agentSessionId: string,
-  overrides: Partial<AgentActivitySession> = {}
-): AgentActivitySession {
+  overrides: Partial<AgentActivitySessionInput> = {}
+): AgentActivitySessionInput {
   return {
-    activeTurn: null,
     activeTurnId: null,
     agentSessionId,
-    agentTargetId: "agent-1",
-    capabilities: null,
-    createdAtUnixMs: 1,
     cwd: "/workspace",
-    endedAtUnixMs: null,
-    goal: null,
-    imported: false,
-    kind: "root",
-    lastEventUnixMs: 1,
-    latestTurn: null,
     latestTurnInteractions: [],
-    messageVersion: 0,
-    parentAgentSessionId: null,
-    parentToolCallId: null,
-    parentTurnId: null,
     pendingInteractions: [],
-    permissionConfig: { configurable: false, modes: [] },
-    pinnedAtUnixMs: null,
     provider: "codex",
-    providerSessionId: null,
-    resumable: true,
-    rootAgentSessionId: null,
-    rootTurnId: null,
-    settings: {},
-    startedAtUnixMs: 1,
     title: "Session",
-    tuttiModeActivation: null,
-    updatedAtUnixMs: 1,
-    usage: null,
-    visible: true,
     workspaceId: "workspace-1",
     ...overrides
   };

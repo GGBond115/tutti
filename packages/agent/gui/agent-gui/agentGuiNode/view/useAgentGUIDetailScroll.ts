@@ -330,16 +330,6 @@ export function useAgentGUIDetailScroll(input: Input) {
         );
         if (virtualScrollController) {
           virtualScrollController.scrollToEnd({ behavior: "auto" });
-          const previousAnchor = timelineScrollAnchorRef.current;
-          if (previousAnchor?.conversationId === scheduledConversationId) {
-            timelineScrollAnchorRef.current = {
-              ...previousAnchor,
-              scrollTop: timeline.scrollTop
-            };
-          }
-          setIsTimelineScrolledToTop(
-            timeline.scrollTop <= AGENT_GUI_TOP_MASK_SCROLL_EPSILON_PX
-          );
           setIsTimelineScrolledToBottom(true);
           return;
         }
@@ -692,14 +682,6 @@ export function useAgentGUIDetailScroll(input: Input) {
       virtualScrollController.scrollToEnd({
         behavior: userScrollBehavior()
       });
-      const previousAnchor = timelineScrollAnchorRef.current;
-      if (previousAnchor?.conversationId === activeConversationId) {
-        timelineScrollAnchorRef.current = {
-          ...previousAnchor,
-          scrollTop: timeline.scrollTop
-        };
-      }
-      setIsTimelineScrolledToTop(false);
       setIsTimelineScrolledToBottom(true);
       return;
     }
