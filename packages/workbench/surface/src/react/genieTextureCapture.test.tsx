@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { prepareGenieTextureCapture } from "./genieTextureCapture.ts";
+import {
+  inlineGenieCloneMaskImageResources,
+  prepareGenieTextureCapture
+} from "./genieTextureCapture.ts";
 
 describe("prepareGenieTextureCapture", () => {
   it("clones document styles with one root computed-style read", () => {
@@ -110,5 +113,57 @@ describe("prepareGenieTextureCapture", () => {
         document.documentElement.dataset.theme = previousTheme;
       }
     }
+  });
+
+  it("inlines duplicate mask image resources once on the clone root", async () => {
+    const cloneRoot = document.createElement("html");
+    cloneRoot.innerHTML = `
+      <body>
+        <span
+          id="first"
+          style='mask-image: url("tutti-asset://agent/codex-mask.svg"); -webkit-mask-image: url("tutti-asset://agent/codex-mask.svg")'
+        ></span>
+        <span
+          id="second"
+          style='mask-image: url("tutti-asset://agent/codex-mask.svg")'
+        ></span>
+        <span id="gradient" style="mask-image: linear-gradient(black, transparent)"></span>
+      </body>
+    `;
+    const readResource = vi.fn(
+      async () => "data:image/svg+xml;base64,bWFzaw=="
+    );
+
+    await inlineGenieCloneMaskImageResources({
+      cloneRoot,
+      readResource
+    });
+
+    expect(readResource).toHaveBeenCalledTimes(1);
+    expect(readResource).toHaveBeenCalledWith(
+      "tutti-asset://agent/codex-mask.svg"
+    );
+    expect(
+      cloneRoot.style.getPropertyValue("--workbench-genie-capture-mask-0")
+    ).toBe('url("data:image/svg+xml;base64,bWFzaw==")');
+    expect(
+      cloneRoot
+        .querySelector<HTMLElement>("#first")
+        ?.style.getPropertyValue("mask-image")
+    ).toBe("var(--workbench-genie-capture-mask-0)");
+    expect(
+      cloneRoot
+        .querySelector<HTMLElement>("#second")
+        ?.style.getPropertyValue("mask-image")
+    ).toBe("var(--workbench-genie-capture-mask-0)");
+    expect(
+      cloneRoot
+        .querySelector<HTMLElement>("#gradient")
+        ?.style.getPropertyValue("mask-image")
+    ).toBe("linear-gradient(black, transparent)");
+    const serializedClone = new XMLSerializer().serializeToString(cloneRoot);
+    expect(
+      serializedClone.split("data:image/svg+xml;base64,bWFzaw==").length - 1
+    ).toBe(1);
   });
 });

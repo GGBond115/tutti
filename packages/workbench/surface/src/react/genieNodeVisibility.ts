@@ -5,34 +5,70 @@ export interface WorkbenchGenieNodeVisibility {
 
 export interface WorkbenchGenieNodeVisibilityStore extends WorkbenchGenieNodeVisibility {
   dispose(): void;
+  hide(nodeID: string): WorkbenchGenieNodeVisibilityToken;
+  show(nodeID: string, token?: WorkbenchGenieNodeVisibilityToken): boolean;
   setHidden(nodeID: string, hidden: boolean): void;
 }
 
+export type WorkbenchGenieNodeVisibilityToken = symbol;
+
 export function createWorkbenchGenieNodeVisibilityStore(): WorkbenchGenieNodeVisibilityStore {
   const hiddenNodeIDs = new Set<string>();
+  const hiddenTokenByNodeID = new Map<
+    string,
+    WorkbenchGenieNodeVisibilityToken
+  >();
   const listenersByNodeID = new Map<string, Set<() => void>>();
+
+  const setHidden = (nodeID: string, hidden: boolean): void => {
+    if (hiddenNodeIDs.has(nodeID) === hidden) {
+      return;
+    }
+    if (hidden) {
+      hiddenNodeIDs.add(nodeID);
+    } else {
+      hiddenNodeIDs.delete(nodeID);
+    }
+    for (const listener of listenersByNodeID.get(nodeID) ?? []) {
+      listener();
+    }
+  };
+  const hide = (nodeID: string): WorkbenchGenieNodeVisibilityToken => {
+    const token = Symbol(nodeID);
+    hiddenTokenByNodeID.set(nodeID, token);
+    setHidden(nodeID, true);
+    return token;
+  };
+  const show = (
+    nodeID: string,
+    token?: WorkbenchGenieNodeVisibilityToken
+  ): boolean => {
+    if (token && hiddenTokenByNodeID.get(nodeID) !== token) {
+      return false;
+    }
+    hiddenTokenByNodeID.delete(nodeID);
+    setHidden(nodeID, false);
+    return true;
+  };
 
   return {
     dispose() {
       hiddenNodeIDs.clear();
+      hiddenTokenByNodeID.clear();
       listenersByNodeID.clear();
     },
     getSnapshot(nodeID) {
       return hiddenNodeIDs.has(nodeID);
     },
+    hide,
     setHidden(nodeID, hidden) {
-      if (hiddenNodeIDs.has(nodeID) === hidden) {
-        return;
-      }
       if (hidden) {
-        hiddenNodeIDs.add(nodeID);
+        hide(nodeID);
       } else {
-        hiddenNodeIDs.delete(nodeID);
-      }
-      for (const listener of listenersByNodeID.get(nodeID) ?? []) {
-        listener();
+        show(nodeID);
       }
     },
+    show,
     subscribe(nodeID, listener) {
       const listeners = listenersByNodeID.get(nodeID) ?? new Set<() => void>();
       listeners.add(listener);

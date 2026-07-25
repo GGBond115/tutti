@@ -11,6 +11,18 @@ export interface PreparedGenieTextureCapture {
   rect: WorkbenchGenieViewportRect;
 }
 
+type GenieCloneMaskImageProperty = "-webkit-mask-image" | "mask-image";
+
+interface GenieCloneMaskImageReference {
+  element: HTMLElement;
+  property: GenieCloneMaskImageProperty;
+}
+
+const genieCloneMaskImageProperties = [
+  "-webkit-mask-image",
+  "mask-image"
+] as const satisfies readonly GenieCloneMaskImageProperty[];
+
 interface ReadableStylesheetFingerprint {
   disabled: boolean;
   ownerText: string | null;
@@ -27,6 +39,65 @@ const readableStylesheetTextByDocument = new WeakMap<
   Document,
   CachedReadableStylesheetText
 >();
+
+function readSingleCssUrl(value: string): string | null {
+  const normalized = value.trim();
+  if (!normalized.startsWith("url(") || !normalized.endsWith(")")) {
+    return null;
+  }
+  const inner = normalized.slice(4, -1).trim();
+  if (!inner) {
+    return null;
+  }
+  const quote = inner[0];
+  if (quote === '"' || quote === "'") {
+    return inner.endsWith(quote) ? inner.slice(1, -1) : null;
+  }
+  return inner.includes('"') || inner.includes("'") ? null : inner;
+}
+
+export async function inlineGenieCloneMaskImageResources({
+  cloneRoot,
+  readResource
+}: {
+  cloneRoot: HTMLElement;
+  readResource: (url: string) => Promise<string | null>;
+}): Promise<void> {
+  const referencesByUrl = new Map<string, GenieCloneMaskImageReference[]>();
+  const elements = [
+    cloneRoot,
+    ...Array.from(cloneRoot.querySelectorAll<HTMLElement>("[style]"))
+  ];
+
+  for (const element of elements) {
+    for (const property of genieCloneMaskImageProperties) {
+      const url = readSingleCssUrl(element.style.getPropertyValue(property));
+      if (!url) {
+        continue;
+      }
+      const references = referencesByUrl.get(url) ?? [];
+      references.push({ element, property });
+      referencesByUrl.set(url, references);
+    }
+  }
+
+  await Promise.all(
+    Array.from(referencesByUrl.entries(), async ([url, references], index) => {
+      const inlineUrl = await readResource(url);
+      if (!inlineUrl) {
+        return;
+      }
+      const variableName = `--workbench-genie-capture-mask-${index}`;
+      cloneRoot.style.setProperty(
+        variableName,
+        `url(${JSON.stringify(inlineUrl)})`
+      );
+      for (const { element, property } of references) {
+        element.style.setProperty(property, `var(${variableName})`);
+      }
+    })
+  );
+}
 
 function hasSameStylesheetFingerprints(
   left: ReadableStylesheetFingerprint[],

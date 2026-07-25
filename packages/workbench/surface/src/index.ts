@@ -95,6 +95,11 @@ export {
   type WorkbenchSurfaceWallpaperFit,
   type WorkbenchWindowManagementConfig
 } from "./react/WorkbenchSurface.tsx";
+export type {
+  WorkbenchNodePreviewImageCapture,
+  WorkbenchNodePreviewImages,
+  WorkbenchNodePreviewImagesCapture
+} from "./react/nodePreviewCapture.ts";
 export {
   WorkbenchDockComponentPreviewFrame,
   type WorkbenchDockComponentPreviewFrameProps

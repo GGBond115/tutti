@@ -1,20 +1,109 @@
 export interface CachedWorkbenchGenieRestoreInput {
-  launch(): void;
-  requestFrame(callback: () => void): void;
+  launch(): Promise<unknown> | unknown;
+  onLaunchSettled(): void;
   scheduleTask(callback: () => void): void;
-  startAnimation(): void;
+  startAnimation(onAnimationSettled: () => void): void;
 }
 
 export function startCachedWorkbenchGenieRestore({
   launch,
-  requestFrame,
+  onLaunchSettled,
   scheduleTask,
   startAnimation
 }: CachedWorkbenchGenieRestoreInput): void {
-  startAnimation();
-  requestFrame(() => {
-    scheduleTask(launch);
-  });
+  let launchScheduled = false;
+  const launchAfterAnimation = () => {
+    if (launchScheduled) {
+      return;
+    }
+    launchScheduled = true;
+    scheduleTask(() => {
+      void Promise.resolve(launch()).then(onLaunchSettled, onLaunchSettled);
+    });
+  };
+
+  startAnimation(launchAfterAnimation);
+}
+
+export interface WorkbenchGenieIdleScheduler {
+  cancelIdleCallback(idleID: number): void;
+  requestIdleCallback(callback: () => void): number;
+}
+
+export function scheduleWorkbenchGenieWarmup({
+  isAnimationActive,
+  isWarmupComplete,
+  renderWarmup,
+  scheduler
+}: {
+  isAnimationActive(): boolean;
+  isWarmupComplete(): boolean;
+  renderWarmup(): void;
+  scheduler: WorkbenchGenieIdleScheduler;
+}): () => void {
+  let cancelled = false;
+  let idleID: number | null = null;
+
+  const schedule = () => {
+    idleID = scheduler.requestIdleCallback(runWarmup);
+  };
+  const runWarmup = () => {
+    idleID = null;
+    if (cancelled || isWarmupComplete()) {
+      return;
+    }
+    if (isAnimationActive()) {
+      schedule();
+      return;
+    }
+    renderWarmup();
+  };
+
+  schedule();
+  return () => {
+    cancelled = true;
+    if (idleID !== null) {
+      scheduler.cancelIdleCallback(idleID);
+    }
+  };
+}
+
+export function scheduleWorkbenchGeniePostAnimationIdleTask({
+  isAnimationActive,
+  isCancelled,
+  runTask,
+  scheduler
+}: {
+  isAnimationActive(): boolean;
+  isCancelled(): boolean;
+  runTask(): void;
+  scheduler: WorkbenchGenieIdleScheduler;
+}): () => void {
+  let cancelled = false;
+  let idleID: number | null = null;
+
+  const schedule = () => {
+    idleID = scheduler.requestIdleCallback(run);
+  };
+  const run = () => {
+    idleID = null;
+    if (cancelled || isCancelled()) {
+      return;
+    }
+    if (isAnimationActive()) {
+      schedule();
+      return;
+    }
+    runTask();
+  };
+
+  schedule();
+  return () => {
+    cancelled = true;
+    if (idleID !== null) {
+      scheduler.cancelIdleCallback(idleID);
+    }
+  };
 }
 
 export interface NativeFirstGenieTextureResult<TTexture> {

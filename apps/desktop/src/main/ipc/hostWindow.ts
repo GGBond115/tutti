@@ -1,6 +1,7 @@
 import { screen } from "electron";
 import {
   captureWorkbenchDockPreview,
+  captureWorkbenchPreviewImages,
   type WorkbenchDockPreviewCaptureDiagnostic
 } from "@tutti-os/workbench-electron";
 import {
@@ -55,6 +56,46 @@ export function registerHostWindowIpc(deps: HostWindowIpcDependencies): void {
       const captureId = ++capturePreviewSequence;
 
       return captureWorkbenchDockPreview({
+        contentSize: {
+          height: contentBounds.height,
+          width: contentBounds.width
+        },
+        maxHeight: input.maxHeight,
+        maxWidth: input.maxWidth,
+        onDiagnostic: (diagnostic) => {
+          logCapturePreviewDiagnostic({
+            captureId,
+            contentBounds,
+            diagnostic,
+            input,
+            logger
+          });
+        },
+        rect: input.rect,
+        timeoutMs: capturePreviewTimeoutMs,
+        webContents: ownerWindow.webContents
+      });
+    }
+  );
+
+  registerDesktopIpcHandler(
+    desktopIpcChannels.host.window.capturePreviewImages,
+    async (event, input) => {
+      const ownerWindow = resolveOwnerWindowFromEvent(event);
+      if (
+        !ownerWindow ||
+        ownerWindow.isDestroyed() ||
+        ownerWindow.webContents.isDestroyed()
+      ) {
+        logger.warn("host window preview capture skipped", {
+          reason: "owner_window_unavailable"
+        });
+        return null;
+      }
+
+      const contentBounds = ownerWindow.getContentBounds();
+      const captureId = ++capturePreviewSequence;
+      return captureWorkbenchPreviewImages({
         contentSize: {
           height: contentBounds.height,
           width: contentBounds.width

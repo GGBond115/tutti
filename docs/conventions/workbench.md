@@ -52,10 +52,18 @@ Rules:
   that first texture frame to paint before host launch work begins
 - attempt the host-provided native Dock preview capture before cloning live DOM;
   clone DOM only after native capture fails or exceeds the bounded wait, and
-  keep a late native result for future Dock/cache use instead of replacing an
-  animation already in progress
+  persist a late result's Dock image immediately but defer its full-size decode
+  until the active Genie animation settles and the browser is idle
+- for Electron hosts, derive the full-size Genie image and bounded Dock image
+  from one region capture; never upscale the Dock image into a Genie texture
+- bound retained Genie Canvas textures by both entry count and estimated RGBA
+  bytes; retain restored-node textures for later minimizes, and remove them
+  when their nodes no longer exist
 - publish Genie-hidden state through per-node subscriptions so changing one
   window does not invalidate every mounted Workbench window
+- use per-node operation tokens for Genie hiding; global animation generation
+  may control the shared Canvas but must not block another node from becoming
+  visible
 - project normal-window visibility through the mounted body context; it is
   false while minimized, Genie-hidden, or in Mission Control, so heavy child
   presentation can wait without importing Workbench animation state

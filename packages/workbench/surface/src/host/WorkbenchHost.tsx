@@ -18,6 +18,7 @@ const noop = () => {};
 
 export function WorkbenchHost({
   captureNodePreviewImage,
+  captureNodePreviewImages,
   className,
   contributions,
   debugDiagnostics,
@@ -105,6 +106,7 @@ export function WorkbenchHost({
   });
   const surfaceRenderers = useWorkbenchHostSurfaceRenderers({
     captureNodePreviewImage,
+    captureNodePreviewImages,
     chromeContext,
     debugDiagnostics,
     dockPreviewCache,
@@ -137,6 +139,7 @@ export function WorkbenchHost({
     <WorkbenchSurface<WorkbenchHostNodeData>
       className={className}
       captureNodePreviewImage={surfaceRenderers.captureNodePreviewImage}
+      captureNodePreviewImages={surfaceRenderers.captureNodePreviewImages}
       controller={hostSession.controller}
       debugDiagnostics={debugDiagnostics}
       dockPreviewCache={dockPreviewCache}

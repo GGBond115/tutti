@@ -43,11 +43,14 @@ import type {
   WorkbenchDockPreviewCacheKeyResolver
 } from "./dockPreviewCache.ts";
 import type { WorkbenchWindowChromeI18nRuntime } from "./workbenchWindowI18n.ts";
+import type {
+  WorkbenchNodePreviewImageCapture,
+  WorkbenchNodePreviewImagesCapture
+} from "./nodePreviewCapture.ts";
 
 export interface WorkbenchSurfaceProps<TData = unknown> {
-  captureNodePreviewImage?: (
-    node: WorkbenchNode<TData>
-  ) => Promise<string | null> | string | null;
+  captureNodePreviewImage?: WorkbenchNodePreviewImageCapture<TData>;
+  captureNodePreviewImages?: WorkbenchNodePreviewImagesCapture<TData>;
   className?: string;
   controller: WorkbenchController<TData>;
   debugDiagnostics?: WorkbenchDebugDiagnostics;
@@ -104,6 +107,7 @@ export interface WorkbenchSurfaceWallpaper {
 
 export function WorkbenchSurface<TData>({
   captureNodePreviewImage,
+  captureNodePreviewImages,
   className,
   controller,
   debugDiagnostics,
@@ -141,6 +145,7 @@ export function WorkbenchSurface<TData>({
     <WorkbenchProvider controller={controller}>
       <WorkbenchSurfaceInner
         captureNodePreviewImage={captureNodePreviewImage}
+        captureNodePreviewImages={captureNodePreviewImages}
         className={className}
         debugDiagnostics={debugDiagnostics}
         dockPreviewCache={dockPreviewCache}
@@ -179,6 +184,7 @@ export function WorkbenchSurface<TData>({
 
 function WorkbenchSurfaceInner<TData>({
   captureNodePreviewImage,
+  captureNodePreviewImages,
   className,
   debugDiagnostics,
   dockPreviewCache,
@@ -221,6 +227,7 @@ function WorkbenchSurfaceInner<TData>({
   const ref = useWorkbenchSurfaceSize<HTMLDivElement>(onSizeChange);
   const genie = useWorkbenchGenieAnimation({
     captureNodePreviewImage,
+    captureNodePreviewImages,
     controller,
     debugDiagnostics,
     dockPreviewCache,

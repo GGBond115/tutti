@@ -25,3 +25,24 @@ test("notifies only the window whose genie visibility changed", () => {
   unsubscribeB();
   store.dispose();
 });
+
+test("lets another node animation reveal its own hidden node", () => {
+  const store = createWorkbenchGenieNodeVisibilityStore();
+  const tokenA = store.hide("node-a");
+  store.hide("node-b");
+
+  assert.equal(store.show("node-a", tokenA), true);
+  assert.equal(store.getSnapshot("node-a"), false);
+  assert.equal(store.getSnapshot("node-b"), true);
+});
+
+test("does not let an old operation reveal the same node", () => {
+  const store = createWorkbenchGenieNodeVisibilityStore();
+  const oldToken = store.hide("node-a");
+  const currentToken = store.hide("node-a");
+
+  assert.equal(store.show("node-a", oldToken), false);
+  assert.equal(store.getSnapshot("node-a"), true);
+  assert.equal(store.show("node-a", currentToken), true);
+  assert.equal(store.getSnapshot("node-a"), false);
+});

@@ -789,6 +789,7 @@ function ReadyWorkspaceWorkbenchWithSession({
         <WorkspaceAppCenterIntegration workspaceId={state.workspace.id} />
         <WorkbenchHost
           captureNodePreviewImage={hostInput.captureNodePreviewImage}
+          captureNodePreviewImages={hostInput.captureNodePreviewImages}
           className="h-full"
           contributions={hostInput.contributions}
           debugDiagnostics={hostInput.debugDiagnostics}

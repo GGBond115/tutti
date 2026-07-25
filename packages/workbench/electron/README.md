@@ -1,11 +1,12 @@
 # @tutti-os/workbench-electron
 
-Electron main-process helpers for Workbench Dock previews.
+Electron main-process helpers for Workbench previews.
 
 The package owns two product-neutral mechanics:
 
 - serial `webContents.capturePage()` capture, renderer-rectangle cropping,
-  bounded resizing, timeout handling, and empty-image handling
+  full-size Genie output, bounded Dock resizing, timeout handling, and
+  empty-image handling
 - validated, bounded, atomic filesystem storage for Dock preview data URLs
 
 The consuming desktop host still owns IPC authorization, BrowserWindow
@@ -14,11 +15,11 @@ ownership, the cache directory (for example, a path below Electron
 
 ```ts
 import {
-  captureWorkbenchDockPreview,
+  captureWorkbenchPreviewImages,
   createWorkbenchDockPreviewCacheStore
 } from "@tutti-os/workbench-electron";
 
-const previewImageUrl = await captureWorkbenchDockPreview({
+const previewImages = await captureWorkbenchPreviewImages({
   contentSize: ownerWindow.getContentBounds(),
   maxHeight: 170,
   maxWidth: 260,
@@ -30,7 +31,12 @@ const cache = createWorkbenchDockPreviewCacheStore({
   directory: dockPreviewCacheDirectory
 });
 
-if (previewImageUrl) {
-  await cache.write({ dataUrl: previewImageUrl, key });
+if (previewImages) {
+  await cache.write({ dataUrl: previewImages.dockPreviewImageUrl, key });
 }
 ```
+
+`captureWorkbenchPreviewImages` calls `capturePage()` once. The cropped native
+image becomes the Genie image; a resized copy becomes the Dock preview.
+`captureWorkbenchDockPreview` remains available for consumers that only need
+the bounded Dock image.

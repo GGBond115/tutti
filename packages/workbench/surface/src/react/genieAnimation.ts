@@ -33,6 +33,10 @@ const genieVerticalRowStagger = 0.2;
 const genieDockGlowRadius = 55;
 const genieScanlineStrideThresholdPx = 640;
 const genieMaxScanlineStride = 3;
+const genieWarmupTextureWidthRatio = 0.65;
+const genieWarmupTextureHeightRatio = 0.7;
+const genieWarmupTextureMaxWidth = 1_280;
+const genieWarmupTextureMaxHeight = 800;
 
 export function clampGenieProgress(value: number): number {
   return Math.max(0, Math.min(1, value));
@@ -77,6 +81,18 @@ export function viewportRectFromElement(
 
 export function isUsableGenieRect(rect: WorkbenchGenieViewportRect): boolean {
   return rect.width > 0 && rect.height > 0;
+}
+
+export function isGenieTextureResolutionSufficient(
+  source: { height: number; width: number },
+  target: Pick<WorkbenchGenieViewportRect, "height" | "width">
+): boolean {
+  return (
+    Number.isFinite(source.width) &&
+    Number.isFinite(source.height) &&
+    source.width >= Math.max(1, Math.round(target.width)) &&
+    source.height >= Math.max(1, Math.round(target.height))
+  );
 }
 
 export function centerPointFromRect(
@@ -303,4 +319,67 @@ export function renderGenieScanlines(
     dirtyRect.width,
     dirtyRect.height
   );
+}
+
+export function resolveGenieWarmupTextureSize(
+  viewportWidth: number,
+  viewportHeight: number
+): { height: number; width: number } {
+  return {
+    height: Math.max(
+      1,
+      Math.min(
+        genieWarmupTextureMaxHeight,
+        Math.round(viewportHeight * genieWarmupTextureHeightRatio)
+      )
+    ),
+    width: Math.max(
+      1,
+      Math.min(
+        genieWarmupTextureMaxWidth,
+        Math.round(viewportWidth * genieWarmupTextureWidthRatio)
+      )
+    )
+  };
+}
+
+export function renderGenieWarmupFrames(
+  context: CanvasRenderingContext2D,
+  viewportWidth: number,
+  viewportHeight: number,
+  texture: HTMLCanvasElement
+): void {
+  const textureRect = {
+    height: texture.height,
+    left: (viewportWidth - texture.width) / 2,
+    top: (viewportHeight - texture.height) / 2,
+    width: texture.width
+  };
+  const dockPoint = {
+    x: viewportWidth / 2,
+    y: Math.max(0, viewportHeight - 24)
+  };
+
+  renderGenieScanlines(context, viewportWidth, viewportHeight, {
+    direction: "minimize",
+    dockPoint,
+    progress: 0,
+    texture,
+    textureRect
+  });
+  renderGenieScanlines(context, viewportWidth, viewportHeight, {
+    direction: "minimize",
+    dockPoint,
+    progress: 0.5,
+    texture,
+    textureRect
+  });
+  renderGenieScanlines(context, viewportWidth, viewportHeight, {
+    direction: "open",
+    dockPoint,
+    progress: 0,
+    texture,
+    textureRect
+  });
+  context.clearRect(0, 0, viewportWidth, viewportHeight);
 }

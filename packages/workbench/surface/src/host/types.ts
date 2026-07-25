@@ -33,6 +33,10 @@ import type {
   WorkbenchWindowHeaderDragHandleProps
 } from "../react/types.ts";
 import type { WorkbenchDockPreviewCache } from "../react/dockPreviewCache.ts";
+import type {
+  WorkbenchNodePreviewImageCapture,
+  WorkbenchNodePreviewImagesCapture
+} from "../react/nodePreviewCapture.ts";
 
 export interface WorkbenchHostActivation<TPayload = unknown> {
   payload?: TPayload;
@@ -671,9 +675,8 @@ export interface WorkbenchContribution {
 }
 
 export interface WorkbenchHostProps {
-  captureNodePreviewImage?: (
-    node: WorkbenchNode<WorkbenchHostNodeData>
-  ) => Promise<string | null> | string | null;
+  captureNodePreviewImage?: WorkbenchNodePreviewImageCapture<WorkbenchHostNodeData>;
+  captureNodePreviewImages?: WorkbenchNodePreviewImagesCapture<WorkbenchHostNodeData>;
   className?: string;
   contributions?: readonly WorkbenchContribution[];
   debugDiagnostics?: WorkbenchDebugDiagnostics;

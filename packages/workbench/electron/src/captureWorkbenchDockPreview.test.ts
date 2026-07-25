@@ -3,10 +3,41 @@ import test from "node:test";
 import type { NativeImage, WebContents } from "electron";
 import {
   captureWorkbenchDockPreview,
+  captureWorkbenchPreviewImages,
   type WorkbenchDockPreviewCaptureDiagnostic,
   type WorkbenchDockPreviewRect,
   type WorkbenchDockPreviewSize
 } from "./captureWorkbenchDockPreview.ts";
+
+test("creates full-size Genie and bounded Dock images from one capture", async () => {
+  const source = new FakeNativeImage(
+    { height: 800, width: 1_000 },
+    { resizedDataUrl: "data:image/png;base64,ZG9jaw==" }
+  );
+  let captureCount = 0;
+  const images = await captureWorkbenchPreviewImages({
+    contentSize: { height: 800, width: 1_000 },
+    maxHeight: 170,
+    maxWidth: 260,
+    rect: { height: 700, width: 900, x: 20, y: 30 },
+    webContents: fakeWebContents(async () => {
+      captureCount += 1;
+      return source.asNativeImage();
+    })
+  });
+
+  assert.equal(captureCount, 1);
+  assert.deepEqual(images, {
+    dockPreviewImageUrl: "data:image/png;base64,ZG9jaw==",
+    genieImageUrl: "data:image/png;base64,cHJldmlldw=="
+  });
+  assert.deepEqual(source.cropRects, [
+    { height: 700, width: 900, x: 20, y: 30 }
+  ]);
+  assert.deepEqual(source.croppedImages[0]?.resizeSizes, [
+    { height: 170, width: 219 }
+  ]);
+});
 
 test("captures, scales, crops, and bounds the preview image", async () => {
   const source = new FakeNativeImage({ height: 800, width: 1_000 });
@@ -183,6 +214,7 @@ class FakeNativeImage {
   private readonly dataUrl: string;
   private readonly empty: boolean;
   private readonly cropEmpty: boolean;
+  private readonly resizedDataUrl: string;
   private readonly resizeEmpty: boolean;
   private readonly size: WorkbenchDockPreviewSize;
 
@@ -192,6 +224,7 @@ class FakeNativeImage {
       cropEmpty?: boolean;
       dataUrl?: string;
       empty?: boolean;
+      resizedDataUrl?: string;
       resizeEmpty?: boolean;
     } = {}
   ) {
@@ -199,6 +232,7 @@ class FakeNativeImage {
     this.dataUrl = options.dataUrl ?? "data:image/png;base64,cHJldmlldw==";
     this.empty = options.empty ?? false;
     this.resizeEmpty = options.resizeEmpty ?? false;
+    this.resizedDataUrl = options.resizedDataUrl ?? this.dataUrl;
     this.size = size;
   }
 
@@ -213,6 +247,7 @@ class FakeNativeImage {
       {
         dataUrl: this.dataUrl,
         empty: this.cropEmpty,
+        resizedDataUrl: this.resizedDataUrl,
         resizeEmpty: this.resizeEmpty
       }
     );
@@ -231,7 +266,7 @@ class FakeNativeImage {
   resize(size: WorkbenchDockPreviewSize): NativeImage {
     this.resizeSizes.push(size);
     return new FakeNativeImage(size, {
-      dataUrl: this.dataUrl,
+      dataUrl: this.resizedDataUrl,
       empty: this.resizeEmpty
     }).asNativeImage();
   }

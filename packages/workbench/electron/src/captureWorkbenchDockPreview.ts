@@ -39,6 +39,11 @@ export interface CaptureWorkbenchDockPreviewInput {
   webContents: Pick<WebContents, "capturePage" | "isDestroyed">;
 }
 
+export interface WorkbenchPreviewImages {
+  dockPreviewImageUrl: string;
+  genieImageUrl: string;
+}
+
 const defaultMaxCapturePreviewDimensionPx = 512;
 const defaultCapturePreviewTimeoutMs = 2_000;
 let capturePreviewQueue: Promise<void> = Promise.resolve();
@@ -46,70 +51,96 @@ let capturePreviewQueue: Promise<void> = Promise.resolve();
 export function captureWorkbenchDockPreview(
   input: CaptureWorkbenchDockPreviewInput
 ): Promise<string | null> {
+  return captureWorkbenchPreviewImagesInternal(input, false).then(
+    (images) => images?.dockPreviewImageUrl ?? null
+  );
+}
+
+export function captureWorkbenchPreviewImages(
+  input: CaptureWorkbenchDockPreviewInput
+): Promise<WorkbenchPreviewImages | null> {
+  return captureWorkbenchPreviewImagesInternal(input, true);
+}
+
+function captureWorkbenchPreviewImagesInternal(
+  input: CaptureWorkbenchDockPreviewInput,
+  includeGenieImage: boolean
+): Promise<WorkbenchPreviewImages | null> {
   const rect = sanitizeCaptureRect(input.rect, input.contentSize);
   if (!rect) {
     emitDiagnostic(input, { reason: "invalid_rect" });
     return Promise.resolve(null);
   }
 
-  return enqueueCapturePreview(async () => {
-    if (input.webContents.isDestroyed()) {
-      emitDiagnostic(input, {
-        reason: "web_contents_destroyed_before_capture"
-      });
-      return null;
-    }
-
-    let image: NativeImage;
-    try {
-      const capturedImage = await capturePageWithTimeout(
-        input.webContents,
-        sanitizeTimeout(input.timeoutMs)
-      );
-      if (!capturedImage) {
-        emitDiagnostic(input, { reason: "capture_page_timeout" });
+  return enqueueCapturePreview(
+    async (): Promise<WorkbenchPreviewImages | null> => {
+      if (input.webContents.isDestroyed()) {
+        emitDiagnostic(input, {
+          reason: "web_contents_destroyed_before_capture"
+        });
         return null;
       }
-      image = capturedImage;
-    } catch (error) {
-      emitDiagnostic(input, { error, reason: "capture_page_failed" });
-      return null;
-    }
 
-    if (image.isEmpty()) {
-      emitDiagnostic(input, { reason: "full_capture_empty" });
-      return null;
-    }
+      let image: NativeImage;
+      try {
+        const capturedImage = await capturePageWithTimeout(
+          input.webContents,
+          sanitizeTimeout(input.timeoutMs)
+        );
+        if (!capturedImage) {
+          emitDiagnostic(input, { reason: "capture_page_timeout" });
+          return null;
+        }
+        image = capturedImage;
+      } catch (error) {
+        emitDiagnostic(input, { error, reason: "capture_page_failed" });
+        return null;
+      }
 
-    const imageSize = image.getSize();
-    const cropRect = scaleCaptureRectForImage(
-      rect,
-      imageSize,
-      input.contentSize
-    );
-    const cropped = image.crop(cropRect);
-    if (cropped.isEmpty()) {
-      emitDiagnostic(input, {
-        cropRect,
+      if (image.isEmpty()) {
+        emitDiagnostic(input, { reason: "full_capture_empty" });
+        return null;
+      }
+
+      const imageSize = image.getSize();
+      const cropRect = scaleCaptureRectForImage(
+        rect,
         imageSize,
-        reason: "crop_empty"
-      });
-      return null;
-    }
+        input.contentSize
+      );
+      const cropped = image.crop(cropRect);
+      if (cropped.isEmpty()) {
+        emitDiagnostic(input, {
+          cropRect,
+          imageSize,
+          reason: "crop_empty"
+        });
+        return null;
+      }
 
-    const resized = resizeCapturePreviewImage(cropped, input);
-    if (resized.isEmpty()) {
-      emitDiagnostic(input, { reason: "resize_empty" });
-      return null;
-    }
+      const genieImageUrl = includeGenieImage ? cropped.toDataURL() : "";
+      if (includeGenieImage && !genieImageUrl) {
+        emitDiagnostic(input, { reason: "data_url_empty" });
+        return null;
+      }
 
-    const dataUrl = resized.toDataURL();
-    if (!dataUrl) {
-      emitDiagnostic(input, { reason: "data_url_empty" });
-      return null;
+      const resized = resizeCapturePreviewImage(cropped, input);
+      if (resized.isEmpty()) {
+        emitDiagnostic(input, { reason: "resize_empty" });
+        return null;
+      }
+
+      const dockPreviewImageUrl = resized.toDataURL();
+      if (!dockPreviewImageUrl) {
+        emitDiagnostic(input, { reason: "data_url_empty" });
+        return null;
+      }
+      return {
+        dockPreviewImageUrl,
+        genieImageUrl: genieImageUrl || dockPreviewImageUrl
+      };
     }
-    return dataUrl;
-  });
+  );
 }
 
 function capturePageWithTimeout(
@@ -156,9 +187,9 @@ function sanitizeCaptureRect(
   return { height, width, x, y };
 }
 
-function enqueueCapturePreview(
-  task: () => Promise<string | null>
-): Promise<string | null> {
+function enqueueCapturePreview<TResult>(
+  task: () => Promise<TResult>
+): Promise<TResult> {
   const result = capturePreviewQueue.then(task, task);
   capturePreviewQueue = result.then(
     () => undefined,
