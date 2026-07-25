@@ -366,6 +366,14 @@ The busy-session prompt queue is ephemeral durable-intent coordination in the wo
 
 The Rail query cache stores section metadata, ordered Session IDs, cursors, and totals only. Session entities always come from the engine.
 
+Cross-platform hosts may reuse the DOM-free canonical Rail summary projection
+from `@tutti-os/agent-gui/conversation-rail-projection`. They must still obtain
+ordered membership, project labels, totals, and cursors from the authoritative
+section query and join those IDs to canonical engine Sessions. Native hosts own
+their renderer and interaction layout; they must not import Desktop or Web
+components, infer project membership from `cwd`, or create a second Session
+lifecycle store.
+
 Hosts install the complete query/mutation cohort from
 `@tutti-os/agent-gui/conversation-rail-runtime`; the shared factory owns the
 workspace-scoped cache lifetime while transport adapters own only protocol

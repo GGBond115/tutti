@@ -70,8 +70,14 @@ function ConversationBinding({
       model={model}
       onBack={() => application.showWorkspacePicker()}
       onDraftChange={(value) => service.setDraft(value)}
+      onDeleteSession={(id) => service.deleteSession(id)}
       onLoadOlder={() => void service.loadOlderMessages()}
+      onLoadMoreSessions={(sectionId) =>
+        void service.loadMoreSessions(sectionId)
+      }
+      onRefreshSessions={() => service.refreshSessions()}
       onNewSession={() => service.startCreating()}
+      onRenameSession={(id, title) => service.renameSession(id, title)}
       onRespond={(interaction, input) =>
         service.respondToInteraction(interaction, input)
       }
@@ -79,6 +85,7 @@ function ConversationBinding({
       onSelectTarget={(id) => service.selectTarget(id)}
       onSend={() => void service.send()}
       onStop={() => service.stop()}
+      onTogglePinned={(id) => service.toggleSessionPinned(id)}
       workspace={service.workspace}
     />
   );

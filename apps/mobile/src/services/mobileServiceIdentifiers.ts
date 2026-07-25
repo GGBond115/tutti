@@ -6,6 +6,7 @@ import type { LoginService } from "./loginService";
 import type { MobileApplicationService } from "./mobileApplicationService";
 import type { WorkspaceActivityService } from "./workspaceActivityService";
 import type { WorkspaceCatalogService } from "./workspaceCatalogService";
+import type { WorkspaceConversationRailService } from "./workspaceConversationRailService";
 import type { WorkspaceNavigationService } from "./workspaceNavigationService";
 
 export const IMobileApplicationService =
@@ -24,6 +25,10 @@ export const IWorkspaceCatalogService =
 export const IWorkspaceActivityService =
   createDecorator<WorkspaceActivityService>(
     "mobile-workspace-activity-service"
+  );
+export const IWorkspaceConversationRailService =
+  createDecorator<WorkspaceConversationRailService>(
+    "mobile-workspace-conversation-rail-service"
   );
 export const IWorkspaceNavigationService =
   createDecorator<WorkspaceNavigationService>(

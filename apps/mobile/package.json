@@ -13,15 +13,23 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@gorhom/bottom-sheet": "5.2.14",
+    "@rn-primitives/portal": "1.5.2",
     "@tutti-os/agent-activity-core": "workspace:*",
     "@tutti-os/agent-activity-tuttid-adapter": "workspace:*",
     "@tutti-os/agent-gui": "workspace:*",
     "@tutti-os/auth-bridge": "workspace:*",
     "@tutti-os/client-tuttid-ts": "workspace:*",
     "@tutti-os/infra": "0.1.0",
+    "@tutti-os/ui-system": "workspace:*",
+    "nativewind": "4.2.6",
     "react": "19.2.6",
     "react-native": "0.86.0",
-    "react-native-safe-area-context": "5.6.2"
+    "react-native-css-interop": "0.2.6",
+    "react-native-gesture-handler": "3.1.0",
+    "react-native-reanimated": "4.5.3",
+    "react-native-safe-area-context": "5.6.2",
+    "react-native-worklets": "0.11.3"
   },
   "devDependencies": {
     "@babel/core": "7.29.0",
@@ -42,6 +50,7 @@
     "hermes-compiler": "250829098.0.14",
     "jest": "29.7.0",
     "react-test-renderer": "19.2.6",
+    "tailwindcss": "3.4.17",
     "typescript": "5.9.3"
   },
   "engines": {

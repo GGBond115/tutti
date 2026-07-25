@@ -2,6 +2,7 @@ import type {
   AgentActivityInteraction,
   AgentActivityMessage
 } from "@tutti-os/agent-activity-core";
+import { type NativeTheme, useNativeTheme } from "@tutti-os/ui-system/native";
 import {
   buildAskUserAnswerPayload,
   readOwnAnswer,
@@ -11,13 +12,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { PrimaryButton } from "./PrimaryButton";
 import { t } from "../i18n";
-import { theme } from "../theme";
 
 export function MobileMessageRow({
   message
 }: {
   message: AgentActivityMessage;
 }) {
+  const theme = useNativeTheme();
+  const styles = createStyles(theme);
   const body = messageText(message);
   const user = message.role === "user";
   if (!body) {
@@ -53,6 +55,8 @@ export function MobileInteractionCard({
   interaction,
   onSubmit
 }: MobileInteractionCardProps) {
+  const theme = useNativeTheme();
+  const styles = createStyles(theme);
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [failed, setFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -348,72 +352,74 @@ function normalizeQuestions(value: unknown): Array<{
   });
 }
 
-const styles = StyleSheet.create({
-  actionButton: { flex: 1 },
-  actionList: { gap: theme.space.small, marginTop: theme.space.medium },
-  actionRow: {
-    flexDirection: "row",
-    gap: theme.space.small,
-    marginTop: theme.space.medium
-  },
-  answerInput: {
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.medium,
-    borderWidth: StyleSheet.hairlineWidth,
-    color: theme.color.text,
-    minHeight: 72,
-    padding: theme.space.small
-  },
-  interactionCard: {
-    backgroundColor: theme.color.panelRaised,
-    borderColor: theme.color.accent,
-    borderRadius: theme.radius.medium,
-    borderWidth: StyleSheet.hairlineWidth,
-    gap: theme.space.small,
-    padding: theme.space.medium
-  },
-  error: { color: theme.color.danger, fontSize: 12 },
-  interactionKind: {
-    color: theme.color.accent,
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase"
-  },
-  interactionTitle: {
-    color: theme.color.text,
-    fontSize: 15,
-    fontWeight: "700",
-    lineHeight: 21
-  },
-  messageBody: { color: theme.color.text, fontSize: 15, lineHeight: 23 },
-  messageRole: {
-    color: theme.color.accent,
-    fontSize: 11,
-    fontWeight: "700",
-    marginBottom: 7,
-    textTransform: "uppercase"
-  },
-  messageRow: {
-    backgroundColor: theme.color.panel,
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.large,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: theme.space.medium
-  },
-  messageStatus: { color: theme.color.muted, fontSize: 11, marginTop: 8 },
-  option: {
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.medium,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: theme.space.small
-  },
-  optionList: { gap: 6 },
-  optionSelected: { borderColor: theme.color.accent },
-  optionText: { color: theme.color.text, fontSize: 14 },
-  question: { gap: theme.space.small },
-  questionText: { color: theme.color.textSecondary, fontSize: 14 },
-  userMessageRow: {
-    backgroundColor: theme.color.panelRaised,
-    marginLeft: 32
-  }
-});
+function createStyles(theme: NativeTheme) {
+  return StyleSheet.create({
+    actionButton: { flex: 1 },
+    actionList: { gap: theme.space.small, marginTop: theme.space.medium },
+    actionRow: {
+      flexDirection: "row",
+      gap: theme.space.small,
+      marginTop: theme.space.medium
+    },
+    answerInput: {
+      borderColor: theme.color.border,
+      borderRadius: theme.radius.medium,
+      borderWidth: StyleSheet.hairlineWidth,
+      color: theme.color.text,
+      minHeight: 72,
+      padding: theme.space.small
+    },
+    interactionCard: {
+      backgroundColor: theme.color.panelRaised,
+      borderColor: theme.color.accent,
+      borderRadius: theme.radius.medium,
+      borderWidth: StyleSheet.hairlineWidth,
+      gap: theme.space.small,
+      padding: theme.space.medium
+    },
+    error: { color: theme.color.danger, fontSize: 12 },
+    interactionKind: {
+      color: theme.color.accent,
+      fontSize: 11,
+      fontWeight: "700",
+      textTransform: "uppercase"
+    },
+    interactionTitle: {
+      color: theme.color.text,
+      fontSize: 15,
+      fontWeight: "700",
+      lineHeight: 21
+    },
+    messageBody: { color: theme.color.text, fontSize: 15, lineHeight: 23 },
+    messageRole: {
+      color: theme.color.accent,
+      fontSize: 11,
+      fontWeight: "700",
+      marginBottom: 7,
+      textTransform: "uppercase"
+    },
+    messageRow: {
+      backgroundColor: theme.color.panel,
+      borderColor: theme.color.border,
+      borderRadius: theme.radius.large,
+      borderWidth: StyleSheet.hairlineWidth,
+      padding: theme.space.medium
+    },
+    messageStatus: { color: theme.color.muted, fontSize: 11, marginTop: 8 },
+    option: {
+      borderColor: theme.color.border,
+      borderRadius: theme.radius.medium,
+      borderWidth: StyleSheet.hairlineWidth,
+      padding: theme.space.small
+    },
+    optionList: { gap: 6 },
+    optionSelected: { borderColor: theme.color.accent },
+    optionText: { color: theme.color.text, fontSize: 14 },
+    question: { gap: theme.space.small },
+    questionText: { color: theme.color.textSecondary, fontSize: 14 },
+    userMessageRow: {
+      backgroundColor: theme.color.panelRaised,
+      marginLeft: 32
+    }
+  });
+}

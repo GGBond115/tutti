@@ -1,12 +1,5 @@
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  type StyleProp,
-  type ViewStyle
-} from "react-native";
-import { theme } from "../theme";
+import { NativeButton, type ButtonSize } from "@tutti-os/ui-system/native";
+import type { StyleProp, ViewStyle } from "react-native";
 
 interface PrimaryButtonProps {
   disabled?: boolean;
@@ -14,6 +7,7 @@ interface PrimaryButtonProps {
   loading?: boolean;
   onPress(): void;
   secondary?: boolean;
+  size?: Exclude<ButtonSize, "icon">;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -23,60 +17,18 @@ export function PrimaryButton({
   loading = false,
   onPress,
   secondary = false,
+  size = "large",
   style
 }: PrimaryButtonProps) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled || loading}
+    <NativeButton
+      disabled={disabled}
+      label={label}
+      loading={loading}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        secondary ? styles.secondary : styles.primary,
-        pressed && !disabled ? styles.pressed : null,
-        disabled ? styles.disabled : null,
-        style
-      ]}
-    >
-      {loading ? (
-        <ActivityIndicator color={secondary ? theme.color.text : "#111216"} />
-      ) : (
-        <Text style={[styles.label, secondary ? styles.secondaryLabel : null]}>
-          {label}
-        </Text>
-      )}
-    </Pressable>
+      size={size}
+      style={style}
+      variant={secondary ? "secondary" : "primary"}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  button: {
-    alignItems: "center",
-    borderRadius: theme.radius.medium,
-    height: 52,
-    justifyContent: "center",
-    paddingHorizontal: theme.space.medium
-  },
-  disabled: {
-    opacity: 0.45
-  },
-  label: {
-    color: "#111216",
-    fontSize: 16,
-    fontWeight: "700"
-  },
-  pressed: {
-    opacity: 0.82
-  },
-  primary: {
-    backgroundColor: theme.color.accent
-  },
-  secondary: {
-    backgroundColor: theme.color.panelRaised,
-    borderColor: theme.color.border,
-    borderWidth: StyleSheet.hairlineWidth
-  },
-  secondaryLabel: {
-    color: theme.color.text
-  }
-});

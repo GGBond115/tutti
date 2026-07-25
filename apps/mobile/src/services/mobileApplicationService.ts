@@ -19,12 +19,14 @@ import {
   ILoginService,
   IWorkspaceActivityService,
   IWorkspaceCatalogService,
+  IWorkspaceConversationRailService,
   IWorkspaceNavigationService
 } from "./mobileServiceIdentifiers";
 import { ObservableService } from "./observableService";
 import type { MobileServicePorts } from "./servicePorts";
 import { WorkspaceActivityService } from "./workspaceActivityService";
 import { WorkspaceCatalogService } from "./workspaceCatalogService";
+import { WorkspaceConversationRailService } from "./workspaceConversationRailService";
 import { WorkspaceNavigationService } from "./workspaceNavigationService";
 
 const BACKGROUND_GRACE_MS = 15_000;
@@ -60,6 +62,7 @@ interface WorkspaceScope {
   container: IInstantiationService;
   drafts: ComposerDraftService;
   navigation: WorkspaceNavigationService;
+  rail: WorkspaceConversationRailService;
   workspace: WorkspaceSummary;
 }
 
@@ -167,18 +170,25 @@ export class MobileApplicationService extends ObservableService<MobileApplicatio
     const generation = ++this.workspaceGeneration;
     const navigation = new WorkspaceNavigationService();
     const drafts = new ComposerDraftService();
+    const rail = new WorkspaceConversationRailService(
+      workspace,
+      authenticated.client,
+      this.ports.clock
+    );
     const activity = new WorkspaceActivityService(
       workspace,
       authenticated.client,
       authenticated.directory,
       navigation,
       drafts,
+      rail,
       this.ports.clock,
       authenticated.session.userId
     );
     const services = new ServiceCollection();
     services.set(IWorkspaceNavigationService, navigation);
     services.set(IComposerDraftService, drafts);
+    services.set(IWorkspaceConversationRailService, rail);
     services.set(IWorkspaceActivityService, activity);
     const container = authenticated.container.createChild(services);
     const candidate: WorkspaceScope = {
@@ -186,6 +196,7 @@ export class MobileApplicationService extends ObservableService<MobileApplicatio
       container,
       drafts,
       navigation,
+      rail,
       workspace
     };
     this.workspaceCandidate = candidate;

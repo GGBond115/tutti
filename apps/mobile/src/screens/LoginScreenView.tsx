@@ -6,9 +6,9 @@ import {
   TextInput,
   View
 } from "react-native";
+import { type NativeTheme, useNativeTheme } from "@tutti-os/ui-system/native";
 import { t } from "../i18n";
 import type { LoginSnapshot } from "../services/loginService";
-import { theme } from "../theme";
 import { PrimaryButton } from "../components/PrimaryButton";
 
 interface LoginScreenViewProps {
@@ -26,6 +26,8 @@ export function LoginScreenView({
   onSubmitEmail,
   onSubmitGitHub
 }: LoginScreenViewProps) {
+  const theme = useNativeTheme();
+  const styles = createStyles(theme);
   const { code, email, errorCode, pending, step } = model;
   const disabled =
     step === "email"
@@ -98,106 +100,108 @@ export function LoginScreenView({
   );
 }
 
-const styles = StyleSheet.create({
-  appName: {
-    color: theme.color.text,
-    fontSize: 18,
-    fontWeight: "700"
-  },
-  alternative: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: theme.space.small,
-    marginVertical: theme.space.small
-  },
-  alternativeText: {
-    color: theme.color.muted,
-    fontSize: 12
-  },
-  brand: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: theme.space.large,
-    paddingTop: theme.space.large
-  },
-  content: {
-    flex: 1,
-    justifyContent: "center",
-    padding: theme.space.large
-  },
-  divider: {
-    backgroundColor: theme.color.border,
-    flex: 1,
-    height: StyleSheet.hairlineWidth
-  },
-  error: {
-    color: theme.color.danger,
-    fontSize: 13,
-    lineHeight: 19
-  },
-  eyebrow: {
-    color: theme.color.accent,
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.8,
-    textTransform: "uppercase"
-  },
-  form: {
-    gap: theme.space.small,
-    marginTop: theme.space.xlarge
-  },
-  hint: {
-    color: theme.color.textSecondary,
-    fontSize: 13,
-    lineHeight: 19
-  },
-  input: {
-    backgroundColor: theme.color.panel,
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.medium,
-    borderWidth: 1,
-    color: theme.color.text,
-    fontSize: 16,
-    height: 54,
-    marginBottom: 4,
-    paddingHorizontal: theme.space.medium
-  },
-  label: {
-    color: theme.color.textSecondary,
-    fontSize: 13,
-    fontWeight: "600"
-  },
-  mark: {
-    alignItems: "center",
-    backgroundColor: theme.color.accent,
-    borderRadius: 9,
-    height: 32,
-    justifyContent: "center",
-    width: 32
-  },
-  markText: {
-    color: theme.color.background,
-    fontSize: 17,
-    fontWeight: "900"
-  },
-  root: {
-    backgroundColor: theme.color.background,
-    flex: 1
-  },
-  subtitle: {
-    color: theme.color.textSecondary,
-    fontSize: 15,
-    lineHeight: 23,
-    marginTop: 12,
-    maxWidth: 420
-  },
-  title: {
-    color: theme.color.text,
-    fontSize: 34,
-    fontWeight: "700",
-    letterSpacing: -1,
-    lineHeight: 41,
-    marginTop: 8
-  }
-});
+function createStyles(theme: NativeTheme) {
+  return StyleSheet.create({
+    appName: {
+      color: theme.color.text,
+      fontSize: 18,
+      fontWeight: "700"
+    },
+    alternative: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: theme.space.small,
+      marginVertical: theme.space.small
+    },
+    alternativeText: {
+      color: theme.color.muted,
+      fontSize: 12
+    },
+    brand: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 10,
+      paddingHorizontal: theme.space.large,
+      paddingTop: theme.space.large
+    },
+    content: {
+      flex: 1,
+      justifyContent: "center",
+      padding: theme.space.large
+    },
+    divider: {
+      backgroundColor: theme.color.border,
+      flex: 1,
+      height: StyleSheet.hairlineWidth
+    },
+    error: {
+      color: theme.color.danger,
+      fontSize: 13,
+      lineHeight: 19
+    },
+    eyebrow: {
+      color: theme.color.accent,
+      fontSize: 13,
+      fontWeight: "700",
+      letterSpacing: 0.8,
+      textTransform: "uppercase"
+    },
+    form: {
+      gap: theme.space.small,
+      marginTop: theme.space.xlarge
+    },
+    hint: {
+      color: theme.color.textSecondary,
+      fontSize: 13,
+      lineHeight: 19
+    },
+    input: {
+      backgroundColor: theme.color.panel,
+      borderColor: theme.color.border,
+      borderRadius: theme.radius.medium,
+      borderWidth: 1,
+      color: theme.color.text,
+      fontSize: 16,
+      height: 54,
+      marginBottom: 4,
+      paddingHorizontal: theme.space.medium
+    },
+    label: {
+      color: theme.color.textSecondary,
+      fontSize: 13,
+      fontWeight: "600"
+    },
+    mark: {
+      alignItems: "center",
+      backgroundColor: theme.color.accent,
+      borderRadius: 9,
+      height: 32,
+      justifyContent: "center",
+      width: 32
+    },
+    markText: {
+      color: theme.color.background,
+      fontSize: 17,
+      fontWeight: "900"
+    },
+    root: {
+      backgroundColor: theme.color.background,
+      flex: 1
+    },
+    subtitle: {
+      color: theme.color.textSecondary,
+      fontSize: 15,
+      lineHeight: 23,
+      marginTop: 12,
+      maxWidth: 420
+    },
+    title: {
+      color: theme.color.text,
+      fontSize: 34,
+      fontWeight: "700",
+      letterSpacing: -1,
+      lineHeight: 41,
+      marginTop: 8
+    }
+  });
+}

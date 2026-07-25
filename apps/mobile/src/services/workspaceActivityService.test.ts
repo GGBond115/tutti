@@ -8,6 +8,7 @@ import { AgentDirectoryService } from "./agentDirectoryService";
 import { ComposerDraftService } from "./composerDraftService";
 import type { ClockPort } from "./servicePorts";
 import { WorkspaceActivityService } from "./workspaceActivityService";
+import { WorkspaceConversationRailService } from "./workspaceConversationRailService";
 import { WorkspaceNavigationService } from "./workspaceNavigationService";
 
 const workspace: WorkspaceSummary = {
@@ -109,21 +110,119 @@ describe("WorkspaceActivityService", () => {
 
     service.dispose();
   });
+
+  test("routes pin changes through the canonical session mutation command", async () => {
+    let session = createSession();
+    const pinRequests: boolean[] = [];
+    const client = createClient({
+      listMessages: async (_workspaceId, agentSessionId) => ({
+        agentSessionId,
+        hasMore: false,
+        latestVersion: 0,
+        messages: []
+      }),
+      pin: async (_workspaceId, _agentSessionId, input) => {
+        pinRequests.push(input.pinned);
+        session = { ...session, pinnedAtUnixMs: input.pinned ? 1_000 : null };
+        return session;
+      },
+      session: () => session
+    });
+    const service = createService(client);
+
+    await service.start();
+    await flushAsyncWork();
+    await service.toggleSessionPinned("session-1");
+
+    expect(pinRequests).toEqual([true]);
+    expect(service.getSnapshot().activity.sessions[0]?.pinnedAtUnixMs).toBe(
+      1_000
+    );
+
+    service.dispose();
+  });
+
+  test("renames a session and reconciles the canonical rail snapshot", async () => {
+    let session: WorkspaceAgentSession | null = createSession();
+    const renameRequests: string[] = [];
+    const client = createClient({
+      listMessages: emptyMessagePage,
+      rename: async (_workspaceId, _agentSessionId, input) => {
+        renameRequests.push(input.title);
+        session = { ...session!, title: input.title };
+        return session;
+      },
+      session: () => session
+    });
+    const service = createService(client);
+
+    await service.start();
+    await flushAsyncWork();
+    await service.renameSession("session-1", "  Renamed session  ");
+
+    expect(renameRequests).toEqual(["Renamed session"]);
+    expect(service.getSnapshot().selectedSession?.title).toBe(
+      "Renamed session"
+    );
+
+    service.dispose();
+  });
+
+  test("deletes a session through the canonical mutation command", async () => {
+    let session: WorkspaceAgentSession | null = createSession();
+    const deleteRequests: string[][] = [];
+    const client = createClient({
+      deleteBatch: async (_workspaceId, input) => {
+        deleteRequests.push(input.sessionIds);
+        session = null;
+        return {
+          cleanupFailedSessionIds: [],
+          removedMessages: 3,
+          removedSessionIds: ["session-1"],
+          removedSessions: 1
+        };
+      },
+      listMessages: emptyMessagePage,
+      session: () => session
+    });
+    const service = createService(client);
+
+    await service.start();
+    await flushAsyncWork();
+    await service.deleteSession("session-1");
+
+    expect(deleteRequests).toEqual([["session-1"]]);
+    expect(service.getSnapshot().activity.sessions).toEqual([]);
+    expect(service.getSnapshot().selectedAgentSessionId).toBeNull();
+
+    service.dispose();
+  });
 });
 
 function createService(client: TuttidClient): WorkspaceActivityService {
+  const clock = new ManualClock();
   return new WorkspaceActivityService(
     workspace,
     client,
     new AgentDirectoryService(client),
     new WorkspaceNavigationService(),
     new ComposerDraftService(),
-    new ManualClock(),
+    new WorkspaceConversationRailService(workspace, client, clock),
+    clock,
     "account-user-1"
   );
 }
 
 function createClient(options: {
+  deleteBatch?(
+    workspaceId: string,
+    input: { sessionIds: string[] }
+  ): Promise<{
+    cleanupFailedSessionIds: string[];
+    removedMessages: number;
+    removedSessionIds: string[];
+    removedSessions: number;
+  }>;
   listMessages(
     workspaceId: string,
     agentSessionId: string,
@@ -139,17 +238,72 @@ function createClient(options: {
     agentSessionId: string,
     input: Record<string, unknown>
   ): Promise<never>;
+  pin?(
+    workspaceId: string,
+    agentSessionId: string,
+    input: { pinned: boolean }
+  ): Promise<WorkspaceAgentSession>;
+  rename?(
+    workspaceId: string,
+    agentSessionId: string,
+    input: { title: string }
+  ): Promise<WorkspaceAgentSession>;
+  session?(): WorkspaceAgentSession | null;
 }): TuttidClient {
   return {
+    deleteWorkspaceAgentSessionsBatch: options.deleteBatch,
     listAgentTargets: async () => ({ targets: [] }),
     listWorkspaceAgentSessionMessages: options.listMessages,
-    listWorkspaceAgentSessions: async () => ({
-      hasMore: false,
-      sessions: [createSession()],
-      workspaceId: workspace.id
-    }),
-    sendWorkspaceAgentSessionInput: options.send
+    listWorkspaceAgentSessionSections: async () => {
+      const session =
+        options.session === undefined ? createSession() : options.session();
+      if (!session) {
+        return {
+          pinned: { hasMore: false, sessions: [], totalCount: 0 },
+          sections: [],
+          workspaceId: workspace.id
+        };
+      }
+      const pinned = session.pinnedAtUnixMs
+        ? { hasMore: false, sessions: [session], totalCount: 1 }
+        : { hasMore: false, sessions: [], totalCount: 0 };
+      return {
+        pinned,
+        sections: session.pinnedAtUnixMs
+          ? []
+          : [
+              {
+                hasMore: false,
+                kind: "conversations" as const,
+                sectionKey: "conversations",
+                sessions: [session],
+                totalCount: 1
+              }
+            ],
+        workspaceId: workspace.id
+      };
+    },
+    sendWorkspaceAgentSessionInput: options.send,
+    updateWorkspaceAgentSessionPin: options.pin,
+    updateWorkspaceAgentSessionTitle: options.rename
   } as unknown as TuttidClient;
+}
+
+async function emptyMessagePage(
+  _workspaceId: string,
+  agentSessionId: string
+): Promise<{
+  agentSessionId: string;
+  hasMore: boolean;
+  latestVersion: number;
+  messages: WorkspaceAgentSessionMessage[];
+}> {
+  return {
+    agentSessionId,
+    hasMore: false,
+    latestVersion: 0,
+    messages: []
+  };
 }
 
 function createSession(): WorkspaceAgentSession {

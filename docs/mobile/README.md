@@ -168,6 +168,35 @@ pnpm mobile:test
 `pnpm mobile:start` 启动 Metro，`pnpm mobile:check` 运行移动端 TypeScript 和
 Jest 检查。
 
+### Native UI foundation
+
+Mobile uses a platform-specific renderer rather than importing Desktop DOM
+components. `@tutti-os/ui-system` remains the semantic design-system owner;
+its Native entry holds shared Native primitives and tokens, while Mobile keeps
+screen composition and product-specific interaction.
+
+- NativeWind 4/Tailwind 3 supplies the Native styling compiler.
+  `@tutti-os/ui-system/native.css`, `tailwind.config.js`, Metro, and Babel are
+  part of the app bootstrap and must stay aligned.
+- `@tutti-os/ui-system/native` owns the Native semantic color, radius, and
+  spacing tokens. Mobile must not restore a local palette after a token exists
+  there. `renderer-theme.json` is the shared semantic manifest that generates
+  Web CSS variables and Native light/dark palettes. `MobileUIProviders` adopts
+  the operating-system scheme through `NativeThemeProvider`; views consume
+  `useNativeTheme()` rather than a static app-local theme. This still does not
+  promise full Desktop/Mobile visual parity.
+- `MobileUIProviders` owns the gesture root, safe-area provider, Bottom Sheet
+  modal provider, and RN Primitives portal host. Do not mount duplicate roots
+  inside screens.
+- In a debug build, open the React Native developer menu and choose “Native UI
+  gallery” to review the shared Native primitives on the actual renderer.
+- React Native Reusables is a source-copy starting point for a Native primitive;
+  adapt and promote a component into the UI System Native layer before an app
+  consumes it. Apps must not acquire direct third-party component imports.
+- Keep `@gorhom/bottom-sheet` as the dependency for complex gesture, keyboard,
+  and dynamic-height sheets; wrap it behind a UI System Native component when
+  it becomes a reusable product pattern.
+
 需要在没有本机开发环境的真机上测试时，可从 GitHub Actions 手动运行
 `Android Internal Build`。它只上传保留 14 天的内部 artifact
 `tutti-mobile-internal-<commit>`，其中的 `tutti-mobile-internal.apk` 已嵌入
@@ -273,8 +302,10 @@ Google Play 账号。以下事项等正式分发前再处理：
   DeviceLink request stream、端到端请求 deadline、prepare/connect generation
   fencing 和 Native 15 秒后台 grace period；
 - 移动端已直接复用 `@tutti-os/client-tuttid-ts`，并从
-  `@tutti-os/agent-gui` 复用安全的 Interaction answer model，完成 workspace 自动进入/选择、
-  会话抽屉、增量消息读取、新建/切换、发送、停止和结构化 Interaction 提交；
+  `@tutti-os/agent-gui` 复用安全的 Interaction answer model 和无 DOM 的会话摘要
+  projection，完成 workspace 自动进入/选择、按置顶/项目/最近分组的会话抽屉、
+  可折叠 section、刷新/失败重试、section 分页、置顶、重命名、删除、增量消息读取、
+  新建/切换、发送、停止和结构化 Interaction 提交；
 - Go authenticated link、owner host、application frame、allowlist、race，以及
   TypeScript/Jest、Metro bundle、Kotlin/Java/CMake、四 ABI APK 均已有自动验证。
 

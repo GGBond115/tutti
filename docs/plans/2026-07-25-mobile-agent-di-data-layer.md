@@ -1,6 +1,6 @@
 # Mobile Agent DI Data Layer
 
-Status: implemented; follow-up visual review pending
+Status: implemented; physical-device visual review pending
 
 ## Goal
 
@@ -8,7 +8,8 @@ Move the Mobile Agent MVP's account, device, workspace, session, message, and
 composer behavior out of React screens. Keep Agent Activity semantics aligned
 with Desktop while allowing Native-specific presentation and interaction.
 
-The conversation rail visual redesign is intentionally deferred.
+The first conversation rail alignment is now implemented on top of the same
+section membership and canonical summary semantics as Agent GUI.
 
 ## Confirmed boundaries
 
@@ -41,6 +42,7 @@ Bootstrap container
    ├─ WorkspaceCatalogService
    └─ one active Workspace child
       ├─ WorkspaceActivityService + one AgentSessionEngine
+      ├─ WorkspaceConversationRailService
       ├─ WorkspaceNavigationService
       └─ ComposerDraftService
 ```
@@ -59,11 +61,22 @@ React bindings or decorator syntax in service modules.
 
 ## Data and command flow
 
-- Workspace session snapshots and message pages are mapped into canonical
-  activity entities and dispatched into one workspace `AgentSessionEngine`.
-- Create, send, stop, and Interaction response enter the Engine as intents.
-  The Mobile command port performs generated-client calls and returns mapped
-  command results to the Engine.
+- `WorkspaceConversationRailService` owns section queries, pagination, polling,
+  cursors, totals, and project labels. It uses the server's exact
+  `railSectionKey` membership and never infers projects from `cwd`.
+- Rail Session DTOs and message pages are mapped into canonical activity
+  entities and dispatched into one workspace `AgentSessionEngine`.
+- Mobile consumes the DOM-free
+  `@tutti-os/agent-gui/conversation-rail-projection` entry for the same title,
+  provider, status, attention, pin, and sort semantics as Agent GUI, then
+  renders a Native-specific drawer. Its local disclosure state may collapse a
+  section, while loading/error/retry state comes from the Rail service rather
+  than from a second list cache.
+- Create, send, stop, pin, delete, and Interaction response enter the Engine as
+  intents. The Mobile command port performs generated-client calls and returns
+  mapped command results to the Engine. Rename uses the generated client, then
+  immediately upserts the returned canonical Session and reconciles Rail
+  membership.
 - Session polling is single-flight at two seconds. Selected-session message
   polling is single-flight at one second until the DeviceLink event lane is
   available.
@@ -75,6 +88,32 @@ React bindings or decorator syntax in service modules.
   data owned by `ComposerDraftService`.
 - Services expose structured error codes. Native views map those codes through
   Mobile i18n.
+
+## Native UI foundation
+
+- The Mobile UI is a Native renderer for the same canonical data, not a DOM
+  implementation of existing Desktop components.
+- `@tutti-os/ui-system` remains the semantic-token and component-contract
+  owner. Its experimental Native entry owns reusable React Native primitives; Mobile
+  owns screen composition and platform-specific interaction.
+- `src/tokens/renderer-theme.json` is the single semantic manifest for the
+  shared Web/Native token subset. It generates Web CSS renderer variables and
+  Native light/dark palettes, while allowing renderer-specific literal values
+  where their visual language or color syntax differs. `MobileUIProviders`
+  resolves the operating-system scheme and composition consumes
+  `useNativeTheme()`. Full cross-renderer visual-token parity remains deferred
+  work.
+- The bootstrap spike establishes NativeWind 4/Tailwind 3, the Gesture Handler
+  root, Reanimated Worklets, a Bottom Sheet modal provider, and an RN Primitives
+  portal host. The first experimental Native Button, IconButton, ListRow, and
+  Sheet primitives are now promoted into the UI System.
+- React Native Reusables is the source-copy starting point for primitives. A
+  component is adapted and promoted into the UI System Native layer before an
+  app imports it. `@gorhom/bottom-sheet` remains a dependency for complex
+  sheets and is wrapped only once it is a reusable product pattern.
+- Native primitives use the Mobile development gallery as their target-renderer
+  preview surface; the DOM storyboard cannot provide valid visual evidence for
+  React Native components.
 
 ## Lifecycle
 
@@ -98,7 +137,10 @@ React bindings or decorator syntax in service modules.
 
 ## Deferred follow-ups
 
-- Conversation rail presentation alignment and shared no-DOM rail projection.
+- Search and project-level Rail actions.
+- Agent GUI-equivalent optimistic Rail rows before a newly created Session is
+  confirmed by the canonical section read.
+- Physical-device visual and accessibility review of the Native Rail.
 - Device/workspace/session navigation preference persistence after a generic
   Mobile preference port exists.
 - DeviceLink event stream and Relay fallback.

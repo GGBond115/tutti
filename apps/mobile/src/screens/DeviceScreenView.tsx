@@ -9,11 +9,11 @@ import {
   TextInput,
   View
 } from "react-native";
+import { type NativeTheme, useNativeTheme } from "@tutti-os/ui-system/native";
 import { PrimaryButton } from "../components/PrimaryButton";
 import { t } from "../i18n";
 import type { DeviceSnapshot } from "../services/deviceService";
 import type { DevicePairing, UserDevice } from "../services/mobileDomain";
-import { theme } from "../theme";
 
 export interface DeviceScreenViewProps {
   accountName: string;
@@ -36,6 +36,8 @@ export function DeviceScreenView({
   onRefresh,
   onSignOut
 }: DeviceScreenViewProps) {
+  const theme = useNativeTheme();
+  const styles = createStyles(theme);
   const devicesById = useMemo(
     () => new Map(model.devices.map((device) => [device.userDeviceId, device])),
     [model.devices]
@@ -70,7 +72,7 @@ export function DeviceScreenView({
           label={t("logout")}
           onPress={onSignOut}
           secondary
-          style={styles.compact}
+          size="compact"
         />
       </View>
       <ScrollView
@@ -178,94 +180,95 @@ export function DeviceScreenView({
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    alignItems: "center",
-    backgroundColor: theme.color.panel,
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.large,
-    borderWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    padding: theme.space.medium
-  },
-  cardCopy: { flex: 1, marginLeft: 14 },
-  compact: { height: 40 },
-  content: {
-    flexGrow: 1,
-    gap: theme.space.medium,
-    padding: theme.space.large
-  },
-  deviceMeta: { color: theme.color.muted, fontSize: 13, marginTop: 4 },
-  deviceName: { color: theme.color.text, fontSize: 16, fontWeight: "700" },
-  empty: {
-    alignItems: "center",
-    flex: 1,
-    justifyContent: "center",
-    minHeight: 360
-  },
-  emptyBody: {
-    color: theme.color.textSecondary,
-    fontSize: 15,
-    lineHeight: 23,
-    marginTop: 10,
-    textAlign: "center"
-  },
-  emptyIcon: { color: theme.color.accent, fontSize: 36, marginBottom: 16 },
-  emptyTitle: { color: theme.color.text, fontSize: 20, fontWeight: "700" },
-  error: { color: theme.color.danger, fontSize: 13, textAlign: "center" },
-  eyebrow: { color: theme.color.accent, fontSize: 12, fontWeight: "700" },
-  footer: {
-    borderTopColor: theme.color.border,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    gap: theme.space.small,
-    padding: theme.space.large
-  },
-  header: {
-    alignItems: "center",
-    borderBottomColor: theme.color.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    padding: theme.space.large
-  },
-  manualInput: {
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.medium,
-    borderWidth: StyleSheet.hairlineWidth,
-    color: theme.color.text,
-    minHeight: 72,
-    padding: theme.space.small
-  },
-  mark: {
-    alignItems: "center",
-    backgroundColor: theme.color.panelRaised,
-    borderRadius: theme.radius.medium,
-    height: 48,
-    justifyContent: "center",
-    width: 48
-  },
-  markText: { color: theme.color.text, fontSize: 20, fontWeight: "900" },
-  pressed: { opacity: 0.72 },
-  root: { backgroundColor: theme.color.background, flex: 1 },
-  status: {
-    alignItems: "center",
-    backgroundColor: theme.color.panel,
-    borderRadius: theme.radius.medium,
-    flexDirection: "row",
-    gap: theme.space.small,
-    padding: theme.space.medium
-  },
-  statusDot: {
-    backgroundColor: theme.color.success,
-    borderRadius: 5,
-    height: 10,
-    width: 10
-  },
-  statusText: { color: theme.color.textSecondary, flex: 1, fontSize: 14 },
-  title: {
-    color: theme.color.text,
-    fontSize: 28,
-    fontWeight: "700",
-    marginTop: 4
-  }
-});
+function createStyles(theme: NativeTheme) {
+  return StyleSheet.create({
+    card: {
+      alignItems: "center",
+      backgroundColor: theme.color.panel,
+      borderColor: theme.color.border,
+      borderRadius: theme.radius.large,
+      borderWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      padding: theme.space.medium
+    },
+    cardCopy: { flex: 1, marginLeft: 14 },
+    content: {
+      flexGrow: 1,
+      gap: theme.space.medium,
+      padding: theme.space.large
+    },
+    deviceMeta: { color: theme.color.muted, fontSize: 13, marginTop: 4 },
+    deviceName: { color: theme.color.text, fontSize: 16, fontWeight: "700" },
+    empty: {
+      alignItems: "center",
+      flex: 1,
+      justifyContent: "center",
+      minHeight: 360
+    },
+    emptyBody: {
+      color: theme.color.textSecondary,
+      fontSize: 15,
+      lineHeight: 23,
+      marginTop: 10,
+      textAlign: "center"
+    },
+    emptyIcon: { color: theme.color.accent, fontSize: 36, marginBottom: 16 },
+    emptyTitle: { color: theme.color.text, fontSize: 20, fontWeight: "700" },
+    error: { color: theme.color.danger, fontSize: 13, textAlign: "center" },
+    eyebrow: { color: theme.color.accent, fontSize: 12, fontWeight: "700" },
+    footer: {
+      borderTopColor: theme.color.border,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      gap: theme.space.small,
+      padding: theme.space.large
+    },
+    header: {
+      alignItems: "center",
+      borderBottomColor: theme.color.border,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      padding: theme.space.large
+    },
+    manualInput: {
+      borderColor: theme.color.border,
+      borderRadius: theme.radius.medium,
+      borderWidth: StyleSheet.hairlineWidth,
+      color: theme.color.text,
+      minHeight: 72,
+      padding: theme.space.small
+    },
+    mark: {
+      alignItems: "center",
+      backgroundColor: theme.color.panelRaised,
+      borderRadius: theme.radius.medium,
+      height: 48,
+      justifyContent: "center",
+      width: 48
+    },
+    markText: { color: theme.color.text, fontSize: 20, fontWeight: "900" },
+    pressed: { opacity: 0.72 },
+    root: { backgroundColor: theme.color.background, flex: 1 },
+    status: {
+      alignItems: "center",
+      backgroundColor: theme.color.panel,
+      borderRadius: theme.radius.medium,
+      flexDirection: "row",
+      gap: theme.space.small,
+      padding: theme.space.medium
+    },
+    statusDot: {
+      backgroundColor: theme.color.success,
+      borderRadius: 5,
+      height: 10,
+      width: 10
+    },
+    statusText: { color: theme.color.textSecondary, flex: 1, fontSize: 14 },
+    title: {
+      color: theme.color.text,
+      fontSize: 28,
+      fontWeight: "700",
+      marginTop: 4
+    }
+  });
+}

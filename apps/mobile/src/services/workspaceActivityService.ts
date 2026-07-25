@@ -3,10 +3,10 @@ import {
   agentActivitySessionMessageWindowFromDescendingPage,
   createAgentActivitySnapshotProjector,
   createAgentSessionEngine,
+  dispatchSessionMutation,
   selectRootAgentActivitySessions,
   type AgentActivityInteraction,
   type AgentActivitySession,
-  type AgentActivitySnapshot,
   type AgentSessionEngine,
   type EngineExternalCommand,
   type PromptQueueSendCommand,
@@ -18,7 +18,6 @@ import {
   agentActivityTurnFromTuttidTurn
 } from "@tutti-os/agent-activity-tuttid-adapter";
 import type {
-  AgentTarget,
   TuttidClient,
   WorkspaceSummary
 } from "@tutti-os/client-tuttid-ts";
@@ -30,47 +29,40 @@ import {
   type PendingSubmission
 } from "./pendingSubmission";
 import type { ClockPort } from "./servicePorts";
+import { projectWorkspaceActivitySnapshot } from "./workspaceActivityProjection";
+import type {
+  WorkspaceConversationRailService,
+  WorkspaceConversationRailSnapshot
+} from "./workspaceConversationRailService";
 import {
   createMobileActivityCommandId,
   toTuttidPromptContent
 } from "./workspaceActivityCommandSupport";
+import type { WorkspaceActivitySnapshot } from "./workspaceActivityTypes";
 import type { WorkspaceNavigationService } from "./workspaceNavigationService";
 
-const SESSION_POLL_MS = 2_000;
+export type { WorkspaceActivitySnapshot } from "./workspaceActivityTypes";
+
 const MESSAGE_POLL_MS = 1_000;
 const COMMAND_TIMEOUT_MS = 30_000;
 const PENDING_EXPIRY_MS = 60_000;
 const MESSAGE_PAGE_SIZE = 100;
-
-export interface WorkspaceActivitySnapshot {
-  activity: AgentActivitySnapshot;
-  ambiguousSubmission: boolean;
-  creating: boolean;
-  draft: string;
-  errorCode: "request_failed" | null;
-  loading: boolean;
-  selectedAgentSessionId: string | null;
-  selectedAgentTargetId: string | null;
-  selectedSession: AgentActivitySession | null;
-  sending: boolean;
-  targets: readonly AgentTarget[];
-}
 
 export class WorkspaceActivityService extends ObservableService<WorkspaceActivitySnapshot> {
   readonly _serviceBrand: undefined;
   private readonly engine: AgentSessionEngine;
   private readonly projectActivity: (
     state: ReturnType<AgentSessionEngine["getSnapshot"]>
-  ) => AgentActivitySnapshot;
+  ) => WorkspaceActivitySnapshot["activity"];
   private disposed = false;
   private paused = false;
   private initializePromise: Promise<void> | null = null;
-  private sessionsInFlight: Promise<void> | null = null;
   private messagesInFlight: Promise<void> | null = null;
-  private sessionPollTask: { cancel(): void } | null = null;
   private messagePollTask: { cancel(): void } | null = null;
   private errorCode: "request_failed" | null = null;
   private loading = true;
+  private observedSelectedSessionId: string | null = null;
+  private lastRailSessions: WorkspaceConversationRailSnapshot["sessions"] = [];
   private snapshotCache: WorkspaceActivitySnapshot | null = null;
   private readonly disposables: Array<() => void> = [];
   private readonly pendingSubmissionsByDraftKey = new Map<
@@ -85,6 +77,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     private readonly directory: AgentDirectoryService,
     private readonly navigation: WorkspaceNavigationService,
     private readonly drafts: ComposerDraftService,
+    private readonly rail: WorkspaceConversationRailService,
     private readonly clock: ClockPort,
     private readonly currentUserId: string
   ) {
@@ -107,10 +100,30 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     this.disposables.push(
       this.engine.subscribe(() => this.onDependencyChanged()),
       this.navigation.subscribe(() => {
+        const selectedSessionId =
+          this.navigation.getSnapshot().selectedAgentSessionId;
+        const selectionChanged =
+          selectedSessionId !== this.observedSelectedSessionId;
+        this.observedSelectedSessionId = selectedSessionId;
         this.onDependencyChanged();
-        void this.loadSelectedMessages(true);
+        if (selectionChanged) void this.loadSelectedMessages(true);
       }),
       this.drafts.subscribe(() => this.onDependencyChanged()),
+      this.rail.subscribe(() => {
+        const rail = this.rail.getSnapshot();
+        if (
+          rail.status === "ready" &&
+          rail.sessions !== this.lastRailSessions &&
+          !this.disposed &&
+          !this.paused
+        ) {
+          this.lastRailSessions = rail.sessions;
+          this.applySessionSnapshot(
+            rail.sessions.map((session) => this.mapSession(session))
+          );
+        }
+        this.onDependencyChanged();
+      }),
       this.directory.subscribe(() => {
         this.navigation.reconcileTargetIds(
           this.directory.getSnapshot().targets.map((target) => target.id)
@@ -124,43 +137,23 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     if (this.snapshotCache) return this.snapshotCache;
     const state = this.engine.getSnapshot();
     const activity = this.projectActivity(state);
+    const railSnapshot = this.rail.getSnapshot();
     const navigation = this.navigation.getSnapshot();
-    const sessions = selectRootAgentActivitySessions(activity).filter(
-      (session) => session.visible
-    );
-    const selectedSession =
-      sessions.find(
-        (session) =>
-          session.agentSessionId === navigation.selectedAgentSessionId
-      ) ?? null;
     const draftKey = navigation.creating
       ? "new"
       : (navigation.selectedAgentSessionId ?? "none");
-    const sending =
-      Object.values(state.pendingIntents.submitsByClientSubmitId).some(
-        (record) =>
-          record.agentSessionId === navigation.selectedAgentSessionId &&
-          (record.status === "requested" || record.status === "accepted")
-      ) ||
-      Object.values(state.pendingIntents.activationsByRequestId).some(
-        (record) =>
-          (navigation.creating ||
-            record.agentSessionId === navigation.selectedAgentSessionId) &&
-          (record.status === "requested" || record.status === "confirmed")
-      );
-    this.snapshotCache = {
+    this.snapshotCache = projectWorkspaceActivitySnapshot({
       activity,
       ambiguousSubmission: this.ambiguousDraftKeys.has(draftKey),
-      creating: navigation.creating,
       draft: this.drafts.get(draftKey),
       errorCode: this.errorCode,
       loading: this.loading,
-      selectedAgentSessionId: navigation.selectedAgentSessionId,
-      selectedAgentTargetId: navigation.selectedAgentTargetId,
-      selectedSession,
-      sending,
-      targets: this.directory.getSnapshot().targets
-    };
+      navigation,
+      rail: railSnapshot,
+      state,
+      targets: this.directory.getSnapshot().targets,
+      workspaceId: this.workspace.id
+    });
     return this.snapshotCache;
   };
 
@@ -181,7 +174,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     }
     this.initializePromise = Promise.all([
       this.directory.load(),
-      this.loadSessions(true)
+      this.rail.start()
     ])
       .then(() => undefined)
       .finally(() => {
@@ -213,6 +206,74 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   startCreating(): void {
     const targets = this.directory.getSnapshot().targets;
     this.navigation.startCreating(targets.length === 1 ? targets[0]!.id : null);
+  }
+
+  loadMoreSessions(sectionId: string): Promise<void> {
+    return this.rail.loadMore(sectionId);
+  }
+
+  refreshSessions(): Promise<void> {
+    return this.rail.refresh();
+  }
+
+  async toggleSessionPinned(agentSessionId: string): Promise<void> {
+    const session = this.getSnapshot().activity.sessions.find(
+      (candidate) => candidate.agentSessionId === agentSessionId
+    );
+    if (!session) return;
+    try {
+      await dispatchSessionMutation(this.engine, {
+        agentSessionId,
+        mutationId: createMobileActivityCommandId(),
+        pinned: session.pinnedAtUnixMs == null,
+        timeoutMs: COMMAND_TIMEOUT_MS,
+        type: "session/pinRequested",
+        workspaceId: this.workspace.id
+      });
+      await this.rail.reconcile();
+      this.errorCode = null;
+    } catch {
+      if (!this.disposed) this.errorCode = "request_failed";
+    }
+    this.onDependencyChanged();
+  }
+
+  async renameSession(agentSessionId: string, title: string): Promise<void> {
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) return;
+    try {
+      const session = await this.client.updateWorkspaceAgentSessionTitle(
+        this.workspace.id,
+        agentSessionId,
+        { title: normalizedTitle }
+      );
+      this.engine.dispatch({
+        session: this.mapSession(session),
+        type: "session/upserted"
+      });
+      await this.rail.reconcile();
+      this.errorCode = null;
+    } catch {
+      if (!this.disposed) this.errorCode = "request_failed";
+    }
+    this.onDependencyChanged();
+  }
+
+  async deleteSession(agentSessionId: string): Promise<void> {
+    try {
+      await dispatchSessionMutation(this.engine, {
+        agentSessionIds: [agentSessionId],
+        mutationId: createMobileActivityCommandId(),
+        timeoutMs: COMMAND_TIMEOUT_MS,
+        type: "sessions/deleteRequested",
+        workspaceId: this.workspace.id
+      });
+      await this.rail.reconcile();
+      this.errorCode = null;
+    } catch {
+      if (!this.disposed) this.errorCode = "request_failed";
+    }
+    this.onDependencyChanged();
   }
 
   async send(): Promise<void> {
@@ -339,6 +400,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     if (this.paused || this.disposed) return;
     this.paused = true;
     this.cancelPolls();
+    this.rail.pause();
     this.engine.dispatch({
       status: "disconnected",
       type: "engine/connectionChanged",
@@ -359,6 +421,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   resume(): void {
     if (!this.paused || this.disposed) return;
     this.paused = false;
+    this.rail.resume();
     this.engine.dispatch({
       status: "connected",
       type: "engine/connectionChanged",
@@ -382,41 +445,10 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     this.clearListeners();
   }
 
-  private async loadSessions(authoritative: boolean): Promise<void> {
-    if (this.sessionsInFlight || this.paused || this.disposed) {
-      return this.sessionsInFlight ?? Promise.resolve();
-    }
-    this.sessionsInFlight = this.client
-      .listWorkspaceAgentSessions(this.workspace.id, { limit: 100 })
-      .then((response) => {
-        if (this.disposed || this.paused) return;
-        const sessions = response.sessions.map((session) =>
-          this.mapSession(session)
-        );
-        this.applySessionSnapshot(sessions);
-        this.errorCode = null;
-        if (authoritative) void this.loadSelectedMessages(true);
-      })
-      .catch(() => {
-        if (!this.disposed) this.errorCode = "request_failed";
-      })
-      .finally(() => {
-        this.sessionsInFlight = null;
-        this.onDependencyChanged();
-        this.scheduleSessionsPoll();
-      });
-    return this.sessionsInFlight;
-  }
-
   private async loadSelectedMessages(authoritative: boolean): Promise<void> {
     const agentSessionId = this.navigation.getSnapshot().selectedAgentSessionId;
-    if (
-      !agentSessionId ||
-      this.messagesInFlight ||
-      this.paused ||
-      this.disposed
-    )
-      return;
+    if (this.messagesInFlight) return this.messagesInFlight;
+    if (!agentSessionId || this.paused || this.disposed) return;
     const activity = this.projectActivity(this.engine.getSnapshot());
     const messages = activity.sessionMessagesById[agentSessionId] ?? [];
     const latestVersion = messages.reduce(
@@ -538,6 +570,27 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
           }));
       case "session/reconcile":
         return this.reconcileSession(command.agentSessionId);
+      case "session/setPinned":
+        return this.client
+          .updateWorkspaceAgentSessionPin(
+            command.workspaceId,
+            command.agentSessionId,
+            { pinned: command.pinned }
+          )
+          .then((session) => ({ session: this.mapSession(session) }));
+      case "sessions/delete":
+        return this.client
+          .deleteWorkspaceAgentSessionsBatch(
+            command.workspaceId,
+            { sessionIds: [...command.agentSessionIds] },
+            { signal }
+          )
+          .then((response) => ({
+            cleanupFailedSessionIds: response.cleanupFailedSessionIds,
+            removedMessages: response.removedMessages,
+            removedSessionIds: response.removedSessionIds,
+            removedSessions: response.removedSessions
+          }));
       default:
         return Promise.reject(
           new Error(`unsupported mobile agent command: ${command.type}`)
@@ -616,20 +669,13 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   }
 
   private async reconcileWorkspace(): Promise<unknown> {
-    await this.sessionsInFlight;
-    const response = await this.client.listWorkspaceAgentSessions(
-      this.workspace.id,
-      { limit: 100 }
-    );
-    const sessions = response.sessions.map((session) =>
-      this.mapSession(session)
-    );
+    const rail = await this.rail.reconcile();
+    const sessions = rail.sessions.map((session) => this.mapSession(session));
     if (this.disposed || this.paused) {
       throw new Error("mobile workspace activity is unavailable");
     }
     this.applySessionSnapshot(sessions);
     this.errorCode = null;
-    void this.loadSelectedMessages(true);
     return { sessions };
   }
 
@@ -650,15 +696,6 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     return { session };
   }
 
-  private scheduleSessionsPoll(): void {
-    this.sessionPollTask?.cancel();
-    if (this.disposed || this.paused) return;
-    this.sessionPollTask = this.clock.schedule(SESSION_POLL_MS, () => {
-      this.sessionPollTask = null;
-      void this.loadSessions(false);
-    });
-  }
-
   private scheduleMessagesPoll(): void {
     this.messagePollTask?.cancel();
     if (this.disposed || this.paused) return;
@@ -669,8 +706,6 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   }
 
   private cancelPolls(): void {
-    this.sessionPollTask?.cancel();
-    this.sessionPollTask = null;
     this.messagePollTask?.cancel();
     this.messagePollTask = null;
   }

@@ -1,5 +1,6 @@
 import type { AgentActivityInteraction } from "@tutti-os/agent-activity-core";
 import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
+import { type NativeTheme, useNativeTheme } from "@tutti-os/ui-system/native";
 import { useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -14,11 +15,11 @@ import {
   MobileInteractionCard,
   MobileMessageRow
 } from "../components/MobileConversationRows";
+import { MobileConversationDrawer } from "../components/MobileConversationDrawer";
 import { PrimaryButton } from "../components/PrimaryButton";
 import { t } from "../i18n";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
 import type { WorkspaceCatalogSnapshot } from "../services/workspaceCatalogService";
-import { theme } from "../theme";
 
 export function WorkspacePickerView({
   deviceName,
@@ -33,6 +34,8 @@ export function WorkspacePickerView({
   onRetry(): void;
   onSelect(workspace: WorkspaceSummary): void;
 }) {
+  const theme = useNativeTheme();
+  const styles = createStyles(theme);
   return (
     <View style={styles.root}>
       <View style={styles.pageHeader}>
@@ -44,7 +47,7 @@ export function WorkspacePickerView({
           label={t("cancel")}
           onPress={onDisconnect}
           secondary
-          style={styles.compactButton}
+          size="compact"
         />
       </View>
       {model.status !== "ready" ? (
@@ -85,22 +88,31 @@ export function ConversationWorkspaceView({
   deviceName,
   model,
   onBack,
+  onDeleteSession,
   onDraftChange,
   onLoadOlder,
+  onLoadMoreSessions,
   onNewSession,
+  onRenameSession,
+  onRefreshSessions,
   onRespond,
   onSelectSession,
   onSelectTarget,
   onSend,
   onStop,
+  onTogglePinned,
   workspace
 }: {
   deviceName: string;
   model: WorkspaceActivitySnapshot;
   onBack(): void;
+  onDeleteSession(id: string): Promise<void>;
   onDraftChange(value: string): void;
   onLoadOlder(): void;
+  onLoadMoreSessions(sectionId: string): void;
   onNewSession(): void;
+  onRenameSession(id: string, title: string): Promise<void>;
+  onRefreshSessions(): Promise<void>;
   onRespond(
     interaction: AgentActivityInteraction,
     input: {
@@ -113,13 +125,13 @@ export function ConversationWorkspaceView({
   onSelectTarget(id: string): void;
   onSend(): void;
   onStop(): void;
+  onTogglePinned(id: string): Promise<void>;
   workspace: WorkspaceSummary;
 }) {
+  const theme = useNativeTheme();
+  const styles = createStyles(theme);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const scroll = useRef<ScrollView>(null);
-  const sessions = model.activity.sessions.filter(
-    (session) => session.kind !== "child" && session.visible
-  );
   const messages = model.selectedAgentSessionId
     ? (model.activity.sessionMessagesById[model.selectedAgentSessionId] ?? [])
     : [];
@@ -250,225 +262,142 @@ export function ConversationWorkspaceView({
       ) : null}
 
       {drawerOpen ? (
-        <View style={styles.drawerLayer}>
-          <Pressable
-            onPress={() => setDrawerOpen(false)}
-            style={styles.drawerScrim}
-          />
-          <View style={styles.drawer}>
-            <View style={styles.drawerHeader}>
-              <Text style={styles.drawerTitle}>{t("sessions")}</Text>
-              <Pressable onPress={() => setDrawerOpen(false)}>
-                <Text style={styles.close}>×</Text>
-              </Pressable>
-            </View>
-            <ScrollView contentContainerStyle={styles.drawerList}>
-              {sessions.map((session) => (
-                <Pressable
-                  key={session.agentSessionId}
-                  onPress={() => {
-                    onSelectSession(session.agentSessionId);
-                    setDrawerOpen(false);
-                  }}
-                  style={[
-                    styles.sessionCard,
-                    session.agentSessionId === model.selectedAgentSessionId &&
-                      styles.sessionCardSelected
-                  ]}
-                >
-                  <Text numberOfLines={2} style={styles.sessionCardTitle}>
-                    {session.title || t("untitledSession")}
-                  </Text>
-                  <Text style={styles.sessionCardMeta}>
-                    {session.activeTurnId ? t("running") : t("ready")}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-            <PrimaryButton
-              disabled={model.targets.length === 0}
-              label={t("newSession")}
-              onPress={() => {
-                onNewSession();
-                setDrawerOpen(false);
-              }}
-            />
-            <PrimaryButton
-              label={t("backToWorkspaces")}
-              onPress={onBack}
-              secondary
-            />
-          </View>
-        </View>
+        <MobileConversationDrawer
+          model={model}
+          onBack={onBack}
+          onClose={() => setDrawerOpen(false)}
+          onDeleteSession={onDeleteSession}
+          onLoadMoreSessions={onLoadMoreSessions}
+          onNewSession={onNewSession}
+          onRenameSession={onRenameSession}
+          onRefreshSessions={onRefreshSessions}
+          onSelectSession={onSelectSession}
+          onTogglePinned={onTogglePinned}
+          workspaceName={workspace.name}
+        />
       ) : null}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  center: {
-    alignItems: "center",
-    flex: 1,
-    gap: theme.space.medium,
-    justifyContent: "center",
-    padding: theme.space.large
-  },
-  chevron: { color: theme.color.muted, fontSize: 30 },
-  close: { color: theme.color.textSecondary, fontSize: 32, lineHeight: 34 },
-  compactButton: { height: 40 },
-  composer: {
-    alignItems: "flex-end",
-    borderTopColor: theme.color.border,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    gap: theme.space.small,
-    padding: theme.space.medium
-  },
-  conversationHeader: {
-    alignItems: "center",
-    borderBottomColor: theme.color.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    minHeight: 64,
-    paddingHorizontal: theme.space.medium
-  },
-  conversationTitle: { flex: 1, marginHorizontal: theme.space.small },
-  deviceCaption: { color: theme.color.muted, fontSize: 12, marginTop: 3 },
-  drawer: {
-    backgroundColor: theme.color.background,
-    bottom: 0,
-    left: 0,
-    padding: theme.space.large,
-    position: "absolute",
-    top: 0,
-    width: "86%"
-  },
-  drawerHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  drawerLayer: {
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0
-  },
-  drawerList: { gap: theme.space.small, paddingVertical: theme.space.large },
-  drawerScrim: {
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    bottom: 0,
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0
-  },
-  drawerTitle: { color: theme.color.text, fontSize: 24, fontWeight: "700" },
-  emptyText: {
-    color: theme.color.textSecondary,
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: "center"
-  },
-  error: { color: theme.color.danger, fontSize: 14 },
-  eyebrow: { color: theme.color.accent, fontSize: 12, fontWeight: "700" },
-  iconButton: {
-    alignItems: "center",
-    height: 44,
-    justifyContent: "center",
-    width: 44
-  },
-  iconText: { color: theme.color.text, fontSize: 22 },
-  inlineError: {
-    backgroundColor: theme.color.panel,
-    color: theme.color.danger,
-    fontSize: 12,
-    padding: theme.space.small,
-    textAlign: "center"
-  },
-  input: {
-    backgroundColor: theme.color.panel,
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.large,
-    borderWidth: StyleSheet.hairlineWidth,
-    color: theme.color.text,
-    flex: 1,
-    fontSize: 16,
-    maxHeight: 132,
-    minHeight: 48,
-    paddingHorizontal: theme.space.medium,
-    paddingVertical: 12
-  },
-  loadOlder: { color: theme.color.muted, fontSize: 12, textAlign: "center" },
-  messageList: { gap: theme.space.medium, padding: theme.space.large },
-  onlineDot: {
-    backgroundColor: theme.color.success,
-    borderRadius: 5,
-    height: 10,
-    width: 10
-  },
-  pageHeader: {
-    alignItems: "center",
-    borderBottomColor: theme.color.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    padding: theme.space.large
-  },
-  pageTitle: {
-    color: theme.color.text,
-    fontSize: 27,
-    fontWeight: "700",
-    marginTop: 4
-  },
-  pressed: { opacity: 0.7 },
-  root: { backgroundColor: theme.color.background, flex: 1 },
-  sendButton: { minWidth: 76 },
-  sessionCard: {
-    backgroundColor: theme.color.panel,
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.medium,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: theme.space.medium
-  },
-  sessionCardMeta: { color: theme.color.muted, fontSize: 12, marginTop: 6 },
-  sessionCardSelected: { borderColor: theme.color.accent },
-  sessionCardTitle: {
-    color: theme.color.text,
-    fontSize: 15,
-    fontWeight: "600",
-    lineHeight: 20
-  },
-  sessionTitle: { color: theme.color.text, fontSize: 16, fontWeight: "700" },
-  targetChip: {
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.large,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: theme.space.medium,
-    paddingVertical: theme.space.small
-  },
-  targetChipSelected: { borderColor: theme.color.accent },
-  targetChipText: { color: theme.color.text, fontSize: 13 },
-  targetList: { gap: theme.space.small },
-  workspaceCard: {
-    alignItems: "center",
-    backgroundColor: theme.color.panel,
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.large,
-    borderWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    padding: theme.space.large
-  },
-  workspaceList: {
-    gap: theme.space.medium,
-    padding: theme.space.large
-  },
-  workspaceName: {
-    color: theme.color.text,
-    flex: 1,
-    fontSize: 17,
-    fontWeight: "700"
-  }
-});
+function createStyles(theme: NativeTheme) {
+  return StyleSheet.create({
+    center: {
+      alignItems: "center",
+      flex: 1,
+      gap: theme.space.medium,
+      justifyContent: "center",
+      padding: theme.space.large
+    },
+    chevron: { color: theme.color.muted, fontSize: 30 },
+    composer: {
+      alignItems: "flex-end",
+      borderTopColor: theme.color.border,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      gap: theme.space.small,
+      padding: theme.space.medium
+    },
+    conversationHeader: {
+      alignItems: "center",
+      borderBottomColor: theme.color.border,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      minHeight: 64,
+      paddingHorizontal: theme.space.medium
+    },
+    conversationTitle: { flex: 1, marginHorizontal: theme.space.small },
+    deviceCaption: { color: theme.color.muted, fontSize: 12, marginTop: 3 },
+    emptyText: {
+      color: theme.color.textSecondary,
+      fontSize: 15,
+      lineHeight: 22,
+      textAlign: "center"
+    },
+    error: { color: theme.color.danger, fontSize: 14 },
+    eyebrow: { color: theme.color.accent, fontSize: 12, fontWeight: "700" },
+    iconButton: {
+      alignItems: "center",
+      height: 44,
+      justifyContent: "center",
+      width: 44
+    },
+    iconText: { color: theme.color.text, fontSize: 22 },
+    inlineError: {
+      backgroundColor: theme.color.panel,
+      color: theme.color.danger,
+      fontSize: 12,
+      padding: theme.space.small,
+      textAlign: "center"
+    },
+    input: {
+      backgroundColor: theme.color.panel,
+      borderColor: theme.color.border,
+      borderRadius: theme.radius.large,
+      borderWidth: StyleSheet.hairlineWidth,
+      color: theme.color.text,
+      flex: 1,
+      fontSize: 16,
+      maxHeight: 132,
+      minHeight: 48,
+      paddingHorizontal: theme.space.medium,
+      paddingVertical: 12
+    },
+    loadOlder: { color: theme.color.muted, fontSize: 12, textAlign: "center" },
+    messageList: { gap: theme.space.medium, padding: theme.space.large },
+    onlineDot: {
+      backgroundColor: theme.color.success,
+      borderRadius: 5,
+      height: 10,
+      width: 10
+    },
+    pageHeader: {
+      alignItems: "center",
+      borderBottomColor: theme.color.border,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      padding: theme.space.large
+    },
+    pageTitle: {
+      color: theme.color.text,
+      fontSize: 27,
+      fontWeight: "700",
+      marginTop: 4
+    },
+    pressed: { opacity: 0.7 },
+    root: { backgroundColor: theme.color.background, flex: 1 },
+    sendButton: { minWidth: 76 },
+    sessionTitle: { color: theme.color.text, fontSize: 16, fontWeight: "700" },
+    targetChip: {
+      borderColor: theme.color.border,
+      borderRadius: theme.radius.large,
+      borderWidth: StyleSheet.hairlineWidth,
+      paddingHorizontal: theme.space.medium,
+      paddingVertical: theme.space.small
+    },
+    targetChipSelected: { borderColor: theme.color.accent },
+    targetChipText: { color: theme.color.text, fontSize: 13 },
+    targetList: { gap: theme.space.small },
+    workspaceCard: {
+      alignItems: "center",
+      backgroundColor: theme.color.panel,
+      borderColor: theme.color.border,
+      borderRadius: theme.radius.large,
+      borderWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      padding: theme.space.large
+    },
+    workspaceList: {
+      gap: theme.space.medium,
+      padding: theme.space.large
+    },
+    workspaceName: {
+      color: theme.color.text,
+      flex: 1,
+      fontSize: 17,
+      fontWeight: "700"
+    }
+  });
+}

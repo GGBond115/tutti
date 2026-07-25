@@ -48,4 +48,16 @@ describe("Agent GUI declaration build groups", () => {
       import: "./dist/conversation-rail-runtime.js"
     });
   });
+
+  it("builds and publishes the DOM-free conversation rail projection", () => {
+    expect(agentGUIBuildEntries["conversation-rail-projection"]).toBe(
+      "conversationRailProjection.ts"
+    );
+    expect(
+      packageManifest.publishConfig.exports["./conversation-rail-projection"]
+    ).toEqual({
+      types: "./dist/conversation-rail-projection.d.ts",
+      import: "./dist/conversation-rail-projection.js"
+    });
+  });
 });
