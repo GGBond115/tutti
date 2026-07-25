@@ -356,6 +356,11 @@ notice does not offer a manual retry because transport recovery is host-owned.
 - newest-to-oldest reads attach their authoritative message-window coverage to
   the same snapshot intent; incremental/realtime updates preserve that coverage
 - realtime authoritative entities use upsert intents
+- an authoritative Session detail result enters through
+  `session/detailSnapshotReceived`; `agent-activity-core` expands the root
+  Session, Turns, child Sessions, and optional message coverage in one engine
+  drain and one subscriber notification. Desktop maps transport data into that
+  intent and must not dispatch each entity independently
 - message updates fold inline only when unseen versions are continuous
 - version gaps and reconnects trigger incremental message reconciliation for hydrated Sessions
 - Turn, Interaction, and legacy state invalidation trigger authoritative Session reconciliation
@@ -465,6 +470,24 @@ canonical Turn after the final assistant reply.
 
 High-frequency transcript updates must not pair DOM mutation with unconditional synchronous reads of the timeline's full scroll geometry. Conversation switches, explicit submit-to-bottom requests, skeleton transitions, and older-page prepend restoration may perform pre-paint scroll correction; ordinary content growth preserves bottom lock and user scroll-away state from observed content and viewport geometry after layout.
 
+Turn-level virtualization has one geometry owner. When the transcript is
+virtualized, TanStack Virtual owns append following, streaming size
+adjustments, prepend anchoring, end detection, list height, and item transforms.
+AgentGUI retains Session selection, explicit user intent, top-page loading,
+bottom-dock safe-area measurement, and the non-virtualized short-transcript
+branch. It must not apply native `scrollHeight`-delta prepend compensation or a
+content-resize bottom write after the virtualizer accepts ownership.
+
+The detail view reaches that owner through a narrow controller containing the
+exact `agentSessionId`, `isAtEnd`, and `scrollToEnd`. Every read or write checks
+the current Session identity; a stale controller is inert. Virtual measurement
+keys also include the exact Agent Session id, so replacing a conversation
+cannot reuse another Session's measured Turn height. The virtual list measures
+its offset from the timeline scroll origin as `scrollMargin`, including changes
+caused by the older-page loading indicator. Direct DOM transform mode owns the
+virtual sizer height and item transforms; React keeps only row content,
+measurement refs, cross-axis sizing, and disclosure spacing.
+
 Virtualizer- or layout-driven scroll events do not release the bottom lock or
 trigger older-page loading without explicit user scroll-away intent. A settled
 timeline that is too short to fill its viewport may still request older pages.
@@ -477,7 +500,7 @@ TipTap treats a controlled value as a local acknowledgement only when its
 draft scope and local edit revision match; a scope change or other external
 replacement may rebuild the document.
 
-A virtualized transcript derives message-locator selection from the virtualizer's measured turn positions and explicit transcript identity. The currently mounted DOM window is rendering output, not a selection source; range changes must not make the locator temporarily select a neighboring message.
+A virtualized transcript derives message-locator selection from the virtualizer's measured turn positions and explicit transcript identity. The currently mounted DOM window is rendering output, not a selection source; range changes must not make the locator temporarily select a neighboring message. Recent wheel and keyboard direction fences locator selection from reversing because of estimate-to-measurement scroll compensation or an item-list identity shift; the previous stable locator index is reconciled in a layout effect before paint. A genuine opposite input replaces that intent.
 
 Historical rich text renders from the canonical Tiptap document through a static schema renderer. Only interactive composer surfaces own a Tiptap Editor/ProseMirror EditorView; read-only transcript surfaces reuse the same mention/token presentation without mounting editor lifecycle. Settled transcript messages reuse a bounded cache of pure Markdown ASTs and Tiptap JSON documents keyed by message identity and exact parser input; rendered React elements are never cached, and streaming Markdown bypasses this cache. Conversation titles are a separate plain-text projection: Markdown mention links are normalized to their `@label` text and never render mention SVGs or interactive rich-text tokens.
 

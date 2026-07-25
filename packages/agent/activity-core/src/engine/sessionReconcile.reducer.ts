@@ -30,6 +30,8 @@ export function sessionReconcileReducer(
   }
 ): EngineReducerResult<SessionReconcileState> {
   switch (intent.type) {
+    case "session/detailSnapshotReceived":
+      return receiveDetailSnapshot(state, intent);
     case "session/activityObserved":
       if (context.deletedSessionIds[intent.agentSessionId.trim()]) {
         return unchanged(state);
@@ -70,6 +72,40 @@ export function sessionReconcileReducer(
     default:
       return unchanged(state);
   }
+}
+
+function receiveDetailSnapshot(
+  state: SessionReconcileState,
+  intent: Extract<EngineIntent, { type: "session/detailSnapshotReceived" }>
+): EngineReducerResult<SessionReconcileState> {
+  const followUpIntents: EngineIntent[] = [
+    { session: intent.session, type: "session/upserted" }
+  ];
+  if (intent.live && intent.session.latestTurn) {
+    followUpIntents.push({
+      turn: intent.session.latestTurn,
+      type: "turn/upserted"
+    });
+  }
+  followUpIntents.push(
+    ...intent.turns.map(
+      (turn): EngineIntent => ({ turn, type: "turn/upserted" })
+    ),
+    ...intent.childSessions.map(
+      (session): EngineIntent => ({ session, type: "session/upserted" })
+    )
+  );
+  if (intent.messages || intent.sessionMessageWindows) {
+    followUpIntents.push({
+      messages: intent.messages ?? [],
+      ...(intent.sessionMessageWindows
+        ? { sessionMessageWindows: intent.sessionMessageWindows }
+        : {}),
+      type: "message/snapshotReceived",
+      workspaceId: intent.workspaceId
+    });
+  }
+  return { commands: NO_COMMANDS, followUpIntents, state };
 }
 
 function hydrateActiveRootSessions(

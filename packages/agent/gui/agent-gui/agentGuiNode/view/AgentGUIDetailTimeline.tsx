@@ -11,6 +11,7 @@ import type { AgentGUIProviderSkillOption } from "../model/agentGuiNodeTypes";
 import type { WorkspaceLinkAction } from "../../../actions/workspaceLinkActions";
 import { AgentGUIConversationTimelinePane } from "./AgentGUIConversationTimelinePane";
 import styles from "../AgentGUINode.styles";
+import type { AgentTranscriptVirtualScrollController } from "../../../shared/agentConversation/components/AgentTranscriptView";
 
 const TIMELINE_CONTENT_STYLE: CSSProperties = {
   width: "100%",
@@ -44,6 +45,7 @@ interface AgentGUIDetailTimelineProps {
   showUnavailableChatEmpty: boolean;
   timelineContentRef: RefObject<HTMLDivElement | null>;
   timelineRef: RefObject<HTMLDivElement | null>;
+  virtualScrollControllerRef: RefObject<AgentTranscriptVirtualScrollController | null>;
   workspaceAppIcons: readonly AgentMessageMarkdownWorkspaceAppIcon[];
 }
 
@@ -63,6 +65,7 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
   showUnavailableChatEmpty,
   timelineContentRef,
   timelineRef,
+  virtualScrollControllerRef,
   workspaceAppIcons
 }: AgentGUIDetailTimelineProps): React.JSX.Element {
   "use memo";
@@ -94,6 +97,7 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
           availableSkills={availableSkills}
           workspaceAppIcons={workspaceAppIcons}
           labels={conversationFlowLabels}
+          virtualScrollControllerRef={virtualScrollControllerRef}
         />
       ) : (
         homeContent

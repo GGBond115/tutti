@@ -52,6 +52,7 @@ import { useAgentGUIDetailScroll } from "./useAgentGUIDetailScroll";
 import { useAgentGUIDetailModel } from "./useAgentGUIDetailModel";
 import type { AgentGUIComposerEngagement } from "../engagement/agentGUIEngagement.types";
 import { useAgentGUITuttiWorkflow } from "./useAgentGUITuttiWorkflow";
+import type { AgentTranscriptVirtualScrollController } from "../../../shared/agentConversation/components/AgentTranscriptView";
 
 export const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
   [];
@@ -156,6 +157,8 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   };
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const timelineContentRef = useRef<HTMLDivElement | null>(null);
+  const virtualScrollControllerRef =
+    useRef<AgentTranscriptVirtualScrollController | null>(null);
   const bottomDockRef = useRef<HTMLDivElement | null>(null);
   const timelineScrollAnchorRef = useRef<{
     conversationId: string;
@@ -666,6 +669,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     timelineContentRef,
     timelineRef,
     timelineScrollAnchorRef,
+    virtualScrollControllerRef,
     viewModel
   });
   const homeContent = !hasActiveConversation ? (
@@ -745,6 +749,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         showUnavailableChatEmpty={showUnavailableChatEmpty}
         timelineContentRef={timelineContentRef}
         timelineRef={timelineRef}
+        virtualScrollControllerRef={virtualScrollControllerRef}
         workspaceAppIcons={workspaceAppIcons}
       />
       {hasActiveConversation ? (

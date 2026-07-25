@@ -412,6 +412,10 @@ export function rootEngineReducer(
         composerOptions: composerOptions.state,
         tuttiModeActivation: tuttiModeActivation.state
       };
+  const followUpIntents = [
+    ...(sessionReconcile.followUpIntents ?? []),
+    ...(sessionMutations.followUpIntents ?? [])
+  ];
   return {
     commands: [
       ...attentionReadState.commands,
@@ -426,9 +430,7 @@ export function rootEngineReducer(
       ...composerOptions.commands,
       ...tuttiModeActivation.commands
     ],
-    ...(sessionMutations.followUpIntents
-      ? { followUpIntents: sessionMutations.followUpIntents }
-      : {}),
+    ...(followUpIntents.length > 0 ? { followUpIntents } : {}),
     state: nextState
   };
 }

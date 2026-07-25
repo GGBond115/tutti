@@ -264,6 +264,7 @@ export {
 export type { SessionActivationPresentation } from "./engine/pendingIntents.selectors.ts";
 export type {
   SessionActivityObservedIntent,
+  SessionDetailSnapshotReceivedIntent,
   SessionReconcileCommand,
   SessionReconcileIntent,
   SessionReconcileRecord,

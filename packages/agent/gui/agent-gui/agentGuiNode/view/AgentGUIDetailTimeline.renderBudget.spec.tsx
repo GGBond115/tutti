@@ -1,6 +1,7 @@
 import { render } from "@testing-library/react";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
+import type { AgentTranscriptVirtualScrollController } from "../../../shared/agentConversation/components/AgentTranscriptView";
 import { AgentGUIDetailTimeline } from "./AgentGUIDetailTimeline";
 
 const { timelineRenderSpy } = vi.hoisted(() => ({
@@ -36,6 +37,8 @@ describe("AgentGUIDetailTimeline render budget", () => {
       showUnavailableChatEmpty: false,
       timelineContentRef: createRef<HTMLDivElement>(),
       timelineRef: createRef<HTMLDivElement>(),
+      virtualScrollControllerRef:
+        createRef<AgentTranscriptVirtualScrollController>(),
       workspaceAppIcons: []
     };
     const Parent = ({ draft }: { draft: string }) => {

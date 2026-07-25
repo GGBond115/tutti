@@ -1,3 +1,7 @@
+import type { AgentActivityMessage, AgentActivityTurn } from "../types.ts";
+import type { AgentActivitySessionMessageWindow } from "../messageWindow.types.ts";
+import type { AgentActivitySessionInput } from "../sessionNormalization.ts";
+
 export type SessionReconcileScope = "messages" | "state" | "state_and_messages";
 
 export interface SessionReconcileRecord {
@@ -35,8 +39,22 @@ export interface SessionActivityObservedIntent {
   workspaceId: string;
 }
 
+export interface SessionDetailSnapshotReceivedIntent {
+  type: "session/detailSnapshotReceived";
+  childSessions: readonly AgentActivitySessionInput[];
+  live?: boolean;
+  messages?: readonly AgentActivityMessage[];
+  session: AgentActivitySessionInput;
+  sessionMessageWindows?: readonly (AgentActivitySessionMessageWindow & {
+    agentSessionId: string;
+  })[];
+  turns: readonly AgentActivityTurn[];
+  workspaceId: string;
+}
+
 export type SessionReconcileIntent =
   | SessionActivityObservedIntent
+  | SessionDetailSnapshotReceivedIntent
   | SessionReconcileRequestedIntent;
 
 export interface SessionReconcileCommand {

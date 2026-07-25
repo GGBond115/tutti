@@ -74,6 +74,14 @@ function runACPFixture() {
   }
 
   async function streamPrompt(promptID) {
+    const oversizedToolCallCount = Number.parseInt(
+      process.env.TUTTI_PERF_OVERSIZED_TOOL_CALLS ?? "",
+      10
+    );
+    if (Number.isFinite(oversizedToolCallCount) && oversizedToolCallCount > 0) {
+      await streamOversizedToolCalls(promptID, oversizedToolCallCount);
+      return;
+    }
     for (let index = 0; index < 48 && !canceled; index += 1) {
       notify("session/update", {
         sessionId: "tutti-perf-cursor-session",
@@ -86,6 +94,44 @@ function runACPFixture() {
         }
       });
       await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    respond(promptID, { stopReason: canceled ? "canceled" : "end_turn" });
+  }
+
+  async function streamOversizedToolCalls(promptID, toolCallCount) {
+    for (let index = 0; index < toolCallCount && !canceled; index += 1) {
+      const toolCallId = `tutti-perf-oversized-tool-${index}`;
+      const title = `Inspect fixture path ${index + 1}`;
+      notify("session/update", {
+        sessionId: "tutti-perf-cursor-session",
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId,
+          title,
+          kind: "execute",
+          status: "pending",
+          rawInput: {
+            command: `printf oversized-tool-${index + 1}`
+          }
+        }
+      });
+      notify("session/update", {
+        sessionId: "tutti-perf-cursor-session",
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId,
+          title,
+          kind: "execute",
+          status: "completed",
+          rawOutput: {
+            output: `oversized tool ${index + 1} completed`
+          }
+        }
+      });
+      await new Promise((resolve) => setTimeout(resolve, 12));
+    }
+    for (let index = 0; index < 100 && !canceled; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
     respond(promptID, { stopReason: canceled ? "canceled" : "end_turn" });
   }

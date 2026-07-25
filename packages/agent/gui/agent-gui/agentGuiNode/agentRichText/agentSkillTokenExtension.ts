@@ -92,6 +92,9 @@ export function parseAgentSkillToken(
   if (!isSkillTokenBoundary(text[start - 1] ?? "")) {
     return null;
   }
+  if (text[start] !== "$" && text[start] !== "/") {
+    return null;
+  }
   for (const candidate of skillTokenCandidates(skills)) {
     if (!text.startsWith(candidate.trigger, start)) {
       continue;

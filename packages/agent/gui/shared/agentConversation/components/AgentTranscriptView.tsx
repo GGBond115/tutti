@@ -4,12 +4,10 @@ import {
   useCallback,
   useLayoutEffect,
   useMemo,
-  useRef,
   useState,
   type JSX,
   type Ref
 } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import type { WorkspaceLinkAction } from "../../../contexts/workspace/presentation/renderer/actions/workspaceLinkActions";
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../AgentMessageMarkdown";
 import type { AgentGUIProviderSkillOption } from "../../../agent-gui/agentGuiNode/model/agentGuiNodeTypes";
@@ -46,18 +44,22 @@ import {
   type AgentTranscriptAttachmentLocator,
   type AgentTranscriptTurnAttachment
 } from "./useAgentTranscriptTurnAttachments";
+import {
+  AGENT_TRANSCRIPT_ESTIMATED_TURN_HEIGHT_PX,
+  useAgentTranscriptVirtualizer,
+  type AgentTranscriptVirtualScrollController
+} from "./useAgentTranscriptVirtualizer";
 
-const AGENT_TRANSCRIPT_VIRTUALIZATION_OVERSCAN = 6;
-const AGENT_TRANSCRIPT_ESTIMATED_TURN_HEIGHT_PX = 280;
 const AGENT_TRANSCRIPT_DISCLOSURE_TURN_GAP_PX = 24;
 const AGENT_TRANSCRIPT_LEGACY_TURN_GAP_PX = 12;
 const AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT = 3;
-const preventVirtualScrollAdjustment = () => false;
 
 export type {
   AgentTranscriptAttachmentLocator,
   AgentTranscriptTurnAttachment
 } from "./useAgentTranscriptTurnAttachments";
+export type { AgentTranscriptVirtualScrollController } from "./useAgentTranscriptVirtualizer";
+
 export interface AgentTranscriptViewProps {
   conversation: AgentConversationVM;
   turnAttachments?: readonly AgentTranscriptTurnAttachment[];
@@ -72,6 +74,8 @@ export interface AgentTranscriptViewProps {
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   showRawTimelineJson?: boolean;
   participantPresentation?: AgentConversationParticipantPresentation;
+  virtualListLayoutRevision?: number;
+  virtualScrollControllerRef?: Ref<AgentTranscriptVirtualScrollController>;
   labels: {
     toolCallsLabel: (count: number) => string;
     thinkingLabel: string;
@@ -216,6 +220,8 @@ export function areAgentTranscriptViewPropsEqual(
     previous.onTurnAttachmentVisibilityChange ===
       next.onTurnAttachmentVisibilityChange &&
     previous.showRawTimelineJson === next.showRawTimelineJson &&
+    previous.virtualListLayoutRevision === next.virtualListLayoutRevision &&
+    previous.virtualScrollControllerRef === next.virtualScrollControllerRef &&
     participantPresentationEqual(
       previous.participantPresentation,
       next.participantPresentation
@@ -235,6 +241,8 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   workspaceAppIcons,
   showRawTimelineJson = false,
   participantPresentation,
+  virtualListLayoutRevision = 0,
+  virtualScrollControllerRef,
   labels
 }: AgentTranscriptViewProps): JSX.Element {
   "use memo";
@@ -244,9 +252,12 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   const [hasMovingTurnDisclosure, handleDisclosureMotionChange] =
     useTurnDisclosureMotion();
   const turnDisclosureStore = useAgentTurnDisclosureStore();
-  const virtualizerHostRef = useRef<HTMLDivElement | null>(null);
   const [virtualScrollElement, setVirtualScrollElement] =
     useState<HTMLElement | null>(null);
+  const [
+    virtualListOffsetFromScrollOrigin,
+    setVirtualListOffsetFromScrollOrigin
+  ] = useState(0);
   const participantHeadersEnabled = participantPresentation?.enabled === true;
   // Participant-header presentation (Agent board session detail): tool-group
   // rows attach to the assistant message that follows them instead of sitting
@@ -347,19 +358,17 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     () => assessAgentTranscriptComplexity(turnGroups).shouldVirtualize,
     [turnGroups]
   );
-  const rowVirtualizer = useVirtualizer({
-    anchorTo: shouldVirtualize && hasMovingTurnDisclosure ? "start" : "end",
-    count: turnGroups.length,
-    estimateSize: () => AGENT_TRANSCRIPT_ESTIMATED_TURN_HEIGHT_PX,
-    getItemKey: (index) => turnGroups[index]?.key ?? index,
-    getScrollElement: () => virtualScrollElement,
-    overscan: AGENT_TRANSCRIPT_VIRTUALIZATION_OVERSCAN,
-    scrollEndThreshold: 24
-  });
-  rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange =
-    shouldVirtualize && hasMovingTurnDisclosure
-      ? preventVirtualScrollAdjustment
-      : undefined;
+  const agentSessionId = conversation.sourceDetail.session.agentSessionId;
+  const { rowVirtualizer, setVirtualizerHostElement, virtualizerHostRef } =
+    useAgentTranscriptVirtualizer({
+      agentSessionId,
+      hasMovingTurnDisclosure,
+      scrollElement: virtualScrollElement,
+      scrollMargin: virtualListOffsetFromScrollOrigin,
+      shouldVirtualize,
+      turnGroups,
+      virtualScrollControllerRef
+    });
   const attachmentProjection = useAgentTranscriptTurnAttachments({
     attachments: turnAttachments,
     locatorRef: turnAttachmentLocatorRef,
@@ -407,12 +416,25 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     if (!shouldVirtualize) {
       return;
     }
-    setVirtualScrollElement(
-      virtualizerHostRef.current
-        ? findMessageLocatorScrollParent(virtualizerHostRef.current)
-        : null
+    const virtualizerHost = virtualizerHostRef.current;
+    const scrollElement = virtualizerHost
+      ? findMessageLocatorScrollParent(virtualizerHost)
+      : null;
+    setVirtualScrollElement(scrollElement);
+    if (!virtualizerHost || !scrollElement) {
+      setVirtualListOffsetFromScrollOrigin(0);
+      return;
+    }
+    const nextOffset = Math.max(
+      0,
+      virtualizerHost.getBoundingClientRect().top -
+        scrollElement.getBoundingClientRect().top +
+        scrollElement.scrollTop
     );
-  }, [shouldVirtualize]);
+    setVirtualListOffsetFromScrollOrigin((previousOffset) =>
+      previousOffset === nextOffset ? previousOffset : nextOffset
+    );
+  }, [shouldVirtualize, virtualListLayoutRevision]);
 
   const renderRow = (
     row: AgentConversationVM["rows"][number],
@@ -577,10 +599,9 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
           virtualSelectionSource={rowVirtualizer}
         />
         <div
-          ref={virtualizerHostRef}
+          ref={setVirtualizerHostElement}
           className="agent-gui-transcript-virtual"
           data-agent-transcript-virtualized="true"
-          style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
         >
           {virtualItems.map((virtualTurn) => {
             const group = turnGroups[virtualTurn.index];
@@ -599,8 +620,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
                     turnWorkSectionModelByKey.get(group.key)
                       ? AGENT_TRANSCRIPT_DISCLOSURE_TURN_GAP_PX
                       : AGENT_TRANSCRIPT_LEGACY_TURN_GAP_PX
-                  }px`,
-                  transform: `translateY(${virtualTurn.start}px)`
+                  }px`
                 }}
               >
                 {renderTurnGroup(group)}

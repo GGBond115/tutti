@@ -138,6 +138,7 @@ JOIN workspace_agent_turns t
  AND t.agent_session_id = s.agent_session_id
 WHERE s.workspace_id = '${sqlString(workspaceID)}'
   AND s.deleted_at_unix_ms = 0
+  AND s.origin = 'WORKSPACE_AGENT_SESSION_ORIGIN_RUNTIME'
   AND s.session_kind = 'root'
   AND s.active_turn_id IS NULL
 GROUP BY s.agent_session_id
@@ -195,9 +196,9 @@ SET agent_target_id = 'local:cursor',
     model = '',
     settings_json = '{}',
     cwd = '${sqlString(context.workspaceRoot)}',
-    rail_section_kind = 'project',
-    rail_project_path = '${sqlString(context.workspaceRoot)}',
-    rail_section_key = 'project:${sqlString(context.workspaceRoot)}',
+    rail_section_kind = 'conversations',
+    rail_project_path = '',
+    rail_section_key = 'conversations',
     session_metadata_json = json_set(
       session_metadata_json,
       '$.visible', json('true'),
@@ -771,7 +772,7 @@ async function executeComposerOverflowResize(context, prepared, options) {
   };
 }
 
-async function enterAndSubmitComposerPrompt(client, prompt, timeoutMs) {
+export async function enterAndSubmitComposerPrompt(client, prompt, timeoutMs) {
   await evaluate(
     client,
     `(() => {

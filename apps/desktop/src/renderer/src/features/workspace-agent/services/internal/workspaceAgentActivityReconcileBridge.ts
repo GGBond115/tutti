@@ -1,6 +1,8 @@
 import {
+  type AgentActivityMessage,
   type AgentActivityMessagePage,
   type AgentActivitySession,
+  type AgentActivitySessionMessageWindow,
   type AgentActivitySnapshot
 } from "@tutti-os/agent-activity-core";
 import {
@@ -273,21 +275,64 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
   protected upsertAuthoritativeSessionDetail(
     detail: AgentActivitySessionDetail,
     source: string,
-    options: { live?: boolean } = {}
+    options: {
+      live?: boolean;
+      messages?: readonly AgentActivityMessage[];
+      sessionMessageWindows?: readonly (AgentActivitySessionMessageWindow & {
+        agentSessionId: string;
+      })[];
+    } = {}
   ): void {
-    this.upsertEngineSession({
-      agentSessionId: detail.session.agentSessionId,
-      live: options.live,
-      session: detail.session,
-      source,
-      workspaceId: normalizeWorkspaceId(detail.session.workspaceId)
+    const workspaceId = normalizeWorkspaceId(detail.session.workspaceId);
+    const agentSessionId = detail.session.agentSessionId;
+    const beforeSession =
+      this.activitySnapshot(workspaceId).sessions.find(
+        (session) => session.agentSessionId === agentSessionId
+      ) ?? null;
+    this.reportReconcileTrace({
+      agentSessionId,
+      traceEvent: source,
+      workspaceId,
+      fields: {
+        beforeSession:
+          agentActivitySessionReconcileDiagnosticDetails(beforeSession),
+        childSessionIds: detail.childSessions.map(
+          (session) => session.agentSessionId
+        ),
+        incomingSession: agentActivitySessionReconcileDiagnosticDetails(
+          detail.session
+        )
+      }
     });
-    const entry = this.entry(detail.session.workspaceId);
-    for (const turn of detail.turns) {
-      entry.engine.dispatch({ type: "turn/upserted", turn });
-    }
-    for (const childSession of detail.childSessions) {
-      this.upsertAuthoritativeSession(childSession, `${source}.child`);
+    this.entry(workspaceId).engine.dispatch({
+      childSessions: detail.childSessions,
+      ...(options.live ? { live: true } : {}),
+      ...(options.messages ? { messages: options.messages } : {}),
+      session: detail.session,
+      ...(options.sessionMessageWindows
+        ? { sessionMessageWindows: options.sessionMessageWindows }
+        : {}),
+      turns: detail.turns,
+      type: "session/detailSnapshotReceived",
+      workspaceId
+    });
+    const afterSession =
+      this.activitySnapshot(workspaceId).sessions.find(
+        (session) => session.agentSessionId === agentSessionId
+      ) ?? null;
+    this.reportReconcileTrace({
+      agentSessionId,
+      traceEvent: `${source}.applied`,
+      workspaceId,
+      fields: {
+        afterSession:
+          agentActivitySessionReconcileDiagnosticDetails(afterSession)
+      }
+    });
+    if (options.live) {
+      this.liveReconcileInFlightSessionKeys.delete(
+        this.sessionKey(workspaceId, agentSessionId)
+      );
     }
   }
 
@@ -780,31 +825,30 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
     if (this.isSessionTombstoned(workspaceId, agentSessionId)) {
       return;
     }
+    const reconciledMessages = pages.flatMap(({ page }) => page.messages);
+    const sessionMessageWindows = pages.flatMap(
+      ({ agentSessionId: sessionId, page, startsAtNewestBoundary }) =>
+        startsAtNewestBoundary
+          ? [
+              {
+                agentSessionId: sessionId,
+                ...agentActivitySessionMessageWindowFromDescendingPage(page)
+              }
+            ]
+          : []
+    );
     this.upsertAuthoritativeSessionDetail(
       detail,
       "reconcile.combined.state_upsert",
-      { live }
+      {
+        live,
+        messages: reconciledMessages,
+        sessionMessageWindows
+      }
     );
-    const reconciledMessages = pages.flatMap(({ page }) => page.messages);
     for (const message of reconciledMessages) {
       this.emitSessionEvent(workspaceId, hostMessageEventFromCore(message));
     }
-    entry.engine.dispatch({
-      messages: reconciledMessages,
-      sessionMessageWindows: pages.flatMap(
-        ({ agentSessionId: sessionId, page, startsAtNewestBoundary }) =>
-          startsAtNewestBoundary
-            ? [
-                {
-                  agentSessionId: sessionId,
-                  ...agentActivitySessionMessageWindowFromDescendingPage(page)
-                }
-              ]
-            : []
-      ),
-      type: "message/snapshotReceived",
-      workspaceId
-    });
     for (const { agentSessionId: reconciledSessionId } of pages) {
       this.reconcileOptimisticMessages(workspaceId, reconciledSessionId);
     }

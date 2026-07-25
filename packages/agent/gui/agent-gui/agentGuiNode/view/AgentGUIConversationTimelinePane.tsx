@@ -6,7 +6,8 @@ import type { AgentGUIProviderSkillOption } from "../model/agentGuiNodeTypes";
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../../shared/AgentMessageMarkdown";
 import type {
   AgentTranscriptAttachmentLocator,
-  AgentTranscriptTurnAttachment
+  AgentTranscriptTurnAttachment,
+  AgentTranscriptVirtualScrollController
 } from "../../../shared/agentConversation/components/AgentTranscriptView";
 
 const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
@@ -22,6 +23,7 @@ interface AgentGUIConversationTimelinePaneProps {
   ) => void;
   isLoading: boolean;
   isLoadingOlderMessages: boolean;
+  virtualScrollControllerRef: Ref<AgentTranscriptVirtualScrollController>;
   loadingLabel: string;
   empty: React.JSX.Element;
   onLinkAction?: (action: WorkspaceLinkAction) => void;
@@ -45,6 +47,7 @@ export const AgentGUIConversationTimelinePane = memo(
     onTurnAttachmentVisibilityChange,
     isLoading,
     isLoadingOlderMessages,
+    virtualScrollControllerRef,
     loadingLabel,
     empty,
     onLinkAction,
@@ -79,6 +82,8 @@ export const AgentGUIConversationTimelinePane = memo(
           availableSkills={availableSkills}
           workspaceAppIcons={workspaceAppIcons}
           labels={labels}
+          virtualListLayoutRevision={isLoadingOlderMessages ? 1 : 0}
+          virtualScrollControllerRef={virtualScrollControllerRef}
         />
       </>
     );

@@ -7,7 +7,8 @@ import { AgentTranscriptSkeleton } from "./AgentTranscriptSkeleton";
 import {
   AgentTranscriptView,
   type AgentTranscriptAttachmentLocator,
-  type AgentTranscriptTurnAttachment
+  type AgentTranscriptTurnAttachment,
+  type AgentTranscriptVirtualScrollController
 } from "./AgentTranscriptView";
 import { AgentTurnDisclosureProvider } from "./AgentTurnDisclosureContext";
 import type { AgentGUIProviderSkillOption } from "../../../agent-gui/agentGuiNode/model/agentGuiNodeTypes";
@@ -30,6 +31,8 @@ export interface AgentConversationFlowProps {
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   showRawTimelineJson?: boolean;
   participantPresentation?: AgentConversationParticipantPresentation;
+  virtualListLayoutRevision?: number;
+  virtualScrollControllerRef?: Ref<AgentTranscriptVirtualScrollController>;
   labels: {
     toolCallsLabel: (count: number) => string;
     thinkingLabel: string;
@@ -55,6 +58,8 @@ export const AgentConversationFlow = memo(function AgentConversationFlow({
   workspaceAppIcons,
   showRawTimelineJson = false,
   participantPresentation,
+  virtualListLayoutRevision,
+  virtualScrollControllerRef,
   labels
 }: AgentConversationFlowProps): JSX.Element {
   "use memo";
@@ -83,6 +88,8 @@ export const AgentConversationFlow = memo(function AgentConversationFlow({
         labels={labels}
         showRawTimelineJson={showRawTimelineJson}
         participantPresentation={participantPresentation}
+        virtualListLayoutRevision={virtualListLayoutRevision}
+        virtualScrollControllerRef={virtualScrollControllerRef}
       />
     );
   }

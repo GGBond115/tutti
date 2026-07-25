@@ -112,8 +112,9 @@ ownership, not a runtime call stack or proof of causation.
 
 The capture runner ships `provider-switch`, `session-switch`,
 `provider-session-cycle`, `virtualized-streaming`,
-`virtualized-scroll-locator`, `rail-scope-reveal`, `composer-input`,
-`composer-overflow-resize`, `workbench-window-lifecycle`, and
+`virtualized-scroll-locator`, `virtualized-session-cycle`,
+`virtualized-oversized-active-turn`, `browser-behind-agent-gui-pixels`,
+`rail-scope-reveal`, `composer-input`, `composer-overflow-resize`, `workbench-window-lifecycle`,
 `desktop-window-state`, and `provider-status-focus-refresh`. List them with
 `--list-scenarios`; select one with
 `--scenario <id>`. Scenario modules own preparation, completion conditions,
@@ -132,11 +133,30 @@ historical rows never gain `contenteditable="true"` or `role="textbox"`. Its tra
 requires at least 300 scroll dispatches, a maximum 50 ms scroll dispatch,
 at most 1200 ms total scroll-dispatch time, at most 500 ms `Layout`, at most
 1000 ms `UpdateLayoutTree`, and zero inclusive CPU samples for `EditorView`,
-`hasSelection`, `selectionToDOM`, and `updateStateInner`. CPU sample counts use
+`hasSelection`, and `selectionToDOM`. CPU sample counts use
 marker-bounded renderer-process `ProfileChunk` stacks; the gate also requires
 at least one CPU sample so missing profiler data cannot pass as zero.
-`captureScrollAnchor` is reported for diagnosis but is not itself a threshold.
+`captureScrollAnchor` and `updateStateInner` are reported for diagnosis but are
+not thresholds. The active Composer legitimately calls `updateStateInner`
+during React passive effects, so that generic ProseMirror function name cannot
+distinguish it from a historical message. The historical transcript DOM
+assertion remains the ownership gate.
 Neither scenario launches or sends input to a developer's installed Agent provider.
+`virtualized-session-cycle` uses the same isolated fixture preparation, pairs
+one virtualized long Session with one non-virtualized Session of at most three
+Turns (and at least one Turn), then performs two round trips. It asserts the exact active Session and
+expected virtualization mode after every switch.
+`virtualized-oversized-active-turn` retains eighteen settled Turns, then drives
+a nineteenth active Turn through the deterministic fake Cursor ACP executable.
+The isolated fixture reaches approximately 250 total tool calls, with at least
+forty in the active Turn. The trace ends while that Turn is still running and
+reports mounted virtual Turn/row counts plus DOM mutation batches. It remains a
+local diagnostic without fixed timing thresholds.
+`browser-behind-agent-gui-pixels` opens a high-contrast Browser webview, saves a
+Browser reference screenshot, then keeps that webview mounted behind a
+fullscreen virtualized AgentGUI while the transcript scrolls. It saves the
+composited `browser-behind-agent-gui.png` artifact for real-pixel inspection;
+its DOM assertions intentionally do not claim a pixel verdict.
 `rail-scope-reveal` asserts the exact active-row
 `scrollIntoView` call during a fresh Agent scope restore.
 `session-switch` also reports inclusive CPU samples for

@@ -40,6 +40,51 @@ test("WorkspaceAgentActivityService starts one canonical workspace load when the
   );
 });
 
+test("WorkspaceAgentActivityService applies authoritative Session detail in one engine notification", async () => {
+  const rootSession = workspaceAgentSession({ status: "ready" });
+  const childSession = {
+    ...workspaceAgentSession({ status: "ready" }),
+    id: "session-child",
+    kind: "child",
+    parentSessionId: "session-1",
+    rootSessionId: "session-1"
+  };
+  const service = new WorkspaceAgentActivityService({
+    tuttidClient: {
+      getWorkspaceAgentSession: async () => ({
+        childSessions: [childSession],
+        session: rootSession,
+        turns: [workspaceAgentTurn()]
+      }),
+      listWorkspaceAgentSessions: async () => ({
+        hasMore: false,
+        sessions: [],
+        workspaceId: "ws-1"
+      })
+    } as unknown as TuttidClient,
+    runtimeApi: { logTerminalDiagnostic: async () => {} }
+  });
+  await service.load("ws-1");
+  const engine = service.getSessionEngine("ws-1");
+  let notificationCount = 0;
+  const unsubscribe = engine.subscribe(() => {
+    notificationCount += 1;
+  });
+
+  await service.getSession("ws-1", "session-1");
+
+  unsubscribe();
+  assert.equal(notificationCount, 1);
+  assert.ok(engine.getSnapshot().sessionLifecycle.sessionsById["session-1"]);
+  assert.ok(
+    engine.getSnapshot().sessionLifecycle.sessionsById["session-child"]
+  );
+  assert.equal(
+    Object.values(engine.getSnapshot().sessionLifecycle.turnsById)[0]?.turnId,
+    "turn-1"
+  );
+});
+
 test("WorkspaceAgentActivityService coalesces concurrent workspace loads", async () => {
   let listCalls = 0;
   let resolveList!: (value: {
