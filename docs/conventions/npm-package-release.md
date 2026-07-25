@@ -207,6 +207,12 @@ dependencies rather than resolved independently in the consumer. A
 package-private copy of the shared runtime can make structurally identical
 extensions type-incompatible in consumers.
 
+Platform-specific peers used only by an optional public subpath must remain
+peer dependencies and set `peerDependenciesMeta.<name>.optional` to `true`.
+The platform app that imports that subpath must declare the concrete runtime
+dependency itself. This keeps web and desktop consumers from installing
+unused native dependency chains.
+
 Runtime assets that are rendered or referenced by public entrypoints must also
 survive the packed package shape. When a public runtime entrypoint such as
 `./workbench` or `./ui` renders a package-local image, icon bitmap, schema, or

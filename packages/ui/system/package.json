@@ -89,6 +89,9 @@
     "react-native": ">=0.86 <0.87"
   },
   "peerDependenciesMeta": {
+    "@gorhom/bottom-sheet": {
+      "optional": true
+    },
     "react-dom": {
       "optional": true
     },
