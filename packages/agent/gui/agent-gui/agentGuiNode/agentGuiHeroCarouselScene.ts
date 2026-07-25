@@ -58,9 +58,6 @@ const BADGE_DIAMETER = 0.36;
 // layer scale => ~48.6px per world unit).
 const BADGE_OFFSET = 0.48;
 const MAX_PIXEL_RATIO = 2;
-const RECORD_SPIN_SECONDS = 10;
-const RECORD_SPIN_MIN_FRAME_INTERVAL_MS = 30;
-const RECORD_SPIN_MAX_FRAME_DELTA_SECONDS = 0.1;
 const RECORD_MODEL_SCALE = 1.3;
 const RECORD_MODEL_RADIUS = 0.45;
 const RECORD_MODEL_THICKNESS = 0.03;
@@ -95,8 +92,6 @@ interface AgentGuiHeroCarouselTile {
   faceMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   poseGroup: THREE.Group;
   ready: boolean;
-  recordGroup: THREE.Group;
-  rotation: number;
   vinylTexture: THREE.Texture | null;
 }
 
@@ -106,7 +101,6 @@ export interface AgentGuiHeroCarouselSceneOptions {
   loadedBadgeImages: readonly (HTMLImageElement | null)[];
   loadedImages: readonly (HTMLImageElement | null)[];
   loadedCoverImages: readonly (HTMLImageElement | null)[];
-  recordSpinActive?: boolean;
   // Fired once the wheel settles on an integer slot after an animated move.
   onSettle: (index: number) => void;
 }
@@ -143,11 +137,7 @@ export class AgentGuiHeroCarouselScene {
   private velocity = 0;
   private renderFrameHandle: number | null = null;
   private springFrameHandle: number | null = null;
-  private recordSpinFrameHandle: number | null = null;
   private lastFrameAt: number | null = null;
-  private lastRecordSpinFrameAt: number | null = null;
-  private hoveredTile: AgentGuiHeroCarouselTile | null = null;
-  private recordSpinActive: boolean;
   private visible = true;
   private disposed = false;
 
@@ -161,7 +151,6 @@ export class AgentGuiHeroCarouselScene {
     // Rim spacing fixes the wheel size: radius = arc spacing / slot angle.
     this.wheelRadius = (TILE_SPACING * this.tileCount) / (Math.PI * 2);
     this.onSettle = options.onSettle;
-    this.recordSpinActive = options.recordSpinActive !== false;
     this.renderer = new THREE.WebGLRenderer({
       canvas: options.canvas,
       alpha: true,
@@ -255,8 +244,6 @@ export class AgentGuiHeroCarouselScene {
         faceMesh,
         poseGroup,
         ready: false,
-        recordGroup,
-        rotation: 0,
         vinylTexture: null
       });
     }
@@ -276,7 +263,6 @@ export class AgentGuiHeroCarouselScene {
     });
 
     this.applyPoses();
-    this.startRecordSpin();
   }
 
   setSize(width: number, height: number): void {
@@ -323,20 +309,9 @@ export class AgentGuiHeroCarouselScene {
 
     if (hasPendingMotion) {
       this.animate();
-    }
-    this.startRecordSpin();
-  }
-
-  setRecordSpinActive(active: boolean): void {
-    if (this.disposed || this.recordSpinActive === active) {
       return;
     }
-    this.recordSpinActive = active;
-    if (!active) {
-      this.cancelRecordSpinFrame();
-      return;
-    }
-    this.startRecordSpin();
+    this.requestRender();
   }
 
   // Agent index of the tile slot the wheel is heading to.
@@ -400,21 +375,10 @@ export class AgentGuiHeroCarouselScene {
     return typeof index === "number" ? index : null;
   }
 
-  // Gives playback to the record beneath the pointer. When no record is
-  // hovered, playback returns to the record nearest the center.
   hover(x: number, y: number, width: number, height: number): number | null {
     const tile = this.pickTile(x, y, width, height);
-    if (tile !== this.hoveredTile) {
-      this.hoveredTile = tile;
-      this.startRecordSpin();
-    }
     const index = tile?.poseGroup.userData.agentIndex;
     return typeof index === "number" ? index : null;
-  }
-
-  clearHover(): void {
-    this.hoveredTile = null;
-    this.startRecordSpin();
   }
 
   private pickTile(
@@ -486,16 +450,7 @@ export class AgentGuiHeroCarouselScene {
       cancelAnimationFrame(this.springFrameHandle);
       this.springFrameHandle = null;
     }
-    this.cancelRecordSpinFrame();
     this.lastFrameAt = null;
-  }
-
-  private cancelRecordSpinFrame(): void {
-    if (this.recordSpinFrameHandle !== null) {
-      cancelAnimationFrame(this.recordSpinFrameHandle);
-      this.recordSpinFrameHandle = null;
-    }
-    this.lastRecordSpinFrameAt = null;
   }
 
   private prefersReducedMotion(): boolean {
@@ -574,77 +529,6 @@ export class AgentGuiHeroCarouselScene {
     this.springFrameHandle = requestAnimationFrame(this.frame);
   };
 
-  private startRecordSpin(): void {
-    if (
-      this.disposed ||
-      !this.visible ||
-      !this.recordSpinActive ||
-      this.prefersReducedMotion() ||
-      this.recordSpinFrameHandle !== null
-    ) {
-      return;
-    }
-    this.lastRecordSpinFrameAt = null;
-    this.recordSpinFrameHandle = requestAnimationFrame(this.recordSpinFrame);
-  }
-
-  private readonly recordSpinFrame = (now: number): void => {
-    this.recordSpinFrameHandle = null;
-    if (
-      this.disposed ||
-      !this.visible ||
-      !this.recordSpinActive ||
-      this.prefersReducedMotion()
-    ) {
-      return;
-    }
-    if (
-      this.lastRecordSpinFrameAt !== null &&
-      now - this.lastRecordSpinFrameAt < RECORD_SPIN_MIN_FRAME_INTERVAL_MS
-    ) {
-      this.recordSpinFrameHandle = requestAnimationFrame(this.recordSpinFrame);
-      return;
-    }
-    const spinningTile = this.centerTile();
-    if (!spinningTile) {
-      return;
-    }
-    const dt =
-      this.lastRecordSpinFrameAt === null
-        ? 1 / 60
-        : Math.min(
-            (now - this.lastRecordSpinFrameAt) / 1000,
-            RECORD_SPIN_MAX_FRAME_DELTA_SECONDS
-          );
-    this.lastRecordSpinFrameAt = now;
-    spinningTile.rotation =
-      (spinningTile.rotation + (Math.PI * 2 * dt) / RECORD_SPIN_SECONDS) %
-      (Math.PI * 2);
-    // While the spring is moving it owns the single pose/render pass. The spin
-    // loop only advances its scalar angle, avoiding duplicate transforms.
-    if (this.springFrameHandle === null) {
-      this.applyPoses();
-      this.renderer.render(this.scene, this.camera);
-    }
-    this.recordSpinFrameHandle = requestAnimationFrame(this.recordSpinFrame);
-  };
-
-  private centerTile(): AgentGuiHeroCarouselTile | null {
-    let centeredTile: AgentGuiHeroCarouselTile | null = null;
-    let centeredOffset = Number.POSITIVE_INFINITY;
-    this.tiles.forEach((tile, index) => {
-      if (!tile.ready) {
-        return;
-      }
-      const offset = Math.abs(ringOffset(index, this.scroll, this.tileCount));
-      if (offset < centeredOffset) {
-        centeredTile = tile;
-        centeredOffset = offset;
-      }
-    });
-    return centeredTile;
-  }
-
   private requestRender(): void {
     if (
       this.disposed ||
@@ -678,7 +562,6 @@ export class AgentGuiHeroCarouselScene {
       }
     }
     this.applyPoses();
-    this.startRecordSpin();
   }
 
   private applyCoverImageTexture(
@@ -768,9 +651,6 @@ export class AgentGuiHeroCarouselScene {
         THREE.MathUtils.smoothstep(fadeProgress, 0, 1),
         RECORD_FADE_CURVE
       );
-      // The tile tangent still follows the wheel. Record playback rotation is
-      // independent, so only the currently hovered record advances while all
-      // others retain the angle where their previous hover ended.
       tile.poseGroup.rotation.set(
         RECORD_MODEL_TILT_X,
         THREE.MathUtils.clamp(
@@ -780,7 +660,6 @@ export class AgentGuiHeroCarouselScene {
         ),
         -angle * VISIBLE_ARC_CURVATURE
       );
-      tile.recordGroup.rotation.z = isCenterTile ? -tile.rotation : 0;
       const edgeKill =
         1 -
         THREE.MathUtils.smoothstep(

@@ -48,10 +48,10 @@ export function AgentGUIVinylPlayer({
       </div>
       <div className="agent-gui-vinyl-player__platter">
         <div className="agent-gui-vinyl-player__platter-inner">
-          <motion.div
-            className="agent-gui-vinyl-player__record"
-            animate={{ rotate: isPlaying ? 360 : 0 }}
-            transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+          <div
+            className={`agent-gui-vinyl-player__record${
+              isPlaying ? " agent-gui-vinyl-player__record--playing" : ""
+            }`}
           >
             {Array.from({ length: 18 }, (_, index) => (
               <span
@@ -66,7 +66,7 @@ export function AgentGUIVinylPlayer({
                 <img src={selectedAgentCover} alt="" />
               ) : null}
             </span>
-          </motion.div>
+          </div>
         </div>
       </div>
       <img

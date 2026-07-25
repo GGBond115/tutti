@@ -10093,6 +10093,23 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
     ),
     #111;
   box-shadow: 0 4px 15px rgb(0 0 0 / 60%);
+  animation: agent-gui-vinyl-player-record-spin 4s linear infinite paused;
+}
+
+.agent-gui-vinyl-player__record--playing {
+  animation-play-state: running;
+}
+
+@keyframes agent-gui-vinyl-player-record-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-gui-vinyl-player__record {
+    animation: none;
+  }
 }
 
 .agent-gui-vinyl-player__groove,

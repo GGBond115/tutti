@@ -849,11 +849,12 @@ is currently visible; the carousel waits for that visibility and then browser
 idle time before creating its WebGL renderer. This keeps Genie restore work out
 of the WebGL creation task without exposing Genie state to AgentGUI. An existing
 scene remains allocated while the normal presentation is hidden, but cancels
-all render, spring, and record-spin animation frames until visibility returns.
-While visible, only the focused AgentGUI runs the decorative record spin, and
-that spin renders at no more than 30 frames per second. Unfocused surfaces keep
-their current frame and WebGL resources so focus does not rebuild the scene;
-explicit carousel interaction continues to use the full-rate spring path.
+all render and spring animation frames until visibility returns. Once
+initialized, WebGL renders only for texture or size changes and carousel
+selection changes; the spring stops requesting frames after it settles. The
+DOM turntable record uses a compositor animation only in the active visible
+AgentGUI. Inactive surfaces preserve their current visual state without a
+JavaScript animation loop.
 WebGL scene readiness remains local presentation state; it must not enter
 `AgentActivityRuntime`, the workspace engine, or Workbench node state.
 

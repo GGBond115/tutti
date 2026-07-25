@@ -218,7 +218,6 @@ describe("AgentGUIHeroAgentCarousel", () => {
     const scene = {
       dispose: vi.fn(),
       moveTo: vi.fn(),
-      setRecordSpinActive: vi.fn(),
       setSize: vi.fn(),
       setVisible: vi.fn()
     };
@@ -259,14 +258,13 @@ describe("AgentGUIHeroAgentCarousel", () => {
     }
   });
 
-  it("keeps the scene mounted while focus controls record spin", async () => {
+  it("keeps only the active visible DOM record playing", async () => {
     const frames = installAnimationFrameQueue();
     const idle = installIdleCallbackQueue();
     vi.stubGlobal("Image", undefined);
     const scene = {
       dispose: vi.fn(),
       moveTo: vi.fn(),
-      setRecordSpinActive: vi.fn(),
       setSize: vi.fn(),
       setVisible: vi.fn()
     };
@@ -290,16 +288,31 @@ describe("AgentGUIHeroAgentCarousel", () => {
         frames.flushNext();
         idle.flushNext();
       });
-      expect(sceneCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ recordSpinActive: false })
-      );
+      expect(
+        container.querySelector(".agent-gui-vinyl-player__record--playing")
+      ).toBeNull();
 
       await act(async () => {
         root.render(
           <AgentGUIHeroAgentCarousel isActive isVisible items={[item]} />
         );
       });
-      expect(scene.setRecordSpinActive).toHaveBeenLastCalledWith(true);
+      expect(
+        container.querySelector(".agent-gui-vinyl-player__record--playing")
+      ).not.toBeNull();
+
+      await act(async () => {
+        root.render(
+          <AgentGUIHeroAgentCarousel
+            isActive
+            isVisible={false}
+            items={[item]}
+          />
+        );
+      });
+      expect(
+        container.querySelector(".agent-gui-vinyl-player__record--playing")
+      ).toBeNull();
       expect(sceneCreate).toHaveBeenCalledOnce();
       expect(scene.dispose).not.toHaveBeenCalled();
     } finally {

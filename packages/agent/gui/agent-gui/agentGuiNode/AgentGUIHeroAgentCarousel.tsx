@@ -131,10 +131,6 @@ export class AgentGUIHeroAgentCarousel extends Component<
         this.scheduleSceneMount();
       }
     }
-    if (previousProps.isActive !== this.props.isActive) {
-      this.scene?.setRecordSpinActive(this.props.isActive !== false);
-    }
-
     if (
       previousProps.activeAgentTargetId !== this.props.activeAgentTargetId ||
       previousProps.items !== this.props.items
@@ -284,7 +280,6 @@ export class AgentGUIHeroAgentCarousel extends Component<
       loadedCoverImages: this.state.coverImages,
       loadedBadgeImages: this.state.badgeImages,
       loadedImages: this.state.images,
-      recordSpinActive: this.props.isActive !== false,
       onSettle: this.handleSceneSettle
     });
     this.scene = scene;
@@ -520,7 +515,6 @@ export class AgentGUIHeroAgentCarousel extends Component<
   };
 
   private readonly handleCanvasLeave = (): void => {
-    this.scene?.clearHover();
     if (this.canvasRef.current) {
       this.canvasRef.current.style.cursor = "";
     }
@@ -549,7 +543,9 @@ export class AgentGUIHeroAgentCarousel extends Component<
             this.props.items[0] ??
             null
           }
-          isPlaying
+          isPlaying={
+            this.props.isActive !== false && this.props.isVisible !== false
+          }
         />
         <canvas
           ref={this.canvasRef}
