@@ -90,6 +90,7 @@ export const EMPTY_HOME_SUGGESTIONS: readonly AgentHomeSuggestionCategory[] =
   Object.freeze([]);
 
 interface AgentGUIEmptyHomePaneProps {
+  isVisible: boolean;
   provider: AgentGUINodeViewModel["shell"]["data"]["provider"];
   providerReadinessGate: AgentGUIProviderReadinessGate | null;
   showAllProviders: boolean;
@@ -112,6 +113,7 @@ interface AgentGUIEmptyHomePaneProps {
 }
 
 export const AgentGUIEmptyHomePane = memo(function AgentGUIEmptyHomePane({
+  isVisible,
   provider,
   providerReadinessGate,
   showAllProviders,
@@ -159,6 +161,7 @@ export const AgentGUIEmptyHomePane = memo(function AgentGUIEmptyHomePane({
         presentedSelectedAgentTarget?.agentTargetId ??
         presentedSelectedAgentTarget?.targetId
       }
+      isVisible={isVisible}
       items={avatarPresentations}
       onProviderSelect={onProviderSelect}
       providerSelectLabel={labels.providerSwitchLabel}
@@ -168,6 +171,7 @@ export const AgentGUIEmptyHomePane = memo(function AgentGUIEmptyHomePane({
       >
         {providerReadinessGate ? (
           <AgentGUIProviderReadinessGatePane
+            isVisible={isVisible}
             provider={provider}
             gate={providerReadinessGate}
             showAllProviders={showAllProviders}
@@ -184,6 +188,7 @@ export const AgentGUIEmptyHomePane = memo(function AgentGUIEmptyHomePane({
         ) : (
           <AgentGUIEmptyHeroPane
             {...heroProps}
+            isVisible={isVisible}
             provider={provider}
             emptyLabel={emptyLabel}
             emptyProvider={providerLabel}
@@ -202,6 +207,7 @@ export const AgentGUIEmptyHomePane = memo(function AgentGUIEmptyHomePane({
 });
 
 interface AgentGUIEmptyHeroPaneProps {
+  isVisible?: boolean;
   provider: AgentGUINodeViewModel["shell"]["data"]["provider"];
   emptyLabel: string;
   emptyProvider: string;
@@ -227,6 +233,7 @@ interface AgentGUIEmptyHeroPaneProps {
 }
 
 export const AgentGUIEmptyHeroPane = memo(function AgentGUIEmptyHeroPane({
+  isVisible = true,
   provider,
   emptyLabel,
   emptyProvider,
@@ -283,6 +290,7 @@ export const AgentGUIEmptyHeroPane = memo(function AgentGUIEmptyHeroPane({
                 selectedAgentTarget?.targetId
               }
               items={heroAvatarPresentations}
+              isVisible={isVisible}
               onProviderSelect={onProviderSelect}
               providerSelectLabel={providerSelectLabel}
             />
@@ -329,6 +337,7 @@ export const AgentGUIEmptyHeroPane = memo(function AgentGUIEmptyHeroPane({
 });
 
 interface AgentGUIProviderReadinessGatePaneProps {
+  isVisible?: boolean;
   provider: AgentGUINodeViewModel["shell"]["data"]["provider"];
   gate: AgentGUIProviderReadinessGate;
   showAllProviders?: boolean;
@@ -366,6 +375,7 @@ interface AgentGUIProviderReadinessGatePaneProps {
 
 export const AgentGUIProviderReadinessGatePane = memo(
   function AgentGUIProviderReadinessGatePane({
+    isVisible = true,
     provider,
     gate,
     showAllProviders = false,
@@ -436,6 +446,7 @@ export const AgentGUIProviderReadinessGatePane = memo(
                 selectedAgentTarget?.targetId
               }
               items={heroAvatarPresentations}
+              isVisible={isVisible}
               onProviderSelect={onProviderSelect}
               providerSelectLabel={providerSelectLabel}
             />

@@ -9,6 +9,7 @@ import type {
   WorkbenchResolveWindowChromeMode,
   WorkbenchWindowActionContext
 } from "../react/types.ts";
+import { useWorkbenchWindowPresentationVisibility } from "../react/WorkbenchWindowFrame.tsx";
 import type {
   WorkbenchDockPreviewCache,
   WorkbenchDockPreviewCacheKey
@@ -465,6 +466,7 @@ function WorkbenchHostNodeRenderer(input: {
   host: WorkbenchHostRuntimeHandle;
   workspaceId: string;
 }): ReactNode {
+  const isVisible = useWorkbenchWindowPresentationVisibility();
   const externalState = useWorkbenchHostExternalState({
     externalStateSource: input.externalStateSource,
     node: input.context.node,
@@ -476,6 +478,7 @@ function WorkbenchHostNodeRenderer(input: {
     externalState,
     externalStateSource: input.externalStateSource,
     host: input.host,
+    isVisible,
     workspaceId: input.workspaceId
   });
   const resetKey = useMemo(

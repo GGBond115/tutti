@@ -1,10 +1,13 @@
 import {
+  createContext,
   type CSSProperties,
   type ReactNode,
   useCallback,
+  useContext,
   useLayoutEffect,
   useMemo,
-  useRef
+  useRef,
+  useSyncExternalStore
 } from "react";
 import { createI18nRuntime } from "@tutti-os/ui-i18n-runtime";
 import { Checkbox } from "@tutti-os/ui-system";
@@ -33,14 +36,16 @@ import type {
   WorkbenchWindowHeaderPresentation
 } from "./types.ts";
 import type { WorkbenchGenieController } from "./useWorkbenchGenieAnimation.tsx";
+import type { WorkbenchGenieNodeVisibility } from "./genieNodeVisibility.ts";
 import { resolveWorkbenchWindowHeader } from "./windowHeader.ts";
 
 export interface WorkbenchWindowFrameProps<TData = unknown> {
   children: ReactNode;
-  genie: WorkbenchGenieController;
+  genieNodeVisibility: WorkbenchGenieNodeVisibility;
   edgeSnapEnabled?: boolean;
   hiddenMounted?: boolean;
   interactive?: boolean;
+  minimizeNodeToAnchor: WorkbenchGenieController["minimizeNodeToAnchor"];
   node: WorkbenchNode<TData>;
   presentation?: WorkbenchSurfacePresentation | null;
   renderActions?: WorkbenchRenderWindowActions<TData>;
@@ -68,6 +73,12 @@ const defaultWindowChromeI18n = createWorkbenchWindowChromeI18nRuntime(
     dictionaries: [workbenchWindowChromeI18nResources.en]
   })
 );
+
+const WorkbenchWindowPresentationVisibilityContext = createContext(true);
+
+export function useWorkbenchWindowPresentationVisibility(): boolean {
+  return useContext(WorkbenchWindowPresentationVisibilityContext);
+}
 
 function resolveWorkbenchNodeLaunchSource(data: unknown): string | undefined {
   if (
@@ -98,9 +109,10 @@ function resolveWorkbenchNodeTypeId(data: unknown): string | undefined {
 export function WorkbenchWindowFrame<TData>({
   children,
   edgeSnapEnabled = false,
-  genie,
+  genieNodeVisibility,
   hiddenMounted = false,
   interactive = true,
+  minimizeNodeToAnchor: minimizeNodeToAnchorProp,
   node,
   presentation = null,
   renderActions,
@@ -136,10 +148,23 @@ export function WorkbenchWindowFrame<TData>({
     controller.commands.focusNode(node.id);
     controller.commands.applySnapTarget(node.id, "top");
   };
-  const minimizeNodeToAnchorRef = useRef(genie.minimizeNodeToAnchor);
+  const subscribeGenieVisibility = useCallback(
+    (listener: () => void) => genieNodeVisibility.subscribe(node.id, listener),
+    [genieNodeVisibility, node.id]
+  );
+  const readGenieVisibility = useCallback(
+    () => genieNodeVisibility.getSnapshot(node.id),
+    [genieNodeVisibility, node.id]
+  );
+  const isGenieHidden = useSyncExternalStore(
+    subscribeGenieVisibility,
+    readGenieVisibility,
+    readGenieVisibility
+  );
+  const minimizeNodeToAnchorRef = useRef(minimizeNodeToAnchorProp);
   useLayoutEffect(() => {
-    minimizeNodeToAnchorRef.current = genie.minimizeNodeToAnchor;
-  }, [genie.minimizeNodeToAnchor]);
+    minimizeNodeToAnchorRef.current = minimizeNodeToAnchorProp;
+  }, [minimizeNodeToAnchorProp]);
   const minimizeNodeToAnchor = useCallback(
     (nodeID: string, minimize?: () => void) => {
       minimizeNodeToAnchorRef.current(nodeID, minimize);
@@ -214,6 +239,8 @@ export function WorkbenchWindowFrame<TData>({
   const isPresentationHidden =
     presentationMode === "mission-control" &&
     !presentation?.visibleNodeIds.has(node.id);
+  const isWindowPresentationVisible =
+    !hiddenMounted && !isGenieHidden && presentationMode === null;
   const presentationInteraction =
     interactive &&
     presentationMode === "mission-control" &&
@@ -258,7 +285,7 @@ export function WorkbenchWindowFrame<TData>({
       className="workbench-window-shell"
       data-focused={isFocused ? "true" : "false"}
       data-display-mode={node.displayMode}
-      data-genie-state={genie.isNodeGenieHidden(node.id) ? "hidden" : "visible"}
+      data-genie-state={isGenieHidden ? "hidden" : "visible"}
       data-launch-source={resolveWorkbenchNodeLaunchSource(node.data)}
       data-minimized-mount={hiddenMounted ? "hidden" : "visible"}
       data-presentation-mode={presentationMode ?? "default"}
@@ -334,7 +361,13 @@ export function WorkbenchWindowFrame<TData>({
               </>
             )}
           </div>
-          <div className="workbench-window__body">{children}</div>
+          <div className="workbench-window__body">
+            <WorkbenchWindowPresentationVisibilityContext.Provider
+              value={isWindowPresentationVisible}
+            >
+              {children}
+            </WorkbenchWindowPresentationVisibilityContext.Provider>
+          </div>
         </div>
         {node.displayMode === "floating" &&
         !hiddenMounted &&

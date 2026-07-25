@@ -584,6 +584,7 @@ export function StandaloneAgentWindow({
       isFocused: true,
       isMinimized: false,
       isResizing: false,
+      isVisible: true,
       nodeId: standaloneAgentNodeId,
       nodeTitle: i18n.t("workspace.agentGui.fallbackAgentLabel"),
       presentationMode: undefined,

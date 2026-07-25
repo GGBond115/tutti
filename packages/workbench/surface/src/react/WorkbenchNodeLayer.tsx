@@ -20,6 +20,7 @@ import type {
   WorkbenchWindowChromeMode
 } from "./types.ts";
 import type { WorkbenchGenieController } from "./useWorkbenchGenieAnimation.tsx";
+import type { WorkbenchGenieNodeVisibility } from "./genieNodeVisibility.ts";
 import { useWorkbenchController } from "./WorkbenchProvider.tsx";
 import { WorkbenchWindowFrame } from "./WorkbenchWindowFrame.tsx";
 import { useWorkbenchSelector } from "./hooks/useWorkbenchSelector.ts";
@@ -116,8 +117,9 @@ export function WorkbenchNodeLayer<TData>({
         className="workbench-node-layer workbench-node-layer--dialog-popover"
         edgeSnapEnabled={edgeSnapEnabled}
         fullscreenHeaderMode={resolveFullscreenHeaderMode}
-        genie={genie}
+        genieNodeVisibility={genie.nodeVisibility}
         interactive={interactive}
+        minimizeNodeToAnchor={genie.minimizeNodeToAnchor}
         nodeIDs={dialogPopoverNodeIDs}
         presentation={presentation}
         renderNode={renderNode}
@@ -136,8 +138,9 @@ export function WorkbenchNodeLayer<TData>({
         className="workbench-node-layer"
         edgeSnapEnabled={edgeSnapEnabled}
         fullscreenHeaderMode={resolveFullscreenHeaderMode}
-        genie={genie}
+        genieNodeVisibility={genie.nodeVisibility}
         interactive={interactive}
+        minimizeNodeToAnchor={genie.minimizeNodeToAnchor}
         nodeIDs={defaultNodeIDs}
         onBackdropPress={presentationInteraction?.onBackdropPress}
         presentation={presentation}
@@ -163,8 +166,9 @@ interface WorkbenchNodeLayerGroupProps<TData = unknown> {
   className: string;
   edgeSnapEnabled: boolean;
   fullscreenHeaderMode?: WorkbenchResolveFullscreenHeaderMode<TData>;
-  genie: WorkbenchGenieController<TData>;
+  genieNodeVisibility: WorkbenchGenieNodeVisibility;
   interactive: boolean;
+  minimizeNodeToAnchor: WorkbenchGenieController<TData>["minimizeNodeToAnchor"];
   nodeIDs: readonly string[];
   onBackdropPress?: () => void;
   presentation?: WorkbenchSurfacePresentation | null;
@@ -184,8 +188,9 @@ function WorkbenchNodeLayerGroup<TData>({
   className,
   edgeSnapEnabled,
   fullscreenHeaderMode,
-  genie,
+  genieNodeVisibility,
   interactive,
+  minimizeNodeToAnchor,
   nodeIDs,
   onBackdropPress,
   presentation,
@@ -228,9 +233,10 @@ function WorkbenchNodeLayerGroup<TData>({
         <MemoizedWorkbenchNodeLayerItem
           key={nodeID}
           fullscreenHeaderMode={fullscreenHeaderMode}
-          genie={genie}
+          genieNodeVisibility={genieNodeVisibility}
           edgeSnapEnabled={edgeSnapEnabled}
           interactive={interactive}
+          minimizeNodeToAnchor={minimizeNodeToAnchor}
           nodeID={nodeID}
           presentation={presentation}
           renderNode={renderNode}
@@ -248,9 +254,10 @@ function WorkbenchNodeLayerGroup<TData>({
 
 interface WorkbenchNodeLayerItemProps<TData = unknown> {
   fullscreenHeaderMode?: WorkbenchResolveFullscreenHeaderMode<TData>;
-  genie: WorkbenchGenieController<TData>;
+  genieNodeVisibility: WorkbenchGenieNodeVisibility;
   edgeSnapEnabled: boolean;
   interactive: boolean;
+  minimizeNodeToAnchor: WorkbenchGenieController<TData>["minimizeNodeToAnchor"];
   nodeID: string;
   presentation?: WorkbenchSurfacePresentation | null;
   renderNode: WorkbenchRenderNode<TData>;
@@ -266,9 +273,10 @@ interface WorkbenchNodeLayerItemProps<TData = unknown> {
 
 function WorkbenchNodeLayerItem<TData>({
   fullscreenHeaderMode,
-  genie,
+  genieNodeVisibility,
   edgeSnapEnabled,
   interactive,
+  minimizeNodeToAnchor,
   nodeID,
   presentation,
   renderNode,
@@ -307,7 +315,8 @@ function WorkbenchNodeLayerItem<TData>({
       interactive={interactive}
       presentation={presentation}
       node={node}
-      genie={genie}
+      genieNodeVisibility={genieNodeVisibility}
+      minimizeNodeToAnchor={minimizeNodeToAnchor}
       resolveWindowZIndex={resolveWindowZIndex}
       fullscreenHeaderMode={fullscreenHeaderMode?.({
         controller,

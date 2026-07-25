@@ -4,7 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { WorkbenchSnapshot } from "@tutti-os/workbench-snapshot";
 import type { WorkbenchNode } from "../core/types.ts";
 import { WorkbenchProvider } from "../react/WorkbenchProvider.tsx";
-import { WorkbenchWindowFrame } from "../react/WorkbenchWindowFrame.tsx";
+import {
+  useWorkbenchWindowPresentationVisibility,
+  WorkbenchWindowFrame
+} from "../react/WorkbenchWindowFrame.tsx";
+import { createWorkbenchGenieNodeVisibilityStore } from "../react/genieNodeVisibility.ts";
 import {
   useWorkbenchGenieAnimation,
   type WorkbenchGenieController
@@ -36,6 +40,15 @@ function WorkbenchGenieIdentityProbe({
   const genie = useWorkbenchGenieAnimation({ controller, debugDiagnostics });
   onRender(genie);
   return <>{genie.genieLayer}</>;
+}
+
+function WorkbenchWindowVisibilityProbe({
+  onRender
+}: {
+  onRender: (isVisible: boolean) => void;
+}) {
+  onRender(useWorkbenchWindowPresentationVisibility());
+  return null;
 }
 
 describe("WorkbenchHost", () => {
@@ -434,18 +447,7 @@ describe("WorkbenchHost", () => {
       headerControls.minimizeNodeToAnchor = context.genie.minimizeNodeToAnchor;
       return <div data-window-header />;
     });
-    const createGenie = (
-      minimizeNodeToAnchor: WorkbenchGenieController["minimizeNodeToAnchor"]
-    ): WorkbenchGenieController => ({
-      genieLayer: null,
-      isNodeGenieHidden: () => false,
-      isPendingMinimizedDockNode: () => false,
-      launchNodeFromAnchor: () => {},
-      minimizeNodeToAnchor,
-      pendingMinimizedNode: null,
-      registerDockAnchor: () => {},
-      shouldAnimateMinimizedDockEnter: () => false
-    });
+    const nodeVisibility = createWorkbenchGenieNodeVisibilityStore();
     const firstMinimize = vi.fn();
     const secondMinimize = vi.fn();
     const renderFrame = (
@@ -453,7 +455,8 @@ describe("WorkbenchHost", () => {
     ) => (
       <WorkbenchProvider controller={controller}>
         <WorkbenchWindowFrame
-          genie={createGenie(minimizeNodeToAnchor)}
+          genieNodeVisibility={nodeVisibility}
+          minimizeNodeToAnchor={minimizeNodeToAnchor}
           node={node}
           renderHeader={renderHeader}
           windowChromeMode="custom-header"
@@ -507,6 +510,95 @@ describe("WorkbenchHost", () => {
       await act(async () => {
         root.unmount();
       });
+      nodeVisibility.dispose();
+      container.remove();
+      (
+        globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+      ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    }
+  });
+
+  it("refreshes only the window whose genie visibility changed", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const nodeA: WorkbenchNode = {
+      data: null,
+      displayMode: "floating",
+      frame: { x: 0, y: 0, width: 320, height: 240 },
+      id: "node-a",
+      isMinimized: false,
+      kind: "test",
+      restoreFrame: null,
+      title: "A"
+    };
+    const nodeB: WorkbenchNode = {
+      ...nodeA,
+      frame: { x: 40, y: 40, width: 320, height: 240 },
+      id: "node-b",
+      title: "B"
+    };
+    const controller = createWorkbenchController({
+      nodes: [nodeA, nodeB],
+      nodeStack: [nodeA.id, nodeB.id]
+    });
+    const nodeVisibility = createWorkbenchGenieNodeVisibilityStore();
+    const renderActionsA = vi.fn(() => null);
+    const renderActionsB = vi.fn(() => null);
+    const visibilityA = vi.fn();
+    const visibilityB = vi.fn();
+    const minimizeNodeToAnchor = vi.fn();
+    const previousActEnvironment = (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <WorkbenchProvider controller={controller}>
+            <WorkbenchWindowFrame
+              genieNodeVisibility={nodeVisibility}
+              minimizeNodeToAnchor={minimizeNodeToAnchor}
+              node={nodeA}
+              renderActions={renderActionsA}
+            >
+              <WorkbenchWindowVisibilityProbe onRender={visibilityA} />
+            </WorkbenchWindowFrame>
+            <WorkbenchWindowFrame
+              genieNodeVisibility={nodeVisibility}
+              minimizeNodeToAnchor={minimizeNodeToAnchor}
+              node={nodeB}
+              renderActions={renderActionsB}
+            >
+              <WorkbenchWindowVisibilityProbe onRender={visibilityB} />
+            </WorkbenchWindowFrame>
+          </WorkbenchProvider>
+        );
+      });
+      const nodeARendersBefore = renderActionsA.mock.calls.length;
+      const nodeBRendersBefore = renderActionsB.mock.calls.length;
+
+      await act(async () => {
+        nodeVisibility.setHidden(nodeA.id, true);
+      });
+
+      expect(renderActionsA).toHaveBeenCalledTimes(nodeARendersBefore + 1);
+      expect(renderActionsB).toHaveBeenCalledTimes(nodeBRendersBefore);
+      expect(visibilityA).toHaveBeenLastCalledWith(false);
+      expect(visibilityB).toHaveBeenLastCalledWith(true);
+      expect(
+        container
+          .querySelector(`[data-workbench-window-id="${nodeA.id}"]`)
+          ?.getAttribute("data-genie-state")
+      ).toBe("hidden");
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      nodeVisibility.dispose();
       container.remove();
       (
         globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }

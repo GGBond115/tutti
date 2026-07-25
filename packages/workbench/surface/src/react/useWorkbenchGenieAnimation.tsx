@@ -32,6 +32,14 @@ import {
   prepareGenieTextureCapture,
   type PreparedGenieTextureCapture
 } from "./genieTextureCapture.ts";
+import {
+  createWorkbenchGenieNodeVisibilityStore,
+  type WorkbenchGenieNodeVisibility
+} from "./genieNodeVisibility.ts";
+import {
+  resolveNativeFirstGenieTexture,
+  startCachedWorkbenchGenieRestore
+} from "./workbenchGenieScheduling.ts";
 
 const genieDurationMs = 400;
 const previewCaptureRaceTimeoutMs = 120;
@@ -91,33 +99,6 @@ function waitForNextAnimationFrame(): Promise<void> {
   });
 }
 
-function racePreviewImageCapture(
-  promise: Promise<string | null>,
-  timeoutMs: number
-): Promise<{
-  previewImageUrl: string | null;
-  status: "pending" | "resolved";
-}> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      resolve({ previewImageUrl: null, status: "pending" });
-    }, timeoutMs);
-    promise.then((previewImageUrl) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      resolve({ previewImageUrl, status: "resolved" });
-    });
-  });
-}
-
 function isFocusedWorkbenchNode<TData>(
   controller: WorkbenchController<TData>,
   nodeID: string
@@ -171,7 +152,6 @@ function describeGenieNode<TData>(
 
 export interface WorkbenchGenieController<TData = unknown> {
   genieLayer: ReactNode;
-  isNodeGenieHidden: (nodeID: string) => boolean;
   isPendingMinimizedDockNode: (nodeID: string) => boolean;
   launchNodeFromAnchor: (
     anchorKey: string,
@@ -179,6 +159,7 @@ export interface WorkbenchGenieController<TData = unknown> {
     launch: () => Promise<string | null | void> | string | null | void
   ) => void;
   minimizeNodeToAnchor: (nodeID: string, minimize?: () => void) => void;
+  nodeVisibility: WorkbenchGenieNodeVisibility;
   pendingMinimizedNode: WorkbenchNode<TData> | null;
   registerDockAnchor: (anchorKey: string, element: HTMLElement | null) => void;
   shouldAnimateMinimizedDockEnter: (nodeID: string) => boolean;
@@ -738,6 +719,7 @@ export function useWorkbenchGenieAnimation<TData>({
   const dockAnchorElementsRef = useRef(new Map<string, HTMLElement>());
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
+  const isMountedRef = useRef(true);
   const animationGenerationRef = useRef(0);
   const animationCleanupRef = useRef<(() => void) | null>(null);
   const minimizedDockEnterAnimationNodeIdsRef = useRef(new Set<string>());
@@ -751,10 +733,12 @@ export function useWorkbenchGenieAnimation<TData>({
   const renderedPreviewCaptureElementRef = useRef<HTMLDivElement | null>(null);
   const pendingRenderedPreviewCaptureRef =
     useRef<PendingRenderedGeniePreviewCapture | null>(null);
+  const nodeVisibilityStoreRef = useRef<ReturnType<
+    typeof createWorkbenchGenieNodeVisibilityStore
+  > | null>(null);
+  nodeVisibilityStoreRef.current ??= createWorkbenchGenieNodeVisibilityStore();
+  const nodeVisibility = nodeVisibilityStoreRef.current;
   const [isCanvasActive, setIsCanvasActive] = useState(false);
-  const [genieHiddenNodeIDs, setGenieHiddenNodeIDs] = useState(
-    () => new Set<string>()
-  );
   const [pendingMinimizedNode, setPendingMinimizedNode] =
     useState<WorkbenchNode<TData> | null>(null);
   const [pendingRenderedPreviewCapture, setPendingRenderedPreviewCapture] =
@@ -888,25 +872,19 @@ export function useWorkbenchGenieAnimation<TData>({
     [controller]
   );
 
-  const hideNodeForGenie = useCallback((nodeID: string) => {
-    setGenieHiddenNodeIDs((current) => {
-      if (current.has(nodeID)) {
-        return current;
-      }
-      return new Set([...current, nodeID]);
-    });
-  }, []);
+  const hideNodeForGenie = useCallback(
+    (nodeID: string) => {
+      nodeVisibility.setHidden(nodeID, true);
+    },
+    [nodeVisibility]
+  );
 
-  const showNodeForGenie = useCallback((nodeID: string) => {
-    setGenieHiddenNodeIDs((current) => {
-      if (!current.has(nodeID)) {
-        return current;
-      }
-      const next = new Set(current);
-      next.delete(nodeID);
-      return next;
-    });
-  }, []);
+  const showNodeForGenie = useCallback(
+    (nodeID: string) => {
+      nodeVisibility.setHidden(nodeID, false);
+    },
+    [nodeVisibility]
+  );
 
   const clearPendingMinimizedNode = useCallback((nodeID: string) => {
     setPendingMinimizedNode((current) =>
@@ -1423,7 +1401,52 @@ export function useWorkbenchGenieAnimation<TData>({
 
       stopAnimation();
       const dockRectFallback = resolveDockAnchorRect(anchorKey);
-      hideNodeForGenie(nodeID);
+      flushSync(() => {
+        hideNodeForGenie(nodeID);
+      });
+      let launchPromise: Promise<string | null | void> | null = null;
+      const launchOnce = (): Promise<string | null | void> => {
+        if (!isMountedRef.current) {
+          return Promise.resolve(null);
+        }
+        launchPromise ??= Promise.resolve(launch()).catch(() => null);
+        return launchPromise;
+      };
+      const cachedTexture = readMinimizedGenieTexture(nodeID);
+      if (
+        effectiveMinimizeAnimation === "genie" &&
+        cachedTexture &&
+        dockRectFallback &&
+        isUsableGenieRect(dockRectFallback)
+      ) {
+        const finishCachedRestore = () => {
+          flushSync(() => {
+            showNodeForGenie(nodeID);
+          });
+          clearMinimizedGenieTexture(nodeID);
+          clearCanvas();
+        };
+        startCachedWorkbenchGenieRestore({
+          launch: launchOnce,
+          requestFrame: (callback) => {
+            window.requestAnimationFrame(callback);
+          },
+          scheduleTask: (callback) => {
+            window.setTimeout(callback, 0);
+          },
+          startAnimation: () => {
+            runGenieAnimation({
+              direction: "open",
+              dockRect: dockRectFallback,
+              onCancel: finishCachedRestore,
+              onComplete: finishCachedRestore,
+              skipStop: true,
+              texture: cachedTexture
+            });
+          }
+        });
+        return;
+      }
       animationCleanupRef.current = () => {
         if (rafRef.current !== null) {
           window.cancelAnimationFrame(rafRef.current);
@@ -1441,20 +1464,18 @@ export function useWorkbenchGenieAnimation<TData>({
         if (generation !== animationGenerationRef.current) {
           return;
         }
-        void Promise.resolve(launch())
-          .catch(() => null)
-          .then(() => {
-            if (generation !== animationGenerationRef.current) {
-              return;
-            }
-            void startOpenOrRestoreAnimation(
-              nodeID,
-              anchorKey,
-              generation,
-              dockRectFallback,
-              target
-            );
-          });
+        void launchOnce().then(() => {
+          if (generation !== animationGenerationRef.current) {
+            return;
+          }
+          void startOpenOrRestoreAnimation(
+            nodeID,
+            anchorKey,
+            generation,
+            dockRectFallback,
+            target
+          );
+        });
       });
     },
     [
@@ -1463,7 +1484,9 @@ export function useWorkbenchGenieAnimation<TData>({
       controller,
       hideNodeForGenie,
       minimizeAnimation,
+      readMinimizedGenieTexture,
       resolveDockAnchorRect,
+      runGenieAnimation,
       showNodeForGenie,
       startOpenOrRestoreAnimation,
       stopAnimation
@@ -1739,27 +1762,6 @@ export function useWorkbenchGenieAnimation<TData>({
           }
         }
 
-        const captureTarget = resolveWorkbenchCaptureElement(nodeElement);
-        const preparedTexture = shouldCapturePreview
-          ? prepareGenieTextureCapture(captureTarget)
-          : null;
-        if (!preparedTexture) {
-          if (!componentPreviewTexture) {
-            logWorkbenchGenieDiagnostic(
-              debugDiagnostics,
-              "workbench.genie.minimize.skipped",
-              {
-                ...describeGenieNode(target),
-                mode: "genie",
-                reason: "prepared_texture_missing",
-                shouldCapturePreview
-              },
-              "warn"
-            );
-            runMinimize();
-            return;
-          }
-        }
         const wasFocusedForCapture = isFocusedWorkbenchNode(controller, nodeID);
         if (shouldCapturePreview && !wasFocusedForCapture) {
           flushSync(() => {
@@ -1775,12 +1777,31 @@ export function useWorkbenchGenieAnimation<TData>({
               () => null
             )
           : Promise.resolve(null);
-        const previewCaptureOutcome = await racePreviewImageCapture(
-          previewImageUrlPromise,
-          previewCaptureRaceTimeoutMs
-        );
-        const previewImageUrl = previewCaptureOutcome.previewImageUrl;
-        if (previewCaptureOutcome.status === "pending") {
+        let preparedTexture: PreparedGenieTextureCapture | null = null;
+        let previewImageTexture: CapturedGenieTexture | null = null;
+        const nativeFirstResult = shouldCapturePreview
+          ? await resolveNativeFirstGenieTexture({
+              nativeImageUrlPromise: previewImageUrlPromise,
+              renderDomFallback: () => {
+                preparedTexture = prepareGenieTextureCapture(
+                  resolveWorkbenchCaptureElement(nodeElement)
+                );
+                return preparedTexture
+                  ? renderPreparedElementTexture(preparedTexture)
+                  : null;
+              },
+              renderNativeImage: async (previewImageUrl) => {
+                previewImageTexture = await renderPreviewImageTexture({
+                  previewImageUrl,
+                  rect: windowRect
+                }).catch(() => null);
+                return previewImageTexture;
+              },
+              timeoutMs: previewCaptureRaceTimeoutMs
+            })
+          : null;
+        const previewImageUrl = nativeFirstResult?.nativeImageUrl ?? null;
+        if (nativeFirstResult?.nativeStatus === "pending") {
           logWorkbenchGenieDiagnostic(
             debugDiagnostics,
             "workbench.genie.preview_capture.deferred",
@@ -1805,21 +1826,8 @@ export function useWorkbenchGenieAnimation<TData>({
             });
           });
         }
-        const previewImageTexture =
-          shouldCapturePreview && previewImageUrl
-            ? await renderPreviewImageTexture({
-                previewImageUrl,
-                rect: windowRect
-              }).catch(() => null)
-            : null;
         const texture =
-          componentPreviewTexture ??
-          previewImageTexture ??
-          (preparedTexture
-            ? await renderPreparedElementTexture(preparedTexture).catch(
-                () => null
-              )
-            : null);
+          componentPreviewTexture ?? nativeFirstResult?.texture ?? null;
         if (generation !== animationGenerationRef.current) {
           return;
         }
@@ -1978,17 +1986,19 @@ export function useWorkbenchGenieAnimation<TData>({
     ]
   );
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
       for (const timer of minimizedDockEnterAnimationTimersRef.current.values()) {
         clearTimeout(timer);
       }
       minimizedDockEnterAnimationTimersRef.current.clear();
       minimizedDockEnterAnimationNodeIdsRef.current.clear();
       minimizedGenieTextureByNodeIDRef.current.clear();
-    },
-    []
-  );
+      nodeVisibility.dispose();
+    };
+  }, [nodeVisibility]);
 
   const minimizeNodeToAnchorRef = useRef(minimizeNodeToAnchor);
   useLayoutEffect(() => {
@@ -2043,10 +2053,6 @@ export function useWorkbenchGenieAnimation<TData>({
           ),
     [isCanvasActive, pendingRenderedPreviewCapture]
   );
-  const isNodeGenieHidden = useCallback(
-    (nodeID: string) => genieHiddenNodeIDs.has(nodeID),
-    [genieHiddenNodeIDs]
-  );
   const isPendingMinimizedDockNode = useCallback(
     (nodeID: string) => pendingMinimizedNode?.id === nodeID,
     [pendingMinimizedNode]
@@ -2055,19 +2061,19 @@ export function useWorkbenchGenieAnimation<TData>({
   return useMemo(
     () => ({
       genieLayer,
-      isNodeGenieHidden,
       isPendingMinimizedDockNode,
       launchNodeFromAnchor,
       minimizeNodeToAnchor: stableMinimizeNodeToAnchor,
+      nodeVisibility,
       pendingMinimizedNode,
       registerDockAnchor,
       shouldAnimateMinimizedDockEnter
     }),
     [
       genieLayer,
-      isNodeGenieHidden,
       isPendingMinimizedDockNode,
       launchNodeFromAnchor,
+      nodeVisibility,
       pendingMinimizedNode,
       registerDockAnchor,
       shouldAnimateMinimizedDockEnter,

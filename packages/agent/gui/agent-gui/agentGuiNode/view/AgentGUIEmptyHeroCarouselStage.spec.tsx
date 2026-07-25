@@ -35,6 +35,7 @@ describe("AgentGUIEmptyHeroCarouselStage", () => {
   it("measures live carousel alignment", () => {
     const { container } = render(
       <AgentGUIEmptyHeroCarouselStage
+        isVisible
         items={items}
         providerSelectLabel="Select provider"
       >
@@ -63,6 +64,7 @@ describe("AgentGUIEmptyHeroCarouselStage", () => {
     const view = render(
       <AgentGUIEmptyHeroCarouselStage
         activeAgentTargetId="codex"
+        isVisible
         items={items}
         providerSelectLabel="Select provider"
       >
@@ -74,6 +76,7 @@ describe("AgentGUIEmptyHeroCarouselStage", () => {
     view.rerender(
       <AgentGUIEmptyHeroCarouselStage
         activeAgentTargetId="claude"
+        isVisible
         items={items}
         providerSelectLabel="Select provider"
       >

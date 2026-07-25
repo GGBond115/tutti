@@ -795,11 +795,20 @@ AgentGUI, Message Center, dock/header, workspace window, and standalone Agent wi
 
 Opening a panel/window creates presentation state only. It does not clone a Session, copy engine entities, or start another event stream. Standalone tools are Desktop chrome, not AgentGUI lifecycle.
 
-Workbench previews must not mount a second AgentGUI tree. Genie capture clones the
-visible node DOM into a texture, while Dock popup cards and minimized slots use
-the captured image and its cache. If no captured image exists, those Dock
-surfaces show their placeholder; they do not mount AgentGUI as a fallback.
-AgentGUI therefore has no preview-mode rendering contract.
+Workbench previews must not mount a second AgentGUI tree. Genie capture prefers
+the host-provided native image and clones the visible node DOM into a texture
+only after native capture fails or exceeds its bounded wait. Dock popup cards
+and minimized slots use the captured image and its cache. If no captured image
+exists, those Dock surfaces show their placeholder; they do not mount AgentGUI
+as a fallback. AgentGUI therefore has no preview-mode rendering contract.
+
+The empty AgentGUI Hero renders its existing DOM player before initializing the
+optional WebGL carousel. A host projects whether the normal window presentation
+is currently visible; the carousel waits for that visibility and then browser
+idle time before creating its WebGL renderer. This keeps Genie restore work out
+of the WebGL creation task without exposing Genie state to AgentGUI. WebGL scene
+readiness remains local presentation state; it must not enter
+`AgentActivityRuntime`, the workspace engine, or Workbench node state.
 
 The shared Workbench Header owns conversation-identity visibility. When no
 Conversation exists, it ignores conversation titles, Agent titles, primary

@@ -1,0 +1,27 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createWorkbenchGenieNodeVisibilityStore } from "./genieNodeVisibility.ts";
+
+test("notifies only the window whose genie visibility changed", () => {
+  const store = createWorkbenchGenieNodeVisibilityStore();
+  let nodeARenders = 0;
+  let nodeBRenders = 0;
+  const unsubscribeA = store.subscribe("node-a", () => {
+    nodeARenders += 1;
+  });
+  const unsubscribeB = store.subscribe("node-b", () => {
+    nodeBRenders += 1;
+  });
+
+  store.setHidden("node-a", true);
+  store.setHidden("node-a", true);
+
+  assert.equal(store.getSnapshot("node-a"), true);
+  assert.equal(store.getSnapshot("node-b"), false);
+  assert.equal(nodeARenders, 1);
+  assert.equal(nodeBRenders, 0);
+
+  unsubscribeA();
+  unsubscribeB();
+  store.dispose();
+});

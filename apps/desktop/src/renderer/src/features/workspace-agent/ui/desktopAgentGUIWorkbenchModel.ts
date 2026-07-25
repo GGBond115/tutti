@@ -49,6 +49,7 @@ export interface DesktopAgentGUISurfaceContext {
   isFocused: boolean;
   isMinimized: boolean;
   isResizing: boolean;
+  isVisible: boolean;
   nodeId: string;
   nodeTitle: string;
   presentationMode: WorkbenchHostNodeBodyContext["presentationMode"];
@@ -217,6 +218,7 @@ export function areDesktopAgentGUIWorkbenchBodyContextsEqual(
       previous.isDragging === next.isDragging &&
       previous.isFocused === next.isFocused &&
       previous.isResizing === next.isResizing &&
+      previous.isVisible === next.isVisible &&
       previous.presentationMode === next.presentationMode &&
       previous.node.id === next.node.id &&
       previous.node.isMinimized === next.node.isMinimized &&

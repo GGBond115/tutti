@@ -679,9 +679,7 @@ function DesktopAgentGUISurfaceImpl({
           desktopSize,
           isMaximized: surface.displayMode === "fullscreen",
           isActive: surface.isFocused,
-          isVisible:
-            surface.presentationMode !== "mission-control" &&
-            surface.isMinimized !== true,
+          isVisible: surface.isVisible,
           embedded: true
         }}
         state={nodeState}
@@ -710,6 +708,7 @@ function DesktopAgentGUIWorkbenchBodyAdapter({
     isFocused: context.isFocused,
     isMinimized: context.node.isMinimized === true,
     isResizing: context.isResizing,
+    isVisible: context.isVisible,
     nodeId: context.node.id,
     nodeTitle: context.node.title,
     presentationMode: context.presentationMode,

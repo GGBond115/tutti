@@ -684,6 +684,7 @@ export function AgentGUINodeView({
               labels={labels}
               uiLanguage={uiLanguage}
               isActive={isActive}
+              isVisible={isVisible}
               workspaceReferencePickerOpen={workspaceReferencePickerOpen}
               composerFocusRequestSequence={detailComposerFocusRequestSequence}
               slashStatusLimits={slashStatusLimits}

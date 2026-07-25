@@ -71,6 +71,7 @@ export interface AgentGUIDetailPaneProps {
   workspaceUserProjectI18n: WorkspaceUserProjectI18nRuntime;
   uiLanguage: UiLanguage;
   isActive: boolean;
+  isVisible: boolean;
   workspaceReferencePickerOpen: boolean;
   composerFocusRequestSequence: number | null;
   slashStatusLimits: readonly AgentComposerSlashStatusLimit[];
@@ -117,6 +118,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   workspaceUserProjectI18n,
   uiLanguage,
   isActive,
+  isVisible,
   workspaceReferencePickerOpen,
   composerFocusRequestSequence,
   slashStatusLimits,
@@ -685,6 +687,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       </>
     ) : (
       <AgentGUIEmptyHomePane
+        isVisible={isVisible}
         provider={emptyHeroProvider}
         providerReadinessGate={emptyProviderReadinessGate}
         showAllProviders={viewModel.rail.conversationFilter.kind === "all"}

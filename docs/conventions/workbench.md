@@ -47,6 +47,18 @@ Rules:
   logging, and `app.getPath("userData")` stay in the consuming desktop app
 - keep product-specific CSS selectors and host globals out of
   `@tutti-os/workbench-surface`
+- restore a minimized node from its in-memory Genie texture before launching
+  the mounted node when the cached texture and Dock anchor are usable; allow
+  that first texture frame to paint before host launch work begins
+- attempt the host-provided native Dock preview capture before cloning live DOM;
+  clone DOM only after native capture fails or exceeds the bounded wait, and
+  keep a late native result for future Dock/cache use instead of replacing an
+  animation already in progress
+- publish Genie-hidden state through per-node subscriptions so changing one
+  window does not invalidate every mounted Workbench window
+- project normal-window visibility through the mounted body context; it is
+  false while minimized, Genie-hidden, or in Mission Control, so heavy child
+  presentation can wait without importing Workbench animation state
 - keep window chrome hit zones unambiguous; floating-window resize handles
   should render outside the clipped window surface so corner handles remain
   reachable and take precedence over header drag regions; interactive controls

@@ -407,6 +407,11 @@ export interface WorkbenchHostNodeBodyContext<
   isFocused: boolean;
   /** True while the host is interactively resizing this node. */
   isResizing: boolean;
+  /**
+   * True only while the normal Workbench window presentation is visible.
+   * False while minimized, Genie-hidden, or inside Mission Control.
+   */
+  isVisible: boolean;
   /** Current host presentation mode; null for the normal window layout. */
   presentationMode?: WorkbenchSurfacePresentation["mode"] | null;
   node: WorkbenchNode<WorkbenchHostNodeData>;

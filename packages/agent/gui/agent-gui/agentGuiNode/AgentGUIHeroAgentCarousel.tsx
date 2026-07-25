@@ -19,6 +19,7 @@ export interface AgentGUIHeroCarouselSelectInput {
 
 interface AgentGUIHeroAgentCarouselProps {
   activeAgentTargetId?: string | null;
+  isVisible?: boolean;
   items: readonly AgentGUIAgentAvatarPresentation[];
   onProviderSelect?: (input: AgentGUIHeroCarouselSelectInput) => void;
   providerSelectLabel?: string;
@@ -36,6 +37,7 @@ interface AgentGUIHeroAgentCarouselState {
 const CAROUSEL_WHEEL_STEP_THRESHOLD = 42;
 const CAROUSEL_WHEEL_STEP_COOLDOWN_MS = 110;
 const CAROUSEL_DRAG_STEP_PX = 52;
+const CAROUSEL_SCENE_IDLE_TIMEOUT_MS = 1_000;
 
 function activeAgentIndex(props: AgentGUIHeroAgentCarouselProps): number {
   if (!props.activeAgentTargetId) {
@@ -74,6 +76,9 @@ export class AgentGUIHeroAgentCarousel extends Component<
   private readonly canvasRef = createRef<HTMLCanvasElement>();
   private scene: AgentGuiHeroCarouselScene | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private firstPaintFrameId: number | null = null;
+  private firstPaintReady = false;
+  private sceneMountIdleId: number | null = null;
   private imagePreloadGeneration = 0;
   private imageLoad: AgentGuiHeroCarouselImageLoad | null = null;
   private wheelListenerAttached = false;
@@ -93,6 +98,7 @@ export class AgentGUIHeroAgentCarousel extends Component<
   };
 
   componentDidMount(): void {
+    this.waitForFirstPaint();
     this.preloadImages();
     this.syncWheelListener();
   }
@@ -115,6 +121,14 @@ export class AgentGUIHeroAgentCarousel extends Component<
       return;
     }
 
+    if (previousProps.isVisible !== this.props.isVisible) {
+      if (this.props.isVisible === false) {
+        this.cancelScheduledSceneMount();
+      } else {
+        this.scheduleSceneMount();
+      }
+    }
+
     if (
       previousProps.activeAgentTargetId !== this.props.activeAgentTargetId ||
       previousProps.items !== this.props.items
@@ -130,6 +144,11 @@ export class AgentGUIHeroAgentCarousel extends Component<
 
   componentWillUnmount(): void {
     this.imagePreloadGeneration += 1;
+    if (this.firstPaintFrameId !== null) {
+      window.cancelAnimationFrame(this.firstPaintFrameId);
+      this.firstPaintFrameId = null;
+    }
+    this.cancelScheduledSceneMount();
     this.removeWheelListener();
     this.disposeScene();
     this.imageLoad?.cancel();
@@ -138,6 +157,16 @@ export class AgentGUIHeroAgentCarousel extends Component<
 
   private interactive(): boolean {
     return this.props.onProviderSelect != null && this.props.items.length > 0;
+  }
+
+  private waitForFirstPaint(): void {
+    this.firstPaintFrameId = window.requestAnimationFrame(() => {
+      this.firstPaintFrameId = window.requestAnimationFrame(() => {
+        this.firstPaintFrameId = null;
+        this.firstPaintReady = true;
+        this.scheduleSceneMount();
+      });
+    });
   }
 
   private preloadImages(): void {
@@ -162,7 +191,7 @@ export class AgentGUIHeroAgentCarousel extends Component<
           images: emptyPreloadedCarouselImages(items.length),
           imagesReady: true
         },
-        () => this.mountScene()
+        () => this.scheduleSceneMount()
       );
       return;
     }
@@ -189,9 +218,44 @@ export class AgentGUIHeroAgentCarousel extends Component<
           images: preloaded.icons,
           imagesReady: true
         },
-        () => this.mountScene()
+        () => this.scheduleSceneMount()
       );
     });
+  }
+
+  private scheduleSceneMount(): void {
+    if (
+      this.scene ||
+      this.sceneMountIdleId !== null ||
+      this.props.isVisible === false ||
+      !this.canvasRef.current ||
+      !this.stageRef.current ||
+      !this.firstPaintReady ||
+      !this.state.imagesReady ||
+      this.props.items.length === 0
+    ) {
+      return;
+    }
+
+    if (typeof window.requestIdleCallback === "function") {
+      this.sceneMountIdleId = window.requestIdleCallback(
+        () => {
+          this.sceneMountIdleId = null;
+          this.mountScene();
+        },
+        { timeout: CAROUSEL_SCENE_IDLE_TIMEOUT_MS }
+      );
+      return;
+    }
+
+    this.mountScene();
+  }
+
+  private cancelScheduledSceneMount(): void {
+    if (this.sceneMountIdleId !== null) {
+      window.cancelIdleCallback(this.sceneMountIdleId);
+      this.sceneMountIdleId = null;
+    }
   }
 
   private mountScene(): void {
@@ -201,6 +265,8 @@ export class AgentGUIHeroAgentCarousel extends Component<
       this.scene ||
       !canvas ||
       !stage ||
+      this.props.isVisible === false ||
+      !this.firstPaintReady ||
       !this.state.imagesReady ||
       this.props.items.length === 0
     ) {
@@ -233,6 +299,7 @@ export class AgentGUIHeroAgentCarousel extends Component<
   }
 
   private disposeScene(): void {
+    this.cancelScheduledSceneMount();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.scene?.dispose();

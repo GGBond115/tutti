@@ -32,7 +32,7 @@
   },
   "scripts": {
     "build": "tsup --config tsup.config.ts && node ../../../tools/scripts/copy-package-assets.mjs src/assets dist/assets",
-    "test": "node --test --experimental-strip-types \"./src/**/*.test.ts\" && vitest run ./src/ui/WorkspaceFileManagerPanels.render.test.tsx --environment jsdom",
+    "test": "node --test --experimental-strip-types \"./src/**/*.test.ts\" && vitest run ./src/ui/WorkspaceFileManager.render.test.tsx ./src/ui/WorkspaceFileManagerPanels.render.test.tsx ./src/ui/WorkspaceFileManagerPanelsContainer.render.test.tsx --environment jsdom",
     "typecheck": "node ../../../tools/scripts/run-tsgo-typecheck.mjs"
   },
   "dependencies": {
