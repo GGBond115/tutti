@@ -218,6 +218,7 @@ describe("AgentGUIHeroAgentCarousel", () => {
     const scene = {
       dispose: vi.fn(),
       moveTo: vi.fn(),
+      setRecordSpinActive: vi.fn(),
       setSize: vi.fn(),
       setVisible: vi.fn()
     };
@@ -248,6 +249,57 @@ describe("AgentGUIHeroAgentCarousel", () => {
         root.render(<AgentGUIHeroAgentCarousel isVisible items={[item]} />);
       });
       expect(scene.setVisible).toHaveBeenLastCalledWith(true);
+      expect(sceneCreate).toHaveBeenCalledOnce();
+      expect(scene.dispose).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+
+  it("keeps the scene mounted while focus controls record spin", async () => {
+    const frames = installAnimationFrameQueue();
+    const idle = installIdleCallbackQueue();
+    vi.stubGlobal("Image", undefined);
+    const scene = {
+      dispose: vi.fn(),
+      moveTo: vi.fn(),
+      setRecordSpinActive: vi.fn(),
+      setSize: vi.fn(),
+      setVisible: vi.fn()
+    };
+    sceneCreate.mockReturnValue(scene);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentGUIHeroAgentCarousel
+            isActive={false}
+            isVisible
+            items={[item]}
+          />
+        );
+      });
+      await act(async () => {
+        frames.flushNext();
+        frames.flushNext();
+        idle.flushNext();
+      });
+      expect(sceneCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ recordSpinActive: false })
+      );
+
+      await act(async () => {
+        root.render(
+          <AgentGUIHeroAgentCarousel isActive isVisible items={[item]} />
+        );
+      });
+      expect(scene.setRecordSpinActive).toHaveBeenLastCalledWith(true);
       expect(sceneCreate).toHaveBeenCalledOnce();
       expect(scene.dispose).not.toHaveBeenCalled();
     } finally {

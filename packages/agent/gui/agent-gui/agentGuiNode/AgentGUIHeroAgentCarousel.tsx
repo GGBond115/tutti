@@ -19,6 +19,7 @@ export interface AgentGUIHeroCarouselSelectInput {
 
 interface AgentGUIHeroAgentCarouselProps {
   activeAgentTargetId?: string | null;
+  isActive?: boolean;
   isVisible?: boolean;
   items: readonly AgentGUIAgentAvatarPresentation[];
   onProviderSelect?: (input: AgentGUIHeroCarouselSelectInput) => void;
@@ -129,6 +130,9 @@ export class AgentGUIHeroAgentCarousel extends Component<
         this.scene?.setVisible(true);
         this.scheduleSceneMount();
       }
+    }
+    if (previousProps.isActive !== this.props.isActive) {
+      this.scene?.setRecordSpinActive(this.props.isActive !== false);
     }
 
     if (
@@ -280,6 +284,7 @@ export class AgentGUIHeroAgentCarousel extends Component<
       loadedCoverImages: this.state.coverImages,
       loadedBadgeImages: this.state.badgeImages,
       loadedImages: this.state.images,
+      recordSpinActive: this.props.isActive !== false,
       onSettle: this.handleSceneSettle
     });
     this.scene = scene;

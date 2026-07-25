@@ -30,6 +30,7 @@ describe("AgentGUIEmptyHeroPane notices", () => {
   it("does not render an unresolved target label in the Home title", () => {
     render(
       <AgentGUIEmptyHomePane
+        isActive
         isVisible
         provider="unknown"
         providerReadinessGate={null}

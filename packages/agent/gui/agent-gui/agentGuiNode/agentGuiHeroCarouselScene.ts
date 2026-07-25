@@ -59,6 +59,8 @@ const BADGE_DIAMETER = 0.36;
 const BADGE_OFFSET = 0.48;
 const MAX_PIXEL_RATIO = 2;
 const RECORD_SPIN_SECONDS = 10;
+const RECORD_SPIN_MIN_FRAME_INTERVAL_MS = 30;
+const RECORD_SPIN_MAX_FRAME_DELTA_SECONDS = 0.1;
 const RECORD_MODEL_SCALE = 1.3;
 const RECORD_MODEL_RADIUS = 0.45;
 const RECORD_MODEL_THICKNESS = 0.03;
@@ -104,6 +106,7 @@ export interface AgentGuiHeroCarouselSceneOptions {
   loadedBadgeImages: readonly (HTMLImageElement | null)[];
   loadedImages: readonly (HTMLImageElement | null)[];
   loadedCoverImages: readonly (HTMLImageElement | null)[];
+  recordSpinActive?: boolean;
   // Fired once the wheel settles on an integer slot after an animated move.
   onSettle: (index: number) => void;
 }
@@ -144,6 +147,7 @@ export class AgentGuiHeroCarouselScene {
   private lastFrameAt: number | null = null;
   private lastRecordSpinFrameAt: number | null = null;
   private hoveredTile: AgentGuiHeroCarouselTile | null = null;
+  private recordSpinActive: boolean;
   private visible = true;
   private disposed = false;
 
@@ -157,6 +161,7 @@ export class AgentGuiHeroCarouselScene {
     // Rim spacing fixes the wheel size: radius = arc spacing / slot angle.
     this.wheelRadius = (TILE_SPACING * this.tileCount) / (Math.PI * 2);
     this.onSettle = options.onSettle;
+    this.recordSpinActive = options.recordSpinActive !== false;
     this.renderer = new THREE.WebGLRenderer({
       canvas: options.canvas,
       alpha: true,
@@ -322,6 +327,18 @@ export class AgentGuiHeroCarouselScene {
     this.startRecordSpin();
   }
 
+  setRecordSpinActive(active: boolean): void {
+    if (this.disposed || this.recordSpinActive === active) {
+      return;
+    }
+    this.recordSpinActive = active;
+    if (!active) {
+      this.cancelRecordSpinFrame();
+      return;
+    }
+    this.startRecordSpin();
+  }
+
   // Agent index of the tile slot the wheel is heading to.
   targetIndex(): number {
     const slot =
@@ -469,11 +486,15 @@ export class AgentGuiHeroCarouselScene {
       cancelAnimationFrame(this.springFrameHandle);
       this.springFrameHandle = null;
     }
+    this.cancelRecordSpinFrame();
+    this.lastFrameAt = null;
+  }
+
+  private cancelRecordSpinFrame(): void {
     if (this.recordSpinFrameHandle !== null) {
       cancelAnimationFrame(this.recordSpinFrameHandle);
       this.recordSpinFrameHandle = null;
     }
-    this.lastFrameAt = null;
     this.lastRecordSpinFrameAt = null;
   }
 
@@ -557,6 +578,7 @@ export class AgentGuiHeroCarouselScene {
     if (
       this.disposed ||
       !this.visible ||
+      !this.recordSpinActive ||
       this.prefersReducedMotion() ||
       this.recordSpinFrameHandle !== null
     ) {
@@ -568,13 +590,23 @@ export class AgentGuiHeroCarouselScene {
 
   private readonly recordSpinFrame = (now: number): void => {
     this.recordSpinFrameHandle = null;
-    const spinningTile = this.centerTile();
     if (
       this.disposed ||
       !this.visible ||
-      !spinningTile ||
+      !this.recordSpinActive ||
       this.prefersReducedMotion()
     ) {
+      return;
+    }
+    if (
+      this.lastRecordSpinFrameAt !== null &&
+      now - this.lastRecordSpinFrameAt < RECORD_SPIN_MIN_FRAME_INTERVAL_MS
+    ) {
+      this.recordSpinFrameHandle = requestAnimationFrame(this.recordSpinFrame);
+      return;
+    }
+    const spinningTile = this.centerTile();
+    if (!spinningTile) {
       return;
     }
     const dt =
@@ -582,7 +614,7 @@ export class AgentGuiHeroCarouselScene {
         ? 1 / 60
         : Math.min(
             (now - this.lastRecordSpinFrameAt) / 1000,
-            MAX_FRAME_DELTA_SECONDS
+            RECORD_SPIN_MAX_FRAME_DELTA_SECONDS
           );
     this.lastRecordSpinFrameAt = now;
     spinningTile.rotation =

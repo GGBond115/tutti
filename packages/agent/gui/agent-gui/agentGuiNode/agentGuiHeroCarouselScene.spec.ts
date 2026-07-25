@@ -415,6 +415,69 @@ describe("AgentGuiHeroCarouselScene", () => {
     scene?.dispose();
   });
 
+  it("pauses only the decorative spin while inactive", () => {
+    let nextFrameID = 1;
+    const pendingFrames = new Map<number, FrameRequestCallback>();
+    globalThis.requestAnimationFrame = vi.fn((callback) => {
+      const frameID = nextFrameID;
+      nextFrameID += 1;
+      pendingFrames.set(frameID, callback);
+      return frameID;
+    });
+    globalThis.cancelAnimationFrame = vi.fn((frameID) => {
+      pendingFrames.delete(frameID);
+    });
+    const scene = createSceneWithBadge(null, { recordSpinActive: false });
+
+    scene?.setVisible(false);
+    scene?.setVisible(true);
+    expect(pendingFrames.size).toBe(0);
+
+    scene?.setRecordSpinActive(true);
+    expect(pendingFrames.size).toBe(1);
+
+    scene?.setRecordSpinActive(false);
+    expect(pendingFrames.size).toBe(0);
+    scene?.dispose();
+  });
+
+  it("bounds decorative spin rendering to 30 frames per second", () => {
+    let nextFrameID = 1;
+    const pendingFrames = new Map<number, FrameRequestCallback>();
+    globalThis.requestAnimationFrame = vi.fn((callback) => {
+      const frameID = nextFrameID;
+      nextFrameID += 1;
+      pendingFrames.set(frameID, callback);
+      return frameID;
+    });
+    globalThis.cancelAnimationFrame = vi.fn((frameID) => {
+      pendingFrames.delete(frameID);
+    });
+    const scene = createSceneWithBadge(null);
+    scene?.setVisible(false);
+    scene?.setVisible(true);
+    threeState.renderCount = 0;
+
+    const runNextFrame = (now: number): void => {
+      const next = pendingFrames.entries().next().value as
+        | [number, FrameRequestCallback]
+        | undefined;
+      expect(next).toBeDefined();
+      pendingFrames.delete(next![0]);
+      next![1](now);
+    };
+
+    runNextFrame(0);
+    runNextFrame(8);
+    runNextFrame(16);
+    runNextFrame(25);
+    expect(threeState.renderCount).toBe(1);
+
+    runNextFrame(34);
+    expect(threeState.renderCount).toBe(2);
+    scene?.dispose();
+  });
+
   it("disposes a rejected texture and keeps the fallback when WebGL upload fails", () => {
     threeState.failTextureUpload = true;
     const scene = createSceneWithBadge(createLoadedImage());
@@ -440,7 +503,8 @@ function createLoadedImage(): HTMLImageElement {
 }
 
 function createSceneWithBadge(
-  badgeImage: HTMLImageElement | null
+  badgeImage: HTMLImageElement | null,
+  options: { recordSpinActive?: boolean } = {}
 ): AgentGuiHeroCarouselScene | null {
   const loadedImage = createLoadedImage();
   return AgentGuiHeroCarouselScene.create({
@@ -461,6 +525,7 @@ function createSceneWithBadge(
     loadedBadgeImages: [badgeImage],
     loadedCoverImages: [null],
     loadedImages: [loadedImage],
+    recordSpinActive: options.recordSpinActive,
     onSettle: vi.fn()
   });
 }

@@ -7,6 +7,7 @@ import styles from "../AgentGUINode.styles";
 interface AgentGUIEmptyHeroCarouselStageProps {
   activeAgentTargetId?: string | null;
   children: ReactNode;
+  isActive: boolean;
   isVisible: boolean;
   items: readonly AgentGUIAgentAvatarPresentation[];
   onProviderSelect?: AgentGUINodeViewProps["actions"]["selectHomeComposerAgentTarget"];
@@ -47,6 +48,7 @@ export class AgentGUIEmptyHeroCarouselStage extends Component<AgentGUIEmptyHeroC
     const {
       activeAgentTargetId,
       children,
+      isActive,
       isVisible,
       items,
       onProviderSelect,
@@ -60,6 +62,7 @@ export class AgentGUIEmptyHeroCarouselStage extends Component<AgentGUIEmptyHeroC
           <div ref={this.setLayer} className={styles.emptyHeroCarouselLayer}>
             <AgentGUIHeroAgentCarousel
               activeAgentTargetId={activeAgentTargetId}
+              isActive={isActive}
               isVisible={isVisible}
               items={items}
               onProviderSelect={onProviderSelect}
