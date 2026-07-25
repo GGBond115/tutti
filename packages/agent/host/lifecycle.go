@@ -277,7 +277,7 @@ func (h *Host) ensureRuntimeSessionLocked(ctx context.Context, ref SessionRef) (
 			evidence.HasSettledTurn && !evidence.Established {
 			return ProviderRuntimeSession{}, ErrProviderSessionNotEstablished
 		}
-		live.Resumable = evidence.Established
+		live.Resumable = live.Resumable || evidence.Established
 		return live, nil
 	}
 	if !found || strings.TrimSpace(canonicalSession.Provider) == "" {
