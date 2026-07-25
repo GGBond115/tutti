@@ -395,6 +395,12 @@ When runtime sections are enabled, projection unions IDs from the current sectio
 
 Scroll, section collapse, visible limits, and search query belong to mounted view scope. Non-search state is isolated by `workspaceId + agentTargetId/all`; search creates a temporary navigation scope. `activeConversationId` expresses selection only. Scrolling requires an explicit reveal intent.
 
+On the Home composer, a single-Agent Rail filter follows the effective composer
+Agent Target whether the change originates inside AgentGUI or from host-owned
+node data. The `all` filter remains broad, an open Session keeps its current
+Rail filter, and unresolved/loading targets neither rewrite presentation state
+nor expose placeholder target labels in Home chrome.
+
 Rail scroll memory is captured by scroll events and explicit navigation. Effect cleanup must not synchronously read `scrollTop`: React may already have dirtied the document, turning that read into a full layout inside the interaction task.
 
 An empty bounded Rail result must not unactivate an active or persisted Session.
