@@ -912,6 +912,15 @@ The pending activation carries the same resolved project section key as the
 create command. Exact rail projection therefore shows the conversation as soon
 as the intent is accepted; it does not wait for provider startup or invent a
 temporary catch-all section.
+AgentGUI may select that optimistic conversation in mounted UI immediately,
+but it must not persist the provisional Session ID into Workbench navigation
+state. The selection becomes durable only after the workspace engine confirms
+the activation from an authoritative Session snapshot. On restart, absence
+from a bounded Rail page is not deletion evidence. A host that proves the
+selected Session is absent returns typed `session.not_found`; the activity
+engine retains that code, and AgentGUI clears only the matching global and
+per-target navigation memories before returning Home. Timeout, transport, and
+other reconcile failures preserve the remembered selection.
 The controller's new-conversation command must distinguish rail placement from
 the active Session's runtime working directory before entering the home
 composer. A Session in the Chats section may have a generated `cwd`, but that

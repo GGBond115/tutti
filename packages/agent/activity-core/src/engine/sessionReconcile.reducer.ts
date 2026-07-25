@@ -121,6 +121,7 @@ function requestReconcile(
   }
   const current = state.recordsBySessionId[agentSessionId] ?? {
     agentSessionId,
+    errorCode: null,
     errorMessage: null,
     inFlightCommandId: null,
     inFlightScope: null,
@@ -131,6 +132,7 @@ function requestReconcile(
   };
   const record = {
     ...current,
+    errorCode: null,
     errorMessage: null,
     pendingMessages: current.pendingMessages || input.needsMessages,
     pendingState: current.pendingState || input.needsState
@@ -153,6 +155,8 @@ function settleReconcile(
   }
   const settled = {
     ...record,
+    errorCode:
+      intent.outcome === "succeeded" ? null : intent.errorCode?.trim() || null,
     errorMessage:
       intent.outcome === "succeeded"
         ? null
@@ -196,6 +200,8 @@ function startReconcile(
       { ...state, nextCommandSequence: state.nextCommandSequence + 1 },
       {
         ...record,
+        errorCode: null,
+        errorMessage: null,
         inFlightCommandId: commandId,
         inFlightScope: scope,
         pendingMessages: false,

@@ -135,7 +135,6 @@ export function useAgentGUINewConversationActivation(
     loadSelectedConversationMessages,
     loadSessionState,
     refreshMessagesFromSnapshot,
-    persistActiveConversation,
     requestRailReveal,
     setActiveConversationId,
     setIntent,
@@ -301,7 +300,6 @@ export function useAgentGUINewConversationActivation(
       setIsComposerHome(false);
       setIntent({ tag: "active", id: agentSessionId });
       setIsLoadingMessages(false);
-      persistActiveConversation(agentSessionId, agentTargetId);
       return { agentSessionId, requestId };
     },
     [
@@ -313,7 +311,6 @@ export function useAgentGUINewConversationActivation(
       loadSelectedConversationMessages,
       loadSessionState,
       refreshMessagesFromSnapshot,
-      persistActiveConversation,
       requestRailReveal,
       activation,
       conversationListQuery,

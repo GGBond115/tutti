@@ -484,6 +484,8 @@ export function useAgentGUINodeController({
     activeConversationId,
     activeConversationIdRef,
     activePendingActivation,
+    activeSessionReconcileErrorCode:
+      sessionEngineState.activeSessionReconcileErrorCode,
     agentActivityRuntime,
     attentionReadRecordsBySessionId: attentionReadState.recordsBySessionId,
     conversationIdsRef,

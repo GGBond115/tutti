@@ -505,6 +505,8 @@ export const enAgentGui = {
   agentTargetRequired:
     "Select an available agent target before starting a session.",
   sessionActivationFailed: "The agent session could not be started.",
+  sessionNoLongerAvailable:
+    "The previous agent session is no longer available.",
   promptImagesUnsupported:
     "This agent does not support image input with the current model.",
   ...enAgentGuiRuntimeNotices,

@@ -64,6 +64,7 @@ Turn state, loading, cancel, restore, rail projection, event updates, imports, a
 - [Agent GUI provider tab shows fused or stale conversations](./agent-session-lifecycle.md#agent-gui-provider-tab-shows-fused-or-stale-conversations)
 - [Agent GUI sessions appear under the wrong user project](./agent-session-lifecycle.md#agent-gui-sessions-appear-under-the-wrong-user-project)
 - [AgentGUI new conversation does nothing after leaving a Chats session](./agent-session-lifecycle.md#agentgui-new-conversation-does-nothing-after-leaving-a-chats-session)
+- [AgentGUI restores a provisional conversation after creation fails](./agent-session-lifecycle.md#agentgui-restores-a-provisional-conversation-after-creation-fails)
 - [Agent GUI context usage is absent or has the wrong total](./agent-session-lifecycle.md#agent-gui-context-usage-is-absent-or-has-the-wrong-total)
 - [Extension history becomes non-resumable after daemon restart](./agent-session-lifecycle.md#extension-history-becomes-non-resumable-after-daemon-restart)
 - [Agent session restore breaks when durable snapshot ownership is split](./agent-session-lifecycle.md#agent-session-restore-breaks-when-durable-snapshot-ownership-is-split)

@@ -120,6 +120,97 @@ test("a timed-out reconcile releases merged demand into the next command", () =>
   );
 });
 
+test("failed reconcile preserves typed error details for exact recovery", () => {
+  let state = reduce(createInitialSessionReconcileState(), {
+    type: "session/reconcileRequested",
+    agentSessionId: "session-1",
+    needsMessages: true,
+    needsState: true,
+    workspaceId: "workspace-1"
+  }).state;
+  state = reduce(state, {
+    type: "engine/commandResult",
+    commandId: "session:reconcile:session-1:1",
+    commandType: "session/reconcile",
+    errorCode: "session.not_found",
+    errorMessage: "Session not found.",
+    outcome: "failed"
+  }).state;
+
+  assert.deepEqual(state.recordsBySessionId["session-1"], {
+    agentSessionId: "session-1",
+    errorCode: "session.not_found",
+    errorMessage: "Session not found.",
+    inFlightCommandId: null,
+    inFlightScope: null,
+    messagesHydrated: false,
+    pendingMessages: false,
+    pendingState: false,
+    workspaceId: "workspace-1"
+  });
+});
+
+test("a later reconcile request clears stale typed error details", () => {
+  let state = reduce(createInitialSessionReconcileState(), {
+    type: "session/reconcileRequested",
+    agentSessionId: "session-1",
+    needsMessages: false,
+    needsState: true,
+    workspaceId: "workspace-1"
+  }).state;
+  state = reduce(state, {
+    type: "engine/commandResult",
+    commandId: "session:reconcile:session-1:1",
+    commandType: "session/reconcile",
+    errorCode: "session.not_found",
+    errorMessage: "Session not found.",
+    outcome: "failed"
+  }).state;
+
+  const retried = reduce(state, {
+    type: "session/reconcileRequested",
+    agentSessionId: "session-1",
+    needsMessages: false,
+    needsState: true,
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(retried.state.recordsBySessionId["session-1"]?.errorCode, null);
+});
+
+test("a merged retry does not expose the previous attempt's typed error", () => {
+  let state = reduce(createInitialSessionReconcileState(), {
+    type: "session/reconcileRequested",
+    agentSessionId: "session-1",
+    needsMessages: true,
+    needsState: false,
+    workspaceId: "workspace-1"
+  }).state;
+  state = reduce(state, {
+    type: "session/reconcileRequested",
+    agentSessionId: "session-1",
+    needsMessages: false,
+    needsState: true,
+    workspaceId: "workspace-1"
+  }).state;
+
+  const retrying = reduce(state, {
+    type: "engine/commandResult",
+    commandId: "session:reconcile:session-1:1",
+    commandType: "session/reconcile",
+    errorCode: "session.not_found",
+    errorMessage: "Session not found.",
+    outcome: "failed"
+  });
+
+  assert.equal(retrying.commands[0]?.type, "session/reconcile");
+  assert.equal(retrying.state.recordsBySessionId["session-1"]?.errorCode, null);
+  assert.equal(
+    retrying.state.recordsBySessionId["session-1"]?.errorMessage,
+    null
+  );
+});
+
 function reduce(
   state: ReturnType<typeof createInitialSessionReconcileState>,
   intent: Parameters<typeof sessionReconcileReducer>[1]

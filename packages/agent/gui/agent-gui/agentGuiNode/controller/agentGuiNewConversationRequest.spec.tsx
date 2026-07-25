@@ -19,6 +19,23 @@ import { useAgentGUINewConversationActivation } from "./useAgentGUINewConversati
 import { useAgentGUISubmitInteractionActions } from "./useAgentGUISubmitInteractionActions";
 
 describe("P0 new-conversation placement scenarios", () => {
+  it("does not persist a provisional session before canonical confirmation", async () => {
+    const scenario = renderNewConversationScenario({
+      activeConversation: null,
+      initialHomeProjectPath: null,
+      userProjects: []
+    });
+
+    act(() => scenario.requestNewConversation());
+    scenario.persistActiveConversation.mockClear();
+    act(() =>
+      scenario.submitPrompt([{ type: "text", text: "start a new chat" }])
+    );
+
+    await scenario.waitForActivation();
+    expect(scenario.persistActiveConversation).not.toHaveBeenCalled();
+  });
+
   it("creates a conversations-scoped activation from an active Chats session", async () => {
     const previousSessionCwd = "/Users/example/Documents/tutti/session-current";
     const scenario = renderNewConversationScenario({
@@ -164,6 +181,7 @@ function renderNewConversationScenario(input: {
   const submittedDraftSnapshotsRef = { current: {} };
   const agentActivityRuntime = {} as AgentActivityRuntime;
   const setDraftByScopeKey = vi.fn();
+  const persistActiveConversation = vi.fn();
   const conversationsRef = {
     current: input.activeConversation ? [input.activeConversation] : []
   };
@@ -203,7 +221,7 @@ function renderNewConversationScenario(input: {
           dataRef.current = updater(dataRef.current);
         }
       },
-      persistActiveConversation: vi.fn(),
+      persistActiveConversation,
       prefillPromptRequest: null,
       reportActiveConversationCleared: vi.fn(),
       selectedComposerTargetDataRef: { current: targetData },
@@ -247,7 +265,6 @@ function renderNewConversationScenario(input: {
           dataRef.current = updater(dataRef.current);
         }
       },
-      persistActiveConversation: vi.fn(),
       refreshMessagesFromSnapshot: vi.fn(),
       requestRailReveal: vi.fn(),
       selectedAgentTargetIsExplicitRef: { current: true },
@@ -316,6 +333,7 @@ function renderNewConversationScenario(input: {
         transientConversation: null
       });
     },
+    persistActiveConversation,
     submitPrompt: result.current.submitPrompt,
     async waitForActivation() {
       let activation: EngineExternalCommand | undefined;

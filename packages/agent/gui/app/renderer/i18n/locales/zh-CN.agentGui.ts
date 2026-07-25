@@ -522,6 +522,7 @@ export const zhCNAgentGui = {
   collapseTurnWork: "收起任务详情",
   agentTargetRequired: "请先选择可用的 Agent 目标。",
   sessionActivationFailed: "Agent 会话启动失败。",
+  sessionNoLongerAvailable: "之前的 Agent 会话已不可用",
   promptImagesUnsupported: "当前模型不支持图片输入。",
   ...zhCNAgentGuiRuntimeNotices,
   contextCompactionInProgress: "正在压缩上下文",

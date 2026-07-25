@@ -326,6 +326,41 @@
 
 Turn state, loading, cancel, restore, file-change undo, rail projection, event updates, imports, and performance.
 
+### AgentGUI restores a provisional conversation after creation fails
+
+- Symptom:
+  A new conversation fails to start, but a renderer reload selects the same
+  Session ID again. The Rail may show an optimistic row while the canonical
+  store has no matching Session.
+- Quick checks:
+  Correlate the activation request, Workbench
+  `lastActiveAgentSessionId`, renderer reload, and canonical Session lookup by
+  exact ID. If navigation persistence precedes canonical activation
+  confirmation and the lookup returns typed `session.not_found`, this is a
+  provisional-selection leak. A bounded Rail page that omits the Session is
+  not enough evidence.
+- Root cause:
+  The new-conversation controller persisted its generated Session ID when it
+  selected the optimistic row. A crash or reload could therefore restore that
+  ID before Host committed a canonical Session. Reconcile errors also lost
+  their typed code in the frontend engine, so AgentGUI could not distinguish a
+  proven missing Session from a transient read failure.
+- Fix:
+  Keep provisional selection in mounted UI only. Persist it after the engine
+  confirms activation from canonical Session state. Preserve reconcile
+  `errorCode`; clear only the exact global and per-target navigation memories
+  when the active reconcile settles with `session.not_found`. Preserve them
+  for timeout, transport failure, and bounded-list absence.
+- Validation:
+  Verify a requested activation performs no persistence, canonical
+  confirmation writes once, create failure plus reload cannot restore the
+  provisional ID, typed `session.not_found` clears only the matching memories,
+  and a transient reconcile error keeps the selection.
+- References:
+  [agent-gui-node.md](../../architecture/agent-gui-node.md)
+  [sessionReconcile.reducer.ts](../../../packages/agent/activity-core/src/engine/sessionReconcile.reducer.ts)
+  [useAgentGUIConversationSelectionController.ts](../../../packages/agent/gui/agent-gui/agentGuiNode/controller/useAgentGUIConversationSelectionController.ts)
+
 ### AgentGUI rail shows a failed Turn but the detail has no error
 
 - Symptom:

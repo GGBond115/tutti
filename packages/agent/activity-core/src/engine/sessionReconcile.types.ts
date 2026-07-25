@@ -2,6 +2,7 @@ export type SessionReconcileScope = "messages" | "state" | "state_and_messages";
 
 export interface SessionReconcileRecord {
   agentSessionId: string;
+  errorCode: string | null;
   errorMessage: string | null;
   inFlightCommandId: string | null;
   inFlightScope: SessionReconcileScope | null;
