@@ -11,9 +11,6 @@ import (
 )
 
 func (c *Controller) Start(ctx context.Context, input StartInput) (StartResult, error) {
-	c.startMu.Lock()
-	defer c.startMu.Unlock()
-
 	roomID := strings.TrimSpace(input.RoomID)
 	provider := strings.TrimSpace(input.Provider)
 	if roomID == "" {
@@ -22,6 +19,13 @@ func (c *Controller) Start(ctx context.Context, input StartInput) (StartResult, 
 	if provider == "" {
 		return StartResult{}, fmt.Errorf("provider is required")
 	}
+	agentSessionID := strings.TrimSpace(input.AgentSessionID)
+	releaseStartupLock, err := c.acquireStartupLockContext(ctx, roomID, agentSessionID, provider)
+	if err != nil {
+		return StartResult{}, err
+	}
+	defer releaseStartupLock()
+
 	adapter, err := c.resolveAdapter(ctx, AdapterResolveInput{Provider: provider, AgentTargetID: input.AgentTargetID, CWD: input.CWD, ProviderTargetRef: clonePayload(input.ProviderTargetRef)})
 	if err != nil {
 		return StartResult{}, err
@@ -30,7 +34,6 @@ func (c *Controller) Start(ctx context.Context, input StartInput) (StartResult, 
 		return StartResult{}, fmt.Errorf("unsupported agent session provider %q", provider)
 	}
 	timestamp := unixMS(now())
-	agentSessionID := strings.TrimSpace(input.AgentSessionID)
 	settings := normalizeSessionSettings(
 		input.Settings,
 		provider,
@@ -111,9 +114,6 @@ func (c *Controller) Start(ctx context.Context, input StartInput) (StartResult, 
 }
 
 func (c *Controller) Resume(ctx context.Context, input ResumeInput) (Session, error) {
-	c.startMu.Lock()
-	defer c.startMu.Unlock()
-
 	roomID := strings.TrimSpace(input.RoomID)
 	agentSessionID := strings.TrimSpace(input.AgentSessionID)
 	provider := strings.TrimSpace(input.Provider)
@@ -130,6 +130,12 @@ func (c *Controller) Resume(ctx context.Context, input ResumeInput) (Session, er
 	if providerSessionID == "" {
 		return Session{}, fmt.Errorf("provider session id is required")
 	}
+	releaseStartupLock, err := c.acquireStartupLockContext(ctx, roomID, agentSessionID, provider)
+	if err != nil {
+		return Session{}, err
+	}
+	defer releaseStartupLock()
+
 	if existing, ok := c.get(roomID, agentSessionID); ok {
 		return existing, nil
 	}

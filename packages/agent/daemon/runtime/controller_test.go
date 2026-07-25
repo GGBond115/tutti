@@ -245,6 +245,267 @@ func TestControllerStartFailureDoesNotCreateCanonicalSessionOrTurnlessMessage(t 
 	}
 }
 
+func TestControllerStartupOperationsDoNotBlockIndependentSessions(t *testing.T) {
+	tests := []struct {
+		name              string
+		blocking          string
+		following         string
+		followingProvider string
+	}{
+		{name: "other provider start while start is blocked", blocking: "start", following: "start", followingProvider: ProviderCodex},
+		{name: "other provider resume while start is blocked", blocking: "start", following: "resume", followingProvider: ProviderCodex},
+		{name: "other provider start while resume is blocked", blocking: "resume", following: "start", followingProvider: ProviderCodex},
+		{name: "other provider resume while resume is blocked", blocking: "resume", following: "resume", followingProvider: ProviderCodex},
+		{name: "same provider start while start is blocked", blocking: "start", following: "start", followingProvider: ProviderClaudeCode},
+		{name: "same provider resume while start is blocked", blocking: "start", following: "resume", followingProvider: ProviderClaudeCode},
+		{name: "same provider start while resume is blocked", blocking: "resume", following: "start", followingProvider: ProviderClaudeCode},
+		{name: "same provider resume while resume is blocked", blocking: "resume", following: "resume", followingProvider: ProviderClaudeCode},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			blocker := &blockingStartupAdapter{
+				recordingStartAdapter: recordingStartAdapter{provider: ProviderClaudeCode},
+				operation:             test.blocking,
+				blockedSessionID:      "blocked-session",
+				entered:               make(chan struct{}),
+				release:               make(chan struct{}),
+			}
+			adapters := []Adapter{blocker}
+			if test.followingProvider != ProviderClaudeCode {
+				adapters = append(adapters, &recordingStartAdapter{provider: test.followingProvider})
+			}
+			controller := NewController(adapters, nil)
+
+			blocked := make(chan error, 1)
+			go func() {
+				blocked <- invokeControllerStartupOperation(
+					context.Background(),
+					controller,
+					test.blocking,
+					ProviderClaudeCode,
+					"blocked-session",
+				)
+			}()
+			select {
+			case <-blocker.entered:
+			case <-time.After(time.Second):
+				t.Fatal("blocking startup operation was not entered")
+			}
+
+			completed := make(chan error, 1)
+			go func() {
+				completed <- invokeControllerStartupOperation(
+					context.Background(),
+					controller,
+					test.following,
+					test.followingProvider,
+					"independent-session",
+				)
+			}()
+
+			select {
+			case err := <-completed:
+				if err != nil {
+					close(blocker.release)
+					<-blocked
+					t.Fatalf("independent startup operation: %v", err)
+				}
+			case <-time.After(time.Second):
+				close(blocker.release)
+				<-blocked
+				<-completed
+				t.Fatal("independent provider startup was blocked")
+			}
+
+			close(blocker.release)
+			if err := <-blocked; err != nil {
+				t.Fatalf("blocking startup operation: %v", err)
+			}
+		})
+	}
+}
+
+func TestControllerStartupLockPreservesSameSessionSerialization(t *testing.T) {
+	tests := []struct {
+		name      string
+		blocking  string
+		following string
+	}{
+		{name: "start then start", blocking: "start", following: "start"},
+		{name: "start then resume", blocking: "start", following: "resume"},
+		{name: "resume then start", blocking: "resume", following: "start"},
+		{name: "resume then resume", blocking: "resume", following: "resume"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter := &blockingStartupAdapter{
+				recordingStartAdapter: recordingStartAdapter{provider: ProviderClaudeCode},
+				operation:             test.blocking,
+				blockedSessionID:      "same-session",
+				entered:               make(chan struct{}),
+				release:               make(chan struct{}),
+			}
+			controller := NewController([]Adapter{adapter}, nil)
+
+			blocked := make(chan error, 1)
+			go func() {
+				blocked <- invokeControllerStartupOperation(
+					context.Background(),
+					controller,
+					test.blocking,
+					ProviderClaudeCode,
+					"same-session",
+				)
+			}()
+			select {
+			case <-adapter.entered:
+			case <-time.After(time.Second):
+				t.Fatal("blocking startup operation was not entered")
+			}
+
+			waitCtx, cancelWait := context.WithCancel(context.Background())
+			waiting := make(chan error, 1)
+			go func() {
+				waiting <- invokeControllerStartupOperation(
+					waitCtx,
+					controller,
+					test.following,
+					ProviderClaudeCode,
+					"same-session",
+				)
+			}()
+			cancelWait()
+			select {
+			case err := <-waiting:
+				if !errors.Is(err, context.Canceled) {
+					close(adapter.release)
+					<-blocked
+					t.Fatalf("waiting startup error = %v, want context canceled", err)
+				}
+			case <-time.After(time.Second):
+				close(adapter.release)
+				<-blocked
+				<-waiting
+				t.Fatal("same-session startup lock did not honor context cancellation")
+			}
+
+			close(adapter.release)
+			if err := <-blocked; err != nil {
+				t.Fatalf("blocking startup operation: %v", err)
+			}
+			if err := invokeControllerStartupOperation(
+				context.Background(),
+				controller,
+				test.following,
+				ProviderClaudeCode,
+				"same-session",
+			); err != nil {
+				t.Fatalf("startup replay: %v", err)
+			}
+			if calls := adapter.startCalls.Load() + adapter.resumeCalls.Load(); calls != 1 {
+				t.Fatalf("adapter startup calls = %d, want 1", calls)
+			}
+			if locks := len(controller.startupLocks); locks != 0 {
+				t.Fatalf("startup locks = %d, want 0", locks)
+			}
+		})
+	}
+}
+
+func TestControllerAnonymousStartsRemainProviderScopedAndIdempotent(t *testing.T) {
+	adapter := &blockingStartupAdapter{
+		recordingStartAdapter: recordingStartAdapter{provider: ProviderClaudeCode},
+		operation:             "start",
+		entered:               make(chan struct{}),
+		release:               make(chan struct{}),
+	}
+	controller := NewController([]Adapter{adapter}, nil)
+	input := StartInput{RoomID: "room-1", Provider: ProviderClaudeCode}
+
+	firstResult := make(chan StartResult, 1)
+	firstErr := make(chan error, 1)
+	go func() {
+		result, err := controller.Start(context.Background(), input)
+		firstResult <- result
+		firstErr <- err
+	}()
+	select {
+	case <-adapter.entered:
+	case <-time.After(time.Second):
+		t.Fatal("blocking anonymous start was not entered")
+	}
+
+	waitCtx, cancelWait := context.WithCancel(context.Background())
+	waiting := make(chan error, 1)
+	go func() {
+		_, err := controller.Start(waitCtx, input)
+		waiting <- err
+	}()
+	cancelWait()
+	select {
+	case err := <-waiting:
+		if !errors.Is(err, context.Canceled) {
+			close(adapter.release)
+			<-firstResult
+			<-firstErr
+			t.Fatalf("waiting anonymous start error = %v, want context canceled", err)
+		}
+	case <-time.After(time.Second):
+		close(adapter.release)
+		<-firstResult
+		<-firstErr
+		<-waiting
+		t.Fatal("anonymous startup lock did not honor context cancellation")
+	}
+
+	close(adapter.release)
+	first := <-firstResult
+	if err := <-firstErr; err != nil {
+		t.Fatalf("first anonymous start: %v", err)
+	}
+	replayed, err := controller.Start(context.Background(), input)
+	if err != nil {
+		t.Fatalf("replayed anonymous start: %v", err)
+	}
+	if replayed.Session.AgentSessionID != first.Session.AgentSessionID {
+		t.Fatalf("replayed session = %q, want %q", replayed.Session.AgentSessionID, first.Session.AgentSessionID)
+	}
+	if calls := adapter.startCalls.Load(); calls != 1 {
+		t.Fatalf("adapter start calls = %d, want 1", calls)
+	}
+	if locks := len(controller.startupLocks); locks != 0 {
+		t.Fatalf("startup locks = %d, want 0", locks)
+	}
+}
+
+func invokeControllerStartupOperation(
+	ctx context.Context,
+	controller *Controller,
+	operation string,
+	provider string,
+	agentSessionID string,
+) error {
+	switch operation {
+	case "start":
+		_, err := controller.Start(ctx, StartInput{
+			RoomID:         "room-1",
+			AgentSessionID: agentSessionID,
+			Provider:       provider,
+		})
+		return err
+	case "resume":
+		_, err := controller.Resume(ctx, ResumeInput{
+			RoomID:            "room-1",
+			AgentSessionID:    agentSessionID,
+			Provider:          provider,
+			ProviderSessionID: "provider-" + agentSessionID,
+		})
+		return err
+	default:
+		return fmt.Errorf("unsupported startup operation %q", operation)
+	}
+}
+
 func TestControllerProvisionalStartRollsBackWithoutCanonicalReport(t *testing.T) {
 	t.Parallel()
 	reporter := &recordingReporter{}
@@ -2552,6 +2813,51 @@ type recordingStartAdapter struct {
 	cancelCalls    int
 	cancelEntered  chan<- struct{}
 	cancelReleased <-chan struct{}
+}
+
+type blockingStartupAdapter struct {
+	recordingStartAdapter
+	operation        string
+	blockedSessionID string
+	entered          chan struct{}
+	release          chan struct{}
+	enterOnce        sync.Once
+	startCalls       atomic.Int32
+	resumeCalls      atomic.Int32
+}
+
+func (a *blockingStartupAdapter) Start(ctx context.Context, session Session) ([]activityshared.Event, error) {
+	a.startCalls.Add(1)
+	if a.operation == "start" && a.blocks(session) {
+		if err := a.wait(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return []activityshared.Event{
+		newSessionActivityEvent(session, EventSessionStarted, SessionStatusReady, nil),
+	}, nil
+}
+
+func (a *blockingStartupAdapter) Resume(ctx context.Context, session Session) error {
+	a.resumeCalls.Add(1)
+	if a.operation == "resume" && a.blocks(session) {
+		return a.wait(ctx)
+	}
+	return nil
+}
+
+func (a *blockingStartupAdapter) blocks(session Session) bool {
+	return a.blockedSessionID == "" || a.blockedSessionID == session.AgentSessionID
+}
+
+func (a *blockingStartupAdapter) wait(ctx context.Context) error {
+	a.enterOnce.Do(func() { close(a.entered) })
+	select {
+	case <-a.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 type recordingPromptAdapter struct {

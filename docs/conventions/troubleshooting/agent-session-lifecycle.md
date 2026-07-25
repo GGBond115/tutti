@@ -2,6 +2,32 @@
 
 [Agent runtime index](./agent-runtime.md) · [All troubleshooting](./README.md)
 
+### One hung provider startup blocks unrelated Agent sessions
+
+- **Symptom:** One provider process starts but never reaches runtime-ready, then
+  new or resumed Sessions for other providers also wait without starting their
+  own provider processes.
+- **Quick checks:** Order `agent_session.process.start.sent` with Host
+  `runtime_started` and `runtime_session_ready` lifecycle steps. If later,
+  unrelated Sessions accumulate wait time before their own process-start event,
+  inspect Controller startup-lock ownership separately from the provider that
+  first stopped making progress.
+- **Root cause:** The runtime Controller held one process-wide `startMu` across
+  `Adapter.Start` and `Adapter.Resume`. A slow or unbounded provider handshake
+  therefore formed a lock convoy across every room, Session, and provider.
+- **Fix:** Serialize explicit startup requests by `(roomID, agentSessionID)`.
+  Keep the legacy no-ID start path idempotent with a narrower room-and-provider
+  key, and let startup-lock waiters return when their context is canceled.
+  Provider credential coordination remains a separate Host gate.
+- **Validation:** Block each of `Start` and `Resume` for one provider and prove
+  both operations still complete for an independent provider. Also verify all
+  same-Session combinations remain serialized, anonymous start replay reuses
+  one Session, canceled waiters release their lock references, and repeated
+  shuffled race runs stay clean.
+- **References:**
+  [controller_session_lifecycle.go](../../../packages/agent/daemon/runtime/controller_session_lifecycle.go),
+  [controller_test.go](../../../packages/agent/daemon/runtime/controller_test.go)
+
 ### A shared-device connection banner looks terminal while the host is still retrying
 
 - **Symptom:** AgentGUI keeps showing a strong connection-lost notice for a

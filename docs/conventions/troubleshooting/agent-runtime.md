@@ -49,6 +49,7 @@ Provider discovery, installation, authentication, models, configuration, and run
 Turn state, loading, cancel, restore, rail projection, event updates, imports, and performance.
 
 - [AgentGUI turn actions return plain-text route 404s](./agent-session-lifecycle.md#agentgui-turn-actions-return-plain-text-route-404s)
+- [One hung provider startup blocks unrelated Agent sessions](./agent-session-lifecycle.md#one-hung-provider-startup-blocks-unrelated-agent-sessions)
 - [AgentGUI rail shows a failed Turn but the detail has no error](./agent-session-lifecycle.md#agentgui-rail-shows-a-failed-turn-but-the-detail-has-no-error)
 - [AgentGUI Stop reports no active turn after cancel succeeds](./agent-session-lifecycle.md#agentgui-stop-reports-no-active-turn-after-cancel-succeeds)
 - [AgentGUI send blocked by active_turn after settled snapshot](./agent-session-lifecycle.md#agentgui-send-blocked-by-activeturn-after-settled-snapshot)

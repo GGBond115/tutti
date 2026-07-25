@@ -27,6 +27,12 @@ if err != nil {
 controller := runtime.Controller()
 ```
 
+Controller startup coordination is scoped to one Session. The legacy `Start`
+form that omits `AgentSessionID` is scoped by room and provider while it
+allocates and deduplicates the Session ID. Provider-specific credential
+coordination belongs in the Host startup gate; provider I/O must not run under
+a process-wide Controller startup lock.
+
 `Controller.SubscribeWhenAvailable` is the observation-only stream attachment
 for consumers that already have durable session identity but may race runtime
 resume after a daemon restart. It waits for `Start`, `Resume`, or

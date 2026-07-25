@@ -24,7 +24,6 @@ const interactiveDenyFollowUpPollInterval = 25 * time.Millisecond
 type execMetadataContextKey struct{}
 
 type Controller struct {
-	startMu                     sync.Mutex
 	mu                          sync.Mutex
 	streamObserverMu            sync.RWMutex
 	sessions                    map[string]Session
@@ -37,7 +36,8 @@ type Controller struct {
 	configOptionsUpdates        map[string]AgentSessionConfigOptionsUpdate
 	pendingConfigOptionsUpdates map[string][]AgentSessionConfigOptionsUpdate
 	provisionalSessions         map[string]bool
-	lifecycleLocks              map[string]*sessionLifecycleLock
+	startupLocks                map[startupLockKey]*controllerLifecycleLock
+	lifecycleLocks              map[string]*controllerLifecycleLock
 	hub                         *EventHub
 	reporter                    DurableActivityReporter
 	reportQueue                 *reportRequestQueue
@@ -58,9 +58,17 @@ type RuntimeStreamEventObserver interface {
 	) error
 }
 
-type sessionLifecycleLock struct {
+type controllerLifecycleLock struct {
 	gate chan struct{}
 	refs int
+}
+
+// startupLockKey uses agentSessionID for normal Host calls. Provider is set
+// only for the legacy path that asks Controller.Start to allocate the ID.
+type startupLockKey struct {
+	roomID         string
+	agentSessionID string
+	provider       string
 }
 
 type sessionAvailabilityWaiter struct {
@@ -139,7 +147,8 @@ func NewControllerWithAdapterResolver(adapters []Adapter, reporter DurableActivi
 		configOptionsUpdates:        make(map[string]AgentSessionConfigOptionsUpdate),
 		pendingConfigOptionsUpdates: make(map[string][]AgentSessionConfigOptionsUpdate),
 		provisionalSessions:         make(map[string]bool),
-		lifecycleLocks:              make(map[string]*sessionLifecycleLock),
+		startupLocks:                make(map[startupLockKey]*controllerLifecycleLock),
+		lifecycleLocks:              make(map[string]*controllerLifecycleLock),
 		hub:                         NewEventHub(),
 		reporter:                    reporter,
 	}
