@@ -49,12 +49,16 @@ export function WorkspaceAccountMenu({
   workspaceId
 }: WorkspaceAccountMenuProps) {
   const { state: workspaceSettingsState } = useWorkspaceSettingsService();
-  const commerceEnabled =
+  const tuttiAgentEnabled =
     workspaceSettingsState.tuttiAgentSwitchEnabled === true;
+
+  if (!tuttiAgentEnabled) {
+    return null;
+  }
 
   return (
     <WorkspaceAccountMenuEnabled
-      commerceEnabled={commerceEnabled}
+      commerceEnabled={tuttiAgentEnabled}
       showLeadingDivider={showLeadingDivider}
       signedOutPresentation={signedOutPresentation}
       workspaceId={workspaceId}
