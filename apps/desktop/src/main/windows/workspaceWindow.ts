@@ -127,6 +127,9 @@ export function createWorkspaceWindow(
   const workspaceWindow = new BrowserWindow({
     backgroundColor: resolveDesktopWindowBackgroundColor(),
     frame: windowKind === "agent" ? false : undefined,
+    ...(process.platform === "linux" && windowKind === "agent"
+      ? { roundedCorners: false }
+      : {}),
     // The agent window's green control is a native fullscreen toggle, and its
     // frameless chrome draws custom traffic lights. Disabling native zoom stops
     // macOS double-click-title-bar from zooming into an ambiguous "maximized"

@@ -90,6 +90,11 @@ Use beta for earlier development-branch packaging that should not affect RC vali
 
 Do not introduce nightly-only desktop version suffixes. Use `beta` or `rc` prereleases instead when a build should be published ahead of the next stable release.
 
+The Electron 43 desktop runtime supports macOS 12 and later. Release CI must
+run `pnpm --filter @tutti-os/desktop exec install-electron` after the frozen
+workspace install so packaging never relies on Electron's lazy runtime
+download.
+
 ## Artifacts
 
 Packaging is driven by:

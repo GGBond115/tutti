@@ -41,6 +41,7 @@ import { registerTuttiAssetProtocol } from "./host/tuttiAssetProtocol.ts";
 import { desktopCustomProtocolSchemes } from "./host/desktopCustomProtocolSchemes.ts";
 import { createWorkspaceFileIconCacheStore } from "./host/workspaceFileIconCacheStore.ts";
 import { registerWorkspaceFileIconProtocol } from "./host/workspaceFileIconProtocol.ts";
+import { applyDesktopElectronPlatformCompatibility } from "./electronPlatformCompatibility.ts";
 
 function envFlagEnabled(value: string | undefined): boolean {
   return /^(1|true|yes|on)$/iu.test(value?.trim() ?? "");
@@ -74,6 +75,7 @@ function focusPrimaryDesktopWindow(): void {
 }
 
 export async function bootstrapDesktopApp(): Promise<void> {
+  applyDesktopElectronPlatformCompatibility(app.commandLine);
   applyElectronDiagnosticSwitches();
   initializeDesktopEnvironment({
     appVersion: app.getVersion(),

@@ -18,6 +18,20 @@ The window model is intentionally simple:
 - keep Agent-only windows tied to the same workspace, preload, renderer
   bundle, daemon session, and persisted account state as the workspace window
 
+On Linux, the desktop currently requests X11/Xwayland explicitly. The
+Agent-only window contract depends on global source-window bounds,
+deterministic duplicate-window positioning, and programmatic content-width
+resizing, which native Wayland does not expose. Native Wayland must not be
+enabled until those interactions have a Wayland-specific product contract and
+fallback behavior. Agent-only windows also keep square native corners on Linux
+so Electron upgrades do not silently change the established frameless shell.
+
+Native file dialogs use product-semantic starting locations. Project
+directories start in Documents, while archive import/export, icon upload,
+browser downloads, and cookie import start in Downloads. A successful choice
+updates the matching starting directory for the remainder of the current app
+process; these locations are not persisted as user preferences.
+
 ## Current Window Types
 
 ### Dashboard Window

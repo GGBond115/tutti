@@ -52,6 +52,7 @@
         "dmg",
         "zip"
       ],
+      "minimumSystemVersion": "12.0.0",
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
       "hardenedRuntime": true,
@@ -132,7 +133,7 @@
     "@tutti-os/rrt-plugin-vite": "0.0.6",
     "babel-plugin-react-compiler": "^1.0.0",
     "dmg-builder": "^26.8.1",
-    "electron": "^35.7.5",
+    "electron": "^43.2.0",
     "electron-builder": "^26.8.1",
     "electron-builder-squirrel-windows": "^26.8.1",
     "electron-vite": "^3.1.0",

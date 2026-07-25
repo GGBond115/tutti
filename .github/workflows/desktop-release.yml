@@ -328,6 +328,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Electron runtime
+        run: pnpm --filter @tutti-os/desktop exec install-electron
+
       - name: Align package version with release tag
         working-directory: apps/desktop
         run: node scripts/apply-ci-release-version.mjs "${TUTTI_DESKTOP_RELEASE_TAG}"
