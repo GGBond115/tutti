@@ -97,6 +97,10 @@ func TestCodexAppServerCommandOutputDeltaUsesToolOutputFastLane(t *testing.T) {
 	if len(started.Events) != 1 || started.Events[0].Type != activityshared.EventCallStarted {
 		t.Fatalf("started events = %#v", started.Events)
 	}
+	startReport := reportActivityInput(session, started.Events)
+	if len(startReport.MessageUpdates) != 1 {
+		t.Fatalf("started report = %#v, want one canonical tool anchor", startReport)
+	}
 
 	output := reducer.ReduceNotification(
 		nil,
@@ -130,6 +134,47 @@ func TestCodexAppServerCommandOutputDeltaUsesToolOutputFastLane(t *testing.T) {
 		data.ToolOutput.Operation != "set" ||
 		data.ToolOutput.Text != "hello" {
 		t.Fatalf("tool output delta = %#v", data.ToolOutput)
+	}
+	if data.MessageID != startReport.MessageUpdates[0].MessageID {
+		t.Fatalf(
+			"live output message id = %q, want canonical start anchor %q",
+			data.MessageID,
+			startReport.MessageUpdates[0].MessageID,
+		)
+	}
+
+	completed := reducer.ReduceNotification(
+		nil,
+		session,
+		"turn-1",
+		acpMessage{
+			Method: appServerNotifyItemCompleted,
+			Params: mustJSONRawMessage(t, map[string]any{
+				"threadId": "thread-1",
+				"turnId":   "provider-turn-1",
+				"item": map[string]any{
+					"type": "commandExecution", "id": "command-1",
+					"command": "printf hello", "status": "completed",
+					"aggregatedOutput": "hello", "exitCode": 0,
+				},
+			}),
+		},
+		normalizer,
+		nil,
+	)
+	if len(completed.Events) != 1 || completed.Events[0].Type != activityshared.EventCallCompleted {
+		t.Fatalf("completed events = %#v", completed.Events)
+	}
+	completedReport := reportActivityInput(session, completed.Events)
+	if len(completedReport.MessageUpdates) != 1 {
+		t.Fatalf("completed report = %#v, want one canonical terminal tool update", completedReport)
+	}
+	if completedReport.MessageUpdates[0].MessageID != startReport.MessageUpdates[0].MessageID {
+		t.Fatalf(
+			"completed message id = %q, want canonical start anchor %q",
+			completedReport.MessageUpdates[0].MessageID,
+			startReport.MessageUpdates[0].MessageID,
+		)
 	}
 }
 

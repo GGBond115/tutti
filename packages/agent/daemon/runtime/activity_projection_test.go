@@ -222,6 +222,21 @@ func TestExplicitToolOutputDeltaPersistsSnapshotAndProjectsOffsetAppend(t *testi
 	if len(report.MessageUpdates) != 1 {
 		t.Fatalf("report = %#v, want one cumulative tool snapshot", report)
 	}
+	startReport := reportActivityInput(session, started)
+	if len(startReport.MessageUpdates) != 1 {
+		t.Fatalf("start report = %#v, want one canonical tool anchor", startReport)
+	}
+	if firstDelta.MessageID != startReport.MessageUpdates[0].MessageID ||
+		secondDelta.MessageID != startReport.MessageUpdates[0].MessageID ||
+		report.MessageUpdates[0].MessageID != startReport.MessageUpdates[0].MessageID {
+		t.Fatalf(
+			"tool message identity = start:%q first:%q second:%q snapshot:%q, want one canonical anchor",
+			startReport.MessageUpdates[0].MessageID,
+			firstDelta.MessageID,
+			secondDelta.MessageID,
+			report.MessageUpdates[0].MessageID,
+		)
+	}
 	output, _ := report.MessageUpdates[0].Payload["output"].(map[string]any)
 	if output["text"] != "你好\n" {
 		t.Fatalf("persisted output = %#v", output)

@@ -820,11 +820,13 @@ provider-neutral `payload.output.text` display projection. A provider adapter
 may emit it only from an explicit ordered output-delta event, or from a
 cumulative textual output snapshot whose exact prefix relationship the adapter
 has verified. It must not classify by tool name or inspect arbitrary structured
-tool results. The first output uses `set`; later `append_text` operations carry
-the prior UTF-8 byte length as `offsetBytes`. A missing anchor or offset
-mismatch triggers canonical reconciliation instead of guessed concatenation.
-Completed, failed, canceled, and rewritten tool results remain full canonical
-`message_update` snapshots.
+tool results. Every output operation uses the exact `messageId` of the
+canonical tool-call anchor; provider-normalizer event ids are internal
+lifecycle identities and must not create a second optimistic row. The first
+output uses `set`; later `append_text` operations carry the prior UTF-8 byte
+length as `offsetBytes`. A missing anchor or offset mismatch triggers canonical
+reconciliation instead of guessed concatenation. Completed, failed, canceled,
+and rewritten tool results remain full canonical `message_update` snapshots.
 
 The Go live-protocol adapter owns the complete fast-lane envelope on both sides
 of a device link: schema validation, recipient identity projection,

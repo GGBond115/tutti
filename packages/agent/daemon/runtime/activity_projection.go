@@ -40,7 +40,7 @@ func ProjectActivityEventsToStreamEvents(session Session, events []activityshare
 				Data:      patch,
 			})
 		}
-		if delta, ok := liveMessageDeltaFromSessionEvent(session, event, timestamp); ok {
+		if delta, ok := liveMessageDeltaFromSessionEvent(session, event, sessionID, timestamp); ok {
 			out = append(out, StreamEvent{
 				EventType: StreamEventMessageDelta,
 				Data:      delta,
@@ -71,13 +71,26 @@ func ProjectActivityEventsToStreamEvents(session Session, events []activityshare
 	return out
 }
 
-func liveMessageDeltaFromSessionEvent(session Session, event activityshared.Event, timestamp int64) (liveprotocol.Event, bool) {
+func liveMessageDeltaFromSessionEvent(
+	session Session,
+	event activityshared.Event,
+	sessionID string,
+	timestamp int64,
+) (liveprotocol.Event, bool) {
 	contentOperation, _ := event.Payload.Metadata[liveContentOperationMetadataKey].(*liveprotocol.MessageContentOperation)
 	toolOutputOperation, _ := event.Payload.Metadata[liveToolOutputOperationMetadataKey].(*liveprotocol.MessageToolOutputOperation)
 	if contentOperation == nil && toolOutputOperation == nil {
 		return liveprotocol.Event{}, false
 	}
 	messageID := firstNonEmptyString(stringFromPayload(event.Payload.Metadata, "messageId"), event.EventID)
+	if toolOutputOperation != nil {
+		// Tool-call persistence deliberately keys the canonical message by call
+		// identity (`toolcall:<callId>`), while EventID is the normalizer's
+		// internal lifecycle identity. The live output must target that same
+		// canonical anchor or the optimistic overlay would create a second,
+		// output-only tool row.
+		messageID = toolCallMessageUpdateID(event, sessionID, timestamp)
+	}
 	if messageID == "" || strings.TrimSpace(event.Payload.TurnID) == "" || timestamp <= 0 {
 		return liveprotocol.Event{}, false
 	}
