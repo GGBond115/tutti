@@ -133,7 +133,12 @@
   settings aligned between development and production; do not hide a cold
   transform bottleneck by changing compiler semantics only in development.
   Reduce the initial module graph, precompile a stable package boundary, or
-  schedule non-blocking preload work instead. Keep the
+  schedule non-blocking preload work instead. For desktop development, wait for
+  Vite to transform the statically reachable startup graphs before
+  `electron-vite` launches Electron. Treat the top-level workspace and
+  standalone Agent lazy route modules as explicit warmup entries; do not follow
+  every dynamic import, because that compiles unopened tools and diagnostics.
+  Keep the
   right side shaped like the empty-home/new-conversation hero, not a selected
   conversation timeline with a bottom dock. Keep the fallback hero composer
   non-interactive until the real controller owns its draft.
@@ -158,7 +163,8 @@
   Finally cold-start local dev and compare the same timestamp landmarks; this
   manual renderer verification requires explicit user approval. If the dynamic
   import still dominates, compare cold and warm module-graph timings before
-  investigating daemon hydration or provider discovery.
+  investigating daemon hydration or provider discovery. The dev server must log
+  `renderer warmup completed` before `start electron app`.
   When a provider-status request is slow, compare Renderer `durationMs` with the
   daemon batch `durationMs`. A large daemon total points to provider detection;
   a large Renderer-only gap points to transport, timeout handling, or Renderer
@@ -169,6 +175,8 @@
 - References:
   [agent-gui-node.md](../../architecture/agent-gui-node.md)
   [WorkspaceWindow.tsx](../../../apps/desktop/src/renderer/src/app/windows/workspace/WorkspaceWindow.tsx)
+  [electron.vite.config.ts](../../../apps/desktop/electron.vite.config.ts)
+  [renderer-dev-warmup.mjs](../../../tools/scripts/renderer-dev-warmup.mjs)
   [StandaloneAgentToolSidebar.tsx](../../../apps/desktop/src/renderer/src/features/workspace-workbench/ui/StandaloneAgentToolSidebar.tsx)
   [desktopAgentProviderStatusService.ts](../../../apps/desktop/src/renderer/src/features/workspace-agent/services/internal/desktopAgentProviderStatusService.ts)
   [desktopAgentProviderStatusDiagnostics.ts](../../../apps/desktop/src/renderer/src/features/workspace-agent/services/internal/desktopAgentProviderStatusDiagnostics.ts)

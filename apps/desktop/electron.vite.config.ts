@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { PerfMonitorVitePlugin } from "@tutti-os/rrt-plugin-vite";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import type { PluginOption } from "vite";
+import { waitForRendererWarmupPlugin } from "../../tools/scripts/renderer-dev-warmup.mjs";
 
 const aliases = {
   "@app/renderer": resolve("../../packages/agent/gui/app/renderer"),
@@ -79,6 +80,14 @@ const devServer = {
     host: "127.0.0.1"
   }
 };
+
+const rendererWarmupEntryUrls = [
+  "/src/main.tsx",
+  "/src/app/windows/workspace/createWorkspaceWindowContainer.ts",
+  "/src/app/windows/workspace/DefaultWorkspaceWindow.tsx",
+  "/src/features/workspace-workbench/ui/WorkspaceWorkbench.tsx",
+  "/src/app/windows/workspace/StandaloneAgentWorkspaceWindow.tsx"
+];
 
 function envFlagEnabled(value: string | undefined): boolean {
   return /^(1|true|yes|on)$/iu.test(value?.trim() ?? "");
@@ -163,6 +172,9 @@ export default defineConfig({
   renderer: {
     server: devServer,
     plugins: [
+      waitForRendererWarmupPlugin({
+        entryUrls: rendererWarmupEntryUrls
+      }),
       react({
         babel: {
           plugins: [
