@@ -567,29 +567,29 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   );
 
   if (shouldVirtualize) {
-    const virtualItems =
-      virtualScrollElement === null
-        ? turnGroups
-            .slice(-AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT)
-            .map((group, fallbackIndex) => ({
-              index:
-                turnGroups.length -
+    const usesFallbackVirtualItems = virtualScrollElement === null;
+    const virtualItems = usesFallbackVirtualItems
+      ? turnGroups
+          .slice(-AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT)
+          .map((group, fallbackIndex) => ({
+            index:
+              turnGroups.length -
+              Math.min(
+                turnGroups.length,
+                AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT
+              ) +
+              fallbackIndex,
+            key: group.key,
+            start:
+              (turnGroups.length -
                 Math.min(
                   turnGroups.length,
                   AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT
                 ) +
-                fallbackIndex,
-              key: group.key,
-              start:
-                (turnGroups.length -
-                  Math.min(
-                    turnGroups.length,
-                    AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT
-                  ) +
-                  fallbackIndex) *
-                AGENT_TRANSCRIPT_ESTIMATED_TURN_HEIGHT_PX
-            }))
-        : rowVirtualizer.getVirtualItems();
+                fallbackIndex) *
+              AGENT_TRANSCRIPT_ESTIMATED_TURN_HEIGHT_PX
+          }))
+      : rowVirtualizer.getVirtualItems();
     return (
       <>
         <AgentMessageLocatorRail
@@ -620,7 +620,12 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
                     turnWorkSectionModelByKey.get(group.key)
                       ? AGENT_TRANSCRIPT_DISCLOSURE_TURN_GAP_PX
                       : AGENT_TRANSCRIPT_LEGACY_TURN_GAP_PX
-                  }px`
+                  }px`,
+                  ...(usesFallbackVirtualItems
+                    ? {
+                        transform: `translateY(${virtualTurn.start}px)`
+                      }
+                    : {})
                 }}
               >
                 {renderTurnGroup(group)}

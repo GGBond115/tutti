@@ -179,6 +179,32 @@ describe("AgentTranscriptView virtual rendering", () => {
     expect(screen.queryByText("turn 11 assistant row")).toBeNull();
   });
 
+  it("positions fallback turns when no scroll parent is available", () => {
+    render(
+      <AgentTranscriptView
+        conversation={conversationWithMultiRowTurns(40)}
+        labels={{
+          thinkingLabel: "Thought process",
+          toolCallsLabel: (count) => `Tool calls (${count})`,
+          processing: "Planning next moves",
+          turnSummary: "Changed files"
+        }}
+      />
+    );
+
+    const fallbackTurns = [
+      ...document.querySelectorAll<HTMLElement>(
+        "[data-agent-transcript-virtual-turn]"
+      )
+    ];
+    expect(fallbackTurns).toHaveLength(3);
+    expect(fallbackTurns.map((turn) => turn.style.transform)).toEqual([
+      "translateY(10360px)",
+      "translateY(10640px)",
+      "translateY(10920px)"
+    ]);
+  });
+
   it("exposes only the matching Session virtual scroll controller", () => {
     virtualizerMockState.virtualIndexes = [10];
     const virtualScrollController =
