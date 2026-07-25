@@ -560,6 +560,8 @@ export interface AgentGUINodeViewProps {
    * the config menu shows a "no limits / retry" row rather than hiding the
    * whole section when there are no meters to display. */
   slashStatusUsageAttempted?: boolean;
+  /** Host-rendered account/Commerce chrome for the exact selected target. */
+  agentConfigAccountContent?: ReactNode;
   onAgentConfigMenuClose?: () => void;
   onAgentConfigMenuOpen?: () => void;
   /** Forces a fresh usage probe from the config menu's refresh control. */

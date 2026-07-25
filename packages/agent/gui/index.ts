@@ -16,6 +16,7 @@ export type {
   AgentGUIProps,
   AgentGUIReferenceProvenanceFilterCatalog
 } from "./AgentGUI";
+export type { AgentGUIAgentConfigMenuContext } from "./agent-gui/agentGuiNode/AgentGUINode.types";
 export type {
   TuttiModePlanAssignmentAgentDetail,
   TuttiModePlanAssignmentAgentOption,

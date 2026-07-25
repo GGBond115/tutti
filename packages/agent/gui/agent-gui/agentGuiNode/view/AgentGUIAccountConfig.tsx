@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Gauge, Wrench } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@tutti-os/ui-system";
 import { MoreHorizontalIcon } from "@tutti-os/ui-system/icons";
@@ -11,6 +11,7 @@ import type { AgentComposerSlashStatusLimit } from "../AgentComposer";
 import type { AgentGUIViewLabels } from "../AgentGUINodeView";
 
 interface AgentGUIConfigMenuProps {
+  accountContent?: ReactNode;
   environmentSetupVisible: boolean;
   labels: AgentGUIViewLabels;
   providerScopedActionsVisible: boolean;
@@ -30,6 +31,7 @@ interface AgentGUIConfigMenuProps {
 }
 
 export function AgentGUIConfigMenu({
+  accountContent,
   environmentSetupVisible,
   labels,
   providerScopedActionsVisible,
@@ -55,6 +57,8 @@ export function AgentGUIConfigMenu({
     ? labels.slashStatusProviderAccount(provider.trim())
     : null;
   const accountTitle = providerDisplayTitle ?? labels.slashStatusAccount;
+  const hasAccountContent =
+    accountContent !== null && accountContent !== undefined;
   return (
     <Popover
       open={open}
@@ -87,7 +91,17 @@ export function AgentGUIConfigMenu({
         data-testid="agent-gui-config-menu"
       >
         <div className="flex min-w-0 flex-col gap-1">
-          {providerScopedActionsVisible && providerAuthAccountLabel ? (
+          {hasAccountContent ? (
+            <>
+              {accountContent}
+              <div className="px-2">
+                <span className="block h-px bg-[var(--border-1)]" />
+              </div>
+            </>
+          ) : null}
+          {!hasAccountContent &&
+          providerScopedActionsVisible &&
+          providerAuthAccountLabel ? (
             <>
               <div className="flex min-w-0 flex-col gap-2 p-2">
                 <div className="flex min-w-0 items-center gap-2">
@@ -118,7 +132,8 @@ export function AgentGUIConfigMenu({
               ) : null}
             </>
           ) : null}
-          {providerScopedActionsVisible &&
+          {!hasAccountContent &&
+          providerScopedActionsVisible &&
           (slashStatusLimits.length > 0 ||
             slashStatusUsageAttempted ||
             slashStatusLimitsLoading) ? (

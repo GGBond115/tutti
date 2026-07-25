@@ -106,6 +106,7 @@ export function AgentGUINodeView({
   slashStatusUsageCapturedAtUnixMs = null,
   slashStatusUsageDidFail = false,
   slashStatusUsageAttempted = false,
+  agentConfigAccountContent,
   onAgentConfigMenuClose,
   onAgentConfigMenuOpen,
   onAgentUsageRefresh,
@@ -613,6 +614,7 @@ export function AgentGUINodeView({
                   slashStatusUsageAttempted={slashStatusUsageAttempted}
                   provider={effectiveRailConfigProvider}
                   providerAuthAccountLabel={effectiveProviderAuthAccountLabel}
+                  accountContent={agentConfigAccountContent}
                   onAgentConfigMenuClose={onAgentConfigMenuClose}
                   onAgentConfigMenuOpen={onAgentConfigMenuOpen}
                   onAgentUsageRefresh={onAgentUsageRefresh}

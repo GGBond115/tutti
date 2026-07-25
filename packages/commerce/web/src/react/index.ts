@@ -1,4 +1,9 @@
 export {
+  AgentConfigCommerceContent,
+  type AgentConfigCommerceContentProps,
+  type AgentConfigCommerceLabels
+} from "./AgentConfigCommerceContent";
+export {
   CommerceMenuContent,
   type CommerceMenuContentProps,
   type CommerceMenuLabels

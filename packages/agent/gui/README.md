@@ -422,3 +422,10 @@ The old public `providerTargets`, `providerRailMode`, provider-target renderers,
 and `defaultProviderTargetId` contract is intentionally unsupported. Workbench
 state hydration performs a one-time read of legacy `providerTargetId` into
 `agentTargetId`; new state writes contain only `agentTargetId`.
+
+Account and Commerce remain Host chrome. A Host may use
+`renderSlots.agentConfigAccount` to replace the selected target's default
+account/quota block and `hostActions.onAgentConfigMenuOpen` to refresh its
+Host-owned account state. Both receive the same exact target context. Returning
+`null` preserves the default provider account and quota presentation; the slot
+must not start requests or own menu lifecycle.

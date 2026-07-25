@@ -19,6 +19,7 @@ import type {
   AgentGUITargetConnectionSource,
   AgentGUIHomeSuggestionId,
   AgentGUIAgentTarget,
+  AgentGUIAgentOwnership,
   NodeFrame,
   Point
 } from "../../types";
@@ -167,6 +168,11 @@ export interface AgentGUINodeHostActions {
   ) => void;
   onAgentProviderLogin?: (provider: AgentGUIProvider) => void;
   onAgentEnvPanelOpen?: (input?: OpenAgentEnvPanelInput) => void;
+  /**
+   * Notifies the Host when the exact target's config menu opens. Account and
+   * Commerce refreshes remain Host-owned and must not enter Agent status.
+   */
+  onAgentConfigMenuOpen?: (context: AgentGUIAgentConfigMenuContext) => void;
   onOpenConversationWindow?: (agentSessionId: string) => void;
   onClose: () => void;
   onResize: (frame: NodeFrame) => void;
@@ -194,7 +200,19 @@ export interface AgentGUINodeHostActions {
   ) => void;
 }
 
+export interface AgentGUIAgentConfigMenuContext {
+  agentTargetId: string;
+  provider: AgentGUIProvider;
+  label: string;
+  ownership?: AgentGUIAgentOwnership;
+}
+
 export interface AgentGUINodeRenderSlots {
+  /**
+   * Optional Host chrome for the exact target's account/Commerce presentation.
+   * Returning null preserves AgentGUI's provider account and quota content.
+   */
+  agentConfigAccount?: (context: AgentGUIAgentConfigMenuContext) => ReactNode;
   projectDirectoryPickerHeaderActions?: ReferenceSourcePickerProps["renderHeaderActions"];
   providerRailEmpty?: AgentGUIAgentsEmptyRenderer;
   providerUnavailableState?: AgentGUIProviderUnavailableStateRenderer;
@@ -400,6 +418,7 @@ export function areAgentGUINodePropsEqual(
     pa.onCapabilitySettingsRequest === na.onCapabilitySettingsRequest &&
     pa.onAgentProviderLogin === na.onAgentProviderLogin &&
     pa.onAgentEnvPanelOpen === na.onAgentEnvPanelOpen &&
+    pa.onAgentConfigMenuOpen === na.onAgentConfigMenuOpen &&
     pa.onOpenConversationWindow === na.onOpenConversationWindow &&
     pa.onClose === na.onClose &&
     pa.onResize === na.onResize &&
@@ -411,6 +430,7 @@ export function areAgentGUINodePropsEqual(
     pa.onShowMessage === na.onShowMessage &&
     pa.onEngagementEvent === na.onEngagementEvent &&
     pa.onConversationRailLayoutChange === na.onConversationRailLayoutChange &&
+    ps.agentConfigAccount === ns.agentConfigAccount &&
     ps.providerRailEmpty === ns.providerRailEmpty &&
     ps.providerUnavailableState === ns.providerUnavailableState &&
     ps.projectDirectoryPickerHeaderActions ===

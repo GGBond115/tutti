@@ -1,11 +1,14 @@
-import { useCallback } from "react";
 import {
   BillingIcon,
   CreditsIcon,
   LaunchIcon,
   UserLinedIcon
 } from "@tutti-os/ui-system";
-import { resolveMembershipAction, type CommerceMenuState } from "../index";
+import type { CommerceMenuState } from "../index";
+import {
+  resolveCommerceMembershipActionLabel,
+  useCommerceOpenExternal
+} from "./commerceMenuPresentation";
 
 export interface CommerceMenuLabels {
   member: string;
@@ -32,25 +35,11 @@ export function CommerceMenuContent({
     state.loading && !state.creditsLabel
       ? labels.loading
       : (state.creditsLabel ?? labels.unavailable);
-  const openExternal = useCallback(
-    (url: string) => {
-      if (!url.trim()) {
-        return;
-      }
-      try {
-        const result = state.onOpenExternal(url);
-        if (result) {
-          void result.catch((error: unknown) => {
-            state.onActionError?.(error);
-          });
-        }
-      } catch (error) {
-        state.onActionError?.(error);
-      }
-    },
-    [state]
+  const openExternal = useCommerceOpenExternal(state);
+  const membershipActionLabel = resolveCommerceMembershipActionLabel(
+    state,
+    labels
   );
-  const membershipActionLabel = resolveMembershipActionLabel(state, labels);
 
   return (
     <div className="flex min-w-0 flex-col" data-testid="commerce-menu-content">
@@ -105,21 +94,4 @@ export function CommerceMenuContent({
       ) : null}
     </div>
   );
-}
-
-function resolveMembershipActionLabel(
-  state: CommerceMenuState,
-  labels: Pick<
-    CommerceMenuLabels,
-    "upgradeMembership" | "rechargeCredits" | "viewCreditPlans"
-  >
-): string {
-  switch (resolveMembershipAction(state.membershipAccess)) {
-    case "upgrade-membership":
-      return labels.upgradeMembership;
-    case "recharge-credits":
-      return labels.rechargeCredits;
-    case "view-credit-plans":
-      return labels.viewCreditPlans;
-  }
 }

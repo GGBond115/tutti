@@ -845,6 +845,12 @@ login/logout, external navigation, reward receipt persistence, clipboard
 writes, notifications, localization, feature gating, and menu lifecycle.
 Neither AgentGUI nor the frontend Commerce package may receive a Cookie or
 start a Commerce request.
+The optional `renderSlots.agentConfigAccount` is a presentation-only Host
+chrome seam for the exact selected Agent Target. Its paired
+`hostActions.onAgentConfigMenuOpen` notification lets the Host refresh account
+state without hiding workflow in the render slot. Returning no content keeps
+the provider account and quota block unchanged. AgentGUI never derives billing
+ownership from provider identity.
 Host chrome that aligns to AgentGUI's internal layout must consume explicit
 package signals such as `hostActions.onConversationRailLayoutChange`; it must
 not observe package DOM, CSS variables, or class names with

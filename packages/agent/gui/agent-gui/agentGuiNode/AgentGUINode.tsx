@@ -4,7 +4,7 @@ import { createWorkspaceFileManagerI18nRuntime } from "@tutti-os/workspace-file-
 import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 import { useTranslation } from "../../i18n/index";
 import type { WorkspaceLinkAction } from "../../actions/workspaceLinkActions";
-import type { AgentGUINodeData } from "../../types";
+import type { AgentGUIAgentTarget, AgentGUINodeData } from "../../types";
 import { resolveCanonicalNodeMinSize } from "../../utils/workspaceNodeSizing";
 import { WorkspaceNodeWindow } from "../shared/WorkspaceNodeWindow";
 import { CanvasNodeGhostIconButton } from "../shared/CanvasNodeGhostIconButton";
@@ -28,7 +28,10 @@ import {
   resolveNextAgentGUIConversationRailWidthPx,
   resolveAgentGUIConversationRailMaxWidthPx
 } from "./model/agentGuiRailLayout";
-import type { AgentGUINodeProps } from "./AgentGUINode.types";
+import type {
+  AgentGUIAgentConfigMenuContext,
+  AgentGUINodeProps
+} from "./AgentGUINode.types";
 import { areAgentGUINodePropsEqual } from "./AgentGUINode.types";
 import { AgentGUIMentionServiceBoundary } from "./AgentGUIMentionServiceBoundary";
 import {
@@ -123,6 +126,7 @@ export const AgentGUINode = memo(function AgentGUINode({
     onCapabilitySettingsRequest,
     onAgentProviderLogin,
     onAgentEnvPanelOpen,
+    onAgentConfigMenuOpen: onHostAgentConfigMenuOpen,
     onOpenConversationWindow,
     onClose,
     onResize,
@@ -136,6 +140,7 @@ export const AgentGUINode = memo(function AgentGUINode({
     onConversationRailLayoutChange
   } = hostActions;
   const {
+    agentConfigAccount: renderAgentConfigAccount,
     projectDirectoryPickerHeaderActions:
       renderProjectDirectoryPickerHeaderActions,
     providerRailEmpty: renderProviderRailEmpty,
@@ -333,7 +338,7 @@ export const AgentGUINode = memo(function AgentGUINode({
     agentProbeLines,
     controllerRailStatus,
     handleAgentConfigMenuClose,
-    handleAgentConfigMenuOpen,
+    handleAgentConfigMenuOpen: handleStatusAgentConfigMenuOpen,
     handleAgentProbeInfoClose,
     handleAgentProbeInfoOpen,
     handleAgentUsageRefresh,
@@ -350,6 +355,19 @@ export const AgentGUINode = memo(function AgentGUINode({
     t,
     viewModel
   });
+  const agentConfigMenuContext =
+    viewModel.rail.conversationFilter.kind === "all"
+      ? null
+      : resolveAgentConfigMenuContext(viewModel.rail.selectedAgentTarget);
+  const handleAgentConfigMenuOpen = () => {
+    handleStatusAgentConfigMenuOpen();
+    if (agentConfigMenuContext) {
+      onHostAgentConfigMenuOpen?.(agentConfigMenuContext);
+    }
+  };
+  const agentConfigAccountContent = agentConfigMenuContext
+    ? (renderAgentConfigAccount?.(agentConfigMenuContext) ?? null)
+    : null;
 
   return (
     <AgentGUIMentionServiceBoundary service={mentionService}>
@@ -456,6 +474,7 @@ export const AgentGUINode = memo(function AgentGUINode({
               slashStatusLimitsResolvedEmpty={
                 controllerRailStatus?.resolvedEmpty ?? false
               }
+              agentConfigAccountContent={agentConfigAccountContent}
               providerAuthAccountLabels={providerAuthAccountLabels}
               onAgentConfigMenuClose={handleAgentConfigMenuClose}
               onAgentConfigMenuOpen={handleAgentConfigMenuOpen}
@@ -532,3 +551,19 @@ export const AgentGUINode = memo(function AgentGUINode({
     </AgentGUIMentionServiceBoundary>
   );
 }, areAgentGUINodePropsEqual);
+
+function resolveAgentConfigMenuContext(
+  target: AgentGUIAgentTarget
+): AgentGUIAgentConfigMenuContext | null {
+  const agentTargetId = target.agentTargetId?.trim() || target.targetId.trim();
+  const provider = target.provider.trim();
+  if (!agentTargetId || !provider) {
+    return null;
+  }
+  return {
+    agentTargetId,
+    provider,
+    label: target.label,
+    ...(target.ownership ? { ownership: target.ownership } : {})
+  };
+}

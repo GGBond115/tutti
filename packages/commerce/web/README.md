@@ -9,7 +9,10 @@ provide normalized data, labels, links, and callbacks.
 
 The Account shell (avatar, popover, sign-in/out, settings, and UID copy)
 belongs to each Host. `CommerceMenuContent` renders only membership, credits,
-and account-center rows.
+and account-center rows. `AgentConfigCommerceContent` is the compact account,
+credits-refresh, membership, usage-history, and account-center presentation for
+an Agent config menu. The Host still supplies the account name, state, labels,
+refresh command, and navigation.
 
 Host actions may be asynchronous. `CommerceMenuContent` catches rejected
 external-link actions and forwards them to the optional `onActionError`
@@ -21,6 +24,7 @@ import {
   resolveMembershipAction
 } from "@tutti-os/commerce";
 import {
+  AgentConfigCommerceContent,
   CommerceMenuContent,
   MembershipTierIcon
 } from "@tutti-os/commerce/react";
