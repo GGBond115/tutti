@@ -609,9 +609,10 @@ type SessionMessageReport struct {
 	AgentSessionID string
 	Origin         string
 	Provider       string
-	// HistoricalImport is an internal-only compatibility boundary for
-	// read-only external transcript imports that predate Turn identities. It
-	// must never be populated from runtime/API report payloads.
+	// HistoricalImport is the internal-only write boundary for read-only
+	// external transcripts. Messages with a trustworthy reconstructed TurnID
+	// create settled backfilled Turns; messages without one remain session
+	// scoped. It must never be populated from runtime/API report payloads.
 	HistoricalImport bool
 	Messages         []MessageUpdate
 }

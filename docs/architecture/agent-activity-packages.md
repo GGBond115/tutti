@@ -629,10 +629,18 @@ authoritative read is explicitly named `session_reconcile_required` and must
 never be applied as a partial Session entity. The old public `state_patch` and
 storage message row id are removed.
 
-Message `turnId` is explicitly nullable. Runtime execution messages should use
-the exact durable Turn id, while historical imports without trustworthy
-provider turn boundaries stay session-scoped (`turnId = null`); import must not
-manufacture one live synthetic Turn per transcript message.
+Message `turnId` is explicitly nullable. Runtime execution messages use the
+exact durable Turn id. An external transcript importer may reconstruct stable
+historical Turn ids only from trustworthy provider evidence: each retained real
+user message starts one Turn and the following assistant/tool messages keep
+that identity until the next retained user message. Persistence creates those
+Turns as settled backfills in the same transaction as their messages. A
+forward-only store migration repairs legacy imported turnless rows from the
+same retained-user boundary; re-import applies the same stable identity.
+Content before the first trustworthy boundary stays session-scoped
+(`turnId = null`). AgentGUI never reconstructs canonical Turn ownership from
+the currently loaded page, and import must not manufacture one Turn per
+transcript message.
 
 It should not know how a host connects to `tuttid`, subscribes to the
 business-event WebSocket, resolves workspace paths, or talks to Electron.

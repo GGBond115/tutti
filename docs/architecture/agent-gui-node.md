@@ -279,6 +279,14 @@ authoritative window. It must not infer older history from a non-one minimum
 version, a version gap, `sequence`, timestamps, or transcript shape; streaming
 updates can raise a message version without creating any older row.
 
+The same rule applies to imported transcripts. When the provider transcript
+contains trustworthy user-message boundaries, the import adapter persists
+stable settled Turn identities before the data reaches AgentGUI. A page that
+starts midway through a long imported Turn must therefore retain that Turn id;
+AgentGUI must not depend on the leading user message being present in the
+currently loaded window. Imported content before the first trustworthy
+boundary remains explicitly session-scoped.
+
 ## 4. Workspace frontend engine
 
 One `(workspaceId, runtime origin)` maps to one `AgentSessionEngine`. Panel unmount, Workbench node reconstruction, and standalone window switching must not change its lifecycle.

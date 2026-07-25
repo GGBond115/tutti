@@ -2037,6 +2037,39 @@ Turn state, loading, cancel, restore, file-change undo, rail projection, event u
   [ExternalAgentSessionImportWizard.tsx](../../../apps/desktop/src/renderer/src/features/workspace-workbench/ui/ExternalAgentSessionImportWizard.tsx)
   [service_session.go](../../../services/tuttid/service/agent/service_session.go)
 
+### Imported long Turns show one disclosure per tool call
+
+- Symptom:
+  A long imported Codex or Claude Code execution shows many adjacent
+  `1 tool call` disclosures instead of one grouped Turn, especially after
+  opening or paging into the middle of the conversation.
+- Quick checks:
+  Inspect the affected `workspace_agent_messages` rows without printing
+  payload text. If the user/tool/assistant rows all have `turn_id = NULL`, then
+  compare the loaded page with the source transcript. A page that starts after
+  the initiating user message cannot recover the Turn boundary locally.
+- Root cause:
+  The external importer historically used the turnless compatibility path for
+  every message. AgentGUI can make a temporary presentation group when the
+  leading user row is loaded, but that grouping cannot survive a page boundary;
+  assigning each orphan row from its current page position would manufacture
+  lifecycle identity in the renderer.
+- Fix:
+  At the provider transcript boundary, start a stable historical Turn from each
+  retained real user message and carry it through following assistant and tool
+  messages. Persist the messages with settled backfilled Turns atomically.
+  The forward-only store migration repairs existing imported rows, while a
+  later re-import applies the same identity to any still-turnless rows. Content
+  before the first trustworthy user boundary remains turnless.
+- Validation:
+  Run `go test ./packages/agent/store-sqlite -run HistoricalImport`, then
+  `cd services/tuttid && go test ./service/agent -run
+'ServiceImportsExternalAgentSessionsByProject|ServiceReimportRepairsLegacyTurnlessExternalMessages'`.
+- References:
+  [external_import.go](../../../services/tuttid/service/agent/external_import.go)
+  [activity_historical_import_turns.go](../../../packages/agent/store-sqlite/activity_historical_import_turns.go)
+  [agent-gui-node.md](../../architecture/agent-gui-node.md)
+
 ### Imported sessions trigger fresh-completion indicators
 
 - Symptom:

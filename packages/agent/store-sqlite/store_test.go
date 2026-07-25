@@ -487,6 +487,54 @@ func TestHistoricalImportCompatibilityCannotBeForgedByOrigin(t *testing.T) {
 	}
 }
 
+func TestHistoricalImportPersistsTrustworthyTurnBoundaries(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	result, err := store.ReportSessionMessages(ctx, SessionMessageReport{
+		WorkspaceID:      "ws-import-turns",
+		AgentSessionID:   "session-import",
+		Origin:           "WORKSPACE_AGENT_SESSION_ORIGIN_IMPORTED",
+		HistoricalImport: true,
+		Messages: []MessageUpdate{
+			{MessageID: "user-1", TurnID: "imported-turn-1", Role: "user", Kind: "text", Status: "completed", OccurredAtUnixMS: 10, StartedAtUnixMS: 10, CompletedAtUnixMS: 10},
+			{MessageID: "tool-1", TurnID: "imported-turn-1", Role: "assistant", Kind: "tool_call", Status: "completed", OccurredAtUnixMS: 20, StartedAtUnixMS: 20, CompletedAtUnixMS: 30},
+			{MessageID: "assistant-1", TurnID: "imported-turn-1", Role: "assistant", Kind: "text", Status: "completed", OccurredAtUnixMS: 40, StartedAtUnixMS: 40, CompletedAtUnixMS: 40},
+			{MessageID: "user-2", TurnID: "imported-turn-2", Role: "user", Kind: "text", Status: "completed", OccurredAtUnixMS: 50, StartedAtUnixMS: 50, CompletedAtUnixMS: 50},
+			{MessageID: "assistant-2", TurnID: "imported-turn-2", Role: "assistant", Kind: "text", Status: "completed", OccurredAtUnixMS: 60, StartedAtUnixMS: 60, CompletedAtUnixMS: 60},
+		},
+	})
+	if err != nil || result.AcceptedCount != 5 {
+		t.Fatalf("historical import result=%#v error=%v", result, err)
+	}
+	for _, expected := range []struct {
+		turnID                string
+		startedAtUnixMS       int64
+		settledAtUnixMS       int64
+		finalAssistantMessage string
+	}{
+		{turnID: "imported-turn-1", startedAtUnixMS: 10, settledAtUnixMS: 40, finalAssistantMessage: "assistant-1"},
+		{turnID: "imported-turn-2", startedAtUnixMS: 50, settledAtUnixMS: 60, finalAssistantMessage: "assistant-2"},
+	} {
+		turn, ok, err := store.GetTurn(ctx, "ws-import-turns", "session-import", expected.turnID)
+		if err != nil || !ok {
+			t.Fatalf("GetTurn(%s) ok=%v error=%v", expected.turnID, ok, err)
+		}
+		if turn.Phase != TurnPhaseSettled || turn.Outcome != TurnOutcomeCompleted ||
+			!turn.Backfilled || turn.Origin != TurnOriginUserPrompt {
+			t.Fatalf("turn %s = %#v, want settled completed user-prompt backfill", expected.turnID, turn)
+		}
+		if turn.StartedAtUnixMS != expected.startedAtUnixMS || turn.SettledAtUnixMS != expected.settledAtUnixMS {
+			t.Fatalf("turn %s timestamps = %d..%d, want %d..%d", expected.turnID,
+				turn.StartedAtUnixMS, turn.SettledAtUnixMS, expected.startedAtUnixMS, expected.settledAtUnixMS)
+		}
+		if !turn.FinalAssistantMessageResolved || turn.FinalAssistantMessageID != expected.finalAssistantMessage {
+			t.Fatalf("turn %s final assistant = resolved:%v id:%q, want %q",
+				expected.turnID, turn.FinalAssistantMessageResolved, turn.FinalAssistantMessageID, expected.finalAssistantMessage)
+		}
+	}
+}
+
 func TestStoreMessageSemanticsRoundTrip(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
