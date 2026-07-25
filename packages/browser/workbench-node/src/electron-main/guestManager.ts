@@ -52,6 +52,8 @@ import {
 interface BrowserGuestSession {
   appliedColorScheme: BrowserPreferredColorScheme | null;
   automationTarget: BrowserNodeAutomationTargetMetadata | null;
+  committedTitle: string | null;
+  committedUrl: string | null;
   contents: BrowserGuestWebContents | null;
   desiredUrl: string;
   findQuery: string;
@@ -167,6 +169,8 @@ export function createBrowserGuestManager({
     const session: BrowserGuestSession = {
       appliedColorScheme: null,
       automationTarget: input?.automationTarget ?? null,
+      committedTitle: null,
+      committedUrl: null,
       contents: null,
       desiredUrl: input?.url ?? "about:blank",
       findQuery: "",
@@ -197,10 +201,10 @@ export function createBrowserGuestManager({
       isOccluded: session.lifecycle === "cold",
       lifecycle: session.lifecycle,
       nodeId: session.nodeId,
-      title: contents ? contents.getTitle() || null : null,
+      title: contents ? session.committedTitle : null,
       type: "state",
       url: contents
-        ? contents.getURL() || session.desiredUrl
+        ? session.committedUrl || session.desiredUrl
         : session.desiredUrl,
       zoomFactor: contents?.zoomFactor ?? 1
     });
@@ -218,6 +222,8 @@ export function createBrowserGuestManager({
     automationRegistry?.unregister(session.nodeId, contents);
     session.contents = null;
     session.appliedColorScheme = null;
+    session.committedTitle = null;
+    session.committedUrl = null;
     session.webContentsId = null;
     if (
       webContentsId !== null &&
@@ -261,6 +267,9 @@ export function createBrowserGuestManager({
       const url = typeof args[1] === "string" ? args[1] : undefined;
       const statusCode = typeof args[2] === "number" ? args[2] : undefined;
       const statusText = typeof args[3] === "string" ? args[3] : undefined;
+      if (url !== undefined) {
+        session.committedUrl = url || null;
+      }
       publishState(session);
       if (!isHttpErrorStatusCode(statusCode)) {
         return;
@@ -315,6 +324,21 @@ export function createBrowserGuestManager({
         nodeId: session.nodeId
       });
     };
+    const onDidNavigateInPage = (...args: unknown[]) => {
+      const url = typeof args[1] === "string" ? args[1] : undefined;
+      const isMainFrame = args[2] === true;
+      if (isMainFrame && url !== undefined) {
+        session.committedUrl = url || null;
+      }
+      publishState(session);
+    };
+    const onPageTitleUpdated = (...args: unknown[]) => {
+      const title = typeof args[1] === "string" ? args[1] : undefined;
+      if (title !== undefined) {
+        session.committedTitle = title || null;
+      }
+      publishState(session);
+    };
     const onDestroyed = () => detachGuest(session);
     const onFoundInPage = (...args: unknown[]) => {
       const result = readFoundInPageResult(args[1]);
@@ -354,8 +378,8 @@ export function createBrowserGuestManager({
       { event: "did-start-navigation", listener: onDidStartNavigation },
       { event: "did-stop-loading", listener: onStateChange },
       { event: "did-navigate", listener: onDidNavigate },
-      { event: "did-navigate-in-page", listener: onStateChange },
-      { event: "page-title-updated", listener: onStateChange },
+      { event: "did-navigate-in-page", listener: onDidNavigateInPage },
+      { event: "page-title-updated", listener: onPageTitleUpdated },
       { event: "will-navigate", listener: onWillNavigate },
       { event: "did-fail-load", listener: onFailLoad },
       { event: "destroyed", listener: onDestroyed },
@@ -410,7 +434,6 @@ export function createBrowserGuestManager({
     const failureSequenceBeforeLoad = session.navigationFailureSequence;
     try {
       await contents.loadURL(resolved.url);
-      publishState(session);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger?.warn?.("Browser Node guest loadURL failed", {
@@ -530,7 +553,7 @@ export function createBrowserGuestManager({
       return {
         canGoBack: contents ? canGuestGoBack(contents) : false,
         canGoForward: contents ? canGuestGoForward(contents) : false,
-        currentUrl: contents ? contents.getURL() : null,
+        currentUrl: contents ? session.committedUrl : null,
         desiredUrl: session.desiredUrl,
         isAttachedToWindow: Boolean(contents),
         isLoading: contents ? contents.isLoading() : false,
@@ -539,7 +562,7 @@ export function createBrowserGuestManager({
         profileId: session.profileId,
         sessionMode: session.sessionMode,
         sessionPartition: session.sessionPartition,
-        title: contents ? contents.getTitle() : null,
+        title: contents ? session.committedTitle : null,
         userAgent: contents?.getUserAgent?.() ?? null,
         webContentsDestroyed: session.contents
           ? session.contents.isDestroyed()
@@ -790,6 +813,8 @@ export function createBrowserGuestManager({
         detachGuest(session);
       }
       session.contents = contents;
+      session.committedTitle = contents.getTitle() || null;
+      session.committedUrl = contents.getURL() || null;
       session.webContentsId = input.webContentsId;
       nodeIdByWebContentsId.set(input.webContentsId, input.nodeId);
       if (contents.session) {
