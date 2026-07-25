@@ -291,16 +291,18 @@ export function WorkbenchWindowFrame<TData>({
       data-presentation-mode={presentationMode ?? "default"}
       data-presentation-visibility={isPresentationHidden ? "hidden" : "visible"}
       data-slot="viewport-menu-boundary"
+      data-viewport-menu-portal-target="body"
       data-workbench-node-type-id={resolveWorkbenchNodeTypeId(node.data)}
       data-workbench-window-id={node.id}
       data-window-drag-state={isDragging ? "dragging" : "idle"}
       data-window-resize-state={isResizing ? "resizing" : "idle"}
       style={{
         height: node.frame.height,
-        left: node.frame.x,
-        top: node.frame.y,
+        left: 0,
+        top: 0,
         transform: shellTransform,
         transformOrigin: "top left",
+        translate: `${node.frame.x}px ${node.frame.y}px`,
         width: node.frame.width,
         zIndex
       }}

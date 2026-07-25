@@ -223,6 +223,223 @@ describe("WorkbenchHost", () => {
     }
   });
 
+  it("skips position-only body renders while keeping size renders live", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const renderBody = vi.fn((context) => (
+      <div
+        data-body-frame={`${context.node.frame.x}:${context.node.frame.width}`}
+      />
+    ));
+    const onHandleReady = vi.fn<(handle: WorkbenchHostHandle | null) => void>();
+    const bodyDefinition: WorkbenchHostNodeDefinition = {
+      frame: { x: 0, y: 0, width: 320, height: 240 },
+      renderBody,
+      title: "Body",
+      typeId: "body",
+      window: { defaultOpen: true }
+    };
+    const previousActEnvironment = (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <WorkbenchHost
+            nodes={[bodyDefinition]}
+            onHandleReady={onHandleReady}
+            snapshotRepository={createSnapshotRepository()}
+            workspaceId="workspace-1"
+          />
+        );
+      });
+
+      const host = onHandleReady.mock
+        .calls[0]?.[0] as WorkbenchHostRuntimeHandle | null;
+      const nodeId = host
+        ?.getSnapshot()
+        .nodes.find((node) => node.data.typeId === "body")?.id;
+      expect(nodeId).toBeTruthy();
+
+      await act(async () => {
+        host?.controller.commands.setSurfaceSize({ width: 1200, height: 800 });
+        host?.controller.commands.focusNode(nodeId ?? "");
+        host?.controller.commands.setActiveDragNode(nodeId ?? null);
+      });
+      const rendersAtDragStart = renderBody.mock.calls.length;
+      const frameAtDragStart = host
+        ?.getSnapshot()
+        .nodes.find((node) => node.id === nodeId)?.frame;
+      if (!frameAtDragStart) {
+        throw new Error("Expected a body frame");
+      }
+
+      await act(async () => {
+        host?.controller.commands.dragNode(nodeId ?? "", {
+          ...frameAtDragStart,
+          x: 20,
+          y: 60
+        });
+      });
+      await act(async () => {
+        host?.controller.commands.dragNode(nodeId ?? "", {
+          ...frameAtDragStart,
+          x: 40,
+          y: 80
+        });
+      });
+
+      expect(renderBody).toHaveBeenCalledTimes(rendersAtDragStart);
+
+      await act(async () => {
+        host?.setNodeRuntimeState(nodeId ?? "", {
+          revision: 1
+        });
+      });
+      expect(renderBody).toHaveBeenCalledTimes(rendersAtDragStart + 1);
+
+      await act(async () => {
+        host?.controller.commands.setActiveDragNode(null);
+      });
+      expect(renderBody).toHaveBeenCalledTimes(rendersAtDragStart + 2);
+      expect(renderBody.mock.lastCall?.[0].node.frame.x).toBe(40);
+      expect(
+        container.querySelector(
+          `[data-body-frame='40:${frameAtDragStart.width}']`
+        )
+      ).not.toBeNull();
+
+      const rendersAtRest = renderBody.mock.calls.length;
+      await act(async () => {
+        host?.controller.commands.dragNode(nodeId ?? "", {
+          ...frameAtDragStart,
+          x: 60,
+          y: 100
+        });
+      });
+      expect(renderBody).toHaveBeenCalledTimes(rendersAtRest + 1);
+
+      await act(async () => {
+        host?.controller.commands.setActiveResizeNode(nodeId ?? null);
+      });
+      const rendersAtResizeStart = renderBody.mock.calls.length;
+      await act(async () => {
+        host?.controller.commands.resizeNode(nodeId ?? "", {
+          ...frameAtDragStart,
+          x: 40,
+          y: 80,
+          width: frameAtDragStart.width + 80,
+          height: frameAtDragStart.height + 20
+        });
+      });
+      expect(renderBody).toHaveBeenCalledTimes(rendersAtResizeStart + 1);
+      await act(async () => {
+        host?.controller.commands.setActiveResizeNode(null);
+      });
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+      (
+        globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+      ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    }
+  });
+
+  it("positions windows with translate while preserving presentation transforms", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const node: WorkbenchNode = {
+      data: null,
+      displayMode: "floating",
+      frame: { x: 80, y: 60, width: 320, height: 240 },
+      id: "node-1",
+      isMinimized: false,
+      kind: "test",
+      restoreFrame: null,
+      title: "Test"
+    };
+    const controller = createWorkbenchController({
+      nodes: [node],
+      nodeStack: [node.id]
+    });
+    const nodeVisibility = createWorkbenchGenieNodeVisibilityStore();
+    const minimizeNodeToAnchor = vi.fn();
+    const previousActEnvironment = (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <WorkbenchProvider controller={controller}>
+            <WorkbenchWindowFrame
+              genieNodeVisibility={nodeVisibility}
+              minimizeNodeToAnchor={minimizeNodeToAnchor}
+              node={node}
+            >
+              <div />
+            </WorkbenchWindowFrame>
+          </WorkbenchProvider>
+        );
+      });
+
+      const shell = container.querySelector(
+        ".workbench-window-shell"
+      ) as HTMLElement | null;
+      expect(shell?.style.left).toBe("0px");
+      expect(shell?.style.top).toBe("0px");
+      expect(shell?.style.translate).toBe("80px 60px");
+      expect(shell?.style.transform).toBe("");
+      expect(shell?.getAttribute("data-viewport-menu-portal-target")).toBe(
+        "body"
+      );
+
+      await act(async () => {
+        root.render(
+          <WorkbenchProvider controller={controller}>
+            <WorkbenchWindowFrame
+              genieNodeVisibility={nodeVisibility}
+              minimizeNodeToAnchor={minimizeNodeToAnchor}
+              node={node}
+              presentation={{
+                frameByNodeId: new Map([
+                  [node.id, { x: 200, y: 160, width: 160, height: 120 }]
+                ]),
+                mode: "mission-control",
+                visibleNodeIds: new Set([node.id])
+              }}
+            >
+              <div />
+            </WorkbenchWindowFrame>
+          </WorkbenchProvider>
+        );
+      });
+
+      expect(shell?.style.translate).toBe("80px 60px");
+      expect(shell?.style.transform).toBe("matrix(0.5, 0, 0, 0.5, 120, 100)");
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      nodeVisibility.dispose();
+      container.remove();
+      (
+        globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+      ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    }
+  });
+
   it("uses explicit frame keys while isolating inactive headers", async () => {
     const container = document.createElement("div");
     document.body.append(container);

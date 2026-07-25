@@ -18,6 +18,7 @@ import {
   renderMinimizedDockPreviewContent,
   WorkbenchHostDock
 } from "./WorkbenchHostDock.tsx";
+import { MemoizedWorkbenchHostNodeBodyRenderer } from "./WorkbenchHostNodeBodyRenderer.tsx";
 import {
   createWorkbenchHostNodeBodyContext,
   createWorkbenchHostNodeHeaderContext
@@ -36,7 +37,6 @@ import type {
   WorkbenchHostChromeRenderContext,
   WorkbenchHostDockEntry,
   WorkbenchHostExternalStateSource,
-  WorkbenchHostNodeBodyContext,
   WorkbenchHostNodeData,
   WorkbenchHostNodeDefinition,
   WorkbenchHostNodeHeaderContext,
@@ -548,7 +548,7 @@ function WorkbenchHostNodeRenderer(input: {
       resetKey={resetKey}
       workspaceId={input.workspaceId}
     >
-      <WorkbenchHostNodeBodyRenderer
+      <MemoizedWorkbenchHostNodeBodyRenderer
         context={bodyContext}
         definition={input.definition}
       />
@@ -889,16 +889,6 @@ class WorkbenchHostNodeRenderErrorBoundary extends Component<
 
     return this.props.children;
   }
-}
-
-function WorkbenchHostNodeBodyRenderer({
-  context,
-  definition
-}: {
-  context: WorkbenchHostNodeBodyContext;
-  definition: WorkbenchHostNodeDefinition;
-}): ReactNode {
-  return definition.renderBody(context);
 }
 
 function WorkbenchHostChromeRenderer({

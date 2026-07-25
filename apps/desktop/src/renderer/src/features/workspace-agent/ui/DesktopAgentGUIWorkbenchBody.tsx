@@ -69,6 +69,7 @@ import { useDesktopAgentGUIReadiness } from "./useDesktopAgentGUIReadiness.ts";
 import { useDesktopAgentGUIOpenConversationWindow } from "./useDesktopAgentGUIOpenConversationWindow.ts";
 import { useDesktopAgentGUIWorkbenchEvents } from "./useDesktopAgentGUIWorkbenchEvents.ts";
 import { useStableDesktopAgentGUIHostProps } from "./useStableDesktopAgentGUIHostProps.ts";
+import { resolveDesktopAgentGUIEmbeddedDesktopSize } from "./desktopAgentGUIEmbeddedFrame.ts";
 import { IAgentEnvService } from "../services/agentEnvService.interface.ts";
 import { preloadDesktopAgentGuiMentionBrowse } from "../services/preloadDesktopAgentGuiMentionBrowse.ts";
 import { DESKTOP_AGENT_GUI_CURRENT_USER_ID } from "../services/desktopAgentGuiIdentity.ts";
@@ -520,11 +521,8 @@ function DesktopAgentGUISurfaceImpl({
     [agentHostApi]
   );
   const desktopSize = useMemo(
-    () => ({
-      height: Math.max(frame.height, frame.y + frame.height),
-      width: Math.max(frame.width, frame.x + frame.width)
-    }),
-    [frame.height, frame.width, frame.x, frame.y]
+    () => resolveDesktopAgentGUIEmbeddedDesktopSize(frame),
+    [frame.height, frame.width]
   );
   const composerFocusRequestSequence =
     composerAppendRequest?.sequence ??

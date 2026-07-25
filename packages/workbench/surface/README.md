@@ -44,10 +44,18 @@ When a node body or header needs host-owned business state, pass an
 `subscribe(...)`, the host re-renders when that subscription notifies.
 
 Node body and header contexts expose `isDragging` and `isResizing`. The Workbench
-shell continues applying live frame geometry during direct manipulation, while
-an expensive body adapter may use these flags to suppress frame-only renders
-until the interaction settles. The adapter must still observe both interaction
-transitions so the final committed frame reaches responsive body layout.
+shell continues applying live frame geometry during direct manipulation. Window
+position is shell-owned: changing only `frame.x` or `frame.y` does not render a
+body during drag or resize. Width and height changes remain live, as do changes
+to node data, external state, focus, visibility, or interaction state. The body
+always renders after the interaction settles so the final committed frame
+reaches responsive layout. Body actions that need execution-time window
+position should read the current node from `context.host.getSnapshot()` instead
+of closing over a rendered position.
+
+Translated window boundaries keep using their window rect for menu clamping,
+but viewport-positioned menus portal to `document.body` so fixed coordinates
+are not offset a second time by the window translation.
 
 Headers keep live frame renders by default. A definition may provide
 `getHeaderFrameRenderKey(context)` when several intermediate frames produce the

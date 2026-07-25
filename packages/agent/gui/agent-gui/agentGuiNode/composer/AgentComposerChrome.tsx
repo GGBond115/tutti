@@ -329,18 +329,6 @@ export interface MentionPaletteFrame {
   zIndex: number | string;
 }
 
-export function resolveMentionPalettePortalTarget(
-  anchor: HTMLElement
-): Element {
-  return (
-    anchor.closest('[data-slot="viewport-menu-boundary"]') ??
-    anchor.closest(
-      "[data-workbench-window-id], [data-workspace-node-window-root='true']"
-    ) ??
-    document.body
-  );
-}
-
 export function resolveMentionPaletteZIndex(
   anchor: HTMLElement
 ): number | string {
