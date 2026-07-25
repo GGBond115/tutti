@@ -6,7 +6,8 @@ import type {
   AgentGUIComposerAppendRequest,
   AgentGUIAgentsEmptyRenderer,
   AgentGUIProps,
-  AgentHostInputApi
+  AgentHostInputApi,
+  AgentStatusSource
 } from "@tutti-os/agent-gui";
 import type { AgentContextMentionProvider } from "@tutti-os/agent-gui/context-mention-provider";
 import {
@@ -59,6 +60,7 @@ export interface DesktopAgentGUISurfaceContext {
 export interface DesktopAgentGUIWorkbenchBodyProps {
   agentActivityRuntime: AgentActivityRuntime;
   agentHostApi: AgentHostInputApi;
+  agentStatusSource?: AgentStatusSource;
   tuttiModePlanReviewRuntime: NonNullable<
     AgentGUIProps["tuttiModePlanReviewRuntime"]
   >;
@@ -158,6 +160,7 @@ export function areDesktopAgentGUIWorkbenchBodyPropsEqual(
   return (
     previous.agentActivityRuntime === next.agentActivityRuntime &&
     previous.agentHostApi === next.agentHostApi &&
+    previous.agentStatusSource === next.agentStatusSource &&
     previous.tuttiModePlanReviewRuntime === next.tuttiModePlanReviewRuntime &&
     previous.appCenterService === next.appCenterService &&
     previous.agentProviderStatusService === next.agentProviderStatusService &&

@@ -258,6 +258,20 @@ better matches product-owned dock organization.
 
 Dock interaction should follow stable, entry-level rules.
 
+Dock magnification snapshots viewport and slot geometry once when a pointer
+session starts. Later animation frames derive centered or overflow-aligned slot
+positions from that snapshot and the sizes already written by the spring. They
+must not interleave per-frame `getBoundingClientRect()` reads with slot size
+writes. Resetting the interaction or changing slot membership invalidates the
+snapshot.
+
+Native popup previews pass the clamped target rectangle to Electron capture;
+they must not capture the whole `webContents` and crop afterward. Popup capture
+effects are keyed by preview identity and revision, not transient item arrays or
+callback references. Cleanup may fence stale UI writes, but it must retain the
+pending marker for a native capture that has already started until that capture
+settles, because Electron capture cannot be canceled.
+
 ### Matching
 
 For each dock entry, the host resolves matching nodes using:

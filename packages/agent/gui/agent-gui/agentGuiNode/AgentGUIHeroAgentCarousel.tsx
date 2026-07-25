@@ -124,7 +124,9 @@ export class AgentGUIHeroAgentCarousel extends Component<
     if (previousProps.isVisible !== this.props.isVisible) {
       if (this.props.isVisible === false) {
         this.cancelScheduledSceneMount();
+        this.scene?.setVisible(false);
       } else {
+        this.scene?.setVisible(true);
         this.scheduleSceneMount();
       }
     }
@@ -308,7 +310,9 @@ export class AgentGUIHeroAgentCarousel extends Component<
 
   private syncWheelListener(): void {
     const stage = this.stageRef.current;
-    const shouldAttach = Boolean(stage && this.interactive());
+    const shouldAttach = Boolean(
+      stage && this.props.isVisible !== false && this.interactive()
+    );
     if (shouldAttach && !this.wheelListenerAttached) {
       stage!.addEventListener("wheel", this.handleWheel, { passive: false });
       this.wheelListenerAttached = true;

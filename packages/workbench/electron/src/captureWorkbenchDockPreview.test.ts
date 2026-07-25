@@ -11,17 +11,19 @@ import {
 
 test("creates full-size Genie and bounded Dock images from one capture", async () => {
   const source = new FakeNativeImage(
-    { height: 800, width: 1_000 },
+    { height: 700, width: 900 },
     { resizedDataUrl: "data:image/png;base64,ZG9jaw==" }
   );
   let captureCount = 0;
+  let captureRect: WorkbenchDockPreviewRect | undefined;
   const images = await captureWorkbenchPreviewImages({
     contentSize: { height: 800, width: 1_000 },
     maxHeight: 170,
     maxWidth: 260,
     rect: { height: 700, width: 900, x: 20, y: 30 },
-    webContents: fakeWebContents(async () => {
+    webContents: fakeWebContents(async (rect) => {
       captureCount += 1;
+      captureRect = rect;
       return source.asNativeImage();
     })
   });
@@ -31,16 +33,27 @@ test("creates full-size Genie and bounded Dock images from one capture", async (
     dockPreviewImageUrl: "data:image/png;base64,ZG9jaw==",
     genieImageUrl: "data:image/png;base64,cHJldmlldw=="
   });
-  assert.deepEqual(source.cropRects, [
-    { height: 700, width: 900, x: 20, y: 30 }
-  ]);
-  assert.deepEqual(source.croppedImages[0]?.resizeSizes, [
-    { height: 170, width: 219 }
-  ]);
+  assert.deepEqual(captureRect, { height: 700, width: 900, x: 20, y: 30 });
+  assert.deepEqual(source.resizeSizes, [{ height: 170, width: 219 }]);
 });
 
-test("captures, scales, crops, and bounds the preview image", async () => {
-  const source = new FakeNativeImage({ height: 800, width: 1_000 });
+test("passes the sanitized target region to capturePage", async () => {
+  const captureRects: (WorkbenchDockPreviewRect | undefined)[] = [];
+
+  await captureWorkbenchDockPreview({
+    contentSize: { height: 400, width: 500 },
+    rect: { height: 100.2, width: 200.2, x: 10.2, y: 20.2 },
+    webContents: fakeWebContents(async (rect) => {
+      captureRects.push(rect);
+      return new FakeNativeImage({ height: 101, width: 201 }).asNativeImage();
+    })
+  });
+
+  assert.deepEqual(captureRects, [{ height: 101, width: 201, x: 10, y: 20 }]);
+});
+
+test("captures the region and bounds the returned preview image", async () => {
+  const source = new FakeNativeImage({ height: 202, width: 402 });
   const webContents = fakeWebContents(async () => source.asNativeImage());
 
   const dataUrl = await captureWorkbenchDockPreview({
@@ -52,26 +65,23 @@ test("captures, scales, crops, and bounds the preview image", async () => {
   });
 
   assert.equal(dataUrl, "data:image/png;base64,cHJldmlldw==");
-  assert.deepEqual(source.cropRects, [
-    { height: 202, width: 402, x: 20, y: 40 }
-  ]);
-  assert.deepEqual(source.croppedImages[0]?.resizeSizes, [
-    { height: 75, width: 150 }
-  ]);
+  assert.deepEqual(source.resizeSizes, [{ height: 75, width: 150 }]);
 });
 
 test("clamps renderer rectangles to the content bounds", async () => {
-  const source = new FakeNativeImage({ height: 200, width: 300 });
+  const source = new FakeNativeImage({ height: 20, width: 50 });
+  const captureRects: (WorkbenchDockPreviewRect | undefined)[] = [];
 
   await captureWorkbenchDockPreview({
     contentSize: { height: 100, width: 150 },
     rect: { height: 50, width: 80, x: 100, y: 80 },
-    webContents: fakeWebContents(async () => source.asNativeImage())
+    webContents: fakeWebContents(async (rect) => {
+      captureRects.push(rect);
+      return source.asNativeImage();
+    })
   });
 
-  assert.deepEqual(source.cropRects, [
-    { height: 40, width: 100, x: 200, y: 160 }
-  ]);
+  assert.deepEqual(captureRects, [{ height: 20, width: 50, x: 100, y: 80 }]);
 });
 
 test("rejects invalid renderer rectangles before capture", async () => {
@@ -123,15 +133,8 @@ test("reports destroyed, failed, and empty captures", async (context) => {
     },
     { expectedReason: "capture_page_failed", reject: true },
     {
-      expectedReason: "full_capture_empty",
+      expectedReason: "capture_empty",
       image: new FakeNativeImage({ height: 100, width: 100 }, { empty: true })
-    },
-    {
-      expectedReason: "crop_empty",
-      image: new FakeNativeImage(
-        { height: 100, width: 100 },
-        { cropEmpty: true }
-      )
     },
     {
       expectedReason: "resize_empty",
@@ -208,12 +211,9 @@ test("serializes capturePage calls", async () => {
 });
 
 class FakeNativeImage {
-  readonly cropRects: WorkbenchDockPreviewRect[] = [];
-  readonly croppedImages: FakeNativeImage[] = [];
   readonly resizeSizes: WorkbenchDockPreviewSize[] = [];
   private readonly dataUrl: string;
   private readonly empty: boolean;
-  private readonly cropEmpty: boolean;
   private readonly resizedDataUrl: string;
   private readonly resizeEmpty: boolean;
   private readonly size: WorkbenchDockPreviewSize;
@@ -221,14 +221,12 @@ class FakeNativeImage {
   constructor(
     size: WorkbenchDockPreviewSize,
     options: {
-      cropEmpty?: boolean;
       dataUrl?: string;
       empty?: boolean;
       resizedDataUrl?: string;
       resizeEmpty?: boolean;
     } = {}
   ) {
-    this.cropEmpty = options.cropEmpty ?? false;
     this.dataUrl = options.dataUrl ?? "data:image/png;base64,cHJldmlldw==";
     this.empty = options.empty ?? false;
     this.resizeEmpty = options.resizeEmpty ?? false;
@@ -238,21 +236,6 @@ class FakeNativeImage {
 
   asNativeImage(): NativeImage {
     return this as unknown as NativeImage;
-  }
-
-  crop(rect: WorkbenchDockPreviewRect): NativeImage {
-    this.cropRects.push(rect);
-    const cropped = new FakeNativeImage(
-      { height: rect.height, width: rect.width },
-      {
-        dataUrl: this.dataUrl,
-        empty: this.cropEmpty,
-        resizedDataUrl: this.resizedDataUrl,
-        resizeEmpty: this.resizeEmpty
-      }
-    );
-    this.croppedImages.push(cropped);
-    return cropped.asNativeImage();
   }
 
   getSize(): WorkbenchDockPreviewSize {
@@ -277,7 +260,7 @@ class FakeNativeImage {
 }
 
 function fakeWebContents(
-  capturePage: () => Promise<NativeImage>,
+  capturePage: (rect?: WorkbenchDockPreviewRect) => Promise<NativeImage>,
   destroyed = false
 ): Pick<WebContents, "capturePage" | "isDestroyed"> {
   return {

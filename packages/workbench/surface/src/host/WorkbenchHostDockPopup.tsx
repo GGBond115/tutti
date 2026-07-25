@@ -70,7 +70,7 @@ const dockPopupPreviewByMemoryKey = new Map<
   string,
   WorkbenchHostDockPopupCapturedPreview
 >();
-const pendingDockPopupPreviewMemoryKeys = new Set<string>();
+const pendingDockPopupPreviewCaptureKeys = new Set<string>();
 
 type WorkbenchHostDockPopupCapturedPreview = {
   preview: WorkbenchDockPreviewContent | null;
@@ -292,6 +292,7 @@ export function WorkbenchHostDockPopup({
   const resolvedVariant = variant ?? "default";
   const isMinimizedStack = resolvedVariant === "minimized-stack";
   const isContextMenu = resolvedVariant === "context-menu";
+  const hasCapturePreview = Boolean(capturePreview);
   const createCardCount = showCreateNew === false ? 0 : 1;
   const cardElementsRef = useRef(new Map<string, HTMLElement>());
   const cardRefCallbacksRef = useRef(
@@ -306,6 +307,16 @@ export function WorkbenchHostDockPopup({
   const [capturedPreviewByMemoryKey, setCapturedPreviewByMemoryKey] = useState<
     Record<string, WorkbenchHostDockPopupCapturedPreview | undefined>
   >({});
+  const capturedPreviewByMemoryKeyRef = useRef(capturedPreviewByMemoryKey);
+  const capturePreviewRef = useRef(capturePreview);
+  const debugDiagnosticsRef = useRef(debugDiagnostics);
+  const dockPreviewCacheRef = useRef(dockPreviewCache);
+  const resolveDockPreviewCacheKeyRef = useRef(resolveDockPreviewCacheKey);
+  capturedPreviewByMemoryKeyRef.current = capturedPreviewByMemoryKey;
+  capturePreviewRef.current = capturePreview;
+  debugDiagnosticsRef.current = debugDiagnostics;
+  dockPreviewCacheRef.current = dockPreviewCache;
+  resolveDockPreviewCacheKeyRef.current = resolveDockPreviewCacheKey;
   const columnCount = isContextMenu
     ? 1
     : Math.min(Math.max(items.length + createCardCount, 1), 3);
@@ -555,10 +566,18 @@ export function WorkbenchHostDockPopup({
   }, [onClose]);
 
   const previewCaptureKey = items
-    .map(
-      (item) =>
-        `${item.node.id}:${previewCacheToken(item.preview)}:${item.previewRevision ?? ""}`
-    )
+    .map((item) => {
+      const previewMemoryKey = resolveDockPopupPreviewMemoryKey(
+        item.node,
+        resolveDockPreviewCacheKey?.(item.node) ?? null
+      );
+      return [
+        previewMemoryKey,
+        item.isMinimized ? "minimized" : "visible",
+        previewCacheToken(item.preview),
+        item.previewRevision ?? ""
+      ].join(":");
+    })
     .join("|");
 
   useEffect(() => {
@@ -591,25 +610,30 @@ export function WorkbenchHostDockPopup({
   }, [isMinimizedStack, minimizedStackMaxScrollOffset]);
 
   useEffect(() => {
-    if (!capturePreview || isContextMenu) {
+    if (!capturePreviewRef.current || isContextMenu) {
       return;
     }
     let cancelled = false;
+    const startedCaptureKeys = new Set<string>();
     const missingItems = items.filter((item) => {
       const revision = item.previewRevision;
       const previewMemoryKey = resolveDockPopupPreviewMemoryKey(
         item.node,
-        resolveDockPreviewCacheKey?.(item.node) ?? null
+        resolveDockPreviewCacheKeyRef.current?.(item.node) ?? null
+      );
+      const pendingCaptureKey = resolveDockPopupPreviewCaptureKey(
+        previewMemoryKey,
+        revision
       );
       const capturedPreview =
-        capturedPreviewByMemoryKey[previewMemoryKey] ??
+        capturedPreviewByMemoryKeyRef.current[previewMemoryKey] ??
         readDockPopupPreviewImage(previewMemoryKey);
       const hasCapturedPreview =
         capturedPreview !== undefined && capturedPreview.revision === revision;
       const shouldCaptureMissingPreview = !item.preview && !hasCapturedPreview;
       return (
         shouldCaptureMissingPreview &&
-        !pendingDockPopupPreviewMemoryKeys.has(previewMemoryKey)
+        !pendingDockPopupPreviewCaptureKeys.has(pendingCaptureKey)
       );
     });
     if (missingItems.length === 0) {
@@ -635,10 +659,14 @@ export function WorkbenchHostDockPopup({
     );
 
     for (const item of missingItems) {
-      pendingDockPopupPreviewMemoryKeys.add(
-        resolveDockPopupPreviewMemoryKey(
-          item.node,
-          resolveDockPreviewCacheKey?.(item.node) ?? null
+      const previewMemoryKey = resolveDockPopupPreviewMemoryKey(
+        item.node,
+        resolveDockPreviewCacheKeyRef.current?.(item.node) ?? null
+      );
+      pendingDockPopupPreviewCaptureKeys.add(
+        resolveDockPopupPreviewCaptureKey(
+          previewMemoryKey,
+          item.previewRevision
         )
       );
     }
@@ -650,135 +678,144 @@ export function WorkbenchHostDockPopup({
         }
 
         const revision = item.previewRevision;
-        logWorkbenchDockPopupDebug(
-          "dock.popup.preview_capture.started",
-          debugDiagnostics,
-          {
-            isMinimized: item.isMinimized,
-            nodeId: item.node.id,
-            revision
-          }
-        );
         const previewMemoryKey = resolveDockPopupPreviewMemoryKey(
           item.node,
-          resolveDockPreviewCacheKey?.(item.node) ?? null
+          resolveDockPreviewCacheKeyRef.current?.(item.node) ?? null
         );
-        const cacheKey = resolveDockPopupPreviewCacheKey(
-          resolveDockPreviewCacheKey?.(item.node) ?? null,
+        const pendingCaptureKey = resolveDockPopupPreviewCaptureKey(
+          previewMemoryKey,
           revision
         );
-        if (item.isMinimized && cacheKey) {
-          const minimizedPersistedPreview = await readPersistedDockPreview(
-            dockPreviewCache,
-            cacheKey
+        startedCaptureKeys.add(pendingCaptureKey);
+        try {
+          logWorkbenchDockPopupDebug(
+            "dock.popup.preview_capture.started",
+            debugDiagnosticsRef.current,
+            {
+              isMinimized: item.isMinimized,
+              nodeId: item.node.id,
+              revision
+            }
+          );
+          const cacheKey = resolveDockPopupPreviewCacheKey(
+            resolveDockPreviewCacheKeyRef.current?.(item.node) ?? null,
+            revision
+          );
+          if (item.isMinimized && cacheKey) {
+            const minimizedPersistedPreview = await readPersistedDockPreview(
+              dockPreviewCacheRef.current,
+              cacheKey
+            );
+            if (cancelled) {
+              break;
+            }
+            if (minimizedPersistedPreview) {
+              const persistedPreview: WorkbenchDockPreviewContent = {
+                kind: "image",
+                src: minimizedPersistedPreview
+              };
+              writeCachedWorkbenchNodePreviewImage(
+                item.node.id,
+                minimizedPersistedPreview
+              );
+              writeDockPopupPreviewImage(
+                previewMemoryKey,
+                persistedPreview,
+                revision
+              );
+              setCapturedPreviewByMemoryKey((current) => ({
+                ...current,
+                [previewMemoryKey]: {
+                  preview: persistedPreview,
+                  revision
+                }
+              }));
+              continue;
+            }
+          }
+
+          const preview = normalizeDockPopupPreviewContentResult(
+            item.isMinimized
+              ? ((await capturePreviewRef.current?.(item)) ??
+                  (await captureWorkbenchNodePreviewImage(item.node.id, {
+                    bypassCache: false
+                  })))
+              : await Promise.resolve(
+                  capturePreviewRef.current?.(item) ?? null
+                ).catch(() => null),
+            revision
           );
           if (cancelled) {
             break;
           }
-          if (minimizedPersistedPreview) {
-            const persistedPreview: WorkbenchDockPreviewContent = {
-              kind: "image",
-              src: minimizedPersistedPreview
-            };
-            writeCachedWorkbenchNodePreviewImage(
-              item.node.id,
-              minimizedPersistedPreview
-            );
-            writeDockPopupPreviewImage(
-              previewMemoryKey,
-              persistedPreview,
+          logWorkbenchDockPopupDebug(
+            "dock.popup.preview_capture.resolved",
+            debugDiagnosticsRef.current,
+            {
+              hasPreview: Boolean(preview),
+              nodeId: item.node.id,
+              providerRevision: preview?.revision ?? null,
               revision
-            );
+            }
+          );
+          if (preview) {
+            if (preview.kind === "image") {
+              writeCachedWorkbenchNodePreviewImage(item.node.id, preview.src);
+            }
+            writeDockPopupPreviewImage(previewMemoryKey, preview, revision);
+            if (cacheKey && preview.kind === "image") {
+              dockPreviewCacheRef.current?.write({
+                key: cacheKey,
+                previewImageUrl: preview.src
+              });
+            }
             setCapturedPreviewByMemoryKey((current) => ({
               ...current,
-              [previewMemoryKey]: {
-                preview: persistedPreview,
-                revision
-              }
+              [previewMemoryKey]: { preview, revision }
             }));
-            pendingDockPopupPreviewMemoryKeys.delete(previewMemoryKey);
             continue;
           }
-        }
 
-        const preview = normalizeDockPopupPreviewContentResult(
-          item.isMinimized
-            ? ((await capturePreview?.(item)) ??
-                (await captureWorkbenchNodePreviewImage(item.node.id, {
-                  bypassCache: false
-                })))
-            : await Promise.resolve(capturePreview?.(item) ?? null).catch(
-                () => null
-              ),
-          revision
-        );
-        if (cancelled) {
-          break;
-        }
-        logWorkbenchDockPopupDebug(
-          "dock.popup.preview_capture.resolved",
-          debugDiagnostics,
-          {
-            hasPreview: Boolean(preview),
-            nodeId: item.node.id,
-            providerRevision: preview?.revision ?? null,
-            revision
-          }
-        );
-        if (preview) {
-          if (preview.kind === "image") {
-            writeCachedWorkbenchNodePreviewImage(item.node.id, preview.src);
-          }
-          writeDockPopupPreviewImage(previewMemoryKey, preview, revision);
-          if (cacheKey && preview.kind === "image") {
-            dockPreviewCache?.write({
-              key: cacheKey,
-              previewImageUrl: preview.src
-            });
-          }
-          setCapturedPreviewByMemoryKey((current) => ({
-            ...current,
-            [previewMemoryKey]: { preview, revision }
-          }));
-          pendingDockPopupPreviewMemoryKeys.delete(previewMemoryKey);
-          continue;
-        }
-
-        const fallbackPersistedPreview =
-          !item.isMinimized && cacheKey
-            ? await readPersistedDockPreview(dockPreviewCache, cacheKey)
-            : null;
-        if (cancelled) {
-          break;
-        }
-        if (fallbackPersistedPreview) {
-          writeCachedWorkbenchNodePreviewImage(
-            item.node.id,
-            fallbackPersistedPreview
-          );
-        }
-        if (fallbackPersistedPreview || item.isMinimized) {
-          const fallbackPreview: WorkbenchDockPreviewContent | null =
-            fallbackPersistedPreview
-              ? { kind: "image", src: fallbackPersistedPreview }
+          const fallbackPersistedPreview =
+            !item.isMinimized && cacheKey
+              ? await readPersistedDockPreview(
+                  dockPreviewCacheRef.current,
+                  cacheKey
+                )
               : null;
-          writeDockPopupPreviewImage(
-            previewMemoryKey,
-            fallbackPreview,
-            revision
-          );
+          if (cancelled) {
+            break;
+          }
+          if (fallbackPersistedPreview) {
+            writeCachedWorkbenchNodePreviewImage(
+              item.node.id,
+              fallbackPersistedPreview
+            );
+          }
+          if (fallbackPersistedPreview || item.isMinimized) {
+            const fallbackPreview: WorkbenchDockPreviewContent | null =
+              fallbackPersistedPreview
+                ? { kind: "image", src: fallbackPersistedPreview }
+                : null;
+            writeDockPopupPreviewImage(
+              previewMemoryKey,
+              fallbackPreview,
+              revision
+            );
+          }
+          if (!cancelled) {
+            const fallbackPreview: WorkbenchDockPreviewContent | null =
+              fallbackPersistedPreview
+                ? { kind: "image", src: fallbackPersistedPreview }
+                : null;
+            setCapturedPreviewByMemoryKey((current) => ({
+              ...current,
+              [previewMemoryKey]: { preview: fallbackPreview, revision }
+            }));
+          }
+        } finally {
+          pendingDockPopupPreviewCaptureKeys.delete(pendingCaptureKey);
         }
-        if (!cancelled) {
-          const fallbackPreview: WorkbenchDockPreviewContent | null =
-            fallbackPersistedPreview
-              ? { kind: "image", src: fallbackPersistedPreview }
-              : null;
-          setCapturedPreviewByMemoryKey((current) => ({
-            ...current,
-            [previewMemoryKey]: { preview: fallbackPreview, revision }
-          }));
-        }
-        pendingDockPopupPreviewMemoryKeys.delete(previewMemoryKey);
       }
     })().catch(() => {
       for (const item of missingItems) {
@@ -791,7 +828,12 @@ export function WorkbenchHostDockPopup({
           null,
           item.previewRevision
         );
-        pendingDockPopupPreviewMemoryKeys.delete(previewMemoryKey);
+        pendingDockPopupPreviewCaptureKeys.delete(
+          resolveDockPopupPreviewCaptureKey(
+            previewMemoryKey,
+            item.previewRevision
+          )
+        );
       }
       if (!cancelled) {
         setCapturedPreviewByMemoryKey((current) => ({
@@ -815,22 +857,20 @@ export function WorkbenchHostDockPopup({
     return () => {
       cancelled = true;
       for (const item of missingItems) {
-        pendingDockPopupPreviewMemoryKeys.delete(
-          resolveDockPopupPreviewMemoryKey(
-            item.node,
-            resolveDockPreviewCacheKey?.(item.node) ?? null
-          )
+        const previewMemoryKey = resolveDockPopupPreviewMemoryKey(
+          item.node,
+          resolveDockPreviewCacheKeyRef.current?.(item.node) ?? null
         );
+        const pendingCaptureKey = resolveDockPopupPreviewCaptureKey(
+          previewMemoryKey,
+          item.previewRevision
+        );
+        if (!startedCaptureKeys.has(pendingCaptureKey)) {
+          pendingDockPopupPreviewCaptureKeys.delete(pendingCaptureKey);
+        }
       }
     };
-  }, [
-    capturePreview,
-    dockPreviewCache,
-    isContextMenu,
-    items,
-    previewCaptureKey,
-    resolveDockPreviewCacheKey
-  ]);
+  }, [hasCapturePreview, isContextMenu, previewCaptureKey]);
 
   const content = (
     <div
@@ -1239,6 +1279,13 @@ function resolveDockPopupPreviewMemoryKey(
     typeId: cacheKey.typeId,
     workspaceId: cacheKey.workspaceId
   })}`;
+}
+
+function resolveDockPopupPreviewCaptureKey(
+  memoryKey: string,
+  revision: string | null
+): string {
+  return `${memoryKey}\u0000${revision ?? ""}`;
 }
 
 function normalizeDockPopupPreviewContentResult(

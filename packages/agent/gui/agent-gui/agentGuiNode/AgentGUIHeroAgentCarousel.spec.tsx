@@ -210,4 +210,51 @@ describe("AgentGUIHeroAgentCarousel", () => {
       container.remove();
     }
   });
+
+  it("pauses and resumes an existing WebGL scene with host visibility", async () => {
+    const frames = installAnimationFrameQueue();
+    const idle = installIdleCallbackQueue();
+    vi.stubGlobal("Image", undefined);
+    const scene = {
+      dispose: vi.fn(),
+      moveTo: vi.fn(),
+      setSize: vi.fn(),
+      setVisible: vi.fn()
+    };
+    sceneCreate.mockReturnValue(scene);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () => {
+        root.render(<AgentGUIHeroAgentCarousel isVisible items={[item]} />);
+      });
+      await act(async () => {
+        frames.flushNext();
+        frames.flushNext();
+        idle.flushNext();
+      });
+      expect(sceneCreate).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        root.render(
+          <AgentGUIHeroAgentCarousel isVisible={false} items={[item]} />
+        );
+      });
+      expect(scene.setVisible).toHaveBeenLastCalledWith(false);
+
+      await act(async () => {
+        root.render(<AgentGUIHeroAgentCarousel isVisible items={[item]} />);
+      });
+      expect(scene.setVisible).toHaveBeenLastCalledWith(true);
+      expect(sceneCreate).toHaveBeenCalledOnce();
+      expect(scene.dispose).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
 });

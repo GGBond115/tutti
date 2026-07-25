@@ -44,6 +44,7 @@ import type { IWorkspaceFileManagerService } from "@renderer/features/workspace-
 import type { IWorkspaceFilePreviewSurfaceHost } from "@renderer/features/workspace-file-preview";
 import type { IReporterService } from "@renderer/features/analytics";
 import { createDesktopAgentGUIWorkbenchHostInput } from "@renderer/features/workspace-agent/services/createDesktopAgentGUIWorkbenchHostInput.ts";
+import { createDesktopWorkspaceAgentStatusSource } from "@renderer/features/workspace-agent/services/createDesktopAgentStatusSource.ts";
 import { requestWorkspaceAgentGuiLaunch } from "@renderer/features/workspace-agent/services/workspaceAgentGuiLaunchCoordinator.ts";
 import type { IAgentProviderStatusService as AgentProviderStatusService } from "@renderer/features/workspace-agent/services/agentProviderStatusService.interface.ts";
 import type { IAgentQuickPromptService as AgentQuickPromptService } from "@renderer/features/workspace-agent/services/agentQuickPromptService.interface.ts";
@@ -120,6 +121,13 @@ export function createWorkspaceAgentGuiContribution(input: {
     workspaceUserProjectService: input.workspaceUserProjectService,
     workspaceId: input.workspaceId
   });
+  const workspaceAgentStatusSource = createDesktopWorkspaceAgentStatusSource({
+    agentActivityRuntime: agentGUIWorkbenchHostInput.agentActivityRuntime,
+    agents: () => input.agentsService.getSnapshot().agents,
+    workspaceAgentProbes:
+      agentGUIWorkbenchHostInput.agentHostApi.workspaceAgentProbes,
+    workspaceId: input.workspaceId
+  });
   const trackWorkspaceAgentGUIEngagement =
     agentGUIWorkbenchHostInput.createAgentGUIEngagementEventSink("workspace");
   const sessionEngine = input.workspaceAgentActivityService.getSessionEngine(
@@ -158,6 +166,7 @@ export function createWorkspaceAgentGuiContribution(input: {
     return createElement(DesktopWorkspaceAgentGUIWorkbenchBody, {
       agentActivityRuntime: agentGUIWorkbenchHostInput.agentActivityRuntime,
       agentHostApi: agentGUIWorkbenchHostInput.agentHostApi,
+      agentStatusSource: workspaceAgentStatusSource,
       tuttiModePlanReviewRuntime:
         agentGUIWorkbenchHostInput.tuttiModePlanReviewRuntime,
       appCenterService: input.appCenterService,

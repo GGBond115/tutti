@@ -162,6 +162,15 @@ provider-derived fallback. The active conversation id is the request Session
 identity because it exists before detail hydration; raw Session chrome remains
 presentation data.
 
+Tutti Desktop creates one status source per workspace renderer and injects it
+into every AgentGUI surface in that workspace. The source shares the one-hour
+Provider snapshot, five-second refresh debounce, and in-flight Provider probe
+by provider, while each surface keeps its own controller and therefore its own
+query, loading, close, and stale-response state. Sharing the controller itself
+is invalid because one surface could replace or close another surface's active
+request. Standalone renderer processes have their own source; the Electron main
+process remains the cross-window short-lived Provider cache.
+
 A source emits at most one cached `snapshot` followed by at most one
 `refreshed` value, then completes. Backend probing may continue independently
 to fill a host-owned cache after the presentation request is canceled; late
@@ -804,8 +813,9 @@ Opening a panel/window creates presentation state only. It does not clone a Sess
 Workbench previews must not mount a second AgentGUI tree. Genie capture prefers
 the host-provided native image and clones the visible node DOM into a texture
 only after native capture fails or exceeds its bounded wait. Electron hosts
-capture the node region once, retain the full crop for Genie, and resize a copy
-for the Dock. The Genie path must not reuse an undersized Dock image. Dock popup
+pass the sanitized node region directly to `webContents.capturePage`, retain
+the returned region for Genie, and resize a copy for the Dock. The Genie path
+must not reuse an undersized Dock image. Dock popup
 cards and minimized slots use the bounded image and its cache. If no captured
 image exists, those Dock surfaces show their placeholder; they do not mount
 AgentGUI as a fallback. AgentGUI therefore has no preview-mode rendering
@@ -837,8 +847,10 @@ The empty AgentGUI Hero renders its existing DOM player before initializing the
 optional WebGL carousel. A host projects whether the normal window presentation
 is currently visible; the carousel waits for that visibility and then browser
 idle time before creating its WebGL renderer. This keeps Genie restore work out
-of the WebGL creation task without exposing Genie state to AgentGUI. WebGL scene
-readiness remains local presentation state; it must not enter
+of the WebGL creation task without exposing Genie state to AgentGUI. An existing
+scene remains allocated while the normal presentation is hidden, but cancels
+all render, spring, and record-spin animation frames until visibility returns.
+WebGL scene readiness remains local presentation state; it must not enter
 `AgentActivityRuntime`, the workspace engine, or Workbench node state.
 
 The shared Workbench Header owns conversation-identity visibility. When no

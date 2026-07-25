@@ -264,22 +264,10 @@ function logCapturePreviewDiagnostic(input: {
             : String(input.diagnostic.error)
       });
       return;
-    case "full_capture_empty":
+    case "capture_empty":
       input.logger.warn("host window preview capture returned empty image", {
         ...fields
       });
-      return;
-    case "crop_empty":
-      input.logger.warn(
-        "host window preview capture crop returned empty image",
-        {
-          ...fields,
-          cropRect: input.diagnostic.cropRect,
-          imageHeight: input.diagnostic.imageSize?.height,
-          imageWidth: input.diagnostic.imageSize?.width,
-          requestedRect: input.input.rect
-        }
-      );
       return;
     case "resize_empty":
       input.logger.warn(

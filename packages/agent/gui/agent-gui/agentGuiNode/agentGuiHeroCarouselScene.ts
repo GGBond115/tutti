@@ -144,6 +144,7 @@ export class AgentGuiHeroCarouselScene {
   private lastFrameAt: number | null = null;
   private lastRecordSpinFrameAt: number | null = null;
   private hoveredTile: AgentGuiHeroCarouselTile | null = null;
+  private visible = true;
   private disposed = false;
 
   private constructor(options: AgentGuiHeroCarouselSceneOptions) {
@@ -286,7 +287,39 @@ export class AgentGuiHeroCarouselScene {
     // setSize clears the drawing buffer. Render synchronously so a window
     // resize never exposes that cleared frame while the next animation frame
     // is pending during interactive window dragging.
-    this.renderer.render(this.scene, this.camera);
+    if (this.visible) {
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+  setVisible(visible: boolean): void {
+    if (this.disposed || this.visible === visible) {
+      return;
+    }
+    this.visible = visible;
+    this.cancelScheduledFrames();
+    if (!visible) {
+      return;
+    }
+
+    const hasPendingMotion =
+      Math.abs(this.target - this.scroll) > SPRING_SETTLE_EPSILON ||
+      Math.abs(this.velocity) > SPRING_SETTLE_VELOCITY;
+    if (this.prefersReducedMotion()) {
+      this.scroll = this.target;
+      this.velocity = 0;
+      this.applyPoses();
+      this.requestRender();
+      if (hasPendingMotion) {
+        this.onSettle(this.targetIndex());
+      }
+      return;
+    }
+
+    if (hasPendingMotion) {
+      this.animate();
+    }
+    this.startRecordSpin();
   }
 
   // Agent index of the tile slot the wheel is heading to.
@@ -406,18 +439,7 @@ export class AgentGuiHeroCarouselScene {
 
   dispose(): void {
     this.disposed = true;
-    if (this.renderFrameHandle !== null) {
-      cancelAnimationFrame(this.renderFrameHandle);
-      this.renderFrameHandle = null;
-    }
-    if (this.springFrameHandle !== null) {
-      cancelAnimationFrame(this.springFrameHandle);
-      this.springFrameHandle = null;
-    }
-    if (this.recordSpinFrameHandle !== null) {
-      cancelAnimationFrame(this.recordSpinFrameHandle);
-      this.recordSpinFrameHandle = null;
-    }
+    this.cancelScheduledFrames();
     for (const tile of this.tiles) {
       tile.badgeMesh.geometry.dispose();
       tile.badgeMesh.material.dispose();
@@ -438,6 +460,23 @@ export class AgentGuiHeroCarouselScene {
     this.renderer.dispose();
   }
 
+  private cancelScheduledFrames(): void {
+    if (this.renderFrameHandle !== null) {
+      cancelAnimationFrame(this.renderFrameHandle);
+      this.renderFrameHandle = null;
+    }
+    if (this.springFrameHandle !== null) {
+      cancelAnimationFrame(this.springFrameHandle);
+      this.springFrameHandle = null;
+    }
+    if (this.recordSpinFrameHandle !== null) {
+      cancelAnimationFrame(this.recordSpinFrameHandle);
+      this.recordSpinFrameHandle = null;
+    }
+    this.lastFrameAt = null;
+    this.lastRecordSpinFrameAt = null;
+  }
+
   private prefersReducedMotion(): boolean {
     return (
       typeof window.matchMedia === "function" &&
@@ -446,7 +485,7 @@ export class AgentGuiHeroCarouselScene {
   }
 
   private animate(): void {
-    if (this.disposed) {
+    if (this.disposed || !this.visible) {
       return;
     }
     if (this.prefersReducedMotion()) {
@@ -485,7 +524,7 @@ export class AgentGuiHeroCarouselScene {
 
   private readonly frame = (now: number): void => {
     this.springFrameHandle = null;
-    if (this.disposed) {
+    if (this.disposed || !this.visible) {
       return;
     }
     const dt =
@@ -517,6 +556,7 @@ export class AgentGuiHeroCarouselScene {
   private startRecordSpin(): void {
     if (
       this.disposed ||
+      !this.visible ||
       this.prefersReducedMotion() ||
       this.recordSpinFrameHandle !== null
     ) {
@@ -529,7 +569,12 @@ export class AgentGuiHeroCarouselScene {
   private readonly recordSpinFrame = (now: number): void => {
     this.recordSpinFrameHandle = null;
     const spinningTile = this.centerTile();
-    if (this.disposed || !spinningTile || this.prefersReducedMotion()) {
+    if (
+      this.disposed ||
+      !this.visible ||
+      !spinningTile ||
+      this.prefersReducedMotion()
+    ) {
       return;
     }
     const dt =
@@ -571,6 +616,7 @@ export class AgentGuiHeroCarouselScene {
   private requestRender(): void {
     if (
       this.disposed ||
+      !this.visible ||
       this.renderFrameHandle !== null ||
       this.springFrameHandle !== null
     ) {
@@ -578,7 +624,7 @@ export class AgentGuiHeroCarouselScene {
     }
     this.renderFrameHandle = requestAnimationFrame(() => {
       this.renderFrameHandle = null;
-      if (!this.disposed) {
+      if (!this.disposed && this.visible) {
         this.renderer.render(this.scene, this.camera);
       }
     });

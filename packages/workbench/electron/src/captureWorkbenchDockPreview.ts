@@ -13,19 +13,16 @@ export interface WorkbenchDockPreviewSize {
 }
 
 export type WorkbenchDockPreviewCaptureDiagnosticReason =
+  | "capture_empty"
   | "capture_page_failed"
   | "capture_page_timeout"
-  | "crop_empty"
   | "data_url_empty"
-  | "full_capture_empty"
   | "invalid_rect"
   | "resize_empty"
   | "web_contents_destroyed_before_capture";
 
 export interface WorkbenchDockPreviewCaptureDiagnostic {
-  cropRect?: WorkbenchDockPreviewRect;
   error?: unknown;
-  imageSize?: WorkbenchDockPreviewSize;
   reason: WorkbenchDockPreviewCaptureDiagnosticReason;
 }
 
@@ -85,6 +82,7 @@ function captureWorkbenchPreviewImagesInternal(
       try {
         const capturedImage = await capturePageWithTimeout(
           input.webContents,
+          rect,
           sanitizeTimeout(input.timeoutMs)
         );
         if (!capturedImage) {
@@ -98,33 +96,17 @@ function captureWorkbenchPreviewImagesInternal(
       }
 
       if (image.isEmpty()) {
-        emitDiagnostic(input, { reason: "full_capture_empty" });
+        emitDiagnostic(input, { reason: "capture_empty" });
         return null;
       }
 
-      const imageSize = image.getSize();
-      const cropRect = scaleCaptureRectForImage(
-        rect,
-        imageSize,
-        input.contentSize
-      );
-      const cropped = image.crop(cropRect);
-      if (cropped.isEmpty()) {
-        emitDiagnostic(input, {
-          cropRect,
-          imageSize,
-          reason: "crop_empty"
-        });
-        return null;
-      }
-
-      const genieImageUrl = includeGenieImage ? cropped.toDataURL() : "";
+      const genieImageUrl = includeGenieImage ? image.toDataURL() : "";
       if (includeGenieImage && !genieImageUrl) {
         emitDiagnostic(input, { reason: "data_url_empty" });
         return null;
       }
 
-      const resized = resizeCapturePreviewImage(cropped, input);
+      const resized = resizeCapturePreviewImage(image, input);
       if (resized.isEmpty()) {
         emitDiagnostic(input, { reason: "resize_empty" });
         return null;
@@ -145,9 +127,10 @@ function captureWorkbenchPreviewImagesInternal(
 
 function capturePageWithTimeout(
   webContents: Pick<WebContents, "capturePage">,
+  rect: WorkbenchDockPreviewRect,
   timeoutMs: number
 ): Promise<NativeImage | null> {
-  const capturePromise = webContents.capturePage();
+  const capturePromise = webContents.capturePage(rect);
   capturePromise.catch(() => undefined);
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<null>((resolve) => {
@@ -196,31 +179,6 @@ function enqueueCapturePreview<TResult>(
     () => undefined
   );
   return result;
-}
-
-function scaleCaptureRectForImage(
-  rect: WorkbenchDockPreviewRect,
-  imageSize: WorkbenchDockPreviewSize,
-  contentSize: WorkbenchDockPreviewSize
-): WorkbenchDockPreviewRect {
-  const scaleX = imageSize.width / contentSize.width;
-  const scaleY = imageSize.height / contentSize.height;
-  const x = Math.max(0, Math.floor(rect.x * scaleX));
-  const y = Math.max(0, Math.floor(rect.y * scaleY));
-  const right = Math.min(
-    imageSize.width,
-    Math.ceil((rect.x + rect.width) * scaleX)
-  );
-  const bottom = Math.min(
-    imageSize.height,
-    Math.ceil((rect.y + rect.height) * scaleY)
-  );
-  return {
-    height: Math.max(1, bottom - y),
-    width: Math.max(1, right - x),
-    x,
-    y
-  };
 }
 
 function resizeCapturePreviewImage(

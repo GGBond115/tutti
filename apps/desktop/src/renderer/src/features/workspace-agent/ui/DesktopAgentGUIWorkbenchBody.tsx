@@ -82,6 +82,7 @@ import {
 function DesktopAgentGUISurfaceImpl({
   agentActivityRuntime,
   agentHostApi,
+  agentStatusSource,
   tuttiModePlanReviewRuntime,
   appCenterService,
   agentProviderStatusService,
@@ -332,12 +333,15 @@ function DesktopAgentGUISurfaceImpl({
     },
     [desktopPreferencesService, nodeProvider, runtimeApi, workspaceId]
   );
-  const agentStatusController = useDesktopAgentStatusController({
-    agentActivityRuntime,
-    agents,
-    workspaceAgentProbes: agentHostApi.workspaceAgentProbes,
-    workspaceId
-  });
+  const agentStatusController = useDesktopAgentStatusController(
+    {
+      agentActivityRuntime,
+      agents,
+      workspaceAgentProbes: agentHostApi.workspaceAgentProbes,
+      workspaceId
+    },
+    agentStatusSource
+  );
   const handleOpenSessionActivationError = useCallback(
     (input: { agentSessionId: string; error: unknown }) => {
       Toast.Error(
