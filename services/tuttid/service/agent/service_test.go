@@ -3351,24 +3351,23 @@ func TestServiceGetsComposerOptionsFromTuttiAgentModelCatalog(t *testing.T) {
 	if options.EffectiveSettings.Model != "gpt-5.4" {
 		t.Fatalf("effectiveSettings.model = %q, want gpt-5.4", options.EffectiveSettings.Model)
 	}
-	if options.EffectiveSettings.ReasoningEffort != "high" {
-		t.Fatalf("effectiveSettings.reasoningEffort = %q, want high", options.EffectiveSettings.ReasoningEffort)
+	if options.EffectiveSettings.ReasoningEffort != "" || options.EffectiveSettings.Speed != "" {
+		t.Fatalf("provider-wide hidden controls leaked into effectiveSettings: %#v", options.EffectiveSettings)
 	}
 	if options.ModelConfig.CurrentValue != "gpt-5.4" || len(options.ModelConfig.Options) != 2 {
 		t.Fatalf("modelConfig = %#v, want catalog-backed tutti-agent models", options.ModelConfig)
 	}
 	configOptions, ok := options.RuntimeContext["configOptions"].([]map[string]any)
-	if !ok || len(configOptions) < 3 {
+	if !ok || len(configOptions) != 1 {
 		t.Fatalf("configOptions = %#v", options.RuntimeContext["configOptions"])
 	}
 	if configOptions[0]["id"] != "model" || configOptions[0]["currentValue"] != "gpt-5.4" {
 		t.Fatalf("model option = %#v", configOptions[0])
 	}
-	if configOptions[1]["id"] != "reasoning_effort" {
-		t.Fatalf("reasoning option = %#v, want reasoning_effort id", configOptions[1])
-	}
-	if configOptions[2]["id"] != "service_tier" {
-		t.Fatalf("speed option = %#v, want service_tier id", configOptions[2])
+	if len(options.ReasoningOptionsByModel) != 0 ||
+		options.ReasoningConfig.Configurable ||
+		options.SpeedConfig.Configurable {
+		t.Fatalf("provider-wide hidden controls leaked into composer options: %#v", options)
 	}
 	if options.RuntimeContext["modelCatalogSource"] != "tutti-agent-cli" {
 		t.Fatalf("modelCatalogSource = %#v, want tutti-agent-cli", options.RuntimeContext["modelCatalogSource"])

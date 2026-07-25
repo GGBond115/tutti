@@ -71,10 +71,9 @@ func tuttiAgentDescriptor() ProviderDescriptor {
 			Update:  UpdateDescriptor{Capability: UpdateCapabilitySupported, Source: UpdateSourceNPM, Strategy: UpdateStrategyManagedNPM, PackageName: "@tutti-os/tutti-agent", BinaryName: "tutti-agent", IncludeOptional: true},
 		},
 		ComposerProfile: ComposerProfileDescriptor{
-			ModelSelection: true, ModelCatalog: ModelCatalogKindTuttiCLI, ReasoningEffort: true, ReasoningEffortOptions: ReasoningEffortOptionsModelCatalog, DefaultReasoningEffort: "high", Speed: true,
-			SpeedValues: []string{"standard", "fast"}, DefaultSpeed: "standard",
+			ModelSelection: true, ModelCatalog: ModelCatalogKindTuttiCLI,
 			Capabilities: []string{CapabilityImageInput, CapabilitySkills, CapabilityCompact, CapabilityTokenUsage, CapabilityPlanMode, CapabilityInterrupt, CapabilityActiveTurnGuidance, CapabilityModelSwitch, CapabilityModelPlanBinding}, PermissionConfigurable: true, DefaultPermissionModeID: "auto",
-			PermissionModes: []PermissionModeDescriptor{{ID: "read-only", Semantic: "ask-before-write"}, {ID: "auto", Semantic: "auto"}, {ID: "full-access", Semantic: "full-access"}}, ConfigOptionIDs: ComposerConfigOptionIDs{Model: "model", Reasoning: "reasoning_effort", Speed: "service_tier", Permission: "mode"},
+			PermissionModes: []PermissionModeDescriptor{{ID: "read-only", Semantic: "ask-before-write"}, {ID: "auto", Semantic: "auto"}, {ID: "full-access", Semantic: "full-access"}}, ConfigOptionIDs: ComposerConfigOptionIDs{Model: "model", Permission: "mode"},
 		},
 		Target:  TargetDescriptor{ID: TuttiAgentTargetID, LaunchRefType: TargetLaunchRefTypeLocalCLI, Enabled: false, SortOrder: 40},
 		Events:  EventsDescriptor{Enabled: true, Aliases: []string{"tutti_agent"}, TurnLifecycleProjection: TurnLifecycleProjectionExplicit},
