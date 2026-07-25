@@ -30,6 +30,9 @@ The current package family is:
 packages/agent/activity-core
   @tutti-os/agent-activity-core
 
+packages/agent/activity-tuttid-adapter
+  @tutti-os/agent-activity-tuttid-adapter
+
 packages/agent/gui
   @tutti-os/agent-gui
 
@@ -187,6 +190,24 @@ It does not own:
 - workspace file access
 - Electron IPC or preload APIs
 - React hooks or UI components
+
+### `@tutti-os/agent-activity-tuttid-adapter`
+
+`agent-activity-tuttid-adapter` is the monorepo-private, narrow
+platform-neutral mapping boundary between generated
+`@tutti-os/client-tuttid-ts` workspace-agent DTOs and `agent-activity-core`
+entities. Desktop and Mobile consume the same protocol-v2 contract assertions
+and Session, Turn, Message, and Tutti-mode projections.
+Current-user identity is mandatory mapper input from the application host:
+Desktop supplies its local AgentGUI identity and Mobile supplies the immutable
+authenticated account user id.
+
+It may depend on the generated client and `agent-activity-core`, but must not
+own HTTP execution, authentication, retries, event subscriptions, logging,
+i18n, Electron/React Native APIs, DI scopes, or command orchestration. Those
+remain application-host responsibilities. If a proposed extraction requires a
+large callback surface for those concerns, keep it in the application adapter
+instead.
 
 ### `@tutti-os/agent-gui`
 
@@ -911,7 +932,8 @@ For runtime boundary enforcement:
 - A selector belongs in core when Agent GUI and another host-agnostic consumer can
   use it without knowing host details.
 - A React hook belongs in `agent-gui` rather than in core.
-- A `tuttid` mapping belongs in the desktop adapter unless it is a
-  host-agnostic contract type.
+- A pure generated-`tuttid` DTO projection shared by Desktop and Mobile belongs
+  in `agent-activity-tuttid-adapter`. Host identity injection, transport,
+  retries, event wiring, and orchestration remain in each application adapter.
 - External repository adoption should require implementing the adapter, not
   copying session merge or needs-attention logic.
