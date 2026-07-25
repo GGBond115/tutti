@@ -15,7 +15,10 @@ import type {
 export interface AgentActivityOptimisticApplyResult {
   applied: boolean;
   needsReconcile: boolean;
-  reason?: "append_without_anchor" | "identity_mismatch";
+  reason?:
+    | "append_without_anchor"
+    | "identity_mismatch"
+    | "tool_output_offset_mismatch";
 }
 
 export interface AgentActivityOptimisticMessageScope {
@@ -144,6 +147,13 @@ export function createAgentActivityOptimisticMessageOverlay(): AgentActivityOpti
         reason: "append_without_anchor"
       };
     }
+    if (data.toolOutput?.operation === "append_text" && !existing) {
+      return {
+        applied: false,
+        needsReconcile: true,
+        reason: "append_without_anchor"
+      };
+    }
 
     const next: AgentActivityMessage = existing
       ? cloneMessage(existing)
@@ -183,6 +193,25 @@ export function createAgentActivityOptimisticMessageOverlay(): AgentActivityOpti
         delete next.payload.text;
       }
     }
+    if (data.toolOutput) {
+      const output = recordValue(next.payload.output) ?? {};
+      const currentText = typeof output.text === "string" ? output.text : "";
+      if (
+        data.toolOutput.operation === "append_text" &&
+        utf8ByteLength(currentText) !== data.toolOutput.offsetBytes
+      ) {
+        return {
+          applied: false,
+          needsReconcile: true,
+          reason: "tool_output_offset_mismatch"
+        };
+      }
+      output.text =
+        data.toolOutput.operation === "set"
+          ? data.toolOutput.text
+          : currentText + data.toolOutput.text;
+      next.payload.output = output;
+    }
     for (const [payloadKey, value] of Object.entries(data.payloadSet ?? {})) {
       next.payload[payloadKey] = cloneJSONValue(value);
     }
@@ -217,6 +246,16 @@ export function createAgentActivityOptimisticMessageOverlay(): AgentActivityOpti
     });
     return { applied: true, needsReconcile: false };
   }
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (cloneJSONValue(value) as Record<string, unknown>)
+    : null;
+}
+
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
 }
 
 function materialize(

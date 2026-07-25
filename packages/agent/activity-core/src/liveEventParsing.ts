@@ -29,6 +29,13 @@ export function parseAgentActivityMessageDeltaEvent(
   if (data.content !== undefined && !content) {
     return null;
   }
+  const toolOutput = parseToolOutputOperation(data.toolOutput);
+  if (
+    (data.toolOutput !== undefined && !toolOutput) ||
+    (toolOutput && data.kind !== "tool_call")
+  ) {
+    return null;
+  }
   const payloadSet =
     data.payloadSet === undefined ? undefined : recordValue(data.payloadSet);
   if (data.payloadSet !== undefined && !payloadSet) {
@@ -52,6 +59,7 @@ export function parseAgentActivityMessageDeltaEvent(
   }
   if (
     !content &&
+    !toolOutput &&
     !payloadSet &&
     !payloadUnset &&
     data.status === undefined &&
@@ -74,6 +82,7 @@ export function parseAgentActivityMessageDeltaEvent(
       kind: data.kind,
       occurredAtUnixMs: data.occurredAtUnixMs,
       ...(content ? { content } : {}),
+      ...(toolOutput ? { toolOutput } : {}),
       ...(payloadSet
         ? {
             payloadSet: cloneJSONValue(payloadSet) as Record<string, unknown>
@@ -96,6 +105,29 @@ export function parseAgentActivityMessageDeltaEvent(
         : {})
     }
   };
+}
+
+function parseToolOutputOperation(
+  value: unknown
+): AgentActivityMessageDeltaEvent["data"]["toolOutput"] | null {
+  if (value === undefined) return null;
+  const operation = recordValue(value);
+  if (!operation || typeof operation.text !== "string") return null;
+  if (operation.operation === "set" && operation.offsetBytes === undefined) {
+    return { operation: "set", text: operation.text };
+  }
+  if (
+    operation.operation === "append_text" &&
+    operation.text.length > 0 &&
+    nonNegativeSafeInteger(operation.offsetBytes)
+  ) {
+    return {
+      operation: "append_text",
+      text: operation.text,
+      offsetBytes: operation.offsetBytes
+    };
+  }
+  return null;
 }
 
 function parseContentOperation(
@@ -134,6 +166,10 @@ function nonEmptyString(value: unknown): value is string {
 
 function positiveSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function nonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function optionalNonNegativeSafeInteger(value: unknown): boolean {

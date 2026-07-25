@@ -848,6 +848,24 @@ export const agentActivityUpdatedPayloadSchema = {
                 value: true
               }
             },
+            toolOutput: {
+              type: "object",
+              additionalProperties: false,
+              required: ["operation", "text"],
+              properties: {
+                operation: {
+                  type: "string",
+                  enum: ["append_text", "set"]
+                },
+                text: {
+                  type: "string"
+                },
+                offsetBytes: {
+                  type: "integer",
+                  minimum: 0
+                }
+              }
+            },
             payloadSet: {
               type: "object",
               minProperties: 1

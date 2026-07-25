@@ -60,8 +60,9 @@ AgentGUI, Message Center, composer, and shared services must not choose behavior
 
 Realtime events reduce latency but are not automatically complete truth:
 
-- normalized provider text/reasoning streams arrive as optimistic
-  `message_delta` payloads on the `/v1/events/ws` business-event WebSocket
+- normalized provider text/reasoning streams and explicitly appendable textual
+  tool output arrive as optimistic `message_delta` payloads on the
+  `/v1/events/ws` business-event WebSocket
 - continuous, version-complete `message_update` events may merge inline
 - terminal `message_update` is the durable confirmation; message version gaps,
   invalid/unanchored deltas, reconnects, Turn, Interaction, and state changes

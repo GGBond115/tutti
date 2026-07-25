@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
+	"github.com/tutti-os/tutti/packages/agent/daemon/liveprotocol"
 )
 
 type appServerCaptureConn struct {
@@ -66,6 +67,70 @@ func mustJSONRawMessage(t *testing.T, value any) json.RawMessage {
 		t.Fatalf("json.Marshal: %v", err)
 	}
 	return raw
+}
+
+func TestCodexAppServerCommandOutputDeltaUsesToolOutputFastLane(t *testing.T) {
+	t.Parallel()
+	session := reportTestSession()
+	session.ProviderSessionID = "thread-1"
+	normalizer := newACPTurnNormalizer()
+	reducer := newCodexAppServerReducer(&CodexAppServerAdapter{})
+
+	started := reducer.ReduceNotification(
+		nil,
+		session,
+		"turn-1",
+		acpMessage{
+			Method: appServerNotifyItemStarted,
+			Params: mustJSONRawMessage(t, map[string]any{
+				"threadId": "thread-1",
+				"turnId":   "provider-turn-1",
+				"item": map[string]any{
+					"type": "commandExecution", "id": "command-1",
+					"command": "printf hello", "status": "inProgress",
+				},
+			}),
+		},
+		normalizer,
+		nil,
+	)
+	if len(started.Events) != 1 || started.Events[0].Type != activityshared.EventCallStarted {
+		t.Fatalf("started events = %#v", started.Events)
+	}
+
+	output := reducer.ReduceNotification(
+		nil,
+		session,
+		"turn-1",
+		acpMessage{
+			Method: appServerNotifyCommandOutputDelta,
+			Params: mustJSONRawMessage(t, map[string]any{
+				"threadId": "thread-1",
+				"turnId":   "provider-turn-1",
+				"itemId":   "command-1",
+				"delta":    "hello",
+			}),
+		},
+		normalizer,
+		nil,
+	)
+	if len(output.Events) != 1 {
+		t.Fatalf("output events = %#v", output.Events)
+	}
+	stream := ProjectActivityEventsToStreamEvents(session, output.Events)
+	if len(stream) != 1 || stream[0].EventType != StreamEventMessageDelta {
+		t.Fatalf("output stream = %#v", stream)
+	}
+	liveEvent := stream[0].Data.(liveprotocol.Event)
+	var data liveprotocol.MessageDeltaData
+	if err := json.Unmarshal(liveEvent.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.ToolOutput == nil ||
+		data.ToolOutput.Operation != "set" ||
+		data.ToolOutput.Text != "hello" {
+		t.Fatalf("tool output delta = %#v", data.ToolOutput)
+	}
 }
 
 // appServerUserInputAnswers is the codex-specific translation of the GUI's

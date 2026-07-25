@@ -93,3 +93,55 @@ test("parseAgentActivityMessageDeltaEvent rejects malformed or mismatched data",
     null
   );
 });
+
+test("parseAgentActivityMessageDeltaEvent validates tool output operations", () => {
+  const base = {
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "message_delta",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      messageId: "tool-1",
+      turnId: "turn-1",
+      role: "assistant",
+      kind: "tool_call",
+      occurredAtUnixMs: 100
+    }
+  };
+  assert.deepEqual(
+    parseAgentActivityMessageDeltaEvent({
+      ...base,
+      data: {
+        ...base.data,
+        toolOutput: {
+          operation: "append_text",
+          text: "好",
+          offsetBytes: 3
+        }
+      }
+    })?.data.toolOutput,
+    { operation: "append_text", text: "好", offsetBytes: 3 }
+  );
+  assert.equal(
+    parseAgentActivityMessageDeltaEvent({
+      ...base,
+      data: {
+        ...base.data,
+        toolOutput: { operation: "append_text", text: "missing offset" }
+      }
+    }),
+    null
+  );
+  assert.equal(
+    parseAgentActivityMessageDeltaEvent({
+      ...base,
+      data: {
+        ...base.data,
+        kind: "text",
+        toolOutput: { operation: "set", text: "not a tool" }
+      }
+    }),
+    null
+  );
+});

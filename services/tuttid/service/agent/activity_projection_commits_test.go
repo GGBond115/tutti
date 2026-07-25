@@ -33,7 +33,7 @@ func TestActivityProjectionConsumesCanonicalViewInvalidation(t *testing.T) {
 	}
 }
 
-func TestCanonicalMessagesForRealtimePublishSuppressesOnlyProjectedRuntimeText(t *testing.T) {
+func TestCanonicalMessagesForRealtimePublishSuppressesOnlyProjectedRuntimeDeltas(t *testing.T) {
 	streamingText := agentactivitybiz.Message{
 		MessageID: "streaming-text",
 		TurnID:    "turn-1",
@@ -62,6 +62,26 @@ func TestCanonicalMessagesForRealtimePublishSuppressesOnlyProjectedRuntimeText(t
 		Status:    "running",
 		Payload:   map[string]any{"source": "runtime"},
 	}
+	runningToolOutput := agentactivitybiz.Message{
+		MessageID: "running-tool-output",
+		TurnID:    "turn-1",
+		Kind:      "tool_call",
+		Status:    "running",
+		Payload: map[string]any{
+			"source": "runtime",
+			"output": map[string]any{"text": "partial stdout"},
+		},
+	}
+	completedToolOutput := agentactivitybiz.Message{
+		MessageID: "completed-tool-output",
+		TurnID:    "turn-1",
+		Kind:      "tool_call",
+		Status:    "completed",
+		Payload: map[string]any{
+			"source": "runtime",
+			"output": map[string]any{"text": "final stdout"},
+		},
+	}
 	unprojectedText := agentactivitybiz.Message{
 		MessageID: "unprojected-text",
 		TurnID:    "turn-1",
@@ -74,6 +94,8 @@ func TestCanonicalMessagesForRealtimePublishSuppressesOnlyProjectedRuntimeText(t
 		streamingReasoning,
 		terminalText,
 		runningTool,
+		runningToolOutput,
+		completedToolOutput,
 		unprojectedText,
 	}
 
@@ -83,7 +105,7 @@ func TestCanonicalMessagesForRealtimePublishSuppressesOnlyProjectedRuntimeText(t
 		},
 		messages,
 	)
-	want := []agentactivitybiz.Message{terminalText, runningTool, unprojectedText}
+	want := []agentactivitybiz.Message{terminalText, runningTool, completedToolOutput, unprojectedText}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("filtered messages = %#v, want %#v", got, want)
 	}

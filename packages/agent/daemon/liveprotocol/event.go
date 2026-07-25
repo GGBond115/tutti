@@ -108,7 +108,8 @@ func validateEvent(event Event) error {
 			strings.TrimSpace(data.Kind) == "" || data.OccurredAtUnixMS <= 0 {
 			return fmt.Errorf("%w: invalid message delta identity", ErrInvalidLiveEvent)
 		}
-		hasMutation := data.Content != nil || len(data.PayloadSet) > 0 || len(data.PayloadUnset) > 0 ||
+		hasMutation := data.Content != nil || data.ToolOutput != nil ||
+			len(data.PayloadSet) > 0 || len(data.PayloadUnset) > 0 ||
 			data.Status != nil || len(data.Semantics) > 0 || data.StartedAtUnixMS != nil || data.CompletedAtUnixMS != nil
 		if !hasMutation {
 			return fmt.Errorf("%w: empty message delta", ErrInvalidLiveEvent)
@@ -136,6 +137,35 @@ func validateEvent(event Event) error {
 				}
 			default:
 				return fmt.Errorf("%w: unknown content operation", ErrInvalidLiveEvent)
+			}
+		}
+		toolOutputRaw, hasToolOutput := record["toolOutput"]
+		if hasToolOutput && data.ToolOutput == nil {
+			return fmt.Errorf("%w: toolOutput must be an operation object", ErrInvalidLiveEvent)
+		}
+		if data.ToolOutput != nil {
+			if data.Kind != "tool_call" {
+				return fmt.Errorf("%w: toolOutput requires tool_call kind", ErrInvalidLiveEvent)
+			}
+			toolOutputRecord, err := requiredJSONFields(toolOutputRaw, "operation", "text")
+			if err != nil {
+				return err
+			}
+			switch data.ToolOutput.Operation {
+			case "set":
+				if _, ok := toolOutputRecord["offsetBytes"]; ok {
+					return fmt.Errorf("%w: toolOutput set forbids offsetBytes", ErrInvalidLiveEvent)
+				}
+			case "append_text":
+				if data.ToolOutput.Text == "" {
+					return fmt.Errorf("%w: toolOutput append_text requires non-empty text", ErrInvalidLiveEvent)
+				}
+				if _, ok := toolOutputRecord["offsetBytes"]; !ok ||
+					data.ToolOutput.OffsetBytes == nil || *data.ToolOutput.OffsetBytes < 0 {
+					return fmt.Errorf("%w: toolOutput append_text requires non-negative offsetBytes", ErrInvalidLiveEvent)
+				}
+			default:
+				return fmt.Errorf("%w: unsupported toolOutput operation %q", ErrInvalidLiveEvent, data.ToolOutput.Operation)
 			}
 		}
 		if err := validatePayloadMutation(record, data); err != nil {

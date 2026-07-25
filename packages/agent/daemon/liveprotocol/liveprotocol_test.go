@@ -327,6 +327,45 @@ func mustMessageDelta(t *testing.T, messageID string, operation *MessageContentO
 	return event
 }
 
+func TestMessageToolOutputOperationValidation(t *testing.T) {
+	t.Parallel()
+	base := MessageDeltaData{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		MessageID: "tool-1", TurnID: "turn-1", Role: "assistant",
+		Kind: "tool_call", OccurredAtUnixMS: 10,
+	}
+	offset := int64(3)
+	valid := base
+	valid.ToolOutput = &MessageToolOutputOperation{
+		Operation: "append_text", Text: "好", OffsetBytes: &offset,
+	}
+	if _, err := NewMessageDeltaEvent(valid); err != nil {
+		t.Fatalf("valid tool output rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*MessageDeltaData){
+		"missing offset": func(data *MessageDeltaData) {
+			data.ToolOutput = &MessageToolOutputOperation{Operation: "append_text", Text: "x"}
+		},
+		"wrong kind": func(data *MessageDeltaData) {
+			data.Kind = "text"
+			data.ToolOutput = &MessageToolOutputOperation{Operation: "set", Text: "x"}
+		},
+		"set with offset": func(data *MessageDeltaData) {
+			data.ToolOutput = &MessageToolOutputOperation{
+				Operation: "set", Text: "x", OffsetBytes: &offset,
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			data := base
+			mutate(&data)
+			if _, err := NewMessageDeltaEvent(data); err == nil {
+				t.Fatalf("invalid tool output accepted: %#v", data.ToolOutput)
+			}
+		})
+	}
+}
+
 func mustTerminalTurnUpdate(t *testing.T) Event {
 	t.Helper()
 	outcome := "completed"

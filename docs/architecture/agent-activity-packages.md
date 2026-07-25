@@ -773,17 +773,19 @@ must not synthesize providers for shared or remote targets.
 The desktop service owns one business-event WebSocket at `/v1/events/ws`.
 Canonical `message_update` snapshots remain the hydration, terminal
 confirmation, and cloud-reconcile contract. During normalized provider
-text/reasoning streaming, the same `agent.activity.updated` topic carries
+text/reasoning streaming, and for provider events that explicitly carry
+ordered appendable tool output, the same `agent.activity.updated` topic carries
 schema-backed `message_delta` events produced by the provider normalizer; the
 transport must never derive deltas by comparing snapshots. The runtime
 publishes each delta to the business-event bridge before its per-Session
 runtime fan-out and before enqueueing the durable report, so a later committed
 terminal confirmation cannot overtake the optimistic prefix. The post-commit
-projection suppresses only the redundant nonterminal text/reasoning snapshot
-already represented by that delta. Tool, audit, imported, unprojected, and
-terminal updates retain their existing canonical publication semantics. Every
-`message_delta` is scoped to a real persisted Turn; session-level notices
-continue to use explicit audit or state semantics.
+projection suppresses only a redundant nonterminal text/reasoning snapshot or
+running tool-output snapshot already represented by that delta. Tool anchors,
+structured tool mutations, audit, imported, unprojected, and terminal updates
+retain their existing canonical publication semantics. Every `message_delta`
+is scoped to a real persisted Turn; session-level notices continue to use
+explicit audit or state semantics.
 
 Provider normalizers must retain enough per-message state to preserve semantic
 operations. The first cumulative text/reasoning snapshot uses `set`; a later
@@ -791,6 +793,17 @@ snapshot with the previous value as an exact prefix uses `append_text` with only
 the suffix. Duplicate snapshots are dropped, while a rewrite or backtrack that
 cannot prove the prefix relation uses `set`. Transport and renderer layers must
 not rediscover this relationship by diffing full snapshots.
+
+Tool output uses a separate `toolOutput` operation that mutates only the
+provider-neutral `payload.output.text` display projection. A provider adapter
+may emit it only from an explicit ordered output-delta event, or from a
+cumulative textual output snapshot whose exact prefix relationship the adapter
+has verified. It must not classify by tool name or inspect arbitrary structured
+tool results. The first output uses `set`; later `append_text` operations carry
+the prior UTF-8 byte length as `offsetBytes`. A missing anchor or offset
+mismatch triggers canonical reconciliation instead of guessed concatenation.
+Completed, failed, canceled, and rewritten tool results remain full canonical
+`message_update` snapshots.
 
 The Go live-protocol adapter owns the complete fast-lane envelope on both sides
 of a device link: schema validation, recipient identity projection,
@@ -804,7 +817,8 @@ control shapes. A revision mismatch is an explicit rejection followed by
 canonical reconciliation; it is not a compatibility conversion path.
 
 Frames are bounded but not fragmented. The publisher may coalesce only adjacent
-pure `append_text` operations for the same message and Turn; status, payload,
+pure `append_text` operations for the same message and Turn; tool-output
+operations additionally require contiguous byte offsets. Status, payload,
 semantic, or lifecycle mutations remain separate deliveries. A single delivery
 over the configured safe limit is replaced with a `delivery_too_large`
 discontinuity carrying reconcile keys, and the caller falls back to canonical

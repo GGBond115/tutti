@@ -38,6 +38,9 @@ export interface AgentActivityMessageDeltaEvent {
     content?:
       | { operation: "append_text"; text: string }
       | { operation: "set"; value: unknown };
+    toolOutput?:
+      | { operation: "set"; text: string }
+      | { operation: "append_text"; text: string; offsetBytes: number };
     payloadSet?: Readonly<Record<string, unknown>>;
     payloadUnset?: readonly string[];
     status?: string;

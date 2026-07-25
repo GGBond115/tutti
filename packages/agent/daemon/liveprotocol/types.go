@@ -48,26 +48,39 @@ type Event struct {
 }
 
 type MessageDeltaData struct {
-	WorkspaceID       string                     `json:"workspaceId"`
-	AgentSessionID    string                     `json:"agentSessionId"`
-	MessageID         string                     `json:"messageId"`
-	TurnID            string                     `json:"turnId"`
-	Role              string                     `json:"role"`
-	Kind              string                     `json:"kind"`
-	OccurredAtUnixMS  int64                      `json:"occurredAtUnixMs"`
-	Content           *MessageContentOperation   `json:"content,omitempty"`
-	PayloadSet        map[string]json.RawMessage `json:"payloadSet,omitempty"`
-	PayloadUnset      []string                   `json:"payloadUnset,omitempty"`
-	Status            *string                    `json:"status,omitempty"`
-	Semantics         json.RawMessage            `json:"semantics,omitempty"`
-	StartedAtUnixMS   *int64                     `json:"startedAtUnixMs,omitempty"`
-	CompletedAtUnixMS *int64                     `json:"completedAtUnixMs,omitempty"`
+	WorkspaceID       string                      `json:"workspaceId"`
+	AgentSessionID    string                      `json:"agentSessionId"`
+	MessageID         string                      `json:"messageId"`
+	TurnID            string                      `json:"turnId"`
+	Role              string                      `json:"role"`
+	Kind              string                      `json:"kind"`
+	OccurredAtUnixMS  int64                       `json:"occurredAtUnixMs"`
+	Content           *MessageContentOperation    `json:"content,omitempty"`
+	ToolOutput        *MessageToolOutputOperation `json:"toolOutput,omitempty"`
+	PayloadSet        map[string]json.RawMessage  `json:"payloadSet,omitempty"`
+	PayloadUnset      []string                    `json:"payloadUnset,omitempty"`
+	Status            *string                     `json:"status,omitempty"`
+	Semantics         json.RawMessage             `json:"semantics,omitempty"`
+	StartedAtUnixMS   *int64                      `json:"startedAtUnixMs,omitempty"`
+	CompletedAtUnixMS *int64                      `json:"completedAtUnixMs,omitempty"`
 }
 
 type MessageContentOperation struct {
 	Operation string          `json:"operation"`
 	Text      string          `json:"text,omitempty"`
 	Value     json.RawMessage `json:"value,omitempty"`
+}
+
+// MessageToolOutputOperation mutates only the normalized, displayable
+// payload.output.text projection of a tool_call. Provider adapters may create
+// this operation only from an explicit ordered output delta, or from a
+// cumulative textual snapshot whose prefix relationship they have verified.
+// OffsetBytes makes append replay/idempotency failures observable at the
+// caller instead of silently duplicating or corrupting output.
+type MessageToolOutputOperation struct {
+	Operation   string `json:"operation"`
+	Text        string `json:"text"`
+	OffsetBytes *int64 `json:"offsetBytes,omitempty"`
 }
 
 type TurnUpdateData struct {

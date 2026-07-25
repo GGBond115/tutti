@@ -72,16 +72,30 @@ func ProjectActivityEventsToStreamEvents(session Session, events []activityshare
 }
 
 func liveMessageDeltaFromSessionEvent(session Session, event activityshared.Event, timestamp int64) (liveprotocol.Event, bool) {
-	operation, ok := event.Payload.Metadata[liveContentOperationMetadataKey].(*liveprotocol.MessageContentOperation)
-	if !ok || operation == nil {
+	contentOperation, _ := event.Payload.Metadata[liveContentOperationMetadataKey].(*liveprotocol.MessageContentOperation)
+	toolOutputOperation, _ := event.Payload.Metadata[liveToolOutputOperationMetadataKey].(*liveprotocol.MessageToolOutputOperation)
+	if contentOperation == nil && toolOutputOperation == nil {
 		return liveprotocol.Event{}, false
 	}
 	messageID := firstNonEmptyString(stringFromPayload(event.Payload.Metadata, "messageId"), event.EventID)
 	if messageID == "" || strings.TrimSpace(event.Payload.TurnID) == "" || timestamp <= 0 {
 		return liveprotocol.Event{}, false
 	}
-	operationCopy := *operation
-	operationCopy.Value = append(json.RawMessage(nil), operation.Value...)
+	var contentOperationCopy *liveprotocol.MessageContentOperation
+	if contentOperation != nil {
+		copy := *contentOperation
+		copy.Value = append(json.RawMessage(nil), contentOperation.Value...)
+		contentOperationCopy = &copy
+	}
+	var toolOutputOperationCopy *liveprotocol.MessageToolOutputOperation
+	if toolOutputOperation != nil {
+		copy := *toolOutputOperation
+		if toolOutputOperation.OffsetBytes != nil {
+			offset := *toolOutputOperation.OffsetBytes
+			copy.OffsetBytes = &offset
+		}
+		toolOutputOperationCopy = &copy
+	}
 	status := strings.TrimSpace(stringFromPayload(event.Payload.Metadata, "streamState"))
 	data := liveprotocol.MessageDeltaData{
 		WorkspaceID:      strings.TrimSpace(session.RoomID),
@@ -91,7 +105,8 @@ func liveMessageDeltaFromSessionEvent(session Session, event activityshared.Even
 		Role:             strings.TrimSpace(stringFromPayload(event.Payload.Metadata, liveMessageRoleMetadataKey)),
 		Kind:             strings.TrimSpace(stringFromPayload(event.Payload.Metadata, liveMessageKindMetadataKey)),
 		OccurredAtUnixMS: timestamp,
-		Content:          &operationCopy,
+		Content:          contentOperationCopy,
+		ToolOutput:       toolOutputOperationCopy,
 	}
 	if status != "" {
 		data.Status = &status

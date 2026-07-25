@@ -122,6 +122,42 @@
             }
           ]
         },
+        "toolOutput": {
+          "description": "Provider-normalized mutation of payload.output.text for an appendable tool output stream.",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["operation", "text"],
+              "properties": {
+                "operation": {
+                  "const": "set"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["operation", "text", "offsetBytes"],
+              "properties": {
+                "operation": {
+                  "const": "append_text"
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "offsetBytes": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          ]
+        },
         "payloadSet": {
           "type": "object",
           "minProperties": 1,
@@ -156,6 +192,9 @@
       "anyOf": [
         {
           "required": ["content"]
+        },
+        {
+          "required": ["toolOutput"]
         },
         {
           "required": ["payloadSet"]

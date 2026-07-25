@@ -172,6 +172,75 @@ func TestThinkingDeltaPreservesAssistantThinkingRole(t *testing.T) {
 	}
 }
 
+func TestExplicitToolOutputDeltaPersistsSnapshotAndProjectsOffsetAppend(t *testing.T) {
+	t.Parallel()
+	session := reportTestSession()
+	normalizer := newACPTurnNormalizer()
+	started, ok := normalizer.ToolCallEvents(session, "turn-1", map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    "command-1",
+		"title":         "printf",
+		"kind":          "execute",
+		"status":        "in_progress",
+		"rawInput":      map[string]any{"command": "printf"},
+	})
+	if !ok || len(started) != 1 {
+		t.Fatalf("started = %#v, ok = %v", started, ok)
+	}
+
+	first := normalizer.AppendToolOutputDelta(session, "turn-1", "command-1", "你")
+	second := normalizer.AppendToolOutputDelta(session, "turn-1", "command-1", "好\n")
+	stream := ProjectActivityEventsToStreamEvents(session, append(first, second...))
+	if len(stream) != 2 {
+		t.Fatalf("stream = %#v, want two tool output deltas", stream)
+	}
+	var firstDelta, secondDelta liveprotocol.MessageDeltaData
+	for index, target := range []*liveprotocol.MessageDeltaData{&firstDelta, &secondDelta} {
+		event, ok := stream[index].Data.(liveprotocol.Event)
+		if !ok {
+			t.Fatalf("stream[%d] data = %T", index, stream[index].Data)
+		}
+		if err := json.Unmarshal(event.Data, target); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if firstDelta.ToolOutput == nil ||
+		firstDelta.ToolOutput.Operation != "set" ||
+		firstDelta.ToolOutput.Text != "你" ||
+		firstDelta.ToolOutput.OffsetBytes != nil {
+		t.Fatalf("first tool output = %#v", firstDelta.ToolOutput)
+	}
+	if secondDelta.ToolOutput == nil ||
+		secondDelta.ToolOutput.Operation != "append_text" ||
+		secondDelta.ToolOutput.Text != "好\n" ||
+		secondDelta.ToolOutput.OffsetBytes == nil ||
+		*secondDelta.ToolOutput.OffsetBytes != int64(len("你")) {
+		t.Fatalf("second tool output = %#v", secondDelta.ToolOutput)
+	}
+
+	report := reportActivityInput(session, second)
+	if len(report.MessageUpdates) != 1 {
+		t.Fatalf("report = %#v, want one cumulative tool snapshot", report)
+	}
+	output, _ := report.MessageUpdates[0].Payload["output"].(map[string]any)
+	if output["text"] != "你好\n" {
+		t.Fatalf("persisted output = %#v", output)
+	}
+}
+
+func TestToolOutputDeltaRequiresKnownStartAnchor(t *testing.T) {
+	t.Parallel()
+	normalizer := newACPTurnNormalizer()
+	if events := normalizer.AppendToolOutputDelta(
+		reportTestSession(),
+		"turn-1",
+		"missing-command",
+		"unsafe",
+	); len(events) != 0 {
+		t.Fatalf("orphan output events = %#v", events)
+	}
+}
+
 func TestExtensionProviderProjectsTurnLifecycleEvents(t *testing.T) {
 	t.Parallel()
 

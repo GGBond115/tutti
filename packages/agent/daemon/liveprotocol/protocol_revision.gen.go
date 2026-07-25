@@ -2,7 +2,7 @@
 
 package liveprotocol
 
-const ProtocolRevision = "sha256:e3aa4de4ff2c5949"
+const ProtocolRevision = "sha256:d6d418949c61ff09"
 
 // Protobuf-wire field numbers and delivery kinds are generated from
 // schema/agent-activity-live-wire-contract.json. They participate in

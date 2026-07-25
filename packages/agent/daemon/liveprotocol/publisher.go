@@ -296,16 +296,28 @@ func (p *Publisher) coalesceAppendText(next Delivery) bool {
 	if last.Kind != DeliveryKindEvent {
 		return false
 	}
-	leftEvent, leftData, leftOK := messageAppendFromRaw(last.Event)
-	rightEvent, rightData, rightOK := messageAppendFromRaw(next.Event)
-	if !leftOK || !rightOK || !isPureAppendTextDelta(leftData) || !isPureAppendTextDelta(rightData) ||
+	leftEvent, leftData, leftKind, leftOK := messageAppendFromRawWithKind(last.Event)
+	rightEvent, rightData, rightKind, rightOK := messageAppendFromRawWithKind(next.Event)
+	if !leftOK || !rightOK || leftKind != rightKind ||
+		!isPureAppendTextDelta(leftData, leftKind) || !isPureAppendTextDelta(rightData, rightKind) ||
 		leftEvent.WorkspaceID != rightEvent.WorkspaceID ||
 		leftEvent.AgentSessionID != rightEvent.AgentSessionID ||
 		leftData.MessageID != rightData.MessageID || leftData.TurnID != rightData.TurnID ||
 		leftData.Role != rightData.Role || leftData.Kind != rightData.Kind {
 		return false
 	}
-	leftData.Content.Text += rightData.Content.Text
+	switch leftKind {
+	case messageAppendContent:
+		leftData.Content.Text += rightData.Content.Text
+	case messageAppendToolOutput:
+		if leftData.ToolOutput.OffsetBytes == nil || rightData.ToolOutput.OffsetBytes == nil ||
+			*rightData.ToolOutput.OffsetBytes != *leftData.ToolOutput.OffsetBytes+int64(len(leftData.ToolOutput.Text)) {
+			return false
+		}
+		leftData.ToolOutput.Text += rightData.ToolOutput.Text
+	default:
+		return false
+	}
 	if rightData.OccurredAtUnixMS > leftData.OccurredAtUnixMS {
 		leftData.OccurredAtUnixMS = rightData.OccurredAtUnixMS
 	}
@@ -329,33 +341,65 @@ func isPureAppendTextDelivery(delivery Delivery) bool {
 	if delivery.Kind != DeliveryKindEvent {
 		return false
 	}
-	_, data, ok := messageAppendFromRaw(delivery.Event)
-	return ok && isPureAppendTextDelta(data)
+	_, data, kind, ok := messageAppendFromRawWithKind(delivery.Event)
+	return ok && isPureAppendTextDelta(data, kind)
 }
 
-func isPureAppendTextDelta(data MessageDeltaData) bool {
-	return data.Content != nil &&
-		data.Content.Operation == "append_text" &&
-		len(data.Content.Value) == 0 &&
-		len(data.PayloadSet) == 0 &&
+type messageAppendKind uint8
+
+const (
+	messageAppendContent messageAppendKind = iota + 1
+	messageAppendToolOutput
+)
+
+func isPureAppendTextDelta(data MessageDeltaData, kind messageAppendKind) bool {
+	pureMutation := len(data.PayloadSet) == 0 &&
 		len(data.PayloadUnset) == 0 &&
 		data.Status == nil &&
 		len(data.Semantics) == 0 &&
 		data.StartedAtUnixMS == nil &&
 		data.CompletedAtUnixMS == nil
+	if !pureMutation {
+		return false
+	}
+	switch kind {
+	case messageAppendContent:
+		return data.Content != nil &&
+			data.Content.Operation == "append_text" &&
+			len(data.Content.Value) == 0 &&
+			data.ToolOutput == nil
+	case messageAppendToolOutput:
+		return data.ToolOutput != nil &&
+			data.ToolOutput.Operation == "append_text" &&
+			data.ToolOutput.OffsetBytes != nil &&
+			data.Content == nil
+	default:
+		return false
+	}
 }
 
 func messageAppendFromRaw(raw []byte) (Event, MessageDeltaData, bool) {
+	event, data, _, ok := messageAppendFromRawWithKind(raw)
+	return event, data, ok
+}
+
+func messageAppendFromRawWithKind(raw []byte) (Event, MessageDeltaData, messageAppendKind, bool) {
 	event, err := DecodeEvent(raw)
 	if err != nil || event.EventType != EventTypeMessageDelta {
-		return Event{}, MessageDeltaData{}, false
+		return Event{}, MessageDeltaData{}, 0, false
 	}
 	var data MessageDeltaData
-	if err := json.Unmarshal(event.Data, &data); err != nil || data.Content == nil ||
-		data.Content.Operation != "append_text" {
-		return Event{}, MessageDeltaData{}, false
+	if err := json.Unmarshal(event.Data, &data); err != nil {
+		return Event{}, MessageDeltaData{}, 0, false
 	}
-	return event, data, true
+	switch {
+	case data.Content != nil && data.Content.Operation == "append_text":
+		return event, data, messageAppendContent, true
+	case data.ToolOutput != nil && data.ToolOutput.Operation == "append_text":
+		return event, data, messageAppendToolOutput, true
+	default:
+		return Event{}, MessageDeltaData{}, 0, false
+	}
 }
 
 func reconcileKeysForEvent(event *Event) []ReconcileKey {

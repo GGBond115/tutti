@@ -178,6 +178,84 @@ func TestPublisherBoundsPureAppendCoalescingByInputCount(t *testing.T) {
 	}
 }
 
+func TestPublisherCoalescesContiguousToolOutputAndPreservesByteOffset(t *testing.T) {
+	t.Parallel()
+
+	publisher, err := NewPublisher(PublisherConfig{
+		StreamID: "stream-1", BindingID: "binding-1", Epoch: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstOffset := int64(len("你"))
+	secondOffset := int64(len("你好"))
+	for _, operation := range []*MessageToolOutputOperation{
+		{Operation: "append_text", Text: "好", OffsetBytes: &firstOffset},
+		{Operation: "append_text", Text: "\n", OffsetBytes: &secondOffset},
+	} {
+		event, err := NewMessageDeltaEvent(MessageDeltaData{
+			WorkspaceID: "owner-workspace", AgentSessionID: "owner-session",
+			MessageID: "tool-1", TurnID: "owner-turn", Role: "assistant",
+			Kind: "tool_call", OccurredAtUnixMS: 10, ToolOutput: operation,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := publisher.Publish(PublishInput{Event: &event}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	frame, err := publisher.Flush()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame == nil || len(frame.Deliveries) != 1 {
+		t.Fatalf("frame = %#v", frame)
+	}
+	_, data, ok := messageAppendFromRaw(frame.Deliveries[0].Event)
+	if !ok || data.ToolOutput == nil ||
+		data.ToolOutput.Text != "好\n" ||
+		data.ToolOutput.OffsetBytes == nil ||
+		*data.ToolOutput.OffsetBytes != firstOffset {
+		t.Fatalf("coalesced tool output = %#v", data.ToolOutput)
+	}
+}
+
+func TestPublisherDoesNotCoalesceDiscontinuousToolOutput(t *testing.T) {
+	t.Parallel()
+
+	publisher, err := NewPublisher(PublisherConfig{
+		StreamID: "stream-1", BindingID: "binding-1", Epoch: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, offset := range []int64{0, 99} {
+		offset := offset
+		event, eventErr := NewMessageDeltaEvent(MessageDeltaData{
+			WorkspaceID: "owner-workspace", AgentSessionID: "owner-session",
+			MessageID: "tool-1", TurnID: "owner-turn", Role: "assistant",
+			Kind: "tool_call", OccurredAtUnixMS: 10,
+			ToolOutput: &MessageToolOutputOperation{
+				Operation: "append_text", Text: "x", OffsetBytes: &offset,
+			},
+		})
+		if eventErr != nil {
+			t.Fatal(eventErr)
+		}
+		if _, eventErr = publisher.Publish(PublishInput{Event: &event}); eventErr != nil {
+			t.Fatal(eventErr)
+		}
+	}
+	frame, err := publisher.Flush()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frame == nil || len(frame.Deliveries) != 2 {
+		t.Fatalf("discontinuous tool output coalesced: %#v", frame)
+	}
+}
+
 func TestPublisherClearsPrunedReplayBackingEntries(t *testing.T) {
 	t.Parallel()
 

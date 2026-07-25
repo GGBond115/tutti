@@ -267,3 +267,72 @@ test("applies payload set and unset atomically", () => {
     phase: "running"
   });
 });
+
+test("appends normalized tool output with UTF-8 byte offsets", () => {
+  const overlay = createAgentActivityOptimisticMessageOverlay();
+  const toolBase = canonical({
+    messageId: "tool-1",
+    kind: "tool_call",
+    status: "streaming",
+    payload: {
+      name: "Bash",
+      output: { text: "你", exitCode: null }
+    }
+  });
+  overlay.reconcile(scope, [toolBase]);
+  const event = delta(undefined);
+  event.data.messageId = "tool-1";
+  event.data.kind = "tool_call";
+  event.data.toolOutput = {
+    operation: "append_text",
+    text: "好\n",
+    offsetBytes: 3
+  };
+  assert.deepEqual(overlay.apply(event), {
+    applied: true,
+    needsReconcile: false
+  });
+  assert.deepEqual(overlay.project(scope, [toolBase])[0]?.payload.output, {
+    text: "你好\n",
+    exitCode: null
+  });
+});
+
+test("rejects duplicate or out-of-order tool output without corrupting the overlay", () => {
+  const overlay = createAgentActivityOptimisticMessageOverlay();
+  const toolBase = canonical({
+    messageId: "tool-1",
+    kind: "tool_call",
+    status: "streaming",
+    payload: { output: { text: "abc" } }
+  });
+  overlay.reconcile(scope, [toolBase]);
+  const event = delta(undefined);
+  event.data.messageId = "tool-1";
+  event.data.kind = "tool_call";
+  event.data.toolOutput = {
+    operation: "append_text",
+    text: "duplicate",
+    offsetBytes: 0
+  };
+  assert.deepEqual(overlay.apply(event), {
+    applied: false,
+    needsReconcile: true,
+    reason: "tool_output_offset_mismatch"
+  });
+  const projectedOutput = overlay.project(scope, [toolBase])[0]?.payload
+    .output as { text?: string } | undefined;
+  assert.equal(projectedOutput?.text, "abc");
+});
+
+test("tool output set can establish a temporary optimistic projection", () => {
+  const overlay = createAgentActivityOptimisticMessageOverlay();
+  const event = delta(undefined);
+  event.data.messageId = "tool-1";
+  event.data.kind = "tool_call";
+  event.data.toolOutput = { operation: "set", text: "first chunk" };
+  assert.equal(overlay.apply(event).applied, true);
+  assert.deepEqual(overlay.project(scope, [])[0]?.payload.output, {
+    text: "first chunk"
+  });
+});

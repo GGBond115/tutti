@@ -260,6 +260,11 @@ export type AgentActivityUpdatedPayloadV1 =
           text?: string;
           value?: unknown;
         };
+        toolOutput?: {
+          operation: "append_text" | "set";
+          text: string;
+          offsetBytes?: number;
+        };
         payloadSet?: Record<string, unknown>;
         payloadUnset?: readonly string[];
         status?: string;

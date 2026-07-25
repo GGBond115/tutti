@@ -26,6 +26,7 @@ type acpTurnNormalizer struct {
 	toolItemIDs               map[string]string
 	toolCallsSeen             map[string]bool
 	pendingToolCalls          map[string]pendingToolCallSnapshot
+	toolOutputText            map[string]string
 	fileChanges               map[string]any
 	compactionMu              sync.Mutex
 	compactionMessageID       string
@@ -114,6 +115,7 @@ func newACPTurnNormalizer() *acpTurnNormalizer {
 		toolItemIDs:      make(map[string]string),
 		toolCallsSeen:    make(map[string]bool),
 		pendingToolCalls: make(map[string]pendingToolCallSnapshot),
+		toolOutputText:   make(map[string]string),
 	}
 }
 
@@ -489,6 +491,71 @@ func (n *acpTurnNormalizer) StandardToolCallEvents(session Session, turnID strin
 	return events, true
 }
 
+// AppendToolOutputDelta projects an explicit provider-ordered tool output
+// chunk onto the stable tool_call message created by the corresponding start
+// event. It keeps the cumulative snapshot on the activity event for local
+// persistence while attaching only the semantic operation used by the live
+// fast lane. Callers must not feed inferred or arbitrary structured payloads
+// into this method.
+func (n *acpTurnNormalizer) AppendToolOutputDelta(
+	session Session,
+	turnID string,
+	rawToolCallID string,
+	delta string,
+) []activityshared.Event {
+	if n == nil || delta == "" {
+		return nil
+	}
+	eventID := n.knownToolItemID(rawToolCallID)
+	pending, ok := n.pendingToolCalls[eventID]
+	if !ok || strings.TrimSpace(eventID) == "" {
+		// An output delta without its start anchor is unsafe to invent: the
+		// transport sequence/reconcile path will recover from an actual gap.
+		return nil
+	}
+	current := n.toolOutputText[eventID]
+	next := current + delta
+	payload := clonePayload(pending.payload)
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	output := payloadMap(payload, "output")
+	output = clonePayload(output)
+	if output == nil {
+		output = map[string]any{}
+	}
+	output["text"] = next
+	payload["output"] = output
+	payload["status"] = string(activityshared.ActivityStatusRunning)
+
+	operation := &liveprotocol.MessageToolOutputOperation{
+		Operation: "set",
+		Text:      next,
+	}
+	if current != "" {
+		offset := int64(len(current))
+		operation = &liveprotocol.MessageToolOutputOperation{
+			Operation:   "append_text",
+			Text:        delta,
+			OffsetBytes: &offset,
+		}
+	}
+	event := newTurnActivityEventWithID(
+		session,
+		eventID,
+		EventCallStarted,
+		turnID,
+		messageStreamStateStreaming,
+		"",
+		stringFromPayload(payload, "name"),
+		payload,
+	)
+	attachToolOutputLiveOperation(&event, operation)
+	n.toolOutputText[eventID] = next
+	n.trackToolCallEvent(event)
+	return []activityshared.Event{event}
+}
+
 func appendTurnFileChangesEvent(
 	normalizer *acpTurnNormalizer,
 	events []activityshared.Event,
@@ -539,6 +606,13 @@ func (n *acpTurnNormalizer) toolItemID(update map[string]any) string {
 	id := newID()
 	n.toolItemIDs[key] = id
 	return id
+}
+
+func (n *acpTurnNormalizer) knownToolItemID(rawToolCallID string) string {
+	if n == nil {
+		return ""
+	}
+	return n.toolItemIDs[strings.TrimSpace(rawToolCallID)]
 }
 
 // KnownToolCallInput returns the last recorded normalized input for a raw ACP
@@ -593,6 +667,7 @@ func (n *acpTurnNormalizer) trackToolCallEvent(event activityshared.Event) {
 		}
 	case activityshared.EventCallCompleted, activityshared.EventCallFailed:
 		delete(n.pendingToolCalls, event.EventID)
+		delete(n.toolOutputText, event.EventID)
 	}
 }
 
@@ -816,9 +891,10 @@ func (n *acpTurnNormalizer) thinkingSnapshotEvent(session Session, turnID string
 }
 
 const (
-	liveContentOperationMetadataKey = "_tuttiLiveContentOperation"
-	liveMessageRoleMetadataKey      = "_tuttiLiveMessageRole"
-	liveMessageKindMetadataKey      = "_tuttiLiveMessageKind"
+	liveContentOperationMetadataKey    = "_tuttiLiveContentOperation"
+	liveToolOutputOperationMetadataKey = "_tuttiLiveToolOutputOperation"
+	liveMessageRoleMetadataKey         = "_tuttiLiveMessageRole"
+	liveMessageKindMetadataKey         = "_tuttiLiveMessageKind"
 )
 
 func attachTextLiveOperation(
@@ -836,4 +912,19 @@ func attachTextLiveOperation(
 	event.Payload.Metadata[liveContentOperationMetadataKey] = operation
 	event.Payload.Metadata[liveMessageRoleMetadataKey] = role
 	event.Payload.Metadata[liveMessageKindMetadataKey] = kind
+}
+
+func attachToolOutputLiveOperation(
+	event *activityshared.Event,
+	operation *liveprotocol.MessageToolOutputOperation,
+) {
+	if event == nil || operation == nil {
+		return
+	}
+	if event.Payload.Metadata == nil {
+		event.Payload.Metadata = map[string]any{}
+	}
+	event.Payload.Metadata[liveToolOutputOperationMetadataKey] = operation
+	event.Payload.Metadata[liveMessageRoleMetadataKey] = RoleAssistant
+	event.Payload.Metadata[liveMessageKindMetadataKey] = "tool_call"
 }

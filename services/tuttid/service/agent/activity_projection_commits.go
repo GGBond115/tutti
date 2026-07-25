@@ -139,11 +139,29 @@ func canonicalMessagesForRealtimePublish(
 	for _, message := range messages {
 		if strings.TrimSpace(message.Kind) == "session_audit" ||
 			strings.TrimSpace(message.TurnID) == "" ||
-			!isOptimisticRuntimeTextMessage(message) {
+			(!isOptimisticRuntimeTextMessage(message) &&
+				!isOptimisticRuntimeToolOutputMessage(message)) {
 			filtered = append(filtered, message)
 		}
 	}
 	return filtered
+}
+
+func isOptimisticRuntimeToolOutputMessage(message agentactivitybiz.Message) bool {
+	if strings.TrimSpace(message.Kind) != "tool_call" {
+		return false
+	}
+	switch strings.TrimSpace(message.Status) {
+	case "running", "streaming":
+	default:
+		return false
+	}
+	output, _ := message.Payload["output"].(map[string]any)
+	text, _ := output["text"].(string)
+	// Running tool output is populated only by a provider adapter that also
+	// attached the corresponding live toolOutput operation. Initial tool
+	// anchors (no output) and all terminal snapshots retain canonical publish.
+	return text != ""
 }
 
 func isOptimisticRuntimeTextMessage(message agentactivitybiz.Message) bool {
