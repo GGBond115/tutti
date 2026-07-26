@@ -1,12 +1,21 @@
-import { resolveWebsiteNavigationUrl } from "../shared/utils/websiteUrl";
 import type { WorkspaceIssueMentionMode } from "@tutti-os/workspace-issue-manager/core";
 import { parseRichTextMentionHref } from "@tutti-os/ui-rich-text/core";
 import { getAgentCustomMentionKind } from "../shared/agentCustomMentionKinds";
+import {
+  resolveAgentSessionMentionLinkAction,
+  resolveWorkspaceUrlLinkAction,
+  type OpenAgentSessionLinkAction,
+  type OpenWorkspaceUrlLinkAction,
+  type WorkspaceLinkActionSource
+} from "./portableWorkspaceNavigationActions";
 
-export type WorkspaceLinkActionSource =
-  | "agent-markdown"
-  | "agent-file-change"
-  | string;
+export { resolveWorkspaceUrlLinkAction };
+export type {
+  OpenAgentSessionLinkAction,
+  OpenWorkspaceUrlLinkAction,
+  ResolveWorkspaceUrlLinkActionInput,
+  WorkspaceLinkActionSource
+} from "./portableWorkspaceNavigationActions";
 
 export interface ResolveWorkspaceFileLinkActionInput {
   path: string;
@@ -60,20 +69,6 @@ export interface WorkspaceFileLinkDirectoryListing {
   entries: WorkspaceFileLinkDirectoryEntry[];
 }
 
-export interface OpenWorkspaceUrlLinkAction {
-  type: "open-url";
-  url: string;
-  source: WorkspaceLinkActionSource;
-}
-
-export interface OpenAgentSessionLinkAction {
-  type: "open-agent-session";
-  workspaceId: string;
-  agentSessionId: string;
-  agentTargetId?: string | null;
-  source: WorkspaceLinkActionSource;
-}
-
 export interface OpenWorkspaceIssueLinkAction {
   type: "open-workspace-issue";
   workspaceId: string;
@@ -93,11 +88,6 @@ export interface OpenWorkspaceAppLinkAction {
   conversationId?: string | null;
   messageId?: string | null;
   summaryTaskId?: string | null;
-  source: WorkspaceLinkActionSource;
-}
-
-export interface ResolveWorkspaceUrlLinkActionInput {
-  url: string;
   source: WorkspaceLinkActionSource;
 }
 
@@ -266,22 +256,6 @@ export function resolveLocalAssetPreviewLinkAction({
   };
 }
 
-export function resolveWorkspaceUrlLinkAction({
-  url,
-  source
-}: ResolveWorkspaceUrlLinkActionInput): OpenWorkspaceUrlLinkAction | null {
-  const resolved = resolveWebsiteNavigationUrl(url);
-  if (!resolved.url || resolved.error) {
-    return null;
-  }
-
-  return {
-    type: "open-url",
-    url: resolved.url,
-    source
-  };
-}
-
 export function resolveWorkspaceMentionLinkAction({
   href,
   source
@@ -311,21 +285,18 @@ export function resolveWorkspaceMentionLinkAction({
     };
   }
 
+  const agentSessionAction = resolveAgentSessionMentionLinkAction({
+    href,
+    source
+  });
+  if (agentSessionAction) {
+    return agentSessionAction;
+  }
+
   const workspaceId = mention.scope?.workspaceId?.trim() || "";
   const targetId = mention.entityId.trim();
   if (!workspaceId || !targetId) {
     return null;
-  }
-
-  if (mention.providerId === "agent-session") {
-    const agentTargetId = mention.scope?.agentTargetId?.trim() || null;
-    return {
-      type: "open-agent-session",
-      workspaceId,
-      agentSessionId: targetId,
-      ...(agentTargetId ? { agentTargetId } : {}),
-      source
-    };
   }
 
   if (mention.providerId === "workspace-issue") {

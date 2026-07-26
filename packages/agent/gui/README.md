@@ -119,6 +119,48 @@ action in its centered error state and retries the failed browse or search when
 the user activates it. Hosts should return an action only for errors they can
 recover interactively, such as requesting filesystem authorization again.
 
+## DOM-Free Conversation Projection
+
+`@tutti-os/agent-gui/conversation-projection` is the renderer-neutral entry
+for hosts that need the same canonical transcript semantics without importing
+the DOM conversation components. Its focused Session projection accepts the
+canonical activity snapshot, the selected Session id, and known Turns. It
+derives the exact Session and message snapshots from that one activity snapshot
+and hides AgentGUI's intermediate activity-card and timeline-item construction.
+The host owns rendering, local disclosure, scrolling, i18n, and semantic
+commands for pending Interactions.
+
+The entry also exports `resolveAgentConversationNavigationAction`, whose
+portable action union contains only external URLs and Agent Session mentions.
+Workspace files, local assets, apps, issues, and custom mentions stay in
+host-specific capability adapters. The broad Workspace resolver and this
+portable resolver share only the host-neutral URL and Agent Session parsing
+primitives. Alternate renderers must not parse `mention://` values or invent
+fallback file paths locally.
+
+Pending Engine Interactions are projected through
+`projectAgentConversationPromptFromInteraction`. The resulting canonical prompt
+preserves runtime approval and plan option ids; hosts render it and submit those
+exact ids rather than guessing generic allow/deny actions. Missing presentation
+copy remains empty so each renderer can supply localized fallback text.
+
+Do not recreate this transformation from raw message kinds in another host.
+The public projection is where AgentGUI canonicalizes message snapshots and
+groups assistant messages, thinking, tool activity, processing, notices, and
+turn summaries.
+
+## DOM-Free Composer Projection
+
+`@tutti-os/agent-gui/composer-projection` exposes the shared pure Composer
+support decision and presented-settings projection. The workspace engine
+continues to own target-keyed Composer option loads and semantic settings
+commands. Alternate renderers receive canonical activity-core options and
+session settings, then retain only their menu, sheet, and disclosure UI.
+
+The daemon DTO mapper belongs to
+`@tutti-os/agent-activity-tuttid-adapter`, so Desktop and Mobile do not keep
+separate parser implementations for Composer capabilities or option catalogs.
+
 ## Standalone Conversation Participant Presentation
 
 The `@tutti-os/agent-gui/agent-conversation` entrypoint exposes one optional,

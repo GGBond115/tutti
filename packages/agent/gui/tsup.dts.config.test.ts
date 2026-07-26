@@ -60,4 +60,28 @@ describe("Agent GUI declaration build groups", () => {
       import: "./dist/conversation-rail-projection.js"
     });
   });
+
+  it("builds and publishes the DOM-free conversation projection", () => {
+    expect(agentGUIBuildEntries["conversation-projection"]).toBe(
+      "conversationProjection.ts"
+    );
+    expect(
+      packageManifest.publishConfig.exports["./conversation-projection"]
+    ).toEqual({
+      types: "./dist/conversation-projection.d.ts",
+      import: "./dist/conversation-projection.js"
+    });
+  });
+
+  it("builds and publishes the DOM-free composer projection", () => {
+    expect(agentGUIBuildEntries["composer-projection"]).toBe(
+      "composerProjection.ts"
+    );
+    expect(
+      packageManifest.publishConfig.exports["./composer-projection"]
+    ).toEqual({
+      types: "./dist/composer-projection.d.ts",
+      import: "./dist/composer-projection.js"
+    });
+  });
 });

@@ -11,6 +11,11 @@ with Desktop while allowing Native-specific presentation and interaction.
 The first conversation rail alignment is now implemented on top of the same
 section membership and canonical summary semantics as Agent GUI.
 
+The first conversation-flow alignment now consumes the same canonical
+AgentGUI transcript projection. Mobile keeps its Native renderer, scroll
+follow behavior, and local disclosure state, while AgentGUI owns message
+merging, thinking, tool activity, processing, notices, and turn summaries.
+
 ## Confirmed boundaries
 
 - Desktop and Mobile are sibling applications. Neither imports source from the
@@ -72,6 +77,17 @@ React bindings or decorator syntax in service modules.
   renders a Native-specific drawer. Its local disclosure state may collapse a
   section, while loading/error/retry state comes from the Rail service rather
   than from a second list cache.
+- Mobile consumes the DOM-free
+  `@tutti-os/agent-gui/conversation-projection` entry for the selected
+  Session's canonical conversation VM. Pending Interactions stay Engine facts;
+  the Native renderer does not infer actionability from a transcript row.
+- Mobile consumes the DOM-free
+  `@tutti-os/agent-gui/composer-projection` entry for Composer support and
+  presented settings. Composer options load through the exact Agent Target's
+  Engine command; the shared activity-tuttid adapter maps the daemon response
+  once. Existing sessions update settings through the Engine, while a new
+  session retains target-scoped draft settings in `ComposerDraftService` and
+  carries them on its activation intent.
 - Create, send, stop, pin, delete, and Interaction response enter the Engine as
   intents. The Mobile command port performs generated-client calls and returns
   mapped command results to the Engine. Rename uses the generated client, then
@@ -146,5 +162,6 @@ React bindings or decorator syntax in service modules.
 - DeviceLink event stream and Relay fallback.
 - Richer ambiguous-delivery diagnostics beyond the current reconcile-first,
   exact-identity Retry state.
-- Rich conversation renderer parity (Markdown/code, complete tool grouping,
-  processing, and unsupported fallback).
+- Remaining rich conversation parity after Markdown/code, canonical prompt
+  actions, media attachments, processing, and basic tool grouping: richer tool
+  detail presentation plus host capabilities for file/app/issue links.

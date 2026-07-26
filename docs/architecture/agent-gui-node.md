@@ -394,6 +394,35 @@ their renderer and interaction layout; they must not import Desktop or Web
 components, infer project membership from `cwd`, or create a second Session
 lifecycle store.
 
+Cross-platform hosts may also reuse the DOM-free canonical transcript
+projection from `@tutti-os/agent-gui/conversation-projection`. It accepts the
+canonical activity snapshot, selected Session id, and known Turns. The
+projection derives both the Session and its messages from that one snapshot,
+hides intermediate AgentGUI activity-card/timeline-item construction, then
+returns the same `AgentConversationVM` that AgentGUI renders for message
+merging, thinking, tool groups, processing, notices, and turn summaries. Its
+portable navigation resolver covers only external URLs and Agent Session
+mentions and depends on focused host-neutral parsing primitives shared with the
+broader Workspace resolver; file, local-asset, app, issue, and custom-mention
+actions remain host capabilities. Native hosts own their renderer, localized
+fallback copy, scroll position, and temporary disclosure state; they do not
+reinterpret raw message kinds or import the DOM transcript. Approvals, Plan
+choices, and questions remain canonical pending Interactions, are projected
+through the shared Interaction-to-Prompt seam, and continue to submit exact
+option ids through semantic Engine commands rather than through transcript
+rows.
+
+Cross-platform hosts may reuse the DOM-free Composer policy from
+`@tutti-os/agent-gui/composer-projection`. Composer-option loading remains an
+`AgentSessionEngine` command keyed by the exact Agent Target; the generated
+tuttid DTO is mapped once by `@tutti-os/agent-activity-tuttid-adapter` into
+`AgentActivityComposerOptions`. Hosts render provider-authored options and use
+the shared support projection, but keep Native/DOM menus and temporary open
+state local. Existing-session setting changes enter the engine as
+`session/settingsUpdateRequested`; new-session draft settings travel on the
+activation intent. A renderer must not call the settings endpoint from a
+component or invent a provider-specific settings schema.
+
 Hosts install the complete query/mutation cohort from
 `@tutti-os/agent-gui/conversation-rail-runtime`; the shared factory owns the
 workspace-scoped cache lifetime while transport adapters own only protocol

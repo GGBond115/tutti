@@ -1,11 +1,24 @@
 import {
   selectRootAgentActivitySessions,
   selectRootAgentSessionIdsWithPendingInteractions,
+  selectEngineTurnsForSession,
+  selectComposerOptions,
+  selectComposerOptionsLoadStatus,
+  type AgentActivitySessionSettings,
   selectSessionMutations,
   type AgentActivitySnapshot,
   type AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
+import {
+  composerSettingsSupportFromOptions,
+  resolvePresentedAgentComposerSettings
+} from "@tutti-os/agent-gui/composer-projection";
 import { projectCanonicalAgentGUIConversationSummariesFromState } from "@tutti-os/agent-gui/conversation-rail-projection";
+import {
+  projectAgentActivitySessionToConversationVM,
+  reconcileProjectedAgentConversationVM,
+  type AgentConversationVM
+} from "@tutti-os/agent-gui/conversation-projection";
 import type { AgentTarget } from "@tutti-os/client-tuttid-ts";
 import { projectWorkspaceConversationRail } from "./workspaceConversationRailProjection";
 import type { WorkspaceConversationRailSnapshot } from "./workspaceConversationRailService";
@@ -15,10 +28,12 @@ import type { WorkspaceNavigationSnapshot } from "./workspaceNavigationService";
 export function projectWorkspaceActivitySnapshot({
   activity,
   ambiguousSubmission,
+  draftSettings,
   draft,
   errorCode,
   loading,
   navigation,
+  previousConversation,
   rail,
   state,
   targets,
@@ -26,10 +41,12 @@ export function projectWorkspaceActivitySnapshot({
 }: {
   activity: AgentActivitySnapshot;
   ambiguousSubmission: boolean;
+  draftSettings: AgentActivitySessionSettings;
   draft: string;
   errorCode: "request_failed" | null;
   loading: boolean;
   navigation: WorkspaceNavigationSnapshot;
+  previousConversation: AgentConversationVM | null;
   rail: WorkspaceConversationRailSnapshot;
   state: ReturnType<AgentSessionEngine["getSnapshot"]>;
   targets: readonly AgentTarget[];
@@ -59,6 +76,50 @@ export function projectWorkspaceActivitySnapshot({
       ? mutation.agentSessionIds
       : []
   );
+  const composerTarget = navigation.creating
+    ? (targets.find(
+        (target) => target.id === navigation.selectedAgentTargetId
+      ) ?? null)
+    : null;
+  const composerTargetId = navigation.creating
+    ? (composerTarget?.id ?? null)
+    : (selectedSession?.agentTargetId ?? null);
+  const composerOptions = composerTargetId
+    ? selectComposerOptions(state, composerTargetId)
+    : null;
+  const composerOptionsLoadStatus = composerTargetId
+    ? (selectComposerOptionsLoadStatus(state, composerTargetId) ?? null)
+    : null;
+  const composerSettings = resolvePresentedAgentComposerSettings({
+    composerOptions,
+    session: selectedSession,
+    ...(navigation.creating && composerTargetId
+      ? { settings: draftSettings }
+      : {})
+  });
+  const composerSettingsSupport = composerSettingsSupportFromOptions(
+    composerOptions,
+    selectedSession?.capabilities ?? null
+  );
+  const projectedConversation = selectedSession
+    ? projectAgentActivitySessionToConversationVM({
+        activitySnapshot: activity,
+        agentSessionId: selectedSession.agentSessionId,
+        sessionTurns: selectEngineTurnsForSession(
+          state,
+          selectedSession.agentSessionId
+        )
+      })
+    : null;
+  const conversation =
+    projectedConversation &&
+    previousConversation?.sourceDetail.session.agentSessionId ===
+      selectedSession?.agentSessionId
+      ? reconcileProjectedAgentConversationVM(
+          previousConversation,
+          projectedConversation
+        )
+      : projectedConversation;
   const conversations = projectCanonicalAgentGUIConversationSummariesFromState(
     state,
     {
@@ -72,6 +133,11 @@ export function projectWorkspaceActivitySnapshot({
   return {
     activity,
     ambiguousSubmission,
+    composerOptions,
+    composerOptionsLoadStatus,
+    composerSettings,
+    composerSettingsSupport,
+    conversation,
     creating: navigation.creating,
     draft,
     errorCode: errorCode ?? rail.errorCode,

@@ -196,6 +196,20 @@ screen composition and product-specific interaction.
 - Keep `@gorhom/bottom-sheet` as the dependency for complex gesture, keyboard,
   and dynamic-height sheets; wrap it behind a UI System Native component when
   it becomes a reusable product pattern.
+- Agent message Markdown is rendered natively with
+  `react-native-enriched-markdown`; it consumes the existing AgentGUI
+  conversation VM and maps every color, radius, and spacing decision back to
+  `@tutti-os/ui-system/native`. AgentGUI continues to own conversation
+  semantics and portable URL/Session-mention action resolution, while Mobile
+  owns system-link activation, same-workspace Session navigation, and native
+  selection behavior. File/app/issue/local-asset policy remains outside the
+  portable entry; in particular, the paired-device protocol does not expose
+  workspace file routes. This renderer requires Fabric and therefore must be
+  verified with a rebuilt native app, not only a Metro refresh.
+- Pending Interaction cards consume AgentGUI's canonical Interaction-to-Prompt
+  projection. Approval and Plan actions submit only exact runtime option ids;
+  an unsupported Interaction is shown as desktop-only instead of synthesizing
+  generic allow/deny commands.
 
 需要在没有本机开发环境的真机上测试时，可从 GitHub Actions 手动运行
 `Android Internal Build`。它只上传保留 14 天的内部 artifact
@@ -302,10 +316,23 @@ Google Play 账号。以下事项等正式分发前再处理：
   DeviceLink request stream、端到端请求 deadline、prepare/connect generation
   fencing 和 Native 15 秒后台 grace period；
 - 移动端已直接复用 `@tutti-os/client-tuttid-ts`，并从
-  `@tutti-os/agent-gui` 复用安全的 Interaction answer model 和无 DOM 的会话摘要
-  projection，完成 workspace 自动进入/选择、按置顶/项目/最近分组的会话抽屉、
-  可折叠 section、刷新/失败重试、section 分页、置顶、重命名、删除、增量消息读取、
-  新建/切换、发送、停止和结构化 Interaction 提交；
+  `@tutti-os/agent-gui` 复用安全的 Interaction answer model、无 DOM 的会话摘要和
+  canonical 对话流 projection，完成 workspace 自动进入/选择、按置顶/项目/最近分组的
+  会话抽屉、可折叠 section、刷新/失败重试、section 分页、置顶、重命名、删除、增量
+  消息读取、新建/切换、发送、停止和结构化 Interaction 提交；Native 对话流遵循同一份
+  消息合并、思考、工具活动、处理态和 Turn summary 语义，并仅保留本地滚动与展开状态；
+  切换会话会定位最新内容，流式更新只在用户停留底部时跟随，主动上滑后提供回到底部
+  入口，加载历史消息时保持当前阅读锚点；
+- Agent 消息正文已接入 Fabric 原生 Markdown renderer，支持 GFM 标题、列表、代码块、
+  表格、任务列表、流式尾部动画和系统文本选择；样式全部映射到 Native UI System
+  token，Mobile 不再维护 Markdown AST 或另一份消息类型；
+- workspace media 子 service 使用 generated client 的 session attachment API
+  读取 canonical 消息图片并缓存 data URI；Native renderer 展示图片网格、加载态和
+  全屏预览，远程 URL/data URI 形式的 generated image 也直接使用同一套预览交互；
+- Composer options 以 Agent Target 为 key 通过同一个 `AgentSessionEngine` 加载，复用
+  AgentGUI 的纯 support/settings projection 和 activity-tuttid DTO mapper。Native
+  sheet 只负责模型、推理、速度、权限和计划模式的本地展示；已有会话设置走 Engine
+  command，新建会话的目标设置作为 activation intent 一并提交；
 - Go authenticated link、owner host、application frame、allowlist、race，以及
   TypeScript/Jest、Metro bundle、Kotlin/Java/CMake、四 ABI APK 均已有自动验证。
 
@@ -313,7 +340,7 @@ Google Play 账号。以下事项等正式分发前再处理：
 
 1. 用真实账号和 Android 真机跑通 QR claim/confirm、direct DeviceLink 与 Agent 操作；
 2. 增加 paired-device Relay fallback 和事件 stream，替换前台的一秒消息校准轮询；
-3. 补齐前台自动重连、撤销专用状态、动态 Composer 设置与 richer Native renderer；
+3. 补齐前台自动重连、撤销专用状态，以及 mention、workspace file 和媒体预览动作；
 4. Personal 闭环稳定后，再让 TSH 删除本地 transport 副本并消费共享 DeviceLink module。
 
 遇到问题时先看

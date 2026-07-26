@@ -5,6 +5,7 @@ import {
   createAgentSessionEngine,
   dispatchSessionMutation,
   selectRootAgentActivitySessions,
+  type AgentActivitySessionSettings,
   type AgentActivityInteraction,
   type AgentActivitySession,
   type AgentSessionEngine,
@@ -14,6 +15,7 @@ import {
 } from "@tutti-os/agent-activity-core";
 import {
   agentActivityMessageFromTuttidMessage,
+  agentActivityComposerOptionsFromTuttidResult,
   agentActivitySessionFromTuttidSession,
   agentActivityTurnFromTuttidTurn
 } from "@tutti-os/agent-activity-tuttid-adapter";
@@ -40,6 +42,7 @@ import {
 } from "./workspaceActivityCommandSupport";
 import type { WorkspaceActivitySnapshot } from "./workspaceActivityTypes";
 import type { WorkspaceNavigationService } from "./workspaceNavigationService";
+import { WorkspaceMediaService } from "./workspaceMediaService";
 
 export type { WorkspaceActivitySnapshot } from "./workspaceActivityTypes";
 
@@ -50,6 +53,7 @@ const MESSAGE_PAGE_SIZE = 100;
 
 export class WorkspaceActivityService extends ObservableService<WorkspaceActivitySnapshot> {
   readonly _serviceBrand: undefined;
+  readonly media: WorkspaceMediaService;
   private readonly engine: AgentSessionEngine;
   private readonly projectActivity: (
     state: ReturnType<AgentSessionEngine["getSnapshot"]>
@@ -63,6 +67,8 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   private loading = true;
   private observedSelectedSessionId: string | null = null;
   private lastRailSessions: WorkspaceConversationRailSnapshot["sessions"] = [];
+  private previousConversation: WorkspaceActivitySnapshot["conversation"] =
+    null;
   private snapshotCache: WorkspaceActivitySnapshot | null = null;
   private readonly disposables: Array<() => void> = [];
   private readonly pendingSubmissionsByDraftKey = new Map<
@@ -82,6 +88,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     private readonly currentUserId: string
   ) {
     super();
+    this.media = new WorkspaceMediaService(workspace.id, client);
     this.projectActivity = createAgentActivitySnapshotProjector(workspace.id);
     this.engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => this.clock.now() },
@@ -107,6 +114,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
         this.observedSelectedSessionId = selectedSessionId;
         this.onDependencyChanged();
         if (selectionChanged) void this.loadSelectedMessages(true);
+        this.loadComposerOptions();
       }),
       this.drafts.subscribe(() => this.onDependencyChanged()),
       this.rail.subscribe(() => {
@@ -129,6 +137,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
           this.directory.getSnapshot().targets.map((target) => target.id)
         );
         this.onDependencyChanged();
+        this.loadComposerOptions();
       })
     );
   }
@@ -142,18 +151,24 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     const draftKey = navigation.creating
       ? "new"
       : (navigation.selectedAgentSessionId ?? "none");
+    const draftSettings = navigation.creating
+      ? this.drafts.getSettings(navigation.selectedAgentTargetId ?? "")
+      : {};
     this.snapshotCache = projectWorkspaceActivitySnapshot({
       activity,
       ambiguousSubmission: this.ambiguousDraftKeys.has(draftKey),
+      draftSettings,
       draft: this.drafts.get(draftKey),
       errorCode: this.errorCode,
       loading: this.loading,
       navigation,
+      previousConversation: this.previousConversation,
       rail: railSnapshot,
       state,
       targets: this.directory.getSnapshot().targets,
       workspaceId: this.workspace.id
     });
+    this.previousConversation = this.snapshotCache.conversation;
     return this.snapshotCache;
   };
 
@@ -180,6 +195,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       .finally(() => {
         if (this.disposed) return;
         this.loading = false;
+        this.loadComposerOptions();
         this.onDependencyChanged();
       });
     return this.initializePromise;
@@ -201,6 +217,26 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
 
   selectTarget(agentTargetId: string): void {
     this.navigation.selectTarget(agentTargetId);
+  }
+
+  updateComposerSettings(settings: AgentActivitySessionSettings): void {
+    const target = this.currentComposerTarget();
+    if (!target || Object.keys(settings).length === 0) return;
+    const navigation = this.navigation.getSnapshot();
+    if (navigation.creating) {
+      this.drafts.setSettings(target.agentTargetId, settings);
+      this.loadComposerOptions({ force: true });
+      return;
+    }
+    if (!target.agentSessionId) return;
+    this.engine.dispatch({
+      agentSessionId: target.agentSessionId,
+      commandId: createMobileActivityCommandId(),
+      settings,
+      timeoutMs: COMMAND_TIMEOUT_MS,
+      type: "session/settingsUpdateRequested",
+      workspaceId: this.workspace.id
+    });
   }
 
   startCreating(): void {
@@ -322,6 +358,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
         requestId: submission.clientSubmitId,
         requestedAtUnixMs: now,
         runtimeContent: content,
+        settings: snapshot.composerSettings,
         submitDiagnostics,
         type: "activation/requested",
         visible: true,
@@ -442,6 +479,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     this.pendingSubmissionsByDraftKey.clear();
     this.ambiguousDraftKeys.clear();
     this.engine.dispose();
+    this.media.dispose();
     this.clearListeners();
   }
 
@@ -570,6 +608,49 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
           }));
       case "session/reconcile":
         return this.reconcileSession(command.agentSessionId);
+      case "composerOptions/load":
+        return this.client
+          .getAgentProviderComposerOptions(
+            command.provider as Parameters<
+              TuttidClient["getAgentProviderComposerOptions"]
+            >[0],
+            {
+              agentTargetId: command.targetKey,
+              ...(command.cwd ? { cwd: command.cwd } : {}),
+              workspaceId: command.workspaceId,
+              settings: command.settings ?? {}
+            },
+            { signal }
+          )
+          .then((result) =>
+            agentActivityComposerOptionsFromTuttidResult(
+              command.provider,
+              result
+            )
+          );
+      case "session/updateSettings":
+        return this.client
+          .updateWorkspaceAgentSessionSettings(
+            command.workspaceId,
+            command.agentSessionId,
+            command.settings
+          )
+          .then((session) => {
+            const activitySession = this.mapSession(session);
+            this.engine.dispatch({
+              session: activitySession,
+              type: "session/upserted"
+            });
+            const options = activitySession.agentTargetId
+              ? this.engine.getSnapshot().composerOptions.optionsByTargetKey[
+                  activitySession.agentTargetId
+                ]
+              : null;
+            if (options?.behavior.refreshModelOptionsAfterSettings === true) {
+              this.loadComposerOptions({ force: true });
+            }
+            return { session: activitySession };
+          });
       case "session/setPinned":
         return this.client
           .updateWorkspaceAgentSessionPin(
@@ -624,6 +705,23 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
         cwd: command.cwd ?? null,
         initialContent: toTuttidPromptContent(command.initialContent ?? []),
         initialDisplayPrompt: command.initialDisplayPrompt ?? null,
+        ...(command.settings?.model ? { model: command.settings.model } : {}),
+        ...(command.settings?.reasoningEffort
+          ? { reasoningEffort: command.settings.reasoningEffort }
+          : {}),
+        ...(command.settings?.speed ? { speed: command.settings.speed } : {}),
+        ...(command.settings?.permissionModeId
+          ? { permissionModeId: command.settings.permissionModeId }
+          : {}),
+        ...(typeof command.settings?.planMode === "boolean"
+          ? { planMode: command.settings.planMode }
+          : {}),
+        ...(typeof command.settings?.browserUse === "boolean"
+          ? { browserUse: command.settings.browserUse }
+          : {}),
+        ...(typeof command.settings?.computerUse === "boolean"
+          ? { computerUse: command.settings.computerUse }
+          : {}),
         submitDiagnostics: command.submitDiagnostics,
         title: command.title ?? null,
         visible: command.visible ?? true
@@ -696,6 +794,61 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     return { session };
   }
 
+  private loadComposerOptions(options?: { force?: boolean }): void {
+    if (this.disposed || this.paused) return;
+    const target = this.currentComposerTarget();
+    if (!target) return;
+    this.engine.dispatch({
+      commandId: createMobileActivityCommandId(),
+      ...(target.cwd ? { cwd: target.cwd } : {}),
+      ...(options?.force ? { force: true } : {}),
+      provider: target.provider,
+      settings: target.settings,
+      targetKey: target.agentTargetId,
+      type: "composerOptions/loadRequested",
+      workspaceId: this.workspace.id
+    });
+  }
+
+  private currentComposerTarget(): {
+    agentSessionId: string | null;
+    agentTargetId: string;
+    cwd: string | null;
+    provider: string;
+    settings: AgentActivitySessionSettings;
+  } | null {
+    const navigation = this.navigation.getSnapshot();
+    if (navigation.creating) {
+      const target = this.directory
+        .getSnapshot()
+        .targets.find(
+          (candidate) => candidate.id === navigation.selectedAgentTargetId
+        );
+      if (!target) return null;
+      return {
+        agentSessionId: null,
+        agentTargetId: target.id,
+        cwd: null,
+        provider: target.provider,
+        settings: this.drafts.getSettings(target.id)
+      };
+    }
+    const session = this.projectActivity(
+      this.engine.getSnapshot()
+    ).sessions.find(
+      (candidate) =>
+        candidate.agentSessionId === navigation.selectedAgentSessionId
+    );
+    if (!session?.agentTargetId) return null;
+    return {
+      agentSessionId: session.agentSessionId,
+      agentTargetId: session.agentTargetId,
+      cwd: session.cwd,
+      provider: session.provider,
+      settings: session.settings
+    };
+  }
+
   private scheduleMessagesPoll(): void {
     this.messagePollTask?.cancel();
     if (this.disposed || this.paused) return;
@@ -715,6 +868,15 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       sessions,
       type: "session/snapshotReceived"
     });
+    if (!this.paused) {
+      for (const session of sessions) {
+        this.engine.dispatch({
+          agentSessionId: session.agentSessionId,
+          availability: { state: "available" },
+          type: "session/runtimeAvailabilityChanged"
+        });
+      }
+    }
     const roots = selectRootAgentActivitySessions({ sessions }).filter(
       (session) => session.visible
     );
@@ -726,6 +888,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   private onDependencyChanged(): void {
     this.reconcilePendingSubmissions();
     this.snapshotCache = null;
+    this.media.sync(this.getSnapshot().conversation);
     this.emitChange();
   }
 

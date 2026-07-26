@@ -20,6 +20,7 @@ import {
   IWorkspaceActivityService,
   IWorkspaceCatalogService,
   IWorkspaceConversationRailService,
+  IWorkspaceMediaService,
   IWorkspaceNavigationService
 } from "./mobileServiceIdentifiers";
 import { ObservableService } from "./observableService";
@@ -190,6 +191,7 @@ export class MobileApplicationService extends ObservableService<MobileApplicatio
     services.set(IComposerDraftService, drafts);
     services.set(IWorkspaceConversationRailService, rail);
     services.set(IWorkspaceActivityService, activity);
+    services.set(IWorkspaceMediaService, activity.media);
     const container = authenticated.container.createChild(services);
     const candidate: WorkspaceScope = {
       activity,

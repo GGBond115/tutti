@@ -1,9 +1,21 @@
-import type { AgentActivityInteraction } from "@tutti-os/agent-activity-core";
+import type {
+  AgentActivityInteraction,
+  AgentActivitySessionSettings
+} from "@tutti-os/agent-activity-core";
+import { resolveAgentConversationNavigationAction } from "@tutti-os/agent-gui/conversation-projection";
 import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
-import { type NativeTheme, useNativeTheme } from "@tutti-os/ui-system/native";
-import { useRef, useState } from "react";
+import {
+  NativeButton,
+  NativeIconButton,
+  type NativeTheme,
+  useNativeTheme
+} from "@tutti-os/ui-system/native";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,15 +23,15 @@ import {
   TextInput,
   View
 } from "react-native";
-import {
-  MobileInteractionCard,
-  MobileMessageRow
-} from "../components/MobileConversationRows";
+import { MobileInteractionCard } from "../components/MobileConversationRows";
 import { MobileConversationDrawer } from "../components/MobileConversationDrawer";
+import { MobileConversationTimeline } from "../components/MobileConversationTimeline";
+import { MobileComposerSettingsSheet } from "../components/MobileComposerSettingsSheet";
 import { PrimaryButton } from "../components/PrimaryButton";
 import { t } from "../i18n";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
 import type { WorkspaceCatalogSnapshot } from "../services/workspaceCatalogService";
+import type { WorkspaceMediaSnapshot } from "../services/workspaceMediaService";
 
 export function WorkspacePickerView({
   deviceName,
@@ -86,6 +98,7 @@ export function WorkspacePickerView({
 
 export function ConversationWorkspaceView({
   deviceName,
+  media,
   model,
   onBack,
   onDeleteSession,
@@ -101,10 +114,12 @@ export function ConversationWorkspaceView({
   onSend,
   onStop,
   onTogglePinned,
+  onUpdateComposerSettings,
   workspace
 }: {
   deviceName: string;
   model: WorkspaceActivitySnapshot;
+  media: WorkspaceMediaSnapshot;
   onBack(): void;
   onDeleteSession(id: string): Promise<void>;
   onDraftChange(value: string): void;
@@ -126,12 +141,15 @@ export function ConversationWorkspaceView({
   onSend(): void;
   onStop(): void;
   onTogglePinned(id: string): Promise<void>;
+  onUpdateComposerSettings(settings: AgentActivitySessionSettings): void;
   workspace: WorkspaceSummary;
 }) {
   const theme = useNativeTheme();
   const styles = createStyles(theme);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const scroll = useRef<ScrollView>(null);
+  const shouldStickToBottom = useRef(true);
   const messages = model.selectedAgentSessionId
     ? (model.activity.sessionMessagesById[model.selectedAgentSessionId] ?? [])
     : [];
@@ -139,16 +157,53 @@ export function ConversationWorkspaceView({
     ? model.activity.sessionMessageWindowsById?.[model.selectedAgentSessionId]
     : null;
 
+  useEffect(() => {
+    shouldStickToBottom.current = true;
+    setShowScrollToBottom(false);
+    const frame = requestAnimationFrame(() => {
+      scroll.current?.scrollToEnd({ animated: false });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [model.selectedAgentSessionId]);
+
+  const scrollToBottom = (animated: boolean) => {
+    shouldStickToBottom.current = true;
+    setShowScrollToBottom(false);
+    scroll.current?.scrollToEnd({ animated });
+  };
+  const openConversationLink = (href: string): boolean => {
+    if (!model.conversation) return false;
+    const action = resolveAgentConversationNavigationAction({
+      href,
+      source: "agent-markdown"
+    });
+    if (!action) return false;
+    if (action.type === "open-url") {
+      void Linking.openURL(action.url).catch(() => undefined);
+      return true;
+    }
+    if (
+      action.type === "open-agent-session" &&
+      action.workspaceId === workspace.id
+    ) {
+      onSelectSession(action.agentSessionId);
+      return true;
+    }
+    return true;
+  };
+
   return (
-    <View style={styles.root}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={styles.root}
+    >
       <View style={styles.conversationHeader}>
-        <Pressable
+        <NativeIconButton
           accessibilityLabel={t("sessions")}
           onPress={() => setDrawerOpen(true)}
+          icon={<Text style={styles.iconText}>☰</Text>}
           style={styles.iconButton}
-        >
-          <Text style={styles.iconText}>☰</Text>
-        </Pressable>
+        />
         <View style={styles.conversationTitle}>
           <Text numberOfLines={1} style={styles.sessionTitle}>
             {model.selectedSession?.title || workspace.name}
@@ -165,37 +220,74 @@ export function ConversationWorkspaceView({
           <ActivityIndicator color={theme.color.accent} size="large" />
         </View>
       ) : model.selectedSession && !model.creating ? (
-        <ScrollView
-          contentContainerStyle={styles.messageList}
-          onContentSizeChange={() =>
-            scroll.current?.scrollToEnd({ animated: false })
-          }
-          onScroll={({ nativeEvent }) => {
-            if (nativeEvent.contentOffset.y < 48 && window?.hasOlderMessages) {
-              onLoadOlder();
-            }
-          }}
-          ref={scroll}
-          scrollEventThrottle={100}
-        >
-          {window?.hasOlderMessages ? (
-            <Text style={styles.loadOlder}>{t("loading")}</Text>
-          ) : null}
-          {messages.length === 0 ? (
-            <Text style={styles.emptyText}>{t("emptyConversation")}</Text>
-          ) : (
-            messages.map((message) => (
-              <MobileMessageRow key={message.messageId} message={message} />
-            ))
-          )}
-          {model.selectedSession.pendingInteractions.map((interaction) => (
-            <MobileInteractionCard
-              interaction={interaction}
-              key={`${interaction.agentSessionId}:${interaction.turnId}:${interaction.requestId}`}
-              onSubmit={async (input) => onRespond(interaction, input)}
+        <View style={styles.conversationBody}>
+          <ScrollView
+            contentContainerStyle={styles.messageList}
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+            onContentSizeChange={() => {
+              if (shouldStickToBottom.current) {
+                scrollToBottom(false);
+              }
+            }}
+            onLayout={() => {
+              if (shouldStickToBottom.current) {
+                scrollToBottom(false);
+              }
+            }}
+            onScrollBeginDrag={() => {
+              shouldStickToBottom.current = false;
+            }}
+            onScroll={({ nativeEvent }) => {
+              if (
+                nativeEvent.contentOffset.y < 48 &&
+                window?.hasOlderMessages
+              ) {
+                onLoadOlder();
+              }
+              const distanceFromBottom =
+                nativeEvent.contentSize.height -
+                nativeEvent.layoutMeasurement.height -
+                nativeEvent.contentOffset.y;
+              const nearBottom = distanceFromBottom <= 72;
+              shouldStickToBottom.current = nearBottom;
+              setShowScrollToBottom(!nearBottom);
+            }}
+            ref={scroll}
+            scrollEventThrottle={16}
+            style={styles.messageScroller}
+          >
+            {window?.hasOlderMessages ? (
+              <Text style={styles.loadOlder}>{t("loading")}</Text>
+            ) : null}
+            {messages.length === 0 || !model.conversation ? (
+              <Text style={styles.emptyText}>{t("emptyConversation")}</Text>
+            ) : (
+              <MobileConversationTimeline
+                conversation={model.conversation}
+                media={media}
+                onLinkPress={openConversationLink}
+              />
+            )}
+            {model.selectedSession.pendingInteractions.map((interaction) => (
+              <MobileInteractionCard
+                interaction={interaction}
+                key={`${interaction.agentSessionId}:${interaction.turnId}:${interaction.requestId}`}
+                onSubmit={async (input) => onRespond(interaction, input)}
+              />
+            ))}
+          </ScrollView>
+          {showScrollToBottom ? (
+            <NativeButton
+              label={t("scrollToBottom")}
+              onPress={() => scrollToBottom(true)}
+              size="compact"
+              style={styles.scrollToBottom}
+              variant="secondary"
             />
-          ))}
-        </ScrollView>
+          ) : null}
+        </View>
       ) : model.creating ? (
         <View style={styles.center}>
           <Text style={styles.emptyText}>{t("newSessionHint")}</Text>
@@ -230,6 +322,10 @@ export function ConversationWorkspaceView({
       ) : null}
       {model.selectedSession || model.creating ? (
         <View style={styles.composer}>
+          <MobileComposerSettingsSheet
+            model={model}
+            onUpdate={onUpdateComposerSettings}
+          />
           <TextInput
             editable={!model.sending}
             multiline
@@ -276,7 +372,7 @@ export function ConversationWorkspaceView({
           workspaceName={workspace.name}
         />
       ) : null}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -295,6 +391,7 @@ function createStyles(theme: NativeTheme) {
       borderTopColor: theme.color.border,
       borderTopWidth: StyleSheet.hairlineWidth,
       flexDirection: "row",
+      flexWrap: "wrap",
       gap: theme.space.small,
       padding: theme.space.medium
     },
@@ -306,6 +403,7 @@ function createStyles(theme: NativeTheme) {
       minHeight: 64,
       paddingHorizontal: theme.space.medium
     },
+    conversationBody: { flex: 1, position: "relative" },
     conversationTitle: { flex: 1, marginHorizontal: theme.space.small },
     deviceCaption: { color: theme.color.muted, fontSize: 12, marginTop: 3 },
     emptyText: {
@@ -345,6 +443,7 @@ function createStyles(theme: NativeTheme) {
     },
     loadOlder: { color: theme.color.muted, fontSize: 12, textAlign: "center" },
     messageList: { gap: theme.space.medium, padding: theme.space.large },
+    messageScroller: { flex: 1 },
     onlineDot: {
       backgroundColor: theme.color.success,
       borderRadius: 5,
@@ -367,6 +466,11 @@ function createStyles(theme: NativeTheme) {
     },
     pressed: { opacity: 0.7 },
     root: { backgroundColor: theme.color.background, flex: 1 },
+    scrollToBottom: {
+      bottom: theme.space.medium,
+      position: "absolute",
+      right: theme.space.medium
+    },
     sendButton: { minWidth: 76 },
     sessionTitle: { color: theme.color.text, fontSize: 16, fontWeight: "700" },
     targetChip: {

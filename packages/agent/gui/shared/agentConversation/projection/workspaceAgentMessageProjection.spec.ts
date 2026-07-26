@@ -2,16 +2,55 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeAgentActivitySession,
   type AgentActivityMessage,
+  type AgentActivitySnapshot,
   type AgentActivitySession
 } from "@tutti-os/agent-activity-core";
 import type { WorkspaceAgentActivityCard } from "../../workspaceAgentActivityListViewModel";
 import { mergeWorkspaceAgentActivityDurableAndOverlayMessages } from "../../workspaceAgentMessageOverlay";
 import {
+  projectAgentActivitySessionToConversationVM,
   projectWorkspaceAgentMessagesToConversationVM,
   projectWorkspaceAgentMessagesToTimelineItems
 } from "./workspaceAgentMessageProjection";
 
 describe("projectWorkspaceAgentMessagesToConversationVM", () => {
+  it("derives the selected Session and its messages from one activity snapshot", () => {
+    const selectedSession = session();
+    const selectedMessage = message({
+      messageId: "snapshot-message",
+      version: 1,
+      role: "user",
+      kind: "text",
+      payload: { text: "Snapshot-owned message" }
+    });
+    const activitySnapshot: AgentActivitySnapshot = {
+      workspaceId: "workspace-1",
+      sessions: [selectedSession],
+      presences: [],
+      sessionMessagesById: {
+        [selectedSession.agentSessionId]: [selectedMessage]
+      }
+    };
+
+    const conversation = projectAgentActivitySessionToConversationVM({
+      activitySnapshot,
+      agentSessionId: selectedSession.agentSessionId
+    });
+    const userRow = conversation?.rows.find(
+      (row) => row.kind === "message" && row.speaker === "user"
+    );
+
+    expect(userRow?.kind === "message" ? userRow.messages[0]?.body : null).toBe(
+      "Snapshot-owned message"
+    );
+    expect(
+      projectAgentActivitySessionToConversationVM({
+        activitySnapshot,
+        agentSessionId: "missing-session"
+      })
+    ).toBeNull();
+  });
+
   it("prefers canonical browser element prompt content over a lossy provider echo", () => {
     const prompt =
       "[@a](mention://browser-element/browser-element%3A1?path=%2Ftmp%2Fa.txt&tag=a&workspaceId=workspace-1) " +

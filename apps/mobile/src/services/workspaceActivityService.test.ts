@@ -50,6 +50,14 @@ describe("WorkspaceActivityService", () => {
         (message) => message.messageId
       )
     ).toEqual(["message-latest"]);
+    expect(initial.conversation?.sourceDetail.session.agentSessionId).toBe(
+      "session-1"
+    );
+    expect(initial.conversation?.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "message", speaker: "assistant" })
+      ])
+    );
     expect(messageQueries[0]).toEqual({ limit: 100, order: "desc" });
 
     await service.loadOlderMessages();
@@ -107,6 +115,76 @@ describe("WorkspaceActivityService", () => {
     });
     expect(service.getSnapshot().draft).toBe("");
     expect(service.getSnapshot().sending).toBe(true);
+
+    service.dispose();
+  });
+
+  test("loads target-scoped composer options through the engine and presents daemon defaults", async () => {
+    const composerRequests: Array<Record<string, unknown>> = [];
+    const client = createClient({
+      composerOptions: async (_provider, request) => {
+        composerRequests.push(request ?? {});
+        return {
+          behavior: {
+            collapseModelOptionsToLatest: false,
+            modelOptionsAuthoritative: true,
+            planModeExclusiveWithPermissionMode: false,
+            prewarmDraftSession: false,
+            refreshModelOptionsAfterSettings: false
+          },
+          effectiveSettings: { model: "gpt-5" },
+          modelConfig: {
+            configurable: true,
+            options: [{ label: "GPT-5", value: "gpt-5" }]
+          },
+          provider: "codex"
+        };
+      },
+      listMessages: emptyMessagePage,
+      session: () => ({ ...createSession(), agentTargetId: "target-1" }),
+      targets: [createTarget()]
+    });
+    const service = createService(client);
+
+    await service.start();
+    await flushAsyncWork();
+
+    expect(composerRequests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          agentTargetId: "target-1",
+          workspaceId: "workspace-1"
+        })
+      ])
+    );
+    expect(service.getSnapshot().composerOptions?.models).toEqual([
+      { label: "GPT-5", value: "gpt-5" }
+    ]);
+    expect(service.getSnapshot().composerSettings.model).toBe("gpt-5");
+    expect(service.getSnapshot().composerSettingsSupport.model).toBe(true);
+
+    service.dispose();
+  });
+
+  test("routes existing-session composer settings through the engine command", async () => {
+    const settingsRequests: Array<Record<string, unknown>> = [];
+    const client = createClient({
+      listMessages: emptyMessagePage,
+      session: () => ({ ...createSession(), agentTargetId: "target-1" }),
+      settings: async (_workspaceId, _sessionId, settings) => {
+        settingsRequests.push(settings);
+        return { ...createSession(), agentTargetId: "target-1", settings };
+      }
+    });
+    const service = createService(client);
+
+    await service.start();
+    await flushAsyncWork();
+    service.updateComposerSettings({ planMode: true });
+    await flushAsyncWork();
+
+    expect(settingsRequests).toEqual([{ planMode: true }]);
+    expect(service.getSnapshot().selectedSession?.settings.planMode).toBe(true);
 
     service.dispose();
   });
@@ -214,6 +292,10 @@ function createService(client: TuttidClient): WorkspaceActivityService {
 }
 
 function createClient(options: {
+  composerOptions?(
+    provider: string,
+    request?: Record<string, unknown>
+  ): Promise<Record<string, unknown>>;
   deleteBatch?(
     workspaceId: string,
     input: { sessionIds: string[] }
@@ -249,10 +331,21 @@ function createClient(options: {
     input: { title: string }
   ): Promise<WorkspaceAgentSession>;
   session?(): WorkspaceAgentSession | null;
+  settings?(
+    workspaceId: string,
+    agentSessionId: string,
+    settings: Record<string, unknown>
+  ): Promise<WorkspaceAgentSession>;
+  targets?: Array<{
+    id: string;
+    provider: string;
+    name: string;
+  }>;
 }): TuttidClient {
   return {
     deleteWorkspaceAgentSessionsBatch: options.deleteBatch,
-    listAgentTargets: async () => ({ targets: [] }),
+    getAgentProviderComposerOptions: options.composerOptions,
+    listAgentTargets: async () => ({ targets: options.targets ?? [] }),
     listWorkspaceAgentSessionMessages: options.listMessages,
     listWorkspaceAgentSessionSections: async () => {
       const session =
@@ -285,8 +378,24 @@ function createClient(options: {
     },
     sendWorkspaceAgentSessionInput: options.send,
     updateWorkspaceAgentSessionPin: options.pin,
+    updateWorkspaceAgentSessionSettings: options.settings,
     updateWorkspaceAgentSessionTitle: options.rename
   } as unknown as TuttidClient;
+}
+
+function createTarget() {
+  return {
+    availability: { status: "ready" },
+    createdAtUnixMs: 1,
+    enabled: true,
+    id: "target-1",
+    launchRef: { provider: "codex", type: "builtin_local" as const },
+    name: "Codex",
+    provider: "codex",
+    sortOrder: 1,
+    source: "system" as const,
+    updatedAtUnixMs: 1
+  };
 }
 
 async function emptyMessagePage(

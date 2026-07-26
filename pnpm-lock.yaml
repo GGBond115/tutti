@@ -243,6 +243,9 @@ importers:
       react-native-css-interop:
         specifier: 0.2.6
         version: 0.2.6(365a22ecb12b00110ccf84039403e41e)
+      react-native-enriched-markdown:
+        specifier: 0.7.4
+        version: 0.7.4(react-native@0.86.0(@babel/core@7.29.0)(@react-native-community/cli@20.1.0(typescript@5.9.3))(@react-native/jest-preset@0.86.0(@babel/core@7.29.0)(react@19.2.6))(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.15)(react@19.2.6))(react@19.2.6)
       react-native-gesture-handler:
         specifier: 3.1.0
         version: 3.1.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native-community/cli@20.1.0(typescript@5.9.3))(@react-native/jest-preset@0.86.0(@babel/core@7.29.0)(react@19.2.6))(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.15)(react@19.2.6))(react@19.2.6)
@@ -13358,6 +13361,22 @@ packages:
       react-native-svg:
         optional: true
 
+  react-native-enriched-markdown@0.7.4:
+    resolution:
+      {
+        integrity: sha512-NXkqZL4d5vM6wOBwYwx0r1Xyw2h+E8SyobrS8nKnbpjYOyKZj6zIdOq1KJFrlenJNu/tXpbJ8jtQagaA4Wj4cg==
+      }
+    peerDependencies:
+      "@expo/config-plugins": ">=50.0.0"
+      katex: ">=0.16.0"
+      react: "*"
+      react-native: "*"
+    peerDependenciesMeta:
+      "@expo/config-plugins":
+        optional: true
+      katex:
+        optional: true
+
   react-native-gesture-handler@3.1.0:
     resolution:
       {
@@ -24239,6 +24258,11 @@ snapshots:
       react-native-safe-area-context: 5.6.2(react-native@0.86.0(@babel/core@7.29.0)(@react-native-community/cli@20.1.0(typescript@5.9.3))(@react-native/jest-preset@0.86.0(@babel/core@7.29.0)(react@19.2.6))(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.15)(react@19.2.6))(react@19.2.6)
     transitivePeerDependencies:
       - supports-color
+
+  react-native-enriched-markdown@0.7.4(react-native@0.86.0(@babel/core@7.29.0)(@react-native-community/cli@20.1.0(typescript@5.9.3))(@react-native/jest-preset@0.86.0(@babel/core@7.29.0)(react@19.2.6))(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.15)(react@19.2.6))(react@19.2.6):
+    dependencies:
+      react: 19.2.6
+      react-native: 0.86.0(@babel/core@7.29.0)(@react-native-community/cli@20.1.0(typescript@5.9.3))(@react-native/jest-preset@0.86.0(@babel/core@7.29.0)(react@19.2.6))(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.15)(react@19.2.6)
 
   react-native-gesture-handler@3.1.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native-community/cli@20.1.0(typescript@5.9.3))(@react-native/jest-preset@0.86.0(@babel/core@7.29.0)(react@19.2.6))(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.15)(react@19.2.6))(react@19.2.6):
     dependencies:

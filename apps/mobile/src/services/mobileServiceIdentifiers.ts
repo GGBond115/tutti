@@ -8,6 +8,7 @@ import type { WorkspaceActivityService } from "./workspaceActivityService";
 import type { WorkspaceCatalogService } from "./workspaceCatalogService";
 import type { WorkspaceConversationRailService } from "./workspaceConversationRailService";
 import type { WorkspaceNavigationService } from "./workspaceNavigationService";
+import type { WorkspaceMediaService } from "./workspaceMediaService";
 
 export const IMobileApplicationService =
   createDecorator<MobileApplicationService>("mobile-application-service");
@@ -26,6 +27,9 @@ export const IWorkspaceActivityService =
   createDecorator<WorkspaceActivityService>(
     "mobile-workspace-activity-service"
   );
+export const IWorkspaceMediaService = createDecorator<WorkspaceMediaService>(
+  "mobile-workspace-media-service"
+);
 export const IWorkspaceConversationRailService =
   createDecorator<WorkspaceConversationRailService>(
     "mobile-workspace-conversation-rail-service"

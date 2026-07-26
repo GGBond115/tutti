@@ -64,9 +64,11 @@ function ConversationBinding({
   service: WorkspaceActivityService;
 }) {
   const model = useServiceSnapshot(service);
+  const media = useServiceSnapshot(service.media);
   return (
     <ConversationWorkspaceView
       deviceName={device.name}
+      media={media}
       model={model}
       onBack={() => application.showWorkspacePicker()}
       onDraftChange={(value) => service.setDraft(value)}
@@ -85,6 +87,9 @@ function ConversationBinding({
       onSelectTarget={(id) => service.selectTarget(id)}
       onSend={() => void service.send()}
       onStop={() => service.stop()}
+      onUpdateComposerSettings={(settings) =>
+        service.updateComposerSettings(settings)
+      }
       onTogglePinned={(id) => service.toggleSessionPinned(id)}
       workspace={service.workspace}
     />

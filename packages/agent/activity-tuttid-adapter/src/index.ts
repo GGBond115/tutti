@@ -4,3 +4,4 @@ export {
   agentActivityTuttiModeActivationFromTuttid,
   agentActivityTurnFromTuttidTurn
 } from "./mappers.ts";
+export { agentActivityComposerOptionsFromTuttidResult } from "./composerOptions.ts";
