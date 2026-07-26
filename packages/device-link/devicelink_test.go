@@ -3,6 +3,7 @@ package devicelink
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -72,10 +73,41 @@ func TestListenGlobalIPv6CurrentHost(t *testing.T) {
 func TestQUICMutualPinningAndStreamRoundTrip(t *testing.T) {
 	callerUDP := listenLoopbackUDP6(t)
 	ownerUDP := listenLoopbackUDP6(t)
-	runQUICRoundTrip(t, context.Background(), callerUDP, ownerUDP)
+	runQUICRoundTrip(t, context.Background(), callerUDP, ownerUDP, nil, nil, ALPN)
 }
 
-func runQUICRoundTrip(t *testing.T, parent context.Context, callerUDP, ownerUDP *net.UDPConn) {
+func TestQUICRollingALPNCompatibility(t *testing.T) {
+	legacy := "tsh-device-link-p2p/2"
+	tests := []struct {
+		name            string
+		callerProtocols []string
+		ownerProtocols  []string
+	}{
+		{name: "new caller old owner", callerProtocols: []string{ALPN, legacy}, ownerProtocols: []string{legacy}},
+		{name: "old caller new owner", callerProtocols: []string{legacy}, ownerProtocols: []string{ALPN, legacy}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runQUICRoundTrip(
+				t,
+				context.Background(),
+				listenLoopbackUDP6(t),
+				listenLoopbackUDP6(t),
+				tt.callerProtocols,
+				tt.ownerProtocols,
+				legacy,
+			)
+		})
+	}
+}
+
+func runQUICRoundTrip(
+	t *testing.T,
+	parent context.Context,
+	callerUDP, ownerUDP *net.UDPConn,
+	callerProtocols, ownerProtocols []string,
+	expectedProtocol string,
+) {
 	t.Helper()
 	callerEndpoint, err := NewQUICEndpoint(callerUDP)
 	if err != nil {
@@ -96,11 +128,11 @@ func runQUICRoundTrip(t *testing.T, parent context.Context, callerUDP, ownerUDP 
 	if err != nil {
 		t.Fatal(err)
 	}
-	serverTLS, err := ownerIdentity.ServerTLSConfig(callerIdentity.Fingerprint)
+	serverTLS, err := ownerIdentity.ServerTLSConfigForProtocols(callerIdentity.Fingerprint, ownerProtocols)
 	if err != nil {
 		t.Fatal(err)
 	}
-	clientTLS, err := callerIdentity.ClientTLSConfig(ownerIdentity.Fingerprint)
+	clientTLS, err := callerIdentity.ClientTLSConfigForProtocols(ownerIdentity.Fingerprint, callerProtocols)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +152,10 @@ func runQUICRoundTrip(t *testing.T, parent context.Context, callerUDP, ownerUDP 
 			return
 		}
 		defer session.Close()
+		if got := session.NegotiatedProtocol(); got != expectedProtocol {
+			serverDone <- fmt.Errorf("server negotiated protocol = %q, want %q", got, expectedProtocol)
+			return
+		}
 		stream, err := session.AcceptStream(ctx)
 		if err != nil {
 			serverDone <- err
@@ -133,6 +169,9 @@ func runQUICRoundTrip(t *testing.T, parent context.Context, callerUDP, ownerUDP 
 	clientSession, err := callerEndpoint.Dial(ctx, ownerUDP.LocalAddr().(*net.UDPAddr), clientTLS)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got := clientSession.NegotiatedProtocol(); got != expectedProtocol {
+		t.Fatalf("negotiated protocol = %q, want %q", got, expectedProtocol)
 	}
 	stream, err := clientSession.OpenStream(ctx)
 	if err != nil {

@@ -20,6 +20,71 @@ required by Go's dependency direction; it does not own account, pairing,
 rendezvous, or Agent behavior. Product bridges must not expose raw
 `QUICEndpoint.Listen` or `Dial`.
 
+## Managed connection lifecycle
+
+The `linkmanager` package owns the reusable lifecycle mechanics that sit above
+an authenticated link:
+
+- generation-fenced admission, so a connection completed after invalidation
+  cannot re-enter the pool;
+- one in-flight establishment per opaque peer key;
+- authenticated link reuse, stream reference counting, idle retirement, and
+  deterministic collision resolution;
+- a delayed two-path race that closes every losing late connection;
+- an annealed direct-probe cache with bounded peer state and explicit
+  environment invalidation.
+
+The manager does not name or authenticate direct, Relay, room, account, or
+rendezvous paths. Product adapters inject opaque keys and metadata, dial
+functions, path timing, and policy. In particular, a consumer may let a
+preferred-path probe continue after a fallback path wins so it can learn direct
+reachability; that detached probe must have its own deadline and close every
+connection it does not register. Cache only path reachability failures, never
+authorization, control-plane, or product-policy failures. `ClaimProbe` returns
+a generation-bound lease; complete it with `RecordFailure`, `RecordSuccess`, or
+`Close` so invalidation can fence every late probe result.
+
+The intended integration is:
+
+```text
+product attempt + credentials
+  -> linkmanager admission snapshot
+  -> product-supplied direct/fallback dial policy
+  -> authenticated.Participant.Connect
+  -> linkmanager.Register
+  -> shared OpenStream / incoming stream handler
+```
+
+One admission snapshot may register at most one link. Network, credential, or
+ownership changes invalidate the relevant peer generation before the old
+attempt is cancelled. A product-wide availability gate uses `SetEnabled(false)`
+to fence current and future admissions until explicitly re-enabled. Shutdown
+first begins manager quiescence, which rejects new admissions and streams, then
+waits for accepted stream handlers to finish. Link observations carry a
+per-connection sequence; projections must ignore older deliveries and treat
+`disconnected` as terminal for that globally comparable connection ID.
+
+Tutti's `mobileremote` Desktop owner is the first production adapter: it keeps
+pairing, identity proof, rendezvous, and Agent framing in `tuttid`, while the
+shared manager owns the authenticated link and incoming stream lifecycle.
+
+## Trickle ICE and protocol migration
+
+Consumers that exchange candidates incrementally call
+`StartLocalDescription`, publish candidate additions from
+`LocalCandidateChanges`, and publish a final
+`LocalDescriptionSnapshot` when `LocalGatheringComplete` closes. Remote
+candidates may arrive before or after `Connect` through
+`AddRemoteCandidates`. A `Participant` represents one connection attempt and
+must not be reused after completion or cancellation.
+
+`ALPN` remains the canonical protocol name. During a rolling migration, a
+consumer may add a bounded list of `CompatibleProtocols`; the canonical value
+is always offered first. After connection, `Link.NegotiatedProtocol` lets the
+product adapter select only the matching application framing. Compatibility
+entries are a temporary cutover tool, not a promise that old wire protocols
+share semantics.
+
 ## Mobile vertical slice
 
 The `mobile` package deliberately exposes only a gomobile-safe authenticated

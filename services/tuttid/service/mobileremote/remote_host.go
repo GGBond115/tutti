@@ -10,6 +10,7 @@ import (
 	"time"
 
 	authenticatedlink "github.com/tutti-os/tutti/packages/device-link/authenticated"
+	"github.com/tutti-os/tutti/packages/device-link/linkmanager"
 	mobileremotebiz "github.com/tutti-os/tutti/services/tuttid/biz/mobileremote"
 )
 
@@ -25,42 +26,69 @@ type activeRemoteAttempt struct {
 	generation uint64
 }
 
+type remoteLinkMetadata struct {
+	pairingID  string
+	handler    http.Handler
+	liveEvents AgentLiveEventSource
+}
+
+type remoteManagedLink struct {
+	connectionID string
+}
+
 type remoteHostState struct {
 	mu sync.Mutex
 
-	cancel            context.CancelFunc
-	handler           http.Handler
-	liveEvents        AgentLiveEventSource
-	attempts          map[string]activeRemoteAttempt
-	registeredSession string
-	registeredDevice  RegisteredDevice
-	registerAfter     time.Time
-	nextGeneration    uint64
+	cancel             context.CancelFunc
+	stopping           bool
+	stopDone           chan struct{}
+	handler            http.Handler
+	liveEvents         AgentLiveEventSource
+	attempts           map[string]activeRemoteAttempt
+	registeredSession  string
+	registeredDevice   RegisteredDevice
+	registerAfter      time.Time
+	nextGeneration     uint64
+	linkManager        *linkmanager.Manager[string, remoteLinkMetadata]
+	managedLinks       map[string]remoteManagedLink
+	observedLinkEvents map[string]uint64
 }
 
 func (s *Service) StartRemoteHost(handler http.Handler) {
 	if s == nil || handler == nil {
 		return
 	}
-	s.remoteHost.mu.Lock()
-	if s.remoteHost.cancel != nil {
+	for {
+		s.remoteHost.mu.Lock()
+		if s.remoteHost.stopping {
+			done := s.remoteHost.stopDone
+			s.remoteHost.mu.Unlock()
+			<-done
+			continue
+		}
+		if s.remoteHost.cancel != nil {
+			s.remoteHost.handler = handler
+			s.remoteHost.liveEvents = s.AgentLiveEvents
+			s.remoteHost.mu.Unlock()
+			return
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		s.remoteWG.Add(1)
+		s.remoteHost.cancel = cancel
 		s.remoteHost.handler = handler
 		s.remoteHost.liveEvents = s.AgentLiveEvents
+		s.remoteHost.attempts = make(map[string]activeRemoteAttempt)
+		s.remoteHost.managedLinks = make(map[string]remoteManagedLink)
+		s.remoteHost.observedLinkEvents = make(map[string]uint64)
+		s.remoteHost.linkManager = s.newRemoteLinkManager()
 		s.remoteHost.mu.Unlock()
+
+		go func() {
+			defer s.remoteWG.Done()
+			s.runRemoteHost(ctx)
+		}()
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	s.remoteHost.cancel = cancel
-	s.remoteHost.handler = handler
-	s.remoteHost.liveEvents = s.AgentLiveEvents
-	s.remoteHost.attempts = make(map[string]activeRemoteAttempt)
-	s.remoteHost.mu.Unlock()
-
-	s.remoteWG.Add(1)
-	go func() {
-		defer s.remoteWG.Done()
-		s.runRemoteHost(ctx)
-	}()
 }
 
 func (s *Service) Close() {
@@ -68,16 +96,45 @@ func (s *Service) Close() {
 		return
 	}
 	s.remoteHost.mu.Lock()
+	if s.remoteHost.stopping {
+		done := s.remoteHost.stopDone
+		s.remoteHost.mu.Unlock()
+		<-done
+		return
+	}
 	cancel := s.remoteHost.cancel
-	s.remoteHost.cancel = nil
+	manager := s.remoteHost.linkManager
+	if cancel == nil && manager == nil {
+		s.remoteHost.mu.Unlock()
+		return
+	}
+	done := make(chan struct{})
+	s.remoteHost.stopping = true
+	s.remoteHost.stopDone = done
 	for _, attempt := range s.remoteHost.attempts {
 		attempt.cancel()
 	}
 	s.remoteHost.mu.Unlock()
+	if manager != nil {
+		manager.BeginQuiescence()
+	}
 	if cancel != nil {
 		cancel()
 	}
 	s.remoteWG.Wait()
+	if manager != nil {
+		_ = manager.WaitForQuiescence(context.Background())
+	}
+	s.remoteHost.mu.Lock()
+	s.remoteHost.cancel = nil
+	s.remoteHost.linkManager = nil
+	s.remoteHost.attempts = nil
+	s.remoteHost.managedLinks = nil
+	s.remoteHost.observedLinkEvents = nil
+	s.remoteHost.stopping = false
+	s.remoteHost.stopDone = nil
+	close(done)
+	s.remoteHost.mu.Unlock()
 }
 
 func (s *Service) runRemoteHost(ctx context.Context) {
@@ -104,6 +161,7 @@ func (s *Service) pollRemoteHost(ctx context.Context) {
 		s.stopRemoteAttempts(nil)
 		return
 	}
+	s.setRemoteLinkEnabled(true)
 	registered, err := s.ensureRegisteredDevice(ctx, session.SessionID, session.Cookie, identity)
 	if err != nil {
 		if isControlPlaneUnauthorized(err) {
@@ -184,6 +242,10 @@ func (s *Service) startRemoteAttempt(
 	attempt DeviceLinkAttempt,
 ) {
 	s.remoteHost.mu.Lock()
+	if s.remoteHost.stopping || s.remoteHost.cancel == nil || parent.Err() != nil {
+		s.remoteHost.mu.Unlock()
+		return
+	}
 	if _, exists := s.remoteHost.attempts[attempt.AttemptID]; exists {
 		s.remoteHost.mu.Unlock()
 		return
@@ -196,9 +258,9 @@ func (s *Service) startRemoteAttempt(
 	}
 	handler := s.remoteHost.handler
 	liveEvents := s.remoteHost.liveEvents
+	s.remoteWG.Add(1)
 	s.remoteHost.mu.Unlock()
 
-	s.remoteWG.Add(1)
 	go func() {
 		defer s.remoteWG.Done()
 		defer cancel()
@@ -222,14 +284,19 @@ func (s *Service) finishRemoteAttempt(attemptID string, generation uint64) {
 }
 
 func (s *Service) stopRemotePairing(pairingID string) {
+	pairingID = strings.TrimSpace(pairingID)
 	s.remoteHost.mu.Lock()
-	defer s.remoteHost.mu.Unlock()
 	for attemptID, attempt := range s.remoteHost.attempts {
-		if attempt.pairingID != strings.TrimSpace(pairingID) {
+		if attempt.pairingID != pairingID {
 			continue
 		}
 		attempt.cancel()
 		delete(s.remoteHost.attempts, attemptID)
+	}
+	manager := s.remoteHost.linkManager
+	s.remoteHost.mu.Unlock()
+	if manager != nil {
+		manager.Invalidate(pairingID)
 	}
 }
 
@@ -288,6 +355,17 @@ func (s *Service) serveRemoteAttempt(
 		handshakeCtx, cancelHandshake = context.WithDeadline(ctx, deadline)
 	}
 	defer cancelHandshake()
+	s.remoteHost.mu.Lock()
+	manager := s.remoteHost.linkManager
+	s.remoteHost.mu.Unlock()
+	if manager == nil {
+		return
+	}
+	admission, err := manager.Admit(handshakeCtx, pairingID)
+	if err != nil {
+		return
+	}
+	defer admission.Close()
 	participant, err := authenticatedlink.NewParticipant(authenticatedlink.ParticipantConfig{
 		STUNEndpoints:   append([]string(nil), attempt.STUNEndpoints...),
 		IncludeLoopback: s.includeLoopback,
@@ -295,7 +373,12 @@ func (s *Service) serveRemoteAttempt(
 	if err != nil {
 		return
 	}
-	defer participant.Close()
+	transferred := false
+	defer func() {
+		if !transferred {
+			_ = participant.Close()
+		}
+	}()
 	description, err := participant.LocalDescription(handshakeCtx)
 	if err != nil {
 		return
@@ -332,25 +415,25 @@ func (s *Service) serveRemoteAttempt(
 	if err != nil {
 		return
 	}
-	cancelHandshake()
-	defer link.Close()
-
-	for {
-		stream, err := link.AcceptStream(ctx)
-		if err != nil {
-			return
-		}
-		s.remoteWG.Add(1)
-		go func() {
-			defer s.remoteWG.Done()
-			_ = serveRemoteStreamWithAgentLive(ctx, stream, handler, pairingID, liveEvents)
-		}()
+	_, err = manager.Register(admission, linkmanager.Registration[string, remoteLinkMetadata]{
+		Key:          pairingID,
+		ConnectionID: attempt.AttemptID,
+		Link:         link,
+		Metadata: remoteLinkMetadata{
+			pairingID: pairingID, handler: handler, liveEvents: liveEvents,
+		},
+		HandleIncoming: serveManagedRemoteStream,
+	})
+	transferred = true
+	if err != nil {
+		return
 	}
+	cancelHandshake()
 }
 
 func (s *Service) stopRemoteAttempts(validPairings map[string]struct{}) {
 	s.remoteHost.mu.Lock()
-	defer s.remoteHost.mu.Unlock()
+	invalidPairingSet := make(map[string]struct{})
 	for attemptID, attempt := range s.remoteHost.attempts {
 		if validPairings != nil {
 			if _, valid := validPairings[attempt.pairingID]; valid {
@@ -359,12 +442,84 @@ func (s *Service) stopRemoteAttempts(validPairings map[string]struct{}) {
 		}
 		attempt.cancel()
 		delete(s.remoteHost.attempts, attemptID)
+		invalidPairingSet[attempt.pairingID] = struct{}{}
+	}
+	manager := s.remoteHost.linkManager
+	for pairingID := range s.remoteHost.managedLinks {
+		if validPairings != nil {
+			if _, valid := validPairings[pairingID]; valid {
+				continue
+			}
+		}
+		invalidPairingSet[pairingID] = struct{}{}
 	}
 	if validPairings == nil {
 		s.remoteHost.registeredSession = ""
 		s.remoteHost.registeredDevice = RegisteredDevice{}
 		s.remoteHost.registerAfter = time.Time{}
 	}
+	s.remoteHost.mu.Unlock()
+	if manager == nil {
+		return
+	}
+	if validPairings == nil {
+		_ = manager.SetEnabled(false)
+		return
+	}
+	for pairingID := range invalidPairingSet {
+		manager.Invalidate(pairingID)
+	}
+}
+
+func (s *Service) setRemoteLinkEnabled(enabled bool) {
+	s.remoteHost.mu.Lock()
+	manager := s.remoteHost.linkManager
+	s.remoteHost.mu.Unlock()
+	if manager != nil {
+		_ = manager.SetEnabled(enabled)
+	}
+}
+
+func (s *Service) newRemoteLinkManager() *linkmanager.Manager[string, remoteLinkMetadata] {
+	return linkmanager.NewManager(linkmanager.ManagerConfig[string, remoteLinkMetadata]{
+		Observe: func(event linkmanager.LinkEvent[string, remoteLinkMetadata]) {
+			s.remoteHost.mu.Lock()
+			defer s.remoteHost.mu.Unlock()
+			if s.remoteHost.observedLinkEvents == nil {
+				s.remoteHost.observedLinkEvents = make(map[string]uint64)
+			}
+			if event.Sequence <= s.remoteHost.observedLinkEvents[event.ConnectionID] {
+				return
+			}
+			s.remoteHost.observedLinkEvents[event.ConnectionID] = event.Sequence
+			switch event.State {
+			case linkmanager.LinkReady:
+				if s.remoteHost.managedLinks != nil {
+					s.remoteHost.managedLinks[event.Key] = remoteManagedLink{
+						connectionID: event.ConnectionID,
+					}
+				}
+			case linkmanager.LinkDisconnected:
+				if s.remoteHost.managedLinks[event.Key].connectionID == event.ConnectionID {
+					delete(s.remoteHost.managedLinks, event.Key)
+				}
+			}
+		},
+	})
+}
+
+func serveManagedRemoteStream(
+	ctx context.Context,
+	incoming linkmanager.IncomingStream[string, remoteLinkMetadata],
+) error {
+	metadata := incoming.Metadata
+	return serveRemoteStreamWithAgentLive(
+		ctx,
+		incoming.Stream,
+		metadata.handler,
+		metadata.pairingID,
+		metadata.liveEvents,
+	)
 }
 
 func deviceLinkProof(action, pairingID, attemptID, fingerprint string) []byte {

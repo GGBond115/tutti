@@ -109,6 +109,16 @@ type QUICSession struct {
 	conn *quic.Conn
 }
 
+// NegotiatedProtocol reports the ALPN selected by the authenticated QUIC
+// handshake. Consumers use it to measure and retire temporary compatibility
+// protocols after a rolling migration.
+func (s *QUICSession) NegotiatedProtocol() string {
+	if s == nil || s.conn == nil {
+		return ""
+	}
+	return s.conn.ConnectionState().TLS.NegotiatedProtocol
+}
+
 func (s *QUICSession) OpenStream(ctx context.Context) (net.Conn, error) {
 	if s == nil || s.conn == nil {
 		return nil, errors.New("device-link QUIC session is closed")

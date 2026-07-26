@@ -12,10 +12,14 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 )
 
-const identityLifetime = 5 * time.Minute
+const (
+	identityLifetime = 5 * time.Minute
+	maxALPNProtocols = 4
+)
 
 type Identity struct {
 	Certificate tls.Certificate
@@ -64,16 +68,34 @@ func NewEphemeralIdentity(now time.Time) (Identity, error) {
 }
 
 func (i Identity) ClientTLSConfig(expectedPeerFingerprint string) (*tls.Config, error) {
-	return i.tlsConfig(expectedPeerFingerprint, false)
+	return i.ClientTLSConfigForProtocols(expectedPeerFingerprint, nil)
 }
 
 func (i Identity) ServerTLSConfig(expectedPeerFingerprint string) (*tls.Config, error) {
-	return i.tlsConfig(expectedPeerFingerprint, true)
+	return i.ServerTLSConfigForProtocols(expectedPeerFingerprint, nil)
 }
 
-func (i Identity) tlsConfig(expectedPeerFingerprint string, server bool) (*tls.Config, error) {
+// ClientTLSConfigForProtocols builds the pinned client TLS configuration with
+// an explicit ordered ALPN compatibility set. An empty set uses the canonical
+// DeviceLink ALPN. Product adapters may temporarily include an older protocol
+// during a rolling migration without forking certificate or pinning behavior.
+func (i Identity) ClientTLSConfigForProtocols(expectedPeerFingerprint string, protocols []string) (*tls.Config, error) {
+	return i.tlsConfig(expectedPeerFingerprint, protocols, false)
+}
+
+// ServerTLSConfigForProtocols is the server-side counterpart of
+// ClientTLSConfigForProtocols.
+func (i Identity) ServerTLSConfigForProtocols(expectedPeerFingerprint string, protocols []string) (*tls.Config, error) {
+	return i.tlsConfig(expectedPeerFingerprint, protocols, true)
+}
+
+func (i Identity) tlsConfig(expectedPeerFingerprint string, protocols []string, server bool) (*tls.Config, error) {
 	if len(i.Certificate.Certificate) == 0 || i.Certificate.PrivateKey == nil {
 		return nil, errors.New("device-link identity certificate is required")
+	}
+	protocols, err := normalizeALPNProtocols(protocols)
+	if err != nil {
+		return nil, err
 	}
 	expected, err := base64.RawURLEncoding.DecodeString(expectedPeerFingerprint)
 	if err != nil || len(expected) != sha256.Size {
@@ -99,7 +121,7 @@ func (i Identity) tlsConfig(expectedPeerFingerprint string, server bool) (*tls.C
 	config := &tls.Config{
 		Certificates:          []tls.Certificate{i.Certificate},
 		MinVersion:            tls.VersionTLS13,
-		NextProtos:            []string{ALPN},
+		NextProtos:            protocols,
 		InsecureSkipVerify:    true, // Verification is the strict SPKI pin above.
 		VerifyPeerCertificate: verify,
 	}
@@ -107,6 +129,32 @@ func (i Identity) tlsConfig(expectedPeerFingerprint string, server bool) (*tls.C
 		config.ClientAuth = tls.RequireAnyClientCert
 	}
 	return config, nil
+}
+
+func normalizeALPNProtocols(protocols []string) ([]string, error) {
+	if len(protocols) == 0 {
+		return []string{ALPN}, nil
+	}
+	if len(protocols) > maxALPNProtocols {
+		return nil, fmt.Errorf("device-link ALPN compatibility set exceeds %d entries", maxALPNProtocols)
+	}
+	normalized := make([]string, 0, len(protocols))
+	seen := make(map[string]struct{}, len(protocols))
+	for _, protocol := range protocols {
+		protocol = strings.TrimSpace(protocol)
+		if protocol == "" || len(protocol) > 255 {
+			return nil, errors.New("device-link ALPN protocol must contain 1 to 255 bytes")
+		}
+		if _, ok := seen[protocol]; ok {
+			continue
+		}
+		seen[protocol] = struct{}{}
+		normalized = append(normalized, protocol)
+	}
+	if len(normalized) == 0 {
+		return nil, errors.New("device-link ALPN compatibility set is empty")
+	}
+	return normalized, nil
 }
 
 func fingerprintSPKI(spki []byte) string {

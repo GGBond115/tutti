@@ -2,17 +2,21 @@
 
 Status: accepted product direction; Personal direct-lane MVP in implementation
 
-## Implementation progress (2026-07-25)
+## Implementation progress (2026-07-27)
 
 The provisional `packages/device-link` core now preserves the production ICE,
 QUIC, certificate-pinning, candidate filtering and privacy behavior extracted
-from TSH. Personal Desktop and Android consume the same authenticated facade;
-the direct lane includes paired-device rendezvous, framed Agent HTTP, request
-deadlines and foreground/background close behavior. Android 15 ARM64 emulator
-build/install/start and authenticated loopback integration pass. Real-account
-physical-device network transitions, Relay fallback and event streaming remain
-acceptance work. The module is not yet a stable released cross-repository
-contract.
+from TSH. It also owns the shared generation fence, authenticated link pool,
+per-peer establishment serialization, connection race, annealed path-probe
+cache, trickle-ICE facade, and rolling ALPN compatibility seam. Product
+adapters still own room/device identity, rendezvous, Relay credentials and
+fallback policy. Personal Desktop and Android consume the same authenticated
+facade; the direct lane includes paired-device rendezvous, framed Agent HTTP,
+request deadlines, event streaming and foreground/background close behavior.
+Android 15 ARM64 emulator build/install/start and authenticated loopback
+integration pass. Real-account physical-device network transitions and Relay
+fallback remain acceptance work. TSH cutover to the shared manager is still
+pending, so the module is not yet a stable released cross-repository contract.
 
 The Mobile shell now uses mutually exclusive unauthenticated/authenticated DI
 children and one active workspace child. Login, pairing, DeviceLink lifecycle,
@@ -53,7 +57,8 @@ MVP 不包含：
 - 完整复制桌面右侧面板；
 - TSH/VM 用户入口；
 - Web 与 React Native 组件源码的全面统一；
-- 前期多版本协议兼容、迁移 shim 或灰度兼容窗口。
+- 长期多版本协议兼容矩阵；只保留 TSH 切换期间有界、可观测、可删除的临时 ALPN
+  seam。
 
 ## 4. 设计原则
 
@@ -62,7 +67,8 @@ MVP 不包含：
 - Session、Turn、Interaction、Goal 和 runtime operation 的生命周期仍由 `packages/agent/host` 唯一定义。
 - 移动端使用同一个 workspace `AgentSessionEngine` 语义，不创建 `MobileSession`、`RemoteSession` 或第二套会话状态机。
 - `tsh-server` 只拥有账号、设备、配对、在线发现和短期 rendezvous 状态。
-- DeviceLink 只拥有认证链路、P2P/Relay 选路和双向流，不解释 Agent DTO。
+- DeviceLink 只拥有认证链路、product-neutral 双路径竞速和双向流，不解释 Agent
+  DTO；direct/Relay 身份认证与选路策略由产品 adapter 注入。
 - React Native 只拥有导航、展示和设备本地的临时 UI 状态。
 
 ### 4.2 复用协议，不镜像页面
@@ -161,7 +167,8 @@ Mobile 使用稳定 Bootstrap container。未登录 child 与登录后 child 互
 
 新增一个先由 Personal 验证、随后再稳定为跨消费者边界的 `packages/device-link`：
 
-- 从 TSH 现有生产实现提炼 Go ICE、STUN candidate、QUIC、证书 pinning、连接竞速、负缓存和 Relay fallback；
+- 从 TSH 现有生产实现提炼 Go ICE、STUN candidate、QUIC、证书 pinning、连接竞速、
+  负缓存，以及供产品 adapter 注入 direct/Relay 的生命周期 seam；
 - 暴露认证后的双向流，不包含 Session、Turn、Composer 或 Workspace 业务实体；
 - 提供 gomobile/AAR 构建入口；
 - 在 Personal Desktop 和 Android 闭环验收后，成为 Tutti Desktop、TSH Desktop 和 Android 的共同源头。
@@ -181,7 +188,9 @@ TSH 当前代码作为 donor implementation。Personal 验收前不要求 TSH �
 - 投影 Android 网络变化与前后台生命周期；
 - 返回经过清洗的连接状态和错误分类。
 
-ICE、QUIC、证书校验、连接竞速和 Relay 选路不得在 Kotlin 中重写。
+ICE、QUIC、证书校验、连接竞速和探测退避不得在 Kotlin 中重写。direct/Relay
+身份认证、fallback 延迟和错误分类仍由产品 adapter 决定，并通过共享 manager
+提供的 dial、race 和 probe seam 接入。
 
 ### 7.3 业务传输
 
@@ -486,8 +495,12 @@ Wi-Fi/蜂窝切换和 VPN/TUN 失败分类仍待验证。
 完成条件：Personal Desktop 与 Android 真机通过同一 facade 建立链路，原始
 `QUICEndpoint` 不进入产品桥接；TSH 仍保持现状，不阻塞 Personal 验证。
 
-当前进度：共享 facade、Desktop owner host、Android caller bridge 和真实
-authenticated stream 集成测试已完成；真机跨网络验证仍待完成。
+当前进度：共享 facade、Desktop owner host、Android caller bridge、真实
+authenticated stream 集成测试，以及代际隔离、连接池、建连去重、连接竞速和探测
+退避的 product-neutral manager 均已完成；Tutti Desktop `mobileremote` owner
+已经作为首个 adapter 接管共享 manager，TSH adapter 切换和真机跨网络验证仍待
+完成。Relay 身份认证、控制面、fallback 产品策略和 TSH 产品诊断继续由消费端
+拥有。
 
 ### M2 — 设备、配对和控制面
 

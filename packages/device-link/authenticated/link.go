@@ -27,6 +27,10 @@ type ParticipantConfig struct {
 	STUNGatherTimeout     time.Duration
 	ExcludeHostCandidates bool
 	IncludeLoopback       bool
+	// CompatibleProtocols appends temporary legacy ALPN values after the
+	// canonical DeviceLink protocol. It exists for rolling consumer migrations;
+	// new integrations leave it empty.
+	CompatibleProtocols []string
 }
 
 type Description struct {
@@ -37,8 +41,9 @@ type Description struct {
 }
 
 type Participant struct {
-	identity devicelink.Identity
-	agent    *icequic.Agent
+	identity  devicelink.Identity
+	agent     *icequic.Agent
+	protocols []string
 
 	mu             sync.Mutex
 	connectStarted bool
@@ -52,6 +57,10 @@ func NewParticipant(cfg ParticipantConfig) (*Participant, error) {
 	if err != nil {
 		return nil, err
 	}
+	protocols := append([]string{devicelink.ALPN}, cfg.CompatibleProtocols...)
+	if _, err := identity.ClientTLSConfigForProtocols(identity.Fingerprint, protocols); err != nil {
+		return nil, fmt.Errorf("configure device-link protocols: %w", err)
+	}
 	agent, err := icequic.NewAgent(icequic.AgentConfig{
 		STUNEndpoints:         append([]string(nil), cfg.STUNEndpoints...),
 		NetworkPolicy:         icequic.NetworkPolicy(strings.TrimSpace(cfg.NetworkPolicy)),
@@ -62,32 +71,86 @@ func NewParticipant(cfg ParticipantConfig) (*Participant, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Participant{identity: identity, agent: agent}, nil
+	return &Participant{identity: identity, agent: agent, protocols: protocols}, nil
+}
+
+// StartLocalDescription starts asynchronous candidate gathering and returns
+// the current authenticated description immediately. Candidates may be empty;
+// callers publish later snapshots when LocalCandidateChanges fires.
+func (p *Participant) StartLocalDescription() (Description, error) {
+	agent, fingerprint, err := p.transport()
+	if err != nil {
+		return Description{}, err
+	}
+	params, err := agent.StartGathering()
+	if err != nil {
+		return Description{}, err
+	}
+	return descriptionFromParams(fingerprint, params), nil
+}
+
+// LocalDescriptionSnapshot returns the credentials and candidates gathered so
+// far without waiting for gathering completion.
+func (p *Participant) LocalDescriptionSnapshot() (Description, error) {
+	agent, fingerprint, err := p.transport()
+	if err != nil {
+		return Description{}, err
+	}
+	params, err := agent.LocalParamsSnapshot()
+	if err != nil {
+		return Description{}, err
+	}
+	return descriptionFromParams(fingerprint, params), nil
+}
+
+// LocalCandidateChanges coalesces local candidate arrivals. Candidate values
+// remain available only through LocalDescriptionSnapshot.
+func (p *Participant) LocalCandidateChanges() <-chan struct{} {
+	agent := p.channelAgent()
+	if agent == nil {
+		return nil
+	}
+	return agent.CandidateChanges()
+}
+
+// LocalGatheringComplete is closed when local ICE gathering finishes.
+func (p *Participant) LocalGatheringComplete() <-chan struct{} {
+	agent := p.channelAgent()
+	if agent == nil {
+		return nil
+	}
+	return agent.GatheringComplete()
+}
+
+// Done is closed when the participant transport is closed.
+func (p *Participant) Done() <-chan struct{} {
+	agent := p.channelAgent()
+	if agent == nil {
+		return nil
+	}
+	return agent.Done()
+}
+
+// AddRemoteCandidates trickles newly published peer candidates into an
+// in-progress Connect. Duplicate and malformed candidates are ignored.
+func (p *Participant) AddRemoteCandidates(candidates []string) int {
+	agent, _, err := p.transport()
+	if err != nil {
+		return 0
+	}
+	return agent.AddRemoteCandidates(candidates)
 }
 
 func (p *Participant) LocalDescription(ctx context.Context) (Description, error) {
-	if p == nil {
-		return Description{}, errors.New("device-link participant is unavailable")
+	agent, fingerprint, err := p.transport()
+	if err != nil {
+		return Description{}, err
 	}
-	p.mu.Lock()
-	if p.closed || p.agent == nil {
-		p.mu.Unlock()
-		return Description{}, errors.New("device-link participant is closed")
-	}
-	agent := p.agent
-	fingerprint := p.identity.Fingerprint
-	p.mu.Unlock()
-
 	params, err := agent.LocalParams(ctx)
 	if err != nil {
 		return Description{}, err
 	}
-	return Description{
-		Fingerprint: fingerprint,
-		Ufrag:       params.Ufrag,
-		Pwd:         params.Pwd,
-		Candidates:  append([]string(nil), params.Candidates...),
-	}, nil
+	return descriptionFromParams(fingerprint, params), nil
 }
 
 func (p *Participant) Connect(
@@ -104,6 +167,9 @@ func (p *Participant) Connect(
 	if role != RoleCaller && role != RoleOwner {
 		return nil, fmt.Errorf("unsupported device-link role %q", role)
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	p.mu.Lock()
 	if p.closed || p.agent == nil {
@@ -119,9 +185,10 @@ func (p *Participant) Connect(
 	p.connectCancel = cancel
 	agent := p.agent
 	identity := p.identity
+	protocols := append([]string(nil), p.protocols...)
 	p.mu.Unlock()
 
-	link, err := connectLink(connectCtx, agent, identity, peer, role)
+	link, err := connectLink(connectCtx, agent, identity, protocols, peer, role)
 	cancel()
 	if err != nil {
 		_ = agent.Close()
@@ -195,6 +262,13 @@ func (l *Link) SelectedScope() string {
 	return l.scope
 }
 
+func (l *Link) NegotiatedProtocol() string {
+	if l == nil || l.session == nil {
+		return ""
+	}
+	return l.session.NegotiatedProtocol()
+}
+
 func (l *Link) Close() error {
 	if l == nil {
 		return nil
@@ -210,6 +284,7 @@ func connectLink(
 	ctx context.Context,
 	agent *icequic.Agent,
 	identity devicelink.Identity,
+	protocols []string,
 	peer Description,
 	role Role,
 ) (*Link, error) {
@@ -231,14 +306,14 @@ func connectLink(
 
 	var session *devicelink.QUICSession
 	if role == RoleCaller {
-		tlsConfig, configErr := identity.ClientTLSConfig(peer.Fingerprint)
+		tlsConfig, configErr := identity.ClientTLSConfigForProtocols(peer.Fingerprint, protocols)
 		if configErr != nil {
 			_ = endpoint.Close()
 			return nil, configErr
 		}
 		session, err = endpoint.Dial(ctx, path.RemoteAddr(), tlsConfig)
 	} else {
-		tlsConfig, configErr := identity.ServerTLSConfig(peer.Fingerprint)
+		tlsConfig, configErr := identity.ServerTLSConfigForProtocols(peer.Fingerprint, protocols)
 		if configErr != nil {
 			_ = endpoint.Close()
 			return nil, configErr
@@ -268,8 +343,35 @@ func validateDescription(description Description) error {
 	if strings.TrimSpace(description.Ufrag) == "" || strings.TrimSpace(description.Pwd) == "" {
 		return errors.New("peer device-link ICE credentials are required")
 	}
-	if len(description.Candidates) == 0 {
-		return errors.New("peer device-link candidates are required")
-	}
 	return nil
+}
+
+func (p *Participant) transport() (*icequic.Agent, string, error) {
+	if p == nil {
+		return nil, "", errors.New("device-link participant is unavailable")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed || p.agent == nil {
+		return nil, "", errors.New("device-link participant is closed")
+	}
+	return p.agent, p.identity.Fingerprint, nil
+}
+
+func (p *Participant) channelAgent() *icequic.Agent {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.agent
+}
+
+func descriptionFromParams(fingerprint string, params icequic.LocalParams) Description {
+	return Description{
+		Fingerprint: fingerprint,
+		Ufrag:       params.Ufrag,
+		Pwd:         params.Pwd,
+		Candidates:  append([]string(nil), params.Candidates...),
+	}
 }

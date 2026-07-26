@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 
 	authbridge "github.com/tutti-os/tutti/packages/auth/bridge-go"
 	authenticatedlink "github.com/tutti-os/tutti/packages/device-link/authenticated"
+	"github.com/tutti-os/tutti/packages/device-link/linkmanager"
 	mobileremotebiz "github.com/tutti-os/tutti/services/tuttid/biz/mobileremote"
 )
 
@@ -228,6 +230,77 @@ func TestRemoteHostAttemptCleanupDoesNotDeleteNewGeneration(t *testing.T) {
 	}
 }
 
+func TestRemoteHostDisablesSharedAdmissionUntilIdentityRecovers(t *testing.T) {
+	t.Parallel()
+	service := &Service{}
+	service.remoteHost.managedLinks = make(map[string]remoteManagedLink)
+	service.remoteHost.observedLinkEvents = make(map[string]uint64)
+	service.remoteHost.linkManager = service.newRemoteLinkManager()
+	manager := service.remoteHost.linkManager
+
+	service.stopRemoteAttempts(nil)
+	if _, err := manager.Admit(context.Background(), "pairing-1"); !errors.Is(err, linkmanager.ErrManagerDisabled) {
+		t.Fatalf("Admit while identity unavailable error = %v, want disabled", err)
+	}
+	service.setRemoteLinkEnabled(true)
+	admission, err := manager.Admit(context.Background(), "pairing-1")
+	if err != nil {
+		t.Fatalf("Admit after identity recovery: %v", err)
+	}
+	admission.Close()
+	if err := manager.WaitForQuiescence(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRemoteHostStartWaitsForInProgressClose(t *testing.T) {
+	t.Parallel()
+	service := &Service{}
+	service.remoteHost.cancel = func() {}
+	service.remoteHost.managedLinks = make(map[string]remoteManagedLink)
+	service.remoteHost.observedLinkEvents = make(map[string]uint64)
+	service.remoteHost.linkManager = service.newRemoteLinkManager()
+	admission, err := service.remoteHost.linkManager.Admit(context.Background(), "pairing-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	closed := make(chan struct{})
+	go func() {
+		service.Close()
+		close(closed)
+	}()
+	waitForRemoteHostCondition(t, func() bool {
+		service.remoteHost.mu.Lock()
+		defer service.remoteHost.mu.Unlock()
+		return service.remoteHost.stopping
+	})
+
+	started := make(chan struct{})
+	go func() {
+		service.StartRemoteHost(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		close(started)
+	}()
+	select {
+	case <-started:
+		t.Fatal("StartRemoteHost returned before the previous run closed")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	admission.Close()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not finish after admission release")
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("StartRemoteHost did not resume after Close")
+	}
+	service.Close()
+}
+
 func TestControlPlaneUnauthorizedClassification(t *testing.T) {
 	t.Parallel()
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
@@ -237,5 +310,16 @@ func TestControlPlaneUnauthorizedClassification(t *testing.T) {
 	}
 	if isControlPlaneUnauthorized(&ControlPlaneError{StatusCode: http.StatusInternalServerError}) {
 		t.Fatal("server error was classified as unauthorized")
+	}
+}
+
+func waitForRemoteHostCondition(t *testing.T, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for !condition() {
+		if time.Now().After(deadline) {
+			t.Fatal("remote host condition was not satisfied")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

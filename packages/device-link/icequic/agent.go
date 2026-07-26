@@ -271,11 +271,16 @@ func (a *Agent) LocalParams(ctx context.Context) (LocalParams, error) {
 	if a == nil || a.agent == nil {
 		return LocalParams{}, errors.New("device-link ICE agent is not initialized")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if _, err := a.StartGathering(); err != nil {
 		return LocalParams{}, err
 	}
 	select {
 	case <-a.gathered:
+	case <-a.done:
+		return LocalParams{}, errors.New("device-link ICE agent is closed")
 	case <-ctx.Done():
 		return LocalParams{}, ctx.Err()
 	}
@@ -329,6 +334,9 @@ func (a *Agent) Connect(ctx context.Context, remoteUfrag, remotePwd string, remo
 	if a == nil || a.agent == nil {
 		return nil, errors.New("device-link ICE agent is not initialized")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	remoteUfrag = strings.TrimSpace(remoteUfrag)
 	remotePwd = strings.TrimSpace(remotePwd)
 	if remoteUfrag == "" || remotePwd == "" {
@@ -374,11 +382,16 @@ func (a *Agent) SelectedScope() string {
 	if pair.Local.Type() == ice.CandidateTypeServerReflexive || pair.Remote.Type() == ice.CandidateTypeServerReflexive {
 		return ScopePublicInternet
 	}
-	if ip, err := netip.ParseAddr(pair.Remote.Address()); err == nil {
-		if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLoopback() {
-			return ScopePrivateNetwork
-		}
-		if ip.IsGlobalUnicast() {
+	if selectedHostPairScope(pair.Local.Address(), pair.Remote.Address()) == ScopePublicInternet {
+		return ScopePublicInternet
+	}
+	return ScopePrivateNetwork
+}
+
+func selectedHostPairScope(addresses ...string) string {
+	for _, address := range addresses {
+		ip, err := netip.ParseAddr(address)
+		if err == nil && ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !ip.IsLoopback() {
 			return ScopePublicInternet
 		}
 	}

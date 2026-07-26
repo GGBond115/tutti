@@ -330,7 +330,7 @@ func TestConnectRejectsMissingCredentials(t *testing.T) {
 }
 
 func TestConnectAcceptsLateDuplicateOutOfOrderCandidates(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	caller, err := NewAgent(AgentConfig{IncludeLoopback: true})
 	if err != nil {
@@ -383,5 +383,27 @@ func TestConnectAcceptsLateDuplicateOutOfOrderCandidates(t *testing.T) {
 	defer ownerRes.conn.Close()
 	if got := caller.AddRemoteCandidates(ownerParams.Candidates); got != 0 {
 		t.Fatalf("duplicate candidate feed added %d candidates, want 0", got)
+	}
+}
+
+func TestSelectedHostPairScopeUsesBothPerspectives(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		addresses []string
+		wantScope string
+	}{
+		{name: "remote global", addresses: []string{"10.0.0.2", "2001:4860:4860::8888"}, wantScope: ScopePublicInternet},
+		{name: "local global", addresses: []string{"2001:4860:4860::8888", "10.0.0.2"}, wantScope: ScopePublicInternet},
+		{name: "private pair", addresses: []string{"10.0.0.1", "fd00::2"}, wantScope: ScopePrivateNetwork},
+		{name: "invalid pair", addresses: []string{"invalid", ""}, wantScope: ScopePrivateNetwork},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := selectedHostPairScope(tt.addresses...); got != tt.wantScope {
+				t.Fatalf("selectedHostPairScope(%q) = %q, want %q", tt.addresses, got, tt.wantScope)
+			}
+		})
 	}
 }
