@@ -172,7 +172,8 @@ export class WorkspaceSettingsService implements IWorkspaceSettingsService {
     if (options?.pane === "managed-models" || requestedSection === "apps") {
       this.store.activeSection = "model";
     } else if (options?.section) {
-      this.store.activeSection = options.section;
+      this.store.activeSection =
+        options.section === "account" ? "connection" : options.section;
     }
     if (options?.anchor) {
       this.store.activeSection = "agent";
@@ -432,9 +433,6 @@ export class WorkspaceSettingsService implements IWorkspaceSettingsService {
 
   private applyTuttiAgentTargetEnabled(enabled: boolean): void {
     this.store.tuttiAgentSwitchEnabled = enabled;
-    if (!enabled && this.store.activeSection === "account") {
-      this.store.activeSection = "general";
-    }
   }
 
   private async refreshAgentTargetConsumers(): Promise<void> {

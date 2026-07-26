@@ -17,9 +17,9 @@ type WorkspaceSettingsReadonly<T> = T extends readonly (infer Item)[]
 
 export type WorkspaceSettingsSectionID =
   | "about"
-  | "account"
   | "agent"
   | "appearance"
+  | "connection"
   | "developer"
   | "general"
   | "lab"

@@ -472,9 +472,11 @@ pnpm mobile:android
 
 App 启动后，使用与 Desktop 相同的账号登录方式。如果 Desktop 使用 GitHub 登录，
 Mobile 也点击“使用 GitHub 登录”并在系统浏览器中完成登录；仅输入 GitHub 展示的
-相同邮箱不保证得到同一个账号 identity。登录成功后点击配对，优先扫描 Desktop
-二维码。首次扫码时允许 App 使用相机；如果当前环境无法使用相机，就在 Desktop
-点击“复制配对码”，再在 Mobile 展开手动配对入口并粘贴。
+相同邮箱不保证得到同一个账号 identity。Desktop 先在设置的开发者页打开
+“显示手机远程访问设置”，再进入「连接」并点击“配对手机”生成二维码。Mobile
+登录成功后点击配对，优先扫描 Desktop 二维码。首次扫码时允许 App 使用相机；如果
+当前环境无法使用相机，就在 Desktop 点击“复制配对码”，再在 Mobile 展开手动配对
+入口并粘贴。
 
 配对二维码是 5 分钟有效的一次性 challenge。Desktop 会在 challenge 到期或状态查询
 失败后撤下旧二维码；此时重新点击“配对手机”生成新码，不要继续使用之前复制或拍摄的
