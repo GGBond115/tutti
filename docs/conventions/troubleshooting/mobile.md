@@ -1,5 +1,27 @@
 # Mobile Troubleshooting
 
+## Android release bundling cannot resolve the JSX transform
+
+- **Symptom:** `app:assembleRelease` reaches Metro bundling and fails
+  `app:createBundleReleaseJsAndAssets` with `Cannot find module
+'@babel/plugin-transform-react-jsx'`, while TypeScript, Jest, and debug
+  development may still pass.
+- **Quick checks:** Resolve `@babel/plugin-transform-react-jsx` from the
+  `apps/mobile` package, then run a production Android Metro bundle. If
+  resolution fails from the app but the plugin exists only below the React
+  Native preset in pnpm's store, the app has been relying on transitive layout.
+- **Root cause:** `react-native-css-interop` asks Babel to load the JSX
+  transform by package name but does not declare that package. pnpm's strict
+  dependency isolation therefore does not expose the preset's private copy to
+  the app-level Babel configuration.
+- **Fix:** Keep `@babel/plugin-transform-react-jsx` as an explicit
+  `apps/mobile` development dependency aligned with the locked Babel cohort.
+  Do not solve this by changing pnpm hoisting.
+- **Validation:** Resolve the plugin from `apps/mobile`, produce a
+  `--dev false` Android Metro bundle, and run the `Android Internal Build`
+  workflow through APK assembly.
+- **References:** `apps/mobile/package.json`, `apps/mobile/babel.config.js`
+
 ## Mobile quick prompts are missing from the plus menu
 
 - **Symptom:** The Desktop quick-prompt library is enabled and contains
