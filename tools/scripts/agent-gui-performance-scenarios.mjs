@@ -5,6 +5,8 @@ import {
 } from "./agent-gui-session-performance-scenarios.mjs";
 import {
   desktopWindowStateScenario,
+  workbenchFiftyWindowStressScenario,
+  workbenchWindowDragScenario,
   workbenchWindowLifecycleScenario
 } from "./agent-gui-window-performance-scenarios.mjs";
 import {
@@ -33,6 +35,8 @@ export const agentGuiPerformanceScenarios = [
   railScopeRevealScenario,
   composerInputScenario,
   composerOverflowResizeScenario,
+  workbenchFiftyWindowStressScenario,
+  workbenchWindowDragScenario,
   workbenchWindowLifecycleScenario,
   desktopWindowStateScenario,
   providerStatusFocusRefreshScenario

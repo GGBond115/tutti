@@ -8,6 +8,38 @@ afterEach(() => {
 });
 
 describe("useComposerLayout", () => {
+  it("rotates prompt tips only while the AgentGUI window is active", () => {
+    const promptTips = [
+      { id: "tip-1", label: "First", prompt: "Prompt one" },
+      { id: "tip-2", label: "Second", prompt: "Prompt two" }
+    ];
+    const { result, rerender } = renderHook(
+      ({ isActive }) =>
+        useComposerLayout(
+          createComposerLayoutInput({
+            isActive,
+            isHeroLayout: true,
+            promptTips
+          })
+        ),
+      { initialProps: { isActive: false } }
+    );
+
+    expect(result.current.rotatingPromptTips).toEqual([promptTips[0]]);
+    expect(result.current.promptTipStyle).toBeUndefined();
+
+    rerender({ isActive: true });
+
+    expect(result.current.rotatingPromptTips).toEqual([
+      ...promptTips,
+      promptTips[0]
+    ]);
+    expect(result.current.promptTipStyle).toMatchObject({
+      "--agent-gui-prompt-tip-count": 2,
+      "--agent-gui-prompt-tip-cycle-duration": "10400ms"
+    });
+  });
+
   it("does not probe a locked project while its session is still being created", () => {
     const { result } = renderHook(() =>
       useComposerLayout(
@@ -307,6 +339,7 @@ function createComposerLayoutInput(
   overrides: Partial<ComposerLayoutInput>
 ): ComposerLayoutInput {
   return {
+    isActive: true,
     isHeroLayout: false,
     inputDisabled: false,
     projectMissingProbeEnabled: true,

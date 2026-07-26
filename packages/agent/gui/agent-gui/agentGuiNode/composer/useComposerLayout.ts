@@ -52,6 +52,7 @@ function hasInlineOverflow(element: HTMLElement | null): boolean {
 }
 
 interface UseComposerLayoutInput {
+  isActive: boolean;
   isHeroLayout: boolean;
   inputDisabled: boolean;
   projectMissingProbeEnabled: boolean;
@@ -71,6 +72,7 @@ interface UseComposerLayoutInput {
 }
 
 export function useComposerLayout({
+  isActive,
   isHeroLayout,
   inputDisabled,
   projectMissingProbeEnabled,
@@ -107,21 +109,21 @@ export function useComposerLayout({
   const activePromptTipText = activePromptTip
     ? `${labels.promptTipsPrefix}${activePromptTip.label} · ${activePromptTip.prompt}`
     : "";
+  const shouldRotatePromptTips = isActive && promptTips.length > 1;
   const rotatingPromptTips =
-    activePromptTip && promptTips.length > 1
+    activePromptTip && shouldRotatePromptTips
       ? [...promptTips, activePromptTip]
       : activePromptTip
         ? [activePromptTip]
         : [];
-  const promptTipStyle =
-    promptTips.length > 1
-      ? ({
-          "--agent-gui-prompt-tip-count": promptTips.length,
-          "--agent-gui-prompt-tip-cycle-duration": `${
-            promptTips.length * PROMPT_TIP_CYCLE_STEP_MS
-          }ms`
-        } as CSSProperties)
-      : undefined;
+  const promptTipStyle = shouldRotatePromptTips
+    ? ({
+        "--agent-gui-prompt-tip-count": promptTips.length,
+        "--agent-gui-prompt-tip-cycle-duration": `${
+          promptTips.length * PROMPT_TIP_CYCLE_STEP_MS
+        }ms`
+      } as CSSProperties)
+    : undefined;
   useLayoutEffect(() => {
     if (!activePromptTipId) {
       setIsPromptTipOverflowing(false);

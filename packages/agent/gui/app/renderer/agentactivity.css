@@ -874,7 +874,6 @@ aside.workspace-agents-status-panel
   background: var(--transparency-block);
   cursor: grab;
   transition: background-color 160ms ease-in-out;
-  will-change: transform;
 }
 
 .workspace-agents-status-panel__scrollbar-thumb {
@@ -884,7 +883,6 @@ aside.workspace-agents-status-panel
   background: var(--transparency-block);
   cursor: grab;
   transition: background-color 160ms ease-in-out;
-  will-change: transform;
 }
 
 .tsh-custom-scrollbar:hover .tsh-custom-scrollbar__thumb,
@@ -903,6 +901,7 @@ aside.workspace-agents-status-panel
   .workspace-agents-status-panel__scrollbar-thumb {
   background: var(--transparency-hover);
   cursor: grabbing;
+  will-change: transform;
 }
 
 .agent-tool-scroll-area__scrollbar {
@@ -1962,7 +1961,6 @@ aside.workspace-agents-status-panel
     height 220ms ease,
     opacity 160ms ease,
     transform 180ms ease;
-  will-change: height, opacity, transform;
 }
 
 .agent-collapsible-reveal[data-expanded="true"] {
@@ -2812,7 +2810,6 @@ aside.workspace-agents-status-panel
   transition:
     border-radius 220ms cubic-bezier(0.16, 1, 0.3, 1),
     transform 280ms var(--agent-gui-chrome-card-spring);
-  will-change: transform;
 }
 
 @keyframes agent-gui-chrome-card-enter {
@@ -8842,16 +8839,17 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   position: absolute;
   inset: 0;
   /* Match the APNG's padded 44px canvas to the static icon's visual size. */
-  transform: translateZ(0) scale(1.3);
+  transform: scale(1.3);
   filter: var(--agent-gui-handoff-animation-filter, none);
   opacity: 0;
   pointer-events: none;
-  backface-visibility: hidden;
-  will-change: opacity, transform;
 }
 
 .agent-gui-node__composer-handoff-icon-animated[data-active="true"] {
+  transform: translateZ(0) scale(1.3);
   opacity: 1;
+  backface-visibility: hidden;
+  will-change: opacity, transform;
 }
 
 .agent-gui-node__composer-tutti-mode-icon {
@@ -8891,15 +8889,15 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   inset: 0;
   /* Match the 16px static mark exactly; the APNG canvas already pads the
     snapping hand and bursting stars, so no enlargement is applied. */
-  transform: translateZ(0);
   opacity: 0;
   pointer-events: none;
-  backface-visibility: hidden;
-  will-change: opacity, transform;
 }
 
 .agent-gui-node__composer-tutti-mode-icon-animated[data-active="true"] {
+  transform: translateZ(0);
   opacity: 1;
+  backface-visibility: hidden;
+  will-change: opacity, transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -8976,8 +8974,7 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
 .agent-gui-node__composer-prompt-tip-track {
   display: block;
   min-width: 0;
-  animation: agent-gui-node-prompt-tip-in 180ms ease both;
-  will-change: transform;
+  animation: agent-gui-node-prompt-tip-in 180ms ease backwards;
 }
 
 .agent-gui-node__composer-prompt-tip[data-rotating="true"]
@@ -8985,6 +8982,15 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   animation: agent-gui-node-prompt-tip-track
     var(--agent-gui-prompt-tip-cycle-duration)
     steps(var(--agent-gui-prompt-tip-count)) infinite;
+  will-change: transform;
+}
+
+.agent-gui-node__layout[data-agent-gui-active="false"]
+  .agent-gui-node__composer-prompt-tip-track,
+.agent-gui-node__layout[data-agent-gui-active="false"]
+  .agent-gui-node__composer-prompt-tip-item {
+  animation: none;
+  will-change: auto;
 }
 
 .agent-gui-node__composer-prompt-tip-item {
@@ -9927,7 +9933,7 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   height: 48px;
   object-fit: contain;
   animation: agent-gui-empty-hero-enter 260ms cubic-bezier(0.16, 1, 0.3, 1) 40ms
-    both;
+    backwards;
 }
 
 /* Empty-hero agent carousel ("All" tab): a three.js ring of same-sized agent
@@ -9942,7 +9948,7 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   outline: none;
   touch-action: pan-y;
   animation: agent-gui-empty-hero-enter 260ms cubic-bezier(0.16, 1, 0.3, 1) 40ms
-    both;
+    backwards;
 }
 
 /* Reference VinylPlayer structure, scaled from 440px to the 112px hero slot. */
@@ -10303,7 +10309,7 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   line-height: 1.3;
   font-weight: 500;
   animation: agent-gui-empty-hero-enter 280ms cubic-bezier(0.16, 1, 0.3, 1)
-    110ms both;
+    110ms backwards;
 }
 
 .agent-gui-node__empty-hero-provider {
@@ -10339,7 +10345,7 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   font-size: 14px;
   line-height: 1.55;
   animation: agent-gui-empty-hero-enter 280ms cubic-bezier(0.16, 1, 0.3, 1)
-    150ms both;
+    150ms backwards;
 }
 
 .agent-gui-node__empty-provider-gate-status {
@@ -10348,14 +10354,14 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   font-size: 13px;
   line-height: 20px;
   animation: agent-gui-empty-hero-enter 280ms cubic-bezier(0.16, 1, 0.3, 1)
-    170ms both;
+    170ms backwards;
 }
 
 .agent-gui-node__empty-provider-gate-action {
   /* Container gap is 8px; add 16px so the description-to-button spacing is 24px. */
   margin-top: 16px;
   animation: agent-gui-empty-hero-enter 300ms cubic-bezier(0.16, 1, 0.3, 1)
-    190ms both;
+    190ms backwards;
 }
 
 .agent-gui-node__empty-hero-provider-select {
@@ -10407,7 +10413,7 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
 
 .agent-gui-node__empty-hero-body > .agent-gui-node__composer-hero {
   animation: agent-gui-empty-hero-enter 300ms cubic-bezier(0.16, 1, 0.3, 1)
-    180ms both;
+    180ms backwards;
 }
 
 .agent-gui-node__empty-hero-suggestions {
@@ -10418,7 +10424,7 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   gap: 12px;
   justify-items: stretch;
   animation: agent-gui-empty-hero-enter 300ms cubic-bezier(0.16, 1, 0.3, 1)
-    240ms both;
+    240ms backwards;
 }
 
 .agent-gui-node__empty-hero-suggestions-chips {
@@ -10479,7 +10485,8 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   background: var(--background-fronted);
   padding: 8px;
   box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.28);
-  animation: agent-gui-empty-hero-enter 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: agent-gui-empty-hero-enter 220ms cubic-bezier(0.16, 1, 0.3, 1)
+    backwards;
 }
 
 .agent-gui-node__empty-hero-suggestions-card-header {
@@ -10563,6 +10570,28 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   .agent-gui-node__empty-hero-body > .agent-gui-node__empty-hero-suggestions {
     width: 100%;
   }
+}
+
+[data-workspace-node-window-kind="agentGui"][data-workspace-node-window-appearance="embedded"]
+  .agent-gui-node__empty-hero-icon-effect,
+[data-workspace-node-window-kind="agentGui"][data-workspace-node-window-appearance="embedded"]
+  .agent-gui-node__empty-hero-carousel,
+[data-workspace-node-window-kind="agentGui"][data-workspace-node-window-appearance="embedded"]
+  .agent-gui-node__empty-hero-title,
+[data-workspace-node-window-kind="agentGui"][data-workspace-node-window-appearance="embedded"]
+  .agent-gui-node__empty-provider-gate-description,
+[data-workspace-node-window-kind="agentGui"][data-workspace-node-window-appearance="embedded"]
+  .agent-gui-node__empty-provider-gate-status,
+[data-workspace-node-window-kind="agentGui"][data-workspace-node-window-appearance="embedded"]
+  .agent-gui-node__empty-provider-gate-action,
+[data-workspace-node-window-kind="agentGui"][data-workspace-node-window-appearance="embedded"]
+  .agent-gui-node__empty-hero-body
+  > .agent-gui-node__composer-hero,
+[data-workspace-node-window-kind="agentGui"][data-workspace-node-window-appearance="embedded"]
+  .agent-gui-node__empty-hero-suggestions,
+[data-workspace-node-window-kind="agentGui"][data-workspace-node-window-appearance="embedded"]
+  .agent-gui-node__empty-hero-suggestions-card {
+  animation: none;
 }
 
 @keyframes agent-gui-empty-hero-enter {
@@ -10964,4 +10993,19 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
     animation: none;
     opacity: 0;
   }
+}
+
+/* Fully occluded Workbench nodes stay mounted for instant switching, but their
+   animations must not keep repainting pixels that cannot reach the screen.
+   Partial exposure removes this rule, even when another window owns focus. */
+.agent-gui-node__layout[data-agent-gui-visible="false"]
+  :where(*, *::before, *::after) {
+  animation-play-state: paused !important;
+}
+
+/* Occlusion is geometric, not focus-based. Fully covered Workbench bodies keep
+   their DOM state but stop producing tiles; partially exposed bodies remain
+   painted in full so moving the covering window never reveals a black region. */
+.agent-gui-node__layout[data-agent-gui-visible="false"] {
+  content-visibility: hidden;
 }

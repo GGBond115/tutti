@@ -257,20 +257,45 @@
   In the trace, group `FunctionCall` or `v8.callFunction` events by `url` and
   `functionName`. Hidden animation players often still appear as repeated
   `requestAnimationFrame` callbacks even when their DOM node has
-  `opacity: 0`.
+  `opacity: 0`. Also inspect `animationiteration` volume and completed CSS
+  entry animations whose `fill-mode: both` leaves an identity `transform` on
+  every mounted window.
 - Root cause:
   CSS-hidden animation elements are still live renderers. An autoplay/looping
   Lottie, canvas, or WebGL player can keep scheduling frames and force layer
-  updates across every mounted instance.
+  updates across every mounted instance. CSS can produce the same pressure:
+  inactive windows may keep infinite transform/opacity animations running, and
+  a completed entry animation with forwards fill can retain a compositor layer
+  long after its visual work ends.
 - Fix:
   Mount animation players only while the animation is actually visible, and
   defer loading third-party animation runtimes until an active state needs
-  them. Do not rely on `opacity`, `visibility`, or off-screen placement to stop
-  playback.
+  them. When a workspace restores many heavy bodies, render the active body
+  immediately but hydrate inactive bodies sequentially after idle, one
+  animation frame at a time; keep their shells and saved geometry visible
+  throughout. Once mounted, derive visual exposure from Workbench geometry and
+  z-order, not keyboard focus. Pause descendant CSS animations only while a
+  window is fully occluded. A partially exposed window remains fully painted;
+  only a window whose frame is completely covered may use
+  `content-visibility: hidden`. Release imperative resources such as WebGL
+  scenes, decoded carousel images, observers, and non-passive listeners while
+  fully occluded. Avoid running a body's entry animation when its host shell
+  already owns the appearance transition. For delayed entry animations whose
+  normal styles already match the final keyframe, use backwards fill so the
+  initial keyframe covers the delay and the final identity transform is
+  released. Do not rely on `opacity`, `visibility`, or off-screen placement to
+  stop playback.
 - Validation:
   Re-record a short DevTools trace after the fix. Idle UI should no longer show
   the hidden player's function as a high-frequency `requestAnimationFrame`
-  source, and Chromium tile memory warnings should stop during idle.
+  source, and Chromium tile memory warnings should stop during idle. For
+  multi-window AgentGUI changes, run
+  `pnpm perf:agent-gui -- --scenario workbench-window-drag`; it moves one
+  window while at least three are mounted and rejects tile-memory warnings or
+  excessive background animation iterations. Use
+  `--scenario workbench-fifty-window-stress` for the 50-window startup,
+  background-focus, retained-DOM, geometric exposure, drag, and 50 ms
+  renderer-task budgets.
 
 ### IME composition breaks fuzzy search or controlled search inputs
 

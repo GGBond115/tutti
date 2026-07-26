@@ -138,7 +138,6 @@ export class AgentGuiHeroCarouselScene {
   private renderFrameHandle: number | null = null;
   private springFrameHandle: number | null = null;
   private lastFrameAt: number | null = null;
-  private visible = true;
   private disposed = false;
 
   private constructor(options: AgentGuiHeroCarouselSceneOptions) {
@@ -278,40 +277,7 @@ export class AgentGuiHeroCarouselScene {
     // setSize clears the drawing buffer. Render synchronously so a window
     // resize never exposes that cleared frame while the next animation frame
     // is pending during interactive window dragging.
-    if (this.visible) {
-      this.renderer.render(this.scene, this.camera);
-    }
-  }
-
-  setVisible(visible: boolean): void {
-    if (this.disposed || this.visible === visible) {
-      return;
-    }
-    this.visible = visible;
-    this.cancelScheduledFrames();
-    if (!visible) {
-      return;
-    }
-
-    const hasPendingMotion =
-      Math.abs(this.target - this.scroll) > SPRING_SETTLE_EPSILON ||
-      Math.abs(this.velocity) > SPRING_SETTLE_VELOCITY;
-    if (this.prefersReducedMotion()) {
-      this.scroll = this.target;
-      this.velocity = 0;
-      this.applyPoses();
-      this.requestRender();
-      if (hasPendingMotion) {
-        this.onSettle(this.targetIndex());
-      }
-      return;
-    }
-
-    if (hasPendingMotion) {
-      this.animate();
-      return;
-    }
-    this.requestRender();
+    this.renderer.render(this.scene, this.camera);
   }
 
   // Agent index of the tile slot the wheel is heading to.
@@ -461,7 +427,7 @@ export class AgentGuiHeroCarouselScene {
   }
 
   private animate(): void {
-    if (this.disposed || !this.visible) {
+    if (this.disposed) {
       return;
     }
     if (this.prefersReducedMotion()) {
@@ -500,7 +466,7 @@ export class AgentGuiHeroCarouselScene {
 
   private readonly frame = (now: number): void => {
     this.springFrameHandle = null;
-    if (this.disposed || !this.visible) {
+    if (this.disposed) {
       return;
     }
     const dt =
@@ -532,7 +498,6 @@ export class AgentGuiHeroCarouselScene {
   private requestRender(): void {
     if (
       this.disposed ||
-      !this.visible ||
       this.renderFrameHandle !== null ||
       this.springFrameHandle !== null
     ) {
@@ -540,7 +505,7 @@ export class AgentGuiHeroCarouselScene {
     }
     this.renderFrameHandle = requestAnimationFrame(() => {
       this.renderFrameHandle = null;
-      if (!this.disposed && this.visible) {
+      if (!this.disposed) {
         this.renderer.render(this.scene, this.camera);
       }
     });

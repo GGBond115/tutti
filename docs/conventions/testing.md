@@ -115,7 +115,9 @@ The capture runner ships `provider-switch`, `session-switch`,
 `virtualized-scroll-locator`, `virtualized-session-cycle`,
 `virtualized-oversized-active-turn`, `browser-behind-agent-gui-pixels`,
 `rail-scope-reveal`, `composer-input`, `composer-overflow-resize`, `workbench-window-lifecycle`,
-`desktop-window-state`, and `provider-status-focus-refresh`. List them with
+`workbench-window-drag`, `workbench-fifty-window-stress`,
+`desktop-window-state`, and
+`provider-status-focus-refresh`. List them with
 `--list-scenarios`; select one with
 `--scenario <id>`. Scenario modules own preparation, completion conditions,
 semantic assertions, milestones, and metadata; runtime startup, trace capture,
@@ -176,6 +178,20 @@ the draft.
 
 `workbench-window-lifecycle` measures the internal AgentGUI Workbench node's
 minimize, restore, maximize, unmaximize, close, and reopen mechanics.
+`workbench-window-drag` requires at least three mounted AgentGUI Workbench
+windows. It drives 120 trusted pointer moves through Chromium and fails when the
+startup or drag emits a Chromium tile-memory warning, or when the drag records
+more than 20 CSS animation iterations. This catches background AgentGUI
+animations that retain too many compositor tiles while windows restore or move.
+Before the drag marker starts, the scenario waits for staged background-body
+hydration to finish and for the resulting DOM mutations and images to settle,
+so startup work is checked separately instead of leaking into the drag window.
+`workbench-fifty-window-stress` rewrites only the isolated performance snapshot
+to contain exactly 50 mounted AgentGUI nodes. It verifies startup, focuses an
+exposed background window without remounting its body, then drags that window.
+The scenario rejects tile-memory warnings, any geometrically exposed body that
+becomes hidden, more than 20 animation iterations, or a renderer task above
+50 ms.
 `desktop-window-state` measures the owning Electron window's minimize, restore,
 maximize, and unmaximize states through typed host-window APIs and is currently
 macOS-only because only that host emits typed minimize-state events. Native

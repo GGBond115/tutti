@@ -919,14 +919,32 @@ The empty AgentGUI Hero renders its existing DOM player before initializing the
 optional WebGL carousel. A host projects whether the normal window presentation
 is currently visible; the carousel waits for that visibility and then browser
 idle time before creating its WebGL renderer. This keeps Genie restore work out
-of the WebGL creation task without exposing Genie state to AgentGUI. An existing
-scene remains allocated while the normal presentation is hidden, but cancels
-all render and spring animation frames until visibility returns. Once
+of the WebGL creation task without exposing Genie state to AgentGUI. A fully
+occluded presentation releases its scene, decoded images, observer, and wheel
+listener; exposure restores them after the reveal interaction settles. Once
 initialized, WebGL renders only for texture or size changes and carousel
-selection changes; the spring stops requesting frames after it settles. The
-DOM turntable record uses a compositor animation only in the active visible
-AgentGUI. Inactive surfaces preserve their current visual state without a
-JavaScript animation loop.
+selection changes; the spring stops requesting frames after it settles. The DOM
+turntable record uses a compositor animation only in the active visible
+AgentGUI, and composer prompt tips follow the same active-surface rule.
+Empty-Hero entry animations may fill backwards across their delay, but must
+release their final identity transform after completion so every mounted
+AgentGUI does not retain decorative compositor layers. An embedded AgentGUI
+skips those internal entry animations because the Workbench shell already owns
+its appearance transition. Background Workbench AgentGUI bodies remain mounted
+so drafts and local conversation presentation survive focus changes. Focus does
+not determine visibility. Workbench frame geometry and z-order classify bodies
+as fully occluded or visually exposed; partial exposure counts as visible.
+Only fully occluded bodies pause descendant animations and use
+`content-visibility: hidden`. Visible Empty-Hero surfaces may own carousel
+images, alignment observers, wheel input, and a Three.js/WebGL scene.
+Occlusion releases those resources; exposure restores the DOM presentation
+immediately and defers WebGL reconstruction until after the reveal interaction
+settles.
+On workspace restore, Desktop mounts the focused AgentGUI body immediately and
+hydrates inactive bodies sequentially after browser idle, one animation frame
+at a time. Window shells and persisted geometry remain synchronous; this
+staging is Desktop presentation work and does not enter engine or Session
+lifecycle state.
 WebGL scene readiness remains local presentation state; it must not enter
 `AgentActivityRuntime`, the workspace engine, or Workbench node state.
 

@@ -17,7 +17,11 @@ import { resolveInsufficientCreditsSemantic } from "@tutti-os/commerce";
 import { useService } from "@tutti-os/infra/di";
 import { requestWorkspaceAgentGuiLaunch } from "../services/workspaceAgentGuiLaunchCoordinator.ts";
 import { registerWorkspaceAgentGuiOpenSession } from "../../workspace-workbench/services/workspaceAgentGuiOpenSessionCoordinator.ts";
-import { workbenchFocusInputActivationType } from "@tutti-os/workbench-surface";
+import {
+  selectWorkbenchNodeIsVisuallyExposed,
+  useWorkbenchSelector,
+  workbenchFocusInputActivationType
+} from "@tutti-os/workbench-surface";
 import { useTranslation } from "@renderer/i18n";
 import type { WorkspaceAgentProvider } from "@tutti-os/client-tuttid-ts";
 import { useDesktopPreferencesService } from "@renderer/features/desktop-preferences/ui/useDesktopPreferencesService";
@@ -70,6 +74,7 @@ import { useDesktopAgentGUIOpenConversationWindow } from "./useDesktopAgentGUIOp
 import { useDesktopAgentGUIWorkbenchEvents } from "./useDesktopAgentGUIWorkbenchEvents.ts";
 import { useStableDesktopAgentGUIHostProps } from "./useStableDesktopAgentGUIHostProps.ts";
 import { resolveDesktopAgentGUIEmbeddedDesktopSize } from "./desktopAgentGUIEmbeddedFrame.ts";
+import { scheduleDesktopAgentGUIWorkbenchHydration } from "./desktopAgentGUIWorkbenchHydration.ts";
 import { IAgentEnvService } from "../services/agentEnvService.interface.ts";
 import { preloadDesktopAgentGuiMentionBrowse } from "../services/preloadDesktopAgentGuiMentionBrowse.ts";
 import { DESKTOP_AGENT_GUI_CURRENT_USER_ID } from "../services/desktopAgentGuiIdentity.ts";
@@ -700,6 +705,33 @@ function DesktopAgentGUIWorkbenchBodyAdapter({
   context,
   ...props
 }: DesktopAgentGUIWorkbenchBodyProps): JSX.Element {
+  const isVisuallyExposed = useWorkbenchSelector((state) =>
+    selectWorkbenchNodeIsVisuallyExposed(state, context.node.id)
+  );
+  const isBodyVisible = context.isVisible && isVisuallyExposed;
+  const [bodyHydrated, setBodyHydrated] = useState(
+    context.isFocused || isBodyVisible
+  );
+  useEffect(() => {
+    if (bodyHydrated || context.isFocused || isBodyVisible) {
+      if (!bodyHydrated) {
+        setBodyHydrated(true);
+      }
+      return;
+    }
+    return scheduleDesktopAgentGUIWorkbenchHydration(() => {
+      setBodyHydrated(true);
+    });
+  }, [bodyHydrated, context.isFocused, isBodyVisible]);
+  if (!bodyHydrated && !context.isFocused && !isBodyVisible) {
+    return (
+      <div
+        aria-hidden="true"
+        className="size-full bg-[var(--background-panel)]"
+        data-agent-gui-workbench-hydration="pending"
+      />
+    );
+  }
   const surface: DesktopAgentGUISurfaceContext = {
     activation: context.activation,
     displayMode: context.displayMode,
@@ -710,7 +742,7 @@ function DesktopAgentGUIWorkbenchBodyAdapter({
     isFocused: context.isFocused,
     isMinimized: context.node.isMinimized === true,
     isResizing: context.isResizing,
-    isVisible: context.isVisible,
+    isVisible: isBodyVisible,
     nodeId: context.node.id,
     nodeTitle: context.node.title,
     presentationMode: context.presentationMode,

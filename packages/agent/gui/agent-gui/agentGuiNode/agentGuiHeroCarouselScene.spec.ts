@@ -445,36 +445,6 @@ describe("AgentGuiHeroCarouselScene", () => {
     scene?.dispose();
   });
 
-  it("cancels every frame while hidden and resumes without rebuilding", () => {
-    let nextFrameID = 1;
-    const pendingFrames = new Map<number, FrameRequestCallback>();
-    globalThis.requestAnimationFrame = vi.fn((callback) => {
-      const frameID = nextFrameID;
-      nextFrameID += 1;
-      pendingFrames.set(frameID, callback);
-      return frameID;
-    });
-    globalThis.cancelAnimationFrame = vi.fn((frameID) => {
-      pendingFrames.delete(frameID);
-    });
-    const scene = createSceneWithBadge(null);
-
-    expect(scene).not.toBeNull();
-    expect(pendingFrames.size).toBeGreaterThan(0);
-
-    scene?.setVisible(false);
-    expect(pendingFrames.size).toBe(0);
-
-    const hiddenRenderCount = threeState.renderCount;
-    scene?.setSize(320, 112);
-    expect(threeState.renderCount).toBe(hiddenRenderCount);
-    expect(pendingFrames.size).toBe(0);
-
-    scene?.setVisible(true);
-    expect(pendingFrames.size).toBe(1);
-    scene?.dispose();
-  });
-
   it("disposes a rejected texture and keeps the fallback when WebGL upload fails", () => {
     threeState.failTextureUpload = true;
     const scene = createSceneWithBadge(createLoadedImage());

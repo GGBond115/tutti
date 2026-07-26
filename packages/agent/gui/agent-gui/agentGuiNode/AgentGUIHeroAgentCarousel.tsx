@@ -35,10 +35,22 @@ interface AgentGUIHeroAgentCarouselState {
   imagesReady: boolean;
 }
 
+interface AgentGUIHeroCarouselTaskScheduler {
+  postTask(
+    callback: () => void,
+    options: {
+      delay: number;
+      priority: "background";
+      signal: AbortSignal;
+    }
+  ): Promise<unknown>;
+}
+
 const CAROUSEL_WHEEL_STEP_THRESHOLD = 42;
 const CAROUSEL_WHEEL_STEP_COOLDOWN_MS = 110;
 const CAROUSEL_DRAG_STEP_PX = 52;
 const CAROUSEL_SCENE_IDLE_TIMEOUT_MS = 1_000;
+const CAROUSEL_REACTIVATION_SCENE_DELAY_MS = 3_000;
 
 function activeAgentIndex(props: AgentGUIHeroAgentCarouselProps): number {
   if (!props.activeAgentTargetId) {
@@ -79,6 +91,8 @@ export class AgentGUIHeroAgentCarousel extends Component<
   private resizeObserver: ResizeObserver | null = null;
   private firstPaintFrameId: number | null = null;
   private firstPaintReady = false;
+  private sceneMountDelayController: AbortController | null = null;
+  private sceneMountEligibleAt = 0;
   private sceneMountIdleId: number | null = null;
   private imagePreloadGeneration = 0;
   private imageLoad: AgentGuiHeroCarouselImageLoad | null = null;
@@ -99,14 +113,29 @@ export class AgentGUIHeroAgentCarousel extends Component<
   };
 
   componentDidMount(): void {
-    this.waitForFirstPaint();
-    this.preloadImages();
+    if (this.ownsImperativeResources()) {
+      this.activateImperativeResources();
+    }
     this.syncWheelListener();
   }
 
   componentDidUpdate(previousProps: AgentGUIHeroAgentCarouselProps): void {
     const iconKey = carouselIconKey(this.props.items);
+    const ownedResources = this.props.isVisible !== false;
+    const previouslyOwnedResources = previousProps.isVisible !== false;
+
+    if (!ownedResources) {
+      if (previouslyOwnedResources) {
+        this.deactivateImperativeResources(iconKey);
+      } else if (iconKey !== this.state.iconKey) {
+        this.resetPreloadedImages(iconKey);
+      }
+      this.syncWheelListener();
+      return;
+    }
+
     if (iconKey !== this.state.iconKey) {
+      this.cancelImagePreload();
       this.disposeScene();
       this.setState(
         {
@@ -117,19 +146,13 @@ export class AgentGUIHeroAgentCarousel extends Component<
           images: [],
           imagesReady: this.props.items.length === 0
         },
-        () => this.preloadImages()
+        () => this.activateImperativeResources()
       );
       return;
     }
 
-    if (previousProps.isVisible !== this.props.isVisible) {
-      if (this.props.isVisible === false) {
-        this.cancelScheduledSceneMount();
-        this.scene?.setVisible(false);
-      } else {
-        this.scene?.setVisible(true);
-        this.scheduleSceneMount();
-      }
+    if (!previouslyOwnedResources) {
+      this.activateImperativeResources(true);
     }
     if (
       previousProps.activeAgentTargetId !== this.props.activeAgentTargetId ||
@@ -145,23 +168,69 @@ export class AgentGUIHeroAgentCarousel extends Component<
   }
 
   componentWillUnmount(): void {
-    this.imagePreloadGeneration += 1;
+    this.cancelImagePreload();
     if (this.firstPaintFrameId !== null) {
       window.cancelAnimationFrame(this.firstPaintFrameId);
       this.firstPaintFrameId = null;
     }
-    this.cancelScheduledSceneMount();
     this.removeWheelListener();
     this.disposeScene();
-    this.imageLoad?.cancel();
-    this.imageLoad = null;
   }
 
   private interactive(): boolean {
     return this.props.onProviderSelect != null && this.props.items.length > 0;
   }
 
+  private ownsImperativeResources(): boolean {
+    return this.props.isVisible !== false;
+  }
+
+  private activateImperativeResources(deferScene = false): void {
+    if (!this.ownsImperativeResources()) {
+      return;
+    }
+    this.sceneMountEligibleAt = deferScene
+      ? performance.now() + CAROUSEL_REACTIVATION_SCENE_DELAY_MS
+      : 0;
+    this.waitForFirstPaint();
+    if (!this.state.imagesReady) {
+      this.preloadImages();
+    } else {
+      this.scheduleSceneMount();
+    }
+  }
+
+  private deactivateImperativeResources(iconKey: string): void {
+    this.cancelImagePreload();
+    if (this.firstPaintFrameId !== null) {
+      window.cancelAnimationFrame(this.firstPaintFrameId);
+      this.firstPaintFrameId = null;
+    }
+    this.removeWheelListener();
+    this.disposeScene();
+    this.resetPreloadedImages(iconKey);
+  }
+
+  private resetPreloadedImages(iconKey: string): void {
+    this.setState({
+      badgeImages: [],
+      coverImages: [],
+      iconKey,
+      images: [],
+      imagesReady: this.props.items.length === 0
+    });
+  }
+
+  private cancelImagePreload(): void {
+    this.imagePreloadGeneration += 1;
+    this.imageLoad?.cancel();
+    this.imageLoad = null;
+  }
+
   private waitForFirstPaint(): void {
+    if (this.firstPaintReady || this.firstPaintFrameId !== null) {
+      return;
+    }
     this.firstPaintFrameId = window.requestAnimationFrame(() => {
       this.firstPaintFrameId = window.requestAnimationFrame(() => {
         this.firstPaintFrameId = null;
@@ -209,7 +278,8 @@ export class AgentGUIHeroAgentCarousel extends Component<
     void imageLoad.result.then((preloaded) => {
       if (
         generation !== this.imagePreloadGeneration ||
-        carouselIconKey(this.props.items) !== this.state.iconKey
+        carouselIconKey(this.props.items) !== this.state.iconKey ||
+        !this.ownsImperativeResources()
       ) {
         return;
       }
@@ -226,10 +296,50 @@ export class AgentGUIHeroAgentCarousel extends Component<
   }
 
   private scheduleSceneMount(): void {
+    const sceneMountDelay = this.sceneMountEligibleAt - performance.now();
+    if (sceneMountDelay > 0) {
+      if (this.sceneMountDelayController !== null) {
+        return;
+      }
+      const scheduler = (
+        window as Window & {
+          scheduler?: AgentGUIHeroCarouselTaskScheduler;
+        }
+      ).scheduler;
+      if (scheduler) {
+        const controller = new AbortController();
+        this.sceneMountDelayController = controller;
+        void scheduler
+          .postTask(
+            () => {
+              this.sceneMountDelayController = null;
+              this.sceneMountEligibleAt = 0;
+              this.scheduleSceneMount();
+            },
+            {
+              delay: sceneMountDelay,
+              priority: "background",
+              signal: controller.signal
+            }
+          )
+          .catch((error: unknown) => {
+            if (error instanceof DOMException && error.name === "AbortError") {
+              return;
+            }
+            if (this.sceneMountDelayController === controller) {
+              this.sceneMountDelayController = null;
+              this.sceneMountEligibleAt = 0;
+              this.scheduleSceneMount();
+            }
+          });
+        return;
+      }
+      this.sceneMountEligibleAt = 0;
+    }
     if (
       this.scene ||
       this.sceneMountIdleId !== null ||
-      this.props.isVisible === false ||
+      !this.ownsImperativeResources() ||
       !this.canvasRef.current ||
       !this.stageRef.current ||
       !this.firstPaintReady ||
@@ -254,6 +364,9 @@ export class AgentGUIHeroAgentCarousel extends Component<
   }
 
   private cancelScheduledSceneMount(): void {
+    this.sceneMountDelayController?.abort();
+    this.sceneMountDelayController = null;
+    this.sceneMountEligibleAt = 0;
     if (this.sceneMountIdleId !== null) {
       window.cancelIdleCallback(this.sceneMountIdleId);
       this.sceneMountIdleId = null;
@@ -267,7 +380,7 @@ export class AgentGUIHeroAgentCarousel extends Component<
       this.scene ||
       !canvas ||
       !stage ||
-      this.props.isVisible === false ||
+      !this.ownsImperativeResources() ||
       !this.firstPaintReady ||
       !this.state.imagesReady ||
       this.props.items.length === 0
@@ -311,7 +424,7 @@ export class AgentGUIHeroAgentCarousel extends Component<
   private syncWheelListener(): void {
     const stage = this.stageRef.current;
     const shouldAttach = Boolean(
-      stage && this.props.isVisible !== false && this.interactive()
+      stage && this.ownsImperativeResources() && this.interactive()
     );
     if (shouldAttach && !this.wheelListenerAttached) {
       stage!.addEventListener("wheel", this.handleWheel, { passive: false });

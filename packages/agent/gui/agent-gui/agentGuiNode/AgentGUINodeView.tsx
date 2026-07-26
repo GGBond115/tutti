@@ -547,6 +547,8 @@ export function AgentGUINodeView({
         <div
           ref={layoutElementRef}
           className={styles.layout}
+          data-agent-gui-active={isActive ? "true" : "false"}
+          data-agent-gui-visible={isVisible ? "true" : "false"}
           data-rail-resizing={isRailResizing ? "true" : undefined}
           style={layoutStyle}
         >

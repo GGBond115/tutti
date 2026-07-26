@@ -91,10 +91,52 @@ function installIdleCallbackQueue(): {
   };
 }
 
+function installBackgroundTaskQueue(): {
+  flushNext(): Promise<void>;
+  pendingDelays(): number[];
+} {
+  const tasks: Array<{
+    callback: () => void;
+    delay: number;
+    signal: AbortSignal;
+  }> = [];
+  const scheduler = {
+    postTask(
+      callback: () => void,
+      options: { delay: number; signal: AbortSignal }
+    ): Promise<void> {
+      tasks.push({ callback, delay: options.delay, signal: options.signal });
+      return Promise.resolve();
+    }
+  };
+  vi.stubGlobal("scheduler", scheduler);
+  Object.defineProperty(window, "scheduler", {
+    configurable: true,
+    value: scheduler
+  });
+  return {
+    async flushNext() {
+      const task = tasks.shift();
+      if (!task) {
+        throw new Error("Expected a pending background task");
+      }
+      if (!task.signal.aborted) {
+        task.callback();
+      }
+      await Promise.resolve();
+    },
+    pendingDelays() {
+      return tasks.map((task) => task.delay);
+    }
+  };
+}
+
 afterEach(() => {
   sceneCreate.mockReset();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  Reflect.deleteProperty(window, "scheduler");
 });
 
 describe("AgentGUIHeroAgentCarousel", () => {
@@ -169,6 +211,7 @@ describe("AgentGUIHeroAgentCarousel", () => {
   it("waits for host presentation visibility before scheduling WebGL", async () => {
     const frames = installAnimationFrameQueue();
     const idle = installIdleCallbackQueue();
+    const backgroundTasks = installBackgroundTaskQueue();
     vi.stubGlobal("Image", undefined);
     sceneCreate.mockReturnValue({
       dispose: vi.fn(),
@@ -185,16 +228,22 @@ describe("AgentGUIHeroAgentCarousel", () => {
           <AgentGUIHeroAgentCarousel isVisible={false} items={[item]} />
         );
       });
-      await act(async () => {
-        frames.flushNext();
-        frames.flushNext();
-      });
 
+      expect(frames.pendingIDs()).toHaveLength(0);
       expect(idle.pendingIDs()).toHaveLength(0);
       expect(sceneCreate).not.toHaveBeenCalled();
 
       await act(async () => {
         root.render(<AgentGUIHeroAgentCarousel isVisible items={[item]} />);
+      });
+      await act(async () => {
+        frames.flushNext();
+        frames.flushNext();
+      });
+      expect(idle.pendingIDs()).toHaveLength(0);
+      expect(backgroundTasks.pendingDelays()[0]).toBeGreaterThanOrEqual(2_900);
+      await act(async () => {
+        await backgroundTasks.flushNext();
       });
       expect(idle.pendingIDs()).toHaveLength(1);
       expect(sceneCreate).not.toHaveBeenCalled();
@@ -211,15 +260,15 @@ describe("AgentGUIHeroAgentCarousel", () => {
     }
   });
 
-  it("pauses and resumes an existing WebGL scene with host visibility", async () => {
+  it("releases hidden WebGL and recreates it when visible", async () => {
     const frames = installAnimationFrameQueue();
     const idle = installIdleCallbackQueue();
+    const backgroundTasks = installBackgroundTaskQueue();
     vi.stubGlobal("Image", undefined);
     const scene = {
       dispose: vi.fn(),
       moveTo: vi.fn(),
-      setSize: vi.fn(),
-      setVisible: vi.fn()
+      setSize: vi.fn()
     };
     sceneCreate.mockReturnValue(scene);
     const container = document.createElement("div");
@@ -242,14 +291,18 @@ describe("AgentGUIHeroAgentCarousel", () => {
           <AgentGUIHeroAgentCarousel isVisible={false} items={[item]} />
         );
       });
-      expect(scene.setVisible).toHaveBeenLastCalledWith(false);
+      expect(scene.dispose).toHaveBeenCalledOnce();
 
       await act(async () => {
         root.render(<AgentGUIHeroAgentCarousel isVisible items={[item]} />);
       });
-      expect(scene.setVisible).toHaveBeenLastCalledWith(true);
-      expect(sceneCreate).toHaveBeenCalledOnce();
-      expect(scene.dispose).not.toHaveBeenCalled();
+      await act(async () => {
+        await backgroundTasks.flushNext();
+      });
+      await act(async () => {
+        idle.flushNext();
+      });
+      expect(sceneCreate).toHaveBeenCalledTimes(2);
     } finally {
       await act(async () => {
         root.unmount();
@@ -265,8 +318,7 @@ describe("AgentGUIHeroAgentCarousel", () => {
     const scene = {
       dispose: vi.fn(),
       moveTo: vi.fn(),
-      setSize: vi.fn(),
-      setVisible: vi.fn()
+      setSize: vi.fn()
     };
     sceneCreate.mockReturnValue(scene);
     const container = document.createElement("div");
@@ -288,6 +340,7 @@ describe("AgentGUIHeroAgentCarousel", () => {
         frames.flushNext();
         idle.flushNext();
       });
+      expect(sceneCreate).toHaveBeenCalledOnce();
       expect(
         container.querySelector(".agent-gui-vinyl-player__record--playing")
       ).toBeNull();
@@ -300,6 +353,7 @@ describe("AgentGUIHeroAgentCarousel", () => {
       expect(
         container.querySelector(".agent-gui-vinyl-player__record--playing")
       ).not.toBeNull();
+      expect(sceneCreate).toHaveBeenCalledOnce();
 
       await act(async () => {
         root.render(
@@ -314,7 +368,7 @@ describe("AgentGUIHeroAgentCarousel", () => {
         container.querySelector(".agent-gui-vinyl-player__record--playing")
       ).toBeNull();
       expect(sceneCreate).toHaveBeenCalledOnce();
-      expect(scene.dispose).not.toHaveBeenCalled();
+      expect(scene.dispose).toHaveBeenCalledOnce();
     } finally {
       await act(async () => {
         root.unmount();

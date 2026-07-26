@@ -105,7 +105,12 @@ export class AgentGUIEmptyHeroCarouselStage extends Component<AgentGUIEmptyHeroC
   }
 
   private canAlign(): boolean {
-    return Boolean(this.props.items.length > 1 && this.stage && this.layer);
+    return Boolean(
+      this.props.isVisible &&
+      this.props.items.length > 1 &&
+      this.stage &&
+      this.layer
+    );
   }
 
   private stopAlignment(): void {

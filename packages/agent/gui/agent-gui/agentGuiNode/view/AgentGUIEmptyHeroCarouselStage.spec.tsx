@@ -32,10 +32,30 @@ afterEach(() => {
 });
 
 describe("AgentGUIEmptyHeroCarouselStage", () => {
+  it("does not measure a fully occluded carousel", () => {
+    const getBoundingClientRect = vi.spyOn(
+      HTMLElement.prototype,
+      "getBoundingClientRect"
+    );
+
+    render(
+      <AgentGUIEmptyHeroCarouselStage
+        isActive={false}
+        isVisible={false}
+        items={items}
+        providerSelectLabel="Select provider"
+      >
+        <div data-carousel-placeholder />
+      </AgentGUIEmptyHeroCarouselStage>
+    );
+
+    expect(getBoundingClientRect).not.toHaveBeenCalled();
+  });
+
   it("measures live carousel alignment", () => {
     const { container } = render(
       <AgentGUIEmptyHeroCarouselStage
-        isActive
+        isActive={false}
         isVisible
         items={items}
         providerSelectLabel="Select provider"

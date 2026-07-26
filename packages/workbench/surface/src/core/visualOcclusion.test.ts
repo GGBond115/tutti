@@ -1,0 +1,99 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  selectVisuallyExposedWorkbenchNodeIDs,
+  selectWorkbenchNodeIsVisuallyExposed
+} from "./visualOcclusion.ts";
+import {
+  defaultWorkbenchLayoutConstraints,
+  type WorkbenchFrame,
+  type WorkbenchNode,
+  type WorkbenchState
+} from "./types.ts";
+
+test("keeps fully and partially exposed windows visible", () => {
+  const state = workbenchState([
+    node("hidden-1", frame(0, 0)),
+    node("hidden-2", frame(0, 0)),
+    node("hidden-3", frame(0, 0)),
+    node("hidden-4", frame(0, 0)),
+    node("partial-right", frame(80, 0)),
+    node("partial-bottom", frame(0, 80)),
+    node("visible-a", frame(0, 0)),
+    node("visible-b", frame(300, 0)),
+    node("visible-c", frame(0, 300)),
+    node("visible-d", frame(300, 300))
+  ]);
+
+  assert.deepEqual([...selectVisuallyExposedWorkbenchNodeIDs(state)].sort(), [
+    "partial-bottom",
+    "partial-right",
+    "visible-a",
+    "visible-b",
+    "visible-c",
+    "visible-d"
+  ]);
+});
+
+test("treats the union of higher windows as full occlusion", () => {
+  const state = workbenchState([
+    node("covered", frame(0, 0, 200, 100)),
+    node("left-cover", frame(0, 0)),
+    node("right-cover", frame(100, 0))
+  ]);
+
+  assert.equal(selectWorkbenchNodeIsVisuallyExposed(state, "covered"), false);
+  assert.equal(selectWorkbenchNodeIsVisuallyExposed(state, "left-cover"), true);
+});
+
+test("clips visibility to the Workbench surface and ignores minimized covers", () => {
+  const minimizedCover = node("minimized-cover", frame(0, 0));
+  minimizedCover.isMinimized = true;
+  const state = workbenchState([
+    node("offscreen", frame(700, 0)),
+    node("onscreen", frame(550, 0)),
+    minimizedCover
+  ]);
+
+  assert.equal(selectWorkbenchNodeIsVisuallyExposed(state, "offscreen"), false);
+  assert.equal(selectWorkbenchNodeIsVisuallyExposed(state, "onscreen"), true);
+  assert.equal(
+    selectWorkbenchNodeIsVisuallyExposed(state, "minimized-cover"),
+    false
+  );
+});
+
+function workbenchState(nodes: WorkbenchNode[]): WorkbenchState {
+  return {
+    activeDragNodeId: null,
+    activeResizeNodeId: null,
+    activeSnapTarget: null,
+    layoutConstraints: defaultWorkbenchLayoutConstraints,
+    lockedLayout: null,
+    nodes,
+    nodeStack: nodes.map((candidate) => candidate.id),
+    surfaceSize: { width: 600, height: 600 }
+  };
+}
+
+function node(id: string, nodeFrame: WorkbenchFrame): WorkbenchNode {
+  return {
+    data: null,
+    displayMode: "floating",
+    frame: nodeFrame,
+    id,
+    isMinimized: false,
+    kind: "test",
+    restoreFrame: null,
+    title: id
+  };
+}
+
+function frame(
+  x: number,
+  y: number,
+  width = 100,
+  height = 100
+): WorkbenchFrame {
+  return { height, width, x, y };
+}
