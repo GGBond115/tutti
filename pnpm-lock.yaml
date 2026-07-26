@@ -277,6 +277,9 @@ importers:
       "@react-native-community/cli-platform-android":
         specifier: 20.1.0
         version: 20.1.0
+      "@react-native-community/cli-platform-ios":
+        specifier: 20.1.0
+        version: 20.1.0
       "@react-native/babel-preset":
         specifier: 0.86.0
         version: 0.86.0(@babel/core@7.29.0)

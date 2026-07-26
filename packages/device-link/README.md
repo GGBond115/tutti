@@ -1,7 +1,7 @@
 # DeviceLink
 
 `packages/device-link` is the provisional, transport-only DeviceLink core being
-validated first by Tutti Personal Desktop and Android. It owns ICE candidate
+validated first by Tutti Personal Desktop and Mobile. It owns ICE candidate
 negotiation, QUIC over the selected packet path, and mutual ephemeral
 certificate pinning. It does not own Agent, Session, Turn,
 Workspace, pairing, account, rendezvous, or Relay product policy.
@@ -20,7 +20,7 @@ required by Go's dependency direction; it does not own account, pairing,
 rendezvous, or Agent behavior. Product bridges must not expose raw
 `QUICEndpoint.Listen` or `Dial`.
 
-## Android vertical slice
+## Mobile vertical slice
 
 The `mobile` package deliberately exposes only a gomobile-safe authenticated
 link facade:
@@ -33,7 +33,7 @@ link facade:
 - authenticated bidirectional stream open/accept/read/write/deadline/close;
 - the loopback integration probe used by the Android build gate.
 
-The Android read boundary intentionally fills a caller-owned byte buffer and
+The mobile read boundary intentionally fills a caller-owned byte buffer and
 returns only a scalar count. Do not replace it with a Go `[]byte` plus `error`
 return while the pinned Go/cgo toolchain is affected by packed-result alignment
 failures: gomobile cannot preserve final bytes returned together with `io.EOF`,
@@ -52,6 +52,8 @@ make test
 make android-crosscompile
 make android-bindings-check
 ```
+
+### Android
 
 Build the AAR with JDK 17, minSdk 26, compileSdk 36, targetSdk 35, Android Build
 Tools 36.0.0, and the pinned NDK r27d (`27.3.13750724`). Set `JAVA_HOME` and
@@ -83,6 +85,23 @@ enumeration dependency `github.com/wlynxg/anet` uses the Go standard library's
 zone cache through `go:linkname`. Go 1.23 and newer reject that reference unless
 the documented linker compatibility flag is explicit. Keep the flag scoped to
 the gomobile build; ordinary host tests and builds do not use it.
+
+### iOS
+
+The Mobile app host binds the same DeviceLink facade and Agent-owned live
+Subscriber into one XCFramework containing iOS device and iOS Simulator
+slices. Full Xcode and the iOS SDK are required:
+
+```sh
+pnpm --filter @tutti-os/mobile check:ios-bindings
+pnpm --filter @tutti-os/mobile ios:framework
+```
+
+The generated
+`apps/mobile/ios/Frameworks/TuttiMobileGo.xcframework` is ignored build output.
+The iOS product adapter owns HTTP/application framing, lifecycle grace, account
+identity, pairing, and Agent event emission exactly as the Android adapter does;
+the Go `mobile` package remains transport-only.
 
 ## Privacy invariants
 

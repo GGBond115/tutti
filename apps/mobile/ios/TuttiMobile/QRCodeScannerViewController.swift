@@ -1,0 +1,165 @@
+import AVFoundation
+import UIKit
+
+enum QRCodeScannerError: Error {
+  case cancelled
+  case emptyCode
+  case permissionDenied
+  case unavailable
+}
+
+final class QRCodeScannerViewController: UIViewController,
+  AVCaptureMetadataOutputObjectsDelegate
+{
+  var onCompletion: ((Result<String, Error>) -> Void)?
+
+  private let captureSession = AVCaptureSession()
+  private let previewLayer = AVCaptureVideoPreviewLayer()
+  private var completed = false
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    view.backgroundColor = .black
+    previewLayer.session = captureSession
+    previewLayer.videoGravity = .resizeAspectFill
+    view.layer.addSublayer(previewLayer)
+
+    let titleLabel = UILabel()
+    titleLabel.translatesAutoresizingMaskIntoConstraints = false
+    titleLabel.text = NSLocalizedString("scanner.title", comment: "")
+    titleLabel.textColor = .white
+    titleLabel.font = .preferredFont(forTextStyle: .headline)
+    titleLabel.textAlignment = .center
+    titleLabel.numberOfLines = 0
+    view.addSubview(titleLabel)
+
+    let cancelButton = UIButton(type: .system)
+    cancelButton.translatesAutoresizingMaskIntoConstraints = false
+    cancelButton.setTitle(
+      NSLocalizedString("scanner.cancel", comment: ""),
+      for: .normal
+    )
+    cancelButton.setTitleColor(.white, for: .normal)
+    cancelButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+    cancelButton.addTarget(self, action: #selector(cancel), for: .touchUpInside)
+    view.addSubview(cancelButton)
+
+    NSLayoutConstraint.activate([
+      titleLabel.topAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.topAnchor,
+        constant: 24
+      ),
+      titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+      titleLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+      cancelButton.bottomAnchor.constraint(
+        equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+        constant: -24
+      ),
+      cancelButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+    ])
+
+    configureCapture()
+  }
+
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    previewLayer.frame = view.bounds
+  }
+
+  override func viewWillDisappear(_ animated: Bool) {
+    super.viewWillDisappear(animated)
+    captureSession.stopRunning()
+  }
+
+  func metadataOutput(
+    _ output: AVCaptureMetadataOutput,
+    didOutput metadataObjects: [AVMetadataObject],
+    from connection: AVCaptureConnection
+  ) {
+    guard
+      let readable = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+      readable.type == .qr
+    else {
+      return
+    }
+    let value =
+      readable.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+      ?? ""
+    complete(
+      value.isEmpty ? .failure(QRCodeScannerError.emptyCode) : .success(value)
+    )
+  }
+
+  private func configureCapture() {
+    #if targetEnvironment(simulator)
+      complete(.failure(QRCodeScannerError.unavailable), shouldDismiss: false)
+      return
+    #else
+      switch AVCaptureDevice.authorizationStatus(for: .video) {
+      case .authorized:
+        startCapture()
+      case .notDetermined:
+        AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+          DispatchQueue.main.async {
+            guard let self else { return }
+            if granted {
+              self.startCapture()
+            } else {
+              self.complete(.failure(QRCodeScannerError.permissionDenied))
+            }
+          }
+        }
+      case .denied, .restricted:
+        complete(.failure(QRCodeScannerError.permissionDenied))
+      @unknown default:
+        complete(.failure(QRCodeScannerError.unavailable))
+      }
+    #endif
+  }
+
+  private func startCapture() {
+    guard
+      let camera = AVCaptureDevice.default(for: .video),
+      let input = try? AVCaptureDeviceInput(device: camera),
+      captureSession.canAddInput(input)
+    else {
+      complete(.failure(QRCodeScannerError.unavailable))
+      return
+    }
+    captureSession.addInput(input)
+
+    let output = AVCaptureMetadataOutput()
+    guard captureSession.canAddOutput(output) else {
+      complete(.failure(QRCodeScannerError.unavailable))
+      return
+    }
+    captureSession.addOutput(output)
+    output.setMetadataObjectsDelegate(self, queue: .main)
+    output.metadataObjectTypes = [.qr]
+    let session = captureSession
+    DispatchQueue.global(qos: .userInitiated).async {
+      session.startRunning()
+    }
+  }
+
+  @objc private func cancel() {
+    complete(.failure(QRCodeScannerError.cancelled))
+  }
+
+  private func complete(
+    _ result: Result<String, Error>,
+    shouldDismiss: Bool = true
+  ) {
+    guard !completed else { return }
+    completed = true
+    captureSession.stopRunning()
+    let completion = onCompletion
+    if shouldDismiss {
+      dismiss(animated: true) {
+        completion?(result)
+      }
+    } else {
+      completion?(result)
+    }
+  }
+}

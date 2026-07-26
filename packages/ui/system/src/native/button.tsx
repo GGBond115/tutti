@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import {
   ActivityIndicator,
   type GestureResponderEvent,
@@ -54,6 +54,7 @@ export function NativeButton({
 }: NativeButtonProps) {
   const theme = useNativeTheme();
   const styles = createStyles(theme);
+  const [pressed, setPressed] = useState(false);
   const unavailable = disabled || loading;
   const foreground = textColorByVariant(theme)[variant];
   const hasLabel = label.trim().length > 0;
@@ -65,7 +66,9 @@ export function NativeButton({
       accessibilityState={{ busy: loading, disabled: unavailable }}
       disabled={unavailable}
       onPress={onPress}
-      style={({ pressed }) => [
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      style={[
         styles.button,
         styles[size],
         variantStyles(theme)[variant],

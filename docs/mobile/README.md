@@ -1,6 +1,7 @@
 # Tutti Mobile Development
 
-Status: current onboarding guide for the Android-first mobile client
+Status: current onboarding guide for the Android-first client and iOS
+Simulator host
 
 这份文档面向第一次参与移动端开发的 Tutti 开发者。它不是通用 Android 或
 React Native 教程，而是解释本项目的分层、工具链、调试方式和当前实施顺序。
@@ -18,8 +19,8 @@ React Native 教程，而是解释本项目的分层、工具链、调试方式�
 React Native / TypeScript
   页面、导航、会话列表、对话流、Composer
                 ↓ React Native native module
-Android / Kotlin
-  系统生命周期、网络变化、Keystore、Go AAR 桥接
+Android / Kotlin 或 iOS / Swift + Objective-C++
+  系统生命周期、网络变化、安全存储、Go native bridge
                 ↓ JNI / gomobile
 Go DeviceLink
   ICE、STUN、QUIC、证书 pinning、认证双向流
@@ -36,6 +37,7 @@ Desktop + tsh-server + relay
 | 对话 projection 和 AgentGUI 行为        | `packages/agent/gui`   |
 | 移动端页面、导航、临时 UI 状态          | `apps/mobile`          |
 | Android 系统能力和 Native bridge        | `apps/mobile/android`  |
+| iOS 系统能力和 Native bridge            | `apps/mobile/ios`      |
 | ICE、QUIC、证书固定和认证 stream        | `packages/device-link` |
 | 账号、设备、配对、在线状态和 rendezvous | `tsh-server`           |
 | Personal Desktop 的 Agent API 传输适配  | `services/tuttid`      |
@@ -65,7 +67,27 @@ Desktop + tsh-server + relay
   当前 App 使用显式 `ReactPackage` 注册，未来可以在接口稳定后迁移 Codegen。
 
 日常开发多数时间在 TypeScript 和 React Native；只有系统生命周期、设备安全
-存储、网络变化或 DeviceLink bridge 才进入 Kotlin；ICE/QUIC 问题进入 Go。
+存储、网络变化或 DeviceLink bridge 才进入 Kotlin/Swift/Objective-C++；
+ICE/QUIC 问题进入 Go。
+
+### 2.1 需要认识的 iOS 名词
+
+- **Simulator**：macOS 上的 iOS 模拟器。可以验证 React Native UI、键盘、安全区、
+  Browser login bridge 和多数网络逻辑，但不能替代相机、真实 Keychain 生命周期、
+  蜂窝网络和后台行为的真机验收。
+- **Xcode project/workspace**：`TuttiMobile.xcodeproj` 是源码工程；执行 CocoaPods
+  后生成的 `TuttiMobile.xcworkspace` 是日常构建入口。
+- **CocoaPods**：React Native iOS 原生依赖管理器。Pods 和 workspace 是本机构建
+  产物，不提交仓库。
+- **XCFramework**：同时封装 iOS device arm64 与 iOS Simulator 架构的 Apple
+  framework。本项目用 gomobile 生成 `TuttiMobileGo.xcframework`。
+- **Keychain / CryptoKit**：iOS 设备身份、Ed25519 私钥和账号 session 的安全存储
+  与签名能力。
+- **Privacy usage description**：相机、本地网络等系统权限必须在 Info.plist 和
+  对应本地化资源中说明用途。
+
+iOS 与 Android 使用同一份 `TuttiMobileSecurity` 和 `TuttiDeviceLink` JavaScript
+接口。平台原生代码只实现这些 port，不复制配对状态机、Agent DTO、会话逻辑或对话流。
 
 ## 3. 本机工具链
 
@@ -81,6 +103,9 @@ Desktop + tsh-server + relay
 - Android Emulator 和 Android 35 ARM64 system image
 - Android App 最低系统版本 API 33（Android 13）；这是当前系统 Ed25519
   实现的最低安全基线
+- 完整 Xcode 与 iOS Simulator runtime
+- CocoaPods
+- iOS 最低系统版本 15.1
 
 在 macOS 上，JDK 和 Android SDK 通常位于：
 
@@ -160,6 +185,20 @@ pnpm --filter @tutti-os/mobile android:aar
 宿主的 JNI 装配边界；它不会把 Agent 协议、Workspace DTO 或产品策略移入
 `packages/device-link`。
 
+iOS 宿主对同一组 Go package 生成 device + Simulator XCFramework：
+
+```sh
+pnpm --filter @tutti-os/mobile check:ios-bindings
+pnpm --filter @tutti-os/mobile ios:framework
+pnpm --filter @tutti-os/mobile ios:pods
+```
+
+输出位于忽略的
+`apps/mobile/ios/Frameworks/TuttiMobileGo.xcframework`；`ios:pods` 随后生成
+忽略的 `Pods/` 和 `TuttiMobile.xcworkspace`。iOS build 仍保持 DeviceLink
+transport、Agent live Subscriber 和产品 adapter 的现有所有权，不把 framing 或
+账号策略移入共享 transport。
+
 ## 5. 正式 App 的日常开发循环
 
 典型开发循环是：
@@ -176,13 +215,16 @@ pnpm --filter @tutti-os/mobile android:aar
 ```sh
 pnpm mobile:start
 pnpm mobile:android
+pnpm mobile:ios
 pnpm mobile:check
 pnpm mobile:test
 ```
 
 `pnpm mobile:android` 会先生成 Mobile 组合 Go AAR，再构建并安装 debug App；
+`pnpm mobile:ios` 会先生成 XCFramework、安装 Pods，再构建并启动 Simulator；
 `pnpm mobile:start` 启动 Metro，`pnpm mobile:check` 运行移动端 TypeScript、
-Jest 和组合 gomobile Java binding 检查。
+Jest 和 Android/iOS gomobile binding 检查。首次使用完整 Xcode 时，开发者必须
+亲自查看并接受 Apple 的 Xcode 许可协议。
 
 ### Native UI foundation
 
@@ -358,14 +400,24 @@ Google Play 账号。以下事项等正式分发前再处理：
   command，新建会话的目标设置作为 activation intent 一并提交；
 - Go authenticated link、owner host、application frame、allowlist、race，以及
   TypeScript/Jest、Metro bundle、Kotlin/Java/CMake、四 ABI APK 均已有自动验证。
+- `apps/mobile/ios` 已建立 React Native 0.86/Fabric Simulator shell，并提供与
+  Android 相同的两个 Native Module contract；iOS adapter 已接入 Keychain
+  Ed25519 identity/session、共享 Cookie、localhost browser login bridge、AVFoundation
+  QR scanner、Go DeviceLink request framing、Agent live Subscriber、事件派发和
+  15 秒后台 grace。模拟器扫码明确降级到现有手动粘贴入口，不伪造相机成功。
+- iOS Metro production bundle、device + Simulator XCFramework、Pods、generic
+  Simulator build 均已通过；App 已安装并启动于 iPhone 17 Pro / iOS 26.5
+  Simulator，Hermes 成功执行共享 JavaScript bundle。
 
 接下来按顺序推进：
 
-1. 用真实账号和 Android 真机跑通 QR claim/confirm、direct DeviceLink 与 Agent 操作；
-2. 增加 paired-device Relay fallback，并验证 direct/Relay 切换后的 live stream
+1. 用手动配对码在 iOS Simulator 验证真实账号登录、配对、DeviceLink 和 Agent
+   对话闭环；
+2. 用真实账号和 Android 真机跑通 QR claim/confirm、direct DeviceLink 与 Agent 操作；
+3. 增加 paired-device Relay fallback，并验证 direct/Relay 切换后的 live stream
    重连与 canonical 对账；
-3. 补齐前台自动重连、撤销专用状态，以及 mention、workspace file 和媒体预览动作；
-4. Personal 闭环稳定后，再让 TSH 删除本地 transport 副本并消费共享 DeviceLink module。
+4. 补齐前台自动重连、撤销专用状态，以及 mention、workspace file 和媒体预览动作；
+5. Personal 闭环稳定后，再让 TSH 删除本地 transport 副本并消费共享 DeviceLink module。
 
 遇到问题时先看
 [Troubleshooting](../conventions/troubleshooting/README.md)，再根据上面的分层定位。

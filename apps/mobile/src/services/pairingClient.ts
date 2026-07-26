@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { controlPlaneBaseURL, mobileClientVersion } from "../config";
 import { deviceLink, mobileSecurity } from "../native/mobileNative";
 import type { DeviceIdentity, DevicePairing, UserDevice } from "./mobileDomain";
@@ -301,7 +302,7 @@ async function registerIdentity(
         arch: identity.arch,
         clientVersion: mobileClientVersion,
         deviceId: identity.deviceId,
-        platform: "android",
+        platform: Platform.OS,
         publicIdentity: {
           algorithm: "ed25519",
           proof,

@@ -76,6 +76,8 @@
     "lark:logs": "node ./tools/scripts/lark-log-tool.mjs",
     "mobile:android": "pnpm --filter @tutti-os/mobile android",
     "mobile:check": "pnpm --filter @tutti-os/mobile check",
+    "mobile:ios": "pnpm --filter @tutti-os/mobile ios",
+    "mobile:ios:pods": "pnpm --filter @tutti-os/mobile ios:pods",
     "mobile:start": "pnpm --filter @tutti-os/mobile start",
     "mobile:test": "pnpm --filter @tutti-os/mobile test",
     "format": "pnpm format:code && pnpm format:assets",

@@ -46,7 +46,7 @@ Tutti Personal 已经拥有本机 Agent Host、Agent Activity、AgentGUI 和完�
 MVP 不包含：
 
 - Remote SSH、Terminal、远程桌面或任意 localhost 端口转发；
-- iOS 客户端；
+- iOS 真机验收、TestFlight、App Store 和 release 签名；
 - 后台长期运行、系统推送和通知操作；
 - 离线读取、离线写队列和会话内容持久缓存；
 - 文件上传、图片输入、语音输入、富文本编辑器、`@` 引用选择器；
@@ -524,7 +524,7 @@ caller 获得 response-only STUN endpoints 并二次发布 ICE 后再认领 atte
 连接旧 fingerprint。Relay 和 event stream 尚未实现，当前消息更新使用前台增量
 snapshot polling。
 
-### M4 — Android App shell
+### M4 — Mobile App shell（Android 首发）
 
 归属：`tutti`。
 
@@ -545,6 +545,13 @@ Ed25519 identity、扫码/粘贴配对码、配对设备列表、Native DeviceLi
 隔离取消后晚到的连接任务。TypeScript/Jest、Metro、Kotlin/Java/CMake、
 四 ABI APK 构建，以及 Android 15 ARM64 模拟器安装启动均通过；前台自动重连和
 撤销专用状态仍待完成。
+
+iOS Simulator host 已在相同 `apps/mobile` application core 上建立。它复用全部
+TypeScript service、AgentGUI projection、Native renderer 和 Composer，只实现
+`TuttiMobileSecurity` / `TuttiDeviceLink` 平台 port。当前 iOS adapter 包含
+Keychain/CryptoKit identity、账号 session/Cookie、localhost browser login bridge、
+AVFoundation scanner、gomobile XCFramework、Agent HTTP/live framing 和前后台 grace；
+Simulator 的相机路径明确使用现有手动配对码降级。真机与分发仍不属于本阶段完成条件。
 
 ### M5 — AgentGUI MVP
 
@@ -582,6 +589,27 @@ identity 进入显式 Retry。事件流 reconcile、Markdown/code、unsupported 
 - 根据验证结果决定 UI token 提炼和共享组件的下一批范围。
 - Personal 验收后冻结最小公开 API、启用稳定 Go tag 和可复现 AAR consumer gate。
 - 再安排 TSH 切换上游依赖、删除复制实现并启用 VM/room workspace lane。
+
+### M7 — iOS Simulator 功能对齐
+
+归属：`tutti`。
+
+- 从同一 React Native application core 建立 iOS 15.1+ shell，不复制对话流或业务状态机。
+- 为 DeviceLink 与 Agent live mobile packages 生成 device + Simulator XCFramework。
+- 以同名 Native Module contract 实现 Keychain identity/session、Cookie、browser
+  login bridge、扫码、DeviceLink request/live stream 和 lifecycle grace。
+- Simulator 使用手动配对码覆盖无相机环境；硬件能力不得返回伪成功。
+- 通过 iOS Metro bundle、TypeScript/Jest、ObjC binding、Pods 和 Simulator build。
+
+完成条件：Simulator 可以启动同一 App、完成非相机入口的登录/配对/连接和 Agent
+对话闭环；真实相机、蜂窝/VPN/后台稳定性、签名和 TestFlight/App Store 留到 iOS
+真机验收阶段。
+
+当前进度：iOS shell、Native Module adapter、Go XCFramework build boundary 和共享
+TypeScript 平台清理已完成；Metro iOS production bundle、TypeScript/Jest、device +
+Simulator XCFramework、Pods 和 generic Simulator build 已通过。App 已安装并启动于
+iPhone 17 Pro / iOS 26.5 Simulator，Hermes 成功执行共享 JavaScript bundle；真实账号
+登录、手动配对码、DeviceLink 和 Agent 对话闭环仍需在 Simulator 做带账号的验收。
 
 ## 17. Android Personal MVP 验收
 
@@ -622,5 +650,5 @@ MVP 稳定后按真实使用反馈推进：
 3. 将必要 semantic token 提炼到 `@tutti-os/ui-system` 平台无关出口。
 4. 渐进共享 Conversation component source，保留 `.web.tsx` / `.native.tsx` primitive。
 5. 在同一 App 核心启用 TSH/VM workspace/room lane。
-6. 增加 iOS bridge 和 App shell。
+6. 完成 iOS 真机联调、签名与可选的 TestFlight/App Store 分发。
 7. 用户规模和发布节奏稳定后，再设计协议兼容窗口、推送与后台能力。
