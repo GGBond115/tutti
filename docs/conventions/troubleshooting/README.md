@@ -114,6 +114,7 @@ CLI behavior, CI, package assets, skills, Browser Node, and terminal input.
 
 Android app login, native bridge, secure identity, and mobile transport diagnostics.
 
+- [Android release bundling cannot resolve the JSX transform](./mobile.md#android-release-bundling-cannot-resolve-the-jsx-transform)
 - [Mobile quick prompts are missing from the plus menu](./mobile.md#mobile-quick-prompts-are-missing-from-the-plus-menu)
 - [Mobile composer model and permission controls are missing](./mobile.md#mobile-composer-model-and-permission-controls-are-missing)
 - [Mobile composer option chips do not open](./mobile.md#mobile-composer-option-chips-do-not-open)
