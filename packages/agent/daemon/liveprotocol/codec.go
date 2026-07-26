@@ -40,6 +40,22 @@ func EncodeFrame(frame Frame) ([]byte, error) {
 	return out, nil
 }
 
+func frameEnvelopeWireSize(frame Frame) int {
+	return protowire.SizeTag(frameRevisionField) +
+		protowire.SizeBytes(len(frame.ProtocolRevision)) +
+		protowire.SizeTag(frameStreamIDField) +
+		protowire.SizeBytes(len(frame.StreamID)) +
+		protowire.SizeTag(frameBindingIDField) +
+		protowire.SizeBytes(len(frame.BindingID)) +
+		protowire.SizeTag(frameEpochField) +
+		protowire.SizeVarint(frame.Epoch)
+}
+
+func framedDeliveryWireSize(encodedDeliveryBytes int) int {
+	return protowire.SizeTag(frameDeliveriesField) +
+		protowire.SizeBytes(encodedDeliveryBytes)
+}
+
 func DecodeFrame(raw []byte) (Frame, error) {
 	if len(raw) == 0 || len(raw) > DefaultFrameMaxBytes {
 		return Frame{}, ErrInvalidFrame
@@ -127,6 +143,8 @@ func encodeDelivery(delivery Delivery) ([]byte, error) {
 		field, payload = deliveryDiscontinuityField, mustMarshalControl(delivery.Discontinuity)
 	case DeliveryKindAttachmentChanged:
 		field, payload = deliveryAttachmentField, mustMarshalControl(delivery.AttachmentChanged)
+	case DeliveryKindAttachmentCaughtUp:
+		field, payload = deliveryAttachmentCaughtUpField, mustMarshalControl(delivery.AttachmentCaughtUp)
 	case DeliveryKindGoalChanged:
 		field, payload = deliveryGoalField, mustMarshalControl(delivery.GoalChanged)
 	case DeliveryKindStreamReady:
@@ -177,7 +195,7 @@ func decodeDelivery(raw []byte) (Delivery, error) {
 			} else {
 				delivery.Kind = DeliveryKind(value)
 			}
-		case deliveryEventField, deliveryDiscontinuityField, deliveryAttachmentField, deliveryGoalField, deliveryReadyField, deliveryRejectedField:
+		case deliveryEventField, deliveryDiscontinuityField, deliveryAttachmentField, deliveryGoalField, deliveryReadyField, deliveryRejectedField, deliveryAttachmentCaughtUpField:
 			if wireType != protowire.BytesType || payloadField != 0 {
 				return Delivery{}, ErrInvalidFrame
 			}
@@ -193,12 +211,13 @@ func decodeDelivery(raw []byte) (Delivery, error) {
 		}
 	}
 	expectedPayload := map[DeliveryKind]protowire.Number{
-		DeliveryKindEvent:             deliveryEventField,
-		DeliveryKindDiscontinuity:     deliveryDiscontinuityField,
-		DeliveryKindAttachmentChanged: deliveryAttachmentField,
-		DeliveryKindGoalChanged:       deliveryGoalField,
-		DeliveryKindStreamReady:       deliveryReadyField,
-		DeliveryKindRejected:          deliveryRejectedField,
+		DeliveryKindEvent:              deliveryEventField,
+		DeliveryKindDiscontinuity:      deliveryDiscontinuityField,
+		DeliveryKindAttachmentChanged:  deliveryAttachmentField,
+		DeliveryKindAttachmentCaughtUp: deliveryAttachmentCaughtUpField,
+		DeliveryKindGoalChanged:        deliveryGoalField,
+		DeliveryKindStreamReady:        deliveryReadyField,
+		DeliveryKindRejected:           deliveryRejectedField,
 	}[delivery.Kind]
 	if expectedPayload == 0 || payloadField != expectedPayload {
 		return Delivery{}, ErrInvalidFrame
@@ -219,6 +238,11 @@ func decodeDelivery(raw []byte) (Delivery, error) {
 	case DeliveryKindAttachmentChanged:
 		delivery.AttachmentChanged = &AttachmentChanged{}
 		if err := strictControlDecode(payload, delivery.AttachmentChanged); err != nil {
+			return Delivery{}, err
+		}
+	case DeliveryKindAttachmentCaughtUp:
+		delivery.AttachmentCaughtUp = &AttachmentCaughtUp{}
+		if err := strictControlDecode(payload, delivery.AttachmentCaughtUp); err != nil {
 			return Delivery{}, err
 		}
 	case DeliveryKindGoalChanged:
@@ -290,10 +314,26 @@ func validateDelivery(delivery Delivery) error {
 		}
 	case DeliveryKindAttachmentChanged:
 		count = boolCount(delivery.AttachmentChanged != nil)
-		if delivery.AttachmentChanged != nil &&
-			(strings.TrimSpace(delivery.AttachmentChanged.BindingID) == "" ||
-				strings.TrimSpace(delivery.AttachmentChanged.WorkspaceID) == "" ||
-				strings.TrimSpace(delivery.AttachmentChanged.AgentSessionID) == "") {
+		if delivery.AttachmentChanged != nil && !validAttachmentControl(
+			delivery.AttachmentChanged.BindingID,
+			delivery.AttachmentChanged.WorkspaceID,
+			delivery.AttachmentChanged.AgentSessionID,
+			delivery.AttachmentChanged.CanonicalTurnID,
+			delivery.AttachmentChanged.CallerTurnID,
+			delivery.AttachmentChanged.AttachmentRevision,
+		) {
+			return ErrInvalidFrame
+		}
+	case DeliveryKindAttachmentCaughtUp:
+		count = boolCount(delivery.AttachmentCaughtUp != nil)
+		if delivery.AttachmentCaughtUp != nil && !validAttachmentControl(
+			delivery.AttachmentCaughtUp.BindingID,
+			delivery.AttachmentCaughtUp.WorkspaceID,
+			delivery.AttachmentCaughtUp.AgentSessionID,
+			delivery.AttachmentCaughtUp.CanonicalTurnID,
+			delivery.AttachmentCaughtUp.CallerTurnID,
+			delivery.AttachmentCaughtUp.AttachmentRevision,
+		) {
 			return ErrInvalidFrame
 		}
 	case DeliveryKindGoalChanged:
@@ -328,6 +368,23 @@ func validateDelivery(delivery Delivery) error {
 		return ErrInvalidFrame
 	}
 	return nil
+}
+
+func validAttachmentControl(
+	bindingID, workspaceID, agentSessionID, canonicalTurnID, callerTurnID string,
+	revision uint64,
+) bool {
+	if strings.TrimSpace(bindingID) == "" ||
+		strings.TrimSpace(workspaceID) == "" ||
+		strings.TrimSpace(agentSessionID) == "" ||
+		revision == 0 {
+		return false
+	}
+	// Goal-only attachments are turnless; invocation attachments always carry
+	// both sides of the Turn identity mapping. A half-populated pair cannot be
+	// projected safely by a recipient.
+	return (strings.TrimSpace(canonicalTurnID) == "") ==
+		(strings.TrimSpace(callerTurnID) == "")
 }
 
 func strictControlDecode(raw []byte, target any) error {

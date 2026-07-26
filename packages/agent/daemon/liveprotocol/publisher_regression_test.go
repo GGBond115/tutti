@@ -94,11 +94,15 @@ func TestPublisherReturnedControlFrameDoesNotAliasInputOrReplay(t *testing.T) {
 	}
 	frames[0].Deliveries[0].GoalChanged.AgentSessionID = "session-mutated-frame"
 
-	resume := publisher.Resume(ResumeRequest{Epoch: 1, AfterSeq: 0})
-	if !resume.Hit || len(resume.Deliveries) != 1 {
+	resume, err := publisher.Resume(ResumeRequest{Epoch: 1, AfterSeq: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resume.Hit || len(resume.Frames) != 1 ||
+		len(resume.Frames[0].Deliveries) != 1 {
 		t.Fatalf("resume = %#v", resume)
 	}
-	if got := resume.Deliveries[0].GoalChanged.AgentSessionID; got != "session-original" {
+	if got := resume.Frames[0].Deliveries[0].GoalChanged.AgentSessionID; got != "session-original" {
 		t.Fatalf("replay aliased published frame: %q", got)
 	}
 }
@@ -281,7 +285,10 @@ func TestPublisherClearsPrunedReplayBackingEntries(t *testing.T) {
 	backing := publisher.replay[:cap(publisher.replay)]
 
 	now = now.Add(2 * time.Second)
-	result := publisher.Resume(ResumeRequest{Epoch: 1, AfterSeq: 1})
+	result, err := publisher.Resume(ResumeRequest{Epoch: 1, AfterSeq: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !result.Hit || len(publisher.replay) != 0 {
 		t.Fatalf("expired replay was not pruned: result=%#v entries=%d", result, len(publisher.replay))
 	}

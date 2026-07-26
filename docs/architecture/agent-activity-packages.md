@@ -853,11 +853,29 @@ covers the event schema, protobuf field numbers, delivery-kind values, and JSON
 control shapes. A revision mismatch is an explicit rejection followed by
 canonical reconciliation; it is not a compatibility conversion path.
 
+`StreamReady` is transport-only and must not be interpreted as canonical
+catch-up. `AttachmentChanged` starts a baseline for one positive attachment
+revision; hosts publish their canonical baseline and then
+`AttachmentCaughtUp` with the exact same binding, workspace, Session, Turn,
+caller-Turn, and revision identity. Consumers reject a missing or mismatched
+barrier. The protocol carries this fence but does not choose recovery state:
+the host adapter must reread its canonical store, which remains the lifecycle
+authority after a runtime or host-process restart.
+
+Replay resumes the same epoch, so replayed attachment or caught-up controls may
+precede the replacement RPC's newly emitted `StreamReady`. Consumers persist
+the attachment projection together with the resume cursor. If disconnection
+occurred after `AttachmentChanged` but before `AttachmentCaughtUp`, the
+projection remains explicitly not caught up until the matching barrier is
+replayed. A host must not publish `AttachmentCaughtUp` for a replacement
+attachment until it has rerun the complete canonical baseline.
+
 Frames are bounded but not fragmented. The publisher may coalesce only adjacent
 pure `append_text` operations for the same message and Turn; tool-output
 operations additionally require contiguous byte offsets. Status, payload,
 semantic, or lifecycle mutations remain separate deliveries. A single delivery
-over the configured safe limit is replaced with a `delivery_too_large`
+over the configured safe limit (1 MiB by default, with a 2 MiB encoded-frame
+ceiling and an 8 MiB replay-byte budget) is replaced with a `delivery_too_large`
 discontinuity carrying reconcile keys, and the caller falls back to canonical
 data. This avoids maintaining a second chunk assembly protocol while ensuring
 that the final oversized event is not silently lost.

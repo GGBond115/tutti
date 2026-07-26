@@ -180,11 +180,25 @@ type Discontinuity struct {
 }
 
 type AttachmentChanged struct {
-	BindingID       string `json:"bindingId"`
-	WorkspaceID     string `json:"workspaceId"`
-	AgentSessionID  string `json:"agentSessionId"`
-	CanonicalTurnID string `json:"canonicalTurnId,omitempty"`
-	CallerTurnID    string `json:"callerTurnId,omitempty"`
+	BindingID          string `json:"bindingId"`
+	WorkspaceID        string `json:"workspaceId"`
+	AgentSessionID     string `json:"agentSessionId"`
+	CanonicalTurnID    string `json:"canonicalTurnId,omitempty"`
+	CallerTurnID       string `json:"callerTurnId,omitempty"`
+	AttachmentRevision uint64 `json:"attachmentRevision"`
+}
+
+// AttachmentCaughtUp fences one attachment recovery baseline. StreamReady
+// establishes transport readiness only; callers may treat an attachment as
+// synchronized after this control arrives for the same stream epoch and
+// attachment revision.
+type AttachmentCaughtUp struct {
+	BindingID          string `json:"bindingId"`
+	WorkspaceID        string `json:"workspaceId"`
+	AgentSessionID     string `json:"agentSessionId"`
+	CanonicalTurnID    string `json:"canonicalTurnId,omitempty"`
+	CallerTurnID       string `json:"callerTurnId,omitempty"`
+	AttachmentRevision uint64 `json:"attachmentRevision"`
 }
 
 type GoalChanged struct {
@@ -214,14 +228,15 @@ type Rejected struct {
 }
 
 type Delivery struct {
-	Seq               uint64
-	Kind              DeliveryKind
-	Event             json.RawMessage
-	Discontinuity     *Discontinuity
-	AttachmentChanged *AttachmentChanged
-	GoalChanged       *GoalChanged
-	StreamReady       *StreamReady
-	Rejected          *Rejected
+	Seq                uint64
+	Kind               DeliveryKind
+	Event              json.RawMessage
+	Discontinuity      *Discontinuity
+	AttachmentChanged  *AttachmentChanged
+	AttachmentCaughtUp *AttachmentCaughtUp
+	GoalChanged        *GoalChanged
+	StreamReady        *StreamReady
+	Rejected           *Rejected
 }
 
 type Frame struct {
@@ -233,13 +248,14 @@ type Frame struct {
 }
 
 type PublishInput struct {
-	Event             *Event
-	Discontinuity     *Discontinuity
-	AttachmentChanged *AttachmentChanged
-	GoalChanged       *GoalChanged
-	StreamReady       *StreamReady
-	Rejected          *Rejected
-	Immediate         bool
+	Event              *Event
+	Discontinuity      *Discontinuity
+	AttachmentChanged  *AttachmentChanged
+	AttachmentCaughtUp *AttachmentCaughtUp
+	GoalChanged        *GoalChanged
+	StreamReady        *StreamReady
+	Rejected           *Rejected
+	Immediate          bool
 }
 
 type PublisherConfig struct {
@@ -264,7 +280,9 @@ type ResumeRequest struct {
 type ResumeResult struct {
 	Hit          bool
 	CurrentEpoch uint64
-	Deliveries   []Delivery
+	// Frames are already partitioned against the publisher's encoded-frame
+	// ceiling. Callers must send them independently and in order.
+	Frames []Frame
 }
 
 type SubscriberConfig struct {

@@ -185,34 +185,98 @@ func (p *Publisher) NextFlushDelay() time.Duration {
 	return remaining
 }
 
-func (p *Publisher) Resume(request ResumeRequest) ResumeResult {
+// Resume returns the retained suffix as independently sendable frames. Replay
+// retention may be larger than one transport frame, so exposing a flat
+// delivery slice would let callers accidentally violate the encoded-frame
+// ceiling when reconnecting.
+func (p *Publisher) Resume(request ResumeRequest) (ResumeResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.pruneReplayLocked()
 	result := ResumeResult{CurrentEpoch: p.config.Epoch}
 	if request.Epoch != p.config.Epoch || request.AfterSeq > p.nextSeq {
-		return result
+		return result, nil
 	}
 	if len(p.replay) == 0 {
 		result.Hit = request.AfterSeq == p.nextSeq
-		return result
+		return result, nil
 	}
 	oldest := p.replay[0].delivery.Seq
 	if request.AfterSeq+1 < oldest {
-		return result
+		return result, nil
 	}
 	result.Hit = true
+	replay := make([]replayEntry, 0, len(p.replay))
 	for _, entry := range p.replay {
 		if entry.delivery.Seq > request.AfterSeq {
-			result.Deliveries = append(result.Deliveries, cloneDelivery(entry.delivery))
+			replay = append(replay, entry)
 		}
 	}
-	return result
+	frames, err := p.replayFramesLocked(replay)
+	if err != nil {
+		return ResumeResult{}, err
+	}
+	result.Frames = frames
+	return result, nil
+}
+
+func (p *Publisher) replayFramesLocked(entries []replayEntry) ([]Frame, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	limit := p.config.FrameMaxBytes
+	if limit <= 0 || limit > DefaultFrameMaxBytes {
+		limit = DefaultFrameMaxBytes
+	}
+	base := Frame{
+		ProtocolRevision: ProtocolRevision,
+		StreamID:         p.config.StreamID,
+		BindingID:        p.config.BindingID,
+		Epoch:            p.config.Epoch,
+	}
+	baseBytes := frameEnvelopeWireSize(base)
+	frames := make([]Frame, 0, 1)
+	current := base
+	currentBytes := baseBytes
+	flush := func() error {
+		if len(current.Deliveries) == 0 {
+			return nil
+		}
+		raw, err := EncodeFrame(current)
+		if err != nil {
+			return err
+		}
+		if len(raw) > limit {
+			return ErrFrameTooLarge
+		}
+		frames = append(frames, current)
+		current = base
+		currentBytes = baseBytes
+		return nil
+	}
+	for _, entry := range entries {
+		fieldBytes := framedDeliveryWireSize(entry.size)
+		if baseBytes+fieldBytes > limit {
+			return nil, ErrFrameTooLarge
+		}
+		if len(current.Deliveries) > 0 && currentBytes+fieldBytes > limit {
+			if err := flush(); err != nil {
+				return nil, err
+			}
+		}
+		current.Deliveries = append(current.Deliveries, cloneDelivery(entry.delivery))
+		currentBytes += fieldBytes
+	}
+	if err := flush(); err != nil {
+		return nil, err
+	}
+	return frames, nil
 }
 
 func deliveryFromInput(input PublishInput) (Delivery, int, error) {
 	count := boolCount(input.Event != nil) + boolCount(input.Discontinuity != nil) +
-		boolCount(input.AttachmentChanged != nil) + boolCount(input.GoalChanged != nil) +
+		boolCount(input.AttachmentChanged != nil) + boolCount(input.AttachmentCaughtUp != nil) +
+		boolCount(input.GoalChanged != nil) +
 		boolCount(input.StreamReady != nil) + boolCount(input.Rejected != nil)
 	if count != 1 {
 		return Delivery{}, 0, ErrInvalidFrame
@@ -229,6 +293,8 @@ func deliveryFromInput(input PublishInput) (Delivery, int, error) {
 		delivery = cloneDelivery(Delivery{Kind: DeliveryKindDiscontinuity, Discontinuity: input.Discontinuity})
 	case input.AttachmentChanged != nil:
 		delivery = cloneDelivery(Delivery{Kind: DeliveryKindAttachmentChanged, AttachmentChanged: input.AttachmentChanged})
+	case input.AttachmentCaughtUp != nil:
+		delivery = cloneDelivery(Delivery{Kind: DeliveryKindAttachmentCaughtUp, AttachmentCaughtUp: input.AttachmentCaughtUp})
 	case input.GoalChanged != nil:
 		delivery = cloneDelivery(Delivery{Kind: DeliveryKindGoalChanged, GoalChanged: input.GoalChanged})
 	case input.StreamReady != nil:
@@ -523,6 +589,10 @@ func cloneDelivery(delivery Delivery) Delivery {
 	if delivery.AttachmentChanged != nil {
 		value := *delivery.AttachmentChanged
 		cloned.AttachmentChanged = &value
+	}
+	if delivery.AttachmentCaughtUp != nil {
+		value := *delivery.AttachmentCaughtUp
+		cloned.AttachmentCaughtUp = &value
 	}
 	if delivery.GoalChanged != nil {
 		value := *delivery.GoalChanged

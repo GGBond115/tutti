@@ -91,6 +91,12 @@
       "goConstant": "deliveryRejectedField",
       "number": 8,
       "wireType": "bytes"
+    },
+    {
+      "name": "attachmentCaughtUp",
+      "goConstant": "deliveryAttachmentCaughtUpField",
+      "number": 9,
+      "wireType": "bytes"
     }
   ],
   "deliveryKinds": [
@@ -129,6 +135,12 @@
       "goConstant": "DeliveryKindRejected",
       "value": 6,
       "payloadField": "rejected"
+    },
+    {
+      "name": "attachmentCaughtUp",
+      "goConstant": "DeliveryKindAttachmentCaughtUp",
+      "value": 7,
+      "payloadField": "attachmentCaughtUp"
     }
   ],
   "controls": {
@@ -140,13 +152,37 @@
       }
     },
     "attachmentChanged": {
-      "required": ["bindingId", "workspaceId", "agentSessionId"],
+      "required": [
+        "bindingId",
+        "workspaceId",
+        "agentSessionId",
+        "attachmentRevision"
+      ],
+      "pairedOptional": [["canonicalTurnId", "callerTurnId"]],
       "properties": {
         "bindingId": "non-empty-string",
         "workspaceId": "non-empty-string",
         "agentSessionId": "non-empty-string",
         "canonicalTurnId": "string",
-        "callerTurnId": "string"
+        "callerTurnId": "string",
+        "attachmentRevision": "positive-integer"
+      }
+    },
+    "attachmentCaughtUp": {
+      "required": [
+        "bindingId",
+        "workspaceId",
+        "agentSessionId",
+        "attachmentRevision"
+      ],
+      "pairedOptional": [["canonicalTurnId", "callerTurnId"]],
+      "properties": {
+        "bindingId": "non-empty-string",
+        "workspaceId": "non-empty-string",
+        "agentSessionId": "non-empty-string",
+        "canonicalTurnId": "string",
+        "callerTurnId": "string",
+        "attachmentRevision": "positive-integer"
       }
     },
     "goalChanged": {

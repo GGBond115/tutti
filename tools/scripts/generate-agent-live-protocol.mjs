@@ -145,6 +145,7 @@ function validateWireContract(contract) {
   for (const requiredControl of [
     "discontinuity",
     "attachmentChanged",
+    "attachmentCaughtUp",
     "goalChanged",
     "streamReady",
     "rejected"

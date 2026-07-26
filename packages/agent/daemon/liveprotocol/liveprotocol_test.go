@@ -50,6 +50,86 @@ func TestFrameRoundTripCarriesReadyAndGoalControls(t *testing.T) {
 	}
 }
 
+func TestFrameRoundTripCarriesAttachmentRecoveryFence(t *testing.T) {
+	t.Parallel()
+	frame := Frame{
+		ProtocolRevision: ProtocolRevision,
+		StreamID:         "stream-1",
+		BindingID:        "binding-1",
+		Epoch:            7,
+		Deliveries: []Delivery{
+			{
+				Seq:  1,
+				Kind: DeliveryKindAttachmentChanged,
+				AttachmentChanged: &AttachmentChanged{
+					BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+					CanonicalTurnID: "canonical-turn-1", CallerTurnID: "caller-turn-1", AttachmentRevision: 3,
+				},
+			},
+			{
+				Seq:  2,
+				Kind: DeliveryKindAttachmentCaughtUp,
+				AttachmentCaughtUp: &AttachmentCaughtUp{
+					BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+					CanonicalTurnID: "canonical-turn-1", CallerTurnID: "caller-turn-1", AttachmentRevision: 3,
+				},
+			},
+		},
+	}
+	encoded, err := EncodeFrame(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeFrame(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed := decoded.Deliveries[0].AttachmentChanged; changed == nil ||
+		changed.AttachmentRevision != 3 || changed.CallerTurnID != "caller-turn-1" {
+		t.Fatalf("decoded attachment changed = %#v", changed)
+	}
+	if caughtUp := decoded.Deliveries[1].AttachmentCaughtUp; caughtUp == nil ||
+		caughtUp.AttachmentRevision != 3 || caughtUp.CanonicalTurnID != "canonical-turn-1" {
+		t.Fatalf("decoded attachment caught up = %#v", caughtUp)
+	}
+}
+
+func TestAttachmentRecoveryControlsRejectInvalidIdentityOrRevision(t *testing.T) {
+	t.Parallel()
+	for _, delivery := range []Delivery{
+		{
+			Seq: 1, Kind: DeliveryKindAttachmentChanged,
+			AttachmentChanged: &AttachmentChanged{
+				BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+			},
+		},
+		{
+			Seq: 1, Kind: DeliveryKindAttachmentCaughtUp,
+			AttachmentCaughtUp: &AttachmentCaughtUp{
+				BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+			},
+		},
+		{
+			Seq: 1, Kind: DeliveryKindAttachmentChanged,
+			AttachmentChanged: &AttachmentChanged{
+				BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+				CanonicalTurnID: "canonical-turn-1", AttachmentRevision: 1,
+			},
+		},
+		{
+			Seq: 1, Kind: DeliveryKindAttachmentCaughtUp,
+			AttachmentCaughtUp: &AttachmentCaughtUp{
+				BindingID: "binding-1", WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+				CallerTurnID: "caller-turn-1", AttachmentRevision: 1,
+			},
+		},
+	} {
+		if _, err := encodeDelivery(delivery); !errors.Is(err, ErrInvalidFrame) {
+			t.Fatalf("encodeDelivery(%v) error = %v, want %v", delivery.Kind, err, ErrInvalidFrame)
+		}
+	}
+}
+
 func TestTypedRevisionRejectionDecodesAcrossRevisionMismatch(t *testing.T) {
 	t.Parallel()
 	frame := Frame{
@@ -139,9 +219,64 @@ func TestPublisherCoalescesAdjacentAppendAndReplays(t *testing.T) {
 	if !ok || appended.Content.Text != "ello" {
 		t.Fatalf("coalesced append = %#v", appended)
 	}
-	resume := publisher.Resume(ResumeRequest{Epoch: 2, AfterSeq: 1})
-	if !resume.Hit || len(resume.Deliveries) != 1 || resume.Deliveries[0].Seq != 2 {
+	resume, err := publisher.Resume(ResumeRequest{Epoch: 2, AfterSeq: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resume.Hit || len(resume.Frames) != 1 ||
+		len(resume.Frames[0].Deliveries) != 1 ||
+		resume.Frames[0].Deliveries[0].Seq != 2 {
 		t.Fatalf("resume = %#v", resume)
+	}
+}
+
+func TestPublisherResumePartitionsReplayAtEncodedFrameBoundary(t *testing.T) {
+	t.Parallel()
+	const frameMaxBytes = 256
+	publisher, err := NewPublisher(PublisherConfig{
+		StreamID: "stream-1", BindingID: "binding-1", Epoch: 4,
+		FrameMaxBytes: frameMaxBytes,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for revision := int64(1); revision <= 12; revision++ {
+		frames, err := publisher.Publish(PublishInput{
+			GoalChanged: &GoalChanged{
+				WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+				Revision: revision,
+			},
+			Immediate: true,
+		})
+		if err != nil || len(frames) != 1 {
+			t.Fatalf("publish revision %d frames=%#v error=%v", revision, frames, err)
+		}
+	}
+	resume, err := publisher.Resume(ResumeRequest{Epoch: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resume.Hit || len(resume.Frames) < 2 {
+		t.Fatalf("resume did not partition replay: %#v", resume)
+	}
+	var nextSeq uint64 = 1
+	for _, frame := range resume.Frames {
+		encoded, err := EncodeFrame(frame)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(encoded) > frameMaxBytes {
+			t.Fatalf("encoded replay frame bytes=%d, max=%d", len(encoded), frameMaxBytes)
+		}
+		for _, delivery := range frame.Deliveries {
+			if delivery.Seq != nextSeq {
+				t.Fatalf("replay sequence=%d, want %d", delivery.Seq, nextSeq)
+			}
+			nextSeq++
+		}
+	}
+	if nextSeq != 13 {
+		t.Fatalf("replayed through seq=%d, want 12", nextSeq-1)
 	}
 }
 
