@@ -89,4 +89,43 @@ describe("AgentGUIConfigMenu", () => {
     expect(screen.getByText("Limits")).toBeInTheDocument();
     expect(screen.getByText("Weekly")).toBeInTheDocument();
   });
+
+  it.each([false, true, 0, ""])(
+    "preserves the provider fallback for non-rendering Host content %#",
+    (accountContent) => {
+      render(
+        <AgentGUIConfigMenu
+          accountContent={accountContent}
+          environmentSetupVisible={false}
+          labels={labels}
+          providerScopedActionsVisible
+          provider="codex"
+          providerAuthAccountLabel="provider@example.test"
+          slashStatusLimits={[
+            {
+              id: "weekly",
+              label: "Weekly",
+              percentRemaining: 50,
+              value: "50%",
+              reset: null
+            }
+          ]}
+          slashStatusLimitsLoading={false}
+          slashStatusLimitsResolvedEmpty={false}
+          slashStatusUsageCapturedAtUnixMs={null}
+          slashStatusUsageDidFail={false}
+          slashStatusUsageAttempted
+          onAgentConfigMenuOpen={vi.fn()}
+          onOpenAgentEnvSetup={vi.fn()}
+          onOpenAgentSettings={vi.fn()}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "More" }));
+
+      expect(screen.getByText("provider@example.test")).toBeInTheDocument();
+      expect(screen.getByText("Limits")).toBeInTheDocument();
+      expect(screen.getByText("Weekly")).toBeInTheDocument();
+    }
+  );
 });

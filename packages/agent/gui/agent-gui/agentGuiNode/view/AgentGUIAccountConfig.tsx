@@ -58,7 +58,7 @@ export function AgentGUIConfigMenu({
     : null;
   const accountTitle = providerDisplayTitle ?? labels.slashStatusAccount;
   const hasAccountContent =
-    accountContent !== null && accountContent !== undefined;
+    Boolean(accountContent) && typeof accountContent !== "boolean";
   return (
     <Popover
       open={open}
