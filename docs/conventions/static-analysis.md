@@ -442,7 +442,12 @@ sources, and Android manifests, also selects
 arm64 cross-compile, and the transport-only Java gomobile binding generation.
 `pnpm mobile:check` separately generates the Mobile-owned composite binding
 surface for DeviceLink plus the Agent live Subscriber without requiring an
-Android SDK. AAR assembly remains an explicit Android-SDK validation locally.
+Android SDK. The Mobile package's composite `pnpm check` also runs
+`check:ios-bindings`, which uses Go's Objective-C binding generator to verify
+the DeviceLink and live Subscriber headers and expected exported symbols. This
+binding check needs the repository Go toolchain and macOS Command Line Tools,
+but not the full iOS SDK; building the XCFramework still requires full Xcode.
+AAR assembly remains an explicit Android-SDK validation locally.
 The manually dispatched Android Internal Build workflow installs the pinned
 SDK/NDK versions, assembles the Mobile composite AAR and internal mobile APK,
 and uploads a private validation artifact; it does not publish the currently

@@ -221,7 +221,10 @@ final class MobileBrowserAuthBridge {
     _ attempt: BrowserLoginAttempt,
     client: Int32
   ) throws -> BrowserRequestOutcome {
-    let request = try Self.readRequest(client)
+    let request = try Self.readRequest(
+      client,
+      deadline: min(attempt.expiresAt, Date(timeIntervalSinceNow: 2))
+    )
     guard request.parts.count >= 2 else {
       try Self.sendJSON(client, status: 400, body: #"{"ok":false}"#)
       return .pending
@@ -239,15 +242,17 @@ final class MobileBrowserAuthBridge {
       try Self.sendJSON(client, status: 400, body: #"{"ok":false}"#)
       return .pending
     }
-    let query = Dictionary(
-      uniqueKeysWithValues: (components.queryItems ?? []).map {
-        ($0.name, $0.value ?? "")
-      }
-    )
+    guard let query = Self.queryValues(components.queryItems ?? []) else {
+      try Self.sendJSON(client, status: 400, body: #"{"ok":false}"#)
+      return .pending
+    }
+    let origin = request.headers["origin"]?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let corsOrigin = origin == attempt.authOrigin ? attempt.authOrigin : nil
 
     if method == "OPTIONS" {
-      if Self.allowedOrigin(request.headers["origin"], authOrigin: attempt.authOrigin) {
-        try Self.sendEmpty(client, status: 204, cors: true)
+      if let corsOrigin {
+        try Self.sendEmpty(client, status: 204, corsOrigin: corsOrigin)
       } else {
         try Self.sendEmpty(client, status: 403)
       }
@@ -255,6 +260,10 @@ final class MobileBrowserAuthBridge {
     }
 
     if method == "GET", components.path == "/oauth/health" {
+      if let origin, !origin.isEmpty, corsOrigin == nil {
+        try Self.sendEmpty(client, status: 403)
+        return .pending
+      }
       let matched =
         query["attempt_id"] == attempt.attemptID
         && query["token"] == attempt.bridgeToken
@@ -264,7 +273,8 @@ final class MobileBrowserAuthBridge {
         try Self.sendJSON(
           client,
           status: 401,
-          body: #"{"ok":false,"error":{"code":"INVALID_BRIDGE_ATTEMPT"}}"#
+          body: #"{"ok":false,"error":{"code":"INVALID_BRIDGE_ATTEMPT"}}"#,
+          corsOrigin: corsOrigin
         )
         return .pending
       }
@@ -282,7 +292,7 @@ final class MobileBrowserAuthBridge {
           data: try JSONSerialization.data(withJSONObject: payload),
           encoding: .utf8
         ) ?? #"{"ok":true}"#
-      try Self.sendJSON(client, status: 200, body: body)
+      try Self.sendJSON(client, status: 200, body: body, corsOrigin: corsOrigin)
       return .pending
     }
 
@@ -438,23 +448,33 @@ final class MobileBrowserAuthBridge {
     )
   }
 
-  private static func readRequest(_ client: Int32) throws -> BrowserHTTPRequest {
+  private static func readRequest(
+    _ client: Int32, deadline: Date
+  ) throws -> BrowserHTTPRequest {
     var bytes = Data()
     var buffer = [UInt8](repeating: 0, count: 4_096)
     while bytes.count < 32_768 {
+      let remaining = deadline.timeIntervalSinceNow
+      guard remaining > 0 else { throw invalidRequestError() }
+      var descriptor = pollfd(fd: client, events: Int16(POLLIN), revents: 0)
+      let timeout = Int32(max(1, min(2_000, Int(remaining * 1_000))))
+      let pollResult = Darwin.poll(&descriptor, 1, timeout)
+      if pollResult == 0 { throw invalidRequestError() }
+      if pollResult < 0 {
+        if errno == EINTR { continue }
+        throw invalidRequestError()
+      }
       let count = Darwin.recv(client, &buffer, buffer.count, 0)
-      if count <= 0 { break }
+      guard count > 0 else { throw invalidRequestError() }
       bytes.append(contentsOf: buffer.prefix(count))
       if bytes.range(of: Data("\r\n\r\n".utf8)) != nil {
         break
       }
     }
-    guard let raw = String(data: bytes, encoding: .utf8) else {
-      throw MobileBrowserAuthError(
-        code: "BROWSER_LOGIN_FAILED",
-        message: "Browser login request is invalid"
-      )
-    }
+    guard
+      bytes.range(of: Data("\r\n\r\n".utf8)) != nil,
+      let raw = String(data: bytes, encoding: .utf8)
+    else { throw invalidRequestError() }
     let lines = raw.components(separatedBy: "\r\n")
     var headers: [String: String] = [:]
     for line in lines.dropFirst() {
@@ -477,22 +497,25 @@ final class MobileBrowserAuthBridge {
   private static func sendEmpty(
     _ client: Int32,
     status: Int,
-    cors: Bool = false
+    corsOrigin: String? = nil
   ) throws {
-    try writeResponse(client, status: status, headers: [:], body: "", cors: cors)
+    try writeResponse(
+      client, status: status, headers: [:], body: "", corsOrigin: corsOrigin
+    )
   }
 
   private static func sendJSON(
     _ client: Int32,
     status: Int,
-    body: String
+    body: String,
+    corsOrigin: String? = nil
   ) throws {
     try writeResponse(
       client,
       status: status,
       headers: ["Content-Type": "application/json; charset=utf-8"],
       body: body,
-      cors: true
+      corsOrigin: corsOrigin
     )
   }
 
@@ -505,7 +528,7 @@ final class MobileBrowserAuthBridge {
       status: 302,
       headers: ["Location": location],
       body: "",
-      cors: false
+      corsOrigin: nil
     )
   }
 
@@ -514,7 +537,7 @@ final class MobileBrowserAuthBridge {
     status: Int,
     headers: [String: String],
     body: String,
-    cors: Bool
+    corsOrigin: String?
   ) throws {
     let bodyData = Data(body.utf8)
     let reason: String
@@ -531,11 +554,12 @@ final class MobileBrowserAuthBridge {
     var head = "HTTP/1.1 \(status) \(reason)\r\n"
     head += "Connection: close\r\n"
     head += "Content-Length: \(bodyData.count)\r\n"
-    if cors {
-      head += "Access-Control-Allow-Origin: *\r\n"
+    if let corsOrigin {
+      head += "Access-Control-Allow-Origin: \(corsOrigin)\r\n"
       head += "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
       head += "Access-Control-Allow-Headers: Content-Type\r\n"
       head += "Access-Control-Allow-Private-Network: true\r\n"
+      head += "Vary: Origin\r\n"
     }
     for (name, value) in headers {
       head += "\(name): \(value)\r\n"
@@ -605,12 +629,20 @@ final class MobileBrowserAuthBridge {
     return host == "127.0.0.1:\(port)" || host == "localhost:\(port)"
   }
 
-  private static func allowedOrigin(
-    _ origin: String?,
-    authOrigin: String
-  ) -> Bool {
-    let value = origin?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return value.isEmpty || value == authOrigin
+  private static func queryValues(_ items: [URLQueryItem]) -> [String: String]? {
+    var values: [String: String] = [:]
+    for item in items {
+      guard values[item.name] == nil else { return nil }
+      values[item.name] = item.value ?? ""
+    }
+    return values
+  }
+
+  private static func invalidRequestError() -> MobileBrowserAuthError {
+    MobileBrowserAuthError(
+      code: "BROWSER_LOGIN_FAILED",
+      message: "Browser login request is invalid"
+    )
   }
 
   private static func closeSocket(_ descriptor: Int32) {
