@@ -35,6 +35,9 @@ export function MobileComposerSettingsSheet({
       options?.reasoningEfforts ??
       [])
     : (options?.reasoningEfforts ?? []);
+  const showsModelChip = Boolean(
+    model.composerSettingsSupport.model && options?.models.length
+  );
 
   const closeWith = (settings: AgentActivitySessionSettings): void => {
     onUpdate(settings);
@@ -44,7 +47,7 @@ export function MobileComposerSettingsSheet({
   return (
     <>
       <View style={styles.chips}>
-        {model.composerSettingsSupport.model && options?.models.length ? (
+        {showsModelChip ? (
           <ComposerChip
             label={[
               selectedOptionLabel(options?.models ?? [], selectedModel) ??
@@ -59,6 +62,19 @@ export function MobileComposerSettingsSheet({
               .filter(Boolean)
               .join(" ")}
             onPress={() => setMenu("model")}
+          />
+        ) : null}
+        {!showsModelChip &&
+        model.composerSettingsSupport.reasoning &&
+        reasoningOptions.length ? (
+          <ComposerChip
+            label={
+              selectedOptionLabel(
+                reasoningOptions,
+                model.composerSettings.reasoningEffort ?? null
+              ) ?? t("reasoning")
+            }
+            onPress={() => setMenu("reasoning")}
           />
         ) : null}
         {model.composerSettingsSupport.speed && options?.speeds.length ? (
