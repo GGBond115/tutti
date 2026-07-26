@@ -1,5 +1,34 @@
 # Mobile Troubleshooting
 
+## Mobile composer model and permission controls are missing
+
+- **Symptom:** A remotely connected Android or iOS App can open an Agent
+  conversation and send prompts, but the model and permission controls above
+  the composer are absent.
+- **Quick checks:** Query the host with
+  `tutti --json agent composer-options --agent-id <agent-target-id>` and confirm
+  that model and permission options are present. Then inspect the DeviceLink
+  `agent_http` response for the matching
+  `POST /v1/agent-providers/{provider}/composer-options` request. A 403 response
+  with `route_not_allowed` identifies a transport allowlist gap rather than an
+  AgentGUI capability or mobile layout problem.
+- **Root cause:** Mobile loads authoritative composer options through the
+  DeviceLink HTTP bridge. If the exact read-side composer-options route is
+  absent from the bridge allowlist, the request is rejected before it reaches
+  tuttid's handler. The mobile UI fails closed and hides controls for options it
+  cannot verify.
+- **Fix:** Add only the exact `POST
+/v1/agent-providers/{provider}/composer-options` shape to the DeviceLink
+  `agent_http` allowlist. Keep unrelated provider routes and other HTTP methods
+  blocked; do not hardcode model or permission catalogs in the App.
+- **Validation:** Run the focused `mobileremote` tests, confirm a composer-options
+  request round-trips through DeviceLink while GET and extra-path variants
+  remain forbidden, then verify on a real device that model, reasoning, and
+  permission changes update the chips and persist in the selected Session.
+- **References:** `services/tuttid/service/mobileremote/remote_protocol.go`,
+  `apps/mobile/src/services/workspaceActivityCommandAdapter.ts`,
+  `apps/mobile/src/components/MobileComposerSettingsSheet.tsx`
+
 ## Browser login returns to the App but remains signed out
 
 - **Symptom:** Android opens the Tutti Web login page, completes the provider

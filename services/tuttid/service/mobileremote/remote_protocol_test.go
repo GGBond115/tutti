@@ -69,6 +69,8 @@ func TestRemoteProtocolRejectsRoutesOutsideAgentSurface(t *testing.T) {
 		{http.MethodGet, "/v1/workspaces/workspace-1/files/file?path=/secret"},
 		{http.MethodPost, "/v1/workspaces/workspace-1/terminals"},
 		{http.MethodGet, "/v1/account/session"},
+		{http.MethodGet, "/v1/agent-providers/codex/composer-options"},
+		{http.MethodPost, "/v1/agent-providers/codex/composer-options/extra"},
 		{http.MethodPost, "https://example.com/v1/workspaces/workspace-1/agent-sessions"},
 	} {
 		response := executeRemoteRequest(context.Background(), http.NotFoundHandler(), RemoteRequest{
@@ -78,6 +80,39 @@ func TestRemoteProtocolRejectsRoutesOutsideAgentSurface(t *testing.T) {
 		if response.Status != http.StatusForbidden || response.ErrorCode != "route_not_allowed" {
 			t.Fatalf("%s %s unexpectedly allowed: %+v", test.method, test.path, response)
 		}
+	}
+}
+
+func TestRemoteProtocolAllowsAgentComposerOptions(t *testing.T) {
+	t.Parallel()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/agent-providers/codex/composer-options" {
+			t.Fatalf("unexpected proxied request: %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("unexpected content type: %q", got)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != `{"agentTargetId":"local:codex","workspaceId":"workspace-1"}` {
+			t.Fatalf("unexpected request body: %s", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"provider":"codex"}`))
+	})
+	response := executeRemoteRequest(context.Background(), handler, RemoteRequest{
+		ProtocolEpoch: ApplicationProtocolEpoch,
+		Service:       AgentHTTPService,
+		RequestID:     "request-1",
+		Method:        http.MethodPost,
+		Path:          "/v1/agent-providers/codex/composer-options",
+		Headers:       map[string][]string{"Content-Type": {"application/json"}},
+		Body:          []byte(`{"agentTargetId":"local:codex","workspaceId":"workspace-1"}`),
+	})
+	if response.Status != http.StatusOK || string(response.Body) != `{"provider":"codex"}` {
+		t.Fatalf("unexpected response: %+v", response)
 	}
 }
 

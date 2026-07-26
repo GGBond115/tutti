@@ -356,6 +356,13 @@ func remoteRouteAllowed(method, path string) bool {
 	if len(segments) == 2 && segments[0] == "v1" && segments[1] == "agent-targets" {
 		return method == http.MethodGet
 	}
+	if len(segments) == 4 &&
+		segments[0] == "v1" &&
+		segments[1] == "agent-providers" &&
+		strings.TrimSpace(segments[2]) != "" &&
+		segments[3] == "composer-options" {
+		return method == http.MethodPost
+	}
 	if len(segments) == 2 && segments[0] == "v1" && segments[1] == "workspaces" {
 		return method == http.MethodGet
 	}
