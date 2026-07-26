@@ -13,10 +13,6 @@ import {
 } from "./package-release-version.mjs";
 import { preparePackageGoModuleReleaseTree } from "./go-module-release.mjs";
 
-// DeviceLink remains an unreleased Personal-first transport spike until the
-// Android/Desktop product path proves its authenticated lifecycle.
-const provisionalGoModuleDirectories = new Set(["packages/device-link"]);
-
 if (isExecutedAsEntryPoint()) {
   await main();
 }
@@ -268,9 +264,7 @@ async function discoverPackageGoModuleDirectories() {
 
   await collectPackageGoModuleDirectories(packagesRoot, directories);
 
-  return directories
-    .filter((directory) => !provisionalGoModuleDirectories.has(directory))
-    .sort();
+  return directories.sort();
 }
 
 async function collectPackageGoModuleDirectories(directory, directories) {

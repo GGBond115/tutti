@@ -21,6 +21,48 @@ const (
 	RoleOwner  Role = "owner"
 )
 
+// ConnectErrorPhase identifies the product-neutral connection layer that
+// failed. Consumers may use it to distinguish path reachability from
+// authenticated transport failures without parsing error text.
+type ConnectErrorPhase string
+
+const (
+	ConnectErrorPhaseConnectivity           ConnectErrorPhase = "connectivity"
+	ConnectErrorPhaseAuthenticatedTransport ConnectErrorPhase = "authenticated_transport"
+)
+
+type ConnectError struct {
+	Phase ConnectErrorPhase
+	Err   error
+}
+
+func (e *ConnectError) Error() string {
+	if e == nil {
+		return "device-link connection failed"
+	}
+	if e.Err == nil {
+		return fmt.Sprintf("device-link %s connection failed", e.Phase)
+	}
+	return fmt.Sprintf("device-link %s connection failed: %v", e.Phase, e.Err)
+}
+
+func (e *ConnectError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// ErrorPhase returns the connection layer reported by Connect. Validation and
+// caller cancellation errors are intentionally unclassified.
+func ErrorPhase(err error) (ConnectErrorPhase, bool) {
+	var connectErr *ConnectError
+	if !errors.As(err, &connectErr) || connectErr == nil {
+		return "", false
+	}
+	return connectErr.Phase, true
+}
+
 type ParticipantConfig struct {
 	STUNEndpoints         []string
 	NetworkPolicy         string
@@ -296,12 +338,12 @@ func connectLink(
 		role == RoleCaller,
 	)
 	if err != nil {
-		return nil, err
+		return nil, classifyConnectFailure(ctx, ConnectErrorPhaseConnectivity, err)
 	}
 	endpoint, err := devicelink.NewQUICEndpointFromPacketConn(path)
 	if err != nil {
 		_ = path.Close()
-		return nil, err
+		return nil, classifyConnectFailure(ctx, ConnectErrorPhaseAuthenticatedTransport, err)
 	}
 
 	var session *devicelink.QUICSession
@@ -309,30 +351,39 @@ func connectLink(
 		tlsConfig, configErr := identity.ClientTLSConfigForProtocols(peer.Fingerprint, protocols)
 		if configErr != nil {
 			_ = endpoint.Close()
-			return nil, configErr
+			return nil, classifyConnectFailure(ctx, ConnectErrorPhaseAuthenticatedTransport, configErr)
 		}
 		session, err = endpoint.Dial(ctx, path.RemoteAddr(), tlsConfig)
 	} else {
 		tlsConfig, configErr := identity.ServerTLSConfigForProtocols(peer.Fingerprint, protocols)
 		if configErr != nil {
 			_ = endpoint.Close()
-			return nil, configErr
+			return nil, classifyConnectFailure(ctx, ConnectErrorPhaseAuthenticatedTransport, configErr)
 		}
 		listener, listenErr := endpoint.Listen(tlsConfig)
 		if listenErr != nil {
 			_ = endpoint.Close()
-			return nil, listenErr
+			return nil, classifyConnectFailure(ctx, ConnectErrorPhaseAuthenticatedTransport, listenErr)
 		}
 		session, err = listener.Accept(ctx)
 		_ = listener.Close()
 	}
 	if err != nil {
 		_ = endpoint.Close()
-		return nil, err
+		return nil, classifyConnectFailure(ctx, ConnectErrorPhaseAuthenticatedTransport, err)
 	}
 	return &Link{
 		agent: agent, endpoint: endpoint, session: session, scope: agent.SelectedScope(),
 	}, nil
+}
+
+func classifyConnectFailure(ctx context.Context, phase ConnectErrorPhase, err error) error {
+	if ctx != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
+	}
+	return &ConnectError{Phase: phase, Err: err}
 }
 
 func validateDescription(description Description) error {

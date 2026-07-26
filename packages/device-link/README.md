@@ -1,16 +1,16 @@
 # DeviceLink
 
-`packages/device-link` is the provisional, transport-only DeviceLink core being
-validated first by Tutti Personal Desktop and Mobile. It owns ICE candidate
+`packages/device-link` is the release-enabled, transport-only DeviceLink core
+for Tutti Desktop, Android, and the pending TSH cutover. It owns ICE candidate
 negotiation, QUIC over the selected packet path, and mutual ephemeral
 certificate pinning. It does not own Agent, Session, Turn,
 Workspace, pairing, account, rendezvous, or Relay product policy.
 
 The initial implementation was upstreamed from TSH's production
-`core/devicelink` package. This module is intentionally excluded from stable Go
-package tags until the Personal product path proves the authenticated
-Android/Desktop lifecycle. TSH cutover is a later consumer migration, not a
-condition of this spike.
+`core/devicelink` package. It is eligible for Tutti's stable package cohort
+after the authenticated Android/Desktop lifecycle and reproducible Mobile AAR
+consumer build pass. Consumer adapters keep their product policy outside this
+module.
 
 The low-level candidate, ICE, TLS, and QUIC types remain provisional primitives.
 Product consumers use `authenticated.Participant`, which composes ICE,
@@ -84,6 +84,10 @@ is always offered first. After connection, `Link.NegotiatedProtocol` lets the
 product adapter select only the matching application framing. Compatibility
 entries are a temporary cutover tool, not a promise that old wire protocols
 share semantics.
+
+`authenticated.ErrorPhase` distinguishes connectivity failures from
+authenticated transport failures so consumers can keep network probe caches
+free of certificate, ALPN, and QUIC-handshake failures.
 
 ## Mobile vertical slice
 

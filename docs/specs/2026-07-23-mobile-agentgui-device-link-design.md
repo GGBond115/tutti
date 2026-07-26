@@ -4,7 +4,7 @@ Status: accepted product direction; Personal direct-lane MVP in implementation
 
 ## Implementation progress (2026-07-27)
 
-The provisional `packages/device-link` core now preserves the production ICE,
+The release-enabled `packages/device-link` core now preserves the production ICE,
 QUIC, certificate-pinning, candidate filtering and privacy behavior extracted
 from TSH. It also owns the shared generation fence, authenticated link pool,
 per-peer establishment serialization, connection race, annealed path-probe
@@ -15,8 +15,10 @@ facade; the direct lane includes paired-device rendezvous, framed Agent HTTP,
 request deadlines, event streaming and foreground/background close behavior.
 Android 15 ARM64 emulator build/install/start and authenticated loopback
 integration pass. Real-account physical-device network transitions and Relay
-fallback remain acceptance work. TSH cutover to the shared manager is still
-pending, so the module is not yet a stable released cross-repository contract.
+fallback remain hardening work that does not expand the transport API. A stable
+tag still requires the authenticated lifecycle checks and reproducible Mobile
+AAR consumer build to pass at the release head. TSH cutover to the shared
+manager remains a consumer-side rollout step.
 
 The Mobile shell now uses mutually exclusive unauthenticated/authenticated DI
 children and one active workspace child. Login, pairing, DeviceLink lifecycle,
@@ -608,7 +610,8 @@ identity 进入显式 Retry。事件流 reconcile、Markdown/code、unsupported 
 - 完成前后台、睡眠唤醒、网络切换、daemon 重启和事件缺口测试。
 - 清洗指标与诊断，确认无 IP、candidate、token 和 Agent payload 泄露。
 - 根据验证结果决定 UI token 提炼和共享组件的下一批范围。
-- Personal 验收后冻结最小公开 API、启用稳定 Go tag 和可复现 AAR consumer gate。
+- 已冻结最小 transport API；每次启用稳定 Go tag 前，在 release head 重跑可复现
+  AAR consumer gate。真实网络切换和 Relay 验收作为后续 hardening，不改变该公开边界。
 - 再安排 TSH 切换上游依赖、删除复制实现并启用 VM/room workspace lane。
 
 ### M7 — iOS Simulator 功能对齐

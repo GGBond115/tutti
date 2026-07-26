@@ -126,10 +126,11 @@ package release tag sequence. Do not add package Go modules that require an
 independent release cadence unless this convention and the release automation
 are updated together.
 
-`packages/device-link` is temporarily excluded while the Personal
-Android/Desktop path is still an unreleased transport spike. Remove the
-exclusion and add its stable Go tag only after that product path validates the
-authenticated connection lifecycle and AAR consumer build.
+`packages/device-link` participates in the same stable Go module tag sequence
+after the Personal Android/Desktop path validated its authenticated connection
+lifecycle and AAR consumer build. TSH and other consumers must install its
+released cohort version; do not consume a pseudo-version or add a workspace
+replacement.
 
 ## Local Beta Releases
 
