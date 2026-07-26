@@ -87,7 +87,10 @@ share semantics.
 
 `authenticated.ErrorPhase` distinguishes connectivity failures from
 authenticated transport failures so consumers can keep network probe caches
-free of certificate, ALPN, and QUIC-handshake failures.
+free of certificate, ALPN, QUIC-handshake, and caller-cancellation failures.
+`authenticated.FailurePhase` additionally reports the layer interrupted by a
+caller cancellation. It is reserved for callers that own a dedicated probe
+deadline and verify that exact context cause before recording a verdict.
 
 ## Mobile vertical slice
 

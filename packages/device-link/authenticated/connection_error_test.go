@@ -38,4 +38,30 @@ func TestClassifyConnectFailurePreservesCallerCancellation(t *testing.T) {
 	if _, ok := ErrorPhase(err); ok {
 		t.Fatal("caller cancellation was classified as a path or transport failure")
 	}
+	phase, ok := FailurePhase(err)
+	if !ok || phase != ConnectErrorPhaseAuthenticatedTransport {
+		t.Fatalf("FailurePhase() = %q, %v; want %q, true", phase, ok, ConnectErrorPhaseAuthenticatedTransport)
+	}
+}
+
+func TestClassifyConnectFailurePreservesCallerDeadlinePhase(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 0)
+	defer cancel()
+	<-ctx.Done()
+
+	err := classifyConnectFailure(
+		ctx,
+		ConnectErrorPhaseConnectivity,
+		errors.New("late connectivity failure"),
+	)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("classifyConnectFailure() = %v; want deadline exceeded", err)
+	}
+	if _, ok := ErrorPhase(err); ok {
+		t.Fatal("caller deadline was classified as an ordinary connectivity failure")
+	}
+	phase, ok := FailurePhase(err)
+	if !ok || phase != ConnectErrorPhaseConnectivity {
+		t.Fatalf("FailurePhase() = %q, %v; want %q, true", phase, ok, ConnectErrorPhaseConnectivity)
+	}
 }

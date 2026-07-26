@@ -34,6 +34,8 @@ const (
 type ConnectError struct {
 	Phase ConnectErrorPhase
 	Err   error
+
+	callerCanceled bool
 }
 
 func (e *ConnectError) Error() string {
@@ -56,6 +58,20 @@ func (e *ConnectError) Unwrap() error {
 // ErrorPhase returns the connection layer reported by Connect. Validation and
 // caller cancellation errors are intentionally unclassified.
 func ErrorPhase(err error) (ConnectErrorPhase, bool) {
+	var connectErr *ConnectError
+	if !errors.As(err, &connectErr) || connectErr == nil || connectErr.callerCanceled {
+		return "", false
+	}
+	return connectErr.Phase, true
+}
+
+// FailurePhase returns the connection layer in which Connect stopped,
+// including caller cancellation. Most product policy should use ErrorPhase so
+// cancellation does not become a reachability verdict. A caller that owns a
+// dedicated probe deadline may combine FailurePhase with its exact context
+// cause to classify only that deadline without classifying unrelated
+// cancellation or control-plane timeouts.
+func FailurePhase(err error) (ConnectErrorPhase, bool) {
 	var connectErr *ConnectError
 	if !errors.As(err, &connectErr) || connectErr == nil {
 		return "", false
@@ -380,7 +396,11 @@ func connectLink(
 func classifyConnectFailure(ctx context.Context, phase ConnectErrorPhase, err error) error {
 	if ctx != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
-			return contextErr
+			return &ConnectError{
+				Phase:          phase,
+				Err:            contextErr,
+				callerCanceled: true,
+			}
 		}
 	}
 	return &ConnectError{Phase: phase, Err: err}
