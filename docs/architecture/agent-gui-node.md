@@ -460,6 +460,16 @@ the selection controller alone decides whether hydration is missing. Composer
 option synchronization does not own Session detail reloads.
 
 Timeline projection is pure, deterministic, and provider-neutral. React views render rows/cards and dispatch actions.
+Transcript Turn membership and order come only from timeline items in the
+hydrated message window. Session-wide canonical Turn metadata may enrich an
+already projected Turn by exact `turnId`—for example, by adding a view-only
+terminal error when the provider emitted no error message—but it must not
+create a transcript Turn that has no item in that window. The missing item
+normally belongs to an older page; the projection adds the error when that
+page is hydrated. A `user_prompt` Turn that still has no transcript item after
+authoritative full hydration is an invariant or data-repair case, not an empty
+row to manufacture. Goal and provider-initiated activity without transcript
+items use their dedicated presentation surfaces.
 Canonical reducers preserve entity and collection references when an accepted
 Session snapshot is semantically unchanged, while still merging changed Turns
 and Interactions at the same Session version. The legacy activity snapshot

@@ -387,40 +387,55 @@ Turn state, loading, cancel, restore, file-change undo, rail projection, event u
   [sessionReconcile.reducer.ts](../../../packages/agent/activity-core/src/engine/sessionReconcile.reducer.ts)
   [useAgentGUIConversationSelectionController.ts](../../../packages/agent/gui/agent-gui/agentGuiNode/controller/useAgentGUIConversationSelectionController.ts)
 
-### AgentGUI rail shows a failed Turn but the detail has no error
+### AgentGUI detail misses or misplaces a canonical Turn error
 
 - Symptom:
   The AgentGUI rail marks a conversation failed, but opening the conversation
   shows only the preceding tool or assistant rows. Reloading the session does
-  not reveal why the Turn failed.
+  not reveal why the Turn failed. A related symptom is a failure from a much
+  older Turn appearing at the bottom of the currently loaded conversation,
+  immediately before current processing UI.
 - Quick checks:
   Inspect the canonical Turn snapshot before debugging React state. Confirm the
   owning Turn is terminal with `outcome = failed` or `interrupted` and has a
   non-empty `error.message`. Then inspect that Turn's timeline messages for a
   structured `visibleError` or a plain assistant message with the same error
-  text.
+  text. Finally, distinguish the session-wide Turn list from the hydrated
+  message window: check whether any currently loaded timeline item has the
+  exact owning `turnId` and whether older message pages remain.
 - Root cause:
   Turn outcome and error are durable canonical state, while provider transcript
   messages are optional evidence. If detail rendering only projects transcript
   messages, a runtime that settles `AgentActivityTurn.error` without emitting a
   visible-error message leaves the rail and detail inconsistent. Reading only
   the active Turn also loses the error as soon as settlement clears
-  `activeTurnId`.
+  `activeTurnId`. Conversely, treating the session-wide Turn list as transcript
+  membership manufactures an empty Turn for an error whose messages are outside
+  the current page, appends it after newer Turns, and makes an old failure look
+  current.
 - Fix:
   Reconcile terminal `AgentActivityTurn.error` in the shared transcript
-  projection by exact `turnId`. Reuse a structured visible error, upgrade a
-  matching plain assistant failure, or synthesize one view-only row with a
-  stable `(agentSessionId, turnId)` identity. Do not restore session
-  `lastError`, let session-operation selectors fall back to Turn errors,
-  reinterpret a successful attach as activation failure, persist a duplicate
-  message, or add component-local failure state.
+  projection by exact `turnId`, but only when that Turn already exists in the
+  hydrated transcript projection. Reuse a structured visible error, upgrade a
+  matching plain assistant failure, or add one view-only row with a stable
+  `(agentSessionId, turnId)` identity. If the owning Turn is outside the message
+  window, skip it until an older page supplies an anchor. Do not manufacture an
+  empty transcript Turn, restore session `lastError`, let session-operation
+  selectors fall back to Turn errors, reinterpret a successful attach as
+  activation failure, persist a duplicate message, or add component-local
+  failure state.
 - Validation:
   Cover a failed Turn with no provider error message, a matching plain failure,
   and an existing structured visible error. The first must render one fallback
-  row and the latter two must remain single rows. Verify the result from both a
-  live snapshot and rebuilt session history.
+  row when its Turn is loaded, and the latter two must remain single rows. With
+  a full canonical Turn list and a newest-page-only transcript window, an older
+  failed or interrupted Turn must not create a row or change Turn order. After
+  prepending the older page, its error must appear exactly once on the owning
+  Turn. Also cover a failed Turn with zero hydrated transcript items and a
+  newer active Turn whose processing ownership remains current.
 - References:
   [workspaceAgentTurnErrorProjection.ts](../../../packages/agent/gui/shared/workspaceAgentTurnErrorProjection.ts)
+  [workspaceAgentTurnErrorProjection.spec.ts](../../../packages/agent/gui/shared/workspaceAgentTurnErrorProjection.spec.ts)
   [workspaceAgentTimelineCanonical.ts](../../../packages/agent/gui/shared/workspaceAgentTimelineCanonical.ts)
   [agent-gui-node.md](../../architecture/agent-gui-node.md)
 

@@ -38,7 +38,7 @@ import {
   visibleErrorFromPayload,
   withSourceTimelineItems
 } from "./workspaceAgentTimelineProjectionHelpers";
-import { projectCanonicalTurnErrors } from "./workspaceAgentTurnErrorProjection";
+import { enrichProjectedTurnsWithCanonicalErrors } from "./workspaceAgentTurnErrorProjection";
 import {
   normalizeToolName,
   shouldSuppressToolCall,
@@ -224,7 +224,7 @@ export function buildCanonicalWorkspaceAgentDetailView({
     }
   }
 
-  projectCanonicalTurnErrors({
+  enrichProjectedTurnsWithCanonicalErrors({
     turns,
     sessionTurns:
       sessionTurns.length > 0
