@@ -72,8 +72,15 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 		models = a.fetchModels(ctx, client, session, trace)
 	}
 	models, usedFallback := resolveCodexStartupModels(account, models)
+	hasExplicitModel := strings.TrimSpace(session.SettingsValue().Model) != ""
 	if len(models) > 0 {
 		effectiveSettings := codexAppServerEffectiveSettings(models, session, nil)
+		if usedFallback && !hasExplicitModel {
+			// Fallback catalog defaults must not become the thread/start model
+			// override. Keep Model empty so the provider picks its live default
+			// until model/list resolves.
+			effectiveSettings.Model = ""
+		}
 		session.Settings = &effectiveSettings
 	}
 	planModeMask, defaultModeMask := a.fetchCollaborationModeMasks(ctx, client, session, trace)
@@ -143,6 +150,10 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 
 	started = true
 	keepSession = true
+	storedDefaultModel := codexAppServerSessionDefaultModel(session, models)
+	if usedFallback && !hasExplicitModel {
+		storedDefaultModel = ""
+	}
 	a.storeSession(session.AgentSessionID, &codexAppServerSession{
 		client:                 client,
 		threadID:               threadID,
@@ -154,7 +165,7 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 		startupRateLimitsReady: false,
 		planModeMask:           planModeMask,
 		defaultModeMask:        defaultModeMask,
-		defaultModel:           codexAppServerSessionDefaultModel(session, models),
+		defaultModel:           storedDefaultModel,
 		authState:              "authenticated",
 		acpLiveState:           liveState,
 		pendingRequests:        make(map[string]*pendingInteractiveRequest),
