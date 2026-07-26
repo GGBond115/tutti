@@ -187,6 +187,139 @@ jobs:
       - name: Build iOS framework and install pods
         run: pnpm --filter @tutti-os/mobile ios:pods
 
+      - name: Register internal iOS device
+        shell: bash
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          IOS_TEST_DEVICE_UDID: ${{ secrets.IOS_TEST_DEVICE_UDID }}
+        run: |
+          if [[ -z "${IOS_TEST_DEVICE_UDID}" ]]; then
+            echo "IOS_TEST_DEVICE_UDID is required for development signing." >&2
+            exit 1
+          fi
+
+          node <<'NODE'
+          const crypto = require("node:crypto");
+          const fs = require("node:fs");
+
+          function encode(value) {
+            return Buffer.from(value).toString("base64url");
+          }
+
+          function createToken() {
+            const issuedAt = Math.floor(Date.now() / 1000);
+            const header = encode(
+              JSON.stringify({
+                alg: "ES256",
+                kid: process.env.APPLE_API_KEY_ID,
+                typ: "JWT",
+              }),
+            );
+            const payload = encode(
+              JSON.stringify({
+                aud: "appstoreconnect-v1",
+                exp: issuedAt + 600,
+                iat: issuedAt - 30,
+                iss: process.env.APPLE_API_ISSUER,
+              }),
+            );
+            const signingInput = `${header}.${payload}`;
+            const key = fs.readFileSync(process.env.APPLE_API_KEY_PATH, "utf8");
+            const signature = crypto.sign(
+              "sha256",
+              Buffer.from(signingInput),
+              {
+                dsaEncoding: "ieee-p1363",
+                key,
+              },
+            );
+            return `${signingInput}.${signature.toString("base64url")}`;
+          }
+
+          async function request(path, options = {}) {
+            const response = await fetch(
+              `https://api.appstoreconnect.apple.com${path}`,
+              {
+                ...options,
+                headers: {
+                  Authorization: `Bearer ${createToken()}`,
+                  "Content-Type": "application/json",
+                  ...options.headers,
+                },
+              },
+            );
+            if (!response.ok) {
+              const error = new Error(
+                `Apple Developer API request failed with HTTP ${response.status}`,
+              );
+              error.status = response.status;
+              throw error;
+            }
+            return response.json();
+          }
+
+          async function findDevice(udid) {
+            const query = new URLSearchParams({
+              "filter[udid]": udid,
+              limit: "1",
+            });
+            const existing = await request(`/v1/devices?${query}`);
+            return existing.data[0];
+          }
+
+          function assertEnabled(device) {
+            if (device.attributes.status !== "ENABLED") {
+              throw new Error(
+                "The configured internal iOS device is disabled in Apple Developer",
+              );
+            }
+          }
+
+          async function main() {
+            const udid = process.env.IOS_TEST_DEVICE_UDID;
+            const device = await findDevice(udid);
+            if (device) {
+              assertEnabled(device);
+              console.log("Internal iOS device is already registered");
+              return;
+            }
+
+            try {
+              await request("/v1/devices", {
+                body: JSON.stringify({
+                  data: {
+                    attributes: {
+                      name: "Tutti Internal iPhone",
+                      platform: "IOS",
+                      udid,
+                    },
+                    type: "devices",
+                  },
+                }),
+                method: "POST",
+              });
+            } catch (error) {
+              if (error.status !== 409) {
+                throw error;
+              }
+              const concurrentDevice = await findDevice(udid);
+              if (!concurrentDevice) {
+                throw error;
+              }
+              assertEnabled(concurrentDevice);
+              console.log("Internal iOS device was registered concurrently");
+              return;
+            }
+            console.log("Registered internal iOS device");
+          }
+
+          main().catch((error) => {
+            console.error(error.message);
+            process.exitCode = 1;
+          });
+          NODE
+
       - name: Archive iOS app
         shell: bash
         env:

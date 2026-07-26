@@ -287,11 +287,12 @@ JavaScript bundle，可直接侧载；不会创建 GitHub Release 或公开下�
 
 在 iOS 真机上测试时，运行同一工作流并选择 `ios`。它使用仓库已有的 App Store
 Connect API Key 和 `IOS_DEVELOPMENT_TEAM` 仓库变量，让 Xcode 自动管理云签名并
-导出 development IPA。工作流上传保留 14 天的内部 artifact
+使用 `IOS_TEST_DEVICE_UDID` secret 幂等登记内部测试设备，再导出 development
+IPA。工作流上传保留 14 天的内部 artifact
 `tutti-mobile-ios-internal-<commit>`，其中包含 `tutti-mobile-internal.ipa` 和
 SHA-256 校验文件；不会创建 GitHub Release 或公开下载链接。IPA 只能安装到 Apple
-Developer 后台已登记且包含在自动生成描述文件中的设备。选择 `all` 可同时构建
-两个平台。
+Developer 后台由该 secret 配置并包含在自动生成描述文件中的设备。选择 `all` 可
+同时构建两个平台。
 
 ## 6. 调试时先判断问题属于哪一层
 
