@@ -12,6 +12,10 @@
   `POST /v1/agent-providers/{provider}/composer-options` request. A 403 response
   with `route_not_allowed` identifies a transport allowlist gap rather than an
   AgentGUI capability or mobile layout problem.
+- **Locale check:** Confirm the request body includes the phone's normalized
+  `locale` (`en` or `zh-CN`). If it is absent, tuttid falls back to the desktop
+  preference and the phone may show model, reasoning, or permission labels in
+  the desktop language.
 - **Root cause:** Mobile loads authoritative composer options through the
   DeviceLink HTTP bridge. If the exact read-side composer-options route is
   absent from the bridge allowlist, the request is rejected before it reaches
@@ -19,11 +23,13 @@
   cannot verify.
 - **Fix:** Add only the exact `POST
 /v1/agent-providers/{provider}/composer-options` shape to the DeviceLink
-  `agent_http` allowlist. Keep unrelated provider routes and other HTTP methods
-  blocked; do not hardcode model or permission catalogs in the App.
+  `agent_http` allowlist, and include the mobile device locale in the request.
+  Keep unrelated provider routes and other HTTP methods blocked; do not
+  hardcode model or permission catalogs in the App.
 - **Validation:** Run the focused `mobileremote` tests, confirm a composer-options
   request round-trips through DeviceLink while GET and extra-path variants
-  remain forbidden, then verify on a real device that model, reasoning, and
+  remain forbidden, then use different phone and desktop languages to verify
+  that option labels follow the phone language and that model, reasoning, and
   permission changes update the chips and persist in the selected Session.
 - **References:** `services/tuttid/service/mobileremote/remote_protocol.go`,
   `apps/mobile/src/services/workspaceActivityCommandAdapter.ts`,

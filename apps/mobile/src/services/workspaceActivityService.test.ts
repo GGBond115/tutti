@@ -234,6 +234,7 @@ describe("WorkspaceActivityService", () => {
       expect.arrayContaining([
         expect.objectContaining({
           agentTargetId: "target-1",
+          locale: "en",
           workspaceId: "workspace-1"
         })
       ])

@@ -11,6 +11,7 @@ import {
   agentActivityTurnFromTuttidTurn
 } from "@tutti-os/agent-activity-tuttid-adapter";
 import type { TuttidClient } from "@tutti-os/client-tuttid-ts";
+import { mobileLocale } from "../i18n";
 import { toTuttidPromptContent } from "./workspaceActivityCommandSupport";
 
 interface WorkspaceActivityCommandContext {
@@ -76,6 +77,7 @@ export function executeWorkspaceActivityCommand(
           {
             agentTargetId: command.targetKey,
             ...(command.cwd ? { cwd: command.cwd } : {}),
+            locale: mobileLocale,
             workspaceId: command.workspaceId,
             settings: command.settings ?? {}
           },

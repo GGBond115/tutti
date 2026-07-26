@@ -263,19 +263,26 @@ const messages = {
 
 type MessageKey = keyof (typeof messages)["en"];
 
-function deviceLanguage(): keyof typeof messages {
-  const locale =
-    Platform.OS === "ios"
-      ? NativeModules.SettingsManager?.settings?.AppleLocale
-      : NativeModules.TuttiMobileSecurity?.localeIdentifier;
+export function normalizeMobileLocaleIdentifier(
+  locale: unknown
+): "en" | "zh-CN" {
   return String(locale ?? "en")
     .toLowerCase()
     .startsWith("zh")
-    ? "zh"
+    ? "zh-CN"
     : "en";
 }
 
-const language = deviceLanguage();
+function deviceLocaleIdentifier(): unknown {
+  return Platform.OS === "ios"
+    ? NativeModules.SettingsManager?.settings?.AppleLocale
+    : NativeModules.TuttiMobileSecurity?.localeIdentifier;
+}
+
+export const mobileLocale = normalizeMobileLocaleIdentifier(
+  deviceLocaleIdentifier()
+);
+const language: keyof typeof messages = mobileLocale === "zh-CN" ? "zh" : "en";
 
 export function t(
   key: MessageKey,
