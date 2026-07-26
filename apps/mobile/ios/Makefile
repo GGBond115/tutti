@@ -1,15 +1,17 @@
 .PHONY: ios-bindings-check ios-framework ios-framework-check
 
+GOMOBILE_GO_TOOLCHAIN ?= go1.26.0
 GOMOBILE_LDFLAGS ?= -checklinkname=0
 REPO_ROOT := $(abspath ../../..)
 DEVICE_LINK_DIR := $(REPO_ROOT)/packages/device-link
 FRAMEWORK_OUTPUT ?= $(CURDIR)/Frameworks/TuttiMobileGo.xcframework
 OBJC_PREFIX := TUT
+GOMOBILE_GO := env GOTOOLCHAIN=$(GOMOBILE_GO_TOOLCHAIN) go
 
 ios-bindings-check:
 	@bind_tmp=$$(mktemp -d); \
 	trap 'rm -rf "$$bind_tmp"' EXIT; \
-	cd "$(DEVICE_LINK_DIR)" && DEVELOPER_DIR=/Library/Developer/CommandLineTools go tool gobind -lang=objc -prefix=$(OBJC_PREFIX) -outdir="$$bind_tmp" ./mobile ../agent/daemon/liveprotocol/mobile; \
+	cd "$(DEVICE_LINK_DIR)" && DEVELOPER_DIR=/Library/Developer/CommandLineTools $(GOMOBILE_GO) tool gobind -lang=objc -prefix=$(OBJC_PREFIX) -outdir="$$bind_tmp" ./mobile ../agent/daemon/liveprotocol/mobile; \
 	test -f "$$bind_tmp/src/gobind/$(OBJC_PREFIX)Mobile.objc.h"; \
 	test -f "$$bind_tmp/src/gobind/$(OBJC_PREFIX)Liveprotocolmobile.objc.h"; \
 	grep -Fq 'TUTMobileNewLink' "$$bind_tmp/src/gobind/$(OBJC_PREFIX)Mobile.objc.h"; \
@@ -21,8 +23,8 @@ ios-framework:
 	@mkdir -p "$(dir $(FRAMEWORK_OUTPUT))"
 	@tool_tmp=$$(mktemp -d); \
 	trap 'rm -rf "$$tool_tmp"' EXIT; \
-	cd "$(DEVICE_LINK_DIR)" && GOBIN="$$tool_tmp" go install golang.org/x/mobile/cmd/gobind; \
-	cd "$(DEVICE_LINK_DIR)" && PATH="$$tool_tmp:$$PATH" go tool gomobile bind -target=ios,iossimulator -prefix=$(OBJC_PREFIX) -ldflags="$(GOMOBILE_LDFLAGS)" -o "$(FRAMEWORK_OUTPUT)" ./mobile ../agent/daemon/liveprotocol/mobile
+	cd "$(DEVICE_LINK_DIR)" && GOBIN="$$tool_tmp" $(GOMOBILE_GO) install golang.org/x/mobile/cmd/gobind; \
+	cd "$(DEVICE_LINK_DIR)" && PATH="$$tool_tmp:$$PATH" $(GOMOBILE_GO) tool gomobile bind -target=ios,iossimulator -prefix=$(OBJC_PREFIX) -ldflags="$(GOMOBILE_LDFLAGS)" -o "$(FRAMEWORK_OUTPUT)" ./mobile ../agent/daemon/liveprotocol/mobile
 	@$(MAKE) ios-framework-check
 
 ios-framework-check:

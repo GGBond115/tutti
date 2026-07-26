@@ -68,24 +68,27 @@
 dev.tutti.mobile` and inspect a narrow logcat window for the Go fatal message.
   This distinguishes a Go runtime abort from an Android lifecycle transition or
   a React Native development reload.
-- **Root cause:** A gomobile-exported Go method returned `([]byte, error)`.
-  Generated cgo code moves the pointer-bearing return values through a packed
-  result structure; its address is not guaranteed to satisfy the Go runtime
-  write barrier's pointer alignment. The first successful response-body read
-  therefore exposed the upstream cgo alignment defect. Returning final data
-  together with `io.EOF` also cannot be represented by the generated Java API,
-  which chooses either a byte array or an exception.
-- **Fix:** Keep bulk stream data in a Java-owned byte array passed into Go and
-  return only a scalar byte count from the gomobile method. A positive count
-  takes precedence when the underlying Go reader returns data together with
-  `io.EOF`; zero or a negative count is a failed incomplete frame. Do not change
-  this boundary back to a Go slice-plus-error return while the repository uses a
-  Go toolchain affected by
-  [golang/go#46893](https://github.com/golang/go/issues/46893).
+- **Root cause:** A gomobile-exported Go method returned a pointer-bearing value,
+  first `([]byte, error)` and later `(string, error)` from Agent Live's
+  `Subscriber.Apply`. Generated cgo code moves pointer-bearing parameters and
+  return values through a packed structure whose address is not guaranteed to
+  satisfy the Go runtime write barrier's pointer alignment before Go 1.26. The
+  first successful response-body or Agent Live frame therefore exposes the
+  upstream cgo alignment defect. Returning final stream data together with
+  `io.EOF` also cannot be represented by the generated Java API, which chooses
+  either a byte array or an exception.
+- **Fix:** Build every Android AAR and iOS XCFramework gomobile artifact with
+  Go 1.26.0 or newer, which includes the
+  [cmd/cgo alignment fix](https://github.com/golang/go/commit/d5b950399de01a0e28eeb48d2c8474db4aad0e8a).
+  Keep bulk stream data in a Java-owned byte array passed into Go and return only
+  a scalar byte count so final bytes plus `io.EOF` remain representable. The
+  Mobile and DeviceLink Makefiles pin the fixed toolchain; do not bypass that pin
+  when rebuilding native artifacts.
 - **Validation:** Generate the Java binding and confirm the stream method is
-  `readInto(byte[])` with a scalar return, run the mobile DeviceLink tests, build
-  and install the AAR consumer, load a real session on an ARM64 Android device,
-  and observe beyond the previous crash window with no new Go fatal message.
+  `readInto(byte[])` with a scalar return, build the AAR and confirm every
+  `libgojni.so` reports the pinned Go toolchain, then install the AAR consumer,
+  connect on an ARM64 Android device, receive Agent Live frames, and observe
+  beyond the previous crash window with no new Go fatal message.
 - **References:** `packages/device-link/mobile/link.go`,
   `apps/mobile/android/app/src/main/java/dev/tutti/mobile/DeviceLinkModule.kt`
 

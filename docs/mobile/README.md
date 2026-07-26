@@ -180,6 +180,12 @@ pnpm --filter @tutti-os/mobile check:android-bindings
 pnpm --filter @tutti-os/mobile android:aar
 ```
 
+Android AAR 与 iOS XCFramework 的 gomobile 构建固定使用 Go 1.26.0。该版本包含
+cgo 导出参数与返回值结构的对齐修复；不要用 Go 1.25 或更早版本重建移动端
+native 产物，否则 ARM64 真机可能在返回 `string`、`[]byte` 等含指针值时直接
+触发 `bulkBarrierPreWrite: unaligned arguments`。Makefile 会通过 Go 的
+`GOTOOLCHAIN` 自动选择所需版本。
+
 输出位于忽略的
 `apps/mobile/android/app/libs/tutti-mobile-go.aar`。组合构建只是 Android
 宿主的 JNI 装配边界；它不会把 Agent 协议、Workspace DTO 或产品策略移入

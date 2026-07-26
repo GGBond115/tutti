@@ -3,10 +3,12 @@
 ANDROID_API ?= 26
 ANDROID_NDK_VERSION ?= 27.3.13750724
 ANDROID_BUILD_TOOLS_VERSION ?= 36.0.0
+GOMOBILE_GO_TOOLCHAIN ?= go1.26.0
 AAR_OUTPUT ?= dist/tutti-device-link.aar
 PROBE_APK_OUTPUT ?= dist/tutti-device-link-probe.apk
 PROBE_KEYSTORE ?= dist/tutti-device-link-probe-debug.keystore
 GOMOBILE_LDFLAGS ?= -checklinkname=0
+GOMOBILE_GO := env GOTOOLCHAIN=$(GOMOBILE_GO_TOOLCHAIN) go
 
 test:
 	go test ./...
@@ -17,7 +19,7 @@ android-crosscompile:
 android-bindings-check:
 	@bind_tmp=$$(mktemp -d); \
 	trap 'rm -rf "$$bind_tmp"' EXIT; \
-	go tool gobind -lang=java -javapkg=dev.tutti.devicelink -outdir="$$bind_tmp" ./mobile; \
+	$(GOMOBILE_GO) tool gobind -lang=java -javapkg=dev.tutti.devicelink -outdir="$$bind_tmp" ./mobile; \
 	test -f "$$bind_tmp/java/dev/tutti/devicelink/mobile/Mobile.java"
 
 android-aar:
@@ -28,8 +30,8 @@ android-aar:
 	@mkdir -p "$(dir $(AAR_OUTPUT))"
 	@tool_tmp=$$(mktemp -d); \
 	trap 'rm -rf "$$tool_tmp"' EXIT; \
-	GOBIN="$$tool_tmp" go install golang.org/x/mobile/cmd/gobind; \
-	ANDROID_NDK_HOME="$(ANDROID_HOME)/ndk/$(ANDROID_NDK_VERSION)" PATH="$$tool_tmp:$$PATH" go tool gomobile bind -target=android -androidapi=$(ANDROID_API) -javapkg=dev.tutti.devicelink -ldflags="$(GOMOBILE_LDFLAGS)" -o "$(AAR_OUTPUT)" ./mobile
+	GOBIN="$$tool_tmp" $(GOMOBILE_GO) install golang.org/x/mobile/cmd/gobind; \
+	ANDROID_NDK_HOME="$(ANDROID_HOME)/ndk/$(ANDROID_NDK_VERSION)" PATH="$$tool_tmp:$$PATH" $(GOMOBILE_GO) tool gomobile bind -target=android -androidapi=$(ANDROID_API) -javapkg=dev.tutti.devicelink -ldflags="$(GOMOBILE_LDFLAGS)" -o "$(AAR_OUTPUT)" ./mobile
 	@$(MAKE) android-aar-check
 
 android-aar-check:
@@ -42,7 +44,11 @@ android-aar-check:
 	@aar_tmp=$$(mktemp -d); \
 	trap 'rm -rf "$$aar_tmp"' EXIT; \
 	unzip -p "$(AAR_OUTPUT)" classes.jar > "$$aar_tmp/classes.jar"; \
-	"$(JAVA_HOME)/bin/jar" tf "$$aar_tmp/classes.jar" | grep -Fqx 'dev/tutti/devicelink/mobile/Mobile.class'
+	"$(JAVA_HOME)/bin/jar" tf "$$aar_tmp/classes.jar" | grep -Fqx 'dev/tutti/devicelink/mobile/Mobile.class'; \
+	for abi in armeabi-v7a arm64-v8a x86 x86_64; do \
+		unzip -p "$(AAR_OUTPUT)" "jni/$$abi/libgojni.so" > "$$aar_tmp/libgojni-$$abi.so"; \
+		$(GOMOBILE_GO) version -m "$$aar_tmp/libgojni-$$abi.so" | head -n 1 | grep -Fq ": $(GOMOBILE_GO_TOOLCHAIN)"; \
+	done
 
 android-probe-apk: android-aar-check
 	@test -n "$(ANDROID_HOME)" || (echo "ANDROID_HOME is required" >&2; exit 1)
