@@ -404,7 +404,11 @@ merging, thinking, tool groups, processing, notices, and turn summaries. Its
 portable navigation resolver covers only external URLs and Agent Session
 mentions and depends on focused host-neutral parsing primitives shared with the
 broader Workspace resolver; file, local-asset, app, issue, and custom-mention
-actions remain host capabilities. Native hosts own their renderer, localized
+actions remain host capabilities. Projection code in this entry must depend on
+focused pure helpers for persisted pasted-text presentation and file-path
+validation; importing the interactive Composer model or the broad Workspace
+link resolver would pull Web-only editor, UI System, issue, and file-manager
+types into Native consumers. Native hosts own their renderer, localized
 fallback copy, scroll position, and temporary disclosure state; they do not
 reinterpret raw message kinds or import the DOM transcript. Approvals, Plan
 choices, and questions remain canonical pending Interactions, are projected

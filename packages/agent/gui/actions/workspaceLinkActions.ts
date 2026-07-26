@@ -8,32 +8,36 @@ import {
   type OpenWorkspaceUrlLinkAction,
   type WorkspaceLinkActionSource
 } from "./portableWorkspaceNavigationActions";
+import {
+  decodeWorkspaceLinkPath,
+  isInsideOrEqualWorkspaceFilePath,
+  isUrlLikeWorkspaceFilePath,
+  normalizeWorkspaceFilePath,
+  resolveWorkspaceFilePathCandidate,
+  workspaceFilePathBasename
+} from "./workspaceFilePathCandidate";
 
 export { resolveWorkspaceUrlLinkAction };
+export {
+  isDirectAgentGeneratedMediaPath,
+  resolveWorkspaceFilePathCandidate
+} from "./workspaceFilePathCandidate";
 export type {
   OpenAgentSessionLinkAction,
   OpenWorkspaceUrlLinkAction,
   ResolveWorkspaceUrlLinkActionInput,
   WorkspaceLinkActionSource
 } from "./portableWorkspaceNavigationActions";
+export type {
+  ResolvedWorkspaceFilePathCandidate,
+  ResolveWorkspaceFilePathCandidateInput
+} from "./workspaceFilePathCandidate";
 
 export interface ResolveWorkspaceFileLinkActionInput {
   path: string;
   workspaceRoot?: string | null;
   basePath?: string | null;
   source: WorkspaceLinkActionSource;
-}
-
-export interface ResolveWorkspaceFilePathCandidateInput {
-  path: string;
-  workspaceRoot?: string | null;
-  basePath?: string | null;
-}
-
-export interface ResolvedWorkspaceFilePathCandidate {
-  path: string;
-  directoryPath: string;
-  workspaceRoot: string;
 }
 
 export interface OpenWorkspaceFileLinkAction {
@@ -122,84 +126,7 @@ export type WorkspaceLinkAction =
   | OpenWorkspaceAppLinkAction
   | OpenCustomMentionLinkAction;
 
-const URL_LIKE_LINK_PATTERN = /^[a-zA-Z][a-zA-Z\d+.-]*:|^#/;
 const LOCAL_ASSET_ROOT = "/var/cache/tsh/local-assets";
-
-export function resolveWorkspaceFilePathCandidate({
-  path,
-  workspaceRoot,
-  basePath
-}: ResolveWorkspaceFilePathCandidateInput): ResolvedWorkspaceFilePathCandidate | null {
-  const rawPath = decodeWorkspaceLinkPath(path.trim());
-  if (
-    !rawPath ||
-    isUrlLikeWorkspaceFilePath(rawPath) ||
-    isUncWorkspaceFilePath(rawPath)
-  ) {
-    return null;
-  }
-
-  const normalizedPath = normalizeWorkspaceFilePath(rawPath);
-  if (isUnsupportedSpecialWorkspaceFilePath(normalizedPath)) {
-    return null;
-  }
-  if (isStagedLocalAssetPath(normalizedPath)) {
-    return null;
-  }
-  if (isHomeRelativeWorkspaceFilePath(normalizedPath)) {
-    const directoryPath = dirnameForHomeRelativePath(normalizedPath);
-    return {
-      path: normalizedPath,
-      directoryPath,
-      workspaceRoot:
-        normalizeWorkspaceFilePath(workspaceRoot?.trim() ?? "") || directoryPath
-    };
-  }
-  if (
-    isAbsoluteLocalPath(normalizedPath) &&
-    (isDirectAgentGeneratedMediaPath(normalizedPath) ||
-      isDirectWorkspaceAppDataPath(normalizedPath))
-  ) {
-    const directoryPath = dirname(normalizedPath);
-    return {
-      path: normalizedPath,
-      directoryPath,
-      workspaceRoot:
-        normalizeWorkspaceFilePath(workspaceRoot?.trim() ?? "") || directoryPath
-    };
-  }
-
-  const selectedRoot = normalizeWorkspaceFilePath(workspaceRoot?.trim() ?? "");
-  const sessionRoot = normalizeWorkspaceFilePath(basePath?.trim() ?? "");
-  const root = selectedRoot || sessionRoot;
-  if (!root) {
-    return null;
-  }
-  if (isAbsoluteLocalPath(normalizedPath)) {
-    const directoryPath = dirname(normalizedPath);
-    return {
-      path: normalizedPath,
-      directoryPath,
-      workspaceRoot: root
-    };
-  }
-  const base = normalizeWorkspaceFilePath(basePath?.trim() || root);
-  const resolvedPath = isAbsoluteLocalPath(normalizedPath)
-    ? normalizedPath
-    : normalizeWorkspaceFilePath(`${base}/${normalizedPath}`);
-  if (
-    !isInsideOrEqual(resolvedPath, root) &&
-    !isDirectAgentGeneratedMediaPath(resolvedPath)
-  ) {
-    return null;
-  }
-
-  return {
-    path: resolvedPath,
-    directoryPath: resolvedPath === root ? root : dirname(resolvedPath),
-    workspaceRoot: root
-  };
-}
 
 export function resolveWorkspaceFileLinkAction({
   path,
@@ -240,7 +167,7 @@ export function resolveLocalAssetPreviewLinkAction({
   const resolvedPath = normalizeWorkspaceFilePath(rawPath);
   if (
     resolvedPath === LOCAL_ASSET_ROOT ||
-    !isInsideOrEqual(resolvedPath, LOCAL_ASSET_ROOT)
+    !isInsideOrEqualWorkspaceFilePath(resolvedPath, LOCAL_ASSET_ROOT)
   ) {
     return null;
   }
@@ -251,7 +178,7 @@ export function resolveLocalAssetPreviewLinkAction({
   return {
     type: "open-local-asset-preview",
     path: resolvedPath,
-    name: basename(resolvedPath),
+    name: workspaceFilePathBasename(resolvedPath),
     source
   };
 }
@@ -375,177 +302,4 @@ export function resolveWorkspaceLinkAction({
     }) ??
     resolveWorkspaceUrlLinkAction({ url: href, source })
   );
-}
-
-function normalizeWorkspaceFilePath(path: string): string {
-  const normalizedPath = path.trim().replaceAll("\\", "/");
-  const drive = /^[A-Za-z]:/.exec(normalizedPath)?.[0] ?? "";
-  const startsWithSlash = normalizedPath.startsWith("/");
-  const pathBody = drive
-    ? normalizedPath.slice(drive.length)
-    : startsWithSlash
-      ? normalizedPath.slice(1)
-      : normalizedPath;
-  const parts: string[] = [];
-  for (const part of pathBody.split("/")) {
-    if (!part || part === ".") {
-      continue;
-    }
-    if (part === "..") {
-      parts.pop();
-      continue;
-    }
-    parts.push(part);
-  }
-  if (drive) {
-    return parts.length > 0 ? `${drive}/${parts.join("/")}` : `${drive}/`;
-  }
-  if (startsWithSlash) {
-    return parts.length > 0 ? `/${parts.join("/")}` : "/";
-  }
-  return parts.join("/");
-}
-
-function isUrlLikeWorkspaceFilePath(path: string): boolean {
-  if (path.startsWith("#")) {
-    return true;
-  }
-  if (isWindowsAbsolutePath(path.trim().replaceAll("\\", "/"))) {
-    return false;
-  }
-  return URL_LIKE_LINK_PATTERN.test(path);
-}
-
-function isAbsoluteLocalPath(path: string): boolean {
-  return path.startsWith("/") || isWindowsAbsolutePath(path);
-}
-
-function isHomeRelativeWorkspaceFilePath(path: string): boolean {
-  return path === "~" || path.startsWith("~/");
-}
-
-function dirnameForHomeRelativePath(path: string): string {
-  return path === "~" ? "~" : dirname(path);
-}
-
-function isWindowsAbsolutePath(path: string): boolean {
-  return /^[A-Za-z]:\//.test(path);
-}
-
-function isUncWorkspaceFilePath(path: string): boolean {
-  return /^(?:\\\\|\/\/)[^/\\]+[/\\][^/\\]+/.test(path);
-}
-
-function isUnsupportedSpecialWorkspaceFilePath(path: string): boolean {
-  const comparisonPath = cleanWorkspaceFilePathForComparison(path);
-  return (
-    comparisonPath === "/dev/null" ||
-    comparisonPath.split("/").some((segment) => {
-      const normalized = segment.trim().replace(/[. ]+$/g, "");
-      const deviceName = normalized.split(".", 1)[0]?.toUpperCase();
-      return deviceName === "NUL";
-    })
-  );
-}
-
-function cleanWorkspaceFilePathForComparison(path: string): string {
-  const normalized = path.replace(/\/+/g, "/");
-  const parts: string[] = [];
-  for (const part of normalized.split("/")) {
-    if (!part || part === ".") {
-      continue;
-    }
-    if (part === "..") {
-      parts.pop();
-      continue;
-    }
-    parts.push(part);
-  }
-  return normalized.startsWith("/") ? `/${parts.join("/")}` : parts.join("/");
-}
-
-function decodeWorkspaceLinkPath(path: string): string {
-  if (!path.includes("%")) {
-    return path;
-  }
-  try {
-    return decodeURI(path);
-  } catch {
-    return path;
-  }
-}
-
-function dirname(path: string): string {
-  const index = path.lastIndexOf("/");
-  if (index <= 0) {
-    return "/";
-  }
-  return path.slice(0, index);
-}
-
-function basename(path: string): string {
-  return path.split("/").filter(Boolean).at(-1) ?? path;
-}
-
-function isInsideOrEqual(path: string, root: string): boolean {
-  if (root === "/") {
-    return path.startsWith("/");
-  }
-  const comparison =
-    isWindowsAbsolutePath(root) || isWindowsAbsolutePath(path)
-      ? { path: path.toLowerCase(), root: root.toLowerCase() }
-      : { path, root };
-  return (
-    comparison.path === comparison.root ||
-    comparison.path.startsWith(`${comparison.root}/`)
-  );
-}
-
-function isStagedLocalAssetPath(path: string): boolean {
-  return path !== LOCAL_ASSET_ROOT && isInsideOrEqual(path, LOCAL_ASSET_ROOT);
-}
-
-export function isDirectAgentGeneratedMediaPath(path: string): boolean {
-  if (!isAbsoluteLocalPath(path)) {
-    return false;
-  }
-  const statePath = getTuttiStatePathSegments(path);
-  if (!statePath) {
-    return false;
-  }
-  if (
-    statePath[1] !== "agent" ||
-    statePath[2] !== "runs" ||
-    (!statePath.includes("generated_images") &&
-      !statePath.includes("generated_videos"))
-  ) {
-    return false;
-  }
-  return /\.(?:png|jpe?g|gif|webp|bmp|mp4|webm)$/i.test(path);
-}
-
-function isDirectWorkspaceAppDataPath(path: string): boolean {
-  if (!isAbsoluteLocalPath(path)) {
-    return false;
-  }
-  const statePath = getTuttiStatePathSegments(path);
-  if (!statePath) {
-    return false;
-  }
-  return (
-    statePath[1] === "apps" &&
-    statePath[2] === "workspaces" &&
-    statePath.length > 5
-  );
-}
-
-function getTuttiStatePathSegments(path: string): string[] | null {
-  const segments = path.split("/").filter(Boolean);
-  const stateRootIndex = segments.findIndex(
-    (segment) => segment === ".tutti" || segment === ".tutti-dev"
-  );
-  if (stateRootIndex < 0) {
-    return null;
-  }
-  return segments.slice(stateRootIndex);
 }
