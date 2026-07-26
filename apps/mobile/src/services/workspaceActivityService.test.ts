@@ -79,6 +79,44 @@ describe("WorkspaceActivityService", () => {
     service.dispose();
   });
 
+  test("projects processing before the active Turn receives its first message", async () => {
+    const activeSession = createSession();
+    activeSession.activeTurnId = "turn-1";
+    activeSession.activeTurn = {
+      agentSessionId: activeSession.id,
+      completedCommand: null,
+      error: null,
+      fileChanges: null,
+      origin: "user_prompt",
+      outcome: null,
+      phase: "running",
+      settledAtUnixMs: null,
+      startedAtUnixMs: 2,
+      turnId: "turn-1",
+      updatedAtUnixMs: 3
+    };
+    const service = createService(
+      createClient({
+        listMessages: emptyMessagePage,
+        session: () => activeSession
+      })
+    );
+
+    await service.start();
+    await flushAsyncWork();
+
+    expect(
+      service
+        .getSnapshot()
+        .conversation?.rows.some((row) => row.kind === "processing")
+    ).toBe(true);
+    expect(
+      service.getSnapshot().activity.sessionMessagesById["session-1"] ?? []
+    ).toEqual([]);
+
+    service.dispose();
+  });
+
   test("routes an existing-session submission through the engine command port", async () => {
     const sends: Array<{
       agentSessionId: string;

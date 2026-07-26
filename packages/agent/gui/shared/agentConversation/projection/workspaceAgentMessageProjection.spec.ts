@@ -51,6 +51,50 @@ describe("projectWorkspaceAgentMessagesToConversationVM", () => {
     ).toBeNull();
   });
 
+  it("filters supplied Turns to the selected Session", () => {
+    const selectedSession = session();
+    const selectedMessage = message({
+      messageId: "selected-message",
+      payload: { text: "Selected Session message" },
+      role: "user"
+    });
+    const activitySnapshot: AgentActivitySnapshot = {
+      workspaceId: "workspace-1",
+      sessions: [selectedSession],
+      presences: [],
+      sessionMessagesById: {
+        [selectedSession.agentSessionId]: [selectedMessage]
+      }
+    };
+
+    const conversation = projectAgentActivitySessionToConversationVM({
+      activitySnapshot,
+      agentSessionId: selectedSession.agentSessionId,
+      sessionTurns: [
+        {
+          agentSessionId: "session-2",
+          error: { message: "Foreign Turn failure" },
+          origin: "user_prompt",
+          outcome: "failed",
+          phase: "settled",
+          settledAtUnixMs: 10,
+          startedAtUnixMs: 1,
+          turnId: "foreign-turn",
+          updatedAtUnixMs: 10
+        }
+      ]
+    });
+
+    expect(conversation?.sourceDetail.sessionTurns).toEqual([]);
+    expect(
+      conversation?.rows.flatMap((row) =>
+        row.kind === "message"
+          ? row.messages.map((message) => message.body)
+          : []
+      )
+    ).not.toContain("Foreign Turn failure");
+  });
+
   it("prefers canonical browser element prompt content over a lossy provider echo", () => {
     const prompt =
       "[@a](mention://browser-element/browser-element%3A1?path=%2Ftmp%2Fa.txt&tag=a&workspaceId=workspace-1) " +

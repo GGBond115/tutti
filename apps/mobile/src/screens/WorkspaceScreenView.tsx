@@ -150,9 +150,6 @@ export function ConversationWorkspaceView({
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const scroll = useRef<ScrollView>(null);
   const shouldStickToBottom = useRef(true);
-  const messages = model.selectedAgentSessionId
-    ? (model.activity.sessionMessagesById[model.selectedAgentSessionId] ?? [])
-    : [];
   const window = model.selectedAgentSessionId
     ? model.activity.sessionMessageWindowsById?.[model.selectedAgentSessionId]
     : null;
@@ -261,7 +258,7 @@ export function ConversationWorkspaceView({
             {window?.hasOlderMessages ? (
               <Text style={styles.loadOlder}>{t("loading")}</Text>
             ) : null}
-            {messages.length === 0 || !model.conversation ? (
+            {!model.conversation || model.conversation.rows.length === 0 ? (
               <Text style={styles.emptyText}>{t("emptyConversation")}</Text>
             ) : (
               <MobileConversationTimeline

@@ -64,6 +64,9 @@ export function projectWorkspaceAgentMessagesToConversationVM(
   const timelineItems = projectWorkspaceAgentMessagesToTimelineItems(messages);
   const detail = buildCanonicalWorkspaceAgentDetailView({
     ...detailInput,
+    sessionTurns: detailInput.sessionTurns?.filter(
+      (turn) => turn.agentSessionId === detailInput.session.agentSessionId
+    ),
     timelineItems
   });
   return projectAgentConversationVM(detail, options);
