@@ -6260,9 +6260,18 @@ func TestCodexAppServerAdapterStartSkipsSlowStartupProbesWhenReasoningNeedsNoVal
 	if !containsString(values, "gpt-5.3-codex-spark") {
 		t.Fatalf("model option values = %#v, want explicit model", values)
 	}
+	// ChatGPT subscription sessions advertise the local fallback catalog
+	// immediately so the picker is usable; rate limits still load async and
+	// live model/list still refreshes in the background.
 	startup, _ := state.RuntimeContext["appServerStartup"].(map[string]any)
-	if asString(startup["models"]) != "loading" || asString(startup["rateLimits"]) != "loading" {
-		t.Fatalf("appServerStartup = %#v, want startup probes loading", startup)
+	if asString(startup["models"]) != "ready" || asString(startup["rateLimits"]) != "loading" {
+		t.Fatalf("appServerStartup = %#v, want models ready via fallback and rateLimits loading", startup)
+	}
+	adapter.mu.Lock()
+	fallback := adapter.sessions[session.AgentSessionID].startupModelsFallback
+	adapter.mu.Unlock()
+	if !fallback {
+		t.Fatal("startupModelsFallback = false, want true before live model/list")
 	}
 }
 
