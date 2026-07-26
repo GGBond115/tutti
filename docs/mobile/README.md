@@ -280,10 +280,18 @@ screen composition and product-specific interaction.
   generic allow/deny commands.
 
 需要在没有本机开发环境的真机上测试时，可从 GitHub Actions 手动运行
-`Android Internal Build`。它只上传保留 14 天的内部 artifact
+`Mobile Internal Build` 并选择 `android`。它只上传保留 14 天的内部 artifact
 `tutti-mobile-internal-<commit>`，其中的 `tutti-mobile-internal.apk` 已嵌入
 JavaScript bundle，可直接侧载；不会创建 GitHub Release 或公开下载链接。每次
 运行使用新的临时签名 key，安装新构建前可能需要先卸载手机上的旧内部构建。
+
+在 iOS 真机上测试时，运行同一工作流并选择 `ios`。它使用仓库已有的 App Store
+Connect API Key 和 `IOS_DEVELOPMENT_TEAM` 仓库变量，让 Xcode 自动管理云签名并
+导出 development IPA。工作流上传保留 14 天的内部 artifact
+`tutti-mobile-ios-internal-<commit>`，其中包含 `tutti-mobile-internal.ipa` 和
+SHA-256 校验文件；不会创建 GitHub Release 或公开下载链接。IPA 只能安装到 Apple
+Developer 后台已登记且包含在自动生成描述文件中的设备。选择 `all` 可同时构建
+两个平台。
 
 ## 6. 调试时先判断问题属于哪一层
 
