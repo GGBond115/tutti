@@ -147,6 +147,30 @@ dev.tutti.mobile` and inspect a narrow logcat window for the Go fatal message.
 - **References:** `packages/device-link/mobile/link.go`,
   `apps/mobile/android/app/src/main/java/dev/tutti/mobile/DeviceLinkModule.kt`
 
+## iOS pod install intermittently reports pathname contains null byte
+
+- **Symptom:** `pnpm --filter @tutti-os/mobile ios:pods` downloads and installs
+  every Pod, then fails during `Generating Pods project` with
+  `ArgumentError: pathname contains null byte` from
+  `Pod::Project#group_for_path_in_group`. Re-running may succeed.
+- **Quick checks:** Confirm the stack ends in `Pathname#realdirpath` and the
+  workspace uses pnpm-linked React Native packages. CocoaPods version changes or
+  deleting `Pods/` may change the frequency but do not identify a durable fix.
+- **Root cause:** CocoaPods preserves the filesystem layout for local Pods and
+  resolves their common base path through `realdirpath`. That resolution is
+  intermittently unsafe for pnpm-backed local Pod symlinks while the Pods
+  project is generated.
+- **Fix:** Keep `apps/mobile/ios/cocoapods_pathname_workaround.rb` loaded from
+  the Podfile. It retains CocoaPods' group-building behavior but normalizes the
+  local Pod base with `cleanpath` instead of resolving the pnpm symlink through
+  `realdirpath`. Do not depend on retries or a CocoaPods downgrade.
+- **Validation:** Run `ios:pods` from a clean checkout, confirm the Pods project
+  is generated, then archive the `TuttiMobile` workspace on the GitHub macOS 26
+  runner to exercise the same pnpm and CocoaPods path.
+- **References:** `apps/mobile/ios/Podfile`,
+  `apps/mobile/ios/cocoapods_pathname_workaround.rb`,
+  [CocoaPods #12798](https://github.com/CocoaPods/CocoaPods/issues/12798)
+
 ## React Native Pressable rows stack their children vertically
 
 - **Symptom:** A Native button, list row, or app-owned tappable row declares

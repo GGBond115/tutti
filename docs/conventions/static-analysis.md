@@ -456,7 +456,9 @@ DeviceLink module. Its iOS job runs on the pinned macOS 26 runner, assembles the
 same Mobile binding surface as an XCFramework, archives the React Native app,
 and uses the repository App Store Connect API key plus the
 `IOS_DEVELOPMENT_TEAM` repository variable for Xcode-managed cloud signing. It
-ensures the device configured by the `IOS_TEST_DEVICE_UDID` Actions secret is
+loads the Mobile Podfile's pnpm path compatibility shim before generating the
+Pods project, then ensures the device configured by the
+`IOS_TEST_DEVICE_UDID` Actions secret is
 registered before exporting a development IPA as a 14-day private validation
 artifact rather than creating a GitHub Release. Both jobs remain manual so pull
 request code does not receive mobile signing credentials automatically.
