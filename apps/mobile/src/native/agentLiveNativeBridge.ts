@@ -1,4 +1,5 @@
 import type {
+  AgentLiveAttachmentControl,
   AgentLiveDelivery,
   AgentLiveReconcileKey
 } from "../services/servicePorts";
@@ -74,13 +75,35 @@ export function parseAgentLiveDeliveries(
         });
         continue;
       }
+      if (
+        accepted.kind === "attachment_changed" ||
+        accepted.kind === "attachment_caught_up"
+      ) {
+        const attachment = parseAttachmentControl(
+          accepted[
+            accepted.kind === "attachment_changed"
+              ? "attachmentChanged"
+              : "attachmentCaughtUp"
+          ]
+        );
+        if (!attachment) {
+          deliveries.push({
+            kind: "discontinuity",
+            reason: "invalid_attachment_control",
+            reconcileKeys: []
+          });
+          continue;
+        }
+        deliveries.push({
+          attachment,
+          kind: accepted.kind
+        });
+        continue;
+      }
       deliveries.push({
         kind: "discontinuity",
         reason:
-          accepted.kind === "goal_changed" ||
-          accepted.kind === "attachment_changed"
-            ? accepted.kind
-            : "unknown_delivery",
+          accepted.kind === "goal_changed" ? accepted.kind : "unknown_delivery",
         reconcileKeys: []
       });
     }
@@ -104,6 +127,37 @@ export function parseAgentLiveDeliveries(
       }
     ];
   }
+}
+
+function parseAttachmentControl(
+  value: unknown
+): AgentLiveAttachmentControl | null {
+  if (!isRecord(value)) return null;
+  const bindingId = nonEmptyString(value.bindingId);
+  const workspaceId = nonEmptyString(value.workspaceId);
+  const agentSessionId = nonEmptyString(value.agentSessionId);
+  const canonicalTurnId = optionalNonEmptyString(value.canonicalTurnId);
+  const callerTurnId = optionalNonEmptyString(value.callerTurnId);
+  if (
+    !bindingId ||
+    !workspaceId ||
+    !agentSessionId ||
+    !Number.isSafeInteger(value.attachmentRevision) ||
+    (value.attachmentRevision as number) <= 0 ||
+    canonicalTurnId === null ||
+    callerTurnId === null ||
+    Boolean(canonicalTurnId) !== Boolean(callerTurnId)
+  ) {
+    return null;
+  }
+  return {
+    agentSessionId,
+    attachmentRevision: value.attachmentRevision as number,
+    bindingId,
+    workspaceId,
+    ...(callerTurnId ? { callerTurnId } : {}),
+    ...(canonicalTurnId ? { canonicalTurnId } : {})
+  };
 }
 
 function parseReconcileKeys(value: unknown): AgentLiveReconcileKey[] {
@@ -135,6 +189,17 @@ function parseReconcileKeys(value: unknown): AgentLiveReconcileKey[] {
       }
     ];
   });
+}
+
+function nonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function optionalNonEmptyString(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  return nonEmptyString(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

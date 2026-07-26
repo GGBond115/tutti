@@ -7,6 +7,7 @@ import {
   type AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
 import type {
+  AgentLiveAttachmentControl,
   AgentLiveDelivery,
   ClockPort,
   DeviceLinkPort
@@ -40,6 +41,13 @@ export class WorkspaceAgentLiveLane {
   private retryTask: { cancel(): void } | null = null;
   private railReconcileTask: { cancel(): void } | null = null;
   private subscription: { close(): void } | null = null;
+  // Mobile currently opens every native stream from epoch/sequence zero, so
+  // this projection has the same lifetime as the subscription. A future
+  // persisted resume cursor must persist this fence with it.
+  private attachmentFence: {
+    attachment: AgentLiveAttachmentControl;
+    caughtUp: boolean;
+  } | null = null;
 
   constructor(private readonly options: WorkspaceAgentLiveLaneOptions) {}
 
@@ -48,6 +56,7 @@ export class WorkspaceAgentLiveLane {
     if (!this.options.deviceLink || this.subscription) return;
     this.retryTask?.cancel();
     this.retryTask = null;
+    this.attachmentFence = null;
     this.subscription = this.options.deviceLink.subscribeAgentLive(
       this.options.workspaceId,
       (delivery) => this.handleDelivery(delivery)
@@ -62,6 +71,7 @@ export class WorkspaceAgentLiveLane {
     this.railReconcileTask = null;
     this.subscription?.close();
     this.subscription = null;
+    this.attachmentFence = null;
     this.setConnected(false);
   }
 
@@ -109,6 +119,7 @@ export class WorkspaceAgentLiveLane {
       }
       this.subscription?.close();
       this.subscription = null;
+      this.attachmentFence = null;
       this.setConnected(false);
       this.scheduleRetry();
       return;
@@ -117,7 +128,61 @@ export class WorkspaceAgentLiveLane {
       this.reconcileDiscontinuity(delivery);
       return;
     }
+    if (delivery.kind === "attachment_changed") {
+      this.handleAttachmentChanged(delivery.attachment);
+      return;
+    }
+    if (delivery.kind === "attachment_caught_up") {
+      this.handleAttachmentCaughtUp(delivery.attachment);
+      return;
+    }
     this.applyEvent(delivery.event);
+  }
+
+  private handleAttachmentChanged(
+    attachment: AgentLiveAttachmentControl
+  ): void {
+    if (attachment.workspaceId !== this.options.workspaceId) {
+      this.rejectAttachmentFence("attachment_identity_mismatch");
+      return;
+    }
+    if (this.attachmentFence && !this.attachmentFence.caughtUp) {
+      this.rejectAttachmentFence("attachment_changed_before_catch_up");
+      return;
+    }
+    this.attachmentFence = { attachment, caughtUp: false };
+    this.reconcileDiscontinuity({
+      kind: "discontinuity",
+      reason: "attachment_changed",
+      reconcileKeys: []
+    });
+  }
+
+  private handleAttachmentCaughtUp(
+    attachment: AgentLiveAttachmentControl
+  ): void {
+    const current = this.attachmentFence;
+    if (!current || !sameAttachmentControl(current.attachment, attachment)) {
+      this.rejectAttachmentFence("attachment_catch_up_mismatch");
+      return;
+    }
+    this.attachmentFence = {
+      attachment: current.attachment,
+      caughtUp: true
+    };
+  }
+
+  private rejectAttachmentFence(reason: string): void {
+    this.attachmentFence = null;
+    this.subscription?.close();
+    this.subscription = null;
+    this.setConnected(false);
+    this.reconcileDiscontinuity({
+      kind: "discontinuity",
+      reason,
+      reconcileKeys: []
+    });
+    this.scheduleRetry();
   }
 
   private applyEvent(event: AgentActivityLiveEvent): void {
@@ -233,6 +298,20 @@ export class WorkspaceAgentLiveLane {
     this.options.rail.setLiveConnected(connected);
     this.options.onConnectionChanged(connected);
   }
+}
+
+function sameAttachmentControl(
+  left: AgentLiveAttachmentControl,
+  right: AgentLiveAttachmentControl
+): boolean {
+  return (
+    left.bindingId === right.bindingId &&
+    left.workspaceId === right.workspaceId &&
+    left.agentSessionId === right.agentSessionId &&
+    left.canonicalTurnId === right.canonicalTurnId &&
+    left.callerTurnId === right.callerTurnId &&
+    left.attachmentRevision === right.attachmentRevision
+  );
 }
 
 function agentActivityTurnFromLiveEvent(

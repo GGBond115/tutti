@@ -70,7 +70,24 @@ export type AgentLiveDelivery =
       kind: "discontinuity";
       reason: string;
       reconcileKeys: readonly AgentLiveReconcileKey[];
+    }
+  | {
+      attachment: AgentLiveAttachmentControl;
+      kind: "attachment_changed";
+    }
+  | {
+      attachment: AgentLiveAttachmentControl;
+      kind: "attachment_caught_up";
     };
+
+export interface AgentLiveAttachmentControl {
+  agentSessionId: string;
+  attachmentRevision: number;
+  bindingId: string;
+  callerTurnId?: string;
+  canonicalTurnId?: string;
+  workspaceId: string;
+}
 
 export interface AgentLiveReconcileKey {
   agentSessionId?: string;

@@ -418,6 +418,78 @@ describe("WorkspaceActivityService", () => {
 
     service.dispose();
   });
+
+  test("accepts only the matching attachment catch-up barrier", async () => {
+    const clock = new RecordingClock();
+    let closeCount = 0;
+    let liveListener: ((delivery: AgentLiveDelivery) => void) | null = null;
+    const deviceLink = {
+      closeLink: async () => undefined,
+      requestAgentHTTP: async () => ({
+        body: "",
+        errorCode: "",
+        headers: {},
+        protocolEpoch: 1,
+        status: 204
+      }),
+      subscribeAgentLive: (
+        _workspaceId: string,
+        listener: (delivery: AgentLiveDelivery) => void
+      ) => {
+        liveListener = listener;
+        return {
+          close() {
+            closeCount += 1;
+          }
+        };
+      }
+    } satisfies DeviceLinkPort;
+    const service = createService(
+      createClient({ listMessages: emptyMessagePage }),
+      { clock, deviceLink }
+    );
+
+    await service.start();
+    await flushAsyncWork();
+    liveListener!({ kind: "connection", status: "connected" });
+    const firstAttachment = {
+      agentSessionId: "owner-session-1",
+      attachmentRevision: 1,
+      bindingId: "binding-1",
+      callerTurnId: "caller-turn-1",
+      canonicalTurnId: "canonical-turn-1",
+      workspaceId: workspace.id
+    };
+    liveListener!({
+      attachment: firstAttachment,
+      kind: "attachment_changed"
+    });
+    liveListener!({
+      attachment: firstAttachment,
+      kind: "attachment_caught_up"
+    });
+    const replacementAttachment = {
+      ...firstAttachment,
+      attachmentRevision: 2
+    };
+    liveListener!({
+      attachment: replacementAttachment,
+      kind: "attachment_changed"
+    });
+
+    expect(closeCount).toBe(0);
+    expect(clock.activeDelays()).not.toContain(1_000);
+
+    liveListener!({
+      attachment: firstAttachment,
+      kind: "attachment_caught_up"
+    });
+
+    expect(closeCount).toBe(1);
+    expect(clock.activeDelays()).toContain(1_000);
+
+    service.dispose();
+  });
 });
 
 function createService(

@@ -92,6 +92,104 @@ describe("parseAgentLiveDeliveries", () => {
     ).toEqual([]);
   });
 
+  test("preserves typed attachment recovery controls", () => {
+    expect(
+      parseAgentLiveDeliveries(
+        "workspace-1",
+        JSON.stringify({
+          result: {
+            accepted: [
+              {
+                attachmentChanged: {
+                  agentSessionId: " session-1 ",
+                  attachmentRevision: 3,
+                  bindingId: " binding-1 ",
+                  callerTurnId: " caller-turn-1 ",
+                  canonicalTurnId: " canonical-turn-1 ",
+                  workspaceId: " workspace-1 "
+                },
+                kind: "attachment_changed"
+              },
+              {
+                attachmentCaughtUp: {
+                  agentSessionId: "session-1",
+                  attachmentRevision: 3,
+                  bindingId: "binding-1",
+                  callerTurnId: "caller-turn-1",
+                  canonicalTurnId: "canonical-turn-1",
+                  workspaceId: "workspace-1"
+                },
+                kind: "attachment_caught_up"
+              }
+            ]
+          },
+          workspaceId: "workspace-1"
+        })
+      )
+    ).toEqual([
+      {
+        attachment: {
+          agentSessionId: "session-1",
+          attachmentRevision: 3,
+          bindingId: "binding-1",
+          callerTurnId: "caller-turn-1",
+          canonicalTurnId: "canonical-turn-1",
+          workspaceId: "workspace-1"
+        },
+        kind: "attachment_changed"
+      },
+      {
+        attachment: {
+          agentSessionId: "session-1",
+          attachmentRevision: 3,
+          bindingId: "binding-1",
+          callerTurnId: "caller-turn-1",
+          canonicalTurnId: "canonical-turn-1",
+          workspaceId: "workspace-1"
+        },
+        kind: "attachment_caught_up"
+      }
+    ]);
+  });
+
+  test.each([
+    {
+      attachmentChanged: {
+        agentSessionId: "session-1",
+        attachmentRevision: 0,
+        bindingId: "binding-1",
+        workspaceId: "workspace-1"
+      },
+      kind: "attachment_changed"
+    },
+    {
+      attachmentCaughtUp: {
+        agentSessionId: "session-1",
+        attachmentRevision: 1,
+        bindingId: "binding-1",
+        canonicalTurnId: "canonical-turn-1",
+        workspaceId: "workspace-1"
+      },
+      kind: "attachment_caught_up"
+    }
+  ])("reconciles malformed attachment control %#", (accepted) => {
+    expect(
+      parseAgentLiveDeliveries(
+        "workspace-1",
+        JSON.stringify({
+          result: { accepted: [accepted] },
+          workspaceId: "workspace-1"
+        })
+      )
+    ).toEqual([
+      {
+        kind: "discontinuity",
+        reason: "invalid_attachment_control",
+        reconcileKeys: []
+      }
+    ]);
+  });
+
   test("turns invalid or unknown native deliveries into reconciliation", () => {
     expect(parseAgentLiveDeliveries("workspace-1", "{")).toEqual([
       {

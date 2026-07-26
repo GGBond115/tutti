@@ -23,14 +23,15 @@ type applyEnvelope struct {
 }
 
 type deliveryEnvelope struct {
-	Kind              string                          `json:"kind"`
-	Seq               int64                           `json:"seq"`
-	Event             json.RawMessage                 `json:"event,omitempty"`
-	Discontinuity     *liveprotocol.Discontinuity     `json:"discontinuity,omitempty"`
-	AttachmentChanged *liveprotocol.AttachmentChanged `json:"attachmentChanged,omitempty"`
-	GoalChanged       *liveprotocol.GoalChanged       `json:"goalChanged,omitempty"`
-	StreamReady       *liveprotocol.StreamReady       `json:"streamReady,omitempty"`
-	Rejected          *liveprotocol.Rejected          `json:"rejected,omitempty"`
+	Kind               string                           `json:"kind"`
+	Seq                int64                            `json:"seq"`
+	Event              json.RawMessage                  `json:"event,omitempty"`
+	Discontinuity      *liveprotocol.Discontinuity      `json:"discontinuity,omitempty"`
+	AttachmentChanged  *liveprotocol.AttachmentChanged  `json:"attachmentChanged,omitempty"`
+	AttachmentCaughtUp *liveprotocol.AttachmentCaughtUp `json:"attachmentCaughtUp,omitempty"`
+	GoalChanged        *liveprotocol.GoalChanged        `json:"goalChanged,omitempty"`
+	StreamReady        *liveprotocol.StreamReady        `json:"streamReady,omitempty"`
+	Rejected           *liveprotocol.Rejected           `json:"rejected,omitempty"`
 }
 
 func ProtocolRevision() string {
@@ -75,14 +76,15 @@ func (s *Subscriber) Apply(encoded []byte) (string, error) {
 	}
 	for _, delivery := range result.Accepted {
 		envelope.Accepted = append(envelope.Accepted, deliveryEnvelope{
-			Kind:              deliveryKindName(delivery.Kind),
-			Seq:               int64(delivery.Seq),
-			Event:             append(json.RawMessage(nil), delivery.Event...),
-			Discontinuity:     delivery.Discontinuity,
-			AttachmentChanged: delivery.AttachmentChanged,
-			GoalChanged:       delivery.GoalChanged,
-			StreamReady:       delivery.StreamReady,
-			Rejected:          delivery.Rejected,
+			Kind:               deliveryKindName(delivery.Kind),
+			Seq:                int64(delivery.Seq),
+			Event:              append(json.RawMessage(nil), delivery.Event...),
+			Discontinuity:      delivery.Discontinuity,
+			AttachmentChanged:  delivery.AttachmentChanged,
+			AttachmentCaughtUp: delivery.AttachmentCaughtUp,
+			GoalChanged:        delivery.GoalChanged,
+			StreamReady:        delivery.StreamReady,
+			Rejected:           delivery.Rejected,
 		})
 	}
 	raw, err := json.Marshal(envelope)
@@ -100,6 +102,8 @@ func deliveryKindName(kind liveprotocol.DeliveryKind) string {
 		return "discontinuity"
 	case liveprotocol.DeliveryKindAttachmentChanged:
 		return "attachment_changed"
+	case liveprotocol.DeliveryKindAttachmentCaughtUp:
+		return "attachment_caught_up"
 	case liveprotocol.DeliveryKindGoalChanged:
 		return "goal_changed"
 	case liveprotocol.DeliveryKindStreamReady:
