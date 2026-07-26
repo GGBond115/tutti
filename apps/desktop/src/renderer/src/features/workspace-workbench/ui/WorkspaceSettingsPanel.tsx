@@ -93,6 +93,7 @@ import {
   LAB_WORKBENCH_SHORTCUTS_FLAG,
   LAB_AUTOMATION_RULES_FLAG,
   LAB_WORKSPACE_AGENTS_FLAG,
+  MOBILE_REMOTE_ACCESS_SETTINGS_FLAG,
   resolveDesktopWorkspaceUiMode
 } from "../../../../../shared/featureFlags/catalog.ts";
 import { resolveWorkspaceAgentGuiLabel } from "../services/workspaceAgentProviderCatalog";
@@ -131,6 +132,7 @@ import {
   workspaceWallpaperOptions
 } from "../services/workspaceWallpaper";
 import { WorkspaceModelPlansSection } from "./WorkspaceModelPlansSection";
+import { WorkspaceConnectionSettingsSection } from "./WorkspaceConnectionSettingsSection";
 import {
   workspaceSettingsInputClass,
   workspaceSettingsSelectContentClass,
@@ -204,6 +206,10 @@ export function WorkspaceSettingsPanel({
     pendingFeatureFlags,
     LAB_AUTOMATION_RULES_FLAG
   );
+  const mobileRemoteAccessSettingsEnabled = isFeatureEnabled(
+    pendingFeatureFlags,
+    MOBILE_REMOTE_ACCESS_SETTINGS_FLAG
+  );
 
   useEffect(() => {
     if (settingsState.open) {
@@ -222,6 +228,19 @@ export function WorkspaceSettingsPanel({
       settingsService.selectSection("general");
     }
   }, [modelPlansEnabled, settingsService, settingsState.activeSection]);
+
+  useEffect(() => {
+    if (
+      !mobileRemoteAccessSettingsEnabled &&
+      settingsState.activeSection === "connection"
+    ) {
+      settingsService.selectSection("general");
+    }
+  }, [
+    mobileRemoteAccessSettingsEnabled,
+    settingsService,
+    settingsState.activeSection
+  ]);
 
   useEffect(() => {
     if (
@@ -317,6 +336,14 @@ export function WorkspaceSettingsPanel({
               id: "appearance" as const,
               label: t("workspace.settings.nav.appearance")
             },
+            ...(mobileRemoteAccessSettingsEnabled
+              ? [
+                  {
+                    id: "connection" as const,
+                    label: t("workspace.settings.nav.connection")
+                  }
+                ]
+              : []),
             {
               id: "about" as const,
               label: t("workspace.settings.nav.about")
@@ -589,6 +616,13 @@ export function WorkspaceSettingsPanel({
                 onWorkbenchShortcutsChange={(shortcuts) => {
                   void settingsService.changeWorkbenchShortcuts(shortcuts);
                 }}
+              />
+            ) : settingsState.activeSection === "connection" ? (
+              <WorkspaceConnectionSettingsSection
+                featureFlags={
+                  desktopPreferencesState.changingFeatureFlags ??
+                  desktopPreferencesState.featureFlags
+                }
               />
             ) : settingsState.activeSection === "about" ? (
               <WorkspaceAboutSettingsSection

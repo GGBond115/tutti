@@ -326,6 +326,21 @@ test("WorkspaceSettingsService opens the model plans pane for managed-models req
   assert.equal(service.store.activeSection, "model");
 });
 
+test("WorkspaceSettingsService maps the legacy Account section to Connection", () => {
+  const service = new WorkspaceSettingsService({
+    client: createWorkspaceSettingsClient({})
+  });
+
+  service.openPanel(
+    { id: "workspace-1" },
+    {
+      section: "account"
+    }
+  );
+
+  assert.equal(service.store.activeSection, "connection");
+});
+
 test("WorkspaceSettingsService opens agent settings with a focused anchor", () => {
   const service = new WorkspaceSettingsService({
     client: createWorkspaceSettingsClient({})

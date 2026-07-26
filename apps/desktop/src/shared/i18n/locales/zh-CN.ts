@@ -760,11 +760,11 @@ export const zhCN = {
       },
       nav: {
         about: "关于",
-        account: "账号",
         apps: "应用",
         sectionsLabel: "设置分区",
         appearance: "外观",
         agent: "Agent",
+        connection: "连接",
         developer: "开发者",
         general: "通用",
         lab: "实验室",
@@ -1099,7 +1099,7 @@ export const zhCN = {
         logsSummary: "{{count}} 个文件，共 {{size}}",
         logsTitle: "日志",
         mobileRemoteAccessSettingsDescription:
-          "在账号设置中显示手机配对与远程访问控制项",
+          "显示连接设置以及手机配对与远程访问控制项",
         mobileRemoteAccessSettingsLabel: "显示手机远程访问设置",
         mobileRemoteAccessSettingsSaveFailed:
           "暂时无法更新手机远程访问显示设置",

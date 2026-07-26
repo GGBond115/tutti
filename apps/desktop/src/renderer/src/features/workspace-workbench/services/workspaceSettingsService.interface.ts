@@ -102,7 +102,7 @@ export interface WorkspaceSettingsOpenOptions {
   anchor?: WorkspaceSettingsGeneralFocusAnchor;
   pane?: string;
   provider?: string;
-  section?: WorkspaceSettingsSectionID;
+  section?: WorkspaceSettingsSectionID | "account";
 }
 
 export interface IWorkspaceSettingsService {

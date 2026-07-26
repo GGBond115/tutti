@@ -808,11 +808,11 @@ export const en = {
       },
       nav: {
         about: "About",
-        account: "Account",
         apps: "Apps",
         sectionsLabel: "Settings sections",
         appearance: "Appearance",
         agent: "Agent",
+        connection: "Connection",
         developer: "Developer",
         general: "General",
         lab: "Lab",
@@ -1169,7 +1169,7 @@ export const en = {
         logsSummary: "{{count}} files, {{size}} total",
         logsTitle: "Logs",
         mobileRemoteAccessSettingsDescription:
-          "Show phone pairing and remote access controls in Account settings.",
+          "Show Connection settings with phone pairing and remote access controls.",
         mobileRemoteAccessSettingsLabel: "Show mobile remote access settings",
         mobileRemoteAccessSettingsSaveFailed:
           "We couldn't update mobile remote access visibility.",
