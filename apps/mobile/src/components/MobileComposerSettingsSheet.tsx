@@ -1,5 +1,6 @@
 import type { AgentActivitySessionSettings } from "@tutti-os/agent-activity-core";
 import {
+  NativeButton,
   NativeListRow,
   NativeSheet,
   type NativeTheme,
@@ -15,7 +16,6 @@ type ComposerSettingMenu =
   | "reasoning"
   | "speed"
   | "permission"
-  | "plan"
   | null;
 
 export function MobileComposerSettingsSheet({
@@ -46,22 +46,19 @@ export function MobileComposerSettingsSheet({
       <View style={styles.chips}>
         {model.composerSettingsSupport.model && options?.models.length ? (
           <ComposerChip
-            label={
+            label={[
               selectedOptionLabel(options?.models ?? [], selectedModel) ??
-              t("model")
-            }
+                t("model"),
+              model.composerSettingsSupport.reasoning
+                ? selectedOptionLabel(
+                    reasoningOptions,
+                    model.composerSettings.reasoningEffort ?? null
+                  )
+                : null
+            ]
+              .filter(Boolean)
+              .join(" ")}
             onPress={() => setMenu("model")}
-          />
-        ) : null}
-        {model.composerSettingsSupport.reasoning && reasoningOptions.length ? (
-          <ComposerChip
-            label={
-              selectedOptionLabel(
-                reasoningOptions,
-                model.composerSettings.reasoningEffort ?? null
-              ) ?? t("reasoning")
-            }
-            onPress={() => setMenu("reasoning")}
           />
         ) : null}
         {model.composerSettingsSupport.speed && options?.speeds.length ? (
@@ -82,17 +79,9 @@ export function MobileComposerSettingsSheet({
               selectedOptionLabel(
                 options?.permissionConfig?.modes ?? [],
                 model.composerSettings.permissionModeId ?? null
-              ) ?? t("permissions")
+              ) ?? t("defaultPermissions")
             }
             onPress={() => setMenu("permission")}
-          />
-        ) : null}
-        {model.composerSettingsSupport.plan ? (
-          <ComposerChip
-            label={
-              model.composerSettings.planMode ? t("planModeOn") : t("planMode")
-            }
-            onPress={() => setMenu("plan")}
           />
         ) : null}
       </View>
@@ -105,14 +94,37 @@ export function MobileComposerSettingsSheet({
           <Text style={styles.sheetTitle}>{titleForMenu(menu)}</Text>
           <ScrollView contentContainerStyle={styles.options}>
             {menu === "model"
-              ? options?.models.map((option) => (
-                  <NativeListRow
-                    key={option.value}
-                    onPress={() => closeWith({ model: option.value })}
-                    selected={option.value === selectedModel}
-                    title={option.label}
-                  />
-                ))
+              ? [
+                  ...(options?.models.map((option) => (
+                    <NativeListRow
+                      key={`model:${option.value}`}
+                      onPress={() => closeWith({ model: option.value })}
+                      selected={option.value === selectedModel}
+                      title={option.label}
+                    />
+                  )) ?? []),
+                  ...(model.composerSettingsSupport.reasoning &&
+                  reasoningOptions.length
+                    ? [
+                        <Text key="reasoning-title" style={styles.sectionTitle}>
+                          {t("reasoning")}
+                        </Text>,
+                        ...reasoningOptions.map((option) => (
+                          <NativeListRow
+                            key={`reasoning:${option.value}`}
+                            onPress={() =>
+                              closeWith({ reasoningEffort: option.value })
+                            }
+                            selected={
+                              option.value ===
+                              model.composerSettings.reasoningEffort
+                            }
+                            title={option.label}
+                          />
+                        ))
+                      ]
+                    : [])
+                ]
               : null}
             {menu === "reasoning"
               ? reasoningOptions.map((option) => (
@@ -149,22 +161,7 @@ export function MobileComposerSettingsSheet({
                   />
                 ))
               : null}
-            {menu === "plan" ? (
-              <>
-                <NativeListRow
-                  onPress={() => closeWith({ planMode: false })}
-                  selected={!model.composerSettings.planMode}
-                  title={t("planModeOff")}
-                />
-                <NativeListRow
-                  onPress={() => closeWith({ planMode: true })}
-                  selected={model.composerSettings.planMode === true}
-                  title={t("planModeOn")}
-                />
-              </>
-            ) : null}
-            {menu !== "plan" &&
-            model.composerOptionsLoadStatus === "loading" ? (
+            {model.composerOptionsLoadStatus === "loading" ? (
               <Text style={styles.loading}>{t("loading")}</Text>
             ) : null}
           </ScrollView>
@@ -177,7 +174,15 @@ export function MobileComposerSettingsSheet({
 function ComposerChip({ label, onPress }: { label: string; onPress(): void }) {
   const theme = useNativeTheme();
   const styles = createStyles(theme);
-  return <NativeListRow onPress={onPress} style={styles.chip} title={label} />;
+  return (
+    <NativeButton
+      label={label}
+      onPress={onPress}
+      size="compact"
+      style={styles.chip}
+      variant="secondary"
+    />
+  );
 }
 
 function selectedOptionLabel(
@@ -201,8 +206,6 @@ function titleForMenu(menu: ComposerSettingMenu): string {
       return t("speed");
     case "permission":
       return t("permissions");
-    case "plan":
-      return t("planMode");
     default:
       return "";
   }
@@ -212,15 +215,21 @@ function createStyles(theme: NativeTheme) {
   return StyleSheet.create({
     chip: {
       backgroundColor: theme.color.panel,
-      borderColor: theme.color.border,
-      borderRadius: theme.radius.large,
-      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: theme.color.panel,
+      borderRadius: 20,
       minHeight: theme.control.compact,
-      paddingHorizontal: theme.space.small
+      paddingHorizontal: theme.space.medium
     },
     chips: { flexDirection: "row", flexWrap: "wrap", gap: theme.space.small },
     loading: { color: theme.color.muted, padding: theme.space.medium },
     options: { padding: theme.space.small },
+    sectionTitle: {
+      color: theme.color.muted,
+      fontSize: 13,
+      fontWeight: "600",
+      paddingHorizontal: theme.space.small,
+      paddingTop: theme.space.medium
+    },
     sheet: { minHeight: 180, padding: theme.space.medium },
     sheetTitle: {
       color: theme.color.text,

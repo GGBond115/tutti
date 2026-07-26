@@ -93,10 +93,12 @@ function MobileMessageRow({
   );
 
   return (
-    <View style={[styles.message, user && styles.userMessage]}>
-      <Text style={[styles.role, user && styles.userRole]}>
-        {user ? t("you") : t("agent")}
-      </Text>
+    <View
+      style={[
+        styles.message,
+        user ? styles.userMessage : styles.assistantMessage
+      ]}
+    >
       {row.thinking.map((thinking) => (
         <View key={thinking.id} style={styles.thinkingBlock}>
           <Text style={styles.thinkingLabel}>{t("reasoning")}</Text>
@@ -338,13 +340,13 @@ function createStyles(theme: NativeTheme) {
     },
     message: {
       alignSelf: "flex-start",
-      backgroundColor: theme.color.panel,
-      borderColor: theme.color.border,
       borderRadius: theme.radius.large,
-      borderWidth: StyleSheet.hairlineWidth,
       gap: theme.space.small,
-      maxWidth: "92%",
-      padding: theme.space.medium
+      maxWidth: "88%"
+    },
+    assistantMessage: {
+      alignSelf: "stretch",
+      maxWidth: "100%"
     },
     messageContent: { gap: theme.space.small },
     noticeDetail: {
@@ -368,13 +370,6 @@ function createStyles(theme: NativeTheme) {
       width: 8
     },
     processingText: { color: theme.color.muted, fontSize: 13 },
-    role: {
-      color: theme.color.accent,
-      fontSize: 11,
-      fontWeight: "700",
-      letterSpacing: 0.5,
-      textTransform: "uppercase"
-    },
     summaryTitle: {
       color: theme.color.text,
       flex: 1,
@@ -442,8 +437,8 @@ function createStyles(theme: NativeTheme) {
     },
     userMessage: {
       alignSelf: "flex-end",
-      backgroundColor: theme.color.panelRaised
-    },
-    userRole: { color: theme.color.textSecondary }
+      backgroundColor: theme.color.panel,
+      padding: theme.space.medium
+    }
   });
 }

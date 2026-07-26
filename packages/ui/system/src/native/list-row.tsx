@@ -52,30 +52,41 @@ export function NativeListRow({
         style
       ]}
     >
-      {selected ? <View style={styles.selectedIndicator} /> : null}
-      {leading ? <View style={styles.leading}>{leading}</View> : null}
-      <View style={styles.copy}>
-        <Text
-          numberOfLines={2}
-          style={[styles.title, selected ? styles.titleSelected : undefined]}
-        >
-          {title}
-        </Text>
-        {typeof description === "string" ? (
-          <Text numberOfLines={1} style={styles.description}>
-            {description}
+      <View style={styles.content}>
+        {selected ? <View style={styles.selectedIndicator} /> : null}
+        {leading ? <View style={styles.leading}>{leading}</View> : null}
+        <View style={styles.copy}>
+          <Text
+            numberOfLines={2}
+            style={[styles.title, selected ? styles.titleSelected : undefined]}
+          >
+            {title}
           </Text>
-        ) : description ? (
-          <View style={styles.descriptionSlot}>{description}</View>
-        ) : null}
+          {typeof description === "string" ? (
+            <Text numberOfLines={1} style={styles.description}>
+              {description}
+            </Text>
+          ) : description ? (
+            <View style={styles.descriptionSlot}>{description}</View>
+          ) : null}
+        </View>
+        {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
       </View>
-      {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
     </Pressable>
   );
 }
 
 function createStyles(theme: NativeTheme) {
   return StyleSheet.create({
+    content: {
+      alignItems: "center",
+      flex: 1,
+      flexDirection: "row",
+      minHeight: theme.control.row,
+      paddingHorizontal: theme.space.small,
+      position: "relative",
+      width: "100%"
+    },
     copy: { flex: 1, paddingVertical: theme.space.small },
     description: {
       color: theme.color.muted,
@@ -87,12 +98,9 @@ function createStyles(theme: NativeTheme) {
     leading: { marginRight: theme.space.small },
     pressed: { opacity: 0.7 },
     row: {
-      alignItems: "center",
       borderRadius: theme.radius.small,
-      flexDirection: "row",
       minHeight: theme.control.row,
-      overflow: "hidden",
-      paddingHorizontal: theme.space.small
+      overflow: "hidden"
     },
     selected: { backgroundColor: theme.color.panelRaised },
     selectedIndicator: {

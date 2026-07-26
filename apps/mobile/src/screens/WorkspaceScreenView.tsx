@@ -20,13 +20,16 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View
 } from "react-native";
 import { MobileInteractionCard } from "../components/MobileConversationRows";
+import { MobileComposerDock } from "../components/MobileComposerDock";
 import { MobileConversationDrawer } from "../components/MobileConversationDrawer";
 import { MobileConversationTimeline } from "../components/MobileConversationTimeline";
-import { MobileComposerSettingsSheet } from "../components/MobileComposerSettingsSheet";
+import {
+  MobileComputerGlyph,
+  MobileFolderGlyph
+} from "../components/MobileLocationGlyphs";
 import { PrimaryButton } from "../components/PrimaryButton";
 import { t } from "../i18n";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
@@ -195,26 +198,56 @@ export function ConversationWorkspaceView({
       style={styles.root}
     >
       <View style={styles.conversationHeader}>
-        <NativeIconButton
-          accessibilityLabel={t("sessions")}
-          onPress={() => setDrawerOpen(true)}
-          icon={<Text style={styles.iconText}>☰</Text>}
-          style={styles.iconButton}
-        />
+        <View style={styles.headerButtonSlot}>
+          <NativeIconButton
+            accessibilityLabel={t("sessions")}
+            onPress={() => setDrawerOpen(true)}
+            icon={<Text style={styles.backIcon}>←</Text>}
+            style={styles.headerCircleButton}
+            variant="secondary"
+          />
+        </View>
         <View style={styles.conversationTitle}>
           <Text numberOfLines={1} style={styles.sessionTitle}>
             {model.selectedSession?.title || workspace.name}
           </Text>
-          <Text numberOfLines={1} style={styles.deviceCaption}>
-            {deviceName || t("desktopFallback")} · {workspace.name}
-          </Text>
+          <View style={styles.locationRow}>
+            <View style={styles.locationItem}>
+              <MobileFolderGlyph color={theme.color.textSecondary} size={14} />
+              <Text numberOfLines={1} style={styles.locationLabel}>
+                {workspace.name}
+              </Text>
+            </View>
+            <View style={styles.locationItem}>
+              <MobileComputerGlyph
+                color={theme.color.textSecondary}
+                size={14}
+              />
+              <Text numberOfLines={1} style={styles.locationLabel}>
+                {deviceName || t("desktopFallback")}
+              </Text>
+            </View>
+          </View>
         </View>
-        <View style={styles.onlineDot} />
+        <View style={styles.headerButtonSlot}>
+          <NativeIconButton
+            accessibilityLabel={t("moreActions")}
+            icon={<Text style={styles.moreIcon}>⋮</Text>}
+            onPress={() => setDrawerOpen(true)}
+            style={styles.headerCircleButton}
+            variant="secondary"
+          />
+        </View>
       </View>
 
       {model.loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={theme.color.accent} size="large" />
+        <View
+          accessibilityLabel={t("loading")}
+          accessibilityLiveRegion="polite"
+          style={styles.loadingSkeleton}
+        >
+          <View style={[styles.skeletonBlock, styles.skeletonShort]} />
+          <View style={[styles.skeletonBlock, styles.skeletonLong]} />
         </View>
       ) : model.selectedSession && !model.creating ? (
         <View style={styles.conversationBody}>
@@ -318,40 +351,13 @@ export function ConversationWorkspaceView({
         <Text style={styles.inlineError}>{t("genericError")}</Text>
       ) : null}
       {model.selectedSession || model.creating ? (
-        <View style={styles.composer}>
-          <MobileComposerSettingsSheet
-            model={model}
-            onUpdate={onUpdateComposerSettings}
-          />
-          <TextInput
-            editable={!model.sending}
-            multiline
-            onChangeText={onDraftChange}
-            placeholder={t("messageHint")}
-            placeholderTextColor={theme.color.muted}
-            style={styles.input}
-            value={model.draft}
-          />
-          {model.selectedSession?.activeTurnId && !model.creating ? (
-            <PrimaryButton
-              label={t("stop")}
-              onPress={onStop}
-              secondary
-              style={styles.sendButton}
-            />
-          ) : (
-            <PrimaryButton
-              disabled={
-                !model.draft.trim() ||
-                (model.creating && !model.selectedAgentTargetId)
-              }
-              label={model.ambiguousSubmission ? t("retry") : t("send")}
-              loading={model.sending}
-              onPress={onSend}
-              style={styles.sendButton}
-            />
-          )}
-        </View>
+        <MobileComposerDock
+          model={model}
+          onDraftChange={onDraftChange}
+          onSend={onSend}
+          onStop={onStop}
+          onUpdate={onUpdateComposerSettings}
+        />
       ) : null}
 
       {drawerOpen ? (
@@ -366,6 +372,7 @@ export function ConversationWorkspaceView({
           onRefreshSessions={onRefreshSessions}
           onSelectSession={onSelectSession}
           onTogglePinned={onTogglePinned}
+          deviceName={deviceName}
           workspaceName={workspace.name}
         />
       ) : null}
@@ -383,26 +390,26 @@ function createStyles(theme: NativeTheme) {
       padding: theme.space.large
     },
     chevron: { color: theme.color.muted, fontSize: 30 },
-    composer: {
-      alignItems: "flex-end",
-      borderTopColor: theme.color.border,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: theme.space.small,
-      padding: theme.space.medium
-    },
     conversationHeader: {
       alignItems: "center",
-      borderBottomColor: theme.color.border,
-      borderBottomWidth: StyleSheet.hairlineWidth,
       flexDirection: "row",
-      minHeight: 64,
-      paddingHorizontal: theme.space.medium
+      gap: theme.space.small,
+      minHeight: 82,
+      paddingHorizontal: theme.space.medium,
+      paddingVertical: theme.space.small
     },
     conversationBody: { flex: 1, position: "relative" },
-    conversationTitle: { flex: 1, marginHorizontal: theme.space.small },
-    deviceCaption: { color: theme.color.muted, fontSize: 12, marginTop: 3 },
+    conversationTitle: {
+      backgroundColor: theme.color.panelRaised,
+      borderColor: theme.color.border,
+      borderRadius: 28,
+      borderWidth: StyleSheet.hairlineWidth,
+      flex: 1,
+      justifyContent: "center",
+      minWidth: 0,
+      minHeight: 56,
+      paddingHorizontal: theme.space.medium
+    },
     emptyText: {
       color: theme.color.textSecondary,
       fontSize: 15,
@@ -411,13 +418,28 @@ function createStyles(theme: NativeTheme) {
     },
     error: { color: theme.color.danger, fontSize: 14 },
     eyebrow: { color: theme.color.accent, fontSize: 12, fontWeight: "700" },
-    iconButton: {
-      alignItems: "center",
-      height: 44,
-      justifyContent: "center",
-      width: 44
+    backIcon: {
+      color: theme.color.text,
+      fontSize: 32,
+      fontWeight: "300",
+      lineHeight: 34
     },
-    iconText: { color: theme.color.text, fontSize: 22 },
+    headerCircleButton: {
+      alignItems: "center",
+      backgroundColor: theme.color.panelRaised,
+      borderColor: theme.color.border,
+      borderRadius: 28,
+      borderWidth: StyleSheet.hairlineWidth,
+      flexShrink: 0,
+      height: 56,
+      justifyContent: "center",
+      width: 56
+    },
+    headerButtonSlot: {
+      flexShrink: 0,
+      height: 56,
+      width: 56
+    },
     inlineError: {
       backgroundColor: theme.color.panel,
       color: theme.color.danger,
@@ -425,27 +447,44 @@ function createStyles(theme: NativeTheme) {
       padding: theme.space.small,
       textAlign: "center"
     },
-    input: {
-      backgroundColor: theme.color.panel,
-      borderColor: theme.color.border,
-      borderRadius: theme.radius.large,
-      borderWidth: StyleSheet.hairlineWidth,
-      color: theme.color.text,
-      flex: 1,
-      fontSize: 16,
-      maxHeight: 132,
-      minHeight: 48,
-      paddingHorizontal: theme.space.medium,
-      paddingVertical: 12
-    },
     loadOlder: { color: theme.color.muted, fontSize: 12, textAlign: "center" },
-    messageList: { gap: theme.space.medium, padding: theme.space.large },
+    loadingSkeleton: {
+      flex: 1,
+      gap: theme.space.medium,
+      paddingHorizontal: theme.space.large,
+      paddingTop: theme.space.xlarge
+    },
+    locationLabel: {
+      color: theme.color.textSecondary,
+      flex: 1,
+      flexShrink: 1,
+      fontSize: 12
+    },
+    locationItem: {
+      alignItems: "center",
+      flex: 1,
+      flexDirection: "row",
+      gap: 4,
+      minWidth: 0
+    },
+    locationRow: {
+      flexDirection: "row",
+      gap: theme.space.small,
+      marginTop: 3,
+      overflow: "hidden"
+    },
+    messageList: {
+      gap: theme.space.large,
+      paddingBottom: theme.space.xlarge,
+      paddingHorizontal: theme.space.large,
+      paddingTop: theme.space.medium
+    },
     messageScroller: { flex: 1 },
-    onlineDot: {
-      backgroundColor: theme.color.success,
-      borderRadius: 5,
-      height: 10,
-      width: 10
+    moreIcon: {
+      color: theme.color.text,
+      fontSize: 30,
+      fontWeight: "800",
+      lineHeight: 31
     },
     pageHeader: {
       alignItems: "center",
@@ -468,7 +507,16 @@ function createStyles(theme: NativeTheme) {
       position: "absolute",
       right: theme.space.medium
     },
-    sendButton: { minWidth: 76 },
+    skeletonBlock: {
+      backgroundColor: theme.color.panel,
+      borderRadius: theme.radius.large
+    },
+    skeletonLong: { height: 96 },
+    skeletonShort: {
+      alignSelf: "flex-end",
+      height: 64,
+      width: "78%"
+    },
     sessionTitle: { color: theme.color.text, fontSize: 16, fontWeight: "700" },
     targetChip: {
       borderColor: theme.color.border,

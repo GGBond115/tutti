@@ -53,3 +53,29 @@ dev.tutti.mobile` and inspect a narrow logcat window for the Go fatal message.
   and observe beyond the previous crash window with no new Go fatal message.
 - **References:** `packages/device-link/mobile/link.go`,
   `apps/mobile/android/app/src/main/java/dev/tutti/mobile/DeviceLinkModule.kt`
+
+## React Native Pressable rows stack their children vertically
+
+- **Symptom:** A Native button, list row, or app-owned tappable row declares
+  `flexDirection: "row"` but its icon, label, count, or trailing action appears
+  vertically stacked on a Fabric Android device. Plain `View` rows on the same
+  screen remain horizontal.
+- **Quick checks:** Inspect the real device rather than relying only on
+  TypeScript or snapshots. Compare the bounds from `uiautomator dump` for the
+  direct children of the `Pressable`; consecutive vertical bounds identify the
+  failure even when the parent style contains the expected row declaration.
+- **Root cause:** In the current React Native NativeWind/CSS interop renderer,
+  layout declarations on the `Pressable` host are not reliable for arranging
+  its direct children. Interaction, surface, size, and pressed-state styles
+  still apply, which makes this easy to mistake for stale Fast Refresh state.
+- **Fix:** Keep interaction and surface styling on `Pressable`, but wrap its
+  visual children in a plain token-backed `View` that owns
+  `flexDirection: "row"` and alignment. Shared buttons and list rows should fix
+  this once in `@tutti-os/ui-system/native`; app-specific tappable rows should
+  follow the same inner-layout pattern.
+- **Validation:** Perform a full JavaScript reload, then verify on Android that
+  button icon/label, list title/trailing action, and section label/count remain
+  horizontal. Confirm touch and accessibility actions still reach the outer
+  `Pressable`.
+- **References:** `packages/ui/system/src/native/button.tsx`,
+  `packages/ui/system/src/native/list-row.tsx`

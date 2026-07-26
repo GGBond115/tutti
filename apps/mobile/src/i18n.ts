@@ -29,6 +29,7 @@ const messages = {
       "Pair your computer to start using Agent sessions on your phone.",
     deviceEmptyTitle: "No computer paired",
     devices: "Your computers",
+    defaultPermissions: "Default permissions",
     deny: "Deny",
     deleteSession: "Delete session",
     deleteSessionConfirm: "Delete",
@@ -127,6 +128,9 @@ const messages = {
     closeImagePreview: "Close image preview",
     failed: "Failed",
     projects: "Projects",
+    remote: "Remote",
+    searchChats: "Search chats",
+    chat: "Chat",
     welcome: "Remote Agent",
     you: "You"
   },
@@ -155,6 +159,7 @@ const messages = {
     deviceEmpty: "先配对你的电脑，即可在手机上使用 Agent 会话",
     deviceEmptyTitle: "还没有配对电脑",
     devices: "你的电脑",
+    defaultPermissions: "默认权限",
     deny: "拒绝",
     deleteSession: "删除会话",
     deleteSessionConfirm: "删除",
@@ -248,6 +253,9 @@ const messages = {
     closeImagePreview: "关闭图片预览",
     failed: "失败",
     projects: "项目",
+    remote: "Remote",
+    searchChats: "搜索聊天",
+    chat: "聊天",
     welcome: "远程 Agent",
     you: "你"
   }

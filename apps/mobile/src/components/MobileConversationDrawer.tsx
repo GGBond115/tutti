@@ -9,7 +9,6 @@ import {
 } from "@tutti-os/ui-system/native";
 import {
   ActivityIndicator,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +18,7 @@ import {
 } from "react-native";
 import { t } from "../i18n";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
+import { MobileComputerGlyph, MobileFolderGlyph } from "./MobileLocationGlyphs";
 
 type DrawerDialog =
   | { kind: "actions"; sessionId: string }
@@ -27,6 +27,7 @@ type DrawerDialog =
   | null;
 
 export function MobileConversationDrawer({
+  deviceName,
   model,
   onBack,
   onClose,
@@ -39,6 +40,7 @@ export function MobileConversationDrawer({
   onTogglePinned,
   workspaceName
 }: {
+  deviceName: string;
   model: WorkspaceActivitySnapshot;
   onBack(): void;
   onClose(): void;
@@ -60,6 +62,7 @@ export function MobileConversationDrawer({
     () => new Set()
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [searchDraft, setSearchDraft] = useState("");
   const actionSession = dialog
     ? model.railSections
         .flatMap((section) => section.items)
@@ -104,45 +107,70 @@ export function MobileConversationDrawer({
       <Pressable onPress={onClose} style={styles.scrim} />
       <View style={styles.drawer}>
         <View style={styles.header}>
-          <View style={styles.heading}>
-            <Text numberOfLines={1} style={styles.workspace}>
-              {workspaceName}
-            </Text>
-            <Text style={styles.title}>{t("sessions")}</Text>
-          </View>
-          <View style={styles.headerActions}>
-            {refreshing ? (
-              <ActivityIndicator color={theme.color.accent} size="small" />
-            ) : (
-              <NativeIconButton
-                accessibilityLabel={t("refreshSessions")}
-                icon={<Text style={styles.refresh}>↻</Text>}
-                onPress={() => void refreshRail()}
-                style={styles.closeButton}
-              />
-            )}
+          <View style={styles.headerButtonSlot}>
             <NativeIconButton
               accessibilityLabel={t("cancel")}
-              icon={<Text style={styles.close}>×</Text>}
+              icon={<Text style={styles.backIcon}>←</Text>}
               onPress={onClose}
-              style={styles.closeButton}
+              style={styles.headerButton}
+              variant="secondary"
             />
           </View>
+          <Text style={styles.title}>{t("remote")}</Text>
+          {refreshing ? (
+            <View style={styles.headerButtonSlot}>
+              <View style={styles.headerButton}>
+                <ActivityIndicator color={theme.color.accent} size="small" />
+              </View>
+            </View>
+          ) : (
+            <View style={styles.headerButtonSlot}>
+              <NativeIconButton
+                accessibilityLabel={t("refreshSessions")}
+                icon={<Text style={styles.moreIconLarge}>⋮</Text>}
+                onPress={() => void refreshRail()}
+                style={styles.headerButton}
+                variant="secondary"
+              />
+            </View>
+          )}
         </View>
 
-        <NativeButton
-          disabled={model.targets.length === 0}
-          label={t("newSession")}
-          leading={<Text style={styles.newSessionIcon}>＋</Text>}
-          onPress={() => {
-            onNewSession();
-            onClose();
-          }}
-          style={styles.newSessionButton}
-          variant="secondary"
-        />
+        <ScrollView
+          contentContainerStyle={styles.deviceRail}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.deviceScroller}
+        >
+          <View style={styles.devicePill}>
+            <View style={styles.deviceDot} />
+            <MobileComputerGlyph color={theme.color.background} size={18} />
+            <Text numberOfLines={1} style={styles.deviceName}>
+              {deviceName || t("desktopFallback")}
+            </Text>
+          </View>
+        </ScrollView>
 
-        <ScrollView contentContainerStyle={styles.list}>
+        <View style={styles.projectSection}>
+          <Text style={styles.groupTitle}>{t("projects")}</Text>
+          <Pressable
+            accessibilityLabel={t("backToWorkspaces")}
+            onPress={onBack}
+            style={({ pressed }) => pressed && styles.pressed}
+          >
+            <View style={styles.projectRow}>
+              <MobileFolderGlyph color={theme.color.text} size={26} />
+              <Text numberOfLines={1} style={styles.projectName}>
+                {workspaceName}
+              </Text>
+            </View>
+          </Pressable>
+        </View>
+
+        <ScrollView
+          contentContainerStyle={styles.list}
+          style={styles.sessionScroller}
+        >
           {model.railStatus === "loading" && model.railSections.length === 0 ? (
             <View style={styles.feedback}>
               <ActivityIndicator color={theme.color.accent} size="small" />
@@ -176,6 +204,15 @@ export function MobileConversationDrawer({
               ) : null}
               {model.railSections.map((section) => {
                 const collapsed = collapsedSectionIds.has(section.id);
+                const query = searchDraft.trim().toLocaleLowerCase();
+                const visibleItems = query
+                  ? section.items.filter((session) =>
+                      (session.title || t("untitledSession"))
+                        .toLocaleLowerCase()
+                        .includes(query)
+                    )
+                  : section.items;
+                if (query && visibleItems.length === 0) return null;
                 return (
                   <View key={section.id} style={styles.section}>
                     <Pressable
@@ -185,99 +222,59 @@ export function MobileConversationDrawer({
                       accessibilityRole="button"
                       accessibilityState={{ expanded: !collapsed }}
                       onPress={() => toggleSection(section.id)}
-                      style={({ pressed }) => [
-                        styles.sectionHeader,
-                        pressed && styles.pressed
-                      ]}
+                      style={({ pressed }) => pressed && styles.pressed}
                     >
-                      <Text numberOfLines={1} style={styles.sectionTitle}>
-                        {sectionTitle(section)}
-                      </Text>
-                      <Text style={styles.sectionCount}>
-                        {section.totalCount}
-                      </Text>
-                      <Text style={styles.sectionChevron}>
-                        {collapsed ? "›" : "⌄"}
-                      </Text>
+                      <View style={styles.sectionHeader}>
+                        <Text numberOfLines={1} style={styles.sectionTitle}>
+                          {sectionTitle(section)}
+                        </Text>
+                        <Text style={styles.sectionCount}>
+                          {section.totalCount}
+                        </Text>
+                        <Text style={styles.sectionChevron}>
+                          {collapsed ? "›" : "⌄"}
+                        </Text>
+                      </View>
                     </Pressable>
                     {!collapsed
-                      ? section.items.map((session) => {
+                      ? visibleItems.map((session) => {
                           const selected =
                             session.id === model.selectedAgentSessionId;
-                          const target =
-                            model.targets.find(
-                              (candidate) =>
-                                candidate.id === session.agentTargetId
-                            ) ??
-                            model.targets.find(
-                              (candidate) =>
-                                candidate.provider === session.provider
-                            );
                           return (
                             <NativeListRow
                               accessibilityLabel={
                                 session.title || t("untitledSession")
                               }
                               key={session.id}
-                              leading={
-                                <View style={styles.agentIconFrame}>
-                                  {target?.iconUrl ? (
-                                    <Image
-                                      source={{ uri: target.iconUrl }}
-                                      style={styles.agentIcon}
-                                    />
-                                  ) : (
-                                    <Text style={styles.agentIconFallback}>
-                                      {session.provider
-                                        .slice(0, 1)
-                                        .toUpperCase()}
-                                    </Text>
-                                  )}
-                                  <View
-                                    style={[
-                                      styles.statusDot,
-                                      statusDotStyle(theme, session.status)
-                                    ]}
-                                  />
-                                </View>
-                              }
                               onPress={() => {
                                 onSelectSession(session.id);
                                 onClose();
                               }}
                               selected={selected}
-                              description={
-                                <View style={styles.sessionMeta}>
+                              title={session.title || t("untitledSession")}
+                              trailing={
+                                <View style={styles.sessionTrailing}>
                                   <Text style={styles.sessionTime}>
                                     {formatSessionTime(
                                       session.sortTimeUnixMs ??
                                         session.updatedAtUnixMs
                                     )}
                                   </Text>
-                                  <Text style={styles.sessionStatus}>
-                                    {sessionStatusLabel(session.status)}
-                                  </Text>
-                                  {session.needsUserAction ? (
-                                    <Text style={styles.attention}>
-                                      {t("needsAttention")}
-                                    </Text>
-                                  ) : null}
+                                  <NativeIconButton
+                                    accessibilityLabel={t("moreActions")}
+                                    icon={
+                                      <Text style={styles.moreIcon}>⋯</Text>
+                                    }
+                                    onPress={(event) => {
+                                      event.stopPropagation();
+                                      setDialog({
+                                        kind: "actions",
+                                        sessionId: session.id
+                                      });
+                                    }}
+                                    style={styles.moreButton}
+                                  />
                                 </View>
-                              }
-                              title={session.title || t("untitledSession")}
-                              trailing={
-                                <NativeIconButton
-                                  accessibilityLabel={t("moreActions")}
-                                  icon={<Text style={styles.moreIcon}>⋯</Text>}
-                                  onPress={(event) => {
-                                    event.stopPropagation();
-                                    setDialog({
-                                      kind: "actions",
-                                      sessionId: session.id
-                                    });
-                                  }}
-                                  style={styles.moreButton}
-                                />
                               }
                             />
                           );
@@ -311,11 +308,31 @@ export function MobileConversationDrawer({
           )}
         </ScrollView>
 
-        <Pressable onPress={onBack} style={styles.workspaceBackButton}>
-          <Text style={styles.workspaceBackLabel}>
-            ‹ {t("backToWorkspaces")}
-          </Text>
-        </Pressable>
+        <View style={styles.bottomDock}>
+          <View style={styles.searchPill}>
+            <Text style={styles.searchIcon}>⌕</Text>
+            <TextInput
+              onChangeText={setSearchDraft}
+              placeholder={t("searchChats")}
+              placeholderTextColor={theme.color.muted}
+              style={styles.searchInput}
+              value={searchDraft}
+            />
+          </View>
+          <View style={styles.chatButtonSlot}>
+            <NativeButton
+              disabled={model.targets.length === 0}
+              label={t("chat")}
+              leading={<Text style={styles.chatIcon}>＋</Text>}
+              onPress={() => {
+                onNewSession();
+                onClose();
+              }}
+              size="large"
+              style={styles.chatButton}
+            />
+          </View>
+        </View>
       </View>
 
       {dialog && actionSession ? (
@@ -472,42 +489,6 @@ function sectionTitle(
   return t("recentSessions");
 }
 
-function sessionStatusLabel(
-  status: WorkspaceActivitySnapshot["railSections"][number]["items"][number]["status"]
-): string {
-  switch (status) {
-    case "working":
-      return t("running");
-    case "waiting":
-      return t("waiting");
-    case "completed":
-      return t("completed");
-    case "failed":
-      return t("failed");
-    case "canceled":
-      return t("canceled");
-    default:
-      return t("ready");
-  }
-}
-
-function statusDotStyle(
-  theme: NativeTheme,
-  status: WorkspaceActivitySnapshot["railSections"][number]["items"][number]["status"]
-): { backgroundColor: string } {
-  switch (status) {
-    case "working":
-      return { backgroundColor: theme.color.accent };
-    case "waiting":
-    case "failed":
-      return { backgroundColor: theme.color.danger };
-    case "completed":
-      return { backgroundColor: theme.color.success };
-    default:
-      return { backgroundColor: theme.color.muted };
-  }
-}
-
 function formatSessionTime(unixMs: number): string {
   if (!unixMs) return "";
   const date = new Date(unixMs);
@@ -538,52 +519,79 @@ function createStyles(theme: NativeTheme) {
       lineHeight: 18,
       marginBottom: theme.space.small
     },
-    agentIcon: { borderRadius: 8, height: 28, width: 28 },
-    agentIconFallback: {
+    backIcon: {
       color: theme.color.text,
-      fontSize: 12,
-      fontWeight: "800"
+      fontSize: 32,
+      fontWeight: "300",
+      lineHeight: 34
     },
-    agentIconFrame: {
+    bottomDock: {
       alignItems: "center",
-      backgroundColor: theme.color.panel,
-      borderColor: theme.color.border,
-      borderRadius: 9,
-      borderWidth: StyleSheet.hairlineWidth,
-      height: 30,
-      justifyContent: "center",
-      marginRight: theme.space.small,
-      overflow: "visible",
-      width: 30
+      backgroundColor: theme.color.background,
+      flexDirection: "row",
+      gap: theme.space.small,
+      paddingBottom: theme.space.small,
+      paddingTop: theme.space.small,
+      zIndex: 2
     },
-    attention: {
-      color: theme.color.danger,
-      fontSize: 10,
-      fontWeight: "700"
+    chatButton: {
+      backgroundColor: theme.color.text,
+      borderRadius: 28,
+      height: 56,
+      width: "100%"
     },
-    close: { color: theme.color.textSecondary, fontSize: 32, lineHeight: 34 },
-    closeButton: {
-      alignItems: "center",
-      height: 44,
-      justifyContent: "center",
-      width: 44
+    chatButtonSlot: {
+      flexShrink: 0,
+      height: 56,
+      width: 112
     },
+    chatIcon: { color: theme.color.background, fontSize: 22 },
     deleteDescription: {
       color: theme.color.textSecondary,
       fontSize: 14,
       lineHeight: 20
     },
-    disabled: { opacity: 0.45 },
+    deviceDot: {
+      backgroundColor: theme.color.success,
+      borderRadius: 5,
+      height: 10,
+      width: 10
+    },
+    deviceName: {
+      color: theme.color.background,
+      flexShrink: 1,
+      fontSize: 15,
+      fontWeight: "700"
+    },
+    devicePill: {
+      alignItems: "center",
+      backgroundColor: theme.color.text,
+      borderRadius: 24,
+      flexDirection: "row",
+      gap: theme.space.small,
+      height: 48,
+      maxWidth: 340,
+      paddingHorizontal: theme.space.medium
+    },
+    deviceRail: {
+      alignItems: "center",
+      paddingBottom: theme.space.medium,
+      paddingTop: theme.space.large
+    },
+    deviceScroller: {
+      flexGrow: 0,
+      maxHeight: 88
+    },
     drawer: {
       backgroundColor: theme.color.background,
       bottom: 0,
       left: 0,
-      maxWidth: 420,
       paddingHorizontal: theme.space.medium,
-      paddingTop: theme.space.large,
+      paddingTop: theme.space.medium,
       position: "absolute",
+      right: 0,
       top: 0,
-      width: "92%"
+      width: "100%"
     },
     empty: {
       color: theme.color.muted,
@@ -597,12 +605,21 @@ function createStyles(theme: NativeTheme) {
       flexDirection: "row",
       justifyContent: "space-between"
     },
-    headerActions: {
+    headerButton: {
       alignItems: "center",
-      flexDirection: "row",
-      gap: theme.space.small
+      backgroundColor: theme.color.panelRaised,
+      borderColor: theme.color.border,
+      borderRadius: 28,
+      borderWidth: StyleSheet.hairlineWidth,
+      height: 56,
+      justifyContent: "center",
+      width: 56
     },
-    heading: { flex: 1 },
+    headerButtonSlot: {
+      flexShrink: 0,
+      height: 56,
+      width: 56
+    },
     feedback: {
       alignItems: "center",
       gap: theme.space.small,
@@ -629,7 +646,7 @@ function createStyles(theme: NativeTheme) {
     },
     list: {
       gap: theme.space.large,
-      paddingBottom: theme.space.large,
+      paddingBottom: theme.space.medium,
       paddingTop: theme.space.medium
     },
     loadMoreButton: {
@@ -654,12 +671,37 @@ function createStyles(theme: NativeTheme) {
       fontWeight: "900",
       letterSpacing: 1
     },
-    newSessionButton: {
-      marginTop: theme.space.medium
+    moreIconLarge: {
+      color: theme.color.text,
+      fontSize: 30,
+      fontWeight: "800",
+      lineHeight: 31
     },
-    newSessionIcon: { color: theme.color.accent, fontSize: 22 },
     pressed: { opacity: 0.7 },
-    refresh: { color: theme.color.accent, fontSize: 24, lineHeight: 28 },
+    groupTitle: {
+      color: theme.color.text,
+      fontSize: 18,
+      fontWeight: "700",
+      marginBottom: theme.space.medium
+    },
+    projectName: {
+      color: theme.color.text,
+      flexShrink: 1,
+      fontSize: 18,
+      fontWeight: "500",
+      minWidth: 0
+    },
+    projectRow: {
+      alignItems: "center",
+      alignSelf: "stretch",
+      flexDirection: "row",
+      gap: theme.space.medium,
+      minHeight: 48,
+      width: "100%"
+    },
+    projectSection: {
+      paddingBottom: theme.space.medium
+    },
     renameInput: {
       backgroundColor: theme.color.panel,
       borderColor: theme.color.border,
@@ -677,6 +719,32 @@ function createStyles(theme: NativeTheme) {
       position: "absolute",
       right: 0,
       top: 0
+    },
+    searchIcon: {
+      color: theme.color.textSecondary,
+      fontSize: 30,
+      lineHeight: 32
+    },
+    searchInput: {
+      color: theme.color.text,
+      flex: 1,
+      fontSize: 16,
+      minWidth: 0,
+      minHeight: 54,
+      paddingVertical: 12
+    },
+    searchPill: {
+      alignItems: "center",
+      backgroundColor: theme.color.panelRaised,
+      borderColor: theme.color.border,
+      borderRadius: 28,
+      borderWidth: StyleSheet.hairlineWidth,
+      flex: 1,
+      flexDirection: "row",
+      gap: theme.space.small,
+      minWidth: 0,
+      minHeight: 56,
+      paddingHorizontal: theme.space.medium
     },
     section: { gap: 2 },
     sectionCount: {
@@ -697,49 +765,26 @@ function createStyles(theme: NativeTheme) {
       paddingHorizontal: theme.space.small
     },
     sectionTitle: {
-      color: theme.color.textSecondary,
+      color: theme.color.text,
       flex: 1,
-      fontSize: 12,
+      fontSize: 17,
       fontWeight: "700",
       letterSpacing: 0.2
     },
-    sessionMeta: {
+    sessionScroller: { flex: 1 },
+    sessionTime: { color: theme.color.muted, fontSize: 12 },
+    sessionTrailing: {
       alignItems: "center",
+      flexShrink: 0,
       flexDirection: "row",
-      gap: theme.space.small,
-      marginTop: 4
+      gap: 2
     },
-    sessionTime: { color: theme.color.muted, fontSize: 10 },
-    sessionStatus: { color: theme.color.textSecondary, fontSize: 10 },
-    statusDot: {
-      borderColor: theme.color.background,
-      borderRadius: 4,
-      borderWidth: 2,
-      bottom: -2,
-      height: 9,
-      position: "absolute",
-      right: -2,
-      width: 9
-    },
-    title: { color: theme.color.text, fontSize: 24, fontWeight: "700" },
-    workspace: {
-      color: theme.color.muted,
-      fontSize: 12,
-      fontWeight: "600",
-      marginBottom: 3
-    },
-    workspaceBackButton: {
-      alignItems: "flex-start",
-      borderTopColor: theme.color.border,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      minHeight: 54,
-      paddingHorizontal: theme.space.small,
-      paddingVertical: theme.space.medium
-    },
-    workspaceBackLabel: {
-      color: theme.color.textSecondary,
-      fontSize: 14,
-      fontWeight: "600"
+    title: {
+      color: theme.color.text,
+      flex: 1,
+      fontSize: 24,
+      fontWeight: "700",
+      textAlign: "center"
     }
   });
 }

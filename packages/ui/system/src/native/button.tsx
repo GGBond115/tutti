@@ -75,25 +75,27 @@ export function NativeButton({
       ]}
       testID={testID}
     >
-      {loading ? (
-        <ActivityIndicator color={foreground} size="small" />
-      ) : (
-        <>
-          {leading ? (
-            <View style={[styles.leading, !hasLabel && styles.leadingOnly]}>
-              {leading}
-            </View>
-          ) : null}
-          {hasLabel ? (
-            <Text
-              numberOfLines={1}
-              style={[styles.label, { color: foreground }]}
-            >
-              {label}
-            </Text>
-          ) : null}
-        </>
-      )}
+      <View style={styles.content}>
+        {loading ? (
+          <ActivityIndicator color={foreground} size="small" />
+        ) : (
+          <>
+            {leading ? (
+              <View style={[styles.leading, !hasLabel && styles.leadingOnly]}>
+                {leading}
+              </View>
+            ) : null}
+            {hasLabel ? (
+              <Text
+                numberOfLines={1}
+                style={[styles.label, { color: foreground }]}
+              >
+                {label}
+              </Text>
+            ) : null}
+          </>
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -127,12 +129,16 @@ function createStyles(theme: NativeTheme) {
     button: {
       alignItems: "center",
       borderRadius: theme.radius.medium,
-      flexDirection: "row",
       justifyContent: "center"
     },
     compact: {
       minHeight: theme.control.compact,
       paddingHorizontal: theme.space.small
+    },
+    content: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "center"
     },
     disabled: { opacity: 0.45 },
     icon: {
