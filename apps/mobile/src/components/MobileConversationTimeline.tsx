@@ -99,6 +99,12 @@ function MobileMessageRow({
         user ? styles.userMessage : styles.assistantMessage
       ]}
     >
+      <View
+        accessible
+        accessibilityLabel={user ? t("you") : t("agent")}
+        accessibilityRole="text"
+        style={styles.speakerAccessibilityLabel}
+      />
       {row.thinking.map((thinking) => (
         <View key={thinking.id} style={styles.thinkingBlock}>
           <Text style={styles.thinkingLabel}>{t("reasoning")}</Text>
@@ -370,6 +376,11 @@ function createStyles(theme: NativeTheme) {
       width: 8
     },
     processingText: { color: theme.color.muted, fontSize: 13 },
+    speakerAccessibilityLabel: {
+      height: 1,
+      position: "absolute",
+      width: 1
+    },
     summaryTitle: {
       color: theme.color.text,
       flex: 1,

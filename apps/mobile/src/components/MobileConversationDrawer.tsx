@@ -63,6 +63,7 @@ export function MobileConversationDrawer({
   );
   const [refreshing, setRefreshing] = useState(false);
   const [searchDraft, setSearchDraft] = useState("");
+  const searchQuery = searchDraft.trim().toLocaleLowerCase();
   const actionSession = dialog
     ? model.railSections
         .flatMap((section) => section.items)
@@ -204,23 +205,30 @@ export function MobileConversationDrawer({
               ) : null}
               {model.railSections.map((section) => {
                 const collapsed = collapsedSectionIds.has(section.id);
-                const query = searchDraft.trim().toLocaleLowerCase();
-                const visibleItems = query
+                const effectiveCollapsed = collapsed && !searchQuery;
+                const visibleItems = searchQuery
                   ? section.items.filter((session) =>
                       (session.title || t("untitledSession"))
                         .toLocaleLowerCase()
-                        .includes(query)
+                        .includes(searchQuery)
                     )
                   : section.items;
-                if (query && visibleItems.length === 0) return null;
+                if (searchQuery && !visibleItems.length && !section.hasMore)
+                  return null;
                 return (
                   <View key={section.id} style={styles.section}>
                     <Pressable
                       accessibilityLabel={
-                        collapsed ? t("expandSection") : t("collapseSection")
+                        effectiveCollapsed
+                          ? t("expandSection")
+                          : t("collapseSection")
                       }
                       accessibilityRole="button"
-                      accessibilityState={{ expanded: !collapsed }}
+                      accessibilityState={{
+                        disabled: Boolean(searchQuery),
+                        expanded: !effectiveCollapsed
+                      }}
+                      disabled={Boolean(searchQuery)}
                       onPress={() => toggleSection(section.id)}
                       style={({ pressed }) => pressed && styles.pressed}
                     >
@@ -232,11 +240,11 @@ export function MobileConversationDrawer({
                           {section.totalCount}
                         </Text>
                         <Text style={styles.sectionChevron}>
-                          {collapsed ? "›" : "⌄"}
+                          {effectiveCollapsed ? "›" : "⌄"}
                         </Text>
                       </View>
                     </Pressable>
-                    {!collapsed
+                    {!effectiveCollapsed
                       ? visibleItems.map((session) => {
                           const selected =
                             session.id === model.selectedAgentSessionId;
@@ -280,7 +288,7 @@ export function MobileConversationDrawer({
                           );
                         })
                       : null}
-                    {!collapsed && section.hasMore ? (
+                    {!effectiveCollapsed && section.hasMore ? (
                       <Pressable
                         disabled={section.loadingMore}
                         onPress={() => onLoadMoreSessions(section.id)}

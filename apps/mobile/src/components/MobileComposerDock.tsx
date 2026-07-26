@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -167,55 +168,65 @@ export function MobileComposerDock({
                 ) : null}
               </>
             ) : (
-              <View style={styles.menuHeader}>
-                <NativeIconButton
-                  accessibilityLabel={t("cancel")}
-                  icon={<Text style={styles.menuBackIcon}>←</Text>}
-                  onPress={() => setMenu("tools")}
-                  style={styles.menuBackButton}
-                />
-                <Text style={styles.menuTitle}>
-                  {menu === "model" ? t("model") : t("permissions")}
-                </Text>
-              </View>
+              <>
+                <View style={styles.menuHeader}>
+                  <NativeIconButton
+                    accessibilityLabel={t("cancel")}
+                    icon={<Text style={styles.menuBackIcon}>←</Text>}
+                    onPress={() => setMenu("tools")}
+                    style={styles.menuBackButton}
+                  />
+                  <Text style={styles.menuTitle}>
+                    {menu === "model" ? t("model") : t("permissions")}
+                  </Text>
+                </View>
+                <ScrollView
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator
+                  style={styles.menuOptions}
+                >
+                  {menu === "model"
+                    ? modelOptions.map((option) => (
+                        <NativeListRow
+                          key={option.value}
+                          onPress={() => {
+                            onUpdate({ model: option.value });
+                            setMenu(null);
+                          }}
+                          selected={
+                            option.value === model.composerSettings.model
+                          }
+                          title={option.label}
+                        />
+                      ))
+                    : null}
+                  {menu === "permission"
+                    ? permissionOptions.map((option) => (
+                        <NativeListRow
+                          description={option.description}
+                          key={option.id}
+                          onPress={() => {
+                            onUpdate({ permissionModeId: option.id });
+                            setMenu(null);
+                          }}
+                          selected={
+                            option.id ===
+                            model.composerSettings.permissionModeId
+                          }
+                          title={option.label ?? option.id}
+                        />
+                      ))
+                    : null}
+                  {model.composerOptionsLoadStatus === "loading" ? (
+                    <ActivityIndicator
+                      color={theme.color.accent}
+                      size="small"
+                      style={styles.loading}
+                    />
+                  ) : null}
+                </ScrollView>
+              </>
             )}
-            {menu === "model"
-              ? modelOptions.map((option) => (
-                  <NativeListRow
-                    key={option.value}
-                    onPress={() => {
-                      onUpdate({ model: option.value });
-                      setMenu(null);
-                    }}
-                    selected={option.value === model.composerSettings.model}
-                    title={option.label}
-                  />
-                ))
-              : null}
-            {menu === "permission"
-              ? permissionOptions.map((option) => (
-                  <NativeListRow
-                    description={option.description}
-                    key={option.id}
-                    onPress={() => {
-                      onUpdate({ permissionModeId: option.id });
-                      setMenu(null);
-                    }}
-                    selected={
-                      option.id === model.composerSettings.permissionModeId
-                    }
-                    title={option.label ?? option.id}
-                  />
-                ))
-              : null}
-            {menu !== "tools" &&
-            model.composerOptionsLoadStatus === "loading" ? (
-              <ActivityIndicator
-                color={theme.color.accent}
-                size="small"
-                style={styles.loading}
-              />
-            ) : null}
           </Pressable>
         </Pressable>
       </Modal>
@@ -377,6 +388,7 @@ function createStyles(theme: NativeTheme) {
       gap: theme.space.small,
       minHeight: 50
     },
+    menuOptions: { flexShrink: 1 },
     menuTitle: {
       color: theme.color.text,
       fontSize: 17,
