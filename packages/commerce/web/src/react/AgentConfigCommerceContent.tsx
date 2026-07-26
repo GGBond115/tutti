@@ -6,17 +6,11 @@ import {
   UserLinedIcon
 } from "@tutti-os/ui-system";
 import type { CommerceMenuState } from "../index";
-import {
-  resolveCommerceMembershipActionLabel,
-  useCommerceOpenExternal
-} from "./commerceMenuPresentation";
+import { useCommerceOpenExternal } from "./commerceMenuPresentation";
 
 export interface AgentConfigCommerceLabels {
   account: string;
   membership: string;
-  upgradeMembership: string;
-  rechargeCredits: string;
-  viewCreditPlans: string;
   creditsBalance: string;
   refresh: string;
   refreshing: string;
@@ -59,11 +53,6 @@ export function AgentConfigCommerceContent({
       : state.loading
         ? labels.loading
         : labels.unavailable);
-  const membershipActionLabel = resolveCommerceMembershipActionLabel(
-    state,
-    labels
-  );
-
   return (
     <div
       className="flex min-w-0 flex-col gap-1"
@@ -123,6 +112,7 @@ export function AgentConfigCommerceContent({
         type="button"
         className={menuItemClassName}
         disabled={!state.links.planUrl.trim()}
+        aria-label={`${labels.membership} ${membershipLabel}`}
         onClick={() => openExternal(state.links.planUrl)}
       >
         <BillingIcon aria-hidden="true" size={16} />
@@ -132,9 +122,11 @@ export function AgentConfigCommerceContent({
         <span className="max-w-[72px] truncate text-[var(--text-secondary)]">
           {membershipLabel}
         </span>
-        <span className="shrink-0 text-[12px] text-[var(--accent)]">
-          {membershipActionLabel}
-        </span>
+        <LaunchIcon
+          aria-hidden="true"
+          className="text-[var(--text-secondary)]"
+          size={14}
+        />
       </button>
       <button
         type="button"

@@ -16,9 +16,6 @@ import {
 const labels: AgentConfigCommerceLabels = {
   account: "Tutti Agent account",
   membership: "Membership",
-  upgradeMembership: "Upgrade",
-  rechargeCredits: "Recharge",
-  viewCreditPlans: "View plans",
   creditsBalance: "Credits",
   refresh: "Refresh",
   refreshing: "Refreshing",
@@ -69,7 +66,7 @@ describe("AgentConfigCommerceContent", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     fireEvent.click(screen.getByRole("button", { name: "Credits 42.50" }));
-    fireEvent.click(screen.getByText("Recharge"));
+    fireEvent.click(screen.getByRole("button", { name: "Membership Pro" }));
     fireEvent.click(screen.getByText("Account center"));
 
     expect(onRefresh).toHaveBeenCalledOnce();
@@ -102,7 +99,7 @@ describe("AgentConfigCommerceContent", () => {
       />
     );
 
-    fireEvent.click(screen.getByText("Recharge"));
+    fireEvent.click(screen.getByRole("button", { name: "Membership Pro" }));
 
     await waitFor(() => expect(onActionError).toHaveBeenCalledOnce());
   });
@@ -167,6 +164,8 @@ describe("AgentConfigCommerceContent", () => {
     );
 
     expect(screen.getByText("Free")).toBeInTheDocument();
-    expect(screen.getByText("Upgrade")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Membership Free" })
+    ).toBeInTheDocument();
   });
 });
