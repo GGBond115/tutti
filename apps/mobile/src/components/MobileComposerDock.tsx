@@ -5,32 +5,50 @@ import {
   type NativeTheme,
   useNativeTheme
 } from "@tutti-os/ui-system/native";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
+  type NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  type TextInputSelectionChangeEventData,
   View
 } from "react-native";
 import { t } from "../i18n";
+import type { MobileQuickPromptLibrarySnapshot } from "../services/mobileQuickPromptLibraryService";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
 import { MobileComposerSettingsSheet } from "./MobileComposerSettingsSheet";
+import {
+  addMobileQuickPrompt,
+  filterMobileQuickPrompts,
+  previewMobileQuickPromptContent,
+  type MobileTextSelection
+} from "./mobileQuickPromptPresentation";
 
-type ComposerToolsMenu = "tools" | "model" | "permission" | null;
+type ComposerToolsMenu =
+  | "tools"
+  | "model"
+  | "permission"
+  | "quickPrompts"
+  | null;
 
 export function MobileComposerDock({
   model,
+  quickPromptLibrary,
   onDraftChange,
+  onRefreshQuickPrompts,
   onSend,
   onStop,
   onUpdate
 }: {
   model: WorkspaceActivitySnapshot;
+  quickPromptLibrary: MobileQuickPromptLibrarySnapshot;
   onDraftChange(value: string): void;
+  onRefreshQuickPrompts(): Promise<void>;
   onSend(): void;
   onStop(): void;
   onUpdate(settings: AgentActivitySessionSettings): void;
@@ -38,6 +56,9 @@ export function MobileComposerDock({
   const theme = useNativeTheme();
   const styles = createStyles(theme);
   const [menu, setMenu] = useState<ComposerToolsMenu>(null);
+  const [quickPromptQuery, setQuickPromptQuery] = useState("");
+  const inputRef = useRef<TextInput>(null);
+  const selectionRef = useRef<MobileTextSelection | null>(null);
   const hasActiveTurn = Boolean(
     model.selectedSession?.activeTurnId && !model.creating
   );
@@ -54,7 +75,12 @@ export function MobileComposerDock({
     (model.composerSettingsSupport.permission &&
       permissionOptions.length > 0) ||
     model.composerSettingsSupport.plan ||
+    quickPromptLibrary.enabled ||
     model.composerOptionsLoadStatus === "loading";
+  const filteredQuickPrompts = filterMobileQuickPrompts(
+    quickPromptLibrary.prompts,
+    quickPromptQuery
+  );
   const selectedModelLabel =
     modelOptions.find((option) => option.value === model.composerSettings.model)
       ?.label ?? t("model");
@@ -62,6 +88,40 @@ export function MobileComposerDock({
     permissionOptions.find(
       (option) => option.id === model.composerSettings.permissionModeId
     )?.label ?? t("defaultPermissions");
+  useEffect(() => {
+    if (
+      menu === "quickPrompts" &&
+      quickPromptLibrary.status !== "loading" &&
+      !quickPromptLibrary.enabled
+    ) {
+      setQuickPromptQuery("");
+      setMenu("tools");
+    }
+  }, [menu, quickPromptLibrary.enabled, quickPromptLibrary.status]);
+  const openToolsMenu = (): void => {
+    setMenu("tools");
+    void onRefreshQuickPrompts();
+  };
+  const selectQuickPrompt = (content: string): void => {
+    const added = addMobileQuickPrompt(
+      model.draft,
+      content,
+      selectionRef.current
+    );
+    onDraftChange(added.value);
+    selectionRef.current = {
+      end: added.caret,
+      start: added.caret
+    };
+    setQuickPromptQuery("");
+    setMenu(null);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setNativeProps({
+        selection: selectionRef.current
+      });
+    });
+  };
 
   return (
     <View style={styles.dock}>
@@ -69,17 +129,22 @@ export function MobileComposerDock({
       <View style={styles.inputRow}>
         <NativeIconButton
           accessibilityLabel={t("moreActions")}
-          disabled={!hasComposerTools}
           icon={<Text style={styles.plus}>＋</Text>}
-          onPress={() => setMenu((current) => (current ? null : "tools"))}
+          onPress={openToolsMenu}
           style={styles.addButton}
           variant="secondary"
         />
         <View style={styles.inputPill}>
           <TextInput
+            ref={inputRef}
             editable={!model.sending}
             multiline
             onChangeText={onDraftChange}
+            onSelectionChange={(
+              event: NativeSyntheticEvent<TextInputSelectionChangeEventData>
+            ) => {
+              selectionRef.current = event.nativeEvent.selection;
+            }}
             placeholder={t("messageHint")}
             placeholderTextColor={theme.color.muted}
             style={styles.input}
@@ -159,12 +224,38 @@ export function MobileComposerDock({
                     title={t("planMode")}
                   />
                 ) : null}
+                {quickPromptLibrary.enabled ? (
+                  <NativeListRow
+                    description={
+                      quickPromptLibrary.status === "loading"
+                        ? t("loadingQuickPrompts")
+                        : t("quickPromptsCount", {
+                            count: quickPromptLibrary.prompts.length
+                          })
+                    }
+                    onPress={() => setMenu("quickPrompts")}
+                    title={t("quickPrompts")}
+                    trailing={<Text style={styles.chevron}>›</Text>}
+                  />
+                ) : null}
                 {model.composerOptionsLoadStatus === "loading" ? (
                   <ActivityIndicator
                     color={theme.color.accent}
                     size="small"
                     style={styles.loading}
                   />
+                ) : null}
+                {quickPromptLibrary.status === "loading" &&
+                !quickPromptLibrary.enabled ? (
+                  <ActivityIndicator
+                    color={theme.color.accent}
+                    size="small"
+                    style={styles.loading}
+                  />
+                ) : null}
+                {!hasComposerTools &&
+                quickPromptLibrary.status !== "loading" ? (
+                  <Text style={styles.emptyMenu}>{t("noComposerActions")}</Text>
                 ) : null}
               </>
             ) : (
@@ -177,9 +268,25 @@ export function MobileComposerDock({
                     style={styles.menuBackButton}
                   />
                   <Text style={styles.menuTitle}>
-                    {menu === "model" ? t("model") : t("permissions")}
+                    {menu === "model"
+                      ? t("model")
+                      : menu === "permission"
+                        ? t("permissions")
+                        : t("quickPrompts")}
                   </Text>
                 </View>
+                {menu === "quickPrompts" ? (
+                  <TextInput
+                    accessibilityLabel={t("searchQuickPrompts")}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    onChangeText={setQuickPromptQuery}
+                    placeholder={t("searchQuickPrompts")}
+                    placeholderTextColor={theme.color.muted}
+                    style={styles.searchInput}
+                    value={quickPromptQuery}
+                  />
+                ) : null}
                 <ScrollView
                   nestedScrollEnabled
                   showsVerticalScrollIndicator
@@ -217,7 +324,55 @@ export function MobileComposerDock({
                         />
                       ))
                     : null}
-                  {model.composerOptionsLoadStatus === "loading" ? (
+                  {menu === "quickPrompts"
+                    ? filteredQuickPrompts.map((prompt) => (
+                        <NativeListRow
+                          description={previewMobileQuickPromptContent(
+                            prompt.content
+                          )}
+                          key={prompt.id}
+                          onPress={() => selectQuickPrompt(prompt.content)}
+                          title={prompt.title}
+                        />
+                      ))
+                    : null}
+                  {menu === "quickPrompts" &&
+                  quickPromptLibrary.status === "error" ? (
+                    <View style={styles.quickPromptStatus}>
+                      <Text style={styles.errorText}>
+                        {t("quickPromptsLoadError")}
+                      </Text>
+                      <NativeListRow
+                        onPress={() => void onRefreshQuickPrompts()}
+                        title={t("retry")}
+                      />
+                    </View>
+                  ) : null}
+                  {menu === "quickPrompts" &&
+                  quickPromptLibrary.status === "loading" ? (
+                    <ActivityIndicator
+                      color={theme.color.accent}
+                      size="small"
+                      style={styles.loading}
+                    />
+                  ) : null}
+                  {menu === "quickPrompts" &&
+                  quickPromptLibrary.status === "ready" &&
+                  quickPromptLibrary.prompts.length === 0 ? (
+                    <Text style={styles.emptyMenu}>
+                      {t("emptyQuickPrompts")}
+                    </Text>
+                  ) : null}
+                  {menu === "quickPrompts" &&
+                  quickPromptLibrary.status === "ready" &&
+                  quickPromptLibrary.prompts.length > 0 &&
+                  filteredQuickPrompts.length === 0 ? (
+                    <Text style={styles.emptyMenu}>
+                      {t("noQuickPromptResults")}
+                    </Text>
+                  ) : null}
+                  {menu !== "quickPrompts" &&
+                  model.composerOptionsLoadStatus === "loading" ? (
                     <ActivityIndicator
                       color={theme.color.accent}
                       size="small"
@@ -290,6 +445,18 @@ function createStyles(theme: NativeTheme) {
       paddingBottom: theme.space.small,
       paddingHorizontal: theme.space.medium,
       paddingTop: theme.space.small
+    },
+    emptyMenu: {
+      color: theme.color.muted,
+      paddingHorizontal: theme.space.medium,
+      paddingVertical: theme.space.large,
+      textAlign: "center"
+    },
+    errorText: {
+      color: theme.color.danger,
+      paddingHorizontal: theme.space.medium,
+      paddingTop: theme.space.small,
+      textAlign: "center"
     },
     input: {
       color: theme.color.text,
@@ -394,6 +561,20 @@ function createStyles(theme: NativeTheme) {
       fontSize: 17,
       fontWeight: "700",
       paddingRight: theme.space.medium
+    },
+    quickPromptStatus: {
+      gap: theme.space.small
+    },
+    searchInput: {
+      backgroundColor: theme.color.panel,
+      borderColor: theme.color.border,
+      borderRadius: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      color: theme.color.text,
+      fontSize: 16,
+      marginBottom: theme.space.small,
+      minHeight: 44,
+      paddingHorizontal: theme.space.medium
     }
   });
 }

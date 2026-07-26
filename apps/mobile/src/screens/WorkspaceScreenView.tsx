@@ -35,6 +35,7 @@ import { t } from "../i18n";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
 import type { WorkspaceCatalogSnapshot } from "../services/workspaceCatalogService";
 import type { WorkspaceMediaSnapshot } from "../services/workspaceMediaService";
+import type { MobileQuickPromptLibrarySnapshot } from "../services/mobileQuickPromptLibraryService";
 
 export function WorkspacePickerView({
   deviceName,
@@ -111,6 +112,7 @@ export function ConversationWorkspaceView({
   onNewSession,
   onRenameSession,
   onRefreshSessions,
+  onRefreshQuickPrompts,
   onRespond,
   onSelectSession,
   onSelectTarget,
@@ -118,6 +120,7 @@ export function ConversationWorkspaceView({
   onStop,
   onTogglePinned,
   onUpdateComposerSettings,
+  quickPromptLibrary,
   workspace
 }: {
   deviceName: string;
@@ -131,6 +134,7 @@ export function ConversationWorkspaceView({
   onNewSession(): void;
   onRenameSession(id: string, title: string): Promise<void>;
   onRefreshSessions(): Promise<void>;
+  onRefreshQuickPrompts(): Promise<void>;
   onRespond(
     interaction: AgentActivityInteraction,
     input: {
@@ -145,6 +149,7 @@ export function ConversationWorkspaceView({
   onStop(): void;
   onTogglePinned(id: string): Promise<void>;
   onUpdateComposerSettings(settings: AgentActivitySessionSettings): void;
+  quickPromptLibrary: MobileQuickPromptLibrarySnapshot;
   workspace: WorkspaceSummary;
 }) {
   const theme = useNativeTheme();
@@ -353,7 +358,9 @@ export function ConversationWorkspaceView({
       {model.selectedSession || model.creating ? (
         <MobileComposerDock
           model={model}
+          quickPromptLibrary={quickPromptLibrary}
           onDraftChange={onDraftChange}
+          onRefreshQuickPrompts={onRefreshQuickPrompts}
           onSend={onSend}
           onStop={onStop}
           onUpdate={onUpdateComposerSettings}

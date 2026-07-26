@@ -353,6 +353,17 @@ func executeRemoteRequest(ctx context.Context, handler http.Handler, request Rem
 
 func remoteRouteAllowed(method, path string) bool {
 	segments := strings.Split(strings.Trim(path, "/"), "/")
+	if len(segments) == 3 &&
+		segments[0] == "v1" &&
+		segments[1] == "preferences" &&
+		segments[2] == "desktop" {
+		return method == http.MethodGet
+	}
+	if len(segments) == 2 &&
+		segments[0] == "v1" &&
+		segments[1] == "agent-quick-prompts" {
+		return method == http.MethodGet
+	}
 	if len(segments) == 2 && segments[0] == "v1" && segments[1] == "agent-targets" {
 		return method == http.MethodGet
 	}

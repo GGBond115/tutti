@@ -4,6 +4,7 @@ import type { ComposerDraftService } from "./composerDraftService";
 import type { DeviceService } from "./deviceService";
 import type { LoginService } from "./loginService";
 import type { MobileApplicationService } from "./mobileApplicationService";
+import type { MobileQuickPromptLibraryService } from "./mobileQuickPromptLibraryService";
 import type { WorkspaceActivityService } from "./workspaceActivityService";
 import type { WorkspaceCatalogService } from "./workspaceCatalogService";
 import type { WorkspaceConversationRailService } from "./workspaceConversationRailService";
@@ -23,6 +24,10 @@ export const IAgentDirectoryService = createDecorator<AgentDirectoryService>(
 );
 export const IWorkspaceCatalogService =
   createDecorator<WorkspaceCatalogService>("mobile-workspace-catalog-service");
+export const IMobileQuickPromptLibraryService =
+  createDecorator<MobileQuickPromptLibraryService>(
+    "mobile-quick-prompt-library-service"
+  );
 export const IWorkspaceActivityService =
   createDecorator<WorkspaceActivityService>(
     "mobile-workspace-activity-service"

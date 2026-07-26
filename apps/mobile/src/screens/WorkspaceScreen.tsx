@@ -2,6 +2,7 @@ import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
 import { useServiceSnapshot } from "../bindings/useServiceSnapshot";
 import type { ConnectedDevice } from "../services/deviceService";
 import type { MobileApplicationService } from "../services/mobileApplicationService";
+import type { MobileQuickPromptLibraryService } from "../services/mobileQuickPromptLibraryService";
 import type { WorkspaceActivityService } from "../services/workspaceActivityService";
 import type { WorkspaceCatalogService } from "../services/workspaceCatalogService";
 import {
@@ -22,6 +23,7 @@ export function WorkspaceScreen({
     <ConversationBinding
       application={application}
       device={device}
+      quickPrompts={application.quickPromptLibraryService!}
       service={application.workspaceActivityService!}
     />
   ) : (
@@ -57,14 +59,17 @@ function WorkspacePickerBinding({
 function ConversationBinding({
   application,
   device,
+  quickPrompts,
   service
 }: {
   application: MobileApplicationService;
   device: ConnectedDevice;
+  quickPrompts: MobileQuickPromptLibraryService;
   service: WorkspaceActivityService;
 }) {
   const model = useServiceSnapshot(service);
   const media = useServiceSnapshot(service.media);
+  const quickPromptLibrary = useServiceSnapshot(quickPrompts);
   return (
     <ConversationWorkspaceView
       deviceName={device.name}
@@ -78,6 +83,7 @@ function ConversationBinding({
         void service.loadMoreSessions(sectionId)
       }
       onRefreshSessions={() => service.refreshSessions()}
+      onRefreshQuickPrompts={() => quickPrompts.refresh()}
       onNewSession={() => service.startCreating()}
       onRenameSession={(id, title) => service.renameSession(id, title)}
       onRespond={(interaction, input) =>
@@ -91,6 +97,7 @@ function ConversationBinding({
         service.updateComposerSettings(settings)
       }
       onTogglePinned={(id) => service.toggleSessionPinned(id)}
+      quickPromptLibrary={quickPromptLibrary}
       workspace={service.workspace}
     />
   );

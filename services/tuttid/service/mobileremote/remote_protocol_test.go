@@ -69,6 +69,9 @@ func TestRemoteProtocolRejectsRoutesOutsideAgentSurface(t *testing.T) {
 		{http.MethodGet, "/v1/workspaces/workspace-1/files/file?path=/secret"},
 		{http.MethodPost, "/v1/workspaces/workspace-1/terminals"},
 		{http.MethodGet, "/v1/account/session"},
+		{http.MethodPut, "/v1/preferences/desktop"},
+		{http.MethodPost, "/v1/agent-quick-prompts"},
+		{http.MethodGet, "/v1/agent-quick-prompts/prompt-1"},
 		{http.MethodGet, "/v1/agent-providers/codex/composer-options"},
 		{http.MethodPost, "/v1/agent-providers/codex/composer-options/extra"},
 		{http.MethodPost, "https://example.com/v1/workspaces/workspace-1/agent-sessions"},
@@ -171,6 +174,38 @@ func TestRemoteProtocolAllowsReadOnlyAgentTargetCatalog(t *testing.T) {
 	})
 	if response.Status != http.StatusNoContent {
 		t.Fatalf("unexpected response: %+v", response)
+	}
+}
+
+func TestRemoteProtocolAllowsReadOnlyQuickPromptCapability(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{
+		"/v1/preferences/desktop",
+		"/v1/agent-quick-prompts",
+	} {
+		path := path
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+			response := executeRemoteRequest(
+				context.Background(),
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method != http.MethodGet || r.URL.Path != path {
+						t.Fatalf("unexpected proxied request: %s %s", r.Method, r.URL.Path)
+					}
+					w.WriteHeader(http.StatusNoContent)
+				}),
+				RemoteRequest{
+					ProtocolEpoch: ApplicationProtocolEpoch,
+					Service:       AgentHTTPService,
+					RequestID:     "request-quick-prompts",
+					Method:        http.MethodGet,
+					Path:          path,
+				},
+			)
+			if response.Status != http.StatusNoContent {
+				t.Fatalf("unexpected response: %+v", response)
+			}
+		})
 	}
 }
 

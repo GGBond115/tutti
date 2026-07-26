@@ -36,6 +36,18 @@ show an optimistic projection, while `tuttid` remains the durable order owner.
 Hosts that omit the capability must hide the entire entry rather than expose a
 partial or disabled library.
 
+The native Mobile composer consumes the same device-global list through its
+authenticated Desktop connection rather than creating Mobile-owned prompt
+state. Its authenticated-device service reads the stored
+`agent.quickPromptLibrary` desktop feature gate and the canonical quick-prompt
+list through the generated tuttid client. When enabled, the Mobile `+` menu
+offers a searchable, read-only selector; choosing a prompt adds its text at the
+current plain-text input position without replacing the existing draft,
+restores input focus, and never sends automatically. Create, edit, delete, and
+reorder remain Desktop management actions. DeviceLink permits only exact
+`GET /v1/preferences/desktop` and `GET /v1/agent-quick-prompts` reads for this
+flow; mutation and per-prompt routes remain blocked.
+
 Use the closed-surface test when assigning ownership: if state must survive or continue progressing after every Agent GUI surface closes, it belongs to Host/store or the workspace engine. State that should disappear with the surface belongs to UI.
 
 ### 1.2 Semantics before screens
