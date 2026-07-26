@@ -3,8 +3,7 @@ import {
   CreditsIcon,
   LaunchIcon,
   RefreshIcon,
-  UserLinedIcon,
-  ViewListLinedIcon
+  UserLinedIcon
 } from "@tutti-os/ui-system";
 import type { CommerceMenuState } from "../index";
 import {
@@ -22,7 +21,6 @@ export interface AgentConfigCommerceLabels {
   refresh: string;
   refreshing: string;
   freeMembership: string;
-  creditHistory: string;
   accountCenter: string;
   loading: string;
   unavailable: string;
@@ -36,8 +34,9 @@ export interface AgentConfigCommerceContentProps {
   onRefresh(): void;
 }
 
-const menuItemClassName =
-  "nodrag flex h-7 w-full items-center gap-2 rounded-[6px] px-2 text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--transparency-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] disabled:cursor-not-allowed disabled:text-[var(--text-disabled)] disabled:hover:bg-transparent [-webkit-app-region:no-drag]";
+const menuItemBaseClassName =
+  "nodrag flex h-7 items-center gap-2 rounded-[6px] text-[13px] text-[var(--text-primary)] transition-colors hover:bg-[var(--transparency-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] disabled:cursor-not-allowed disabled:text-[var(--text-disabled)] disabled:hover:bg-transparent [-webkit-app-region:no-drag]";
+const menuItemClassName = `${menuItemBaseClassName} w-full px-2`;
 
 export function AgentConfigCommerceContent({
   accountName,
@@ -84,34 +83,42 @@ export function AgentConfigCommerceContent({
       <div className="px-2">
         <span className="block h-px bg-[var(--border-1)]" />
       </div>
-      <div
-        className="flex h-7 min-w-0 items-center gap-2 px-2 text-[13px] text-[var(--text-primary)]"
-        aria-live="polite"
-      >
-        <CreditsIcon aria-hidden="true" size={16} />
-        <span className="min-w-0 flex-1 truncate">{labels.creditsBalance}</span>
-        <span
-          className="max-w-[120px] truncate text-[var(--text-secondary)] tabular-nums"
-          data-testid="agent-config-commerce-credits"
+      <div className="flex min-w-0 items-center">
+        <button
+          type="button"
+          className={`${menuItemBaseClassName} min-w-0 flex-1 px-2`}
+          disabled={!state.links.usageUrl.trim()}
+          aria-label={`${labels.creditsBalance} ${creditsLabel}`}
+          onClick={() => openExternal(state.links.usageUrl)}
         >
-          {creditsLabel}
-        </span>
+          <CreditsIcon aria-hidden="true" size={16} />
+          <span className="min-w-0 flex-1 truncate text-left">
+            {labels.creditsBalance}
+          </span>
+          <span
+            className="max-w-[120px] truncate text-[var(--text-secondary)] tabular-nums"
+            data-testid="agent-config-commerce-credits"
+            aria-live="polite"
+          >
+            {creditsLabel}
+          </span>
+        </button>
+        <button
+          type="button"
+          className={`${menuItemBaseClassName} shrink-0 px-2`}
+          data-testid="agent-config-commerce-refresh"
+          disabled={state.loading}
+          aria-label={state.loading ? labels.refreshing : labels.refresh}
+          onClick={onRefresh}
+        >
+          <RefreshIcon
+            aria-hidden="true"
+            className={state.loading ? "motion-safe:animate-spin" : undefined}
+            size={14}
+          />
+          <span>{state.loading ? labels.refreshing : labels.refresh}</span>
+        </button>
       </div>
-      <button
-        type="button"
-        className={`${menuItemClassName} justify-end`}
-        data-testid="agent-config-commerce-refresh"
-        disabled={state.loading}
-        aria-label={state.loading ? labels.refreshing : labels.refresh}
-        onClick={onRefresh}
-      >
-        <RefreshIcon
-          aria-hidden="true"
-          className={state.loading ? "motion-safe:animate-spin" : undefined}
-          size={14}
-        />
-        <span>{state.loading ? labels.refreshing : labels.refresh}</span>
-      </button>
       <button
         type="button"
         className={menuItemClassName}
@@ -128,22 +135,6 @@ export function AgentConfigCommerceContent({
         <span className="shrink-0 text-[12px] text-[var(--accent)]">
           {membershipActionLabel}
         </span>
-      </button>
-      <button
-        type="button"
-        className={menuItemClassName}
-        disabled={!state.links.usageUrl.trim()}
-        onClick={() => openExternal(state.links.usageUrl)}
-      >
-        <ViewListLinedIcon aria-hidden="true" size={16} />
-        <span className="min-w-0 flex-1 truncate text-left">
-          {labels.creditHistory}
-        </span>
-        <LaunchIcon
-          aria-hidden="true"
-          className="text-[var(--text-secondary)]"
-          size={14}
-        />
       </button>
       <button
         type="button"

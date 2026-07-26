@@ -23,7 +23,6 @@ const labels: AgentConfigCommerceLabels = {
   refresh: "Refresh",
   refreshing: "Refreshing",
   freeMembership: "Free",
-  creditHistory: "Credit history",
   accountCenter: "Account center",
   loading: "Loading",
   unavailable: "Unavailable",
@@ -50,7 +49,7 @@ function state(overrides: Partial<CommerceMenuState> = {}): CommerceMenuState {
 }
 
 describe("AgentConfigCommerceContent", () => {
-  it("renders account, credits, membership, and Host-owned destinations", () => {
+  it("renders account, clickable credits, membership, and account center", () => {
     const menuState = state();
     const onRefresh = vi.fn();
     render(
@@ -69,18 +68,18 @@ describe("AgentConfigCommerceContent", () => {
     expect(screen.getByText("Pro")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Credits 42.50" }));
     fireEvent.click(screen.getByText("Recharge"));
-    fireEvent.click(screen.getByText("Credit history"));
     fireEvent.click(screen.getByText("Account center"));
 
     expect(onRefresh).toHaveBeenCalledOnce();
     expect(menuState.onOpenExternal).toHaveBeenNthCalledWith(
       1,
-      "https://example.test/plan"
+      "https://example.test/usage"
     );
     expect(menuState.onOpenExternal).toHaveBeenNthCalledWith(
       2,
-      "https://example.test/usage"
+      "https://example.test/plan"
     );
     expect(menuState.onOpenExternal).toHaveBeenNthCalledWith(
       3,
@@ -124,6 +123,37 @@ describe("AgentConfigCommerceContent", () => {
 
     expect(screen.getAllByText("Loading")).toHaveLength(3);
     expect(screen.getByRole("button", { name: "Refreshing" })).toBeDisabled();
+  });
+
+  it("keeps refresh available when the credits destination is missing", () => {
+    const menuState = state({
+      links: {
+        planUrl: "https://example.test/plan",
+        usageUrl: "",
+        settingsUrl: "https://example.test/settings"
+      }
+    });
+    const onRefresh = vi.fn();
+    render(
+      <AgentConfigCommerceContent
+        accountName="Mia"
+        state={menuState}
+        labels={labels}
+        onRefresh={onRefresh}
+      />
+    );
+
+    const creditsButton = screen.getByRole("button", {
+      name: "Credits 42.50"
+    });
+    expect(creditsButton).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+
+    fireEvent.click(creditsButton);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(menuState.onOpenExternal).not.toHaveBeenCalled();
+    expect(onRefresh).toHaveBeenCalledOnce();
   });
 
   it("uses the free membership fallback without inventing a paid tier", () => {
