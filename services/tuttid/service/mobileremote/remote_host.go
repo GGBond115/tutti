@@ -30,6 +30,7 @@ type remoteHostState struct {
 
 	cancel            context.CancelFunc
 	handler           http.Handler
+	liveEvents        AgentLiveEventSource
 	attempts          map[string]activeRemoteAttempt
 	registeredSession string
 	registeredDevice  RegisteredDevice
@@ -44,12 +45,14 @@ func (s *Service) StartRemoteHost(handler http.Handler) {
 	s.remoteHost.mu.Lock()
 	if s.remoteHost.cancel != nil {
 		s.remoteHost.handler = handler
+		s.remoteHost.liveEvents = s.AgentLiveEvents
 		s.remoteHost.mu.Unlock()
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.remoteHost.cancel = cancel
 	s.remoteHost.handler = handler
+	s.remoteHost.liveEvents = s.AgentLiveEvents
 	s.remoteHost.attempts = make(map[string]activeRemoteAttempt)
 	s.remoteHost.mu.Unlock()
 
@@ -192,6 +195,7 @@ func (s *Service) startRemoteAttempt(
 		pairingID: pairingID, cancel: cancel, generation: generation,
 	}
 	handler := s.remoteHost.handler
+	liveEvents := s.remoteHost.liveEvents
 	s.remoteHost.mu.Unlock()
 
 	s.remoteWG.Add(1)
@@ -204,7 +208,7 @@ func (s *Service) startRemoteAttempt(
 		if !ok {
 			return
 		}
-		s.serveRemoteAttempt(ctx, handler, cookie, identity, pairingID, attempt)
+		s.serveRemoteAttempt(ctx, handler, liveEvents, cookie, identity, pairingID, attempt)
 	}()
 }
 
@@ -272,6 +276,7 @@ func (s *Service) settledRemoteAttempt(
 func (s *Service) serveRemoteAttempt(
 	ctx context.Context,
 	handler http.Handler,
+	liveEvents AgentLiveEventSource,
 	cookie string,
 	identity mobileremotebiz.DeviceIdentity,
 	pairingID string,
@@ -338,7 +343,7 @@ func (s *Service) serveRemoteAttempt(
 		s.remoteWG.Add(1)
 		go func() {
 			defer s.remoteWG.Done()
-			_ = serveRemoteStream(ctx, stream, handler)
+			_ = serveRemoteStreamWithAgentLive(ctx, stream, handler, pairingID, liveEvents)
 		}()
 	}
 }

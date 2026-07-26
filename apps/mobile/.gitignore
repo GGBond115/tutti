@@ -1,6 +1,7 @@
 android/.gradle/
 android/app/.cxx/
 android/app/build/
+android/app/libs/
 android/build/
 android/local.properties
 .metro-health-check*

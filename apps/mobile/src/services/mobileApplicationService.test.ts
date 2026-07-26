@@ -93,7 +93,8 @@ function createHarness(storedSession: AccountSession | null): {
         headers: {},
         protocolEpoch: 1,
         status: 204
-      })
+      }),
+      subscribeAgentLive: () => ({ close() {} })
     },
     deviceSecurity: {
       getOrCreateIdentity: async () => ({

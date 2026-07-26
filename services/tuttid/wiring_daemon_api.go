@@ -238,6 +238,7 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	mobileRemoteService, err := buildMobileRemoteService(
 		agentExtensionStateDir,
 		accountService,
+		events,
 	)
 	if err != nil {
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, err

@@ -1,2 +1,2 @@
--keep class dev.tutti.devicelink.** { *; }
+-keep class dev.tutti.mobile.bindings.** { *; }
 -keep class go.** { *; }

@@ -28,6 +28,19 @@ type IdentityStore interface {
 	LoadOrCreate(context.Context) (mobileremotebiz.DeviceIdentity, error)
 }
 
+// AgentLiveEventSource feeds already-validated agent.activity.updated
+// envelopes into one workspace-scoped DeviceLink stream. The source establishes
+// its subscription before calling ready, then emits every subsequent envelope.
+// DeviceLink itself remains unaware of Agent event vocabulary.
+type AgentLiveEventSource interface {
+	StreamAgentActivity(
+		context.Context,
+		string,
+		func() error,
+		func([]byte) error,
+	) error
+}
+
 type DeviceMetadata struct {
 	ReportedName  string
 	Platform      string
@@ -46,11 +59,12 @@ type pendingChallenge struct {
 }
 
 type Service struct {
-	Account      AccountSessionSource
-	Identities   IdentityStore
-	ControlPlane ControlPlane
-	Metadata     DeviceMetadata
-	Now          func() time.Time
+	Account         AccountSessionSource
+	Identities      IdentityStore
+	ControlPlane    ControlPlane
+	AgentLiveEvents AgentLiveEventSource
+	Metadata        DeviceMetadata
+	Now             func() time.Time
 	// RemotePollInterval is test-only tuning; zero uses the production default.
 	RemotePollInterval time.Duration
 

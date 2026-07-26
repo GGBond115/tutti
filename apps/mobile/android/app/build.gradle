@@ -6,13 +6,13 @@ react {
     autolinkLibrariesWithApp()
 }
 
-def deviceLinkAar = file("${rootDir}/../../../packages/device-link/dist/tutti-device-link.aar")
+def mobileGoAar = file("${rootDir}/app/libs/tutti-mobile-go.aar")
 
-tasks.register("verifyDeviceLinkAar") {
+tasks.register("verifyMobileGoAar") {
     doLast {
-        if (!deviceLinkAar.isFile()) {
+        if (!mobileGoAar.isFile()) {
             throw new GradleException(
-                "DeviceLink AAR is missing. Run make -C packages/device-link android-aar first."
+                "Mobile Go AAR is missing. Run pnpm --filter @tutti-os/mobile android:aar first."
             )
         }
     }
@@ -45,12 +45,12 @@ android {
 }
 
 tasks.named("preBuild").configure {
-    dependsOn("verifyDeviceLinkAar")
+    dependsOn("verifyMobileGoAar")
 }
 
 dependencies {
     implementation("com.facebook.react:react-android")
     implementation("com.facebook.react:hermes-android")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
-    implementation(files(deviceLinkAar))
+    implementation(files(mobileGoAar))
 }

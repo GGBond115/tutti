@@ -36,6 +36,8 @@ jobs:
           cache-dependency-path: |
             go.work
             go.work.sum
+            packages/agent/daemon/go.mod
+            packages/agent/daemon/go.sum
             packages/device-link/go.mod
             packages/device-link/go.sum
 

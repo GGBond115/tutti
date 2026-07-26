@@ -179,6 +179,32 @@ describe("WorkspaceConversationRailService", () => {
 
     service.dispose();
   });
+
+  test("uses polling only while the live event lane is disconnected", async () => {
+    const clock = new RecordingClock();
+    const client = {
+      listWorkspaceAgentSessionSections: async () => ({
+        pinned: { hasMore: false, sessions: [], totalCount: 0 },
+        sections: [],
+        workspaceId: workspace.id
+      })
+    } as unknown as TuttidClient;
+    const service = new WorkspaceConversationRailService(
+      workspace,
+      client,
+      clock
+    );
+
+    await service.start();
+    expect(clock.activeDelays()).toEqual([2_000]);
+
+    service.setLiveConnected(true);
+    expect(clock.activeDelays()).toEqual([]);
+
+    service.setLiveConnected(false);
+    expect(clock.activeDelays()).toEqual([2_000]);
+    service.dispose();
+  });
 });
 
 function createSession(
@@ -227,5 +253,29 @@ class ManualClock implements ClockPort {
 
   schedule(): { cancel(): void } {
     return { cancel: () => undefined };
+  }
+}
+
+class RecordingClock implements ClockPort {
+  private readonly tasks: Array<{ canceled: boolean; delayMs: number }> = [];
+
+  now(): number {
+    return 1_000;
+  }
+
+  schedule(delayMs: number): { cancel(): void } {
+    const task = { canceled: false, delayMs };
+    this.tasks.push(task);
+    return {
+      cancel: () => {
+        task.canceled = true;
+      }
+    };
+  }
+
+  activeDelays(): number[] {
+    return this.tasks
+      .filter((task) => !task.canceled)
+      .map((task) => task.delayMs);
   }
 }

@@ -39,6 +39,7 @@ export interface WorkspaceConversationRailSnapshot {
 export class WorkspaceConversationRailService extends ObservableService<WorkspaceConversationRailSnapshot> {
   readonly _serviceBrand: undefined;
   private disposed = false;
+  private liveConnected = false;
   private paused = false;
   private loadPromise: Promise<void> | null = null;
   private pollTask: { cancel(): void } | null = null;
@@ -252,6 +253,14 @@ export class WorkspaceConversationRailService extends ObservableService<Workspac
     void this.refresh();
   }
 
+  setLiveConnected(connected: boolean): void {
+    if (this.liveConnected === connected || this.disposed) return;
+    this.liveConnected = connected;
+    this.pollTask?.cancel();
+    this.pollTask = null;
+    if (!connected) this.schedulePoll();
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -263,7 +272,7 @@ export class WorkspaceConversationRailService extends ObservableService<Workspac
 
   private schedulePoll(): void {
     this.pollTask?.cancel();
-    if (this.disposed || this.paused) return;
+    if (this.disposed || this.paused || this.liveConnected) return;
     this.pollTask = this.clock.schedule(SESSION_POLL_MS, () => {
       this.pollTask = null;
       void this.refresh();

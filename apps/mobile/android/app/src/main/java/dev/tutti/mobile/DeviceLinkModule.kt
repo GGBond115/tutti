@@ -4,14 +4,18 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Base64
+import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import dev.tutti.devicelink.mobile.Link
-import dev.tutti.devicelink.mobile.Mobile
+import com.facebook.react.modules.core.DeviceEventManagerModule
+import dev.tutti.mobile.bindings.liveprotocolmobile.Liveprotocolmobile
+import dev.tutti.mobile.bindings.mobile.Link
+import dev.tutti.mobile.bindings.mobile.Mobile
+import dev.tutti.mobile.bindings.mobile.Stream
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -31,8 +35,12 @@ class DeviceLinkModule(
     LifecycleEventListener {
     @Volatile
     private var link: Link? = null
+    @Volatile
+    private var agentLiveStream: Stream? = null
     private var linkGeneration = 0L
+    private var agentLiveGeneration = 0L
     private val backgroundClose = Runnable { closeCurrentLink() }
+    private val agentLiveExecutor = Executors.newSingleThreadExecutor()
     private val closeExecutor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
     private val executor =
@@ -214,6 +222,142 @@ class DeviceLinkModule(
     }
 
     @ReactMethod
+    fun startAgentLive(
+        workspaceId: String,
+        promise: Promise,
+    ) {
+        val normalizedWorkspaceId = workspaceId.trim()
+        if (normalizedWorkspaceId.isEmpty()) {
+            promise.reject(
+                "AGENT_LIVE_SUBSCRIBE_FAILED",
+                "Agent live workspace id is required",
+            )
+            return
+        }
+        val selected = linkSnapshot()
+        if (selected == null) {
+            promise.reject(
+                "AGENT_LIVE_SUBSCRIBE_FAILED",
+                "DeviceLink is not prepared",
+            )
+            return
+        }
+        val generation = beginAgentLiveOperation()
+        try {
+            agentLiveExecutor.execute {
+                var stream: Stream? = null
+                var promiseSettled = false
+                try {
+                    stream = selected.openStream(AGENT_LIVE_OPEN_TIMEOUT_MILLIS)
+                    check(promoteAgentLiveStream(stream, generation)) {
+                        "Agent live subscription was cancelled"
+                    }
+                    val subscriber = Liveprotocolmobile.newSubscriber(0, 0)
+                    val requestID = UUID.randomUUID().toString()
+                    val subscription =
+                        JSONObject()
+                            .put(
+                                "protocolRevision",
+                                Liveprotocolmobile.protocolRevision(),
+                            ).put("workspaceId", normalizedWorkspaceId)
+                            .toString()
+                            .toByteArray(StandardCharsets.UTF_8)
+                    val request =
+                        JSONObject()
+                            .put("protocolEpoch", Mobile.protocolEpoch())
+                            .put("service", "agent_live")
+                            .put("requestId", requestID)
+                            .put("method", "SUBSCRIBE")
+                            .put(
+                                "path",
+                                "/v1/workspaces/$normalizedWorkspaceId/agent-live",
+                            ).put(
+                                "body",
+                                Base64.encodeToString(
+                                    subscription,
+                                    Base64.NO_WRAP,
+                                ),
+                            ).toString()
+                            .toByteArray(StandardCharsets.UTF_8)
+                    require(request.size <= MAX_REQUEST_FRAME_BYTES) {
+                        "Agent live subscription request is too large"
+                    }
+                    writeFully(
+                        stream,
+                        ByteBuffer
+                            .allocate(Int.SIZE_BYTES + request.size)
+                            .order(ByteOrder.BIG_ENDIAN)
+                            .putInt(request.size)
+                            .put(request)
+                            .array(),
+                    )
+                    promise.resolve(null)
+                    promiseSettled = true
+                    while (isAgentLiveCurrent(stream, generation)) {
+                        val header = readFully(stream, Int.SIZE_BYTES)
+                        val frameSize =
+                            ByteBuffer.wrap(header).order(ByteOrder.BIG_ENDIAN).int
+                        require(frameSize in 1..MAX_AGENT_LIVE_FRAME_BYTES) {
+                            "Agent live frame size is invalid"
+                        }
+                        val result =
+                            JSONObject(
+                                subscriber.apply(readFully(stream, frameSize)),
+                            )
+                        logAgentLiveControl(result)
+                        if (isAgentLiveCurrent(stream, generation)) {
+                            emitAgentLive(
+                                JSONObject()
+                                    .put("workspaceId", normalizedWorkspaceId)
+                                    .put("result", result)
+                                    .toString(),
+                            )
+                        }
+                    }
+                } catch (error: Throwable) {
+                    if (!promiseSettled) {
+                        promise.reject(
+                            "AGENT_LIVE_SUBSCRIBE_FAILED",
+                            "Unable to start Agent live subscription",
+                            error,
+                        )
+                    } else if (isAgentLiveGenerationCurrent(generation)) {
+                        Log.i(DEVICE_LINK_LOG_TAG, "Agent live stream disconnected")
+                        emitAgentLive(
+                            JSONObject()
+                                .put("workspaceId", normalizedWorkspaceId)
+                                .put("status", "disconnected")
+                                .put("reason", "stream_closed")
+                                .toString(),
+                        )
+                    }
+                } finally {
+                    clearAgentLiveStream(stream, generation)
+                    runCatching { stream?.close() }
+                }
+            }
+        } catch (error: RejectedExecutionException) {
+            promise.reject(
+                "AGENT_LIVE_SUBSCRIBE_FAILED",
+                "DeviceLink is busy; try again",
+                error,
+            )
+        }
+    }
+
+    @ReactMethod
+    fun stopAgentLive(promise: Promise) {
+        closeCurrentAgentLiveStream()
+        promise.resolve(null)
+    }
+
+    @ReactMethod
+    fun addListener(eventName: String) = Unit
+
+    @ReactMethod
+    fun removeListeners(count: Double) = Unit
+
+    @ReactMethod
     fun closeLink(promise: Promise) {
         closeCurrentLink()
         promise.resolve(null)
@@ -237,6 +381,7 @@ class DeviceLinkModule(
         handler.removeCallbacks(backgroundClose)
         reactApplicationContext.removeLifecycleEventListener(this)
         closeCurrentLink()
+        agentLiveExecutor.shutdownNow()
         executor.shutdownNow()
         closeExecutor.shutdown()
         super.invalidate()
@@ -272,6 +417,7 @@ class DeviceLinkModule(
         if (generation == linkGeneration) link else null
 
     private fun closeCurrentLink() {
+        closeCurrentAgentLiveStream()
         val previous =
             synchronized(this) {
                 linkGeneration += 1
@@ -295,8 +441,105 @@ class DeviceLinkModule(
         }
     }
 
+    private fun beginAgentLiveOperation(): Long {
+        var generation: Long
+        val previous =
+            synchronized(this) {
+                agentLiveGeneration += 1
+                generation = agentLiveGeneration
+                val detached = agentLiveStream
+                agentLiveStream = null
+                detached
+            }
+        closeDetachedAgentLiveStream(previous)
+        return generation
+    }
+
+    @Synchronized
+    private fun promoteAgentLiveStream(
+        next: Stream,
+        generation: Long,
+    ): Boolean {
+        if (generation != agentLiveGeneration) {
+            return false
+        }
+        agentLiveStream = next
+        return true
+    }
+
+    @Synchronized
+    private fun isAgentLiveCurrent(
+        stream: Stream,
+        generation: Long,
+    ): Boolean =
+        generation == agentLiveGeneration && agentLiveStream === stream
+
+    @Synchronized
+    private fun isAgentLiveGenerationCurrent(generation: Long): Boolean =
+        generation == agentLiveGeneration
+
+    @Synchronized
+    private fun clearAgentLiveStream(
+        stream: Stream?,
+        generation: Long,
+    ) {
+        if (generation == agentLiveGeneration && agentLiveStream === stream) {
+            agentLiveStream = null
+        }
+    }
+
+    private fun closeCurrentAgentLiveStream() {
+        val previous =
+            synchronized(this) {
+                agentLiveGeneration += 1
+                val detached = agentLiveStream
+                agentLiveStream = null
+                detached
+            }
+        closeDetachedAgentLiveStream(previous)
+    }
+
+    private fun closeDetachedAgentLiveStream(detached: Stream?) {
+        if (detached == null) {
+            return
+        }
+        try {
+            closeExecutor.execute {
+                runCatching(detached::close)
+            }
+        } catch (_: RejectedExecutionException) {
+            runCatching(detached::close)
+        }
+    }
+
+    private fun emitAgentLive(payload: String) {
+        if (!reactApplicationContext.hasActiveReactInstance()) {
+            return
+        }
+        reactApplicationContext
+            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit(AGENT_LIVE_EVENT_NAME, payload)
+    }
+
+    private fun logAgentLiveControl(result: JSONObject) {
+        val accepted = result.optJSONArray("accepted") ?: return
+        for (index in 0 until accepted.length()) {
+            when (accepted.optJSONObject(index)?.optString("kind")) {
+                "stream_ready" ->
+                    Log.i(DEVICE_LINK_LOG_TAG, "Agent live stream ready")
+                "discontinuity" ->
+                    Log.i(
+                        DEVICE_LINK_LOG_TAG,
+                        "Agent live stream requested canonical reconciliation",
+                    )
+                "rejected" ->
+                    Log.w(DEVICE_LINK_LOG_TAG, "Agent live stream rejected")
+            }
+        }
+    }
+
     private fun writeFully(
-        stream: dev.tutti.devicelink.mobile.Stream,
+        stream: Stream,
         payload: ByteArray,
     ) {
         var offset = 0
@@ -311,7 +554,7 @@ class DeviceLinkModule(
     }
 
     private fun readFully(
-        stream: dev.tutti.devicelink.mobile.Stream,
+        stream: Stream,
         size: Int,
     ): ByteArray {
         val output = ByteArrayOutputStream(size)
@@ -360,7 +603,11 @@ class DeviceLinkModule(
     }
 
     companion object {
+        private const val AGENT_LIVE_EVENT_NAME = "TuttiDeviceLinkAgentLive"
+        private const val AGENT_LIVE_OPEN_TIMEOUT_MILLIS = 10_000L
         private const val BACKGROUND_GRACE_MILLIS = 15_000L
+        private const val DEVICE_LINK_LOG_TAG = "TuttiDeviceLink"
+        private const val MAX_AGENT_LIVE_FRAME_BYTES = 2 shl 20
         private const val MAX_READ_CHUNK = 1 shl 20
         private const val MAX_REQUEST_BODY_BYTES = 8 shl 20
         private const val MAX_RESPONSE_BODY_BYTES = 16 shl 20

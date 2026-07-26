@@ -184,7 +184,8 @@ export class MobileApplicationService extends ObservableService<MobileApplicatio
       drafts,
       rail,
       this.ports.clock,
-      authenticated.session.userId
+      authenticated.session.userId,
+      this.ports.deviceLink
     );
     const services = new ServiceCollection();
     services.set(IWorkspaceNavigationService, navigation);

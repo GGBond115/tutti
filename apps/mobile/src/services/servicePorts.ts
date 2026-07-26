@@ -1,4 +1,5 @@
 import type { TuttidClient } from "@tutti-os/client-tuttid-ts";
+import type { AgentActivityLiveEvent } from "@tutti-os/agent-activity-core";
 import type {
   AccountSession,
   DeviceIdentity,
@@ -49,6 +50,35 @@ export interface DeviceLinkPort {
     protocolEpoch: number;
     status: number;
   }>;
+  subscribeAgentLive(
+    workspaceId: string,
+    listener: (delivery: AgentLiveDelivery) => void
+  ): { close(): void };
+}
+
+export type AgentLiveDelivery =
+  | {
+      kind: "connection";
+      reason?: string;
+      status: "connected" | "disconnected";
+    }
+  | {
+      event: AgentActivityLiveEvent;
+      kind: "event";
+    }
+  | {
+      kind: "discontinuity";
+      reason: string;
+      reconcileKeys: readonly AgentLiveReconcileKey[];
+    };
+
+export interface AgentLiveReconcileKey {
+  agentSessionId?: string;
+  kind: string;
+  messageId?: string;
+  requestId?: string;
+  turnId?: string;
+  workspaceId: string;
 }
 
 export interface PairingPort {

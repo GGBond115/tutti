@@ -7,6 +7,7 @@ import type {
 import { AgentDirectoryService } from "./agentDirectoryService";
 import { ComposerDraftService } from "./composerDraftService";
 import type { ClockPort } from "./servicePorts";
+import type { AgentLiveDelivery, DeviceLinkPort } from "./servicePorts";
 import { WorkspaceActivityService } from "./workspaceActivityService";
 import { WorkspaceConversationRailService } from "./workspaceConversationRailService";
 import { WorkspaceNavigationService } from "./workspaceNavigationService";
@@ -153,6 +154,48 @@ describe("WorkspaceActivityService", () => {
     });
     expect(service.getSnapshot().draft).toBe("");
     expect(service.getSnapshot().sending).toBe(true);
+
+    service.dispose();
+  });
+
+  test("stops presenting a new-session activation as sending after attach", async () => {
+    let createCalls = 0;
+    const client = createClient({
+      composerOptions: async () => ({
+        behavior: {
+          collapseModelOptionsToLatest: false,
+          modelOptionsAuthoritative: true,
+          planModeExclusiveWithPermissionMode: false,
+          prewarmDraftSession: false,
+          refreshModelOptionsAfterSettings: false
+        },
+        effectiveSettings: {},
+        provider: "codex"
+      }),
+      create: async (_workspaceId, input) => {
+        createCalls += 1;
+        return {
+          ...createSession(),
+          agentTargetId: "target-1",
+          id: input.agentSessionId
+        };
+      },
+      listMessages: emptyMessagePage,
+      session: () => null,
+      targets: [createTarget()]
+    });
+    const service = createService(client);
+
+    await service.start();
+    await flushAsyncWork();
+    service.startCreating();
+    service.setDraft("start");
+    await service.send();
+    await flushAsyncWork();
+
+    expect(createCalls).toBe(1);
+    expect(service.getSnapshot().selectedAgentSessionId).not.toBeNull();
+    expect(service.getSnapshot().sending).toBe(false);
 
     service.dispose();
   });
@@ -313,10 +356,78 @@ describe("WorkspaceActivityService", () => {
 
     service.dispose();
   });
+
+  test("projects live message deltas and disables fallback message polling", async () => {
+    const clock = new RecordingClock();
+    let liveListener: ((delivery: AgentLiveDelivery) => void) | null = null;
+    const client = createClient({
+      listMessages: async (_workspaceId, agentSessionId) => ({
+        agentSessionId,
+        hasMore: false,
+        latestVersion: 1,
+        messages: [createMessage("message-1", 1)]
+      })
+    });
+    const deviceLink = {
+      closeLink: async () => undefined,
+      requestAgentHTTP: async () => ({
+        body: "",
+        errorCode: "",
+        headers: {},
+        protocolEpoch: 1,
+        status: 204
+      }),
+      subscribeAgentLive: (
+        _workspaceId: string,
+        listener: (delivery: AgentLiveDelivery) => void
+      ) => {
+        liveListener = listener;
+        return { close() {} };
+      }
+    } satisfies DeviceLinkPort;
+    const service = createService(client, { clock, deviceLink });
+
+    await service.start();
+    await flushAsyncWork();
+    liveListener!({ kind: "connection", status: "connected" });
+    await flushAsyncWork();
+    liveListener!({
+      event: {
+        agentSessionId: "session-1",
+        data: {
+          agentSessionId: "session-1",
+          content: { operation: "append_text", text: "!" },
+          kind: "text",
+          messageId: "message-1",
+          occurredAtUnixMs: 2,
+          role: "assistant",
+          turnId: "turn-1",
+          workspaceId: workspace.id
+        },
+        eventType: "message_delta",
+        workspaceId: workspace.id
+      },
+      kind: "event"
+    });
+
+    expect(
+      service.getSnapshot().activity.sessionMessagesById["session-1"]?.[0]
+        ?.payload.text
+    ).toBe("message-1!");
+    expect(clock.activeDelays()).not.toContain(1_000);
+
+    service.dispose();
+  });
 });
 
-function createService(client: TuttidClient): WorkspaceActivityService {
-  const clock = new ManualClock();
+function createService(
+  client: TuttidClient,
+  options: {
+    clock?: ClockPort;
+    deviceLink?: DeviceLinkPort;
+  } = {}
+): WorkspaceActivityService {
+  const clock = options.clock ?? new ManualClock();
   return new WorkspaceActivityService(
     workspace,
     client,
@@ -325,7 +436,8 @@ function createService(client: TuttidClient): WorkspaceActivityService {
     new ComposerDraftService(),
     new WorkspaceConversationRailService(workspace, client, clock),
     clock,
-    "account-user-1"
+    "account-user-1",
+    options.deviceLink
   );
 }
 
@@ -334,6 +446,10 @@ function createClient(options: {
     provider: string,
     request?: Record<string, unknown>
   ): Promise<Record<string, unknown>>;
+  create?(
+    workspaceId: string,
+    input: { agentSessionId: string }
+  ): Promise<WorkspaceAgentSession>;
   deleteBatch?(
     workspaceId: string,
     input: { sessionIds: string[] }
@@ -381,6 +497,7 @@ function createClient(options: {
   }>;
 }): TuttidClient {
   return {
+    createWorkspaceAgentSession: options.create,
     deleteWorkspaceAgentSessionsBatch: options.deleteBatch,
     getAgentProviderComposerOptions: options.composerOptions,
     listAgentTargets: async () => ({ targets: options.targets ?? [] }),
@@ -519,5 +636,32 @@ class ManualClock implements ClockPort {
 
   schedule(): { cancel(): void } {
     return { cancel: () => undefined };
+  }
+}
+
+class RecordingClock implements ClockPort {
+  private readonly tasks: Array<{
+    canceled: boolean;
+    delayMs: number;
+  }> = [];
+
+  now(): number {
+    return 1_000;
+  }
+
+  schedule(delayMs: number): { cancel(): void } {
+    const task = { canceled: false, delayMs };
+    this.tasks.push(task);
+    return {
+      cancel: () => {
+        task.canceled = true;
+      }
+    };
+  }
+
+  activeDelays(): number[] {
+    return this.tasks
+      .filter((task) => !task.canceled)
+      .map((task) => task.delayMs);
   }
 }

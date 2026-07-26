@@ -52,7 +52,9 @@ Desktop + tsh-server + relay
 - **APK**：可以直接安装到设备或模拟器的应用包，主要用于开发和测试。
 - **AAB**：Google Play 发布使用的 App Bundle，后期发布阶段才需要。
 - **Gradle**：Android 构建系统，负责 Kotlin/Java、资源、AAR 和 APK/AAB。
-- **AAR**：Android library。本项目用 gomobile 把 Go DeviceLink 编译为 AAR。
+- **AAR**：Android library。本项目用 gomobile 把 Go DeviceLink 和独立的 Agent
+  liveprotocol mobile subscriber 编译为同一个 AAR；后者仍由
+  `packages/agent/daemon/liveprotocol` 拥有，不属于 DeviceLink 语义。
 - **JNI**：Java/Kotlin 与 native 代码交互的底层机制。gomobile 帮我们生成
   JNI 和 Java binding。
 - **Metro**：React Native 的 JavaScript bundler。开发时负责把 TypeScript/
@@ -105,9 +107,11 @@ emulator -version
 
 ## 4. 当前可以运行的最小链路
 
-`apps/mobile` 已建立为 bare React Native 0.86 Android 工程，并直接消费
-DeviceLink AAR。独立 DeviceLink probe 仍用于在不经过 React Native 的情况下验证
-Go 和 Android native 边界；它会真实执行 ICE、pinned QUIC 和双向 stream。
+`apps/mobile` 已建立为 bare React Native 0.86 Android 工程。Mobile Android
+宿主生成并消费自己的组合 Go AAR，其中同时包含 transport-only DeviceLink
+绑定和 Agent-owned live Subscriber 绑定。独立 DeviceLink probe 仍使用
+DeviceLink 包自己的纯传输 AAR，在不经过 React Native 的情况下验证 Go 和
+Android native 边界；它会真实执行 ICE、pinned QUIC 和双向 stream。
 
 ```sh
 cd packages/device-link
@@ -144,6 +148,18 @@ probe 只验证 Android 内部的传输 vertical slice。正式 App 还会通过
 pairing 和 paired-device attempt 交换双方的 ephemeral fingerprint 与 ICE
 description，再使用同一个 authenticated facade 建立连接。
 
+正式 App 的组合绑定由 Mobile 宿主检查和构建：
+
+```sh
+pnpm --filter @tutti-os/mobile check:android-bindings
+pnpm --filter @tutti-os/mobile android:aar
+```
+
+输出位于忽略的
+`apps/mobile/android/app/libs/tutti-mobile-go.aar`。组合构建只是 Android
+宿主的 JNI 装配边界；它不会把 Agent 协议、Workspace DTO 或产品策略移入
+`packages/device-link`。
+
 ## 5. 正式 App 的日常开发循环
 
 典型开发循环是：
@@ -164,9 +180,9 @@ pnpm mobile:check
 pnpm mobile:test
 ```
 
-`pnpm mobile:android` 会先生成 DeviceLink AAR，再构建并安装 debug App；
-`pnpm mobile:start` 启动 Metro，`pnpm mobile:check` 运行移动端 TypeScript 和
-Jest 检查。
+`pnpm mobile:android` 会先生成 Mobile 组合 Go AAR，再构建并安装 debug App；
+`pnpm mobile:start` 启动 Metro，`pnpm mobile:check` 运行移动端 TypeScript、
+Jest 和组合 gomobile Java binding 检查。
 
 ### Native UI foundation
 
@@ -312,6 +328,13 @@ Google Play 账号。以下事项等正式分发前再处理：
   QUIC、stream 和关闭顺序；
 - `tuttid` owner host 已接入 paired-device rendezvous，并且只允许 workspace、
   Agent Target catalog 和 Agent Session HTTP surface；
+- `tuttid` owner host 已把 workspace-scoped `agent.activity.updated` 接入
+  `agent_live` DeviceLink 长流。Android 通过同一 AAR 中的 Go Subscriber 校验协议
+  revision、stream identity、epoch 和连续 sequence 后才交给 React Native；
+  Mobile 将 `message_delta` 投影到 activity-core optimistic overlay，直接应用
+  Turn/Interaction 更新，并在 discontinuity、序列断点和重连时读取 canonical 数据；
+- workspace 前台已有 live stream 时不再运行一秒消息轮询和两秒会话轮询；长流断开或
+  协议不可用时才恢复单飞轮询，并以一秒退避自动重建 live stream；
 - Android caller 已接入 create/get/update attempt、STUN 二次 gathering、真实
   DeviceLink request stream、端到端请求 deadline、prepare/connect generation
   fencing 和 Native 15 秒后台 grace period；
@@ -339,7 +362,8 @@ Google Play 账号。以下事项等正式分发前再处理：
 接下来按顺序推进：
 
 1. 用真实账号和 Android 真机跑通 QR claim/confirm、direct DeviceLink 与 Agent 操作；
-2. 增加 paired-device Relay fallback 和事件 stream，替换前台的一秒消息校准轮询；
+2. 增加 paired-device Relay fallback，并验证 direct/Relay 切换后的 live stream
+   重连与 canonical 对账；
 3. 补齐前台自动重连、撤销专用状态，以及 mention、workspace file 和媒体预览动作；
 4. Personal 闭环稳定后，再让 TSH 删除本地 transport 副本并消费共享 DeviceLink module。
 

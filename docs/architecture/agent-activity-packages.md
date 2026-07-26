@@ -878,6 +878,21 @@ gap, discontinuity, recovered connection, invalid payload, or unanchored append
 schedules authoritative reconciliation. UI consumers never retain transport
 epoch/sequence state or distinguish local from shared activity sources.
 
+For Personal paired devices, `services/tuttid/service/mobileremote` owns the
+`agent_live` application-stream adapter. It subscribes to
+`agent.activity.updated` with the requested workspace scope, projects only the
+closed live event variants into `liveprotocol.Publisher`, and converts
+canonical-only event variants into scoped discontinuities. It establishes the
+workspace subscription before publishing `stream_ready`, so events produced
+during ready-frame delivery are already buffered instead of falling through a
+subscribe gap. The Android bridge keeps one long-lived DeviceLink stream and
+delegates frame decoding and continuity checks to the Agent-owned Go mobile
+Subscriber before emitting accepted deliveries to React Native. The Mobile
+Android host co-links that Subscriber and DeviceLink into its own composite
+AAR; the transport package's AAR and Java namespace remain Agent-free. Mobile
+disables its message and Rail pollers after `stream_ready`; those pollers are
+disconnected-transport fallback only.
+
 Hosts may accept older provider/runtime reports with missing transcript
 ownership or ordering fields, but those gaps must be filled before events enter
 `agent-activity-core` or `@tutti-os/agent-gui`. Session-level notices and

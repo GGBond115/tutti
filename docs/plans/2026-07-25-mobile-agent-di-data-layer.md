@@ -93,9 +93,18 @@ React bindings or decorator syntax in service modules.
   mapped command results to the Engine. Rename uses the generated client, then
   immediately upserts the returned canonical Session and reconciles Rail
   membership.
-- Session polling is single-flight at two seconds. Selected-session message
-  polling is single-flight at one second until the DeviceLink event lane is
-  available.
+- A workspace-scoped DeviceLink `agent_live` stream is the foreground update
+  lane. Its Go Subscriber validates revision, identity, epoch, and sequence
+  continuity before Mobile applies `message_delta` through the activity-core
+  optimistic overlay or schedules canonical reconciliation.
+- Mobile keeps that lane in a dedicated service and Android executor rather
+  than mixing its retry/overlay lifecycle into workspace orchestration or
+  consuming a general DeviceLink request worker. The Mobile Android host owns
+  the composite DeviceLink plus Agent Subscriber AAR assembly.
+- Session polling remains single-flight at two seconds and selected-session
+  message polling remains single-flight at one second only while the live lane
+  is disconnected. `stream_ready` disables both pollers; disconnect restores
+  them while Mobile retries the long stream.
 - Initial messages use the Desktop-aligned newest 100 descending page and the
   server `hasMore` boundary. Incremental reads use `afterVersion`; older history
   uses `beforeVersion`.
@@ -159,7 +168,7 @@ React bindings or decorator syntax in service modules.
 - Physical-device visual and accessibility review of the Native Rail.
 - Device/workspace/session navigation preference persistence after a generic
   Mobile preference port exists.
-- DeviceLink event stream and Relay fallback.
+- Relay fallback and direct/Relay live-stream handoff.
 - Richer ambiguous-delivery diagnostics beyond the current reconcile-first,
   exact-identity Retry state.
 - Remaining rich conversation parity after Markdown/code, canonical prompt

@@ -439,11 +439,14 @@ files are touched.
 Every change under `packages/device-link/**`, including Makefiles, Java probe
 sources, and Android manifests, also selects
 `pnpm check:device-link-android`. That contract runs the Go suite, Android
-arm64 cross-compile, and Java gomobile binding generation. AAR assembly remains
-an explicit Android-SDK validation locally. The manually dispatched Android
-Internal Build workflow installs the pinned SDK/NDK versions, assembles the AAR
-and the internal mobile APK, and uploads a private validation artifact; it does
-not publish this currently provisional module.
+arm64 cross-compile, and the transport-only Java gomobile binding generation.
+`pnpm mobile:check` separately generates the Mobile-owned composite binding
+surface for DeviceLink plus the Agent live Subscriber without requiring an
+Android SDK. AAR assembly remains an explicit Android-SDK validation locally.
+The manually dispatched Android Internal Build workflow installs the pinned
+SDK/NDK versions, assembles the Mobile composite AAR and internal mobile APK,
+and uploads a private validation artifact; it does not publish the currently
+provisional DeviceLink module.
 
 Local runs resolve `golangci-lint` from `$(go env GOPATH)/bin` first and fall
 back to `PATH`. This matches the repository install command without requiring a

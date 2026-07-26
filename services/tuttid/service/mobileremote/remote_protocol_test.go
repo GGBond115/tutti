@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/tutti-os/tutti/packages/agent/daemon/liveprotocol"
 )
 
 func TestRemoteProtocolRoundTripsAllowedAgentRequest(t *testing.T) {
@@ -167,4 +170,152 @@ func TestRemoteProtocolStreamHonorsCanceledContext(t *testing.T) {
 	if err := <-requestContextErr; err == nil {
 		t.Fatal("expected canceled request context")
 	}
+}
+
+type stubAgentLiveEventSource struct {
+	payloads [][]byte
+}
+
+func (s stubAgentLiveEventSource) StreamAgentActivity(
+	ctx context.Context,
+	_ string,
+	ready func() error,
+	emit func([]byte) error,
+) error {
+	if err := ready(); err != nil {
+		return err
+	}
+	for _, payload := range s.payloads {
+		if err := emit(payload); err != nil {
+			return err
+		}
+	}
+	<-ctx.Done()
+	return nil
+}
+
+func TestRemoteProtocolStreamsValidatedAgentLiveFrames(t *testing.T) {
+	t.Parallel()
+	server, client := net.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- serveRemoteStreamWithAgentLive(
+			context.Background(),
+			server,
+			http.NotFoundHandler(),
+			"pairing-1",
+			stubAgentLiveEventSource{payloads: [][]byte{[]byte(`{
+				"workspaceId":"workspace-1",
+				"agentSessionId":"session-1",
+				"eventType":"message_delta",
+				"data":{
+					"workspaceId":"workspace-1",
+					"agentSessionId":"session-1",
+					"messageId":"message-1",
+					"turnId":"turn-1",
+					"role":"assistant",
+					"kind":"text",
+					"occurredAtUnixMs":10,
+					"content":{"operation":"set","value":"hello"}
+				}
+			}`)}},
+		)
+	}()
+	body, err := json.Marshal(agentLiveSubscribeRequest{
+		ProtocolRevision: liveprotocol.ProtocolRevision,
+		WorkspaceID:      "workspace-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRemoteFrame(client, RemoteRequest{
+		ProtocolEpoch: ApplicationProtocolEpoch,
+		Service:       AgentLiveService,
+		RequestID:     "request-live-1",
+		Method:        AgentLiveSubscribeMethod,
+		Path:          "/v1/workspaces/workspace-1/agent-live",
+		Body:          body,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ready := readAgentLiveTestFrame(t, client)
+	if len(ready.Deliveries) != 1 ||
+		ready.Deliveries[0].Kind != liveprotocol.DeliveryKindStreamReady ||
+		ready.BindingID != "pairing-1" {
+		t.Fatalf("unexpected ready frame: %+v", ready)
+	}
+	eventFrame := readAgentLiveTestFrame(t, client)
+	if len(eventFrame.Deliveries) != 1 ||
+		eventFrame.Deliveries[0].Kind != liveprotocol.DeliveryKindEvent {
+		t.Fatalf("unexpected event frame: %+v", eventFrame)
+	}
+	event, err := liveprotocol.DecodeEvent(eventFrame.Deliveries[0].Event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.EventType != liveprotocol.EventTypeMessageDelta ||
+		event.WorkspaceID != "workspace-1" ||
+		event.AgentSessionID != "session-1" {
+		t.Fatalf("unexpected live event: %+v", event)
+	}
+	_ = client.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRemoteProtocolProjectsCanonicalOnlyEventAsDiscontinuity(t *testing.T) {
+	t.Parallel()
+	publisher, err := liveprotocol.NewPublisher(liveprotocol.PublisherConfig{
+		StreamID: "stream-1", BindingID: "binding-1", Epoch: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, client := net.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- publishAgentActivityEnvelope(
+			server,
+			publisher,
+			"workspace-1",
+			[]byte(`{
+				"workspaceId":"workspace-1",
+				"agentSessionId":"session-1",
+				"eventType":"message_update",
+				"data":{"workspaceId":"workspace-1","agentSessionId":"session-1"}
+			}`),
+		)
+	}()
+	frame := readAgentLiveTestFrame(t, client)
+	if len(frame.Deliveries) != 1 ||
+		frame.Deliveries[0].Kind != liveprotocol.DeliveryKindDiscontinuity ||
+		frame.Deliveries[0].Discontinuity.Reason != "canonical_update" {
+		t.Fatalf("unexpected discontinuity frame: %+v", frame)
+	}
+	_ = client.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readAgentLiveTestFrame(t *testing.T, reader net.Conn) liveprotocol.Frame {
+	t.Helper()
+	var size [4]byte
+	if _, err := io.ReadFull(reader, size[:]); err != nil {
+		t.Fatal(err)
+	}
+	length := int(binary.BigEndian.Uint32(size[:]))
+	if length <= 0 || length > liveprotocol.DefaultFrameMaxBytes {
+		t.Fatalf("invalid agent live frame size: %d", length)
+	}
+	raw := make([]byte, length)
+	if _, err := io.ReadFull(reader, raw); err != nil {
+		t.Fatal(err)
+	}
+	frame, err := liveprotocol.DecodeFrame(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return frame
 }

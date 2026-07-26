@@ -3,7 +3,9 @@ import type { DeviceLinkPort } from "./servicePorts";
 
 const applicationProtocolEpoch = 1;
 
-export function createRemoteTuttidClient(deviceLink: DeviceLinkPort) {
+export function createRemoteTuttidClient(
+  deviceLink: Pick<DeviceLinkPort, "requestAgentHTTP">
+) {
   const remoteFetch: typeof fetch = async (input, init) => {
     const request = input instanceof Request ? input : new Request(input, init);
     const url = new URL(request.url);

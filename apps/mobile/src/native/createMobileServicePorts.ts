@@ -1,4 +1,4 @@
-import { AppState } from "react-native";
+import { AppState, DeviceEventEmitter } from "react-native";
 import { deviceLink, mobileSecurity } from "./mobileNative";
 import {
   sendEmailCode,
@@ -16,6 +16,9 @@ import {
 } from "../services/pairingClient";
 import { createRemoteTuttidClient } from "../services/remoteTuttidClient";
 import type { MobileServicePorts } from "../services/servicePorts";
+import { parseAgentLiveDeliveries } from "./agentLiveNativeBridge";
+
+const AGENT_LIVE_EVENT_NAME = "TuttiDeviceLinkAgentLive";
 
 export function createMobileServicePorts(): MobileServicePorts {
   return {
@@ -31,7 +34,43 @@ export function createMobileServicePorts(): MobileServicePorts {
         return { cancel: () => clearTimeout(timer) };
       }
     },
-    deviceLink,
+    deviceLink: {
+      closeLink: () => deviceLink.closeLink(),
+      requestAgentHTTP: (method, path, body, timeoutMillis) =>
+        deviceLink.requestAgentHTTP(method, path, body, timeoutMillis),
+      subscribeAgentLive(workspaceId, listener) {
+        let active = true;
+        const subscription = DeviceEventEmitter.addListener(
+          AGENT_LIVE_EVENT_NAME,
+          (payload: string) => {
+            if (!active) return;
+            for (const delivery of parseAgentLiveDeliveries(
+              workspaceId,
+              payload
+            )) {
+              listener(delivery);
+            }
+          }
+        );
+        void deviceLink.startAgentLive(workspaceId).catch(() => {
+          if (active) {
+            listener({
+              kind: "connection",
+              reason: "subscribe_failed",
+              status: "disconnected"
+            });
+          }
+        });
+        return {
+          close() {
+            if (!active) return;
+            active = false;
+            subscription.remove();
+            void deviceLink.stopAgentLive().catch(() => undefined);
+          }
+        };
+      }
+    },
     deviceSecurity: mobileSecurity,
     lifecycle: {
       subscribe(listener) {

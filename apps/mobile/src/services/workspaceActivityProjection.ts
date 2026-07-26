@@ -25,6 +25,56 @@ import type { WorkspaceConversationRailSnapshot } from "./workspaceConversationR
 import type { WorkspaceActivitySnapshot } from "./workspaceActivityTypes";
 import type { WorkspaceNavigationSnapshot } from "./workspaceNavigationService";
 
+export interface WorkspaceComposerTarget {
+  agentSessionId: string | null;
+  agentTargetId: string;
+  cwd: string | null;
+  provider: string;
+  settings: AgentActivitySessionSettings;
+}
+
+export function resolveWorkspaceComposerTarget({
+  activity,
+  getDraftSettings,
+  navigation,
+  targets
+}: {
+  activity: AgentActivitySnapshot;
+  getDraftSettings(agentTargetId: string): AgentActivitySessionSettings;
+  navigation: WorkspaceNavigationSnapshot;
+  targets: readonly AgentTarget[];
+}): WorkspaceComposerTarget | null {
+  if (navigation.creating) {
+    const target =
+      targets.find(
+        (candidate) => candidate.id === navigation.selectedAgentTargetId
+      ) ?? null;
+    return target
+      ? {
+          agentSessionId: null,
+          agentTargetId: target.id,
+          cwd: null,
+          provider: target.provider,
+          settings: getDraftSettings(target.id)
+        }
+      : null;
+  }
+  const session =
+    activity.sessions.find(
+      (candidate) =>
+        candidate.agentSessionId === navigation.selectedAgentSessionId
+    ) ?? null;
+  return session?.agentTargetId
+    ? {
+        agentSessionId: session.agentSessionId,
+        agentTargetId: session.agentTargetId,
+        cwd: session.cwd,
+        provider: session.provider,
+        settings: session.settings
+      }
+    : null;
+}
+
 export function projectWorkspaceActivitySnapshot({
   activity,
   ambiguousSubmission,
@@ -69,7 +119,10 @@ export function projectWorkspaceActivitySnapshot({
       (record) =>
         (navigation.creating ||
           record.agentSessionId === navigation.selectedAgentSessionId) &&
-        (record.status === "requested" || record.status === "confirmed")
+        record.status === "requested" &&
+        !sessions.some(
+          (session) => session.agentSessionId === record.agentSessionId
+        )
     );
   const pinningSessionIds = selectSessionMutations(state).flatMap((mutation) =>
     mutation.kind === "pin" && mutation.status === "inFlight"

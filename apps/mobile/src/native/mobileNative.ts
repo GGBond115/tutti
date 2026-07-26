@@ -34,6 +34,7 @@ interface MobileSecurityNative {
 }
 
 interface DeviceLinkNative {
+  addListener(eventName: string): void;
   closeLink(): Promise<void>;
   connectLink(
     peerDescriptionJSON: string,
@@ -62,7 +63,10 @@ interface DeviceLinkNative {
     protocolEpoch: number;
     status: number;
   }>;
+  removeListeners(count: number): void;
   runLoopbackProbe(timeoutMillis: number): Promise<string>;
+  startAgentLive(workspaceId: string): Promise<void>;
+  stopAgentLive(): Promise<void>;
 }
 
 function requireNativeModule<T>(name: string): T {
