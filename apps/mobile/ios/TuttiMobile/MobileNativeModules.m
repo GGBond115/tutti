@@ -27,13 +27,7 @@ RCT_EXTERN_METHOD(clearSession
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(installSessionCookie
-                  : (NSString *)accountBaseURL sessionId
-                  : (NSString *)sessionId resolver
-                  : (RCTPromiseResolveBlock)resolve rejecter
-                  : (RCTPromiseRejectBlock)reject)
-
-RCT_EXTERN_METHOD(clearSessionCookie
+RCT_EXTERN_METHOD(clearLegacySessionCookie
                   : (NSString *)accountBaseURL resolver
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
@@ -46,6 +40,10 @@ RCT_EXTERN_METHOD(startBrowserLogin
                   : (RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(scanQRCode
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(cancelQRCodeScan
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 

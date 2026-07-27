@@ -6,7 +6,6 @@ import {
   ServiceCollection,
   type IInstantiationService
 } from "@tutti-os/infra/di";
-import { accountBaseURL } from "../config";
 import type { AccountSession } from "./mobileDomain";
 import { AgentDirectoryService } from "./agentDirectoryService";
 import { ComposerDraftService } from "./composerDraftService";
@@ -26,7 +25,7 @@ import {
 } from "./mobileServiceIdentifiers";
 import { ObservableService } from "./observableService";
 import { MobileQuickPromptLibraryService } from "./mobileQuickPromptLibraryService";
-import type { MobileServicePorts } from "./servicePorts";
+import type { ApplicationVisibility, MobileServicePorts } from "./servicePorts";
 import { WorkspaceActivityService } from "./workspaceActivityService";
 import { WorkspaceCatalogService } from "./workspaceCatalogService";
 import { WorkspaceConversationRailService } from "./workspaceConversationRailService";
@@ -82,6 +81,7 @@ export class MobileApplicationService extends ObservableService<MobileApplicatio
   private workspaceCandidate: WorkspaceScope | null = null;
   private lifecycleDispose: (() => void) | null = null;
   private backgroundTask: { cancel(): void } | null = null;
+  private visibility: ApplicationVisibility = "active";
   private startPromise: Promise<void> | null = null;
   private workspaceGeneration = 0;
   private disposed = false;
@@ -117,18 +117,16 @@ export class MobileApplicationService extends ObservableService<MobileApplicatio
 
   start(): Promise<void> {
     if (this.startPromise) return this.startPromise;
-    this.lifecycleDispose = this.ports.lifecycle.subscribe((active) =>
-      this.handleLifecycle(active)
+    this.lifecycleDispose = this.ports.lifecycle.subscribe((visibility) =>
+      this.handleLifecycle(visibility)
     );
-    this.startPromise = this.ports.sessionStorage
-      .loadSession()
+    this.startPromise = this.ports.legacySessionCookie
+      .clear()
+      .catch(() => undefined)
+      .then(() => this.ports.sessionStorage.loadSession())
       .then(async (session) => {
         if (this.disposed) return;
         if (session) {
-          await this.ports.sessionStorage.installSessionCookie(
-            accountBaseURL,
-            session.sessionId
-          );
           this.enterAuthenticated(session);
         } else {
           this.enterUnauthenticated();
@@ -142,10 +140,10 @@ export class MobileApplicationService extends ObservableService<MobileApplicatio
 
   async signOut(): Promise<void> {
     await this.ports.deviceLink.closeLink().catch(() => undefined);
-    await this.ports.sessionStorage.clearSession();
-    await this.ports.sessionStorage
-      .clearSessionCookie(accountBaseURL)
-      .catch(() => undefined);
+    await Promise.all([
+      this.ports.sessionStorage.clearSession(),
+      this.ports.legacySessionCookie.clear().catch(() => undefined)
+    ]);
     this.disposeAuthenticatedScope();
     this.enterUnauthenticated();
   }
@@ -158,7 +156,9 @@ export class MobileApplicationService extends ObservableService<MobileApplicatio
     scope.device = null;
     scope.quickPrompts.reset();
     this.publish({ route: "devices", session: scope.session });
-    scope.deviceService.resume();
+    if (this.visibility === "active") {
+      scope.deviceService.resumeRemoteOperations();
+    }
   }
 
   showWorkspacePicker(): void {
@@ -295,10 +295,14 @@ export class MobileApplicationService extends ObservableService<MobileApplicatio
     const deviceService = new DeviceService(
       session,
       this.ports.pairing,
-      this.ports.deviceSecurity,
+      this.ports.qrCodeScanner,
+      this.ports.diagnostics,
       this.ports.clock,
       (device) => this.onDeviceConnected(device)
     );
+    if (this.visibility !== "active") {
+      deviceService.suspendRemoteOperations();
+    }
     const services = new ServiceCollection();
     services.set(IDeviceService, deviceService);
     services.set(IAgentDirectoryService, directory);
@@ -323,7 +327,7 @@ export class MobileApplicationService extends ObservableService<MobileApplicatio
     const scope = this.authenticatedScope;
     if (!scope) return;
     scope.device = device;
-    scope.deviceService.pause();
+    scope.deviceService.suspendRemoteOperations();
     void scope.directory.load();
     void scope.quickPrompts.refresh();
     this.publish({
@@ -339,24 +343,27 @@ export class MobileApplicationService extends ObservableService<MobileApplicatio
     }
   }
 
-  private handleLifecycle(active: boolean): void {
-    if (active) {
-      const hadPendingGrace = this.backgroundTask !== null;
+  private handleLifecycle(visibility: ApplicationVisibility): void {
+    this.visibility = visibility;
+    this.ports.diagnostics.record({
+      name: "application.visibility_changed",
+      visibility
+    });
+    if (visibility === "active") {
       this.backgroundTask?.cancel();
       this.backgroundTask = null;
-      if (hadPendingGrace) {
-        this.workspaceScope?.activity.resume();
-        this.workspaceCandidate?.activity.resume();
-        if (this.snapshot.route === "devices") {
-          this.authenticatedScope?.deviceService.resume();
-        }
+      this.workspaceScope?.activity.resume();
+      this.workspaceCandidate?.activity.resume();
+      if (this.snapshot.route === "devices") {
+        this.authenticatedScope?.deviceService.resumeRemoteOperations();
       }
       return;
     }
+    if (visibility === "inactive") return;
     if (this.backgroundTask) return;
     this.workspaceScope?.activity.pause();
     this.workspaceCandidate?.activity.pause();
-    this.authenticatedScope?.deviceService.pause();
+    this.authenticatedScope?.deviceService.suspendRemoteOperations();
     this.backgroundTask = this.ports.clock.schedule(BACKGROUND_GRACE_MS, () => {
       this.backgroundTask = null;
       void this.disconnectDevice();

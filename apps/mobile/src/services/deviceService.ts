@@ -1,9 +1,18 @@
-import type { AccountSession, DevicePairing, UserDevice } from "./mobileDomain";
-import { ObservableService } from "./observableService";
 import type {
-  ClockPort,
-  DeviceSecurityPort,
-  PairingPort
+  AccountSession,
+  DevicePairing,
+  DevicePairingPhase,
+  UserDevice
+} from "./mobileDomain";
+import { ObservableService } from "./observableService";
+import { parsePairingQR } from "./pairingProtocol";
+import {
+  PAIRING_OPERATION_SUSPENDED,
+  type ClockPort,
+  type MobileDiagnosticsPort,
+  type PairingPort,
+  type QRCodeScanOperation,
+  type QRCodeScannerPort
 } from "./servicePorts";
 
 export type DeviceErrorCode =
@@ -23,9 +32,7 @@ export interface DeviceSnapshot {
   connectingPairingId: string | null;
   devices: readonly UserDevice[];
   errorCode: DeviceErrorCode;
-  manualPairingCode: string;
-  manualPairingOpen: boolean;
-  pairingState: "idle" | "claiming" | "waiting" | "confirmed";
+  pairingState: DevicePairingPhase;
   pairings: readonly DevicePairing[];
   refreshing: boolean;
 }
@@ -34,14 +41,16 @@ export class DeviceService extends ObservableService<DeviceSnapshot> {
   readonly _serviceBrand: undefined;
   private connectionGeneration = 0;
   private pairingGeneration = 0;
+  private remoteOperationsEnabled = true;
+  private remoteOperationsRevision = 0;
+  private readonly remoteResumeWaiters = new Set<() => void>();
+  private scanOperation: QRCodeScanOperation | null = null;
   private started = false;
   private disposed = false;
   private snapshot: DeviceSnapshot = {
     connectingPairingId: null,
     devices: [],
     errorCode: null,
-    manualPairingCode: "",
-    manualPairingOpen: false,
     pairingState: "idle",
     pairings: [],
     refreshing: false
@@ -50,7 +59,8 @@ export class DeviceService extends ObservableService<DeviceSnapshot> {
   constructor(
     private readonly session: AccountSession,
     private readonly pairing: PairingPort,
-    private readonly security: DeviceSecurityPort,
+    private readonly qrCodeScanner: QRCodeScannerPort,
+    private readonly diagnostics: MobileDiagnosticsPort,
     private readonly clock: ClockPort,
     private readonly onConnected: (device: ConnectedDevice) => Promise<void>
   ) {
@@ -62,20 +72,20 @@ export class DeviceService extends ObservableService<DeviceSnapshot> {
   start(): void {
     if (this.started || this.disposed) return;
     this.started = true;
-    void this.refresh();
-  }
-
-  setManualPairingCode(value: string): void {
-    this.patch({ manualPairingCode: value });
-  }
-
-  setManualPairingOpen(open: boolean): void {
-    this.patch({ manualPairingOpen: open });
+    if (this.remoteOperationsEnabled) {
+      void this.refresh();
+    }
   }
 
   async refresh(): Promise<void> {
     if (this.disposed || this.snapshot.refreshing) return;
-    this.patch({ errorCode: null, refreshing: true });
+    this.patch({
+      errorCode:
+        this.snapshot.errorCode === "request_failed"
+          ? null
+          : this.snapshot.errorCode,
+      refreshing: true
+    });
     try {
       const [registered, pairings, devices] = await Promise.all([
         this.pairing.registerCurrentDevice(this.session.sessionId),
@@ -94,62 +104,95 @@ export class DeviceService extends ObservableService<DeviceSnapshot> {
       });
     } catch {
       if (!this.disposed) {
-        this.patch({ errorCode: "request_failed", refreshing: false });
+        this.patch({
+          errorCode: this.snapshot.errorCode ?? "request_failed",
+          refreshing: false
+        });
       }
     }
   }
 
-  async pair(manualPayload?: string): Promise<void> {
-    const generation = ++this.pairingGeneration;
-    this.patch({ errorCode: null, pairingState: "claiming" });
+  async scanAndPair(): Promise<void> {
+    if (!this.canStartPairing()) return;
+    this.transitionPairing("scanning", { errorCode: null }, "scanner");
+    const operation = this.qrCodeScanner.start();
+    this.scanOperation = operation;
+    let rawPayload: string;
     try {
-      const rawPayload =
-        manualPayload?.trim() || (await this.security.scanQRCode());
-      const payload = this.pairing.parsePairingQR(rawPayload);
-      if (!this.isPairingCurrent(generation)) return;
-      const challenge = await this.pairing.claimPairing(
-        this.session.sessionId,
-        payload
-      );
-      if (!this.isPairingCurrent(generation)) return;
-      this.patch({ pairingState: "waiting" });
+      rawPayload = await operation.result;
+    } catch (cause) {
+      if (!this.disposed && this.snapshot.pairingState === "scanning") {
+        const errorCode = this.scannerErrorCode(cause);
+        this.transitionPairing("idle", { errorCode });
+        this.diagnostics.record({
+          errorCode,
+          name: "device_pairing.failed",
+          stage: "scanner"
+        });
+      }
+      return;
+    } finally {
+      if (this.scanOperation === operation) {
+        this.scanOperation = null;
+      }
+    }
+    if (this.disposed || this.snapshot.pairingState !== "scanning") return;
+    await this.pairWithRawPayload(rawPayload, "scanner");
+  }
+
+  async pairWithCode(rawPayload: string): Promise<boolean> {
+    if (!this.canStartPairing()) return false;
+    return this.pairWithRawPayload(rawPayload.trim(), "manual");
+  }
+
+  private async pairWithRawPayload(
+    rawPayload: string,
+    source: "manual" | "scanner"
+  ): Promise<boolean> {
+    const generation = ++this.pairingGeneration;
+    if (source === "manual") {
+      this.transitionPairing("claiming", { errorCode: null }, source);
+    }
+    try {
+      const payload = parsePairingQR(rawPayload);
+      if (!(await this.waitForRemoteOperations(generation))) return false;
+      if (source === "scanner") {
+        this.transitionPairing("claiming", { errorCode: null }, source);
+      }
+      const challenge = await this.claimWhenRemoteEnabled(generation, payload);
+      if (!this.isPairingCurrent(generation)) return false;
+      if (!(await this.waitForRemoteOperations(generation))) return false;
+      if (challenge.state === "confirmed") {
+        this.transitionPairing("confirmed");
+        await this.refresh();
+        return true;
+      }
+      this.transitionPairing("waiting");
       const deadline = Date.parse(challenge.expiresAt);
       while (this.clock.now() < deadline) {
         await this.wait(1_000);
-        if (!this.isPairingCurrent(generation)) return;
-        const latest = await this.pairing.getPairingChallenge(
-          this.session.sessionId,
-          payload.challengeId
+        if (!this.isPairingCurrent(generation)) return false;
+        const latest = await this.pollPairingChallengeWhenEnabled(
+          generation,
+          challenge.challengeId
         );
         if (latest.state === "confirmed") {
-          if (!this.isPairingCurrent(generation)) return;
-          this.patch({
-            manualPairingCode: "",
-            manualPairingOpen: false,
-            pairingState: "confirmed"
-          });
+          if (!this.isPairingCurrent(generation)) return false;
+          this.transitionPairing("confirmed");
           await this.refresh();
-          return;
+          return true;
         }
       }
       throw new Error("pairing challenge expired");
-    } catch (cause) {
-      if (!this.isPairingCurrent(generation)) return;
-      const code =
-        typeof cause === "object" && cause !== null && "code" in cause
-          ? String(cause.code)
-          : "";
-      this.patch({
-        errorCode:
-          code === "SCAN_CANCELLED"
-            ? null
-            : code === "SCANNER_PERMISSION_DENIED"
-              ? "camera_permission_required"
-              : code === "SCANNER_UNAVAILABLE" || code === "SCAN_FAILED"
-                ? "scanner_unavailable"
-                : "pairing_failed",
-        pairingState: "idle"
+    } catch {
+      if (!this.isPairingCurrent(generation)) return false;
+      this.transitionPairing("idle", { errorCode: "pairing_failed" });
+      this.diagnostics.record({
+        errorCode: "pairing_failed",
+        name: "device_pairing.failed",
+        stage: "pairing"
       });
+      return false;
     }
   }
 
@@ -182,28 +225,166 @@ export class DeviceService extends ObservableService<DeviceSnapshot> {
     }
   }
 
-  pause(): void {
-    this.pairingGeneration += 1;
+  suspendRemoteOperations(): void {
+    if (this.disposed || !this.remoteOperationsEnabled) return;
+    this.remoteOperationsEnabled = false;
+    this.remoteOperationsRevision += 1;
     this.connectionGeneration += 1;
-    this.patch({
-      connectingPairingId: null,
-      pairingState:
-        this.snapshot.pairingState === "claiming" ||
-        this.snapshot.pairingState === "waiting"
-          ? "idle"
-          : this.snapshot.pairingState
-    });
+    const suspendedPairingState =
+      this.snapshot.pairingState === "claiming" ||
+      this.snapshot.pairingState === "waiting"
+        ? this.snapshot.pairingState
+        : null;
+    if (suspendedPairingState) {
+      this.diagnostics.record({
+        name: "device_pairing.remote_suspended",
+        phase: suspendedPairingState
+      });
+    }
+    this.patch({ connectingPairingId: null });
   }
 
-  resume(): void {
-    if (!this.disposed) void this.refresh();
+  resumeRemoteOperations(): void {
+    if (this.disposed) return;
+    this.remoteOperationsEnabled = true;
+    this.releaseRemoteResumeWaiters();
+    void this.refresh();
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.pause();
+    this.pairingGeneration += 1;
+    this.connectionGeneration += 1;
+    this.releaseRemoteResumeWaiters();
+    const scanOperation = this.scanOperation;
+    this.scanOperation = null;
+    void scanOperation?.cancel().catch(() => undefined);
     this.clearListeners();
+  }
+
+  private canStartPairing(): boolean {
+    return (
+      !this.disposed &&
+      (this.snapshot.pairingState === "idle" ||
+        this.snapshot.pairingState === "confirmed")
+    );
+  }
+
+  private scannerErrorCode(
+    cause: unknown
+  ): "camera_permission_required" | "scanner_unavailable" | null {
+    const code =
+      typeof cause === "object" && cause !== null && "code" in cause
+        ? String(cause.code)
+        : "";
+    if (code === "SCAN_CANCELLED") return null;
+    if (code === "SCANNER_PERMISSION_DENIED") {
+      return "camera_permission_required";
+    }
+    return "scanner_unavailable";
+  }
+
+  private transitionPairing(
+    pairingState: DeviceSnapshot["pairingState"],
+    patch: Partial<DeviceSnapshot> = {},
+    source?: "manual" | "scanner"
+  ): void {
+    this.patch({ ...patch, pairingState });
+    this.diagnostics.record({
+      name: "device_pairing.phase_changed",
+      phase: pairingState,
+      ...(source ? { source } : {})
+    });
+  }
+
+  private async claimWhenRemoteEnabled(
+    generation: number,
+    payload: ReturnType<typeof parsePairingQR>
+  ) {
+    while (this.isPairingCurrent(generation)) {
+      if (!(await this.waitForRemoteOperations(generation))) {
+        throw new Error("pairing was cancelled");
+      }
+      const remoteOperationsRevision = this.remoteOperationsRevision;
+      try {
+        return await this.pairing.claimPairing(
+          this.session.sessionId,
+          payload,
+          () =>
+            this.isPairingCurrent(generation) && this.remoteOperationsEnabled
+        );
+      } catch (cause) {
+        if (!this.isPairingCurrent(generation)) throw cause;
+        if (this.isPairingOperationSuspended(cause)) continue;
+        if (remoteOperationsRevision !== this.remoteOperationsRevision) {
+          if (!(await this.waitForRemoteOperations(generation))) throw cause;
+          const latest = await this.pollPairingChallengeWhenEnabled(
+            generation,
+            payload.challengeId
+          );
+          if (
+            latest.state === "awaiting_confirmation" ||
+            latest.state === "confirmed"
+          ) {
+            return latest;
+          }
+        }
+        throw cause;
+      }
+    }
+    throw new Error("pairing was cancelled");
+  }
+
+  private async pollPairingChallengeWhenEnabled(
+    generation: number,
+    challengeId: string
+  ) {
+    while (this.isPairingCurrent(generation)) {
+      if (!(await this.waitForRemoteOperations(generation))) {
+        throw new Error("pairing was cancelled");
+      }
+      const remoteOperationsRevision = this.remoteOperationsRevision;
+      try {
+        const challenge = await this.pairing.getPairingChallenge(
+          this.session.sessionId,
+          challengeId
+        );
+        if (!(await this.waitForRemoteOperations(generation))) {
+          throw new Error("pairing was cancelled");
+        }
+        return challenge;
+      } catch (cause) {
+        if (!this.isPairingCurrent(generation)) throw cause;
+        if (remoteOperationsRevision === this.remoteOperationsRevision) {
+          throw cause;
+        }
+      }
+    }
+    throw new Error("pairing was cancelled");
+  }
+
+  private isPairingOperationSuspended(cause: unknown): boolean {
+    return (
+      typeof cause === "object" &&
+      cause !== null &&
+      "code" in cause &&
+      cause.code === PAIRING_OPERATION_SUSPENDED
+    );
+  }
+
+  private async waitForRemoteOperations(generation: number): Promise<boolean> {
+    while (!this.remoteOperationsEnabled && this.isPairingCurrent(generation)) {
+      await new Promise<void>((resolve) => {
+        this.remoteResumeWaiters.add(resolve);
+      });
+    }
+    return this.remoteOperationsEnabled && this.isPairingCurrent(generation);
+  }
+
+  private releaseRemoteResumeWaiters(): void {
+    for (const resolve of this.remoteResumeWaiters) resolve();
+    this.remoteResumeWaiters.clear();
   }
 
   private isPairingCurrent(generation: number): boolean {

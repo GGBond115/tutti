@@ -2,8 +2,9 @@ import type { TuttidClient } from "@tutti-os/client-tuttid-ts";
 import type { AgentActivityLiveEvent } from "@tutti-os/agent-activity-core";
 import type {
   AccountSession,
-  DeviceIdentity,
+  DevicePairingChallenge,
   DevicePairing,
+  DevicePairingPhase,
   UserDevice
 } from "./mobileDomain";
 import type { PairingQRPayload } from "./pairingProtocol";
@@ -16,11 +17,6 @@ export interface AccountPort {
 
 export interface SessionStoragePort {
   clearSession(): Promise<void>;
-  clearSessionCookie(accountBaseURL: string): Promise<void>;
-  installSessionCookie(
-    accountBaseURL: string,
-    sessionId: string
-  ): Promise<void>;
   loadSession(): Promise<AccountSession | null>;
   saveSession(
     sessionId: string,
@@ -30,11 +26,20 @@ export interface SessionStoragePort {
   ): Promise<void>;
 }
 
-export interface DeviceSecurityPort {
-  getOrCreateIdentity(): Promise<DeviceIdentity>;
-  scanQRCode(): Promise<string>;
-  sign(message: string): Promise<string>;
+export interface LegacySessionCookiePort {
+  clear(): Promise<void>;
 }
+
+export interface QRCodeScanOperation {
+  cancel(): Promise<void>;
+  result: Promise<string>;
+}
+
+export interface QRCodeScannerPort {
+  start(): QRCodeScanOperation;
+}
+
+export const PAIRING_OPERATION_SUSPENDED = "PAIRING_OPERATION_SUSPENDED";
 
 export interface DeviceLinkPort {
   closeLink(): Promise<void>;
@@ -101,8 +106,9 @@ export interface AgentLiveReconcileKey {
 export interface PairingPort {
   claimPairing(
     sessionId: string,
-    payload: PairingQRPayload
-  ): Promise<{ challengeId: string; expiresAt: string; state: string }>;
+    payload: PairingQRPayload,
+    isCurrent: () => boolean
+  ): Promise<DevicePairingChallenge>;
   connectPairedDevice(
     sessionId: string,
     pairingId: string,
@@ -111,15 +117,44 @@ export interface PairingPort {
   getPairingChallenge(
     sessionId: string,
     challengeId: string
-  ): Promise<{ challengeId: string; expiresAt: string; state: string }>;
+  ): Promise<DevicePairingChallenge>;
   listDevices(sessionId: string): Promise<UserDevice[]>;
   listPairings(sessionId: string): Promise<DevicePairing[]>;
-  parsePairingQR(raw: string): PairingQRPayload;
   registerCurrentDevice(sessionId: string): Promise<{ userDeviceId: string }>;
 }
 
+export type ApplicationVisibility = "active" | "background" | "inactive";
+
 export interface LifecyclePort {
-  subscribe(listener: (active: boolean) => void): () => void;
+  subscribe(listener: (visibility: ApplicationVisibility) => void): () => void;
+}
+
+export type MobileDiagnosticEvent =
+  | {
+      name: "application.visibility_changed";
+      visibility: ApplicationVisibility;
+    }
+  | {
+      name: "device_pairing.phase_changed";
+      phase: DevicePairingPhase;
+      source?: "manual" | "scanner";
+    }
+  | {
+      errorCode:
+        | "camera_permission_required"
+        | "pairing_failed"
+        | "scanner_unavailable"
+        | null;
+      name: "device_pairing.failed";
+      stage: "pairing" | "scanner";
+    }
+  | {
+      name: "device_pairing.remote_suspended";
+      phase: "claiming" | "waiting";
+    };
+
+export interface MobileDiagnosticsPort {
+  record(event: MobileDiagnosticEvent): void;
 }
 
 export interface ClockPort {
@@ -131,9 +166,11 @@ export interface MobileServicePorts {
   account: AccountPort;
   clock: ClockPort;
   deviceLink: DeviceLinkPort;
-  deviceSecurity: DeviceSecurityPort;
+  diagnostics: MobileDiagnosticsPort;
+  legacySessionCookie: LegacySessionCookiePort;
   lifecycle: LifecyclePort;
   pairing: PairingPort;
+  qrCodeScanner: QRCodeScannerPort;
   sessionStorage: SessionStoragePort;
   createRemoteClient(): TuttidClient;
 }

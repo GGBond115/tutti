@@ -21,7 +21,7 @@ export async function readJSON<T>(response: Response): Promise<T> {
 
 export function accountCookie(sessionID: string): string {
   const value = sessionID.trim();
-  if (!value) {
+  if (!value || /[;\r\n]/.test(value)) {
     throw new Error("account session is missing");
   }
   return `session_id=${value}`;

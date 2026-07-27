@@ -10,14 +10,11 @@ export interface BrowserLoginCompletion {
 }
 
 interface MobileSecurityNative {
+  cancelQRCodeScan(): Promise<void>;
+  clearLegacySessionCookie(accountBaseURL: string): Promise<void>;
   clearSession(): Promise<void>;
-  clearSessionCookie(accountBaseURL: string): Promise<void>;
   getOrCreateIdentity(): Promise<DeviceIdentity>;
   loadSession(): Promise<AccountSession | null>;
-  installSessionCookie(
-    accountBaseURL: string,
-    sessionId: string
-  ): Promise<void>;
   saveSession(
     sessionId: string,
     userId: string,

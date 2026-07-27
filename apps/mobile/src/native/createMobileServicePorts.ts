@@ -1,4 +1,8 @@
-import { AppState, DeviceEventEmitter } from "react-native";
+import {
+  AppState,
+  DeviceEventEmitter,
+  type AppStateStatus
+} from "react-native";
 import { deviceLink, mobileSecurity } from "./mobileNative";
 import {
   sendEmailCode,
@@ -11,12 +15,12 @@ import {
   getPairingChallenge,
   listDevices,
   listPairings,
-  parsePairingQR,
   registerCurrentDevice
 } from "../services/pairingClient";
 import { createRemoteTuttidClient } from "../services/remoteTuttidClient";
 import type { MobileServicePorts } from "../services/servicePorts";
 import { parseAgentLiveDeliveries } from "./agentLiveNativeBridge";
+import { accountBaseURL } from "../config";
 
 const AGENT_LIVE_EVENT_NAME = "TuttiDeviceLinkAgentLive";
 
@@ -71,12 +75,20 @@ export function createMobileServicePorts(): MobileServicePorts {
         };
       }
     },
-    deviceSecurity: mobileSecurity,
+    diagnostics: {
+      record(event) {
+        console.info("[TuttiMobile]", JSON.stringify(event));
+      }
+    },
+    legacySessionCookie: {
+      clear: () => mobileSecurity.clearLegacySessionCookie(accountBaseURL)
+    },
     lifecycle: {
       subscribe(listener) {
-        const subscription = AppState.addEventListener("change", (state) =>
-          listener(state === "active")
-        );
+        listener(applicationVisibility(AppState.currentState));
+        const subscription = AppState.addEventListener("change", (state) => {
+          listener(applicationVisibility(state));
+        });
         return () => subscription.remove();
       }
     },
@@ -86,10 +98,27 @@ export function createMobileServicePorts(): MobileServicePorts {
       getPairingChallenge,
       listDevices,
       listPairings,
-      parsePairingQR,
       registerCurrentDevice
+    },
+    qrCodeScanner: {
+      start() {
+        return {
+          cancel: () => mobileSecurity.cancelQRCodeScan(),
+          result: mobileSecurity.scanQRCode()
+        };
+      }
     },
     sessionStorage: mobileSecurity,
     createRemoteClient: () => createRemoteTuttidClient(deviceLink)
   };
+}
+
+function applicationVisibility(
+  state: AppStateStatus
+): "active" | "background" | "inactive" {
+  return state === "active"
+    ? "active"
+    : state === "background"
+      ? "background"
+      : "inactive";
 }

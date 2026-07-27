@@ -9,6 +9,8 @@ final class MobileSecurityModule: NSObject {
   private let browserAuthBridge = MobileBrowserAuthBridge()
   private let store = MobileSecureStore()
   private var scannerActive = false
+  private var scannerCancellationResolvers: [RCTPromiseResolveBlock] = []
+  private weak var scannerViewController: QRCodeScannerViewController?
 
   @objc
   static func requiresMainQueueSetup() -> Bool {
@@ -103,48 +105,8 @@ final class MobileSecurityModule: NSObject {
     }
   }
 
-  @objc(installSessionCookie:sessionId:resolver:rejecter:)
-  func installSessionCookie(
-    _ accountBaseURL: String,
-    sessionId: String,
-    resolver resolve: RCTPromiseResolveBlock,
-    rejecter reject: RCTPromiseRejectBlock
-  ) {
-    do {
-      let url = try validatedCookieURL(accountBaseURL)
-      let normalizedSessionID = sessionId.trimmingCharacters(
-        in: .whitespacesAndNewlines
-      )
-      guard
-        !normalizedSessionID.isEmpty,
-        !normalizedSessionID.contains(";"),
-        !normalizedSessionID.contains("\r"),
-        !normalizedSessionID.contains("\n"),
-        let host = url.host,
-        let cookie = HTTPCookie(properties: [
-          .domain: host,
-          .path: "/",
-          .name: "session_id",
-          .value: normalizedSessionID,
-          .secure: "TRUE",
-          .expires: Date(timeIntervalSinceNow: 60 * 60 * 24 * 365),
-        ])
-      else {
-        throw MobileSecurityError.invalidSession
-      }
-      HTTPCookieStorage.shared.setCookie(cookie)
-      resolve(nil)
-    } catch {
-      reject(
-        "SESSION_COOKIE_WRITE_FAILED",
-        "Unable to install account session cookie",
-        error
-      )
-    }
-  }
-
-  @objc(clearSessionCookie:resolver:rejecter:)
-  func clearSessionCookie(
+  @objc(clearLegacySessionCookie:resolver:rejecter:)
+  func clearLegacySessionCookie(
     _ accountBaseURL: String,
     resolver resolve: RCTPromiseResolveBlock,
     rejecter reject: RCTPromiseRejectBlock
@@ -159,7 +121,7 @@ final class MobileSecurityModule: NSObject {
     } catch {
       reject(
         "SESSION_COOKIE_CLEAR_FAILED",
-        "Unable to clear account session cookie",
+        "Unable to clear legacy account session cookie",
         error
       )
     }
@@ -207,8 +169,21 @@ final class MobileSecurityModule: NSObject {
   ) {
     #if targetEnvironment(simulator)
       reject("SCANNER_UNAVAILABLE", "QR scanner is unavailable in Simulator", nil)
-      return
+    #else
+      DispatchQueue.main.async { [weak self] in
+        guard let self else {
+          reject("SCANNER_UNAVAILABLE", "QR scanner is unavailable", nil)
+          return
+        }
+        self.presentQRCodeScanner(resolve, rejecter: reject)
+      }
     #endif
+  }
+
+  private func presentQRCodeScanner(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
     guard !scannerActive else {
       reject("SCANNER_BUSY", "A QR scan is already active", nil)
       return
@@ -220,9 +195,11 @@ final class MobileSecurityModule: NSObject {
 
     scannerActive = true
     let scanner = QRCodeScannerViewController()
+    scannerViewController = scanner
     scanner.modalPresentationStyle = .fullScreen
-    scanner.onCompletion = { [weak self] result in
-      self?.scannerActive = false
+    scanner.onCompletion = { result in
+      self.scannerActive = false
+      self.scannerViewController = nil
       switch result {
       case .success(let value):
         resolve(value)
@@ -238,24 +215,36 @@ final class MobileSecurityModule: NSObject {
           reject("SCANNER_UNAVAILABLE", "QR scanner is unavailable", error)
         }
       }
+      let cancellationResolvers = self.scannerCancellationResolvers
+      self.scannerCancellationResolvers.removeAll()
+      for resolveCancellation in cancellationResolvers {
+        resolveCancellation(nil)
+      }
     }
     presenter.present(scanner, animated: true)
+  }
+
+  @objc(cancelQRCodeScan:rejecter:)
+  func cancelQRCodeScan(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    rejecter _: @escaping RCTPromiseRejectBlock
+  ) {
+    DispatchQueue.main.async { [weak self] in
+      guard let self, let scanner = self.scannerViewController else {
+        resolve(nil)
+        return
+      }
+      self.scannerCancellationResolvers.append(resolve)
+      scanner.cancelScanning()
+    }
   }
 
   @objc
   func invalidate() {
     browserAuthBridge.close()
-  }
-
-  private func validatedCookieURL(_ rawURL: String) throws -> URL {
-    guard
-      let url = URL(string: rawURL.trimmingCharacters(in: .whitespacesAndNewlines)),
-      url.scheme == "https",
-      url.host != nil
-    else {
-      throw MobileSecurityError.invalidAccountURL
+    DispatchQueue.main.async { [weak self] in
+      self?.scannerViewController?.cancelScanning()
     }
-    return url
   }
 
   private func topViewController() -> UIViewController? {
@@ -272,6 +261,17 @@ final class MobileSecurityModule: NSObject {
       current = presented
     }
     return current
+  }
+
+  private func validatedCookieURL(_ rawURL: String) throws -> URL {
+    guard
+      let url = URL(string: rawURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+      url.scheme == "https",
+      url.host != nil
+    else {
+      throw MobileSecurityError.invalidAccountURL
+    }
+    return url
   }
 }
 

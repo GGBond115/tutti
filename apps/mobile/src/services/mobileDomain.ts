@@ -21,6 +21,24 @@ export interface DevicePairing {
   targetUserDeviceId: string;
 }
 
+export type DevicePairingPhase =
+  | "idle"
+  | "scanning"
+  | "claiming"
+  | "waiting"
+  | "confirmed";
+
+export type DevicePairingChallengeState =
+  | "awaiting_claim"
+  | "awaiting_confirmation"
+  | "confirmed";
+
+export interface DevicePairingChallenge {
+  challengeId: string;
+  expiresAt: string;
+  state: DevicePairingChallengeState;
+}
+
 export interface UserDevice {
   displayName: string;
   platform: string;

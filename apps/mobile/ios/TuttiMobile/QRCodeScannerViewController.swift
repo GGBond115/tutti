@@ -14,6 +14,10 @@ final class QRCodeScannerViewController: UIViewController,
   var onCompletion: ((Result<String, Error>) -> Void)?
 
   private let captureSession = AVCaptureSession()
+  private let captureQueue = DispatchQueue(
+    label: "dev.tutti.mobile.qr-capture",
+    qos: .userInitiated
+  )
   private let previewLayer = AVCaptureVideoPreviewLayer()
   private var completed = false
 
@@ -68,7 +72,7 @@ final class QRCodeScannerViewController: UIViewController,
 
   override func viewWillDisappear(_ animated: Bool) {
     super.viewWillDisappear(animated)
-    captureSession.stopRunning()
+    stopCapture()
   }
 
   func metadataOutput(
@@ -118,6 +122,7 @@ final class QRCodeScannerViewController: UIViewController,
   }
 
   private func startCapture() {
+    guard !completed else { return }
     guard
       let camera = AVCaptureDevice.default(for: .video),
       let input = try? AVCaptureDeviceInput(device: camera),
@@ -136,13 +141,16 @@ final class QRCodeScannerViewController: UIViewController,
     captureSession.addOutput(output)
     output.setMetadataObjectsDelegate(self, queue: .main)
     output.metadataObjectTypes = [.qr]
-    let session = captureSession
-    DispatchQueue.global(qos: .userInitiated).async {
+    captureQueue.async { [session = captureSession] in
       session.startRunning()
     }
   }
 
   @objc private func cancel() {
+    complete(.failure(QRCodeScannerError.cancelled))
+  }
+
+  func cancelScanning() {
     complete(.failure(QRCodeScannerError.cancelled))
   }
 
@@ -152,14 +160,30 @@ final class QRCodeScannerViewController: UIViewController,
   ) {
     guard !completed else { return }
     completed = true
-    captureSession.stopRunning()
     let completion = onCompletion
-    if shouldDismiss {
-      dismiss(animated: true) {
+    stopCapture { [weak self] in
+      guard let self else {
+        completion?(result)
+        return
+      }
+      if shouldDismiss {
+        self.dismiss(animated: true) {
+          completion?(result)
+        }
+      } else {
         completion?(result)
       }
-    } else {
-      completion?(result)
+    }
+  }
+
+  private func stopCapture(completion: (() -> Void)? = nil) {
+    captureQueue.async { [session = captureSession] in
+      if session.isRunning {
+        session.stopRunning()
+      }
+      if let completion {
+        DispatchQueue.main.async(execute: completion)
+      }
     }
   }
 }

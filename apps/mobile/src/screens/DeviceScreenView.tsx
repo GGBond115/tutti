@@ -17,23 +17,29 @@ import type { DevicePairing, UserDevice } from "../services/mobileDomain";
 
 export interface DeviceScreenViewProps {
   accountName: string;
+  manualPairingCode: string;
+  manualPairingOpen: boolean;
   model: DeviceSnapshot;
   onConnect(pairing: DevicePairing, device?: UserDevice): void;
   onManualPairingCodeChange(value: string): void;
   onManualPairingOpen(): void;
-  onPair(manualPayload?: string): void;
+  onManualPairingSubmit(): void;
   onRefresh(): void;
+  onScanPairingCode(): void;
   onSignOut(): void;
 }
 
 export function DeviceScreenView({
   accountName,
+  manualPairingCode,
+  manualPairingOpen,
   model,
   onConnect,
   onManualPairingCodeChange,
   onManualPairingOpen,
-  onPair,
+  onManualPairingSubmit,
   onRefresh,
+  onScanPairingCode,
   onSignOut
 }: DeviceScreenViewProps) {
   const theme = useNativeTheme();
@@ -140,14 +146,18 @@ export function DeviceScreenView({
           }
           label={
             model.pairingState === "claiming" ||
-            model.pairingState === "waiting"
+            model.pairingState === "waiting" ||
+            model.pairingState === "scanning"
               ? t("pairing")
               : t("pairAction")
           }
-          loading={model.pairingState === "claiming"}
-          onPress={() => onPair()}
+          loading={
+            model.pairingState === "claiming" ||
+            model.pairingState === "scanning"
+          }
+          onPress={onScanPairingCode}
         />
-        {model.manualPairingOpen ? (
+        {manualPairingOpen ? (
           <>
             <TextInput
               autoCapitalize="none"
@@ -157,14 +167,16 @@ export function DeviceScreenView({
               placeholder={t("pairingCodeHint")}
               placeholderTextColor={theme.color.muted}
               style={styles.manualInput}
-              value={model.manualPairingCode}
+              value={manualPairingCode}
             />
             <PrimaryButton
               disabled={
-                !model.manualPairingCode.trim() || model.pairingState !== "idle"
+                !manualPairingCode.trim() ||
+                (model.pairingState !== "idle" &&
+                  model.pairingState !== "confirmed")
               }
               label={t("pairingCodeSubmit")}
-              onPress={() => onPair(model.manualPairingCode)}
+              onPress={onManualPairingSubmit}
               secondary
             />
           </>

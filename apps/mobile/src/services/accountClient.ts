@@ -87,7 +87,6 @@ async function accountSession(
   sessionId: string,
   fallbackEmail = ""
 ): Promise<AccountSession> {
-  await mobileSecurity.installSessionCookie(accountBaseURL, sessionId);
   const user = await accountRequest<UserInfo>(
     "user/v1/user_info",
     {},
@@ -114,6 +113,7 @@ async function accountRequest<T>(
 ): Promise<T> {
   const response = await fetch(`${accountBaseURL}/${path}`, {
     body: JSON.stringify(body),
+    credentials: "omit",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",

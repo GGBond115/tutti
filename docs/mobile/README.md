@@ -331,6 +331,20 @@ adb install -r path/to/app-debug.apk
 首次使用由 Android 请求相机权限。设备签名私钥由 Android Keystore 生成并持有，
 Native bridge 只导出原始 Ed25519 公钥和签名结果。
 
+扫码属于页面发起、Native 完成的本地系统交互，不属于远端配对操作。Android 打开
+ZXing `CaptureActivity` 时 React Native 宿主会进入 `background`，iOS 的系统过渡
+也可能先进入 `inactive`；生命周期 adapter 必须保留这两个状态，不能压缩成一个
+`active: boolean`。设备服务使用显式 `scanning` 阶段承接扫码结果，只有解析出配对码
+后才启动可被后台策略暂停的 claim/poll。应用进入后台可以中止正在进行的远端
+连接尝试并暂停配对的后续远端步骤，但不能仅因系统扫码界面覆盖宿主 Activity 就作废
+扫码结果。已经发出的 claim 必须在回到前台后按 challenge 状态对账，不能盲目重试
+可能已经成功的 POST；只读 poll 才可以在生命周期中断后安全重试。扫码 adapter 返回
+可取消 operation；设备服务销毁时必须关闭原生扫描界面，并在旧 scanner callback
+排空后才完成取消。手动输入框的展开和值属于 screen 临时状态，不进入设备服务快照。
+
+移动端为生命周期与配对阶段输出结构化 JavaScript 日志，只记录事件名、可枚举阶段、
+来源和脱敏错误码。禁止记录二维码、手动配对码、challenge id、secret 或 session。
+
 ## 7. 真机开发需要做什么
 
 Android 手机启用“开发者选项”和“USB 调试”，连接电脑后执行：
@@ -426,9 +440,10 @@ Google Play 账号。以下事项等正式分发前再处理：
   TypeScript/Jest、Metro bundle、Kotlin/Java/CMake、四 ABI APK 均已有自动验证。
 - `apps/mobile/ios` 已建立 React Native 0.86/Fabric Simulator shell，并提供与
   Android 相同的两个 Native Module contract；iOS adapter 已接入 Keychain
-  Ed25519 identity/session、共享 Cookie、localhost browser login bridge、AVFoundation
-  QR scanner、Go DeviceLink request framing、Agent live Subscriber、事件派发和
-  15 秒后台 grace。模拟器扫码明确降级到现有手动粘贴入口，不伪造相机成功。
+  Ed25519 identity/session、显式 API session cookie、localhost browser login
+  bridge、AVFoundation QR scanner、Go DeviceLink request framing、Agent live
+  Subscriber、事件派发和 15 秒后台 grace。模拟器扫码明确降级到现有手动粘贴入口，
+  不伪造相机成功。
 - iOS Metro production bundle、device + Simulator XCFramework、Pods、generic
   Simulator build 均已通过；App 已安装并启动于 iPhone 17 Pro / iOS 26.5
   Simulator，Hermes 成功执行共享 JavaScript bundle。

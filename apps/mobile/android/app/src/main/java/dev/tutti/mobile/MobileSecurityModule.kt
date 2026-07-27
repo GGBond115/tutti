@@ -13,12 +13,13 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.UiThreadUtil
 import com.facebook.react.modules.network.ForwardingCookieHandler
 import com.google.zxing.client.android.Intents
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
-import java.nio.charset.StandardCharsets
 import java.net.URI
+import java.nio.charset.StandardCharsets
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
@@ -39,6 +40,10 @@ class MobileSecurityModule(
     private val browserAuthBridge = MobileBrowserAuthBridge(reactContext)
     private val store = SecureStore(reactContext)
     private var scanPromise: Promise? = null
+    private var scanCancellationPromise: Promise? = null
+    private var scanActivity: Activity? = null
+    private var scanRequestCode: Int? = null
+    private var nextScanRequestCode = QR_SCAN_REQUEST_CODE_MIN
     private val scanContract = ScanContract()
     private val activityEventListener =
         object : BaseActivityEventListener() {
@@ -48,12 +53,27 @@ class MobileSecurityModule(
                 resultCode: Int,
                 intent: Intent?,
             ) {
-                if (requestCode != QR_SCAN_REQUEST_CODE) {
+                if (requestCode != scanRequestCode) {
+                    return
+                }
+                val promise = scanPromise
+                val cancellation = scanCancellationPromise
+                if (promise == null && cancellation == null) {
+                    return
+                }
+                scanPromise = null
+                scanCancellationPromise = null
+                scanActivity = null
+                scanRequestCode = null
+                if (cancellation != null) {
+                    promise?.reject("SCAN_CANCELLED", "QR scan cancelled")
+                    cancellation.resolve(null)
                     return
                 }
                 val result = scanContract.parseResult(resultCode, intent)
-                val promise = scanPromise ?: return
-                scanPromise = null
+                if (promise == null) {
+                    return
+                }
                 val value = result.contents?.trim().orEmpty()
                 when {
                     result.originalIntent?.getBooleanExtra(
@@ -162,39 +182,7 @@ class MobileSecurityModule(
     }
 
     @ReactMethod
-    fun installSessionCookie(
-        accountBaseURL: String,
-        sessionId: String,
-        promise: Promise,
-    ) {
-        runCatching {
-            val cookieURL = validatedCookieURL(accountBaseURL)
-            val normalizedSessionID = sessionId.trim()
-            require(
-                normalizedSessionID.isNotEmpty() &&
-                    normalizedSessionID.none {
-                        it == ';' || it == '\r' || it == '\n'
-                    },
-            ) {
-                "Account session is invalid"
-            }
-            ForwardingCookieHandler().addCookies(
-                cookieURL,
-                listOf(
-                    "session_id=$normalizedSessionID; Path=/; Secure; HttpOnly; SameSite=Lax",
-                ),
-            )
-        }.fold({ promise.resolve(null) }) {
-            promise.reject(
-                "SESSION_COOKIE_WRITE_FAILED",
-                "Unable to install account session cookie",
-                it,
-            )
-        }
-    }
-
-    @ReactMethod
-    fun clearSessionCookie(
+    fun clearLegacySessionCookie(
         accountBaseURL: String,
         promise: Promise,
     ) {
@@ -208,7 +196,7 @@ class MobileSecurityModule(
         }.fold({ promise.resolve(null) }) {
             promise.reject(
                 "SESSION_COOKIE_CLEAR_FAILED",
-                "Unable to clear account session cookie",
+                "Unable to clear legacy account session cookie",
                 it,
             )
         }
@@ -248,12 +236,21 @@ class MobileSecurityModule(
             promise.reject("SCANNER_UNAVAILABLE", "No active Android activity")
             return
         }
-        if (scanPromise != null) {
-            promise.reject("SCANNER_BUSY", "A QR scan is already active")
-            return
-        }
-        scanPromise = promise
-        activity.runOnUiThread {
+        UiThreadUtil.runOnUiThread {
+            if (scanPromise != null || scanCancellationPromise != null) {
+                promise.reject("SCANNER_BUSY", "A QR scan is already active")
+                return@runOnUiThread
+            }
+            val requestCode = nextScanRequestCode
+            nextScanRequestCode =
+                if (requestCode >= QR_SCAN_REQUEST_CODE_MAX) {
+                    QR_SCAN_REQUEST_CODE_MIN
+                } else {
+                    requestCode + 1
+                }
+            scanPromise = promise
+            scanActivity = activity
+            scanRequestCode = requestCode
             try {
                 val options =
                     ScanOptions()
@@ -265,11 +262,13 @@ class MobileSecurityModule(
                     .setOrientationLocked(false)
                 activity.startActivityForResult(
                     scanContract.createIntent(activity, options),
-                    QR_SCAN_REQUEST_CODE,
+                    requestCode,
                 )
             } catch (cause: Exception) {
                 if (scanPromise === promise) {
                     scanPromise = null
+                    scanActivity = null
+                    scanRequestCode = null
                     promise.reject(
                         "SCAN_FAILED",
                         "Unable to scan QR code",
@@ -280,19 +279,66 @@ class MobileSecurityModule(
         }
     }
 
+    @ReactMethod
+    fun cancelQRCodeScan(promise: Promise) {
+        UiThreadUtil.runOnUiThread {
+            val pending = scanPromise
+            when {
+                pending == null -> promise.resolve(null)
+                scanCancellationPromise != null ->
+                    promise.reject(
+                        "SCANNER_BUSY",
+                        "QR scanner cancellation is already in progress",
+                    )
+                else -> {
+                    val activity = scanActivity
+                    val requestCode = scanRequestCode
+                    if (
+                        activity == null ||
+                        requestCode == null ||
+                        activity.isFinishing ||
+                        (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 &&
+                            activity.isDestroyed)
+                    ) {
+                        scanPromise = null
+                        scanActivity = null
+                        scanRequestCode = null
+                        pending.reject("SCAN_CANCELLED", "QR scan cancelled")
+                        promise.resolve(null)
+                    } else {
+                        scanCancellationPromise = promise
+                        activity.finishActivity(requestCode)
+                    }
+                }
+            }
+        }
+    }
+
     override fun invalidate() {
         reactContext.removeActivityEventListener(activityEventListener)
         browserAuthBridge.close()
-        scanPromise?.reject(
-            "SCANNER_UNAVAILABLE",
-            "QR scanner was closed",
-        )
-        scanPromise = null
+        UiThreadUtil.runOnUiThread {
+            val activity = scanActivity
+            val requestCode = scanRequestCode
+            if (activity != null && requestCode != null) {
+                activity.finishActivity(requestCode)
+            }
+            scanPromise?.reject(
+                "SCANNER_UNAVAILABLE",
+                "QR scanner was closed",
+            )
+            scanPromise = null
+            scanActivity = null
+            scanRequestCode = null
+            scanCancellationPromise?.resolve(null)
+            scanCancellationPromise = null
+        }
         super.invalidate()
     }
 
     companion object {
-        private const val QR_SCAN_REQUEST_CODE = 51731
+        private const val QR_SCAN_REQUEST_CODE_MIN = 51731
+        private const val QR_SCAN_REQUEST_CODE_MAX = 60000
 
         private fun validatedCookieURL(rawURL: String): String {
             val uri = URI(rawURL.trim())

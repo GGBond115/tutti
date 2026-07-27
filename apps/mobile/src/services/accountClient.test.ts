@@ -1,7 +1,6 @@
 jest.mock("../native/mobileNative", () => ({
   __esModule: true,
   mobileSecurity: {
-    installSessionCookie: jest.fn(),
     startBrowserLogin: jest.fn()
   }
 }));
@@ -56,10 +55,6 @@ describe("signInWithGitHub", () => {
       "https://tutti.sh/auth/login",
       "tutti://auth/login"
     );
-    expect(mobileSecurity.installSessionCookie).toHaveBeenCalledWith(
-      "https://tutti.sh/api/account",
-      "session-1"
-    );
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       "https://tutti.sh/api/account/auth/v1/redeem_desktop_transfer_code",
@@ -71,6 +66,7 @@ describe("signInWithGitHub", () => {
           device_id: "mobile-device-1",
           transfer_code: "transfer-code-1"
         }),
+        credentials: "omit",
         method: "POST"
       })
     );
@@ -78,6 +74,7 @@ describe("signInWithGitHub", () => {
       2,
       "https://tutti.sh/api/account/user/v1/user_info",
       expect.objectContaining({
+        credentials: "omit",
         headers: expect.objectContaining({
           Cookie: "session_id=session-1"
         }),

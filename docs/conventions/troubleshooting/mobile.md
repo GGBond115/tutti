@@ -120,19 +120,62 @@
   the callback. In read-only account-service access logs, compare the transfer
   code redemption with the immediately following `user/v1/user_info` request. A
   successful redemption followed by `SESSION_ID_MISSING` identifies this case.
-- **Root cause:** React Native Android networking uses its native
-  `ForwardingCookieHandler` and WebView `CookieManager`. A JavaScript `Cookie`
-  request header is not sufficient to seed that cookie jar after the desktop
-  transfer-code endpoint returns a session id in JSON.
-- **Fix:** Install the redeemed `session_id` into the native cookie store before
-  requesting account information. Reinstall it from encrypted session storage
-  during App startup, and expire it on sign-out. Do not move provider credentials
-  or browser cookies through JavaScript.
+- **Root cause:** Mobile API requests already authenticate from the encrypted
+  session using one explicit `Cookie` header. Leaving React Native's native
+  cookie jar enabled creates a second credential source; a stale native
+  `session_id` can be appended to or override the explicit session after browser
+  login.
+- **Fix:** Keep the account session in encrypted native storage, set
+  `credentials: "omit"` on account and control-plane fetches, and attach exactly
+  one validated `session_id` header per API request. The system browser login
+  bridge returns only a short-lived transfer code; do not copy provider or
+  browser cookies into the App, and do not make API login depend on a WebView
+  cookie store. During migration, clear the legacy native `session_id` cookie
+  at startup and sign-out, but keep cookie installation outside the application
+  port contract.
 - **Validation:** Complete a real system-browser login, verify the App reaches the
   device page, restart the App, and verify the same account session still
   authorizes device-list requests.
 - **References:** `apps/mobile/src/services/accountClient.ts`,
   `apps/mobile/android/app/src/main/java/dev/tutti/mobile/MobileSecurityModule.kt`
+
+## Android scanner returns but pairing never starts
+
+- **Symptom:** Tapping “Scan pairing code” opens the camera and recognizes the
+  Desktop QR code, but the Mobile device page shows no result and the account
+  control-plane API never receives the pairing challenge claim.
+- **Quick checks:** Filter `ReactNativeJS` in logcat. A healthy sequence contains
+  `device_pairing.phase_changed` with `scanning`, an
+  `application.visibility_changed` event with `background`, then
+  `device_pairing.phase_changed` with `claiming` after the scanner returns.
+  These events contain no QR payload or secret. If the sequence ends after
+  `scanning`, inspect the application lifecycle boundary before the camera,
+  parser, or control-plane request.
+- **Root cause:** ZXing presents a separate Android `CaptureActivity`, so the
+  React Native host enters the background while the system scanner is visible.
+  A boolean lifecycle adapter previously treated that transition as a request
+  to cancel every device-page operation. It invalidated the pairing generation
+  while the scanner promise was pending, then silently discarded the valid
+  result before sending the claim.
+- **Fix:** Model `active`, `inactive`, and `background` explicitly. Keep QR
+  acquisition in a `scanning` phase that survives host background transitions,
+  and start the cancellable remote pairing generation only after parsing the
+  scanner result. If a claim POST is already in flight, settle it and resume
+  confirmation polling after returning active; its server-side effect cannot be
+  canceled safely. If the response is lost across that transition, read the
+  challenge state to reconcile the result instead of repeating the claim POST.
+  Keep manual form state in the screen rather than adding scanner-specific flags
+  to the global application lifecycle.
+- **Validation:** In a service regression test, start scanning, emit background
+  and active transitions, resolve the scanner once, and assert exactly one
+  claim followed by confirmation. Also cover duplicate taps, scanner
+  cancellation, permission denial, disposal while scanning, invalid manual
+  codes, and background suspension during a remote claim. Repeat the sequence
+  on a physical Android device and confirm the structured log contains no
+  pairing payload.
+- **References:** `apps/mobile/src/services/deviceService.ts`,
+  `apps/mobile/src/services/mobileApplicationService.ts`,
+  `apps/mobile/src/native/createMobileServicePorts.ts`
 
 ## Android DeviceLink opens a session and then repeatedly restarts
 

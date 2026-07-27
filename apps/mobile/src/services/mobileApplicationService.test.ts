@@ -2,7 +2,11 @@ import type { TuttidClient } from "@tutti-os/client-tuttid-ts";
 import { InstantiationService } from "@tutti-os/infra/di";
 import type { AccountSession } from "./mobileDomain";
 import { MobileApplicationService } from "./mobileApplicationService";
-import type { ClockPort, MobileServicePorts } from "./servicePorts";
+import type {
+  ApplicationVisibility,
+  ClockPort,
+  MobileServicePorts
+} from "./servicePorts";
 
 const session: AccountSession = {
   email: "person@example.com",
@@ -21,6 +25,7 @@ describe("MobileApplicationService scopes", () => {
     await service.start();
 
     expect(service.getSnapshot().route).toBe("login");
+    expect(harness.legacyCookieClearCalls).toBe(1);
     const login = service.loginService!;
     login.setEmail(session.email);
     await login.submitEmail();
@@ -34,6 +39,7 @@ describe("MobileApplicationService scopes", () => {
     await service.signOut();
     expect(service.getSnapshot().route).toBe("login");
     expect(service.deviceService).toBeNull();
+    expect(harness.legacyCookieClearCalls).toBe(2);
   });
 
   test("background grace closes DeviceLink only after the deadline", async () => {
@@ -44,7 +50,7 @@ describe("MobileApplicationService scopes", () => {
     );
     await service.start();
 
-    harness.emitLifecycle(false);
+    harness.emitLifecycle("background");
     expect(harness.closeCalls).toBe(0);
     harness.clock.advanceBy(14_999);
     expect(harness.closeCalls).toBe(0);
@@ -53,21 +59,64 @@ describe("MobileApplicationService scopes", () => {
     expect(harness.closeCalls).toBe(1);
     expect(service.getSnapshot().route).toBe("devices");
   });
+
+  test("inactive transitions do not start the background disconnect grace", async () => {
+    const harness = createHarness(session);
+    const service = new MobileApplicationService(
+      new InstantiationService(),
+      harness.ports
+    );
+    await service.start();
+
+    harness.emitLifecycle("inactive");
+    harness.clock.advanceBy(15_000);
+    await Promise.resolve();
+
+    expect(harness.closeCalls).toBe(0);
+  });
+
+  test("creates an authenticated device scope with the current background level", async () => {
+    const storedSession = deferred<AccountSession | null>();
+    const harness = createHarness(storedSession.promise);
+    const service = new MobileApplicationService(
+      new InstantiationService(),
+      harness.ports
+    );
+
+    const start = service.start();
+    harness.emitLifecycle("background");
+    storedSession.resolve(session);
+    await start;
+
+    expect(service.getSnapshot().route).toBe("devices");
+    expect(harness.registerCalls).toBe(0);
+
+    harness.emitLifecycle("active");
+    await flushPromises();
+    expect(harness.registerCalls).toBe(1);
+  });
 });
 
-function createHarness(storedSession: AccountSession | null): {
+function createHarness(
+  storedSession: AccountSession | null | Promise<AccountSession | null>
+): {
   clock: ManualClock;
   closeCalls: number;
-  emitLifecycle(active: boolean): void;
+  emitLifecycle(visibility: ApplicationVisibility): void;
   ports: MobileServicePorts;
+  legacyCookieClearCalls: number;
+  registerCalls: number;
 } {
   const clock = new ManualClock();
-  let lifecycleListener: ((active: boolean) => void) | null = null;
+  let lifecycleListener: ((visibility: ApplicationVisibility) => void) | null =
+    null;
   const harness = {
     clock,
     closeCalls: 0,
-    emitLifecycle(active: boolean) {
-      lifecycleListener?.(active);
+    legacyCookieClearCalls: 0,
+    registerCalls: 0,
+    emitLifecycle(visibility: ApplicationVisibility) {
+      lifecycleListener?.(visibility);
     },
     ports: null as unknown as MobileServicePorts
   };
@@ -96,15 +145,13 @@ function createHarness(storedSession: AccountSession | null): {
       }),
       subscribeAgentLive: () => ({ close() {} })
     },
-    deviceSecurity: {
-      getOrCreateIdentity: async () => ({
-        arch: "arm64",
-        deviceId: "mobile-1",
-        deviceName: "Phone",
-        publicKey: "public-key"
-      }),
-      scanQRCode: async () => "",
-      sign: async () => ""
+    diagnostics: {
+      record: () => undefined
+    },
+    legacySessionCookie: {
+      clear: async () => {
+        harness.legacyCookieClearCalls += 1;
+      }
     },
     lifecycle: {
       subscribe(listener) {
@@ -118,7 +165,7 @@ function createHarness(storedSession: AccountSession | null): {
       claimPairing: async () => ({
         challengeId: "challenge-1",
         expiresAt: new Date(Date.now() + 1_000).toISOString(),
-        state: "claimed"
+        state: "awaiting_confirmation"
       }),
       connectPairedDevice: async () => undefined,
       getPairingChallenge: async () => ({
@@ -128,22 +175,43 @@ function createHarness(storedSession: AccountSession | null): {
       }),
       listDevices: async () => [],
       listPairings: async () => [],
-      parsePairingQR: () => ({
-        challengeId: "challenge-1",
-        secret: "secret",
-        version: 1
-      }),
-      registerCurrentDevice: async () => ({ userDeviceId: "mobile-1" })
+      registerCurrentDevice: async () => {
+        harness.registerCalls += 1;
+        return { userDeviceId: "mobile-1" };
+      }
+    },
+    qrCodeScanner: {
+      start: () => ({
+        cancel: async () => undefined,
+        result: Promise.resolve("")
+      })
     },
     sessionStorage: {
       clearSession: async () => undefined,
-      clearSessionCookie: async () => undefined,
-      installSessionCookie: async () => undefined,
       loadSession: async () => storedSession,
       saveSession: async () => undefined
     }
   };
   return harness;
+}
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve(value: T): void;
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolver) => {
+    resolve = resolver;
+  });
+  return { promise, resolve };
+}
+
+async function flushPromises(): Promise<void> {
+  for (let index = 0; index < 8; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 class ManualClock implements ClockPort {
