@@ -233,6 +233,36 @@
   order without deadlocking. Unsupported capability/source values must fail at
   HTTP ingress and event publication without changing activation.
 
+### Codex finishes but AgentGUI keeps showing the Session as working
+
+- **Symptom:** Codex has emitted its final assistant message, but AgentGUI keeps
+  showing a busy spinner and the Session still has an active Turn. The UI may
+  settle several minutes later without a restart.
+- **Quick checks:** Search `tuttid.log` for
+  `agent_session.activity_report.queue_backlog` and compare its `queue_depth`
+  with the final message's `occurredAtUnixMs` and canonical
+  `updatedAtUnixMs`. A large gap means provider completion reached the runtime
+  before canonical persistence. When prod and dev are both running, identify
+  them by listener, PID, state, and workspace paths; a shared log file alone
+  does not prove they share a database.
+- **Root cause:** Streaming text, reasoning, and tool-output snapshots entered
+  the unbounded report FIFO before coalescing. When the single reporter was
+  slower than producers, thousands of superseded snapshots accumulated ahead
+  of the same Session's terminal report. Tool-call output snapshots were not
+  eligible for coalescing at all.
+- **Fix:** Coalesce pending streaming snapshots by Session and message while
+  they are enqueued. Preserve the latest cumulative tool output, original tool
+  input, and earliest start time. Keep terminal and submit-provenance reports
+  as same-Session FIFO barriers.
+- **Validation:** Enqueue at least 2048 text and tool-output snapshots and prove
+  each pending Session occupies one queue slot. Verify the latest snapshot is
+  retained, terminal and submit-provenance barriers stay ordered, reporter
+  re-entry remains non-blocking, and focused race tests pass.
+- **References:**
+  [controller_report_queue.go](../../../packages/agent/daemon/runtime/controller_report_queue.go),
+  [report_coalescer.go](../../../packages/agent/daemon/runtime/report_coalescer.go),
+  [controller_report_queue_test.go](../../../packages/agent/daemon/runtime/controller_report_queue_test.go)
+
 ### Tutti mode is active in the composer but disappears after the first submit
 
 - **Symptom:** The home composer shows Tutti enabled and the submit trace records
