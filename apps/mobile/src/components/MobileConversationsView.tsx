@@ -20,17 +20,16 @@ import { t } from "../i18n";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
 import { MobileComputerGlyph, MobileFolderGlyph } from "./MobileLocationGlyphs";
 
-type DrawerDialog =
+type ConversationDialog =
   | { kind: "actions"; sessionId: string }
   | { kind: "delete"; sessionId: string }
   | { kind: "rename"; sessionId: string }
   | null;
 
-export function MobileConversationDrawer({
+export function MobileConversationsView({
   deviceName,
   model,
   onBack,
-  onClose,
   onDeleteSession,
   onLoadMoreSessions,
   onNewSession,
@@ -43,7 +42,6 @@ export function MobileConversationDrawer({
   deviceName: string;
   model: WorkspaceActivitySnapshot;
   onBack(): void;
-  onClose(): void;
   onDeleteSession(id: string): Promise<void>;
   onLoadMoreSessions(sectionId: string): void;
   onNewSession(): void;
@@ -55,7 +53,7 @@ export function MobileConversationDrawer({
 }) {
   const theme = useNativeTheme();
   const styles = createStyles(theme);
-  const [dialog, setDialog] = useState<DrawerDialog>(null);
+  const [dialog, setDialog] = useState<ConversationDialog>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [actionPending, setActionPending] = useState(false);
   const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(
@@ -104,245 +102,229 @@ export function MobileConversationDrawer({
   };
 
   return (
-    <View style={styles.layer}>
-      <Pressable onPress={onClose} style={styles.scrim} />
-      <View style={styles.drawer}>
-        <View style={styles.header}>
+    <View style={styles.root}>
+      <View style={styles.header}>
+        <View style={styles.headerButtonSlot}>
+          <NativeIconButton
+            accessibilityLabel={t("backToDevices")}
+            icon={<Text style={styles.backIcon}>←</Text>}
+            onPress={onBack}
+            style={styles.headerButton}
+            variant="secondary"
+          />
+        </View>
+        <Text style={styles.title}>{t("sessions")}</Text>
+        {refreshing ? (
+          <View style={styles.headerButtonSlot}>
+            <View style={styles.headerButton}>
+              <ActivityIndicator color={theme.color.accent} size="small" />
+            </View>
+          </View>
+        ) : (
           <View style={styles.headerButtonSlot}>
             <NativeIconButton
-              accessibilityLabel={t("cancel")}
-              icon={<Text style={styles.backIcon}>←</Text>}
-              onPress={onClose}
+              accessibilityLabel={t("refreshSessions")}
+              icon={<Text style={styles.moreIconLarge}>⋮</Text>}
+              onPress={() => void refreshRail()}
               style={styles.headerButton}
               variant="secondary"
             />
           </View>
-          <Text style={styles.title}>{t("remote")}</Text>
-          {refreshing ? (
-            <View style={styles.headerButtonSlot}>
-              <View style={styles.headerButton}>
-                <ActivityIndicator color={theme.color.accent} size="small" />
-              </View>
-            </View>
-          ) : (
-            <View style={styles.headerButtonSlot}>
-              <NativeIconButton
-                accessibilityLabel={t("refreshSessions")}
-                icon={<Text style={styles.moreIconLarge}>⋮</Text>}
-                onPress={() => void refreshRail()}
-                style={styles.headerButton}
-                variant="secondary"
-              />
-            </View>
-          )}
+        )}
+      </View>
+
+      <ScrollView
+        contentContainerStyle={styles.deviceRail}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.deviceScroller}
+      >
+        <View style={styles.devicePill}>
+          <View style={styles.deviceDot} />
+          <MobileComputerGlyph color={theme.color.background} size={18} />
+          <Text numberOfLines={1} style={styles.deviceName}>
+            {deviceName || t("desktopFallback")}
+          </Text>
         </View>
+      </ScrollView>
 
-        <ScrollView
-          contentContainerStyle={styles.deviceRail}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.deviceScroller}
-        >
-          <View style={styles.devicePill}>
-            <View style={styles.deviceDot} />
-            <MobileComputerGlyph color={theme.color.background} size={18} />
-            <Text numberOfLines={1} style={styles.deviceName}>
-              {deviceName || t("desktopFallback")}
-            </Text>
-          </View>
-        </ScrollView>
-
-        <View style={styles.projectSection}>
-          <Text style={styles.groupTitle}>{t("projects")}</Text>
-          <Pressable
-            accessibilityLabel={t("backToWorkspaces")}
-            onPress={onBack}
-            style={({ pressed }) => pressed && styles.pressed}
-          >
-            <View style={styles.projectRow}>
-              <MobileFolderGlyph color={theme.color.text} size={26} />
-              <Text numberOfLines={1} style={styles.projectName}>
-                {workspaceName}
-              </Text>
-            </View>
-          </Pressable>
-        </View>
-
-        <ScrollView
-          contentContainerStyle={styles.list}
-          style={styles.sessionScroller}
-        >
-          {model.railStatus === "loading" && model.railSections.length === 0 ? (
-            <View style={styles.feedback}>
-              <ActivityIndicator color={theme.color.accent} size="small" />
-            </View>
-          ) : model.railErrorCode && model.railSections.length === 0 ? (
-            <View style={styles.feedback}>
-              <Text style={styles.feedbackText}>{t("genericError")}</Text>
-              <NativeButton
-                label={t("retry")}
-                onPress={() => void refreshRail()}
-                size="compact"
-                variant="ghost"
-              />
-            </View>
-          ) : model.railSections.length === 0 ? (
-            <Text style={styles.empty}>{t("emptySessions")}</Text>
-          ) : (
-            <>
-              {model.railErrorCode ? (
-                <View style={styles.inlineError}>
-                  <Text style={styles.inlineErrorText}>
-                    {t("genericError")}
-                  </Text>
-                  <NativeButton
-                    label={t("retry")}
-                    onPress={() => void refreshRail()}
-                    size="compact"
-                    variant="ghost"
-                  />
-                </View>
-              ) : null}
-              {model.railSections.map((section) => {
-                const collapsed = collapsedSectionIds.has(section.id);
-                const effectiveCollapsed = collapsed && !searchQuery;
-                const visibleItems = searchQuery
-                  ? section.items.filter((session) =>
-                      (session.title || t("untitledSession"))
-                        .toLocaleLowerCase()
-                        .includes(searchQuery)
-                    )
-                  : section.items;
-                if (searchQuery && !visibleItems.length && !section.hasMore)
-                  return null;
-                return (
-                  <View key={section.id} style={styles.section}>
-                    <Pressable
-                      accessibilityLabel={
-                        effectiveCollapsed
-                          ? t("expandSection")
-                          : t("collapseSection")
-                      }
-                      accessibilityRole="button"
-                      accessibilityState={{
-                        disabled: Boolean(searchQuery),
-                        expanded: !effectiveCollapsed
-                      }}
-                      disabled={Boolean(searchQuery)}
-                      onPress={() => toggleSection(section.id)}
-                      style={({ pressed }) => pressed && styles.pressed}
-                    >
-                      <View style={styles.sectionHeader}>
-                        <Text numberOfLines={1} style={styles.sectionTitle}>
-                          {sectionTitle(section)}
-                        </Text>
-                        <Text style={styles.sectionCount}>
-                          {section.totalCount}
-                        </Text>
-                        <Text style={styles.sectionChevron}>
-                          {effectiveCollapsed ? "›" : "⌄"}
-                        </Text>
-                      </View>
-                    </Pressable>
-                    {!effectiveCollapsed
-                      ? visibleItems.map((session) => {
-                          const selected =
-                            session.id === model.selectedAgentSessionId;
-                          return (
-                            <NativeListRow
-                              accessibilityLabel={
-                                session.title || t("untitledSession")
-                              }
-                              key={session.id}
-                              onPress={() => {
-                                onSelectSession(session.id);
-                                onClose();
-                              }}
-                              selected={selected}
-                              title={session.title || t("untitledSession")}
-                              trailing={
-                                <View style={styles.sessionTrailing}>
-                                  <Text style={styles.sessionTime}>
-                                    {formatSessionTime(
-                                      session.sortTimeUnixMs ??
-                                        session.updatedAtUnixMs
-                                    )}
-                                  </Text>
-                                  <NativeIconButton
-                                    accessibilityLabel={t("moreActions")}
-                                    icon={
-                                      <Text style={styles.moreIcon}>⋯</Text>
-                                    }
-                                    onPress={(event) => {
-                                      event.stopPropagation();
-                                      setDialog({
-                                        kind: "actions",
-                                        sessionId: session.id
-                                      });
-                                    }}
-                                    style={styles.moreButton}
-                                  />
-                                </View>
-                              }
-                            />
-                          );
-                        })
-                      : null}
-                    {!effectiveCollapsed && section.hasMore ? (
-                      <Pressable
-                        disabled={section.loadingMore}
-                        onPress={() => onLoadMoreSessions(section.id)}
-                        style={({ pressed }) => [
-                          styles.loadMoreButton,
-                          pressed && styles.pressed
-                        ]}
-                      >
-                        {section.loadingMore ? (
-                          <ActivityIndicator
-                            color={theme.color.accent}
-                            size="small"
-                          />
-                        ) : (
-                          <Text style={styles.loadMoreLabel}>
-                            {t("loadMoreSessions")}
-                          </Text>
-                        )}
-                      </Pressable>
-                    ) : null}
-                  </View>
-                );
-              })}
-            </>
-          )}
-        </ScrollView>
-
-        <View style={styles.bottomDock}>
-          <View style={styles.searchPill}>
-            <Text style={styles.searchIcon}>⌕</Text>
-            <TextInput
-              onChangeText={setSearchDraft}
-              placeholder={t("searchChats")}
-              placeholderTextColor={theme.color.muted}
-              style={styles.searchInput}
-              value={searchDraft}
-            />
-          </View>
-          <View style={styles.chatButtonSlot}>
-            <NativeButton
-              disabled={model.targets.length === 0}
-              label={t("chat")}
-              leading={<Text style={styles.chatIcon}>＋</Text>}
-              onPress={() => {
-                onNewSession();
-                onClose();
-              }}
-              size="large"
-              style={styles.chatButton}
-            />
-          </View>
+      <View style={styles.projectSection}>
+        <Text style={styles.groupTitle}>{t("projects")}</Text>
+        <View style={styles.projectRow}>
+          <MobileFolderGlyph color={theme.color.text} size={26} />
+          <Text numberOfLines={1} style={styles.projectName}>
+            {workspaceName}
+          </Text>
         </View>
       </View>
 
+      <ScrollView
+        contentContainerStyle={styles.list}
+        style={styles.sessionScroller}
+      >
+        {model.railStatus === "loading" && model.railSections.length === 0 ? (
+          <View style={styles.feedback}>
+            <ActivityIndicator color={theme.color.accent} size="small" />
+          </View>
+        ) : model.railErrorCode && model.railSections.length === 0 ? (
+          <View style={styles.feedback}>
+            <Text style={styles.feedbackText}>{t("genericError")}</Text>
+            <NativeButton
+              label={t("retry")}
+              onPress={() => void refreshRail()}
+              size="compact"
+              variant="ghost"
+            />
+          </View>
+        ) : model.railSections.length === 0 ? (
+          <Text style={styles.empty}>{t("emptySessions")}</Text>
+        ) : (
+          <>
+            {model.railErrorCode ? (
+              <View style={styles.inlineError}>
+                <Text style={styles.inlineErrorText}>{t("genericError")}</Text>
+                <NativeButton
+                  label={t("retry")}
+                  onPress={() => void refreshRail()}
+                  size="compact"
+                  variant="ghost"
+                />
+              </View>
+            ) : null}
+            {model.railSections.map((section) => {
+              const collapsed = collapsedSectionIds.has(section.id);
+              const effectiveCollapsed = collapsed && !searchQuery;
+              const visibleItems = searchQuery
+                ? section.items.filter((session) =>
+                    (session.title || t("untitledSession"))
+                      .toLocaleLowerCase()
+                      .includes(searchQuery)
+                  )
+                : section.items;
+              if (searchQuery && !visibleItems.length && !section.hasMore)
+                return null;
+              return (
+                <View key={section.id} style={styles.section}>
+                  <Pressable
+                    accessibilityLabel={
+                      effectiveCollapsed
+                        ? t("expandSection")
+                        : t("collapseSection")
+                    }
+                    accessibilityRole="button"
+                    accessibilityState={{
+                      disabled: Boolean(searchQuery),
+                      expanded: !effectiveCollapsed
+                    }}
+                    disabled={Boolean(searchQuery)}
+                    onPress={() => toggleSection(section.id)}
+                    style={({ pressed }) => pressed && styles.pressed}
+                  >
+                    <View style={styles.sectionHeader}>
+                      <Text numberOfLines={1} style={styles.sectionTitle}>
+                        {sectionTitle(section)}
+                      </Text>
+                      <Text style={styles.sectionCount}>
+                        {section.totalCount}
+                      </Text>
+                      <Text style={styles.sectionChevron}>
+                        {effectiveCollapsed ? "›" : "⌄"}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  {!effectiveCollapsed
+                    ? visibleItems.map((session) => {
+                        const selected =
+                          session.id === model.selectedAgentSessionId;
+                        return (
+                          <NativeListRow
+                            accessibilityLabel={
+                              session.title || t("untitledSession")
+                            }
+                            key={session.id}
+                            onPress={() => {
+                              onSelectSession(session.id);
+                            }}
+                            selected={selected}
+                            title={session.title || t("untitledSession")}
+                            trailing={
+                              <View style={styles.sessionTrailing}>
+                                <Text style={styles.sessionTime}>
+                                  {formatSessionTime(
+                                    session.sortTimeUnixMs ??
+                                      session.updatedAtUnixMs
+                                  )}
+                                </Text>
+                                <NativeIconButton
+                                  accessibilityLabel={t("moreActions")}
+                                  icon={<Text style={styles.moreIcon}>⋯</Text>}
+                                  onPress={(event) => {
+                                    event.stopPropagation();
+                                    setDialog({
+                                      kind: "actions",
+                                      sessionId: session.id
+                                    });
+                                  }}
+                                  style={styles.moreButton}
+                                />
+                              </View>
+                            }
+                          />
+                        );
+                      })
+                    : null}
+                  {!effectiveCollapsed && section.hasMore ? (
+                    <Pressable
+                      disabled={section.loadingMore}
+                      onPress={() => onLoadMoreSessions(section.id)}
+                      style={({ pressed }) => [
+                        styles.loadMoreButton,
+                        pressed && styles.pressed
+                      ]}
+                    >
+                      {section.loadingMore ? (
+                        <ActivityIndicator
+                          color={theme.color.accent}
+                          size="small"
+                        />
+                      ) : (
+                        <Text style={styles.loadMoreLabel}>
+                          {t("loadMoreSessions")}
+                        </Text>
+                      )}
+                    </Pressable>
+                  ) : null}
+                </View>
+              );
+            })}
+          </>
+        )}
+      </ScrollView>
+
+      <View style={styles.bottomDock}>
+        <View style={styles.searchPill}>
+          <Text style={styles.searchIcon}>⌕</Text>
+          <TextInput
+            onChangeText={setSearchDraft}
+            placeholder={t("searchChats")}
+            placeholderTextColor={theme.color.muted}
+            style={styles.searchInput}
+            value={searchDraft}
+          />
+        </View>
+        <View style={styles.chatButtonSlot}>
+          <NativeButton
+            disabled={model.targets.length === 0}
+            label={t("chat")}
+            leading={<Text style={styles.chatIcon}>＋</Text>}
+            onPress={() => {
+              onNewSession();
+            }}
+            size="large"
+            style={styles.chatButton}
+          />
+        </View>
+      </View>
       {dialog && actionSession ? (
         <NativeSheet
           closeAccessibilityLabel={t("closeSheet")}
@@ -591,16 +573,11 @@ function createStyles(theme: NativeTheme) {
       flexGrow: 0,
       maxHeight: 88
     },
-    drawer: {
+    root: {
       backgroundColor: theme.color.background,
-      bottom: 0,
-      left: 0,
+      flex: 1,
       paddingHorizontal: theme.space.medium,
-      paddingTop: theme.space.medium,
-      position: "absolute",
-      right: 0,
-      top: 0,
-      width: "100%"
+      paddingTop: theme.space.medium
     },
     empty: {
       color: theme.color.muted,
@@ -646,13 +623,6 @@ function createStyles(theme: NativeTheme) {
       paddingLeft: theme.space.medium
     },
     inlineErrorText: { color: theme.color.danger, flex: 1, fontSize: 12 },
-    layer: {
-      bottom: 0,
-      left: 0,
-      position: "absolute",
-      right: 0,
-      top: 0
-    },
     list: {
       gap: theme.space.large,
       paddingBottom: theme.space.medium,
@@ -720,14 +690,6 @@ function createStyles(theme: NativeTheme) {
       fontSize: 16,
       minHeight: 48,
       paddingHorizontal: theme.space.medium
-    },
-    scrim: {
-      backgroundColor: theme.color.scrim,
-      bottom: 0,
-      left: 0,
-      position: "absolute",
-      right: 0,
-      top: 0
     },
     searchIcon: {
       color: theme.color.textSecondary,

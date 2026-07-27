@@ -123,16 +123,16 @@ export interface PairingPort {
   registerCurrentDevice(sessionId: string): Promise<{ userDeviceId: string }>;
 }
 
-export type ApplicationVisibility = "active" | "background" | "inactive";
+export type AppLifecycleState = "background" | "foreground";
 
-export interface LifecyclePort {
-  subscribe(listener: (visibility: ApplicationVisibility) => void): () => void;
+export interface AppLifecyclePort {
+  subscribe(listener: (state: AppLifecycleState) => void): () => void;
 }
 
 export type MobileDiagnosticEvent =
   | {
-      name: "application.visibility_changed";
-      visibility: ApplicationVisibility;
+      name: "application.lifecycle_changed";
+      state: AppLifecycleState;
     }
   | {
       name: "device_pairing.phase_changed";
@@ -164,11 +164,11 @@ export interface ClockPort {
 
 export interface MobileServicePorts {
   account: AccountPort;
+  appLifecycle: AppLifecyclePort;
   clock: ClockPort;
   deviceLink: DeviceLinkPort;
   diagnostics: MobileDiagnosticsPort;
   legacySessionCookie: LegacySessionCookiePort;
-  lifecycle: LifecyclePort;
   pairing: PairingPort;
   qrCodeScanner: QRCodeScannerPort;
   sessionStorage: SessionStoragePort;

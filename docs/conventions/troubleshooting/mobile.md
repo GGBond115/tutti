@@ -1,5 +1,40 @@
 # Mobile Troubleshooting
 
+## Android QR scan closes without advancing pairing
+
+- **Symptom:** The pairing scanner opens, reads a valid Desktop QR code, and
+  returns to the device page, but the App neither shows an error nor advances
+  to waiting or confirmed state.
+- **Quick checks:** Confirm Android launches and finishes the ZXing
+  `CaptureActivity`, then inspect events from `TuttiAppLifecycle`. A background
+  event during the in-process Activity handoff identifies a lifecycle-adapter
+  regression rather than a camera or QR parsing failure.
+- **Root cause:** Android presents the scanner as a child Activity. Pausing the
+  React Activity therefore looks like ordinary App backgrounding. If the
+  service invalidates every pairing generation on that transition, the native
+  scan promise can resolve successfully while its QR payload is silently
+  discarded as stale.
+- **Fix:** Own application visibility at the native platform boundary. Android
+  publishes `ProcessLifecycleOwner` state, so switching between Activities in
+  the same process remains foreground; iOS publishes `UIApplication`
+  foreground/background notifications. The TypeScript lifecycle port consumes
+  this one semantic signal, while pairing remains unaware of Activities and
+  scanners. A genuine process background suspends remote pairing operations
+  and starts the DeviceLink grace period. A claim already sent is reconciled
+  from challenge state after foreground recovery instead of being submitted
+  twice.
+- **Validation:** Verify the lifecycle adapter publishes its initial state,
+  deduplicates transitions, and disposes subscriptions. Verify the application
+  service applies background policy only after a real process background event.
+  Verify scanner cancellation, duplicate taps, permission failures, and
+  claim/poll reconciliation in the device service. Finally scan on Android and
+  confirm no background event is emitted during the
+  `MainActivity -> CaptureActivity -> MainActivity` sequence.
+- **References:**
+  `apps/mobile/android/app/src/main/java/dev/tutti/mobile/AppLifecycleModule.kt`,
+  `apps/mobile/ios/TuttiMobile/AppLifecycleModule.swift`,
+  `apps/mobile/src/native/appLifecyclePort.ts`
+
 ## Android release bundling cannot resolve the JSX transform
 
 - **Symptom:** `app:assembleRelease` reaches Metro bundling and fails
@@ -150,44 +185,6 @@
 - **References:** `apps/mobile/src/services/accountClient.ts`,
   `apps/mobile/android/app/src/main/java/dev/tutti/mobile/MobileSecurityModule.kt`
 
-## Android scanner returns but pairing never starts
-
-- **Symptom:** Tapping “Scan pairing code” opens the camera and recognizes the
-  Desktop QR code, but the Mobile device page shows no result and the account
-  control-plane API never receives the pairing challenge claim.
-- **Quick checks:** Filter `ReactNativeJS` in logcat. A healthy sequence contains
-  `device_pairing.phase_changed` with `scanning`, an
-  `application.visibility_changed` event with `background`, then
-  `device_pairing.phase_changed` with `claiming` after the scanner returns.
-  These events contain no QR payload or secret. If the sequence ends after
-  `scanning`, inspect the application lifecycle boundary before the camera,
-  parser, or control-plane request.
-- **Root cause:** ZXing presents a separate Android `CaptureActivity`, so the
-  React Native host enters the background while the system scanner is visible.
-  A boolean lifecycle adapter previously treated that transition as a request
-  to cancel every device-page operation. It invalidated the pairing generation
-  while the scanner promise was pending, then silently discarded the valid
-  result before sending the claim.
-- **Fix:** Model `active`, `inactive`, and `background` explicitly. Keep QR
-  acquisition in a `scanning` phase that survives host background transitions,
-  and start the cancellable remote pairing generation only after parsing the
-  scanner result. If a claim POST is already in flight, settle it and resume
-  confirmation polling after returning active; its server-side effect cannot be
-  canceled safely. If the response is lost across that transition, read the
-  challenge state to reconcile the result instead of repeating the claim POST.
-  Keep manual form state in the screen rather than adding scanner-specific flags
-  to the global application lifecycle.
-- **Validation:** In a service regression test, start scanning, emit background
-  and active transitions, resolve the scanner once, and assert exactly one
-  claim followed by confirmation. Also cover duplicate taps, scanner
-  cancellation, permission denial, disposal while scanning, invalid manual
-  codes, and background suspension during a remote claim. Repeat the sequence
-  on a physical Android device and confirm the structured log contains no
-  pairing payload.
-- **References:** `apps/mobile/src/services/deviceService.ts`,
-  `apps/mobile/src/services/mobileApplicationService.ts`,
-  `apps/mobile/src/native/createMobileServicePorts.ts`
-
 ## Android DeviceLink opens a session and then repeatedly restarts
 
 - **Symptom:** Pairing and the secure link succeed, and the App may briefly load
@@ -246,6 +243,25 @@ dev.tutti.mobile` and inspect a narrow logcat window for the Go fatal message.
 - **References:** `apps/mobile/ios/Podfile`,
   `apps/mobile/ios/cocoapods_pathname_workaround.rb`,
   [CocoaPods #12798](https://github.com/CocoaPods/CocoaPods/issues/12798)
+
+## Mobile Jest discovers tests inside iOS Pods
+
+- **Symptom:** `pnpm --filter @tutti-os/mobile test` starts hundreds of Hermes
+  or third-party suites under `apps/mobile/ios/Pods` after Pods are installed.
+  Project suites may pass, but the command fails on upstream fixtures, Flow
+  syntax, or snapshots.
+- **Quick checks:** Inspect the failing test paths. Paths below `ios/Pods`
+  identify test discovery crossing into CocoaPods output rather than a product
+  test failure.
+- **Root cause:** Jest recursively searches the package root. CocoaPods can
+  vendor JavaScript sources and tests, and generated native dependency
+  directories are not excluded by the default React Native preset.
+- **Fix:** Keep `/ios/Pods/` in the Mobile Jest `testPathIgnorePatterns`,
+  alongside the Android generated tree and `node_modules`. Do not adjust Babel
+  transforms to make vendored test suites run.
+- **Validation:** Install iOS Pods, run the Mobile test command, and confirm
+  Jest discovers only repository-owned suites.
+- **References:** `apps/mobile/jest.config.js`
 
 ## React Native Pressable rows stack their children vertically
 

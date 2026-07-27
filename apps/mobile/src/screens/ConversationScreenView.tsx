@@ -5,7 +5,6 @@ import {
 } from "@tutti-os/agent-activity-core";
 import { resolveAgentConversationNavigationAction } from "@tutti-os/agent-gui/conversation-projection";
 import { createAgentConversationFollowEndController } from "@tutti-os/agent-gui/agent-conversation/follow-end";
-import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
 import {
   NativeButton,
   NativeIconButton,
@@ -14,7 +13,6 @@ import {
 } from "@tutti-os/ui-system/native";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -26,116 +24,40 @@ import {
 } from "react-native";
 import { MobileInteractionCard } from "../components/MobileConversationRows";
 import { MobileComposerDock } from "../components/MobileComposerDock";
-import { MobileConversationDrawer } from "../components/MobileConversationDrawer";
 import { MobileConversationTimeline } from "../components/MobileConversationTimeline";
 import {
   MobileComputerGlyph,
   MobileFolderGlyph
 } from "../components/MobileLocationGlyphs";
-import { PrimaryButton } from "../components/PrimaryButton";
 import { t } from "../i18n";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
-import type { WorkspaceCatalogSnapshot } from "../services/workspaceCatalogService";
 import type { WorkspaceMediaSnapshot } from "../services/workspaceMediaService";
 import type { MobileQuickPromptLibrarySnapshot } from "../services/mobileQuickPromptLibraryService";
 
-export function WorkspacePickerView({
-  deviceName,
-  model,
-  onDisconnect,
-  onRetry,
-  onSelect
-}: {
-  deviceName: string;
-  model: WorkspaceCatalogSnapshot;
-  onDisconnect(): void;
-  onRetry(): void;
-  onSelect(workspace: WorkspaceSummary): void;
-}) {
-  const theme = useNativeTheme();
-  const styles = createStyles(theme);
-  return (
-    <View style={styles.root}>
-      <View style={styles.pageHeader}>
-        <View>
-          <Text style={styles.eyebrow}>{deviceName}</Text>
-          <Text style={styles.pageTitle}>{t("sessions")}</Text>
-        </View>
-        <PrimaryButton
-          label={t("cancel")}
-          onPress={onDisconnect}
-          secondary
-          size="compact"
-        />
-      </View>
-      {model.status !== "ready" ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={theme.color.accent} size="large" />
-        </View>
-      ) : model.errorCode ? (
-        <View style={styles.center}>
-          <Text style={styles.error}>{t("genericError")}</Text>
-          <PrimaryButton label={t("retry")} onPress={onRetry} />
-        </View>
-      ) : model.workspaces.length === 0 ? (
-        <View style={styles.center}>
-          <Text style={styles.emptyText}>{t("noWorkspace")}</Text>
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.workspaceList}>
-          {model.workspaces.map((workspace) => (
-            <Pressable
-              key={workspace.id}
-              onPress={() => onSelect(workspace)}
-              style={({ pressed }) => [
-                styles.workspaceCard,
-                pressed && styles.pressed
-              ]}
-            >
-              <Text style={styles.workspaceName}>{workspace.name}</Text>
-              <Text style={styles.chevron}>›</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      )}
-    </View>
-  );
-}
-
-export function ConversationWorkspaceView({
+export function ConversationScreenView({
   deviceName,
   media,
   model,
   onBack,
-  onDeleteSession,
   onDraftChange,
   onLoadOlder,
-  onLoadMoreSessions,
-  onNewSession,
-  onRenameSession,
-  onRefreshSessions,
   onRefreshQuickPrompts,
   onRespond,
-  onSelectSession,
+  onOpenSession,
   onSelectTarget,
   onSend,
   onStop,
-  onTogglePinned,
   onUpdateComposerSettings,
   quickPromptLibrary,
-  workspace
+  workspaceId,
+  workspaceName
 }: {
   deviceName: string;
   model: WorkspaceActivitySnapshot;
   media: WorkspaceMediaSnapshot;
   onBack(): void;
-  onDeleteSession(id: string): Promise<void>;
   onDraftChange(value: string): void;
   onLoadOlder(): void;
-  onLoadMoreSessions(sectionId: string): void;
-  onNewSession(): void;
-  onRenameSession(id: string, title: string): Promise<void>;
-  onRefreshSessions(): Promise<void>;
   onRefreshQuickPrompts(): Promise<void>;
   onRespond(
     interaction: AgentActivityInteraction,
@@ -145,18 +67,17 @@ export function ConversationWorkspaceView({
       payload?: Readonly<Record<string, unknown>>;
     }
   ): void;
-  onSelectSession(id: string): void;
+  onOpenSession(id: string): void;
   onSelectTarget(id: string): void;
   onSend(): void;
   onStop(): void;
-  onTogglePinned(id: string): Promise<void>;
   onUpdateComposerSettings(settings: AgentActivitySessionSettings): void;
   quickPromptLibrary: MobileQuickPromptLibrarySnapshot;
-  workspace: WorkspaceSummary;
+  workspaceId: string;
+  workspaceName: string;
 }) {
   const theme = useNativeTheme();
   const styles = createStyles(theme);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const scroll = useRef<ScrollView>(null);
   const followEndControllerRef = useRef(
@@ -196,9 +117,9 @@ export function ConversationWorkspaceView({
     }
     if (
       action.type === "open-agent-session" &&
-      action.workspaceId === workspace.id
+      action.workspaceId === workspaceId
     ) {
-      onSelectSession(action.agentSessionId);
+      onOpenSession(action.agentSessionId);
       return true;
     }
     return true;
@@ -213,7 +134,7 @@ export function ConversationWorkspaceView({
         <View style={styles.headerButtonSlot}>
           <NativeIconButton
             accessibilityLabel={t("sessions")}
-            onPress={() => setDrawerOpen(true)}
+            onPress={onBack}
             icon={<Text style={styles.backIcon}>←</Text>}
             style={styles.headerCircleButton}
             variant="secondary"
@@ -221,13 +142,13 @@ export function ConversationWorkspaceView({
         </View>
         <View style={styles.conversationTitle}>
           <Text numberOfLines={1} style={styles.sessionTitle}>
-            {model.selectedSession?.title || workspace.name}
+            {model.selectedSession?.title || workspaceName}
           </Text>
           <View style={styles.locationRow}>
             <View style={styles.locationItem}>
               <MobileFolderGlyph color={theme.color.textSecondary} size={14} />
               <Text numberOfLines={1} style={styles.locationLabel}>
-                {workspace.name}
+                {workspaceName}
               </Text>
             </View>
             <View style={styles.locationItem}>
@@ -241,15 +162,7 @@ export function ConversationWorkspaceView({
             </View>
           </View>
         </View>
-        <View style={styles.headerButtonSlot}>
-          <NativeIconButton
-            accessibilityLabel={t("moreActions")}
-            icon={<Text style={styles.moreIcon}>⋮</Text>}
-            onPress={() => setDrawerOpen(true)}
-            style={styles.headerCircleButton}
-            variant="secondary"
-          />
-        </View>
+        <View style={styles.headerButtonSlot} />
       </View>
 
       {model.loading ? (
@@ -400,23 +313,6 @@ export function ConversationWorkspaceView({
           onUpdate={onUpdateComposerSettings}
         />
       ) : null}
-
-      {drawerOpen ? (
-        <MobileConversationDrawer
-          model={model}
-          onBack={onBack}
-          onClose={() => setDrawerOpen(false)}
-          onDeleteSession={onDeleteSession}
-          onLoadMoreSessions={onLoadMoreSessions}
-          onNewSession={onNewSession}
-          onRenameSession={onRenameSession}
-          onRefreshSessions={onRefreshSessions}
-          onSelectSession={onSelectSession}
-          onTogglePinned={onTogglePinned}
-          deviceName={deviceName}
-          workspaceName={workspace.name}
-        />
-      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -430,7 +326,6 @@ function createStyles(theme: NativeTheme) {
       justifyContent: "center",
       padding: theme.space.large
     },
-    chevron: { color: theme.color.muted, fontSize: 30 },
     conversationHeader: {
       alignItems: "center",
       flexDirection: "row",
@@ -457,8 +352,6 @@ function createStyles(theme: NativeTheme) {
       lineHeight: 22,
       textAlign: "center"
     },
-    error: { color: theme.color.danger, fontSize: 14 },
-    eyebrow: { color: theme.color.accent, fontSize: 12, fontWeight: "700" },
     backIcon: {
       color: theme.color.text,
       fontSize: 32,
@@ -521,26 +414,6 @@ function createStyles(theme: NativeTheme) {
       paddingTop: theme.space.medium
     },
     messageScroller: { flex: 1 },
-    moreIcon: {
-      color: theme.color.text,
-      fontSize: 30,
-      fontWeight: "800",
-      lineHeight: 31
-    },
-    pageHeader: {
-      alignItems: "center",
-      borderBottomColor: theme.color.border,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      flexDirection: "row",
-      justifyContent: "space-between",
-      padding: theme.space.large
-    },
-    pageTitle: {
-      color: theme.color.text,
-      fontSize: 27,
-      fontWeight: "700",
-      marginTop: 4
-    },
     pressed: { opacity: 0.7 },
     root: { backgroundColor: theme.color.background, flex: 1 },
     scrollToBottom: {
@@ -568,26 +441,6 @@ function createStyles(theme: NativeTheme) {
     },
     targetChipSelected: { borderColor: theme.color.accent },
     targetChipText: { color: theme.color.text, fontSize: 13 },
-    targetList: { gap: theme.space.small },
-    workspaceCard: {
-      alignItems: "center",
-      backgroundColor: theme.color.panel,
-      borderColor: theme.color.border,
-      borderRadius: theme.radius.large,
-      borderWidth: StyleSheet.hairlineWidth,
-      flexDirection: "row",
-      justifyContent: "space-between",
-      padding: theme.space.large
-    },
-    workspaceList: {
-      gap: theme.space.medium,
-      padding: theme.space.large
-    },
-    workspaceName: {
-      color: theme.color.text,
-      flex: 1,
-      fontSize: 17,
-      fontWeight: "700"
-    }
+    targetList: { gap: theme.space.small }
   });
 }

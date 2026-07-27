@@ -70,6 +70,12 @@ Desktop + tsh-server + relay
 存储、网络变化或 DeviceLink bridge 才进入 Kotlin/Swift/Objective-C++；
 ICE/QUIC 问题进入 Go。
 
+移动端业务服务消费的是“整个 App 是否在前台”，不是某一个 React Activity 或
+ViewController 是否可见。Android 由 `TuttiAppLifecycle` 使用进程级 lifecycle
+投影该语义；同进程的扫码、授权等 Activity 切换仍属于前台。iOS 模块投影
+`UIApplication` 状态。禁止把 React Native `AppState` 直接接入 DeviceLink、
+配对或会话服务，也不要让这些业务服务识别平台 Activity 类型。
+
 ### 2.1 需要认识的 iOS 名词
 
 - **Simulator**：macOS 上的 iOS 模拟器。可以验证 React Native UI、键盘、安全区、
@@ -332,15 +338,14 @@ adb install -r path/to/app-debug.apk
 Native bridge 只导出原始 Ed25519 公钥和签名结果。
 
 扫码属于页面发起、Native 完成的本地系统交互，不属于远端配对操作。Android 打开
-ZXing `CaptureActivity` 时 React Native 宿主会进入 `background`，iOS 的系统过渡
-也可能先进入 `inactive`；生命周期 adapter 必须保留这两个状态，不能压缩成一个
-`active: boolean`。设备服务使用显式 `scanning` 阶段承接扫码结果，只有解析出配对码
-后才启动可被后台策略暂停的 claim/poll。应用进入后台可以中止正在进行的远端
-连接尝试并暂停配对的后续远端步骤，但不能仅因系统扫码界面覆盖宿主 Activity 就作废
-扫码结果。已经发出的 claim 必须在回到前台后按 challenge 状态对账，不能盲目重试
-可能已经成功的 POST；只读 poll 才可以在生命周期中断后安全重试。扫码 adapter 返回
-可取消 operation；设备服务销毁时必须关闭原生扫描界面，并在旧 scanner callback
-排空后才完成取消。手动输入框的展开和值属于 screen 临时状态，不进入设备服务快照。
+ZXing `CaptureActivity` 时 `MainActivity` 会暂停，但 App 进程仍在前台；
+`TuttiAppLifecycle` 因此不得发布后台事件。iOS 同样只向业务层投影整个
+`UIApplication` 的前后台语义，不暴露页面级过渡。设备服务使用显式 `scanning`
+阶段承接扫码结果，只有解析出配对码后才启动可被真实后台策略暂停的 claim/poll。
+已经发出的 claim 必须在回到前台后按 challenge 状态对账，不能盲目重试可能已经成功的
+POST；只读 poll 才可以在生命周期中断后安全重试。扫码 adapter 返回可取消
+operation；设备服务销毁时必须关闭原生扫描界面，并在旧 scanner callback 排空后才
+完成取消。手动输入框的展开和值属于 screen 临时状态，不进入设备服务快照。
 
 移动端为生命周期与配对阶段输出结构化 JavaScript 日志，只记录事件名、可枚举阶段、
 来源和脱敏错误码。禁止记录二维码、手动配对码、challenge id、secret 或 session。
@@ -422,8 +427,8 @@ Google Play 账号。以下事项等正式分发前再处理：
   fencing 和 Native 15 秒后台 grace period；
 - 移动端已直接复用 `@tutti-os/client-tuttid-ts`，并从
   `@tutti-os/agent-gui` 复用安全的 Interaction answer model、无 DOM 的会话摘要和
-  canonical 对话流 projection，完成 workspace 自动进入/选择、按置顶/项目/最近分组的
-  会话抽屉、可折叠 section、刷新/失败重试、section 分页、置顶、重命名、删除、增量
+  canonical 对话流 projection，完成 Personal 单 workspace 校验、按置顶/项目/最近分组的
+  独立会话列表、可折叠 section、刷新/失败重试、section 分页、置顶、重命名、删除、增量
   消息读取、新建/切换、发送、停止和结构化 Interaction 提交；Native 对话流遵循同一份
   消息合并、思考、工具活动、处理态和 Turn summary 语义，并复用 AgentGUI 的
   `following` / `detached` 末尾跟随状态机；Mobile 只负责原生手势、滚动执行与展开状态。
@@ -545,9 +550,9 @@ Mobile 也点击“使用 GitHub 登录”并在系统浏览器中完成登录�
 按顺序验证，每一步成功后再继续：
 
 1. Mobile 只显示当前手机 identity 拥有的同账号配对设备。
-2. 点击 Desktop 后成功建立 direct DeviceLink，只有一个 workspace 时自动进入；
-   多个 workspace 时先显示选择页。
-3. 会话抽屉可新建、切换会话，主页面正确显示历史对话流。
+2. 点击 Desktop 后成功建立 direct DeviceLink，并且仅在返回恰好一个 Personal
+   workspace 时进入会话列表；零个或多个 workspace 都明确失败。
+3. 会话列表可新建、切换会话，选择后进入独立详情页并正确显示历史对话流。
 4. 发送一条普通消息，Desktop 和 Mobile 最终显示同一个结果且没有重复消息。
 5. 在 Agent 运行时点击停止，两个端最终收敛到同一个 Turn 状态。
 6. 分别触发 Question、Approval 和 Plan 交互，并从 Mobile 提交一次。

@@ -117,14 +117,15 @@ CLI behavior, CI, package assets, skills, Browser Node, and terminal input.
 
 Android app login, native bridge, secure identity, and mobile transport diagnostics.
 
+- [Android QR scan closes without advancing pairing](./mobile.md#android-qr-scan-closes-without-advancing-pairing)
 - [Android release bundling cannot resolve the JSX transform](./mobile.md#android-release-bundling-cannot-resolve-the-jsx-transform)
 - [Mobile quick prompts are missing from the plus menu](./mobile.md#mobile-quick-prompts-are-missing-from-the-plus-menu)
 - [Mobile composer model and permission controls are missing](./mobile.md#mobile-composer-model-and-permission-controls-are-missing)
 - [Mobile composer option chips do not open](./mobile.md#mobile-composer-option-chips-do-not-open)
 - [Browser login returns to the App but remains signed out](./mobile.md#browser-login-returns-to-the-app-but-remains-signed-out)
-- [Android scanner returns but pairing never starts](./mobile.md#android-scanner-returns-but-pairing-never-starts)
 - [Android DeviceLink opens a session and then repeatedly restarts](./mobile.md#android-devicelink-opens-a-session-and-then-repeatedly-restarts)
 - [iOS pod install intermittently reports pathname contains null byte](./mobile.md#ios-pod-install-intermittently-reports-pathname-contains-null-byte)
+- [Mobile Jest discovers tests inside iOS Pods](./mobile.md#mobile-jest-discovers-tests-inside-ios-pods)
 - [React Native Pressable rows stack their children vertically](./mobile.md#react-native-pressable-rows-stack-their-children-vertically)
 
 ## [Computer Use](./computer-use.md)
