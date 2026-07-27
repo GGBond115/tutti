@@ -107,7 +107,10 @@ type Driver interface {
 	FailNextLaunch()
 	HoldNextLaunch() (<-chan struct{}, func())
 	AdvanceClock(time.Duration) error
+	StopLeaseRenewal()
+	AdvanceClockWithoutRenewal(time.Duration)
 	StartupRecoverReplica(context.Context, string) error
+	PeriodicRecoverReplica(context.Context, string) error
 	RecoverLaunches(context.Context, string) error
 	LauncherClientSubmitIDs() []string
 	LauncherCanonicalTurnCount() int

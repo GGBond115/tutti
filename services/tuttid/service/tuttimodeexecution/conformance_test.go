@@ -85,6 +85,12 @@ func (scheduler *manualLeaseRenewalScheduler) Tick() error {
 	return renew()
 }
 
+func (scheduler *manualLeaseRenewalScheduler) StopCurrent() {
+	scheduler.mu.Lock()
+	defer scheduler.mu.Unlock()
+	scheduler.renew = nil
+}
+
 type recordingLauncher struct {
 	mu                      sync.Mutex
 	calls                   int
@@ -492,6 +498,14 @@ func (driver *sqliteConformanceDriver) AdvanceClock(duration time.Duration) erro
 	return driver.renewals.Tick()
 }
 
+func (driver *sqliteConformanceDriver) StopLeaseRenewal() {
+	driver.renewals.StopCurrent()
+}
+
+func (driver *sqliteConformanceDriver) AdvanceClockWithoutRenewal(duration time.Duration) {
+	driver.clock.Advance(duration)
+}
+
 func (driver *sqliteConformanceDriver) RecoverLaunches(ctx context.Context, workspaceID string) error {
 	return driver.issues.RecoverTuttiModeRunLaunchIntents(ctx, workspaceID)
 }
@@ -500,7 +514,16 @@ func (driver *sqliteConformanceDriver) StartupRecoverReplica(ctx context.Context
 	replica := driver.issues
 	replica.MutationLocks = workspaceservice.NewIssueMutationLocks()
 	replica.RunLaunchGate = workspaceservice.NewIssueRunLaunchGate()
-	return replica.RecoverTuttiModeRunLaunchesAtStartup(ctx, workspaceID)
+	return replica.RecoverTuttiModeRunLaunches(ctx, workspaceID)
+}
+
+func (driver *sqliteConformanceDriver) PeriodicRecoverReplica(ctx context.Context, workspaceID string) error {
+	replica := driver.issues
+	replica.MutationLocks = workspaceservice.NewIssueMutationLocks()
+	replica.RunLaunchGate = workspaceservice.NewIssueRunLaunchGate()
+	coordinator := workspaceservice.IssueExecutionCoordinator{Issues: &replica}
+	_, err := coordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns(ctx, workspaceID)
+	return err
 }
 
 func (driver *sqliteConformanceDriver) LauncherClientSubmitIDs() []string {

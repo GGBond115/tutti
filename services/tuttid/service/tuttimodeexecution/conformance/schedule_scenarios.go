@@ -399,3 +399,71 @@ func runConcurrentReplayClaimsOneDelivery(ctx context.Context, driver Driver) er
 	}
 	return nil
 }
+
+func runExpiredLaunchLeaseIsRecoveredOnce(ctx context.Context, driver Driver) error {
+	fixture := scheduleFixture()
+	fixture.WorkflowID += "-expired-launch-lease"
+	fixture.RevisionID += "-expired-launch-lease"
+	fixture.CheckpointID += "-expired-launch-lease"
+	issueID, err := driver.AcceptPlan(ctx, fixture)
+	if err != nil {
+		return fmt.Errorf("AcceptPlan() error = %w", err)
+	}
+	before, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil {
+		return fmt.Errorf("GetSnapshot(before) error = %w", err)
+	}
+	input := ScheduleInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          before.Checkpoints[0].CheckpointID,
+		ExpectedGraphRevision: before.Execution.GraphRevision,
+		TaskIDs:               []string{"task-a"}, RequestID: "schedule-expired-launch-lease",
+	}
+	started, release := driver.HoldNextLaunch()
+	defer release()
+	firstErr := make(chan error, 1)
+	go func() {
+		_, scheduleErr := driver.Schedule(ctx, input)
+		firstErr <- scheduleErr
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("first launch did not reach delivery seam")
+	}
+	if err := driver.StartupRecoverReplica(ctx, fixture.WorkspaceID); err != nil {
+		return fmt.Errorf("replica startup before expiry error = %w", err)
+	}
+	if calls := driver.LauncherCallCount(); calls != 1 {
+		return fmt.Errorf("startup before expiry entered launcher %d times, want 1", calls)
+	}
+	if err := driver.AdvanceClock(30 * time.Second); err != nil {
+		return fmt.Errorf("renew active launch lease error = %w", err)
+	}
+	driver.StopLeaseRenewal()
+	driver.AdvanceClockWithoutRenewal(2 * time.Minute)
+	if err := driver.PeriodicRecoverReplica(ctx, fixture.WorkspaceID); err != nil {
+		return fmt.Errorf("periodic recovery after expiry error = %w", err)
+	}
+	if calls := driver.LauncherCallCount(); calls != 2 {
+		return fmt.Errorf("post-expiry launcher calls = %d, want initial + one recovery", calls)
+	}
+	if got := driver.LauncherCanonicalTurnCount(); got != 1 {
+		return fmt.Errorf("canonical turn count = %d, want 1 after expired-lease retry", got)
+	}
+	if err := driver.PeriodicRecoverReplica(ctx, fixture.WorkspaceID); err != nil {
+		return fmt.Errorf("second periodic recovery error = %w", err)
+	}
+	if calls := driver.LauncherCallCount(); calls != 2 {
+		return fmt.Errorf("post-expiry recovery repeated delivery: calls=%d, want 2", calls)
+	}
+	release()
+	if err := <-firstErr; err != nil {
+		return fmt.Errorf("original Schedule() error = %w", err)
+	}
+	if calls := driver.LauncherCallCount(); calls != 2 {
+		return fmt.Errorf("original owner completion redelivered: calls=%d, want 2", calls)
+	}
+	return nil
+}

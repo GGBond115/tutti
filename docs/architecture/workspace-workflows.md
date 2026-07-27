@@ -475,6 +475,10 @@ launcher. Response-loss recovery retries the same deterministic
 canonical Turn rather than creating a second one. Tutti settlement,
 reconciliation, and cancellation resolve this persisted identity from the
 launch intent; only generic Issue Runs derive the deterministic default.
+The existing Issue Run reconciliation queue also requeues expired launch
+ownership and recovers prepared intents on every pass. A daemon that restarts
+before the previous owner's last lease expires therefore retries immediately
+after that expiry instead of leaving the Run stranded until its hard timeout.
 
 After acceptance the source conversation embeds a live "issue panel view"
 (board/list) of the materialized Issue, fed by the same workspace issue events

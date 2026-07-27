@@ -50,6 +50,10 @@ func ScheduleCatalog() []Scenario {
 			Name: "ConcurrentReplayClaimsOneDelivery",
 			run:  runConcurrentReplayClaimsOneDelivery,
 		},
+		{
+			Name: "ExpiredLaunchLeaseIsRecoveredOnce",
+			run:  runExpiredLaunchLeaseIsRecoveredOnce,
+		},
 	}
 }
 

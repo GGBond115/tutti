@@ -499,7 +499,7 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 		Context:   ctx,
 		Delay:     3 * time.Second,
 		Interval:  15 * time.Second,
-		Reconcile: issueExecutionCoordinator.ReconcileRunningRuns,
+		Reconcile: issueExecutionCoordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns,
 	})
 	appCenterService := &workspaceservice.AppCenterService{
 		Store:                 appStore,
@@ -586,7 +586,7 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 		)
 	}
 	for _, workspace := range workspaces {
-		if err := issueService.RecoverTuttiModeRunLaunchesAtStartup(ctx, workspace.ID); err != nil {
+		if _, err := issueExecutionCoordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns(ctx, workspace.ID); err != nil {
 			agentRuntime.Close()
 			return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
 				"recover Tutti mode Run launch intents at startup for workspace %q: %w",

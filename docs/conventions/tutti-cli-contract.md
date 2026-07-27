@@ -431,7 +431,9 @@ commits and is recovered from a durable launch intent using
 launch-intent value, not a delivery-adapter reconstruction, is passed unchanged
 to Agent Host. The delivery owner renews its durable lease while the external
 launch is in flight; normal replay cannot steal it, and startup recovery
-requeues only expired ownership before retrying.
+requeues only expired ownership before retrying. The periodic Issue Run
+reconciliation pass repeats the same expired-owner recovery, so a pre-expiry
+restart cannot strand the intent after its final lease later expires.
 
 Workflow lookup is isolated to the Agent session supplied by the daemon CLI
 runtime context. A workflow created by another source session is reported as

@@ -386,7 +386,7 @@ func (s IssueManagerService) RequeueLeasedTuttiModeRunLaunchIntents(
 	return s.TuttiModeExecutions.RequeueLeasedRunLaunches(ctx, workspaceID)
 }
 
-func (s IssueManagerService) RecoverTuttiModeRunLaunchesAtStartup(
+func (s IssueManagerService) RecoverTuttiModeRunLaunches(
 	ctx context.Context,
 	workspaceID string,
 ) error {

@@ -182,6 +182,23 @@ func (c *IssueExecutionCoordinator) ReconcileRunningRuns(ctx context.Context, wo
 	return result, nil
 }
 
+// ReconcileTuttiModeRunLaunchesAndRunningRuns closes both durable crash
+// windows on the existing periodic Issue reconciliation cadence: an expired
+// launch owner is requeued and redelivered before canonical Run settlement is
+// inspected. Active leases remain fenced and keep the workspace queued.
+func (c *IssueExecutionCoordinator) ReconcileTuttiModeRunLaunchesAndRunningRuns(
+	ctx context.Context,
+	workspaceID string,
+) (IssueRunReconcileResult, error) {
+	if c == nil || c.Issues == nil {
+		return IssueRunReconcileResult{}, nil
+	}
+	if err := c.Issues.RecoverTuttiModeRunLaunches(ctx, workspaceID); err != nil {
+		return IssueRunReconcileResult{}, err
+	}
+	return c.ReconcileRunningRuns(ctx, workspaceID)
+}
+
 // issueRunReconcileCompletion applies only Issue-owned product policy. Agent
 // terminal state is never inferred from an activity projection; exact Turn
 // settlement arrives through IssueRunSettlement.
