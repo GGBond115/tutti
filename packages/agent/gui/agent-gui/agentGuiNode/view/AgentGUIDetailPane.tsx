@@ -332,7 +332,12 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       : undefined
   );
   const composerInputHistoryProps = useAgentGUIComposerInputHistoryProps({
-    enabled: sessionInputHistoryEnabled
+    actions,
+    conversation,
+    enabled: sessionInputHistoryEnabled,
+    pendingPrependScrollAnchorRef,
+    timelineRef,
+    viewModel
   });
   const bottomDockComposerProps = useMemo<AgentComposerProps>(
     () => ({
