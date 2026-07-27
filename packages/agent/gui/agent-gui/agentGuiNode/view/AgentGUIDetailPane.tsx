@@ -662,6 +662,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     bottomDockRef,
     bottomDockStoreRevision,
     conversation,
+    isVisible,
     pendingPrependScrollAnchorRef,
     showTimelineSkeleton,
     submittedPromptScrollConversationRef,
