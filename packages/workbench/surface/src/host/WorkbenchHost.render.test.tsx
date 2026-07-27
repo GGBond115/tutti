@@ -2,9 +2,13 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkbenchSnapshot } from "@tutti-os/workbench-snapshot";
+import { selectWorkbenchNodeIsVisuallyExposed } from "../core/visualOcclusion.ts";
 import type { WorkbenchNode } from "../core/types.ts";
+import { useWorkbenchSelector } from "../react/hooks/useWorkbenchSelector.ts";
+import { WorkbenchNodeLayer } from "../react/WorkbenchNodeLayer.tsx";
 import { WorkbenchProvider } from "../react/WorkbenchProvider.tsx";
 import {
+  useWorkbenchNonOccludingNodeIDs,
   useWorkbenchWindowPresentationVisibility,
   WorkbenchWindowFrame
 } from "../react/WorkbenchWindowFrame.tsx";
@@ -48,6 +52,22 @@ function WorkbenchWindowVisibilityProbe({
   onRender: (isVisible: boolean) => void;
 }) {
   onRender(useWorkbenchWindowPresentationVisibility());
+  return null;
+}
+
+function WorkbenchVisualExposureProbe({
+  nodeID,
+  onRender
+}: {
+  nodeID: string;
+  onRender: (isVisible: boolean) => void;
+}) {
+  const nonOccludingNodeIDs = useWorkbenchNonOccludingNodeIDs();
+  onRender(
+    useWorkbenchSelector((state) =>
+      selectWorkbenchNodeIsVisuallyExposed(state, nodeID, nonOccludingNodeIDs)
+    )
+  );
   return null;
 }
 
@@ -820,6 +840,100 @@ describe("WorkbenchHost", () => {
       (
         globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
       ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    }
+  });
+
+  it("exposes a covered window while its cover leaves through Genie", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const coveredNode: WorkbenchNode = {
+      data: null,
+      displayMode: "floating",
+      frame: { x: 0, y: 0, width: 320, height: 240 },
+      id: "covered",
+      isMinimized: false,
+      kind: "test",
+      restoreFrame: null,
+      title: "Covered"
+    };
+    const coverNode: WorkbenchNode = {
+      ...coveredNode,
+      id: "cover",
+      title: "Cover"
+    };
+    const controller = createWorkbenchController({
+      nodes: [coveredNode, coverNode],
+      nodeStack: [coveredNode.id, coverNode.id]
+    });
+    const nodeVisibility = createWorkbenchGenieNodeVisibilityStore();
+    const genie: WorkbenchGenieController = {
+      genieLayer: null,
+      isPendingMinimizedDockNode: () => false,
+      launchNodeFromAnchor: () => {},
+      minimizeNodeToAnchor: () => {},
+      nodeVisibility,
+      pendingMinimizedNode: null,
+      registerDockAnchor: () => {},
+      shouldAnimateMinimizedDockEnter: () => false
+    };
+    const coveredVisibility = vi.fn();
+    const coverVisibility = vi.fn();
+    const renderLayer = (genieController: WorkbenchGenieController) => (
+      <WorkbenchProvider controller={controller}>
+        <WorkbenchNodeLayer
+          genie={genieController}
+          renderNode={({ node }) => (
+            <WorkbenchVisualExposureProbe
+              nodeID={node.id}
+              onRender={
+                node.id === coveredNode.id ? coveredVisibility : coverVisibility
+              }
+            />
+          )}
+        />
+      </WorkbenchProvider>
+    );
+
+    try {
+      await act(async () => {
+        root.render(renderLayer(genie));
+      });
+
+      expect(coveredVisibility).toHaveBeenLastCalledWith(false);
+      expect(coverVisibility).toHaveBeenLastCalledWith(true);
+
+      await act(async () => {
+        nodeVisibility.setHidden(coverNode.id, true);
+      });
+
+      expect(coveredVisibility).toHaveBeenLastCalledWith(true);
+      expect(coverVisibility).toHaveBeenLastCalledWith(false);
+
+      await act(async () => {
+        nodeVisibility.setHidden(coverNode.id, false);
+      });
+      expect(coveredVisibility).toHaveBeenLastCalledWith(false);
+
+      await act(async () => {
+        root.render(
+          renderLayer({
+            ...genie,
+            pendingMinimizedNode: {
+              ...coverNode,
+              isMinimized: true
+            }
+          })
+        );
+      });
+      expect(coveredVisibility).toHaveBeenLastCalledWith(true);
+      expect(coverVisibility).toHaveBeenLastCalledWith(false);
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      nodeVisibility.dispose();
+      container.remove();
     }
   });
 

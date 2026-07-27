@@ -75,9 +75,31 @@ const defaultWindowChromeI18n = createWorkbenchWindowChromeI18nRuntime(
 );
 
 const WorkbenchWindowPresentationVisibilityContext = createContext(true);
+const noNonOccludingWorkbenchNodeIDs: ReadonlySet<string> = new Set();
+const WorkbenchNonOccludingNodeIDsContext = createContext(
+  noNonOccludingWorkbenchNodeIDs
+);
 
 export function useWorkbenchWindowPresentationVisibility(): boolean {
   return useContext(WorkbenchWindowPresentationVisibilityContext);
+}
+
+export function useWorkbenchNonOccludingNodeIDs(): ReadonlySet<string> {
+  return useContext(WorkbenchNonOccludingNodeIDsContext);
+}
+
+export function WorkbenchNonOccludingNodeIDsProvider({
+  children,
+  nodeIDs
+}: {
+  children: ReactNode;
+  nodeIDs: ReadonlySet<string>;
+}) {
+  return (
+    <WorkbenchNonOccludingNodeIDsContext.Provider value={nodeIDs}>
+      {children}
+    </WorkbenchNonOccludingNodeIDsContext.Provider>
+  );
 }
 
 function resolveWorkbenchNodeLaunchSource(data: unknown): string | undefined {

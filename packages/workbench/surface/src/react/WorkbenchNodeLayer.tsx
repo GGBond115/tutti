@@ -1,4 +1,4 @@
-import { Fragment, memo, useMemo } from "react";
+import { memo, useMemo, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
   selectFocusedWorkbenchNode,
@@ -22,7 +22,10 @@ import type {
 import type { WorkbenchGenieController } from "./useWorkbenchGenieAnimation.tsx";
 import type { WorkbenchGenieNodeVisibility } from "./genieNodeVisibility.ts";
 import { useWorkbenchController } from "./WorkbenchProvider.tsx";
-import { WorkbenchWindowFrame } from "./WorkbenchWindowFrame.tsx";
+import {
+  WorkbenchNonOccludingNodeIDsProvider,
+  WorkbenchWindowFrame
+} from "./WorkbenchWindowFrame.tsx";
 import { useWorkbenchSelector } from "./hooks/useWorkbenchSelector.ts";
 import { createWorkbenchNodeLayerNodeIDsSelector } from "./renderedNodeIds.ts";
 import type { WorkbenchWindowChromeI18nRuntime } from "./workbenchWindowI18n.ts";
@@ -79,6 +82,21 @@ export function WorkbenchNodeLayer<TData>({
   const { defaultNodeIDs, dialogPopoverNodeIDs } = useWorkbenchSelector(
     selectNodeLayerNodeIDs
   );
+  const genieHiddenNodeIDs = useSyncExternalStore(
+    genie.nodeVisibility.subscribeAll,
+    genie.nodeVisibility.getHiddenNodeIDsSnapshot,
+    genie.nodeVisibility.getHiddenNodeIDsSnapshot
+  );
+  const pendingMinimizedNodeID = genie.pendingMinimizedNode?.id ?? null;
+  const nonOccludingNodeIDs = useMemo(() => {
+    if (
+      pendingMinimizedNodeID === null ||
+      genieHiddenNodeIDs.has(pendingMinimizedNodeID)
+    ) {
+      return genieHiddenNodeIDs;
+    }
+    return new Set([...genieHiddenNodeIDs, pendingMinimizedNodeID]);
+  }, [genieHiddenNodeIDs, pendingMinimizedNodeID]);
   const snapPreviewRect = useWorkbenchSelector(selectWorkbenchSnapPreviewRect);
   const presentationInteraction =
     interactive && presentation?.mode === "mission-control"
@@ -106,7 +124,7 @@ export function WorkbenchNodeLayer<TData>({
     ) : null;
 
   return (
-    <Fragment>
+    <WorkbenchNonOccludingNodeIDsProvider nodeIDs={nonOccludingNodeIDs}>
       <MemoizedWorkbenchNodeLayerGroup
         className="workbench-node-layer"
         edgeSnapEnabled={edgeSnapEnabled}
@@ -131,7 +149,7 @@ export function WorkbenchNodeLayer<TData>({
         : dialogPopoverLayer
           ? createPortal(dialogPopoverLayer, document.body)
           : null}
-    </Fragment>
+    </WorkbenchNonOccludingNodeIDsProvider>
   );
 }
 

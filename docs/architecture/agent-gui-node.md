@@ -946,6 +946,10 @@ its appearance transition. Background Workbench AgentGUI bodies remain mounted
 so drafts and local conversation presentation survive focus changes. Focus does
 not determine visibility. Workbench frame geometry and z-order classify bodies
 as fully occluded or visually exposed; partial exposure counts as visible.
+While Genie replaces a real node with Canvas output, or scale minimize marks
+the node as pending, Workbench excludes that departing node from geometric
+occlusion. Covered windows therefore resume presentation during minimize; a
+restoring Genie node stays non-occluding until its real node is revealed.
 Only fully occluded bodies pause descendant animations and use
 `content-visibility: hidden`. Visible Empty-Hero surfaces may own carousel
 images, alignment observers, wheel input, and a Three.js/WebGL scene.

@@ -26,6 +26,31 @@ test("notifies only the window whose genie visibility changed", () => {
   store.dispose();
 });
 
+test("publishes an immutable snapshot for transient occlusion", () => {
+  const store = createWorkbenchGenieNodeVisibilityStore();
+  const initialSnapshot = store.getHiddenNodeIDsSnapshot();
+  let allNotifications = 0;
+  const unsubscribe = store.subscribeAll(() => {
+    allNotifications += 1;
+  });
+
+  store.setHidden("node-a", true);
+  const hiddenSnapshot = store.getHiddenNodeIDsSnapshot();
+  store.setHidden("node-a", true);
+
+  assert.notStrictEqual(hiddenSnapshot, initialSnapshot);
+  assert.equal(initialSnapshot.has("node-a"), false);
+  assert.equal(hiddenSnapshot.has("node-a"), true);
+  assert.equal(allNotifications, 1);
+
+  store.setHidden("node-a", false);
+
+  assert.equal(store.getHiddenNodeIDsSnapshot().has("node-a"), false);
+  assert.equal(allNotifications, 2);
+  unsubscribe();
+  store.dispose();
+});
+
 test("lets another node animation reveal its own hidden node", () => {
   const store = createWorkbenchGenieNodeVisibilityStore();
   const tokenA = store.hide("node-a");

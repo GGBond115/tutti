@@ -63,6 +63,30 @@ test("clips visibility to the Workbench surface and ignores minimized covers", (
   );
 });
 
+test("ignores a transiently hidden Genie window as an occluder", () => {
+  const state = workbenchState([
+    node("covered", frame(0, 0)),
+    node("genie-minimizing", frame(0, 0))
+  ]);
+
+  assert.equal(
+    selectWorkbenchNodeIsVisuallyExposed(
+      state,
+      "covered",
+      new Set(["genie-minimizing"])
+    ),
+    true
+  );
+  assert.equal(
+    selectWorkbenchNodeIsVisuallyExposed(
+      state,
+      "genie-minimizing",
+      new Set(["genie-minimizing"])
+    ),
+    false
+  );
+});
+
 test("reuses exposure when only non-geometric Workbench state changes", () => {
   const state = workbenchState([
     node("covered", frame(0, 0)),
