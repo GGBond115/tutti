@@ -3,6 +3,7 @@ import type { WorkspaceLinkAction } from "../../../contexts/workspace/presentati
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../AgentMessageMarkdown";
 import type { AgentConversationVM } from "../contracts/agentConversationVM";
 import type { AgentConversationParticipantPresentation } from "../contracts/agentConversationParticipantPresentation";
+import type { AgentConversationFollowEndMode } from "../agentConversationFollowEndController";
 import { AgentTranscriptSkeleton } from "./AgentTranscriptSkeleton";
 import {
   AgentTranscriptView,
@@ -31,6 +32,7 @@ export interface AgentConversationFlowProps {
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   showRawTimelineJson?: boolean;
   participantPresentation?: AgentConversationParticipantPresentation;
+  followEndMode?: AgentConversationFollowEndMode;
   virtualListLayoutRevision?: number;
   virtualScrollControllerRef?: Ref<AgentTranscriptVirtualScrollController>;
   labels: {
@@ -58,6 +60,7 @@ export const AgentConversationFlow = memo(function AgentConversationFlow({
   workspaceAppIcons,
   showRawTimelineJson = false,
   participantPresentation,
+  followEndMode,
   virtualListLayoutRevision,
   virtualScrollControllerRef,
   labels
@@ -87,6 +90,7 @@ export const AgentConversationFlow = memo(function AgentConversationFlow({
         workspaceAppIcons={workspaceAppIcons}
         labels={labels}
         showRawTimelineJson={showRawTimelineJson}
+        followEndMode={followEndMode}
         participantPresentation={participantPresentation}
         virtualListLayoutRevision={virtualListLayoutRevision}
         virtualScrollControllerRef={virtualScrollControllerRef}

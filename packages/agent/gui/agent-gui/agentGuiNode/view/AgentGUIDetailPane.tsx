@@ -654,6 +654,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   }, [activePromptRequestId]);
 
   const {
+    followEndMode,
     isTimelineScrolledToBottom,
     isTimelineScrolledToTop,
     scrollTimelineToBottom
@@ -739,6 +740,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         conversation={conversation}
         conversationFlowEmpty={conversationFlowEmpty}
         conversationFlowLabels={conversationFlowLabels}
+        followEndMode={followEndMode}
         hasActiveConversation={hasActiveConversation}
         homeContent={homeContent}
         isLoadingOlderMessages={viewModel.detail.isLoadingOlderMessages}

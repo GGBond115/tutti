@@ -6,6 +6,7 @@ import {
   type RefObject
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import type { AgentConversationFollowEndMode } from "../agentConversationFollowEndController";
 import type { AgentTranscriptTurnGroup } from "./agentTranscriptModel";
 
 const AGENT_TRANSCRIPT_VIRTUALIZATION_OVERSCAN = 6;
@@ -15,7 +16,7 @@ const preventVirtualScrollAdjustment = () => false;
 export interface AgentTranscriptVirtualScrollController {
   agentSessionId: string;
   enabled: boolean;
-  isAtEnd(): boolean;
+  isAtEnd(threshold?: number): boolean;
   scrollToEnd(options?: { behavior?: ScrollBehavior }): void;
 }
 
@@ -27,6 +28,7 @@ interface AgentTranscriptVirtualizer {
 
 export function useAgentTranscriptVirtualizer({
   agentSessionId,
+  followEndMode = "following",
   hasMovingTurnDisclosure,
   scrollElement,
   scrollMargin,
@@ -35,6 +37,7 @@ export function useAgentTranscriptVirtualizer({
   virtualScrollControllerRef
 }: {
   agentSessionId: string;
+  followEndMode?: AgentConversationFollowEndMode;
   hasMovingTurnDisclosure: boolean;
   scrollElement: HTMLElement | null;
   scrollMargin: number;
@@ -43,18 +46,22 @@ export function useAgentTranscriptVirtualizer({
   virtualScrollControllerRef?: Ref<AgentTranscriptVirtualScrollController>;
 }): AgentTranscriptVirtualizer {
   const virtualizerHostRef = useRef<HTMLDivElement | null>(null);
+  const followsEnd = followEndMode === "following";
   const getVirtualItemKey = useCallback(
     (index: number) =>
       `${agentSessionId}\u0000${turnGroups[index]?.key ?? index}`,
     [agentSessionId, turnGroups]
   );
   const rowVirtualizer = useVirtualizer<HTMLElement, Element>({
-    anchorTo: shouldVirtualize && hasMovingTurnDisclosure ? "start" : "end",
+    anchorTo:
+      shouldVirtualize && (hasMovingTurnDisclosure || !followsEnd)
+        ? "start"
+        : "end",
     count: turnGroups.length,
     directDomUpdates: true,
     directDomUpdatesMode: "transform",
     estimateSize: () => AGENT_TRANSCRIPT_ESTIMATED_TURN_HEIGHT_PX,
-    followOnAppend: shouldVirtualize && !hasMovingTurnDisclosure,
+    followOnAppend: shouldVirtualize && followsEnd && !hasMovingTurnDisclosure,
     getItemKey: getVirtualItemKey,
     getScrollElement: () => scrollElement,
     overscan: AGENT_TRANSCRIPT_VIRTUALIZATION_OVERSCAN,
@@ -71,7 +78,8 @@ export function useAgentTranscriptVirtualizer({
     () => ({
       agentSessionId,
       enabled: shouldVirtualize,
-      isAtEnd: () => shouldVirtualize && rowVirtualizer.isAtEnd(),
+      isAtEnd: (threshold) =>
+        shouldVirtualize && rowVirtualizer.isAtEnd(threshold),
       scrollToEnd: (options) => {
         if (shouldVirtualize) {
           rowVirtualizer.scrollToEnd(options);

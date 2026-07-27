@@ -3,6 +3,7 @@ import type {
   AgentActivitySessionSettings
 } from "@tutti-os/agent-activity-core";
 import { resolveAgentConversationNavigationAction } from "@tutti-os/agent-gui/conversation-projection";
+import { createAgentConversationFollowEndController } from "@tutti-os/agent-gui/agent-conversation/follow-end";
 import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
 import {
   NativeButton,
@@ -157,22 +158,27 @@ export function ConversationWorkspaceView({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const scroll = useRef<ScrollView>(null);
-  const shouldStickToBottom = useRef(true);
+  const followEndControllerRef = useRef(
+    createAgentConversationFollowEndController()
+  );
+  const followEndController = followEndControllerRef.current;
+  const lastScrollOffsetY = useRef(0);
   const window = model.selectedAgentSessionId
     ? model.activity.sessionMessageWindowsById?.[model.selectedAgentSessionId]
     : null;
 
   useEffect(() => {
-    shouldStickToBottom.current = true;
+    followEndController.dispatch("conversation-changed");
+    lastScrollOffsetY.current = 0;
     setShowScrollToBottom(false);
     const frame = requestAnimationFrame(() => {
       scroll.current?.scrollToEnd({ animated: false });
     });
     return () => cancelAnimationFrame(frame);
-  }, [model.selectedAgentSessionId]);
+  }, [followEndController, model.selectedAgentSessionId]);
 
   const scrollToBottom = (animated: boolean) => {
-    shouldStickToBottom.current = true;
+    followEndController.dispatch("scroll-to-end-requested");
     setShowScrollToBottom(false);
     scroll.current?.scrollToEnd({ animated });
   };
@@ -262,17 +268,18 @@ export function ConversationWorkspaceView({
             keyboardShouldPersistTaps="handled"
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             onContentSizeChange={() => {
-              if (shouldStickToBottom.current) {
+              if (followEndController.getSnapshot() === "following") {
                 scrollToBottom(false);
               }
             }}
             onLayout={() => {
-              if (shouldStickToBottom.current) {
+              if (followEndController.getSnapshot() === "following") {
                 scrollToBottom(false);
               }
             }}
             onScrollBeginDrag={() => {
-              shouldStickToBottom.current = false;
+              followEndController.dispatch("user-scrolled-away");
+              setShowScrollToBottom(true);
             }}
             onScroll={({ nativeEvent }) => {
               if (
@@ -285,9 +292,19 @@ export function ConversationWorkspaceView({
                 nativeEvent.contentSize.height -
                 nativeEvent.layoutMeasurement.height -
                 nativeEvent.contentOffset.y;
-              const nearBottom = distanceFromBottom <= 72;
-              shouldStickToBottom.current = nearBottom;
-              setShowScrollToBottom(!nearBottom);
+              const scrollingTowardEnd =
+                nativeEvent.contentOffset.y > lastScrollOffsetY.current;
+              lastScrollOffsetY.current = nativeEvent.contentOffset.y;
+              if (
+                followEndController.getSnapshot() === "detached" &&
+                scrollingTowardEnd &&
+                distanceFromBottom <= 1
+              ) {
+                followEndController.dispatch("user-reached-end");
+              }
+              setShowScrollToBottom(
+                followEndController.getSnapshot() === "detached"
+              );
             }}
             ref={scroll}
             scrollEventThrottle={16}

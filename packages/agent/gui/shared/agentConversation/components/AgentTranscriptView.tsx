@@ -13,6 +13,7 @@ import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../AgentMessageMar
 import type { AgentGUIProviderSkillOption } from "../../../agent-gui/agentGuiNode/model/agentGuiNodeTypes";
 import type { AgentConversationVM } from "../contracts/agentConversationVM";
 import type { AgentConversationParticipantPresentation } from "../contracts/agentConversationParticipantPresentation";
+import type { AgentConversationFollowEndMode } from "../agentConversationFollowEndController";
 import { AgentTranscriptItemView } from "./AgentTranscriptItemView";
 import { useAgentTurnDisclosureStore } from "./AgentTurnDisclosureContext";
 import { AgentTurnWorkSection } from "./AgentTurnWorkSection";
@@ -74,6 +75,7 @@ export interface AgentTranscriptViewProps {
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   showRawTimelineJson?: boolean;
   participantPresentation?: AgentConversationParticipantPresentation;
+  followEndMode?: AgentConversationFollowEndMode;
   virtualListLayoutRevision?: number;
   virtualScrollControllerRef?: Ref<AgentTranscriptVirtualScrollController>;
   labels: {
@@ -220,6 +222,7 @@ export function areAgentTranscriptViewPropsEqual(
     previous.onTurnAttachmentVisibilityChange ===
       next.onTurnAttachmentVisibilityChange &&
     previous.showRawTimelineJson === next.showRawTimelineJson &&
+    previous.followEndMode === next.followEndMode &&
     previous.virtualListLayoutRevision === next.virtualListLayoutRevision &&
     previous.virtualScrollControllerRef === next.virtualScrollControllerRef &&
     participantPresentationEqual(
@@ -241,6 +244,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   workspaceAppIcons,
   showRawTimelineJson = false,
   participantPresentation,
+  followEndMode,
   virtualListLayoutRevision = 0,
   virtualScrollControllerRef,
   labels
@@ -362,6 +366,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   const { rowVirtualizer, setVirtualizerHostElement, virtualizerHostRef } =
     useAgentTranscriptVirtualizer({
       agentSessionId,
+      followEndMode,
       hasMovingTurnDisclosure,
       scrollElement: virtualScrollElement,
       scrollMargin: virtualListOffsetFromScrollOrigin,

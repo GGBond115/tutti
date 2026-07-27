@@ -407,9 +407,11 @@ Google Play 账号。以下事项等正式分发前再处理：
   canonical 对话流 projection，完成 workspace 自动进入/选择、按置顶/项目/最近分组的
   会话抽屉、可折叠 section、刷新/失败重试、section 分页、置顶、重命名、删除、增量
   消息读取、新建/切换、发送、停止和结构化 Interaction 提交；Native 对话流遵循同一份
-  消息合并、思考、工具活动、处理态和 Turn summary 语义，并仅保留本地滚动与展开状态；
-  切换会话会定位最新内容，流式更新只在用户停留底部时跟随，主动上滑后提供回到底部
-  入口，加载历史消息时保持当前阅读锚点；
+  消息合并、思考、工具活动、处理态和 Turn summary 语义，并复用 AgentGUI 的
+  `following` / `detached` 末尾跟随状态机；Mobile 只负责原生手势、滚动执行与展开状态。
+  切换会话会定位最新内容，流式更新只在 `following` 时跟随；主动上滑会在首个滚动帧前
+  进入 `detached` 并提供回到底部入口，内容增长和近底部几何不能自行恢复跟随；加载历史
+  消息时保持当前阅读锚点；
 - Agent 消息正文已接入 Fabric 原生 Markdown renderer，支持 GFM 标题、列表、代码块、
   表格、任务列表、流式尾部动画和系统文本选择；样式全部映射到 Native UI System
   token，Mobile 不再维护 Markdown AST 或另一份消息类型；

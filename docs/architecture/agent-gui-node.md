@@ -532,11 +532,21 @@ Ordinary assistant content, user messages, and the response-tail file summary
 remain visible. The file summary owns the diff panel and stays at the end of its
 canonical Turn after the final assistant reply.
 
-High-frequency transcript updates must not pair DOM mutation with unconditional synchronous reads of the timeline's full scroll geometry. Conversation switches, explicit submit-to-bottom requests, skeleton transitions, and older-page prepend restoration may perform pre-paint scroll correction; ordinary content growth preserves bottom lock and user scroll-away state from observed content and viewport geometry after layout.
+High-frequency transcript updates must not pair DOM mutation with unconditional synchronous reads of the timeline's full scroll geometry. Conversation switches, explicit submit-to-bottom requests, skeleton transitions, and older-page prepend restoration may perform pre-paint scroll correction.
+
+Transcript end-following is one UI-local state machine shared by DOM, TanStack
+Virtual, and React Native adapters. It has only `following` and `detached`
+modes. User scroll-away intent detaches synchronously, before the first scroll
+frame. Conversation selection, prompt submission, an explicit scroll-to-end
+request, or the user actually reaching the end may reattach. Content growth,
+layout effects, observers, virtualizer geometry, and near-end thresholds are
+sensors or executors only; they must not transition the mode.
 
 Turn-level virtualization has one geometry owner. When the transcript is
-virtualized, TanStack Virtual owns append following, streaming size
-adjustments, prepend anchoring, end detection, list height, and item transforms.
+virtualized and the state machine is `following`, TanStack Virtual owns append
+following, streaming size adjustments, prepend anchoring, end detection, list
+height, and item transforms. While `detached`, AgentGUI disables end anchoring
+and append following so TanStack cannot bypass the shared intent owner.
 AgentGUI retains Session selection, explicit user intent, top-page loading,
 bottom-dock safe-area measurement, and the non-virtualized short-transcript
 branch. It must not apply native `scrollHeight`-delta prepend compensation or a
@@ -552,9 +562,10 @@ caused by the older-page loading indicator. Direct DOM transform mode owns the
 virtual sizer height and item transforms; React keeps only row content,
 measurement refs, cross-axis sizing, and disclosure spacing.
 
-Virtualizer- or layout-driven scroll events do not release the bottom lock or
-trigger older-page loading without explicit user scroll-away intent. A settled
-timeline that is too short to fill its viewport may still request older pages.
+Virtualizer- or layout-driven scroll events do not change the end-following
+mode or trigger older-page loading without explicit user scroll-away intent. A
+settled timeline that is too short to fill its viewport may still request older
+pages.
 
 Composer draft updates cross the view boundary through the stable `shell`,
 `rail`, `detail`, `composer`, `interaction`, `readiness`, and `operations`

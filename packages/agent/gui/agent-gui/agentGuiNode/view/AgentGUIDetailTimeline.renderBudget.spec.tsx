@@ -29,6 +29,7 @@ describe("AgentGUIDetailTimeline render budget", () => {
         userMessageLocator: "User"
       },
       hasActiveConversation: true,
+      followEndMode: "following" as const,
       homeContent: null,
       isLoadingOlderMessages: false,
       isTimelineScrolledToTop: true,

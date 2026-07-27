@@ -180,6 +180,50 @@ describe("AgentTranscriptView virtual rendering", () => {
     expect(screen.queryByText("turn 11 assistant row")).toBeNull();
   });
 
+  it("disables virtualizer end anchoring while the user is detached", () => {
+    virtualizerMockState.virtualIndexes = [10];
+
+    const rendered = render(
+      <div
+        data-testid="agent-gui-timeline"
+        style={{ height: "480px", overflow: "auto" }}
+      >
+        <AgentTranscriptView
+          conversation={conversationWithMultiRowTurns(40)}
+          followEndMode="detached"
+          labels={TRANSCRIPT_LABELS}
+        />
+      </div>
+    );
+
+    expect(useVirtualizer).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        anchorTo: "start",
+        followOnAppend: false
+      })
+    );
+
+    rendered.rerender(
+      <div
+        data-testid="agent-gui-timeline"
+        style={{ height: "480px", overflow: "auto" }}
+      >
+        <AgentTranscriptView
+          conversation={conversationWithMultiRowTurns(40)}
+          followEndMode="following"
+          labels={TRANSCRIPT_LABELS}
+        />
+      </div>
+    );
+
+    expect(useVirtualizer).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        anchorTo: "end",
+        followOnAppend: true
+      })
+    );
+  });
+
   it("positions fallback turns when no scroll parent is available", () => {
     render(
       <AgentTranscriptView
