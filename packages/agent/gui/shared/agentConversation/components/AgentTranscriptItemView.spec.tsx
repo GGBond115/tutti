@@ -223,7 +223,7 @@ describe("AgentTranscriptItemView render stability", () => {
     });
   });
 
-  it("enables streaming markdown only for working assistant messages", () => {
+  it("keeps markdown streaming for active turns and unsettled messages", () => {
     render(
       <AgentMessageBlock
         workspaceRoot="/workspace/demo"
@@ -256,8 +256,26 @@ describe("AgentTranscriptItemView render stability", () => {
       />
     );
 
-    expect(mockState.markdownStreamingFlags.at(-2)).toBe(true);
-    expect(mockState.markdownStreamingFlags.at(-1)).toBe(false);
+    render(
+      <AgentMessageBlock
+        workspaceRoot="/workspace/demo"
+        basePath="/workspace/demo"
+        row={assistantMessageRow({
+          kind: "message-content",
+          id: "assistant-active-turn-1",
+          turnId: "turn-1",
+          body: "Tool completed, answer still growing",
+          statusKind: "completed",
+          occurredAtUnixMs: 1
+        })}
+        thinkingLabel="Thought process"
+        isActiveTurn
+      />
+    );
+
+    expect(mockState.markdownStreamingFlags.at(-3)).toBe(true);
+    expect(mockState.markdownStreamingFlags.at(-2)).toBe(false);
+    expect(mockState.markdownStreamingFlags.at(-1)).toBe(true);
   });
 
   it("keeps participant presentation off by default", () => {
@@ -429,9 +447,9 @@ describe("AgentTranscriptItemView render stability", () => {
       )
     ).toHaveAttribute("aria-label", "Alice");
     expect(userHeader).toHaveTextContent("Alice");
-    expect(
-      userHeader?.compareDocumentPosition(userLayout as Element)
-    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(userHeader?.compareDocumentPosition(userLayout as Element)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
   });
 
   it("renders leading tool rows under the participant header above the message", () => {

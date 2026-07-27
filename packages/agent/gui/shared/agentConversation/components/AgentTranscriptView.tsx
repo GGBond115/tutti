@@ -191,6 +191,10 @@ function transcriptConversationRenderInputEquals(
         next.sourceDetail.session.agentSessionId &&
       previous.sourceDetail.session.activeTurnId ===
         next.sourceDetail.session.activeTurnId &&
+      previous.sourceDetail.session.activeTurn?.turnId ===
+        next.sourceDetail.session.activeTurn?.turnId &&
+      previous.sourceDetail.session.activeTurn?.phase ===
+        next.sourceDetail.session.activeTurn?.phase &&
       previous.sourceDetail.session.imported ===
         next.sourceDetail.session.imported &&
       previous.sourceDetail.cwd === next.sourceDetail.cwd &&
@@ -464,6 +468,15 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
       isAssistantParticipantContentRow(row)
         ? "assistant"
         : undefined;
+    const activeTurn = conversation.sourceDetail.session.activeTurn;
+    const canonicalTurn =
+      row.turnId === null ? null : (canonicalTurnById.get(row.turnId) ?? null);
+    const isActiveTurn =
+      row.turnId !== null &&
+      canonicalTurn?.phase !== "settled" &&
+      (activeTurn?.turnId === row.turnId
+        ? activeTurn.phase !== "settled"
+        : conversation.sourceDetail.session.activeTurnId === row.turnId);
 
     return (
       <div
@@ -508,6 +521,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
           showRawTimelineJson={showRawTimelineJson}
           participantPresentation={participantPresentation}
           showParticipantHeader={showParticipantHeader}
+          isActiveTurn={isActiveTurn}
           toolGroupExpanded={
             row.kind === "tool-group"
               ? expandedToolRows[rowKey] === true

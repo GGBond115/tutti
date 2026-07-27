@@ -254,6 +254,275 @@
   background: color-mix(in srgb, var(--background-panel) 86%, black 8%);
 }
 
+.agent-markdown-mermaid {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 8px 0;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--background-panel);
+}
+
+.agent-markdown-mermaid__preview {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 16px;
+  outline: none;
+  cursor: zoom-in;
+}
+
+.agent-markdown-mermaid__preview:focus-visible {
+  box-shadow: inset 0 0 0 2px
+    color-mix(in srgb, var(--tutti-purple) 72%, transparent);
+}
+
+.agent-markdown-mermaid__preview-spacer {
+  min-height: 180px;
+}
+
+.agent-markdown-mermaid__svg {
+  display: flex;
+  min-width: min-content;
+  align-items: center;
+  justify-content: center;
+}
+
+.agent-markdown-mermaid__svg > svg {
+  display: block;
+  max-width: none;
+  height: auto;
+}
+
+.agent-markdown-mermaid__copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: color-mix(
+    in srgb,
+    var(--background-fronted, var(--background-panel)) 88%,
+    transparent
+  );
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 120ms ease-out,
+    color 120ms ease-out,
+    background 120ms ease-out;
+}
+
+.agent-markdown-mermaid:hover .agent-markdown-mermaid__copy,
+.agent-markdown-mermaid__copy:focus-visible {
+  opacity: 1;
+}
+
+.agent-markdown-mermaid__copy:hover {
+  background: var(--transparency-hover);
+  color: var(--text-primary);
+}
+
+.agent-markdown-mermaid--loading {
+  min-height: 180px;
+  padding: 18px;
+}
+
+.agent-markdown-mermaid__placeholder {
+  position: relative;
+  min-height: 142px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--transparency-block);
+}
+
+.agent-markdown-mermaid__placeholder::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 24%,
+    color-mix(in srgb, var(--text-primary) 7%, transparent) 42%,
+    transparent 60%
+  );
+  content: "";
+  animation: agent-markdown-mermaid-shimmer 1.25s ease-in-out infinite;
+  transform: translateX(-100%);
+}
+
+.agent-markdown-mermaid__placeholder-node,
+.agent-markdown-mermaid__placeholder-edge {
+  position: absolute;
+  display: block;
+  background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+}
+
+.agent-markdown-mermaid__placeholder-node {
+  width: 92px;
+  height: 34px;
+  border-radius: 6px;
+}
+
+.agent-markdown-mermaid__placeholder-node--start {
+  top: 20px;
+  left: calc(18% - 46px);
+}
+
+.agent-markdown-mermaid__placeholder-node--middle {
+  top: 88px;
+  left: calc(50% - 46px);
+}
+
+.agent-markdown-mermaid__placeholder-node--end {
+  top: 20px;
+  left: calc(82% - 46px);
+}
+
+.agent-markdown-mermaid__placeholder-edge {
+  top: 70px;
+  width: 25%;
+  height: 2px;
+  transform-origin: left center;
+}
+
+.agent-markdown-mermaid__placeholder-edge--first {
+  left: 22%;
+  transform: rotate(10deg);
+}
+
+.agent-markdown-mermaid__placeholder-edge--second {
+  left: 55%;
+  transform: rotate(-10deg);
+}
+
+@keyframes agent-markdown-mermaid-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.agent-markdown-mermaid--failed {
+  display: flex;
+  min-height: 96px;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 18px;
+  color: var(--text-secondary);
+}
+
+.agent-markdown-mermaid__failure-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: var(--transparency-block);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.agent-markdown-mermaid__failure-copy:hover {
+  background: var(--transparency-hover);
+}
+
+.agent-mermaid-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  overflow: hidden;
+  -webkit-app-region: no-drag;
+}
+
+.agent-mermaid-viewer__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 60%);
+  backdrop-filter: blur(18px) saturate(1.02);
+}
+
+.agent-mermaid-viewer__stage {
+  position: absolute;
+  inset: 48px;
+  z-index: 100300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  outline: none;
+  cursor: default;
+  touch-action: none;
+  user-select: none;
+}
+
+.agent-mermaid-viewer[data-agent-mermaid-space-pressed="true"]
+  .agent-mermaid-viewer__stage {
+  cursor: grab;
+}
+
+.agent-mermaid-viewer[data-agent-mermaid-dragging="true"]
+  .agent-mermaid-viewer__stage {
+  cursor: grabbing;
+}
+
+.agent-mermaid-viewer__canvas {
+  width: 100%;
+  height: 100%;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+.agent-mermaid-viewer__canvas .agent-markdown-mermaid__svg {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+.agent-mermaid-viewer__canvas .agent-markdown-mermaid__svg > svg {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+}
+
+.agent-mermaid-viewer__zoom-controls {
+  right: 72px;
+}
+
+.agent-mermaid-viewer__hint {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  z-index: 100301;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--background-fronted);
+  box-shadow: 0 10px 28px color-mix(in srgb, black 24%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-markdown-mermaid__placeholder::after {
+    animation: none;
+  }
+}
+
 .workspace-agents-status-panel {
   --workspace-agents-status-panel-chrome-gap: 8px;
   --workspace-room-top-bar-safe-area: 52px;

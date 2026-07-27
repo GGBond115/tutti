@@ -53,6 +53,47 @@ describe("AgentTranscriptView", () => {
     ).toBe(true);
   });
 
+  it("rerenders when the authoritative active Turn settles", () => {
+    const labels = {
+      thinkingLabel: "Thought process",
+      toolCallsLabel: (count: number) => `Tool calls (${count})`,
+      processing: "Planning next moves",
+      turnSummary: "Changed files"
+    };
+    const runningTurn = canonicalTurn();
+    const conversation = projectAgentConversationVM(
+      detailViewModel({
+        session: normalizeAgentActivitySession({
+          ...detailViewModel().session,
+          activeTurnId: runningTurn.turnId,
+          activeTurn: runningTurn
+        }),
+        sessionTurns: [runningTurn]
+      })
+    );
+    const settledTurn = canonicalTurn({
+      phase: "settled",
+      settledAtUnixMs: 7_000
+    });
+    const settledConversation = {
+      ...conversation,
+      sourceDetail: {
+        ...conversation.sourceDetail,
+        session: normalizeAgentActivitySession({
+          ...conversation.sourceDetail.session,
+          activeTurn: settledTurn
+        })
+      }
+    };
+
+    expect(
+      areAgentTranscriptViewPropsEqual(
+        { conversation, labels },
+        { conversation: settledConversation, labels }
+      )
+    ).toBe(false);
+  });
+
   it("compares participant presentation by its explicit state and identity data", () => {
     const labels = {
       thinkingLabel: "Thought process",

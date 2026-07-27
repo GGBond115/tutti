@@ -36,6 +36,7 @@ import {
   activateMarkdownLink,
   activateMarkdownLinkFromKey,
   activateMarkdownLinkFromPointer,
+  hasOpenPotentialMermaidFence,
   hashMarkdownProfilerContent,
   isLikelyLongerThanLineLimit,
   resolveMarkdownAnchorHref,
@@ -178,6 +179,8 @@ export function AgentMessageMarkdown({
       }).content,
     [streaming, visibleContent]
   );
+  const mermaidStreaming =
+    streaming || hasOpenPotentialMermaidFence(visibleContent);
   const workspaceRoot = workspaceLinkContext?.workspaceRoot ?? null;
   const basePath = workspaceLinkContext?.basePath ?? null;
   const workspaceLinkSource = workspaceLinkContext?.source ?? null;
@@ -266,13 +269,20 @@ export function AgentMessageMarkdown({
       ul: MarkdownUnorderedList,
       ol: MarkdownOrderedList,
       li: MarkdownListItem,
-      pre: MarkdownPre
+      pre: (props: MarkdownDomProps<"pre">) => (
+        <MarkdownPre
+          {...props}
+          mermaidEnabled={!inline}
+          streaming={mermaidStreaming}
+        />
+      )
     }),
     [
       effectiveAgentTargets,
       enableImageZoom,
       handleLinkClick,
       inline,
+      mermaidStreaming,
       workspaceAppIcons
     ]
   );

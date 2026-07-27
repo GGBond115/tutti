@@ -579,6 +579,22 @@ A virtualized transcript derives message-locator selection from the virtualizer'
 
 Historical rich text renders from the canonical Tiptap document through a static schema renderer. Only interactive composer surfaces own a Tiptap Editor/ProseMirror EditorView; read-only transcript surfaces reuse the same mention/token presentation without mounting editor lifecycle. Settled transcript messages reuse a bounded cache of pure Markdown ASTs and Tiptap JSON documents keyed by message identity and exact parser input; rendered React elements are never cached, and streaming Markdown bypasses this cache. Conversation titles are a separate plain-text projection: Markdown mention links are normalized to their `@label` text and never render mention SVGs or interactive rich-text tokens.
 
+Fenced Markdown blocks whose exact language is `mermaid` use the bundled
+Mermaid renderer only in non-inline transcript surfaces. While the owning
+message is streaming, AgentGUI renders a stable diagram frame and placeholder;
+it does not expose the growing source or repeatedly lay out the diagram. Once
+the message settles, AgentGUI renders with Mermaid's strict security mode and
+bounded text and edge limits. Active Turn lifecycle is authoritative over an
+individual message or tool status: a completed tool must not settle a Mermaid
+block while the owning Turn is still active. Oversized, invalid, or failed
+diagrams render a compact failure state with an explicit source-copy action;
+they do not automatically expose the source in the transcript. A rendered
+diagram may open a presentation-local viewer with zoom,
+reset, wheel input, and Space-modified pointer panning. Viewer transform,
+disclosure, and theme-refresh state are UI-only and must not enter Message,
+Turn, Session, activity-runtime, or workspace-engine state. The renderer is
+packaged with AgentGUI and performs no runtime network fetch.
+
 Attachment-only fallback labels such as `[Image]` may provide title or summary
 text, but they are not an additional transcript text block when the canonical
 structured content already renders the same image. Explicit display prompts

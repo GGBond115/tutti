@@ -31,6 +31,7 @@ interface AgentTranscriptItemViewProps {
   showRawTimelineJson?: boolean;
   participantPresentation?: AgentConversationParticipantPresentation;
   showParticipantHeader?: boolean;
+  isActiveTurn?: boolean;
   toolGroupExpanded?: boolean;
   toolGroupExpansionKey?: string;
   onToolGroupExpandedChange?: (key: string, expanded: boolean) => void;
@@ -49,6 +50,7 @@ export const AgentTranscriptItemView = memo(function AgentTranscriptItemView({
   showRawTimelineJson = false,
   participantPresentation,
   showParticipantHeader,
+  isActiveTurn = false,
   toolGroupExpanded,
   toolGroupExpansionKey,
   onToolGroupExpandedChange
@@ -97,6 +99,7 @@ export const AgentTranscriptItemView = memo(function AgentTranscriptItemView({
           rawTimelineJsonLabel={labels.rawTimelineJson}
           participantPresentation={participantPresentation}
           showParticipantHeader={showParticipantHeader}
+          isActiveTurn={isActiveTurn}
         />
       );
     case "tool-group":

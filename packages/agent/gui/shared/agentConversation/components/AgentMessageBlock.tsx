@@ -70,6 +70,7 @@ interface AgentMessageBlockProps {
   rawTimelineJsonLabel?: string;
   participantPresentation?: AgentConversationParticipantPresentation;
   showParticipantHeader?: boolean;
+  isActiveTurn?: boolean;
 }
 
 export function AgentMessageBlock({
@@ -86,7 +87,8 @@ export function AgentMessageBlock({
   showRawTimelineJson = false,
   rawTimelineJsonLabel = "",
   participantPresentation,
-  showParticipantHeader = true
+  showParticipantHeader = true,
+  isActiveTurn = false
 }: AgentMessageBlockProps): JSX.Element {
   "use memo";
   const agentHostApi = useOptionalAgentHostApi();
@@ -232,7 +234,11 @@ export function AgentMessageBlock({
           }}
           workspaceAppIcons={workspaceAppIcons}
           enableImageZoom
-          streaming={message.statusKind === "working"}
+          streaming={
+            isActiveTurn ||
+            message.statusKind === "working" ||
+            message.statusKind === "waiting"
+          }
         />
       );
 
