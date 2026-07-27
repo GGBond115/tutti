@@ -1,11 +1,11 @@
 import {
   AGENT_SESSION_ENGINE_LOCAL_ORIGIN,
   createAgentSessionEngine,
+  executeAgentActivityPromptCommand,
   type AgentActivityAdapter,
   type AgentActivitySendInput,
   type AgentSessionEngine,
   type PlanSubmitDecisionResult,
-  type PromptQueueSendCommand,
   type SessionActivateCommand,
   type SessionReconcileCommand,
   type TuttiModeActivationUpdateCommand
@@ -55,38 +55,6 @@ interface CreateWorkspaceAgentSessionEngineHostInput {
   updateTuttiModeActivation: AgentActivityRuntime["updateTuttiModeActivation"];
   tuttidClient: TuttidClient;
   workspaceId: string;
-}
-
-type WorkspaceAgentPromptCommandPort = Pick<
-  CreateWorkspaceAgentSessionEngineHostInput,
-  "sendInput" | "updateSessionSettings"
->;
-
-export async function executeWorkspaceAgentPromptSendCommand(
-  input: WorkspaceAgentPromptCommandPort,
-  command: PromptQueueSendCommand
-): Promise<unknown> {
-  if (command.requiredSettingsPatch) {
-    await input.updateSessionSettings({
-      agentSessionId: command.agentSessionId,
-      settings: { ...command.requiredSettingsPatch },
-      workspaceId: command.workspaceId
-    });
-  }
-  return input.sendInput({
-    agentSessionId: command.agentSessionId,
-    ...(command.capabilityRefs?.length
-      ? { capabilityRefs: command.capabilityRefs }
-      : {}),
-    clientSubmitId: command.clientSubmitId,
-    content: [...command.content],
-    displayPrompt: command.displayPrompt ?? null,
-    ...(command.guidance === true ? { guidance: true } : {}),
-    ...(command.submitDiagnostics
-      ? { submitDiagnostics: { ...command.submitDiagnostics } }
-      : {}),
-    workspaceId: command.workspaceId
-  });
 }
 
 export function executeWorkspaceAgentTuttiModeUpdateCommand(
@@ -174,7 +142,13 @@ export function createWorkspaceAgentSessionEngineHost(
               workspaceId: command.workspaceId
             });
           case "queue/sendPrompt":
-            return executeWorkspaceAgentPromptSendCommand(input, command);
+            return executeAgentActivityPromptCommand(
+              {
+                sendInput: input.sendInput,
+                updateSessionSettings: input.updateSessionSettings
+              },
+              command
+            );
           case "interaction/respond":
             return input.submitInteractive({
               ...(command.action ? { action: command.action } : {}),

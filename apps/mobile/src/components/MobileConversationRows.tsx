@@ -15,24 +15,28 @@ import { t } from "../i18n";
 import { PrimaryButton } from "./PrimaryButton";
 
 interface MobileInteractionCardProps {
+  failed: boolean;
   interaction: AgentActivityInteraction;
   onSubmit(input: {
     action?: string;
     optionId?: string;
     payload?: Record<string, unknown>;
-  }): Promise<void>;
+  }): void;
+  runtimeAvailable: boolean;
+  submitting: boolean;
 }
 
 export function MobileInteractionCard({
+  failed,
   interaction,
-  onSubmit
+  onSubmit,
+  runtimeAvailable,
+  submitting
 }: MobileInteractionCardProps) {
   const theme = useNativeTheme();
   const styles = createStyles(theme);
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
-  const [failed, setFailed] = useState(false);
   const [planFeedback, setPlanFeedback] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const interactionIdentity = `${interaction.agentSessionId}:${interaction.turnId}:${interaction.requestId}`;
   const prompt = useMemo(
     () => projectAgentConversationPromptFromInteraction(interaction),
@@ -40,23 +44,14 @@ export function MobileInteractionCard({
   );
   const questions = prompt?.kind === "ask-user" ? prompt.questions : [];
   const options = prompt?.kind === "approval" ? prompt.options : [];
-  const submit = async (value: Parameters<typeof onSubmit>[0]) => {
-    setSubmitting(true);
-    setFailed(false);
-    try {
-      await onSubmit(value);
-    } catch {
-      setFailed(true);
-    } finally {
-      setSubmitting(false);
-    }
+  const submit = (value: Parameters<typeof onSubmit>[0]) => {
+    if (submitting || !runtimeAvailable) return;
+    onSubmit(value);
   };
 
   useEffect(() => {
     setAnswers({});
-    setFailed(false);
     setPlanFeedback("");
-    setSubmitting(false);
   }, [interactionIdentity]);
 
   return (
@@ -90,7 +85,7 @@ export function MobileInteractionCard({
                         <Pressable
                           accessibilityRole="button"
                           accessibilityState={{ selected: active }}
-                          disabled={submitting}
+                          disabled={submitting || !runtimeAvailable}
                           key={`${question.id}:${option.label}`}
                           onPress={() => {
                             setAnswers((current) => {
@@ -126,7 +121,7 @@ export function MobileInteractionCard({
                   </View>
                 ) : (
                   <TextInput
-                    editable={!submitting}
+                    editable={!submitting && runtimeAvailable}
                     multiline
                     onChangeText={(value) => {
                       setAnswers((current) => {
@@ -151,6 +146,7 @@ export function MobileInteractionCard({
           <PrimaryButton
             disabled={
               submitting ||
+              !runtimeAvailable ||
               questions.some(
                 (question) =>
                   readOwnAnswer(answers, question.id, []).length === 0
@@ -168,7 +164,7 @@ export function MobileInteractionCard({
                   question.multiSelect ? values : (values[0] ?? "")
                 );
               }
-              void submit({
+              submit({
                 action: "submit",
                 payload: {
                   ...buildAskUserAnswerPayload(answersByQuestionId)
@@ -181,20 +177,21 @@ export function MobileInteractionCard({
         <View style={styles.actionList}>
           {options.map((option) => (
             <PrimaryButton
-              disabled={submitting}
+              disabled={submitting || !runtimeAvailable}
               key={option.id}
               label={option.label}
-              onPress={() => void submit({ optionId: option.id })}
+              onPress={() => submit({ optionId: option.id })}
               secondary
             />
           ))}
         </View>
-      ) : prompt?.kind === "exit-plan" ? (
+      ) : prompt?.kind === "exit-plan" && prompt.options.length > 0 ? (
         <MobileExitPlanActions
           feedback={planFeedback}
           onFeedbackChange={setPlanFeedback}
           onSubmit={submit}
           prompt={prompt}
+          runtimeAvailable={runtimeAvailable}
           submitting={submitting}
         />
       ) : (
@@ -211,6 +208,7 @@ function MobileExitPlanActions({
   onFeedbackChange,
   onSubmit,
   prompt,
+  runtimeAvailable,
   submitting
 }: {
   feedback: string;
@@ -219,24 +217,24 @@ function MobileExitPlanActions({
     action?: string;
     optionId?: string;
     payload?: Record<string, unknown>;
-  }): Promise<void>;
+  }): void;
   prompt: Extract<AgentConversationPromptVM, { kind: "exit-plan" }>;
+  runtimeAvailable: boolean;
   submitting: boolean;
 }) {
   const theme = useNativeTheme();
   const styles = createStyles(theme);
-  const modes = prompt.options.length > 0 ? prompt.options : defaultPlanModes();
   const trimmedFeedback = feedback.trim();
 
   return (
     <View style={styles.actionList}>
       <Text style={styles.questionText}>{t("planPermissionQuestion")}</Text>
-      {modes.map((mode) => (
+      {prompt.options.map((mode) => (
         <Pressable
           accessibilityRole="button"
-          disabled={submitting}
+          disabled={submitting || !runtimeAvailable}
           key={mode.id}
-          onPress={() => void onSubmit({ action: "allow", optionId: mode.id })}
+          onPress={() => onSubmit({ action: "allow", optionId: mode.id })}
           style={styles.option}
         >
           <Text style={styles.optionText}>{mode.label}</Text>
@@ -246,7 +244,7 @@ function MobileExitPlanActions({
         </Pressable>
       ))}
       <TextInput
-        editable={!submitting}
+        editable={!submitting && runtimeAvailable}
         multiline
         onChangeText={onFeedbackChange}
         placeholder={t("planFeedbackHint")}
@@ -255,10 +253,10 @@ function MobileExitPlanActions({
         value={feedback}
       />
       <PrimaryButton
-        disabled={submitting}
+        disabled={submitting || !runtimeAvailable}
         label={trimmedFeedback ? t("sendPlanFeedback") : t("keepPlanning")}
         onPress={() =>
-          void onSubmit({
+          onSubmit({
             action: "deny",
             ...(prompt.keepPlanningOptionId
               ? { optionId: prompt.keepPlanningOptionId }
@@ -272,35 +270,6 @@ function MobileExitPlanActions({
       />
     </View>
   );
-}
-
-function defaultPlanModes() {
-  return [
-    {
-      description: t("planAcceptEditsDescription"),
-      id: "acceptEdits",
-      kind: "acceptEdits",
-      label: t("planAcceptEdits")
-    },
-    {
-      description: t("planAskFirstDescription"),
-      id: "default",
-      kind: "default",
-      label: t("planAskFirst")
-    },
-    {
-      description: t("planAllowAllDescription"),
-      id: "bypassPermissions",
-      kind: "bypassPermissions",
-      label: t("planAllowAll")
-    },
-    {
-      description: t("planAutoDescription"),
-      id: "auto",
-      kind: "auto",
-      label: t("planAuto")
-    }
-  ];
 }
 
 function interactionSummary(interaction: AgentActivityInteraction): string {

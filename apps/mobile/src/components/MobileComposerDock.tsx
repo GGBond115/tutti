@@ -68,6 +68,7 @@ export function MobileComposerDock({
   const canSend = Boolean(
     model.draft.trim() &&
     (!model.creating || model.selectedAgentTargetId) &&
+    model.commandsAvailable &&
     !model.sending
   );
   const modelOptions = model.composerOptions?.models ?? [];
@@ -157,6 +158,7 @@ export function MobileComposerDock({
       <View style={styles.inputRow}>
         <NativeIconButton
           accessibilityLabel={t("moreActions")}
+          disabled={!model.commandsAvailable}
           icon={<Text style={styles.plus}>＋</Text>}
           onPress={openToolsMenu}
           style={styles.addButton}
@@ -166,7 +168,7 @@ export function MobileComposerDock({
         <View style={styles.inputPill}>
           <TextInput
             ref={inputRef}
-            editable={!model.sending}
+            editable={!model.sending && model.commandsAvailable}
             multiline
             onChangeText={onDraftChange}
             onSelectionChange={(
@@ -182,6 +184,7 @@ export function MobileComposerDock({
           {hasActiveTurn ? (
             <NativeIconButton
               accessibilityLabel={t("stop")}
+              disabled={!model.commandsAvailable}
               icon={<Text style={styles.actionIcon}>■</Text>}
               onPress={onStop}
               style={styles.actionButton}

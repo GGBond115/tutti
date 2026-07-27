@@ -1,6 +1,6 @@
 import { NativeSheet } from "@tutti-os/ui-system/native";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import { Modal } from "react-native";
+import { Modal, TextInput } from "react-native";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
 import { MobileComposerDock } from "./MobileComposerDock";
 
@@ -39,6 +39,38 @@ test("keeps settings and tools overlays mutually exclusive during rapid taps", (
 
   act(() => renderer!.root.findAllByType(Modal)[1]?.props.onRequestClose());
   expect(visibleModals(renderer!)).toEqual([true, false]);
+});
+
+test("keeps the draft visible but disables editing and actions while unavailable", () => {
+  let renderer: ReactTestRenderer;
+  act(() => {
+    renderer = create(
+      <MobileComposerDock
+        model={{
+          ...createModel(),
+          commandsAvailable: false,
+          draft: "keep this draft"
+        }}
+        onDraftChange={() => undefined}
+        onRefreshQuickPrompts={() => Promise.resolve()}
+        onSend={() => undefined}
+        onStop={() => undefined}
+        onUpdate={() => undefined}
+        quickPromptLibrary={{
+          enabled: false,
+          errorCode: null,
+          prompts: [],
+          status: "ready"
+        }}
+      />
+    );
+  });
+
+  expect(renderer!.root.findByType(TextInput).props.editable).toBe(false);
+  expect(
+    renderer!.root.find((node) => node.props.testID === "mobile-composer-tools")
+      .props.disabled
+  ).toBe(true);
 });
 
 function press(renderer: ReactTestRenderer, testID: string): void {
@@ -96,11 +128,14 @@ function createModel(): WorkspaceActivitySnapshot {
       reasoning: false,
       speed: false
     },
+    commandsAvailable: true,
     conversation: null,
     creating: false,
     draft: "",
     errorCode: null,
+    interactionStates: {},
     loading: false,
+    pendingInteractions: [],
     pinningSessionIds: [],
     railErrorCode: null,
     railSections: [],

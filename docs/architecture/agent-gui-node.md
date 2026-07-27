@@ -13,6 +13,8 @@ Scope:
 - `packages/agent/activity-core`: frontend workspace engine
 - `packages/agent/gui`: Agent GUI, Message Center, and conversation presentation
 - `apps/desktop`: Electron, Workbench, transport, and concrete host capabilities
+- `apps/mobile`: React Native presentation, DeviceLink transport adapter, and
+  mobile lifecycle integration
 
 Implementation progress belongs in Git history or an active spec. Debugging procedures belong in [Agent Runtime Troubleshooting](../conventions/troubleshooting/agent-runtime.md).
 
@@ -116,7 +118,7 @@ AgentGUI / Message Center / host surface
   -> typed intent or AgentActivityRuntime command
   -> workspace AgentSessionEngine
   -> injected command port
-  -> Desktop WorkspaceAgentActivityService / adapter
+  -> Desktop or Mobile workspace activity adapter
   -> tuttid HTTP and product adapter
   -> packages/agent/host
   -> canonical store transaction + provider runtime port
@@ -129,7 +131,7 @@ provider runtime observation
   -> packages/agent/host + store-sqlite canonical transaction
   -> CommittedDelta / CommitObserver
   -> tuttid ActivityProjection and event publication
-  -> Desktop event/reconcile bridge
+  -> Desktop business-event bridge or Mobile DeviceLink live lane
   -> workspace AgentSessionEngine reducer
   -> memoized AgentActivitySnapshot
   -> selectors / pure projections
@@ -138,17 +140,18 @@ provider runtime observation
 
 ### 2.3 Ownership map
 
-| Layer                           | Owns                                                                                       | Must not own                                |
-| ------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------- |
-| `store-sqlite/canonical`        | canonical phase, outcome, origin, Interaction, capability vocabulary, and pure projections | HTTP, provider processes, React             |
-| `store-sqlite`                  | canonical transactions, SQLite repositories, durable tombstones/outbox participation       | product UI, transport policy                |
-| `packages/agent/host`           | create/resume/send/cancel, Interaction, Goal, operation, and recovery lifecycle            | HTTP DTOs, Electron, concrete provider wire |
-| `packages/agent/daemon`         | provider registry, runtime mechanics, wire normalization                                   | AgentGUI policy, cross-provider UI branches |
-| `services/tuttid/service/agent` | Host adapters, HTTP/query/composer/product policy, provider preparation                    | reimplementation of Host lifecycle          |
-| tuttid `ActivityProjection`     | canonical read projection, commit observation, event publication/repair                    | lifecycle decisions, React state            |
-| `agent-activity-core`           | workspace engine, canonical frontend entities, pending intents, queue, selectors           | HTTP, Electron, React                       |
-| `agent-gui`                     | runtime contract, projections, controllers, views, UI-local state                          | daemon truth, a second session store        |
-| `apps/desktop`                  | tuttid client, business-event WebSocket, preload, Workbench, windows, file/OS capabilities | a second Agent business core                |
+| Layer                           | Owns                                                                                       | Must not own                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------- |
+| `store-sqlite/canonical`        | canonical phase, outcome, origin, Interaction, capability vocabulary, and pure projections | HTTP, provider processes, React                   |
+| `store-sqlite`                  | canonical transactions, SQLite repositories, durable tombstones/outbox participation       | product UI, transport policy                      |
+| `packages/agent/host`           | create/resume/send/cancel, Interaction, Goal, operation, and recovery lifecycle            | HTTP DTOs, Electron, concrete provider wire       |
+| `packages/agent/daemon`         | provider registry, runtime mechanics, wire normalization                                   | AgentGUI policy, cross-provider UI branches       |
+| `services/tuttid/service/agent` | Host adapters, HTTP/query/composer/product policy, provider preparation                    | reimplementation of Host lifecycle                |
+| tuttid `ActivityProjection`     | canonical read projection, commit observation, event publication/repair                    | lifecycle decisions, React state                  |
+| `agent-activity-core`           | workspace engine, canonical frontend entities, pending intents, queue, selectors           | HTTP, Electron, React                             |
+| `agent-gui`                     | runtime contract, projections, controllers, views, UI-local state                          | daemon truth, a second session store              |
+| `apps/desktop`                  | tuttid client, business-event WebSocket, preload, Workbench, windows, file/OS capabilities | a second Agent business core                      |
+| `apps/mobile`                   | DeviceLink adapter, Native renderer, app lifecycle, navigation and drafts                  | a second Agent business core or Session DTO cache |
 
 `services/tuttid/api/openapi/tuttid.v1.yaml` is authoritative for HTTP request/response contracts. It projects the canonical domain; it does not replace `store-sqlite/canonical`.
 
@@ -341,6 +344,13 @@ but disabled until the transport recovers. It must not reuse the engine-wide
 connection state for this case, because one remote Session losing its owner must
 not disable Local Agent or another remote Session.
 
+Mobile projects pending Interactions from the root conversation plus its child
+Sessions and reads each exact Engine response record for submitting/failure
+state. Native cards dispatch semantic response intents only; they do not keep a
+parallel Promise lifecycle. Missing provider-authored Plan options fail closed,
+and runtime unavailability disables the exact response without discarding
+composer drafts or Interaction identity.
+
 Device connection presentation is target-scoped rather than Session-scoped.
 The host exposes a target connection source keyed by `agentTargetId` with the
 current status and retry attempt, and AgentGUI reads the active conversation
@@ -380,8 +390,12 @@ notice does not offer a manual retry because transport recovery is host-owned.
 - an authoritative Session detail result enters through
   `session/detailSnapshotReceived`; `agent-activity-core` expands the root
   Session, Turns, child Sessions, and optional message coverage in one engine
-  drain and one subscriber notification. Desktop maps transport data into that
-  intent and must not dispatch each entity independently
+  drain and one subscriber notification. Desktop and Mobile use the same
+  `@tutti-os/agent-activity-tuttid-adapter` aggregate mapper and must not
+  dispatch each entity independently
+- Desktop and Mobile use the same host-neutral event-observation helper to
+  decide whether normalized entities can apply inline and whether the exact
+  Session needs an authoritative state or message reconcile
 - message updates fold inline only when unseen versions are continuous
 - version gaps and reconnects trigger incremental message reconciliation for hydrated Sessions
 - Turn, Interaction, and legacy state invalidation trigger authoritative Session reconciliation
@@ -411,6 +425,13 @@ The busy-session prompt queue is ephemeral durable-intent coordination in the wo
 ### 4.5 Rail query and presentation state
 
 The Rail query cache stores section metadata, ordered Session IDs, cursors, and totals only. Session entities always come from the engine.
+
+Mobile follows the same ownership rule even though its Native Rail controller is
+host-owned: each first-page or pagination response passes Session DTOs
+transiently through the shared mapper into Engine upserts, while the Rail
+snapshot retains only memberships, ordered IDs, cursors, totals, and loading
+state. Refreshing a bounded Rail page is not deletion evidence and must not
+replace or prune canonical Engine entities.
 
 Cross-platform hosts may reuse the DOM-free canonical Rail summary projection
 from `@tutti-os/agent-gui/conversation-rail-projection`. They must still obtain
@@ -452,6 +473,14 @@ state local. Existing-session setting changes enter the engine as
 `session/settingsUpdateRequested`; new-session draft settings travel on the
 activation intent. A renderer must not call the settings endpoint from a
 component or invent a provider-specific settings schema.
+
+An activation intent's shared Session settings are not an HTTP create-field
+allowlist. Each host must construct a typed
+`CreateWorkspaceAgentSessionRequest` and forward only fields present in the
+generated contract. In particular, `computerUse` is a default-on runtime
+setting but is not currently a create-request field; Mobile must not add it as
+an extra property. Supporting an explicit first-Turn opt-out requires changing
+OpenAPI and the create adapter first.
 
 Hosts install the complete query/mutation cohort from
 `@tutti-os/agent-gui/conversation-rail-runtime`; the shared factory owns the
@@ -700,6 +729,9 @@ observe the portaled menu DOM, or infer target identity from provider or
 visible text. The current conversation's composer input availability is
 independent from this launch surface: a target connection may disable input
 while Handoff remains available when the host supplies the launch callback.
+Handoff preserves canonical Rail placement: a source in the Chats section
+omits its runtime `cwd` from the destination project selection, while a source
+in a project section carries that project's path.
 AgentGUI DOM surfaces render the target's owner badge through the shared UI
 System Avatar primitive. A failed owner image falls back to the supplied owner
 label initial instead of exposing a browser broken-image glyph.

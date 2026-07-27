@@ -1,0 +1,149 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import type {
+  WorkspaceAgentSession,
+  WorkspaceAgentSessionDetailResponse,
+  WorkspaceAgentTurn
+} from "@tutti-os/client-tuttid-ts";
+import { agentActivitySessionDetailFromTuttid } from "./index.ts";
+
+test("detail mapping preserves the authoritative root, children, and Turns", () => {
+  const detail = agentActivitySessionDetailFromTuttid(
+    "workspace-1",
+    {
+      session: createSession({
+        id: "root-1",
+        kind: "root"
+      }),
+      childSessions: [
+        createSession({
+          id: "child-1",
+          kind: "child",
+          parentAgentSessionId: "root-1",
+          parentTurnId: "turn-root-1",
+          rootAgentSessionId: "root-1",
+          rootTurnId: "turn-root-1"
+        })
+      ],
+      turns: [
+        createTurn({
+          agentSessionId: "root-1",
+          turnId: "turn-root-1"
+        }),
+        createTurn({
+          agentSessionId: "child-1",
+          turnId: "turn-child-1"
+        })
+      ]
+    } satisfies WorkspaceAgentSessionDetailResponse,
+    { currentUserId: "account-user-1" }
+  );
+
+  assert.equal(detail.session.agentSessionId, "root-1");
+  assert.equal(detail.session.userId, "account-user-1");
+  assert.deepEqual(
+    detail.childSessions.map((session) => ({
+      agentSessionId: session.agentSessionId,
+      parentAgentSessionId: session.parentAgentSessionId,
+      rootAgentSessionId: session.rootAgentSessionId,
+      userId: session.userId
+    })),
+    [
+      {
+        agentSessionId: "child-1",
+        parentAgentSessionId: "root-1",
+        rootAgentSessionId: "root-1",
+        userId: "account-user-1"
+      }
+    ]
+  );
+  assert.deepEqual(
+    detail.turns.map((turn) => [turn.agentSessionId, turn.turnId]),
+    [
+      ["root-1", "turn-root-1"],
+      ["child-1", "turn-child-1"]
+    ]
+  );
+});
+
+test("detail mapping fails the entire aggregate when a child violates protocol v2", () => {
+  const child = createSession({
+    id: "child-1",
+    kind: "child",
+    parentAgentSessionId: "root-1",
+    rootAgentSessionId: "root-1"
+  });
+  const malformedChild = { ...child } as Record<string, unknown>;
+  delete malformedChild.railSectionKey;
+
+  assert.throws(
+    () =>
+      agentActivitySessionDetailFromTuttid(
+        "workspace-1",
+        {
+          session: createSession({ id: "root-1", kind: "root" }),
+          childSessions: [malformedChild as WorkspaceAgentSession],
+          turns: []
+        },
+        { currentUserId: "account-user-1" }
+      ),
+    /Protocol v2 contract error:.*railSectionKey/
+  );
+});
+
+function createSession(
+  overrides: Partial<WorkspaceAgentSession>
+): WorkspaceAgentSession {
+  return {
+    activeTurn: null,
+    activeTurnId: null,
+    agentTargetId: "target-1",
+    capabilities: null,
+    createdAtUnixMs: 1,
+    cwd: "/workspace",
+    endedAtUnixMs: null,
+    goal: null,
+    id: "session-1",
+    imported: false,
+    kind: "root",
+    latestTurn: null,
+    latestTurnInteractions: [],
+    parentAgentSessionId: null,
+    parentToolCallId: null,
+    parentTurnId: null,
+    pendingInteractions: [],
+    permissionConfig: { configurable: false, modes: [] },
+    pinnedAtUnixMs: null,
+    provider: "codex",
+    providerSessionId: null,
+    railSectionKey: "conversations",
+    resumable: true,
+    rootAgentSessionId: null,
+    rootTurnId: null,
+    settings: {},
+    title: "Session",
+    tuttiModeActivation: null,
+    updatedAtUnixMs: 2,
+    usage: null,
+    visible: true,
+    ...overrides
+  };
+}
+
+function createTurn(
+  overrides: Pick<WorkspaceAgentTurn, "agentSessionId" | "turnId">
+): WorkspaceAgentTurn {
+  return {
+    agentSessionId: overrides.agentSessionId,
+    completedCommand: null,
+    error: null,
+    fileChanges: null,
+    origin: "user_prompt",
+    outcome: null,
+    phase: "settled",
+    settledAtUnixMs: 3,
+    startedAtUnixMs: 1,
+    turnId: overrides.turnId,
+    updatedAtUnixMs: 3
+  };
+}

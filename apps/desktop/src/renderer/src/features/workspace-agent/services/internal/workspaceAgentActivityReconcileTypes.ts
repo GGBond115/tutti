@@ -1,8 +1,4 @@
-import type {
-  AgentActivitySession,
-  AgentActivityTurn,
-  AgentActivityUpdatedEvent
-} from "@tutti-os/agent-activity-core";
+import type { AgentActivityUpdatedEvent } from "@tutti-os/agent-activity-core";
 import type {
   TuttidClient,
   TuttidEventStreamClient
@@ -13,12 +9,6 @@ export interface WorkspaceAgentActivityReconcileDependencies {
   eventStreamClient?: TuttidEventStreamClient;
   runtimeApi: Pick<DesktopRuntimeApi, "logTerminalDiagnostic">;
   tuttidClient: TuttidClient;
-}
-
-export interface AgentActivitySessionDetail {
-  session: AgentActivitySession;
-  childSessions: AgentActivitySession[];
-  turns: AgentActivityTurn[];
 }
 
 export type WorkspaceAgentActivityBridgeEvent =

@@ -287,6 +287,12 @@ errors. In particular, `listSessionSectionDeletionCandidates` and
 the action and reports
 `agent.gui.conversation_batch_delete.capability_incomplete` when a host exposes
 only one half, instead of accepting a click that cannot complete.
+Native Mobile currently owns a narrower Rail controller, but it obeys the same
+entity boundary: the controller retains only section membership, ordered
+Session ids, cursors, totals, and request state. Generated Session DTOs from
+first-page and pagination responses are transient adapter input and are
+immediately upserted into the workspace Engine; they are never retained in a
+second Mobile Rail entity store.
 Every daemon `WorkspaceAgentSession` response carries the persisted membership
 as required `railSectionKey`. The desktop adapter rejects a missing or blank
 value as a protocol contract error; it must not manufacture `conversations` or
@@ -922,6 +928,15 @@ AAR; the transport package's AAR and Java namespace remain Agent-free. Mobile
 disables its message and Rail pollers after `stream_ready`; those pollers are
 disconnected-transport fallback only.
 
+After either transport is normalized, Desktop and Mobile call the same
+`analyzeAgentActivityEventObservation` helper. The helper derives inline
+messages, validates version continuity, and emits one
+`session/activityObserved` intent with the required reconcile scope. Mobile
+does not widen its four-variant framed live protocol to mirror Desktop:
+canonical `message_update`, `session_deleted`, and
+`session_reconcile_required` events are converted server-side to scoped
+discontinuities and converge through authoritative reads.
+
 Hosts may accept older provider/runtime reports with missing transcript
 ownership or ordering fields, but those gaps must be filled before events enter
 `agent-activity-core` or `@tutti-os/agent-gui`. Session-level notices and
@@ -1069,5 +1084,12 @@ For runtime boundary enforcement:
 - A pure generated-`tuttid` DTO projection shared by Desktop and Mobile belongs
   in `agent-activity-tuttid-adapter`. Host identity injection, transport,
   retries, event wiring, and orchestration remain in each application adapter.
+- Root detail DTOs use the adapter's aggregate mapper so root Session, child
+  Sessions, and Turns enter the Engine through one
+  `session/detailSnapshotReceived` intent. A malformed nested entity rejects
+  the aggregate instead of publishing a partial hierarchy.
+- Engine prompt commands use the activity-core prompt executor. Required
+  settings are persisted before send, and a failed settings write prevents
+  delivery; transport request mapping remains host-owned.
 - External repository adoption should require implementing the adapter, not
   copying session merge or needs-attention logic.

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentActivityMessage } from "@tutti-os/agent-activity-core";
-import { analyzeInlineMessageVersionContinuity } from "./workspaceAgentActivityReconcileMessages.ts";
+import {
+  analyzeInlineMessageVersionContinuity,
+  type AgentActivityMessage
+} from "@tutti-os/agent-activity-core";
 
 test("inline message continuity accepts snapshot cursor gaps already present in the cache", () => {
   const result = analyzeInlineMessageVersionContinuity(

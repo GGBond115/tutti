@@ -26,8 +26,11 @@ workspace catalog, Agent Target directory, navigation identity, drafts,
 polling, and command execution live in pure TypeScript services rather than
 screen effects. Workspace state is projected from one
 `AgentSessionEngine`; Desktop and Mobile share generated-tuttid DTO mapping
-through `@tutti-os/agent-activity-tuttid-adapter`. Conversation-list visual
-alignment remains the next UI milestone.
+through `@tutti-os/agent-activity-tuttid-adapter`, shared realtime-observation
+rules through `@tutti-os/agent-activity-core`, and DOM-free conversation and
+Rail projections through `@tutti-os/agent-gui`. Mobile Rail state contains only
+membership and pagination metadata; canonical Session entities remain in the
+Engine. Conversation-list visual alignment remains the next UI milestone.
 
 ## 1. 背景
 
@@ -544,8 +547,11 @@ allowlist 和 Android fetch adapter，并直接复用生成的
 `@tutti-os/client-tuttid-ts`；workspace、Agent Target catalog、Session
 list/get/create/send/cancel/Interaction 均沿用现有 HTTP contract。owner host 会在
 caller 获得 response-only STUN endpoints 并二次发布 ICE 后再认领 attempt，避免
-连接旧 fingerprint。Relay 和 event stream 尚未实现，当前消息更新使用前台增量
-snapshot polling。
+连接旧 fingerprint。Relay 尚未实现。direct lane 的 `agent_live` event stream
+已经接入：delta、Turn、Interaction 和 session audit 通过 framed live protocol
+进入 Mobile；canonical-only 更新由 Personal 的 `mobileremote` adapter 转为
+scoped discontinuity，再触发权威 snapshot reconcile。Session/Message poller
+仅在 event stream 未就绪或断开时作为降级路径。
 
 ### M4 — Mobile App shell（Android 首发）
 
@@ -594,13 +600,18 @@ Simulator 的相机路径明确使用现有手动配对码降级。真机与分�
 Interaction 提交已接入。Mobile 已接入 workspace `AgentSessionEngine`；create、
 send、stop 和 Interaction response 统一通过 Engine intent/command port，Session
 和 Message 快照映射后进入同一 canonical state。Desktop 与 Mobile 的生成契约
-映射由 `@tutti-os/agent-activity-tuttid-adapter` 复用。当前 Native renderer 是
+映射、Session detail 聚合和事件 reconcile 判定分别由
+`@tutti-os/agent-activity-tuttid-adapter` 与
+`@tutti-os/agent-activity-core` 复用；Mobile Rail 只保存分组、Session id、游标
+和总数，实体页瞬时映射后直接 upsert 到 Engine。Interaction 提交中、失败状态和
+per-Session runtime availability 也由 Engine 投影，Native card 不维护第二套
+Promise 状态。当前 Native renderer 是
 `apps/mobile` 内的 MVP presentation adapter；它不定义 Session/Message DTO。
 Interaction answer payload 与原型安全的 question-id 读写已从
 `@tutti-os/agent-gui` 的无 DOM 子路径复用；轮询为 single-flight，超时重试保留
 原始 session/submit identity；不明确的写入会先做 workspace 权威校准，再使用同一
-identity 进入显式 Retry。事件流 reconcile、Markdown/code、unsupported fallback
-的完整视觉语义和会话列表视觉对齐仍是剩余项。
+identity 进入显式 Retry。Markdown/code、unsupported fallback 的完整视觉语义和
+会话列表视觉对齐仍是剩余项。
 
 ### M6 — 稳定性和第二阶段准备
 

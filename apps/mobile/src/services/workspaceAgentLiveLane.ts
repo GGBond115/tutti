@@ -1,4 +1,5 @@
 import {
+  analyzeAgentActivityEventObservation,
   createAgentActivityOptimisticMessageOverlay,
   parseAgentActivityMessageDeltaEvent,
   type AgentActivityLiveEvent,
@@ -216,22 +217,56 @@ export class WorkspaceAgentLiveLane {
           turn: agentActivityTurnFromLiveEvent(event),
           type: "turn/upserted"
         });
+        this.observeAuthoritativeEvent(event);
         this.scheduleRailReconcile();
-        if (event.data.turn.phase === "settled") {
-          this.requestSessionReconcile(event.agentSessionId, true);
-        }
         return;
       case "interaction_update":
         this.options.engine.dispatch({
           interaction: event.data.interaction,
           type: "interaction/upserted"
         });
+        this.observeAuthoritativeEvent(event);
         this.scheduleRailReconcile();
         return;
-      case "session_audit":
-        this.requestSessionReconcile(event.agentSessionId, true);
+      case "session_audit": {
+        this.observeAuthoritativeEvent(event);
         this.scheduleRailReconcile();
+        return;
+      }
     }
+  }
+
+  private observeAuthoritativeEvent(
+    event: Exclude<AgentActivityLiveEvent, { eventType: "message_delta" }>
+  ): void {
+    const activity = this.options.readCanonicalActivity();
+    const cachedMessages =
+      activity.sessionMessagesById[event.agentSessionId] ?? [];
+    const observation = analyzeAgentActivityEventObservation({
+      cachedMessages,
+      event,
+      hasCachedSession: activity.sessions.some(
+        (session) => session.agentSessionId === event.agentSessionId
+      )
+    });
+    if (observation.canApplyInlineMessages) {
+      this.options.engine.dispatch(
+        {
+          messages: observation.inlineMessages,
+          type: "message/snapshotReceived",
+          workspaceId: this.options.workspaceId
+        },
+        { batch: true }
+      );
+      this.optimisticMessages.reconcile(
+        {
+          agentSessionId: event.agentSessionId,
+          workspaceId: this.options.workspaceId
+        },
+        [...cachedMessages, ...observation.inlineMessages]
+      );
+    }
+    this.options.engine.dispatch(observation.intent);
   }
 
   private reconcileDiscontinuity(

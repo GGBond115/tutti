@@ -1,14 +1,16 @@
 import type {
+  AgentActivitySendInput,
   AgentActivitySession,
   AgentSessionEngine,
   EngineExternalCommand,
-  PromptQueueSendCommand,
   SessionActivateCommand
 } from "@tutti-os/agent-activity-core";
+import { executeAgentActivityPromptCommand } from "@tutti-os/agent-activity-core";
 import {
   agentActivityComposerOptionsFromTuttidResult,
   agentActivitySessionFromTuttidSession,
-  agentActivityTurnFromTuttidTurn
+  agentActivityTurnFromTuttidTurn,
+  type AgentActivitySessionDetailSnapshot
 } from "@tutti-os/agent-activity-tuttid-adapter";
 import type { TuttidClient } from "@tutti-os/client-tuttid-ts";
 import { mobileLocale } from "../i18n";
@@ -21,7 +23,16 @@ interface WorkspaceActivityCommandContext {
   mapSession(
     session: Parameters<typeof agentActivitySessionFromTuttidSession>[1]
   ): AgentActivitySession;
-  reconcileSession(agentSessionId: string): Promise<unknown>;
+  mapSessionDetail(
+    detail: Awaited<ReturnType<TuttidClient["getWorkspaceAgentSession"]>>
+  ): AgentActivitySessionDetailSnapshot;
+  reconcileSession(
+    agentSessionId: string,
+    scope: Extract<
+      EngineExternalCommand,
+      { type: "session/reconcile" }
+    >["scope"]
+  ): Promise<unknown>;
   reconcileWorkspace(): Promise<unknown>;
 }
 
@@ -38,7 +49,18 @@ export function executeWorkspaceActivityCommand(
     case "session/activate":
       return activateSession(context, command, signal);
     case "queue/sendPrompt":
-      return sendPrompt(context, command);
+      return executeAgentActivityPromptCommand(
+        {
+          sendInput: (input) => sendPrompt(context, input),
+          updateSessionSettings: (input) =>
+            context.client.updateWorkspaceAgentSessionSettings(
+              input.workspaceId,
+              input.agentSessionId,
+              input.settings
+            )
+        },
+        command
+      );
     case "turn/cancel":
       return context.client
         .cancelWorkspaceAgentTurn(
@@ -67,7 +89,7 @@ export function executeWorkspaceActivityCommand(
         )
         .then((session) => ({ session: context.mapSession(session) }));
     case "session/reconcile":
-      return context.reconcileSession(command.agentSessionId);
+      return context.reconcileSession(command.agentSessionId, command.scope);
     case "composerOptions/load":
       return context.client
         .getAgentProviderComposerOptions(
@@ -130,11 +152,23 @@ export function executeWorkspaceActivityCommand(
           removedSessionIds: response.removedSessionIds,
           removedSessions: response.removedSessions
         }));
-    default:
+    case "attention/readState/read":
+    case "attention/readState/write":
+    case "plan/submitDecision":
+    case "session/unactivate":
+    case "tuttiMode/update":
       return Promise.reject(
         new Error(`unsupported mobile agent command: ${command.type}`)
       );
+    default:
+      return assertNeverEngineCommand(command);
   }
+}
+
+function assertNeverEngineCommand(command: never): never {
+  throw new Error(
+    `unhandled mobile agent command: ${(command as { type?: unknown }).type}`
+  );
 }
 
 async function activateSession(
@@ -148,11 +182,15 @@ async function activateSession(
       command.workspaceId,
       command.agentSessionId
     );
-    const session = context.mapSession(detail.session);
-    context.engine.dispatch({ session, type: "session/upserted" });
+    const mapped = context.mapSessionDetail(detail);
+    context.engine.dispatch({
+      ...mapped,
+      type: "session/detailSnapshotReceived",
+      workspaceId: command.workspaceId
+    });
     return {
       activation: { mode: "existing", status: "already_attached" },
-      session
+      session: mapped.session
     };
   }
   const session = await context.client.createWorkspaceAgentSession(
@@ -178,9 +216,6 @@ async function activateSession(
       ...(typeof command.settings?.browserUse === "boolean"
         ? { browserUse: command.settings.browserUse }
         : {}),
-      ...(typeof command.settings?.computerUse === "boolean"
-        ? { computerUse: command.settings.computerUse }
-        : {}),
       submitDiagnostics: command.submitDiagnostics,
       title: command.title ?? null,
       visible: command.visible ?? true
@@ -200,17 +235,24 @@ async function activateSession(
 
 async function sendPrompt(
   context: WorkspaceActivityCommandContext,
-  command: PromptQueueSendCommand
+  input: AgentActivitySendInput
 ): Promise<unknown> {
   const result = await context.client.sendWorkspaceAgentSessionInput(
-    command.workspaceId,
-    command.agentSessionId,
+    input.workspaceId,
+    input.agentSessionId,
     {
-      clientSubmitId: command.clientSubmitId,
-      content: toTuttidPromptContent(command.content),
-      displayPrompt: command.displayPrompt ?? null,
-      guidance: command.guidance ?? false,
-      submitDiagnostics: command.submitDiagnostics
+      ...(input.capabilityRefs?.length
+        ? {
+            capabilityRefs: input.capabilityRefs.map((reference) => ({
+              ...reference
+            }))
+          }
+        : {}),
+      clientSubmitId: input.clientSubmitId,
+      content: toTuttidPromptContent(input.content),
+      displayPrompt: input.displayPrompt ?? null,
+      guidance: input.guidance ?? false,
+      submitDiagnostics: input.submitDiagnostics
     }
   );
   if (result.kind === "goalControl") {

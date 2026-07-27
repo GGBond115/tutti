@@ -1,7 +1,11 @@
+import { canonicalInteractionKey } from "@tutti-os/agent-activity-core";
 import type {
   TuttidClient,
+  WorkspaceAgentInteraction,
   WorkspaceAgentSession,
+  WorkspaceAgentSessionDetailResponse,
   WorkspaceAgentSessionMessage,
+  WorkspaceAgentTurn,
   WorkspaceSummary
 } from "@tutti-os/client-tuttid-ts";
 import { AgentDirectoryService } from "./agentDirectoryService";
@@ -271,6 +275,81 @@ describe("WorkspaceActivityService", () => {
     service.dispose();
   });
 
+  test("keeps Interaction submission and availability in Engine-owned state", async () => {
+    let interactiveCalls = 0;
+    const interaction = createInteraction();
+    const turn: WorkspaceAgentTurn = {
+      ...createTurn("session-1", interaction.turnId),
+      phase: "waiting",
+      settledAtUnixMs: null
+    };
+    const session = {
+      ...createSession(),
+      activeTurn: turn,
+      activeTurnId: turn.turnId,
+      latestTurn: turn,
+      latestTurnInteractions: [interaction],
+      pendingInteractions: [interaction]
+    };
+    const client = createClient({
+      interactive: async () => {
+        interactiveCalls += 1;
+        return new Promise<never>(() => undefined);
+      },
+      listMessages: emptyMessagePage,
+      session: () => session
+    });
+    const service = createService(client);
+
+    await service.start();
+    await flushAsyncWork();
+    service.respondToInteraction(interaction, { optionId: "allow-once" });
+    service.respondToInteraction(interaction, { optionId: "allow-once" });
+    await flushAsyncWork();
+
+    const interactionKey = canonicalInteractionKey(
+      interaction.agentSessionId,
+      interaction.turnId,
+      interaction.requestId
+    );
+    expect(interactiveCalls).toBe(1);
+    expect(service.getSnapshot().interactionStates[interactionKey]).toEqual({
+      failed: false,
+      runtimeAvailable: true,
+      submitting: true
+    });
+
+    service.pause();
+    expect(service.getSnapshot().interactionStates[interactionKey]).toEqual({
+      failed: false,
+      runtimeAvailable: false,
+      submitting: true
+    });
+    service.dispose();
+  });
+
+  test("fails closed when a response does not match a canonical pending Interaction", async () => {
+    let interactiveCalls = 0;
+    const client = createClient({
+      interactive: async () => {
+        interactiveCalls += 1;
+        return createSession();
+      },
+      listMessages: emptyMessagePage
+    });
+    const service = createService(client);
+
+    await service.start();
+    await flushAsyncWork();
+    service.respondToInteraction(createInteraction(), {
+      optionId: "allow-once"
+    });
+    await flushAsyncWork();
+
+    expect(interactiveCalls).toBe(0);
+    service.dispose();
+  });
+
   test("routes pin changes through the canonical session mutation command", async () => {
     let session = createSession();
     const pinRequests: boolean[] = [];
@@ -420,6 +499,187 @@ describe("WorkspaceActivityService", () => {
     service.dispose();
   });
 
+  test("applies a continuous live Session audit without a redundant detail read", async () => {
+    let liveListener: ((delivery: AgentLiveDelivery) => void) | null = null;
+    let detailReads = 0;
+    const client = createClient({
+      detail: async () => {
+        detailReads += 1;
+        return {
+          childSessions: [],
+          session: createSession(),
+          turns: []
+        };
+      },
+      listMessages: async (_workspaceId, agentSessionId) => ({
+        agentSessionId,
+        hasMore: false,
+        latestVersion: 1,
+        messages: [createMessage("message-1", 1)]
+      })
+    });
+    const deviceLink = {
+      closeLink: async () => undefined,
+      requestAgentHTTP: async () => ({
+        body: "",
+        errorCode: "",
+        headers: {},
+        protocolEpoch: 1,
+        status: 204
+      }),
+      subscribeAgentLive: (
+        _workspaceId: string,
+        listener: (delivery: AgentLiveDelivery) => void
+      ) => {
+        liveListener = listener;
+        return { close() {} };
+      }
+    } satisfies DeviceLinkPort;
+    const service = createService(client, { deviceLink });
+
+    await service.start();
+    await flushAsyncWork();
+    liveListener!({
+      event: {
+        agentSessionId: "session-1",
+        data: {
+          agentSessionId: "session-1",
+          audit: {
+            auditId: "audit-1",
+            occurredAtUnixMs: 2,
+            payload: { text: "/goal clear" },
+            role: "user",
+            version: 2
+          },
+          eventType: "session_audit",
+          workspaceId: workspace.id
+        },
+        eventType: "session_audit",
+        workspaceId: workspace.id
+      },
+      kind: "event"
+    });
+    await flushAsyncWork();
+
+    expect(
+      service
+        .getSnapshot()
+        .activity.sessionMessagesById["session-1"]?.map(
+          (message) => message.messageId
+        )
+    ).toEqual(["message-1", "audit-1"]);
+    expect(detailReads).toBe(0);
+
+    service.dispose();
+  });
+
+  test("loads a newly selected Session without waiting for the previous Session request", async () => {
+    let resolveFirst: ((value: ReturnType<typeof messagePage>) => void) | null =
+      null;
+    const requestedSessionIds: string[] = [];
+    const second = { ...createSession(), id: "session-2", title: "Second" };
+    const client = createClient({
+      listMessages: async (_workspaceId, agentSessionId) => {
+        requestedSessionIds.push(agentSessionId);
+        if (agentSessionId === "session-1") {
+          return new Promise((resolve) => {
+            resolveFirst = resolve;
+          });
+        }
+        return messagePage(agentSessionId, "message-2", 2);
+      },
+      sessions: () => [createSession(), second]
+    });
+    const service = createService(client);
+
+    await service.start();
+    await flushAsyncWork();
+    service.selectSession("session-2");
+    await flushAsyncWork();
+
+    expect(requestedSessionIds).toEqual(["session-1", "session-2"]);
+    expect(
+      service.getSnapshot().activity.sessionMessagesById["session-2"]?.[0]
+        ?.messageId
+    ).toBe("message-2");
+
+    resolveFirst!(messagePage("session-1", "message-1", 1));
+    await flushAsyncWork();
+    service.dispose();
+  });
+
+  test("reconciles one authoritative detail aggregate with child Sessions", async () => {
+    let liveListener: ((delivery: AgentLiveDelivery) => void) | null = null;
+    const root = createSession();
+    const child = createChildSession(root.id);
+    const client = createClient({
+      detail: async () => ({
+        childSessions: [child],
+        session: root,
+        turns: [
+          createTurn(root.id, "turn-root-1"),
+          createTurn(child.id, "turn-child-1")
+        ]
+      }),
+      listMessages: emptyMessagePage
+    });
+    const deviceLink = {
+      closeLink: async () => undefined,
+      requestAgentHTTP: async () => ({
+        body: "",
+        errorCode: "",
+        headers: {},
+        protocolEpoch: 1,
+        status: 204
+      }),
+      subscribeAgentLive: (
+        _workspaceId: string,
+        listener: (delivery: AgentLiveDelivery) => void
+      ) => {
+        liveListener = listener;
+        return { close() {} };
+      }
+    } satisfies DeviceLinkPort;
+    const service = createService(client, { deviceLink });
+
+    await service.start();
+    await flushAsyncWork();
+    liveListener!({
+      kind: "discontinuity",
+      reason: "canonical_update",
+      reconcileKeys: [
+        {
+          agentSessionId: root.id,
+          kind: "session",
+          workspaceId: workspace.id
+        }
+      ]
+    });
+    await flushAsyncWork();
+
+    expect(
+      service
+        .getSnapshot()
+        .activity.sessions.map((session) => session.agentSessionId)
+    ).toEqual(expect.arrayContaining([root.id, child.id]));
+    expect(
+      service
+        .getSnapshot()
+        .activity.sessions.find(
+          (session) => session.agentSessionId === child.id
+        )
+    ).toEqual(
+      expect.objectContaining({
+        kind: "child",
+        parentAgentSessionId: root.id,
+        rootAgentSessionId: root.id,
+        userId: "account-user-1"
+      })
+    );
+
+    service.dispose();
+  });
+
   test("accepts only the matching attachment catch-up barrier", async () => {
     const clock = new RecordingClock();
     let closeCount = 0;
@@ -523,6 +783,16 @@ function createClient(options: {
     workspaceId: string,
     input: { agentSessionId: string }
   ): Promise<WorkspaceAgentSession>;
+  detail?(
+    workspaceId: string,
+    agentSessionId: string
+  ): Promise<WorkspaceAgentSessionDetailResponse>;
+  interactive?(
+    workspaceId: string,
+    agentSessionId: string,
+    requestId: string,
+    input: Record<string, unknown>
+  ): Promise<WorkspaceAgentSession>;
   deleteBatch?(
     workspaceId: string,
     input: { sessionIds: string[] }
@@ -558,6 +828,7 @@ function createClient(options: {
     input: { title: string }
   ): Promise<WorkspaceAgentSession>;
   session?(): WorkspaceAgentSession | null;
+  sessions?(): WorkspaceAgentSession[];
   settings?(
     workspaceId: string,
     agentSessionId: string,
@@ -573,38 +844,53 @@ function createClient(options: {
     createWorkspaceAgentSession: options.create,
     deleteWorkspaceAgentSessionsBatch: options.deleteBatch,
     getAgentProviderComposerOptions: options.composerOptions,
+    getWorkspaceAgentSession: options.detail,
     listAgentTargets: async () => ({ targets: options.targets ?? [] }),
     listWorkspaceAgentSessionMessages: options.listMessages,
     listWorkspaceAgentSessionSections: async () => {
-      const session =
-        options.session === undefined ? createSession() : options.session();
-      if (!session) {
+      const sessions =
+        options.sessions?.() ??
+        (() => {
+          const session =
+            options.session === undefined ? createSession() : options.session();
+          return session ? [session] : [];
+        })();
+      if (sessions.length === 0) {
         return {
           pinned: { hasMore: false, sessions: [], totalCount: 0 },
           sections: [],
           workspaceId: workspace.id
         };
       }
-      const pinned = session.pinnedAtUnixMs
-        ? { hasMore: false, sessions: [session], totalCount: 1 }
-        : { hasMore: false, sessions: [], totalCount: 0 };
+      const pinnedSessions = sessions.filter(
+        (session) => session.pinnedAtUnixMs != null
+      );
+      const conversationSessions = sessions.filter(
+        (session) => session.pinnedAtUnixMs == null
+      );
       return {
-        pinned,
-        sections: session.pinnedAtUnixMs
-          ? []
-          : [
-              {
-                hasMore: false,
-                kind: "conversations" as const,
-                sectionKey: "conversations",
-                sessions: [session],
-                totalCount: 1
-              }
-            ],
+        pinned: {
+          hasMore: false,
+          sessions: pinnedSessions,
+          totalCount: pinnedSessions.length
+        },
+        sections:
+          conversationSessions.length === 0
+            ? []
+            : [
+                {
+                  hasMore: false,
+                  kind: "conversations" as const,
+                  sectionKey: "conversations",
+                  sessions: conversationSessions,
+                  totalCount: conversationSessions.length
+                }
+              ],
         workspaceId: workspace.id
       };
     },
     sendWorkspaceAgentSessionInput: options.send,
+    submitWorkspaceAgentInteractive: options.interactive,
     updateWorkspaceAgentSessionPin: options.pin,
     updateWorkspaceAgentSessionSettings: options.settings,
     updateWorkspaceAgentSessionTitle: options.rename
@@ -679,6 +965,57 @@ function createSession(): WorkspaceAgentSession {
   };
 }
 
+function createChildSession(rootAgentSessionId: string): WorkspaceAgentSession {
+  return {
+    ...createSession(),
+    id: "child-1",
+    kind: "child",
+    parentAgentSessionId: rootAgentSessionId,
+    parentToolCallId: "tool-call-1",
+    parentTurnId: "turn-root-1",
+    rootAgentSessionId,
+    rootTurnId: "turn-root-1",
+    title: "Child"
+  };
+}
+
+function createTurn(
+  agentSessionId: string,
+  turnId: string
+): WorkspaceAgentTurn {
+  return {
+    agentSessionId,
+    completedCommand: null,
+    error: null,
+    fileChanges: null,
+    origin: "user_prompt",
+    outcome: null,
+    phase: "settled",
+    settledAtUnixMs: 3,
+    startedAtUnixMs: 2,
+    turnId,
+    updatedAtUnixMs: 3
+  };
+}
+
+function createInteraction(): WorkspaceAgentInteraction {
+  return {
+    agentSessionId: "session-1",
+    createdAtUnixMs: 3,
+    input: {
+      options: [{ label: "Allow", optionId: "allow-once" }]
+    },
+    kind: "approval",
+    metadata: {},
+    output: null,
+    requestId: "request-1",
+    status: "pending",
+    toolName: "Approval",
+    turnId: "turn-1",
+    updatedAtUnixMs: 3
+  };
+}
+
 function createMessage(
   messageId: string,
   version: number
@@ -693,6 +1030,24 @@ function createMessage(
     sequence: version,
     turnId: "turn-1",
     version
+  };
+}
+
+function messagePage(
+  agentSessionId: string,
+  messageId: string,
+  version: number
+) {
+  return {
+    agentSessionId,
+    hasMore: false,
+    latestVersion: version,
+    messages: [
+      {
+        ...createMessage(messageId, version),
+        agentSessionId
+      }
+    ]
   };
 }
 

@@ -1,4 +1,10 @@
 export type { AgentActivityAdapter } from "./adapter.ts";
+export {
+  analyzeAgentActivityEventObservation,
+  analyzeInlineMessageVersionContinuity,
+  type AgentActivityEventObservation,
+  type InlineMessageVersionContinuity
+} from "./activityEventObservation.ts";
 export { AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION } from "./liveProtocolRevision.gen.ts";
 export type { AgentActivityLiveEvent } from "./liveEvent.types.ts";
 export { parseAgentActivityMessageDeltaEvent } from "./liveEventParsing.ts";
@@ -64,6 +70,10 @@ export type {
   EngineDiagnosticEvent,
   EngineDiagnosticSink
 } from "./engine/diagnostics.ts";
+export {
+  executeAgentActivityPromptCommand,
+  type AgentActivityPromptCommandPort
+} from "./engine/promptCommandExecution.ts";
 export type {
   AgentSessionEngine,
   AgentSessionEngineIdentity,

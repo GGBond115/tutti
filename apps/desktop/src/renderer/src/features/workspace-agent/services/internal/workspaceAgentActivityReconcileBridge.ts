@@ -5,10 +5,10 @@ import {
   type SessionDetailSnapshotReceivedIntent
 } from "@tutti-os/agent-activity-core";
 import {
+  analyzeAgentActivityEventObservation,
   agentActivitySessionMessageWindowFromDescendingPage,
   createAgentActivitySnapshotProjector,
   parseAgentActivityMessageDeltaEvent,
-  parseInlineActivityMessages,
   selectEngineSession
 } from "@tutti-os/agent-activity-core";
 import type { WorkspaceAgentActivityEnsureSessionSynchronizedInput } from "../workspaceAgentActivityService.interface.ts";
@@ -21,19 +21,13 @@ import {
   reconcileAfterVersion,
   stringifyError
 } from "./workspaceAgentActivityDiagnostics.ts";
-import {
-  agentActivitySessionFromTuttidSession,
-  agentActivityTurnFromTuttidTurn
-} from "../desktopAgentActivityAdapter.ts";
-import {
-  analyzeInlineMessageVersionContinuity,
-  reconcileAgentSessionMessagePages
-} from "./workspaceAgentActivityReconcileMessages.ts";
+import { agentActivitySessionDetailFromTuttid } from "../desktopAgentActivityAdapter.ts";
+import { reconcileAgentSessionMessagePages } from "./workspaceAgentActivityReconcileMessages.ts";
 import type {
-  AgentActivitySessionDetail,
   WorkspaceAgentActivityBridgeEvent,
   WorkspaceAgentActivityReconcileDependencies
 } from "./workspaceAgentActivityReconcileTypes.ts";
+import type { AgentActivitySessionDetailSnapshot } from "@tutti-os/agent-activity-tuttid-adapter";
 import { WorkspaceAgentComposerOptionsInvalidationCoordinator } from "./workspaceAgentComposerOptionsInvalidationCoordinator.ts";
 import { WorkspaceAgentActivityOptimisticProjection } from "./workspaceAgentActivityOptimisticProjection.ts";
 
@@ -226,7 +220,7 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
     workspaceId: string,
     agentSessionId: string,
     source: string
-  ): Promise<AgentActivitySessionDetail> {
+  ): Promise<AgentActivitySessionDetailSnapshot> {
     const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
     this.reportReconcileTrace({
       agentSessionId,
@@ -238,25 +232,24 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
         normalizedWorkspaceId,
         agentSessionId
       );
-    const activitySession = agentActivitySessionFromTuttidSession(
+    const mapped = agentActivitySessionDetailFromTuttid(
       normalizedWorkspaceId,
-      detail.session
+      detail
     );
-    const childSessions = detail.childSessions.map((session) =>
-      agentActivitySessionFromTuttidSession(normalizedWorkspaceId, session)
-    );
-    const turns = detail.turns.map(agentActivityTurnFromTuttidTurn);
     this.reportReconcileTrace({
       agentSessionId,
       traceEvent: `${source}.resolved`,
       workspaceId: normalizedWorkspaceId,
       fields: {
-        incomingSession:
-          agentActivitySessionReconcileDiagnosticDetails(activitySession),
-        childSessionIds: childSessions.map((session) => session.agentSessionId)
+        incomingSession: agentActivitySessionReconcileDiagnosticDetails(
+          mapped.session
+        ),
+        childSessionIds: mapped.childSessions.map(
+          (session) => session.agentSessionId
+        )
       }
     });
-    return { session: activitySession, childSessions, turns };
+    return mapped;
   }
 
   protected upsertAuthoritativeSession(
@@ -272,7 +265,7 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
   }
 
   protected upsertAuthoritativeSessionDetail(
-    detail: AgentActivitySessionDetail,
+    detail: AgentActivitySessionDetailSnapshot,
     source: string,
     options: Pick<
       SessionDetailSnapshotReceivedIntent,
@@ -600,15 +593,15 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
     }
     if (this.isSessionTombstoned(workspaceId, agentSessionId)) return;
     if (input.eventType === "session_reconcile_required") {
-      this.entry(workspaceId).engine.dispatch({
-        agentSessionId,
-        eventType: input.eventType,
-        hasCachedSession: this.hasCachedSession(workspaceId, agentSessionId),
-        hasInlineMessages: false,
-        inlineApplied: false,
-        type: "session/activityObserved",
-        workspaceId
+      const observation = analyzeAgentActivityEventObservation({
+        cachedMessages:
+          this.activitySnapshot(workspaceId).sessionMessagesById[
+            agentSessionId
+          ] ?? [],
+        event: input,
+        hasCachedSession: this.hasCachedSession(workspaceId, agentSessionId)
       });
+      this.entry(workspaceId).engine.dispatch(observation.intent);
       return;
     }
     if (input.eventType === "state_patch") {
@@ -656,35 +649,33 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
       return;
     }
     const hasCachedSession = this.hasCachedSession(workspaceId, agentSessionId);
-    const messages = parseInlineActivityMessages(input);
     const cachedMessages =
       this.activitySnapshot(workspaceId).sessionMessagesById[agentSessionId] ??
       [];
-    const inlineContinuity = analyzeInlineMessageVersionContinuity(
+    const observation = analyzeAgentActivityEventObservation({
       cachedMessages,
-      messages
-    );
-    const canApplyInlineMessages =
-      messages.length > 0 && inlineContinuity.continuous;
-    if (canApplyInlineMessages) {
+      event: input,
+      hasCachedSession
+    });
+    if (observation.canApplyInlineMessages) {
       this.entry(workspaceId).engine.dispatch(
         {
-          messages,
+          messages: observation.inlineMessages,
           type: "message/snapshotReceived",
           workspaceId
         },
         { batch: true }
       );
-      for (const message of messages) {
+      for (const message of observation.inlineMessages) {
         this.emitSessionEvent(workspaceId, hostMessageEventFromCore(message));
       }
       this.reconcileOptimisticMessages(workspaceId, agentSessionId);
-    } else if (messages.length > 0) {
+    } else if (observation.inlineMessages.length > 0) {
       this.reportReconcileTrace({
         agentSessionId,
         traceEvent: "realtime.message_version_gap_detected",
         workspaceId,
-        fields: { ...inlineContinuity }
+        fields: { ...observation.inlineContinuity }
       });
     }
     if (
@@ -693,16 +684,7 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
     ) {
       this.markNextReconcileLive(workspaceId, agentSessionId);
     }
-    const inlineApplied = hasCachedSession && canApplyInlineMessages;
-    this.entry(workspaceId).engine.dispatch({
-      agentSessionId,
-      eventType: input.eventType,
-      hasCachedSession,
-      hasInlineMessages: messages.length > 0,
-      inlineApplied,
-      type: "session/activityObserved",
-      workspaceId
-    });
+    this.entry(workspaceId).engine.dispatch(observation.intent);
     if (input.eventType === "turn_update") {
       this.emitSessionEvent(workspaceId, {
         data: input.data,

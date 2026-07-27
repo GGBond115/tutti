@@ -1,12 +1,12 @@
 # @tutti-os/agent-activity-core
 
-Shared agent activity state, merge rules, and selectors for Tutti agent UIs.
+Shared agent activity state, orchestration rules, merge rules, and selectors for
+Tutti agent UIs.
 
-This package owns the frontend-side session snapshot model used by surfaces such
-as `@tutti-os/agent-gui` and the future message center. It does not know about
-Electron, HTTP, SSE, or daemon DTOs. Product-specific code provides an
-`AgentActivityAdapter`; the controller turns that adapter into a stable in-memory
-snapshot.
+This package owns the frontend-side workspace engine and activity snapshot model
+used by Desktop and Mobile surfaces. It does not know about Electron, React
+Native, HTTP, SSE, DeviceLink, or daemon DTOs. Product-specific adapters execute
+transport commands and normalize observations before they enter the engine.
 
 ## Package Boundary
 
@@ -17,13 +17,17 @@ snapshot.
 - can retain live session event streams with reference-counted subscription
   lifecycle when a host adapter exposes that optional capability
 - merges persisted and live messages with version-aware conflict handling
+- analyzes normalized activity events into one inline-observation intent plus
+  an explicit authoritative-reconcile requirement
+- executes the shared prompt command sequence, including required settings
+  persistence before send
 - exposes selectors such as `selectNeedsAttentionCount`
 
 It intentionally does not render UI, open network connections directly, persist
 state, or translate daemon/backend contracts. Those responsibilities belong to a
 host adapter such as the desktop renderer adapter.
 
-## Session Engine (skeleton)
+## Session Engine
 
 `createAgentSessionEngine` is the workspace-level orchestration loop described
 in `docs/architecture/agent-gui-refactor-plan.md` (section 3.3). It is
@@ -60,9 +64,10 @@ Engine rules:
   surfaces subscribe through the single `useEngineSelector` binding in
   `@tutti-os/agent-gui`.
 
-The current state tree carries only the skeleton `engineRuntime` domain;
-business domains (turn lifecycle, queue send, optimistic intents) land as
-sibling reducers in later refactor slices.
+The state tree includes lifecycle entities, message windows, prompt queue,
+pending intents, composer options, runtime availability, reconciliation, and
+attention/read state. Hosts must consume selectors or stable snapshot
+projections instead of reading reducer maps from UI components.
 
 ## Adapter Contract
 
@@ -227,6 +232,24 @@ additionally accepts:
 
 Events with a different `workspaceId` are ignored. Unknown event types are
 ignored.
+
+Hosts use `analyzeAgentActivityEventObservation` after transport normalization.
+It returns inline messages, their version continuity, and the single
+`session/activityObserved` intent that drives Engine reconciliation. Desktop
+receives the full canonical event union. The paired-device live protocol carries
+only delta, Turn, Interaction, and audit variants; tuttid converts canonical-only
+message, deletion, and reconcile-required events into scoped discontinuities so
+Mobile performs an authoritative read instead of inventing a second event model.
+
+## Prompt Command Execution
+
+`executeAgentActivityPromptCommand` is the shared command-port helper for an
+Engine `queue/sendPrompt` command. When the command includes a required settings
+patch, the helper waits for that exact settings write before sending the prompt.
+If the write fails, it does not send. It preserves capability references,
+structured content, display prompt, guidance mode, and submit diagnostics
+without interpreting provider policy. Activation, transport DTO mapping, retry,
+and command-result dispatch remain host responsibilities.
 
 ## Message Merge Rules
 
