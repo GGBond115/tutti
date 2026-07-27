@@ -220,11 +220,14 @@ describe("AgentMessageMermaid", () => {
     expect(viewer).toHaveFocus();
 
     const stage = screen.getByTestId("agent-mermaid-viewer-stage");
-    fireEvent.wheel(stage, {
-      clientX: 300,
-      clientY: 200,
-      deltaY: -100
-    });
+    expect(
+      fireEvent.wheel(stage, {
+        cancelable: true,
+        clientX: 300,
+        clientY: 200,
+        deltaY: -100
+      })
+    ).toBe(false);
     await waitFor(() => {
       expect(screen.getByRole("status")).toHaveTextContent("115%");
     });

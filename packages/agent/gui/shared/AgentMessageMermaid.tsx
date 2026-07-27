@@ -5,7 +5,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
-  type WheelEvent as ReactWheelEvent,
   useCallback,
   useRef,
   useState
@@ -329,11 +328,18 @@ class MermaidViewerLifecycle extends Component<{
   onSpaceDown: () => void;
   onSpaceUp: () => void;
   onUnmount: () => void;
+  onWheel: (event: WheelEvent) => void;
+  wheelTargetRef: RefObject<HTMLElement | null>;
 }> {
   componentDidMount(): void {
     window.addEventListener("keydown", this.handleKeyDown, true);
     window.addEventListener("keyup", this.handleKeyUp, true);
     window.addEventListener("blur", this.handleWindowBlur);
+    this.props.wheelTargetRef.current?.addEventListener(
+      "wheel",
+      this.handleWheel,
+      { passive: false }
+    );
     this.props.focusTargetRef.current?.focus();
   }
 
@@ -341,6 +347,10 @@ class MermaidViewerLifecycle extends Component<{
     window.removeEventListener("keydown", this.handleKeyDown, true);
     window.removeEventListener("keyup", this.handleKeyUp, true);
     window.removeEventListener("blur", this.handleWindowBlur);
+    this.props.wheelTargetRef.current?.removeEventListener(
+      "wheel",
+      this.handleWheel
+    );
     this.props.onUnmount();
   }
 
@@ -368,6 +378,10 @@ class MermaidViewerLifecycle extends Component<{
 
   private handleWindowBlur = (): void => {
     this.props.onSpaceUp();
+  };
+
+  private handleWheel = (event: WheelEvent): void => {
+    this.props.onWheel(event);
   };
 
   render(): ReactNode {
@@ -459,7 +473,7 @@ function MermaidViewer({
     );
   };
 
-  const handleWheel = (event: ReactWheelEvent<HTMLDivElement>): void => {
+  const handleWheel = (event: WheelEvent): void => {
     event.preventDefault();
     event.stopPropagation();
     if (event.deltaY === 0) {
@@ -524,6 +538,8 @@ function MermaidViewer({
       onSpaceDown={() => setIsSpacePressed(true)}
       onSpaceUp={releaseSpace}
       onUnmount={cancelPendingViewCommit}
+      onWheel={handleWheel}
+      wheelTargetRef={rootRef}
     >
       <div
         ref={rootRef}
@@ -553,7 +569,6 @@ function MermaidViewer({
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={stopDragging}
-          onWheel={handleWheel}
         >
           <div
             className="agent-mermaid-viewer__canvas"
@@ -566,10 +581,7 @@ function MermaidViewer({
         <div className="agent-mermaid-viewer__hint">
           {t("agentHost.agentGui.mermaidPanHint")}
         </div>
-        <div
-          className="tsh-zoom-dialog__zoom-controls agent-mermaid-viewer__zoom-controls"
-          onWheel={handleWheel}
-        >
+        <div className="tsh-zoom-dialog__zoom-controls agent-mermaid-viewer__zoom-controls">
           <button
             type="button"
             aria-label={t("agentHost.agentGui.mermaidZoomOut")}
@@ -668,7 +680,9 @@ export function sanitizeMermaidSvg(svg: string): string {
   );
 }
 
-function resolveWheelZoomDelta(event: ReactWheelEvent<HTMLElement>): number {
+function resolveWheelZoomDelta(
+  event: Pick<WheelEvent, "ctrlKey" | "deltaMode" | "deltaY">
+): number {
   return (
     -event.deltaY *
     (event.deltaMode === 1 ? 0.05 : event.deltaMode ? 1 : 0.002) *
