@@ -133,7 +133,28 @@ describe("Avatar", () => {
     );
     expect(image).toHaveAttribute("alt", "");
     expect(image).toHaveClass("object-contain");
+    expect(image).toHaveAttribute("referrerpolicy", "no-referrer");
     expect(onLoad).toHaveBeenCalledOnce();
+  });
+
+  it("allows callers to override the default referrer policy", () => {
+    render(
+      <Avatar
+        imageProps={{
+          "data-testid": "avatar-image",
+          referrerPolicy: "origin"
+        }}
+        label="Jun Sun"
+        src="https://example.test/avatar.png"
+      />
+    );
+
+    finishPreload("loaded");
+
+    expect(screen.getByTestId("avatar-image")).toHaveAttribute(
+      "referrerpolicy",
+      "origin"
+    );
   });
 
   it("falls back to the requested initial when an image fails", () => {

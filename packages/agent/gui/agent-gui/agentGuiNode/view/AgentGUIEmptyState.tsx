@@ -50,6 +50,7 @@ import {
   projectAgentGUIAgentTargetName
 } from "./AgentGUIAgentTargetName";
 import styles from "../AgentGUINode.styles";
+import { AgentGUIOwnerAvatar } from "../AgentGUIOwnerAvatar";
 
 export interface AgentGUIProviderIconPresentation {
   iconUrl: string;
@@ -588,14 +589,12 @@ function AgentGUIAgentAvatarVisual({
         src={presentation.iconUrl}
       />
       {presentation.badge?.iconUrl ? (
-        <span className={styles.agentAvatarBadge}>
-          <img
-            alt=""
-            className={styles.agentAvatarBadgeImage}
-            draggable={false}
-            src={presentation.badge.iconUrl}
-          />
-        </span>
+        <AgentGUIOwnerAvatar
+          className={styles.agentAvatarBadge}
+          iconUrl={presentation.badge.iconUrl}
+          imageClassName={styles.agentAvatarBadgeImage}
+          label={presentation.badge.label}
+        />
       ) : null}
     </span>
   );

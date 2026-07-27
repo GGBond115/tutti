@@ -15,8 +15,10 @@ URL:
 <Avatar label={user.displayName} size={40} src={user.avatarUrl} />
 ```
 
-By default, `Avatar` requests `src` unchanged. Pass `transform` when the caller
-knows that the URL supports image-delivery query parameters:
+By default, `Avatar` requests `src` unchanged and uses
+`referrerPolicy="no-referrer"`. Callers may override the referrer policy through
+`imageProps` when the source contract requires it. Pass `transform` when the
+caller knows that the URL supports image-delivery query parameters:
 
 ```tsx
 <Avatar

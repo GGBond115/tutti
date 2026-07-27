@@ -221,6 +221,34 @@ describe("AgentGUIProviderRail selection", () => {
       screen.getAllByRole("tab").map((tab) => tab.getAttribute("aria-label"))
     ).toEqual(["All agents", "Cursor", "Codex", "Claude"]);
   });
+
+  it("renders a shared owner badge through the Avatar primitive", () => {
+    render(
+      providerRail(
+        providerRailProps({
+          agentTargets: [
+            target({
+              agentTargetId: "agent:shared",
+              badge: {
+                iconUrl: "https://cdn.example.test/jackson.png",
+                label: "Jackson"
+              },
+              label: "Shared Codex",
+              provider: "codex",
+              targetId: "shared:codex"
+            })
+          ]
+        })
+      )
+    );
+
+    const badge = screen
+      .getByRole("tab", { name: "Shared Codex, Jackson" })
+      .querySelector('[data-agent-owner-badge="true"]');
+
+    expect(badge).not.toBeNull();
+    expect(badge?.querySelector('[data-slot="avatar"]')).not.toBeNull();
+  });
 });
 
 function mockVerticalBounds(element: HTMLElement, top: number): void {

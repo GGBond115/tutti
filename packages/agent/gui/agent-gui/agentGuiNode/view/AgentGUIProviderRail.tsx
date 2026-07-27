@@ -44,6 +44,7 @@ import betaTagAssetUrl from "../../../app/renderer/assets/icons/agent-vinyl-beta
 import styles from "../AgentGUINode.styles";
 import { AgentGUIProviderManagerDialog } from "./AgentGUIProviderManagerDialog";
 import { useAgentGUIProviderRailPreferences } from "./useAgentGUIProviderRailPreferences";
+import { AgentGUIOwnerAvatar } from "../AgentGUIOwnerAvatar";
 
 const agentGUIProviderRailCatalog = [
   ...migratedAgentGUIProviderIdentityCatalog
@@ -735,14 +736,12 @@ export const AgentGUIProviderRail = memo(function AgentGUIProviderRail({
                   )}
                 />
                 {target.badge?.iconUrl ? (
-                  <span aria-hidden="true" className={styles.agentAvatarBadge}>
-                    <img
-                      alt=""
-                      className={styles.agentAvatarBadgeImage}
-                      draggable={false}
-                      src={target.badge.iconUrl}
-                    />
-                  </span>
+                  <AgentGUIOwnerAvatar
+                    className={styles.agentAvatarBadge}
+                    iconUrl={target.badge.iconUrl}
+                    imageClassName={styles.agentAvatarBadgeImage}
+                    label={target.badge.label}
+                  />
                 ) : null}
                 {providerSelected && isBetaAgentProvider(target.provider) ? (
                   <img

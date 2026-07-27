@@ -292,6 +292,7 @@ function Avatar({
             "block size-full max-w-none object-cover",
             imageClassName
           )}
+          referrerPolicy={imageProps?.referrerPolicy ?? "no-referrer"}
           src={imageSrcForPrimitive}
           onError={(event) => {
             markImageError();

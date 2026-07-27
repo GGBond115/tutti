@@ -55,7 +55,9 @@ disabled, keyboard-focus, and overlay states.
 image loading, rendered-box-aware image transformation, broken-image fallback,
 initial or empty fallback modes, loading presentation, named or numeric sizing,
 and a caller-owned overlay slot through `children`. Sources are requested
-unchanged by default. When the caller passes `transform`, HTTP(S) sources
+unchanged with a `no-referrer` request policy by default; callers may override
+that policy through `imageProps` for a source that requires it. When the caller
+passes `transform`, HTTP(S) sources
 request a bucketed two-times-size WebP variant with `fit=inside`, while
 preserving the original query string. A failed variant retries the original
 source once. Consumers own identity resolution, directly consumable image URLs,

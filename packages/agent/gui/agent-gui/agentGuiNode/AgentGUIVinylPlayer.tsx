@@ -4,6 +4,7 @@ import { isBetaAgentProvider } from "../../shared/managedAgentProviders";
 import chassisAssetUrl from "../../app/renderer/assets/icons/agent-vinyl-player-chassis.png";
 import tonearmAssetUrl from "../../app/renderer/assets/icons/agent-vinyl-tonearm.png";
 import betaTagAssetUrl from "../../app/renderer/assets/icons/agent-vinyl-beta-tag.svg";
+import { AgentGUIOwnerAvatar } from "./AgentGUIOwnerAvatar";
 
 interface AgentGUIVinylPlayerProps {
   selectedAgent: AgentGUIAgentAvatarPresentation | null;
@@ -86,12 +87,11 @@ export function AgentGUIVinylPlayer({
         <span>◦</span>
       </div>
       {selectedAgent?.badge?.iconUrl ? (
-        <span
+        <AgentGUIOwnerAvatar
           className="agent-gui-vinyl-player__owner-badge"
-          data-agent-owner-badge="true"
-        >
-          <img src={selectedAgent.badge.iconUrl} alt="" draggable={false} />
-        </span>
+          iconUrl={selectedAgent.badge.iconUrl}
+          label={selectedAgent.badge.label}
+        />
       ) : null}
     </div>
   );
