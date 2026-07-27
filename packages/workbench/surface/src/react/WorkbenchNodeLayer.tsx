@@ -1,4 +1,4 @@
-import { Fragment, memo, useMemo } from "react";
+import { memo, useMemo, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
   selectFocusedWorkbenchNode,
@@ -21,8 +21,12 @@ import type {
 } from "./types.ts";
 import type { WorkbenchGenieController } from "./useWorkbenchGenieAnimation.tsx";
 import type { WorkbenchGenieNodeVisibility } from "./genieNodeVisibility.ts";
+import type { WorkbenchNodePresentationTransitionStore } from "./nodePresentationTransitions.ts";
 import { useWorkbenchController } from "./WorkbenchProvider.tsx";
-import { WorkbenchWindowFrame } from "./WorkbenchWindowFrame.tsx";
+import {
+  WorkbenchVisualOcclusionPresentationProvider,
+  WorkbenchWindowFrame
+} from "./WorkbenchWindowFrame.tsx";
 import { useWorkbenchSelector } from "./hooks/useWorkbenchSelector.ts";
 import { createWorkbenchNodeLayerNodeIDsSelector } from "./renderedNodeIds.ts";
 import type { WorkbenchWindowChromeI18nRuntime } from "./workbenchWindowI18n.ts";
@@ -32,6 +36,7 @@ export interface WorkbenchNodeLayerProps<TData = unknown> {
   genie: WorkbenchGenieController<TData>;
   edgeSnapEnabled?: boolean;
   interactive?: boolean;
+  nodePresentationTransitions: WorkbenchNodePresentationTransitionStore;
   presentation?: WorkbenchSurfacePresentation | null;
   renderNode: WorkbenchRenderNode<TData>;
   shouldKeepMinimizedNodeMounted?: WorkbenchKeepMinimizedNodeMounted<TData>;
@@ -51,6 +56,7 @@ export function WorkbenchNodeLayer<TData>({
   genie,
   edgeSnapEnabled = false,
   interactive = true,
+  nodePresentationTransitions,
   presentation,
   renderNode,
   shouldKeepMinimizedNodeMounted,
@@ -79,6 +85,43 @@ export function WorkbenchNodeLayer<TData>({
   const { defaultNodeIDs, dialogPopoverNodeIDs } = useWorkbenchSelector(
     selectNodeLayerNodeIDs
   );
+  const genieHiddenNodeIDs = useSyncExternalStore(
+    genie.nodeVisibility.subscribeAll,
+    genie.nodeVisibility.getHiddenNodeIDsSnapshot,
+    genie.nodeVisibility.getHiddenNodeIDsSnapshot
+  );
+  const pendingMinimizedNodeID = genie.pendingMinimizedNode?.id ?? null;
+  const visuallyHiddenNodeIDs = useMemo(() => {
+    if (
+      pendingMinimizedNodeID === null ||
+      genieHiddenNodeIDs.has(pendingMinimizedNodeID)
+    ) {
+      return genieHiddenNodeIDs;
+    }
+    return new Set([...genieHiddenNodeIDs, pendingMinimizedNodeID]);
+  }, [genieHiddenNodeIDs, pendingMinimizedNodeID]);
+  const presentationTransitionNodeIDs = useSyncExternalStore(
+    nodePresentationTransitions.subscribe,
+    nodePresentationTransitions.getSnapshot,
+    nodePresentationTransitions.getSnapshot
+  );
+  const nonOccludingNodeIDs = useMemo(() => {
+    if (presentationTransitionNodeIDs.size === 0) {
+      return visuallyHiddenNodeIDs;
+    }
+    return new Set([
+      ...visuallyHiddenNodeIDs,
+      ...presentationTransitionNodeIDs
+    ]);
+  }, [presentationTransitionNodeIDs, visuallyHiddenNodeIDs]);
+  const visualOcclusionPresentation = useMemo(
+    () => ({
+      hiddenNodeIDs: visuallyHiddenNodeIDs,
+      nonOccludingNodeIDs,
+      topLayerNodeIDs: dialogPopoverNodeIDs
+    }),
+    [dialogPopoverNodeIDs, nonOccludingNodeIDs, visuallyHiddenNodeIDs]
+  );
   const snapPreviewRect = useWorkbenchSelector(selectWorkbenchSnapPreviewRect);
   const presentationInteraction =
     interactive && presentation?.mode === "mission-control"
@@ -93,6 +136,7 @@ export function WorkbenchNodeLayer<TData>({
         genieNodeVisibility={genie.nodeVisibility}
         interactive={interactive}
         minimizeNodeToAnchor={genie.minimizeNodeToAnchor}
+        nodePresentationTransitions={nodePresentationTransitions}
         nodeIDs={dialogPopoverNodeIDs}
         presentation={presentation}
         renderNode={renderNode}
@@ -106,7 +150,9 @@ export function WorkbenchNodeLayer<TData>({
     ) : null;
 
   return (
-    <Fragment>
+    <WorkbenchVisualOcclusionPresentationProvider
+      presentation={visualOcclusionPresentation}
+    >
       <MemoizedWorkbenchNodeLayerGroup
         className="workbench-node-layer"
         edgeSnapEnabled={edgeSnapEnabled}
@@ -114,6 +160,7 @@ export function WorkbenchNodeLayer<TData>({
         genieNodeVisibility={genie.nodeVisibility}
         interactive={interactive}
         minimizeNodeToAnchor={genie.minimizeNodeToAnchor}
+        nodePresentationTransitions={nodePresentationTransitions}
         nodeIDs={defaultNodeIDs}
         onBackdropPress={presentationInteraction?.onBackdropPress}
         presentation={presentation}
@@ -131,7 +178,7 @@ export function WorkbenchNodeLayer<TData>({
         : dialogPopoverLayer
           ? createPortal(dialogPopoverLayer, document.body)
           : null}
-    </Fragment>
+    </WorkbenchVisualOcclusionPresentationProvider>
   );
 }
 
@@ -142,6 +189,7 @@ interface WorkbenchNodeLayerGroupProps<TData = unknown> {
   genieNodeVisibility: WorkbenchGenieNodeVisibility;
   interactive: boolean;
   minimizeNodeToAnchor: WorkbenchGenieController<TData>["minimizeNodeToAnchor"];
+  nodePresentationTransitions: WorkbenchNodePresentationTransitionStore;
   nodeIDs: readonly string[];
   onBackdropPress?: () => void;
   presentation?: WorkbenchSurfacePresentation | null;
@@ -164,6 +212,7 @@ function WorkbenchNodeLayerGroup<TData>({
   genieNodeVisibility,
   interactive,
   minimizeNodeToAnchor,
+  nodePresentationTransitions,
   nodeIDs,
   onBackdropPress,
   presentation,
@@ -210,6 +259,7 @@ function WorkbenchNodeLayerGroup<TData>({
           edgeSnapEnabled={edgeSnapEnabled}
           interactive={interactive}
           minimizeNodeToAnchor={minimizeNodeToAnchor}
+          nodePresentationTransitions={nodePresentationTransitions}
           nodeID={nodeID}
           presentation={presentation}
           renderNode={renderNode}
@@ -235,6 +285,7 @@ interface WorkbenchNodeLayerItemProps<TData = unknown> {
   edgeSnapEnabled: boolean;
   interactive: boolean;
   minimizeNodeToAnchor: WorkbenchGenieController<TData>["minimizeNodeToAnchor"];
+  nodePresentationTransitions: WorkbenchNodePresentationTransitionStore;
   nodeID: string;
   presentation?: WorkbenchSurfacePresentation | null;
   renderNode: WorkbenchRenderNode<TData>;
@@ -254,6 +305,7 @@ function WorkbenchNodeLayerItem<TData>({
   edgeSnapEnabled,
   interactive,
   minimizeNodeToAnchor,
+  nodePresentationTransitions,
   nodeID,
   presentation,
   renderNode,
@@ -294,6 +346,7 @@ function WorkbenchNodeLayerItem<TData>({
       node={node}
       genieNodeVisibility={genieNodeVisibility}
       minimizeNodeToAnchor={minimizeNodeToAnchor}
+      nodePresentationTransitions={nodePresentationTransitions}
       resolveWindowZIndex={resolveWindowZIndex}
       fullscreenHeaderMode={fullscreenHeaderMode?.({
         controller,

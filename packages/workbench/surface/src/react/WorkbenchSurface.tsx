@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   type CSSProperties,
   type ReactNode
 } from "react";
@@ -47,6 +48,7 @@ import type {
   WorkbenchNodePreviewImageCapture,
   WorkbenchNodePreviewImagesCapture
 } from "./nodePreviewCapture.ts";
+import { createWorkbenchNodePresentationTransitionStore } from "./nodePresentationTransitions.ts";
 
 export interface WorkbenchSurfaceProps<TData = unknown> {
   captureNodePreviewImage?: WorkbenchNodePreviewImageCapture<TData>;
@@ -225,6 +227,10 @@ function WorkbenchSurfaceInner<TData>({
     [controller]
   );
   const ref = useWorkbenchSurfaceSize<HTMLDivElement>(onSizeChange);
+  const nodePresentationTransitions = useMemo(
+    createWorkbenchNodePresentationTransitionStore,
+    []
+  );
   const genie = useWorkbenchGenieAnimation({
     captureNodePreviewImage,
     captureNodePreviewImages,
@@ -232,11 +238,16 @@ function WorkbenchSurfaceInner<TData>({
     debugDiagnostics,
     dockPreviewCache,
     minimizeAnimation,
+    nodePresentationTransitions,
     renderNodeGeniePreview,
     resolveDockAnchorKey,
     resolveDockPreviewCacheKey,
     shouldCaptureNodePreviewImage
   });
+  useEffect(
+    () => () => nodePresentationTransitions.dispose(),
+    [nodePresentationTransitions]
+  );
   useWorkbenchShortcuts<TData>({
     enabled: (shortcutsEnabled ?? true) && interactive,
     windowManagementShortcutPreset: windowManagement?.shortcutPreset ?? null
@@ -282,6 +293,7 @@ function WorkbenchSurfaceInner<TData>({
       <WorkbenchNodeLayer
         genie={genie}
         interactive={interactive}
+        nodePresentationTransitions={nodePresentationTransitions}
         presentation={presentation}
         renderNode={renderNode}
         edgeSnapEnabled={windowManagement?.edgeSnapEnabled === true}

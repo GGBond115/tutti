@@ -37,7 +37,9 @@ import type {
 } from "./types.ts";
 import type { WorkbenchGenieController } from "./useWorkbenchGenieAnimation.tsx";
 import type { WorkbenchGenieNodeVisibility } from "./genieNodeVisibility.ts";
+import type { WorkbenchNodePresentationTransitionStore } from "./nodePresentationTransitions.ts";
 import { resolveWorkbenchWindowHeader } from "./windowHeader.ts";
+import type { WorkbenchVisualOcclusionPresentation } from "../core/visualOcclusion.ts";
 
 export interface WorkbenchWindowFrameProps<TData = unknown> {
   children: ReactNode;
@@ -47,6 +49,7 @@ export interface WorkbenchWindowFrameProps<TData = unknown> {
   interactive?: boolean;
   minimizeNodeToAnchor: WorkbenchGenieController["minimizeNodeToAnchor"];
   node: WorkbenchNode<TData>;
+  nodePresentationTransitions: WorkbenchNodePresentationTransitionStore;
   presentation?: WorkbenchSurfacePresentation | null;
   renderActions?: WorkbenchRenderWindowActions<TData>;
   renderHeader?: WorkbenchRenderWindowHeader<TData>;
@@ -75,9 +78,37 @@ const defaultWindowChromeI18n = createWorkbenchWindowChromeI18nRuntime(
 );
 
 const WorkbenchWindowPresentationVisibilityContext = createContext(true);
+const noWorkbenchNodeIDs: ReadonlySet<string> = new Set();
+const defaultWorkbenchVisualOcclusionPresentation: WorkbenchVisualOcclusionPresentation =
+  {
+    hiddenNodeIDs: noWorkbenchNodeIDs,
+    nonOccludingNodeIDs: noWorkbenchNodeIDs,
+    topLayerNodeIDs: []
+  };
+const WorkbenchVisualOcclusionPresentationContext = createContext(
+  defaultWorkbenchVisualOcclusionPresentation
+);
 
 export function useWorkbenchWindowPresentationVisibility(): boolean {
   return useContext(WorkbenchWindowPresentationVisibilityContext);
+}
+
+export function useWorkbenchVisualOcclusionPresentation(): WorkbenchVisualOcclusionPresentation {
+  return useContext(WorkbenchVisualOcclusionPresentationContext);
+}
+
+export function WorkbenchVisualOcclusionPresentationProvider({
+  children,
+  presentation
+}: {
+  children: ReactNode;
+  presentation: WorkbenchVisualOcclusionPresentation;
+}) {
+  return (
+    <WorkbenchVisualOcclusionPresentationContext.Provider value={presentation}>
+      {children}
+    </WorkbenchVisualOcclusionPresentationContext.Provider>
+  );
 }
 
 function resolveWorkbenchNodeLaunchSource(data: unknown): string | undefined {
@@ -106,6 +137,32 @@ function resolveWorkbenchNodeTypeId(data: unknown): string | undefined {
   return undefined;
 }
 
+function workbenchFramesEqual(
+  left: WorkbenchNode["frame"],
+  right: WorkbenchNode["frame"]
+): boolean {
+  return (
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height
+  );
+}
+
+function isWorkbenchFrameTransitionProperty(propertyName: string): boolean {
+  return (
+    propertyName === "translate" ||
+    propertyName === "width" ||
+    propertyName === "height"
+  );
+}
+
+function shouldReduceWorkbenchMotion(): boolean {
+  return (
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+  );
+}
+
 export function WorkbenchWindowFrame<TData>({
   children,
   edgeSnapEnabled = false,
@@ -114,6 +171,7 @@ export function WorkbenchWindowFrame<TData>({
   interactive = true,
   minimizeNodeToAnchor: minimizeNodeToAnchorProp,
   node,
+  nodePresentationTransitions,
   presentation = null,
   renderActions,
   renderHeader,
@@ -122,6 +180,7 @@ export function WorkbenchWindowFrame<TData>({
   windowHeaderPresentation,
   windowChromeI18n
 }: WorkbenchWindowFrameProps<TData>) {
+  const shellRef = useRef<HTMLElement | null>(null);
   const controller = useWorkbenchController<TData>();
   const baseZIndex = useWorkbenchSelector((state) =>
     selectWorkbenchNodeZIndex(state, node.id)
@@ -161,6 +220,101 @@ export function WorkbenchWindowFrame<TData>({
     readGenieVisibility,
     readGenieVisibility
   );
+  const launchSource = resolveWorkbenchNodeLaunchSource(node.data);
+  const presentationMode = presentation?.mode ?? null;
+  const previousFrameRef = useRef(node.frame);
+  useLayoutEffect(() => {
+    const previousFrame = previousFrameRef.current;
+    previousFrameRef.current = node.frame;
+    if (workbenchFramesEqual(previousFrame, node.frame)) {
+      return;
+    }
+    nodePresentationTransitions.setActive(
+      node.id,
+      "frame",
+      !hiddenMounted &&
+        !isGenieHidden &&
+        !isDragging &&
+        !isResizing &&
+        presentationMode === null
+    );
+  }, [
+    hiddenMounted,
+    isDragging,
+    isGenieHidden,
+    isResizing,
+    node.frame.height,
+    node.frame.width,
+    node.frame.x,
+    node.frame.y,
+    node.id,
+    nodePresentationTransitions,
+    presentationMode
+  ]);
+  useLayoutEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) {
+      return;
+    }
+    const activeFrameProperties = new Set<string>();
+    const handleTransitionEvent = (event: TransitionEvent) => {
+      if (
+        event.target !== shell ||
+        !isWorkbenchFrameTransitionProperty(event.propertyName)
+      ) {
+        return;
+      }
+      if (event.type === "transitionrun") {
+        if (
+          shell.dataset.windowDragState !== "dragging" &&
+          shell.dataset.windowResizeState !== "resizing" &&
+          shell.dataset.presentationMode === "default"
+        ) {
+          activeFrameProperties.add(event.propertyName);
+          nodePresentationTransitions.setActive(node.id, "frame", true);
+        }
+        return;
+      }
+      activeFrameProperties.delete(event.propertyName);
+      nodePresentationTransitions.setActive(
+        node.id,
+        "frame",
+        activeFrameProperties.size > 0
+      );
+    };
+    const handleAnimationEvent = (event: AnimationEvent) => {
+      if (
+        event.animationName !== "workbench-shell-enter" ||
+        !(event.target instanceof HTMLElement) ||
+        event.target.parentElement !== shell
+      ) {
+        return;
+      }
+      nodePresentationTransitions.setActive(
+        node.id,
+        "onboarding-entry",
+        event.type === "animationstart"
+      );
+    };
+    shell.addEventListener("transitionrun", handleTransitionEvent);
+    shell.addEventListener("transitionend", handleTransitionEvent);
+    shell.addEventListener("transitioncancel", handleTransitionEvent);
+    shell.addEventListener("animationstart", handleAnimationEvent);
+    shell.addEventListener("animationend", handleAnimationEvent);
+    shell.addEventListener("animationcancel", handleAnimationEvent);
+    if (launchSource === "onboarding-auto" && !shouldReduceWorkbenchMotion()) {
+      nodePresentationTransitions.setActive(node.id, "onboarding-entry", true);
+    }
+    return () => {
+      shell.removeEventListener("transitionrun", handleTransitionEvent);
+      shell.removeEventListener("transitionend", handleTransitionEvent);
+      shell.removeEventListener("transitioncancel", handleTransitionEvent);
+      shell.removeEventListener("animationstart", handleAnimationEvent);
+      shell.removeEventListener("animationend", handleAnimationEvent);
+      shell.removeEventListener("animationcancel", handleAnimationEvent);
+      nodePresentationTransitions.clearNode(node.id);
+    };
+  }, [launchSource, node.id, nodePresentationTransitions]);
   const minimizeNodeToAnchorRef = useRef(minimizeNodeToAnchorProp);
   useLayoutEffect(() => {
     minimizeNodeToAnchorRef.current = minimizeNodeToAnchorProp;
@@ -234,7 +388,6 @@ export function WorkbenchWindowFrame<TData>({
     resolvedHeader.windowChromeMode === "custom-header";
   const resolvedFullscreenHeaderMode: WorkbenchFullscreenHeaderMode =
     "persistent";
-  const presentationMode = presentation?.mode ?? null;
   const presentationFrame = presentation?.frameByNodeId.get(node.id) ?? null;
   const isPresentationHidden =
     presentationMode === "mission-control" &&
@@ -281,12 +434,13 @@ export function WorkbenchWindowFrame<TData>({
 
   return (
     <section
+      ref={shellRef}
       aria-hidden={hiddenMounted || isPresentationHidden ? true : undefined}
       className="workbench-window-shell"
       data-focused={isFocused ? "true" : "false"}
       data-display-mode={node.displayMode}
       data-genie-state={isGenieHidden ? "hidden" : "visible"}
-      data-launch-source={resolveWorkbenchNodeLaunchSource(node.data)}
+      data-launch-source={launchSource}
       data-minimized-mount={hiddenMounted ? "hidden" : "visible"}
       data-presentation-mode={presentationMode ?? "default"}
       data-presentation-visibility={isPresentationHidden ? "hidden" : "visible"}

@@ -50,6 +50,7 @@ import type {
   WorkbenchNodePreviewImageCapture,
   WorkbenchNodePreviewImagesCapture
 } from "./nodePreviewCapture.ts";
+import type { WorkbenchNodePresentationTransitionStore } from "./nodePresentationTransitions.ts";
 import {
   resolveNativeFirstGenieTexture,
   scheduleWorkbenchGeniePostAnimationIdleTask,
@@ -728,6 +729,7 @@ export function useWorkbenchGenieAnimation<TData>({
   debugDiagnostics,
   dockPreviewCache,
   minimizeAnimation = "genie",
+  nodePresentationTransitions,
   renderNodeGeniePreview,
   resolveDockAnchorKey,
   resolveDockPreviewCacheKey,
@@ -739,6 +741,7 @@ export function useWorkbenchGenieAnimation<TData>({
   debugDiagnostics?: WorkbenchDebugDiagnostics;
   dockPreviewCache?: WorkbenchDockPreviewCache;
   minimizeAnimation?: WorkbenchMinimizeAnimation;
+  nodePresentationTransitions: WorkbenchNodePresentationTransitionStore;
   renderNodeGeniePreview?: WorkbenchNodeGeniePreviewRenderer<TData>;
   resolveDockAnchorKey?: (node: WorkbenchNode<TData>) => string;
   resolveDockPreviewCacheKey?: WorkbenchDockPreviewCacheKeyResolver<TData>;
@@ -1345,6 +1348,7 @@ export function useWorkbenchGenieAnimation<TData>({
           return;
         }
         flushSync(() => {
+          nodePresentationTransitions.setActive(nodeID, "scale-restore", true);
           showNodeForGenie(nodeID);
         });
         runScaleWindowAnimation({
@@ -1354,12 +1358,22 @@ export function useWorkbenchGenieAnimation<TData>({
           onCancel: () => {
             flushSync(() => {
               showNodeForGenie(nodeID);
+              nodePresentationTransitions.setActive(
+                nodeID,
+                "scale-restore",
+                false
+              );
             });
             clearMinimizedGenieTexture(nodeID);
           },
           onComplete: () => {
             flushSync(() => {
               showNodeForGenie(nodeID);
+              nodePresentationTransitions.setActive(
+                nodeID,
+                "scale-restore",
+                false
+              );
             });
             clearMinimizedGenieTexture(nodeID);
           }
@@ -1446,6 +1460,7 @@ export function useWorkbenchGenieAnimation<TData>({
       clearCanvas,
       clearMinimizedGenieTexture,
       minimizeAnimation,
+      nodePresentationTransitions,
       readMinimizedGenieTexture,
       requestRenderedGeniePreviewTexture,
       resolveDockAnchorRect,

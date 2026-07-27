@@ -991,6 +991,70 @@ describe("useAgentGUIDetailScroll", () => {
     ).toBe(false);
   });
 
+  it("disconnects layout observation while fully occluded and catches up when exposed", () => {
+    const resizeObservers = installResizeObserverMock();
+    const harness = createHarness({ scrollHeight: 5_000 });
+    const { rerender } = renderHook(
+      ({ conversation, isVisible }) =>
+        useAgentGUIDetailScroll(
+          harness.input({
+            activeConversationId: "conversation-visibility",
+            conversation,
+            isVisible,
+            showTimelineSkeleton: false
+          })
+        ),
+      {
+        initialProps: {
+          conversation: conversationVM("initial"),
+          isVisible: true
+        }
+      }
+    );
+    const visibleDockObserver = resizeObservers.find((observer) =>
+      observer.observed.has(harness.bottomDock)
+    );
+    const visibleTimelineObserver = resizeObservers.find((observer) =>
+      observer.observed.has(harness.timelineContent)
+    );
+    expect(visibleDockObserver).toBeDefined();
+    expect(visibleTimelineObserver).toBeDefined();
+
+    rerender({ conversation: conversationVM("hidden"), isVisible: false });
+
+    expect(visibleDockObserver?.observed.size).toBe(0);
+    expect(visibleTimelineObserver?.observed.size).toBe(0);
+    harness.resetGeometryReadCounts();
+    harness.resetScrollTopWriteCount();
+    harness.setScrollHeight(8_000);
+    rerender({ conversation: conversationVM("streaming"), isVisible: false });
+    expect(harness.geometryReadCounts()).toEqual({
+      clientHeight: 0,
+      scrollHeight: 0,
+      scrollTop: 0
+    });
+    expect(harness.scrollTopWriteCount()).toBe(0);
+
+    rerender({ conversation: conversationVM("streaming"), isVisible: true });
+
+    const resumedTimelineObserver = resizeObservers.find(
+      (observer) =>
+        observer !== visibleTimelineObserver &&
+        observer.observed.has(harness.timelineContent)
+    );
+    expect(resumedTimelineObserver).toBeDefined();
+    act(() => {
+      resumedTimelineObserver?.callback([], resumedTimelineObserver);
+    });
+    expect(harness.timeline.scrollTop).toBe(7_900);
+    expect(harness.geometryReadCounts()).toEqual({
+      clientHeight: 1,
+      scrollHeight: 1,
+      scrollTop: 2
+    });
+    expect(harness.scrollTopWriteCount()).toBe(1);
+  });
+
   it("remeasures dock safe-area after store and ResizeObserver invalidation", () => {
     const resizeObservers = installResizeObserverMock();
     const harness = createHarness({ scrollHeight: 5_000 });
