@@ -95,6 +95,31 @@ describe("useAgentGUIDetailScroll", () => {
     expect(harness.scrollTopWriteCount()).toBe(0);
   });
 
+  it("returns a fast recovered conversation to the end when virtualization appears", () => {
+    const harness = createHarness({ scrollHeight: 100 });
+    const { rerender } = renderHook(
+      ({ conversation }) =>
+        useAgentGUIDetailScroll(
+          harness.input({
+            activeConversationId: "conversation-recovered",
+            conversation,
+            showTimelineSkeleton: false
+          })
+        ),
+      {
+        initialProps: {
+          conversation: undefined as AgentConversationVM | undefined
+        }
+      }
+    );
+    const controller = virtualScrollController("conversation-recovered", false);
+    harness.virtualScrollControllerRef.current = controller;
+
+    rerender({ conversation: conversationVM("recovered") });
+
+    expect(controller.scrollToEnd).toHaveBeenCalledWith({ behavior: "auto" });
+  });
+
   it("does not use a previous Session virtual controller", () => {
     const harness = createHarness({ scrollHeight: 5_000 });
     const staleController = virtualScrollController("conversation-previous");

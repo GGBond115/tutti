@@ -78,6 +78,7 @@ export function useAgentGUIDetailScroll(input: Input) {
   const userScrollAwayIntentConversationRef = useRef<string | null>(null);
   const lastShowTimelineSkeletonRef = useRef(showTimelineSkeleton);
   const bottomDockSafeAreaRef = useRef<BottomDockSafeArea | null>(null);
+  const virtualScrollOwnerConversationRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     const timelineSkeletonChanged =
       lastShowTimelineSkeletonRef.current !== showTimelineSkeleton;
@@ -94,12 +95,14 @@ export function useAgentGUIDetailScroll(input: Input) {
       pointerScrollConversationRef.current = null;
       submittedPromptScrollConversationRef.current = null;
       userScrollAwayIntentConversationRef.current = null;
+      virtualScrollOwnerConversationRef.current = null;
       setIsTimelineScrolledToTop(true);
       setIsTimelineScrolledToBottom(true);
       return;
     }
     if (activeConversationId !== viewModel.rail.activeConversationId) {
       bottomLockOwnerRef.current = null;
+      virtualScrollOwnerConversationRef.current = null;
       return;
     }
     if (
@@ -109,9 +112,20 @@ export function useAgentGUIDetailScroll(input: Input) {
       )
     ) {
       bottomLockOwnerRef.current = null;
+      virtualScrollOwnerConversationRef.current = null;
       return;
     }
 
+    const virtualScrollController = matchingVirtualScrollController(
+      virtualScrollControllerRef,
+      activeConversationId
+    );
+    const virtualScrollOwnershipStarted =
+      virtualScrollController !== null &&
+      virtualScrollOwnerConversationRef.current !== activeConversationId;
+    if (!virtualScrollController) {
+      virtualScrollOwnerConversationRef.current = null;
+    }
     const anchor = timelineScrollAnchorRef.current;
     const prependAnchor = pendingPrependScrollAnchorRef.current;
     const shouldScrollSubmittedPromptToBottom =
@@ -140,16 +154,21 @@ export function useAgentGUIDetailScroll(input: Input) {
       !conversationChanged &&
       !shouldScrollSubmittedPromptToBottom &&
       !shouldRestorePrependAnchor &&
-      !timelineSkeletonChanged
+      !timelineSkeletonChanged &&
+      !virtualScrollOwnershipStarted
     ) {
       return;
     }
-    const virtualScrollController = matchingVirtualScrollController(
-      virtualScrollControllerRef,
-      activeConversationId
-    );
     if (virtualScrollController) {
-      if (conversationChanged || shouldScrollSubmittedPromptToBottom) {
+      virtualScrollOwnerConversationRef.current = activeConversationId;
+      const shouldRestoreVirtualEnd =
+        virtualScrollOwnershipStarted &&
+        bottomLockOwnerRef.current === activeConversationId;
+      if (
+        conversationChanged ||
+        shouldScrollSubmittedPromptToBottom ||
+        shouldRestoreVirtualEnd
+      ) {
         bottomLockOwnerRef.current = activeConversationId;
         pointerScrollConversationRef.current = null;
         userScrollAwayIntentConversationRef.current = null;
