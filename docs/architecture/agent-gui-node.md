@@ -774,6 +774,21 @@ The editor recognizes stale controlled echoes from that transition so an older
 projection cannot overwrite newer local input; a value not emitted locally
 remains an authoritative external replacement.
 
+An existing-Session composer derives input history from that Session's
+canonical user-message projection; it does not persist a second history store.
+The host must opt in explicitly; Desktop maps the default-off
+`lab.agentInputHistory` Lab preference to that capability.
+Bare Up/Down recalls older/newer structured drafts only from an empty composer
+or an unchanged recalled entry, and only when the collapsed caret is at a
+whole-document boundary. Palette handling and IME composition take precedence,
+while editing a recalled draft exits history navigation. Moving past the newest
+entry clears the composer. Adjacent equivalent submissions collapse, persisted
+attachments are restored with exact workspace and Session identity, and
+reaching the oldest loaded entry requests the existing authoritative older-page
+read while preserving the timeline prepend scroll anchor. The history cursor
+is UI-local and resets when the draft Session scope changes; Home has no
+Session history.
+
 The dock observes geometry through one coalesced animation-frame measurement
 entry point. Editor document updates, attachment membership or intrinsic
 attachment size changes, and changes to the stable input-shell width may

@@ -108,6 +108,7 @@ interface Props {
   onClearTuttiMode: () => void;
   onTuttiModeOrchestrationIntensityChange: (value: number) => void;
   isPromptTipOverflowing: boolean;
+  onHistoryNavigation: (direction: "older" | "newer") => boolean;
 }
 
 export function AgentComposerView(input: Props): React.JSX.Element {
@@ -415,6 +416,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
                     availableCapabilities={availableCapabilities}
                     removeMentionLabel={labels.removeMention}
                     onKeyDownForPalette={handlePaletteKeyDown}
+                    onHistoryNavigation={input.onHistoryNavigation}
                     onFileMentionSuggestionChange={
                       handleFileMentionSuggestionChange
                     }

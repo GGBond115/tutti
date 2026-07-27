@@ -516,6 +516,7 @@ export type AgentGUIConversationRailLabels = Pick<
 export interface AgentGUINodeViewProps {
   viewModel: AgentGUINodeViewModel;
   referenceProvenanceFilters?: AgentComposerReferenceProvenanceFilters | null;
+  sessionInputHistoryEnabled?: boolean;
   renderProjectDirectoryPickerHeaderActions?: ReferenceSourcePickerProps["renderHeaderActions"];
   renderSidebarFooter?: AgentGUISidebarFooterRenderer;
   /** Renders the provider rail empty state in "exact" mode. See the type doc. */

@@ -22,6 +22,7 @@ export type DesktopAgentGUIHostProps = {
   hostCapabilities: Pick<
     AgentGUIProps["hostCapabilities"],
     | "referenceProvenanceFilterEnabled"
+    | "sessionInputHistoryEnabled"
     | "capabilityMenuState"
     | "visibleErrorPresentationOverrides"
     | "comingSoonProviders"
@@ -95,6 +96,8 @@ export function useStableDesktopAgentGUIHostProps({
     hostCapabilities: {
       referenceProvenanceFilterEnabled:
         nextHostCapabilities.referenceProvenanceFilterEnabled,
+      sessionInputHistoryEnabled:
+        nextHostCapabilities.sessionInputHistoryEnabled,
       capabilityMenuState: nextHostCapabilities.capabilityMenuState,
       visibleErrorPresentationOverrides:
         nextHostCapabilities.visibleErrorPresentationOverrides,

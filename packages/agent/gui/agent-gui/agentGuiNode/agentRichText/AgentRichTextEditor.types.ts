@@ -28,6 +28,7 @@ export interface AgentRichTextEditorProps {
   submitOnEnter?: boolean;
   enableFileMentionSuggestions?: boolean;
   onKeyDownForPalette?: (event: KeyboardEvent) => boolean;
+  onHistoryNavigation?: (direction: "older" | "newer") => boolean;
   onFileMentionSuggestionChange?: (
     state: AgentFileMentionSuggestionState | null
   ) => void;

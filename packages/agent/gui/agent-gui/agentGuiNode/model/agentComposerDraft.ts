@@ -410,7 +410,8 @@ export function agentPromptContentToComposerDraft(
 ): AgentComposerDraft {
   const normalizedContent = normalizeAgentPromptContentBlocks(content);
   const largeTexts = agentPromptPastedTextBlocks(normalizedContent).map(
-    (block) => agentPromptPastedTextBlockToDraftLargeText(block)
+    (block, index) =>
+      agentPromptPastedTextBlockToDraftLargeText(block, idPrefix, index)
   );
   const files = agentPromptFileBlocks(normalizedContent).map((file, index) =>
     agentPreparedPromptFileToDraftFile(file, idPrefix, index)
@@ -428,10 +429,12 @@ export function agentPromptContentToComposerDraft(
 }
 
 function agentPromptPastedTextBlockToDraftLargeText(
-  block: AgentPromptContentBlock & { type: "file" }
+  block: AgentPromptContentBlock & { type: "file" },
+  idPrefix: string,
+  index: number
 ): AgentComposerDraftLargeText {
   return {
-    id: crypto.randomUUID(),
+    id: `${idPrefix}:pasted-text:${index}`,
     name: block.name?.trim() || "pasted-text.txt",
     text: "",
     ...(block.path ? { path: block.path } : {}),

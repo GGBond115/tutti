@@ -63,6 +63,7 @@ import {
   recordAgentRichTextLocalEdit,
   shouldApplyAgentRichTextControlledValue
 } from "./agentRichTextControlledValue";
+import { createAgentRichTextMentionSuggestionSuppression } from "./agentRichTextMentionSuggestionSuppression";
 
 export type {
   AgentRichTextEditorHandle,
@@ -91,6 +92,7 @@ export const AgentRichTextEditor = forwardRef<
     submitOnEnter = true,
     enableFileMentionSuggestions = true,
     onKeyDownForPalette,
+    onHistoryNavigation,
     onFileMentionSuggestionChange,
     onFileMentionSuggestionKeyDown,
     onLinkClick,
@@ -118,6 +120,7 @@ export const AgentRichTextEditor = forwardRef<
   const onSubmitRef = useRef(onSubmit);
   const onSubmitGuidanceRef = useRef(onSubmitGuidance);
   const onKeyDownForPaletteRef = useRef(onKeyDownForPalette);
+  const onHistoryNavigationRef = useRef(onHistoryNavigation);
   const onFileMentionSuggestionChangeRef = useRef(
     onFileMentionSuggestionChange
   );
@@ -135,7 +138,9 @@ export const AgentRichTextEditor = forwardRef<
   const removeMentionLabelRef = useRef(removeMentionLabel);
   const availableSkillsRef = useRef(availableSkills);
   const availableCapabilitiesRef = useRef(availableCapabilities);
-  const suppressPastedAtSuggestionRef = useRef(false);
+  const [mentionSuggestionSuppression] = useState(() =>
+    createAgentRichTextMentionSuggestionSuppression(value)
+  );
   const scrollFrameRef = useRef<number | null>(null);
   const [contextMenu, setContextMenu] =
     useState<AgentRichTextContextMenuState | null>(null);
@@ -153,11 +158,7 @@ export const AgentRichTextEditor = forwardRef<
       onPasteLargeTextRef.current(text);
       return;
     }
-    suppressPastedAtSuggestionRef.current =
-      text.includes("@") && !text.endsWith("@");
-    if (suppressPastedAtSuggestionRef.current) {
-      releasePastedAtSuggestionSuppression(suppressPastedAtSuggestionRef);
-    }
+    mentionSuggestionSuppression.suppressTextInsertion(text);
     currentEditor
       .chain()
       .focus()
@@ -262,7 +263,7 @@ export const AgentRichTextEditor = forwardRef<
           onSuggestionKeyDown: (event) =>
             onFileMentionSuggestionKeyDownRef.current?.(event) ?? false,
           removeActionAriaLabel: removeMentionLabelRef.current,
-          shouldSuppressSuggestion: () => suppressPastedAtSuggestionRef.current
+          shouldSuppressSuggestion: mentionSuggestionSuppression.isSuppressed
         },
         { skills: availableSkillsRef.current },
         { capabilities: availableCapabilitiesRef.current }
@@ -280,6 +281,7 @@ export const AgentRichTextEditor = forwardRef<
   onSubmitRef.current = onSubmit;
   onSubmitGuidanceRef.current = onSubmitGuidance;
   onKeyDownForPaletteRef.current = onKeyDownForPalette;
+  onHistoryNavigationRef.current = onHistoryNavigation;
   onFileMentionSuggestionChangeRef.current = onFileMentionSuggestionChange;
   onFileMentionSuggestionKeyDownRef.current = onFileMentionSuggestionKeyDown;
   onLinkClickRef.current = onLinkClick;
@@ -454,11 +456,7 @@ export const AgentRichTextEditor = forwardRef<
               currentEditor.state.doc.content.size
             );
           }
-          suppressPastedAtSuggestionRef.current =
-            text.includes("@") && !text.endsWith("@");
-          if (suppressPastedAtSuggestionRef.current) {
-            releasePastedAtSuggestionSuppression(suppressPastedAtSuggestionRef);
-          }
+          mentionSuggestionSuppression.suppressTextInsertion(text);
           currentEditor.commands.insertContent(
             plainTextToAgentRichTextInlineContent(text, {
               capabilities: availableCapabilitiesRef.current,
@@ -673,10 +671,12 @@ export const AgentRichTextEditor = forwardRef<
   const handleKeyDownCapture = (
     event: ReactKeyboardEvent<HTMLDivElement>
   ): void => {
+    mentionSuggestionSuppression.releaseForContentEditingKey(event);
     handleAgentRichTextKeyDownCapture(event, {
       disabled,
       editorRef,
       onKeyDownForPaletteRef,
+      onHistoryNavigationRef,
       onSubmitGuidanceRef,
       onSubmitRef,
       submitOnEnter
@@ -755,6 +755,7 @@ export const AgentRichTextEditor = forwardRef<
       capabilities: availableCapabilities,
       skills: availableSkills
     });
+    mentionSuggestionSuppression.setRestoredValue(value);
     if (JSON.stringify(editor.getJSON()) === JSON.stringify(nextDoc)) {
       lastEmittedPromptRef.current = value;
       return;
@@ -783,10 +784,3 @@ export const AgentRichTextEditor = forwardRef<
     />
   );
 });
-
-function releasePastedAtSuggestionSuppression(ref: { current: boolean }): void {
-  // timing: keep suppression through the synchronous editor insertion only.
-  window.setTimeout(() => {
-    ref.current = false;
-  }, 0);
-}

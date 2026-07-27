@@ -124,6 +124,8 @@ export interface AgentGUINodeHostCapabilities {
   referenceProvenanceFilterCatalog?: ReferenceProvenanceCatalog | null;
   /** Legacy Tutti Agent-only opt-in. Prefer an explicit catalog in new hosts. */
   referenceProvenanceFilterEnabled?: boolean;
+  /** Host-owned experimental opt-in for current-Session composer history. */
+  sessionInputHistoryEnabled?: boolean;
   capabilityMenuState?: AgentComposerCapabilityMenuState;
   /**
    * Keeps owner-supported Browser/Computer capability entries visible while
@@ -376,6 +378,7 @@ export function areAgentGUINodePropsEqual(
       nc.referenceProvenanceFilterCatalog &&
     pc.referenceProvenanceFilterEnabled ===
       nc.referenceProvenanceFilterEnabled &&
+    pc.sessionInputHistoryEnabled === nc.sessionInputHistoryEnabled &&
     agentGuiStateEquals(previous.state, next.state) &&
     pf.position.x === nf.position.x &&
     pf.position.y === nf.position.y &&

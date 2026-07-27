@@ -11,6 +11,7 @@ export const LAB_MODEL_PLANS_FLAG = "lab.modelPlans";
 export const LAB_WORKSPACE_AGENTS_FLAG = "lab.workspaceAgents";
 export const LAB_AUTOMATION_RULES_FLAG = "lab.automationRules";
 export const LAB_WORKBENCH_SHORTCUTS_FLAG = "lab.workbenchShortcuts";
+export const LAB_AGENT_INPUT_HISTORY_FLAG = "lab.agentInputHistory";
 // Keep the durable key for existing profiles while naming the product concept
 // after Tutti's integration maturity rather than the upstream Agent maturity.
 export const EARLY_ACCESS_AGENT_INTEGRATIONS_FLAG = "lab.previewAgents";
@@ -196,6 +197,13 @@ export const FEATURE_FLAG_DEFINITIONS: readonly FeatureFlagDefinition[] = [
     group: "lab",
     labelKey: "workspace.settings.lab.workbenchShortcutsLabel",
     descriptionKey: "workspace.settings.lab.workbenchShortcutsDescription"
+  },
+  {
+    key: LAB_AGENT_INPUT_HISTORY_FLAG,
+    default: false,
+    group: "lab",
+    labelKey: "workspace.settings.lab.agentInputHistoryLabel",
+    descriptionKey: "workspace.settings.lab.agentInputHistoryDescription"
   },
   {
     key: EARLY_ACCESS_AGENT_INTEGRATIONS_FLAG,

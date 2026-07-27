@@ -220,6 +220,59 @@ describe("AgentRichTextEditor prompt insertion", () => {
     );
   });
 
+  it("does not open mention suggestions for a restored controlled value", async () => {
+    const ref = createRef<AgentRichTextEditorHandle>();
+    const onFileMentionSuggestionChange = vi.fn();
+    const props = {
+      disabled: false,
+      onChange: vi.fn(),
+      onFileMentionSuggestionChange,
+      onSubmit: vi.fn(),
+      placeholder: "Prompt"
+    };
+    const rendered = render(
+      <AgentRichTextEditor ref={ref} value="" {...props} />
+    );
+    await waitFor(() => expect(ref.current).not.toBeNull());
+    onFileMentionSuggestionChange.mockClear();
+
+    rendered.rerender(
+      <AgentRichTextEditor
+        ref={ref}
+        value="@tutti-os/workbench-electron 得新增包是吗"
+        {...props}
+      />
+    );
+
+    await waitFor(() =>
+      expect(
+        rendered.container.querySelector('[contenteditable="true"]')
+      ).toHaveTextContent("@tutti-os/workbench-electron 得新增包是吗")
+    );
+    act(() => ref.current?.focusAtEnd());
+
+    expect(
+      onFileMentionSuggestionChange.mock.calls.some(
+        ([suggestion]) => suggestion !== null
+      )
+    ).toBe(false);
+    expect(rendered.container.querySelector(".suggestion")).toBeNull();
+
+    onFileMentionSuggestionChange.mockClear();
+    const editor = rendered.container.querySelector<HTMLElement>(
+      '[contenteditable="true"]'
+    );
+    expect(editor).not.toBeNull();
+    fireEvent.keyDown(editor!, { key: "x" });
+    act(() => ref.current?.insertPlainTextAtSelection("x"));
+
+    expect(onFileMentionSuggestionChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: "tutti-os/workbench-electron 得新增包是吗x"
+      })
+    );
+  });
+
   it("inserts multiline plain text at the current selection without submitting", async () => {
     const ref = createRef<AgentRichTextEditorHandle>();
     const onChange = vi.fn();

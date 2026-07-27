@@ -15,6 +15,7 @@ import {
   isFeatureEnabled,
   labFeatureDefinitions,
   LAB_ENABLED_FLAG,
+  LAB_AGENT_INPUT_HISTORY_FLAG,
   LAB_AUTOMATION_RULES_FLAG,
   LAB_MODEL_PLANS_FLAG,
   LAB_TUTTI_MODE_FLAG,
@@ -87,6 +88,7 @@ test("labFeatureDefinitions excludes the master switch", () => {
 
 test("experimental Agent features require independent Lab opt-ins", () => {
   const flags = [
+    LAB_AGENT_INPUT_HISTORY_FLAG,
     LAB_TUTTI_MODE_FLAG,
     LAB_MODEL_PLANS_FLAG,
     LAB_WORKSPACE_AGENTS_FLAG,

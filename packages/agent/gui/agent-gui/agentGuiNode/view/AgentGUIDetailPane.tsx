@@ -50,10 +50,10 @@ import {
 import styles from "../AgentGUINode.styles";
 import { useAgentGUIDetailScroll } from "./useAgentGUIDetailScroll";
 import { useAgentGUIDetailModel } from "./useAgentGUIDetailModel";
+import { useAgentGUIComposerInputHistoryProps } from "./useAgentGUIComposerInputHistoryProps";
 import type { AgentGUIComposerEngagement } from "../engagement/agentGUIEngagement.types";
 import { useAgentGUITuttiWorkflow } from "./useAgentGUITuttiWorkflow";
 import type { AgentTranscriptVirtualScrollController } from "../../../shared/agentConversation/components/AgentTranscriptView";
-
 export const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
   [];
 export interface AgentGUIDetailPaneProps {
@@ -66,6 +66,7 @@ export interface AgentGUIDetailPaneProps {
   operations: AgentGUIOperationsViewModel;
   homeTargetProjection: AgentGUIManagedHomeTargetProjection;
   referenceProvenanceFilters?: AgentComposerProps["referenceProvenanceFilters"];
+  sessionInputHistoryEnabled?: boolean;
   composerEngagement?: AgentGUIComposerEngagement;
   actions: AgentGUINodeViewProps["actions"];
   labels: AgentGUIViewLabels;
@@ -102,7 +103,6 @@ export interface AgentGUIDetailPaneProps {
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   renderProviderUnavailableState?: AgentGUIProviderUnavailableStateRenderer;
 }
-
 export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   shell,
   rail,
@@ -113,6 +113,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   operations,
   homeTargetProjection,
   referenceProvenanceFilters = null,
+  sessionInputHistoryEnabled = false,
   composerEngagement,
   actions,
   labels,
@@ -401,6 +402,14 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
           })
       : undefined
   );
+  const composerInputHistoryProps = useAgentGUIComposerInputHistoryProps({
+    actions,
+    conversation,
+    enabled: sessionInputHistoryEnabled,
+    pendingPrependScrollAnchorRef,
+    timelineRef,
+    viewModel
+  });
   const bottomDockComposerProps = useMemo<AgentComposerProps>(
     () => ({
       workspaceId: viewModel.shell.workspaceId,
@@ -418,6 +427,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       draftScopeKey: resolveAgentComposerDraftScopeKey({
         agentSessionId: viewModel.rail.activeConversationId
       }),
+      ...composerInputHistoryProps,
       availableCommands: viewModel.composer.availableCommands,
       hasCompactableContext: viewModel.detail.hasSentUserMessage,
       compactSupported: viewModel.composer.compactSupported,
@@ -533,6 +543,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       composerDisabledReason,
       composerFocusRequestSequence,
       composerEngagement,
+      composerInputHistoryProps,
       composerHandoffProviderTargets,
       composerLabels,
       conversation,
@@ -721,7 +732,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       />
     )
   ) : null;
-
   return (
     <main
       className={styles.detail}

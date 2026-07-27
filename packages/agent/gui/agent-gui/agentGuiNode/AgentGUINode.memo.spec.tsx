@@ -129,6 +129,28 @@ describe("AgentGUINode memoization", () => {
     expect(agentGuiNodeViewSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("rerenders when Session input history is enabled", () => {
+    mockViewModel = createViewModel();
+    const props = createProps();
+    const { rerender } = render(<AgentGUINode {...props} />);
+
+    expect(agentGuiNodeViewSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionInputHistoryEnabled: false })
+    );
+    agentGuiNodeViewSpy.mockClear();
+
+    rerender(
+      <AgentGUINode
+        {...props}
+        hostCapabilities={{ sessionInputHistoryEnabled: true }}
+      />
+    );
+
+    expect(agentGuiNodeViewSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionInputHistoryEnabled: true })
+    );
+  });
+
   it("rerenders when per-target composer overrides change", () => {
     mockViewModel = createViewModel();
     const props = createProps({

@@ -80,6 +80,7 @@ import { useAgentGUIExternalRequests } from "./view/useAgentGUIExternalRequests"
 export function AgentGUINodeView({
   viewModel,
   referenceProvenanceFilters = null,
+  sessionInputHistoryEnabled = false,
   renderProjectDirectoryPickerHeaderActions,
   renderSidebarFooter,
   renderProviderRailEmpty,
@@ -685,6 +686,7 @@ export function AgentGUINodeView({
                 operations={viewModel.operations}
                 homeTargetProjection={homeTargetProjection}
                 referenceProvenanceFilters={referenceProvenanceFilters}
+                sessionInputHistoryEnabled={sessionInputHistoryEnabled}
                 composerEngagement={composerEngagement}
                 actions={actions}
                 labels={labels}

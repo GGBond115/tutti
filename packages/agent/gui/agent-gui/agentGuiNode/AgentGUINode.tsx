@@ -113,7 +113,8 @@ export const AgentGUINode = memo(function AgentGUINode({
     workspaceAppIcons,
     disabledHomeSuggestions,
     referenceProvenanceFilterCatalog: injectedReferenceProvenanceFilterCatalog,
-    referenceProvenanceFilterEnabled = false
+    referenceProvenanceFilterEnabled = false,
+    sessionInputHistoryEnabled = false
   } = hostCapabilities;
   const referenceProvenanceFilters = useAgentMentionProvenanceFilters({
     agentTargets,
@@ -541,6 +542,7 @@ export const AgentGUINode = memo(function AgentGUINode({
               workspaceFileReferenceCopy={workspaceFileReferenceCopy}
               workspaceAppIcons={workspaceAppIcons}
               referenceProvenanceFilters={referenceProvenanceFilters}
+              sessionInputHistoryEnabled={sessionInputHistoryEnabled}
               renderProjectDirectoryPickerHeaderActions={
                 renderProjectDirectoryPickerHeaderActions
               }
