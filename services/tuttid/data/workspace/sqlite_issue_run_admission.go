@@ -239,24 +239,17 @@ func validateTuttiModeScheduleCapacity(
 	issue workspaceissues.Issue,
 	requested int,
 ) error {
-	var running int
+	var running, activeIssueRuns int
 	if err := tx.QueryRowContext(ctx, `
-SELECT COUNT(*)
+SELECT COUNT(*), COALESCE(SUM(CASE WHEN issue_id = ? THEN 1 ELSE 0 END), 0)
 FROM workspace_issue_runs
 WHERE workspace_id = ? AND status = 'running' AND TRIM(agent_session_id) <> ''
-`, workspaceID).Scan(&running); err != nil {
+`, issue.IssueID, workspaceID).Scan(&running, &activeIssueRuns); err != nil {
 		return fmt.Errorf("count running Issue Runs for Tutti mode schedule: %w", err)
 	}
 	if requested < 1 || running+requested > workspaceissues.MaxWorkspaceParallelRuns ||
-		!workspaceissues.IssueBudgetAllowsNextAutomaticRun(issue) {
+		requested > workspaceissues.IssueAutomaticBudgetSlots(issue, activeIssueRuns) {
 		return executionbiz.ErrScheduleRejected
-	}
-	if issue.Budget.TokenLimit > 0 {
-		allowance := workspaceissues.CompileEstimatedRunTokenBudget(issue.ExecutionProfile)
-		remaining := issue.Budget.TokenLimit - issue.Budget.ConsumedTokens
-		if allowance <= 0 || int64(requested)*allowance > remaining {
-			return executionbiz.ErrScheduleRejected
-		}
 	}
 	return nil
 }
@@ -395,12 +388,16 @@ func (s *SQLiteStore) ListPreparedTuttiModeRunLaunches(
 	workspaceID string,
 	issueID string,
 	runIDs []string,
-) ([]workspaceissues.Run, error) {
+	now time.Time,
+) ([]executionbiz.PreparedRunLaunch, error) {
 	if err := s.ensureIssueDatabase(); err != nil {
 		return nil, err
 	}
-	where := []string{"runs.workspace_id = ?", "intents.status = 'prepared'"}
-	args := []any{strings.TrimSpace(workspaceID)}
+	where := []string{
+		"runs.workspace_id = ?",
+		"(intents.status = 'prepared' OR (intents.status = 'leased' AND intents.lease_expires_at_unix_ms <= ?))",
+	}
+	args := []any{strings.TrimSpace(workspaceID), unixMs(now)}
 	if strings.TrimSpace(issueID) != "" {
 		where = append(where, "runs.issue_id = ?")
 		args = append(args, strings.TrimSpace(issueID))
@@ -414,7 +411,7 @@ func (s *SQLiteStore) ListPreparedTuttiModeRunLaunches(
 		where = append(where, "runs.run_id IN ("+strings.Join(placeholders, ",")+")")
 	}
 	rows, err := s.readDB.QueryContext(ctx, fmt.Sprintf(`
-SELECT %s
+SELECT %s, intents.client_submit_id
 FROM workspace_issue_runs AS runs
 JOIN workspace_issue_run_launch_intents AS intents
   ON intents.workspace_id = runs.workspace_id
@@ -428,13 +425,15 @@ ORDER BY runs.created_at_unix_ms ASC, runs.id ASC
 		return nil, fmt.Errorf("list prepared Tutti mode Run launches: %w", err)
 	}
 	defer rows.Close()
-	runs := make([]workspaceissues.Run, 0, len(runIDs))
+	runs := make([]executionbiz.PreparedRunLaunch, 0, len(runIDs))
 	for rows.Next() {
-		run, scanErr := scanWorkspaceIssueRun(rows)
+		run, clientSubmitID, scanErr := scanPreparedTuttiModeRunLaunch(rows)
 		if scanErr != nil {
 			return nil, scanErr
 		}
-		runs = append(runs, run)
+		runs = append(runs, executionbiz.PreparedRunLaunch{
+			Run: run, ClientSubmitID: clientSubmitID,
+		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate prepared Tutti mode Run launches: %w", err)
@@ -447,6 +446,7 @@ func (s *SQLiteStore) MarkTuttiModeRunLaunchIntentDispatched(
 	workspaceID string,
 	issueID string,
 	runID string,
+	leaseOwner string,
 	now time.Time,
 ) error {
 	if err := s.ensureIssueDatabase(); err != nil {
@@ -454,15 +454,110 @@ func (s *SQLiteStore) MarkTuttiModeRunLaunchIntentDispatched(
 	}
 	result, err := s.writeDB.ExecContext(ctx, `
 UPDATE workspace_issue_run_launch_intents
-SET status = 'dispatched', dispatched_at_unix_ms = ?, updated_at_unix_ms = ?
+SET status = 'dispatched', lease_owner = '', lease_expires_at_unix_ms = 0,
+    dispatched_at_unix_ms = ?, updated_at_unix_ms = ?
 WHERE workspace_id = ? AND issue_id = ? AND run_id = ?
-  AND status IN ('prepared', 'dispatched')
+  AND ((status = 'leased' AND lease_owner = ?) OR status = 'dispatched')
 `, unixMs(now), unixMs(now), strings.TrimSpace(workspaceID),
-		strings.TrimSpace(issueID), strings.TrimSpace(runID))
+		strings.TrimSpace(issueID), strings.TrimSpace(runID), strings.TrimSpace(leaseOwner))
 	if err != nil {
 		return fmt.Errorf("mark Tutti mode Run launch dispatched: %w", err)
 	}
 	return requireRowsAffected(result, executionbiz.ErrScheduleRejected, "mark Tutti mode Run launch dispatched")
+}
+
+func (s *SQLiteStore) ClaimTuttiModeRunLaunchIntent(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	runID string,
+	leaseOwner string,
+	now time.Time,
+	leaseExpires time.Time,
+) (bool, error) {
+	if err := s.ensureIssueDatabase(); err != nil {
+		return false, err
+	}
+	result, err := s.writeDB.ExecContext(ctx, `
+UPDATE workspace_issue_run_launch_intents
+SET status = 'leased', attempt_count = attempt_count + 1,
+    lease_owner = ?, lease_expires_at_unix_ms = ?, updated_at_unix_ms = ?
+WHERE workspace_id = ? AND issue_id = ? AND run_id = ?
+  AND (status = 'prepared' OR (status = 'leased' AND lease_expires_at_unix_ms <= ?))
+`, strings.TrimSpace(leaseOwner), unixMs(leaseExpires), unixMs(now),
+		strings.TrimSpace(workspaceID), strings.TrimSpace(issueID),
+		strings.TrimSpace(runID), unixMs(now))
+	if err != nil {
+		return false, fmt.Errorf("claim Tutti mode Run launch intent: %w", err)
+	}
+	return rowsWereAffected(result, "claim Tutti mode Run launch intent")
+}
+
+func (s *SQLiteStore) ReleaseTuttiModeRunLaunchIntent(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	runID string,
+	leaseOwner string,
+	now time.Time,
+) error {
+	if err := s.ensureIssueDatabase(); err != nil {
+		return err
+	}
+	result, err := s.writeDB.ExecContext(ctx, `
+UPDATE workspace_issue_run_launch_intents
+SET status = 'prepared', lease_owner = '', lease_expires_at_unix_ms = 0,
+    updated_at_unix_ms = ?
+WHERE workspace_id = ? AND issue_id = ? AND run_id = ?
+  AND status = 'leased' AND lease_owner = ?
+`, unixMs(now), strings.TrimSpace(workspaceID), strings.TrimSpace(issueID),
+		strings.TrimSpace(runID), strings.TrimSpace(leaseOwner))
+	if err != nil {
+		return fmt.Errorf("release Tutti mode Run launch intent: %w", err)
+	}
+	return requireRowsAffected(result, executionbiz.ErrScheduleRejected, "release Tutti mode Run launch intent")
+}
+
+func (s *SQLiteStore) RequeueLeasedTuttiModeRunLaunchIntents(
+	ctx context.Context,
+	workspaceID string,
+	now time.Time,
+) error {
+	if err := s.ensureIssueDatabase(); err != nil {
+		return err
+	}
+	_, err := s.writeDB.ExecContext(ctx, `
+UPDATE workspace_issue_run_launch_intents
+SET status = 'prepared', lease_owner = '', lease_expires_at_unix_ms = 0,
+    updated_at_unix_ms = ?
+WHERE workspace_id = ? AND status = 'leased'
+`, unixMs(now), strings.TrimSpace(workspaceID))
+	if err != nil {
+		return fmt.Errorf("requeue leased Tutti mode Run launch intents: %w", err)
+	}
+	return nil
+}
+
+func scanPreparedTuttiModeRunLaunch(
+	scanner issueScanner,
+) (workspaceissues.Run, string, error) {
+	var item workspaceissues.Run
+	var id int64
+	var status string
+	var clientSubmitID string
+	err := scanner.Scan(
+		&id, &item.RunID, &item.TaskID, &item.IssueID, &item.WorkspaceID,
+		&item.RequesterUserID, &item.AgentUserID, &item.AgentTargetID,
+		&item.AgentSessionID, &item.AgentProvider, &item.ModelPlanID, &item.Model,
+		&item.ReasoningIntensity, &status, &item.Usage.InputTokens,
+		&item.Usage.OutputTokens, &item.Usage.CacheReadTokens, &item.Usage.CacheWriteTokens,
+		&item.Summary, &item.ErrorMessage, &item.OutputDir, &item.ExecutionDirectory,
+		&item.CreatedAtUnixMS, &item.StartedAtUnixMS, &item.CompletedAtUnixMS,
+		&item.UpdatedAtUnixMS, &clientSubmitID,
+	)
+	item.ID = uint64(id)
+	item.Status = workspaceissues.Status(status)
+	return item, clientSubmitID, err
 }
 
 func prefixedRunSelectColumns(alias string) string {

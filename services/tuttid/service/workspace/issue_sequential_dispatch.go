@@ -214,6 +214,7 @@ func (s IssueManagerService) claimIssueTaskRunLocked(
 	}
 	return IssueRunLaunch{
 		WorkspaceID:        issue.WorkspaceID,
+		ClientSubmitID:     "issue-run:" + run.RunID,
 		AgentSessionID:     agentSessionID,
 		AgentTargetID:      task.AgentTargetID,
 		RunID:              run.RunID,

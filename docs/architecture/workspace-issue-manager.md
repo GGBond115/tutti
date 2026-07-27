@@ -153,7 +153,9 @@ daemon execution aggregate: materialization creates no Run, `autoAccept` has no
 dispatch authority, and only the source Agent's checkpoint/revision-fenced
 exact-set schedule command may admit Runs. The admission transaction creates
 the selected Runs, task projections, and recoverable launch intents together;
-it never silently fills capacity with another eligible task.
+it never silently fills capacity with another eligible task. Budget capacity
+uses the same shared evaluator as generic dispatch and reserves estimated
+allowance for same-Issue active Runs.
 
 Issue runs settle live from the canonical root-turn settlement fan-out: the
 Issue-run observer sits on the opt-in settle list (root-provider-lifecycle

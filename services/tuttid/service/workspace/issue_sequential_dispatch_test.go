@@ -37,7 +37,7 @@ func createSessionInputFromLaunch(launch IssueRunLaunch) agentservice.CreateSess
 		AgentTargetID:        launch.AgentTargetID,
 		ReasoningIntensity:   &reasoningIntensity,
 		InitialContent:       []agentservice.PromptContentBlock{{Type: "text", Text: launch.Prompt}},
-		ClientSubmitID:       "issue-run:" + launch.RunID,
+		ClientSubmitID:       launch.ClientSubmitID,
 		Title:                optionalTrimmedTestString(launch.Title),
 		Cwd:                  optionalTrimmedTestString(launch.ExecutionDirectory),
 		Model:                optionalTrimmedTestString(launch.Model),

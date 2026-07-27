@@ -458,11 +458,18 @@ Issue Manager dispatch behavior.
 While holding the Issue mutation lock, the daemon validates the entire
 requested set, including isolation. One SQLite transaction revalidates the
 durable caller, active checkpoint, graph revision, task/dependency state,
-budget, and workspace capacity; it then creates every Run, task-running
-projection, and durable launch intent while resolving that checkpoint. Any
-rejection leaves the execution and Issue graph unchanged. Agent launch happens
-after commit, and startup recovery retries prepared intents through
-deterministic `issue-run:<runID>` submit identities.
+budget, and workspace capacity. Fixed-budget admission reserves one estimated
+allowance for every same-Issue active Run before evaluating the requested set.
+The transaction then creates every Run, task-running projection, and durable
+launch intent while resolving that checkpoint. Any rejection leaves the
+execution and Issue graph unchanged.
+
+Agent launch happens after commit. The launch-intent row is the source of truth
+for `clientSubmitId`; delivery workers claim it with a durable lease and pass
+that stored value unchanged into Agent Host. Concurrent command replay cannot
+enter the launcher while the intent is leased. Response-loss recovery retries
+the same deterministic `issue-run:<runID>` identity, allowing Host to converge
+on the existing canonical Turn rather than creating a second one.
 
 After acceptance the source conversation embeds a live "issue panel view"
 (board/list) of the materialized Issue, fed by the same workspace issue events

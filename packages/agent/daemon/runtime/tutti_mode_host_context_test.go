@@ -62,6 +62,8 @@ func TestRenderTuttiModeHostContextCarriesWorkedWorkflowExamples(t *testing.T) {
 		"`autoAccept` is retained only for compatibility and has no dispatch authority",
 		"`tutti plan issue schedule --issue-id <issueId>",
 		"schedule exactly the task IDs you selected",
+		"unsafe concurrent set is rejected",
+		"schedule those tasks one at a time",
 		"the first task must initialize one (`git init` plus an initial commit)",
 		"this conversation becomes the plan's orchestrator",
 		"stopping this conversation stops every running task",
@@ -81,6 +83,7 @@ func TestRenderTuttiModeHostContextCarriesWorkedWorkflowExamples(t *testing.T) {
 		"Set `autoAccept: true` on every task by default so accepted plans run unattended",
 		"adjust the remaining graph through `tutti issue` commands",
 		"autoAccept: true",
+		"silently degrades to one-at-a-time execution",
 	} {
 		if strings.Contains(contextText, forbidden) {
 			t.Fatalf("host context = %q, must not instruct a wait command (%q)", contextText, forbidden)

@@ -11,11 +11,21 @@ type Scenario struct {
 }
 
 func Catalog() []Scenario {
+	scenarios := MaterializationCatalog()
+	return append(scenarios, ScheduleCatalog()...)
+}
+
+func MaterializationCatalog() []Scenario {
 	return []Scenario{
 		{
 			Name: "MaterializedPlanRequiresInitialSchedule",
 			run:  runMaterializedPlanRequiresInitialSchedule,
 		},
+	}
+}
+
+func ScheduleCatalog() []Scenario {
+	return []Scenario{
 		{
 			Name: "SourceSchedulesExactSet",
 			run:  runSourceSchedulesExactSet,
@@ -31,6 +41,14 @@ func Catalog() []Scenario {
 		{
 			Name: "PreparedLaunchIntentIsRecoverable",
 			run:  runPreparedLaunchIntentIsRecoverable,
+		},
+		{
+			Name: "ActiveRunBudgetReservationRejectsWholeSet",
+			run:  runActiveRunBudgetReservationRejectsWholeSet,
+		},
+		{
+			Name: "ConcurrentReplayClaimsOneDelivery",
+			run:  runConcurrentReplayClaimsOneDelivery,
 		},
 	}
 }

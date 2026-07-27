@@ -7,6 +7,7 @@ import (
 	workspaceagentbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceagent"
 	agentservice "github.com/tutti-os/tutti/services/tuttid/service/agent"
 	reporterservice "github.com/tutti-os/tutti/services/tuttid/service/reporter"
+	workspaceservice "github.com/tutti-os/tutti/services/tuttid/service/workspace"
 	workspaceagentservice "github.com/tutti-os/tutti/services/tuttid/service/workspaceagent"
 	tuttitypes "github.com/tutti-os/tutti/services/tuttid/types"
 )
@@ -90,3 +91,37 @@ func TestConfigureWorkspaceAgentResolutionWiresLaunchAndProjection(t *testing.T)
 }
 
 var _ reporterservice.DebugPublisher = analyticsDebugEventPublisher{}
+
+type recordingIssueRunSessionCreator struct {
+	workspaceID string
+	input       agentservice.CreateSessionInput
+}
+
+func (creator *recordingIssueRunSessionCreator) Create(
+	_ context.Context,
+	workspaceID string,
+	input agentservice.CreateSessionInput,
+) (agentservice.Session, error) {
+	creator.workspaceID = workspaceID
+	creator.input = input
+	return agentservice.Session{}, nil
+}
+
+func TestIssueRunAgentLauncherUsesPersistedClientSubmitID(t *testing.T) {
+	creator := &recordingIssueRunSessionCreator{}
+	err := (issueRunAgentLauncher{Sessions: creator}).Launch(
+		context.Background(),
+		workspaceservice.IssueRunLaunch{
+			WorkspaceID: "workspace-1", RunID: "run-1",
+			ClientSubmitID: "persisted-submit-id", AgentSessionID: "session-1",
+			AgentTargetID: "local:codex", Title: "Task",
+		},
+	)
+	if err != nil {
+		t.Fatalf("Launch() error = %v", err)
+	}
+	if creator.workspaceID != "workspace-1" ||
+		creator.input.ClientSubmitID != "persisted-submit-id" {
+		t.Fatalf("Create() scope/input = %q/%#v", creator.workspaceID, creator.input)
+	}
+}

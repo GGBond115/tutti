@@ -427,7 +427,10 @@ identity and payload returns the original execution/checkpoint/revision and Run
 IDs. Reusing it with a different checkpoint, revision, or ordered task-ID set
 fails closed. External Agent launch occurs only after the admission transaction
 commits and is recovered from a durable launch intent using
-`issue-run:<runID>` as the deterministic submit identity.
+`issue-run:<runID>` as the deterministic submit identity. The persisted
+launch-intent value, not a delivery-adapter reconstruction, is passed unchanged
+to Agent Host; a durable lease prevents concurrent replay from entering
+delivery twice.
 
 Workflow lookup is isolated to the Agent session supplied by the daemon CLI
 runtime context. A workflow created by another source session is reported as

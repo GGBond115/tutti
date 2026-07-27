@@ -15,6 +15,7 @@ type IssueRunLauncher interface {
 
 type IssueRunLaunch struct {
 	WorkspaceID        string
+	ClientSubmitID     string
 	AgentSessionID     string
 	AgentTargetID      string
 	RunID              string

@@ -11,6 +11,8 @@ import (
 	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 )
 
+const tuttiModeRunLaunchLease = time.Minute
+
 func (s IssueManagerService) ScheduleTuttiModeIssue(
 	ctx context.Context,
 	workspaceID string,
@@ -184,14 +186,15 @@ func (s IssueManagerService) tuttiModeLaunchesForRuns(
 	ctx context.Context,
 	issue workspaceissues.Issue,
 	tasks []workspaceissues.Task,
-	runs []workspaceissues.Run,
+	preparedRuns []executionbiz.PreparedRunLaunch,
 ) []IssueRunLaunch {
 	byID := make(map[string]workspaceissues.Task, len(tasks))
 	for _, task := range tasks {
 		byID[task.TaskID] = task
 	}
-	launches := make([]IssueRunLaunch, 0, len(runs))
-	for _, run := range runs {
+	launches := make([]IssueRunLaunch, 0, len(preparedRuns))
+	for _, prepared := range preparedRuns {
+		run := prepared.Run
 		task, ok := byID[run.TaskID]
 		if !ok {
 			continue
@@ -211,6 +214,7 @@ func (s IssueManagerService) tuttiModeLaunchesForRuns(
 		}
 		launches = append(launches, IssueRunLaunch{
 			WorkspaceID:        run.WorkspaceID,
+			ClientSubmitID:     prepared.ClientSubmitID,
 			AgentSessionID:     run.AgentSessionID,
 			AgentTargetID:      run.AgentTargetID,
 			RunID:              run.RunID,
@@ -236,15 +240,33 @@ func (s IssueManagerService) launchScheduledTuttiModeRuns(
 	launches []IssueRunLaunch,
 ) {
 	for _, launch := range launches {
+		leaseOwner := uuid.NewString()
+		claimed, err := s.TuttiModeExecutions.ClaimRunLaunch(
+			ctx,
+			launch.WorkspaceID,
+			launch.IssueID,
+			launch.RunID,
+			leaseOwner,
+			tuttiModeRunLaunchLease,
+		)
+		if err != nil || !claimed {
+			continue
+		}
 		gate := s.runLaunchGate()
 		if !gate.begin(launch.WorkspaceID, launch.RunID) {
+			_ = s.TuttiModeExecutions.ReleaseRunLaunch(
+				ctx, launch.WorkspaceID, launch.IssueID, launch.RunID, leaseOwner,
+			)
 			continue
 		}
 		if s.issueRunLaunchDecision(ctx, launch) != issueRunLaunch {
 			gate.finish(launch.WorkspaceID, launch.RunID)
+			_ = s.TuttiModeExecutions.ReleaseRunLaunch(
+				ctx, launch.WorkspaceID, launch.IssueID, launch.RunID, leaseOwner,
+			)
 			continue
 		}
-		var err error
+		err = nil
 		if launch.WorktreeBase != "" {
 			_, _, err = s.createIssueTaskRunWorktree(
 				ctx,
@@ -261,6 +283,9 @@ func (s IssueManagerService) launchScheduledTuttiModeRuns(
 		if err != nil {
 			// Task 4 turns this durable prepared intent into a failed
 			// settlement checkpoint. Until then it remains recoverable.
+			_ = s.TuttiModeExecutions.ReleaseRunLaunch(
+				ctx, launch.WorkspaceID, launch.IssueID, launch.RunID, leaseOwner,
+			)
 			continue
 		}
 		_ = s.TuttiModeExecutions.MarkRunLaunchDispatched(
@@ -268,11 +293,22 @@ func (s IssueManagerService) launchScheduledTuttiModeRuns(
 			launch.WorkspaceID,
 			launch.IssueID,
 			launch.RunID,
+			leaseOwner,
 		)
 		if cancelRequested {
 			s.cancelIssueRunAfterLaunch(ctx, launch)
 		}
 	}
+}
+
+func (s IssueManagerService) RequeueLeasedTuttiModeRunLaunchIntents(
+	ctx context.Context,
+	workspaceID string,
+) error {
+	if s.TuttiModeExecutions == nil {
+		return tuttimodeexecutionservice.ErrServiceUnavailable
+	}
+	return s.TuttiModeExecutions.RequeueLeasedRunLaunches(ctx, workspaceID)
 }
 
 func (s IssueManagerService) RecoverTuttiModeRunLaunchIntents(
@@ -291,13 +327,13 @@ func (s IssueManagerService) RecoverTuttiModeRunLaunchIntents(
 	if err != nil {
 		return err
 	}
-	byIssue := make(map[string][]workspaceissues.Run)
+	byIssue := make(map[string][]executionbiz.PreparedRunLaunch)
 	issueOrder := make([]string, 0)
-	for _, run := range runs {
-		if _, exists := byIssue[run.IssueID]; !exists {
-			issueOrder = append(issueOrder, run.IssueID)
+	for _, prepared := range runs {
+		if _, exists := byIssue[prepared.Run.IssueID]; !exists {
+			issueOrder = append(issueOrder, prepared.Run.IssueID)
 		}
-		byIssue[run.IssueID] = append(byIssue[run.IssueID], run)
+		byIssue[prepared.Run.IssueID] = append(byIssue[prepared.Run.IssueID], prepared)
 	}
 	for _, issueID := range issueOrder {
 		unlockIssue := s.MutationLocks.Lock(workspaceID, issueID)

@@ -161,6 +161,27 @@ func IssueBudgetAllowsNextAutomaticRun(issue Issue) bool {
 	return remaining >= CompileEstimatedRunTokenBudget(issue.ExecutionProfile)
 }
 
+// IssueAutomaticBudgetSlots reserves one estimated allowance for every
+// already-active Run before admitting more work for the same Issue.
+func IssueAutomaticBudgetSlots(issue Issue, activeRunCount int) int {
+	if !IssueBudgetAllowsNextAutomaticRun(issue) {
+		return 0
+	}
+	if issue.Budget.TokenLimit <= 0 {
+		return MaxWorkspaceParallelRuns
+	}
+	allowance := CompileEstimatedRunTokenBudget(issue.ExecutionProfile)
+	remaining := issue.Budget.TokenLimit - issue.Budget.ConsumedTokens
+	if allowance <= 0 || remaining < allowance {
+		return 0
+	}
+	slots := int(remaining/allowance) - activeRunCount
+	if slots < 0 {
+		return 0
+	}
+	return slots
+}
+
 // CompileAutoTokenBudgetWithHistory blends the deterministic scale/intensity
 // compiler with the observed total usage of comparable completed tasks. The
 // deterministic result remains the fallback and contributes half the result,

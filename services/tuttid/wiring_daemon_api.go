@@ -579,6 +579,14 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	}
 	if workspaces, err := workspaceService.List(ctx); err == nil {
 		for _, workspace := range workspaces {
+			if err := issueService.RequeueLeasedTuttiModeRunLaunchIntents(ctx, workspace.ID); err != nil {
+				agentRuntime.Close()
+				return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
+					"requeue leased Tutti mode Run launch intents for workspace %q: %w",
+					workspace.ID,
+					err,
+				)
+			}
 			if err := issueService.RecoverTuttiModeRunLaunchIntents(ctx, workspace.ID); err != nil {
 				agentRuntime.Close()
 				return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
@@ -814,6 +822,10 @@ func (l issueRunAgentLauncher) Launch(ctx context.Context, launch workspaceservi
 	if l.Sessions == nil {
 		return errors.New("issue run agent launcher is unavailable")
 	}
+	clientSubmitID := strings.TrimSpace(launch.ClientSubmitID)
+	if clientSubmitID == "" {
+		return errors.New("issue run client submit id is required")
+	}
 	title := launch.Title
 	reasoningIntensity := launch.ReasoningIntensity
 	permissionModeID := optionalString(launch.PermissionModeID)
@@ -825,7 +837,7 @@ func (l issueRunAgentLauncher) Launch(ctx context.Context, launch workspaceservi
 		PermissionModeID:     permissionModeID,
 		StrictPermissionMode: permissionModeID != nil,
 		InitialContent:       []agentservice.PromptContentBlock{{Type: "text", Text: launch.Prompt}},
-		ClientSubmitID:       "issue-run:" + launch.RunID,
+		ClientSubmitID:       clientSubmitID,
 		Title:                &title,
 		Cwd:                  optionalString(launch.ExecutionDirectory),
 		Model:                optionalString(launch.Model),

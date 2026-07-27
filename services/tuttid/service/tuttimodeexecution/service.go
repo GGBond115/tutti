@@ -28,8 +28,11 @@ type Store interface {
 	) (workspaceissues.Issue, []workspaceissues.Task, executionbiz.Aggregate, error)
 	GetTuttiModeExecutionByIssue(context.Context, string, string) (executionbiz.Aggregate, error)
 	AdmitTuttiModeSchedule(context.Context, executionbiz.ScheduleAdmission) (executionbiz.ScheduleResult, error)
-	ListPreparedTuttiModeRunLaunches(context.Context, string, string, []string) ([]workspaceissues.Run, error)
-	MarkTuttiModeRunLaunchIntentDispatched(context.Context, string, string, string, time.Time) error
+	ListPreparedTuttiModeRunLaunches(context.Context, string, string, []string, time.Time) ([]executionbiz.PreparedRunLaunch, error)
+	ClaimTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time, time.Time) (bool, error)
+	ReleaseTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time) error
+	MarkTuttiModeRunLaunchIntentDispatched(context.Context, string, string, string, string, time.Time) error
+	RequeueLeasedTuttiModeRunLaunchIntents(context.Context, string, time.Time) error
 }
 
 type Service struct {
@@ -153,11 +156,55 @@ func (service Service) ListPreparedRunLaunches(
 	workspaceID string,
 	issueID string,
 	runIDs []string,
-) ([]workspaceissues.Run, error) {
+) ([]executionbiz.PreparedRunLaunch, error) {
 	if service.Store == nil {
 		return nil, ErrServiceUnavailable
 	}
-	return service.Store.ListPreparedTuttiModeRunLaunches(ctx, workspaceID, issueID, runIDs)
+	return service.Store.ListPreparedTuttiModeRunLaunches(ctx, workspaceID, issueID, runIDs, service.now())
+}
+
+func (service Service) ClaimRunLaunch(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	runID string,
+	leaseOwner string,
+	leaseDuration time.Duration,
+) (bool, error) {
+	if service.Store == nil {
+		return false, ErrServiceUnavailable
+	}
+	workspaceID = strings.TrimSpace(workspaceID)
+	issueID = strings.TrimSpace(issueID)
+	runID = strings.TrimSpace(runID)
+	leaseOwner = strings.TrimSpace(leaseOwner)
+	if workspaceID == "" || issueID == "" || runID == "" || leaseOwner == "" ||
+		leaseDuration <= 0 {
+		return false, executionbiz.ErrScheduleRejected
+	}
+	now := service.now()
+	return service.Store.ClaimTuttiModeRunLaunchIntent(
+		ctx, workspaceID, issueID, runID, leaseOwner, now, now.Add(leaseDuration),
+	)
+}
+
+func (service Service) ReleaseRunLaunch(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	runID string,
+	leaseOwner string,
+) error {
+	if service.Store == nil {
+		return ErrServiceUnavailable
+	}
+	if strings.TrimSpace(workspaceID) == "" || strings.TrimSpace(issueID) == "" ||
+		strings.TrimSpace(runID) == "" || strings.TrimSpace(leaseOwner) == "" {
+		return executionbiz.ErrScheduleRejected
+	}
+	return service.Store.ReleaseTuttiModeRunLaunchIntent(
+		ctx, workspaceID, issueID, runID, leaseOwner, service.now(),
+	)
 }
 
 func (service Service) MarkRunLaunchDispatched(
@@ -165,16 +212,34 @@ func (service Service) MarkRunLaunchDispatched(
 	workspaceID string,
 	issueID string,
 	runID string,
+	leaseOwner string,
 ) error {
 	if service.Store == nil {
 		return ErrServiceUnavailable
+	}
+	if strings.TrimSpace(workspaceID) == "" || strings.TrimSpace(issueID) == "" ||
+		strings.TrimSpace(runID) == "" || strings.TrimSpace(leaseOwner) == "" {
+		return executionbiz.ErrScheduleRejected
 	}
 	return service.Store.MarkTuttiModeRunLaunchIntentDispatched(
 		ctx,
 		strings.TrimSpace(workspaceID),
 		strings.TrimSpace(issueID),
 		strings.TrimSpace(runID),
+		strings.TrimSpace(leaseOwner),
 		service.now(),
+	)
+}
+
+func (service Service) RequeueLeasedRunLaunches(
+	ctx context.Context,
+	workspaceID string,
+) error {
+	if service.Store == nil {
+		return ErrServiceUnavailable
+	}
+	return service.Store.RequeueLeasedTuttiModeRunLaunchIntents(
+		ctx, strings.TrimSpace(workspaceID), service.now(),
 	)
 }
 

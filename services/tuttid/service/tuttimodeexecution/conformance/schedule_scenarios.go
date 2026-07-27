@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"sync"
+	"time"
 )
 
 func scheduleFixture() AcceptPlanInput {
@@ -265,11 +267,126 @@ func runPreparedLaunchIntentIsRecoverable(ctx context.Context, driver Driver) er
 	if calls := driver.LauncherCallCount(); calls != 2 {
 		return fmt.Errorf("recovered launcher calls = %d, want 2", calls)
 	}
+	afterRecovery, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil || len(afterRecovery.Runs) != 1 {
+		return fmt.Errorf("GetSnapshot(after recovery) = %#v, %v", afterRecovery, err)
+	}
+	wantSubmitID := "issue-run:" + afterRecovery.Runs[0].RunID
+	if got := driver.LauncherClientSubmitIDs(); !reflect.DeepEqual(got, []string{wantSubmitID, wantSubmitID}) {
+		return fmt.Errorf("delivery client submit IDs = %#v, want identical persisted %q", got, wantSubmitID)
+	}
+	if got := driver.LauncherCanonicalTurnCount(); got != 1 {
+		return fmt.Errorf("canonical turn count = %d, want 1 after response-loss retry", got)
+	}
 	if err := driver.RecoverLaunches(ctx, fixture.WorkspaceID); err != nil {
 		return fmt.Errorf("second RecoverLaunches() error = %w", err)
 	}
 	if calls := driver.LauncherCallCount(); calls != 2 {
 		return fmt.Errorf("settled launch intent was redelivered: calls = %d", calls)
+	}
+	return nil
+}
+
+func runActiveRunBudgetReservationRejectsWholeSet(ctx context.Context, driver Driver) error {
+	fixture := scheduleFixture()
+	fixture.WorkflowID += "-active-budget"
+	fixture.RevisionID += "-active-budget"
+	fixture.CheckpointID += "-active-budget"
+	fixture.BudgetMode = "fixed"
+	fixture.TokenLimit = 48_000
+	issueID, err := driver.AcceptPlan(ctx, fixture)
+	if err != nil {
+		return fmt.Errorf("AcceptPlan() error = %w", err)
+	}
+	if err := driver.SeedActiveRun(ctx, fixture.WorkspaceID, issueID, "task-a"); err != nil {
+		return fmt.Errorf("SeedActiveRun() error = %w", err)
+	}
+	before, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil {
+		return fmt.Errorf("GetSnapshot(before) error = %w", err)
+	}
+	_, err = driver.Schedule(ctx, ScheduleInput{
+		WorkspaceID:           fixture.WorkspaceID,
+		IssueID:               issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          before.Checkpoints[0].CheckpointID,
+		ExpectedGraphRevision: before.Execution.GraphRevision,
+		TaskIDs:               []string{"task-b"},
+		RequestID:             "schedule-over-budget-with-active",
+	})
+	if err == nil {
+		return fmt.Errorf("Schedule() error = nil, want active-Run budget reservation rejection")
+	}
+	after, snapshotErr := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if snapshotErr != nil {
+		return fmt.Errorf("GetSnapshot(after) error = %w", snapshotErr)
+	}
+	if after.RunCount != before.RunCount || !reflect.DeepEqual(after.Tasks, before.Tasks) ||
+		!reflect.DeepEqual(after.Checkpoints, before.Checkpoints) ||
+		!reflect.DeepEqual(after.Execution, before.Execution) {
+		return fmt.Errorf("budget rejection mutated requested set: before=%#v after=%#v", before, after)
+	}
+	return nil
+}
+
+func runConcurrentReplayClaimsOneDelivery(ctx context.Context, driver Driver) error {
+	fixture := scheduleFixture()
+	fixture.WorkflowID += "-concurrent-replay"
+	fixture.RevisionID += "-concurrent-replay"
+	fixture.CheckpointID += "-concurrent-replay"
+	issueID, err := driver.AcceptPlan(ctx, fixture)
+	if err != nil {
+		return fmt.Errorf("AcceptPlan() error = %w", err)
+	}
+	before, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil {
+		return fmt.Errorf("GetSnapshot(before) error = %w", err)
+	}
+	input := ScheduleInput{
+		WorkspaceID:           fixture.WorkspaceID,
+		IssueID:               issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          before.Checkpoints[0].CheckpointID,
+		ExpectedGraphRevision: before.Execution.GraphRevision,
+		TaskIDs:               []string{"task-a"},
+		RequestID:             "schedule-concurrent-replay",
+	}
+	started, release := driver.HoldNextLaunch()
+	defer release()
+	firstErr := make(chan error, 1)
+	go func() {
+		_, scheduleErr := driver.Schedule(ctx, input)
+		firstErr <- scheduleErr
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("first launch did not reach delivery seam")
+	}
+	var wait sync.WaitGroup
+	wait.Add(1)
+	var replay ScheduleResult
+	var replayErr error
+	go func() {
+		defer wait.Done()
+		replay, replayErr = driver.ScheduleReplica(ctx, input)
+	}()
+	wait.Wait()
+	if replayErr != nil {
+		return fmt.Errorf("concurrent replay Schedule() error = %w", replayErr)
+	}
+	if !replay.Replayed {
+		return fmt.Errorf("concurrent replay result = %#v, want replayed", replay)
+	}
+	if calls := driver.LauncherCallCount(); calls != 1 {
+		return fmt.Errorf("concurrent replay entered launcher %d times, want 1", calls)
+	}
+	release()
+	if err := <-firstErr; err != nil {
+		return fmt.Errorf("first Schedule() error = %w", err)
+	}
+	if calls := driver.LauncherCallCount(); calls != 1 {
+		return fmt.Errorf("launcher calls after release = %d, want 1", calls)
 	}
 	return nil
 }

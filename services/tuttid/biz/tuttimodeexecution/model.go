@@ -123,3 +123,8 @@ type LaunchIntent struct {
 	CanonicalSessionID string
 	CanonicalTurnID    string
 }
+
+type PreparedRunLaunch struct {
+	Run            workspaceissues.Run
+	ClientSubmitID string
+}

@@ -11,6 +11,8 @@ type AcceptPlanInput struct {
 	TopicID         string
 	Title           string
 	Content         string
+	BudgetMode      string
+	TokenLimit      int64
 	Tasks           []Task
 }
 
@@ -97,7 +99,12 @@ type Driver interface {
 	AcceptPlan(context.Context, AcceptPlanInput) (string, error)
 	GetSnapshot(context.Context, string, string) (Snapshot, error)
 	Schedule(context.Context, ScheduleInput) (ScheduleResult, error)
+	ScheduleReplica(context.Context, ScheduleInput) (ScheduleResult, error)
+	SeedActiveRun(context.Context, string, string, string) error
 	FailNextLaunch()
+	HoldNextLaunch() (<-chan struct{}, func())
 	RecoverLaunches(context.Context, string) error
+	LauncherClientSubmitIDs() []string
+	LauncherCanonicalTurnCount() int
 	LauncherCallCount() int
 }
