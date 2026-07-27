@@ -209,13 +209,16 @@ describe("useAgentGUIDetailScroll", () => {
     const harness = createHarness({ scrollHeight: 5_000 });
     const controller = virtualScrollController("conversation-wheel-step");
     harness.virtualScrollControllerRef.current = controller;
-    const { result } = renderHook(() =>
-      useAgentGUIDetailScroll(
-        harness.input({
-          activeConversationId: "conversation-wheel-step",
-          showTimelineSkeleton: false
-        })
-      )
+    const { result, rerender } = renderHook(
+      ({ conversation }) =>
+        useAgentGUIDetailScroll(
+          harness.input({
+            activeConversationId: "conversation-wheel-step",
+            conversation,
+            showTimelineSkeleton: false
+          })
+        ),
+      { initialProps: { conversation: conversationVM("first") } }
     );
     controller.scrollToEnd.mockClear();
     const timelineObserver = resizeObservers.find((observer) =>
@@ -232,18 +235,28 @@ describe("useAgentGUIDetailScroll", () => {
     expect(controller.scrollToEnd).not.toHaveBeenCalled();
     expect(harness.timeline.scrollTop).toBe(4_899);
     expect(result.current.isTimelineScrolledToBottom).toBe(false);
+
+    rerender({ conversation: conversationVM("second") });
+    act(() => timelineObserver?.callback([], timelineObserver));
+
+    expect(controller.scrollToEnd).not.toHaveBeenCalled();
+    expect(harness.timeline.scrollTop).toBe(4_899);
+    expect(result.current.isTimelineScrolledToBottom).toBe(false);
   });
 
   it("releases and restores the DOM bottom lock around a mouse-wheel step", () => {
     const resizeObservers = installResizeObserverMock();
     const harness = createHarness({ scrollHeight: 5_000 });
-    const { result } = renderHook(() =>
-      useAgentGUIDetailScroll(
-        harness.input({
-          activeConversationId: "conversation-dom-wheel-step",
-          showTimelineSkeleton: false
-        })
-      )
+    const { result, rerender } = renderHook(
+      ({ conversation }) =>
+        useAgentGUIDetailScroll(
+          harness.input({
+            activeConversationId: "conversation-dom-wheel-step",
+            conversation,
+            showTimelineSkeleton: false
+          })
+        ),
+      { initialProps: { conversation: conversationVM("first") } }
     );
     const timelineObserver = resizeObservers.find((observer) =>
       observer.observed.has(harness.timelineContent)
@@ -261,9 +274,17 @@ describe("useAgentGUIDetailScroll", () => {
     expect(harness.timeline.scrollTop).toBe(4_899);
     expect(result.current.isTimelineScrolledToBottom).toBe(false);
 
+    harness.setScrollHeight(5_100);
+    rerender({ conversation: conversationVM("second") });
+    act(() => timelineObserver?.callback([], timelineObserver));
+
+    expect(harness.scrollTopWriteCount()).toBe(1);
+    expect(harness.timeline.scrollTop).toBe(4_899);
+    expect(result.current.isTimelineScrolledToBottom).toBe(false);
+
     act(() => {
       harness.timeline.dispatchEvent(new WheelEvent("wheel", { deltaY: 1 }));
-      harness.timeline.scrollTop = 4_900;
+      harness.timeline.scrollTop = 5_000;
       harness.timeline.dispatchEvent(new Event("scroll"));
     });
 

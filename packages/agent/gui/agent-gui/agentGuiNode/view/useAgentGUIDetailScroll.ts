@@ -123,6 +123,7 @@ export function useAgentGUIDetailScroll(input: Input) {
     if (
       !conversationChanged &&
       bottomLockOwnerRef.current === null &&
+      userScrollAwayIntentConversationRef.current !== activeConversationId &&
       anchor.scrollHeight - anchor.scrollTop - anchor.clientHeight <=
         AGENT_GUI_STICK_TO_BOTTOM_THRESHOLD_PX
     ) {
@@ -164,7 +165,9 @@ export function useAgentGUIDetailScroll(input: Input) {
       ) {
         pendingPrependScrollAnchorRef.current = null;
       }
-      const atBottom = virtualScrollController.isAtEnd();
+      const atBottom =
+        virtualScrollController.isAtEnd() &&
+        userScrollAwayIntentConversationRef.current !== activeConversationId;
       if (atBottom) {
         bottomLockOwnerRef.current = activeConversationId;
       }
@@ -228,7 +231,10 @@ export function useAgentGUIDetailScroll(input: Input) {
     } else {
       const distanceFromBottom =
         anchor.scrollHeight - anchor.scrollTop - anchor.clientHeight;
-      if (distanceFromBottom <= AGENT_GUI_STICK_TO_BOTTOM_THRESHOLD_PX) {
+      if (
+        distanceFromBottom <= AGENT_GUI_STICK_TO_BOTTOM_THRESHOLD_PX &&
+        userScrollAwayIntentConversationRef.current !== activeConversationId
+      ) {
         bottomLockOwnerRef.current = activeConversationId;
         setTimelineScrollTopInstantly(timeline, maxScrollTop);
         nextScrollTop = maxScrollTop;
