@@ -10,6 +10,16 @@ import { escapeCssString } from "./agentTranscriptModel";
 
 const REVERSE_CONFIRMATION_FRAMES = 3;
 const SCROLL_INTENT_WINDOW_MS = 1_000;
+const AGENT_MESSAGE_LOCATOR_SCROLL_TO_END_EVENT =
+  "agent-message-locator-scroll-to-end";
+
+export function signalAgentMessageLocatorScrollToEnd(
+  scrollParent: HTMLElement | null
+): void {
+  scrollParent?.dispatchEvent(
+    new Event(AGENT_MESSAGE_LOCATOR_SCROLL_TO_END_EVENT)
+  );
+}
 
 export interface AgentMessageLocatorVirtualSelectionSource {
   readonly scrollOffset: number | null;
@@ -26,10 +36,12 @@ interface AgentMessageLocatorSelection {
 
 export function useAgentMessageLocatorSelection({
   items,
+  isVisible,
   locatorRef,
   virtualSelectionSource
 }: {
   items: readonly AgentMessageLocatorItem[];
+  isVisible: boolean;
   locatorRef: RefObject<HTMLElement | null>;
   virtualSelectionSource?: AgentMessageLocatorVirtualSelectionSource;
 }): AgentMessageLocatorSelection {
@@ -50,6 +62,9 @@ export function useAgentMessageLocatorSelection({
       virtualSelectionSource.scrollRect !== null);
 
   useLayoutEffect(() => {
+    if (!isVisible) {
+      return;
+    }
     if (!selectedKey) {
       return;
     }
@@ -107,9 +122,12 @@ export function useAgentMessageLocatorSelection({
         : candidateIndex;
     selectedIndexRef.current = replacementIndex;
     setSelectedKey(items[replacementIndex]?.key ?? null);
-  }, [items, locatorRef, selectedKey, virtualSelectionSource]);
+  }, [isVisible, items, locatorRef, selectedKey, virtualSelectionSource]);
 
   useEffect(() => {
+    if (!isVisible) {
+      return;
+    }
     const locator = locatorRef.current;
     const scrollParent = locator
       ? findMessageLocatorScrollParent(locator)
@@ -229,6 +247,13 @@ export function useAgentMessageLocatorSelection({
       };
       pendingReverseSelectionRef.current = null;
     };
+    const selectScrollEndItem = (): void => {
+      selectionDirectionRef.current = 0;
+      scrollIntentRef.current = null;
+      pendingReverseSelectionRef.current = null;
+      selectedIndexRef.current = items.length - 1;
+      setSelectedKey(items.at(-1)?.key ?? null);
+    };
 
     scheduleUpdate();
     scrollParent.addEventListener("scroll", scheduleUpdate, { passive: true });
@@ -236,15 +261,29 @@ export function useAgentMessageLocatorSelection({
       passive: true
     });
     scrollParent.addEventListener("keydown", captureKeyboardIntent);
+    scrollParent.addEventListener(
+      AGENT_MESSAGE_LOCATOR_SCROLL_TO_END_EVENT,
+      selectScrollEndItem
+    );
     return () => {
       scrollParent.removeEventListener("scroll", scheduleUpdate);
       scrollParent.removeEventListener("wheel", captureWheelIntent);
       scrollParent.removeEventListener("keydown", captureKeyboardIntent);
+      scrollParent.removeEventListener(
+        AGENT_MESSAGE_LOCATOR_SCROLL_TO_END_EVENT,
+        selectScrollEndItem
+      );
       if (animationFrame !== null) {
         window.cancelAnimationFrame(animationFrame);
       }
     };
-  }, [items, locatorRef, virtualSelectionReady, virtualSelectionSource]);
+  }, [
+    isVisible,
+    items,
+    locatorRef,
+    virtualSelectionReady,
+    virtualSelectionSource
+  ]);
 
   const selectItem = (itemKey: string): void => {
     selectionDirectionRef.current = 0;

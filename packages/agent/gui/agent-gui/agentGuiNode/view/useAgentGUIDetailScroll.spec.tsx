@@ -138,6 +138,34 @@ describe("useAgentGUIDetailScroll", () => {
     expect(controller.scrollToEnd).toHaveBeenCalledWith({ behavior: "auto" });
   });
 
+  it("signals the locator when a submitted prompt returns the DOM timeline to the end", () => {
+    const harness = createHarness({ scrollHeight: 5_000 });
+    const locatorScrollToEnd = vi.fn();
+    harness.timeline.addEventListener(
+      "agent-message-locator-scroll-to-end",
+      locatorScrollToEnd
+    );
+    const { rerender } = renderHook(
+      ({ conversation }) =>
+        useAgentGUIDetailScroll(
+          harness.input({
+            activeConversationId: "conversation-submit",
+            conversation,
+            showTimelineSkeleton: false
+          })
+        ),
+      { initialProps: { conversation: conversationVM("first") } }
+    );
+    locatorScrollToEnd.mockClear();
+    harness.submittedPromptScrollConversationRef.current =
+      "conversation-submit";
+
+    rerender({ conversation: conversationVM("second") });
+
+    expect(harness.timeline.scrollTop).toBe(4_900);
+    expect(locatorScrollToEnd).toHaveBeenCalledOnce();
+  });
+
   it("leaves virtualized prepend compensation to TanStack", () => {
     const harness = createHarness({ scrollHeight: 5_000 });
     const controller = virtualScrollController("conversation-prepend", false);
@@ -686,6 +714,11 @@ describe("useAgentGUIDetailScroll", () => {
 
   it("reads timeline geometry once for an explicit scroll to bottom", () => {
     const harness = createHarness({ scrollHeight: 5_000 });
+    const locatorScrollToEnd = vi.fn();
+    harness.timeline.addEventListener(
+      "agent-message-locator-scroll-to-end",
+      locatorScrollToEnd
+    );
     const { result } = renderHook(() =>
       useAgentGUIDetailScroll(
         harness.input({
@@ -694,6 +727,7 @@ describe("useAgentGUIDetailScroll", () => {
         })
       )
     );
+    locatorScrollToEnd.mockClear();
     harness.timeline.scrollTop = 2_000;
     harness.resetGeometryReadCounts();
 
@@ -705,6 +739,7 @@ describe("useAgentGUIDetailScroll", () => {
       scrollTop: 0
     });
     expect(harness.timeline.scrollTop).toBe(4_900);
+    expect(locatorScrollToEnd).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the bottom lock through observed streaming content growth", () => {

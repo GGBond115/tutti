@@ -51,6 +51,12 @@ describe("AgentTranscriptView", () => {
         { conversation: statusOnlyConversation, labels }
       )
     ).toBe(true);
+    expect(
+      areAgentTranscriptViewPropsEqual(
+        { conversation, isVisible: false, labels },
+        { conversation, isVisible: true, labels }
+      )
+    ).toBe(false);
   });
 
   it("compares participant presentation by its explicit state and identity data", () => {
@@ -1161,6 +1167,80 @@ describe("AgentTranscriptView", () => {
       vi.useRealTimers();
       HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
     }
+  });
+
+  it("remeasures the message locator when an occluded transcript becomes visible", async () => {
+    const base = detailViewModel();
+    const conversation = projectAgentConversationVM(
+      detailViewModel({
+        turns: [
+          base.turns[0]!,
+          {
+            id: "turn-2",
+            userMessage: { id: "user-2", body: "Follow-up request" },
+            userMessages: [{ id: "user-2", body: "Follow-up request" }],
+            agentMessages: [{ id: "assistant-2", body: "Follow-up answer" }],
+            toolCalls: [],
+            toolCallCount: 0,
+            hasFailedToolCall: false,
+            agentItems: [
+              {
+                kind: "message",
+                message: {
+                  id: "assistant-2",
+                  body: "Follow-up answer"
+                }
+              }
+            ]
+          }
+        ]
+      })
+    );
+    const labels = {
+      thinkingLabel: "Thought process",
+      toolCallsLabel: (count: number) => `Tool calls (${count})`,
+      processing: "Planning next moves",
+      turnSummary: "Changed files",
+      userMessageLocator: "User messages"
+    };
+    const { rerender } = render(
+      <div data-testid="agent-gui-timeline">
+        <AgentTranscriptView
+          conversation={conversation}
+          isVisible={false}
+          labels={labels}
+        />
+      </div>
+    );
+    const timeline = screen.getByTestId("agent-gui-timeline");
+    let timelineClientHeight = 0;
+    Object.defineProperty(timeline, "clientHeight", {
+      configurable: true,
+      get: () => timelineClientHeight
+    });
+    await flushAnimationFrame();
+
+    expect(
+      screen
+        .getByTestId("agent-message-locator")
+        .style.getPropertyValue("--agent-message-locator-visible-height")
+    ).toBe("");
+
+    timelineClientHeight = 240;
+    rerender(
+      <div data-testid="agent-gui-timeline">
+        <AgentTranscriptView
+          conversation={conversation}
+          isVisible
+          labels={labels}
+        />
+      </div>
+    );
+    await flushAnimationFrame();
+
+    expect(screen.getByTestId("agent-message-locator")).toHaveStyle({
+      "--agent-message-locator-visible-height": "240px"
+    });
   });
 
   it("formats rich mention syntax as plain text in user message locator previews", () => {

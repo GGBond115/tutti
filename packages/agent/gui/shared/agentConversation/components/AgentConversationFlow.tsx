@@ -15,6 +15,7 @@ import type { AgentGUIProviderSkillOption } from "../../../agent-gui/agentGuiNod
 
 export interface AgentConversationFlowProps {
   conversation: AgentConversationVM | null;
+  isVisible?: boolean;
   turnAttachments?: readonly AgentTranscriptTurnAttachment[];
   turnAttachmentLocatorRef?: Ref<AgentTranscriptAttachmentLocator>;
   onTurnAttachmentVisibilityChange?: (
@@ -45,6 +46,7 @@ export interface AgentConversationFlowProps {
 
 export const AgentConversationFlow = memo(function AgentConversationFlow({
   conversation,
+  isVisible = true,
   turnAttachments,
   turnAttachmentLocatorRef,
   onTurnAttachmentVisibilityChange,
@@ -78,6 +80,7 @@ export const AgentConversationFlow = memo(function AgentConversationFlow({
     content = (
       <AgentTranscriptView
         conversation={conversation}
+        isVisible={isVisible}
         turnAttachments={turnAttachments}
         turnAttachmentLocatorRef={turnAttachmentLocatorRef}
         onTurnAttachmentVisibilityChange={onTurnAttachmentVisibilityChange}

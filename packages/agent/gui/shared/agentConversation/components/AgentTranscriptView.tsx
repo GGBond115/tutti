@@ -62,6 +62,7 @@ export type { AgentTranscriptVirtualScrollController } from "./useAgentTranscrip
 
 export interface AgentTranscriptViewProps {
   conversation: AgentConversationVM;
+  isVisible?: boolean;
   turnAttachments?: readonly AgentTranscriptTurnAttachment[];
   turnAttachmentLocatorRef?: Ref<AgentTranscriptAttachmentLocator>;
   onTurnAttachmentVisibilityChange?: (
@@ -211,6 +212,7 @@ export function areAgentTranscriptViewPropsEqual(
       previous.conversation,
       next.conversation
     ) &&
+    (previous.isVisible ?? true) === (next.isVisible ?? true) &&
     previous.onLinkAction === next.onLinkAction &&
     previous.onAuthLogin === next.onAuthLogin &&
     previous.availableSkills === next.availableSkills &&
@@ -232,6 +234,7 @@ export function areAgentTranscriptViewPropsEqual(
 
 export const AgentTranscriptView = memo(function AgentTranscriptView({
   conversation,
+  isVisible = true,
   turnAttachments = [],
   turnAttachmentLocatorRef,
   onTurnAttachmentVisibilityChange,
@@ -363,6 +366,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     useAgentTranscriptVirtualizer({
       agentSessionId,
       hasMovingTurnDisclosure,
+      isVisible,
       scrollElement: virtualScrollElement,
       scrollMargin: virtualListOffsetFromScrollOrigin,
       shouldVirtualize,
@@ -413,7 +417,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   );
 
   useLayoutEffect(() => {
-    if (!shouldVirtualize) {
+    if (!isVisible || !shouldVirtualize) {
       return;
     }
     const virtualizerHost = virtualizerHostRef.current;
@@ -434,7 +438,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     setVirtualListOffsetFromScrollOrigin((previousOffset) =>
       previousOffset === nextOffset ? previousOffset : nextOffset
     );
-  }, [shouldVirtualize, virtualListLayoutRevision]);
+  }, [isVisible, shouldVirtualize, virtualListLayoutRevision]);
 
   const renderRow = (
     row: AgentConversationVM["rows"][number],
@@ -587,6 +591,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
       <>
         <AgentMessageLocatorRail
           items={userMessageLocatorItems}
+          isVisible={isVisible}
           label={labels.userMessageLocator}
           onLocate={handleLocateUserMessage}
           virtualSelectionSource={rowVirtualizer}
@@ -638,6 +643,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     <>
       <AgentMessageLocatorRail
         items={userMessageLocatorItems}
+        isVisible={isVisible}
         label={labels.userMessageLocator}
         onLocate={handleLocateUserMessage}
       />

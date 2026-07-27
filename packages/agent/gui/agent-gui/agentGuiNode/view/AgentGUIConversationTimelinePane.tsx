@@ -9,6 +9,7 @@ import type {
   AgentTranscriptTurnAttachment,
   AgentTranscriptVirtualScrollController
 } from "../../../shared/agentConversation/components/AgentTranscriptView";
+import { signalAgentMessageLocatorScrollToEnd } from "../../../shared/agentConversation/components/useAgentMessageLocatorSelection";
 import { userScrollBehavior } from "./agentGUIDetailScrollHelpers";
 
 const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
@@ -16,6 +17,7 @@ const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[]
 
 interface AgentGUIConversationTimelinePaneProps {
   conversation: AgentConversationVM | null;
+  isVisible: boolean;
   turnAttachments?: readonly AgentTranscriptTurnAttachment[];
   turnAttachmentLocatorRef?: Ref<AgentTranscriptAttachmentLocator>;
   onTurnAttachmentVisibilityChange?: (
@@ -43,6 +45,7 @@ interface AgentGUIConversationTimelinePaneProps {
 export const AgentGUIConversationTimelinePane = memo(
   function AgentGUIConversationTimelinePane({
     conversation,
+    isVisible,
     turnAttachments,
     turnAttachmentLocatorRef,
     onTurnAttachmentVisibilityChange,
@@ -72,6 +75,7 @@ export const AgentGUIConversationTimelinePane = memo(
         ) : null}
         <AgentConversationFlow
           conversation={conversation}
+          isVisible={isVisible}
           turnAttachments={turnAttachments}
           turnAttachmentLocatorRef={turnAttachmentLocatorRef}
           onTurnAttachmentVisibilityChange={onTurnAttachmentVisibilityChange}
@@ -97,6 +101,7 @@ export function setTimelineScrollTopInstantly(
 ): void {
   // Timeline anchoring runs for high-frequency streaming updates. Smooth scrolling
   // queues animations that can overlap with incoming layout commits and make the transcript flicker.
+  signalAgentMessageLocatorScrollToEnd(element);
   element.scrollTop = top;
 }
 
@@ -104,6 +109,7 @@ export function setTimelineScrollTopWithUserTransition(
   element: HTMLElement,
   top: number
 ): void {
+  signalAgentMessageLocatorScrollToEnd(element);
   if (typeof element.scrollTo === "function") {
     element.scrollTo({
       top,

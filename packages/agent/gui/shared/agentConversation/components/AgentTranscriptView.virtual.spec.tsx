@@ -201,7 +201,7 @@ describe("AgentTranscriptView virtual rendering", () => {
     ]);
   });
 
-  it("exposes only the matching Session virtual scroll controller", () => {
+  it("exposes only the matching Session virtual scroll controller", async () => {
     virtualizerMockState.virtualIndexes = [10];
     const virtualScrollController =
       createRef<AgentTranscriptVirtualScrollController>();
@@ -214,18 +214,28 @@ describe("AgentTranscriptView virtual rendering", () => {
         <AgentTranscriptView
           conversation={conversationWithMultiRowTurns(40)}
           virtualScrollControllerRef={virtualScrollController}
-          labels={TRANSCRIPT_LABELS}
+          labels={TRANSCRIPT_LABELS_WITH_LOCATOR}
         />
       </div>
     );
+    const selectedIndex = () =>
+      [
+        ...screen
+          .getByTestId("agent-message-locator")
+          .querySelectorAll(".agent-gui-message-locator__tick")
+      ].findIndex((tick) => tick.getAttribute("data-selected") === "true");
 
     expect(virtualScrollController.current?.agentSessionId).toBe("session-1");
     expect(virtualScrollController.current?.enabled).toBe(true);
     expect(virtualScrollController.current?.isAtEnd()).toBe(true);
-    virtualScrollController.current?.scrollToEnd({ behavior: "smooth" });
+    await waitFor(() => expect(selectedIndex()).toBe(10));
+    act(() => {
+      virtualScrollController.current?.scrollToEnd({ behavior: "smooth" });
+    });
     expect(virtualizerMockState.scrollToEnd).toHaveBeenCalledWith({
       behavior: "smooth"
     });
+    await waitFor(() => expect(selectedIndex()).toBe(39));
   });
 
   it("remeasures scrollMargin when outer timeline layout changes", async () => {
@@ -272,6 +282,54 @@ describe("AgentTranscriptView virtual rendering", () => {
         vi.mocked(useVirtualizer).mock.calls.at(-1)?.[0].scrollMargin
       ).toBe(172);
     });
+    timeline.remove();
+  });
+
+  it("disconnects virtual layout work while hidden and remeasures on exposure", async () => {
+    virtualizerMockState.virtualIndexes = [10];
+    const timeline = document.createElement("div");
+    timeline.dataset.testid = "agent-gui-timeline";
+    timeline.style.overflow = "auto";
+    timeline.scrollTop = 40;
+    document.body.appendChild(timeline);
+    const readRect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        return {
+          top: this === timeline ? 20 : 120
+        } as DOMRect;
+      });
+    const rendered = render(
+      <AgentTranscriptView
+        conversation={conversationWithMultiRowTurns(40)}
+        isVisible={false}
+        labels={TRANSCRIPT_LABELS}
+      />,
+      { container: timeline }
+    );
+
+    expect(vi.mocked(useVirtualizer).mock.calls.at(-1)?.[0].enabled).toBe(
+      false
+    );
+    expect(readRect).not.toHaveBeenCalled();
+
+    rendered.rerender(
+      <AgentTranscriptView
+        conversation={conversationWithMultiRowTurns(40)}
+        isVisible
+        labels={TRANSCRIPT_LABELS}
+      />
+    );
+
+    await waitFor(() => {
+      expect(vi.mocked(useVirtualizer).mock.calls.at(-1)?.[0]).toEqual(
+        expect.objectContaining({
+          enabled: true,
+          scrollMargin: 140
+        })
+      );
+    });
+    expect(readRect).toHaveBeenCalledTimes(2);
     timeline.remove();
   });
 

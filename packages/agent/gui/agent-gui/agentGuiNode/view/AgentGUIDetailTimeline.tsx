@@ -35,6 +35,7 @@ interface AgentGUIDetailTimelineProps {
   hasActiveConversation: boolean;
   homeContent: ReactNode;
   isLoadingOlderMessages: boolean;
+  isVisible?: boolean;
   isTimelineScrolledToTop: boolean;
   labels: {
     loadingConversation: string;
@@ -57,6 +58,7 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
   hasActiveConversation,
   homeContent,
   isLoadingOlderMessages,
+  isVisible = true,
   isTimelineScrolledToTop,
   labels,
   onAuthLogin,
@@ -88,6 +90,7 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
       {hasActiveConversation ? (
         <AgentGUIConversationTimelinePane
           conversation={conversation}
+          isVisible={isVisible}
           isLoading={showTimelineSkeleton}
           isLoadingOlderMessages={isLoadingOlderMessages}
           loadingLabel={labels.loadingConversation}
