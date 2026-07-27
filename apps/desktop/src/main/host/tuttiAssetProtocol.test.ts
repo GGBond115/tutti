@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { tuttiAssetProtocolAssets } from "./tuttiAssetProtocolAssets.ts";
 import { resolveTuttiAssetProtocolFilePath } from "./tuttiAssetProtocolResolver.ts";
+import { createTuttiAssetProtocolResponse } from "./tuttiAssetProtocolResponse.ts";
 
 test("tutti asset protocol resolves development source assets", () => {
   const appPath = mkdtempSync(join(tmpdir(), "tutti-asset-dev-"));
@@ -84,4 +85,20 @@ test("tutti asset protocol rejects unknown asset routes", () => {
     ),
     null
   );
+});
+
+test("tutti asset protocol responses allow anonymous canvas image loads", async () => {
+  const response = createTuttiAssetProtocolResponse(
+    new Response("image", {
+      headers: {
+        "Content-Type": "image/png",
+        "X-Asset-Header": "preserved"
+      }
+    })
+  );
+
+  assert.equal(response.headers.get("Access-Control-Allow-Origin"), "*");
+  assert.equal(response.headers.get("Content-Type"), "image/png");
+  assert.equal(response.headers.get("X-Asset-Header"), "preserved");
+  assert.equal(await response.text(), "image");
 });

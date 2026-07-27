@@ -46,7 +46,7 @@ describe("AgentGuiHeroCarouselImageLoad", () => {
     FakeImage.autoLoad = true;
   });
 
-  it("is the single network owner for icon, cover, and anonymous badge decoding", async () => {
+  it("loads every canvas-bound image anonymously before decoding", async () => {
     globalThis.Image = FakeImage as unknown as typeof Image;
     const load = new AgentGuiHeroCarouselImageLoad([
       {
@@ -63,7 +63,11 @@ describe("AgentGuiHeroCarouselImageLoad", () => {
     const result = await load.result;
 
     expect(FakeImage.instances).toHaveLength(3);
-    expect(FakeImage.instances[2]?.crossOrigin).toBe("anonymous");
+    expect(FakeImage.instances.map((image) => image.crossOrigin)).toEqual([
+      "anonymous",
+      "anonymous",
+      "anonymous"
+    ]);
     expect(FakeImage.instances[1]?.src).toBe("app://codex-hero.jpg");
     expect(result.icons[0]).toBe(FakeImage.instances[0]);
     expect(result.covers[0]).toBe(FakeImage.instances[1]);

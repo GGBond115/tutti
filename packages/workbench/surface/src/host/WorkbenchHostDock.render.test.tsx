@@ -1,8 +1,9 @@
-import { act, useRef } from "react";
+import { act, StrictMode, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkbenchNode, WorkbenchState } from "../core/types.ts";
 import type { WorkbenchDockContext } from "../react/types.ts";
+import * as genieAnimation from "../react/useWorkbenchGenieAnimation.tsx";
 import type { WorkbenchController } from "../store/types.ts";
 import { WorkbenchHostDock } from "./WorkbenchHostDock.tsx";
 import { WorkbenchHostDockPopup } from "./WorkbenchHostDockPopup.tsx";
@@ -306,6 +307,215 @@ describe("WorkbenchHostDock", () => {
     }
   });
 
+  it("reuses a persisted preview without capturing background DOM", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        disconnect() {}
+        observe() {}
+        unobserve() {}
+      }
+    );
+    const node = {
+      ...createNode(),
+      id: "agent-gui:background-preview"
+    };
+    const unavailableNode = {
+      ...createNode(),
+      id: "agent-gui:unavailable-preview"
+    };
+    const { host } = createDockProps([node, unavailableNode]);
+    const capturePreview = vi.fn(async () => null);
+    const previewImageUrl = "data:image/png;base64,Q0FDSEU=";
+    const captureDomPreview = vi
+      .spyOn(genieAnimation, "captureWorkbenchNodePreviewImage")
+      .mockResolvedValue("data:image/png;base64,RE9N");
+    const readPersistedPreview = vi.fn(async (key: { nodeId: string }) =>
+      key.nodeId === node.id ? previewImageUrl : null
+    );
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const previousActEnvironment = (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <WorkbenchHostDockPopup
+            anchorRect={{ height: 40, left: 20, top: 100, width: 40 }}
+            capturePreview={capturePreview}
+            closeWindowLabel={() => "Close"}
+            dockPreviewCache={{
+              read: readPersistedPreview,
+              write: vi.fn()
+            }}
+            items={[
+              {
+                host,
+                isFocused: false,
+                isMinimized: false,
+                node,
+                preview: null,
+                previewRevision: "revision-1",
+                subtitle: null,
+                title: "Agent"
+              },
+              {
+                host,
+                isFocused: false,
+                isMinimized: false,
+                node: unavailableNode,
+                preview: null,
+                previewRevision: "revision-1",
+                subtitle: null,
+                title: "Background Agent"
+              }
+            ]}
+            label="Agent"
+            newWindowLabel="New"
+            onClose={() => undefined}
+            onCloseNode={() => undefined}
+            onCreateNew={() => undefined}
+            onSelectNode={() => undefined}
+            resolveDockPreviewCacheKey={(candidate) => ({
+              instanceId: candidate.data.instanceId,
+              instanceKey: candidate.data.instanceKey,
+              nodeId: candidate.id,
+              typeId: candidate.data.typeId,
+              workspaceId: "workspace-1"
+            })}
+          />
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(capturePreview).toHaveBeenCalledTimes(2);
+        expect(readPersistedPreview).toHaveBeenCalledTimes(2);
+        expect(captureDomPreview).not.toHaveBeenCalled();
+        expect(
+          document.body.querySelector<HTMLImageElement>(
+            `[data-preview-kind="image"] img`
+          )?.src
+        ).toBe(previewImageUrl);
+        expect(
+          document.body.querySelector<HTMLElement>(
+            `[data-preview-state="fallback"]`
+          )?.textContent
+        ).toBe("");
+        expect(
+          document.body.querySelector(`[data-preview-state="loading"]`)
+        ).toBeNull();
+      });
+    } finally {
+      captureDomPreview.mockRestore();
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+      (
+        globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+      ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("retries a previously unavailable preview when the popup reopens", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        disconnect() {}
+        observe() {}
+        unobserve() {}
+      }
+    );
+    const node = {
+      ...createNode(),
+      id: "agent-gui:retry-unavailable-preview"
+    };
+    const { host } = createDockProps([node]);
+    const previewImageUrl = "data:image/png;base64,UkVUUlk=";
+    const capturePreview = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(previewImageUrl);
+    const container = document.createElement("div");
+    document.body.append(container);
+    let root = createRoot(container);
+    const previousActEnvironment = (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    const popup = (
+      <WorkbenchHostDockPopup
+        anchorRect={{ height: 40, left: 20, top: 100, width: 40 }}
+        capturePreview={capturePreview}
+        closeWindowLabel={() => "Close"}
+        items={[
+          {
+            host,
+            isFocused: false,
+            isMinimized: false,
+            node,
+            preview: null,
+            previewRevision: "revision-1",
+            subtitle: null,
+            title: "Agent"
+          }
+        ]}
+        label="Agent"
+        newWindowLabel="New"
+        onClose={() => undefined}
+        onCloseNode={() => undefined}
+        onCreateNew={() => undefined}
+        onSelectNode={() => undefined}
+      />
+    );
+
+    try {
+      await act(async () => {
+        root.render(popup);
+      });
+      await vi.waitFor(() => {
+        expect(
+          document.body.querySelector(`[data-preview-state="fallback"]`)
+        ).not.toBeNull();
+      });
+
+      await act(async () => {
+        root.unmount();
+      });
+      root = createRoot(container);
+      await act(async () => {
+        root.render(popup);
+      });
+
+      await vi.waitFor(() => {
+        expect(capturePreview).toHaveBeenCalledTimes(2);
+        expect(
+          document.body.querySelector<HTMLImageElement>(
+            `[data-preview-kind="image"] img`
+          )?.src
+        ).toBe(previewImageUrl);
+      });
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+      (
+        globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+      ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not restart an in-flight popup capture after a semantic no-op render", async () => {
     vi.stubGlobal(
       "ResizeObserver",
@@ -456,6 +666,127 @@ describe("WorkbenchHostDock", () => {
       pendingCapture.resolve("data:image/png;base64,AA==");
     } finally {
       pendingCapture.resolve("data:image/png;base64,AA==");
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+      (
+        globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+      ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("commits an issued preview after StrictMode replays the capture effect", async () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        disconnect() {}
+        observe() {}
+        unobserve() {}
+      }
+    );
+    const node = {
+      ...createNode(),
+      id: "agent-gui:strict-preview-effect"
+    };
+    const replayNode = {
+      ...createNode(),
+      id: "agent-gui:strict-preview-replay"
+    };
+    const { host } = createDockProps([node, replayNode]);
+    const pendingCapture = deferred<string>();
+    const replayPreviewImageUrl = "data:image/png;base64,UkVQTEFZ";
+    const capturePreview = vi.fn((item: { node: WorkbenchNode }) =>
+      item.node.id === node.id
+        ? pendingCapture.promise
+        : Promise.resolve(replayPreviewImageUrl)
+    );
+    const previewEvents: string[] = [];
+    const previewImageUrl = "data:image/png;base64,U1RSSUNU";
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const previousActEnvironment = (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <StrictMode>
+            <WorkbenchHostDockPopup
+              anchorRect={{ height: 40, left: 20, top: 100, width: 40 }}
+              capturePreview={capturePreview}
+              closeWindowLabel={() => "Close"}
+              debugDiagnostics={{
+                isEnabled: () => true,
+                log: ({ event }) => {
+                  previewEvents.push(event);
+                }
+              }}
+              items={[
+                {
+                  host,
+                  isFocused: true,
+                  isMinimized: false,
+                  node,
+                  preview: null,
+                  previewRevision: "revision-1",
+                  subtitle: null,
+                  title: "Agent"
+                },
+                {
+                  host,
+                  isFocused: false,
+                  isMinimized: false,
+                  node: replayNode,
+                  preview: null,
+                  previewRevision: "revision-1",
+                  subtitle: null,
+                  title: "Background Agent"
+                }
+              ]}
+              label="Agent"
+              newWindowLabel="New"
+              onClose={() => undefined}
+              onCloseNode={() => undefined}
+              onCreateNew={() => undefined}
+              onSelectNode={() => undefined}
+            />
+          </StrictMode>
+        );
+      });
+      await vi.waitFor(() => {
+        expect(capturePreview.mock.calls.map(([item]) => item.node.id)).toEqual(
+          [node.id, replayNode.id]
+        );
+      });
+
+      await act(async () => {
+        pendingCapture.resolve(previewImageUrl);
+        await Promise.resolve();
+      });
+
+      await vi.waitFor(() => {
+        expect(previewEvents).toContain("dock.popup.preview_capture.resolved");
+        expect(
+          Array.from(
+            document.body.querySelectorAll<HTMLImageElement>(
+              `[data-preview-kind="image"] img`
+            ),
+            (image) => image.src
+          )
+        ).toEqual([previewImageUrl, replayPreviewImageUrl]);
+        expect(capturePreview.mock.calls.map(([item]) => item.node.id)).toEqual(
+          [node.id, replayNode.id]
+        );
+      });
+    } finally {
+      pendingCapture.resolve(previewImageUrl);
       await act(async () => {
         root.unmount();
       });

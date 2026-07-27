@@ -517,6 +517,68 @@
 - References:
   [useAgentGUINodeController.ts](../../../packages/agent/gui/agent-gui/agentGuiNode/controller/useAgentGUINodeController.ts)
 
+### Dock popup stays on skeletons after preview capture succeeds
+
+- Symptom:
+  Dock popup cards remain as skeletons even though renderer diagnostics report
+  `dock_preview_capture.succeeded`.
+- Quick checks:
+  Compare `dock.popup.preview_capture.started` and
+  `dock.popup.preview_capture.resolved`. If capture starts once but the popup
+  effect runs twice in development, inspect whether the first cleanup fences
+  the result while the replayed effect skips the same pending capture.
+- Root cause:
+  React StrictMode replays effect setup and cleanup. Electron capture cannot be
+  canceled, so a module-level pending marker can outlive the effect invocation
+  that started it. Treating that invocation as canceled drops its successful
+  result, while the replay cannot start a replacement.
+- Fix:
+  Keep the pending marker until the native capture settles. Commit the result
+  when the popup is still mounted and the item's semantic preview identity is
+  still current, regardless of which equivalent effect invocation issued the
+  capture.
+- Validation:
+  Render the popup under `StrictMode`, defer the capture promise until effect
+  replay completes, and assert one native capture plus a rendered image.
+- References:
+  [docs/architecture/workbench-dock-model.md](../../architecture/workbench-dock-model.md)
+  [WorkbenchHostDockPopup.tsx](../../../packages/workbench/surface/src/host/WorkbenchHostDockPopup.tsx)
+
+### Some background Dock previews remain as skeletons
+
+- Symptom:
+  A multi-window Dock popup renders foreground or previously cached previews,
+  but windows that have never been foreground remain visually identical to
+  loading skeletons.
+- Quick checks:
+  Correlate `dock.popup.preview_capture.started` with
+  `dock.popup.preview_capture.resolved`. An immediate `hasPreview: false`
+  without a native `dock_preview_capture.started` event means the host rejected
+  native capture before IPC. Check whether the node is background and whether
+  its revision has a persisted preview.
+- Root cause:
+  Electron's rectangular capture reads the currently composited foreground
+  pixels. The desktop host correctly rejects a background node because its
+  rectangle contains another window. AgentGUI may also be unhydrated or have
+  inactive imperative resources when `surface.isVisible=false`, so a fresh DOM
+  snapshot can produce a blank image. Treating an unavailable result as a
+  reusable cache entry also prevents a later foreground attempt for the same
+  revision.
+- Fix:
+  Keep native capture as the foreground high-fidelity path. Background and
+  minimized popup nodes reuse only a successful memory or persistent image;
+  they do not request a fresh DOM snapshot. Keep an unavailable result local to
+  the mounted popup so reopening can retry after the node becomes foreground.
+  Show a static terminal placeholder instead of a loading skeleton when no
+  successful image exists.
+- Validation:
+  Cover native-null plus persisted-cache success, assert that background DOM
+  capture is not called, and reopen the popup to prove that a prior unavailable
+  result does not block a later successful capture.
+- References:
+  [docs/architecture/workbench-dock-model.md](../../architecture/workbench-dock-model.md)
+  [WorkbenchHostDockPopup.tsx](../../../packages/workbench/surface/src/host/WorkbenchHostDockPopup.tsx)
+
 ### AgentGUI crashes while unmounting a Monaco diff
 
 - Symptom:

@@ -35,14 +35,13 @@ export class AgentGuiHeroCarouselImageLoad {
     this.result = Promise.all(
       items.map(async (item) => {
         const [icon, cover, badge] = await Promise.all([
-          this.loadImage(item.iconUrl, false),
+          this.loadImage(item.iconUrl),
           this.loadImage(
             item.heroImageUrl?.trim() ||
               AGENT_VINYL_COVER_BY_PROVIDER[item.provider] ||
-              null,
-            false
+              null
           ),
-          this.loadImage(item.badge?.iconUrl ?? null, true)
+          this.loadImage(item.badge?.iconUrl ?? null)
         ]);
         return { badge, cover, icon };
       })
@@ -64,17 +63,12 @@ export class AgentGuiHeroCarouselImageLoad {
     this.pendingLoads.clear();
   }
 
-  private loadImage(
-    url: string | null,
-    anonymous: boolean
-  ): Promise<HTMLImageElement | null> {
+  private loadImage(url: string | null): Promise<HTMLImageElement | null> {
     if (!url || this.canceled || typeof Image !== "function") {
       return Promise.resolve(null);
     }
     const image = new Image();
-    if (anonymous) {
-      image.crossOrigin = "anonymous";
-    }
+    image.crossOrigin = "anonymous";
     image.decoding = "async";
     image.loading = "eager";
     image.setAttribute("fetchpriority", "high");

@@ -675,6 +675,11 @@ Harness target by exact target ID, then use the provider/icon catalog fallback.
 Host projections preserve these roles independently and do not create
 provider-specific renderer catalogs.
 
+Agent presentation images decoded for a canvas-backed texture must use
+anonymous CORS loading before assigning `src`. Any host-owned custom protocol
+that serves those images must return an `Access-Control-Allow-Origin` response
+header so the decoded image cannot taint the texture canvas.
+
 When the Desktop host projects built-in Agent mentions into a workspace app,
 it replaces host-local file URLs with bounded 64px WebP data URLs. The external
 bridge is the serialization owner: workspace apps must not read host paths,
@@ -946,10 +951,15 @@ only after native capture fails or exceeds its bounded wait. Electron hosts
 pass the sanitized node region directly to `webContents.capturePage`, retain
 the returned region for Genie, and resize a copy for the Dock. The Genie path
 must not reuse an undersized Dock image. Dock popup
-cards and minimized slots use the bounded image and its cache. If no captured
-image exists, those Dock surfaces show their placeholder; they do not mount
-AgentGUI as a fallback. AgentGUI therefore has no preview-mode rendering
-contract.
+cards and minimized slots use the bounded image and its cache. A background or
+minimized popup node must not request a fresh DOM snapshot: AgentGUI may be
+unhydrated, and `surface.isVisible=false` deactivates imperative resources such
+as the hero Canvas. Those nodes reuse only a previously successful image. If no
+captured image exists, the Dock shows a static terminal placeholder rather than
+an in-flight skeleton; it does not mount AgentGUI or render a conversation
+summary as a fallback. Capture failure is not cached across popup lifetimes, so
+a later foreground attempt may still populate the image. AgentGUI therefore
+has no preview-mode rendering contract.
 When a minimized node has a cached Genie texture, Workbench completes the
 restore animation before launching the host node, then replaces the final
 texture frame only after launch settles. The expensive AgentGUI reconstruction
