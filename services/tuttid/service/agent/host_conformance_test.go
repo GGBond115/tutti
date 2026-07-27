@@ -45,6 +45,42 @@ func TestDirectHostApplicationCoreConformance(t *testing.T) {
 	}
 }
 
+func TestHostConformanceDeleteSessionsRoutesAdapterAndDirectHostSeparately(t *testing.T) {
+	fixture := hostconformance.Fixture{Session: &hostconformance.SessionSeed{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-delete-route",
+		Provider: "codex", ProviderSessionID: "provider-session-delete-route",
+		Cwd: "/workspace", Live: true,
+	}}
+	input := agenthost.DeleteSessionsInput{
+		WorkspaceID: "workspace-1",
+		SessionIDs:  []string{"session-delete-route", "session-delete-route"},
+	}
+
+	adapter := &legacyHostConformanceDriver{t: t}
+	if err := adapter.Reset(context.Background(), fixture); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.DeleteSessions(context.Background(), input); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("adapter DeleteSessions() error = %v, want service invalid argument", err)
+	}
+	if metrics := adapter.Metrics(); len(metrics.DeleteAdmissionPlans) != 0 ||
+		metrics.CloseCalls != 0 || metrics.CanonicalDeleteCalls != 0 {
+		t.Fatalf("adapter invalid input reached Host: metrics=%#v", metrics)
+	}
+
+	direct := &legacyHostConformanceDriver{t: t, directHost: true}
+	if err := direct.Reset(context.Background(), fixture); err != nil {
+		t.Fatal(err)
+	}
+	result, err := direct.DeleteSessions(context.Background(), input)
+	if err != nil {
+		t.Fatalf("direct Host DeleteSessions() error = %v", err)
+	}
+	if len(result.RemovedSessionIDs) != 1 || len(direct.Metrics().DeleteAdmissionPlans) != 1 {
+		t.Fatalf("direct Host result=%#v metrics=%#v", result, direct.Metrics())
+	}
+}
+
 func TestServiceAdapterResumePolicyConformance(t *testing.T) {
 	scenarios := append(hostconformance.ResumePolicyScenarios(), hostconformance.SubmissionFenceScenarios()...)
 	for _, scenario := range scenarios {
@@ -193,24 +229,25 @@ func TestHostFindTurnByClientSubmitIDUsesPublicCanonicalPort(t *testing.T) {
 }
 
 type legacyHostConformanceDriver struct {
-	t              *testing.T
-	service        *Service
-	runtime        *fakeRuntime
-	sessions       *fakeSessionReader
-	turns          *legacyHostConformanceTurnStore
-	operations     *runtimeOperationMemoryStore
-	operationPort  *conformanceRuntimeOperationStore
-	goalStore      *conformanceGoalStateStore
-	goalInbox      *conformanceGoalInboxStore
-	commitObserver *conformanceCommitObserver
-	recoverySteps  *[]string
-	createdTurns   map[string]string
-	directHost     bool
-	goalNowUnixMS  int64
-	deletionHost   *agenthost.Host
-	deletionStore  *conformanceDeletionStore
-	deletionGuard  *conformanceDeletionGuard
-	deletionEvents *[]string
+	t               *testing.T
+	service         *Service
+	runtime         *fakeRuntime
+	sessions        *fakeSessionReader
+	turns           *legacyHostConformanceTurnStore
+	operations      *runtimeOperationMemoryStore
+	operationPort   *conformanceRuntimeOperationStore
+	goalStore       *conformanceGoalStateStore
+	goalInbox       *conformanceGoalInboxStore
+	commitObserver  *conformanceCommitObserver
+	recoverySteps   *[]string
+	createdTurns    map[string]string
+	directHost      bool
+	goalNowUnixMS   int64
+	deletionHost    *agenthost.Host
+	deletionAdapter *Service
+	deletionStore   *conformanceDeletionStore
+	deletionGuard   *conformanceDeletionGuard
+	deletionEvents  *[]string
 }
 
 func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconformance.Fixture) error {
@@ -280,6 +317,8 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 		Runtime:                serviceHostRuntime{service: d.service},
 		SessionLocker:          serviceHostLocker{service: d.service},
 	})
+	d.deletionAdapter = newUnconfiguredIsolatedAgentService(d.runtime)
+	d.deletionAdapter.SetApplicationHost(d.deletionHost)
 	d.runtime.closeHook = func(input RuntimeCloseInput) {
 		deletionEvents = append(deletionEvents, "close:"+input.AgentSessionID)
 	}
@@ -770,7 +809,28 @@ func (d *legacyHostConformanceDriver) DeleteSession(ctx context.Context, ref age
 }
 
 func (d *legacyHostConformanceDriver) DeleteSessions(ctx context.Context, input agenthost.DeleteSessionsInput) (agenthost.DeleteSessionsResult, error) {
-	return d.deletionHost.DeleteSessions(ctx, input)
+	if d.directHost {
+		return d.deletionHost.DeleteSessions(ctx, input)
+	}
+	closeCallsBefore := len(d.runtime.closeCalls)
+	result, err := d.deletionAdapter.DeleteSessionsBatch(ctx, input.WorkspaceID, DeleteSessionsBatchInput{
+		SessionIDs: input.SessionIDs,
+	})
+	if err != nil {
+		return agenthost.DeleteSessionsResult{}, err
+	}
+	runtimeClosedIDs := make([]string, 0, len(d.runtime.closeCalls)-closeCallsBefore)
+	for _, closeCall := range d.runtime.closeCalls[closeCallsBefore:] {
+		runtimeClosedIDs = append(runtimeClosedIDs, closeCall.AgentSessionID)
+	}
+	sort.Strings(runtimeClosedIDs)
+	return agenthost.DeleteSessionsResult{
+		RemovedSessionIDs: append([]string(nil), result.RemovedSessionIDs...),
+		RemovedSessions:   result.RemovedSessions,
+		RemovedMessages:   result.RemovedMessages,
+		RuntimeClosedIDs:  runtimeClosedIDs,
+		CleanupFailedIDs:  append([]string(nil), result.CleanupFailedSessionIDs...),
+	}, nil
 }
 
 func (d *legacyHostConformanceDriver) PurgeDeletedSessions(ctx context.Context, input agenthost.PurgeDeletedSessionsInput) (agenthost.PurgeDeletedSessionsResult, error) {
