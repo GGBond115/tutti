@@ -30,7 +30,10 @@ func (s IssueManagerService) claimEligibleIssueRunsLocked(ctx context.Context, w
 		return nil
 	}
 	detail, err := s.domainService().GetIssueDetail(ctx, workspaceID, issueID)
-	if err != nil || (!detail.Issue.SequentialExecution && !detail.Issue.ParallelExecution) || detail.Issue.DispatchPaused {
+	if err != nil ||
+		detail.Issue.PlanningSource == workspaceissues.PlanningSourceTuttiModePlan ||
+		(!detail.Issue.SequentialExecution && !detail.Issue.ParallelExecution) ||
+		detail.Issue.DispatchPaused {
 		return nil
 	}
 	if detail.Issue.Budget.Status != workspaceissues.BudgetStatusActive {

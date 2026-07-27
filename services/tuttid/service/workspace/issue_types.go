@@ -38,6 +38,9 @@ type CreateIssueManagerIssueInput struct {
 	// generic CLI adapters never set it; only the accepted workflow materializer
 	// may create an Issue in the reserved deterministic namespace.
 	TuttiModeWorkflowOwned bool
+	// TuttiModeWorkflowID is the accepted workflow identity atomically bound to
+	// the execution aggregate. It is ignored for traditional Plan Issues.
+	TuttiModeWorkflowID string
 }
 
 type CreateIssueManagerIssueFromPlanInput struct {

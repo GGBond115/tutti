@@ -6,6 +6,7 @@ import (
 	"time"
 
 	agentstore "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 	agentquickpromptbiz "github.com/tutti-os/tutti/services/tuttid/biz/agentquickprompt"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
@@ -16,6 +17,7 @@ import (
 	modelplanbiz "github.com/tutti-os/tutti/services/tuttid/biz/modelplan"
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 	activationbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeactivation"
+	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	userprojectbiz "github.com/tutti-os/tutti/services/tuttid/biz/userproject"
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
 	workspaceagentbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceagent"
@@ -177,6 +179,19 @@ type WorkspaceWorkflowsStore interface {
 	RetryWorkspaceWorkflowOperation(context.Context, RetryWorkspaceWorkflowOperationInput) (workflowbiz.WorkflowOperation, bool, error)
 	CompleteWorkspaceWorkflowOperation(context.Context, CompleteWorkspaceWorkflowOperationInput) (workflowbiz.WorkflowOperation, bool, error)
 	ListRecoverableCreateIssueOperations(context.Context) ([]RecoverableCreateIssueOperation, error)
+}
+
+// TuttiModeExecutionsStore is the daemon persistence capability used by the
+// product service. The materialization write deliberately includes reusable
+// Issue/task rows so there is no cross-aggregate crash window.
+type TuttiModeExecutionsStore interface {
+	MaterializeTuttiModeIssue(
+		context.Context,
+		workspaceissues.Issue,
+		[]workspaceissues.Task,
+		executionbiz.Aggregate,
+	) (workspaceissues.Issue, []workspaceissues.Task, executionbiz.Aggregate, error)
+	GetTuttiModeExecutionByIssue(context.Context, string, string) (executionbiz.Aggregate, error)
 }
 
 type TuttiModeActivationsStore interface {

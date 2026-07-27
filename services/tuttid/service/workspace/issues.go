@@ -6,8 +6,10 @@ import (
 	"time"
 
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
+	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	workflowbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceworkflow"
 	eventstreamservice "github.com/tutti-os/tutti/services/tuttid/service/eventstream"
+	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 )
 
 const issueManagerLocalActorUserID = "local"
@@ -21,6 +23,9 @@ type IssueManagerService struct {
 	Store                          workspaceissues.Store
 	AgentTargetReader              IssueAssignmentAgentTargetReader
 	PlanningTimeline               IssuePlanningTimelineReporter
+	// TuttiModeExecutions owns the product transaction that atomically adds
+	// the execution aggregate to a validated reusable Issue/task graph.
+	TuttiModeExecutions *tuttimodeexecutionservice.Service
 	// TaskWorktreeRoot overrides where per-run task worktrees are created;
 	// empty falls back to <state dir>/task-worktrees.
 	TaskWorktreeRoot string
@@ -193,6 +198,9 @@ func (s IssueManagerService) CreateIssueFromPlan(ctx context.Context, workspaceI
 	if reservedTuttiID != input.Issue.TuttiModeWorkflowOwned || tuttiPlanningSource != input.Issue.TuttiModeWorkflowOwned {
 		return workspaceissues.IssueDetail{}, workspaceissues.ErrInvalidArgument
 	}
+	if tuttiPlanningSource && strings.TrimSpace(input.Issue.TuttiModeWorkflowID) == "" {
+		return workspaceissues.IssueDetail{}, workspaceissues.ErrInvalidArgument
+	}
 	if input.Issue.ParallelExecution && !parallelIssueTasksAreIsolated(input.Tasks) {
 		return workspaceissues.IssueDetail{}, workspaceissues.ErrInvalidArgument
 	}
@@ -216,7 +224,7 @@ func (s IssueManagerService) CreateIssueFromPlan(ctx context.Context, workspaceI
 		})
 	}
 	normalizeParallelizableAgainstDependencies(taskItems)
-	issue, tasks, err := s.domainService().CreateIssueWithTasks(ctx, workspaceissues.CreateIssueWithTasksInput{
+	createInput := workspaceissues.CreateIssueWithTasksInput{
 		Issue: workspaceissues.CreateIssueInput{
 			IssueID:             input.Issue.IssueID,
 			TopicID:             input.Issue.TopicID,
@@ -239,7 +247,25 @@ func (s IssueManagerService) CreateIssueFromPlan(ctx context.Context, workspaceI
 			),
 		},
 		Tasks: taskItems,
-	})
+	}
+	var issue workspaceissues.Issue
+	var tasks []workspaceissues.Task
+	var err error
+	if tuttiPlanningSource {
+		if s.TuttiModeExecutions == nil {
+			return workspaceissues.IssueDetail{}, tuttimodeexecutionservice.ErrServiceUnavailable
+		}
+		issue, tasks, err = s.domainService().PrepareIssueWithTasks(ctx, createInput)
+		if err == nil {
+			issue, tasks, _, err = s.TuttiModeExecutions.Materialize(ctx, tuttimodeexecutionservice.MaterializeInput{
+				Issue:      issue,
+				Tasks:      tasks,
+				WorkflowID: input.Issue.TuttiModeWorkflowID,
+			})
+		}
+	} else {
+		issue, tasks, err = s.domainService().CreateIssueWithTasks(ctx, createInput)
+	}
 	if err != nil {
 		return workspaceissues.IssueDetail{}, err
 	}
@@ -267,7 +293,7 @@ func (s IssueManagerService) CreateIssueFromPlan(ctx context.Context, workspaceI
 			time.UnixMilli(issue.CreatedAtUnixMS).UTC(),
 		)
 	}
-	if input.Issue.SequentialExecution || input.Issue.ParallelExecution {
+	if !tuttiPlanningSource && (input.Issue.SequentialExecution || input.Issue.ParallelExecution) {
 		s.dispatchEligibleIssueTasks(ctx, workspaceID, issue.IssueID)
 	}
 	return s.GetIssueDetail(ctx, workspaceID, issue.IssueID)
@@ -299,6 +325,17 @@ func (s IssueManagerService) GetIssueDetail(ctx context.Context, workspaceID str
 	}
 	applyVisibleIssueSubtaskCount(&detail.Issue, detail.Tasks, detail.LatestRun)
 	return detail, nil
+}
+
+func (s IssueManagerService) GetTuttiModeExecutionByIssue(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+) (executionbiz.Aggregate, error) {
+	if s.TuttiModeExecutions == nil {
+		return executionbiz.Aggregate{}, tuttimodeexecutionservice.ErrServiceUnavailable
+	}
+	return s.TuttiModeExecutions.GetByIssue(ctx, workspaceID, issueID)
 }
 
 func (s IssueManagerService) SearchIssueOutputs(ctx context.Context, params workspaceissues.RunOutputSearchParams) ([]workspaceissues.RunOutputSearchHit, error) {

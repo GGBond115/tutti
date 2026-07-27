@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
+	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	workflowbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceworkflow"
 	workspaceservice "github.com/tutti-os/tutti/services/tuttid/service/workspace"
 )
@@ -21,6 +22,7 @@ var ErrIssueMaterializationConflict = errors.New("tutti mode plan Issue material
 type WorkspaceIssueTarget interface {
 	CreateIssueFromPlan(context.Context, string, workspaceservice.CreateIssueManagerIssueFromPlanInput) (workspaceissues.IssueDetail, error)
 	GetIssueDetail(context.Context, string, string) (workspaceissues.IssueDetail, error)
+	GetTuttiModeExecutionByIssue(context.Context, string, string) (executionbiz.Aggregate, error)
 }
 
 type WorkspaceIssueMaterializer struct {
@@ -81,6 +83,7 @@ func (materializer WorkspaceIssueMaterializer) MaterializeIssue(
 			},
 			HasBudget:              true,
 			TuttiModeWorkflowOwned: true,
+			TuttiModeWorkflowID:    input.WorkflowID,
 		},
 		Tasks: tasks,
 	})
@@ -97,7 +100,43 @@ func (materializer WorkspaceIssueMaterializer) MaterializeIssue(
 	if !materializedIssueMatches(existing, input, issueID) {
 		return "", fmt.Errorf("%w: %q", ErrIssueMaterializationConflict, issueID)
 	}
+	execution, executionErr := materializer.Issues.GetTuttiModeExecutionByIssue(ctx, input.WorkspaceID, issueID)
+	if executionErr != nil || !materializedExecutionMatches(execution, input, issueID) {
+		return "", fmt.Errorf("%w: %q", ErrIssueMaterializationConflict, issueID)
+	}
 	return existing.Issue.IssueID, nil
+}
+
+func materializedExecutionMatches(
+	aggregate executionbiz.Aggregate,
+	input MaterializeIssueInput,
+	issueID string,
+) bool {
+	execution := aggregate.Execution
+	expectedExecutionID, executionIDOK := executionbiz.ExecutionID(issueID)
+	expectedCheckpointID, checkpointIDOK := executionbiz.InitialCheckpointID(expectedExecutionID)
+	if execution.WorkspaceID != strings.TrimSpace(input.WorkspaceID) ||
+		!executionIDOK ||
+		!checkpointIDOK ||
+		execution.ID != expectedExecutionID ||
+		execution.IssueID != issueID ||
+		execution.WorkflowID != strings.TrimSpace(input.WorkflowID) ||
+		execution.SourceSessionID != strings.TrimSpace(input.SourceSessionID) ||
+		!executionbiz.IsStatus(execution.Status) ||
+		execution.GraphRevision < 1 {
+		return false
+	}
+	for _, checkpoint := range aggregate.Checkpoints {
+		if checkpoint.ID == expectedCheckpointID &&
+			checkpoint.ExecutionID == execution.ID &&
+			checkpoint.Kind == executionbiz.CheckpointKindInitialSchedule &&
+			executionbiz.IsCheckpointStatus(checkpoint.Status) &&
+			checkpoint.Sequence == 1 &&
+			checkpoint.GraphRevision == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 func materializedIssueMatches(existing workspaceissues.IssueDetail, input MaterializeIssueInput, issueID string) bool {

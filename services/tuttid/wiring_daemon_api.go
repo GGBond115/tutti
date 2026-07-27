@@ -54,6 +54,7 @@ import (
 	reporterservice "github.com/tutti-os/tutti/services/tuttid/service/reporter"
 	tuttiagentservice "github.com/tutti-os/tutti/services/tuttid/service/tuttiagent"
 	tuttimodeactivationservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeactivation"
+	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 	tuttimodeplanservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeplan"
 	userprojectservice "github.com/tutti-os/tutti/services/tuttid/service/userproject"
 	workspaceservice "github.com/tutti-os/tutti/services/tuttid/service/workspace"
@@ -80,6 +81,7 @@ func configureWorkspaceAgentResolution(
 func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analyticsReporter reporterservice.Reporter, browserService *browsersvc.Service, computerService *computersvc.Service, modelGateway *modelgatewayservice.Gateway) (tuttiapi.DaemonAPI, *workspaceservice.AppCenterService, *agentdaemon.Runtime, *agentservice.ProviderAuthWatcher, error) {
 	workspaceStore, _ := store.(workspacedata.WorkbenchStore)
 	issueStore, _ := store.(workspaceissues.Store)
+	tuttiModeExecutionStore, _ := store.(workspacedata.TuttiModeExecutionsStore)
 	preferencesStore, _ := store.(workspacedata.PreferencesStore)
 	agentTargetStore, _ := store.(workspacedata.AgentTargetStore)
 	managedCredentialsStore, _ := store.(workspacedata.ManagedCredentialsStore)
@@ -433,6 +435,7 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	}
 	issueRunLaunchGate := workspaceservice.NewIssueRunLaunchGate()
 	issueRunCanceller := issueRunSessionCanceller{Host: agentHost, Sessions: agentSessionService}
+	tuttiModeExecutions := &tuttimodeexecutionservice.Service{Store: tuttiModeExecutionStore}
 	issueService := workspaceservice.IssueManagerService{
 		RunLauncher:                    issueRunAgentLauncher{Sessions: agentSessionService},
 		RunLaunchGate:                  issueRunLaunchGate,
@@ -442,6 +445,7 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 		Store:                          issueStore,
 		AgentTargetReader:              agentTargetStore,
 		PlanningTimeline:               agentservice.IssuePlanningTimelineReporter{Projection: agentActivityProjection},
+		TuttiModeExecutions:            tuttiModeExecutions,
 		CompletionNotifier: &tuttiPlanIssueCompletionDispatcher{
 			Agents: agentSessionService,
 		},

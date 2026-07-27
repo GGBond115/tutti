@@ -24,6 +24,10 @@ Ownership is split as follows:
 - `services/tuttid/service/tuttimodeplan` validates Markdown revisions,
   enforces transitions, projects executable work, and coordinates downstream
   operations.
+- `services/tuttid/biz/tuttimodeexecution` defines the durable Tutti execution
+  aggregate and checkpoint vocabulary.
+- `services/tuttid/service/tuttimodeexecution` owns Tutti execution
+  materialization and later orchestration commands.
 - `services/tuttid/data/workspace` stores workflow metadata in SQLite. Plan
   content is kept in immutable files under the Tutti state directory.
 - `services/tuttid/service/cli/providers/tuttimodeplan` exposes Agent-callable
@@ -61,7 +65,9 @@ Agent invocation never fabricates a slash-command activation.
 | `WorkflowOperation`         | SQLite                                       | Idempotent record of a downstream side effect such as generating a task graph, creating a revision, or creating an Issue. A successful Issue operation stores the Issue ID.                                                            |
 | `WorkflowMutation`          | SQLite                                       | Durable caller mutation ledger for propose/revise response-loss recovery. Its scoped request ID is the identity; the input SHA-256 detects conflicting reuse, and the row points to the committed workflow/revision/checkpoint result. |
 | `ActionableItem`            | Derived only                                 | Read-only projection of a task from the accepted current task-graph revision. It is never a second task store.                                                                                                                         |
-| Workspace Issue and Task    | SQLite in Issue Manager                      | Execution entity materialized from accepted `ActionableItem`s. It links back through `sourceSessionId`; the workflow operation links forward through `issueId`.                                                                        |
+| Workspace Issue and Task    | SQLite in Issue Manager                      | Reusable Issue graph materialized from accepted `ActionableItem`s. It links back through `sourceSessionId`; the workflow operation links forward through `issueId`.                                                                     |
+| Tutti execution             | SQLite                                       | Tutti-owned orchestration authority for one accepted workflow and Issue. Initial status is `awaiting_schedule` at graph revision 1.                                                                                                    |
+| Execution checkpoint        | SQLite                                       | Ordered durable orchestration gate. Materialization creates one active `initial_schedule` checkpoint and no Issue Run.                                                                                                                 |
 
 The relation is:
 
@@ -93,6 +99,8 @@ Agent Session / Turn / Tool Call (workflow provenance)
                                   |
           accepted current task-graph revision
                   -> ActionableItem projection
+                  -> Workspace Issue + Tasks
+                  -> Tutti execution + initial_schedule checkpoint
 ```
 
 `ActionableItem` exists only when the current revision is a `task_graph`, its
@@ -275,7 +283,9 @@ review rejected ("request changes")
 review accepted
   -> the decision durably records any per-task assignment overrides
   -> daemon derives ActionableItems (document values merged with overrides)
-  -> deterministic create_issue operation materializes one Issue and its tasks
+  -> deterministic create_issue operation atomically materializes one Issue,
+     its tasks, one Tutti execution, and one active initial_schedule checkpoint
+  -> materialization creates no Run and invokes no task launcher
   -> operation succeeds with issueId and CLI reports issue_created
 ```
 
@@ -430,31 +440,31 @@ granularity from it.
 ## Issue Projection
 
 Accepting a current task graph synchronously asks the daemon-owned Issue
-materializer to create an Issue from the derived `ActionableItem`s. It maps
-the Markdown execution profile, budget, assignments, model choices,
-directories, and dependency graph into the Issue Manager contract and records
-`planningSource = tutti_mode_plan`. Per-task assignments (agent target, model
-plan, model, permission mode, reasoning effort) persist on the materialized
-Issue tasks and are honored at launch: an explicit reasoning effort wins over
-the Issue-inherited intensity, and an explicit permission mode launches
-strictly—an unsupported or stale mode fails the run instead of silently
-broadening to the provider default.
+materializer to create an Issue from the derived `ActionableItem`s. One SQLite
+transaction creates the Issue, tasks, Tutti execution aggregate at
+`awaiting_schedule`/graph revision 1, and its active `initial_schedule`
+checkpoint. It maps the Markdown execution profile, budget, assignments,
+model choices, directories, and dependency graph into the Issue Manager
+contract and records `planningSource = tutti_mode_plan`.
+
+Materialization is inert: it creates no Run and calls no task launcher. The
+source Agent must later schedule an explicit task set through the checkpoint-
+and-revision-fenced Tutti execution command surface. Existing `autoAccept`
+values remain readable migration metadata but have no dispatch authority for
+Tutti-owned executions. Manual and `traditional_plan` Issues keep the generic
+Issue Manager dispatch behavior.
 
 After acceptance the source conversation embeds a live "issue panel view"
 (board/list) of the materialized Issue, fed by the same workspace issue events
-the Issue Manager consumes. The embed surfaces per-task structure
-(parallelizable, auto-accept, dependencies) and settles the acceptance gate
-inline: a `pending_acceptance` task offers accept/rework, which the desktop
-adapter posts as the thin `UpdateTask` status transitions the Issue Manager
-already owns. Everything else stays a jump into the full Issue surface. Tasks
-flagged `autoAccept` (a durable Issue task field the planning agent proposes
-and the review can toggle) bypass that gate, and once every non-canceled task
-is completed and accepted the daemon sends one completion message back to the
-source session so control returns to the main conversation.
+the Issue Manager consumes. The embed surfaces the durable task structure and
+execution state; Tutti-owned scheduling, mutation, and completion authority
+comes from the source conversation rather than generic Issue mutation or
+automatic dispatch.
 
-The workflow remains the review and provenance record; the Issue becomes the
-execution record. No renderer or Agent turn recreates the graph, and no Agent
-is instructed to issue a second create call. If materialization fails, the
+The workflow remains the review and provenance record; the Issue remains the
+task/run evidence graph; and the Tutti execution is the orchestration
+authority. No renderer or Agent turn recreates the graph, and no Agent is
+instructed to issue a second create call. If materialization fails, the
 `create_issue` operation records a durable failure code and message, and the
 authoritative workflow snapshot remains inspectable through `tutti plan get`
 and the HTTP detail endpoint. Startup recovery, replaying the accepted decision,

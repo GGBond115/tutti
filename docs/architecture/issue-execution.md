@@ -11,9 +11,15 @@ Neither domain mirrors the other's state. `IssueExecutionCoordinator` in
 `services/tuttid/service/workspace` is the product-owned integration seam that
 maps user intent and canonical Agent facts into Issue commands.
 
+This generic dispatch flow applies to manual and `traditional_plan` Issues.
+Accepted `tutti_mode_plan` Issues instead materialize atomically with a
+Tutti-owned execution aggregate and active `initial_schedule` checkpoint.
+Their materialization creates no Run and never enters the generic eligible-task
+dispatcher; later work requires an explicit Tutti execution schedule command.
+
 ## Execution flow
 
-Dispatch is split into two phases:
+Generic Issue dispatch is split into two phases:
 
 1. Under the per-Issue mutation lock, Issue Manager rechecks policy and creates
    a durable running Run. That Run is the claim that prevents duplicate

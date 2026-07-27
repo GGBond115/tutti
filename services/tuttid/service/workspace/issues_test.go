@@ -15,6 +15,7 @@ import (
 	workflowbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceworkflow"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
 	eventstreamservice "github.com/tutti-os/tutti/services/tuttid/service/eventstream"
+	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 )
 
 func TestIssueManagerRejectsNonFiniteBudgetBeforePersistence(t *testing.T) {
@@ -111,6 +112,12 @@ func TestIssueManagerReservesTuttiModePlanIssueIDsForWorkflowMaterialization(t *
 	}
 
 	reservedID := workflowbiz.TuttiModePlanIssueIDPrefix + "workflow-1"
+	now := time.UnixMilli(1_700_000_000_000).UTC()
+	createIssueManagerTuttiWorkflowFixture(t, store, workspaceID, "workflow-1", "session-1", now)
+	service.TuttiModeExecutions = &tuttimodeexecutionservice.Service{
+		Store: store,
+		Clock: func() time.Time { return now },
+	}
 	detail, err := service.CreateIssueFromPlan(ctx, workspaceID, CreateIssueManagerIssueFromPlanInput{
 		Issue: CreateIssueManagerIssueInput{
 			IssueID:                reservedID,
@@ -119,6 +126,7 @@ func TestIssueManagerReservesTuttiModePlanIssueIDsForWorkflowMaterialization(t *
 			PlanningSource:         string(workspaceissues.PlanningSourceTuttiModePlan),
 			SourceSessionID:        "session-1",
 			TuttiModeWorkflowOwned: true,
+			TuttiModeWorkflowID:    "workflow-1",
 		},
 		Tasks: task,
 	})
@@ -127,6 +135,54 @@ func TestIssueManagerReservesTuttiModePlanIssueIDsForWorkflowMaterialization(t *
 	}
 	if detail.Issue.IssueID != reservedID || detail.Issue.PlanningSource != workspaceissues.PlanningSourceTuttiModePlan {
 		t.Fatalf("materialized detail = %#v", detail)
+	}
+}
+
+func createIssueManagerTuttiWorkflowFixture(
+	t *testing.T,
+	store *workspacedata.SQLiteStore,
+	workspaceID string,
+	workflowID string,
+	sourceSessionID string,
+	now time.Time,
+) {
+	t.Helper()
+	revisionID := "revision-" + workflowID
+	err := store.CreateWorkspaceWorkflowProposal(context.Background(), workflowbiz.ProposalAggregate{
+		Workflow: workflowbiz.Workflow{
+			ID:                workflowID,
+			WorkspaceID:       workspaceID,
+			Type:              workflowbiz.WorkflowTypeTuttiModePlan,
+			Owner:             workflowbiz.WorkflowOwnerTutti,
+			TriggerKind:       workflowbiz.TriggerKindAgentCLI,
+			SourceSessionID:   sourceSessionID,
+			Status:            workflowbiz.WorkflowStatusPendingReview,
+			CurrentRevisionID: revisionID,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		},
+		Plan: workflowbiz.TuttiModePlan{WorkflowID: workflowID},
+		Revision: workflowbiz.PlanRevision{
+			ID:            revisionID,
+			WorkflowID:    workflowID,
+			Sequence:      1,
+			SchemaVersion: "tutti-mode-plan/v1",
+			DocumentPath:  "plans/" + revisionID + ".md",
+			SHA256:        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			CreatedAt:     now,
+		},
+		Checkpoint: workflowbiz.WorkflowCheckpoint{
+			ID:         "review-" + workflowID,
+			WorkflowID: workflowID,
+			Kind:       workflowbiz.CheckpointKindTaskReview,
+			RevisionID: revisionID,
+			Status:     workflowbiz.CheckpointStatusPending,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkspaceWorkflowProposal() error = %v", err)
 	}
 }
 
