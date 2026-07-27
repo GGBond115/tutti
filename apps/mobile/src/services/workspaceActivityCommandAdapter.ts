@@ -24,6 +24,7 @@ interface WorkspaceActivityCommandContext {
     session: Parameters<typeof agentActivitySessionFromTuttidSession>[1]
   ): AgentActivitySession;
   mapSessionDetail(
+    expectedAgentSessionId: string,
     detail: Awaited<ReturnType<TuttidClient["getWorkspaceAgentSession"]>>
   ): AgentActivitySessionDetailSnapshot;
   reconcileSession(
@@ -182,7 +183,7 @@ async function activateSession(
       command.workspaceId,
       command.agentSessionId
     );
-    const mapped = context.mapSessionDetail(detail);
+    const mapped = context.mapSessionDetail(command.agentSessionId, detail);
     context.engine.dispatch({
       ...mapped,
       type: "session/detailSnapshotReceived",

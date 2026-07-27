@@ -52,11 +52,17 @@ export function agentActivitySessionFromTuttidSession(
 
 export function agentActivitySessionDetailFromTuttid(
   workspaceId: string,
+  expectedAgentSessionId: string,
   detail: WorkspaceAgentSessionDetailResponse
 ): AgentActivitySessionDetailSnapshot {
-  return mapAgentActivitySessionDetailFromTuttid(workspaceId, detail, {
-    currentUserId: DESKTOP_AGENT_GUI_CURRENT_USER_ID
-  });
+  return mapAgentActivitySessionDetailFromTuttid(
+    workspaceId,
+    expectedAgentSessionId,
+    detail,
+    {
+      currentUserId: DESKTOP_AGENT_GUI_CURRENT_USER_ID
+    }
+  );
 }
 
 export function createDesktopAgentActivityAdapter({

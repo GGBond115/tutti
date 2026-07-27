@@ -395,7 +395,8 @@ notice does not offer a manual retry because transport recovery is host-owned.
   dispatch each entity independently
 - Desktop and Mobile use the same host-neutral event-observation helper to
   decide whether normalized entities can apply inline and whether the exact
-  Session needs an authoritative state or message reconcile
+  Session needs an authoritative state or message reconcile; partial parsing,
+  identity mismatch, count mismatch, or cursor disagreement always reconciles
 - message updates fold inline only when unseen versions are continuous
 - version gaps and reconnects trigger incremental message reconciliation for hydrated Sessions
 - Turn, Interaction, and legacy state invalidation trigger authoritative Session reconciliation
@@ -404,6 +405,11 @@ notice does not offer a manual retry because transport recovery is host-owned.
 ### 4.3 Root and child hydration
 
 Workspace lists show root Sessions only. A root detail read also returns nested child Sessions; the engine stores every entity, Rail selects roots, and timeline/Message Center selectors aggregate descendants.
+
+Child Session discovery does not require every host to prefetch child transcript
+pages. A surface that does not render child conversations keeps the hierarchy
+and pending Interaction state canonical without paying for unused child message
+history.
 
 A `waiting` Turn does not imply user action. Only a pending Interaction produces approval/question attention.
 

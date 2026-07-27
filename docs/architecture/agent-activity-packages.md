@@ -930,9 +930,12 @@ disconnected-transport fallback only.
 
 After either transport is normalized, Desktop and Mobile call the same
 `analyzeAgentActivityEventObservation` helper. The helper derives inline
-messages, validates version continuity, and emits one
-`session/activityObserved` intent with the required reconcile scope. Mobile
-does not widen its four-variant framed live protocol to mirror Desktop:
+messages, validates envelope/data/message identity, requires every advertised
+message to parse, checks the advertised count and latest-version cursor, and
+then validates version continuity. Any disagreement fails closed to
+authoritative reconciliation. The helper emits one `session/activityObserved`
+intent with the required reconcile scope. Mobile does not widen its four-variant
+framed live protocol to mirror Desktop:
 canonical `message_update`, `session_deleted`, and
 `session_reconcile_required` events are converted server-side to scoped
 discontinuities and converge through authoritative reads.
@@ -1086,8 +1089,9 @@ For runtime boundary enforcement:
   retries, event wiring, and orchestration remain in each application adapter.
 - Root detail DTOs use the adapter's aggregate mapper so root Session, child
   Sessions, and Turns enter the Engine through one
-  `session/detailSnapshotReceived` intent. A malformed nested entity rejects
-  the aggregate instead of publishing a partial hierarchy.
+  `session/detailSnapshotReceived` intent. The mapper verifies the requested
+  Session identity, child hierarchy, and Turn ownership; a malformed nested
+  entity rejects the aggregate instead of publishing a partial hierarchy.
 - Engine prompt commands use the activity-core prompt executor. Required
   settings are persisted before send, and a failed settings write prevents
   delivery; transport request mapping remains host-owned.

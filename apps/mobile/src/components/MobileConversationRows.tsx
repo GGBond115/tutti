@@ -17,6 +17,7 @@ import { PrimaryButton } from "./PrimaryButton";
 interface MobileInteractionCardProps {
   failed: boolean;
   interaction: AgentActivityInteraction;
+  onRetry(): void;
   onSubmit(input: {
     action?: string;
     optionId?: string;
@@ -29,6 +30,7 @@ interface MobileInteractionCardProps {
 export function MobileInteractionCard({
   failed,
   interaction,
+  onRetry,
   onSubmit,
   runtimeAvailable,
   submitting
@@ -54,6 +56,29 @@ export function MobileInteractionCard({
     setPlanFeedback("");
   }, [interactionIdentity]);
 
+  if (failed) {
+    return (
+      <View style={styles.interactionCard}>
+        <Text style={styles.interactionKind}>
+          {prompt?.kind === "ask-user"
+            ? t("question")
+            : prompt?.kind === "exit-plan"
+              ? t("plan")
+              : t("approval")}
+        </Text>
+        <Text style={styles.interactionTitle}>
+          {prompt?.title || interactionSummary(interaction)}
+        </Text>
+        <Text style={styles.error}>{t("genericError")}</Text>
+        <PrimaryButton
+          disabled={!runtimeAvailable}
+          label={t("retry")}
+          onPress={onRetry}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.interactionCard}>
       <Text style={styles.interactionKind}>
@@ -66,8 +91,6 @@ export function MobileInteractionCard({
       <Text style={styles.interactionTitle}>
         {prompt?.title || interactionSummary(interaction)}
       </Text>
-      {failed ? <Text style={styles.error}>{t("genericError")}</Text> : null}
-
       {prompt?.kind === "ask-user" ? (
         <>
           {questions.map((question) => {

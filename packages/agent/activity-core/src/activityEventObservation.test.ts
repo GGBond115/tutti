@@ -52,6 +52,59 @@ test("message updates apply inline only for a cached Session with continuity", (
   assert.equal(uncached.intent.inlineApplied, false);
 });
 
+test("message updates fail closed when any advertised message is malformed", () => {
+  const malformed = {
+    ...eventMessage(3),
+    occurredAtUnixMs: 0
+  };
+  const observation = analyzeAgentActivityEventObservation({
+    cachedMessages: [message(1)],
+    event: messageUpdateEvent([eventMessage(2), malformed]),
+    hasCachedSession: true
+  });
+
+  assert.deepEqual(
+    observation.inlineMessages.map((item) => item.version),
+    [2]
+  );
+  assert.equal(observation.canApplyInlineMessages, false);
+  assert.equal(observation.intent.inlineApplied, false);
+});
+
+test("message updates fail closed on envelope, message, or cursor disagreement", () => {
+  const mismatchedData = messageUpdateEvent([eventMessage(2)]);
+  mismatchedData.data.agentSessionId = "session-2";
+  const mismatchedMessage = messageUpdateEvent([
+    { ...eventMessage(2), agentSessionId: "session-2" }
+  ]);
+  const mismatchedCursor = messageUpdateEvent([eventMessage(2)]);
+  mismatchedCursor.data.latestVersion = 3;
+
+  for (const event of [mismatchedData, mismatchedMessage, mismatchedCursor]) {
+    const observation = analyzeAgentActivityEventObservation({
+      cachedMessages: [message(1)],
+      event,
+      hasCachedSession: true
+    });
+    assert.equal(observation.canApplyInlineMessages, false);
+    assert.equal(observation.intent.inlineApplied, false);
+  }
+});
+
+test("message updates fail closed when acceptedCount disagrees with the payload", () => {
+  const event = messageUpdateEvent([eventMessage(2)]);
+  event.data.acceptedCount = 2;
+
+  const observation = analyzeAgentActivityEventObservation({
+    cachedMessages: [message(1)],
+    event,
+    hasCachedSession: true
+  });
+
+  assert.equal(observation.canApplyInlineMessages, false);
+  assert.equal(observation.intent.inlineApplied, false);
+});
+
 test("turn and interaction observations require canonical state reconciliation", () => {
   const event: Extract<
     AgentActivityUpdatedEvent,

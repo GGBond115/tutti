@@ -38,12 +38,18 @@ export function analyzeAgentActivityEventObservation(input: {
   hasCachedSession: boolean;
 }): AgentActivityEventObservation {
   const inlineMessages = parseInlineActivityMessages(input.event);
+  const inlinePayloadConsistent = isInlinePayloadConsistent(
+    input.event,
+    inlineMessages
+  );
   const inlineContinuity = analyzeInlineMessageVersionContinuity(
     input.cachedMessages,
     inlineMessages
   );
   const canApplyInlineMessages =
-    inlineMessages.length > 0 && inlineContinuity.continuous;
+    inlineMessages.length > 0 &&
+    inlinePayloadConsistent &&
+    inlineContinuity.continuous;
   return {
     canApplyInlineMessages,
     inlineContinuity,
@@ -58,6 +64,51 @@ export function analyzeAgentActivityEventObservation(input: {
       workspaceId: input.event.workspaceId
     }
   };
+}
+
+function isInlinePayloadConsistent(
+  event: ObservableAgentActivityUpdatedEvent,
+  inlineMessages: readonly AgentActivityMessage[]
+): boolean {
+  const workspaceId = event.workspaceId.trim();
+  const agentSessionId = event.agentSessionId.trim();
+  if (
+    !workspaceId ||
+    !agentSessionId ||
+    event.data.workspaceId.trim() !== workspaceId ||
+    event.data.agentSessionId.trim() !== agentSessionId ||
+    event.data.eventType !== event.eventType ||
+    inlineMessages.some(
+      (message) =>
+        message.workspaceId !== workspaceId ||
+        message.agentSessionId !== agentSessionId
+    )
+  ) {
+    return false;
+  }
+
+  if (event.eventType === "session_audit") {
+    return inlineMessages.length === 1;
+  }
+  if (event.eventType !== "message_update") {
+    return false;
+  }
+
+  if (
+    inlineMessages.length !== event.data.messages.length ||
+    event.data.acceptedCount !== event.data.messages.length
+  ) {
+    return false;
+  }
+  const latestInlineVersion = inlineMessages.reduce(
+    (latest, message) => Math.max(latest, message.version),
+    0
+  );
+  return (
+    Number.isSafeInteger(event.data.latestVersion) &&
+    event.data.latestVersion >= 0 &&
+    latestInlineVersion === event.data.latestVersion
+  );
 }
 
 /**

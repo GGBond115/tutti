@@ -46,8 +46,8 @@ test("WorkspaceAgentActivityService applies authoritative Session detail in one 
     ...workspaceAgentSession({ status: "ready" }),
     id: "session-child",
     kind: "child",
-    parentSessionId: "session-1",
-    rootSessionId: "session-1"
+    parentAgentSessionId: "session-1",
+    rootAgentSessionId: "session-1"
   };
   const service = new WorkspaceAgentActivityService({
     tuttidClient: {
@@ -2798,13 +2798,25 @@ test("WorkspaceAgentActivityService does not tombstone a missing reconcile witho
     service as unknown as {
       reconcileAgentActivityUpdate(input: {
         agentSessionId: string;
-        eventType: string;
+        data: {
+          agentSessionId: string;
+          eventType: "session_reconcile_required";
+          lastEventUnixMs: number;
+          workspaceId: string;
+        };
+        eventType: "session_reconcile_required";
         workspaceId: string;
       }): Promise<void>;
     }
   ).reconcileAgentActivityUpdate({
     agentSessionId: "ghost-session",
-    eventType: "session_update",
+    data: {
+      agentSessionId: "ghost-session",
+      eventType: "session_reconcile_required",
+      lastEventUnixMs: 1,
+      workspaceId: "ws-1"
+    },
+    eventType: "session_reconcile_required",
     workspaceId: "ws-1"
   });
   await new Promise((resolve) => setImmediate(resolve));
@@ -3066,8 +3078,14 @@ function workspaceAgentSession(overrides: {
     goal: null,
     id: "session-1",
     imported: false,
+    kind: "root",
+    parentAgentSessionId: null,
+    parentToolCallId: null,
+    parentTurnId: null,
     provider: overrides.provider ?? "codex",
     providerSessionId: null,
+    rootAgentSessionId: null,
+    rootTurnId: null,
     cwd: "/workspace",
     latestTurn,
     latestTurnInteractions: [],

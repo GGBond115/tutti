@@ -5,20 +5,28 @@ import { PrimaryButton } from "./PrimaryButton";
 import { MobileInteractionCard } from "./MobileConversationRows";
 
 test("renders Engine-owned submitting and failure state", () => {
+  let retries = 0;
   let renderer: ReactTestRenderer;
   act(() => {
     renderer = create(
       <MobileInteractionCard
         failed
         interaction={approvalInteraction()}
+        onRetry={() => {
+          retries += 1;
+        }}
         onSubmit={() => undefined}
         runtimeAvailable
-        submitting
+        submitting={false}
       />
     );
   });
 
-  expect(renderer!.root.findByType(PrimaryButton).props.disabled).toBe(true);
+  const retry = renderer!.root.findByType(PrimaryButton);
+  expect(retry.props.disabled).toBe(false);
+  expect(retry.props.label).toBe("Retry");
+  act(() => retry.props.onPress());
+  expect(retries).toBe(1);
   expect(
     renderer!.root
       .findAllByType(Text)
@@ -42,6 +50,7 @@ test("fails closed when an exit-plan Interaction has no runtime-authored options
         onSubmit={() => {
           submissions += 1;
         }}
+        onRetry={() => undefined}
         runtimeAvailable
         submitting={false}
       />

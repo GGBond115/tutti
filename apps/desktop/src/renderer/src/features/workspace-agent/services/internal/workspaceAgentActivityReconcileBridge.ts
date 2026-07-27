@@ -234,6 +234,7 @@ export abstract class WorkspaceAgentActivityReconcileBridge {
       );
     const mapped = agentActivitySessionDetailFromTuttid(
       normalizedWorkspaceId,
+      agentSessionId,
       detail
     );
     this.reportReconcileTrace({

@@ -61,7 +61,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   private disposed = false;
   private paused = false;
   private initializePromise: Promise<void> | null = null;
-  private readonly messagesInFlightBySessionId = new Map<
+  private readonly messageRequestsInFlightByKey = new Map<
     string,
     Promise<void>
   >();
@@ -431,7 +431,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
 
   respondToInteraction(
     interaction: AgentActivityInteraction,
-    input: {
+    input?: {
       action?: string;
       optionId?: string;
       payload?: Readonly<Record<string, unknown>>;
@@ -441,7 +441,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       commandId: createMobileActivityCommandId(),
       engine: this.engine,
       interaction,
-      response: input,
+      ...(input ? { response: input } : {}),
       states: this.getSnapshot().interactionStates,
       timeoutMs: COMMAND_TIMEOUT_MS,
       workspaceId: this.workspace.id
@@ -450,13 +450,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
 
   async loadOlderMessages(): Promise<void> {
     const selected = this.navigation.getSnapshot().selectedAgentSessionId;
-    if (
-      !selected ||
-      this.messagesInFlightBySessionId.has(selected) ||
-      this.paused ||
-      this.disposed
-    )
-      return;
+    if (!selected || this.paused || this.disposed) return;
     const window = this.projectActivity(this.engine.getSnapshot())
       .sessionMessageWindowsById?.[selected];
     if (!window?.hasOlderMessages || window.oldestLoadedVersion === null)
@@ -506,6 +500,17 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       type: "engine/connectionChanged",
       workspaceId: this.workspace.id
     });
+    for (const session of this.projectActivity(this.engine.getSnapshot())
+      .sessions) {
+      this.engine.dispatch(
+        {
+          agentSessionId: session.agentSessionId,
+          availability: { state: "available" },
+          type: "session/runtimeAvailabilityChanged"
+        },
+        { batch: true }
+      );
+    }
     this.engine.dispatch({
       type: "workspace/reconcileRequested",
       workspaceId: this.workspace.id
@@ -572,7 +577,8 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     }
   ): Promise<void> {
     if (this.paused || this.disposed) return;
-    const existing = this.messagesInFlightBySessionId.get(agentSessionId);
+    const requestKey = messageRequestKey(agentSessionId, query);
+    const existing = this.messageRequestsInFlightByKey.get(requestKey);
     if (existing) return existing;
     const request = this.client
       .listWorkspaceAgentSessionMessages(
@@ -611,13 +617,13 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
         throw error;
       })
       .finally(() => {
-        if (this.messagesInFlightBySessionId.get(agentSessionId) === request) {
-          this.messagesInFlightBySessionId.delete(agentSessionId);
+        if (this.messageRequestsInFlightByKey.get(requestKey) === request) {
+          this.messageRequestsInFlightByKey.delete(requestKey);
         }
         this.onDependencyChanged();
         this.scheduleMessagesPoll();
       });
-    this.messagesInFlightBySessionId.set(agentSessionId, request);
+    this.messageRequestsInFlightByKey.set(requestKey, request);
     return request;
   }
 
@@ -662,7 +668,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
         this.workspace.id,
         agentSessionId
       );
-      mapped = this.mapping.mapSessionDetail(detail);
+      mapped = this.mapping.mapSessionDetail(agentSessionId, detail);
       this.engine.dispatch({
         ...mapped,
         type: "session/detailSnapshotReceived",
@@ -789,4 +795,22 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       this.drafts.set(draftKey, text);
     }
   }
+}
+
+function messageRequestKey(
+  agentSessionId: string,
+  query: {
+    afterVersion?: number;
+    beforeVersion?: number;
+    limit?: number;
+    order: "asc" | "desc";
+  }
+): string {
+  return JSON.stringify([
+    agentSessionId,
+    query.order,
+    query.afterVersion ?? null,
+    query.beforeVersion ?? null,
+    query.limit ?? null
+  ]);
 }

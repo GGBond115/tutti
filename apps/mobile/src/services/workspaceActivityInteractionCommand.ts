@@ -1,5 +1,6 @@
 import {
   canonicalInteractionKey,
+  selectEngineInteractionResponse,
   type AgentActivityInteraction,
   type AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
@@ -15,7 +16,7 @@ export function requestWorkspaceActivityInteractionResponse(input: {
   commandId: string;
   engine: AgentSessionEngine;
   interaction: AgentActivityInteraction;
-  response: InteractionResponseInput;
+  response?: InteractionResponseInput;
   states: WorkspaceActivitySnapshot["interactionStates"];
   timeoutMs: number;
   workspaceId: string;
@@ -30,12 +31,34 @@ export function requestWorkspaceActivityInteractionResponse(input: {
       )
     ];
   if (!state || state.submitting || !state.runtimeAvailable) return false;
+  const previousResponse = selectEngineInteractionResponse(
+    input.engine.getSnapshot(),
+    interaction.agentSessionId,
+    interaction.turnId,
+    interaction.requestId
+  );
+  const response = state.failed
+    ? previousResponse?.status === "failed"
+      ? {
+          ...(previousResponse.action
+            ? { action: previousResponse.action }
+            : {}),
+          ...(previousResponse.optionId
+            ? { optionId: previousResponse.optionId }
+            : {}),
+          ...(previousResponse.payload
+            ? { payload: { ...previousResponse.payload } }
+            : {})
+        }
+      : null
+    : (input.response ?? null);
+  if (!response) return false;
   input.engine.dispatch({
-    ...input.response,
+    ...response,
     agentSessionId: interaction.agentSessionId,
     commandId: input.commandId,
     requestId: interaction.requestId,
-    retry: false,
+    retry: state.failed,
     timeoutMs: input.timeoutMs,
     turnId: interaction.turnId,
     type: "interaction/responseRequested",

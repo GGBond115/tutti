@@ -10,7 +10,8 @@ export interface MobileAgentActivityMapping {
     session: Parameters<typeof agentActivitySessionFromTuttidSession>[1]
   ): AgentActivitySession;
   mapSessionDetail(
-    detail: Parameters<typeof agentActivitySessionDetailFromTuttid>[1]
+    expectedAgentSessionId: string,
+    detail: Parameters<typeof agentActivitySessionDetailFromTuttid>[2]
   ): AgentActivitySessionDetailSnapshot;
 }
 
@@ -26,7 +27,12 @@ export function createMobileAgentActivityMapping(input: {
         session,
         options
       ),
-    mapSessionDetail: (detail) =>
-      agentActivitySessionDetailFromTuttid(input.workspaceId, detail, options)
+    mapSessionDetail: (expectedAgentSessionId, detail) =>
+      agentActivitySessionDetailFromTuttid(
+        input.workspaceId,
+        expectedAgentSessionId,
+        detail,
+        options
+      )
   };
 }

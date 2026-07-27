@@ -18,7 +18,10 @@ capability catalogs do not grow compatibility fields in this adapter.
 
 `agentActivitySessionDetailFromTuttid` is the single detail aggregate mapper for
 Desktop and Mobile. It validates and maps the root Session, nested child
-Sessions, and Turns as one value. A host dispatches the result through one
-`session/detailSnapshotReceived` intent; it must not partially publish a root
-when a child or Turn violates the generated protocol contract. Transport reads,
-message paging, retries, and Engine dispatch remain in the host adapter.
+Sessions, and Turns as one value. The caller supplies the requested Session id;
+the mapper rejects a mismatched response root, a child outside that hierarchy,
+or a Turn not owned by the requested Session. A host dispatches the result
+through one `session/detailSnapshotReceived` intent; it must not partially
+publish a root when a child or Turn violates the generated protocol contract.
+Transport reads, message paging, retries, and Engine dispatch remain in the host
+adapter.

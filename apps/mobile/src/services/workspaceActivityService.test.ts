@@ -328,6 +328,69 @@ describe("WorkspaceActivityService", () => {
     service.dispose();
   });
 
+  test("retries a failed Interaction with the exact Engine-owned response", async () => {
+    const interaction = createInteraction();
+    const requests: Record<string, unknown>[] = [];
+    let attempt = 0;
+    const turn: WorkspaceAgentTurn = {
+      ...createTurn("session-1", interaction.turnId),
+      phase: "waiting",
+      settledAtUnixMs: null
+    };
+    const session = {
+      ...createSession(),
+      activeTurn: turn,
+      activeTurnId: turn.turnId,
+      latestTurn: turn,
+      latestTurnInteractions: [interaction],
+      pendingInteractions: [interaction]
+    };
+    const client = createClient({
+      interactive: async (_workspaceId, _agentSessionId, _requestId, input) => {
+        requests.push(input);
+        attempt += 1;
+        if (attempt === 1) throw new Error("temporary failure");
+        return session;
+      },
+      listMessages: emptyMessagePage,
+      session: () => session
+    });
+    const service = createService(client);
+
+    await service.start();
+    await flushAsyncWork();
+    service.respondToInteraction(interaction, { optionId: "allow-once" });
+    await flushAsyncWork();
+
+    const interactionKey = canonicalInteractionKey(
+      interaction.agentSessionId,
+      interaction.turnId,
+      interaction.requestId
+    );
+    expect(
+      service.getSnapshot().interactionStates[interactionKey]?.failed
+    ).toBe(true);
+
+    service.respondToInteraction(interaction);
+    await flushAsyncWork();
+
+    expect(requests).toEqual([
+      {
+        action: null,
+        optionId: "allow-once",
+        payload: null,
+        turnId: interaction.turnId
+      },
+      {
+        action: null,
+        optionId: "allow-once",
+        payload: null,
+        turnId: interaction.turnId
+      }
+    ]);
+    service.dispose();
+  });
+
   test("fails closed when a response does not match a canonical pending Interaction", async () => {
     let interactiveCalls = 0;
     const client = createClient({
@@ -573,6 +636,118 @@ describe("WorkspaceActivityService", () => {
     service.dispose();
   });
 
+  test("runs an authoritative live reconcile while an older page is in flight", async () => {
+    let liveListener: ((delivery: AgentLiveDelivery) => void) | null = null;
+    let resolveOlder: ((value: ReturnType<typeof messagePage>) => void) | null =
+      null;
+    const queries: Array<Record<string, unknown>> = [];
+    const client = createClient({
+      detail: async () => ({
+        childSessions: [],
+        session: createSession(),
+        turns: []
+      }),
+      listMessages: async (_workspaceId, agentSessionId, query) => {
+        queries.push(query);
+        if ("beforeVersion" in query) {
+          return new Promise((resolve) => {
+            resolveOlder = resolve;
+          });
+        }
+        const version = queries.length === 1 ? 5 : 6;
+        return {
+          ...messagePage(agentSessionId, `message-${version}`, version),
+          hasMore: version === 5
+        };
+      }
+    });
+    const service = createService(client, {
+      deviceLink: createLiveDeviceLink((listener) => {
+        liveListener = listener;
+      })
+    });
+
+    await service.start();
+    await flushAsyncWork();
+    const older = service.loadOlderMessages();
+    await flushAsyncWork();
+    liveListener!(sessionDiscontinuity());
+    await flushAsyncWork();
+
+    expect(queries).toEqual([
+      { limit: 100, order: "desc" },
+      { beforeVersion: 5, limit: 100, order: "desc" },
+      { limit: 100, order: "desc" }
+    ]);
+    expect(
+      service
+        .getSnapshot()
+        .activity.sessionMessagesById["session-1"]?.some(
+          (message) => message.version === 6
+        )
+    ).toBe(true);
+
+    resolveOlder!(messagePage("session-1", "message-1", 1));
+    await older;
+    service.dispose();
+  });
+
+  test("runs an authoritative live reconcile while incremental polling is in flight", async () => {
+    const clock = new RecordingClock();
+    let liveListener: ((delivery: AgentLiveDelivery) => void) | null = null;
+    let resolveIncremental:
+      | ((value: ReturnType<typeof messagePage>) => void)
+      | null = null;
+    const queries: Array<Record<string, unknown>> = [];
+    const client = createClient({
+      detail: async () => ({
+        childSessions: [],
+        session: createSession(),
+        turns: []
+      }),
+      listMessages: async (_workspaceId, agentSessionId, query) => {
+        queries.push(query);
+        if ("afterVersion" in query) {
+          return new Promise((resolve) => {
+            resolveIncremental = resolve;
+          });
+        }
+        const version = queries.length === 1 ? 5 : 7;
+        return messagePage(agentSessionId, `message-${version}`, version);
+      }
+    });
+    const service = createService(client, {
+      clock,
+      deviceLink: createLiveDeviceLink((listener) => {
+        liveListener = listener;
+      })
+    });
+
+    await service.start();
+    await flushAsyncWork();
+    clock.runNext(1_000);
+    await flushAsyncWork();
+    liveListener!(sessionDiscontinuity());
+    await flushAsyncWork();
+
+    expect(queries).toEqual([
+      { limit: 100, order: "desc" },
+      { afterVersion: 5, order: "asc" },
+      { limit: 100, order: "desc" }
+    ]);
+    expect(
+      service
+        .getSnapshot()
+        .activity.sessionMessagesById["session-1"]?.some(
+          (message) => message.version === 7
+        )
+    ).toBe(true);
+
+    resolveIncremental!(messagePage("session-1", "message-6", 6));
+    await flushAsyncWork();
+    service.dispose();
+  });
+
   test("loads a newly selected Session without waiting for the previous Session request", async () => {
     let resolveFirst: ((value: ReturnType<typeof messagePage>) => void) | null =
       null;
@@ -611,15 +786,30 @@ describe("WorkspaceActivityService", () => {
   test("reconciles one authoritative detail aggregate with child Sessions", async () => {
     let liveListener: ((delivery: AgentLiveDelivery) => void) | null = null;
     const root = createSession();
-    const child = createChildSession(root.id);
+    const childInteraction = {
+      ...createInteraction(),
+      agentSessionId: "child-1",
+      requestId: "child-request-1",
+      turnId: "child-turn-1"
+    };
+    const childTurn: WorkspaceAgentTurn = {
+      ...createTurn("child-1", childInteraction.turnId),
+      phase: "waiting",
+      settledAtUnixMs: null
+    };
+    const child = {
+      ...createChildSession(root.id),
+      activeTurn: childTurn,
+      activeTurnId: childTurn.turnId,
+      latestTurn: childTurn,
+      latestTurnInteractions: [childInteraction],
+      pendingInteractions: [childInteraction]
+    };
     const client = createClient({
       detail: async () => ({
         childSessions: [child],
         session: root,
-        turns: [
-          createTurn(root.id, "turn-root-1"),
-          createTurn(child.id, "turn-child-1")
-        ]
+        turns: [createTurn(root.id, "turn-root-1")]
       }),
       listMessages: emptyMessagePage
     });
@@ -676,6 +866,26 @@ describe("WorkspaceActivityService", () => {
         userId: "account-user-1"
       })
     );
+    const childInteractionKey = canonicalInteractionKey(
+      childInteraction.agentSessionId,
+      childInteraction.turnId,
+      childInteraction.requestId
+    );
+    expect(
+      service.getSnapshot().interactionStates[childInteractionKey]
+        ?.runtimeAvailable
+    ).toBe(true);
+
+    service.pause();
+    expect(
+      service.getSnapshot().interactionStates[childInteractionKey]
+        ?.runtimeAvailable
+    ).toBe(false);
+    service.resume();
+    expect(
+      service.getSnapshot().interactionStates[childInteractionKey]
+        ?.runtimeAvailable
+    ).toBe(true);
 
     service.dispose();
   });
@@ -1071,14 +1281,15 @@ class RecordingClock implements ClockPort {
   private readonly tasks: Array<{
     canceled: boolean;
     delayMs: number;
+    task: () => void;
   }> = [];
 
   now(): number {
     return 1_000;
   }
 
-  schedule(delayMs: number): { cancel(): void } {
-    const task = { canceled: false, delayMs };
+  schedule(delayMs: number, callback: () => void): { cancel(): void } {
+    const task = { canceled: false, delayMs, task: callback };
     this.tasks.push(task);
     return {
       cancel: () => {
@@ -1092,4 +1303,46 @@ class RecordingClock implements ClockPort {
       .filter((task) => !task.canceled)
       .map((task) => task.delayMs);
   }
+
+  runNext(delayMs: number): void {
+    const task = this.tasks.find(
+      (candidate) => !candidate.canceled && candidate.delayMs === delayMs
+    );
+    if (!task) throw new Error(`no active ${delayMs}ms task`);
+    task.canceled = true;
+    task.task();
+  }
+}
+
+function createLiveDeviceLink(
+  onSubscribe: (listener: (delivery: AgentLiveDelivery) => void) => void
+): DeviceLinkPort {
+  return {
+    closeLink: async () => undefined,
+    requestAgentHTTP: async () => ({
+      body: "",
+      errorCode: "",
+      headers: {},
+      protocolEpoch: 1,
+      status: 204
+    }),
+    subscribeAgentLive: (_workspaceId, listener) => {
+      onSubscribe(listener);
+      return { close() {} };
+    }
+  };
+}
+
+function sessionDiscontinuity(): AgentLiveDelivery {
+  return {
+    kind: "discontinuity",
+    reason: "canonical_update",
+    reconcileKeys: [
+      {
+        agentSessionId: "session-1",
+        kind: "session",
+        workspaceId: workspace.id
+      }
+    ]
+  };
 }
