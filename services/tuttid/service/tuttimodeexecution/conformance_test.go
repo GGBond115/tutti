@@ -2,6 +2,7 @@ package tuttimodeexecution_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -13,12 +14,16 @@ import (
 	tuttimodeexecutionconformance "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution/conformance"
 	tuttimodeplanservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeplan"
 	workspaceservice "github.com/tutti-os/tutti/services/tuttid/service/workspace"
+	"gopkg.in/yaml.v3"
 )
 
 type sqliteConformanceDriver struct {
 	store      *workspacedata.SQLiteStore
 	issues     workspaceservice.IssueManagerService
 	executions *tuttimodeexecutionservice.Service
+	plans      *tuttimodeplanservice.Service
+	revisions  workspacedata.WorkflowRevisionFiles
+	now        time.Time
 	launcher   *recordingLauncher
 }
 
@@ -50,82 +55,183 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 		t.Fatalf("Create() workspace error = %v", err)
 	}
 	now := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
-	if err := store.CreateWorkspaceWorkflowProposal(context.Background(), workflowbiz.ProposalAggregate{
-		Workflow: workflowbiz.Workflow{
-			ID:                "workflow-materialization",
-			WorkspaceID:       "workspace-materialization",
-			Type:              workflowbiz.WorkflowTypeTuttiModePlan,
-			Owner:             workflowbiz.WorkflowOwnerTutti,
-			TriggerKind:       workflowbiz.TriggerKindAgentCLI,
-			SourceSessionID:   "session-materialization",
-			Status:            workflowbiz.WorkflowStatusPendingReview,
-			CurrentRevisionID: "revision-materialization",
-			CreatedAt:         now,
-			UpdatedAt:         now,
-		},
-		Plan: workflowbiz.TuttiModePlan{WorkflowID: "workflow-materialization"},
-		Revision: workflowbiz.PlanRevision{
-			ID:            "revision-materialization",
-			WorkflowID:    "workflow-materialization",
-			Sequence:      1,
-			SchemaVersion: "tutti-mode-plan/v1",
-			DocumentPath:  "plans/revision-materialization.md",
-			SHA256:        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-			CreatedAt:     now,
-		},
-		Checkpoint: workflowbiz.WorkflowCheckpoint{
-			ID:         "review-materialization",
-			WorkflowID: "workflow-materialization",
-			Kind:       workflowbiz.CheckpointKindTaskReview,
-			RevisionID: "revision-materialization",
-			Status:     workflowbiz.CheckpointStatusPending,
-			CreatedAt:  now,
-			UpdatedAt:  now,
-		},
-	}); err != nil {
-		t.Fatalf("CreateWorkspaceWorkflowProposal() error = %v", err)
-	}
 	launcher := &recordingLauncher{}
 	executions := &tuttimodeexecutionservice.Service{
 		Store: store,
 		Clock: func() time.Time { return now },
 	}
-	return &sqliteConformanceDriver{
+	driver := &sqliteConformanceDriver{
 		store:      store,
 		issues:     workspaceservice.IssueManagerService{Store: store, RunLauncher: launcher, TuttiModeExecutions: executions},
 		executions: executions,
+		revisions:  workspacedata.WorkflowRevisionFiles{StateDir: t.TempDir()},
+		now:        now,
 		launcher:   launcher,
 	}
+	driver.plans = &tuttimodeplanservice.Service{
+		Store:             store,
+		Revisions:         driver.revisions,
+		IssueMaterializer: tuttimodeplanservice.WorkspaceIssueMaterializer{Issues: &driver.issues},
+		Now:               func() time.Time { return now },
+	}
+	return driver
 }
 
-func (driver *sqliteConformanceDriver) MaterializeAcceptedPlan(
+func (driver *sqliteConformanceDriver) AcceptPlan(
 	ctx context.Context,
-	input tuttimodeexecutionconformance.MaterializeAcceptedPlanInput,
+	input tuttimodeexecutionconformance.AcceptPlanInput,
 ) (string, error) {
-	return (tuttimodeplanservice.WorkspaceIssueMaterializer{Issues: &driver.issues}).MaterializeIssue(
-		ctx,
-		tuttimodeplanservice.MaterializeIssueInput{
-			WorkspaceID:     input.WorkspaceID,
-			WorkflowID:      input.WorkflowID,
-			RevisionID:      input.RevisionID,
-			SourceSessionID: input.SourceSessionID,
-			TopicID:         input.TopicID,
-			Title:           input.Title,
-			Content:         input.Content,
-			Execution: tuttimodeplanservice.PlanExecution{
-				Mode: "sequential",
-			},
-			Budget: tuttimodeplanservice.PlanBudget{Mode: "auto"},
-			ActionableItems: []tuttimodeplanservice.ActionableItem{{
-				Ordinal: 1,
-				Task: tuttimodeplanservice.PlanTask{
-					ID:            input.TaskID,
-					Title:         input.TaskTitle,
-					AgentTargetID: input.AgentTargetID,
-				},
-			}},
+	tasks := make([]tuttimodeplanservice.PlanTask, 0, len(input.Tasks))
+	for _, task := range input.Tasks {
+		tasks = append(tasks, tuttimodeplanservice.PlanTask{
+			ID:               task.TaskID,
+			Title:            task.Title,
+			Content:          task.Content,
+			Priority:         task.Priority,
+			AgentTargetID:    task.AgentTargetID,
+			Model:            task.Model,
+			PermissionModeID: task.PermissionModeID,
+			DependsOn:        append([]string(nil), task.DependencyTaskIDs...),
+			Parallelizable:   task.Parallelizable,
+			AutoAccept:       task.AutoAccept,
+		})
+	}
+	frontmatter, err := yaml.Marshal(tuttimodeplanservice.PlanDocument{
+		Schema:  tuttimodeplanservice.SchemaV1,
+		Phase:   tuttimodeplanservice.PhaseTaskGraph,
+		Title:   input.Title,
+		TopicID: input.TopicID,
+		Execution: tuttimodeplanservice.PlanExecution{
+			Mode:                   "sequential",
+			ReasoningIntensity:     50,
+			OrchestrationIntensity: 50,
 		},
-	)
+		Budget: tuttimodeplanservice.PlanBudget{Mode: "auto"},
+		Tasks:  tasks,
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode plan revision: %w", err)
+	}
+	raw := []byte("---\n" + string(frontmatter) + "---\n" + input.Content + "\n")
+	documentPath, digest, err := driver.revisions.Write(input.WorkflowID, raw)
+	if err != nil {
+		return "", fmt.Errorf("write plan revision: %w", err)
+	}
+	if err := driver.store.CreateWorkspaceWorkflowProposal(ctx, workflowbiz.ProposalAggregate{
+		Workflow: workflowbiz.Workflow{
+			ID:                input.WorkflowID,
+			WorkspaceID:       input.WorkspaceID,
+			Type:              workflowbiz.WorkflowTypeTuttiModePlan,
+			Owner:             workflowbiz.WorkflowOwnerTutti,
+			TriggerKind:       workflowbiz.TriggerKindAgentCLI,
+			SourceSessionID:   input.SourceSessionID,
+			Status:            workflowbiz.WorkflowStatusPendingReview,
+			CurrentRevisionID: input.RevisionID,
+			CreatedAt:         driver.now,
+			UpdatedAt:         driver.now,
+		},
+		Plan: workflowbiz.TuttiModePlan{WorkflowID: input.WorkflowID},
+		Revision: workflowbiz.PlanRevision{
+			ID:            input.RevisionID,
+			WorkflowID:    input.WorkflowID,
+			Sequence:      1,
+			SchemaVersion: tuttimodeplanservice.SchemaV1,
+			DocumentPath:  documentPath,
+			SHA256:        digest,
+			CreatedAt:     driver.now,
+		},
+		Checkpoint: workflowbiz.WorkflowCheckpoint{
+			ID:         input.CheckpointID,
+			WorkflowID: input.WorkflowID,
+			Kind:       workflowbiz.CheckpointKindTaskReview,
+			RevisionID: input.RevisionID,
+			Status:     workflowbiz.CheckpointStatusPending,
+			CreatedAt:  driver.now,
+			UpdatedAt:  driver.now,
+		},
+	}); err != nil {
+		return "", fmt.Errorf("seed pending plan review: %w", err)
+	}
+	result, err := driver.plans.Decide(ctx, tuttimodeplanservice.DecideInput{
+		WorkspaceID:  input.WorkspaceID,
+		WorkflowID:   input.WorkflowID,
+		CheckpointID: input.CheckpointID,
+		Decision:     workflowbiz.CheckpointStatusAccepted,
+		DecidedBy:    "conformance-user",
+	})
+	if err != nil {
+		return "", err
+	}
+	if result.Operation == nil ||
+		result.Operation.Status != workflowbiz.OperationStatusSucceeded ||
+		result.Operation.IssueID == "" {
+		return "", fmt.Errorf("accept plan operation = %#v, want succeeded create_issue", result.Operation)
+	}
+	return result.Operation.IssueID, nil
+}
+
+func (driver *sqliteConformanceDriver) GetIssueByID(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+) (tuttimodeexecutionconformance.Issue, []tuttimodeexecutionconformance.Task, error) {
+	detail, err := driver.issues.GetIssueDetail(ctx, workspaceID, issueID)
+	if err != nil {
+		return tuttimodeexecutionconformance.Issue{}, nil, err
+	}
+	issue := tuttimodeexecutionconformance.Issue{
+		WorkspaceID:     detail.Issue.WorkspaceID,
+		IssueID:         detail.Issue.IssueID,
+		TopicID:         detail.Issue.TopicID,
+		Title:           detail.Issue.Title,
+		Content:         detail.Issue.Content,
+		PlanningSource:  string(detail.Issue.PlanningSource),
+		SourceSessionID: detail.Issue.SourceSessionID,
+	}
+	tasks := make([]tuttimodeexecutionconformance.Task, 0, len(detail.Tasks))
+	for _, task := range detail.Tasks {
+		tasks = append(tasks, tuttimodeexecutionconformance.Task{
+			TaskID:            task.TaskID,
+			Title:             task.Title,
+			Content:           task.Content,
+			Status:            string(task.Status),
+			Priority:          string(task.Priority),
+			SortIndex:         task.SortIndex,
+			AgentTargetID:     task.AgentTargetID,
+			Model:             task.Model,
+			PermissionModeID:  task.PermissionModeID,
+			DependencyTaskIDs: append([]string(nil), task.DependencyTaskIDs...),
+			Parallelizable:    task.Parallelizable,
+			AutoAccept:        task.AutoAccept,
+		})
+	}
+	return issue, tasks, nil
+}
+
+func (driver *sqliteConformanceDriver) GetSnapshot(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+) (tuttimodeexecutionconformance.Snapshot, error) {
+	issue, tasks, err := driver.GetIssueByID(ctx, workspaceID, issueID)
+	if err != nil {
+		return tuttimodeexecutionconformance.Snapshot{}, err
+	}
+	execution, checkpoints, err := driver.GetExecutionByIssue(ctx, workspaceID, issueID)
+	if err != nil {
+		return tuttimodeexecutionconformance.Snapshot{}, err
+	}
+	runCount, err := driver.CountRuns(ctx, workspaceID, issueID)
+	if err != nil {
+		return tuttimodeexecutionconformance.Snapshot{}, err
+	}
+	return tuttimodeexecutionconformance.Snapshot{
+		Issue:       issue,
+		Tasks:       tasks,
+		Execution:   execution,
+		Checkpoints: checkpoints,
+		RunCount:    runCount,
+	}, nil
 }
 
 func (driver *sqliteConformanceDriver) GetExecutionByIssue(
