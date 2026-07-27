@@ -951,7 +951,14 @@ Only fully occluded bodies pause descendant animations and use
 images, alignment observers, wheel input, and a Three.js/WebGL scene.
 Occlusion releases those resources; exposure restores the DOM presentation
 immediately and defers WebGL reconstruction until after the reveal interaction
-settles.
+settles. Detail timelines follow the same geometric boundary: fully occluded
+surfaces disconnect dock/timeline resize observation and scroll listeners,
+while exposure reattaches them and resynchronizes the retained bottom lock.
+Elapsed Turn, compaction, subagent, and Goal labels subscribe to one shared
+renderer-realm second clock only while their containing presentation is
+visible; exposure catches the displayed value up from canonical timestamps.
+Focus alone must not stop either behavior because multiple exposed AgentGUI
+windows remain live at the same time.
 On workspace restore, Desktop mounts the focused AgentGUI body immediately and
 hydrates inactive bodies sequentially after browser idle, one animation frame
 at a time. Window shells and persisted geometry remain synchronous; this
