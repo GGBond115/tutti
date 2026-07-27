@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { AgentConversationVM } from "../../../shared/agentConversation/contracts/agentConversationVM";
 import {
+  agentComposerDraftFiles,
   agentComposerDraftImages,
+  agentComposerDraftLargeTexts,
   agentComposerDraftPrompt,
+  agentComposerDraftToPromptContent,
   buildAgentComposerDraft,
   emptyAgentComposerDraft
 } from "./agentComposerDraft";
+import { createAgentComposerFileMentionMarkdown } from "../agentRichText/agentMentionMarkdown";
 import {
   EMPTY_AGENT_COMPOSER_INPUT_HISTORY_STATE,
   navigateAgentComposerInputHistory,
@@ -62,7 +66,7 @@ describe("agent composer input history", () => {
 
     expect(history).toHaveLength(1);
     expect(history[0]!.id).toBe("turn-1:message-2");
-    expect(agentComposerDraftPrompt(history[0]!.draft)).toBe("original prompt");
+    expect(agentComposerDraftPrompt(history[0]!.draft)).toBe("expanded prompt");
     expect(agentComposerDraftImages(history[0]!.draft)).toEqual([
       expect.objectContaining({
         attachmentId: "attachment-1",
@@ -97,6 +101,142 @@ describe("agent composer input history", () => {
 
     expect(agentComposerDraftPrompt(history[0]!.draft)).toBe("");
     expect(agentComposerDraftImages(history[0]!.draft)).toHaveLength(1);
+  });
+
+  it("restores a file-only structured input with a resendable mention", () => {
+    const displayPrompt = createAgentComposerFileMentionMarkdown({
+      id: "original-file",
+      name: "report.pdf",
+      status: "ready"
+    });
+    const history = projectAgentComposerInputHistory(
+      conversationWithUserMessages([
+        {
+          id: "file-message",
+          body: displayPrompt,
+          sourceTimelineItems: [
+            {
+              payload: {
+                content: [
+                  {
+                    type: "file",
+                    kind: "file",
+                    name: "report.pdf",
+                    path: "/runtime/report.pdf"
+                  }
+                ],
+                displayPrompt
+              }
+            }
+          ]
+        }
+      ])
+    );
+
+    expect(history).toHaveLength(1);
+    expect(agentComposerDraftFiles(history[0]!.draft)).toHaveLength(1);
+    expect(
+      agentComposerDraftToPromptContent({
+        draft: history[0]!.draft,
+        skills: []
+      })
+    ).toEqual([
+      {
+        type: "text",
+        text: "[@report.pdf](/runtime/report.pdf)"
+      }
+    ]);
+  });
+
+  it("restores mixed text and file input without dropping the file on resend", () => {
+    const fileMention = createAgentComposerFileMentionMarkdown({
+      id: "original-file",
+      name: "report.pdf",
+      status: "ready"
+    });
+    const history = projectAgentComposerInputHistory(
+      conversationWithUserMessages([
+        {
+          id: "mixed-message",
+          body: `Summarize${fileMention}`,
+          sourceTimelineItems: [
+            {
+              payload: {
+                content: [
+                  { type: "text", text: "Summarize" },
+                  {
+                    type: "file",
+                    kind: "file",
+                    name: "report.pdf",
+                    path: "/runtime/report.pdf"
+                  }
+                ],
+                displayPrompt: `Summarize${fileMention}`
+              }
+            }
+          ]
+        }
+      ])
+    );
+
+    expect(agentComposerDraftFiles(history[0]!.draft)).toHaveLength(1);
+    expect(
+      agentComposerDraftToPromptContent({
+        draft: history[0]!.draft,
+        skills: []
+      })
+    ).toEqual([
+      {
+        type: "text",
+        text: "Summarize[@report.pdf](/runtime/report.pdf)"
+      }
+    ]);
+  });
+
+  it("restores pasted text without resending its display mention as text", () => {
+    const history = projectAgentComposerInputHistory(
+      conversationWithUserMessages([
+        {
+          id: "pasted-text-message",
+          body: "Summarize this",
+          sourceTimelineItems: [
+            {
+              payload: {
+                content: [
+                  { type: "text", text: "Summarize this" },
+                  {
+                    type: "file",
+                    kind: "pasted-text",
+                    name: "first line…",
+                    path: "/archive/aa/deadbeef.txt",
+                    sizeBytes: 22
+                  }
+                ],
+                displayPrompt:
+                  "Summarize this\n[@first line…](mention://pasted-text/original-paste?path=%2Farchive%2Faa%2Fdeadbeef.txt&size=22)"
+              }
+            }
+          ]
+        }
+      ])
+    );
+
+    expect(agentComposerDraftLargeTexts(history[0]!.draft)).toHaveLength(1);
+    expect(
+      agentComposerDraftToPromptContent({
+        draft: history[0]!.draft,
+        skills: []
+      })
+    ).toEqual([
+      { type: "text", text: "Summarize this" },
+      {
+        type: "file",
+        kind: "pasted-text",
+        name: "first line…",
+        path: "/archive/aa/deadbeef.txt",
+        sizeBytes: 22
+      }
+    ]);
   });
 
   it("navigates from empty to older entries and clears past the newest", () => {

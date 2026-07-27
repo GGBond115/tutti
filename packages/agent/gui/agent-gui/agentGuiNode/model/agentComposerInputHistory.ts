@@ -5,8 +5,7 @@ import {
   agentComposerDraftHasContent,
   agentPromptContentToComposerDraft,
   buildAgentComposerDraft,
-  emptyAgentComposerDraft,
-  updateAgentComposerDraft
+  emptyAgentComposerDraft
 } from "./agentComposerDraft";
 
 export interface AgentComposerInputHistoryEntry {
@@ -203,18 +202,15 @@ function projectHistoryEntry(
   )
     ? ""
     : displayPrompt;
-  let draft =
+  const draft =
     content.length > 0
       ? agentPromptContentToComposerDraft(
           content,
           `history-${message.turnId ?? fallbackTurnId}-${message.id}`
         )
-      : buildAgentComposerDraft({ prompt: message.body });
-  if (visibleDisplayPrompt) {
-    draft = updateAgentComposerDraft(draft, {
-      prompt: visibleDisplayPrompt
-    });
-  }
+      : buildAgentComposerDraft({
+          prompt: visibleDisplayPrompt || message.body
+        });
   if (!agentComposerDraftHasContent(draft)) {
     return null;
   }
