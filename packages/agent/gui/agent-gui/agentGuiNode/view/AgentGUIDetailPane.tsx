@@ -684,6 +684,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         hasActiveConversation={hasActiveConversation}
         homeContent={homeContent}
         isLoadingOlderMessages={viewModel.detail.isLoadingOlderMessages}
+        isVisible={isVisible}
         isTimelineScrolledToTop={isTimelineScrolledToTop}
         labels={labels}
         onAuthLogin={authLogin}

@@ -25,6 +25,7 @@ interface AgentGUIConversationTimelinePaneProps {
   ) => void;
   isLoading: boolean;
   isLoadingOlderMessages: boolean;
+  isVisible: boolean;
   followEndMode: AgentConversationFollowEndMode;
   virtualScrollControllerRef: Ref<AgentTranscriptVirtualScrollController>;
   loadingLabel: string;
@@ -50,6 +51,7 @@ export const AgentGUIConversationTimelinePane = memo(
     onTurnAttachmentVisibilityChange,
     isLoading,
     isLoadingOlderMessages,
+    isVisible,
     followEndMode,
     virtualScrollControllerRef,
     loadingLabel,
@@ -80,6 +82,7 @@ export const AgentGUIConversationTimelinePane = memo(
           turnAttachmentLocatorRef={turnAttachmentLocatorRef}
           onTurnAttachmentVisibilityChange={onTurnAttachmentVisibilityChange}
           isLoading={isLoading}
+          isVisible={isVisible}
           loadingLabel={loadingLabel}
           empty={empty}
           onLinkAction={onLinkAction}

@@ -1050,6 +1050,40 @@ describe("useAgentGUIDetailScroll", () => {
     expect(harness.scrollTopWriteCount()).toBe(1);
   });
 
+  it("restores a following virtualized conversation after exposure", () => {
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    const harness = createHarness({ scrollHeight: 5_000 });
+    const controller = virtualScrollController("conversation-exposure");
+    harness.virtualScrollControllerRef.current = controller;
+    const hiddenConversation = conversationVM("hidden-update");
+    const { rerender } = renderHook(
+      ({ conversation, isVisible }) =>
+        useAgentGUIDetailScroll(
+          harness.input({
+            activeConversationId: "conversation-exposure",
+            conversation,
+            isVisible,
+            showTimelineSkeleton: false
+          })
+        ),
+      {
+        initialProps: {
+          conversation: conversationVM("initial"),
+          isVisible: true
+        }
+      }
+    );
+    controller.scrollToEnd.mockClear();
+
+    rerender({ conversation: hiddenConversation, isVisible: false });
+    rerender({ conversation: hiddenConversation, isVisible: true });
+
+    expect(controller.scrollToEnd).toHaveBeenCalledWith({ behavior: "auto" });
+  });
+
   it("remeasures dock safe-area after store and ResizeObserver invalidation", () => {
     const resizeObservers = installResizeObserverMock();
     const harness = createHarness({ scrollHeight: 5_000 });

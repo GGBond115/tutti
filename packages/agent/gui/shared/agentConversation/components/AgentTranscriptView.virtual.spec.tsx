@@ -645,6 +645,86 @@ describe("AgentTranscriptView virtual rendering", () => {
     timeline.remove();
   });
 
+  it("follows an explicit downward wheel reversal immediately", async () => {
+    virtualizerMockState.centerIndex = 10;
+    virtualizerMockState.virtualIndexes = [10];
+    const timeline = document.createElement("div");
+    timeline.dataset.testid = "agent-gui-timeline";
+    timeline.style.overflow = "auto";
+    timeline.scrollTop = 1_000;
+    document.body.appendChild(timeline);
+    render(
+      <AgentTranscriptView
+        conversation={conversationWithMultiRowTurns(40)}
+        followEndMode="detached"
+        labels={TRANSCRIPT_LABELS_WITH_LOCATOR}
+      />,
+      { container: timeline }
+    );
+    const selectedIndex = () =>
+      [
+        ...timeline.querySelectorAll(".agent-gui-message-locator__tick")
+      ].findIndex((tick) => tick.getAttribute("data-selected") === "true");
+    await waitFor(() => expect(selectedIndex()).toBe(10));
+
+    fireEvent.wheel(timeline, { deltaY: -100 });
+    virtualizerMockState.centerIndex = 5;
+    timeline.scrollTop = 500;
+    fireEvent.scroll(timeline);
+    await waitFor(() => expect(selectedIndex()).toBe(5));
+
+    fireEvent.wheel(timeline, { deltaY: 100 });
+    virtualizerMockState.centerIndex = 6;
+    timeline.scrollTop = 600;
+    fireEvent.scroll(timeline);
+
+    await waitFor(() => expect(selectedIndex()).toBe(6));
+    timeline.remove();
+  });
+
+  it("follows a semantic return to the transcript end from measured positions", async () => {
+    virtualizerMockState.centerIndex = 10;
+    virtualizerMockState.virtualIndexes = [10];
+    const timeline = document.createElement("div");
+    timeline.dataset.testid = "agent-gui-timeline";
+    timeline.style.overflow = "auto";
+    timeline.scrollTop = 1_000;
+    document.body.appendChild(timeline);
+    const rendered = render(
+      <AgentTranscriptView
+        conversation={conversationWithMultiRowTurns(40)}
+        followEndMode="detached"
+        labels={TRANSCRIPT_LABELS_WITH_LOCATOR}
+      />,
+      { container: timeline }
+    );
+    const selectedIndex = () =>
+      [
+        ...timeline.querySelectorAll(".agent-gui-message-locator__tick")
+      ].findIndex((tick) => tick.getAttribute("data-selected") === "true");
+    await waitFor(() => expect(selectedIndex()).toBe(10));
+
+    fireEvent.wheel(timeline, { deltaY: -100 });
+    virtualizerMockState.centerIndex = 5;
+    timeline.scrollTop = 500;
+    fireEvent.scroll(timeline);
+    await waitFor(() => expect(selectedIndex()).toBe(5));
+
+    rendered.rerender(
+      <AgentTranscriptView
+        conversation={conversationWithMultiRowTurns(40)}
+        followEndMode="following"
+        labels={TRANSCRIPT_LABELS_WITH_LOCATOR}
+      />
+    );
+    virtualizerMockState.centerIndex = 39;
+    timeline.scrollTop = 3_900;
+    fireEvent.scroll(timeline);
+
+    await waitFor(() => expect(selectedIndex()).toBe(39));
+    timeline.remove();
+  });
+
   it("selects the preceding user message when the centered turn has no user row", async () => {
     virtualizerMockState.centerIndex = 18;
     virtualizerMockState.virtualIndexes = [18];

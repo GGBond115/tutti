@@ -37,6 +37,7 @@ interface AgentGUIDetailTimelineProps {
   followEndMode: AgentConversationFollowEndMode;
   homeContent: ReactNode;
   isLoadingOlderMessages: boolean;
+  isVisible: boolean;
   isTimelineScrolledToTop: boolean;
   labels: {
     loadingConversation: string;
@@ -60,6 +61,7 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
   followEndMode,
   homeContent,
   isLoadingOlderMessages,
+  isVisible,
   isTimelineScrolledToTop,
   labels,
   onAuthLogin,
@@ -94,6 +96,7 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
           followEndMode={followEndMode}
           isLoading={showTimelineSkeleton}
           isLoadingOlderMessages={isLoadingOlderMessages}
+          isVisible={isVisible}
           loadingLabel={labels.loadingConversation}
           empty={conversationFlowEmpty}
           onLinkAction={onLinkAction}

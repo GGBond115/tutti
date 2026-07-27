@@ -10,6 +10,7 @@ import {
   type WheelEvent
 } from "react";
 import type { AgentMessageLocatorItem } from "./agentTranscriptModel";
+import type { AgentConversationFollowEndMode } from "../agentConversationFollowEndController";
 import {
   findMessageLocatorScrollParent,
   useAgentMessageLocatorSelection,
@@ -31,12 +32,16 @@ interface AgentMessageLocatorVisibleFrame {
 }
 
 export function AgentMessageLocatorRail({
+  followEndMode,
   items,
+  isVisible = true,
   label,
   onLocate,
   virtualSelectionSource
 }: {
+  followEndMode?: AgentConversationFollowEndMode;
   items: readonly AgentMessageLocatorItem[];
+  isVisible?: boolean;
   label?: string;
   onLocate: (item: AgentMessageLocatorItem) => void;
   virtualSelectionSource?: AgentMessageLocatorVirtualSelectionSource;
@@ -48,7 +53,9 @@ export function AgentMessageLocatorRail({
   const [shouldRenderPanel, setShouldRenderPanel] = useState(false);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const { selectItem, selectedKey } = useAgentMessageLocatorSelection({
+    followEndMode,
     items,
+    isVisible,
     locatorRef,
     virtualSelectionSource
   });
@@ -136,6 +143,9 @@ export function AgentMessageLocatorRail({
     });
   }, [selectedKey]);
   useLayoutEffect(() => {
+    if (!isVisible) {
+      return;
+    }
     const locator = locatorRef.current;
     const scrollParent = locator
       ? findMessageLocatorScrollParent(locator)
@@ -176,8 +186,11 @@ export function AgentMessageLocatorRail({
         window.cancelAnimationFrame(animationFrame);
       }
     };
-  }, [items.length]);
+  }, [isVisible, items.length]);
   useLayoutEffect(() => {
+    if (!isVisible) {
+      return;
+    }
     const selectedIndex = selectedKey
       ? items.findIndex((item) => item.key === selectedKey)
       : -1;
@@ -198,7 +211,7 @@ export function AgentMessageLocatorRail({
       selectedIndex,
       viewportHeight
     );
-  }, [items, selectedKey, visibleFrame]);
+  }, [isVisible, items, selectedKey, visibleFrame]);
 
   if (items.length < 2) {
     return null;

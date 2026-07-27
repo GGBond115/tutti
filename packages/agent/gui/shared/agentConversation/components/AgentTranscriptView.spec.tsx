@@ -1210,6 +1210,80 @@ describe("AgentTranscriptView", () => {
     expect(within(panel).queryByText(mentionPrompt)).toBeNull();
   });
 
+  it("remeasures the message locator when an occluded transcript becomes visible", async () => {
+    const base = detailViewModel();
+    const conversation = projectAgentConversationVM(
+      detailViewModel({
+        turns: [
+          base.turns[0]!,
+          {
+            id: "turn-2",
+            userMessage: { id: "user-2", body: "Follow-up request" },
+            userMessages: [{ id: "user-2", body: "Follow-up request" }],
+            agentMessages: [{ id: "assistant-2", body: "Follow-up answer" }],
+            toolCalls: [],
+            toolCallCount: 0,
+            hasFailedToolCall: false,
+            agentItems: [
+              {
+                kind: "message",
+                message: {
+                  id: "assistant-2",
+                  body: "Follow-up answer"
+                }
+              }
+            ]
+          }
+        ]
+      })
+    );
+    const transcriptLabels = {
+      thinkingLabel: "Thought process",
+      toolCallsLabel: (count: number) => `Tool calls (${count})`,
+      processing: "Planning next moves",
+      turnSummary: "Changed files",
+      userMessageLocator: "User messages"
+    };
+    const { rerender } = render(
+      <div data-testid="agent-gui-timeline">
+        <AgentTranscriptView
+          conversation={conversation}
+          isVisible={false}
+          labels={transcriptLabels}
+        />
+      </div>
+    );
+    const timeline = screen.getByTestId("agent-gui-timeline");
+    let timelineClientHeight = 0;
+    Object.defineProperty(timeline, "clientHeight", {
+      configurable: true,
+      get: () => timelineClientHeight
+    });
+    await flushAnimationFrame();
+
+    expect(
+      screen
+        .getByTestId("agent-message-locator")
+        .style.getPropertyValue("--agent-message-locator-visible-height")
+    ).toBe("");
+
+    timelineClientHeight = 240;
+    rerender(
+      <div data-testid="agent-gui-timeline">
+        <AgentTranscriptView
+          conversation={conversation}
+          isVisible
+          labels={transcriptLabels}
+        />
+      </div>
+    );
+    await flushAnimationFrame();
+
+    expect(screen.getByTestId("agent-message-locator")).toHaveStyle({
+      "--agent-message-locator-visible-height": "240px"
+    });
+  });
+
   it("locates the nearest user message when clicking the locator rail around a dot", () => {
     const scrollIntoView = vi.fn();
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;

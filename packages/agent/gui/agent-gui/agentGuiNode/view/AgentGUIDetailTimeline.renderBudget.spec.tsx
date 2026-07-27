@@ -32,6 +32,7 @@ describe("AgentGUIDetailTimeline render budget", () => {
       followEndMode: "following" as const,
       homeContent: null,
       isLoadingOlderMessages: false,
+      isVisible: true,
       isTimelineScrolledToTop: true,
       labels: { loadingConversation: "Loading" },
       showTimelineSkeleton: false,

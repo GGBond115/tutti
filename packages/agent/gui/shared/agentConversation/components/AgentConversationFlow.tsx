@@ -23,6 +23,7 @@ export interface AgentConversationFlowProps {
     visible: boolean
   ) => void;
   isLoading: boolean;
+  isVisible?: boolean;
   loadingLabel: string;
   loadingTestId?: string;
   empty: ReactNode;
@@ -51,6 +52,7 @@ export const AgentConversationFlow = memo(function AgentConversationFlow({
   turnAttachmentLocatorRef,
   onTurnAttachmentVisibilityChange,
   isLoading,
+  isVisible = true,
   loadingLabel,
   loadingTestId,
   empty,
@@ -81,6 +83,7 @@ export const AgentConversationFlow = memo(function AgentConversationFlow({
     content = (
       <AgentTranscriptView
         conversation={conversation}
+        isVisible={isVisible}
         turnAttachments={turnAttachments}
         turnAttachmentLocatorRef={turnAttachmentLocatorRef}
         onTurnAttachmentVisibilityChange={onTurnAttachmentVisibilityChange}

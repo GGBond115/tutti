@@ -7,6 +7,7 @@ import {
 } from "react";
 import type { AgentMessageLocatorItem } from "./agentTranscriptModel";
 import { escapeCssString } from "./agentTranscriptModel";
+import type { AgentConversationFollowEndMode } from "../agentConversationFollowEndController";
 
 const REVERSE_CONFIRMATION_FRAMES = 3;
 const SCROLL_INTENT_WINDOW_MS = 1_000;
@@ -25,11 +26,15 @@ interface AgentMessageLocatorSelection {
 }
 
 export function useAgentMessageLocatorSelection({
+  followEndMode,
   items,
+  isVisible,
   locatorRef,
   virtualSelectionSource
 }: {
+  followEndMode?: AgentConversationFollowEndMode;
   items: readonly AgentMessageLocatorItem[];
+  isVisible: boolean;
   locatorRef: RefObject<HTMLElement | null>;
   virtualSelectionSource?: AgentMessageLocatorVirtualSelectionSource;
 }): AgentMessageLocatorSelection {
@@ -50,6 +55,9 @@ export function useAgentMessageLocatorSelection({
       virtualSelectionSource.scrollRect !== null);
 
   useLayoutEffect(() => {
+    if (!isVisible) {
+      return;
+    }
     if (!selectedKey) {
       return;
     }
@@ -107,9 +115,12 @@ export function useAgentMessageLocatorSelection({
         : candidateIndex;
     selectedIndexRef.current = replacementIndex;
     setSelectedKey(items[replacementIndex]?.key ?? null);
-  }, [items, locatorRef, selectedKey, virtualSelectionSource]);
+  }, [isVisible, items, locatorRef, selectedKey, virtualSelectionSource]);
 
   useEffect(() => {
+    if (!isVisible) {
+      return;
+    }
     const locator = locatorRef.current;
     const scrollParent = locator
       ? findMessageLocatorScrollParent(locator)
@@ -156,7 +167,10 @@ export function useAgentMessageLocatorSelection({
           scrollIntent && scrollIntent.expiresAt >= performance.now()
             ? scrollIntent.direction
             : 0;
+        const followsSemanticEnd =
+          followEndMode === "following" && nextDirection === 1;
         if (
+          !followsSemanticEnd &&
           intendedDirection !== 0 &&
           nextDirection !== 0 &&
           nextDirection !== intendedDirection
@@ -166,6 +180,8 @@ export function useAgentMessageLocatorSelection({
         }
         const selectionDirection = selectionDirectionRef.current;
         if (
+          !followsSemanticEnd &&
+          intendedDirection === 0 &&
           currentIndex >= 0 &&
           nextIndex >= 0 &&
           selectionDirection !== 0 &&
@@ -244,7 +260,14 @@ export function useAgentMessageLocatorSelection({
         window.cancelAnimationFrame(animationFrame);
       }
     };
-  }, [items, locatorRef, virtualSelectionReady, virtualSelectionSource]);
+  }, [
+    followEndMode,
+    isVisible,
+    items,
+    locatorRef,
+    virtualSelectionReady,
+    virtualSelectionSource
+  ]);
 
   const selectItem = (itemKey: string): void => {
     selectionDirectionRef.current = 0;
