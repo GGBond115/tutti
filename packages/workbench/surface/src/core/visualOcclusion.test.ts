@@ -63,6 +63,60 @@ test("clips visibility to the Workbench surface and ignores minimized covers", (
   );
 });
 
+test("reuses exposure when only non-geometric Workbench state changes", () => {
+  const state = workbenchState([
+    node("covered", frame(0, 0)),
+    node("cover", frame(0, 0))
+  ]);
+  const exposed = selectVisuallyExposedWorkbenchNodeIDs(state);
+
+  const nextState = {
+    ...state,
+    activeDragNodeId: "cover",
+    activeSnapTarget: "left" as const
+  };
+
+  assert.strictEqual(selectVisuallyExposedWorkbenchNodeIDs(nextState), exposed);
+});
+
+test("reuses exposure across data-only node replacements", () => {
+  const state = workbenchState([
+    node("covered", frame(0, 0)),
+    node("cover", frame(0, 0))
+  ]);
+  const exposed = selectVisuallyExposedWorkbenchNodeIDs(state);
+
+  const nextState = {
+    ...state,
+    nodes: state.nodes.map((candidate) => ({
+      ...candidate,
+      data: { revision: 1 }
+    }))
+  };
+
+  assert.strictEqual(selectVisuallyExposedWorkbenchNodeIDs(nextState), exposed);
+});
+
+test("invalidates exposure when node geometry changes", () => {
+  const state = workbenchState([
+    node("covered", frame(0, 0)),
+    node("cover", frame(0, 0))
+  ]);
+  const exposed = selectVisuallyExposedWorkbenchNodeIDs(state);
+  const nextState = {
+    ...state,
+    nodes: state.nodes.map((candidate) =>
+      candidate.id === "cover"
+        ? { ...candidate, frame: frame(300, 0) }
+        : candidate
+    )
+  };
+  const nextExposed = selectVisuallyExposedWorkbenchNodeIDs(nextState);
+
+  assert.notStrictEqual(nextExposed, exposed);
+  assert.equal(nextExposed.has("covered"), true);
+});
+
 function workbenchState(nodes: WorkbenchNode[]): WorkbenchState {
   return {
     activeDragNodeId: null,

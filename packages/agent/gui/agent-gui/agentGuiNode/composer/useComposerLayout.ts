@@ -92,7 +92,7 @@ export function useComposerLayout({
 }: UseComposerLayoutInput) {
   const composerMeasurementFrameRef = useRef<number | null>(null);
   const labels = { promptTipsPrefix };
-  const showEdgeGlow = isHeroLayout && !inputDisabled;
+  const showEdgeGlow = isActive && isHeroLayout && !inputDisabled;
   const showPromptTips = isHeroLayout && promptTips.length > 0;
   const activePromptTip = showPromptTips ? (promptTips[0] ?? null) : null;
   const showHeroProjectSelector = isHeroLayout;

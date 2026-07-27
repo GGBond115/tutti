@@ -1,13 +1,31 @@
 import type { WorkbenchFrame, WorkbenchState } from "./types.ts";
 
 const exposedNodeIDsByState = new WeakMap<object, ReadonlySet<string>>();
+const exposedNodeIDsByNodeStack = new WeakMap<
+  object,
+  {
+    exposedNodeIDs: ReadonlySet<string>;
+    nodes: WorkbenchState<unknown>["nodes"];
+    surfaceSize: WorkbenchState<unknown>["surfaceSize"];
+  }
+>();
 
 export function selectVisuallyExposedWorkbenchNodeIDs<TData>(
   state: WorkbenchState<TData>
 ): ReadonlySet<string> {
-  const cached = exposedNodeIDsByState.get(state);
-  if (cached) {
-    return cached;
+  const cachedByState = exposedNodeIDsByState.get(state);
+  if (cachedByState) {
+    return cachedByState;
+  }
+  const cachedByGeometry = exposedNodeIDsByNodeStack.get(state.nodeStack);
+  if (
+    cachedByGeometry &&
+    hasEquivalentVisualOcclusionGeometry(cachedByGeometry, state)
+  ) {
+    cachedByGeometry.nodes = state.nodes;
+    cachedByGeometry.surfaceSize = state.surfaceSize;
+    exposedNodeIDsByState.set(state, cachedByGeometry.exposedNodeIDs);
+    return cachedByGeometry.exposedNodeIDs;
   }
 
   const nodeByID = new Map(state.nodes.map((node) => [node.id, node]));
@@ -56,6 +74,11 @@ export function selectVisuallyExposedWorkbenchNodeIDs<TData>(
   });
 
   exposedNodeIDsByState.set(state, exposedNodeIDs);
+  exposedNodeIDsByNodeStack.set(state.nodeStack, {
+    exposedNodeIDs,
+    nodes: state.nodes,
+    surfaceSize: state.surfaceSize
+  });
   return exposedNodeIDs;
 }
 
@@ -137,4 +160,35 @@ function pushFrame(frames: WorkbenchFrame[], frame: WorkbenchFrame): void {
   if (frame.width > 0 && frame.height > 0) {
     frames.push(frame);
   }
+}
+
+function hasEquivalentVisualOcclusionGeometry<TData>(
+  cached: {
+    nodes: WorkbenchState<unknown>["nodes"];
+    surfaceSize: WorkbenchState<unknown>["surfaceSize"];
+  },
+  state: WorkbenchState<TData>
+): boolean {
+  if (
+    cached.surfaceSize.width !== state.surfaceSize.width ||
+    cached.surfaceSize.height !== state.surfaceSize.height ||
+    cached.nodes.length !== state.nodes.length
+  ) {
+    return false;
+  }
+  if (cached.nodes === state.nodes) {
+    return true;
+  }
+  return cached.nodes.every((cachedNode, index) => {
+    const node = state.nodes[index];
+    return (
+      node !== undefined &&
+      cachedNode.id === node.id &&
+      cachedNode.isMinimized === node.isMinimized &&
+      cachedNode.frame.x === node.frame.x &&
+      cachedNode.frame.y === node.frame.y &&
+      cachedNode.frame.width === node.frame.width &&
+      cachedNode.frame.height === node.frame.height
+    );
+  });
 }

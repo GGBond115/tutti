@@ -8,7 +8,7 @@ afterEach(() => {
 });
 
 describe("useComposerLayout", () => {
-  it("rotates prompt tips only while the AgentGUI window is active", () => {
+  it("runs hero composer animations only while the AgentGUI window is active", () => {
     const promptTips = [
       { id: "tip-1", label: "First", prompt: "Prompt one" },
       { id: "tip-2", label: "Second", prompt: "Prompt two" }
@@ -27,6 +27,7 @@ describe("useComposerLayout", () => {
 
     expect(result.current.rotatingPromptTips).toEqual([promptTips[0]]);
     expect(result.current.promptTipStyle).toBeUndefined();
+    expect(result.current.showEdgeGlow).toBe(false);
 
     rerender({ isActive: true });
 
@@ -38,6 +39,7 @@ describe("useComposerLayout", () => {
       "--agent-gui-prompt-tip-count": 2,
       "--agent-gui-prompt-tip-cycle-duration": "10400ms"
     });
+    expect(result.current.showEdgeGlow).toBe(true);
   });
 
   it("does not probe a locked project while its session is still being created", () => {
