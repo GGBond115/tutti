@@ -68,22 +68,70 @@ test("ignores a transiently hidden Genie window as an occluder", () => {
     node("covered", frame(0, 0)),
     node("genie-minimizing", frame(0, 0))
   ]);
+  const hiddenNodeIDs = new Set(["genie-minimizing"]);
+  const presentation = {
+    hiddenNodeIDs,
+    nonOccludingNodeIDs: hiddenNodeIDs,
+    topLayerNodeIDs: []
+  };
 
   assert.equal(
-    selectWorkbenchNodeIsVisuallyExposed(
-      state,
-      "covered",
-      new Set(["genie-minimizing"])
-    ),
+    selectWorkbenchNodeIsVisuallyExposed(state, "covered", presentation),
     true
   );
   assert.equal(
     selectWorkbenchNodeIsVisuallyExposed(
       state,
       "genie-minimizing",
-      new Set(["genie-minimizing"])
+      presentation
     ),
     false
+  );
+});
+
+test("keeps a transitioning window visible without letting it cover others", () => {
+  const state = workbenchState([
+    node("covered", frame(0, 0)),
+    node("transitioning-cover", frame(0, 0))
+  ]);
+  const presentation = {
+    hiddenNodeIDs: new Set<string>(),
+    nonOccludingNodeIDs: new Set(["transitioning-cover"]),
+    topLayerNodeIDs: []
+  };
+
+  assert.equal(
+    selectWorkbenchNodeIsVisuallyExposed(state, "covered", presentation),
+    true
+  );
+  assert.equal(
+    selectWorkbenchNodeIsVisuallyExposed(
+      state,
+      "transitioning-cover",
+      presentation
+    ),
+    true
+  );
+});
+
+test("orders dialog popover windows above the default window layer", () => {
+  const state = workbenchState([
+    node("dialog-cover", frame(0, 0)),
+    node("covered", frame(0, 0))
+  ]);
+  const presentation = {
+    hiddenNodeIDs: new Set<string>(),
+    nonOccludingNodeIDs: new Set<string>(),
+    topLayerNodeIDs: ["dialog-cover"]
+  };
+
+  assert.equal(
+    selectWorkbenchNodeIsVisuallyExposed(state, "covered", presentation),
+    false
+  );
+  assert.equal(
+    selectWorkbenchNodeIsVisuallyExposed(state, "dialog-cover", presentation),
+    true
   );
 });
 

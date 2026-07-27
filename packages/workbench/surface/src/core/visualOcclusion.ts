@@ -1,11 +1,23 @@
 import type { WorkbenchFrame, WorkbenchState } from "./types.ts";
 
-const noNonOccludingNodeIDs: ReadonlySet<string> = new Set();
+export interface WorkbenchVisualOcclusionPresentation {
+  hiddenNodeIDs: ReadonlySet<string>;
+  nonOccludingNodeIDs: ReadonlySet<string>;
+  topLayerNodeIDs: readonly string[];
+}
+
+const noNodeIDs: ReadonlySet<string> = new Set();
+const defaultVisualOcclusionPresentation: WorkbenchVisualOcclusionPresentation =
+  {
+    hiddenNodeIDs: noNodeIDs,
+    nonOccludingNodeIDs: noNodeIDs,
+    topLayerNodeIDs: []
+  };
 const exposedNodeIDsByState = new WeakMap<
   object,
   {
     exposedNodeIDs: ReadonlySet<string>;
-    nonOccludingNodeIDs: ReadonlySet<string>;
+    presentation: WorkbenchVisualOcclusionPresentation;
   }
 >();
 const exposedNodeIDsByNodeStack = new WeakMap<
@@ -13,43 +25,51 @@ const exposedNodeIDsByNodeStack = new WeakMap<
   {
     exposedNodeIDs: ReadonlySet<string>;
     nodes: WorkbenchState<unknown>["nodes"];
-    nonOccludingNodeIDs: ReadonlySet<string>;
+    presentation: WorkbenchVisualOcclusionPresentation;
     surfaceSize: WorkbenchState<unknown>["surfaceSize"];
   }
 >();
 
 export function selectVisuallyExposedWorkbenchNodeIDs<TData>(
   state: WorkbenchState<TData>,
-  nonOccludingNodeIDs: ReadonlySet<string> = noNonOccludingNodeIDs
+  presentation: WorkbenchVisualOcclusionPresentation = defaultVisualOcclusionPresentation
 ): ReadonlySet<string> {
   const cachedByState = exposedNodeIDsByState.get(state);
-  if (cachedByState?.nonOccludingNodeIDs === nonOccludingNodeIDs) {
+  if (cachedByState?.presentation === presentation) {
     return cachedByState.exposedNodeIDs;
   }
   const cachedByGeometry = exposedNodeIDsByNodeStack.get(state.nodeStack);
   if (
     cachedByGeometry &&
-    cachedByGeometry.nonOccludingNodeIDs === nonOccludingNodeIDs &&
+    cachedByGeometry.presentation === presentation &&
     hasEquivalentVisualOcclusionGeometry(cachedByGeometry, state)
   ) {
     cachedByGeometry.nodes = state.nodes;
     cachedByGeometry.surfaceSize = state.surfaceSize;
     exposedNodeIDsByState.set(state, {
       exposedNodeIDs: cachedByGeometry.exposedNodeIDs,
-      nonOccludingNodeIDs
+      presentation
     });
     return cachedByGeometry.exposedNodeIDs;
   }
 
   const nodeByID = new Map(state.nodes.map((node) => [node.id, node]));
   const stackedIDs = new Set(state.nodeStack);
-  const orderedNodes = [
+  const stackOrderedNodes = [
     ...state.nodes.filter((node) => !stackedIDs.has(node.id)),
     ...state.nodeStack.flatMap((nodeID) => {
       const node = nodeByID.get(nodeID);
       return node ? [node] : [];
     })
   ];
+  const topLayerNodeIDs = new Set(presentation.topLayerNodeIDs);
+  const orderedNodes =
+    topLayerNodeIDs.size === 0
+      ? stackOrderedNodes
+      : [
+          ...stackOrderedNodes.filter((node) => !topLayerNodeIDs.has(node.id)),
+          ...stackOrderedNodes.filter((node) => topLayerNodeIDs.has(node.id))
+        ];
   const surfaceFrame: WorkbenchFrame = {
     x: 0,
     y: 0,
@@ -59,7 +79,7 @@ export function selectVisuallyExposedWorkbenchNodeIDs<TData>(
   const exposedNodeIDs = new Set<string>();
 
   orderedNodes.forEach((node, nodeIndex) => {
-    if (node.isMinimized || nonOccludingNodeIDs.has(node.id)) {
+    if (node.isMinimized || presentation.hiddenNodeIDs.has(node.id)) {
       return;
     }
     const visibleFrame = intersectFrames(node.frame, surfaceFrame);
@@ -77,7 +97,8 @@ export function selectVisuallyExposedWorkbenchNodeIDs<TData>(
       if (
         !occluder ||
         occluder.isMinimized ||
-        nonOccludingNodeIDs.has(occluder.id)
+        presentation.hiddenNodeIDs.has(occluder.id) ||
+        presentation.nonOccludingNodeIDs.has(occluder.id)
       ) {
         continue;
       }
@@ -92,12 +113,12 @@ export function selectVisuallyExposedWorkbenchNodeIDs<TData>(
 
   exposedNodeIDsByState.set(state, {
     exposedNodeIDs,
-    nonOccludingNodeIDs
+    presentation
   });
   exposedNodeIDsByNodeStack.set(state.nodeStack, {
     exposedNodeIDs,
     nodes: state.nodes,
-    nonOccludingNodeIDs,
+    presentation,
     surfaceSize: state.surfaceSize
   });
   return exposedNodeIDs;
@@ -106,11 +127,9 @@ export function selectVisuallyExposedWorkbenchNodeIDs<TData>(
 export function selectWorkbenchNodeIsVisuallyExposed<TData>(
   state: WorkbenchState<TData>,
   nodeID: string,
-  nonOccludingNodeIDs?: ReadonlySet<string>
+  presentation?: WorkbenchVisualOcclusionPresentation
 ): boolean {
-  return selectVisuallyExposedWorkbenchNodeIDs(state, nonOccludingNodeIDs).has(
-    nodeID
-  );
+  return selectVisuallyExposedWorkbenchNodeIDs(state, presentation).has(nodeID);
 }
 
 function intersectFrames(

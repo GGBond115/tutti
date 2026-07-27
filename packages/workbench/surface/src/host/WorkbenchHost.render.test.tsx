@@ -8,11 +8,15 @@ import { useWorkbenchSelector } from "../react/hooks/useWorkbenchSelector.ts";
 import { WorkbenchNodeLayer } from "../react/WorkbenchNodeLayer.tsx";
 import { WorkbenchProvider } from "../react/WorkbenchProvider.tsx";
 import {
-  useWorkbenchNonOccludingNodeIDs,
+  useWorkbenchVisualOcclusionPresentation,
   useWorkbenchWindowPresentationVisibility,
   WorkbenchWindowFrame
 } from "../react/WorkbenchWindowFrame.tsx";
 import { createWorkbenchGenieNodeVisibilityStore } from "../react/genieNodeVisibility.ts";
+import {
+  createWorkbenchNodePresentationTransitionStore,
+  type WorkbenchNodePresentationTransitionStore
+} from "../react/nodePresentationTransitions.ts";
 import {
   useWorkbenchGenieAnimation,
   type WorkbenchGenieController
@@ -35,13 +39,22 @@ import type {
 function WorkbenchGenieIdentityProbe({
   controller,
   debugDiagnostics,
+  minimizeAnimation,
+  nodePresentationTransitions,
   onRender
 }: {
   controller: WorkbenchController;
   debugDiagnostics?: WorkbenchDebugDiagnostics;
+  minimizeAnimation?: "genie" | "off" | "scale";
+  nodePresentationTransitions: WorkbenchNodePresentationTransitionStore;
   onRender: (genie: WorkbenchGenieController) => void;
 }) {
-  const genie = useWorkbenchGenieAnimation({ controller, debugDiagnostics });
+  const genie = useWorkbenchGenieAnimation({
+    controller,
+    debugDiagnostics,
+    minimizeAnimation,
+    nodePresentationTransitions
+  });
   onRender(genie);
   return <>{genie.genieLayer}</>;
 }
@@ -62,13 +75,32 @@ function WorkbenchVisualExposureProbe({
   nodeID: string;
   onRender: (isVisible: boolean) => void;
 }) {
-  const nonOccludingNodeIDs = useWorkbenchNonOccludingNodeIDs();
+  const visualOcclusionPresentation = useWorkbenchVisualOcclusionPresentation();
   onRender(
     useWorkbenchSelector((state) =>
-      selectWorkbenchNodeIsVisuallyExposed(state, nodeID, nonOccludingNodeIDs)
+      selectWorkbenchNodeIsVisuallyExposed(
+        state,
+        nodeID,
+        visualOcclusionPresentation
+      )
     )
   );
   return null;
+}
+
+function createTestGenieController(
+  nodeVisibility: ReturnType<typeof createWorkbenchGenieNodeVisibilityStore>
+): WorkbenchGenieController {
+  return {
+    genieLayer: null,
+    isPendingMinimizedDockNode: () => false,
+    launchNodeFromAnchor: () => {},
+    minimizeNodeToAnchor: () => {},
+    nodeVisibility,
+    pendingMinimizedNode: null,
+    registerDockAnchor: () => {},
+    shouldAnimateMinimizedDockEnter: () => false
+  };
 }
 
 describe("WorkbenchHost", () => {
@@ -391,6 +423,8 @@ describe("WorkbenchHost", () => {
       nodeStack: [node.id]
     });
     const nodeVisibility = createWorkbenchGenieNodeVisibilityStore();
+    const nodePresentationTransitions =
+      createWorkbenchNodePresentationTransitionStore();
     const minimizeNodeToAnchor = vi.fn();
     const previousActEnvironment = (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -407,6 +441,7 @@ describe("WorkbenchHost", () => {
               genieNodeVisibility={nodeVisibility}
               minimizeNodeToAnchor={minimizeNodeToAnchor}
               node={node}
+              nodePresentationTransitions={nodePresentationTransitions}
             >
               <div />
             </WorkbenchWindowFrame>
@@ -432,6 +467,7 @@ describe("WorkbenchHost", () => {
               genieNodeVisibility={nodeVisibility}
               minimizeNodeToAnchor={minimizeNodeToAnchor}
               node={node}
+              nodePresentationTransitions={nodePresentationTransitions}
               presentation={{
                 frameByNodeId: new Map([
                   [node.id, { x: 200, y: 160, width: 160, height: 120 }]
@@ -453,6 +489,7 @@ describe("WorkbenchHost", () => {
         root.unmount();
       });
       nodeVisibility.dispose();
+      nodePresentationTransitions.dispose();
       container.remove();
       (
         globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -685,6 +722,8 @@ describe("WorkbenchHost", () => {
       return <div data-window-header />;
     });
     const nodeVisibility = createWorkbenchGenieNodeVisibilityStore();
+    const nodePresentationTransitions =
+      createWorkbenchNodePresentationTransitionStore();
     const firstMinimize = vi.fn();
     const secondMinimize = vi.fn();
     const renderFrame = (
@@ -695,6 +734,7 @@ describe("WorkbenchHost", () => {
           genieNodeVisibility={nodeVisibility}
           minimizeNodeToAnchor={minimizeNodeToAnchor}
           node={node}
+          nodePresentationTransitions={nodePresentationTransitions}
           renderHeader={renderHeader}
           windowChromeMode="custom-header"
           windowHeaderPresentation={{
@@ -748,6 +788,7 @@ describe("WorkbenchHost", () => {
         root.unmount();
       });
       nodeVisibility.dispose();
+      nodePresentationTransitions.dispose();
       container.remove();
       (
         globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -780,6 +821,8 @@ describe("WorkbenchHost", () => {
       nodeStack: [nodeA.id, nodeB.id]
     });
     const nodeVisibility = createWorkbenchGenieNodeVisibilityStore();
+    const nodePresentationTransitions =
+      createWorkbenchNodePresentationTransitionStore();
     const renderActionsA = vi.fn(() => null);
     const renderActionsB = vi.fn(() => null);
     const visibilityA = vi.fn();
@@ -800,6 +843,7 @@ describe("WorkbenchHost", () => {
               genieNodeVisibility={nodeVisibility}
               minimizeNodeToAnchor={minimizeNodeToAnchor}
               node={nodeA}
+              nodePresentationTransitions={nodePresentationTransitions}
               renderActions={renderActionsA}
             >
               <WorkbenchWindowVisibilityProbe onRender={visibilityA} />
@@ -808,6 +852,7 @@ describe("WorkbenchHost", () => {
               genieNodeVisibility={nodeVisibility}
               minimizeNodeToAnchor={minimizeNodeToAnchor}
               node={nodeB}
+              nodePresentationTransitions={nodePresentationTransitions}
               renderActions={renderActionsB}
             >
               <WorkbenchWindowVisibilityProbe onRender={visibilityB} />
@@ -836,6 +881,7 @@ describe("WorkbenchHost", () => {
         root.unmount();
       });
       nodeVisibility.dispose();
+      nodePresentationTransitions.dispose();
       container.remove();
       (
         globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -867,6 +913,8 @@ describe("WorkbenchHost", () => {
       nodeStack: [coveredNode.id, coverNode.id]
     });
     const nodeVisibility = createWorkbenchGenieNodeVisibilityStore();
+    const nodePresentationTransitions =
+      createWorkbenchNodePresentationTransitionStore();
     const genie: WorkbenchGenieController = {
       genieLayer: null,
       isPendingMinimizedDockNode: () => false,
@@ -883,6 +931,7 @@ describe("WorkbenchHost", () => {
       <WorkbenchProvider controller={controller}>
         <WorkbenchNodeLayer
           genie={genieController}
+          nodePresentationTransitions={nodePresentationTransitions}
           renderNode={({ node }) => (
             <WorkbenchVisualExposureProbe
               nodeID={node.id}
@@ -933,7 +982,308 @@ describe("WorkbenchHost", () => {
         root.unmount();
       });
       nodeVisibility.dispose();
+      nodePresentationTransitions.dispose();
       container.remove();
+    }
+  });
+
+  it("keeps both windows exposed while the cover frame is transitioning", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const coveredNode: WorkbenchNode = {
+      data: null,
+      displayMode: "floating",
+      frame: { x: 8, y: 52, width: 320, height: 240 },
+      id: "covered",
+      isMinimized: false,
+      kind: "test",
+      restoreFrame: null,
+      title: "Covered"
+    };
+    const coverNode: WorkbenchNode = {
+      ...coveredNode,
+      frame: { x: 400, y: 0, width: 320, height: 240 },
+      id: "cover",
+      title: "Cover"
+    };
+    const controller = createWorkbenchController({
+      nodes: [coveredNode, coverNode],
+      nodeStack: [coveredNode.id, coverNode.id],
+      surfaceSize: { height: 600, width: 800 }
+    });
+    const nodeVisibility = createWorkbenchGenieNodeVisibilityStore();
+    const nodePresentationTransitions =
+      createWorkbenchNodePresentationTransitionStore();
+    const coveredVisibility = vi.fn();
+    const coverVisibility = vi.fn();
+
+    try {
+      await act(async () => {
+        root.render(
+          <WorkbenchProvider controller={controller}>
+            <WorkbenchNodeLayer
+              genie={createTestGenieController(nodeVisibility)}
+              nodePresentationTransitions={nodePresentationTransitions}
+              renderNode={({ node }) => (
+                <WorkbenchVisualExposureProbe
+                  nodeID={node.id}
+                  onRender={
+                    node.id === coveredNode.id
+                      ? coveredVisibility
+                      : coverVisibility
+                  }
+                />
+              )}
+            />
+          </WorkbenchProvider>
+        );
+      });
+
+      expect(coveredVisibility).toHaveBeenLastCalledWith(true);
+      await act(async () => {
+        controller.commands.moveNode(coverNode.id, {
+          ...coverNode.frame,
+          x: 8
+        });
+      });
+      expect(
+        controller.getSnapshot().nodes.find((node) => node.id === coverNode.id)
+          ?.frame
+      ).toEqual(coveredNode.frame);
+      expect([...nodePresentationTransitions.getSnapshot()]).toEqual([
+        coverNode.id
+      ]);
+      expect(coveredVisibility).toHaveBeenLastCalledWith(true);
+      expect(coverVisibility).toHaveBeenLastCalledWith(true);
+
+      const coverShell = container.querySelector<HTMLElement>(
+        `[data-workbench-window-id="${coverNode.id}"]`
+      );
+      await act(async () => {
+        dispatchWorkbenchTransition(coverShell, "transitionrun", "translate");
+        dispatchWorkbenchTransition(coverShell, "transitionrun", "width");
+      });
+      await act(async () => {
+        dispatchWorkbenchTransition(coverShell, "transitionend", "translate");
+      });
+      expect([...nodePresentationTransitions.getSnapshot()]).toEqual([
+        coverNode.id
+      ]);
+      expect(coveredVisibility).toHaveBeenLastCalledWith(true);
+      await act(async () => {
+        dispatchWorkbenchTransition(coverShell, "transitionend", "width");
+      });
+      expect([...nodePresentationTransitions.getSnapshot()]).toEqual([]);
+      expect(coveredVisibility).toHaveBeenLastCalledWith(false);
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      nodePresentationTransitions.dispose();
+      nodeVisibility.dispose();
+      container.remove();
+    }
+  });
+
+  it("keeps covered windows exposed through onboarding entry", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const coveredNode: WorkbenchNode = {
+      data: null,
+      displayMode: "floating",
+      frame: { x: 0, y: 0, width: 320, height: 240 },
+      id: "covered",
+      isMinimized: false,
+      kind: "test",
+      restoreFrame: null,
+      title: "Covered"
+    };
+    const coverNode: WorkbenchNode = {
+      ...coveredNode,
+      data: { launchSource: "onboarding-auto" },
+      id: "cover",
+      title: "Cover"
+    };
+    const controller = createWorkbenchController({
+      nodes: [coveredNode, coverNode],
+      nodeStack: [coveredNode.id, coverNode.id],
+      surfaceSize: { height: 600, width: 800 }
+    });
+    const nodeVisibility = createWorkbenchGenieNodeVisibilityStore();
+    const nodePresentationTransitions =
+      createWorkbenchNodePresentationTransitionStore();
+    const coveredVisibility = vi.fn();
+    const coverVisibility = vi.fn();
+
+    try {
+      await act(async () => {
+        root.render(
+          <WorkbenchProvider controller={controller}>
+            <WorkbenchNodeLayer
+              genie={createTestGenieController(nodeVisibility)}
+              nodePresentationTransitions={nodePresentationTransitions}
+              renderNode={({ node }) => (
+                <WorkbenchVisualExposureProbe
+                  nodeID={node.id}
+                  onRender={
+                    node.id === coveredNode.id
+                      ? coveredVisibility
+                      : coverVisibility
+                  }
+                />
+              )}
+            />
+          </WorkbenchProvider>
+        );
+      });
+
+      expect(coveredVisibility).toHaveBeenLastCalledWith(true);
+      expect(coverVisibility).toHaveBeenLastCalledWith(true);
+
+      const entryContent = container.querySelector<HTMLElement>(
+        `[data-workbench-window-id="${coverNode.id}"] > .workbench-window-shell__content`
+      );
+      const animationEnd = new Event("animationend", { bubbles: true });
+      Object.defineProperty(animationEnd, "animationName", {
+        value: "workbench-shell-enter"
+      });
+      await act(async () => {
+        entryContent?.dispatchEvent(animationEnd);
+      });
+      expect(coveredVisibility).toHaveBeenLastCalledWith(false);
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      nodePresentationTransitions.dispose();
+      nodeVisibility.dispose();
+      container.remove();
+    }
+  });
+
+  it("keeps a scale-restoring window non-occluding until its animation settles", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const nodeElement = document.createElement("section");
+    nodeElement.dataset.workbenchWindowId = "node-1";
+    document.body.append(nodeElement);
+    const dockElement = document.createElement("button");
+    document.body.append(dockElement);
+    const root = createRoot(container);
+    const node: WorkbenchNode = {
+      data: null,
+      displayMode: "floating",
+      frame: { x: 8, y: 52, width: 320, height: 240 },
+      id: "node-1",
+      isMinimized: true,
+      kind: "test",
+      restoreFrame: null,
+      title: "Node"
+    };
+    const controller = createWorkbenchController({
+      nodes: [node],
+      nodeStack: [node.id],
+      surfaceSize: { height: 600, width: 800 }
+    });
+    const nodePresentationTransitions =
+      createWorkbenchNodePresentationTransitionStore();
+    const renders: WorkbenchGenieController[] = [];
+    const animationFrameCallbacks: FrameRequestCallback[] = [];
+    const requestAnimationFrameSpy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        animationFrameCallbacks.push(callback);
+        return animationFrameCallbacks.length;
+      });
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, "cancelAnimationFrame")
+      .mockImplementation(() => {});
+    const canvasContextSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockImplementation(() => null);
+    vi.spyOn(nodeElement, "getBoundingClientRect").mockReturnValue(
+      testDOMRect(80, 80, 320, 240)
+    );
+    vi.spyOn(dockElement, "getBoundingClientRect").mockReturnValue(
+      testDOMRect(20, 520, 44, 44)
+    );
+    let settleAnimation: (() => void) | null = null;
+    const finished = new Promise<void>((resolve) => {
+      settleAnimation = resolve;
+    });
+    const animation = {
+      cancel: vi.fn(),
+      finished
+    } as unknown as Animation;
+    const animate = vi.fn(() => animation);
+    Object.defineProperty(nodeElement, "animate", {
+      configurable: true,
+      value: animate
+    });
+    const previousActEnvironment = (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    const flushAnimationFrame = async () => {
+      const callbacks = animationFrameCallbacks.splice(0);
+      for (const callback of callbacks) {
+        callback(performance.now());
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+
+    try {
+      await act(async () => {
+        root.render(
+          <WorkbenchGenieIdentityProbe
+            controller={controller}
+            minimizeAnimation="scale"
+            nodePresentationTransitions={nodePresentationTransitions}
+            onRender={(genie) => renders.push(genie)}
+          />
+        );
+      });
+      const genie = renders.at(-1);
+      genie?.registerDockAnchor("dock-node-1", dockElement);
+
+      await act(async () => {
+        genie?.launchNodeFromAnchor("dock-node-1", node.id, () => {
+          controller.commands.restoreNode(node.id);
+          return node.id;
+        });
+        await flushAnimationFrame();
+        await flushAnimationFrame();
+      });
+
+      expect(animate).toHaveBeenCalledOnce();
+      expect(genie?.nodeVisibility.getSnapshot(node.id)).toBe(false);
+      expect([...nodePresentationTransitions.getSnapshot()]).toEqual([node.id]);
+
+      await act(async () => {
+        settleAnimation?.();
+        await finished;
+        await Promise.resolve();
+      });
+      expect([...nodePresentationTransitions.getSnapshot()]).toEqual([]);
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      requestAnimationFrameSpy.mockRestore();
+      cancelAnimationFrameSpy.mockRestore();
+      canvasContextSpy.mockRestore();
+      nodePresentationTransitions.dispose();
+      dockElement.remove();
+      nodeElement.remove();
+      container.remove();
+      (
+        globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+      ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
     }
   });
 
@@ -942,6 +1292,8 @@ describe("WorkbenchHost", () => {
     document.body.append(container);
     const root = createRoot(container);
     const controller = createWorkbenchController();
+    const nodePresentationTransitions =
+      createWorkbenchNodePresentationTransitionStore();
     const firstLog = vi.fn();
     const secondLog = vi.fn();
     const firstDiagnostics: WorkbenchDebugDiagnostics = {
@@ -966,6 +1318,7 @@ describe("WorkbenchHost", () => {
           <WorkbenchGenieIdentityProbe
             controller={controller}
             debugDiagnostics={firstDiagnostics}
+            nodePresentationTransitions={nodePresentationTransitions}
             onRender={(genie) => renders.push(genie)}
           />
         );
@@ -975,6 +1328,7 @@ describe("WorkbenchHost", () => {
           <WorkbenchGenieIdentityProbe
             controller={controller}
             debugDiagnostics={secondDiagnostics}
+            nodePresentationTransitions={nodePresentationTransitions}
             onRender={(genie) => renders.push(genie)}
           />
         );
@@ -997,6 +1351,7 @@ describe("WorkbenchHost", () => {
       await act(async () => {
         root.unmount();
       });
+      nodePresentationTransitions.dispose();
       container.remove();
       (
         globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -1082,6 +1437,37 @@ describe("WorkbenchHost", () => {
     }
   });
 });
+
+function testDOMRect(
+  x: number,
+  y: number,
+  width: number,
+  height: number
+): DOMRect {
+  return {
+    bottom: y + height,
+    height,
+    left: x,
+    right: x + width,
+    top: y,
+    width,
+    x,
+    y,
+    toJSON() {
+      return {};
+    }
+  };
+}
+
+function dispatchWorkbenchTransition(
+  element: HTMLElement | null,
+  type: "transitionend" | "transitionrun",
+  propertyName: string
+): void {
+  const event = new Event(type, { bubbles: true });
+  Object.defineProperty(event, "propertyName", { value: propertyName });
+  element?.dispatchEvent(event);
+}
 
 function createSnapshotRepository(): WorkbenchHostSnapshotRepository {
   return {

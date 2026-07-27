@@ -950,6 +950,11 @@ While Genie replaces a real node with Canvas output, or scale minimize marks
 the node as pending, Workbench excludes that departing node from geometric
 occlusion. Covered windows therefore resume presentation during minimize; a
 restoring Genie node stays non-occluding until its real node is revealed.
+Scale restore, shell frame transitions, and onboarding entry keep the moving
+node's own presentation visible while temporarily excluding it as an occluder;
+DOM transition and animation completion release that state. Portal-backed
+`dialog-popover` nodes sort above default-layer nodes before Workbench applies
+normal stack order.
 Only fully occluded bodies pause descendant animations and use
 `content-visibility: hidden`. Visible Empty-Hero surfaces may own carousel
 images, alignment observers, wheel input, and a Three.js/WebGL scene.

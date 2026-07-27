@@ -105,12 +105,13 @@ export {
   type WorkbenchDockComponentPreviewFrameProps
 } from "./react/WorkbenchDockComponentPreviewFrame.tsx";
 export { useWorkbenchSelector } from "./react/hooks/useWorkbenchSelector.ts";
-export { useWorkbenchNonOccludingNodeIDs } from "./react/WorkbenchWindowFrame.tsx";
+export { useWorkbenchVisualOcclusionPresentation } from "./react/WorkbenchWindowFrame.tsx";
 export { getWorkbenchLayoutFrame } from "./core/geometry.ts";
 export { selectFocusedWorkbenchNode } from "./core/selectors.ts";
 export {
   selectVisuallyExposedWorkbenchNodeIDs,
-  selectWorkbenchNodeIsVisuallyExposed
+  selectWorkbenchNodeIsVisuallyExposed,
+  type WorkbenchVisualOcclusionPresentation
 } from "./core/visualOcclusion.ts";
 export {
   canCreateNewWindow,
