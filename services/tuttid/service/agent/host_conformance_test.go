@@ -12,6 +12,7 @@ import (
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	hostconformance "github.com/tutti-os/tutti/packages/agent/host/conformance"
+	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
@@ -117,6 +118,18 @@ func TestHostCommitObserverConformance(t *testing.T) {
 	}
 }
 
+func TestHostDeletionAdmissionConformance(t *testing.T) {
+	for _, scenario := range hostconformance.DeletionAdmissionScenarios() {
+		scenario := scenario
+		t.Run(scenario.Name, func(t *testing.T) {
+			driver := &legacyHostConformanceDriver{t: t, directHost: true}
+			if err := hostconformance.Run(context.Background(), driver, scenario); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestHostCancelAcceptanceDoesNotImplyCanonicalSettlement(t *testing.T) {
 	driver := &legacyHostConformanceDriver{t: t, directHost: true}
 	fixture := hostconformance.Fixture{
@@ -206,6 +219,10 @@ type legacyHostConformanceDriver struct {
 	createdTurns   map[string]string
 	directHost     bool
 	goalNowUnixMS  int64
+	deletionHost   *agenthost.Host
+	deletionStore  *conformanceDeletionStore
+	deletionGuard  *conformanceDeletionGuard
+	deletionEvents *[]string
 }
 
 func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconformance.Fixture) error {
@@ -257,6 +274,27 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 		steps: &steps,
 		err:   fixture.WorktreeGCSweepErr,
 	}))
+	deletionEvents := make([]string, 0)
+	d.deletionEvents = &deletionEvents
+	baseDeletionStore := serviceHostStore{service: d.service}
+	d.deletionStore = &conformanceDeletionStore{
+		SessionBatchManagementStore: baseDeletionStore,
+		plans:                       fixture.DeleteSessionPlans,
+		events:                      &deletionEvents,
+	}
+	d.deletionGuard = &conformanceDeletionGuard{
+		admissionErr: fixture.DeleteAdmissionErr,
+		events:       &deletionEvents,
+	}
+	d.deletionHost = agenthost.New(agenthost.Config{
+		SessionBatchManagement: d.deletionStore,
+		SessionDeletionGuard:   d.deletionGuard,
+		Runtime:                serviceHostRuntime{service: d.service},
+		SessionLocker:          serviceHostLocker{service: d.service},
+	})
+	d.runtime.closeHook = func(input RuntimeCloseInput) {
+		deletionEvents = append(deletionEvents, "close:"+input.AgentSessionID)
+	}
 
 	var goalMu sync.Mutex
 	var providerGoal map[string]any
@@ -376,6 +414,14 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 				deletedAt = 1
 			}
 			d.sessions.deletedAt[additionalKey] = deletedAt
+		}
+		if additional.Live {
+			settings := additional.Settings
+			d.runtime.sessions[additionalKey] = ProviderRuntimeSession{
+				ID: additional.AgentSessionID, WorkspaceID: additional.WorkspaceID, Provider: additional.Provider,
+				ProviderSessionID: additional.ProviderSessionID, Cwd: additional.Cwd, Status: "ready",
+				Settings: &settings, Visible: true, CreatedAtUnixMS: 1, UpdatedAtUnixMS: 2,
+			}
 		}
 	}
 	if fixture.PreparedSubmitID != "" {
@@ -735,6 +781,10 @@ func (d *legacyHostConformanceDriver) DeleteSession(ctx context.Context, ref age
 	}, err
 }
 
+func (d *legacyHostConformanceDriver) DeleteSessions(ctx context.Context, input agenthost.DeleteSessionsInput) (agenthost.DeleteSessionsResult, error) {
+	return d.deletionHost.DeleteSessions(ctx, input)
+}
+
 func (d *legacyHostConformanceDriver) PurgeDeletedSessions(ctx context.Context, input agenthost.PurgeDeletedSessionsInput) (agenthost.PurgeDeletedSessionsResult, error) {
 	return d.service.ApplicationHost().PurgeDeletedSessions(ctx, input)
 }
@@ -816,6 +866,16 @@ func (d *legacyHostConformanceDriver) Metrics() hostconformance.Metrics {
 		GoalControlCalls: len(d.runtime.goalControlCalls), GoalReconcileCalls: len(d.runtime.goalReconcileCalls),
 		RecoverySteps: append([]string(nil), (*d.recoverySteps)...),
 	}
+	if d.deletionGuard != nil {
+		metrics.DeleteAdmissionPlans = append([]agenthost.DeleteSessionsPlan(nil), d.deletionGuard.plans...)
+		metrics.DeleteReports = append([]agenthost.DeleteSessionsReport(nil), d.deletionGuard.reports...)
+	}
+	if d.deletionStore != nil {
+		metrics.CanonicalDeleteCalls = d.deletionStore.deleteCalls
+	}
+	if d.deletionEvents != nil {
+		metrics.DeletionEvents = append([]string(nil), (*d.deletionEvents)...)
+	}
 	for _, delta := range d.commitObserver.snapshot() {
 		if delta.RuntimeOperation != nil {
 			metrics.RuntimeOperationCommits++
@@ -840,6 +900,72 @@ func (d *legacyHostConformanceDriver) Metrics() hostconformance.Metrics {
 		metrics.LastResumeRecreate = d.runtime.resumeCalls[len(d.runtime.resumeCalls)-1].RecreateIfMissing
 	}
 	return metrics
+}
+
+type conformanceDeletionStore struct {
+	agenthost.SessionBatchManagementStore
+	plans       [][]string
+	planIndex   int
+	deleteCalls int
+	events      *[]string
+}
+
+func (s *conformanceDeletionStore) PlanDeleteSessions(
+	ctx context.Context,
+	input storesqlite.DeleteSessionsBatchInput,
+) (storesqlite.DeleteSessionsPlan, error) {
+	if len(s.plans) == 0 {
+		return s.SessionBatchManagementStore.PlanDeleteSessions(ctx, input)
+	}
+	index := s.planIndex
+	if index >= len(s.plans) {
+		index = len(s.plans) - 1
+	}
+	return storesqlite.DeleteSessionsPlan{
+		WorkspaceID: input.WorkspaceID,
+		SessionIDs:  append([]string(nil), s.plans[index]...),
+	}, nil
+}
+
+func (s *conformanceDeletionStore) DeleteSessionsBatch(
+	ctx context.Context,
+	input storesqlite.DeleteSessionsBatchInput,
+) (storesqlite.DeleteSessionsBatchResult, error) {
+	s.deleteCalls++
+	if s.events != nil {
+		*s.events = append(*s.events, "delete:"+strings.Join(input.ExpectedSessionIDs, ","))
+	}
+	if s.planIndex+1 < len(s.plans) {
+		s.planIndex++
+		return storesqlite.DeleteSessionsBatchResult{}, storesqlite.ErrDeleteSessionsPlanChanged
+	}
+	return s.SessionBatchManagementStore.DeleteSessionsBatch(ctx, input)
+}
+
+type conformanceDeletionGuard struct {
+	admissionErr error
+	plans        []agenthost.DeleteSessionsPlan
+	reports      []agenthost.DeleteSessionsReport
+	events       *[]string
+}
+
+func (g *conformanceDeletionGuard) AdmitDeleteSessions(_ context.Context, plan agenthost.DeleteSessionsPlan) error {
+	g.plans = append(g.plans, plan)
+	if g.events != nil {
+		*g.events = append(*g.events, "admit:"+strings.Join(plan.SessionIDs, ","))
+	}
+	return g.admissionErr
+}
+
+func (g *conformanceDeletionGuard) ReportDeleteSessions(_ context.Context, report agenthost.DeleteSessionsReport) {
+	g.reports = append(g.reports, report)
+	if g.events != nil {
+		status := "success"
+		if report.Err != nil {
+			status = "failure"
+		}
+		*g.events = append(*g.events, "report-"+status+":"+strings.Join(report.Plan.SessionIDs, ","))
+	}
 }
 
 type conformanceCommitObserver struct {
