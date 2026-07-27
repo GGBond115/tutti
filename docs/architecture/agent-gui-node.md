@@ -565,6 +565,10 @@ draft scope and local edit revision match; a scope change or other external
 replacement may rebuild the document.
 
 A virtualized transcript derives message-locator selection from the virtualizer's measured turn positions and explicit transcript identity. The currently mounted DOM window is rendering output, not a selection source; range changes must not make the locator temporarily select a neighboring message. Recent wheel and keyboard direction fences locator selection from reversing because of estimate-to-measurement scroll compensation or an item-list identity shift; the previous stable locator index is reconciled in a layout effect before paint. A genuine opposite input replaces that intent.
+Fully occluded transcripts disable locator and virtualizer geometry work;
+exposure reattaches them and remeasures before selection resumes. A semantic
+scroll-to-end clears the direction fence and selects the final locator item for
+both DOM and virtualized timelines.
 
 Historical rich text renders from the canonical Tiptap document through a static schema renderer. Only interactive composer surfaces own a Tiptap Editor/ProseMirror EditorView; read-only transcript surfaces reuse the same mention/token presentation without mounting editor lifecycle. Settled transcript messages reuse a bounded cache of pure Markdown ASTs and Tiptap JSON documents keyed by message identity and exact parser input; rendered React elements are never cached, and streaming Markdown bypasses this cache. Conversation titles are a separate plain-text projection: Markdown mention links are normalized to their `@label` text and never render mention SVGs or interactive rich-text tokens.
 
