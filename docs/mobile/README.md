@@ -443,7 +443,11 @@ Google Play 账号。以下事项等正式分发前再处理：
 - Composer options 以 Agent Target 为 key 通过同一个 `AgentSessionEngine` 加载，复用
   AgentGUI 的纯 support/settings projection 和 activity-tuttid DTO mapper。Native
   sheet 只负责模型、推理、速度、权限和计划模式的本地展示；已有会话设置走 Engine
-  command，新建会话的目标设置作为 activation intent 一并提交；
+  command，新建会话的目标设置作为 activation intent 一并提交。settings sheet 与
+  tools modal 共享一个带 activation identity 的 overlay 状态，Native 延迟关闭回调
+  只能关闭自己所属的 activation，不能在 ABA 切换后关闭同类型的新 overlay；
+  `commandsAvailable` 为 false 时关闭现有 overlay，并统一禁用输入、工具入口、设置
+  chips 和 sheet 选项，避免展示可操作但会被 command adapter 拒绝的控件；
 - Mobile 与 Desktop 复用 activity-core 的 realtime observation 和 prompt command
   executor。Interaction 的 submitting/failure、child 聚合和 per-Session runtime
   availability 全部从 Engine 投影；前后台恢复会解锁 Engine 中全部已知 Session，

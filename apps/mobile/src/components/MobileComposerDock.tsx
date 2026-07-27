@@ -35,8 +35,12 @@ import {
 type ComposerToolsMenu = "tools" | "model" | "permission" | "quickPrompts";
 
 type ComposerOverlay =
-  | { kind: "settings"; menu: ComposerSettingMenu }
-  | { kind: "tools"; menu: ComposerToolsMenu }
+  | {
+      activationId: number;
+      kind: "settings";
+      menu: ComposerSettingMenu;
+    }
+  | { activationId: number; kind: "tools"; menu: ComposerToolsMenu }
   | null;
 
 export function MobileComposerDock({
@@ -61,6 +65,7 @@ export function MobileComposerDock({
   const [overlay, setOverlay] = useState<ComposerOverlay>(null);
   const [quickPromptQuery, setQuickPromptQuery] = useState("");
   const inputRef = useRef<TextInput>(null);
+  const nextOverlayActivationIdRef = useRef(1);
   const selectionRef = useRef<MobileTextSelection | null>(null);
   const hasActiveTurn = Boolean(
     model.selectedSession?.activeTurnId && !model.creating
@@ -94,24 +99,46 @@ export function MobileComposerDock({
     )?.label ?? t("defaultPermissions");
   const settingsMenu = overlay?.kind === "settings" ? overlay.menu : null;
   const toolsMenu = overlay?.kind === "tools" ? overlay.menu : null;
+  const settingsActivationId =
+    overlay?.kind === "settings" ? overlay.activationId : null;
+  const toolsActivationId =
+    overlay?.kind === "tools" ? overlay.activationId : null;
   const setSettingsMenu = (menu: ComposerSettingMenu | null): void => {
+    if (menu !== null) {
+      const activationId = nextOverlayActivationIdRef.current++;
+      setOverlay((current) =>
+        current?.kind === "settings"
+          ? { ...current, menu }
+          : { activationId, kind: "settings", menu }
+      );
+      return;
+    }
     setOverlay((current) =>
-      menu !== null
-        ? { kind: "settings", menu }
-        : current?.kind === "settings"
-          ? null
-          : current
+      current?.kind === "settings" &&
+      current.activationId === settingsActivationId
+        ? null
+        : current
     );
   };
   const setToolsMenu = (menu: ComposerToolsMenu | null): void => {
+    if (menu !== null) {
+      const activationId = nextOverlayActivationIdRef.current++;
+      setOverlay((current) =>
+        current?.kind === "tools"
+          ? { ...current, menu }
+          : { activationId, kind: "tools", menu }
+      );
+      return;
+    }
     setOverlay((current) =>
-      menu !== null
-        ? { kind: "tools", menu }
-        : current?.kind === "tools"
-          ? null
-          : current
+      current?.kind === "tools" && current.activationId === toolsActivationId
+        ? null
+        : current
     );
   };
+  useEffect(() => {
+    if (!model.commandsAvailable) setOverlay(null);
+  }, [model.commandsAvailable]);
   useEffect(() => {
     if (
       toolsMenu === "quickPrompts" &&
@@ -150,6 +177,8 @@ export function MobileComposerDock({
   return (
     <View style={styles.dock}>
       <MobileComposerSettingsSheet
+        activationId={settingsActivationId}
+        disabled={!model.commandsAvailable}
         menu={settingsMenu}
         model={model}
         onMenuChange={setSettingsMenu}
@@ -212,7 +241,7 @@ export function MobileComposerDock({
         presentationStyle="overFullScreen"
         statusBarTranslucent
         transparent
-        visible={toolsMenu !== null}
+        visible={model.commandsAvailable && toolsMenu !== null}
       >
         <Pressable onPress={() => setToolsMenu(null)} style={styles.backdrop}>
           <Pressable

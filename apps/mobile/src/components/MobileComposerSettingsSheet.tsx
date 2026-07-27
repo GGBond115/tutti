@@ -6,6 +6,7 @@ import {
   type NativeTheme,
   useNativeTheme
 } from "@tutti-os/ui-system/native";
+import { useRef } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { t } from "../i18n";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
@@ -17,11 +18,15 @@ export type ComposerSettingMenu =
   | "permission";
 
 export function MobileComposerSettingsSheet({
+  activationId,
+  disabled,
   menu,
   model,
   onMenuChange,
   onUpdate
 }: {
+  activationId: number | null;
+  disabled: boolean;
   menu: ComposerSettingMenu | null;
   model: WorkspaceActivitySnapshot;
   onMenuChange(menu: ComposerSettingMenu | null): void;
@@ -29,6 +34,10 @@ export function MobileComposerSettingsSheet({
 }) {
   const theme = useNativeTheme();
   const styles = createStyles(theme);
+  const activeActivationIdRef = useRef(activationId);
+  const disabledRef = useRef(disabled);
+  activeActivationIdRef.current = activationId;
+  disabledRef.current = disabled;
   const options = model.composerOptions;
   const selectedModel = model.composerSettings.model ?? null;
   const reasoningOptions = selectedModel
@@ -41,6 +50,13 @@ export function MobileComposerSettingsSheet({
   );
 
   const closeWith = (settings: AgentActivitySessionSettings): void => {
+    if (
+      activationId === null ||
+      activeActivationIdRef.current !== activationId ||
+      disabledRef.current
+    ) {
+      return;
+    }
     onUpdate(settings);
     onMenuChange(null);
   };
@@ -50,6 +66,7 @@ export function MobileComposerSettingsSheet({
       <View style={styles.chips}>
         {showsModelChip ? (
           <ComposerChip
+            disabled={disabled}
             label={[
               selectedOptionLabel(options?.models ?? [], selectedModel) ??
                 t("model"),
@@ -70,6 +87,7 @@ export function MobileComposerSettingsSheet({
         model.composerSettingsSupport.reasoning &&
         reasoningOptions.length ? (
           <ComposerChip
+            disabled={disabled}
             label={
               selectedOptionLabel(
                 reasoningOptions,
@@ -82,6 +100,7 @@ export function MobileComposerSettingsSheet({
         ) : null}
         {model.composerSettingsSupport.speed && options?.speeds.length ? (
           <ComposerChip
+            disabled={disabled}
             label={
               selectedOptionLabel(
                 options?.speeds ?? [],
@@ -95,6 +114,7 @@ export function MobileComposerSettingsSheet({
         {model.composerSettingsSupport.permission &&
         options?.permissionConfig?.modes.length ? (
           <ComposerChip
+            disabled={disabled}
             label={
               selectedOptionLabel(
                 options?.permissionConfig?.modes ?? [],
@@ -110,7 +130,7 @@ export function MobileComposerSettingsSheet({
       <NativeSheet
         closeAccessibilityLabel={t("closeSheet")}
         onOpenChange={(open) => !open && onMenuChange(null)}
-        open={menu !== null}
+        open={!disabled && menu !== null}
       >
         <View style={styles.sheet}>
           <Text style={styles.sheetTitle}>{titleForMenu(menu)}</Text>
@@ -119,6 +139,7 @@ export function MobileComposerSettingsSheet({
               ? [
                   ...(options?.models.map((option) => (
                     <NativeListRow
+                      disabled={disabled}
                       key={`model:${option.value}`}
                       onPress={() => closeWith({ model: option.value })}
                       selected={option.value === selectedModel}
@@ -133,6 +154,7 @@ export function MobileComposerSettingsSheet({
                         </Text>,
                         ...reasoningOptions.map((option) => (
                           <NativeListRow
+                            disabled={disabled}
                             key={`reasoning:${option.value}`}
                             onPress={() =>
                               closeWith({ reasoningEffort: option.value })
@@ -151,6 +173,7 @@ export function MobileComposerSettingsSheet({
             {menu === "reasoning"
               ? reasoningOptions.map((option) => (
                   <NativeListRow
+                    disabled={disabled}
                     key={option.value}
                     onPress={() => closeWith({ reasoningEffort: option.value })}
                     selected={
@@ -163,6 +186,7 @@ export function MobileComposerSettingsSheet({
             {menu === "speed"
               ? options?.speeds.map((option) => (
                   <NativeListRow
+                    disabled={disabled}
                     key={option.value}
                     onPress={() => closeWith({ speed: option.value })}
                     selected={option.value === model.composerSettings.speed}
@@ -174,6 +198,7 @@ export function MobileComposerSettingsSheet({
               ? options?.permissionConfig?.modes.map((option) => (
                   <NativeListRow
                     description={option.description}
+                    disabled={disabled}
                     key={option.id}
                     onPress={() => closeWith({ permissionModeId: option.id })}
                     selected={
@@ -194,10 +219,12 @@ export function MobileComposerSettingsSheet({
 }
 
 function ComposerChip({
+  disabled,
   label,
   onPress,
   testID
 }: {
+  disabled: boolean;
   label: string;
   onPress(): void;
   testID: string;
@@ -206,6 +233,7 @@ function ComposerChip({
   const styles = createStyles(theme);
   return (
     <NativeButton
+      disabled={disabled}
       label={label}
       onPress={onPress}
       size="compact"
