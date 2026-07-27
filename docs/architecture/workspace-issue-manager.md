@@ -168,10 +168,14 @@ window — a streaming session with a lagging (empty) persisted active-turn id
 is alive, not abandoned.
 
 A successful Run moves its task to `pending_acceptance`/`agent_claimed`; it is
-only the executor's completion claim. Only an explicit user acceptance reaches
-`user_accepted` and closes the Task as `completed`. Failed Runs leave the task
-retryable and do not satisfy dependencies. Repeated terminal completion and
-review settlement are idempotent.
+only the executor's completion claim. For manual and `traditional_plan`
+Issues, explicit user acceptance reaches `user_accepted`. For a
+`tutti_mode_plan` Issue, the source Agent must review the durable settlement
+checkpoint and either schedule the exact next set or explicitly acknowledge
+it. Either command accepts the reviewed successful task transactionally;
+failed and canceled task projections remain terminal. Repeated terminal
+completion, settlement repair, schedule, and acknowledge mutations are
+idempotent.
 
 Parallelism stays honest at two boundaries. Materializing a plan normalizes
 the durable `parallelizable` flag against dependencies: a task that depends on
@@ -191,10 +195,12 @@ whole-issue completion check stay identical. Tutti-owned execution treats that
 field as compatibility metadata only.
 Sending a `pending_acceptance` task back to `not_started` (rework) resets its
 acceptance to `agent_claimed` and immediately re-opens the dispatch frontier —
-the daemon re-dispatches without waiting for an unrelated event. When every
-non-canceled task of a `tutti_mode_plan` Issue is `completed`/`user_accepted`,
-the daemon notifies the source conversation once (deduped per Issue) so the
-planning agent resumes with a verification/summary turn.
+the daemon re-dispatches without waiting for an unrelated event. Tutti-owned
+terminal Runs never enter the generic notifier or auto-dispatch paths. Each
+terminal Run appends an ordered durable execution checkpoint for the source
+Agent. Once all tasks are terminal and every terminal Run has a settlement
+checkpoint, an `all_tasks_terminal` checkpoint advances the execution to
+`pending_goal_review`; completion cannot bypass that review boundary.
 
 The npm package name should be `@tutti-os/workspace-issue-manager`.
 It participates in the shared public npm release group documented in

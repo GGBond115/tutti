@@ -38,6 +38,11 @@ func (s *SQLiteStore) AdmitTuttiModeSchedule(
 	if err != nil {
 		return executionbiz.ScheduleResult{}, err
 	}
+	if err := acceptTuttiModeSettlementSubjectForSchedule(
+		ctx, tx, executionID, admission,
+	); err != nil {
+		return executionbiz.ScheduleResult{}, err
+	}
 	tasks, issue, err := validateTuttiModeScheduleTasks(ctx, tx, admission)
 	if err != nil {
 		return executionbiz.ScheduleResult{}, err
@@ -88,6 +93,47 @@ INSERT INTO workspace_tutti_execution_mutations (
 		return executionbiz.ScheduleResult{}, fmt.Errorf("commit Tutti mode schedule admission: %w", err)
 	}
 	return result, nil
+}
+
+func acceptTuttiModeSettlementSubjectForSchedule(
+	ctx context.Context,
+	tx *sql.Tx,
+	executionID string,
+	admission executionbiz.ScheduleAdmission,
+) error {
+	var kind, subjectTaskID, subjectRunID string
+	err := tx.QueryRowContext(ctx, `
+SELECT kind, subject_task_id, subject_run_id
+FROM workspace_tutti_execution_checkpoints
+WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ?
+`, admission.WorkspaceID, executionID, admission.CheckpointID).
+		Scan(&kind, &subjectTaskID, &subjectRunID)
+	if err != nil {
+		return fmt.Errorf("get scheduled settlement subject: %w", err)
+	}
+	if kind != string(executionbiz.CheckpointKindTaskSettled) {
+		return nil
+	}
+	result, err := tx.ExecContext(ctx, `
+UPDATE workspace_issue_tasks
+SET status = 'completed', acceptance_state = 'user_accepted',
+    updated_at_unix_ms = ?
+WHERE workspace_id = ? AND issue_id = ? AND task_id = ?
+  AND status = 'pending_acceptance'
+  AND EXISTS (
+    SELECT 1 FROM workspace_issue_runs
+    WHERE workspace_id = ? AND issue_id = ? AND task_id = ?
+      AND run_id = ? AND status = 'completed'
+  )
+`, unixMs(admission.Now), admission.WorkspaceID, admission.IssueID, subjectTaskID,
+		admission.WorkspaceID, admission.IssueID, subjectTaskID, subjectRunID)
+	if err != nil {
+		return fmt.Errorf("accept settlement subject for schedule: %w", err)
+	}
+	return requireRowsAffected(
+		result, executionbiz.ErrScheduleRejected,
+		"accept settlement subject for schedule",
+	)
 }
 
 func getTuttiModeScheduleReplay(
@@ -361,12 +407,39 @@ WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ?
 	if err := requireRowsAffected(result, executionbiz.ErrScheduleRejected, "resolve Tutti mode schedule checkpoint"); err != nil {
 		return err
 	}
+	nextStatus := executionbiz.StatusRunning
+	var nextCheckpointID string
+	err = tx.QueryRowContext(ctx, `
+SELECT checkpoint_id
+FROM workspace_tutti_execution_checkpoints
+WHERE workspace_id = ? AND execution_id = ? AND status = 'pending'
+ORDER BY sequence ASC
+LIMIT 1
+`, admission.WorkspaceID, executionID).Scan(&nextCheckpointID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("get next Tutti mode schedule checkpoint: %w", err)
+	}
+	if err == nil {
+		result, err = tx.ExecContext(ctx, `
+UPDATE workspace_tutti_execution_checkpoints
+SET status = 'active', updated_at_unix_ms = ?
+WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ?
+  AND status = 'pending'
+`, unixMs(admission.Now), admission.WorkspaceID, executionID, nextCheckpointID)
+		if err != nil {
+			return fmt.Errorf("promote next Tutti mode schedule checkpoint: %w", err)
+		}
+		if err := requireRowsAffected(result, executionbiz.ErrScheduleRejected, "promote next Tutti mode schedule checkpoint"); err != nil {
+			return err
+		}
+		nextStatus = executionbiz.StatusAwaitingMain
+	}
 	result, err = tx.ExecContext(ctx, `
 UPDATE workspace_tutti_executions
-SET status = 'running', last_orchestrator_activity_at_unix_ms = ?,
+SET status = ?, last_orchestrator_activity_at_unix_ms = ?,
     watchdog_due_at_unix_ms = ?, updated_at_unix_ms = ?
 WHERE workspace_id = ? AND execution_id = ? AND graph_revision = ?
-`, unixMs(admission.Now), unixMs(admission.Now.Add(executionbiz.WatchdogInterval)),
+`, string(nextStatus), unixMs(admission.Now), unixMs(admission.Now.Add(executionbiz.WatchdogInterval)),
 		unixMs(admission.Now), admission.WorkspaceID, executionID,
 		admission.ExpectedGraphRevision)
 	if err != nil {

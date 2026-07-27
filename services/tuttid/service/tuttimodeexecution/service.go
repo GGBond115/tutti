@@ -18,6 +18,8 @@ var ErrExecutionNotFound = executionbiz.ErrExecutionNotFound
 var ErrExecutionConflict = executionbiz.ErrExecutionConflict
 var ErrScheduleRejected = executionbiz.ErrScheduleRejected
 var ErrScheduleMutationConflict = executionbiz.ErrScheduleMutationConflict
+var ErrAcknowledgeRejected = executionbiz.ErrAcknowledgeRejected
+var ErrAcknowledgeMutationConflict = executionbiz.ErrAcknowledgeMutationConflict
 
 type Store interface {
 	MaterializeTuttiModeIssue(
@@ -35,6 +37,10 @@ type Store interface {
 	ReleaseTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time) error
 	MarkTuttiModeRunLaunchIntentDispatched(context.Context, string, string, string, string, time.Time) error
 	RequeueLeasedTuttiModeRunLaunchIntents(context.Context, string, time.Time) error
+	FailTuttiModeRunLaunch(context.Context, executionbiz.RunLaunchFailure) (executionbiz.Checkpoint, bool, error)
+	EnsureTuttiModeRunSettlement(context.Context, executionbiz.RunSettlement) (executionbiz.Checkpoint, bool, error)
+	RepairTuttiModeRunSettlements(context.Context, string, time.Time) (int, error)
+	AdmitTuttiModeAcknowledge(context.Context, executionbiz.AcknowledgeAdmission) (executionbiz.AcknowledgeResult, error)
 }
 
 type Service struct {
@@ -57,6 +63,25 @@ type ScheduleInput struct {
 	TaskIDs               []string
 	RequestID             string
 	Runs                  []workspaceissues.Run
+}
+
+type AcknowledgeInput struct {
+	WorkspaceID           string
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+}
+
+type AcknowledgeResult struct {
+	ExecutionID         string
+	CheckpointID        string
+	GraphRevision       int64
+	NextCheckpointID    string
+	NextCheckpointKind  executionbiz.CheckpointKind
+	NextCheckpointState executionbiz.CheckpointStatus
+	Replayed            bool
 }
 
 func (service Service) Materialize(
@@ -288,6 +313,100 @@ func (service Service) RequeueLeasedRunLaunches(
 	return service.Store.RequeueLeasedTuttiModeRunLaunchIntents(
 		ctx, strings.TrimSpace(workspaceID), service.now(),
 	)
+}
+
+func (service Service) FailRunLaunch(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	runID string,
+	leaseOwner string,
+	message string,
+) (executionbiz.Checkpoint, bool, error) {
+	if service.Store == nil {
+		return executionbiz.Checkpoint{}, false, ErrServiceUnavailable
+	}
+	failure := executionbiz.RunLaunchFailure{
+		WorkspaceID: strings.TrimSpace(workspaceID),
+		IssueID:     strings.TrimSpace(issueID), RunID: strings.TrimSpace(runID),
+		LeaseOwner:   strings.TrimSpace(leaseOwner),
+		ErrorMessage: strings.TrimSpace(message), Now: service.now(),
+	}
+	if failure.WorkspaceID == "" || failure.IssueID == "" ||
+		failure.RunID == "" || failure.LeaseOwner == "" {
+		return executionbiz.Checkpoint{}, false, executionbiz.ErrScheduleRejected
+	}
+	return service.Store.FailTuttiModeRunLaunch(ctx, failure)
+}
+
+func (service Service) EnsureRunSettlement(
+	ctx context.Context,
+	input executionbiz.RunSettlement,
+) (executionbiz.Checkpoint, bool, error) {
+	if service.Store == nil {
+		return executionbiz.Checkpoint{}, false, ErrServiceUnavailable
+	}
+	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
+	input.IssueID = strings.TrimSpace(input.IssueID)
+	input.TaskID = strings.TrimSpace(input.TaskID)
+	input.RunID = strings.TrimSpace(input.RunID)
+	input.Now = service.now()
+	if input.WorkspaceID == "" || input.IssueID == "" ||
+		input.TaskID == "" || input.RunID == "" {
+		return executionbiz.Checkpoint{}, false, executionbiz.ErrInvalidExecution
+	}
+	return service.Store.EnsureTuttiModeRunSettlement(ctx, input)
+}
+
+func (service Service) RepairRunSettlements(ctx context.Context, workspaceID string) (int, error) {
+	if service.Store == nil {
+		return 0, ErrServiceUnavailable
+	}
+	return service.Store.RepairTuttiModeRunSettlements(ctx, strings.TrimSpace(workspaceID), service.now())
+}
+
+func (service Service) Acknowledge(
+	ctx context.Context,
+	input AcknowledgeInput,
+) (AcknowledgeResult, error) {
+	if service.Store == nil {
+		return AcknowledgeResult{}, ErrServiceUnavailable
+	}
+	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
+	input.IssueID = strings.TrimSpace(input.IssueID)
+	input.SourceSessionID = strings.TrimSpace(input.SourceSessionID)
+	input.CheckpointID = strings.TrimSpace(input.CheckpointID)
+	input.RequestID = strings.TrimSpace(input.RequestID)
+	if input.WorkspaceID == "" || input.IssueID == "" ||
+		input.SourceSessionID == "" || input.CheckpointID == "" ||
+		input.RequestID == "" || input.ExpectedGraphRevision < 1 {
+		return AcknowledgeResult{}, executionbiz.ErrAcknowledgeRejected
+	}
+	payload, err := json.Marshal(struct {
+		CheckpointID          string `json:"checkpointId"`
+		ExpectedGraphRevision int64  `json:"expectedGraphRevision"`
+	}{
+		CheckpointID: input.CheckpointID, ExpectedGraphRevision: input.ExpectedGraphRevision,
+	})
+	if err != nil {
+		return AcknowledgeResult{}, err
+	}
+	sum := sha256.Sum256(payload)
+	result, err := service.Store.AdmitTuttiModeAcknowledge(ctx, executionbiz.AcknowledgeAdmission{
+		WorkspaceID: input.WorkspaceID, IssueID: input.IssueID,
+		SourceSessionID: input.SourceSessionID, CheckpointID: input.CheckpointID,
+		ExpectedGraphRevision: input.ExpectedGraphRevision, RequestID: input.RequestID,
+		InputSHA256: hex.EncodeToString(sum[:]), Now: service.now(),
+	})
+	if err != nil {
+		return AcknowledgeResult{}, err
+	}
+	return AcknowledgeResult{
+		ExecutionID: result.ExecutionID, CheckpointID: result.CheckpointID,
+		GraphRevision: result.GraphRevision, NextCheckpointID: result.NextCheckpointID,
+		NextCheckpointKind:  result.NextCheckpointKind,
+		NextCheckpointState: result.NextCheckpointState, Replayed: result.Replayed,
+	}, nil
 }
 
 func scheduleInputDigest(input ScheduleInput, taskIDs []string) (string, error) {

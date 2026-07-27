@@ -13,6 +13,8 @@ var ErrExecutionNotFound = errors.New("Tutti mode execution not found")
 var ErrExecutionConflict = errors.New("Tutti mode execution conflicts with durable state")
 var ErrScheduleRejected = errors.New("Tutti mode schedule was rejected")
 var ErrScheduleMutationConflict = errors.New("Tutti mode schedule request conflicts with durable history")
+var ErrAcknowledgeRejected = errors.New("Tutti mode acknowledge was rejected")
+var ErrAcknowledgeMutationConflict = errors.New("Tutti mode acknowledge request conflicts with durable history")
 
 func ExecutionID(issueID string) (string, bool) {
 	issueID = strings.TrimSpace(issueID)
@@ -28,6 +30,23 @@ func InitialCheckpointID(executionID string) (string, bool) {
 		return "", false
 	}
 	return executionID + ":checkpoint:initial-schedule", true
+}
+
+func RunSettlementCheckpointID(executionID string, runID string) (string, bool) {
+	executionID = strings.TrimSpace(executionID)
+	runID = strings.TrimSpace(runID)
+	if executionID == "" || runID == "" {
+		return "", false
+	}
+	return executionID + ":checkpoint:run:" + runID, true
+}
+
+func AllTasksTerminalCheckpointID(executionID string) (string, bool) {
+	executionID = strings.TrimSpace(executionID)
+	if executionID == "" {
+		return "", false
+	}
+	return executionID + ":checkpoint:all-tasks-terminal", true
 }
 
 func NewInitialAggregate(

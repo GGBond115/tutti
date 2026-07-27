@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
 	eventstreamservice "github.com/tutti-os/tutti/services/tuttid/service/eventstream"
@@ -19,6 +20,7 @@ type IssueExecutionCoordinator struct {
 	Issues              *IssueManagerService
 	RunSessionCanceller IssueRunSessionCanceller
 	SettlementReader    IssueRunSettlementReader
+	Clock               func() time.Time
 }
 
 // CancelIssueExecution stops an Issue's execution as one user intent: it

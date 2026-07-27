@@ -437,7 +437,7 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	issueRunCanceller := issueRunSessionCanceller{Host: agentHost, Sessions: agentSessionService}
 	tuttiModeExecutions := &tuttimodeexecutionservice.Service{Store: tuttiModeExecutionStore}
 	issueService := workspaceservice.IssueManagerService{
-		RunLauncher:                    issueRunAgentLauncher{Sessions: agentSessionService},
+		RunLauncher:                    issueRunAgentLauncher{Sessions: agentSessionService, Host: agentHost},
 		RunLaunchGate:                  issueRunLaunchGate,
 		RunCancellationRequester:       issueRunCanceller,
 		SourceSessionDirectoryResolver: issueSourceSessionDirectoryResolver{Sessions: agentActivityProjection},
@@ -613,7 +613,13 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 			agentTargets,
 			preferences,
 		),
-		tuttimodeplancli.NewProvider(workspaceService, tuttiModePlans, agentSessionService, &issueService),
+		tuttimodeplancli.NewProviderWithExecution(
+			workspaceService,
+			tuttiModePlans,
+			agentSessionService,
+			&issueService,
+			tuttiModeExecutions,
+		),
 	}
 	if browserService != nil {
 		cliProviders = append(cliProviders, browsercli.NewProvider(workspaceService, browserService))
@@ -714,7 +720,11 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 }
 
 type issueRunAgentSessionCreator interface {
-	Create(context.Context, string, agentservice.CreateSessionInput) (agentservice.Session, error)
+	CreateWithResult(context.Context, string, agentservice.CreateSessionInput) (agentservice.CreateSessionResult, error)
+}
+
+type issueRunCanonicalTurnFinder interface {
+	FindTurnByClientSubmitID(context.Context, agenthost.SessionRef, string) (string, bool, error)
 }
 
 type issueRunSessionCanceller struct {
@@ -723,7 +733,7 @@ type issueRunSessionCanceller struct {
 }
 
 type issueRunSettlementHost interface {
-	FindTurnByClientSubmitID(context.Context, agenthost.SessionRef, string) (string, bool, error)
+	issueRunCanonicalTurnFinder
 	GetTurn(context.Context, agenthost.SessionRef, string) (agentstoresqlite.Turn, bool, error)
 }
 
@@ -820,6 +830,7 @@ func (c issueRunSessionCanceller) RequestRunCancellation(ctx context.Context, re
 
 type issueRunAgentLauncher struct {
 	Sessions issueRunAgentSessionCreator
+	Host     issueRunCanonicalTurnFinder
 }
 
 func (l issueRunAgentLauncher) Launch(ctx context.Context, launch workspaceservice.IssueRunLaunch) error {
@@ -833,7 +844,7 @@ func (l issueRunAgentLauncher) Launch(ctx context.Context, launch workspaceservi
 	title := launch.Title
 	reasoningIntensity := launch.ReasoningIntensity
 	permissionModeID := optionalString(launch.PermissionModeID)
-	_, err := l.Sessions.Create(ctx, launch.WorkspaceID, agentservice.CreateSessionInput{
+	result, err := l.Sessions.CreateWithResult(ctx, launch.WorkspaceID, agentservice.CreateSessionInput{
 		AgentSessionID:       launch.AgentSessionID,
 		AgentTargetID:        launch.AgentTargetID,
 		ReasoningIntensity:   &reasoningIntensity,
@@ -848,7 +859,26 @@ func (l issueRunAgentLauncher) Launch(ctx context.Context, launch workspaceservi
 		ModelPlanID:          optionalString(launch.ModelPlanID),
 		Visible:              boolPointer(true),
 	})
-	return err
+	if err == nil ||
+		strings.TrimSpace(result.TurnID) != "" ||
+		errors.Is(err, agentservice.ErrSubmitDeliveryUnknown) {
+		return err
+	}
+	if l.Host == nil {
+		return err
+	}
+	_, found, lookupErr := l.Host.FindTurnByClientSubmitID(
+		ctx,
+		agenthost.SessionRef{
+			WorkspaceID:    launch.WorkspaceID,
+			AgentSessionID: launch.AgentSessionID,
+		},
+		clientSubmitID,
+	)
+	if lookupErr != nil || found {
+		return err
+	}
+	return workspaceservice.NewIssueRunLaunchNotStartedError(err)
 }
 
 type issueSourceSessionDirectoryResolver struct {

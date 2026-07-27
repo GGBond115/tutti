@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
 	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
+	eventstreamservice "github.com/tutti-os/tutti/services/tuttid/service/eventstream"
 	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 )
 
@@ -72,6 +73,9 @@ func (s IssueManagerService) ScheduleTuttiModeIssue(
 		unlockIssue()
 		return ScheduleTuttiModeIssueResult{}, err
 	}
+	detail.Tasks = s.projectReviewedSettlementSubjectForSchedule(
+		ctx, workspaceID, input.IssueID, input.CheckpointID, detail.Tasks,
+	)
 	if err := s.validateTuttiModeScheduleIsolation(detail.Issue, detail.Tasks, input.TaskIDs); err != nil {
 		unlockIssue()
 		return ScheduleTuttiModeIssueResult{}, err
@@ -121,6 +125,43 @@ func (s IssueManagerService) ScheduleTuttiModeIssue(
 		RunIDs:        append([]string(nil), scheduled.RunIDs...),
 		Replayed:      scheduled.Replayed,
 	}, nil
+}
+
+func (s IssueManagerService) projectReviewedSettlementSubjectForSchedule(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	checkpointID string,
+	tasks []workspaceissues.Task,
+) []workspaceissues.Task {
+	if s.TuttiModeExecutions == nil {
+		return tasks
+	}
+	aggregate, err := s.TuttiModeExecutions.GetByIssue(ctx, workspaceID, issueID)
+	if err != nil {
+		return tasks
+	}
+	subjectTaskID := ""
+	for _, checkpoint := range aggregate.Checkpoints {
+		if checkpoint.ID == checkpointID &&
+			checkpoint.Status == executionbiz.CheckpointStatusActive &&
+			checkpoint.Kind == executionbiz.CheckpointKindTaskSettled {
+			subjectTaskID = checkpoint.SubjectTaskID
+			break
+		}
+	}
+	if subjectTaskID == "" {
+		return tasks
+	}
+	projected := append([]workspaceissues.Task(nil), tasks...)
+	for index := range projected {
+		if projected[index].TaskID == subjectTaskID &&
+			projected[index].Status == workspaceissues.StatusPendingAcceptance {
+			projected[index].Status = workspaceissues.StatusCompleted
+			projected[index].AcceptanceState = workspaceissues.AcceptanceUserAccepted
+		}
+	}
+	return projected
 }
 
 func (s IssueManagerService) validateTuttiModeScheduleIsolation(
@@ -347,10 +388,25 @@ func (s IssueManagerService) launchScheduledTuttiModeRuns(
 			onRejected: func(issueRunLaunchDecision) {
 				release()
 			},
-			onFailure: func(error) {
-				// Task 4 turns this durable prepared intent into a failed
-				// settlement checkpoint. Until then it remains recoverable.
-				release()
+			onFailure: func(err error) {
+				if !isIssueRunLaunchNotStartedError(err) {
+					release()
+					return
+				}
+				stopRenewal()
+				if _, _, failureErr := s.TuttiModeExecutions.FailRunLaunch(
+					ctx, launch.WorkspaceID, launch.IssueID, launch.RunID,
+					leaseOwner, err.Error(),
+				); failureErr != nil {
+					release()
+					s.enqueueWorkspaceRunReconcile(launch.WorkspaceID)
+					return
+				}
+				s.publishWorkspaceIssueUpdated(ctx, eventstreamservice.WorkspaceIssueUpdate{
+					WorkspaceID: launch.WorkspaceID, IssueID: launch.IssueID,
+					TaskID: launch.TaskID, RunID: launch.RunID,
+					ChangeKind: eventstreamservice.WorkspaceIssueChangeRunCompleted,
+				})
 			},
 			onDelivered: func() {
 				stopRenewal()

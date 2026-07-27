@@ -19,6 +19,58 @@ import (
 	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 )
 
+type issueLookupFailingStore struct {
+	workspaceissues.Store
+	err error
+}
+
+func (store issueLookupFailingStore) GetIssue(
+	context.Context,
+	string,
+	string,
+) (workspaceissues.Issue, error) {
+	return workspaceissues.Issue{}, store.err
+}
+
+func TestCompleteRunFailsClosedWhenIssueOwnershipCannotBeRead(t *testing.T) {
+	ctx := context.Background()
+	store := openIssueServiceStore(t)
+	if err := store.Create(ctx, workspacebiz.Summary{
+		ID: "workspace-ownership-fence", Name: "Ownership fence",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := IssueManagerService{Store: store}
+	if _, err := service.CreateIssue(ctx, "workspace-ownership-fence", CreateIssueManagerIssueInput{
+		IssueID: "issue-ownership-fence", TopicID: workspaceissues.DefaultTopicID,
+		Title: "Ownership fence",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.CreateRun(
+		ctx, "workspace-ownership-fence", "issue-ownership-fence", "",
+		CreateIssueManagerRunInput{RunID: "run-ownership-fence", AgentProvider: "codex"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookupErr := errors.New("injected Issue ownership lookup failure")
+	service.Store = issueLookupFailingStore{Store: store, err: lookupErr}
+	if _, err := service.CompleteRun(
+		ctx, run.WorkspaceID, run.IssueID, run.TaskID, run.RunID,
+		CompleteIssueManagerRunInput{Status: string(workspaceissues.StatusCompleted)},
+	); !errors.Is(err, lookupErr) {
+		t.Fatalf("CompleteRun() error = %v, want ownership lookup failure", err)
+	}
+	persisted, err := store.GetRun(ctx, run.WorkspaceID, run.IssueID, run.TaskID, run.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Status != workspaceissues.StatusRunning {
+		t.Fatalf("Run status = %q, want running after fail-closed ownership lookup", persisted.Status)
+	}
+}
+
 func TestIssueManagerRejectsNonFiniteBudgetBeforePersistence(t *testing.T) {
 	t.Parallel()
 

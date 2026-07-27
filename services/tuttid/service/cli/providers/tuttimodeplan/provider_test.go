@@ -3,11 +3,13 @@ package tuttimodeplan
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	workflowbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceworkflow"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
 	cliservice "github.com/tutti-os/tutti/services/tuttid/service/cli"
@@ -69,6 +71,7 @@ func TestProviderExposesAgentPlanAndExecutionCommands(t *testing.T) {
 		"tutti-mode-plan.plan.revise",
 		"tutti-mode-plan.plan.get",
 		"tutti-mode-plan.plan.issue.schedule",
+		"tutti-mode-plan.plan.issue.acknowledge",
 	}
 	if len(commands) != len(wantIDs) {
 		t.Fatalf("commands = %#v", commands)
@@ -100,6 +103,25 @@ type recordingIssueScheduler struct {
 	err         error
 }
 
+type recordingIssueAcknowledger struct {
+	input tuttimodeexecutionservice.AcknowledgeInput
+}
+
+func (acknowledger *recordingIssueAcknowledger) Acknowledge(
+	_ context.Context,
+	input tuttimodeexecutionservice.AcknowledgeInput,
+) (tuttimodeexecutionservice.AcknowledgeResult, error) {
+	acknowledger.input = input
+	return tuttimodeexecutionservice.AcknowledgeResult{
+		ExecutionID: "execution-1", CheckpointID: input.CheckpointID,
+		GraphRevision:       input.ExpectedGraphRevision,
+		NextCheckpointID:    "checkpoint-2",
+		NextCheckpointKind:  executionbiz.CheckpointKindTaskSettled,
+		NextCheckpointState: executionbiz.CheckpointStatusActive,
+		Replayed:            true,
+	}, nil
+}
+
 func (scheduler *recordingIssueScheduler) ScheduleTuttiModeIssue(
 	_ context.Context,
 	workspaceID string,
@@ -119,8 +141,8 @@ func (scheduler *recordingIssueScheduler) ScheduleTuttiModeIssue(
 
 func TestProviderExposesSourceScopedIssueScheduleCommand(t *testing.T) {
 	commands := NewProvider(nil, &recordingPlans{}, nil, &recordingIssueScheduler{}).Commands()
-	if len(commands) != 4 {
-		t.Fatalf("commands = %#v, want four commands", commands)
+	if len(commands) != 5 {
+		t.Fatalf("commands = %#v, want schedule and acknowledge commands", commands)
 	}
 	command := commands[3]
 	if command.Capability.ID != "tutti-mode-plan.plan.issue.schedule" {
@@ -137,6 +159,113 @@ func TestProviderExposesSourceScopedIssueScheduleCommand(t *testing.T) {
 	}
 	if _, exists := properties["source-session-id"]; exists {
 		t.Fatalf("schedule properties expose untrusted source-session-id: %#v", properties)
+	}
+}
+
+func TestProviderExposesSourceScopedIssueAcknowledgeCommand(t *testing.T) {
+	acknowledger := &recordingIssueAcknowledger{}
+	provider := NewProviderWithExecution(
+		nil,
+		&recordingPlans{},
+		nil,
+		&recordingIssueScheduler{},
+		acknowledger,
+	)
+	commands := provider.Commands()
+	if len(commands) != 5 {
+		t.Fatalf("commands = %#v, want acknowledge command", commands)
+	}
+	command := commands[4]
+	if command.Capability.ID != "tutti-mode-plan.plan.issue.acknowledge" {
+		t.Fatalf("acknowledge command id = %q", command.Capability.ID)
+	}
+	properties := command.Capability.InputSchema["properties"].(map[string]any)
+	for _, name := range []string{
+		"issue-id", "checkpoint-id", "expected-graph-revision", "request-id",
+	} {
+		if _, ok := properties[name]; !ok {
+			t.Fatalf("acknowledge properties = %#v, missing %q", properties, name)
+		}
+	}
+	if _, exists := properties["source-session-id"]; exists {
+		t.Fatalf("acknowledge exposes untrusted source-session-id: %#v", properties)
+	}
+	if provider.acknowledgements != acknowledger {
+		t.Fatal("acknowledge service was not injected")
+	}
+}
+
+func TestRunIssueAcknowledgeDerivesCallerOnlyFromInvokeContext(t *testing.T) {
+	acknowledger := &recordingIssueAcknowledger{}
+	result, err := (Provider{acknowledgements: acknowledger}).runIssueAcknowledge(
+		context.Background(),
+		framework.InvokeContext{
+			WorkspaceID: "workspace-1",
+			Request: cliservice.InvokeRequest{Context: cliservice.InvokeContext{
+				AgentSessionID: " source-session ",
+			}},
+		},
+		issueAcknowledgeInput{
+			IssueID: "issue-1", CheckpointID: "checkpoint-1",
+			ExpectedGraphRevision: 3, RequestID: "acknowledge-1",
+		},
+	)
+	if err != nil {
+		t.Fatalf("runIssueAcknowledge() error = %v", err)
+	}
+	if acknowledger.input.WorkspaceID != "workspace-1" ||
+		acknowledger.input.SourceSessionID != "source-session" ||
+		acknowledger.input.IssueID != "issue-1" ||
+		acknowledger.input.CheckpointID != "checkpoint-1" ||
+		acknowledger.input.ExpectedGraphRevision != 3 ||
+		acknowledger.input.RequestID != "acknowledge-1" {
+		t.Fatalf("acknowledge input = %#v", acknowledger.input)
+	}
+	value := result.(map[string]any)
+	if value["executionId"] != "execution-1" ||
+		value["checkpointId"] != "checkpoint-1" ||
+		value["graphRevision"] != int64(3) ||
+		value["nextCheckpointId"] != "checkpoint-2" ||
+		value["nextCheckpointKind"] != "task_settled" ||
+		value["nextCheckpointState"] != "active" ||
+		value["replayed"] != true {
+		t.Fatalf("acknowledge result = %#v", value)
+	}
+}
+
+func TestRunIssueAcknowledgeRejectsMissingCaller(t *testing.T) {
+	_, err := (Provider{acknowledgements: &recordingIssueAcknowledger{}}).runIssueAcknowledge(
+		context.Background(),
+		framework.InvokeContext{
+			WorkspaceID: "workspace-1",
+			Request:     cliservice.InvokeRequest{},
+		},
+		issueAcknowledgeInput{
+			IssueID: "issue-1", CheckpointID: "checkpoint-1",
+			ExpectedGraphRevision: 3, RequestID: "acknowledge-1",
+		},
+	)
+	if !errors.Is(err, cliservice.ErrInvalidInput) ||
+		!strings.Contains(err.Error(), "agent-session-id") {
+		t.Fatalf("missing acknowledge caller error = %v", err)
+	}
+}
+
+func TestIssueAcknowledgeConflictAndRejectedFenceMapToInvalidInput(t *testing.T) {
+	for _, contractError := range []error{
+		executionbiz.ErrExecutionConflict,
+		executionbiz.ErrScheduleRejected,
+		executionbiz.ErrAcknowledgeMutationConflict,
+		executionbiz.ErrAcknowledgeRejected,
+	} {
+		err := agentPlanError(fmt.Errorf("%w: source-session request-secret", contractError))
+		if !errors.Is(err, cliservice.ErrInvalidInput) {
+			t.Fatalf("acknowledge contract error %v mapped to %v, want invalid input", contractError, err)
+		}
+		if strings.Contains(err.Error(), "source-session") ||
+			strings.Contains(err.Error(), "request-secret") {
+			t.Fatalf("acknowledge error leaked payload: %v", err)
+		}
 	}
 }
 

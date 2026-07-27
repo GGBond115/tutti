@@ -34,6 +34,7 @@ type Task struct {
 	Title              string
 	Content            string
 	Status             string
+	AcceptanceState    string
 	Priority           string
 	SortIndex          int
 	AgentTargetID      string
@@ -66,6 +67,8 @@ type Checkpoint struct {
 	Status        string
 	Sequence      int64
 	GraphRevision int64
+	SubjectTaskID string
+	SubjectRunID  string
 }
 
 type Snapshot struct {
@@ -95,6 +98,33 @@ type ScheduleResult struct {
 	Replayed      bool
 }
 
+type SettleRunInput struct {
+	WorkspaceID string
+	IssueID     string
+	TaskID      string
+	RunID       string
+	Status      string
+}
+
+type AcknowledgeInput struct {
+	WorkspaceID           string
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+}
+
+type AcknowledgeResult struct {
+	ExecutionID         string
+	CheckpointID        string
+	GraphRevision       int64
+	NextCheckpointID    string
+	NextCheckpointKind  string
+	NextCheckpointState string
+	Replayed            bool
+}
+
 // Driver is the narrow public contract exercised by Tutti execution product
 // conformance. Implementations may compose real services and persistence, but
 // scenarios do not reach through this seam to implementation details.
@@ -103,6 +133,14 @@ type Driver interface {
 	GetSnapshot(context.Context, string, string) (Snapshot, error)
 	Schedule(context.Context, ScheduleInput) (ScheduleResult, error)
 	ScheduleReplica(context.Context, ScheduleInput) (ScheduleResult, error)
+	SettleRun(context.Context, SettleRunInput) error
+	TimeoutRun(context.Context, SettleRunInput) error
+	FailNextLaunchAuthoritatively()
+	HoldNextLaunchThenFailAuthoritatively() (<-chan struct{}, func())
+	PersistTerminalRunWithoutCheckpoint(context.Context, SettleRunInput) error
+	RepairSettlements(context.Context, string) error
+	Acknowledge(context.Context, AcknowledgeInput) (AcknowledgeResult, error)
+	AcknowledgeReplica(context.Context, AcknowledgeInput) (AcknowledgeResult, error)
 	SeedActiveRun(context.Context, string, string, string) error
 	FailNextLaunch()
 	HoldNextLaunch() (<-chan struct{}, func())

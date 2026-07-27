@@ -400,7 +400,13 @@ The public command set is deliberately narrow:
   --request-id <stable-id>` resolves the active execution checkpoint by
   atomically admitting exactly the requested ready task set. Caller authority
   comes only from the daemon-provided Agent session context; there is no caller
-  session flag.
+  session flag;
+- `tutti plan issue acknowledge --issue-id <id> --checkpoint-id <id>
+  --expected-graph-revision <revision> --request-id <stable-id>` resolves a
+  reviewed `task_settled`, `task_failed`, or `task_canceled` checkpoint without
+  scheduling a successor. It is allowed only while another Run is active or a
+  later checkpoint is queued; `all_tasks_terminal` always requires the
+  dedicated Goal-review flow and is rejected here.
 
 Tasks may carry optional `agentTargetId`, `modelPlanId`, `model`,
 `permissionModeId`, and `reasoningEffort` assignments. The user can override
@@ -434,6 +440,14 @@ launch is in flight; normal replay cannot steal it, and startup recovery
 requeues only expired ownership before retrying. The periodic Issue Run
 reconciliation pass repeats the same expired-owner recovery, so a pre-expiry
 restart cannot strand the intent after its final lease later expires.
+
+Acknowledge mutations use
+`(workspace, source session, acknowledge, Issue, request ID)` and bind the
+exact checkpoint plus expected graph revision into the payload digest.
+Same-payload replay returns the original result with `replayed: true`;
+conflicting reuse fails closed. A successful acknowledge resolves only the
+active settlement checkpoint and promotes the oldest queued checkpoint. It
+does not infer or dispatch a successor.
 
 Workflow lookup is isolated to the Agent session supplied by the daemon CLI
 runtime context. A workflow created by another source session is reported as

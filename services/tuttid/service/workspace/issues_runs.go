@@ -5,7 +5,9 @@ import (
 	"strings"
 
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
+	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	eventstreamservice "github.com/tutti-os/tutti/services/tuttid/service/eventstream"
+	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 )
 
 // Run lifecycle: create, settle, and the planning-conversation notifications
@@ -77,6 +79,7 @@ func (s IssueManagerService) CompleteRun(ctx context.Context, workspaceID string
 type issueRunCompletionEffects struct {
 	alreadySettled bool
 	autoAccepted   bool
+	tuttiManaged   bool
 }
 
 func (s IssueManagerService) completeRunLocked(ctx context.Context, workspaceID string, issueID string, taskID string, runID string, input CompleteIssueManagerRunInput) (workspaceissues.RunDetail, issueRunCompletionEffects, error) {
@@ -85,6 +88,11 @@ func (s IssueManagerService) completeRunLocked(ctx context.Context, workspaceID 
 	// survive a daemon restart, and a stale wake would misreport a long-settled
 	// run as fresh news.
 	alreadySettled := false
+	issue, issueErr := s.domainService().GetIssueDetail(ctx, workspaceID, issueID)
+	if issueErr != nil {
+		return workspaceissues.RunDetail{}, issueRunCompletionEffects{}, issueErr
+	}
+	tuttiManaged := issue.Issue.PlanningSource == workspaceissues.PlanningSourceTuttiModePlan
 	if runDetail, err := s.domainService().GetRunDetail(ctx, workspaceID, issueID, taskID, runID); err == nil {
 		switch runDetail.Run.Status {
 		case workspaceissues.StatusCompleted, workspaceissues.StatusFailed, workspaceissues.StatusCanceled:
@@ -116,23 +124,51 @@ func (s IssueManagerService) completeRunLocked(ctx context.Context, workspaceID 
 	// next instead of the daemon silently chaining tasks.
 	if run.Status == workspaceissues.StatusCompleted {
 		autoAccepted := false
-		if taskDetail, taskErr := s.domainService().GetTaskDetail(ctx, workspaceID, issueID, taskID); taskErr == nil &&
-			taskDetail.Task.AutoAccept && taskDetail.Task.Status == workspaceissues.StatusPendingAcceptance {
-			if _, acceptErr := s.updateTaskLocked(ctx, workspaceID, issueID, taskID, UpdateIssueManagerTaskInput{
-				Status:    string(workspaceissues.StatusCompleted),
-				HasStatus: true,
-			}); acceptErr == nil {
-				autoAccepted = true
+		if !tuttiManaged {
+			if taskDetail, taskErr := s.domainService().GetTaskDetail(ctx, workspaceID, issueID, taskID); taskErr == nil &&
+				taskDetail.Task.AutoAccept && taskDetail.Task.Status == workspaceissues.StatusPendingAcceptance {
+				if _, acceptErr := s.updateTaskLocked(ctx, workspaceID, issueID, taskID, UpdateIssueManagerTaskInput{
+					Status:    string(workspaceissues.StatusCompleted),
+					HasStatus: true,
+				}); acceptErr == nil {
+					autoAccepted = true
+				}
 			}
+		}
+		if err := s.ensureTuttiModeRunSettlement(ctx, run, tuttiManaged); err != nil {
+			return workspaceissues.RunDetail{}, issueRunCompletionEffects{}, err
 		}
 		return workspaceissues.RunDetail{Run: run, Outputs: outputs}, issueRunCompletionEffects{
 			alreadySettled: alreadySettled,
 			autoAccepted:   autoAccepted,
+			tuttiManaged:   tuttiManaged,
 		}, nil
+	}
+	if err := s.ensureTuttiModeRunSettlement(ctx, run, tuttiManaged); err != nil {
+		return workspaceissues.RunDetail{}, issueRunCompletionEffects{}, err
 	}
 	return workspaceissues.RunDetail{Run: run, Outputs: outputs}, issueRunCompletionEffects{
 		alreadySettled: alreadySettled,
+		tuttiManaged:   tuttiManaged,
 	}, nil
+}
+
+func (s IssueManagerService) ensureTuttiModeRunSettlement(
+	ctx context.Context,
+	run workspaceissues.Run,
+	tuttiManaged bool,
+) error {
+	if !tuttiManaged {
+		return nil
+	}
+	if s.TuttiModeExecutions == nil {
+		return tuttimodeexecutionservice.ErrServiceUnavailable
+	}
+	_, _, err := s.TuttiModeExecutions.EnsureRunSettlement(ctx, executionbiz.RunSettlement{
+		WorkspaceID: run.WorkspaceID, IssueID: run.IssueID,
+		TaskID: run.TaskID, RunID: run.RunID, Status: run.Status,
+	})
+	return err
 }
 
 // applyRunCompletionEffects performs every cross-domain or potentially
@@ -145,6 +181,11 @@ func (s IssueManagerService) applyRunCompletionEffects(ctx context.Context, run 
 		RunID:       run.RunID,
 		ChangeKind:  eventstreamservice.WorkspaceIssueChangeRunCompleted,
 	})
+	if effects.tuttiManaged {
+		// Durable checkpoint/wake workers own Tutti-mode orchestration. Never
+		// enter the generic auto-dispatch or in-memory notifier paths.
+		return
+	}
 	if run.Status == workspaceissues.StatusCompleted {
 		if effects.autoAccepted {
 			s.publishWorkspaceIssueUpdated(ctx, eventstreamservice.WorkspaceIssueUpdate{

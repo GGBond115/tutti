@@ -97,6 +97,8 @@ type recordingLauncher struct {
 	calls                   int
 	callSignal              chan struct{}
 	failNext                bool
+	failBeforeCanonical     bool
+	failAfterBlock          bool
 	clientSubmitIDs         []string
 	canonicalByClientSubmit map[string]string
 	blockNext               bool
@@ -112,17 +114,21 @@ func (launcher *recordingLauncher) Launch(_ context.Context, launch workspaceser
 		launcher.callSignal = make(chan struct{})
 	}
 	launcher.clientSubmitIDs = append(launcher.clientSubmitIDs, launch.ClientSubmitID)
-	if launcher.canonicalByClientSubmit == nil {
-		launcher.canonicalByClientSubmit = make(map[string]string)
-	}
-	if _, exists := launcher.canonicalByClientSubmit[launch.ClientSubmitID]; !exists {
-		launcher.canonicalByClientSubmit[launch.ClientSubmitID] = fmt.Sprintf("turn-%d", len(launcher.canonicalByClientSubmit)+1)
+	failBeforeCanonical := launcher.failBeforeCanonical
+	launcher.failBeforeCanonical = false
+	if failBeforeCanonical {
+		launcher.mu.Unlock()
+		return workspaceservice.NewIssueRunLaunchNotStartedError(
+			fmt.Errorf("injected authoritative launch failure before canonical Turn creation"),
+		)
 	}
 	fail := launcher.failNext
 	if launcher.failNext {
 		launcher.failNext = false
 	}
 	block := launcher.blockNext
+	failAfterBlock := launcher.failAfterBlock
+	launcher.failAfterBlock = false
 	started := launcher.started
 	release := launcher.release
 	launcher.blockNext = false
@@ -131,6 +137,21 @@ func (launcher *recordingLauncher) Launch(_ context.Context, launch workspaceser
 		close(started)
 		<-release
 	}
+	if failAfterBlock {
+		return workspaceservice.NewIssueRunLaunchNotStartedError(
+			fmt.Errorf("injected stale authoritative launch failure"),
+		)
+	}
+	launcher.mu.Lock()
+	if launcher.canonicalByClientSubmit == nil {
+		launcher.canonicalByClientSubmit = make(map[string]string)
+	}
+	if _, exists := launcher.canonicalByClientSubmit[launch.ClientSubmitID]; !exists {
+		launcher.canonicalByClientSubmit[launch.ClientSubmitID] = fmt.Sprintf(
+			"turn-%d", len(launcher.canonicalByClientSubmit)+1,
+		)
+	}
+	launcher.mu.Unlock()
 	if fail {
 		return fmt.Errorf("injected launch failure after canonical Turn creation")
 	}
@@ -309,6 +330,7 @@ func (driver *sqliteConformanceDriver) GetIssueByID(
 			Title:              task.Title,
 			Content:            task.Content,
 			Status:             string(task.Status),
+			AcceptanceState:    string(task.AcceptanceState),
 			Priority:           string(task.Priority),
 			SortIndex:          task.SortIndex,
 			AgentTargetID:      task.AgentTargetID,
@@ -409,6 +431,124 @@ func (driver *sqliteConformanceDriver) ScheduleReplica(
 	}, nil
 }
 
+func (driver *sqliteConformanceDriver) SettleRun(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.SettleRunInput,
+) error {
+	_, err := driver.issues.CompleteRun(
+		ctx,
+		input.WorkspaceID,
+		input.IssueID,
+		input.TaskID,
+		input.RunID,
+		workspaceservice.CompleteIssueManagerRunInput{Status: input.Status},
+	)
+	return err
+}
+
+func (driver *sqliteConformanceDriver) TimeoutRun(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.SettleRunInput,
+) error {
+	driver.clock.Advance(46 * time.Minute)
+	coordinator := &workspaceservice.IssueExecutionCoordinator{
+		Issues: &driver.issues, Clock: driver.clock.Now,
+	}
+	_, err := coordinator.ReconcileRunningRuns(ctx, input.WorkspaceID)
+	return err
+}
+
+func (driver *sqliteConformanceDriver) FailNextLaunchAuthoritatively() {
+	driver.launcher.mu.Lock()
+	defer driver.launcher.mu.Unlock()
+	driver.launcher.failBeforeCanonical = true
+}
+
+func (driver *sqliteConformanceDriver) HoldNextLaunchThenFailAuthoritatively() (<-chan struct{}, func()) {
+	driver.launcher.mu.Lock()
+	defer driver.launcher.mu.Unlock()
+	driver.launcher.blockNext = true
+	driver.launcher.failAfterBlock = true
+	driver.launcher.started = make(chan struct{})
+	driver.launcher.release = make(chan struct{})
+	started := driver.launcher.started
+	release := driver.launcher.release
+	var once sync.Once
+	return started, func() {
+		once.Do(func() { close(release) })
+	}
+}
+
+func (driver *sqliteConformanceDriver) PersistTerminalRunWithoutCheckpoint(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.SettleRunInput,
+) error {
+	run, err := driver.store.GetRun(ctx, input.WorkspaceID, input.IssueID, input.TaskID, input.RunID)
+	if err != nil {
+		return err
+	}
+	run.Status = workspaceissues.Status(input.Status)
+	run.CompletedAtUnixMS = driver.clock.Now().UnixMilli()
+	run.UpdatedAtUnixMS = run.CompletedAtUnixMS
+	if _, _, err := driver.store.CompleteRun(ctx, run, nil); err != nil {
+		return err
+	}
+	task, err := driver.store.GetTask(ctx, input.WorkspaceID, input.IssueID, input.TaskID)
+	if err != nil {
+		return err
+	}
+	switch run.Status {
+	case workspaceissues.StatusCompleted:
+		task.Status = workspaceissues.StatusPendingAcceptance
+	case workspaceissues.StatusFailed:
+		task.Status = workspaceissues.StatusFailed
+	case workspaceissues.StatusCanceled:
+		task.Status = workspaceissues.StatusCanceled
+	}
+	task.UpdatedAtUnixMS = run.UpdatedAtUnixMS
+	if _, err := driver.store.UpdateTask(ctx, task); err != nil {
+		return err
+	}
+	_, err = driver.store.RecalculateIssueProjection(ctx, input.WorkspaceID, input.IssueID)
+	return err
+}
+
+func (driver *sqliteConformanceDriver) RepairSettlements(
+	ctx context.Context,
+	workspaceID string,
+) error {
+	_, err := driver.executions.RepairRunSettlements(ctx, workspaceID)
+	return err
+}
+
+func (driver *sqliteConformanceDriver) Acknowledge(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.AcknowledgeInput,
+) (tuttimodeexecutionconformance.AcknowledgeResult, error) {
+	result, err := driver.executions.Acknowledge(ctx, tuttimodeexecutionservice.AcknowledgeInput{
+		WorkspaceID: input.WorkspaceID, IssueID: input.IssueID,
+		SourceSessionID: input.SourceSessionID, CheckpointID: input.CheckpointID,
+		ExpectedGraphRevision: input.ExpectedGraphRevision, RequestID: input.RequestID,
+	})
+	if err != nil {
+		return tuttimodeexecutionconformance.AcknowledgeResult{}, err
+	}
+	return tuttimodeexecutionconformance.AcknowledgeResult{
+		ExecutionID: result.ExecutionID, CheckpointID: result.CheckpointID,
+		GraphRevision: result.GraphRevision, NextCheckpointID: result.NextCheckpointID,
+		NextCheckpointKind:  string(result.NextCheckpointKind),
+		NextCheckpointState: string(result.NextCheckpointState),
+		Replayed:            result.Replayed,
+	}, nil
+}
+
+func (driver *sqliteConformanceDriver) AcknowledgeReplica(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.AcknowledgeInput,
+) (tuttimodeexecutionconformance.AcknowledgeResult, error) {
+	return driver.Acknowledge(ctx, input)
+}
+
 func (driver *sqliteConformanceDriver) SeedActiveRun(
 	ctx context.Context,
 	workspaceID string,
@@ -465,6 +605,8 @@ func (driver *sqliteConformanceDriver) GetExecutionByIssue(
 			Status:        string(checkpoint.Status),
 			Sequence:      checkpoint.Sequence,
 			GraphRevision: checkpoint.GraphRevision,
+			SubjectTaskID: checkpoint.SubjectTaskID,
+			SubjectRunID:  checkpoint.SubjectRunID,
 		})
 	}
 	return execution, checkpoints, nil
@@ -493,9 +635,11 @@ func (driver *sqliteConformanceDriver) HoldNextLaunch() (<-chan struct{}, func()
 	driver.launcher.blockNext = true
 	driver.launcher.started = make(chan struct{})
 	driver.launcher.release = make(chan struct{})
+	started := driver.launcher.started
+	release := driver.launcher.release
 	var once sync.Once
-	return driver.launcher.started, func() {
-		once.Do(func() { close(driver.launcher.release) })
+	return started, func() {
+		once.Do(func() { close(release) })
 	}
 }
 
@@ -604,6 +748,21 @@ func TestMaterializationSQLiteServiceConformance(t *testing.T) {
 
 func TestScheduleSQLiteServiceConformance(t *testing.T) {
 	for _, scenario := range tuttimodeexecutionconformance.ScheduleCatalog() {
+		scenario := scenario
+		t.Run(scenario.Name, func(t *testing.T) {
+			if err := tuttimodeexecutionconformance.Run(
+				context.Background(),
+				newSQLiteConformanceDriver(t),
+				scenario,
+			); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestSettlementSQLiteServiceConformance(t *testing.T) {
+	for _, scenario := range tuttimodeexecutionconformance.SettlementCatalog() {
 		scenario := scenario
 		t.Run(scenario.Name, func(t *testing.T) {
 			if err := tuttimodeexecutionconformance.Run(

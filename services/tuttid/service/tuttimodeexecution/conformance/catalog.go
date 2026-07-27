@@ -12,7 +12,57 @@ type Scenario struct {
 
 func Catalog() []Scenario {
 	scenarios := MaterializationCatalog()
-	return append(scenarios, ScheduleCatalog()...)
+	scenarios = append(scenarios, ScheduleCatalog()...)
+	return append(scenarios, SettlementCatalog()...)
+}
+
+func SettlementCatalog() []Scenario {
+	return []Scenario{
+		{
+			Name: "TerminalSettlementCreatesCheckpointWithoutSuccessor",
+			run:  runTerminalSettlementCreatesCheckpointWithoutSuccessor,
+		},
+		{
+			Name: "ParallelSettlementsQueueOrderedCheckpointBacklog",
+			run:  runParallelSettlementsQueueOrderedCheckpointBacklog,
+		},
+		{
+			Name: "SettlementReviewCanScheduleDependentNextStep",
+			run:  runSettlementReviewCanScheduleDependentNextStep,
+		},
+		{
+			Name: "ScheduleReviewPromotesExistingSettlementBacklog",
+			run:  runScheduleReviewPromotesExistingSettlementBacklog,
+		},
+		{
+			Name: "TimedOutRunCreatesFailedCheckpoint",
+			run:  runTimedOutRunCreatesFailedCheckpoint,
+		},
+		{
+			Name: "AuthoritativeLaunchFailureSettlesRun",
+			run:  runAuthoritativeLaunchFailureSettlesRun,
+		},
+		{
+			Name: "ExpiredLaunchOwnerCannotSettleReclaimedRun",
+			run:  runExpiredLaunchOwnerCannotSettleReclaimedRun,
+		},
+		{
+			Name: "RepairRestoresMissingSettlementCheckpoint",
+			run:  runRepairRestoresMissingSettlementCheckpoint,
+		},
+		{
+			Name: "AcknowledgeFencesAndDrainsBacklogIntoGoalReview",
+			run:  runAcknowledgeFencesAndDrainsBacklogIntoGoalReview,
+		},
+		{
+			Name: "AcknowledgeEligibilityUsesActiveWorkOrBacklog",
+			run:  runAcknowledgeEligibilityUsesActiveWorkOrBacklog,
+		},
+		{
+			Name: "MixedTerminalOutcomesReachGoalReview",
+			run:  runMixedTerminalOutcomesReachGoalReview,
+		},
+	}
 }
 
 func MaterializationCatalog() []Scenario {

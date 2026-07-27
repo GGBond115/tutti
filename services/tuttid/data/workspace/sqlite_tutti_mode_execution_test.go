@@ -317,6 +317,124 @@ WHERE workspace_id = ? AND run_id = ?
 	}
 }
 
+func TestFailTuttiModeRunLaunchIsOwnerFencedAndAtomicWithSettlement(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTuttiModeExecutionStore(t)
+	now := time.UnixMilli(1_700_000_165_000).UTC()
+	prepareTuttiModeExecutionWorkspace(
+		t, store, "workspace-launch-failure", "workflow-launch-failure",
+		"session-launch-failure", now,
+	)
+	executions := &executionservice.Service{Store: store, Clock: func() time.Time { return now }}
+	issues := workspaceissues.Service{Store: store, Clock: func() time.Time { return now }}
+	issue, tasks := prepareTuttiModeIssueGraph(
+		t, issues, "workspace-launch-failure", "workflow-launch-failure",
+		"session-launch-failure",
+	)
+	_, _, aggregate, err := executions.Materialize(ctx, executionservice.MaterializeInput{
+		Issue: issue, Tasks: tasks, WorkflowID: "workflow-launch-failure",
+	})
+	if err != nil {
+		t.Fatalf("Materialize() error = %v", err)
+	}
+	run := workspaceissues.Run{
+		RunID: "run-launch-failure", TaskID: tasks[0].TaskID,
+		IssueID: issue.IssueID, WorkspaceID: issue.WorkspaceID,
+		RequesterUserID: "local", AgentUserID: "local",
+		AgentTargetID:  tasks[0].AgentTargetID,
+		AgentSessionID: "delegate-launch-failure", AgentProvider: "codex",
+		Status:          workspaceissues.StatusRunning,
+		CreatedAtUnixMS: now.UnixMilli(), StartedAtUnixMS: now.UnixMilli(),
+		UpdatedAtUnixMS: now.UnixMilli(),
+	}
+	if _, err := store.AdmitTuttiModeSchedule(ctx, executionbiz.ScheduleAdmission{
+		WorkspaceID: issue.WorkspaceID, IssueID: issue.IssueID,
+		SourceSessionID: issue.SourceSessionID,
+		CheckpointID:    aggregate.Checkpoints[0].ID, ExpectedGraphRevision: 1,
+		RequestID:   "request-launch-failure",
+		InputSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Runs:        []workspaceissues.Run{run}, Now: now,
+	}); err != nil {
+		t.Fatalf("AdmitTuttiModeSchedule() error = %v", err)
+	}
+	claimed, err := store.ClaimTuttiModeRunLaunchIntent(
+		ctx, issue.WorkspaceID, issue.IssueID, run.RunID, "owner-current",
+		now, now.Add(time.Minute),
+	)
+	if err != nil || !claimed {
+		t.Fatalf("ClaimTuttiModeRunLaunchIntent() claimed=%v error=%v", claimed, err)
+	}
+	if _, err := store.writeDB.ExecContext(ctx, `
+CREATE TRIGGER reject_failed_settlement
+BEFORE INSERT ON workspace_tutti_execution_checkpoints
+WHEN NEW.kind = 'task_failed'
+BEGIN
+  SELECT RAISE(ABORT, 'injected settlement persistence failure');
+END;
+`); err != nil {
+		t.Fatalf("create settlement failure trigger error = %v", err)
+	}
+	failure := executionbiz.RunLaunchFailure{
+		WorkspaceID: issue.WorkspaceID, IssueID: issue.IssueID,
+		RunID: run.RunID, LeaseOwner: "owner-current",
+		ErrorMessage: "definite pre-canonical failure", Now: now.Add(time.Second),
+	}
+	if _, _, err := store.FailTuttiModeRunLaunch(ctx, failure); err == nil {
+		t.Fatal("FailTuttiModeRunLaunch() error = nil, want injected rollback")
+	}
+	assertLaunchFailureState := func(
+		wantIntent, wantOwner, wantRun, wantTask string,
+		wantCheckpointCount int,
+	) {
+		t.Helper()
+		var intentStatus, leaseOwner, runStatus, taskStatus string
+		var checkpointCount int
+		if err := store.writeDB.QueryRowContext(ctx, `
+SELECT
+ (SELECT status FROM workspace_issue_run_launch_intents
+   WHERE workspace_id = ? AND run_id = ?),
+ (SELECT lease_owner FROM workspace_issue_run_launch_intents
+   WHERE workspace_id = ? AND run_id = ?),
+ (SELECT status FROM workspace_issue_runs
+   WHERE workspace_id = ? AND run_id = ?),
+ (SELECT status FROM workspace_issue_tasks
+   WHERE workspace_id = ? AND issue_id = ? AND task_id = ?),
+ (SELECT COUNT(*) FROM workspace_tutti_execution_checkpoints
+   WHERE workspace_id = ? AND execution_id = ?)
+`, issue.WorkspaceID, run.RunID,
+			issue.WorkspaceID, run.RunID,
+			issue.WorkspaceID, run.RunID,
+			issue.WorkspaceID, issue.IssueID, run.TaskID,
+			issue.WorkspaceID, aggregate.Execution.ID,
+		).Scan(&intentStatus, &leaseOwner, &runStatus, &taskStatus, &checkpointCount); err != nil {
+			t.Fatalf("read launch failure state error = %v", err)
+		}
+		if intentStatus != wantIntent || leaseOwner != wantOwner ||
+			runStatus != wantRun || taskStatus != wantTask ||
+			checkpointCount != wantCheckpointCount {
+			t.Fatalf(
+				"state intent=%q owner=%q run=%q task=%q checkpoints=%d, want %q/%q/%q/%q/%d",
+				intentStatus, leaseOwner, runStatus, taskStatus, checkpointCount,
+				wantIntent, wantOwner, wantRun, wantTask, wantCheckpointCount,
+			)
+		}
+	}
+	assertLaunchFailureState("leased", "owner-current", "running", "running", 1)
+	if _, err := store.writeDB.ExecContext(ctx, `DROP TRIGGER reject_failed_settlement`); err != nil {
+		t.Fatalf("drop settlement failure trigger error = %v", err)
+	}
+	checkpoint, created, err := store.FailTuttiModeRunLaunch(ctx, failure)
+	if err != nil || !created || checkpoint.Kind != executionbiz.CheckpointKindTaskFailed {
+		t.Fatalf(
+			"FailTuttiModeRunLaunch(retry) checkpoint=%#v created=%v error=%v",
+			checkpoint, created, err,
+		)
+	}
+	assertLaunchFailureState("failed", "", "failed", "failed", 3)
+}
+
 func TestAdmitTuttiModeScheduleRejectsWholeInvalidSet(t *testing.T) {
 	t.Parallel()
 

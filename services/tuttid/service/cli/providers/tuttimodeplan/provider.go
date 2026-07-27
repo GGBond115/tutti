@@ -7,6 +7,7 @@ import (
 	"context"
 
 	cliservice "github.com/tutti-os/tutti/services/tuttid/service/cli"
+	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 	tuttimodeplanservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeplan"
 	workspaceservice "github.com/tutti-os/tutti/services/tuttid/service/workspace"
 )
@@ -33,11 +34,19 @@ type IssueSchedules interface {
 	) (workspaceservice.ScheduleTuttiModeIssueResult, error)
 }
 
+type IssueAcknowledgements interface {
+	Acknowledge(
+		context.Context,
+		tuttimodeexecutionservice.AcknowledgeInput,
+	) (tuttimodeexecutionservice.AcknowledgeResult, error)
+}
+
 type Provider struct {
-	workspaces cliservice.WorkspaceCatalog
-	plans      Plans
-	turns      ActiveTurns
-	schedules  IssueSchedules
+	workspaces       cliservice.WorkspaceCatalog
+	plans            Plans
+	turns            ActiveTurns
+	schedules        IssueSchedules
+	acknowledgements IssueAcknowledgements
 }
 
 func NewProvider(
@@ -58,6 +67,20 @@ func NewProvider(
 	}
 }
 
+// NewProviderWithExecution preserves the schedule-only constructor while
+// wiring the execution checkpoint commands to their dedicated service.
+func NewProviderWithExecution(
+	workspaces cliservice.WorkspaceCatalog,
+	plans Plans,
+	turns ActiveTurns,
+	schedules IssueSchedules,
+	acknowledgements IssueAcknowledgements,
+) Provider {
+	provider := NewProvider(workspaces, plans, turns, schedules)
+	provider.acknowledgements = acknowledgements
+	return provider
+}
+
 func (Provider) AppID() string {
 	return appID
 }
@@ -71,11 +94,19 @@ func (p Provider) Commands() []cliservice.Command {
 		p.newReviseCommand(),
 		p.newGetCommand(),
 		p.newIssueScheduleCommand(),
+		p.newIssueAcknowledgeCommand(),
 	}
 }
 
 func (p Provider) requireSchedules() error {
 	if p.schedules == nil {
+		return cliservice.ServiceUnavailableError("Tutti Mode execution service is unavailable", nil)
+	}
+	return nil
+}
+
+func (p Provider) requireAcknowledgements() error {
+	if p.acknowledgements == nil {
 		return cliservice.ServiceUnavailableError("Tutti Mode execution service is unavailable", nil)
 	}
 	return nil

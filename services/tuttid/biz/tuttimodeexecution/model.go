@@ -128,3 +128,42 @@ type PreparedRunLaunch struct {
 	Run            workspaceissues.Run
 	ClientSubmitID string
 }
+
+type RunSettlement struct {
+	WorkspaceID string
+	IssueID     string
+	TaskID      string
+	RunID       string
+	Status      workspaceissues.Status
+	Now         time.Time
+}
+
+type RunLaunchFailure struct {
+	WorkspaceID  string
+	IssueID      string
+	RunID        string
+	LeaseOwner   string
+	ErrorMessage string
+	Now          time.Time
+}
+
+type AcknowledgeAdmission struct {
+	WorkspaceID           string
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+	InputSHA256           string
+	Now                   time.Time
+}
+
+type AcknowledgeResult struct {
+	ExecutionID         string           `json:"executionId"`
+	CheckpointID        string           `json:"checkpointId"`
+	GraphRevision       int64            `json:"graphRevision"`
+	NextCheckpointID    string           `json:"nextCheckpointId"`
+	NextCheckpointKind  CheckpointKind   `json:"nextCheckpointKind"`
+	NextCheckpointState CheckpointStatus `json:"nextCheckpointState"`
+	Replayed            bool             `json:"-"`
+}

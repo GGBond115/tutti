@@ -119,6 +119,30 @@ func (*scheduledLaunchIntentStore) RequeueLeasedTuttiModeRunLaunchIntents(
 	return nil
 }
 
+func (*scheduledLaunchIntentStore) FailTuttiModeRunLaunch(
+	context.Context, executionbiz.RunLaunchFailure,
+) (executionbiz.Checkpoint, bool, error) {
+	panic("not used")
+}
+
+func (*scheduledLaunchIntentStore) EnsureTuttiModeRunSettlement(
+	context.Context, executionbiz.RunSettlement,
+) (executionbiz.Checkpoint, bool, error) {
+	panic("not used")
+}
+
+func (*scheduledLaunchIntentStore) RepairTuttiModeRunSettlements(
+	context.Context, string, time.Time,
+) (int, error) {
+	panic("not used")
+}
+
+func (*scheduledLaunchIntentStore) AdmitTuttiModeAcknowledge(
+	context.Context, executionbiz.AcknowledgeAdmission,
+) (executionbiz.AcknowledgeResult, error) {
+	panic("not used")
+}
+
 type immediateLeaseRenewalScheduler struct{}
 
 func (immediateLeaseRenewalScheduler) Start(

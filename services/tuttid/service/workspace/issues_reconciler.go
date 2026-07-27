@@ -137,6 +137,9 @@ func (c *IssueExecutionCoordinator) ReconcileRunningRuns(ctx context.Context, wo
 		return result, nil
 	}
 	now := time.Now().UnixMilli()
+	if c.Clock != nil {
+		now = c.Clock().UTC().UnixMilli()
+	}
 	for _, run := range runs {
 		if c.SettlementReader != nil && strings.TrimSpace(run.AgentSessionID) != "" {
 			clientSubmitID, identityErr := c.Issues.issueRunClientSubmitID(ctx, run)
@@ -193,10 +196,24 @@ func (c *IssueExecutionCoordinator) ReconcileTuttiModeRunLaunchesAndRunningRuns(
 	if c == nil || c.Issues == nil {
 		return IssueRunReconcileResult{}, nil
 	}
+	if c.Issues.TuttiModeExecutions != nil {
+		if _, err := c.Issues.TuttiModeExecutions.RepairRunSettlements(ctx, workspaceID); err != nil {
+			return IssueRunReconcileResult{}, err
+		}
+	}
 	if err := c.Issues.RecoverTuttiModeRunLaunches(ctx, workspaceID); err != nil {
 		return IssueRunReconcileResult{}, err
 	}
-	return c.ReconcileRunningRuns(ctx, workspaceID)
+	result, err := c.ReconcileRunningRuns(ctx, workspaceID)
+	if err != nil {
+		return result, err
+	}
+	if c.Issues.TuttiModeExecutions != nil {
+		if _, err := c.Issues.TuttiModeExecutions.RepairRunSettlements(ctx, workspaceID); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
 }
 
 // issueRunReconcileCompletion applies only Issue-owned product policy. Agent

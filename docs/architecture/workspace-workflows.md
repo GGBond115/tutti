@@ -67,7 +67,7 @@ Agent invocation never fabricates a slash-command activation.
 | `ActionableItem`            | Derived only                                 | Read-only projection of a task from the accepted current task-graph revision. It is never a second task store.                                                                                                                         |
 | Workspace Issue and Task    | SQLite in Issue Manager                      | Reusable Issue graph materialized from accepted `ActionableItem`s. It links back through `sourceSessionId`; the workflow operation links forward through `issueId`.                                                                     |
 | Tutti execution             | SQLite                                       | Tutti-owned orchestration authority for one accepted workflow and Issue. Initial status is `awaiting_schedule` at graph revision 1.                                                                                                    |
-| Execution checkpoint        | SQLite                                       | Ordered durable orchestration gate. Materialization creates one active `initial_schedule` checkpoint and no Issue Run.                                                                                                                 |
+| Execution checkpoint        | SQLite                                       | Ordered durable orchestration gate. Materialization creates one active `initial_schedule` checkpoint and no Issue Run; every terminal Run later appends one deterministic settlement checkpoint.                                        |
 
 The relation is:
 
@@ -479,6 +479,33 @@ The existing Issue Run reconciliation queue also requeues expired launch
 ownership and recovers prepared intents on every pass. A daemon that restarts
 before the previous owner's last lease expires therefore retries immediately
 after that expiry instead of leaving the Run stranded until its hard timeout.
+
+A definite launch failure is terminal only when the adapter can prove that no
+canonical Turn exists. An empty create result alone is insufficient: the
+adapter also checks Host by the exact persisted `clientSubmitId`. A found Turn,
+a lookup error, `ErrSubmitDeliveryUnknown`, or a create error carrying a Turn ID
+remains recoverable. Only a clean Host not-found permits terminalization. That
+write is one owner-fenced SQLite transaction: the currently leased launch
+intent, Run, Task, Issue projection, and deterministic `task_failed` checkpoint
+either commit together or all roll back. An expired owner therefore cannot
+settle a Run after another daemon has reclaimed its lease.
+
+Every terminal Issue Run (`completed`, `failed`, or `canceled`) creates one
+ordered deterministic checkpoint. Completion remains
+`pending_acceptance`/`agent_claimed` until the source Agent reviews that
+checkpoint. The Agent may resolve the checkpoint by scheduling an exact next
+task set, or acknowledge it when another Run is active or a later settlement is
+already queued. Acknowledge accepts a successful task, promotes the next
+pending checkpoint, and never invokes the generic dispatch frontier. Failed
+and canceled checkpoints preserve their terminal task projection. Settlement
+repair runs at startup and on the periodic Issue reconciliation cadence, so a
+crash after Run persistence cannot lose the review gate.
+
+When every task is terminal and every terminal Run has its settlement
+checkpoint, the execution appends one ordered `all_tasks_terminal` checkpoint
+with `requiresGoalReview`. Promoting it moves the execution to
+`pending_goal_review`; the generic acknowledge command deliberately cannot
+resolve this boundary.
 
 After acceptance the source conversation embeds a live "issue panel view"
 (board/list) of the materialized Issue, fed by the same workspace issue events
