@@ -112,6 +112,8 @@ type Driver interface {
 	StartupRecoverReplica(context.Context, string) error
 	PeriodicRecoverReplica(context.Context, string) error
 	RecoverLaunches(context.Context, string) error
+	EnableAutomaticRecovery(context.Context)
+	AwaitLauncherCalls(context.Context, int) error
 	LauncherClientSubmitIDs() []string
 	LauncherCanonicalTurnCount() int
 	LauncherCallCount() int

@@ -28,6 +28,7 @@ type sqliteConformanceDriver struct {
 	clock      *controlledClock
 	launcher   *recordingLauncher
 	renewals   *manualLeaseRenewalScheduler
+	cancelAuto context.CancelFunc
 }
 
 type controlledClock struct {
@@ -94,6 +95,7 @@ func (scheduler *manualLeaseRenewalScheduler) StopCurrent() {
 type recordingLauncher struct {
 	mu                      sync.Mutex
 	calls                   int
+	callSignal              chan struct{}
 	failNext                bool
 	clientSubmitIDs         []string
 	canonicalByClientSubmit map[string]string
@@ -105,6 +107,10 @@ type recordingLauncher struct {
 func (launcher *recordingLauncher) Launch(_ context.Context, launch workspaceservice.IssueRunLaunch) error {
 	launcher.mu.Lock()
 	launcher.calls++
+	if launcher.callSignal != nil {
+		close(launcher.callSignal)
+		launcher.callSignal = make(chan struct{})
+	}
 	launcher.clientSubmitIDs = append(launcher.clientSubmitIDs, launch.ClientSubmitID)
 	if launcher.canonicalByClientSubmit == nil {
 		launcher.canonicalByClientSubmit = make(map[string]string)
@@ -508,6 +514,49 @@ func (driver *sqliteConformanceDriver) AdvanceClockWithoutRenewal(duration time.
 
 func (driver *sqliteConformanceDriver) RecoverLaunches(ctx context.Context, workspaceID string) error {
 	return driver.issues.RecoverTuttiModeRunLaunchIntents(ctx, workspaceID)
+}
+
+func (driver *sqliteConformanceDriver) EnableAutomaticRecovery(ctx context.Context) {
+	queueCtx, cancel := context.WithCancel(ctx)
+	driver.cancelAuto = cancel
+	coordinator := &workspaceservice.IssueExecutionCoordinator{Issues: &driver.issues}
+	driver.issues.RunReconcileQueue = workspaceservice.NewIssueRunReconcileQueue(
+		workspaceservice.IssueRunReconcileQueueOptions{
+			Context:   queueCtx,
+			Delay:     time.Millisecond,
+			Interval:  time.Millisecond,
+			Reconcile: coordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns,
+		},
+	)
+}
+
+func (driver *sqliteConformanceDriver) AwaitLauncherCalls(ctx context.Context, want int) error {
+	for {
+		driver.launcher.mu.Lock()
+		calls := driver.launcher.calls
+		if calls >= want {
+			driver.launcher.mu.Unlock()
+			if driver.cancelAuto != nil {
+				driver.cancelAuto()
+				driver.cancelAuto = nil
+			}
+			return nil
+		}
+		if driver.launcher.callSignal == nil {
+			driver.launcher.callSignal = make(chan struct{})
+		}
+		signal := driver.launcher.callSignal
+		driver.launcher.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			if driver.cancelAuto != nil {
+				driver.cancelAuto()
+				driver.cancelAuto = nil
+			}
+			return fmt.Errorf("launcher calls = %d, want at least %d: %w", calls, want, ctx.Err())
+		case <-signal:
+		}
+	}
 }
 
 func (driver *sqliteConformanceDriver) StartupRecoverReplica(ctx context.Context, workspaceID string) error {

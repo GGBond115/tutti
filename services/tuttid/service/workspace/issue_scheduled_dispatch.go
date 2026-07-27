@@ -95,6 +95,11 @@ func (s IssueManagerService) ScheduleTuttiModeIssue(
 		unlockIssue()
 		return ScheduleTuttiModeIssueResult{}, err
 	}
+	// Exact-set admission bypasses the generic CreateRun path, so it must
+	// explicitly keep the workspace reconcile worker alive. The worker owns
+	// recovery when delivery loses its response or this process stops after
+	// persisting the prepared launch intents.
+	s.enqueueWorkspaceRunReconcile(workspaceID)
 	preparedRuns, err := s.TuttiModeExecutions.ListPreparedRunLaunches(
 		ctx,
 		workspaceID,

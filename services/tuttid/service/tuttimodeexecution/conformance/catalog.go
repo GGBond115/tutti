@@ -54,6 +54,10 @@ func ScheduleCatalog() []Scenario {
 			Name: "ExpiredLaunchLeaseIsRecoveredOnce",
 			run:  runExpiredLaunchLeaseIsRecoveredOnce,
 		},
+		{
+			Name: "IdleRecoveryQueueObservesScheduleAdmission",
+			run:  runIdleRecoveryQueueObservesScheduleAdmission,
+		},
 	}
 }
 

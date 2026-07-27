@@ -467,3 +467,49 @@ func runExpiredLaunchLeaseIsRecoveredOnce(ctx context.Context, driver Driver) er
 	}
 	return nil
 }
+
+func runIdleRecoveryQueueObservesScheduleAdmission(ctx context.Context, driver Driver) error {
+	fixture := scheduleFixture()
+	fixture.WorkflowID += "-automatic-launch-recovery"
+	fixture.RevisionID += "-automatic-launch-recovery"
+	fixture.CheckpointID += "-automatic-launch-recovery"
+	issueID, err := driver.AcceptPlan(ctx, fixture)
+	if err != nil {
+		return fmt.Errorf("AcceptPlan() error = %w", err)
+	}
+	before, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil {
+		return fmt.Errorf("GetSnapshot(before) error = %w", err)
+	}
+
+	driver.EnableAutomaticRecovery(ctx)
+	driver.FailNextLaunch()
+	result, err := driver.Schedule(ctx, ScheduleInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          before.Checkpoints[0].CheckpointID,
+		ExpectedGraphRevision: before.Execution.GraphRevision,
+		TaskIDs:               []string{"task-a"},
+		RequestID:             "schedule-automatic-launch-recovery",
+	})
+	if err != nil {
+		return fmt.Errorf("Schedule() error = %w", err)
+	}
+	if len(result.RunIDs) != 1 {
+		return fmt.Errorf("Schedule() run ids = %#v, want one", result.RunIDs)
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	if err := driver.AwaitLauncherCalls(waitCtx, 2); err != nil {
+		return fmt.Errorf("idle reconcile queue did not automatically recover launch: %w", err)
+	}
+	identities := driver.LauncherClientSubmitIDs()
+	if len(identities) != 2 || identities[0] != identities[1] {
+		return fmt.Errorf("automatic recovery identities = %#v, want one stable identity", identities)
+	}
+	if got := driver.LauncherCanonicalTurnCount(); got != 1 {
+		return fmt.Errorf("automatic recovery canonical Turn count = %d, want 1", got)
+	}
+	return nil
+}
