@@ -4,12 +4,14 @@ import {
   type JSX,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
   type WheelEvent as ReactWheelEvent,
   useCallback,
   useRef,
   useState
 } from "react";
 import { createPortal } from "react-dom";
+import DOMPurify from "dompurify";
 import mermaid from "mermaid";
 import { Button, CopyIcon, RestoreIcon } from "@tutti-os/ui-system";
 import { RotateCcwIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
@@ -322,25 +324,50 @@ function MermaidSvg({ svg }: { svg: string }): JSX.Element {
 
 class MermaidViewerLifecycle extends Component<{
   children: ReactNode;
+  focusTargetRef: RefObject<HTMLElement | null>;
   onEscape: () => void;
+  onSpaceDown: () => void;
+  onSpaceUp: () => void;
   onUnmount: () => void;
 }> {
   componentDidMount(): void {
     window.addEventListener("keydown", this.handleKeyDown, true);
+    window.addEventListener("keyup", this.handleKeyUp, true);
+    window.addEventListener("blur", this.handleWindowBlur);
+    this.props.focusTargetRef.current?.focus();
   }
 
   componentWillUnmount(): void {
     window.removeEventListener("keydown", this.handleKeyDown, true);
+    window.removeEventListener("keyup", this.handleKeyUp, true);
+    window.removeEventListener("blur", this.handleWindowBlur);
     this.props.onUnmount();
   }
 
   private handleKeyDown = (event: KeyboardEvent): void => {
-    if (event.key !== "Escape") {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      this.props.onEscape();
+      return;
+    }
+    if (!isSpaceKey(event) || isInteractiveEventTarget(event.target)) {
       return;
     }
     event.preventDefault();
-    event.stopPropagation();
-    this.props.onEscape();
+    this.props.onSpaceDown();
+  };
+
+  private handleKeyUp = (event: KeyboardEvent): void => {
+    if (!isSpaceKey(event)) {
+      return;
+    }
+    event.preventDefault();
+    this.props.onSpaceUp();
+  };
+
+  private handleWindowBlur = (): void => {
+    this.props.onSpaceUp();
   };
 
   render(): ReactNode {
@@ -356,6 +383,7 @@ function MermaidViewer({
   svg: string;
 }): JSX.Element {
   const { t } = useTranslation();
+  const rootRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<MermaidDragState | null>(null);
   const viewRef = useRef<MermaidViewTransform>(RESET_VIEW_TRANSFORM);
@@ -399,6 +427,11 @@ function MermaidViewer({
     }
     dragRef.current = null;
     setIsDragging(false);
+  };
+
+  const releaseSpace = (): void => {
+    setIsSpacePressed(false);
+    stopDragging();
   };
 
   const zoomAt = (factor: number, clientX?: number, clientY?: number): void => {
@@ -486,10 +519,14 @@ function MermaidViewer({
 
   return (
     <MermaidViewerLifecycle
+      focusTargetRef={rootRef}
       onEscape={onClose}
+      onSpaceDown={() => setIsSpacePressed(true)}
+      onSpaceUp={releaseSpace}
       onUnmount={cancelPendingViewCommit}
     >
       <div
+        ref={rootRef}
         aria-label={t("agentHost.agentGui.mermaidViewer")}
         aria-modal="true"
         className="agent-mermaid-viewer nodrag tsh-desktop-no-drag"
@@ -497,30 +534,13 @@ function MermaidViewer({
         data-agent-mermaid-space-pressed={isSpacePressed ? "true" : undefined}
         role="dialog"
         tabIndex={-1}
-        autoFocus
         onBlurCapture={(event) => {
           if (event.relatedTarget instanceof Node) {
             if (event.currentTarget.contains(event.relatedTarget)) {
               return;
             }
           }
-          setIsSpacePressed(false);
-          stopDragging();
-        }}
-        onKeyDownCapture={(event) => {
-          if (!isSpaceKey(event) || isInteractiveEventTarget(event.target)) {
-            return;
-          }
-          event.preventDefault();
-          setIsSpacePressed(true);
-        }}
-        onKeyUpCapture={(event) => {
-          if (!isSpaceKey(event)) {
-            return;
-          }
-          event.preventDefault();
-          setIsSpacePressed(false);
-          stopDragging();
+          releaseSpace();
         }}
       >
         <div className="agent-mermaid-viewer__backdrop" />
@@ -632,7 +652,20 @@ function renderMermaid(source: string, theme: MermaidTheme): Promise<string> {
   });
   return mermaid
     .render(`agent-mermaid-${crypto.randomUUID()}`, source)
-    .then((result) => result.svg);
+    .then((result) => sanitizeMermaidSvg(result.svg));
+}
+
+export function sanitizeMermaidSvg(svg: string): string {
+  return String(
+    DOMPurify.sanitize(svg, {
+      FORBID_TAGS: ["embed", "iframe", "object", "script"],
+      USE_PROFILES: {
+        html: true,
+        svg: true,
+        svgFilters: true
+      }
+    })
+  );
 }
 
 function resolveWheelZoomDelta(event: ReactWheelEvent<HTMLElement>): number {

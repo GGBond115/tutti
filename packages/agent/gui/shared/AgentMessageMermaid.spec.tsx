@@ -14,7 +14,8 @@ import { AgentMessageMarkdown } from "./AgentMessageMarkdown";
 import {
   AgentMessageMermaid,
   agentMessageMermaidLimits,
-  resolveDraggedMermaidView
+  resolveDraggedMermaidView,
+  sanitizeMermaidSvg
 } from "./AgentMessageMermaid";
 
 const mermaidMocks = vi.hoisted(() => ({
@@ -212,9 +213,11 @@ describe("AgentMessageMermaid", () => {
     });
 
     fireEvent.click(preview);
-    expect(
-      screen.getByRole("dialog", { name: "Mermaid diagram viewer" })
-    ).toBeInTheDocument();
+    const viewer = screen.getByRole("dialog", {
+      name: "Mermaid diagram viewer"
+    });
+    expect(viewer).toBeInTheDocument();
+    expect(viewer).toHaveFocus();
 
     const stage = screen.getByTestId("agent-mermaid-viewer-stage");
     fireEvent.wheel(stage, {
@@ -226,7 +229,7 @@ describe("AgentMessageMermaid", () => {
       expect(screen.getByRole("status")).toHaveTextContent("115%");
     });
 
-    fireEvent.keyDown(stage, { code: "Space", key: " " });
+    fireEvent.keyDown(window, { code: "Space", key: " " });
     expect(stage.closest(".agent-mermaid-viewer")).toHaveAttribute(
       "data-agent-mermaid-space-pressed",
       "true"
@@ -250,9 +253,33 @@ describe("AgentMessageMermaid", () => {
     expect(draggedView.x).toBeCloseTo(45.39);
     expect(draggedView.y).toBeCloseTo(30.26);
     expect(draggedView.zoom).toBe(1.149);
-    fireEvent.keyUp(stage, { code: "Space", key: " " });
+    fireEvent.keyUp(window, { code: "Space", key: " " });
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("sanitizes Mermaid SVG output before inserting it into the transcript", () => {
+    const sanitized = sanitizeMermaidSvg(`
+      <svg xmlns="http://www.w3.org/2000/svg">
+        <script>alert("xss")</script>
+        <a href="javascript:alert('xss')">
+          <text onclick="alert('xss')">Safe label</text>
+        </a>
+        <foreignObject>
+          <div xmlns="http://www.w3.org/1999/xhtml">
+            <img src="invalid" onerror="alert('xss')" />
+          </div>
+        </foreignObject>
+      </svg>
+    `);
+    const container = document.createElement("div");
+    container.innerHTML = sanitized;
+
+    expect(container.querySelector("script")).toBeNull();
+    expect(container.querySelector("[onclick]")).toBeNull();
+    expect(container.querySelector("[onerror]")).toBeNull();
+    expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
+    expect(container.textContent).toContain("Safe label");
   });
 });
