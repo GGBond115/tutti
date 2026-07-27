@@ -118,18 +118,6 @@ func TestHostCommitObserverConformance(t *testing.T) {
 	}
 }
 
-func TestHostDeletionAdmissionConformance(t *testing.T) {
-	for _, scenario := range hostconformance.DeletionAdmissionScenarios() {
-		scenario := scenario
-		t.Run(scenario.Name, func(t *testing.T) {
-			driver := &legacyHostConformanceDriver{t: t, directHost: true}
-			if err := hostconformance.Run(context.Background(), driver, scenario); err != nil {
-				t.Fatal(err)
-			}
-		})
-	}
-}
-
 func TestHostCancelAcceptanceDoesNotImplyCanonicalSettlement(t *testing.T) {
 	driver := &legacyHostConformanceDriver{t: t, directHost: true}
 	fixture := hostconformance.Fixture{

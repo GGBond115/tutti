@@ -276,6 +276,9 @@ Coordinator, goal, and commit-observer scenario groups extend the same driver
 with recovery ordering through the worktree sweep, recovery failure
 propagation, post-commit failure semantics, and exact-tombstone permanent
 removal semantics.
+Deletion-admission scenarios are required members of both the standard adapter
+and application-core catalogs; the focused deletion-admission catalog reuses
+those same scenario values rather than defining a second behavior suite.
 
 The conformance package keeps its shared fixture and driver contract in
 `conformance.go`, explicit scenario membership in `scenarios.go`, and scenario

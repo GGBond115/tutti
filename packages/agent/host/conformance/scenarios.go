@@ -61,6 +61,9 @@ func Scenarios() []Scenario {
 		pinSessionScenario,
 		deleteSessionScenario,
 		deleteLiveOnlySessionScenario,
+		deleteAdmissionRejectionScenario,
+		deleteAdmissionExactClosureScenario,
+		deleteAdmissionReplanScenario,
 		purgeDeletedSessionsScenario,
 	}
 }
@@ -156,6 +159,9 @@ func ApplicationCoreScenarios() []Scenario {
 		pinSessionScenario,
 		deleteSessionScenario,
 		deleteLiveOnlySessionScenario,
+		deleteAdmissionRejectionScenario,
+		deleteAdmissionExactClosureScenario,
+		deleteAdmissionReplanScenario,
 		purgeDeletedSessionsScenario,
 	}
 }
