@@ -198,8 +198,11 @@ func (s IssueManagerService) CreateIssueFromPlan(ctx context.Context, workspaceI
 	if reservedTuttiID != input.Issue.TuttiModeWorkflowOwned || tuttiPlanningSource != input.Issue.TuttiModeWorkflowOwned {
 		return workspaceissues.IssueDetail{}, workspaceissues.ErrInvalidArgument
 	}
-	if tuttiPlanningSource && strings.TrimSpace(input.Issue.TuttiModeWorkflowID) == "" {
-		return workspaceissues.IssueDetail{}, workspaceissues.ErrInvalidArgument
+	if tuttiPlanningSource {
+		expectedIssueID, ok := workflowbiz.TuttiModePlanIssueID(input.Issue.TuttiModeWorkflowID)
+		if !ok || input.Issue.IssueID != expectedIssueID {
+			return workspaceissues.IssueDetail{}, workspaceissues.ErrInvalidArgument
+		}
 	}
 	if input.Issue.ParallelExecution && !parallelIssueTasksAreIsolated(input.Tasks) {
 		return workspaceissues.IssueDetail{}, workspaceissues.ErrInvalidArgument

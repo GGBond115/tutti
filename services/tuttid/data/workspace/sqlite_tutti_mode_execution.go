@@ -90,10 +90,25 @@ func (s *SQLiteStore) GetTuttiModeExecutionByIssue(
 	workspaceID string,
 	issueID string,
 ) (executionbiz.Aggregate, error) {
+	return s.getTuttiModeExecutionByIssueSnapshot(ctx, workspaceID, issueID, nil)
+}
+
+func (s *SQLiteStore) getTuttiModeExecutionByIssueSnapshot(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	afterExecutionRead func() error,
+) (executionbiz.Aggregate, error) {
 	if err := s.ensureIssueDatabase(); err != nil {
 		return executionbiz.Aggregate{}, err
 	}
-	row := s.readDB.QueryRowContext(ctx, `
+	tx, err := s.readDB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return executionbiz.Aggregate{}, fmt.Errorf("begin Tutti mode execution snapshot: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	row := tx.QueryRowContext(ctx, `
 SELECT execution_id, workspace_id, issue_id, workflow_id, source_session_id,
        status, graph_revision, last_orchestrator_activity_at_unix_ms,
        watchdog_due_at_unix_ms, review_mode, review_agent_target_id,
@@ -109,8 +124,13 @@ WHERE workspace_id = ? AND issue_id = ?
 	if err != nil {
 		return executionbiz.Aggregate{}, fmt.Errorf("get Tutti mode execution: %w", err)
 	}
+	if afterExecutionRead != nil {
+		if err := afterExecutionRead(); err != nil {
+			return executionbiz.Aggregate{}, fmt.Errorf("observe Tutti mode execution snapshot: %w", err)
+		}
+	}
 
-	rows, err := s.readDB.QueryContext(ctx, `
+	rows, err := tx.QueryContext(ctx, `
 SELECT checkpoint_id, execution_id, kind, status, sequence, graph_revision,
        subject_task_id, subject_run_id, creation_reason, requires_goal_review,
        created_at_unix_ms, updated_at_unix_ms, resolved_at_unix_ms
@@ -121,12 +141,12 @@ ORDER BY sequence ASC
 	if err != nil {
 		return executionbiz.Aggregate{}, fmt.Errorf("list Tutti mode execution checkpoints: %w", err)
 	}
-	defer rows.Close()
 
 	checkpoints := make([]executionbiz.Checkpoint, 0)
 	for rows.Next() {
 		checkpoint, scanErr := scanTuttiModeExecutionCheckpoint(rows)
 		if scanErr != nil {
+			_ = rows.Close()
 			return executionbiz.Aggregate{}, fmt.Errorf("scan Tutti mode execution checkpoint: %w", scanErr)
 		}
 		if checkpoint.Status == executionbiz.CheckpointStatusActive {
@@ -135,7 +155,14 @@ ORDER BY sequence ASC
 		checkpoints = append(checkpoints, checkpoint)
 	}
 	if err := rows.Err(); err != nil {
+		_ = rows.Close()
 		return executionbiz.Aggregate{}, fmt.Errorf("iterate Tutti mode execution checkpoints: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return executionbiz.Aggregate{}, fmt.Errorf("close Tutti mode execution checkpoints: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return executionbiz.Aggregate{}, fmt.Errorf("commit Tutti mode execution snapshot: %w", err)
 	}
 	return executionbiz.Aggregate{Execution: execution, Checkpoints: checkpoints}, nil
 }
@@ -291,26 +318,16 @@ func validateInitialTuttiModeMaterialization(
 	tasks []workspaceissues.Task,
 	aggregate executionbiz.Aggregate,
 ) error {
+	if err := executionbiz.ValidateInitialAggregate(aggregate); err != nil {
+		return err
+	}
 	execution := aggregate.Execution
 	if issue.PlanningSource != workspaceissues.PlanningSourceTuttiModePlan ||
 		strings.TrimSpace(issue.WorkspaceID) == "" ||
 		execution.WorkspaceID != issue.WorkspaceID ||
 		execution.IssueID != issue.IssueID ||
 		execution.SourceSessionID != issue.SourceSessionID ||
-		execution.Status != executionbiz.StatusAwaitingSchedule ||
-		execution.GraphRevision != 1 ||
-		execution.ReviewMode != executionbiz.ReviewModeSelf ||
-		len(tasks) == 0 ||
-		len(aggregate.Checkpoints) != 1 {
-		return executionbiz.ErrInvalidExecution
-	}
-	checkpoint := aggregate.Checkpoints[0]
-	if checkpoint.ExecutionID != execution.ID ||
-		checkpoint.ID != execution.ActiveCheckpointID ||
-		checkpoint.Kind != executionbiz.CheckpointKindInitialSchedule ||
-		checkpoint.Status != executionbiz.CheckpointStatusActive ||
-		checkpoint.Sequence != 1 ||
-		checkpoint.GraphRevision != execution.GraphRevision {
+		len(tasks) == 0 {
 		return executionbiz.ErrInvalidExecution
 	}
 	for _, task := range tasks {

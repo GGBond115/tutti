@@ -220,6 +220,98 @@ func TestTuttiModeExecutionMaterializationRollsBackIssueOnExecutionFailure(t *te
 	}
 }
 
+func TestGetTuttiModeExecutionByIssueReadsOneConcurrentSnapshot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTuttiModeExecutionStore(t)
+	now := time.UnixMilli(1_700_000_300_000).UTC()
+	prepareTuttiModeExecutionWorkspace(t, store, "workspace-snapshot", "workflow-snapshot", "session-snapshot", now)
+	executions := &executionservice.Service{Store: store, Clock: func() time.Time { return now }}
+	issues := workspaceissues.Service{Store: store, Clock: func() time.Time { return now }}
+	issue, tasks := prepareTuttiModeIssueGraph(t, issues, "workspace-snapshot", "workflow-snapshot", "session-snapshot")
+	_, _, initial, err := executions.Materialize(ctx, executionservice.MaterializeInput{
+		Issue: issue, Tasks: tasks, WorkflowID: "workflow-snapshot",
+	})
+	if err != nil {
+		t.Fatalf("Materialize() error = %v", err)
+	}
+
+	nextCheckpointID := initial.Execution.ID + ":checkpoint:task-settled"
+	snapshot, err := store.getTuttiModeExecutionByIssueSnapshot(
+		ctx,
+		issue.WorkspaceID,
+		issue.IssueID,
+		func() error {
+			result := make(chan error, 1)
+			go func() {
+				tx, beginErr := store.writeDB.BeginTx(ctx, nil)
+				if beginErr != nil {
+					result <- beginErr
+					return
+				}
+				defer func() { _ = tx.Rollback() }()
+				if _, updateErr := tx.ExecContext(ctx, `
+UPDATE workspace_tutti_executions
+SET status = 'running', graph_revision = 2, updated_at_unix_ms = ?
+WHERE workspace_id = ? AND execution_id = ?
+`, now.Add(time.Second).UnixMilli(), issue.WorkspaceID, initial.Execution.ID); updateErr != nil {
+					result <- updateErr
+					return
+				}
+				if _, updateErr := tx.ExecContext(ctx, `
+UPDATE workspace_tutti_execution_checkpoints
+SET status = 'resolved', resolved_at_unix_ms = ?, updated_at_unix_ms = ?
+WHERE workspace_id = ? AND checkpoint_id = ?
+`, now.Add(time.Second).UnixMilli(), now.Add(time.Second).UnixMilli(), issue.WorkspaceID, initial.Checkpoints[0].ID); updateErr != nil {
+					result <- updateErr
+					return
+				}
+				if insertErr := insertTuttiModeExecutionCheckpoint(ctx, tx, issue.WorkspaceID, executionbiz.Checkpoint{
+					ID:             nextCheckpointID,
+					ExecutionID:    initial.Execution.ID,
+					Kind:           executionbiz.CheckpointKindTaskSettled,
+					Status:         executionbiz.CheckpointStatusActive,
+					Sequence:       2,
+					GraphRevision:  2,
+					SubjectTaskID:  "task-1",
+					CreationReason: "concurrent transition",
+					CreatedAt:      now.Add(time.Second),
+					UpdatedAt:      now.Add(time.Second),
+				}); insertErr != nil {
+					result <- insertErr
+					return
+				}
+				result <- tx.Commit()
+			}()
+			return <-result
+		},
+	)
+	if err != nil {
+		t.Fatalf("getTuttiModeExecutionByIssueSnapshot() error = %v", err)
+	}
+	if snapshot.Execution.Status != executionbiz.StatusAwaitingSchedule ||
+		snapshot.Execution.GraphRevision != 1 ||
+		snapshot.Execution.ActiveCheckpointID != initial.Checkpoints[0].ID ||
+		len(snapshot.Checkpoints) != 1 ||
+		snapshot.Checkpoints[0].Status != executionbiz.CheckpointStatusActive {
+		t.Fatalf("concurrent read snapshot = %#v, want complete initial revision", snapshot)
+	}
+
+	current, err := executions.GetByIssue(ctx, issue.WorkspaceID, issue.IssueID)
+	if err != nil {
+		t.Fatalf("GetByIssue(current) error = %v", err)
+	}
+	if current.Execution.Status != executionbiz.StatusRunning ||
+		current.Execution.GraphRevision != 2 ||
+		current.Execution.ActiveCheckpointID != nextCheckpointID ||
+		len(current.Checkpoints) != 2 ||
+		current.Checkpoints[0].Status != executionbiz.CheckpointStatusResolved ||
+		current.Checkpoints[1].Status != executionbiz.CheckpointStatusActive {
+		t.Fatalf("current aggregate = %#v, want complete second revision", current)
+	}
+}
+
 func openTuttiModeExecutionStore(t *testing.T) *SQLiteStore {
 	t.Helper()
 	store, err := OpenSQLiteStore(filepath.Join(t.TempDir(), "tutti.sqlite"))

@@ -72,7 +72,42 @@ func NewInitialAggregate(
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
-	return Aggregate{Execution: execution, Checkpoints: []Checkpoint{checkpoint}}, nil
+	aggregate := Aggregate{Execution: execution, Checkpoints: []Checkpoint{checkpoint}}
+	if err := ValidateInitialAggregate(aggregate); err != nil {
+		return Aggregate{}, err
+	}
+	return aggregate, nil
+}
+
+// ValidateInitialAggregate owns the execution-domain invariants for the inert
+// state created when an accepted plan is materialized. Persistence adapters
+// separately validate relations to their Issue and task rows.
+func ValidateInitialAggregate(aggregate Aggregate) error {
+	execution := aggregate.Execution
+	expectedExecutionID, executionOK := ExecutionID(execution.IssueID)
+	expectedCheckpointID, checkpointOK := InitialCheckpointID(expectedExecutionID)
+	if strings.TrimSpace(execution.WorkspaceID) == "" ||
+		strings.TrimSpace(execution.WorkflowID) == "" ||
+		strings.TrimSpace(execution.SourceSessionID) == "" ||
+		!executionOK || !checkpointOK ||
+		execution.ID != expectedExecutionID ||
+		execution.Status != StatusAwaitingSchedule ||
+		execution.GraphRevision != 1 ||
+		execution.ReviewMode != ReviewModeSelf ||
+		len(aggregate.Checkpoints) != 1 {
+		return ErrInvalidExecution
+	}
+	checkpoint := aggregate.Checkpoints[0]
+	if checkpoint.ExecutionID != execution.ID ||
+		checkpoint.ID != expectedCheckpointID ||
+		checkpoint.ID != execution.ActiveCheckpointID ||
+		checkpoint.Kind != CheckpointKindInitialSchedule ||
+		checkpoint.Status != CheckpointStatusActive ||
+		checkpoint.Sequence != 1 ||
+		checkpoint.GraphRevision != execution.GraphRevision {
+		return ErrInvalidExecution
+	}
+	return nil
 }
 
 func IsStatus(value Status) bool {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
+	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
 	workflowbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceworkflow"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
@@ -117,6 +118,27 @@ func TestIssueManagerReservesTuttiModePlanIssueIDsForWorkflowMaterialization(t *
 	service.TuttiModeExecutions = &tuttimodeexecutionservice.Service{
 		Store: store,
 		Clock: func() time.Time { return now },
+	}
+	mismatchedID := workflowbiz.TuttiModePlanIssueIDPrefix + "different-workflow"
+	if _, err := service.CreateIssueFromPlan(ctx, workspaceID, CreateIssueManagerIssueFromPlanInput{
+		Issue: CreateIssueManagerIssueInput{
+			IssueID:                mismatchedID,
+			TopicID:                workspaceissues.DefaultTopicID,
+			Title:                  "Mismatched workflow identity",
+			PlanningSource:         string(workspaceissues.PlanningSourceTuttiModePlan),
+			SourceSessionID:        "session-1",
+			TuttiModeWorkflowOwned: true,
+			TuttiModeWorkflowID:    "workflow-1",
+		},
+		Tasks: task,
+	}); !errors.Is(err, workspaceissues.ErrInvalidArgument) {
+		t.Errorf("CreateIssueFromPlan(mismatched workflow identity) error = %v, want ErrInvalidArgument", err)
+	}
+	if _, err := store.GetIssue(ctx, workspaceID, mismatchedID); !errors.Is(err, workspaceissues.ErrIssueNotFound) {
+		t.Errorf("GetIssue(mismatched workflow identity) error = %v, want ErrIssueNotFound", err)
+	}
+	if _, err := service.TuttiModeExecutions.GetByIssue(ctx, workspaceID, mismatchedID); !errors.Is(err, executionbiz.ErrExecutionNotFound) {
+		t.Errorf("GetByIssue(mismatched workflow identity) error = %v, want ErrExecutionNotFound", err)
 	}
 	detail, err := service.CreateIssueFromPlan(ctx, workspaceID, CreateIssueManagerIssueFromPlanInput{
 		Issue: CreateIssueManagerIssueInput{
