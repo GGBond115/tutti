@@ -957,12 +957,28 @@ its appearance transition. Background Workbench AgentGUI bodies remain mounted
 so drafts and local conversation presentation survive focus changes. Focus does
 not determine visibility. Workbench frame geometry and z-order classify bodies
 as fully occluded or visually exposed; partial exposure counts as visible.
+While Genie replaces a real node with Canvas output, or scale minimize marks
+the node as pending, Workbench excludes that departing node from geometric
+occlusion. Covered windows therefore resume presentation during minimize; a
+restoring Genie node stays non-occluding until its real node is revealed.
+Scale restore, shell frame transitions, and onboarding entry keep the moving
+node's own presentation visible while temporarily excluding it as an occluder;
+DOM transition and animation completion release that state. Portal-backed
+`dialog-popover` nodes sort above default-layer nodes before Workbench applies
+normal stack order.
 Only fully occluded bodies pause descendant animations and use
 `content-visibility: hidden`. Visible Empty-Hero surfaces may own carousel
 images, alignment observers, wheel input, and a Three.js/WebGL scene.
 Occlusion releases those resources; exposure restores the DOM presentation
 immediately and defers WebGL reconstruction until after the reveal interaction
-settles.
+settles. Detail timelines follow the same geometric boundary: fully occluded
+surfaces disconnect dock/timeline resize observation and scroll listeners,
+while exposure reattaches them and resynchronizes the retained bottom lock.
+Elapsed Turn, compaction, subagent, and Goal labels subscribe to one shared
+renderer-realm second clock only while their containing presentation is
+visible; exposure catches the displayed value up from canonical timestamps.
+Focus alone must not stop either behavior because multiple exposed AgentGUI
+windows remain live at the same time.
 On workspace restore, Desktop mounts the focused AgentGUI body immediately and
 hydrates inactive bodies sequentially after browser idle, one animation frame
 at a time. Window shells and persisted geometry remain synchronous; this

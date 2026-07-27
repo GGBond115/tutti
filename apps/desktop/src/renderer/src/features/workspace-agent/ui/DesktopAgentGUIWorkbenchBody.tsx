@@ -20,6 +20,7 @@ import { registerWorkspaceAgentGuiOpenSession } from "../../workspace-workbench/
 import {
   selectWorkbenchNodeIsVisuallyExposed,
   useWorkbenchSelector,
+  useWorkbenchVisualOcclusionPresentation,
   workbenchFocusInputActivationType
 } from "@tutti-os/workbench-surface";
 import { useTranslation } from "@renderer/i18n";
@@ -705,8 +706,13 @@ function DesktopAgentGUIWorkbenchBodyAdapter({
   context,
   ...props
 }: DesktopAgentGUIWorkbenchBodyProps): JSX.Element {
+  const visualOcclusionPresentation = useWorkbenchVisualOcclusionPresentation();
   const isVisuallyExposed = useWorkbenchSelector((state) =>
-    selectWorkbenchNodeIsVisuallyExposed(state, context.node.id)
+    selectWorkbenchNodeIsVisuallyExposed(
+      state,
+      context.node.id,
+      visualOcclusionPresentation
+    )
   );
   const isBodyVisible = context.isVisible && isVisuallyExposed;
   const [bodyHydrated, setBodyHydrated] = useState(

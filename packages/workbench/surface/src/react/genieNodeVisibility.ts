@@ -1,5 +1,7 @@
 export interface WorkbenchGenieNodeVisibility {
+  getHiddenNodeIDsSnapshot(): ReadonlySet<string>;
   getSnapshot(nodeID: string): boolean;
+  subscribeAll(listener: () => void): () => void;
   subscribe(nodeID: string, listener: () => void): () => void;
 }
 
@@ -13,23 +15,29 @@ export interface WorkbenchGenieNodeVisibilityStore extends WorkbenchGenieNodeVis
 export type WorkbenchGenieNodeVisibilityToken = symbol;
 
 export function createWorkbenchGenieNodeVisibilityStore(): WorkbenchGenieNodeVisibilityStore {
-  const hiddenNodeIDs = new Set<string>();
+  let hiddenNodeIDs: ReadonlySet<string> = new Set();
   const hiddenTokenByNodeID = new Map<
     string,
     WorkbenchGenieNodeVisibilityToken
   >();
   const listenersByNodeID = new Map<string, Set<() => void>>();
+  const allListeners = new Set<() => void>();
 
   const setHidden = (nodeID: string, hidden: boolean): void => {
     if (hiddenNodeIDs.has(nodeID) === hidden) {
       return;
     }
+    const nextHiddenNodeIDs = new Set(hiddenNodeIDs);
     if (hidden) {
-      hiddenNodeIDs.add(nodeID);
+      nextHiddenNodeIDs.add(nodeID);
     } else {
-      hiddenNodeIDs.delete(nodeID);
+      nextHiddenNodeIDs.delete(nodeID);
     }
+    hiddenNodeIDs = nextHiddenNodeIDs;
     for (const listener of listenersByNodeID.get(nodeID) ?? []) {
+      listener();
+    }
+    for (const listener of allListeners) {
       listener();
     }
   };
@@ -53,9 +61,13 @@ export function createWorkbenchGenieNodeVisibilityStore(): WorkbenchGenieNodeVis
 
   return {
     dispose() {
-      hiddenNodeIDs.clear();
+      hiddenNodeIDs = new Set();
       hiddenTokenByNodeID.clear();
       listenersByNodeID.clear();
+      allListeners.clear();
+    },
+    getHiddenNodeIDsSnapshot() {
+      return hiddenNodeIDs;
     },
     getSnapshot(nodeID) {
       return hiddenNodeIDs.has(nodeID);
@@ -67,6 +79,12 @@ export function createWorkbenchGenieNodeVisibilityStore(): WorkbenchGenieNodeVis
       } else {
         show(nodeID);
       }
+    },
+    subscribeAll(listener) {
+      allListeners.add(listener);
+      return () => {
+        allListeners.delete(listener);
+      };
     },
     show,
     subscribe(nodeID, listener) {

@@ -67,6 +67,13 @@ Rules:
 - project normal-window visibility through the mounted body context; it is
   false while minimized, Genie-hidden, or in Mission Control, so heavy child
   presentation can wait without importing Workbench animation state
+- separate a node's own exposure from whether it may occlude lower nodes.
+  Scale restore, shell frame transitions, and onboarding entry keep their own
+  body visible but do not cover lower bodies until the matching DOM animation
+  or transition settles; overlapping transitions release independently
+- order geometric occlusion by rendered surface layer before normal window
+  stack order. A `dialog-popover` node remains above default-layer nodes even
+  when the normal focus stack changes
 - keep window chrome hit zones unambiguous; floating-window resize handles
   should render outside the clipped window surface so corner handles remain
   reachable and take precedence over header drag regions; interactive controls

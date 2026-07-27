@@ -38,6 +38,7 @@ interface Input {
   bottomDockRef: RefObject<HTMLDivElement | null>;
   bottomDockStoreRevision: string;
   conversation: AgentConversationVM | null;
+  isVisible: boolean;
   pendingPrependScrollAnchorRef: MutableRefObject<{
     conversationId: string;
     scrollHeight: number;
@@ -64,6 +65,7 @@ export function useAgentGUIDetailScroll(input: Input) {
     bottomDockRef,
     bottomDockStoreRevision,
     conversation,
+    isVisible,
     pendingPrependScrollAnchorRef,
     showTimelineSkeleton,
     submittedPromptScrollConversationRef,
@@ -93,6 +95,9 @@ export function useAgentGUIDetailScroll(input: Input) {
   const lastShowTimelineSkeletonRef = useRef(showTimelineSkeleton);
   const bottomDockSafeAreaRef = useRef<BottomDockSafeArea | null>(null);
   useLayoutEffect(() => {
+    if (!isVisible) {
+      return;
+    }
     const timelineSkeletonChanged =
       lastShowTimelineSkeletonRef.current !== showTimelineSkeleton;
     lastShowTimelineSkeletonRef.current = showTimelineSkeleton;
@@ -243,6 +248,7 @@ export function useAgentGUIDetailScroll(input: Input) {
     conversation,
     dispatchFollowEnd,
     followEndController,
+    isVisible,
     showTimelineSkeleton,
     timelineConversationId,
     viewModel.rail.activeConversationId,
@@ -251,6 +257,9 @@ export function useAgentGUIDetailScroll(input: Input) {
 
   const hasTimelineConversation = timelineConversationId !== null;
   useLayoutEffect(() => {
+    if (!isVisible) {
+      return;
+    }
     const timeline = timelineRef.current;
     const bottomDock = bottomDockRef.current;
     if (!hasTimelineConversation || !timeline || !bottomDock) {
@@ -377,9 +386,17 @@ export function useAgentGUIDetailScroll(input: Input) {
       }
       observer.disconnect();
     };
-  }, [bottomDockStoreRevision, followEndController, hasTimelineConversation]);
+  }, [
+    bottomDockStoreRevision,
+    followEndController,
+    hasTimelineConversation,
+    isVisible
+  ]);
 
   useEffect(() => {
+    if (!isVisible) {
+      return;
+    }
     const timeline = timelineRef.current;
     const timelineContent = timelineContentRef.current;
     const activeConversationId = timelineConversationId;
@@ -625,6 +642,7 @@ export function useAgentGUIDetailScroll(input: Input) {
     actions,
     dispatchFollowEnd,
     followEndController,
+    isVisible,
     timelineConversationId,
     showTimelineSkeleton,
     viewModel.rail.activeConversationId,
@@ -635,7 +653,7 @@ export function useAgentGUIDetailScroll(input: Input) {
   const scrollTimelineToBottom = useCallback(() => {
     const timeline = timelineRef.current;
     const activeConversationId = timelineConversationId;
-    if (!timeline || !activeConversationId) {
+    if (!isVisible || !timeline || !activeConversationId) {
       return;
     }
     if (activeConversationId !== viewModel.rail.activeConversationId) {
@@ -676,6 +694,7 @@ export function useAgentGUIDetailScroll(input: Input) {
     );
   }, [
     dispatchFollowEnd,
+    isVisible,
     timelineConversationId,
     viewModel.rail.activeConversationId,
     virtualScrollControllerRef
