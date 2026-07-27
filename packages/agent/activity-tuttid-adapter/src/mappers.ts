@@ -1,5 +1,5 @@
 import type {
-  AgentActivityMessage,
+  AgentActivityDurableMessage,
   AgentActivitySession,
   AgentActivityTurn
 } from "@tutti-os/agent-activity-core";
@@ -139,7 +139,7 @@ export function agentActivityTuttiModeActivationFromTuttid(
 export function agentActivityMessageFromTuttidMessage(
   workspaceId: string,
   message: WorkspaceAgentSessionMessage
-): AgentActivityMessage {
+): AgentActivityDurableMessage {
   return {
     workspaceId,
     agentSessionId: message.agentSessionId,

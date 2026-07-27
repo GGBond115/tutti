@@ -4,6 +4,7 @@ import {
   type AgentActivityAdapter,
   type AgentActivitySendInput,
   type AgentSessionEngine,
+  type PlanSubmitDecisionResult,
   type PromptQueueSendCommand,
   type SessionActivateCommand,
   type SessionReconcileCommand,
@@ -44,7 +45,7 @@ interface CreateWorkspaceAgentSessionEngineHostInput {
     requestId: string;
     turnId: string;
     workspaceId: string;
-  }): Promise<unknown>;
+  }): Promise<PlanSubmitDecisionResult>;
   subscribeSessionEvents(
     workspaceId: string,
     listener: (event: unknown) => void
@@ -121,6 +122,16 @@ export function createWorkspaceAgentSessionEngineHost(
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => Date.now() },
     commandPort: {
+      executePlanDecision: (command) =>
+        input.submitPlanDecision({
+          action: command.action,
+          agentSessionId: command.agentSessionId,
+          idempotencyKey: command.idempotencyKey,
+          promptKind: command.promptKind,
+          requestId: command.requestId,
+          turnId: command.turnId,
+          workspaceId: command.workspaceId
+        }),
       execute: async (command, options) => {
         switch (command.type) {
           case "attention/readState/read":
@@ -170,16 +181,6 @@ export function createWorkspaceAgentSessionEngineHost(
               agentSessionId: command.agentSessionId,
               ...(command.optionId ? { optionId: command.optionId } : {}),
               ...(command.payload ? { payload: { ...command.payload } } : {}),
-              requestId: command.requestId,
-              turnId: command.turnId,
-              workspaceId: command.workspaceId
-            });
-          case "plan/submitDecision":
-            return input.submitPlanDecision({
-              action: command.action,
-              agentSessionId: command.agentSessionId,
-              idempotencyKey: command.idempotencyKey,
-              promptKind: command.promptKind,
               requestId: command.requestId,
               turnId: command.turnId,
               workspaceId: command.workspaceId

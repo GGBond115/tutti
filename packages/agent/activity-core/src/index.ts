@@ -77,6 +77,7 @@ export type {
   EngineDispatchOptions,
   EngineDomainReducer,
   EngineExternalCommand,
+  EngineExternalCommandExceptPlanDecision,
   EngineIntent,
   EngineInternalCommand,
   EngineReducerResult,
@@ -196,11 +197,13 @@ export type {
   TurnCancelCommand
 } from "./engine/sessionLifecycle.types.ts";
 export type {
+  PlanDecisionOperation,
   PlanDecisionIntent,
   PlanDecisionRecord,
   PlanDecisionState,
   PlanDecisionStatus,
-  PlanSubmitDecisionCommand
+  PlanSubmitDecisionCommand,
+  PlanSubmitDecisionResult
 } from "./engine/planDecision.types.ts";
 export {
   selectPlanDecisionForTurn,
@@ -304,6 +307,7 @@ export type {
   AgentActivityDeleteSessionResult,
   AgentActivityDeleteSessionsInput,
   AgentActivityDeleteSessionsResult,
+  AgentActivityDurableMessage,
   AgentActivityModelPlanModel,
   AgentActivityModelPlanSummary,
   AgentActivitySetCollaborationAdoptionInput,
@@ -347,6 +351,7 @@ export type {
   AgentActivityTurn,
   AgentActivityTurnOrigin,
   AgentActivityTurnCancelResponse,
+  AgentActivityTransientMessage,
   AgentActivityInteraction,
   AgentActivityUpdatedApplyResult,
   AgentActivityUpdatedEvent

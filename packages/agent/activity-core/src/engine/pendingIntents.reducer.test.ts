@@ -709,6 +709,7 @@ function message(clientSubmitId: string) {
     occurredAtUnixMs: 2,
     payload: { clientSubmitId },
     role: "user",
+    sequence: 1,
     turnId: "turn-1",
     version: 1
   };

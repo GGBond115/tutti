@@ -16,6 +16,7 @@ function message(
   return {
     workspaceId: "workspace-1",
     role: "assistant",
+    sequence: overrides.sequence ?? overrides.version ?? 1,
     kind: "text",
     turnId: "turn-1",
     version: 1,

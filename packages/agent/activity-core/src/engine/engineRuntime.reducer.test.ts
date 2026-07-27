@@ -1235,6 +1235,7 @@ test("timeout message confirmation waits for exact-turn lifecycle reconcile", ()
         occurredAtUnixMs: 4,
         payload: { clientSubmitId: "submit-1", text: "submit-1" },
         role: "user",
+        sequence: 1,
         turnId: "turn-1",
         version: 1
       }

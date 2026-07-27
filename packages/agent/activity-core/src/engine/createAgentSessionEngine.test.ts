@@ -92,6 +92,21 @@ function createManualCommandPort(): ManualCommandPort {
   const executedCommands: EngineExternalCommand[] = [];
   const abortSignalsByCommandId = new Map<string, AbortSignal>();
   return {
+    executePlanDecision(command, options) {
+      executedCommands.push(command);
+      if (options?.signal) {
+        abortSignalsByCommandId.set(command.commandId, options.signal);
+      }
+      return new Promise((resolve, reject) => {
+        settlersByCommandId.set(command.commandId, {
+          reject,
+          resolve: (value) =>
+            resolve(
+              value as import("./planDecision.types.ts").PlanSubmitDecisionResult
+            )
+        });
+      });
+    },
     execute(command, options) {
       executedCommands.push(command);
       if (options?.signal) {
@@ -653,6 +668,7 @@ test("an authoritative Session detail snapshot notifies subscribers once", () =>
         occurredAtUnixMs: 3,
         payload: { text: "hello" },
         role: "assistant",
+        sequence: 1,
         turnId: "turn-1",
         version: 1,
         workspaceId: "workspace-1"

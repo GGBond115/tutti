@@ -40,6 +40,7 @@ import {
   classifyAgentRichTextTextPaste,
   createAgentRichTextCaretAnchorExtension,
   createAgentRichTextPlaceholderExtension,
+  insertAgentRichTextClipboardHtml,
   isAgentRichTextLargeTextPaste,
   isPromptVisualLineStart,
   readEditorDomSelectionRange,
@@ -47,6 +48,7 @@ import {
   readPromptSelection,
   readPromptTextRange,
   readSelectedPlainText,
+  serializeAgentRichTextSelection,
   scrollEditorSelectionIntoView,
   writePlainTextToClipboard
 } from "./agentRichTextEditorSupport";
@@ -372,11 +374,12 @@ export const AgentRichTextEditor = forwardRef<
           ) {
             return false;
           }
-          const selection = readPromptSelection(currentEditor);
-          if (!selection.text) {
+          const clipboard = serializeAgentRichTextSelection(currentEditor);
+          if (!clipboard) {
             return false;
           }
-          event.clipboardData.setData("text/plain", selection.text);
+          event.clipboardData.setData("text/plain", clipboard.text);
+          event.clipboardData.setData("text/html", clipboard.html);
           event.preventDefault();
           return true;
         },
@@ -391,10 +394,12 @@ export const AgentRichTextEditor = forwardRef<
             return false;
           }
           const selection = readPromptSelection(currentEditor);
-          if (!selection.text) {
+          const clipboard = serializeAgentRichTextSelection(currentEditor);
+          if (!clipboard) {
             return false;
           }
-          event.clipboardData.setData("text/plain", selection.text);
+          event.clipboardData.setData("text/plain", clipboard.text);
+          event.clipboardData.setData("text/html", clipboard.html);
           event.preventDefault();
           currentEditor.commands.deleteRange({
             from: selection.from,
@@ -444,7 +449,15 @@ export const AgentRichTextEditor = forwardRef<
             return true;
           }
           if (textPasteKind === "structured-mention") {
-            return false;
+            event.preventDefault();
+            const currentEditor = editorRef.current;
+            if (!currentEditor) {
+              return true;
+            }
+            if (insertAgentRichTextClipboardHtml(currentEditor, html)) {
+              mentionSuggestionSuppression.suppressTextInsertion(text);
+            }
+            return true;
           }
           event.preventDefault();
           const currentEditor = editorRef.current;

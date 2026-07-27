@@ -1,5 +1,6 @@
 import type { AgentActivityComposerModelConfiguration } from "./composerModelConfiguration.types.ts";
 import type {
+  AgentActivityDurableMessage,
   AgentActivityMessage,
   AgentActivityMessageDeltaEvent
 } from "./message.types.ts";
@@ -12,9 +13,11 @@ import type {
 } from "./tuttiMode.types.ts";
 
 export type {
+  AgentActivityDurableMessage,
   AgentActivityMessage,
   AgentActivityMessageDeltaEvent,
-  AgentActivityMessageSemantics
+  AgentActivityMessageSemantics,
+  AgentActivityTransientMessage
 } from "./message.types.ts";
 
 export type {
@@ -127,7 +130,7 @@ export interface AgentActivityPresence {
 }
 
 export interface AgentActivityMessagePage {
-  messages: AgentActivityMessage[];
+  messages: AgentActivityDurableMessage[];
   hasMore: boolean;
   latestVersion: number;
 }
@@ -392,7 +395,7 @@ export interface AgentActivityEventMessage {
   version: number;
   turnId: string | null;
   status?: string;
-  sequence?: number;
+  sequence: number;
   occurredAtUnixMs: number;
   startedAtUnixMs?: number;
   completedAtUnixMs?: number;

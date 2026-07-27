@@ -26,6 +26,9 @@ const session = normalizeAgentActivitySession({
 test("pin result commits mutation and canonical session in one engine notification", async () => {
   let resolveCommand: (value: unknown) => void = () => {};
   const commandPort: EngineCommandPort = {
+    executePlanDecision: async () => {
+      throw new Error("unexpected plan decision command");
+    },
     execute: async () =>
       new Promise((resolve) => {
         resolveCommand = resolve;

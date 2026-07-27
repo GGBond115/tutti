@@ -1,4 +1,7 @@
-import type { AgentActivityMessage, AgentActivityTurn } from "../types.ts";
+import type {
+  AgentActivityDurableMessage,
+  AgentActivityTurn
+} from "../types.ts";
 import type { AgentActivitySessionMessageWindow } from "../messageWindow.types.ts";
 import type { AgentActivitySessionInput } from "../sessionNormalization.ts";
 
@@ -43,7 +46,7 @@ export interface SessionDetailSnapshotReceivedIntent {
   type: "session/detailSnapshotReceived";
   childSessions: readonly AgentActivitySessionInput[];
   live?: boolean;
-  messages?: readonly AgentActivityMessage[];
+  messages?: readonly AgentActivityDurableMessage[];
   session: AgentActivitySessionInput;
   sessionMessageWindows?: readonly (AgentActivitySessionMessageWindow & {
     agentSessionId: string;

@@ -173,6 +173,11 @@ export type EngineExternalCommand =
   | ComposerOptionsCommand
   | TuttiModeActivationCommand;
 
+export type EngineExternalCommandExceptPlanDecision = Exclude<
+  EngineExternalCommand,
+  PlanSubmitDecisionCommand
+>;
+
 export type EngineCommand = EngineExternalCommand | EngineInternalCommand;
 
 export function isEngineInternalCommand(
@@ -259,9 +264,13 @@ export interface EngineClock {
 /** Transport adapter surface: executes external command descriptions. */
 export interface EngineCommandPort {
   execute(
-    command: EngineExternalCommand,
+    command: EngineExternalCommandExceptPlanDecision,
     options?: { signal?: AbortSignal }
   ): Promise<unknown>;
+  executePlanDecision?(
+    command: PlanSubmitDecisionCommand,
+    options?: { signal?: AbortSignal }
+  ): Promise<PlanSubmitDecisionResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -319,7 +328,8 @@ import type {
 import type {
   PlanDecisionIntent,
   PlanDecisionState,
-  PlanSubmitDecisionCommand
+  PlanSubmitDecisionCommand,
+  PlanSubmitDecisionResult
 } from "./planDecision.types.ts";
 import type {
   SessionCommandsIntent,

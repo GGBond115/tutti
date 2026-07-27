@@ -681,6 +681,17 @@ createAgentSessionEngine({
 });
 ```
 
+`plan/submitDecision` uses the dedicated
+`EngineCommandPort.executePlanDecision` method. Its public
+`PlanSubmitDecisionResult` contains the durable operation identity returned by
+the Host. It must not pass through the generic `execute(): Promise<unknown>`
+path or manufacture an operation id from a command id.
+
+Durable daemon message pages and `message_update` payloads use
+`AgentActivityDurableMessage`, whose immutable `sequence` is required. Local
+optimistic and session-audit projections may use the separate transient
+message shape; this must not weaken the durable page or realtime contract.
+
 The adapter exposes the HTTP operations used by that command port and by the
 desktop reconcile bridge:
 

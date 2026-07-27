@@ -5,7 +5,7 @@ export interface AgentActivityMessageSemantics {
   noticeCommandStatus?: "running" | "completed" | "failed" | "canceled";
 }
 
-export interface AgentActivityMessage {
+export interface AgentActivityMessageBase {
   workspaceId?: string;
   agentSessionId: string;
   messageId: string;
@@ -16,12 +16,23 @@ export interface AgentActivityMessage {
   status?: string | null;
   semantics?: AgentActivityMessageSemantics;
   payload: Record<string, unknown>;
-  sequence?: number;
   occurredAtUnixMs: number;
   createdAtUnixMs?: number;
   startedAtUnixMs?: number;
   completedAtUnixMs?: number;
 }
+
+export interface AgentActivityDurableMessage extends AgentActivityMessageBase {
+  sequence: number;
+}
+
+export interface AgentActivityTransientMessage extends AgentActivityMessageBase {
+  sequence?: undefined;
+}
+
+export type AgentActivityMessage =
+  | AgentActivityDurableMessage
+  | AgentActivityTransientMessage;
 
 export interface AgentActivityMessageDeltaEvent {
   workspaceId: string;
