@@ -405,6 +405,7 @@ jobs:
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          NODE_OPTIONS: --max-old-space-size=4096
         run: |
           if [[ "${TUTTI_DESKTOP_DRY_RUN}" == "true" ]]; then
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER

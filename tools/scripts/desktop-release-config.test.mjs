@@ -652,6 +652,15 @@ test("desktop release workflow materializes macOS signing certificate before pac
   );
 });
 
+test("desktop release macOS builds reserve enough Node heap for the renderer bundle", async () => {
+  const workflow = await readFile(workflowPath, "utf8");
+
+  assert.match(
+    workflow,
+    /Build release artifacts[\s\S]*?NODE_OPTIONS:\s+--max-old-space-size=4096[\s\S]*?pnpm --filter @tutti-os\/desktop build:mac:signed/
+  );
+});
+
 test("desktop macOS packaging builds architecture-specific and universal artifacts", async () => {
   const buildScript = await readFile(buildScriptPath, "utf8");
   const claudeSidecarVendorScript = await readFile(
