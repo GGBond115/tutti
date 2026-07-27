@@ -636,14 +636,16 @@ export function AgentGUINodeView({
             aria-hidden={conversationRailCollapsed ? "true" : undefined}
             inert={conversationRailCollapsed ? true : undefined}
           >
-            <AgentGUIConversationRailController
-              {...conversationRailStoreState}
-              conversations={viewModel.rail.conversations}
-              nodeId={viewModel.shell.nodeId}
-              registerInteractionLockProbe={registerRailInteractionLockProbe}
-              userProjects={viewModel.rail.userProjects}
-              workspaceId={viewModel.shell.workspaceId}
-            />
+            <AgentConversationClockProvider isVisible={isVisible}>
+              <AgentGUIConversationRailController
+                {...conversationRailStoreState}
+                conversations={viewModel.rail.conversations}
+                nodeId={viewModel.shell.nodeId}
+                registerInteractionLockProbe={registerRailInteractionLockProbe}
+                userProjects={viewModel.rail.userProjects}
+                workspaceId={viewModel.shell.workspaceId}
+              />
+            </AgentConversationClockProvider>
           </aside>
           <div
             id="agent-gui-conversation-rail-resize"

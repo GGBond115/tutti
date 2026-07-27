@@ -396,6 +396,9 @@ function isAgentGuiDegradationRelevant(file) {
   return (
     file.startsWith("packages/agent/") ||
     file.startsWith("tools/degradation-baseline/") ||
+    file === "tools/scripts/agent-gui-presentation-performance-policy.mjs" ||
+    file ===
+      "tools/scripts/agent-gui-presentation-performance-policy.test.mjs" ||
     file === "tools/scripts/check-agent-gui-degradation.mjs" ||
     file === "tools/scripts/check-agent-gui-degradation.test.mjs"
   );

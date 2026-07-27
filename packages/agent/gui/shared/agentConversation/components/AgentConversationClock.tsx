@@ -15,7 +15,7 @@ class AgentConversationClockStore {
   private secondTimeMs = Date.now();
   private secondTimer: number | null = null;
 
-  readonly disabledSecond: ExternalStoreSnapshotSource<number> = {
+  readonly disabled: ExternalStoreSnapshotSource<number> = {
     getSnapshot: () => 0,
     subscribe: () => () => undefined
   };
@@ -93,13 +93,15 @@ export function useAgentConversationNowUnixMs(enabled: boolean): number | null {
   const isVisible = useContext(AgentConversationClockVisibilityContext);
   const shouldTick = enabled && isVisible;
   const nowUnixMs = useExternalStoreSnapshot(
-    shouldTick
-      ? agentConversationClock.second
-      : agentConversationClock.disabledSecond
+    shouldTick ? agentConversationClock.second : agentConversationClock.disabled
   );
   return shouldTick ? nowUnixMs : null;
 }
 
 export function useAgentConversationMinuteNowUnixMs(): number {
-  return useExternalStoreSnapshot(agentConversationClock.minute);
+  const isVisible = useContext(AgentConversationClockVisibilityContext);
+  const nowUnixMs = useExternalStoreSnapshot(
+    isVisible ? agentConversationClock.minute : agentConversationClock.disabled
+  );
+  return isVisible ? nowUnixMs : agentConversationClock.minute.getSnapshot();
 }

@@ -97,10 +97,12 @@ application; CDP-injected scenario input remains available.
 
 Reports and traces are written under
 `.tmp/perf/agent-gui/<scenario>/<timestamp>/`. Metric values are
-report-only by default; startup, scenario, capture, or analysis failures return
-a non-zero exit code. `virtualized-scroll-locator` is the narrow exception: its
-documented scenario thresholds fail the command. The command remains local
-diagnostics, not a CI performance gate or a stable cross-device benchmark.
+report-only unless the selected scenario declares explicit thresholds.
+Startup, semantic scenario assertions, capture, analysis, and declared
+threshold failures return a non-zero exit code. Current timing/trace gates are
+owned by `virtualized-scroll-locator`, `workbench-window-drag`, and
+`workbench-fifty-window-stress`. The command remains local diagnostics, not a
+CI performance gate or a stable cross-device benchmark.
 
 The report separates semantic scenario assertions from performance metrics. It
 shows start-to-selection, selection-to-stable, and settling phases; restricts

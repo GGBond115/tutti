@@ -227,13 +227,17 @@ The agent GUI degradation ratchet is enforced in two modes:
 - `pnpm check:agent-gui-degradation:staged` for `pre-commit`, blocking new
   degradation patterns (uncommented timers, swallowed catches, stores created
   in component files, new provider behavior branches, direct
-  `useSyncExternalStore` calls, module-level mutable globals) on staged added
-  lines under `packages/agent/gui` and `packages/agent/activity-core`
+  `useSyncExternalStore` calls, module-level mutable globals, unexplained
+  presentation schedulers/inline compositor hints, unreviewed CSS infinite
+  animations/compositor hints, and `transition: all`) on staged added lines
+  under `packages/agent/gui` and `packages/agent/activity-core`; changes to the
+  AgentGUI stylesheet also preserve the required hidden/inactive pruning rules
 - `pnpm check:agent-gui-degradation` for `check:full`, pull-request CI, and a
   `check:changed` lane selected when files under `packages/agent/` or
   `tools/degradation-baseline/` change; it compares entropy metrics against
-  the committed baseline and fails on any increase, and on any decrease that
-  is not locked in by updating the baseline in the same change
+  the committed baseline and fails on any increase, on any decrease that is
+  not locked in by updating the baseline in the same change, or when an exact
+  CSS presentation-hint fingerprint lacks a reviewed lifecycle reason
 
 Details of the metrics and baseline mechanism live in
 [Static Analysis](static-analysis.md).

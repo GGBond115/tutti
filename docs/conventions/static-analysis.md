@@ -302,11 +302,13 @@ is protected by a degradation ratchet:
   over the business limit, package-wide effect totals, per-component
   memoization overages, render-time ref mirrors/caches, provider behavior
   branches, timers, swallowed catch blocks, view-embedded stores, direct
-  `useSyncExternalStore` calls, module-level mutable globals, and daemon Go
-  file-length exemptions) and compares them against the committed baseline in
-  `tools/degradation-baseline/agent-gui.json`. Render-mirror counting also
-  covers Desktop's `DesktopAgentGUIWorkbenchBody` host boundary because
-  unstable host callbacks can invalidate the entire Agent GUI subtree.
+  `useSyncExternalStore` calls, module-level mutable globals, presentation
+  schedulers, inline compositor hints, CSS infinite animations/compositor
+  hints, and daemon Go file-length exemptions) and compares them against the
+  committed baseline in `tools/degradation-baseline/agent-gui.json`.
+  Render-mirror counting also covers Desktop's
+  `DesktopAgentGUIWorkbenchBody` host boundary because unstable host callbacks
+  can invalidate the entire Agent GUI subtree.
 - Effect counts remain package-wide because hooks move with a vertical module
   during decomposition. Memoization follows the architecture boundary instead:
   `.tsx` component modules have a five-call budget, while controller/read hooks
@@ -323,6 +325,24 @@ is protected by a degradation ratchet:
   separate bucket. The list may only shrink, and the checker rejects entries
   whose files no longer exist so removed seams cannot leave permanent stale
   exemptions.
+- CSS `will-change`, `translateZ`/`translate3d`,
+  `backface-visibility: hidden`, and infinite animations are tracked by exact
+  stylesheet selector/property/value fingerprints. Every fingerprint requires
+  a non-empty `presentationHintReasons` entry describing its bounded mounted,
+  visible, active, loading, or interaction lifetime. New hints cannot be
+  accepted by running `--update-baseline` alone; add the reviewed reason first.
+  Stale reasons fail after a hint is removed.
+- The same CSS policy rejects `transition: all` and requires the root
+  `data-agent-gui-visible="false"` animation pause and
+  `content-visibility: hidden` declarations. It also requires the
+  `data-agent-gui-active="false"` prompt-tip animation and `will-change`
+  release declarations. These are behavior contracts, not baselined debt, so
+  deleting them always fails.
+- Raw `requestAnimationFrame`, `requestIdleCallback`, and `ResizeObserver`
+  calls, plus inline `willChange` and `translateZ`/`translate3d` hints, are
+  counted per production file. A newly added call or hint must carry a
+  `// presentation-work: <visible/active/lifetime reason>` comment on the same
+  or previous line. Ordinary two-dimensional transforms are not banned.
 - `pnpm check:agent-gui-degradation:staged` runs in `pre-commit` and blocks
   new degradation patterns on staged added lines: uncommented timers (a
   `// timing: <reason>` comment is required outside engine/reducer/selector
@@ -330,10 +350,13 @@ is protected by a degradation ratchet:
   component memoization beyond budget, render-time ref mirrors/caches, store
   creation in component files, new provider behavior branches, direct
   `useSyncExternalStore` calls outside the single engine binding file, and new
-  module-level mutable globals. Ref-mirror and component-cache diagnostics
-  explicitly route business state to the engine/controller and stable
-  projections to selectors/read hooks; refs remain valid for imperative DOM,
-  timer, abort, and external-lifecycle handles.
+  module-level mutable globals, unexplained presentation schedulers/inline
+  compositor hints, unreviewed CSS presentation hints, `transition: all`, and
+  removal of the visibility/active pruning declarations. Ref-mirror and
+  component-cache diagnostics explicitly route business state to the
+  engine/controller and stable projections to selectors/read hooks; refs
+  remain valid for imperative DOM, timer, abort, and external-lifecycle
+  handles.
 - During a merge commit, staged mode compares the resolved index with
   `MERGE_HEAD` instead of treating every incoming-parent line as newly added.
   This keeps the hook focused on branch-authored degradation while the full

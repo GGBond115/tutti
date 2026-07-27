@@ -493,7 +493,11 @@ Contain selection and presentation identity at the Rail boundary. Each section r
 
 Keep section header/action chrome independent from changing item collections. A memoized header receives scalar presentation fields and stable event-time actions; it must not receive the section object or rebuild project/session semantics. Split the header into narrow render islands. Frequently changing derived booleans such as project drag disabled, project action locked, and batch deletion disabled may cross the Section presentation boundary through separate primitive Context projections. The Rail pane owns those providers outside the memoized Section so a projection-only update does not execute item projection; only the frame, forwarded-ref button leaf, or open menu content that renders the value may consume it. Do not combine those values into one Context object or copy them into persistent state. Menu disclosure is view-local state. A conversation row keeps its context-menu root mounted so right-click remains immediate, but may defer its normally hidden direct actions and dropdown root until the row is first hovered, focused, or opened by context menu. Once activated, those controls stay mounted for stable focus and keyboard behavior. Portaled menu content exists only while that menu is open, and a closed menu has no availability-state consumer. The project header remains the native drag source, each project section updates the insertion position across its full area, and the Rail scroll viewport owns the final drop so section gaps cannot discard an already visible insertion target. This is a presentation boundary, not a second Rail or lifecycle store; stable event-time guards remain authoritative for action delivery.
 
-Relative time uses one renderer-realm minute clock. Timestamp leaves subscribe directly; do not thread a tick prop through Rail pane/section/row and rerender the interactive subtree every minute.
+Relative time uses one renderer-realm minute clock. Timestamp leaves subscribe
+directly; do not thread a tick prop through Rail pane/section/row and rerender
+the interactive subtree every minute. Fully occluded AgentGUI surfaces do not
+subscribe to that minute cadence. They retain the last clock snapshot while
+hidden and refresh from current time when visual exposure resumes.
 
 ### 4.6 Detail and transcript
 
