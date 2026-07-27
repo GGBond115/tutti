@@ -68,7 +68,11 @@ func (s IssueManagerService) claimEligibleIssueRunsLocked(ctx context.Context, w
 		s.markIssueBudgetSoftLimited(ctx, detail.Issue)
 		return nil
 	}
-	concurrentSlots := min(maxWorkspaceParallelIssueRuns-len(running), budgetSlots)
+	concurrentSlots := workspaceissues.IssueAutomaticRunAdmissionSlots(
+		detail.Issue,
+		len(running),
+		activeIssueRuns,
+	)
 	if detail.Issue.ParallelExecution && concurrentSlots <= 0 {
 		return nil
 	}
@@ -86,18 +90,7 @@ func (s IssueManagerService) claimEligibleIssueRunsLocked(ctx context.Context, w
 	launches := make([]IssueRunLaunch, 0)
 	launchedConcurrent := 0
 	for _, task := range tasks {
-		if task.Status != workspaceissues.StatusNotStarted || strings.TrimSpace(task.AgentTargetID) == "" {
-			continue
-		}
-		ready := true
-		for _, dependencyID := range task.DependencyTaskIDs {
-			dependency, ok := byID[dependencyID]
-			if !ok || dependency.Status != workspaceissues.StatusCompleted || dependency.AcceptanceState != workspaceissues.AcceptanceUserAccepted {
-				ready = false
-				break
-			}
-		}
-		if !ready {
+		if !workspaceissues.IssueTaskEligibleForRun(task, byID) {
 			continue
 		}
 		if detail.Issue.SequentialExecution {
@@ -214,7 +207,7 @@ func (s IssueManagerService) claimIssueTaskRunLocked(
 	}
 	return IssueRunLaunch{
 		WorkspaceID:        issue.WorkspaceID,
-		ClientSubmitID:     "issue-run:" + run.RunID,
+		ClientSubmitID:     workspaceissues.IssueRunClientSubmitID(run.RunID),
 		AgentSessionID:     agentSessionID,
 		AgentTargetID:      task.AgentTargetID,
 		RunID:              run.RunID,
@@ -235,42 +228,86 @@ func (s IssueManagerService) claimIssueTaskRunLocked(
 
 func (s IssueManagerService) launchClaimedIssueRuns(ctx context.Context, launches []IssueRunLaunch) {
 	for _, launch := range launches {
-		gate := s.runLaunchGate()
-		if !gate.begin(launch.WorkspaceID, launch.RunID) {
-			gate.clear(launch.WorkspaceID, launch.RunID)
-			_, _ = s.CompleteRun(ctx, launch.WorkspaceID, launch.IssueID, launch.TaskID, launch.RunID, CompleteIssueManagerRunInput{
-				Status: string(workspaceissues.StatusCanceled),
-			})
-			continue
-		}
-		decision := s.issueRunLaunchDecision(ctx, launch)
-		if decision != issueRunLaunch {
-			gate.finish(launch.WorkspaceID, launch.RunID)
-			if decision == issueRunCancelClaim {
+		s.deliverIssueRunLaunch(ctx, launch, issueRunLaunchDeliveryOutcomes{
+			onGateBusy: func() {
+				s.runLaunchGate().clear(launch.WorkspaceID, launch.RunID)
 				_, _ = s.CompleteRun(ctx, launch.WorkspaceID, launch.IssueID, launch.TaskID, launch.RunID, CompleteIssueManagerRunInput{
 					Status: string(workspaceissues.StatusCanceled),
 				})
-			}
-			continue
-		}
-		var err error
-		if launch.WorktreeBase != "" {
-			_, _, err = s.createIssueTaskRunWorktree(ctx, launch.WorktreeBase, launch.IssueID, launch.TaskID, launch.RunID)
-		}
-		if err == nil {
-			err = s.RunLauncher.Launch(ctx, launch)
-		}
-		cancelRequested := gate.finish(launch.WorkspaceID, launch.RunID)
-		if err == nil {
-			if cancelRequested {
-				s.cancelIssueRunAfterLaunch(ctx, launch)
-			}
-			continue
-		}
-		_, _ = s.CompleteRun(ctx, launch.WorkspaceID, launch.IssueID, launch.TaskID, launch.RunID, CompleteIssueManagerRunInput{
-			Status:       string(workspaceissues.StatusFailed),
-			ErrorMessage: err.Error(),
+			},
+			onRejected: func(decision issueRunLaunchDecision) {
+				if decision == issueRunCancelClaim {
+					_, _ = s.CompleteRun(ctx, launch.WorkspaceID, launch.IssueID, launch.TaskID, launch.RunID, CompleteIssueManagerRunInput{
+						Status: string(workspaceissues.StatusCanceled),
+					})
+				}
+			},
+			onFailure: func(err error) {
+				_, _ = s.CompleteRun(ctx, launch.WorkspaceID, launch.IssueID, launch.TaskID, launch.RunID, CompleteIssueManagerRunInput{
+					Status:       string(workspaceissues.StatusFailed),
+					ErrorMessage: err.Error(),
+				})
+			},
 		})
+	}
+}
+
+type issueRunLaunchDeliveryOutcomes struct {
+	onGateBusy  func()
+	onRejected  func(issueRunLaunchDecision)
+	onFailure   func(error)
+	onDelivered func()
+}
+
+// deliverIssueRunLaunch is the single deep delivery seam for generic and
+// Tutti-owned Run claims. Claim persistence and terminal outcome policy stay
+// strategy-specific; gate fencing, durable revalidation, worktree creation,
+// Agent delivery, and post-launch cancellation are shared.
+func (s IssueManagerService) deliverIssueRunLaunch(
+	ctx context.Context,
+	launch IssueRunLaunch,
+	outcomes issueRunLaunchDeliveryOutcomes,
+) {
+	gate := s.runLaunchGate()
+	if !gate.begin(launch.WorkspaceID, launch.RunID) {
+		if outcomes.onGateBusy != nil {
+			outcomes.onGateBusy()
+		}
+		return
+	}
+	decision := s.issueRunLaunchDecision(ctx, launch)
+	if decision != issueRunLaunch {
+		gate.finish(launch.WorkspaceID, launch.RunID)
+		if outcomes.onRejected != nil {
+			outcomes.onRejected(decision)
+		}
+		return
+	}
+	var err error
+	if launch.WorktreeBase != "" {
+		_, _, err = s.createIssueTaskRunWorktree(
+			ctx,
+			launch.WorktreeBase,
+			launch.IssueID,
+			launch.TaskID,
+			launch.RunID,
+		)
+	}
+	if err == nil {
+		err = s.RunLauncher.Launch(ctx, launch)
+	}
+	cancelRequested := gate.finish(launch.WorkspaceID, launch.RunID)
+	if err != nil {
+		if outcomes.onFailure != nil {
+			outcomes.onFailure(err)
+		}
+		return
+	}
+	if outcomes.onDelivered != nil {
+		outcomes.onDelivered()
+	}
+	if cancelRequested {
+		s.cancelIssueRunAfterLaunch(ctx, launch)
 	}
 }
 
@@ -283,6 +320,7 @@ func (s IssueManagerService) cancelIssueRunAfterLaunch(ctx context.Context, laun
 		WorkspaceID:    launch.WorkspaceID,
 		AgentSessionID: launch.AgentSessionID,
 		RunID:          launch.RunID,
+		ClientSubmitID: launch.ClientSubmitID,
 	})
 	if err != nil {
 		s.enqueueWorkspaceRunReconcile(launch.WorkspaceID)

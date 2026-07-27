@@ -429,8 +429,9 @@ fails closed. External Agent launch occurs only after the admission transaction
 commits and is recovered from a durable launch intent using
 `issue-run:<runID>` as the deterministic submit identity. The persisted
 launch-intent value, not a delivery-adapter reconstruction, is passed unchanged
-to Agent Host; a durable lease prevents concurrent replay from entering
-delivery twice.
+to Agent Host. The delivery owner renews its durable lease while the external
+launch is in flight; normal replay cannot steal it, and startup recovery
+requeues only expired ownership before retrying.
 
 Workflow lookup is isolated to the Agent session supplied by the daemon CLI
 runtime context. A workflow created by another source session is reported as

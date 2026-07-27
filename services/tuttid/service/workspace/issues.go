@@ -39,6 +39,11 @@ type IssueManagerService struct {
 	// RunOperationLocks fences lock-free external launch/cancel operations for
 	// one durable Run without holding a mutex across Agent or filesystem work.
 	RunLaunchGate *IssueRunLaunchGate
+	// TuttiModeRunLaunchLeaseDuration and RunLaunchLeaseRenewalScheduler keep
+	// one durable launch intent owned while its external delivery is in flight.
+	// Zero/nil use the production one-minute lease and ticker scheduler.
+	TuttiModeRunLaunchLeaseDuration time.Duration
+	RunLaunchLeaseRenewalScheduler  IssueRunLaunchLeaseRenewalScheduler
 	// RunCancellationRequester compensates a launch when Stop arrived while
 	// the external Agent create call was already in flight.
 	RunCancellationRequester IssueRunSessionCanceller

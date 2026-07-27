@@ -363,6 +363,15 @@ func runConcurrentReplayClaimsOneDelivery(ctx context.Context, driver Driver) er
 	case <-time.After(5 * time.Second):
 		return fmt.Errorf("first launch did not reach delivery seam")
 	}
+	if err := driver.AdvanceClock(2 * time.Minute); err != nil {
+		return fmt.Errorf("advance lease clock error = %w", err)
+	}
+	if err := driver.StartupRecoverReplica(ctx, fixture.WorkspaceID); err != nil {
+		return fmt.Errorf("replica startup recovery error = %w", err)
+	}
+	if calls := driver.LauncherCallCount(); calls != 1 {
+		return fmt.Errorf("replica startup recovery entered launcher %d times, want 1", calls)
+	}
 	var wait sync.WaitGroup
 	wait.Add(1)
 	var replay ScheduleResult

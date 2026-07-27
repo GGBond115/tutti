@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +13,39 @@ import (
 )
 
 const tuttiModeRunLaunchLease = time.Minute
+
+type issueRunLaunchTickerRenewalScheduler struct{}
+
+func (issueRunLaunchTickerRenewalScheduler) Start(
+	ctx context.Context,
+	interval time.Duration,
+	renew func() error,
+) func() {
+	renewCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-renewCtx.Done():
+				return
+			case <-ticker.C:
+				if err := renew(); err != nil {
+					return
+				}
+			}
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			cancel()
+			<-done
+		})
+	}
+}
 
 func (s IssueManagerService) ScheduleTuttiModeIssue(
 	ctx context.Context,
@@ -235,70 +269,111 @@ func (s IssueManagerService) tuttiModeLaunchesForRuns(
 	return launches
 }
 
+func (s IssueManagerService) issueRunClientSubmitID(
+	ctx context.Context,
+	run workspaceissues.Run,
+) (string, error) {
+	detail, err := s.domainService().GetIssueDetail(ctx, run.WorkspaceID, run.IssueID)
+	if err != nil {
+		return "", err
+	}
+	if detail.Issue.PlanningSource != workspaceissues.PlanningSourceTuttiModePlan {
+		return workspaceissues.IssueRunClientSubmitID(run.RunID), nil
+	}
+	if s.TuttiModeExecutions == nil {
+		return "", tuttimodeexecutionservice.ErrServiceUnavailable
+	}
+	clientSubmitID, found, err := s.TuttiModeExecutions.GetRunLaunchClientSubmitID(
+		ctx, run.WorkspaceID, run.IssueID, run.RunID,
+	)
+	if err != nil {
+		return "", err
+	}
+	if !found || strings.TrimSpace(clientSubmitID) == "" {
+		return "", executionbiz.ErrScheduleRejected
+	}
+	return clientSubmitID, nil
+}
+
 func (s IssueManagerService) launchScheduledTuttiModeRuns(
 	ctx context.Context,
 	launches []IssueRunLaunch,
 ) {
 	for _, launch := range launches {
 		leaseOwner := uuid.NewString()
+		leaseDuration := s.tuttiModeRunLaunchLeaseDuration()
 		claimed, err := s.TuttiModeExecutions.ClaimRunLaunch(
 			ctx,
 			launch.WorkspaceID,
 			launch.IssueID,
 			launch.RunID,
 			leaseOwner,
-			tuttiModeRunLaunchLease,
+			leaseDuration,
 		)
 		if err != nil || !claimed {
 			continue
 		}
-		gate := s.runLaunchGate()
-		if !gate.begin(launch.WorkspaceID, launch.RunID) {
-			_ = s.TuttiModeExecutions.ReleaseRunLaunch(
-				ctx, launch.WorkspaceID, launch.IssueID, launch.RunID, leaseOwner,
-			)
-			continue
+		renewalInterval := leaseDuration / 3
+		if renewalInterval <= 0 {
+			renewalInterval = time.Nanosecond
 		}
-		if s.issueRunLaunchDecision(ctx, launch) != issueRunLaunch {
-			gate.finish(launch.WorkspaceID, launch.RunID)
-			_ = s.TuttiModeExecutions.ReleaseRunLaunch(
-				ctx, launch.WorkspaceID, launch.IssueID, launch.RunID, leaseOwner,
-			)
-			continue
-		}
-		err = nil
-		if launch.WorktreeBase != "" {
-			_, _, err = s.createIssueTaskRunWorktree(
-				ctx,
-				launch.WorktreeBase,
-				launch.IssueID,
-				launch.TaskID,
-				launch.RunID,
-			)
-		}
-		if err == nil {
-			err = s.RunLauncher.Launch(ctx, launch)
-		}
-		cancelRequested := gate.finish(launch.WorkspaceID, launch.RunID)
-		if err != nil {
-			// Task 4 turns this durable prepared intent into a failed
-			// settlement checkpoint. Until then it remains recoverable.
-			_ = s.TuttiModeExecutions.ReleaseRunLaunch(
-				ctx, launch.WorkspaceID, launch.IssueID, launch.RunID, leaseOwner,
-			)
-			continue
-		}
-		_ = s.TuttiModeExecutions.MarkRunLaunchDispatched(
+		stopRenewal := s.runLaunchLeaseRenewalScheduler().Start(
 			ctx,
-			launch.WorkspaceID,
-			launch.IssueID,
-			launch.RunID,
-			leaseOwner,
+			renewalInterval,
+			func() error {
+				return s.TuttiModeExecutions.RenewRunLaunch(
+					ctx,
+					launch.WorkspaceID,
+					launch.IssueID,
+					launch.RunID,
+					leaseOwner,
+					leaseDuration,
+				)
+			},
 		)
-		if cancelRequested {
-			s.cancelIssueRunAfterLaunch(ctx, launch)
+		release := func() {
+			stopRenewal()
+			_ = s.TuttiModeExecutions.ReleaseRunLaunch(
+				ctx, launch.WorkspaceID, launch.IssueID, launch.RunID, leaseOwner,
+			)
 		}
+		s.deliverIssueRunLaunch(ctx, launch, issueRunLaunchDeliveryOutcomes{
+			onGateBusy: release,
+			onRejected: func(issueRunLaunchDecision) {
+				release()
+			},
+			onFailure: func(error) {
+				// Task 4 turns this durable prepared intent into a failed
+				// settlement checkpoint. Until then it remains recoverable.
+				release()
+			},
+			onDelivered: func() {
+				stopRenewal()
+				_ = s.TuttiModeExecutions.MarkRunLaunchDispatched(
+					ctx,
+					launch.WorkspaceID,
+					launch.IssueID,
+					launch.RunID,
+					leaseOwner,
+				)
+			},
+		})
+		stopRenewal()
 	}
+}
+
+func (s IssueManagerService) tuttiModeRunLaunchLeaseDuration() time.Duration {
+	if s.TuttiModeRunLaunchLeaseDuration > 0 {
+		return s.TuttiModeRunLaunchLeaseDuration
+	}
+	return tuttiModeRunLaunchLease
+}
+
+func (s IssueManagerService) runLaunchLeaseRenewalScheduler() IssueRunLaunchLeaseRenewalScheduler {
+	if s.RunLaunchLeaseRenewalScheduler != nil {
+		return s.RunLaunchLeaseRenewalScheduler
+	}
+	return issueRunLaunchTickerRenewalScheduler{}
 }
 
 func (s IssueManagerService) RequeueLeasedTuttiModeRunLaunchIntents(
@@ -309,6 +384,16 @@ func (s IssueManagerService) RequeueLeasedTuttiModeRunLaunchIntents(
 		return tuttimodeexecutionservice.ErrServiceUnavailable
 	}
 	return s.TuttiModeExecutions.RequeueLeasedRunLaunches(ctx, workspaceID)
+}
+
+func (s IssueManagerService) RecoverTuttiModeRunLaunchesAtStartup(
+	ctx context.Context,
+	workspaceID string,
+) error {
+	if err := s.RequeueLeasedTuttiModeRunLaunchIntents(ctx, workspaceID); err != nil {
+		return err
+	}
+	return s.RecoverTuttiModeRunLaunchIntents(ctx, workspaceID)
 }
 
 func (s IssueManagerService) RecoverTuttiModeRunLaunchIntents(

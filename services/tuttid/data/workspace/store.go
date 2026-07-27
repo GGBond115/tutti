@@ -194,7 +194,9 @@ type TuttiModeExecutionsStore interface {
 	GetTuttiModeExecutionByIssue(context.Context, string, string) (executionbiz.Aggregate, error)
 	AdmitTuttiModeSchedule(context.Context, executionbiz.ScheduleAdmission) (executionbiz.ScheduleResult, error)
 	ListPreparedTuttiModeRunLaunches(context.Context, string, string, []string, time.Time) ([]executionbiz.PreparedRunLaunch, error)
+	GetTuttiModeRunLaunchClientSubmitID(context.Context, string, string, string) (string, bool, error)
 	ClaimTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time, time.Time) (bool, error)
+	RenewTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time, time.Time) error
 	ReleaseTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time) error
 	MarkTuttiModeRunLaunchIntentDispatched(context.Context, string, string, string, string, time.Time) error
 	RequeueLeasedTuttiModeRunLaunchIntents(context.Context, string, time.Time) error

@@ -25,8 +25,64 @@ type sqliteConformanceDriver struct {
 	executions *tuttimodeexecutionservice.Service
 	plans      *tuttimodeplanservice.Service
 	revisions  workspacedata.WorkflowRevisionFiles
-	now        time.Time
+	clock      *controlledClock
 	launcher   *recordingLauncher
+	renewals   *manualLeaseRenewalScheduler
+}
+
+type controlledClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (clock *controlledClock) Now() time.Time {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	return clock.now
+}
+
+func (clock *controlledClock) Advance(duration time.Duration) {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	clock.now = clock.now.Add(duration)
+}
+
+type manualLeaseRenewalScheduler struct {
+	mu         sync.Mutex
+	generation uint64
+	renew      func() error
+}
+
+func (scheduler *manualLeaseRenewalScheduler) Start(
+	_ context.Context,
+	_ time.Duration,
+	renew func() error,
+) func() {
+	scheduler.mu.Lock()
+	scheduler.generation++
+	generation := scheduler.generation
+	scheduler.renew = renew
+	scheduler.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			scheduler.mu.Lock()
+			defer scheduler.mu.Unlock()
+			if scheduler.generation == generation {
+				scheduler.renew = nil
+			}
+		})
+	}
+}
+
+func (scheduler *manualLeaseRenewalScheduler) Tick() error {
+	scheduler.mu.Lock()
+	renew := scheduler.renew
+	scheduler.mu.Unlock()
+	if renew == nil {
+		return fmt.Errorf("no in-flight launch lease to renew")
+	}
+	return renew()
 }
 
 type recordingLauncher struct {
@@ -88,27 +144,32 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 		t.Fatalf("Create() workspace error = %v", err)
 	}
 	now := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
+	clock := &controlledClock{now: now}
 	launcher := &recordingLauncher{}
+	renewals := &manualLeaseRenewalScheduler{}
 	executions := &tuttimodeexecutionservice.Service{
 		Store: store,
-		Clock: func() time.Time { return now },
+		Clock: clock.Now,
 	}
 	driver := &sqliteConformanceDriver{
 		store: store,
 		issues: workspaceservice.IssueManagerService{
 			Store: store, RunLauncher: launcher, TuttiModeExecutions: executions,
-			MutationLocks: workspaceservice.NewIssueMutationLocks(),
+			MutationLocks:                   workspaceservice.NewIssueMutationLocks(),
+			TuttiModeRunLaunchLeaseDuration: time.Minute,
+			RunLaunchLeaseRenewalScheduler:  renewals,
 		},
 		executions: executions,
 		revisions:  workspacedata.WorkflowRevisionFiles{StateDir: t.TempDir()},
-		now:        now,
+		clock:      clock,
 		launcher:   launcher,
+		renewals:   renewals,
 	}
 	driver.plans = &tuttimodeplanservice.Service{
 		Store:             store,
 		Revisions:         driver.revisions,
 		IssueMaterializer: tuttimodeplanservice.WorkspaceIssueMaterializer{Issues: &driver.issues},
-		Now:               func() time.Time { return now },
+		Now:               clock.Now,
 	}
 	return driver
 }
@@ -117,6 +178,7 @@ func (driver *sqliteConformanceDriver) AcceptPlan(
 	ctx context.Context,
 	input tuttimodeexecutionconformance.AcceptPlanInput,
 ) (string, error) {
+	now := driver.clock.Now()
 	tasks := make([]tuttimodeplanservice.PlanTask, 0, len(input.Tasks))
 	for _, task := range input.Tasks {
 		tasks = append(tasks, tuttimodeplanservice.PlanTask{
@@ -167,8 +229,8 @@ func (driver *sqliteConformanceDriver) AcceptPlan(
 			SourceSessionID:   input.SourceSessionID,
 			Status:            workflowbiz.WorkflowStatusPendingReview,
 			CurrentRevisionID: input.RevisionID,
-			CreatedAt:         driver.now,
-			UpdatedAt:         driver.now,
+			CreatedAt:         now,
+			UpdatedAt:         now,
 		},
 		Plan: workflowbiz.TuttiModePlan{WorkflowID: input.WorkflowID},
 		Revision: workflowbiz.PlanRevision{
@@ -178,7 +240,7 @@ func (driver *sqliteConformanceDriver) AcceptPlan(
 			SchemaVersion: tuttimodeplanservice.SchemaV1,
 			DocumentPath:  documentPath,
 			SHA256:        digest,
-			CreatedAt:     driver.now,
+			CreatedAt:     now,
 		},
 		Checkpoint: workflowbiz.WorkflowCheckpoint{
 			ID:         input.CheckpointID,
@@ -186,8 +248,8 @@ func (driver *sqliteConformanceDriver) AcceptPlan(
 			Kind:       workflowbiz.CheckpointKindTaskReview,
 			RevisionID: input.RevisionID,
 			Status:     workflowbiz.CheckpointStatusPending,
-			CreatedAt:  driver.now,
-			UpdatedAt:  driver.now,
+			CreatedAt:  now,
+			UpdatedAt:  now,
 		},
 	}); err != nil {
 		return "", fmt.Errorf("seed pending plan review: %w", err)
@@ -345,7 +407,7 @@ func (driver *sqliteConformanceDriver) SeedActiveRun(
 	if err != nil {
 		return err
 	}
-	now := driver.now.UnixMilli()
+	now := driver.clock.Now().UnixMilli()
 	run, err := driver.store.CreateRun(ctx, workspaceissues.Run{
 		RunID: "seed-run-" + taskID, TaskID: taskID, IssueID: issueID,
 		WorkspaceID: workspaceID, RequesterUserID: "conformance",
@@ -425,8 +487,20 @@ func (driver *sqliteConformanceDriver) HoldNextLaunch() (<-chan struct{}, func()
 	}
 }
 
+func (driver *sqliteConformanceDriver) AdvanceClock(duration time.Duration) error {
+	driver.clock.Advance(duration)
+	return driver.renewals.Tick()
+}
+
 func (driver *sqliteConformanceDriver) RecoverLaunches(ctx context.Context, workspaceID string) error {
 	return driver.issues.RecoverTuttiModeRunLaunchIntents(ctx, workspaceID)
+}
+
+func (driver *sqliteConformanceDriver) StartupRecoverReplica(ctx context.Context, workspaceID string) error {
+	replica := driver.issues
+	replica.MutationLocks = workspaceservice.NewIssueMutationLocks()
+	replica.RunLaunchGate = workspaceservice.NewIssueRunLaunchGate()
+	return replica.RecoverTuttiModeRunLaunchesAtStartup(ctx, workspaceID)
 }
 
 func (driver *sqliteConformanceDriver) LauncherClientSubmitIDs() []string {

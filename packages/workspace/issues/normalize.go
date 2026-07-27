@@ -182,6 +182,42 @@ func IssueAutomaticBudgetSlots(issue Issue, activeRunCount int) int {
 	return slots
 }
 
+// IssueAutomaticRunAdmissionSlots is the shared concurrency and budget policy
+// for every automatic Issue Run admission path. Persistence adapters supply
+// authoritative counts, then compare-and-set the selected Runs atomically.
+func IssueAutomaticRunAdmissionSlots(issue Issue, workspaceActiveRunCount int, issueActiveRunCount int) int {
+	workspaceSlots := MaxWorkspaceParallelRuns - workspaceActiveRunCount
+	if workspaceSlots < 0 {
+		workspaceSlots = 0
+	}
+	return min(workspaceSlots, IssueAutomaticBudgetSlots(issue, issueActiveRunCount))
+}
+
+// IssueTaskEligibleForRun is the shared task/dependency predicate used by
+// generic dispatch and source-Agent exact-set scheduling. Callers retain
+// ownership of ordering, isolation, and transactional mutation.
+func IssueTaskEligibleForRun(task Task, tasksByID map[string]Task) bool {
+	if task.Status != StatusNotStarted || strings.TrimSpace(task.AgentTargetID) == "" {
+		return false
+	}
+	for _, dependencyID := range task.DependencyTaskIDs {
+		dependency, ok := tasksByID[dependencyID]
+		if !ok || dependency.Status != StatusCompleted ||
+			dependency.AcceptanceState != AcceptanceUserAccepted {
+			return false
+		}
+	}
+	return true
+}
+
+func IssueRunClientSubmitID(runID string) string {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return ""
+	}
+	return "issue-run:" + runID
+}
+
 // CompileAutoTokenBudgetWithHistory blends the deterministic scale/intensity
 // compiler with the observed total usage of comparable completed tasks. The
 // deterministic result remains the fallback and contributes half the result,

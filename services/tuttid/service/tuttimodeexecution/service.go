@@ -29,7 +29,9 @@ type Store interface {
 	GetTuttiModeExecutionByIssue(context.Context, string, string) (executionbiz.Aggregate, error)
 	AdmitTuttiModeSchedule(context.Context, executionbiz.ScheduleAdmission) (executionbiz.ScheduleResult, error)
 	ListPreparedTuttiModeRunLaunches(context.Context, string, string, []string, time.Time) ([]executionbiz.PreparedRunLaunch, error)
+	GetTuttiModeRunLaunchClientSubmitID(context.Context, string, string, string) (string, bool, error)
 	ClaimTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time, time.Time) (bool, error)
+	RenewTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time, time.Time) error
 	ReleaseTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time) error
 	MarkTuttiModeRunLaunchIntentDispatched(context.Context, string, string, string, string, time.Time) error
 	RequeueLeasedTuttiModeRunLaunchIntents(context.Context, string, time.Time) error
@@ -163,6 +165,26 @@ func (service Service) ListPreparedRunLaunches(
 	return service.Store.ListPreparedTuttiModeRunLaunches(ctx, workspaceID, issueID, runIDs, service.now())
 }
 
+func (service Service) GetRunLaunchClientSubmitID(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	runID string,
+) (string, bool, error) {
+	if service.Store == nil {
+		return "", false, ErrServiceUnavailable
+	}
+	workspaceID = strings.TrimSpace(workspaceID)
+	issueID = strings.TrimSpace(issueID)
+	runID = strings.TrimSpace(runID)
+	if workspaceID == "" || issueID == "" || runID == "" {
+		return "", false, executionbiz.ErrScheduleRejected
+	}
+	return service.Store.GetTuttiModeRunLaunchClientSubmitID(
+		ctx, workspaceID, issueID, runID,
+	)
+}
+
 func (service Service) ClaimRunLaunch(
 	ctx context.Context,
 	workspaceID string,
@@ -204,6 +226,31 @@ func (service Service) ReleaseRunLaunch(
 	}
 	return service.Store.ReleaseTuttiModeRunLaunchIntent(
 		ctx, workspaceID, issueID, runID, leaseOwner, service.now(),
+	)
+}
+
+func (service Service) RenewRunLaunch(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	runID string,
+	leaseOwner string,
+	leaseDuration time.Duration,
+) error {
+	if service.Store == nil {
+		return ErrServiceUnavailable
+	}
+	workspaceID = strings.TrimSpace(workspaceID)
+	issueID = strings.TrimSpace(issueID)
+	runID = strings.TrimSpace(runID)
+	leaseOwner = strings.TrimSpace(leaseOwner)
+	if workspaceID == "" || issueID == "" || runID == "" || leaseOwner == "" ||
+		leaseDuration <= 0 {
+		return executionbiz.ErrScheduleRejected
+	}
+	now := service.now()
+	return service.Store.RenewTuttiModeRunLaunchIntent(
+		ctx, workspaceID, issueID, runID, leaseOwner, now, now.Add(leaseDuration),
 	)
 }
 

@@ -1,6 +1,9 @@
 package conformance
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type AcceptPlanInput struct {
 	WorkspaceID     string
@@ -103,6 +106,8 @@ type Driver interface {
 	SeedActiveRun(context.Context, string, string, string) error
 	FailNextLaunch()
 	HoldNextLaunch() (<-chan struct{}, func())
+	AdvanceClock(time.Duration) error
+	StartupRecoverReplica(context.Context, string) error
 	RecoverLaunches(context.Context, string) error
 	LauncherClientSubmitIDs() []string
 	LauncherCanonicalTurnCount() int

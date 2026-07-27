@@ -194,6 +194,191 @@ SELECT
 	}
 }
 
+func TestAdmitTuttiModeScheduleAtomicallyClaimsRunAndLaunchIntent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTuttiModeExecutionStore(t)
+	now := time.UnixMilli(1_700_000_150_000).UTC()
+	prepareTuttiModeExecutionWorkspace(
+		t, store, "workspace-schedule-admission", "workflow-schedule-admission",
+		"session-schedule-admission", now,
+	)
+	executions := &executionservice.Service{Store: store, Clock: func() time.Time { return now }}
+	issues := workspaceissues.Service{Store: store, Clock: func() time.Time { return now }}
+	issue, tasks := prepareTuttiModeIssueGraph(
+		t, issues, "workspace-schedule-admission", "workflow-schedule-admission",
+		"session-schedule-admission",
+	)
+	_, _, aggregate, err := executions.Materialize(ctx, executionservice.MaterializeInput{
+		Issue: issue, Tasks: tasks, WorkflowID: "workflow-schedule-admission",
+	})
+	if err != nil {
+		t.Fatalf("Materialize() error = %v", err)
+	}
+	run := workspaceissues.Run{
+		RunID:           "run-schedule-admission",
+		TaskID:          tasks[0].TaskID,
+		IssueID:         issue.IssueID,
+		WorkspaceID:     issue.WorkspaceID,
+		RequesterUserID: "local",
+		AgentUserID:     "local",
+		AgentTargetID:   tasks[0].AgentTargetID,
+		AgentSessionID:  "delegate-schedule-admission",
+		AgentProvider:   "codex",
+		Status:          workspaceissues.StatusRunning,
+		CreatedAtUnixMS: now.UnixMilli(),
+		StartedAtUnixMS: now.UnixMilli(),
+		UpdatedAtUnixMS: now.UnixMilli(),
+	}
+	result, err := store.AdmitTuttiModeSchedule(ctx, executionbiz.ScheduleAdmission{
+		WorkspaceID:           issue.WorkspaceID,
+		IssueID:               issue.IssueID,
+		SourceSessionID:       issue.SourceSessionID,
+		CheckpointID:          aggregate.Checkpoints[0].ID,
+		ExpectedGraphRevision: 1,
+		RequestID:             "request-schedule-admission",
+		InputSHA256:           "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Runs:                  []workspaceissues.Run{run},
+		Now:                   now,
+	})
+	if err != nil {
+		t.Fatalf("AdmitTuttiModeSchedule() error = %v", err)
+	}
+	if len(result.RunIDs) != 1 || result.RunIDs[0] != run.RunID {
+		t.Fatalf("AdmitTuttiModeSchedule() result = %#v", result)
+	}
+
+	var runCount int
+	var taskStatus, intentStatus, clientSubmitID, checkpointStatus string
+	if err := store.writeDB.QueryRowContext(ctx, `
+SELECT
+  (SELECT COUNT(*) FROM workspace_issue_runs WHERE workspace_id = ? AND run_id = ?),
+  (SELECT status FROM workspace_issue_tasks WHERE workspace_id = ? AND issue_id = ? AND task_id = ?),
+  (SELECT status FROM workspace_issue_run_launch_intents WHERE workspace_id = ? AND run_id = ?),
+  (SELECT client_submit_id FROM workspace_issue_run_launch_intents WHERE workspace_id = ? AND run_id = ?),
+  (SELECT status FROM workspace_tutti_execution_checkpoints WHERE workspace_id = ? AND checkpoint_id = ?)
+`, issue.WorkspaceID, run.RunID,
+		issue.WorkspaceID, issue.IssueID, run.TaskID,
+		issue.WorkspaceID, run.RunID,
+		issue.WorkspaceID, run.RunID,
+		issue.WorkspaceID, aggregate.Checkpoints[0].ID,
+	).Scan(&runCount, &taskStatus, &intentStatus, &clientSubmitID, &checkpointStatus); err != nil {
+		t.Fatalf("read admitted schedule state error = %v", err)
+	}
+	if runCount != 1 || taskStatus != string(workspaceissues.StatusRunning) ||
+		intentStatus != "prepared" || clientSubmitID != "issue-run:"+run.RunID ||
+		checkpointStatus != string(executionbiz.CheckpointStatusResolved) {
+		t.Fatalf(
+			"admitted state runCount=%d task=%q intent=%q submit=%q checkpoint=%q",
+			runCount, taskStatus, intentStatus, clientSubmitID, checkpointStatus,
+		)
+	}
+	claimed, err := store.ClaimTuttiModeRunLaunchIntent(
+		ctx, issue.WorkspaceID, issue.IssueID, run.RunID, "lease-owner",
+		now, now.Add(time.Minute),
+	)
+	if err != nil || !claimed {
+		t.Fatalf("ClaimTuttiModeRunLaunchIntent() claimed=%v error=%v", claimed, err)
+	}
+	if err := store.RenewTuttiModeRunLaunchIntent(
+		ctx, issue.WorkspaceID, issue.IssueID, run.RunID, "lease-owner",
+		now.Add(30*time.Second), now.Add(90*time.Second),
+	); err != nil {
+		t.Fatalf("RenewTuttiModeRunLaunchIntent() error = %v", err)
+	}
+	if err := store.RequeueLeasedTuttiModeRunLaunchIntents(
+		ctx, issue.WorkspaceID, now.Add(70*time.Second),
+	); err != nil {
+		t.Fatalf("RequeueLeasedTuttiModeRunLaunchIntents(valid) error = %v", err)
+	}
+	if err := store.writeDB.QueryRowContext(ctx, `
+SELECT status FROM workspace_issue_run_launch_intents
+WHERE workspace_id = ? AND run_id = ?
+`, issue.WorkspaceID, run.RunID).Scan(&intentStatus); err != nil {
+		t.Fatalf("read valid renewed intent error = %v", err)
+	}
+	if intentStatus != "leased" {
+		t.Fatalf("valid renewed intent status = %q, want leased", intentStatus)
+	}
+	if err := store.RequeueLeasedTuttiModeRunLaunchIntents(
+		ctx, issue.WorkspaceID, now.Add(100*time.Second),
+	); err != nil {
+		t.Fatalf("RequeueLeasedTuttiModeRunLaunchIntents(expired) error = %v", err)
+	}
+	if err := store.writeDB.QueryRowContext(ctx, `
+SELECT status FROM workspace_issue_run_launch_intents
+WHERE workspace_id = ? AND run_id = ?
+`, issue.WorkspaceID, run.RunID).Scan(&intentStatus); err != nil {
+		t.Fatalf("read expired intent error = %v", err)
+	}
+	if intentStatus != "prepared" {
+		t.Fatalf("expired intent status = %q, want prepared", intentStatus)
+	}
+}
+
+func TestAdmitTuttiModeScheduleRejectsWholeInvalidSet(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTuttiModeExecutionStore(t)
+	now := time.UnixMilli(1_700_000_175_000).UTC()
+	prepareTuttiModeExecutionWorkspace(
+		t, store, "workspace-schedule-reject", "workflow-schedule-reject",
+		"session-schedule-reject", now,
+	)
+	executions := &executionservice.Service{Store: store, Clock: func() time.Time { return now }}
+	issues := workspaceissues.Service{Store: store, Clock: func() time.Time { return now }}
+	issue, tasks := prepareTuttiModeIssueGraph(
+		t, issues, "workspace-schedule-reject", "workflow-schedule-reject",
+		"session-schedule-reject",
+	)
+	_, _, aggregate, err := executions.Materialize(ctx, executionservice.MaterializeInput{
+		Issue: issue, Tasks: tasks, WorkflowID: "workflow-schedule-reject",
+	})
+	if err != nil {
+		t.Fatalf("Materialize() error = %v", err)
+	}
+	validRun := workspaceissues.Run{
+		RunID: "run-valid", TaskID: tasks[0].TaskID, IssueID: issue.IssueID,
+		WorkspaceID: issue.WorkspaceID, AgentTargetID: tasks[0].AgentTargetID,
+		AgentSessionID: "delegate-valid", Status: workspaceissues.StatusRunning,
+		CreatedAtUnixMS: now.UnixMilli(), StartedAtUnixMS: now.UnixMilli(),
+		UpdatedAtUnixMS: now.UnixMilli(),
+	}
+	invalidRun := validRun
+	invalidRun.RunID = "run-invalid"
+	invalidRun.TaskID = "missing-task"
+	_, err = store.AdmitTuttiModeSchedule(ctx, executionbiz.ScheduleAdmission{
+		WorkspaceID: issue.WorkspaceID, IssueID: issue.IssueID,
+		SourceSessionID: issue.SourceSessionID,
+		CheckpointID:    aggregate.Checkpoints[0].ID, ExpectedGraphRevision: 1,
+		RequestID:   "request-schedule-reject",
+		InputSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Runs:        []workspaceissues.Run{validRun, invalidRun}, Now: now,
+	})
+	if !errors.Is(err, executionbiz.ErrScheduleRejected) {
+		t.Fatalf("AdmitTuttiModeSchedule() error = %v, want ErrScheduleRejected", err)
+	}
+	var runCount int
+	var taskStatus, checkpointStatus string
+	if err := store.writeDB.QueryRowContext(ctx, `
+SELECT
+  (SELECT COUNT(*) FROM workspace_issue_runs WHERE workspace_id = ? AND issue_id = ?),
+  (SELECT status FROM workspace_issue_tasks WHERE workspace_id = ? AND issue_id = ? AND task_id = ?),
+  (SELECT status FROM workspace_tutti_execution_checkpoints WHERE workspace_id = ? AND checkpoint_id = ?)
+`, issue.WorkspaceID, issue.IssueID,
+		issue.WorkspaceID, issue.IssueID, tasks[0].TaskID,
+		issue.WorkspaceID, aggregate.Checkpoints[0].ID,
+	).Scan(&runCount, &taskStatus, &checkpointStatus); err != nil {
+		t.Fatalf("read rejected schedule state error = %v", err)
+	}
+	if runCount != 0 || taskStatus != string(workspaceissues.StatusNotStarted) ||
+		checkpointStatus != string(executionbiz.CheckpointStatusActive) {
+		t.Fatalf("rejected state runCount=%d task=%q checkpoint=%q", runCount, taskStatus, checkpointStatus)
+	}
+}
+
 func TestTuttiModeExecutionMaterializationRollsBackIssueOnExecutionFailure(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -402,7 +587,9 @@ func prepareTuttiModeIssueGraph(
 			HasBudget:           true,
 			Budget:              workspaceissues.Budget{Mode: workspaceissues.BudgetModeAuto},
 		},
-		Tasks: []workspaceissues.CreateTaskItemInput{{TaskID: "task-1", Title: "Implement"}},
+		Tasks: []workspaceissues.CreateTaskItemInput{{
+			TaskID: "task-1", Title: "Implement", AgentTargetID: "local:codex",
+		}},
 	})
 	if err != nil {
 		t.Fatalf("PrepareIssueWithTasks() error = %v", err)

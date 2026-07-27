@@ -139,11 +139,15 @@ func (c *IssueExecutionCoordinator) ReconcileRunningRuns(ctx context.Context, wo
 	now := time.Now().UnixMilli()
 	for _, run := range runs {
 		if c.SettlementReader != nil && strings.TrimSpace(run.AgentSessionID) != "" {
+			clientSubmitID, identityErr := c.Issues.issueRunClientSubmitID(ctx, run)
+			if identityErr != nil {
+				return result, identityErr
+			}
 			settlement, found, readErr := c.SettlementReader.ReadRunSettlement(
 				ctx,
 				run.WorkspaceID,
 				run.AgentSessionID,
-				"issue-run:"+run.RunID,
+				clientSubmitID,
 			)
 			if readErr != nil {
 				return result, readErr

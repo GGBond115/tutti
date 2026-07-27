@@ -466,10 +466,15 @@ execution and Issue graph unchanged.
 
 Agent launch happens after commit. The launch-intent row is the source of truth
 for `clientSubmitId`; delivery workers claim it with a durable lease and pass
-that stored value unchanged into Agent Host. Concurrent command replay cannot
-enter the launcher while the intent is leased. Response-loss recovery retries
-the same deterministic `issue-run:<runID>` identity, allowing Host to converge
-on the existing canonical Turn rather than creating a second one.
+that stored value unchanged into Agent Host. The active worker renews the lease
+throughout worktree creation and Agent delivery. Ordinary recovery never steals
+a leased intent, and startup recovery requeues only an expired lease, so a
+second daemon replica starting while the first launch is live cannot enter the
+launcher. Response-loss recovery retries the same deterministic
+`issue-run:<runID>` identity, allowing Host to converge on the existing
+canonical Turn rather than creating a second one. Tutti settlement,
+reconciliation, and cancellation resolve this persisted identity from the
+launch intent; only generic Issue Runs derive the deterministic default.
 
 After acceptance the source conversation embeds a live "issue panel view"
 (board/list) of the materialized Issue, fed by the same workspace issue events

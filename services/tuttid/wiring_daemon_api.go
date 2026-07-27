@@ -577,26 +577,24 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 		agentRuntime.Close()
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("reconcile interrupted app factory jobs: %w", err)
 	}
-	if workspaces, err := workspaceService.List(ctx); err == nil {
-		for _, workspace := range workspaces {
-			if err := issueService.RequeueLeasedTuttiModeRunLaunchIntents(ctx, workspace.ID); err != nil {
-				agentRuntime.Close()
-				return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
-					"requeue leased Tutti mode Run launch intents for workspace %q: %w",
-					workspace.ID,
-					err,
-				)
-			}
-			if err := issueService.RecoverTuttiModeRunLaunchIntents(ctx, workspace.ID); err != nil {
-				agentRuntime.Close()
-				return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
-					"recover Tutti mode Run launch intents for workspace %q: %w",
-					workspace.ID,
-					err,
-				)
-			}
-			issueService.RunReconcileQueue.Enqueue(workspace.ID)
+	workspaces, err := workspaceService.List(ctx)
+	if err != nil {
+		agentRuntime.Close()
+		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
+			"list workspaces for Issue Run startup recovery: %w",
+			err,
+		)
+	}
+	for _, workspace := range workspaces {
+		if err := issueService.RecoverTuttiModeRunLaunchesAtStartup(ctx, workspace.ID); err != nil {
+			agentRuntime.Close()
+			return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
+				"recover Tutti mode Run launch intents at startup for workspace %q: %w",
+				workspace.ID,
+				err,
+			)
 		}
+		issueService.RunReconcileQueue.Enqueue(workspace.ID)
 	}
 	cliProviders := []cliservice.Provider{
 		diagnosticscli.NewProvider(),
@@ -768,8 +766,12 @@ func (c issueRunSessionCanceller) RequestRunCancellation(ctx context.Context, re
 	if c.Host == nil || c.Sessions == nil {
 		return workspaceservice.IssueRunCancelResult{}, errors.New("issue run session canceller is unavailable")
 	}
+	clientSubmitID := strings.TrimSpace(request.ClientSubmitID)
+	if clientSubmitID == "" {
+		return workspaceservice.IssueRunCancelResult{}, errors.New("issue run client submit identity is required")
+	}
 	ref := agenthost.SessionRef{WorkspaceID: request.WorkspaceID, AgentSessionID: request.AgentSessionID}
-	turnID, found, err := c.Host.FindTurnByClientSubmitID(ctx, ref, "issue-run:"+request.RunID)
+	turnID, found, err := c.Host.FindTurnByClientSubmitID(ctx, ref, clientSubmitID)
 	if err != nil {
 		return workspaceservice.IssueRunCancelResult{}, err
 	}
@@ -781,7 +783,9 @@ func (c issueRunSessionCanceller) RequestRunCancellation(ctx context.Context, re
 		return workspaceservice.IssueRunCancelResult{}, err
 	}
 	reader := issueRunSettlementReader{Host: c.Host}
-	settlement, settled, readErr := reader.ReadRunSettlement(ctx, request.WorkspaceID, request.AgentSessionID, "issue-run:"+request.RunID)
+	settlement, settled, readErr := reader.ReadRunSettlement(
+		ctx, request.WorkspaceID, request.AgentSessionID, clientSubmitID,
+	)
 	if readErr != nil {
 		return workspaceservice.IssueRunCancelResult{}, readErr
 	}

@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"time"
 
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
 )
@@ -11,6 +12,13 @@ import (
 // the Agent session after the Issue mutation lock has been released.
 type IssueRunLauncher interface {
 	Launch(context.Context, IssueRunLaunch) error
+}
+
+// IssueRunLaunchLeaseRenewalScheduler owns periodic renewal while an external
+// launch is in flight. The production implementation is ticker-backed; tests
+// inject a deterministic scheduler so lease expiry races need no sleeps.
+type IssueRunLaunchLeaseRenewalScheduler interface {
+	Start(context.Context, time.Duration, func() error) func()
 }
 
 type IssueRunLaunch struct {
@@ -62,6 +70,7 @@ type IssueRunCancellationRequest struct {
 	WorkspaceID    string
 	AgentSessionID string
 	RunID          string
+	ClientSubmitID string
 }
 
 // IssueRunSessionCanceller requests cancellation of one Run's delegate

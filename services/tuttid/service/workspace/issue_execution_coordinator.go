@@ -45,11 +45,20 @@ func (c *IssueExecutionCoordinator) CancelIssueExecution(ctx context.Context, wo
 		}
 		var result IssueRunCancelResult
 		if c.RunSessionCanceller != nil && strings.TrimSpace(run.AgentSessionID) != "" {
+			clientSubmitID, identityErr := c.Issues.issueRunClientSubmitID(ctx, run)
+			if identityErr != nil {
+				cancelErrors = append(cancelErrors, fmt.Errorf(
+					"resolve cancel identity for run %s: %w", run.RunID, identityErr,
+				))
+				c.Issues.enqueueWorkspaceRunReconcile(workspaceID)
+				continue
+			}
 			var cancelErr error
 			result, cancelErr = c.RunSessionCanceller.RequestRunCancellation(ctx, IssueRunCancellationRequest{
 				WorkspaceID:    workspaceID,
 				AgentSessionID: run.AgentSessionID,
 				RunID:          run.RunID,
+				ClientSubmitID: clientSubmitID,
 			})
 			if cancelErr != nil {
 				slog.Warn("cancel Issue run agent session failed",
