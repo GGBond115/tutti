@@ -16,6 +16,22 @@ func Catalog() []Scenario {
 			Name: "MaterializedPlanRequiresInitialSchedule",
 			run:  runMaterializedPlanRequiresInitialSchedule,
 		},
+		{
+			Name: "SourceSchedulesExactSet",
+			run:  runSourceSchedulesExactSet,
+		},
+		{
+			Name: "ScheduleRejectsInvalidSetAtomically",
+			run:  runScheduleRejectsInvalidSetAtomically,
+		},
+		{
+			Name: "ScheduleRequestIdentityIsIdempotent",
+			run:  runScheduleRequestIdentityIsIdempotent,
+		},
+		{
+			Name: "PreparedLaunchIntentIsRecoverable",
+			run:  runPreparedLaunchIntentIsRecoverable,
+		},
 	}
 }
 

@@ -147,6 +147,14 @@ Completion uses a three-step acceptance ladder:
 agent_claimed -> auto_checked -> user_accepted
 ```
 
+That ladder and the generic dispatch frontier remain authoritative for manual
+and `traditional_plan` Issues. A `tutti_mode_plan` Issue instead belongs to its
+daemon execution aggregate: materialization creates no Run, `autoAccept` has no
+dispatch authority, and only the source Agent's checkpoint/revision-fenced
+exact-set schedule command may admit Runs. The admission transaction creates
+the selected Runs, task projections, and recoverable launch intents together;
+it never silently fills capacity with another eligible task.
+
 Issue runs settle live from the canonical root-turn settlement fan-out: the
 Issue-run observer sits on the opt-in settle list (root-provider-lifecycle
 adapters report no settled state patch, so the general session-state observers
@@ -174,11 +182,11 @@ merged forward instead of stranding on `tutti/task/*` branches; the planning
 guide pairs this with the convention of an integration task after every
 parallel group.
 
-Two adjacent flows reuse this ladder without weakening it. A task whose
-durable `autoAccept` flag is set (proposed by the planning agent, adjustable
-in plan review) skips the human gate: run completion is accepted
-programmatically through the same `UpdateTask` path a manual acceptance takes,
-so dispatch advance and the whole-issue completion check stay identical.
+For generic dispatch, a task whose durable `autoAccept` flag is set skips the
+human gate: run completion is accepted programmatically through the same
+`UpdateTask` path a manual acceptance takes, so dispatch advance and the
+whole-issue completion check stay identical. Tutti-owned execution treats that
+field as compatibility metadata only.
 Sending a `pending_acceptance` task back to `not_started` (rework) resets its
 acceptance to `agent_claimed` and immediately re-opens the dispatch frontier —
 the daemon re-dispatches without waiting for an unrelated event. When every

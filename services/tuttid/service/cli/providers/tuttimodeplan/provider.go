@@ -8,6 +8,7 @@ import (
 
 	cliservice "github.com/tutti-os/tutti/services/tuttid/service/cli"
 	tuttimodeplanservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeplan"
+	workspaceservice "github.com/tutti-os/tutti/services/tuttid/service/workspace"
 )
 
 const appID = "tutti-mode-plan"
@@ -24,14 +25,37 @@ type ActiveTurns interface {
 	PersistedActiveTurnID(ctx context.Context, workspaceID string, agentSessionID string) (string, error)
 }
 
+type IssueSchedules interface {
+	ScheduleTuttiModeIssue(
+		context.Context,
+		string,
+		workspaceservice.ScheduleTuttiModeIssueInput,
+	) (workspaceservice.ScheduleTuttiModeIssueResult, error)
+}
+
 type Provider struct {
 	workspaces cliservice.WorkspaceCatalog
 	plans      Plans
 	turns      ActiveTurns
+	schedules  IssueSchedules
 }
 
-func NewProvider(workspaces cliservice.WorkspaceCatalog, plans Plans, turns ActiveTurns) Provider {
-	return Provider{workspaces: workspaces, plans: plans, turns: turns}
+func NewProvider(
+	workspaces cliservice.WorkspaceCatalog,
+	plans Plans,
+	turns ActiveTurns,
+	schedules ...IssueSchedules,
+) Provider {
+	var scheduleService IssueSchedules
+	if len(schedules) > 0 {
+		scheduleService = schedules[0]
+	}
+	return Provider{
+		workspaces: workspaces,
+		plans:      plans,
+		turns:      turns,
+		schedules:  scheduleService,
+	}
 }
 
 func (Provider) AppID() string {
@@ -46,7 +70,15 @@ func (p Provider) Commands() []cliservice.Command {
 		p.newProposeCommand(),
 		p.newReviseCommand(),
 		p.newGetCommand(),
+		p.newIssueScheduleCommand(),
 	}
+}
+
+func (p Provider) requireSchedules() error {
+	if p.schedules == nil {
+		return cliservice.ServiceUnavailableError("Tutti Mode execution service is unavailable", nil)
+	}
+	return nil
 }
 
 func (p Provider) requirePlans() error {

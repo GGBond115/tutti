@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+// MaxWorkspaceParallelRuns is the shared admission ceiling for Issue task
+// Runs, regardless of whether the generic dispatcher or Tutti execution
+// admits them.
+const MaxWorkspaceParallelRuns = 4
+
 const (
 	DefaultReasoningIntensity     = 50
 	DefaultOrchestrationIntensity = 50

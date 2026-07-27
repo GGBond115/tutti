@@ -14,7 +14,7 @@ import (
 // Keep automatic parallelism finite even when a plan contains many independent
 // roots. The limit is workspace-wide across Issue runs; in-flight work is
 // counted before every dispatch pass.
-const maxWorkspaceParallelIssueRuns = 4
+const maxWorkspaceParallelIssueRuns = workspaceissues.MaxWorkspaceParallelRuns
 
 // claimEligibleIssueRunsLocked advances the Issue's execution frontier and
 // returns durable launch claims; the caller holds the Issue mutation lock.

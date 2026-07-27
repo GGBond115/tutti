@@ -28,11 +28,16 @@ type sqliteConformanceDriver struct {
 }
 
 type recordingLauncher struct {
-	calls int
+	calls    int
+	failNext bool
 }
 
 func (launcher *recordingLauncher) Launch(context.Context, workspaceservice.IssueRunLaunch) error {
 	launcher.calls++
+	if launcher.failNext {
+		launcher.failNext = false
+		return fmt.Errorf("injected launch failure")
+	}
 	return nil
 }
 
@@ -61,8 +66,11 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 		Clock: func() time.Time { return now },
 	}
 	driver := &sqliteConformanceDriver{
-		store:      store,
-		issues:     workspaceservice.IssueManagerService{Store: store, RunLauncher: launcher, TuttiModeExecutions: executions},
+		store: store,
+		issues: workspaceservice.IssueManagerService{
+			Store: store, RunLauncher: launcher, TuttiModeExecutions: executions,
+			MutationLocks: workspaceservice.NewIssueMutationLocks(),
+		},
 		executions: executions,
 		revisions:  workspacedata.WorkflowRevisionFiles{StateDir: t.TempDir()},
 		now:        now,
@@ -84,16 +92,17 @@ func (driver *sqliteConformanceDriver) AcceptPlan(
 	tasks := make([]tuttimodeplanservice.PlanTask, 0, len(input.Tasks))
 	for _, task := range input.Tasks {
 		tasks = append(tasks, tuttimodeplanservice.PlanTask{
-			ID:               task.TaskID,
-			Title:            task.Title,
-			Content:          task.Content,
-			Priority:         task.Priority,
-			AgentTargetID:    task.AgentTargetID,
-			Model:            task.Model,
-			PermissionModeID: task.PermissionModeID,
-			DependsOn:        append([]string(nil), task.DependencyTaskIDs...),
-			Parallelizable:   task.Parallelizable,
-			AutoAccept:       task.AutoAccept,
+			ID:                 task.TaskID,
+			Title:              task.Title,
+			Content:            task.Content,
+			Priority:           task.Priority,
+			AgentTargetID:      task.AgentTargetID,
+			Model:              task.Model,
+			PermissionModeID:   task.PermissionModeID,
+			ExecutionDirectory: task.ExecutionDirectory,
+			DependsOn:          append([]string(nil), task.DependencyTaskIDs...),
+			Parallelizable:     task.Parallelizable,
+			AutoAccept:         task.AutoAccept,
 		})
 	}
 	frontmatter, err := yaml.Marshal(tuttimodeplanservice.PlanDocument{
@@ -191,18 +200,19 @@ func (driver *sqliteConformanceDriver) GetIssueByID(
 	tasks := make([]tuttimodeexecutionconformance.Task, 0, len(detail.Tasks))
 	for _, task := range detail.Tasks {
 		tasks = append(tasks, tuttimodeexecutionconformance.Task{
-			TaskID:            task.TaskID,
-			Title:             task.Title,
-			Content:           task.Content,
-			Status:            string(task.Status),
-			Priority:          string(task.Priority),
-			SortIndex:         task.SortIndex,
-			AgentTargetID:     task.AgentTargetID,
-			Model:             task.Model,
-			PermissionModeID:  task.PermissionModeID,
-			DependencyTaskIDs: append([]string(nil), task.DependencyTaskIDs...),
-			Parallelizable:    task.Parallelizable,
-			AutoAccept:        task.AutoAccept,
+			TaskID:             task.TaskID,
+			Title:              task.Title,
+			Content:            task.Content,
+			Status:             string(task.Status),
+			Priority:           string(task.Priority),
+			SortIndex:          task.SortIndex,
+			AgentTargetID:      task.AgentTargetID,
+			Model:              task.Model,
+			PermissionModeID:   task.PermissionModeID,
+			ExecutionDirectory: task.ExecutionDirectory,
+			DependencyTaskIDs:  append([]string(nil), task.DependencyTaskIDs...),
+			Parallelizable:     task.Parallelizable,
+			AutoAccept:         task.AutoAccept,
 		})
 	}
 	return issue, tasks, nil
@@ -225,12 +235,47 @@ func (driver *sqliteConformanceDriver) GetSnapshot(
 	if err != nil {
 		return tuttimodeexecutionconformance.Snapshot{}, err
 	}
+	runs, err := driver.issues.ListRuns(ctx, workspaceID, issueID, "")
+	if err != nil {
+		return tuttimodeexecutionconformance.Snapshot{}, err
+	}
+	snapshotRuns := make([]tuttimodeexecutionconformance.RunSnapshot, 0, len(runs))
+	for _, run := range runs {
+		snapshotRuns = append(snapshotRuns, tuttimodeexecutionconformance.RunSnapshot{
+			RunID: run.RunID, TaskID: run.TaskID, Status: string(run.Status),
+		})
+	}
 	return tuttimodeexecutionconformance.Snapshot{
 		Issue:       issue,
 		Tasks:       tasks,
 		Execution:   execution,
 		Checkpoints: checkpoints,
 		RunCount:    runCount,
+		Runs:        snapshotRuns,
+	}, nil
+}
+
+func (driver *sqliteConformanceDriver) Schedule(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.ScheduleInput,
+) (tuttimodeexecutionconformance.ScheduleResult, error) {
+	result, err := driver.issues.ScheduleTuttiModeIssue(ctx, input.WorkspaceID, workspaceservice.ScheduleTuttiModeIssueInput{
+		IssueID:               input.IssueID,
+		SourceSessionID:       input.SourceSessionID,
+		CheckpointID:          input.CheckpointID,
+		ExpectedGraphRevision: input.ExpectedGraphRevision,
+		TaskIDs:               append([]string(nil), input.TaskIDs...),
+		RequestID:             input.RequestID,
+	})
+	if err != nil {
+		return tuttimodeexecutionconformance.ScheduleResult{}, err
+	}
+	return tuttimodeexecutionconformance.ScheduleResult{
+		ExecutionID:   result.ExecutionID,
+		CheckpointID:  result.CheckpointID,
+		GraphRevision: result.GraphRevision,
+		RunIDs:        append([]string(nil), result.RunIDs...),
+		Replayed:      result.Replayed,
 	}, nil
 }
 
@@ -271,6 +316,14 @@ func (driver *sqliteConformanceDriver) CountRuns(ctx context.Context, workspaceI
 
 func (driver *sqliteConformanceDriver) LauncherCallCount() int {
 	return driver.launcher.calls
+}
+
+func (driver *sqliteConformanceDriver) FailNextLaunch() {
+	driver.launcher.failNext = true
+}
+
+func (driver *sqliteConformanceDriver) RecoverLaunches(ctx context.Context, workspaceID string) error {
+	return driver.issues.RecoverTuttiModeRunLaunchIntents(ctx, workspaceID)
 }
 
 func TestMaterializationSQLiteServiceConformance(t *testing.T) {

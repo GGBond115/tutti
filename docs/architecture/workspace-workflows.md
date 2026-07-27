@@ -454,6 +454,16 @@ values remain readable migration metadata but have no dispatch authority for
 Tutti-owned executions. Manual and `traditional_plan` Issues keep the generic
 Issue Manager dispatch behavior.
 
+`plan issue schedule` derives source authority from the trusted invoke context.
+While holding the Issue mutation lock, the daemon validates the entire
+requested set, including isolation. One SQLite transaction revalidates the
+durable caller, active checkpoint, graph revision, task/dependency state,
+budget, and workspace capacity; it then creates every Run, task-running
+projection, and durable launch intent while resolving that checkpoint. Any
+rejection leaves the execution and Issue graph unchanged. Agent launch happens
+after commit, and startup recovery retries prepared intents through
+deterministic `issue-run:<runID>` submit identities.
+
 After acceptance the source conversation embeds a live "issue panel view"
 (board/list) of the materialized Issue, fed by the same workspace issue events
 the Issue Manager consumes. The embed surfaces the durable task structure and

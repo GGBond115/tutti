@@ -579,6 +579,14 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	}
 	if workspaces, err := workspaceService.List(ctx); err == nil {
 		for _, workspace := range workspaces {
+			if err := issueService.RecoverTuttiModeRunLaunchIntents(ctx, workspace.ID); err != nil {
+				agentRuntime.Close()
+				return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
+					"recover Tutti mode Run launch intents for workspace %q: %w",
+					workspace.ID,
+					err,
+				)
+			}
 			issueService.RunReconcileQueue.Enqueue(workspace.ID)
 		}
 	}
@@ -599,7 +607,7 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 			agentTargets,
 			preferences,
 		),
-		tuttimodeplancli.NewProvider(workspaceService, tuttiModePlans, agentSessionService),
+		tuttimodeplancli.NewProvider(workspaceService, tuttiModePlans, agentSessionService, &issueService),
 	}
 	if browserService != nil {
 		cliProviders = append(cliProviders, browsercli.NewProvider(workspaceService, browserService))

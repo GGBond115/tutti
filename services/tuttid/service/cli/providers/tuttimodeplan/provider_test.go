@@ -12,7 +12,9 @@ import (
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
 	cliservice "github.com/tutti-os/tutti/services/tuttid/service/cli"
 	"github.com/tutti-os/tutti/services/tuttid/service/cli/framework"
+	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 	tuttimodeplanservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeplan"
+	workspaceservice "github.com/tutti-os/tutti/services/tuttid/service/workspace"
 )
 
 type recordingPlans struct {
@@ -60,12 +62,13 @@ func (plans *recordingPlans) GetViewForAgent(_ context.Context, input tuttimodep
 	}, nil
 }
 
-func TestProviderExposesOnlyAgentProposalObservationCommands(t *testing.T) {
+func TestProviderExposesAgentPlanAndExecutionCommands(t *testing.T) {
 	commands := NewProvider(nil, &recordingPlans{}, nil).Commands()
 	wantIDs := []string{
 		"tutti-mode-plan.plan.propose",
 		"tutti-mode-plan.plan.revise",
 		"tutti-mode-plan.plan.get",
+		"tutti-mode-plan.plan.issue.schedule",
 	}
 	if len(commands) != len(wantIDs) {
 		t.Fatalf("commands = %#v", commands)
@@ -88,6 +91,134 @@ func TestProviderExposesOnlyAgentProposalObservationCommands(t *testing.T) {
 		if _, exists := properties["request-id"]; !exists {
 			t.Fatalf("command[%d] request-id schema = %#v", index, properties)
 		}
+	}
+}
+
+type recordingIssueScheduler struct {
+	input       workspaceservice.ScheduleTuttiModeIssueInput
+	workspaceID string
+	err         error
+}
+
+func (scheduler *recordingIssueScheduler) ScheduleTuttiModeIssue(
+	_ context.Context,
+	workspaceID string,
+	input workspaceservice.ScheduleTuttiModeIssueInput,
+) (workspaceservice.ScheduleTuttiModeIssueResult, error) {
+	scheduler.workspaceID = workspaceID
+	scheduler.input = input
+	if scheduler.err != nil {
+		return workspaceservice.ScheduleTuttiModeIssueResult{}, scheduler.err
+	}
+	return workspaceservice.ScheduleTuttiModeIssueResult{
+		ExecutionID: "execution-1", CheckpointID: input.CheckpointID,
+		GraphRevision: input.ExpectedGraphRevision,
+		RunIDs:        []string{"run-a", "run-c"},
+	}, nil
+}
+
+func TestProviderExposesSourceScopedIssueScheduleCommand(t *testing.T) {
+	commands := NewProvider(nil, &recordingPlans{}, nil, &recordingIssueScheduler{}).Commands()
+	if len(commands) != 4 {
+		t.Fatalf("commands = %#v, want four commands", commands)
+	}
+	command := commands[3]
+	if command.Capability.ID != "tutti-mode-plan.plan.issue.schedule" {
+		t.Fatalf("schedule command id = %q", command.Capability.ID)
+	}
+	properties := command.Capability.InputSchema["properties"].(map[string]any)
+	for _, name := range []string{
+		"issue-id", "checkpoint-id", "expected-graph-revision",
+		"task-ids-json", "request-id",
+	} {
+		if _, ok := properties[name]; !ok {
+			t.Fatalf("schedule properties = %#v, missing %q", properties, name)
+		}
+	}
+	if _, exists := properties["source-session-id"]; exists {
+		t.Fatalf("schedule properties expose untrusted source-session-id: %#v", properties)
+	}
+}
+
+func TestRunScheduleDerivesCallerOnlyFromInvokeContext(t *testing.T) {
+	scheduler := &recordingIssueScheduler{}
+	result, err := NewProvider(nil, &recordingPlans{}, nil, scheduler).runIssueSchedule(
+		context.Background(),
+		framework.InvokeContext{
+			WorkspaceID: "workspace-1",
+			Request: cliservice.InvokeRequest{Context: cliservice.InvokeContext{
+				AgentSessionID: " source-session ",
+			}},
+		},
+		issueScheduleInput{
+			IssueID: "issue-1", CheckpointID: "checkpoint-1",
+			ExpectedGraphRevision: 3,
+			TaskIDsJSON:           `["task-a","task-c"]`,
+			RequestID:             "schedule-1",
+		},
+	)
+	if err != nil {
+		t.Fatalf("runIssueSchedule() error = %v", err)
+	}
+	if scheduler.workspaceID != "workspace-1" ||
+		scheduler.input.SourceSessionID != "source-session" ||
+		scheduler.input.IssueID != "issue-1" ||
+		scheduler.input.CheckpointID != "checkpoint-1" ||
+		scheduler.input.ExpectedGraphRevision != 3 ||
+		scheduler.input.RequestID != "schedule-1" ||
+		strings.Join(scheduler.input.TaskIDs, ",") != "task-a,task-c" {
+		t.Fatalf("schedule input = %#v in workspace %q", scheduler.input, scheduler.workspaceID)
+	}
+	value := result.(map[string]any)
+	if value["executionId"] != "execution-1" ||
+		value["checkpointId"] != "checkpoint-1" ||
+		value["graphRevision"] != int64(3) {
+		t.Fatalf("schedule result = %#v", value)
+	}
+}
+
+func TestRunScheduleRejectsMissingCallerAndInvalidTaskJSON(t *testing.T) {
+	provider := NewProvider(nil, &recordingPlans{}, nil, &recordingIssueScheduler{})
+	_, err := provider.runIssueSchedule(context.Background(), framework.InvokeContext{
+		WorkspaceID: "workspace-1",
+	}, issueScheduleInput{
+		IssueID: "issue-1", CheckpointID: "checkpoint-1",
+		ExpectedGraphRevision: 1, TaskIDsJSON: `["task-a"]`, RequestID: "schedule-1",
+	})
+	if !errors.Is(err, cliservice.ErrInvalidInput) || !strings.Contains(err.Error(), "agent-session-id") {
+		t.Fatalf("missing caller error = %v", err)
+	}
+	_, err = provider.runIssueSchedule(context.Background(), framework.InvokeContext{
+		WorkspaceID: "workspace-1",
+		Request: cliservice.InvokeRequest{Context: cliservice.InvokeContext{
+			AgentSessionID: "source-session",
+		}},
+	}, issueScheduleInput{
+		IssueID: "issue-1", CheckpointID: "checkpoint-1",
+		ExpectedGraphRevision: 1, TaskIDsJSON: `{"task":"a"}`, RequestID: "schedule-1",
+	})
+	if !errors.Is(err, cliservice.ErrInvalidInput) {
+		t.Fatalf("invalid task JSON error = %v", err)
+	}
+}
+
+func TestRunScheduleReportsRejectedFenceAsInvalidInput(t *testing.T) {
+	scheduler := &recordingIssueScheduler{err: tuttimodeexecutionservice.ErrScheduleRejected}
+	_, err := NewProvider(nil, &recordingPlans{}, nil, scheduler).runIssueSchedule(
+		context.Background(),
+		framework.InvokeContext{
+			WorkspaceID: "workspace-1",
+			Request: cliservice.InvokeRequest{Context: cliservice.InvokeContext{
+				AgentSessionID: "source-session",
+			}},
+		},
+		issueScheduleInput{
+			IssueID: "issue-1", CheckpointID: "checkpoint-1",
+			ExpectedGraphRevision: 1, TaskIDsJSON: `["task-a"]`, RequestID: "schedule-1",
+		},
+	)
+	if !errors.Is(err, cliservice.ErrInvalidInput) {
+		t.Fatalf("schedule rejection error = %v, want invalid input", err)
 	}
 }
 

@@ -11,6 +11,8 @@ const WatchdogInterval = 5 * time.Minute
 var ErrInvalidExecution = errors.New("invalid Tutti mode execution")
 var ErrExecutionNotFound = errors.New("Tutti mode execution not found")
 var ErrExecutionConflict = errors.New("Tutti mode execution conflicts with durable state")
+var ErrScheduleRejected = errors.New("Tutti mode schedule was rejected")
+var ErrScheduleMutationConflict = errors.New("Tutti mode schedule request conflicts with durable history")
 
 func ExecutionID(issueID string) (string, bool) {
 	issueID = strings.TrimSpace(issueID)

@@ -2,7 +2,11 @@
 // Agent Session and Turn lifecycle facts remain owned by Agent Host.
 package tuttimodeexecution
 
-import "time"
+import (
+	"time"
+
+	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
+)
 
 type Status string
 
@@ -86,4 +90,36 @@ type Checkpoint struct {
 type Aggregate struct {
 	Execution   Execution
 	Checkpoints []Checkpoint
+}
+
+type ScheduleAdmission struct {
+	WorkspaceID           string
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+	InputSHA256           string
+	Runs                  []workspaceissues.Run
+	Now                   time.Time
+}
+
+type ScheduleResult struct {
+	ExecutionID   string   `json:"executionId"`
+	CheckpointID  string   `json:"checkpointId"`
+	GraphRevision int64    `json:"graphRevision"`
+	RunIDs        []string `json:"runIds"`
+	Replayed      bool     `json:"-"`
+}
+
+type LaunchIntent struct {
+	WorkspaceID        string
+	IssueID            string
+	TaskID             string
+	RunID              string
+	LaunchIntentID     string
+	ClientSubmitID     string
+	Status             string
+	CanonicalSessionID string
+	CanonicalTurnID    string
 }

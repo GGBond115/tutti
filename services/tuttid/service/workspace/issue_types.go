@@ -186,3 +186,20 @@ type CompleteIssueManagerRunInput struct {
 	RemainingQuotaPercent    float64
 	HasRemainingQuotaPercent bool
 }
+
+type ScheduleTuttiModeIssueInput struct {
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	TaskIDs               []string
+	RequestID             string
+}
+
+type ScheduleTuttiModeIssueResult struct {
+	ExecutionID   string
+	CheckpointID  string
+	GraphRevision int64
+	RunIDs        []string
+	Replayed      bool
+}

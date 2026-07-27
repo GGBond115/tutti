@@ -2,6 +2,7 @@ package tuttimodeplan
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,11 +10,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	workflowbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceworkflow"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
 	cliservice "github.com/tutti-os/tutti/services/tuttid/service/cli"
 	"github.com/tutti-os/tutti/services/tuttid/service/cli/framework"
 	tuttimodeplanservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeplan"
+	workspaceservice "github.com/tutti-os/tutti/services/tuttid/service/workspace"
 )
 
 const maxPlanFileSize = 1 << 20
@@ -35,6 +38,14 @@ type reviseInput struct {
 
 type getInput struct {
 	WorkflowID string `cli:"workflow-id" validate:"required" description:"Workflow id returned by plan propose."`
+}
+
+type issueScheduleInput struct {
+	IssueID               string `cli:"issue-id" validate:"required" description:"Tutti-owned Issue id."`
+	CheckpointID          string `cli:"checkpoint-id" validate:"required" description:"Active execution checkpoint being resolved."`
+	ExpectedGraphRevision int64  `cli:"expected-graph-revision" validate:"required,min=1" description:"Current execution graph revision."`
+	TaskIDsJSON           string `cli:"task-ids-json" validate:"required" description:"JSON array containing exactly the task ids to admit."`
+	RequestID             string `cli:"request-id" validate:"required" description:"Stable schedule mutation id. Reuse it only with the identical payload."`
 }
 
 func (p Provider) newProposeCommand() cliservice.Command {
@@ -82,6 +93,22 @@ func (p Provider) newGetCommand() cliservice.Command {
 		Inputs:      framework.FromStruct[getInput](),
 		Output:      planJSONOutput(framework.ViewDetail),
 		Run:         p.runGet,
+	})
+}
+
+func (p Provider) newIssueScheduleCommand() cliservice.Command {
+	return framework.Register(framework.CommandSpec[issueScheduleInput]{
+		ID:          appID + ".plan.issue.schedule",
+		Path:        []string{"plan", "issue", "schedule"},
+		Summary:     "Schedule exact Tutti Mode Issue tasks",
+		Description: "Atomically admit exactly the requested ready tasks from the active execution checkpoint. Caller authority comes from the invoking Agent session.",
+		Kind:        framework.KindAction,
+		Visibility:  cliservice.CapabilityVisibilityPublic,
+		Workspace:   framework.WorkspaceRequired,
+		Workspaces:  p.workspaces,
+		Inputs:      framework.FromStruct[issueScheduleInput](),
+		Output:      planJSONOutput(framework.ViewSummary),
+		Run:         p.runIssueSchedule,
 	})
 }
 
@@ -165,6 +192,46 @@ func (p Provider) runGet(ctx context.Context, invoke framework.InvokeContext, in
 	return snapshotJSON(view, ""), nil
 }
 
+func (p Provider) runIssueSchedule(
+	ctx context.Context,
+	invoke framework.InvokeContext,
+	input issueScheduleInput,
+) (any, error) {
+	if err := p.requireSchedules(); err != nil {
+		return nil, err
+	}
+	sessionID, err := callerAgentSessionID(invoke)
+	if err != nil {
+		return nil, err
+	}
+	var taskIDs []string
+	if err := json.Unmarshal([]byte(input.TaskIDsJSON), &taskIDs); err != nil || len(taskIDs) == 0 {
+		return nil, cliservice.InvalidInputKeyError("task-ids-json")
+	}
+	result, err := p.schedules.ScheduleTuttiModeIssue(
+		ctx,
+		invoke.WorkspaceID,
+		workspaceservice.ScheduleTuttiModeIssueInput{
+			IssueID:               input.IssueID,
+			SourceSessionID:       sessionID,
+			CheckpointID:          input.CheckpointID,
+			ExpectedGraphRevision: input.ExpectedGraphRevision,
+			TaskIDs:               taskIDs,
+			RequestID:             input.RequestID,
+		},
+	)
+	if err != nil {
+		return nil, agentPlanError(err)
+	}
+	return map[string]any{
+		"executionId":   result.ExecutionID,
+		"checkpointId":  result.CheckpointID,
+		"graphRevision": result.GraphRevision,
+		"runIds":        append([]string(nil), result.RunIDs...),
+		"replayed":      result.Replayed,
+	}, nil
+}
+
 // callerActiveTurnID is best-effort decoration: the timeline anchors the plan
 // panel on this turn when present, and a missing pointer (unwired store, read
 // race) degrades the panel to the timeline tail rather than failing propose.
@@ -193,6 +260,13 @@ func agentPlanError(err error) error {
 	}
 	if errors.Is(err, tuttimodeplanservice.ErrMutationConflict) {
 		return fmt.Errorf("%w: request-id was already used with different content; reuse the original content or choose a new request-id", cliservice.ErrInvalidInput)
+	}
+	if errors.Is(err, executionbiz.ErrScheduleMutationConflict) {
+		return fmt.Errorf("%w: request-id was already used with a different schedule payload", cliservice.ErrInvalidInput)
+	}
+	if errors.Is(err, executionbiz.ErrScheduleRejected) ||
+		errors.Is(err, executionbiz.ErrExecutionNotFound) {
+		return fmt.Errorf("%w: schedule caller, checkpoint, revision, or requested task set is not current", cliservice.ErrInvalidInput)
 	}
 	return err
 }

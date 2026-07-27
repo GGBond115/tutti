@@ -25,18 +25,25 @@ type Issue struct {
 }
 
 type Task struct {
-	TaskID            string
-	Title             string
-	Content           string
-	Status            string
-	Priority          string
-	SortIndex         int
-	AgentTargetID     string
-	Model             string
-	PermissionModeID  string
-	DependencyTaskIDs []string
-	Parallelizable    bool
-	AutoAccept        bool
+	TaskID             string
+	Title              string
+	Content            string
+	Status             string
+	Priority           string
+	SortIndex          int
+	AgentTargetID      string
+	Model              string
+	PermissionModeID   string
+	ExecutionDirectory string
+	DependencyTaskIDs  []string
+	Parallelizable     bool
+	AutoAccept         bool
+}
+
+type RunSnapshot struct {
+	RunID  string
+	TaskID string
+	Status string
 }
 
 type Execution struct {
@@ -62,6 +69,25 @@ type Snapshot struct {
 	Execution   Execution
 	Checkpoints []Checkpoint
 	RunCount    int
+	Runs        []RunSnapshot
+}
+
+type ScheduleInput struct {
+	WorkspaceID           string
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	TaskIDs               []string
+	RequestID             string
+}
+
+type ScheduleResult struct {
+	ExecutionID   string
+	CheckpointID  string
+	GraphRevision int64
+	RunIDs        []string
+	Replayed      bool
 }
 
 // Driver is the narrow public contract exercised by Tutti execution product
@@ -70,5 +96,8 @@ type Snapshot struct {
 type Driver interface {
 	AcceptPlan(context.Context, AcceptPlanInput) (string, error)
 	GetSnapshot(context.Context, string, string) (Snapshot, error)
+	Schedule(context.Context, ScheduleInput) (ScheduleResult, error)
+	FailNextLaunch()
+	RecoverLaunches(context.Context, string) error
 	LauncherCallCount() int
 }
