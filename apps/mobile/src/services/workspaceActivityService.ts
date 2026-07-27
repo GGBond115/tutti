@@ -1,6 +1,5 @@
 import {
   AGENT_SESSION_ENGINE_LOCAL_ORIGIN,
-  agentActivitySessionMessageWindowFromDescendingPage,
   createAgentActivitySnapshotProjector,
   createAgentSessionEngine,
   dispatchSessionMutation,
@@ -10,10 +9,7 @@ import {
   type AgentSessionEngine,
   type EngineExternalCommand
 } from "@tutti-os/agent-activity-core";
-import {
-  agentActivityMessageFromTuttidMessage,
-  type AgentActivitySessionDetailSnapshot
-} from "@tutti-os/agent-activity-tuttid-adapter";
+import { type AgentActivitySessionDetailSnapshot } from "@tutti-os/agent-activity-tuttid-adapter";
 import type {
   TuttidClient,
   WorkspaceSummary
@@ -38,6 +34,7 @@ import { createMobileActivityCommandId } from "./workspaceActivityCommandSupport
 import { requestWorkspaceActivityInteractionResponse } from "./workspaceActivityInteractionCommand";
 import type { WorkspaceActivitySnapshot } from "./workspaceActivityTypes";
 import { WorkspaceAgentLiveLane } from "./workspaceAgentLiveLane";
+import { WorkspaceActivityMessagePageLoader } from "./workspaceActivityMessagePageLoader";
 import { selectWorkspaceConversationRailSessionIds } from "./workspaceConversationRailProjection";
 import type { WorkspaceNavigationService } from "./workspaceNavigationService";
 import { WorkspaceMediaService } from "./workspaceMediaService";
@@ -54,6 +51,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   readonly media: WorkspaceMediaService;
   private readonly engine: AgentSessionEngine;
   private readonly liveLane: WorkspaceAgentLiveLane;
+  private readonly messagePages: WorkspaceActivityMessagePageLoader;
   private readonly mapping: ReturnType<typeof createMobileAgentActivityMapping>;
   private readonly projectActivity: (
     state: ReturnType<AgentSessionEngine["getSnapshot"]>
@@ -61,10 +59,6 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   private disposed = false;
   private paused = false;
   private initializePromise: Promise<void> | null = null;
-  private readonly messageRequestsInFlightByKey = new Map<
-    string,
-    Promise<void>
-  >();
   private messagePollTask: { cancel(): void } | null = null;
   private errorCode: "request_failed" | null = null;
   private loading = true;
@@ -132,6 +126,23 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       readCanonicalActivity: () =>
         this.projectActivity(this.engine.getSnapshot()),
       reconcileWorkspace: () => this.reconcileWorkspace(),
+      workspaceId: this.workspace.id
+    });
+    this.messagePages = new WorkspaceActivityMessagePageLoader({
+      client: this.client,
+      engine: this.engine,
+      isAvailable: () => !this.disposed && !this.paused,
+      onPageApplied: (agentSessionId) => {
+        this.liveLane.reconcileMessages(agentSessionId);
+        this.errorCode = null;
+      },
+      onRequestFailed: () => {
+        if (!this.disposed) this.errorCode = "request_failed";
+      },
+      onRequestSettled: () => {
+        this.onDependencyChanged();
+        this.scheduleMessagesPoll();
+      },
       workspaceId: this.workspace.id
     });
     this.disposables.push(
@@ -456,14 +467,14 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     if (!window?.hasOlderMessages || window.oldestLoadedVersion === null)
       return;
     try {
-      await this.loadMessagePage(selected, {
+      await this.messagePages.loadPage(selected, {
         beforeVersion: window.oldestLoadedVersion,
         limit: MESSAGE_PAGE_SIZE,
         order: "desc"
       });
     } catch {
-      // loadMessagePage records the presentation error; paging remains
-      // explicitly retryable through the same action.
+      // The message page loader records the presentation error; paging
+      // remains explicitly retryable through the same action.
     }
   }
 
@@ -555,76 +566,16 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       0
     );
     if (authoritative || latestVersion === 0) {
-      await this.loadMessagePage(agentSessionId, {
+      await this.messagePages.loadPage(agentSessionId, {
         limit: MESSAGE_PAGE_SIZE,
         order: "desc"
       });
       return;
     }
-    await this.loadMessagePage(agentSessionId, {
+    await this.messagePages.loadPage(agentSessionId, {
       afterVersion: latestVersion,
       order: "asc"
     });
-  }
-
-  private async loadMessagePage(
-    agentSessionId: string,
-    query: {
-      afterVersion?: number;
-      beforeVersion?: number;
-      limit?: number;
-      order: "asc" | "desc";
-    }
-  ): Promise<void> {
-    if (this.paused || this.disposed) return;
-    const requestKey = messageRequestKey(agentSessionId, query);
-    const existing = this.messageRequestsInFlightByKey.get(requestKey);
-    if (existing) return existing;
-    const request = this.client
-      .listWorkspaceAgentSessionMessages(
-        this.workspace.id,
-        agentSessionId,
-        query
-      )
-      .then((page) => {
-        if (this.disposed || this.paused) return;
-        const messages = page.messages.map((message) =>
-          agentActivityMessageFromTuttidMessage(this.workspace.id, message)
-        );
-        this.engine.dispatch({
-          messages,
-          ...(query.order === "desc"
-            ? {
-                sessionMessageWindows: [
-                  {
-                    agentSessionId,
-                    ...agentActivitySessionMessageWindowFromDescendingPage({
-                      ...page,
-                      messages
-                    })
-                  }
-                ]
-              }
-            : {}),
-          type: "message/snapshotReceived",
-          workspaceId: this.workspace.id
-        });
-        this.liveLane.reconcileMessages(agentSessionId);
-        this.errorCode = null;
-      })
-      .catch((error: unknown) => {
-        if (!this.disposed) this.errorCode = "request_failed";
-        throw error;
-      })
-      .finally(() => {
-        if (this.messageRequestsInFlightByKey.get(requestKey) === request) {
-          this.messageRequestsInFlightByKey.delete(requestKey);
-        }
-        this.onDependencyChanged();
-        this.scheduleMessagesPoll();
-      });
-    this.messageRequestsInFlightByKey.set(requestKey, request);
-    return request;
   }
 
   private executeCommand(
@@ -795,22 +746,4 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       this.drafts.set(draftKey, text);
     }
   }
-}
-
-function messageRequestKey(
-  agentSessionId: string,
-  query: {
-    afterVersion?: number;
-    beforeVersion?: number;
-    limit?: number;
-    order: "asc" | "desc";
-  }
-): string {
-  return JSON.stringify([
-    agentSessionId,
-    query.order,
-    query.afterVersion ?? null,
-    query.beforeVersion ?? null,
-    query.limit ?? null
-  ]);
 }

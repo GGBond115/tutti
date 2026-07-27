@@ -412,7 +412,9 @@ Google Play 账号。以下事项等正式分发前再处理：
   Mobile 将 `message_delta` 投影到 activity-core optimistic overlay，直接应用
   Turn/Interaction 更新，并在 discontinuity、序列断点和重连时读取 canonical 数据；
 - workspace 前台已有 live stream 时不再运行一秒消息轮询和两秒会话轮询；长流断开或
-  协议不可用时才恢复轮询。消息读取按 Session 和查询覆盖范围分别 single-flight，
+  协议不可用时才恢复轮询。`WorkspaceActivityMessagePageLoader` 单独负责 transport
+  page 请求、DTO 映射、Engine 应用和按 Session + 查询覆盖范围的 single-flight；
+  `WorkspaceActivityService` 只决定轮询时机和 authoritative/incremental 读取语义。
   older/incremental 请求不会吞掉 live gap 所需的 authoritative newest-page 读取；
   旧会话的慢请求也不会阻塞用户刚切换到的会话，并以一秒退避自动重建 live stream；
 - Android caller 已接入 create/get/update attempt、STUN 二次 gathering、真实
