@@ -27,7 +27,8 @@ import type {
   AgentComposerProps,
   AgentComposerReferenceProvenanceFilters,
   AgentComposerPromptTip,
-  AgentComposerSlashStatusLimit
+  AgentComposerSlashStatusLimit,
+  WorkspaceReferencePickResult
 } from "../AgentComposer";
 import type { AgentContextMentionItem } from "../agentRichText/agentFileMentionExtension";
 import type {
@@ -35,7 +36,11 @@ import type {
   AgentHomeSuggestionCategory,
   AgentGUINodeViewModel
 } from "../model/agentGuiNodeTypes";
-import type { AgentGUIEngagementEventSink } from "../engagement/agentGUIEngagement.types";
+import type {
+  AgentGUIComposerEngagement,
+  AgentGUIEngagementEventSink
+} from "../engagement/agentGUIEngagement.types";
+import type { AgentGUIManagedHomeTargetProjection } from "../model/agentGuiProviderRailOrder";
 import type { OpenAgentEnvPanelInput } from "../../../shared/agentEnv";
 import type {
   TuttiModePlanPanelLabels,
@@ -690,6 +695,54 @@ export interface AgentGUINodeViewProps {
   resolveMentionReferenceTarget?: AgentMentionReferenceTargetResolver | null;
   resolveWorkspaceReferenceInitialTarget?: AgentWorkspaceReferenceInitialTargetResolver | null;
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
+}
+
+export interface AgentGUIDetailPaneProps {
+  shell: AgentGUINodeViewModel["shell"];
+  rail: AgentGUINodeViewModel["rail"];
+  detail: AgentGUINodeViewModel["detail"];
+  composer: AgentGUINodeViewModel["composer"];
+  interaction: AgentGUINodeViewModel["interaction"];
+  readiness: AgentGUINodeViewModel["readiness"];
+  operations: AgentGUINodeViewModel["operations"];
+  homeTargetProjection: AgentGUIManagedHomeTargetProjection;
+  referenceProvenanceFilters?: AgentComposerProps["referenceProvenanceFilters"];
+  sessionInputHistoryEnabled?: boolean;
+  composerEngagement?: AgentGUIComposerEngagement;
+  actions: AgentGUINodeViewProps["actions"];
+  labels: AgentGUIViewLabels;
+  workspaceUserProjectI18n: WorkspaceUserProjectI18nRuntime;
+  uiLanguage: UiLanguage;
+  isActive: boolean;
+  isVisible: boolean;
+  workspaceReferencePickerOpen: boolean;
+  composerFocusRequestSequence: number | null;
+  slashStatusLimits: readonly AgentComposerSlashStatusLimit[];
+  slashStatusLimitsLoading: boolean;
+  slashStatusLimitsUnavailable: boolean;
+  slashStatusOverride?: AgentComposerProps["slashStatus"];
+  onSlashStatusOpen?: AgentComposerProps["onSlashStatusOpen"];
+  onSlashStatusClose?: AgentComposerProps["onSlashStatusClose"];
+  onSlashStatusRefresh?: AgentComposerProps["onSlashStatusRefresh"];
+  onLinkAction?: (action: WorkspaceLinkAction) => void;
+  onHandoffConversation?: AgentGUINodeViewProps["onHandoffConversation"];
+  capabilityMenuState?: AgentComposerProps["capabilityMenuState"];
+  capabilityControlsReadOnly?: AgentComposerProps["capabilityControlsReadOnly"];
+  onCapabilitySettingsRequest?: AgentComposerProps["onCapabilitySettingsRequest"];
+  onAgentProviderLogin?: (provider?: string | null) => void;
+  onRequestWorkspaceReferences?:
+    | ((
+        entity?: AgentContextMentionItem | null
+      ) => Promise<WorkspaceReferencePickResult>)
+    | null;
+  resolveExternalPromptEntries?: AgentComposerProps["resolveExternalPromptEntries"];
+  prepareExternalPromptFiles?: AgentComposerProps["prepareExternalPromptFiles"];
+  promptAssetLimit?: number | null;
+  selectProjectDirectory?: () => Promise<{ path: string } | null>;
+  onRequestGitBranches?: AgentComposerGitBranchLoader | null;
+  onRequestComposerFocus: () => void;
+  workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
+  renderProviderUnavailableState?: AgentGUIProviderUnavailableStateRenderer;
 }
 
 export interface AgentGUISidebarFooterContext {
