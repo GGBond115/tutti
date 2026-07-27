@@ -670,6 +670,12 @@ func TestStoreClearSessionsDeletesGoalSagaWithForeignKeysDisabledAndSessionIDReu
 	}); err != nil || !created || state.Revision != 1 {
 		t.Fatalf("prepare old goal state=%#v created=%v error=%v", state, created, err)
 	}
+	if _, created, err := store.PrepareGoalGenerationFence(ctx, GoalGenerationFencePrepare{
+		FenceID: "old-goal-fence", WorkspaceID: "ws-clear-goal", AgentSessionID: "session-reused",
+		TargetOperationID: "old-goal-op", ClientSubmitID: "old-binding-revoke", OccurredAtUnixMS: 21,
+	}); err != nil || !created {
+		t.Fatalf("prepare old goal fence created=%v error=%v", created, err)
+	}
 	if _, err := store.db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
 		t.Fatalf("disable foreign keys: %v", err)
 	}
@@ -678,7 +684,7 @@ func TestStoreClearSessionsDeletesGoalSagaWithForeignKeysDisabledAndSessionIDReu
 	if err != nil || result.RemovedSessions != 1 {
 		t.Fatalf("ClearSessions() result=%#v error=%v", result, err)
 	}
-	for _, table := range []string{"workspace_agent_runtime_operation_events", "workspace_agent_runtime_operations", "workspace_agent_goal_control_operations", "workspace_agent_session_goals"} {
+	for _, table := range []string{"workspace_agent_runtime_operation_events", "workspace_agent_runtime_operations", "workspace_agent_goal_generation_fences", "workspace_agent_goal_control_operations", "workspace_agent_session_goals"} {
 		var count int
 		if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE workspace_id = ?`, "ws-clear-goal").Scan(&count); err != nil || count != 0 {
 			t.Fatalf("%s count=%d error=%v, want empty", table, count, err)
@@ -740,11 +746,18 @@ func TestStoreSessionDeleteVariantsExplicitlyDeleteGoalSagaWithForeignKeysDisabl
 			}); err != nil {
 				t.Fatal(err)
 			}
+			goalOperationID := "goal-op-" + tc.name
 			if _, _, _, err := store.PrepareGoalControlOperation(ctx, GoalControlOperationPrepare{
-				OperationID: "goal-op-" + tc.name, WorkspaceID: "ws-delete-goal", AgentSessionID: "session-1",
+				OperationID: goalOperationID, WorkspaceID: "ws-delete-goal", AgentSessionID: "session-1",
 				Action: "set", Objective: "objective", OccurredAtUnixMS: 20,
 			}); err != nil {
 				t.Fatal(err)
+			}
+			if _, created, err := store.PrepareGoalGenerationFence(ctx, GoalGenerationFencePrepare{
+				FenceID: "goal-fence-" + tc.name, WorkspaceID: "ws-delete-goal", AgentSessionID: "session-1",
+				TargetOperationID: goalOperationID, ClientSubmitID: "binding-revoke-" + tc.name, OccurredAtUnixMS: 21,
+			}); err != nil || !created {
+				t.Fatalf("prepare goal fence created=%v error=%v", created, err)
 			}
 			if _, err := store.db.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
 				t.Fatal(err)
@@ -753,7 +766,7 @@ func TestStoreSessionDeleteVariantsExplicitlyDeleteGoalSagaWithForeignKeysDisabl
 			if err := tc.remove(ctx, store); err != nil {
 				t.Fatal(err)
 			}
-			for _, table := range []string{"workspace_agent_runtime_operation_events", "workspace_agent_runtime_operations", "workspace_agent_goal_control_operations", "workspace_agent_session_goals"} {
+			for _, table := range []string{"workspace_agent_runtime_operation_events", "workspace_agent_runtime_operations", "workspace_agent_goal_generation_fences", "workspace_agent_goal_control_operations", "workspace_agent_session_goals"} {
 				var count int
 				if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE workspace_id = ?`, "ws-delete-goal").Scan(&count); err != nil || count != 0 {
 					t.Fatalf("%s count=%d error=%v", table, count, err)

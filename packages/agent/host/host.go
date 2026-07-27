@@ -2,6 +2,7 @@ package agenthost
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -26,6 +27,7 @@ type Config struct {
 	StaleTurnSettler       StaleTurnSettler
 	WorktreeGC             WorktreeGarbageCollector
 	GoalStore              GoalStateStore
+	GoalFences             GoalGenerationFenceStore
 	GoalRuntime            GoalRuntimeController
 	GoalInbox              GoalReconcileInboxStore
 	GoalOwner              string
@@ -59,6 +61,7 @@ type Host struct {
 	staleTurns             StaleTurnSettler
 	worktreeGC             WorktreeGarbageCollector
 	goals                  GoalStateStore
+	goalFences             GoalGenerationFenceStore
 	goalRuntime            GoalRuntimeController
 	goalInbox              GoalReconcileInboxStore
 	goalOwner              string
@@ -69,6 +72,7 @@ type Host struct {
 	goalDispatchDeadline   time.Duration
 	goalActor              *SessionActor
 	sessionMutationActor   *SessionActor
+	goalFencesRestored     sync.Map
 }
 
 func New(config Config) *Host {
@@ -88,7 +92,7 @@ func New(config Config) *Host {
 		operations: config.RuntimeOperations, events: config.OperationEvents,
 		owner: config.OperationOwner, scheduler: config.Scheduler, staleTurns: config.StaleTurnSettler,
 		worktreeGC: config.WorktreeGC,
-		goals:      config.GoalStore, goalRuntime: config.GoalRuntime, goalInbox: config.GoalInbox,
+		goals:      config.GoalStore, goalFences: config.GoalFences, goalRuntime: config.GoalRuntime, goalInbox: config.GoalInbox,
 		goalOwner: config.GoalOwner, goalClock: config.GoalClock,
 		goalAttemptTimeout: config.GoalAttemptTimeout, goalRecoveryBudget: config.GoalRecoveryBudget,
 		goalMaxAttempts: config.GoalMaxAttempts, goalDispatchDeadline: config.GoalDispatchDeadline,

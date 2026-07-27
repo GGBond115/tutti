@@ -77,6 +77,17 @@ func TestMapRuntimeErrorKeepsTransportOutcomeUnknown(t *testing.T) {
 	}
 }
 
+func TestMapRuntimeErrorMapsDisconnectedSessionAcrossHostBoundary(t *testing.T) {
+	runtimeErr := fmt.Errorf("fence requires live provider: %w", agentruntime.ErrSessionDisconnected)
+	mapped := mapRuntimeError(runtimeErr)
+	if !errors.Is(mapped, host.ErrRuntimeSessionDisconnected) {
+		t.Fatalf("mapped error = %v, want Host disconnected sentinel", mapped)
+	}
+	if !errors.Is(mapped, agentruntime.ErrSessionDisconnected) {
+		t.Fatalf("mapped error = %v, want source runtime sentinel preserved", mapped)
+	}
+}
+
 func TestRuntimeControllerProjectsSessionWithoutAliasingMutableInputs(t *testing.T) {
 	runtimeContext := map[string]any{"mode": "plan"}
 	env := []string{"A=1"}

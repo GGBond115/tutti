@@ -253,6 +253,9 @@ func deleteGoalRecordsForSessionTx(ctx context.Context, tx *sql.Tx, workspaceID 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workspace_agent_goal_repair_incidents WHERE workspace_id = ? AND agent_session_id = ?`, workspaceID, agentSessionID); err != nil {
 		return fmt.Errorf("delete workspace agent goal repair incidents: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM workspace_agent_goal_generation_fences WHERE workspace_id = ? AND agent_session_id = ?`, workspaceID, agentSessionID); err != nil {
+		return fmt.Errorf("delete workspace agent goal generation fences: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workspace_agent_goal_control_operations WHERE workspace_id = ? AND agent_session_id = ?`, workspaceID, agentSessionID); err != nil {
 		return fmt.Errorf("delete workspace agent session goal operations: %w", err)
 	}
@@ -383,6 +386,9 @@ WHERE workspace_id = ?
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workspace_agent_goal_repair_incidents WHERE workspace_id = ?`, workspaceID); err != nil {
 		return ClearSessionsResult{}, fmt.Errorf("clear workspace agent goal repair incidents: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM workspace_agent_goal_generation_fences WHERE workspace_id = ?`, workspaceID); err != nil {
+		return ClearSessionsResult{}, fmt.Errorf("clear workspace agent goal generation fences: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM workspace_agent_goal_control_operations WHERE workspace_id = ?`, workspaceID); err != nil {
 		return ClearSessionsResult{}, fmt.Errorf("clear workspace agent goal operations: %w", err)

@@ -93,6 +93,14 @@ type RuntimeController interface {
 	Close(context.Context, RuntimeCloseInput) error
 }
 
+// RuntimeSessionLiveness distinguishes a registered runtime Session from a
+// live provider connection. It is required when Goal generation fencing is
+// configured: background recovery must never guess liveness and reconnect an
+// idle/offline Session merely to deliver deferred control work.
+type RuntimeSessionLiveness interface {
+	RuntimeSessionLive(workspaceID, agentSessionID string) bool
+}
+
 type RuntimeSubmitProvenanceReporter interface {
 	DurablyReportSubmitProvenance(context.Context, RuntimeSubmitProvenanceInput) error
 }
@@ -170,6 +178,23 @@ type GoalRuntimeReconciler interface {
 
 type GoalRuntimeRecoveryPolicyResolver interface {
 	GoalRecoveryPolicy(context.Context, RuntimeGoalControlInput) (RuntimeGoalRecoveryPolicy, error)
+}
+
+// GoalRuntimeGenerationFencer installs an exact, idempotent provider-runtime
+// admission fence. It must not clear a newer Goal generation.
+type GoalRuntimeGenerationFencer interface {
+	FenceGoalGeneration(context.Context, RuntimeGoalGenerationFenceInput) error
+}
+
+type GoalGenerationFenceStore interface {
+	PrepareGoalGenerationFence(context.Context, storesqlite.GoalGenerationFencePrepare) (storesqlite.GoalGenerationFence, bool, error)
+	GetGoalGenerationFence(context.Context, string, string) (storesqlite.GoalGenerationFence, bool, error)
+	ListGoalGenerationFencesForSession(context.Context, string, string) ([]storesqlite.GoalGenerationFence, error)
+	ListClaimableGoalGenerationFences(context.Context, storesqlite.ListClaimableGoalGenerationFencesInput) ([]storesqlite.GoalGenerationFence, error)
+	ClaimGoalGenerationFence(context.Context, storesqlite.ClaimGoalGenerationFenceInput) (storesqlite.GoalGenerationFence, bool, error)
+	ReleaseGoalGenerationFence(context.Context, storesqlite.ReleaseGoalGenerationFenceInput) (storesqlite.GoalGenerationFence, bool, error)
+	CompleteGoalGenerationFence(context.Context, storesqlite.CompleteGoalGenerationFenceInput) (storesqlite.GoalGenerationFence, bool, error)
+	RequeueLeasedGoalGenerationFencesOnStartup(context.Context, int64) (int64, error)
 }
 
 type RuntimePreparationInput struct {

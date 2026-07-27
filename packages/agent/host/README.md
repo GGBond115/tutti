@@ -16,7 +16,8 @@ The module owns:
 - the runtime-operation coordinator, worker, typed interactive dispositions,
   startup recovery order, and adapter-specific worktree GC scheduling;
 - the direct and typed goal-control saga, revision actor, durable operation and
-  reconcile-inbox workers, provider evidence repair, and goal recovery policy;
+  reconcile-inbox workers, exact Goal-generation fences, provider evidence
+  repair, and goal recovery policy;
 - typed conformance scenarios under `conformance`.
 
 `CreateSession` has two explicit modes: an empty session, or one command with
@@ -45,6 +46,33 @@ then settles unrecoverable stale turns, and finally invokes the adapter's
 worktree-isolation sweep. Configuring a goal store
 without its runtime or inbox consumer fails recovery with
 `ErrGoalConsumerUnavailable` instead of silently accumulating work.
+
+`FenceGoalGeneration` is the durable boundary for revoking work created by one
+exact Goal operation. The caller supplies the original operation identity; Host
+persists `(operationId, revision, repairEpoch)` in
+`workspace_agent_goal_generation_fences` before attempting any provider call.
+`IntentAccepted` means Host owns later retries even when the provider is
+offline. Accepting or recovering a fence never resumes an offline provider
+Session. Host immediately prepares a revision-conditional local clear so the
+revoked target cannot replay; provider delivery waits until the Session is
+already live or a user action resumes it. A fence is an admission rule, not
+session deletion: completed rows remain durable and are restored to the
+runtime after restart or resume so a delayed provider generation cannot become
+canonical. The runtime Controller retains the exact fence set independently
+of an adapter connection and installs it into every replacement connection
+before dispatching a user operation; failed installation closes the
+unprotected connection. Host cancels a live Turn only when its
+immutable Goal provenance exactly matches the fenced identity; that internal
+cancel is require-live and never reconnects an offline provider. The fence
+remains unsettled until the Turn reaches an authoritative terminal state. It
+never retargets
+`session.activeTurnId`, clears a newer Goal revision, or infers ownership from
+the current session state. `FindGoalControlOperationByClientSubmitID`
+lets an adapter recover the original operation after an
+accept-before-response crash without duplicating Host's operation-ID
+algorithm. Startup and steady-state workers process fences before ordinary
+Goal operations; otherwise a prepared revoked Goal could be replayed during
+recovery before its fence reached the runtime.
 
 A provider-accepted Goal operation has crossed the delivery boundary. The
 steady-state worker waits for applied evidence and never resubmits that

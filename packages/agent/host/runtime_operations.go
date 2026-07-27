@@ -396,13 +396,21 @@ func (h *Host) validateRecoveryConfiguration() error {
 		return nil
 	}
 	if h.goals == nil {
-		if h.goalInbox != nil {
+		if h.goalInbox != nil || h.goalFences != nil {
 			return ErrGoalConsumerUnavailable
 		}
 		return nil
 	}
 	if h.goalRuntime == nil || h.goalInbox == nil {
 		return ErrGoalConsumerUnavailable
+	}
+	if h.goalFences != nil {
+		if _, ok := h.goalRuntime.(GoalRuntimeGenerationFencer); !ok {
+			return ErrGoalGenerationFenceUnavailable
+		}
+		if _, ok := h.runtime.(RuntimeSessionLiveness); !ok {
+			return ErrRuntimeSessionLivenessUnavailable
+		}
 	}
 	return nil
 }

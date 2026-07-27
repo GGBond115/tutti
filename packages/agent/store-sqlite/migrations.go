@@ -65,6 +65,7 @@ const schemaMigrationWorkspaceAgentGoalStateV5 = "workspace_agent_goal_state_v5"
 const schemaMigrationWorkspaceAgentGoalStateV6 = "workspace_agent_goal_state_v6"
 const schemaMigrationWorkspaceAgentGoalStateV7 = "workspace_agent_goal_state_v7"
 const schemaMigrationWorkspaceAgentGoalProvenanceLedgerV1 = "workspace_agent_goal_provenance_ledger_v1"
+const schemaMigrationWorkspaceAgentGoalGenerationFencesV1 = "workspace_agent_goal_generation_fences_v1"
 const schemaMigrationWorkspaceAgentMessageSemanticsV1 = "workspace_agent_message_semantics_v1"
 const schemaMigrationWorkspaceAgentDeletedPurgeIndexV1 = "workspace_agent_deleted_purge_index_v1"
 const schemaMigrationWorkspaceAgentSessionTurnPageIndexV1 = "workspace_agent_session_turn_page_index_v1"
@@ -238,6 +239,9 @@ CREATE TABLE IF NOT EXISTS `+schemaMigrationsTable+` (
 		return err
 	}
 	if err := s.applyWorkspaceAgentGoalProvenanceLedgerV1(ctx); err != nil {
+		return err
+	}
+	if err := s.applyWorkspaceAgentGoalGenerationFencesV1(ctx); err != nil {
 		return err
 	}
 	if err := s.applyWorkspaceAgentMessageSemanticsV1(ctx); err != nil {

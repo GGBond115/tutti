@@ -2793,6 +2793,48 @@ convergence deadline`.
   [goal_operation_worker.go](../../../packages/agent/host/goal_operation_worker.go)
   [goal_scenarios.go](../../../packages/agent/host/conformance/goal_scenarios.go)
 
+### Revoked shared Goal starts again after handoff or desktop restart
+
+- Symptom:
+  After a shared binding is revoked, the old Goal starts or resumes provider
+  work, may replace the Owner's newer Goal, or an unrelated active Turn is
+  canceled.
+- Quick checks:
+  Resolve the original Goal operation by its stable `clientSubmitId`. Inspect
+  `workspace_agent_goal_generation_fences` for the exact operation ID, revision,
+  and repair epoch. `pending` or `processing` means Host still owns delivery;
+  absence means the revocation was never durably accepted. For any canceled
+  Turn, compare all three immutable `source_goal_*` fields with the fence.
+- Root cause:
+  Revocation was treated as a one-shot notification, or code guessed that the
+  session's current active Turn belonged to the revoked binding. A failed
+  notification was lost on restart, and recovery could replay the old prepared
+  Goal before runtime learned the revocation.
+- Fix:
+  Persist an exact Goal-generation fence before provider delivery. Process
+  fences before Goal operations during startup and each worker tick. Restore
+  all durable fences when a provider session resumes, and retain the exact set
+  in the runtime Controller across idle connection release so a replacement
+  adapter is fenced before its first user operation. Never resume an offline
+  provider solely for background fence or cancel delivery. Prepare the local
+  clear with the target revision as a compare-and-swap guard, and call
+  `CancelTurn` only for a live canonical Turn whose operation ID, revision,
+  and repair epoch all match. Keep the fence pending after cancellation
+  acceptance until the Turn is canonically terminal.
+- Validation:
+  Cover failed delivery followed by restart, a pending target operation and
+  fence recovered together, a newer Owner Goal, repeated runtime ensure, and
+  matching versus unrelated active Turns. Simulate connection replacement and
+  prove fence reinstallation happens before provider dispatch. Simulate a
+  disconnect immediately before cancel and prove background recovery makes
+  zero provider Resume calls. Provider tests must prove that the exact
+  Codex/Claude generation never becomes canonical while later generations
+  remain admissible.
+- References:
+  [Agent Host contracts](../../../packages/agent/host/README.md)
+  [Agent Goal Control Design](../../specs/2026-07-15-agent-goal-control-design.md)
+  [goal_generation_fence.go](../../../packages/agent/host/goal_generation_fence.go)
+
 ### Initial Goal prompt disappears when the Agent starts responding
 
 - Symptom:

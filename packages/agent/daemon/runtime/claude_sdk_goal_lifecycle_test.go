@@ -797,6 +797,40 @@ func TestClaudeSDKDelayedOlderRepairEpochIsPreciselyCanceled(t *testing.T) {
 	}
 }
 
+func TestClaudeSDKFencedGoalGenerationNeverBecomesCanonical(t *testing.T) {
+	t.Parallel()
+	adapter := NewClaudeCodeSDKAdapter(nil)
+	conn := newBlockingClaudeSDKConnection()
+	defer func() { _ = conn.Close() }()
+	session, adapterSession := newClaudeSDKLifecycleTestSession(t, adapter, conn)
+	if err := adapter.FenceGoalGeneration(context.Background(), session, GoalGenerationFenceInput{
+		OperationID: "goal-fenced", Revision: 7, RepairEpoch: 2, Reason: "binding_revoked",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	events, _, err := adapter.sidecarTurnEvents(adapterSession, session, "goal-turn-fenced", claudeSDKSidecarEvent{
+		Type: "turn_started",
+		Payload: map[string]any{
+			"turnId": "goal-turn-fenced", "turnOrigin": "goal_continuation",
+			"sourceGoalOperationId": "goal-fenced", "sourceGoalRevision": float64(7), "sourceGoalRepairEpoch": float64(2),
+		},
+	})
+	if err != nil || len(events) != 0 {
+		t.Fatalf("fenced turn events=%#v error=%v", events, err)
+	}
+	sent := conn.sentRequests()
+	if len(sent) != 1 || sent[0].Type != "cancel" ||
+		payloadString(sent[0].Payload, "turnId") != "goal-turn-fenced" {
+		t.Fatalf("fenced turn cancellation=%#v", sent)
+	}
+	events, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "goal-turn-fenced", claudeSDKSidecarEvent{
+		Type: "turn_canceled", Payload: map[string]any{"turnId": "goal-turn-fenced"},
+	})
+	if err != nil || !terminal || len(events) != 0 {
+		t.Fatalf("fenced terminal events=%#v terminal=%v error=%v", events, terminal, err)
+	}
+}
+
 func TestClaudeSDKStaleFailureCannotRestoreNewerGoalState(t *testing.T) {
 	adapter := NewClaudeCodeSDKAdapter(nil)
 	adapterSession := &claudeSDKAdapterSession{}

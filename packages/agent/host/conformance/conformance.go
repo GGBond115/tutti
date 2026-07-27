@@ -85,6 +85,7 @@ type SendObservation struct {
 
 type GoalObservation struct {
 	Goal               map[string]any
+	OperationID        string
 	Revision           int64
 	PendingOperationID string
 	SyncStatus         string
@@ -153,6 +154,7 @@ type Driver interface {
 	DeleteSession(context.Context, agenthost.SessionRef) (agenthost.DeleteSessionResult, error)
 	PurgeDeletedSessions(context.Context, agenthost.PurgeDeletedSessionsInput) (agenthost.PurgeDeletedSessionsResult, error)
 	GoalControl(context.Context, agenthost.GoalControlInput) (GoalObservation, error)
+	FenceGoalGeneration(context.Context, agenthost.FenceGoalGenerationInput) (agenthost.FenceGoalGenerationResult, error)
 	GetGoalState(context.Context, agenthost.SessionRef) (GoalObservation, error)
 	ReconcileGoal(context.Context, agenthost.SessionRef) (GoalObservation, error)
 	StepGoalOperations(context.Context, int64) error

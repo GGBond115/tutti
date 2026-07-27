@@ -5306,6 +5306,44 @@ func TestCodexGoalProvenanceDurableLedgerSurvivesRestartAndAdoptsDelayedGenerati
 	}
 }
 
+func TestCodexFencedGoalGenerationIsPreciselyInterruptedBeforeAdoption(t *testing.T) {
+	adapter, transport, session := startedAppServerAdapter(t)
+	adapter.SetGoalProvenanceDurableSink(&memoryGoalProvenanceLedger{bindings: make(map[string]GoalProvenanceBinding)})
+	identity := goalOperationIdentity{operationID: "goal-fenced", revision: 4, repairEpoch: 1}
+	goal := map[string]any{
+		"threadId": session.ProviderSessionID, "objective": "old shared work",
+		"status": "active", "createdAt": int64(10), "updatedAt": int64(11),
+	}
+	adapter.replaceGoalOperationIdentity(session.AgentSessionID, identity.operationID, identity.revision, identity.repairEpoch)
+	if err := adapter.bindGoalGeneration(context.Background(), session, goal, identity); err != nil {
+		t.Fatal(err)
+	}
+	if err := adapter.FenceGoalGeneration(context.Background(), session, GoalGenerationFenceInput{
+		OperationID: identity.operationID, Revision: identity.revision,
+		RepairEpoch: identity.repairEpoch, Reason: "binding_revoked",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	adapter.queueGoalTurnForProvenance(session, "provider-turn-fenced")
+	adapter.observeGoalTurnGeneration(session, "provider-turn-fenced", goal)
+	waitForCondition(t, func() bool {
+		transport.conn.mu.Lock()
+		defer transport.conn.mu.Unlock()
+		for _, turnID := range transport.conn.interruptAttempts {
+			if turnID == "provider-turn-fenced" {
+				return true
+			}
+		}
+		return false
+	})
+	adapter.mu.Lock()
+	active := adapter.sessions[session.AgentSessionID].activeTurn
+	adapter.mu.Unlock()
+	if active != nil {
+		t.Fatalf("fenced provider turn was adopted: %#v", active)
+	}
+}
+
 func TestCodexGoalProvenanceUsesLiveThreadIDForPreStartCapturedSession(t *testing.T) {
 	adapter, _, session := startedAppServerAdapter(t)
 	ledger := &memoryGoalProvenanceLedger{bindings: make(map[string]GoalProvenanceBinding)}

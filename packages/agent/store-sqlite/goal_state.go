@@ -86,6 +86,9 @@ func (s *Store) PrepareGoalControlOperation(ctx context.Context, input GoalContr
 			return GoalControlOperation{}, SessionGoalState{}, false, err
 		}
 	}
+	if input.ExpectedRevision > 0 && state.Revision != input.ExpectedRevision {
+		return GoalControlOperation{}, state, false, ErrGoalGenerationSuperseded
+	}
 	desired := cloneJSONMap(state.Desired)
 	tombstoned := false
 	switch input.Action {

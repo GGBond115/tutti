@@ -92,6 +92,7 @@ func GoalScenarios() []Scenario {
 		{Name: "duplicate goal client submit id", run: runDuplicateGoalClientSubmitID},
 		{Name: "goal reconcile observation", run: runGoalReconcileObservation},
 		{Name: "goal revision actor fence", run: runGoalRevisionActorFence},
+		{Name: "goal generation fence preserves newer goal", run: runGoalGenerationFencePreservesNewerGoal},
 		{Name: "accepted goal control waits without replay", run: runAcceptedGoalControlWaitsWithoutReplay},
 		{Name: "goal inbox consumer preflight", run: runGoalInboxConsumerPreflight},
 	}

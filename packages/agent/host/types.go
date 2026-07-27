@@ -392,6 +392,10 @@ type CancelTurnInput struct {
 	AgentSessionID string
 	TurnID         string
 	Reason         string
+	// RequireLive forbids internal cleanup from reconnecting an offline
+	// provider merely to deliver cancellation. The durable Turn remains
+	// pending until a live connection can report its authoritative terminal.
+	RequireLive bool
 }
 
 type CancelState string
@@ -530,6 +534,9 @@ type RuntimeGoalControlInput struct {
 	GoalRevision       int64
 	RepairEpoch        int64
 	SubmissionMetadata map[string]any
+	// RequireLive forbids a background worker from reconnecting an offline
+	// provider merely to deliver this control.
+	RequireLive bool
 }
 
 type RuntimeGoalControlResult struct {
@@ -550,6 +557,16 @@ type RuntimeGoalRecoveryPolicy struct {
 	ReplaySetAfterRestart bool
 }
 
+type RuntimeGoalGenerationFenceInput struct {
+	WorkspaceID       string
+	AgentSessionID    string
+	TargetOperationID string
+	TargetRevision    int64
+	TargetRepairEpoch int64
+	Reason            string
+	RequireLive       bool
+}
+
 type GoalControlInput struct {
 	WorkspaceID    string
 	AgentSessionID string
@@ -560,6 +577,9 @@ type GoalControlInput struct {
 	// makes retries idempotent across Host process restarts.
 	ClientSubmitID     string
 	SubmissionMetadata map[string]any
+	// ExpectedRevision conditionally applies this control only while the exact
+	// Goal generation is still current. Zero preserves ordinary controls.
+	ExpectedRevision int64
 }
 
 type GoalControlResult struct {
@@ -572,6 +592,20 @@ type GoalControlResult struct {
 type GoalStateResult struct {
 	Canonical storesqlite.Session
 	State     storesqlite.SessionGoalState
+}
+
+type FenceGoalGenerationInput struct {
+	WorkspaceID       string
+	AgentSessionID    string
+	TargetOperationID string
+	ClientSubmitID    string
+	Reason            string
+}
+
+type FenceGoalGenerationResult struct {
+	Fence          storesqlite.GoalGenerationFence
+	IntentAccepted bool
+	Settled        bool
 }
 
 type GoalReconcileRequiredInput struct {

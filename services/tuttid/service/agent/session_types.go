@@ -41,6 +41,7 @@ type Service struct {
 	TurnSummaryReader              agentactivitybiz.SessionTurnSummaryReader
 	RuntimeOperationStore          RuntimeOperationStore
 	GoalStateStore                 GoalStateStore
+	GoalGenerationFenceStore       agenthost.GoalGenerationFenceStore
 	CommitObserver                 agenthost.CommitObserver
 	GoalReconcileInboxStore        GoalReconcileInboxStore
 	SubmitClaimStore               SubmitClaimStore
@@ -508,12 +509,17 @@ type RuntimeGoalControlInput = agenthost.RuntimeGoalControlInput
 type RuntimeGoalControlResult = agenthost.RuntimeGoalControlResult
 type RuntimeGoalReconcileResult = agenthost.RuntimeGoalReconcileResult
 type RuntimeGoalRecoveryPolicy = agenthost.RuntimeGoalRecoveryPolicy
+type RuntimeGoalGenerationFenceInput = agenthost.RuntimeGoalGenerationFenceInput
 type RuntimeGoalRecoveryPolicyResolver interface {
 	GoalRecoveryPolicy(context.Context, RuntimeGoalControlInput) (RuntimeGoalRecoveryPolicy, error)
 }
 
 type RuntimeGoalReconciler interface {
 	ReconcileGoal(context.Context, RuntimeGoalControlInput) (RuntimeGoalReconcileResult, error)
+}
+
+type RuntimeGoalGenerationFencer interface {
+	FenceGoalGeneration(context.Context, RuntimeGoalGenerationFenceInput) error
 }
 
 type RuntimeCloseInput = agenthost.RuntimeCloseInput

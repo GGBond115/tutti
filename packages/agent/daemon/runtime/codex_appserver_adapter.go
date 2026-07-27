@@ -227,6 +227,10 @@ type codexAppServerSession struct {
 	// immutable operation identity is still current, so a newer set/clear
 	// invalidates delayed work without rebinding it to the latest Goal.
 	goalContinuationClaim *codexGoalContinuationClaim
+	// fencedGoalIdentities contains durable Host revocations restored whenever
+	// the runtime session resumes. Exact identity matching preserves later
+	// Owner-authored Goal generations and ordinary user turns.
+	fencedGoalIdentities map[goalOperationIdentity]struct{}
 	// provenanceDegraded is fail-closed for the lifetime of this provider
 	// session. Once bounded evidence can no longer preserve ambiguity, no later
 	// notification may rebuild a partial cache and become adoptable.

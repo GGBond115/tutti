@@ -240,6 +240,16 @@ func (a serviceHostStore) DeleteSubmitClaim(ctx context.Context, workspaceID, se
 
 type serviceHostRuntime struct{ service *Service }
 
+func (a serviceHostRuntime) RuntimeSessionLive(workspaceID, agentSessionID string) bool {
+	if liveness, ok := a.service.controller().(interface {
+		RuntimeSessionLive(string, string) bool
+	}); ok {
+		return liveness.RuntimeSessionLive(workspaceID, agentSessionID)
+	}
+	_, found := a.service.controller().Session(workspaceID, agentSessionID)
+	return found
+}
+
 func (a serviceHostRuntime) Start(ctx context.Context, input RuntimeStartInput) (ProviderRuntimeSession, error) {
 	session, err := a.service.controller().Start(ctx, input)
 	session.Provisional = input.Provisional
@@ -329,6 +339,14 @@ func (a serviceHostGoalRuntime) GoalRecoveryPolicy(ctx context.Context, input ag
 		return agenthost.RuntimeGoalRecoveryPolicy{}, nil
 	}
 	return resolver.GoalRecoveryPolicy(ctx, input)
+}
+
+func (a serviceHostGoalRuntime) FenceGoalGeneration(ctx context.Context, input agenthost.RuntimeGoalGenerationFenceInput) error {
+	fencer, ok := a.service.controller().(RuntimeGoalGenerationFencer)
+	if !ok {
+		return agenthost.ErrGoalGenerationFenceUnavailable
+	}
+	return normalizeRuntimeError(fencer.FenceGoalGeneration(ctx, input))
 }
 
 func newApplicationHost(s *Service, worktreeGC agenthost.WorktreeGarbageCollector) *agenthost.Host {

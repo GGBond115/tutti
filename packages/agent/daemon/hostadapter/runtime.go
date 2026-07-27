@@ -45,10 +45,12 @@ type RuntimeController struct {
 
 var (
 	_ host.RuntimeController                 = (*RuntimeController)(nil)
+	_ host.RuntimeSessionLiveness            = (*RuntimeController)(nil)
 	_ host.RuntimeSubmitProvenanceReporter   = (*RuntimeController)(nil)
 	_ host.GoalRuntimeController             = (*RuntimeController)(nil)
 	_ host.GoalRuntimeReconciler             = (*RuntimeController)(nil)
 	_ host.GoalRuntimeRecoveryPolicyResolver = (*RuntimeController)(nil)
+	_ host.GoalRuntimeGenerationFencer       = (*RuntimeController)(nil)
 )
 
 func (a *RuntimeController) Start(ctx context.Context, input host.RuntimeStartInput) (host.ProviderRuntimeSession, error) {
@@ -108,6 +110,16 @@ func (a *RuntimeController) Session(workspaceID, sessionID string) (host.Provide
 		return host.ProviderRuntimeSession{}, false
 	}
 	return a.sessionWithState(session), true
+}
+
+func (a *RuntimeController) RuntimeSessionLive(workspaceID, sessionID string) bool {
+	if a == nil || a.Backend == nil {
+		return false
+	}
+	liveness, ok := a.Backend.(interface {
+		HasLiveSession(string, string) bool
+	})
+	return ok && liveness.HasLiveSession(strings.TrimSpace(workspaceID), strings.TrimSpace(sessionID))
 }
 
 func (a *RuntimeController) CanResume(input host.RuntimeResumeInput) bool {
@@ -241,7 +253,7 @@ func (a *RuntimeController) GoalControl(ctx context.Context, input host.RuntimeG
 		RoomID: input.WorkspaceID, AgentSessionID: input.AgentSessionID,
 		Action: agentruntime.GoalControlAction(input.Action), Objective: input.Objective,
 		OperationID: input.OperationID, GoalRevision: input.GoalRevision, RepairEpoch: input.RepairEpoch,
-		SubmissionMetadata: cloneMap(input.SubmissionMetadata),
+		SubmissionMetadata: cloneMap(input.SubmissionMetadata), RequireLive: input.RequireLive,
 	})
 	return host.RuntimeGoalControlResult{
 		AgentSessionID: result.AgentSessionID, Goal: cloneMap(result.Goal), Evidence: cloneMap(result.Evidence),
@@ -253,7 +265,9 @@ func (a *RuntimeController) ReconcileGoal(ctx context.Context, input host.Runtim
 	if err := a.requireBackend(); err != nil {
 		return host.RuntimeGoalReconcileResult{}, err
 	}
-	result, err := a.Backend.ReconcileGoal(ctx, agentruntime.GoalReconcileInput{RoomID: input.WorkspaceID, AgentSessionID: input.AgentSessionID})
+	result, err := a.Backend.ReconcileGoal(ctx, agentruntime.GoalReconcileInput{
+		RoomID: input.WorkspaceID, AgentSessionID: input.AgentSessionID, RequireLive: input.RequireLive,
+	})
 	return host.RuntimeGoalReconcileResult{
 		AgentSessionID: result.AgentSessionID, Goal: cloneMap(result.Goal), Evidence: cloneMap(result.Evidence),
 	}, mapRuntimeError(err)
@@ -269,6 +283,23 @@ func (a *RuntimeController) GoalRecoveryPolicy(ctx context.Context, input host.R
 	}, mapRuntimeError(err)
 }
 
+func (a *RuntimeController) FenceGoalGeneration(ctx context.Context, input host.RuntimeGoalGenerationFenceInput) error {
+	if err := a.requireBackend(); err != nil {
+		return err
+	}
+	fencer, ok := a.Backend.(interface {
+		FenceGoalGeneration(context.Context, agentruntime.GoalGenerationFenceRequest) error
+	})
+	if !ok {
+		return host.ErrGoalGenerationFenceUnavailable
+	}
+	return mapRuntimeError(fencer.FenceGoalGeneration(ctx, agentruntime.GoalGenerationFenceRequest{
+		RoomID: input.WorkspaceID, AgentSessionID: input.AgentSessionID,
+		OperationID: input.TargetOperationID, Revision: input.TargetRevision,
+		RepairEpoch: input.TargetRepairEpoch, Reason: input.Reason, RequireLive: input.RequireLive,
+	}))
+}
+
 func (a *RuntimeController) requireBackend() error {
 	if a == nil || a.Backend == nil {
 		return errors.New("agent runtime controller is unavailable")
@@ -279,6 +310,9 @@ func (a *RuntimeController) requireBackend() error {
 func mapRuntimeError(err error) error {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, agentruntime.ErrSessionDisconnected) {
+		return errors.Join(host.ErrRuntimeSessionDisconnected, err)
 	}
 	var appErr *agentruntime.AppError
 	if errors.As(err, &appErr) && appErr != nil {
