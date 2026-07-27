@@ -659,6 +659,42 @@ describe("AgentTranscriptView virtual rendering", () => {
     timeline.remove();
   });
 
+  it("follows an explicit downward wheel reversal immediately", async () => {
+    virtualizerMockState.centerIndex = 10;
+    virtualizerMockState.virtualIndexes = [10];
+    const timeline = document.createElement("div");
+    timeline.dataset.testid = "agent-gui-timeline";
+    timeline.style.overflow = "auto";
+    timeline.scrollTop = 1_000;
+    document.body.appendChild(timeline);
+    render(
+      <AgentTranscriptView
+        conversation={conversationWithMultiRowTurns(40)}
+        labels={TRANSCRIPT_LABELS_WITH_LOCATOR}
+      />,
+      { container: timeline }
+    );
+    const selectedIndex = () =>
+      [
+        ...timeline.querySelectorAll(".agent-gui-message-locator__tick")
+      ].findIndex((tick) => tick.getAttribute("data-selected") === "true");
+    await waitFor(() => expect(selectedIndex()).toBe(10));
+
+    fireEvent.wheel(timeline, { deltaY: -100 });
+    virtualizerMockState.centerIndex = 5;
+    timeline.scrollTop = 500;
+    fireEvent.scroll(timeline);
+    await waitFor(() => expect(selectedIndex()).toBe(5));
+
+    fireEvent.wheel(timeline, { deltaY: 100 });
+    virtualizerMockState.centerIndex = 6;
+    timeline.scrollTop = 600;
+    fireEvent.scroll(timeline);
+
+    await waitFor(() => expect(selectedIndex()).toBe(6));
+    timeline.remove();
+  });
+
   it("selects the preceding user message when the centered turn has no user row", async () => {
     virtualizerMockState.centerIndex = 18;
     virtualizerMockState.virtualIndexes = [18];

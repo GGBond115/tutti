@@ -184,6 +184,7 @@ export function useAgentMessageLocatorSelection({
         }
         const selectionDirection = selectionDirectionRef.current;
         if (
+          intendedDirection === 0 &&
           currentIndex >= 0 &&
           nextIndex >= 0 &&
           selectionDirection !== 0 &&

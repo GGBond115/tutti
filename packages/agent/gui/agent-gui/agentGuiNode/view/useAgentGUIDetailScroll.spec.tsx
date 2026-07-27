@@ -120,6 +120,38 @@ describe("useAgentGUIDetailScroll", () => {
     expect(controller.scrollToEnd).toHaveBeenCalledWith({ behavior: "auto" });
   });
 
+  it("restores a bottom-locked virtualized conversation after exposure", () => {
+    const harness = createHarness({ scrollHeight: 5_000 });
+    const controller = virtualScrollController("conversation-exposure");
+    harness.virtualScrollControllerRef.current = controller;
+    const hiddenConversation = conversationVM("hidden-update");
+    const { rerender } = renderHook(
+      ({ conversation, isVisible }) =>
+        useAgentGUIDetailScroll(
+          harness.input({
+            activeConversationId: "conversation-exposure",
+            conversation,
+            isVisible,
+            showTimelineSkeleton: false
+          })
+        ),
+      {
+        initialProps: {
+          conversation: conversationVM("initial"),
+          isVisible: true
+        }
+      }
+    );
+    controller.scrollToEnd.mockClear();
+    controller.enabled = false;
+
+    rerender({ conversation: hiddenConversation, isVisible: false });
+    controller.enabled = true;
+    rerender({ conversation: hiddenConversation, isVisible: true });
+
+    expect(controller.scrollToEnd).toHaveBeenCalledWith({ behavior: "auto" });
+  });
+
   it("does not use a previous Session virtual controller", () => {
     const harness = createHarness({ scrollHeight: 5_000 });
     const staleController = virtualScrollController("conversation-previous");
@@ -1136,6 +1168,7 @@ function createHarness(input: { scrollHeight: number }) {
       bottomDockStoreRevision?: string;
       conversation?: AgentConversationVM;
       hasOlderMessages?: boolean;
+      isVisible?: boolean;
       isLoadingOlderMessages?: boolean;
       showTimelineSkeleton: boolean;
       timelineConversationId?: string | null;
@@ -1145,6 +1178,7 @@ function createHarness(input: { scrollHeight: number }) {
         bottomDockRef: ref(bottomDock),
         bottomDockStoreRevision: options.bottomDockStoreRevision ?? "stable",
         conversation: options.conversation ?? null,
+        isVisible: options.isVisible ?? true,
         pendingPrependScrollAnchorRef,
         showTimelineSkeleton: options.showTimelineSkeleton,
         submittedPromptScrollConversationRef,

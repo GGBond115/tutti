@@ -34,6 +34,7 @@ interface Input {
   bottomDockRef: RefObject<HTMLDivElement | null>;
   bottomDockStoreRevision: string;
   conversation: AgentConversationVM | null;
+  isVisible: boolean;
   pendingPrependScrollAnchorRef: MutableRefObject<{
     conversationId: string;
     scrollHeight: number;
@@ -60,6 +61,7 @@ export function useAgentGUIDetailScroll(input: Input) {
     bottomDockRef,
     bottomDockStoreRevision,
     conversation,
+    isVisible,
     pendingPrependScrollAnchorRef,
     showTimelineSkeleton,
     submittedPromptScrollConversationRef,
@@ -80,6 +82,10 @@ export function useAgentGUIDetailScroll(input: Input) {
   const bottomDockSafeAreaRef = useRef<BottomDockSafeArea | null>(null);
   const virtualScrollOwnerConversationRef = useRef<string | null>(null);
   useLayoutEffect(() => {
+    if (!isVisible) {
+      virtualScrollOwnerConversationRef.current = null;
+      return;
+    }
     const timelineSkeletonChanged =
       lastShowTimelineSkeletonRef.current !== showTimelineSkeleton;
     lastShowTimelineSkeletonRef.current = showTimelineSkeleton;
@@ -271,6 +277,7 @@ export function useAgentGUIDetailScroll(input: Input) {
     );
   }, [
     conversation,
+    isVisible,
     showTimelineSkeleton,
     timelineConversationId,
     viewModel.rail.activeConversationId,
