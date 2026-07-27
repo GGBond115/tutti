@@ -204,6 +204,72 @@ describe("useAgentGUIDetailScroll", () => {
     expect(harness.timeline.scrollTop).toBe(2_000);
   });
 
+  it("releases virtualized bottom lock after one upward mouse-wheel step", () => {
+    const resizeObservers = installResizeObserverMock();
+    const harness = createHarness({ scrollHeight: 5_000 });
+    const controller = virtualScrollController("conversation-wheel-step");
+    harness.virtualScrollControllerRef.current = controller;
+    const { result } = renderHook(() =>
+      useAgentGUIDetailScroll(
+        harness.input({
+          activeConversationId: "conversation-wheel-step",
+          showTimelineSkeleton: false
+        })
+      )
+    );
+    controller.scrollToEnd.mockClear();
+    const timelineObserver = resizeObservers.find((observer) =>
+      observer.observed.has(harness.timelineContent)
+    );
+
+    act(() => {
+      harness.timeline.dispatchEvent(new WheelEvent("wheel", { deltaY: -1 }));
+      harness.timeline.scrollTop = 4_899;
+      harness.timeline.dispatchEvent(new Event("scroll"));
+      timelineObserver?.callback([], timelineObserver);
+    });
+
+    expect(controller.scrollToEnd).not.toHaveBeenCalled();
+    expect(harness.timeline.scrollTop).toBe(4_899);
+    expect(result.current.isTimelineScrolledToBottom).toBe(false);
+  });
+
+  it("releases and restores the DOM bottom lock around a mouse-wheel step", () => {
+    const resizeObservers = installResizeObserverMock();
+    const harness = createHarness({ scrollHeight: 5_000 });
+    const { result } = renderHook(() =>
+      useAgentGUIDetailScroll(
+        harness.input({
+          activeConversationId: "conversation-dom-wheel-step",
+          showTimelineSkeleton: false
+        })
+      )
+    );
+    const timelineObserver = resizeObservers.find((observer) =>
+      observer.observed.has(harness.timelineContent)
+    );
+    harness.resetScrollTopWriteCount();
+
+    act(() => {
+      harness.timeline.dispatchEvent(new WheelEvent("wheel", { deltaY: -1 }));
+      timelineObserver?.callback([], timelineObserver);
+      harness.timeline.scrollTop = 4_899;
+      harness.timeline.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(harness.scrollTopWriteCount()).toBe(1);
+    expect(harness.timeline.scrollTop).toBe(4_899);
+    expect(result.current.isTimelineScrolledToBottom).toBe(false);
+
+    act(() => {
+      harness.timeline.dispatchEvent(new WheelEvent("wheel", { deltaY: 1 }));
+      harness.timeline.scrollTop = 4_900;
+      harness.timeline.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(result.current.isTimelineScrolledToBottom).toBe(true);
+  });
+
   it("does not scroll the retained previous timeline when selection changes", () => {
     const harness = createHarness({ scrollHeight: 5_000 });
     const { rerender } = renderHook(

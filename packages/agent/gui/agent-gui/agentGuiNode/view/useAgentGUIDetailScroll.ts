@@ -440,14 +440,20 @@ export function useAgentGUIDetailScroll(input: Input) {
         userScrollAwayIntentConversationRef.current === activeConversationId;
       if (explicitUserScrollAway || pointerDrivenScrollAway) {
         bottomLockOwnerRef.current = null;
-        userScrollAwayIntentConversationRef.current = null;
+        userScrollAwayIntentConversationRef.current = activeConversationId;
       }
       const virtualScrollController = matchingVirtualScrollController(
         virtualScrollControllerRef,
         activeConversationId
       );
       if (virtualScrollController) {
-        const atBottom = virtualScrollController.isAtEnd();
+        const virtualizerAtBottom = virtualScrollController.isAtEnd();
+        const scrollAwayPending =
+          userScrollAwayIntentConversationRef.current === activeConversationId;
+        const atBottom = virtualizerAtBottom && !scrollAwayPending;
+        if (!virtualizerAtBottom && scrollAwayPending) {
+          userScrollAwayIntentConversationRef.current = null;
+        }
         if (atBottom) {
           bottomLockOwnerRef.current = activeConversationId;
         }
@@ -492,15 +498,21 @@ export function useAgentGUIDetailScroll(input: Input) {
       const atBottom =
         previousAnchor.scrollHeight - scrollTop - previousAnchor.clientHeight <=
         AGENT_GUI_STICK_TO_BOTTOM_THRESHOLD_PX;
-      if (atBottom) {
+      const scrollAwayPending =
+        userScrollAwayIntentConversationRef.current === activeConversationId;
+      const effectiveAtBottom = atBottom && !scrollAwayPending;
+      if (!atBottom && scrollAwayPending) {
+        userScrollAwayIntentConversationRef.current = null;
+      }
+      if (effectiveAtBottom) {
         bottomLockOwnerRef.current = activeConversationId;
       }
-      const effectiveAtBottom =
-        atBottom || bottomLockOwnerRef.current === activeConversationId;
       setIsTimelineScrolledToTop(
         scrollTop <= AGENT_GUI_TOP_MASK_SCROLL_EPSILON_PX
       );
-      setIsTimelineScrolledToBottom(effectiveAtBottom);
+      setIsTimelineScrolledToBottom(
+        effectiveAtBottom || bottomLockOwnerRef.current === activeConversationId
+      );
       loadOlderMessagesNearTop(
         scrollTop,
         previousAnchor.scrollHeight,
@@ -533,7 +545,13 @@ export function useAgentGUIDetailScroll(input: Input) {
           observedScrollHeight === undefined
             ? anchor.scrollHeight
             : Math.max(clientHeight, observedScrollHeight);
-        const atBottom = virtualScrollController.isAtEnd();
+        const virtualizerAtBottom = virtualScrollController.isAtEnd();
+        const scrollAwayPending =
+          userScrollAwayIntentConversationRef.current === activeConversationId;
+        const atBottom = virtualizerAtBottom && !scrollAwayPending;
+        if (!virtualizerAtBottom && scrollAwayPending) {
+          userScrollAwayIntentConversationRef.current = null;
+        }
         if (atBottom) {
           bottomLockOwnerRef.current = activeConversationId;
         }
@@ -568,18 +586,27 @@ export function useAgentGUIDetailScroll(input: Input) {
       };
       const atBottom =
         maxScrollTop - scrollTop <= AGENT_GUI_STICK_TO_BOTTOM_THRESHOLD_PX;
-      if (atBottom) {
+      const scrollAwayPending =
+        userScrollAwayIntentConversationRef.current === activeConversationId;
+      const effectiveAtBottom = atBottom && !scrollAwayPending;
+      if (!atBottom && scrollAwayPending) {
+        userScrollAwayIntentConversationRef.current = null;
+      }
+      if (effectiveAtBottom) {
         bottomLockOwnerRef.current = activeConversationId;
       }
       setIsTimelineScrolledToTop(
         scrollTop <= AGENT_GUI_TOP_MASK_SCROLL_EPSILON_PX
       );
-      setIsTimelineScrolledToBottom(bottomLocked || atBottom);
+      setIsTimelineScrolledToBottom(bottomLocked || effectiveAtBottom);
     };
 
     const captureWheelIntent = (event: WheelEvent): void => {
       if (event.deltaY < 0) {
+        bottomLockOwnerRef.current = null;
         userScrollAwayIntentConversationRef.current = activeConversationId;
+      } else if (event.deltaY > 0) {
+        userScrollAwayIntentConversationRef.current = null;
       }
     };
     const captureKeyboardIntent = (event: KeyboardEvent): void => {
@@ -588,6 +615,7 @@ export function useAgentGUIDetailScroll(input: Input) {
         event.key === "Home" ||
         event.key === "PageUp"
       ) {
+        bottomLockOwnerRef.current = null;
         userScrollAwayIntentConversationRef.current = activeConversationId;
       }
     };
@@ -596,6 +624,7 @@ export function useAgentGUIDetailScroll(input: Input) {
         event.target instanceof Element &&
         event.target.closest("[data-agent-transcript-scroll-away-intent]")
       ) {
+        bottomLockOwnerRef.current = null;
         userScrollAwayIntentConversationRef.current = activeConversationId;
       }
     };
