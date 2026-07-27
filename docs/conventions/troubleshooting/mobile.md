@@ -83,33 +83,44 @@
   `apps/mobile/src/services/workspaceActivityCommandAdapter.ts`,
   `apps/mobile/src/components/MobileComposerSettingsSheet.tsx`
 
-## Mobile composer option chips do not open
+## Mobile composer option sheets do not respond
 
 - **Symptom:** Model, reasoning, speed, and permission chips are visible and
   accessible above the composer, but tapping them does not show their option
-  sheet. The same model or permission options remain reachable through the `+`
-  menu.
+  sheet; or rapidly alternating between a chip and the `+` button leaves two
+  overlapping menus, with the lower menu visible but unable to receive taps.
 - **Quick checks:** Tap a chip on a real Android or iOS renderer and inspect the
   JavaScript log. Repeated `BottomSheetModal::handlePortalRender` entries,
-  followed by a maximum-update-depth error, identify the overlay path; a
-  missing composer-options response is a different problem covered above.
-- **Root cause:** `@gorhom/bottom-sheet` delegates `BottomSheetModal` rendering
-  through `@gorhom/portal`. Its portal update path is incompatible with the
+  followed by a maximum-update-depth error, identify the legacy overlay path.
+  Without that error, inspect the native window hierarchy: two simultaneous
+  composer `Modal` windows identify competing local overlay state rather than
+  a slow or missing press handler. A missing composer-options response is a
+  different problem covered above.
+- **Root causes:** `@gorhom/bottom-sheet` delegates `BottomSheetModal` rendering
+  through `@gorhom/portal`; its portal update path is incompatible with the
   current React 19 Native renderer and recursively republishes the modal node
-  instead of presenting it.
+  instead of presenting it. Separately, sibling composer controls must not own
+  independent window-level overlay state: queued taps can open both windows,
+  and the top window then intercepts input intended for the visible lower one.
 - **Fix:** Keep the shared compact `NativeSheet` on React Native's window-level
   `Modal`, with UI System scrim and panel tokens. Require a caller-localized
   close label, expose backdrop dismissal as an accessibility button, handle the
   iOS accessibility escape gesture, and represent an optional fixed height as
   one value rather than silently accepting multiple snap points. Reserve
   `@gorhom/bottom-sheet` for app-owned complex sheets that genuinely need its
-  gesture, keyboard, or multi-snap-point behavior.
+  gesture, keyboard, or multi-snap-point behavior. At composition boundaries
+  that offer multiple overlay entry points, keep one discriminated overlay
+  state in their nearest common owner and make child controls submit typed menu
+  intents.
 - **Validation:** Open and dismiss the model, speed, and permission sheets more
   than once, select the already active option without changing Session state,
-  and confirm there is no maximum-update-depth error. Also verify touch
-  backdrop, Android system-back, VoiceOver escape, and screen-reader close
-  button dismissal without hiding the sheet's interactive descendants.
+  and rapidly alternate between a settings chip and `+`; assert that no more
+  than one native modal is visible. Confirm there is no maximum-update-depth
+  error. Also verify touch backdrop, Android system-back, VoiceOver escape, and
+  screen-reader close button dismissal without hiding the sheet's interactive
+  descendants.
 - **References:** `packages/ui/system/src/native/sheet.tsx`,
+  `apps/mobile/src/components/MobileComposerDock.tsx`,
   `apps/mobile/src/components/MobileComposerSettingsSheet.tsx`
 
 ## Browser login returns to the App but remains signed out

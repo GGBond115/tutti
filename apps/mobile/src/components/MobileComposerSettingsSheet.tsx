@@ -6,28 +6,29 @@ import {
   type NativeTheme,
   useNativeTheme
 } from "@tutti-os/ui-system/native";
-import { useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { t } from "../i18n";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
 
-type ComposerSettingMenu =
+export type ComposerSettingMenu =
   | "model"
   | "reasoning"
   | "speed"
-  | "permission"
-  | null;
+  | "permission";
 
 export function MobileComposerSettingsSheet({
+  menu,
   model,
+  onMenuChange,
   onUpdate
 }: {
+  menu: ComposerSettingMenu | null;
   model: WorkspaceActivitySnapshot;
+  onMenuChange(menu: ComposerSettingMenu | null): void;
   onUpdate(settings: AgentActivitySessionSettings): void;
 }) {
   const theme = useNativeTheme();
   const styles = createStyles(theme);
-  const [menu, setMenu] = useState<ComposerSettingMenu>(null);
   const options = model.composerOptions;
   const selectedModel = model.composerSettings.model ?? null;
   const reasoningOptions = selectedModel
@@ -41,7 +42,7 @@ export function MobileComposerSettingsSheet({
 
   const closeWith = (settings: AgentActivitySessionSettings): void => {
     onUpdate(settings);
-    setMenu(null);
+    onMenuChange(null);
   };
 
   return (
@@ -61,7 +62,8 @@ export function MobileComposerSettingsSheet({
             ]
               .filter(Boolean)
               .join(" ")}
-            onPress={() => setMenu("model")}
+            onPress={() => onMenuChange("model")}
+            testID="mobile-composer-model-settings"
           />
         ) : null}
         {!showsModelChip &&
@@ -74,7 +76,8 @@ export function MobileComposerSettingsSheet({
                 model.composerSettings.reasoningEffort ?? null
               ) ?? t("reasoning")
             }
-            onPress={() => setMenu("reasoning")}
+            onPress={() => onMenuChange("reasoning")}
+            testID="mobile-composer-reasoning-settings"
           />
         ) : null}
         {model.composerSettingsSupport.speed && options?.speeds.length ? (
@@ -85,7 +88,8 @@ export function MobileComposerSettingsSheet({
                 model.composerSettings.speed ?? null
               ) ?? t("speed")
             }
-            onPress={() => setMenu("speed")}
+            onPress={() => onMenuChange("speed")}
+            testID="mobile-composer-speed-settings"
           />
         ) : null}
         {model.composerSettingsSupport.permission &&
@@ -97,14 +101,15 @@ export function MobileComposerSettingsSheet({
                 model.composerSettings.permissionModeId ?? null
               ) ?? t("defaultPermissions")
             }
-            onPress={() => setMenu("permission")}
+            onPress={() => onMenuChange("permission")}
+            testID="mobile-composer-permission-settings"
           />
         ) : null}
       </View>
 
       <NativeSheet
         closeAccessibilityLabel={t("closeSheet")}
-        onOpenChange={(open) => !open && setMenu(null)}
+        onOpenChange={(open) => !open && onMenuChange(null)}
         open={menu !== null}
       >
         <View style={styles.sheet}>
@@ -188,7 +193,15 @@ export function MobileComposerSettingsSheet({
   );
 }
 
-function ComposerChip({ label, onPress }: { label: string; onPress(): void }) {
+function ComposerChip({
+  label,
+  onPress,
+  testID
+}: {
+  label: string;
+  onPress(): void;
+  testID: string;
+}) {
   const theme = useNativeTheme();
   const styles = createStyles(theme);
   return (
@@ -197,6 +210,7 @@ function ComposerChip({ label, onPress }: { label: string; onPress(): void }) {
       onPress={onPress}
       size="compact"
       style={styles.chip}
+      testID={testID}
       variant="secondary"
     />
   );
@@ -213,7 +227,7 @@ function selectedOptionLabel(
   return option?.label ?? value;
 }
 
-function titleForMenu(menu: ComposerSettingMenu): string {
+function titleForMenu(menu: ComposerSettingMenu | null): string {
   switch (menu) {
     case "model":
       return t("model");
