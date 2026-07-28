@@ -141,6 +141,15 @@ timeline. Tutti Mode Plan additionally keeps its durable workflow, immutable
 revisions, checkpoints, and the operation's `issueId`; those records represent
 review provenance and do not compete with the Issue as the execution entity.
 
+A `tutti_mode_plan` Issue is a managed read model only when it also carries a
+non-empty `sourceSessionId`; the UI fails closed when either marker is missing.
+Managed Issue and Task surfaces expose no generic create, edit, delete, move,
+run, acceptance, or context-reference mutations. Their only modification
+entrypoint opens the exact source Session, appends a localized Issue/Task
+mention to the existing composer draft, and focuses the composer without
+submitting. The Issue Manager host adapter owns that exact-Session launch; the
+shared package never reaches into AgentGUI or replaces an existing draft.
+
 Completion uses a three-step acceptance ladder:
 
 ```text

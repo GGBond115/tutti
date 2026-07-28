@@ -102,6 +102,7 @@ export interface IssueManagerController {
     taskId: string;
     visibleTaskIds?: readonly string[];
   }) => Promise<void>;
+  modifyManagedInMainConversation: () => Promise<void>;
   agentTargetOptions: readonly IssueManagerAgentTargetOption[];
   modelPlanOptions?: readonly IssueManagerModelPlanOption[];
   executionDirectoryProjectService: WorkspaceUserProjectService | null;
@@ -339,6 +340,38 @@ export function useIssueManagerController({
     isTuttiModePlanIssue:
       issueDetail.value?.issue.issueId === nodeState.selectedIssueId &&
       isIssueManagerTuttiModePlanIssue(issueDetail.value.issue),
+    async modifyManagedInMainConversation() {
+      const issue = issueDetail.value?.issue;
+      const sourceSessionId = issue?.sourceSessionId?.trim() ?? "";
+      if (
+        !issue ||
+        !isIssueManagerTuttiModePlanIssue(issue) ||
+        !feature.managedIssueActions ||
+        !sourceSessionId
+      ) {
+        feature.notifications?.tips(
+          copy.t("messages.managedSourceUnavailable")
+        );
+        return;
+      }
+      const task = taskDetail.value?.task;
+      const label = task?.title.trim() || issue.title.trim() || issue.issueId;
+      const href = `mention://workspace-issue/${encodeURIComponent(issue.issueId)}?workspaceId=${encodeURIComponent(workspaceId)}&topicId=${encodeURIComponent(issue.topicId)}${task ? `&taskId=${encodeURIComponent(task.taskId)}` : ""}`;
+      const reference = `[${label.replaceAll("[", "\\[").replaceAll("]", "\\]")}](${href})`;
+      try {
+        await feature.managedIssueActions.openSourceSession({
+          draftPrompt: copy.t("messages.modifyManagedPrompt", { reference }),
+          issueId: issue.issueId,
+          sourceSessionId,
+          ...(task ? { taskId: task.taskId } : {}),
+          workspaceId
+        });
+      } catch {
+        feature.notifications?.tips(
+          copy.t("messages.managedSourceUnavailable")
+        );
+      }
+    },
     nodeState,
     notification,
     async openMention(mention) {

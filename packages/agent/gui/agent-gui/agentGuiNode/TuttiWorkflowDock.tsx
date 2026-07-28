@@ -49,6 +49,11 @@ export type TuttiWorkflowDockPhase =
       kind: "error";
       message: string;
       retryable: boolean;
+    }
+  | {
+      kind: "reviewFailure";
+      message: string;
+      auditId?: string;
     };
 
 export interface TuttiWorkflowDockLabels {
@@ -63,6 +68,10 @@ export interface TuttiWorkflowDockLabels {
   materializingHint: string;
   materializingTitle: string;
   retry: string;
+  switchToSelfReview: string;
+  switchingToSelfReview: string;
+  selfReviewEnabled: string;
+  selfReviewFailed: string;
   reviewHint: string;
   reviewHintReplan: string;
   reviewTitle: string;
@@ -118,6 +127,7 @@ export function TuttiWorkflowDock({
   onOpenIssue,
   onOpenTask,
   onRetry,
+  onSwitchToSelfReview,
   phase,
   planPanelLabels,
   planIssuePanelLabels
@@ -140,6 +150,7 @@ export function TuttiWorkflowDock({
   onOpenIssue?: () => void;
   onOpenTask?: (taskId: string) => void | Promise<void>;
   onRetry(): void;
+  onSwitchToSelfReview?: () => Promise<void>;
   phase: TuttiWorkflowDockPhase;
   planPanelLabels: TuttiModePlanPanelLabels;
   planIssuePanelLabels: TuttiPlanIssuePanelLabels;
@@ -147,6 +158,10 @@ export function TuttiWorkflowDock({
   const review = phase.kind === "review" ? phase : null;
   const execution = phase.kind === "execution" ? phase : null;
   const failure = phase.kind === "error" ? phase : null;
+  const reviewFailure = phase.kind === "reviewFailure" ? phase : null;
+  const [selfReviewState, setSelfReviewState] = useState<
+    "idle" | "switching" | "enabled" | "failed"
+  >("idle");
   const reviewPanelId = review?.panel.id ?? null;
   const [disclosure, setDisclosure] =
     useState<TuttiWorkflowDockDisclosureState>(() => ({
@@ -198,7 +213,10 @@ export function TuttiWorkflowDock({
         ? `${phase.title} · ${labels.materializingHint}`
         : execution !== null
           ? issueSummary(labels, execution.issue)
-          : (failure?.message ?? "");
+          : (failure?.message ??
+            (reviewFailure
+              ? `${reviewFailure.message}${reviewFailure.auditId ? ` · ${reviewFailure.auditId}` : ""}`
+              : ""));
   const icon =
     review !== null ? (
       <TaskIcon aria-hidden className="size-3.5" />
@@ -285,6 +303,31 @@ export function TuttiWorkflowDock({
           <X aria-hidden className="size-3.5" />
         </button>
       </>
+    ) : reviewFailure ? (
+      <button
+        type="button"
+        disabled={
+          !onSwitchToSelfReview ||
+          selfReviewState === "switching" ||
+          selfReviewState === "enabled"
+        }
+        onClick={() => {
+          if (!onSwitchToSelfReview) {
+            return;
+          }
+          setSelfReviewState("switching");
+          void onSwitchToSelfReview().then(
+            () => setSelfReviewState("enabled"),
+            () => setSelfReviewState("failed")
+          );
+        }}
+      >
+        {selfReviewState === "switching"
+          ? labels.switchingToSelfReview
+          : selfReviewState === "enabled"
+            ? labels.selfReviewEnabled
+            : labels.switchToSelfReview}
+      </button>
     ) : phase.kind === "error" && phase.retryable ? (
       <button
         type="button"
@@ -347,7 +390,15 @@ export function TuttiWorkflowDock({
           className="rounded-md border border-[color-mix(in_srgb,var(--state-danger)_45%,transparent)] px-4 py-3 text-sm text-muted-foreground"
           role="alert"
         >
-          {failure?.message}
+          <span>{failure?.message ?? reviewFailure?.message}</span>
+          {reviewFailure?.auditId ? (
+            <span className="mt-2 block text-xs">{reviewFailure.auditId}</span>
+          ) : null}
+          {selfReviewState === "failed" ? (
+            <span className="mt-2 block text-xs">
+              {labels.selfReviewFailed}
+            </span>
+          ) : null}
         </div>
       )}
     </AgentComposerDisclosureCard>
