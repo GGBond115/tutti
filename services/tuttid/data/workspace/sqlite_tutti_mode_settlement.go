@@ -227,6 +227,11 @@ WHERE workspace_id = ? AND execution_id = ?
 	if err := insertTuttiModeExecutionCheckpoint(ctx, tx, settlement.WorkspaceID, checkpoint); err != nil {
 		return executionbiz.Checkpoint{}, false, err
 	}
+	if err := prepareTuttiModeMainWakeTx(
+		ctx, tx, settlement.WorkspaceID, executionID, checkpoint, settlement.Now,
+	); err != nil {
+		return executionbiz.Checkpoint{}, false, err
+	}
 	if _, err := tx.ExecContext(ctx, `
 UPDATE workspace_tutti_executions
 SET status = 'awaiting_main', last_orchestrator_activity_at_unix_ms = ?,
@@ -524,6 +529,11 @@ WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ? AND status = '
 	); err != nil {
 		return executionbiz.AcknowledgeResult{}, err
 	}
+	if err := acknowledgeTuttiModeCheckpointWakesTx(
+		ctx, tx, admission.WorkspaceID, executionID, checkpoint.ID, admission.Now,
+	); err != nil {
+		return executionbiz.AcknowledgeResult{}, err
+	}
 	var next executionbiz.Checkpoint
 	row := tx.QueryRowContext(ctx, `
 SELECT checkpoint_id, execution_id, kind, status, sequence, graph_revision,
@@ -556,6 +566,11 @@ WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ? AND status = '
 		if err := requireRowsAffected(
 			nextCheckpointMutation, executionbiz.ErrAcknowledgeRejected,
 			"promote next Tutti mode settlement checkpoint",
+		); err != nil {
+			return executionbiz.AcknowledgeResult{}, err
+		}
+		if err := prepareTuttiModeMainWakeTx(
+			ctx, tx, admission.WorkspaceID, executionID, next, admission.Now,
 		); err != nil {
 			return executionbiz.AcknowledgeResult{}, err
 		}

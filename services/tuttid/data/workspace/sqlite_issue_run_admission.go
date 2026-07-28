@@ -407,6 +407,11 @@ WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ?
 	if err := requireRowsAffected(result, executionbiz.ErrScheduleRejected, "resolve Tutti mode schedule checkpoint"); err != nil {
 		return err
 	}
+	if err := acknowledgeTuttiModeCheckpointWakesTx(
+		ctx, tx, admission.WorkspaceID, executionID, admission.CheckpointID, admission.Now,
+	); err != nil {
+		return err
+	}
 	nextStatus := executionbiz.StatusRunning
 	var nextCheckpointID string
 	err = tx.QueryRowContext(ctx, `
@@ -430,6 +435,20 @@ WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ?
 			return fmt.Errorf("promote next Tutti mode schedule checkpoint: %w", err)
 		}
 		if err := requireRowsAffected(result, executionbiz.ErrScheduleRejected, "promote next Tutti mode schedule checkpoint"); err != nil {
+			return err
+		}
+		nextCheckpoint, found, err := getTuttiModeCheckpointTx(
+			ctx, tx, admission.WorkspaceID, executionID, nextCheckpointID,
+		)
+		if err != nil || !found {
+			if err == nil {
+				err = executionbiz.ErrScheduleRejected
+			}
+			return err
+		}
+		if err := prepareTuttiModeMainWakeTx(
+			ctx, tx, admission.WorkspaceID, executionID, nextCheckpoint, admission.Now,
+		); err != nil {
 			return err
 		}
 		nextStatus = executionbiz.StatusAwaitingMain

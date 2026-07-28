@@ -46,6 +46,27 @@ func TestResolveAnalyticsDebugPublisherSkipsDisabledAnalytics(t *testing.T) {
 	}
 }
 
+func TestTuttiModeWakeRecoveryStartsOnlyFromListenerReadyHook(t *testing.T) {
+	calls := 0
+	wiring := &tuttiWiring{
+		tuttiModeWakeRecoveryStarter: func() {
+			calls++
+		},
+	}
+	if calls != 0 {
+		t.Fatalf("wake recovery started during wiring construction: calls=%d", calls)
+	}
+
+	wiring.startTuttiModeWakeRecovery()
+	if calls != 1 {
+		t.Fatalf("listener-ready wake recovery calls=%d, want 1", calls)
+	}
+	wiring.startTuttiModeWakeRecovery()
+	if calls != 1 {
+		t.Fatalf("listener-ready wake recovery replay calls=%d, want one-shot", calls)
+	}
+}
+
 type recordingWorkspaceAgentTargetResolverSetter struct {
 	resolver agentservice.WorkspaceAgentTargetResolver
 }

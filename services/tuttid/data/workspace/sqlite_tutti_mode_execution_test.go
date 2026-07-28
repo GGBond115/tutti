@@ -201,6 +201,293 @@ INSERT INTO workspace_tutti_execution_checkpoints (
 	}
 }
 
+func TestPrepareTuttiModeMainWakeRejectsConflictingDurableIdentity(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := openTuttiModeExecutionStore(t)
+	now := time.UnixMilli(1_700_000_050_000).UTC()
+	prepareTuttiModeExecutionWorkspace(
+		t,
+		store,
+		"workspace-wake-integrity",
+		"workflow-wake-integrity",
+		"session-wake-integrity",
+		now,
+	)
+	executions := &executionservice.Service{Store: store, Clock: func() time.Time { return now }}
+	issues := workspaceissues.Service{Store: store, Clock: func() time.Time { return now }}
+	issue, tasks := prepareTuttiModeIssueGraph(
+		t,
+		issues,
+		"workspace-wake-integrity",
+		"workflow-wake-integrity",
+		"session-wake-integrity",
+	)
+	_, _, aggregate, err := executions.Materialize(ctx, executionservice.MaterializeInput{
+		Issue: issue, Tasks: tasks, WorkflowID: "workflow-wake-integrity",
+	})
+	if err != nil {
+		t.Fatalf("Materialize() error = %v", err)
+	}
+	if _, err := store.writeDB.ExecContext(ctx, `
+UPDATE workspace_tutti_execution_wakes
+SET target_session_id = 'conflicting-session'
+WHERE workspace_id = ? AND execution_id = ?
+`, issue.WorkspaceID, aggregate.Execution.ID); err != nil {
+		t.Fatalf("corrupt wake identity error = %v", err)
+	}
+
+	tx, err := store.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx() error = %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	err = prepareTuttiModeMainWakeTx(
+		ctx,
+		tx,
+		issue.WorkspaceID,
+		aggregate.Execution.ID,
+		aggregate.Checkpoints[0],
+		now,
+	)
+	if !errors.Is(err, executionbiz.ErrWakeIntegrity) {
+		t.Fatalf("prepareTuttiModeMainWakeTx() error = %v, want ErrWakeIntegrity", err)
+	}
+}
+
+func TestTuttiModeCheckpointCommandsRollbackWhenActiveWakeIsClosed(t *testing.T) {
+	t.Run("schedule", func(t *testing.T) {
+		ctx := context.Background()
+		store := openTuttiModeExecutionStore(t)
+		now := time.UnixMilli(1_700_000_075_000).UTC()
+		prepareTuttiModeExecutionWorkspace(
+			t, store, "workspace-wake-schedule-fence", "workflow-wake-schedule-fence",
+			"session-wake-schedule-fence", now,
+		)
+		executions := &executionservice.Service{Store: store, Clock: func() time.Time { return now }}
+		issues := workspaceissues.Service{Store: store, Clock: func() time.Time { return now }}
+		issue, tasks := prepareTuttiModeIssueGraph(
+			t, issues, "workspace-wake-schedule-fence", "workflow-wake-schedule-fence",
+			"session-wake-schedule-fence",
+		)
+		_, _, aggregate, err := executions.Materialize(ctx, executionservice.MaterializeInput{
+			Issue: issue, Tasks: tasks, WorkflowID: "workflow-wake-schedule-fence",
+		})
+		if err != nil {
+			t.Fatalf("Materialize() error = %v", err)
+		}
+		if _, err := store.writeDB.ExecContext(ctx, `
+UPDATE workspace_tutti_execution_wakes
+SET status = 'canceled'
+WHERE workspace_id = ? AND checkpoint_id = ?
+`, issue.WorkspaceID, aggregate.Checkpoints[0].ID); err != nil {
+			t.Fatalf("close active checkpoint wake error = %v", err)
+		}
+		run := tuttiModeScheduleTestRun(issue, tasks[0], "run-wake-schedule-fence", now)
+		_, err = store.AdmitTuttiModeSchedule(ctx, executionbiz.ScheduleAdmission{
+			WorkspaceID: issue.WorkspaceID, IssueID: issue.IssueID,
+			SourceSessionID:       issue.SourceSessionID,
+			CheckpointID:          aggregate.Checkpoints[0].ID,
+			ExpectedGraphRevision: 1,
+			RequestID:             "request-wake-schedule-fence",
+			InputSHA256:           "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Runs:                  []workspaceissues.Run{run},
+			Now:                   now,
+		})
+		if !errors.Is(err, executionbiz.ErrWakeRejected) {
+			t.Fatalf("AdmitTuttiModeSchedule() error = %v, want ErrWakeRejected", err)
+		}
+		assertClosedWakeCommandRollback(
+			t, store, issue, aggregate.Checkpoints[0].ID,
+			string(executionbiz.StatusAwaitingSchedule),
+			string(executionbiz.CheckpointStatusActive),
+			string(workspaceissues.StatusNotStarted),
+			0,
+		)
+	})
+
+	t.Run("acknowledge", func(t *testing.T) {
+		ctx := context.Background()
+		store := openTuttiModeExecutionStore(t)
+		now := time.UnixMilli(1_700_000_085_000).UTC()
+		prepareTuttiModeExecutionWorkspace(
+			t, store, "workspace-wake-ack-fence", "workflow-wake-ack-fence",
+			"session-wake-ack-fence", now,
+		)
+		executions := &executionservice.Service{Store: store, Clock: func() time.Time { return now }}
+		issues := workspaceissues.Service{Store: store, Clock: func() time.Time { return now }}
+		issue, tasks := prepareTuttiModeIssueGraph(
+			t, issues, "workspace-wake-ack-fence", "workflow-wake-ack-fence",
+			"session-wake-ack-fence",
+		)
+		_, _, aggregate, err := executions.Materialize(ctx, executionservice.MaterializeInput{
+			Issue: issue, Tasks: tasks, WorkflowID: "workflow-wake-ack-fence",
+		})
+		if err != nil {
+			t.Fatalf("Materialize() error = %v", err)
+		}
+		run := tuttiModeScheduleTestRun(issue, tasks[0], "run-wake-ack-fence", now)
+		if _, err := store.AdmitTuttiModeSchedule(ctx, executionbiz.ScheduleAdmission{
+			WorkspaceID: issue.WorkspaceID, IssueID: issue.IssueID,
+			SourceSessionID:       issue.SourceSessionID,
+			CheckpointID:          aggregate.Checkpoints[0].ID,
+			ExpectedGraphRevision: 1,
+			RequestID:             "request-wake-ack-setup",
+			InputSHA256:           "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			Runs:                  []workspaceissues.Run{run},
+			Now:                   now,
+		}); err != nil {
+			t.Fatalf("AdmitTuttiModeSchedule(setup) error = %v", err)
+		}
+		if _, err := store.writeDB.ExecContext(ctx, `
+UPDATE workspace_issue_runs
+SET status = 'completed', completed_at_unix_ms = ?, updated_at_unix_ms = ?
+WHERE workspace_id = ? AND run_id = ?
+`, now.UnixMilli(), now.UnixMilli(), issue.WorkspaceID, run.RunID); err != nil {
+			t.Fatalf("settle fixture Run error = %v", err)
+		}
+		if _, err := store.writeDB.ExecContext(ctx, `
+UPDATE workspace_issue_tasks
+SET status = 'pending_acceptance', updated_at_unix_ms = ?
+WHERE workspace_id = ? AND issue_id = ? AND task_id = ?
+`, now.UnixMilli(), issue.WorkspaceID, issue.IssueID, run.TaskID); err != nil {
+			t.Fatalf("settle fixture task error = %v", err)
+		}
+		checkpoint, created, err := store.EnsureTuttiModeRunSettlement(
+			ctx,
+			executionbiz.RunSettlement{
+				WorkspaceID: issue.WorkspaceID, IssueID: issue.IssueID,
+				TaskID: run.TaskID, RunID: run.RunID,
+				Status: workspaceissues.StatusCompleted, Now: now,
+			},
+		)
+		if err != nil || !created {
+			t.Fatalf("EnsureTuttiModeRunSettlement() checkpoint=%#v created=%v error=%v", checkpoint, created, err)
+		}
+		if _, err := store.writeDB.ExecContext(ctx, `
+UPDATE workspace_tutti_execution_wakes
+SET status = 'canceled'
+WHERE workspace_id = ? AND checkpoint_id = ?
+`, issue.WorkspaceID, checkpoint.ID); err != nil {
+			t.Fatalf("close active checkpoint wake error = %v", err)
+		}
+		var executionStatus, checkpointStatus, taskStatus string
+		var running, later int
+		if err := store.writeDB.QueryRowContext(ctx, `
+SELECT
+  (SELECT status FROM workspace_tutti_executions WHERE workspace_id = ? AND issue_id = ?),
+  (SELECT status FROM workspace_tutti_execution_checkpoints WHERE workspace_id = ? AND checkpoint_id = ?),
+  (SELECT status FROM workspace_issue_tasks WHERE workspace_id = ? AND issue_id = ? AND task_id = ?),
+  (SELECT COUNT(*) FROM workspace_issue_runs WHERE workspace_id = ? AND issue_id = ? AND status = 'running'),
+  (SELECT COUNT(*) FROM workspace_tutti_execution_checkpoints
+   WHERE workspace_id = ? AND execution_id = ? AND sequence > ? AND status = 'pending')
+`, issue.WorkspaceID, issue.IssueID,
+			issue.WorkspaceID, checkpoint.ID,
+			issue.WorkspaceID, issue.IssueID, run.TaskID,
+			issue.WorkspaceID, issue.IssueID,
+			issue.WorkspaceID, checkpoint.ExecutionID, checkpoint.Sequence,
+		).Scan(&executionStatus, &checkpointStatus, &taskStatus, &running, &later); err != nil {
+			t.Fatalf("read acknowledge fixture state error = %v", err)
+		}
+		if executionStatus != string(executionbiz.StatusAwaitingMain) ||
+			checkpointStatus != string(executionbiz.CheckpointStatusActive) ||
+			taskStatus != string(workspaceissues.StatusPendingAcceptance) ||
+			(running == 0 && later == 0) {
+			t.Fatalf(
+				"acknowledge fixture execution=%q checkpoint=%q task=%q running/later=%d/%d",
+				executionStatus, checkpointStatus, taskStatus, running, later,
+			)
+		}
+		_, err = store.AdmitTuttiModeAcknowledge(ctx, executionbiz.AcknowledgeAdmission{
+			WorkspaceID: issue.WorkspaceID, IssueID: issue.IssueID,
+			SourceSessionID:       issue.SourceSessionID,
+			CheckpointID:          checkpoint.ID,
+			ExpectedGraphRevision: 1,
+			RequestID:             "request-wake-ack-fence",
+			InputSHA256:           "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+			Now:                   now,
+		})
+		if !errors.Is(err, executionbiz.ErrWakeRejected) {
+			t.Fatalf("AdmitTuttiModeAcknowledge() error = %v, want ErrWakeRejected", err)
+		}
+		assertClosedWakeCommandRollback(
+			t, store, issue, checkpoint.ID,
+			string(executionbiz.StatusAwaitingMain),
+			string(executionbiz.CheckpointStatusActive),
+			string(workspaceissues.StatusPendingAcceptance),
+			1,
+		)
+	})
+}
+
+func tuttiModeScheduleTestRun(
+	issue workspaceissues.Issue,
+	task workspaceissues.Task,
+	runID string,
+	now time.Time,
+) workspaceissues.Run {
+	return workspaceissues.Run{
+		RunID: runID, TaskID: task.TaskID, IssueID: issue.IssueID,
+		WorkspaceID: issue.WorkspaceID, RequesterUserID: "local",
+		AgentUserID: "local", AgentTargetID: task.AgentTargetID,
+		AgentSessionID: "delegate-" + runID, AgentProvider: "codex",
+		Status: workspaceissues.StatusRunning, CreatedAtUnixMS: now.UnixMilli(),
+		StartedAtUnixMS: now.UnixMilli(), UpdatedAtUnixMS: now.UnixMilli(),
+	}
+}
+
+func assertClosedWakeCommandRollback(
+	t *testing.T,
+	store *SQLiteStore,
+	issue workspaceissues.Issue,
+	checkpointID string,
+	wantExecutionStatus string,
+	wantCheckpointStatus string,
+	wantTaskStatus string,
+	wantMutationCount int,
+) {
+	t.Helper()
+	var executionStatus, checkpointStatus, taskStatus string
+	var graphRevision int64
+	var runCount, launchIntentCount, mutationCount int
+	if err := store.writeDB.QueryRow(`
+SELECT
+  (SELECT status FROM workspace_tutti_executions WHERE workspace_id = ? AND issue_id = ?),
+  (SELECT graph_revision FROM workspace_tutti_executions WHERE workspace_id = ? AND issue_id = ?),
+  (SELECT status FROM workspace_tutti_execution_checkpoints WHERE workspace_id = ? AND checkpoint_id = ?),
+  (SELECT status FROM workspace_issue_tasks WHERE workspace_id = ? AND issue_id = ? LIMIT 1),
+  (SELECT COUNT(*) FROM workspace_issue_runs WHERE workspace_id = ? AND issue_id = ?),
+  (SELECT COUNT(*) FROM workspace_issue_run_launch_intents WHERE workspace_id = ? AND issue_id = ?),
+  (SELECT COUNT(*) FROM workspace_tutti_execution_mutations WHERE workspace_id = ? AND issue_id = ?)
+`, issue.WorkspaceID, issue.IssueID,
+		issue.WorkspaceID, issue.IssueID,
+		issue.WorkspaceID, checkpointID,
+		issue.WorkspaceID, issue.IssueID,
+		issue.WorkspaceID, issue.IssueID,
+		issue.WorkspaceID, issue.IssueID,
+		issue.WorkspaceID, issue.IssueID,
+	).Scan(
+		&executionStatus, &graphRevision, &checkpointStatus, &taskStatus,
+		&runCount, &launchIntentCount, &mutationCount,
+	); err != nil {
+		t.Fatalf("read closed-wake rollback state error = %v", err)
+	}
+	if executionStatus != wantExecutionStatus || graphRevision != 1 ||
+		checkpointStatus != wantCheckpointStatus || taskStatus != wantTaskStatus ||
+		mutationCount != wantMutationCount {
+		t.Fatalf(
+			"closed-wake rollback execution=%q revision=%d checkpoint=%q task=%q mutations=%d",
+			executionStatus, graphRevision, checkpointStatus, taskStatus, mutationCount,
+		)
+	}
+	if wantMutationCount == 0 && (runCount != 0 || launchIntentCount != 0) {
+		t.Fatalf(
+			"rejected schedule leaked run/intent rows = %d/%d",
+			runCount, launchIntentCount,
+		)
+	}
+}
+
 func TestTuttiModeExecutionMaterializationRejectsDuplicateAndPreservesOriginal(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

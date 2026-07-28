@@ -60,6 +60,10 @@ type DaemonAPI struct {
 	TuttiModeActivationService TuttiModeActivationService
 	CLIRegistry                *cliservice.Registry
 	AnalyticsReporter          reporterservice.Reporter
+	// OnListenerReady starts daemon work that may wake an Agent whose next
+	// action calls back into tuttid. Wiring invokes it only after publishing
+	// listener information.
+	OnListenerReady func()
 }
 
 type TuttiAgentReadiness interface {

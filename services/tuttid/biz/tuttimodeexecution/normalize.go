@@ -2,6 +2,7 @@ package tuttimodeexecution
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -15,6 +16,8 @@ var ErrScheduleRejected = errors.New("Tutti mode schedule was rejected")
 var ErrScheduleMutationConflict = errors.New("Tutti mode schedule request conflicts with durable history")
 var ErrAcknowledgeRejected = errors.New("Tutti mode acknowledge was rejected")
 var ErrAcknowledgeMutationConflict = errors.New("Tutti mode acknowledge request conflicts with durable history")
+var ErrWakeRejected = errors.New("Tutti mode wake operation was rejected")
+var ErrWakeIntegrity = errors.New("Tutti mode wake conflicts with execution authority")
 
 func ExecutionID(issueID string) (string, bool) {
 	issueID = strings.TrimSpace(issueID)
@@ -49,6 +52,21 @@ func AllTasksTerminalCheckpointID(executionID string) (string, bool) {
 	return executionID + ":checkpoint:all-tasks-terminal", true
 }
 
+func MainWakeID(checkpointID string, sequence int64) (string, bool) {
+	checkpointID = strings.TrimSpace(checkpointID)
+	if checkpointID == "" || sequence < 1 {
+		return "", false
+	}
+	return checkpointID + ":wake:main:" + fmt.Sprintf("%d", sequence), true
+}
+
+func MainWakeClientSubmitID(wakeID string) (string, bool) {
+	wakeID = strings.TrimSpace(wakeID)
+	if wakeID == "" {
+		return "", false
+	}
+	return "tutti-execution-wake:" + wakeID, true
+}
 func NewInitialAggregate(
 	workspaceID string,
 	issueID string,

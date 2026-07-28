@@ -125,6 +125,29 @@ type AcknowledgeResult struct {
 	Replayed            bool
 }
 
+type Wake struct {
+	WakeID             string
+	ExecutionID        string
+	CheckpointID       string
+	TargetKind         string
+	WakeSequence       int64
+	ClientSubmitID     string
+	TargetSessionID    string
+	CanonicalSessionID string
+	CanonicalTurnID    string
+	Status             string
+	AttemptCount       int
+	LeaseOwner         string
+	DueAt              time.Time
+	LeaseExpiresAt     time.Time
+}
+
+type WakeDelivery struct {
+	TargetSessionID string
+	ClientSubmitID  string
+	Prompt          string
+}
+
 // Driver is the narrow public contract exercised by Tutti execution product
 // conformance. Implementations may compose real services and persistence, but
 // scenarios do not reach through this seam to implementation details.
@@ -163,4 +186,29 @@ type Driver interface {
 	CancellationCallCount() int
 	CancellationClientSubmitIDs() []string
 	PreparedCancelCompensationCount(context.Context, string) (int, error)
+	ListWakes(context.Context, string, string) ([]Wake, error)
+	ClaimWake(context.Context, string, string, string, time.Duration) (bool, error)
+	DispatchClaimedWake(context.Context, string, string, string) error
+	RecoverWakes(context.Context, string, string) error
+	// StartupRecoverWakes must construct a fresh execution service over the
+	// same durable store before running startup recovery.
+	StartupRecoverWakes(context.Context, string, string) error
+	// SetSourceBusy changes only the exact workspace/session observation in
+	// the canonical liveness port used by the production wake service; it must
+	// not mutate a wake row directly.
+	SetSourceBusy(string, string, bool)
+	FailNextWakeBeforeCanonical()
+	FailNextWakeAmbiguouslyBeforeCanonical()
+	FailNextWakeAfterCanonical()
+	FailNextWakeCanonicalLookup()
+	// SettleWakeTurn changes the canonical Turn observation and then enters
+	// the production wake reconciliation seam.
+	SettleWakeTurn(context.Context, string, string, string) error
+	SetExecutionStatus(context.Context, string, string, string) error
+	CorruptWakeTargetSession(context.Context, string, string, string) error
+	CurrentTime() time.Time
+	WakeDeliveryCallCount() int
+	WakeDeliveries() []WakeDelivery
+	WakeDeliveryClientSubmitIDs() []string
+	WakeDeliveryCanonicalTurnCount() int
 }

@@ -30,18 +30,19 @@ import (
 )
 
 type tuttiWiring struct {
-	api                     tuttiapi.DaemonAPI
-	appCenterService        *workspaceservice.AppCenterService
-	workspaceStore          *workspacedata.SQLiteStore
-	analyticsReporter       reporterservice.Reporter
-	browserService          *browsersvc.Service
-	computerService         *computersvc.Service
-	agentTargetSetup        *agentextensionservice.SetupService
-	agentRuntime            *agentdaemon.Runtime
-	providerAuthWatcher     *agentservice.ProviderAuthWatcher
-	agentCLIUpdateScheduler *agentstatusservice.ProviderUpdateScheduler
-	mobileRemoteService     *mobileremoteservice.Service
-	modelGateway            *modelgatewayservice.Gateway
+	api                          tuttiapi.DaemonAPI
+	appCenterService             *workspaceservice.AppCenterService
+	workspaceStore               *workspacedata.SQLiteStore
+	analyticsReporter            reporterservice.Reporter
+	browserService               *browsersvc.Service
+	computerService              *computersvc.Service
+	agentTargetSetup             *agentextensionservice.SetupService
+	agentRuntime                 *agentdaemon.Runtime
+	providerAuthWatcher          *agentservice.ProviderAuthWatcher
+	agentCLIUpdateScheduler      *agentstatusservice.ProviderUpdateScheduler
+	tuttiModeWakeRecoveryStarter func()
+	mobileRemoteService          *mobileremoteservice.Service
+	modelGateway                 *modelgatewayservice.Gateway
 }
 
 type analyticsDebugEventPublisher struct {
@@ -115,6 +116,7 @@ func buildTuttiServer() (*http.Server, net.Listener, *tuttiWiring, error) {
 		_ = wiring.Close()
 		return nil, nil, nil, fmt.Errorf("write tuttid listener info: %w", err)
 	}
+	wiring.startTuttiModeWakeRecovery()
 	wiring.startAgentCLIUpdateScheduler()
 
 	routes := wiring.routes()
@@ -200,7 +202,17 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 	w.analyticsReporter = analyticsReporter
 	w.api = api
 	w.appCenterService = appCenterService
+	w.tuttiModeWakeRecoveryStarter = api.OnListenerReady
 	return nil
+}
+
+func (w *tuttiWiring) startTuttiModeWakeRecovery() {
+	if w == nil || w.tuttiModeWakeRecoveryStarter == nil {
+		return
+	}
+	start := w.tuttiModeWakeRecoveryStarter
+	w.tuttiModeWakeRecoveryStarter = nil
+	start()
 }
 
 func (w *tuttiWiring) startAgentCLIUpdateScheduler() {

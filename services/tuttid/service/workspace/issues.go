@@ -29,9 +29,6 @@ type IssueManagerService struct {
 	// TaskWorktreeRoot overrides where per-run task worktrees are created;
 	// empty falls back to <state dir>/task-worktrees.
 	TaskWorktreeRoot string
-	// CompletionNotifier hands control back to the planning conversation once
-	// every task of a tutti-mode-plan Issue is completed and accepted.
-	CompletionNotifier TuttiPlanIssueCompletionNotifier
 	// MutationLocks serializes task/run mutations per Issue so the concurrent
 	// settle paths cannot interleave read-modify-write cycles into
 	// contradictory task states. Nil (bare test services) means no locking.
@@ -47,40 +44,6 @@ type IssueManagerService struct {
 	// RunCancellationRequester compensates a launch when Stop arrived while
 	// the external Agent create call was already in flight.
 	RunCancellationRequester IssueRunSessionCanceller
-}
-
-type TuttiPlanIssueCompletionNotifier interface {
-	NotifyTuttiPlanIssueCompleted(
-		ctx context.Context,
-		workspaceID string,
-		issue workspaceissues.Issue,
-		tasks []workspaceissues.Task,
-	)
-	// NotifyTuttiPlanIssueTaskFailed reports a failed task run back to the
-	// planning conversation so execution problems never leave it silent.
-	NotifyTuttiPlanIssueTaskFailed(
-		ctx context.Context,
-		workspaceID string,
-		issue workspaceissues.Issue,
-		task workspaceissues.Task,
-		run workspaceissues.Run,
-	)
-	// NotifyTuttiPlanIssueTaskSettled wakes the planning conversation after a
-	// successful task run settles. The planning agent — not a mechanical
-	// daemon chain — decides how execution advances: it reviews the result,
-	// accepts or reworks a task that is pending acceptance, and can reshape
-	// the remaining graph through the Issue CLI. decisionNeeded is true when
-	// the settled task parked at pending_acceptance (no autoAccept), so the
-	// planning agent is now the acceptance authority.
-	NotifyTuttiPlanIssueTaskSettled(
-		ctx context.Context,
-		workspaceID string,
-		issue workspaceissues.Issue,
-		task workspaceissues.Task,
-		run workspaceissues.Run,
-		allTasks []workspaceissues.Task,
-		decisionNeeded bool,
-	)
 }
 
 type IssueManagerEventPublisher interface {
@@ -303,6 +266,12 @@ func (s IssueManagerService) CreateIssueFromPlan(ctx context.Context, workspaceI
 	}
 	if !tuttiPlanningSource && (input.Issue.SequentialExecution || input.Issue.ParallelExecution) {
 		s.dispatchEligibleIssueTasks(ctx, workspaceID, issue.IssueID)
+	}
+	if tuttiPlanningSource {
+		// Materialization atomically prepares the initial durable main wake.
+		// Queue the workspace after commit so production delivery does not
+		// depend on a daemon restart or a later Run transition.
+		s.enqueueWorkspaceRunReconcile(workspaceID)
 	}
 	return s.GetIssueDetail(ctx, workspaceID, issue.IssueID)
 }
@@ -543,7 +512,6 @@ func (s IssueManagerService) UpdateTask(ctx context.Context, workspaceID string,
 	})
 	if task.Status == workspaceissues.StatusCompleted && task.AcceptanceState == workspaceissues.AcceptanceUserAccepted {
 		s.dispatchEligibleIssueTasks(ctx, workspaceID, issueID)
-		s.notifyTuttiPlanIssueCompletedBestEffort(ctx, workspaceID, issueID)
 	}
 	// A rework (back to not_started) re-opens the execution frontier; without
 	// this the rejected head of a sequential Issue waits for an unrelated event.
@@ -623,33 +591,6 @@ func normalizeParallelizableAgainstDependencies(items []workspaceissues.CreateTa
 		}
 		group[items[index].TaskID] = struct{}{}
 	}
-}
-
-// notifyTuttiPlanIssueCompletedBestEffort hands control back to the planning
-// conversation once every task of a tutti-mode-plan Issue is completed and
-// user-accepted. The acceptance that crosses the finish line triggers it —
-// including programmatic auto-accepts.
-func (s IssueManagerService) notifyTuttiPlanIssueCompletedBestEffort(ctx context.Context, workspaceID string, issueID string) {
-	if s.CompletionNotifier == nil {
-		return
-	}
-	detail, err := s.domainService().GetIssueDetail(ctx, workspaceID, issueID)
-	if err != nil ||
-		detail.Issue.PlanningSource != workspaceissues.PlanningSourceTuttiModePlan ||
-		strings.TrimSpace(detail.Issue.SourceSessionID) == "" ||
-		len(detail.Tasks) == 0 {
-		return
-	}
-	for _, task := range detail.Tasks {
-		if task.Status == workspaceissues.StatusCanceled {
-			continue
-		}
-		if task.Status != workspaceissues.StatusCompleted ||
-			task.AcceptanceState != workspaceissues.AcceptanceUserAccepted {
-			return
-		}
-	}
-	s.CompletionNotifier.NotifyTuttiPlanIssueCompleted(ctx, workspaceID, detail.Issue, detail.Tasks)
 }
 
 func (s IssueManagerService) DeleteTask(ctx context.Context, workspaceID string, issueID string, taskID string) (bool, error) {

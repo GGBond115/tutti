@@ -20,6 +20,7 @@ import (
 )
 
 type sqliteConformanceDriver struct {
+	dbPath     string
 	store      *workspacedata.SQLiteStore
 	issues     workspaceservice.IssueManagerService
 	executions *tuttimodeexecutionservice.Service
@@ -29,6 +30,7 @@ type sqliteConformanceDriver struct {
 	launcher   *recordingLauncher
 	renewals   *manualLeaseRenewalScheduler
 	canceller  *recordingRunCanceller
+	wakeTarget *recordingMainWakeTarget
 	cancelAuto context.CancelFunc
 }
 
@@ -161,7 +163,8 @@ func (launcher *recordingLauncher) Launch(_ context.Context, launch workspaceser
 
 func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 	t.Helper()
-	store, err := workspacedata.OpenSQLiteStore(filepath.Join(t.TempDir(), "tutti.sqlite"))
+	dbPath := filepath.Join(t.TempDir(), "tutti.sqlite")
+	store, err := workspacedata.OpenSQLiteStore(dbPath)
 	if err != nil {
 		t.Fatalf("OpenSQLiteStore() error = %v", err)
 	}
@@ -182,12 +185,12 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 	launcher := &recordingLauncher{}
 	renewals := &manualLeaseRenewalScheduler{}
 	canceller := &recordingRunCanceller{}
+	wakeTarget := newRecordingMainWakeTarget()
 	executions := &tuttimodeexecutionservice.Service{
-		Store: store,
-		Clock: clock.Now,
+		Store: store, MainWakeTargets: wakeTarget, Clock: clock.Now,
 	}
 	driver := &sqliteConformanceDriver{
-		store: store,
+		dbPath: dbPath, store: store,
 		issues: workspaceservice.IssueManagerService{
 			Store: store, RunLauncher: launcher, TuttiModeExecutions: executions,
 			MutationLocks:                   workspaceservice.NewIssueMutationLocks(),
@@ -201,6 +204,7 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 		launcher:   launcher,
 		renewals:   renewals,
 		canceller:  canceller,
+		wakeTarget: wakeTarget,
 	}
 	driver.plans = &tuttimodeplanservice.Service{
 		Store:             store,
@@ -813,6 +817,21 @@ func TestScheduleSQLiteServiceConformance(t *testing.T) {
 
 func TestSettlementSQLiteServiceConformance(t *testing.T) {
 	for _, scenario := range tuttimodeexecutionconformance.SettlementCatalog() {
+		scenario := scenario
+		t.Run(scenario.Name, func(t *testing.T) {
+			if err := tuttimodeexecutionconformance.Run(
+				context.Background(),
+				newSQLiteConformanceDriver(t),
+				scenario,
+			); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestWakeSQLiteServiceConformance(t *testing.T) {
+	for _, scenario := range tuttimodeexecutionconformance.WakeCatalog() {
 		scenario := scenario
 		t.Run(scenario.Name, func(t *testing.T) {
 			if err := tuttimodeexecutionconformance.Run(

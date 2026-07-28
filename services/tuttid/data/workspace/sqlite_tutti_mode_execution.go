@@ -67,6 +67,12 @@ WHERE workspace_id = ? AND topic_id = ?
 		if err := insertTuttiModeExecutionCheckpoint(ctx, tx, aggregate.Execution.WorkspaceID, checkpoint); err != nil {
 			return workspaceissues.Issue{}, nil, executionbiz.Aggregate{}, err
 		}
+		if err := prepareTuttiModeMainWakeTx(
+			ctx, tx, aggregate.Execution.WorkspaceID, aggregate.Execution.ID,
+			checkpoint, aggregate.Execution.CreatedAt,
+		); err != nil {
+			return workspaceissues.Issue{}, nil, executionbiz.Aggregate{}, err
+		}
 	}
 	result, err := tx.ExecContext(ctx, `
 UPDATE workspace_issue_topics

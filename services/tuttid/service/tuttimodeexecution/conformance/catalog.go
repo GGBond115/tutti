@@ -13,7 +13,8 @@ type Scenario struct {
 func Catalog() []Scenario {
 	scenarios := MaterializationCatalog()
 	scenarios = append(scenarios, ScheduleCatalog()...)
-	return append(scenarios, SettlementCatalog()...)
+	scenarios = append(scenarios, SettlementCatalog()...)
+	return append(scenarios, WakeCatalog()...)
 }
 
 func SettlementCatalog() []Scenario {

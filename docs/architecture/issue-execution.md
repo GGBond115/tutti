@@ -16,6 +16,10 @@ Accepted `tutti_mode_plan` Issues instead materialize atomically with a
 Tutti-owned execution aggregate and active `initial_schedule` checkpoint.
 Their materialization creates no Run and never enters the generic eligible-task
 dispatcher; later work requires an explicit Tutti execution schedule command.
+Every active Tutti checkpoint instead owns one durable main-conversation wake.
+The wake asks the source Agent to review canonical execution state and choose a
+fenced `schedule` or `acknowledge` command; settling a task never mechanically
+dispatches a successor.
 
 ## Execution flow
 
@@ -71,6 +75,28 @@ or starving launch/running-Run recovery in the same workspace. A successful
 stale owner also revalidates the Run before compensating: lease reclaim while
 the Run remains running is recovery work, not a cancellation signal.
 
+Tutti main-conversation delivery follows the same durable-operation pattern.
+Creating or promoting an active checkpoint prepares its wake in the same
+SQLite transaction. The canonical identities are
+`<checkpointID>:wake:main:1` and
+`clientSubmitID=tutti-execution-wake:<wakeID>`; they are interoperability
+contracts, not presentation values. An existing row with different checkpoint,
+target, sequence, client-submit, or source-session identity fails closed.
+
+Delivery first checks the exact workspace/source Session and leaves the wake
+prepared while that Session is busy. A daemon-unique owner leases the wake,
+then sends through Agent Service while Host remains the authority for canonical
+Session liveness and `clientSubmitID` lookup. Response loss is recovered by
+looking up the same deterministic submit ID. Only the current lease owner may
+record dispatch, so restart or replica races converge on one canonical Turn.
+The exact Session/Turn settlement changes the wake to `turn_settled`, but does
+not resolve the checkpoint: only a correctly fenced checkpoint command may
+atomically acknowledge that wake and promote the next backlog checkpoint.
+
+Execution states `orphaned_source`, `completed`, `archiving`, and `archived`
+suppress every still-open wake, including `turn_settled`. Suppression is stored
+as `canceled` and clears any lease rather than deleting recovery evidence.
+
 ## Identity and settlement
 
 Every dispatched Run stamps `clientSubmitID=issue-run:<runID>`. A settled Agent
@@ -120,3 +146,24 @@ The reconciliation queue is daemon-context-bound and retries transient
 failures. It is a fallback for delayed or missed projection delivery, not the
 authority for Agent lifecycle semantics. Product timeouts may fail an Issue
 Run, but Agent terminal outcomes should come from exact canonical Turn facts.
+
+Durable main wakes enter that queue after Tutti Issue materialization and Run
+settlement. Root-Turn settlement also enqueues rather than sending inline, so a
+source conversation that was busy is reconsidered without re-entering Agent
+delivery from the projection callback. Every queue pass first performs
+idempotent suppression and expired-lease repair, then attempts delivery.
+Released delivery failures return a pending signal so the existing bounded
+queue cadence retains the workspace even when it has no running Runs.
+
+During daemon construction, startup performs only the local durable repair.
+It does not call Agent `SendInput` or start the queue while CLI routes and the
+listener are unavailable. A one-shot listener-ready hook enqueues the
+workspaces after listener information has been published. A readiness gate also
+turns any earlier internal enqueue into a pending retry without reaching
+`SendInput`. A transient repair or Session observation is retained for queue
+retry instead of preventing the daemon from serving other workspaces. Startup
+never reclaims an unexpired lease owned by another process.
+
+The former in-memory Tutti Issue completion notifier and dispatcher are not
+orchestration authorities. Checkpoint/wake rows plus canonical Agent Host
+queries are the restart-safe source of truth.

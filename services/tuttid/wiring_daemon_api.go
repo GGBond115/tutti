@@ -81,6 +81,7 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	workspaceStore, _ := store.(workspacedata.WorkbenchStore)
 	issueStore, _ := store.(workspaceissues.Store)
 	tuttiModeExecutionStore, _ := store.(workspacedata.TuttiModeExecutionsStore)
+	tuttiModeWakeStore, _ := store.(tuttimodeexecutionservice.WakeStore)
 	preferencesStore, _ := store.(workspacedata.PreferencesStore)
 	agentTargetStore, _ := store.(workspacedata.AgentTargetStore)
 	managedCredentialsStore, _ := store.(workspacedata.ManagedCredentialsStore)
@@ -434,7 +435,18 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	}
 	issueRunLaunchGate := workspaceservice.NewIssueRunLaunchGate()
 	issueRunCanceller := issueRunSessionCanceller{Host: agentHost, Sessions: agentSessionService}
-	tuttiModeExecutions := &tuttimodeexecutionservice.Service{Store: tuttiModeExecutionStore}
+	tuttiModeMainWakeOwner := "tuttid-main-wake:" + uuid.NewString()
+	tuttiModeExecutions := &tuttimodeexecutionservice.Service{
+		Store: tuttiModeExecutionStore,
+		Wakes: tuttiModeWakeStore,
+		MainWakeTargets: tuttiModeMainWakeAgentAdapter{
+			Host:     agentHost,
+			Sessions: agentSessionService,
+		},
+	}
+	tuttiModeMainWakeRecovery := &tuttiModeMainWakeReadyRecovery{
+		Delegate: tuttiModeExecutions,
+	}
 	issueService := workspaceservice.IssueManagerService{
 		RunLauncher:                    issueRunAgentLauncher{Sessions: agentSessionService, Host: agentHost},
 		RunLaunchGate:                  issueRunLaunchGate,
@@ -445,10 +457,7 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 		AgentTargetReader:              agentTargetStore,
 		PlanningTimeline:               agentservice.IssuePlanningTimelineReporter{Projection: agentActivityProjection},
 		TuttiModeExecutions:            tuttiModeExecutions,
-		CompletionNotifier: &tuttiPlanIssueCompletionDispatcher{
-			Agents: agentSessionService,
-		},
-		MutationLocks: workspaceservice.NewIssueMutationLocks(),
+		MutationLocks:                  workspaceservice.NewIssueMutationLocks(),
 	}
 	tuttiModePlans := &tuttimodeplanservice.Service{
 		Store:                  workflowStore,
@@ -495,10 +504,25 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	// run its accepted plan dispatched.
 	agentSessionService.TurnCancelObserver = issueExecutionCoordinator
 	issueService.RunReconcileQueue = workspaceservice.NewIssueRunReconcileQueue(workspaceservice.IssueRunReconcileQueueOptions{
-		Context:   ctx,
-		Delay:     3 * time.Second,
-		Interval:  15 * time.Second,
-		Reconcile: issueExecutionCoordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns,
+		Context:  ctx,
+		Delay:    3 * time.Second,
+		Interval: 15 * time.Second,
+		Reconcile: func(ctx context.Context, workspaceID string) (workspaceservice.IssueRunReconcileResult, error) {
+			return reconcileTuttiModeRunsAndMainWakes(
+				ctx,
+				workspaceID,
+				tuttiModeMainWakeOwner,
+				issueExecutionCoordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns,
+				tuttiModeMainWakeRecovery,
+			)
+		},
+	})
+	agentActivityProjection.SetRootTurnObserver(rootTurnObserverFanout{
+		agentRuntimeController,
+		tuttiModeMainWakeTurnObserver{
+			Settlements: tuttiModeExecutions,
+			Queue:       issueService.RunReconcileQueue,
+		},
 	})
 	appCenterService := &workspaceservice.AppCenterService{
 		Store:                 appStore,
@@ -593,7 +617,11 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 				err,
 			)
 		}
-		issueService.RunReconcileQueue.Enqueue(workspace.ID)
+		repairTuttiModeMainWakesAtStartup(
+			ctx,
+			tuttiModeExecutions,
+			workspace.ID,
+		)
 	}
 	cliProviders := []cliservice.Provider{
 		diagnosticscli.NewProvider(),
@@ -715,6 +743,12 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 		TuttiModeActivationService: tuttiModeActivations,
 		CLIRegistry:                cliRegistry,
 		AnalyticsReporter:          analyticsReporter,
+		OnListenerReady: func() {
+			tuttiModeMainWakeRecovery.MarkReady()
+			for _, workspace := range workspaces {
+				issueService.RunReconcileQueue.Enqueue(workspace.ID)
+			}
+		},
 	}, appCenterService, agentRuntime, providerAuthWatcher, nil
 }
 

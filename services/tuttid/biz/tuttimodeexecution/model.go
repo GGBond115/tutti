@@ -50,6 +50,22 @@ const (
 	CheckpointStatusCanceled   CheckpointStatus = "canceled"
 )
 
+type WakeTargetKind string
+
+const WakeTargetMain WakeTargetKind = "main"
+
+type WakeStatus string
+
+const (
+	WakeStatusPrepared     WakeStatus = "prepared"
+	WakeStatusLeased       WakeStatus = "leased"
+	WakeStatusDispatched   WakeStatus = "dispatched"
+	WakeStatusTurnSettled  WakeStatus = "turn_settled"
+	WakeStatusAcknowledged WakeStatus = "acknowledged"
+	WakeStatusFailed       WakeStatus = "failed"
+	WakeStatusCanceled     WakeStatus = "canceled"
+)
+
 type Execution struct {
 	ID                         string
 	WorkspaceID                string
@@ -90,6 +106,34 @@ type Checkpoint struct {
 type Aggregate struct {
 	Execution   Execution
 	Checkpoints []Checkpoint
+}
+
+type Wake struct {
+	ID                 string
+	WorkspaceID        string
+	ExecutionID        string
+	IssueID            string
+	CheckpointID       string
+	CheckpointKind     CheckpointKind
+	CheckpointRevision int64
+	TargetKind         WakeTargetKind
+	Sequence           int64
+	ClientSubmitID     string
+	SourceSessionID    string
+	TargetSessionID    string
+	CanonicalSessionID string
+	CanonicalTurnID    string
+	Status             WakeStatus
+	DueAt              time.Time
+	AttemptCount       int
+	LeaseOwner         string
+	LeaseExpiresAt     time.Time
+	DispatchedAt       time.Time
+	TurnSettledAt      time.Time
+	AcknowledgedAt     time.Time
+	LastError          string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type ScheduleAdmission struct {
