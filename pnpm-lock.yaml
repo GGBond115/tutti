@@ -1274,6 +1274,9 @@ importers:
 
   packages/workspace/issue-manager:
     dependencies:
+      "@tutti-os/analytics":
+        specifier: workspace:*
+        version: link:../../analytics/core
       "@tutti-os/ui-i18n-runtime":
         specifier: workspace:*
         version: link:../../ui/i18n-runtime
