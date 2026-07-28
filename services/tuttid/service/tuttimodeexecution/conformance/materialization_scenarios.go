@@ -61,6 +61,8 @@ func runMaterializedPlanRequiresInitialSchedule(ctx context.Context, driver Driv
 		TopicID:         input.TopicID,
 		Title:           input.Title,
 		Content:         input.Content,
+		Status:          "not_started",
+		TaskCount:       len(input.Tasks),
 		PlanningSource:  "tutti_mode_plan",
 		SourceSessionID: input.SourceSessionID,
 	}

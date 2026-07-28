@@ -552,25 +552,25 @@ func TestIssueRunReconcileCompletionDoesNotInferAgentStateFromProjectionSilence(
 	}
 }
 
-func TestIssueRunReconcileQueueRetriesTransientErrors(t *testing.T) {
+func TestWorkspaceExecutionRecoveryQueueRetriesTransientErrors(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	completed := make(chan struct{})
 	var calls int
 	var mu sync.Mutex
-	queue := NewIssueRunReconcileQueue(IssueRunReconcileQueueOptions{
+	queue := NewWorkspaceExecutionRecoveryQueue(WorkspaceExecutionRecoveryQueueOptions{
 		Context:  ctx,
 		Delay:    time.Millisecond,
 		Interval: time.Millisecond,
-		Reconcile: func(context.Context, string) (IssueRunReconcileResult, error) {
+		Reconcile: func(context.Context, string) (WorkspaceExecutionRecoveryResult, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			calls++
 			if calls == 1 {
-				return IssueRunReconcileResult{}, errors.New("temporary read failure")
+				return WorkspaceExecutionRecoveryResult{}, errors.New("temporary read failure")
 			}
 			close(completed)
-			return IssueRunReconcileResult{}, nil
+			return WorkspaceExecutionRecoveryResult{}, nil
 		},
 	})
 	queue.Enqueue("workspace-1")
@@ -578,6 +578,40 @@ func TestIssueRunReconcileQueueRetriesTransientErrors(t *testing.T) {
 	case <-completed:
 	case <-time.After(time.Second):
 		t.Fatal("reconcile queue did not retry a transient error")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 2 {
+		t.Fatalf("reconcile calls = %d, want 2", calls)
+	}
+}
+
+func TestWorkspaceExecutionRecoveryQueueRetriesExplicitPendingRecovery(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	completed := make(chan struct{})
+	var calls int
+	var mu sync.Mutex
+	queue := NewWorkspaceExecutionRecoveryQueue(WorkspaceExecutionRecoveryQueueOptions{
+		Context:  ctx,
+		Delay:    time.Millisecond,
+		Interval: time.Millisecond,
+		Reconcile: func(context.Context, string) (WorkspaceExecutionRecoveryResult, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			calls++
+			if calls == 1 {
+				return WorkspaceExecutionRecoveryResult{Pending: true}, nil
+			}
+			close(completed)
+			return WorkspaceExecutionRecoveryResult{}, nil
+		},
+	})
+	queue.Enqueue("workspace-1")
+	select {
+	case <-completed:
+	case <-time.After(time.Second):
+		t.Fatal("reconcile queue did not retry an explicit pending outcome")
 	}
 	mu.Lock()
 	defer mu.Unlock()

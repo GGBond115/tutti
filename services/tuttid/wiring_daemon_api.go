@@ -89,7 +89,7 @@ func buildDaemonAPI(
 ) (tuttiapi.DaemonAPI, *workspaceservice.AppCenterService, *agentdaemon.Runtime, *agentservice.ProviderAuthWatcher, error) {
 	workspaceStore, _ := store.(workspacedata.WorkbenchStore)
 	issueStore, _ := store.(workspaceissues.Store)
-	tuttiModeExecutionStore, _ := store.(workspacedata.TuttiModeExecutionsStore)
+	tuttiModeExecutionStore, _ := store.(tuttimodeexecutionservice.Store)
 	tuttiModeArchiveStore, _ := store.(tuttimodeexecutionservice.ArchiveStore)
 	tuttiModeDeletionAdmissionStore, _ := store.(tuttimodeexecutionservice.SourceDeletionAdmissionStore)
 	tuttiModeWakeStore, _ := store.(tuttimodeexecutionservice.WakeStore)
@@ -345,7 +345,8 @@ func buildDaemonAPI(
 	agentSessionService.SessionPurgeStore = agentSessionPurgeStore
 	if tuttiModeDeletionAdmissionStore != nil {
 		sourceDeletionGuard := &tuttimodeexecutionservice.SourceDeletionGuard{
-			Store: tuttiModeDeletionAdmissionStore,
+			Store:   tuttiModeDeletionAdmissionStore,
+			Context: ctx,
 		}
 		if err := sourceDeletionGuard.Recover(ctx); err != nil {
 			return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
@@ -536,12 +537,12 @@ func buildDaemonAPI(
 	// A user's stop on a planning conversation cascades to every running task
 	// run its accepted plan dispatched.
 	agentSessionService.TurnCancelObserver = issueExecutionCoordinator
-	issueService.RunReconcileQueue = workspaceservice.NewIssueRunReconcileQueue(workspaceservice.IssueRunReconcileQueueOptions{
+	issueService.ExecutionRecoveryQueue = workspaceservice.NewWorkspaceExecutionRecoveryQueue(workspaceservice.WorkspaceExecutionRecoveryQueueOptions{
 		Context:  ctx,
 		Delay:    3 * time.Second,
 		Interval: 15 * time.Second,
-		Reconcile: func(ctx context.Context, workspaceID string) (workspaceservice.IssueRunReconcileResult, error) {
-			result, err := reconcileTuttiModeRunsAndMainWakes(
+		Reconcile: func(ctx context.Context, workspaceID string) (workspaceservice.WorkspaceExecutionRecoveryResult, error) {
+			runResult, err := reconcileTuttiModeRunsAndMainWakes(
 				ctx,
 				workspaceID,
 				tuttiModeMainWakeOwner,
@@ -549,14 +550,16 @@ func buildDaemonAPI(
 				tuttiModeMainWakeRecovery,
 			)
 			if err != nil {
-				return result, err
+				return workspaceservice.WorkspaceExecutionRecoveryResult{}, err
 			}
 			pendingArchives, err := tuttiModeExecutions.RecoverArchivesAndCount(ctx, workspaceID)
-			result.RunningCount += pendingArchives
-			return result, err
+			return workspaceservice.WorkspaceExecutionRecoveryResult{
+				Pending: runResult.RunningCount > runResult.CompletedCount ||
+					pendingArchives > 0,
+			}, err
 		},
 	})
-	tuttiModeExecutions.ArchiveRecoveryQueue = issueService.RunReconcileQueue
+	tuttiModeExecutions.ArchiveRecoveryQueue = issueService.ExecutionRecoveryQueue
 	if tuttiModeArchiveStore != nil {
 		workspaces, err := store.List(ctx)
 		if err != nil {
@@ -570,7 +573,7 @@ func buildDaemonAPI(
 				)
 			}
 			if pendingArchives > 0 {
-				issueService.RunReconcileQueue.Enqueue(workspace.ID)
+				issueService.ExecutionRecoveryQueue.Enqueue(workspace.ID)
 			}
 		}
 	}
@@ -581,7 +584,7 @@ func buildDaemonAPI(
 		},
 		tuttiModeMainWakeTurnObserver{
 			Settlements: tuttiModeExecutions,
-			Queue:       issueService.RunReconcileQueue,
+			Queue:       issueService.ExecutionRecoveryQueue,
 		},
 		tuttiModeReviewerTurnObserver{
 			Settlements: tuttiModeExecutions,
@@ -837,7 +840,7 @@ func buildDaemonAPI(
 		OnListenerReady: func() {
 			tuttiModeMainWakeRecovery.MarkReady()
 			for _, workspace := range workspaces {
-				issueService.RunReconcileQueue.Enqueue(workspace.ID)
+				issueService.ExecutionRecoveryQueue.Enqueue(workspace.ID)
 			}
 		},
 	}, appCenterService, agentRuntime, providerAuthWatcher, nil

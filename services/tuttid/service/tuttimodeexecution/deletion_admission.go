@@ -26,12 +26,20 @@ type SourceDeletionAdmissionStore interface {
 }
 
 type SourceDeletionGuard struct {
-	Store SourceDeletionAdmissionStore
-	Clock func() time.Time
+	Store         SourceDeletionAdmissionStore
+	Clock         func() time.Time
+	Context       context.Context
+	ReportTimeout time.Duration
+	RetryInterval time.Duration
 
 	lockMu       sync.Mutex
 	closureLocks map[string]*sourceDeletionClosureLock
 }
+
+const (
+	defaultSourceDeletionReportTimeout = 5 * time.Second
+	defaultSourceDeletionRetryInterval = 25 * time.Millisecond
+)
 
 type sourceDeletionClosureLock struct {
 	mu   sync.Mutex
@@ -67,8 +75,8 @@ func (guard *SourceDeletionGuard) ReportDeleteSessions(
 	if len(sessionIDs) == 0 {
 		return
 	}
-	defer guard.releaseClosure(closureKey)
 	if guard == nil || guard.Store == nil {
+		guard.releaseClosure(closureKey)
 		return
 	}
 	admission := executionbiz.SourceSessionDeletionAdmission{
@@ -76,7 +84,12 @@ func (guard *SourceDeletionGuard) ReportDeleteSessions(
 		SessionIDs:  sessionIDs,
 		Now:         guard.now(),
 	}
-	_ = guard.Store.ReportSourceSessionDeletion(ctx, admission, report.Err == nil, guard.now())
+	succeeded := report.Err == nil
+	if guard.reportSourceSessionDeletion(ctx, admission, succeeded) == nil {
+		guard.releaseClosure(closureKey)
+		return
+	}
+	go guard.retrySourceSessionDeletionReport(closureKey, admission, succeeded)
 }
 
 func (guard *SourceDeletionGuard) Recover(ctx context.Context) error {
@@ -91,6 +104,57 @@ func (guard *SourceDeletionGuard) now() time.Time {
 		return guard.Clock().UTC()
 	}
 	return time.Now().UTC()
+}
+
+func (guard *SourceDeletionGuard) reportSourceSessionDeletion(
+	ctx context.Context,
+	admission executionbiz.SourceSessionDeletionAdmission,
+	succeeded bool,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	timeout := guard.ReportTimeout
+	if timeout <= 0 {
+		timeout = defaultSourceDeletionReportTimeout
+	}
+	reportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+	return guard.Store.ReportSourceSessionDeletion(
+		reportCtx, admission, succeeded, guard.now(),
+	)
+}
+
+func (guard *SourceDeletionGuard) retrySourceSessionDeletionReport(
+	closureKey string,
+	admission executionbiz.SourceSessionDeletionAdmission,
+	succeeded bool,
+) {
+	retryCtx := guard.Context
+	if retryCtx == nil {
+		retryCtx = context.Background()
+	}
+	interval := guard.RetryInterval
+	if interval <= 0 {
+		interval = defaultSourceDeletionRetryInterval
+	}
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-retryCtx.Done():
+			guard.releaseClosure(closureKey)
+			return
+		case <-timer.C:
+		}
+		if guard.reportSourceSessionDeletion(
+			retryCtx, admission, succeeded,
+		) == nil {
+			guard.releaseClosure(closureKey)
+			return
+		}
+		timer.Reset(interval)
+	}
 }
 
 func (guard *SourceDeletionGuard) acquireClosure(key string) {

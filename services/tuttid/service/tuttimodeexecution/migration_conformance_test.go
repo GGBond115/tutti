@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"testing"
 
+	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 	tuttimodeexecutionconformance "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution/conformance"
-	workspaceservice "github.com/tutti-os/tutti/services/tuttid/service/workspace"
 )
 
 func (driver *sqliteConformanceDriver) SeedLegacyExecution(
@@ -63,16 +63,8 @@ WHERE workspace_id = ? AND issue_id = ?
 	result := tuttimodeexecutionconformance.LegacyExecution{IssueID: issueID}
 	if input.RunningTaskID != "" {
 		result.RunID = "legacy-run:" + issueID + ":" + input.RunningTaskID
-		run, err := driver.issues.CreateRun(
-			ctx,
-			input.Plan.WorkspaceID,
-			issueID,
-			input.RunningTaskID,
-			workspaceservice.CreateIssueManagerRunInput{
-				RunID:          result.RunID,
-				AgentTargetID:  "local:codex",
-				AgentSessionID: "legacy-run-session:" + input.RunningTaskID,
-			},
+		run, err := driver.seedLegacyRun(
+			ctx, input.Plan.WorkspaceID, issueID, input.RunningTaskID, result.RunID,
 		)
 		if err != nil {
 			return tuttimodeexecutionconformance.LegacyExecution{}, err
@@ -80,6 +72,58 @@ WHERE workspace_id = ? AND issue_id = ?
 		result.RunID = run.RunID
 	}
 	return result, nil
+}
+
+func (driver *sqliteConformanceDriver) seedLegacyRun(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	taskID string,
+	runID string,
+) (workspaceissues.Run, error) {
+	issue, err := driver.store.GetIssue(ctx, workspaceID, issueID)
+	if err != nil {
+		return workspaceissues.Run{}, err
+	}
+	task, err := driver.store.GetTask(ctx, workspaceID, issueID, taskID)
+	if err != nil {
+		return workspaceissues.Run{}, err
+	}
+	now := driver.clock.Now().UnixMilli()
+	run, err := driver.store.CreateRun(ctx, workspaceissues.Run{
+		RunID:              runID,
+		TaskID:             taskID,
+		IssueID:            issueID,
+		WorkspaceID:        workspaceID,
+		RequesterUserID:    "local",
+		AgentUserID:        "local",
+		AgentTargetID:      "local:codex",
+		AgentSessionID:     "legacy-run-session:" + taskID,
+		AgentProvider:      "codex",
+		ModelPlanID:        task.ModelPlanID,
+		Model:              task.Model,
+		ReasoningIntensity: issue.ExecutionProfile.ReasoningIntensity,
+		Status:             workspaceissues.StatusRunning,
+		ExecutionDirectory: task.ExecutionDirectory,
+		CreatedAtUnixMS:    now,
+		StartedAtUnixMS:    now,
+		UpdatedAtUnixMS:    now,
+	})
+	if err != nil {
+		return workspaceissues.Run{}, err
+	}
+	task.Status = workspaceissues.StatusRunning
+	task.AcceptanceState = workspaceissues.AcceptanceAgentClaimed
+	task.AcceptanceSummary = ""
+	task.LatestRunID = run.RunID
+	task.UpdatedAtUnixMS = now
+	if _, err := driver.store.UpdateTask(ctx, task); err != nil {
+		return workspaceissues.Run{}, err
+	}
+	if _, err := driver.store.RecalculateIssueProjection(ctx, workspaceID, issueID); err != nil {
+		return workspaceissues.Run{}, err
+	}
+	return run, nil
 }
 
 func (driver *sqliteConformanceDriver) StartupRepairLegacyExecutions(

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	agentstore "github.com/tutti-os/tutti/packages/agent/store-sqlite"
-	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 	agentquickpromptbiz "github.com/tutti-os/tutti/services/tuttid/biz/agentquickprompt"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
@@ -17,7 +16,6 @@ import (
 	modelplanbiz "github.com/tutti-os/tutti/services/tuttid/biz/modelplan"
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 	activationbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeactivation"
-	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	userprojectbiz "github.com/tutti-os/tutti/services/tuttid/biz/userproject"
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
 	workspaceagentbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceagent"
@@ -179,37 +177,6 @@ type WorkspaceWorkflowsStore interface {
 	RetryWorkspaceWorkflowOperation(context.Context, RetryWorkspaceWorkflowOperationInput) (workflowbiz.WorkflowOperation, bool, error)
 	CompleteWorkspaceWorkflowOperation(context.Context, CompleteWorkspaceWorkflowOperationInput) (workflowbiz.WorkflowOperation, bool, error)
 	ListRecoverableCreateIssueOperations(context.Context) ([]RecoverableCreateIssueOperation, error)
-}
-
-// TuttiModeExecutionsStore is the daemon persistence capability used by the
-// product service. The materialization write deliberately includes reusable
-// Issue/task rows so there is no cross-aggregate crash window.
-type TuttiModeExecutionsStore interface {
-	MaterializeTuttiModeIssue(
-		context.Context,
-		workspaceissues.Issue,
-		[]workspaceissues.Task,
-		executionbiz.Aggregate,
-	) (workspaceissues.Issue, []workspaceissues.Task, executionbiz.Aggregate, error)
-	GetTuttiModeExecutionByIssue(context.Context, string, string) (executionbiz.Aggregate, error)
-	AdmitTuttiModeSchedule(context.Context, executionbiz.ScheduleAdmission) (executionbiz.ScheduleResult, error)
-	ListPreparedTuttiModeRunLaunches(context.Context, string, string, []string, time.Time) ([]executionbiz.PreparedRunLaunch, error)
-	GetTuttiModeRunLaunchClientSubmitID(context.Context, string, string, string) (string, bool, error)
-	ClaimTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time, time.Time) (bool, error)
-	RenewTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time, time.Time) error
-	ReleaseTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time) error
-	MarkTuttiModeRunLaunchIntentDispatched(context.Context, string, string, string, string, time.Time) error
-	RequeueLeasedTuttiModeRunLaunchIntents(context.Context, string, time.Time) error
-	EnsureTuttiModeRunCancelCompensation(context.Context, string, string, string, string, time.Time) (bool, error)
-	ListPreparedTuttiModeRunCancelCompensations(context.Context, string) ([]executionbiz.RunCancelCompensation, error)
-	ClaimTuttiModeRunCancelCompensation(context.Context, string, string, string, string, time.Time, time.Time) (bool, error)
-	ReleaseTuttiModeRunCancelCompensation(context.Context, string, string, string, string, string, time.Time) error
-	CompleteTuttiModeRunCancelCompensation(context.Context, string, string, string, string, time.Time) error
-	RequeueLeasedTuttiModeRunCancelCompensations(context.Context, string, time.Time) error
-	FailTuttiModeRunLaunch(context.Context, executionbiz.RunLaunchFailure) (executionbiz.Checkpoint, bool, error)
-	EnsureTuttiModeRunSettlement(context.Context, executionbiz.RunSettlement) (executionbiz.Checkpoint, bool, error)
-	RepairTuttiModeRunSettlements(context.Context, string, time.Time) (int, error)
-	AdmitTuttiModeAcknowledge(context.Context, executionbiz.AcknowledgeAdmission) (executionbiz.AcknowledgeResult, error)
 }
 
 type TuttiModeActivationsStore interface {

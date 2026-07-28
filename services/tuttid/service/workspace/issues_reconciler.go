@@ -21,24 +21,30 @@ type IssueRunReconcileResult struct {
 	RunningCount   int
 }
 
-type IssueRunReconcileQueue struct {
+type WorkspaceExecutionRecoveryResult struct {
+	Pending bool
+}
+
+type WorkspaceExecutionRecoveryQueue struct {
 	mu        sync.Mutex
 	pending   map[string]struct{}
 	active    bool
 	ctx       context.Context
 	delay     time.Duration
 	interval  time.Duration
-	reconcile func(context.Context, string) (IssueRunReconcileResult, error)
+	reconcile func(context.Context, string) (WorkspaceExecutionRecoveryResult, error)
 }
 
-type IssueRunReconcileQueueOptions struct {
+type WorkspaceExecutionRecoveryQueueOptions struct {
 	Context   context.Context
 	Delay     time.Duration
 	Interval  time.Duration
-	Reconcile func(context.Context, string) (IssueRunReconcileResult, error)
+	Reconcile func(context.Context, string) (WorkspaceExecutionRecoveryResult, error)
 }
 
-func NewIssueRunReconcileQueue(options IssueRunReconcileQueueOptions) *IssueRunReconcileQueue {
+func NewWorkspaceExecutionRecoveryQueue(
+	options WorkspaceExecutionRecoveryQueueOptions,
+) *WorkspaceExecutionRecoveryQueue {
 	delay := options.Delay
 	if delay <= 0 {
 		delay = defaultIssueRunReconcileDelay
@@ -51,7 +57,7 @@ func NewIssueRunReconcileQueue(options IssueRunReconcileQueueOptions) *IssueRunR
 	if queueContext == nil {
 		queueContext = context.Background()
 	}
-	return &IssueRunReconcileQueue{
+	return &WorkspaceExecutionRecoveryQueue{
 		pending:   make(map[string]struct{}),
 		ctx:       queueContext,
 		delay:     delay,
@@ -60,7 +66,7 @@ func NewIssueRunReconcileQueue(options IssueRunReconcileQueueOptions) *IssueRunR
 	}
 }
 
-func (q *IssueRunReconcileQueue) Enqueue(workspaceID string) {
+func (q *WorkspaceExecutionRecoveryQueue) Enqueue(workspaceID string) {
 	workspaceID = strings.TrimSpace(workspaceID)
 	if q == nil || q.reconcile == nil || workspaceID == "" {
 		return
@@ -78,7 +84,7 @@ func (q *IssueRunReconcileQueue) Enqueue(workspaceID string) {
 	go q.loop(delay)
 }
 
-func (q *IssueRunReconcileQueue) loop(nextDelay time.Duration) {
+func (q *WorkspaceExecutionRecoveryQueue) loop(nextDelay time.Duration) {
 	for {
 		timer := time.NewTimer(nextDelay)
 		select {
@@ -105,7 +111,7 @@ func (q *IssueRunReconcileQueue) loop(nextDelay time.Duration) {
 		requeue := make([]string, 0)
 		for _, workspaceID := range workspaces {
 			result, err := q.reconcile(q.ctx, workspaceID)
-			if err != nil || result.RunningCount > result.CompletedCount {
+			if err != nil || result.Pending {
 				requeue = append(requeue, workspaceID)
 			}
 		}

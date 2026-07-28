@@ -1207,25 +1207,27 @@ func (driver *sqliteConformanceDriver) EnableAutomaticRecovery(ctx context.Conte
 	coordinator := &workspaceservice.IssueExecutionCoordinator{
 		Issues: &driver.issues, RunSessionCanceller: driver.canceller,
 	}
-	driver.issues.RunReconcileQueue = workspaceservice.NewIssueRunReconcileQueue(
-		workspaceservice.IssueRunReconcileQueueOptions{
+	driver.issues.ExecutionRecoveryQueue = workspaceservice.NewWorkspaceExecutionRecoveryQueue(
+		workspaceservice.WorkspaceExecutionRecoveryQueueOptions{
 			Context:  queueCtx,
 			Delay:    time.Millisecond,
 			Interval: time.Millisecond,
 			Reconcile: func(
 				ctx context.Context, workspaceID string,
-			) (workspaceservice.IssueRunReconcileResult, error) {
-				result, err := coordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns(ctx, workspaceID)
+			) (workspaceservice.WorkspaceExecutionRecoveryResult, error) {
+				runResult, err := coordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns(ctx, workspaceID)
 				if err != nil {
-					return result, err
+					return workspaceservice.WorkspaceExecutionRecoveryResult{}, err
 				}
-				pending, err := driver.executions.RecoverArchivesAndCount(ctx, workspaceID)
-				result.RunningCount += pending
-				return result, err
+				pendingArchives, err := driver.executions.RecoverArchivesAndCount(ctx, workspaceID)
+				return workspaceservice.WorkspaceExecutionRecoveryResult{
+					Pending: runResult.RunningCount > runResult.CompletedCount ||
+						pendingArchives > 0,
+				}, err
 			},
 		},
 	)
-	driver.executions.ArchiveRecoveryQueue = driver.issues.RunReconcileQueue
+	driver.executions.ArchiveRecoveryQueue = driver.issues.ExecutionRecoveryQueue
 }
 
 func (driver *sqliteConformanceDriver) AwaitLauncherCalls(ctx context.Context, want int) error {

@@ -19,7 +19,7 @@ type IssueManagerService struct {
 	RunReconciler                  IssueRunReconciler
 	SourceSessionDirectoryResolver IssueSourceSessionDirectoryResolver
 	Publisher                      IssueManagerEventPublisher
-	RunReconcileQueue              *IssueRunReconcileQueue
+	ExecutionRecoveryQueue         *WorkspaceExecutionRecoveryQueue
 	Store                          workspaceissues.Store
 	AgentTargetReader              IssueAssignmentAgentTargetReader
 	PlanningTimeline               IssuePlanningTimelineReporter
@@ -680,10 +680,10 @@ func (s IssueManagerService) domainService() workspaceissues.Service {
 }
 
 func (s IssueManagerService) enqueueWorkspaceRunReconcile(workspaceID string) {
-	if s.RunReconcileQueue == nil {
+	if s.ExecutionRecoveryQueue == nil {
 		return
 	}
-	s.RunReconcileQueue.Enqueue(workspaceID)
+	s.ExecutionRecoveryQueue.Enqueue(workspaceID)
 }
 
 func (s IssueManagerService) reconcileWorkspaceRunsBestEffort(ctx context.Context, workspaceID string) {

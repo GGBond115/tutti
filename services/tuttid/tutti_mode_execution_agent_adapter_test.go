@@ -279,8 +279,8 @@ func TestPendingMainWakeDeliveryKeepsProductionQueueForBoundedRetry(t *testing.T
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	wakes := &transientMainWakeRecoverer{completed: make(chan struct{})}
-	reconcile := func(ctx context.Context, workspaceID string) (workspaceservice.IssueRunReconcileResult, error) {
-		return reconcileTuttiModeRunsAndMainWakes(
+	reconcile := func(ctx context.Context, workspaceID string) (workspaceservice.WorkspaceExecutionRecoveryResult, error) {
+		result, err := reconcileTuttiModeRunsAndMainWakes(
 			ctx,
 			workspaceID,
 			"daemon-owner-1",
@@ -289,8 +289,11 @@ func TestPendingMainWakeDeliveryKeepsProductionQueueForBoundedRetry(t *testing.T
 			},
 			wakes,
 		)
+		return workspaceservice.WorkspaceExecutionRecoveryResult{
+			Pending: result.RunningCount > result.CompletedCount,
+		}, err
 	}
-	queue := workspaceservice.NewIssueRunReconcileQueue(workspaceservice.IssueRunReconcileQueueOptions{
+	queue := workspaceservice.NewWorkspaceExecutionRecoveryQueue(workspaceservice.WorkspaceExecutionRecoveryQueueOptions{
 		Context: ctx, Delay: time.Millisecond, Interval: time.Millisecond,
 		Reconcile: reconcile,
 	})
@@ -346,10 +349,10 @@ func TestListenerReadyQueueRetriesDurableRepairBeforeDispatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	wakes := &transientStartupRepairRecoverer{completed: make(chan struct{})}
-	queue := workspaceservice.NewIssueRunReconcileQueue(workspaceservice.IssueRunReconcileQueueOptions{
+	queue := workspaceservice.NewWorkspaceExecutionRecoveryQueue(workspaceservice.WorkspaceExecutionRecoveryQueueOptions{
 		Context: ctx, Delay: time.Millisecond, Interval: time.Millisecond,
-		Reconcile: func(ctx context.Context, workspaceID string) (workspaceservice.IssueRunReconcileResult, error) {
-			return reconcileTuttiModeRunsAndMainWakes(
+		Reconcile: func(ctx context.Context, workspaceID string) (workspaceservice.WorkspaceExecutionRecoveryResult, error) {
+			result, err := reconcileTuttiModeRunsAndMainWakes(
 				ctx,
 				workspaceID,
 				"daemon-owner-1",
@@ -358,6 +361,9 @@ func TestListenerReadyQueueRetriesDurableRepairBeforeDispatch(t *testing.T) {
 				},
 				wakes,
 			)
+			return workspaceservice.WorkspaceExecutionRecoveryResult{
+				Pending: result.RunningCount > result.CompletedCount,
+			}, err
 		},
 	})
 

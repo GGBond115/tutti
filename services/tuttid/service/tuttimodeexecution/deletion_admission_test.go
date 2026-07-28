@@ -3,6 +3,7 @@ package tuttimodeexecution
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -102,11 +103,88 @@ func TestSourceDeletionGuardSerializesDuplicateExactClosuresUntilReport(t *testi
 	guard.ReportDeleteSessions(context.Background(), agenthost.DeleteSessionsReport{Plan: plan})
 }
 
+func TestSourceDeletionGuardReportsWithDetachedContext(t *testing.T) {
+	t.Parallel()
+	store := &recordingDeletionAdmissionStore{}
+	guard := &SourceDeletionGuard{Store: store}
+	plan := agenthost.DeleteSessionsPlan{
+		WorkspaceID: "workspace-1",
+		SessionIDs:  []string{"source-1"},
+	}
+	if err := guard.AdmitDeleteSessions(context.Background(), plan); err != nil {
+		t.Fatalf("AdmitDeleteSessions() error=%v", err)
+	}
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	guard.ReportDeleteSessions(canceledCtx, agenthost.DeleteSessionsReport{Plan: plan})
+
+	if !store.reported {
+		t.Fatal("ReportDeleteSessions() did not reach the durable store")
+	}
+	if store.reportContextErr != nil {
+		t.Fatalf("ReportDeleteSessions() context error=%v, want detached context", store.reportContextErr)
+	}
+}
+
+func TestSourceDeletionGuardRetriesExactFailedReportBeforeReleasingClosure(t *testing.T) {
+	t.Parallel()
+	store := &retryingDeletionAdmissionStore{
+		admitCalls:     make(chan struct{}, 2),
+		reportCalls:    make(chan bool, 3),
+		reportFailures: 1,
+	}
+	guard := &SourceDeletionGuard{Store: store}
+	plan := agenthost.DeleteSessionsPlan{
+		WorkspaceID: "workspace-1",
+		SessionIDs:  []string{"source-1"},
+	}
+	if err := guard.AdmitDeleteSessions(context.Background(), plan); err != nil {
+		t.Fatalf("first AdmitDeleteSessions() error=%v", err)
+	}
+	<-store.admitCalls
+
+	guard.ReportDeleteSessions(context.Background(), agenthost.DeleteSessionsReport{Plan: plan})
+	if succeeded := <-store.reportCalls; !succeeded {
+		t.Fatal("failed report lost its exact successful outcome")
+	}
+
+	secondAdmission := make(chan error, 1)
+	go func() {
+		secondAdmission <- guard.AdmitDeleteSessions(context.Background(), plan)
+	}()
+	select {
+	case <-store.admitCalls:
+		t.Fatal("closure was released before the failed durable report was retried")
+	case <-time.After(5 * time.Millisecond):
+	}
+
+	select {
+	case succeeded := <-store.reportCalls:
+		if !succeeded {
+			t.Fatal("retried report changed its exact successful outcome")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("failed durable report was not retried")
+	}
+	select {
+	case err := <-secondAdmission:
+		if err != nil {
+			t.Fatalf("second AdmitDeleteSessions() error=%v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("closure remained blocked after the durable report retry succeeded")
+	}
+	<-store.admitCalls
+	guard.ReportDeleteSessions(context.Background(), agenthost.DeleteSessionsReport{Plan: plan})
+}
+
 type recordingDeletionAdmissionStore struct {
-	admitted  executionbiz.SourceSessionDeletionAdmission
-	admitErr  error
-	reported  bool
-	succeeded bool
+	admitted         executionbiz.SourceSessionDeletionAdmission
+	admitErr         error
+	reported         bool
+	succeeded        bool
+	reportContextErr error
 }
 
 func (store *recordingDeletionAdmissionStore) AdmitSourceSessionDeletion(
@@ -119,13 +197,14 @@ func (store *recordingDeletionAdmissionStore) AdmitSourceSessionDeletion(
 }
 
 func (store *recordingDeletionAdmissionStore) ReportSourceSessionDeletion(
-	_ context.Context,
+	ctx context.Context,
 	_ executionbiz.SourceSessionDeletionAdmission,
 	succeeded bool,
 	_ time.Time,
 ) error {
 	store.reported = true
 	store.succeeded = succeeded
+	store.reportContextErr = ctx.Err()
 	return nil
 }
 
@@ -158,6 +237,44 @@ func (*concurrentDeletionAdmissionStore) ReportSourceSessionDeletion(
 }
 
 func (*concurrentDeletionAdmissionStore) ReconcileSourceSessionDeletionAdmissions(
+	_ context.Context, _ time.Time,
+) error {
+	return nil
+}
+
+type retryingDeletionAdmissionStore struct {
+	mu             sync.Mutex
+	admitCalls     chan struct{}
+	reportCalls    chan bool
+	reportFailures int
+}
+
+func (store *retryingDeletionAdmissionStore) AdmitSourceSessionDeletion(
+	_ context.Context,
+	input executionbiz.SourceSessionDeletionAdmission,
+) (executionbiz.SourceSessionDeletionAdmission, error) {
+	store.admitCalls <- struct{}{}
+	input.AdmissionID = "admission-1"
+	return input, nil
+}
+
+func (store *retryingDeletionAdmissionStore) ReportSourceSessionDeletion(
+	_ context.Context,
+	_ executionbiz.SourceSessionDeletionAdmission,
+	succeeded bool,
+	_ time.Time,
+) error {
+	store.reportCalls <- succeeded
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.reportFailures > 0 {
+		store.reportFailures--
+		return errors.New("persist report")
+	}
+	return nil
+}
+
+func (*retryingDeletionAdmissionStore) ReconcileSourceSessionDeletionAdmissions(
 	_ context.Context, _ time.Time,
 ) error {
 	return nil
