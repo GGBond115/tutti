@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,11 +55,14 @@ type AnalyticsConfig struct {
 // Config configures a reporter instance.
 //
 // DeviceID should be supplied when the host already owns a stable installation
-// identity. Otherwise the reporter persists one under StateDir.
+// identity. Otherwise the reporter persists one under StateDir. SDKLogDir lets
+// hosts preserve an existing log location; when omitted it defaults beneath
+// StateDir.
 type Config struct {
 	Analytics      AnalyticsConfig
 	DebugPublisher DebugPublisher
 	StateDir       string
+	SDKLogDir      string
 	DeviceID       string
 	CommonParams   map[string]any
 }
@@ -78,9 +82,9 @@ func New(config Config) (Reporter, error) {
 }
 
 func shouldUseNoop(config AnalyticsConfig) bool {
-	return config.AppID == 0 ||
-		config.AppKey == "" ||
-		config.ChannelDomain == ""
+	return config.AppID <= 0 ||
+		strings.TrimSpace(config.AppKey) == "" ||
+		strings.TrimSpace(config.ChannelDomain) == ""
 }
 
 func resolveDeviceID(config Config) (string, error) {
@@ -95,23 +99,78 @@ func resolveDeviceID(config Config) (string, error) {
 
 func loadOrCreateDeviceID(stateDir string) (string, error) {
 	path := filepath.Join(stateDir, "device_id")
-	if content, err := os.ReadFile(path); err == nil {
-		value := strings.TrimSpace(string(content))
-		if value != "" {
-			return value, nil
-		}
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("read analytics device id: %w", err)
+	if value, exists, err := readDeviceID(path); err != nil {
+		return "", err
+	} else if exists {
+		return value, nil
 	}
 
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return "", fmt.Errorf("create analytics state dir: %w", err)
 	}
+
+	deviceIDCreationMu.Lock()
+	defer deviceIDCreationMu.Unlock()
+
+	if value, exists, err := readDeviceID(path); err != nil {
+		return "", err
+	} else if exists {
+		return value, nil
+	}
+
 	deviceID := uuid.NewString()
-	if err := os.WriteFile(path, []byte(deviceID+"\n"), 0o600); err != nil {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if os.IsExist(err) {
+		return waitForDeviceID(path)
+	}
+	if err != nil {
 		return "", fmt.Errorf("write analytics device id: %w", err)
 	}
+	removeIncomplete := true
+	defer func() {
+		if removeIncomplete {
+			_ = os.Remove(path)
+		}
+	}()
+	if _, err := file.WriteString(deviceID + "\n"); err != nil {
+		_ = file.Close()
+		return "", fmt.Errorf("write analytics device id: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return "", fmt.Errorf("sync analytics device id: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return "", fmt.Errorf("close analytics device id: %w", err)
+	}
+	removeIncomplete = false
 	return deviceID, nil
+}
+
+var deviceIDCreationMu sync.Mutex
+
+func readDeviceID(path string) (value string, exists bool, err error) {
+	content, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read analytics device id: %w", err)
+	}
+	value = strings.TrimSpace(string(content))
+	return value, value != "", nil
+}
+
+func waitForDeviceID(path string) (string, error) {
+	for range 20 {
+		if value, exists, err := readDeviceID(path); err != nil {
+			return "", err
+		} else if exists {
+			return value, nil
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return "", fmt.Errorf("analytics device id file remained empty after concurrent creation")
 }
 
 type reporterCommon struct {
@@ -155,7 +214,7 @@ func normalizeEvents(events []Event, common map[string]any) []teaSDKEvent {
 			continue
 		}
 		clientTS := event.ClientTS
-		if clientTS == 0 {
+		if clientTS <= 0 {
 			clientTS = time.Now().UnixMilli()
 		}
 		params := copyParams(event.Params)

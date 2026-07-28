@@ -23,6 +23,11 @@ daemon lifecycle  ──direct▶  merge common params  ──▶  best-effort H
 Renderer does not load or initialize any Tea SDK. It only sends raw event
 payloads to tuttid via a local HTTP call. tuttid is the sole Tea client.
 
+Shared renderer modules depend only on `@tutti-os/analytics` and receive an
+`IReporterService` from the host composition root. `TuttidClient`,
+`DesktopdAnalyticsClient`, event catalogs, and product-specific common
+parameters stay in their respective host adapters.
+
 ### Multi-window pageview ownership
 
 The desktop main process grants predefine pageview ownership to only the first
@@ -248,6 +253,24 @@ services/tuttid/service/reporter/
 module. It is the reusable lower SDK for Tutti products such as TSH. Product
 repositories own their event catalog, HTTP contract, configuration, and
 business emission points; they must not copy the DataFinder adapter.
+
+## Shared Debug Panel
+
+`@tutti-os/analytics-debug` owns the bounded in-memory event store, redaction
+hook, and reusable React floating panel. It does not own daemon connections,
+availability flags, persisted preferences, or product translations.
+
+Tutti adapts the `analytics.debug.reported` event stream into the shared store
+after daemon common parameters have been applied. Other hosts provide their own
+event-source adapter and localized labels. Debug payloads are never persisted;
+hosts should supply a redactor when their event parameters may contain
+sensitive values.
+
+Tutti connects this stream only when the debug feature is available in a
+development build. It intentionally retains a bounded history from application
+startup so developers can inspect events emitted before opening the panel. The
+history is process-memory only, is discarded on exit, and contains the same
+final payload already sent to the configured analytics transport.
 
 ### Reporter interface
 
