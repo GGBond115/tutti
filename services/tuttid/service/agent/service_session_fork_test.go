@@ -69,6 +69,7 @@ func (r *sessionForkCapabilityRuntime) ResolveSessionFork(
 	return agenthost.SessionForkDriverDescriptor{
 		Kind:                        "native",
 		Version:                     "v1",
+		StateBindingMode:            agenthost.SessionForkStateBindingProviderOwned,
 		ThroughTurn:                 true,
 		ThroughProviderTurnIDs:      []string{"provider-turn-7"},
 		ThroughProviderTurnIDsKnown: true,
@@ -220,17 +221,17 @@ func TestSessionForkContextPolicyPreservesNonOwnedRuntimeFacts(t *testing.T) {
 	}
 }
 
-func TestSessionForkContextPolicyFailsClosedWithoutCodexStateBinder(t *testing.T) {
+func TestSessionForkContextPolicyLeavesBindingModeEnforcementToHost(t *testing.T) {
 	source := storesqlite.Session{Provider: "codex"}
 	prepared := agenthost.ProviderRuntimeSession{Cwd: "/prepared-project"}
-	_, err := (serviceHostSessionForkContextPolicy{
+	target, err := (serviceHostSessionForkContextPolicy{
 		service: &Service{RuntimePreparer: fakeRuntimePreparer{}},
 	}).PrepareSessionForkTargetContext(t.Context(), source, prepared)
-	if !errors.Is(err, agenthost.ErrSessionForkUnsupported) {
-		t.Fatalf("policy without provider state binder error=%v, want unsupported", err)
+	if err != nil || target.Cwd != "/prepared-project" {
+		t.Fatalf("policy without provider state binder target=%#v error=%v", target, err)
 	}
 
-	target, err := (serviceHostSessionForkContextPolicy{
+	target, err = (serviceHostSessionForkContextPolicy{
 		service: &Service{
 			RuntimePreparer: runtimeprep.NewDefaultPreparer(t.TempDir()),
 		},
@@ -604,6 +605,7 @@ func (*serviceSessionForkOperationRuntime) ResolveSessionFork(
 ) (agenthost.SessionForkDriverDescriptor, error) {
 	return agenthost.SessionForkDriverDescriptor{
 		Kind: "native", Version: "v1", ThroughTurn: true,
+		StateBindingMode: agenthost.SessionForkStateBindingProviderOwned,
 	}, nil
 }
 

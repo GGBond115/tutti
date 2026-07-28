@@ -162,6 +162,7 @@ type SessionForkTargetContext struct {
 type SessionForkDriverDescriptor struct {
 	Kind                        string
 	Version                     string
+	StateBindingMode            SessionForkStateBindingMode
 	FullSession                 bool
 	ThroughTurn                 bool
 	ThroughProviderTurnIDs      []string
@@ -172,6 +173,7 @@ type RuntimeSessionForkInput struct {
 	Source                ProviderRuntimeSession
 	SourceProviderTurnID  string
 	SourceProviderTurnIDs []string
+	TargetTitle           string
 	RequestID             string
 	Driver                SessionForkDriverDescriptor
 }
@@ -186,9 +188,19 @@ const (
 )
 
 type RuntimeSessionForkResult struct {
-	ProviderSessionID   string
-	DeliveryDisposition SessionForkDeliveryDisposition
+	ProviderSessionID     string
+	TargetProviderTurnIDs []string
+	StateBindingMode      SessionForkStateBindingMode
+	StateBindingReceipt   string
+	DeliveryDisposition   SessionForkDeliveryDisposition
 }
+
+type SessionForkStateBindingMode string
+
+const (
+	SessionForkStateBindingHostCopy      SessionForkStateBindingMode = "host_copy"
+	SessionForkStateBindingProviderOwned SessionForkStateBindingMode = "provider_owned"
+)
 
 // SessionForkProviderStateBinding describes the provider-local durable state
 // that must become independently discoverable from the target Tutti session's

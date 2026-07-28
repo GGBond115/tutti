@@ -109,6 +109,9 @@ type CloseInput struct {
 // SessionForkCapabilities reports provider-native fork boundaries supported by
 // the exact runtime currently attached to a session.
 type SessionForkCapabilities struct {
+	DriverKind                  string   `json:"driverKind,omitempty"`
+	DriverVersion               string   `json:"driverVersion,omitempty"`
+	StateBindingMode            string   `json:"stateBindingMode,omitempty"`
 	FullSession                 bool     `json:"fullSession"`
 	ThroughTurn                 bool     `json:"throughTurn"`
 	ThroughProviderTurnIDs      []string `json:"throughProviderTurnIds,omitempty"`
@@ -122,6 +125,7 @@ type SessionForkInput struct {
 	Source          Session  `json:"-"`
 	ProviderTurnID  string   `json:"providerTurnId,omitempty"`
 	ProviderTurnIDs []string `json:"providerTurnIds,omitempty"`
+	TargetTitle     string   `json:"targetTitle,omitempty"`
 }
 
 type SessionForkDeliveryDisposition string
@@ -139,6 +143,9 @@ type SessionForkResult struct {
 	ProviderSessionID           string                         `json:"providerSessionId"`
 	ForkedFromProviderSessionID string                         `json:"forkedFromProviderSessionId"`
 	ThroughProviderTurnID       string                         `json:"throughProviderTurnId,omitempty"`
+	TargetProviderTurnIDs       []string                       `json:"targetProviderTurnIds,omitempty"`
+	StateBindingMode            string                         `json:"stateBindingMode,omitempty"`
+	StateBindingReceipt         string                         `json:"stateBindingReceipt,omitempty"`
 	DeliveryDisposition         SessionForkDeliveryDisposition `json:"deliveryDisposition"`
 }
 

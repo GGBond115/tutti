@@ -591,8 +591,8 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
       canonicalTurnById.get(turnId)?.phase !== "settled" ||
       conversation.sourceDetail.session.kind !== "root" ||
       lifecycleCapabilities.forkThroughTurn !== true ||
-      (lifecycleCapabilities.forkThroughTurnIdsKnown === true &&
-        !lifecycleCapabilities.forkThroughTurnIds?.includes(turnId))
+      lifecycleCapabilities.forkThroughTurnIdsKnown !== true ||
+      !lifecycleCapabilities.forkThroughTurnIds?.includes(turnId)
     ) {
       return null;
     }

@@ -43,6 +43,7 @@ func (workspaceStoreForkRuntime) ResolveSessionFork(
 		ThroughTurn:                 true,
 		ThroughProviderTurnIDsKnown: true,
 		ThroughProviderTurnIDs:      []string{"provider-turn-1"},
+		StateBindingMode:            agenthost.SessionForkStateBindingProviderOwned,
 	}, nil
 }
 

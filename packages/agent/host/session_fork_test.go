@@ -84,7 +84,10 @@ func TestForkSessionTransportFailureBecomesUnknownAndNeverRedispatches(t *testin
 
 func TestForkSessionBindsAcceptedProviderStateBeforeCanonicalCommit(t *testing.T) {
 	store := newFakeSessionForkStore()
-	runtime := &fakeSessionForkRuntime{providerSessionID: "provider-child"}
+	runtime := &fakeSessionForkRuntime{
+		providerSessionID: "provider-child",
+		stateBindingMode:  SessionForkStateBindingHostCopy,
+	}
 	binder := &fakeSessionForkStateBinder{}
 	host := New(Config{
 		SessionForks: store, SessionForkRuntime: runtime, SessionForkState: binder,
@@ -115,7 +118,10 @@ func TestForkSessionBindsAcceptedProviderStateBeforeCanonicalCommit(t *testing.T
 
 func TestForkSessionProviderStateBindingFailureBecomesUnknownAndNeverRedispatches(t *testing.T) {
 	store := newFakeSessionForkStore()
-	runtime := &fakeSessionForkRuntime{providerSessionID: "provider-child"}
+	runtime := &fakeSessionForkRuntime{
+		providerSessionID: "provider-child",
+		stateBindingMode:  SessionForkStateBindingHostCopy,
+	}
 	binder := &fakeSessionForkStateBinder{err: errors.New("rollout copy failed")}
 	host := New(Config{
 		SessionForks: store, SessionForkRuntime: runtime, SessionForkState: binder,
@@ -150,6 +156,49 @@ func TestForkSessionProviderStateBindingFailureBecomesUnknownAndNeverRedispatche
 			runtime.forkCalls,
 			len(binder.inputs),
 		)
+	}
+}
+
+func TestForkSessionHostCopyWithoutBinderFailsClosed(t *testing.T) {
+	store := newFakeSessionForkStore()
+	runtime := &fakeSessionForkRuntime{
+		providerSessionID: "provider-child",
+		stateBindingMode:  SessionForkStateBindingHostCopy,
+	}
+	result, err := New(Config{
+		SessionForks: store, SessionForkRuntime: runtime,
+	}).ForkSession(t.Context(), ForkSessionInput{
+		WorkspaceID: "ws", SourceAgentSessionID: "source",
+		TargetAgentSessionID: "target", RequestID: "request",
+		ThroughTurnID: "turn",
+	})
+	if !errors.Is(err, ErrSessionForkUnsupported) ||
+		result.Operation.OperationID != "" ||
+		result.Session.ID != "" ||
+		runtime.forkCalls != 0 {
+		t.Fatalf("ForkSession() result=%#v error=%v", result, err)
+	}
+}
+
+func TestForkSessionHostCopyWithUnsupportedBinderFailsBeforeDispatch(t *testing.T) {
+	store := newFakeSessionForkStore()
+	runtime := &fakeSessionForkRuntime{
+		providerSessionID: "provider-child",
+		stateBindingMode:  SessionForkStateBindingHostCopy,
+	}
+	result, err := New(Config{
+		SessionForks:       store,
+		SessionForkRuntime: runtime,
+		SessionForkState:   &fakeSessionForkStateBinder{unsupported: true},
+	}).ForkSession(t.Context(), ForkSessionInput{
+		WorkspaceID: "ws", SourceAgentSessionID: "source",
+		TargetAgentSessionID: "target", RequestID: "request",
+		ThroughTurnID: "turn",
+	})
+	if !errors.Is(err, ErrSessionForkUnsupported) ||
+		result.Operation.OperationID != "" ||
+		runtime.forkCalls != 0 {
+		t.Fatalf("ForkSession() result=%#v error=%v", result, err)
 	}
 }
 
@@ -709,11 +758,17 @@ type fakeSessionForkRuntime struct {
 	resolvedSources     []ProviderRuntimeSession
 	forkInputs          []RuntimeSessionForkInput
 	mutateFirstResolve  bool
+	stateBindingMode    SessionForkStateBindingMode
 }
 
 type fakeSessionForkStateBinder struct {
-	inputs []SessionForkProviderStateBinding
-	err    error
+	inputs      []SessionForkProviderStateBinding
+	err         error
+	unsupported bool
+}
+
+func (f *fakeSessionForkStateBinder) SupportsSessionForkProviderStateBinding(string) bool {
+	return f != nil && !f.unsupported
 }
 
 func (f *fakeSessionForkStateBinder) BindSessionForkProviderState(
@@ -749,9 +804,23 @@ func (f *fakeSessionForkRuntime) ResolveSessionFork(
 		if index >= len(f.descriptors) {
 			index = len(f.descriptors) - 1
 		}
-		return f.descriptors[index], f.resolveErr
+		descriptor := f.descriptors[index]
+		if descriptor.StateBindingMode == "" {
+			descriptor.StateBindingMode = f.effectiveStateBindingMode()
+		}
+		return descriptor, f.resolveErr
 	}
-	return SessionForkDriverDescriptor{Kind: "codex", Version: "1", ThroughTurn: true}, f.resolveErr
+	return SessionForkDriverDescriptor{
+		Kind: "codex", Version: "1", ThroughTurn: true,
+		StateBindingMode: f.effectiveStateBindingMode(),
+	}, f.resolveErr
+}
+
+func (f *fakeSessionForkRuntime) effectiveStateBindingMode() SessionForkStateBindingMode {
+	if f.stateBindingMode != "" {
+		return f.stateBindingMode
+	}
+	return SessionForkStateBindingProviderOwned
 }
 
 func (f *fakeSessionForkRuntime) ForkSession(
@@ -768,9 +837,21 @@ func (f *fakeSessionForkRuntime) ForkSession(
 		f.forkErr == nil && strings.TrimSpace(f.providerSessionID) != "" {
 		disposition = SessionForkDeliveryAccepted
 	}
+	mode := f.effectiveStateBindingMode()
+	var targetProviderTurnIDs []string
+	receipt := ""
+	if mode == SessionForkStateBindingProviderOwned {
+		receipt = "fake-provider-owned-receipt"
+		for _, sourceID := range input.SourceProviderTurnIDs {
+			targetProviderTurnIDs = append(targetProviderTurnIDs, "forked-"+sourceID)
+		}
+	}
 	return RuntimeSessionForkResult{
-		ProviderSessionID:   f.providerSessionID,
-		DeliveryDisposition: disposition,
+		ProviderSessionID:     f.providerSessionID,
+		TargetProviderTurnIDs: targetProviderTurnIDs,
+		StateBindingMode:      mode,
+		StateBindingReceipt:   receipt,
+		DeliveryDisposition:   disposition,
 	}, f.forkErr
 }
 

@@ -41,7 +41,12 @@ describe("AgentTranscriptView", () => {
       detailViewModel({
         session: normalizeAgentActivitySession({
           ...detail.session,
-          lifecycleCapabilities: { fork: false, forkThroughTurn: true }
+          lifecycleCapabilities: {
+            fork: false,
+            forkThroughTurn: true,
+            forkThroughTurnIds: ["turn-1"],
+            forkThroughTurnIdsKnown: true
+          }
         }),
         sessionTurns: [settledTurn]
       })
@@ -100,7 +105,12 @@ describe("AgentTranscriptView", () => {
       detailViewModel({
         session: normalizeAgentActivitySession({
           ...detail.session,
-          lifecycleCapabilities: { fork: false, forkThroughTurn: true }
+          lifecycleCapabilities: {
+            fork: false,
+            forkThroughTurn: true,
+            forkThroughTurnIds: ["turn-1"],
+            forkThroughTurnIdsKnown: true
+          }
         }),
         sessionTurns: [
           canonicalTurn({
@@ -172,7 +182,12 @@ describe("AgentTranscriptView", () => {
       detailViewModel({
         session: normalizeAgentActivitySession({
           ...detail.session,
-          lifecycleCapabilities: { fork: false, forkThroughTurn: true }
+          lifecycleCapabilities: {
+            fork: false,
+            forkThroughTurn: true,
+            forkThroughTurnIds: ["turn-1", "turn-2"],
+            forkThroughTurnIdsKnown: true
+          }
         }),
         sessionTurns: [
           canonicalTurn({
@@ -281,6 +296,42 @@ describe("AgentTranscriptView", () => {
     ).toHaveLength(1);
   });
 
+  it("fails closed when provider Turn boundary identities are unknown", () => {
+    const detail = detailViewModel();
+    const conversation = projectAgentConversationVM(
+      detailViewModel({
+        session: normalizeAgentActivitySession({
+          ...detail.session,
+          lifecycleCapabilities: { fork: false, forkThroughTurn: true }
+        }),
+        sessionTurns: [
+          canonicalTurn({
+            outcome: "completed",
+            phase: "settled",
+            settledAtUnixMs: 7_000
+          })
+        ]
+      })
+    );
+    render(
+      <AgentTranscriptView
+        conversation={conversation}
+        labels={{
+          thinkingLabel: "Thought process",
+          toolCallsLabel: (count: number) => `Tool calls (${count})`,
+          processing: "Planning next moves",
+          turnSummary: "Changed files"
+        }}
+        onForkThroughTurn={vi.fn()}
+      />
+    );
+    expect(
+      screen.queryByRole("button", {
+        name: "agentHost.agentGui.forkThroughTurn"
+      })
+    ).toBeNull();
+  });
+
   it("does not expose Fork for a canonical Turn that is still running", () => {
     const detail = detailViewModel();
     const conversation = projectAgentConversationVM(
@@ -288,7 +339,12 @@ describe("AgentTranscriptView", () => {
         session: normalizeAgentActivitySession({
           ...detail.session,
           activeTurnId: "turn-1",
-          lifecycleCapabilities: { fork: false, forkThroughTurn: true }
+          lifecycleCapabilities: {
+            fork: false,
+            forkThroughTurn: true,
+            forkThroughTurnIds: ["turn-1"],
+            forkThroughTurnIdsKnown: true
+          }
         }),
         sessionTurns: [canonicalTurn()]
       })
@@ -321,7 +377,12 @@ describe("AgentTranscriptView", () => {
         session: normalizeAgentActivitySession({
           ...detail.session,
           activeTurnId: "turn-active",
-          lifecycleCapabilities: { fork: false, forkThroughTurn: true }
+          lifecycleCapabilities: {
+            fork: false,
+            forkThroughTurn: true,
+            forkThroughTurnIds: ["turn-1"],
+            forkThroughTurnIdsKnown: true
+          }
         }),
         sessionTurns: [
           canonicalTurn({
@@ -357,7 +418,12 @@ describe("AgentTranscriptView", () => {
       detailViewModel({
         session: normalizeAgentActivitySession({
           ...detail.session,
-          lifecycleCapabilities: { fork: false, forkThroughTurn: true }
+          lifecycleCapabilities: {
+            fork: false,
+            forkThroughTurn: true,
+            forkThroughTurnIds: ["turn-1"],
+            forkThroughTurnIdsKnown: true
+          }
         }),
         sessionTurns: [
           canonicalTurn({
@@ -475,7 +541,12 @@ describe("AgentTranscriptView", () => {
       detailViewModel({
         session: normalizeAgentActivitySession({
           ...detail.session,
-          lifecycleCapabilities: { fork: false, forkThroughTurn: true }
+          lifecycleCapabilities: {
+            fork: false,
+            forkThroughTurn: true,
+            forkThroughTurnIds: ["turn-1"],
+            forkThroughTurnIdsKnown: true
+          }
         }),
         sessionTurns: [
           canonicalTurn({

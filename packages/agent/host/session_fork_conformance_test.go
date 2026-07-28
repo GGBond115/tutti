@@ -329,16 +329,24 @@ func (*sessionForkConformanceRuntime) ResolveSessionFork(
 ) (agenthost.SessionForkDriverDescriptor, error) {
 	return agenthost.SessionForkDriverDescriptor{
 		Kind: "codex-app-server", Version: "1", ThroughTurn: true,
+		StateBindingMode: agenthost.SessionForkStateBindingProviderOwned,
 	}, nil
 }
 
 func (r *sessionForkConformanceRuntime) ForkSession(
-	context.Context,
-	agenthost.RuntimeSessionForkInput,
+	_ context.Context,
+	input agenthost.RuntimeSessionForkInput,
 ) (agenthost.RuntimeSessionForkResult, error) {
 	r.forkCalls++
+	targetTurnIDs := make([]string, 0, len(input.SourceProviderTurnIDs))
+	for _, sourceID := range input.SourceProviderTurnIDs {
+		targetTurnIDs = append(targetTurnIDs, "forked-"+sourceID)
+	}
 	return agenthost.RuntimeSessionForkResult{
-		ProviderSessionID:   "provider-target",
-		DeliveryDisposition: agenthost.SessionForkDeliveryAccepted,
+		ProviderSessionID:     "provider-target",
+		TargetProviderTurnIDs: targetTurnIDs,
+		StateBindingMode:      agenthost.SessionForkStateBindingProviderOwned,
+		StateBindingReceipt:   "conformance-provider-owned-receipt",
+		DeliveryDisposition:   agenthost.SessionForkDeliveryAccepted,
 	}, nil
 }

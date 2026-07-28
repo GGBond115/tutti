@@ -119,7 +119,12 @@ func (h *Host) forkSessionSerialized(
 		return ForkSessionResult{}, err
 	}
 	normalizeSessionForkDriverDescriptor(&descriptor)
-	if !descriptor.ThroughTurn || descriptor.Kind == "" || descriptor.Version == "" {
+	if !descriptor.ThroughTurn || descriptor.Kind == "" || descriptor.Version == "" ||
+		!validSessionForkStateBindingMode(
+			descriptor.StateBindingMode,
+			h.sessionForkState,
+			runtimeSource.Provider,
+		) {
 		return ForkSessionResult{}, ErrSessionForkUnsupported
 	}
 	targetContext, err := h.prepareSessionForkTargetContext(
@@ -470,7 +475,12 @@ func (h *Host) processSessionForkOperationWithSource(
 	}
 	normalizeSessionForkDriverDescriptor(&descriptor)
 	if !descriptor.ThroughTurn || descriptor.Kind != operation.DriverKind ||
-		descriptor.Version != operation.DriverVersion {
+		descriptor.Version != operation.DriverVersion ||
+		!validSessionForkStateBindingMode(
+			descriptor.StateBindingMode,
+			h.sessionForkState,
+			source.Provider,
+		) {
 		return h.failPreparedSessionFork(
 			ctx,
 			operation,
@@ -498,11 +508,16 @@ func (h *Host) processSessionForkOperationWithSource(
 			Source:                cloneSessionForkRuntimeSource(source),
 			SourceProviderTurnID:  operation.SourceProviderTurnID,
 			SourceProviderTurnIDs: append([]string(nil), boundary.RootProviderTurnIDs...),
+			TargetTitle:           operation.TargetTitle,
 			RequestID:             operation.RequestID,
 			Driver:                descriptor,
 		},
 	)
 	targetProviderSessionID := strings.TrimSpace(providerResult.ProviderSessionID)
+	if providerResult.StateBindingMode == "" {
+		providerResult.StateBindingMode = SessionForkStateBindingHostCopy
+	}
+	providerResult.StateBindingReceipt = strings.TrimSpace(providerResult.StateBindingReceipt)
 	checkpointCtx, checkpointCancel := context.WithTimeout(
 		context.WithoutCancel(ctx),
 		sessionForkCheckpointTimeout,
@@ -511,7 +526,9 @@ func (h *Host) processSessionForkOperationWithSource(
 	if dispatchErr != nil ||
 		providerResult.DeliveryDisposition != SessionForkDeliveryAccepted ||
 		targetProviderSessionID == "" ||
-		targetProviderSessionID == operation.SourceProviderSessionID {
+		targetProviderSessionID == operation.SourceProviderSessionID ||
+		providerResult.StateBindingMode != descriptor.StateBindingMode ||
+		!validSessionForkProviderResult(providerResult, boundary.RootProviderTurnIDs) {
 		message := "provider fork result was invalid"
 		status := storesqlite.SessionForkStatusUnknown
 		if dispatchErr != nil {
@@ -543,7 +560,28 @@ func (h *Host) processSessionForkOperationWithSource(
 		return ForkSessionResult{Operation: recorded},
 			errors.Join(ErrSessionForkDeliveryUnknown, dispatchErr)
 	}
-	if h.sessionForkState != nil {
+	if providerResult.StateBindingMode == SessionForkStateBindingHostCopy &&
+		h.sessionForkState == nil {
+		bindErr := errors.New("provider child state binding is unavailable")
+		recorded, _, recordErr := h.sessionForks.RecordSessionForkProviderResult(
+			checkpointCtx,
+			storesqlite.SessionForkProviderResult{
+				WorkspaceID:             operation.WorkspaceID,
+				OperationID:             operation.OperationID,
+				Status:                  storesqlite.SessionForkStatusUnknown,
+				TargetProviderSessionID: targetProviderSessionID,
+				LastError:               bindErr.Error(),
+				OccurredAtUnixMS:        h.now().UnixMilli(),
+			},
+		)
+		if recordErr != nil {
+			return ForkSessionResult{Operation: operation},
+				errors.Join(ErrSessionForkDeliveryUnknown, bindErr, recordErr)
+		}
+		return ForkSessionResult{Operation: recorded},
+			errors.Join(ErrSessionForkDeliveryUnknown, bindErr)
+	}
+	if providerResult.StateBindingMode == SessionForkStateBindingHostCopy {
 		bindErr := h.sessionForkState.BindSessionForkProviderState(
 			checkpointCtx,
 			SessionForkProviderStateBinding{
@@ -580,6 +618,9 @@ func (h *Host) processSessionForkOperationWithSource(
 			WorkspaceID: operation.WorkspaceID, OperationID: operation.OperationID,
 			Status:                  storesqlite.SessionForkStatusProviderAccepted,
 			TargetProviderSessionID: targetProviderSessionID,
+			TargetProviderTurnIDs:   append([]string(nil), providerResult.TargetProviderTurnIDs...),
+			StateBindingMode:        string(providerResult.StateBindingMode),
+			StateBindingReceipt:     providerResult.StateBindingReceipt,
 			OccurredAtUnixMS:        h.now().UnixMilli(),
 		},
 	)
@@ -588,6 +629,36 @@ func (h *Host) processSessionForkOperationWithSource(
 			errors.Join(ErrSessionForkDeliveryUnknown, err)
 	}
 	return h.processSessionForkOperation(checkpointCtx, operation)
+}
+
+func validSessionForkProviderResult(
+	result RuntimeSessionForkResult,
+	sourceProviderTurnIDs []string,
+) bool {
+	switch result.StateBindingMode {
+	case SessionForkStateBindingHostCopy:
+		return len(result.TargetProviderTurnIDs) == 0 &&
+			result.StateBindingReceipt == ""
+	case SessionForkStateBindingProviderOwned:
+		if result.StateBindingReceipt == "" ||
+			len(result.TargetProviderTurnIDs) != len(sourceProviderTurnIDs) {
+			return false
+		}
+		seen := make(map[string]struct{}, len(result.TargetProviderTurnIDs))
+		for _, rawID := range result.TargetProviderTurnIDs {
+			id := strings.TrimSpace(rawID)
+			if id == "" {
+				return false
+			}
+			if _, duplicate := seen[id]; duplicate {
+				return false
+			}
+			seen[id] = struct{}{}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *Host) prepareSessionForkTargetContext(

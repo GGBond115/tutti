@@ -293,10 +293,11 @@ func assertSessionForkMigrationCounts(t *testing.T, db *sql.DB, operationCount i
 	}
 	if err := db.QueryRow(`
 SELECT COUNT(*) FROM agent_store_schema_migrations
-WHERE id IN (?, ?, ?, ?)
+WHERE id IN (?, ?, ?, ?, ?)
 `, schemaMigrationWorkspaceAgentSessionForkV1, schemaMigrationWorkspaceAgentSessionForkV2,
 		schemaMigrationWorkspaceAgentSessionForkV3,
-		schemaMigrationWorkspaceAgentSessionForkV4).Scan(&migrationRows); err != nil {
+		schemaMigrationWorkspaceAgentSessionForkV4,
+		schemaMigrationWorkspaceAgentSessionForkV5).Scan(&migrationRows); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(`
@@ -306,9 +307,9 @@ WHERE point_kind = 'through_turn'
 		t.Fatal(err)
 	}
 	if operations != operationCount || reservations != operationCount ||
-		barriers != operationCount || migrationRows != 4 || pointKinds != operationCount {
+		barriers != operationCount || migrationRows != 5 || pointKinds != operationCount {
 		t.Fatalf(
-			"migration counts operations=%d reservations=%d barriers=%d ledger=%d pointKinds=%d, want %d/%d/%d/4/%d",
+			"migration counts operations=%d reservations=%d barriers=%d ledger=%d pointKinds=%d, want %d/%d/%d/5/%d",
 			operations, reservations, barriers, migrationRows, pointKinds,
 			operationCount, operationCount, operationCount, operationCount,
 		)
@@ -329,7 +330,8 @@ WHERE id IN (
   'workspace_agent_session_fork_v1',
   'workspace_agent_session_fork_v2',
   'workspace_agent_session_fork_v3',
-  'workspace_agent_session_fork_v4'
+  'workspace_agent_session_fork_v4',
+  'workspace_agent_session_fork_v5'
 );
 `); err != nil {
 		t.Fatalf("reset session fork migrations to pre-v1: %v", err)

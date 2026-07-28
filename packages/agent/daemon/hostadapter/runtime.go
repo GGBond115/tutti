@@ -270,8 +270,9 @@ func (a *RuntimeController) ResolveSessionFork(
 		return host.SessionForkDriverDescriptor{}, nil
 	}
 	return host.SessionForkDriverDescriptor{
-		Kind:                        "daemon-runtime-native",
-		Version:                     "v1",
+		Kind:                        firstNonEmptyString(capabilities.DriverKind, "daemon-runtime-native"),
+		Version:                     firstNonEmptyString(capabilities.DriverVersion, "v1"),
+		StateBindingMode:            host.SessionForkStateBindingMode(firstNonEmptyString(capabilities.StateBindingMode, string(host.SessionForkStateBindingHostCopy))),
 		FullSession:                 capabilities.FullSession,
 		ThroughTurn:                 capabilities.ThroughTurn,
 		ThroughProviderTurnIDs:      append([]string(nil), capabilities.ThroughProviderTurnIDs...),
@@ -301,12 +302,19 @@ func (a *RuntimeController) ForkSession(
 		Source:          runtimeSession(input.Source),
 		ProviderTurnID:  input.SourceProviderTurnID,
 		ProviderTurnIDs: append([]string(nil), input.SourceProviderTurnIDs...),
+		TargetTitle:     input.TargetTitle,
 	})
 	mapped := host.RuntimeSessionForkResult{
-		ProviderSessionID: strings.TrimSpace(result.ProviderSessionID),
+		ProviderSessionID:     strings.TrimSpace(result.ProviderSessionID),
+		TargetProviderTurnIDs: append([]string(nil), result.TargetProviderTurnIDs...),
+		StateBindingMode:      host.SessionForkStateBindingMode(strings.TrimSpace(result.StateBindingMode)),
+		StateBindingReceipt:   strings.TrimSpace(result.StateBindingReceipt),
 		DeliveryDisposition: host.SessionForkDeliveryDisposition(
 			result.DeliveryDisposition,
 		),
+	}
+	if mapped.StateBindingMode == "" {
+		mapped.StateBindingMode = host.SessionForkStateBindingHostCopy
 	}
 	if err != nil {
 		if errors.Is(err, agentruntime.ErrSessionForkUnsupported) {
@@ -315,6 +323,15 @@ func (a *RuntimeController) ForkSession(
 		return mapped, mapRuntimeError(err)
 	}
 	return mapped, nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (a *RuntimeController) GoalControl(ctx context.Context, input host.RuntimeGoalControlInput) (host.RuntimeGoalControlResult, error) {

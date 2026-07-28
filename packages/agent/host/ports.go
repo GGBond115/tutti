@@ -101,6 +101,7 @@ type SessionForkContextPolicy interface {
 // state needed by the target runtime namespace. A failure is delivery-unknown:
 // the provider mutation may already exist and must never be dispatched again.
 type SessionForkProviderStateBinder interface {
+	SupportsSessionForkProviderStateBinding(provider string) bool
 	BindSessionForkProviderState(context.Context, SessionForkProviderStateBinding) error
 }
 
