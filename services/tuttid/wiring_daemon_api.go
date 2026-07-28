@@ -148,10 +148,7 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 		Manager: agentExtensionManager, Workspaces: store, Targets: agentTargetStore,
 	}
 	agentTargets.AvailabilityResolver = agentExtensionManager
-	for _, reconcileErr := range agentExtensionManager.Reconcile(ctx) {
-		payload, _ := json.Marshal(map[string]string{"error": reconcileErr.Error()})
-		slog.Warn("agent_extension.reconcile_failed", "payload", string(payload))
-	}
+	refreshAgentExtensionsInBackground := restoreAgentExtensionsForStartup(ctx, agentExtensionManager)
 	managedCredentials := &managedcredentialsservice.Service{
 		Store: managedCredentialsStore,
 	}
@@ -649,6 +646,10 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 		},
 	}
 	providerAuthWatcher.Start()
+
+	if refreshAgentExtensionsInBackground {
+		startAgentExtensionBackgroundRefresh(agentExtensionManager)
+	}
 
 	return tuttiapi.DaemonAPI{
 		AccountService:            accountService,

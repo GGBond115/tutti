@@ -18,7 +18,7 @@ Use the focused runtime index or open one area directly:
   Includes Codex Model Plan Responses-to-Chat routing and extension
   command/Skill palette hydration failures.
   Also covers focus-driven provider CLI scans, repeated Extension Target version
-  probes, and CPU spikes.
+  probes, extension release refresh delaying daemon startup, and CPU spikes.
 - [Agent Sessions And Lifecycle](./agent-session-lifecycle.md): Turn state, activation, planning-mode classification, Tutti workflow response contracts, loading, cancel, goal controls, restore, file-change undo, rail projection, realtime completion provenance, event updates, imports, and performance.
   Includes shared-device recovery that looks terminal while the host is still retrying.
   Also covers new-conversation requests that silently fail after a Chats

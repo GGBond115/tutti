@@ -1819,3 +1819,41 @@ invalid_grant`. Search `tuttid.log` for
   [gateway.go](../../../services/tuttid/service/modelgateway/gateway.go)
   [stream_converter.go](../../../services/tuttid/service/modelgateway/stream_converter.go)
   [model_endpoint.go](../../../packages/agent/runtimeprep/model_endpoint.go)
+
+### Enabled Agent Extensions delay every daemon startup
+
+- Symptom:
+  `tutti.parent_monitor.started` is followed by a multi-second silent gap before
+  `tutti.managed_runtime.profile_preload_started` and `tutti.listen`. The gap
+  grows as more Agent Extension feature flags are enabled.
+- Quick checks:
+  Compare the two timestamps and inspect `feature_flags_json` in the active
+  `desktop_preferences` row. Time each enabled source's signed
+  `versions.json`; the old startup path fetched the enabled indexes serially
+  before constructing the daemon API.
+- Root cause:
+  Agent Extension reconciliation combined two different jobs: restoring an
+  already verified local installation and checking its remote release index.
+  The daemon needed the first job before serving the Agent Target catalog, but
+  synchronously waited for the second job too. Multiple CloudFront TLS and
+  response waits therefore accumulated on every restart.
+- Fix:
+  Restore and verify cached active installations synchronously, register their
+  Targets, and move remote release refresh after successful daemon API
+  construction into the background. Keep synchronous reconciliation when an
+  enabled source has no usable local installation, and for explicit preference
+  activation changes, so the initial or newly enabled Target does not disappear
+  from the next catalog read. Release the reconciliation lock between background
+  source refreshes so a preference change does not wait for the complete remote
+  batch.
+- Validation:
+  Cover cached restore without any network request, missing-cache fallback to
+  synchronous reconciliation, disabled Target removal, offline fallback, and
+  preference-driven enable/disable. On a state root with cached enabled
+  extensions, verify `tutti.agent_extension.refresh_started` no longer delays
+  `tutti.listen` and later reaches
+  `tutti.agent_extension.refresh_completed`.
+- References:
+  [agent-extensions.md](../../architecture/agent-extensions.md)
+  [manager.go](../../../services/tuttid/service/agentextension/manager.go)
+  [wiring_daemon_api.go](../../../services/tuttid/wiring_daemon_api.go)
