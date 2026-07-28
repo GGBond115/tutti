@@ -202,6 +202,8 @@ export const zhCN = {
       copyUserIdSuccess: "已复制用户 ID",
       copyUserIdFailed: "复制用户 ID 失败",
       openExternalFailed: "无法打开账户链接",
+      refresh: "刷新",
+      refreshing: "刷新中",
       loading: "加载中",
       unavailable: "--",
       dataUnavailable: "部分账号数据暂不可用",

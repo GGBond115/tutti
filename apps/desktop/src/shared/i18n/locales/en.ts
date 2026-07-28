@@ -206,6 +206,8 @@ export const en = {
       copyUserIdSuccess: "User ID copied",
       copyUserIdFailed: "Couldn't copy user ID",
       openExternalFailed: "Couldn't open account link",
+      refresh: "Refresh",
+      refreshing: "Refreshing",
       loading: "Loading",
       unavailable: "--",
       dataUnavailable: "Some account data is unavailable",

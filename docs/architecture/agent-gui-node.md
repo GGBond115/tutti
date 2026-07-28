@@ -1003,6 +1003,13 @@ chrome seam for the exact selected Agent Target. Its paired
 state without hiding workflow in the render slot. Returning no content keeps
 the provider account and quota block unchanged. AgentGUI never derives billing
 ownership from provider identity.
+
+Tutti Desktop fills this seam only for its self-owned local Tutti Agent target.
+The Desktop Account service remains the source of account, membership, credit,
+and Commerce-link state; opening the target menu asks that service to refresh,
+and the render slot stays request-free. Signed-out, shared, and non-Tutti
+targets return no Host content and retain AgentGUI's provider account and quota
+presentation.
 The optional `renderSlots.agentTargetInfo` seam enriches the exact target icon
 in the provider Rail and Conversation Rail. The same
 `AgentGUIAgentTargetInfoRenderer` may be passed to
