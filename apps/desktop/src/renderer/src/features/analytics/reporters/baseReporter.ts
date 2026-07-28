@@ -6,7 +6,7 @@ import {
   type AnalyticsReporterParamValue
 } from "@tutti-os/analytics";
 import type { ReporterEventParams } from "../services/reporterService.interface";
-import { agentAnalyticsSuccessFields } from "./agent-error-fields.ts";
+import { agentAnalyticsSuccessFields } from "../../workspace-agent/agentAnalyticsError.ts";
 
 export abstract class BaseAnalyticsReporter<
   TParams extends AnalyticsReporterParams

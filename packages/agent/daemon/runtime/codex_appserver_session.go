@@ -383,12 +383,13 @@ func (a *CodexAppServerAdapter) prepareInitializedClientLaunch(
 		spawnEnv = append(spawnEnv, resolved.Env...)
 	}
 	return prepareProviderLaunch(ctx, a.preparer, session, ProcessSpec{
-		Provider:       a.config.provider,
-		AgentSessionID: session.AgentSessionID,
-		RoomID:         session.RoomID,
-		CWD:            a.sessionCWD(session),
-		Command:        command,
-		Env:            spawnEnv,
+		Provider:           a.config.provider,
+		AgentSessionID:     session.AgentSessionID,
+		RootAgentSessionID: session.RootAgentSessionID,
+		RoomID:             session.RoomID,
+		CWD:                a.sessionCWD(session),
+		Command:            command,
+		Env:                spawnEnv,
 	})
 }
 

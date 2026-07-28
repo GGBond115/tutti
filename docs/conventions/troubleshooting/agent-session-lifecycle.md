@@ -1944,6 +1944,82 @@ Turn state, loading, cancel, restore, file-change undo, rail projection, event u
   [controller.go](../../../packages/agent/daemon/runtime/controller.go)
   [controller_test.go](../../../packages/agent/daemon/runtime/controller_test.go)
 
+### Claude Code completes but the Turn has no Fork entry
+
+- Symptom:
+  A Claude Code Turn is settled and has assistant output, but AgentGUI does not
+  offer Fork. The session capability reports `forkThroughTurn=false`, or its
+  supported provider Turn list is empty even though the Claude transcript is
+  readable.
+- Quick checks:
+  Compare the canonical Turn's `root_provider_turn_id` with the UUID of the
+  matching root user message returned by the official Claude SDK
+  `getSessionMessages` API. If they differ, inspect the live sidecar event
+  sequence for `provider_turn_started`. Do not infer identity from transcript
+  position or substitute the canonical Tutti Turn ID.
+- Root cause:
+  The outbound user-message UUID is only a prompt correlation value. Claude
+  Code may rewrite that UUID before persisting the transcript. Publishing the
+  caller-generated value as canonical provider identity makes strict prefix
+  verification correctly reject the Turn, which removes the Fork capability.
+- Fix:
+  Mark the next root prompt echo as causally expected before submitting it.
+  Bind provider Turn identity from that observed root user-message UUID, emit
+  `provider_turn_started`, and only then persist the root provider lifecycle.
+  Keep historical Turns without observed provider identity fail-closed rather
+  than guessing or backfilling them.
+- Validation:
+  Cover a query whose root user echo rewrites the outbound UUID. Assert
+  `provider_turn_started` and terminal events both carry the persisted UUID,
+  then verify the daemon stores the same identity and the fork capability
+  accepts it. Restart the daemon/sidecar before manually checking a newly
+  completed Claude Code Turn; historical affected Turns remain intentionally
+  non-forkable.
+- References:
+  [sessionRuntime.ts](../../../packages/agent/claude-sdk-sidecar/src/sessionRuntime.ts)
+  [turnLifecycle.ts](../../../packages/agent/claude-sdk-sidecar/src/turnLifecycle.ts)
+  [claude_sdk_execution.go](../../../packages/agent/daemon/runtime/claude_sdk_execution.go)
+  [claude_sdk_events.go](../../../packages/agent/daemon/runtime/claude_sdk_events.go)
+
+### Claude Code Fork fails after the action is clicked
+
+- Symptom:
+  Fork is available for a completed Claude Code Turn, but clicking it produces
+  a failed operation. The durable operation becomes `unknown`, no target
+  canonical Session is committed, and the target provider Session is absent.
+- Quick checks:
+  Inspect the latest `workspace_agent_session_fork_operations` row and query the
+  target UUID with the official SDK `getSessionInfo` and
+  `getSessionMessages`. If both are empty, check whether the sidecar used
+  `query({forkSession: true})` with an empty prompt and treated
+  `initializationResult()` as provider mutation completion.
+- Root cause:
+  Query initialization only completes the SDK/CLI handshake. Without a prompt,
+  it does not durably create the requested child transcript. Unit tests can
+  hide the defect if their fake marks the child created inside
+  `initializationResult()`. A catch that replaces the original exception with
+  a generic Fork error also erases whether failure occurred during source
+  validation, provider mutation, or child verification.
+- Fix:
+  Use the official `forkSession(source, {upToMessageId, title})` transcript
+  mutation. Accept its provider-generated child UUID, advertise the driver as
+  non-deterministic, and let Host keep only the canonical target Session ID
+  deterministic. Preserve the failure stage and original SDK reason.
+  After provider mutation starts, any failure is `unknown` and must never be
+  replayed.
+- Validation:
+  Exercise the official SDK with an in-memory SessionStore, including a Turn
+  whose inclusive checkpoint ends in a system message. Verify the provider
+  child is independently readable, root user UUIDs are remapped, the canonical
+  child resumes by the returned provider Session ID, and a second Fork from
+  that child succeeds. Cover pre-mutation `not_started`, post-mutation
+  `unknown`, and Host's no-replay behavior for non-deterministic drivers.
+- References:
+  [sessionFork.ts](../../../packages/agent/claude-sdk-sidecar/src/sessionFork.ts)
+  [sessionFork.test.ts](../../../packages/agent/claude-sdk-sidecar/src/sessionFork.test.ts)
+  [claude_sdk_fork.go](../../../packages/agent/daemon/runtime/claude_sdk_fork.go)
+  [session_fork.go](../../../packages/agent/host/session_fork.go)
+
 ### Claude Code cancel leaves Write/tool cards or thinking stuck in progress
 
 - Symptom:
@@ -3007,3 +3083,89 @@ convergence deadline`.
 - References:
   [agentTranscriptModel.ts](../../../packages/agent/gui/shared/agentConversation/components/agentTranscriptModel.ts)
   [AgentTranscriptView.tsx](../../../packages/agent/gui/shared/agentConversation/components/AgentTranscriptView.tsx)
+
+### Cassette replay loses the provider session before the second stimulus
+
+- Symptom:
+  Replay reaches checkpoint 1, then a later `session.send` fails with
+  `provider session was never established`. The replay error also reports that
+  an outbound write arrived while a recorded stdout chunk was next.
+- Quick checks:
+  Inspect `provider/frames.jsonl` around the reported chunk. If a provider
+  notification immediately follows a successful request response and precedes
+  the next outbound request, compare the reader and writer goroutine timing.
+- Root cause:
+  The process cassette encoded the provider byte-stream order, but replay
+  treated that order as a required Go goroutine schedule. A writer could run
+  before the reader consumed an already-recorded notification, so normal
+  concurrency was rejected as a transport mismatch and provider startup was
+  torn down.
+- Fix:
+  When the next recorded chunk is inbound, block the replay write until the
+  receive path consumes it. Continue strict payload validation when the next
+  recorded outbound chunk becomes current.
+- Validation:
+  Start a replay stream with `outbound -> stdout -> outbound`. Launch the
+  second send before receiving stdout; it must wait, then succeed after the
+  receive. Keep mismatch, pause, fast-forward, close, and full runtime tests
+  passing.
+- References:
+  [process_transport_replay.go](../../../packages/agent/daemon/runtime/process_transport_replay.go)
+  [process_transport_cassette_test.go](../../../packages/agent/daemon/runtime/process_transport_cassette_test.go)
+
+### Cassette replay reports a false final Session state mismatch
+
+- Symptom:
+  Every recorded stimulus succeeds, but final replay validation reports that
+  `workspace_agent_sessions` or `workspace_agent_turns` differs. The isolated
+  replay database contains the same child Sessions and Turns under new ids.
+- Quick checks:
+  Compare child Sessions by provider, provider Session id, target, and Session
+  kind instead of the generated Tutti id. Then compare each Session's Turns in
+  order. If those normalized rows match, the cassette state is not corrupt.
+- Root cause:
+  Replay creates new Tutti ids for provider-discovered child Sessions and their
+  canonical Turns. A validator that maps only the root Session and submitted
+  root Turns queries child rows with recorded ids, then mistakes missing rows
+  for durable state drift.
+- Fix:
+  Normalize child Session ids by an unambiguous stable provider identity before
+  querying final fixtures. Map remaining Turn ids by order within the already
+  mapped Session. Do not guess when either side has duplicate stable identities
+  or mismatched Turn counts.
+- Validation:
+  Cover regenerated child Session and Turn ids, ambiguous provider identities,
+  and the original multi-child cassette. The unambiguous cassette must pass;
+  ambiguous or count-mismatched fixtures must still fail closed.
+- References:
+  [run-agent-session-replay.mjs](../../../tools/scripts/run-agent-session-replay.mjs)
+  [run-agent-session-replay.test.mjs](../../../tools/scripts/run-agent-session-replay.test.mjs)
+
+### Cassette replay times out before a recorded queued Turn
+
+- Symptom:
+  Replay stops on `timed out waiting for renderer effect queue/sendPrompt`,
+  leaves later activity events untouched, and consumes only the provider frames
+  before a long-running Turn settles. The cassette itself contains the missing
+  intent, effect, and final Turn.
+- Quick checks:
+  Compare adjacent `activity-events.jsonl` timestamps. If the effect was
+  recorded more than the renderer effect timeout after its intent, check
+  whether replay dispatched both events immediately instead of waiting for
+  their recorded interval.
+- Root cause:
+  Provider frames followed the daemon playback clock, but the runner iterated
+  activity events as fast as JavaScript completed them. Effect verification
+  therefore began while the recorded Turn was still running and expired before
+  the effect could exist.
+- Fix:
+  Advance activity events by relative `occurredAtUnixMs` using the daemon's
+  playback state. Pause freezes the activity clock, speed scales it, and
+  checkpoint fast-forward skips its remaining wait.
+- Validation:
+  Cover normal recorded delay, processing time between events, pause/resume,
+  selected speed, and fast-forward. Then replay the failing cassette and require
+  the final checkpoint, all provider frames, and every expected Turn to pass.
+- References:
+  [run-agent-session-replay.mjs](../../../tools/scripts/run-agent-session-replay.mjs)
+  [run-agent-session-replay.test.mjs](../../../tools/scripts/run-agent-session-replay.test.mjs)

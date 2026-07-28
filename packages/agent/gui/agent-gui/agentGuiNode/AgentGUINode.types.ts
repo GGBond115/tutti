@@ -36,6 +36,7 @@ import type {
   AgentGUISidebarFooterContext,
   AgentGUIConversationRailLayout,
   AgentGUIAgentsEmptyRenderer,
+  AgentGUIComposerFooterAccessoryRenderer,
   AgentGUIProviderUnavailableStateRenderer,
   AgentMentionReferenceTargetResolver,
   AgentWorkspaceReferenceInitialTargetResolver
@@ -211,6 +212,8 @@ export interface AgentGUIAgentConfigMenuContext {
 }
 
 export interface AgentGUINodeRenderSlots {
+  /** Host-owned controls appended to the composer footer. */
+  composerFooterAccessory?: AgentGUIComposerFooterAccessoryRenderer;
   /**
    * Optional Host-owned information for an exact Agent target. AgentGUI owns
    * tooltip mechanics and invokes this renderer lazily for supported surfaces.
@@ -441,6 +444,7 @@ export function areAgentGUINodePropsEqual(
     pa.onConversationRailLayoutChange === na.onConversationRailLayoutChange &&
     ps.agentConfigAccount === ns.agentConfigAccount &&
     ps.agentTargetInfo === ns.agentTargetInfo &&
+    ps.composerFooterAccessory === ns.composerFooterAccessory &&
     ps.providerRailEmpty === ns.providerRailEmpty &&
     ps.providerUnavailableState === ns.providerUnavailableState &&
     ps.projectDirectoryPickerHeaderActions ===

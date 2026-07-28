@@ -502,6 +502,66 @@ test("desktop agent activity adapter marks empty-cwd creates as no-project", asy
   assert.deepEqual((createBody as { noProject?: boolean }).noProject, true);
 });
 
+test("desktop agent activity adapter consumes the armed recording for one new session", async () => {
+  const createBodies: CreateWorkspaceAgentSessionRequest[] = [];
+  let takeCount = 0;
+  const adapter = createDesktopAgentActivityAdapter({
+    tuttidClient: createTuttidClient({
+      async createWorkspaceAgentSession(_workspaceId, body) {
+        createBodies.push(body);
+        return createSession({ id: body.agentSessionId });
+      }
+    }),
+    runtimeApi: createRuntimeApi(),
+    takePendingSessionRecording() {
+      takeCount += 1;
+      return takeCount === 1 ? "recording-1" : null;
+    }
+  });
+
+  await adapter.createSession({
+    clientSubmitId: "submit-recorded",
+    agentSessionId: "agent-session-recorded",
+    agentTargetId: "local:codex",
+    initialContent: [{ type: "text", text: "record me" }],
+    workspaceId
+  });
+
+  assert.equal(createBodies[0]?.recordingId, "recording-1");
+  assert.equal(takeCount, 1);
+});
+
+test("desktop agent activity adapter restores the armed recording when session creation fails", async () => {
+  const restored: Array<{ recordingId: string; workspaceId: string }> = [];
+  const adapter = createDesktopAgentActivityAdapter({
+    tuttidClient: createTuttidClient({
+      async createWorkspaceAgentSession() {
+        throw new Error("create failed");
+      }
+    }),
+    runtimeApi: createRuntimeApi(),
+    takePendingSessionRecording() {
+      return "recording-1";
+    },
+    restorePendingSessionRecording(restoredWorkspaceId, recordingId) {
+      restored.push({ recordingId, workspaceId: restoredWorkspaceId });
+    }
+  });
+
+  await assert.rejects(
+    adapter.createSession({
+      clientSubmitId: "submit-recorded",
+      agentSessionId: "agent-session-recorded",
+      agentTargetId: "local:codex",
+      initialContent: [{ type: "text", text: "record me" }],
+      workspaceId
+    }),
+    /create failed/
+  );
+
+  assert.deepEqual(restored, [{ recordingId: "recording-1", workspaceId }]);
+});
+
 test("desktop agent activity adapter creates, projects, and revision-updates the independent Tutti activation", async () => {
   const activeActivation = {
     agentSessionId: "agent-session-1",

@@ -59,6 +59,7 @@
     "dev:desktop": "pnpm --filter @tutti-os/desktop dev",
     "dev:web": "node ./tools/scripts/dev-web.mjs",
     "dev:ui-storyboard": "pnpm --filter @tutti-os/ui-storyboard dev",
+    "e2e:agent-gui": "node ./tools/scripts/run-agent-session-replay.mjs",
     "preview:desktop": "pnpm --filter @tutti-os/desktop preview",
     "perf:agent-gui": "node ./tools/scripts/run-agent-gui-performance.mjs",
     "push:checked": "node ./tools/scripts/push-checked.mjs",

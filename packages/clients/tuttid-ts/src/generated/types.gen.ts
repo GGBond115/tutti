@@ -2865,6 +2865,10 @@ export type CreateWorkspaceAgentSessionRequest = {
    */
   agentTargetId: string;
   clientSubmitId: string;
+  /**
+   * Developer create-session scenario waiting for this root Session.
+   */
+  recordingId?: string | null;
   submitDiagnostics?: AgentSubmitDiagnostics;
   initialContent: Array<AgentPromptContentBlock>;
   /**
@@ -2893,6 +2897,135 @@ export type CreateWorkspaceAgentSessionRequest = {
    */
   initialTuttiModeActivation?: TuttiModeActivationIntent | null;
   visible?: boolean | null;
+};
+
+export type StartAgentSessionRecordingRequest = {
+  agentTargetId: string;
+  /**
+   * Existing Session selecting continue-session mode. Omit for create-session mode.
+   */
+  agentSessionId?: string | null;
+};
+
+export type RenameAgentSessionRecordingRequest = {
+  name: string;
+};
+
+export type AgentSessionRecordingActivityEventInput = {
+  eventId: string;
+  kind: "intent" | "effect" | "direct-stimulus";
+  type: string;
+  correlationId?: string | null;
+  causedByEventId?: string | null;
+  agentSessionId?: string | null;
+  payload?: {
+    [key: string]: unknown;
+  };
+  occurredAtUnixMs: number;
+};
+
+export type AppendAgentSessionRecordingActivityEventsRequest = {
+  events: Array<AgentSessionRecordingActivityEventInput>;
+};
+
+export type AppendAgentSessionRecordingActivityEventsResponse = {
+  acceptedThroughSequence: number;
+};
+
+export type AgentSessionRecording = {
+  id: string;
+  /**
+   * Mutable name stored in the portable Cassette manifest after completion.
+   */
+  name: string;
+  /**
+   * Immutable Cassette produced by a completed Recording.
+   */
+  cassetteId?: string | null;
+  workspaceId: string;
+  agentTargetId: string;
+  mode: "create-session" | "continue-session";
+  rootAgentSessionId?: string | null;
+  status:
+    | "preparing"
+    | "ready"
+    | "recording"
+    | "finalizing"
+    | "complete"
+    | "failed"
+    | "canceled"
+    | "incomplete";
+  directory: string;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  createdAtUnixMs: number;
+  updatedAtUnixMs: number;
+};
+
+export type AgentSessionRecordingListResponse = {
+  recordings: Array<AgentSessionRecording>;
+};
+
+export type AgentSessionReplayRun = {
+  id: string;
+  cassetteId: string;
+  status: "starting" | "running" | "complete" | "failed" | "canceled";
+  checkpoint: number;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  createdAtUnixMs: number;
+  startedAtUnixMs?: number | null;
+  completedAtUnixMs?: number | null;
+  updatedAtUnixMs: number;
+};
+
+export type AgentSessionReplayLaunch = {
+  run: AgentSessionReplayRun;
+  cassetteDirectory: string;
+};
+
+export type AgentSessionReplayRunListResponse = {
+  runs: Array<AgentSessionReplayRun>;
+};
+
+export type AdvanceAgentSessionReplayRunCheckpointRequest = {
+  checkpoint: number;
+};
+
+export type AgentSessionCassette = {
+  id: string;
+  name: string;
+  sourceRecordingId: string;
+  workspaceId: string;
+  agentTargetId: string;
+  rootAgentSessionId: string;
+  mode: "create-session" | "continue-session";
+  totalBytes: number;
+  createdAtUnixMs: number;
+};
+
+export type AgentSessionCassetteListResponse = {
+  cassettes: Array<AgentSessionCassette>;
+};
+
+export type AgentSessionReplayTransportPlayback = {
+  drained: boolean;
+  paused: boolean;
+  playbackElapsedMs: number;
+  speed: 0.25 | 0.5 | 1 | 2 | 4;
+  timingMode: "realtime" | "fast-forward";
+};
+
+export type UpdateAgentSessionReplayTransportPlaybackRequest = {
+  command: "set-speed" | "pause" | "resume" | "set-timing-mode";
+  speed?: 0.25 | 0.5 | 1 | 2 | 4;
+  timingMode?: "realtime" | "fast-forward";
+};
+
+export type FailAgentSessionReplayRunRequest = {
+  checkpoint?: number;
+  errorCode: string;
+  errorMessage: string;
 };
 
 export type WorkspaceAgentRailPlacement = {
@@ -8954,6 +9087,646 @@ export type PublishWorkspaceAppFactoryJobResponses = {
 
 export type PublishWorkspaceAppFactoryJobResponse2 =
   PublishWorkspaceAppFactoryJobResponses[keyof PublishWorkspaceAppFactoryJobResponses];
+
+export type ListAgentSessionRecordingsData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-recordings";
+};
+
+export type ListAgentSessionRecordingsErrors = {
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type ListAgentSessionRecordingsError =
+  ListAgentSessionRecordingsErrors[keyof ListAgentSessionRecordingsErrors];
+
+export type ListAgentSessionRecordingsResponses = {
+  /**
+   * Agent Session recordings ordered by latest update
+   */
+  200: AgentSessionRecordingListResponse;
+};
+
+export type ListAgentSessionRecordingsResponse =
+  ListAgentSessionRecordingsResponses[keyof ListAgentSessionRecordingsResponses];
+
+export type StartAgentSessionRecordingData = {
+  body: StartAgentSessionRecordingRequest;
+  path: {
+    workspaceID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-recordings";
+};
+
+export type StartAgentSessionRecordingErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Another recording is active
+   */
+  409: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type StartAgentSessionRecordingError =
+  StartAgentSessionRecordingErrors[keyof StartAgentSessionRecordingErrors];
+
+export type StartAgentSessionRecordingResponses = {
+  /**
+   * Agent Session recording prepared or recording
+   */
+  201: AgentSessionRecording;
+};
+
+export type StartAgentSessionRecordingResponse =
+  StartAgentSessionRecordingResponses[keyof StartAgentSessionRecordingResponses];
+
+export type GetAgentSessionRecordingData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    recordingID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}";
+};
+
+export type GetAgentSessionRecordingErrors = {
+  /**
+   * Recording not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type GetAgentSessionRecordingError =
+  GetAgentSessionRecordingErrors[keyof GetAgentSessionRecordingErrors];
+
+export type GetAgentSessionRecordingResponses = {
+  /**
+   * Agent Session recording
+   */
+  200: AgentSessionRecording;
+};
+
+export type GetAgentSessionRecordingResponse =
+  GetAgentSessionRecordingResponses[keyof GetAgentSessionRecordingResponses];
+
+export type RenameAgentSessionRecordingData = {
+  body: RenameAgentSessionRecordingRequest;
+  path: {
+    workspaceID: string;
+    recordingID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}";
+};
+
+export type RenameAgentSessionRecordingErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Recording not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type RenameAgentSessionRecordingError =
+  RenameAgentSessionRecordingErrors[keyof RenameAgentSessionRecordingErrors];
+
+export type RenameAgentSessionRecordingResponses = {
+  /**
+   * Agent Session recording renamed
+   */
+  200: AgentSessionRecording;
+};
+
+export type RenameAgentSessionRecordingResponse =
+  RenameAgentSessionRecordingResponses[keyof RenameAgentSessionRecordingResponses];
+
+export type CompleteAgentSessionRecordingData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    recordingID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/complete";
+};
+
+export type CompleteAgentSessionRecordingErrors = {
+  /**
+   * Recording not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Recording cannot complete in its current state
+   */
+  409: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type CompleteAgentSessionRecordingError =
+  CompleteAgentSessionRecordingErrors[keyof CompleteAgentSessionRecordingErrors];
+
+export type CompleteAgentSessionRecordingResponses = {
+  /**
+   * Agent Session recording completed
+   */
+  200: AgentSessionRecording;
+};
+
+export type CompleteAgentSessionRecordingResponse =
+  CompleteAgentSessionRecordingResponses[keyof CompleteAgentSessionRecordingResponses];
+
+export type AppendAgentSessionRecordingActivityEventsData = {
+  body: AppendAgentSessionRecordingActivityEventsRequest;
+  path: {
+    workspaceID: string;
+    recordingID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/activity-events";
+};
+
+export type AppendAgentSessionRecordingActivityEventsErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Recording not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Recording cannot accept Activity events in its current state
+   */
+  409: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type AppendAgentSessionRecordingActivityEventsError =
+  AppendAgentSessionRecordingActivityEventsErrors[keyof AppendAgentSessionRecordingActivityEventsErrors];
+
+export type AppendAgentSessionRecordingActivityEventsResponses = {
+  /**
+   * Activity events persisted through the returned Cassette sequence
+   */
+  200: AppendAgentSessionRecordingActivityEventsResponse;
+};
+
+export type AppendAgentSessionRecordingActivityEventsResponse2 =
+  AppendAgentSessionRecordingActivityEventsResponses[keyof AppendAgentSessionRecordingActivityEventsResponses];
+
+export type CancelAgentSessionRecordingData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    recordingID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/cancel";
+};
+
+export type CancelAgentSessionRecordingErrors = {
+  /**
+   * Recording not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type CancelAgentSessionRecordingError =
+  CancelAgentSessionRecordingErrors[keyof CancelAgentSessionRecordingErrors];
+
+export type CancelAgentSessionRecordingResponses = {
+  /**
+   * Agent Session recording canceled
+   */
+  200: AgentSessionRecording;
+};
+
+export type CancelAgentSessionRecordingResponse =
+  CancelAgentSessionRecordingResponses[keyof CancelAgentSessionRecordingResponses];
+
+export type ListAgentSessionCassettesData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-cassettes";
+};
+
+export type ListAgentSessionCassettesErrors = {
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type ListAgentSessionCassettesError =
+  ListAgentSessionCassettesErrors[keyof ListAgentSessionCassettesErrors];
+
+export type ListAgentSessionCassettesResponses = {
+  /**
+   * Cassettes ordered by creation time
+   */
+  200: AgentSessionCassetteListResponse;
+};
+
+export type ListAgentSessionCassettesResponse =
+  ListAgentSessionCassettesResponses[keyof ListAgentSessionCassettesResponses];
+
+export type ListAgentSessionReplayRunsData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    cassetteID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs";
+};
+
+export type ListAgentSessionReplayRunsErrors = {
+  /**
+   * Cassette not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type ListAgentSessionReplayRunsError =
+  ListAgentSessionReplayRunsErrors[keyof ListAgentSessionReplayRunsErrors];
+
+export type ListAgentSessionReplayRunsResponses = {
+  /**
+   * Replay runs ordered by latest update
+   */
+  200: AgentSessionReplayRunListResponse;
+};
+
+export type ListAgentSessionReplayRunsResponse =
+  ListAgentSessionReplayRunsResponses[keyof ListAgentSessionReplayRunsResponses];
+
+export type PrepareAgentSessionReplayRunData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    cassetteID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs";
+};
+
+export type PrepareAgentSessionReplayRunErrors = {
+  /**
+   * Cassette not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Cassette is corrupt or cannot be replayed
+   */
+  409: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type PrepareAgentSessionReplayRunError =
+  PrepareAgentSessionReplayRunErrors[keyof PrepareAgentSessionReplayRunErrors];
+
+export type PrepareAgentSessionReplayRunResponses = {
+  /**
+   * Replay run and portable Cassette launch handoff
+   */
+  201: AgentSessionReplayLaunch;
+};
+
+export type PrepareAgentSessionReplayRunResponse =
+  PrepareAgentSessionReplayRunResponses[keyof PrepareAgentSessionReplayRunResponses];
+
+export type MarkAgentSessionReplayRunRunningData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    runID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/running";
+};
+
+export type MarkAgentSessionReplayRunRunningErrors = {
+  /**
+   * Replay run not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Replay run cannot start in its current state
+   */
+  409: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type MarkAgentSessionReplayRunRunningError =
+  MarkAgentSessionReplayRunRunningErrors[keyof MarkAgentSessionReplayRunRunningErrors];
+
+export type MarkAgentSessionReplayRunRunningResponses = {
+  /**
+   * Replay run is running
+   */
+  200: AgentSessionReplayRun;
+};
+
+export type MarkAgentSessionReplayRunRunningResponse =
+  MarkAgentSessionReplayRunRunningResponses[keyof MarkAgentSessionReplayRunRunningResponses];
+
+export type AdvanceAgentSessionReplayRunCheckpointData = {
+  body: AdvanceAgentSessionReplayRunCheckpointRequest;
+  path: {
+    workspaceID: string;
+    runID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/checkpoint";
+};
+
+export type AdvanceAgentSessionReplayRunCheckpointErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Replay run not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Replay run checkpoint cannot advance in its current state
+   */
+  409: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type AdvanceAgentSessionReplayRunCheckpointError =
+  AdvanceAgentSessionReplayRunCheckpointErrors[keyof AdvanceAgentSessionReplayRunCheckpointErrors];
+
+export type AdvanceAgentSessionReplayRunCheckpointResponses = {
+  /**
+   * Replay run checkpoint advanced
+   */
+  200: AgentSessionReplayRun;
+};
+
+export type AdvanceAgentSessionReplayRunCheckpointResponse =
+  AdvanceAgentSessionReplayRunCheckpointResponses[keyof AdvanceAgentSessionReplayRunCheckpointResponses];
+
+export type CancelAgentSessionReplayRunData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    runID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/cancel";
+};
+
+export type CancelAgentSessionReplayRunErrors = {
+  /**
+   * Replay run not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Replay run cannot cancel in its current state
+   */
+  409: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type CancelAgentSessionReplayRunError =
+  CancelAgentSessionReplayRunErrors[keyof CancelAgentSessionReplayRunErrors];
+
+export type CancelAgentSessionReplayRunResponses = {
+  /**
+   * Replay run canceled
+   */
+  200: AgentSessionReplayRun;
+};
+
+export type CancelAgentSessionReplayRunResponse =
+  CancelAgentSessionReplayRunResponses[keyof CancelAgentSessionReplayRunResponses];
+
+export type CompleteAgentSessionReplayRunData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    runID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/complete";
+};
+
+export type CompleteAgentSessionReplayRunErrors = {
+  /**
+   * Replay run not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Replay run cannot complete in its current state
+   */
+  409: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type CompleteAgentSessionReplayRunError =
+  CompleteAgentSessionReplayRunErrors[keyof CompleteAgentSessionReplayRunErrors];
+
+export type CompleteAgentSessionReplayRunResponses = {
+  /**
+   * Replay run completed
+   */
+  200: AgentSessionReplayRun;
+};
+
+export type CompleteAgentSessionReplayRunResponse =
+  CompleteAgentSessionReplayRunResponses[keyof CompleteAgentSessionReplayRunResponses];
+
+export type FailAgentSessionReplayRunData = {
+  body: FailAgentSessionReplayRunRequest;
+  path: {
+    workspaceID: string;
+    runID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/fail";
+};
+
+export type FailAgentSessionReplayRunErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Replay run not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Replay run cannot fail in its current state
+   */
+  409: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type FailAgentSessionReplayRunError =
+  FailAgentSessionReplayRunErrors[keyof FailAgentSessionReplayRunErrors];
+
+export type FailAgentSessionReplayRunResponses = {
+  /**
+   * Replay run failed with diagnostic evidence
+   */
+  200: AgentSessionReplayRun;
+};
+
+export type FailAgentSessionReplayRunResponse =
+  FailAgentSessionReplayRunResponses[keyof FailAgentSessionReplayRunResponses];
+
+export type VerifyAgentSessionReplayTransportData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/agent-session-replay/transport/verify";
+};
+
+export type VerifyAgentSessionReplayTransportErrors = {
+  /**
+   * Replay transport mismatch or incomplete consumption
+   */
+  409: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type VerifyAgentSessionReplayTransportError =
+  VerifyAgentSessionReplayTransportErrors[keyof VerifyAgentSessionReplayTransportErrors];
+
+export type VerifyAgentSessionReplayTransportResponses = {
+  /**
+   * Replay transport consumed every recorded connection and frame
+   */
+  204: void;
+};
+
+export type VerifyAgentSessionReplayTransportResponse =
+  VerifyAgentSessionReplayTransportResponses[keyof VerifyAgentSessionReplayTransportResponses];
+
+export type GetAgentSessionReplayTransportPlaybackData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/agent-session-replay/transport/playback";
+};
+
+export type GetAgentSessionReplayTransportPlaybackErrors = {
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type GetAgentSessionReplayTransportPlaybackError =
+  GetAgentSessionReplayTransportPlaybackErrors[keyof GetAgentSessionReplayTransportPlaybackErrors];
+
+export type GetAgentSessionReplayTransportPlaybackResponses = {
+  /**
+   * Current replay playback timing
+   */
+  200: AgentSessionReplayTransportPlayback;
+};
+
+export type GetAgentSessionReplayTransportPlaybackResponse =
+  GetAgentSessionReplayTransportPlaybackResponses[keyof GetAgentSessionReplayTransportPlaybackResponses];
+
+export type UpdateAgentSessionReplayTransportPlaybackData = {
+  body: UpdateAgentSessionReplayTransportPlaybackRequest;
+  path?: never;
+  query?: never;
+  url: "/v1/agent-session-replay/transport/playback";
+};
+
+export type UpdateAgentSessionReplayTransportPlaybackErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type UpdateAgentSessionReplayTransportPlaybackError =
+  UpdateAgentSessionReplayTransportPlaybackErrors[keyof UpdateAgentSessionReplayTransportPlaybackErrors];
+
+export type UpdateAgentSessionReplayTransportPlaybackResponses = {
+  /**
+   * Updated replay playback timing
+   */
+  200: AgentSessionReplayTransportPlayback;
+};
+
+export type UpdateAgentSessionReplayTransportPlaybackResponse =
+  UpdateAgentSessionReplayTransportPlaybackResponses[keyof UpdateAgentSessionReplayTransportPlaybackResponses];
 
 export type ClearWorkspaceAgentSessionsData = {
   body?: never;

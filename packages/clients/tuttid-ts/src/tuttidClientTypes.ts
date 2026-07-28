@@ -1,5 +1,10 @@
 import type {
   AddIssueManagerContextRefsRequest,
+  AppendAgentSessionRecordingActivityEventsRequest,
+  AppendAgentSessionRecordingActivityEventsResponse,
+  AgentSessionRecording,
+  AgentSessionReplayLaunch,
+  AgentSessionReplayRun,
   AccountLoginStartResponse,
   AccountLoginStatusResponse,
   AccountProductSummaryResponse,
@@ -38,6 +43,8 @@ import type {
   CreateIssueManagerTopicRequest,
   CreateAgentQuickPromptRequest,
   CreateWorkspaceAgentSessionRequest,
+  StartAgentSessionRecordingRequest,
+  FailAgentSessionReplayRunRequest,
   CreateWorkspaceAppFactoryJobRequest,
   CreateWorkspaceTerminalRequest,
   DeleteWorkspaceAgentSessionResponse,
@@ -95,6 +102,7 @@ import type {
   MoveAgentQuickPromptRequest,
   PinUserProjectRequest,
   RenameWorkspaceFileEntryRequest,
+  RenameAgentSessionRecordingRequest,
   PrepareWorkspaceAppUploadRequest,
   PrepareWorkspaceAppUploadResponse,
   PreflightUploadWorkspaceFilesResponse,
@@ -329,6 +337,56 @@ export interface TuttidClient
     operationID: string,
     requestOptions?: TuttidRequestOptions
   ): Promise<WorkspaceAgentSessionForkOperation>;
+  appendAgentSessionRecordingActivityEvents(
+    workspaceID: string,
+    recordingID: string,
+    request: AppendAgentSessionRecordingActivityEventsRequest
+  ): Promise<AppendAgentSessionRecordingActivityEventsResponse>;
+  startAgentSessionRecording(
+    workspaceID: string,
+    request: StartAgentSessionRecordingRequest
+  ): Promise<AgentSessionRecording>;
+  listAgentSessionRecordings(
+    workspaceID: string
+  ): Promise<AgentSessionRecording[]>;
+  getAgentSessionRecording(
+    workspaceID: string,
+    recordingID: string
+  ): Promise<AgentSessionRecording>;
+  renameAgentSessionRecording(
+    workspaceID: string,
+    recordingID: string,
+    request: RenameAgentSessionRecordingRequest
+  ): Promise<AgentSessionRecording>;
+  completeAgentSessionRecording(
+    workspaceID: string,
+    recordingID: string
+  ): Promise<AgentSessionRecording>;
+  cancelAgentSessionRecording(
+    workspaceID: string,
+    recordingID: string
+  ): Promise<AgentSessionRecording>;
+  prepareAgentSessionReplayRun(
+    workspaceID: string,
+    cassetteID: string
+  ): Promise<AgentSessionReplayLaunch>;
+  listAgentSessionReplayRuns(
+    workspaceID: string,
+    cassetteID: string
+  ): Promise<AgentSessionReplayRun[]>;
+  markAgentSessionReplayRunRunning(
+    workspaceID: string,
+    runID: string
+  ): Promise<AgentSessionReplayRun>;
+  completeAgentSessionReplayRun(
+    workspaceID: string,
+    runID: string
+  ): Promise<AgentSessionReplayRun>;
+  failAgentSessionReplayRun(
+    workspaceID: string,
+    runID: string,
+    request: FailAgentSessionReplayRunRequest
+  ): Promise<AgentSessionReplayRun>;
   createWorkspaceTerminal(
     workspaceID: string,
     request?: CreateWorkspaceTerminalRequest

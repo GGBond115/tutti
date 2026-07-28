@@ -1,4 +1,5 @@
 import type { AgentSessionCommand } from "../../../shared/agentSessionTypes";
+import type { ReactNode } from "react";
 import type { UiLanguage } from "../../../contexts/settings/domain/agentSettings";
 import type { AgentConversationPromptVM } from "../../../shared/agentConversation/contracts/agentConversationVM";
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../../shared/AgentMessageMarkdown";
@@ -107,6 +108,7 @@ export interface AgentComposerProps {
   drainingQueuedPromptId: string | null;
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   selectedAgentTarget?: AgentGUIAgentTarget | null;
+  footerAccessory?: ReactNode;
   agentTargets?: readonly AgentGUIAgentTarget[];
   handoffAgentTargets?: readonly AgentGUIAgentTarget[];
   providerSelectReadonly?: boolean;

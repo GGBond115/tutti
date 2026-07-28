@@ -8,11 +8,16 @@ import {
   type JSX
 } from "react";
 import { AgentGUI } from "@tutti-os/agent-gui/agent-gui";
-import type {
-  AgentGUIProps,
-  AgentHostInputApi,
-  AgentVisibleErrorOverrides
+import {
+  type AgentGUIProps,
+  type AgentHostInputApi,
+  type AgentVisibleErrorOverrides
 } from "@tutti-os/agent-gui";
+import { AgentSessionReplayComposerAccessory } from "../../agent-session-replay/ui/AgentSessionReplayComposerAccessory.tsx";
+import { AgentSessionReplayPlaybackControls } from "../../agent-session-replay/ui/AgentSessionReplayPlaybackSpeed.tsx";
+import { AgentSessionReplayStatus } from "../../agent-session-replay/ui/AgentSessionReplayStatus.tsx";
+import { AgentSessionActivityReplayBinding } from "../../agent-session-replay/ui/AgentSessionActivityReplayBinding.tsx";
+import { createAgentSessionReplayLauncher } from "../../agent-session-replay/services/agentSessionReplayLauncher.ts";
 import { resolveInsufficientCreditsSemantic } from "@tutti-os/commerce";
 import { useService } from "@tutti-os/infra/di";
 import { requestWorkspaceAgentGuiLaunch } from "../services/workspaceAgentGuiLaunchCoordinator.ts";
@@ -81,6 +86,7 @@ import { IAgentEnvService } from "../services/agentEnvService.interface.ts";
 import { preloadDesktopAgentGuiMentionBrowse } from "../services/preloadDesktopAgentGuiMentionBrowse.ts";
 import { DESKTOP_AGENT_GUI_CURRENT_USER_ID } from "../services/desktopAgentGuiIdentity.ts";
 import {
+  AGENT_SESSION_RECORDING_FLAG,
   AGENT_REFERENCE_PROVENANCE_FILTER_FLAG,
   isFeatureEnabled,
   LAB_AGENT_INPUT_HISTORY_FLAG,
@@ -90,6 +96,8 @@ import {
 function DesktopAgentGUISurfaceImpl({
   agentActivityRuntime,
   agentHostApi,
+  agentSessionActivityReplay,
+  agentSessionReplayService,
   agentStatusSource,
   tuttiModePlanReviewRuntime,
   appCenterService,
@@ -605,6 +613,55 @@ function DesktopAgentGUISurfaceImpl({
     },
     [workspaceId]
   );
+  const sessionRecordingEnabled = isFeatureEnabled(
+    desktopPreferencesState.featureFlags,
+    AGENT_SESSION_RECORDING_FLAG
+  );
+  const activityReplayBinding = runtimeApi ? (
+    <AgentSessionActivityReplayBinding
+      addObserver={agentSessionActivityReplay.addObserver}
+      engine={agentSessionActivityReplay.engine}
+      runtimeApi={runtimeApi}
+    />
+  ) : null;
+  const renderComposerFooterAccessory = useCallback<
+    NonNullable<AgentGUIProps["renderSlots"]["composerFooterAccessory"]>
+  >(
+    (composer) => (
+      <>
+        {activityReplayBinding}
+        {runtimeApi ? (
+          <>
+            <AgentSessionReplayStatus runtimeApi={runtimeApi} />
+            <AgentSessionReplayPlaybackControls runtimeApi={runtimeApi} />
+          </>
+        ) : null}
+        {sessionRecordingEnabled ? (
+          <AgentSessionReplayComposerAccessory
+            composer={composer}
+            launcher={
+              runtimeApi
+                ? createAgentSessionReplayLauncher({
+                    runtimeApi,
+                    service: agentSessionReplayService,
+                    workspaceId
+                  })
+                : undefined
+            }
+            service={agentSessionReplayService}
+          />
+        ) : null}
+      </>
+    ),
+    [
+      agentSessionReplayService,
+      activityReplayBinding,
+      runtimeApi,
+      sessionRecordingEnabled,
+      surface.host,
+      workspaceId
+    ]
+  );
   const agentGUIHostProps = useStableDesktopAgentGUIHostProps({
     identity: {
       nodeId: surface.nodeId,
@@ -675,46 +732,45 @@ function DesktopAgentGUISurfaceImpl({
     },
     renderSlots: {
       agentConfigAccount: renderAgentConfigAccount,
+      composerFooterAccessory: renderComposerFooterAccessory,
       sidebarFooter: renderSidebarFooter
     }
   });
 
   return (
-    <>
-      <AgentGUI
-        agentDirectory={agentDirectory}
-        allAgentsPresentation={allAgentsPresentation}
-        renderAgentsEmpty={renderAgentsEmpty}
-        agentActivityRuntime={agentActivityRuntime}
-        agentHostApi={agentHostApiWithToast}
-        tuttiModePlanReviewRuntime={
-          capabilityMenuState?.tuttiMode?.enabled === false
-            ? null
-            : tuttiModePlanReviewRuntime
-        }
-        i18n={i18n}
-        locale={locale}
-        identity={agentGUIHostProps.identity}
-        workspace={agentGUIHostProps.workspace}
-        frame={{
-          conversationRailAutoCollapseMode:
-            surface.conversationRailAutoCollapseMode,
-          position: DESKTOP_AGENT_GUI_POSITION,
-          width: frame.width,
-          height: frame.height,
-          desktopSize,
-          isMaximized: surface.displayMode === "fullscreen",
-          isActive: surface.isFocused,
-          isVisible: surface.isVisible,
-          embedded: true
-        }}
-        state={nodeState}
-        runtimeRequests={agentGUIHostProps.runtimeRequests}
-        hostCapabilities={agentGUIHostProps.hostCapabilities}
-        hostActions={agentGUIHostProps.hostActions}
-        renderSlots={agentGUIHostProps.renderSlots}
-      />
-    </>
+    <AgentGUI
+      agentDirectory={agentDirectory}
+      allAgentsPresentation={allAgentsPresentation}
+      renderAgentsEmpty={renderAgentsEmpty}
+      agentActivityRuntime={agentActivityRuntime}
+      agentHostApi={agentHostApiWithToast}
+      tuttiModePlanReviewRuntime={
+        capabilityMenuState?.tuttiMode?.enabled === false
+          ? null
+          : tuttiModePlanReviewRuntime
+      }
+      i18n={i18n}
+      locale={locale}
+      identity={agentGUIHostProps.identity}
+      workspace={agentGUIHostProps.workspace}
+      frame={{
+        conversationRailAutoCollapseMode:
+          surface.conversationRailAutoCollapseMode,
+        position: DESKTOP_AGENT_GUI_POSITION,
+        width: frame.width,
+        height: frame.height,
+        desktopSize,
+        isMaximized: surface.displayMode === "fullscreen",
+        isActive: surface.isFocused,
+        isVisible: surface.isVisible,
+        embedded: true
+      }}
+      state={nodeState}
+      runtimeRequests={agentGUIHostProps.runtimeRequests}
+      hostCapabilities={agentGUIHostProps.hostCapabilities}
+      hostActions={agentGUIHostProps.hostActions}
+      renderSlots={agentGUIHostProps.renderSlots}
+    />
   );
 }
 

@@ -632,6 +632,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
                 disabled={composerControlsHardDisabled || inputDisabled}
               />
             }
+            footerAccessory={input.props.footerAccessory}
             showHandoffSelect={showHandoffSelect}
             handoffDisabled={handoffDisabled}
             effectiveHandoffLabel={effectiveHandoffLabel}

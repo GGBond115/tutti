@@ -491,6 +491,8 @@ func RegisterRoutes(mux *http.ServeMux, routes Routes) {
 	})
 
 	registerWorkspaceAgentSessionRoutes(mux, wrapper)
+	registerAgentSessionRecordingRoutes(mux, wrapper)
+	registerAgentSessionReplayRunRoutes(mux, wrapper)
 
 	mux.HandleFunc("/v1/workspaces/{workspaceID}/git-branches", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

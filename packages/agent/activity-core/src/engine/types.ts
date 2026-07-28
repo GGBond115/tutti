@@ -303,6 +303,8 @@ export type AgentSessionEngineListener = (
   state: AgentSessionEngineState
 ) => void;
 
+export type AgentSessionEngineIntentObserver = (intent: EngineIntent) => void;
+
 export interface AgentSessionEngine {
   readonly identity: AgentSessionEngineIdentity;
   dispatch(intent: EngineIntent, options?: EngineDispatchOptions): void;

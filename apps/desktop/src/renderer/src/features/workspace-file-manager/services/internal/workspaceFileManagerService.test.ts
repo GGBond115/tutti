@@ -838,6 +838,18 @@ function createDependenciesStub(): {
       copyFilesToClipboard: fail
     },
     tuttidClient: {
+      appendAgentSessionRecordingActivityEvents: fail,
+      listAgentSessionRecordings: async () => [],
+      startAgentSessionRecording: fail,
+      getAgentSessionRecording: fail,
+      renameAgentSessionRecording: fail,
+      completeAgentSessionRecording: fail,
+      cancelAgentSessionRecording: fail,
+      prepareAgentSessionReplayRun: fail,
+      listAgentSessionReplayRuns: fail,
+      markAgentSessionReplayRunRunning: fail,
+      completeAgentSessionReplayRun: fail,
+      failAgentSessionReplayRun: fail,
       createAgentQuickPrompt: fail,
       deleteAgentQuickPrompt: fail,
       listAgentQuickPrompts: fail,

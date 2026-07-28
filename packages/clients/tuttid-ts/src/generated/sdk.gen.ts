@@ -19,6 +19,12 @@ import type {
   AddWorkspaceIssueTaskContextRefsData,
   AddWorkspaceIssueTaskContextRefsErrors,
   AddWorkspaceIssueTaskContextRefsResponses,
+  AdvanceAgentSessionReplayRunCheckpointData,
+  AdvanceAgentSessionReplayRunCheckpointErrors,
+  AdvanceAgentSessionReplayRunCheckpointResponses,
+  AppendAgentSessionRecordingActivityEventsData,
+  AppendAgentSessionRecordingActivityEventsErrors,
+  AppendAgentSessionRecordingActivityEventsResponses,
   ApplyWorkspaceGitPatchData,
   ApplyWorkspaceGitPatchErrors,
   ApplyWorkspaceGitPatchResponses,
@@ -31,6 +37,12 @@ import type {
   AuthenticateAgentTargetRuntimeData,
   AuthenticateAgentTargetRuntimeErrors,
   AuthenticateAgentTargetRuntimeResponses,
+  CancelAgentSessionRecordingData,
+  CancelAgentSessionRecordingErrors,
+  CancelAgentSessionRecordingResponses,
+  CancelAgentSessionReplayRunData,
+  CancelAgentSessionReplayRunErrors,
+  CancelAgentSessionReplayRunResponses,
   CancelCollaborationRunData,
   CancelCollaborationRunErrors,
   CancelCollaborationRunResponses,
@@ -55,6 +67,12 @@ import type {
   ClearWorkspaceAgentSessionsData,
   ClearWorkspaceAgentSessionsErrors,
   ClearWorkspaceAgentSessionsResponses,
+  CompleteAgentSessionRecordingData,
+  CompleteAgentSessionRecordingErrors,
+  CompleteAgentSessionRecordingResponses,
+  CompleteAgentSessionReplayRunData,
+  CompleteAgentSessionReplayRunErrors,
+  CompleteAgentSessionReplayRunResponses,
   CompleteWorkspaceAppUploadData,
   CompleteWorkspaceAppUploadErrors,
   CompleteWorkspaceAppUploadResponses,
@@ -190,6 +208,9 @@ import type {
   ExportWorkspaceAppData,
   ExportWorkspaceAppErrors,
   ExportWorkspaceAppResponses,
+  FailAgentSessionReplayRunData,
+  FailAgentSessionReplayRunErrors,
+  FailAgentSessionReplayRunResponses,
   FixWorkspaceAppFactoryJobData,
   FixWorkspaceAppFactoryJobErrors,
   FixWorkspaceAppFactoryJobResponses,
@@ -220,6 +241,12 @@ import type {
   GetAgentSessionModelPolicyOverrideData,
   GetAgentSessionModelPolicyOverrideErrors,
   GetAgentSessionModelPolicyOverrideResponses,
+  GetAgentSessionRecordingData,
+  GetAgentSessionRecordingErrors,
+  GetAgentSessionRecordingResponses,
+  GetAgentSessionReplayTransportPlaybackData,
+  GetAgentSessionReplayTransportPlaybackErrors,
+  GetAgentSessionReplayTransportPlaybackResponses,
   GetAgentTargetSetupData,
   GetAgentTargetSetupErrors,
   GetAgentTargetSetupResponses,
@@ -334,6 +361,15 @@ import type {
   ListAgentQuickPromptsData,
   ListAgentQuickPromptsErrors,
   ListAgentQuickPromptsResponses,
+  ListAgentSessionCassettesData,
+  ListAgentSessionCassettesErrors,
+  ListAgentSessionCassettesResponses,
+  ListAgentSessionRecordingsData,
+  ListAgentSessionRecordingsErrors,
+  ListAgentSessionRecordingsResponses,
+  ListAgentSessionReplayRunsData,
+  ListAgentSessionReplayRunsErrors,
+  ListAgentSessionReplayRunsResponses,
   ListAgentTargetsData,
   ListAgentTargetsErrors,
   ListAgentTargetsResponses,
@@ -439,6 +475,9 @@ import type {
   LogoutAccountData,
   LogoutAccountErrors,
   LogoutAccountResponses,
+  MarkAgentSessionReplayRunRunningData,
+  MarkAgentSessionReplayRunRunningErrors,
+  MarkAgentSessionReplayRunRunningResponses,
   MoveAgentQuickPromptData,
   MoveAgentQuickPromptErrors,
   MoveAgentQuickPromptResponses,
@@ -457,6 +496,9 @@ import type {
   PreflightUploadWorkspaceFilesData,
   PreflightUploadWorkspaceFilesErrors,
   PreflightUploadWorkspaceFilesResponses,
+  PrepareAgentSessionReplayRunData,
+  PrepareAgentSessionReplayRunErrors,
+  PrepareAgentSessionReplayRunResponses,
   PrepareWorkspaceAppFactoryJobModificationData,
   PrepareWorkspaceAppFactoryJobModificationErrors,
   PrepareWorkspaceAppFactoryJobModificationResponses,
@@ -502,6 +544,9 @@ import type {
   RemoveWorkspaceIssueTaskContextRefData,
   RemoveWorkspaceIssueTaskContextRefErrors,
   RemoveWorkspaceIssueTaskContextRefResponses,
+  RenameAgentSessionRecordingData,
+  RenameAgentSessionRecordingErrors,
+  RenameAgentSessionRecordingResponses,
   RenameWorkspaceFileEntryData,
   RenameWorkspaceFileEntryErrors,
   RenameWorkspaceFileEntryResponses,
@@ -565,6 +610,9 @@ import type {
   StartAccountLoginData,
   StartAccountLoginErrors,
   StartAccountLoginResponses,
+  StartAgentSessionRecordingData,
+  StartAgentSessionRecordingErrors,
+  StartAgentSessionRecordingResponses,
   StartEnabledWorkspaceAppsData,
   StartEnabledWorkspaceAppsErrors,
   StartEnabledWorkspaceAppsResponses,
@@ -595,6 +643,9 @@ import type {
   UpdateAgentQuickPromptData,
   UpdateAgentQuickPromptErrors,
   UpdateAgentQuickPromptResponses,
+  UpdateAgentSessionReplayTransportPlaybackData,
+  UpdateAgentSessionReplayTransportPlaybackErrors,
+  UpdateAgentSessionReplayTransportPlaybackResponses,
   UpdateAutomationRuleData,
   UpdateAutomationRuleErrors,
   UpdateAutomationRuleResponses,
@@ -640,6 +691,9 @@ import type {
   UseUserProjectData,
   UseUserProjectErrors,
   UseUserProjectResponses,
+  VerifyAgentSessionReplayTransportData,
+  VerifyAgentSessionReplayTransportErrors,
+  VerifyAgentSessionReplayTransportResponses,
   WriteWorkspaceFileTextData,
   WriteWorkspaceFileTextErrors,
   WriteWorkspaceFileTextResponses
@@ -2618,6 +2672,348 @@ export const publishWorkspaceAppFactoryJob = <
     security: [{ scheme: "bearer", type: "http" }],
     url: "/v1/workspaces/{workspaceID}/app-factory/jobs/{jobID}/publish",
     ...options
+  });
+
+/**
+ * List developer Agent Session recordings for one workspace
+ */
+export const listAgentSessionRecordings = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<ListAgentSessionRecordingsData, ThrowOnError>
+) =>
+  (options.client ?? client).get<
+    ListAgentSessionRecordingsResponses,
+    ListAgentSessionRecordingsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-recordings",
+    ...options
+  });
+
+/**
+ * Start one developer Agent Session recording
+ */
+export const startAgentSessionRecording = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<StartAgentSessionRecordingData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    StartAgentSessionRecordingResponses,
+    StartAgentSessionRecordingErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-recordings",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+
+/**
+ * Get one developer Agent Session recording
+ */
+export const getAgentSessionRecording = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentSessionRecordingData, ThrowOnError>
+) =>
+  (options.client ?? client).get<
+    GetAgentSessionRecordingResponses,
+    GetAgentSessionRecordingErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}",
+    ...options
+  });
+
+/**
+ * Rename one developer Agent Session recording and its Cassette
+ */
+export const renameAgentSessionRecording = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<RenameAgentSessionRecordingData, ThrowOnError>
+) =>
+  (options.client ?? client).patch<
+    RenameAgentSessionRecordingResponses,
+    RenameAgentSessionRecordingErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+
+/**
+ * Complete one active developer Agent Session recording
+ */
+export const completeAgentSessionRecording = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<CompleteAgentSessionRecordingData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    CompleteAgentSessionRecordingResponses,
+    CompleteAgentSessionRecordingErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/complete",
+    ...options
+  });
+
+/**
+ * Append an ordered batch of renderer Agent Activity events
+ */
+export const appendAgentSessionRecordingActivityEvents = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<AppendAgentSessionRecordingActivityEventsData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    AppendAgentSessionRecordingActivityEventsResponses,
+    AppendAgentSessionRecordingActivityEventsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/activity-events",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+
+/**
+ * Cancel one active developer Agent Session recording
+ */
+export const cancelAgentSessionRecording = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<CancelAgentSessionRecordingData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    CancelAgentSessionRecordingResponses,
+    CancelAgentSessionRecordingErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/cancel",
+    ...options
+  });
+
+/**
+ * List immutable Agent Session Cassettes for one workspace
+ */
+export const listAgentSessionCassettes = <ThrowOnError extends boolean = false>(
+  options: Options<ListAgentSessionCassettesData, ThrowOnError>
+) =>
+  (options.client ?? client).get<
+    ListAgentSessionCassettesResponses,
+    ListAgentSessionCassettesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-cassettes",
+    ...options
+  });
+
+/**
+ * List replay runs for one immutable Agent Session Cassette
+ */
+export const listAgentSessionReplayRuns = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<ListAgentSessionReplayRunsData, ThrowOnError>
+) =>
+  (options.client ?? client).get<
+    ListAgentSessionReplayRunsResponses,
+    ListAgentSessionReplayRunsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs",
+    ...options
+  });
+
+/**
+ * Validate one Cassette and prepare an isolated replay run
+ */
+export const prepareAgentSessionReplayRun = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<PrepareAgentSessionReplayRunData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    PrepareAgentSessionReplayRunResponses,
+    PrepareAgentSessionReplayRunErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs",
+    ...options
+  });
+
+/**
+ * Mark a prepared replay run accepted by its runtime adapter
+ */
+export const markAgentSessionReplayRunRunning = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<MarkAgentSessionReplayRunRunningData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    MarkAgentSessionReplayRunRunningResponses,
+    MarkAgentSessionReplayRunRunningErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/running",
+    ...options
+  });
+
+/**
+ * Persist a stable checkpoint reached by one replay run
+ */
+export const advanceAgentSessionReplayRunCheckpoint = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<AdvanceAgentSessionReplayRunCheckpointData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    AdvanceAgentSessionReplayRunCheckpointResponses,
+    AdvanceAgentSessionReplayRunCheckpointErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/checkpoint",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+
+/**
+ * Cancel one active replay run
+ */
+export const cancelAgentSessionReplayRun = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<CancelAgentSessionReplayRunData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    CancelAgentSessionReplayRunResponses,
+    CancelAgentSessionReplayRunErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/cancel",
+    ...options
+  });
+
+/**
+ * Complete a replay run after transport and final-state verification
+ */
+export const completeAgentSessionReplayRun = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<CompleteAgentSessionReplayRunData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    CompleteAgentSessionReplayRunResponses,
+    CompleteAgentSessionReplayRunErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/complete",
+    ...options
+  });
+
+/**
+ * Persist an explicit replay runtime or verification failure
+ */
+export const failAgentSessionReplayRun = <ThrowOnError extends boolean = false>(
+  options: Options<FailAgentSessionReplayRunData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    FailAgentSessionReplayRunResponses,
+    FailAgentSessionReplayRunErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/fail",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+
+/**
+ * Verify that the isolated replay transport consumed its complete Cassette
+ */
+export const verifyAgentSessionReplayTransport = <
+  ThrowOnError extends boolean = false
+>(
+  options?: Options<VerifyAgentSessionReplayTransportData, ThrowOnError>
+) =>
+  (options?.client ?? client).post<
+    VerifyAgentSessionReplayTransportResponses,
+    VerifyAgentSessionReplayTransportErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/agent-session-replay/transport/verify",
+    ...options
+  });
+
+/**
+ * Read playback timing for the isolated replay transport
+ */
+export const getAgentSessionReplayTransportPlayback = <
+  ThrowOnError extends boolean = false
+>(
+  options?: Options<GetAgentSessionReplayTransportPlaybackData, ThrowOnError>
+) =>
+  (options?.client ?? client).get<
+    GetAgentSessionReplayTransportPlaybackResponses,
+    GetAgentSessionReplayTransportPlaybackErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/agent-session-replay/transport/playback",
+    ...options
+  });
+
+/**
+ * Update playback timing for the isolated replay transport
+ */
+export const updateAgentSessionReplayTransportPlayback = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<UpdateAgentSessionReplayTransportPlaybackData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    UpdateAgentSessionReplayTransportPlaybackResponses,
+    UpdateAgentSessionReplayTransportPlaybackErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/agent-session-replay/transport/playback",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
   });
 
 /**

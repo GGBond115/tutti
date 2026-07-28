@@ -48,6 +48,7 @@ import type {
   TuttiPlanIssuePanelLabels
 } from "../../../workspaceWorkflow";
 import type { TuttiWorkflowDockLabels } from "../TuttiWorkflowDock";
+import type { AgentGUIComposerFooterAccessoryRenderer } from "./AgentGUIComposerFooterAccessory.types";
 
 export type AgentMentionReferenceTargetResolver = (
   item: AgentContextMentionItem
@@ -712,6 +713,7 @@ export interface AgentGUINodeViewProps {
   resolveMentionReferenceTarget?: AgentMentionReferenceTargetResolver | null;
   resolveWorkspaceReferenceInitialTarget?: AgentWorkspaceReferenceInitialTargetResolver | null;
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
+  renderComposerFooterAccessory?: AgentGUIComposerFooterAccessoryRenderer;
 }
 
 export interface AgentGUIDetailPaneProps {
@@ -760,6 +762,7 @@ export interface AgentGUIDetailPaneProps {
   onRequestComposerFocus: () => void;
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   renderProviderUnavailableState?: AgentGUIProviderUnavailableStateRenderer;
+  renderComposerFooterAccessory?: AgentGUIComposerFooterAccessoryRenderer;
 }
 
 export interface AgentGUISidebarFooterContext {

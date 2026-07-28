@@ -12,6 +12,7 @@ var ErrLiveSessionBusy = errors.New("agent live session is busy")
 type ProcessSpec struct {
 	Provider           string
 	AgentSessionID     string
+	RootAgentSessionID string
 	RoomID             string
 	CWD                string
 	Command            []string

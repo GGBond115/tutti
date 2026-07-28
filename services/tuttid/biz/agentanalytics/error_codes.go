@@ -1,4 +1,4 @@
-package node_result
+package agentanalytics
 
 const (
 	ErrorCodeNone                       = "agent_error_none"

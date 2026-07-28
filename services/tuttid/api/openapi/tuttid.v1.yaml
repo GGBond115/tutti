@@ -3083,6 +3083,532 @@ paths:
           $ref: "#/components/responses/WorkspaceOperationError"
         "503":
           $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-recordings:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: listAgentSessionRecordings
+      tags:
+        - agent-session
+      summary: List developer Agent Session recordings for one workspace
+      responses:
+        "200":
+          description: Agent Session recordings ordered by latest update
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionRecordingListResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+    post:
+      operationId: startAgentSessionRecording
+      tags:
+        - agent-session
+      summary: Start one developer Agent Session recording
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartAgentSessionRecordingRequest"
+      responses:
+        "201":
+          description: Agent Session recording prepared or recording
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionRecording"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "409":
+          description: Another recording is active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - name: recordingID
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAgentSessionRecording
+      tags:
+        - agent-session
+      summary: Get one developer Agent Session recording
+      responses:
+        "200":
+          description: Agent Session recording
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionRecording"
+        "404":
+          description: Recording not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+    patch:
+      operationId: renameAgentSessionRecording
+      tags:
+        - agent-session
+      summary: Rename one developer Agent Session recording and its Cassette
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameAgentSessionRecordingRequest"
+      responses:
+        "200":
+          description: Agent Session recording renamed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionRecording"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "404":
+          description: Recording not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/complete:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - name: recordingID
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: completeAgentSessionRecording
+      tags:
+        - agent-session
+      summary: Complete one active developer Agent Session recording
+      responses:
+        "200":
+          description: Agent Session recording completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionRecording"
+        "404":
+          description: Recording not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "409":
+          description: Recording cannot complete in its current state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/activity-events:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - name: recordingID
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: appendAgentSessionRecordingActivityEvents
+      tags:
+        - agent-session
+      summary: Append an ordered batch of renderer Agent Activity events
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppendAgentSessionRecordingActivityEventsRequest"
+      responses:
+        "200":
+          description: Activity events persisted through the returned Cassette sequence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppendAgentSessionRecordingActivityEventsResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "404":
+          description: Recording not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "409":
+          description: Recording cannot accept Activity events in its current state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - name: recordingID
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: cancelAgentSessionRecording
+      tags:
+        - agent-session
+      summary: Cancel one active developer Agent Session recording
+      responses:
+        "200":
+          description: Agent Session recording canceled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionRecording"
+        "404":
+          description: Recording not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-cassettes:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: listAgentSessionCassettes
+      tags:
+        - agent-session
+      summary: List immutable Agent Session Cassettes for one workspace
+      responses:
+        "200":
+          description: Cassettes ordered by creation time
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionCassetteListResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - name: cassetteID
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listAgentSessionReplayRuns
+      tags:
+        - agent-session
+      summary: List replay runs for one immutable Agent Session Cassette
+      responses:
+        "200":
+          description: Replay runs ordered by latest update
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionReplayRunListResponse"
+        "404":
+          description: Cassette not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+    post:
+      operationId: prepareAgentSessionReplayRun
+      tags:
+        - agent-session
+      summary: Validate one Cassette and prepare an isolated replay run
+      responses:
+        "201":
+          description: Replay run and portable Cassette launch handoff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionReplayLaunch"
+        "404":
+          description: Cassette not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "409":
+          description: Cassette is corrupt or cannot be replayed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/running:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - name: runID
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: markAgentSessionReplayRunRunning
+      tags:
+        - agent-session
+      summary: Mark a prepared replay run accepted by its runtime adapter
+      responses:
+        "200":
+          description: Replay run is running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionReplayRun"
+        "404":
+          description: Replay run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "409":
+          description: Replay run cannot start in its current state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/checkpoint:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - name: runID
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: advanceAgentSessionReplayRunCheckpoint
+      tags:
+        - agent-session
+      summary: Persist a stable checkpoint reached by one replay run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdvanceAgentSessionReplayRunCheckpointRequest"
+      responses:
+        "200":
+          description: Replay run checkpoint advanced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionReplayRun"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "404":
+          description: Replay run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "409":
+          description: Replay run checkpoint cannot advance in its current state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - name: runID
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: cancelAgentSessionReplayRun
+      tags:
+        - agent-session
+      summary: Cancel one active replay run
+      responses:
+        "200":
+          description: Replay run canceled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionReplayRun"
+        "404":
+          description: Replay run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "409":
+          description: Replay run cannot cancel in its current state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/complete:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - name: runID
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: completeAgentSessionReplayRun
+      tags:
+        - agent-session
+      summary: Complete a replay run after transport and final-state verification
+      responses:
+        "200":
+          description: Replay run completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionReplayRun"
+        "404":
+          description: Replay run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "409":
+          description: Replay run cannot complete in its current state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/fail:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - name: runID
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: failAgentSessionReplayRun
+      tags:
+        - agent-session
+      summary: Persist an explicit replay runtime or verification failure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FailAgentSessionReplayRunRequest"
+      responses:
+        "200":
+          description: Replay run failed with diagnostic evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionReplayRun"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "404":
+          description: Replay run not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "409":
+          description: Replay run cannot fail in its current state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/agent-session-replay/transport/verify:
+    post:
+      operationId: verifyAgentSessionReplayTransport
+      tags:
+        - agent-session
+      summary: Verify that the isolated replay transport consumed its complete Cassette
+      responses:
+        "204":
+          description: Replay transport consumed every recorded connection and frame
+        "409":
+          description: Replay transport mismatch or incomplete consumption
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/agent-session-replay/transport/playback:
+    get:
+      operationId: getAgentSessionReplayTransportPlayback
+      tags:
+        - agent-session
+      summary: Read playback timing for the isolated replay transport
+      responses:
+        "200":
+          description: Current replay playback timing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionReplayTransportPlayback"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+    post:
+      operationId: updateAgentSessionReplayTransportPlayback
+      tags:
+        - agent-session
+      summary: Update playback timing for the isolated replay transport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAgentSessionReplayTransportPlaybackRequest"
+      responses:
+        "200":
+          description: Updated replay playback timing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionReplayTransportPlayback"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
   /v1/workspaces/{workspaceID}/agent-sessions:
     parameters:
       - $ref: "#/components/parameters/WorkspaceID"
@@ -12662,6 +13188,11 @@ components:
         clientSubmitId:
           type: string
           minLength: 1
+        recordingId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Developer create-session scenario waiting for this root Session.
         submitDiagnostics:
           $ref: "#/components/schemas/AgentSubmitDiagnostics"
         initialContent:
@@ -12717,6 +13248,389 @@ components:
         visible:
           type: boolean
           nullable: true
+    StartAgentSessionRecordingRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - agentTargetId
+      properties:
+        agentTargetId:
+          type: string
+          minLength: 1
+        agentSessionId:
+          type: string
+          minLength: 1
+          nullable: true
+          description: Existing Session selecting continue-session mode. Omit for create-session mode.
+    RenameAgentSessionRecordingRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+    AgentSessionRecordingActivityEventInput:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - kind
+        - type
+        - occurredAtUnixMs
+      properties:
+        eventId:
+          type: string
+          minLength: 1
+        kind:
+          type: string
+          enum:
+            - intent
+            - effect
+            - direct-stimulus
+        type:
+          type: string
+          minLength: 1
+        correlationId:
+          type: string
+          minLength: 1
+          nullable: true
+        causedByEventId:
+          type: string
+          minLength: 1
+          nullable: true
+        agentSessionId:
+          type: string
+          minLength: 1
+          nullable: true
+        payload:
+          type: object
+          additionalProperties: true
+        occurredAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
+    AppendAgentSessionRecordingActivityEventsRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - events
+      properties:
+        events:
+          type: array
+          minItems: 1
+          maxItems: 256
+          items:
+            $ref: "#/components/schemas/AgentSessionRecordingActivityEventInput"
+    AppendAgentSessionRecordingActivityEventsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - acceptedThroughSequence
+      properties:
+        acceptedThroughSequence:
+          type: integer
+          format: int64
+          minimum: 0
+    AgentSessionRecording:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - workspaceId
+        - agentTargetId
+        - mode
+        - status
+        - directory
+        - createdAtUnixMs
+        - updatedAtUnixMs
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Mutable name stored in the portable Cassette manifest after completion.
+        cassetteId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Immutable Cassette produced by a completed Recording.
+        workspaceId:
+          type: string
+          minLength: 1
+        agentTargetId:
+          type: string
+          minLength: 1
+        mode:
+          type: string
+          enum:
+            - create-session
+            - continue-session
+        rootAgentSessionId:
+          type: string
+          minLength: 1
+          nullable: true
+        status:
+          type: string
+          enum:
+            - preparing
+            - ready
+            - recording
+            - finalizing
+            - complete
+            - failed
+            - canceled
+            - incomplete
+        directory:
+          type: string
+          minLength: 1
+        errorCode:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+        createdAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
+        updatedAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
+    AgentSessionRecordingListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - recordings
+      properties:
+        recordings:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSessionRecording"
+    AgentSessionReplayRun:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - cassetteId
+        - status
+        - checkpoint
+        - createdAtUnixMs
+        - updatedAtUnixMs
+      properties:
+        id:
+          type: string
+          format: uuid
+        cassetteId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - starting
+            - running
+            - complete
+            - failed
+            - canceled
+        checkpoint:
+          type: integer
+          format: int64
+          minimum: 0
+        errorCode:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+        createdAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
+        startedAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+        completedAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
+          nullable: true
+        updatedAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
+    AgentSessionReplayLaunch:
+      type: object
+      additionalProperties: false
+      required:
+        - run
+        - cassetteDirectory
+      properties:
+        run:
+          $ref: "#/components/schemas/AgentSessionReplayRun"
+        cassetteDirectory:
+          type: string
+          minLength: 1
+    AgentSessionReplayRunListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - runs
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSessionReplayRun"
+    AdvanceAgentSessionReplayRunCheckpointRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - checkpoint
+      properties:
+        checkpoint:
+          type: integer
+          format: int64
+          minimum: 0
+    AgentSessionCassette:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - sourceRecordingId
+        - workspaceId
+        - agentTargetId
+        - rootAgentSessionId
+        - mode
+        - totalBytes
+        - createdAtUnixMs
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        sourceRecordingId:
+          type: string
+          format: uuid
+        workspaceId:
+          type: string
+          minLength: 1
+        agentTargetId:
+          type: string
+          minLength: 1
+        rootAgentSessionId:
+          type: string
+          minLength: 1
+        mode:
+          type: string
+          enum:
+            - create-session
+            - continue-session
+        totalBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        createdAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
+    AgentSessionCassetteListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - cassettes
+      properties:
+        cassettes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSessionCassette"
+    AgentSessionReplayTransportPlayback:
+      type: object
+      additionalProperties: false
+      required:
+        - drained
+        - paused
+        - playbackElapsedMs
+        - speed
+        - timingMode
+      properties:
+        drained:
+          type: boolean
+        paused:
+          type: boolean
+        playbackElapsedMs:
+          type: number
+          format: double
+          minimum: 0
+        speed:
+          type: number
+          format: double
+          enum:
+            - 0.25
+            - 0.5
+            - 1
+            - 2
+            - 4
+        timingMode:
+          type: string
+          enum:
+            - realtime
+            - fast-forward
+    UpdateAgentSessionReplayTransportPlaybackRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - command
+      properties:
+        command:
+          type: string
+          enum:
+            - set-speed
+            - pause
+            - resume
+            - set-timing-mode
+        speed:
+          type: number
+          format: double
+          enum:
+            - 0.25
+            - 0.5
+            - 1
+            - 2
+            - 4
+        timingMode:
+          type: string
+          enum:
+            - realtime
+            - fast-forward
+    FailAgentSessionReplayRunRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - errorCode
+        - errorMessage
+      properties:
+        checkpoint:
+          type: integer
+          format: int64
+          minimum: 0
+        errorCode:
+          type: string
+          minLength: 1
+        errorMessage:
+          type: string
+          minLength: 1
     WorkspaceAgentRailPlacement:
       type: object
       additionalProperties: false

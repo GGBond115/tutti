@@ -1,4 +1,5 @@
 import type { I18nRuntime } from "@tutti-os/ui-i18n-runtime";
+import type { IReporterService } from "@tutti-os/analytics";
 import type { RichTextMentionAttrs } from "@tutti-os/ui-rich-text/types";
 import {
   createWorkspaceUserProjectI18nRuntime,
@@ -44,6 +45,7 @@ export interface IssueManagerFeatureUIConfig {
 export interface IssueManagerFeature {
   agentBreakdownLauncher?: IssueManagerAgentBreakdownLauncher;
   analytics?: IssueManagerAnalyticsAdapter;
+  reporterService?: Pick<IReporterService, "trackEvents">;
   agentTargetOptions?: IssueManagerAgentTargetOptionsAdapter;
   modelPlanOptions?: IssueManagerModelPlanOptionsAdapter;
   agentSessionOpener?: IssueManagerAgentSessionOpener;
@@ -66,6 +68,7 @@ export interface IssueManagerFeature {
 export interface CreateIssueManagerFeatureInput {
   agentBreakdownLauncher?: IssueManagerAgentBreakdownLauncher;
   analytics?: IssueManagerAnalyticsAdapter;
+  reporterService?: Pick<IReporterService, "trackEvents">;
   agentTargetOptions?: IssueManagerAgentTargetOptionsAdapter;
   modelPlanOptions?: IssueManagerModelPlanOptionsAdapter;
   agentSessionOpener?: IssueManagerAgentSessionOpener;
@@ -101,6 +104,7 @@ export function createIssueManagerFeature(
   return {
     agentBreakdownLauncher: input.agentBreakdownLauncher,
     analytics: input.analytics,
+    reporterService: input.reporterService,
     agentTargetOptions: input.agentTargetOptions,
     modelPlanOptions: input.modelPlanOptions,
     agentSessionOpener: input.agentSessionOpener,
