@@ -39,8 +39,14 @@ func (n *acpTurnNormalizer) AppendToolOutputDelta(
 		n.bufferEarlyToolOutput(turnID, rawToolCallID, delta)
 		return nil
 	}
-	current := n.toolOutputText[eventID]
-	next := current + delta
+	content := n.toolOutputContent[eventID]
+	if content == nil {
+		content = &strings.Builder{}
+		n.toolOutputContent[eventID] = content
+	}
+	offset := content.Len()
+	_, _ = content.WriteString(delta)
+	next := content.String()
 	payload := clonePayload(pending.payload)
 	if payload == nil {
 		payload = map[string]any{}
@@ -58,12 +64,12 @@ func (n *acpTurnNormalizer) AppendToolOutputDelta(
 		Operation: "set",
 		Text:      next,
 	}
-	if current != "" {
-		offset := int64(len(current))
+	if offset > 0 {
+		offsetBytes := int64(offset)
 		operation = &liveprotocol.MessageToolOutputOperation{
 			Operation:   "append_text",
 			Text:        delta,
-			OffsetBytes: &offset,
+			OffsetBytes: &offsetBytes,
 		}
 	}
 	event := newTurnActivityEventWithID(
@@ -77,7 +83,6 @@ func (n *acpTurnNormalizer) AppendToolOutputDelta(
 		payload,
 	)
 	attachToolOutputLiveOperation(&event, operation)
-	n.toolOutputText[eventID] = next
 	n.trackToolCallEvent(event)
 	return []activityshared.Event{event}
 }

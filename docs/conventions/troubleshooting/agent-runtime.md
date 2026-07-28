@@ -80,6 +80,7 @@ Turn state, loading, cancel, restore, rail projection, event updates, imports, a
 - [AgentGUI freezes when session history is large](./agent-session-lifecycle.md#agentgui-freezes-when-session-history-is-large)
 - [AgentGUI @ Sessions tab is empty](./agent-session-lifecycle.md#agentgui--sessions-tab-is-empty)
 - [Agent diagnostics flood while a turn is streaming](./agent-session-lifecycle.md#agent-diagnostics-flood-while-a-turn-is-streaming)
+- [Daemon memory grows rapidly while a tool streams output](./agent-session-lifecycle.md#daemon-memory-grows-rapidly-while-a-tool-streams-output)
 - [Codex turn stays working before any reply or tool activity](./agent-session-lifecycle.md#codex-turn-stays-working-before-any-reply-or-tool-activity)
 - [Codex WebSocket reconnect rejects a long prompt metadata header](./agent-session-lifecycle.md#codex-websocket-reconnect-rejects-a-long-prompt-metadata-header)
 - [Imported sessions trigger fresh-completion indicators](./agent-session-lifecycle.md#imported-sessions-trigger-fresh-completion-indicators)

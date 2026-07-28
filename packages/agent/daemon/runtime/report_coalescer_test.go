@@ -41,6 +41,41 @@ func TestStreamingReportCoalescerKeepsLatestMessageSnapshot(t *testing.T) {
 	}
 }
 
+func TestStreamingReportCoalescerFlushesToolOutputBeforeTerminalReport(t *testing.T) {
+	t.Parallel()
+
+	coalescer := newStreamingReportCoalescer(time.Hour)
+	defer coalescer.stop()
+
+	running := toolCallStreamingReport(1, map[string]any{
+		"output": map[string]any{"text": "hello"},
+	})
+	if flushed := coalescer.add(reportRequest{
+		ctx:    context.Background(),
+		report: running,
+	}); len(flushed) != 0 {
+		t.Fatalf("streaming add flushed %#v, want pending", flushed)
+	}
+
+	terminal := toolCallStreamingReport(2, map[string]any{
+		"output": map[string]any{"text": "hello world"},
+	})
+	terminal.MessageUpdates[0].Status = messageStreamStateCompleted
+	flushed := coalescer.add(reportRequest{
+		ctx:    context.Background(),
+		report: terminal,
+	})
+	if len(flushed) != 2 {
+		t.Fatalf("flushed reports = %d, want pending streaming plus terminal", len(flushed))
+	}
+	if flushed[0].report.MessageUpdates[0].Status != "running" {
+		t.Fatalf("first flushed report = %#v, want running", flushed[0].report)
+	}
+	if flushed[1].report.MessageUpdates[0].Status != messageStreamStateCompleted {
+		t.Fatalf("second flushed report = %#v, want completed", flushed[1].report)
+	}
+}
+
 func TestStreamingReportCoalescerFlushesBeforeTerminalReport(t *testing.T) {
 	t.Parallel()
 

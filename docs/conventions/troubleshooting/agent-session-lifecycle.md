@@ -263,6 +263,36 @@
   [report_coalescer.go](../../../packages/agent/daemon/runtime/report_coalescer.go),
   [controller_report_queue_test.go](../../../packages/agent/daemon/runtime/controller_report_queue_test.go)
 
+### Daemon memory grows rapidly while a tool streams output
+
+- **Symptom:** `tuttid` memory and compressor usage climb rapidly during a
+  command with a large output. The final tool output can be modest compared
+  with peak memory, and canonical message queries or SQLite writes become slow
+  only after memory pressure is already high.
+- **Quick checks:** Correlate tool `outputDelta` notifications with
+  `agent_session.activity_report.queue_backlog`. Confirm the queued updates are
+  running `tool_call` messages whose `output.text` is a cumulative snapshot.
+  Distinguish the runtime report queue from the live EventHub: the live path
+  carries append operations, while durable reporting carries snapshots.
+- **Root cause:** Rebuilding cumulative output with `current + delta` allocates
+  and copies the full prefix for every chunk. If running tool snapshots are not
+  eligible for streaming report coalescing, the single reporter persists each
+  snapshot separately while the unbounded, re-entry-safe FIFO retains the
+  later snapshots. The combination turns linear provider output into
+  quadratic copying and a large live backlog.
+- **Fix:** Accumulate normalized tool output with an incremental builder, and
+  coalesce running `tool_call` reports by stable message ID so only the latest
+  snapshot in each reporting window reaches durable persistence. Keep live
+  append operations unchanged, and force the pending running snapshot to flush
+  before a completed or failed update.
+- **Validation:** Stream multiple chunks for one tool and verify live offsets
+  remain byte-based, the durable coalescer retains the highest-sequence output
+  snapshot, and a terminal update flushes after that snapshot rather than
+  being merged or reordered.
+- **References:**
+  [acp_turn_normalizer_tool_output.go](../../../packages/agent/daemon/runtime/acp_turn_normalizer_tool_output.go),
+  [report_coalescer.go](../../../packages/agent/daemon/runtime/report_coalescer.go)
+
 ### Tutti mode is active in the composer but disappears after the first submit
 
 - **Symptom:** The home composer shows Tutti enabled and the submit trace records
