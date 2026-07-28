@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentTranscriptResponseSpacerHeight,
   buildAgentTranscriptVirtualLayout,
   compensateAgentTranscriptDistanceForAnchor,
   distanceFromBottomForAgentTranscriptTurn,
@@ -18,6 +19,27 @@ const entries = Array.from({ length: 6 }, (_, index) => ({
 }));
 
 describe("agentTranscriptVirtualizerLayout", () => {
+  it("sizes the response spacer from the usable viewport", () => {
+    expect(
+      agentTranscriptResponseSpacerHeight({
+        bottomInsetPx: 120,
+        viewportHeightPx: 800
+      })
+    ).toBeCloseTo(440);
+    expect(
+      agentTranscriptResponseSpacerHeight({
+        bottomInsetPx: 120,
+        viewportHeightPx: 480
+      })
+    ).toBe(120);
+    expect(
+      agentTranscriptResponseSpacerHeight({
+        bottomInsetPx: 120,
+        viewportHeightPx: 300
+      })
+    ).toBe(0);
+  });
+
   it("builds stable offsets from measured and estimated heights", () => {
     const layout = buildAgentTranscriptVirtualLayout(entries, {
       "turn-0": 100,

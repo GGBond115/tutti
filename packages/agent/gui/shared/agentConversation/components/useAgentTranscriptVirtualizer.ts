@@ -4,10 +4,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type Ref,
-  type RefObject
+  type Ref
 } from "react";
-import { useOptionalAgentActivityRuntime } from "../../../agentActivityRuntime";
 import { requestUiAnimationFrame } from "./agentTranscriptPresentationScheduler";
 import { useElementResizeObserver } from "@tutti-os/ui-react-hooks";
 import type { AgentConversationFollowEndMode } from "../agentConversationFollowEndController";
@@ -22,7 +20,6 @@ import {
   projectAgentTranscriptVirtualRange,
   updateAgentTranscriptVirtualViewportState,
   AGENT_TRANSCRIPT_INITIAL_VIEWPORT_HEIGHT_PX,
-  type AgentTranscriptVirtualLayout,
   type AgentTranscriptVirtualLayoutEntry,
   type AgentTranscriptVirtualViewportState
 } from "./agentTranscriptVirtualizerLayout";
@@ -30,12 +27,19 @@ import {
   readAgentTranscriptVirtualMeasurements,
   writeAgentTranscriptVirtualMeasurements
 } from "./agentTranscriptVirtualMeasurementStore";
+import {
+  prepareAgentTranscriptMeasurement,
+  type AgentTranscriptPreparedMeasurement
+} from "./agentTranscriptMeasurementPreparation";
 import { useAgentTranscriptLayoutPreservation } from "./useAgentTranscriptLayoutPreservation";
 import { useAgentTranscriptMeasurements } from "./useAgentTranscriptMeasurements";
+import { useAgentTranscriptResponseSpacer } from "./useAgentTranscriptResponseSpacer";
 import { useAgentTranscriptVirtualLocate } from "./useAgentTranscriptVirtualLocate";
+import { buildAgentTranscriptVirtualItems } from "./agentTranscriptVirtualItems";
 import type {
   AgentTranscriptRowVirtualizer,
   AgentTranscriptViewportSnapshot,
+  AgentTranscriptVirtualizer,
   AgentTranscriptVirtualItem,
   AgentTranscriptVirtualScrollController
 } from "./agentTranscriptVirtualizerTypes";
@@ -60,52 +64,22 @@ import {
 } from "./agentTranscriptScrollController";
 
 const AGENT_TRANSCRIPT_END_THRESHOLD_PX = 24;
-const AGENT_TRANSCRIPT_SWITCH_DEBUG_MARKER =
-  "[TEMP:agent-transcript-virtual-switch]";
-
-interface AgentTranscriptVirtualizer {
-  layoutRevision: number;
-  rowVirtualizer: AgentTranscriptRowVirtualizer;
-  setVirtualizerHostElement(node: HTMLDivElement | null): void;
-  totalHeightPx: number;
-  virtualItems: readonly AgentTranscriptVirtualItem[];
-  virtualizerHostRef: RefObject<HTMLDivElement | null>;
-  windowOffsetPx: number;
-}
 
 export function useAgentTranscriptVirtualizer({
   agentSessionId,
   entries,
   followEndMode = "following",
-  hasMovingTurnDisclosure,
+  isLatestTurnInProgress = false,
+  latestTurnKey = null,
   virtualScrollControllerRef
 }: {
   agentSessionId: string;
   entries: readonly AgentTranscriptVirtualLayoutEntry[];
   followEndMode?: AgentConversationFollowEndMode;
-  hasMovingTurnDisclosure: boolean;
+  isLatestTurnInProgress?: boolean;
+  latestTurnKey?: string | null;
   virtualScrollControllerRef?: Ref<AgentTranscriptVirtualScrollController>;
 }): AgentTranscriptVirtualizer {
-  const agentActivityRuntime = useOptionalAgentActivityRuntime();
-  const logAgentTranscriptSwitchDebug = useCallback(
-    (phase: string, details: Record<string, unknown>): void => {
-      const reportDiagnostic = agentActivityRuntime?.reportDiagnostic;
-      if (!reportDiagnostic || !agentActivityRuntime) return;
-      void Promise.resolve(
-        reportDiagnostic.call(agentActivityRuntime, {
-          details: {
-            marker: AGENT_TRANSCRIPT_SWITCH_DEBUG_MARKER,
-            phase,
-            ...details
-          },
-          event: "agent.gui.transcript_virtual.temp",
-          level: "info",
-          source: "agent-gui"
-        })
-      ).catch(() => {});
-    },
-    [agentActivityRuntime]
-  );
   const retainedMeasurements = useMemo(
     () => readAgentTranscriptVirtualMeasurements(agentSessionId),
     [agentSessionId]
@@ -137,15 +111,6 @@ export function useAgentTranscriptVirtualizer({
         layout,
         viewportHeightPx: AGENT_TRANSCRIPT_INITIAL_VIEWPORT_HEIGHT_PX
       });
-      logAgentTranscriptSwitchDebug("mount", {
-        agentSessionId,
-        entryCount: entries.length,
-        layoutHeightPx: layout.totalHeightPx,
-        renderedRange,
-        retainedHeightCount: Object.keys(
-          retainedMeasurements?.turnHeightsByKey ?? {}
-        ).length
-      });
       return {
         distanceFromBottomPx: 0,
         renderedRange,
@@ -161,13 +126,28 @@ export function useAgentTranscriptVirtualizer({
   const layoutRevisionRef = useRef(0);
   const virtualViewportRef = useRef(virtualViewportState);
   const scrollTopRef = useRef(0);
+  const physicalDistanceFromBottomRef = useRef(0);
   const scrollElementRef = useRef<HTMLElement | null>(null);
   const disconnectScrollElementRef = useRef<(() => void) | null>(null);
   const scrollMarginRef = useRef(0);
   const committedScrollMarginRef = useRef(0);
   const scrollPaddingBottomRef = useRef(0);
   const scrollPaddingBottomBaseRef = useRef(0);
+  const scrollPaddingBottomAdjustmentRef = useRef(0);
   const scrollPaddingTopRef = useRef(0);
+  const {
+    activationKey: responseSpacerActivationKey,
+    growHeight: growResponseSpacerHeight,
+    heightPx: responseSpacerHeightPx,
+    heightRef: responseSpacerHeightRef,
+    updateForViewportRef: updateResponseSpacerForViewportRef
+  } = useAgentTranscriptResponseSpacer({
+    bottomInsetPx: () =>
+      scrollPaddingBottomBaseRef.current +
+      scrollPaddingBottomAdjustmentRef.current,
+    followEndMode,
+    latestTurnKey
+  });
   const viewportListenersRef = useRef(
     new Set<(snapshot: AgentTranscriptViewportSnapshot) => void>()
   );
@@ -179,14 +159,15 @@ export function useAgentTranscriptVirtualizer({
   );
   const topLoadingInFlightRef = useRef(false);
   const followsEndRef = useRef(followEndMode === "following");
-  const movingDisclosureRef = useRef(hasMovingTurnDisclosure);
+  const responseSpacerActivationKeyRef = useRef<string | null>(
+    responseSpacerActivationKey
+  );
+  const committedResponseSpacerHeightRef = useRef(responseSpacerHeightPx);
   const activeLocateRef = useRef<object | null>(null);
-  const pendingMeasuredLayoutRef = useRef<{
-    distanceFromBottomPx: number;
-    layout: AgentTranscriptVirtualLayout;
-  } | null>(null);
+  const pendingMeasuredLayoutRef =
+    useRef<AgentTranscriptPreparedMeasurement | null>(null);
   const getDistanceFromBottomPx = useCallback(
-    () => virtualViewportRef.current.distanceFromBottomPx,
+    () => physicalDistanceFromBottomRef.current,
     []
   );
   const layoutPreservation = useAgentTranscriptLayoutPreservation({
@@ -201,9 +182,18 @@ export function useAgentTranscriptVirtualizer({
     nextLayoutRef.current = layout;
     layoutRevisionRef.current += 1;
   }
+  if (responseSpacerHeightRef.current !== responseSpacerHeightPx) {
+    responseSpacerHeightRef.current = responseSpacerHeightPx;
+    layoutRevisionRef.current += 1;
+  }
   followsEndRef.current = followEndMode === "following";
-  movingDisclosureRef.current = hasMovingTurnDisclosure;
-
+  if (
+    responseSpacerActivationKey !== null &&
+    responseSpacerActivationKeyRef.current !== responseSpacerActivationKey
+  ) {
+    responseSpacerActivationKeyRef.current = responseSpacerActivationKey;
+    layoutRevisionRef.current += 1;
+  }
   const commitVirtualViewport = useCallback(
     (
       nextDistanceFromBottomPx: number,
@@ -224,54 +214,29 @@ export function useAgentTranscriptVirtualizer({
   );
   prepareMeasurementCommitRef.current = (nextHeightsByKey) => {
     const previousLayout = layoutRef.current;
-    const nextLayout = buildAgentTranscriptVirtualLayout(
-      entries,
-      nextHeightsByKey
-    );
-    if (agentTranscriptVirtualLayoutsEqual(previousLayout, nextLayout)) return;
     const preservedDistance = layoutPreservation.consumeDistance();
-    const currentDistance =
-      preservedDistance ?? virtualViewportRef.current.distanceFromBottomPx;
-    const anchorKey = findAgentTranscriptCompensationAnchor({
-      distanceFromBottomPx: currentDistance,
-      fallbackRange: virtualViewportRef.current.renderedRange,
-      layout: previousLayout,
+    const currentPhysicalDistance =
+      preservedDistance ?? physicalDistanceFromBottomRef.current;
+    const currentLogicalDistance = Math.max(
+      0,
+      currentPhysicalDistance - responseSpacerHeightRef.current
+    );
+    const prepared = prepareAgentTranscriptMeasurement({
+      currentLogicalDistanceFromBottomPx: currentLogicalDistance,
+      currentPhysicalDistanceFromBottomPx: currentPhysicalDistance,
+      entries,
       measuredHeightsByKey: measuredHeightsRef.current,
-      viewportHeightPx: virtualViewportRef.current.viewportHeightPx
+      nextHeightsByKey,
+      preserveMeasuredTurnViewport: !isLatestTurnInProgress,
+      previousLayout,
+      responseSpacerHeightPx: responseSpacerHeightRef.current
     });
-    let nextDistance = currentDistance;
-    if (
-      followsEndRef.current &&
-      !movingDisclosureRef.current &&
-      activeLocateRef.current === null
-    ) {
-      nextDistance = 0;
-    } else if (anchorKey) {
-      nextDistance =
-        compensateAgentTranscriptDistanceForAnchor({
-          anchorKey,
-          distanceFromBottomPx: currentDistance,
-          nextLayout,
-          previousLayout
-        }) ?? currentDistance;
-    }
-    pendingMeasuredLayoutRef.current = {
-      distanceFromBottomPx: nextDistance,
-      layout: nextLayout
-    };
-    logAgentTranscriptSwitchDebug("measurement-commit", {
-      agentSessionId,
-      currentDistance,
-      measuredHeightCount: Object.keys(nextHeightsByKey).length,
-      nextDistance,
-      nextLayoutHeightPx: nextLayout.totalHeightPx,
-      previousLayoutHeightPx: previousLayout.totalHeightPx,
-      renderedRange: virtualViewportRef.current.renderedRange
-    });
+    if (!prepared) return;
+    pendingMeasuredLayoutRef.current = prepared;
     commitVirtualViewport(
-      nextDistance,
+      prepared.logicalDistanceFromBottomPx,
       virtualViewportRef.current.viewportHeightPx,
-      nextLayout
+      prepared.layout
     );
   };
 
@@ -280,8 +245,9 @@ export function useAgentTranscriptVirtualizer({
       contentHeightPx:
         scrollMarginRef.current +
         layoutRef.current.totalHeightPx +
-        scrollPaddingBottomRef.current,
-      distanceFromBottomPx: virtualViewportRef.current.distanceFromBottomPx,
+        scrollPaddingBottomRef.current +
+        responseSpacerHeightRef.current,
+      distanceFromBottomPx: physicalDistanceFromBottomRef.current,
       scrollPaddingBottomPx: scrollPaddingBottomRef.current,
       scrollPaddingTopPx: scrollPaddingTopRef.current,
       scrollTopPx: scrollTopRef.current,
@@ -341,41 +307,26 @@ export function useAgentTranscriptVirtualizer({
         actualScrollTop,
         scrollPaddingBottomRef.current
       );
-      const previousState = virtualViewportRef.current;
+      physicalDistanceFromBottomRef.current = actualDistance;
       scrollTopRef.current = agentTranscriptLogicalScrollTop(
         actualScrollTop,
         viewportHeightPx,
         scrollMarginRef.current,
         committedLayout.totalHeightPx,
-        scrollPaddingBottomRef.current
+        scrollPaddingBottomRef.current + responseSpacerHeightRef.current
       );
-      commitVirtualViewport(actualDistance, viewportHeightPx, committedLayout);
-      logAgentTranscriptSwitchDebug("dom-position-committed", {
-        agentSessionId,
-        actualDistance,
-        actualScrollTop,
-        clientHeight: element.clientHeight,
-        layoutHeightPx: committedLayout.totalHeightPx,
-        nextRenderedRange: virtualViewportRef.current.renderedRange,
-        previousDistance: previousState.distanceFromBottomPx,
-        previousRenderedRange: previousState.renderedRange,
-        scrollHeight: element.scrollHeight,
-        scrollMarginPx: scrollMarginRef.current,
-        scrollTopPx: scrollTopRef.current,
-        viewportHeightPx
-      });
+      const logicalDistance = Math.max(
+        0,
+        actualDistance - responseSpacerHeightRef.current
+      );
+      commitVirtualViewport(logicalDistance, viewportHeightPx, committedLayout);
       notifyViewportListeners();
       return actualDistance;
     },
-    [
-      agentSessionId,
-      commitVirtualViewport,
-      logAgentTranscriptSwitchDebug,
-      notifyViewportListeners
-    ]
+    [commitVirtualViewport, notifyViewportListeners]
   );
 
-  const applyDistance = useCallback(
+  const applyPhysicalDistance = useCallback(
     (nextDistanceFromBottomPx: number, behavior: ScrollBehavior = "auto") => {
       const element = scrollElementRef.current;
       if (!element) return;
@@ -393,30 +344,14 @@ export function useAgentTranscriptVirtualizer({
 
   const scrollToEnd = useCallback(
     (options?: { behavior?: ScrollBehavior }) => {
-      applyDistance(0, options?.behavior);
+      applyPhysicalDistance(0, options?.behavior);
     },
-    [applyDistance]
+    [applyPhysicalDistance]
   );
 
   const connectScrollElement = useCallback(
     (nextScrollElement: HTMLElement | null): void => {
       if (scrollElementRef.current === nextScrollElement) return;
-      logAgentTranscriptSwitchDebug(
-        nextScrollElement ? "viewport-connect" : "viewport-disconnect",
-        {
-          agentSessionId,
-          currentDistance: virtualViewportRef.current.distanceFromBottomPx,
-          currentRenderedRange: virtualViewportRef.current.renderedRange,
-          layoutHeightPx: layoutRef.current.totalHeightPx,
-          ...(nextScrollElement
-            ? {
-                clientHeight: nextScrollElement.clientHeight,
-                nativeScrollTop: nextScrollElement.scrollTop,
-                scrollHeight: nextScrollElement.scrollHeight
-              }
-            : {})
-        }
-      );
       disconnectScrollElementRef.current?.();
       disconnectScrollElementRef.current = null;
       scrollElementRef.current = nextScrollElement;
@@ -426,7 +361,8 @@ export function useAgentTranscriptVirtualizer({
       const refreshScrollPadding = (): void => {
         const padding = readAgentTranscriptScrollPadding(nextScrollElement);
         scrollPaddingBottomBaseRef.current = padding.bottom;
-        scrollPaddingBottomRef.current = padding.bottom;
+        scrollPaddingBottomRef.current =
+          padding.bottom + scrollPaddingBottomAdjustmentRef.current;
         scrollPaddingTopRef.current = padding.top;
       };
       const updateFromScroll = (): {
@@ -437,15 +373,7 @@ export function useAgentTranscriptVirtualizer({
           virtualViewportRef.current.viewportHeightPx;
         if (nextViewportHeightPx <= 0) return null;
         const previousDistanceFromBottomPx =
-          virtualViewportRef.current.distanceFromBottomPx;
-        logAgentTranscriptSwitchDebug("native-scroll", {
-          agentSessionId,
-          clientHeight: nextScrollElement.clientHeight,
-          nativeScrollTop: nextScrollElement.scrollTop,
-          previousDistanceFromBottomPx,
-          renderedRange: virtualViewportRef.current.renderedRange,
-          scrollHeight: nextScrollElement.scrollHeight
-        });
+          physicalDistanceFromBottomRef.current;
         if (layoutPreservation.restoreAfterScrollHeightChange() !== null) {
           // The browser may clamp the compensated target. Always commit the
           // actual DOM position below.
@@ -474,10 +402,9 @@ export function useAgentTranscriptVirtualizer({
           const nextViewportHeightPx =
             entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
           if (nextViewportHeightPx <= 0) return;
-          const nextDistance =
-            followsEndRef.current && !movingDisclosureRef.current
-              ? 0
-              : virtualViewportRef.current.distanceFromBottomPx;
+          const nextDistance = followsEndRef.current
+            ? 0
+            : physicalDistanceFromBottomRef.current;
           const nextNativeScrollTop = agentTranscriptNativeScrollTopForDistance(
             nextDistance,
             scrollPaddingBottomRef.current
@@ -489,11 +416,13 @@ export function useAgentTranscriptVirtualizer({
             () =>
               commitFromScrollElement(nextScrollElement, nextViewportHeightPx)
           );
+          updateResponseSpacerForViewportRef.current(nextViewportHeightPx);
         }
       );
       refreshScrollPadding();
       const initialViewportHeightPx = nextScrollElement.clientHeight;
       if (initialViewportHeightPx > 0) {
+        updateResponseSpacerForViewportRef.current(initialViewportHeightPx);
         const initialDistance = 0;
         const initialNativeScrollTop =
           agentTranscriptNativeScrollTopForDistance(
@@ -518,20 +447,21 @@ export function useAgentTranscriptVirtualizer({
       };
     },
     [
-      agentSessionId,
       notifyUserScrollListeners,
       commitFromScrollElement,
       layoutPreservation.addWheelDelta,
       layoutPreservation.cancel,
       layoutPreservation.restoreAfterScrollHeightChange,
       loadOlderWhileAtTop,
-      logAgentTranscriptSwitchDebug,
       resizeObservation
     ]
   );
 
   const syncLayout = useCallback(
     (scrollMarginPx?: number): void => {
+      updateResponseSpacerForViewportRef.current(
+        virtualViewportRef.current.viewportHeightPx
+      );
       if (scrollMarginPx !== undefined) {
         scrollMarginRef.current = scrollMarginPx;
       }
@@ -552,19 +482,11 @@ export function useAgentTranscriptVirtualizer({
       if (hasPreparedMeasurementCommit) {
         pendingMeasuredLayoutRef.current = null;
       }
-      logAgentTranscriptSwitchDebug("layout-sync", {
-        agentSessionId,
-        currentDistance: virtualViewportRef.current.distanceFromBottomPx,
-        currentRenderedRange: virtualViewportRef.current.renderedRange,
-        hasPreparedMeasurementCommit,
-        layoutChanged,
-        nextLayoutHeightPx: nextLayout.totalHeightPx,
-        previousLayoutHeightPx: previousLayout.totalHeightPx,
-        scrollMarginPx: scrollMarginRef.current
-      });
       if (
         !layoutChanged &&
-        committedScrollMarginRef.current === scrollMarginRef.current
+        committedScrollMarginRef.current === scrollMarginRef.current &&
+        committedResponseSpacerHeightRef.current ===
+          responseSpacerHeightRef.current
       ) {
         layoutRef.current = nextLayout;
         return;
@@ -573,20 +495,24 @@ export function useAgentTranscriptVirtualizer({
         const preservedDistance = layoutPreservation.consumeDistance();
         if (preservedDistance !== null) {
           commitVirtualViewport(
-            preservedDistance,
+            Math.max(0, preservedDistance - responseSpacerHeightRef.current),
             virtualViewportRef.current.viewportHeightPx,
             previousLayout
           );
         }
       }
-      let nextDistance =
+      let nextLogicalDistance =
         hasPreparedMeasurementCommit && pendingMeasuredLayout
-          ? pendingMeasuredLayout.distanceFromBottomPx
+          ? pendingMeasuredLayout.logicalDistanceFromBottomPx
           : virtualViewportRef.current.distanceFromBottomPx;
+      let nextPhysicalDistance: number | null =
+        hasPreparedMeasurementCommit && pendingMeasuredLayout
+          ? pendingMeasuredLayout.physicalScrollDistanceFromBottomPx
+          : null;
       const anchorKey = hasPreparedMeasurementCommit
         ? null
         : findAgentTranscriptCompensationAnchor({
-            distanceFromBottomPx: nextDistance,
+            distanceFromBottomPx: nextLogicalDistance,
             fallbackRange: virtualViewportRef.current.renderedRange,
             layout: previousLayout,
             measuredHeightsByKey: measuredHeightsRef.current,
@@ -595,36 +521,70 @@ export function useAgentTranscriptVirtualizer({
       if (
         !hasPreparedMeasurementCommit &&
         followsEndRef.current &&
-        !movingDisclosureRef.current &&
+        responseSpacerHeightRef.current <= 0 &&
         activeLocateRef.current === null
       ) {
-        nextDistance = 0;
+        nextLogicalDistance = 0;
+        nextPhysicalDistance = 0;
       } else if (!hasPreparedMeasurementCommit && anchorKey) {
-        nextDistance =
+        nextLogicalDistance =
           compensateAgentTranscriptDistanceForAnchor({
             anchorKey,
-            distanceFromBottomPx: nextDistance,
+            distanceFromBottomPx: nextLogicalDistance,
             nextLayout,
             previousLayout
-          }) ?? nextDistance;
+          }) ?? nextLogicalDistance;
+        nextPhysicalDistance =
+          nextLogicalDistance + responseSpacerHeightRef.current;
+      }
+      if (
+        hasPreparedMeasurementCommit &&
+        pendingMeasuredLayout &&
+        pendingMeasuredLayout.latestTurnHeightDeltaPx !== 0 &&
+        followsEndRef.current
+      ) {
+        const targetPhysicalDistance =
+          physicalDistanceFromBottomRef.current +
+          pendingMeasuredLayout.latestTurnHeightDeltaPx;
+        if (
+          responseSpacerHeightRef.current > 24 &&
+          targetPhysicalDistance < 0
+        ) {
+          growResponseSpacerHeight(-targetPhysicalDistance);
+        }
+        nextPhysicalDistance = Math.max(0, targetPhysicalDistance);
+      }
+      if (
+        pendingMeasuredLayout?.physicalScrollDistanceFromBottomPx !== null &&
+        pendingMeasuredLayout?.physicalScrollDistanceFromBottomPx !== undefined
+      ) {
+        nextPhysicalDistance =
+          pendingMeasuredLayout.physicalScrollDistanceFromBottomPx;
       }
       layoutRef.current = nextLayout;
       committedScrollMarginRef.current = scrollMarginRef.current;
+      committedResponseSpacerHeightRef.current =
+        responseSpacerHeightRef.current;
       if (
         element &&
-        !movingDisclosureRef.current &&
-        activeLocateRef.current === null
+        activeLocateRef.current === null &&
+        nextPhysicalDistance !== null
       ) {
         const nextNativeScrollTop = agentTranscriptNativeScrollTopForDistance(
-          nextDistance,
+          nextPhysicalDistance,
           scrollPaddingBottomRef.current
         );
-        setAgentTranscriptScrollTop(element, nextNativeScrollTop, "auto", () =>
-          commitFromScrollElement(
-            element,
-            virtualViewportRef.current.viewportHeightPx,
-            nextLayout
-          )
+        setAgentTranscriptScrollTop(
+          element,
+          nextNativeScrollTop,
+          "auto",
+          () => {
+            commitFromScrollElement(
+              element,
+              virtualViewportRef.current.viewportHeightPx,
+              nextLayout
+            );
+          }
         );
         return;
       }
@@ -637,40 +597,27 @@ export function useAgentTranscriptVirtualizer({
         return;
       }
       commitVirtualViewport(
-        nextDistance,
+        nextLogicalDistance,
         virtualViewportRef.current.viewportHeightPx,
         nextLayout
       );
       notifyViewportListeners();
     },
     [
-      agentSessionId,
       commitFromScrollElement,
       commitVirtualViewport,
       layoutPreservation.consumeDistance,
-      logAgentTranscriptSwitchDebug,
       notifyViewportListeners
     ]
   );
 
   const getVirtualItems = useCallback(
     (): readonly AgentTranscriptVirtualItem[] =>
-      layoutRef.current.turnKeys
-        .slice(
-          virtualViewportRef.current.renderedRange.startIndex,
-          virtualViewportRef.current.renderedRange.endIndex
-        )
-        .map((key, relativeIndex) => {
-          const index =
-            virtualViewportRef.current.renderedRange.startIndex + relativeIndex;
-          return {
-            index,
-            key,
-            measured: measuredHeightsRef.current[key] !== undefined,
-            size: layoutRef.current.heightsPx[index] ?? 0,
-            start: layoutRef.current.topOffsetsPx[index] ?? 0
-          };
-        }),
+      buildAgentTranscriptVirtualItems({
+        layout: layoutRef.current,
+        measuredHeightsByKey: measuredHeightsRef.current,
+        range: virtualViewportRef.current.renderedRange
+      }),
     []
   );
   const scrollToIndex = useCallback(
@@ -687,14 +634,17 @@ export function useAgentTranscriptVirtualizer({
         viewportHeightPx: virtualViewportRef.current.viewportHeightPx
       });
       if (nextDistance !== null) {
-        applyDistance(nextDistance, options.behavior);
+        applyPhysicalDistance(
+          nextDistance + responseSpacerHeightRef.current,
+          options.behavior
+        );
       }
     },
-    [applyDistance]
+    [applyPhysicalDistance]
   );
   const { cancelLocate, scrollToKey } = useAgentTranscriptVirtualLocate({
     activeLocateRef,
-    applyDistance,
+    applyDistance: applyPhysicalDistance,
     layoutRef,
     measuredElementsRef,
     scrollElementRef,
@@ -750,18 +700,11 @@ export function useAgentTranscriptVirtualizer({
       layout,
       locatingTurnKey
     });
-    return layout.turnKeys
-      .slice(renderedRange.startIndex, renderedRange.endIndex)
-      .map((key, relativeIndex) => {
-        const index = renderedRange.startIndex + relativeIndex;
-        return {
-          index,
-          key,
-          measured: measuredHeightsByKey[key] !== undefined,
-          size: layout.heightsPx[index] ?? 0,
-          start: layout.topOffsetsPx[index] ?? 0
-        };
-      });
+    return buildAgentTranscriptVirtualItems({
+      layout,
+      measuredHeightsByKey,
+      range: renderedRange
+    });
   }, [layout, locatingTurnKey, measuredHeightsByKey, virtualViewportState]);
   const renderedRange = projectAgentTranscriptVirtualRange({
     current: virtualViewportState,
@@ -779,7 +722,7 @@ export function useAgentTranscriptVirtualizer({
         if (element) cancelAgentTranscriptScroll(element);
       },
       isAtEnd: (threshold = AGENT_TRANSCRIPT_END_THRESHOLD_PX) =>
-        virtualViewportRef.current.distanceFromBottomPx <= threshold,
+        physicalDistanceFromBottomRef.current <= threshold,
       scrollToEnd,
       setTopLoadingHandler: (handler) => {
         topLoadingHandlerRef.current = handler;
@@ -796,29 +739,29 @@ export function useAgentTranscriptVirtualizer({
       syncViewport: ({ followEnd, scrollPaddingBottomAdjustmentPx = 0 }) => {
         const element = scrollElementRef.current;
         if (!element) return;
+        scrollPaddingBottomAdjustmentRef.current = Math.max(
+          0,
+          scrollPaddingBottomAdjustmentPx
+        );
         scrollPaddingBottomRef.current =
           scrollPaddingBottomBaseRef.current +
-          Math.max(0, scrollPaddingBottomAdjustmentPx);
+          scrollPaddingBottomAdjustmentRef.current;
+        updateResponseSpacerForViewportRef.current(
+          virtualViewportRef.current.viewportHeightPx
+        );
         if (followEnd) {
-          applyDistance(0);
+          applyPhysicalDistance(0);
           return;
         }
-        applyDistance(virtualViewportRef.current.distanceFromBottomPx);
+        applyPhysicalDistance(physicalDistanceFromBottomRef.current);
       }
     }),
-    [agentSessionId, applyDistance, readViewportSnapshot, scrollToEnd]
+    [agentSessionId, applyPhysicalDistance, readViewportSnapshot, scrollToEnd]
   );
 
   const setVirtualizerHostElement = useCallback(
     (node: HTMLDivElement | null): void => {
       virtualizerHostRef.current = node;
-      logAgentTranscriptSwitchDebug(
-        node ? "host-ref-connect" : "host-ref-disconnect",
-        {
-          agentSessionId,
-          connectedScrollElement: scrollElementRef.current !== null
-        }
-      );
       if (node) return;
       queueMicrotask(() => {
         if (virtualizerHostRef.current !== null) return;
@@ -837,12 +780,6 @@ export function useAgentTranscriptVirtualizer({
         writeAgentTranscriptVirtualMeasurements(agentSessionId, {
           turnHeightsByKey: retainedHeights
         });
-        logAgentTranscriptSwitchDebug("unmount", {
-          agentSessionId,
-          layoutHeightPx: currentLayout.totalHeightPx,
-          retainedHeightCount: Object.keys(retainedHeights).length,
-          retainedRenderedRange: virtualViewportRef.current.renderedRange
-        });
       });
     },
     []
@@ -850,6 +787,7 @@ export function useAgentTranscriptVirtualizer({
 
   return {
     layoutRevision: layoutRevisionRef.current,
+    responseSpacerHeightPx,
     rowVirtualizer,
     setVirtualizerHostElement,
     totalHeightPx: layout.totalHeightPx,

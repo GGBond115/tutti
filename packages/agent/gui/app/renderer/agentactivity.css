@@ -7488,6 +7488,13 @@ button.agent-gui-node__conversation-section-toggle:hover
   display: flex;
   flex-direction: column-reverse;
   gap: 0;
+  overflow-anchor: none;
+}
+
+.agent-gui-transcript-response-spacer {
+  flex: none;
+  min-height: 0;
+  pointer-events: none;
 }
 
 .agent-gui-node__timeline-with-composer.agent-gui-node__timeline--scrolled-from-top {

@@ -8,13 +8,43 @@ import {
 } from "./useAgentTranscriptVirtualizer";
 
 class TestResizeObserver implements ResizeObserver {
-  disconnect(): void {}
-  observe(): void {}
-  unobserve(): void {}
+  static instances: TestResizeObserver[] = [];
+  readonly observed = new Set<Element>();
+
+  constructor(private readonly callback: ResizeObserverCallback) {
+    TestResizeObserver.instances.push(this);
+  }
+
+  disconnect(): void {
+    this.observed.clear();
+  }
+  observe(target: Element): void {
+    this.observed.add(target);
+  }
+  unobserve(target: Element): void {
+    this.observed.delete(target);
+  }
+  emit(target: Element, height: number): void {
+    this.callback(
+      [
+        {
+          borderBoxSize: [
+            { blockSize: height, inlineSize: 0 } as ResizeObserverSize
+          ],
+          contentBoxSize: [],
+          contentRect: { height } as DOMRectReadOnly,
+          devicePixelContentBoxSize: [],
+          target
+        } as ResizeObserverEntry
+      ],
+      this
+    );
+  }
 }
 
 describe("useAgentTranscriptVirtualizer", () => {
   beforeEach(() => {
+    TestResizeObserver.instances = [];
     vi.stubGlobal("ResizeObserver", TestResizeObserver);
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(480);
   });
@@ -41,8 +71,7 @@ describe("useAgentTranscriptVirtualizer", () => {
     const { result, unmount } = renderHook(() =>
       useAgentTranscriptVirtualizer({
         agentSessionId: "session-cancel",
-        entries: [{ gapAfterPx: 0, key: "turn-1" }],
-        hasMovingTurnDisclosure: false
+        entries: [{ gapAfterPx: 0, key: "turn-1" }]
       })
     );
     act(() => {
@@ -80,8 +109,7 @@ describe("useAgentTranscriptVirtualizer", () => {
     const { result, unmount } = renderHook(() =>
       useAgentTranscriptVirtualizer({
         agentSessionId: "session-disconnect",
-        entries: [{ gapAfterPx: 0, key: "turn-1" }],
-        hasMovingTurnDisclosure: false
+        entries: [{ gapAfterPx: 0, key: "turn-1" }]
       })
     );
     act(() => {
@@ -114,8 +142,7 @@ describe("useAgentTranscriptVirtualizer", () => {
     const { result, unmount } = renderHook(() =>
       useAgentTranscriptVirtualizer({
         agentSessionId: "session-exact-locate",
-        entries: [{ gapAfterPx: 0, key: "turn-1" }],
-        hasMovingTurnDisclosure: false
+        entries: [{ gapAfterPx: 0, key: "turn-1" }]
       })
     );
     act(() => {
@@ -158,7 +185,6 @@ describe("useAgentTranscriptVirtualizer", () => {
       useAgentTranscriptVirtualizer({
         agentSessionId: "session-clamped-scroll",
         entries,
-        hasMovingTurnDisclosure: false,
         virtualScrollControllerRef: controller
       })
     );
@@ -197,8 +223,7 @@ describe("useAgentTranscriptVirtualizer", () => {
       ({ entries }) =>
         useAgentTranscriptVirtualizer({
           agentSessionId: "session-prepend-projection",
-          entries,
-          hasMovingTurnDisclosure: false
+          entries
         }),
       { initialProps: { entries: baseEntries } }
     );
@@ -223,8 +248,7 @@ describe("useAgentTranscriptVirtualizer", () => {
     const { result, unmount } = renderHook(() =>
       useAgentTranscriptVirtualizer({
         agentSessionId: "session-measurement-commit",
-        entries,
-        hasMovingTurnDisclosure: false
+        entries
       })
     );
 
@@ -236,6 +260,129 @@ describe("useAgentTranscriptVirtualizer", () => {
       result.current.virtualItems.find((item) => item.key === "turn-5")
     ).toMatchObject({ measured: true, size: 500 });
     unmount();
+  });
+
+  it.each([
+    {
+      expectedScrollTop: -120,
+      followEndMode: "following" as const,
+      initialScrollTop: 0,
+      isLatestTurnInProgress: true
+    },
+    {
+      expectedScrollTop: -420,
+      followEndMode: "detached" as const,
+      initialScrollTop: -300,
+      isLatestTurnInProgress: false
+    }
+  ])(
+    "uses Codex measurement compensation while $followEndMode",
+    async ({
+      expectedScrollTop,
+      followEndMode,
+      initialScrollTop,
+      isLatestTurnInProgress
+    }) => {
+      const timeline = document.createElement("div");
+      timeline.style.scrollPaddingBottom = "120px";
+      const host = document.createElement("div");
+      const latestTurn = document.createElement("div");
+      latestTurn.dataset.agentTranscriptVirtualTurn = "turn-1";
+      host.append(latestTurn);
+      timeline.append(host);
+      document.body.append(timeline);
+      let latestTurnHeight = 280;
+      vi.spyOn(latestTurn, "offsetHeight", "get").mockImplementation(
+        () => latestTurnHeight
+      );
+      latestTurn.getBoundingClientRect = () =>
+        rect(
+          100 - (latestTurnHeight - 280) - timeline.scrollTop,
+          latestTurnHeight
+        );
+      const { result, unmount } = renderHook(() =>
+        useAgentTranscriptVirtualizer({
+          agentSessionId: `session-measurement-${followEndMode}`,
+          entries: [
+            { gapAfterPx: 0, key: "turn-0" },
+            { gapAfterPx: 0, key: "turn-1" }
+          ],
+          followEndMode,
+          isLatestTurnInProgress,
+          latestTurnKey: "turn-1"
+        })
+      );
+      act(() => {
+        result.current.setVirtualizerHostElement(host);
+        result.current.rowVirtualizer.connectScrollElement(timeline);
+        result.current.rowVirtualizer.measureElement("turn-1", latestTurn);
+      });
+      await act(async () => Promise.resolve());
+      if (initialScrollTop !== 0) {
+        act(() => {
+          timeline.dispatchEvent(
+            new WheelEvent("wheel", { deltaY: initialScrollTop })
+          );
+          timeline.scrollTop = initialScrollTop;
+          timeline.dispatchEvent(new Event("scroll"));
+        });
+      }
+      const anchorTopBeforeExpansion = latestTurn.getBoundingClientRect().top;
+      const turnObserver = TestResizeObserver.instances.find((observer) =>
+        observer.observed.has(latestTurn)
+      );
+
+      act(() => {
+        latestTurnHeight = 400;
+        turnObserver?.emit(latestTurn, latestTurnHeight);
+      });
+      await act(async () => Promise.resolve());
+      act(() => result.current.rowVirtualizer.syncLayout());
+
+      expect(timeline.scrollTop).toBe(expectedScrollTop);
+      expect(latestTurn.getBoundingClientRect().top).toBe(
+        anchorTopBeforeExpansion
+      );
+      act(() => result.current.setVirtualizerHostElement(null));
+      unmount();
+      timeline.remove();
+    }
+  );
+
+  it("places and retains a response spacer for the running Turn", async () => {
+    const timeline = document.createElement("div");
+    timeline.style.scrollPaddingBottom = "120px";
+    const host = document.createElement("div");
+    timeline.append(host);
+    document.body.append(timeline);
+    const controller = createRef<AgentTranscriptVirtualScrollController>();
+    const { result, rerender, unmount } = renderHook(
+      ({ inProgress }) =>
+        useAgentTranscriptVirtualizer({
+          agentSessionId: "session-response-spacer",
+          entries: [{ gapAfterPx: 0, key: "turn-1" }],
+          isLatestTurnInProgress: inProgress,
+          latestTurnKey: "turn-1",
+          virtualScrollControllerRef: controller
+        }),
+      { initialProps: { inProgress: true } }
+    );
+
+    act(() => {
+      result.current.setVirtualizerHostElement(host);
+      result.current.rowVirtualizer.connectScrollElement(timeline);
+    });
+    await act(async () => Promise.resolve());
+
+    expect(result.current.responseSpacerHeightPx).toBe(120);
+    rerender({ inProgress: false });
+    expect(result.current.responseSpacerHeightPx).toBe(120);
+    act(() => controller.current?.scrollToEnd());
+    expect(result.current.responseSpacerHeightPx).toBe(120);
+
+    act(() => result.current.setVirtualizerHostElement(null));
+    unmount();
+    timeline.remove();
   });
 
   it("owns normalized user-scroll intent for the connected viewport", () => {
@@ -254,7 +401,6 @@ describe("useAgentTranscriptVirtualizer", () => {
       useAgentTranscriptVirtualizer({
         agentSessionId: "session-user-intent",
         entries: [{ gapAfterPx: 0, key: "turn-1" }],
-        hasMovingTurnDisclosure: false,
         virtualScrollControllerRef: controller
       })
     );
@@ -317,7 +463,6 @@ describe("useAgentTranscriptVirtualizer", () => {
           gapAfterPx: 0,
           key: `turn-${index}`
         })),
-        hasMovingTurnDisclosure: false,
         virtualScrollControllerRef: controller
       })
     );
@@ -342,7 +487,7 @@ describe("useAgentTranscriptVirtualizer", () => {
     timeline.remove();
   });
 
-  it("cancels an active smooth scroll when the viewport disconnects", () => {
+  it("cancels an active smooth scroll when the viewport disconnects", async () => {
     const frames: FrameRequestCallback[] = [];
     const cancelAnimationFrame = vi
       .spyOn(window, "cancelAnimationFrame")
@@ -364,7 +509,6 @@ describe("useAgentTranscriptVirtualizer", () => {
           gapAfterPx: 12,
           key: `turn-${index}`
         })),
-        hasMovingTurnDisclosure: false,
         virtualScrollControllerRef: controller
       })
     );
@@ -376,7 +520,10 @@ describe("useAgentTranscriptVirtualizer", () => {
     });
     expect(frames).toHaveLength(1);
 
-    act(() => result.current.setVirtualizerHostElement(null));
+    await act(async () => {
+      result.current.setVirtualizerHostElement(null);
+      await Promise.resolve();
+    });
 
     expect(cancelAnimationFrame).toHaveBeenCalledWith(1);
     unmount();

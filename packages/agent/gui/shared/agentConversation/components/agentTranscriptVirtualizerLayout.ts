@@ -1,6 +1,8 @@
 export const AGENT_TRANSCRIPT_ESTIMATED_TURN_HEIGHT_PX = 280;
 export const AGENT_TRANSCRIPT_INITIAL_VIEWPORT_HEIGHT_PX = 800;
 export const AGENT_TRANSCRIPT_VIRTUALIZATION_OVERSCAN = 2;
+export const AGENT_TRANSCRIPT_RESPONSE_SPACER_MIN_CONTENT_HEIGHT_PX = 240;
+export const AGENT_TRANSCRIPT_RESPONSE_SPACER_VIEWPORT_RATIO = 2 / 3;
 
 export interface AgentTranscriptVirtualLayoutEntry {
   gapAfterPx: number;
@@ -27,6 +29,23 @@ export interface AgentTranscriptVirtualViewportState {
   renderedRange: AgentTranscriptVirtualRange;
   turnKeys: readonly string[];
   viewportHeightPx: number;
+}
+
+export function agentTranscriptResponseSpacerHeight(input: {
+  bottomInsetPx: number;
+  viewportHeightPx: number;
+}): number {
+  const availableHeightPx = Math.max(
+    0,
+    input.viewportHeightPx - Math.max(0, input.bottomInsetPx)
+  );
+  return Math.max(
+    0,
+    Math.min(
+      availableHeightPx * AGENT_TRANSCRIPT_RESPONSE_SPACER_VIEWPORT_RATIO,
+      availableHeightPx - AGENT_TRANSCRIPT_RESPONSE_SPACER_MIN_CONTENT_HEIGHT_PX
+    )
+  );
 }
 
 export function buildAgentTranscriptVirtualLayout(

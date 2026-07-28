@@ -29,7 +29,6 @@ import {
 } from "./agentTurnWorkSectionModel";
 import { assessAgentTranscriptComplexity } from "./agentTranscriptComplexity";
 import { stringListEquals } from "./agentTranscriptEquality";
-import { useTurnDisclosureMotion } from "./useTurnDisclosureMotion";
 import {
   AgentMessageLocatorRail,
   findMessageLocatorScrollParent
@@ -314,8 +313,6 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   const [expandedToolRows, setExpandedToolRows] = useState<
     Record<string, boolean>
   >({});
-  const [hasMovingTurnDisclosure, handleDisclosureMotionChange] =
-    useTurnDisclosureMotion();
   const turnDisclosureStore = useAgentTurnDisclosureStore();
   const participantHeadersEnabled = participantPresentation?.enabled === true;
   // Participant-header presentation (Agent board session detail): tool-group
@@ -379,6 +376,19 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   );
   const { canonicalTurnById, turnWorkSectionModelByKey, virtualEntries } =
     useAgentTranscriptTurnPresentation(conversation, turnGroups);
+  const latestTurnGroup = turnGroups.at(-1) ?? null;
+  const latestCanonicalTurn =
+    latestTurnGroup?.turnId === null || latestTurnGroup?.turnId === undefined
+      ? null
+      : (canonicalTurnById.get(latestTurnGroup.turnId) ?? null);
+  const activeTurnId =
+    conversation.sourceDetail.session.activeTurn?.turnId ??
+    conversation.sourceDetail.session.activeTurnId;
+  const isLatestTurnInProgress =
+    latestTurnGroup !== null &&
+    latestTurnGroup.turnId === activeTurnId &&
+    (conversation.sourceDetail.session.activeTurn?.phase ??
+      latestCanonicalTurn?.phase) !== "settled";
   const participantHeaderRenderKeys = participantTurnProjection
     ? findParticipantHeaderRenderKeys(
         turnGroups,
@@ -393,6 +403,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   const agentSessionId = conversation.sourceDetail.session.agentSessionId;
   const {
     layoutRevision,
+    responseSpacerHeightPx,
     rowVirtualizer,
     setVirtualizerHostElement,
     totalHeightPx,
@@ -403,7 +414,8 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     agentSessionId,
     entries: virtualEntries,
     followEndMode,
-    hasMovingTurnDisclosure,
+    isLatestTurnInProgress,
+    latestTurnKey: latestTurnGroup?.key ?? null,
     virtualScrollControllerRef
   });
   const locateOperation = useAgentTranscriptLocateOperation(isVisible);
@@ -673,7 +685,6 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
           dividerRowIndexes.has(rowIndex)
         )}
         disclosureStore={turnDisclosureStore}
-        onDisclosureMotionChange={handleDisclosureMotionChange}
         renderRow={(row, rowIndex, renderKey) =>
           renderRow(
             row,
@@ -753,6 +764,12 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
           })}
         </div>
       </div>
+      <div
+        aria-hidden="true"
+        className="agent-gui-transcript-response-spacer"
+        data-agent-transcript-response-spacer="true"
+        style={{ height: `${responseSpacerHeightPx}px` }}
+      />
     </>
   );
 }, areAgentTranscriptViewPropsEqual);

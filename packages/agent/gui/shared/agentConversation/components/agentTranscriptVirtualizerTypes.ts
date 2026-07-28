@@ -1,3 +1,16 @@
+import type { RefObject } from "react";
+
+export interface AgentTranscriptVirtualizer {
+  layoutRevision: number;
+  responseSpacerHeightPx: number;
+  rowVirtualizer: AgentTranscriptRowVirtualizer;
+  setVirtualizerHostElement(node: HTMLDivElement | null): void;
+  totalHeightPx: number;
+  virtualItems: readonly AgentTranscriptVirtualItem[];
+  virtualizerHostRef: RefObject<HTMLDivElement | null>;
+  windowOffsetPx: number;
+}
+
 export interface AgentTranscriptVirtualScrollController {
   agentSessionId: string;
   enabled: boolean;

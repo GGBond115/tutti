@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  agentTranscriptDistanceFromBottom,
   agentTranscriptKeyboardScrollDirection,
+  agentTranscriptNativeScrollTopForDistance,
   cancelAgentTranscriptScroll,
   connectAgentTranscriptScrollInput,
   normalizeAgentTranscriptWheelDelta,
@@ -12,6 +14,13 @@ afterEach(() => {
 });
 
 describe("agentTranscriptScrollController", () => {
+  it("uses the bottom-origin viewport's physical distance", () => {
+    expect(agentTranscriptNativeScrollTopForDistance(0, 120)).toBe(0);
+    expect(agentTranscriptNativeScrollTopForDistance(120, 120)).toBe(-120);
+    expect(agentTranscriptDistanceFromBottom(0, 120)).toBe(0);
+    expect(agentTranscriptDistanceFromBottom(-120, 120)).toBe(120);
+  });
+
   it("runs a 260ms smooth scroll and lands exactly on the target", () => {
     const element = document.createElement("div");
     const frames: FrameRequestCallback[] = [];

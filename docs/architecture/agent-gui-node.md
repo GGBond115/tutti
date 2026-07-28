@@ -949,7 +949,17 @@ rechecked from layout height so a delayed observer delivery cannot leave an esti
 and scroll padding is cached outside the scroll hot path. Before a measurement
 layout, the scroll owner snapshots bottom distance and native scroll height;
 wheel input received before that layout settles is accumulated into the
-restored distance. An unmeasured settled Turn outside the active/latest slots stays
+restored distance. A following transcript starts at native `scrollTop = 0`.
+The bottom-origin scroll controller owns physical distance as
+`max(0, -scrollTop)`. The virtualizer separately subtracts the retained
+latest-Turn response spacer when it calculates the rendered range. The spacer
+is a real sibling after the virtual list; it is not folded into composer
+`scroll-padding`. Turn measurement reports latest-Turn height changes
+separately and compensates measured rows from their previous bottom offsets.
+Whether ordinary measured rows preserve the viewport is controlled only by the
+latest Turn phase, not by tool or disclosure type. The scroll viewport disables
+native CSS scroll anchoring, leaving the virtualizer as the only scroll owner. An
+unmeasured settled Turn outside the active/latest slots stays
 inside its estimated-height slot until measurement; active and latest Turns
 keep natural height. While `detached`, growth below the viewport changes the
 bottom distance so the first rendered Turn keeps the same visual anchor.

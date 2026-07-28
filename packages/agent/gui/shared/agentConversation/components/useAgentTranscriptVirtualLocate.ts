@@ -101,9 +101,8 @@ export function useAgentTranscriptVirtualLocate(input: {
           viewportHeightPx: viewportStateRef.current.viewportHeightPx
         });
         if (
-          Math.abs(
-            correctedDistance - viewportStateRef.current.distanceFromBottomPx
-          ) > LOCATE_CORRECTION_THRESHOLD_PX
+          Math.abs(correctedDistance - Math.max(0, -scrollElement.scrollTop)) >
+          LOCATE_CORRECTION_THRESHOLD_PX
         ) {
           applyDistance(correctedDistance);
         }

@@ -78,20 +78,17 @@ export function nativeAgentTranscriptDistanceFromBottom(
 
 export function agentTranscriptDistanceFromBottom(
   scrollTopPx: number,
-  scrollPaddingBottomPx: number
+  _scrollPaddingBottomPx: number
 ): number {
-  return Math.max(
-    0,
-    nativeAgentTranscriptDistanceFromBottom(scrollTopPx) - scrollPaddingBottomPx
-  );
+  return nativeAgentTranscriptDistanceFromBottom(scrollTopPx);
 }
 
 export function agentTranscriptNativeScrollTopForDistance(
   distanceFromBottomPx: number,
-  scrollPaddingBottomPx: number
+  _scrollPaddingBottomPx: number
 ): number {
   const distance = Math.max(0, distanceFromBottomPx);
-  return distance === 0 ? 0 : -(distance + scrollPaddingBottomPx);
+  return distance === 0 ? 0 : -distance;
 }
 
 export function agentTranscriptDistanceFromTop(
