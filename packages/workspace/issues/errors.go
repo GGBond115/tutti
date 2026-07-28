@@ -23,7 +23,7 @@ var (
 	ErrTopicNotEmpty              = errors.New("issue topic is not empty")
 	ErrTopicNotFound              = errors.New("issue topic not found")
 	ErrWorkspaceNotFound          = errors.New("workspace not found")
-	ErrManagedIssueMutation       = errors.New("Tutti-owned Issue is managed by its source conversation")
+	ErrManagedIssueMutation       = errors.New("tutti-owned issue is managed by its source conversation")
 )
 
 // ManagedIssueMutationError rejects generic graph mutations for a Tutti-owned
@@ -40,7 +40,7 @@ func (err *ManagedIssueMutationError) Error() string {
 	return fmt.Sprintf("%s: issue %s", ErrManagedIssueMutation, err.IssueID)
 }
 
-func (err *ManagedIssueMutationError) Unwrap() error {
+func (_ *ManagedIssueMutationError) Unwrap() error {
 	return ErrManagedIssueMutation
 }
 
