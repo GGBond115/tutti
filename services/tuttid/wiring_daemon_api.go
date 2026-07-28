@@ -77,11 +77,25 @@ func configureWorkspaceAgentResolution(
 	}
 }
 
-func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analyticsReporter reporterservice.Reporter, browserService *browsersvc.Service, computerService *computersvc.Service, modelGateway *modelgatewayservice.Gateway) (tuttiapi.DaemonAPI, *workspaceservice.AppCenterService, *agentdaemon.Runtime, *agentservice.ProviderAuthWatcher, error) {
+func buildDaemonAPI(
+	ctx context.Context,
+	store workspacedata.CatalogStore,
+	analyticsReporter reporterservice.Reporter,
+	browserService *browsersvc.Service,
+	computerService *computersvc.Service,
+	modelGateway *modelgatewayservice.Gateway,
+	installTuttiModeWatchdog func(tuttimodeexecutionservice.Worker),
+) (tuttiapi.DaemonAPI, *workspaceservice.AppCenterService, *agentdaemon.Runtime, *agentservice.ProviderAuthWatcher, error) {
 	workspaceStore, _ := store.(workspacedata.WorkbenchStore)
 	issueStore, _ := store.(workspaceissues.Store)
 	tuttiModeExecutionStore, _ := store.(workspacedata.TuttiModeExecutionsStore)
 	tuttiModeWakeStore, _ := store.(tuttimodeexecutionservice.WakeStore)
+	tuttiModeReviewerActivity, ok := store.(tuttimodeexecutionservice.ReviewerActivityReader)
+	if !ok {
+		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
+			"Tutti mode reviewer activity reader is unavailable",
+		)
+	}
 	preferencesStore, _ := store.(workspacedata.PreferencesStore)
 	agentTargetStore, _ := store.(workspacedata.AgentTargetStore)
 	managedCredentialsStore, _ := store.(workspacedata.ManagedCredentialsStore)
@@ -443,7 +457,12 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 			Host:     agentHost,
 			Sessions: agentSessionService,
 		},
+		ReviewerActivity: tuttiModeReviewerActivity,
 	}
+	tuttiModeSourceActivity := tuttiModeSourceActivityAdapter{
+		Executions: tuttiModeExecutions,
+	}
+	agentSessionService.TuttiModeSourceActivity = tuttiModeSourceActivity
 	tuttiModeMainWakeRecovery := &tuttiModeMainWakeReadyRecovery{
 		Delegate: tuttiModeExecutions,
 	}
@@ -519,6 +538,9 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	})
 	agentActivityProjection.SetRootTurnObserver(rootTurnObserverFanout{
 		agentRuntimeController,
+		tuttiModeSourceTurnActivityObserver{
+			Activities: tuttiModeSourceActivity,
+		},
 		tuttiModeMainWakeTurnObserver{
 			Settlements: tuttiModeExecutions,
 			Queue:       issueService.RunReconcileQueue,
@@ -622,6 +644,23 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 			tuttiModeExecutions,
 			workspace.ID,
 		)
+	}
+	tuttiModeWatchdogWorker := newTuttiModeWatchdogWorker(
+		ctx, tuttiModeExecutions, tuttiModeMainWakeOwner,
+		func(ctx context.Context) ([]string, error) {
+			summaries, err := workspaceService.List(ctx)
+			if err != nil {
+				return nil, err
+			}
+			ids := make([]string, 0, len(summaries))
+			for _, summary := range summaries {
+				ids = append(ids, summary.ID)
+			}
+			return ids, nil
+		},
+	)
+	if installTuttiModeWatchdog != nil {
+		installTuttiModeWatchdog(tuttiModeWatchdogWorker)
 	}
 	cliProviders := []cliservice.Provider{
 		diagnosticscli.NewProvider(),
@@ -750,22 +789,4 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 			}
 		},
 	}, appCenterService, agentRuntime, providerAuthWatcher, nil
-}
-
-// modelPolicySessionTargetResolver lets the review engine resolve a session's
-// agent target from the persisted activity projection when a state report
-// does not carry it.
-type modelPolicySessionTargetResolver struct {
-	projection *agentservice.ActivityProjection
-}
-
-func (r modelPolicySessionTargetResolver) ResolveSessionAgentTarget(workspaceID string, agentSessionID string) (string, bool) {
-	if r.projection == nil {
-		return "", false
-	}
-	session, ok := r.projection.GetSession(workspaceID, agentSessionID)
-	if !ok {
-		return "", false
-	}
-	return session.AgentTargetID, session.AgentTargetID != ""
 }

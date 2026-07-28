@@ -53,12 +53,14 @@ type RunSnapshot struct {
 }
 
 type Execution struct {
-	WorkspaceID     string
-	IssueID         string
-	WorkflowID      string
-	SourceSessionID string
-	Status          string
-	GraphRevision   int64
+	WorkspaceID                string
+	IssueID                    string
+	WorkflowID                 string
+	SourceSessionID            string
+	Status                     string
+	GraphRevision              int64
+	LastOrchestratorActivityAt time.Time
+	WatchdogDueAt              time.Time
 }
 
 type Checkpoint struct {
@@ -150,6 +152,17 @@ type WakeDelivery struct {
 	DeadlineBudget  time.Duration
 }
 
+type SourceSessionActivity struct {
+	WorkspaceID string
+	SessionID   string
+	Kind        string
+	ActivityID  string
+	OccurredAt  time.Time
+	// TurnStartedAt allows guidance on an already-active Turn to prove that
+	// canonical message occurrence, not the older Turn start, owns debounce.
+	TurnStartedAt time.Time
+}
+
 // Driver is the narrow public contract exercised by Tutti execution product
 // conformance. Implementations may compose real services and persistence, but
 // scenarios do not reach through this seam to implementation details.
@@ -216,8 +229,56 @@ type Driver interface {
 	// SettleWakeTurn changes the canonical Turn observation and then enters
 	// the production wake reconciliation seam.
 	SettleWakeTurn(context.Context, string, string, string) error
+	// SettleWakeTurnAt separates canonical Turn settlement time from callback
+	// delivery time so the contract can reject wall-clock deadline drift.
+	SettleWakeTurnAt(context.Context, string, string, string, time.Time) error
+	// SetCanonicalWakeTurnSettledAt mutates only the canonical Agent fake and
+	// deliberately skips the Tutti product observer to model a lost callback
+	// projection that durable recovery must repair.
+	SetCanonicalWakeTurnSettledAt(string, string, string, time.Time)
 	SetExecutionStatus(context.Context, string, string, string) error
 	CorruptWakeTargetSession(context.Context, string, string, string) error
+	ObserveSourceSessionActivity(context.Context, SourceSessionActivity) error
+	// CommitCanonicalSourceActivity persists the canonical Agent fact without
+	// invoking the Tutti observer, modeling a lost post-commit projection.
+	// clientSubmitID is retained when present for user_turn and ignored for
+	// agent_turn.
+	CommitCanonicalSourceActivity(
+		context.Context, SourceSessionActivity, string,
+	) error
+	// CommitCanonicalSourceActivityBeforeNextWakeClaim commits canonical source
+	// activity after the dispatchable scan but before the durable claim while
+	// deliberately losing the low-latency Tutti observer projection.
+	CommitCanonicalSourceActivityBeforeNextWakeClaim(
+		context.Context, SourceSessionActivity, string,
+	)
+	// ObserveSourceActivityAfterNextWakeClaim injects canonical source
+	// activity in the claim-to-send window, before the second liveness
+	// observation returns.
+	ObserveSourceActivityAfterNextWakeClaim(context.Context, SourceSessionActivity)
+	// CommitCanonicalSourceActivityAfterNextWakeClaim commits canonical source
+	// activity in the claim-to-send window while deliberately losing the
+	// low-latency Tutti observer projection.
+	CommitCanonicalSourceActivityAfterNextWakeClaim(
+		context.Context, SourceSessionActivity, string,
+	)
+	// ObserveSourceActivityDuringNextWakeSend injects canonical root activity
+	// after SendInput has established its idempotent Turn but before the wake
+	// owner performs the final durable dispatch CAS.
+	ObserveSourceActivityDuringNextWakeSend(context.Context, SourceSessionActivity)
+	// CommitCanonicalSourceActivityDuringNextWakeSend commits canonical source
+	// activity in the send-to-finalize window while deliberately losing the
+	// low-latency Tutti observer projection.
+	CommitCanonicalSourceActivityDuringNextWakeSend(
+		context.Context, SourceSessionActivity, string,
+	)
+	RunWatchdog(context.Context, string, string) error
+	// StartupRecoverWatchdog must construct a fresh worker over the same
+	// durable store before scanning and recovering watchdog operations.
+	StartupRecoverWatchdog(context.Context, string, string) error
+	// SetReviewerActive seeds only the external goal-review owner state read by
+	// this service. It must not mutate execution, checkpoint, or wake rows.
+	SetReviewerActive(context.Context, string, string, bool) error
 	CurrentTime() time.Time
 	WakeDeliveryCallCount() int
 	WakeDeliveries() []WakeDelivery

@@ -19,6 +19,7 @@ var tuttiModeExecutionTables = []string{
 	"workspace_tutti_execution_checkpoints",
 	"workspace_tutti_execution_wakes",
 	"workspace_tutti_goal_reviews",
+	"workspace_tutti_source_activity_inbox",
 	"workspace_tutti_archive_operations",
 	"workspace_tutti_execution_mutations",
 	"workspace_source_session_deletion_admissions",
@@ -105,6 +106,44 @@ SELECT COUNT(*) FROM tuttid_schema_migrations WHERE id = ?
 	if tableCount != 1 || migrationCount != 1 {
 		t.Fatalf(
 			"V2 table/migration counts = %d/%d, want 1/1",
+			tableCount, migrationCount,
+		)
+	}
+}
+
+func TestTuttiModeSourceActivityInboxMigrationUpgradesV2Idempotently(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := openTuttiModeExecutionStore(t)
+	if _, err := store.writeDB.ExecContext(ctx, `
+DROP TABLE workspace_tutti_source_activity_inbox;
+DELETE FROM tuttid_schema_migrations WHERE id = ?;
+`, schemaMigrationWorkspaceTuttiModeSourceActivityInboxV3); err != nil {
+		t.Fatalf("prepare V2 schema error = %v", err)
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate(V2 to V3) error = %v", err)
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate(V3 replay) error = %v", err)
+	}
+	var tableCount, migrationCount int
+	if err := store.writeDB.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM sqlite_master
+WHERE type = 'table' AND name = 'workspace_tutti_source_activity_inbox'
+`).Scan(&tableCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.writeDB.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM tuttid_schema_migrations WHERE id = ?
+`, schemaMigrationWorkspaceTuttiModeSourceActivityInboxV3).Scan(
+		&migrationCount,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if tableCount != 1 || migrationCount != 1 {
+		t.Fatalf(
+			"V3 table/migration counts = %d/%d, want 1/1",
 			tableCount, migrationCount,
 		)
 	}
@@ -1163,12 +1202,14 @@ DROP TABLE workspace_issue_run_launch_intents;
 DROP TABLE workspace_source_session_deletion_admissions;
 DROP TABLE workspace_tutti_execution_mutations;
 DROP TABLE workspace_tutti_archive_operations;
+DROP TABLE workspace_tutti_source_activity_inbox;
 DROP TABLE workspace_tutti_goal_reviews;
 DROP TABLE workspace_tutti_execution_wakes;
 DROP TABLE workspace_tutti_execution_checkpoints;
 DROP TABLE workspace_tutti_executions;
-DELETE FROM tuttid_schema_migrations WHERE id IN (?, ?);
+DELETE FROM tuttid_schema_migrations WHERE id IN (?, ?, ?);
 `, schemaMigrationWorkspaceTuttiModeExecutionV1,
-		schemaMigrationWorkspaceTuttiModeRunCancelCompensationV2)
+		schemaMigrationWorkspaceTuttiModeRunCancelCompensationV2,
+		schemaMigrationWorkspaceTuttiModeSourceActivityInboxV3)
 	return err
 }

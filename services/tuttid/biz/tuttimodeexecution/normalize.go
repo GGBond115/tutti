@@ -52,6 +52,14 @@ func AllTasksTerminalCheckpointID(executionID string) (string, bool) {
 	return executionID + ":checkpoint:all-tasks-terminal", true
 }
 
+func WatchdogCheckpointID(executionID string, sequence int64) (string, bool) {
+	executionID = strings.TrimSpace(executionID)
+	if executionID == "" || sequence < 1 {
+		return "", false
+	}
+	return executionID + ":checkpoint:watchdog:" + fmt.Sprintf("%d", sequence), true
+}
+
 func MainWakeID(checkpointID string, sequence int64) (string, bool) {
 	checkpointID = strings.TrimSpace(checkpointID)
 	if checkpointID == "" || sequence < 1 {

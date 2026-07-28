@@ -189,7 +189,8 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 	wakeTarget := newRecordingMainWakeTarget()
 	wakeStore := newInjectableWakeStore(store)
 	executions := &tuttimodeexecutionservice.Service{
-		Store: store, Wakes: wakeStore, MainWakeTargets: wakeTarget, Clock: clock.Now,
+		Store: store, Wakes: wakeStore, MainWakeTargets: wakeTarget,
+		ReviewerActivity: store, Clock: clock.Now,
 	}
 	driver := &sqliteConformanceDriver{
 		dbPath: dbPath, store: store,
@@ -632,12 +633,14 @@ func (driver *sqliteConformanceDriver) GetExecutionByIssue(
 		return tuttimodeexecutionconformance.Execution{}, nil, err
 	}
 	execution := tuttimodeexecutionconformance.Execution{
-		WorkspaceID:     aggregate.Execution.WorkspaceID,
-		IssueID:         aggregate.Execution.IssueID,
-		WorkflowID:      aggregate.Execution.WorkflowID,
-		SourceSessionID: aggregate.Execution.SourceSessionID,
-		Status:          string(aggregate.Execution.Status),
-		GraphRevision:   aggregate.Execution.GraphRevision,
+		WorkspaceID:                aggregate.Execution.WorkspaceID,
+		IssueID:                    aggregate.Execution.IssueID,
+		WorkflowID:                 aggregate.Execution.WorkflowID,
+		SourceSessionID:            aggregate.Execution.SourceSessionID,
+		Status:                     string(aggregate.Execution.Status),
+		GraphRevision:              aggregate.Execution.GraphRevision,
+		LastOrchestratorActivityAt: aggregate.Execution.LastOrchestratorActivityAt,
+		WatchdogDueAt:              aggregate.Execution.WatchdogDueAt,
 	}
 	checkpoints := make([]tuttimodeexecutionconformance.Checkpoint, 0, len(aggregate.Checkpoints))
 	for _, checkpoint := range aggregate.Checkpoints {
@@ -835,6 +838,21 @@ func TestSettlementSQLiteServiceConformance(t *testing.T) {
 
 func TestWakeSQLiteServiceConformance(t *testing.T) {
 	for _, scenario := range tuttimodeexecutionconformance.WakeCatalog() {
+		scenario := scenario
+		t.Run(scenario.Name, func(t *testing.T) {
+			if err := tuttimodeexecutionconformance.Run(
+				context.Background(),
+				newSQLiteConformanceDriver(t),
+				scenario,
+			); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestWatchdogSQLiteServiceConformance(t *testing.T) {
+	for _, scenario := range tuttimodeexecutionconformance.WatchdogCatalog() {
 		scenario := scenario
 		t.Run(scenario.Name, func(t *testing.T) {
 			if err := tuttimodeexecutionconformance.Run(

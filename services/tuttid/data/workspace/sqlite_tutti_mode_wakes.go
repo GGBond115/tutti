@@ -19,10 +19,25 @@ func prepareTuttiModeMainWakeTx(
 	checkpoint executionbiz.Checkpoint,
 	now time.Time,
 ) error {
+	return prepareTuttiModeMainWakeSequenceTx(
+		ctx, tx, workspaceID, executionID, checkpoint, 1, now, now,
+	)
+}
+
+func prepareTuttiModeMainWakeSequenceTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	workspaceID string,
+	executionID string,
+	checkpoint executionbiz.Checkpoint,
+	sequence int64,
+	dueAt time.Time,
+	now time.Time,
+) error {
 	if checkpoint.Status != executionbiz.CheckpointStatusActive {
 		return nil
 	}
-	wakeID, ok := executionbiz.MainWakeID(checkpoint.ID, 1)
+	wakeID, ok := executionbiz.MainWakeID(checkpoint.ID, sequence)
 	if !ok {
 		return executionbiz.ErrWakeIntegrity
 	}
@@ -36,14 +51,14 @@ INSERT OR IGNORE INTO workspace_tutti_execution_wakes (
   wake_sequence, client_submit_id, target_session_id, status,
   due_at_unix_ms, created_at_unix_ms, updated_at_unix_ms
 )
-SELECT e.workspace_id, e.execution_id, ?, ?, 'main', 1, ?,
+SELECT e.workspace_id, e.execution_id, ?, ?, 'main', ?, ?,
        e.source_session_id, 'prepared', ?, ?, ?
 FROM workspace_tutti_executions e
 JOIN workspace_tutti_execution_checkpoints c
   ON c.workspace_id = e.workspace_id AND c.execution_id = e.execution_id
 WHERE e.workspace_id = ? AND e.execution_id = ?
   AND c.checkpoint_id = ? AND c.status = 'active'
-`, checkpoint.ID, wakeID, clientSubmitID, unixMs(now), unixMs(now), unixMs(now),
+`, checkpoint.ID, wakeID, sequence, clientSubmitID, unixMs(dueAt), unixMs(now), unixMs(now),
 		workspaceID, executionID, checkpoint.ID)
 	if err != nil {
 		return fmt.Errorf("prepare Tutti mode main wake: %w", err)
@@ -63,17 +78,185 @@ JOIN workspace_tutti_execution_checkpoints c
   ON c.workspace_id = w.workspace_id AND c.execution_id = w.execution_id
  AND c.checkpoint_id = w.checkpoint_id
 WHERE w.workspace_id = ? AND w.execution_id = ? AND w.wake_id = ?
-  AND w.checkpoint_id = ? AND w.target_kind = 'main' AND w.wake_sequence = 1
+  AND w.checkpoint_id = ? AND w.target_kind = 'main' AND w.wake_sequence = ?
   AND w.client_submit_id = ? AND w.target_session_id = e.source_session_id
   AND w.status IN ('prepared', 'leased', 'dispatched', 'turn_settled')
   AND c.status = 'active'
-`, workspaceID, executionID, wakeID, checkpoint.ID, clientSubmitID).Scan(&equivalent)
+`, workspaceID, executionID, wakeID, checkpoint.ID, sequence, clientSubmitID).Scan(&equivalent)
 		if err != nil || equivalent != 1 {
 			if err != nil {
 				return fmt.Errorf("verify Tutti mode main wake: %w", err)
 			}
 			return executionbiz.ErrWakeIntegrity
 		}
+	}
+	return nil
+}
+
+func (s *SQLiteStore) PrepareDueTuttiModeExecutionWatchdogs(
+	ctx context.Context,
+	workspaceID string,
+	now time.Time,
+) error {
+	if err := s.ensureIssueDatabase(); err != nil {
+		return err
+	}
+	workspaceID = strings.TrimSpace(workspaceID)
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin Tutti mode watchdog preparation: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx, `
+SELECT execution_id, graph_revision, watchdog_due_at_unix_ms
+FROM workspace_tutti_executions
+WHERE workspace_id = ?
+  AND status IN ('awaiting_schedule', 'running', 'awaiting_main', 'pending_goal_review')
+  AND watchdog_due_at_unix_ms <= ?
+ORDER BY watchdog_due_at_unix_ms ASC, execution_id ASC
+`, workspaceID, unixMs(now))
+	if err != nil {
+		return fmt.Errorf("list due Tutti mode watchdogs: %w", err)
+	}
+	type dueExecution struct {
+		id            string
+		graphRevision int64
+		dueAtUnixMS   int64
+	}
+	var due []dueExecution
+	for rows.Next() {
+		var item dueExecution
+		if err := rows.Scan(&item.id, &item.graphRevision, &item.dueAtUnixMS); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan due Tutti mode watchdog: %w", err)
+		}
+		due = append(due, item)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close due Tutti mode watchdogs: %w", err)
+	}
+	for _, item := range due {
+		if err := prepareDueTuttiModeWatchdogTx(
+			ctx, tx, workspaceID, item.id, item.graphRevision,
+			time.UnixMilli(item.dueAtUnixMS).UTC(), now,
+		); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit Tutti mode watchdog preparation: %w", err)
+	}
+	return nil
+}
+
+func prepareDueTuttiModeWatchdogTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	workspaceID string,
+	executionID string,
+	graphRevision int64,
+	dueAt time.Time,
+	now time.Time,
+) error {
+	row := tx.QueryRowContext(ctx, `
+SELECT checkpoint_id, execution_id, kind, status, sequence, graph_revision,
+       subject_task_id, subject_run_id, creation_reason, requires_goal_review,
+       created_at_unix_ms, updated_at_unix_ms, resolved_at_unix_ms
+FROM workspace_tutti_execution_checkpoints
+WHERE workspace_id = ? AND execution_id = ? AND status = 'active'
+`, workspaceID, executionID)
+	checkpoint, err := scanTuttiModeExecutionCheckpoint(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		var maxSequence int64
+		if err := tx.QueryRowContext(ctx, `
+SELECT COALESCE(MAX(sequence), 0)
+FROM workspace_tutti_execution_checkpoints
+WHERE workspace_id = ? AND execution_id = ?
+`, workspaceID, executionID).Scan(&maxSequence); err != nil {
+			return fmt.Errorf("get watchdog checkpoint sequence: %w", err)
+		}
+		checkpointID, ok := executionbiz.WatchdogCheckpointID(
+			executionID, maxSequence+1,
+		)
+		if !ok {
+			return executionbiz.ErrWakeIntegrity
+		}
+		checkpoint = executionbiz.Checkpoint{
+			ID: checkpointID, ExecutionID: executionID,
+			Kind: executionbiz.CheckpointKindWatchdog, Status: executionbiz.CheckpointStatusActive,
+			Sequence: maxSequence + 1, GraphRevision: graphRevision,
+			CreationReason: "fixed_inactivity_watchdog",
+			CreatedAt:      now, UpdatedAt: now,
+		}
+		if err := insertTuttiModeExecutionCheckpoint(
+			ctx, tx, workspaceID, checkpoint,
+		); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+UPDATE workspace_tutti_executions
+SET status = 'awaiting_main', updated_at_unix_ms = ?
+WHERE workspace_id = ? AND execution_id = ?
+  AND status IN ('awaiting_schedule', 'running', 'awaiting_main', 'pending_goal_review')
+`, unixMs(now), workspaceID, executionID); err != nil {
+			return fmt.Errorf("activate Tutti mode watchdog checkpoint: %w", err)
+		}
+		return prepareTuttiModeMainWakeSequenceTx(
+			ctx, tx, workspaceID, executionID, checkpoint, 1, dueAt, now,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("get active Tutti mode watchdog checkpoint: %w", err)
+	}
+	var latestStatus string
+	var latestSequence int64
+	err = tx.QueryRowContext(ctx, `
+SELECT status, wake_sequence
+FROM workspace_tutti_execution_wakes
+WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ?
+  AND target_kind = 'main'
+ORDER BY wake_sequence DESC LIMIT 1
+`, workspaceID, executionID, checkpoint.ID).Scan(&latestStatus, &latestSequence)
+	if errors.Is(err, sql.ErrNoRows) {
+		return prepareTuttiModeMainWakeSequenceTx(
+			ctx, tx, workspaceID, executionID, checkpoint, 1, dueAt, now,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("get active checkpoint wake generation: %w", err)
+	}
+	if latestStatus != string(executionbiz.WakeStatusTurnSettled) {
+		return nil
+	}
+	return prepareTuttiModeMainWakeSequenceTx(
+		ctx, tx, workspaceID, executionID, checkpoint,
+		latestSequence+1, dueAt, now,
+	)
+}
+
+func (s *SQLiteStore) ObserveTuttiModeSourceSessionActivity(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+	now time.Time,
+) error {
+	if err := s.ensureIssueDatabase(); err != nil {
+		return err
+	}
+	workspaceID = strings.TrimSpace(workspaceID)
+	sessionID = strings.TrimSpace(sessionID)
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin Tutti mode source-session activity: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := observeTuttiModeSourceSessionActivityTx(
+		ctx, tx, workspaceID, sessionID, now,
+	); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit Tutti mode source-session activity: %w", err)
 	}
 	return nil
 }
@@ -143,6 +326,27 @@ ORDER BY w.due_at_unix_ms ASC, e.execution_id ASC, c.sequence ASC, w.wake_sequen
 	return scanTuttiModeWakes(rows)
 }
 
+func (s *SQLiteStore) ListDispatchedTuttiModeMainWakes(
+	ctx context.Context,
+	workspaceID string,
+) ([]executionbiz.Wake, error) {
+	if err := s.ensureIssueDatabase(); err != nil {
+		return nil, err
+	}
+	rows, err := s.readDB.QueryContext(ctx, wakeSelectQuery+`
+WHERE e.workspace_id = ?
+  AND e.status IN ('awaiting_schedule', 'running', 'awaiting_main', 'pending_goal_review')
+  AND c.status = 'active'
+  AND w.status = 'dispatched'
+  AND w.target_kind = 'main'
+ORDER BY w.dispatched_at_unix_ms ASC, e.execution_id ASC, c.sequence ASC
+`, strings.TrimSpace(workspaceID))
+	if err != nil {
+		return nil, fmt.Errorf("list dispatched Tutti mode main wakes: %w", err)
+	}
+	return scanTuttiModeWakes(rows)
+}
+
 func (s *SQLiteStore) ListCorruptedTuttiModeMainWakes(
 	ctx context.Context,
 	workspaceID string,
@@ -196,12 +400,28 @@ func (s *SQLiteStore) ClaimTuttiModeExecutionWake(
 	now time.Time,
 	leaseExpiresAt time.Time,
 ) (bool, error) {
+	futureActivityCutoff := unixMs(now.Add(-executionbiz.WatchdogInterval))
 	result, err := s.writeDB.ExecContext(ctx, `
 UPDATE workspace_tutti_execution_wakes
 SET status = 'leased', attempt_count = attempt_count + 1,
     lease_owner = ?, lease_expires_at_unix_ms = ?, updated_at_unix_ms = ?
 WHERE workspace_id = ? AND wake_id = ? AND status = 'prepared'
   AND due_at_unix_ms <= ?
+  AND NOT EXISTS (
+    SELECT 1
+    FROM (`+tuttiModeRelevantSourceActivitySelectSQL+`) relevant_activity
+    WHERE relevant_activity.workspace_id =
+      workspace_tutti_execution_wakes.workspace_id
+      AND relevant_activity.agent_session_id =
+        workspace_tutti_execution_wakes.target_session_id
+      AND relevant_activity.activity_at_unix_ms > (
+        SELECT e.last_orchestrator_activity_at_unix_ms
+        FROM workspace_tutti_executions e
+        WHERE e.workspace_id = workspace_tutti_execution_wakes.workspace_id
+          AND e.execution_id = workspace_tutti_execution_wakes.execution_id
+      )
+      AND relevant_activity.activity_at_unix_ms > ?
+  )
   AND EXISTS (
     SELECT 1
     FROM workspace_tutti_executions e
@@ -214,7 +434,8 @@ WHERE workspace_id = ? AND wake_id = ? AND status = 'prepared'
       AND c.checkpoint_id = workspace_tutti_execution_wakes.checkpoint_id
       AND c.status = 'active'
   )
-`, leaseOwner, unixMs(leaseExpiresAt), unixMs(now), workspaceID, wakeID, unixMs(now))
+`, leaseOwner, unixMs(leaseExpiresAt), unixMs(now), workspaceID, wakeID,
+		unixMs(now), futureActivityCutoff)
 	if err != nil {
 		return false, fmt.Errorf("claim Tutti mode execution wake: %w", err)
 	}
@@ -249,8 +470,10 @@ func (s *SQLiteStore) MarkTuttiModeExecutionWakeDispatched(
 	leaseOwner string,
 	canonicalSessionID string,
 	canonicalTurnID string,
+	expectedDueAt time.Time,
 	now time.Time,
 ) error {
+	futureActivityCutoff := unixMs(now.Add(-executionbiz.WatchdogInterval))
 	result, err := s.writeDB.ExecContext(ctx, `
 UPDATE workspace_tutti_execution_wakes
 SET status = 'dispatched', canonical_session_id = ?, canonical_turn_id = ?,
@@ -258,7 +481,23 @@ SET status = 'dispatched', canonical_session_id = ?, canonical_turn_id = ?,
     dispatched_at_unix_ms = ?, updated_at_unix_ms = ?
 WHERE workspace_id = ? AND wake_id = ? AND status = 'leased' AND lease_owner = ?
   AND lease_expires_at_unix_ms > ?
+  AND due_at_unix_ms = ? AND due_at_unix_ms <= ?
   AND target_session_id = ?
+  AND NOT EXISTS (
+    SELECT 1
+    FROM (`+tuttiModeRelevantSourceActivitySelectSQL+`) relevant_activity
+    WHERE relevant_activity.workspace_id =
+      workspace_tutti_execution_wakes.workspace_id
+      AND relevant_activity.agent_session_id =
+        workspace_tutti_execution_wakes.target_session_id
+      AND relevant_activity.activity_at_unix_ms > (
+        SELECT e.last_orchestrator_activity_at_unix_ms
+        FROM workspace_tutti_executions e
+        WHERE e.workspace_id = workspace_tutti_execution_wakes.workspace_id
+          AND e.execution_id = workspace_tutti_execution_wakes.execution_id
+      )
+      AND relevant_activity.activity_at_unix_ms > ?
+  )
   AND EXISTS (
     SELECT 1
     FROM workspace_tutti_executions e
@@ -272,7 +511,9 @@ WHERE workspace_id = ? AND wake_id = ? AND status = 'leased' AND lease_owner = ?
       AND c.status = 'active'
   )
 `, canonicalSessionID, canonicalTurnID, unixMs(now), unixMs(now),
-		workspaceID, wakeID, leaseOwner, unixMs(now), canonicalSessionID)
+		workspaceID, wakeID, leaseOwner, unixMs(now),
+		unixMs(expectedDueAt), unixMs(now), canonicalSessionID,
+		futureActivityCutoff)
 	if err != nil {
 		return fmt.Errorf("mark Tutti mode execution wake dispatched: %w", err)
 	}
@@ -286,7 +527,25 @@ func (s *SQLiteStore) MarkTuttiModeExecutionWakeTurnSettled(
 	turnID string,
 	now time.Time,
 ) (bool, error) {
-	result, err := s.writeDB.ExecContext(ctx, `
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin Tutti mode main wake Turn settlement: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var executionID string
+	err = tx.QueryRowContext(ctx, `
+SELECT execution_id
+FROM workspace_tutti_execution_wakes
+WHERE workspace_id = ? AND target_kind = 'main' AND status = 'dispatched'
+  AND canonical_session_id = ? AND canonical_turn_id = ?
+`, workspaceID, sessionID, turnID).Scan(&executionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("find Tutti mode main wake Turn: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `
 UPDATE workspace_tutti_execution_wakes
 SET status = 'turn_settled', turn_settled_at_unix_ms = ?, updated_at_unix_ms = ?
 WHERE workspace_id = ? AND target_kind = 'main' AND status = 'dispatched'
@@ -296,7 +555,24 @@ WHERE workspace_id = ? AND target_kind = 'main' AND status = 'dispatched'
 		return false, fmt.Errorf("settle Tutti mode main wake Turn: %w", err)
 	}
 	affected, err := result.RowsAffected()
-	return affected == 1, err
+	if err != nil || affected != 1 {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE workspace_tutti_executions
+SET last_orchestrator_activity_at_unix_ms = ?,
+    watchdog_due_at_unix_ms = ?, updated_at_unix_ms = ?
+WHERE workspace_id = ? AND execution_id = ?
+  AND status IN ('awaiting_schedule', 'running', 'awaiting_main', 'pending_goal_review')
+  AND last_orchestrator_activity_at_unix_ms < ?
+`, unixMs(now), unixMs(now.Add(executionbiz.WatchdogInterval)), unixMs(now),
+		workspaceID, executionID, unixMs(now)); err != nil {
+		return false, fmt.Errorf("reset watchdog after main wake Turn: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit Tutti mode main wake Turn settlement: %w", err)
+	}
+	return true, nil
 }
 
 func (s *SQLiteStore) FailTuttiModeExecutionWakeIntegrity(

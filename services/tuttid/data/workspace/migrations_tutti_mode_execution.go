@@ -284,3 +284,46 @@ VALUES (?, ?)
 	}
 	return nil
 }
+
+func (s *SQLiteStore) applyWorkspaceTuttiModeSourceActivityInboxV3(
+	ctx context.Context,
+) error {
+	applied, err := s.hasMigration(
+		ctx, schemaMigrationWorkspaceTuttiModeSourceActivityInboxV3,
+	)
+	if err != nil || applied {
+		return err
+	}
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin Tutti mode source activity inbox migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+CREATE TABLE workspace_tutti_source_activity_inbox (
+  mutation_id TEXT PRIMARY KEY,
+  transaction_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  agent_session_id TEXT NOT NULL,
+  entity_kind TEXT NOT NULL CHECK (entity_kind IN ('message', 'turn')),
+  entity_id TEXT NOT NULL,
+  entity_version INTEGER NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_workspace_tutti_source_activity_inbox_scope
+  ON workspace_tutti_source_activity_inbox(
+    workspace_id, agent_session_id, entity_kind
+  );
+
+INSERT INTO tuttid_schema_migrations (id, applied_at_unix_ms)
+VALUES (?, ?)
+`, schemaMigrationWorkspaceTuttiModeSourceActivityInboxV3,
+		unixMs(time.Now().UTC())); err != nil {
+		return fmt.Errorf("migrate Tutti mode source activity inbox: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit Tutti mode source activity inbox migration: %w", err)
+	}
+	return nil
+}

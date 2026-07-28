@@ -52,21 +52,32 @@ type Store interface {
 type WakeStore interface {
 	ListTuttiModeExecutionWakes(context.Context, string, string) ([]executionbiz.Wake, error)
 	ListDispatchableTuttiModeMainWakes(context.Context, string, time.Time) ([]executionbiz.Wake, error)
+	ListDispatchedTuttiModeMainWakes(context.Context, string) ([]executionbiz.Wake, error)
 	ListCorruptedTuttiModeMainWakes(context.Context, string, time.Time) ([]executionbiz.Wake, error)
 	GetTuttiModeExecutionWake(context.Context, string, string) (executionbiz.Wake, bool, error)
 	ClaimTuttiModeExecutionWake(context.Context, string, string, string, time.Time, time.Time) (bool, error)
 	ReleaseTuttiModeExecutionWake(context.Context, string, string, string, string, time.Time) error
-	MarkTuttiModeExecutionWakeDispatched(context.Context, string, string, string, string, string, time.Time) error
+	MarkTuttiModeExecutionWakeDispatched(
+		context.Context, string, string, string, string, string, time.Time, time.Time,
+	) error
 	MarkTuttiModeExecutionWakeTurnSettled(context.Context, string, string, string, time.Time) (bool, error)
 	FailTuttiModeExecutionWakeIntegrity(context.Context, string, string, string, time.Time) error
 	RequeueExpiredTuttiModeExecutionWakes(context.Context, string, time.Time) error
 	CancelSuppressedTuttiModeExecutionWakes(context.Context, string, time.Time) error
+	DrainTuttiModeSourceActivityInbox(context.Context, string) error
+	PrepareDueTuttiModeExecutionWatchdogs(context.Context, string, time.Time) error
+	ObserveTuttiModeSourceSessionActivity(context.Context, string, string, time.Time) error
+}
+
+type ReviewerActivityReader interface {
+	HasActiveTuttiModeReviewer(context.Context, string, string) (bool, error)
 }
 
 type Service struct {
 	Store                  Store
 	Wakes                  WakeStore
 	MainWakeTargets        MainWakeTarget
+	ReviewerActivity       ReviewerActivityReader
 	MainWakeSendTimeout    time.Duration
 	MainWakeCleanupTimeout time.Duration
 	Clock                  func() time.Time

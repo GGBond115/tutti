@@ -8,12 +8,55 @@ import (
 	"time"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
+	agentstoresqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentservice "github.com/tutti-os/tutti/services/tuttid/service/agent"
 	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 	workspaceservice "github.com/tutti-os/tutti/services/tuttid/service/workspace"
 )
 
 type wrappedMissingWakeSessionHost struct{}
+
+type recordingSourceTurnActivity struct {
+	calls []agentservice.TuttiModeSourceActivity
+}
+
+func (observer *recordingSourceTurnActivity) ObserveTuttiModeSourceActivity(
+	_ context.Context,
+	activity agentservice.TuttiModeSourceActivity,
+) error {
+	observer.calls = append(observer.calls, activity)
+	return nil
+}
+
+func TestTuttiModeSourceTurnObserverProjectsOnlySettledExactRootTurn(t *testing.T) {
+	activities := &recordingSourceTurnActivity{}
+	observer := tuttiModeSourceTurnActivityObserver{Activities: activities}
+
+	observer.ObserveRootTurnSettled(
+		context.Background(), "workspace-1", "session-source",
+		agentactivitybiz.Turn{
+			TurnID: "turn-1", Phase: agentactivitybiz.TurnPhaseSettled,
+			SettledAtUnixMS: 1234,
+		},
+	)
+	if len(activities.calls) != 1 ||
+		activities.calls[0].WorkspaceID != "workspace-1" ||
+		activities.calls[0].SessionID != "session-source" ||
+		activities.calls[0].Kind != "agent_turn" ||
+		activities.calls[0].ActivityID != "turn-1" ||
+		activities.calls[0].OccurredAtUnixMS != 1234 {
+		t.Fatalf("settled source activity = %#v", activities.calls)
+	}
+
+	observer.ObserveRootTurnSettled(
+		context.Background(), "workspace-1", "session-source",
+		agentactivitybiz.Turn{TurnID: "turn-2", Phase: agentactivitybiz.TurnPhaseSubmitted},
+	)
+	if len(activities.calls) != 1 {
+		t.Fatalf("non-settled Turn projected activity: %#v", activities.calls)
+	}
+}
 
 func (wrappedMissingWakeSessionHost) GetSession(
 	context.Context,
@@ -33,6 +76,14 @@ func (wrappedMissingWakeSessionHost) FindTurnByClientSubmitID(
 	return "", false, nil
 }
 
+func (wrappedMissingWakeSessionHost) GetTurn(
+	context.Context,
+	agenthost.SessionRef,
+	string,
+) (agentstoresqlite.Turn, bool, error) {
+	return agentstoresqlite.Turn{}, false, nil
+}
+
 func TestTuttiModeMainWakeAdapterTreatsWrappedSessionNotFoundAsAbsent(t *testing.T) {
 	observation, err := (tuttiModeMainWakeAgentAdapter{
 		Host: wrappedMissingWakeSessionHost{},
@@ -42,6 +93,57 @@ func TestTuttiModeMainWakeAdapterTreatsWrappedSessionNotFoundAsAbsent(t *testing
 	}
 	if observation.Exists || observation.Busy {
 		t.Fatalf("ObserveSourceSession() = %+v, want absent and idle", observation)
+	}
+}
+
+type canonicalWakeTurnHost struct {
+	settledAt time.Time
+}
+
+func (host canonicalWakeTurnHost) GetSession(
+	context.Context,
+	agenthost.SessionRef,
+) (agenthost.GetSessionResult, error) {
+	return agenthost.GetSessionResult{}, nil
+}
+
+func (host canonicalWakeTurnHost) FindTurnByClientSubmitID(
+	context.Context,
+	agenthost.SessionRef,
+	string,
+) (string, bool, error) {
+	return "turn-canonical-wake", true, nil
+}
+
+func (host canonicalWakeTurnHost) GetTurn(
+	context.Context,
+	agenthost.SessionRef,
+	string,
+) (agentstoresqlite.Turn, bool, error) {
+	return agentstoresqlite.Turn{
+		TurnID:          "turn-canonical-wake",
+		Phase:           agentstoresqlite.TurnPhaseSettled,
+		SettledAtUnixMS: host.settledAt.UnixMilli(),
+	}, true, nil
+}
+
+func TestTuttiModeMainWakeAdapterReadsCanonicalSettlementTime(t *testing.T) {
+	settledAt := time.Date(2035, 6, 7, 8, 9, 10, 0, time.UTC)
+	observation, found, err := (tuttiModeMainWakeAgentAdapter{
+		Host: canonicalWakeTurnHost{settledAt: settledAt},
+	}).ReadMainWakeTurn(
+		context.Background(),
+		"workspace-1",
+		"session-1",
+		"tutti-execution-wake:wake-1",
+	)
+	if err != nil || !found ||
+		observation.CanonicalTurnID != "turn-canonical-wake" ||
+		!observation.SettledAt.Equal(settledAt) {
+		t.Fatalf(
+			"ReadMainWakeTurn() = %+v, %v, %v",
+			observation, found, err,
+		)
 	}
 }
 
@@ -307,17 +409,20 @@ type recordingWakeTurnSettler struct {
 	workspaceID string
 	sessionID   string
 	turnID      string
+	settledAt   time.Time
 }
 
-func (settler *recordingWakeTurnSettler) ObserveMainWakeTurnSettled(
+func (settler *recordingWakeTurnSettler) ObserveMainWakeTurnSettledAt(
 	_ context.Context,
 	workspaceID string,
 	sessionID string,
 	turnID string,
+	settledAt time.Time,
 ) error {
 	settler.workspaceID = workspaceID
 	settler.sessionID = sessionID
 	settler.turnID = turnID
+	settler.settledAt = settledAt
 	return nil
 }
 
@@ -332,6 +437,7 @@ func (queue *recordingWorkspaceReconcileQueue) Enqueue(workspaceID string) {
 func TestRootTurnSettlementQueuesMainWakeRecoveryInsteadOfSendingInline(t *testing.T) {
 	settler := &recordingWakeTurnSettler{}
 	queue := &recordingWorkspaceReconcileQueue{}
+	canonicalSettledAt := time.Date(2034, 5, 6, 7, 8, 9, 0, time.UTC)
 	(tuttiModeMainWakeTurnObserver{
 		Settlements: settler,
 		Queue:       queue,
@@ -339,11 +445,16 @@ func TestRootTurnSettlementQueuesMainWakeRecoveryInsteadOfSendingInline(t *testi
 		context.Background(),
 		"workspace-1",
 		"session-1",
-		agentactivitybiz.Turn{TurnID: "turn-1", Phase: agentactivitybiz.TurnPhaseSettled},
+		agentactivitybiz.Turn{
+			TurnID:          "turn-1",
+			Phase:           agentactivitybiz.TurnPhaseSettled,
+			SettledAtUnixMS: canonicalSettledAt.UnixMilli(),
+		},
 	)
 	if settler.workspaceID != "workspace-1" ||
 		settler.sessionID != "session-1" ||
-		settler.turnID != "turn-1" {
+		settler.turnID != "turn-1" ||
+		!settler.settledAt.Equal(canonicalSettledAt) {
 		t.Fatalf("settled wake identity = %+v", settler)
 	}
 	if len(queue.workspaceIDs) != 1 || queue.workspaceIDs[0] != "workspace-1" {

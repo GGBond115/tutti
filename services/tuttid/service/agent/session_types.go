@@ -47,6 +47,7 @@ type Service struct {
 	SubmitClaimStore               SubmitClaimStore
 	RuntimeOperationEventPublisher RuntimeOperationEventPublisher
 	TuttiModeActivations           TuttiModeActivationPort
+	TuttiModeSourceActivity        TuttiModeSourceActivityObserver
 	SourceSessionDeletions         SourceSessionDeletionPort
 	SessionDeletionEvents          SessionDeletionEventPublisher
 	TurnCancelObserver             TurnCancelObserver
@@ -99,6 +100,18 @@ type Service struct {
 	// modelPlanBinding wires the optional workspace model access plan
 	// integration; see ConfigureModelPlanBinding.
 	modelPlanBinding modelPlanBindingRuntime
+}
+
+type TuttiModeSourceActivity struct {
+	WorkspaceID      string
+	SessionID        string
+	Kind             string
+	ActivityID       string
+	OccurredAtUnixMS int64
+}
+
+type TuttiModeSourceActivityObserver interface {
+	ObserveTuttiModeSourceActivity(context.Context, TuttiModeSourceActivity) error
 }
 
 type GoalReconcileInboxStore = agenthost.GoalReconcileInboxStore

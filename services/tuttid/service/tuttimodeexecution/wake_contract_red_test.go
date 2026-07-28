@@ -8,24 +8,31 @@ import (
 	"sync"
 	"time"
 
+	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 	tuttimodeexecutionconformance "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution/conformance"
 )
 
 type recordingMainWakeTarget struct {
-	mu                      sync.Mutex
-	busy                    map[string]bool
-	hang                    map[string]bool
-	observationFailures     map[string]bool
-	advanceDuringSend       map[string]func()
-	deliveries              []tuttimodeexecutionconformance.WakeDelivery
-	canonicalByClientSubmit map[string]string
-	failBeforeCanonical     bool
-	failAmbiguousBefore     bool
-	failAfterCanonical      bool
-	failCanonicalLookup     bool
-	cancelDuringSend        context.CancelFunc
-	cancelDeliveryOutcome   string
+	mu                        sync.Mutex
+	busy                      map[string]bool
+	hang                      map[string]bool
+	observationFailures       map[string]bool
+	advanceDuringSend         map[string]func()
+	observeCount              map[string]int
+	activityBeforeClaim       map[string]func() error
+	activityAfterClaim        map[string]func() error
+	activityDuringSend        map[string]func() error
+	deliveries                []tuttimodeexecutionconformance.WakeDelivery
+	canonicalByClientSubmit   map[string]string
+	settledAtByTurnID         map[string]time.Time
+	failBeforeCanonical       bool
+	failAmbiguousBefore       bool
+	failAfterCanonical        bool
+	armCanonicalLookupFailure bool
+	failLookupClientSubmitID  string
+	cancelDuringSend          context.CancelFunc
+	cancelDeliveryOutcome     string
 }
 
 func newRecordingMainWakeTarget() *recordingMainWakeTarget {
@@ -34,7 +41,12 @@ func newRecordingMainWakeTarget() *recordingMainWakeTarget {
 		hang:                    make(map[string]bool),
 		observationFailures:     make(map[string]bool),
 		advanceDuringSend:       make(map[string]func()),
+		observeCount:            make(map[string]int),
+		activityBeforeClaim:     make(map[string]func() error),
+		activityAfterClaim:      make(map[string]func() error),
+		activityDuringSend:      make(map[string]func() error),
 		canonicalByClientSubmit: make(map[string]string),
+		settledAtByTurnID:       make(map[string]time.Time),
 	}
 }
 
@@ -83,14 +95,40 @@ func (target *recordingMainWakeTarget) ObserveSourceSession(
 	sessionID string,
 ) (tuttimodeexecutionservice.SourceSessionObservation, error) {
 	target.mu.Lock()
-	defer target.mu.Unlock()
-	if target.observationFailures[wakeTargetKey(workspaceID, sessionID)] {
+	key := wakeTargetKey(workspaceID, sessionID)
+	target.observeCount[key]++
+	beforeClaim := target.activityBeforeClaim[key]
+	if target.observeCount[key] != 1 {
+		beforeClaim = nil
+	} else {
+		delete(target.activityBeforeClaim, key)
+	}
+	afterClaim := target.activityAfterClaim[key]
+	if target.observeCount[key] != 2 {
+		afterClaim = nil
+	} else {
+		delete(target.activityAfterClaim, key)
+	}
+	failed := target.observationFailures[key]
+	busy := target.busy[key]
+	target.mu.Unlock()
+	if beforeClaim != nil {
+		if err := beforeClaim(); err != nil {
+			return tuttimodeexecutionservice.SourceSessionObservation{}, err
+		}
+	}
+	if afterClaim != nil {
+		if err := afterClaim(); err != nil {
+			return tuttimodeexecutionservice.SourceSessionObservation{}, err
+		}
+	}
+	if failed {
 		return tuttimodeexecutionservice.SourceSessionObservation{},
 			errors.New("injected permanent source observation failure")
 	}
 	return tuttimodeexecutionservice.SourceSessionObservation{
 		Exists: true,
-		Busy:   target.busy[wakeTargetKey(workspaceID, sessionID)],
+		Busy:   busy,
 	}, nil
 }
 
@@ -149,11 +187,17 @@ func (target *recordingMainWakeTarget) SendMainWake(
 	}
 	if target.failAfterCanonical {
 		target.failAfterCanonical = false
+		if target.armCanonicalLookupFailure {
+			target.armCanonicalLookupFailure = false
+			target.failLookupClientSubmitID = clientSubmitID
+		}
 		target.mu.Unlock()
 		return tuttimodeexecutionservice.MainWakeDelivery{}, errors.New("injected response loss")
 	}
 	advance := target.advanceDuringSend[key]
 	delete(target.advanceDuringSend, key)
+	activityDuringSend := target.activityDuringSend[key]
+	delete(target.activityDuringSend, key)
 	target.mu.Unlock()
 	if cancelCaller != nil {
 		cancelCaller()
@@ -164,6 +208,11 @@ func (target *recordingMainWakeTarget) SendMainWake(
 	}
 	if advance != nil {
 		advance()
+	}
+	if activityDuringSend != nil {
+		if err := activityDuringSend(); err != nil {
+			return tuttimodeexecutionservice.MainWakeDelivery{}, err
+		}
 	}
 	return tuttimodeexecutionservice.MainWakeDelivery{
 		CanonicalSessionID: sessionID,
@@ -182,12 +231,33 @@ func (target *recordingMainWakeTarget) FindMainWakeTurn(
 	}
 	target.mu.Lock()
 	defer target.mu.Unlock()
-	if target.failCanonicalLookup {
-		target.failCanonicalLookup = false
+	if target.failLookupClientSubmitID == clientSubmitID {
+		target.failLookupClientSubmitID = ""
 		return "", false, errors.New("injected canonical lookup outage")
 	}
 	turnID := target.canonicalByClientSubmit[clientSubmitID]
 	return turnID, turnID != "", nil
+}
+
+func (target *recordingMainWakeTarget) ReadMainWakeTurn(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+	clientSubmitID string,
+) (tuttimodeexecutionservice.MainWakeTurnObservation, bool, error) {
+	turnID, found, err := target.FindMainWakeTurn(
+		ctx, workspaceID, sessionID, clientSubmitID,
+	)
+	if err != nil || !found {
+		return tuttimodeexecutionservice.MainWakeTurnObservation{}, found, err
+	}
+	target.mu.Lock()
+	settledAt := target.settledAtByTurnID[turnID]
+	target.mu.Unlock()
+	return tuttimodeexecutionservice.MainWakeTurnObservation{
+		CanonicalTurnID: turnID,
+		SettledAt:       settledAt,
+	}, true, nil
 }
 
 func (driver *sqliteConformanceDriver) ListWakes(
@@ -271,7 +341,7 @@ func (driver *sqliteConformanceDriver) StartupRecoverWakes(
 ) error {
 	fresh := tuttimodeexecutionservice.Service{
 		Store: driver.store, Wakes: driver.wakeStore, MainWakeTargets: driver.wakeTarget,
-		Clock: driver.clock.Now,
+		ReviewerActivity: driver.store, Clock: driver.clock.Now,
 	}
 	return fresh.StartupRecoverMainWakes(ctx, workspaceID, leaseOwner)
 }
@@ -307,7 +377,7 @@ func (driver *sqliteConformanceDriver) FailNextWakeAfterCanonical() {
 func (driver *sqliteConformanceDriver) FailNextWakeCanonicalLookup() {
 	driver.wakeTarget.mu.Lock()
 	defer driver.wakeTarget.mu.Unlock()
-	driver.wakeTarget.failCanonicalLookup = true
+	driver.wakeTarget.armCanonicalLookupFailure = true
 }
 
 func (driver *sqliteConformanceDriver) SetMainWakeSendTimeout(timeout time.Duration) {
@@ -407,6 +477,18 @@ func (driver *sqliteConformanceDriver) SettleWakeTurn(
 	)
 }
 
+func (driver *sqliteConformanceDriver) SettleWakeTurnAt(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+	turnID string,
+	settledAt time.Time,
+) error {
+	return driver.executions.ObserveMainWakeTurnSettledAt(
+		ctx, workspaceID, sessionID, turnID, settledAt,
+	)
+}
+
 func (driver *sqliteConformanceDriver) SetExecutionStatus(
 	ctx context.Context,
 	workspaceID string,
@@ -417,6 +499,115 @@ func (driver *sqliteConformanceDriver) SetExecutionStatus(
 UPDATE workspace_tutti_executions SET status = ?
 WHERE workspace_id = ? AND issue_id = ?
 `, status, workspaceID, issueID)
+}
+
+func (driver *sqliteConformanceDriver) SetCanonicalWakeTurnSettledAt(
+	workspaceID string,
+	sessionID string,
+	turnID string,
+	settledAt time.Time,
+) {
+	_ = workspaceID
+	_ = sessionID
+	driver.wakeTarget.mu.Lock()
+	driver.wakeTarget.settledAtByTurnID[turnID] = settledAt.UTC()
+	driver.wakeTarget.mu.Unlock()
+}
+
+func (driver *sqliteConformanceDriver) ObserveSourceActivityAfterNextWakeClaim(
+	ctx context.Context,
+	activity tuttimodeexecutionconformance.SourceSessionActivity,
+) {
+	key := wakeTargetKey(activity.WorkspaceID, activity.SessionID)
+	driver.wakeTarget.mu.Lock()
+	driver.wakeTarget.observeCount[key] = 0
+	driver.wakeTarget.activityAfterClaim[key] = func() error {
+		occurredAt := activity.OccurredAt
+		if occurredAt.IsZero() {
+			occurredAt = driver.CurrentTime()
+		}
+		return driver.executions.ObserveSourceSessionActivity(
+			ctx,
+			tuttimodeexecutionservice.SourceSessionActivity{
+				WorkspaceID: activity.WorkspaceID,
+				SessionID:   activity.SessionID,
+				Kind: tuttimodeexecutionservice.SourceSessionActivityKind(
+					activity.Kind,
+				),
+				ActivityID: activity.ActivityID,
+				OccurredAt: occurredAt,
+			},
+		)
+	}
+	driver.wakeTarget.mu.Unlock()
+}
+
+func (driver *sqliteConformanceDriver) CommitCanonicalSourceActivityBeforeNextWakeClaim(
+	ctx context.Context,
+	activity tuttimodeexecutionconformance.SourceSessionActivity,
+	clientSubmitID string,
+) {
+	key := wakeTargetKey(activity.WorkspaceID, activity.SessionID)
+	driver.wakeTarget.mu.Lock()
+	driver.wakeTarget.observeCount[key] = 0
+	driver.wakeTarget.activityBeforeClaim[key] = func() error {
+		return driver.CommitCanonicalSourceActivity(ctx, activity, clientSubmitID)
+	}
+	driver.wakeTarget.mu.Unlock()
+}
+
+func (driver *sqliteConformanceDriver) CommitCanonicalSourceActivityAfterNextWakeClaim(
+	ctx context.Context,
+	activity tuttimodeexecutionconformance.SourceSessionActivity,
+	clientSubmitID string,
+) {
+	key := wakeTargetKey(activity.WorkspaceID, activity.SessionID)
+	driver.wakeTarget.mu.Lock()
+	driver.wakeTarget.observeCount[key] = 0
+	driver.wakeTarget.activityAfterClaim[key] = func() error {
+		return driver.CommitCanonicalSourceActivity(ctx, activity, clientSubmitID)
+	}
+	driver.wakeTarget.mu.Unlock()
+}
+
+func (driver *sqliteConformanceDriver) ObserveSourceActivityDuringNextWakeSend(
+	ctx context.Context,
+	activity tuttimodeexecutionconformance.SourceSessionActivity,
+) {
+	key := wakeTargetKey(activity.WorkspaceID, activity.SessionID)
+	driver.wakeTarget.mu.Lock()
+	driver.wakeTarget.activityDuringSend[key] = func() error {
+		occurredAt := activity.OccurredAt
+		if occurredAt.IsZero() {
+			occurredAt = driver.CurrentTime()
+		}
+		return driver.executions.ObserveSourceSessionActivity(
+			ctx,
+			tuttimodeexecutionservice.SourceSessionActivity{
+				WorkspaceID: activity.WorkspaceID,
+				SessionID:   activity.SessionID,
+				Kind: tuttimodeexecutionservice.SourceSessionActivityKind(
+					activity.Kind,
+				),
+				ActivityID: activity.ActivityID,
+				OccurredAt: occurredAt,
+			},
+		)
+	}
+	driver.wakeTarget.mu.Unlock()
+}
+
+func (driver *sqliteConformanceDriver) CommitCanonicalSourceActivityDuringNextWakeSend(
+	ctx context.Context,
+	activity tuttimodeexecutionconformance.SourceSessionActivity,
+	clientSubmitID string,
+) {
+	key := wakeTargetKey(activity.WorkspaceID, activity.SessionID)
+	driver.wakeTarget.mu.Lock()
+	driver.wakeTarget.activityDuringSend[key] = func() error {
+		return driver.CommitCanonicalSourceActivity(ctx, activity, clientSubmitID)
+	}
+	driver.wakeTarget.mu.Unlock()
 }
 
 func (driver *sqliteConformanceDriver) CorruptWakeTargetSession(
@@ -433,6 +624,198 @@ WHERE workspace_id = ? AND execution_id = (
   WHERE workspace_id = ? AND issue_id = ?
 )
 `, sessionID, workspaceID, workspaceID, issueID)
+}
+
+func (driver *sqliteConformanceDriver) ObserveSourceSessionActivity(
+	ctx context.Context,
+	activity tuttimodeexecutionconformance.SourceSessionActivity,
+) error {
+	kind := tuttimodeexecutionservice.SourceSessionActivityKind(activity.Kind)
+	occurredAt := activity.OccurredAt
+	if occurredAt.IsZero() {
+		occurredAt = driver.CurrentTime()
+	}
+	return driver.executions.ObserveSourceSessionActivity(
+		ctx, tuttimodeexecutionservice.SourceSessionActivity{
+			WorkspaceID: activity.WorkspaceID,
+			SessionID:   activity.SessionID,
+			Kind:        kind,
+			ActivityID:  activity.ActivityID,
+			OccurredAt:  occurredAt,
+		},
+	)
+}
+
+func (driver *sqliteConformanceDriver) CommitCanonicalSourceActivity(
+	ctx context.Context,
+	activity tuttimodeexecutionconformance.SourceSessionActivity,
+	clientSubmitID string,
+) error {
+	occurredAt := activity.OccurredAt
+	if occurredAt.IsZero() {
+		occurredAt = driver.CurrentTime()
+	}
+	occurredAtUnixMS := occurredAt.UnixMilli()
+	turnStartedAt := activity.TurnStartedAt
+	if turnStartedAt.IsZero() {
+		turnStartedAt = occurredAt
+	}
+	turn := &agentactivitybiz.TurnTransition{
+		WorkspaceID:      activity.WorkspaceID,
+		AgentSessionID:   activity.SessionID,
+		TurnID:           activity.ActivityID,
+		Origin:           agentactivitybiz.TurnOriginUserPrompt,
+		Phase:            agentactivitybiz.TurnPhaseRunning,
+		StartedAtUnixMS:  turnStartedAt.UnixMilli(),
+		OccurredAtUnixMS: occurredAtUnixMS,
+	}
+	messages := []agentactivitybiz.MessageUpdate(nil)
+	if activity.Kind == "agent_turn" {
+		turn.Origin = agentactivitybiz.TurnOriginProviderInitiated
+		turn.Phase = agentactivitybiz.TurnPhaseSettled
+		turn.Outcome = agentactivitybiz.TurnOutcomeCompleted
+		turn.SettledAtUnixMS = occurredAtUnixMS
+	} else {
+		if !activity.TurnStartedAt.IsZero() {
+			if _, err := driver.store.ReportActivityState(
+				ctx,
+				agentactivitybiz.ActivityStateReport{
+					Session: agentactivitybiz.SessionStateReport{
+						WorkspaceID:    activity.WorkspaceID,
+						AgentSessionID: activity.SessionID,
+						Kind:           agentactivitybiz.SessionKindRoot,
+						Origin:         "runtime", Provider: "codex",
+						Status:           "working",
+						OccurredAtUnixMS: turnStartedAt.UnixMilli(),
+					},
+					Turn: &agentactivitybiz.TurnTransition{
+						WorkspaceID:      activity.WorkspaceID,
+						AgentSessionID:   activity.SessionID,
+						TurnID:           activity.ActivityID,
+						Origin:           agentactivitybiz.TurnOriginUserPrompt,
+						Phase:            agentactivitybiz.TurnPhaseRunning,
+						StartedAtUnixMS:  turnStartedAt.UnixMilli(),
+						OccurredAtUnixMS: turnStartedAt.UnixMilli(),
+					},
+				},
+			); err != nil {
+				return err
+			}
+		}
+		messages = []agentactivitybiz.MessageUpdate{{
+			MessageID: "user-submit:" + activity.ActivityID,
+			TurnID:    activity.ActivityID,
+			Role:      "user",
+			Kind:      "text",
+			Status:    "completed",
+			Payload: map[string]any{
+				"clientSubmitId": clientSubmitID,
+				"text":           "canonical source activity",
+			},
+			OccurredAtUnixMS: occurredAtUnixMS,
+		}}
+	}
+	_, err := driver.store.ReportActivityState(
+		ctx,
+		agentactivitybiz.ActivityStateReport{
+			Session: agentactivitybiz.SessionStateReport{
+				WorkspaceID:      activity.WorkspaceID,
+				AgentSessionID:   activity.SessionID,
+				Kind:             agentactivitybiz.SessionKindRoot,
+				Origin:           "runtime",
+				Provider:         "codex",
+				Status:           "working",
+				OccurredAtUnixMS: occurredAtUnixMS,
+			},
+			Turn:     turn,
+			Messages: messages,
+		},
+	)
+	return err
+}
+
+func (driver *sqliteConformanceDriver) RunWatchdog(
+	ctx context.Context,
+	workspaceID string,
+	leaseOwner string,
+) error {
+	return driver.executions.RunWatchdog(ctx, workspaceID, leaseOwner)
+}
+
+func (driver *sqliteConformanceDriver) StartupRecoverWatchdog(
+	ctx context.Context,
+	workspaceID string,
+	leaseOwner string,
+) error {
+	fresh := tuttimodeexecutionservice.Service{
+		Store: driver.store, Wakes: driver.wakeStore,
+		MainWakeTargets: driver.wakeTarget, ReviewerActivity: driver.store,
+		Clock: driver.clock.Now,
+	}
+	return fresh.RunWatchdog(ctx, workspaceID, leaseOwner)
+}
+
+func (driver *sqliteConformanceDriver) SetReviewerActive(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	active bool,
+) error {
+	if !active {
+		if err := driver.execWakeFixtureMutation(ctx, `
+UPDATE workspace_tutti_goal_reviews
+SET status = 'canceled', updated_at_unix_ms = ?
+WHERE workspace_id = ? AND execution_id = (
+  SELECT execution_id
+  FROM workspace_tutti_executions
+  WHERE workspace_id = ? AND issue_id = ?
+)
+  AND status IN ('prepared', 'dispatched')
+`, driver.CurrentTime().UnixMilli(), workspaceID, workspaceID, issueID); err != nil {
+			return err
+		}
+		found, err := driver.store.HasActiveTuttiModeReviewer(
+			ctx, workspaceID, issueID,
+		)
+		if err != nil {
+			return err
+		}
+		if found {
+			return errors.New("goal-review fixture remained active")
+		}
+		return nil
+	}
+	if err := driver.execWakeFixtureMutation(ctx, `
+INSERT INTO workspace_tutti_goal_reviews (
+  workspace_id, execution_id, checkpoint_id, review_id,
+  review_agent_target_id, review_session_id, review_turn_id,
+  status, created_at_unix_ms, updated_at_unix_ms
+)
+SELECT e.workspace_id, e.execution_id, c.checkpoint_id,
+       e.execution_id || ':review:test', 'review-agent-target', '', '',
+       'prepared', ?, ?
+FROM workspace_tutti_executions e
+JOIN workspace_tutti_execution_checkpoints c
+  ON c.workspace_id = e.workspace_id AND c.execution_id = e.execution_id
+WHERE e.workspace_id = ? AND e.issue_id = ?
+ORDER BY c.sequence DESC
+LIMIT 1
+ON CONFLICT(workspace_id, execution_id, review_id) DO UPDATE SET
+  status = 'prepared', updated_at_unix_ms = excluded.updated_at_unix_ms
+`, driver.CurrentTime().UnixMilli(), driver.CurrentTime().UnixMilli(),
+		workspaceID, issueID); err != nil {
+		return err
+	}
+	found, err := driver.store.HasActiveTuttiModeReviewer(
+		ctx, workspaceID, issueID,
+	)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return errors.New("goal-review fixture was not visible through reader")
+	}
+	return nil
 }
 
 func (driver *sqliteConformanceDriver) execWakeFixtureMutation(

@@ -6,8 +6,10 @@ import (
 	"log/slog"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
+	agentstoresqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 	agentservice "github.com/tutti-os/tutti/services/tuttid/service/agent"
 	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
@@ -17,6 +19,7 @@ import (
 type tuttiModeMainWakeHost interface {
 	GetSession(context.Context, agenthost.SessionRef) (agenthost.GetSessionResult, error)
 	FindTurnByClientSubmitID(context.Context, agenthost.SessionRef, string) (string, bool, error)
+	GetTurn(context.Context, agenthost.SessionRef, string) (agentstoresqlite.Turn, bool, error)
 }
 
 type tuttiModeMainWakeAgentAdapter struct {
@@ -87,6 +90,39 @@ func (adapter tuttiModeMainWakeAgentAdapter) FindMainWakeTurn(
 	}, clientSubmitID)
 }
 
+func (adapter tuttiModeMainWakeAgentAdapter) ReadMainWakeTurn(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+	clientSubmitID string,
+) (tuttimodeexecutionservice.MainWakeTurnObservation, bool, error) {
+	if adapter.Host == nil {
+		return tuttimodeexecutionservice.MainWakeTurnObservation{},
+			false, tuttimodeexecutionservice.ErrServiceUnavailable
+	}
+	ref := agenthost.SessionRef{
+		WorkspaceID: workspaceID, AgentSessionID: sessionID,
+	}
+	turnID, found, err := adapter.Host.FindTurnByClientSubmitID(
+		ctx, ref, clientSubmitID,
+	)
+	if err != nil || !found {
+		return tuttimodeexecutionservice.MainWakeTurnObservation{}, false, err
+	}
+	turn, found, err := adapter.Host.GetTurn(ctx, ref, turnID)
+	if err != nil || !found {
+		return tuttimodeexecutionservice.MainWakeTurnObservation{}, false, err
+	}
+	observation := tuttimodeexecutionservice.MainWakeTurnObservation{
+		CanonicalTurnID: strings.TrimSpace(turn.TurnID),
+	}
+	if strings.TrimSpace(turn.Phase) == agentstoresqlite.TurnPhaseSettled &&
+		turn.SettledAtUnixMS > 0 {
+		observation.SettledAt = time.UnixMilli(turn.SettledAtUnixMS).UTC()
+	}
+	return observation, observation.CanonicalTurnID != "", nil
+}
+
 // errorsIsSessionNotFound keeps the wake adapter independent of provider
 // runtime errors: Host canonical absence is the only missing-source signal.
 func errorsIsSessionNotFound(err error) bool {
@@ -108,8 +144,77 @@ func (observers rootTurnObserverFanout) ObserveRootTurnSettled(
 	}
 }
 
+type tuttiModeSourceActivityService interface {
+	ObserveSourceSessionActivity(
+		context.Context,
+		tuttimodeexecutionservice.SourceSessionActivity,
+	) error
+}
+
+type tuttiModeSourceActivityAdapter struct {
+	Executions tuttiModeSourceActivityService
+}
+
+func (adapter tuttiModeSourceActivityAdapter) ObserveTuttiModeSourceActivity(
+	ctx context.Context,
+	activity agentservice.TuttiModeSourceActivity,
+) error {
+	if adapter.Executions == nil {
+		return tuttimodeexecutionservice.ErrServiceUnavailable
+	}
+	return adapter.Executions.ObserveSourceSessionActivity(
+		ctx,
+		tuttimodeexecutionservice.SourceSessionActivity{
+			WorkspaceID: activity.WorkspaceID,
+			SessionID:   activity.SessionID,
+			Kind: tuttimodeexecutionservice.SourceSessionActivityKind(
+				activity.Kind,
+			),
+			ActivityID: activity.ActivityID,
+			OccurredAt: time.UnixMilli(activity.OccurredAtUnixMS).UTC(),
+		},
+	)
+}
+
+type tuttiModeSourceTurnActivityObserver struct {
+	Activities agentservice.TuttiModeSourceActivityObserver
+}
+
+func (observer tuttiModeSourceTurnActivityObserver) ObserveRootTurnSettled(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+	turn agentactivitybiz.Turn,
+) {
+	if observer.Activities == nil ||
+		strings.TrimSpace(turn.Phase) != agentactivitybiz.TurnPhaseSettled ||
+		strings.TrimSpace(turn.TurnID) == "" || turn.SettledAtUnixMS <= 0 {
+		return
+	}
+	if err := observer.Activities.ObserveTuttiModeSourceActivity(
+		ctx,
+		agentservice.TuttiModeSourceActivity{
+			WorkspaceID:      workspaceID,
+			SessionID:        sessionID,
+			Kind:             "agent_turn",
+			ActivityID:       turn.TurnID,
+			OccurredAtUnixMS: turn.SettledAtUnixMS,
+		},
+	); err != nil {
+		slog.WarnContext(
+			ctx,
+			"observe Tutti mode source Agent Turn failed",
+			"event", "tutti_mode_execution.source_agent_turn_observation_failed",
+			"workspaceId", workspaceID,
+			"agentSessionId", sessionID,
+			"turnId", turn.TurnID,
+			"error", err,
+		)
+	}
+}
+
 type tuttiModeMainWakeTurnSettler interface {
-	ObserveMainWakeTurnSettled(context.Context, string, string, string) error
+	ObserveMainWakeTurnSettledAt(context.Context, string, string, string, time.Time) error
 }
 
 type workspaceReconcileEnqueuer interface {
@@ -128,11 +233,13 @@ func (observer tuttiModeMainWakeTurnObserver) ObserveRootTurnSettled(
 	turn agentactivitybiz.Turn,
 ) {
 	if observer.Settlements == nil ||
-		strings.TrimSpace(turn.Phase) != agentactivitybiz.TurnPhaseSettled {
+		strings.TrimSpace(turn.Phase) != agentactivitybiz.TurnPhaseSettled ||
+		strings.TrimSpace(turn.TurnID) == "" || turn.SettledAtUnixMS <= 0 {
 		return
 	}
-	if err := observer.Settlements.ObserveMainWakeTurnSettled(
+	if err := observer.Settlements.ObserveMainWakeTurnSettledAt(
 		ctx, workspaceID, sessionID, turn.TurnID,
+		time.UnixMilli(turn.SettledAtUnixMS).UTC(),
 	); err != nil {
 		slog.WarnContext(ctx, "observe Tutti mode main wake Turn settlement failed",
 			"event", "tutti_mode_execution.main_wake_turn_settlement_failed",
@@ -242,5 +349,7 @@ func repairTuttiModeMainWakesAtStartup(
 }
 
 var _ tuttimodeexecutionservice.MainWakeTarget = tuttiModeMainWakeAgentAdapter{}
+var _ agentservice.TuttiModeSourceActivityObserver = tuttiModeSourceActivityAdapter{}
 var _ agentservice.RootTurnObserver = rootTurnObserverFanout{}
+var _ agentservice.RootTurnObserver = tuttiModeSourceTurnActivityObserver{}
 var _ agentservice.RootTurnObserver = tuttiModeMainWakeTurnObserver{}

@@ -29,13 +29,18 @@ type MainWakeDelivery struct {
 	CanonicalTurnID    string
 }
 
+type MainWakeTurnObservation struct {
+	CanonicalTurnID string
+	SettledAt       time.Time
+}
+
 // MainWakeTarget is the daemon adapter onto Agent Host. It observes canonical
 // session liveness without resuming a provider, submits through Host's
 // idempotent SendInput lifecycle, and recovers canonical Turn identity.
 type MainWakeTarget interface {
 	ObserveSourceSession(context.Context, string, string) (SourceSessionObservation, error)
 	SendMainWake(context.Context, string, string, string, string) (MainWakeDelivery, error)
-	FindMainWakeTurn(context.Context, string, string, string) (string, bool, error)
+	ReadMainWakeTurn(context.Context, string, string, string) (MainWakeTurnObservation, bool, error)
 }
 
 func (service Service) ListWakes(
@@ -89,6 +94,26 @@ func (service Service) RecoverMainWakes(
 	if workspaceID == "" || leaseOwner == "" {
 		return executionbiz.ErrWakeRejected
 	}
+	if err := store.DrainTuttiModeSourceActivityInbox(
+		ctx, workspaceID,
+	); err != nil {
+		return err
+	}
+	reconcileErr := service.reconcileDispatchedMainWakes(
+		ctx, store, workspaceID,
+	)
+	dispatchErr := service.recoverDispatchableMainWakes(
+		ctx, store, workspaceID, leaseOwner,
+	)
+	return errors.Join(reconcileErr, dispatchErr)
+}
+
+func (service Service) recoverDispatchableMainWakes(
+	ctx context.Context,
+	store WakeStore,
+	workspaceID string,
+	leaseOwner string,
+) error {
 	now := service.now()
 	wakes, err := store.ListDispatchableTuttiModeMainWakes(
 		ctx, workspaceID, now,
@@ -118,6 +143,66 @@ func (service Service) RecoverMainWakes(
 	return errors.Join(recoveryErrors...)
 }
 
+func (service Service) reconcileDispatchedMainWakes(
+	ctx context.Context,
+	store WakeStore,
+	workspaceID string,
+) error {
+	wakes, err := store.ListDispatchedTuttiModeMainWakes(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	var recoveryErrors []error
+	for _, wake := range wakes {
+		if wakeErr := service.reconcileOneDispatchedMainWake(
+			ctx, store, workspaceID, wake,
+		); wakeErr != nil {
+			recoveryErrors = append(recoveryErrors, fmt.Errorf(
+				"reconcile dispatched Tutti mode main wake %q: %w",
+				wake.ID,
+				wakeErr,
+			))
+		}
+	}
+	return errors.Join(recoveryErrors...)
+}
+
+func (service Service) reconcileOneDispatchedMainWake(
+	ctx context.Context,
+	store WakeStore,
+	workspaceID string,
+	wake executionbiz.Wake,
+) error {
+	if integrityErr := validateMainWakeIdentity(workspaceID, wake); integrityErr != nil {
+		return integrityErr
+	}
+	if wake.CanonicalSessionID != wake.TargetSessionID ||
+		strings.TrimSpace(wake.CanonicalTurnID) == "" {
+		return executionbiz.ErrWakeIntegrity
+	}
+	observation, found, err := service.MainWakeTargets.ReadMainWakeTurn(
+		ctx, wake.WorkspaceID, wake.TargetSessionID, wake.ClientSubmitID,
+	)
+	if err != nil {
+		return errors.Join(ErrMainWakeDeliveryPending, err)
+	}
+	observation.CanonicalTurnID = strings.TrimSpace(observation.CanonicalTurnID)
+	if !found || observation.SettledAt.IsZero() {
+		return nil
+	}
+	if observation.CanonicalTurnID != wake.CanonicalTurnID {
+		return executionbiz.ErrWakeIntegrity
+	}
+	_, err = store.MarkTuttiModeExecutionWakeTurnSettled(
+		ctx,
+		wake.WorkspaceID,
+		wake.TargetSessionID,
+		wake.CanonicalTurnID,
+		observation.SettledAt.UTC(),
+	)
+	return err
+}
+
 func (service Service) recoverOneMainWake(
 	ctx context.Context,
 	store WakeStore,
@@ -135,6 +220,18 @@ func (service Service) recoverOneMainWake(
 			return errors.Join(integrityErr, failErr)
 		}
 		return integrityErr
+	}
+	if service.ReviewerActivity == nil {
+		return errors.Join(ErrMainWakeDeliveryPending, ErrServiceUnavailable)
+	}
+	active, reviewerErr := service.ReviewerActivity.HasActiveTuttiModeReviewer(
+		ctx, workspaceID, wake.IssueID,
+	)
+	if reviewerErr != nil {
+		return errors.Join(ErrMainWakeDeliveryPending, reviewerErr)
+	}
+	if active {
+		return nil
 	}
 	observation, observeErr := service.MainWakeTargets.ObserveSourceSession(
 		ctx, workspaceID, wake.SourceSessionID,
@@ -193,9 +290,10 @@ func (service Service) StartupRecoverMainWakes(
 	return service.RecoverMainWakes(ctx, workspaceID, leaseOwner)
 }
 
-// PrepareStartupMainWakeRecovery performs only durable local repair. Product
-// wiring calls this while the daemon graph is still being built, then enqueues
-// actual Agent delivery for the daemon-ready reconciliation seam.
+// PrepareStartupMainWakeRecovery performs durable local repair and drains
+// canonical source activity. Product wiring calls this while the daemon graph
+// is still being built, then enqueues actual Agent delivery for the
+// daemon-ready reconciliation seam.
 func (service Service) PrepareStartupMainWakeRecovery(
 	ctx context.Context,
 	workspaceID string,
@@ -215,7 +313,9 @@ func (service Service) PrepareStartupMainWakeRecovery(
 	); err != nil {
 		return err
 	}
-	return nil
+	return store.DrainTuttiModeSourceActivityInbox(
+		ctx, strings.TrimSpace(workspaceID),
+	)
 }
 
 func (service Service) DispatchClaimedMainWake(
@@ -228,8 +328,14 @@ func (service Service) DispatchClaimedMainWake(
 	if store == nil || service.MainWakeTargets == nil {
 		return ErrServiceUnavailable
 	}
+	workspaceID = strings.TrimSpace(workspaceID)
+	if err := store.DrainTuttiModeSourceActivityInbox(
+		ctx, workspaceID,
+	); err != nil {
+		return err
+	}
 	wake, found, err := store.GetTuttiModeExecutionWake(
-		ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(wakeID),
+		ctx, workspaceID, strings.TrimSpace(wakeID),
 	)
 	if err != nil {
 		return err
@@ -253,6 +359,12 @@ func (service Service) DispatchClaimedMainWake(
 	if wake.LeaseExpiresAt.IsZero() || !wake.LeaseExpiresAt.After(now) {
 		return executionbiz.ErrWakeRejected
 	}
+	if wake.DueAt.After(now) {
+		return service.releaseClaimedMainWake(
+			ctx, store, wake,
+			"source activity advanced the wake deadline after claim",
+		)
+	}
 	prompt := MainWakePrompt(wake)
 	sendTimeout := service.mainWakeSendTimeBudget(wake.LeaseExpiresAt.Sub(now))
 	sendCtx, cancelSend := context.WithTimeout(ctx, sendTimeout)
@@ -262,14 +374,17 @@ func (service Service) DispatchClaimedMainWake(
 	cancelSend()
 	if sendErr != nil {
 		lookupCtx, cancelLookup := service.mainWakeCleanupContext(ctx)
-		turnID, found, findErr := service.MainWakeTargets.FindMainWakeTurn(
+		observation, found, findErr := service.MainWakeTargets.ReadMainWakeTurn(
 			lookupCtx, wake.WorkspaceID, wake.TargetSessionID, wake.ClientSubmitID,
 		)
 		cancelLookup()
-		if findErr == nil && found && strings.TrimSpace(turnID) != "" {
+		if findErr == nil && found &&
+			strings.TrimSpace(observation.CanonicalTurnID) != "" {
 			delivery = MainWakeDelivery{
 				CanonicalSessionID: wake.TargetSessionID,
-				CanonicalTurnID:    strings.TrimSpace(turnID),
+				CanonicalTurnID: strings.TrimSpace(
+					observation.CanonicalTurnID,
+				),
 			}
 		} else {
 			message := sendErr.Error()
@@ -298,9 +413,35 @@ func (service Service) DispatchClaimedMainWake(
 	}
 	finalizeCtx, cancelFinalize := service.mainWakeCleanupContext(ctx)
 	defer cancelFinalize()
-	return store.MarkTuttiModeExecutionWakeDispatched(
+	finalizedAt := service.now()
+	finalizeErr := store.MarkTuttiModeExecutionWakeDispatched(
 		finalizeCtx, wake.WorkspaceID, wake.ID, wake.LeaseOwner,
-		delivery.CanonicalSessionID, delivery.CanonicalTurnID, service.now(),
+		delivery.CanonicalSessionID, delivery.CanonicalTurnID,
+		wake.DueAt, finalizedAt,
+	)
+	if !errors.Is(finalizeErr, executionbiz.ErrWakeRejected) {
+		return finalizeErr
+	}
+	if drainErr := store.DrainTuttiModeSourceActivityInbox(
+		finalizeCtx, wake.WorkspaceID,
+	); drainErr != nil {
+		return errors.Join(finalizeErr, drainErr)
+	}
+	current, found, readErr := store.GetTuttiModeExecutionWake(
+		finalizeCtx, wake.WorkspaceID, wake.ID,
+	)
+	if readErr != nil {
+		return errors.Join(finalizeErr, readErr)
+	}
+	if !found ||
+		current.Status != executionbiz.WakeStatusLeased ||
+		current.LeaseOwner != wake.LeaseOwner ||
+		!current.DueAt.After(finalizedAt) {
+		return finalizeErr
+	}
+	return service.releaseClaimedMainWake(
+		ctx, store, current,
+		"source activity advanced the wake deadline during delivery",
 	)
 }
 
@@ -379,13 +520,28 @@ func (service Service) ObserveMainWakeTurnSettled(
 	sessionID string,
 	turnID string,
 ) error {
+	return service.ObserveMainWakeTurnSettledAt(
+		ctx, workspaceID, sessionID, turnID, service.now(),
+	)
+}
+
+// ObserveMainWakeTurnSettledAt records the canonical Turn settlement time.
+// Callback delivery can be delayed, so watchdog deadlines must not use the
+// observer's wall clock.
+func (service Service) ObserveMainWakeTurnSettledAt(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+	turnID string,
+	settledAt time.Time,
+) error {
 	store := service.wakeStore()
 	if store == nil {
 		return ErrServiceUnavailable
 	}
 	_, err := store.MarkTuttiModeExecutionWakeTurnSettled(
 		ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(sessionID),
-		strings.TrimSpace(turnID), service.now(),
+		strings.TrimSpace(turnID), settledAt.UTC(),
 	)
 	return err
 }

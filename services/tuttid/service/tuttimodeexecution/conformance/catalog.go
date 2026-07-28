@@ -14,7 +14,8 @@ func Catalog() []Scenario {
 	scenarios := MaterializationCatalog()
 	scenarios = append(scenarios, ScheduleCatalog()...)
 	scenarios = append(scenarios, SettlementCatalog()...)
-	return append(scenarios, WakeCatalog()...)
+	scenarios = append(scenarios, WakeCatalog()...)
+	return append(scenarios, WatchdogCatalog()...)
 }
 
 func SettlementCatalog() []Scenario {

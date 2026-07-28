@@ -480,7 +480,8 @@ FROM workspace_tutti_executions WHERE workspace_id = ? AND issue_id = ?
 	if checkpoint.Status != executionbiz.CheckpointStatusActive ||
 		(checkpoint.Kind != executionbiz.CheckpointKindTaskSettled &&
 			checkpoint.Kind != executionbiz.CheckpointKindTaskFailed &&
-			checkpoint.Kind != executionbiz.CheckpointKindTaskCanceled) {
+			checkpoint.Kind != executionbiz.CheckpointKindTaskCanceled &&
+			checkpoint.Kind != executionbiz.CheckpointKindWatchdog) {
 		return executionbiz.AcknowledgeResult{}, executionbiz.ErrAcknowledgeRejected
 	}
 	var running, later int

@@ -111,6 +111,72 @@ The exact Session/Turn settlement changes the wake to `turn_settled`, but does
 not resolve the checkpoint: only a correctly fenced checkpoint command may
 atomically acknowledge that wake and promote the next backlog checkpoint.
 
+Every nonterminal Tutti execution also carries a fixed inactivity deadline:
+`watchdogDueAt = lastOrchestratorActivityAt + 5m`. Valid schedule and
+acknowledge commands, Run settlement (including failed or canceled), exact
+source-session user input, and exact source root-Turn settlement reset that
+deadline. Delegate/child activity and activity from another workspace or
+Session do not. The Agent adapter only projects these facts after Host accepts
+the user Turn or reports the canonical root Turn settled; it does not change
+Host lifecycle semantics. The projection carries the canonical Turn identity
+and user-message occurrence or root-Turn settlement time rather than callback
+wall time. SQLite advances the deadline only for a strictly newer event time,
+so at-least-once replay and out-of-order delivery cannot drift it. Internal
+watchdog prompts are excluded only for their exact target source Session;
+reusing the same submit identity in another Session remains user activity.
+
+When a deadline becomes due with no active checkpoint, the daemon atomically
+creates a `watchdog` checkpoint and its deterministic sequence-1 main wake. If
+the awakened Turn settles without a fenced command, the checkpoint remains
+active and the next fixed deadline creates sequence 2 (then 3, and so on) on
+that same checkpoint, each with the normal deterministic wake and
+`clientSubmitID` identity. A valid command acknowledges every wake for the
+resolved checkpoint; later inactivity creates a new watchdog checkpoint
+rather than another generation on resolved history.
+
+Source activity that arrives while a prepared or leased watchdog wake is
+suppressed moves that same durable operation to the new five-minute deadline;
+it does not replace its identity. A busy source Turn, an already dispatched
+main wake, or an active independent reviewer suppresses duplicate delivery.
+Reviewer state is read through an injected port and is never written by the
+watchdog. Infrastructure leases and retries do not move either the execution
+deadline or wake due time.
+
+Accepted source-user submissions and settled source Turns do not depend on a
+best-effort post-commit callback for this clock. The canonical Agent SQLite
+transaction atomically appends a product-owned activity-inbox marker for the
+exact message or Turn mutation. Every watchdog sweep drains those markers
+before due materialization, resolves the canonical user-message occurrence or
+root-Turn settlement timestamp, and advances the execution clock
+monotonically. A transaction cannot commit the canonical activity while
+silently losing its marker. Replays are harmless, and user messages whose
+`clientSubmitID` and Session match the target of a durable Tutti main wake are
+excluded so an internal prompt cannot debounce itself. Direct observers remain
+low-latency wake hints only.
+
+Independent goal-review lifecycle remains outside the watchdog service. Its
+reader treats only durable `prepared` or `dispatched` review rows as active
+duplicate-suppression ownership; the watchdog never creates or advances a
+review row.
+
+A leased wake is checked against its current durable due time immediately
+before `SendInput`. Source activity in the claim-to-send window therefore
+releases the same operation without sending. The final dispatched transition
+also compares the due time observed before sending, so activity during the
+idempotent Agent submission prevents a stale owner from finalizing an older
+generation. A newer canonical marker fences either transition only while its
+derived five-minute deadline remains in the future; an already-due marker
+cannot strand the wake lease and a later drain does not create another
+canonical Turn.
+
+Startup and periodic recovery also inspect dispatched wakes. Using only each
+wake's persisted source Session and `clientSubmitID`, the Agent adapter queries
+the canonical Turn without resuming its provider. A settled Turn repairs a
+lost observer projection with its canonical settlement time, allowing the
+next fixed five-minute wake sequence to resume. Pending-only recovery markers
+remain quiet, while independent integrity or persistence errors joined with a
+pending retry are still reported and do not stop later worker sweeps.
+
 Execution states `orphaned_source`, `completed`, `archiving`, and `archived`
 suppress every still-open wake, including `turn_settled`. Suppression is stored
 as `canceled` and clears any lease rather than deleting recovery evidence.
@@ -184,6 +250,14 @@ turns any earlier internal enqueue into a pending retry without reaching
 `SendInput`. A transient repair or Session observation is retained for queue
 retry instead of preventing the daemon from serving other workspaces. Startup
 never reclaims an unexpired lease owned by another process.
+
+After listener readiness, a daemon-owned watchdog worker scans every current
+workspace on a short infrastructure cadence. Each scan materializes all
+expired nonterminal deadlines and then delegates delivery to the same durable
+main-wake recovery path. Startup requeues only expired leases, preserves live
+owners, and performs the same all-execution scan; terminal and orphaned
+executions never create a watchdog operation. The scan cadence is not a
+backoff policy—the persisted product interval remains exactly five minutes.
 
 The former in-memory Tutti Issue completion notifier and dispatcher are not
 orchestration authorities. Checkpoint/wake rows plus canonical Agent Host
