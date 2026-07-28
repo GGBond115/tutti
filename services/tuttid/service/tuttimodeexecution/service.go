@@ -52,6 +52,7 @@ type Store interface {
 type WakeStore interface {
 	ListTuttiModeExecutionWakes(context.Context, string, string) ([]executionbiz.Wake, error)
 	ListDispatchableTuttiModeMainWakes(context.Context, string, time.Time) ([]executionbiz.Wake, error)
+	ListCorruptedTuttiModeMainWakes(context.Context, string, time.Time) ([]executionbiz.Wake, error)
 	GetTuttiModeExecutionWake(context.Context, string, string) (executionbiz.Wake, bool, error)
 	ClaimTuttiModeExecutionWake(context.Context, string, string, string, time.Time, time.Time) (bool, error)
 	ReleaseTuttiModeExecutionWake(context.Context, string, string, string, string, time.Time) error
@@ -63,10 +64,12 @@ type WakeStore interface {
 }
 
 type Service struct {
-	Store           Store
-	Wakes           WakeStore
-	MainWakeTargets MainWakeTarget
-	Clock           func() time.Time
+	Store                  Store
+	Wakes                  WakeStore
+	MainWakeTargets        MainWakeTarget
+	MainWakeSendTimeout    time.Duration
+	MainWakeCleanupTimeout time.Duration
+	Clock                  func() time.Time
 }
 
 type MaterializeInput struct {

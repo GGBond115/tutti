@@ -49,6 +49,30 @@ func WakeCatalog() []Scenario {
 			Name: "WakeDispatchRevalidatesSourceAndPromptEvidence",
 			run:  runWakeDispatchRevalidatesSourceAndPromptEvidence,
 		},
+		{
+			Name: "BoundedWakeDeliveryDoesNotStarveLaterExecution",
+			run:  runBoundedWakeDeliveryDoesNotStarveLaterExecution,
+		},
+		{
+			Name: "CanceledCallerStillCompletesBoundedWakeCleanup",
+			run:  runCanceledCallerStillCompletesBoundedWakeCleanup,
+		},
+		{
+			Name: "ExpiredWakeOwnerCannotSendOrFinalize",
+			run:  runExpiredWakeOwnerCannotSendOrFinalize,
+		},
+		{
+			Name: "WakeRecoveryIsolatesPerWakeFailures",
+			run:  runWakeRecoveryIsolatesPerWakeFailures,
+		},
+		{
+			Name: "CorruptedWakeIdentityFailsClosedPerField",
+			run:  runCorruptedWakeIdentityFailsClosedPerField,
+		},
+		{
+			Name: "MainWakeRecoveryPreservesPreparedReviewerWake",
+			run:  runMainWakeRecoveryPreservesPreparedReviewerWake,
+		},
 	}
 }
 

@@ -255,6 +255,89 @@ WHERE workspace_id = ? AND execution_id = ?
 	}
 }
 
+func TestTuttiModeMainWakeImmutableSourceIdentityIsRelationallyProtected(t *testing.T) {
+	t.Parallel()
+	for _, testCase := range []struct {
+		name  string
+		query string
+	}{
+		{
+			name: "workspace",
+			query: `
+UPDATE workspace_tutti_execution_wakes
+SET workspace_id = 'corrupt-workspace'
+WHERE workspace_id = ? AND execution_id = ?
+`,
+		},
+		{
+			name: "execution",
+			query: `
+UPDATE workspace_tutti_execution_wakes
+SET execution_id = 'corrupt-execution'
+WHERE workspace_id = ? AND execution_id = ?
+`,
+		},
+		{
+			name: "checkpoint",
+			query: `
+UPDATE workspace_tutti_execution_wakes
+SET checkpoint_id = 'corrupt-checkpoint'
+WHERE workspace_id = ? AND execution_id = ?
+`,
+		},
+	} {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := context.Background()
+			store := openTuttiModeExecutionStore(t)
+			now := time.UnixMilli(1_700_000_060_000).UTC()
+			workspaceID := "workspace-wake-immutable-" + testCase.name
+			workflowID := "workflow-wake-immutable-" + testCase.name
+			sessionID := "session-wake-immutable-" + testCase.name
+			prepareTuttiModeExecutionWorkspace(
+				t, store, workspaceID, workflowID, sessionID, now,
+			)
+			executions := &executionservice.Service{
+				Store: store,
+				Clock: func() time.Time { return now },
+			}
+			issues := workspaceissues.Service{
+				Store: store,
+				Clock: func() time.Time { return now },
+			}
+			issue, tasks := prepareTuttiModeIssueGraph(
+				t, issues, workspaceID, workflowID, sessionID,
+			)
+			_, _, aggregate, err := executions.Materialize(
+				ctx,
+				executionservice.MaterializeInput{
+					Issue: issue, Tasks: tasks, WorkflowID: workflowID,
+				},
+			)
+			if err != nil {
+				t.Fatalf("Materialize() error = %v", err)
+			}
+
+			if _, err := store.writeDB.ExecContext(
+				ctx, testCase.query, workspaceID, aggregate.Execution.ID,
+			); err == nil {
+				t.Fatalf("corrupt %s identity succeeded, want relational constraint", testCase.name)
+			}
+			var retained int
+			if err := store.readDB.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM workspace_tutti_execution_wakes
+WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ?
+`, workspaceID, aggregate.Execution.ID, aggregate.Checkpoints[0].ID).Scan(&retained); err != nil {
+				t.Fatalf("query retained wake error = %v", err)
+			}
+			if retained != 1 {
+				t.Fatalf("retained wakes = %d, want 1 unchanged row", retained)
+			}
+		})
+	}
+}
+
 func TestTuttiModeCheckpointCommandsRollbackWhenActiveWakeIsClosed(t *testing.T) {
 	t.Run("schedule", func(t *testing.T) {
 		ctx := context.Background()

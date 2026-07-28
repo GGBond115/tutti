@@ -146,6 +146,8 @@ type WakeDelivery struct {
 	TargetSessionID string
 	ClientSubmitID  string
 	Prompt          string
+	HadDeadline     bool
+	DeadlineBudget  time.Duration
 }
 
 // Driver is the narrow public contract exercised by Tutti execution product
@@ -189,6 +191,9 @@ type Driver interface {
 	ListWakes(context.Context, string, string) ([]Wake, error)
 	ClaimWake(context.Context, string, string, string, time.Duration) (bool, error)
 	DispatchClaimedWake(context.Context, string, string, string) error
+	DispatchClaimedWakeWithCallerCancellation(
+		context.Context, string, string, string, string,
+	) error
 	RecoverWakes(context.Context, string, string) error
 	// StartupRecoverWakes must construct a fresh execution service over the
 	// same durable store before running startup recovery.
@@ -201,6 +206,13 @@ type Driver interface {
 	FailNextWakeAmbiguouslyBeforeCanonical()
 	FailNextWakeAfterCanonical()
 	FailNextWakeCanonicalLookup()
+	SetMainWakeSendTimeout(time.Duration)
+	HangWakeUntilContextDone(string, string)
+	AdvanceClockDuringWake(string, string, time.Duration)
+	FailWakeObservation(string, string)
+	FailWakeClaim(string)
+	SeedPreparedReviewerWake(context.Context, string, string) error
+	CorruptWakeIdentity(context.Context, string, string, string, string) error
 	// SettleWakeTurn changes the canonical Turn observation and then enters
 	// the production wake reconciliation seam.
 	SettleWakeTurn(context.Context, string, string, string) error

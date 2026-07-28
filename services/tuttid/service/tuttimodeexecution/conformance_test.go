@@ -31,6 +31,7 @@ type sqliteConformanceDriver struct {
 	renewals   *manualLeaseRenewalScheduler
 	canceller  *recordingRunCanceller
 	wakeTarget *recordingMainWakeTarget
+	wakeStore  *injectableWakeStore
 	cancelAuto context.CancelFunc
 }
 
@@ -186,8 +187,9 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 	renewals := &manualLeaseRenewalScheduler{}
 	canceller := &recordingRunCanceller{}
 	wakeTarget := newRecordingMainWakeTarget()
+	wakeStore := newInjectableWakeStore(store)
 	executions := &tuttimodeexecutionservice.Service{
-		Store: store, MainWakeTargets: wakeTarget, Clock: clock.Now,
+		Store: store, Wakes: wakeStore, MainWakeTargets: wakeTarget, Clock: clock.Now,
 	}
 	driver := &sqliteConformanceDriver{
 		dbPath: dbPath, store: store,
@@ -205,6 +207,7 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 		renewals:   renewals,
 		canceller:  canceller,
 		wakeTarget: wakeTarget,
+		wakeStore:  wakeStore,
 	}
 	driver.plans = &tuttimodeplanservice.Service{
 		Store:             store,

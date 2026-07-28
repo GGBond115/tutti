@@ -10,7 +10,12 @@ import (
 	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 )
 
-const defaultMainWakeLeaseDuration = time.Minute
+const (
+	defaultMainWakeLeaseDuration  = time.Minute
+	defaultMainWakeSendTimeout    = 30 * time.Second
+	defaultMainWakeCleanupTimeout = 10 * time.Second
+	minimumMainWakeSendTimeBudget = time.Nanosecond
+)
 
 var ErrMainWakeDeliveryPending = errors.New("Tutti mode main wake delivery remains pending")
 
@@ -84,64 +89,97 @@ func (service Service) RecoverMainWakes(
 	if workspaceID == "" || leaseOwner == "" {
 		return executionbiz.ErrWakeRejected
 	}
+	now := service.now()
 	wakes, err := store.ListDispatchableTuttiModeMainWakes(
-		ctx, workspaceID, service.now(),
+		ctx, workspaceID, now,
 	)
 	if err != nil {
 		return err
 	}
+	corruptedWakes, err := store.ListCorruptedTuttiModeMainWakes(
+		ctx, workspaceID, now,
+	)
+	if err != nil {
+		return err
+	}
+	wakes = append(corruptedWakes, wakes...)
+	var recoveryErrors []error
 	for _, wake := range wakes {
-		if wake.SourceSessionID != wake.TargetSessionID {
-			message := "wake target does not match execution source session"
-			if failErr := store.FailTuttiModeExecutionWakeIntegrity(
-				ctx, workspaceID, wake.ID, message, service.now(),
-			); failErr != nil {
-				return errors.Join(executionbiz.ErrWakeIntegrity, failErr)
-			}
-			return fmt.Errorf("%w: %s", executionbiz.ErrWakeIntegrity, message)
-		}
-		observation, observeErr := service.MainWakeTargets.ObserveSourceSession(
-			ctx, workspaceID, wake.SourceSessionID,
-		)
-		if observeErr != nil {
-			return observeErr
-		}
-		if !observation.Exists || observation.Busy {
-			continue
-		}
-		claimed, claimErr := service.ClaimMainWake(
-			ctx, workspaceID, wake.ID, leaseOwner, defaultMainWakeLeaseDuration,
-		)
-		if claimErr != nil {
-			return claimErr
-		}
-		if !claimed {
-			continue
-		}
-		// Liveness is re-observed after the durable claim so a Turn that became
-		// busy in the check-to-claim window cannot receive overlapping input.
-		observation, observeErr = service.MainWakeTargets.ObserveSourceSession(
-			ctx, workspaceID, wake.SourceSessionID,
-		)
-		if observeErr != nil || !observation.Exists || observation.Busy {
-			message := "source session became unavailable"
-			if observeErr != nil {
-				message = observeErr.Error()
-			}
-			if releaseErr := store.ReleaseTuttiModeExecutionWake(
-				ctx, workspaceID, wake.ID, leaseOwner, message, service.now(),
-			); releaseErr != nil {
-				return errors.Join(observeErr, releaseErr)
-			}
-			continue
-		}
-		if err := service.DispatchClaimedMainWake(
-			ctx, workspaceID, wake.ID, leaseOwner,
-		); err != nil {
-			return err
+		if wakeErr := service.recoverOneMainWake(
+			ctx, store, workspaceID, leaseOwner, wake,
+		); wakeErr != nil {
+			recoveryErrors = append(recoveryErrors, fmt.Errorf(
+				"recover Tutti mode main wake %q: %w",
+				wake.ID,
+				wakeErr,
+			))
 		}
 	}
-	return nil
+	return errors.Join(recoveryErrors...)
+}
+
+func (service Service) recoverOneMainWake(
+	ctx context.Context,
+	store WakeStore,
+	workspaceID string,
+	leaseOwner string,
+	wake executionbiz.Wake,
+) error {
+	if integrityErr := validateMainWakeIdentity(workspaceID, wake); integrityErr != nil {
+		cleanupCtx, cancel := service.mainWakeCleanupContext(ctx)
+		failErr := store.FailTuttiModeExecutionWakeIntegrity(
+			cleanupCtx, workspaceID, wake.ID, integrityErr.Error(), service.now(),
+		)
+		cancel()
+		if failErr != nil {
+			return errors.Join(integrityErr, failErr)
+		}
+		return integrityErr
+	}
+	observation, observeErr := service.MainWakeTargets.ObserveSourceSession(
+		ctx, workspaceID, wake.SourceSessionID,
+	)
+	if observeErr != nil {
+		return errors.Join(ErrMainWakeDeliveryPending, observeErr)
+	}
+	if !observation.Exists || observation.Busy {
+		return nil
+	}
+	claimed, claimErr := service.ClaimMainWake(
+		ctx, workspaceID, wake.ID, leaseOwner, defaultMainWakeLeaseDuration,
+	)
+	if claimErr != nil {
+		return errors.Join(ErrMainWakeDeliveryPending, claimErr)
+	}
+	if !claimed {
+		return nil
+	}
+	// Liveness is re-observed after the durable claim so a Turn that became
+	// busy in the check-to-claim window cannot receive overlapping input.
+	observation, observeErr = service.MainWakeTargets.ObserveSourceSession(
+		ctx, workspaceID, wake.SourceSessionID,
+	)
+	if observeErr != nil || !observation.Exists || observation.Busy {
+		message := "source session became unavailable"
+		if observeErr != nil {
+			message = observeErr.Error()
+		}
+		cleanupCtx, cancel := service.mainWakeCleanupContext(ctx)
+		releaseErr := store.ReleaseTuttiModeExecutionWake(
+			cleanupCtx, workspaceID, wake.ID, leaseOwner, message, service.now(),
+		)
+		cancel()
+		if releaseErr != nil {
+			return errors.Join(ErrMainWakeDeliveryPending, observeErr, releaseErr)
+		}
+		if observeErr != nil {
+			return errors.Join(ErrMainWakeDeliveryPending, observeErr)
+		}
+		return nil
+	}
+	return service.DispatchClaimedMainWake(
+		ctx, workspaceID, wake.ID, leaseOwner,
+	)
 }
 
 func (service Service) StartupRecoverMainWakes(
@@ -200,23 +238,34 @@ func (service Service) DispatchClaimedMainWake(
 		wake.LeaseOwner != strings.TrimSpace(leaseOwner) {
 		return executionbiz.ErrWakeRejected
 	}
-	if wake.SourceSessionID != wake.TargetSessionID {
-		message := "wake target does not match execution source session"
-		if failErr := store.FailTuttiModeExecutionWakeIntegrity(
-			ctx, wake.WorkspaceID, wake.ID, message, service.now(),
-		); failErr != nil {
-			return errors.Join(executionbiz.ErrWakeIntegrity, failErr)
+	if integrityErr := validateMainWakeIdentity(workspaceID, wake); integrityErr != nil {
+		cleanupCtx, cancel := service.mainWakeCleanupContext(ctx)
+		failErr := store.FailTuttiModeExecutionWakeIntegrity(
+			cleanupCtx, wake.WorkspaceID, wake.ID, integrityErr.Error(), service.now(),
+		)
+		cancel()
+		if failErr != nil {
+			return errors.Join(integrityErr, failErr)
 		}
-		return fmt.Errorf("%w: %s", executionbiz.ErrWakeIntegrity, message)
+		return integrityErr
+	}
+	now := service.now()
+	if wake.LeaseExpiresAt.IsZero() || !wake.LeaseExpiresAt.After(now) {
+		return executionbiz.ErrWakeRejected
 	}
 	prompt := MainWakePrompt(wake)
+	sendTimeout := service.mainWakeSendTimeBudget(wake.LeaseExpiresAt.Sub(now))
+	sendCtx, cancelSend := context.WithTimeout(ctx, sendTimeout)
 	delivery, sendErr := service.MainWakeTargets.SendMainWake(
-		ctx, wake.WorkspaceID, wake.TargetSessionID, wake.ClientSubmitID, prompt,
+		sendCtx, wake.WorkspaceID, wake.TargetSessionID, wake.ClientSubmitID, prompt,
 	)
+	cancelSend()
 	if sendErr != nil {
+		lookupCtx, cancelLookup := service.mainWakeCleanupContext(ctx)
 		turnID, found, findErr := service.MainWakeTargets.FindMainWakeTurn(
-			ctx, wake.WorkspaceID, wake.TargetSessionID, wake.ClientSubmitID,
+			lookupCtx, wake.WorkspaceID, wake.TargetSessionID, wake.ClientSubmitID,
 		)
+		cancelLookup()
 		if findErr == nil && found && strings.TrimSpace(turnID) != "" {
 			delivery = MainWakeDelivery{
 				CanonicalSessionID: wake.TargetSessionID,
@@ -227,8 +276,8 @@ func (service Service) DispatchClaimedMainWake(
 			if findErr != nil {
 				message += "; canonical lookup: " + findErr.Error()
 			}
-			if releaseErr := store.ReleaseTuttiModeExecutionWake(
-				ctx, wake.WorkspaceID, wake.ID, wake.LeaseOwner, message, service.now(),
+			if releaseErr := service.releaseClaimedMainWake(
+				ctx, store, wake, message,
 			); releaseErr != nil {
 				return errors.Join(sendErr, findErr, releaseErr)
 			}
@@ -240,17 +289,85 @@ func (service Service) DispatchClaimedMainWake(
 	if delivery.CanonicalSessionID != wake.TargetSessionID ||
 		delivery.CanonicalTurnID == "" {
 		message := "wake delivery returned invalid canonical identity"
-		if releaseErr := store.ReleaseTuttiModeExecutionWake(
-			ctx, wake.WorkspaceID, wake.ID, wake.LeaseOwner, message, service.now(),
+		if releaseErr := service.releaseClaimedMainWake(
+			ctx, store, wake, message,
 		); releaseErr != nil {
 			return releaseErr
 		}
 		return ErrMainWakeDeliveryPending
 	}
+	finalizeCtx, cancelFinalize := service.mainWakeCleanupContext(ctx)
+	defer cancelFinalize()
 	return store.MarkTuttiModeExecutionWakeDispatched(
-		ctx, wake.WorkspaceID, wake.ID, wake.LeaseOwner,
+		finalizeCtx, wake.WorkspaceID, wake.ID, wake.LeaseOwner,
 		delivery.CanonicalSessionID, delivery.CanonicalTurnID, service.now(),
 	)
+}
+
+func (service Service) releaseClaimedMainWake(
+	ctx context.Context,
+	store WakeStore,
+	wake executionbiz.Wake,
+	message string,
+) error {
+	cleanupCtx, cancel := service.mainWakeCleanupContext(ctx)
+	defer cancel()
+	return store.ReleaseTuttiModeExecutionWake(
+		cleanupCtx,
+		wake.WorkspaceID,
+		wake.ID,
+		wake.LeaseOwner,
+		message,
+		service.now(),
+	)
+}
+
+func validateMainWakeIdentity(
+	workspaceID string,
+	wake executionbiz.Wake,
+) error {
+	expectedExecutionID, executionOK := executionbiz.ExecutionID(wake.IssueID)
+	expectedWakeID, wakeOK := executionbiz.MainWakeID(wake.CheckpointID, wake.Sequence)
+	expectedClientSubmitID, submitOK := executionbiz.MainWakeClientSubmitID(expectedWakeID)
+	if strings.TrimSpace(workspaceID) == "" ||
+		wake.WorkspaceID != strings.TrimSpace(workspaceID) ||
+		!executionOK || wake.ExecutionID != expectedExecutionID ||
+		strings.TrimSpace(wake.CheckpointID) == "" ||
+		wake.TargetKind != executionbiz.WakeTargetMain ||
+		!wakeOK || wake.ID != expectedWakeID ||
+		!submitOK || wake.ClientSubmitID != expectedClientSubmitID ||
+		strings.TrimSpace(wake.SourceSessionID) == "" ||
+		wake.TargetSessionID != wake.SourceSessionID {
+		return executionbiz.ErrWakeIntegrity
+	}
+	return nil
+}
+
+func (service Service) mainWakeSendTimeBudget(remainingLease time.Duration) time.Duration {
+	timeout := service.MainWakeSendTimeout
+	if timeout <= 0 {
+		timeout = defaultMainWakeSendTimeout
+	}
+	if remainingLease <= minimumMainWakeSendTimeBudget {
+		return minimumMainWakeSendTimeBudget
+	}
+	if timeout >= remainingLease {
+		timeout = remainingLease / 2
+	}
+	if timeout < minimumMainWakeSendTimeBudget {
+		return minimumMainWakeSendTimeBudget
+	}
+	return timeout
+}
+
+func (service Service) mainWakeCleanupContext(
+	ctx context.Context,
+) (context.Context, context.CancelFunc) {
+	timeout := service.MainWakeCleanupTimeout
+	if timeout <= 0 {
+		timeout = defaultMainWakeCleanupTimeout
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
 }
 
 // ObserveMainWakeTurnSettled is the idempotent product observer seam used by

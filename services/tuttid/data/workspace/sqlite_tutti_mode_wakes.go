@@ -143,6 +143,31 @@ ORDER BY w.due_at_unix_ms ASC, e.execution_id ASC, c.sequence ASC, w.wake_sequen
 	return scanTuttiModeWakes(rows)
 }
 
+func (s *SQLiteStore) ListCorruptedTuttiModeMainWakes(
+	ctx context.Context,
+	workspaceID string,
+	now time.Time,
+) ([]executionbiz.Wake, error) {
+	if err := s.ensureIssueDatabase(); err != nil {
+		return nil, err
+	}
+	rows, err := s.readDB.QueryContext(ctx, wakeSelectQuery+`
+WHERE e.workspace_id = ?
+  AND e.status IN ('awaiting_schedule', 'running', 'awaiting_main', 'pending_goal_review')
+  AND c.status = 'active'
+  AND w.status = 'prepared' AND w.due_at_unix_ms <= ?
+  AND w.target_kind != 'main'
+  AND w.wake_sequence > 0
+  AND w.wake_id = c.checkpoint_id || ':wake:main:' || CAST(w.wake_sequence AS TEXT)
+  AND w.client_submit_id = 'tutti-execution-wake:' || w.wake_id
+ORDER BY w.due_at_unix_ms ASC, e.execution_id ASC, c.sequence ASC
+`, strings.TrimSpace(workspaceID), unixMs(now))
+	if err != nil {
+		return nil, fmt.Errorf("list corrupted Tutti mode main wakes: %w", err)
+	}
+	return scanTuttiModeWakes(rows)
+}
+
 func (s *SQLiteStore) GetTuttiModeExecutionWake(
 	ctx context.Context,
 	workspaceID string,
@@ -232,6 +257,7 @@ SET status = 'dispatched', canonical_session_id = ?, canonical_turn_id = ?,
     lease_owner = '', lease_expires_at_unix_ms = 0, last_error = '',
     dispatched_at_unix_ms = ?, updated_at_unix_ms = ?
 WHERE workspace_id = ? AND wake_id = ? AND status = 'leased' AND lease_owner = ?
+  AND lease_expires_at_unix_ms > ?
   AND target_session_id = ?
   AND EXISTS (
     SELECT 1
@@ -246,7 +272,7 @@ WHERE workspace_id = ? AND wake_id = ? AND status = 'leased' AND lease_owner = ?
       AND c.status = 'active'
   )
 `, canonicalSessionID, canonicalTurnID, unixMs(now), unixMs(now),
-		workspaceID, wakeID, leaseOwner, canonicalSessionID)
+		workspaceID, wakeID, leaseOwner, unixMs(now), canonicalSessionID)
 	if err != nil {
 		return fmt.Errorf("mark Tutti mode execution wake dispatched: %w", err)
 	}

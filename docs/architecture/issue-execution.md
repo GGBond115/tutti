@@ -87,8 +87,26 @@ Delivery first checks the exact workspace/source Session and leaves the wake
 prepared while that Session is busy. A daemon-unique owner leases the wake,
 then sends through Agent Service while Host remains the authority for canonical
 Session liveness and `clientSubmitID` lookup. Response loss is recovered by
-looking up the same deterministic submit ID. Only the current lease owner may
-record dispatch, so restart or replica races converge on one canonical Turn.
+looking up the same deterministic submit ID. Every external send has a bounded
+deadline shorter than its remaining lease. Canonical lookup, release, integrity
+failure, and final dispatch CAS use their own bounded contexts detached from
+caller cancellation, so cancellation cannot strand the row in `leased` after
+external work has returned. They are cleanup bounds, not permission to continue
+an unbounded Agent call.
+
+Recovery recomputes execution, wake, client-submit, target, sequence, and source
+Session identity from durable Issue/checkpoint evidence before claim and again
+before delivery. Corrupt identity fails closed and is recorded as `failed`;
+immutable workspace/execution/checkpoint relationships are also protected by
+the wake table's composite foreign key. Main recovery lists only `main` targets;
+a separate integrity scan recognizes deterministic main-form identities whose
+target kind was corrupted. It must not claim or fail a legitimate prepared
+`reviewer` wake, which remains owned by the future reviewer worker. Only a lease
+owner whose lease is still live may enter `SendInput` or win the final dispatch
+CAS. The final CAS uses the injected product clock, so a lease that expires
+during the external call cannot be finalized by its stale owner. These fences
+make restart or replica races converge on one canonical Turn.
+
 The exact Session/Turn settlement changes the wake to `turn_settled`, but does
 not resolve the checkpoint: only a correctly fenced checkpoint command may
 atomically acknowledge that wake and promote the next backlog checkpoint.
@@ -152,8 +170,11 @@ settlement. Root-Turn settlement also enqueues rather than sending inline, so a
 source conversation that was busy is reconsidered without re-entering Agent
 delivery from the projection callback. Every queue pass first performs
 idempotent suppression and expired-lease repair, then attempts delivery.
-Released delivery failures return a pending signal so the existing bounded
-queue cadence retains the workspace even when it has no running Runs.
+Integrity, Session observation, claim, and delivery failures are isolated per
+wake: the pass continues through later executions in the workspace and returns
+their joined errors afterward. Released delivery failures return a pending
+signal so the existing bounded queue cadence retains the workspace even when it
+has no running Runs.
 
 During daemon construction, startup performs only the local durable repair.
 It does not call Agent `SendInput` or start the queue while CLI routes and the
