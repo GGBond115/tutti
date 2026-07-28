@@ -367,9 +367,37 @@ const (
 )
 
 type MutationOperation struct {
-	Kind   MutationOperationKind `json:"kind"`
-	TaskID string                `json:"taskId,omitempty"`
-	Task   workspaceissues.Task  `json:"task,omitempty"`
+	Kind       MutationOperationKind `json:"kind"`
+	TaskID     string                `json:"taskId,omitempty"`
+	Task       workspaceissues.Task  `json:"task,omitempty"`
+	TaskFields MutationTaskFields    `json:"taskFields,omitempty"`
+}
+
+// MutationTaskFields distinguishes omitted patch fields from explicit zero
+// values. Add operations use the complete Task value; update and rework apply
+// only the fields present in the public mutation payload.
+type MutationTaskFields struct {
+	Title              bool `json:"title,omitempty"`
+	Content            bool `json:"content,omitempty"`
+	Priority           bool `json:"priority,omitempty"`
+	DueAtUnixMS        bool `json:"dueAtUnixMs,omitempty"`
+	AgentTargetID      bool `json:"agentTargetId,omitempty"`
+	ModelPlanID        bool `json:"modelPlanId,omitempty"`
+	Model              bool `json:"model,omitempty"`
+	PermissionModeID   bool `json:"permissionModeId,omitempty"`
+	ReasoningEffort    bool `json:"reasoningEffort,omitempty"`
+	ExecutionDirectory bool `json:"executionDirectory,omitempty"`
+	DependencyTaskIDs  bool `json:"dependencyTaskIds,omitempty"`
+	Parallelizable     bool `json:"parallelizable,omitempty"`
+	AutoAccept         bool `json:"autoAccept,omitempty"`
+}
+
+func (fields MutationTaskFields) Any() bool {
+	return fields.Title || fields.Content || fields.Priority || fields.DueAtUnixMS ||
+		fields.AgentTargetID || fields.ModelPlanID || fields.Model ||
+		fields.PermissionModeID || fields.ReasoningEffort ||
+		fields.ExecutionDirectory || fields.DependencyTaskIDs ||
+		fields.Parallelizable || fields.AutoAccept
 }
 
 type MutationAdmission struct {

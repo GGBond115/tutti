@@ -151,6 +151,22 @@ func TestGeneratedCliWaitContractPreservesExecutionAndContinuation(t *testing.T)
 	}
 }
 
+func TestWriteInvokeCliCommandErrorPreservesStableInvalidInputReason(t *testing.T) {
+	response := writeInvokeCliCommandError(cliservice.InvalidInputReasonError(
+		"stale_graph_revision",
+		"schedule rejected. Hint: refresh the execution snapshot",
+		nil,
+	))
+	rejected, ok := response.(tuttigenerated.InvokeCliCommand400JSONResponse)
+	if !ok {
+		t.Fatalf("writeInvokeCliCommandError() = %#v", response)
+	}
+	payload := tuttigenerated.ApiErrorResponse(rejected.InvalidRequestErrorJSONResponse)
+	if payload.Error.Reason == nil || *payload.Error.Reason != "stale_graph_revision" {
+		t.Fatalf("error.reason = %#v", payload.Error.Reason)
+	}
+}
+
 type testFilteringCLIProvider struct{}
 
 func (testFilteringCLIProvider) AppID() string {

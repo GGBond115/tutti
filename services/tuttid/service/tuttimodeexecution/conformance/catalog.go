@@ -33,6 +33,14 @@ func MutationCatalog() []Scenario {
 			run:  runMutationOperationsCommitAllOrNone,
 		},
 		{
+			Name: "FailedTaskReworkInheritsLaunchAndRebindsDependents",
+			run:  runFailedTaskReworkInheritsLaunchAndRebindsDependents,
+		},
+		{
+			Name: "CanceledTaskReworkInheritsLaunchAndSchedulesReplacement",
+			run:  runCanceledTaskReworkInheritsLaunchAndSchedulesReplacement,
+		},
+		{
 			Name: "LogicalSupersessionPreservesHistoryAndRequiresSettlement",
 			run:  runLogicalSupersessionPreservesHistoryAndRequiresSettlement,
 		},

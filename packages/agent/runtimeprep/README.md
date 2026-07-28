@@ -166,6 +166,14 @@ an isolated extra skill.
 `Prepare` and `RenderSkillBundle` use the same resolver, so provider files and
 the skill-bundle API cannot drift.
 
+The canonical Tutti CLI skill treats the daemon and CLI as the only supported
+execution control plane. Provider Agents must not inspect or modify Tutti's
+backing SQLite databases to infer runtime state or bypass a rejected command.
+When the source Agent has the Tutti execution snapshot capability, the skill
+also renders the checkpoint/action matrix and a bounded recovery protocol:
+refresh an outdated fence once, correct a documented mutation schema once, and
+report a repeated rejection with its stable reason and hint.
+
 ## Product Boundaries
 
 The module must not import `services/tuttid/*`. Product adapters translate

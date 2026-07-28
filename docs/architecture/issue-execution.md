@@ -18,8 +18,23 @@ Their materialization creates no Run and never enters the generic eligible-task
 dispatcher; later work requires an explicit Tutti execution schedule command.
 Every active Tutti checkpoint instead owns one durable main-conversation wake.
 The wake asks the source Agent to review canonical execution state and choose a
-fenced `schedule` or `acknowledge` command; settling a task never mechanically
-dispatches a successor.
+fenced `schedule`, `mutate`, `acknowledge`, `complete`, or `stop` command;
+settling a task never mechanically dispatches a successor.
+
+The source-facing `plan issue get` projection is a read-only composition of the
+Tutti execution aggregate and canonical Issue task detail. It exposes the
+active checkpoint and graph revision together with launch configuration,
+supersession, dependency readiness, allowed actions, and recovery guidance.
+The projection is scoped by trusted Agent Session context; callers cannot
+supply a source Session ID.
+
+Graph transition semantics belong to
+`services/tuttid/biz/tuttimodeexecution`. That business layer applies
+presence-aware updates, sparse rework inheritance, logical supersession,
+dependent-edge rebinding, and active-graph validation as one pure transition.
+The SQLite adapter only loads the graph, persists the returned inserts and
+updates inside the fenced transaction, and records idempotency history. Product
+mutation rules must not be reimplemented in the data adapter.
 
 ## Execution flow
 

@@ -27,6 +27,62 @@ var ErrSwitchReviewToSelfMutationConflict = errors.New("tutti mode review fallba
 var ErrWakeRejected = errors.New("tutti mode wake operation was rejected")
 var ErrWakeIntegrity = errors.New("tutti mode wake conflicts with execution authority")
 
+type RejectionReason string
+
+const (
+	RejectionExecutionNotFound     RejectionReason = "execution_not_found"
+	RejectionWrongSourceSession    RejectionReason = "wrong_source_session"
+	RejectionInactiveExecution     RejectionReason = "inactive_execution"
+	RejectionInactiveCheckpoint    RejectionReason = "inactive_checkpoint"
+	RejectionStaleGraphRevision    RejectionReason = "stale_graph_revision"
+	RejectionTaskNotFound          RejectionReason = "task_not_found"
+	RejectionTaskNotStarted        RejectionReason = "task_not_started"
+	RejectionTaskSuperseded        RejectionReason = "task_superseded"
+	RejectionMissingAgentTarget    RejectionReason = "missing_agent_target"
+	RejectionDependencyUnsatisfied RejectionReason = "dependency_unsatisfied"
+	RejectionDispatchPaused        RejectionReason = "dispatch_paused"
+	RejectionBudgetUnavailable     RejectionReason = "budget_unavailable"
+	RejectionCapacityExhausted     RejectionReason = "capacity_exhausted"
+	RejectionParallelismRejected   RejectionReason = "parallelism_rejected"
+	RejectionDuplicateTask         RejectionReason = "duplicate_task"
+	RejectionInvalidTaskGraph      RejectionReason = "invalid_task_graph"
+	RejectionInvalidMutation       RejectionReason = "invalid_mutation_operation"
+)
+
+type RejectionError struct {
+	Kind          error
+	Reason        RejectionReason
+	SubjectTaskID string
+}
+
+func (err *RejectionError) Error() string {
+	if err == nil || err.Kind == nil {
+		return ""
+	}
+	return err.Kind.Error()
+}
+
+func (err *RejectionError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.Kind
+}
+
+func Reject(kind error, reason RejectionReason, subjectTaskID string) error {
+	return &RejectionError{
+		Kind: kind, Reason: reason, SubjectTaskID: strings.TrimSpace(subjectTaskID),
+	}
+}
+
+func RejectionDetails(err error) (RejectionReason, string, bool) {
+	var rejection *RejectionError
+	if !errors.As(err, &rejection) || rejection == nil || rejection.Reason == "" {
+		return "", "", false
+	}
+	return rejection.Reason, rejection.SubjectTaskID, true
+}
+
 func ExecutionID(issueID string) (string, bool) {
 	issueID = strings.TrimSpace(issueID)
 	if issueID == "" {

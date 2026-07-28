@@ -76,6 +76,14 @@ func writeInvokeCliCommandError(err error) tuttigenerated.InvokeCliCommandRespon
 		))
 	}
 	if errors.Is(err, cliservice.ErrInvalidInput) {
+		reason := cliservice.InvokeErrorReason(err)
+		if reason != "" {
+			return tuttigenerated.InvokeCliCommand400JSONResponse{
+				InvalidRequestErrorJSONResponse: invalidRequestError(
+					apierrors.InvalidRequest(reason, apierrors.WithCause(err)),
+				),
+			}
+		}
 		return tuttigenerated.InvokeCliCommand400JSONResponse{
 			InvalidRequestErrorJSONResponse: invalidRequestError(
 				apierrors.MalformedRequest(apierrors.WithCause(err)),

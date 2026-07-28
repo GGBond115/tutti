@@ -28,6 +28,9 @@ Graph revision: %d
 
 Review the current Issue, task results, and evidence before choosing the next action. The daemon does not dispatch a successor automatically.
 
+First read the source-scoped execution snapshot:
+tutti plan issue get --issue-id %s --json
+
 To schedule an exact next set, use:
 %s --task-ids-json '<json-array>' --request-id '<stable-request-id>'
 
@@ -37,17 +40,32 @@ To change the remaining graph at this checkpoint before scheduling, use:
 To replace a task while preserving its history, use:
 %s --operations-json '[{"kind":"rework","taskId":"<old-task-id>","task":{"taskId":"<replacement-task-id>","title":"<title>","content":"<details>"}}]' --request-id '<stable-request-id>'
 
-Mutation entries use the "kind" field; "op" and "replacement" are not supported. Rework and supersede preserve task and Run history.
+Mutation entries use the "kind" field; "op" and "replacement" are not supported. Rework and supersede preserve task and Run history. A rework replacement inherits omitted launch settings, execution directory, and dependencies from the old task; explicit replacement values override those defaults. Rework automatically redirects active, not-started dependents from the old task ID to the replacement task ID in the same mutation.
+
+Use the Tutti CLI as the only supported execution control plane. Do not inspect or modify Tutti's backing SQLite databases to diagnose or bypass a rejected command; report the CLI error if the current Issue snapshot and documented recovery commands cannot resolve it.
 
 If this Issue has been replaced or should not continue, stop it explicitly so no later checkpoint wake is emitted:
 %s --reason '<audited-reason>' --request-id '<stable-request-id>'`,
 		wake.IssueID, wake.CheckpointID, wake.CheckpointKind,
-		wake.CheckpointRevision, schedule, mutate, mutate, stop,
+		wake.CheckpointRevision, wake.IssueID, schedule, mutate, mutate, stop,
 	)
 	switch wake.CheckpointKind {
-	case executionbiz.CheckpointKindTaskSettled,
-		executionbiz.CheckpointKindTaskFailed,
+	case executionbiz.CheckpointKindTaskFailed,
 		executionbiz.CheckpointKindTaskCanceled:
+		outcome := "failed"
+		if wake.CheckpointKind == executionbiz.CheckpointKindTaskCanceled {
+			outcome = "canceled"
+		}
+		return header + fmt.Sprintf(`
+
+The %s task cannot be updated or scheduled directly. To retry it, rework it with a new taskId and corrected launch settings, then schedule the replacement using the graphRevision returned by the successful mutation. Keep checkpoint %s; do not guess or increment the revision before a command succeeds.
+
+If another Run is active or a later checkpoint is pending, you may resolve this review without adding work:
+tutti plan issue acknowledge --issue-id %s --checkpoint-id %s --expected-graph-revision %d --request-id '<stable-request-id>'`,
+			outcome, wake.CheckpointID, wake.IssueID, wake.CheckpointID,
+			wake.CheckpointRevision,
+		)
+	case executionbiz.CheckpointKindTaskSettled:
 		return header + fmt.Sprintf(`
 
 If another Run is active or a later checkpoint is pending, you may resolve this review without adding work:

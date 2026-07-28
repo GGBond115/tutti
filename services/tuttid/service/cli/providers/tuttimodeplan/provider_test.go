@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
 	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	workflowbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceworkflow"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
@@ -118,6 +119,32 @@ type recordingIssueMutator struct {
 	err         error
 }
 
+type recordingIssueDetails struct {
+	detail workspaceissues.IssueDetail
+	err    error
+}
+
+func (reader *recordingIssueDetails) GetIssueDetail(
+	_ context.Context,
+	_ string,
+	_ string,
+) (workspaceissues.IssueDetail, error) {
+	return reader.detail, reader.err
+}
+
+type recordingExecutionReads struct {
+	aggregate executionbiz.Aggregate
+	err       error
+}
+
+func (reader *recordingExecutionReads) GetByIssue(
+	_ context.Context,
+	_ string,
+	_ string,
+) (executionbiz.Aggregate, error) {
+	return reader.aggregate, reader.err
+}
+
 func (mutator *recordingIssueMutator) MutateTuttiModeIssue(
 	_ context.Context,
 	workspaceID string,
@@ -211,6 +238,34 @@ func TestProviderExposesSourceScopedIssueMutateCommand(t *testing.T) {
 	}
 	if _, exists := properties["source-session-id"]; exists {
 		t.Fatalf("mutate properties expose untrusted source-session-id: %#v", properties)
+	}
+}
+
+func TestProviderExposesSourceScopedIssueExecutionSnapshot(t *testing.T) {
+	provider := NewProviderWithExecutionSnapshot(
+		nil,
+		&recordingPlans{},
+		nil,
+		&recordingIssueScheduler{},
+		&recordingIssueMutator{},
+		&recordingIssueAcknowledger{},
+		&recordingIssueDetails{},
+		&recordingExecutionReads{},
+	)
+	commands := provider.Commands()
+	if len(commands) != 9 {
+		t.Fatalf("commands = %#v, want execution snapshot command", commands)
+	}
+	command := commands[8]
+	if command.Capability.ID != "tutti-mode-plan.plan.issue.get" {
+		t.Fatalf("execution snapshot command id = %q", command.Capability.ID)
+	}
+	properties := command.Capability.InputSchema["properties"].(map[string]any)
+	if _, ok := properties["issue-id"]; !ok {
+		t.Fatalf("execution snapshot properties = %#v", properties)
+	}
+	if _, exists := properties["source-session-id"]; exists {
+		t.Fatalf("execution snapshot exposes untrusted source-session-id: %#v", properties)
 	}
 }
 
@@ -534,8 +589,9 @@ func TestRunIssueMutateDerivesCallerAndReturnsNewRevision(t *testing.T) {
 		issueMutateInput{
 			IssueID: "issue-1", CheckpointID: "checkpoint-1",
 			ExpectedGraphRevision: 3,
-			OperationsJSON:        `[{"kind":"add","task":{"TaskID":"task-c","Title":"Task C"}}]`,
-			RequestID:             "mutate-1",
+			OperationsJSON: `[{"kind":"add","task":{"taskId":"task-c","title":"Task C",` +
+				`"agentTargetId":"codex"}}]`,
+			RequestID: "mutate-1",
 		},
 	)
 	if err != nil {
@@ -552,6 +608,29 @@ func TestRunIssueMutateDerivesCallerAndReturnsNewRevision(t *testing.T) {
 	value := result.(map[string]any)
 	if value["graphRevision"] != int64(4) || value["replayed"] != true {
 		t.Fatalf("mutation result = %#v", value)
+	}
+}
+
+func TestParseMutationOperationsPreservesExplicitZeroValues(t *testing.T) {
+	operations, err := parseMutationOperationsJSON(
+		`[{"kind":"update","taskId":"task-a","task":{` +
+			`"title":"","dependencyTaskIds":[],"parallelizable":false,"autoAccept":false}}]`,
+	)
+	if err != nil {
+		t.Fatalf("parseMutationOperationsJSON() error = %v", err)
+	}
+	if len(operations) != 1 {
+		t.Fatalf("operations = %#v", operations)
+	}
+	operation := operations[0]
+	if !operation.TaskFields.Title ||
+		!operation.TaskFields.DependencyTaskIDs ||
+		!operation.TaskFields.Parallelizable ||
+		!operation.TaskFields.AutoAccept ||
+		operation.Task.Title != "" ||
+		operation.Task.Parallelizable ||
+		operation.Task.AutoAccept {
+		t.Fatalf("presence-aware operation = %#v", operation)
 	}
 }
 
@@ -633,7 +712,7 @@ func TestIssueMutateRejectsReplacementAliasBeforeCallingMutator(t *testing.T) {
 	)
 	if !errors.Is(err, cliservice.ErrInvalidInput) ||
 		!strings.Contains(err.Error(), `"replacement"`) ||
-		!strings.Contains(err.Error(), "task.taskId") {
+		!strings.Contains(err.Error(), `"task" object with "taskId"`) {
 		t.Fatalf("replacement alias error = %v, want actionable task validation", err)
 	}
 	if !reflect.DeepEqual(mutator.input, workspaceservice.MutateTuttiModeIssueInput{}) {
@@ -734,7 +813,7 @@ func TestRunIssueAcknowledgeMapsMissingExecutionWithoutScheduleCopy(t *testing.T
 		},
 	)
 	if !errors.Is(err, cliservice.ErrInvalidInput) ||
-		!strings.Contains(strings.ToLower(err.Error()), "acknowledge") ||
+		!strings.Contains(strings.ToLower(err.Error()), "execution") ||
 		strings.Contains(strings.ToLower(err.Error()), "schedule") {
 		t.Fatalf("missing execution acknowledge error = %v", err)
 	}
@@ -774,6 +853,156 @@ func TestRunScheduleDerivesCallerOnlyFromInvokeContext(t *testing.T) {
 		value["checkpointId"] != "checkpoint-1" ||
 		value["graphRevision"] != int64(3) {
 		t.Fatalf("schedule result = %#v", value)
+	}
+}
+
+func TestRunIssueGetReturnsAuthoritativeRecoverySnapshot(t *testing.T) {
+	reader := &recordingExecutionReads{aggregate: executionbiz.Aggregate{
+		Execution: executionbiz.Execution{
+			ID:                 "execution-1",
+			IssueID:            "issue-1",
+			SourceSessionID:    "source-session",
+			Status:             executionbiz.StatusAwaitingMain,
+			GraphRevision:      4,
+			ActiveCheckpointID: "checkpoint-canceled",
+			ReviewMode:         executionbiz.ReviewModeSelf,
+		},
+		Checkpoints: []executionbiz.Checkpoint{{
+			ID:             "checkpoint-canceled",
+			Kind:           executionbiz.CheckpointKindTaskCanceled,
+			Status:         executionbiz.CheckpointStatusActive,
+			Sequence:       2,
+			GraphRevision:  4,
+			SubjectTaskID:  "task-a",
+			SubjectRunID:   "run-a",
+			CreationReason: "run_canceled",
+		}},
+	}}
+	details := &recordingIssueDetails{detail: workspaceissues.IssueDetail{
+		Tasks: []workspaceissues.Task{
+			{
+				TaskID: "task-a", Status: workspaceissues.StatusCanceled,
+				SupersededAtUnixMS: 1, SupersededByTaskID: "task-a-retry",
+			},
+			{
+				TaskID: "task-a-retry", Status: workspaceissues.StatusNotStarted,
+				AgentTargetID: "local:codex", Model: "gpt-5.4-codex",
+			},
+			{
+				TaskID: "task-b", Status: workspaceissues.StatusNotStarted,
+				AgentTargetID: "local:codex", DependencyTaskIDs: []string{"task-a-retry"},
+			},
+		},
+	}}
+	provider := Provider{issueDetails: details, executionReads: reader}
+	result, err := provider.runIssueGet(
+		context.Background(),
+		framework.InvokeContext{
+			WorkspaceID: "workspace-1",
+			Request: cliservice.InvokeRequest{Context: cliservice.InvokeContext{
+				AgentSessionID: " source-session ",
+			}},
+		},
+		issueGetInput{IssueID: "issue-1"},
+	)
+	if err != nil {
+		t.Fatalf("runIssueGet() error = %v", err)
+	}
+	value := result.(map[string]any)
+	execution := value["execution"].(map[string]any)
+	active := value["activeCheckpoint"].(map[string]any)
+	ready := value["readyTaskIds"].([]string)
+	tasks := value["tasks"].([]map[string]any)
+	if execution["graphRevision"] != int64(4) ||
+		active["checkpointId"] != "checkpoint-canceled" ||
+		!reflect.DeepEqual(ready, []string{"task-a-retry"}) ||
+		tasks[0]["blockerReason"] != "task_superseded" ||
+		tasks[1]["agentTargetId"] != "local:codex" ||
+		tasks[2]["blockerReason"] != "dependency_unsatisfied" ||
+		!strings.Contains(value["recoveryHint"].(string), "new taskId") {
+		t.Fatalf("execution snapshot = %#v", value)
+	}
+}
+
+func TestRunIssueGetRejectsDifferentSourceSessionWithStableReason(t *testing.T) {
+	provider := Provider{
+		issueDetails: &recordingIssueDetails{},
+		executionReads: &recordingExecutionReads{aggregate: executionbiz.Aggregate{
+			Execution: executionbiz.Execution{
+				IssueID: "issue-1", SourceSessionID: "other-session",
+			},
+		}},
+	}
+	_, err := provider.runIssueGet(
+		context.Background(),
+		framework.InvokeContext{
+			WorkspaceID: "workspace-1",
+			Request: cliservice.InvokeRequest{Context: cliservice.InvokeContext{
+				AgentSessionID: "source-session",
+			}},
+		},
+		issueGetInput{IssueID: "issue-1"},
+	)
+	if !errors.Is(err, cliservice.ErrInvalidInput) ||
+		cliservice.InvokeErrorReason(err) != string(executionbiz.RejectionWrongSourceSession) {
+		t.Fatalf("runIssueGet() error = %v, reason = %q", err, cliservice.InvokeErrorReason(err))
+	}
+}
+
+func TestIssueExecutionSnapshotProjectsReviewedSettlementForReadiness(t *testing.T) {
+	value := issueExecutionSnapshotJSON(
+		executionbiz.Aggregate{
+			Execution: executionbiz.Execution{
+				ID:                 "execution-1",
+				IssueID:            "issue-1",
+				Status:             executionbiz.StatusAwaitingMain,
+				GraphRevision:      2,
+				ActiveCheckpointID: "checkpoint-settled",
+			},
+			Checkpoints: []executionbiz.Checkpoint{{
+				ID:            "checkpoint-settled",
+				Kind:          executionbiz.CheckpointKindTaskSettled,
+				Status:        executionbiz.CheckpointStatusActive,
+				GraphRevision: 2,
+				SubjectTaskID: "task-a",
+			}},
+		},
+		workspaceissues.IssueDetail{Tasks: []workspaceissues.Task{
+			{
+				TaskID: "task-a", Status: workspaceissues.StatusPendingAcceptance,
+				AgentTargetID: "local:codex",
+			},
+			{
+				TaskID: "task-b", Status: workspaceissues.StatusNotStarted,
+				AgentTargetID: "local:codex", DependencyTaskIDs: []string{"task-a"},
+			},
+		}},
+	)
+	if ready := value["readyTaskIds"].([]string); !reflect.DeepEqual(
+		ready, []string{"task-b"},
+	) {
+		t.Fatalf("readyTaskIds = %#v", ready)
+	}
+	tasks := value["tasks"].([]map[string]any)
+	if tasks[0]["status"] != string(workspaceissues.StatusPendingAcceptance) ||
+		tasks[1]["ready"] != true {
+		t.Fatalf("tasks = %#v", tasks)
+	}
+}
+
+func TestScheduleRejectionCarriesStableReasonAndHint(t *testing.T) {
+	err := agentScheduleError(
+		executionbiz.Reject(
+			executionbiz.ErrScheduleRejected,
+			executionbiz.RejectionMissingAgentTarget,
+			"task-a",
+		),
+		"issue-1",
+	)
+	if !errors.Is(err, cliservice.ErrInvalidInput) ||
+		cliservice.InvokeErrorReason(err) != string(executionbiz.RejectionMissingAgentTarget) ||
+		!strings.Contains(err.Error(), "agentTargetId") {
+		t.Fatalf("agentScheduleError() = %v, reason = %q", err, cliservice.InvokeErrorReason(err))
 	}
 }
 

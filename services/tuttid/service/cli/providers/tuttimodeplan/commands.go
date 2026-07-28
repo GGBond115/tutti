@@ -3,16 +3,13 @@ package tuttimodeplan
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
-	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	workflowbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceworkflow"
-	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
 	cliservice "github.com/tutti-os/tutti/services/tuttid/service/cli"
 	"github.com/tutti-os/tutti/services/tuttid/service/cli/framework"
 	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
@@ -318,7 +315,7 @@ func (p Provider) runIssueSchedule(
 		},
 	)
 	if err != nil {
-		return nil, agentPlanError(err)
+		return nil, agentScheduleError(err, input.IssueID)
 	}
 	return map[string]any{
 		"executionId":   result.ExecutionID,
@@ -356,7 +353,7 @@ func (p Provider) runIssueMutate(
 		},
 	)
 	if err != nil {
-		return nil, agentMutationError(err)
+		return nil, agentMutationError(err, input.IssueID)
 	}
 	return map[string]any{
 		"executionId": result.ExecutionID, "checkpointId": result.CheckpointID,
@@ -364,34 +361,6 @@ func (p Provider) runIssueMutate(
 		"updatedTaskIds":    result.UpdatedTaskIDs,
 		"supersededTaskIds": result.SupersededTaskIDs, "replayed": result.Replayed,
 	}, nil
-}
-
-func parseMutationOperationsJSON(value string) ([]executionbiz.MutationOperation, error) {
-	var operations []executionbiz.MutationOperation
-	if err := json.Unmarshal([]byte(value), &operations); err != nil || len(operations) == 0 {
-		return nil, cliservice.InvalidInputKeyError("operations-json")
-	}
-	for _, operation := range operations {
-		taskID := strings.TrimSpace(operation.TaskID)
-		replacementTaskID := strings.TrimSpace(operation.Task.TaskID)
-		valid := false
-		switch operation.Kind {
-		case executionbiz.MutationOperationAdd:
-			valid = replacementTaskID != ""
-		case executionbiz.MutationOperationUpdate,
-			executionbiz.MutationOperationSupersede:
-			valid = taskID != ""
-		case executionbiz.MutationOperationRework:
-			valid = taskID != "" && replacementTaskID != ""
-		}
-		if !valid {
-			return nil, fmt.Errorf(
-				"%w: operations-json entries must use the \"kind\" field and cannot use \"op\" or \"replacement\"; add requires task.taskId, update and supersede require taskId, and rework requires taskId plus task.taskId",
-				cliservice.ErrInvalidInput,
-			)
-		}
-	}
-	return operations, nil
 }
 
 func (p Provider) runIssueAcknowledge(
@@ -501,91 +470,6 @@ func callerAgentSessionID(invoke framework.InvokeContext) (string, error) {
 		return "", cliservice.MissingRequiredInputError("agent-session-id")
 	}
 	return sessionID, nil
-}
-
-func agentPlanError(err error) error {
-	if errors.Is(err, workspacedata.ErrWorkspaceWorkflowNotFound) {
-		return fmt.Errorf("%w: Tutti Mode plan was not found", cliservice.ErrInvalidInput)
-	}
-	if errors.Is(err, tuttimodeplanservice.ErrMutationConflict) {
-		return fmt.Errorf("%w: request-id was already used with different content; reuse the original content or choose a new request-id", cliservice.ErrInvalidInput)
-	}
-	if errors.Is(err, executionbiz.ErrScheduleMutationConflict) {
-		return fmt.Errorf("%w: request-id was already used with a different schedule payload", cliservice.ErrInvalidInput)
-	}
-	if errors.Is(err, executionbiz.ErrAcknowledgeMutationConflict) {
-		return fmt.Errorf("%w: request-id was already used with a different acknowledge payload", cliservice.ErrInvalidInput)
-	}
-	if errors.Is(err, executionbiz.ErrExecutionConflict) ||
-		errors.Is(err, executionbiz.ErrAcknowledgeRejected) {
-		return fmt.Errorf("%w: execution caller, checkpoint, or revision is not current", cliservice.ErrInvalidInput)
-	}
-	if errors.Is(err, executionbiz.ErrScheduleRejected) ||
-		errors.Is(err, executionbiz.ErrExecutionNotFound) {
-		return fmt.Errorf("%w: schedule caller, checkpoint, revision, or requested task set is not current", cliservice.ErrInvalidInput)
-	}
-	return err
-}
-
-func agentAcknowledgeError(err error) error {
-	if errors.Is(err, executionbiz.ErrExecutionNotFound) {
-		return fmt.Errorf(
-			"%w: acknowledge execution was not found or is no longer current",
-			cliservice.ErrInvalidInput,
-		)
-	}
-	return agentPlanError(err)
-}
-
-func agentMutationError(err error) error {
-	if errors.Is(err, executionbiz.ErrMutationConflict) {
-		return fmt.Errorf("%w: request-id was already used with a different graph mutation payload", cliservice.ErrInvalidInput)
-	}
-	if errors.Is(err, executionbiz.ErrMutationRejected) ||
-		errors.Is(err, executionbiz.ErrExecutionNotFound) {
-		return fmt.Errorf("%w: mutation caller, checkpoint, revision, or operation set is not current", cliservice.ErrInvalidInput)
-	}
-	return err
-}
-
-func agentCompleteError(err error) error {
-	if errors.Is(err, executionbiz.ErrExecutionNotFound) {
-		return fmt.Errorf(
-			"%w: completion execution was not found or is no longer current",
-			cliservice.ErrInvalidInput,
-		)
-	}
-	if errors.Is(err, executionbiz.ErrCompleteMutationConflict) {
-		return fmt.Errorf(
-			"%w: request-id was already used with a different completion payload",
-			cliservice.ErrInvalidInput,
-		)
-	}
-	if errors.Is(err, executionbiz.ErrExecutionConflict) ||
-		errors.Is(err, executionbiz.ErrCompleteRejected) {
-		return fmt.Errorf(
-			"%w: completion caller, checkpoint, revision, decision, or review evidence is not current",
-			cliservice.ErrInvalidInput,
-		)
-	}
-	return err
-}
-
-func agentStopError(err error) error {
-	if errors.Is(err, executionbiz.ErrInvalidExecution) {
-		return fmt.Errorf(
-			"%w: stop request is incomplete",
-			cliservice.ErrInvalidInput,
-		)
-	}
-	if errors.Is(err, executionbiz.ErrExecutionNotFound) ||
-		errors.Is(err, executionbiz.ErrExecutionConflict) {
-		return fmt.Errorf(
-			"%w: stop caller, checkpoint, revision, or request history is not current",
-			cliservice.ErrInvalidInput,
-		)
-	}
-	return err
 }
 
 func readPlanFile(path string) ([]byte, error) {

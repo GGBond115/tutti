@@ -56,6 +56,7 @@ func TestTaskCanceledMainWakePromptCarriesExactMutationSchema(t *testing.T) {
 		CheckpointRevision: 7,
 	})
 	for _, want := range []string{
+		"tutti plan issue get --issue-id issue-1 --json",
 		"tutti plan issue mutate",
 		"--issue-id issue-1",
 		"--checkpoint-id checkpoint-1",
@@ -64,9 +65,34 @@ func TestTaskCanceledMainWakePromptCarriesExactMutationSchema(t *testing.T) {
 		`--operations-json '[{"kind":"rework","taskId":"<old-task-id>","task":{"taskId":"<replacement-task-id>"`,
 		`"op" and "replacement" are not supported`,
 		"preserve task and Run history",
+		"inherits omitted launch settings, execution directory, and dependencies",
+		"canceled task cannot be updated or scheduled directly",
+		"graphRevision returned by the successful mutation",
+		"only supported execution control plane",
+		"Do not inspect or modify Tutti's backing SQLite databases",
 		"tutti plan issue stop",
 		"--reason '<audited-reason>'",
 		"so no later checkpoint wake is emitted",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("MainWakePrompt() missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestTaskFailedMainWakePromptExplainsReworkRecovery(t *testing.T) {
+	prompt := MainWakePrompt(executionbiz.Wake{
+		IssueID: "issue-1", CheckpointID: "checkpoint-1",
+		CheckpointKind:     executionbiz.CheckpointKindTaskFailed,
+		CheckpointRevision: 7,
+	})
+	for _, want := range []string{
+		"automatically redirects active, not-started dependents",
+		"failed task cannot be updated or scheduled directly",
+		"rework it with a new taskId and corrected launch settings",
+		"graphRevision returned by the successful mutation",
+		"Keep checkpoint checkpoint-1",
+		"do not guess or increment the revision",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("MainWakePrompt() missing %q:\n%s", want, prompt)

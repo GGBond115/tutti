@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
 	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
@@ -42,12 +41,33 @@ func (s *SQLiteStore) AdmitTuttiModeMutation(
 		GraphRevision: admission.ExpectedGraphRevision + 1,
 		AddedTaskIDs:  []string{}, UpdatedTaskIDs: []string{}, SupersededTaskIDs: []string{},
 	}
-	if err := applyTuttiModeMutationOperations(ctx, tx, admission, tasks, &result); err != nil {
+	graph, err := executionbiz.ApplyMutationGraph(executionbiz.MutationGraphInput{
+		WorkspaceID: admission.WorkspaceID,
+		IssueID:     admission.IssueID,
+		Tasks:       tasks,
+		Operations:  admission.Operations,
+		Now:         admission.Now,
+	})
+	if err != nil {
 		return executionbiz.MutationResult{}, err
 	}
-	if err := validateActiveTuttiModeMutationGraph(tasks); err != nil {
-		return executionbiz.MutationResult{}, err
+	for _, task := range graph.InsertedTasks {
+		if _, err := insertWorkspaceIssueTask(ctx, tx, task); err != nil {
+			return executionbiz.MutationResult{}, executionbiz.Reject(
+				executionbiz.ErrMutationRejected,
+				executionbiz.RejectionDuplicateTask,
+				task.TaskID,
+			)
+		}
 	}
+	for _, task := range graph.UpdatedTasks {
+		if err := updateTuttiModeMutationTask(ctx, tx, task); err != nil {
+			return executionbiz.MutationResult{}, err
+		}
+	}
+	result.AddedTaskIDs = graph.AddedTaskIDs
+	result.UpdatedTaskIDs = graph.UpdatedTaskIDs
+	result.SupersededTaskIDs = graph.SupersededTaskIDs
 	if err := projectScheduledTuttiModeIssue(
 		ctx, tx, admission.WorkspaceID, admission.IssueID, admission.Now,
 	); err != nil {
@@ -130,12 +150,22 @@ WHERE workspace_id = ? AND issue_id = ?
 	if err != nil {
 		return "", fmt.Errorf("get Tutti mode mutation fence: %w", err)
 	}
-	if sourceSessionID != admission.SourceSessionID ||
-		graphRevision != admission.ExpectedGraphRevision ||
-		(status != string(executionbiz.StatusAwaitingSchedule) &&
-			status != string(executionbiz.StatusAwaitingMain) &&
-			status != string(executionbiz.StatusPendingGoalReview)) {
-		return "", executionbiz.ErrMutationRejected
+	if sourceSessionID != admission.SourceSessionID {
+		return "", executionbiz.Reject(
+			executionbiz.ErrMutationRejected, executionbiz.RejectionWrongSourceSession, "",
+		)
+	}
+	if graphRevision != admission.ExpectedGraphRevision {
+		return "", executionbiz.Reject(
+			executionbiz.ErrMutationRejected, executionbiz.RejectionStaleGraphRevision, "",
+		)
+	}
+	if status != string(executionbiz.StatusAwaitingSchedule) &&
+		status != string(executionbiz.StatusAwaitingMain) &&
+		status != string(executionbiz.StatusPendingGoalReview) {
+		return "", executionbiz.Reject(
+			executionbiz.ErrMutationRejected, executionbiz.RejectionInactiveExecution, "",
+		)
 	}
 	var checkpointStatus string
 	var checkpointRevision int64
@@ -145,18 +175,30 @@ FROM workspace_tutti_execution_checkpoints
 WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ?
 `, admission.WorkspaceID, executionID, admission.CheckpointID).
 		Scan(&checkpointStatus, &checkpointRevision)
-	if err != nil || checkpointStatus != string(executionbiz.CheckpointStatusActive) ||
-		checkpointRevision != admission.ExpectedGraphRevision {
-		return "", executionbiz.ErrMutationRejected
+	if err != nil || checkpointStatus != string(executionbiz.CheckpointStatusActive) {
+		return "", executionbiz.Reject(
+			executionbiz.ErrMutationRejected, executionbiz.RejectionInactiveCheckpoint, "",
+		)
+	}
+	if checkpointRevision != admission.ExpectedGraphRevision {
+		return "", executionbiz.Reject(
+			executionbiz.ErrMutationRejected, executionbiz.RejectionStaleGraphRevision, "",
+		)
 	}
 	var planningSource, issueSourceSessionID string
 	err = tx.QueryRowContext(ctx, `
 SELECT planning_source, source_session_id
 FROM workspace_issues WHERE workspace_id = ? AND issue_id = ?
 `, admission.WorkspaceID, admission.IssueID).Scan(&planningSource, &issueSourceSessionID)
-	if err != nil || planningSource != string(workspaceissues.PlanningSourceTuttiModePlan) ||
-		issueSourceSessionID != admission.SourceSessionID {
-		return "", executionbiz.ErrMutationRejected
+	if err != nil || planningSource != string(workspaceissues.PlanningSourceTuttiModePlan) {
+		return "", executionbiz.Reject(
+			executionbiz.ErrMutationRejected, executionbiz.RejectionInactiveExecution, "",
+		)
+	}
+	if issueSourceSessionID != admission.SourceSessionID {
+		return "", executionbiz.Reject(
+			executionbiz.ErrMutationRejected, executionbiz.RejectionWrongSourceSession, "",
+		)
 	}
 	return executionID, nil
 }
@@ -189,130 +231,6 @@ ORDER BY sort_index ASC, id ASC
 	return result, nil
 }
 
-func applyTuttiModeMutationOperations(
-	ctx context.Context,
-	tx *sql.Tx,
-	admission executionbiz.MutationAdmission,
-	tasks map[string]workspaceissues.Task,
-	result *executionbiz.MutationResult,
-) error {
-	nextSortIndex := 1
-	for _, task := range tasks {
-		nextSortIndex = max(nextSortIndex, task.SortIndex+1)
-	}
-	for _, operation := range admission.Operations {
-		switch operation.Kind {
-		case executionbiz.MutationOperationAdd:
-			task := newTuttiModeMutationTask(admission, operation.Task, nextSortIndex)
-			nextSortIndex++
-			if _, exists := tasks[task.TaskID]; exists {
-				return executionbiz.ErrMutationRejected
-			}
-			if _, err := insertWorkspaceIssueTask(ctx, tx, task); err != nil {
-				return executionbiz.ErrMutationRejected
-			}
-			tasks[task.TaskID] = task
-			result.AddedTaskIDs = append(result.AddedTaskIDs, task.TaskID)
-		case executionbiz.MutationOperationUpdate:
-			task, ok := tasks[operation.TaskID]
-			if !ok || task.IsSuperseded() || task.Status != workspaceissues.StatusNotStarted {
-				return executionbiz.ErrMutationRejected
-			}
-			mergeTuttiModeMutationTask(&task, operation.Task, admission)
-			if err := updateTuttiModeMutationTask(ctx, tx, task); err != nil {
-				return err
-			}
-			tasks[task.TaskID] = task
-			result.UpdatedTaskIDs = append(result.UpdatedTaskIDs, task.TaskID)
-		case executionbiz.MutationOperationSupersede:
-			task, ok := tasks[operation.TaskID]
-			if !ok || task.IsSuperseded() ||
-				task.Status == workspaceissues.StatusRunning ||
-				task.Status == workspaceissues.StatusCompleted {
-				return executionbiz.ErrMutationRejected
-			}
-			task.SupersededAtUnixMS = unixMs(admission.Now)
-			task.UpdatedAtUnixMS = unixMs(admission.Now)
-			if err := updateTuttiModeMutationTask(ctx, tx, task); err != nil {
-				return err
-			}
-			tasks[task.TaskID] = task
-			result.SupersededTaskIDs = append(result.SupersededTaskIDs, task.TaskID)
-		case executionbiz.MutationOperationRework:
-			oldTask, ok := tasks[operation.TaskID]
-			if !ok || oldTask.IsSuperseded() ||
-				oldTask.Status == workspaceissues.StatusRunning ||
-				oldTask.Status == workspaceissues.StatusCompleted {
-				return executionbiz.ErrMutationRejected
-			}
-			replacement := newTuttiModeMutationTask(admission, operation.Task, nextSortIndex)
-			nextSortIndex++
-			if _, exists := tasks[replacement.TaskID]; exists {
-				return executionbiz.ErrMutationRejected
-			}
-			oldTask.SupersededAtUnixMS = unixMs(admission.Now)
-			oldTask.SupersededByTaskID = replacement.TaskID
-			oldTask.UpdatedAtUnixMS = unixMs(admission.Now)
-			if err := updateTuttiModeMutationTask(ctx, tx, oldTask); err != nil {
-				return err
-			}
-			if _, err := insertWorkspaceIssueTask(ctx, tx, replacement); err != nil {
-				return executionbiz.ErrMutationRejected
-			}
-			tasks[oldTask.TaskID] = oldTask
-			tasks[replacement.TaskID] = replacement
-			result.SupersededTaskIDs = append(result.SupersededTaskIDs, oldTask.TaskID)
-			result.AddedTaskIDs = append(result.AddedTaskIDs, replacement.TaskID)
-		default:
-			return executionbiz.ErrMutationRejected
-		}
-	}
-	return nil
-}
-
-func newTuttiModeMutationTask(
-	admission executionbiz.MutationAdmission,
-	task workspaceissues.Task,
-	sortIndex int,
-) workspaceissues.Task {
-	now := unixMs(admission.Now)
-	task.WorkspaceID = admission.WorkspaceID
-	task.IssueID = admission.IssueID
-	task.Status = workspaceissues.StatusNotStarted
-	task.SortIndex = sortIndex
-	task.DependencyTaskIDs = workspaceissues.NormalizeDependencyTaskIDs(task.DependencyTaskIDs)
-	task.AcceptanceState = workspaceissues.AcceptanceAgentClaimed
-	task.AcceptanceSummary = ""
-	task.LatestRunID = ""
-	task.SupersededAtUnixMS = 0
-	task.SupersededByTaskID = ""
-	task.CreatedAtUnixMS = now
-	task.UpdatedAtUnixMS = now
-	return task
-}
-
-func mergeTuttiModeMutationTask(
-	task *workspaceissues.Task,
-	replacement workspaceissues.Task,
-	admission executionbiz.MutationAdmission,
-) {
-	task.Title = replacement.Title
-	task.Content = replacement.Content
-	task.SearchText = strings.TrimSpace(replacement.Title + " " + replacement.Content)
-	task.Priority = replacement.Priority
-	task.DueAtUnixMS = replacement.DueAtUnixMS
-	task.AgentTargetID = replacement.AgentTargetID
-	task.ModelPlanID = replacement.ModelPlanID
-	task.Model = replacement.Model
-	task.PermissionModeID = replacement.PermissionModeID
-	task.ReasoningEffort = replacement.ReasoningEffort
-	task.ExecutionDirectory = replacement.ExecutionDirectory
-	task.DependencyTaskIDs = workspaceissues.NormalizeDependencyTaskIDs(replacement.DependencyTaskIDs)
-	task.Parallelizable = replacement.Parallelizable
-	task.AutoAccept = replacement.AutoAccept
-	task.UpdatedAtUnixMS = unixMs(admission.Now)
-}
-
 func updateTuttiModeMutationTask(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -340,26 +258,6 @@ WHERE workspace_id = ? AND issue_id = ? AND task_id = ?
 		return fmt.Errorf("update Tutti mode mutation task: %w", err)
 	}
 	return requireRowsAffected(result, executionbiz.ErrMutationRejected, "update Tutti mode mutation task")
-}
-
-func validateActiveTuttiModeMutationGraph(tasks map[string]workspaceissues.Task) error {
-	active := make([]workspaceissues.Task, 0, len(tasks))
-	for _, task := range tasks {
-		if task.IsSuperseded() {
-			continue
-		}
-		for _, dependencyID := range task.DependencyTaskIDs {
-			dependency, ok := tasks[dependencyID]
-			if !ok || dependency.IsSuperseded() {
-				return executionbiz.ErrMutationRejected
-			}
-		}
-		active = append(active, task)
-	}
-	if len(active) == 0 || !workspaceissues.ValidateTaskDependencyGraph(active) {
-		return executionbiz.ErrMutationRejected
-	}
-	return nil
 }
 
 func rebindTuttiModeMutationFence(

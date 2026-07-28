@@ -732,14 +732,10 @@ func buildDaemonAPI(
 			agentTargets,
 			preferences,
 		),
-		tuttimodeplancli.NewProviderWithExecution(
-			workspaceService,
-			tuttiModePlans,
-			agentSessionService,
-			&issueService,
-			&issueService,
-			tuttiModeExecutions,
-			tuttiModeExecutions,
+		tuttimodeplancli.NewProviderWithExecutionSnapshot(
+			workspaceService, tuttiModePlans, agentSessionService,
+			&issueService, &issueService, tuttiModeExecutions,
+			&issueService, tuttiModeExecutions, tuttiModeExecutions,
 		),
 		tuttigoalreviewcli.NewProvider(
 			tuttiModeExecutions,

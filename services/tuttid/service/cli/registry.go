@@ -16,9 +16,10 @@ var (
 )
 
 type InvokeError struct {
-	Kind   error
-	Reason string
-	Err    error
+	Kind       error
+	ReasonCode string
+	Reason     string
+	Err        error
 }
 
 func (e *InvokeError) Error() string {
@@ -59,9 +60,21 @@ func WorkspaceOperationError(reason string, err error) error {
 	return &InvokeError{Kind: ErrWorkspaceOperation, Reason: strings.TrimSpace(reason), Err: err}
 }
 
+func InvalidInputReasonError(reasonCode string, message string, err error) error {
+	return &InvokeError{
+		Kind:       ErrInvalidInput,
+		ReasonCode: strings.TrimSpace(reasonCode),
+		Reason:     strings.TrimSpace(message),
+		Err:        err,
+	}
+}
+
 func InvokeErrorReason(err error) string {
 	var invokeErr *InvokeError
 	if errors.As(err, &invokeErr) {
+		if invokeErr.ReasonCode != "" {
+			return invokeErr.ReasonCode
+		}
 		return invokeErr.Reason
 	}
 	return ""

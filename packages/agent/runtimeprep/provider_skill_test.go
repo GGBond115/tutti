@@ -126,6 +126,18 @@ func TestRenderSkillBundleIncludesGuideAndOptionalSkills(t *testing.T) {
 		t.Fatalf("skill slugs = %q", got)
 	}
 	tuttiSkill := skillBundleRecord(bundle.Skills, tuttiSkillName)
+	for _, expected := range []string{
+		"Never inspect or modify `~/.tutti*/*.db`",
+		"tutti-dev plan issue get --issue-id <issue-id> --json",
+		"`task_failed` or `task_canceled`",
+		"Rework it with a new `taskId`",
+		"Recovery is bounded",
+		"On `inactive_checkpoint` or `stale_graph_revision`",
+	} {
+		if !strings.Contains(tuttiSkill.Content, expected) {
+			t.Fatalf("tutti skill missing recovery rule %q: %q", expected, tuttiSkill.Content)
+		}
+	}
 	guide, ok := skillBundleFileContent(tuttiSkill, commandGuideReferencePath)
 	if !ok || !strings.Contains(guide, "tutti-dev issue get --issue-id <issue-id> --json") {
 		t.Fatalf("command guide = %q", guide)

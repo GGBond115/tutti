@@ -185,11 +185,21 @@ WHERE workspace_id = ? AND issue_id = ?
 	if err != nil {
 		return "", fmt.Errorf("get Tutti mode execution schedule fence: %w", err)
 	}
-	if sourceSessionID != admission.SourceSessionID ||
-		graphRevision != admission.ExpectedGraphRevision ||
-		(status != string(executionbiz.StatusAwaitingSchedule) &&
-			status != string(executionbiz.StatusAwaitingMain)) {
-		return "", executionbiz.ErrScheduleRejected
+	if sourceSessionID != admission.SourceSessionID {
+		return "", executionbiz.Reject(
+			executionbiz.ErrScheduleRejected, executionbiz.RejectionWrongSourceSession, "",
+		)
+	}
+	if graphRevision != admission.ExpectedGraphRevision {
+		return "", executionbiz.Reject(
+			executionbiz.ErrScheduleRejected, executionbiz.RejectionStaleGraphRevision, "",
+		)
+	}
+	if status != string(executionbiz.StatusAwaitingSchedule) &&
+		status != string(executionbiz.StatusAwaitingMain) {
+		return "", executionbiz.Reject(
+			executionbiz.ErrScheduleRejected, executionbiz.RejectionInactiveExecution, "",
+		)
 	}
 	var checkpointStatus string
 	var checkpointRevision int64
@@ -201,13 +211,23 @@ WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ?
 		Scan(&checkpointStatus, &checkpointRevision)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", executionbiz.ErrScheduleRejected
+			return "", executionbiz.Reject(
+				executionbiz.ErrScheduleRejected,
+				executionbiz.RejectionInactiveCheckpoint,
+				"",
+			)
 		}
 		return "", fmt.Errorf("get Tutti mode schedule checkpoint fence: %w", err)
 	}
-	if checkpointStatus != string(executionbiz.CheckpointStatusActive) ||
-		checkpointRevision != admission.ExpectedGraphRevision {
-		return "", executionbiz.ErrScheduleRejected
+	if checkpointStatus != string(executionbiz.CheckpointStatusActive) {
+		return "", executionbiz.Reject(
+			executionbiz.ErrScheduleRejected, executionbiz.RejectionInactiveCheckpoint, "",
+		)
+	}
+	if checkpointRevision != admission.ExpectedGraphRevision {
+		return "", executionbiz.Reject(
+			executionbiz.ErrScheduleRejected, executionbiz.RejectionStaleGraphRevision, "",
+		)
 	}
 	return executionID, nil
 }
@@ -229,10 +249,25 @@ WHERE workspace_id = ? AND issue_id = ?
 	if err != nil {
 		return nil, workspaceissues.Issue{}, fmt.Errorf("get scheduled Tutti mode Issue: %w", err)
 	}
-	if issue.PlanningSource != workspaceissues.PlanningSourceTuttiModePlan ||
-		issue.SourceSessionID != admission.SourceSessionID || issue.DispatchPaused ||
-		issue.Budget.Status != workspaceissues.BudgetStatusActive {
-		return nil, workspaceissues.Issue{}, executionbiz.ErrScheduleRejected
+	if issue.PlanningSource != workspaceissues.PlanningSourceTuttiModePlan {
+		return nil, workspaceissues.Issue{}, executionbiz.Reject(
+			executionbiz.ErrScheduleRejected, executionbiz.RejectionInactiveExecution, "",
+		)
+	}
+	if issue.SourceSessionID != admission.SourceSessionID {
+		return nil, workspaceissues.Issue{}, executionbiz.Reject(
+			executionbiz.ErrScheduleRejected, executionbiz.RejectionWrongSourceSession, "",
+		)
+	}
+	if issue.DispatchPaused {
+		return nil, workspaceissues.Issue{}, executionbiz.Reject(
+			executionbiz.ErrScheduleRejected, executionbiz.RejectionDispatchPaused, "",
+		)
+	}
+	if issue.Budget.Status != workspaceissues.BudgetStatusActive {
+		return nil, workspaceissues.Issue{}, executionbiz.Reject(
+			executionbiz.ErrScheduleRejected, executionbiz.RejectionBudgetUnavailable, "",
+		)
 	}
 
 	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`
@@ -259,11 +294,22 @@ ORDER BY sort_index ASC, id ASC
 	selected := make(map[string]workspaceissues.Task, len(admission.Runs))
 	for _, run := range admission.Runs {
 		if _, duplicate := selected[run.TaskID]; duplicate {
-			return nil, workspaceissues.Issue{}, executionbiz.ErrScheduleRejected
+			return nil, workspaceissues.Issue{}, executionbiz.Reject(
+				executionbiz.ErrScheduleRejected, executionbiz.RejectionDuplicateTask, run.TaskID,
+			)
 		}
 		task, ok := byID[run.TaskID]
-		if !ok || !workspaceissues.IssueTaskEligibleForRun(task, byID) {
-			return nil, workspaceissues.Issue{}, executionbiz.ErrScheduleRejected
+		if !ok {
+			return nil, workspaceissues.Issue{}, executionbiz.Reject(
+				executionbiz.ErrScheduleRejected, executionbiz.RejectionTaskNotFound, run.TaskID,
+			)
+		}
+		if blocker := workspaceissues.IssueTaskRunBlocker(task, byID); blocker != "" {
+			return nil, workspaceissues.Issue{}, executionbiz.Reject(
+				executionbiz.ErrScheduleRejected,
+				scheduleRejectionReasonForBlocker(blocker),
+				run.TaskID,
+			)
 		}
 		selected[run.TaskID] = task
 	}
@@ -287,9 +333,26 @@ WHERE workspace_id = ? AND status = 'running' AND TRIM(agent_session_id) <> ''
 	}
 	if requested < 1 ||
 		requested > workspaceissues.IssueAutomaticRunAdmissionSlots(issue, running, activeIssueRuns) {
-		return executionbiz.ErrScheduleRejected
+		return executionbiz.Reject(
+			executionbiz.ErrScheduleRejected, executionbiz.RejectionCapacityExhausted, "",
+		)
 	}
 	return nil
+}
+
+func scheduleRejectionReasonForBlocker(
+	blocker workspaceissues.TaskRunBlocker,
+) executionbiz.RejectionReason {
+	switch blocker {
+	case workspaceissues.TaskRunBlockerSuperseded:
+		return executionbiz.RejectionTaskSuperseded
+	case workspaceissues.TaskRunBlockerNotStarted:
+		return executionbiz.RejectionTaskNotStarted
+	case workspaceissues.TaskRunBlockerMissingAgentTarget:
+		return executionbiz.RejectionMissingAgentTarget
+	default:
+		return executionbiz.RejectionDependencyUnsatisfied
+	}
 }
 
 func insertTuttiModeScheduledRuns(

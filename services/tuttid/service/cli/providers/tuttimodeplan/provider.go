@@ -6,6 +6,7 @@ package tuttimodeplan
 import (
 	"context"
 
+	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
 	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	cliservice "github.com/tutti-os/tutti/services/tuttid/service/cli"
 	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
@@ -64,10 +65,28 @@ type IssueMutations interface {
 	) (executionbiz.MutationResult, error)
 }
 
+type IssueDetails interface {
+	GetIssueDetail(
+		context.Context,
+		string,
+		string,
+	) (workspaceissues.IssueDetail, error)
+}
+
+type IssueExecutionReads interface {
+	GetByIssue(
+		context.Context,
+		string,
+		string,
+	) (executionbiz.Aggregate, error)
+}
+
 type Provider struct {
 	workspaces       cliservice.WorkspaceCatalog
 	plans            Plans
 	turns            ActiveTurns
+	issueDetails     IssueDetails
+	executionReads   IssueExecutionReads
 	schedules        IssueSchedules
 	mutations        IssueMutations
 	acknowledgements IssueAcknowledgements
@@ -116,6 +135,31 @@ func NewProviderWithExecution(
 	return provider
 }
 
+func NewProviderWithExecutionSnapshot(
+	workspaces cliservice.WorkspaceCatalog,
+	plans Plans,
+	turns ActiveTurns,
+	schedules IssueSchedules,
+	mutations IssueMutations,
+	acknowledgements IssueAcknowledgements,
+	issueDetails IssueDetails,
+	executionReads IssueExecutionReads,
+	completions ...IssueCompletions,
+) Provider {
+	provider := NewProviderWithExecution(
+		workspaces,
+		plans,
+		turns,
+		schedules,
+		mutations,
+		acknowledgements,
+		completions...,
+	)
+	provider.issueDetails = issueDetails
+	provider.executionReads = executionReads
+	return provider
+}
+
 func (Provider) AppID() string {
 	return appID
 }
@@ -124,7 +168,7 @@ func (Provider) AppID() string {
 // after propose/revise, and the user's review decision comes back as a new
 // user message (feedback dispatch), never as something the agent blocks on.
 func (p Provider) Commands() []cliservice.Command {
-	return []cliservice.Command{
+	commands := []cliservice.Command{
 		p.newProposeCommand(),
 		p.newReviseCommand(),
 		p.newGetCommand(),
@@ -134,6 +178,10 @@ func (p Provider) Commands() []cliservice.Command {
 		p.newIssueCompleteCommand(),
 		p.newIssueStopCommand(),
 	}
+	if p.issueDetails != nil && p.executionReads != nil {
+		commands = append(commands, p.newIssueGetCommand())
+	}
+	return commands
 }
 
 func (p Provider) requireArchives() error {

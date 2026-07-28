@@ -221,6 +221,203 @@ func runMutationOperationsCommitAllOrNone(
 	return nil
 }
 
+func runFailedTaskReworkInheritsLaunchAndRebindsDependents(
+	ctx context.Context,
+	driver Driver,
+) error {
+	fixture := mutationFixture("failed-rework")
+	fixture.Tasks[1].DependencyTaskIDs = []string{"task-a"}
+	taskC := schedulableTask("task-c", "/tmp/tutti-mutation-failed-rework-c")
+	taskC.DependencyTaskIDs = []string{"task-a", "task-b"}
+	fixture.Tasks = append(fixture.Tasks, taskC)
+	issueID, err := driver.AcceptPlan(ctx, fixture)
+	if err != nil {
+		return fmt.Errorf("AcceptPlan() error = %w", err)
+	}
+	initial, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil {
+		return fmt.Errorf("GetSnapshot(initial) error = %w", err)
+	}
+	scheduled, err := driver.Schedule(ctx, ScheduleInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          initial.Checkpoints[0].CheckpointID,
+		ExpectedGraphRevision: initial.Execution.GraphRevision,
+		TaskIDs:               []string{"task-a"},
+		RequestID:             "schedule-failed-rework-a",
+	})
+	if err != nil {
+		return fmt.Errorf("Schedule(A) error = %w", err)
+	}
+	if err := driver.SettleRun(ctx, SettleRunInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		TaskID: "task-a", RunID: scheduled.RunIDs[0], Status: "failed",
+	}); err != nil {
+		return fmt.Errorf("SettleRun(A failed) error = %w", err)
+	}
+	failed, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil {
+		return fmt.Errorf("GetSnapshot(failed) error = %w", err)
+	}
+	checkpoint := failed.Checkpoints[len(failed.Checkpoints)-1]
+	if checkpoint.Kind != "task_failed" || checkpoint.Status != "active" {
+		return fmt.Errorf("failed checkpoint = %#v", checkpoint)
+	}
+	replacement := Task{
+		TaskID: "task-a-retry",
+		Title:  "Retry task A",
+		Content: "Continue the failed task without repeating its launch " +
+			"configuration.",
+	}
+	mutated, err := driver.Mutate(ctx, MutateInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          checkpoint.CheckpointID,
+		ExpectedGraphRevision: failed.Execution.GraphRevision,
+		Operations: []MutationOperation{{
+			Kind: "rework", TaskID: "task-a", Task: replacement,
+		}},
+		RequestID: "rework-failed-a",
+	})
+	if err != nil {
+		return fmt.Errorf("Mutate(rework failed A) error = %w", err)
+	}
+	if !reflect.DeepEqual(mutated.AddedTaskIDs, []string{"task-a-retry"}) ||
+		!reflect.DeepEqual(mutated.UpdatedTaskIDs, []string{"task-b", "task-c"}) ||
+		!reflect.DeepEqual(mutated.SupersededTaskIDs, []string{"task-a"}) {
+		return fmt.Errorf("Mutate(rework failed A) result = %#v", mutated)
+	}
+	afterMutation, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil {
+		return fmt.Errorf("GetSnapshot(after mutation) error = %w", err)
+	}
+	original := taskByID(afterMutation.Tasks, "task-a")
+	retry := taskByID(afterMutation.Tasks, "task-a-retry")
+	if original.SupersededByTaskID != "task-a-retry" ||
+		retry.AgentTargetID != original.AgentTargetID ||
+		retry.Model != original.Model ||
+		retry.PermissionModeID != original.PermissionModeID ||
+		retry.ExecutionDirectory != original.ExecutionDirectory ||
+		!reflect.DeepEqual(
+			taskByID(afterMutation.Tasks, "task-b").DependencyTaskIDs,
+			[]string{"task-a-retry"},
+		) ||
+		!reflect.DeepEqual(
+			taskByID(afterMutation.Tasks, "task-c").DependencyTaskIDs,
+			[]string{"task-a-retry", "task-b"},
+		) {
+		return fmt.Errorf("reworked dependency graph = %#v", afterMutation.Tasks)
+	}
+	retried, err := driver.Schedule(ctx, ScheduleInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          checkpoint.CheckpointID,
+		ExpectedGraphRevision: mutated.GraphRevision,
+		TaskIDs:               []string{"task-a-retry"},
+		RequestID:             "schedule-failed-a-retry",
+	})
+	if err != nil {
+		return fmt.Errorf("Schedule(A retry) error = %w", err)
+	}
+	if len(retried.RunIDs) != 1 || retried.GraphRevision != mutated.GraphRevision {
+		return fmt.Errorf("Schedule(A retry) result = %#v", retried)
+	}
+	return nil
+}
+
+func runCanceledTaskReworkInheritsLaunchAndSchedulesReplacement(
+	ctx context.Context,
+	driver Driver,
+) error {
+	fixture := mutationFixture("canceled-rework")
+	issueID, err := driver.AcceptPlan(ctx, fixture)
+	if err != nil {
+		return fmt.Errorf("AcceptPlan() error = %w", err)
+	}
+	initial, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil {
+		return fmt.Errorf("GetSnapshot(initial) error = %w", err)
+	}
+	scheduled, err := driver.Schedule(ctx, ScheduleInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          initial.Checkpoints[0].CheckpointID,
+		ExpectedGraphRevision: initial.Execution.GraphRevision,
+		TaskIDs:               []string{"task-a"},
+		RequestID:             "schedule-canceled-rework-a",
+	})
+	if err != nil {
+		return fmt.Errorf("Schedule(A) error = %w", err)
+	}
+	if err := driver.SettleRun(ctx, SettleRunInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		TaskID: "task-a", RunID: scheduled.RunIDs[0], Status: "canceled",
+	}); err != nil {
+		return fmt.Errorf("SettleRun(A canceled) error = %w", err)
+	}
+	canceled, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil {
+		return fmt.Errorf("GetSnapshot(canceled) error = %w", err)
+	}
+	checkpoint := Checkpoint{}
+	for _, candidate := range canceled.Checkpoints {
+		if candidate.Status == "active" {
+			checkpoint = candidate
+			break
+		}
+	}
+	if checkpoint.Kind != "task_canceled" {
+		return fmt.Errorf("canceled checkpoint = %#v", checkpoint)
+	}
+	result, err := driver.Mutate(ctx, MutateInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          checkpoint.CheckpointID,
+		ExpectedGraphRevision: canceled.Execution.GraphRevision,
+		Operations: []MutationOperation{{
+			Kind: "rework", TaskID: "task-a",
+			Task: Task{
+				TaskID: "task-a-retry",
+				Title:  "Retry canceled task A",
+				Content: "Continue the canceled task without repeating its " +
+					"launch configuration.",
+			},
+		}},
+		RequestID: "rework-canceled-a",
+	})
+	if err != nil {
+		return fmt.Errorf("Mutate(rework canceled A) error = %w", err)
+	}
+	afterMutation, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil {
+		return fmt.Errorf("GetSnapshot(after mutation) error = %w", err)
+	}
+	original := taskByID(afterMutation.Tasks, "task-a")
+	retry := taskByID(afterMutation.Tasks, "task-a-retry")
+	if original.SupersededByTaskID != retry.TaskID ||
+		retry.AgentTargetID != original.AgentTargetID ||
+		retry.Model != original.Model ||
+		retry.PermissionModeID != original.PermissionModeID ||
+		retry.ExecutionDirectory != original.ExecutionDirectory {
+		return fmt.Errorf("canceled rework launch inheritance = %#v", afterMutation.Tasks)
+	}
+	retried, err := driver.Schedule(ctx, ScheduleInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          checkpoint.CheckpointID,
+		ExpectedGraphRevision: result.GraphRevision,
+		TaskIDs:               []string{retry.TaskID},
+		RequestID:             "schedule-canceled-a-retry",
+	})
+	if err != nil {
+		return fmt.Errorf("Schedule(A retry) error = %w", err)
+	}
+	if len(retried.RunIDs) != 1 || retried.GraphRevision != result.GraphRevision {
+		return fmt.Errorf("Schedule(A retry) result = %#v", retried)
+	}
+	return nil
+}
+
 func runLogicalSupersessionPreservesHistoryAndRequiresSettlement(
 	ctx context.Context,
 	driver Driver,

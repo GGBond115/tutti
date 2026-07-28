@@ -660,7 +660,11 @@ func (service Service) Mutate(
 		input.SourceSessionID == "" || input.CheckpointID == "" ||
 		input.RequestID == "" || input.ExpectedGraphRevision < 1 ||
 		len(input.Operations) == 0 {
-		return executionbiz.MutationResult{}, executionbiz.ErrMutationRejected
+		return executionbiz.MutationResult{}, executionbiz.Reject(
+			executionbiz.ErrMutationRejected,
+			executionbiz.RejectionInvalidMutation,
+			"",
+		)
 	}
 	operations := append([]executionbiz.MutationOperation(nil), input.Operations...)
 	for index := range operations {
@@ -669,19 +673,50 @@ func (service Service) Mutate(
 		switch operations[index].Kind {
 		case executionbiz.MutationOperationAdd:
 			if operations[index].Task.TaskID == "" {
-				return executionbiz.MutationResult{}, executionbiz.ErrMutationRejected
+				return executionbiz.MutationResult{}, executionbiz.Reject(
+					executionbiz.ErrMutationRejected,
+					executionbiz.RejectionInvalidMutation,
+					"",
+				)
+			}
+			if strings.TrimSpace(operations[index].Task.AgentTargetID) == "" {
+				return executionbiz.MutationResult{}, executionbiz.Reject(
+					executionbiz.ErrMutationRejected,
+					executionbiz.RejectionMissingAgentTarget,
+					operations[index].Task.TaskID,
+				)
 			}
 		case executionbiz.MutationOperationUpdate, executionbiz.MutationOperationSupersede,
 			executionbiz.MutationOperationRework:
 			if operations[index].TaskID == "" {
-				return executionbiz.MutationResult{}, executionbiz.ErrMutationRejected
+				return executionbiz.MutationResult{}, executionbiz.Reject(
+					executionbiz.ErrMutationRejected,
+					executionbiz.RejectionInvalidMutation,
+					"",
+				)
+			}
+			if operations[index].Kind == executionbiz.MutationOperationUpdate &&
+				!operations[index].TaskFields.Any() {
+				return executionbiz.MutationResult{}, executionbiz.Reject(
+					executionbiz.ErrMutationRejected,
+					executionbiz.RejectionInvalidMutation,
+					operations[index].TaskID,
+				)
 			}
 			if operations[index].Kind == executionbiz.MutationOperationRework &&
 				operations[index].Task.TaskID == "" {
-				return executionbiz.MutationResult{}, executionbiz.ErrMutationRejected
+				return executionbiz.MutationResult{}, executionbiz.Reject(
+					executionbiz.ErrMutationRejected,
+					executionbiz.RejectionInvalidMutation,
+					operations[index].TaskID,
+				)
 			}
 		default:
-			return executionbiz.MutationResult{}, executionbiz.ErrMutationRejected
+			return executionbiz.MutationResult{}, executionbiz.Reject(
+				executionbiz.ErrMutationRejected,
+				executionbiz.RejectionInvalidMutation,
+				operations[index].TaskID,
+			)
 		}
 	}
 	payload, err := json.Marshal(struct {

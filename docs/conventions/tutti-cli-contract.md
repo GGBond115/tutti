@@ -44,6 +44,18 @@ An obsolete persisted default is ignored while reading Composer Options so the
 caller can recover by selecting a current advertised id. The same obsolete id,
 when explicitly supplied in the current invocation, remains invalid input.
 
+Tutti execution commands use stable rejection reasons such as
+`wrong_source_session`, `inactive_execution`, `inactive_checkpoint`,
+`stale_graph_revision`, `task_not_found`, `task_not_started`,
+`task_superseded`, `missing_agent_target`, `dependency_unsatisfied`,
+`dispatch_paused`, `budget_unavailable`, `capacity_exhausted`,
+`parallelism_rejected`, `duplicate_task`, `invalid_task_graph`, and
+`invalid_mutation_operation`. Their message must include one action-specific
+recovery hint. A fence rejection directs the caller to the source-scoped
+execution snapshot; a task rejection identifies the affected task. Callers
+must not infer a new revision, cycle through unrelated commands, or inspect the
+backing database.
+
 Exit codes stay intentionally small and stable: `0` means success, `2` means
 the command invocation or input was invalid, and `1` means authentication,
 transport, domain, or runtime failure. A daemon HTTP 400 response is invalid
@@ -412,6 +424,13 @@ The public command set is deliberately narrow:
   session instructing the Agent to revise, so the Agent does not have to poll;
 - `tutti plan get --workflow-id <id>` returns the caller-session-scoped
   authoritative snapshot;
+- `tutti plan issue get --issue-id <id>` returns the source-session-scoped
+  authoritative execution snapshot: execution status, active checkpoint,
+  graph revision, visible pending checkpoints, task launch settings,
+  supersession and dependency facts, per-task readiness blockers, ready task
+  IDs, allowed actions, and a checkpoint-specific recovery hint. It is the
+  only supported refresh operation after a fenced execution command is
+  rejected;
 - `tutti plan issue schedule --issue-id <id> --checkpoint-id <id>
 --expected-graph-revision <revision> --task-ids-json <json-array>
 --request-id <stable-id>` resolves the active execution checkpoint by
@@ -426,7 +445,18 @@ The public command set is deliberately narrow:
   graph revision and rebinds the checkpoint to that revision. Every operation
   object uses the `kind` key (`op` is invalid): `add` carries `task`, `update`
   carries `taskId` plus `task`, `rework` carries `taskId` plus its replacement
-  `task` (`replacement` is invalid), and `supersede` carries `taskId`;
+  `task` (`replacement` is invalid), and `supersede` carries `taskId`. A
+  new task must include `agentTargetId`. `update` and `rework` are
+  presence-aware: omitted fields are preserved, while explicit empty strings,
+  empty arrays, `false`, and zero values remain distinguishable and are applied
+  when the field is clearable. Required task invariants such as a nonempty
+  title and Agent target still fail closed. A sparse `rework` inherits omitted
+  launch settings, execution directory, and dependencies from the superseded
+  task; explicit replacement values override those defaults. A successful
+  `rework` also redirects every active, not-started task dependency from the
+  superseded task ID to the replacement task ID in the same transaction.
+  Rework is rejected if that redirect would require changing a task that has
+  already started;
 - `tutti plan issue acknowledge --issue-id <id> --checkpoint-id <id>
 --expected-graph-revision <revision> --request-id <stable-id>` resolves a
   reviewed `task_settled`, `task_failed`, or `task_canceled` checkpoint without
@@ -446,6 +476,22 @@ The public command set is deliberately narrow:
   fences the stop against the active checkpoint and graph revision, then uses
   the recoverable archive path to cancel open Runs and close pending
   checkpoints and wakes. The reason is retained as audit evidence.
+
+The active checkpoint defines the legal action set:
+
+| Checkpoint                     | Legal recovery                                                                                                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `initial_schedule`             | schedule an exact ready set, mutate, or stop                                                                                                                             |
+| `task_settled`                 | schedule or mutate; acknowledge only when another Run is active or a later checkpoint is pending; or stop                                                                |
+| `task_failed`, `task_canceled` | rework the terminal task with a new task ID, then schedule the replacement with the mutation result revision; acknowledge only under the same backlog condition; or stop |
+| `all_tasks_terminal`           | complete Goal Review, or mutate and schedule exact follow-up work; or stop                                                                                               |
+
+The source Agent refreshes `plan issue get` at most once for an
+`inactive_checkpoint` or `stale_graph_revision` rejection and retries the
+intended command at most once with the returned fence. It reads mutation help
+at most once for `invalid_mutation_operation`. Repeating the same rejection
+after that bounded recovery is reported verbatim instead of triggering tool
+exploration or backing-store access.
 
 Tasks may carry optional `agentTargetId`, `modelPlanId`, `model`,
 `permissionModeId`, and `reasoningEffort` assignments. The user can override

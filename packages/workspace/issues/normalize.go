@@ -193,23 +193,53 @@ func IssueAutomaticRunAdmissionSlots(issue Issue, workspaceActiveRunCount int, i
 	return min(workspaceSlots, IssueAutomaticBudgetSlots(issue, issueActiveRunCount))
 }
 
-// IssueTaskEligibleForRun is the shared task/dependency predicate used by
-// generic dispatch and source-Agent exact-set scheduling. Callers retain
-// ownership of ordering, isolation, and transactional mutation.
-func IssueTaskEligibleForRun(task Task, tasksByID map[string]Task) bool {
-	if task.IsSuperseded() || task.Status != StatusNotStarted ||
-		strings.TrimSpace(task.AgentTargetID) == "" {
-		return false
+type TaskRunBlocker string
+
+const (
+	TaskRunBlockerSuperseded            TaskRunBlocker = "task_superseded"
+	TaskRunBlockerNotStarted            TaskRunBlocker = "task_not_started"
+	TaskRunBlockerMissingAgentTarget    TaskRunBlocker = "missing_agent_target"
+	TaskRunBlockerDependencyUnsatisfied TaskRunBlocker = "dependency_unsatisfied"
+)
+
+// IssueTaskRunBlocker is the shared task/dependency predicate used by generic
+// dispatch, source-Agent exact-set scheduling, and execution diagnostics.
+func IssueTaskRunBlocker(task Task, tasksByID map[string]Task) TaskRunBlocker {
+	if task.IsSuperseded() {
+		return TaskRunBlockerSuperseded
+	}
+	if task.Status != StatusNotStarted {
+		return TaskRunBlockerNotStarted
+	}
+	if strings.TrimSpace(task.AgentTargetID) == "" {
+		return TaskRunBlockerMissingAgentTarget
 	}
 	for _, dependencyID := range task.DependencyTaskIDs {
 		dependency, ok := tasksByID[dependencyID]
 		if !ok || dependency.IsSuperseded() ||
 			dependency.Status != StatusCompleted ||
 			dependency.AcceptanceState != AcceptanceUserAccepted {
-			return false
+			return TaskRunBlockerDependencyUnsatisfied
 		}
 	}
-	return true
+	return ""
+}
+
+// IssueTaskEligibleForRun preserves the boolean admission interface for
+// existing dispatch callers while diagnostics retain the exact blocker.
+func IssueTaskEligibleForRun(task Task, tasksByID map[string]Task) bool {
+	return IssueTaskRunBlocker(task, tasksByID) == ""
+}
+
+// ProjectReviewedSettlementTaskForRun applies the acceptance fact that an
+// exact-set schedule commits when it advances from a task_settled checkpoint.
+// The returned copy is for admission/readiness evaluation only.
+func ProjectReviewedSettlementTaskForRun(task Task) Task {
+	if task.Status == StatusPendingAcceptance {
+		task.Status = StatusCompleted
+		task.AcceptanceState = AcceptanceUserAccepted
+	}
+	return task
 }
 
 func IssueRunClientSubmitID(runID string) string {

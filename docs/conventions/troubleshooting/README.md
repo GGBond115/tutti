@@ -42,6 +42,7 @@ Use the focused runtime index or open one area directly:
 Issue dispatch, Run cancellation, Agent settlement, and stop coordination.
 
 - [Managed task deletion is reported as a stale checkpoint](./issue-execution.md#managed-task-deletion-is-reported-as-a-stale-checkpoint)
+- [Reworked task scheduling is reported as a stale checkpoint](./issue-execution.md#reworked-task-scheduling-is-reported-as-a-stale-checkpoint)
 - [Settled checkpoint keeps reopening the source Session](./issue-execution.md#settled-checkpoint-keeps-reopening-the-source-session)
 - [Tutti composer stays busy after every task Turn settles](./issue-execution.md#tutti-composer-stays-busy-after-every-task-turn-settles)
 - [Stopping a Tutti source Turn leaves automation recoverable](./issue-execution.md#stopping-a-tutti-source-turn-leaves-automation-recoverable)

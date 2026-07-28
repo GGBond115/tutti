@@ -23,6 +23,41 @@ Validate both aliases in the CLI provider tests and the task-canceled
 wake-prompt test. Do not weaken the generic Issue ownership guard or physically
 delete task/Run audit history; `supersede` and `rework` preserve that history.
 
+## Reworked task scheduling is reported as a stale checkpoint
+
+After a failed or canceled task is reworked, the mutation can succeed but
+scheduling its replacement may still be rejected. Run
+`tutti plan issue get --issue-id <id> --json` once to separate fence state from
+task eligibility. Compare its active checkpoint and graph revision with the
+successful mutation result, then use each task's `blockerReason`. Stable
+reasons such as `stale_graph_revision`, `missing_agent_target`, and
+`dependency_unsatisfied` identify which correction is required instead of
+collapsing every failure into a generic schedule rejection.
+
+A replacement submitted with only a new task ID, title, and content is a sparse
+rework, not a request to clear launch configuration. The mutation layer must
+inherit omitted Agent target, compatible model selection, permission mode,
+reasoning effort, execution directory, and dependencies from the superseded
+task. Explicit replacement values override those defaults. It must also
+redirect dependencies for active `not_started` tasks in the same transaction,
+preserve the old task and Run as superseded history, and reject the transaction
+if an affected dependent has already started.
+
+Do not query or modify the backing SQLite database to recover or bypass the
+rejected command. The daemon and CLI are the supported control plane, and
+guessing a production database path while the runtime is in development mode
+produces unrelated evidence. If the authoritative CLI snapshot and documented
+recovery commands still cannot resolve the failure, retain and report the exact
+CLI error.
+
+The checkpoint wake prompt must describe sparse rework inheritance, dependency
+redirects, and scheduling with the graph revision returned by the successful
+mutation. The injected CLI skill must also define the checkpoint/action matrix
+and bound fence or schema recovery to one refresh and one retry. Validate both
+failed and canceled terminal-run paths, sparse rework, inherited launch
+settings, dependency redirect, and replacement scheduling in the execution
+conformance suite.
+
 ## Tutti composer stays busy after every task Turn settles
 
 The Tutti composer deliberately shows Stop while its managed Issue still has

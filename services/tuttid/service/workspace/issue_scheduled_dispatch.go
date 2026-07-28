@@ -157,8 +157,9 @@ func (s IssueManagerService) projectReviewedSettlementSubjectForSchedule(
 	for index := range projected {
 		if projected[index].TaskID == subjectTaskID &&
 			projected[index].Status == workspaceissues.StatusPendingAcceptance {
-			projected[index].Status = workspaceissues.StatusCompleted
-			projected[index].AcceptanceState = workspaceissues.AcceptanceUserAccepted
+			projected[index] = workspaceissues.ProjectReviewedSettlementTaskForRun(
+				projected[index],
+			)
 		}
 	}
 	return projected
@@ -179,7 +180,11 @@ func (s IssueManagerService) validateTuttiModeScheduleIsolation(
 			if !task.Parallelizable {
 				for _, taskID := range taskIDs {
 					if strings.TrimSpace(taskID) != task.TaskID {
-						return executionbiz.ErrScheduleRejected
+						return executionbiz.Reject(
+							executionbiz.ErrScheduleRejected,
+							executionbiz.RejectionParallelismRejected,
+							strings.TrimSpace(taskID),
+						)
 					}
 				}
 			}
@@ -189,7 +194,11 @@ func (s IssueManagerService) validateTuttiModeScheduleIsolation(
 	for _, taskID := range taskIDs {
 		task, ok := byID[strings.TrimSpace(taskID)]
 		if !ok {
-			return executionbiz.ErrScheduleRejected
+			return executionbiz.Reject(
+				executionbiz.ErrScheduleRejected,
+				executionbiz.RejectionTaskNotFound,
+				strings.TrimSpace(taskID),
+			)
 		}
 		if task.Status == workspaceissues.StatusNotStarted {
 			newTasks = append(newTasks, task)
@@ -201,11 +210,19 @@ func (s IssueManagerService) validateTuttiModeScheduleIsolation(
 	}
 	for _, task := range newTasks {
 		if !task.Parallelizable {
-			return executionbiz.ErrScheduleRejected
+			return executionbiz.Reject(
+				executionbiz.ErrScheduleRejected,
+				executionbiz.RejectionParallelismRejected,
+				task.TaskID,
+			)
 		}
 		if issue.SequentialExecution {
 			if _, concurrent := s.sequentialTaskIsolation(issue, tasks, task); !concurrent {
-				return executionbiz.ErrScheduleRejected
+				return executionbiz.Reject(
+					executionbiz.ErrScheduleRejected,
+					executionbiz.RejectionParallelismRejected,
+					task.TaskID,
+				)
 			}
 		}
 	}
@@ -218,7 +235,11 @@ func (s IssueManagerService) prepareTuttiModeScheduleRuns(
 	taskIDs []string,
 ) ([]workspaceissues.Run, error) {
 	if issue.PlanningSource != workspaceissues.PlanningSourceTuttiModePlan {
-		return nil, executionbiz.ErrScheduleRejected
+		return nil, executionbiz.Reject(
+			executionbiz.ErrScheduleRejected,
+			executionbiz.RejectionInactiveExecution,
+			"",
+		)
 	}
 	byID := make(map[string]workspaceissues.Task, len(tasks))
 	for _, task := range tasks {
@@ -231,10 +252,18 @@ func (s IssueManagerService) prepareTuttiModeScheduleRuns(
 		taskID := strings.TrimSpace(rawTaskID)
 		task, ok := byID[taskID]
 		if taskID == "" || !ok {
-			return nil, executionbiz.ErrScheduleRejected
+			return nil, executionbiz.Reject(
+				executionbiz.ErrScheduleRejected,
+				executionbiz.RejectionTaskNotFound,
+				taskID,
+			)
 		}
 		if _, duplicate := seen[taskID]; duplicate {
-			return nil, executionbiz.ErrScheduleRejected
+			return nil, executionbiz.Reject(
+				executionbiz.ErrScheduleRejected,
+				executionbiz.RejectionDuplicateTask,
+				taskID,
+			)
 		}
 		seen[taskID] = struct{}{}
 		runID := uuid.NewString()

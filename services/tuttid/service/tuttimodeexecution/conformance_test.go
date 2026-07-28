@@ -523,6 +523,18 @@ func (*sqliteConformanceDriver) mutateWith(
 ) (tuttimodeexecutionconformance.MutateResult, error) {
 	operations := make([]executionbiz.MutationOperation, 0, len(input.Operations))
 	for _, operation := range input.Operations {
+		taskFields := executionbiz.MutationTaskFields{
+			Title:              operation.Task.Title != "",
+			Content:            operation.Task.Content != "",
+			Priority:           operation.Task.Priority != "",
+			AgentTargetID:      operation.Task.AgentTargetID != "",
+			Model:              operation.Task.Model != "",
+			PermissionModeID:   operation.Task.PermissionModeID != "",
+			ExecutionDirectory: operation.Task.ExecutionDirectory != "",
+			DependencyTaskIDs:  operation.Task.DependencyTaskIDs != nil,
+			Parallelizable:     operation.Task.Parallelizable,
+			AutoAccept:         operation.Task.AutoAccept,
+		}
 		operations = append(operations, executionbiz.MutationOperation{
 			Kind:   executionbiz.MutationOperationKind(operation.Kind),
 			TaskID: operation.TaskID,
@@ -536,6 +548,7 @@ func (*sqliteConformanceDriver) mutateWith(
 				Parallelizable:     operation.Task.Parallelizable,
 				AutoAccept:         operation.Task.AutoAccept,
 			},
+			TaskFields: taskFields,
 		})
 	}
 	result, err := service.Mutate(ctx, tuttimodeexecutionservice.MutateInput{
