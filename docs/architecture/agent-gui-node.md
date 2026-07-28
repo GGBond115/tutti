@@ -421,6 +421,15 @@ and `getSessionMessages`. It returns a verification receipt plus the
 source-to-child provider Turn UUID mapping. Store persists that evidence at
 `provider_accepted` and rewrites cloned Turns to the child UUIDs in the
 canonical commit.
+Claude's official `forkSession` allocates the provider child UUID, so this
+driver does not attest deterministic provider identity. Host still reserves a
+deterministic canonical target Session ID, dispatches the provider mutation
+once, and fails closed without replay when delivery becomes `unknown`.
+For live Claude Turns, a daemon-generated prompt UUID is correlation only:
+Claude Code may rewrite it before persisting the transcript. The sidecar binds
+provider Turn identity from the observed root user-message UUID and emits
+`provider_turn_started`; the daemon must not publish canonical provider
+identity before that observation.
 Binding failure becomes `unknown`; Host neither commits the canonical child nor
 reissues `thread/fork`.
 

@@ -27,7 +27,10 @@ Use the focused runtime index or open one area directly:
   startup that fails when concurrent provider input and output are treated as a
   strict scheduling order, false final-state mismatches caused by replay-generated
   child identities, and canonical completion delayed behind a streaming activity-report
-  backlog.
+  backlog. It also covers completed
+  Claude Code Turns that lack a Fork entry because provider identity was not
+  observed from the durable transcript. Also covers Claude Fork operations that
+  fail because an empty SDK query never creates a durable provider child.
 - [Agent Approvals And Child Sessions](./agent-approvals-subagents.md): Approval gates, plan exits, root/parent/child event attribution, child sessions, and Message Center.
   Includes provider-native work that continues invisibly after root cancellation
   and late child creation racing the durable cancel boundary.
