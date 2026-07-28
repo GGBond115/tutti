@@ -954,32 +954,70 @@ plan panel starts with the plan title and body; it does not repeat mode,
 review-kind, or pending-state badges already communicated by the workflow
 banner.
 
+The materialized Issue is also a Tutti-owned aggregate-work projection for the
+source composer. While dispatch is not paused and any task is nonterminal, an
+empty composer shows the normal running Stop control even when the source
+Session has no active Turn; this is presentation state and must not manufacture
+an Agent Turn or change Host submit availability. Typed input replaces that
+aggregate Stop with Send. An exact active source Turn with
+`activeTurnGuidance` receives the input as guidance/steer; an idle source starts
+a normal Turn, and an active source without guidance support keeps the normal
+queue path instead of cancel-then-send. Stop durably pauses Issue dispatch and
+cancels its running task Sessions, and also sends the ordinary source-Session
+stop only when that Session has stoppable work. The two idempotent paths are
+independent because canceling an idle Session merely to trigger the Issue
+cascade could capture a later Turn.
+
+Task-level accept and rework controls in that projection prepare localized
+instructions in the exact source Session composer; they preserve any existing
+draft and never send automatically. They do not call generic Issue Task
+mutations or impersonate the source Agent's CLI authority. Once the user sends
+the draft, the normal source-conversation submit/guidance path applies and the
+Agent inspects the canonical Tutti execution before issuing checkpoint- and
+revision-fenced commands. Other plan-panel interactions should use this
+prompt-action pattern only when their intended effect requires source-Agent
+judgment; navigation and existing daemon-owned commands remain direct semantic
+actions.
+
 An independent-review failure is a distinct workflow presentation, not a
 generic retry loop. The dock may offer an explicitly user-triggered self-review
 fallback through an optional host command and shows its pending, success, or
 failure result together with the audit identifier. It never switches review
 mode automatically.
 
-An active Tutti Mode composer badge is an intensity-settings entry, not a
+An active Tutti Mode composer badge is a preference-settings entry, not a
 destructive toggle. Clicking it opens the UI-local `TuttiBudgetPopover`, seeded
-from the engine-projected orchestration intensity. Every slider movement sends
-the selected intensity directly through the existing Tutti Mode activation
-command -- there is no draft/confirm step. Turning Tutti Mode off remains a
-separate adjacent action, and both controls stay disabled while an activation
-update is unresolved.
-The Desktop command host and HTTP adapter must preserve both the optimistic
-CAS revision and the optional orchestration intensity; dropping either field
-turns a valid UI intent into a stale or semantically mismatched response.
+from the engine-projected `effect` and `speed` preferences. Every slider
+movement sends its selected value directly through the existing Tutti Mode
+activation command -- there is no draft/confirm step. Turning Tutti Mode off
+remains a separate adjacent action, and all controls stay disabled while an
+activation update is unresolved. The Desktop command host and HTTP adapter must
+preserve the optimistic CAS revision and both optional preferences; dropping
+any field turns a valid UI intent into a stale or semantically mismatched
+response.
 
-The intensity popup uses one interactive Economical-to-Balanced-to-Powerful
-gradient slider and projects its local draft into equal tendency bands while it
-moves.
-That projection is explanatory UI, not a model or task assignment: it previews
-Economical, Balanced, or Powerful model strength (matching the slider bands)
-and 1, 2–3, or up to 4 parallel Agents. Four is the current hard workspace-wide Issue execution
-ceiling, not a cap on the total planned Agent or task count. The planning Agent
-still derives the exact model, total task graph, and safe parallelism from the
-request, selected Skills, available composer catalog, and workspace state.
+The preference popup uses two independent 0-100 sliders. `effect` raises the
+minimum model capability and task-verification breadth. `speed` asks the
+planning Agent to choose the fastest model that still satisfies that effect
+floor and maps into an upper parallel target: `0-24 -> 1`, `25-49 -> 2`,
+`50-74 -> 3`, and `75-100 -> 4`. They are combined, never averaged: high effect
+plus high speed means "fastest suitable powerful model" with a target of up to
+four parallel Agents, not a mid-tier model.
+
+The popup previews a short model strategy and that parallel target. The target
+is not a concurrency promise: the planning Agent may shape real independent
+workstreams toward it, while actual scheduling remains bounded by dependencies,
+ownership, safe isolation, ready work, budget, and the workspace-wide
+four-Run ceiling. Exact models still come from the live composer catalog.
+Effect-scaled verification remains planning policy but is not shown as a
+primary preview metric.
+
+Plan review reads the additive `execution.effect` and `execution.speed`
+snapshots from current `tutti-mode-plan/v1` documents. A legacy v1 document
+without those fields maps its single `orchestrationIntensity` value to effect
+and uses the balanced speed default. The existing execution fields keep their
+original Issue semantics; AgentGUI must not reinterpret
+`orchestrationIntensity` as speed.
 
 Home-composer project state distinguishes an unresolved durable default from an
 explicit selection whose path may be null. The project selector may apply the
@@ -1310,11 +1348,12 @@ home composer submit
 ```
 
 Initial-content create is one transaction. Failure compensates the provisional runtime/canonical shell; it must not leave a Turn-less Session.
-The initiating composer snapshots Tutti activation and orchestration intensity
-with that submit. An explicit active or inactive submit snapshot is authoritative
-over a later read of mutable home-draft state; non-composer callers may fall back
-to the engine draft when no snapshot exists. `capabilityRefs` remain independent
-audit provenance and must never substitute for `initialTuttiModeActivation`.
+The initiating composer snapshots Tutti activation plus effect and speed with
+that submit. An explicit active or inactive submit snapshot is authoritative
+over a later read of mutable home-draft state; non-composer callers may fall
+back to the engine draft when no snapshot exists. `capabilityRefs` remain
+independent audit provenance and must never substitute for
+`initialTuttiModeActivation`.
 An activation may instead carry `initialGoalControl`. In that branch the engine
 and runtime adapter preserve the structured `{action, objective}` command, the
 host integration creates a non-provisional Session without initial content,

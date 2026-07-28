@@ -105,7 +105,7 @@ export interface IssueManagerController {
     taskId: string;
     visibleTaskIds?: readonly string[];
   }) => Promise<void>;
-  modifyManagedInMainConversation: () => Promise<void>;
+  adjustManagedInTaskConversation: () => Promise<void>;
   agentTargetOptions: readonly IssueManagerAgentTargetOption[];
   modelPlanOptions?: readonly IssueManagerModelPlanOption[];
   executionDirectoryProjectService: WorkspaceUserProjectService | null;
@@ -343,7 +343,7 @@ export function useIssueManagerController({
     isTuttiModePlanIssue:
       issueDetail.value?.issue.issueId === nodeState.selectedIssueId &&
       isIssueManagerTuttiModePlanIssue(issueDetail.value.issue),
-    async modifyManagedInMainConversation() {
+    async adjustManagedInTaskConversation() {
       const issue = issueDetail.value?.issue;
       const sourceSessionId = issue?.sourceSessionId?.trim() ?? "";
       if (
@@ -368,7 +368,7 @@ export function useIssueManagerController({
       const reference = `[${label.replaceAll("[", "\\[").replaceAll("]", "\\]")}](${href})`;
       try {
         await feature.managedIssueActions.openSourceSession({
-          draftPrompt: copy.t("messages.modifyManagedPrompt", { reference }),
+          draftPrompt: copy.t("messages.adjustManagedPrompt", { reference }),
           issueId: issue.issueId,
           sourceSessionId,
           ...(task ? { taskId: task.taskId } : {}),

@@ -19,7 +19,7 @@ import {
   type TuttiModePlanTaskAssignmentDrafts,
   type TuttiPlanIssuePanelLabels,
   type TuttiPlanIssueSnapshot,
-  type TuttiPlanIssueTaskDecision
+  type TuttiPlanIssueTaskAction
 } from "../../workspaceWorkflow";
 import { cn } from "../../app/renderer/lib/utils";
 import { AgentComposerDisclosureCard } from "./AgentComposerDisclosureCard";
@@ -28,13 +28,14 @@ import {
   TuttiBudgetPopover,
   type TuttiBudgetPopoverLabels
 } from "./composer/TuttiBudgetPopover";
-import { projectTuttiIntensityPreview } from "./composer/tuttiIntensityPreview";
+import { projectTuttiPreferencePreview } from "./composer/tuttiIntensityPreview";
 
 export type TuttiWorkflowDockPhase =
   | {
       kind: "review";
-      intensity: number;
-      intensityDiverged: boolean;
+      effect: number;
+      speed: number;
+      preferencesDiverged: boolean;
       panel: TuttiModePlanPanelViewModel;
       submitting: boolean;
     }
@@ -118,13 +119,13 @@ function issueSummary(
 export function TuttiWorkflowDock({
   assignmentCatalog,
   assignmentDrafts,
-  intensityPopoverLabels,
+  preferencePopoverLabels,
   labels,
   onAssignmentDraftChange,
-  onCancelExecution,
   onCancelReview,
-  onDecideTask,
-  onIntensityChange,
+  onTaskAction,
+  onEffectChange,
+  onSpeedChange,
   onOpenIssue,
   onOpenTask,
   onRetry,
@@ -135,19 +136,19 @@ export function TuttiWorkflowDock({
 }: {
   assignmentCatalog: TuttiModePlanAssignmentCatalog;
   assignmentDrafts: TuttiModePlanTaskAssignmentDrafts;
-  intensityPopoverLabels: TuttiBudgetPopoverLabels;
+  preferencePopoverLabels: TuttiBudgetPopoverLabels;
   labels: TuttiWorkflowDockLabels;
   onAssignmentDraftChange(
     taskId: string,
     patch: TuttiModePlanTaskAssignmentDraft
   ): void;
-  onCancelExecution?: () => Promise<void>;
   onCancelReview(): void;
-  onDecideTask?: (
+  onTaskAction?: (
     taskId: string,
-    decision: TuttiPlanIssueTaskDecision
+    action: TuttiPlanIssueTaskAction
   ) => Promise<void>;
-  onIntensityChange(value: number): void;
+  onEffectChange(value: number): void;
+  onSpeedChange(value: number): void;
   onOpenIssue?: () => void;
   onOpenTask?: (taskId: string) => void | Promise<void>;
   onRetry(): void;
@@ -169,20 +170,30 @@ export function TuttiWorkflowDock({
       expanded: reviewPanelId !== null,
       reviewPanelId
     }));
-  // Echo the intensity the user just dragged to until the canonical composer
-  // state catches up (review intensity updates via an async daemon command),
+  // Echo preferences just dragged until canonical composer state catches up
+  // (review preference updates travel through an async daemon command),
   // so the banner and the open popover never display diverging values. The
   // echo clears during render (same adjustment pattern as the disclosure
   // above) once the canonical value matches.
-  const [echoedIntensity, setEchoedIntensity] = useState<number | null>(null);
-  if (echoedIntensity !== null && review?.intensity === echoedIntensity) {
-    setEchoedIntensity(null);
+  const [echoedEffect, setEchoedEffect] = useState<number | null>(null);
+  const [echoedSpeed, setEchoedSpeed] = useState<number | null>(null);
+  if (echoedEffect !== null && review?.effect === echoedEffect) {
+    setEchoedEffect(null);
   }
-  const reviewDisplayIntensity =
-    review !== null ? (echoedIntensity ?? review.intensity) : null;
-  const handleIntensityChange = (value: number): void => {
-    setEchoedIntensity(value);
-    onIntensityChange(value);
+  if (echoedSpeed !== null && review?.speed === echoedSpeed) {
+    setEchoedSpeed(null);
+  }
+  const reviewDisplayEffect =
+    review !== null ? (echoedEffect ?? review.effect) : null;
+  const reviewDisplaySpeed =
+    review !== null ? (echoedSpeed ?? review.speed) : null;
+  const handleEffectChange = (value: number): void => {
+    setEchoedEffect(value);
+    onEffectChange(value);
+  };
+  const handleSpeedChange = (value: number): void => {
+    setEchoedSpeed(value);
+    onSpeedChange(value);
   };
 
   // A newly actionable checkpoint starts open once. Recording its stable panel
@@ -208,7 +219,9 @@ export function TuttiWorkflowDock({
   const summary =
     review !== null
       ? `${review.panel.title} · ${
-          review.intensityDiverged ? labels.reviewHintReplan : labels.reviewHint
+          review.preferencesDiverged
+            ? labels.reviewHintReplan
+            : labels.reviewHint
         }`
       : phase.kind === "materializing"
         ? `${phase.title} · ${labels.materializingHint}`
@@ -234,23 +247,26 @@ export function TuttiWorkflowDock({
     );
 
   const reviewTier =
-    reviewDisplayIntensity !== null
-      ? projectTuttiIntensityPreview(reviewDisplayIntensity).tier
+    reviewDisplayEffect !== null && reviewDisplaySpeed !== null
+      ? projectTuttiPreferencePreview(reviewDisplayEffect, reviewDisplaySpeed)
+          .effectTier
       : null;
 
   const actions =
     review !== null ? (
       <>
         <TuttiBudgetPopover
-          intensity={reviewDisplayIntensity ?? review.intensity}
-          labels={intensityPopoverLabels}
-          onChange={handleIntensityChange}
+          effect={reviewDisplayEffect ?? review.effect}
+          speed={reviewDisplaySpeed ?? review.speed}
+          labels={preferencePopoverLabels}
+          onEffectChange={handleEffectChange}
+          onSpeedChange={handleSpeedChange}
         >
           <button
             type="button"
             disabled={review.submitting}
-            title={intensityPopoverLabels.title}
-            aria-label={intensityPopoverLabels.intensityLabel}
+            title={preferencePopoverLabels.title}
+            aria-label={preferencePopoverLabels.title}
             data-agent-tutti-tier={reviewTier ?? undefined}
             data-testid="agent-gui-tutti-workflow-intensity"
             className={cn(
@@ -269,9 +285,9 @@ export function TuttiWorkflowDock({
             <span className="grid">
               {(
                 [
-                  ["cost", intensityPopoverLabels.previewCost],
-                  ["balance", intensityPopoverLabels.previewBalance],
-                  ["powerful", intensityPopoverLabels.previewPowerful]
+                  ["cost", preferencePopoverLabels.previewCost],
+                  ["balance", preferencePopoverLabels.previewBalance],
+                  ["powerful", preferencePopoverLabels.previewPowerful]
                 ] as const
               ).map(([tier, label]) => (
                 <span
@@ -287,8 +303,9 @@ export function TuttiWorkflowDock({
                 </span>
               ))}
             </span>
-            <span className="inline-block w-[3ch] text-left text-[11px] tabular-nums">
-              {reviewDisplayIntensity ?? review.intensity}
+            <span className="inline-block w-[7ch] text-left text-[11px] tabular-nums">
+              {reviewDisplayEffect ?? review.effect}/
+              {reviewDisplaySpeed ?? review.speed}
             </span>
           </button>
         </TuttiBudgetPopover>
@@ -383,8 +400,7 @@ export function TuttiWorkflowDock({
           embedded={true}
           issue={execution.issue}
           labels={planIssuePanelLabels}
-          onCancelExecution={onCancelExecution}
-          onDecideTask={onDecideTask}
+          onTaskAction={onTaskAction}
           onOpenIssue={onOpenIssue}
           onOpenTask={onOpenTask}
         />

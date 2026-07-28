@@ -1,6 +1,7 @@
 import type {
   AgentActivityDurableMessage,
   AgentActivitySession,
+  AgentActivityTuttiModeActivation,
   AgentActivityTurn
 } from "@tutti-os/agent-activity-core";
 import type {
@@ -144,11 +145,34 @@ export function assertTuttidProtocolV2SessionContract(
 
 export function agentActivityTuttiModeActivationFromTuttid(
   activation: TuttiModeActivation
-) {
+): AgentActivityTuttiModeActivation {
+  const effect = tuttiModePreference(
+    activation.currentRevision.effect,
+    activation.currentRevision.orchestrationIntensity
+  );
+  const speed = tuttiModePreference(activation.currentRevision.speed, 50);
   return {
     ...activation,
-    currentRevision: { ...activation.currentRevision }
+    currentRevision: {
+      ...activation.currentRevision,
+      effect,
+      speed,
+      orchestrationIntensity: effect
+    }
   };
+}
+
+function tuttiModePreference(
+  value: number | null | undefined,
+  fallback: number
+): number {
+  const candidate = value ?? fallback;
+  if (!Number.isInteger(candidate) || candidate < 0 || candidate > 100) {
+    throw new Error(
+      "Protocol contract error: Tutti mode preference must be an integer between 0 and 100"
+    );
+  }
+  return candidate;
 }
 
 export function agentActivityMessageFromTuttidMessage(

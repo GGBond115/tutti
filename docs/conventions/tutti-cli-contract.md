@@ -385,9 +385,26 @@ The public command set is deliberately narrow:
   body plus the full task graph in the `tasks` frontmatter (at least one task
   is required). `phase` may be omitted; it defaults to `task_graph`.
   Configuration-only documents are rejected. When the Tutti Host Context is
-  active, read its `orchestrationIntensity` (0-100) to choose decomposition
-  granularity: low values mean few coarse tasks, high values mean many
-  fine-grained tasks;
+  active, combine its `effect` and `speed` preferences without averaging them:
+  effect raises the model-capability floor and the required task-verification
+  breadth; speed selects the fastest model that still clears that floor and
+  supplies the bounded parallel target `0-24 -> 1`, `25-49 -> 2`,
+  `50-74 -> 3`, `75-100 -> 4`. Encode the original preferences in the additive
+  `execution.effect` and `execution.speed` snapshots. The existing v1
+  `execution.reasoningIntensity` and `execution.orchestrationIntensity` fields
+  retain their provider-reasoning and Issue
+  decomposition/dependency/review/retry meanings; speed must not be written
+  into `orchestrationIntensity`. A legacy v1 document without explicit
+  preference snapshots maps `orchestrationIntensity` to effect and uses the
+  balanced speed default. The injected `$tutti-model-allocation` skill owns the
+  C0-C3 assignment rubric and model-family routing priors: intersect its tier table
+  with the current target's `composer-options` output, use effect to establish
+  the capability and verification floor, then let speed rank only the models
+  that clear that floor and shape real independent workstreams toward its
+  parallel target. The table never proves model availability. The target is an
+  upper planning bound, not a promise: task count and actual parallelism still
+  follow dependency, ownership, safe-isolation, budget, readiness, and
+  workspace-capacity boundaries;
 - `tutti plan revise --workflow-id <id> --file <absolute-path> --request-id
 <stable-id>` appends a complete replacement plan document (narrative plus full
   task graph) after the user requests changes. When the user rejects the

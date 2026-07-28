@@ -6,7 +6,8 @@ import type {
 } from "@tutti-os/client-tuttid-ts";
 import {
   agentActivityMessageFromTuttidMessage,
-  agentActivitySessionFromTuttidSession
+  agentActivitySessionFromTuttidSession,
+  agentActivityTuttiModeActivationFromTuttid
 } from "./index.ts";
 
 test("session mapping requires and preserves the host-owned user identity", () => {
@@ -61,6 +62,30 @@ test("session mapping rejects missing protocol-v2 fields", () => {
       new RegExp(`Protocol v2 contract error:.*${field}`)
     );
   }
+});
+
+test("Tutti mode activation mapping reads the legacy single-axis response", () => {
+  const activation = agentActivityTuttiModeActivationFromTuttid({
+    agentSessionId: "session-1",
+    createdAtUnixMs: 1,
+    currentRevision: {
+      activationId: "activation-1",
+      createdAtUnixMs: 2,
+      id: "revision-1",
+      orchestrationIntensity: 73,
+      revision: 1,
+      source: "slash_command",
+      status: "active"
+    },
+    id: "activation-1",
+    status: "active",
+    updatedAtUnixMs: 2,
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(activation.currentRevision.effect, 73);
+  assert.equal(activation.currentRevision.speed, 50);
+  assert.equal(activation.currentRevision.orchestrationIntensity, 73);
 });
 
 test("message mapping preserves durable sequence and normalizes timestamps", () => {

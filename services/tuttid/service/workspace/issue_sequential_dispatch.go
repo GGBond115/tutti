@@ -437,7 +437,26 @@ Isolation: your working directory is a dedicated git worktree of %s on branch %s
 Dependency outputs: these prerequisite tasks ran in isolated worktrees, so their results are NOT in your working tree yet. Merge each branch below (same repository, e.g. `+"`git merge <branch>`"+`) and resolve any overlaps before building on their results:
 %s`, strings.Join(lines, "\n"))
 	}
+	if issue.PlanningSource == workspaceissues.PlanningSourceTuttiModePlan {
+		prompt += fmt.Sprintf(`
+
+Tutti effect preference: %d/100. %s`,
+			issue.ExecutionProfile.ReasoningIntensity,
+			tuttiEffectValidationGuidance(issue.ExecutionProfile.ReasoningIntensity),
+		)
+	}
 	return prompt
+}
+
+func tuttiEffectValidationGuidance(effect int) string {
+	switch {
+	case effect <= 33:
+		return "Run at least one focused check that directly covers this task, and report the evidence."
+	case effect <= 66:
+		return "Run the relevant tests plus an integration check when applicable, and report the evidence."
+	default:
+		return "Run broad relevant tests, cover an edge or variant case, perform a final review, and report the evidence."
+	}
 }
 
 func firstNonEmptyText(values ...string) string {

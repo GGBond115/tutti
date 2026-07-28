@@ -14,6 +14,8 @@ title: Ship Tutti Mode Plan
 topicId: default
 execution:
   mode: sequential
+  effect: 85
+  speed: 65
   reasoningIntensity: 80
   orchestrationIntensity: 70
 budget:
@@ -58,6 +60,10 @@ func TestParsePlanMarkdownReturnsStrictVersionedDocument(t *testing.T) {
 	}
 	if document.Execution.Mode != "sequential" || document.Budget.TokenLimit != 64_000 {
 		t.Fatalf("execution/budget = %#v / %#v", document.Execution, document.Budget)
+	}
+	if document.Execution.Effect == nil || *document.Execution.Effect != 85 ||
+		document.Execution.Speed == nil || *document.Execution.Speed != 65 {
+		t.Fatalf("execution preferences = %#v", document.Execution)
 	}
 }
 

@@ -2048,7 +2048,17 @@ export type TuttiModeActivationRevision = {
   status: TuttiModeActivationStatus;
   source: TuttiModeActivationSource;
   /**
-   * Session-scoped orchestration intensity captured with this activation revision. Higher values ask the planning agent for finer-grained task decomposition.
+   * Session-scoped outcome-quality preference captured with this activation revision. Higher values favor stronger models and stronger task verification.
+   */
+  effect?: number | null;
+  /**
+   * Session-scoped completion-speed preference captured with this activation revision. Higher values favor faster suitable models.
+   */
+  speed?: number | null;
+  /**
+   * Legacy single-axis alias of effect. New clients use effect and speed.
+   *
+   * @deprecated
    */
   orchestrationIntensity: number;
   createdAtUnixMs: number;
@@ -2068,7 +2078,17 @@ export type TuttiModeActivationIntent = {
   status: TuttiModeActivationStatus;
   source: TuttiModeActivationSource;
   /**
-   * Optional orchestration intensity carried with the initial activation. Omitted uses the daemon default.
+   * Optional outcome-quality preference carried with the initial activation. Omitted uses the daemon default.
+   */
+  effect?: number | null;
+  /**
+   * Optional completion-speed preference carried with the initial activation. Omitted uses the daemon default.
+   */
+  speed?: number | null;
+  /**
+   * Legacy single-axis alias of effect. Ignored when effect is present.
+   *
+   * @deprecated
    */
   orchestrationIntensity?: number | null;
 };
@@ -2084,7 +2104,17 @@ export type UpdateTuttiModeActivationRequest = {
   status: TuttiModeActivationStatus;
   source: TuttiModeActivationSource;
   /**
-   * Optional orchestration intensity persisted with the appended activation revision. Omitted keeps the current value, or the daemon default for the first revision.
+   * Optional outcome-quality preference persisted with the appended activation revision. Omitted keeps the current value, or the daemon default for the first revision.
+   */
+  effect?: number | null;
+  /**
+   * Optional completion-speed preference persisted with the appended activation revision. Omitted keeps the current value, or the daemon default for the first revision.
+   */
+  speed?: number | null;
+  /**
+   * Legacy single-axis alias of effect. Ignored when effect is present.
+   *
+   * @deprecated
    */
   orchestrationIntensity?: number | null;
   /**
@@ -3367,7 +3397,18 @@ export type WorkspaceWorkflow = {
 export type TuttiModePlanExecution = {
   mode: "sequential" | "parallel";
   reasoningIntensity: number;
+  /**
+   * Issue-owned decomposition, dependency, review, and retry strength. This legacy v1 field keeps its original meaning and is not the Tutti Mode speed preference.
+   */
   orchestrationIntensity: number;
+  /**
+   * Optional Tutti Mode outcome-quality preference snapshot. Omitted documents use orchestrationIntensity as the legacy single-axis effect and use the balanced default for speed.
+   */
+  effect?: number | null;
+  /**
+   * Optional Tutti Mode completion-speed preference snapshot. Omitted documents use the balanced default.
+   */
+  speed?: number | null;
 };
 
 export type TuttiModePlanBudget = {
@@ -3665,6 +3706,10 @@ export type IssueManagerIssue = {
    * When true, the daemon dispatches every dependency-ready task whose execution directory is isolated; dependencies still require user acceptance.
    */
   parallelExecution: boolean;
+  /**
+   * When true, automatic task dispatch is durably paused and no successor task may launch.
+   */
+  dispatchPaused: boolean;
   executionProfile: IssueManagerExecutionProfile;
   budget: IssueManagerBudget;
   taskCount: number;

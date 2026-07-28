@@ -173,8 +173,8 @@ export function useAgentGUIViewAssembly(input: UseAgentGUIViewAssemblyInput) {
     loadOlderConversationMessages: input.loadOlderConversationMessages,
     selectConversation: input.selectConversation,
     setTuttiModeActive: input.tuttiModeActivation.setActive,
-    setTuttiModeOrchestrationIntensity:
-      input.tuttiModeActivation.setOrchestrationIntensity,
+    setTuttiModeEffect: input.tuttiModeActivation.setEffect,
+    setTuttiModeSpeed: input.tuttiModeActivation.setSpeed,
     retryTuttiModeActivation: input.tuttiModeActivation.retry,
     updateSelectedProjectPath: input.updateSelectedProjectPath
   });
@@ -233,8 +233,10 @@ export function useAgentGUIViewAssembly(input: UseAgentGUIViewAssemblyInput) {
       gate: session.composerGate,
       isTuttiModeActive: input.tuttiModeActivation.active,
       isTuttiModeUpdating: input.tuttiModeActivation.updatePending,
-      tuttiModeOrchestrationIntensity:
+      tuttiModeEffect:
+        input.tuttiModeActivation.effect ??
         input.tuttiModeActivation.orchestrationIntensity,
+      tuttiModeSpeed: input.tuttiModeActivation.speed ?? 50,
       tuttiModeUpdateStatus: input.tuttiModeActivation.updateStatus,
       composerSettings: stableComposerSettings,
       queueStatus: detail.queueStatus,

@@ -289,12 +289,21 @@ type CapabilityReference struct {
 
 // TuttiModeTurnSnapshot is the immutable activation revision observed by one
 // turn. It is an execution input, not a reconstruction from capability refs.
+const TuttiModePreferenceVersionEffectSpeed = 1
+
 type TuttiModeTurnSnapshot struct {
-	ActivationID           string
-	RevisionID             string
-	Revision               int64
-	State                  string
-	Source                 string
+	ActivationID      string
+	RevisionID        string
+	Revision          int64
+	State             string
+	Source            string
+	PreferenceVersion int
+	Effect            int
+	Speed             int
+	// OrchestrationIntensity is the legacy single-axis alias of Effect.
+	//
+	// Deprecated: use Effect and Speed with PreferenceVersion set to
+	// TuttiModePreferenceVersionEffectSpeed.
 	OrchestrationIntensity int
 }
 

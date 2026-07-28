@@ -76,12 +76,14 @@ const schemaMigrationWorkspaceWorkflowRevisionPathReuseV3 = "workspace_workflow_
 const schemaMigrationTuttiModeActivationsV1 = "tutti_mode_activations_v1"
 const schemaMigrationTuttiModeTurnDispatchV2 = "tutti_mode_turn_dispatch_v2"
 const schemaMigrationTuttiModeOrchestrationIntensityV3 = "tutti_mode_orchestration_intensity_v3"
+const schemaMigrationTuttiModeEffectSpeedV4 = "tutti_mode_effect_speed_v4"
 const schemaMigrationWorkspaceWorkflowTaskAssignmentsV4 = "workspace_workflow_task_assignments_v4"
 const schemaMigrationWorkspaceTuttiModeExecutionV1 = "workspace_tutti_mode_execution_v1"
 const schemaMigrationWorkspaceTuttiModeRunCancelCompensationV2 = "workspace_tutti_mode_run_cancel_compensation_v2"
 const schemaMigrationWorkspaceTuttiModeSourceActivityInboxV3 = "workspace_tutti_mode_source_activity_inbox_v3"
 const schemaMigrationWorkspaceTuttiModeGoalReviewV4 = "workspace_tutti_mode_goal_review_v4"
 const schemaMigrationWorkspaceTuttiModeLegacyRepairV5 = "workspace_tutti_mode_legacy_repair_v5"
+const schemaMigrationWorkspaceTuttiModeLegacyRecoveryCleanupV6 = "workspace_tutti_mode_legacy_recovery_cleanup_v6"
 
 func (s *SQLiteStore) Migrate(ctx context.Context) error {
 	if s == nil || s.writeDB == nil {
@@ -346,6 +348,9 @@ INSERT OR IGNORE INTO tuttid_schema_migrations (id, applied_at_unix_ms)
 	if err := s.applyTuttiModeOrchestrationIntensityV3(ctx); err != nil {
 		return err
 	}
+	if err := s.applyTuttiModeEffectSpeedV4(ctx); err != nil {
+		return err
+	}
 	if err := s.applyWorkspaceWorkflowTaskAssignmentsV4(ctx); err != nil {
 		return err
 	}
@@ -362,6 +367,9 @@ INSERT OR IGNORE INTO tuttid_schema_migrations (id, applied_at_unix_ms)
 		return err
 	}
 	if err := s.applyWorkspaceTuttiModeLegacyRepairV5(ctx); err != nil {
+		return err
+	}
+	if err := s.applyWorkspaceTuttiModeLegacyRecoveryCleanupV6(ctx); err != nil {
 		return err
 	}
 	return s.openReadPool(ctx)

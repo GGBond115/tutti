@@ -210,7 +210,8 @@ test("WorkspaceAgentActivityService.activateSession creates target-backed sessio
     cwd: "/workspace",
     initialContent: [{ type: "text", text: "hello" }],
     initialTuttiModeActivation: {
-      orchestrationIntensity: 73,
+      effect: 73,
+      speed: 61,
       source: "slash_command",
       status: "active"
     },
@@ -232,7 +233,8 @@ test("WorkspaceAgentActivityService.activateSession creates target-backed sessio
       initialContent: [{ type: "text", text: "hello" }],
       initialDisplayPrompt: null,
       initialTuttiModeActivation: {
-        orchestrationIntensity: 73,
+        effect: 73,
+        speed: 61,
         source: "slash_command",
         status: "active"
       },
@@ -394,7 +396,8 @@ test("WorkspaceAgentActivityService confirms engine activation from the realtime
     expiresAtUnixMs: requestedAtUnixMs + 45_000,
     mode: "new",
     initialTuttiModeActivation: {
-      orchestrationIntensity: 73,
+      effect: 73,
+      speed: 61,
       source: "slash_command",
       status: "active"
     },
@@ -413,7 +416,8 @@ test("WorkspaceAgentActivityService confirms engine activation from the realtime
     initialContent: [],
     initialDisplayPrompt: null,
     initialTuttiModeActivation: {
-      orchestrationIntensity: 73,
+      effect: 73,
+      speed: 61,
       source: "slash_command",
       status: "active"
     },

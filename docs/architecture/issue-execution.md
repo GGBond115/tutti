@@ -284,6 +284,11 @@ UI and orchestration phases are derived from those facts. New boolean flags
 must not be used to simulate transactions or hide incomplete cross-domain
 operations.
 
+The public Issue projection includes `dispatchPaused`. Conversation surfaces
+must combine that durable gate with task terminality when presenting aggregate
+Tutti execution; Issue rollup status alone is insufficient because a stopped
+graph intentionally retains untouched `not_started` successors.
+
 ## Recovery
 
 The reconciliation queue is daemon-context-bound and retries transient
@@ -301,6 +306,21 @@ wake: the pass continues through later executions in the workspace and returns
 their joined errors afterward. Released delivery failures return a pending
 signal so the existing bounded queue cadence retains the workspace even when it
 has no running Runs.
+
+Legacy Tutti Issue migration is classification, not dispatch. A legacy
+execution remains `running` only when an authoritative Run is still running;
+an idle execution becomes `completed`, and a missing source becomes
+`orphaned_source`. Its migration checkpoint is terminal and must never create a
+main wake. Settlement repair may still seal terminal Run launch bookkeeping,
+but it must not create a checkpoint or wake for an `orphaned_source`,
+`completed`, `archiving`, or `archived` execution.
+
+The V6 legacy-recovery cleanup recognizes only V5-owned evidence with
+`kind = migration` and
+`creation_reason = legacy_execution_startup_repair`. It cancels open recovery
+wakes and reviews, supersedes the pending/active recovery chain, and normalizes
+the execution from authoritative running Runs. This forward migration prevents
+already-upgraded local databases from replaying the former V5 startup wake.
 
 During daemon construction, startup performs only the local durable repair.
 It does not call Agent `SendInput` or start the queue while CLI routes and the

@@ -24,10 +24,18 @@ Use the focused runtime index or open one area directly:
   Also covers new-conversation requests that silently fail after a Chats
   Session working directory is mistaken for a selected project, and one hung
   provider startup blocking unrelated Agent sessions. Includes canonical
-  completion delayed behind a streaming activity-report backlog.
+  completion delayed behind a streaming activity-report backlog and stopped
+  Tutti Mode conversations revived by legacy startup wakes.
 - [Agent Approvals And Child Sessions](./agent-approvals-subagents.md): Approval gates, plan exits, root/parent/child event attribution, child sessions, and Message Center.
   Includes provider-native work that continues invisibly after root cancellation
   and late child creation racing the durable cancel boundary.
+
+## [Issue Execution](./issue-execution.md)
+
+Issue dispatch, Run cancellation, Agent settlement, and stop coordination.
+
+- [Stopping a Tutti source Turn leaves task Sessions running](./issue-execution.md#stopping-a-tutti-source-turn-leaves-task-sessions-running)
+- [Stop remains pending while the Agent Turn is already canceled](./issue-execution.md#stop-remains-pending-while-the-agent-turn-is-already-canceled)
 
 ## [Desktop And Release](./desktop-release.md)
 

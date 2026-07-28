@@ -82,9 +82,13 @@ export function executeWorkspaceAgentTuttiModeUpdateCommand(
     ...(command.expectedRevision === undefined
       ? {}
       : { expectedRevision: command.expectedRevision }),
-    ...(command.orchestrationIntensity === undefined
+    ...(command.effect === undefined &&
+    command.orchestrationIntensity === undefined
       ? {}
-      : { orchestrationIntensity: command.orchestrationIntensity }),
+      : {
+          effect: command.effect ?? command.orchestrationIntensity
+        }),
+    ...(command.speed === undefined ? {} : { speed: command.speed }),
     signal,
     source: command.source,
     status: command.status,

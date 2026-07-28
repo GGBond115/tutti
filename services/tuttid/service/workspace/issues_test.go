@@ -102,6 +102,61 @@ func TestCancelIssueExecutionRejectsGenericMutationOfManagedIssue(t *testing.T) 
 	}
 }
 
+func TestCancelIssueExecutionForSourceSessionUsesManagedTuttiStopPath(t *testing.T) {
+	ctx := context.Background()
+	store := openIssueServiceStore(t)
+	const (
+		workspaceID     = "workspace-managed-source-cancel"
+		issueID         = "tutti-mode-plan-managed-source-cancel"
+		sourceSessionID = "source-session"
+	)
+	if err := store.Create(ctx, workspacebiz.Summary{
+		ID: workspaceID, Name: "Managed source cancel",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateIssue(ctx, workspaceissues.Issue{
+		IssueID: issueID, WorkspaceID: workspaceID,
+		TopicID: workspaceissues.DefaultTopicID, Title: "Managed",
+		PlanningSource:  workspaceissues.PlanningSourceTuttiModePlan,
+		SourceSessionID: sourceSessionID,
+		Budget:          workspaceissues.DefaultBudget(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateRun(ctx, workspaceissues.Run{
+		RunID:           "run-managed-source-cancel",
+		IssueID:         issueID,
+		WorkspaceID:     workspaceID,
+		AgentSessionID:  "task-session",
+		AgentProvider:   "codex",
+		Status:          workspaceissues.StatusRunning,
+		CreatedAtUnixMS: 1,
+		StartedAtUnixMS: 1,
+		UpdatedAtUnixMS: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := IssueManagerService{
+		Store:         store,
+		MutationLocks: NewIssueMutationLocks(),
+	}
+	coordinator := IssueExecutionCoordinator{Issues: &service}
+	if _, err := coordinator.CancelIssueExecutionForSourceSession(
+		ctx, workspaceID, sourceSessionID,
+	); err != nil {
+		t.Fatalf("CancelIssueExecutionForSourceSession() error = %v", err)
+	}
+	persisted, err := store.GetIssue(ctx, workspaceID, issueID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.DispatchPaused {
+		t.Fatal("managed Tutti Issue dispatch was not paused by source-session cancellation")
+	}
+}
+
 func TestIssueManagerRejectsNonFiniteBudgetBeforePersistence(t *testing.T) {
 	t.Parallel()
 

@@ -472,8 +472,9 @@ export interface AgentGUIComposerViewModel {
   gate: AgentGUIComposerGate;
   isTuttiModeActive: boolean;
   isTuttiModeUpdating: boolean;
-  /** Effective Tutti orchestration intensity (0-100) for the budget popup. */
-  tuttiModeOrchestrationIntensity: number;
+  /** Effective Tutti outcome-quality and completion-speed preferences. */
+  tuttiModeEffect: number;
+  tuttiModeSpeed: number;
   tuttiModeUpdateStatus:
     | "idle"
     | "pending_create"

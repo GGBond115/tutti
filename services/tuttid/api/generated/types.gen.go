@@ -5087,18 +5087,21 @@ type IssueManagerExecutionProfile struct {
 
 // IssueManagerIssue defines model for IssueManagerIssue.
 type IssueManagerIssue struct {
-	Budget             IssueManagerBudget           `json:"budget"`
-	CanceledCount      int                          `json:"canceledCount"`
-	CompletedCount     int                          `json:"completedCount"`
-	Content            string                       `json:"content"`
-	CreatedAtUnix      int64                        `json:"createdAtUnix"`
-	CreatorAvatarUrl   string                       `json:"creatorAvatarUrl"`
-	CreatorDisplayName string                       `json:"creatorDisplayName"`
-	CreatorUserId      string                       `json:"creatorUserId"`
-	ExecutionProfile   IssueManagerExecutionProfile `json:"executionProfile"`
-	FailedCount        int                          `json:"failedCount"`
-	IssueId            string                       `json:"issueId"`
-	NotStartedCount    int                          `json:"notStartedCount"`
+	Budget             IssueManagerBudget `json:"budget"`
+	CanceledCount      int                `json:"canceledCount"`
+	CompletedCount     int                `json:"completedCount"`
+	Content            string             `json:"content"`
+	CreatedAtUnix      int64              `json:"createdAtUnix"`
+	CreatorAvatarUrl   string             `json:"creatorAvatarUrl"`
+	CreatorDisplayName string             `json:"creatorDisplayName"`
+	CreatorUserId      string             `json:"creatorUserId"`
+
+	// DispatchPaused When true, automatic task dispatch is durably paused and no successor task may launch.
+	DispatchPaused   bool                         `json:"dispatchPaused"`
+	ExecutionProfile IssueManagerExecutionProfile `json:"executionProfile"`
+	FailedCount      int                          `json:"failedCount"`
+	IssueId          string                       `json:"issueId"`
+	NotStartedCount  int                          `json:"notStartedCount"`
 
 	// ParallelExecution When true, the daemon dispatches every dependency-ready task whose execution directory is isolated; dependencies still require user acceptance.
 	ParallelExecution      bool `json:"parallelExecution"`
@@ -5931,11 +5934,18 @@ type TuttiModeActivation struct {
 
 // TuttiModeActivationIntent defines model for TuttiModeActivationIntent.
 type TuttiModeActivationIntent struct {
-	// OrchestrationIntensity Optional orchestration intensity carried with the initial activation. Omitted uses the daemon default.
+	// Effect Optional outcome-quality preference carried with the initial activation. Omitted uses the daemon default.
+	Effect *int `json:"effect,omitempty"`
+
+	// OrchestrationIntensity Legacy single-axis alias of effect. Ignored when effect is present.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	OrchestrationIntensity *int `json:"orchestrationIntensity,omitempty"`
 
 	// Source User-visible interaction that created this activation revision.
 	Source TuttiModeActivationSource `json:"source"`
+
+	// Speed Optional completion-speed preference carried with the initial activation. Omitted uses the daemon default.
+	Speed  *int                      `json:"speed,omitempty"`
 	Status TuttiModeActivationStatus `json:"status"`
 }
 
@@ -5949,14 +5959,21 @@ type TuttiModeActivationResponse struct {
 type TuttiModeActivationRevision struct {
 	ActivationId    openapi_types.UUID `json:"activationId"`
 	CreatedAtUnixMs int64              `json:"createdAtUnixMs"`
-	Id              openapi_types.UUID `json:"id"`
 
-	// OrchestrationIntensity Session-scoped orchestration intensity captured with this activation revision. Higher values ask the planning agent for finer-grained task decomposition.
+	// Effect Session-scoped outcome-quality preference captured with this activation revision. Higher values favor stronger models and stronger task verification.
+	Effect *int               `json:"effect,omitempty"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// OrchestrationIntensity Legacy single-axis alias of effect. New clients use effect and speed.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	OrchestrationIntensity int   `json:"orchestrationIntensity"`
 	Revision               int64 `json:"revision"`
 
 	// Source User-visible interaction that created this activation revision.
 	Source TuttiModeActivationSource `json:"source"`
+
+	// Speed Session-scoped completion-speed preference captured with this activation revision. Higher values favor faster suitable models.
+	Speed  *int                      `json:"speed,omitempty"`
 	Status TuttiModeActivationStatus `json:"status"`
 }
 
@@ -6016,9 +6033,16 @@ type TuttiModePlanDocumentSchema string
 
 // TuttiModePlanExecution defines model for TuttiModePlanExecution.
 type TuttiModePlanExecution struct {
-	Mode                   TuttiModePlanExecutionMode `json:"mode"`
-	OrchestrationIntensity int                        `json:"orchestrationIntensity"`
-	ReasoningIntensity     int                        `json:"reasoningIntensity"`
+	// Effect Optional Tutti Mode outcome-quality preference snapshot. Omitted documents use orchestrationIntensity as the legacy single-axis effect and use the balanced default for speed.
+	Effect *int                       `json:"effect,omitempty"`
+	Mode   TuttiModePlanExecutionMode `json:"mode"`
+
+	// OrchestrationIntensity Issue-owned decomposition, dependency, review, and retry strength. This legacy v1 field keeps its original meaning and is not the Tutti Mode speed preference.
+	OrchestrationIntensity int `json:"orchestrationIntensity"`
+	ReasoningIntensity     int `json:"reasoningIntensity"`
+
+	// Speed Optional Tutti Mode completion-speed preference snapshot. Omitted documents use the balanced default.
+	Speed *int `json:"speed,omitempty"`
 }
 
 // TuttiModePlanExecutionMode defines model for TuttiModePlanExecution.Mode.
@@ -6090,14 +6114,21 @@ type UpdateIssueManagerTopicRequest struct {
 
 // UpdateTuttiModeActivationRequest defines model for UpdateTuttiModeActivationRequest.
 type UpdateTuttiModeActivationRequest struct {
+	// Effect Optional outcome-quality preference persisted with the appended activation revision. Omitted keeps the current value, or the daemon default for the first revision.
+	Effect *int `json:"effect,omitempty"`
+
 	// ExpectedRevision Optional optimistic-concurrency guard. Zero means no activation revision exists yet.
 	ExpectedRevision *int64 `json:"expectedRevision,omitempty"`
 
-	// OrchestrationIntensity Optional orchestration intensity persisted with the appended activation revision. Omitted keeps the current value, or the daemon default for the first revision.
+	// OrchestrationIntensity Legacy single-axis alias of effect. Ignored when effect is present.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	OrchestrationIntensity *int `json:"orchestrationIntensity,omitempty"`
 
 	// Source User-visible interaction that created this activation revision.
 	Source TuttiModeActivationSource `json:"source"`
+
+	// Speed Optional completion-speed preference persisted with the appended activation revision. Omitted keeps the current value, or the daemon default for the first revision.
+	Speed  *int                      `json:"speed,omitempty"`
 	Status TuttiModeActivationStatus `json:"status"`
 }
 

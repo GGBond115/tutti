@@ -45,7 +45,7 @@ test("fork observation ACK forwards the durable operation identity and abort sig
   ]);
 });
 
-test("Tutti mode update command preserves CAS revision and zero intensity", async () => {
+test("Tutti mode update command preserves CAS revision and zero preferences", async () => {
   const controller = new AbortController();
   let received: unknown;
   await executeWorkspaceAgentTuttiModeUpdateCommand(
@@ -59,7 +59,8 @@ test("Tutti mode update command preserves CAS revision and zero intensity", asyn
       agentSessionId: "session-1",
       commandId: "tutti-1",
       expectedRevision: 3,
-      orchestrationIntensity: 0,
+      effect: 0,
+      speed: 0,
       source: "slash_command",
       status: "active",
       type: "tuttiMode/update",
@@ -71,7 +72,8 @@ test("Tutti mode update command preserves CAS revision and zero intensity", asyn
   assert.deepEqual(received, {
     agentSessionId: "session-1",
     expectedRevision: 3,
-    orchestrationIntensity: 0,
+    effect: 0,
+    speed: 0,
     signal: controller.signal,
     source: "slash_command",
     status: "active",

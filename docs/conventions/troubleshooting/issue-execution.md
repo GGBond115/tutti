@@ -26,3 +26,25 @@ repairing the callback cycle.
 
 For the ownership and data-flow contract, see
 [Issue Execution Coordination](../../architecture/issue-execution.md).
+
+## Stopping a Tutti source Turn leaves task Sessions running
+
+First separate source-Turn cancellation from Issue execution cancellation. The
+source path is healthy when logs contain `agent_session.cancel.accepted` for the
+planning Session. If it is immediately followed by
+`workspace_issue.source_session_cancel_failed` with
+`tutti-owned issue is managed by its source conversation`, the Agent Turn
+stopped but the Issue cascade did not. Confirm that the Issue still has
+`dispatchPaused=false` and that its running Runs remain active.
+
+This happens when the already-authorized source-session cascade calls the
+generic `CancelIssueExecution` entrypoint. That entrypoint must reject
+Tutti-managed graphs; weakening its ownership guard would expose managed Issues
+to unrelated mutations.
+
+Keep the generic guard intact. After proving the Issue has
+`PlanningSourceTuttiModePlan` and the exact `SourceSessionID`, route the cascade
+through `CancelTuttiModeIssueExecution`. That path durably pauses dispatch
+before it fans out exact Run Session cancellations. Validate with
+`TestCancelIssueExecutionForSourceSessionUsesManagedTuttiStopPath` plus the
+focused Issue execution cancellation tests.

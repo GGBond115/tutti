@@ -196,8 +196,7 @@ WHERE workspace_id = ? AND issue_id = ? AND task_id = ? AND run_id = ?
 	); err != nil {
 		return executionbiz.Checkpoint{}, false, err
 	}
-	if executionStatus == string(executionbiz.StatusArchiving) ||
-		executionStatus == string(executionbiz.StatusArchived) {
+	if suppressTuttiModeSettlementCheckpoint(executionStatus) {
 		return executionbiz.Checkpoint{}, false, nil
 	}
 	checkpointID, _ := executionbiz.RunSettlementCheckpointID(executionID, settlement.RunID)
@@ -308,6 +307,18 @@ func settlementCheckpointKind(status workspaceissues.Status) (executionbiz.Check
 	}
 }
 
+func suppressTuttiModeSettlementCheckpoint(status string) bool {
+	switch executionbiz.Status(status) {
+	case executionbiz.StatusOrphanedSource,
+		executionbiz.StatusCompleted,
+		executionbiz.StatusArchiving,
+		executionbiz.StatusArchived:
+		return true
+	default:
+		return false
+	}
+}
+
 func appendAllTasksTerminalCheckpointIfReady(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -410,7 +421,9 @@ LEFT JOIN workspace_issue_run_cancel_compensations cc
  AND cc.run_id = r.run_id
 WHERE r.workspace_id = ? AND r.status IN ('completed', 'failed', 'canceled')
   AND (
-    c.checkpoint_id IS NULL OR i.status IN ('prepared', 'leased')
+    (e.status NOT IN ('orphaned_source', 'completed', 'archiving', 'archived')
+      AND c.checkpoint_id IS NULL)
+    OR i.status IN ('prepared', 'leased')
     OR (i.status = 'dispatched' AND cc.run_id IS NULL)
   )
 ORDER BY r.completed_at_unix_ms ASC, r.created_at_unix_ms ASC, r.run_id ASC

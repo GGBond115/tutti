@@ -472,6 +472,7 @@ function createPlanIssueSource(
           issueId: detail.issue.issueId,
           topicId: detail.issue.topicId,
           title: detail.issue.title,
+          dispatchPaused: detail.issue.dispatchPaused,
           tasks: detail.tasks.map((task) => ({
             taskId: task.taskId,
             title: task.title,
@@ -502,24 +503,6 @@ function createPlanIssueSource(
           listener({ issueId: event.payload.issueId });
         },
         { scope: { workspaceId } }
-      );
-    },
-    // Acceptance decisions are thin status transitions; tuttid owns the
-    // acceptance-state machine, dispatch advance, and completion notification.
-    async acceptTask({ workspaceId, issueId, taskId }): Promise<void> {
-      await input.tuttidClient.updateWorkspaceIssueTask(
-        workspaceId,
-        issueId,
-        taskId,
-        { status: "completed" }
-      );
-    },
-    async rejectTask({ workspaceId, issueId, taskId }): Promise<void> {
-      await input.tuttidClient.updateWorkspaceIssueTask(
-        workspaceId,
-        issueId,
-        taskId,
-        { status: "not_started" }
       );
     },
     async cancelExecution({ workspaceId, issueId }): Promise<void> {

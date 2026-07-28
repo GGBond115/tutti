@@ -121,7 +121,7 @@ func TestRenderSkillBundleIncludesGuideAndOptionalSkills(t *testing.T) {
 	if bundle.SchemaVersion != 2 || bundle.CLICommand != "tutti-dev" {
 		t.Fatalf("bundle metadata = %#v", bundle)
 	}
-	wantSlugs := "tutti-cli,tutti-handoff,issue-manager,workspace-app,reference,browser-use,computer-use"
+	wantSlugs := "tutti-cli,tutti-handoff,tutti-model-allocation,issue-manager,workspace-app,reference,browser-use,computer-use"
 	if got := strings.Join(skillBundleSlugs(bundle.Skills), ","); got != wantSlugs {
 		t.Fatalf("skill slugs = %q", got)
 	}
@@ -129,6 +129,19 @@ func TestRenderSkillBundleIncludesGuideAndOptionalSkills(t *testing.T) {
 	guide, ok := skillBundleFileContent(tuttiSkill, commandGuideReferencePath)
 	if !ok || !strings.Contains(guide, "tutti-dev issue get --issue-id <issue-id> --json") {
 		t.Fatalf("command guide = %q", guide)
+	}
+	modelAllocation := skillBundleRecord(bundle.Skills, tuttiModelAllocationSkillName)
+	if !strings.Contains(modelAllocation.Content, "The required tier is `max(task tier, effect floor)`") {
+		t.Fatalf("model allocation skill = %q", modelAllocation.Content)
+	}
+	if !strings.Contains(modelAllocation.Content, "parallel target") ||
+		!strings.Contains(modelAllocation.Content, "| 75-100 | 4") {
+		t.Fatalf("model allocation parallel policy = %q", modelAllocation.Content)
+	}
+	modelTiers, ok := skillBundleFileContent(modelAllocation, tuttiModelAllocationReferencePath)
+	if !ok || !strings.Contains(modelTiers, "`gpt-5.6-sol`") ||
+		!strings.Contains(modelTiers, "`anthropic/claude-opus-4.8`") {
+		t.Fatalf("model tier reference = %q", modelTiers)
 	}
 	browser := skillBundleRecord(bundle.Skills, browserUseSkillName).Content
 	computer := skillBundleRecord(bundle.Skills, computerUseSkillName).Content

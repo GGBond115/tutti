@@ -32,9 +32,9 @@ export function ManagedTuttiIssueActions({
       <Button
         type="button"
         variant="secondary"
-        onClick={() => void controller.modifyManagedInMainConversation()}
+        onClick={() => void controller.adjustManagedInTaskConversation()}
       >
-        {controller.copy.t("actions.modifyInMainConversation")}
+        {controller.copy.t("actions.adjustInTaskConversation")}
       </Button>
     </div>
   );

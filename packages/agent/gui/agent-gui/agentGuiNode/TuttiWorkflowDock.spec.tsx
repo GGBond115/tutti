@@ -52,7 +52,6 @@ const planPanelLabels: TuttiModePlanPanelLabels = {
 
 const planIssuePanelLabels: TuttiPlanIssuePanelLabels = {
   openIssue: "Open Issue",
-  stopExecution: "Stop",
   listView: "List",
   boardView: "Board",
   parallelizable: "Parallel",
@@ -72,22 +71,23 @@ const planIssuePanelLabels: TuttiPlanIssuePanelLabels = {
   statusCanceled: "Canceled"
 };
 
-const intensityPopoverLabels = {
-  title: "Tutti intensity",
-  intensityLabel: "Intensity",
-  previewTitle: "Planner tendency",
+const preferencePopoverLabels = {
+  title: "Tutti preferences",
+  effectLabel: "Effect",
+  speedLabel: "Speed",
+  previewTitle: "Expected behavior",
   previewHint: "Derived from the request and Skills.",
   previewCost: "Economical",
   previewBalance: "Balanced",
   previewPowerful: "Powerful",
-  modelStrengthLabel: "Model strength",
-  modelStrengthCost: "Economical",
-  modelStrengthBalance: "Balanced",
-  modelStrengthPowerful: "Powerful",
-  agentCountLabel: "Parallel Agents",
-  agentCountCost: "1",
-  agentCountBalance: "2–3",
-  agentCountPowerful: "Up to 4"
+  modelPreferenceLabel: "Model choice",
+  modelPreferenceCost: "Economical",
+  modelPreferenceBalance: "Balanced",
+  modelPreferencePowerful: "Most capable",
+  modelPreferenceFastestSuitable: "Fastest suitable",
+  parallelismLabel: "Parallel target",
+  parallelismValue: (count: number) =>
+    count === 1 ? "1 agent" : `Up to ${count} agents`
 };
 
 const plan: TuttiModePlanPanelViewModel = {
@@ -140,6 +140,7 @@ const issue: TuttiPlanIssueSnapshot = {
   issueId: "issue-1",
   topicId: "topic-1",
   title: "Ship the workflow",
+  dispatchPaused: false,
   tasks: [
     {
       taskId: "task-1",
@@ -164,7 +165,8 @@ function renderDock(phase: TuttiWorkflowDockPhase) {
   const actions = {
     onAssignmentDraftChange: vi.fn(),
     onCancelReview: vi.fn(),
-    onIntensityChange: vi.fn(),
+    onEffectChange: vi.fn(),
+    onSpeedChange: vi.fn(),
     onOpenTask: vi.fn(),
     onRetry: vi.fn()
   };
@@ -172,7 +174,7 @@ function renderDock(phase: TuttiWorkflowDockPhase) {
     <TuttiWorkflowDock
       assignmentCatalog={assignmentCatalog}
       assignmentDrafts={{}}
-      intensityPopoverLabels={intensityPopoverLabels}
+      preferencePopoverLabels={preferencePopoverLabels}
       labels={labels}
       phase={phase}
       planPanelLabels={planPanelLabels}
@@ -190,7 +192,7 @@ describe("TuttiWorkflowDock", () => {
       <TuttiWorkflowDock
         assignmentCatalog={assignmentCatalog}
         assignmentDrafts={{}}
-        intensityPopoverLabels={intensityPopoverLabels}
+        preferencePopoverLabels={preferencePopoverLabels}
         labels={labels}
         phase={{
           auditId: "audit-review-1",
@@ -201,7 +203,8 @@ describe("TuttiWorkflowDock", () => {
         planIssuePanelLabels={planIssuePanelLabels}
         onAssignmentDraftChange={vi.fn()}
         onCancelReview={vi.fn()}
-        onIntensityChange={vi.fn()}
+        onEffectChange={vi.fn()}
+        onSpeedChange={vi.fn()}
         onRetry={vi.fn()}
         onSwitchToSelfReview={onSwitchToSelfReview}
       />
@@ -222,8 +225,9 @@ describe("TuttiWorkflowDock", () => {
       kind: "review",
       panel: plan,
       submitting: false,
-      intensity: 60,
-      intensityDiverged: false
+      effect: 70,
+      speed: 60,
+      preferencesDiverged: false
     });
 
     expect(
@@ -240,7 +244,7 @@ describe("TuttiWorkflowDock", () => {
       <TuttiWorkflowDock
         assignmentCatalog={assignmentCatalog}
         assignmentDrafts={{}}
-        intensityPopoverLabels={intensityPopoverLabels}
+        preferencePopoverLabels={preferencePopoverLabels}
         labels={labels}
         phase={{ kind: "materializing", title: "Ship the workflow" }}
         planPanelLabels={planPanelLabels}
@@ -259,7 +263,7 @@ describe("TuttiWorkflowDock", () => {
       <TuttiWorkflowDock
         assignmentCatalog={assignmentCatalog}
         assignmentDrafts={{}}
-        intensityPopoverLabels={intensityPopoverLabels}
+        preferencePopoverLabels={preferencePopoverLabels}
         labels={labels}
         phase={{ kind: "execution", issue }}
         planPanelLabels={planPanelLabels}
@@ -276,8 +280,9 @@ describe("TuttiWorkflowDock", () => {
       kind: "review",
       panel: plan,
       submitting: false,
-      intensity: 60,
-      intensityDiverged: false
+      effect: 70,
+      speed: 60,
+      preferencesDiverged: false
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse workflow" }));
@@ -292,7 +297,7 @@ describe("TuttiWorkflowDock", () => {
       <TuttiWorkflowDock
         assignmentCatalog={assignmentCatalog}
         assignmentDrafts={{}}
-        intensityPopoverLabels={intensityPopoverLabels}
+        preferencePopoverLabels={preferencePopoverLabels}
         labels={labels}
         phase={{
           kind: "review",
@@ -305,8 +310,9 @@ describe("TuttiWorkflowDock", () => {
             }
           },
           submitting: false,
-          intensity: 60,
-          intensityDiverged: false
+          effect: 70,
+          speed: 60,
+          preferencesDiverged: false
         }}
         planPanelLabels={planPanelLabels}
         planIssuePanelLabels={planIssuePanelLabels}
@@ -321,7 +327,7 @@ describe("TuttiWorkflowDock", () => {
       <TuttiWorkflowDock
         assignmentCatalog={assignmentCatalog}
         assignmentDrafts={{}}
-        intensityPopoverLabels={intensityPopoverLabels}
+        preferencePopoverLabels={preferencePopoverLabels}
         labels={labels}
         phase={{ kind: "materializing", title: "Ship the updated workflow" }}
         planPanelLabels={planPanelLabels}
@@ -337,7 +343,7 @@ describe("TuttiWorkflowDock", () => {
       <TuttiWorkflowDock
         assignmentCatalog={assignmentCatalog}
         assignmentDrafts={{}}
-        intensityPopoverLabels={intensityPopoverLabels}
+        preferencePopoverLabels={preferencePopoverLabels}
         labels={labels}
         phase={{ kind: "execution", issue }}
         planPanelLabels={planPanelLabels}
@@ -364,14 +370,15 @@ describe("TuttiWorkflowDock", () => {
       <TuttiWorkflowDock
         assignmentCatalog={assignmentCatalog}
         assignmentDrafts={{}}
-        intensityPopoverLabels={intensityPopoverLabels}
+        preferencePopoverLabels={preferencePopoverLabels}
         labels={labels}
         phase={{
           kind: "review",
           panel: replan,
           submitting: false,
-          intensity: 60,
-          intensityDiverged: false
+          effect: 70,
+          speed: 60,
+          preferencesDiverged: false
         }}
         planPanelLabels={planPanelLabels}
         planIssuePanelLabels={planIssuePanelLabels}
@@ -386,13 +393,14 @@ describe("TuttiWorkflowDock", () => {
     );
   });
 
-  it("changes the review hint when intensity diverges", () => {
+  it("changes the review hint when either preference diverges", () => {
     renderDock({
       kind: "review",
       panel: plan,
       submitting: false,
-      intensity: 80,
-      intensityDiverged: true
+      effect: 80,
+      speed: 90,
+      preferencesDiverged: true
     });
 
     expect(
@@ -400,6 +408,6 @@ describe("TuttiWorkflowDock", () => {
     ).toHaveTextContent("Ship the workflow · Send to re-plan");
     expect(
       screen.getByTestId("agent-gui-tutti-workflow-intensity")
-    ).toHaveTextContent("80");
+    ).toHaveTextContent("80/90");
   });
 });

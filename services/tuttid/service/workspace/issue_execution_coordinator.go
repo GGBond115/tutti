@@ -260,7 +260,7 @@ func (c *IssueExecutionCoordinator) CancelIssueExecutionForSourceSession(ctx con
 			strings.TrimSpace(detail.Issue.SourceSessionID) != agentSessionID {
 			continue
 		}
-		count, cancelErr := c.CancelIssueExecution(ctx, workspaceID, issueID)
+		count, cancelErr := c.CancelTuttiModeIssueExecution(ctx, workspaceID, issueID)
 		if cancelErr != nil {
 			slog.Warn("cancel Issue execution for source session failed",
 				"event", "workspace_issue.source_session_cancel_failed",

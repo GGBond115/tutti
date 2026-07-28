@@ -46,6 +46,10 @@ type PlanExecution struct {
 	Mode                   string `yaml:"mode"`
 	ReasoningIntensity     int    `yaml:"reasoningIntensity"`
 	OrchestrationIntensity int    `yaml:"orchestrationIntensity"`
+	// Effect and Speed are optional Tutti Mode preference snapshots. Keeping
+	// them separate preserves the original v1 execution-field semantics.
+	Effect *int `yaml:"effect"`
+	Speed  *int `yaml:"speed"`
 }
 
 type PlanBudget struct {
@@ -205,6 +209,10 @@ func normalizeAndValidatePlanDocument(document *PlanDocument) error {
 	}); !ok {
 		return fmt.Errorf("%w: execution intensities must be between 0 and 100", ErrInvalidPlanMarkdown)
 	}
+	if !isOptionalPlanPreference(document.Execution.Effect) ||
+		!isOptionalPlanPreference(document.Execution.Speed) {
+		return fmt.Errorf("%w: execution effect and speed must be between 0 and 100", ErrInvalidPlanMarkdown)
+	}
 	if _, ok := workspaceissues.NormalizeBudget(workspaceissues.Budget{
 		Mode:                  workspaceissues.BudgetMode(document.Budget.Mode),
 		TokenLimit:            document.Budget.TokenLimit,
@@ -261,4 +269,8 @@ func normalizeAndValidatePlanDocument(document *PlanDocument) error {
 		return ErrInvalidTaskGraph
 	}
 	return nil
+}
+
+func isOptionalPlanPreference(value *int) bool {
+	return value == nil || *value >= 0 && *value <= 100
 }

@@ -555,9 +555,14 @@ func runtimeTuttiModeSnapshot(input *host.TuttiModeTurnSnapshot) *agentruntime.T
 	if input == nil {
 		return nil
 	}
+	legacyOrchestrationIntensity := input.OrchestrationIntensity //nolint:staticcheck // Compatibility bridge preserves version-zero snapshots.
 	return &agentruntime.TuttiModeTurnSnapshot{
 		ActivationID: input.ActivationID, RevisionID: input.RevisionID, Revision: input.Revision,
-		State: input.State, Source: input.Source, OrchestrationIntensity: input.OrchestrationIntensity,
+		State: input.State, Source: input.Source,
+		PreferenceVersion:      input.PreferenceVersion,
+		Effect:                 input.Effect,
+		Speed:                  input.Speed,
+		OrchestrationIntensity: legacyOrchestrationIntensity,
 	}
 }
 

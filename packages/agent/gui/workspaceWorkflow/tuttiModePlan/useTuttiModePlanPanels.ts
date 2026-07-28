@@ -10,7 +10,6 @@ import type {
   TuttiPlanIssueQueryResult,
   TuttiPlanIssueSnapshot
 } from "../workspaceWorkflowRuntime";
-import type { TuttiPlanIssueTaskDecision } from "./TuttiPlanIssuePanel";
 import {
   projectTuttiModePlanPanel,
   type TuttiModePlanPanelViewModel,
@@ -68,6 +67,25 @@ const EMPTY_AGENT_DETAIL: TuttiModePlanAssignmentAgentDetail = {
   reasoningEfforts: []
 };
 
+const TERMINAL_PLAN_ISSUE_TASK_STATUSES = new Set([
+  "completed",
+  "failed",
+  "canceled"
+]);
+
+export function tuttiPlanIssueExecutionIsActive(
+  issue: TuttiPlanIssueSnapshot | null
+): boolean {
+  return Boolean(
+    issue &&
+    !issue.dispatchPaused &&
+    issue.tasks.some(
+      (task) =>
+        !TERMINAL_PLAN_ISSUE_TASK_STATUSES.has(task.status.trim().toLowerCase())
+    )
+  );
+}
+
 export function useTuttiModePlanPanels(input: {
   decidedBy: string;
   /** Passive previews keep the hook mounted without starting transport work. */
@@ -90,10 +108,6 @@ export function useTuttiModePlanPanels(input: {
   planIssue: TuttiPlanIssueSnapshot | null;
   /** The accepted plan's durable create_issue failure, when no Issue exists. */
   planIssueMaterializationFailure: TuttiPlanIssueMaterializationFailure | null;
-  /** Accept/rework a pending task from the embedded panel; null until loaded. */
-  decidePlanIssueTask:
-    | ((taskId: string, decision: TuttiPlanIssueTaskDecision) => Promise<void>)
-    | null;
   /** Stop the plan issue's execution (pause + cancel runs); null until loaded. */
   cancelPlanIssueExecution: (() => Promise<void>) | null;
   /** Resolve a task's delegate session for jump-to-conversation; null until loaded. */
@@ -455,30 +469,6 @@ export function useTuttiModePlanPanels(input: {
     [visiblePlanIssueResult]
   );
   const planIssueId = visiblePlanIssue?.issueId ?? "";
-  const decidePlanIssueTaskAction = useCallback(
-    async (
-      taskId: string,
-      decision: TuttiPlanIssueTaskDecision
-    ): Promise<void> => {
-      if (!planIssueSource || !planIssueId) return;
-      // The daemon publishes workspace.issue.updated for the transition, so
-      // the subscription above refreshes without a manual poke.
-      if (decision === "accept") {
-        await planIssueSource.acceptTask({
-          workspaceId,
-          issueId: planIssueId,
-          taskId
-        });
-        return;
-      }
-      await planIssueSource.rejectTask({
-        workspaceId,
-        issueId: planIssueId,
-        taskId
-      });
-    },
-    [planIssueId, planIssueSource, workspaceId]
-  );
   const cancelPlanIssueExecutionAction =
     useCallback(async (): Promise<void> => {
       if (!planIssueSource || !planIssueId) return;
@@ -500,8 +490,6 @@ export function useTuttiModePlanPanels(input: {
     },
     [planIssueId, planIssueSource, workspaceId]
   );
-  const decidePlanIssueTask =
-    planIssueSource && planIssueId ? decidePlanIssueTaskAction : null;
   const cancelPlanIssueExecution =
     planIssueSource && planIssueId ? cancelPlanIssueExecutionAction : null;
   const resolvePlanIssueTaskSession =
@@ -538,7 +526,6 @@ export function useTuttiModePlanPanels(input: {
       panels,
       planIssue: visiblePlanIssue,
       planIssueMaterializationFailure: visiblePlanIssueFailure,
-      decidePlanIssueTask,
       cancelPlanIssueExecution,
       resolvePlanIssueTaskSession,
       retry,
@@ -548,7 +535,6 @@ export function useTuttiModePlanPanels(input: {
       assignmentCatalog,
       cancelPlanIssueExecution,
       decide,
-      decidePlanIssueTask,
       panels,
       resolvePlanIssueTaskSession,
       retry,

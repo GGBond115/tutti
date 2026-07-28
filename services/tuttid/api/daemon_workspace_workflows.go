@@ -345,6 +345,8 @@ func generatedTuttiModePlanExecution(execution tuttimodeplanservice.PlanExecutio
 		Mode:                   tuttigenerated.TuttiModePlanExecutionMode(execution.Mode),
 		ReasoningIntensity:     execution.ReasoningIntensity,
 		OrchestrationIntensity: execution.OrchestrationIntensity,
+		Effect:                 execution.Effect,
+		Speed:                  execution.Speed,
 	}
 }
 

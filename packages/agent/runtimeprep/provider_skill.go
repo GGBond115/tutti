@@ -20,6 +20,8 @@ const browserUseSkillName = "browser-use"
 const computerUseSkillName = "computer-use"
 const tuttiHandoffSkillName = "tutti-handoff"
 const commandGuideReferencePath = "command-guide.md"
+const tuttiModelAllocationSkillName = "tutti-model-allocation"
+const tuttiModelAllocationReferencePath = "references/model-tiers.md"
 
 //go:embed skill_templates/*.md policy_templates/*.md
 var providerSkillTemplates embed.FS
@@ -36,6 +38,14 @@ func tuttiCLISkill(input PrepareInput) (string, error) {
 
 func tuttiHandoffSkill(input PrepareInput) (string, error) {
 	return renderProviderSkillTemplate("skill_templates/tutti-handoff.md", input, nil)
+}
+
+func tuttiModelAllocationSkill(input PrepareInput) (string, error) {
+	return renderProviderSkillTemplate("skill_templates/tutti-model-allocation.md", input, nil)
+}
+
+func tuttiModelAllocationReference(input PrepareInput) (string, error) {
+	return renderProviderSkillTemplate("skill_templates/tutti-model-allocation-model-tiers.md", input, nil)
 }
 
 func issueManagerSkill(input PrepareInput) (string, error) {

@@ -214,12 +214,19 @@ exact `plan propose` / `plan revise` command lines, and a minimal
 valid plan document showing the frontmatter task graph. The guide requires a
 complete launch configuration on every task — `agentTargetId`, `model`, and
 `permissionModeId` copied from `agent composer-options` output, never
-invented — plus an explicit `execution.reasoningIntensity`. Unless the user
-asks for supervised execution, the guide directs agents to the permission
-mode whose semantic is `full-access` (codex `full-access`, claude-code
+invented — plus explicit `execution.effect` / `execution.speed` preference
+snapshots. The existing v1 `reasoningIntensity` and
+`orchestrationIntensity` fields retain their provider-reasoning and
+Issue-orchestration meanings; speed is never encoded into
+`orchestrationIntensity`. It routes model
+assignment through the injected `$tutti-model-allocation` skill so C0-C3 task
+requirements, the effect floor, speed ranking, hard capabilities, and
+effect-scaled validation are applied consistently. Unless the user asks for
+supervised execution, the guide directs agents to the permission mode whose
+semantic is `full-access` (codex `full-access`, claude-code
 `bypassPermissions`): the user's approval happens once at plan review, so
-accepted tasks must not stall on mid-task approval prompts. The same
-resolved CLI name is used by the plan-revision feedback prompt.
+accepted tasks must not stall on mid-task approval prompts. The same resolved
+CLI name is used by the plan-revision feedback prompt.
 Read-only investigation is allowed while writing the plan; provider-native
 planning modes must not substitute for the Tutti plan workflow. Activation
 still does not gate tool availability—Tutti CLI capabilities remain available
@@ -245,7 +252,10 @@ The frontmatter owns:
   own unique absolute execution directory, or the document is rejected while
   the agent can still fix it (never after acceptance, where the failed
   `create_issue` operation would strand an accepted workflow);
-- Issue-level reasoning and orchestration intensity;
+- Issue-level reasoning and orchestration intensity; Tutti Host Context
+  compiles the explicit speed preference into a 1-4 upper parallel target while
+  the durable scheduler still enforces dependency, isolation, budget, and
+  workspace-capacity limits;
 - auto or fixed token budget and quota waterline (the token limit is dormant
   and no longer surfaced in UI);
 - task IDs, content, priority, assignment (agent target, model plan, model,
@@ -538,6 +548,15 @@ the Issue Manager consumes. The embed surfaces the durable task structure and
 execution state; Tutti-owned scheduling, mutation, and completion authority
 comes from the source conversation rather than generic Issue mutation or
 automatic dispatch.
+
+The embedded panel's task-level accept and rework controls are source-Agent
+prompt actions. They append a localized instruction with the exact Task mention
+to the source conversation draft, preserve existing draft content, and require
+an explicit user send. The renderer does not translate them into generic Task
+status writes. After submission, the source Agent reads canonical execution
+state and uses the existing checkpoint/revision-fenced command path. Direct
+daemon-owned commands such as execution cancellation remain commands rather
+than prompts.
 
 The workflow remains the review and provenance record; the Issue remains the
 task/run evidence graph; and the Tutti execution is the orchestration

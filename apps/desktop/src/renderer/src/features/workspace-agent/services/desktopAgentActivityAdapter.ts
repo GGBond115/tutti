@@ -233,7 +233,13 @@ export function createDesktopAgentActivityAdapter({
           ...(input.initialTuttiModeActivation
             ? {
                 initialTuttiModeActivation: {
-                  ...input.initialTuttiModeActivation
+                  effect:
+                    input.initialTuttiModeActivation.effect ??
+                    input.initialTuttiModeActivation.orchestrationIntensity ??
+                    null,
+                  source: input.initialTuttiModeActivation.source,
+                  speed: input.initialTuttiModeActivation.speed,
+                  status: input.initialTuttiModeActivation.status
                 }
               }
             : {}),
@@ -392,9 +398,13 @@ export function createDesktopAgentActivityAdapter({
             ...(input.expectedRevision === undefined
               ? {}
               : { expectedRevision: input.expectedRevision }),
-            ...(input.orchestrationIntensity === undefined
+            ...(input.effect === undefined &&
+            input.orchestrationIntensity === undefined
               ? {}
-              : { orchestrationIntensity: input.orchestrationIntensity }),
+              : {
+                  effect: input.effect ?? input.orchestrationIntensity
+                }),
+            ...(input.speed === undefined ? {} : { speed: input.speed }),
             source: input.source,
             status: input.status
           },

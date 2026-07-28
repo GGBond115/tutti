@@ -138,31 +138,38 @@ export interface AgentGUIViewLabels {
   tuttiModeDescription: string;
   tuttiModeRemove: string;
   tuttiBudgetTitle: string;
-  tuttiBudgetIntensityLabel: string;
+  tuttiBudgetEffectLabel: string;
+  tuttiBudgetSpeedLabel: string;
   tuttiBudgetPreviewTitle: string;
   tuttiBudgetPreviewHint: string;
   tuttiBudgetPreviewCost: string;
   tuttiBudgetPreviewBalance: string;
   tuttiBudgetPreviewPowerful: string;
-  tuttiBudgetModelStrengthLabel: string;
-  tuttiBudgetModelStrengthCost: string;
-  tuttiBudgetModelStrengthBalance: string;
-  tuttiBudgetModelStrengthPowerful: string;
-  tuttiBudgetAgentCountLabel: string;
-  tuttiBudgetAgentCountCost: string;
-  tuttiBudgetAgentCountBalance: string;
-  tuttiBudgetAgentCountPowerful: string;
+  tuttiBudgetModelPreferenceLabel: string;
+  tuttiBudgetModelPreferenceCost: string;
+  tuttiBudgetModelPreferenceBalance: string;
+  tuttiBudgetModelPreferencePowerful: string;
+  tuttiBudgetModelPreferenceFastestSuitable: string;
+  tuttiBudgetParallelismLabel: string;
+  tuttiBudgetParallelismValue: (count: number) => string;
   tuttiModeUpdateFailed: string;
   tuttiModeUpdateUncertain: string;
   tuttiModePlanPanel: TuttiModePlanPanelLabels;
   tuttiWorkflowDock: TuttiWorkflowDockLabels;
   tuttiModePlanIssuePanel: TuttiPlanIssuePanelLabels;
+  tuttiModePlanIssueAcceptPrompt: (reference: string) => string;
+  tuttiModePlanIssueReworkPrompt: (reference: string) => string;
   tuttiModePlanSendAccept: string;
   tuttiModePlanSendRequestChanges: string;
-  /** Auto feedback for an empty send after the intensity diverged. */
-  tuttiModePlanReplanFeedback: (from: string, to: string) => string;
-  /** Appended to typed feedback when the intensity diverged. */
-  tuttiModePlanReplanFeedbackSuffix: (to: string) => string;
+  /** Auto feedback for an empty send after either preference diverged. */
+  tuttiModePlanReplanFeedback: (
+    fromEffect: string,
+    fromSpeed: string,
+    toEffect: string,
+    toSpeed: string
+  ) => string;
+  /** Appended to typed feedback when either preference diverged. */
+  tuttiModePlanReplanFeedbackSuffix: (effect: string, speed: string) => string;
   tuttiModePlanLoadFailed: string;
   tuttiModePlanRetry: string;
   /** Accepted plan whose Issue creation durably failed; message is the cause. */
@@ -632,7 +639,8 @@ export interface AgentGUINodeViewProps {
     /** Re-issues the composer-options load after a terminal error state. */
     retryComposerOptions: () => void;
     setTuttiModeActive: (active: boolean) => void;
-    setTuttiModeOrchestrationIntensity: (value: number) => void;
+    setTuttiModeEffect: (value: number) => void;
+    setTuttiModeSpeed: (value: number) => void;
     retryTuttiModeActivation: () => void;
     updatePlanIssueBudgetPreset: (preset: PlanIssueBudgetPreset) => void;
     selectHomeComposerAgentTarget: (input: {

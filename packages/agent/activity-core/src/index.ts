@@ -131,7 +131,9 @@ export {
   selectTuttiModeActivationPresentation,
   selectTuttiModeDraftIsActive,
   selectTuttiModeDraftOrchestrationIntensity,
+  selectTuttiModeDraftPreferences,
   tuttiModeActivationPresentationsEqual,
+  type ResolvedTuttiModeActivationPresentation,
   type TuttiModeActivationPresentation
 } from "./engine/tuttiModeActivation.selectors.ts";
 export type {

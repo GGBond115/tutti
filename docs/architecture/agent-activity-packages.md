@@ -162,6 +162,14 @@ tombstone deletes.
 `agent-activity-core` is host-agnostic and must not import React, Electron,
 desktop preload APIs, or the generated `tuttid` client.
 
+The published Tutti Mode activation contract retains
+`orchestrationIntensity` as a deprecated effect alias during the
+effect/speed migration. New fields take precedence when both forms are
+present; presentations and daemon responses continue to emit the alias with
+the normalized effect value. The tuttid adapter also accepts an older response
+that contains only the alias and assigns balanced speed (`50`). Removing the
+alias or its selector requires an explicit breaking package/API release.
+
 It owns:
 
 - agent activity contracts used by UI packages and host adapters

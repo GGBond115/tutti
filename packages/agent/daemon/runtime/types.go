@@ -194,15 +194,24 @@ const (
 // facts only; provider-facing instruction text is rendered inside this
 // package so callers cannot smuggle arbitrary prompt content through it.
 type TuttiModeTurnSnapshot struct {
-	ActivationID string
-	RevisionID   string
-	Revision     int64
-	State        string
-	Source       string
-	// OrchestrationIntensity is the user-selected planning strength (0-100)
-	// captured by the exact activation revision this turn observed.
+	ActivationID      string
+	RevisionID        string
+	Revision          int64
+	State             string
+	Source            string
+	PreferenceVersion int
+	// Effect and Speed are the user-selected outcome-quality and
+	// completion-speed preferences captured by the exact activation revision.
+	Effect int
+	Speed  int
+	// OrchestrationIntensity is the legacy single-axis alias of Effect.
+	//
+	// Deprecated: use Effect and Speed with PreferenceVersion set to
+	// TuttiModePreferenceVersionEffectSpeed.
 	OrchestrationIntensity int
 }
+
+const TuttiModePreferenceVersionEffectSpeed = 1
 
 type CancelInput struct {
 	RoomID             string

@@ -1612,6 +1612,33 @@ func TestIntegrationTaskPromptCarriesDependencyWorktreeBranches(t *testing.T) {
 	}
 }
 
+func TestTuttiModeTaskPromptScalesValidationWithEffect(t *testing.T) {
+	t.Parallel()
+	task := workspaceissues.Task{Title: "Implement preferences", Content: "Wire both values"}
+	for _, testCase := range []struct {
+		effect int
+		want   string
+	}{
+		{effect: 20, want: "at least one focused check"},
+		{effect: 50, want: "relevant tests plus an integration check"},
+		{effect: 90, want: "edge or variant case"},
+	} {
+		issue := workspaceissues.Issue{
+			Title:          "Tutti preferences",
+			Content:        "Implement the plan",
+			PlanningSource: workspaceissues.PlanningSourceTuttiModePlan,
+			ExecutionProfile: workspaceissues.ExecutionProfile{
+				ReasoningIntensity: testCase.effect,
+			},
+		}
+		prompt := issueTaskPrompt(issue, task, ".", "", "", nil)
+		if !strings.Contains(prompt, fmt.Sprintf("Tutti effect preference: %d/100", testCase.effect)) ||
+			!strings.Contains(prompt, testCase.want) {
+			t.Fatalf("effect %d prompt = %q, want validation guidance containing %q", testCase.effect, prompt, testCase.want)
+		}
+	}
+}
+
 func TestAgentSettlementCompletesOnlyTheInitiatingTurnRun(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -10805,14 +10805,29 @@ components:
           $ref: "#/components/schemas/TuttiModeActivationStatus"
         source:
           $ref: "#/components/schemas/TuttiModeActivationSource"
+        effect:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: >-
+            Session-scoped outcome-quality preference captured with this
+            activation revision. Higher values favor stronger models and
+            stronger task verification.
+        speed:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: >-
+            Session-scoped completion-speed preference captured with this
+            activation revision. Higher values favor faster suitable models.
         orchestrationIntensity:
           type: integer
           minimum: 0
           maximum: 100
-          description: >-
-            Session-scoped orchestration intensity captured with this
-            activation revision. Higher values ask the planning agent for
-            finer-grained task decomposition.
+          deprecated: true
+          description: Legacy single-axis alias of effect. New clients use effect and speed.
         createdAtUnixMs:
           type: integer
           format: int64
@@ -10861,14 +10876,30 @@ components:
           $ref: "#/components/schemas/TuttiModeActivationStatus"
         source:
           $ref: "#/components/schemas/TuttiModeActivationSource"
-        orchestrationIntensity:
+        effect:
           type: integer
           nullable: true
           minimum: 0
           maximum: 100
           description: >-
-            Optional orchestration intensity carried with the initial
+            Optional outcome-quality preference carried with the initial
             activation. Omitted uses the daemon default.
+        speed:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: >-
+            Optional completion-speed preference carried with the initial
+            activation. Omitted uses the daemon default.
+        orchestrationIntensity:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          deprecated: true
+          description: >-
+            Legacy single-axis alias of effect. Ignored when effect is present.
     TuttiModeActivationResponse:
       type: object
       additionalProperties: false
@@ -10891,15 +10922,32 @@ components:
           $ref: "#/components/schemas/TuttiModeActivationStatus"
         source:
           $ref: "#/components/schemas/TuttiModeActivationSource"
-        orchestrationIntensity:
+        effect:
           type: integer
           nullable: true
           minimum: 0
           maximum: 100
           description: >-
-            Optional orchestration intensity persisted with the appended
+            Optional outcome-quality preference persisted with the appended
             activation revision. Omitted keeps the current value, or the
             daemon default for the first revision.
+        speed:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: >-
+            Optional completion-speed preference persisted with the appended
+            activation revision. Omitted keeps the current value, or the
+            daemon default for the first revision.
+        orchestrationIntensity:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          deprecated: true
+          description: >-
+            Legacy single-axis alias of effect. Ignored when effect is present.
         expectedRevision:
           type: integer
           format: int64
@@ -14038,6 +14086,27 @@ components:
           type: integer
           minimum: 0
           maximum: 100
+          description: >-
+            Issue-owned decomposition, dependency, review, and retry strength.
+            This legacy v1 field keeps its original meaning and is not the
+            Tutti Mode speed preference.
+        effect:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: >-
+            Optional Tutti Mode outcome-quality preference snapshot. Omitted
+            documents use orchestrationIntensity as the legacy single-axis
+            effect and use the balanced default for speed.
+        speed:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: >-
+            Optional Tutti Mode completion-speed preference snapshot. Omitted
+            documents use the balanced default.
     TuttiModePlanBudget:
       type: object
       additionalProperties: false

@@ -103,10 +103,12 @@ interface Props {
   isPlanModeActive: boolean;
   isTuttiModeActive: boolean;
   isTuttiModeUpdating: boolean;
-  tuttiModeOrchestrationIntensity: number;
+  tuttiModeEffect: number;
+  tuttiModeSpeed: number;
   onClearPlanMode: () => void;
   onClearTuttiMode: () => void;
-  onTuttiModeOrchestrationIntensityChange: (value: number) => void;
+  onTuttiModeEffectChange: (value: number) => void;
+  onTuttiModeSpeedChange: (value: number) => void;
   isPromptTipOverflowing: boolean;
   onHistoryNavigation: (direction: "older" | "newer") => boolean;
 }

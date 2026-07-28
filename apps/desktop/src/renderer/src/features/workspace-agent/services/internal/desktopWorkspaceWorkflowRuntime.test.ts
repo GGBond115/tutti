@@ -619,7 +619,8 @@ test("plan issue source tolerates the daemon omitting empty dependency arrays", 
           issue: {
             issueId: "tutti-mode-plan-1",
             topicId: "default",
-            title: "Plan issue"
+            title: "Plan issue",
+            dispatchPaused: true
           },
           tasks: [
             // No dependencyTaskIds field at all — the exact daemon shape.
@@ -660,6 +661,7 @@ test("plan issue source tolerates the daemon omitting empty dependency arrays", 
   assert.equal(issue.workflowId, "workflow-1");
   assert.equal(issue.sourceTurnId, "turn-1");
   assert.equal(issue.issueId, "tutti-mode-plan-1");
+  assert.equal(issue.dispatchPaused, true);
   assert.deepEqual(
     issue.tasks.map((task) => task.dependencyTaskIds),
     [[], ["task-1"]]

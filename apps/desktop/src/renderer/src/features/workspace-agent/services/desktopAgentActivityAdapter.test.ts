@@ -510,7 +510,9 @@ test("desktop agent activity adapter creates, projects, and revision-updates the
       activationId: "activation-1",
       createdAtUnixMs: 10,
       id: "revision-1",
+      effect: 80,
       orchestrationIntensity: 80,
+      speed: 60,
       revision: 1,
       source: "slash_command" as const,
       status: "active" as const
@@ -526,7 +528,9 @@ test("desktop agent activity adapter creates, projects, and revision-updates the
       activationId: "activation-1",
       createdAtUnixMs: 20,
       id: "revision-2",
+      effect: 25,
       orchestrationIntensity: 25,
+      speed: 90,
       revision: 2,
       source: "badge_remove" as const,
       status: "inactive" as const
@@ -568,13 +572,17 @@ test("desktop agent activity adapter creates, projects, and revision-updates the
     agentTargetId: "local:codex",
     clientSubmitId: "submit-tutti",
     initialTuttiModeActivation: {
+      effect: 80,
       source: "slash_command",
+      speed: 60,
       status: "active"
     },
     workspaceId
   });
   assert.deepEqual(createBodies[0]?.initialTuttiModeActivation, {
+    effect: 80,
     source: "slash_command",
+    speed: 60,
     status: "active"
   });
   assert.deepEqual(created.tuttiModeActivation, activeActivation);
@@ -583,7 +591,8 @@ test("desktop agent activity adapter creates, projects, and revision-updates the
   const updated = await adapter.updateTuttiModeActivation({
     agentSessionId: "agent-session-1",
     expectedRevision: 1,
-    orchestrationIntensity: 25,
+    effect: 25,
+    speed: 90,
     signal: controller.signal,
     source: "badge_remove",
     status: "inactive",
@@ -593,7 +602,8 @@ test("desktop agent activity adapter creates, projects, and revision-updates the
     agentSessionId: "agent-session-1",
     request: {
       expectedRevision: 1,
-      orchestrationIntensity: 25,
+      effect: 25,
+      speed: 90,
       source: "badge_remove",
       status: "inactive"
     },

@@ -206,6 +206,39 @@
   failure, second-scan non-duplication, and outcome-write failure stopping
   startup.
 
+### Many stopped Tutti Mode conversations start again when the app opens
+
+- **Symptom:** Starting the desktop app makes several old Tutti Mode source
+  conversations begin new Turns even though their tasks were previously
+  stopped or already terminal.
+- **Quick checks:** Correlate the startup time with
+  `workspace_tutti_mode_legacy_repair_v5`, listener-ready wake recovery, and
+  new canonical Turns. In the execution tables, look for a migration
+  checkpoint whose `creation_reason` is
+  `legacy_execution_startup_repair`, an idle execution changed to
+  `awaiting_main`, and a prepared or dispatched main wake. Do not attribute the
+  behavior to generic Agent Host resume unless the exact Session already had a
+  recoverable active Turn.
+- **Root cause:** The former V5 legacy backfill treated ambiguous idle plans as
+  live executions and created a durable main wake. Listener readiness later
+  delivered those historical wakes into the source conversations. Startup Run
+  settlement repair could also create another checkpoint for an execution
+  that was already terminal.
+- **Fix:** Make legacy migration side-effect-free: keep an execution running
+  only when an authoritative Run is running, classify idle history as
+  `completed`, and create no migration wake. Suppress settlement checkpoints
+  for terminal/orphaned executions. For databases that already applied V5,
+  run the exact-fingerprint V6 cleanup to cancel the old recovery chain and
+  normalize execution status from current Runs.
+- **Validation:** Cover fresh idle and running legacy fixtures with zero
+  migration wakes, a V5-corrupted idle fixture repaired to `completed`, a
+  V5-corrupted running fixture retained as `running`, and terminal settlement
+  replay producing no checkpoint or wake. Re-run V6 to prove idempotency.
+- **References:**
+  [issue-execution.md](../../architecture/issue-execution.md),
+  [migrations_tutti_mode_legacy.go](../../../services/tuttid/data/workspace/migrations_tutti_mode_legacy.go),
+  [sqlite_tutti_mode_settlement.go](../../../services/tuttid/data/workspace/sqlite_tutti_mode_settlement.go)
+
 ### Tutti capability audit persistence races the first Turn projection
 
 - **Symptom:** Create or SendInput fails with `sql: no rows in result set`

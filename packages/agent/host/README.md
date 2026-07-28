@@ -8,6 +8,14 @@ interactive response, plan decision, durable runtime-operation, and complete
 goal-control/reconcile application core. `tuttid` routes those commands through
 `Host`; transport and HTTP shapes remain unchanged.
 
+Tutti Mode turn snapshots use `PreferenceVersion` to separate the current
+`Effect`/`Speed` pair from the deprecated single-axis
+`OrchestrationIntensity`. Current writers set
+`TuttiModePreferenceVersionEffectSpeed` and populate the legacy alias with the
+effect value. Runtime readers treat version zero as a legacy snapshot, mapping
+its intensity to effect and using balanced speed (`50`). This is an upgrade
+read path, not support for connecting a new client to an older daemon.
+
 The module owns:
 
 - lifecycle command and runtime observation types;

@@ -93,6 +93,8 @@ export interface TuttiPlanIssueSnapshot {
   issueId: string;
   topicId: string;
   title: string;
+  /** Durable Issue execution gate; paused graphs are not active work. */
+  dispatchPaused: boolean;
   tasks: TuttiPlanIssueTaskSnapshot[];
 }
 
@@ -114,9 +116,11 @@ export type TuttiPlanIssueQueryResult =
   | null;
 
 /**
- * Read-only source for the embedded plan-issue panel in the conversation.
- * The host resolves "the Issue this session's accepted plan created" and
- * relays live issue updates; all mutations stay in the Issue Manager.
+ * Source for the embedded plan-issue panel in the conversation.
+ * The host resolves "the Issue this session's accepted plan created", relays
+ * live issue updates, and exposes only daemon-owned product commands. Task
+ * accept/rework actions remain source-Agent prompts rather than generic Issue
+ * mutations.
  */
 export interface TuttiPlanIssueSource {
   getSessionPlanIssue(input: {
@@ -127,18 +131,6 @@ export interface TuttiPlanIssueSource {
     workspaceId: string,
     listener: (update: { issueId: string }) => void
   ): () => void;
-  /** Accepts a pending-acceptance task (the human gate) from the embed. */
-  acceptTask(input: {
-    workspaceId: string;
-    issueId: string;
-    taskId: string;
-  }): Promise<void>;
-  /** Sends a pending-acceptance task back to rework (re-dispatch). */
-  rejectTask(input: {
-    workspaceId: string;
-    issueId: string;
-    taskId: string;
-  }): Promise<void>;
   /**
    * Stops the Issue's execution: pauses future dispatch and cancels every
    * running task run. Idempotent; the daemon owns the cascade.

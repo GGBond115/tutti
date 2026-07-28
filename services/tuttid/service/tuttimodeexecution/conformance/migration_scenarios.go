@@ -34,8 +34,8 @@ func MigrationCatalog() []Scenario {
 			run:  migrationRun(runActiveLegacyRunContinuesWithoutSuccessorAutoDispatch),
 		},
 		{
-			Name: "IdleLegacyExecutionGetsOneDeterministicMigrationWake",
-			run:  migrationRun(runIdleLegacyExecutionGetsOneDeterministicMigrationWake),
+			Name: "IdleLegacyExecutionRemainsTerminalWithoutWake",
+			run:  migrationRun(runIdleLegacyExecutionRemainsTerminalWithoutWake),
 		},
 		{
 			Name: "MissingAndTombstonedLegacySourcesBecomeOrphanedSource",
@@ -83,8 +83,12 @@ func runActiveLegacyRunContinuesWithoutSuccessorAutoDispatch(
 	}
 	if len(repaired.Checkpoints) != 1 ||
 		repaired.Checkpoints[0].Kind != "migration" ||
-		repaired.Checkpoints[0].Status != "active" {
+		repaired.Checkpoints[0].Status != "resolved" {
 		return fmt.Errorf("active legacy migration checkpoint = %#v", repaired.Checkpoints)
+	}
+	wakes, err := driver.ListWakes(ctx, fixture.WorkspaceID, legacy.IssueID)
+	if err != nil || len(wakes) != 0 {
+		return fmt.Errorf("active legacy migration wakes = %#v error=%v", wakes, err)
 	}
 	if driver.LauncherCallCount() != beforeCalls {
 		return fmt.Errorf(
@@ -123,13 +127,13 @@ func runActiveLegacyRunContinuesWithoutSuccessorAutoDispatch(
 	}
 	if len(settled.Checkpoints) != 2 ||
 		settled.Checkpoints[1].Kind != "task_settled" ||
-		settled.Checkpoints[1].Status != "pending" {
+		settled.Checkpoints[1].Status != "active" {
 		return fmt.Errorf("legacy settlement backlog = %#v", settled.Checkpoints)
 	}
 	return nil
 }
 
-func runIdleLegacyExecutionGetsOneDeterministicMigrationWake(
+func runIdleLegacyExecutionRemainsTerminalWithoutWake(
 	ctx context.Context,
 	driver MigrationDriver,
 ) error {
@@ -151,13 +155,11 @@ func runIdleLegacyExecutionGetsOneDeterministicMigrationWake(
 	if err != nil {
 		return fmt.Errorf("ListWakes(first) error = %w", err)
 	}
-	if first.Execution.Status != "awaiting_main" ||
+	if first.Execution.Status != "completed" ||
 		len(first.Checkpoints) != 1 ||
 		first.Checkpoints[0].Kind != "migration" ||
-		first.Checkpoints[0].Status != "active" ||
-		len(firstWakes) != 1 ||
-		firstWakes[0].CheckpointID != first.Checkpoints[0].CheckpointID ||
-		firstWakes[0].Status != "prepared" {
+		first.Checkpoints[0].Status != "resolved" ||
+		len(firstWakes) != 0 {
 		return fmt.Errorf("idle legacy repair = %#v wakes=%#v", first, firstWakes)
 	}
 

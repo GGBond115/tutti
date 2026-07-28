@@ -89,9 +89,12 @@ provider runtime policy and dynamic skill bundles by default; set
 `PolicySection.Delivery` when a section is valid for only one delivery path.
 
 `StandardProfile` includes `CoreSkillsPack`, `TuttiDesktopHostPack`, browser
-use, and computer use. A non-desktop deployment should compose its own profile
-from `CoreSkillsPack` and deployment-owned packs instead of copying the
-desktop-host policy:
+use, and computer use. `CoreSkillsPack` includes the provider-neutral Tutti
+workflow skills plus `tutti-model-allocation`, whose C0-C3 policy combines the
+current Tutti Mode effect/speed preferences with live composer model catalogs
+and derives speed's bounded 1-4 parallel planning target.
+A non-desktop deployment should compose its own profile from `CoreSkillsPack`
+and deployment-owned packs instead of copying the desktop-host policy:
 
 ```go
 profile := runtimeprep.DeploymentProfile{
