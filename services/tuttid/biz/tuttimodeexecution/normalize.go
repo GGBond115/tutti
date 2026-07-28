@@ -43,6 +43,14 @@ func InitialCheckpointID(executionID string) (string, bool) {
 	return executionID + ":checkpoint:initial-schedule", true
 }
 
+func MigrationCheckpointID(executionID string) (string, bool) {
+	executionID = strings.TrimSpace(executionID)
+	if executionID == "" {
+		return "", false
+	}
+	return executionID + ":checkpoint:migration", true
+}
+
 func RunSettlementCheckpointID(executionID string, runID string) (string, bool) {
 	executionID = strings.TrimSpace(executionID)
 	runID = strings.TrimSpace(runID)

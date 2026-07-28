@@ -8,6 +8,7 @@ import (
 	"time"
 
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
+	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
 	workflowbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceworkflow"
@@ -188,6 +189,242 @@ SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?
 `, table).Scan(&count); err != nil || count != 1 {
 			t.Fatalf("upgraded table %q count=%d error=%v", table, count, err)
 		}
+	}
+}
+
+func TestTuttiModeLegacyMigrationBackfillsDeterministicallyWithoutInventingSources(
+	t *testing.T,
+) {
+	t.Parallel()
+	ctx := context.Background()
+	store := openTuttiModeExecutionStore(t)
+	now := time.UnixMilli(1_700_000_000_000).UTC()
+	type fixture struct {
+		name        string
+		sourceState string
+		running     bool
+		workspaceID string
+		workflowID  string
+		sourceID    string
+		issueID     string
+		runID       string
+	}
+	fixtures := []fixture{
+		{
+			name: "active-run", sourceState: "active", running: true,
+			workspaceID: "workspace-legacy-active", workflowID: "workflow-legacy-active",
+			sourceID: "source-legacy-active",
+		},
+		{
+			name: "idle", sourceState: "active",
+			workspaceID: "workspace-legacy-idle", workflowID: "workflow-legacy-idle",
+			sourceID: "source-legacy-idle",
+		},
+		{
+			name: "missing", sourceState: "missing",
+			workspaceID: "workspace-legacy-missing", workflowID: "workflow-legacy-missing",
+			sourceID: "source-legacy-missing",
+		},
+		{
+			name: "tombstoned", sourceState: "tombstoned",
+			workspaceID: "workspace-legacy-tombstoned", workflowID: "workflow-legacy-tombstoned",
+			sourceID: "source-legacy-tombstoned",
+		},
+	}
+	for index := range fixtures {
+		value := &fixtures[index]
+		prepareTuttiModeExecutionWorkspace(
+			t, store, value.workspaceID, value.workflowID, value.sourceID, now,
+		)
+		if value.sourceState != "missing" {
+			if _, err := store.ReportSessionState(ctx, agentactivitybiz.SessionStateReport{
+				WorkspaceID: value.workspaceID, AgentSessionID: value.sourceID,
+				Provider: "codex", Status: "completed", OccurredAtUnixMS: now.UnixMilli(),
+			}); err != nil {
+				t.Fatalf("%s: ReportSessionState() error = %v", value.name, err)
+			}
+			if value.sourceState == "tombstoned" {
+				if _, err := store.AgentCanonicalStore().DeleteSession(
+					ctx, value.workspaceID, value.sourceID,
+				); err != nil {
+					t.Fatalf("%s: DeleteSession() error = %v", value.name, err)
+				}
+			}
+		}
+		issues := workspaceissues.Service{Store: store, Clock: func() time.Time { return now }}
+		issue, tasks := prepareTuttiModeIssueGraph(
+			t, issues, value.workspaceID, value.workflowID, value.sourceID,
+		)
+		if value.running {
+			tasks[0].AutoAccept = true
+		}
+		executions := &executionservice.Service{
+			Store: store, Clock: func() time.Time { return now },
+		}
+		created, _, _, err := executions.Materialize(ctx, executionservice.MaterializeInput{
+			Issue: issue, Tasks: tasks, WorkflowID: value.workflowID,
+		})
+		if err != nil {
+			t.Fatalf("%s: Materialize() error = %v", value.name, err)
+		}
+		value.issueID = created.IssueID
+		if _, err := store.writeDB.ExecContext(ctx, `
+DELETE FROM workspace_tutti_executions
+WHERE workspace_id = ? AND issue_id = ?
+`, value.workspaceID, value.issueID); err != nil {
+			t.Fatalf("%s: delete execution fixture error = %v", value.name, err)
+		}
+		if value.running {
+			run, err := issues.CreateRun(ctx, workspaceissues.CreateRunInput{
+				RunID: "legacy-running-run", TaskID: "task-1",
+				IssueID: value.issueID, WorkspaceID: value.workspaceID,
+				ActorUserID: "legacy", AgentTargetID: "local:codex",
+				AgentSessionID: "legacy-running-session",
+			})
+			if err != nil {
+				t.Fatalf("%s: CreateRun() error = %v", value.name, err)
+			}
+			value.runID = run.RunID
+		}
+	}
+
+	if _, err := store.writeDB.ExecContext(ctx, `
+DELETE FROM tuttid_schema_migrations
+WHERE id = ?
+`, schemaMigrationWorkspaceTuttiModeLegacyRepairV5); err != nil {
+		t.Fatalf("prepare legacy migration marker error = %v", err)
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate(legacy repair) error = %v", err)
+	}
+	for _, value := range fixtures {
+		aggregate, err := store.GetTuttiModeExecutionByIssue(
+			ctx, value.workspaceID, value.issueID,
+		)
+		if err != nil {
+			t.Fatalf("%s: GetTuttiModeExecutionByIssue() error = %v", value.name, err)
+		}
+		executionID, _ := executionbiz.ExecutionID(value.issueID)
+		checkpointID, _ := executionbiz.MigrationCheckpointID(executionID)
+		if aggregate.Execution.ID != executionID ||
+			len(aggregate.Checkpoints) != 1 ||
+			aggregate.Checkpoints[0].ID != checkpointID ||
+			aggregate.Checkpoints[0].Kind != executionbiz.CheckpointKindMigration {
+			t.Fatalf("%s: repaired aggregate = %#v", value.name, aggregate)
+		}
+		task, err := store.GetTask(ctx, value.workspaceID, value.issueID, "task-1")
+		if err != nil {
+			t.Fatalf("%s: GetTask() error = %v", value.name, err)
+		}
+		if value.running && !task.AutoAccept {
+			t.Fatalf("%s: historical autoAccept was not preserved: %#v", value.name, task)
+		}
+		var sourceRows, wakeRows int
+		if err := store.writeDB.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM workspace_agent_sessions
+WHERE workspace_id = ? AND agent_session_id = ?
+`, value.workspaceID, value.sourceID).Scan(&sourceRows); err != nil {
+			t.Fatalf("%s: count source rows error = %v", value.name, err)
+		}
+		if err := store.writeDB.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM workspace_tutti_execution_wakes
+WHERE workspace_id = ? AND execution_id = ?
+`, value.workspaceID, executionID).Scan(&wakeRows); err != nil {
+			t.Fatalf("%s: count wakes error = %v", value.name, err)
+		}
+		switch {
+		case value.sourceState == "active" && value.running:
+			if aggregate.Execution.Status != executionbiz.StatusRunning ||
+				aggregate.Checkpoints[0].Status != executionbiz.CheckpointStatusActive ||
+				sourceRows != 1 || wakeRows != 1 {
+				t.Fatalf("%s: active repair aggregate=%#v source/wakes=%d/%d", value.name, aggregate, sourceRows, wakeRows)
+			}
+			run, err := store.GetRun(
+				ctx, value.workspaceID, value.issueID, "task-1", value.runID,
+			)
+			if err != nil || run.Status != workspaceissues.StatusRunning {
+				t.Fatalf("%s: running Run=%#v error=%v", value.name, run, err)
+			}
+			var runCount, launchIntentCount int
+			if err := store.writeDB.QueryRowContext(ctx, `
+SELECT
+  (SELECT COUNT(*) FROM workspace_issue_runs
+   WHERE workspace_id = ? AND issue_id = ?),
+  (SELECT COUNT(*) FROM workspace_issue_run_launch_intents
+   WHERE workspace_id = ? AND issue_id = ?)
+`, value.workspaceID, value.issueID,
+				value.workspaceID, value.issueID,
+			).Scan(&runCount, &launchIntentCount); err != nil {
+				t.Fatalf("%s: inspect preserved Run error = %v", value.name, err)
+			}
+			if runCount != 1 || launchIntentCount != 0 {
+				t.Fatalf(
+					"%s: migration dispatched successor: runs/intents=%d/%d",
+					value.name, runCount, launchIntentCount,
+				)
+			}
+		case value.sourceState == "active":
+			if aggregate.Execution.Status != executionbiz.StatusAwaitingMain ||
+				aggregate.Checkpoints[0].Status != executionbiz.CheckpointStatusActive ||
+				sourceRows != 1 || wakeRows != 1 {
+				t.Fatalf(
+					"%s: idle repair aggregate=%#v source/wakes=%d/%d",
+					value.name, aggregate, sourceRows, wakeRows,
+				)
+			}
+		case value.sourceState == "missing":
+			if aggregate.Execution.Status != executionbiz.StatusOrphanedSource ||
+				aggregate.Checkpoints[0].Status != executionbiz.CheckpointStatusCanceled ||
+				!aggregate.Execution.WatchdogDueAt.IsZero() ||
+				sourceRows != 0 || wakeRows != 0 {
+				t.Fatalf("%s: missing repair aggregate=%#v source/wakes=%d/%d", value.name, aggregate, sourceRows, wakeRows)
+			}
+		case value.sourceState == "tombstoned":
+			if aggregate.Execution.Status != executionbiz.StatusOrphanedSource ||
+				aggregate.Checkpoints[0].Status != executionbiz.CheckpointStatusCanceled ||
+				!aggregate.Execution.WatchdogDueAt.IsZero() ||
+				sourceRows != 1 || wakeRows != 0 {
+				t.Fatalf("%s: tombstoned repair aggregate=%#v source/wakes=%d/%d", value.name, aggregate, sourceRows, wakeRows)
+			}
+		}
+	}
+
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate(legacy repair replay) error = %v", err)
+	}
+	var executionCount, checkpointCount, wakeCount, migrationCount int
+	for _, tableCount := range []struct {
+		query string
+		dest  *int
+	}{
+		{
+			query: "SELECT COUNT(*) FROM workspace_tutti_executions",
+			dest:  &executionCount,
+		},
+		{
+			query: "SELECT COUNT(*) FROM workspace_tutti_execution_checkpoints",
+			dest:  &checkpointCount,
+		},
+		{
+			query: "SELECT COUNT(*) FROM workspace_tutti_execution_wakes",
+			dest:  &wakeCount,
+		},
+		{
+			query: "SELECT COUNT(*) FROM tuttid_schema_migrations WHERE id = '" +
+				schemaMigrationWorkspaceTuttiModeLegacyRepairV5 + "'",
+			dest: &migrationCount,
+		},
+	} {
+		if err := store.writeDB.QueryRowContext(ctx, tableCount.query).Scan(tableCount.dest); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if executionCount != 4 || checkpointCount != 4 || wakeCount != 2 ||
+		migrationCount != 1 {
+		t.Fatalf(
+			"replayed legacy counts executions/checkpoints/wakes/migration=%d/%d/%d/%d",
+			executionCount, checkpointCount, wakeCount, migrationCount,
+		)
 	}
 }
 
