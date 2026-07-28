@@ -185,6 +185,10 @@ child 继承 prepare 时冻结的：
 
 历史 Session 先经过一次 `RuntimePreparation`，同一份 prepared runtime identity 同时用于
 driver attestation、provider dispatch 和 canonical child 的 cwd/settings/runtime context。
+runtime context 中引用 provider Session identity 的恢复游标不能越过 Fork 边界直接复用。
+Claude adapter 只接受 `resumeCursor.resume == canonical providerSessionId` 的游标；child
+继承到 source 游标时丢弃该游标，并以 `forkSession` 返回的 child identity 恢复，防止首次
+续聊重新进入 source namespace。
 env 与 provider target reference 只用于本次 provider dispatch，不作为凭据或临时运行事实写入
 canonical snapshot；后续恢复 child 时仍通过正常 `RuntimePreparation` 从 agent target 和已冻结的
 canonical settings/context 重新解析。由于进程重启会把未 dispatch 的 `prepared` operation 标记为
@@ -368,7 +372,9 @@ Claude SDK Driver 使用固定版本的官方公开 API：
 6. 只有完整验证后才按已证明的逐消息双射生成 source→child provider Turn UUID mapping，
    返回 `provider_owned` receipt；消息内容只在 sidecar 内比较，不返回或记录；
 7. Store 在 `provider_accepted` checkpoint 原子保存 mapping/receipt，并在 canonical clone
-   时重写每个 child Turn 的 `RootProviderTurnID`，使 fork child 可以继续 Fork。
+   时重写每个 child Turn 的 `RootProviderTurnID`，使 fork child 可以继续 Fork；
+8. child 恢复时拒绝 source 的 stale `resumeCursor`，只从 canonical child
+   `providerSessionId` 启动；该约束覆盖进程重启后的首次续聊。
 
 `forkSession` 调用前失败是 `not_started`；一旦调用开始，transport、SDK 或 post-verify
 失败都是 `unknown`。这样不会因响应丢失或复验失败而创建第二个 provider child。

@@ -130,6 +130,75 @@ test("Claude fork supports an untitled canonical session", async () => {
   ]);
 });
 
+test("Claude fork can branch again from a provider-owned child", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const grandchild = [
+    message(
+      "user",
+      "grandchild-prompt-1",
+      { role: "user", content: "one" },
+      "grandchild"
+    ),
+    message(
+      "assistant",
+      "grandchild-answer-1",
+      { role: "assistant", content: "first" },
+      "grandchild"
+    )
+  ];
+  const sdk = {
+    getSessionMessages: async (sessionId: string) => {
+      if (sessionId === "child") {
+        return child;
+      }
+      if (sessionId === "grandchild") {
+        return grandchild;
+      }
+      return source;
+    },
+    getSessionInfo: async (sessionId: string) => ({
+      sessionId,
+      summary: "grandchild",
+      lastModified: 1
+    }),
+    forkSession: async (
+      sessionId: string,
+      options?: {
+        dir?: string;
+        upToMessageId?: string;
+        title?: string;
+      }
+    ) => {
+      calls.push({ sessionId, options });
+      return { sessionId: "grandchild" };
+    }
+  };
+
+  const result = await forkClaudeSession(
+    {
+      sessionId: "child",
+      providerTurnId: "child-prompt-1",
+      providerTurnIds: ["child-prompt-1"],
+      cwd: "/workspace",
+      title: "Grandchild"
+    },
+    sdk
+  );
+
+  assert.equal(result.providerSessionId, "grandchild");
+  assert.deepEqual(result.targetProviderTurnIds, ["grandchild-prompt-1"]);
+  assert.deepEqual(calls, [
+    {
+      sessionId: "child",
+      options: {
+        dir: "/workspace",
+        upToMessageId: "child-answer-1",
+        title: "Grandchild"
+      }
+    }
+  ]);
+});
+
 function fakeSDK(calls: Array<Record<string, unknown>> = []) {
   return {
     getSessionMessages: async (sessionId: string) =>

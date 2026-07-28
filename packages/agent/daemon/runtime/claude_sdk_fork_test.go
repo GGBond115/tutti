@@ -103,6 +103,98 @@ func TestClaudeSDKForkPreservesUnknownDispositionAfterDispatch(t *testing.T) {
 	}
 }
 
+func TestClaudeSDKForkedChildCanResumeAndStartTurn(t *testing.T) {
+	forkConn := &claudeSDKForkTestConnection{
+		responseType: "ok",
+		responsePayload: map[string]any{
+			"providerSessionId":     "claude-child",
+			"targetProviderTurnIds": []string{"child-prompt-1"},
+			"stateBindingMode":      "provider_owned",
+			"stateBindingReceipt":   "claude-sdk-fork-v1:receipt",
+			"deliveryDisposition":   "accepted",
+		},
+	}
+	childConn := &scriptedClaudeSDKConnection{
+		frames: []ProcessFrame{
+			{
+				Stdout: []byte(
+					`{"type":"session_started","payload":{"providerSessionId":"claude-child"}}` + "\n",
+				),
+			},
+			{
+				Stdout: []byte(
+					`{"type":"turn_completed","payload":{"turnId":"canonical-child-turn","stopReason":"end_turn"}}` + "\n",
+				),
+			},
+		},
+	}
+	transport := &claudeSDKForkSequenceTransport{
+		connections: []ProcessConnection{forkConn, childConn},
+	}
+	adapter := NewClaudeCodeSDKAdapter(transport)
+	source := standardTestSession(ProviderClaudeCode)
+	source.ProviderSessionID = "claude-source"
+
+	result, err := adapter.Fork(t.Context(), SessionForkInput{
+		Source: source, ProviderTurnID: "prompt-1",
+		ProviderTurnIDs: []string{"prompt-1"}, TargetTitle: "Child",
+	})
+	if err != nil {
+		t.Fatalf("Fork: %v", err)
+	}
+	target := source
+	target.AgentSessionID = "agent-session-child"
+	target.ProviderSessionID = result.ProviderSessionID
+	target.RuntimeContext = map[string]any{
+		"resumeCursor": map[string]any{
+			"kind":            "claude-agent-sdk",
+			"version":         int64(1),
+			"resume":          "claude-source",
+			"resumeSessionAt": "source-answer-1",
+			"turnCount":       int64(1),
+		},
+	}
+	if err := adapter.Resume(t.Context(), target); err != nil {
+		t.Fatalf("Resume forked child: %v", err)
+	}
+	if !adapter.HasLiveSession(target) {
+		t.Fatal("forked child did not retain a live resumed session")
+	}
+
+	if _, err := adapter.Exec(
+		t.Context(),
+		target,
+		[]PromptContentBlock{{Type: "text", Text: "continue from fork"}},
+		"",
+		"canonical-child-turn",
+		nil,
+		nil,
+	); err != nil {
+		t.Fatalf("Exec forked child: %v", err)
+	}
+	requests := childConn.sentRequests()
+	if len(requests) != 2 ||
+		requests[0].Type != "start" ||
+		requests[1].Type != "exec" {
+		t.Fatalf("child requests=%#v, want start then exec", requests)
+	}
+	if requests[0].Payload["providerSessionId"] != "claude-child" {
+		t.Fatalf(
+			"child start providerSessionId=%#v",
+			requests[0].Payload["providerSessionId"],
+		)
+	}
+	if cursor := payloadMap(requests[0].Payload, "resumeCursor"); len(cursor) != 0 {
+		t.Fatalf("child start reused source resume cursor: %#v", cursor)
+	}
+	if requests[1].Payload["agentSessionId"] != "agent-session-child" {
+		t.Fatalf("child exec payload=%#v", requests[1].Payload)
+	}
+	if transport.starts() != 2 {
+		t.Fatalf("process starts=%d, want fork sidecar and child runtime", transport.starts())
+	}
+}
+
 type claudeSDKForkTestTransport struct {
 	conn ProcessConnection
 }
@@ -163,4 +255,31 @@ func (c *claudeSDKForkTestConnection) requests() []claudeSDKSidecarRequest {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]claudeSDKSidecarRequest(nil), c.sent...)
+}
+
+type claudeSDKForkSequenceTransport struct {
+	mu          sync.Mutex
+	connections []ProcessConnection
+	startCount  int
+}
+
+func (t *claudeSDKForkSequenceTransport) Start(
+	_ context.Context,
+	_ ProcessSpec,
+) (ProcessConnection, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.startCount++
+	if len(t.connections) == 0 {
+		return nil, errors.New("test connection sequence is exhausted")
+	}
+	conn := t.connections[0]
+	t.connections = t.connections[1:]
+	return conn, nil
+}
+
+func (t *claudeSDKForkSequenceTransport) starts() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.startCount
 }
