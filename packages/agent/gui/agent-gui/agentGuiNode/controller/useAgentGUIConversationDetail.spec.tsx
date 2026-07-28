@@ -1,6 +1,9 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { createEmptyAgentActivitySnapshot } from "@tutti-os/agent-activity-core";
+import {
+  createEmptyAgentActivitySnapshot,
+  normalizeAgentActivitySession
+} from "@tutti-os/agent-activity-core";
 import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
 import { createTestAgentSessionEngine } from "../../../shared/testing/createTestAgentSessionEngine";
 import type { AgentGUIConversationSummary } from "../model/agentGuiConversationModel";
@@ -123,6 +126,100 @@ describe("useAgentGUIConversationDetail", () => {
     });
 
     expect(rendered.result.current.conversation).toBe(previousConversation);
+  });
+
+  it("preserves canonical Session lifecycle capabilities in the timeline projection", () => {
+    const session = normalizeAgentActivitySession({
+      activeTurnId: null,
+      agentSessionId: "session-1",
+      agentTargetId: "local:codex",
+      cwd: "/workspace",
+      latestTurnInteractions: [],
+      lifecycleCapabilities: {
+        fork: false,
+        forkThroughTurn: true
+      },
+      pendingInteractions: [],
+      provider: "codex",
+      providerSessionId: "thread-1",
+      title: "Conversation",
+      workspaceId: "workspace-1"
+    });
+
+    const { result } = renderHook(() =>
+      useAgentGUIConversationDetail(
+        conversationDetailInput({
+          activeConversation: conversationSummary(),
+          agentActivitySnapshot: {
+            ...createEmptyAgentActivitySnapshot("workspace-1"),
+            sessions: [session]
+          }
+        })
+      )
+    );
+
+    expect(
+      result.current.conversation?.sourceDetail.session.lifecycleCapabilities
+    ).toEqual({
+      fork: false,
+      forkThroughTurn: true,
+      forkThroughTurnIds: [],
+      forkThroughTurnIdsKnown: false
+    });
+  });
+
+  it("refreshes the timeline when only canonical Fork capability changes", () => {
+    const baseSession = normalizeAgentActivitySession({
+      activeTurnId: null,
+      agentSessionId: "session-1",
+      agentTargetId: "local:codex",
+      cwd: "/workspace",
+      latestTurnInteractions: [],
+      lifecycleCapabilities: {
+        fork: false,
+        forkThroughTurn: false
+      },
+      pendingInteractions: [],
+      provider: "codex",
+      providerSessionId: "thread-1",
+      title: "Conversation",
+      workspaceId: "workspace-1"
+    });
+    const rendered = renderHook(
+      ({ forkThroughTurn }) =>
+        useAgentGUIConversationDetail(
+          conversationDetailInput({
+            activeConversation: conversationSummary(),
+            agentActivitySnapshot: {
+              ...createEmptyAgentActivitySnapshot("workspace-1"),
+              sessions: [
+                normalizeAgentActivitySession({
+                  ...baseSession,
+                  lifecycleCapabilities: {
+                    fork: false,
+                    forkThroughTurn
+                  }
+                })
+              ]
+            }
+          })
+        ),
+      { initialProps: { forkThroughTurn: false } }
+    );
+    const previousConversation = rendered.result.current.conversation;
+
+    rendered.rerender({ forkThroughTurn: true });
+
+    expect(rendered.result.current.conversation).not.toBe(previousConversation);
+    expect(
+      rendered.result.current.conversation?.sourceDetail.session
+        .lifecycleCapabilities
+    ).toEqual({
+      fork: false,
+      forkThroughTurn: true,
+      forkThroughTurnIds: [],
+      forkThroughTurnIdsKnown: false
+    });
   });
 });
 

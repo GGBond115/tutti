@@ -246,6 +246,34 @@
   [tuttiAssetProtocol.ts](../../../apps/desktop/src/main/host/tuttiAssetProtocol.ts)
   [workspaceFileIconProtocol.ts](../../../apps/desktop/src/main/host/workspaceFileIconProtocol.ts)
 
+### AgentGUI Mermaid flowcharts render shapes without labels
+
+- Symptom:
+  Mermaid flowcharts in AgentGUI show node borders and edges, but node and edge
+  labels are blank.
+- Quick checks:
+  Inspect Mermaid's raw SVG before the transcript sanitizer. If labels are
+  children of `<foreignObject>` while the sanitized SVG keeps shapes but has no
+  `<foreignObject>` or equivalent `<text>`, the missing content is an SVG/HTML
+  label-mode mismatch rather than a color or layout problem.
+- Root cause:
+  Mermaid enables HTML labels by default and renders them inside SVG
+  `<foreignObject>` elements. AgentGUI's defense-in-depth SVG sanitizer removes
+  those elements, including their text, while preserving native SVG shapes and
+  paths.
+- Fix:
+  Configure Mermaid to emit native SVG text with `htmlLabels: false`. Add
+  `htmlLabels` to Mermaid's secure configuration keys so diagram-level
+  directives cannot turn HTML labels back on. Keep the post-render SVG
+  sanitizer in place.
+- Validation:
+  Render a real flowchart containing multiline, CJK, decision, and edge labels,
+  including an `init` directive that requests HTML labels. Assert the sanitized
+  result contains every label as native SVG text and no `<foreignObject>`.
+- References:
+  [AgentMessageMermaid.tsx](../../../packages/agent/gui/shared/AgentMessageMermaid.tsx)
+  [AgentMessageMermaid.integration.spec.tsx](../../../packages/agent/gui/shared/AgentMessageMermaid.integration.spec.tsx)
+
 ### AgentGUI carousel owner avatar stays a solid badge
 
 - Symptom:

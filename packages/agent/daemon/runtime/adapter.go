@@ -76,6 +76,13 @@ type Adapter interface {
 	Cancel(context.Context, Session, string) ([]activityshared.Event, error)
 }
 
+// SessionForkAdapter is an optional provider-native capability. Providers that
+// cannot prove an exact fork boundary do not implement it.
+type SessionForkAdapter interface {
+	ForkCapabilities(context.Context, Session) (SessionForkCapabilities, error)
+	Fork(context.Context, SessionForkInput) (SessionForkResult, error)
+}
+
 // TargetedCancelAdapter maps canonical root/child targets onto provider-native
 // handles. The controller supplies the root live session and never asks the
 // adapter to discover the durable child tree itself.

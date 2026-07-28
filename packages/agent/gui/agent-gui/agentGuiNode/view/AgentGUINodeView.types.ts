@@ -217,6 +217,7 @@ export interface AgentGUIViewLabels {
   selectConversation: string;
   loadingConversations: string;
   loadingConversation: string;
+  continuedFromTask: string;
   scrollToBottom: string;
   searchNoConversations: string;
   searchFailed: string;
@@ -649,6 +650,11 @@ export interface AgentGUINodeViewProps {
       agentSessionId: string,
       title: string
     ) => Promise<void>;
+    forkConversationThroughTurn: (
+      agentSessionId: string,
+      turnId: string
+    ) => Promise<void>;
+    openForkSourceConversation: (agentSessionId: string) => Promise<void>;
     removeProject: (path: string) => void;
     moveProject: (
       projectId: string,

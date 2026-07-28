@@ -6,10 +6,11 @@ import {
   type AgentActivitySessionSettings,
   type AgentActivityInteraction,
   type AgentActivitySession,
+  type AgentActivitySessionReconcileExecutor,
   type AgentSessionEngine,
-  type EngineExternalCommand
+  type EngineExternalCommand,
+  type SessionReconcileCommand
 } from "@tutti-os/agent-activity-core";
-import { type AgentActivitySessionDetailSnapshot } from "@tutti-os/agent-activity-tuttid-adapter";
 import type {
   TuttidClient,
   WorkspaceSummary
@@ -17,6 +18,7 @@ import type {
 import type { AgentDirectoryService } from "./agentDirectoryService";
 import type { ComposerDraftService } from "./composerDraftService";
 import { createMobileAgentActivityMapping } from "./mobileAgentActivityMapping";
+import { createMobileAgentActivityReconcileExecutor } from "./mobileAgentActivityReconcileExecutor";
 import { ObservableService } from "./observableService";
 import {
   dismissPendingSubmission,
@@ -53,6 +55,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   private readonly liveLane: WorkspaceAgentLiveLane;
   private readonly messagePages: WorkspaceActivityMessagePageLoader;
   private readonly mapping: ReturnType<typeof createMobileAgentActivityMapping>;
+  private readonly sessionReconcileExecutor: AgentActivitySessionReconcileExecutor;
   private readonly projectActivity: (
     state: ReturnType<AgentSessionEngine["getSnapshot"]>
   ) => WorkspaceActivitySnapshot["activity"];
@@ -123,6 +126,17 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       rail: this.rail,
       readCanonicalActivity: () =>
         this.projectActivity(this.engine.getSnapshot()),
+      workspaceId: this.workspace.id
+    });
+    this.sessionReconcileExecutor = createMobileAgentActivityReconcileExecutor({
+      client: this.client,
+      engine: this.engine,
+      isAvailable: () => !this.disposed && !this.paused,
+      isSessionDeleted: (agentSessionId) =>
+        this.liveLane.isSessionDeleted(agentSessionId),
+      mapping: this.mapping,
+      reconcileOptimisticMessages: (agentSessionId) =>
+        this.liveLane.reconcileMessages(agentSessionId),
       workspaceId: this.workspace.id
     });
     this.messagePages = new WorkspaceActivityMessagePageLoader({
@@ -594,8 +608,11 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
         loadComposerOptions: (options) => this.loadComposerOptions(options),
         mapSession: this.mapping.mapSession,
         mapSessionDetail: this.mapping.mapSessionDetail,
-        reconcileSession: (agentSessionId, scope, live) =>
-          this.reconcileSession(agentSessionId, scope, live),
+        reconcileSession: (reconcileCommand, reconcileSignal) =>
+          this.executeSessionReconcileCommand(
+            reconcileCommand,
+            reconcileSignal
+          ),
         reconcileWorkspace: () => this.reconcileWorkspace()
       },
       command,
@@ -614,29 +631,29 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     };
   }
 
-  private async reconcileSession(
-    agentSessionId: string,
-    scope: "messages" | "state" | "state_and_messages",
-    live: boolean
+  private async executeSessionReconcileCommand(
+    command: SessionReconcileCommand,
+    signal?: AbortSignal
   ): Promise<unknown> {
-    let mapped: AgentActivitySessionDetailSnapshot | null = null;
-    if (scope !== "messages") {
-      const detail = await this.client.getWorkspaceAgentSession(
-        this.workspace.id,
-        agentSessionId
-      );
-      mapped = this.mapping.mapSessionDetail(agentSessionId, detail);
-      this.engine.dispatch({
-        ...mapped,
-        ...(live ? { live: true } : {}),
-        type: "session/detailSnapshotReceived",
-        workspaceId: this.workspace.id
+    const reconcilesMessages = command.scope !== "state";
+    try {
+      const result = await this.sessionReconcileExecutor.execute(command, {
+        signal
       });
+      if (reconcilesMessages) {
+        this.errorCode = null;
+        this.onDependencyChanged();
+        this.scheduleMessagesPoll();
+      }
+      return result;
+    } catch (error: unknown) {
+      if (reconcilesMessages && !this.disposed && !this.paused) {
+        this.errorCode = "request_failed";
+        this.onDependencyChanged();
+        this.scheduleMessagesPoll();
+      }
+      throw error;
     }
-    if (scope !== "state") {
-      await this.loadSessionMessages(agentSessionId, true);
-    }
-    return mapped ? { session: mapped.session } : {};
   }
 
   private loadComposerOptions(options?: { force?: boolean }): void {

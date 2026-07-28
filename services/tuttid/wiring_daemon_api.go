@@ -399,9 +399,14 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 		Observer:             agentActivityProjection,
 		InitializationPolicy: agentActivityProjection,
 	}
-	agentHost := agentservice.NewApplicationHostWithPorts(agentSessionService, canonicalHostStore, &agenthostadapter.RuntimeController{
-		Backend: agentRuntime.Controller(),
-	})
+	agentHost := agentservice.NewApplicationHostWithPorts(
+		agentSessionService,
+		canonicalHostStore,
+		canonicalStoreProvider.AgentCanonicalStore(),
+		&agenthostadapter.RuntimeController{
+			Backend: agentRuntime.Controller(),
+		},
+	)
 	agentSessionService.SetApplicationHost(agentHost)
 	// Host fixes startup order: durable runtime operations first, then goal
 	// operations and reconcile inbox work, and only then stale turns.

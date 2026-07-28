@@ -704,7 +704,7 @@ describe("WorkspaceActivityService", () => {
     expect(queries).toEqual([
       { limit: 100, order: "desc" },
       { beforeVersion: 5, limit: 100, order: "desc" },
-      { limit: 100, order: "desc" }
+      { afterVersion: 0, order: "asc" }
     ]);
     expect(
       service
@@ -734,7 +734,7 @@ describe("WorkspaceActivityService", () => {
       }),
       listMessages: async (_workspaceId, agentSessionId, query) => {
         queries.push(query);
-        if ("afterVersion" in query) {
+        if (query.afterVersion === 5) {
           return new Promise((resolve) => {
             resolveIncremental = resolve;
           });
@@ -760,7 +760,7 @@ describe("WorkspaceActivityService", () => {
     expect(queries).toEqual([
       { limit: 100, order: "desc" },
       { afterVersion: 5, order: "asc" },
-      { limit: 100, order: "desc" }
+      { afterVersion: 0, order: "asc" }
     ]);
     expect(
       service
@@ -772,6 +772,49 @@ describe("WorkspaceActivityService", () => {
 
     resolveIncremental!(messagePage("session-1", "message-6", 6));
     await flushAsyncWork();
+    service.dispose();
+  });
+
+  test("surfaces and clears authoritative message reconcile failures", async () => {
+    let liveListener: ((delivery: AgentLiveDelivery) => void) | null = null;
+    let failReconcile = true;
+    let messageVersion = 1;
+    const client = createClient({
+      detail: async () => ({
+        childSessions: [],
+        session: createSession(),
+        turns: []
+      }),
+      listMessages: async (_workspaceId, agentSessionId, query) => {
+        if ("afterVersion" in query && failReconcile) {
+          throw new Error("message reconcile failed");
+        }
+        messageVersion += 1;
+        return messagePage(
+          agentSessionId,
+          `message-${messageVersion}`,
+          messageVersion
+        );
+      }
+    });
+    const service = createService(client, {
+      deviceLink: createLiveDeviceLink((listener) => {
+        liveListener = listener;
+      })
+    });
+
+    await service.start();
+    await flushAsyncWork();
+    liveListener!(sessionDiscontinuity());
+    await flushAsyncWork();
+    expect(service.getSnapshot().errorCode).toBe("request_failed");
+
+    failReconcile = false;
+    service.pause();
+    service.resume();
+    await flushAsyncWork();
+    expect(service.getSnapshot().errorCode).toBeNull();
+
     service.dispose();
   });
 
@@ -872,6 +915,7 @@ describe("WorkspaceActivityService", () => {
         }
       ]
     });
+    await flushAsyncWork();
     await flushAsyncWork();
 
     expect(
@@ -1175,12 +1219,14 @@ function createSession(): WorkspaceAgentSession {
     createdAtUnixMs: 1,
     cwd: "/",
     endedAtUnixMs: null,
+    forkedFrom: null,
     goal: null,
     id: "session-1",
     imported: false,
     kind: "root",
     latestTurn: null,
     latestTurnInteractions: [],
+    lifecycleCapabilities: { fork: false, forkThroughTurn: false },
     messageVersion: 0,
     parentAgentSessionId: null,
     parentToolCallId: null,
@@ -1290,9 +1336,9 @@ function messagePage(
 }
 
 async function flushAsyncWork(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let turn = 0; turn < 12; turn += 1) {
+    await Promise.resolve();
+  }
 }
 
 class ManualClock implements ClockPort {

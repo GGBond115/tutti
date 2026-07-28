@@ -11,6 +11,11 @@ type Config struct {
 	SessionManagement      SessionManagementStore
 	SessionBatchManagement SessionBatchManagementStore
 	SessionPurge           SessionPurgeStore
+	SessionForks           SessionForkStore
+	SessionForkRecovery    SessionForkRecoveryStore
+	SessionForkRuntime     SessionForkRuntime
+	SessionForkContext     SessionForkContextPolicy
+	SessionForkState       SessionForkProviderStateBinder
 	Runtime                RuntimeController
 	RuntimePreparation     RuntimePreparationPort
 	SettingsPolicy         SettingsPolicy
@@ -45,6 +50,11 @@ type Host struct {
 	sessionManagement      SessionManagementStore
 	sessionBatchManagement SessionBatchManagementStore
 	sessionPurge           SessionPurgeStore
+	sessionForks           SessionForkStore
+	sessionForkRecovery    SessionForkRecoveryStore
+	sessionForkRuntime     SessionForkRuntime
+	sessionForkContext     SessionForkContextPolicy
+	sessionForkState       SessionForkProviderStateBinder
 	runtime                RuntimeController
 	preparation            RuntimePreparationPort
 	settingsPolicy         SettingsPolicy
@@ -85,8 +95,12 @@ func New(config Config) *Host {
 		sessionMutationActor = NewSessionActor()
 	}
 	host := &Host{
-		store: config.CanonicalStore, sessionManagement: config.SessionManagement, sessionBatchManagement: config.SessionBatchManagement, sessionPurge: config.SessionPurge, runtime: config.Runtime,
-		preparation: config.RuntimePreparation, settingsPolicy: config.SettingsPolicy, attachments: config.Attachments,
+		store: config.CanonicalStore, sessionManagement: config.SessionManagement, sessionBatchManagement: config.SessionBatchManagement, sessionPurge: config.SessionPurge,
+		sessionForks: config.SessionForks, sessionForkRuntime: config.SessionForkRuntime,
+		sessionForkContext: config.SessionForkContext, sessionForkState: config.SessionForkState,
+		runtime:             config.Runtime,
+		sessionForkRecovery: config.SessionForkRecovery,
+		preparation:         config.RuntimePreparation, settingsPolicy: config.SettingsPolicy, attachments: config.Attachments,
 		clock: config.Clock, locker: config.SessionLocker, startupGate: config.RuntimeStartGate,
 		observer: config.LifecycleObserver, commitObserver: config.CommitObserver,
 		operations: config.RuntimeOperations, events: config.OperationEvents,
@@ -97,6 +111,9 @@ func New(config Config) *Host {
 		goalAttemptTimeout: config.GoalAttemptTimeout, goalRecoveryBudget: config.GoalRecoveryBudget,
 		goalMaxAttempts: config.GoalMaxAttempts, goalDispatchDeadline: config.GoalDispatchDeadline,
 		goalActor: goalActor, sessionMutationActor: sessionMutationActor,
+	}
+	if host.sessionForkRecovery == nil {
+		host.sessionForkRecovery, _ = host.sessionForks.(SessionForkRecoveryStore)
 	}
 	if host.operations != nil && host.commitObserver != nil {
 		host.operations = &observedRuntimeOperationStore{RuntimeOperationStore: host.operations, host: host}

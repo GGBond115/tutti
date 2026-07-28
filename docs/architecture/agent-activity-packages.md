@@ -172,6 +172,9 @@ It owns:
   contract
 - message merge, immutable presentation-sequence ordering, mutable version
   cursor handling, and duplicate handling
+- authoritative Session reconcile execution: scope selection, mapped detail
+  aggregation, message cursor/window policy, bounded page draining, the
+  discovery/detail race fence, and atomic Engine application
 - selectors for reusable derived state
 - `selectNeedsAttentionCount`
 - `selectNeedsAttentionItems`
@@ -956,6 +959,18 @@ hosts to assemble independently. Mobile does not widen its four-variant framed
 live protocol to mirror Desktop: canonical `message_update` and
 `session_reconcile_required` events converge through scoped discontinuities,
 while `session_deleted` retains typed deletion semantics across the adapter.
+
+Desktop and Mobile also call the same
+`AgentActivitySessionReconcileExecutor` for authoritative Session reads. The
+executor accepts only mapped activity-core detail aggregates and message pages;
+it owns the three reconcile scopes, cancellation and deletion fences,
+conversation-versus-durable cursors, pagination, the two-detail race closure,
+and atomic Engine dispatch. A host selects either requested-Session or
+Session-hierarchy message hydration according to the transcript surface it
+renders. HTTP execution, generated DTO mapping, absent/error interpretation,
+logging, polling, and legacy event fanout stay in the host. The canonical
+detail aggregate type belongs to activity-core; the tuttid adapter only maps
+the generated response into it.
 
 Event-stream continuity and command reachability are separate host facts.
 `eventStreamConnectionChanged` belongs to the coordinator and triggers

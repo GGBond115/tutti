@@ -501,6 +501,7 @@ export interface AgentGUIReadinessViewModel {
 }
 
 export interface AgentGUIOperationsViewModel {
+  forkThroughTurnPendingTurnIds: readonly string[];
   goalClearNoticeSequence: number;
   isDeletingConversation: boolean;
   isDeletingProjectConversations: boolean;

@@ -3,7 +3,7 @@
 `packages/agent/host` is the provider-neutral application boundary for
 canonical agent session and turn lifecycle orchestration. The package now owns
 the create, resume, send, durable submit-claim, canonical title, session read,
-settings, pin, delete, cancel,
+settings, pin, delete, cancel, session fork,
 interactive response, plan decision, durable runtime-operation, and complete
 goal-control/reconcile application core. `tuttid` routes those commands through
 `Host`; transport and HTTP shapes remain unchanged.
@@ -18,6 +18,8 @@ The module owns:
 - the direct and typed goal-control saga, revision actor, durable operation and
   reconcile-inbox workers, exact Goal-generation fences, provider evidence
   repair, and goal recovery policy;
+- the provider-neutral Session Fork saga, source mutation fence, exact
+  capability resolution, durable lineage, and startup recovery policy;
 - typed conformance scenarios under `conformance`.
 
 `CreateSession` has two explicit modes: an empty session, or one command with
@@ -139,6 +141,66 @@ orphaned by maintenance. Purge results expose only content-free session
 descriptors and aggregate message/payload counts. The shared conformance
 scenario verifies live and too-new preservation, exact-cutoff removal, and
 idempotent replay through Host.
+
+`ForkSession` creates a new root Session from an inclusive canonical
+`ThroughTurnID`. Host resolves that Turn to its durable provider root Turn id,
+pins the exact provider Session and runtime driver descriptor, and reserves the
+caller-supplied target Session id before invoking provider code. Provider
+support is advertised at Session scope only when the exact adapter/version
+attests native `throughTurn` support and the product context policy can safely
+transfer Host-owned runtime facts. A live adapter supplies its initialized
+version directly; a historical Codex Session uses one cached, short-lived
+initialize probe and does not create a canonical Turn or register a live
+Session. Historical capability and dispatch probes pass through the same
+`RuntimePreparation` contract as resume so cwd, env, provider target, settings,
+and runtime context match the runtime that would be resumed. One Fork attempt
+freezes that prepared observation across driver attestation and provider
+dispatch; an existing live observation bypasses preparation. Consumers hide
+settled Turn actions when that capability is absent.
+Boundary validity remains a separate transactional proof, so an unavailable
+latest Turn does not suppress an earlier valid boundary.
+
+Fork uses a durable `prepared -> dispatching -> provider_accepted -> committed`
+saga. `RequestID` is the replay key. A source fence serializes the snapshot
+with report, Goal/runtime mutation, deletion, and competing Fork writes.
+An accepted provider child is not checkpointed as `provider_accepted` until a
+provider-state binder has made the exact child state independently discoverable
+from the target Session runtime namespace. Binding failure is delivery-unknown,
+because the provider mutation may already exist and must not be dispatched
+again.
+Provider dispatch starts only after its marker commits. Provider acceptance is
+checkpointed with a detached bounded context and recovery retries only the
+atomic canonical prefix clone; a crash with an indeterminate provider result
+becomes `unknown` and is never automatically redispatched. A later request for
+the same source boundary recovers that durable unknown operation. A committed
+operation also retains the boundary barrier until the Engine explicitly
+acknowledges that its authoritative child Session has entered canonical UI
+state. Thus, losing a committed HTTP response and restarting with fresh
+request/target ids returns the original operation and child instead of invoking
+the provider again. The ACK is committed-only and idempotent; it releases the
+barrier so a later explicit action may create another branch from the same
+Turn. `unknown` cannot be acknowledged and remains fail-closed. Startup marks
+abandoned `prepared` work failed—its marker proves provider dispatch never
+began—and releases its source fence and target reservation without requiring a
+live runtime.
+Public adapters keep the operation as the response once its durable row
+exists: internal `prepared`, `dispatching`, and `provider_accepted` phases
+collapse to `accepted`, while `committed`, `failed`, and `unknown` remain
+terminal results. Operation lookup by id returns the same snapshot; committed
+results reconstruct the fully projected target Session and durable lineage
+from the immutable operation snapshot even after the canonical child is
+deleted.
+The commit re-proves the frozen prefix and provider identity, remaps
+session-scoped canonical ids, persists lineage, and emits the complete
+transaction delta.
+The target cwd and runtime context are produced from the same prepared runtime
+identity used for provider attestation and dispatch, validated by
+`SessionForkContextPolicy`, and frozen at prepare together with settings. Tutti
+currently rejects worktree-isolated sources
+instead of copying their ownership. Prefixes with session-scoped attachment
+references fail closed until an immutable resource-manifest binding exists;
+copying an entire Session attachment namespace is forbidden because it can
+cross the selected Turn boundary.
 
 Interactive responses establish their winner at the canonical interaction
 transition, not in a GUI or CLI adapter. Preparing an interactive runtime

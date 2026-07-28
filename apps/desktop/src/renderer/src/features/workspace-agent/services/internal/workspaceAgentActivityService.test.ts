@@ -2374,12 +2374,23 @@ test("WorkspaceAgentActivityService drains child incremental pages from its dura
   requests.length = 0;
   await (
     service as unknown as {
-      reconcileAgentSessionMessages(
-        workspaceId: string,
-        agentSessionId: string
-      ): Promise<unknown>;
+      executeSessionReconcileCommand(command: {
+        agentSessionId: string;
+        commandId: string;
+        live: boolean;
+        scope: "messages";
+        type: "session/reconcile";
+        workspaceId: string;
+      }): Promise<unknown>;
     }
-  ).reconcileAgentSessionMessages("ws-1", "session-1");
+  ).executeSessionReconcileCommand({
+    agentSessionId: "session-1",
+    commandId: "test-child-incremental",
+    live: false,
+    scope: "messages",
+    type: "session/reconcile",
+    workspaceId: "ws-1"
+  });
 
   assert.deepEqual(
     requests.map((request) => request.afterVersion),
@@ -3222,6 +3233,7 @@ function workspaceAgentSession(overrides: {
     capabilities: null,
     createdAtUnixMs: Date.parse("2026-06-16T00:00:00.000Z"),
     endedAtUnixMs: null,
+    forkedFrom: null,
     goal: null,
     id: "session-1",
     imported: false,
@@ -3237,6 +3249,7 @@ function workspaceAgentSession(overrides: {
     latestTurn,
     latestTurnInteractions: [],
     messageVersion: overrides.messageVersion ?? 0,
+    lifecycleCapabilities: { fork: false, forkThroughTurn: false },
     pendingInteractions: [],
     permissionConfig: { configurable: false, modes: [] },
     pinnedAtUnixMs: null,

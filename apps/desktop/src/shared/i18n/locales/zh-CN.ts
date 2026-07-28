@@ -1269,9 +1269,6 @@ export const zhCN = {
         unavailableItem: "{{title}}，{{reason}}"
       },
       missionControl: {
-        activateShortcutDefault: "Ctrl + 1",
-        activateShortcutMac: "Cmd + 1",
-        activateTrigger: "快速激活节点",
         layoutShortcutDefault: "Ctrl + 2",
         layoutShortcutMac: "Cmd + 2",
         layoutTrigger: "快速布局",
