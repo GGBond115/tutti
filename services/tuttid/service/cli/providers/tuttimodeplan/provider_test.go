@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -72,6 +73,7 @@ func TestProviderExposesAgentPlanAndExecutionCommands(t *testing.T) {
 		"tutti-mode-plan.plan.get",
 		"tutti-mode-plan.plan.issue.schedule",
 		"tutti-mode-plan.plan.issue.acknowledge",
+		"tutti-mode-plan.plan.issue.complete",
 	}
 	if len(commands) != len(wantIDs) {
 		t.Fatalf("commands = %#v", commands)
@@ -145,7 +147,7 @@ func (scheduler *recordingIssueScheduler) ScheduleTuttiModeIssue(
 
 func TestProviderExposesSourceScopedIssueScheduleCommand(t *testing.T) {
 	commands := NewProvider(nil, &recordingPlans{}, nil, &recordingIssueScheduler{}).Commands()
-	if len(commands) != 5 {
+	if len(commands) != 6 {
 		t.Fatalf("commands = %#v, want schedule and acknowledge commands", commands)
 	}
 	command := commands[3]
@@ -176,7 +178,7 @@ func TestProviderExposesSourceScopedIssueAcknowledgeCommand(t *testing.T) {
 		acknowledger,
 	)
 	commands := provider.Commands()
-	if len(commands) != 5 {
+	if len(commands) != 6 {
 		t.Fatalf("commands = %#v, want acknowledge command", commands)
 	}
 	command := commands[4]
@@ -196,6 +198,168 @@ func TestProviderExposesSourceScopedIssueAcknowledgeCommand(t *testing.T) {
 	}
 	if provider.acknowledgements != acknowledger {
 		t.Fatal("acknowledge service was not injected")
+	}
+}
+
+func TestProviderExposesSourceScopedGoalReviewCompleteCommand(t *testing.T) {
+	commands := NewProvider(nil, &recordingPlans{}, nil).Commands()
+	if len(commands) != 6 {
+		t.Fatalf("commands = %#v, want source-main complete command", commands)
+	}
+	command := commands[5]
+	if command.Capability.ID != "tutti-mode-plan.plan.issue.complete" {
+		t.Fatalf("complete command id = %q", command.Capability.ID)
+	}
+	properties := command.Capability.InputSchema["properties"].(map[string]any)
+	for _, name := range []string{
+		"issue-id", "checkpoint-id", "expected-graph-revision",
+		"request-id", "decision", "disagreement-reason",
+	} {
+		if _, ok := properties[name]; !ok {
+			t.Fatalf("complete properties = %#v, missing %q", properties, name)
+		}
+	}
+	if _, exists := properties["source-session-id"]; exists {
+		t.Fatalf("complete exposes untrusted source-session-id: %#v", properties)
+	}
+	decision := properties["decision"].(map[string]any)
+	if !reflect.DeepEqual(decision["enum"], []string{"goal_satisfied"}) {
+		t.Fatalf("complete decision schema = %#v", decision)
+	}
+}
+
+type recordingIssueCompleter struct {
+	input tuttimodeexecutionservice.CompleteInput
+	err   error
+}
+
+func (completer *recordingIssueCompleter) Complete(
+	_ context.Context,
+	input tuttimodeexecutionservice.CompleteInput,
+) (tuttimodeexecutionservice.CompleteResult, error) {
+	completer.input = input
+	if completer.err != nil {
+		return tuttimodeexecutionservice.CompleteResult{}, completer.err
+	}
+	return tuttimodeexecutionservice.CompleteResult{
+		ExecutionID: "execution-1", CheckpointID: input.CheckpointID,
+		GraphRevision: input.ExpectedGraphRevision, Decision: input.Decision,
+		Replayed: true,
+	}, nil
+}
+
+func TestRunIssueCompleteDerivesTrustedCallerAndReturnsStructuredResult(t *testing.T) {
+	completer := &recordingIssueCompleter{}
+	provider := NewProviderWithExecution(
+		nil, &recordingPlans{}, nil, &recordingIssueScheduler{},
+		&recordingIssueAcknowledger{}, completer,
+	)
+	result, err := provider.runIssueComplete(
+		context.Background(),
+		framework.InvokeContext{
+			WorkspaceID: "workspace-1",
+			Request: cliservice.InvokeRequest{Context: cliservice.InvokeContext{
+				AgentSessionID: " source-session ",
+			}},
+		},
+		issueCompleteInput{
+			IssueID: "issue-1", CheckpointID: "checkpoint-goal",
+			ExpectedGraphRevision: 7, RequestID: "complete-1",
+			Decision: "goal_satisfied", DisagreementReason: " evidence differs ",
+		},
+	)
+	if err != nil {
+		t.Fatalf("runIssueComplete() error = %v", err)
+	}
+	if completer.input.WorkspaceID != "workspace-1" ||
+		completer.input.SourceSessionID != "source-session" ||
+		completer.input.IssueID != "issue-1" ||
+		completer.input.CheckpointID != "checkpoint-goal" ||
+		completer.input.ExpectedGraphRevision != 7 ||
+		completer.input.RequestID != "complete-1" ||
+		completer.input.Decision != "goal_satisfied" ||
+		completer.input.DisagreementReason != " evidence differs " {
+		t.Fatalf("Complete input = %#v", completer.input)
+	}
+	value := result.(map[string]any)
+	if value["executionId"] != "execution-1" ||
+		value["checkpointId"] != "checkpoint-goal" ||
+		value["graphRevision"] != int64(7) ||
+		value["decision"] != "goal_satisfied" ||
+		value["replayed"] != true {
+		t.Fatalf("Complete result = %#v", value)
+	}
+}
+
+func TestRunIssueCompleteRejectsMissingOrReviewerCaller(t *testing.T) {
+	completer := &recordingIssueCompleter{}
+	provider := Provider{completions: completer}
+	_, err := provider.runIssueComplete(
+		context.Background(),
+		framework.InvokeContext{WorkspaceID: "workspace-1"},
+		issueCompleteInput{
+			IssueID: "issue-1", CheckpointID: "checkpoint-goal",
+			ExpectedGraphRevision: 7, RequestID: "complete-missing",
+			Decision: "goal_satisfied",
+		},
+	)
+	if !errors.Is(err, cliservice.ErrInvalidInput) ||
+		!strings.Contains(err.Error(), "agent-session-id") {
+		t.Fatalf("missing Complete caller error = %v", err)
+	}
+	if completer.input != (tuttimodeexecutionservice.CompleteInput{}) {
+		t.Fatalf("missing caller reached service: %#v", completer.input)
+	}
+
+	completer.err = fmt.Errorf("%w: internal reviewer-session-42", executionbiz.ErrCompleteRejected)
+	_, err = provider.runIssueComplete(
+		context.Background(),
+		framework.InvokeContext{
+			WorkspaceID: "workspace-1",
+			Request: cliservice.InvokeRequest{Context: cliservice.InvokeContext{
+				AgentSessionID: "reviewer-session-42",
+			}},
+		},
+		issueCompleteInput{
+			IssueID: "issue-1", CheckpointID: "checkpoint-goal",
+			ExpectedGraphRevision: 7, RequestID: "complete-reviewer",
+			Decision: "goal_satisfied",
+		},
+	)
+	if !errors.Is(err, cliservice.ErrInvalidInput) ||
+		strings.Contains(err.Error(), "reviewer-session-42") {
+		t.Fatalf("reviewer Complete error leaked trusted identity: %v", err)
+	}
+}
+
+func TestRunIssueCompleteMapsProductErrorsWithoutLeakingDetails(t *testing.T) {
+	for _, contractErr := range []error{
+		executionbiz.ErrExecutionNotFound,
+		executionbiz.ErrExecutionConflict,
+		executionbiz.ErrCompleteRejected,
+		executionbiz.ErrCompleteMutationConflict,
+	} {
+		completer := &recordingIssueCompleter{
+			err: fmt.Errorf("%w: secret durable row", contractErr),
+		}
+		_, err := (Provider{completions: completer}).runIssueComplete(
+			context.Background(),
+			framework.InvokeContext{
+				WorkspaceID: "workspace-1",
+				Request: cliservice.InvokeRequest{Context: cliservice.InvokeContext{
+					AgentSessionID: "source-session",
+				}},
+			},
+			issueCompleteInput{
+				IssueID: "issue-1", CheckpointID: "checkpoint-goal",
+				ExpectedGraphRevision: 7, RequestID: "complete-errors",
+				Decision: "goal_satisfied",
+			},
+		)
+		if !errors.Is(err, cliservice.ErrInvalidInput) ||
+			strings.Contains(err.Error(), "secret durable row") {
+			t.Fatalf("Complete error %v mapped to %v", contractErr, err)
+		}
 	}
 }
 

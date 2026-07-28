@@ -56,6 +56,15 @@ type issueAcknowledgeInput struct {
 	RequestID             string `cli:"request-id" validate:"required" description:"Stable acknowledge mutation id. Reuse it only with the identical payload."`
 }
 
+type issueCompleteInput struct {
+	IssueID               string `cli:"issue-id" validate:"required" description:"Tutti-owned Issue id."`
+	CheckpointID          string `cli:"checkpoint-id" validate:"required" description:"Active Goal Review checkpoint being completed."`
+	ExpectedGraphRevision int64  `cli:"expected-graph-revision" validate:"required,min=1" description:"Current execution graph revision."`
+	RequestID             string `cli:"request-id" validate:"required" description:"Stable completion mutation id. Reuse it only with the identical payload."`
+	Decision              string `cli:"decision" validate:"required" enum:"goal_satisfied" description:"Explicit source-Agent Goal Review decision."`
+	DisagreementReason    string `cli:"disagreement-reason" description:"Audited reason required when overriding a negative or inconclusive independent recommendation."`
+}
+
 func (p Provider) newProposeCommand() cliservice.Command {
 	return framework.Register(framework.CommandSpec[proposeInput]{
 		ID:          appID + ".plan.propose",
@@ -133,6 +142,22 @@ func (p Provider) newIssueAcknowledgeCommand() cliservice.Command {
 		Inputs:      framework.FromStruct[issueAcknowledgeInput](),
 		Output:      planJSONOutput(framework.ViewSummary),
 		Run:         p.runIssueAcknowledge,
+	})
+}
+
+func (p Provider) newIssueCompleteCommand() cliservice.Command {
+	return framework.Register(framework.CommandSpec[issueCompleteInput]{
+		ID:          appID + ".plan.issue.complete",
+		Path:        []string{"plan", "issue", "complete"},
+		Summary:     "Complete a Tutti Mode Goal Review",
+		Description: "Complete the active Goal Review only after the source Agent concludes the goal is satisfied. Caller authority comes from the invoking Agent session.",
+		Kind:        framework.KindAction,
+		Visibility:  cliservice.CapabilityVisibilityPublic,
+		Workspace:   framework.WorkspaceRequired,
+		Workspaces:  p.workspaces,
+		Inputs:      framework.FromStruct[issueCompleteInput](),
+		Output:      planJSONOutput(framework.ViewSummary),
+		Run:         p.runIssueComplete,
 	})
 }
 
@@ -285,6 +310,35 @@ func (p Provider) runIssueAcknowledge(
 	}, nil
 }
 
+func (p Provider) runIssueComplete(
+	ctx context.Context,
+	invoke framework.InvokeContext,
+	input issueCompleteInput,
+) (any, error) {
+	if err := p.requireCompletions(); err != nil {
+		return nil, err
+	}
+	sessionID, err := callerAgentSessionID(invoke)
+	if err != nil {
+		return nil, err
+	}
+	result, err := p.completions.Complete(ctx, tuttimodeexecutionservice.CompleteInput{
+		WorkspaceID: invoke.WorkspaceID, IssueID: input.IssueID,
+		SourceSessionID: sessionID, CheckpointID: input.CheckpointID,
+		ExpectedGraphRevision: input.ExpectedGraphRevision,
+		RequestID:             input.RequestID, Decision: input.Decision,
+		DisagreementReason: input.DisagreementReason,
+	})
+	if err != nil {
+		return nil, agentCompleteError(err)
+	}
+	return map[string]any{
+		"executionId": result.ExecutionID, "checkpointId": result.CheckpointID,
+		"graphRevision": result.GraphRevision, "decision": result.Decision,
+		"replayed": result.Replayed,
+	}, nil
+}
+
 // callerActiveTurnID is best-effort decoration: the timeline anchors the plan
 // panel on this turn when present, and a missing pointer (unwired store, read
 // race) degrades the panel to the timeline tail rather than failing propose.
@@ -339,6 +393,29 @@ func agentAcknowledgeError(err error) error {
 		)
 	}
 	return agentPlanError(err)
+}
+
+func agentCompleteError(err error) error {
+	if errors.Is(err, executionbiz.ErrExecutionNotFound) {
+		return fmt.Errorf(
+			"%w: completion execution was not found or is no longer current",
+			cliservice.ErrInvalidInput,
+		)
+	}
+	if errors.Is(err, executionbiz.ErrCompleteMutationConflict) {
+		return fmt.Errorf(
+			"%w: request-id was already used with a different completion payload",
+			cliservice.ErrInvalidInput,
+		)
+	}
+	if errors.Is(err, executionbiz.ErrExecutionConflict) ||
+		errors.Is(err, executionbiz.ErrCompleteRejected) {
+		return fmt.Errorf(
+			"%w: completion caller, checkpoint, revision, decision, or review evidence is not current",
+			cliservice.ErrInvalidInput,
+		)
+	}
+	return err
 }
 
 func readPlanFile(path string) ([]byte, error) {

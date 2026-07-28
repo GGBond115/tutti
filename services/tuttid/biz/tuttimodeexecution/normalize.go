@@ -9,15 +9,21 @@ import (
 
 const WatchdogInterval = 5 * time.Minute
 
-var ErrInvalidExecution = errors.New("invalid Tutti mode execution")
-var ErrExecutionNotFound = errors.New("Tutti mode execution not found")
-var ErrExecutionConflict = errors.New("Tutti mode execution conflicts with durable state")
-var ErrScheduleRejected = errors.New("Tutti mode schedule was rejected")
-var ErrScheduleMutationConflict = errors.New("Tutti mode schedule request conflicts with durable history")
-var ErrAcknowledgeRejected = errors.New("Tutti mode acknowledge was rejected")
-var ErrAcknowledgeMutationConflict = errors.New("Tutti mode acknowledge request conflicts with durable history")
-var ErrWakeRejected = errors.New("Tutti mode wake operation was rejected")
-var ErrWakeIntegrity = errors.New("Tutti mode wake conflicts with execution authority")
+var ErrInvalidExecution = errors.New("invalid tutti mode execution")
+var ErrExecutionNotFound = errors.New("tutti mode execution not found")
+var ErrExecutionConflict = errors.New("tutti mode execution conflicts with durable state")
+var ErrScheduleRejected = errors.New("tutti mode schedule was rejected")
+var ErrScheduleMutationConflict = errors.New("tutti mode schedule request conflicts with durable history")
+var ErrAcknowledgeRejected = errors.New("tutti mode acknowledge was rejected")
+var ErrAcknowledgeMutationConflict = errors.New("tutti mode acknowledge request conflicts with durable history")
+var ErrCompleteRejected = errors.New("tutti mode completion was rejected")
+var ErrCompleteMutationConflict = errors.New("tutti mode completion request conflicts with durable history")
+var ErrReviewerVerdictRejected = errors.New("tutti mode reviewer verdict was rejected")
+var ErrReviewerVerdictMutationConflict = errors.New("tutti mode reviewer verdict request conflicts with durable history")
+var ErrSwitchReviewToSelfRejected = errors.New("tutti mode review fallback was rejected")
+var ErrSwitchReviewToSelfMutationConflict = errors.New("tutti mode review fallback request conflicts with durable history")
+var ErrWakeRejected = errors.New("tutti mode wake operation was rejected")
+var ErrWakeIntegrity = errors.New("tutti mode wake conflicts with execution authority")
 
 func ExecutionID(issueID string) (string, bool) {
 	issueID = strings.TrimSpace(issueID)
@@ -75,12 +81,37 @@ func MainWakeClientSubmitID(wakeID string) (string, bool) {
 	}
 	return "tutti-execution-wake:" + wakeID, true
 }
+
+func GoalReviewID(checkpointID string) (string, bool) {
+	checkpointID = strings.TrimSpace(checkpointID)
+	if checkpointID == "" {
+		return "", false
+	}
+	return checkpointID + ":goal-review:1", true
+}
+
+func GoalReviewSessionID(reviewID string) (string, bool) {
+	reviewID = strings.TrimSpace(reviewID)
+	if reviewID == "" {
+		return "", false
+	}
+	return reviewID + ":session", true
+}
+
+func GoalReviewClientSubmitID(reviewID string) (string, bool) {
+	reviewID = strings.TrimSpace(reviewID)
+	if reviewID == "" {
+		return "", false
+	}
+	return "tutti-goal-review:" + reviewID, true
+}
 func NewInitialAggregate(
 	workspaceID string,
 	issueID string,
 	workflowID string,
 	sourceSessionID string,
 	now time.Time,
+	reviewConfigurations ...ReviewConfiguration,
 ) (Aggregate, error) {
 	workspaceID = strings.TrimSpace(workspaceID)
 	issueID = strings.TrimSpace(issueID)
@@ -91,6 +122,20 @@ func NewInitialAggregate(
 	checkpointID, checkpointOK := InitialCheckpointID(executionID)
 	if workspaceID == "" || workflowID == "" || sourceSessionID == "" ||
 		now.IsZero() || !executionOK || !checkpointOK {
+		return Aggregate{}, ErrInvalidExecution
+	}
+	review := ReviewConfiguration{Mode: ReviewModeSelf}
+	if len(reviewConfigurations) > 0 {
+		review = reviewConfigurations[0]
+	}
+	review.Mode = ReviewMode(strings.ToLower(strings.TrimSpace(string(review.Mode))))
+	review.AgentTargetID = strings.TrimSpace(review.AgentTargetID)
+	if review.Mode == "" {
+		review.Mode = ReviewModeSelf
+	}
+	if (review.Mode == ReviewModeSelf && review.AgentTargetID != "") ||
+		(review.Mode == ReviewModeIndependent && review.AgentTargetID == "") ||
+		(review.Mode != ReviewModeSelf && review.Mode != ReviewModeIndependent) {
 		return Aggregate{}, ErrInvalidExecution
 	}
 	execution := Execution{
@@ -104,7 +149,8 @@ func NewInitialAggregate(
 		ActiveCheckpointID:         checkpointID,
 		LastOrchestratorActivityAt: now,
 		WatchdogDueAt:              now.Add(WatchdogInterval),
-		ReviewMode:                 ReviewModeSelf,
+		ReviewMode:                 review.Mode,
+		ReviewAgentTargetID:        review.AgentTargetID,
 		CreatedAt:                  now,
 		UpdatedAt:                  now,
 	}
@@ -140,7 +186,9 @@ func ValidateInitialAggregate(aggregate Aggregate) error {
 		execution.ID != expectedExecutionID ||
 		execution.Status != StatusAwaitingSchedule ||
 		execution.GraphRevision != 1 ||
-		execution.ReviewMode != ReviewModeSelf ||
+		((execution.ReviewMode == ReviewModeSelf && execution.ReviewAgentTargetID != "") ||
+			(execution.ReviewMode == ReviewModeIndependent && strings.TrimSpace(execution.ReviewAgentTargetID) == "") ||
+			(execution.ReviewMode != ReviewModeSelf && execution.ReviewMode != ReviewModeIndependent)) ||
 		len(aggregate.Checkpoints) != 1 {
 		return ErrInvalidExecution
 	}

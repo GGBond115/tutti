@@ -327,3 +327,82 @@ VALUES (?, ?)
 	}
 	return nil
 }
+
+func (s *SQLiteStore) applyWorkspaceTuttiModeGoalReviewV4(ctx context.Context) error {
+	applied, err := s.hasMigration(ctx, schemaMigrationWorkspaceTuttiModeGoalReviewV4)
+	if err != nil || applied {
+		return err
+	}
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin Tutti mode Goal Review migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+ALTER TABLE workspace_tutti_goal_reviews
+  ADD COLUMN client_submit_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE workspace_tutti_goal_reviews
+  ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0);
+ALTER TABLE workspace_tutti_goal_reviews
+  ADD COLUMN lease_owner TEXT NOT NULL DEFAULT '';
+ALTER TABLE workspace_tutti_goal_reviews
+  ADD COLUMN lease_expires_at_unix_ms INTEGER NOT NULL DEFAULT 0;
+
+UPDATE workspace_tutti_goal_reviews
+SET client_submit_id = 'tutti-goal-review:' || review_id,
+    review_session_id = CASE
+      WHEN review_session_id = '' THEN review_id || ':session'
+      ELSE review_session_id
+    END;
+
+CREATE UNIQUE INDEX idx_workspace_tutti_goal_reviews_submit
+  ON workspace_tutti_goal_reviews(workspace_id, client_submit_id);
+CREATE INDEX idx_workspace_tutti_goal_reviews_due
+  ON workspace_tutti_goal_reviews(
+    workspace_id, status, lease_expires_at_unix_ms
+  );
+
+CREATE TABLE workspace_tutti_goal_review_audit (
+  workspace_id TEXT NOT NULL,
+  execution_id TEXT NOT NULL,
+  audit_id TEXT NOT NULL,
+  review_id TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL,
+  actor_id TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT '',
+  created_at_unix_ms INTEGER NOT NULL,
+  PRIMARY KEY (workspace_id, execution_id, audit_id),
+  FOREIGN KEY (workspace_id, execution_id)
+    REFERENCES workspace_tutti_executions(workspace_id, execution_id) ON DELETE CASCADE
+);
+
+CREATE TABLE workspace_tutti_goal_review_mutations (
+  workspace_id TEXT NOT NULL,
+  execution_id TEXT NOT NULL,
+  issue_id TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('complete', 'verdict', 'switch_to_self')),
+  request_id TEXT NOT NULL,
+  input_sha256 TEXT NOT NULL CHECK (length(input_sha256) = 64),
+  checkpoint_id TEXT NOT NULL,
+  expected_graph_revision INTEGER NOT NULL CHECK (expected_graph_revision > 0),
+  result_json TEXT NOT NULL,
+  created_at_unix_ms INTEGER NOT NULL,
+  PRIMARY KEY (workspace_id, actor_id, kind, issue_id, request_id),
+  UNIQUE (workspace_id, execution_id, kind, request_id),
+  FOREIGN KEY (workspace_id, execution_id, checkpoint_id)
+    REFERENCES workspace_tutti_execution_checkpoints(
+      workspace_id, execution_id, checkpoint_id
+    ) ON DELETE CASCADE
+);
+
+INSERT INTO tuttid_schema_migrations (id, applied_at_unix_ms)
+VALUES (?, ?)
+`, schemaMigrationWorkspaceTuttiModeGoalReviewV4, unixMs(time.Now().UTC())); err != nil {
+		return fmt.Errorf("migrate Tutti mode Goal Review: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit Tutti mode Goal Review migration: %w", err)
+	}
+	return nil
+}

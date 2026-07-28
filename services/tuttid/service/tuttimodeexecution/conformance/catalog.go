@@ -15,7 +15,8 @@ func Catalog() []Scenario {
 	scenarios = append(scenarios, ScheduleCatalog()...)
 	scenarios = append(scenarios, SettlementCatalog()...)
 	scenarios = append(scenarios, WakeCatalog()...)
-	return append(scenarios, WatchdogCatalog()...)
+	scenarios = append(scenarios, WatchdogCatalog()...)
+	return append(scenarios, ReviewCatalog()...)
 }
 
 func SettlementCatalog() []Scenario {
@@ -155,10 +156,10 @@ func ScheduleCatalog() []Scenario {
 
 func Run(ctx context.Context, driver Driver, scenario Scenario) error {
 	if driver == nil {
-		return fmt.Errorf("Tutti mode execution conformance driver is required")
+		return fmt.Errorf("tutti mode execution conformance driver is required")
 	}
 	if scenario.run == nil {
-		return fmt.Errorf("Tutti mode execution conformance scenario %q has no runner", scenario.Name)
+		return fmt.Errorf("tutti mode execution conformance scenario %q has no runner", scenario.Name)
 	}
 	return scenario.run(ctx, driver)
 }

@@ -58,6 +58,7 @@ type DaemonAPI struct {
 	IssueExecutionService      workspaceapi.IssueExecutionService
 	TuttiModePlanService       TuttiModePlanService
 	TuttiModeActivationService TuttiModeActivationService
+	TuttiModeGoalReviewService TuttiModeGoalReviewService
 	CLIRegistry                *cliservice.Registry
 	AnalyticsReporter          reporterservice.Reporter
 	// OnListenerReady starts daemon work that may wake an Agent whose next

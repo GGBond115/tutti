@@ -229,9 +229,11 @@ func (s IssueManagerService) CreateIssueFromPlan(ctx context.Context, workspaceI
 		issue, tasks, err = s.domainService().PrepareIssueWithTasks(ctx, createInput)
 		if err == nil {
 			issue, tasks, _, err = s.TuttiModeExecutions.Materialize(ctx, tuttimodeexecutionservice.MaterializeInput{
-				Issue:      issue,
-				Tasks:      tasks,
-				WorkflowID: input.Issue.TuttiModeWorkflowID,
+				Issue:               issue,
+				Tasks:               tasks,
+				WorkflowID:          input.Issue.TuttiModeWorkflowID,
+				ReviewMode:          input.ReviewMode,
+				ReviewAgentTargetID: input.ReviewAgentTargetID,
 			})
 		}
 	} else {

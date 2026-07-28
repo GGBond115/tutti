@@ -518,6 +518,9 @@ func (s *Service) prepareRuntimeWithModelEndpoint(
 		AgentTools:                append([]string(nil), input.AgentTools...),
 		ExtraSkills:               sessionSkillBundlesToProviderSkillBundles(input.ExtraSkills),
 		Metadata:                  input.Metadata,
+		CommandCapabilityProjection: cloneCommandCapabilityProjection(
+			input.CommandCapabilityProjection,
+		),
 		ExternalRolloutSourcePath: input.ExternalRolloutSourcePath,
 	})
 	if err != nil {

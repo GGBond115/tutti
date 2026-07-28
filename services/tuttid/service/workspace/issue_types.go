@@ -44,8 +44,10 @@ type CreateIssueManagerIssueInput struct {
 }
 
 type CreateIssueManagerIssueFromPlanInput struct {
-	Issue CreateIssueManagerIssueInput
-	Tasks []CreateIssueManagerTaskItemInput
+	Issue               CreateIssueManagerIssueInput
+	Tasks               []CreateIssueManagerTaskItemInput
+	ReviewMode          string
+	ReviewAgentTargetID string
 }
 
 type EstimateIssueManagerAutoTokenBudgetInput struct {

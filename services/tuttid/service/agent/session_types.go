@@ -622,13 +622,18 @@ type CreateSessionInput struct {
 	IgnoreModelPlanBinding bool
 	Provider               string
 	CapabilityRefs         []CapabilityReference
-	InitialContent         []PromptContentBlock
-	InitialDisplayPrompt   string
-	Metadata               map[string]any
-	ClientSubmitID         string
-	Title                  *string
-	Cwd                    *string
-	PermissionModeID       *string
+	// CommandCapabilityProjection is an internal, session-scoped command
+	// discovery policy. A non-empty AllowedIDs is an exact capability set. The
+	// policy is persisted in the immutable runtime snapshot so a resumed
+	// dedicated session cannot regain commands outside that set.
+	CommandCapabilityProjection *runtimeprep.CommandCapabilityProjection
+	InitialContent              []PromptContentBlock
+	InitialDisplayPrompt        string
+	Metadata                    map[string]any
+	ClientSubmitID              string
+	Title                       *string
+	Cwd                         *string
+	PermissionModeID            *string
 	// StrictPermissionMode rejects an explicit unsupported permission mode
 	// instead of applying the provider default. It is used by unattended
 	// automation so a typo cannot silently broaden authority.

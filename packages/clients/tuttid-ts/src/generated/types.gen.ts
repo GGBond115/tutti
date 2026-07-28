@@ -4,6 +4,20 @@ export type ClientOptions = {
   baseUrl: "http://127.0.0.1:4545" | (string & {});
 };
 
+export type SwitchTuttiModeGoalReviewToSelfRequest = {
+  checkpointId: string;
+  expectedGraphRevision: number;
+  requestId: string;
+  reason: string;
+};
+
+export type SwitchTuttiModeGoalReviewToSelfResponse = {
+  executionId: string;
+  reviewId: string;
+  reviewMode: "self";
+  replayed: boolean;
+};
+
 export type HealthStatusResponse = {
   service: string;
   status: "ok";
@@ -328,7 +342,11 @@ export type ApiErrorDetails = {
     | "model_policy_referenced"
     | "workspace_agent_not_found"
     | "collaboration_run_not_found"
-    | "automation_rule_not_found";
+    | "automation_rule_not_found"
+    | "tutti_mode_goal_review_not_found"
+    | "tutti_mode_goal_review_conflict"
+    | "tutti_mode_goal_review_operation_failed"
+    | "tutti_mode_goal_review_service_unavailable";
   reason?: string;
   params?: {
     [key: string]: unknown;
@@ -4063,6 +4081,8 @@ export type WorkspaceId = string;
 
 export type SessionForkOperationId = string;
 
+export type IssueId = string;
+
 export type WorkspaceAppId = string;
 
 export type WorkspaceAppFactoryJobId = string;
@@ -4436,6 +4456,10 @@ export type ListCliCapabilitiesData = {
      * Optional workspace context. When omitted, the daemon uses the startup workspace.
      */
     workspaceID?: string;
+    /**
+     * Optional canonical Agent Session identity. When present, discovery is constrained by that Session's persisted command capability projection.
+     */
+    agentSessionID?: string;
     /**
      * Include capabilities hidden from ordinary CLI command discovery by provider availability filters and command visibility. Intended for metadata consumers, not ordinary user command routing.
      */
@@ -11325,6 +11349,60 @@ export type CreateWorkspaceFileDirectoryResponses = {
 
 export type CreateWorkspaceFileDirectoryResponse =
   CreateWorkspaceFileDirectoryResponses[keyof CreateWorkspaceFileDirectoryResponses];
+
+export type SwitchTuttiModeGoalReviewToSelfData = {
+  body: SwitchTuttiModeGoalReviewToSelfRequest;
+  path: {
+    workspaceID: string;
+    issueID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/issues/{issueID}/tutti-mode-review/self";
+};
+
+export type SwitchTuttiModeGoalReviewToSelfErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Tutti Mode execution or Goal Review was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Goal Review fallback conflicts with current durable state or request history
+   */
+  409: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type SwitchTuttiModeGoalReviewToSelfError =
+  SwitchTuttiModeGoalReviewToSelfErrors[keyof SwitchTuttiModeGoalReviewToSelfErrors];
+
+export type SwitchTuttiModeGoalReviewToSelfResponses = {
+  /**
+   * Goal Review switched to self review, or an idempotent replay
+   */
+  200: SwitchTuttiModeGoalReviewToSelfResponse;
+};
+
+export type SwitchTuttiModeGoalReviewToSelfResponse2 =
+  SwitchTuttiModeGoalReviewToSelfResponses[keyof SwitchTuttiModeGoalReviewToSelfResponses];
 
 export type ListWorkspaceRecentFilesData = {
   body?: never;

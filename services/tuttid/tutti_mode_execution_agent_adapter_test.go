@@ -100,14 +100,14 @@ type canonicalWakeTurnHost struct {
 	settledAt time.Time
 }
 
-func (host canonicalWakeTurnHost) GetSession(
+func (canonicalWakeTurnHost) GetSession(
 	context.Context,
 	agenthost.SessionRef,
 ) (agenthost.GetSessionResult, error) {
 	return agenthost.GetSessionResult{}, nil
 }
 
-func (host canonicalWakeTurnHost) FindTurnByClientSubmitID(
+func (canonicalWakeTurnHost) FindTurnByClientSubmitID(
 	context.Context,
 	agenthost.SessionRef,
 	string,
@@ -253,7 +253,7 @@ type transientMainWakeRecoverer struct {
 	completed    chan struct{}
 }
 
-func (recoverer *transientMainWakeRecoverer) PrepareStartupMainWakeRecovery(
+func (*transientMainWakeRecoverer) PrepareStartupMainWakeRecovery(
 	context.Context,
 	string,
 ) error {

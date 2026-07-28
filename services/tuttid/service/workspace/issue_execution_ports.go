@@ -34,7 +34,7 @@ func (issueRunLaunchNotStartedError) issueRunLaunchNotStarted() {}
 // recoverable because they may be lost responses after canonical creation.
 func NewIssueRunLaunchNotStartedError(cause error) error {
 	if cause == nil {
-		cause = errors.New("Issue Run launch did not start")
+		cause = errors.New("issue Run launch did not start")
 	}
 	return issueRunLaunchNotStartedError{cause: cause}
 }

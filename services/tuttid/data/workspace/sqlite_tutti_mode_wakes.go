@@ -637,6 +637,9 @@ WHERE workspace_id = ? AND status IN ('prepared', 'leased', 'dispatched', 'turn_
 const wakeSelectQuery = `
 SELECT w.wake_id, w.workspace_id, w.execution_id, e.issue_id,
        w.checkpoint_id, c.kind, c.graph_revision, w.target_kind,
+       e.review_mode, COALESCE(r.review_id, ''),
+       COALESCE(r.status, ''), COALESCE(r.verdict, ''),
+       COALESCE(r.summary, ''), COALESCE(r.failure_reason, ''),
        w.wake_sequence, w.client_submit_id, e.source_session_id, w.target_session_id,
        w.canonical_session_id, w.canonical_turn_id, w.status,
        w.due_at_unix_ms, w.attempt_count, w.lease_owner,
@@ -649,6 +652,9 @@ JOIN workspace_tutti_executions e
 JOIN workspace_tutti_execution_checkpoints c
   ON c.workspace_id = w.workspace_id AND c.execution_id = w.execution_id
  AND c.checkpoint_id = w.checkpoint_id
+LEFT JOIN workspace_tutti_goal_reviews r
+  ON r.workspace_id = w.workspace_id AND r.execution_id = w.execution_id
+ AND r.checkpoint_id = w.checkpoint_id
 `
 
 func scanTuttiModeWakes(rows *sql.Rows) ([]executionbiz.Wake, error) {
@@ -674,7 +680,9 @@ func scanTuttiModeWake(scanner rowScanner) (executionbiz.Wake, error) {
 	err := scanner.Scan(
 		&wake.ID, &wake.WorkspaceID, &wake.ExecutionID, &wake.IssueID,
 		&wake.CheckpointID, &wake.CheckpointKind, &wake.CheckpointRevision,
-		&wake.TargetKind, &wake.Sequence, &wake.ClientSubmitID,
+		&wake.TargetKind, &wake.ReviewMode, &wake.ReviewID,
+		&wake.ReviewStatus, &wake.ReviewVerdict, &wake.ReviewSummary,
+		&wake.ReviewFailureReason, &wake.Sequence, &wake.ClientSubmitID,
 		&wake.SourceSessionID, &wake.TargetSessionID,
 		&wake.CanonicalSessionID, &wake.CanonicalTurnID,
 		&wake.Status, &dueAt, &wake.AttemptCount, &wake.LeaseOwner,

@@ -570,13 +570,17 @@ WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ? AND status = '
 		); err != nil {
 			return executionbiz.AcknowledgeResult{}, err
 		}
-		if err := prepareTuttiModeMainWakeTx(
+		if next.Kind == executionbiz.CheckpointKindAllTasksTerminal {
+			nextStatus = executionbiz.StatusPendingGoalReview
+			if err := prepareTuttiModeGoalReviewTx(
+				ctx, tx, admission.WorkspaceID, executionID, next, admission.Now,
+			); err != nil {
+				return executionbiz.AcknowledgeResult{}, err
+			}
+		} else if err := prepareTuttiModeMainWakeTx(
 			ctx, tx, admission.WorkspaceID, executionID, next, admission.Now,
 		); err != nil {
 			return executionbiz.AcknowledgeResult{}, err
-		}
-		if next.Kind == executionbiz.CheckpointKindAllTasksTerminal {
-			nextStatus = executionbiz.StatusPendingGoalReview
 		}
 	}
 	executionMutation, err := tx.ExecContext(ctx, `

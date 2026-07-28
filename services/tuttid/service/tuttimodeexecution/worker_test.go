@@ -55,19 +55,19 @@ func (nilReviewerWakeStore) ListCorruptedTuttiModeMainWakes(
 	return nil, nil
 }
 
-func (store mixedRecoveryWakeStore) CancelSuppressedTuttiModeExecutionWakes(
+func (mixedRecoveryWakeStore) CancelSuppressedTuttiModeExecutionWakes(
 	context.Context, string, time.Time,
 ) error {
 	return nil
 }
 
-func (store mixedRecoveryWakeStore) RequeueExpiredTuttiModeExecutionWakes(
+func (mixedRecoveryWakeStore) RequeueExpiredTuttiModeExecutionWakes(
 	context.Context, string, time.Time,
 ) error {
 	return nil
 }
 
-func (store mixedRecoveryWakeStore) PrepareDueTuttiModeExecutionWatchdogs(
+func (mixedRecoveryWakeStore) PrepareDueTuttiModeExecutionWatchdogs(
 	context.Context, string, time.Time,
 ) error {
 	return nil

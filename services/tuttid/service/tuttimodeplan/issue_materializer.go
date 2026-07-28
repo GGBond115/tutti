@@ -43,6 +43,16 @@ func (materializer WorkspaceIssueMaterializer) MaterializeIssue(
 	if !actionableItemsHaveCanonicalOrder(input.ActionableItems) {
 		return "", ErrInvalidInput
 	}
+	input.Review.Mode = strings.ToLower(strings.TrimSpace(input.Review.Mode))
+	input.Review.AgentTargetID = strings.TrimSpace(input.Review.AgentTargetID)
+	if input.Review.Mode == "" {
+		input.Review.Mode = "self"
+	}
+	if (input.Review.Mode == "self" && input.Review.AgentTargetID != "") ||
+		(input.Review.Mode == "independent" && input.Review.AgentTargetID == "") ||
+		(input.Review.Mode != "self" && input.Review.Mode != "independent") {
+		return "", ErrInvalidInput
+	}
 	tasks := make([]workspaceservice.CreateIssueManagerTaskItemInput, 0, len(input.ActionableItems))
 	for _, item := range input.ActionableItems {
 		tasks = append(tasks, workspaceservice.CreateIssueManagerTaskItemInput{
@@ -85,7 +95,9 @@ func (materializer WorkspaceIssueMaterializer) MaterializeIssue(
 			TuttiModeWorkflowOwned: true,
 			TuttiModeWorkflowID:    input.WorkflowID,
 		},
-		Tasks: tasks,
+		Tasks:               tasks,
+		ReviewMode:          input.Review.Mode,
+		ReviewAgentTargetID: input.Review.AgentTargetID,
 	})
 	if err == nil {
 		return detail.Issue.IssueID, nil
@@ -122,6 +134,8 @@ func materializedExecutionMatches(
 		execution.IssueID != issueID ||
 		execution.WorkflowID != strings.TrimSpace(input.WorkflowID) ||
 		execution.SourceSessionID != strings.TrimSpace(input.SourceSessionID) ||
+		execution.ReviewMode != executionbiz.ReviewMode(input.Review.Mode) ||
+		execution.ReviewAgentTargetID != strings.TrimSpace(input.Review.AgentTargetID) ||
 		!executionbiz.IsStatus(execution.Status) ||
 		execution.GraphRevision < 1 {
 		return false

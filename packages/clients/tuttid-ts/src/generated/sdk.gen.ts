@@ -574,6 +574,9 @@ import type {
   SubmitWorkspaceAgentPlanDecisionData,
   SubmitWorkspaceAgentPlanDecisionErrors,
   SubmitWorkspaceAgentPlanDecisionResponses,
+  SwitchTuttiModeGoalReviewToSelfData,
+  SwitchTuttiModeGoalReviewToSelfErrors,
+  SwitchTuttiModeGoalReviewToSelfResponses,
   TerminateWorkspaceTerminalData,
   TerminateWorkspaceTerminalErrors,
   TerminateWorkspaceTerminalResponses,
@@ -3541,6 +3544,30 @@ export const createWorkspaceFileDirectory = <
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/v1/workspaces/{workspaceID}/files/directory",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+
+/**
+ * Switch a failed independent Tutti Mode Goal Review to self review
+ *
+ * Performs the explicit audited fallback for one failed independent reviewer operation. The authenticated local actor is resolved by the daemon and cannot be supplied in the request body.
+ */
+export const switchTuttiModeGoalReviewToSelf = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<SwitchTuttiModeGoalReviewToSelfData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    SwitchTuttiModeGoalReviewToSelfResponses,
+    SwitchTuttiModeGoalReviewToSelfErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/issues/{issueID}/tutti-mode-review/self",
     ...options,
     headers: {
       "Content-Type": "application/json",

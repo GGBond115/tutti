@@ -6,17 +6,19 @@ import (
 )
 
 type AcceptPlanInput struct {
-	WorkspaceID     string
-	WorkflowID      string
-	RevisionID      string
-	CheckpointID    string
-	SourceSessionID string
-	TopicID         string
-	Title           string
-	Content         string
-	BudgetMode      string
-	TokenLimit      int64
-	Tasks           []Task
+	WorkspaceID         string
+	WorkflowID          string
+	RevisionID          string
+	CheckpointID        string
+	SourceSessionID     string
+	TopicID             string
+	Title               string
+	Content             string
+	BudgetMode          string
+	TokenLimit          int64
+	ReviewMode          string
+	ReviewAgentTargetID string
+	Tasks               []Task
 }
 
 type Issue struct {
@@ -61,6 +63,9 @@ type Execution struct {
 	GraphRevision              int64
 	LastOrchestratorActivityAt time.Time
 	WatchdogDueAt              time.Time
+	ReviewMode                 string
+	ReviewAgentTargetID        string
+	CompletedAt                time.Time
 }
 
 type Checkpoint struct {
@@ -80,6 +85,32 @@ type Snapshot struct {
 	Checkpoints []Checkpoint
 	RunCount    int
 	Runs        []RunSnapshot
+	Reviews     []GoalReview
+	Audit       []ReviewAuditEntry
+}
+
+type GoalReview struct {
+	ReviewID       string
+	CheckpointID   string
+	AgentTargetID  string
+	ClientSubmitID string
+	SessionID      string
+	TurnID         string
+	Status         string
+	Verdict        string
+	Summary        string
+	FailureReason  string
+	AttemptCount   int
+	LeaseOwner     string
+	LeaseExpiresAt time.Time
+}
+
+type ReviewAuditEntry struct {
+	Kind      string
+	ActorID   string
+	Reason    string
+	ReviewID  string
+	CreatedAt time.Time
 }
 
 type ScheduleInput struct {
@@ -125,6 +156,60 @@ type AcknowledgeResult struct {
 	NextCheckpointKind  string
 	NextCheckpointState string
 	Replayed            bool
+}
+
+type CompleteInput struct {
+	WorkspaceID           string
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+	Decision              string
+	DisagreementReason    string
+}
+
+type CompleteResult struct {
+	ExecutionID   string
+	CheckpointID  string
+	GraphRevision int64
+	Decision      string
+	Replayed      bool
+}
+
+type ReviewerVerdictInput struct {
+	WorkspaceID           string
+	IssueID               string
+	ReviewID              string
+	ReviewSessionID       string
+	ReviewTurnID          string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+	Verdict               string
+	Summary               string
+}
+
+type ReviewerVerdictResult struct {
+	ReviewID string
+	Verdict  string
+	Replayed bool
+}
+
+type SwitchReviewToSelfInput struct {
+	WorkspaceID           string
+	IssueID               string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestedBy           string
+	RequestID             string
+	Reason                string
+}
+
+type SwitchReviewToSelfResult struct {
+	ExecutionID string
+	ReviewID    string
+	Replayed    bool
 }
 
 type Wake struct {
@@ -183,6 +268,26 @@ type Driver interface {
 	RepairSettlements(context.Context, string) error
 	Acknowledge(context.Context, AcknowledgeInput) (AcknowledgeResult, error)
 	AcknowledgeReplica(context.Context, AcknowledgeInput) (AcknowledgeResult, error)
+	Complete(context.Context, CompleteInput) (CompleteResult, error)
+	CompleteReplica(context.Context, CompleteInput) (CompleteResult, error)
+	SubmitReviewerVerdict(context.Context, ReviewerVerdictInput) (ReviewerVerdictResult, error)
+	SubmitReviewerVerdictReplica(context.Context, ReviewerVerdictInput) (ReviewerVerdictResult, error)
+	SwitchReviewToSelf(context.Context, SwitchReviewToSelfInput) (SwitchReviewToSelfResult, error)
+	SwitchReviewToSelfReplica(context.Context, SwitchReviewToSelfInput) (SwitchReviewToSelfResult, error)
+	ClaimReviewer(context.Context, string, string, string, time.Duration) (bool, error)
+	RecoverReviewers(context.Context, string, string) error
+	StartupRecoverReviewers(context.Context, string, string) error
+	SettleReviewerTurnWithoutVerdict(context.Context, string, string, string, string) error
+	SetReviewerSessionBusy(string, bool)
+	FailNextGoalReviewCommit(string)
+	FailNextReviewerBeforeCanonical()
+	FailNextReviewerAfterCanonical()
+	SubmitReviewerVerdictOnNextSend(ReviewerVerdictInput)
+	SettleReviewerOnNextSend()
+	ReviewerLaunchCallCount() int
+	ReviewerCanonicalTurnCount() int
+	ReviewerCanonicalIdentity(string) (string, string, bool)
+	ReviewerCapabilities() []string
 	SeedActiveRun(context.Context, string, string, string) error
 	FailNextLaunch()
 	HoldNextLaunch() (<-chan struct{}, func())

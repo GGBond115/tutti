@@ -85,6 +85,7 @@ type MaterializeIssueInput struct {
 	TopicID         string
 	Execution       PlanExecution
 	Budget          PlanBudget
+	Review          PlanReview
 	ActionableItems []ActionableItem
 }
 

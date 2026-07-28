@@ -714,29 +714,33 @@ func (e AgentTargetSource) Valid() bool {
 
 // Defines values for ApiErrorDetailsCode.
 const (
-	AgentQuickPromptConflict          ApiErrorDetailsCode = "agent_quick_prompt_conflict"
-	AgentQuickPromptNotFound          ApiErrorDetailsCode = "agent_quick_prompt_not_found"
-	AgentQuickPromptOperationFailed   ApiErrorDetailsCode = "agent_quick_prompt_operation_failed"
-	AgentSessionForkOperationNotFound ApiErrorDetailsCode = "agent_session_fork_operation_not_found"
-	AgentTargetNotFound               ApiErrorDetailsCode = "agent_target_not_found"
-	AutomationRuleNotFound            ApiErrorDetailsCode = "automation_rule_not_found"
-	CollaborationRunNotFound          ApiErrorDetailsCode = "collaboration_run_not_found"
-	InvalidRequest                    ApiErrorDetailsCode = "invalid_request"
-	MethodNotAllowed                  ApiErrorDetailsCode = "method_not_allowed"
-	ModelPlanNotFound                 ApiErrorDetailsCode = "model_plan_not_found"
-	ModelPlanReferenced               ApiErrorDetailsCode = "model_plan_referenced"
-	ModelPolicyReferenced             ApiErrorDetailsCode = "model_policy_referenced"
-	PreferencesOperationFailed        ApiErrorDetailsCode = "preferences_operation_failed"
-	ServiceUnavailable                ApiErrorDetailsCode = "service_unavailable"
-	Unauthorized                      ApiErrorDetailsCode = "unauthorized"
-	WorkspaceAgentNotFound            ApiErrorDetailsCode = "workspace_agent_not_found"
-	WorkspaceAppNotFound              ApiErrorDetailsCode = "workspace_app_not_found"
-	WorkspaceFileNotFound             ApiErrorDetailsCode = "workspace_file_not_found"
-	WorkspaceIssueResourceExists      ApiErrorDetailsCode = "workspace_issue_resource_exists"
-	WorkspaceIssueResourceNotFound    ApiErrorDetailsCode = "workspace_issue_resource_not_found"
-	WorkspaceNotFound                 ApiErrorDetailsCode = "workspace_not_found"
-	WorkspaceOperationFailed          ApiErrorDetailsCode = "workspace_operation_failed"
-	WorkspaceTerminalNotFound         ApiErrorDetailsCode = "workspace_terminal_not_found"
+	AgentQuickPromptConflict              ApiErrorDetailsCode = "agent_quick_prompt_conflict"
+	AgentQuickPromptNotFound              ApiErrorDetailsCode = "agent_quick_prompt_not_found"
+	AgentQuickPromptOperationFailed       ApiErrorDetailsCode = "agent_quick_prompt_operation_failed"
+	AgentSessionForkOperationNotFound     ApiErrorDetailsCode = "agent_session_fork_operation_not_found"
+	AgentTargetNotFound                   ApiErrorDetailsCode = "agent_target_not_found"
+	AutomationRuleNotFound                ApiErrorDetailsCode = "automation_rule_not_found"
+	CollaborationRunNotFound              ApiErrorDetailsCode = "collaboration_run_not_found"
+	InvalidRequest                        ApiErrorDetailsCode = "invalid_request"
+	MethodNotAllowed                      ApiErrorDetailsCode = "method_not_allowed"
+	ModelPlanNotFound                     ApiErrorDetailsCode = "model_plan_not_found"
+	ModelPlanReferenced                   ApiErrorDetailsCode = "model_plan_referenced"
+	ModelPolicyReferenced                 ApiErrorDetailsCode = "model_policy_referenced"
+	PreferencesOperationFailed            ApiErrorDetailsCode = "preferences_operation_failed"
+	ServiceUnavailable                    ApiErrorDetailsCode = "service_unavailable"
+	TuttiModeGoalReviewConflict           ApiErrorDetailsCode = "tutti_mode_goal_review_conflict"
+	TuttiModeGoalReviewNotFound           ApiErrorDetailsCode = "tutti_mode_goal_review_not_found"
+	TuttiModeGoalReviewOperationFailed    ApiErrorDetailsCode = "tutti_mode_goal_review_operation_failed"
+	TuttiModeGoalReviewServiceUnavailable ApiErrorDetailsCode = "tutti_mode_goal_review_service_unavailable"
+	Unauthorized                          ApiErrorDetailsCode = "unauthorized"
+	WorkspaceAgentNotFound                ApiErrorDetailsCode = "workspace_agent_not_found"
+	WorkspaceAppNotFound                  ApiErrorDetailsCode = "workspace_app_not_found"
+	WorkspaceFileNotFound                 ApiErrorDetailsCode = "workspace_file_not_found"
+	WorkspaceIssueResourceExists          ApiErrorDetailsCode = "workspace_issue_resource_exists"
+	WorkspaceIssueResourceNotFound        ApiErrorDetailsCode = "workspace_issue_resource_not_found"
+	WorkspaceNotFound                     ApiErrorDetailsCode = "workspace_not_found"
+	WorkspaceOperationFailed              ApiErrorDetailsCode = "workspace_operation_failed"
+	WorkspaceTerminalNotFound             ApiErrorDetailsCode = "workspace_terminal_not_found"
 )
 
 // Valid indicates whether the value is a known member of the ApiErrorDetailsCode enum.
@@ -769,6 +773,14 @@ func (e ApiErrorDetailsCode) Valid() bool {
 	case PreferencesOperationFailed:
 		return true
 	case ServiceUnavailable:
+		return true
+	case TuttiModeGoalReviewConflict:
+		return true
+	case TuttiModeGoalReviewNotFound:
+		return true
+	case TuttiModeGoalReviewOperationFailed:
+		return true
+	case TuttiModeGoalReviewServiceUnavailable:
 		return true
 	case Unauthorized:
 		return true
@@ -1864,6 +1876,21 @@ const (
 func (e SubmitWorkspaceAgentPlanDecisionRequestPromptKind) Valid() bool {
 	switch e {
 	case PlanImplementation:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SwitchTuttiModeGoalReviewToSelfResponseReviewMode.
+const (
+	Self SwitchTuttiModeGoalReviewToSelfResponseReviewMode = "self"
+)
+
+// Valid indicates whether the value is a known member of the SwitchTuttiModeGoalReviewToSelfResponseReviewMode enum.
+func (e SwitchTuttiModeGoalReviewToSelfResponseReviewMode) Valid() bool {
+	switch e {
+	case Self:
 		return true
 	default:
 		return false
@@ -5815,6 +5842,25 @@ type SubmitWorkspaceAgentPlanDecisionRequestAction string
 // SubmitWorkspaceAgentPlanDecisionRequestPromptKind defines model for SubmitWorkspaceAgentPlanDecisionRequest.PromptKind.
 type SubmitWorkspaceAgentPlanDecisionRequestPromptKind string
 
+// SwitchTuttiModeGoalReviewToSelfRequest defines model for SwitchTuttiModeGoalReviewToSelfRequest.
+type SwitchTuttiModeGoalReviewToSelfRequest struct {
+	CheckpointId          string `json:"checkpointId"`
+	ExpectedGraphRevision int64  `json:"expectedGraphRevision"`
+	Reason                string `json:"reason"`
+	RequestId             string `json:"requestId"`
+}
+
+// SwitchTuttiModeGoalReviewToSelfResponse defines model for SwitchTuttiModeGoalReviewToSelfResponse.
+type SwitchTuttiModeGoalReviewToSelfResponse struct {
+	ExecutionId string                                            `json:"executionId"`
+	Replayed    bool                                              `json:"replayed"`
+	ReviewId    string                                            `json:"reviewId"`
+	ReviewMode  SwitchTuttiModeGoalReviewToSelfResponseReviewMode `json:"reviewMode"`
+}
+
+// SwitchTuttiModeGoalReviewToSelfResponseReviewMode defines model for SwitchTuttiModeGoalReviewToSelfResponse.ReviewMode.
+type SwitchTuttiModeGoalReviewToSelfResponseReviewMode string
+
 // TrackEvent defines model for TrackEvent.
 type TrackEvent struct {
 	ClientTs int64                   `json:"client_ts"`
@@ -7386,6 +7432,9 @@ type CliCommandID = string
 // CollaborationRunID defines model for CollaborationRunID.
 type CollaborationRunID = string
 
+// IssueID defines model for IssueID.
+type IssueID = string
+
 // IssueManagerContextRefID defines model for IssueManagerContextRefID.
 type IssueManagerContextRefID = string
 
@@ -7509,6 +7558,12 @@ type PreferencesOperationError = ApiErrorResponse
 // ServiceUnavailableError defines model for ServiceUnavailableError.
 type ServiceUnavailableError = ApiErrorResponse
 
+// TuttiModeGoalReviewConflictError defines model for TuttiModeGoalReviewConflictError.
+type TuttiModeGoalReviewConflictError = ApiErrorResponse
+
+// TuttiModeGoalReviewNotFoundError defines model for TuttiModeGoalReviewNotFoundError.
+type TuttiModeGoalReviewNotFoundError = ApiErrorResponse
+
 // UnauthorizedError defines model for UnauthorizedError.
 type UnauthorizedError = ApiErrorResponse
 
@@ -7562,6 +7617,9 @@ type GetAgentProviderStatusesParams struct {
 type ListCliCapabilitiesParams struct {
 	// WorkspaceID Optional workspace context. When omitted, the daemon uses the startup workspace.
 	WorkspaceID *string `form:"workspaceID,omitempty" json:"workspaceID,omitempty"`
+
+	// AgentSessionID Optional canonical Agent Session identity. When present, discovery is constrained by that Session's persisted command capability projection.
+	AgentSessionID *string `form:"agentSessionID,omitempty" json:"agentSessionID,omitempty"`
 
 	// IncludeHidden Include capabilities hidden from ordinary CLI command discovery by provider availability filters and command visibility. Intended for metadata consumers, not ordinary user command routing.
 	IncludeHidden *bool `form:"includeHidden,omitempty" json:"includeHidden,omitempty"`
@@ -7996,6 +8054,9 @@ type CreateWorkspaceIssueTaskRunJSONRequestBody = CreateIssueManagerRunRequest
 
 // CompleteWorkspaceIssueTaskRunJSONRequestBody defines body for CompleteWorkspaceIssueTaskRun for application/json ContentType.
 type CompleteWorkspaceIssueTaskRunJSONRequestBody = CompleteIssueManagerRunRequest
+
+// SwitchTuttiModeGoalReviewToSelfJSONRequestBody defines body for SwitchTuttiModeGoalReviewToSelf for application/json ContentType.
+type SwitchTuttiModeGoalReviewToSelfJSONRequestBody = SwitchTuttiModeGoalReviewToSelfRequest
 
 // CreateModelPlanJSONRequestBody defines body for CreateModelPlan for application/json ContentType.
 type CreateModelPlanJSONRequestBody = PutModelPlanRequest

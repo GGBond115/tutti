@@ -28,6 +28,30 @@ const (
 	ReviewModeIndependent ReviewMode = "independent"
 )
 
+type ReviewConfiguration struct {
+	Mode          ReviewMode
+	AgentTargetID string
+}
+
+type GoalReviewStatus string
+
+const (
+	GoalReviewStatusPrepared   GoalReviewStatus = "prepared"
+	GoalReviewStatusLeased     GoalReviewStatus = "leased"
+	GoalReviewStatusDispatched GoalReviewStatus = "dispatched"
+	GoalReviewStatusSubmitted  GoalReviewStatus = "submitted"
+	GoalReviewStatusFailed     GoalReviewStatus = "failed"
+	GoalReviewStatusCanceled   GoalReviewStatus = "canceled"
+)
+
+type GoalReviewVerdict string
+
+const (
+	GoalReviewVerdictSatisfied GoalReviewVerdict = "goal_satisfied"
+	GoalReviewVerdictMoreWork  GoalReviewVerdict = "more_work_required"
+	GoalReviewVerdictUnknown   GoalReviewVerdict = "inconclusive"
+)
+
 type CheckpointKind string
 
 const (
@@ -108,32 +132,136 @@ type Aggregate struct {
 	Checkpoints []Checkpoint
 }
 
+type GoalReview struct {
+	ID             string
+	WorkspaceID    string
+	ExecutionID    string
+	IssueID        string
+	CheckpointID   string
+	GraphRevision  int64
+	AgentTargetID  string
+	ClientSubmitID string
+	SessionID      string
+	TurnID         string
+	Status         GoalReviewStatus
+	Verdict        GoalReviewVerdict
+	Summary        string
+	FailureReason  string
+	AttemptCount   int
+	LeaseOwner     string
+	LeaseExpiresAt time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	SubmittedAt    time.Time
+}
+
+type ReviewAuditEntry struct {
+	ID          string
+	WorkspaceID string
+	ExecutionID string
+	ReviewID    string
+	Kind        string
+	ActorID     string
+	Reason      string
+	CreatedAt   time.Time
+}
+
+type GoalReviewCompleteAdmission struct {
+	WorkspaceID           string
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+	InputSHA256           string
+	Decision              string
+	DisagreementReason    string
+	Now                   time.Time
+	BeforeStep            func(string) error
+}
+
+type GoalReviewCompleteResult struct {
+	ExecutionID   string `json:"executionId"`
+	CheckpointID  string `json:"checkpointId"`
+	GraphRevision int64  `json:"graphRevision"`
+	Decision      string `json:"decision"`
+	Replayed      bool   `json:"-"`
+}
+
+type ReviewerVerdictAdmission struct {
+	WorkspaceID           string
+	IssueID               string
+	ReviewID              string
+	ReviewSessionID       string
+	ReviewTurnID          string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+	InputSHA256           string
+	Verdict               GoalReviewVerdict
+	Summary               string
+	Now                   time.Time
+	BeforeStep            func(string) error
+}
+
+type ReviewerVerdictResult struct {
+	ReviewID string            `json:"reviewId"`
+	Verdict  GoalReviewVerdict `json:"verdict"`
+	Replayed bool              `json:"-"`
+}
+
+type SwitchReviewToSelfAdmission struct {
+	WorkspaceID           string
+	IssueID               string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+	InputSHA256           string
+	Reason                string
+	RequestedByActorID    string
+	Now                   time.Time
+	BeforeStep            func(string) error
+}
+
+type SwitchReviewToSelfResult struct {
+	ExecutionID string `json:"executionId"`
+	ReviewID    string `json:"reviewId"`
+	ReviewMode  string `json:"reviewMode"`
+	Replayed    bool   `json:"-"`
+}
+
 type Wake struct {
-	ID                 string
-	WorkspaceID        string
-	ExecutionID        string
-	IssueID            string
-	CheckpointID       string
-	CheckpointKind     CheckpointKind
-	CheckpointRevision int64
-	TargetKind         WakeTargetKind
-	Sequence           int64
-	ClientSubmitID     string
-	SourceSessionID    string
-	TargetSessionID    string
-	CanonicalSessionID string
-	CanonicalTurnID    string
-	Status             WakeStatus
-	DueAt              time.Time
-	AttemptCount       int
-	LeaseOwner         string
-	LeaseExpiresAt     time.Time
-	DispatchedAt       time.Time
-	TurnSettledAt      time.Time
-	AcknowledgedAt     time.Time
-	LastError          string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID                  string
+	WorkspaceID         string
+	ExecutionID         string
+	IssueID             string
+	CheckpointID        string
+	CheckpointKind      CheckpointKind
+	CheckpointRevision  int64
+	ReviewMode          ReviewMode
+	ReviewID            string
+	ReviewStatus        GoalReviewStatus
+	ReviewVerdict       GoalReviewVerdict
+	ReviewSummary       string
+	ReviewFailureReason string
+	TargetKind          WakeTargetKind
+	Sequence            int64
+	ClientSubmitID      string
+	SourceSessionID     string
+	TargetSessionID     string
+	CanonicalSessionID  string
+	CanonicalTurnID     string
+	Status              WakeStatus
+	DueAt               time.Time
+	AttemptCount        int
+	LeaseOwner          string
+	LeaseExpiresAt      time.Time
+	DispatchedAt        time.Time
+	TurnSettledAt       time.Time
+	AcknowledgedAt      time.Time
+	LastError           string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type ScheduleAdmission struct {

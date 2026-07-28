@@ -79,6 +79,7 @@ const schemaMigrationWorkspaceWorkflowTaskAssignmentsV4 = "workspace_workflow_ta
 const schemaMigrationWorkspaceTuttiModeExecutionV1 = "workspace_tutti_mode_execution_v1"
 const schemaMigrationWorkspaceTuttiModeRunCancelCompensationV2 = "workspace_tutti_mode_run_cancel_compensation_v2"
 const schemaMigrationWorkspaceTuttiModeSourceActivityInboxV3 = "workspace_tutti_mode_source_activity_inbox_v3"
+const schemaMigrationWorkspaceTuttiModeGoalReviewV4 = "workspace_tutti_mode_goal_review_v4"
 
 func (s *SQLiteStore) Migrate(ctx context.Context) error {
 	if s == nil || s.writeDB == nil {
@@ -350,6 +351,9 @@ INSERT OR IGNORE INTO tuttid_schema_migrations (id, applied_at_unix_ms)
 		return err
 	}
 	if err := s.applyWorkspaceTuttiModeSourceActivityInboxV3(ctx); err != nil {
+		return err
+	}
+	if err := s.applyWorkspaceTuttiModeGoalReviewV4(ctx); err != nil {
 		return err
 	}
 	return s.openReadPool(ctx)

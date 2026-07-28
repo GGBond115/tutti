@@ -13,13 +13,19 @@ import (
 	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 )
 
-var ErrServiceUnavailable = errors.New("Tutti mode execution service is unavailable")
+var ErrServiceUnavailable = errors.New("tutti mode execution service is unavailable")
 var ErrExecutionNotFound = executionbiz.ErrExecutionNotFound
 var ErrExecutionConflict = executionbiz.ErrExecutionConflict
 var ErrScheduleRejected = executionbiz.ErrScheduleRejected
 var ErrScheduleMutationConflict = executionbiz.ErrScheduleMutationConflict
 var ErrAcknowledgeRejected = executionbiz.ErrAcknowledgeRejected
 var ErrAcknowledgeMutationConflict = executionbiz.ErrAcknowledgeMutationConflict
+var ErrCompleteRejected = executionbiz.ErrCompleteRejected
+var ErrCompleteMutationConflict = executionbiz.ErrCompleteMutationConflict
+var ErrReviewerVerdictRejected = executionbiz.ErrReviewerVerdictRejected
+var ErrReviewerVerdictMutationConflict = executionbiz.ErrReviewerVerdictMutationConflict
+var ErrSwitchReviewToSelfRejected = executionbiz.ErrSwitchReviewToSelfRejected
+var ErrSwitchReviewToSelfMutationConflict = executionbiz.ErrSwitchReviewToSelfMutationConflict
 
 type Store interface {
 	MaterializeTuttiModeIssue(
@@ -74,19 +80,24 @@ type ReviewerActivityReader interface {
 }
 
 type Service struct {
-	Store                  Store
-	Wakes                  WakeStore
-	MainWakeTargets        MainWakeTarget
-	ReviewerActivity       ReviewerActivityReader
-	MainWakeSendTimeout    time.Duration
-	MainWakeCleanupTimeout time.Duration
-	Clock                  func() time.Time
+	Store                      Store
+	Wakes                      WakeStore
+	Reviews                    GoalReviewStore
+	MainWakeTargets            MainWakeTarget
+	ReviewerTargets            ReviewerTarget
+	ReviewerActivity           ReviewerActivityReader
+	BeforeGoalReviewCommitStep func(string) error
+	MainWakeSendTimeout        time.Duration
+	MainWakeCleanupTimeout     time.Duration
+	Clock                      func() time.Time
 }
 
 type MaterializeInput struct {
-	Issue      workspaceissues.Issue
-	Tasks      []workspaceissues.Task
-	WorkflowID string
+	Issue               workspaceissues.Issue
+	Tasks               []workspaceissues.Task
+	WorkflowID          string
+	ReviewMode          string
+	ReviewAgentTargetID string
 }
 
 type ScheduleInput struct {
@@ -119,6 +130,61 @@ type AcknowledgeResult struct {
 	Replayed            bool
 }
 
+type CompleteInput struct {
+	WorkspaceID           string
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+	Decision              string
+	DisagreementReason    string
+}
+
+type CompleteResult struct {
+	ExecutionID   string
+	CheckpointID  string
+	GraphRevision int64
+	Decision      string
+	Replayed      bool
+}
+
+type ReviewerVerdictInput struct {
+	WorkspaceID           string
+	IssueID               string
+	ReviewID              string
+	ReviewSessionID       string
+	ReviewTurnID          string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+	Verdict               string
+	Summary               string
+}
+
+type ReviewerVerdictResult struct {
+	ReviewID string
+	Verdict  string
+	Replayed bool
+}
+
+type SwitchReviewToSelfInput struct {
+	WorkspaceID           string
+	IssueID               string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+	Reason                string
+	RequestedByActorID    string
+}
+
+type SwitchReviewToSelfResult struct {
+	ExecutionID string
+	ReviewID    string
+	ReviewMode  string
+	Replayed    bool
+}
+
 func (service Service) Materialize(
 	ctx context.Context,
 	input MaterializeInput,
@@ -136,6 +202,10 @@ func (service Service) Materialize(
 		input.WorkflowID,
 		input.Issue.SourceSessionID,
 		service.now(),
+		executionbiz.ReviewConfiguration{
+			Mode:          executionbiz.ReviewMode(input.ReviewMode),
+			AgentTargetID: input.ReviewAgentTargetID,
+		},
 	)
 	if err != nil {
 		return workspaceissues.Issue{}, nil, executionbiz.Aggregate{}, err

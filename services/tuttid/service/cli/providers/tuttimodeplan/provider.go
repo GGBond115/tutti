@@ -41,12 +41,20 @@ type IssueAcknowledgements interface {
 	) (tuttimodeexecutionservice.AcknowledgeResult, error)
 }
 
+type IssueCompletions interface {
+	Complete(
+		context.Context,
+		tuttimodeexecutionservice.CompleteInput,
+	) (tuttimodeexecutionservice.CompleteResult, error)
+}
+
 type Provider struct {
 	workspaces       cliservice.WorkspaceCatalog
 	plans            Plans
 	turns            ActiveTurns
 	schedules        IssueSchedules
 	acknowledgements IssueAcknowledgements
+	completions      IssueCompletions
 }
 
 func NewProvider(
@@ -75,9 +83,13 @@ func NewProviderWithExecution(
 	turns ActiveTurns,
 	schedules IssueSchedules,
 	acknowledgements IssueAcknowledgements,
+	completions ...IssueCompletions,
 ) Provider {
 	provider := NewProvider(workspaces, plans, turns, schedules)
 	provider.acknowledgements = acknowledgements
+	if len(completions) > 0 {
+		provider.completions = completions[0]
+	}
 	return provider
 }
 
@@ -95,7 +107,15 @@ func (p Provider) Commands() []cliservice.Command {
 		p.newGetCommand(),
 		p.newIssueScheduleCommand(),
 		p.newIssueAcknowledgeCommand(),
+		p.newIssueCompleteCommand(),
 	}
+}
+
+func (p Provider) requireCompletions() error {
+	if p.completions == nil {
+		return cliservice.ServiceUnavailableError("Tutti Mode execution service is unavailable", nil)
+	}
+	return nil
 }
 
 func (p Provider) requireSchedules() error {

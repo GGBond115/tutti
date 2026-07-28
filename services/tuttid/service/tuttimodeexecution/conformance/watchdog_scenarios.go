@@ -406,11 +406,14 @@ func runBusySourceOpenWakeAndReviewerSuppressDuplicateDelivery(
 			afterToggleWakes, wakeErr := driver.ListWakes(
 				ctx, fixture.WorkspaceID, issueID,
 			)
+			normalizedAfterToggle := afterToggle
+			normalizedAfterToggle.Reviews = beforeToggle.Reviews
 			if snapshotErr != nil || wakeErr != nil ||
-				!reflect.DeepEqual(afterToggle, beforeToggle) ||
+				len(afterToggle.Reviews) != len(beforeToggle.Reviews)+1 ||
+				!reflect.DeepEqual(normalizedAfterToggle, beforeToggle) ||
 				!reflect.DeepEqual(afterToggleWakes, beforeToggleWakes) {
 				return fmt.Errorf(
-					"reviewer toggle mutated durable state: before=%#v/%#v after=%#v/%#v snapshotErr=%v wakeErr=%v",
+					"reviewer activation mutated state outside its owned review row: before=%#v/%#v after=%#v/%#v snapshotErr=%v wakeErr=%v",
 					beforeToggle, beforeToggleWakes, afterToggle, afterToggleWakes,
 					snapshotErr, wakeErr,
 				)

@@ -38,6 +38,7 @@ import (
 	issuemanagercli "github.com/tutti-os/tutti/services/tuttid/service/cli/providers/issuemanager"
 	managedmodelscli "github.com/tutti-os/tutti/services/tuttid/service/cli/providers/managedmodels"
 	referencescli "github.com/tutti-os/tutti/services/tuttid/service/cli/providers/references"
+	tuttigoalreviewcli "github.com/tutti-os/tutti/services/tuttid/service/cli/providers/tuttigoalreview"
 	tuttimodeplancli "github.com/tutti-os/tutti/services/tuttid/service/cli/providers/tuttimodeplan"
 	workbenchappscli "github.com/tutti-os/tutti/services/tuttid/service/cli/providers/workbenchapps"
 	collabrunservice "github.com/tutti-os/tutti/services/tuttid/service/collabrun"
@@ -93,7 +94,7 @@ func buildDaemonAPI(
 	tuttiModeReviewerActivity, ok := store.(tuttimodeexecutionservice.ReviewerActivityReader)
 	if !ok {
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
-			"Tutti mode reviewer activity reader is unavailable",
+			"tutti mode reviewer activity reader is unavailable",
 		)
 	}
 	preferencesStore, _ := store.(workspacedata.PreferencesStore)
@@ -459,6 +460,10 @@ func buildDaemonAPI(
 		},
 		ReviewerActivity: tuttiModeReviewerActivity,
 	}
+	tuttiModeExecutions.ReviewerTargets = tuttiModeReviewerAgentAdapter{
+		Host:     agentHost,
+		Sessions: agentSessionService,
+	}
 	tuttiModeSourceActivity := tuttiModeSourceActivityAdapter{
 		Executions: tuttiModeExecutions,
 	}
@@ -544,6 +549,9 @@ func buildDaemonAPI(
 		tuttiModeMainWakeTurnObserver{
 			Settlements: tuttiModeExecutions,
 			Queue:       issueService.RunReconcileQueue,
+		},
+		tuttiModeReviewerTurnObserver{
+			Settlements: tuttiModeExecutions,
 		},
 	})
 	appCenterService := &workspaceservice.AppCenterService{
@@ -686,6 +694,10 @@ func buildDaemonAPI(
 			&issueService,
 			tuttiModeExecutions,
 		),
+		tuttigoalreviewcli.NewProvider(
+			tuttiModeExecutions,
+			agentSessionService,
+		),
 	}
 	if browserService != nil {
 		cliProviders = append(cliProviders, browsercli.NewProvider(workspaceService, browserService))
@@ -697,6 +709,9 @@ func buildDaemonAPI(
 	if err != nil {
 		agentRuntime.Close()
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("create cli registry: %w", err)
+	}
+	cliRegistry.AgentSessionCapabilities = agentSessionCLIProjectionResolver{
+		Sessions: agentSessionService,
 	}
 	cliRegistry.AppCommands = appCLIRegistry
 	agentRuntimePreparer.CommandCatalog = runtimePrepCommandCatalog{Catalog: cliRegistry}
@@ -780,6 +795,7 @@ func buildDaemonAPI(
 		IssueExecutionService:      issueExecutionCoordinator,
 		TuttiModePlanService:       tuttiModePlans,
 		TuttiModeActivationService: tuttiModeActivations,
+		TuttiModeGoalReviewService: tuttiModeExecutions,
 		CLIRegistry:                cliRegistry,
 		AnalyticsReporter:          analyticsReporter,
 		OnListenerReady: func() {

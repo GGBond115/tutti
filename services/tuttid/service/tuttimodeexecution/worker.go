@@ -134,6 +134,11 @@ func (worker Worker) sweep(ctx context.Context) error {
 	}
 	var sweepErrors []error
 	for _, workspaceID := range workspaceIDs {
+		if err := worker.Executions.RecoverReviewers(
+			ctx, workspaceID, worker.LeaseOwner,
+		); err != nil && !errors.Is(err, ErrServiceUnavailable) {
+			sweepErrors = append(sweepErrors, err)
+		}
 		if err := reportableMainWakeRecoveryError(worker.Executions.RunWatchdog(
 			ctx, workspaceID, worker.LeaseOwner,
 		)); err != nil {

@@ -17,7 +17,7 @@ const (
 	minimumMainWakeSendTimeBudget = time.Nanosecond
 )
 
-var ErrMainWakeDeliveryPending = errors.New("Tutti mode main wake delivery remains pending")
+var ErrMainWakeDeliveryPending = errors.New("tutti mode main wake delivery remains pending")
 
 type SourceSessionObservation struct {
 	Exists bool

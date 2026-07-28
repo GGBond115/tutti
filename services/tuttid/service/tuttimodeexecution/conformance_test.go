@@ -2,6 +2,7 @@ package tuttimodeexecution_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -20,19 +21,22 @@ import (
 )
 
 type sqliteConformanceDriver struct {
-	dbPath     string
-	store      *workspacedata.SQLiteStore
-	issues     workspaceservice.IssueManagerService
-	executions *tuttimodeexecutionservice.Service
-	plans      *tuttimodeplanservice.Service
-	revisions  workspacedata.WorkflowRevisionFiles
-	clock      *controlledClock
-	launcher   *recordingLauncher
-	renewals   *manualLeaseRenewalScheduler
-	canceller  *recordingRunCanceller
-	wakeTarget *recordingMainWakeTarget
-	wakeStore  *injectableWakeStore
-	cancelAuto context.CancelFunc
+	dbPath         string
+	store          *workspacedata.SQLiteStore
+	issues         workspaceservice.IssueManagerService
+	executions     *tuttimodeexecutionservice.Service
+	plans          *tuttimodeplanservice.Service
+	revisions      workspacedata.WorkflowRevisionFiles
+	clock          *controlledClock
+	launcher       *recordingLauncher
+	renewals       *manualLeaseRenewalScheduler
+	canceller      *recordingRunCanceller
+	wakeTarget     *recordingMainWakeTarget
+	wakeStore      *injectableWakeStore
+	reviewer       *recordingReviewerTarget
+	reviewMu       sync.Mutex
+	failReviewStep string
+	cancelAuto     context.CancelFunc
 }
 
 type controlledClock struct {
@@ -108,6 +112,87 @@ type recordingLauncher struct {
 	blockNext               bool
 	started                 chan struct{}
 	release                 chan struct{}
+}
+
+type recordingReviewerTarget struct {
+	mu                      sync.Mutex
+	calls                   int
+	failBeforeCanonical     bool
+	failAfterCanonical      bool
+	busyBySession           map[string]bool
+	canonicalByClientSubmit map[string]tuttimodeexecutionservice.ReviewerDelivery
+	capabilities            []string
+	onNextSend              func(
+		tuttimodeexecutionservice.ReviewerLaunch,
+		tuttimodeexecutionservice.ReviewerDelivery,
+	) error
+	settleNext bool
+}
+
+func (target *recordingReviewerTarget) ObserveReviewerSession(
+	_ context.Context,
+	_ string,
+	sessionID string,
+) (tuttimodeexecutionservice.ReviewerSessionObservation, error) {
+	target.mu.Lock()
+	defer target.mu.Unlock()
+	return tuttimodeexecutionservice.ReviewerSessionObservation{
+		Busy: target.busyBySession[sessionID],
+	}, nil
+}
+
+func (target *recordingReviewerTarget) SendReviewer(
+	_ context.Context,
+	launch tuttimodeexecutionservice.ReviewerLaunch,
+) (tuttimodeexecutionservice.ReviewerDelivery, error) {
+	target.mu.Lock()
+	target.calls++
+	target.capabilities = append([]string(nil), launch.Capabilities...)
+	if target.failBeforeCanonical {
+		target.failBeforeCanonical = false
+		target.mu.Unlock()
+		return tuttimodeexecutionservice.ReviewerDelivery{}, errors.New("injected reviewer failure before canonical Turn")
+	}
+	if target.canonicalByClientSubmit == nil {
+		target.canonicalByClientSubmit = make(map[string]tuttimodeexecutionservice.ReviewerDelivery)
+	}
+	delivery, found := target.canonicalByClientSubmit[launch.ClientSubmitID]
+	if !found {
+		delivery = tuttimodeexecutionservice.ReviewerDelivery{
+			CanonicalSessionID: launch.SessionID,
+			CanonicalTurnID:    fmt.Sprintf("review-turn-%d", len(target.canonicalByClientSubmit)+1),
+		}
+		target.canonicalByClientSubmit[launch.ClientSubmitID] = delivery
+	}
+	if target.settleNext {
+		target.settleNext = false
+		delivery.Settled = true
+		target.canonicalByClientSubmit[launch.ClientSubmitID] = delivery
+	}
+	onSend := target.onNextSend
+	target.onNextSend = nil
+	if target.failAfterCanonical {
+		target.failAfterCanonical = false
+		target.mu.Unlock()
+		return tuttimodeexecutionservice.ReviewerDelivery{}, errors.New("injected reviewer response loss after canonical Turn")
+	}
+	target.mu.Unlock()
+	if onSend != nil {
+		if err := onSend(launch, delivery); err != nil {
+			return tuttimodeexecutionservice.ReviewerDelivery{}, err
+		}
+	}
+	return delivery, nil
+}
+
+func (target *recordingReviewerTarget) ReadReviewer(
+	_ context.Context,
+	launch tuttimodeexecutionservice.ReviewerLaunch,
+) (tuttimodeexecutionservice.ReviewerDelivery, bool, error) {
+	target.mu.Lock()
+	defer target.mu.Unlock()
+	delivery, found := target.canonicalByClientSubmit[launch.ClientSubmitID]
+	return delivery, found, nil
 }
 
 func (launcher *recordingLauncher) Launch(_ context.Context, launch workspaceservice.IssueRunLaunch) error {
@@ -188,9 +273,13 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 	canceller := &recordingRunCanceller{}
 	wakeTarget := newRecordingMainWakeTarget()
 	wakeStore := newInjectableWakeStore(store)
+	reviewer := &recordingReviewerTarget{
+		busyBySession:           make(map[string]bool),
+		canonicalByClientSubmit: make(map[string]tuttimodeexecutionservice.ReviewerDelivery),
+	}
 	executions := &tuttimodeexecutionservice.Service{
 		Store: store, Wakes: wakeStore, MainWakeTargets: wakeTarget,
-		ReviewerActivity: store, Clock: clock.Now,
+		ReviewerActivity: store, ReviewerTargets: reviewer, Clock: clock.Now,
 	}
 	driver := &sqliteConformanceDriver{
 		dbPath: dbPath, store: store,
@@ -209,7 +298,9 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 		canceller:  canceller,
 		wakeTarget: wakeTarget,
 		wakeStore:  wakeStore,
+		reviewer:   reviewer,
 	}
+	executions.BeforeGoalReviewCommitStep = driver.beforeGoalReviewCommitStep
 	driver.plans = &tuttimodeplanservice.Service{
 		Store:             store,
 		Revisions:         driver.revisions,
@@ -253,6 +344,10 @@ func (driver *sqliteConformanceDriver) AcceptPlan(
 		Budget: tuttimodeplanservice.PlanBudget{
 			Mode:       firstNonEmptyConformance(input.BudgetMode, "auto"),
 			TokenLimit: input.TokenLimit,
+		},
+		Review: tuttimodeplanservice.PlanReview{
+			Mode:          input.ReviewMode,
+			AgentTargetID: input.ReviewAgentTargetID,
 		},
 		Tasks: tasks,
 	})
@@ -384,6 +479,33 @@ func (driver *sqliteConformanceDriver) GetSnapshot(
 			RunID: run.RunID, TaskID: run.TaskID, Status: string(run.Status),
 		})
 	}
+	reviews, err := driver.executions.ListGoalReviews(ctx, workspaceID, issueID)
+	if err != nil {
+		return tuttimodeexecutionconformance.Snapshot{}, err
+	}
+	audit, err := driver.executions.ListGoalReviewAudit(ctx, workspaceID, issueID)
+	if err != nil {
+		return tuttimodeexecutionconformance.Snapshot{}, err
+	}
+	snapshotReviews := make([]tuttimodeexecutionconformance.GoalReview, 0, len(reviews))
+	for _, review := range reviews {
+		snapshotReviews = append(snapshotReviews, tuttimodeexecutionconformance.GoalReview{
+			ReviewID: review.ID, CheckpointID: review.CheckpointID,
+			AgentTargetID: review.AgentTargetID, ClientSubmitID: review.ClientSubmitID,
+			SessionID: review.SessionID, TurnID: review.TurnID,
+			Status: string(review.Status), Verdict: string(review.Verdict),
+			Summary: review.Summary, FailureReason: review.FailureReason,
+			AttemptCount: review.AttemptCount, LeaseOwner: review.LeaseOwner,
+			LeaseExpiresAt: review.LeaseExpiresAt,
+		})
+	}
+	snapshotAudit := make([]tuttimodeexecutionconformance.ReviewAuditEntry, 0, len(audit))
+	for _, entry := range audit {
+		snapshotAudit = append(snapshotAudit, tuttimodeexecutionconformance.ReviewAuditEntry{
+			Kind: entry.Kind, ActorID: entry.ActorID, Reason: entry.Reason,
+			ReviewID: entry.ReviewID, CreatedAt: entry.CreatedAt,
+		})
+	}
 	return tuttimodeexecutionconformance.Snapshot{
 		Issue:       issue,
 		Tasks:       tasks,
@@ -391,6 +513,8 @@ func (driver *sqliteConformanceDriver) GetSnapshot(
 		Checkpoints: checkpoints,
 		RunCount:    runCount,
 		Runs:        snapshotRuns,
+		Reviews:     snapshotReviews,
+		Audit:       snapshotAudit,
 	}, nil
 }
 
@@ -592,6 +716,215 @@ func (driver *sqliteConformanceDriver) AcknowledgeReplica(
 	return driver.Acknowledge(ctx, input)
 }
 
+func (driver *sqliteConformanceDriver) Complete(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.CompleteInput,
+) (tuttimodeexecutionconformance.CompleteResult, error) {
+	result, err := driver.executions.Complete(ctx, tuttimodeexecutionservice.CompleteInput{
+		WorkspaceID: input.WorkspaceID, IssueID: input.IssueID,
+		SourceSessionID: input.SourceSessionID, CheckpointID: input.CheckpointID,
+		ExpectedGraphRevision: input.ExpectedGraphRevision,
+		RequestID:             input.RequestID, Decision: input.Decision,
+		DisagreementReason: input.DisagreementReason,
+	})
+	if err != nil {
+		return tuttimodeexecutionconformance.CompleteResult{}, err
+	}
+	return tuttimodeexecutionconformance.CompleteResult{
+		ExecutionID: result.ExecutionID, CheckpointID: result.CheckpointID,
+		GraphRevision: result.GraphRevision, Decision: result.Decision,
+		Replayed: result.Replayed,
+	}, nil
+}
+
+func (driver *sqliteConformanceDriver) CompleteReplica(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.CompleteInput,
+) (tuttimodeexecutionconformance.CompleteResult, error) {
+	return driver.Complete(ctx, input)
+}
+
+func (driver *sqliteConformanceDriver) SubmitReviewerVerdict(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.ReviewerVerdictInput,
+) (tuttimodeexecutionconformance.ReviewerVerdictResult, error) {
+	result, err := driver.executions.SubmitReviewerVerdict(ctx, tuttimodeexecutionservice.ReviewerVerdictInput{
+		WorkspaceID: input.WorkspaceID, IssueID: input.IssueID,
+		ReviewID: input.ReviewID, ReviewSessionID: input.ReviewSessionID,
+		ReviewTurnID: input.ReviewTurnID, CheckpointID: input.CheckpointID,
+		ExpectedGraphRevision: input.ExpectedGraphRevision,
+		RequestID:             input.RequestID, Verdict: input.Verdict, Summary: input.Summary,
+	})
+	if err != nil {
+		return tuttimodeexecutionconformance.ReviewerVerdictResult{}, err
+	}
+	return tuttimodeexecutionconformance.ReviewerVerdictResult{
+		ReviewID: result.ReviewID, Verdict: result.Verdict, Replayed: result.Replayed,
+	}, nil
+}
+
+func (driver *sqliteConformanceDriver) SubmitReviewerVerdictReplica(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.ReviewerVerdictInput,
+) (tuttimodeexecutionconformance.ReviewerVerdictResult, error) {
+	return driver.SubmitReviewerVerdict(ctx, input)
+}
+
+func (driver *sqliteConformanceDriver) SwitchReviewToSelf(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.SwitchReviewToSelfInput,
+) (tuttimodeexecutionconformance.SwitchReviewToSelfResult, error) {
+	result, err := driver.executions.SwitchReviewToSelf(ctx, tuttimodeexecutionservice.SwitchReviewToSelfInput{
+		WorkspaceID: input.WorkspaceID, IssueID: input.IssueID,
+		CheckpointID:          input.CheckpointID,
+		ExpectedGraphRevision: input.ExpectedGraphRevision,
+		RequestID:             input.RequestID, Reason: input.Reason,
+		RequestedByActorID: input.RequestedBy,
+	})
+	if err != nil {
+		return tuttimodeexecutionconformance.SwitchReviewToSelfResult{}, err
+	}
+	return tuttimodeexecutionconformance.SwitchReviewToSelfResult{
+		ExecutionID: result.ExecutionID, ReviewID: result.ReviewID,
+		Replayed: result.Replayed,
+	}, nil
+}
+
+func (driver *sqliteConformanceDriver) SwitchReviewToSelfReplica(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.SwitchReviewToSelfInput,
+) (tuttimodeexecutionconformance.SwitchReviewToSelfResult, error) {
+	return driver.SwitchReviewToSelf(ctx, input)
+}
+
+func (driver *sqliteConformanceDriver) ClaimReviewer(
+	ctx context.Context,
+	workspaceID string,
+	reviewID string,
+	leaseOwner string,
+	duration time.Duration,
+) (bool, error) {
+	return driver.executions.ClaimReviewer(
+		ctx, workspaceID, reviewID, leaseOwner, duration,
+	)
+}
+
+func (driver *sqliteConformanceDriver) RecoverReviewers(ctx context.Context, workspaceID string, owner string) error {
+	return driver.executions.RecoverReviewers(ctx, workspaceID, owner)
+}
+
+func (driver *sqliteConformanceDriver) StartupRecoverReviewers(ctx context.Context, workspaceID string, owner string) error {
+	replica := &tuttimodeexecutionservice.Service{
+		Store: driver.store, ReviewerTargets: driver.reviewer,
+		ReviewerActivity: driver.store, Clock: driver.clock.Now,
+		BeforeGoalReviewCommitStep: driver.beforeGoalReviewCommitStep,
+	}
+	return replica.RecoverReviewers(ctx, workspaceID, owner)
+}
+
+func (driver *sqliteConformanceDriver) SettleReviewerTurnWithoutVerdict(
+	ctx context.Context,
+	workspaceID string,
+	sessionID string,
+	turnID string,
+	finalText string,
+) error {
+	return driver.executions.SettleReviewerTurnWithoutVerdict(
+		ctx, workspaceID, sessionID, turnID, finalText,
+	)
+}
+
+func (driver *sqliteConformanceDriver) SetReviewerSessionBusy(sessionID string, busy bool) {
+	driver.reviewer.mu.Lock()
+	defer driver.reviewer.mu.Unlock()
+	driver.reviewer.busyBySession[sessionID] = busy
+}
+
+func (driver *sqliteConformanceDriver) FailNextGoalReviewCommit(step string) {
+	driver.reviewMu.Lock()
+	defer driver.reviewMu.Unlock()
+	driver.failReviewStep = step
+}
+
+func (driver *sqliteConformanceDriver) beforeGoalReviewCommitStep(step string) error {
+	driver.reviewMu.Lock()
+	defer driver.reviewMu.Unlock()
+	if driver.failReviewStep != step {
+		return nil
+	}
+	driver.failReviewStep = ""
+	return fmt.Errorf("injected Goal Review %s transaction failure", step)
+}
+
+func (driver *sqliteConformanceDriver) FailNextReviewerBeforeCanonical() {
+	driver.reviewer.mu.Lock()
+	defer driver.reviewer.mu.Unlock()
+	driver.reviewer.failBeforeCanonical = true
+}
+
+func (driver *sqliteConformanceDriver) FailNextReviewerAfterCanonical() {
+	driver.reviewer.mu.Lock()
+	defer driver.reviewer.mu.Unlock()
+	driver.reviewer.failAfterCanonical = true
+}
+
+func (driver *sqliteConformanceDriver) SubmitReviewerVerdictOnNextSend(
+	input tuttimodeexecutionconformance.ReviewerVerdictInput,
+) {
+	driver.reviewer.mu.Lock()
+	defer driver.reviewer.mu.Unlock()
+	driver.reviewer.onNextSend = func(
+		_ tuttimodeexecutionservice.ReviewerLaunch,
+		delivery tuttimodeexecutionservice.ReviewerDelivery,
+	) error {
+		_, err := driver.executions.SubmitReviewerVerdict(
+			context.Background(),
+			tuttimodeexecutionservice.ReviewerVerdictInput{
+				WorkspaceID: input.WorkspaceID, IssueID: input.IssueID,
+				ReviewID:              input.ReviewID,
+				ReviewSessionID:       delivery.CanonicalSessionID,
+				ReviewTurnID:          delivery.CanonicalTurnID,
+				CheckpointID:          input.CheckpointID,
+				ExpectedGraphRevision: input.ExpectedGraphRevision,
+				RequestID:             input.RequestID, Verdict: input.Verdict,
+				Summary: input.Summary,
+			},
+		)
+		return err
+	}
+}
+
+func (driver *sqliteConformanceDriver) SettleReviewerOnNextSend() {
+	driver.reviewer.mu.Lock()
+	defer driver.reviewer.mu.Unlock()
+	driver.reviewer.settleNext = true
+}
+
+func (driver *sqliteConformanceDriver) ReviewerLaunchCallCount() int {
+	driver.reviewer.mu.Lock()
+	defer driver.reviewer.mu.Unlock()
+	return driver.reviewer.calls
+}
+
+func (driver *sqliteConformanceDriver) ReviewerCanonicalTurnCount() int {
+	driver.reviewer.mu.Lock()
+	defer driver.reviewer.mu.Unlock()
+	return len(driver.reviewer.canonicalByClientSubmit)
+}
+
+func (driver *sqliteConformanceDriver) ReviewerCanonicalIdentity(clientSubmitID string) (string, string, bool) {
+	driver.reviewer.mu.Lock()
+	defer driver.reviewer.mu.Unlock()
+	delivery, found := driver.reviewer.canonicalByClientSubmit[clientSubmitID]
+	return delivery.CanonicalSessionID, delivery.CanonicalTurnID, found
+}
+
+func (driver *sqliteConformanceDriver) ReviewerCapabilities() []string {
+	driver.reviewer.mu.Lock()
+	defer driver.reviewer.mu.Unlock()
+	return append([]string(nil), driver.reviewer.capabilities...)
+}
+
 func (driver *sqliteConformanceDriver) SeedActiveRun(
 	ctx context.Context,
 	workspaceID string,
@@ -641,6 +974,9 @@ func (driver *sqliteConformanceDriver) GetExecutionByIssue(
 		GraphRevision:              aggregate.Execution.GraphRevision,
 		LastOrchestratorActivityAt: aggregate.Execution.LastOrchestratorActivityAt,
 		WatchdogDueAt:              aggregate.Execution.WatchdogDueAt,
+		ReviewMode:                 string(aggregate.Execution.ReviewMode),
+		ReviewAgentTargetID:        aggregate.Execution.ReviewAgentTargetID,
+		CompletedAt:                aggregate.Execution.CompletedAt,
 	}
 	checkpoints := make([]tuttimodeexecutionconformance.Checkpoint, 0, len(aggregate.Checkpoints))
 	for _, checkpoint := range aggregate.Checkpoints {
@@ -853,6 +1189,21 @@ func TestWakeSQLiteServiceConformance(t *testing.T) {
 
 func TestWatchdogSQLiteServiceConformance(t *testing.T) {
 	for _, scenario := range tuttimodeexecutionconformance.WatchdogCatalog() {
+		scenario := scenario
+		t.Run(scenario.Name, func(t *testing.T) {
+			if err := tuttimodeexecutionconformance.Run(
+				context.Background(),
+				newSQLiteConformanceDriver(t),
+				scenario,
+			); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestGoalReviewSQLiteServiceConformance(t *testing.T) {
+	for _, scenario := range tuttimodeexecutionconformance.ReviewCatalog() {
 		scenario := scenario
 		t.Run(scenario.Name, func(t *testing.T) {
 			if err := tuttimodeexecutionconformance.Run(

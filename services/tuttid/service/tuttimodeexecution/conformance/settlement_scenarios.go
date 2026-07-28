@@ -178,7 +178,7 @@ func runSettlementReviewCanScheduleDependentNextStep(ctx context.Context, driver
 	if taskByID(review.Tasks, "task-a").Status != "pending_acceptance" ||
 		taskByID(review.Tasks, "task-a").AcceptanceState == "user_accepted" ||
 		review.RunCount != 1 || driver.LauncherCallCount() != 1 {
-		return fmt.Errorf("A settlement auto-advanced = %#v", review)
+		return fmt.Errorf("a settlement auto-advanced = %#v", review)
 	}
 	next, err := driver.Schedule(ctx, ScheduleInput{
 		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
@@ -572,17 +572,17 @@ func runAcknowledgeFencesAndDrainsBacklogIntoGoalReview(ctx context.Context, dri
 	wantAcknowledgeReplay := first
 	wantAcknowledgeReplay.Replayed = true
 	if err != nil || !reflect.DeepEqual(replay, wantAcknowledgeReplay) {
-		return fmt.Errorf("Acknowledge replay = %#v, want %#v error=%v", replay, wantAcknowledgeReplay, err)
+		return fmt.Errorf("acknowledge replay = %#v, want %#v error=%v", replay, wantAcknowledgeReplay, err)
 	}
 	afterAcknowledgeReplay, replaySnapshotErr := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
 	if replaySnapshotErr != nil || !reflect.DeepEqual(afterAcknowledgeReplay, promoted) {
-		return fmt.Errorf("Acknowledge replay mutated snapshot: before=%#v after=%#v error=%v", promoted, afterAcknowledgeReplay, replaySnapshotErr)
+		return fmt.Errorf("acknowledge replay mutated snapshot: before=%#v after=%#v error=%v", promoted, afterAcknowledgeReplay, replaySnapshotErr)
 	}
 	conflict := base
 	conflict.CheckpointID = backlog.Checkpoints[2].CheckpointID
 	beforeConflict := promoted
 	if _, err := driver.AcknowledgeReplica(ctx, conflict); err == nil {
-		return fmt.Errorf("Acknowledge conflicting replay error = nil")
+		return fmt.Errorf("acknowledge conflicting replay error = nil")
 	}
 	afterConflict, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
 	if err != nil || !reflect.DeepEqual(afterConflict, beforeConflict) {
@@ -606,7 +606,7 @@ func runAcknowledgeFencesAndDrainsBacklogIntoGoalReview(ctx context.Context, dri
 		goalReview.Checkpoints[3].Status != "active" ||
 		taskByID(goalReview.Tasks, "task-c").Status != "completed" ||
 		taskByID(goalReview.Tasks, "task-c").AcceptanceState != "user_accepted" {
-		return fmt.Errorf("Goal Review transition = %#v error=%v", goalReview, err)
+		return fmt.Errorf("goal review transition = %#v error=%v", goalReview, err)
 	}
 	goalBefore := goalReview
 	goalInput := base
@@ -617,7 +617,7 @@ func runAcknowledgeFencesAndDrainsBacklogIntoGoalReview(ctx context.Context, dri
 	}
 	goalAfter, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
 	if err != nil || !reflect.DeepEqual(goalAfter, goalBefore) {
-		return fmt.Errorf("Goal Review rejection mutated state: before=%#v after=%#v error=%v", goalBefore, goalAfter, err)
+		return fmt.Errorf("goal review rejection mutated state: before=%#v after=%#v error=%v", goalBefore, goalAfter, err)
 	}
 	return nil
 }

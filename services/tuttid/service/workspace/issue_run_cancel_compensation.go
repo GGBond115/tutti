@@ -14,7 +14,7 @@ import (
 const issueRunCancelCompensationTimeout = 10 * time.Second
 
 var errIssueRunCancelCompensationRetryable = errors.New(
-	"Issue Run cancel compensation is retryable",
+	"issue Run cancel compensation is retryable",
 )
 
 func durableIssueRunCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -111,7 +111,7 @@ func (s IssueManagerService) recoverTuttiModeRunCancelCompensation(
 		)
 	}
 	if s.RunCancellationRequester == nil {
-		err := errors.New("Issue Run cancellation requester is unavailable")
+		err := errors.New("issue Run cancellation requester is unavailable")
 		if releaseErr := release(err.Error()); releaseErr != nil {
 			return errors.Join(err, releaseErr)
 		}

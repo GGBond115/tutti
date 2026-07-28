@@ -100,12 +100,12 @@ before delivery. Corrupt identity fails closed and is recorded as `failed`;
 immutable workspace/execution/checkpoint relationships are also protected by
 the wake table's composite foreign key. Main recovery lists only `main` targets;
 a separate integrity scan recognizes deterministic main-form identities whose
-target kind was corrupted. It must not claim or fail a legitimate prepared
-`reviewer` wake, which remains owned by the future reviewer worker. Only a lease
-owner whose lease is still live may enter `SendInput` or win the final dispatch
-CAS. The final CAS uses the injected product clock, so a lease that expires
-during the external call cannot be finalized by its stale owner. These fences
-make restart or replica races converge on one canonical Turn.
+target kind was corrupted. Goal Review delivery has its own durable review
+operation and lease and therefore is never claimed by the main-wake worker.
+Only a lease owner whose lease is still live may enter `SendInput` or win the
+final dispatch CAS. The final CAS uses the injected product clock, so a lease
+that expires during the external call cannot be finalized by its stale owner.
+These fences make restart or replica races converge on one canonical Turn.
 
 The exact Session/Turn settlement changes the wake to `turn_settled`, but does
 not resolve the checkpoint: only a correctly fenced checkpoint command may
@@ -154,10 +154,69 @@ silently losing its marker. Replays are harmless, and user messages whose
 excluded so an internal prompt cannot debounce itself. Direct observers remain
 low-latency wake hints only.
 
-Independent goal-review lifecycle remains outside the watchdog service. Its
-reader treats only durable `prepared` or `dispatched` review rows as active
+When every task is terminal, settlement atomically promotes an
+`all_tasks_terminal` checkpoint and changes the execution to
+`pending_goal_review`. Completion is never inferred from task count. In `self`
+mode the checkpoint owns a normal main wake. In `independent` mode the same
+transaction instead prepares one deterministic Goal Review operation:
+`reviewID=<checkpointID>:review`, a deterministic reviewer Session, and
+`clientSubmitID=tutti-goal-review:<reviewID>`.
+
+The independent reviewer runs in a hidden, strict read-only Session. Runtime
+preparation uses an exact capability allowlist: canonical Issue, Task, Run, and
+output reads plus the structured
+`tutti-goal-review.goal-review.verdict` integration capability. Tutti plan,
+Agent control, dynamic app commands, generic Issue/Task/Run mutation, browser,
+and computer capabilities are absent. That projection is part of the immutable
+Session runtime snapshot so a resumed reviewer receives the same command
+surface. The reviewer may inspect canonical evidence, then submit exactly one fenced
+`goal_satisfied`, `more_work_required`, or `inconclusive` verdict. A verdict
+must match the exact review Session, Turn, checkpoint, graph revision, and
+idempotency request.
+
+For session-aware CLI requests, the daemon resolves this projection from the
+canonical Agent Host Session and applies it to both capability listing and
+command invocation. A missing resolver, unreadable Session, or malformed
+snapshot fails closed. Codex runtime preparation also narrows automatic CLI
+approval from the whole binary to the exact projected command paths.
+
+This is a product-policy and defense-in-depth boundary, not hostile-process
+isolation. The local daemon bearer credential is shared with same-OS-user CLI
+clients, and a same-user process that can read the global listener-info file
+can deliberately make a sessionless request. Therefore the independent
+reviewer contract assumes the configured provider runtime follows Tutti's
+session environment and permission policy. It does not claim containment
+against a malicious reviewer that strips its environment or reads and reuses
+the global credential. Closing that stronger threat model requires a separate
+process/filesystem isolation design or removal of unscoped CLI credentials; it
+must not be inferred from command projection alone.
+
+Reviewer dispatch uses deterministic Session and submit identities with
+canonical Host lookup for response-loss recovery. Verdict admission may race
+the dispatch response: while the delivery lease is current it atomically binds
+the canonical Turn and records the verdict, and the later dispatch mark is an
+idempotent confirmation. Conversely, a Turn observed settled before that bind
+fails closed rather than losing a verdict-less settlement. A reviewer Turn
+that settles without the structured command also fails the review. Both a
+submitted verdict and a failed review atomically prepare the main wake, which
+includes the reviewer evidence.
+
+The independent verdict is advisory but cannot be silently ignored.
+`more_work_required` and `inconclusive` require an audited disagreement reason
+before the source Agent may complete. A failed independent review requires an
+explicit audited user action to switch the execution to `self`; there is no
+automatic fallback. The final `complete` command is accepted only from the
+source Session at the exact active Goal Review checkpoint and graph revision.
+It resolves that checkpoint and marks the execution `completed` atomically.
+Choosing more work instead changes and schedules the graph through the normal
+fenced plan commands.
+
+Goal Review lifecycle remains separate from watchdog delivery. Its activity
+reader treats only durable `prepared` or `dispatched` reviews as active
 duplicate-suppression ownership; the watchdog never creates or advances a
-review row.
+review row. The daemon worker performs reviewer recovery on its normal sweeps,
+including its first listener-ready sweep, so a restart cannot strand a prepared
+review.
 
 A leased wake is checked against its current durable due time immediately
 before `SendInput`. Source activity in the claim-to-send window therefore
@@ -218,6 +277,7 @@ facts remain small and direct:
 - Issue: `dispatchPaused`, execution policy, budget
 - Task: status, acceptance state, latest Run
 - Run: running or terminal outcome, Agent Session binding
+- Goal Review: mode, reviewer operation/lease, structured verdict, audit
 - Agent Host: Session and Turn lifecycle
 
 UI and orchestration phases are derived from those facts. New boolean flags
@@ -254,10 +314,11 @@ never reclaims an unexpired lease owned by another process.
 After listener readiness, a daemon-owned watchdog worker scans every current
 workspace on a short infrastructure cadence. Each scan materializes all
 expired nonterminal deadlines and then delegates delivery to the same durable
-main-wake recovery path. Startup requeues only expired leases, preserves live
-owners, and performs the same all-execution scan; terminal and orphaned
-executions never create a watchdog operation. The scan cadence is not a
-backoff policy—the persisted product interval remains exactly five minutes.
+main-wake recovery path, then recovers prepared independent Goal Reviews.
+Startup requeues only expired leases, preserves live owners, and performs the
+same all-execution scan; terminal and orphaned executions never create a
+watchdog operation. The scan cadence is not a backoff policy—the persisted
+product interval remains exactly five minutes.
 
 The former in-memory Tutti Issue completion notifier and dispatcher are not
 orchestration authorities. Checkpoint/wake rows plus canonical Agent Host
