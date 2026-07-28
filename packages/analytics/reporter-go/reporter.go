@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/google/uuid"
 )
 
@@ -112,6 +113,14 @@ func loadOrCreateDeviceID(stateDir string) (string, error) {
 	deviceIDCreationMu.Lock()
 	defer deviceIDCreationMu.Unlock()
 
+	identityLock := flock.New(path + ".lock")
+	if err := identityLock.Lock(); err != nil {
+		return "", fmt.Errorf("lock analytics device id: %w", err)
+	}
+	defer func() {
+		_ = identityLock.Unlock()
+	}()
+
 	if value, exists, err := readDeviceID(path); err != nil {
 		return "", err
 	} else if exists {
@@ -119,19 +128,18 @@ func loadOrCreateDeviceID(stateDir string) (string, error) {
 	}
 
 	deviceID := uuid.NewString()
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if os.IsExist(err) {
-		return waitForDeviceID(path)
-	}
+	file, err := os.CreateTemp(stateDir, ".device_id-*")
 	if err != nil {
-		return "", fmt.Errorf("write analytics device id: %w", err)
+		return "", fmt.Errorf("create analytics device id temp file: %w", err)
 	}
-	removeIncomplete := true
+	tempPath := file.Name()
 	defer func() {
-		if removeIncomplete {
-			_ = os.Remove(path)
-		}
+		_ = os.Remove(tempPath)
 	}()
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return "", fmt.Errorf("secure analytics device id temp file: %w", err)
+	}
 	if _, err := file.WriteString(deviceID + "\n"); err != nil {
 		_ = file.Close()
 		return "", fmt.Errorf("write analytics device id: %w", err)
@@ -143,7 +151,9 @@ func loadOrCreateDeviceID(stateDir string) (string, error) {
 	if err := file.Close(); err != nil {
 		return "", fmt.Errorf("close analytics device id: %w", err)
 	}
-	removeIncomplete = false
+	if err := os.Rename(tempPath, path); err != nil {
+		return "", fmt.Errorf("replace analytics device id: %w", err)
+	}
 	return deviceID, nil
 }
 
@@ -159,18 +169,6 @@ func readDeviceID(path string) (value string, exists bool, err error) {
 	}
 	value = strings.TrimSpace(string(content))
 	return value, value != "", nil
-}
-
-func waitForDeviceID(path string) (string, error) {
-	for range 20 {
-		if value, exists, err := readDeviceID(path); err != nil {
-			return "", err
-		} else if exists {
-			return value, nil
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	return "", fmt.Errorf("analytics device id file remained empty after concurrent creation")
 }
 
 type reporterCommon struct {

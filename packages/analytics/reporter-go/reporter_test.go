@@ -284,3 +284,26 @@ func TestLoadOrCreateDeviceIDIsStableUnderConcurrentCreation(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadOrCreateDeviceIDRepairsEmptyIdentityFile(t *testing.T) {
+	stateDir := t.TempDir()
+	path := filepath.Join(stateDir, "device_id")
+	if err := os.WriteFile(path, []byte(" \n"), 0o600); err != nil {
+		t.Fatalf("write empty device ID: %v", err)
+	}
+
+	deviceID, err := loadOrCreateDeviceID(stateDir)
+	if err != nil {
+		t.Fatalf("loadOrCreateDeviceID() error = %v", err)
+	}
+	if strings.TrimSpace(deviceID) == "" {
+		t.Fatal("loadOrCreateDeviceID() returned an empty identity")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read repaired device ID: %v", err)
+	}
+	if persisted := strings.TrimSpace(string(content)); persisted != deviceID {
+		t.Fatalf("persisted device ID = %q, want %q", persisted, deviceID)
+	}
+}
