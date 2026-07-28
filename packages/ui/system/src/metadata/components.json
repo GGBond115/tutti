@@ -82,6 +82,20 @@
       "migrationHints": []
     },
     {
+      "id": "quote-lined-icon",
+      "layer": "base",
+      "name": "QuoteIcon",
+      "export": "QuoteIcon",
+      "from": "@tutti-os/ui-system/icons",
+      "category": "icon",
+      "status": "stable",
+      "source": "src/icons/system-icons.tsx",
+      "description": "Source-derived Lucide quote icon.",
+      "useCases": ["Quote actions", "Quoted content affordances"],
+      "migrationHints": [],
+      "iconVariant": "lined"
+    },
+    {
       "id": "grip-vertical-icon",
       "layer": "base",
       "name": "GripVerticalIcon",
