@@ -2,6 +2,7 @@ import {
   agentActivitySessionMessageWindowFromDescendingPage,
   dispatchSessionMutation,
   type AgentActivityAdapter,
+  type AgentActivityComposerOptions,
   type AgentActivityGoalControlResult,
   type AgentActivityMessagePage,
   type AgentActivitySession,
@@ -916,7 +917,7 @@ export class WorkspaceAgentActivityService
     signal?: AbortSignal;
     settings?: Parameters<typeof normalizeComposerSettings>[0] | null;
     workspaceId: string;
-  }): Promise<unknown> {
+  }): Promise<AgentActivityComposerOptions> {
     const provider = resolveDesktopAgentGUIProvider(input.provider);
     const workspaceId = normalizeWorkspaceId(input.workspaceId);
     const entry = this.entry(workspaceId);

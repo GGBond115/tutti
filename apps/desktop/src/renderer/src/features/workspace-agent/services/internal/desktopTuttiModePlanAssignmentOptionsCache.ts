@@ -1,9 +1,11 @@
 import type {
-  AgentTarget,
+  ModelPlan,
   TuttidClient,
   WorkspaceAgent
 } from "@tutti-os/client-tuttid-ts";
+import type { AgentActivityComposerOptions } from "@tutti-os/agent-activity-core";
 import type {
+  AgentActivityRuntime,
   TuttiModePlanAssignmentAgentDetail,
   TuttiModePlanAssignmentAgentOption,
   TuttiModePlanAssignmentOptionsSource
@@ -12,10 +14,12 @@ import { resolveAgentGUIProviderCatalogIdentity } from "@tutti-os/agent-gui/prov
 
 type AssignmentOptionsTuttidClient = Pick<
   TuttidClient,
-  | "listAgentTargets"
-  | "listWorkspaceAgents"
-  | "getAgentProviderComposerOptions"
-  | "listModelPlans"
+  "listAgentTargets" | "listWorkspaceAgents" | "listModelPlans"
+>;
+
+type AssignmentComposerOptionsRuntime = Pick<
+  AgentActivityRuntime,
+  "getComposerOptions"
 >;
 
 interface AssignmentAgentDirectoryEntry {
@@ -168,6 +172,32 @@ function cacheEntryIsFresh(
   );
 }
 
+function assignmentAgentDetailFromComposerOptions(
+  composerOptions: AgentActivityComposerOptions,
+  compatiblePlans: readonly ModelPlan[]
+): TuttiModePlanAssignmentAgentDetail {
+  return {
+    models: composerOptions.models.map((option) => ({ ...option })),
+    modelPlans: compatiblePlans.map((plan) => ({
+      modelPlanId: plan.id,
+      label: plan.name,
+      models: plan.models.map((model) => ({
+        label: model.name.trim() || model.id,
+        value: model.id
+      }))
+    })),
+    permissionModes: (composerOptions.permissionConfig?.modes ?? []).map(
+      (mode) => ({
+        id: mode.id,
+        label: mode.label?.trim() || mode.id
+      })
+    ),
+    reasoningEfforts: composerOptions.reasoningEfforts.map((option) => ({
+      ...option
+    }))
+  };
+}
+
 async function requestCachedValue<TValue>(input: {
   cache: AssignmentOptionsQueryCache<TValue>;
   cacheKey: string;
@@ -214,6 +244,7 @@ function invalidateCachedValue<TValue>(input: {
 
 export function createDesktopTuttiModePlanAssignmentOptionsCache(
   tuttidClient: AssignmentOptionsTuttidClient,
+  composerOptionsRuntime: AssignmentComposerOptionsRuntime,
   now: () => number = Date.now
 ): DesktopTuttiModePlanAssignmentOptionsCache {
   const directoryCache = createAssignmentOptionsQueryCache<
@@ -347,10 +378,16 @@ export function createDesktopTuttiModePlanAssignmentOptionsCache(
         now,
         load: async () => {
           const [composerOptions, plans] = await Promise.all([
-            tuttidClient.getAgentProviderComposerOptions(
-              entry.provider as AgentTarget["provider"],
-              { agentTargetId: normalizedAgentTargetId }
-            ),
+            composerOptionsRuntime.getComposerOptions({
+              agentTargetId: normalizedAgentTargetId,
+              force:
+                detailCache.read(cacheKey) !== null ||
+                (detailGenerations.get(cacheKey) ?? 0) > 0
+                  ? true
+                  : undefined,
+              provider: entry.provider,
+              workspaceId: normalizedWorkspaceId
+            }),
             tuttidClient.listModelPlans(normalizedWorkspaceId).catch(() => null)
           ]);
           const planProtocol =
@@ -363,25 +400,10 @@ export function createDesktopTuttiModePlanAssignmentOptionsCache(
               planProtocol !== null &&
               plan.protocol === planProtocol
           );
-          return {
-            models: composerOptions.modelConfig.options.map(
-              (option) => option.value
-            ),
-            modelPlans: compatiblePlans.map((plan) => ({
-              modelPlanId: plan.id,
-              label: plan.name,
-              models: plan.models.map((model) => model.id)
-            })),
-            permissionModes: composerOptions.permissionConfig.modes.map(
-              (mode) => ({
-                id: mode.id,
-                label: mode.label
-              })
-            ),
-            reasoningEfforts: composerOptions.reasoningConfig.options.map(
-              (option) => option.value
-            )
-          };
+          return assignmentAgentDetailFromComposerOptions(
+            composerOptions,
+            compatiblePlans
+          );
         }
       });
     }

@@ -5,6 +5,7 @@ import type {
   WorkspaceWorkflowTaskAssignment
 } from "@tutti-os/client-tuttid-ts";
 import type {
+  AgentActivityRuntime,
   TuttiModePlanReviewSnapshot,
   TuttiModePlanReviewRuntime,
   TuttiModePlanTaskAssignmentInput,
@@ -14,6 +15,7 @@ import type {
 import { createDesktopTuttiModePlanAssignmentOptionsCache } from "./desktopTuttiModePlanAssignmentOptionsCache.ts";
 
 export interface DesktopTuttiModePlanReviewRuntimeInput {
+  composerOptionsRuntime: Pick<AgentActivityRuntime, "getComposerOptions">;
   tuttidClient: Pick<
     TuttidClient,
     | "listPendingWorkspaceWorkflows"
@@ -21,7 +23,6 @@ export interface DesktopTuttiModePlanReviewRuntimeInput {
     | "decideWorkspaceWorkflowCheckpoint"
     | "listAgentTargets"
     | "listWorkspaceAgents"
-    | "getAgentProviderComposerOptions"
     | "listModelPlans"
     | "getWorkspaceIssueDetail"
     | "getWorkspaceIssueTaskDetail"
@@ -148,7 +149,10 @@ export function createDesktopTuttiModePlanReviewRuntime(
 ): TuttiModePlanReviewRuntime {
   let connectionStarted = false;
   const assignmentOptionsCache =
-    createDesktopTuttiModePlanAssignmentOptionsCache(input.tuttidClient);
+    createDesktopTuttiModePlanAssignmentOptionsCache(
+      input.tuttidClient,
+      input.composerOptionsRuntime
+    );
 
   return {
     async listPending({ workspaceId, sourceSessionId }) {

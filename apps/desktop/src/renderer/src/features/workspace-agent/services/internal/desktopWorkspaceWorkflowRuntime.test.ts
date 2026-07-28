@@ -6,7 +6,30 @@ import type {
   WorkspaceWorkflowSnapshot,
   WorkspaceWorkflowUpdatedEventV1
 } from "@tutti-os/client-tuttid-ts";
-import { createDesktopTuttiModePlanReviewRuntime } from "./desktopWorkspaceWorkflowRuntime.ts";
+import {
+  createDesktopTuttiModePlanReviewRuntime as createRuntimeUnderTest,
+  type DesktopTuttiModePlanReviewRuntimeInput
+} from "./desktopWorkspaceWorkflowRuntime.ts";
+
+type TestRuntimeInput = Omit<
+  DesktopTuttiModePlanReviewRuntimeInput,
+  "composerOptionsRuntime"
+> & {
+  composerOptionsRuntime?: DesktopTuttiModePlanReviewRuntimeInput["composerOptionsRuntime"];
+};
+
+function createDesktopTuttiModePlanReviewRuntime(
+  input: TestRuntimeInput
+): ReturnType<typeof createRuntimeUnderTest> {
+  return createRuntimeUnderTest({
+    ...input,
+    composerOptionsRuntime: input.composerOptionsRuntime ?? {
+      async getComposerOptions() {
+        throw new Error("composer options are not used by this test");
+      }
+    }
+  });
+}
 
 interface AgentModelCatalogInvalidatedEvent {
   id: string;
@@ -237,6 +260,21 @@ test("desktop workflow runtime pulls pending state and forwards user decisions",
 
 test("desktop workflow runtime builds agent-scoped assignment option catalogs", async () => {
   const runtime = createDesktopTuttiModePlanReviewRuntime({
+    composerOptionsRuntime: {
+      async getComposerOptions(input) {
+        assert.equal(input.provider, "codex");
+        assert.equal(input.agentTargetId, "workspace-agent:openrouter");
+        return {
+          provider: "codex",
+          models: [{ value: "gpt-5.4", label: "GPT-5.4" }],
+          permissionConfig: {
+            configurable: true,
+            modes: [{ id: "auto", label: "Auto", semantic: "auto" }]
+          },
+          reasoningEfforts: [{ value: "high", label: "High" }]
+        } as never;
+      }
+    },
     tuttidClient: {
       async listPendingWorkspaceWorkflows() {
         return [];
@@ -349,27 +387,6 @@ test("desktop workflow runtime builds agent-scoped assignment option catalogs", 
           ]
         } as never;
       },
-      async getAgentProviderComposerOptions(
-        provider: string,
-        request?: { agentTargetId?: string }
-      ) {
-        assert.equal(provider, "codex");
-        assert.equal(request?.agentTargetId, "workspace-agent:openrouter");
-        return {
-          modelConfig: {
-            configurable: true,
-            options: [{ id: "gpt", value: "gpt-5.4", label: "GPT-5.4" }]
-          },
-          permissionConfig: {
-            configurable: true,
-            modes: [{ id: "auto", label: "Auto", semantic: "auto" }]
-          },
-          reasoningConfig: {
-            configurable: true,
-            options: [{ id: "high", value: "high", label: "High" }]
-          }
-        } as never;
-      },
       async listModelPlans(workspaceId: string) {
         assert.equal(workspaceId, "workspace-1");
         return {
@@ -419,12 +436,16 @@ test("desktop workflow runtime builds agent-scoped assignment option catalogs", 
     workspaceId: "workspace-1",
     agentTargetId: "workspace-agent:openrouter"
   });
-  assert.deepEqual(detail.models, ["gpt-5.4"]);
+  assert.deepEqual(detail.models, [{ value: "gpt-5.4", label: "GPT-5.4" }]);
   assert.deepEqual(detail.modelPlans, [
-    { modelPlanId: "plan-openai", label: "OpenAI plan", models: ["gpt-5.4"] }
+    {
+      modelPlanId: "plan-openai",
+      label: "OpenAI plan",
+      models: [{ value: "gpt-5.4", label: "GPT-5.4" }]
+    }
   ]);
   assert.deepEqual(detail.permissionModes, [{ id: "auto", label: "Auto" }]);
-  assert.deepEqual(detail.reasoningEfforts, ["high"]);
+  assert.deepEqual(detail.reasoningEfforts, [{ value: "high", label: "High" }]);
 
   const unknown = await runtime.assignmentOptions!.loadAgentOptions({
     workspaceId: "workspace-1",
@@ -509,57 +530,38 @@ function createRecordingEventStreamClient(): {
 test("assignment option cache deduplicates loads and fences invalidated results", async () => {
   const stream = createRecordingEventStreamClient();
   let composerLoadCount = 0;
+  const composerOptions = (model: string) => ({
+    provider: "codex",
+    models: [{ value: model, label: model.toUpperCase() }],
+    permissionConfig: {
+      configurable: true,
+      modes: [{ id: "auto", label: "Auto", semantic: "auto" }]
+    },
+    reasoningEfforts: [{ value: "high", label: "High" }]
+  });
   let resolveFirstComposerLoad:
-    | ((value: {
-        modelConfig: {
-          configurable: boolean;
-          options: { id: string; value: string; label: string }[];
-        };
-        permissionConfig: {
-          configurable: boolean;
-          modes: { id: string; label: string; semantic: string }[];
-        };
-        reasoningConfig: {
-          configurable: boolean;
-          options: { id: string; value: string; label: string }[];
-        };
-      }) => void)
+    | ((value: ReturnType<typeof composerOptions>) => void)
     | undefined;
   let markFirstComposerLoadStarted: (() => void) | undefined;
   const firstComposerLoadStarted = new Promise<void>((resolve) => {
     markFirstComposerLoadStarted = resolve;
   });
-  const firstComposerLoad = new Promise<{
-    modelConfig: {
-      configurable: boolean;
-      options: { id: string; value: string; label: string }[];
-    };
-    permissionConfig: {
-      configurable: boolean;
-      modes: { id: string; label: string; semantic: string }[];
-    };
-    reasoningConfig: {
-      configurable: boolean;
-      options: { id: string; value: string; label: string }[];
-    };
-  }>((resolve) => {
-    resolveFirstComposerLoad = resolve;
-  });
-  const composerOptions = (model: string) => ({
-    modelConfig: {
-      configurable: true,
-      options: [{ id: model, value: model, label: model }]
-    },
-    permissionConfig: {
-      configurable: true,
-      modes: [{ id: "auto", label: "Auto", semantic: "auto" }]
-    },
-    reasoningConfig: {
-      configurable: true,
-      options: [{ id: "high", value: "high", label: "High" }]
+  const firstComposerLoad = new Promise<ReturnType<typeof composerOptions>>(
+    (resolve) => {
+      resolveFirstComposerLoad = resolve;
     }
-  });
+  );
   const runtime = createDesktopTuttiModePlanReviewRuntime({
+    composerOptionsRuntime: {
+      async getComposerOptions() {
+        composerLoadCount += 1;
+        if (composerLoadCount === 1) {
+          markFirstComposerLoadStarted?.();
+          return firstComposerLoad as never;
+        }
+        return composerOptions(`gpt-${composerLoadCount}`) as never;
+      }
+    },
     tuttidClient: {
       async listAgentTargets() {
         return {
@@ -581,14 +583,6 @@ test("assignment option cache deduplicates loads and fences invalidated results"
       },
       async listWorkspaceAgents() {
         return { agents: [] } as never;
-      },
-      async getAgentProviderComposerOptions() {
-        composerLoadCount += 1;
-        if (composerLoadCount === 1) {
-          markFirstComposerLoadStarted?.();
-          return firstComposerLoad as never;
-        }
-        return composerOptions(`gpt-${composerLoadCount}`) as never;
       },
       async listModelPlans() {
         return { plans: [] } as never;
@@ -629,11 +623,11 @@ test("assignment option cache deduplicates loads and fences invalidated results"
   const results = await Promise.all([first, duplicate, afterInvalidation]);
   assert.equal(composerLoadCount, 2);
   for (const result of results) {
-    assert.deepEqual(result.models, ["gpt-2"]);
+    assert.deepEqual(result.models, [{ value: "gpt-2", label: "GPT-2" }]);
   }
   assert.deepEqual(
     runtime.assignmentOptions!.readAgentOptions?.(loadInput)?.models,
-    ["gpt-2"]
+    [{ value: "gpt-2", label: "GPT-2" }]
   );
   assert.deepEqual(invalidations, [
     {
@@ -658,12 +652,12 @@ test("assignment option cache deduplicates loads and fences invalidated results"
   });
   assert.deepEqual(
     runtime.assignmentOptions!.readAgentOptions?.(loadInput)?.models,
-    ["gpt-2"],
+    [{ value: "gpt-2", label: "GPT-2" }],
     "stale data remains readable while the refresh is pending"
   );
   assert.deepEqual(
     (await runtime.assignmentOptions!.loadAgentOptions(loadInput)).models,
-    ["gpt-3"]
+    [{ value: "gpt-3", label: "GPT-3" }]
   );
   assert.equal(composerLoadCount, 3);
 });

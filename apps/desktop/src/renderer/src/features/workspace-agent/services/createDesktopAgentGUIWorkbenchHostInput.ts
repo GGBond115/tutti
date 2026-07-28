@@ -316,6 +316,7 @@ export function createDesktopAgentGUIWorkbenchHostInput({
     },
     agentSessionReplayService,
     tuttiModePlanReviewRuntime: createDesktopTuttiModePlanReviewRuntime({
+      composerOptionsRuntime: agentActivityRuntime,
       tuttidClient,
       eventStreamClient
     }),

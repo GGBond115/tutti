@@ -6,6 +6,7 @@ test("assignment option cache refreshes directory and detail after the fresh TTL
   let now = 0;
   let directoryLoadCount = 0;
   let detailLoadCount = 0;
+  const forceValues: Array<boolean | undefined> = [];
   const cache = createDesktopTuttiModePlanAssignmentOptionsCache(
     {
       async listAgentTargets() {
@@ -30,26 +31,29 @@ test("assignment option cache refreshes directory and detail after the fresh TTL
       async listWorkspaceAgents() {
         return { agents: [] } as never;
       },
-      async getAgentProviderComposerOptions() {
+      async listModelPlans() {
+        return { plans: [] } as never;
+      }
+    },
+    {
+      async getComposerOptions(input) {
         detailLoadCount += 1;
-        const model = `gpt-${detailLoadCount}`;
+        forceValues.push(input.force);
+        const model = `composer-2.${detailLoadCount + 4}[fast=true]`;
         return {
-          modelConfig: {
-            configurable: true,
-            options: [{ id: model, value: model, label: model }]
-          },
+          provider: "cursor",
+          models: [
+            {
+              value: model,
+              label: `composer-2.${detailLoadCount + 4}`
+            }
+          ],
           permissionConfig: {
             configurable: true,
             modes: [{ id: "auto", label: "Auto", semantic: "auto" }]
           },
-          reasoningConfig: {
-            configurable: true,
-            options: [{ id: "high", value: "high", label: "High" }]
-          }
+          reasoningEfforts: [{ value: "high", label: "High" }]
         } as never;
-      },
-      async listModelPlans() {
-        return { plans: [] } as never;
       }
     },
     () => now
@@ -65,18 +69,29 @@ test("assignment option cache refreshes directory and detail after the fresh TTL
     agentTargetId: "codex"
   };
   assert.deepEqual((await cache.source.loadAgentOptions(detailInput)).models, [
-    "gpt-1"
+    {
+      value: "composer-2.5[fast=true]",
+      label: "composer-2.5"
+    }
   ]);
   assert.deepEqual((await cache.source.loadAgentOptions(detailInput)).models, [
-    "gpt-1"
+    {
+      value: "composer-2.5[fast=true]",
+      label: "composer-2.5"
+    }
   ]);
   assert.equal(detailLoadCount, 1);
+  assert.deepEqual(forceValues, [undefined]);
 
   now = 5 * 60_000 + 1;
   await cache.source.listAgents(directoryInput);
   assert.equal(directoryLoadCount, 2);
   assert.deepEqual((await cache.source.loadAgentOptions(detailInput)).models, [
-    "gpt-2"
+    {
+      value: "composer-2.6[fast=true]",
+      label: "composer-2.6"
+    }
   ]);
   assert.equal(detailLoadCount, 2);
+  assert.deepEqual(forceValues, [undefined, true]);
 });

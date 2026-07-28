@@ -1,4 +1,5 @@
 import { createContext, useContext, type JSX, type ReactNode } from "react";
+import type { AgentActivityComposerSettingOption } from "@tutti-os/agent-activity-core";
 import type { TuttiModePlanReviewSnapshot } from "./tuttiModePlan/tuttiModePlanPanelProjection";
 
 export interface TuttiModePlanReviewUpdate {
@@ -73,14 +74,14 @@ export interface TuttiModePlanAssignmentAgentOption {
 
 export interface TuttiModePlanAssignmentAgentDetail {
   /** Provider-native models usable without a model plan. */
-  models: readonly string[];
+  models: readonly AgentActivityComposerSettingOption[];
   modelPlans: readonly {
     modelPlanId: string;
     label: string;
-    models: readonly string[];
+    models: readonly AgentActivityComposerSettingOption[];
   }[];
   permissionModes: readonly { id: string; label: string }[];
-  reasoningEfforts: readonly string[];
+  reasoningEfforts: readonly AgentActivityComposerSettingOption[];
 }
 
 export interface TuttiPlanIssueTaskSnapshot {

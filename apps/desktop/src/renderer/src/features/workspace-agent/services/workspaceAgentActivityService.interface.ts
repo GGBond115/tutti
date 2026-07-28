@@ -5,6 +5,7 @@ import type {
 } from "@tutti-os/agent-gui";
 import type {
   AgentActivityCancelTurnInput,
+  AgentActivityComposerOptions,
   AgentActivityGoalControlInput,
   AgentActivityGoalControlResult,
   AgentActivityCreateSessionInput,
@@ -188,7 +189,7 @@ export interface IWorkspaceAgentActivityService {
     signal?: AbortSignal;
     settings?: AgentHostAgentSessionComposerSettings | null;
     workspaceId: string;
-  }): Promise<unknown>;
+  }): Promise<AgentActivityComposerOptions>;
   updateSessionSettings(input: {
     agentSessionId: string;
     settings: AgentHostAgentSessionComposerSettings;

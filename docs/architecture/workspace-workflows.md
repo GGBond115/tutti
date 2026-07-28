@@ -469,6 +469,15 @@ on the checkpoint. Accept, reject, and cancel post the decision to the daemon;
 rejection feedback is mandatory. Closing the app does not discard the review:
 the next mount reconstructs it from the daemon snapshot.
 
+Desktop assignment catalogs load provider composer options through the same
+activity-core target-scoped cache used by the main Composer. The workflow
+adapter may join that canonical snapshot with the workspace Agent directory and
+compatible model-plan catalog, but it does not create a second provider-options
+transport path. Model and reasoning entries retain their canonical
+`value`/`label` metadata end to end: task overrides persist the opaque provider
+`value`, while editable and read-only review surfaces render the `label` and
+fall back to the value only for an unknown historical selection.
+
 The Tutti activation additionally carries a session-scoped orchestration
 intensity (0-100, default 50). The composer's Tutti Budget popup persists it
 as a new activation revision; each turn's frozen snapshot copies it, and the

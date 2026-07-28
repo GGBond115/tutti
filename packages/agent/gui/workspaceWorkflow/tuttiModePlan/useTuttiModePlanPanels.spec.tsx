@@ -268,10 +268,10 @@ describe("useTuttiModePlanPanels", () => {
     );
     const loadAgentOptions = vi.fn(() =>
       Promise.resolve({
-        models: ["gpt-5.4"],
+        models: [{ value: "gpt-5.4", label: "GPT-5.4" }],
         modelPlans: [],
         permissionModes: [{ id: "auto", label: "Auto" }],
-        reasoningEfforts: ["high"]
+        reasoningEfforts: [{ value: "high", label: "High" }]
       })
     );
     const runtime: TuttiModePlanReviewRuntime = {
@@ -291,7 +291,7 @@ describe("useTuttiModePlanPanels", () => {
     expect(
       rendered.result.current.assignmentCatalog.optionsByAgentId["codex"]
         ?.models
-    ).toEqual(["gpt-5.4"]);
+    ).toEqual([{ value: "gpt-5.4", label: "GPT-5.4" }]);
 
     // "Request changes" -> agent revises -> revision_created invalidation.
     await act(async () => {
@@ -320,16 +320,16 @@ describe("useTuttiModePlanPanels", () => {
       | Parameters<TuttiModePlanReviewRuntime["subscribe"]>[1]
       | undefined;
     const refreshed = deferred<{
-      models: string[];
+      models: { value: string; label: string }[];
       modelPlans: never[];
       permissionModes: { id: string; label: string }[];
-      reasoningEfforts: string[];
+      reasoningEfforts: { value: string; label: string }[];
     }>();
     const stale = {
-      models: ["gpt-5.4"],
+      models: [{ value: "gpt-5.4", label: "GPT-5.4" }],
       modelPlans: [],
       permissionModes: [{ id: "auto", label: "Auto" }],
-      reasoningEfforts: ["high"]
+      reasoningEfforts: [{ value: "high", label: "High" }]
     };
     const loadAgentOptions = vi
       .fn()
@@ -355,7 +355,7 @@ describe("useTuttiModePlanPanels", () => {
     expect(
       rendered.result.current.assignmentCatalog.optionsByAgentId["codex"]
         ?.models
-    ).toEqual(["gpt-5.4"]);
+    ).toEqual([{ value: "gpt-5.4", label: "GPT-5.4" }]);
 
     act(() => {
       invalidationListener?.({
@@ -368,20 +368,20 @@ describe("useTuttiModePlanPanels", () => {
     expect(
       rendered.result.current.assignmentCatalog.optionsByAgentId["codex"]
         ?.models
-    ).toEqual(["gpt-5.4"]);
+    ).toEqual([{ value: "gpt-5.4", label: "GPT-5.4" }]);
 
     await act(async () =>
       refreshed.resolve({
-        models: ["gpt-5.5"],
+        models: [{ value: "gpt-5.5", label: "GPT-5.5" }],
         modelPlans: [],
         permissionModes: [{ id: "auto", label: "Auto" }],
-        reasoningEfforts: ["xhigh"]
+        reasoningEfforts: [{ value: "xhigh", label: "Extra high" }]
       })
     );
     expect(
       rendered.result.current.assignmentCatalog.optionsByAgentId["codex"]
         ?.models
-    ).toEqual(["gpt-5.5"]);
+    ).toEqual([{ value: "gpt-5.5", label: "GPT-5.5" }]);
   });
 
   it("retries a failed assignment directory load on the next refresh", async () => {

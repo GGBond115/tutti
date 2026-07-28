@@ -1701,7 +1701,7 @@ function createWorkspaceAgentActivityService(
       return {
         effectiveSettings: input.settings ?? {},
         provider: input.provider ?? "codex"
-      };
+      } as never;
     },
     async updateSessionSettings(input) {
       calls.push(

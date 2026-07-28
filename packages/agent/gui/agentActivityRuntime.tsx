@@ -8,6 +8,7 @@ import {
 import type {
   AgentActivityActivateSessionResult,
   AgentActivityCollaborationRun,
+  AgentActivityComposerOptions,
   AgentActivityGoalControlInput,
   AgentActivityGoalControlResult,
   AgentActivityCreateSessionInput,
@@ -317,7 +318,7 @@ export interface AgentActivityRuntime {
   ): Promise<AgentActivitySession>;
   getComposerOptions(
     input: AgentActivityRuntimeGetComposerOptionsInput
-  ): Promise<unknown>;
+  ): Promise<AgentActivityComposerOptions>;
   updateSessionSettings(
     input: AgentActivityRuntimeUpdateSessionSettingsInput
   ): Promise<AgentActivityRuntimeUpdateSessionSettingsResult>;
