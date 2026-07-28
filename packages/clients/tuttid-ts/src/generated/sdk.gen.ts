@@ -46,6 +46,9 @@ import type {
   CancelCollaborationRunData,
   CancelCollaborationRunErrors,
   CancelCollaborationRunResponses,
+  CancelTuttiModeExecutionData,
+  CancelTuttiModeExecutionErrors,
+  CancelTuttiModeExecutionResponses,
   CancelWorkspaceAgentTurnData,
   CancelWorkspaceAgentTurnErrors,
   CancelWorkspaceAgentTurnResponses,
@@ -3298,6 +3301,22 @@ export const getWorkspaceAgentSession = <ThrowOnError extends boolean = false>(
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}",
+    ...options
+  });
+
+/**
+ * Stop one active Tutti execution without archiving it
+ */
+export const cancelTuttiModeExecution = <ThrowOnError extends boolean = false>(
+  options: Options<CancelTuttiModeExecutionData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    CancelTuttiModeExecutionResponses,
+    CancelTuttiModeExecutionErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/tutti-executions/{issueID}/cancel-execution",
     ...options
   });
 

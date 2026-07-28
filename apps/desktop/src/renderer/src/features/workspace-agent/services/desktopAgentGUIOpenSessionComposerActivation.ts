@@ -9,6 +9,13 @@ export interface DesktopAgentGUIOpenSessionComposerRequest {
   sequence: number;
 }
 
+export function clearDesktopAgentGUIOpenSessionComposerRequest(
+  current: DesktopAgentGUIOpenSessionComposerRequest | null,
+  handledSequence: number
+): DesktopAgentGUIOpenSessionComposerRequest | null {
+  return current?.sequence === handledSequence ? null : current;
+}
+
 export function resolveDesktopAgentGUIOpenSessionComposerActivation(
   activation: WorkbenchHostActivation | null
 ): DesktopAgentGUIOpenSessionComposerRequest | null {

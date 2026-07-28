@@ -4186,6 +4186,39 @@ paths:
           $ref: "#/components/responses/WorkspaceOperationError"
         "503":
           $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/cancel-execution:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - name: issueID
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+    post:
+      operationId: cancelTuttiModeExecution
+      tags:
+        - workspace-workflow
+      summary: Stop one active Tutti execution without archiving it
+      responses:
+        "200":
+          description: Tutti execution stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelIssueManagerExecutionResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/WorkspaceIssueResourceNotFoundError"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowedError"
+        "502":
+          $ref: "#/components/responses/WorkspaceOperationError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
   /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive:
     parameters:
       - $ref: "#/components/parameters/WorkspaceID"

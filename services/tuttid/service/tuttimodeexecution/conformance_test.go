@@ -60,6 +60,12 @@ func (clock *controlledClock) Advance(duration time.Duration) {
 	clock.now = clock.now.Add(duration)
 }
 
+func (clock *controlledClock) Set(now time.Time) {
+	clock.mu.Lock()
+	defer clock.mu.Unlock()
+	clock.now = now
+}
+
 type manualLeaseRenewalScheduler struct {
 	mu         sync.Mutex
 	generation uint64
@@ -693,13 +699,27 @@ func (driver *sqliteConformanceDriver) TimeoutRun(
 	ctx context.Context,
 	input tuttimodeexecutionconformance.SettleRunInput,
 ) error {
-	driver.clock.Advance(46 * time.Minute)
+	detail, err := driver.issues.GetRunDetail(
+		ctx,
+		input.WorkspaceID,
+		input.IssueID,
+		input.TaskID,
+		input.RunID,
+	)
+	if err != nil {
+		return fmt.Errorf("get Run before timeout reconciliation: %w", err)
+	}
+	startedAtUnixMS := detail.Run.StartedAtUnixMS
+	if startedAtUnixMS <= 0 {
+		startedAtUnixMS = detail.Run.CreatedAtUnixMS
+	}
+	driver.clock.Set(time.UnixMilli(startedAtUnixMS).UTC().Add(46 * time.Minute))
 	coordinator := &workspaceservice.IssueExecutionCoordinator{
 		Issues:              &driver.issues,
 		RunSessionCanceller: driver.canceller,
 		Clock:               driver.clock.Now,
 	}
-	_, err := coordinator.ReconcileRunningRuns(ctx, input.WorkspaceID)
+	_, err = coordinator.ReconcileRunningRuns(ctx, input.WorkspaceID)
 	return err
 }
 

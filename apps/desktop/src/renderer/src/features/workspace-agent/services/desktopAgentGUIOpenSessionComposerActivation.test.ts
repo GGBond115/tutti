@@ -3,6 +3,7 @@ import test from "node:test";
 import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
 import { desktopAgentGUIOpenSessionActivationType } from "../desktopAgentGUINodeState.ts";
 import { consumeDesktopAgentGUIOpenSessionActivation } from "./desktopAgentGUIOpenSessionActivation.ts";
+import { clearDesktopAgentGUIOpenSessionComposerRequest } from "./desktopAgentGUIOpenSessionComposerActivation.ts";
 
 test("source-session activation selects the exact session and requests a non-submitting composer append", async () => {
   const selected: unknown[] = [];
@@ -70,4 +71,23 @@ test("source-session activation selects the exact session and requests a non-sub
     }
   ]);
   assert.deepEqual(submissions, []);
+});
+
+test("acknowledging an open-session append clears only that request", () => {
+  const current = {
+    agentSessionId: "source-session-9",
+    draftPrompt: "Modify the managed issue",
+    focusComposer: true,
+    mode: "append",
+    sequence: 19
+  } as const;
+
+  assert.equal(
+    clearDesktopAgentGUIOpenSessionComposerRequest(current, 19),
+    null
+  );
+  assert.equal(
+    clearDesktopAgentGUIOpenSessionComposerRequest(current, 20),
+    current
+  );
 });

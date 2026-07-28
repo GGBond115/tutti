@@ -16,6 +16,30 @@ type TuttiModeExecutionService interface {
 	GetArchive(context.Context, string, string) (executionbiz.ArchiveOperation, error)
 }
 
+func (api DaemonAPI) CancelTuttiModeExecution(
+	ctx context.Context,
+	request tuttigenerated.CancelTuttiModeExecutionRequestObject,
+) (tuttigenerated.CancelTuttiModeExecutionResponseObject, error) {
+	if api.IssueExecutionService == nil {
+		return tuttigenerated.CancelTuttiModeExecution503JSONResponse{
+			ServiceUnavailableErrorJSONResponse: serviceUnavailableError(
+				apierrors.ServiceUnavailable("issue_execution_service_unavailable"),
+			),
+		}, nil
+	}
+	canceled, err := api.IssueExecutionService.CancelTuttiModeIssueExecution(
+		ctx,
+		string(request.WorkspaceID),
+		string(request.IssueID),
+	)
+	if err != nil {
+		return cancelTuttiModeExecutionError(err), nil
+	}
+	return tuttigenerated.CancelTuttiModeExecution200JSONResponse{
+		CanceledRunCount: canceled,
+	}, nil
+}
+
 func (api DaemonAPI) ArchiveTuttiModeExecution(
 	ctx context.Context,
 	request tuttigenerated.ArchiveTuttiModeExecutionRequestObject,
@@ -45,6 +69,30 @@ func (api DaemonAPI) ArchiveTuttiModeExecution(
 	return tuttigenerated.ArchiveTuttiModeExecution200JSONResponse(
 		generatedTuttiModeArchiveOperation(operation),
 	), nil
+}
+
+func cancelTuttiModeExecutionError(
+	err error,
+) tuttigenerated.CancelTuttiModeExecutionResponseObject {
+	protocolErr := apierrors.Classify(err)
+	switch protocolErr.Code {
+	case tuttigenerated.InvalidRequest:
+		return tuttigenerated.CancelTuttiModeExecution400JSONResponse{
+			InvalidRequestErrorJSONResponse: invalidRequestError(protocolErr),
+		}
+	case tuttigenerated.WorkspaceIssueResourceNotFound:
+		return tuttigenerated.CancelTuttiModeExecution404JSONResponse{
+			WorkspaceIssueResourceNotFoundErrorJSONResponse: workspaceIssueResourceNotFoundError(protocolErr),
+		}
+	case tuttigenerated.ServiceUnavailable:
+		return tuttigenerated.CancelTuttiModeExecution503JSONResponse{
+			ServiceUnavailableErrorJSONResponse: serviceUnavailableError(protocolErr),
+		}
+	default:
+		return tuttigenerated.CancelTuttiModeExecution502JSONResponse{
+			WorkspaceOperationErrorJSONResponse: workspaceOperationError(protocolErr),
+		}
+	}
 }
 
 func (api DaemonAPI) GetTuttiModeArchiveOperation(

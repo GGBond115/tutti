@@ -159,6 +159,8 @@ export interface AgentGUINodeHostCapabilities {
 }
 
 export interface AgentGUINodeHostActions {
+  /** Confirms that AgentGUI applied one host-issued composer append request. */
+  onComposerAppendHandled?: (sequence: number) => void;
   onLinkAction?: (action: WorkspaceLinkAction) => void;
   onHandoffConversation?: (input: {
     agentTargetId?: string | null;
@@ -431,6 +433,7 @@ export function areAgentGUINodePropsEqual(
     pa.onAgentProviderLogin === na.onAgentProviderLogin &&
     pa.onAgentEnvPanelOpen === na.onAgentEnvPanelOpen &&
     pa.onAgentConfigMenuOpen === na.onAgentConfigMenuOpen &&
+    pa.onComposerAppendHandled === na.onComposerAppendHandled &&
     pa.onOpenConversationWindow === na.onOpenConversationWindow &&
     pa.onClose === na.onClose &&
     pa.onResize === na.onResize &&

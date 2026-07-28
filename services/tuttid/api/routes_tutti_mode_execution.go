@@ -11,6 +11,13 @@ func registerTuttiModeExecutionRoutes(
 	mux *http.ServeMux,
 	wrapper *tuttigenerated.ServerInterfaceWrapper,
 ) {
+	mux.HandleFunc("/v1/workspaces/{workspaceID}/tutti-executions/{issueID}/cancel-execution", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			types.WriteMethodNotAllowed(w)
+			return
+		}
+		wrapper.CancelTuttiModeExecution(w, r)
+	})
 	mux.HandleFunc("/v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:

@@ -1020,7 +1020,8 @@ function createDependenciesStub(): {
       listPendingWorkspaceWorkflows: fail,
       listWorkspaceWorkflows: fail,
       decideWorkspaceWorkflowCheckpoint: fail,
-      cancelWorkspaceIssueExecution: fail
+      cancelWorkspaceIssueExecution: fail,
+      cancelTuttiModeExecution: fail
     },
     platformApi: {
       homeDirectory: "/Users/local",

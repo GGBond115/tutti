@@ -926,6 +926,26 @@ test("plan issue source surfaces a durably failed create_issue operation", async
   });
 });
 
+test("plan issue source stops execution through the Tutti-specific contract", async () => {
+  const calls: unknown[] = [];
+  const runtime = createDesktopTuttiModePlanReviewRuntime({
+    tuttidClient: {
+      async cancelTuttiModeExecution(workspaceId: string, issueId: string) {
+        calls.push([workspaceId, issueId]);
+        return { canceledRunCount: 2 };
+      }
+    } as never,
+    eventStreamClient: null
+  });
+
+  await runtime.planIssues!.cancelExecution({
+    workspaceId: "workspace-1",
+    issueId: "tutti-mode-plan-1"
+  });
+
+  assert.deepEqual(calls, [["workspace-1", "tutti-mode-plan-1"]]);
+});
+
 test("desktop workflow runtime invalidates current scopes on every connected state", async () => {
   let connectionListener: ((state: string) => void) | undefined;
   const eventStreamClient = {

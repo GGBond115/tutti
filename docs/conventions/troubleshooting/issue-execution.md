@@ -47,4 +47,7 @@ Keep the generic guard intact. After proving the Issue has
 through `CancelTuttiModeIssueExecution`. That path durably pauses dispatch
 before it fans out exact Run Session cancellations. Validate with
 `TestCancelIssueExecutionForSourceSessionUsesManagedTuttiStopPath` plus the
-focused Issue execution cancellation tests.
+focused Issue execution cancellation tests. Desktop's embedded Tutti plan
+panel reaches the same managed path through
+`POST /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/cancel-execution`;
+it must not call the generic Issue Manager cancel endpoint.

@@ -698,6 +698,9 @@ type ServerInterface interface {
 	// Stop and durably archive one Tutti execution
 	// (POST /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive)
 	ArchiveTuttiModeExecution(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, issueID string)
+	// Stop one active Tutti execution without archiving it
+	// (POST /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/cancel-execution)
+	CancelTuttiModeExecution(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, issueID string)
 	// Get one workspace workbench snapshot
 	// (GET /v1/workspaces/{workspaceID}/workbench)
 	GetWorkspaceWorkbench(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID)
@@ -9817,6 +9820,47 @@ func (siw *ServerInterfaceWrapper) ArchiveTuttiModeExecution(w http.ResponseWrit
 	handler.ServeHTTP(w, r)
 }
 
+// CancelTuttiModeExecution operation middleware
+func (siw *ServerInterfaceWrapper) CancelTuttiModeExecution(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceID" -------------
+	var workspaceID WorkspaceID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "issueID" -------------
+	var issueID string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "issueID", r.PathValue("issueID"), &issueID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "issueID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelTuttiModeExecution(w, r, workspaceID, issueID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetWorkspaceWorkbench operation middleware
 func (siw *ServerInterfaceWrapper) GetWorkspaceWorkbench(w http.ResponseWriter, r *http.Request) {
 
@@ -10379,6 +10423,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/terminals/{terminalID}/ws", wrapper.AttachWorkspaceTerminal)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive", wrapper.GetTuttiModeArchiveOperation)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive", wrapper.ArchiveTuttiModeExecution)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/tutti-executions/{issueID}/cancel-execution", wrapper.CancelTuttiModeExecution)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/workbench", wrapper.GetWorkspaceWorkbench)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/workbench", wrapper.PutWorkspaceWorkbench)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/workflows", wrapper.ListWorkspaceWorkflows)
@@ -35033,6 +35078,123 @@ func (response ArchiveTuttiModeExecution503JSONResponse) VisitArchiveTuttiModeEx
 	return err
 }
 
+type CancelTuttiModeExecutionRequestObject struct {
+	WorkspaceID WorkspaceID `json:"workspaceID"`
+	IssueID     string      `json:"issueID"`
+}
+
+type CancelTuttiModeExecutionResponseObject interface {
+	VisitCancelTuttiModeExecutionResponse(w http.ResponseWriter) error
+}
+
+type CancelTuttiModeExecution200JSONResponse CancelIssueManagerExecutionResponse
+
+func (response CancelTuttiModeExecution200JSONResponse) VisitCancelTuttiModeExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelTuttiModeExecution400JSONResponse struct {
+	InvalidRequestErrorJSONResponse
+}
+
+func (response CancelTuttiModeExecution400JSONResponse) VisitCancelTuttiModeExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelTuttiModeExecution401JSONResponse struct{ UnauthorizedErrorJSONResponse }
+
+func (response CancelTuttiModeExecution401JSONResponse) VisitCancelTuttiModeExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelTuttiModeExecution404JSONResponse struct {
+	WorkspaceIssueResourceNotFoundErrorJSONResponse
+}
+
+func (response CancelTuttiModeExecution404JSONResponse) VisitCancelTuttiModeExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelTuttiModeExecution405JSONResponse struct {
+	MethodNotAllowedErrorJSONResponse
+}
+
+func (response CancelTuttiModeExecution405JSONResponse) VisitCancelTuttiModeExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelTuttiModeExecution502JSONResponse struct {
+	WorkspaceOperationErrorJSONResponse
+}
+
+func (response CancelTuttiModeExecution502JSONResponse) VisitCancelTuttiModeExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelTuttiModeExecution503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response CancelTuttiModeExecution503JSONResponse) VisitCancelTuttiModeExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetWorkspaceWorkbenchRequestObject struct {
 	WorkspaceID WorkspaceID `json:"workspaceID"`
 }
@@ -36313,6 +36475,9 @@ type StrictServerInterface interface {
 	// Stop and durably archive one Tutti execution
 	// (POST /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive)
 	ArchiveTuttiModeExecution(ctx context.Context, request ArchiveTuttiModeExecutionRequestObject) (ArchiveTuttiModeExecutionResponseObject, error)
+	// Stop one active Tutti execution without archiving it
+	// (POST /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/cancel-execution)
+	CancelTuttiModeExecution(ctx context.Context, request CancelTuttiModeExecutionRequestObject) (CancelTuttiModeExecutionResponseObject, error)
 	// Get one workspace workbench snapshot
 	// (GET /v1/workspaces/{workspaceID}/workbench)
 	GetWorkspaceWorkbench(ctx context.Context, request GetWorkspaceWorkbenchRequestObject) (GetWorkspaceWorkbenchResponseObject, error)
@@ -43248,6 +43413,33 @@ func (sh *strictHandler) ArchiveTuttiModeExecution(w http.ResponseWriter, r *htt
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ArchiveTuttiModeExecutionResponseObject); ok {
 		if err := validResponse.VisitArchiveTuttiModeExecutionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CancelTuttiModeExecution operation middleware
+func (sh *strictHandler) CancelTuttiModeExecution(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, issueID string) {
+	var request CancelTuttiModeExecutionRequestObject
+
+	request.WorkspaceID = workspaceID
+	request.IssueID = issueID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CancelTuttiModeExecution(ctx, request.(CancelTuttiModeExecutionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CancelTuttiModeExecution")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CancelTuttiModeExecutionResponseObject); ok {
+		if err := validResponse.VisitCancelTuttiModeExecutionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

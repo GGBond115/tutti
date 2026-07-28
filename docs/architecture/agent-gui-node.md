@@ -1287,6 +1287,13 @@ otherwise recover interactively.
 | `hostActions`      | host mutations, Workbench/window actions  |
 | `renderSlots`      | narrow product-neutral presentation slots |
 
+Host-issued `runtimeRequests.composerAppend` values are one-shot requests.
+AgentGUI waits until the exact requested Session is the active conversation,
+applies the append once, and then calls
+`hostActions.onComposerAppendHandled(sequence)`. A Host that retains routed
+requests must clear only the acknowledged sequence; it must not let an older
+open-Session append mask a newer request.
+
 Do not restore flat compatibility props or hide workflow inside a render slot.
 The optional `renderSlots.projectDirectoryPickerHeaderActions` slot is limited
 to host presentation beside the directory picker's title. AgentGUI owns picker

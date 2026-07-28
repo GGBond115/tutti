@@ -199,6 +199,7 @@ function renderNewConversationScenario(input: {
       workspaceId: "workspace-1"
     });
     const { createConversation } = useAgentGUIConversationHome({
+      activeConversationId: activeConversationIdRef.current,
       activeConversationIdRef,
       activePendingActivation: null,
       agentActivityRuntime,

@@ -571,6 +571,9 @@ function createTransportClient(
     },
     async cancelWorkspaceIssueExecution() {
       throw new Error("not used");
+    },
+    async cancelTuttiModeExecution() {
+      throw new Error("not used");
     }
   };
   return Object.assign(client, overrides);

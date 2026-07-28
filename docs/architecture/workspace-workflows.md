@@ -426,6 +426,9 @@ The schema-first HTTP surface is:
   authoritative snapshot;
 - `POST /v1/workspaces/{workspaceID}/workflows/{workflowID}/checkpoints/{checkpointID}/decision`
   records a user decision.
+- `POST /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/cancel-execution`
+  pauses dispatch and cancels active Runs for a proven Tutti-owned Issue
+  without archiving the execution;
 - `POST /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive`
   starts or replays the durable archive saga;
 - `GET /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive?operationId=...`

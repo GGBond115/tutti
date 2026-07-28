@@ -15,6 +15,39 @@ import (
 	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 )
 
+func TestCancelTuttiModeExecutionUsesManagedExecutionPath(t *testing.T) {
+	t.Parallel()
+	var receivedWorkspaceID string
+	var receivedIssueID string
+	service := issueExecutionAPIStub{
+		cancelTuttiMode: func(_ context.Context, workspaceID, issueID string) (int, error) {
+			receivedWorkspaceID = workspaceID
+			receivedIssueID = issueID
+			return 2, nil
+		},
+	}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{IssueExecutionService: service}))
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/workspaces/workspace-1/tutti-executions/issue-1/cancel-execution",
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	mux.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if receivedWorkspaceID != "workspace-1" || receivedIssueID != "issue-1" {
+		t.Fatalf("managed cancel received workspace=%q issue=%q", receivedWorkspaceID, receivedIssueID)
+	}
+	if strings.TrimSpace(response.Body.String()) != `{"canceledRunCount":2}` {
+		t.Fatalf("body=%s", response.Body.String())
+	}
+}
+
 func TestArchiveTuttiModeExecutionUsesAuthenticatedLocalOperator(t *testing.T) {
 	t.Parallel()
 	var received tuttimodeexecutionservice.ArchiveInput
@@ -186,6 +219,22 @@ func TestGetTuttiModeArchiveOperationRejectsOperationFromAnotherIssue(t *testing
 type tuttiModeExecutionAPIStub struct {
 	archive func(context.Context, tuttimodeexecutionservice.ArchiveInput) (executionbiz.ArchiveOperation, error)
 	get     func(context.Context, string, string) (executionbiz.ArchiveOperation, error)
+}
+
+type issueExecutionAPIStub struct {
+	cancelTuttiMode func(context.Context, string, string) (int, error)
+}
+
+func (issueExecutionAPIStub) CancelIssueExecution(
+	context.Context, string, string,
+) (int, error) {
+	panic("generic Issue cancellation must not serve the Tutti execution route")
+}
+
+func (stub issueExecutionAPIStub) CancelTuttiModeIssueExecution(
+	ctx context.Context, workspaceID, issueID string,
+) (int, error) {
+	return stub.cancelTuttiMode(ctx, workspaceID, issueID)
 }
 
 func (stub tuttiModeExecutionAPIStub) Archive(

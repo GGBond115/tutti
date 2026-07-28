@@ -10517,6 +10517,56 @@ export type GetWorkspaceAgentSessionResponses = {
 export type GetWorkspaceAgentSessionResponse =
   GetWorkspaceAgentSessionResponses[keyof GetWorkspaceAgentSessionResponses];
 
+export type CancelTuttiModeExecutionData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    issueID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/tutti-executions/{issueID}/cancel-execution";
+};
+
+export type CancelTuttiModeExecutionErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace issue-manager resource was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type CancelTuttiModeExecutionError =
+  CancelTuttiModeExecutionErrors[keyof CancelTuttiModeExecutionErrors];
+
+export type CancelTuttiModeExecutionResponses = {
+  /**
+   * Tutti execution stopped
+   */
+  200: CancelIssueManagerExecutionResponse;
+};
+
+export type CancelTuttiModeExecutionResponse =
+  CancelTuttiModeExecutionResponses[keyof CancelTuttiModeExecutionResponses];
+
 export type GetTuttiModeArchiveOperationData = {
   body?: never;
   path: {

@@ -232,6 +232,35 @@ test("generated tuttid client surfaces structured protocol errors", async () => 
   } satisfies ApiErrorResponse);
 });
 
+test("shared tuttid client calls the managed Tutti execution cancel route", async () => {
+  let requestMethod = "";
+  let requestPath = "";
+  const client = createTuttidClient({
+    fetch: async (input, init) => {
+      const request =
+        input instanceof Request ? input : new Request(input, init);
+      requestMethod = request.method;
+      requestPath = new URL(request.url).pathname;
+      return new Response(JSON.stringify({ canceledRunCount: 2 }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+  });
+
+  const response = await client.cancelTuttiModeExecution(
+    "workspace-1",
+    "issue-1"
+  );
+
+  assert.equal(requestMethod, "POST");
+  assert.equal(
+    requestPath,
+    "/v1/workspaces/workspace-1/tutti-executions/issue-1/cancel-execution"
+  );
+  assert.deepEqual(response, { canceledRunCount: 2 });
+});
+
 test("shared tuttid client unwraps workspace list responses", async () => {
   const client = createTuttidClient({
     fetch: async () =>

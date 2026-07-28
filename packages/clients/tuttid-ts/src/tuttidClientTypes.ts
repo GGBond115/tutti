@@ -836,6 +836,10 @@ export interface TuttidClient
     workspaceID: string,
     issueID: string
   ): Promise<CancelIssueManagerExecutionResponse>;
+  cancelTuttiModeExecution(
+    workspaceID: string,
+    issueID: string
+  ): Promise<CancelIssueManagerExecutionResponse>;
   putWorkspaceWorkbench(
     workspaceID: string,
     snapshot: WorkbenchSnapshot
