@@ -24,7 +24,10 @@ import type {
   IssueManagerCreateTopicInput,
   IssueManagerUpdateTopicInput
 } from "../../../../contracts/index.ts";
-import type { IssueManagerFeature } from "../../../../core/index.ts";
+import {
+  buildWorkspaceIssueMentionHref,
+  type IssueManagerFeature
+} from "../../../../core/index.ts";
 import type { IssueManagerI18nRuntime } from "../../../../i18n/issueManagerI18n.ts";
 import type { IssueManagerControllerService } from "../../../../services/issueManagerControllerService.interface.ts";
 import {
@@ -356,7 +359,12 @@ export function useIssueManagerController({
       }
       const task = taskDetail.value?.task;
       const label = task?.title.trim() || issue.title.trim() || issue.issueId;
-      const href = `mention://workspace-issue/${encodeURIComponent(issue.issueId)}?workspaceId=${encodeURIComponent(workspaceId)}&topicId=${encodeURIComponent(issue.topicId)}${task ? `&taskId=${encodeURIComponent(task.taskId)}` : ""}`;
+      const href = buildWorkspaceIssueMentionHref({
+        issueId: issue.issueId,
+        workspaceId,
+        topicId: issue.topicId,
+        ...(task ? { taskId: task.taskId } : {})
+      });
       const reference = `[${label.replaceAll("[", "\\[").replaceAll("]", "\\]")}](${href})`;
       try {
         await feature.managedIssueActions.openSourceSession({

@@ -7,6 +7,7 @@ import {
   RotateCcw,
   X
 } from "lucide-react";
+import { Button } from "@tutti-os/ui-system";
 import { TaskIcon } from "@tutti-os/ui-system/icons";
 import {
   TuttiModePlanPanel,
@@ -304,8 +305,10 @@ export function TuttiWorkflowDock({
         </button>
       </>
     ) : reviewFailure ? (
-      <button
+      <Button
         type="button"
+        variant="secondary"
+        size="sm"
         disabled={
           !onSwitchToSelfReview ||
           selfReviewState === "switching" ||
@@ -327,7 +330,7 @@ export function TuttiWorkflowDock({
           : selfReviewState === "enabled"
             ? labels.selfReviewEnabled
             : labels.switchToSelfReview}
-      </button>
+      </Button>
     ) : phase.kind === "error" && phase.retryable ? (
       <button
         type="button"
