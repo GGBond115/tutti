@@ -1,9 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import {
-  createEmptyAgentActivitySnapshot,
-  normalizeAgentActivitySession
-} from "@tutti-os/agent-activity-core";
+import { normalizeAgentActivitySession } from "@tutti-os/agent-activity-core";
 import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
 import { createTestAgentSessionEngine } from "../../../shared/testing/createTestAgentSessionEngine";
 import type { AgentGUIConversationSummary } from "../model/agentGuiConversationModel";
@@ -28,7 +25,12 @@ function conversationDetailInput(
     activeQueuedPromptInFlight: null,
     activeQueuedPrompts: [],
     activeQueueStatus: "active",
-    agentActivitySnapshot: createEmptyAgentActivitySnapshot("workspace-1"),
+    activeSessionFamily: {
+      childSessions: [],
+      messagesBySessionId: {},
+      pendingInteractions: [],
+      rootSession: null
+    },
     activeSessionReconcileError: null,
     activeSessionView: null,
     activeTimelineItems: [],
@@ -150,9 +152,11 @@ describe("useAgentGUIConversationDetail", () => {
       useAgentGUIConversationDetail(
         conversationDetailInput({
           activeConversation: conversationSummary(),
-          agentActivitySnapshot: {
-            ...createEmptyAgentActivitySnapshot("workspace-1"),
-            sessions: [session]
+          activeSessionFamily: {
+            childSessions: [],
+            messagesBySessionId: {},
+            pendingInteractions: [],
+            rootSession: session
           }
         })
       )
@@ -190,17 +194,17 @@ describe("useAgentGUIConversationDetail", () => {
         useAgentGUIConversationDetail(
           conversationDetailInput({
             activeConversation: conversationSummary(),
-            agentActivitySnapshot: {
-              ...createEmptyAgentActivitySnapshot("workspace-1"),
-              sessions: [
-                normalizeAgentActivitySession({
-                  ...baseSession,
-                  lifecycleCapabilities: {
-                    fork: false,
-                    forkThroughTurn
-                  }
-                })
-              ]
+            activeSessionFamily: {
+              childSessions: [],
+              messagesBySessionId: {},
+              pendingInteractions: [],
+              rootSession: normalizeAgentActivitySession({
+                ...baseSession,
+                lifecycleCapabilities: {
+                  fork: false,
+                  forkThroughTurn
+                }
+              })
             }
           })
         ),

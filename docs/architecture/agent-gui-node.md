@@ -474,6 +474,14 @@ disable submission, but must not change editor editability.
 ### 4.1 Read/write rules
 
 - reads use exported selectors or memoized `AgentActivitySnapshot`
+- an engine subscriber notification is an invalidation signal, not a render
+  command. Concurrent AgentGUI surfaces subscribe through exact
+  Session-family or target selectors; a selector preserves its selected
+  reference when another root Session changes
+- whole-workspace `AgentActivitySnapshot` projections remain valid for bounded
+  aggregate reads, but do not belong in high-frequency AgentGUI render paths.
+  Event callbacks that need current canonical data read the engine snapshot at
+  event time instead of retaining a whole-workspace render snapshot
 - lifecycle writes use typed intents/commands
 - consumers do not read reducer maps directly
 - consumers do not create canonical session/message mirrors
