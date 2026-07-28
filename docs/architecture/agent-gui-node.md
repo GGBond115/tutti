@@ -242,6 +242,12 @@ Provider-native subagents use child Sessions:
 - `parentToolCallId`: delegation card correlation
 - child messages, Turns, and Interactions retain the child owner
 
+A provider adapter must normalize explicit spawn evidence into both the parent
+delegation call and the canonical child Session/Turn. AgentGUI attaches the
+child lane only through the immutable `parentToolCallId`; it must not parse
+provider-native spawn events, invent a missing parent card, or create a
+presentation-only child lane.
+
 ### 3.2 Turn
 
 One user submission or provider continuation belongs to one canonical Turn.

@@ -2683,38 +2683,62 @@ func TestCodexAppServerAdapterCancelInterruptsLateUnownedRootTurn(t *testing.T) 
 }
 
 func TestCodexAppServerAdapterCancelInterruptsLateChildWithoutCreatingSession(t *testing.T) {
-	adapter, transport, session := startedAppServerAdapter(t)
-	adapter.markRootTurnCanceled(session.AgentSessionID, "root-turn-1")
-	appSession := adapter.getSession(session.AgentSessionID)
-
-	reduction := newCodexAppServerReducer(adapter).ReduceNotification(appSession.client, session, "root-turn-1", acpMessage{
-		Method: appServerNotifyItemCompleted,
-		Params: mustJSONRawMessage(t, map[string]any{
-			"threadId": session.ProviderSessionID,
-			"turnId":   "provider-turn-1",
-			"item": map[string]any{
+	items := []struct {
+		name string
+		item map[string]any
+	}{
+		{
+			name: "collaboration tool call",
+			item: map[string]any{
 				"type":              "collabAgentToolCall",
 				"id":                "spawn-after-cancel",
 				"tool":              "spawnAgent",
 				"status":            "completed",
 				"receiverThreadIds": []any{"child-after-cancel"},
 			},
-		}),
-	}, newACPTurnNormalizer(), nil)
-	if len(reduction.Events) != 0 {
-		t.Fatalf("late child events = %#v, want none", reduction.Events)
+		},
+		{
+			name: "sub-agent activity",
+			item: map[string]any{
+				"type":          "subAgentActivity",
+				"id":            "spawn-after-cancel",
+				"agentThreadId": "child-after-cancel",
+				"agentPath":     "/root/reviewer",
+				"kind":          "started",
+			},
+		},
 	}
-	if _, ok := adapter.appServerChildThread(session.AgentSessionID, "child-after-cancel"); ok {
-		t.Fatal("late child received a canonical child session context")
-	}
-	waitForCondition(t, func() bool {
-		for _, request := range appServerRequestParamsList(t, transport.conn, appServerMethodTurnInterrupt) {
-			if asString(request["threadId"]) == "child-after-cancel" {
-				return true
+
+	for _, test := range items {
+		t.Run(test.name, func(t *testing.T) {
+			adapter, transport, session := startedAppServerAdapter(t)
+			adapter.markRootTurnCanceled(session.AgentSessionID, "root-turn-1")
+			appSession := adapter.getSession(session.AgentSessionID)
+
+			reduction := newCodexAppServerReducer(adapter).ReduceNotification(appSession.client, session, "root-turn-1", acpMessage{
+				Method: appServerNotifyItemCompleted,
+				Params: mustJSONRawMessage(t, map[string]any{
+					"threadId": session.ProviderSessionID,
+					"turnId":   "provider-turn-1",
+					"item":     test.item,
+				}),
+			}, newACPTurnNormalizer(), nil)
+			if len(reduction.Events) != 0 {
+				t.Fatalf("late child events = %#v, want none", reduction.Events)
 			}
-		}
-		return false
-	})
+			if _, ok := adapter.appServerChildThread(session.AgentSessionID, "child-after-cancel"); ok {
+				t.Fatal("late child received a canonical child session context")
+			}
+			waitForCondition(t, func() bool {
+				for _, request := range appServerRequestParamsList(t, transport.conn, appServerMethodTurnInterrupt) {
+					if asString(request["threadId"]) == "child-after-cancel" {
+						return true
+					}
+				}
+				return false
+			})
+		})
+	}
 }
 
 func TestCodexAppServerAdapterNewCanonicalTurnClearsCancelBoundary(t *testing.T) {
