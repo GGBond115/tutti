@@ -36,7 +36,7 @@ func (a *ClaudeCodeSDKAdapter) ForkCapabilities(
 	turnIDs, ok := claudeSDKPayloadStringList(event.Payload, "providerTurnIds")
 	if !ok {
 		return SessionForkCapabilities{}, errors.New(
-			"Claude SDK fork inspection returned invalid provider turn identities",
+			"claude SDK fork inspection returned invalid provider turn identities",
 		)
 	}
 	return SessionForkCapabilities{
@@ -95,7 +95,7 @@ func (a *ClaudeCodeSDKAdapter) Fork(
 	if !ok {
 		result.DeliveryDisposition = SessionForkDeliveryUnknown
 		return result, errors.New(
-			"Claude SDK fork returned invalid target provider turn identities",
+			"claude SDK fork returned invalid target provider turn identities",
 		)
 	}
 	result.ProviderSessionID = payloadString(event.Payload, "providerSessionId")
@@ -110,7 +110,7 @@ func (a *ClaudeCodeSDKAdapter) Fork(
 		result.StateBindingReceipt == "" ||
 		result.DeliveryDisposition != SessionForkDeliveryAccepted {
 		result.DeliveryDisposition = SessionForkDeliveryUnknown
-		return result, errors.New("Claude SDK fork returned incomplete verification evidence")
+		return result, errors.New("claude SDK fork returned incomplete verification evidence")
 	}
 	return result, nil
 }
