@@ -268,7 +268,7 @@ conjunction:
 provider registry declares native Session Fork
   AND the exact adapter/version attests throughTurn support
   AND product-owned Session context can be transferred safely
-  AND that provider explicitly registers target runtime state binding
+  AND provider state has an explicit host-copy or provider-owned binding mode
 ```
 
 Only that conjunction projects `lifecycleCapabilities.forkThroughTurn=true`.
@@ -276,8 +276,10 @@ The Codex adapter reads the initialized version from an exact live process when
 one exists. For a historical, detached, or newly forked Session it performs one
 cached short-lived initialize probe against the same resolved adapter/runtime;
 that probe neither resumes the provider thread nor creates a canonical Turn.
-AgentGUI renders one action in each settled root Turn footer and hides it
-otherwise. Boundary availability is deliberately separate: execution
+AgentGUI renders an action only when the capability response contains a known
+canonical Turn-id allowlist and the settled root Turn is in that list; an
+unknown or absent list is fail-closed. Boundary availability is deliberately
+separate: execution
 transactionally rejects an unverified prefix, descendant lane, or
 session-scoped local attachment. This prevents a later unavailable Turn from
 hiding an earlier valid Turn while preserving a fail-closed commit.
@@ -308,15 +310,24 @@ and canonical state are being matched. The provider call begins only after the
 checkpoints and the local clone use a detached bounded context so an HTTP
 disconnect cannot lose the child identity.
 
-Before `provider_accepted`, Host delegates provider-local persistence binding
-to a product adapter. Codex validates every JSONL record plus the accepted
+Before `provider_accepted`, Host requires typed binding evidence. `host_copy`
+requires a configured binder that explicitly supports the source provider;
+otherwise capability is unavailable and a direct request is rejected before
+provider dispatch. A binder failure after provider acceptance is `unknown`,
+never an implicit success. Codex validates every JSONL record plus the accepted
 child `session_meta.id`, verifies source/target size and SHA-256, and atomically
 copies only that rollout from the source run-scoped `CODEX_HOME` into the
 target run-scoped `CODEX_HOME`. File and directory fsync make the rename
 crash-durable before the Host checkpoint where directory fsync is supported;
 Windows retains file fsync plus atomic rename because its portable filesystem
 API does not expose directory fsync. The target therefore owns resumable
-provider state independently of source cleanup.
+provider state independently of source cleanup. Claude uses `provider_owned`:
+the official SDK writes the child into its shared session store, and the
+short-lived sidecar proves it is independently readable with `getSessionInfo`
+and `getSessionMessages`. It returns a verification receipt plus the
+source-to-child provider Turn UUID mapping. Store persists that evidence at
+`provider_accepted` and rewrites cloned Turns to the child UUIDs in the
+canonical commit.
 Binding failure becomes `unknown`; Host neither commits the canonical child nor
 reissues `thread/fork`.
 
@@ -474,6 +485,14 @@ disable submission, but must not change editor editability.
 ### 4.1 Read/write rules
 
 - reads use exported selectors or memoized `AgentActivitySnapshot`
+- an engine subscriber notification is an invalidation signal, not a render
+  command. Concurrent AgentGUI surfaces subscribe through exact
+  Session-family or target selectors; a selector preserves its selected
+  reference when another root Session changes
+- whole-workspace `AgentActivitySnapshot` projections remain valid for bounded
+  aggregate reads, but do not belong in high-frequency AgentGUI render paths.
+  Event callbacks that need current canonical data read the engine snapshot at
+  event time instead of retaining a whole-workspace render snapshot
 - lifecycle writes use typed intents/commands
 - consumers do not read reducer maps directly
 - consumers do not create canonical session/message mirrors

@@ -160,20 +160,27 @@ type SessionForkTargetContext struct {
 }
 
 type SessionForkDriverDescriptor struct {
-	Kind                        string
-	Version                     string
-	FullSession                 bool
-	ThroughTurn                 bool
-	ThroughProviderTurnIDs      []string
-	ThroughProviderTurnIDsKnown bool
+	Kind             string
+	Version          string
+	StateBindingMode SessionForkStateBindingMode
+	// DeterministicTargetSessionID guarantees that ForkSession honors
+	// TargetProviderSessionID and that repeating the same input reconciles or
+	// creates that one provider child instead of allocating another identity.
+	DeterministicTargetSessionID bool
+	FullSession                  bool
+	ThroughTurn                  bool
+	ThroughProviderTurnIDs       []string
+	ThroughProviderTurnIDsKnown  bool
 }
 
 type RuntimeSessionForkInput struct {
-	Source                ProviderRuntimeSession
-	SourceProviderTurnID  string
-	SourceProviderTurnIDs []string
-	RequestID             string
-	Driver                SessionForkDriverDescriptor
+	Source                  ProviderRuntimeSession
+	SourceProviderTurnID    string
+	SourceProviderTurnIDs   []string
+	TargetProviderSessionID string
+	TargetTitle             string
+	RequestID               string
+	Driver                  SessionForkDriverDescriptor
 }
 
 type SessionForkDeliveryDisposition string
@@ -186,9 +193,19 @@ const (
 )
 
 type RuntimeSessionForkResult struct {
-	ProviderSessionID   string
-	DeliveryDisposition SessionForkDeliveryDisposition
+	ProviderSessionID     string
+	TargetProviderTurnIDs []string
+	StateBindingMode      SessionForkStateBindingMode
+	StateBindingReceipt   string
+	DeliveryDisposition   SessionForkDeliveryDisposition
 }
+
+type SessionForkStateBindingMode string
+
+const (
+	SessionForkStateBindingHostCopy      SessionForkStateBindingMode = "host_copy"
+	SessionForkStateBindingProviderOwned SessionForkStateBindingMode = "provider_owned"
+)
 
 // SessionForkProviderStateBinding describes the provider-local durable state
 // that must become independently discoverable from the target Tutti session's

@@ -175,6 +175,27 @@ func (s *SQLiteWorkspaceStore) MarkSessionForkDispatching(
 	return operation, changed, err
 }
 
+func (s *SQLiteWorkspaceStore) RetryUnknownSessionFork(
+	ctx context.Context,
+	workspaceID, operationID string,
+	now int64,
+) (storesqlite.SessionForkOperation, bool, error) {
+	store, err := s.store(workspaceID)
+	if err != nil {
+		return storesqlite.SessionForkOperation{}, false, err
+	}
+	operation, changed, err := store.RetryUnknownSessionFork(
+		ctx,
+		workspaceID,
+		operationID,
+		now,
+	)
+	if err == nil && changed {
+		NotifyCommitted(ctx, s.Observer, CanonicalDelta(operation.CommitDelta))
+	}
+	return operation, changed, err
+}
+
 func (s *SQLiteWorkspaceStore) FailPreparedSessionFork(
 	ctx context.Context,
 	workspaceID, operationID, lastError string,

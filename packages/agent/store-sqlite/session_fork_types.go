@@ -49,6 +49,10 @@ type SessionForkOperation struct {
 	DriverVersion           string
 	Status                  string
 	TargetProviderSessionID string
+	TargetProviderTurnIDs   []string
+	TargetTitle             string
+	StateBindingMode        string
+	StateBindingReceipt     string
 	SnapshotHash            string
 	LastError               string
 	CreatedAtUnixMS         int64
@@ -82,6 +86,9 @@ type SessionForkProviderResult struct {
 	OperationID             string
 	Status                  string
 	TargetProviderSessionID string
+	TargetProviderTurnIDs   []string
+	StateBindingMode        string
+	StateBindingReceipt     string
 	LastError               string
 	OccurredAtUnixMS        int64
 }

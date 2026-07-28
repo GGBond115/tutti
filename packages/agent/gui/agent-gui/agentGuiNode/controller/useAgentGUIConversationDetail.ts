@@ -3,7 +3,7 @@ import {
   selectEngineTurnsForSession,
   type AgentActivityInteraction,
   type AgentActivityMessage,
-  type AgentActivitySnapshot,
+  type AgentSessionFamilySnapshot,
   type AgentActivityTurn,
   type AgentSessionEngine,
   type EngineQueuedPrompt,
@@ -59,7 +59,7 @@ interface UseAgentGUIConversationDetailInput {
   activeQueuedPromptInFlight: PromptQueueInFlightCommand | null;
   activeQueuedPrompts: readonly EngineQueuedPrompt[];
   activeQueueStatus: AgentGUIQueueStatus;
-  agentActivitySnapshot: AgentActivitySnapshot;
+  activeSessionFamily: AgentSessionFamilySnapshot;
   activeSessionReconcileError: string | null;
   activeSessionView: {
     hasOlderMessages: boolean;
@@ -99,14 +99,6 @@ export function useAgentGUIConversationDetail(
     input.sessionEngine,
     (state) => selectEngineTurnsForSession(state, input.activeConversationId),
     referenceArrayEqual
-  );
-  const activitySession = useMemo(
-    () =>
-      input.agentActivitySnapshot.sessions.find(
-        (session) =>
-          session.agentSessionId === input.activeConversationId?.trim()
-      ) ?? null,
-    [input.activeConversationId, input.agentActivitySnapshot.sessions]
   );
   const projectionConversation =
     useMemo<AgentGUIConversationProjectionSource | null>(() => {
@@ -177,26 +169,21 @@ export function useAgentGUIConversationDetail(
     if (!projectionConversation) {
       return { conversation: null, detail: null };
     }
-    const rootSessionId = projectionConversation.id.trim();
-    const childSessions = input.agentActivitySnapshot.sessions.filter(
-      (session) =>
-        session.kind === "child" && session.rootAgentSessionId === rootSessionId
-    );
     return buildAgentGUIConversationModels({
       timelineItems: input.activeTimelineItems,
       conversation: projectionConversation,
-      canonicalSession: activitySession,
-      childSessions,
-      childMessagesBySessionId: input.agentActivitySnapshot.sessionMessagesById,
+      canonicalSession: input.activeSessionFamily.rootSession,
+      childSessions: input.activeSessionFamily.childSessions,
+      childMessagesBySessionId: input.activeSessionFamily.messagesBySessionId,
       workspaceRoot: input.workspacePath,
       avoidGroupingEdits: input.avoidGroupingEdits
     });
   }, [
     input.activeTimelineItems,
-    input.agentActivitySnapshot.sessionMessagesById,
-    input.agentActivitySnapshot.sessions,
+    input.activeSessionFamily.childSessions,
+    input.activeSessionFamily.messagesBySessionId,
+    input.activeSessionFamily.rootSession,
     input.avoidGroupingEdits,
-    activitySession,
     input.workspacePath,
     projectionConversation
   ]);

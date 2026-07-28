@@ -51,7 +51,8 @@ AgentGUI Turn action
   -> Agent Host durable Fork saga
   -> store-sqlite snapshot/operation/commit
   -> provider-neutral runtime Fork
-  -> Codex app-server thread/fork(lastTurnId)
+       - Codex app-server thread/fork(lastTurnId)
+       - Claude Agent SDK forkSession(upToMessageId, title)
 ```
 
 各层职责：
@@ -66,6 +67,7 @@ AgentGUI Turn action
 | store-sqlite       | source fence、snapshot、operation、ID remap、canonical atomic commit |
 | daemon runtime     | 按确切 provider runtime 解析能力并调用 provider Driver               |
 | Codex Driver       | `thread/fork`、版本门槛、完整 provider Turn prefix 验证              |
+| Claude SDK Driver  | stateless inspect/fork、消息 checkpoint、child UUID 映射与复验       |
 
 这符合 AgentGUI 的既有约束：canonical lifecycle 和 mutation 状态属于 Activity Engine；
 React 不保存第二份 Fork request、pending 或结果状态。
@@ -117,7 +119,10 @@ interface AgentActivitySessionLifecycleCapabilities {
 
 - Codex app-server 版本满足门槛且协议支持 `lastTurnId`：
   `forkThroughTurn=true`；
-- 其他 Agent 或不满足门槛的 Codex runtime：`forkThroughTurn=false`；
+- Claude Agent SDK 能读取 exact transcript、且 canonical provider Turn UUID
+  与其 root user-message prefix 匹配：`forkThroughTurn=true`；
+- 其他 Agent、不满足门槛的 Codex runtime、以及没有真实 SDK UUID 的旧 Claude
+  Turn：`forkThroughTurn=false`；
 - 当前所有接入：`fork=false`，完整会话按钮不展示。
 
 结构 capability 与瞬时 availability 分开：
@@ -180,6 +185,10 @@ child 继承 prepare 时冻结的：
 
 历史 Session 先经过一次 `RuntimePreparation`，同一份 prepared runtime identity 同时用于
 driver attestation、provider dispatch 和 canonical child 的 cwd/settings/runtime context。
+runtime context 中引用 provider Session identity 的恢复游标不能越过 Fork 边界直接复用。
+Claude adapter 只接受 `resumeCursor.resume == canonical providerSessionId` 的游标；child
+继承到 source 游标时丢弃该游标，并以 `forkSession` 返回的 child identity 恢复，防止首次
+续聊重新进入 source namespace。
 env 与 provider target reference 只用于本次 provider dispatch，不作为凭据或临时运行事实写入
 canonical snapshot；后续恢复 child 时仍通过正常 `RuntimePreparation` 从 agent target 和已冻结的
 canonical settings/context 重新解析。由于进程重启会把未 dispatch 的 `prepared` operation 标记为
@@ -230,7 +239,8 @@ dispatching          -> unknown
 - 相同 request hash replay 返回原 operation；
 - 相同 request ID、不同 hash 返回 conflict；
 - provider 已可能接受时绝不自动再次 dispatch；
-- provider child 状态必须先绑定到 target Session 独立 runtime namespace，随后才能写入
+- provider child 状态必须通过 `host_copy` 或 `provider_owned` 的 typed binding
+  evidence 证明独立可恢复，随后才能写入
   `provider_accepted` 并提交 canonical child；
 - `provider_accepted` 之后只重试本地 canonical commit。
 - source + point 的 durable boundary barrier 覆盖 active、unknown 和
@@ -244,6 +254,7 @@ operation 持久化：
 - operation/request/hash；
 - source/target canonical identity；
 - source/target provider identity；
+- ordered target provider Turn IDs、binding mode 和 verification receipt；
 - `point_kind`、source canonical/provider Turn；
 - commit 后的 target canonical boundary Turn；
 - Driver kind/version；
@@ -305,7 +316,7 @@ cwd、env 以及已解析 executable 的 size/mtime/verified identity 都必须�
 executable identity 的 shell/package-manager wrapper 不缓存。CLI 升降级或不同 Session
 runtime identity 会重新 initialize probe，避免跨 Session 误展示按钮。
 
-## 7. Provider Driver 与 Codex 接入
+## 7. Provider Driver、Codex 与 Claude SDK 接入
 
 provider-neutral输入：
 
@@ -313,6 +324,7 @@ provider-neutral输入：
 source provider Session id
 source canonical Turn id
 ordered source provider Turn ID prefix
+frozen target title
 driver kind/version
 frozen runtime preparation
 ```
@@ -331,9 +343,10 @@ Codex Driver：
    size/SHA-256，只将该 rollout crash-durable 地原子复制到 target `CODEX_HOME`，不复制
    整个 provider home，也不建立依赖 source 生命周期的软链接。
 
-provider-state binding 也是 provider 接入能力的一部分。每个 Agent 必须显式声明自己是否
-能将 native child 状态绑定到 target runtime namespace；没有声明时 Session capability
-fail closed，GUI 不展示 Fork。
+provider-state binding 也是 provider 接入能力的一部分。每个 Agent 必须显式选择
+`host_copy` 或 `provider_owned` 并提交相应 evidence；`host_copy` binder 缺失或不支持当前
+provider 时必须在 provider dispatch 前 fail closed，provider 调用后的 binder 失败进入
+`unknown`；缺少 mapping 或 receipt 时不能进入 `provider_accepted`。
 
 这比只验证最后一个 Turn 更严格：最后一个 ID 相同不能证明中间历史没有丢失或重排。
 provider-state binding 幂等，但不能只凭同 ID rollout 信任 target：source/target fingerprint
@@ -342,6 +355,31 @@ provider-state binding 幂等，但不能只凭同 ID rollout 信任 target：so
 非前缀的分叉 fail closed。source rollout 已被清理时，只接受完整验证通过的 target。若
 provider child 已经创建但 binding 失败，operation 进入 `unknown`，不提交 canonical child，
 也绝不重发 provider Fork。
+
+Claude SDK Driver 使用固定版本的官方公开 API：
+
+1. 新 Claude Turn 在提交前由 Go adapter 生成 SDK prompt UUID，并作为 canonical
+   `RootProviderTurnID` 传给 sidecar；旧版以 canonical Turn ID 代替 UUID 的历史记录不会猜测
+   或回填，因此 fail closed；
+2. capability 通过 stateless sidecar 调用
+   `getSessionMessages(..., {includeSystemMessages: true})`，只返回 root user-message UUID
+   allowlist，但保留 system message 用于精确 checkpoint 与完整 prefix 校验；
+3. dispatch 前再次读取 source transcript，验证 canonical ordered UUID prefix，并把所选
+   root user message 到下一个 root user message之前的最后消息作为 inclusive checkpoint；
+4. 调用 `forkSession(source, {upToMessageId, title: frozenTargetTitle})`；
+5. 再次读取 source，并读取 child 的 `getSessionInfo` / `getSessionMessages`；两次
+   `getSessionMessages` 均使用 `includeSystemMessages: true`。source 选中 prefix
+   必须在调用前后不变，child 必须与该完整 prefix 做结构等价验证
+   (`type/message/parent_tool_use_id`，忽略已重映射的 UUID/session id)；
+6. 只有完整验证后才按已证明的逐消息双射生成 source→child provider Turn UUID mapping，
+   返回 `provider_owned` receipt；消息内容只在 sidecar 内比较，不返回或记录；
+7. Store 在 `provider_accepted` checkpoint 原子保存 mapping/receipt，并在 canonical clone
+   时重写每个 child Turn 的 `RootProviderTurnID`，使 fork child 可以继续 Fork；
+8. child 恢复时拒绝 source 的 stale `resumeCursor`，只从 canonical child
+   `providerSessionId` 启动；该约束覆盖进程重启后的首次续聊。
+
+`forkSession` 调用前失败是 `not_started`；一旦调用开始，transport、SDK 或 post-verify
+失败都是 `unknown`。这样不会因响应丢失或复验失败而创建第二个 provider child。
 
 损坏 target 的修复规则更严格：只有首条 `session_meta` 已精确验证 child identity，且包括
 partial tail 在内的全部原始字节都是 source rollout 的严格前缀时，才允许从 source 原位
@@ -535,7 +573,7 @@ fail closed。
 当前明确不支持：
 
 - 完整会话 Fork 产品入口；
-- 非 Codex Agent 的 Driver；
+- 除 Codex 与 Claude Code 外的其他 Agent Driver；
 - 没有原生历史边界能力时的消息 replay 模拟；
 - 从 Message 中间位置 Fork；
 - 包含 session-local attachment 的 boundary；

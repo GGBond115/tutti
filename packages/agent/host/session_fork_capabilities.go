@@ -50,10 +50,20 @@ func (h *Host) GetSessionForkCapabilities(
 	capabilities := SessionForkCapabilities{
 		FullSession: descriptor.FullSession &&
 			descriptor.Kind != "" &&
-			descriptor.Version != "",
+			descriptor.Version != "" &&
+			validSessionForkStateBindingMode(
+				descriptor.StateBindingMode,
+				h.sessionForkState,
+				runtimeSource.Provider,
+			),
 		ThroughTurn: descriptor.ThroughTurn &&
 			descriptor.Kind != "" &&
-			descriptor.Version != "",
+			descriptor.Version != "" &&
+			validSessionForkStateBindingMode(
+				descriptor.StateBindingMode,
+				h.sessionForkState,
+				runtimeSource.Provider,
+			),
 	}
 	if !capabilities.ThroughTurn ||
 		!descriptor.ThroughProviderTurnIDsKnown {
@@ -97,6 +107,9 @@ func matchingSessionForkTurnPrefix(
 func normalizeSessionForkDriverDescriptor(input *SessionForkDriverDescriptor) {
 	input.Kind = strings.TrimSpace(input.Kind)
 	input.Version = strings.TrimSpace(input.Version)
+	if input.StateBindingMode == "" {
+		input.StateBindingMode = SessionForkStateBindingHostCopy
+	}
 	if !input.ThroughProviderTurnIDsKnown {
 		input.ThroughProviderTurnIDs = nil
 		return
@@ -117,4 +130,20 @@ func normalizeSessionForkDriverDescriptor(input *SessionForkDriverDescriptor) {
 		normalized = append(normalized, turnID)
 	}
 	input.ThroughProviderTurnIDs = normalized
+}
+
+func validSessionForkStateBindingMode(
+	mode SessionForkStateBindingMode,
+	hostBinder SessionForkProviderStateBinder,
+	provider string,
+) bool {
+	switch mode {
+	case SessionForkStateBindingHostCopy:
+		return hostBinder != nil &&
+			hostBinder.SupportsSessionForkProviderStateBinding(provider)
+	case SessionForkStateBindingProviderOwned:
+		return true
+	default:
+		return false
+	}
 }

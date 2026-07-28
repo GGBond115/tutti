@@ -501,7 +501,7 @@ export function WorkspaceFileManager({
           aria-valuemax={sidebarMaxWidth}
           aria-valuemin={workspaceFileManagerSidebarMinWidth}
           aria-valuenow={sidebarWidth}
-          className="nodrag @max-[600px]/workspace-file-manager:hidden relative z-[1] -ml-1 -mr-1 h-full w-2 shrink-0 cursor-col-resize touch-none outline-none before:absolute before:left-1/2 before:h-full before:w-px before:-translate-x-1/2 before:bg-transparent hover:before:bg-[var(--border-focus)] focus-visible:before:bg-[var(--border-focus)]"
+          className="nodrag @max-[600px]/workspace-file-manager:hidden relative z-[1] -ml-1 -mr-1 h-full w-2 shrink-0 cursor-col-resize touch-none outline-none before:absolute before:left-1/2 before:h-full before:w-px before:-translate-x-1/2 before:bg-[var(--border-1)] hover:before:bg-[var(--border-focus)] focus-visible:before:bg-[var(--border-focus)]"
           role="separator"
           tabIndex={0}
           onKeyDown={handleSidebarResizeKeyDown}

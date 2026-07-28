@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -241,6 +242,79 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'target'
 			"CommitSessionFork(after child delete) result=%#v error=%v",
 			afterDelete,
 			err,
+		)
+	}
+}
+
+func TestSessionForkProviderOwnedResultRewritesChildProviderTurnIdentity(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	seedForkSession(t, store)
+	if _, updated, err := store.UpdateSessionTitle(
+		ctx, "ws-1", "source", "Claude session",
+	); err != nil || !updated {
+		t.Fatalf("UpdateSessionTitle() updated=%v error=%v", updated, err)
+	}
+	input := SessionForkPrepare{
+		OperationID: "fork-provider-owned", WorkspaceID: "ws-1",
+		RequestID: "request-provider-owned", RequestHash: "hash-provider-owned",
+		SourceAgentSessionID: "source", TargetAgentSessionID: "target-provider-owned",
+		SourceTurnID: "turn-1", DriverKind: "claude-agent-sdk-session-fork",
+		DriverVersion: "0.3.201/sidecar-v3", OccurredAtUnixMS: 500,
+	}
+	operation, _, err := prepareSessionForkForTest(t, store, ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if operation.TargetTitle == "" {
+		t.Fatal("prepared operation omitted the frozen target title")
+	}
+	if _, _, err := store.MarkSessionForkDispatching(
+		ctx, input.WorkspaceID, input.OperationID, 501,
+	); err != nil {
+		t.Fatal(err)
+	}
+	operation, _, err = store.RecordSessionForkProviderResult(
+		ctx,
+		SessionForkProviderResult{
+			WorkspaceID: input.WorkspaceID, OperationID: input.OperationID,
+			Status:                  SessionForkStatusProviderAccepted,
+			TargetProviderSessionID: "claude-child",
+			TargetProviderTurnIDs:   []string{"claude-child-turn-1"},
+			StateBindingMode:        "provider_owned",
+			StateBindingReceipt:     "claude-sdk-fork-v1:receipt",
+			OccurredAtUnixMS:        502,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if operation.StateBindingMode != "provider_owned" ||
+		operation.StateBindingReceipt == "" ||
+		!reflect.DeepEqual(
+			operation.TargetProviderTurnIDs,
+			[]string{"claude-child-turn-1"},
+		) {
+		t.Fatalf("provider acceptance evidence=%#v", operation)
+	}
+	result, err := store.CommitSessionFork(ctx, input.WorkspaceID, input.OperationID, 503)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, found, err := store.GetTurn(
+		ctx,
+		input.WorkspaceID,
+		input.TargetAgentSessionID,
+		result.Lineage.TargetTurnID,
+	)
+	if err != nil || !found {
+		t.Fatalf("GetTurn() found=%v error=%v", found, err)
+	}
+	if turn.RootProviderTurnID != "claude-child-turn-1" {
+		t.Fatalf(
+			"child root provider turn id=%q, want remapped Claude UUID",
+			turn.RootProviderTurnID,
 		)
 	}
 }
@@ -1340,6 +1414,53 @@ func TestSessionForkFailedAndUnknownReleaseSourceFence(t *testing.T) {
 				t.Fatalf("failed operation did not release boundary barrier: %#v", next)
 			}
 		})
+	}
+}
+
+func TestRetryUnknownSessionForkReopensDurableDispatchMarker(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	seedForkSession(t, store)
+	input := SessionForkPrepare{
+		OperationID: "fork-retry", WorkspaceID: "ws-1",
+		RequestID: "request-retry", RequestHash: "hash-retry",
+		SourceAgentSessionID: "source", TargetAgentSessionID: "target-retry",
+		SourceTurnID: "turn-1", DriverKind: "claude",
+		DriverVersion: "deterministic-v1", OccurredAtUnixMS: 100,
+	}
+	if _, _, err := prepareSessionForkForTest(t, store, ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.MarkSessionForkDispatching(
+		ctx, input.WorkspaceID, input.OperationID, 101,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.RecordSessionForkProviderResult(
+		ctx,
+		SessionForkProviderResult{
+			WorkspaceID: input.WorkspaceID, OperationID: input.OperationID,
+			Status: SessionForkStatusUnknown, LastError: "response lost",
+			OccurredAtUnixMS: 102,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	operation, changed, err := store.RetryUnknownSessionFork(
+		ctx, input.WorkspaceID, input.OperationID, 103,
+	)
+	if err != nil || !changed ||
+		operation.Status != SessionForkStatusDispatching ||
+		operation.LastError != "" ||
+		operation.CompletedAtUnixMS != 0 ||
+		operation.DispatchedAtUnixMS != 103 {
+		t.Fatalf(
+			"RetryUnknownSessionFork() operation=%#v changed=%v error=%v",
+			operation,
+			changed,
+			err,
+		)
 	}
 }
 

@@ -190,7 +190,12 @@ describe("AgentTranscriptView virtual rendering", () => {
         ...baseConversation.sourceDetail,
         session: normalizeAgentActivitySession({
           ...baseConversation.sourceDetail.session,
-          lifecycleCapabilities: { fork: false, forkThroughTurn: true }
+          lifecycleCapabilities: {
+            fork: false,
+            forkThroughTurn: true,
+            forkThroughTurnIds: ["turn-10"],
+            forkThroughTurnIdsKnown: true
+          }
         })
       }
     };

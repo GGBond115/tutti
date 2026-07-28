@@ -25,14 +25,14 @@ func (s *Store) ListRecoverableSessionForkOperationsPage(
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, sessionForkOperationSelectSQL+`
-WHERE status IN (?, ?, ?)
+WHERE status IN (?, ?, ?, ?)
   AND (
     created_at_unix_ms > ?
     OR (created_at_unix_ms = ? AND operation_id > ?)
   )
 ORDER BY created_at_unix_ms, operation_id
 LIMIT ?`, SessionForkStatusPrepared, SessionForkStatusDispatching,
-		SessionForkStatusProviderAccepted, after.CreatedAtUnixMS,
+		SessionForkStatusProviderAccepted, SessionForkStatusUnknown, after.CreatedAtUnixMS,
 		after.CreatedAtUnixMS, strings.TrimSpace(after.OperationID), limit)
 	if err != nil {
 		return nil, fmt.Errorf("list recoverable session fork operations: %w", err)
@@ -51,7 +51,30 @@ LIMIT ?`, SessionForkStatusPrepared, SessionForkStatusDispatching,
 
 func (s *Store) MarkSessionForkDispatching(ctx context.Context, workspaceID, operationID string, now int64) (SessionForkOperation, bool, error) {
 	return s.transitionSessionFork(ctx, workspaceID, operationID, SessionForkStatusPrepared,
-		SessionForkStatusDispatching, "", "", now)
+		SessionForkStatusDispatching, "", nil, "", "", "", now)
+}
+
+// RetryUnknownSessionFork reopens only the durable dispatch marker. Callers
+// must first attest that the exact driver supports one deterministic target
+// provider identity across repeated dispatches.
+func (s *Store) RetryUnknownSessionFork(
+	ctx context.Context,
+	workspaceID, operationID string,
+	now int64,
+) (SessionForkOperation, bool, error) {
+	return s.transitionSessionFork(
+		ctx,
+		workspaceID,
+		operationID,
+		SessionForkStatusUnknown,
+		SessionForkStatusDispatching,
+		"",
+		nil,
+		"",
+		"",
+		"",
+		now,
+	)
 }
 
 func (s *Store) FailPreparedSessionFork(
@@ -66,6 +89,9 @@ func (s *Store) FailPreparedSessionFork(
 		SessionForkStatusPrepared,
 		SessionForkStatusFailed,
 		"",
+		nil,
+		"",
+		"",
 		lastError,
 		now,
 	)
@@ -75,10 +101,42 @@ func (s *Store) RecordSessionForkProviderResult(ctx context.Context, input Sessi
 	input.WorkspaceID, input.OperationID = strings.TrimSpace(input.WorkspaceID), strings.TrimSpace(input.OperationID)
 	input.TargetProviderSessionID = strings.TrimSpace(input.TargetProviderSessionID)
 	input.LastError = strings.TrimSpace(input.LastError)
+	input.StateBindingMode = strings.TrimSpace(input.StateBindingMode)
+	input.StateBindingReceipt = strings.TrimSpace(input.StateBindingReceipt)
+	rawTargetProviderTurnCount := len(input.TargetProviderTurnIDs)
+	input.TargetProviderTurnIDs = normalizedProviderIdentityList(input.TargetProviderTurnIDs)
+	if rawTargetProviderTurnCount != len(input.TargetProviderTurnIDs) {
+		return SessionForkOperation{}, false, errors.New(
+			"session fork target provider turn identities are invalid",
+		)
+	}
+	if input.StateBindingMode == "" && input.Status == SessionForkStatusProviderAccepted {
+		input.StateBindingMode = "host_copy"
+	}
 	switch input.Status {
 	case SessionForkStatusProviderAccepted:
-		if input.TargetProviderSessionID == "" {
+		if input.TargetProviderSessionID == "" || input.StateBindingMode == "" {
 			return SessionForkOperation{}, false, errors.New("accepted session fork requires target provider session id")
+		}
+		switch input.StateBindingMode {
+		case "host_copy":
+			if len(input.TargetProviderTurnIDs) != 0 ||
+				input.StateBindingReceipt != "" {
+				return SessionForkOperation{}, false, errors.New(
+					"host-copy session fork contains provider-owned evidence",
+				)
+			}
+		case "provider_owned":
+			if len(input.TargetProviderTurnIDs) == 0 ||
+				input.StateBindingReceipt == "" {
+				return SessionForkOperation{}, false, errors.New(
+					"provider-owned session fork requires mapping and receipt evidence",
+				)
+			}
+		default:
+			return SessionForkOperation{}, false, errors.New(
+				"accepted session fork has invalid provider state binding mode",
+			)
 		}
 	case SessionForkStatusFailed, SessionForkStatusUnknown:
 	default:
@@ -86,6 +144,7 @@ func (s *Store) RecordSessionForkProviderResult(ctx context.Context, input Sessi
 	}
 	return s.transitionSessionFork(ctx, input.WorkspaceID, input.OperationID,
 		SessionForkStatusDispatching, input.Status, input.TargetProviderSessionID,
+		input.TargetProviderTurnIDs, input.StateBindingMode, input.StateBindingReceipt,
 		input.LastError, input.OccurredAtUnixMS)
 }
 
@@ -120,6 +179,25 @@ func (s *Store) CommitSessionFork(ctx context.Context, workspaceID, operationID 
 	if snapshot.BoundaryMessageID <= 0 || len(snapshot.Turns) == 0 ||
 		snapshot.Turns[len(snapshot.Turns)-1].Turn.TurnID != op.SourceTurnID {
 		return SessionForkCommitResult{}, ErrSessionForkTurnState
+	}
+	switch op.StateBindingMode {
+	case "host_copy":
+		if len(op.TargetProviderTurnIDs) != 0 || op.StateBindingReceipt != "" {
+			return SessionForkCommitResult{}, errors.New(
+				"host-copy session fork contains provider-owned identity evidence",
+			)
+		}
+	case "provider_owned":
+		if op.StateBindingReceipt == "" ||
+			len(op.TargetProviderTurnIDs) != len(snapshot.Turns) {
+			return SessionForkCommitResult{}, errors.New(
+				"provider-owned session fork has incomplete provider identity mapping",
+			)
+		}
+	default:
+		return SessionForkCommitResult{}, errors.New(
+			"session fork provider state binding mode is invalid",
+		)
 	}
 	if op.Status == SessionForkStatusCommitted {
 		materialized := materializeSessionForkSnapshot(snapshot)
@@ -216,10 +294,13 @@ WHERE workspace_id = ? AND target_agent_session_id = ?
 	mutations := []TransactionMutation{
 		transactionMutation(workspaceID, op.TargetAgentSessionID, MutationEntitySession, op.TargetAgentSessionID, "insert", now),
 	}
-	for _, item := range snapshot.Turns {
+	for index, item := range snapshot.Turns {
 		turn, err := remapSessionForkTurn(item.Turn, identityMap)
 		if err != nil {
 			return SessionForkCommitResult{}, err
+		}
+		if len(op.TargetProviderTurnIDs) != 0 {
+			turn.RootProviderTurnID = op.TargetProviderTurnIDs[index]
 		}
 		if err := insertForkedTurnTx(ctx, tx, workspaceID, op.TargetAgentSessionID, turn); err != nil {
 			return SessionForkCommitResult{}, err
@@ -407,7 +488,8 @@ WHERE workspace_id = ? AND target_agent_session_id = ?
 
 func (s *Store) transitionSessionFork(
 	ctx context.Context,
-	workspaceID, operationID, fromStatus, toStatus, targetProviderSessionID, lastError string,
+	workspaceID, operationID, fromStatus, toStatus, targetProviderSessionID string,
+	targetProviderTurnIDs []string, stateBindingMode, stateBindingReceipt, lastError string,
 	now int64,
 ) (SessionForkOperation, bool, error) {
 	if s == nil || s.db == nil || strings.TrimSpace(workspaceID) == "" ||
@@ -420,16 +502,33 @@ func (s *Store) transitionSessionFork(
 		return SessionForkOperation{}, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if targetProviderTurnIDs == nil {
+		targetProviderTurnIDs = []string{}
+	}
+	targetProviderTurnIDsJSON, err := json.Marshal(targetProviderTurnIDs)
+	if err != nil {
+		return SessionForkOperation{}, false, err
+	}
 	result, err := tx.ExecContext(ctx, `
 UPDATE workspace_agent_session_fork_operations
 SET status = ?, target_provider_session_id = NULLIF(?, ''), last_error = ?,
+    target_provider_turn_ids_json = ?,
+    provider_state_binding_mode = ?,
+    provider_state_binding_receipt = ?,
     dispatched_at_unix_ms = CASE WHEN ? = 'dispatching' THEN ? ELSE dispatched_at_unix_ms END,
     accepted_at_unix_ms = CASE WHEN ? = 'provider_accepted' THEN ? ELSE accepted_at_unix_ms END,
-    completed_at_unix_ms = CASE WHEN ? IN ('failed','unknown') THEN ? ELSE completed_at_unix_ms END,
+    completed_at_unix_ms = CASE
+      WHEN ? = 'dispatching' THEN 0
+      WHEN ? IN ('failed','unknown') THEN ?
+      ELSE completed_at_unix_ms
+    END,
     updated_at_unix_ms = ?
 WHERE workspace_id = ? AND operation_id = ? AND status = ?
 `, toStatus, strings.TrimSpace(targetProviderSessionID), strings.TrimSpace(lastError),
-		toStatus, now, toStatus, now, toStatus, now, now, workspaceID, operationID, fromStatus)
+		string(targetProviderTurnIDsJSON), strings.TrimSpace(stateBindingMode),
+		strings.TrimSpace(stateBindingReceipt),
+		toStatus, now, toStatus, now, toStatus, toStatus, now, now,
+		workspaceID, operationID, fromStatus)
 	if err != nil {
 		return SessionForkOperation{}, false, fmt.Errorf("transition session fork operation: %w", err)
 	}

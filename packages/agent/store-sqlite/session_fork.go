@@ -46,7 +46,10 @@ SELECT operation_id, workspace_id, request_id, request_hash,
        source_provider_session_id, source_turn_id, source_provider_turn_id,
        COALESCE(target_turn_id, ''),
        point_kind, driver_kind, driver_version, status,
-       COALESCE(target_provider_session_id, ''), snapshot_hash, last_error,
+       COALESCE(target_provider_session_id, ''),
+       target_title, target_provider_turn_ids_json,
+       provider_state_binding_mode, provider_state_binding_receipt,
+       snapshot_hash, last_error,
        created_at_unix_ms, updated_at_unix_ms,
        COALESCE(dispatched_at_unix_ms, 0), COALESCE(accepted_at_unix_ms, 0),
        COALESCE(completed_at_unix_ms, 0),
@@ -230,14 +233,16 @@ INSERT INTO workspace_agent_session_fork_operations (
   operation_id, workspace_id, request_id, request_hash,
   source_agent_session_id, target_agent_session_id,
   source_provider_session_id, source_turn_id, source_provider_turn_id,
-  point_kind, driver_kind, driver_version, status, snapshot_json, snapshot_hash,
+  point_kind, driver_kind, driver_version, status, target_title,
+  snapshot_json, snapshot_hash,
   created_at_unix_ms, updated_at_unix_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `, input.OperationID, input.WorkspaceID, input.RequestID, input.RequestHash,
 		input.SourceAgentSessionID, input.TargetAgentSessionID,
 		source.ProviderSessionID, input.SourceTurnID, selected.RootProviderTurnID,
 		input.PointKind, input.DriverKind, input.DriverVersion, SessionForkStatusPrepared,
-		string(snapshotJSON), snapshotHash, input.OccurredAtUnixMS, input.OccurredAtUnixMS); err != nil {
+		snapshot.TargetTitle, string(snapshotJSON), snapshotHash,
+		input.OccurredAtUnixMS, input.OccurredAtUnixMS); err != nil {
 		return SessionForkOperation{}, false, fmt.Errorf("insert session fork operation: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `

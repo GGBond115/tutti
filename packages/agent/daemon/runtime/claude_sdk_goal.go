@@ -427,6 +427,7 @@ func (a *ClaudeCodeSDKAdapter) sendGoalCommandExec(
 	payload := map[string]any{
 		"agentSessionId": session.AgentSessionID,
 		"turnId":         turnID,
+		"providerTurnId": turnID,
 		"prompt":         command,
 		"content":        promptContentForClaudeSDK(nil, command),
 	}
