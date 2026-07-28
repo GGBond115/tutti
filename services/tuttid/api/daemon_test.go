@@ -26,6 +26,7 @@ import (
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
 	agentservice "github.com/tutti-os/tutti/services/tuttid/service/agent"
+	agentstatusservice "github.com/tutti-os/tutti/services/tuttid/service/agentstatus"
 	agenttargetservice "github.com/tutti-os/tutti/services/tuttid/service/agenttarget"
 	preferencesservice "github.com/tutti-os/tutti/services/tuttid/service/preferences"
 	workspaceservice "github.com/tutti-os/tutti/services/tuttid/service/workspace"
@@ -686,6 +687,23 @@ func (s stubPreferencesService) Put(ctx context.Context, input preferencesservic
 type stubAgentTargetService struct {
 	listFn       func(context.Context) ([]agenttargetbiz.Target, error)
 	setEnabledFn func(context.Context, agenttargetservice.SetEnabledInput) (agenttargetbiz.Target, error)
+}
+
+type stubTuttiAgentReadiness struct {
+	triggerFn                 func(string)
+	providerActionCompletedFn func(agentstatusservice.RunActionResult)
+}
+
+func (s stubTuttiAgentReadiness) Trigger(reason string) {
+	if s.triggerFn != nil {
+		s.triggerFn(reason)
+	}
+}
+
+func (s stubTuttiAgentReadiness) ProviderActionCompleted(result agentstatusservice.RunActionResult) {
+	if s.providerActionCompletedFn != nil {
+		s.providerActionCompletedFn(result)
+	}
 }
 
 func (s stubAgentTargetService) List(ctx context.Context) ([]agenttargetbiz.Target, error) {
@@ -2766,6 +2784,7 @@ func TestDaemonAPIGeneratedRoutesListAgentTargets(t *testing.T) {
 func TestDaemonAPIGeneratedRoutesSetSystemAgentTargetEnabled(t *testing.T) {
 	mux := http.NewServeMux()
 	var captured agenttargetservice.SetEnabledInput
+	var readinessTrigger string
 	RegisterRoutes(mux, NewRoutes(DaemonAPI{
 		AgentTargetService: stubAgentTargetService{
 			setEnabledFn: func(_ context.Context, input agenttargetservice.SetEnabledInput) (agenttargetbiz.Target, error) {
@@ -2782,6 +2801,11 @@ func TestDaemonAPIGeneratedRoutesSetSystemAgentTargetEnabled(t *testing.T) {
 				return target, nil
 			},
 		},
+		TuttiAgentReadiness: stubTuttiAgentReadiness{
+			triggerFn: func(reason string) {
+				readinessTrigger = reason
+			},
+		},
 	}))
 
 	recorder := performGeneratedRouteRequest(
@@ -2796,6 +2820,9 @@ func TestDaemonAPIGeneratedRoutesSetSystemAgentTargetEnabled(t *testing.T) {
 	}
 	if captured.ID != agenttargetbiz.IDLocalTuttiAgent || captured.Enabled {
 		t.Fatalf("captured input = %#v", captured)
+	}
+	if readinessTrigger != "target_enabled_changed" {
+		t.Fatalf("readiness trigger = %q, want target_enabled_changed", readinessTrigger)
 	}
 	var response tuttigenerated.AgentTarget
 	decodeGeneratedRouteResponse(t, recorder, &response)
