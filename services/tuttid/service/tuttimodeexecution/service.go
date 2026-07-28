@@ -61,6 +61,22 @@ type MutationStore interface {
 	AdmitTuttiModeMutation(context.Context, executionbiz.MutationAdmission) (executionbiz.MutationResult, error)
 }
 
+type ArchiveStore interface {
+	RequestTuttiModeArchive(context.Context, executionbiz.ArchiveRequest) (executionbiz.ArchiveOperation, bool, error)
+	GetTuttiModeArchiveOperation(context.Context, string, string) (executionbiz.ArchiveOperation, error)
+	FailTuttiModeArchive(context.Context, string, string, string, time.Time) (executionbiz.ArchiveOperation, error)
+	CompleteTuttiModeArchiveIfSettled(context.Context, string, string, time.Time) (executionbiz.ArchiveOperation, bool, error)
+	ListRecoverableTuttiModeArchives(context.Context, string) ([]executionbiz.ArchiveOperation, error)
+}
+
+type ArchiveRunCanceller interface {
+	CancelTuttiModeIssueExecution(context.Context, string, string) (int, error)
+}
+
+type ArchiveRecoveryEnqueuer interface {
+	Enqueue(string)
+}
+
 type WakeStore interface {
 	ListTuttiModeExecutionWakes(context.Context, string, string) ([]executionbiz.Wake, error)
 	ListDispatchableTuttiModeMainWakes(context.Context, string, time.Time) ([]executionbiz.Wake, error)
@@ -93,6 +109,9 @@ type Service struct {
 	ReviewerTargets            ReviewerTarget
 	ReviewerActivity           ReviewerActivityReader
 	BeforeGoalReviewCommitStep func(string) error
+	Archives                   ArchiveStore
+	ArchiveRuns                ArchiveRunCanceller
+	ArchiveRecoveryQueue       ArchiveRecoveryEnqueuer
 	MainWakeSendTimeout        time.Duration
 	MainWakeCleanupTimeout     time.Duration
 	Clock                      func() time.Time

@@ -369,25 +369,34 @@ kind is the task review; the configuration-review row below is legacy-only
 | Task review                   | Cancel   | workflow becomes canceled                                                         | stop                                             |
 | Configuration review (legacy) | Cancel   | workflow becomes canceled                                                         | stop                                             |
 
-Source Agent Session deletion is another workflow transition owned by this
-service. The policy cancels only `pending_review` or `in_progress` workflows,
-their pending checkpoints, and pending/running operations. It records actor
-`tutti`, reason `source_session_deleted`, and one service clock value. The data
-layer does not contain those choices. Instead, it receives an explicit
-`SourceSessionDeletionCommand` and applies the Agent Session closure, Tutti
-activation/Turn snapshot cleanup, and authorized workflow transitions in one
-SQLite transaction. Batch deletion includes descendant Session IDs; workspace
-clear scopes the transition to all active workflows, including orphaned source
-Session provenance.
+Source Agent Session deletion is guarded at the Agent Host boundary against the
+entire canonical deletion closure. Before Host closes a runtime or mutates
+persistence, the daemon records one durable deletion admission for that exact
+closure. Any execution whose source Session is in the closure and whose status
+is not `completed` or `archived` rejects the whole request with
+`tutti_execution_active` plus the complete protected Issue set. This applies
+equally to single deletion, batch deletion, and workspace clear. Materialization
+checks the same durable admission in its creation transaction, so a new
+execution cannot race an admitted source deletion.
 
-The committed result includes the removed Session IDs plus each affected
-workflow, source Session, and current checkpoint identity, with the child
-states that changed. Only after commit does `service/tuttimodeplan` publish
-`workspace.workflow.updated`; the Agent service separately publishes exactly
-one `session_deleted` invalidation for every removed Session. A failed
-workflow transition rolls back Session and activation deletion as well. Test
-stores may use the persistence-only fallback, but production composition must
-wire Agent deletion through the Tutti Mode Plan coordinator.
+After admission, Host owns runtime closure and delegates canonical Session,
+activation snapshot, and Turn deletion to the daemon store in one SQLite
+transaction. Host reports terminal success or failure so the admission becomes
+`finalized` or `superseded`; a replan must pass admission again. At daemon
+startup, admissions left `admitted` by a previous process are superseded before
+Host serves requests. This keeps the source deletion guard on the provider-
+neutral lifecycle path instead of pre-closing runtimes in an adapter.
+
+Stopping Tutti Mode is an archive saga, not source Session deletion. The archive
+request atomically changes the execution to `archiving`, pauses Issue dispatch,
+cancels pending checkpoints, wakes, reviewer work, and prepared launches, and
+records a durable idempotent operation with actor and reason. The service then
+cancels every running Issue Run through the exact-run coordinator and waits for
+authoritative settlement. Only after no Run remains `running` may the execution
+become `archived` with `archived_at`, `archived_by`, and `archive_reason`.
+Cancellation failure leaves a durable failed operation and the execution fenced;
+startup recovery retries each incomplete archive independently. There is no
+force-archive path.
 
 ## HTTP, Events, And Recovery
 
@@ -407,6 +416,10 @@ The schema-first HTTP surface is:
   authoritative snapshot;
 - `POST /v1/workspaces/{workspaceID}/workflows/{workflowID}/checkpoints/{checkpointID}/decision`
   records a user decision.
+- `POST /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive`
+  starts or replays the durable archive saga;
+- `GET /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive?operationId=...`
+  returns its authoritative operation state.
 
 `workspace.tuttimode.updated` and `workspace.workflow.updated` are advisory
 invalidation events. The former identifies the changed Session and activation

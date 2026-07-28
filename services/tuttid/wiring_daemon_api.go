@@ -90,6 +90,8 @@ func buildDaemonAPI(
 	workspaceStore, _ := store.(workspacedata.WorkbenchStore)
 	issueStore, _ := store.(workspaceissues.Store)
 	tuttiModeExecutionStore, _ := store.(workspacedata.TuttiModeExecutionsStore)
+	tuttiModeArchiveStore, _ := store.(tuttimodeexecutionservice.ArchiveStore)
+	tuttiModeDeletionAdmissionStore, _ := store.(tuttimodeexecutionservice.SourceDeletionAdmissionStore)
 	tuttiModeWakeStore, _ := store.(tuttimodeexecutionservice.WakeStore)
 	tuttiModeReviewerActivity, ok := store.(tuttimodeexecutionservice.ReviewerActivityReader)
 	if !ok {
@@ -107,7 +109,6 @@ func buildDaemonAPI(
 	appStore, _ := store.(workspacedata.AppStore)
 	appFactoryStore, _ := store.(workspacedata.AppFactoryStore)
 	workflowStore, _ := store.(tuttimodeplanservice.Store)
-	sourceSessionDeletionStore, _ := store.(tuttimodeplanservice.SourceSessionDeletionStore)
 	tuttiModeActivationStore, _ := store.(tuttimodeactivationservice.Store)
 	fileAdapter := workspacedata.LocalFilesAdapter{}
 
@@ -342,6 +343,17 @@ func buildDaemonAPI(
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("agent session purge store is unavailable")
 	}
 	agentSessionService.SessionPurgeStore = agentSessionPurgeStore
+	if tuttiModeDeletionAdmissionStore != nil {
+		sourceDeletionGuard := &tuttimodeexecutionservice.SourceDeletionGuard{
+			Store: tuttiModeDeletionAdmissionStore,
+		}
+		if err := sourceDeletionGuard.Recover(ctx); err != nil {
+			return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
+				"recover source session deletion admissions: %w", err,
+			)
+		}
+		agentSessionService.SessionDeletionGuard = sourceDeletionGuard
+	}
 	agentSessionService.UserProjectReader = userProjectService
 	agentSessionService.MessageReader = agentActivityProjection
 	agentSessionService.ExternalImportStore = agentActivityRepo
@@ -452,8 +464,9 @@ func buildDaemonAPI(
 	issueRunCanceller := issueRunSessionCanceller{Host: agentHost, Sessions: agentSessionService}
 	tuttiModeMainWakeOwner := "tuttid-main-wake:" + uuid.NewString()
 	tuttiModeExecutions := &tuttimodeexecutionservice.Service{
-		Store: tuttiModeExecutionStore,
-		Wakes: tuttiModeWakeStore,
+		Store:    tuttiModeExecutionStore,
+		Archives: tuttiModeArchiveStore,
+		Wakes:    tuttiModeWakeStore,
 		MainWakeTargets: tuttiModeMainWakeAgentAdapter{
 			Host:     agentHost,
 			Sessions: agentSessionService,
@@ -484,20 +497,15 @@ func buildDaemonAPI(
 		MutationLocks:                  workspaceservice.NewIssueMutationLocks(),
 	}
 	tuttiModePlans := &tuttimodeplanservice.Service{
-		Store:                  workflowStore,
-		SourceSessionDeletions: sourceSessionDeletionStore,
-		Revisions:              workspacedata.WorkflowRevisionFiles{StateDir: tuttitypes.DefaultStateDir()},
-		Publisher:              eventstreamservice.WorkspaceWorkflowPublisher{Service: events},
-		IssueMaterializer:      tuttimodeplanservice.WorkspaceIssueMaterializer{Issues: &issueService},
-		FeatureFlags:           tuttiModeFeatureFlags,
+		Store:             workflowStore,
+		Revisions:         workspacedata.WorkflowRevisionFiles{StateDir: tuttitypes.DefaultStateDir()},
+		Publisher:         eventstreamservice.WorkspaceWorkflowPublisher{Service: events},
+		IssueMaterializer: tuttimodeplanservice.WorkspaceIssueMaterializer{Issues: &issueService},
+		FeatureFlags:      tuttiModeFeatureFlags,
 		FeedbackDispatcher: &tuttiModePlanFeedbackDispatcher{
 			Agents:    agentSessionService,
 			TurnLinks: workflowStore,
 		},
-	}
-	if sourceSessionDeletionStore != nil {
-		agentSessionService.SourceSessionDeletions = tuttiModePlans
-		agentSessionService.SessionDeletionEvents = agentActivityProjection
 	}
 	// Recover accepted Tutti Mode plans before buildDaemonAPI returns the
 	// public service graph. This is a one-shot durable recovery pass, not a
@@ -524,6 +532,7 @@ func buildDaemonAPI(
 		SettlementReader:    issueRunSettlementReader{Host: agentHost},
 	}
 	issueService.RunReconciler = issueExecutionCoordinator
+	tuttiModeExecutions.ArchiveRuns = issueExecutionCoordinator
 	// A user's stop on a planning conversation cascades to every running task
 	// run its accepted plan dispatched.
 	agentSessionService.TurnCancelObserver = issueExecutionCoordinator
@@ -532,15 +541,39 @@ func buildDaemonAPI(
 		Delay:    3 * time.Second,
 		Interval: 15 * time.Second,
 		Reconcile: func(ctx context.Context, workspaceID string) (workspaceservice.IssueRunReconcileResult, error) {
-			return reconcileTuttiModeRunsAndMainWakes(
+			result, err := reconcileTuttiModeRunsAndMainWakes(
 				ctx,
 				workspaceID,
 				tuttiModeMainWakeOwner,
 				issueExecutionCoordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns,
 				tuttiModeMainWakeRecovery,
 			)
+			if err != nil {
+				return result, err
+			}
+			pendingArchives, err := tuttiModeExecutions.RecoverArchivesAndCount(ctx, workspaceID)
+			result.RunningCount += pendingArchives
+			return result, err
 		},
 	})
+	tuttiModeExecutions.ArchiveRecoveryQueue = issueService.RunReconcileQueue
+	if tuttiModeArchiveStore != nil {
+		workspaces, err := store.List(ctx)
+		if err != nil {
+			return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("list workspaces for Tutti archive recovery: %w", err)
+		}
+		for _, workspace := range workspaces {
+			pendingArchives, err := tuttiModeExecutions.RecoverArchivesAndCount(ctx, workspace.ID)
+			if err != nil {
+				return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
+					"recover Tutti archives for workspace %s: %w", workspace.ID, err,
+				)
+			}
+			if pendingArchives > 0 {
+				issueService.RunReconcileQueue.Enqueue(workspace.ID)
+			}
+		}
+	}
 	agentActivityProjection.SetRootTurnObserver(rootTurnObserverFanout{
 		agentRuntimeController,
 		tuttiModeSourceTurnActivityObserver{
@@ -796,6 +829,7 @@ func buildDaemonAPI(
 		IssueService:               issueService,
 		IssueExecutionService:      issueExecutionCoordinator,
 		TuttiModePlanService:       tuttiModePlans,
+		TuttiModeExecutionService:  tuttiModeExecutions,
 		TuttiModeActivationService: tuttiModeActivations,
 		TuttiModeGoalReviewService: tuttiModeExecutions,
 		CLIRegistry:                cliRegistry,

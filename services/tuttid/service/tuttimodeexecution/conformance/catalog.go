@@ -17,7 +17,9 @@ func Catalog() []Scenario {
 	scenarios = append(scenarios, SettlementCatalog()...)
 	scenarios = append(scenarios, WakeCatalog()...)
 	scenarios = append(scenarios, WatchdogCatalog()...)
-	return append(scenarios, ReviewCatalog()...)
+	scenarios = append(scenarios, ReviewCatalog()...)
+	scenarios = append(scenarios, ArchiveCatalog()...)
+	return append(scenarios, DeletionCatalog()...)
 }
 
 func MutationCatalog() []Scenario {

@@ -34,6 +34,12 @@ func (s *SQLiteStore) MaterializeTuttiModeIssue(
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := ensureSourceSessionNotDeletionFencedTx(
+		ctx, tx, issue.WorkspaceID, issue.SourceSessionID,
+	); err != nil {
+		return workspaceissues.Issue{}, nil, executionbiz.Aggregate{}, err
+	}
+
 	var topicExists int
 	err = tx.QueryRowContext(ctx, `
 SELECT 1

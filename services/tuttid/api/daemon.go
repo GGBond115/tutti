@@ -57,6 +57,7 @@ type DaemonAPI struct {
 	IssueService               workspaceapi.IssueManagerService
 	IssueExecutionService      workspaceapi.IssueExecutionService
 	TuttiModePlanService       TuttiModePlanService
+	TuttiModeExecutionService  TuttiModeExecutionService
 	TuttiModeActivationService TuttiModeActivationService
 	TuttiModeGoalReviewService TuttiModeGoalReviewService
 	CLIRegistry                *cliservice.Registry

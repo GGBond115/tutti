@@ -72,6 +72,9 @@ type Execution struct {
 	ReviewMode                 string
 	ReviewAgentTargetID        string
 	CompletedAt                time.Time
+	ArchivedAt                 time.Time
+	ArchivedBy                 string
+	ArchiveReason              string
 }
 
 type Checkpoint struct {
@@ -245,6 +248,23 @@ type SwitchReviewToSelfResult struct {
 	Replayed    bool
 }
 
+type ArchiveInput struct {
+	WorkspaceID string
+	IssueID     string
+	RequestID   string
+	RequestedBy string
+	Reason      string
+}
+
+type ArchiveOperation struct {
+	OperationID string
+	Status      string
+	RequestedBy string
+	Reason      string
+	LastError   string
+	CompletedAt time.Time
+}
+
 type Wake struct {
 	WakeID             string
 	ExecutionID        string
@@ -323,6 +343,11 @@ type Driver interface {
 	ReviewerCanonicalTurnCount() int
 	ReviewerCanonicalIdentity(string) (string, string, bool)
 	ReviewerCapabilities() []string
+	Archive(context.Context, ArchiveInput) (ArchiveOperation, error)
+	GetArchive(context.Context, string, string) (ArchiveOperation, error)
+	RestartRecoverArchives(context.Context, string) error
+	AdmitSourceDeletion(context.Context, string, []string) error
+	ReleaseSourceDeletion(context.Context, string, []string, bool) error
 	SeedActiveRun(context.Context, string, string, string) error
 	FailNextLaunch()
 	HoldNextLaunch() (<-chan struct{}, func())

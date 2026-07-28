@@ -3,10 +3,71 @@
 package tuttimodeexecution
 
 import (
+	"errors"
 	"time"
 
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
 )
+
+var ErrSourceDeletionFenced = errors.New("source session deletion is fenced")
+
+type ArchiveStatus string
+
+const (
+	ArchiveStatusRequested     ArchiveStatus = "requested"
+	ArchiveStatusCancelingRuns ArchiveStatus = "canceling_runs"
+	ArchiveStatusArchiving     ArchiveStatus = "archiving"
+	ArchiveStatusCompleted     ArchiveStatus = "completed"
+	ArchiveStatusFailed        ArchiveStatus = "failed"
+)
+
+type ArchiveRequest struct {
+	WorkspaceID string
+	IssueID     string
+	RequestID   string
+	RequestedBy string
+	Reason      string
+	Now         time.Time
+}
+
+type ArchiveOperation struct {
+	WorkspaceID  string
+	ExecutionID  string
+	IssueID      string
+	OperationID  string
+	RequestID    string
+	Status       ArchiveStatus
+	RequestedBy  string
+	Reason       string
+	AttemptCount int
+	LastError    string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	CompletedAt  time.Time
+}
+
+type ProtectedIssue struct {
+	IssueID         string `json:"issueId"`
+	ExecutionID     string `json:"executionId"`
+	SourceSessionID string `json:"sourceSessionId"`
+	Status          Status `json:"status"`
+}
+
+type ProtectedSourceError struct {
+	WorkspaceID string
+	Issues      []ProtectedIssue
+}
+
+func (*ProtectedSourceError) Error() string {
+	return "tutti_execution_active"
+}
+
+type SourceSessionDeletionAdmission struct {
+	WorkspaceID string
+	AdmissionID string
+	SessionIDs  []string
+	Now         time.Time
+}
 
 type Status string
 

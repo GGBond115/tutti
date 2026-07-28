@@ -167,11 +167,12 @@ func ensureTuttiModeRunSettlementTx(
 ) (executionbiz.Checkpoint, bool, error) {
 	var executionID string
 	var graphRevision int64
+	var executionStatus string
 	err := tx.QueryRowContext(ctx, `
-SELECT execution_id, graph_revision
+SELECT execution_id, graph_revision, status
 FROM workspace_tutti_executions
 WHERE workspace_id = ? AND issue_id = ?
-`, settlement.WorkspaceID, settlement.IssueID).Scan(&executionID, &graphRevision)
+`, settlement.WorkspaceID, settlement.IssueID).Scan(&executionID, &graphRevision, &executionStatus)
 	if errors.Is(err, sql.ErrNoRows) {
 		return executionbiz.Checkpoint{}, false, executionbiz.ErrExecutionNotFound
 	}
@@ -194,6 +195,10 @@ WHERE workspace_id = ? AND issue_id = ? AND task_id = ? AND run_id = ?
 		ctx, tx, settlement, workspaceissues.Status(runStatus),
 	); err != nil {
 		return executionbiz.Checkpoint{}, false, err
+	}
+	if executionStatus == string(executionbiz.StatusArchiving) ||
+		executionStatus == string(executionbiz.StatusArchived) {
+		return executionbiz.Checkpoint{}, false, nil
 	}
 	checkpointID, _ := executionbiz.RunSettlementCheckpointID(executionID, settlement.RunID)
 	existing, found, err := getTuttiModeCheckpointTx(

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -22,22 +24,23 @@ import (
 )
 
 type sqliteConformanceDriver struct {
-	dbPath         string
-	store          *workspacedata.SQLiteStore
-	issues         workspaceservice.IssueManagerService
-	executions     *tuttimodeexecutionservice.Service
-	plans          *tuttimodeplanservice.Service
-	revisions      workspacedata.WorkflowRevisionFiles
-	clock          *controlledClock
-	launcher       *recordingLauncher
-	renewals       *manualLeaseRenewalScheduler
-	canceller      *recordingRunCanceller
-	wakeTarget     *recordingMainWakeTarget
-	wakeStore      *injectableWakeStore
-	reviewer       *recordingReviewerTarget
-	reviewMu       sync.Mutex
-	failReviewStep string
-	cancelAuto     context.CancelFunc
+	dbPath             string
+	store              *workspacedata.SQLiteStore
+	issues             workspaceservice.IssueManagerService
+	executions         *tuttimodeexecutionservice.Service
+	plans              *tuttimodeplanservice.Service
+	revisions          workspacedata.WorkflowRevisionFiles
+	clock              *controlledClock
+	launcher           *recordingLauncher
+	renewals           *manualLeaseRenewalScheduler
+	canceller          *recordingRunCanceller
+	wakeTarget         *recordingMainWakeTarget
+	wakeStore          *injectableWakeStore
+	reviewer           *recordingReviewerTarget
+	reviewMu           sync.Mutex
+	failReviewStep     string
+	deletionAdmissions map[string]executionbiz.SourceSessionDeletionAdmission
+	cancelAuto         context.CancelFunc
 }
 
 type controlledClock struct {
@@ -291,15 +294,20 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 			RunLaunchLeaseRenewalScheduler:  renewals,
 			RunCancellationRequester:        canceller,
 		},
-		executions: executions,
-		revisions:  workspacedata.WorkflowRevisionFiles{StateDir: t.TempDir()},
-		clock:      clock,
-		launcher:   launcher,
-		renewals:   renewals,
-		canceller:  canceller,
-		wakeTarget: wakeTarget,
-		wakeStore:  wakeStore,
-		reviewer:   reviewer,
+		executions:         executions,
+		revisions:          workspacedata.WorkflowRevisionFiles{StateDir: t.TempDir()},
+		clock:              clock,
+		launcher:           launcher,
+		renewals:           renewals,
+		canceller:          canceller,
+		wakeTarget:         wakeTarget,
+		wakeStore:          wakeStore,
+		reviewer:           reviewer,
+		deletionAdmissions: make(map[string]executionbiz.SourceSessionDeletionAdmission),
+	}
+	driver.executions.Archives = store
+	driver.executions.ArchiveRuns = &workspaceservice.IssueExecutionCoordinator{
+		Issues: &driver.issues, RunSessionCanceller: canceller,
 	}
 	executions.BeforeGoalReviewCommitStep = driver.beforeGoalReviewCommitStep
 	driver.plans = &tuttimodeplanservice.Service{
@@ -1006,6 +1014,74 @@ func (driver *sqliteConformanceDriver) ReviewerCapabilities() []string {
 	return append([]string(nil), driver.reviewer.capabilities...)
 }
 
+func (driver *sqliteConformanceDriver) Archive(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.ArchiveInput,
+) (tuttimodeexecutionconformance.ArchiveOperation, error) {
+	operation, err := driver.executions.Archive(ctx, tuttimodeexecutionservice.ArchiveInput{
+		WorkspaceID: input.WorkspaceID, IssueID: input.IssueID,
+		RequestID: input.RequestID, RequestedBy: input.RequestedBy, Reason: input.Reason,
+	})
+	return conformanceArchiveOperation(operation), err
+}
+
+func (driver *sqliteConformanceDriver) GetArchive(
+	ctx context.Context, workspaceID, operationID string,
+) (tuttimodeexecutionconformance.ArchiveOperation, error) {
+	operation, err := driver.executions.GetArchive(ctx, workspaceID, operationID)
+	return conformanceArchiveOperation(operation), err
+}
+
+func (driver *sqliteConformanceDriver) RestartRecoverArchives(
+	ctx context.Context, workspaceID string,
+) error {
+	replica := &tuttimodeexecutionservice.Service{
+		Store: driver.store, Wakes: driver.wakeStore, Archives: driver.store,
+		ArchiveRuns: &workspaceservice.IssueExecutionCoordinator{
+			Issues: &driver.issues, RunSessionCanceller: driver.canceller,
+		},
+		Clock: driver.clock.Now,
+	}
+	return replica.RecoverArchives(ctx, workspaceID)
+}
+
+func (driver *sqliteConformanceDriver) AdmitSourceDeletion(
+	ctx context.Context, workspaceID string, sessionIDs []string,
+) error {
+	normalized := append([]string(nil), sessionIDs...)
+	slices.Sort(normalized)
+	admission, err := driver.store.AdmitSourceSessionDeletion(ctx, executionbiz.SourceSessionDeletionAdmission{
+		WorkspaceID: workspaceID, SessionIDs: normalized, Now: driver.clock.Now(),
+	})
+	if err == nil {
+		driver.deletionAdmissions[workspaceID+"|"+strings.Join(normalized, "\x00")] = admission
+	}
+	return err
+}
+
+func (driver *sqliteConformanceDriver) ReleaseSourceDeletion(
+	ctx context.Context, workspaceID string, sessionIDs []string, succeeded bool,
+) error {
+	normalized := append([]string(nil), sessionIDs...)
+	slices.Sort(normalized)
+	key := workspaceID + "|" + strings.Join(normalized, "\x00")
+	admission := driver.deletionAdmissions[key]
+	if admission.AdmissionID == "" {
+		return fmt.Errorf("source deletion admission not found")
+	}
+	return driver.store.ReportSourceSessionDeletion(ctx, admission, succeeded, driver.clock.Now())
+}
+
+func conformanceArchiveOperation(
+	operation executionbiz.ArchiveOperation,
+) tuttimodeexecutionconformance.ArchiveOperation {
+	return tuttimodeexecutionconformance.ArchiveOperation{
+		OperationID: operation.OperationID, Status: string(operation.Status),
+		RequestedBy: operation.RequestedBy, Reason: operation.Reason,
+		LastError: operation.LastError, CompletedAt: operation.CompletedAt,
+	}
+}
+
 func (driver *sqliteConformanceDriver) SeedActiveRun(
 	ctx context.Context,
 	workspaceID string,
@@ -1058,6 +1134,9 @@ func (driver *sqliteConformanceDriver) GetExecutionByIssue(
 		ReviewMode:                 string(aggregate.Execution.ReviewMode),
 		ReviewAgentTargetID:        aggregate.Execution.ReviewAgentTargetID,
 		CompletedAt:                aggregate.Execution.CompletedAt,
+		ArchivedAt:                 aggregate.Execution.ArchivedAt,
+		ArchivedBy:                 aggregate.Execution.ArchivedBy,
+		ArchiveReason:              aggregate.Execution.ArchiveReason,
 	}
 	checkpoints := make([]tuttimodeexecutionconformance.Checkpoint, 0, len(aggregate.Checkpoints))
 	for _, checkpoint := range aggregate.Checkpoints {
@@ -1125,15 +1204,28 @@ func (driver *sqliteConformanceDriver) RecoverLaunches(ctx context.Context, work
 func (driver *sqliteConformanceDriver) EnableAutomaticRecovery(ctx context.Context) {
 	queueCtx, cancel := context.WithCancel(ctx)
 	driver.cancelAuto = cancel
-	coordinator := &workspaceservice.IssueExecutionCoordinator{Issues: &driver.issues}
+	coordinator := &workspaceservice.IssueExecutionCoordinator{
+		Issues: &driver.issues, RunSessionCanceller: driver.canceller,
+	}
 	driver.issues.RunReconcileQueue = workspaceservice.NewIssueRunReconcileQueue(
 		workspaceservice.IssueRunReconcileQueueOptions{
-			Context:   queueCtx,
-			Delay:     time.Millisecond,
-			Interval:  time.Millisecond,
-			Reconcile: coordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns,
+			Context:  queueCtx,
+			Delay:    time.Millisecond,
+			Interval: time.Millisecond,
+			Reconcile: func(
+				ctx context.Context, workspaceID string,
+			) (workspaceservice.IssueRunReconcileResult, error) {
+				result, err := coordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns(ctx, workspaceID)
+				if err != nil {
+					return result, err
+				}
+				pending, err := driver.executions.RecoverArchivesAndCount(ctx, workspaceID)
+				result.RunningCount += pending
+				return result, err
+			},
 		},
 	)
+	driver.executions.ArchiveRecoveryQueue = driver.issues.RunReconcileQueue
 }
 
 func (driver *sqliteConformanceDriver) AwaitLauncherCalls(ctx context.Context, want int) error {
@@ -1300,6 +1392,36 @@ func TestWatchdogSQLiteServiceConformance(t *testing.T) {
 
 func TestGoalReviewSQLiteServiceConformance(t *testing.T) {
 	for _, scenario := range tuttimodeexecutionconformance.ReviewCatalog() {
+		scenario := scenario
+		t.Run(scenario.Name, func(t *testing.T) {
+			if err := tuttimodeexecutionconformance.Run(
+				context.Background(),
+				newSQLiteConformanceDriver(t),
+				scenario,
+			); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestArchiveSQLiteServiceConformance(t *testing.T) {
+	for _, scenario := range tuttimodeexecutionconformance.ArchiveCatalog() {
+		scenario := scenario
+		t.Run(scenario.Name, func(t *testing.T) {
+			if err := tuttimodeexecutionconformance.Run(
+				context.Background(),
+				newSQLiteConformanceDriver(t),
+				scenario,
+			); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestDeletionSQLiteServiceConformance(t *testing.T) {
+	for _, scenario := range tuttimodeexecutionconformance.DeletionCatalog() {
 		scenario := scenario
 		t.Run(scenario.Name, func(t *testing.T) {
 			if err := tuttimodeexecutionconformance.Run(

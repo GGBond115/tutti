@@ -728,6 +728,7 @@ const (
 	ModelPolicyReferenced                 ApiErrorDetailsCode = "model_policy_referenced"
 	PreferencesOperationFailed            ApiErrorDetailsCode = "preferences_operation_failed"
 	ServiceUnavailable                    ApiErrorDetailsCode = "service_unavailable"
+	TuttiExecutionActive                  ApiErrorDetailsCode = "tutti_execution_active"
 	TuttiModeGoalReviewConflict           ApiErrorDetailsCode = "tutti_mode_goal_review_conflict"
 	TuttiModeGoalReviewNotFound           ApiErrorDetailsCode = "tutti_mode_goal_review_not_found"
 	TuttiModeGoalReviewOperationFailed    ApiErrorDetailsCode = "tutti_mode_goal_review_operation_failed"
@@ -773,6 +774,8 @@ func (e ApiErrorDetailsCode) Valid() bool {
 	case PreferencesOperationFailed:
 		return true
 	case ServiceUnavailable:
+		return true
+	case TuttiExecutionActive:
 		return true
 	case TuttiModeGoalReviewConflict:
 		return true
@@ -1927,6 +1930,33 @@ func (e TuttiModeActivationStatus) Valid() bool {
 	case TuttiModeActivationStatusActive:
 		return true
 	case TuttiModeActivationStatusInactive:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TuttiModeArchiveOperationStatus.
+const (
+	TuttiModeArchiveOperationStatusArchiving     TuttiModeArchiveOperationStatus = "archiving"
+	TuttiModeArchiveOperationStatusCancelingRuns TuttiModeArchiveOperationStatus = "canceling_runs"
+	TuttiModeArchiveOperationStatusCompleted     TuttiModeArchiveOperationStatus = "completed"
+	TuttiModeArchiveOperationStatusFailed        TuttiModeArchiveOperationStatus = "failed"
+	TuttiModeArchiveOperationStatusRequested     TuttiModeArchiveOperationStatus = "requested"
+)
+
+// Valid indicates whether the value is a known member of the TuttiModeArchiveOperationStatus enum.
+func (e TuttiModeArchiveOperationStatus) Valid() bool {
+	switch e {
+	case TuttiModeArchiveOperationStatusArchiving:
+		return true
+	case TuttiModeArchiveOperationStatusCancelingRuns:
+		return true
+	case TuttiModeArchiveOperationStatusCompleted:
+		return true
+	case TuttiModeArchiveOperationStatusFailed:
+		return true
+	case TuttiModeArchiveOperationStatusRequested:
 		return true
 	default:
 		return false
@@ -3174,31 +3204,31 @@ func (e WorkspaceWorkflowPlanRevisionSchemaVersion) Valid() bool {
 
 // Defines values for WorkspaceWorkflowStatus.
 const (
-	Accepted      WorkspaceWorkflowStatus = "accepted"
-	Canceled      WorkspaceWorkflowStatus = "canceled"
-	Completed     WorkspaceWorkflowStatus = "completed"
-	Failed        WorkspaceWorkflowStatus = "failed"
-	InProgress    WorkspaceWorkflowStatus = "in_progress"
-	PendingReview WorkspaceWorkflowStatus = "pending_review"
-	Rejected      WorkspaceWorkflowStatus = "rejected"
+	WorkspaceWorkflowStatusAccepted      WorkspaceWorkflowStatus = "accepted"
+	WorkspaceWorkflowStatusCanceled      WorkspaceWorkflowStatus = "canceled"
+	WorkspaceWorkflowStatusCompleted     WorkspaceWorkflowStatus = "completed"
+	WorkspaceWorkflowStatusFailed        WorkspaceWorkflowStatus = "failed"
+	WorkspaceWorkflowStatusInProgress    WorkspaceWorkflowStatus = "in_progress"
+	WorkspaceWorkflowStatusPendingReview WorkspaceWorkflowStatus = "pending_review"
+	WorkspaceWorkflowStatusRejected      WorkspaceWorkflowStatus = "rejected"
 )
 
 // Valid indicates whether the value is a known member of the WorkspaceWorkflowStatus enum.
 func (e WorkspaceWorkflowStatus) Valid() bool {
 	switch e {
-	case Accepted:
+	case WorkspaceWorkflowStatusAccepted:
 		return true
-	case Canceled:
+	case WorkspaceWorkflowStatusCanceled:
 		return true
-	case Completed:
+	case WorkspaceWorkflowStatusCompleted:
 		return true
-	case Failed:
+	case WorkspaceWorkflowStatusFailed:
 		return true
-	case InProgress:
+	case WorkspaceWorkflowStatusInProgress:
 		return true
-	case PendingReview:
+	case WorkspaceWorkflowStatusPendingReview:
 		return true
-	case Rejected:
+	case WorkspaceWorkflowStatusRejected:
 		return true
 	default:
 		return false
@@ -4040,6 +4070,13 @@ type AppReferenceSearchResponse struct {
 	Items       []AppReferenceListReferenceItem `json:"items"`
 	NextCursor  *string                         `json:"nextCursor"`
 	WorkspaceId string                          `json:"workspaceId"`
+}
+
+// ArchiveTuttiModeExecutionRequest defines model for ArchiveTuttiModeExecutionRequest.
+type ArchiveTuttiModeExecutionRequest struct {
+	Reason      string `json:"reason"`
+	RequestId   string `json:"requestId"`
+	RequestedBy string `json:"requestedBy"`
 }
 
 // AuthenticateAgentTargetRuntimeRequest defines model for AuthenticateAgentTargetRuntimeRequest.
@@ -5927,6 +5964,26 @@ type TuttiModeActivationSource string
 // TuttiModeActivationStatus defines model for TuttiModeActivationStatus.
 type TuttiModeActivationStatus string
 
+// TuttiModeArchiveOperation defines model for TuttiModeArchiveOperation.
+type TuttiModeArchiveOperation struct {
+	AttemptCount      int                             `json:"attemptCount"`
+	CompletedAtUnixMs int64                           `json:"completedAtUnixMs"`
+	CreatedAtUnixMs   int64                           `json:"createdAtUnixMs"`
+	ExecutionId       string                          `json:"executionId"`
+	IssueId           string                          `json:"issueId"`
+	LastError         string                          `json:"lastError"`
+	OperationId       string                          `json:"operationId"`
+	Reason            string                          `json:"reason"`
+	RequestId         string                          `json:"requestId"`
+	RequestedBy       string                          `json:"requestedBy"`
+	Status            TuttiModeArchiveOperationStatus `json:"status"`
+	UpdatedAtUnixMs   int64                           `json:"updatedAtUnixMs"`
+	WorkspaceId       string                          `json:"workspaceId"`
+}
+
+// TuttiModeArchiveOperationStatus defines model for TuttiModeArchiveOperation.Status.
+type TuttiModeArchiveOperationStatus string
+
 // TuttiModePlanBudget defines model for TuttiModePlanBudget.
 type TuttiModePlanBudget struct {
 	Mode                  TuttiModePlanBudgetMode `json:"mode"`
@@ -7564,6 +7621,9 @@ type PreferencesOperationError = ApiErrorResponse
 // ServiceUnavailableError defines model for ServiceUnavailableError.
 type ServiceUnavailableError = ApiErrorResponse
 
+// TuttiExecutionActiveError defines model for TuttiExecutionActiveError.
+type TuttiExecutionActiveError = ApiErrorResponse
+
 // TuttiModeGoalReviewConflictError defines model for TuttiModeGoalReviewConflictError.
 type TuttiModeGoalReviewConflictError = ApiErrorResponse
 
@@ -7802,6 +7862,11 @@ type ListWorkspaceIssueTasksParams struct {
 // AttachWorkspaceTerminalParams defines parameters for AttachWorkspaceTerminal.
 type AttachWorkspaceTerminalParams struct {
 	AfterSeq *TerminalAfterSeq `form:"afterSeq,omitempty" json:"afterSeq,omitempty"`
+}
+
+// GetTuttiModeArchiveOperationParams defines parameters for GetTuttiModeArchiveOperation.
+type GetTuttiModeArchiveOperationParams struct {
+	OperationId string `form:"operationId" json:"operationId"`
 }
 
 // ListWorkspaceWorkflowsParams defines parameters for ListWorkspaceWorkflows.
@@ -8090,6 +8155,9 @@ type CreateWorkspaceTerminalJSONRequestBody = CreateWorkspaceTerminalRequest
 
 // ResizeWorkspaceTerminalJSONRequestBody defines body for ResizeWorkspaceTerminal for application/json ContentType.
 type ResizeWorkspaceTerminalJSONRequestBody = ResizeWorkspaceTerminalRequest
+
+// ArchiveTuttiModeExecutionJSONRequestBody defines body for ArchiveTuttiModeExecution for application/json ContentType.
+type ArchiveTuttiModeExecutionJSONRequestBody = ArchiveTuttiModeExecutionRequest
 
 // PutWorkspaceWorkbenchJSONRequestBody defines body for PutWorkspaceWorkbench for application/json ContentType.
 type PutWorkspaceWorkbenchJSONRequestBody = PutWorkspaceWorkbenchRequest

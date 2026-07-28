@@ -22,6 +22,9 @@ import type {
   ApplyWorkspaceGitPatchData,
   ApplyWorkspaceGitPatchErrors,
   ApplyWorkspaceGitPatchResponses,
+  ArchiveTuttiModeExecutionData,
+  ArchiveTuttiModeExecutionErrors,
+  ArchiveTuttiModeExecutionResponses,
   AttachEventStreamData,
   AttachEventStreamErrors,
   AttachEventStreamResponses,
@@ -241,6 +244,9 @@ import type {
   GetStartupWorkspaceData,
   GetStartupWorkspaceErrors,
   GetStartupWorkspaceResponses,
+  GetTuttiModeArchiveOperationData,
+  GetTuttiModeArchiveOperationErrors,
+  GetTuttiModeArchiveOperationResponses,
   GetWorkspaceAgentData,
   GetWorkspaceAgentErrors,
   GetWorkspaceAgentResponses,
@@ -2897,6 +2903,44 @@ export const getWorkspaceAgentSession = <ThrowOnError extends boolean = false>(
     security: [{ scheme: "bearer", type: "http" }],
     url: "/v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}",
     ...options
+  });
+
+/**
+ * Get the current archive operation for one Tutti execution
+ */
+export const getTuttiModeArchiveOperation = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<GetTuttiModeArchiveOperationData, ThrowOnError>
+) =>
+  (options.client ?? client).get<
+    GetTuttiModeArchiveOperationResponses,
+    GetTuttiModeArchiveOperationErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive",
+    ...options
+  });
+
+/**
+ * Stop and durably archive one Tutti execution
+ */
+export const archiveTuttiModeExecution = <ThrowOnError extends boolean = false>(
+  options: Options<ArchiveTuttiModeExecutionData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    ArchiveTuttiModeExecutionResponses,
+    ArchiveTuttiModeExecutionErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
   });
 
 /**

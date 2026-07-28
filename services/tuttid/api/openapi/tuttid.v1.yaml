@@ -3154,6 +3154,8 @@ paths:
           $ref: "#/components/responses/InvalidRequestError"
         "404":
           $ref: "#/components/responses/WorkspaceNotFoundError"
+        "409":
+          $ref: "#/components/responses/TuttiExecutionActiveError"
         "405":
           $ref: "#/components/responses/MethodNotAllowedError"
         "502":
@@ -3217,6 +3219,8 @@ paths:
           $ref: "#/components/responses/InvalidRequestError"
         "404":
           $ref: "#/components/responses/WorkspaceNotFoundError"
+        "409":
+          $ref: "#/components/responses/TuttiExecutionActiveError"
         "405":
           $ref: "#/components/responses/MethodNotAllowedError"
         "502":
@@ -3648,6 +3652,78 @@ paths:
           $ref: "#/components/responses/InvalidRequestError"
         "404":
           $ref: "#/components/responses/WorkspaceNotFoundError"
+        "409":
+          $ref: "#/components/responses/TuttiExecutionActiveError"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowedError"
+        "502":
+          $ref: "#/components/responses/WorkspaceOperationError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - name: issueID
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+    post:
+      operationId: archiveTuttiModeExecution
+      tags:
+        - workspace-workflow
+      summary: Stop and durably archive one Tutti execution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArchiveTuttiModeExecutionRequest"
+      responses:
+        "200":
+          description: Current durable archive operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TuttiModeArchiveOperation"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/WorkspaceIssueResourceNotFoundError"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowedError"
+        "502":
+          $ref: "#/components/responses/WorkspaceOperationError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+    get:
+      operationId: getTuttiModeArchiveOperation
+      tags:
+        - workspace-workflow
+      summary: Get the current archive operation for one Tutti execution
+      parameters:
+        - name: operationId
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        "200":
+          description: Current durable archive operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TuttiModeArchiveOperation"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/WorkspaceIssueResourceNotFoundError"
         "405":
           $ref: "#/components/responses/MethodNotAllowedError"
         "502":
@@ -5856,6 +5932,25 @@ components:
                   code: invalid_request
                   reason: missing_workspace_id
                   developerMessage: workspace id is required
+    TuttiExecutionActiveError:
+      description: One or more source sessions own a nonterminal Tutti execution
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorResponse"
+          examples:
+            protectedSource:
+              value:
+                error:
+                  code: tutti_execution_active
+                  reason: tutti_execution_active
+                  params:
+                    workspaceId: workspace-1
+                    protectedIssues:
+                      - issueId: issue-1
+                        executionId: execution-1
+                        sourceSessionId: session-1
+                        status: running
     MethodNotAllowedError:
       description: HTTP method is not supported on this route
       content:
@@ -6781,6 +6876,7 @@ components:
             - tutti_mode_goal_review_conflict
             - tutti_mode_goal_review_operation_failed
             - tutti_mode_goal_review_service_unavailable
+            - tutti_execution_active
         reason:
           type: string
         params:
@@ -12191,6 +12287,87 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ExternalAgentImportError"
+    ArchiveTuttiModeExecutionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - requestId
+        - requestedBy
+        - reason
+      properties:
+        requestId:
+          type: string
+          minLength: 1
+        requestedBy:
+          type: string
+          minLength: 1
+        reason:
+          type: string
+          minLength: 1
+    TuttiModeArchiveOperation:
+      type: object
+      additionalProperties: false
+      required:
+        - workspaceId
+        - executionId
+        - issueId
+        - operationId
+        - requestId
+        - status
+        - requestedBy
+        - reason
+        - attemptCount
+        - lastError
+        - createdAtUnixMs
+        - updatedAtUnixMs
+        - completedAtUnixMs
+      properties:
+        workspaceId:
+          type: string
+          minLength: 1
+        executionId:
+          type: string
+          minLength: 1
+        issueId:
+          type: string
+          minLength: 1
+        operationId:
+          type: string
+          minLength: 1
+        requestId:
+          type: string
+          minLength: 1
+        status:
+          type: string
+          enum:
+            - requested
+            - canceling_runs
+            - archiving
+            - completed
+            - failed
+        requestedBy:
+          type: string
+          minLength: 1
+        reason:
+          type: string
+          minLength: 1
+        attemptCount:
+          type: integer
+          minimum: 0
+        lastError:
+          type: string
+        createdAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
+        updatedAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
+        completedAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
     DeleteWorkspaceAgentSessionResponse:
       type: object
       additionalProperties: false

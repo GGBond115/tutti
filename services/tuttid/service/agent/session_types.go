@@ -33,6 +33,7 @@ type Service struct {
 	WorkspaceAgentResolver         WorkspaceAgentResolver
 	SessionReader                  SessionReader
 	SessionPurgeStore              agenthost.SessionPurgeStore
+	SessionDeletionGuard           agenthost.SessionDeletionGuard
 	AgentSessionResourceReleaser   AgentSessionResourceReleaser
 	UserProjectReader              UserProjectReader
 	MessageReader                  MessageReader
@@ -48,8 +49,6 @@ type Service struct {
 	RuntimeOperationEventPublisher RuntimeOperationEventPublisher
 	TuttiModeActivations           TuttiModeActivationPort
 	TuttiModeSourceActivity        TuttiModeSourceActivityObserver
-	SourceSessionDeletions         SourceSessionDeletionPort
-	SessionDeletionEvents          SessionDeletionEventPublisher
 	TurnCancelObserver             TurnCancelObserver
 	RuntimeOperationClock          func() time.Time
 	RuntimeOperationOwner          string
@@ -483,9 +482,8 @@ type SessionSectionDeletionCandidateReader interface {
 type SessionBatchDeleter interface {
 	PlanClearSessions(context.Context, string) (agentactivitybiz.DeleteSessionsPlan, error)
 	PlanDeleteSessions(context.Context, agentactivitybiz.DeleteSessionsBatchInput) (agentactivitybiz.DeleteSessionsPlan, error)
-	// DeleteSessionsBatch is a persistence-only fallback for isolated stores.
-	// Production deletion uses SourceSessionDeletionPort so workflow
-	// policy remains in the Tutti mode plan service.
+	// DeleteSessionsBatch is the canonical store mutation delegated by Host
+	// after product deletion admission and runtime closure.
 	DeleteSessionsBatch(context.Context, agentactivitybiz.DeleteSessionsBatchInput) (agentactivitybiz.DeleteSessionsBatchResult, error)
 }
 

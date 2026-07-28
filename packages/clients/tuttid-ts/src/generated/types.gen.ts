@@ -346,7 +346,8 @@ export type ApiErrorDetails = {
     | "tutti_mode_goal_review_not_found"
     | "tutti_mode_goal_review_conflict"
     | "tutti_mode_goal_review_operation_failed"
-    | "tutti_mode_goal_review_service_unavailable";
+    | "tutti_mode_goal_review_service_unavailable"
+    | "tutti_execution_active";
   reason?: string;
   params?: {
     [key: string]: unknown;
@@ -2720,6 +2721,28 @@ export type ExternalAgentImportResultResponse = {
   importedMessages: number;
   skippedSessions: number;
   errors: Array<ExternalAgentImportError>;
+};
+
+export type ArchiveTuttiModeExecutionRequest = {
+  requestId: string;
+  requestedBy: string;
+  reason: string;
+};
+
+export type TuttiModeArchiveOperation = {
+  workspaceId: string;
+  executionId: string;
+  issueId: string;
+  operationId: string;
+  requestId: string;
+  status: "requested" | "canceling_runs" | "archiving" | "completed" | "failed";
+  requestedBy: string;
+  reason: string;
+  attemptCount: number;
+  lastError: string;
+  createdAtUnixMs: number;
+  updatedAtUnixMs: number;
+  completedAtUnixMs: number;
 };
 
 export type DeleteWorkspaceAgentSessionResponse = {
@@ -8914,6 +8937,10 @@ export type ClearWorkspaceAgentSessionsErrors = {
    */
   405: ApiErrorResponse;
   /**
+   * One or more source sessions own a nonterminal Tutti execution
+   */
+  409: ApiErrorResponse;
+  /**
    * Workspace operation failed in an upstream adapter or command
    */
   502: ApiErrorResponse;
@@ -9068,6 +9095,10 @@ export type DeleteWorkspaceAgentSessionsBatchErrors = {
    * HTTP method is not supported on this route
    */
   405: ApiErrorResponse;
+  /**
+   * One or more source sessions own a nonterminal Tutti execution
+   */
+  409: ApiErrorResponse;
   /**
    * Workspace operation failed in an upstream adapter or command
    */
@@ -9588,6 +9619,10 @@ export type DeleteWorkspaceAgentSessionErrors = {
    */
   405: ApiErrorResponse;
   /**
+   * One or more source sessions own a nonterminal Tutti execution
+   */
+  409: ApiErrorResponse;
+  /**
    * Workspace operation failed in an upstream adapter or command
    */
   502: ApiErrorResponse;
@@ -9659,6 +9694,108 @@ export type GetWorkspaceAgentSessionResponses = {
 
 export type GetWorkspaceAgentSessionResponse =
   GetWorkspaceAgentSessionResponses[keyof GetWorkspaceAgentSessionResponses];
+
+export type GetTuttiModeArchiveOperationData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    issueID: string;
+  };
+  query: {
+    operationId: string;
+  };
+  url: "/v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive";
+};
+
+export type GetTuttiModeArchiveOperationErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace issue-manager resource was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type GetTuttiModeArchiveOperationError =
+  GetTuttiModeArchiveOperationErrors[keyof GetTuttiModeArchiveOperationErrors];
+
+export type GetTuttiModeArchiveOperationResponses = {
+  /**
+   * Current durable archive operation
+   */
+  200: TuttiModeArchiveOperation;
+};
+
+export type GetTuttiModeArchiveOperationResponse =
+  GetTuttiModeArchiveOperationResponses[keyof GetTuttiModeArchiveOperationResponses];
+
+export type ArchiveTuttiModeExecutionData = {
+  body: ArchiveTuttiModeExecutionRequest;
+  path: {
+    workspaceID: string;
+    issueID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/tutti-executions/{issueID}/archive";
+};
+
+export type ArchiveTuttiModeExecutionErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace issue-manager resource was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type ArchiveTuttiModeExecutionError =
+  ArchiveTuttiModeExecutionErrors[keyof ArchiveTuttiModeExecutionErrors];
+
+export type ArchiveTuttiModeExecutionResponses = {
+  /**
+   * Current durable archive operation
+   */
+  200: TuttiModeArchiveOperation;
+};
+
+export type ArchiveTuttiModeExecutionResponse =
+  ArchiveTuttiModeExecutionResponses[keyof ArchiveTuttiModeExecutionResponses];
 
 export type ForkWorkspaceAgentSessionData = {
   body: ForkWorkspaceAgentSessionRequest;

@@ -1094,8 +1094,12 @@ func prepareTuttiModeExecutionWorkspace(
 ) {
 	t.Helper()
 	ctx := context.Background()
-	if err := store.Create(ctx, workspacebiz.Summary{ID: workspaceID, Name: workspaceID}); err != nil {
-		t.Fatalf("Create() workspace error = %v", err)
+	if _, err := store.Get(ctx, workspaceID); errors.Is(err, ErrWorkspaceNotFound) {
+		if err := store.Create(ctx, workspacebiz.Summary{ID: workspaceID, Name: workspaceID}); err != nil {
+			t.Fatalf("Create() workspace error = %v", err)
+		}
+	} else if err != nil {
+		t.Fatalf("Get() workspace error = %v", err)
 	}
 	revisionID := "revision-" + workflowID
 	if err := store.CreateWorkspaceWorkflowProposal(ctx, workflowbiz.ProposalAggregate{
