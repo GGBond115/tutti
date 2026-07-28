@@ -24,6 +24,15 @@ type issueLookupFailingStore struct {
 	err error
 }
 
+type notFoundRunSessionCanceller struct{}
+
+func (notFoundRunSessionCanceller) RequestRunCancellation(
+	context.Context,
+	IssueRunCancellationRequest,
+) (IssueRunCancelResult, error) {
+	return IssueRunCancelResult{State: IssueRunCancelNotFound}, nil
+}
+
 func (store issueLookupFailingStore) GetIssue(
 	context.Context,
 	string,
@@ -102,7 +111,55 @@ func TestCancelIssueExecutionRejectsGenericMutationOfManagedIssue(t *testing.T) 
 	}
 }
 
-func TestCancelIssueExecutionForSourceSessionUsesManagedTuttiStopPath(t *testing.T) {
+func TestCancelIssueExecutionSettlesPreparedRunWithoutCanonicalTurn(t *testing.T) {
+	ctx := context.Background()
+	store := openIssueServiceStore(t)
+	const workspaceID = "workspace-cancel-prepared-run"
+	if err := store.Create(ctx, workspacebiz.Summary{
+		ID: workspaceID, Name: "Cancel prepared Run",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := IssueManagerService{
+		Store: store, MutationLocks: NewIssueMutationLocks(),
+	}
+	issue, err := service.CreateIssue(
+		ctx, workspaceID,
+		CreateIssueManagerIssueInput{
+			IssueID: "issue-cancel-prepared-run",
+			TopicID: workspaceissues.DefaultTopicID,
+			Title:   "Cancel prepared Run",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := service.CreateRun(
+		ctx, workspaceID, issue.IssueID, "",
+		CreateIssueManagerRunInput{
+			RunID: "run-cancel-prepared", AgentProvider: "codex",
+			AgentSessionID: "session-cancel-prepared",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator := IssueExecutionCoordinator{
+		Issues: &service, RunSessionCanceller: notFoundRunSessionCanceller{},
+	}
+	canceled, err := coordinator.CancelIssueExecution(ctx, workspaceID, issue.IssueID)
+	if err != nil || canceled != 1 {
+		t.Fatalf("CancelIssueExecution() canceled=%d error=%v", canceled, err)
+	}
+	persisted, err := store.GetRun(
+		ctx, workspaceID, issue.IssueID, run.TaskID, run.RunID,
+	)
+	if err != nil || persisted.Status != workspaceissues.StatusCanceled {
+		t.Fatalf("prepared Run after Stop=%#v error=%v", persisted, err)
+	}
+}
+
+func TestCancelIssueExecutionForSourceSessionRequiresDurableTuttiService(t *testing.T) {
 	ctx := context.Background()
 	store := openIssueServiceStore(t)
 	const (
@@ -145,15 +202,15 @@ func TestCancelIssueExecutionForSourceSessionUsesManagedTuttiStopPath(t *testing
 	coordinator := IssueExecutionCoordinator{Issues: &service}
 	if _, err := coordinator.CancelIssueExecutionForSourceSession(
 		ctx, workspaceID, sourceSessionID,
-	); err != nil {
-		t.Fatalf("CancelIssueExecutionForSourceSession() error = %v", err)
+	); !errors.Is(err, workspaceissues.ErrInvalidArgument) {
+		t.Fatalf("CancelIssueExecutionForSourceSession() error = %v, want durable service requirement", err)
 	}
 	persisted, err := store.GetIssue(ctx, workspaceID, issueID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !persisted.DispatchPaused {
-		t.Fatal("managed Tutti Issue dispatch was not paused by source-session cancellation")
+	if persisted.DispatchPaused {
+		t.Fatal("managed Tutti Issue was partially stopped without the durable execution service")
 	}
 }
 

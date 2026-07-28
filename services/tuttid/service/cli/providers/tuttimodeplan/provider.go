@@ -49,6 +49,13 @@ type IssueCompletions interface {
 	) (tuttimodeexecutionservice.CompleteResult, error)
 }
 
+type IssueArchives interface {
+	Archive(
+		context.Context,
+		tuttimodeexecutionservice.ArchiveInput,
+	) (executionbiz.ArchiveOperation, error)
+}
+
 type IssueMutations interface {
 	MutateTuttiModeIssue(
 		context.Context,
@@ -65,6 +72,7 @@ type Provider struct {
 	mutations        IssueMutations
 	acknowledgements IssueAcknowledgements
 	completions      IssueCompletions
+	archives         IssueArchives
 }
 
 func NewProvider(
@@ -101,6 +109,9 @@ func NewProviderWithExecution(
 	provider.acknowledgements = acknowledgements
 	if len(completions) > 0 {
 		provider.completions = completions[0]
+		if archives, ok := completions[0].(IssueArchives); ok {
+			provider.archives = archives
+		}
 	}
 	return provider
 }
@@ -121,7 +132,15 @@ func (p Provider) Commands() []cliservice.Command {
 		p.newIssueScheduleCommand(),
 		p.newIssueAcknowledgeCommand(),
 		p.newIssueCompleteCommand(),
+		p.newIssueStopCommand(),
 	}
+}
+
+func (p Provider) requireArchives() error {
+	if p.archives == nil {
+		return cliservice.ServiceUnavailableError("Tutti Mode execution service is unavailable", nil)
+	}
+	return nil
 }
 
 func (p Provider) requireCompletions() error {

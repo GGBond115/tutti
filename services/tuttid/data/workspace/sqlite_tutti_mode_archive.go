@@ -24,9 +24,17 @@ func (s *SQLiteStore) RequestTuttiModeArchive(
 	request.RequestID = strings.TrimSpace(request.RequestID)
 	request.RequestedBy = strings.TrimSpace(request.RequestedBy)
 	request.Reason = strings.TrimSpace(request.Reason)
+	request.SourceSessionID = strings.TrimSpace(request.SourceSessionID)
+	request.CheckpointID = strings.TrimSpace(request.CheckpointID)
 	request.Now = request.Now.UTC()
+	sourceScoped := request.SourceSessionID != "" || request.CheckpointID != "" ||
+		request.ExpectedGraphRevision != 0
 	if s == nil || s.writeDB == nil || request.WorkspaceID == "" || request.IssueID == "" ||
 		request.RequestID == "" || request.RequestedBy == "" || request.Reason == "" || request.Now.IsZero() {
+		return executionbiz.ArchiveOperation{}, false, executionbiz.ErrInvalidExecution
+	}
+	if sourceScoped && (request.SourceSessionID == "" || request.CheckpointID == "" ||
+		request.ExpectedGraphRevision < 1 || request.RequestedBy != request.SourceSessionID) {
 		return executionbiz.ArchiveOperation{}, false, executionbiz.ErrInvalidExecution
 	}
 	tx, err := s.writeDB.BeginTx(ctx, nil)
@@ -39,6 +47,112 @@ func (s *SQLiteStore) RequestTuttiModeArchive(
 	if err != nil {
 		return executionbiz.ArchiveOperation{}, false, err
 	}
+	operation, replayed, err := requestTuttiModeArchiveTx(
+		ctx, tx, request, execution, sourceScoped,
+	)
+	if err != nil {
+		return executionbiz.ArchiveOperation{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return executionbiz.ArchiveOperation{}, false, fmt.Errorf("commit Tutti archive request: %w", err)
+	}
+	return operation, replayed, nil
+}
+
+func (s *SQLiteStore) RequestTuttiModeArchivesForSourceSession(
+	ctx context.Context,
+	request executionbiz.SourceSessionArchiveRequest,
+) ([]executionbiz.ArchiveOperation, error) {
+	request.WorkspaceID = strings.TrimSpace(request.WorkspaceID)
+	request.SourceSessionID = strings.TrimSpace(request.SourceSessionID)
+	request.RequestID = strings.TrimSpace(request.RequestID)
+	request.RequestedBy = strings.TrimSpace(request.RequestedBy)
+	request.Reason = strings.TrimSpace(request.Reason)
+	request.Now = request.Now.UTC()
+	if s == nil || s.writeDB == nil || request.WorkspaceID == "" ||
+		request.SourceSessionID == "" || request.RequestID == "" ||
+		request.RequestedBy == "" || request.Reason == "" || request.Now.IsZero() {
+		return nil, executionbiz.ErrInvalidExecution
+	}
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin source-session Tutti archive request: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	operations, err := requestTuttiModeArchivesForSourceSessionTx(ctx, tx, request)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit source-session Tutti archive request: %w", err)
+	}
+	return operations, nil
+}
+
+func requestTuttiModeArchivesForSourceSessionTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	request executionbiz.SourceSessionArchiveRequest,
+) ([]executionbiz.ArchiveOperation, error) {
+	rows, err := tx.QueryContext(ctx, `
+SELECT execution_id, issue_id, source_session_id, status, graph_revision
+FROM workspace_tutti_executions
+WHERE workspace_id = ? AND source_session_id = ?
+  AND status NOT IN ('completed', 'archived')
+ORDER BY created_at_unix_ms, execution_id
+`, request.WorkspaceID, request.SourceSessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list source-session Tutti executions: %w", err)
+	}
+	var executions []executionbiz.Execution
+	for rows.Next() {
+		var execution executionbiz.Execution
+		var status string
+		if err := rows.Scan(
+			&execution.ID, &execution.IssueID, &execution.SourceSessionID,
+			&status, &execution.GraphRevision,
+		); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("scan source-session Tutti execution: %w", err)
+		}
+		execution.WorkspaceID = request.WorkspaceID
+		execution.Status = executionbiz.Status(status)
+		executions = append(executions, execution)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, fmt.Errorf("iterate source-session Tutti executions: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close source-session Tutti executions: %w", err)
+	}
+	operations := make([]executionbiz.ArchiveOperation, 0, len(executions))
+	for _, execution := range executions {
+		operation, _, err := requestTuttiModeArchiveTx(ctx, tx, executionbiz.ArchiveRequest{
+			WorkspaceID: request.WorkspaceID, IssueID: execution.IssueID,
+			RequestID: request.RequestID, RequestedBy: request.RequestedBy,
+			Reason: request.Reason, Now: request.Now,
+		}, execution, false)
+		if err != nil {
+			return nil, err
+		}
+		operations = append(operations, operation)
+	}
+	if err := cancelTuttiSourceSessionWorkflowsTx(
+		ctx, tx, request.WorkspaceID, request.SourceSessionID, request.Now,
+	); err != nil {
+		return nil, err
+	}
+	return operations, nil
+}
+
+func requestTuttiModeArchiveTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	request executionbiz.ArchiveRequest,
+	execution executionbiz.Execution,
+	sourceScoped bool,
+) (executionbiz.ArchiveOperation, bool, error) {
 	operation, found, err := getTuttiArchiveOperationByRequestTx(
 		ctx, tx, request.WorkspaceID, execution.ID, request.RequestID,
 	)
@@ -50,6 +164,26 @@ func (s *SQLiteStore) RequestTuttiModeArchive(
 			return executionbiz.ArchiveOperation{}, false, executionbiz.ErrExecutionConflict
 		}
 		return operation, true, nil
+	}
+	if sourceScoped {
+		if execution.SourceSessionID != request.SourceSessionID ||
+			execution.GraphRevision != request.ExpectedGraphRevision {
+			return executionbiz.ArchiveOperation{}, false, executionbiz.ErrExecutionConflict
+		}
+		var activeCheckpoint int
+		if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM workspace_tutti_execution_checkpoints
+WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ?
+  AND status = 'active' AND graph_revision = ?
+`, request.WorkspaceID, execution.ID, request.CheckpointID,
+			request.ExpectedGraphRevision).Scan(&activeCheckpoint); err != nil {
+			return executionbiz.ArchiveOperation{}, false,
+				fmt.Errorf("validate source-scoped Tutti archive checkpoint: %w", err)
+		}
+		if activeCheckpoint != 1 {
+			return executionbiz.ArchiveOperation{}, false, executionbiz.ErrExecutionConflict
+		}
 	}
 	if execution.Status == executionbiz.StatusArchiving {
 		return currentTuttiArchiveOperationTx(ctx, tx, request.WorkspaceID, execution.ID)
@@ -90,9 +224,6 @@ WHERE workspace_id = ? AND issue_id = ?
 	}
 	if err := cancelTuttiArchiveOperationsTx(ctx, tx, operation, request.Now); err != nil {
 		return executionbiz.ArchiveOperation{}, false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return executionbiz.ArchiveOperation{}, false, fmt.Errorf("commit Tutti archive request: %w", err)
 	}
 	return operation, false, nil
 }
@@ -344,11 +475,11 @@ func cancelTuttiArchiveOperationsTx(
 		    AND status IN ('prepared', 'leased', 'dispatched', 'turn_settled')`,
 			ownerID: operation.ExecutionID},
 		{statement: `UPDATE workspace_tutti_goal_reviews SET status = 'canceled', updated_at_unix_ms = ?
-		  WHERE workspace_id = ? AND execution_id = ? AND status IN ('prepared', 'dispatched')`,
+		  WHERE workspace_id = ? AND execution_id = ? AND status IN ('prepared', 'leased', 'dispatched')`,
 			ownerID: operation.ExecutionID},
 		{statement: `UPDATE workspace_issue_run_launch_intents SET status = 'canceled', lease_owner = '',
 		  lease_expires_at_unix_ms = 0, updated_at_unix_ms = ?
-		  WHERE workspace_id = ? AND issue_id = ? AND status = 'prepared'`,
+		  WHERE workspace_id = ? AND issue_id = ? AND status IN ('prepared', 'leased')`,
 			ownerID: operation.IssueID},
 	}
 	for _, update := range updates {
@@ -361,15 +492,77 @@ func cancelTuttiArchiveOperationsTx(
 	return nil
 }
 
+func cancelTuttiSourceSessionWorkflowsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	workspaceID string,
+	sourceSessionID string,
+	now time.Time,
+) error {
+	if _, err := tx.ExecContext(ctx, `
+UPDATE workspace_workflow_checkpoints
+SET status = 'canceled', updated_at_unix_ms = ?
+WHERE workspace_id = ? AND status = 'pending'
+  AND workflow_id IN (
+    SELECT workflow_id FROM workspace_workflows
+    WHERE workspace_id = ? AND source_session_id = ?
+      AND status IN ('pending_review', 'in_progress', 'accepted')
+  )
+`, unixMs(now), workspaceID, workspaceID, sourceSessionID); err != nil {
+		return fmt.Errorf("cancel source-session workflow checkpoints: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE workspace_workflows
+SET status = 'canceled', updated_at_unix_ms = ?
+WHERE workspace_id = ? AND source_session_id = ?
+  AND (
+    status IN ('pending_review', 'in_progress')
+    OR (
+      status = 'accepted'
+      AND (
+        EXISTS (
+          SELECT 1 FROM workspace_tutti_executions execution
+          WHERE execution.workspace_id = workspace_workflows.workspace_id
+            AND execution.workflow_id = workspace_workflows.workflow_id
+            AND execution.status NOT IN ('completed', 'archived')
+        )
+        OR EXISTS (
+          SELECT 1 FROM workspace_workflow_operations operation
+          WHERE operation.workspace_id = workspace_workflows.workspace_id
+            AND operation.workflow_id = workspace_workflows.workflow_id
+            AND operation.status IN ('pending', 'running', 'failed')
+        )
+      )
+    )
+  )
+`, unixMs(now), workspaceID, sourceSessionID); err != nil {
+		return fmt.Errorf("cancel source-session workflows: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE workspace_workflow_operations
+SET status = 'canceled', updated_at_unix_ms = ?, completed_at_unix_ms = ?
+WHERE workspace_id = ? AND status IN ('pending', 'running', 'failed')
+  AND workflow_id IN (
+    SELECT workflow_id FROM workspace_workflows
+    WHERE workspace_id = ? AND source_session_id = ? AND status = 'canceled'
+  )
+`, unixMs(now), unixMs(now), workspaceID, workspaceID, sourceSessionID); err != nil {
+		return fmt.Errorf("cancel source-session workflow operations: %w", err)
+	}
+	return nil
+}
+
 func getTuttiArchiveExecutionTx(
 	ctx context.Context, tx *sql.Tx, workspaceID, issueID string,
 ) (executionbiz.Execution, error) {
 	var execution executionbiz.Execution
 	var status string
 	err := tx.QueryRowContext(ctx, `
-SELECT execution_id, source_session_id, status
+SELECT execution_id, source_session_id, status, graph_revision
 FROM workspace_tutti_executions WHERE workspace_id = ? AND issue_id = ?
-`, workspaceID, issueID).Scan(&execution.ID, &execution.SourceSessionID, &status)
+`, workspaceID, issueID).Scan(
+		&execution.ID, &execution.SourceSessionID, &status, &execution.GraphRevision,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return execution, executionbiz.ErrExecutionNotFound
 	}

@@ -298,6 +298,18 @@ func (service Service) RecoverReviewers(
 	if workspaceID == "" || leaseOwner == "" {
 		return executionbiz.ErrReviewerVerdictRejected
 	}
+	if service.Wakes != nil {
+		if err := service.Wakes.DrainTuttiModeSourceActivityInbox(
+			ctx, workspaceID,
+		); err != nil {
+			return err
+		}
+	}
+	if service.Archives != nil && service.ArchiveRuns != nil {
+		if _, err := service.RecoverArchivesAndCount(ctx, workspaceID); err != nil {
+			return err
+		}
+	}
 	reviews, err := store.ListDispatchableTuttiModeGoalReviews(
 		ctx, workspaceID, service.now(),
 	)
@@ -356,7 +368,10 @@ func (service Service) recoverOneReviewer(
 			recovered.CanonicalSessionID, recovered.CanonicalTurnID,
 			service.now(),
 		); err != nil {
-			return err
+			return errors.Join(err, service.cancelAutomationTurn(
+				ctx, review.WorkspaceID,
+				recovered.CanonicalSessionID, recovered.CanonicalTurnID,
+			))
 		}
 		return service.reconcileReviewerSettlement(
 			ctx, store, launch, recovered,
@@ -368,7 +383,10 @@ func (service Service) recoverOneReviewer(
 			ctx, review.WorkspaceID, review.ID, leaseOwner,
 			delivery.CanonicalSessionID, delivery.CanonicalTurnID, service.now(),
 		); err != nil {
-			return err
+			return errors.Join(err, service.cancelAutomationTurn(
+				ctx, review.WorkspaceID,
+				delivery.CanonicalSessionID, delivery.CanonicalTurnID,
+			))
 		}
 		return service.reconcileReviewerSettlement(
 			ctx, store, launch, delivery,
@@ -388,6 +406,11 @@ func (service Service) recoverOneReviewer(
 			markErr = service.reconcileReviewerSettlement(
 				ctx, store, launch, recovered,
 			)
+		} else {
+			markErr = errors.Join(markErr, service.cancelAutomationTurn(
+				ctx, review.WorkspaceID,
+				recovered.CanonicalSessionID, recovered.CanonicalTurnID,
+			))
 		}
 		return errors.Join(sendErr, markErr)
 	}

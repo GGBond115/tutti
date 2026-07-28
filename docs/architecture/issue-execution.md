@@ -46,6 +46,23 @@ Because no Issue lock is held across the Agent call, that callback can safely
 settle the Run. A failed cancellation leaves the Run running, keeps dispatch
 paused, and returns an error; Issue intent must not fabricate Agent outcome.
 
+Stopping a Tutti source conversation uses a stronger, source-scoped boundary.
+The canceled canonical source Turn is committed with the Agent transaction's
+Tutti activity-inbox marker. The synchronous observer asks the execution
+service to archive every nonterminal execution for that workspace/source
+Session; it does not discover ownership by scanning a bounded page of running
+Runs. In one product transaction, archive fences each execution and Issue,
+cancels checkpoints, main wakes, Goal Reviews, prepared or leased Run launches,
+and pending workflow/checkpoint/operation recovery. It then cancels exact Run,
+main-wake, and reviewer Turns before sealing executions as `archived`.
+
+The same inbox marker is the crash boundary. A watchdog or reviewer sweep
+drains it before dispatch, creates any missing archive operations, and runs
+archive recovery before another automatic send. Startup create-Issue recovery
+also excludes workflows whose source has an undrained canceled-Turn marker.
+Only completed source Turns advance the inactivity clock; a canceled source
+Turn terminates orchestration instead of postponing the watchdog.
+
 The non-blocking Run launch gate closes the claim-to-launch race without
 holding a mutex across external work. Stop records cancel intent and returns
 without waiting for an in-flight Agent create call. Launch revalidates the
@@ -114,9 +131,10 @@ atomically acknowledge that wake and promote the next backlog checkpoint.
 Every nonterminal Tutti execution also carries a fixed inactivity deadline:
 `watchdogDueAt = lastOrchestratorActivityAt + 5m`. Valid schedule and
 acknowledge commands, Run settlement (including failed or canceled), exact
-source-session user input, and exact source root-Turn settlement reset that
-deadline. Delegate/child activity and activity from another workspace or
-Session do not. The Agent adapter only projects these facts after Host accepts
+source-session user input, and exact completed source root-Turn settlement
+reset that deadline. A canceled source Turn enters the terminal source-session
+stop boundary instead. Delegate/child activity and activity from another
+workspace or Session do not. The Agent adapter only projects these facts after Host accepts
 the user Turn or reports the canonical root Turn settled; it does not change
 Host lifecycle semantics. The projection carries the canonical Turn identity
 and user-message occurrence or root-Turn settlement time rather than callback

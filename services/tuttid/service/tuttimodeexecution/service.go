@@ -63,6 +63,7 @@ type MutationStore interface {
 
 type ArchiveStore interface {
 	RequestTuttiModeArchive(context.Context, executionbiz.ArchiveRequest) (executionbiz.ArchiveOperation, bool, error)
+	RequestTuttiModeArchivesForSourceSession(context.Context, executionbiz.SourceSessionArchiveRequest) ([]executionbiz.ArchiveOperation, error)
 	GetTuttiModeArchiveOperation(context.Context, string, string) (executionbiz.ArchiveOperation, error)
 	FailTuttiModeArchive(context.Context, string, string, string, time.Time) (executionbiz.ArchiveOperation, error)
 	CompleteTuttiModeArchiveIfSettled(context.Context, string, string, time.Time) (executionbiz.ArchiveOperation, bool, error)
@@ -75,6 +76,10 @@ type ArchiveRunCanceller interface {
 
 type ArchiveRecoveryEnqueuer interface {
 	Enqueue(string)
+}
+
+type ArchiveAutomationTurnCanceller interface {
+	CancelAutomationTurn(context.Context, string, string, string) error
 }
 
 type WakeStore interface {
@@ -111,6 +116,7 @@ type Service struct {
 	BeforeGoalReviewCommitStep func(string) error
 	Archives                   ArchiveStore
 	ArchiveRuns                ArchiveRunCanceller
+	ArchiveAutomationTurns     ArchiveAutomationTurnCanceller
 	ArchiveRecoveryQueue       ArchiveRecoveryEnqueuer
 	MainWakeSendTimeout        time.Duration
 	MainWakeCleanupTimeout     time.Duration

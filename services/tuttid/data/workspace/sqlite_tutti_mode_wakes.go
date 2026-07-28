@@ -107,6 +107,11 @@ func (s *SQLiteStore) PrepareDueTuttiModeExecutionWatchdogs(
 		return fmt.Errorf("begin Tutti mode watchdog preparation: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := repairStaleActiveTuttiModeCheckpointRevisionsTx(
+		ctx, tx, workspaceID, now,
+	); err != nil {
+		return err
+	}
 	rows, err := tx.QueryContext(ctx, `
 SELECT execution_id, graph_revision, watchdog_due_at_unix_ms
 FROM workspace_tutti_executions
@@ -145,6 +150,58 @@ ORDER BY watchdog_due_at_unix_ms ASC, execution_id ASC
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit Tutti mode watchdog preparation: %w", err)
+	}
+	return nil
+}
+
+func repairStaleActiveTuttiModeCheckpointRevisionsTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	workspaceID string,
+	now time.Time,
+) error {
+	_, err := tx.ExecContext(ctx, `
+UPDATE workspace_tutti_executions
+SET watchdog_due_at_unix_ms = MIN(watchdog_due_at_unix_ms, ?),
+    updated_at_unix_ms = ?
+WHERE workspace_id = ?
+  AND status IN ('awaiting_schedule', 'running', 'awaiting_main', 'pending_goal_review')
+  AND EXISTS (
+    SELECT 1
+    FROM workspace_tutti_execution_checkpoints c
+    WHERE c.workspace_id = workspace_tutti_executions.workspace_id
+      AND c.execution_id = workspace_tutti_executions.execution_id
+      AND c.status = 'active'
+      AND c.kind IN ('task_settled', 'task_failed', 'task_canceled', 'watchdog')
+      AND c.graph_revision < workspace_tutti_executions.graph_revision
+  )
+`, unixMs(now), unixMs(now), workspaceID)
+	if err != nil {
+		return fmt.Errorf("advance stale Tutti mode checkpoint recovery: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `
+UPDATE workspace_tutti_execution_checkpoints
+SET graph_revision = (
+      SELECT e.graph_revision
+      FROM workspace_tutti_executions e
+      WHERE e.workspace_id = workspace_tutti_execution_checkpoints.workspace_id
+        AND e.execution_id = workspace_tutti_execution_checkpoints.execution_id
+    ),
+    updated_at_unix_ms = ?
+WHERE workspace_id = ?
+  AND status = 'active'
+  AND kind IN ('task_settled', 'task_failed', 'task_canceled', 'watchdog')
+  AND EXISTS (
+    SELECT 1
+    FROM workspace_tutti_executions e
+    WHERE e.workspace_id = workspace_tutti_execution_checkpoints.workspace_id
+      AND e.execution_id = workspace_tutti_execution_checkpoints.execution_id
+      AND e.status IN ('awaiting_schedule', 'running', 'awaiting_main', 'pending_goal_review')
+      AND workspace_tutti_execution_checkpoints.graph_revision < e.graph_revision
+  )
+`, unixMs(now), workspaceID)
+	if err != nil {
+		return fmt.Errorf("rebind stale active Tutti mode checkpoint revision: %w", err)
 	}
 	return nil
 }

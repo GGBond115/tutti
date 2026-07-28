@@ -155,10 +155,12 @@ func (s *Service) CancelTurn(ctx context.Context, workspaceID string, agentSessi
 	if result.Canceled {
 		result.Reason = CancelTurnReasonTurnCanceled
 		if s.TurnCancelObserver != nil {
-			// Cascade asynchronously so cancel latency never depends on how many
-			// delegate runs are in flight; the cascade is a no-op for sessions
-			// that do not orchestrate an Issue.
-			go s.TurnCancelObserver.ObserveUserTurnCanceled(context.WithoutCancel(ctx), workspaceID, agentSessionID)
+			// Enter the product's durable stop boundary before returning. The
+			// canonical canceled Turn and source-activity inbox marker remain
+			// the crash-recovery fallback if this callback is interrupted.
+			s.TurnCancelObserver.ObserveUserTurnCanceled(
+				context.WithoutCancel(ctx), workspaceID, agentSessionID,
+			)
 		}
 	}
 	return result, nil

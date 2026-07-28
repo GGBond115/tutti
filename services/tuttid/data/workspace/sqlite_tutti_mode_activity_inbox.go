@@ -63,6 +63,7 @@ WHERE (
 ) OR (
   i.entity_kind = 'turn'
   AND tt.phase = 'settled'
+  AND tt.outcome <> 'canceled'
   AND COALESCE(tt.settled_at_unix_ms, 0) > 0
 )`
 
@@ -107,6 +108,63 @@ func (s *SQLiteStore) DrainTuttiModeSourceActivityInbox(
 		return fmt.Errorf("begin Tutti mode source activity drain: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	canceledRows, err := tx.QueryContext(ctx, `
+SELECT DISTINCT i.agent_session_id, i.entity_id, tt.settled_at_unix_ms
+FROM workspace_tutti_source_activity_inbox i
+JOIN workspace_agent_turns tt
+  ON tt.workspace_id = i.workspace_id
+ AND tt.agent_session_id = i.agent_session_id
+ AND tt.turn_id = i.entity_id
+WHERE i.workspace_id = ? AND i.entity_kind = 'turn'
+  AND tt.phase = 'settled' AND tt.outcome = 'canceled'
+ORDER BY i.agent_session_id, i.entity_id
+`, workspaceID)
+	if err != nil {
+		return fmt.Errorf("list canceled Tutti source Turns: %w", err)
+	}
+	type sourceCancellation struct {
+		sessionID     string
+		turnID        string
+		settledAtUnix int64
+	}
+	var cancellations []sourceCancellation
+	for canceledRows.Next() {
+		var cancellation sourceCancellation
+		if err := canceledRows.Scan(
+			&cancellation.sessionID,
+			&cancellation.turnID,
+			&cancellation.settledAtUnix,
+		); err != nil {
+			_ = canceledRows.Close()
+			return fmt.Errorf("scan canceled Tutti source Turn: %w", err)
+		}
+		cancellations = append(cancellations, cancellation)
+	}
+	if err := canceledRows.Err(); err != nil {
+		_ = canceledRows.Close()
+		return fmt.Errorf("iterate canceled Tutti source Turns: %w", err)
+	}
+	if err := canceledRows.Close(); err != nil {
+		return fmt.Errorf("close canceled Tutti source Turns: %w", err)
+	}
+	for _, cancellation := range cancellations {
+		now := time.Now().UTC()
+		if cancellation.settledAtUnix > 0 {
+			now = time.UnixMilli(cancellation.settledAtUnix).UTC()
+		}
+		if _, err := requestTuttiModeArchivesForSourceSessionTx(
+			ctx,
+			tx,
+			executionbiz.SourceSessionArchiveRequest{
+				WorkspaceID: workspaceID, SourceSessionID: cancellation.sessionID,
+				RequestID:   "source-turn-canceled:" + cancellation.turnID,
+				RequestedBy: cancellation.sessionID, Reason: "source_turn_canceled",
+				Now: now,
+			},
+		); err != nil {
+			return fmt.Errorf("archive canceled Tutti source session: %w", err)
+		}
+	}
 	rows, err := tx.QueryContext(ctx, `
 SELECT relevant.agent_session_id, MAX(relevant.activity_at_unix_ms)
 FROM (`+tuttiModeRelevantSourceActivitySelectSQL+`) relevant

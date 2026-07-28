@@ -577,9 +577,9 @@ ORDER BY sequence ASC LIMIT 1
 		next.Status = executionbiz.CheckpointStatusActive
 		nextCheckpointMutation, err := tx.ExecContext(ctx, `
 UPDATE workspace_tutti_execution_checkpoints
-SET status = 'active', updated_at_unix_ms = ?
+SET status = 'active', graph_revision = ?, updated_at_unix_ms = ?
 WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ? AND status = 'pending'
-`, unixMs(admission.Now), admission.WorkspaceID, executionID, next.ID)
+`, graphRevision, unixMs(admission.Now), admission.WorkspaceID, executionID, next.ID)
 		if err != nil {
 			return executionbiz.AcknowledgeResult{}, err
 		}
@@ -589,6 +589,7 @@ WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ? AND status = '
 		); err != nil {
 			return executionbiz.AcknowledgeResult{}, err
 		}
+		next.GraphRevision = graphRevision
 		if next.Kind == executionbiz.CheckpointKindAllTasksTerminal {
 			nextStatus = executionbiz.StatusPendingGoalReview
 			if err := prepareTuttiModeGoalReviewTx(

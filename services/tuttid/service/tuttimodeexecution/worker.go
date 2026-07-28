@@ -72,6 +72,11 @@ func (service Service) RunWatchdog(
 	if err := service.PrepareStartupMainWakeRecovery(ctx, workspaceID); err != nil {
 		return err
 	}
+	if service.Archives != nil && service.ArchiveRuns != nil {
+		if _, err := service.RecoverArchivesAndCount(ctx, workspaceID); err != nil {
+			return err
+		}
+	}
 	reconcileErr := service.reconcileDispatchedMainWakes(
 		ctx, store, workspaceID,
 	)
@@ -134,14 +139,14 @@ func (worker Worker) sweep(ctx context.Context) error {
 	}
 	var sweepErrors []error
 	for _, workspaceID := range workspaceIDs {
-		if err := worker.Executions.RecoverReviewers(
-			ctx, workspaceID, worker.LeaseOwner,
-		); err != nil && !errors.Is(err, ErrServiceUnavailable) {
-			sweepErrors = append(sweepErrors, err)
-		}
 		if err := reportableMainWakeRecoveryError(worker.Executions.RunWatchdog(
 			ctx, workspaceID, worker.LeaseOwner,
 		)); err != nil {
+			sweepErrors = append(sweepErrors, err)
+		}
+		if err := worker.Executions.RecoverReviewers(
+			ctx, workspaceID, worker.LeaseOwner,
+		); err != nil && !errors.Is(err, ErrServiceUnavailable) {
 			sweepErrors = append(sweepErrors, err)
 		}
 	}

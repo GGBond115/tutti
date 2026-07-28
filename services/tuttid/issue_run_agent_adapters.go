@@ -34,6 +34,19 @@ type issueRunSettlementReader struct {
 	Host issueRunSettlementHost
 }
 
+func (c issueRunSessionCanceller) CancelAutomationTurn(
+	ctx context.Context,
+	workspaceID string,
+	agentSessionID string,
+	turnID string,
+) error {
+	if c.Sessions == nil {
+		return errors.New("automation Turn canceller is unavailable")
+	}
+	_, err := c.Sessions.CancelTurn(ctx, workspaceID, agentSessionID, turnID)
+	return err
+}
+
 func (r issueRunSettlementReader) ReadRunSettlement(ctx context.Context, workspaceID string, agentSessionID string, clientSubmitID string) (workspaceservice.IssueRunSettlement, bool, error) {
 	if r.Host == nil {
 		return workspaceservice.IssueRunSettlement{}, false, nil

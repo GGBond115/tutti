@@ -423,7 +423,10 @@ The public command set is deliberately narrow:
 --request-id <stable-id>` atomically applies one or more `add`, `update`,
   `rework`, or `supersede` operations to the active Issue graph. The checkpoint
   and graph revision fence the entire operation set; success increments the
-  graph revision and rebinds the checkpoint to that revision;
+  graph revision and rebinds the checkpoint to that revision. Every operation
+  object uses the `kind` key (`op` is invalid): `add` carries `task`, `update`
+  carries `taskId` plus `task`, `rework` carries `taskId` plus its replacement
+  `task` (`replacement` is invalid), and `supersede` carries `taskId`;
 - `tutti plan issue acknowledge --issue-id <id> --checkpoint-id <id>
 --expected-graph-revision <revision> --request-id <stable-id>` resolves a
   reviewed `task_settled`, `task_failed`, or `task_canceled` checkpoint without
@@ -435,7 +438,14 @@ The public command set is deliberately narrow:
 --decision goal_satisfied [--disagreement-reason <reason>]` completes the
   exact active Goal Review. The source Session comes from trusted invoke
   context. A disagreement reason is required when the source Agent overrides a
-  negative or inconclusive independent verdict.
+  negative or inconclusive independent verdict;
+- `tutti plan issue stop --issue-id <id> --checkpoint-id <id>
+--expected-graph-revision <revision> --reason <reason>
+--request-id <stable-id>` stops an Issue that was replaced or should no longer
+  continue. The daemon derives the source Session from trusted invoke context,
+  fences the stop against the active checkpoint and graph revision, then uses
+  the recoverable archive path to cancel open Runs and close pending
+  checkpoints and wakes. The reason is retained as audit evidence.
 
 Tasks may carry optional `agentTargetId`, `modelPlanId`, `model`,
 `permissionModeId`, and `reasoningEffort` assignments. The user can override

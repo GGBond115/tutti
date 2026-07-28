@@ -62,6 +62,10 @@ func SettlementCatalog() []Scenario {
 			run:  runScheduleReviewPromotesExistingSettlementBacklog,
 		},
 		{
+			Name: "GraphMutationRebindsPromotedSettlementBacklog",
+			run:  runGraphMutationRebindsPromotedSettlementBacklog,
+		},
+		{
 			Name: "TimedOutRunCreatesFailedCheckpoint",
 			run:  runTimedOutRunCreatesFailedCheckpoint,
 		},

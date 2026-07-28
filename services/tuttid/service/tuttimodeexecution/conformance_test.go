@@ -37,6 +37,7 @@ type sqliteConformanceDriver struct {
 	wakeTarget         *recordingMainWakeTarget
 	wakeStore          *injectableWakeStore
 	reviewer           *recordingReviewerTarget
+	automationTurns    *recordingAutomationTurnCanceller
 	reviewMu           sync.Mutex
 	failReviewStep     string
 	deletionAdmissions map[string]executionbiz.SourceSessionDeletionAdmission
@@ -46,6 +47,28 @@ type sqliteConformanceDriver struct {
 type controlledClock struct {
 	mu  sync.Mutex
 	now time.Time
+}
+
+type recordingAutomationTurnCanceller struct {
+	mu            sync.Mutex
+	cancellations []tuttimodeexecutionconformance.AutomationTurnCancellation
+}
+
+func (canceller *recordingAutomationTurnCanceller) CancelAutomationTurn(
+	_ context.Context,
+	_ string,
+	sessionID string,
+	turnID string,
+) error {
+	canceller.mu.Lock()
+	defer canceller.mu.Unlock()
+	canceller.cancellations = append(
+		canceller.cancellations,
+		tuttimodeexecutionconformance.AutomationTurnCancellation{
+			SessionID: sessionID, TurnID: turnID,
+		},
+	)
+	return nil
 }
 
 func (clock *controlledClock) Now() time.Time {
@@ -287,9 +310,11 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 		busyBySession:           make(map[string]bool),
 		canonicalByClientSubmit: make(map[string]tuttimodeexecutionservice.ReviewerDelivery),
 	}
+	automationTurns := &recordingAutomationTurnCanceller{}
 	executions := &tuttimodeexecutionservice.Service{
 		Store: store, Wakes: wakeStore, MainWakeTargets: wakeTarget,
 		ReviewerActivity: store, ReviewerTargets: reviewer, Clock: clock.Now,
+		ArchiveAutomationTurns: automationTurns,
 	}
 	driver := &sqliteConformanceDriver{
 		dbPath: dbPath, store: store,
@@ -309,6 +334,7 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 		wakeTarget:         wakeTarget,
 		wakeStore:          wakeStore,
 		reviewer:           reviewer,
+		automationTurns:    automationTurns,
 		deletionAdmissions: make(map[string]executionbiz.SourceSessionDeletionAdmission),
 	}
 	driver.executions.Archives = store
@@ -1041,6 +1067,8 @@ func (driver *sqliteConformanceDriver) Archive(
 	operation, err := driver.executions.Archive(ctx, tuttimodeexecutionservice.ArchiveInput{
 		WorkspaceID: input.WorkspaceID, IssueID: input.IssueID,
 		RequestID: input.RequestID, RequestedBy: input.RequestedBy, Reason: input.Reason,
+		SourceSessionID: input.SourceSessionID, CheckpointID: input.CheckpointID,
+		ExpectedGraphRevision: input.ExpectedGraphRevision,
 	})
 	return conformanceArchiveOperation(operation), err
 }
@@ -1057,12 +1085,52 @@ func (driver *sqliteConformanceDriver) RestartRecoverArchives(
 ) error {
 	replica := &tuttimodeexecutionservice.Service{
 		Store: driver.store, Wakes: driver.wakeStore, Archives: driver.store,
+		ArchiveAutomationTurns: driver.automationTurns,
 		ArchiveRuns: &workspaceservice.IssueExecutionCoordinator{
 			Issues: &driver.issues, RunSessionCanceller: driver.canceller,
 		},
 		Clock: driver.clock.Now,
 	}
 	return replica.RecoverArchives(ctx, workspaceID)
+}
+
+func (driver *sqliteConformanceDriver) AutomationTurnCancellations() []tuttimodeexecutionconformance.AutomationTurnCancellation {
+	driver.automationTurns.mu.Lock()
+	defer driver.automationTurns.mu.Unlock()
+	return append(
+		[]tuttimodeexecutionconformance.AutomationTurnCancellation(nil),
+		driver.automationTurns.cancellations...,
+	)
+}
+
+func (driver *sqliteConformanceDriver) StopSourceSession(
+	ctx context.Context,
+	workspaceID string,
+	sourceSessionID string,
+) (int, error) {
+	return driver.executions.StopSourceSession(
+		ctx,
+		tuttimodeexecutionservice.StopSourceSessionInput{
+			WorkspaceID: workspaceID, SourceSessionID: sourceSessionID,
+		},
+	)
+}
+
+func (driver *sqliteConformanceDriver) StopSourceSessionDuringNextReviewerSend(
+	workspaceID string,
+	sourceSessionID string,
+) {
+	driver.reviewer.mu.Lock()
+	defer driver.reviewer.mu.Unlock()
+	driver.reviewer.onNextSend = func(
+		tuttimodeexecutionservice.ReviewerLaunch,
+		tuttimodeexecutionservice.ReviewerDelivery,
+	) error {
+		_, err := driver.StopSourceSession(
+			context.Background(), workspaceID, sourceSessionID,
+		)
+		return err
+	}
 }
 
 func (driver *sqliteConformanceDriver) AdmitSourceDeletion(

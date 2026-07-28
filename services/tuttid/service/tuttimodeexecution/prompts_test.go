@@ -49,6 +49,31 @@ func TestGoalReviewMainWakePromptCarriesExactCompleteCommand(t *testing.T) {
 	}
 }
 
+func TestTaskCanceledMainWakePromptCarriesExactMutationSchema(t *testing.T) {
+	prompt := MainWakePrompt(executionbiz.Wake{
+		IssueID: "issue-1", CheckpointID: "checkpoint-1",
+		CheckpointKind:     executionbiz.CheckpointKindTaskCanceled,
+		CheckpointRevision: 7,
+	})
+	for _, want := range []string{
+		"tutti plan issue mutate",
+		"--issue-id issue-1",
+		"--checkpoint-id checkpoint-1",
+		"--expected-graph-revision 7",
+		`--operations-json '[{"kind":"supersede","taskId":"<task-id>"}]'`,
+		`--operations-json '[{"kind":"rework","taskId":"<old-task-id>","task":{"taskId":"<replacement-task-id>"`,
+		`"op" and "replacement" are not supported`,
+		"preserve task and Run history",
+		"tutti plan issue stop",
+		"--reason '<audited-reason>'",
+		"so no later checkpoint wake is emitted",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("MainWakePrompt() missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestIndependentGoalReviewMainWakePromptCarriesRecommendationEvidence(
 	t *testing.T,
 ) {

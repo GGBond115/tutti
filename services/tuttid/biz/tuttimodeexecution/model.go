@@ -22,12 +22,24 @@ const (
 )
 
 type ArchiveRequest struct {
-	WorkspaceID string
-	IssueID     string
-	RequestID   string
-	RequestedBy string
-	Reason      string
-	Now         time.Time
+	WorkspaceID           string
+	IssueID               string
+	RequestID             string
+	RequestedBy           string
+	Reason                string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	Now                   time.Time
+}
+
+type SourceSessionArchiveRequest struct {
+	WorkspaceID     string
+	SourceSessionID string
+	RequestID       string
+	RequestedBy     string
+	Reason          string
+	Now             time.Time
 }
 
 type ArchiveOperation struct {

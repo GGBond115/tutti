@@ -53,7 +53,7 @@ type issueMutateInput struct {
 	IssueID               string `cli:"issue-id" validate:"required" description:"Tutti-owned Issue id."`
 	CheckpointID          string `cli:"checkpoint-id" validate:"required" description:"Active execution checkpoint to rebind."`
 	ExpectedGraphRevision int64  `cli:"expected-graph-revision" validate:"required,min=1" description:"Current execution graph revision."`
-	OperationsJSON        string `cli:"operations-json" validate:"required" description:"JSON array of add, update, rework, or supersede operations."`
+	OperationsJSON        string `cli:"operations-json" validate:"required" description:"JSON array whose entries use the kind field: add includes task, update includes taskId and task, rework includes taskId plus task whose taskId names the replacement, and supersede includes taskId. The op and replacement keys are invalid."`
 	RequestID             string `cli:"request-id" validate:"required" description:"Stable graph mutation id. Reuse it only with the identical payload."`
 }
 
@@ -71,6 +71,14 @@ type issueCompleteInput struct {
 	RequestID             string `cli:"request-id" validate:"required" description:"Stable completion mutation id. Reuse it only with the identical payload."`
 	Decision              string `cli:"decision" validate:"required" enum:"goal_satisfied" description:"Explicit source-Agent Goal Review decision."`
 	DisagreementReason    string `cli:"disagreement-reason" description:"Audited reason required when overriding a negative or inconclusive independent recommendation."`
+}
+
+type issueStopInput struct {
+	IssueID               string `cli:"issue-id" validate:"required" description:"Tutti-owned Issue id."`
+	CheckpointID          string `cli:"checkpoint-id" validate:"required" description:"Active execution checkpoint at which the source Agent decided to stop."`
+	ExpectedGraphRevision int64  `cli:"expected-graph-revision" validate:"required,min=1" description:"Current execution graph revision."`
+	RequestID             string `cli:"request-id" validate:"required" description:"Stable stop mutation id. Reuse it only with the identical reason."`
+	Reason                string `cli:"reason" validate:"required" description:"Audited reason the Issue should stop without Goal Review completion."`
 }
 
 func (p Provider) newProposeCommand() cliservice.Command {
@@ -182,6 +190,22 @@ func (p Provider) newIssueCompleteCommand() cliservice.Command {
 		Inputs:      framework.FromStruct[issueCompleteInput](),
 		Output:      planJSONOutput(framework.ViewSummary),
 		Run:         p.runIssueComplete,
+	})
+}
+
+func (p Provider) newIssueStopCommand() cliservice.Command {
+	return framework.Register(framework.CommandSpec[issueStopInput]{
+		ID:          appID + ".plan.issue.stop",
+		Path:        []string{"plan", "issue", "stop"},
+		Summary:     "Stop a Tutti Mode Issue",
+		Description: "Stop and durably archive an Issue that should not continue, canceling open Runs and closing checkpoint wakes. Caller authority comes from the invoking source Agent session and is fenced by the active checkpoint and graph revision.",
+		Kind:        framework.KindAction,
+		Visibility:  cliservice.CapabilityVisibilityPublic,
+		Workspace:   framework.WorkspaceRequired,
+		Workspaces:  p.workspaces,
+		Inputs:      framework.FromStruct[issueStopInput](),
+		Output:      planJSONOutput(framework.ViewSummary),
+		Run:         p.runIssueStop,
 	})
 }
 
@@ -317,10 +341,9 @@ func (p Provider) runIssueMutate(
 	if err != nil {
 		return nil, err
 	}
-	var operations []executionbiz.MutationOperation
-	if err := json.Unmarshal([]byte(input.OperationsJSON), &operations); err != nil ||
-		len(operations) == 0 {
-		return nil, cliservice.InvalidInputKeyError("operations-json")
+	operations, err := parseMutationOperationsJSON(input.OperationsJSON)
+	if err != nil {
+		return nil, err
 	}
 	result, err := p.mutations.MutateTuttiModeIssue(
 		ctx,
@@ -341,6 +364,34 @@ func (p Provider) runIssueMutate(
 		"updatedTaskIds":    result.UpdatedTaskIDs,
 		"supersededTaskIds": result.SupersededTaskIDs, "replayed": result.Replayed,
 	}, nil
+}
+
+func parseMutationOperationsJSON(value string) ([]executionbiz.MutationOperation, error) {
+	var operations []executionbiz.MutationOperation
+	if err := json.Unmarshal([]byte(value), &operations); err != nil || len(operations) == 0 {
+		return nil, cliservice.InvalidInputKeyError("operations-json")
+	}
+	for _, operation := range operations {
+		taskID := strings.TrimSpace(operation.TaskID)
+		replacementTaskID := strings.TrimSpace(operation.Task.TaskID)
+		valid := false
+		switch operation.Kind {
+		case executionbiz.MutationOperationAdd:
+			valid = replacementTaskID != ""
+		case executionbiz.MutationOperationUpdate,
+			executionbiz.MutationOperationSupersede:
+			valid = taskID != ""
+		case executionbiz.MutationOperationRework:
+			valid = taskID != "" && replacementTaskID != ""
+		}
+		if !valid {
+			return nil, fmt.Errorf(
+				"%w: operations-json entries must use the \"kind\" field and cannot use \"op\" or \"replacement\"; add requires task.taskId, update and supersede require taskId, and rework requires taskId plus task.taskId",
+				cliservice.ErrInvalidInput,
+			)
+		}
+	}
+	return operations, nil
 }
 
 func (p Provider) runIssueAcknowledge(
@@ -398,6 +449,35 @@ func (p Provider) runIssueComplete(
 		"executionId": result.ExecutionID, "checkpointId": result.CheckpointID,
 		"graphRevision": result.GraphRevision, "decision": result.Decision,
 		"replayed": result.Replayed,
+	}, nil
+}
+
+func (p Provider) runIssueStop(
+	ctx context.Context,
+	invoke framework.InvokeContext,
+	input issueStopInput,
+) (any, error) {
+	if err := p.requireArchives(); err != nil {
+		return nil, err
+	}
+	sessionID, err := callerAgentSessionID(invoke)
+	if err != nil {
+		return nil, err
+	}
+	operation, err := p.archives.Archive(ctx, tuttimodeexecutionservice.ArchiveInput{
+		WorkspaceID: invoke.WorkspaceID, IssueID: input.IssueID,
+		SourceSessionID: sessionID, CheckpointID: input.CheckpointID,
+		ExpectedGraphRevision: input.ExpectedGraphRevision,
+		RequestID:             input.RequestID,
+		Reason:                input.Reason,
+	})
+	if err != nil {
+		return nil, agentStopError(err)
+	}
+	return map[string]any{
+		"executionId": operation.ExecutionID, "issueId": operation.IssueID,
+		"operationId": operation.OperationID, "requestId": operation.RequestID,
+		"status": string(operation.Status), "reason": operation.Reason,
 	}, nil
 }
 
@@ -485,6 +565,23 @@ func agentCompleteError(err error) error {
 		errors.Is(err, executionbiz.ErrCompleteRejected) {
 		return fmt.Errorf(
 			"%w: completion caller, checkpoint, revision, decision, or review evidence is not current",
+			cliservice.ErrInvalidInput,
+		)
+	}
+	return err
+}
+
+func agentStopError(err error) error {
+	if errors.Is(err, executionbiz.ErrInvalidExecution) {
+		return fmt.Errorf(
+			"%w: stop request is incomplete",
+			cliservice.ErrInvalidInput,
+		)
+	}
+	if errors.Is(err, executionbiz.ErrExecutionNotFound) ||
+		errors.Is(err, executionbiz.ErrExecutionConflict) {
+		return fmt.Errorf(
+			"%w: stop caller, checkpoint, revision, or request history is not current",
 			cliservice.ErrInvalidInput,
 		)
 	}

@@ -11,6 +11,14 @@ func MainWakePrompt(wake executionbiz.Wake) string {
 		"tutti plan issue schedule --issue-id %s --checkpoint-id %s --expected-graph-revision %d",
 		wake.IssueID, wake.CheckpointID, wake.CheckpointRevision,
 	)
+	mutate := fmt.Sprintf(
+		"tutti plan issue mutate --issue-id %s --checkpoint-id %s --expected-graph-revision %d",
+		wake.IssueID, wake.CheckpointID, wake.CheckpointRevision,
+	)
+	stop := fmt.Sprintf(
+		"tutti plan issue stop --issue-id %s --checkpoint-id %s --expected-graph-revision %d",
+		wake.IssueID, wake.CheckpointID, wake.CheckpointRevision,
+	)
 	header := fmt.Sprintf(`A durable Tutti Mode execution checkpoint requires your review.
 
 Issue: %s
@@ -21,9 +29,20 @@ Graph revision: %d
 Review the current Issue, task results, and evidence before choosing the next action. The daemon does not dispatch a successor automatically.
 
 To schedule an exact next set, use:
-%s --task-ids-json '<json-array>' --request-id '<stable-request-id>'`,
+%s --task-ids-json '<json-array>' --request-id '<stable-request-id>'
+
+To change the remaining graph at this checkpoint before scheduling, use:
+%s --operations-json '[{"kind":"supersede","taskId":"<task-id>"}]' --request-id '<stable-request-id>'
+
+To replace a task while preserving its history, use:
+%s --operations-json '[{"kind":"rework","taskId":"<old-task-id>","task":{"taskId":"<replacement-task-id>","title":"<title>","content":"<details>"}}]' --request-id '<stable-request-id>'
+
+Mutation entries use the "kind" field; "op" and "replacement" are not supported. Rework and supersede preserve task and Run history.
+
+If this Issue has been replaced or should not continue, stop it explicitly so no later checkpoint wake is emitted:
+%s --reason '<audited-reason>' --request-id '<stable-request-id>'`,
 		wake.IssueID, wake.CheckpointID, wake.CheckpointKind,
-		wake.CheckpointRevision, schedule,
+		wake.CheckpointRevision, schedule, mutate, mutate, stop,
 	)
 	switch wake.CheckpointKind {
 	case executionbiz.CheckpointKindTaskSettled,

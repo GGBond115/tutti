@@ -404,12 +404,16 @@ func (service Service) DispatchClaimedMainWake(
 	if delivery.CanonicalSessionID != wake.TargetSessionID ||
 		delivery.CanonicalTurnID == "" {
 		message := "wake delivery returned invalid canonical identity"
+		cancelErr := service.cancelAutomationTurn(
+			ctx, wake.WorkspaceID,
+			delivery.CanonicalSessionID, delivery.CanonicalTurnID,
+		)
 		if releaseErr := service.releaseClaimedMainWake(
 			ctx, store, wake, message,
 		); releaseErr != nil {
-			return releaseErr
+			return errors.Join(cancelErr, releaseErr)
 		}
-		return ErrMainWakeDeliveryPending
+		return errors.Join(ErrMainWakeDeliveryPending, cancelErr)
 	}
 	finalizeCtx, cancelFinalize := service.mainWakeCleanupContext(ctx)
 	defer cancelFinalize()
@@ -419,30 +423,49 @@ func (service Service) DispatchClaimedMainWake(
 		delivery.CanonicalSessionID, delivery.CanonicalTurnID,
 		wake.DueAt, finalizedAt,
 	)
+	if finalizeErr == nil {
+		return nil
+	}
 	if !errors.Is(finalizeErr, executionbiz.ErrWakeRejected) {
-		return finalizeErr
+		cancelErr := service.cancelAutomationTurn(
+			finalizeCtx, wake.WorkspaceID,
+			delivery.CanonicalSessionID, delivery.CanonicalTurnID,
+		)
+		return errors.Join(finalizeErr, cancelErr)
 	}
 	if drainErr := store.DrainTuttiModeSourceActivityInbox(
 		finalizeCtx, wake.WorkspaceID,
 	); drainErr != nil {
-		return errors.Join(finalizeErr, drainErr)
+		cancelErr := service.cancelAutomationTurn(
+			finalizeCtx, wake.WorkspaceID,
+			delivery.CanonicalSessionID, delivery.CanonicalTurnID,
+		)
+		return errors.Join(finalizeErr, cancelErr, drainErr)
 	}
 	current, found, readErr := store.GetTuttiModeExecutionWake(
 		finalizeCtx, wake.WorkspaceID, wake.ID,
 	)
 	if readErr != nil {
-		return errors.Join(finalizeErr, readErr)
+		cancelErr := service.cancelAutomationTurn(
+			finalizeCtx, wake.WorkspaceID,
+			delivery.CanonicalSessionID, delivery.CanonicalTurnID,
+		)
+		return errors.Join(finalizeErr, cancelErr, readErr)
 	}
-	if !found ||
-		current.Status != executionbiz.WakeStatusLeased ||
-		current.LeaseOwner != wake.LeaseOwner ||
-		!current.DueAt.After(finalizedAt) {
-		return finalizeErr
+	if found &&
+		current.Status == executionbiz.WakeStatusLeased &&
+		current.LeaseOwner == wake.LeaseOwner &&
+		current.DueAt.After(finalizedAt) {
+		return service.releaseClaimedMainWake(
+			ctx, store, current,
+			"source activity advanced the wake deadline during delivery",
+		)
 	}
-	return service.releaseClaimedMainWake(
-		ctx, store, current,
-		"source activity advanced the wake deadline during delivery",
+	cancelErr := service.cancelAutomationTurn(
+		finalizeCtx, wake.WorkspaceID,
+		delivery.CanonicalSessionID, delivery.CanonicalTurnID,
 	)
+	return errors.Join(finalizeErr, cancelErr)
 }
 
 func (service Service) releaseClaimedMainWake(

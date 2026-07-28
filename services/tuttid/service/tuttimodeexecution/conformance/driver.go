@@ -249,11 +249,14 @@ type SwitchReviewToSelfResult struct {
 }
 
 type ArchiveInput struct {
-	WorkspaceID string
-	IssueID     string
-	RequestID   string
-	RequestedBy string
-	Reason      string
+	WorkspaceID           string
+	IssueID               string
+	RequestID             string
+	RequestedBy           string
+	Reason                string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
 }
 
 type ArchiveOperation struct {
@@ -301,6 +304,11 @@ type SourceSessionActivity struct {
 	TurnStartedAt time.Time
 }
 
+type AutomationTurnCancellation struct {
+	SessionID string
+	TurnID    string
+}
+
 // Driver is the narrow public contract exercised by Tutti execution product
 // conformance. Implementations may compose real services and persistence, but
 // scenarios do not reach through this seam to implementation details.
@@ -339,6 +347,7 @@ type Driver interface {
 	FailNextReviewerAfterCanonical()
 	SubmitReviewerVerdictOnNextSend(ReviewerVerdictInput)
 	SettleReviewerOnNextSend()
+	StopSourceSessionDuringNextReviewerSend(string, string)
 	ReviewerLaunchCallCount() int
 	ReviewerCanonicalTurnCount() int
 	ReviewerCanonicalIdentity(string) (string, string, bool)
@@ -346,6 +355,9 @@ type Driver interface {
 	Archive(context.Context, ArchiveInput) (ArchiveOperation, error)
 	GetArchive(context.Context, string, string) (ArchiveOperation, error)
 	RestartRecoverArchives(context.Context, string) error
+	StopSourceSession(context.Context, string, string) (int, error)
+	CommitCanonicalSourceCancellation(context.Context, string, string, string) error
+	AutomationTurnCancellations() []AutomationTurnCancellation
 	AdmitSourceDeletion(context.Context, string, []string) error
 	ReleaseSourceDeletion(context.Context, string, []string, bool) error
 	SeedActiveRun(context.Context, string, string, string) error
@@ -437,6 +449,7 @@ type Driver interface {
 	CommitCanonicalSourceActivityDuringNextWakeSend(
 		context.Context, SourceSessionActivity, string,
 	)
+	StopSourceSessionDuringNextWakeSend(string, string)
 	RunWatchdog(context.Context, string, string) error
 	// StartupRecoverWatchdog must construct a fresh worker over the same
 	// durable store before scanning and recovering watchdog operations.

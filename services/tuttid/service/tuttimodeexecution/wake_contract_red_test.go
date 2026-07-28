@@ -610,6 +610,21 @@ func (driver *sqliteConformanceDriver) CommitCanonicalSourceActivityDuringNextWa
 	driver.wakeTarget.mu.Unlock()
 }
 
+func (driver *sqliteConformanceDriver) StopSourceSessionDuringNextWakeSend(
+	workspaceID string,
+	sourceSessionID string,
+) {
+	key := wakeTargetKey(workspaceID, sourceSessionID)
+	driver.wakeTarget.mu.Lock()
+	driver.wakeTarget.activityDuringSend[key] = func() error {
+		_, err := driver.StopSourceSession(
+			context.Background(), workspaceID, sourceSessionID,
+		)
+		return err
+	}
+	driver.wakeTarget.mu.Unlock()
+}
+
 func (driver *sqliteConformanceDriver) CorruptWakeTargetSession(
 	ctx context.Context,
 	workspaceID string,
@@ -729,6 +744,33 @@ func (driver *sqliteConformanceDriver) CommitCanonicalSourceActivity(
 			},
 			Turn:     turn,
 			Messages: messages,
+		},
+	)
+	return err
+}
+
+func (driver *sqliteConformanceDriver) CommitCanonicalSourceCancellation(
+	ctx context.Context,
+	workspaceID string,
+	sourceSessionID string,
+	turnID string,
+) error {
+	now := driver.CurrentTime()
+	_, err := driver.store.ReportActivityState(
+		ctx,
+		agentactivitybiz.ActivityStateReport{
+			Session: agentactivitybiz.SessionStateReport{
+				WorkspaceID: workspaceID, AgentSessionID: sourceSessionID,
+				Kind: agentactivitybiz.SessionKindRoot, Origin: "runtime",
+				Provider: "codex", Status: "idle", OccurredAtUnixMS: now.UnixMilli(),
+			},
+			Turn: &agentactivitybiz.TurnTransition{
+				WorkspaceID: workspaceID, AgentSessionID: sourceSessionID,
+				TurnID: turnID, Origin: agentactivitybiz.TurnOriginUserPrompt,
+				Phase: agentactivitybiz.TurnPhaseSettled, Outcome: agentactivitybiz.TurnOutcomeCanceled,
+				StartedAtUnixMS: now.Add(-time.Second).UnixMilli(),
+				SettledAtUnixMS: now.UnixMilli(), OccurredAtUnixMS: now.UnixMilli(),
+			},
 		},
 	)
 	return err

@@ -56,11 +56,10 @@ export function resolveIssueManagerVisibleSubtasks(input: {
   tasks: readonly IssueManagerTaskSummary[];
 }): IssueManagerTaskSummary[] {
   const hiddenTaskId = input.hiddenIssueRunTaskId?.trim() ?? "";
-  if (!hiddenTaskId) {
-    return [...input.tasks];
-  }
-
   return input.tasks.filter((task) => {
-    return task.taskId !== hiddenTaskId;
+    return (
+      (task.supersededAtUnix ?? 0) <= 0 &&
+      (!hiddenTaskId || task.taskId !== hiddenTaskId)
+    );
   });
 }

@@ -81,6 +81,87 @@ SELECT
 	}
 }
 
+func TestRequestTuttiModeArchiveFencesSourceAgentByActiveCheckpointRevision(
+	t *testing.T,
+) {
+	t.Parallel()
+	ctx := context.Background()
+	store := openTuttiModeExecutionStore(t)
+	now := time.UnixMilli(1_700_001_025_000).UTC()
+	prepareTuttiModeExecutionWorkspace(
+		t, store, "workspace-source-archive", "workflow-source-archive",
+		"source-archive-agent", now,
+	)
+	issues := workspaceissues.Service{
+		Store: store, Clock: func() time.Time { return now },
+	}
+	issue, tasks := prepareTuttiModeIssueGraph(
+		t, issues, "workspace-source-archive", "workflow-source-archive",
+		"source-archive-agent",
+	)
+	executions := executionservice.Service{
+		Store: store, Clock: func() time.Time { return now },
+	}
+	_, _, aggregate, err := executions.Materialize(
+		ctx,
+		executionservice.MaterializeInput{
+			Issue: issue, Tasks: tasks, WorkflowID: "workflow-source-archive",
+		},
+	)
+	if err != nil {
+		t.Fatalf("Materialize() error = %v", err)
+	}
+	checkpointID := aggregate.Checkpoints[0].ID
+	request := executionbiz.ArchiveRequest{
+		WorkspaceID: issue.WorkspaceID, IssueID: issue.IssueID,
+		RequestID: "source-stop", RequestedBy: issue.SourceSessionID,
+		Reason:          "superseded by replacement plan",
+		SourceSessionID: issue.SourceSessionID, CheckpointID: checkpointID,
+		ExpectedGraphRevision: 1, Now: now.Add(time.Minute),
+	}
+	for name, mutate := range map[string]func(*executionbiz.ArchiveRequest){
+		"wrong source": func(value *executionbiz.ArchiveRequest) {
+			value.SourceSessionID = "another-source"
+			value.RequestedBy = "another-source"
+		},
+		"wrong checkpoint": func(value *executionbiz.ArchiveRequest) {
+			value.CheckpointID = "another-checkpoint"
+		},
+		"wrong revision": func(value *executionbiz.ArchiveRequest) {
+			value.ExpectedGraphRevision = 2
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rejected := request
+			rejected.RequestID += "-" + name
+			mutate(&rejected)
+			if _, _, err := store.RequestTuttiModeArchive(
+				ctx, rejected,
+			); !errors.Is(err, executionbiz.ErrExecutionConflict) {
+				t.Fatalf(
+					"RequestTuttiModeArchive(%s) error = %v, want conflict",
+					name, err,
+				)
+			}
+		})
+	}
+
+	first, replayed, err := store.RequestTuttiModeArchive(ctx, request)
+	if err != nil || replayed {
+		t.Fatalf(
+			"RequestTuttiModeArchive(source) = %#v/%v error=%v",
+			first, replayed, err,
+		)
+	}
+	second, replayed, err := store.RequestTuttiModeArchive(ctx, request)
+	if err != nil || !replayed || second.OperationID != first.OperationID {
+		t.Fatalf(
+			"RequestTuttiModeArchive(source replay) = %#v/%v error=%v",
+			second, replayed, err,
+		)
+	}
+}
+
 func TestCompleteTuttiModeArchiveIsIdempotentAndPreservesAuditTimestamp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

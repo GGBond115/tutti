@@ -427,10 +427,11 @@ LIMIT 1
 	if err == nil {
 		result, err = tx.ExecContext(ctx, `
 UPDATE workspace_tutti_execution_checkpoints
-SET status = 'active', updated_at_unix_ms = ?
+SET status = 'active', graph_revision = ?, updated_at_unix_ms = ?
 WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ?
   AND status = 'pending'
-`, unixMs(admission.Now), admission.WorkspaceID, executionID, nextCheckpointID)
+`, admission.ExpectedGraphRevision, unixMs(admission.Now),
+			admission.WorkspaceID, executionID, nextCheckpointID)
 		if err != nil {
 			return fmt.Errorf("promote next Tutti mode schedule checkpoint: %w", err)
 		}
@@ -503,7 +504,15 @@ JOIN workspace_issue_run_launch_intents AS intents
  AND intents.issue_id = runs.issue_id
  AND intents.task_id = runs.task_id
  AND intents.run_id = runs.run_id
+JOIN workspace_issues AS issues
+  ON issues.workspace_id = runs.workspace_id
+ AND issues.issue_id = runs.issue_id
+JOIN workspace_tutti_executions AS executions
+  ON executions.workspace_id = runs.workspace_id
+ AND executions.issue_id = runs.issue_id
 WHERE %s
+  AND issues.dispatch_paused = 0
+  AND executions.status = 'running'
 ORDER BY runs.created_at_unix_ms ASC, runs.id ASC
 `, prefixedRunSelectColumns("runs"), strings.Join(where, " AND ")), args...)
 	if err != nil {
@@ -597,10 +606,18 @@ WHERE workspace_id = ? AND issue_id = ? AND run_id = ?
   AND EXISTS (
     SELECT 1
     FROM workspace_issue_runs AS runs
+    JOIN workspace_issues AS issues
+      ON issues.workspace_id = runs.workspace_id
+     AND issues.issue_id = runs.issue_id
+    JOIN workspace_tutti_executions AS executions
+      ON executions.workspace_id = runs.workspace_id
+     AND executions.issue_id = runs.issue_id
     WHERE runs.workspace_id = workspace_issue_run_launch_intents.workspace_id
       AND runs.issue_id = workspace_issue_run_launch_intents.issue_id
       AND runs.run_id = workspace_issue_run_launch_intents.run_id
       AND runs.status = 'running'
+      AND issues.dispatch_paused = 0
+      AND executions.status = 'running'
   )
 `, strings.TrimSpace(leaseOwner), unixMs(leaseExpires), unixMs(now),
 		strings.TrimSpace(workspaceID), strings.TrimSpace(issueID),

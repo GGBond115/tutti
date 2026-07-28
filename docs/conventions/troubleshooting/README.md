@@ -41,7 +41,10 @@ Use the focused runtime index or open one area directly:
 
 Issue dispatch, Run cancellation, Agent settlement, and stop coordination.
 
-- [Stopping a Tutti source Turn leaves task Sessions running](./issue-execution.md#stopping-a-tutti-source-turn-leaves-task-sessions-running)
+- [Managed task deletion is reported as a stale checkpoint](./issue-execution.md#managed-task-deletion-is-reported-as-a-stale-checkpoint)
+- [Settled checkpoint keeps reopening the source Session](./issue-execution.md#settled-checkpoint-keeps-reopening-the-source-session)
+- [Tutti composer stays busy after every task Turn settles](./issue-execution.md#tutti-composer-stays-busy-after-every-task-turn-settles)
+- [Stopping a Tutti source Turn leaves automation recoverable](./issue-execution.md#stopping-a-tutti-source-turn-leaves-automation-recoverable)
 - [Stop remains pending while the Agent Turn is already canceled](./issue-execution.md#stop-remains-pending-while-the-agent-turn-is-already-canceled)
 
 ## [Desktop And Release](./desktop-release.md)
