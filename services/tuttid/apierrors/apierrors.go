@@ -101,6 +101,7 @@ const (
 	ReasonWorkspaceAppUnavailable                        = "workspace_app_service_unavailable"
 	ReasonWorkspaceIssueContextRefNotFound               = "workspace_issue_context_ref_not_found"
 	ReasonWorkspaceIssueContextRefExists                 = "workspace_issue_context_ref_already_exists"
+	ReasonTuttiIssueManaged                              = "tutti_issue_managed"
 	ReasonWorkspaceIssueExists                           = "workspace_issue_already_exists"
 	ReasonWorkspaceIssueNotFound                         = "workspace_issue_not_found"
 	ReasonWorkspaceIssueResourceExists                   = "workspace_issue_resource_exists"
@@ -367,6 +368,18 @@ func Classify(err error) *ProtocolError {
 			ReasonUnsupportedPermissionModeID,
 			WithCause(err),
 			WithParams(params),
+		)
+	}
+	var managedIssueErr *workspaceissues.ManagedIssueMutationError
+	if errors.As(err, &managedIssueErr) {
+		return WorkspaceIssueResourceExists(
+			ReasonTuttiIssueManaged,
+			WithCause(err),
+			WithParams(map[string]any{
+				"issueId":           managedIssueErr.ManagedIssueID(),
+				"sourceSessionId":   managedIssueErr.ManagedSourceSessionID(),
+				"recommendedAction": "open_source_session",
+			}),
 		)
 	}
 	switch {

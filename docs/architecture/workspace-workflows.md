@@ -65,9 +65,10 @@ Agent invocation never fabricates a slash-command activation.
 | `WorkflowOperation`         | SQLite                                       | Idempotent record of a downstream side effect such as generating a task graph, creating a revision, or creating an Issue. A successful Issue operation stores the Issue ID.                                                            |
 | `WorkflowMutation`          | SQLite                                       | Durable caller mutation ledger for propose/revise response-loss recovery. Its scoped request ID is the identity; the input SHA-256 detects conflicting reuse, and the row points to the committed workflow/revision/checkpoint result. |
 | `ActionableItem`            | Derived only                                 | Read-only projection of a task from the accepted current task-graph revision. It is never a second task store.                                                                                                                         |
-| Workspace Issue and Task    | SQLite in Issue Manager                      | Reusable Issue graph materialized from accepted `ActionableItem`s. It links back through `sourceSessionId`; the workflow operation links forward through `issueId`.                                                                     |
+| Workspace Issue and Task    | SQLite in Issue Manager                      | Reusable Issue graph materialized from accepted `ActionableItem`s. It links back through `sourceSessionId`; the workflow operation links forward through `issueId`.                                                                    |
 | Tutti execution             | SQLite                                       | Tutti-owned orchestration authority for one accepted workflow and Issue. Initial status is `awaiting_schedule` at graph revision 1.                                                                                                    |
-| Execution checkpoint        | SQLite                                       | Ordered durable orchestration gate. Materialization creates one active `initial_schedule` checkpoint and no Issue Run; every terminal Run later appends one deterministic settlement checkpoint.                                        |
+| Execution checkpoint        | SQLite                                       | Ordered durable orchestration gate. Materialization creates one active `initial_schedule` checkpoint and no Issue Run; every terminal Run later appends one deterministic settlement checkpoint.                                       |
+| Execution mutation          | SQLite                                       | Source-session-scoped mutation ledger for exact checkpoint/revision graph changes. It provides replay/conflict detection and records the incremented graph revision.                                                                   |
 
 The relation is:
 
@@ -123,6 +124,17 @@ context. Until it exposes a trusted current Turn/tool-call seam, CLI proposal
 creation leaves `sourceTurnId` and `sourceToolCallId` empty. In particular,
 App CLI `ParentCommandID` is nested-command context and must never be recorded
 as an Agent tool-call ID.
+
+The same caller authority applies after Issue materialization. Generic Issue
+Manager mutations cannot modify a `tutti_mode_plan` graph; they return
+`tutti_issue_managed` with `recommendedAction = open_source_session`. The
+source Agent uses `tutti plan issue mutate` and supplies the active execution
+checkpoint and expected graph revision. Admission validates all operations and
+the resulting dependency graph in one SQLite transaction, advances the graph
+revision, rebinds the checkpoint, and cancels stale prepared/dispatched Goal
+Review state and reviewer wakes. Logical supersession preserves obsolete
+task/Run/output history while removing that task from the active projection;
+running tasks must settle before they can be superseded.
 
 ## Activation And Turn Snapshot Flow
 

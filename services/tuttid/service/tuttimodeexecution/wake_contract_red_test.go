@@ -818,6 +818,14 @@ ON CONFLICT(workspace_id, execution_id, review_id) DO UPDATE SET
 	return nil
 }
 
+func (driver *sqliteConformanceDriver) ReviewerActive(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+) (bool, error) {
+	return driver.store.HasActiveTuttiModeReviewer(ctx, workspaceID, issueID)
+}
+
 func (driver *sqliteConformanceDriver) execWakeFixtureMutation(
 	ctx context.Context,
 	query string,

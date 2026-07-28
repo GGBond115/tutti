@@ -284,6 +284,43 @@ type ScheduleResult struct {
 	Replayed      bool     `json:"-"`
 }
 
+type MutationOperationKind string
+
+const (
+	MutationOperationAdd       MutationOperationKind = "add"
+	MutationOperationUpdate    MutationOperationKind = "update"
+	MutationOperationRework    MutationOperationKind = "rework"
+	MutationOperationSupersede MutationOperationKind = "supersede"
+)
+
+type MutationOperation struct {
+	Kind   MutationOperationKind `json:"kind"`
+	TaskID string                `json:"taskId,omitempty"`
+	Task   workspaceissues.Task  `json:"task,omitempty"`
+}
+
+type MutationAdmission struct {
+	WorkspaceID           string
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	RequestID             string
+	InputSHA256           string
+	Operations            []MutationOperation
+	Now                   time.Time
+}
+
+type MutationResult struct {
+	ExecutionID       string   `json:"executionId"`
+	CheckpointID      string   `json:"checkpointId"`
+	GraphRevision     int64    `json:"graphRevision"`
+	AddedTaskIDs      []string `json:"addedTaskIds"`
+	UpdatedTaskIDs    []string `json:"updatedTaskIds"`
+	SupersededTaskIDs []string `json:"supersededTaskIds"`
+	Replayed          bool     `json:"-"`
+}
+
 type LaunchIntent struct {
 	WorkspaceID        string
 	IssueID            string

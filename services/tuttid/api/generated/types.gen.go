@@ -5259,10 +5259,16 @@ type IssueManagerTask struct {
 	Priority       IssueManagerPriority `json:"priority"`
 	SortIndex      int                  `json:"sortIndex"`
 	Status         IssueManagerStatus   `json:"status"`
-	TaskId         string               `json:"taskId"`
-	Title          string               `json:"title"`
-	UpdatedAtUnix  int64                `json:"updatedAtUnix"`
-	WorkspaceId    string               `json:"workspaceId"`
+
+	// SupersededAtUnix Logical supersession timestamp. Zero means the task remains in the active graph; non-zero preserves the task and its execution history while excluding it from future scheduling.
+	SupersededAtUnix int64 `json:"supersededAtUnix"`
+
+	// SupersededByTaskId Replacement task ID when supersession introduced one.
+	SupersededByTaskId string `json:"supersededByTaskId"`
+	TaskId             string `json:"taskId"`
+	Title              string `json:"title"`
+	UpdatedAtUnix      int64  `json:"updatedAtUnix"`
+	WorkspaceId        string `json:"workspaceId"`
 }
 
 // IssueManagerTaskContextRef defines model for IssueManagerTaskContextRef.

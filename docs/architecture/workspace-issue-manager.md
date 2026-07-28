@@ -134,6 +134,24 @@ package, so generic Issue consumers cannot become a second Tutti workflow
 authority. AgentGUI neither parses an Agent message into this graph nor calls
 Issue creation itself.
 
+After materialization, `tutti_mode_plan` graphs are read-only through every
+generic Issue Manager mutation surface. Issue/task/context/run/dispatch,
+profile, and budget writers return the typed conflict reason
+`tutti_issue_managed`, including the source Session recovery target. Manual
+and `traditional_plan` Issues keep their existing mutation behavior. Only the
+source Agent may use `tutti plan issue mutate`, with the exact active
+checkpoint, graph revision, and stable request ID.
+
+Source graph changes are transactional and revisioned. A successful mutation
+increments `graphRevision`, rebinds the active checkpoint to that revision,
+retires any prepared or dispatched Goal Review and reviewer wake for the stale
+graph, and returns the revision required by the next exact-set schedule.
+Reusing the same request ID and payload replays the committed result; different
+content is a conflict. Obsolete tasks are logically superseded rather than deleted:
+their task row, Runs, outputs, and audit history remain queryable, while active
+projections and scheduling exclude them. Completed tasks are immutable, and a
+running task must first reach a terminal settlement before supersession.
+
 `sourceSessionId` is the durable planning link for both origins. Issue and Task
 headers can open that source Session, while successful atomic creation projects
 one idempotent, credential-free workspace-Issue mention back into the source

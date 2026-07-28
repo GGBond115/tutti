@@ -6,6 +6,7 @@ package tuttimodeplan
 import (
 	"context"
 
+	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	cliservice "github.com/tutti-os/tutti/services/tuttid/service/cli"
 	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
 	tuttimodeplanservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeplan"
@@ -48,11 +49,20 @@ type IssueCompletions interface {
 	) (tuttimodeexecutionservice.CompleteResult, error)
 }
 
+type IssueMutations interface {
+	MutateTuttiModeIssue(
+		context.Context,
+		string,
+		workspaceservice.MutateTuttiModeIssueInput,
+	) (executionbiz.MutationResult, error)
+}
+
 type Provider struct {
 	workspaces       cliservice.WorkspaceCatalog
 	plans            Plans
 	turns            ActiveTurns
 	schedules        IssueSchedules
+	mutations        IssueMutations
 	acknowledgements IssueAcknowledgements
 	completions      IssueCompletions
 }
@@ -82,10 +92,12 @@ func NewProviderWithExecution(
 	plans Plans,
 	turns ActiveTurns,
 	schedules IssueSchedules,
+	mutations IssueMutations,
 	acknowledgements IssueAcknowledgements,
 	completions ...IssueCompletions,
 ) Provider {
 	provider := NewProvider(workspaces, plans, turns, schedules)
+	provider.mutations = mutations
 	provider.acknowledgements = acknowledgements
 	if len(completions) > 0 {
 		provider.completions = completions[0]
@@ -105,6 +117,7 @@ func (p Provider) Commands() []cliservice.Command {
 		p.newProposeCommand(),
 		p.newReviseCommand(),
 		p.newGetCommand(),
+		p.newIssueMutateCommand(),
 		p.newIssueScheduleCommand(),
 		p.newIssueAcknowledgeCommand(),
 		p.newIssueCompleteCommand(),
@@ -113,6 +126,13 @@ func (p Provider) Commands() []cliservice.Command {
 
 func (p Provider) requireCompletions() error {
 	if p.completions == nil {
+		return cliservice.ServiceUnavailableError("Tutti Mode execution service is unavailable", nil)
+	}
+	return nil
+}
+
+func (p Provider) requireMutations() error {
+	if p.mutations == nil {
 		return cliservice.ServiceUnavailableError("Tutti Mode execution service is unavailable", nil)
 	}
 	return nil

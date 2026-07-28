@@ -315,7 +315,8 @@ func appendAllTasksTerminalCheckpointIfReady(
 	var nonTerminalTasks, missingSettlements int
 	if err := tx.QueryRowContext(ctx, `
 SELECT COUNT(*) FROM workspace_issue_tasks
-WHERE workspace_id = ? AND issue_id = ? AND status IN ('not_started', 'running')
+WHERE workspace_id = ? AND issue_id = ? AND superseded_at_unix_ms = 0
+  AND status IN ('not_started', 'running')
 `, workspaceID, issueID).Scan(&nonTerminalTasks); err != nil {
 		return fmt.Errorf("count non-terminal tasks: %w", err)
 	}

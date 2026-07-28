@@ -5,6 +5,7 @@ import (
 
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
+	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 )
 
 // IssueAssignmentAgentTargetReader resolves a task's assigned agent target at
@@ -204,4 +205,13 @@ type ScheduleTuttiModeIssueResult struct {
 	GraphRevision int64
 	RunIDs        []string
 	Replayed      bool
+}
+
+type MutateTuttiModeIssueInput struct {
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	Operations            []executionbiz.MutationOperation
+	RequestID             string
 }

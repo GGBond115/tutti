@@ -49,6 +49,14 @@ type issueScheduleInput struct {
 	RequestID             string `cli:"request-id" validate:"required" description:"Stable schedule mutation id. Reuse it only with the identical payload."`
 }
 
+type issueMutateInput struct {
+	IssueID               string `cli:"issue-id" validate:"required" description:"Tutti-owned Issue id."`
+	CheckpointID          string `cli:"checkpoint-id" validate:"required" description:"Active execution checkpoint to rebind."`
+	ExpectedGraphRevision int64  `cli:"expected-graph-revision" validate:"required,min=1" description:"Current execution graph revision."`
+	OperationsJSON        string `cli:"operations-json" validate:"required" description:"JSON array of add, update, rework, or supersede operations."`
+	RequestID             string `cli:"request-id" validate:"required" description:"Stable graph mutation id. Reuse it only with the identical payload."`
+}
+
 type issueAcknowledgeInput struct {
 	IssueID               string `cli:"issue-id" validate:"required" description:"Tutti-owned Issue id."`
 	CheckpointID          string `cli:"checkpoint-id" validate:"required" description:"Active task-settlement checkpoint being acknowledged."`
@@ -126,6 +134,22 @@ func (p Provider) newIssueScheduleCommand() cliservice.Command {
 		Inputs:      framework.FromStruct[issueScheduleInput](),
 		Output:      planJSONOutput(framework.ViewSummary),
 		Run:         p.runIssueSchedule,
+	})
+}
+
+func (p Provider) newIssueMutateCommand() cliservice.Command {
+	return framework.Register(framework.CommandSpec[issueMutateInput]{
+		ID:          appID + ".plan.issue.mutate",
+		Path:        []string{"plan", "issue", "mutate"},
+		Summary:     "Mutate a Tutti Mode Issue graph",
+		Description: "Atomically mutate the active graph with exact source-session, checkpoint, and revision fencing. Supersession preserves task and Run history.",
+		Kind:        framework.KindAction,
+		Visibility:  cliservice.CapabilityVisibilityPublic,
+		Workspace:   framework.WorkspaceRequired,
+		Workspaces:  p.workspaces,
+		Inputs:      framework.FromStruct[issueMutateInput](),
+		Output:      planJSONOutput(framework.ViewSummary),
+		Run:         p.runIssueMutate,
 	})
 }
 
@@ -281,6 +305,44 @@ func (p Provider) runIssueSchedule(
 	}, nil
 }
 
+func (p Provider) runIssueMutate(
+	ctx context.Context,
+	invoke framework.InvokeContext,
+	input issueMutateInput,
+) (any, error) {
+	if err := p.requireMutations(); err != nil {
+		return nil, err
+	}
+	sessionID, err := callerAgentSessionID(invoke)
+	if err != nil {
+		return nil, err
+	}
+	var operations []executionbiz.MutationOperation
+	if err := json.Unmarshal([]byte(input.OperationsJSON), &operations); err != nil ||
+		len(operations) == 0 {
+		return nil, cliservice.InvalidInputKeyError("operations-json")
+	}
+	result, err := p.mutations.MutateTuttiModeIssue(
+		ctx,
+		invoke.WorkspaceID,
+		workspaceservice.MutateTuttiModeIssueInput{
+			IssueID: input.IssueID, SourceSessionID: sessionID,
+			CheckpointID:          input.CheckpointID,
+			ExpectedGraphRevision: input.ExpectedGraphRevision,
+			Operations:            operations, RequestID: input.RequestID,
+		},
+	)
+	if err != nil {
+		return nil, agentMutationError(err)
+	}
+	return map[string]any{
+		"executionId": result.ExecutionID, "checkpointId": result.CheckpointID,
+		"graphRevision": result.GraphRevision, "addedTaskIds": result.AddedTaskIDs,
+		"updatedTaskIds":    result.UpdatedTaskIDs,
+		"supersededTaskIds": result.SupersededTaskIDs, "replayed": result.Replayed,
+	}, nil
+}
+
 func (p Provider) runIssueAcknowledge(
 	ctx context.Context,
 	invoke framework.InvokeContext,
@@ -393,6 +455,17 @@ func agentAcknowledgeError(err error) error {
 		)
 	}
 	return agentPlanError(err)
+}
+
+func agentMutationError(err error) error {
+	if errors.Is(err, executionbiz.ErrMutationConflict) {
+		return fmt.Errorf("%w: request-id was already used with a different graph mutation payload", cliservice.ErrInvalidInput)
+	}
+	if errors.Is(err, executionbiz.ErrMutationRejected) ||
+		errors.Is(err, executionbiz.ErrExecutionNotFound) {
+		return fmt.Errorf("%w: mutation caller, checkpoint, revision, or operation set is not current", cliservice.ErrInvalidInput)
+	}
+	return err
 }
 
 func agentCompleteError(err error) error {

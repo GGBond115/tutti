@@ -27294,6 +27294,22 @@ func (response DeleteWorkspaceIssue405JSONResponse) VisitDeleteWorkspaceIssueRes
 	return err
 }
 
+type DeleteWorkspaceIssue409JSONResponse struct {
+	WorkspaceIssueResourceExistsErrorJSONResponse
+}
+
+func (response DeleteWorkspaceIssue409JSONResponse) VisitDeleteWorkspaceIssueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteWorkspaceIssue502JSONResponse struct {
 	WorkspaceOperationErrorJSONResponse
 }
@@ -27529,6 +27545,22 @@ func (response UpdateWorkspaceIssue405JSONResponse) VisitUpdateWorkspaceIssueRes
 	return err
 }
 
+type UpdateWorkspaceIssue409JSONResponse struct {
+	WorkspaceIssueResourceExistsErrorJSONResponse
+}
+
+func (response UpdateWorkspaceIssue409JSONResponse) VisitUpdateWorkspaceIssueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type UpdateWorkspaceIssue502JSONResponse struct {
 	WorkspaceOperationErrorJSONResponse
 }
@@ -27642,6 +27674,22 @@ func (response CancelWorkspaceIssueExecution405JSONResponse) VisitCancelWorkspac
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelWorkspaceIssueExecution409JSONResponse struct {
+	WorkspaceIssueResourceExistsErrorJSONResponse
+}
+
+func (response CancelWorkspaceIssueExecution409JSONResponse) VisitCancelWorkspaceIssueExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -27894,6 +27942,22 @@ func (response RemoveWorkspaceIssueContextRef405JSONResponse) VisitRemoveWorkspa
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveWorkspaceIssueContextRef409JSONResponse struct {
+	WorkspaceIssueResourceExistsErrorJSONResponse
+}
+
+func (response RemoveWorkspaceIssueContextRef409JSONResponse) VisitRemoveWorkspaceIssueContextRefResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -28890,6 +28954,22 @@ func (response DeleteWorkspaceIssueTask405JSONResponse) VisitDeleteWorkspaceIssu
 	return err
 }
 
+type DeleteWorkspaceIssueTask409JSONResponse struct {
+	WorkspaceIssueResourceExistsErrorJSONResponse
+}
+
+func (response DeleteWorkspaceIssueTask409JSONResponse) VisitDeleteWorkspaceIssueTaskResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteWorkspaceIssueTask502JSONResponse struct {
 	WorkspaceOperationErrorJSONResponse
 }
@@ -29123,6 +29203,22 @@ func (response UpdateWorkspaceIssueTask405JSONResponse) VisitUpdateWorkspaceIssu
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateWorkspaceIssueTask409JSONResponse struct {
+	WorkspaceIssueResourceExistsErrorJSONResponse
+}
+
+func (response UpdateWorkspaceIssueTask409JSONResponse) VisitUpdateWorkspaceIssueTaskResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -29377,6 +29473,22 @@ func (response RemoveWorkspaceIssueTaskContextRef405JSONResponse) VisitRemoveWor
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveWorkspaceIssueTaskContextRef409JSONResponse struct {
+	WorkspaceIssueResourceExistsErrorJSONResponse
+}
+
+func (response RemoveWorkspaceIssueTaskContextRef409JSONResponse) VisitRemoveWorkspaceIssueTaskContextRefResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }

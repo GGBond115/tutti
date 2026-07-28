@@ -197,12 +197,14 @@ func IssueAutomaticRunAdmissionSlots(issue Issue, workspaceActiveRunCount int, i
 // generic dispatch and source-Agent exact-set scheduling. Callers retain
 // ownership of ordering, isolation, and transactional mutation.
 func IssueTaskEligibleForRun(task Task, tasksByID map[string]Task) bool {
-	if task.Status != StatusNotStarted || strings.TrimSpace(task.AgentTargetID) == "" {
+	if task.IsSuperseded() || task.Status != StatusNotStarted ||
+		strings.TrimSpace(task.AgentTargetID) == "" {
 		return false
 	}
 	for _, dependencyID := range task.DependencyTaskIDs {
 		dependency, ok := tasksByID[dependencyID]
-		if !ok || dependency.Status != StatusCompleted ||
+		if !ok || dependency.IsSuperseded() ||
+			dependency.Status != StatusCompleted ||
 			dependency.AcceptanceState != AcceptanceUserAccepted {
 			return false
 		}

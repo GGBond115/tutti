@@ -692,6 +692,8 @@ func buildDaemonAPI(
 			tuttiModePlans,
 			agentSessionService,
 			&issueService,
+			&issueService,
+			tuttiModeExecutions,
 			tuttiModeExecutions,
 		),
 		tuttigoalreviewcli.NewProvider(

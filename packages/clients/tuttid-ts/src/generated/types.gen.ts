@@ -3692,6 +3692,14 @@ export type IssueManagerTask = {
   autoAccept: boolean;
   acceptanceState: IssueManagerAcceptanceState;
   acceptanceSummary: string;
+  /**
+   * Logical supersession timestamp. Zero means the task remains in the active graph; non-zero preserves the task and its execution history while excluding it from future scheduling.
+   */
+  supersededAtUnix: number;
+  /**
+   * Replacement task ID when supersession introduced one.
+   */
+  supersededByTaskId: string;
   creatorUserId: string;
   creatorDisplayName: string;
   creatorAvatarUrl: string;
@@ -12724,7 +12732,7 @@ export type CreateWorkspaceIssueTopicErrors = {
    */
   405: ApiErrorResponse;
   /**
-   * Workspace issue-manager resource already exists
+   * Workspace issue-manager resource conflicts with durable state
    */
   409: ApiErrorResponse;
   /**
@@ -12778,7 +12786,7 @@ export type DeleteWorkspaceIssueTopicErrors = {
    */
   405: ApiErrorResponse;
   /**
-   * Workspace issue-manager resource already exists
+   * Workspace issue-manager resource conflicts with durable state
    */
   409: ApiErrorResponse;
   /**
@@ -12939,7 +12947,7 @@ export type CreateWorkspaceIssueErrors = {
    */
   405: ApiErrorResponse;
   /**
-   * Workspace issue-manager resource already exists
+   * Workspace issue-manager resource conflicts with durable state
    */
   409: ApiErrorResponse;
   /**
@@ -12992,7 +13000,7 @@ export type CreateWorkspaceIssueFromPlanErrors = {
    */
   405: ApiErrorResponse;
   /**
-   * Workspace issue-manager resource already exists
+   * Workspace issue-manager resource conflicts with durable state
    */
   409: ApiErrorResponse;
   /**
@@ -13144,6 +13152,10 @@ export type DeleteWorkspaceIssueErrors = {
    */
   405: ApiErrorResponse;
   /**
+   * Workspace issue-manager resource conflicts with durable state
+   */
+  409: ApiErrorResponse;
+  /**
    * Workspace operation failed in an upstream adapter or command
    */
   502: ApiErrorResponse;
@@ -13244,6 +13256,10 @@ export type UpdateWorkspaceIssueErrors = {
    */
   405: ApiErrorResponse;
   /**
+   * Workspace issue-manager resource conflicts with durable state
+   */
+  409: ApiErrorResponse;
+  /**
    * Workspace operation failed in an upstream adapter or command
    */
   502: ApiErrorResponse;
@@ -13294,7 +13310,7 @@ export type AddWorkspaceIssueContextRefsErrors = {
    */
   405: ApiErrorResponse;
   /**
-   * Workspace issue-manager resource already exists
+   * Workspace issue-manager resource conflicts with durable state
    */
   409: ApiErrorResponse;
   /**
@@ -13349,6 +13365,10 @@ export type RemoveWorkspaceIssueContextRefErrors = {
    */
   405: ApiErrorResponse;
   /**
+   * Workspace issue-manager resource conflicts with durable state
+   */
+  409: ApiErrorResponse;
+  /**
    * Workspace operation failed in an upstream adapter or command
    */
   502: ApiErrorResponse;
@@ -13398,6 +13418,10 @@ export type CancelWorkspaceIssueExecutionErrors = {
    * HTTP method is not supported on this route
    */
   405: ApiErrorResponse;
+  /**
+   * Workspace issue-manager resource conflicts with durable state
+   */
+  409: ApiErrorResponse;
   /**
    * Workspace operation failed in an upstream adapter or command
    */
@@ -13499,7 +13523,7 @@ export type CreateWorkspaceIssueRunErrors = {
    */
   405: ApiErrorResponse;
   /**
-   * Workspace issue-manager resource already exists
+   * Workspace issue-manager resource conflicts with durable state
    */
   409: ApiErrorResponse;
   /**
@@ -13713,7 +13737,7 @@ export type CreateWorkspaceIssueTaskErrors = {
    */
   405: ApiErrorResponse;
   /**
-   * Workspace issue-manager resource already exists
+   * Workspace issue-manager resource conflicts with durable state
    */
   409: ApiErrorResponse;
   /**
@@ -13767,7 +13791,7 @@ export type CreateWorkspaceIssueTasksErrors = {
    */
   405: ApiErrorResponse;
   /**
-   * Workspace issue-manager resource already exists
+   * Workspace issue-manager resource conflicts with durable state
    */
   409: ApiErrorResponse;
   /**
@@ -13821,6 +13845,10 @@ export type DeleteWorkspaceIssueTaskErrors = {
    * HTTP method is not supported on this route
    */
   405: ApiErrorResponse;
+  /**
+   * Workspace issue-manager resource conflicts with durable state
+   */
+  409: ApiErrorResponse;
   /**
    * Workspace operation failed in an upstream adapter or command
    */
@@ -13924,6 +13952,10 @@ export type UpdateWorkspaceIssueTaskErrors = {
    */
   405: ApiErrorResponse;
   /**
+   * Workspace issue-manager resource conflicts with durable state
+   */
+  409: ApiErrorResponse;
+  /**
    * Workspace operation failed in an upstream adapter or command
    */
   502: ApiErrorResponse;
@@ -13975,7 +14007,7 @@ export type AddWorkspaceIssueTaskContextRefsErrors = {
    */
   405: ApiErrorResponse;
   /**
-   * Workspace issue-manager resource already exists
+   * Workspace issue-manager resource conflicts with durable state
    */
   409: ApiErrorResponse;
   /**
@@ -14030,6 +14062,10 @@ export type RemoveWorkspaceIssueTaskContextRefErrors = {
    * HTTP method is not supported on this route
    */
   405: ApiErrorResponse;
+  /**
+   * Workspace issue-manager resource conflicts with durable state
+   */
+  409: ApiErrorResponse;
   /**
    * Workspace operation failed in an upstream adapter or command
    */
@@ -14133,7 +14169,7 @@ export type CreateWorkspaceIssueTaskRunErrors = {
    */
   405: ApiErrorResponse;
   /**
-   * Workspace issue-manager resource already exists
+   * Workspace issue-manager resource conflicts with durable state
    */
   409: ApiErrorResponse;
   /**

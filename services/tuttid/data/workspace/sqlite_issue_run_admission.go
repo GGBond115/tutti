@@ -238,7 +238,7 @@ WHERE workspace_id = ? AND issue_id = ?
 	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`
 SELECT %s
 FROM workspace_issue_tasks
-WHERE workspace_id = ? AND issue_id = ?
+WHERE workspace_id = ? AND issue_id = ? AND superseded_at_unix_ms = 0
 ORDER BY sort_index ASC, id ASC
 `, taskSelectColumns), admission.WorkspaceID, admission.IssueID)
 	if err != nil {
@@ -365,7 +365,7 @@ SELECT COUNT(*),
        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END),
        SUM(CASE WHEN status = 'canceled' THEN 1 ELSE 0 END)
 FROM workspace_issue_tasks
-WHERE workspace_id = ? AND issue_id = ?
+WHERE workspace_id = ? AND issue_id = ? AND superseded_at_unix_ms = 0
 `, workspaceID, issueID).Scan(&all, &notStarted, &running, &pending, &completed, &failed, &canceled)
 	if err != nil {
 		return fmt.Errorf("project scheduled Tutti mode Issue: %w", err)

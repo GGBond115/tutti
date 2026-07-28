@@ -71,6 +71,37 @@ func TestCompleteRunFailsClosedWhenIssueOwnershipCannotBeRead(t *testing.T) {
 	}
 }
 
+func TestCancelIssueExecutionRejectsGenericMutationOfManagedIssue(t *testing.T) {
+	ctx := context.Background()
+	store := openIssueServiceStore(t)
+	const workspaceID = "workspace-managed-cancel"
+	if err := store.Create(ctx, workspacebiz.Summary{ID: workspaceID, Name: "Managed cancel"}); err != nil {
+		t.Fatal(err)
+	}
+	issue, err := store.CreateIssue(ctx, workspaceissues.Issue{
+		IssueID: "issue-managed", WorkspaceID: workspaceID,
+		TopicID: workspaceissues.DefaultTopicID, Title: "Managed",
+		PlanningSource:  workspaceissues.PlanningSourceTuttiModePlan,
+		SourceSessionID: "source-session",
+		Budget:          workspaceissues.DefaultBudget(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := IssueManagerService{Store: store, MutationLocks: NewIssueMutationLocks()}
+	coordinator := IssueExecutionCoordinator{Issues: &service}
+	if _, err := coordinator.CancelIssueExecution(ctx, workspaceID, issue.IssueID); !errors.Is(err, workspaceissues.ErrManagedIssueMutation) {
+		t.Fatalf("CancelIssueExecution() error = %v, want managed mutation conflict", err)
+	}
+	persisted, err := store.GetIssue(ctx, workspaceID, issue.IssueID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.DispatchPaused {
+		t.Fatal("managed Issue was paused by rejected generic cancellation")
+	}
+}
+
 func TestIssueManagerRejectsNonFiniteBudgetBeforePersistence(t *testing.T) {
 	t.Parallel()
 

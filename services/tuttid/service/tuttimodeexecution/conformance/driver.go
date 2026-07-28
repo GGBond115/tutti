@@ -27,6 +27,10 @@ type Issue struct {
 	TopicID         string
 	Title           string
 	Content         string
+	Status          string
+	TaskCount       int
+	CompletedCount  int
+	CanceledCount   int
 	PlanningSource  string
 	SourceSessionID string
 }
@@ -46,6 +50,8 @@ type Task struct {
 	DependencyTaskIDs  []string
 	Parallelizable     bool
 	AutoAccept         bool
+	SupersededAtUnixMS int64
+	SupersededByTaskID string
 }
 
 type RunSnapshot struct {
@@ -85,6 +91,7 @@ type Snapshot struct {
 	Checkpoints []Checkpoint
 	RunCount    int
 	Runs        []RunSnapshot
+	OutputCount int
 	Reviews     []GoalReview
 	Audit       []ReviewAuditEntry
 }
@@ -156,6 +163,32 @@ type AcknowledgeResult struct {
 	NextCheckpointKind  string
 	NextCheckpointState string
 	Replayed            bool
+}
+
+type MutationOperation struct {
+	Kind   string
+	TaskID string
+	Task   Task
+}
+
+type MutateInput struct {
+	WorkspaceID           string
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	Operations            []MutationOperation
+	RequestID             string
+}
+
+type MutateResult struct {
+	ExecutionID       string
+	CheckpointID      string
+	GraphRevision     int64
+	AddedTaskIDs      []string
+	UpdatedTaskIDs    []string
+	SupersededTaskIDs []string
+	Replayed          bool
 }
 
 type CompleteInput struct {
@@ -268,6 +301,8 @@ type Driver interface {
 	RepairSettlements(context.Context, string) error
 	Acknowledge(context.Context, AcknowledgeInput) (AcknowledgeResult, error)
 	AcknowledgeReplica(context.Context, AcknowledgeInput) (AcknowledgeResult, error)
+	Mutate(context.Context, MutateInput) (MutateResult, error)
+	MutateReplica(context.Context, MutateInput) (MutateResult, error)
 	Complete(context.Context, CompleteInput) (CompleteResult, error)
 	CompleteReplica(context.Context, CompleteInput) (CompleteResult, error)
 	SubmitReviewerVerdict(context.Context, ReviewerVerdictInput) (ReviewerVerdictResult, error)
@@ -384,6 +419,7 @@ type Driver interface {
 	// SetReviewerActive seeds only the external goal-review owner state read by
 	// this service. It must not mutate execution, checkpoint, or wake rows.
 	SetReviewerActive(context.Context, string, string, bool) error
+	ReviewerActive(context.Context, string, string) (bool, error)
 	CurrentTime() time.Time
 	WakeDeliveryCallCount() int
 	WakeDeliveries() []WakeDelivery

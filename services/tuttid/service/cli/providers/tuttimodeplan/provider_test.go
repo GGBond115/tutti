@@ -71,6 +71,7 @@ func TestProviderExposesAgentPlanAndExecutionCommands(t *testing.T) {
 		"tutti-mode-plan.plan.propose",
 		"tutti-mode-plan.plan.revise",
 		"tutti-mode-plan.plan.get",
+		"tutti-mode-plan.plan.issue.mutate",
 		"tutti-mode-plan.plan.issue.schedule",
 		"tutti-mode-plan.plan.issue.acknowledge",
 		"tutti-mode-plan.plan.issue.complete",
@@ -110,6 +111,30 @@ type recordingIssueAcknowledger struct {
 	err   error
 }
 
+type recordingIssueMutator struct {
+	workspaceID string
+	input       workspaceservice.MutateTuttiModeIssueInput
+	err         error
+}
+
+func (mutator *recordingIssueMutator) MutateTuttiModeIssue(
+	_ context.Context,
+	workspaceID string,
+	input workspaceservice.MutateTuttiModeIssueInput,
+) (executionbiz.MutationResult, error) {
+	mutator.workspaceID = workspaceID
+	mutator.input = input
+	if mutator.err != nil {
+		return executionbiz.MutationResult{}, mutator.err
+	}
+	return executionbiz.MutationResult{
+		ExecutionID: "execution-1", CheckpointID: input.CheckpointID,
+		GraphRevision: input.ExpectedGraphRevision + 1,
+		AddedTaskIDs:  []string{"task-c"}, UpdatedTaskIDs: []string{},
+		SupersededTaskIDs: []string{}, Replayed: true,
+	}, nil
+}
+
 func (acknowledger *recordingIssueAcknowledger) Acknowledge(
 	_ context.Context,
 	input tuttimodeexecutionservice.AcknowledgeInput,
@@ -147,10 +172,10 @@ func (scheduler *recordingIssueScheduler) ScheduleTuttiModeIssue(
 
 func TestProviderExposesSourceScopedIssueScheduleCommand(t *testing.T) {
 	commands := NewProvider(nil, &recordingPlans{}, nil, &recordingIssueScheduler{}).Commands()
-	if len(commands) != 6 {
+	if len(commands) != 7 {
 		t.Fatalf("commands = %#v, want schedule and acknowledge commands", commands)
 	}
-	command := commands[3]
+	command := commands[4]
 	if command.Capability.ID != "tutti-mode-plan.plan.issue.schedule" {
 		t.Fatalf("schedule command id = %q", command.Capability.ID)
 	}
@@ -168,6 +193,26 @@ func TestProviderExposesSourceScopedIssueScheduleCommand(t *testing.T) {
 	}
 }
 
+func TestProviderExposesSourceScopedIssueMutateCommand(t *testing.T) {
+	commands := NewProvider(nil, &recordingPlans{}, nil).Commands()
+	command := commands[3]
+	if command.Capability.ID != "tutti-mode-plan.plan.issue.mutate" {
+		t.Fatalf("mutate command id = %q", command.Capability.ID)
+	}
+	properties := command.Capability.InputSchema["properties"].(map[string]any)
+	for _, name := range []string{
+		"issue-id", "checkpoint-id", "expected-graph-revision",
+		"operations-json", "request-id",
+	} {
+		if _, ok := properties[name]; !ok {
+			t.Fatalf("mutate properties = %#v, missing %q", properties, name)
+		}
+	}
+	if _, exists := properties["source-session-id"]; exists {
+		t.Fatalf("mutate properties expose untrusted source-session-id: %#v", properties)
+	}
+}
+
 func TestProviderExposesSourceScopedIssueAcknowledgeCommand(t *testing.T) {
 	acknowledger := &recordingIssueAcknowledger{}
 	provider := NewProviderWithExecution(
@@ -175,13 +220,14 @@ func TestProviderExposesSourceScopedIssueAcknowledgeCommand(t *testing.T) {
 		&recordingPlans{},
 		nil,
 		&recordingIssueScheduler{},
+		nil,
 		acknowledger,
 	)
 	commands := provider.Commands()
-	if len(commands) != 6 {
+	if len(commands) != 7 {
 		t.Fatalf("commands = %#v, want acknowledge command", commands)
 	}
-	command := commands[4]
+	command := commands[5]
 	if command.Capability.ID != "tutti-mode-plan.plan.issue.acknowledge" {
 		t.Fatalf("acknowledge command id = %q", command.Capability.ID)
 	}
@@ -203,10 +249,10 @@ func TestProviderExposesSourceScopedIssueAcknowledgeCommand(t *testing.T) {
 
 func TestProviderExposesSourceScopedGoalReviewCompleteCommand(t *testing.T) {
 	commands := NewProvider(nil, &recordingPlans{}, nil).Commands()
-	if len(commands) != 6 {
+	if len(commands) != 7 {
 		t.Fatalf("commands = %#v, want source-main complete command", commands)
 	}
-	command := commands[5]
+	command := commands[6]
 	if command.Capability.ID != "tutti-mode-plan.plan.issue.complete" {
 		t.Fatalf("complete command id = %q", command.Capability.ID)
 	}
@@ -252,7 +298,7 @@ func TestRunIssueCompleteDerivesTrustedCallerAndReturnsStructuredResult(t *testi
 	completer := &recordingIssueCompleter{}
 	provider := NewProviderWithExecution(
 		nil, &recordingPlans{}, nil, &recordingIssueScheduler{},
-		&recordingIssueAcknowledger{}, completer,
+		nil, &recordingIssueAcknowledger{}, completer,
 	)
 	result, err := provider.runIssueComplete(
 		context.Background(),
@@ -359,6 +405,73 @@ func TestRunIssueCompleteMapsProductErrorsWithoutLeakingDetails(t *testing.T) {
 		if !errors.Is(err, cliservice.ErrInvalidInput) ||
 			strings.Contains(err.Error(), "secret durable row") {
 			t.Fatalf("Complete error %v mapped to %v", contractErr, err)
+		}
+	}
+}
+
+func TestRunIssueMutateDerivesCallerAndReturnsNewRevision(t *testing.T) {
+	mutator := &recordingIssueMutator{}
+	provider := Provider{mutations: mutator}
+	result, err := provider.runIssueMutate(
+		context.Background(),
+		framework.InvokeContext{
+			WorkspaceID: "workspace-1",
+			Request: cliservice.InvokeRequest{Context: cliservice.InvokeContext{
+				AgentSessionID: " source-session ",
+			}},
+		},
+		issueMutateInput{
+			IssueID: "issue-1", CheckpointID: "checkpoint-1",
+			ExpectedGraphRevision: 3,
+			OperationsJSON:        `[{"kind":"add","task":{"TaskID":"task-c","Title":"Task C"}}]`,
+			RequestID:             "mutate-1",
+		},
+	)
+	if err != nil {
+		t.Fatalf("runIssueMutate() error = %v", err)
+	}
+	if mutator.workspaceID != "workspace-1" ||
+		mutator.input.SourceSessionID != "source-session" ||
+		mutator.input.CheckpointID != "checkpoint-1" ||
+		mutator.input.ExpectedGraphRevision != 3 ||
+		len(mutator.input.Operations) != 1 ||
+		mutator.input.Operations[0].Task.TaskID != "task-c" {
+		t.Fatalf("mutation input = %#v in workspace %q", mutator.input, mutator.workspaceID)
+	}
+	value := result.(map[string]any)
+	if value["graphRevision"] != int64(4) || value["replayed"] != true {
+		t.Fatalf("mutation result = %#v", value)
+	}
+}
+
+func TestIssueMutateRejectsInvalidJSONAndMapsFenceErrors(t *testing.T) {
+	invoke := framework.InvokeContext{
+		WorkspaceID: "workspace-1",
+		Request: cliservice.InvokeRequest{Context: cliservice.InvokeContext{
+			AgentSessionID: "source-session",
+		}},
+	}
+	provider := Provider{mutations: &recordingIssueMutator{}}
+	_, err := provider.runIssueMutate(context.Background(), invoke, issueMutateInput{
+		IssueID: "issue-1", CheckpointID: "checkpoint-1",
+		ExpectedGraphRevision: 3, OperationsJSON: `{}`, RequestID: "mutate-1",
+	})
+	if !errors.Is(err, cliservice.ErrInvalidInput) {
+		t.Fatalf("invalid operations JSON error = %v", err)
+	}
+	for _, contractError := range []error{
+		executionbiz.ErrMutationRejected, executionbiz.ErrMutationConflict,
+		executionbiz.ErrExecutionNotFound,
+	} {
+		provider.mutations = &recordingIssueMutator{err: contractError}
+		_, err := provider.runIssueMutate(context.Background(), invoke, issueMutateInput{
+			IssueID: "issue-1", CheckpointID: "checkpoint-1",
+			ExpectedGraphRevision: 3,
+			OperationsJSON:        `[{"kind":"supersede","taskId":"task-a"}]`,
+			RequestID:             "mutate-1",
+		})
+		if !errors.Is(err, cliservice.ErrInvalidInput) {
+			t.Fatalf("mutation error %v mapped to %v", contractError, err)
 		}
 	}
 }

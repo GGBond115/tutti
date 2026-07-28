@@ -10,6 +10,7 @@ import (
 	"time"
 
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
+	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
 	workflowbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceworkflow"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
@@ -427,6 +428,10 @@ func (driver *sqliteConformanceDriver) GetIssueByID(
 		TopicID:         detail.Issue.TopicID,
 		Title:           detail.Issue.Title,
 		Content:         detail.Issue.Content,
+		Status:          string(detail.Issue.Status),
+		TaskCount:       detail.Issue.TaskCount,
+		CompletedCount:  detail.Issue.CompletedCount,
+		CanceledCount:   detail.Issue.CanceledCount,
 		PlanningSource:  string(detail.Issue.PlanningSource),
 		SourceSessionID: detail.Issue.SourceSessionID,
 	}
@@ -447,9 +452,69 @@ func (driver *sqliteConformanceDriver) GetIssueByID(
 			DependencyTaskIDs:  append([]string(nil), task.DependencyTaskIDs...),
 			Parallelizable:     task.Parallelizable,
 			AutoAccept:         task.AutoAccept,
+			SupersededAtUnixMS: task.SupersededAtUnixMS,
+			SupersededByTaskID: task.SupersededByTaskID,
 		})
 	}
 	return issue, tasks, nil
+}
+
+func (driver *sqliteConformanceDriver) Mutate(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.MutateInput,
+) (tuttimodeexecutionconformance.MutateResult, error) {
+	return driver.mutateWith(ctx, driver.executions, input)
+}
+
+func (driver *sqliteConformanceDriver) MutateReplica(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.MutateInput,
+) (tuttimodeexecutionconformance.MutateResult, error) {
+	replica := &tuttimodeexecutionservice.Service{
+		Store: driver.store, Wakes: driver.wakeStore, Clock: driver.clock.Now,
+	}
+	return driver.mutateWith(ctx, replica, input)
+}
+
+func (*sqliteConformanceDriver) mutateWith(
+	ctx context.Context,
+	service *tuttimodeexecutionservice.Service,
+	input tuttimodeexecutionconformance.MutateInput,
+) (tuttimodeexecutionconformance.MutateResult, error) {
+	operations := make([]executionbiz.MutationOperation, 0, len(input.Operations))
+	for _, operation := range input.Operations {
+		operations = append(operations, executionbiz.MutationOperation{
+			Kind:   executionbiz.MutationOperationKind(operation.Kind),
+			TaskID: operation.TaskID,
+			Task: workspaceissues.Task{
+				TaskID: operation.Task.TaskID, Title: operation.Task.Title,
+				Content: operation.Task.Content, Priority: workspaceissues.Priority(operation.Task.Priority),
+				AgentTargetID: operation.Task.AgentTargetID, Model: operation.Task.Model,
+				PermissionModeID:   operation.Task.PermissionModeID,
+				ExecutionDirectory: operation.Task.ExecutionDirectory,
+				DependencyTaskIDs:  append([]string(nil), operation.Task.DependencyTaskIDs...),
+				Parallelizable:     operation.Task.Parallelizable,
+				AutoAccept:         operation.Task.AutoAccept,
+			},
+		})
+	}
+	result, err := service.Mutate(ctx, tuttimodeexecutionservice.MutateInput{
+		WorkspaceID: input.WorkspaceID, IssueID: input.IssueID,
+		SourceSessionID: input.SourceSessionID, CheckpointID: input.CheckpointID,
+		ExpectedGraphRevision: input.ExpectedGraphRevision,
+		Operations:            operations, RequestID: input.RequestID,
+	})
+	if err != nil {
+		return tuttimodeexecutionconformance.MutateResult{}, err
+	}
+	return tuttimodeexecutionconformance.MutateResult{
+		ExecutionID: result.ExecutionID, CheckpointID: result.CheckpointID,
+		GraphRevision:     result.GraphRevision,
+		AddedTaskIDs:      append([]string(nil), result.AddedTaskIDs...),
+		UpdatedTaskIDs:    append([]string(nil), result.UpdatedTaskIDs...),
+		SupersededTaskIDs: append([]string(nil), result.SupersededTaskIDs...),
+		Replayed:          result.Replayed,
+	}, nil
 }
 
 func (driver *sqliteConformanceDriver) GetSnapshot(
@@ -474,10 +539,18 @@ func (driver *sqliteConformanceDriver) GetSnapshot(
 		return tuttimodeexecutionconformance.Snapshot{}, err
 	}
 	snapshotRuns := make([]tuttimodeexecutionconformance.RunSnapshot, 0, len(runs))
+	outputCount := 0
 	for _, run := range runs {
 		snapshotRuns = append(snapshotRuns, tuttimodeexecutionconformance.RunSnapshot{
 			RunID: run.RunID, TaskID: run.TaskID, Status: string(run.Status),
 		})
+		outputs, outputErr := driver.store.ListRunOutputs(
+			ctx, workspaceID, issueID, run.TaskID, run.RunID,
+		)
+		if outputErr != nil {
+			return tuttimodeexecutionconformance.Snapshot{}, outputErr
+		}
+		outputCount += len(outputs)
 	}
 	reviews, err := driver.executions.ListGoalReviews(ctx, workspaceID, issueID)
 	if err != nil {
@@ -513,6 +586,7 @@ func (driver *sqliteConformanceDriver) GetSnapshot(
 		Checkpoints: checkpoints,
 		RunCount:    runCount,
 		Runs:        snapshotRuns,
+		OutputCount: outputCount,
 		Reviews:     snapshotReviews,
 		Audit:       snapshotAudit,
 	}, nil
@@ -571,13 +645,20 @@ func (driver *sqliteConformanceDriver) SettleRun(
 	ctx context.Context,
 	input tuttimodeexecutionconformance.SettleRunInput,
 ) error {
+	completeInput := workspaceservice.CompleteIssueManagerRunInput{Status: input.Status}
+	if input.Status == string(workspaceissues.StatusCompleted) {
+		completeInput.Outputs = []workspaceissues.CompleteRunOutputInput{{
+			OutputID: "output-" + input.RunID, Path: "result.txt",
+			DisplayName: "Result", MediaType: "text/plain", SizeBytes: 6,
+		}}
+	}
 	_, err := driver.issues.CompleteRun(
 		ctx,
 		input.WorkspaceID,
 		input.IssueID,
 		input.TaskID,
 		input.RunID,
-		workspaceservice.CompleteIssueManagerRunInput{Status: input.Status},
+		completeInput,
 	)
 	return err
 }
@@ -1144,6 +1225,21 @@ func TestMaterializationSQLiteServiceConformance(t *testing.T) {
 
 func TestScheduleSQLiteServiceConformance(t *testing.T) {
 	for _, scenario := range tuttimodeexecutionconformance.ScheduleCatalog() {
+		scenario := scenario
+		t.Run(scenario.Name, func(t *testing.T) {
+			if err := tuttimodeexecutionconformance.Run(
+				context.Background(),
+				newSQLiteConformanceDriver(t),
+				scenario,
+			); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestMutationSQLiteServiceConformance(t *testing.T) {
+	for _, scenario := range tuttimodeexecutionconformance.MutationCatalog() {
 		scenario := scenario
 		t.Run(scenario.Name, func(t *testing.T) {
 			if err := tuttimodeexecutionconformance.Run(

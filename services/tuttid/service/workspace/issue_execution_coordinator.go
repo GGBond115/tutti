@@ -147,6 +147,9 @@ func (s IssueManagerService) pauseIssueExecution(ctx context.Context, workspaceI
 	if err != nil {
 		return nil, err
 	}
+	if err := workspaceissues.RejectManagedIssueMutation(detail.Issue); err != nil {
+		return nil, err
+	}
 	if !detail.Issue.DispatchPaused {
 		issue := detail.Issue
 		issue.DispatchPaused = true

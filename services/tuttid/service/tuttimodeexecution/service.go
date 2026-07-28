@@ -18,6 +18,8 @@ var ErrExecutionNotFound = executionbiz.ErrExecutionNotFound
 var ErrExecutionConflict = executionbiz.ErrExecutionConflict
 var ErrScheduleRejected = executionbiz.ErrScheduleRejected
 var ErrScheduleMutationConflict = executionbiz.ErrScheduleMutationConflict
+var ErrMutationRejected = executionbiz.ErrMutationRejected
+var ErrMutationConflict = executionbiz.ErrMutationConflict
 var ErrAcknowledgeRejected = executionbiz.ErrAcknowledgeRejected
 var ErrAcknowledgeMutationConflict = executionbiz.ErrAcknowledgeMutationConflict
 var ErrCompleteRejected = executionbiz.ErrCompleteRejected
@@ -53,6 +55,10 @@ type Store interface {
 	EnsureTuttiModeRunSettlement(context.Context, executionbiz.RunSettlement) (executionbiz.Checkpoint, bool, error)
 	RepairTuttiModeRunSettlements(context.Context, string, time.Time) (int, error)
 	AdmitTuttiModeAcknowledge(context.Context, executionbiz.AcknowledgeAdmission) (executionbiz.AcknowledgeResult, error)
+}
+
+type MutationStore interface {
+	AdmitTuttiModeMutation(context.Context, executionbiz.MutationAdmission) (executionbiz.MutationResult, error)
 }
 
 type WakeStore interface {
@@ -117,6 +123,16 @@ type AcknowledgeInput struct {
 	SourceSessionID       string
 	CheckpointID          string
 	ExpectedGraphRevision int64
+	RequestID             string
+}
+
+type MutateInput struct {
+	WorkspaceID           string
+	IssueID               string
+	SourceSessionID       string
+	CheckpointID          string
+	ExpectedGraphRevision int64
+	Operations            []executionbiz.MutationOperation
 	RequestID             string
 }
 
@@ -601,6 +617,70 @@ func (service Service) Acknowledge(
 		NextCheckpointKind:  result.NextCheckpointKind,
 		NextCheckpointState: result.NextCheckpointState, Replayed: result.Replayed,
 	}, nil
+}
+
+func (service Service) Mutate(
+	ctx context.Context,
+	input MutateInput,
+) (executionbiz.MutationResult, error) {
+	if service.Store == nil {
+		return executionbiz.MutationResult{}, ErrServiceUnavailable
+	}
+	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
+	input.IssueID = strings.TrimSpace(input.IssueID)
+	input.SourceSessionID = strings.TrimSpace(input.SourceSessionID)
+	input.CheckpointID = strings.TrimSpace(input.CheckpointID)
+	input.RequestID = strings.TrimSpace(input.RequestID)
+	if input.WorkspaceID == "" || input.IssueID == "" ||
+		input.SourceSessionID == "" || input.CheckpointID == "" ||
+		input.RequestID == "" || input.ExpectedGraphRevision < 1 ||
+		len(input.Operations) == 0 {
+		return executionbiz.MutationResult{}, executionbiz.ErrMutationRejected
+	}
+	operations := append([]executionbiz.MutationOperation(nil), input.Operations...)
+	for index := range operations {
+		operations[index].TaskID = strings.TrimSpace(operations[index].TaskID)
+		operations[index].Task.TaskID = strings.TrimSpace(operations[index].Task.TaskID)
+		switch operations[index].Kind {
+		case executionbiz.MutationOperationAdd:
+			if operations[index].Task.TaskID == "" {
+				return executionbiz.MutationResult{}, executionbiz.ErrMutationRejected
+			}
+		case executionbiz.MutationOperationUpdate, executionbiz.MutationOperationSupersede,
+			executionbiz.MutationOperationRework:
+			if operations[index].TaskID == "" {
+				return executionbiz.MutationResult{}, executionbiz.ErrMutationRejected
+			}
+			if operations[index].Kind == executionbiz.MutationOperationRework &&
+				operations[index].Task.TaskID == "" {
+				return executionbiz.MutationResult{}, executionbiz.ErrMutationRejected
+			}
+		default:
+			return executionbiz.MutationResult{}, executionbiz.ErrMutationRejected
+		}
+	}
+	payload, err := json.Marshal(struct {
+		CheckpointID          string                           `json:"checkpointId"`
+		ExpectedGraphRevision int64                            `json:"expectedGraphRevision"`
+		Operations            []executionbiz.MutationOperation `json:"operations"`
+	}{
+		CheckpointID: input.CheckpointID, ExpectedGraphRevision: input.ExpectedGraphRevision,
+		Operations: operations,
+	})
+	if err != nil {
+		return executionbiz.MutationResult{}, err
+	}
+	sum := sha256.Sum256(payload)
+	mutations, ok := service.Store.(MutationStore)
+	if !ok {
+		return executionbiz.MutationResult{}, ErrServiceUnavailable
+	}
+	return mutations.AdmitTuttiModeMutation(ctx, executionbiz.MutationAdmission{
+		WorkspaceID: input.WorkspaceID, IssueID: input.IssueID,
+		SourceSessionID: input.SourceSessionID, CheckpointID: input.CheckpointID,
+		ExpectedGraphRevision: input.ExpectedGraphRevision, RequestID: input.RequestID,
+		InputSHA256: hex.EncodeToString(sum[:]), Operations: operations, Now: service.now(),
+	})
 }
 
 func scheduleInputDigest(input ScheduleInput, taskIDs []string) (string, error) {

@@ -226,10 +226,14 @@ func TestScheduledRunDeliveryUsesSharedSeamAndRenewsDurableLease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateIssueWithTasks() error = %v", err)
 	}
-	run, err := domain.CreateRun(ctx, workspaceissues.CreateRunInput{
+	now := time.Now().UTC().UnixMilli()
+	run, err := issueStore.CreateRun(ctx, workspaceissues.Run{
 		RunID: "run-scheduled-delivery", WorkspaceID: workspaceID,
-		IssueID: issue.IssueID, TaskID: tasks[0].TaskID, ActorUserID: "local",
-		AgentTargetID: "local:codex", AgentSessionID: "delegate-scheduled-delivery",
+		IssueID: issue.IssueID, TaskID: tasks[0].TaskID,
+		RequesterUserID: "local", AgentTargetID: "local:codex",
+		AgentSessionID: "delegate-scheduled-delivery",
+		Status:         workspaceissues.StatusRunning, CreatedAtUnixMS: now,
+		StartedAtUnixMS: now, UpdatedAtUnixMS: now,
 	})
 	if err != nil {
 		t.Fatalf("CreateRun() error = %v", err)

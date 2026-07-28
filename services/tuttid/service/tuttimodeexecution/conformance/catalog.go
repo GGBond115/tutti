@@ -13,10 +13,32 @@ type Scenario struct {
 func Catalog() []Scenario {
 	scenarios := MaterializationCatalog()
 	scenarios = append(scenarios, ScheduleCatalog()...)
+	scenarios = append(scenarios, MutationCatalog()...)
 	scenarios = append(scenarios, SettlementCatalog()...)
 	scenarios = append(scenarios, WakeCatalog()...)
 	scenarios = append(scenarios, WatchdogCatalog()...)
 	return append(scenarios, ReviewCatalog()...)
+}
+
+func MutationCatalog() []Scenario {
+	return []Scenario{
+		{
+			Name: "MutationFencesReplayAndSchedulesReturnedRevision",
+			run:  runMutationFencesReplayAndSchedulesReturnedRevision,
+		},
+		{
+			Name: "MutationOperationsCommitAllOrNone",
+			run:  runMutationOperationsCommitAllOrNone,
+		},
+		{
+			Name: "LogicalSupersessionPreservesHistoryAndRequiresSettlement",
+			run:  runLogicalSupersessionPreservesHistoryAndRequiresSettlement,
+		},
+		{
+			Name: "MutationSupersedesStaleGoalReview",
+			run:  runMutationSupersedesStaleGoalReview,
+		},
+	}
 }
 
 func SettlementCatalog() []Scenario {
