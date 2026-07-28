@@ -478,6 +478,8 @@ export function areComposerSettingsVMsEqual(
     (left.planExclusiveWithPermissionMode ?? false) ===
       (right.planExclusiveWithPermissionMode ?? false) &&
     (left.selectedModelValue ?? null) === (right.selectedModelValue ?? null) &&
+    (left.effectiveModelValue ?? null) ===
+      (right.effectiveModelValue ?? null) &&
     (left.selectedReasoningEffortValue ?? null) ===
       (right.selectedReasoningEffortValue ?? null) &&
     (left.selectedSpeedValue ?? null) === (right.selectedSpeedValue ?? null) &&

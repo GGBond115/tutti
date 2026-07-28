@@ -1717,6 +1717,10 @@ export type AgentProviderComposerConfigOptionValue = {
 export type AgentProviderComposerConfig = {
   configurable: boolean;
   currentValue?: string;
+  /**
+   * Provider-resolved runtime value. This may differ from currentValue when the current selection inherits a provider default.
+   */
+  effectiveValue?: string;
   defaultValue?: string;
   options: Array<AgentProviderComposerConfigOptionValue>;
 };

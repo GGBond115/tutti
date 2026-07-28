@@ -19,8 +19,9 @@ func TestSubmitClaimIsDurableAndIdempotent(t *testing.T) {
 		t.Fatalf("first = %#v created=%v err=%v", first, created, err)
 	}
 	input.CanonicalTurnID = "turn-retry-must-be-ignored"
+	input.NowUnixMS = 99
 	duplicate, created, err := store.PrepareSubmitClaim(context.Background(), input)
-	if err != nil || created || duplicate.Status != "prepared" || duplicate.CanonicalTurnID != "turn-1" {
+	if err != nil || created || duplicate.Status != "prepared" || duplicate.CanonicalTurnID != "turn-1" || duplicate.CreatedAtUnixMS != 10 {
 		t.Fatalf("duplicate = %#v created=%v err=%v", duplicate, created, err)
 	}
 	accepted, updated, err := store.AcceptSubmitClaim(context.Background(), "ws-1", "session-1", "submit-1", "turn-1", 20)
@@ -29,7 +30,7 @@ func TestSubmitClaimIsDurableAndIdempotent(t *testing.T) {
 	}
 	afterRestart := New(store.db, store.opts)
 	duplicate, created, err = afterRestart.PrepareSubmitClaim(context.Background(), input)
-	if err != nil || created || duplicate.TurnID != "turn-1" || duplicate.CanonicalTurnID != "turn-1" {
+	if err != nil || created || duplicate.TurnID != "turn-1" || duplicate.CanonicalTurnID != "turn-1" || duplicate.CreatedAtUnixMS != 10 {
 		t.Fatalf("restart duplicate = %#v created=%v err=%v", duplicate, created, err)
 	}
 }

@@ -3826,10 +3826,13 @@ type AgentProviderComposerCommandOption struct {
 
 // AgentProviderComposerConfig defines model for AgentProviderComposerConfig.
 type AgentProviderComposerConfig struct {
-	Configurable bool                                     `json:"configurable"`
-	CurrentValue *string                                  `json:"currentValue,omitempty"`
-	DefaultValue *string                                  `json:"defaultValue,omitempty"`
-	Options      []AgentProviderComposerConfigOptionValue `json:"options"`
+	Configurable bool    `json:"configurable"`
+	CurrentValue *string `json:"currentValue,omitempty"`
+	DefaultValue *string `json:"defaultValue,omitempty"`
+
+	// EffectiveValue Provider-resolved runtime value. This may differ from currentValue when the current selection inherits a provider default.
+	EffectiveValue *string                                  `json:"effectiveValue,omitempty"`
+	Options        []AgentProviderComposerConfigOptionValue `json:"options"`
 }
 
 // AgentProviderComposerConfigOptionValue defines model for AgentProviderComposerConfigOptionValue.

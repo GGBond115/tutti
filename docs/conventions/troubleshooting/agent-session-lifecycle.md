@@ -370,9 +370,14 @@
   change the claim to a runtime-returned mismatched Turn ID. If the barrier
   reports `conflicts with durable submit provenance`, compare the JSON-encoded
   existing and projected message payloads as well as their Go container types.
+  In particular, compare `payload.seq` and `occurred_at_unix_ms` from the
+  ordinary runtime report and the durable provenance report for the same
+  `clientSubmitId`.
   Identical JSON with `[]any` on the SQLite-decoded side and
   `[]map[string]any` on the fresh-report side is an in-memory normalization
-  defect, not conflicting submit evidence.
+  defect, not conflicting submit evidence. Different sequence values for the
+  same canonical message mean the two report paths reconstructed its occurrence
+  independently.
 - **Root cause:** Provider handoff crossed an ambiguity boundary: the daemon
   reserved and snapshotted a canonical Turn before dispatch, but did not
   durably confirm the exact accepted Turn. The ordinary reporter may have
@@ -383,7 +388,12 @@
   falsely reject an ordinary message replay when a fresh JSON payload retains
   typed Go slices but the same payload decoded from SQLite uses `[]any`, and
   idempotency compares those concrete types directly. Retrying the provider
-  call would risk duplicate work.
+  call would risk duplicate work. Separately, the runtime adapter and durable
+  provenance barrier can construct the same user message on different
+  goroutines. If each path samples its own transient event timestamp, whichever
+  path reaches SQLite second carries a different derived `payload.seq`; the
+  strict provenance guard correctly rejects it. Scheduling determines whether
+  the ordinary report exists before the barrier, so this form is intermittent.
 - **Fix:** Preserve the prepared submit claim, Tutti snapshot, activation, and
   Session. Ensure the host supplies `DurableActivityReporter`; decorators
   should embed or otherwise preserve that required interface instead of
@@ -394,6 +404,12 @@
   representation before projection, merge, and idempotency comparison so
   fresh reports and SQLite-decoded rows share one in-memory shape. Do not
   special-case individual typed slices or bypass genuine payload conflicts.
+  For the two canonical user-message paths, preserve the durable submit claim's
+  immutable creation time through the typed Host and Runtime inputs and derive
+  both reports' occurrence and sequence from it. Use `clientSubmitId` only as
+  the idempotency identity, not as a numeric sequence. Build both messages with
+  the shared canonical user-message constructor; do not weaken the store's
+  exact-payload conflict check.
   Reconcile only from exact durable `clientSubmitId` provenance. If it resolves
   to the reserved Turn, idempotently accept the snapshot and claim; if it is
   absent or resolves elsewhere, keep delivery unknown and never re-dispatch
@@ -406,6 +422,10 @@
   Include an ordinary-message-first replay whose payload contains nested typed
   slices and integer values; assert the provenance barrier reuses the existing
   message version while a real content change still conflicts.
+  Exercise both runtime-message-first and provenance-first orderings and assert
+  their complete message updates, occurrence times, and derived payload
+  sequences are identical. Reopen the submit-claim store and prove an
+  idempotent retry retains the original claim creation time.
   Assert the unknown paths execute the provider zero additional times and never
   close the provisional Session or delete its activation.
 - **References:**

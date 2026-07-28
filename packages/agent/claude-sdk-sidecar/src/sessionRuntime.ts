@@ -195,6 +195,11 @@ export class SessionRuntime {
       onAssistantUuid: (value) => {
         this.lastAssistantUuid = value;
       },
+      onRuntimeModel: (value) => {
+        if (this.configuration.applyRuntimeModel(value)) {
+          this.emitSessionState();
+        }
+      },
       onSessionState: () => this.emitSessionState(),
       onMaybeTitle: (shouldEmit) =>
         this.maybeEmitSessionTitleUpdated(shouldEmit),
@@ -234,6 +239,13 @@ export class SessionRuntime {
         resumeCursor: this.currentResumeCursor()
       }
     });
+    const generation = this.queryGeneration;
+    if (generation && this.isQueryGenerationActive(generation)) {
+      // The SDK publishes its per-user resolved model in system/init before it
+      // needs the first prompt. Keep the iterator alive from session start so
+      // Default never has to be inferred from the advertised catalog label.
+      this.consume(generation);
+    }
     this.logAuthRefresh("session_start.succeeded", {
       restore: this.restore,
       initialized: this.initialized,

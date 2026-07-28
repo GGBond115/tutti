@@ -300,6 +300,8 @@ export interface AgentGUIComposerSettingsVM {
   speedUnavailable: boolean;
   permissionModeUnavailable?: boolean;
   selectedModelValue?: string | null;
+  /** Actual provider-resolved model while selectedModelValue remains inherited. */
+  effectiveModelValue?: string | null;
   selectedReasoningEffortValue?: AgentSessionReasoningEffort | null;
   selectedSpeedValue?: AgentSessionSpeed | null;
   selectedPermissionModeValue?: string | null;

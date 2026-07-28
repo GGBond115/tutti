@@ -28,6 +28,7 @@ export class SDKMessageRouter {
   private readonly getProviderSessionId: () => string;
   private readonly setProviderSessionId: (value: string) => void;
   private readonly onAssistantUuid: (value: string) => void;
+  private readonly onRuntimeModel: (value: string) => void;
   private readonly onSessionState: () => void;
   private readonly onMaybeTitle: (shouldEmit?: () => boolean) => Promise<void>;
   private readonly turns: TurnLifecycle;
@@ -43,6 +44,7 @@ export class SDKMessageRouter {
     getProviderSessionId: () => string;
     setProviderSessionId: (value: string) => void;
     onAssistantUuid: (value: string) => void;
+    onRuntimeModel: (value: string) => void;
     onSessionState: () => void;
     onMaybeTitle: (shouldEmit?: () => boolean) => Promise<void>;
     turns: TurnLifecycle;
@@ -55,6 +57,7 @@ export class SDKMessageRouter {
     this.getProviderSessionId = options.getProviderSessionId;
     this.setProviderSessionId = options.setProviderSessionId;
     this.onAssistantUuid = options.onAssistantUuid;
+    this.onRuntimeModel = options.onRuntimeModel;
     this.onSessionState = options.onSessionState;
     this.onMaybeTitle = options.onMaybeTitle;
     this.turns = options.turns;
@@ -67,6 +70,10 @@ export class SDKMessageRouter {
 
   async handle(message: SDKMessage): Promise<void> {
     const parentToolUseID = readSDKParentToolUseID(message);
+    const runtimeModel = readRuntimeModel(message, parentToolUseID);
+    if (runtimeModel) {
+      this.onRuntimeModel(runtimeModel);
+    }
     this.emitLifecycleObservation(message, parentToolUseID);
     const sessionId = readSDKSessionID(message);
     if (sessionId && sessionId !== this.getProviderSessionId()) {
@@ -439,6 +446,23 @@ export class SDKMessageRouter {
       });
     }
   }
+}
+
+function readRuntimeModel(
+  message: SDKMessage,
+  parentToolUseID: string
+): string {
+  if (parentToolUseID) {
+    return "";
+  }
+  const raw = message as unknown as Record<string, unknown>;
+  if (message.type === "system" && stringValue(raw.subtype) === "init") {
+    return stringValue(raw.model);
+  }
+  if (message.type !== "assistant") {
+    return "";
+  }
+  return stringValue(recordValue(raw.message)?.model);
 }
 
 function isTuttiHostContextUserMessage(message: SDKMessage): boolean {

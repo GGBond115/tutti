@@ -10588,6 +10588,11 @@ components:
           type: boolean
         currentValue:
           type: string
+        effectiveValue:
+          type: string
+          description: >-
+            Provider-resolved runtime value. This may differ from currentValue
+            when the current selection inherits a provider default.
         defaultValue:
           type: string
         options:

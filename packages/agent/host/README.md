@@ -103,7 +103,12 @@ snapshot contains every interaction on the latest turn and derives its pending
 subset from that same read; older-turn pending rows can never become current
 actionable state. `CreateSessionInput.ClientSubmitID` and
 `SendInput.ClientSubmitID` are the typed idempotency identities and override
-the legacy metadata value when both are present.
+the legacy metadata value when both are present. The matching durable submit
+claim's immutable `CreatedAtUnixMS` is the canonical occurrence of that user
+message. Host passes it to both runtime execution and durable submit-provenance
+reporting; adapters must derive the same message sequence from that occurrence
+regardless of which report reaches storage first. `ClientSubmitID` identifies
+the submission but is not itself an ordering value.
 Runtime adapters preserve explicit downstream failures as `ProviderError` so
 Host consumers can distinguish provider-owned rejection from preparation,
 canonical-store, timeout, and other local failures with `errors.As`. The

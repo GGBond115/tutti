@@ -2433,6 +2433,7 @@ func TestServiceCreateCleansPreparedRuntimeWhenInitialPromptFails(t *testing.T) 
 func TestServiceCreatePassesInitialDisplayPromptToRuntime(t *testing.T) {
 	runtime := newFakeRuntime()
 	service := newTestService(runtime)
+	service.SubmitClaimStore = openAgentServiceSQLiteStore(t)
 
 	_, err := service.Create(context.Background(), "ws-1", CreateSessionInput{
 		AgentSessionID:       "session-1",
@@ -2465,6 +2466,10 @@ func TestServiceCreatePassesInitialDisplayPromptToRuntime(t *testing.T) {
 	}
 	if call.Metadata["clientSubmitId"] != "submit-create-1" || call.Metadata["spacedDiagnosticKey"] != "trimmed" {
 		t.Fatalf("runtime metadata = %#v", call.Metadata)
+	}
+	if call.CanonicalSubmitOccurredAtUnixMS <= 0 || len(runtime.provenanceCalls) != 1 ||
+		runtime.provenanceCalls[0].CanonicalSubmitOccurredAtUnixMS != call.CanonicalSubmitOccurredAtUnixMS {
+		t.Fatalf("canonical submit occurrence exec=%d provenance=%#v", call.CanonicalSubmitOccurredAtUnixMS, runtime.provenanceCalls)
 	}
 	if _, ok := call.Metadata[""]; ok {
 		t.Fatalf("runtime metadata includes blank key: %#v", call.Metadata)
@@ -2581,6 +2586,7 @@ func TestServiceUpdateVisibleUpdatesRuntimeSession(t *testing.T) {
 func TestServiceSendInputPassesDisplayPromptToRuntime(t *testing.T) {
 	runtime := newFakeRuntime()
 	service := newIsolatedAgentService(runtime)
+	service.SubmitClaimStore = openAgentServiceSQLiteStore(t)
 	activeTurnID := "turn-1"
 	runtime.sessions["ws-1:session-1"] = ProviderRuntimeSession{
 		ID:          "session-1",
@@ -2625,6 +2631,10 @@ func TestServiceSendInputPassesDisplayPromptToRuntime(t *testing.T) {
 		call.Metadata["clientSubmittedAtUnixMs"] != int64(1234) ||
 		call.Metadata["ignoredBlankKeyIsRemoved"] != true {
 		t.Fatalf("runtime metadata = %#v", call.Metadata)
+	}
+	if call.CanonicalSubmitOccurredAtUnixMS <= 0 || len(runtime.provenanceCalls) != 1 ||
+		runtime.provenanceCalls[0].CanonicalSubmitOccurredAtUnixMS != call.CanonicalSubmitOccurredAtUnixMS {
+		t.Fatalf("canonical submit occurrence exec=%d provenance=%#v", call.CanonicalSubmitOccurredAtUnixMS, runtime.provenanceCalls)
 	}
 	if _, ok := call.Metadata[""]; ok {
 		t.Fatalf("runtime metadata includes blank key: %#v", call.Metadata)

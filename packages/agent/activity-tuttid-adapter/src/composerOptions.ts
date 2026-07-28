@@ -39,6 +39,7 @@ export function agentActivityComposerOptionsFromTuttidResult(
     ),
     speeds: speedsFromConfig,
     modelConfigurable: modelConfig.configurable === true,
+    effectiveModel: normalizeText(modelConfig.effectiveValue),
     reasoningConfigurable: reasoningConfig.configurable === true,
     speedConfigurable: speedConfig.configurable === true,
     effectiveSettings,

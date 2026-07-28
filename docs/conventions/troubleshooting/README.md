@@ -28,10 +28,11 @@ Use the focused runtime index or open one area directly:
   strict scheduling order, false final-state mismatches caused by replay-generated
   child identities, and canonical completion delayed behind a streaming activity-report
   backlog. It also covers stopped Tutti Mode conversations revived by legacy
-  startup wakes, completed Claude Code Turns that lack a Fork entry because
-  provider identity was not observed from the durable transcript, and Claude
-  Fork operations that fail because an empty SDK query never creates a durable
-  provider child.
+  startup wakes, provider-completed submissions reported as delivery unknown
+  after canonical message provenance conflicts, completed Claude Code Turns
+  that lack a Fork entry because provider identity was not observed from the
+  durable transcript, and Claude Fork operations that fail because an empty SDK
+  query never creates a durable provider child.
 - [Agent Approvals And Child Sessions](./agent-approvals-subagents.md): Approval gates, plan exits, root/parent/child event attribution, child sessions, and Message Center.
   Includes provider-native work that continues invisibly after root cancellation
   and late child creation racing the durable cancel boundary.

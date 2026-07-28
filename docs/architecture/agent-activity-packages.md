@@ -491,6 +491,12 @@ publish duplicate deletion events.
 
 Before a session exists, composer options carry the same typed capability
 descriptor. The active session descriptor takes precedence once available.
+Model composer options keep the selected value and provider-resolved value as
+separate facts. An inherited `default` remains the selected value used for
+future mutations; `effectiveModel` is presentation-only runtime evidence for
+describing what Default currently resolves to. Activity adapters and AgentGUI
+must not replace the selection with that resolved value or infer it from the
+catalog's Default entry.
 An omitted pre-session descriptor means the connected daemon predates the
 typed composer capability contract and must remain an unknown/loading state.
 Core capability booleans must not be reconstructed from private

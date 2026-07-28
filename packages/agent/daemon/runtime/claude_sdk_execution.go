@@ -39,9 +39,9 @@ func (a *ClaudeCodeSDKAdapter) Exec(
 		}
 	}
 	startEvents := []activityshared.Event{
-		newTurnActivityEvent(session, EventMessage, turnID, "", RoleUser, visibleText, userPromptActivityPayload(content, explicitDisplayPrompt, userPromptActivityPayloadExtraFromExecMetadata(ctx, map[string]any{
+		newUserPromptActivityEvent(ctx, session, content, explicitDisplayPrompt, visibleText, turnID, map[string]any{
 			"adapter": claudeSDKSidecarAdapterName,
-		}))),
+		}),
 		newTurnActivityEvent(session, EventTurnStarted, turnID, SessionStatusWorking, "", "", map[string]any{
 			"adapter": claudeSDKSidecarAdapterName,
 		}),
@@ -147,11 +147,11 @@ func (a *ClaudeCodeSDKAdapter) GuideActiveTurn(
 	session.ProviderSessionID = adapterSession.providerSessionID
 	explicitDisplayPrompt, visibleText := explicitAndVisiblePromptText(content, displayPrompt)
 	events := []activityshared.Event{
-		newTurnActivityEvent(session, EventMessage, turnID, "", RoleUser, visibleText, userPromptActivityPayload(content, explicitDisplayPrompt, userPromptActivityPayloadExtraFromExecMetadata(ctx, map[string]any{
+		newUserPromptActivityEvent(ctx, session, content, explicitDisplayPrompt, visibleText, turnID, map[string]any{
 			"adapter":  claudeSDKSidecarAdapterName,
 			"guidance": true,
 			"steered":  true,
-		}))),
+		}),
 	}
 	if err := a.startClaudeSDKReader(session.AgentSessionID, adapterSession); err != nil {
 		return events, err

@@ -268,18 +268,19 @@ type RuntimeResumeInput struct {
 }
 
 type RuntimeExecInput struct {
-	WorkspaceID       string
-	AgentSessionID    string
-	TurnID            string
-	ClientSubmitID    string
-	CapabilityRefs    []CapabilityReference
-	Content           []PromptContentBlock
-	DisplayPrompt     string
-	InitialTitle      string
-	InitialTitleBase  string
-	Metadata          map[string]any
-	Guidance          bool
-	TuttiModeSnapshot *TuttiModeTurnSnapshot
+	WorkspaceID                     string
+	AgentSessionID                  string
+	TurnID                          string
+	ClientSubmitID                  string
+	CanonicalSubmitOccurredAtUnixMS int64
+	CapabilityRefs                  []CapabilityReference
+	Content                         []PromptContentBlock
+	DisplayPrompt                   string
+	InitialTitle                    string
+	InitialTitleBase                string
+	Metadata                        map[string]any
+	Guidance                        bool
+	TuttiModeSnapshot               *TuttiModeTurnSnapshot
 }
 
 type CapabilityReference struct {
@@ -318,13 +319,14 @@ type RuntimeExecResult struct {
 }
 
 type RuntimeSubmitProvenanceInput struct {
-	WorkspaceID    string
-	AgentSessionID string
-	TurnID         string
-	ClientSubmitID string
-	Content        []PromptContentBlock
-	DisplayPrompt  string
-	Guidance       bool
+	WorkspaceID                     string
+	AgentSessionID                  string
+	TurnID                          string
+	ClientSubmitID                  string
+	CanonicalSubmitOccurredAtUnixMS int64
+	Content                         []PromptContentBlock
+	DisplayPrompt                   string
+	Guidance                        bool
 }
 
 type CompletedCommand struct {
