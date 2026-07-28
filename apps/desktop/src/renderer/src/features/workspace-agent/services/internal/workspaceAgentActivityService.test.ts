@@ -2996,6 +2996,7 @@ test("WorkspaceAgentActivityService does not tombstone a missing reconcile witho
 test("WorkspaceAgentActivityService preserves a pending new session when the Tutti event races create visibility", async (t) => {
   const diagnostics: unknown[] = [];
   const listenersByTopic = new Map<string, (event: unknown) => void>();
+  let getSessionCalls = 0;
   let resolveCreate!: (value: Record<string, unknown>) => void;
   let resolveActivation!: () => void;
   const createResult = new Promise<Record<string, unknown>>((resolve) => {
@@ -3018,6 +3019,7 @@ test("WorkspaceAgentActivityService preserves a pending new session when the Tut
     tuttidClient: {
       createWorkspaceAgentSession: async () => createResult,
       getWorkspaceAgentSession: async () => {
+        getSessionCalls += 1;
         throw new TuttidProtocolError({
           code: "workspace_not_found",
           developerMessage: "workspace agent session not found",
@@ -3080,15 +3082,17 @@ test("WorkspaceAgentActivityService preserves a pending new session when the Tut
     engine.getSnapshot().sessionLifecycle.deletedSessionIds["session-1"],
     undefined
   );
-  assert.deepEqual(diagnostics.at(-1), {
-    details: {
-      agentSessionId: "session-1",
-      error: "workspace agent session not found"
-    },
-    event: "agent.activity.reconcile_session_absent",
-    level: "info",
-    workspaceId: "ws-1"
-  });
+  assert.equal(getSessionCalls, 0);
+  assert.equal(
+    diagnostics.some(
+      (entry) =>
+        entry &&
+        typeof entry === "object" &&
+        "event" in entry &&
+        entry.event === "agent.activity.reconcile_session_absent"
+    ),
+    false
+  );
 
   resolveCreate({
     ...workspaceAgentSession({ status: "working" }),
@@ -3109,6 +3113,71 @@ test("WorkspaceAgentActivityService preserves a pending new session when the Tut
       ?.status,
     "active"
   );
+});
+
+test("WorkspaceAgentActivityService still reconciles a Tutti update for an existing session", async (t) => {
+  const diagnostics: unknown[] = [];
+  const listenersByTopic = new Map<string, (event: unknown) => void>();
+  let getSessionCalls = 0;
+  const service = new WorkspaceAgentActivityService({
+    eventStreamClient: {
+      connect: async () => {},
+      dispose: () => {},
+      publishIntent: async () => {},
+      subscribe: (topic: string, listener: (event: unknown) => void) => {
+        listenersByTopic.set(topic, listener);
+        return () => {};
+      },
+      subscribeConnectionState: () => () => {}
+    } as never,
+    tuttidClient: {
+      getWorkspaceAgentSession: async () => {
+        getSessionCalls += 1;
+        throw new TuttidProtocolError({
+          code: "workspace_not_found",
+          developerMessage: "workspace agent session not found",
+          reason: "workspace_agent_session_not_found",
+          statusCode: 404
+        });
+      },
+      listWorkspaceAgentSessions: async () => ({
+        hasMore: false,
+        sessions: [workspaceAgentSession({ status: "ready" })],
+        workspaceId: "ws-1"
+      })
+    } as unknown as TuttidClient,
+    runtimeApi: {
+      logTerminalDiagnostic: async (payload) => {
+        diagnostics.push(payload);
+      }
+    }
+  });
+  t.after(() => service.dispose());
+  const engine = service.getSessionEngine("ws-1");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(selectEngineSession(engine.getSnapshot(), "session-1"));
+
+  const tuttiModeUpdated = listenersByTopic.get("workspace.tuttimode.updated");
+  assert.ok(tuttiModeUpdated);
+  tuttiModeUpdated({
+    payload: {
+      agentSessionId: "session-1",
+      workspaceId: "ws-1"
+    }
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(getSessionCalls, 1);
+  assert.deepEqual(diagnostics.at(-1), {
+    details: {
+      agentSessionId: "session-1",
+      error: "workspace agent session not found"
+    },
+    event: "agent.activity.reconcile_session_absent",
+    level: "info",
+    workspaceId: "ws-1"
+  });
 });
 
 test("WorkspaceAgentActivityService tombstones an explicit session deletion event", async () => {
