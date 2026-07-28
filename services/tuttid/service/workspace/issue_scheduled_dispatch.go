@@ -390,7 +390,23 @@ func (s IssueManagerService) launchScheduledTuttiModeRuns(
 			},
 			onFailure: func(err error) {
 				if !isIssueRunLaunchNotStartedError(err) {
-					release()
+					stopRenewal()
+					cleanupCtx, cancel := durableIssueRunCleanupContext(ctx)
+					defer cancel()
+					if releaseErr := s.TuttiModeExecutions.ReleaseRunLaunch(
+						cleanupCtx,
+						launch.WorkspaceID,
+						launch.IssueID,
+						launch.RunID,
+						leaseOwner,
+					); releaseErr != nil {
+						terminal, terminalErr := s.issueRunIsTerminal(cleanupCtx, launch)
+						if terminalErr == nil && terminal {
+							s.runLaunchGate().requestCancel(launch.WorkspaceID, launch.RunID)
+						} else {
+							s.enqueueWorkspaceRunReconcile(launch.WorkspaceID)
+						}
+					}
 					return
 				}
 				stopRenewal()
@@ -410,13 +426,22 @@ func (s IssueManagerService) launchScheduledTuttiModeRuns(
 			},
 			onDelivered: func() {
 				stopRenewal()
-				_ = s.TuttiModeExecutions.MarkRunLaunchDispatched(
-					ctx,
+				cleanupCtx, cancel := durableIssueRunCleanupContext(ctx)
+				defer cancel()
+				if err := s.TuttiModeExecutions.MarkRunLaunchDispatched(
+					cleanupCtx,
 					launch.WorkspaceID,
 					launch.IssueID,
 					launch.RunID,
 					leaseOwner,
-				)
+				); err != nil {
+					terminal, terminalErr := s.issueRunIsTerminal(cleanupCtx, launch)
+					if terminalErr == nil && terminal {
+						s.runLaunchGate().requestCancel(launch.WorkspaceID, launch.RunID)
+					} else {
+						s.enqueueWorkspaceRunReconcile(launch.WorkspaceID)
+					}
+				}
 			},
 		})
 		stopRenewal()

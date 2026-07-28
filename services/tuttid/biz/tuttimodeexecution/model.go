@@ -129,6 +129,15 @@ type PreparedRunLaunch struct {
 	ClientSubmitID string
 }
 
+type RunCancelCompensation struct {
+	WorkspaceID    string
+	IssueID        string
+	TaskID         string
+	RunID          string
+	AgentSessionID string
+	ClientSubmitID string
+}
+
 type RunSettlement struct {
 	WorkspaceID string
 	IssueID     string

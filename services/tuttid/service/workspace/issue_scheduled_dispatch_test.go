@@ -119,6 +119,42 @@ func (*scheduledLaunchIntentStore) RequeueLeasedTuttiModeRunLaunchIntents(
 	return nil
 }
 
+func (*scheduledLaunchIntentStore) EnsureTuttiModeRunCancelCompensation(
+	context.Context, string, string, string, string, time.Time,
+) (bool, error) {
+	return false, nil
+}
+
+func (*scheduledLaunchIntentStore) ListPreparedTuttiModeRunCancelCompensations(
+	context.Context, string,
+) ([]executionbiz.RunCancelCompensation, error) {
+	return nil, nil
+}
+
+func (*scheduledLaunchIntentStore) ClaimTuttiModeRunCancelCompensation(
+	context.Context, string, string, string, string, time.Time, time.Time,
+) (bool, error) {
+	return false, nil
+}
+
+func (*scheduledLaunchIntentStore) ReleaseTuttiModeRunCancelCompensation(
+	context.Context, string, string, string, string, string, time.Time,
+) error {
+	return nil
+}
+
+func (*scheduledLaunchIntentStore) CompleteTuttiModeRunCancelCompensation(
+	context.Context, string, string, string, string, time.Time,
+) error {
+	return nil
+}
+
+func (*scheduledLaunchIntentStore) RequeueLeasedTuttiModeRunCancelCompensations(
+	context.Context, string, time.Time,
+) error {
+	return nil
+}
+
 func (*scheduledLaunchIntentStore) FailTuttiModeRunLaunch(
 	context.Context, executionbiz.RunLaunchFailure,
 ) (executionbiz.Checkpoint, bool, error) {

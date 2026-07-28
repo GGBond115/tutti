@@ -296,22 +296,29 @@ func (s IssueManagerService) deliverIssueRunLaunch(
 	if err == nil {
 		err = s.RunLauncher.Launch(ctx, launch)
 	}
-	cancelRequested := gate.finish(launch.WorkspaceID, launch.RunID)
 	if err != nil {
 		if outcomes.onFailure != nil {
 			outcomes.onFailure(err)
+		}
+		cancelRequested := gate.finish(launch.WorkspaceID, launch.RunID)
+		if cancelRequested {
+			s.cancelIssueRunAfterLaunch(ctx, launch)
 		}
 		return
 	}
 	if outcomes.onDelivered != nil {
 		outcomes.onDelivered()
 	}
+	cancelRequested := gate.finish(launch.WorkspaceID, launch.RunID)
 	if cancelRequested {
 		s.cancelIssueRunAfterLaunch(ctx, launch)
 	}
 }
 
 func (s IssueManagerService) cancelIssueRunAfterLaunch(ctx context.Context, launch IssueRunLaunch) {
+	if s.prepareAndRecoverTuttiModeRunCancelCompensation(ctx, launch) {
+		return
+	}
 	if s.RunCancellationRequester == nil {
 		s.enqueueWorkspaceRunReconcile(launch.WorkspaceID)
 		return
@@ -375,6 +382,21 @@ func (s IssueManagerService) issueRunLaunchDecision(ctx context.Context, launch 
 		return issueRunCancelClaim
 	}
 	return issueRunLaunch
+}
+
+func (s IssueManagerService) issueRunIsTerminal(
+	ctx context.Context,
+	launch IssueRunLaunch,
+) (bool, error) {
+	unlockIssue := s.MutationLocks.Lock(launch.WorkspaceID, launch.IssueID)
+	defer unlockIssue()
+	run, err := s.domainService().GetRunDetail(
+		ctx, launch.WorkspaceID, launch.IssueID, launch.TaskID, launch.RunID,
+	)
+	if err != nil {
+		return false, err
+	}
+	return run.Run.Status != workspaceissues.StatusRunning, nil
 }
 
 func issueTaskPrompt(issue workspaceissues.Issue, task workspaceissues.Task, executionDirectory string, worktreeBase string, worktreeBranch string, dependencyOutputs []issueTaskDependencyOutput) string {

@@ -134,8 +134,12 @@ type Driver interface {
 	Schedule(context.Context, ScheduleInput) (ScheduleResult, error)
 	ScheduleReplica(context.Context, ScheduleInput) (ScheduleResult, error)
 	SettleRun(context.Context, SettleRunInput) error
+	SettleRunReplica(context.Context, SettleRunInput) error
 	TimeoutRun(context.Context, SettleRunInput) error
+	ClaimRunLaunchReplica(context.Context, string, string, string) (bool, error)
 	FailNextLaunchAuthoritatively()
+	FailNextCancellation()
+	ReturnUnknownNextCancellation()
 	HoldNextLaunchThenFailAuthoritatively() (<-chan struct{}, func())
 	PersistTerminalRunWithoutCheckpoint(context.Context, SettleRunInput) error
 	RepairSettlements(context.Context, string) error
@@ -148,6 +152,7 @@ type Driver interface {
 	StopLeaseRenewal()
 	AdvanceClockWithoutRenewal(time.Duration)
 	StartupRecoverReplica(context.Context, string) error
+	StartupReconcileReplica(context.Context, string) error
 	PeriodicRecoverReplica(context.Context, string) error
 	RecoverLaunches(context.Context, string) error
 	EnableAutomaticRecovery(context.Context)
@@ -155,4 +160,7 @@ type Driver interface {
 	LauncherClientSubmitIDs() []string
 	LauncherCanonicalTurnCount() int
 	LauncherCallCount() int
+	CancellationCallCount() int
+	CancellationClientSubmitIDs() []string
+	PreparedCancelCompensationCount(context.Context, string) (int, error)
 }

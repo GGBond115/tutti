@@ -201,6 +201,21 @@ startup and periodic reconciliation deterministically repair a missing
 checkpoint from terminal Run facts. A post-commit notification may reduce
 latency but is not the durability boundary.
 
+The same settlement transaction fences launch recovery: it seals any prepared
+or leased launch intent before returning, and repair repeats that seal for
+legacy rows even when the checkpoint already exists. Prepared listing,
+claiming, and the strict current-owner dispatched CAS all require a running
+Run. If an Agent create finishes after another replica made the Run terminal,
+the stale delivery is canceled by its exact `issue-run:<runID>` submit
+identity; lease reclaim while the Run remains running is reconciled without
+canceling the valid Turn. The terminal transaction atomically prepares a
+separately leased cancel-compensation operation whenever the launch intent was
+leased or dispatched. A failed or interrupted exact cancel therefore remains
+durable and startup/periodic recovery retries the same submit identity until
+the request is accepted. Retryable cancel outcomes do not fail daemon startup
+or prevent other launch and running-Run recovery in that workspace; integrity
+or persistence corruption remains fail-closed.
+
 ## Durable Wakes and Five-Minute Watchdog
 
 Wakes are durable leased operations. Each records:

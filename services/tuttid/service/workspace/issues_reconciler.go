@@ -173,6 +173,7 @@ func (c *IssueExecutionCoordinator) ReconcileRunningRuns(ctx context.Context, wo
 		if !ok {
 			continue
 		}
+		c.requestTimedOutRunCancellation(ctx, run)
 		if _, err := c.Issues.CompleteRun(ctx, run.WorkspaceID, run.IssueID, run.TaskID, run.RunID, CompleteIssueManagerRunInput{
 			Status:       string(status),
 			ErrorMessage: errorMessage,
@@ -183,6 +184,48 @@ func (c *IssueExecutionCoordinator) ReconcileRunningRuns(ctx context.Context, wo
 		result.CompletedCount++
 	}
 	return result, nil
+}
+
+func (c *IssueExecutionCoordinator) requestTimedOutRunCancellation(
+	ctx context.Context,
+	run workspaceissues.Run,
+) {
+	gate := c.Issues.runLaunchGate()
+	if gate.requestCancel(run.WorkspaceID, run.RunID) {
+		return
+	}
+	gate.clear(run.WorkspaceID, run.RunID)
+	if c.Issues.prepareAndRecoverTuttiModeRunCancelCompensation(
+		ctx,
+		IssueRunLaunch{
+			WorkspaceID: run.WorkspaceID, IssueID: run.IssueID,
+			TaskID: run.TaskID, RunID: run.RunID,
+			AgentSessionID: run.AgentSessionID,
+		},
+	) {
+		return
+	}
+	canceller := c.RunSessionCanceller
+	if canceller == nil {
+		canceller = c.Issues.RunCancellationRequester
+	}
+	if canceller == nil || strings.TrimSpace(run.AgentSessionID) == "" {
+		c.Issues.enqueueWorkspaceRunReconcile(run.WorkspaceID)
+		return
+	}
+	clientSubmitID, err := c.Issues.issueRunClientSubmitID(ctx, run)
+	if err != nil {
+		c.Issues.enqueueWorkspaceRunReconcile(run.WorkspaceID)
+		return
+	}
+	if _, err := canceller.RequestRunCancellation(ctx, IssueRunCancellationRequest{
+		WorkspaceID:    run.WorkspaceID,
+		AgentSessionID: run.AgentSessionID,
+		RunID:          run.RunID,
+		ClientSubmitID: clientSubmitID,
+	}); err != nil {
+		c.Issues.enqueueWorkspaceRunReconcile(run.WorkspaceID)
+	}
 }
 
 // ReconcileTuttiModeRunLaunchesAndRunningRuns closes both durable crash
@@ -200,6 +243,9 @@ func (c *IssueExecutionCoordinator) ReconcileTuttiModeRunLaunchesAndRunningRuns(
 		if _, err := c.Issues.TuttiModeExecutions.RepairRunSettlements(ctx, workspaceID); err != nil {
 			return IssueRunReconcileResult{}, err
 		}
+	}
+	if err := c.Issues.RecoverTuttiModeRunCancelCompensations(ctx, workspaceID); err != nil {
+		return IssueRunReconcileResult{}, err
 	}
 	if err := c.Issues.RecoverTuttiModeRunLaunches(ctx, workspaceID); err != nil {
 		return IssueRunReconcileResult{}, err

@@ -200,6 +200,12 @@ type TuttiModeExecutionsStore interface {
 	ReleaseTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time) error
 	MarkTuttiModeRunLaunchIntentDispatched(context.Context, string, string, string, string, time.Time) error
 	RequeueLeasedTuttiModeRunLaunchIntents(context.Context, string, time.Time) error
+	EnsureTuttiModeRunCancelCompensation(context.Context, string, string, string, string, time.Time) (bool, error)
+	ListPreparedTuttiModeRunCancelCompensations(context.Context, string) ([]executionbiz.RunCancelCompensation, error)
+	ClaimTuttiModeRunCancelCompensation(context.Context, string, string, string, string, time.Time, time.Time) (bool, error)
+	ReleaseTuttiModeRunCancelCompensation(context.Context, string, string, string, string, string, time.Time) error
+	CompleteTuttiModeRunCancelCompensation(context.Context, string, string, string, string, time.Time) error
+	RequeueLeasedTuttiModeRunCancelCompensations(context.Context, string, time.Time) error
 	FailTuttiModeRunLaunch(context.Context, executionbiz.RunLaunchFailure) (executionbiz.Checkpoint, bool, error)
 	EnsureTuttiModeRunSettlement(context.Context, executionbiz.RunSettlement) (executionbiz.Checkpoint, bool, error)
 	RepairTuttiModeRunSettlements(context.Context, string, time.Time) (int, error)

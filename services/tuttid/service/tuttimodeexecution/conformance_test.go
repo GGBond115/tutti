@@ -28,6 +28,7 @@ type sqliteConformanceDriver struct {
 	clock      *controlledClock
 	launcher   *recordingLauncher
 	renewals   *manualLeaseRenewalScheduler
+	canceller  *recordingRunCanceller
 	cancelAuto context.CancelFunc
 }
 
@@ -180,6 +181,7 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 	clock := &controlledClock{now: now}
 	launcher := &recordingLauncher{}
 	renewals := &manualLeaseRenewalScheduler{}
+	canceller := &recordingRunCanceller{}
 	executions := &tuttimodeexecutionservice.Service{
 		Store: store,
 		Clock: clock.Now,
@@ -191,12 +193,14 @@ func newSQLiteConformanceDriver(t *testing.T) *sqliteConformanceDriver {
 			MutationLocks:                   workspaceservice.NewIssueMutationLocks(),
 			TuttiModeRunLaunchLeaseDuration: time.Minute,
 			RunLaunchLeaseRenewalScheduler:  renewals,
+			RunCancellationRequester:        canceller,
 		},
 		executions: executions,
 		revisions:  workspacedata.WorkflowRevisionFiles{StateDir: t.TempDir()},
 		clock:      clock,
 		launcher:   launcher,
 		renewals:   renewals,
+		canceller:  canceller,
 	}
 	driver.plans = &tuttimodeplanservice.Service{
 		Store:             store,
@@ -446,16 +450,47 @@ func (driver *sqliteConformanceDriver) SettleRun(
 	return err
 }
 
+func (driver *sqliteConformanceDriver) SettleRunReplica(
+	ctx context.Context,
+	input tuttimodeexecutionconformance.SettleRunInput,
+) error {
+	replica := driver.issues
+	replica.MutationLocks = workspaceservice.NewIssueMutationLocks()
+	replica.RunLaunchGate = workspaceservice.NewIssueRunLaunchGate()
+	_, err := replica.CompleteRun(
+		ctx,
+		input.WorkspaceID,
+		input.IssueID,
+		input.TaskID,
+		input.RunID,
+		workspaceservice.CompleteIssueManagerRunInput{Status: input.Status},
+	)
+	return err
+}
+
 func (driver *sqliteConformanceDriver) TimeoutRun(
 	ctx context.Context,
 	input tuttimodeexecutionconformance.SettleRunInput,
 ) error {
 	driver.clock.Advance(46 * time.Minute)
 	coordinator := &workspaceservice.IssueExecutionCoordinator{
-		Issues: &driver.issues, Clock: driver.clock.Now,
+		Issues:              &driver.issues,
+		RunSessionCanceller: driver.canceller,
+		Clock:               driver.clock.Now,
 	}
 	_, err := coordinator.ReconcileRunningRuns(ctx, input.WorkspaceID)
 	return err
+}
+
+func (driver *sqliteConformanceDriver) ClaimRunLaunchReplica(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	runID string,
+) (bool, error) {
+	return driver.executions.ClaimRunLaunch(
+		ctx, workspaceID, issueID, runID, "replica-claim", time.Minute,
+	)
 }
 
 func (driver *sqliteConformanceDriver) FailNextLaunchAuthoritatively() {
@@ -708,6 +743,21 @@ func (driver *sqliteConformanceDriver) StartupRecoverReplica(ctx context.Context
 	replica.MutationLocks = workspaceservice.NewIssueMutationLocks()
 	replica.RunLaunchGate = workspaceservice.NewIssueRunLaunchGate()
 	return replica.RecoverTuttiModeRunLaunches(ctx, workspaceID)
+}
+
+func (driver *sqliteConformanceDriver) StartupReconcileReplica(ctx context.Context, workspaceID string) error {
+	replica := driver.issues
+	replica.MutationLocks = workspaceservice.NewIssueMutationLocks()
+	replica.RunLaunchGate = workspaceservice.NewIssueRunLaunchGate()
+	coordinator := workspaceservice.IssueExecutionCoordinator{
+		Issues:              &replica,
+		RunSessionCanceller: driver.canceller,
+		Clock:               driver.clock.Now,
+	}
+	_, err := coordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns(
+		ctx, workspaceID,
+	)
+	return err
 }
 
 func (driver *sqliteConformanceDriver) PeriodicRecoverReplica(ctx context.Context, workspaceID string) error {

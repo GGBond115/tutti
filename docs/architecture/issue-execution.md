@@ -50,6 +50,27 @@ observes any concurrent cancel intent and performs exact-Turn compensation. If
 pause wins before launch begins, the unlaunched claim is canceled without
 creating an Agent Session.
 
+Tutti-owned launch intents add a cross-process fence to that local gate. Run
+terminalization seals any `prepared` or `leased` intent in the same database
+transaction as its settlement checkpoint; prepared scans and lease claims also
+require the Run to remain `running`. `MarkDispatched` is a strict current-owner
+CAS and is the successful delivery linearization point. If an external create
+returns after another replica terminalized the Run, either success or an
+ambiguous error performs exact-Turn cancellation. A stale owner whose lease was
+reclaimed while the Run is still running does not cancel the valid same-ID
+Turn; it schedules reconciliation instead. Startup repair repeats the intent
+seal even when the settlement checkpoint already exists. When a leased or
+dispatched launch may have created a Turn, the settlement transaction also
+prepares a durable cancel-compensation operation. Those operations have their
+own owner/lease/attempt state, use the same deterministic submit identity, and
+are retried on startup and the regular reconciliation cadence until exact
+cancellation is accepted. Compensation uses a bounded context detached from
+the original delivery cancellation signal. A retryable cancellation outcome
+keeps the operation prepared and queues another pass without aborting startup
+or starving launch/running-Run recovery in the same workspace. A successful
+stale owner also revalidates the Run before compensating: lease reclaim while
+the Run remains running is recovery work, not a cancellation signal.
+
 ## Identity and settlement
 
 Every dispatched Run stamps `clientSubmitID=issue-run:<runID>`. A settled Agent

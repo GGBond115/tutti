@@ -190,6 +190,11 @@ WHERE workspace_id = ? AND issue_id = ? AND task_id = ? AND run_id = ?
 	if !ok {
 		return executionbiz.Checkpoint{}, false, executionbiz.ErrInvalidExecution
 	}
+	if err := sealTerminalTuttiModeRunLaunchIntent(
+		ctx, tx, settlement, workspaceissues.Status(runStatus),
+	); err != nil {
+		return executionbiz.Checkpoint{}, false, err
+	}
 	checkpointID, _ := executionbiz.RunSettlementCheckpointID(executionID, settlement.RunID)
 	existing, found, err := getTuttiModeCheckpointTx(
 		ctx, tx, settlement.WorkspaceID, executionID, checkpointID,
@@ -238,6 +243,46 @@ WHERE workspace_id = ? AND execution_id = ?
 		return executionbiz.Checkpoint{}, false, err
 	}
 	return checkpoint, true, nil
+}
+
+func sealTerminalTuttiModeRunLaunchIntent(
+	ctx context.Context,
+	tx *sql.Tx,
+	settlement executionbiz.RunSettlement,
+	status workspaceissues.Status,
+) error {
+	if _, err := tx.ExecContext(ctx, `
+INSERT OR IGNORE INTO workspace_issue_run_cancel_compensations (
+  workspace_id, issue_id, task_id, run_id, agent_session_id, client_submit_id,
+  status, created_at_unix_ms, updated_at_unix_ms
+)
+SELECT r.workspace_id, r.issue_id, r.task_id, r.run_id, r.agent_session_id,
+       i.client_submit_id, 'prepared', ?, ?
+FROM workspace_issue_runs r
+JOIN workspace_issue_run_launch_intents i
+  ON i.workspace_id = r.workspace_id AND i.issue_id = r.issue_id
+ AND i.task_id = r.task_id AND i.run_id = r.run_id
+WHERE r.workspace_id = ? AND r.issue_id = ? AND r.task_id = ? AND r.run_id = ?
+  AND i.status IN ('leased', 'dispatched')
+`, unixMs(settlement.Now), unixMs(settlement.Now), settlement.WorkspaceID,
+		settlement.IssueID, settlement.TaskID, settlement.RunID); err != nil {
+		return fmt.Errorf("prepare terminal Tutti mode Run cancel compensation: %w", err)
+	}
+	intentStatus := "canceled"
+	if status == workspaceissues.StatusFailed {
+		intentStatus = "failed"
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE workspace_issue_run_launch_intents
+SET status = ?, lease_owner = '', lease_expires_at_unix_ms = 0,
+    updated_at_unix_ms = ?
+WHERE workspace_id = ? AND issue_id = ? AND run_id = ?
+  AND status IN ('prepared', 'leased')
+`, intentStatus, unixMs(settlement.Now), settlement.WorkspaceID,
+		settlement.IssueID, settlement.RunID); err != nil {
+		return fmt.Errorf("seal terminal Tutti mode Run launch intent: %w", err)
+	}
+	return nil
 }
 
 func settlementCheckpointKind(status workspaceissues.Status) (executionbiz.CheckpointKind, bool) {
@@ -346,8 +391,17 @@ JOIN workspace_tutti_executions e
 LEFT JOIN workspace_tutti_execution_checkpoints c
   ON c.workspace_id = e.workspace_id AND c.execution_id = e.execution_id
  AND c.subject_run_id = r.run_id
+LEFT JOIN workspace_issue_run_launch_intents i
+  ON i.workspace_id = r.workspace_id AND i.issue_id = r.issue_id
+ AND i.run_id = r.run_id
+LEFT JOIN workspace_issue_run_cancel_compensations cc
+  ON cc.workspace_id = r.workspace_id AND cc.issue_id = r.issue_id
+ AND cc.run_id = r.run_id
 WHERE r.workspace_id = ? AND r.status IN ('completed', 'failed', 'canceled')
-  AND c.checkpoint_id IS NULL
+  AND (
+    c.checkpoint_id IS NULL OR i.status IN ('prepared', 'leased')
+    OR (i.status = 'dispatched' AND cc.run_id IS NULL)
+  )
 ORDER BY r.completed_at_unix_ms ASC, r.created_at_unix_ms ASC, r.run_id ASC
 `, workspaceID)
 	if err != nil {

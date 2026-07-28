@@ -37,6 +37,12 @@ type Store interface {
 	ReleaseTuttiModeRunLaunchIntent(context.Context, string, string, string, string, time.Time) error
 	MarkTuttiModeRunLaunchIntentDispatched(context.Context, string, string, string, string, time.Time) error
 	RequeueLeasedTuttiModeRunLaunchIntents(context.Context, string, time.Time) error
+	EnsureTuttiModeRunCancelCompensation(context.Context, string, string, string, string, time.Time) (bool, error)
+	ListPreparedTuttiModeRunCancelCompensations(context.Context, string) ([]executionbiz.RunCancelCompensation, error)
+	ClaimTuttiModeRunCancelCompensation(context.Context, string, string, string, string, time.Time, time.Time) (bool, error)
+	ReleaseTuttiModeRunCancelCompensation(context.Context, string, string, string, string, string, time.Time) error
+	CompleteTuttiModeRunCancelCompensation(context.Context, string, string, string, string, time.Time) error
+	RequeueLeasedTuttiModeRunCancelCompensations(context.Context, string, time.Time) error
 	FailTuttiModeRunLaunch(context.Context, executionbiz.RunLaunchFailure) (executionbiz.Checkpoint, bool, error)
 	EnsureTuttiModeRunSettlement(context.Context, executionbiz.RunSettlement) (executionbiz.Checkpoint, bool, error)
 	RepairTuttiModeRunSettlements(context.Context, string, time.Time) (int, error)
@@ -311,6 +317,95 @@ func (service Service) RequeueLeasedRunLaunches(
 		return ErrServiceUnavailable
 	}
 	return service.Store.RequeueLeasedTuttiModeRunLaunchIntents(
+		ctx, strings.TrimSpace(workspaceID), service.now(),
+	)
+}
+
+func (service Service) EnsureRunCancelCompensation(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	taskID string,
+	runID string,
+) (bool, error) {
+	if service.Store == nil {
+		return false, ErrServiceUnavailable
+	}
+	return service.Store.EnsureTuttiModeRunCancelCompensation(
+		ctx,
+		strings.TrimSpace(workspaceID),
+		strings.TrimSpace(issueID),
+		strings.TrimSpace(taskID),
+		strings.TrimSpace(runID),
+		service.now(),
+	)
+}
+
+func (service Service) ListPreparedRunCancelCompensations(
+	ctx context.Context,
+	workspaceID string,
+) ([]executionbiz.RunCancelCompensation, error) {
+	if service.Store == nil {
+		return nil, ErrServiceUnavailable
+	}
+	return service.Store.ListPreparedTuttiModeRunCancelCompensations(
+		ctx, strings.TrimSpace(workspaceID),
+	)
+}
+
+func (service Service) ClaimRunCancelCompensation(
+	ctx context.Context,
+	item executionbiz.RunCancelCompensation,
+	leaseOwner string,
+	leaseDuration time.Duration,
+) (bool, error) {
+	if service.Store == nil {
+		return false, ErrServiceUnavailable
+	}
+	now := service.now()
+	return service.Store.ClaimTuttiModeRunCancelCompensation(
+		ctx, item.WorkspaceID, item.IssueID, item.RunID,
+		strings.TrimSpace(leaseOwner), now, now.Add(leaseDuration),
+	)
+}
+
+func (service Service) ReleaseRunCancelCompensation(
+	ctx context.Context,
+	item executionbiz.RunCancelCompensation,
+	leaseOwner string,
+	message string,
+) error {
+	if service.Store == nil {
+		return ErrServiceUnavailable
+	}
+	return service.Store.ReleaseTuttiModeRunCancelCompensation(
+		ctx, item.WorkspaceID, item.IssueID, item.RunID,
+		strings.TrimSpace(leaseOwner), strings.TrimSpace(message), service.now(),
+	)
+}
+
+func (service Service) CompleteRunCancelCompensation(
+	ctx context.Context,
+	item executionbiz.RunCancelCompensation,
+	leaseOwner string,
+) error {
+	if service.Store == nil {
+		return ErrServiceUnavailable
+	}
+	return service.Store.CompleteTuttiModeRunCancelCompensation(
+		ctx, item.WorkspaceID, item.IssueID, item.RunID,
+		strings.TrimSpace(leaseOwner), service.now(),
+	)
+}
+
+func (service Service) RequeueLeasedRunCancelCompensations(
+	ctx context.Context,
+	workspaceID string,
+) error {
+	if service.Store == nil {
+		return ErrServiceUnavailable
+	}
+	return service.Store.RequeueLeasedTuttiModeRunCancelCompensations(
 		ctx, strings.TrimSpace(workspaceID), service.now(),
 	)
 }

@@ -274,7 +274,7 @@ func (p Provider) runIssueAcknowledge(
 		ExpectedGraphRevision: input.ExpectedGraphRevision, RequestID: input.RequestID,
 	})
 	if err != nil {
-		return nil, agentPlanError(err)
+		return nil, agentAcknowledgeError(err)
 	}
 	return map[string]any{
 		"executionId": result.ExecutionID, "checkpointId": result.CheckpointID,
@@ -329,6 +329,16 @@ func agentPlanError(err error) error {
 		return fmt.Errorf("%w: schedule caller, checkpoint, revision, or requested task set is not current", cliservice.ErrInvalidInput)
 	}
 	return err
+}
+
+func agentAcknowledgeError(err error) error {
+	if errors.Is(err, executionbiz.ErrExecutionNotFound) {
+		return fmt.Errorf(
+			"%w: acknowledge execution was not found or is no longer current",
+			cliservice.ErrInvalidInput,
+		)
+	}
+	return agentPlanError(err)
 }
 
 func readPlanFile(path string) ([]byte, error) {

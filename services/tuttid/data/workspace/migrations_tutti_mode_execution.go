@@ -236,3 +236,51 @@ VALUES (?, ?)
 	}
 	return nil
 }
+
+func (s *SQLiteStore) applyWorkspaceTuttiModeRunCancelCompensationV2(ctx context.Context) error {
+	applied, err := s.hasMigration(ctx, schemaMigrationWorkspaceTuttiModeRunCancelCompensationV2)
+	if err != nil || applied {
+		return err
+	}
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin Tutti mode Run cancel compensation migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+CREATE TABLE workspace_issue_run_cancel_compensations (
+  workspace_id TEXT NOT NULL,
+  issue_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  agent_session_id TEXT NOT NULL,
+  client_submit_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('prepared', 'leased', 'completed')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  lease_owner TEXT NOT NULL DEFAULT '',
+  lease_expires_at_unix_ms INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT NOT NULL DEFAULT '',
+  created_at_unix_ms INTEGER NOT NULL,
+  updated_at_unix_ms INTEGER NOT NULL,
+  completed_at_unix_ms INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (workspace_id, issue_id, task_id, run_id),
+  UNIQUE (workspace_id, client_submit_id),
+  FOREIGN KEY (workspace_id, issue_id, task_id, run_id)
+    REFERENCES workspace_issue_runs(workspace_id, issue_id, task_id, run_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_workspace_issue_run_cancel_compensations_due
+  ON workspace_issue_run_cancel_compensations(
+    workspace_id, status, lease_expires_at_unix_ms
+  );
+
+INSERT INTO tuttid_schema_migrations (id, applied_at_unix_ms)
+VALUES (?, ?)
+`, schemaMigrationWorkspaceTuttiModeRunCancelCompensationV2, unixMs(time.Now().UTC())); err != nil {
+		return fmt.Errorf("migrate Tutti mode Run cancel compensation: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit Tutti mode Run cancel compensation migration: %w", err)
+	}
+	return nil
+}

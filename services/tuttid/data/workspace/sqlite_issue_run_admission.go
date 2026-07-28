@@ -460,6 +460,7 @@ func (s *SQLiteStore) ListPreparedTuttiModeRunLaunches(
 	}
 	where := []string{
 		"runs.workspace_id = ?",
+		"runs.status = 'running'",
 		"intents.status = 'prepared'",
 	}
 	args := []any{strings.TrimSpace(workspaceID)}
@@ -522,7 +523,7 @@ UPDATE workspace_issue_run_launch_intents
 SET status = 'dispatched', lease_owner = '', lease_expires_at_unix_ms = 0,
     dispatched_at_unix_ms = ?, updated_at_unix_ms = ?
 WHERE workspace_id = ? AND issue_id = ? AND run_id = ?
-  AND ((status = 'leased' AND lease_owner = ?) OR status = 'dispatched')
+  AND status = 'leased' AND lease_owner = ?
 `, unixMs(now), unixMs(now), strings.TrimSpace(workspaceID),
 		strings.TrimSpace(issueID), strings.TrimSpace(runID), strings.TrimSpace(leaseOwner))
 	if err != nil {
@@ -574,6 +575,14 @@ SET status = 'leased', attempt_count = attempt_count + 1,
     lease_owner = ?, lease_expires_at_unix_ms = ?, updated_at_unix_ms = ?
 WHERE workspace_id = ? AND issue_id = ? AND run_id = ?
   AND status = 'prepared'
+  AND EXISTS (
+    SELECT 1
+    FROM workspace_issue_runs AS runs
+    WHERE runs.workspace_id = workspace_issue_run_launch_intents.workspace_id
+      AND runs.issue_id = workspace_issue_run_launch_intents.issue_id
+      AND runs.run_id = workspace_issue_run_launch_intents.run_id
+      AND runs.status = 'running'
+  )
 `, strings.TrimSpace(leaseOwner), unixMs(leaseExpires), unixMs(now),
 		strings.TrimSpace(workspaceID), strings.TrimSpace(issueID),
 		strings.TrimSpace(runID))

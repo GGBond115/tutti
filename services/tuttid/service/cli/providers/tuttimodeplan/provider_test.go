@@ -105,6 +105,7 @@ type recordingIssueScheduler struct {
 
 type recordingIssueAcknowledger struct {
 	input tuttimodeexecutionservice.AcknowledgeInput
+	err   error
 }
 
 func (acknowledger *recordingIssueAcknowledger) Acknowledge(
@@ -112,6 +113,9 @@ func (acknowledger *recordingIssueAcknowledger) Acknowledge(
 	input tuttimodeexecutionservice.AcknowledgeInput,
 ) (tuttimodeexecutionservice.AcknowledgeResult, error) {
 	acknowledger.input = input
+	if acknowledger.err != nil {
+		return tuttimodeexecutionservice.AcknowledgeResult{}, acknowledger.err
+	}
 	return tuttimodeexecutionservice.AcknowledgeResult{
 		ExecutionID: "execution-1", CheckpointID: input.CheckpointID,
 		GraphRevision:       input.ExpectedGraphRevision,
@@ -266,6 +270,31 @@ func TestIssueAcknowledgeConflictAndRejectedFenceMapToInvalidInput(t *testing.T)
 			strings.Contains(err.Error(), "request-secret") {
 			t.Fatalf("acknowledge error leaked payload: %v", err)
 		}
+	}
+}
+
+func TestRunIssueAcknowledgeMapsMissingExecutionWithoutScheduleCopy(t *testing.T) {
+	_, err := (Provider{
+		acknowledgements: &recordingIssueAcknowledger{
+			err: executionbiz.ErrExecutionNotFound,
+		},
+	}).runIssueAcknowledge(
+		context.Background(),
+		framework.InvokeContext{
+			WorkspaceID: "workspace-1",
+			Request: cliservice.InvokeRequest{Context: cliservice.InvokeContext{
+				AgentSessionID: "source-session",
+			}},
+		},
+		issueAcknowledgeInput{
+			IssueID: "issue-1", CheckpointID: "checkpoint-1",
+			ExpectedGraphRevision: 3, RequestID: "acknowledge-missing",
+		},
+	)
+	if !errors.Is(err, cliservice.ErrInvalidInput) ||
+		!strings.Contains(strings.ToLower(err.Error()), "acknowledge") ||
+		strings.Contains(strings.ToLower(err.Error()), "schedule") {
+		t.Fatalf("missing execution acknowledge error = %v", err)
 	}
 }
 

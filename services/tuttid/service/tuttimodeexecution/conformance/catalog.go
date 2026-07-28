@@ -47,6 +47,46 @@ func SettlementCatalog() []Scenario {
 			run:  runExpiredLaunchOwnerCannotSettleReclaimedRun,
 		},
 		{
+			Name: "TerminalPreparedLaunchCannotRecover",
+			run:  runTerminalPreparedLaunchCannotRecover,
+		},
+		{
+			Name: "TerminalInFlightLaunchIsCanceledAfterDelivery",
+			run:  runTerminalInFlightLaunchIsCanceledAfterDelivery,
+		},
+		{
+			Name: "TerminalAmbiguousLaunchIsCanceledAfterDelivery",
+			run:  runTerminalAmbiguousLaunchIsCanceledAfterDelivery,
+		},
+		{
+			Name: "FailedLateLaunchCancellationIsDurablyRetried",
+			run:  runFailedLateLaunchCancellationIsDurablyRetried,
+		},
+		{
+			Name: "UnsupportedCancellationResultIsDurablyRetried",
+			run:  runUnsupportedCancellationResultIsDurablyRetried,
+		},
+		{
+			Name: "CanceledDeliveryContextStillCompensatesLateLaunch",
+			run:  runCanceledDeliveryContextStillCompensatesLateLaunch,
+		},
+		{
+			Name: "ReclaimedRunningLaunchIsNotCanceledOnAmbiguousError",
+			run:  runReclaimedRunningLaunchIsNotCanceledOnAmbiguousError,
+		},
+		{
+			Name: "ReclaimedRunningLaunchIsNotCanceledOnSuccess",
+			run:  runReclaimedRunningLaunchIsNotCanceledOnSuccess,
+		},
+		{
+			Name: "TimedOutDispatchedLaunchRequestsExactCancellation",
+			run:  runTimedOutDispatchedLaunchRequestsExactCancellation,
+		},
+		{
+			Name: "TimedOutInFlightLaunchCancelsAfterDelivery",
+			run:  runTimedOutInFlightLaunchCancelsAfterDelivery,
+		},
+		{
 			Name: "RepairRestoresMissingSettlementCheckpoint",
 			run:  runRepairRestoresMissingSettlementCheckpoint,
 		},

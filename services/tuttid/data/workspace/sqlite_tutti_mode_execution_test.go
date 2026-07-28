@@ -23,6 +23,7 @@ var tuttiModeExecutionTables = []string{
 	"workspace_tutti_execution_mutations",
 	"workspace_source_session_deletion_admissions",
 	"workspace_issue_run_launch_intents",
+	"workspace_issue_run_cancel_compensations",
 }
 
 func TestTuttiModeExecutionMigrationCreatesForwardCompatibleSchema(t *testing.T) {
@@ -54,12 +55,58 @@ SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?
 		"workspace_issue_run_launch_intents": {
 			"lease_owner", "lease_expires_at_unix_ms", "attempt_count", "client_submit_id",
 		},
+		"workspace_issue_run_cancel_compensations": {
+			"lease_owner", "lease_expires_at_unix_ms", "attempt_count", "client_submit_id",
+		},
 	} {
 		for _, column := range columns {
 			if !sqliteTableHasColumn(t, store, table, column) {
 				t.Fatalf("table %q missing forward-compatible column %q", table, column)
 			}
 		}
+	}
+}
+
+func TestTuttiModeRunCancelCompensationMigrationUpgradesV1Idempotently(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "cancel-compensation-upgrade.sqlite")
+	store, err := OpenSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("OpenSQLiteStore() error = %v", err)
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate(initial) error = %v", err)
+	}
+	if _, err := store.writeDB.ExecContext(ctx, `
+DROP TABLE workspace_issue_run_cancel_compensations;
+DELETE FROM tuttid_schema_migrations WHERE id = ?;
+`, schemaMigrationWorkspaceTuttiModeRunCancelCompensationV2); err != nil {
+		t.Fatalf("prepare V1 schema error = %v", err)
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate(V1 to V2) error = %v", err)
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate(V2 replay) error = %v", err)
+	}
+	var tableCount, migrationCount int
+	if err := store.writeDB.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM sqlite_master
+WHERE type = 'table' AND name = 'workspace_issue_run_cancel_compensations'
+`).Scan(&tableCount); err != nil {
+		t.Fatalf("inspect compensation table error = %v", err)
+	}
+	if err := store.writeDB.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM tuttid_schema_migrations WHERE id = ?
+`, schemaMigrationWorkspaceTuttiModeRunCancelCompensationV2).Scan(&migrationCount); err != nil {
+		t.Fatalf("inspect compensation migration error = %v", err)
+	}
+	if tableCount != 1 || migrationCount != 1 {
+		t.Fatalf(
+			"V2 table/migration counts = %d/%d, want 1/1",
+			tableCount, migrationCount,
+		)
 	}
 }
 
@@ -741,6 +788,7 @@ func sqliteTableHasColumn(t *testing.T, store *SQLiteStore, table, column string
 
 func dropTuttiModeExecutionMigrationForUpgradeTest(ctx context.Context, store *SQLiteStore) error {
 	_, err := store.writeDB.ExecContext(ctx, `
+DROP TABLE workspace_issue_run_cancel_compensations;
 DROP TABLE workspace_issue_run_launch_intents;
 DROP TABLE workspace_source_session_deletion_admissions;
 DROP TABLE workspace_tutti_execution_mutations;
@@ -749,7 +797,8 @@ DROP TABLE workspace_tutti_goal_reviews;
 DROP TABLE workspace_tutti_execution_wakes;
 DROP TABLE workspace_tutti_execution_checkpoints;
 DROP TABLE workspace_tutti_executions;
-DELETE FROM tuttid_schema_migrations WHERE id = ?;
-`, schemaMigrationWorkspaceTuttiModeExecutionV1)
+DELETE FROM tuttid_schema_migrations WHERE id IN (?, ?);
+`, schemaMigrationWorkspaceTuttiModeExecutionV1,
+		schemaMigrationWorkspaceTuttiModeRunCancelCompensationV2)
 	return err
 }
