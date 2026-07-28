@@ -218,10 +218,14 @@ invented — plus explicit `execution.effect` / `execution.speed` preference
 snapshots. The existing v1 `reasoningIntensity` and
 `orchestrationIntensity` fields retain their provider-reasoning and
 Issue-orchestration meanings; speed is never encoded into
-`orchestrationIntensity`. It routes model
-assignment through the injected `$tutti-model-allocation` skill so C0-C3 task
-requirements, the effect floor, speed ranking, hard capabilities, and
-effect-scaled validation are applied consistently. Unless the user asks for
+`orchestrationIntensity`. It routes model assignment through the injected
+`$tutti-model-allocation` skill so C0-C3 task requirements, the effect floor,
+speed ranking, hard capabilities, and effect-scaled validation are applied
+consistently. The skill ranks joint Agent/model candidates across every
+plausible target: the planning Agent, current provider/model, and provider
+defaults receive no affinity bonus, while an equally qualified non-planning
+target wins the tie for safely independent work so the planner remains
+available for coordination and final integration. Unless the user asks for
 supervised execution, the guide directs agents to the permission mode whose
 semantic is `full-access` (codex `full-access`, claude-code
 `bypassPermissions`): the user's approval happens once at plan review, so

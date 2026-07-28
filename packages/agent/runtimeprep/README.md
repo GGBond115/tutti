@@ -92,7 +92,9 @@ provider runtime policy and dynamic skill bundles by default; set
 use, and computer use. `CoreSkillsPack` includes the provider-neutral Tutti
 workflow skills plus `tutti-model-allocation`, whose C0-C3 policy combines the
 current Tutti Mode effect/speed preferences with live composer model catalogs
-and derives speed's bounded 1-4 parallel planning target.
+and derives speed's bounded 1-4 parallel planning target. Allocation compares
+joint Agent/model candidates across every plausible target without favoring the
+planning Agent, its current model, or provider defaults.
 A non-desktop deployment should compose its own profile from `CoreSkillsPack`
 and deployment-owned packs instead of copying the desktop-host policy:
 

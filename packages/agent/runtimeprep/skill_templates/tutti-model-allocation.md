@@ -33,10 +33,16 @@ tasks to fill the target. Dependencies, ownership boundaries, safe isolation,
 budget, ready work, and workspace capacity always win. Schedule no more than
 the target at one checkpoint.
 
-### 3. Discover current launch options
+### 3. Build the joint candidate matrix
 
-Run `agent list`, then `agent composer-options` for every candidate target
-needed by the plan.
+Run `agent list` once. Shortlist every launchable target whose description and
+advertised capabilities could plausibly fit any plan task, including
+non-current targets. Run `agent composer-options` for every shortlisted target.
+
+Compare joint `(agentTargetId, model, reasoningEffort, permissionModeId)`
+candidates. Do not select an Agent first and then limit model choice to that
+Agent. Do not skip a plausible non-current target merely to avoid another
+composer-options call.
 
 ### 4. Apply hard constraints
 
@@ -46,7 +52,24 @@ needed by the plan.
   by the current commands.
 - Ignore a requested-origin model entry as proof of provider support.
 
-### 5. Classify the task
+### 5. Remove affinity bias
+
+- The planning/source Agent, its provider, its current model, and provider
+  defaults receive no suitability bonus.
+- Require both Agent fit and model fit. A strong model cannot compensate for a
+  target whose description, instructions, or call conditions conflict with the
+  task; a familiar Agent cannot compensate for a model below the required tier.
+- Rank the joint candidates from task evidence even when another Agent exposes
+  a better model than the planner's own target.
+- The planning Agent may still win when its candidate is objectively the best
+  fit or the user selected it explicitly. Record the task-fit reason; familiarity
+  with the current Agent is not a reason.
+- When candidates are equivalently qualified for safely independent work,
+  prefer a non-planning target so the planning Agent remains available for
+  coordination and final integration. Never apply this tie-breaker against a
+  stronger or safer model.
+
+### 6. Classify the task
 
 | Tier | Task shape                                                                                                     |
 | ---- | -------------------------------------------------------------------------------------------------------------- |
@@ -55,7 +78,7 @@ needed by the plan.
 | C2   | Multi-step implementation, cross-module change, difficult debugging, integration, or substantial review        |
 | C3   | Architecture, high-stakes or ambiguous work, hard recovery, deep review, or final synthesis across workstreams |
 
-### 6. Derive the effect floor
+### 7. Derive the effect floor
 
 | Effect | Model floor | Verification floor                                                     |
 | ------ | ----------- | ---------------------------------------------------------------------- |
@@ -67,7 +90,7 @@ needed by the plan.
 The required tier is `max(task tier, effect floor)`. A low effect never makes an
 intrinsically difficult or high-risk task safe for a weak model.
 
-### 7. Rank eligible models
+### 8. Rank eligible models
 
 | Speed  | Choice within the eligible set                                                                                |
 | ------ | ------------------------------------------------------------------------------------------------------------- |
@@ -76,9 +99,10 @@ intrinsically difficult or high-risk task safe for a weak model.
 | 60-84  | Prefer the lowest-latency model that clearly satisfies the tier                                               |
 | 85-100 | Prefer the fastest qualified model or fast service variant; never reduce the tier or effect-derived reasoning |
 
-Rank only models at or above the required tier.
+Rank only models at or above the required tier. Apply task-shape fit before
+speed: a specialist C3 route is not automatically suitable for every C3 task.
 
-### 8. Encode the assignment
+### 9. Encode the assignment
 
 Write the exact assignment and concrete effect-scaled validation in every task
 brief. Use per-task `reasoningEffort` only when the task needs to differ from
@@ -103,6 +127,10 @@ Treat that file as a routing prior, not an availability catalog:
 
 Before proposing the plan, verify:
 
+- every plausible target was considered jointly with its models, and at least
+  one non-current target was compared when one was available;
+- no assignment received a bonus for matching the planning Agent, current
+  provider, current model, or a provider default;
 - every task clears its inherent tier and the effect floor;
 - speed changed the choice only within the qualified set;
 - the graph exposes real safe concurrency toward the parallel target without
