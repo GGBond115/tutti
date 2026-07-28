@@ -3,29 +3,30 @@ package agentruntime
 import "slices"
 
 type scriptedSessionState struct {
-	modelList                    []any
-	userAgent                    string
-	forkChildThreadID            string
-	forkedFromThreadID           string
-	omitForkedFromThreadID       bool
-	emptyForkedFromThreadID      bool
-	forkResponseLastTurnID       string
-	forkResponseTurnIDs          []string
-	threadReadTurnIDs            []string
-	forkRPCError                 bool
-	requiresAuth                 bool
-	collaborationModeUnsupported bool
-	accountReadError             bool
-	accountReadErrorCode         int
-	accountReadErrorMessage      string
-	childNicknames               map[string]string
-	historyTurns                 []any
-	rollbackHistoryTurns         []any
-	rollbackUnsupported          bool
-	threadName                   string
-	replayTokenUsageOnResume     bool
-	threadResumeError            bool
-	extraRootsError              bool
+	modelList                      []any
+	userAgent                      string
+	forkChildThreadID              string
+	forkedFromThreadID             string
+	omitForkedFromThreadID         bool
+	emptyForkedFromThreadID        bool
+	forkResponseLastTurnID         string
+	forkResponseTurnIDs            []string
+	threadReadTurnIDs              []string
+	forkRPCError                   bool
+	requiresAuth                   bool
+	collaborationModeUnsupported   bool
+	accountReadError               bool
+	accountReadErrorCode           int
+	accountReadErrorMessage        string
+	childNicknames                 map[string]string
+	historyTurns                   []any
+	rollbackHistoryTurns           []any
+	rollbackUnsupported            bool
+	threadName                     string
+	replayTokenUsageOnResume       bool
+	threadResumeError              bool
+	extraRootsError                bool
+	forkNotificationBeforeResponse bool
 }
 
 func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) bool {
@@ -251,11 +252,22 @@ func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) 
 				thread["forkedFromId"] = forkedFromThreadID
 			}
 		}
+		if s.forkNotificationBeforeResponse {
+			s.notify(appServerNotifyThreadNameUpdated, map[string]any{
+				"threadId":   childThreadID,
+				"threadName": "Early Side title",
+			})
+		}
 		s.sendJSON(map[string]any{
 			"id": message.ID,
 			"result": map[string]any{
 				"thread": thread,
 			},
+		})
+	case appServerMethodThreadInjectItems, "thread/delete":
+		s.sendJSON(map[string]any{
+			"id":     message.ID,
+			"result": map[string]any{},
 		})
 	case appServerMethodThreadRead:
 		s.mu.Lock()

@@ -1,5 +1,6 @@
 import type {
   AgentGUIRuntime,
+  AgentSideConversationRuntime,
   AgentGUIAgentDirectorySnapshot,
   AgentGUIAllAgentsPresentation,
   AgentGUIProvider,
@@ -51,6 +52,7 @@ export interface DesktopAgentGUISurfaceContext {
 
 export interface DesktopAgentGUIWorkbenchBodyProps {
   agentActivityRuntime: AgentGUIRuntime;
+  agentSideConversationRuntime: AgentSideConversationRuntime | null;
   agentHostApi: AgentHostInputApi;
   agentSessionReplayService: AgentSessionReplayService | null;
   agentStatusSource?: AgentStatusSource;

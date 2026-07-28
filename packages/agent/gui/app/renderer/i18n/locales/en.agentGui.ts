@@ -771,5 +771,17 @@ export const enAgentGui = {
   syncPending: "Saved locally, syncing to cloud",
   syncSynced: "Synced to cloud",
   syncFailed: "Cloud sync failed",
+  sideCommandDescription:
+    "Open a temporary conversation from the current live context",
+  sidePanelTitle: "Side conversation",
+  sideOpening: "Opening from the current live context…",
+  sideEphemeralHint: "Temporary · not added to conversation history",
+  sideClose: "Close",
+  sideEmpty: "Ask a related question without interrupting the main turn.",
+  sideInteractionTitle: "Side needs your response",
+  sideContentUnsupported:
+    "This attachment type is not supported in a Side conversation yet.",
+  sideOperationFailed:
+    "The Side conversation could not complete that operation. Close it and try again.",
   ...enAgentGuiCollaboration
 } as const;

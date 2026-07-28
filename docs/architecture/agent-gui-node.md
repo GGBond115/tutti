@@ -244,6 +244,58 @@ canonical Turn. The Host owns reconnect and catch-up fencing and must remove
 the gap only after the same Turn is authoritative again. When the capability
 is absent, AgentGUI preserves its existing lifecycle presentation.
 
+### 2.5.1 Live Side transient lane
+
+Side is a provider-neutral, surface-owned live conversation fork. It is
+intentionally separate from the durable command and observation paths:
+
+```text
+AgentGUI Side pane
+  -> AgentSideConversationRuntime port
+  -> Desktop generated tuttid client adapter
+  -> tuttid Side HTTP handlers
+  -> packages/agent/host Side lifecycle
+  -> packages/agent/daemon provider Side adapter
+
+provider Side runtime observation
+  -> SideStreamObserver
+  -> tuttid agent.side.updated publisher
+  -> Desktop business-event adapter
+  -> AgentGUI transient Side controller/store
+  -> Side pane
+```
+
+The provider adapter owns provider-specific context snapshot mechanics. Host
+owns Side identity, idempotent open, exact-Turn commands, scope isolation, and
+cleanup. tuttid projects those commands through generated OpenAPI contracts and
+publishes only the transient `agent.side.updated` envelope. Desktop is a thin
+transport adapter. AgentGUI owns capability gating, the transient event
+projection, and presentation; it contains no provider-name branches.
+
+Desktop supplies a Side runtime factory rather than a workspace singleton.
+Each mounted embedded or detached AgentGUI surface creates and disposes its
+own runtime instance, so transient identity and cleanup ownership cannot race
+between windows.
+
+The Side controller is not an `AgentSessionEngine` and must never dispatch
+Side events into `agent-activity-core`. It retains only the selected surface's
+active Side identity, Side-local messages, active Turn, pending Interaction,
+sequence, and error. The owning AgentGUI surface closes the Side identity when
+the selected source changes or the surface is destroyed. Its external-store
+subscription owns the transient event and connection subscriptions. Once the
+last surface subscriber is gone, those subscriptions are released. Disconnect,
+source-identity mismatch, or a sequence gap expires local state and prevents
+further rendering; no canonical reconciliation fallback exists for this
+ephemeral lane.
+
+Side capability is enabled only when the exact selected live runtime reports
+all mandatory facts: native support, an active source Turn, ephemeral lifetime,
+hidden inherited history, and injected model boundary. Attachments are rejected
+at the AgentGUI controller and Desktop adapter until the transport contract can
+preserve them without degradation. Approval and question state remains
+Side-local and is answered through the exact
+`(workspaceId, sideAgentSessionId, turnId, requestId)` command.
+
 ### 2.6 On-demand status
 
 AgentGUI owns one provider-neutral `AgentStatusController` for `/status`, Agent

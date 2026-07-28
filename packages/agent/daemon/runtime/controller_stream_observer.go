@@ -19,6 +19,18 @@ func (c *Controller) SetStreamEventObserver(observer RuntimeStreamEventObserver)
 	c.streamObserverMu.Unlock()
 }
 
+// SetSideStreamEventObserver binds the transient-only side-conversation event
+// projection. Side events never reach the canonical observer or durable
+// reporter, even though both scopes reuse the same adapter event vocabulary.
+func (c *Controller) SetSideStreamEventObserver(observer RuntimeStreamEventObserver) {
+	if c == nil {
+		return
+	}
+	c.streamObserverMu.Lock()
+	c.sideStreamObserver = observer
+	c.streamObserverMu.Unlock()
+}
+
 func (c *Controller) publishStreamEvents(
 	roomID string,
 	agentSessionID string,
@@ -33,8 +45,13 @@ func (c *Controller) publishStreamEvents(
 		return
 	}
 
+	session, found := c.get(roomID, agentSessionID)
+	side := found && session.IsSideConversation()
 	c.streamObserverMu.RLock()
 	observer := c.streamObserver
+	if side {
+		observer = c.sideStreamObserver
+	}
 	c.streamObserverMu.RUnlock()
 	if observer != nil {
 		if err := observer.ObserveRuntimeStreamEvents(

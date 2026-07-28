@@ -73,7 +73,12 @@ const forbiddenPatterns = [
   },
   {
     allowedFiles: new Set([
-      "apps/desktop/src/renderer/src/features/workspace-agent/services/internal/workspaceAgentActivityDiagnostics.ts"
+      "apps/desktop/src/renderer/src/features/workspace-agent/services/internal/workspaceAgentActivityDiagnostics.ts",
+      // Side is an explicitly non-canonical transient projection. It consumes
+      // the runtime Side envelope directly and must not enter
+      // AgentSessionEngine merely to satisfy the durable lifecycle vocabulary
+      // guard enforced for ordinary AgentGUI consumers.
+      "packages/agent/gui/agentSideConversationController.ts"
     ]),
     label: "deprecated session lifecycle decision read",
     pattern:

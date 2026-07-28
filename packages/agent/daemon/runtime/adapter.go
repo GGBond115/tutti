@@ -164,6 +164,23 @@ type ProviderTurnBindingRecoveryAdapter interface {
 	) (ProviderTurnBindingRecoveryResult, error)
 }
 
+// SideConversationAdapter is the provider-specific open surface for live,
+// runtime-only side conversations. A Side-capable Adapter must also implement
+// LiveSessionProbeAdapter; interactive Side flows additionally require the
+// ordinary InteractiveAdapter contract. Once OpenSide returns, the Controller
+// reuses Adapter Exec/Cancel/Close and the configured event/command/config
+// sinks against the returned side-scoped Session.
+//
+// OpenSide owns its failure cleanup: before returning an error it must
+// quiesce callbacks and release any provider child it created. Ownership
+// transfers to Adapter.Close only when the Controller validates the exact
+// side-scoped identity in the successful result; an invalid result remains
+// the provider's cleanup responsibility and is never passed to ordinary Close.
+type SideConversationAdapter interface {
+	SideCapabilities(context.Context, Session) (SideConversationCapabilities, error)
+	OpenSide(context.Context, SideConversationAdapterOpenInput) (SideConversationOpenResult, error)
+}
+
 // TargetedCancelAdapter maps canonical root/child targets onto provider-native
 // handles. The controller supplies the root live session and never asks the
 // adapter to discover the durable child tree itself.

@@ -17,6 +17,9 @@ var (
 	ErrSessionSettingsRequireNewSession = errors.New("agent session settings update requires a new session to preserve context")
 	ErrSessionActiveTurn                = errors.New("agent session already has an active turn")
 	ErrSessionForkUnsupported           = errors.New("agent session fork is unsupported")
+	ErrSideConversationUnsupported      = errors.New("agent side conversation is unsupported")
+	ErrSideConversationConflict         = errors.New("agent side conversation identity conflicts with an existing session")
+	ErrSideConversationExpired          = errors.New("agent side conversation has expired")
 )
 
 const defaultStreamingReportCoalesceWindow = 50 * time.Millisecond
@@ -40,6 +43,7 @@ type Controller struct {
 	configOptionsUpdates        map[string]AgentSessionConfigOptionsUpdate
 	pendingConfigOptionsUpdates map[string][]AgentSessionConfigOptionsUpdate
 	provisionalSessions         map[string]bool
+	pendingSideEvents           map[string][]activityshared.Event
 	goalGenerationFences        map[string]*controllerGoalGenerationFenceRegistry
 	startupLocks                map[startupLockKey]*controllerLifecycleLock
 	lifecycleLocks              map[string]*controllerLifecycleLock
@@ -51,6 +55,7 @@ type Controller struct {
 	streamObserver              RuntimeStreamEventObserver
 	providerObservationObserver ProviderObservationObserver
 	goalControlObserver         GoalControlLifecycleObserver
+	sideStreamObserver          RuntimeStreamEventObserver
 }
 
 // RuntimeStreamEventObserver receives the ordered precommit stream projection
@@ -186,6 +191,7 @@ func NewControllerWithAdapterResolver(adapters []Adapter, reporter DurableActivi
 		configOptionsUpdates:        make(map[string]AgentSessionConfigOptionsUpdate),
 		pendingConfigOptionsUpdates: make(map[string][]AgentSessionConfigOptionsUpdate),
 		provisionalSessions:         make(map[string]bool),
+		pendingSideEvents:           make(map[string][]activityshared.Event),
 		goalGenerationFences:        make(map[string]*controllerGoalGenerationFenceRegistry),
 		startupLocks:                make(map[startupLockKey]*controllerLifecycleLock),
 		lifecycleLocks:              make(map[string]*controllerLifecycleLock),

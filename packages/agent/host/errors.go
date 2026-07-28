@@ -31,6 +31,10 @@ var (
 	ErrEditRetryInProgress               = errors.New("agent history edit is still being confirmed")
 	ErrEditRetryResendPending            = errors.New("agent history was rolled back but the edited turn still needs to be resent")
 	ErrEditRetryRecoveryRequired         = errors.New("agent provider history diverged and requires explicit recovery")
+	ErrSideConversationUnsupported       = errors.New("agent side conversation is unsupported")
+	ErrSideConversationInProgress        = errors.New("agent side conversation is being opened")
+	ErrSideConversationConflict          = errors.New("agent side conversation identity conflicts with an existing side")
+	ErrSideConversationExpired           = errors.New("agent side conversation has expired")
 )
 
 // ProviderError preserves a provider-owned failure across the runtime adapter

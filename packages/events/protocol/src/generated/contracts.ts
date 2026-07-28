@@ -13,6 +13,7 @@ export type BusinessEventTopic =
   | "agent.model.catalog.invalidated"
   | "agent.model.configuration.changed"
   | "agent.quickprompt.updated"
+  | "agent.side.updated"
   | "analytics.debug.reported"
   | "preferences.agent.composer.defaults.changed"
   | "preferences.agent.composer.defaults.patch.requested"
@@ -453,6 +454,96 @@ export interface AgentQuickpromptUpdatedPayloadV1 {
   occurredAtUnixMs: number;
 }
 
+export type AgentSideUpdatedPayloadV1 =
+  | {
+      workspaceId: string;
+      sideAgentSessionId: string;
+      sourceAgentSessionId: string;
+      sequence: number;
+      eventType: "message_delta";
+      data: {
+        messageId: string;
+        turnId: string;
+        role: string;
+        kind?: string;
+        content?: {
+          operation: "append_text" | "set";
+          text?: string;
+          value?: unknown;
+        };
+        toolOutput?: {
+          operation: string;
+          text: string;
+          offsetBytes?: number;
+        };
+        status?: string;
+      };
+    }
+  | {
+      workspaceId: string;
+      sideAgentSessionId: string;
+      sourceAgentSessionId: string;
+      sequence: number;
+      eventType: "message_update";
+      data: {
+        messageId: string;
+        turnId?: string;
+        role: string;
+        kind?: string;
+        status?: string;
+        contentDelta?: string;
+        payload?: Record<string, unknown>;
+      };
+    }
+  | {
+      workspaceId: string;
+      sideAgentSessionId: string;
+      sourceAgentSessionId: string;
+      sequence: number;
+      eventType: "state_patch";
+      data: {
+        lifecycleStatus?: string;
+        currentPhase?: string;
+        status?: string;
+        turnLifecycle?: {
+          activeTurnId?: string | null;
+        };
+        interactionTransition?: {
+          requestId: string;
+          turnId: string;
+          kind: "approval" | "question" | "plan";
+          status: string;
+          toolName?: string;
+          input?: Record<string, unknown>;
+          metadata?: Record<string, unknown>;
+        };
+      };
+    }
+  | {
+      workspaceId: string;
+      sideAgentSessionId: string;
+      sourceAgentSessionId: string;
+      sequence: number;
+      eventType: "available_commands_update";
+      data: Record<string, unknown>;
+    }
+  | {
+      workspaceId: string;
+      sideAgentSessionId: string;
+      sourceAgentSessionId: string;
+      sequence: number;
+      eventType: "config_options_update";
+      data: Record<string, unknown>;
+    }
+  | {
+      workspaceId: string;
+      sideAgentSessionId: string;
+      sourceAgentSessionId: string;
+      sequence: number;
+      eventType: "session_audit";
+      data: Record<string, unknown>;
+    };
+
 export interface AnalyticsDebugReportedPayloadV1 {
   events: readonly {
     name: string;
@@ -581,6 +672,12 @@ export type AgentQuickpromptUpdatedEventV1 = BusinessEventEnvelopeV1<
   1
 >;
 
+export type AgentSideUpdatedEventV1 = BusinessEventEnvelopeV1<
+  "agent.side.updated",
+  AgentSideUpdatedPayloadV1,
+  1
+>;
+
 export type AnalyticsDebugReportedEventV1 = BusinessEventEnvelopeV1<
   "analytics.debug.reported",
   AnalyticsDebugReportedPayloadV1,
@@ -667,6 +764,7 @@ export type ServerToClientEventTopic =
   | "agent.model.catalog.invalidated"
   | "agent.model.configuration.changed"
   | "agent.quickprompt.updated"
+  | "agent.side.updated"
   | "analytics.debug.reported"
   | "preferences.agent.composer.defaults.changed"
   | "preferences.desktop.updated"
@@ -689,6 +787,7 @@ export type ServerToClientEventV1 =
   | AgentModelCatalogInvalidatedEventV1
   | AgentModelConfigurationChangedEventV1
   | AgentQuickpromptUpdatedEventV1
+  | AgentSideUpdatedEventV1
   | AnalyticsDebugReportedEventV1
   | PreferencesAgentComposerDefaultsChangedEventV1
   | PreferencesDesktopUpdatedEventV1

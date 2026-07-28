@@ -242,6 +242,7 @@ func (c *Controller) Close(ctx context.Context, input CloseInput) (CloseResult, 
 		delete(c.pendingCommandSnapshots, session.AgentSessionID)
 		delete(c.pendingConfigOptionsUpdates, key)
 		delete(c.goalGenerationFences, key)
+		delete(c.pendingSideEvents, key)
 	}
 	c.mu.Unlock()
 	if closeErr != nil {
@@ -266,6 +267,7 @@ func (c *Controller) Close(ctx context.Context, input CloseInput) (CloseResult, 
 	delete(c.pendingConfigOptionsUpdates, key)
 	delete(c.provisionalSessions, key)
 	delete(c.goalGenerationFences, key)
+	delete(c.pendingSideEvents, key)
 	c.mu.Unlock()
 	return CloseResult{AgentSessionID: session.AgentSessionID, Disconnected: true}, nil
 }

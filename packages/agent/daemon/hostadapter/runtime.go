@@ -58,6 +58,7 @@ var (
 	_ host.RuntimeSubmitProvenanceReporter         = (*RuntimeController)(nil)
 	_ host.SessionForkRuntime                      = (*RuntimeController)(nil)
 	_ host.SessionForkTurnBindingRecoveryRuntime   = (*RuntimeController)(nil)
+	_ host.SideConversationRuntime                 = (*RuntimeController)(nil)
 	_ host.GoalRuntimeController                   = (*RuntimeController)(nil)
 	_ host.GoalRuntimeControlLifecycleRegistrar    = (*RuntimeController)(nil)
 	_ host.GoalRuntimeReconciler                   = (*RuntimeController)(nil)
@@ -131,6 +132,11 @@ func (a *RuntimeController) RollbackLatestTurn(
 		projected.Snapshot = &snapshot
 	}
 	return projected, mapRuntimeError(err)
+}
+
+type sideConversationRuntimeBackend interface {
+	SideCapabilities(context.Context, string, string) (agentruntime.SideConversationCapabilities, error)
+	OpenSide(context.Context, agentruntime.SideConversationOpenInput) (agentruntime.SideConversationOpenResult, error)
 }
 
 func (a *RuntimeController) Start(ctx context.Context, input host.RuntimeStartInput) (host.ProviderRuntimeSession, error) {
@@ -511,6 +517,64 @@ func (a *RuntimeController) RecoverProviderTurnBinding(
 	}, mapRuntimeError(err)
 }
 
+func (a *RuntimeController) ResolveSideConversation(
+	ctx context.Context,
+	source host.ProviderRuntimeSession,
+) (host.SideConversationCapabilities, error) {
+	if err := a.requireBackend(); err != nil {
+		return host.SideConversationCapabilities{}, err
+	}
+	backend, ok := a.Backend.(sideConversationRuntimeBackend)
+	if !ok {
+		return host.SideConversationCapabilities{}, nil
+	}
+	capabilities, err := backend.SideCapabilities(
+		ctx, source.WorkspaceID, source.ID,
+	)
+	return hostSideCapabilities(capabilities), mapRuntimeError(err)
+}
+
+func (a *RuntimeController) OpenSideConversation(
+	ctx context.Context,
+	input host.RuntimeOpenSideConversationInput,
+) (host.OpenSideConversationResult, error) {
+	if err := a.requireBackend(); err != nil {
+		return host.OpenSideConversationResult{}, err
+	}
+	backend, ok := a.Backend.(sideConversationRuntimeBackend)
+	if !ok {
+		return host.OpenSideConversationResult{}, host.ErrSideConversationUnsupported
+	}
+	result, err := backend.OpenSide(
+		ctx,
+		agentruntime.SideConversationOpenInput{
+			RoomID:               input.Source.WorkspaceID,
+			SourceAgentSessionID: input.Source.ID,
+			SideAgentSessionID:   input.SideAgentSessionID,
+			RequestID:            input.RequestID,
+		},
+	)
+	if err != nil {
+		return host.OpenSideConversationResult{}, mapRuntimeError(err)
+	}
+	return host.OpenSideConversationResult{
+		Session:      a.sessionWithState(result.Session),
+		Capabilities: hostSideCapabilities(result.Capabilities),
+	}, nil
+}
+
+func hostSideCapabilities(
+	capabilities agentruntime.SideConversationCapabilities,
+) host.SideConversationCapabilities {
+	return host.SideConversationCapabilities{
+		Supported:             capabilities.Supported,
+		ActiveSourceTurn:      capabilities.ActiveSourceTurn,
+		Ephemeral:             capabilities.Ephemeral,
+		HideInheritedTurns:    capabilities.HideInheritedTurns,
+		ModelBoundaryInjected: capabilities.ModelBoundaryInjected,
+	}
+}
+
 func firstNonEmptyString(values ...string) string {
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
@@ -592,6 +656,15 @@ func mapRuntimeError(err error) error {
 	if errors.Is(err, agentruntime.ErrEffectiveHistoryUnsupported) {
 		return host.ErrRuntimeHistoryUnsupported
 	}
+	if errors.Is(err, agentruntime.ErrSideConversationUnsupported) {
+		return errors.Join(host.ErrSideConversationUnsupported, err)
+	}
+	if errors.Is(err, agentruntime.ErrSideConversationConflict) {
+		return errors.Join(host.ErrSideConversationConflict, err)
+	}
+	if errors.Is(err, agentruntime.ErrSideConversationExpired) {
+		return errors.Join(host.ErrSideConversationExpired, err)
+	}
 	var appErr *agentruntime.AppError
 	if errors.As(err, &appErr) && appErr != nil {
 		if errors.Is(appErr, context.Canceled) || errors.Is(appErr, context.DeadlineExceeded) {
@@ -610,6 +683,8 @@ func (a *RuntimeController) fromSession(session agentruntime.Session) host.Provi
 	}
 	return host.ProviderRuntimeSession{
 		ID: session.AgentSessionID, WorkspaceID: session.RoomID, UserID: a.currentUserID(),
+		Scope:                host.RuntimeSessionScope(session.Scope),
+		SourceAgentSessionID: session.SourceAgentSessionID, SideRequestID: session.SideRequestID,
 		AgentTargetID: session.AgentTargetID, Provider: session.Provider, ProviderSessionID: session.ProviderSessionID,
 		Resumable: session.Resumable,
 		Cwd:       session.CWD, Env: append([]string(nil), session.Env...), Settings: settings,
@@ -628,6 +703,8 @@ func runtimeSession(session host.ProviderRuntimeSession) agentruntime.Session {
 	}
 	return agentruntime.Session{
 		RoomID: session.WorkspaceID, AgentSessionID: session.ID,
+		Scope:                agentruntime.RuntimeSessionScope(session.Scope),
+		SourceAgentSessionID: session.SourceAgentSessionID, SideRequestID: session.SideRequestID,
 		AgentTargetID: session.AgentTargetID, Provider: session.Provider,
 		ProviderSessionID: session.ProviderSessionID, Resumable: session.Resumable,
 		CWD: session.Cwd, Env: append([]string(nil), session.Env...),

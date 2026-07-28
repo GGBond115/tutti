@@ -48,6 +48,9 @@ func (c *Controller) DurablyReportSubmitProvenance(ctx context.Context, input Su
 		// have already crossed that barrier before Exec returns.
 		session.Visible = false
 	}
+	if session.IsSideConversation() {
+		return ErrSideConversationUnsupported
+	}
 	content := normalizeRuntimePromptContent(input.Content)
 	if len(content) == 0 {
 		return errors.New("submit provenance prompt is required")

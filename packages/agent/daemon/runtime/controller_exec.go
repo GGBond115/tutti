@@ -412,6 +412,9 @@ func (c *Controller) GoalControl(ctx context.Context, input GoalControlInput) (G
 	if err != nil {
 		return GoalControlResult{}, err
 	}
+	if session.IsSideConversation() {
+		return GoalControlResult{}, ErrSideConversationUnsupported
+	}
 	goalAdapter, ok := adapter.(GoalAdapter)
 	if !ok {
 		return GoalControlResult{}, fmt.Errorf("agent provider does not support goals")
