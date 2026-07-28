@@ -64,6 +64,23 @@ test("forwards the explicitly selected project directory capability", () => {
   );
 });
 
+test("forwards the host-owned composer footer accessory slot", () => {
+  const composerFooterAccessory = () => null;
+  const result = useStableDesktopAgentGUIHostProps({
+    hostActions: {},
+    hostCapabilities: {},
+    identity: { currentUserId: null, nodeId: "node-1", workspaceId: "ws-1" },
+    renderSlots: { composerFooterAccessory },
+    runtimeRequests: {},
+    workspace: {}
+  } as never);
+
+  assert.strictEqual(
+    result.renderSlots.composerFooterAccessory,
+    composerFooterAccessory
+  );
+});
+
 test("forwards every runtimeRequests field instead of silently dropping new ones", () => {
   // The manual field-keyed reconstruction below is exactly the pattern that
   // let `sessionAction` silently vanish (dropped this exact way, then wired

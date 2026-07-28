@@ -152,6 +152,43 @@ export const en = {
       switchWorkspaceUnavailable: "Unable to load workspaces right now."
     },
     agentGui: {
+      sessionReplay: {
+        empty: "No recordings",
+        failed: "Session recording or replay failed",
+        list: "Recordings",
+        record: {
+          cancel: "Cancel recording",
+          rename: "Rename recording",
+          renameCancel: "Cancel rename",
+          renameFailed: "Could not rename recording",
+          renameSave: "Save recording name",
+          start: "Start recording",
+          stop: "Stop and save recording"
+        },
+        replay: {
+          cassette: "Replay cassette",
+          checkpoint: "Checkpoint {{current}} of {{total}}",
+          complete: "Validation passed",
+          controlFailed: "Could not control replay",
+          failed: "Validation failed",
+          launching: "Starting isolated replay window",
+          next: "Next checkpoint",
+          opened: "Isolated replay window opened",
+          pause: "Pause replay",
+          play: "Play replay",
+          previous: "Previous checkpoint",
+          replaying: "Replaying",
+          restart: "Replay from start",
+          speed: "Replay speed",
+          speedFailed: "Could not change replay speed",
+          stateMismatch:
+            "Final replay state differs from the recording in {{table}}",
+          toolbar: "Replay controls",
+          validationComplete: "Replay validation passed",
+          validationFailed: "Replay validation failed",
+          verifying: "Validating"
+        }
+      },
       collapseConversationRail: "Hide sidebar",
       expandConversationRail: "Show sidebar",
       fallbackAgentLabel: "Agent",
@@ -1179,6 +1216,9 @@ export const en = {
         openDesktopLog: "Open desktop log",
         openLogsDirectory: "Open logs folder",
         addFileDefaultOpener: "Add",
+        agentSessionRecordingDescription:
+          "Show the developer entry for recording and replaying sessions on Agent Home.",
+        agentSessionRecordingLabel: "Agent session recording",
         removeFileDefaultOpener: "Remove .{{extension}}",
         releaseChannelDescription:
           "Choose stable release updates, or opt in to preview builds for internal verification.",

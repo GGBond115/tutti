@@ -240,39 +240,36 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	if err != nil {
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, err
 	}
-	agentProcessTransport := agentdaemon.NewLocalProcessTransport()
+	sessionRecordingTransport, err := buildSessionRecordingProcessTransport()
+	if err != nil {
+		return tuttiapi.DaemonAPI{}, nil, nil, nil, err
+	}
+	replayComposition := agentCassetteReplayActive()
 	agentHostMetadata := agentdaemon.HostMetadata{
 		ClientInfo:       agentdaemon.ClientInfo{Name: "tutti-desktop", Title: "Tutti", Version: "0.1.0"},
 		WorkspaceEnvName: "TUTTI_WORKSPACE_ID", OpenClawSessionKeyPrefix: "agent:main:tsh-",
 	}
 	agentTargetSetup := agentextensionservice.NewSetupService(context.Background())
 	agentTargetSetup.Plans = agentTargetInstallPlans
-	agentTargetSetup.Transport = agentProcessTransport
+	agentTargetSetup.Transport = sessionRecordingTransport
 	agentTargetSetup.Host = agentHostMetadata
 	agentTargetSetup.Actions = agentextensiondata.NewFileSetupActionStore(agentExtensionStateDir)
 	agentTargetSetup.Discovery = agentSetupDiscovery
 	agentTargetSetup.AuthInvalidation = runOutcomes
-	agentRuntime, err := agentdaemon.NewRuntime(agentdaemon.Config{
+	agentRuntimeConfig := agentdaemon.Config{
 		Reporter: agentRunOutcomeReporter{
 			DurableActivityReporter: agentActivityProjection,
 			store:                   runOutcomes,
 		},
-		ProcessTransport: agentProcessTransport,
+		ProcessTransport: sessionRecordingTransport,
+		HostMetadata:     agentHostMetadata,
 		AdapterResolver: agentextensionservice.RuntimeResolver{
-			Manager: agentExtensionManager, Transport: agentProcessTransport, Host: agentHostMetadata,
+			Manager: agentExtensionManager, Transport: sessionRecordingTransport, Host: agentHostMetadata,
 		},
-		ProviderCommandResolver: func(ctx context.Context, provider string) (agentdaemon.ProviderCommand, error) {
-			resolved, err := agentStatusService.ResolveProviderCommand(ctx, provider)
-			if err != nil {
-				return agentdaemon.ProviderCommand{}, err
-			}
-			return agentdaemon.ProviderCommand{
-				Command: resolved.Command,
-				Env:     resolved.Env,
-			}, nil
-		},
-		HostMetadata: agentHostMetadata,
-	})
+		ProviderCommandResolver: agentProviderCommandResolver(&agentStatusService),
+	}
+	agentRuntimeConfig = applyAgentReplayRuntimeComposition(agentRuntimeConfig, replayComposition)
+	agentRuntime, err := agentdaemon.NewRuntime(agentRuntimeConfig)
 	if err != nil {
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("create agent runtime: %w", err)
 	}
@@ -334,6 +331,13 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	agentSessionService.GoalStateStore = agentActivityRepo
 	agentSessionService.GoalGenerationFenceStore = agentActivityRepo
 	agentSessionService.CommitObserver = agentActivityProjection
+	agentSessionRecordingService, err := buildAgentSessionRecordingService(
+		store, sessionRecordingTransport, agentSessionService,
+	)
+	if err != nil {
+		return tuttiapi.DaemonAPI{}, nil, nil, nil, err
+	}
+	configureAgentSessionRecordingObservers(agentActivityProjection, agentSessionService, agentRuntimeController, agentSessionRecordingService)
 	agentSessionService.SubmitClaimStore = agentActivityRepo
 	agentSessionService.RuntimeOperationEventPublisher = agentActivityProjection
 	agentSessionService.TuttiModeActivations = tuttiModeActivations
@@ -373,10 +377,14 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 		RootDir:       tuttitypes.DefaultStateDir(),
 		SourceRootDir: filepath.Join(tuttitypes.DefaultStateDir(), "agent-prompt-assets"),
 	}
-	agentSessionService.RuntimePreparer = agentRuntimePreparer
-	agentSessionService.ComputerUseAvailable = agentRuntimePreparer.ComputerUseAvailable
-	agentSessionService.AvailabilityChecker = agentservice.AgentStatusProviderAvailabilityChecker{
-		Service: &agentStatusService,
+	if !replayComposition {
+		agentSessionService.RuntimePreparer = agentRuntimePreparer
+		agentSessionService.ComputerUseAvailable = agentRuntimePreparer.ComputerUseAvailable
+		agentSessionService.AvailabilityChecker = agentservice.AgentStatusProviderAvailabilityChecker{
+			Service: &agentStatusService,
+		}
+	} else {
+		agentSessionService.AvailabilityChecker = replayProviderAvailabilityChecker{}
 	}
 	modelPlans.NativeSubscriptionProbe = modelPlanNativeSubscriptionProbe{Agents: agentSessionService}
 	automationExecutor := &automationruleservice.DaemonExecutor{Agents: agentSessionService, Ledger: automationRulesStore}
@@ -612,41 +620,32 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	agentRuntimePreparer.CommandCatalog = runtimePrepCommandCatalog{Catalog: cliRegistry}
 
 	terminalService := &workspaceservice.TerminalService{}
-	tuttiAgentReadiness := tuttiagentservice.NewReadinessCoordinator(&agentStatusService, agentTargets)
-	accountService.OnLoginCompleted = func(context.Context) {
-		tuttiAgentReadiness.Trigger("account_login_completed")
-	}
-	accountService.OnLogoutCompleted = func(ctx context.Context) {
-		tuttiagentservice.LogoutTuttiAgentUserAuth(ctx)
-	}
-	tuttiAgentReadiness.Trigger("daemon_started")
+	tuttiAgentReadiness := configureReplayAwareTuttiAgentReadiness(
+		replayComposition, accountService, &agentStatusService, agentTargets,
+	)
 
 	// External credential switchers (for example cc-switch) rewrite provider
 	// auth/config files without notifying tuttid. Watch those files so cached
 	// model catalogs are dropped and the GUI hears about it immediately.
 	agentModelCatalogPublisher := eventstreamservice.AgentModelCatalogPublisher{Service: events}
-	providerAuthWatcher := &agentservice.ProviderAuthWatcher{
-		Entries: agentservice.DefaultProviderAuthWatchEntries(),
-		OnChange: func(providers []string) {
-			agentModelCatalog.Invalidate(providers...)
-			for _, provider := range providers {
-				agentSessionService.InvalidateLiveComposerModels(provider)
-			}
-			if err := agentModelCatalogPublisher.PublishAgentModelCatalogInvalidated(context.Background(), providers); err != nil {
-				slog.Warn("agent model catalog invalidation publish failed",
-					"event", "agent.model_catalog.invalidation_publish_failed",
-					"providers", providers,
-					"error", err,
-				)
-				return
-			}
-			slog.Info("agent provider auth files changed; model catalog invalidated",
-				"event", "agent.model_catalog.invalidated",
+	providerAuthWatcher := startProviderAuthWatcher(replayComposition, func(providers []string) {
+		agentModelCatalog.Invalidate(providers...)
+		for _, provider := range providers {
+			agentSessionService.InvalidateLiveComposerModels(provider)
+		}
+		if err := agentModelCatalogPublisher.PublishAgentModelCatalogInvalidated(context.Background(), providers); err != nil {
+			slog.Warn("agent model catalog invalidation publish failed",
+				"event", "agent.model_catalog.invalidation_publish_failed",
 				"providers", providers,
+				"error", err,
 			)
-		},
-	}
-	providerAuthWatcher.Start()
+			return
+		}
+		slog.Info("agent provider auth files changed; model catalog invalidated",
+			"event", "agent.model_catalog.invalidated",
+			"providers", providers,
+		)
+	})
 
 	if refreshAgentExtensionsInBackground {
 		startAgentExtensionBackgroundRefresh(agentExtensionManager)
@@ -682,7 +681,11 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 		FileService: workspaceservice.FileService{
 			Adapter: fileAdapter,
 		},
-		AgentSessionService:        agentSessionService,
+		AgentSessionService:          agentSessionService,
+		AgentSessionRecordingService: agentSessionRecordingService,
+		AgentSessionReplayVerifier: agentReplayTransportVerifier{
+			enabled: replayComposition, transport: sessionRecordingTransport,
+		},
 		AgentStatusService:         &agentStatusService,
 		TuttiAgentReadiness:        tuttiAgentReadiness,
 		TerminalService:            terminalService,

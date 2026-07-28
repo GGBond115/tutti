@@ -304,6 +304,7 @@ type PromptContentBlock struct {
 type Session struct {
 	RoomID             string              `json:"roomId"`
 	AgentSessionID     string              `json:"agentSessionId"`
+	RootAgentSessionID string              `json:"rootAgentSessionId,omitempty"`
 	AgentTargetID      string              `json:"agentTargetId,omitempty"`
 	Provider           string              `json:"provider"`
 	ProviderSessionID  string              `json:"providerSessionId"`

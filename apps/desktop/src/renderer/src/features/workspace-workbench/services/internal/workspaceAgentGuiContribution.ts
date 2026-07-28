@@ -167,6 +167,10 @@ export function createWorkspaceAgentGuiContribution(input: {
     return createElement(DesktopWorkspaceAgentGUIWorkbenchBody, {
       agentActivityRuntime: agentGUIWorkbenchHostInput.agentActivityRuntime,
       agentHostApi: agentGUIWorkbenchHostInput.agentHostApi,
+      agentSessionActivityReplay:
+        agentGUIWorkbenchHostInput.agentSessionActivityReplay,
+      agentSessionReplayService:
+        agentGUIWorkbenchHostInput.agentSessionReplayService,
       agentStatusSource: workspaceAgentStatusSource,
       tuttiModePlanReviewRuntime:
         agentGUIWorkbenchHostInput.tuttiModePlanReviewRuntime,

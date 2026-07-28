@@ -484,6 +484,171 @@ func (e AgentSessionAcceptanceState) Valid() bool {
 	}
 }
 
+// Defines values for AgentSessionCassetteMode.
+const (
+	AgentSessionCassetteModeContinueSession AgentSessionCassetteMode = "continue-session"
+	AgentSessionCassetteModeCreateSession   AgentSessionCassetteMode = "create-session"
+)
+
+// Valid indicates whether the value is a known member of the AgentSessionCassetteMode enum.
+func (e AgentSessionCassetteMode) Valid() bool {
+	switch e {
+	case AgentSessionCassetteModeContinueSession:
+		return true
+	case AgentSessionCassetteModeCreateSession:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentSessionRecordingMode.
+const (
+	AgentSessionRecordingModeContinueSession AgentSessionRecordingMode = "continue-session"
+	AgentSessionRecordingModeCreateSession   AgentSessionRecordingMode = "create-session"
+)
+
+// Valid indicates whether the value is a known member of the AgentSessionRecordingMode enum.
+func (e AgentSessionRecordingMode) Valid() bool {
+	switch e {
+	case AgentSessionRecordingModeContinueSession:
+		return true
+	case AgentSessionRecordingModeCreateSession:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentSessionRecordingStatus.
+const (
+	AgentSessionRecordingStatusCanceled   AgentSessionRecordingStatus = "canceled"
+	AgentSessionRecordingStatusComplete   AgentSessionRecordingStatus = "complete"
+	AgentSessionRecordingStatusFailed     AgentSessionRecordingStatus = "failed"
+	AgentSessionRecordingStatusFinalizing AgentSessionRecordingStatus = "finalizing"
+	AgentSessionRecordingStatusIncomplete AgentSessionRecordingStatus = "incomplete"
+	AgentSessionRecordingStatusPreparing  AgentSessionRecordingStatus = "preparing"
+	AgentSessionRecordingStatusReady      AgentSessionRecordingStatus = "ready"
+	AgentSessionRecordingStatusRecording  AgentSessionRecordingStatus = "recording"
+)
+
+// Valid indicates whether the value is a known member of the AgentSessionRecordingStatus enum.
+func (e AgentSessionRecordingStatus) Valid() bool {
+	switch e {
+	case AgentSessionRecordingStatusCanceled:
+		return true
+	case AgentSessionRecordingStatusComplete:
+		return true
+	case AgentSessionRecordingStatusFailed:
+		return true
+	case AgentSessionRecordingStatusFinalizing:
+		return true
+	case AgentSessionRecordingStatusIncomplete:
+		return true
+	case AgentSessionRecordingStatusPreparing:
+		return true
+	case AgentSessionRecordingStatusReady:
+		return true
+	case AgentSessionRecordingStatusRecording:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentSessionRecordingActivityEventInputKind.
+const (
+	DirectStimulus AgentSessionRecordingActivityEventInputKind = "direct-stimulus"
+	Effect         AgentSessionRecordingActivityEventInputKind = "effect"
+	Intent         AgentSessionRecordingActivityEventInputKind = "intent"
+)
+
+// Valid indicates whether the value is a known member of the AgentSessionRecordingActivityEventInputKind enum.
+func (e AgentSessionRecordingActivityEventInputKind) Valid() bool {
+	switch e {
+	case DirectStimulus:
+		return true
+	case Effect:
+		return true
+	case Intent:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentSessionReplayRunStatus.
+const (
+	AgentSessionReplayRunStatusCanceled AgentSessionReplayRunStatus = "canceled"
+	AgentSessionReplayRunStatusComplete AgentSessionReplayRunStatus = "complete"
+	AgentSessionReplayRunStatusFailed   AgentSessionReplayRunStatus = "failed"
+	AgentSessionReplayRunStatusRunning  AgentSessionReplayRunStatus = "running"
+	AgentSessionReplayRunStatusStarting AgentSessionReplayRunStatus = "starting"
+)
+
+// Valid indicates whether the value is a known member of the AgentSessionReplayRunStatus enum.
+func (e AgentSessionReplayRunStatus) Valid() bool {
+	switch e {
+	case AgentSessionReplayRunStatusCanceled:
+		return true
+	case AgentSessionReplayRunStatusComplete:
+		return true
+	case AgentSessionReplayRunStatusFailed:
+		return true
+	case AgentSessionReplayRunStatusRunning:
+		return true
+	case AgentSessionReplayRunStatusStarting:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentSessionReplayTransportPlaybackSpeed.
+const (
+	AgentSessionReplayTransportPlaybackSpeedN025 AgentSessionReplayTransportPlaybackSpeed = 0.25
+	AgentSessionReplayTransportPlaybackSpeedN05  AgentSessionReplayTransportPlaybackSpeed = 0.5
+	AgentSessionReplayTransportPlaybackSpeedN1   AgentSessionReplayTransportPlaybackSpeed = 1
+	AgentSessionReplayTransportPlaybackSpeedN2   AgentSessionReplayTransportPlaybackSpeed = 2
+	AgentSessionReplayTransportPlaybackSpeedN4   AgentSessionReplayTransportPlaybackSpeed = 4
+)
+
+// Valid indicates whether the value is a known member of the AgentSessionReplayTransportPlaybackSpeed enum.
+func (e AgentSessionReplayTransportPlaybackSpeed) Valid() bool {
+	switch e {
+	case AgentSessionReplayTransportPlaybackSpeedN025:
+		return true
+	case AgentSessionReplayTransportPlaybackSpeedN05:
+		return true
+	case AgentSessionReplayTransportPlaybackSpeedN1:
+		return true
+	case AgentSessionReplayTransportPlaybackSpeedN2:
+		return true
+	case AgentSessionReplayTransportPlaybackSpeedN4:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentSessionReplayTransportPlaybackTimingMode.
+const (
+	AgentSessionReplayTransportPlaybackTimingModeFastForward AgentSessionReplayTransportPlaybackTimingMode = "fast-forward"
+	AgentSessionReplayTransportPlaybackTimingModeRealtime    AgentSessionReplayTransportPlaybackTimingMode = "realtime"
+)
+
+// Valid indicates whether the value is a known member of the AgentSessionReplayTransportPlaybackTimingMode enum.
+func (e AgentSessionReplayTransportPlaybackTimingMode) Valid() bool {
+	switch e {
+	case AgentSessionReplayTransportPlaybackTimingModeFastForward:
+		return true
+	case AgentSessionReplayTransportPlaybackTimingModeRealtime:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentSlashCommandEffect.
 const (
 	ActivateGoalMode AgentSlashCommandEffect = "activateGoalMode"
@@ -1996,6 +2161,75 @@ func (e TuttiModePlanTaskPriority) Valid() bool {
 	}
 }
 
+// Defines values for UpdateAgentSessionReplayTransportPlaybackRequestCommand.
+const (
+	UpdateAgentSessionReplayTransportPlaybackRequestCommandPause         UpdateAgentSessionReplayTransportPlaybackRequestCommand = "pause"
+	UpdateAgentSessionReplayTransportPlaybackRequestCommandResume        UpdateAgentSessionReplayTransportPlaybackRequestCommand = "resume"
+	UpdateAgentSessionReplayTransportPlaybackRequestCommandSetSpeed      UpdateAgentSessionReplayTransportPlaybackRequestCommand = "set-speed"
+	UpdateAgentSessionReplayTransportPlaybackRequestCommandSetTimingMode UpdateAgentSessionReplayTransportPlaybackRequestCommand = "set-timing-mode"
+)
+
+// Valid indicates whether the value is a known member of the UpdateAgentSessionReplayTransportPlaybackRequestCommand enum.
+func (e UpdateAgentSessionReplayTransportPlaybackRequestCommand) Valid() bool {
+	switch e {
+	case UpdateAgentSessionReplayTransportPlaybackRequestCommandPause:
+		return true
+	case UpdateAgentSessionReplayTransportPlaybackRequestCommandResume:
+		return true
+	case UpdateAgentSessionReplayTransportPlaybackRequestCommandSetSpeed:
+		return true
+	case UpdateAgentSessionReplayTransportPlaybackRequestCommandSetTimingMode:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateAgentSessionReplayTransportPlaybackRequestSpeed.
+const (
+	UpdateAgentSessionReplayTransportPlaybackRequestSpeedN025 UpdateAgentSessionReplayTransportPlaybackRequestSpeed = 0.25
+	UpdateAgentSessionReplayTransportPlaybackRequestSpeedN05  UpdateAgentSessionReplayTransportPlaybackRequestSpeed = 0.5
+	UpdateAgentSessionReplayTransportPlaybackRequestSpeedN1   UpdateAgentSessionReplayTransportPlaybackRequestSpeed = 1
+	UpdateAgentSessionReplayTransportPlaybackRequestSpeedN2   UpdateAgentSessionReplayTransportPlaybackRequestSpeed = 2
+	UpdateAgentSessionReplayTransportPlaybackRequestSpeedN4   UpdateAgentSessionReplayTransportPlaybackRequestSpeed = 4
+)
+
+// Valid indicates whether the value is a known member of the UpdateAgentSessionReplayTransportPlaybackRequestSpeed enum.
+func (e UpdateAgentSessionReplayTransportPlaybackRequestSpeed) Valid() bool {
+	switch e {
+	case UpdateAgentSessionReplayTransportPlaybackRequestSpeedN025:
+		return true
+	case UpdateAgentSessionReplayTransportPlaybackRequestSpeedN05:
+		return true
+	case UpdateAgentSessionReplayTransportPlaybackRequestSpeedN1:
+		return true
+	case UpdateAgentSessionReplayTransportPlaybackRequestSpeedN2:
+		return true
+	case UpdateAgentSessionReplayTransportPlaybackRequestSpeedN4:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateAgentSessionReplayTransportPlaybackRequestTimingMode.
+const (
+	UpdateAgentSessionReplayTransportPlaybackRequestTimingModeFastForward UpdateAgentSessionReplayTransportPlaybackRequestTimingMode = "fast-forward"
+	UpdateAgentSessionReplayTransportPlaybackRequestTimingModeRealtime    UpdateAgentSessionReplayTransportPlaybackRequestTimingMode = "realtime"
+)
+
+// Valid indicates whether the value is a known member of the UpdateAgentSessionReplayTransportPlaybackRequestTimingMode enum.
+func (e UpdateAgentSessionReplayTransportPlaybackRequestTimingMode) Valid() bool {
+	switch e {
+	case UpdateAgentSessionReplayTransportPlaybackRequestTimingModeFastForward:
+		return true
+	case UpdateAgentSessionReplayTransportPlaybackRequestTimingModeRealtime:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WorkbenchSnapshotSchemaVersion.
 const (
 	WorkbenchSnapshotSchemaVersionN1 WorkbenchSnapshotSchemaVersion = 1
@@ -2295,22 +2529,22 @@ func (e WorkspaceAgentSessionGoalStatus) Valid() bool {
 
 // Defines values for WorkspaceAgentSessionGoalControlRequestAction.
 const (
-	Clear  WorkspaceAgentSessionGoalControlRequestAction = "clear"
-	Pause  WorkspaceAgentSessionGoalControlRequestAction = "pause"
-	Resume WorkspaceAgentSessionGoalControlRequestAction = "resume"
-	Set    WorkspaceAgentSessionGoalControlRequestAction = "set"
+	WorkspaceAgentSessionGoalControlRequestActionClear  WorkspaceAgentSessionGoalControlRequestAction = "clear"
+	WorkspaceAgentSessionGoalControlRequestActionPause  WorkspaceAgentSessionGoalControlRequestAction = "pause"
+	WorkspaceAgentSessionGoalControlRequestActionResume WorkspaceAgentSessionGoalControlRequestAction = "resume"
+	WorkspaceAgentSessionGoalControlRequestActionSet    WorkspaceAgentSessionGoalControlRequestAction = "set"
 )
 
 // Valid indicates whether the value is a known member of the WorkspaceAgentSessionGoalControlRequestAction enum.
 func (e WorkspaceAgentSessionGoalControlRequestAction) Valid() bool {
 	switch e {
-	case Clear:
+	case WorkspaceAgentSessionGoalControlRequestActionClear:
 		return true
-	case Pause:
+	case WorkspaceAgentSessionGoalControlRequestActionPause:
 		return true
-	case Resume:
+	case WorkspaceAgentSessionGoalControlRequestActionResume:
 		return true
-	case Set:
+	case WorkspaceAgentSessionGoalControlRequestActionSet:
 		return true
 	default:
 		return false
@@ -3338,6 +3572,11 @@ type AddIssueManagerContextRefsRequest struct {
 	Refs []AddIssueManagerContextRefItem `json:"refs"`
 }
 
+// AdvanceAgentSessionReplayRunCheckpointRequest defines model for AdvanceAgentSessionReplayRunCheckpointRequest.
+type AdvanceAgentSessionReplayRunCheckpointRequest struct {
+	Checkpoint int64 `json:"checkpoint"`
+}
+
 // AgentActivityMessageSemantics defines model for AgentActivityMessageSemantics.
 type AgentActivityMessageSemantics struct {
 	NoticeCommand                *string `json:"noticeCommand,omitempty"`
@@ -3723,6 +3962,27 @@ type AgentSessionAutomationRuleOverride struct {
 	WorkspaceId    string     `json:"workspaceId"`
 }
 
+// AgentSessionCassette defines model for AgentSessionCassette.
+type AgentSessionCassette struct {
+	AgentTargetId      string                   `json:"agentTargetId"`
+	CreatedAtUnixMs    int64                    `json:"createdAtUnixMs"`
+	Id                 openapi_types.UUID       `json:"id"`
+	Mode               AgentSessionCassetteMode `json:"mode"`
+	Name               string                   `json:"name"`
+	RootAgentSessionId string                   `json:"rootAgentSessionId"`
+	SourceRecordingId  openapi_types.UUID       `json:"sourceRecordingId"`
+	TotalBytes         int64                    `json:"totalBytes"`
+	WorkspaceId        string                   `json:"workspaceId"`
+}
+
+// AgentSessionCassetteMode defines model for AgentSessionCassette.Mode.
+type AgentSessionCassetteMode string
+
+// AgentSessionCassetteListResponse defines model for AgentSessionCassetteListResponse.
+type AgentSessionCassetteListResponse struct {
+	Cassettes []AgentSessionCassette `json:"cassettes"`
+}
+
 // AgentSessionComposerSettings defines model for AgentSessionComposerSettings.
 type AgentSessionComposerSettings struct {
 	BrowserUse       *bool   `json:"browserUse,omitempty"`
@@ -3741,6 +4001,96 @@ type AgentSessionModelPolicyOverride struct {
 	UpdatedAt      *time.Time `json:"updatedAt,omitempty"`
 	WorkspaceId    string     `json:"workspaceId"`
 }
+
+// AgentSessionRecording defines model for AgentSessionRecording.
+type AgentSessionRecording struct {
+	AgentTargetId string `json:"agentTargetId"`
+
+	// CassetteId Immutable Cassette produced by a completed Recording.
+	CassetteId      *openapi_types.UUID       `json:"cassetteId,omitempty"`
+	CreatedAtUnixMs int64                     `json:"createdAtUnixMs"`
+	Directory       string                    `json:"directory"`
+	ErrorCode       *string                   `json:"errorCode,omitempty"`
+	ErrorMessage    *string                   `json:"errorMessage,omitempty"`
+	Id              openapi_types.UUID        `json:"id"`
+	Mode            AgentSessionRecordingMode `json:"mode"`
+
+	// Name Mutable name stored in the portable Cassette manifest after completion.
+	Name               string                      `json:"name"`
+	RootAgentSessionId *string                     `json:"rootAgentSessionId,omitempty"`
+	Status             AgentSessionRecordingStatus `json:"status"`
+	UpdatedAtUnixMs    int64                       `json:"updatedAtUnixMs"`
+	WorkspaceId        string                      `json:"workspaceId"`
+}
+
+// AgentSessionRecordingMode defines model for AgentSessionRecording.Mode.
+type AgentSessionRecordingMode string
+
+// AgentSessionRecordingStatus defines model for AgentSessionRecording.Status.
+type AgentSessionRecordingStatus string
+
+// AgentSessionRecordingActivityEventInput defines model for AgentSessionRecordingActivityEventInput.
+type AgentSessionRecordingActivityEventInput struct {
+	AgentSessionId   *string                                     `json:"agentSessionId,omitempty"`
+	CausedByEventId  *string                                     `json:"causedByEventId,omitempty"`
+	CorrelationId    *string                                     `json:"correlationId,omitempty"`
+	EventId          string                                      `json:"eventId"`
+	Kind             AgentSessionRecordingActivityEventInputKind `json:"kind"`
+	OccurredAtUnixMs int64                                       `json:"occurredAtUnixMs"`
+	Payload          *map[string]interface{}                     `json:"payload,omitempty"`
+	Type             string                                      `json:"type"`
+}
+
+// AgentSessionRecordingActivityEventInputKind defines model for AgentSessionRecordingActivityEventInput.Kind.
+type AgentSessionRecordingActivityEventInputKind string
+
+// AgentSessionRecordingListResponse defines model for AgentSessionRecordingListResponse.
+type AgentSessionRecordingListResponse struct {
+	Recordings []AgentSessionRecording `json:"recordings"`
+}
+
+// AgentSessionReplayLaunch defines model for AgentSessionReplayLaunch.
+type AgentSessionReplayLaunch struct {
+	CassetteDirectory string                `json:"cassetteDirectory"`
+	Run               AgentSessionReplayRun `json:"run"`
+}
+
+// AgentSessionReplayRun defines model for AgentSessionReplayRun.
+type AgentSessionReplayRun struct {
+	CassetteId        openapi_types.UUID          `json:"cassetteId"`
+	Checkpoint        int64                       `json:"checkpoint"`
+	CompletedAtUnixMs *int64                      `json:"completedAtUnixMs,omitempty"`
+	CreatedAtUnixMs   int64                       `json:"createdAtUnixMs"`
+	ErrorCode         *string                     `json:"errorCode,omitempty"`
+	ErrorMessage      *string                     `json:"errorMessage,omitempty"`
+	Id                openapi_types.UUID          `json:"id"`
+	StartedAtUnixMs   *int64                      `json:"startedAtUnixMs,omitempty"`
+	Status            AgentSessionReplayRunStatus `json:"status"`
+	UpdatedAtUnixMs   int64                       `json:"updatedAtUnixMs"`
+}
+
+// AgentSessionReplayRunStatus defines model for AgentSessionReplayRun.Status.
+type AgentSessionReplayRunStatus string
+
+// AgentSessionReplayRunListResponse defines model for AgentSessionReplayRunListResponse.
+type AgentSessionReplayRunListResponse struct {
+	Runs []AgentSessionReplayRun `json:"runs"`
+}
+
+// AgentSessionReplayTransportPlayback defines model for AgentSessionReplayTransportPlayback.
+type AgentSessionReplayTransportPlayback struct {
+	Drained           bool                                          `json:"drained"`
+	Paused            bool                                          `json:"paused"`
+	PlaybackElapsedMs float64                                       `json:"playbackElapsedMs"`
+	Speed             AgentSessionReplayTransportPlaybackSpeed      `json:"speed"`
+	TimingMode        AgentSessionReplayTransportPlaybackTimingMode `json:"timingMode"`
+}
+
+// AgentSessionReplayTransportPlaybackSpeed defines model for AgentSessionReplayTransportPlayback.Speed.
+type AgentSessionReplayTransportPlaybackSpeed float64
+
+// AgentSessionReplayTransportPlaybackTimingMode defines model for AgentSessionReplayTransportPlayback.TimingMode.
+type AgentSessionReplayTransportPlaybackTimingMode string
 
 // AgentSlashCommandEffect defines model for AgentSlashCommandEffect.
 type AgentSlashCommandEffect string
@@ -4013,6 +4363,16 @@ type AppReferenceSearchResponse struct {
 	Items       []AppReferenceListReferenceItem `json:"items"`
 	NextCursor  *string                         `json:"nextCursor"`
 	WorkspaceId string                          `json:"workspaceId"`
+}
+
+// AppendAgentSessionRecordingActivityEventsRequest defines model for AppendAgentSessionRecordingActivityEventsRequest.
+type AppendAgentSessionRecordingActivityEventsRequest struct {
+	Events []AgentSessionRecordingActivityEventInput `json:"events"`
+}
+
+// AppendAgentSessionRecordingActivityEventsResponse defines model for AppendAgentSessionRecordingActivityEventsResponse.
+type AppendAgentSessionRecordingActivityEventsResponse struct {
+	AcceptedThroughSequence int64 `json:"acceptedThroughSequence"`
 }
 
 // AuthenticateAgentTargetRuntimeRequest defines model for AuthenticateAgentTargetRuntimeRequest.
@@ -4447,15 +4807,18 @@ type CreateWorkspaceAgentSessionRequest struct {
 	Model                      *string                    `json:"model,omitempty"`
 
 	// NoProject Classifies a session that is intentionally not attached to a workspace project.
-	NoProject         *bool                        `json:"noProject,omitempty"`
-	PermissionModeId  *string                      `json:"permissionModeId,omitempty"`
-	PlanMode          *bool                        `json:"planMode,omitempty"`
-	RailPlacement     *WorkspaceAgentRailPlacement `json:"railPlacement,omitempty"`
-	ReasoningEffort   *string                      `json:"reasoningEffort,omitempty"`
-	Speed             *string                      `json:"speed,omitempty"`
-	SubmitDiagnostics *AgentSubmitDiagnostics      `json:"submitDiagnostics,omitempty"`
-	Title             *string                      `json:"title,omitempty"`
-	Visible           *bool                        `json:"visible,omitempty"`
+	NoProject        *bool                        `json:"noProject,omitempty"`
+	PermissionModeId *string                      `json:"permissionModeId,omitempty"`
+	PlanMode         *bool                        `json:"planMode,omitempty"`
+	RailPlacement    *WorkspaceAgentRailPlacement `json:"railPlacement,omitempty"`
+	ReasoningEffort  *string                      `json:"reasoningEffort,omitempty"`
+
+	// RecordingId Developer create-session scenario waiting for this root Session.
+	RecordingId       *openapi_types.UUID     `json:"recordingId,omitempty"`
+	Speed             *string                 `json:"speed,omitempty"`
+	SubmitDiagnostics *AgentSubmitDiagnostics `json:"submitDiagnostics,omitempty"`
+	Title             *string                 `json:"title,omitempty"`
+	Visible           *bool                   `json:"visible,omitempty"`
 }
 
 // CreateWorkspaceAppFactoryJobRequest defines model for CreateWorkspaceAppFactoryJobRequest.
@@ -4873,6 +5236,13 @@ type ExternalAgentImportSession struct {
 	Provider            WorkspaceAgentProvider `json:"provider"`
 	SourcePath          string                 `json:"sourcePath"`
 	Title               string                 `json:"title"`
+}
+
+// FailAgentSessionReplayRunRequest defines model for FailAgentSessionReplayRunRequest.
+type FailAgentSessionReplayRunRequest struct {
+	Checkpoint   *int64 `json:"checkpoint,omitempty"`
+	ErrorCode    string `json:"errorCode"`
+	ErrorMessage string `json:"errorMessage"`
 }
 
 // FixWorkspaceAppFactoryJobRequest defines model for FixWorkspaceAppFactoryJobRequest.
@@ -5684,6 +6054,11 @@ type ReloadLocalWorkspaceAppRequest struct {
 	RestartRunning *bool `json:"restartRunning,omitempty"`
 }
 
+// RenameAgentSessionRecordingRequest defines model for RenameAgentSessionRecordingRequest.
+type RenameAgentSessionRecordingRequest struct {
+	Name string `json:"name"`
+}
+
 // RenameWorkspaceFileEntryRequest defines model for RenameWorkspaceFileEntryRequest.
 type RenameWorkspaceFileEntryRequest struct {
 	NewName string `json:"newName"`
@@ -5787,6 +6162,13 @@ type SetModelPlanEnabledRequest struct {
 // SetSystemAgentTargetEnabledRequest defines model for SetSystemAgentTargetEnabledRequest.
 type SetSystemAgentTargetEnabledRequest struct {
 	Enabled *bool `json:"enabled"`
+}
+
+// StartAgentSessionRecordingRequest defines model for StartAgentSessionRecordingRequest.
+type StartAgentSessionRecordingRequest struct {
+	// AgentSessionId Existing Session selecting continue-session mode. Omit for create-session mode.
+	AgentSessionId *string `json:"agentSessionId,omitempty"`
+	AgentTargetId  string  `json:"agentTargetId"`
 }
 
 // StartupWorkspaceResponse defines model for StartupWorkspaceResponse.
@@ -5947,6 +6329,22 @@ type UpdateAgentQuickPromptRequest struct {
 	ExpectedVersion int64  `json:"expectedVersion"`
 	Title           string `json:"title"`
 }
+
+// UpdateAgentSessionReplayTransportPlaybackRequest defines model for UpdateAgentSessionReplayTransportPlaybackRequest.
+type UpdateAgentSessionReplayTransportPlaybackRequest struct {
+	Command    UpdateAgentSessionReplayTransportPlaybackRequestCommand     `json:"command"`
+	Speed      *UpdateAgentSessionReplayTransportPlaybackRequestSpeed      `json:"speed,omitempty"`
+	TimingMode *UpdateAgentSessionReplayTransportPlaybackRequestTimingMode `json:"timingMode,omitempty"`
+}
+
+// UpdateAgentSessionReplayTransportPlaybackRequestCommand defines model for UpdateAgentSessionReplayTransportPlaybackRequest.Command.
+type UpdateAgentSessionReplayTransportPlaybackRequestCommand string
+
+// UpdateAgentSessionReplayTransportPlaybackRequestSpeed defines model for UpdateAgentSessionReplayTransportPlaybackRequest.Speed.
+type UpdateAgentSessionReplayTransportPlaybackRequestSpeed float64
+
+// UpdateAgentSessionReplayTransportPlaybackRequestTimingMode defines model for UpdateAgentSessionReplayTransportPlaybackRequest.TimingMode.
+type UpdateAgentSessionReplayTransportPlaybackRequestTimingMode string
 
 // UpdateIssueManagerIssueRequest defines model for UpdateIssueManagerIssueRequest.
 type UpdateIssueManagerIssueRequest struct {
@@ -7769,6 +8167,9 @@ type DeleteAgentQuickPromptJSONRequestBody = DeleteAgentQuickPromptRequest
 // UpdateAgentQuickPromptJSONRequestBody defines body for UpdateAgentQuickPrompt for application/json ContentType.
 type UpdateAgentQuickPromptJSONRequestBody = UpdateAgentQuickPromptRequest
 
+// UpdateAgentSessionReplayTransportPlaybackJSONRequestBody defines body for UpdateAgentSessionReplayTransportPlayback for application/json ContentType.
+type UpdateAgentSessionReplayTransportPlaybackJSONRequestBody = UpdateAgentSessionReplayTransportPlaybackRequest
+
 // SetSystemAgentTargetEnabledJSONRequestBody defines body for SetSystemAgentTargetEnabled for application/json ContentType.
 type SetSystemAgentTargetEnabledJSONRequestBody = SetSystemAgentTargetEnabledRequest
 
@@ -7804,6 +8205,21 @@ type UpdateWorkspaceJSONRequestBody = UpdateWorkspaceRequest
 
 // SetAgentModelBindingJSONRequestBody defines body for SetAgentModelBinding for application/json ContentType.
 type SetAgentModelBindingJSONRequestBody = SetAgentModelBindingRequest
+
+// StartAgentSessionRecordingJSONRequestBody defines body for StartAgentSessionRecording for application/json ContentType.
+type StartAgentSessionRecordingJSONRequestBody = StartAgentSessionRecordingRequest
+
+// RenameAgentSessionRecordingJSONRequestBody defines body for RenameAgentSessionRecording for application/json ContentType.
+type RenameAgentSessionRecordingJSONRequestBody = RenameAgentSessionRecordingRequest
+
+// AppendAgentSessionRecordingActivityEventsJSONRequestBody defines body for AppendAgentSessionRecordingActivityEvents for application/json ContentType.
+type AppendAgentSessionRecordingActivityEventsJSONRequestBody = AppendAgentSessionRecordingActivityEventsRequest
+
+// AdvanceAgentSessionReplayRunCheckpointJSONRequestBody defines body for AdvanceAgentSessionReplayRunCheckpoint for application/json ContentType.
+type AdvanceAgentSessionReplayRunCheckpointJSONRequestBody = AdvanceAgentSessionReplayRunCheckpointRequest
+
+// FailAgentSessionReplayRunJSONRequestBody defines body for FailAgentSessionReplayRun for application/json ContentType.
+type FailAgentSessionReplayRunJSONRequestBody = FailAgentSessionReplayRunRequest
 
 // CreateWorkspaceAgentSessionJSONRequestBody defines body for CreateWorkspaceAgentSession for application/json ContentType.
 type CreateWorkspaceAgentSessionJSONRequestBody = CreateWorkspaceAgentSessionRequest

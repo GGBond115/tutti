@@ -13,6 +13,7 @@ require (
 	github.com/tutti-os/tutti/packages/agent/daemon v0.0.0
 	github.com/tutti-os/tutti/packages/agent/host v0.0.0
 	github.com/tutti-os/tutti/packages/agent/runtimeprep v0.0.0
+	github.com/tutti-os/tutti/packages/agent/session-replay v0.0.0
 	github.com/tutti-os/tutti/packages/agent/store-sqlite v0.0.0
 	github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical v0.0.0
 	github.com/tutti-os/tutti/packages/analytics/reporter-go v0.0.0
@@ -44,6 +45,8 @@ replace github.com/tutti-os/tutti/packages/agent/daemon => ../../packages/agent/
 replace github.com/tutti-os/tutti/packages/agent/host => ../../packages/agent/host
 
 replace github.com/tutti-os/tutti/packages/agent/runtimeprep => ../../packages/agent/runtimeprep
+
+replace github.com/tutti-os/tutti/packages/agent/session-replay => ../../packages/agent/session-replay
 
 replace github.com/tutti-os/tutti/packages/agent/store-sqlite => ../../packages/agent/store-sqlite
 

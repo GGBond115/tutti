@@ -2974,3 +2974,89 @@ convergence deadline`.
 - References:
   [agentTranscriptModel.ts](../../../packages/agent/gui/shared/agentConversation/components/agentTranscriptModel.ts)
   [AgentTranscriptView.tsx](../../../packages/agent/gui/shared/agentConversation/components/AgentTranscriptView.tsx)
+
+### Cassette replay loses the provider session before the second stimulus
+
+- Symptom:
+  Replay reaches checkpoint 1, then a later `session.send` fails with
+  `provider session was never established`. The replay error also reports that
+  an outbound write arrived while a recorded stdout chunk was next.
+- Quick checks:
+  Inspect `provider/frames.jsonl` around the reported chunk. If a provider
+  notification immediately follows a successful request response and precedes
+  the next outbound request, compare the reader and writer goroutine timing.
+- Root cause:
+  The process cassette encoded the provider byte-stream order, but replay
+  treated that order as a required Go goroutine schedule. A writer could run
+  before the reader consumed an already-recorded notification, so normal
+  concurrency was rejected as a transport mismatch and provider startup was
+  torn down.
+- Fix:
+  When the next recorded chunk is inbound, block the replay write until the
+  receive path consumes it. Continue strict payload validation when the next
+  recorded outbound chunk becomes current.
+- Validation:
+  Start a replay stream with `outbound -> stdout -> outbound`. Launch the
+  second send before receiving stdout; it must wait, then succeed after the
+  receive. Keep mismatch, pause, fast-forward, close, and full runtime tests
+  passing.
+- References:
+  [process_transport_replay.go](../../../packages/agent/daemon/runtime/process_transport_replay.go)
+  [process_transport_cassette_test.go](../../../packages/agent/daemon/runtime/process_transport_cassette_test.go)
+
+### Cassette replay reports a false final Session state mismatch
+
+- Symptom:
+  Every recorded stimulus succeeds, but final replay validation reports that
+  `workspace_agent_sessions` or `workspace_agent_turns` differs. The isolated
+  replay database contains the same child Sessions and Turns under new ids.
+- Quick checks:
+  Compare child Sessions by provider, provider Session id, target, and Session
+  kind instead of the generated Tutti id. Then compare each Session's Turns in
+  order. If those normalized rows match, the cassette state is not corrupt.
+- Root cause:
+  Replay creates new Tutti ids for provider-discovered child Sessions and their
+  canonical Turns. A validator that maps only the root Session and submitted
+  root Turns queries child rows with recorded ids, then mistakes missing rows
+  for durable state drift.
+- Fix:
+  Normalize child Session ids by an unambiguous stable provider identity before
+  querying final fixtures. Map remaining Turn ids by order within the already
+  mapped Session. Do not guess when either side has duplicate stable identities
+  or mismatched Turn counts.
+- Validation:
+  Cover regenerated child Session and Turn ids, ambiguous provider identities,
+  and the original multi-child cassette. The unambiguous cassette must pass;
+  ambiguous or count-mismatched fixtures must still fail closed.
+- References:
+  [run-agent-session-replay.mjs](../../../tools/scripts/run-agent-session-replay.mjs)
+  [run-agent-session-replay.test.mjs](../../../tools/scripts/run-agent-session-replay.test.mjs)
+
+### Cassette replay times out before a recorded queued Turn
+
+- Symptom:
+  Replay stops on `timed out waiting for renderer effect queue/sendPrompt`,
+  leaves later activity events untouched, and consumes only the provider frames
+  before a long-running Turn settles. The cassette itself contains the missing
+  intent, effect, and final Turn.
+- Quick checks:
+  Compare adjacent `activity-events.jsonl` timestamps. If the effect was
+  recorded more than the renderer effect timeout after its intent, check
+  whether replay dispatched both events immediately instead of waiting for
+  their recorded interval.
+- Root cause:
+  Provider frames followed the daemon playback clock, but the runner iterated
+  activity events as fast as JavaScript completed them. Effect verification
+  therefore began while the recorded Turn was still running and expired before
+  the effect could exist.
+- Fix:
+  Advance activity events by relative `occurredAtUnixMs` using the daemon's
+  playback state. Pause freezes the activity clock, speed scales it, and
+  checkpoint fast-forward skips its remaining wait.
+- Validation:
+  Cover normal recorded delay, processing time between events, pause/resume,
+  selected speed, and fast-forward. Then replay the failing cassette and require
+  the final checkpoint, all provider frames, and every expected Turn to pass.
+- References:
+  [run-agent-session-replay.mjs](../../../tools/scripts/run-agent-session-replay.mjs)
+  [run-agent-session-replay.test.mjs](../../../tools/scripts/run-agent-session-replay.test.mjs)

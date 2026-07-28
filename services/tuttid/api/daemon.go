@@ -29,37 +29,39 @@ type EventStreamService interface {
 }
 
 type DaemonAPI struct {
-	UserProjectService         UserProjectService
-	AgentQuickPromptService    AgentQuickPromptService
-	AgentTargetService         AgentTargetService
-	AgentTargetSetupService    AgentTargetSetupService
-	PreferencesService         preferencesapi.Service
-	AgentMaintenanceService    AgentMaintenanceService
-	ManagedCredentialsService  *managedcredentialsservice.Service
-	ModelPlanService           ModelPlanService
-	WorkspaceAgentService      WorkspaceAgentService
-	AgentModelBindingService   AgentModelBindingService
-	ModelPolicyService         ModelPolicyService
-	CollaborationRunService    CollaborationRunService
-	AutomationRuleService      AutomationRuleService
-	AccountService             AccountService
-	MobileRemoteService        MobileRemoteService
-	EventStreamService         EventStreamService
-	WorkspaceService           workspaceapi.CatalogService
-	WorkbenchService           workspaceapi.WorkbenchService
-	AppCenterService           workspaceapi.AppCenterService
-	AppFactoryService          AppFactoryService
-	FileService                workspaceapi.FileService
-	AgentSessionService        AgentSessionService
-	AgentStatusService         AgentProviderStatusService
-	TuttiAgentReadiness        TuttiAgentReadiness
-	TerminalService            workspaceapi.TerminalService
-	IssueService               workspaceapi.IssueManagerService
-	IssueExecutionService      workspaceapi.IssueExecutionService
-	TuttiModePlanService       TuttiModePlanService
-	TuttiModeActivationService TuttiModeActivationService
-	CLIRegistry                *cliservice.Registry
-	AnalyticsReporter          reporterservice.Reporter
+	UserProjectService           UserProjectService
+	AgentQuickPromptService      AgentQuickPromptService
+	AgentTargetService           AgentTargetService
+	AgentTargetSetupService      AgentTargetSetupService
+	PreferencesService           preferencesapi.Service
+	AgentMaintenanceService      AgentMaintenanceService
+	ManagedCredentialsService    *managedcredentialsservice.Service
+	ModelPlanService             ModelPlanService
+	WorkspaceAgentService        WorkspaceAgentService
+	AgentModelBindingService     AgentModelBindingService
+	ModelPolicyService           ModelPolicyService
+	CollaborationRunService      CollaborationRunService
+	AutomationRuleService        AutomationRuleService
+	AccountService               AccountService
+	MobileRemoteService          MobileRemoteService
+	EventStreamService           EventStreamService
+	WorkspaceService             workspaceapi.CatalogService
+	WorkbenchService             workspaceapi.WorkbenchService
+	AppCenterService             workspaceapi.AppCenterService
+	AppFactoryService            AppFactoryService
+	FileService                  workspaceapi.FileService
+	AgentSessionService          AgentSessionService
+	AgentSessionRecordingService AgentSessionRecordingService
+	AgentSessionReplayVerifier   AgentSessionReplayVerifier
+	AgentStatusService           AgentProviderStatusService
+	TuttiAgentReadiness          TuttiAgentReadiness
+	TerminalService              workspaceapi.TerminalService
+	IssueService                 workspaceapi.IssueManagerService
+	IssueExecutionService        workspaceapi.IssueExecutionService
+	TuttiModePlanService         TuttiModePlanService
+	TuttiModeActivationService   TuttiModeActivationService
+	CLIRegistry                  *cliservice.Registry
+	AnalyticsReporter            reporterservice.Reporter
 }
 
 type TuttiAgentReadiness interface {

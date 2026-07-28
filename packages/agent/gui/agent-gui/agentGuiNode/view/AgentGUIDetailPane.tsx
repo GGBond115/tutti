@@ -73,7 +73,8 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   onRequestGitBranches,
   onRequestComposerFocus,
   workspaceAppIcons = EMPTY_WORKSPACE_APP_ICONS,
-  renderProviderUnavailableState
+  renderProviderUnavailableState,
+  renderComposerFooterAccessory
 }: AgentGUIDetailPaneProps): React.JSX.Element {
   "use memo";
   const viewModel = {
@@ -347,7 +348,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     timelineRef,
     viewModel
   });
-  const bottomDockComposerProps = useMemo<AgentComposerProps>(
+  const baseComposerProps = useMemo<AgentComposerProps>(
     () => ({
       workspaceId: viewModel.shell.workspaceId,
       agentSessionId: viewModel.rail.activeConversationId,
@@ -563,6 +564,21 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       selectHomeComposerAgentTargetAndFocus
     ]
   );
+  const composerFooterAccessory =
+    renderComposerFooterAccessory?.({
+      agentSessionId: baseComposerProps.agentSessionId,
+      isActive: baseComposerProps.isActive,
+      isSendingTurn: baseComposerProps.isSendingTurn,
+      isSubmittingPrompt: baseComposerProps.isSubmittingPrompt,
+      selectedAgentTarget: baseComposerProps.selectedAgentTarget
+    }) ?? null;
+  const bottomDockComposerProps = useMemo<AgentComposerProps>(
+    () => ({
+      ...baseComposerProps,
+      footerAccessory: composerFooterAccessory
+    }),
+    [baseComposerProps, composerFooterAccessory]
+  );
   const emptyHeroComposerProps = useMemo<AgentComposerProps>(
     () => ({
       ...bottomDockComposerProps,
@@ -673,6 +689,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     <main
       className={styles.detail}
       aria-busy={timelineInteractionLocked || undefined}
+      data-agent-session-id={viewModel.rail.activeConversationId ?? undefined}
       inert={timelineInteractionLocked}
     >
       {viewModel.operations.goalClearNoticeSequence > 0 ? (

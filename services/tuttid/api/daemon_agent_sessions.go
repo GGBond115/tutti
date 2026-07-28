@@ -405,6 +405,13 @@ func (api DaemonAPI) SubmitWorkspaceAgentInteractive(ctx context.Context, reques
 	if err != nil {
 		return writeSubmitWorkspaceAgentInteractiveError(err), nil
 	}
+	api.recordAgentStimulus(ctx, "interactive.response", string(request.WorkspaceID), string(request.AgentSessionID), map[string]any{
+		"turnId":    request.Body.TurnId,
+		"requestId": string(request.RequestID),
+		"action":    request.Body.Action,
+		"optionId":  request.Body.OptionId,
+		"payload":   request.Body.Payload,
+	})
 	return tuttigenerated.SubmitWorkspaceAgentInteractive200JSONResponse{
 		Session: generatedSession,
 	}, nil
