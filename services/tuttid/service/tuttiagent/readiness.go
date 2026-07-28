@@ -33,6 +33,14 @@ type ReadinessCoordinator struct {
 	mu sync.Mutex
 }
 
+func NewReadinessCoordinator(runtime RuntimeService, targets TargetService) *ReadinessCoordinator {
+	return &ReadinessCoordinator{
+		Runtime:       runtime,
+		Targets:       targets,
+		BootstrapAuth: BootstrapTuttiAgentUserAuthWithBinary,
+	}
+}
+
 // Trigger schedules a best-effort reconciliation without tying its lifetime to
 // an HTTP request or account callback context.
 func (c *ReadinessCoordinator) Trigger(reason string) {

@@ -615,11 +615,7 @@ func buildDaemonAPI(ctx context.Context, store workspacedata.CatalogStore, analy
 	agentRuntimePreparer.CommandCatalog = runtimePrepCommandCatalog{Catalog: cliRegistry}
 
 	terminalService := &workspaceservice.TerminalService{}
-	tuttiAgentReadiness := &tuttiagentservice.ReadinessCoordinator{
-		Runtime:       &agentStatusService,
-		Targets:       agentTargets,
-		BootstrapAuth: tuttiagentservice.BootstrapTuttiAgentUserAuthWithBinary,
-	}
+	tuttiAgentReadiness := tuttiagentservice.NewReadinessCoordinator(&agentStatusService, agentTargets)
 	accountService.OnLoginCompleted = func(context.Context) {
 		tuttiAgentReadiness.Trigger("account_login_completed")
 	}
