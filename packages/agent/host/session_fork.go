@@ -15,7 +15,6 @@ import (
 )
 
 const sessionForkCheckpointTimeout = 10 * time.Second
-const sessionForkRecoveryPageSize = 100
 
 // ForkSession forks provider state through an inclusive canonical Turn and
 // then atomically installs the corresponding canonical child root session.
@@ -296,59 +295,6 @@ func (h *Host) AcknowledgeSessionForkOperation(
 	return result, found, err
 }
 
-func (h *Host) RecoverSessionForks(ctx context.Context) error {
-	if h == nil || h.sessionForks == nil || h.sessionForkRecovery == nil {
-		return nil
-	}
-	var recoveryErrors []error
-	handleOperation := func(operation storesqlite.SessionForkOperation) {
-		switch operation.Status {
-		case storesqlite.SessionForkStatusPrepared:
-			// No dispatch marker proves the provider call never started. Mark
-			// the abandoned request failed so its durable source fence cannot
-			// freeze the session after the caller/UI process has restarted.
-			_, _, err := h.sessionForks.FailPreparedSessionFork(
-				ctx,
-				operation.WorkspaceID,
-				operation.OperationID,
-				"prepared session fork was abandoned during restart",
-				h.now().UnixMilli(),
-			)
-			if err != nil {
-				recoveryErrors = append(recoveryErrors, err)
-			}
-			return
-		}
-		if _, err := h.processSessionForkOperation(ctx, operation); err != nil &&
-			!errors.Is(err, ErrSessionForkDeliveryUnknown) &&
-			!errors.Is(err, ErrSessionForkFailed) {
-			recoveryErrors = append(recoveryErrors,
-				fmt.Errorf("recover session fork %s: %w", operation.OperationID, err))
-		}
-	}
-	cursor := storesqlite.SessionForkRecoveryCursor{}
-	for {
-		operations, err := h.sessionForkRecovery.ListRecoverableSessionForkOperationsPage(
-			ctx, cursor, sessionForkRecoveryPageSize,
-		)
-		if err != nil {
-			return errors.Join(append(recoveryErrors, err)...)
-		}
-		for _, operation := range operations {
-			handleOperation(operation)
-		}
-		if len(operations) < sessionForkRecoveryPageSize {
-			break
-		}
-		last := operations[len(operations)-1]
-		cursor = storesqlite.SessionForkRecoveryCursor{
-			CreatedAtUnixMS: last.CreatedAtUnixMS,
-			OperationID:     last.OperationID,
-		}
-	}
-	return errors.Join(recoveryErrors...)
-}
-
 func (h *Host) processSessionForkOperation(
 	ctx context.Context,
 	operation storesqlite.SessionForkOperation,
@@ -491,7 +437,8 @@ func (h *Host) processSessionForkOperationWithSource(
 			ErrSessionForkUnsupported,
 		)
 	}
-	if operation.Status == storesqlite.SessionForkStatusUnknown {
+	switch operation.Status {
+	case storesqlite.SessionForkStatusUnknown:
 		operation, _, err = h.sessionForks.RetryUnknownSessionFork(
 			ctx,
 			operation.WorkspaceID,
@@ -504,7 +451,7 @@ func (h *Host) processSessionForkOperationWithSource(
 				err,
 			)
 		}
-	} else if operation.Status == storesqlite.SessionForkStatusPrepared {
+	case storesqlite.SessionForkStatusPrepared:
 		var dispatchChanged bool
 		operation, dispatchChanged, err = h.sessionForks.MarkSessionForkDispatching(
 			ctx, operation.WorkspaceID, operation.OperationID, h.now().UnixMilli(),
