@@ -15,6 +15,10 @@ import type {
   TuttidClient,
   WorkspaceSummary
 } from "@tutti-os/client-tuttid-ts";
+import {
+  createAgentConversationMessageController,
+  type AgentConversationMessageController
+} from "@tutti-os/agent-gui/conversation-message-controller";
 import type { AgentDirectoryService } from "./agentDirectoryService";
 import type { ComposerDraftService } from "./composerDraftService";
 import { createMobileAgentActivityMapping } from "./mobileAgentActivityMapping";
@@ -36,7 +40,6 @@ import { createMobileActivityCommandId } from "./workspaceActivityCommandSupport
 import { requestWorkspaceActivityInteractionResponse } from "./workspaceActivityInteractionCommand";
 import type { WorkspaceActivitySnapshot } from "./workspaceActivityTypes";
 import { WorkspaceAgentLiveLane } from "./workspaceAgentLiveLane";
-import { WorkspaceActivityMessagePageLoader } from "./workspaceActivityMessagePageLoader";
 import { selectWorkspaceConversationRailSessionIds } from "./workspaceConversationRailProjection";
 import type { WorkspaceNavigationService } from "./workspaceNavigationService";
 import { WorkspaceMediaService } from "./workspaceMediaService";
@@ -46,7 +49,6 @@ export type { WorkspaceActivitySnapshot } from "./workspaceActivityTypes";
 const MESSAGE_POLL_MS = 1_000;
 const COMMAND_TIMEOUT_MS = 30_000;
 const PENDING_EXPIRY_MS = 60_000;
-const MESSAGE_PAGE_SIZE = 100;
 
 export class WorkspaceActivityService extends ObservableService<WorkspaceActivitySnapshot> {
   readonly _serviceBrand: undefined;
@@ -54,7 +56,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   readonly rail: WorkspaceConversationRailService;
   private readonly engine: AgentSessionEngine;
   private readonly liveLane: WorkspaceAgentLiveLane;
-  private readonly messagePages: WorkspaceActivityMessagePageLoader;
+  private readonly messages: AgentConversationMessageController;
   private readonly mapping: ReturnType<typeof createMobileAgentActivityMapping>;
   private readonly sessionReconcileExecutor: AgentActivitySessionReconcileExecutor;
   private readonly projectActivity: (
@@ -145,23 +147,43 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
         this.liveLane.reconcileMessages(agentSessionId),
       workspaceId: this.workspace.id
     });
-    this.messagePages = new WorkspaceActivityMessagePageLoader({
-      client: this.client,
+    this.messages = createAgentConversationMessageController({
       engine: this.engine,
       isAvailable: () => !this.disposed && !this.paused,
-      onPageApplied: (agentSessionId) => {
+      listSessionMessages: async ({
+        agentSessionId,
+        beforeVersion,
+        limit,
+        order,
+        signal
+      }) => {
+        const page = await this.client.listWorkspaceAgentSessionMessages(
+          this.workspace.id,
+          agentSessionId,
+          { beforeVersion, limit, order },
+          { signal }
+        );
+        return {
+          ...page,
+          messages: page.messages.map(this.mapping.mapMessage)
+        };
+      },
+      onOlderPageApplied: (agentSessionId) => {
         this.liveLane.reconcileMessages(agentSessionId);
         this.errorCode = null;
       },
-      onRequestFailed: () => {
+      onOlderPageFailed: () => {
         if (!this.disposed) this.errorCode = "request_failed";
       },
-      onRequestSettled: () => {
+      onOlderPageSettled: () => {
         this.onDependencyChanged();
         this.scheduleMessagesPoll();
       },
       workspaceId: this.workspace.id
     });
+    this.messages.setActiveSession(
+      this.navigation.getSnapshot().selectedAgentSessionId
+    );
     this.disposables.push(
       this.engine.subscribe(() => this.onDependencyChanged()),
       this.navigation.subscribe(() => {
@@ -170,6 +192,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
         const selectionChanged =
           selectedSessionId !== this.observedSelectedSessionId;
         this.observedSelectedSessionId = selectedSessionId;
+        this.messages.setActiveSession(selectedSessionId);
         this.onDependencyChanged();
         if (selectionChanged) void this.loadSelectedMessages(true);
         this.loadComposerOptions();
@@ -476,27 +499,13 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   }
 
   async loadOlderMessages(): Promise<void> {
-    const selected = this.navigation.getSnapshot().selectedAgentSessionId;
-    if (!selected || this.paused || this.disposed) return;
-    const window = this.projectActivity(this.engine.getSnapshot())
-      .sessionMessageWindowsById?.[selected];
-    if (!window?.hasOlderMessages || window.oldestLoadedVersion === null)
-      return;
-    try {
-      await this.messagePages.loadPage(selected, {
-        beforeVersion: window.oldestLoadedVersion,
-        limit: MESSAGE_PAGE_SIZE,
-        order: "desc"
-      });
-    } catch {
-      // The message page loader records the presentation error; paging
-      // remains explicitly retryable through the same action.
-    }
+    await this.messages.loadOlder();
   }
 
   pause(): void {
     if (this.paused || this.disposed) return;
     this.paused = true;
+    this.messages.cancel();
     this.liveLane.stop();
     this.cancelPolls();
     this.rail.pause();
@@ -557,6 +566,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.messages.dispose();
     this.liveLane.dispose();
     this.cancelPolls();
     for (const dispose of this.disposables.splice(0)) dispose();
@@ -584,23 +594,11 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     agentSessionId: string,
     authoritative: boolean
   ): Promise<void> {
-    const activity = this.projectActivity(this.engine.getSnapshot());
-    const messages = activity.sessionMessagesById[agentSessionId] ?? [];
-    const latestVersion = messages.reduce(
-      (latest, message) => Math.max(latest, message.version),
-      0
-    );
-    if (authoritative || latestVersion === 0) {
-      await this.messagePages.loadPage(agentSessionId, {
-        limit: MESSAGE_PAGE_SIZE,
-        order: "desc"
-      });
+    if (authoritative) {
+      this.messages.requestInitial(agentSessionId);
       return;
     }
-    await this.messagePages.loadPage(agentSessionId, {
-      afterVersion: latestVersion,
-      order: "asc"
-    });
+    this.messages.requestLatest(agentSessionId);
   }
 
   private executeCommand(

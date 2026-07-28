@@ -111,15 +111,15 @@ export function useAgentGUIViewAssembly(input: UseAgentGUIViewAssemblyInput) {
               hasOlderMessages: input.activeSessionView.hasOlderMessages,
               isLoadingOlderMessages:
                 input.activeSessionView.isLoadingOlderMessages,
-              olderMessageCount: input.activeSessionView.olderMessages.length,
+              olderMessageCount: input.activeMessages.length,
               oldestLoadedVersion: input.activeSessionView.oldestLoadedVersion
             }
           : null,
       [
         input.activeSessionView?.hasOlderMessages,
         input.activeSessionView?.isLoadingOlderMessages,
-        input.activeSessionView?.olderMessages.length,
-        input.activeSessionView?.oldestLoadedVersion
+        input.activeSessionView?.oldestLoadedVersion,
+        input.activeMessages.length
       ]
     );
   const detail = useAgentGUIConversationDetail({

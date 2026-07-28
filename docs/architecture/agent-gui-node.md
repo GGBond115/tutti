@@ -829,7 +829,20 @@ hidden and refresh from current time when visual exposure resumes.
 
 Rail selection, detail hydration, older-page loading, and transcript projection are separate states.
 
-A focused controller may own detail paging/loading/error. Canonical messages, Turns, Interactions, and optimistic prompts still come from the engine. An empty message list means neither hydrated nor not-found.
+Desktop and Mobile use the same renderer-neutral AgentGUI conversation-message
+controller for focused detail message queries. Initial hydration and latest
+refresh enter the Engine as Session reconcile intents; explicit older-page
+loads read only the Engine's authoritative message window, share one
+in-flight/retry/stale-request fence, and apply mapped durable pages back to the
+same Engine. Switching the focused Session or pausing the host aborts and
+generation-fences the obsolete older-page request. A failed request remains
+retryable at the same cursor.
+
+The host owns mapped transport, foreground/background and disconnected-polling
+triggers, diagnostics enrichment, scrolling, and rendering. Canonical messages,
+Turns, Interactions, and optimistic prompts still come from the Engine; neither
+Desktop view state nor Mobile services keep an older-message entity store. An
+empty message list means neither hydrated nor not-found.
 Selecting an already hydrated Session must not start another detail reconcile;
 the selection controller alone decides whether hydration is missing. Composer
 option synchronization does not own Session detail reloads.
@@ -875,22 +888,27 @@ sensors or executors only; they must not transition the mode.
 Turn-level virtualization has one geometry owner. When the transcript is
 virtualized and the state machine is `following`, TanStack Virtual owns append
 following, streaming size adjustments, prepend anchoring, end detection, list
-height, and item transforms. While `detached`, AgentGUI disables end anchoring
-and append following so TanStack cannot bypass the shared intent owner.
-AgentGUI retains Session selection, explicit user intent, top-page loading,
-bottom-dock safe-area measurement, and the non-virtualized short-transcript
-branch. It must not apply native `scrollHeight`-delta prepend compensation or a
-content-resize bottom write after the virtualizer accepts ownership.
+height, and item transforms. While `detached`, AgentGUI disables append
+following so TanStack cannot bypass the shared intent owner, but retains
+stable-item mutation anchoring so prepending an older page preserves the
+visible viewport without reattaching to the end. AgentGUI retains Session
+selection, explicit user intent, top-page loading, bottom-dock safe-area
+measurement, and the non-virtualized short-transcript branch. It must not apply
+native `scrollHeight`-delta prepend compensation or a content-resize bottom
+write after the virtualizer accepts ownership.
 
 The detail view reaches that owner through a narrow controller containing the
 exact `agentSessionId`, `isAtEnd`, and `scrollToEnd`. Every read or write checks
-the current Session identity; a stale controller is inert. Virtual measurement
-keys also include the exact Agent Session id, so replacing a conversation
-cannot reuse another Session's measured Turn height. The virtual list measures
-its offset from the timeline scroll origin as `scrollMargin`, including changes
-caused by the older-page loading indicator. Direct DOM transform mode owns the
-virtual sizer height and item transforms; React keeps only row content,
-measurement refs, cross-axis sizing, and disclosure spacing.
+the current Session identity; a stale controller is inert. Controller readiness
+is reported back to the detail scroll controller so initial end positioning
+still runs when the virtualizer acquires its scroll element after the first
+detail layout. Virtual measurement keys also include the exact Agent Session
+id, so replacing a conversation cannot reuse another Session's measured Turn
+height. The virtual list measures its offset from the timeline scroll origin as
+`scrollMargin`, including changes caused by the older-page loading indicator.
+Direct DOM transform mode owns the virtual sizer height and item transforms;
+React keeps only row content, measurement refs, cross-axis sizing, and
+disclosure spacing.
 
 Virtualizer- or layout-driven scroll events do not change the end-following
 mode or trigger older-page loading without explicit user scroll-away intent. A

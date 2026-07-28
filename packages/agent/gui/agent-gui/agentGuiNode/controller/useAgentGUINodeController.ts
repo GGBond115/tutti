@@ -350,7 +350,8 @@ export function useAgentGUINodeController({
   const {
     loadSessionState,
     markSelectedConversationDetailPending,
-    resolveSessionMessages
+    resolveSessionMessages,
+    setActiveMessageSession
   } = sessionDetailTransport;
   const storedActiveMessages = activeConversationId
     ? resolveSessionMessages(activeConversationId)
@@ -496,6 +497,7 @@ export function useAgentGUINodeController({
     setIntent,
     setIsComposerHome,
     setIsLoadingMessages,
+    setActiveMessageSession,
     transientConversation,
     workspaceId
   });

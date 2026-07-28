@@ -110,6 +110,25 @@ accepted for host capabilities that are not agent activity data:
 AgentGUI has no host-API activity fallback. A host must inject the runtime and
 the grouped `AgentGUINodeProps` responsibility objects.
 
+## Headless Conversation Message Controller
+
+`@tutti-os/agent-gui/conversation-message-controller` is the renderer-neutral
+query controller for one focused conversation. Desktop AgentGUI and Native
+Mobile both use it for initial detail hydration, latest-message reconciliation,
+and explicit older-page loading.
+
+Initial and latest reads enter the workspace Engine as semantic Session
+reconcile commands. Older-page reads use only the Engine's authoritative
+message-window cursor, share one in-flight/retry/stale-request state machine,
+and apply the mapped durable page back to that same Engine. A high mutable
+message version without an authoritative window is never treated as evidence
+of older history.
+
+Hosts supply the mapped message transport and retain lifecycle concerns such as
+Mobile foreground/background behavior, disconnected polling, DOM or Native
+scrolling, and diagnostics enrichment. The controller does not own navigation,
+rendering, localization, or transport authorization.
+
 ## Reference Picker Error Recovery
 
 Hosts may provide `workspace.resolveReferenceContentErrorAction` to map a

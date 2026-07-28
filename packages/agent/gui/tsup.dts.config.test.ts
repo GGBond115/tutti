@@ -65,12 +65,27 @@ describe("Agent GUI declaration build groups", () => {
     });
   });
 
+  it("builds and publishes the headless conversation message controller", () => {
+    expect(agentGUIBuildEntries["conversation-message-controller"]).toBe(
+      "agentConversationMessageController.ts"
+    );
+    expect(
+      packageManifest.publishConfig.exports["./conversation-message-controller"]
+    ).toEqual({
+      types: "./dist/conversation-message-controller.d.ts",
+      import: "./dist/conversation-message-controller.js"
+    });
+  });
+
   it("keeps conversation rail seams off the package root", () => {
     expect(packageRootSource).not.toContain(
       'from "./agentConversationRailController"'
     );
     expect(packageRootSource).not.toContain(
       'from "./agentConversationRailRuntime"'
+    );
+    expect(packageRootSource).not.toContain(
+      'from "./agentConversationMessageController"'
     );
   });
 

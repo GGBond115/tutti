@@ -3,6 +3,7 @@ import {
   useMemo,
   type CSSProperties,
   type ReactNode,
+  type Ref,
   type RefObject
 } from "react";
 import { GitFork } from "lucide-react";
@@ -56,7 +57,7 @@ interface AgentGUIDetailTimelineProps {
   showUnavailableChatEmpty: boolean;
   timelineContentRef: RefObject<HTMLDivElement | null>;
   timelineRef: RefObject<HTMLDivElement | null>;
-  virtualScrollControllerRef: RefObject<AgentTranscriptVirtualScrollController | null>;
+  virtualScrollControllerRef: Ref<AgentTranscriptVirtualScrollController>;
   workspaceAppIcons: readonly AgentMessageMarkdownWorkspaceAppIcon[];
 }
 

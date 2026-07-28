@@ -9,19 +9,12 @@ import type { RefObject } from "react";
 import { useCallback, useMemo } from "react";
 import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
 import { useAgentSessionControllerState } from "../../../contexts/workspace/presentation/renderer/agentSessions/useAgentSessionControllerState";
-import { mergeWorkspaceAgentMessages } from "../../../host/workspaceAgentSessionMessages";
 import type { AgentGUINodeData } from "../../../types";
-import { EMPTY_AGENT_GUI_MESSAGES } from "./agentGuiController.providerHelpers";
 import {
   reportAgentGUIMessagePageDiagnostic,
   reportAgentGUIRuntimeError
 } from "./agentGuiController.reporting";
-import {
-  maxFiniteMessageVersion,
-  minFiniteMessageVersion,
-  useAgentConversationMessagePaging,
-  windowHasTurnMissingUserPrompt
-} from "./useAgentConversationMessagePaging";
+import { useAgentConversationMessagePaging } from "./useAgentConversationMessagePaging";
 import { useEngineSelector } from "../../../shared/engine/useEngineSelector";
 
 export function useAgentGUISessionDetailTransport(input: {
@@ -80,24 +73,13 @@ export function useAgentGUISessionDetailTransport(input: {
   const resolveSessionMessages = useCallback(
     (agentSessionId: string | null | undefined) => {
       const normalized = agentSessionId?.trim() ?? "";
-      if (!normalized) return EMPTY_AGENT_GUI_MESSAGES;
-      const sessionView = state.getAgentSessionView(sessionViewRef(normalized));
-      const canonical = selectSessionMessages(
-        sessionEngine.getSnapshot(),
-        normalized
-      );
-      const older = sessionView?.olderMessages ?? EMPTY_AGENT_GUI_MESSAGES;
-      return older.length > 0
-        ? mergeWorkspaceAgentMessages(older, canonical)
-        : canonical;
+      return normalized
+        ? selectSessionMessages(sessionEngine.getSnapshot(), normalized)
+        : [];
     },
-    [sessionEngine, sessionViewRef, state]
+    [sessionEngine]
   );
-  const {
-    loadSessionState,
-    reconcileSessionDetail,
-    refreshMessagesFromSnapshot
-  } = useMemo(() => {
+  const { loadSessionState, refreshMessagesFromSnapshot } = useMemo(() => {
     const reconcileSession = (
       agentSessionId: string,
       scope: SessionReconcileScope
@@ -115,8 +97,6 @@ export function useAgentGUISessionDetailTransport(input: {
     return {
       loadSessionState: (agentSessionId: string, _cause?: unknown) =>
         reconcileSession(agentSessionId, "state"),
-      reconcileSessionDetail: (agentSessionId: string) =>
-        reconcileSession(agentSessionId, "state_and_messages"),
       refreshMessagesFromSnapshot: (agentSessionId: string) =>
         reconcileSession(agentSessionId, "messages")
     };
@@ -145,34 +125,23 @@ export function useAgentGUISessionDetailTransport(input: {
         })
     },
     getActiveSessionId: () => activeConversationIdRef.current,
-    getCanonicalMessages: (agentSessionId) =>
-      selectSessionMessages(sessionEngine.getSnapshot(), agentSessionId),
     isMounted: () => isMountedRef.current,
-    projection: {
-      maxVersion: maxFiniteMessageVersion,
-      minVersion: minFiniteMessageVersion,
-      windowHasTurnMissingUserPrompt
-    },
+    onOlderPageLoadingChanged: (loading) =>
+      state.setAgentSessionViewOlderMessagesLoading(
+        sessionViewRef(activeConversationIdRef.current),
+        loading
+      ),
     reload: {
       getActivationStatus: (agentSessionId) =>
         selectLatestActivationForSession(
           sessionEngine.getSnapshot(),
           agentSessionId
         )?.status ?? null,
-      reconcileDetail: reconcileSessionDetail,
       syncConversationList: (agentSessionId) =>
         void syncConversationListProjectionRef.current(agentSessionId)
     },
     runtime: agentActivityRuntime,
-    sessionViewRef,
-    view: {
-      get: (ref) =>
-        ref.agentSessionId?.trim() === activeConversationIdRef.current
-          ? state.activeSessionView
-          : state.getAgentSessionView(ref),
-      mergeOlder: state.mergeAgentSessionViewOlderMessages,
-      setOlderMessagesLoading: state.setAgentSessionViewOlderMessagesLoading
-    },
+    sessionEngine,
     workspaceId
   });
   reloadSelectedConversationRef.current = paging.reloadSelectedConversation;
@@ -181,7 +150,6 @@ export function useAgentGUISessionDetailTransport(input: {
       const normalized = agentSessionId.trim();
       if (!normalized) return null;
       const ref = sessionViewRef(normalized);
-      state.resetAgentSessionViewOlderMessages(ref);
       state.setAgentSessionViewError(ref, null);
       return normalized;
     },
@@ -197,6 +165,7 @@ export function useAgentGUISessionDetailTransport(input: {
     refreshMessagesFromSnapshot,
     reloadSelectedConversation: paging.reloadSelectedConversation,
     resolveSessionMessages,
+    setActiveMessageSession: paging.setActiveSession,
     sessionViewRef
   };
 }

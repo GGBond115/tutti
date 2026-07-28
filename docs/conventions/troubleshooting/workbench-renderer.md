@@ -679,7 +679,10 @@
   Opening a workbench node shows React's warning that
   `WorkbenchNodeLayer` is updated while rendering a different node body
   component. The node may stay on a loading surface even though the backing
-  request succeeds.
+  request succeeds. A retained request controller can also work for the
+  restored item but silently ignore later selections: for example, AgentGUI
+  shows the conversation rail while every newly selected conversation has a
+  blank timeline and the daemon receives no message-list request.
 - Quick checks:
   Inspect controller construction paths called from React render or `useMemo`.
   If the constructor calls `setActiveFile`, subscribes with an immediate
@@ -704,9 +707,12 @@
 - Validation:
   Verify construction does not call host state publishers, then run the
   affected desktop tests and open the node in development with DevTools visible.
+  For request-owning controllers, switch between at least two uncached items
+  after the initial render and confirm that each selection reaches the backend.
 - References:
   [workspaceFilePreviewNodeController.ts](../../../apps/desktop/src/renderer/src/features/workspace-workbench/services/internal/workspaceFilePreviewNodeController.ts)
   [WorkspaceFilePreviewNodeBody.tsx](../../../apps/desktop/src/renderer/src/features/workspace-workbench/ui/WorkspaceFilePreviewNodeBody.tsx)
+  [useAgentConversationMessagePaging.ts](../../../packages/agent/gui/agent-gui/agentGuiNode/controller/useAgentConversationMessagePaging.ts)
 
 ### Renderer component repeatedly re-renders without visible changes
 

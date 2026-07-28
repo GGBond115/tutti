@@ -1003,6 +1003,17 @@ logging, polling, and legacy event fanout stay in the host. The canonical
 detail aggregate type belongs to activity-core; the tuttid adapter only maps
 the generated response into it.
 
+Focused transcript paging is the adjacent AgentGUI application boundary.
+Desktop and Mobile construct the same
+`@tutti-os/agent-gui/conversation-message-controller`. It routes initial and
+latest hydration through Engine reconcile intents, reads older history only
+from the canonical Engine message window, fences in-flight pages when focus or
+host availability changes, and dispatches accepted mapped pages into that
+Engine. Mobile's disconnected poller and app lifecycle, Desktop diagnostics
+and WebSocket integration, and both renderers' scroll behavior remain host
+concerns. Hosts must not add a second older-message store or a host-local
+cursor/retry state machine.
+
 Event-stream continuity and command reachability are separate host facts.
 `eventStreamConnectionChanged` belongs to the coordinator and triggers
 authoritative reconnect hydration; `engine/connectionChanged` belongs to the

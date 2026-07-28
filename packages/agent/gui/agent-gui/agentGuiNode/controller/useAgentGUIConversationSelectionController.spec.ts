@@ -96,6 +96,7 @@ describe("clearRolledBackAgentGUISelection", () => {
         setIntent,
         setIsComposerHome,
         setIsLoadingMessages: vi.fn(),
+        setActiveMessageSession: vi.fn(),
         clearRailRevealRequest: vi.fn(),
         requestRailReveal: vi.fn(),
         transientConversation: null,
@@ -205,6 +206,7 @@ describe("clearRolledBackAgentGUISelection", () => {
         setIntent,
         setIsComposerHome,
         setIsLoadingMessages: vi.fn(),
+        setActiveMessageSession: vi.fn(),
         clearRailRevealRequest: vi.fn(),
         requestRailReveal: vi.fn(),
         transientConversation: null,
@@ -323,6 +325,7 @@ describe("clearRolledBackAgentGUISelection", () => {
           setIsComposerHome(next);
         },
         setIsLoadingMessages: vi.fn(),
+        setActiveMessageSession: vi.fn(),
         clearRailRevealRequest: vi.fn(),
         requestRailReveal: vi.fn(),
         transientConversation,

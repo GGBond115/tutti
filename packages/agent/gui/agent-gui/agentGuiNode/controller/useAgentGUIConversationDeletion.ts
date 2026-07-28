@@ -8,7 +8,7 @@ import {
 import { flushSync } from "react-dom";
 import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
 import type { useAgentHostApi } from "../../../agentActivityHost";
-import type { AgentSessionViewRef } from "../../../contexts/workspace/presentation/renderer/agentSessions/useAgentSessionTransport";
+import type { AgentSessionViewRef } from "../../../contexts/workspace/presentation/renderer/agentSessions/useAgentSessionPagingState";
 import type { useAgentGUIActivation } from "./useAgentGUIActivation";
 import { type AgentGUIConversationSummary } from "../model/agentGuiConversationModel";
 import type {

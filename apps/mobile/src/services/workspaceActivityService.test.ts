@@ -639,6 +639,7 @@ describe("WorkspaceActivityService", () => {
 
     await service.start();
     await flushAsyncWork();
+    const detailReadsAfterInitialHydration = detailReads;
     liveListener!({
       event: {
         agentSessionId: "session-1",
@@ -668,7 +669,8 @@ describe("WorkspaceActivityService", () => {
           (message) => message.messageId
         )
     ).toEqual(["message-1", "audit-1"]);
-    expect(detailReads).toBe(0);
+    expect(detailReadsAfterInitialHydration).toBe(2);
+    expect(detailReads).toBe(detailReadsAfterInitialHydration);
 
     service.dispose();
   });
@@ -729,7 +731,7 @@ describe("WorkspaceActivityService", () => {
     service.dispose();
   });
 
-  test("runs an authoritative live reconcile while incremental polling is in flight", async () => {
+  test("queues authoritative live reconcile behind in-flight incremental polling", async () => {
     const clock = new RecordingClock();
     let liveListener: ((delivery: AgentLiveDelivery) => void) | null = null;
     let resolveIncremental:
@@ -744,7 +746,7 @@ describe("WorkspaceActivityService", () => {
       }),
       listMessages: async (_workspaceId, agentSessionId, query) => {
         queries.push(query);
-        if (query.afterVersion === 5) {
+        if (query.afterVersion === 0 && queries.length === 2) {
           return new Promise((resolve) => {
             resolveIncremental = resolve;
           });
@@ -769,7 +771,14 @@ describe("WorkspaceActivityService", () => {
 
     expect(queries).toEqual([
       { limit: 100, order: "desc" },
-      { afterVersion: 5, order: "asc" },
+      { afterVersion: 0, order: "asc" }
+    ]);
+    resolveIncremental!(messagePage("session-1", "message-6", 6));
+    await flushAsyncWork();
+
+    expect(queries).toEqual([
+      { limit: 100, order: "desc" },
+      { afterVersion: 0, order: "asc" },
       { afterVersion: 0, order: "asc" }
     ]);
     expect(
@@ -780,8 +789,6 @@ describe("WorkspaceActivityService", () => {
         )
     ).toBe(true);
 
-    resolveIncremental!(messagePage("session-1", "message-6", 6));
-    await flushAsyncWork();
     service.dispose();
   });
 
@@ -1141,7 +1148,19 @@ function createClient(options: {
     createWorkspaceAgentSession: options.create,
     deleteWorkspaceAgentSessionsBatch: options.deleteBatch,
     getAgentProviderComposerOptions: options.composerOptions,
-    getWorkspaceAgentSession: options.detail,
+    getWorkspaceAgentSession:
+      options.detail ??
+      (async (_workspaceId: string, agentSessionId: string) => {
+        const session = railSessions().find(
+          (candidate) => candidate.id === agentSessionId
+        );
+        if (!session) throw new Error("session not found");
+        return {
+          childSessions: [],
+          session,
+          turns: session.latestTurn ? [session.latestTurn] : []
+        };
+      }),
     listAgentTargets: async () => ({ targets: options.targets ?? [] }),
     listWorkspaceAgentSessionMessages: options.listMessages,
     listWorkspaceAgentPinnedSessionPage: async () => {

@@ -652,6 +652,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     followEndMode,
     isTimelineScrolledToBottom,
     isTimelineScrolledToTop,
+    setVirtualScrollController,
     scrollTimelineToBottom
   } = useAgentGUIDetailScroll({
     actions,
@@ -757,7 +758,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         showUnavailableChatEmpty={showUnavailableChatEmpty}
         timelineContentRef={timelineContentRef}
         timelineRef={timelineRef}
-        virtualScrollControllerRef={virtualScrollControllerRef}
+        virtualScrollControllerRef={setVirtualScrollController}
         workspaceAppIcons={workspaceAppIcons}
       />
       {hasActiveConversation ? (
