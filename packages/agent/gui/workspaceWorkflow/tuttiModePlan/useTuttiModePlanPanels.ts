@@ -153,6 +153,23 @@ export function useTuttiModePlanPanels(input: {
         return;
       }
       assignmentRequestsRef.current.add(trimmed);
+      const cached = assignmentSource.readAgentOptions?.({
+        workspaceId,
+        agentTargetId: trimmed
+      });
+      if (cached) {
+        setAssignmentState((current) =>
+          current.scopeKey === capturedScope
+            ? {
+                ...current,
+                optionsByAgentId: {
+                  ...current.optionsByAgentId,
+                  [trimmed]: cached
+                }
+              }
+            : current
+        );
+      }
       void assignmentSource
         .loadAgentOptions({ workspaceId, agentTargetId: trimmed })
         .then((options) => {
@@ -206,6 +223,14 @@ export function useTuttiModePlanPanels(input: {
       }
       if (!assignmentRequestsRef.current.has("__agents__")) {
         assignmentRequestsRef.current.add("__agents__");
+        const cached = assignmentSource.readAgents?.({ workspaceId });
+        if (cached) {
+          setAssignmentState((current) =>
+            current.scopeKey === capturedScope
+              ? { ...current, agents: [...cached] }
+              : current
+          );
+        }
         void assignmentSource
           .listAgents({ workspaceId })
           .then((agents) => {
@@ -339,6 +364,18 @@ export function useTuttiModePlanPanels(input: {
     const unsubscribe =
       enabled && runtime && workspaceId && sourceSessionId
         ? runtime.subscribe(workspaceId, (update) => {
+            if (update.kind === "assignment_options_invalidated") {
+              for (const agentTargetId of update.agentTargetIds) {
+                const normalizedAgentTargetId = agentTargetId.trim();
+                if (
+                  normalizedAgentTargetId &&
+                  assignmentRequestsRef.current.delete(normalizedAgentTargetId)
+                ) {
+                  loadAgentOptions(normalizedAgentTargetId);
+                }
+              }
+              return;
+            }
             if (
               update.kind === "connection_restored" ||
               update.sourceSessionId === sourceSessionId

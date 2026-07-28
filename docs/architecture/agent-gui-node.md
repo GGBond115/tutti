@@ -954,6 +954,17 @@ plan panel starts with the plan title and body; it does not repeat mode,
 review-kind, or pending-state badges already communicated by the workflow
 banner.
 
+Task-assignment directories and target option catalogs are workspace query
+projections, not Plan, Session, or Turn state. The Desktop assignment source
+retains them in the shared bounded workspace query cache: directories are keyed
+by workspace, while target options use exact workspace, Agent Target, and
+provider identity. AgentGUI may synchronously reuse the last successful value,
+including a stale value, while the source performs a deduplicated refresh.
+Provider catalog and workspace model-configuration events invalidate only the
+affected target entries; a generation fence prevents a pre-invalidation
+response from becoming current. Composer options remain a separate
+cwd/settings-sensitive projection and do not share this cache instance.
+
 The materialized Issue is also a Tutti-owned aggregate-work projection for the
 source composer. While dispatch is not paused and any task is nonterminal, an
 empty composer shows the normal running Stop control even when the source
