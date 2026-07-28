@@ -1,19 +1,10 @@
-import type {
-  AgentActivitySession,
-  AgentActivityTurn
-} from "@tutti-os/agent-activity-core";
+import type { AgentActivitySessionDetailSnapshot } from "@tutti-os/agent-activity-core";
 import type { WorkspaceAgentSessionDetailResponse } from "@tutti-os/client-tuttid-ts";
 import {
   agentActivitySessionFromTuttidSession,
   agentActivityTurnFromTuttidTurn,
   type AgentActivitySessionMappingOptions
 } from "./mappers.ts";
-
-export interface AgentActivitySessionDetailSnapshot {
-  session: AgentActivitySession;
-  childSessions: readonly AgentActivitySession[];
-  turns: readonly AgentActivityTurn[];
-}
 
 /**
  * Maps one authoritative tuttid detail response without performing transport

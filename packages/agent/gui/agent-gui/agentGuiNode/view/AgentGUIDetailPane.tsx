@@ -146,6 +146,16 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   const handleInterruptCurrentTurn = useCallback(() => {
     actions.interruptCurrentTurn(labels.noRunningResponse);
   }, [actions.interruptCurrentTurn, labels.noRunningResponse]);
+  const handleForkThroughTurn = useStableEventCallback((turnId: string) => {
+    const agentSessionId =
+      conversation?.sourceDetail.session.agentSessionId.trim() ?? "";
+    if (agentSessionId) {
+      void actions.forkConversationThroughTurn(agentSessionId, turnId);
+    }
+  });
+  const openForkSourceSession = useStableEventCallback(
+    actions.openForkSourceConversation
+  );
   const submitApprovalOption = useStableEventCallback(
     actions.submitApprovalOption
   );
@@ -657,6 +667,8 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       />
     )
   ) : null;
+  const forkedFrom =
+    viewModel.detail.conversationDetail?.session.forkedFrom ?? null;
   return (
     <main
       className={styles.detail}
@@ -676,6 +688,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         conversationFlowEmpty={conversationFlowEmpty}
         conversationFlowLabels={conversationFlowLabels}
         followEndMode={followEndMode}
+        forkedFrom={forkedFrom}
         hasActiveConversation={hasActiveConversation}
         homeContent={homeContent}
         isLoadingOlderMessages={viewModel.detail.isLoadingOlderMessages}
@@ -683,6 +696,11 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         isTimelineScrolledToTop={isTimelineScrolledToTop}
         labels={labels}
         onAuthLogin={authLogin}
+        onForkThroughTurn={handleForkThroughTurn}
+        onOpenForkSourceSession={openForkSourceSession}
+        forkThroughTurnPendingTurnIds={
+          viewModel.operations.forkThroughTurnPendingTurnIds
+        }
         onLinkAction={stableLinkAction}
         showTimelineSkeleton={showTimelineSkeleton}
         showUnavailableChatEmpty={showUnavailableChatEmpty}

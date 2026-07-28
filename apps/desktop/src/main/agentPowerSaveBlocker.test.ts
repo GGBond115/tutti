@@ -197,6 +197,8 @@ function createSession(id: string, status: string): WorkspaceAgentSession {
     parentToolCallId: null,
     agentTargetId: null,
     capabilities: null,
+    lifecycleCapabilities: { fork: false, forkThroughTurn: false },
+    forkedFrom: null,
     createdAtUnixMs: 1,
     cwd: "/tmp/ws-1",
     endedAtUnixMs: null,

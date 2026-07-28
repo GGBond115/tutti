@@ -93,6 +93,7 @@ export function groupAgentGUINodeViewModelFixture(
       providerReadinessGate: flat.providerReadinessGate
     },
     operations: {
+      forkThroughTurnPendingTurnIds: flat.forkThroughTurnPendingTurnIds ?? [],
       goalClearNoticeSequence: flat.goalClearNoticeSequence ?? 0,
       isDeletingConversation: flat.isDeletingConversation,
       isDeletingProjectConversations: flat.isDeletingProjectConversations,

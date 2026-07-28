@@ -1,11 +1,22 @@
 import type {
   AgentActivityDurableMessage,
+  AgentActivitySession,
   AgentActivityTurn
 } from "../types.ts";
 import type { AgentActivitySessionMessageWindow } from "../messageWindow.types.ts";
 import type { AgentActivitySessionInput } from "../sessionNormalization.ts";
 
 export type SessionReconcileScope = "messages" | "state" | "state_and_messages";
+
+/**
+ * Host-neutral authoritative detail aggregate consumed by reconcile flows.
+ * Transport adapters map their DTOs into this contract before Core sees them.
+ */
+export interface AgentActivitySessionDetailSnapshot {
+  session: AgentActivitySession;
+  childSessions: readonly AgentActivitySession[];
+  turns: readonly AgentActivityTurn[];
+}
 
 export interface SessionReconcileRecord {
   agentSessionId: string;

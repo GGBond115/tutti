@@ -252,6 +252,28 @@ type Session struct {
 	LatestTurnInteractions []agentactivitybiz.Interaction
 	PendingInteractions    []agentactivitybiz.Interaction
 	TuttiModeActivation    *tuttimodeactivationbiz.Activation
+	LifecycleCapabilities  SessionLifecycleCapabilities
+	ForkedFrom             *SessionForkLineage
+}
+
+// SessionForkLineage is the durable provenance of a user-initiated root
+// Session fork. It is distinct from provider-native child-session ownership.
+type SessionForkLineage struct {
+	SourceAgentSessionID string
+	SourceTurnID         string
+	TargetTurnID         string
+	OperationID          string
+	ForkedAtUnixMS       int64
+}
+
+// SessionLifecycleCapabilities contains exact-session lifecycle operations.
+// These values are projected from canonical state and the attached runtime;
+// they are deliberately separate from provider/composer capabilities.
+type SessionLifecycleCapabilities struct {
+	Fork                    bool
+	ForkThroughTurn         bool
+	ForkThroughTurnIDs      []string
+	ForkThroughTurnIDsKnown bool
 }
 
 type SessionIsolation struct {

@@ -32,6 +32,9 @@ type AgentSessionService interface {
 	ImportExternalSessions(context.Context, string, agentservice.ExternalImportInput) (agentservice.ExternalImportResult, error)
 	ExternalImportValidProjectPaths(context.Context, agentservice.ExternalImportInput) ([]string, error)
 	Create(context.Context, string, agentservice.CreateSessionInput) (agentservice.Session, error)
+	Fork(context.Context, string, string, agentservice.ForkSessionInput) (agentservice.SessionForkOperation, error)
+	GetSessionForkOperation(context.Context, string, string) (agentservice.SessionForkOperation, error)
+	AcknowledgeSessionForkOperation(context.Context, string, string) (agentservice.SessionForkOperation, error)
 	Get(context.Context, string, string) (agentservice.Session, error)
 	GetDetail(context.Context, string, string) (agentservice.SessionDetail, error)
 	ReadAttachment(context.Context, string, string, string) (agentservice.PromptAttachment, error)
@@ -728,6 +731,22 @@ func generatedAgentSession(session agentservice.Session) (tuttigenerated.Workspa
 	if err != nil {
 		return tuttigenerated.WorkspaceAgentSession{}, fmt.Errorf("project workspace agent session %q: %w", session.ID, err)
 	}
+	var forkedFrom *tuttigenerated.WorkspaceAgentSessionForkLineage
+	if session.ForkedFrom != nil {
+		forkedFrom = &tuttigenerated.WorkspaceAgentSessionForkLineage{
+			ForkedAtUnixMs:       session.ForkedFrom.ForkedAtUnixMS,
+			OperationId:          strings.TrimSpace(session.ForkedFrom.OperationID),
+			SourceAgentSessionId: strings.TrimSpace(session.ForkedFrom.SourceAgentSessionID),
+			SourceTurnId:         strings.TrimSpace(session.ForkedFrom.SourceTurnID),
+			TargetTurnId:         strings.TrimSpace(session.ForkedFrom.TargetTurnID),
+		}
+	}
+	forkThroughTurnIDs := append(
+		[]string(nil),
+		session.LifecycleCapabilities.ForkThroughTurnIDs...,
+	)
+	forkThroughTurnIDsKnown :=
+		session.LifecycleCapabilities.ForkThroughTurnIDsKnown
 	return tuttigenerated.WorkspaceAgentSession{
 		ActiveTurn:             activeTurn,
 		ActiveTurnId:           optionalStringPointer(strings.TrimSpace(session.ActiveTurnID)),
@@ -736,6 +755,7 @@ func generatedAgentSession(session agentservice.Session) (tuttigenerated.Workspa
 		CreatedAtUnixMs:        session.CreatedAt.UnixMilli(),
 		Cwd:                    stringPointer(strings.TrimSpace(session.Cwd)),
 		EndedAtUnixMs:          endedAtUnixMS,
+		ForkedFrom:             forkedFrom,
 		Goal:                   generatedAgentSessionGoal(session.Metadata.Goal),
 		Id:                     session.ID,
 		Imported:               session.Metadata.Imported,
@@ -743,24 +763,30 @@ func generatedAgentSession(session agentservice.Session) (tuttigenerated.Workspa
 		LatestTurn:             latestTurn,
 		LatestTurnInteractions: latestTurnInteractions,
 		MessageVersion:         messageVersion,
-		ParentAgentSessionId:   optionalStringPointer(strings.TrimSpace(session.ParentAgentSessionID)),
-		ParentToolCallId:       optionalStringPointer(strings.TrimSpace(session.ParentToolCallID)),
-		ParentTurnId:           optionalStringPointer(strings.TrimSpace(session.ParentTurnID)),
-		PendingInteractions:    pendingInteractions,
-		PermissionConfig:       generatedPermissionConfig(session.PermissionConfig),
-		Provider:               tuttigenerated.WorkspaceAgentProvider(session.Provider),
-		ProviderSessionId:      stringPointer(strings.TrimSpace(session.ProviderSessionID)),
-		PinnedAtUnixMs:         int64Pointer(session.PinnedAtUnixMS),
-		RailSectionKey:         strings.TrimSpace(session.RailSectionKey),
-		Resumable:              session.Resumable,
-		RootAgentSessionId:     optionalStringPointer(strings.TrimSpace(session.RootAgentSessionID)),
-		RootTurnId:             optionalStringPointer(strings.TrimSpace(session.RootTurnID)),
-		Settings:               generatedSettings,
-		Title:                  session.Title,
-		TuttiModeActivation:    tuttiModeActivation,
-		UpdatedAtUnixMs:        updatedAtUnixMS,
-		Usage:                  generatedAgentSessionUsage(session.Metadata.Usage),
-		Visible:                session.Visible,
+		LifecycleCapabilities: tuttigenerated.WorkspaceAgentSessionLifecycleCapabilities{
+			Fork:                    session.LifecycleCapabilities.Fork,
+			ForkThroughTurn:         session.LifecycleCapabilities.ForkThroughTurn,
+			ForkThroughTurnIds:      &forkThroughTurnIDs,
+			ForkThroughTurnIdsKnown: &forkThroughTurnIDsKnown,
+		},
+		ParentAgentSessionId: optionalStringPointer(strings.TrimSpace(session.ParentAgentSessionID)),
+		ParentToolCallId:     optionalStringPointer(strings.TrimSpace(session.ParentToolCallID)),
+		ParentTurnId:         optionalStringPointer(strings.TrimSpace(session.ParentTurnID)),
+		PendingInteractions:  pendingInteractions,
+		PermissionConfig:     generatedPermissionConfig(session.PermissionConfig),
+		Provider:             tuttigenerated.WorkspaceAgentProvider(session.Provider),
+		ProviderSessionId:    stringPointer(strings.TrimSpace(session.ProviderSessionID)),
+		PinnedAtUnixMs:       int64Pointer(session.PinnedAtUnixMS),
+		RailSectionKey:       strings.TrimSpace(session.RailSectionKey),
+		Resumable:            session.Resumable,
+		RootAgentSessionId:   optionalStringPointer(strings.TrimSpace(session.RootAgentSessionID)),
+		RootTurnId:           optionalStringPointer(strings.TrimSpace(session.RootTurnID)),
+		Settings:             generatedSettings,
+		Title:                session.Title,
+		TuttiModeActivation:  tuttiModeActivation,
+		UpdatedAtUnixMs:      updatedAtUnixMS,
+		Usage:                generatedAgentSessionUsage(session.Metadata.Usage),
+		Visible:              session.Visible,
 	}, nil
 }
 

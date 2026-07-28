@@ -48,6 +48,10 @@ export function agentActivitySessionFromTuttidSession(
     capabilities: session.capabilities
       ? cloneSerializable(session.capabilities)
       : null,
+    lifecycleCapabilities: cloneSerializable(session.lifecycleCapabilities),
+    forkedFrom: session.forkedFrom
+      ? cloneSerializable(session.forkedFrom)
+      : null,
     usage: session.usage ? cloneSerializable(session.usage) : null,
     goal: session.goal ? cloneSerializable(session.goal) : null,
     tuttiModeActivation: session.tuttiModeActivation
@@ -100,6 +104,8 @@ export function assertTuttidProtocolV2SessionContract(
   const missing = [
     "activeTurnId",
     "latestTurnInteractions",
+    "lifecycleCapabilities",
+    "forkedFrom",
     "pendingInteractions",
     "railSectionKey",
     "tuttiModeActivation"

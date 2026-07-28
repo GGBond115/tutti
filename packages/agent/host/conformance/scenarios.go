@@ -98,6 +98,15 @@ func GoalScenarios() []Scenario {
 	}
 }
 
+// SessionForkScenarios covers the optional native fork capability without
+// weakening the base Driver contract for providers that do not implement it.
+func SessionForkScenarios() []SessionForkScenario {
+	return []SessionForkScenario{
+		{Name: "through-turn fork replay does not redispatch provider", run: runThroughTurnForkReplay},
+		{Name: "provider-accepted fork recovers local commit", run: runProviderAcceptedForkRecovery},
+	}
+}
+
 // CommitObserverScenarios verify the typed post-commit seam independently of
 // any adapter-specific event transport. They intentionally include a failing
 // observer because observer delivery is advisory after the durable commit.

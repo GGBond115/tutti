@@ -95,6 +95,7 @@ type ProviderRuntimeSession struct {
 	Resumable               bool
 	Cwd                     string
 	Env                     []string
+	ProviderTargetRef       map[string]any
 	Settings                *ComposerSettings
 	RuntimeContext          map[string]any
 	Status                  string
@@ -108,6 +109,97 @@ type ProviderRuntimeSession struct {
 	PinnedAtUnixMS          int64
 	CreatedAtUnixMS         int64
 	UpdatedAtUnixMS         int64
+}
+
+type ForkSessionInput struct {
+	WorkspaceID          string
+	SourceAgentSessionID string
+	TargetAgentSessionID string
+	RequestID            string
+	Point                SessionForkPoint
+	// ThroughTurnID is a temporary source-compatibility alias. New callers
+	// must use Point so adding whole-session mode does not reopen Host APIs.
+	ThroughTurnID string
+}
+
+type SessionForkPointKind string
+
+const (
+	SessionForkPointThroughTurn SessionForkPointKind = "through_turn"
+)
+
+type SessionForkPoint struct {
+	Kind   SessionForkPointKind
+	TurnID string
+}
+
+type ForkSessionResult struct {
+	Operation storesqlite.SessionForkOperation
+	Session   storesqlite.Session
+	Lineage   *storesqlite.SessionForkLineage
+}
+
+type SessionForkCapabilityInput struct {
+	WorkspaceID          string
+	SourceAgentSessionID string
+}
+
+type SessionForkCapabilities struct {
+	FullSession         bool
+	ThroughTurn         bool
+	ThroughTurnIDs      []string
+	ThroughTurnIDsKnown bool
+}
+
+// SessionForkTargetContext freezes the host-owned runtime context that the
+// canonical target session will receive. Provider-native thread state is
+// separate and remains owned by SessionForkRuntime.
+type SessionForkTargetContext struct {
+	Cwd            string
+	RuntimeContext map[string]any
+}
+
+type SessionForkDriverDescriptor struct {
+	Kind                        string
+	Version                     string
+	FullSession                 bool
+	ThroughTurn                 bool
+	ThroughProviderTurnIDs      []string
+	ThroughProviderTurnIDsKnown bool
+}
+
+type RuntimeSessionForkInput struct {
+	Source                ProviderRuntimeSession
+	SourceProviderTurnID  string
+	SourceProviderTurnIDs []string
+	RequestID             string
+	Driver                SessionForkDriverDescriptor
+}
+
+type SessionForkDeliveryDisposition string
+
+const (
+	SessionForkDeliveryNotStarted SessionForkDeliveryDisposition = "not_started"
+	SessionForkDeliveryRejected   SessionForkDeliveryDisposition = "rejected"
+	SessionForkDeliveryUnknown    SessionForkDeliveryDisposition = "unknown"
+	SessionForkDeliveryAccepted   SessionForkDeliveryDisposition = "accepted"
+)
+
+type RuntimeSessionForkResult struct {
+	ProviderSessionID   string
+	DeliveryDisposition SessionForkDeliveryDisposition
+}
+
+// SessionForkProviderStateBinding describes the provider-local durable state
+// that must become independently discoverable from the target Tutti session's
+// runtime namespace before the canonical child can be committed.
+type SessionForkProviderStateBinding struct {
+	WorkspaceID             string
+	Provider                string
+	SourceAgentSessionID    string
+	TargetAgentSessionID    string
+	SourceProviderSessionID string
+	TargetProviderSessionID string
 }
 
 type RuntimeStartInput struct {

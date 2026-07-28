@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { selectPendingSessionForkThroughTurnIds } from "@tutti-os/agent-activity-core";
 import { useAgentGUIViewModel } from "../model/useAgentGUIViewModel";
 import type { AgentGUIProviderRailMode } from "../../../types";
 import type { AgentGUIDetailViewModel } from "../model/agentGuiNodeTypes";
@@ -17,6 +18,7 @@ import { resolveAgentGUIProviderReadinessGateForView } from "../model/agentGuiPr
 import type { useAgentGUITuttiModeActivation } from "./useAgentGUITuttiModeActivation";
 import { targetConnectionForAgentGUIView } from "./agentGuiController.providerHelpers";
 import { isAgentGUIAgentTargetComingSoon } from "../../../agentTargets";
+import { useEngineSelector } from "../../../shared/engine/useEngineSelector";
 
 type ConversationPresentationInput = Parameters<
   typeof useAgentGUIConversationPresentation
@@ -79,6 +81,15 @@ type UseAgentGUIViewAssemblyInput = ConversationPresentationInput &
 export function useAgentGUIViewAssembly(input: UseAgentGUIViewAssemblyInput) {
   const { activeConversation, visibleConversations } =
     useAgentGUIConversationPresentation(input);
+  const forkThroughTurnPendingTurnIds = useEngineSelector(
+    input.sessionEngine,
+    (state) =>
+      selectPendingSessionForkThroughTurnIds(state, {
+        sourceAgentSessionId: input.activeConversationId,
+        workspaceId: input.workspaceId
+      }),
+    equalStringArrays
+  );
   const targetConnection = useMemo(
     () =>
       targetConnectionForAgentGUIView({
@@ -250,6 +261,7 @@ export function useAgentGUIViewAssembly(input: UseAgentGUIViewAssemblyInput) {
       providerReadinessGate
     },
     operations: {
+      forkThroughTurnPendingTurnIds,
       goalClearNoticeSequence: input.goalClearNoticeSequence,
       isDeletingConversation: input.isDeletingConversation,
       isDeletingProjectConversations: input.isDeletingProjectConversations,
@@ -261,5 +273,15 @@ export function useAgentGUIViewAssembly(input: UseAgentGUIViewAssemblyInput) {
   return useMemo(
     () => ({ viewModel, actions: controllerActions }),
     [controllerActions, viewModel]
+  );
+}
+
+function equalStringArrays(
+  previous: readonly string[],
+  next: readonly string[]
+): boolean {
+  return (
+    previous.length === next.length &&
+    previous.every((value, index) => value === next[index])
   );
 }

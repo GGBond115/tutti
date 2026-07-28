@@ -100,6 +100,14 @@ export function useAgentGUIConversationDetail(
     (state) => selectEngineTurnsForSession(state, input.activeConversationId),
     referenceArrayEqual
   );
+  const activitySession = useMemo(
+    () =>
+      input.agentActivitySnapshot.sessions.find(
+        (session) =>
+          session.agentSessionId === input.activeConversationId?.trim()
+      ) ?? null,
+    [input.activeConversationId, input.agentActivitySnapshot.sessions]
+  );
   const projectionConversation =
     useMemo<AgentGUIConversationProjectionSource | null>(() => {
       if (!input.activeConversation) {
@@ -177,6 +185,7 @@ export function useAgentGUIConversationDetail(
     return buildAgentGUIConversationModels({
       timelineItems: input.activeTimelineItems,
       conversation: projectionConversation,
+      canonicalSession: activitySession,
       childSessions,
       childMessagesBySessionId: input.agentActivitySnapshot.sessionMessagesById,
       workspaceRoot: input.workspacePath,
@@ -187,6 +196,7 @@ export function useAgentGUIConversationDetail(
     input.agentActivitySnapshot.sessionMessagesById,
     input.agentActivitySnapshot.sessions,
     input.avoidGroupingEdits,
+    activitySession,
     input.workspacePath,
     projectionConversation
   ]);
