@@ -361,13 +361,15 @@ Claude SDK Driver 使用固定版本的官方公开 API：
 1. 新 Claude Turn 在提交前由 Go adapter 生成 SDK prompt UUID，并作为 canonical
    `RootProviderTurnID` 传给 sidecar；旧版以 canonical Turn ID 代替 UUID 的历史记录不会猜测
    或回填，因此 fail closed；
-2. capability 通过 stateless sidecar 调用 `getSessionMessages`，只返回 root user-message
-   UUID allowlist；
+2. capability 通过 stateless sidecar 调用
+   `getSessionMessages(..., {includeSystemMessages: true})`，只返回 root user-message UUID
+   allowlist，但保留 system message 用于精确 checkpoint 与完整 prefix 校验；
 3. dispatch 前再次读取 source transcript，验证 canonical ordered UUID prefix，并把所选
    root user message 到下一个 root user message之前的最后消息作为 inclusive checkpoint；
 4. 调用 `forkSession(source, {upToMessageId, title: frozenTargetTitle})`；
-5. 再次读取 source，并读取 child 的 `getSessionInfo` / `getSessionMessages`；source
-   选中 prefix 必须在调用前后不变，child 必须与该完整 prefix 做结构等价验证
+5. 再次读取 source，并读取 child 的 `getSessionInfo` / `getSessionMessages`；两次
+   `getSessionMessages` 均使用 `includeSystemMessages: true`。source 选中 prefix
+   必须在调用前后不变，child 必须与该完整 prefix 做结构等价验证
    (`type/message/parent_tool_use_id`，忽略已重映射的 UUID/session id)；
 6. 只有完整验证后才按已证明的逐消息双射生成 source→child provider Turn UUID mapping，
    返回 `provider_owned` receipt；消息内容只在 sidecar 内比较，不返回或记录；
@@ -571,7 +573,7 @@ fail closed。
 当前明确不支持：
 
 - 完整会话 Fork 产品入口；
-- 非 Codex Agent 的 Driver；
+- 除 Codex 与 Claude Code 外的其他 Agent Driver；
 - 没有原生历史边界能力时的消息 replay 模拟；
 - 从 Message 中间位置 Fork；
 - 包含 session-local attachment 的 boundary；

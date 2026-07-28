@@ -130,6 +130,140 @@ test("Claude fork supports an untitled canonical session", async () => {
   ]);
 });
 
+test("Claude fork includes trailing system messages in its exact checkpoint", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const sourceWithSystem = [
+    message("user", "prompt-1", { role: "user", content: "one" }),
+    message("assistant", "answer-1", {
+      role: "assistant",
+      content: "first"
+    }),
+    message("system", "compact-1", {
+      subtype: "compact_boundary",
+      compact_metadata: { trigger: "auto" }
+    })
+  ];
+  const childWithSystem = [
+    message(
+      "user",
+      "child-prompt-1",
+      { role: "user", content: "one" },
+      "child"
+    ),
+    message(
+      "assistant",
+      "child-answer-1",
+      { role: "assistant", content: "first" },
+      "child"
+    ),
+    message(
+      "system",
+      "child-compact-1",
+      {
+        subtype: "compact_boundary",
+        compact_metadata: { trigger: "auto" }
+      },
+      "child"
+    )
+  ];
+  const transcriptReads: Array<Record<string, unknown>> = [];
+  const sdk = {
+    getSessionMessages: async (
+      sessionId: string,
+      options?: Record<string, unknown>
+    ) => {
+      transcriptReads.push({ sessionId, options });
+      return sessionId === "child" ? childWithSystem : sourceWithSystem;
+    },
+    getSessionInfo: async () => ({
+      sessionId: "child",
+      summary: "child",
+      lastModified: 1
+    }),
+    forkSession: async (
+      sessionId: string,
+      options?: {
+        dir?: string;
+        upToMessageId?: string;
+        title?: string;
+      }
+    ) => {
+      calls.push({ sessionId, options });
+      return { sessionId: "child" };
+    }
+  };
+
+  const result = await forkClaudeSession(
+    {
+      sessionId: "source",
+      providerTurnId: "prompt-1",
+      providerTurnIds: ["prompt-1"],
+      cwd: "/workspace",
+      title: "Source (2)"
+    },
+    sdk
+  );
+
+  assert.deepEqual(result.targetProviderTurnIds, ["child-prompt-1"]);
+  assert.deepEqual(calls, [
+    {
+      sessionId: "source",
+      options: {
+        dir: "/workspace",
+        upToMessageId: "compact-1",
+        title: "Source (2)"
+      }
+    }
+  ]);
+  assert.equal(transcriptReads.length, 3);
+  for (const read of transcriptReads) {
+    assert.deepEqual(read.options, {
+      dir: "/workspace",
+      includeSystemMessages: true
+    });
+  }
+});
+
+test("Claude fork reports unknown when child omits a trailing system message", async () => {
+  const sourceWithSystem = [
+    message("user", "prompt-1", { role: "user", content: "one" }),
+    message("assistant", "answer-1", {
+      role: "assistant",
+      content: "first"
+    }),
+    message("system", "compact-1", {
+      subtype: "compact_boundary"
+    })
+  ];
+  const sdk = {
+    getSessionMessages: async (sessionId: string) =>
+      sessionId === "child" ? child : sourceWithSystem,
+    getSessionInfo: async () => ({
+      sessionId: "child",
+      summary: "child",
+      lastModified: 1
+    }),
+    forkSession: async () => ({ sessionId: "child" })
+  };
+
+  await assert.rejects(
+    forkClaudeSession(
+      {
+        sessionId: "source",
+        providerTurnId: "prompt-1",
+        providerTurnIds: ["prompt-1"],
+        cwd: "/workspace",
+        title: "Source (2)"
+      },
+      sdk
+    ),
+    (error: unknown) =>
+      error instanceof Error &&
+      "deliveryDisposition" in error &&
+      error.deliveryDisposition === "unknown"
+  );
+});
+
 test("Claude fork can branch again from a provider-owned child", async () => {
   const calls: Array<Record<string, unknown>> = [];
   const grandchild = [
@@ -223,7 +357,7 @@ function fakeSDK(calls: Array<Record<string, unknown>> = []) {
 }
 
 function message(
-  type: "user" | "assistant",
+  type: "user" | "assistant" | "system",
   uuid: string,
   content: unknown,
   sessionId = "source"

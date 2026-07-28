@@ -43,7 +43,7 @@ export async function inspectClaudeForkCheckpoints(
   requireIdentity(input.sessionId, "provider session id");
   const messages = (await sdk.getSessionMessages(
     input.sessionId,
-    sdkOptions(input.cwd)
+    transcriptOptions(input.cwd)
   )) as SDKMessage[];
   return {
     providerTurnIds: rootProviderTurnIds(messages)
@@ -80,9 +80,10 @@ async function forkClaudeSessionVerified(
   }
 
   const options = sdkOptions(input.cwd);
+  const transcriptReadOptions = transcriptOptions(input.cwd);
   const sourceA = (await sdk.getSessionMessages(
     input.sessionId,
-    options
+    transcriptReadOptions
   )) as SDKMessage[];
   const sourcePrefix = exactSourcePrefix(sourceA, expectedTurnIds);
   const sourceMessageIds = messageIdentities(
@@ -105,9 +106,13 @@ async function forkClaudeSessionVerified(
   }
 
   const [sourceB, childInfo, childMessages] = await Promise.all([
-    sdk.getSessionMessages(input.sessionId, options) as Promise<SDKMessage[]>,
+    sdk.getSessionMessages(input.sessionId, transcriptReadOptions) as Promise<
+      SDKMessage[]
+    >,
     sdk.getSessionInfo(childSessionId, options),
-    sdk.getSessionMessages(childSessionId, options) as Promise<SDKMessage[]>
+    sdk.getSessionMessages(childSessionId, transcriptReadOptions) as Promise<
+      SDKMessage[]
+    >
   ]);
   const sourcePrefixB = exactSourcePrefix(sourceB, expectedTurnIds);
   const sourceMessageIdsB = messageIdentities(
@@ -290,6 +295,16 @@ function assertIdentityEquality(
 function sdkOptions(cwd: string): { dir?: string } {
   const dir = cwd.trim();
   return dir ? { dir } : {};
+}
+
+function transcriptOptions(cwd: string): {
+  dir?: string;
+  includeSystemMessages: true;
+} {
+  return {
+    ...sdkOptions(cwd),
+    includeSystemMessages: true
+  };
 }
 
 function normalizedIdentities(values: string[]): string[] {
