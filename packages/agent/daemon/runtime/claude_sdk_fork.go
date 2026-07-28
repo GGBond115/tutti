@@ -7,7 +7,11 @@ import (
 )
 
 const (
-	claudeSDKForkDriverKind    = "claude-agent-sdk-session-fork"
+	claudeSDKForkDriverKind = "claude-agent-sdk-session-fork"
+	// sidecar-v4 uses the official SDK query resume/fork options because the
+	// pinned direct forkSession API cannot accept Host's deterministic child
+	// UUID. On an SDK upgrade, check for caller-selected child identity,
+	// idempotency, and atomic/reconcilable persistence before replacing it.
 	claudeSDKForkDriverVersion = "0.3.201/sidecar-v4-deterministic"
 )
 

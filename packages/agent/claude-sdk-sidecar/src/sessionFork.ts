@@ -186,6 +186,22 @@ async function readExistingChild(
   };
 }
 
+// LIMITATION / SDK upgrade checkpoint:
+//
+// The pinned official SDK's direct forkSession() API chooses a random child
+// UUID and has no idempotency key, so it cannot implement Host's deterministic
+// replay contract. query() is used only to initialize
+// resume + forkSession + sessionId + resumeSessionAt with an empty prompt.
+//
+// A provider interruption can still leave the requested UUID present but with
+// a partial or unverifiable transcript. We deliberately return delivery
+// "unknown" in that case: deleting provider-owned state or creating a second
+// UUID would violate exactly-once safety.
+//
+// When upgrading @anthropic-ai/claude-agent-sdk, re-check whether
+// forkSession() supports a caller-supplied child UUID/idempotency key and an
+// atomic or reliably reconcilable durable result. If it does, replace this
+// query() workaround and revisit the fail-closed partial-child path above.
 async function initializeDeterministicFork(
   input: ForkInput,
   checkpointId: string,
