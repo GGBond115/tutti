@@ -1,7 +1,8 @@
 import { useCallback, useRef, type RefObject } from "react";
 import {
   cancelUiAnimationFrame,
-  requestUiAnimationFrame
+  requestUiAnimationFrame,
+  scheduleUiTimeout
 } from "./agentTranscriptPresentationScheduler";
 import { agentTranscriptDistanceForTarget } from "./agentTranscriptScrollController";
 import type {
@@ -42,7 +43,7 @@ export function useAgentTranscriptVirtualLocate(input: {
     viewportStateRef,
     virtualizerHostRef
   } = input;
-  const correctionTimeoutRef = useRef<number | null>(null);
+  const cancelCorrectionRef = useRef<(() => void) | null>(null);
 
   const alignMountedTarget = useCallback(
     (
@@ -82,12 +83,9 @@ export function useAgentTranscriptVirtualLocate(input: {
       align: "center" | "top",
       signal: AbortSignal | undefined
     ): void => {
-      if (correctionTimeoutRef.current !== null) {
-        window.clearTimeout(correctionTimeoutRef.current);
-      }
-      // timing: recheck alignment after the located virtual row finishes mounting
-      correctionTimeoutRef.current = window.setTimeout(() => {
-        correctionTimeoutRef.current = null;
+      cancelCorrectionRef.current?.();
+      cancelCorrectionRef.current = scheduleUiTimeout(() => {
+        cancelCorrectionRef.current = null;
         const scrollElement = scrollElementRef.current;
         if (signal?.aborted || !target.isConnected || !scrollElement) return;
         const correctedDistance = agentTranscriptDistanceForTarget({
@@ -131,10 +129,8 @@ export function useAgentTranscriptVirtualLocate(input: {
       if (options?.signal?.aborted || !host?.isConnected) return null;
       const index = layoutRef.current.turnIndexByKey.get(turnKey);
       if (index === undefined) return null;
-      if (correctionTimeoutRef.current !== null) {
-        window.clearTimeout(correctionTimeoutRef.current);
-        correctionTimeoutRef.current = null;
-      }
+      cancelCorrectionRef.current?.();
+      cancelCorrectionRef.current = null;
       const locateOperation = {};
       activeLocateRef.current = locateOperation;
       setLocatingTurnKey(turnKey);
@@ -236,10 +232,8 @@ export function useAgentTranscriptVirtualLocate(input: {
   const cancelLocate = useCallback((): void => {
     activeLocateRef.current = null;
     setLocatingTurnKey(null);
-    if (correctionTimeoutRef.current !== null) {
-      window.clearTimeout(correctionTimeoutRef.current);
-      correctionTimeoutRef.current = null;
-    }
+    cancelCorrectionRef.current?.();
+    cancelCorrectionRef.current = null;
   }, [activeLocateRef, setLocatingTurnKey]);
 
   return {

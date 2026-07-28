@@ -59,6 +59,7 @@ export interface AgentTranscriptRowVirtualizer {
   ): () => void;
   connectScrollElement(element: HTMLElement | null): void;
   measureElement(turnKey: string, element: HTMLElement | null): void;
+  syncMeasurements(): boolean;
   scrollToIndex(
     index: number,
     options: { align: "center" | "top"; behavior?: ScrollBehavior }

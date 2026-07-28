@@ -9,7 +9,7 @@ class TestResizeObserver implements ResizeObserver {
 }
 
 describe("useAgentTranscriptMeasurements", () => {
-  it("synchronously remeasures the mounted latest turn in layout effect", () => {
+  it("synchronously remeasures the mounted latest turn during layout sync", () => {
     vi.stubGlobal("ResizeObserver", TestResizeObserver);
     const element = document.createElement("div");
     element.dataset.agentTranscriptVirtualTurn = "latest";
@@ -19,7 +19,10 @@ describe("useAgentTranscriptMeasurements", () => {
       useAgentTranscriptMeasurements({}, undefined, onCommit, "latest")
     );
 
-    act(() => result.current.measureElement("latest", element));
+    act(() => {
+      result.current.measureElement("latest", element);
+      result.current.syncMountedElements();
+    });
     rerender();
 
     expect(result.current.measuredHeightsByKey.latest).toBe(460);

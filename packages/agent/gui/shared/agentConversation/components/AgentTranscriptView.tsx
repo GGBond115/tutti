@@ -56,6 +56,7 @@ import {
 } from "./useAgentTranscriptTurnAttachments";
 import {
   useAgentTranscriptVirtualizer,
+  type AgentTranscriptRowVirtualizer,
   type AgentTranscriptVirtualScrollController
 } from "./useAgentTranscriptVirtualizer";
 import { useAgentTranscriptTurnPresentation } from "./useAgentTranscriptTurnPresentation";
@@ -465,8 +466,30 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     [rowVirtualizer, turnGroups]
   );
   const scrollMarginRevisionRef = useRef<number | null>(null);
+  const layoutSyncInputsRef = useRef<{
+    isVisible: boolean;
+    layoutRevision: number;
+    rowVirtualizer: AgentTranscriptRowVirtualizer;
+    virtualListLayoutRevision: number;
+  } | null>(null);
 
   useLayoutEffect(() => {
+    if (rowVirtualizer.syncMeasurements()) return;
+    const previousInputs = layoutSyncInputsRef.current;
+    if (
+      previousInputs?.isVisible === isVisible &&
+      previousInputs.layoutRevision === layoutRevision &&
+      previousInputs.rowVirtualizer === rowVirtualizer &&
+      previousInputs.virtualListLayoutRevision === virtualListLayoutRevision
+    ) {
+      return;
+    }
+    layoutSyncInputsRef.current = {
+      isVisible,
+      layoutRevision,
+      rowVirtualizer,
+      virtualListLayoutRevision
+    };
     if (!isVisible) {
       rowVirtualizer.connectScrollElement(null);
       return;
@@ -493,13 +516,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
       return;
     }
     rowVirtualizer.syncLayout();
-  }, [
-    isVisible,
-    layoutRevision,
-    rowVirtualizer,
-    virtualListLayoutRevision,
-    virtualizerHostRef
-  ]);
+  });
 
   const renderRow = (
     row: AgentConversationVM["rows"][number],

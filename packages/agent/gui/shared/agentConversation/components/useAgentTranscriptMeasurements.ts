@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type RefObject
-} from "react";
+import { useCallback, useRef, useState, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { useElementResizeObserver } from "@tutti-os/ui-react-hooks";
 
@@ -14,6 +8,7 @@ interface AgentTranscriptMeasurements {
   measuredElementsRef: RefObject<Map<string, HTMLElement>>;
   measuredHeightsByKey: Readonly<Record<string, number>>;
   measuredHeightsRef: RefObject<Readonly<Record<string, number>>>;
+  syncMountedElements(): boolean;
 }
 
 export function useAgentTranscriptMeasurements(
@@ -144,9 +139,8 @@ export function useAgentTranscriptMeasurements(
     measurementCommitScheduledRef.current = false;
   }, [resizeObservation]);
 
-  useLayoutEffect(() => {
+  const syncMountedElements = useCallback((): boolean => {
     const pendingElements = mountedElementsPendingSyncMeasureRef.current;
-    if (pendingElements.size === 0) return;
     mountedElementsPendingSyncMeasureRef.current = new Map();
     const measurements = new Map<
       string,
@@ -157,32 +151,34 @@ export function useAgentTranscriptMeasurements(
       const heightPx = Math.ceil(element.offsetHeight);
       if (heightPx > 0) measurements.set(key, { element, heightPx });
     }
-    if (measurements.size > 0 && commitMeasurements(measurements, false)) {
-      for (const [key, element] of pendingElements) {
-        if (measuredElementsRef.current.get(key) === element) {
-          mountedElementsPendingSyncMeasureRef.current.set(key, element);
-        }
+    if (latestTurnKey) {
+      const latestElement = measuredElementsRef.current.get(latestTurnKey);
+      const latestHeightPx = latestElement
+        ? Math.ceil(latestElement.offsetHeight)
+        : 0;
+      if (latestElement && latestHeightPx > 0) {
+        measurements.set(latestTurnKey, {
+          element: latestElement,
+          heightPx: latestHeightPx
+        });
       }
     }
-  });
-
-  useLayoutEffect(() => {
-    if (!latestTurnKey) return;
-    const element = measuredElementsRef.current.get(latestTurnKey);
-    if (!element) return;
-    const heightPx = Math.ceil(element.offsetHeight);
-    if (heightPx <= 0) return;
-    commitMeasurements(
-      new Map([[latestTurnKey, { element, heightPx }]]),
-      false
-    );
-  });
+    if (measurements.size === 0) return false;
+    if (!commitMeasurements(measurements, false)) return false;
+    for (const [key, element] of pendingElements) {
+      if (measuredElementsRef.current.get(key) === element) {
+        mountedElementsPendingSyncMeasureRef.current.set(key, element);
+      }
+    }
+    return true;
+  }, [commitMeasurements, latestTurnKey]);
 
   return {
     disconnect,
     measureElement,
     measuredElementsRef,
     measuredHeightsByKey,
-    measuredHeightsRef
+    measuredHeightsRef,
+    syncMountedElements
   };
 }

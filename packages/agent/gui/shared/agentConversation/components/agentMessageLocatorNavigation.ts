@@ -1,4 +1,8 @@
 import type { AgentMessageLocatorItem } from "./agentTranscriptModel";
+import {
+  requestUiAnimationFrame,
+  scheduleUiTimeout
+} from "./agentTranscriptPresentationScheduler";
 import { setAgentTranscriptScrollTop } from "./agentTranscriptScrollController";
 
 const AGENT_MESSAGE_LOCATOR_KEYBOARD_TOP_THRESHOLD_PX = 24;
@@ -148,8 +152,7 @@ export function scrollKeyboardTranscriptLocatorTarget(
   signal?: AbortSignal
 ): void {
   scrollMountedTranscriptLocatorTarget(target, "smooth");
-  // timing: correct keyboard navigation after virtualized target layout settles
-  window.setTimeout(() => {
+  scheduleUiTimeout(() => {
     if (
       signal?.aborted ||
       !scrollParent.isConnected ||
@@ -190,8 +193,7 @@ export function waitForTranscriptLocatorTarget(
         resolve(target);
         return;
       }
-      // presentation-work: poll only while an active locator waits for its virtual row to mount
-      window.requestAnimationFrame(inspect);
+      requestUiAnimationFrame(inspect);
     };
     inspect();
   });

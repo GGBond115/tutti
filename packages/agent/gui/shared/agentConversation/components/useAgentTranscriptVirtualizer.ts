@@ -93,7 +93,8 @@ export function useAgentTranscriptVirtualizer({
     measureElement,
     measuredElementsRef,
     measuredHeightsByKey,
-    measuredHeightsRef
+    measuredHeightsRef,
+    syncMountedElements
   } = useAgentTranscriptMeasurements(
     retainedMeasurements?.turnHeightsByKey ?? {},
     () => preserveBeforeMeasurementCommitRef.current(),
@@ -177,7 +178,6 @@ export function useAgentTranscriptVirtualizer({
   });
   preserveBeforeMeasurementCommitRef.current =
     layoutPreservation.preserveForNextLayout;
-
   if (nextLayoutRef.current !== layout) {
     nextLayoutRef.current = layout;
     layoutRevisionRef.current += 1;
@@ -239,7 +239,6 @@ export function useAgentTranscriptVirtualizer({
       prepared.layout
     );
   };
-
   const readViewportSnapshot = useCallback(
     (): AgentTranscriptViewportSnapshot => ({
       contentHeightPx:
@@ -456,7 +455,6 @@ export function useAgentTranscriptVirtualizer({
       resizeObservation
     ]
   );
-
   const syncLayout = useCallback(
     (scrollMarginPx?: number): void => {
       updateResponseSpacerForViewportRef.current(
@@ -674,6 +672,7 @@ export function useAgentTranscriptVirtualizer({
       },
       getVirtualItems,
       measureElement,
+      syncMeasurements: syncMountedElements,
       subscribeViewport: (listener) => {
         viewportListenersRef.current.add(listener);
         listener(readViewportSnapshot());
@@ -691,6 +690,7 @@ export function useAgentTranscriptVirtualizer({
       readViewportSnapshot,
       scrollToIndex,
       scrollToKey,
+      syncMountedElements,
       syncLayout
     ]
   );
