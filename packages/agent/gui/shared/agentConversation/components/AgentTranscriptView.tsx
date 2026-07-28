@@ -4,6 +4,7 @@ import {
   useCallback,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type JSX,
   type ReactNode,
@@ -31,9 +32,12 @@ import { stringListEquals } from "./agentTranscriptEquality";
 import { useTurnDisclosureMotion } from "./useTurnDisclosureMotion";
 import {
   AgentMessageLocatorRail,
-  findMessageLocatorScrollParent,
-  scrollTranscriptRowIntoView
+  findMessageLocatorScrollParent
 } from "./AgentMessageLocatorRail";
+import {
+  findExactTranscriptLocatorTarget,
+  type AgentMessageLocatorLocateOptions
+} from "./agentMessageLocatorNavigation";
 import {
   buildAgentTranscriptTurnGroups,
   buildTurnGroupIndexByRowIndex,
@@ -52,14 +56,12 @@ import {
   type AgentTranscriptTurnAttachment
 } from "./useAgentTranscriptTurnAttachments";
 import {
-  AGENT_TRANSCRIPT_ESTIMATED_TURN_HEIGHT_PX,
   useAgentTranscriptVirtualizer,
   type AgentTranscriptVirtualScrollController
 } from "./useAgentTranscriptVirtualizer";
-
-const AGENT_TRANSCRIPT_DISCLOSURE_TURN_GAP_PX = 24;
-const AGENT_TRANSCRIPT_LEGACY_TURN_GAP_PX = 12;
-const AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT = 3;
+import { useAgentTranscriptTurnPresentation } from "./useAgentTranscriptTurnPresentation";
+import { useAgentTranscriptLocateOperation } from "./useAgentTranscriptLocateOperation";
+import { AgentTranscriptVirtualTurn } from "./AgentTranscriptVirtualTurn";
 
 function findLastMessageRowIndex(
   rows: readonly {
@@ -84,10 +86,14 @@ export type {
   AgentTranscriptAttachmentLocator,
   AgentTranscriptTurnAttachment
 } from "./useAgentTranscriptTurnAttachments";
-export type { AgentTranscriptVirtualScrollController } from "./useAgentTranscriptVirtualizer";
+export type {
+  AgentTranscriptViewportSnapshot,
+  AgentTranscriptVirtualScrollController
+} from "./useAgentTranscriptVirtualizer";
 
 export interface AgentTranscriptViewProps {
   conversation: AgentConversationVM;
+  isConversationHistoryComplete?: boolean;
   isVisible?: boolean;
   turnAttachments?: readonly AgentTranscriptTurnAttachment[];
   turnAttachmentLocatorRef?: Ref<AgentTranscriptAttachmentLocator>;
@@ -258,6 +264,8 @@ export function areAgentTranscriptViewPropsEqual(
       previous.conversation,
       next.conversation
     ) &&
+    (previous.isConversationHistoryComplete ?? true) ===
+      (next.isConversationHistoryComplete ?? true) &&
     (previous.isVisible ?? true) === (next.isVisible ?? true) &&
     previous.onLinkAction === next.onLinkAction &&
     previous.onAuthLogin === next.onAuthLogin &&
@@ -284,6 +292,7 @@ export function areAgentTranscriptViewPropsEqual(
 
 export const AgentTranscriptView = memo(function AgentTranscriptView({
   conversation,
+  isConversationHistoryComplete = true,
   isVisible = true,
   turnAttachments = [],
   turnAttachmentLocatorRef,
@@ -308,12 +317,6 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   const [hasMovingTurnDisclosure, handleDisclosureMotionChange] =
     useTurnDisclosureMotion();
   const turnDisclosureStore = useAgentTurnDisclosureStore();
-  const [virtualScrollElement, setVirtualScrollElement] =
-    useState<HTMLElement | null>(null);
-  const [
-    virtualListOffsetFromScrollOrigin,
-    setVirtualListOffsetFromScrollOrigin
-  ] = useState(0);
   const participantHeadersEnabled = participantPresentation?.enabled === true;
   // Participant-header presentation (Agent board session detail): tool-group
   // rows attach to the assistant message that follows them instead of sitting
@@ -374,31 +377,8 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
         : findTurnDividerRowIndexes(turnIndexById, displayRows),
     [displayRows, turnIndexById, participantTurnProjection]
   );
-  const canonicalTurnById = new Map(
-    (conversation.sourceDetail.sessionTurns ?? []).map((turn) => [
-      turn.turnId,
-      turn
-    ])
-  );
-  const turnWorkSectionModelByKey = new Map(
-    turnGroups.map((group) => {
-      const isActiveTurn =
-        group.turnId !== null &&
-        group.turnId === conversation.sourceDetail.session.activeTurnId;
-      return [
-        group.key,
-        buildAgentTurnWorkSectionModel(
-          group,
-          group.turnId ? (canonicalTurnById.get(group.turnId) ?? null) : null,
-          isActiveTurn,
-          {
-            collapseIntermediateAssistantReplies:
-              !conversation.sourceDetail.session.imported
-          }
-        )
-      ] as const;
-    })
-  );
+  const { canonicalTurnById, turnWorkSectionModelByKey, virtualEntries } =
+    useAgentTranscriptTurnPresentation(conversation, turnGroups);
   const participantHeaderRenderKeys = participantTurnProjection
     ? findParticipantHeaderRenderKeys(
         turnGroups,
@@ -410,88 +390,104 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   const basePath = conversation.sourceDetail.cwd;
   const workspaceRoot = conversation.workspaceRoot;
   const provider = conversation.activity.agentProvider;
-  const shouldVirtualize = useMemo(
-    () => assessAgentTranscriptComplexity(turnGroups).shouldVirtualize,
-    [turnGroups]
-  );
   const agentSessionId = conversation.sourceDetail.session.agentSessionId;
-  const { rowVirtualizer, setVirtualizerHostElement, virtualizerHostRef } =
-    useAgentTranscriptVirtualizer({
-      agentSessionId,
-      followEndMode,
-      hasMovingTurnDisclosure,
-      scrollElement: virtualScrollElement,
-      scrollMargin: virtualListOffsetFromScrollOrigin,
-      shouldVirtualize,
-      turnGroups,
-      virtualScrollControllerRef
-    });
+  const {
+    layoutRevision,
+    rowVirtualizer,
+    setVirtualizerHostElement,
+    totalHeightPx,
+    virtualItems,
+    virtualizerHostRef,
+    windowOffsetPx
+  } = useAgentTranscriptVirtualizer({
+    agentSessionId,
+    entries: virtualEntries,
+    followEndMode,
+    hasMovingTurnDisclosure,
+    virtualScrollControllerRef
+  });
+  const locateOperation = useAgentTranscriptLocateOperation(isVisible);
   const attachmentProjection = useAgentTranscriptTurnAttachments({
     attachments: turnAttachments,
+    isVisible,
+    locateOperation,
     locatorRef: turnAttachmentLocatorRef,
     onVisibilityChange: onTurnAttachmentVisibilityChange,
     rowVirtualizer,
-    shouldVirtualize,
+    shouldVirtualize: true,
     turnGroups,
     virtualizerHostRef
   });
   const handleLocateUserMessage = useCallback(
-    (item: AgentMessageLocatorItem) => {
+    async (
+      item: AgentMessageLocatorItem,
+      options: AgentMessageLocatorLocateOptions = {
+        align: "center",
+        behavior: "smooth"
+      }
+    ) => {
+      if (options.signal?.aborted) return null;
       const scrollParent = virtualizerHostRef.current
         ? findMessageLocatorScrollParent(virtualizerHostRef.current)
         : null;
-      const scrollToRenderedRow = (): boolean => {
-        const renderedRow = (
-          scrollParent ?? document
-        ).querySelector<HTMLElement>(
+      const findRenderedTarget = (): HTMLElement | null => {
+        const row = (scrollParent ?? document).querySelector<HTMLElement>(
           `[data-agent-transcript-row="${escapeCssString(item.rowKey)}"]`
         );
-        if (!renderedRow) {
-          return false;
-        }
-        scrollTranscriptRowIntoView(
-          renderedRow,
-          scrollParent ?? findMessageLocatorScrollParent(renderedRow)
-        );
-        return true;
+        return row ? findExactTranscriptLocatorTarget(row) : null;
       };
-
-      if (scrollToRenderedRow()) {
-        return;
-      }
-      if (shouldVirtualize) {
-        rowVirtualizer.scrollToIndex(item.turnGroupIndex, {
-          align: "center"
-        });
-        window.setTimeout(scrollToRenderedRow, 0);
-      }
+      const group = turnGroups[item.turnGroupIndex];
+      if (!group) return null;
+      const revealedTarget = await rowVirtualizer.scrollToKey(
+        group.key,
+        findRenderedTarget,
+        {
+          align: options.align,
+          behavior: options.behavior,
+          signal: options.signal
+        }
+      );
+      if (options.signal?.aborted) return null;
+      return revealedTarget instanceof HTMLElement ? revealedTarget : null;
     },
-    [rowVirtualizer, shouldVirtualize]
+    [rowVirtualizer, turnGroups]
   );
+  const scrollMarginRevisionRef = useRef<number | null>(null);
 
   useLayoutEffect(() => {
-    if (!isVisible || !shouldVirtualize) {
+    if (!isVisible) {
+      rowVirtualizer.connectScrollElement(null);
       return;
     }
-    const virtualizerHost = virtualizerHostRef.current;
-    const scrollElement = virtualizerHost
-      ? findMessageLocatorScrollParent(virtualizerHost)
-      : null;
-    setVirtualScrollElement(scrollElement);
-    if (!virtualizerHost || !scrollElement) {
-      setVirtualListOffsetFromScrollOrigin(0);
+    if (scrollMarginRevisionRef.current !== virtualListLayoutRevision) {
+      scrollMarginRevisionRef.current = virtualListLayoutRevision;
+      const virtualizerHost = virtualizerHostRef.current;
+      const scrollElement = virtualizerHost
+        ? findMessageLocatorScrollParent(virtualizerHost)
+        : null;
+      if (!virtualizerHost || !scrollElement) {
+        rowVirtualizer.syncLayout(0);
+        rowVirtualizer.connectScrollElement(scrollElement);
+        return;
+      }
+      const nextOffset = Math.max(
+        0,
+        virtualizerHost.getBoundingClientRect().top -
+          scrollElement.getBoundingClientRect().top +
+          scrollElement.scrollTop
+      );
+      rowVirtualizer.syncLayout(nextOffset);
+      rowVirtualizer.connectScrollElement(scrollElement);
       return;
     }
-    const nextOffset = Math.max(
-      0,
-      virtualizerHost.getBoundingClientRect().top -
-        scrollElement.getBoundingClientRect().top +
-        scrollElement.scrollTop
-    );
-    setVirtualListOffsetFromScrollOrigin((previousOffset) =>
-      previousOffset === nextOffset ? previousOffset : nextOffset
-    );
-  }, [isVisible, shouldVirtualize, virtualListLayoutRevision]);
+    rowVirtualizer.syncLayout();
+  }, [
+    isVisible,
+    layoutRevision,
+    rowVirtualizer,
+    virtualListLayoutRevision,
+    virtualizerHostRef
+  ]);
 
   const renderRow = (
     row: AgentConversationVM["rows"][number],
@@ -528,6 +524,11 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
         key={rowKey}
         className="agent-gui-transcript-row"
         data-agent-transcript-row={rowKey}
+        data-agent-message-locator-key={
+          row.kind === "message" && row.speaker === "user"
+            ? `user-message:${rowKey}`
+            : undefined
+        }
         data-agent-transcript-row-kind={row.kind}
         data-agent-transcript-row-speaker={
           row.kind === "message" ? row.speaker : undefined
@@ -703,94 +704,55 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     />
   );
 
-  if (shouldVirtualize) {
-    const usesFallbackVirtualItems = virtualScrollElement === null;
-    const fallbackStartIndex = Math.max(
-      0,
-      turnGroups.length - AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT
-    );
-    const virtualItems = usesFallbackVirtualItems
-      ? turnGroups
-          .slice(-AGENT_TRANSCRIPT_FALLBACK_TURN_COUNT)
-          .map((group, fallbackIndex) => ({
-            index: fallbackStartIndex + fallbackIndex,
-            key: group.key,
-            start:
-              (fallbackStartIndex + fallbackIndex) *
-              AGENT_TRANSCRIPT_ESTIMATED_TURN_HEIGHT_PX
-          }))
-      : rowVirtualizer.getVirtualItems();
-    return (
-      <>
-        <AgentMessageLocatorRail
-          followEndMode={followEndMode}
-          items={userMessageLocatorItems}
-          isVisible={isVisible}
-          label={labels.userMessageLocator}
-          onLocate={handleLocateUserMessage}
-          virtualSelectionSource={rowVirtualizer}
-        />
+  return (
+    <>
+      <AgentMessageLocatorRail
+        items={userMessageLocatorItems}
+        isConversationHistoryComplete={isConversationHistoryComplete}
+        isVisible={isVisible}
+        label={labels.userMessageLocator}
+        locateOperation={locateOperation}
+        onLocate={handleLocateUserMessage}
+        viewportSource={rowVirtualizer}
+      />
+      <div
+        ref={setVirtualizerHostElement}
+        className="agent-gui-transcript-virtual"
+        data-agent-transcript-virtualized="true"
+        style={{ height: `${totalHeightPx}px` }}
+      >
         <div
-          ref={setVirtualizerHostElement}
-          className="agent-gui-transcript-virtual"
-          data-agent-transcript-virtualized="true"
+          className="agent-gui-transcript-virtual-window"
+          style={{ marginTop: `${windowOffsetPx}px` }}
         >
           {virtualItems.map((virtualTurn) => {
             const group = turnGroups[virtualTurn.index];
-            if (!group) {
-              return null;
-            }
+            if (!group) return null;
             return (
-              <div
+              <AgentTranscriptVirtualTurn
                 key={virtualTurn.key}
-                ref={rowVirtualizer.measureElement}
-                className="agent-gui-transcript-virtual-item"
-                data-index={virtualTurn.index}
-                data-agent-transcript-virtual-turn={group.key}
-                style={{
-                  paddingBottom: `${
-                    turnWorkSectionModelByKey.get(group.key)
-                      ? AGENT_TRANSCRIPT_DISCLOSURE_TURN_GAP_PX
-                      : AGENT_TRANSCRIPT_LEGACY_TURN_GAP_PX
-                  }px`,
-                  ...(usesFallbackVirtualItems
-                    ? {
-                        transform: `translateY(${virtualTurn.start}px)`
-                      }
-                    : {})
-                }}
+                constrainedHeightPx={
+                  !virtualTurn.measured &&
+                  virtualTurn.index !== turnGroups.length - 1 &&
+                  group.turnId !==
+                    conversation.sourceDetail.session.activeTurnId
+                    ? virtualTurn.size
+                    : undefined
+                }
+                gapAfterPx={virtualEntries[virtualTurn.index]?.gapAfterPx ?? 0}
+                index={virtualTurn.index}
+                rowVirtualizer={rowVirtualizer}
+                turnKey={group.key}
               >
                 {renderTurnGroup(group)}
                 {attachmentProjection.byGroupIndex
                   .get(virtualTurn.index)
                   ?.map(renderAttachment)}
-              </div>
+              </AgentTranscriptVirtualTurn>
             );
           })}
         </div>
-        {attachmentProjection.trailing.map(renderAttachment)}
-      </>
-    );
-  }
-
-  return (
-    <>
-      <AgentMessageLocatorRail
-        followEndMode={followEndMode}
-        items={userMessageLocatorItems}
-        isVisible={isVisible}
-        label={labels.userMessageLocator}
-        onLocate={handleLocateUserMessage}
-      />
-      {turnGroups.map((group, groupIndex) => (
-        <Fragment key={group.key}>
-          {renderTurnGroup(group)}
-          {attachmentProjection.byGroupIndex
-            .get(groupIndex)
-            ?.map(renderAttachment)}
-        </Fragment>
-      ))}
-      {attachmentProjection.trailing.map(renderAttachment)}
+      </div>
     </>
   );
 }, areAgentTranscriptViewPropsEqual);

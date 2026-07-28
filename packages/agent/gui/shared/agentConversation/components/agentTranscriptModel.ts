@@ -62,12 +62,21 @@ export function buildAgentTranscriptTurnGroups(
   rowKeys: ReadonlyArray<string>
 ): AgentTranscriptTurnGroup[] {
   const groups: AgentTranscriptTurnGroup[] = [];
+  const nextTurnIdByRowIndex = Array.from(
+    { length: rows.length },
+    (): string | null => null
+  );
+  let nextTurnId: string | null = null;
+  for (let rowIndex = rows.length - 1; rowIndex >= 0; rowIndex -= 1) {
+    nextTurnIdByRowIndex[rowIndex] = nextTurnId;
+    nextTurnId = rows[rowIndex]?.turnId ?? nextTurnId;
+  }
   let currentGroup: AgentTranscriptTurnGroup | null = null;
 
   rows.forEach((row, rowIndex) => {
     const turnId = transcriptPresentationTurnId(
-      rows,
-      rowIndex,
+      row.turnId,
+      nextTurnIdByRowIndex[rowIndex] ?? null,
       currentGroup?.turnId ?? null
     );
     if (!currentGroup || currentGroup.turnId !== turnId) {
@@ -86,17 +95,13 @@ export function buildAgentTranscriptTurnGroups(
 }
 
 function transcriptPresentationTurnId(
-  rows: ReadonlyArray<AgentConversationVM["rows"][number]>,
-  rowIndex: number,
+  rowTurnId: string | null,
+  nextTurnId: string | null,
   currentTurnId: string | null
 ): string | null {
-  const rowTurnId = rows[rowIndex]?.turnId ?? null;
   if (rowTurnId || !currentTurnId) {
     return rowTurnId;
   }
-  const nextTurnId =
-    rows.slice(rowIndex + 1).find((candidate) => candidate.turnId !== null)
-      ?.turnId ?? null;
   // A session-level row can occur chronologically inside a live Turn. Keep it
   // in that Turn's presentation group only when the next lifecycle-owned row
   // proves the surrounding Turn is unchanged; the row itself stays turnless.

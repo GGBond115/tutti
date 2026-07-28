@@ -9,6 +9,7 @@ import type {
   AgentTranscriptTurnAttachment,
   AgentTranscriptVirtualScrollController
 } from "../../../shared/agentConversation/components/AgentTranscriptView";
+import { setAgentTranscriptScrollTop } from "../../../shared/agentConversation/components/agentTranscriptScrollController";
 import { userScrollBehavior } from "./agentGUIDetailScrollHelpers";
 import type { AgentConversationFollowEndMode } from "../../../shared/agentConversation/agentConversationFollowEndController";
 
@@ -24,6 +25,7 @@ interface AgentGUIConversationTimelinePaneProps {
     visible: boolean
   ) => void;
   isLoading: boolean;
+  isConversationHistoryComplete: boolean;
   isLoadingOlderMessages: boolean;
   isVisible: boolean;
   followEndMode: AgentConversationFollowEndMode;
@@ -52,6 +54,7 @@ export const AgentGUIConversationTimelinePane = memo(
     turnAttachmentLocatorRef,
     onTurnAttachmentVisibilityChange,
     isLoading,
+    isConversationHistoryComplete,
     isLoadingOlderMessages,
     isVisible,
     followEndMode,
@@ -81,6 +84,7 @@ export const AgentGUIConversationTimelinePane = memo(
         ) : null}
         <AgentConversationFlow
           conversation={conversation}
+          isConversationHistoryComplete={isConversationHistoryComplete}
           followEndMode={followEndMode}
           turnAttachments={turnAttachments}
           turnAttachmentLocatorRef={turnAttachmentLocatorRef}
@@ -110,19 +114,12 @@ export function setTimelineScrollTopInstantly(
 ): void {
   // Timeline anchoring runs for high-frequency streaming updates. Smooth scrolling
   // queues animations that can overlap with incoming layout commits and make the transcript flicker.
-  element.scrollTop = top;
+  setAgentTranscriptScrollTop(element, top);
 }
 
 export function setTimelineScrollTopWithUserTransition(
   element: HTMLElement,
   top: number
 ): void {
-  if (typeof element.scrollTo === "function") {
-    element.scrollTo({
-      top,
-      behavior: userScrollBehavior()
-    });
-    return;
-  }
-  element.scrollTop = top;
+  setAgentTranscriptScrollTop(element, top, userScrollBehavior());
 }

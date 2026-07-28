@@ -664,7 +664,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     showTimelineSkeleton,
     submittedPromptScrollConversationRef,
     timelineConversationId,
-    timelineContentRef,
     timelineRef,
     timelineScrollAnchorRef,
     virtualScrollControllerRef,
@@ -743,6 +742,10 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         forkedFrom={forkedFrom}
         hasActiveConversation={hasActiveConversation}
         homeContent={homeContent}
+        isConversationHistoryComplete={
+          !viewModel.detail.hasOlderMessages &&
+          !viewModel.detail.isLoadingOlderMessages
+        }
         isLoadingOlderMessages={viewModel.detail.isLoadingOlderMessages}
         isVisible={isVisible}
         isTimelineScrolledToTop={isTimelineScrolledToTop}

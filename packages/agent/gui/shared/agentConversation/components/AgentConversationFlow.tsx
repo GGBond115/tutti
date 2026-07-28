@@ -23,6 +23,7 @@ export interface AgentConversationFlowProps {
     visible: boolean
   ) => void;
   isLoading: boolean;
+  isConversationHistoryComplete?: boolean;
   isVisible?: boolean;
   loadingLabel: string;
   loadingTestId?: string;
@@ -54,6 +55,7 @@ export const AgentConversationFlow = memo(function AgentConversationFlow({
   turnAttachmentLocatorRef,
   onTurnAttachmentVisibilityChange,
   isLoading,
+  isConversationHistoryComplete = true,
   isVisible = true,
   loadingLabel,
   loadingTestId,
@@ -86,7 +88,9 @@ export const AgentConversationFlow = memo(function AgentConversationFlow({
   } else {
     content = (
       <AgentTranscriptView
+        key={conversation.sourceDetail.session.agentSessionId}
         conversation={conversation}
+        isConversationHistoryComplete={isConversationHistoryComplete}
         isVisible={isVisible}
         turnAttachments={turnAttachments}
         turnAttachmentLocatorRef={turnAttachmentLocatorRef}

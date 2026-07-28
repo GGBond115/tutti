@@ -21,6 +21,8 @@ import type { AgentConversationFollowEndMode } from "../../../shared/agentConver
 const TIMELINE_CONTENT_STYLE: CSSProperties = {
   width: "100%",
   minWidth: "100%",
+  minHeight: "100%",
+  flexShrink: 0,
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr)",
   gap: "24px"
@@ -42,6 +44,7 @@ interface AgentGUIDetailTimelineProps {
   forkedFrom?: AgentActivitySessionForkLineage | null;
   forkThroughTurnPendingTurnIds?: readonly string[];
   homeContent: ReactNode;
+  isConversationHistoryComplete?: boolean;
   isLoadingOlderMessages: boolean;
   isVisible: boolean;
   isTimelineScrolledToTop: boolean;
@@ -71,6 +74,7 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
   forkedFrom,
   forkThroughTurnPendingTurnIds,
   homeContent,
+  isConversationHistoryComplete = true,
   isLoadingOlderMessages,
   isVisible,
   isTimelineScrolledToTop,
@@ -136,11 +140,12 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
       scrollbarMode="native"
       className="flex h-full min-h-0 flex-1 flex-col [&_[data-orientation=vertical][data-slot=scroll-area-scrollbar]]:opacity-100"
       viewportRef={timelineRef}
+      viewportProps={{ tabIndex: 0 }}
       viewportContentRef={timelineContentRef}
       viewportTestId="agent-gui-timeline"
       viewportClassName={`${styles.timeline} ${
         hasActiveConversation
-          ? styles.timelineWithComposer
+          ? `${styles.timelineWithComposer} ${styles.timelineBottomOrigin}`
           : styles.timelineCentered
       } ${
         !isTimelineScrolledToTop ? styles.timelineScrolledFromTop : ""
@@ -152,6 +157,7 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
           <AgentGUIConversationTimelinePane
             conversation={conversation}
             turnAttachments={forkLineageAttachments}
+            isConversationHistoryComplete={isConversationHistoryComplete}
             followEndMode={followEndMode}
             isLoading={showTimelineSkeleton}
             isLoadingOlderMessages={isLoadingOlderMessages}
