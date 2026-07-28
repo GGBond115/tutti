@@ -36,7 +36,7 @@ func (api DaemonAPI) ArchiveTuttiModeExecution(
 	}
 	operation, err := api.TuttiModeExecutionService.Archive(ctx, tuttimodeexecutionservice.ArchiveInput{
 		WorkspaceID: string(request.WorkspaceID), IssueID: string(request.IssueID),
-		RequestID: request.Body.RequestId, RequestedBy: request.Body.RequestedBy,
+		RequestID: request.Body.RequestId, RequestedBy: authenticatedLocalOperatorActorID,
 		Reason: request.Body.Reason,
 	})
 	if err != nil && operation.OperationID == "" {
@@ -133,6 +133,19 @@ func archiveTuttiModeExecutionError(
 		)
 		return tuttigenerated.ArchiveTuttiModeExecution404JSONResponse{
 			WorkspaceIssueResourceNotFoundErrorJSONResponse: workspaceIssueResourceNotFoundError(protocolErr),
+		}
+	}
+	if errors.Is(err, executionbiz.ErrExecutionConflict) {
+		protocolErr := apierrors.New(
+			apierrors.StatusWorkspaceIssueExists,
+			tuttigenerated.TuttiModeArchiveConflict,
+			"tutti_archive_request_conflict",
+			apierrors.WithCause(err),
+		)
+		return tuttigenerated.ArchiveTuttiModeExecution409JSONResponse{
+			TuttiModeArchiveConflictErrorJSONResponse: tuttigenerated.TuttiModeArchiveConflictErrorJSONResponse(
+				protocolErrorResponse(protocolErr),
+			),
 		}
 	}
 	return tuttigenerated.ArchiveTuttiModeExecution502JSONResponse{

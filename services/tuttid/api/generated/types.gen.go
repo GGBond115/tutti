@@ -729,6 +729,7 @@ const (
 	PreferencesOperationFailed            ApiErrorDetailsCode = "preferences_operation_failed"
 	ServiceUnavailable                    ApiErrorDetailsCode = "service_unavailable"
 	TuttiExecutionActive                  ApiErrorDetailsCode = "tutti_execution_active"
+	TuttiModeArchiveConflict              ApiErrorDetailsCode = "tutti_mode_archive_conflict"
 	TuttiModeGoalReviewConflict           ApiErrorDetailsCode = "tutti_mode_goal_review_conflict"
 	TuttiModeGoalReviewNotFound           ApiErrorDetailsCode = "tutti_mode_goal_review_not_found"
 	TuttiModeGoalReviewOperationFailed    ApiErrorDetailsCode = "tutti_mode_goal_review_operation_failed"
@@ -776,6 +777,8 @@ func (e ApiErrorDetailsCode) Valid() bool {
 	case ServiceUnavailable:
 		return true
 	case TuttiExecutionActive:
+		return true
+	case TuttiModeArchiveConflict:
 		return true
 	case TuttiModeGoalReviewConflict:
 		return true
@@ -4074,9 +4077,8 @@ type AppReferenceSearchResponse struct {
 
 // ArchiveTuttiModeExecutionRequest defines model for ArchiveTuttiModeExecutionRequest.
 type ArchiveTuttiModeExecutionRequest struct {
-	Reason      string `json:"reason"`
-	RequestId   string `json:"requestId"`
-	RequestedBy string `json:"requestedBy"`
+	Reason    string `json:"reason"`
+	RequestId string `json:"requestId"`
 }
 
 // AuthenticateAgentTargetRuntimeRequest defines model for AuthenticateAgentTargetRuntimeRequest.
@@ -7623,6 +7625,9 @@ type ServiceUnavailableError = ApiErrorResponse
 
 // TuttiExecutionActiveError defines model for TuttiExecutionActiveError.
 type TuttiExecutionActiveError = ApiErrorResponse
+
+// TuttiModeArchiveConflictError defines model for TuttiModeArchiveConflictError.
+type TuttiModeArchiveConflictError = ApiErrorResponse
 
 // TuttiModeGoalReviewConflictError defines model for TuttiModeGoalReviewConflictError.
 type TuttiModeGoalReviewConflictError = ApiErrorResponse

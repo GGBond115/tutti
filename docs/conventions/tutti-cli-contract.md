@@ -396,17 +396,29 @@ The public command set is deliberately narrow:
 - `tutti plan get --workflow-id <id>` returns the caller-session-scoped
   authoritative snapshot;
 - `tutti plan issue schedule --issue-id <id> --checkpoint-id <id>
-  --expected-graph-revision <revision> --task-ids-json <json-array>
-  --request-id <stable-id>` resolves the active execution checkpoint by
+--expected-graph-revision <revision> --task-ids-json <json-array>
+--request-id <stable-id>` resolves the active execution checkpoint by
   atomically admitting exactly the requested ready task set. Caller authority
   comes only from the daemon-provided Agent session context; there is no caller
   session flag;
+- `tutti plan issue mutate --issue-id <id> --checkpoint-id <id>
+--expected-graph-revision <revision> --operations-json <json-array>
+--request-id <stable-id>` atomically applies one or more `add`, `update`,
+  `rework`, or `supersede` operations to the active Issue graph. The checkpoint
+  and graph revision fence the entire operation set; success increments the
+  graph revision and rebinds the checkpoint to that revision;
 - `tutti plan issue acknowledge --issue-id <id> --checkpoint-id <id>
-  --expected-graph-revision <revision> --request-id <stable-id>` resolves a
+--expected-graph-revision <revision> --request-id <stable-id>` resolves a
   reviewed `task_settled`, `task_failed`, or `task_canceled` checkpoint without
   scheduling a successor. It is allowed only while another Run is active or a
   later checkpoint is queued; `all_tasks_terminal` always requires the
-  dedicated Goal-review flow and is rejected here.
+  dedicated Goal-review flow and is rejected here;
+- `tutti plan issue complete --issue-id <id> --checkpoint-id <id>
+--expected-graph-revision <revision> --request-id <stable-id>
+--decision goal_satisfied [--disagreement-reason <reason>]` completes the
+  exact active Goal Review. The source Session comes from trusted invoke
+  context. A disagreement reason is required when the source Agent overrides a
+  negative or inconclusive independent verdict.
 
 Tasks may carry optional `agentTargetId`, `modelPlanId`, `model`,
 `permissionModeId`, and `reasoningEffort` assignments. The user can override
@@ -441,6 +453,14 @@ requeues only expired ownership before retrying. The periodic Issue Run
 reconciliation pass repeats the same expired-owner recovery, so a pre-expiry
 restart cannot strand the intent after its final lease later expires.
 
+Graph mutations use
+`(workspace, source session, mutate, Issue, request ID)` as their durable
+identity. The payload digest binds the exact checkpoint, expected graph
+revision, and normalized ordered operation list. Replaying the same identity
+and payload returns the original execution, checkpoint, new graph revision,
+and affected task IDs with `replayed: true`; changing any bound field or
+operation fails closed.
+
 Acknowledge mutations use
 `(workspace, source session, acknowledge, Issue, request ID)` and bind the
 exact checkpoint plus expected graph revision into the payload digest.
@@ -448,6 +468,13 @@ Same-payload replay returns the original result with `replayed: true`;
 conflicting reuse fails closed. A successful acknowledge resolves only the
 active settlement checkpoint and promotes the oldest queued checkpoint. It
 does not infer or dispatch a successor.
+
+Goal Review completion mutations use
+`(workspace, source session, complete, Issue, request ID)` and bind the exact
+checkpoint, expected graph revision, `goal_satisfied` decision, and optional
+disagreement reason into the payload digest. Same-payload replay returns the
+original completion result with `replayed: true`; a different actor or payload
+under the same durable identity fails closed.
 
 Workflow lookup is isolated to the Agent session supplied by the daemon CLI
 runtime context. A workflow created by another source session is reported as

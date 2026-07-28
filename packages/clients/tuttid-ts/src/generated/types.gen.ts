@@ -347,6 +347,7 @@ export type ApiErrorDetails = {
     | "tutti_mode_goal_review_conflict"
     | "tutti_mode_goal_review_operation_failed"
     | "tutti_mode_goal_review_service_unavailable"
+    | "tutti_mode_archive_conflict"
     | "tutti_execution_active";
   reason?: string;
   params?: {
@@ -2725,7 +2726,6 @@ export type ExternalAgentImportResultResponse = {
 
 export type ArchiveTuttiModeExecutionRequest = {
   requestId: string;
-  requestedBy: string;
   reason: string;
 };
 
@@ -9774,6 +9774,10 @@ export type ArchiveTuttiModeExecutionErrors = {
    * HTTP method is not supported on this route
    */
   405: ApiErrorResponse;
+  /**
+   * Archive request id conflicts with a different durable archive request
+   */
+  409: ApiErrorResponse;
   /**
    * Workspace operation failed in an upstream adapter or command
    */

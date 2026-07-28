@@ -3693,6 +3693,8 @@ paths:
           $ref: "#/components/responses/UnauthorizedError"
         "404":
           $ref: "#/components/responses/WorkspaceIssueResourceNotFoundError"
+        "409":
+          $ref: "#/components/responses/TuttiModeArchiveConflictError"
         "405":
           $ref: "#/components/responses/MethodNotAllowedError"
         "502":
@@ -6149,6 +6151,18 @@ components:
                 error:
                   code: tutti_mode_goal_review_conflict
                   reason: tutti_goal_review_conflict
+    TuttiModeArchiveConflictError:
+      description: Archive request id conflicts with a different durable archive request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorResponse"
+          examples:
+            archiveRequestConflict:
+              value:
+                error:
+                  code: tutti_mode_archive_conflict
+                  reason: tutti_archive_request_conflict
   schemas:
     SwitchTuttiModeGoalReviewToSelfRequest:
       type: object
@@ -6876,6 +6890,7 @@ components:
             - tutti_mode_goal_review_conflict
             - tutti_mode_goal_review_operation_failed
             - tutti_mode_goal_review_service_unavailable
+            - tutti_mode_archive_conflict
             - tutti_execution_active
         reason:
           type: string
@@ -12292,13 +12307,9 @@ components:
       additionalProperties: false
       required:
         - requestId
-        - requestedBy
         - reason
       properties:
         requestId:
-          type: string
-          minLength: 1
-        requestedBy:
           type: string
           minLength: 1
         reason:

@@ -9692,6 +9692,8 @@ type ServiceUnavailableErrorJSONResponse ApiErrorResponse
 
 type TuttiExecutionActiveErrorJSONResponse ApiErrorResponse
 
+type TuttiModeArchiveConflictErrorJSONResponse ApiErrorResponse
+
 type TuttiModeGoalReviewConflictErrorJSONResponse ApiErrorResponse
 
 type TuttiModeGoalReviewNotFoundErrorJSONResponse ApiErrorResponse
@@ -33162,6 +33164,22 @@ func (response ArchiveTuttiModeExecution405JSONResponse) VisitArchiveTuttiModeEx
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ArchiveTuttiModeExecution409JSONResponse struct {
+	TuttiModeArchiveConflictErrorJSONResponse
+}
+
+func (response ArchiveTuttiModeExecution409JSONResponse) VisitArchiveTuttiModeExecutionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
