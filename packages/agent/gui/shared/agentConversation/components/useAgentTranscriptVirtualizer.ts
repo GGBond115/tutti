@@ -12,6 +12,7 @@ import type { AgentConversationFollowEndMode } from "../agentConversationFollowE
 import {
   buildAgentTranscriptVirtualLayout,
   agentTranscriptVirtualLayoutsEqual,
+  agentTranscriptVirtualViewportRenderStateChanged as viewportRenderChanged,
   compensateAgentTranscriptDistanceForAnchor,
   distanceFromBottomForAgentTranscriptTurn,
   findAgentTranscriptCompensationAnchor,
@@ -98,8 +99,7 @@ export function useAgentTranscriptVirtualizer({
   } = useAgentTranscriptMeasurements(
     retainedMeasurements?.turnHeightsByKey ?? {},
     () => preserveBeforeMeasurementCommitRef.current(),
-    (nextHeightsByKey) => prepareMeasurementCommitRef.current(nextHeightsByKey),
-    entries.at(-1)?.key
+    (nextHeightsByKey) => prepareMeasurementCommitRef.current(nextHeightsByKey)
   );
   const layout = useMemo(
     () => buildAgentTranscriptVirtualLayout(entries, measuredHeightsByKey),
@@ -200,15 +200,16 @@ export function useAgentTranscriptVirtualizer({
       nextViewportHeightPx: number,
       nextLayout = layoutRef.current
     ) => {
+      const previousState = virtualViewportRef.current;
       const nextState = updateAgentTranscriptVirtualViewportState({
-        current: virtualViewportRef.current,
+        current: previousState,
         distanceFromBottomPx: nextDistanceFromBottomPx,
         layout: nextLayout,
         viewportHeightPx: nextViewportHeightPx
       });
-      if (nextState === virtualViewportRef.current) return;
+      const shouldRender = viewportRenderChanged(previousState, nextState);
       virtualViewportRef.current = nextState;
-      setVirtualViewportState(nextState);
+      if (shouldRender) setVirtualViewportState(nextState);
     },
     []
   );

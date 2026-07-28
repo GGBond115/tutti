@@ -16,8 +16,7 @@ export function useAgentTranscriptMeasurements(
   onBeforeMeasurementsCommit?: () => void,
   onMeasurementsCommit?: (
     nextHeightsByKey: Readonly<Record<string, number>>
-  ) => void,
-  latestTurnKey?: string
+  ) => void
 ): AgentTranscriptMeasurements {
   const [measuredHeightsByKey, setMeasuredHeightsByKey] =
     useState<Readonly<Record<string, number>>>(initialHeightsByKey);
@@ -107,15 +106,6 @@ export function useAgentTranscriptMeasurements(
       }
       measuredElementsRef.current.set(turnKey, element);
       mountedElementsPendingSyncMeasureRef.current.set(turnKey, element);
-      queueMicrotask(() => {
-        if (measuredElementsRef.current.get(turnKey) === element) {
-          scheduleMeasurement(
-            turnKey,
-            element,
-            Math.ceil(element.offsetHeight)
-          );
-        }
-      });
       resizeObservation.observe(element, (observation) => {
         const key = (observation.target as HTMLElement).dataset
           .agentTranscriptVirtualTurn;
@@ -151,18 +141,6 @@ export function useAgentTranscriptMeasurements(
       const heightPx = Math.ceil(element.offsetHeight);
       if (heightPx > 0) measurements.set(key, { element, heightPx });
     }
-    if (latestTurnKey) {
-      const latestElement = measuredElementsRef.current.get(latestTurnKey);
-      const latestHeightPx = latestElement
-        ? Math.ceil(latestElement.offsetHeight)
-        : 0;
-      if (latestElement && latestHeightPx > 0) {
-        measurements.set(latestTurnKey, {
-          element: latestElement,
-          heightPx: latestHeightPx
-        });
-      }
-    }
     if (measurements.size === 0) return false;
     if (!commitMeasurements(measurements, false)) return false;
     for (const [key, element] of pendingElements) {
@@ -171,7 +149,7 @@ export function useAgentTranscriptMeasurements(
       }
     }
     return true;
-  }, [commitMeasurements, latestTurnKey]);
+  }, [commitMeasurements]);
 
   return {
     disconnect,

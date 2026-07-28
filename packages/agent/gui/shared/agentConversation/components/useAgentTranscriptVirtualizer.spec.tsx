@@ -214,6 +214,63 @@ describe("useAgentTranscriptVirtualizer", () => {
     timeline.remove();
   });
 
+  it("publishes exact scrolling without rerendering a stable virtual window", () => {
+    const timeline = document.createElement("div");
+    const host = document.createElement("div");
+    timeline.append(host);
+    document.body.append(timeline);
+    const controller = createRef<AgentTranscriptVirtualScrollController>();
+    const entries = Array.from({ length: 120 }, (_, index) => ({
+      gapAfterPx: 0,
+      key: `turn-${index}`
+    }));
+    let renderCount = 0;
+    const { result, unmount } = renderHook(() => {
+      renderCount += 1;
+      return useAgentTranscriptVirtualizer({
+        agentSessionId: "session-stable-scroll-window",
+        entries,
+        virtualScrollControllerRef: controller
+      });
+    });
+    let snapshot = null as AgentTranscriptViewportSnapshot | null;
+    act(() => {
+      result.current.setVirtualizerHostElement(host);
+      result.current.rowVirtualizer.connectScrollElement(timeline);
+      controller.current?.subscribeViewport((next) => {
+        snapshot = next;
+      });
+    });
+    const connectedRenderCount = renderCount;
+    const initialTurnKeys = result.current.virtualItems.map((item) => item.key);
+
+    act(() => {
+      timeline.scrollTop = -10;
+      timeline.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(snapshot?.distanceFromBottomPx).toBe(10);
+    expect(renderCount).toBe(connectedRenderCount);
+    expect(result.current.virtualItems.map((item) => item.key)).toEqual(
+      initialTurnKeys
+    );
+
+    act(() => {
+      timeline.scrollTop = -2_000;
+      timeline.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(snapshot?.distanceFromBottomPx).toBe(2_000);
+    expect(renderCount).toBeGreaterThan(connectedRenderCount);
+    expect(result.current.virtualItems.map((item) => item.key)).not.toEqual(
+      initialTurnKeys
+    );
+
+    act(() => result.current.setVirtualizerHostElement(null));
+    unmount();
+    timeline.remove();
+  });
+
   it("keeps the rendered window on stable turn keys during a prepend render", () => {
     const baseEntries = Array.from({ length: 20 }, (_, index) => ({
       gapAfterPx: 0,
@@ -252,8 +309,10 @@ describe("useAgentTranscriptVirtualizer", () => {
       })
     );
 
-    act(() => result.current.rowVirtualizer.measureElement("turn-5", element));
-    await act(async () => Promise.resolve());
+    act(() => {
+      result.current.rowVirtualizer.measureElement("turn-5", element);
+      result.current.rowVirtualizer.syncMeasurements();
+    });
 
     expect(result.current.totalHeightPx).toBe(5 * 280 + 500);
     expect(
@@ -316,8 +375,8 @@ describe("useAgentTranscriptVirtualizer", () => {
         result.current.setVirtualizerHostElement(host);
         result.current.rowVirtualizer.connectScrollElement(timeline);
         result.current.rowVirtualizer.measureElement("turn-1", latestTurn);
+        result.current.rowVirtualizer.syncMeasurements();
       });
-      await act(async () => Promise.resolve());
       if (initialScrollTop !== 0) {
         act(() => {
           timeline.dispatchEvent(

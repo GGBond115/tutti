@@ -268,6 +268,37 @@ describe("AgentTranscriptView Codex-style virtual rendering", () => {
     expect(getBoundingClientRect).not.toHaveBeenCalled();
   });
 
+  it("does not synchronously remeasure the latest turn on an ordinary rerender", () => {
+    const conversation = conversationWithMultiRowTurns(4);
+    const rendered = renderTranscript(conversation);
+    const offsetHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get");
+    offsetHeight.mockClear();
+
+    rendered.rerender(
+      <div
+        data-testid="agent-gui-timeline"
+        style={{ height: "480px", overflow: "auto" }}
+      >
+        <AgentTranscriptView
+          conversation={{
+            ...conversation,
+            rows: conversation.rows.map((row, index) =>
+              index === conversation.rows.length - 1
+                ? {
+                    ...row,
+                    occurredAtUnixMs: (row.occurredAtUnixMs ?? 0) + 1
+                  }
+                : row
+            )
+          }}
+          labels={LABELS}
+        />
+      </div>
+    );
+
+    expect(offsetHeight).not.toHaveBeenCalled();
+  });
+
   it("preserves wheel distance across a detached measurement layout", async () => {
     renderTranscript(conversationWithMultiRowTurns(40), {
       followEndMode: "detached"

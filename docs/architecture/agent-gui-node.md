@@ -944,9 +944,11 @@ projected by stable Turn key instead of combining a new layout with an old
 index window. Resize observations from one delivery commit measured heights,
 the next layout, and the next range in one synchronous React transaction;
 DOM compensation happens after that commit and immediately reads back the
-browser-accepted scroll position. Newly mounted Turns and the latest Turn are
-rechecked from layout height so a delayed observer delivery cannot leave an estimated slot behind,
-and scroll padding is cached outside the scroll hot path. Before a measurement
+browser-accepted scroll position. Newly mounted Turns are checked from layout
+height so a delayed observer delivery cannot leave an estimated slot behind;
+subsequent latest-Turn growth is measured by `ResizeObserver` instead of an
+unconditional layout-effect geometry read. Scroll padding is cached outside the
+scroll hot path. Before a measurement
 layout, the scroll owner snapshots bottom distance and native scroll height;
 wheel input received before that layout settles is accumulated into the
 restored distance. A following transcript starts at native `scrollTop = 0`.

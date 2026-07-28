@@ -31,6 +31,20 @@ export interface AgentTranscriptVirtualViewportState {
   viewportHeightPx: number;
 }
 
+export function agentTranscriptVirtualViewportRenderStateChanged(
+  previous: AgentTranscriptVirtualViewportState,
+  next: AgentTranscriptVirtualViewportState
+): boolean {
+  return (
+    previous.viewportHeightPx !== next.viewportHeightPx ||
+    previous.renderedRange.startIndex !== next.renderedRange.startIndex ||
+    previous.renderedRange.endIndex !== next.renderedRange.endIndex ||
+    (previous.turnKeys !== next.turnKeys &&
+      (previous.turnKeys.length !== next.turnKeys.length ||
+        previous.turnKeys.some((key, index) => key !== next.turnKeys[index])))
+  );
+}
+
 export function agentTranscriptResponseSpacerHeight(input: {
   bottomInsetPx: number;
   viewportHeightPx: number;
