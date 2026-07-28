@@ -5,6 +5,8 @@ import {
   inspectClaudeForkCheckpoints
 } from "./sessionFork.ts";
 
+const childSessionId = "11111111-1111-4111-8111-111111111111";
+const grandchildSessionId = "22222222-2222-4222-8222-222222222222";
 const source = [
   message("user", "prompt-1", { role: "user", content: "one" }),
   message("assistant", "answer-1", { role: "assistant", content: "first" }),
@@ -12,12 +14,17 @@ const source = [
   message("assistant", "answer-2", { role: "assistant", content: "second" })
 ];
 const child = [
-  message("user", "child-prompt-1", { role: "user", content: "one" }, "child"),
+  message(
+    "user",
+    "child-prompt-1",
+    { role: "user", content: "one" },
+    childSessionId
+  ),
   message(
     "assistant",
     "child-answer-1",
     { role: "assistant", content: "first" },
-    "child"
+    childSessionId
   )
 ];
 
@@ -36,38 +43,116 @@ test("Claude fork verifies the inclusive prefix and maps remapped UUIDs", async 
       sessionId: "source",
       providerTurnId: "prompt-1",
       providerTurnIds: ["prompt-1"],
+      targetSessionId: childSessionId,
       cwd: "/workspace",
       title: "Source (2)"
     },
     fakeSDK(calls)
   );
-  assert.equal(result.providerSessionId, "child");
+  assert.equal(result.providerSessionId, childSessionId);
   assert.deepEqual(result.targetProviderTurnIds, ["child-prompt-1"]);
   assert.equal(result.stateBindingMode, "provider_owned");
   assert.match(String(result.stateBindingReceipt), /^claude-sdk-fork-v1:/);
   assert.deepEqual(calls, [
     {
-      sessionId: "source",
       options: {
-        dir: "/workspace",
-        upToMessageId: "answer-1",
+        cwd: "/workspace",
+        resume: "source",
+        forkSession: true,
+        sessionId: childSessionId,
+        resumeSessionAt: "answer-1",
         title: "Source (2)"
       }
     }
   ]);
 });
 
+test("Claude fork reconciles an existing deterministic child without another mutation", async () => {
+  let queryCalls = 0;
+  const result = await forkClaudeSession(
+    {
+      sessionId: "source",
+      providerTurnId: "prompt-1",
+      providerTurnIds: ["prompt-1"],
+      targetSessionId: childSessionId,
+      cwd: "/workspace",
+      title: "Source (2)"
+    },
+    {
+      getSessionMessages: async (sessionId: string) =>
+        sessionId === childSessionId ? child : source,
+      getSessionInfo: async (sessionId: string) => ({
+        sessionId,
+        summary: "child",
+        lastModified: 1
+      }),
+      query: (() => {
+        queryCalls++;
+        return makeQuery(async () => {});
+      }) as never
+    }
+  );
+
+  assert.equal(result.providerSessionId, childSessionId);
+  assert.deepEqual(result.targetProviderTurnIds, ["child-prompt-1"]);
+  assert.equal(queryCalls, 0);
+});
+
+test("Claude fork initializes with an empty prompt stream", async () => {
+  let created = false;
+  let promptResult: Promise<IteratorResult<unknown>> | undefined;
+  const sdk = {
+    getSessionMessages: async (sessionId: string) => {
+      if (sessionId === childSessionId) {
+        return created ? child : [];
+      }
+      return source;
+    },
+    getSessionInfo: async () =>
+      created
+        ? { sessionId: childSessionId, summary: "child", lastModified: 1 }
+        : undefined,
+    query: ((params: { prompt: AsyncIterable<unknown> }) => {
+      const iterator = params.prompt[Symbol.asyncIterator]();
+      return makeQuery(
+        async () => {
+          created = true;
+        },
+        () => {
+          promptResult = iterator.next();
+        }
+      );
+    }) as never
+  };
+
+  await forkClaudeSession(
+    {
+      sessionId: "source",
+      providerTurnId: "prompt-1",
+      providerTurnIds: ["prompt-1"],
+      targetSessionId: childSessionId,
+      cwd: "/workspace",
+      title: "Source (2)"
+    },
+    sdk
+  );
+
+  assert.deepEqual(await promptResult, { done: true, value: undefined });
+});
+
 test("Claude fork reports unknown once the SDK mutation was invoked", async () => {
   const sdk = fakeSDK();
-  sdk.forkSession = async () => {
-    throw new Error("connection lost");
-  };
+  sdk.query = (() =>
+    makeQuery(async () => {
+      throw new Error("connection lost");
+    })) as never;
   await assert.rejects(
     forkClaudeSession(
       {
         sessionId: "source",
         providerTurnId: "prompt-1",
         providerTurnIds: ["prompt-1"],
+        targetSessionId: childSessionId,
         cwd: "/workspace",
         title: "Source (2)"
       },
@@ -93,6 +178,7 @@ test("Claude fork validates the checkpoint identity before SDK mutation", async 
         sessionId: "source",
         providerTurnId: "prompt-1",
         providerTurnIds: ["prompt-1"],
+        targetSessionId: childSessionId,
         cwd: "/workspace",
         title: ""
       },
@@ -113,18 +199,21 @@ test("Claude fork supports an untitled canonical session", async () => {
       sessionId: "source",
       providerTurnId: "prompt-1",
       providerTurnIds: ["prompt-1"],
+      targetSessionId: childSessionId,
       cwd: "/workspace",
       title: " "
     },
     fakeSDK(calls)
   );
-  assert.equal(result.providerSessionId, "child");
+  assert.equal(result.providerSessionId, childSessionId);
   assert.deepEqual(calls, [
     {
-      sessionId: "source",
       options: {
-        dir: "/workspace",
-        upToMessageId: "answer-1"
+        cwd: "/workspace",
+        resume: "source",
+        forkSession: true,
+        sessionId: childSessionId,
+        resumeSessionAt: "answer-1"
       }
     }
   ]);
@@ -148,13 +237,13 @@ test("Claude fork includes trailing system messages in its exact checkpoint", as
       "user",
       "child-prompt-1",
       { role: "user", content: "one" },
-      "child"
+      childSessionId
     ),
     message(
       "assistant",
       "child-answer-1",
       { role: "assistant", content: "first" },
-      "child"
+      childSessionId
     ),
     message(
       "system",
@@ -163,34 +252,36 @@ test("Claude fork includes trailing system messages in its exact checkpoint", as
         subtype: "compact_boundary",
         compact_metadata: { trigger: "auto" }
       },
-      "child"
+      childSessionId
     )
   ];
   const transcriptReads: Array<Record<string, unknown>> = [];
+  let created = false;
   const sdk = {
     getSessionMessages: async (
       sessionId: string,
       options?: Record<string, unknown>
     ) => {
       transcriptReads.push({ sessionId, options });
-      return sessionId === "child" ? childWithSystem : sourceWithSystem;
-    },
-    getSessionInfo: async () => ({
-      sessionId: "child",
-      summary: "child",
-      lastModified: 1
-    }),
-    forkSession: async (
-      sessionId: string,
-      options?: {
-        dir?: string;
-        upToMessageId?: string;
-        title?: string;
+      if (sessionId === childSessionId) {
+        return created ? childWithSystem : [];
       }
-    ) => {
-      calls.push({ sessionId, options });
-      return { sessionId: "child" };
-    }
+      return sourceWithSystem;
+    },
+    getSessionInfo: async () =>
+      created
+        ? {
+            sessionId: childSessionId,
+            summary: "child",
+            lastModified: 1
+          }
+        : undefined,
+    query: ((params: { options?: Record<string, unknown> }) => {
+      calls.push({ options: selectedForkOptions(params.options) });
+      return makeQuery(async () => {
+        created = true;
+      });
+    }) as never
   };
 
   const result = await forkClaudeSession(
@@ -198,6 +289,7 @@ test("Claude fork includes trailing system messages in its exact checkpoint", as
       sessionId: "source",
       providerTurnId: "prompt-1",
       providerTurnIds: ["prompt-1"],
+      targetSessionId: childSessionId,
       cwd: "/workspace",
       title: "Source (2)"
     },
@@ -207,15 +299,17 @@ test("Claude fork includes trailing system messages in its exact checkpoint", as
   assert.deepEqual(result.targetProviderTurnIds, ["child-prompt-1"]);
   assert.deepEqual(calls, [
     {
-      sessionId: "source",
       options: {
-        dir: "/workspace",
-        upToMessageId: "compact-1",
+        cwd: "/workspace",
+        resume: "source",
+        forkSession: true,
+        sessionId: childSessionId,
+        resumeSessionAt: "compact-1",
         title: "Source (2)"
       }
     }
   ]);
-  assert.equal(transcriptReads.length, 3);
+  assert.equal(transcriptReads.length, 4);
   for (const read of transcriptReads) {
     assert.deepEqual(read.options, {
       dir: "/workspace",
@@ -235,15 +329,26 @@ test("Claude fork reports unknown when child omits a trailing system message", a
       subtype: "compact_boundary"
     })
   ];
+  let created = false;
   const sdk = {
-    getSessionMessages: async (sessionId: string) =>
-      sessionId === "child" ? child : sourceWithSystem,
-    getSessionInfo: async () => ({
-      sessionId: "child",
-      summary: "child",
-      lastModified: 1
-    }),
-    forkSession: async () => ({ sessionId: "child" })
+    getSessionMessages: async (sessionId: string) => {
+      if (sessionId === childSessionId) {
+        return created ? child : [];
+      }
+      return sourceWithSystem;
+    },
+    getSessionInfo: async () =>
+      created
+        ? {
+            sessionId: childSessionId,
+            summary: "child",
+            lastModified: 1
+          }
+        : undefined,
+    query: (() =>
+      makeQuery(async () => {
+        created = true;
+      })) as never
   };
 
   await assert.rejects(
@@ -252,6 +357,7 @@ test("Claude fork reports unknown when child omits a trailing system message", a
         sessionId: "source",
         providerTurnId: "prompt-1",
         providerTurnIds: ["prompt-1"],
+        targetSessionId: childSessionId,
         cwd: "/workspace",
         title: "Source (2)"
       },
@@ -271,62 +377,64 @@ test("Claude fork can branch again from a provider-owned child", async () => {
       "user",
       "grandchild-prompt-1",
       { role: "user", content: "one" },
-      "grandchild"
+      grandchildSessionId
     ),
     message(
       "assistant",
       "grandchild-answer-1",
       { role: "assistant", content: "first" },
-      "grandchild"
+      grandchildSessionId
     )
   ];
+  let created = false;
   const sdk = {
     getSessionMessages: async (sessionId: string) => {
-      if (sessionId === "child") {
+      if (sessionId === childSessionId) {
         return child;
       }
-      if (sessionId === "grandchild") {
-        return grandchild;
+      if (sessionId === grandchildSessionId) {
+        return created ? grandchild : [];
       }
       return source;
     },
-    getSessionInfo: async (sessionId: string) => ({
-      sessionId,
-      summary: "grandchild",
-      lastModified: 1
-    }),
-    forkSession: async (
-      sessionId: string,
-      options?: {
-        dir?: string;
-        upToMessageId?: string;
-        title?: string;
-      }
-    ) => {
-      calls.push({ sessionId, options });
-      return { sessionId: "grandchild" };
-    }
+    getSessionInfo: async (sessionId: string) =>
+      sessionId === grandchildSessionId && created
+        ? {
+            sessionId,
+            summary: "grandchild",
+            lastModified: 1
+          }
+        : undefined,
+    query: ((params: { options?: Record<string, unknown> }) => {
+      calls.push({ options: selectedForkOptions(params.options) });
+      return makeQuery(async () => {
+        created = true;
+      });
+    }) as never
   };
 
   const result = await forkClaudeSession(
     {
-      sessionId: "child",
+      sessionId: childSessionId,
       providerTurnId: "child-prompt-1",
       providerTurnIds: ["child-prompt-1"],
+      targetSessionId: grandchildSessionId,
       cwd: "/workspace",
       title: "Grandchild"
     },
     sdk
   );
 
-  assert.equal(result.providerSessionId, "grandchild");
+  assert.equal(result.providerSessionId, grandchildSessionId);
   assert.deepEqual(result.targetProviderTurnIds, ["grandchild-prompt-1"]);
   assert.deepEqual(calls, [
     {
-      sessionId: "child",
       options: {
-        dir: "/workspace",
-        upToMessageId: "child-answer-1",
+        cwd: "/workspace",
+        resume: childSessionId,
+        forkSession: true,
+        sessionId: grandchildSessionId,
+        resumeSessionAt: "child-answer-1",
         title: "Grandchild"
       }
     }
@@ -334,26 +442,62 @@ test("Claude fork can branch again from a provider-owned child", async () => {
 });
 
 function fakeSDK(calls: Array<Record<string, unknown>> = []) {
+  let created = false;
   return {
-    getSessionMessages: async (sessionId: string) =>
-      sessionId === "child" ? child : source,
-    getSessionInfo: async () => ({
-      sessionId: "child",
-      summary: "child",
-      lastModified: 1
-    }),
-    forkSession: async (
-      sessionId: string,
-      options?: {
-        dir?: string;
-        upToMessageId?: string;
-        title?: string;
+    getSessionMessages: async (sessionId: string) => {
+      if (sessionId === childSessionId) {
+        return created ? child : [];
       }
-    ) => {
-      calls.push({ sessionId, options });
-      return { sessionId: "child" };
-    }
+      return source;
+    },
+    getSessionInfo: async () =>
+      created
+        ? {
+            sessionId: childSessionId,
+            summary: "child",
+            lastModified: 1
+          }
+        : undefined,
+    query: ((params: { options?: Record<string, unknown> }) => {
+      calls.push({ options: selectedForkOptions(params.options) });
+      return makeQuery(async () => {
+        created = true;
+      });
+    }) as never
   };
+}
+
+function makeQuery(
+  onInitialize: () => Promise<void>,
+  onClose: () => void = () => {}
+) {
+  const iterator = (async function* () {})();
+  return Object.assign(iterator, {
+    initializationResult: async () => {
+      await onInitialize();
+      return {};
+    },
+    close: onClose
+  });
+}
+
+function selectedForkOptions(
+  options: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of [
+    "cwd",
+    "resume",
+    "forkSession",
+    "sessionId",
+    "resumeSessionAt",
+    "title"
+  ]) {
+    if (options && key in options) {
+      result[key] = options[key];
+    }
+  }
+  return result;
 }
 
 function message(

@@ -109,23 +109,25 @@ type CloseInput struct {
 // SessionForkCapabilities reports provider-native fork boundaries supported by
 // the exact runtime currently attached to a session.
 type SessionForkCapabilities struct {
-	DriverKind                  string   `json:"driverKind,omitempty"`
-	DriverVersion               string   `json:"driverVersion,omitempty"`
-	StateBindingMode            string   `json:"stateBindingMode,omitempty"`
-	FullSession                 bool     `json:"fullSession"`
-	ThroughTurn                 bool     `json:"throughTurn"`
-	ThroughProviderTurnIDs      []string `json:"throughProviderTurnIds,omitempty"`
-	ThroughProviderTurnIDsKnown bool     `json:"throughProviderTurnIdsKnown,omitempty"`
+	DriverKind                   string   `json:"driverKind,omitempty"`
+	DriverVersion                string   `json:"driverVersion,omitempty"`
+	StateBindingMode             string   `json:"stateBindingMode,omitempty"`
+	DeterministicTargetSessionID bool     `json:"deterministicTargetSessionId,omitempty"`
+	FullSession                  bool     `json:"fullSession"`
+	ThroughTurn                  bool     `json:"throughTurn"`
+	ThroughProviderTurnIDs       []string `json:"throughProviderTurnIds,omitempty"`
+	ThroughProviderTurnIDsKnown  bool     `json:"throughProviderTurnIdsKnown,omitempty"`
 }
 
 // SessionForkInput identifies a provider source and optional inclusive
 // provider-turn boundary. ProviderTurnID is deliberately distinct from the
 // canonical WorkspaceAgentTurn id.
 type SessionForkInput struct {
-	Source          Session  `json:"-"`
-	ProviderTurnID  string   `json:"providerTurnId,omitempty"`
-	ProviderTurnIDs []string `json:"providerTurnIds,omitempty"`
-	TargetTitle     string   `json:"targetTitle,omitempty"`
+	Source                  Session  `json:"-"`
+	ProviderTurnID          string   `json:"providerTurnId,omitempty"`
+	ProviderTurnIDs         []string `json:"providerTurnIds,omitempty"`
+	TargetProviderSessionID string   `json:"targetProviderSessionId,omitempty"`
+	TargetTitle             string   `json:"targetTitle,omitempty"`
 }
 
 type SessionForkDeliveryDisposition string

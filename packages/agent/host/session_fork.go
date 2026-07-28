@@ -160,7 +160,12 @@ func (h *Host) forkSessionSerialized(
 	if err != nil {
 		return ForkSessionResult{}, err
 	}
-	return h.processSessionForkOperationWithSource(ctx, operation, &runtimeSource)
+	return h.processSessionForkOperationWithSource(
+		ctx,
+		operation,
+		&runtimeSource,
+		false,
+	)
 }
 
 func (h *Host) GetSessionForkOperation(
@@ -178,6 +183,7 @@ func (h *Host) GetSessionForkOperation(
 	}
 	if op.Status == storesqlite.SessionForkStatusPrepared ||
 		op.Status == storesqlite.SessionForkStatusDispatching ||
+		op.Status == storesqlite.SessionForkStatusUnknown ||
 		op.Status == storesqlite.SessionForkStatusProviderAccepted {
 		var result ForkSessionResult
 		err = h.withSessionMutationActor(
@@ -208,22 +214,9 @@ func (h *Host) GetSessionForkOperation(
 					result = ForkSessionResult{Operation: failed}
 					return failErr
 				}
-				if current.Status == storesqlite.SessionForkStatusDispatching {
-					unknown, _, recordErr := h.sessionForks.RecordSessionForkProviderResult(
-						actorCtx,
-						storesqlite.SessionForkProviderResult{
-							WorkspaceID: current.WorkspaceID,
-							OperationID: current.OperationID,
-							Status:      storesqlite.SessionForkStatusUnknown,
-							LastError: "provider result was not durably recorded " +
-								"after dispatch began",
-							OccurredAtUnixMS: h.now().UnixMilli(),
-						},
-					)
-					result = ForkSessionResult{Operation: unknown}
-					return recordErr
-				}
-				if current.Status != storesqlite.SessionForkStatusProviderAccepted {
+				if current.Status != storesqlite.SessionForkStatusDispatching &&
+					current.Status != storesqlite.SessionForkStatusUnknown &&
+					current.Status != storesqlite.SessionForkStatusProviderAccepted {
 					var resultErr error
 					result, resultErr = h.sessionForkResult(actorCtx, current)
 					return resultErr
@@ -325,20 +318,6 @@ func (h *Host) RecoverSessionForks(ctx context.Context) error {
 				recoveryErrors = append(recoveryErrors, err)
 			}
 			return
-		case storesqlite.SessionForkStatusDispatching:
-			_, _, err := h.sessionForks.RecordSessionForkProviderResult(
-				ctx, storesqlite.SessionForkProviderResult{
-					WorkspaceID:      operation.WorkspaceID,
-					OperationID:      operation.OperationID,
-					Status:           storesqlite.SessionForkStatusUnknown,
-					LastError:        "provider result was not durably recorded before restart",
-					OccurredAtUnixMS: h.now().UnixMilli(),
-				},
-			)
-			if err != nil {
-				recoveryErrors = append(recoveryErrors, err)
-			}
-			return
 		}
 		if _, err := h.processSessionForkOperation(ctx, operation); err != nil &&
 			!errors.Is(err, ErrSessionForkDeliveryUnknown) &&
@@ -374,7 +353,13 @@ func (h *Host) processSessionForkOperation(
 	ctx context.Context,
 	operation storesqlite.SessionForkOperation,
 ) (ForkSessionResult, error) {
-	return h.processSessionForkOperationWithSource(ctx, operation, nil)
+	return h.processSessionForkOperationWithSource(
+		ctx,
+		operation,
+		nil,
+		operation.Status == storesqlite.SessionForkStatusDispatching ||
+			operation.Status == storesqlite.SessionForkStatusUnknown,
+	)
 }
 
 // processSessionForkOperationWithSource reuses one prepared historical runtime
@@ -385,7 +370,10 @@ func (h *Host) processSessionForkOperationWithSource(
 	ctx context.Context,
 	operation storesqlite.SessionForkOperation,
 	preparedSource *ProviderRuntimeSession,
+	allowDeterministicReplay bool,
 ) (ForkSessionResult, error) {
+	replaying := operation.Status == storesqlite.SessionForkStatusDispatching ||
+		operation.Status == storesqlite.SessionForkStatusUnknown
 	switch operation.Status {
 	case storesqlite.SessionForkStatusCommitted:
 		return h.sessionForkResult(ctx, operation)
@@ -401,31 +389,55 @@ func (h *Host) processSessionForkOperationWithSource(
 			Operation: commit.Operation, Session: commit.Session, Lineage: &lineage,
 		}, nil
 	case storesqlite.SessionForkStatusDispatching:
-		return ForkSessionResult{Operation: operation}, ErrSessionForkInProgress
+		if !allowDeterministicReplay {
+			return ForkSessionResult{Operation: operation}, ErrSessionForkInProgress
+		}
 	case storesqlite.SessionForkStatusFailed:
 		return ForkSessionResult{Operation: operation}, ErrSessionForkFailed
 	case storesqlite.SessionForkStatusUnknown:
-		return ForkSessionResult{Operation: operation}, ErrSessionForkDeliveryUnknown
+		if !allowDeterministicReplay {
+			return ForkSessionResult{Operation: operation}, ErrSessionForkDeliveryUnknown
+		}
 	case storesqlite.SessionForkStatusPrepared:
 	default:
 		return ForkSessionResult{Operation: operation}, storesqlite.ErrSessionForkTransition
+	}
+	failBeforeDispatch := func(
+		message string,
+		cause error,
+	) (ForkSessionResult, error) {
+		if !replaying {
+			return h.failPreparedSessionFork(ctx, operation, message, cause)
+		}
+		if operation.Status == storesqlite.SessionForkStatusUnknown {
+			return ForkSessionResult{Operation: operation},
+				errors.Join(ErrSessionForkDeliveryUnknown, cause)
+		}
+		recorded, _, recordErr := h.sessionForks.RecordSessionForkProviderResult(
+			ctx,
+			storesqlite.SessionForkProviderResult{
+				WorkspaceID:      operation.WorkspaceID,
+				OperationID:      operation.OperationID,
+				Status:           storesqlite.SessionForkStatusUnknown,
+				LastError:        message,
+				OccurredAtUnixMS: h.now().UnixMilli(),
+			},
+		)
+		return ForkSessionResult{Operation: recorded},
+			errors.Join(ErrSessionForkDeliveryUnknown, cause, recordErr)
 	}
 
 	boundary, supported, err := h.sessionForks.CheckSessionForkThroughTurn(
 		ctx, operation.WorkspaceID, operation.SourceAgentSessionID, operation.SourceTurnID,
 	)
 	if err != nil {
-		return h.failPreparedSessionFork(
-			ctx,
-			operation,
+		return failBeforeDispatch(
 			"canonical through-turn boundary could not be verified before dispatch",
 			err,
 		)
 	}
 	if !supported {
-		return h.failPreparedSessionFork(
-			ctx,
-			operation,
+		return failBeforeDispatch(
 			"canonical through-turn boundary is no longer forkable",
 			storesqlite.ErrSessionForkTurnState,
 		)
@@ -436,9 +448,7 @@ func (h *Host) processSessionForkOperationWithSource(
 	} else {
 		source, err = h.sessionForkRuntimeSource(ctx, boundary.Session)
 		if err != nil {
-			return h.failPreparedSessionFork(
-				ctx,
-				operation,
+			return failBeforeDispatch(
 				"source runtime could not be prepared before dispatch",
 				err,
 			)
@@ -446,9 +456,7 @@ func (h *Host) processSessionForkOperationWithSource(
 	}
 	if strings.TrimSpace(source.ProviderSessionID) !=
 		strings.TrimSpace(operation.SourceProviderSessionID) {
-		return h.failPreparedSessionFork(
-			ctx,
-			operation,
+		return failBeforeDispatch(
 			"source provider session identity changed before dispatch",
 			ErrSessionForkFailed,
 		)
@@ -459,16 +467,12 @@ func (h *Host) processSessionForkOperationWithSource(
 	)
 	if err != nil {
 		if errors.Is(err, ErrSessionForkUnsupported) {
-			return h.failPreparedSessionFork(
-				ctx,
-				operation,
+			return failBeforeDispatch(
 				"provider no longer supports the prepared session fork",
 				ErrSessionForkUnsupported,
 			)
 		}
-		return h.failPreparedSessionFork(
-			ctx,
-			operation,
+		return failBeforeDispatch(
 			"provider fork capability could not be verified before dispatch",
 			err,
 		)
@@ -476,41 +480,58 @@ func (h *Host) processSessionForkOperationWithSource(
 	normalizeSessionForkDriverDescriptor(&descriptor)
 	if !descriptor.ThroughTurn || descriptor.Kind != operation.DriverKind ||
 		descriptor.Version != operation.DriverVersion ||
+		(replaying && !descriptor.DeterministicTargetSessionID) ||
 		!validSessionForkStateBindingMode(
 			descriptor.StateBindingMode,
 			h.sessionForkState,
 			source.Provider,
 		) {
-		return h.failPreparedSessionFork(
-			ctx,
-			operation,
+		return failBeforeDispatch(
 			"provider session fork driver changed before dispatch",
 			ErrSessionForkUnsupported,
 		)
 	}
-	var dispatchChanged bool
-	operation, dispatchChanged, err = h.sessionForks.MarkSessionForkDispatching(
-		ctx, operation.WorkspaceID, operation.OperationID, h.now().UnixMilli(),
-	)
-	if err != nil {
-		return h.failPreparedSessionFork(
+	if operation.Status == storesqlite.SessionForkStatusUnknown {
+		operation, _, err = h.sessionForks.RetryUnknownSessionFork(
 			ctx,
-			operation,
-			"provider dispatch marker could not be persisted",
-			err,
+			operation.WorkspaceID,
+			operation.OperationID,
+			h.now().UnixMilli(),
 		)
+		if err != nil {
+			return failBeforeDispatch(
+				"provider replay marker could not be persisted",
+				err,
+			)
+		}
+	} else if operation.Status == storesqlite.SessionForkStatusPrepared {
+		var dispatchChanged bool
+		operation, dispatchChanged, err = h.sessionForks.MarkSessionForkDispatching(
+			ctx, operation.WorkspaceID, operation.OperationID, h.now().UnixMilli(),
+		)
+		if err != nil {
+			return failBeforeDispatch(
+				"provider dispatch marker could not be persisted",
+				err,
+			)
+		}
+		if !dispatchChanged {
+			return h.processSessionForkOperation(ctx, operation)
+		}
 	}
-	if !dispatchChanged {
-		return h.processSessionForkOperation(ctx, operation)
+	targetProviderSessionIDRequest := ""
+	if descriptor.DeterministicTargetSessionID {
+		targetProviderSessionIDRequest = operation.OperationID
 	}
 	providerResult, dispatchErr := h.sessionForkRuntime.ForkSession(
 		ctx, RuntimeSessionForkInput{
-			Source:                cloneSessionForkRuntimeSource(source),
-			SourceProviderTurnID:  operation.SourceProviderTurnID,
-			SourceProviderTurnIDs: append([]string(nil), boundary.RootProviderTurnIDs...),
-			TargetTitle:           operation.TargetTitle,
-			RequestID:             operation.RequestID,
-			Driver:                descriptor,
+			Source:                  cloneSessionForkRuntimeSource(source),
+			SourceProviderTurnID:    operation.SourceProviderTurnID,
+			SourceProviderTurnIDs:   append([]string(nil), boundary.RootProviderTurnIDs...),
+			TargetProviderSessionID: targetProviderSessionIDRequest,
+			TargetTitle:             operation.TargetTitle,
+			RequestID:               operation.RequestID,
+			Driver:                  descriptor,
 		},
 	)
 	targetProviderSessionID := strings.TrimSpace(providerResult.ProviderSessionID)
@@ -527,19 +548,22 @@ func (h *Host) processSessionForkOperationWithSource(
 		providerResult.DeliveryDisposition != SessionForkDeliveryAccepted ||
 		targetProviderSessionID == "" ||
 		targetProviderSessionID == operation.SourceProviderSessionID ||
+		(targetProviderSessionIDRequest != "" &&
+			targetProviderSessionID != targetProviderSessionIDRequest) ||
 		providerResult.StateBindingMode != descriptor.StateBindingMode ||
 		!validSessionForkProviderResult(providerResult, boundary.RootProviderTurnIDs) {
 		message := "provider fork result was invalid"
 		status := storesqlite.SessionForkStatusUnknown
 		if dispatchErr != nil {
 			message = dispatchErr.Error()
-			if errors.Is(dispatchErr, ErrSessionForkUnsupported) ||
+			if !replaying && (errors.Is(dispatchErr, ErrSessionForkUnsupported) ||
 				providerResult.DeliveryDisposition == SessionForkDeliveryNotStarted ||
-				providerResult.DeliveryDisposition == SessionForkDeliveryRejected {
+				providerResult.DeliveryDisposition == SessionForkDeliveryRejected) {
 				status = storesqlite.SessionForkStatusFailed
 			}
-		} else if providerResult.DeliveryDisposition == SessionForkDeliveryNotStarted ||
-			providerResult.DeliveryDisposition == SessionForkDeliveryRejected {
+		} else if !replaying &&
+			(providerResult.DeliveryDisposition == SessionForkDeliveryNotStarted ||
+				providerResult.DeliveryDisposition == SessionForkDeliveryRejected) {
 			status = storesqlite.SessionForkStatusFailed
 		}
 		recorded, _, recordErr := h.sessionForks.RecordSessionForkProviderResult(

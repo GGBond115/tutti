@@ -25,14 +25,14 @@ func (s *Store) ListRecoverableSessionForkOperationsPage(
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, sessionForkOperationSelectSQL+`
-WHERE status IN (?, ?, ?)
+WHERE status IN (?, ?, ?, ?)
   AND (
     created_at_unix_ms > ?
     OR (created_at_unix_ms = ? AND operation_id > ?)
   )
 ORDER BY created_at_unix_ms, operation_id
 LIMIT ?`, SessionForkStatusPrepared, SessionForkStatusDispatching,
-		SessionForkStatusProviderAccepted, after.CreatedAtUnixMS,
+		SessionForkStatusProviderAccepted, SessionForkStatusUnknown, after.CreatedAtUnixMS,
 		after.CreatedAtUnixMS, strings.TrimSpace(after.OperationID), limit)
 	if err != nil {
 		return nil, fmt.Errorf("list recoverable session fork operations: %w", err)
@@ -52,6 +52,29 @@ LIMIT ?`, SessionForkStatusPrepared, SessionForkStatusDispatching,
 func (s *Store) MarkSessionForkDispatching(ctx context.Context, workspaceID, operationID string, now int64) (SessionForkOperation, bool, error) {
 	return s.transitionSessionFork(ctx, workspaceID, operationID, SessionForkStatusPrepared,
 		SessionForkStatusDispatching, "", nil, "", "", "", now)
+}
+
+// RetryUnknownSessionFork reopens only the durable dispatch marker. Callers
+// must first attest that the exact driver supports one deterministic target
+// provider identity across repeated dispatches.
+func (s *Store) RetryUnknownSessionFork(
+	ctx context.Context,
+	workspaceID, operationID string,
+	now int64,
+) (SessionForkOperation, bool, error) {
+	return s.transitionSessionFork(
+		ctx,
+		workspaceID,
+		operationID,
+		SessionForkStatusUnknown,
+		SessionForkStatusDispatching,
+		"",
+		nil,
+		"",
+		"",
+		"",
+		now,
+	)
 }
 
 func (s *Store) FailPreparedSessionFork(
@@ -494,13 +517,18 @@ SET status = ?, target_provider_session_id = NULLIF(?, ''), last_error = ?,
     provider_state_binding_receipt = ?,
     dispatched_at_unix_ms = CASE WHEN ? = 'dispatching' THEN ? ELSE dispatched_at_unix_ms END,
     accepted_at_unix_ms = CASE WHEN ? = 'provider_accepted' THEN ? ELSE accepted_at_unix_ms END,
-    completed_at_unix_ms = CASE WHEN ? IN ('failed','unknown') THEN ? ELSE completed_at_unix_ms END,
+    completed_at_unix_ms = CASE
+      WHEN ? = 'dispatching' THEN 0
+      WHEN ? IN ('failed','unknown') THEN ?
+      ELSE completed_at_unix_ms
+    END,
     updated_at_unix_ms = ?
 WHERE workspace_id = ? AND operation_id = ? AND status = ?
 `, toStatus, strings.TrimSpace(targetProviderSessionID), strings.TrimSpace(lastError),
 		string(targetProviderTurnIDsJSON), strings.TrimSpace(stateBindingMode),
 		strings.TrimSpace(stateBindingReceipt),
-		toStatus, now, toStatus, now, toStatus, now, now, workspaceID, operationID, fromStatus)
+		toStatus, now, toStatus, now, toStatus, toStatus, now, now,
+		workspaceID, operationID, fromStatus)
 	if err != nil {
 		return SessionForkOperation{}, false, fmt.Errorf("transition session fork operation: %w", err)
 	}

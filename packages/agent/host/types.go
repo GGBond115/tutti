@@ -160,22 +160,27 @@ type SessionForkTargetContext struct {
 }
 
 type SessionForkDriverDescriptor struct {
-	Kind                        string
-	Version                     string
-	StateBindingMode            SessionForkStateBindingMode
-	FullSession                 bool
-	ThroughTurn                 bool
-	ThroughProviderTurnIDs      []string
-	ThroughProviderTurnIDsKnown bool
+	Kind             string
+	Version          string
+	StateBindingMode SessionForkStateBindingMode
+	// DeterministicTargetSessionID guarantees that ForkSession honors
+	// TargetProviderSessionID and that repeating the same input reconciles or
+	// creates that one provider child instead of allocating another identity.
+	DeterministicTargetSessionID bool
+	FullSession                  bool
+	ThroughTurn                  bool
+	ThroughProviderTurnIDs       []string
+	ThroughProviderTurnIDsKnown  bool
 }
 
 type RuntimeSessionForkInput struct {
-	Source                ProviderRuntimeSession
-	SourceProviderTurnID  string
-	SourceProviderTurnIDs []string
-	TargetTitle           string
-	RequestID             string
-	Driver                SessionForkDriverDescriptor
+	Source                  ProviderRuntimeSession
+	SourceProviderTurnID    string
+	SourceProviderTurnIDs   []string
+	TargetProviderSessionID string
+	TargetTitle             string
+	RequestID               string
+	Driver                  SessionForkDriverDescriptor
 }
 
 type SessionForkDeliveryDisposition string

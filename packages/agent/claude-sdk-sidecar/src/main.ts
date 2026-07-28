@@ -92,6 +92,7 @@ export async function handleRequest(
           providerTurnIds: Array.isArray(payload.providerTurnIds)
             ? payload.providerTurnIds.map(stringValue)
             : [],
+          targetSessionId: stringValue(payload.targetProviderSessionId),
           cwd: stringValue(payload.cwd),
           title: stringValue(payload.title)
         });

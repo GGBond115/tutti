@@ -1417,6 +1417,53 @@ func TestSessionForkFailedAndUnknownReleaseSourceFence(t *testing.T) {
 	}
 }
 
+func TestRetryUnknownSessionForkReopensDurableDispatchMarker(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	seedForkSession(t, store)
+	input := SessionForkPrepare{
+		OperationID: "fork-retry", WorkspaceID: "ws-1",
+		RequestID: "request-retry", RequestHash: "hash-retry",
+		SourceAgentSessionID: "source", TargetAgentSessionID: "target-retry",
+		SourceTurnID: "turn-1", DriverKind: "claude",
+		DriverVersion: "deterministic-v1", OccurredAtUnixMS: 100,
+	}
+	if _, _, err := prepareSessionForkForTest(t, store, ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.MarkSessionForkDispatching(
+		ctx, input.WorkspaceID, input.OperationID, 101,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.RecordSessionForkProviderResult(
+		ctx,
+		SessionForkProviderResult{
+			WorkspaceID: input.WorkspaceID, OperationID: input.OperationID,
+			Status: SessionForkStatusUnknown, LastError: "response lost",
+			OccurredAtUnixMS: 102,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	operation, changed, err := store.RetryUnknownSessionFork(
+		ctx, input.WorkspaceID, input.OperationID, 103,
+	)
+	if err != nil || !changed ||
+		operation.Status != SessionForkStatusDispatching ||
+		operation.LastError != "" ||
+		operation.CompletedAtUnixMS != 0 ||
+		operation.DispatchedAtUnixMS != 103 {
+		t.Fatalf(
+			"RetryUnknownSessionFork() operation=%#v changed=%v error=%v",
+			operation,
+			changed,
+			err,
+		)
+	}
+}
+
 func TestSessionForkPrepareRequiresGoalAndRuntimeQuiescence(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -1,9 +1,14 @@
 import { createHash } from "node:crypto";
 import {
-  forkSession,
   getSessionInfo,
-  getSessionMessages
+  getSessionMessages,
+  query,
+  type Options,
+  type Query
 } from "@anthropic-ai/claude-agent-sdk";
+import { resolveClaudeCodeExecutablePath } from "./executablePath.ts";
+import { AsyncPromptQueue } from "./promptQueue.ts";
+import { claudeSettingsEnv } from "./settingsEnv.ts";
 
 type SDKMessage = {
   type?: unknown;
@@ -21,19 +26,20 @@ type ForkInspectInput = {
 type ForkInput = ForkInspectInput & {
   providerTurnId: string;
   providerTurnIds: string[];
+  targetSessionId: string;
   title: string;
 };
 
 type ClaudeForkSDK = {
   getSessionMessages: typeof getSessionMessages;
   getSessionInfo: typeof getSessionInfo;
-  forkSession: typeof forkSession;
+  query: typeof query;
 };
 
 const defaultClaudeForkSDK: ClaudeForkSDK = {
   getSessionMessages,
   getSessionInfo,
-  forkSession
+  query
 };
 
 export async function inspectClaudeForkCheckpoints(
@@ -71,6 +77,10 @@ async function forkClaudeSessionVerified(
 ): Promise<Record<string, unknown>> {
   requireIdentity(input.sessionId, "provider session id");
   requireIdentity(input.providerTurnId, "provider turn id");
+  requireUUID(input.targetSessionId, "target provider session id");
+  if (input.targetSessionId === input.sessionId) {
+    throw new Error("target provider session id equals source session id");
+  }
   const expectedTurnIds = normalizedIdentities(input.providerTurnIds);
   if (
     expectedTurnIds.length === 0 ||
@@ -93,17 +103,28 @@ async function forkClaudeSessionVerified(
   const checkpointId = sourceMessageIds.at(-1) ?? "";
   requireIdentity(checkpointId, "checkpoint message id");
 
-  onForkStarted();
-  const title = input.title.trim();
-  const child = await sdk.forkSession(input.sessionId, {
-    ...options,
-    upToMessageId: checkpointId,
-    ...(title ? { title } : {})
-  });
-  const childSessionId = messageIdentity(child?.sessionId);
-  if (!childSessionId || childSessionId === input.sessionId) {
-    throw new Error("Claude SDK returned an invalid fork session id");
+  const existingChild = await readExistingChild(
+    input.targetSessionId,
+    options,
+    transcriptReadOptions,
+    sdk
+  );
+  if (existingChild.exists) {
+    onForkStarted();
+    return verifiedForkResult({
+      input,
+      checkpointId,
+      sourcePrefix,
+      sourceMessageIds,
+      childSessionId: input.targetSessionId,
+      childMessages: existingChild.messages,
+      expectedTurnIds
+    });
   }
+
+  onForkStarted();
+  await initializeDeterministicFork(input, checkpointId, sdk);
+  const childSessionId = input.targetSessionId;
 
   const [sourceB, childInfo, childMessages] = await Promise.all([
     sdk.getSessionMessages(input.sessionId, transcriptReadOptions) as Promise<
@@ -132,6 +153,94 @@ async function forkClaudeSessionVerified(
   if (messageIdentity(childInfo?.sessionId) !== childSessionId) {
     throw new Error("forked Claude session is not independently discoverable");
   }
+  return verifiedForkResult({
+    input,
+    checkpointId,
+    sourcePrefix,
+    sourceMessageIds,
+    childSessionId,
+    childMessages,
+    expectedTurnIds
+  });
+}
+
+async function readExistingChild(
+  childSessionId: string,
+  infoOptions: { dir?: string },
+  transcriptReadOptions: { dir?: string; includeSystemMessages: true },
+  sdk: ClaudeForkSDK
+): Promise<{ exists: boolean; messages: SDKMessage[] }> {
+  const [info, messages] = await Promise.all([
+    sdk.getSessionInfo(childSessionId, infoOptions),
+    sdk.getSessionMessages(childSessionId, transcriptReadOptions) as Promise<
+      SDKMessage[]
+    >
+  ]);
+  const infoSessionId = messageIdentity(info?.sessionId);
+  if (infoSessionId && infoSessionId !== childSessionId) {
+    throw new Error("deterministic Claude child resolved to another session");
+  }
+  return {
+    exists: infoSessionId === childSessionId || messages.length !== 0,
+    messages
+  };
+}
+
+async function initializeDeterministicFork(
+  input: ForkInput,
+  checkpointId: string,
+  sdk: ClaudeForkSDK
+): Promise<void> {
+  const promptQueue = new AsyncPromptQueue();
+  const cwd = input.cwd.trim() || process.cwd();
+  const settingsEnv = claudeSettingsEnv(cwd);
+  const env = {
+    ...process.env,
+    ...settingsEnv
+  };
+  const executablePath = resolveClaudeCodeExecutablePath(env);
+  const title = input.title.trim();
+  const options: Options = {
+    cwd,
+    env,
+    resume: input.sessionId,
+    forkSession: true,
+    sessionId: input.targetSessionId,
+    resumeSessionAt: checkpointId,
+    ...(title ? { title } : {}),
+    ...(executablePath ? { pathToClaudeCodeExecutable: executablePath } : {})
+  };
+  const forkQuery = sdk.query({
+    // Initialization performs the provider fork. Deliberately never enqueue a
+    // user message: the child must end exactly at the selected checkpoint.
+    prompt: promptQueue.iterate(),
+    options
+  }) as Query;
+  try {
+    await forkQuery.initializationResult();
+  } finally {
+    promptQueue.close();
+    forkQuery.close();
+  }
+}
+
+function verifiedForkResult(input: {
+  input: ForkInput;
+  checkpointId: string;
+  sourcePrefix: SDKMessage[];
+  sourceMessageIds: string[];
+  childSessionId: string;
+  childMessages: SDKMessage[];
+  expectedTurnIds: string[];
+}): Record<string, unknown> {
+  const {
+    checkpointId,
+    sourcePrefix,
+    sourceMessageIds,
+    childSessionId,
+    childMessages,
+    expectedTurnIds
+  } = input;
   const childMessageIds = messageIdentities(
     childMessages,
     "forked transcript prefix"
@@ -156,10 +265,11 @@ async function forkClaudeSessionVerified(
   const receipt = createHash("sha256")
     .update(
       JSON.stringify({
-        sourceSessionId: input.sessionId,
+        sourceSessionId: input.input.sessionId,
         childSessionId,
         checkpointId,
         targetCheckpointId,
+        sourceMessageIds,
         expectedTurnIds,
         targetProviderTurnIds
       })
@@ -334,5 +444,16 @@ function messageIdentity(value: unknown): string {
 function requireIdentity(value: string, label: string): void {
   if (!value.trim()) {
     throw new Error(`${label} is required`);
+  }
+}
+
+function requireUUID(value: string, label: string): void {
+  requireIdentity(value, label);
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value.trim()
+    )
+  ) {
+    throw new Error(`${label} must be a UUID`);
   }
 }

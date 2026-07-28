@@ -270,13 +270,14 @@ func (a *RuntimeController) ResolveSessionFork(
 		return host.SessionForkDriverDescriptor{}, nil
 	}
 	return host.SessionForkDriverDescriptor{
-		Kind:                        firstNonEmptyString(capabilities.DriverKind, "daemon-runtime-native"),
-		Version:                     firstNonEmptyString(capabilities.DriverVersion, "v1"),
-		StateBindingMode:            host.SessionForkStateBindingMode(firstNonEmptyString(capabilities.StateBindingMode, string(host.SessionForkStateBindingHostCopy))),
-		FullSession:                 capabilities.FullSession,
-		ThroughTurn:                 capabilities.ThroughTurn,
-		ThroughProviderTurnIDs:      append([]string(nil), capabilities.ThroughProviderTurnIDs...),
-		ThroughProviderTurnIDsKnown: capabilities.ThroughProviderTurnIDsKnown,
+		Kind:                         firstNonEmptyString(capabilities.DriverKind, "daemon-runtime-native"),
+		Version:                      firstNonEmptyString(capabilities.DriverVersion, "v1"),
+		StateBindingMode:             host.SessionForkStateBindingMode(firstNonEmptyString(capabilities.StateBindingMode, string(host.SessionForkStateBindingHostCopy))),
+		DeterministicTargetSessionID: capabilities.DeterministicTargetSessionID,
+		FullSession:                  capabilities.FullSession,
+		ThroughTurn:                  capabilities.ThroughTurn,
+		ThroughProviderTurnIDs:       append([]string(nil), capabilities.ThroughProviderTurnIDs...),
+		ThroughProviderTurnIDsKnown:  capabilities.ThroughProviderTurnIDsKnown,
 	}, nil
 }
 
@@ -295,14 +296,12 @@ func (a *RuntimeController) ForkSession(
 			DeliveryDisposition: host.SessionForkDeliveryNotStarted,
 		}, host.ErrSessionForkUnsupported
 	}
-	// RequestID remains the Host's durable replay key. The daemon/provider fork
-	// transport has no provider-side idempotency key and intentionally does not
-	// receive it.
 	result, err := backend.Fork(ctx, agentruntime.SessionForkInput{
-		Source:          runtimeSession(input.Source),
-		ProviderTurnID:  input.SourceProviderTurnID,
-		ProviderTurnIDs: append([]string(nil), input.SourceProviderTurnIDs...),
-		TargetTitle:     input.TargetTitle,
+		Source:                  runtimeSession(input.Source),
+		ProviderTurnID:          input.SourceProviderTurnID,
+		ProviderTurnIDs:         append([]string(nil), input.SourceProviderTurnIDs...),
+		TargetProviderSessionID: strings.TrimSpace(input.TargetProviderSessionID),
+		TargetTitle:             input.TargetTitle,
 	})
 	mapped := host.RuntimeSessionForkResult{
 		ProviderSessionID:     strings.TrimSpace(result.ProviderSessionID),

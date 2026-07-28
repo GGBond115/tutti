@@ -166,23 +166,27 @@ with report, Goal/runtime mutation, deletion, and competing Fork writes.
 An accepted provider child is not checkpointed as `provider_accepted` until a
 provider-state binder has made the exact child state independently discoverable
 from the target Session runtime namespace. Binding failure is delivery-unknown,
-because the provider mutation may already exist and must not be dispatched
-again.
+because the provider mutation may already exist.
 Provider dispatch starts only after its marker commits. Provider acceptance is
 checkpointed with a detached bounded context and recovery retries only the
 atomic canonical prefix clone; a crash with an indeterminate provider result
-becomes `unknown` and is never automatically redispatched. A later request for
-the same source boundary recovers that durable unknown operation. A committed
-operation also retains the boundary barrier until the Engine explicitly
-acknowledges that its authoritative child Session has entered canonical UI
-state. Thus, losing a committed HTTP response and restarting with fresh
-request/target ids returns the original operation and child instead of invoking
-the provider again. The ACK is committed-only and idempotent; it releases the
-barrier so a later explicit action may create another branch from the same
-Turn. `unknown` cannot be acknowledged and remains fail-closed. Startup marks
-abandoned `prepared` work failed—its marker proves provider dispatch never
-began—and releases its source fence and target reservation without requiring a
-live runtime.
+becomes `unknown`. Drivers are never blindly redispatched. A driver may
+explicitly attest deterministic target identity: Host then derives the provider
+child UUID from the durable operation id, requires the returned identity to
+match, and may reconcile `dispatching` or `unknown` by repeating the same
+request. The provider adapter must first verify an existing child at that UUID
+and create it only when absent. Drivers without that attestation keep the
+fail-closed `unknown` behavior. A later request for the same source boundary
+recovers the durable operation. A committed operation also retains the boundary
+barrier until the Engine explicitly acknowledges that its authoritative child
+Session has entered canonical UI state. Thus, losing a committed HTTP response
+and restarting with fresh request/target ids returns the original operation and
+child instead of creating another provider identity. The ACK is committed-only
+and idempotent; it releases the barrier so a later explicit action may create
+another branch from the same Turn. `unknown` cannot be acknowledged. Startup
+marks abandoned `prepared` work failed—its marker proves provider dispatch
+never began—and releases its source fence and target reservation without
+requiring a live runtime.
 Public adapters keep the operation as the response once its durable row
 exists: internal `prepared`, `dispatching`, and `provider_accepted` phases
 collapse to `accepted`, while `committed`, `failed`, and `unknown` remain
