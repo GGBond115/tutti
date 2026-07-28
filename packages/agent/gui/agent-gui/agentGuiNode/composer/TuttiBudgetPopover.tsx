@@ -181,20 +181,9 @@ export function TuttiBudgetPopover({
               }}
             />
           </div>
-          <div className="mt-3 flex items-center justify-between gap-2 text-[11px] font-medium">
-            <span className="text-[var(--state-success)]">
-              {labels.previewCost}
-            </span>
-            <span className="text-[var(--accent-codex)]">
-              {labels.previewBalance}
-            </span>
-            <span className="text-[var(--tutti-purple)]">
-              {labels.previewPowerful}
-            </span>
-          </div>
           <div
             aria-live="polite"
-            className="mt-2 border-t border-[var(--line-2)] pt-2"
+            className="mt-3 border-t border-[var(--line-2)] pt-2"
           >
             <span className="text-[12px] font-medium text-[var(--text-secondary)]">
               {labels.previewTitle}
