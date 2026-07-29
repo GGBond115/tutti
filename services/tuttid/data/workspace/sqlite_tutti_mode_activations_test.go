@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -387,4 +388,256 @@ func TestSQLiteStoreTuttiModeActivationPreferenceRevisions(t *testing.T) {
 	}); err == nil {
 		t.Fatal("SetTuttiModeActivation(101) error = nil, want validation failure")
 	}
+}
+
+func TestSQLiteStoreTuttiModeActivationAgentCommandSource(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := openTestSQLiteStore(t)
+	if err := store.Create(ctx, workspacebiz.Summary{ID: "ws-agent-command", Name: "Agent Command"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.UnixMilli(1_700_000_000_000).UTC()
+
+	// The Agent-issued source may originate an activation.
+	activated, changed, err := store.SetTuttiModeActivation(ctx, SetTuttiModeActivationInput{
+		WorkspaceID: "ws-agent-command", AgentSessionID: "session-1",
+		ActivationID: "activation-1", RevisionID: "revision-1",
+		State: activationbiz.StateActive, Source: activationbiz.SourceAgentCommand, ChangedAt: now,
+	})
+	if err != nil || !changed || activated.CurrentRevision.State != activationbiz.StateActive ||
+		activated.CurrentRevision.Source != activationbiz.SourceAgentCommand {
+		t.Fatalf("agent_command activate activation=%#v changed=%v err=%v", activated, changed, err)
+	}
+
+	// ... and a deactivation.
+	expected := int64(1)
+	deactivated, changed, err := store.SetTuttiModeActivation(ctx, SetTuttiModeActivationInput{
+		WorkspaceID: "ws-agent-command", AgentSessionID: "session-1",
+		RevisionID: "revision-2", ExpectedRevision: &expected,
+		State: activationbiz.StateInactive, Source: activationbiz.SourceAgentCommand, ChangedAt: now.Add(time.Second),
+	})
+	if err != nil || !changed || deactivated.CurrentRevision.State != activationbiz.StateInactive ||
+		deactivated.CurrentRevision.Source != activationbiz.SourceAgentCommand {
+		t.Fatalf("agent_command deactivate activation=%#v changed=%v err=%v", deactivated, changed, err)
+	}
+
+	// Turn snapshots accept agent_command for both configured states.
+	inactiveSnapshot := activationbiz.TurnSnapshot{
+		ActivationID: "activation-1", RevisionID: "revision-2", Revision: 2,
+		State: activationbiz.StateInactive, Source: activationbiz.SourceAgentCommand,
+	}
+	stored, created, err := store.PutTuttiModeTurnSnapshot(ctx, "ws-agent-command", "session-1", "turn-1", inactiveSnapshot, now.Add(2*time.Second))
+	if err != nil || !created || stored != inactiveSnapshot {
+		t.Fatalf("inactive agent_command PutTuttiModeTurnSnapshot()=%#v created=%v err=%v", stored, created, err)
+	}
+	activeSnapshot := activationbiz.TurnSnapshot{
+		ActivationID: "activation-1", RevisionID: "revision-1", Revision: 1,
+		State: activationbiz.StateActive, Source: activationbiz.SourceAgentCommand,
+	}
+	stored, created, err = store.PutTuttiModeTurnSnapshot(ctx, "ws-agent-command", "session-1", "turn-2", activeSnapshot, now.Add(3*time.Second))
+	if err != nil || !created || stored != activeSnapshot {
+		t.Fatalf("active agent_command PutTuttiModeTurnSnapshot()=%#v created=%v err=%v", stored, created, err)
+	}
+
+	// The relaxed CHECKs keep the human sources single-direction.
+	if _, err := store.writeDB.ExecContext(ctx, `
+INSERT INTO tutti_mode_activation_revisions (
+  workspace_id, activation_id, revision_id, revision, state, source, created_at_unix_ms
+) VALUES ('ws-agent-command', 'activation-1', 'revision-bad', 3, 'active', 'badge_remove', 1)
+`); err == nil || !strings.Contains(err.Error(), "CHECK constraint failed") {
+		t.Fatalf("active badge_remove revision error = %v, want CHECK constraint failure", err)
+	}
+	if _, err := store.writeDB.ExecContext(ctx, `
+INSERT INTO tutti_mode_turn_snapshots (
+  workspace_id, agent_session_id, turn_id, activation_id, revision_id, revision, state, source, created_at_unix_ms
+) VALUES ('ws-agent-command', 'session-1', 'turn-bad', 'activation-1', 'revision-1', 1, 'active', 'badge_remove', 1)
+`); err == nil || !strings.Contains(err.Error(), "CHECK constraint failed") {
+		t.Fatalf("active badge_remove snapshot error = %v, want CHECK constraint failure", err)
+	}
+}
+
+func TestSQLiteStoreTuttiModeAgentCommandSourceMigrationUpgradesLegacySchema(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := openTestSQLiteStore(t)
+	if err := store.Create(ctx, workspacebiz.Summary{ID: "ws-agent-command-upgrade", Name: "Upgrade"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.UnixMilli(1_700_000_000_000).UTC()
+	if _, _, err := store.SetTuttiModeActivation(ctx, SetTuttiModeActivationInput{
+		WorkspaceID: "ws-agent-command-upgrade", AgentSessionID: "session-1",
+		ActivationID: "activation-1", RevisionID: "revision-1",
+		State: activationbiz.StateActive, Source: activationbiz.SourceSlashCommand, ChangedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	configured := activationbiz.TurnSnapshot{
+		ActivationID: "activation-1", RevisionID: "revision-1", Revision: 1,
+		State: activationbiz.StateActive, Source: activationbiz.SourceSlashCommand,
+		Effect: activationbiz.DefaultEffect, Speed: activationbiz.DefaultSpeed,
+	}
+	if _, _, err := store.PutTuttiModeTurnSnapshot(ctx, "ws-agent-command-upgrade", "session-1", "turn-1", configured, now); err != nil {
+		t.Fatal(err)
+	}
+	if accepted, err := store.AcceptTuttiModeTurnSnapshot(ctx, "ws-agent-command-upgrade", "session-1", "turn-1", now.Add(time.Second)); err != nil || !accepted {
+		t.Fatalf("accept snapshot accepted=%v err=%v", accepted, err)
+	}
+	if _, _, err := store.PutTuttiModeTurnSnapshot(ctx, "ws-agent-command-upgrade", "session-1", "turn-2",
+		activationbiz.TurnSnapshot{State: activationbiz.StateInactive}, now); err != nil {
+		t.Fatal(err)
+	}
+
+	// Downgrade both tables to the pre-v5 shape: the v1 CHECK vocabulary plus
+	// the columns appended by v2-v4, simulating an installed database that ran
+	// v1..v4 before this release.
+	if _, err := store.writeDB.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		t.Fatalf("disable foreign keys: %v", err)
+	}
+	if _, err := store.writeDB.ExecContext(ctx, `
+CREATE TABLE tutti_mode_activation_revisions_legacy (
+  workspace_id TEXT NOT NULL,
+  activation_id TEXT NOT NULL,
+  revision_id TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision > 0),
+  state TEXT NOT NULL CHECK (state IN ('active', 'inactive')),
+  source TEXT NOT NULL CHECK (source IN ('slash_command', 'badge_remove')),
+  created_at_unix_ms INTEGER NOT NULL,
+  orchestration_intensity INTEGER NOT NULL DEFAULT 50 CHECK (orchestration_intensity BETWEEN 0 AND 100),
+  speed INTEGER NOT NULL DEFAULT 50 CHECK (speed BETWEEN 0 AND 100),
+  PRIMARY KEY (workspace_id, activation_id, revision_id),
+  UNIQUE (workspace_id, activation_id, revision),
+  FOREIGN KEY (workspace_id, activation_id)
+    REFERENCES tutti_mode_activations(workspace_id, activation_id) ON DELETE CASCADE,
+  CHECK ((state = 'active' AND source = 'slash_command') OR
+         (state = 'inactive' AND source = 'badge_remove'))
+);
+INSERT INTO tutti_mode_activation_revisions_legacy SELECT * FROM tutti_mode_activation_revisions;
+DROP TABLE tutti_mode_activation_revisions;
+ALTER TABLE tutti_mode_activation_revisions_legacy RENAME TO tutti_mode_activation_revisions;
+
+CREATE TABLE tutti_mode_turn_snapshots_legacy (
+  workspace_id TEXT NOT NULL,
+  agent_session_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  activation_id TEXT NOT NULL DEFAULT '',
+  revision_id TEXT NOT NULL DEFAULT '',
+  revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+  state TEXT NOT NULL CHECK (state IN ('active', 'inactive')),
+  source TEXT NOT NULL DEFAULT '' CHECK (source IN ('', 'slash_command', 'badge_remove')),
+  created_at_unix_ms INTEGER NOT NULL,
+  dispatch_state TEXT NOT NULL DEFAULT 'accepted' CHECK (dispatch_state IN ('prepared', 'accepted')),
+  accepted_at_unix_ms INTEGER,
+  orchestration_intensity INTEGER NOT NULL DEFAULT 0 CHECK (orchestration_intensity BETWEEN 0 AND 100),
+  speed INTEGER NOT NULL DEFAULT 0 CHECK (speed BETWEEN 0 AND 100),
+  PRIMARY KEY (workspace_id, agent_session_id, turn_id),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  CHECK ((activation_id = '' AND revision_id = '' AND revision = 0 AND state = 'inactive' AND source = '') OR
+         (activation_id != '' AND revision_id != '' AND revision > 0 AND
+          ((state = 'active' AND source = 'slash_command') OR
+           (state = 'inactive' AND source = 'badge_remove'))))
+);
+INSERT INTO tutti_mode_turn_snapshots_legacy SELECT * FROM tutti_mode_turn_snapshots;
+DROP TABLE tutti_mode_turn_snapshots;
+ALTER TABLE tutti_mode_turn_snapshots_legacy RENAME TO tutti_mode_turn_snapshots;
+CREATE INDEX idx_tutti_mode_turn_snapshots_revision
+  ON tutti_mode_turn_snapshots(workspace_id, activation_id, revision);
+
+DELETE FROM tuttid_schema_migrations WHERE id = ?;
+`, schemaMigrationTuttiModeAgentCommandSourceV5); err != nil {
+		t.Fatalf("install legacy pre-v5 Tutti mode schema: %v", err)
+	}
+	if _, err := store.writeDB.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatalf("restore foreign keys: %v", err)
+	}
+
+	// The legacy vocabulary rejects agent_command, proving the downgrade held.
+	if _, err := store.writeDB.ExecContext(ctx, `
+INSERT INTO tutti_mode_activation_revisions (
+  workspace_id, activation_id, revision_id, revision, state, source, created_at_unix_ms
+) VALUES ('ws-agent-command-upgrade', 'activation-1', 'revision-agent', 2, 'inactive', 'agent_command', 1)
+`); err == nil || !strings.Contains(err.Error(), "CHECK constraint failed") {
+		t.Fatalf("legacy agent_command insert error = %v, want CHECK constraint failure", err)
+	}
+
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate() legacy Tutti mode schema error = %v", err)
+	}
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate() repeated after v5 error = %v", err)
+	}
+
+	// All pre-upgrade rows survived the rebuild.
+	preserved, ok, err := store.GetTuttiModeActivation(ctx, "ws-agent-command-upgrade", "session-1")
+	if err != nil || !ok || preserved.CurrentRevision.ID != "revision-1" ||
+		preserved.CurrentRevision.Source != activationbiz.SourceSlashCommand ||
+		preserved.CurrentRevision.Effect != activationbiz.DefaultEffect ||
+		preserved.CurrentRevision.Speed != activationbiz.DefaultSpeed {
+		t.Fatalf("preserved activation=%#v ok=%v err=%v", preserved, ok, err)
+	}
+	snapshot, ok, err := store.GetTuttiModeTurnSnapshot(ctx, "ws-agent-command-upgrade", "session-1", "turn-1")
+	if err != nil || !ok || snapshot != configured {
+		t.Fatalf("preserved snapshot=%#v ok=%v err=%v", snapshot, ok, err)
+	}
+	if accepted, err := store.IsTuttiModeTurnSnapshotAccepted(ctx, "ws-agent-command-upgrade", "session-1", "turn-1"); err != nil || !accepted {
+		t.Fatalf("preserved dispatch state accepted=%v err=%v", accepted, err)
+	}
+	unconfigured, ok, err := store.GetTuttiModeTurnSnapshot(ctx, "ws-agent-command-upgrade", "session-1", "turn-2")
+	if err != nil || !ok || unconfigured.State != activationbiz.StateInactive || unconfigured.ActivationID != "" {
+		t.Fatalf("preserved unconfigured snapshot=%#v ok=%v err=%v", unconfigured, ok, err)
+	}
+
+	// The rebuilt schema admits agent_command transitions.
+	expected := int64(1)
+	deactivated, changed, err := store.SetTuttiModeActivation(ctx, SetTuttiModeActivationInput{
+		WorkspaceID: "ws-agent-command-upgrade", AgentSessionID: "session-1",
+		RevisionID: "revision-2", ExpectedRevision: &expected,
+		State: activationbiz.StateInactive, Source: activationbiz.SourceAgentCommand, ChangedAt: now.Add(2 * time.Second),
+	})
+	if err != nil || !changed || deactivated.CurrentRevision.Source != activationbiz.SourceAgentCommand {
+		t.Fatalf("agent_command after upgrade activation=%#v changed=%v err=%v", deactivated, changed, err)
+	}
+
+	foreignKeyRows, err := store.writeDB.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		t.Fatalf("foreign_key_check error = %v", err)
+	}
+	violation := foreignKeyRows.Next()
+	if err := foreignKeyRows.Err(); err != nil {
+		_ = foreignKeyRows.Close()
+		t.Fatalf("iterate foreign_key_check error = %v", err)
+	}
+	_ = foreignKeyRows.Close()
+	if violation {
+		t.Fatal("agent command source migration left a foreign key violation")
+	}
+
+	// A fresh install (v1 then v5) and this upgraded database converge on
+	// identical effective schemas.
+	fresh := openTestSQLiteStore(t)
+	for _, objectName := range []string{
+		"tutti_mode_activation_revisions",
+		"tutti_mode_turn_snapshots",
+		"idx_tutti_mode_turn_snapshots_revision",
+	} {
+		upgradedSQL := tuttiModeSchemaSQL(t, store, objectName)
+		freshSQL := tuttiModeSchemaSQL(t, fresh, objectName)
+		if upgradedSQL != freshSQL {
+			t.Fatalf("schema for %s diverged:\nupgraded: %s\nfresh: %s", objectName, upgradedSQL, freshSQL)
+		}
+		if objectName != "idx_tutti_mode_turn_snapshots_revision" && !strings.Contains(upgradedSQL, "agent_command") {
+			t.Fatalf("schema for %s does not admit agent_command: %s", objectName, upgradedSQL)
+		}
+	}
+}
+
+func tuttiModeSchemaSQL(t *testing.T, store *SQLiteStore, objectName string) string {
+	t.Helper()
+	var text string
+	if err := store.writeDB.QueryRowContext(context.Background(), `
+SELECT sql FROM sqlite_master WHERE name = ?
+`, objectName).Scan(&text); err != nil {
+		t.Fatalf("read sqlite_master sql for %s: %v", objectName, err)
+	}
+	return text
 }
