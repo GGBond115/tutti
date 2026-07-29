@@ -114,20 +114,9 @@ func buildDaemonAPI(
 
 	events := eventstreamservice.NewService(eventstreamservice.DefaultCatalog(), nil)
 	preferencesPublisher := eventstreamservice.DesktopPreferencesPublisher{Service: events}
-	tuttiModeFeatureFlags := func(ctx context.Context) (map[string]bool, error) {
-		if preferencesStore == nil {
-			return map[string]bool{}, nil
-		}
-		preferences, err := preferencesStore.GetDesktopPreferences(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return preferences.FeatureFlags, nil
-	}
 	tuttiModeActivations := &tuttimodeactivationservice.Service{
-		Store:        tuttiModeActivationStore,
-		Publisher:    eventstreamservice.TuttiModeActivationPublisher{Service: events},
-		FeatureFlags: tuttiModeFeatureFlags,
+		Store:     tuttiModeActivationStore,
+		Publisher: eventstreamservice.TuttiModeActivationPublisher{Service: events},
 	}
 	preferences := &preferencesservice.Service{
 		Store:                          preferencesStore,
@@ -284,7 +273,8 @@ func buildDaemonAPI(
 		AdapterResolver: agentextensionservice.RuntimeResolver{
 			Manager: agentExtensionManager, Transport: sessionRecordingTransport, Host: agentHostMetadata,
 		},
-		ProviderCommandResolver: agentProviderCommandResolver(&agentStatusService),
+		ProviderCommandResolver:    agentProviderCommandResolver(&agentStatusService),
+		CommandNetworkAccessPolicy: tuttiDesktopCommandNetworkAccessPolicy,
 	}
 	agentRuntimeConfig = applyAgentReplayRuntimeComposition(agentRuntimeConfig, replayComposition)
 	agentRuntime, err := agentdaemon.NewRuntime(agentRuntimeConfig)
@@ -318,6 +308,7 @@ func buildDaemonAPI(
 	agentModelCapabilities := agentservice.NewModelCapabilitiesService()
 	agentModelCatalog := agentservice.NewAgentModelCatalog()
 	agentModelCatalog.ModelCapabilities = agentModelCapabilities
+	agentModelCatalog.ProviderCommands = &agentStatusService
 	agentSessionService.ModelCatalog = agentModelCatalog
 	agentSessionService.ConfigureModelPlanBinding(modelBindingsStore, modelPlansStore)
 	agentSessionService.ModelCapabilities = agentModelCapabilities
@@ -495,23 +486,22 @@ func buildDaemonAPI(
 		Delegate: tuttiModeExecutions,
 	}
 	issueService := workspaceservice.IssueManagerService{
-		RunLauncher:                    issueRunAgentLauncher{Sessions: agentSessionService, Host: agentHost},
-		RunLaunchGate:                  issueRunLaunchGate,
-		RunCancellationRequester:       issueRunCanceller,
-		SourceSessionDirectoryResolver: issueSourceSessionDirectoryResolver{Sessions: agentActivityProjection},
-		Publisher:                      eventstreamservice.WorkspaceIssuePublisher{Service: events},
-		Store:                          issueStore,
-		AgentTargetReader:              agentTargetStore,
-		PlanningTimeline:               agentservice.IssuePlanningTimelineReporter{Projection: agentActivityProjection},
-		TuttiModeExecutions:            tuttiModeExecutions,
-		MutationLocks:                  workspaceservice.NewIssueMutationLocks(),
+		RunLauncher:                  issueRunAgentLauncher{Sessions: agentSessionService, Host: agentHost},
+		RunLaunchGate:                issueRunLaunchGate,
+		RunCancellationRequester:     issueRunCanceller,
+		SourceSessionContextResolver: issueSourceSessionContextResolver{Sessions: agentActivityProjection},
+		Publisher:                    eventstreamservice.WorkspaceIssuePublisher{Service: events},
+		Store:                        issueStore,
+		AgentTargetReader:            agentTargetStore,
+		PlanningTimeline:             agentservice.IssuePlanningTimelineReporter{Projection: agentActivityProjection},
+		TuttiModeExecutions:          tuttiModeExecutions,
+		MutationLocks:                workspaceservice.NewIssueMutationLocks(),
 	}
 	tuttiModePlans := &tuttimodeplanservice.Service{
 		Store:             workflowStore,
 		Revisions:         workspacedata.WorkflowRevisionFiles{StateDir: tuttitypes.DefaultStateDir()},
 		Publisher:         eventstreamservice.WorkspaceWorkflowPublisher{Service: events},
 		IssueMaterializer: tuttimodeplanservice.WorkspaceIssueMaterializer{Issues: &issueService},
-		FeatureFlags:      tuttiModeFeatureFlags,
 		FeedbackDispatcher: &tuttiModePlanFeedbackDispatcher{
 			Agents:    agentSessionService,
 			TurnLinks: workflowStore,

@@ -15,6 +15,7 @@ Provider discovery, installation, authentication, models, configuration, and run
 - [Claude SDK context window shows 200k for 1M models](./agent-provider-setup.md#claude-sdk-context-window-shows-200k-for-1m-models)
 - [Codex npm install misses the platform package](./agent-provider-setup.md#codex-npm-install-misses-the-platform-package)
 - [Tutti Agent npm install misses the platform package](./agent-provider-setup.md#tutti-agent-npm-install-misses-the-platform-package)
+- [Tutti Agent unexpectedly loses login after a host auth read failure](./agent-provider-setup.md#tutti-agent-unexpectedly-loses-login-after-a-host-auth-read-failure)
 - [Agent sandbox cannot reach local daemon](./agent-provider-setup.md#agent-sandbox-cannot-reach-local-daemon)
 - [Codex provider install fails with missing npm](./agent-provider-setup.md#codex-provider-install-fails-with-missing-npm)
 - [Codex ACP warns about user-level config as project-local config](./agent-provider-setup.md#codex-acp-warns-about-user-level-config-as-project-local-config)
@@ -23,6 +24,7 @@ Provider discovery, installation, authentication, models, configuration, and run
 - [Codex provider shows login required when global service tier is legacy](./agent-provider-setup.md#codex-provider-shows-login-required-when-global-service-tier-is-legacy)
 - [Codex provider shows login required when only an API key is configured](./agent-provider-setup.md#codex-provider-shows-login-required-when-only-an-api-key-is-configured)
 - [Codex session fails with not connected when model_catalog_json is relative](./agent-provider-setup.md#codex-session-fails-with-not-connected-when-modelcatalogjson-is-relative)
+- [Codex composer model and reasoning selectors stay loading](./agent-provider-setup.md#codex-composer-model-and-reasoning-selectors-stay-loading)
 - [Codex custom model_provider mixes models, duplicates replies, or shows metadata warnings](./agent-provider-setup.md#codex-custom-modelprovider-mixes-models-duplicates-replies-or-shows-metadata-warnings)
 - [Claude SDK Grep or Glob unavailable despite Claude Code preset](./agent-provider-setup.md#claude-sdk-grep-or-glob-unavailable-despite-claude-code-preset)
 - [Provider process loses final stdout or a sidecar fails during startup](./agent-provider-setup.md#provider-process-loses-final-stdout-or-a-sidecar-fails-during-startup)
@@ -43,6 +45,7 @@ Provider discovery, installation, authentication, models, configuration, and run
 - [OpenCode model picker has fewer models than the terminal](./agent-provider-setup.md#opencode-model-picker-has-fewer-models-than-the-terminal)
 - [Provider setup notice flashes after switching to an already-connected agent](./agent-provider-setup.md#provider-setup-notice-flashes-after-switching-to-an-already-connected-agent)
 - [Extension runtime installation stays failed after restart](./agent-provider-setup.md#extension-runtime-installation-stays-failed-after-restart)
+- [Extension slash palette is empty or ignores its command filter](./agent-provider-setup.md#extension-slash-palette-is-empty-or-ignores-its-command-filter)
 
 ## [Agent Sessions And Lifecycle](./agent-session-lifecycle.md)
 
@@ -50,6 +53,7 @@ Turn state, loading, cancel, restore, rail projection, event updates, imports, a
 
 - [AgentGUI turn actions return plain-text route 404s](./agent-session-lifecycle.md#agentgui-turn-actions-return-plain-text-route-404s)
 - [One hung provider startup blocks unrelated Agent sessions](./agent-session-lifecycle.md#one-hung-provider-startup-blocks-unrelated-agent-sessions)
+- [Existing Session shows Tutti active but the Agent reports Default mode](./agent-session-lifecycle.md#existing-session-shows-tutti-active-but-the-agent-reports-default-mode)
 - [Many stopped Tutti Mode conversations start again when the app opens](./agent-session-lifecycle.md#many-stopped-tutti-mode-conversations-start-again-when-the-app-opens)
 - [A new Tutti conversation briefly reports session not found after submit](./agent-session-lifecycle.md#a-new-tutti-conversation-briefly-reports-session-not-found-after-submit)
 - [AgentGUI rail shows a failed Turn but the detail has no error](./agent-session-lifecycle.md#agentgui-rail-shows-a-failed-turn-but-the-detail-has-no-error)
@@ -81,6 +85,7 @@ Turn state, loading, cancel, restore, rail projection, event updates, imports, a
 - [Claude Code starts another command after Stop](./agent-session-lifecycle.md#claude-code-starts-another-command-after-stop)
 - [AgentGUI freezes when session history is large](./agent-session-lifecycle.md#agentgui-freezes-when-session-history-is-large)
 - [AgentGUI @ Sessions tab is empty](./agent-session-lifecycle.md#agentgui--sessions-tab-is-empty)
+- [Fork reports only `agent_session_fork_conflict`](./agent-session-lifecycle.md#fork-reports-only-agent_session_fork_conflict)
 - [Agent diagnostics flood while a turn is streaming](./agent-session-lifecycle.md#agent-diagnostics-flood-while-a-turn-is-streaming)
 - [Codex turn stays working before any reply or tool activity](./agent-session-lifecycle.md#codex-turn-stays-working-before-any-reply-or-tool-activity)
 - [Codex WebSocket reconnect rejects a long prompt metadata header](./agent-session-lifecycle.md#codex-websocket-reconnect-rejects-a-long-prompt-metadata-header)

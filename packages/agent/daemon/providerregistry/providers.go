@@ -9,8 +9,8 @@ const (
 	CursorTargetID               = "local:cursor"
 	TuttiAgentProviderID         = canonical.TuttiAgentProviderID
 	TuttiAgentTargetID           = "local:tutti-agent"
-	TuttiAgentMinVersion         = "0.0.7"
-	TuttiAgentRecommendedVersion = "0.0.7"
+	TuttiAgentMinVersion         = "0.0.8"
+	TuttiAgentRecommendedVersion = "0.0.8"
 	NexightProviderID            = canonical.NexightProviderID
 	NexightTargetID              = "local:nexight"
 	OpenClawProviderID           = canonical.OpenClawProviderID
@@ -66,9 +66,18 @@ func tuttiAgentDescriptor() ProviderDescriptor {
 		Identity: canonicalProviderIdentity(TuttiAgentProviderID),
 		Runtime:  RuntimeDescriptor{Kind: RuntimeKindCodexAppServer, Name: "tutti-agent-app-server", Command: []string{"tutti-agent", "app-server"}, ClientInfoName: "tutti_agent", AuthRequiredMessage: "Tutti Agent requires authentication. Sign in to Tutti on this device (or run `tutti-agent login`), then retry this session.", Endpoint: RuntimeEndpointDescriptor{ModelPlanProtocol: ModelPlanProtocolOpenAI}},
 		Status: StatusDescriptor{
-			Kind: StatusKindGenericCLI, AuthOutputParserKind: AuthOutputParserKindCodex, AuthMarkerParserKind: AuthMarkerParserKindTuttiToken, AuthCommandRunnerKind: AuthCommandRunnerKindGeneric, StaticSpecResolverKind: StaticSpecResolverKindGeneric, MinVersion: TuttiAgentMinVersion, BinaryNames: []string{"tutti-agent"}, AdapterBinaryNames: []string{"tutti-agent"}, AuthStatusCommand: []string{"login", "status"}, AuthMarkerPaths: []string{"~/.tutti-agent/auth.json"}, LoginArgs: []string{"login"}, LoginActionKind: StatusActionKindDaemon,
+			Kind: StatusKindGenericCLI, AuthOutputParserKind: AuthOutputParserKindCodex, AuthMarkerParserKind: AuthMarkerParserKindTuttiToken, AuthCommandRunnerKind: AuthCommandRunnerKindGeneric, StaticSpecResolverKind: StaticSpecResolverKindManagedNode, MinVersion: TuttiAgentMinVersion, BinaryNames: []string{"tutti-agent"}, AdapterBinaryNames: []string{"tutti-agent"}, AuthStatusCommand: []string{"login", "status"}, AuthMarkerPaths: []string{"~/.tutti-agent/auth.json"}, LoginArgs: []string{"login"}, LoginActionKind: StatusActionKindDaemon,
 			Install: InstallerDescriptor{Kind: InstallerKindManagedNPM, DisplayCommand: "npm install -g @tutti-os/tutti-agent@" + TuttiAgentRecommendedVersion + " --include=optional", PackageName: "@tutti-os/tutti-agent", BinaryName: "tutti-agent", RecommendedVersion: TuttiAgentRecommendedVersion, IncludeOptional: true},
 			Update:  UpdateDescriptor{Capability: UpdateCapabilitySupported, Source: UpdateSourceNPM, Strategy: UpdateStrategyManagedNPM, PackageName: "@tutti-os/tutti-agent", BinaryName: "tutti-agent", IncludeOptional: true},
+			AuthWatch: AuthWatchDescriptor{
+				Sources: []AuthWatchSourceDescriptor{
+					{
+						DefaultRoot: "~/.tutti-agent",
+						Paths:       []string{"auth.json"},
+					},
+				},
+				ContentFingerprint: AuthWatchContentFingerprintFullFile,
+			},
 		},
 		ComposerProfile: ComposerProfileDescriptor{
 			ModelSelection: true, ModelCatalog: ModelCatalogKindTuttiCLI,
@@ -78,7 +87,7 @@ func tuttiAgentDescriptor() ProviderDescriptor {
 		Target:  TargetDescriptor{ID: TuttiAgentTargetID, LaunchRefType: TargetLaunchRefTypeLocalCLI, Enabled: false, SortOrder: 40},
 		Events:  EventsDescriptor{Enabled: true, Aliases: []string{"tutti_agent"}, TurnLifecycleProjection: TurnLifecycleProjectionExplicit},
 		Sidecar: SidecarDescriptor{ExecutionEnvironment: SidecarExecutionEnvironmentLocalIPC},
-		Desktop: DesktopIntegrationDescriptor{Managed: true, ManagedOrder: 4, StatusProbePriority: 4, VisibilityGate: DesktopVisibilityGateTuttiAgent, InstallBootstrap: true, RefreshOnAccountChange: true, DeveloperLogs: true},
+		Desktop: DesktopIntegrationDescriptor{Managed: true, ManagedOrder: 4, StatusProbePriority: 4, VisibilityGate: DesktopVisibilityGateTuttiAgent, CommandNetworkAccess: true, InstallBootstrap: true, RefreshOnAccountChange: true, DeveloperLogs: true},
 	}
 }
 

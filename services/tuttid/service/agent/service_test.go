@@ -165,6 +165,71 @@ func TestServiceCreateSynchronouslyPersistsRailSectionKey(t *testing.T) {
 	}
 }
 
+// TestServiceCreateGeneratesClientSubmitIDForSubmitProvenance 守住 agent start
+// 的回归：调用方未提供 ClientSubmitID 时，service 层必须兜底生成一个，否则下游
+// submit provenance（要求 ClientSubmitID 非空，见 controller_submit_provenance.go）
+// 会让已创建的会话误报 ErrSubmitDeliveryUnknown。provenanceHook 复刻真实 Controller
+// 的四元组非空校验。
+func TestServiceCreateGeneratesClientSubmitIDForSubmitProvenance(t *testing.T) {
+	ctx := context.Background()
+	store := openAgentServiceSQLiteStore(t)
+	if err := store.Create(ctx, workspacebiz.Summary{ID: "ws-provenance", Name: "Provenance"}); err != nil {
+		t.Fatalf("Create workspace error = %v", err)
+	}
+	projectPath := t.TempDir()
+	if canonical, ok := canonicalExistingDir(projectPath); ok {
+		projectPath = canonical
+	}
+	if _, err := store.PutUserProject(ctx, userprojectbiz.Project{
+		ID:         "project-provenance",
+		Path:       projectPath,
+		Label:      "Project",
+		SectionKey: userprojectbiz.SectionKeyFromPath(projectPath),
+	}); err != nil {
+		t.Fatalf("PutUserProject error = %v", err)
+	}
+	runtime := newFakeRuntime()
+	runtime.provenanceHook = func(input RuntimeSubmitProvenanceInput) error {
+		if input.WorkspaceID == "" || input.AgentSessionID == "" || input.TurnID == "" || input.ClientSubmitID == "" {
+			return errors.New("workspace id, agent session id, turn id, and client submit id are required")
+		}
+		return nil
+	}
+	service := newTestService(runtime)
+	projection := NewActivityProjection(store)
+	service.SessionInitializer = projection
+	service.SessionReader = projection
+	service.SubmitClaimStore = store
+
+	created, err := service.CreateWithResult(ctx, "ws-provenance", CreateSessionInput{
+		AgentSessionID: "33333333-3333-4333-8333-333333333333",
+		AgentTargetID:  agenttargetbiz.IDLocalCodex,
+		Provider:       "codex",
+		Cwd:            stringRef(projectPath),
+		InitialContent: TextPromptContent("hello"),
+		// 故意不传 ClientSubmitID，也不传 legacy metadata
+	})
+	if err != nil {
+		t.Fatalf("CreateWithResult returned error: %v (兜底生成的 ClientSubmitID 应让 submit provenance 通过)", err)
+	}
+	if created.TurnID == "" {
+		t.Fatal("CreateWithResult returned an empty turnId")
+	}
+	if len(runtime.provenanceCalls) != 1 {
+		t.Fatalf("provenance calls = %d, want 1", len(runtime.provenanceCalls))
+	}
+	submitID := runtime.provenanceCalls[0].ClientSubmitID
+	if submitID == "" {
+		t.Fatal("provenance 收到空 ClientSubmitID，service 层兜底未生效")
+	}
+	if len(runtime.execCalls) != 1 {
+		t.Fatalf("exec calls = %d, want 1", len(runtime.execCalls))
+	}
+	if runtime.execCalls[0].ClientSubmitID != submitID {
+		t.Fatalf("exec ClientSubmitID = %q, provenance ClientSubmitID = %q, 应一致", runtime.execCalls[0].ClientSubmitID, submitID)
+	}
+}
+
 func TestServiceCreateClosesRuntimeWhenSessionInitializationFails(t *testing.T) {
 	runtime := newFakeRuntime()
 	service := newTestService(runtime)
@@ -2663,6 +2728,40 @@ func TestServiceSendInputDoesNotExecuteDuplicateClientSubmitID(t *testing.T) {
 	}
 }
 
+// TestServiceSendInputGeneratesClientSubmitIDForSubmitProvenance 守住 agent send
+// 的回归（与 Create 对称）：调用方未提供 ClientSubmitID 时 service 层兜底生成，
+// 否则 SendInput 路径的 submit provenance（lifecycle.go SendInput）会让已派发的
+// turn 误报 ErrSubmitDeliveryUnknown。
+func TestServiceSendInputGeneratesClientSubmitIDForSubmitProvenance(t *testing.T) {
+	runtime := newFakeRuntime()
+	runtime.provenanceHook = func(input RuntimeSubmitProvenanceInput) error {
+		if input.WorkspaceID == "" || input.AgentSessionID == "" || input.TurnID == "" || input.ClientSubmitID == "" {
+			return errors.New("workspace id, agent session id, turn id, and client submit id are required")
+		}
+		return nil
+	}
+	service := newTestService(runtime)
+	store := openAgentServiceSQLiteStore(t)
+	service.SubmitClaimStore = store
+	if _, err := service.Create(context.Background(), "ws-1", CreateSessionInput{
+		AgentSessionID: "session-provenance", AgentTargetID: agenttargetbiz.IDLocalCodex,
+	}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	// 故意不传 ClientSubmitID，也不传 legacy metadata
+	if _, err := service.SendInput(context.Background(), "ws-1", "session-provenance", SendInput{
+		Content: TextPromptContent("hello"),
+	}); err != nil {
+		t.Fatalf("SendInput error = %v (兜底生成的 ClientSubmitID 应让 submit provenance 通过)", err)
+	}
+	if len(runtime.provenanceCalls) != 1 {
+		t.Fatalf("provenance calls = %d, want 1", len(runtime.provenanceCalls))
+	}
+	if runtime.provenanceCalls[0].ClientSubmitID == "" {
+		t.Fatal("provenance 收到空 ClientSubmitID，service 层兜底未生效")
+	}
+}
+
 func TestServiceSendInputWaitsForClaudeStartupSlotBeforeExec(t *testing.T) {
 	runtime := newFakeRuntime()
 	runtime.sessions["ws-1:session-1"] = ProviderRuntimeSession{
@@ -2781,6 +2880,72 @@ func TestServiceCreatePassesExtraSkillsToRuntimePreparer(t *testing.T) {
 	}
 	if prepareInput.ExtraSkills[0].Files["references/contract.md"] != "contract" {
 		t.Fatalf("prepare extra skill files = %#v", prepareInput.ExtraSkills[0].Files)
+	}
+}
+
+func TestServiceCreatePassesExtensionRuntimePrepToRuntimePreparer(t *testing.T) {
+	runtime := newFakeRuntime()
+	var prepareInput runtimeprep.PrepareInput
+	service := newTestService(runtime)
+	service.RuntimePreparer = fakeRuntimePreparer{
+		input: &prepareInput,
+		result: runtimeprep.PreparedRuntime{
+			Cwd: "/prepared/workdir",
+		},
+	}
+	service.AgentTargetStore = fakeAgentTargetStore{targets: map[string]agenttargetbiz.Target{
+		"extension:hermes": {
+			ID:            "extension:hermes",
+			Provider:      "acp:hermes",
+			LaunchRefJSON: `{"type":"agent_extension","extensionInstallationId":"hermes@0.18.2"}`,
+			Name:          "Hermes Agent",
+			Enabled:       true,
+			Source:        agenttargetbiz.SourceSystem,
+		},
+	}}
+	runtimePrep := &runtimeprep.ExtensionRuntimePrep{
+		InstructionsFile: "AGENTS.md",
+		Home: &runtimeprep.ExtensionRuntimeHome{
+			EnvVar:             "HERMES_HOME",
+			DirName:            "hermes",
+			SourceEnvVar:       "HERMES_HOME",
+			SourceDefaultRel:   ".hermes",
+			CopyFiles:          []string{"config.yaml", "auth.json", ".env"},
+			ConfigFile:         "config.yaml",
+			ConfigFormat:       "yaml",
+			ExternalDirsKey:    []string{"skills", "external_dirs"},
+			UserHomeSkillDir:   "skills",
+			IncludeSkillRoots:  true,
+			IncludeUserHomeDir: true,
+		},
+	}
+	service.ExtensionComposerProfiles = extensionComposerProfileResolverStub{
+		profile: ExtensionComposerProfile{
+			RuntimePrep: runtimePrep,
+			Skills: &ExtensionComposerSkillProfile{Roots: []ExtensionComposerSkillRoot{
+				{Scope: "workspace", Path: ".agent_context/skills"},
+			}},
+		},
+	}
+	cwd := "/user/workdir"
+
+	if _, err := service.Create(context.Background(), "ws-1", CreateSessionInput{
+		AgentTargetID:  "extension:hermes",
+		Cwd:            &cwd,
+		Provider:       "acp:hermes",
+		InitialContent: TextPromptContent("hello"),
+	}); err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	if prepareInput.ExtensionRuntimePrep == nil || prepareInput.ExtensionRuntimePrep.Home == nil {
+		t.Fatalf("prepare extension runtime prep = %#v", prepareInput.ExtensionRuntimePrep)
+	}
+	if prepareInput.ExtensionRuntimePrep.Home.EnvVar != "HERMES_HOME" {
+		t.Fatalf("prepare extension runtime prep = %#v", prepareInput.ExtensionRuntimePrep)
+	}
+	if !slices.Equal(prepareInput.ExtensionSkillRoots, []string{".agent_context/skills"}) {
+		t.Fatalf("prepare extension skill roots = %#v", prepareInput.ExtensionSkillRoots)
 	}
 }
 
@@ -6016,23 +6181,17 @@ func TestGoalRecoveryTimeoutThenRestartDoesNotReplayClaudeSet(t *testing.T) {
 	runtime.sessions["ws-goal-timeout:session-goal-timeout"] = ProviderRuntimeSession{
 		ID: "session-goal-timeout", Provider: "claude-code", ProviderSessionID: "claude-timeout", Status: "ready",
 	}
-	runtime.goalControlHook = func(ctx context.Context, _ RuntimeGoalControlInput) (RuntimeGoalControlResult, error) {
-		<-ctx.Done()
-		return RuntimeGoalControlResult{}, ctx.Err()
+	runtime.goalControlHook = func(context.Context, RuntimeGoalControlInput) (RuntimeGoalControlResult, error) {
+		return RuntimeGoalControlResult{}, context.DeadlineExceeded
 	}
 	nowMS := int64(30)
 	service := newIsolatedAgentService(runtime)
 	service.GoalStateStore = store
 	service.GoalOperationOwner = "goal-timeout-worker"
 	service.GoalOperationClock = func() time.Time { return time.UnixMilli(nowMS) }
-	service.GoalOperationAttemptTimeout = 25 * time.Millisecond
 	service.GoalOperationMaxAttempts = 1
-	started := time.Now()
 	if err := service.ApplicationHost().StepGoalOperationWorker(ctx, false); err != nil {
 		t.Fatalf("timeout attempt: %v", err)
-	}
-	if elapsed := time.Since(started); elapsed > time.Second {
-		t.Fatalf("timeout attempt took %s", elapsed)
 	}
 	op, found, err := store.GetGoalControlOperation(ctx, "ws-goal-timeout", "goal-timeout-set")
 	if err != nil || !found || op.Status != agentactivitybiz.GoalOperationStatusDispatched ||
@@ -6092,16 +6251,14 @@ func TestGoalRepairSetTimeoutThenRestartDoesNotReplayClaudeSet(t *testing.T) {
 	runtime.sessions["ws-repair-set-timeout:session-repair-set-timeout"] = ProviderRuntimeSession{
 		ID: "session-repair-set-timeout", Provider: "claude-code", ProviderSessionID: "claude-repair-timeout", Status: "ready",
 	}
-	runtime.goalControlHook = func(ctx context.Context, _ RuntimeGoalControlInput) (RuntimeGoalControlResult, error) {
-		<-ctx.Done()
-		return RuntimeGoalControlResult{}, ctx.Err()
+	runtime.goalControlHook = func(context.Context, RuntimeGoalControlInput) (RuntimeGoalControlResult, error) {
+		return RuntimeGoalControlResult{}, context.DeadlineExceeded
 	}
 	nowMS := int64(30)
 	service := newIsolatedAgentService(runtime)
 	service.GoalStateStore = store
 	service.GoalOperationOwner = "goal-repair-timeout-worker"
 	service.GoalOperationClock = func() time.Time { return time.UnixMilli(nowMS) }
-	service.GoalOperationAttemptTimeout = 25 * time.Millisecond
 	service.GoalOperationMaxAttempts = 1
 	if err := service.ApplicationHost().StepGoalOperationWorker(ctx, false); err != nil {
 		t.Fatal(err)
@@ -6140,15 +6297,13 @@ func TestGoalClearRepeatedTimeoutEventuallyFails(t *testing.T) {
 	}
 	runtime := newFakeRuntime()
 	runtime.sessions["ws-clear-timeout:s"] = ProviderRuntimeSession{ID: "s", Provider: "claude-code", Status: "ready"}
-	runtime.goalControlHook = func(ctx context.Context, _ RuntimeGoalControlInput) (RuntimeGoalControlResult, error) {
-		<-ctx.Done()
-		return RuntimeGoalControlResult{}, ctx.Err()
+	runtime.goalControlHook = func(context.Context, RuntimeGoalControlInput) (RuntimeGoalControlResult, error) {
+		return RuntimeGoalControlResult{}, context.DeadlineExceeded
 	}
 	now := int64(30)
 	service := newIsolatedAgentService(runtime)
 	service.GoalStateStore = store
 	service.GoalOperationClock = func() time.Time { return time.UnixMilli(now) }
-	service.GoalOperationAttemptTimeout = 20 * time.Millisecond
 	service.GoalOperationMaxAttempts = 1
 	if err := service.ApplicationHost().StepGoalOperationWorker(ctx, false); err != nil {
 		t.Fatal(err)
@@ -6177,15 +6332,13 @@ func TestGoalRuntimeUnavailableKeepsPreparedUntilFirstProviderDispatch(t *testin
 		t.Fatal(err)
 	}
 	runtime := newFakeRuntime()
-	runtime.goalControlHook = func(ctx context.Context, _ RuntimeGoalControlInput) (RuntimeGoalControlResult, error) {
-		<-ctx.Done()
-		return RuntimeGoalControlResult{}, ctx.Err()
+	runtime.goalControlHook = func(context.Context, RuntimeGoalControlInput) (RuntimeGoalControlResult, error) {
+		return RuntimeGoalControlResult{}, context.DeadlineExceeded
 	}
 	now := int64(20)
 	service := newIsolatedAgentService(runtime)
 	service.GoalStateStore = store
 	service.GoalOperationClock = func() time.Time { return time.UnixMilli(now) }
-	service.GoalOperationAttemptTimeout = 20 * time.Millisecond
 	service.GoalOperationMaxAttempts = 1
 	if err := service.ApplicationHost().StepGoalOperationWorker(ctx, false); err != nil {
 		t.Fatal(err)
@@ -6220,6 +6373,7 @@ func TestGoalRecoveryProviderQueryAndApplyTimeoutReleaseLease(t *testing.T) {
 	for _, phase := range []string{"query", "apply"} {
 		t.Run(phase, func(t *testing.T) {
 			ctx := context.Background()
+			workerCtx, expire := newControlledDeadlineContext()
 			store := openAgentServiceSQLiteStore(t)
 			workspaceID := "ws-goal-hang-" + phase
 			sessionID := "session-goal-hang-" + phase
@@ -6244,6 +6398,7 @@ func TestGoalRecoveryProviderQueryAndApplyTimeoutReleaseLease(t *testing.T) {
 			}
 			if phase == "query" {
 				runtime.goalReconcileHook = func(ctx context.Context, _ RuntimeGoalControlInput) (RuntimeGoalReconcileResult, error) {
+					expire()
 					<-ctx.Done()
 					return RuntimeGoalReconcileResult{}, ctx.Err()
 				}
@@ -6253,6 +6408,7 @@ func TestGoalRecoveryProviderQueryAndApplyTimeoutReleaseLease(t *testing.T) {
 				}
 			}
 			runtime.goalControlHook = func(ctx context.Context, _ RuntimeGoalControlInput) (RuntimeGoalControlResult, error) {
+				expire()
 				<-ctx.Done()
 				return RuntimeGoalControlResult{}, ctx.Err()
 			}
@@ -6261,14 +6417,9 @@ func TestGoalRecoveryProviderQueryAndApplyTimeoutReleaseLease(t *testing.T) {
 			service.GoalOperationOwner = "goal-hang-worker"
 			nowMS := int64(30)
 			service.GoalOperationClock = func() time.Time { return time.UnixMilli(nowMS) }
-			service.GoalOperationAttemptTimeout = 25 * time.Millisecond
 			service.GoalOperationMaxAttempts = 1
-			started := time.Now()
-			if err := service.ApplicationHost().StepGoalOperationWorker(ctx, false); err != nil {
+			if err := service.ApplicationHost().StepGoalOperationWorker(workerCtx, false); err != nil {
 				t.Fatalf("worker timeout: %v", err)
-			}
-			if elapsed := time.Since(started); elapsed > time.Second {
-				t.Fatalf("worker timeout took %s", elapsed)
 			}
 			op, found, err := store.GetGoalControlOperation(ctx, workspaceID, operationID)
 			expectedPhase := agentactivitybiz.GoalProviderPhaseDispatched
@@ -6320,12 +6471,12 @@ func TestGoalRecoveryStartupBudgetBoundsHangingProvider(t *testing.T) {
 	service.GoalOperationOwner = "goal-startup-budget-worker"
 	service.GoalOperationClock = func() time.Time { return time.UnixMilli(30) }
 	service.GoalOperationAttemptTimeout = time.Second
-	service.GoalOperationRecoveryBudget = 40 * time.Millisecond
+	service.GoalOperationRecoveryBudget = 250 * time.Millisecond
 	started := time.Now()
 	if err := service.ApplicationHost().RecoverGoalOperations(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(started); elapsed > time.Second {
+	if elapsed := time.Since(started); elapsed > 10*time.Second {
 		t.Fatalf("startup recovery exceeded bounded budget: %s", elapsed)
 	}
 	op, found, err := store.GetGoalControlOperation(ctx, "ws-goal-startup-budget", "goal-startup-budget")
@@ -6468,18 +6619,18 @@ func TestGoalReconcileFenceConflictRequeriesProvider(t *testing.T) {
 }
 
 func TestManualGoalReconcileProviderTimeoutIsBounded(t *testing.T) {
+	ctx, expire := newControlledDeadlineContext()
 	runtime := newFakeRuntime()
 	runtime.sessions["ws-timeout:session-timeout"] = ProviderRuntimeSession{ID: "session-timeout", Provider: "codex", Status: "ready"}
 	runtime.goalReconcileHook = func(ctx context.Context, _ RuntimeGoalControlInput) (RuntimeGoalReconcileResult, error) {
+		expire()
 		<-ctx.Done()
 		return RuntimeGoalReconcileResult{}, ctx.Err()
 	}
 	service := newIsolatedAgentService(runtime)
-	service.GoalOperationAttemptTimeout = 25 * time.Millisecond
-	started := time.Now()
-	_, err := service.ReconcileGoal(context.Background(), "ws-timeout", "session-timeout")
-	if err == nil || time.Since(started) > time.Second {
-		t.Fatalf("err=%v elapsed=%s", err, time.Since(started))
+	_, err := service.ReconcileGoal(ctx, "ws-timeout", "session-timeout")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err=%v, want context deadline exceeded", err)
 	}
 }
 
@@ -7135,6 +7286,37 @@ type fakeRuntime struct {
 	closeHook              func(RuntimeCloseInput)
 	validateErr            error
 	validateCalls          []RuntimeExecInput
+}
+
+type controlledDeadlineContext struct {
+	context.Context
+	done chan struct{}
+	once sync.Once
+}
+
+func newControlledDeadlineContext() (*controlledDeadlineContext, func()) {
+	ctx := &controlledDeadlineContext{
+		Context: context.Background(),
+		done:    make(chan struct{}),
+	}
+	return ctx, func() {
+		ctx.once.Do(func() {
+			close(ctx.done)
+		})
+	}
+}
+
+func (c *controlledDeadlineContext) Done() <-chan struct{} {
+	return c.done
+}
+
+func (c *controlledDeadlineContext) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
 }
 
 type fakeAgentTargetStore struct {

@@ -54,6 +54,13 @@ func TestMigratedTuttiAgentDescriptorRequiresRefreshCapableVersion(t *testing.T)
 	if descriptor.Status.MinVersion != TuttiAgentMinVersion {
 		t.Fatalf("Status.MinVersion = %q, want %q", descriptor.Status.MinVersion, TuttiAgentMinVersion)
 	}
+	if descriptor.Status.StaticSpecResolverKind != StaticSpecResolverKindManagedNode {
+		t.Fatalf(
+			"Status.StaticSpecResolverKind = %q, want %q",
+			descriptor.Status.StaticSpecResolverKind,
+			StaticSpecResolverKindManagedNode,
+		)
+	}
 	if descriptor.Status.Install.PackageName != "@tutti-os/tutti-agent" ||
 		descriptor.Status.Install.BinaryName != "tutti-agent" ||
 		descriptor.Status.Install.RecommendedVersion != TuttiAgentRecommendedVersion ||
@@ -275,10 +282,10 @@ func TestMigratedProviderSidecarPoliciesAreDescriptorOwned(t *testing.T) {
 
 func TestMigratedProviderDesktopIntegrationIsDescriptorOwned(t *testing.T) {
 	want := map[string]DesktopIntegrationDescriptor{
-		CodexProviderID:      {Managed: true, ManagedOrder: 2, StatusProbePriority: 1, UsageProbeKind: DesktopUsageProbeCodex, DeveloperLogs: true, DefaultProviderEligible: true, DefaultProviderPriority: 1},
+		CodexProviderID:      {Managed: true, ManagedOrder: 2, StatusProbePriority: 1, UsageProbeKind: DesktopUsageProbeCodex, CommandNetworkAccess: true, DeveloperLogs: true, DefaultProviderEligible: true, DefaultProviderPriority: 1},
 		ClaudeCodeProviderID: {Managed: true, ManagedOrder: 1, StatusProbePriority: 2, UsageProbeKind: DesktopUsageProbeClaudeCode, DeveloperLogs: true, DefaultProviderEligible: true, DefaultProviderPriority: 2},
 		CursorProviderID:     {Managed: true, ManagedOrder: 3, StatusProbePriority: 3, RuntimeProbeFallback: DesktopRuntimeProbeFallbackDirect, DeveloperLogs: true, DefaultProviderEligible: true, DefaultProviderPriority: 3},
-		TuttiAgentProviderID: {Managed: true, ManagedOrder: 4, StatusProbePriority: 4, VisibilityGate: DesktopVisibilityGateTuttiAgent, InstallBootstrap: true, RefreshOnAccountChange: true, DeveloperLogs: true},
+		TuttiAgentProviderID: {Managed: true, ManagedOrder: 4, StatusProbePriority: 4, VisibilityGate: DesktopVisibilityGateTuttiAgent, CommandNetworkAccess: true, InstallBootstrap: true, RefreshOnAccountChange: true, DeveloperLogs: true},
 		OpenCodeProviderID:   {Managed: true, ManagedOrder: 5, StatusProbePriority: 5, DefaultProviderEligible: true, DefaultProviderPriority: 4},
 		NexightProviderID:    {},
 		OpenClawProviderID:   {Managed: true, ManagedOrder: 7, StatusProbePriority: 7, UnavailableDockOrderOffset: 200},
@@ -291,6 +298,14 @@ func TestMigratedProviderDesktopIntegrationIsDescriptorOwned(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("provider desktop integrations missing: %#v", want)
+	}
+}
+
+func TestValidateRejectsDesktopCommandNetworkAccessForNonAppServerRuntime(t *testing.T) {
+	descriptor := claudeCodeDescriptor()
+	descriptor.Desktop.CommandNetworkAccess = true
+	if err := Validate(descriptor); err == nil {
+		t.Fatal("Validate() error = nil")
 	}
 }
 

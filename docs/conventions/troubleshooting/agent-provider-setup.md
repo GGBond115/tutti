@@ -417,38 +417,88 @@ file or directory`. If the CLI path exists but `codex app-server` cannot
   [runtimeprep tutti_agent.go](../../../packages/agent/runtimeprep/tutti_agent.go)
   [tuttid tuttiagent service.go](../../../services/tuttid/service/tuttiagent/service.go)
 
+### Tutti Agent unexpectedly loses login after a host auth read failure
+
+- Symptom:
+  Tutti Agent was previously authenticated, but provider preparation or model
+  discovery changes it to `auth_required` after the desktop account auth file is
+  temporarily missing, unreadable, or malformed. A token issue rejection may
+  produce the same symptom.
+- Root cause:
+  Provider preparation used to treat one failed observation of the host Account
+  session as a completed logout and removed the durable
+  `~/.tutti-agent/auth.json`. The token issue 401 path used the same cleanup
+  helper, even though neither condition proves that the user requested logout.
+- Invariants:
+  Missing, unreadable, malformed, or session-less host auth retains existing
+  Tutti Agent credentials. Failed token issue, validation, provider login, or
+  verification safely restores the previous auth file. Bootstrap and explicit
+  logout resolve a symlinked auth file to the same final target as Tutti Agent,
+  then use its sibling `auth.json.refresh.lock`. Go `flock` and Rust `fs2`
+  coordinate through the same OS advisory lock on a local filesystem; this is
+  not a distributed lock. Only the completed Account logout callback may
+  delete local provider auth and revoke its refresh token. Logs identify these
+  decisions with
+  `event=tutti_agent.auth_bootstrap`, `action`, and `reason`, without including
+  cookies or tokens.
+- Validation:
+  Run the `service/tuttiagent` tests covering
+  `RetainsAuthWithoutHostSession`, `RetainsAuthWhenHostAuthIsInvalidJSON`,
+  `RetainsAuthWhenHostAuthIsUnreadable`,
+  `RetainsAuthAfterUnauthorizedTokenIssue`, and
+  `LogoutTuttiAgentUserAuthRemovesAuthAndRevokesToken`, plus the reconciliation
+  restoration and refresh-lock serialization tests in the same package.
+- References:
+  [service.go](../../../services/tuttid/service/tuttiagent/service.go)
+  [tutti-agent-readiness-bootstrap.md](../../architecture/tutti-agent-readiness-bootstrap.md)
+
 ### Agent sandbox cannot reach local daemon
 
 - Symptom:
-  An AgentGUI-backed Codex turn runs a dynamic Tutti CLI command such as
-  `tutti-dev automation --help` and gets `daemon is not reachable`, while
-  `~/.tutti-dev/run/tuttid.listener.json` exists and the desktop daemon is
-  running.
+  An AgentGUI-backed Codex-compatible turn runs a dynamic Tutti CLI command
+  such as `tutti agent get --session-id <id>` and gets
+  `reasonCode=daemon_unavailable` or `daemon is not reachable`, while the
+  listener file exists and the desktop daemon is serving other requests.
 - Quick checks:
   Inspect the turn context in the provider session JSONL. If
   `network_access=false`, a plain `exec_command` cannot reach localhost/IPC.
-  For Codex sessions, also confirm the command was not rerun with
+  Identify the executing provider from that same session instead of inferring
+  it from a queried session ID. For Codex sessions, also confirm the command
+  was not rerun with
   `sandbox_permissions=require_escalated`. Other providers need their own
   local-daemon-capable shell/runtime path, not Codex-specific sandbox syntax.
 - Root cause:
   Dynamic CLI scopes fetch command capabilities from the local daemon before
   printing scope help. In a sandboxed provider command environment, localhost
-  access can be blocked even though the daemon is reachable from the host.
+  access can be blocked even though the daemon is reachable from the host. For
+  a Codex-compatible app-server, omitting
+  `sandboxPolicy.networkAccess=true` from a `readOnly` or `workspaceWrite` turn
+  creates this exact split between successful host requests and failed
+  in-sandbox CLI requests.
 - Fix:
-  In agent environments, keep the CLI's transport failure message explicit
-  about the sandbox but provider-neutral. Put provider-specific recovery steps
-  in the injected runtime policy: Codex can use
-  `sandbox_permissions=require_escalated`, while ACP providers should be told to
-  use an execution environment with localhost/IPC access and not to invent Codex
+  Keep the CLI's transport failure message explicit about the sandbox but
+  provider-neutral. The Tutti Desktop host explicitly enables command network
+  access for the built-in `codex` and `tutti-agent` app-servers through
+  `agentdaemon.Config.CommandNetworkAccessPolicy`. Keep this an explicit
+  provider-registry Desktop opt-in instead of branching on provider identity or
+  granting every future app-server network access. This preserves the
+  permission-mode filesystem sandbox and approval policy. Codex should run the
+  CLI normally first and use `sandbox_permissions=require_escalated` only as a
+  fallback for hosts that do not grant command networking. ACP providers should
+  use an execution environment with localhost/IPC access and not invent Codex
   flags.
 - Validation:
-  Add CLI daemon-client coverage that non-agent failures keep the plain
-  `daemon is not reachable` message, while agent failures include the
-  localhost/IPC execution-environment hint. Add provider policy coverage so only
-  Codex receives `sandbox_permissions=require_escalated`.
+  Verify the default adapter policy enables
+  `sandboxPolicy.networkAccess=true` for Codex and `tutti-agent` read-only and
+  workspace-write turns. Verify the Desktop host policy rejects Claude Code,
+  external ACP IDs, and empty provider IDs. Retain CLI daemon-client coverage
+  for provider-neutral agent hints and Codex fallback coverage for
+  `sandbox_permissions=require_escalated`.
 - References:
   [client.go](../../../apps/cli/internal/daemon/client.go)
   [run.go](../../../apps/cli/internal/app/run.go)
+  [agent daemon runtime.go](../../../packages/agent/daemon/runtime.go)
+  [tuttid command network policy](../../../services/tuttid/agent_command_network_policy.go)
 
 ### Codex provider install fails with missing npm
 
@@ -717,6 +767,44 @@ file or directory`. If the CLI path exists but `codex app-server` cannot
 - References:
   [codex_model_catalog.go](../../../services/tuttid/service/agent/codex_model_catalog.go)
   [codex_model_catalog_test.go](../../../services/tuttid/service/agent/codex_model_catalog_test.go)
+
+### Codex composer model and reasoning selectors stay loading
+
+- Symptom:
+  The empty Codex composer shows loading placeholders for both model and
+  reasoning, even though provider status reports Codex as ready.
+- Quick checks:
+  Correlate a ready Codex provider snapshot in `tuttid.log` with
+  `agent.composer_options.load` in `tutti-desktop.log`. A duration near 15
+  seconds with `errorCode=ETIMEDOUT` means the Desktop request deadline expired
+  before Composer Options returned. If tuttid later logs
+  `superfluous response.WriteHeader`, or a detached `codex app-server` remains
+  after the request, the canceled handler did not finish cleaning up its
+  discovery subprocess.
+- Root cause:
+  Codex Composer Options needs both `model/list` and the app-server capability
+  catalog. Running those independent, individually bounded probes in series
+  can exceed the Desktop's aggregate request deadline. A second failure mode
+  occurs when timeout kills only the JavaScript launcher: its native child
+  inherits stdout, the response scanner never receives EOF, and deferred
+  `Wait` cannot run because it sits behind that scanner.
+- Fix:
+  Start model-catalog loading before capability discovery so the two independent
+  app-server exchanges overlap. Run every short-lived Codex app-server in its
+  own process group, begin process reaping immediately, and make timeout cancel
+  the entire group. Keep the Desktop deadline unchanged so a genuinely stuck
+  daemon request still fails closed.
+- Validation:
+  Block both catalog fixtures and assert both start before either is released.
+  Use a fake app-server whose child retains stdout and assert model and
+  capability timeouts return promptly with no surviving child. Finally, time a
+  cold Composer Options request and confirm it completes within the Desktop
+  deadline.
+- References:
+  [composer_options.go](../../../services/tuttid/service/agent/composer_options.go)
+  [codex_appserver_process.go](../../../services/tuttid/service/agent/codex_appserver_process.go)
+  [codex_model_catalog.go](../../../services/tuttid/service/agent/codex_model_catalog.go)
+  [codex_capability_catalog.go](../../../services/tuttid/service/agent/codex_capability_catalog.go)
 
 ### Codex custom model_provider mixes models, duplicates replies, or shows metadata warnings
 
@@ -1726,17 +1814,21 @@ invalid_grant`. Search `tuttid.log` for
   [turn_lifecycle_stamp.go](../../../packages/agent/daemon/runtime/turn_lifecycle_stamp.go)
   [reporter_state.go](../../../packages/agent/daemon/runtime/reporter_state.go)
 
-### Extension slash palette is empty even though ACP advertised commands
+### Extension slash palette is empty or ignores its command filter
 
 - Symptom:
   Typing `/` in an extension conversation opens no command or Skill list, while
-  the ACP process otherwise starts successfully.
+  the ACP process otherwise starts successfully. A related failure shows every
+  provider-advertised command instead of the signed profile's smaller catalog.
 - Quick checks:
   Inspect the persisted session `internal_runtime_context_json`. If `commands`
   contains provider command names, the ACP command update was received and the
-  remaining fault is command hydration. Separately inspect the installed
-  `profiles/composer.json`; Skills remain empty unless it declares validated
-  roots and the matching capabilities profile advertises Skill support.
+  remaining fault is command hydration or filtering. Confirm the composer
+  request uses the active Session's exact `agentTargetId`, then compare the
+  response `commands` and `slashCommandPolicy` with the installed
+  `profiles/composer.json`. Skills remain empty unless the profile declares
+  validated roots and the matching capabilities profile advertises Skill
+  support.
 - Root cause:
   Runtime command updates were available only through a transient renderer
   event. A renderer that subscribed after the startup update, or reloaded an
@@ -1747,16 +1839,24 @@ invalid_grant`. Search `tuttid.log` for
   hydration succeeded.
   Open extension providers also have no built-in composer profile, so the
   built-in provider Skill discovery table correctly returned no roots.
+  Active-session composer reads could also fall back to node-level provider
+  metadata and miss the extension Target. Conversely, an authoritative signed
+  catalog that repeated every ACP command correctly preserved every command;
+  that was a package declaration error, not a renderer filtering failure.
 - Fix:
   Persist the detailed ACP command catalog in session runtime context and let
   composer options restore it when no live engine snapshot is present. Treat
   provider-advertised commands as runtime capabilities even without a built-in
-  policy, and keep their selection provider-native. Declare extension Skill
-  roots, invocation, and trigger prefix in the signed composer profile; resolve
-  only safe relative workspace/user paths.
+  policy, and keep their selection provider-native. Scope active-session
+  composer reads and cache lookup by the Session's exact `agentTargetId`.
+  Declare only the intended product command subset in an authoritative signed
+  catalog; do not add a provider-name filter in AgentGUI. Declare extension
+  Skill roots, invocation, and trigger prefix in the signed composer profile;
+  resolve only safe relative workspace/user paths.
 - Validation:
   Cover startup command projection, legacy command-name recovery, composer
-  option parsing, declared extension Skill roots, and unsafe path rejection.
+  option parsing, active-session Target selection, authoritative command
+  narrowing, declared extension Skill roots, and unsafe path rejection.
 - References:
   [standard_acp_settings.go](../../../packages/agent/daemon/runtime/standard_acp_settings.go)
   [composer_commands.go](../../../services/tuttid/service/agent/composer_commands.go)

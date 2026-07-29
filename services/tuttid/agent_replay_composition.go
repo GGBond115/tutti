@@ -164,6 +164,8 @@ func configureReplayAwareTuttiAgentReadiness(
 	account.OnLoginCompleted = func(context.Context) {
 		readiness.Trigger("account_login_completed")
 	}
+	// A completed Account logout is the only automatic source authorized to
+	// delete and revoke the durable Tutti Agent credential.
 	account.OnLogoutCompleted = func(ctx context.Context) {
 		tuttiagentservice.LogoutTuttiAgentUserAuth(ctx)
 	}

@@ -44,7 +44,10 @@ func (s *Service) ensureRuntimeSessionResult(
 }
 
 func (s *Service) resolveProviderTargetRefForResume(ctx context.Context, persisted PersistedSession) (map[string]any, error) {
-	snapshot, exists, err := sessionRuntimeSnapshotFromContext(persisted.InternalRuntimeContext)
+	snapshot, exists, err := sessionRuntimeSnapshotFromContext(
+		persisted.InternalRuntimeContext,
+		persisted.Provider,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +80,10 @@ func (s *Service) resolveProviderTargetRefForResume(ctx context.Context, persist
 
 func (s *Service) prepareRuntimeForResume(ctx context.Context, session PersistedSession) (preparedRuntime, error) {
 	input := createSessionInputFromPersisted(session)
-	snapshot, exists, err := sessionRuntimeSnapshotFromContext(session.InternalRuntimeContext)
+	snapshot, exists, err := sessionRuntimeSnapshotFromContext(
+		session.InternalRuntimeContext,
+		session.Provider,
+	)
 	if err != nil {
 		return preparedRuntime{}, err
 	}

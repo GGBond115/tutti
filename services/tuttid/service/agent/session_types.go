@@ -204,6 +204,7 @@ type ExtensionComposerProfile struct {
 	PermissionModes                  []ExtensionComposerPermissionMode
 	ReasoningConfigOptionID          string
 	Skills                           *ExtensionComposerSkillProfile
+	RuntimePrep                      *runtimeprep.ExtensionRuntimePrep
 	SlashCommands                    []ExtensionComposerSlashCommand
 	SlashCommandCatalogAuthoritative bool
 }
@@ -242,6 +243,8 @@ type Session struct {
 	Provider             string
 	ProviderSessionID    string
 	Cwd                  string
+	RailSectionKind      string
+	RailProjectPath      string
 	RailSectionKey       string
 	Visible              bool
 	Resumable            bool
