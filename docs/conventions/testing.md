@@ -62,6 +62,14 @@ A package that declares a `test` script must contain at least one package-local
 empty glob cannot be reported as a passing test suite. Remove a stale script or
 add a real package test.
 
+AgentGUI splits its Vitest suite by required runtime. Plain TypeScript tests run
+in Node; TSX tests and the exact TypeScript files listed in
+`packages/agent/gui/vitest.config.ts` run in JSDOM. Add a TypeScript test to that
+explicit list only when it requires browser globals or DOM behavior. Do not
+restore package-wide JSDOM, because most AgentGUI tests exercise DOM-free
+models and controllers. The package uses four Vitest threads so its worker pool
+matches the public Linux CI runner without stacking package-level concurrency.
+
 Repository tool tests are discovered from `tools/scripts/*.test.mjs`. Tool
 tests that exercise package release helpers remain tool-owned instead of being
 duplicated through a package-level test script. They are repository contract
