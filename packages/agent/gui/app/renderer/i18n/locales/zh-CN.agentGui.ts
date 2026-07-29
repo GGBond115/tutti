@@ -33,6 +33,10 @@ export const zhCNAgentGui = {
   providerGateUnavailableDescription:
     "我们还不能确认 {{provider}} 已准备好，可以再检测一次。",
   providerGateRetryAction: "重新检测",
+  providerGateRuntimeSelectionTitle: "选择要使用的 {{provider}}",
+  providerGateRuntimeSelectionDescription:
+    "检测到多个 {{provider}}，选择其中一个即可继续使用。",
+  providerGateRuntimeSelectionAction: "去选择",
   providerGatePendingInstall: "正在连接…",
   providerGatePendingLogin: "正在打开登录…",
   providerGatePendingRefresh: "正在检测…",

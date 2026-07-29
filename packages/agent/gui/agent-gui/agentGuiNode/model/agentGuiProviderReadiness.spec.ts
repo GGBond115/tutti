@@ -22,7 +22,10 @@ const labels = {
   providerGateComingSoonAction: "coming-soon-action",
   providerGateUnavailableTitle: "unavailable-title",
   providerGateUnavailableDescription: "unavailable-description",
-  providerGateRetryAction: "retry-action"
+  providerGateRetryAction: "retry-action",
+  providerGateRuntimeSelectionTitle: "runtime-selection-title",
+  providerGateRuntimeSelectionDescription: "runtime-selection-description",
+  providerGateRuntimeSelectionAction: "runtime-selection-action"
 };
 
 describe("agent gui provider readiness", () => {
@@ -82,5 +85,18 @@ describe("agent gui provider readiness", () => {
     expect(resolveAgentGUIProviderReadinessAction("unavailable")).toBe(
       "refresh"
     );
+    expect(resolveAgentGUIProviderReadinessAction("runtime_selection")).toBe(
+      "choose"
+    );
+  });
+
+  it("guides the user to choose a runtime instead of retrying", () => {
+    expect(
+      resolveAgentGUIProviderReadinessContent("runtime_selection", labels)
+    ).toEqual({
+      title: "runtime-selection-title",
+      description: "runtime-selection-description",
+      actionLabel: "runtime-selection-action"
+    });
   });
 });

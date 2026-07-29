@@ -1,7 +1,8 @@
 import type {
   AgentGUIProvider,
   AgentGUIAgentAvailabilityAction,
-  AgentGUIProviderReadinessGate
+  AgentGUIProviderReadinessGate,
+  AgentGUIProviderReadinessGateAction
 } from "@tutti-os/agent-gui";
 import type { WorkspaceAgentProvider } from "@tutti-os/client-tuttid-ts";
 import type { AgentProviderStatusSnapshot } from "../agentProviderStatusService.interface";
@@ -12,8 +13,16 @@ import {
 
 export type DesktopAgentProviderReadinessGateActionHandler = (
   provider: AgentGUIProvider,
-  action: AgentGUIAgentAvailabilityAction
+  action: AgentGUIProviderReadinessGateAction
 ) => void;
+
+// Availability stays "unknown" while the daemon waits for the user to pick
+// between multiple healthy local Codex runtimes; these reason codes mark that
+// case so the gate can guide the choice instead of offering a pointless retry.
+const runtimeSelectionReasonCodes = new Set<string>([
+  "codex_runtime_selection_required",
+  "codex_runtime_selection_stale"
+]);
 
 export function projectDesktopAgentProviderReadinessGates(input: {
   onAction?: DesktopAgentProviderReadinessGateActionHandler;
@@ -90,9 +99,20 @@ function projectDesktopAgentProviderReadinessGate(input: {
         )
       };
     case "unsupported":
-    case "unknown":
       return {
         status: "unavailable",
+        pendingAction: pendingActionForProvider(
+          input.pendingActions,
+          input.provider
+        )
+      };
+    case "unknown":
+      return {
+        status: runtimeSelectionReasonCodes.has(
+          input.status.availability.reasonCode ?? ""
+        )
+          ? "runtime_selection"
+          : "unavailable",
         pendingAction: pendingActionForProvider(
           input.pendingActions,
           input.provider

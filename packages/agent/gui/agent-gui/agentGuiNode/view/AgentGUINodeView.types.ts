@@ -42,6 +42,7 @@ import type {
   AgentGUIEngagementEventSink
 } from "../engagement/agentGUIEngagement.types";
 import type { AgentGUIManagedHomeTargetProjection } from "../model/agentGuiProviderRailOrder";
+import type { AgentGUIProviderReadinessLabels } from "../model/agentGuiProviderReadiness";
 import type { OpenAgentEnvPanelInput } from "../../../shared/agentEnv";
 import type {
   TuttiModePlanPanelLabels,
@@ -71,26 +72,14 @@ export interface AgentGUIConversationRailLayout {
   resizing: boolean;
 }
 
-export interface AgentGUIViewLabels {
+// The provider-gate content labels (checking / install / login / coming-soon /
+// unavailable / runtime-selection) live on AgentGUIProviderReadinessLabels;
+// extend it rather than restating every key here.
+export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   initialPlaceholder: string;
   followupPlaceholder: string;
   installRequiredPlaceholder: string;
   installRequiredAction: string;
-  providerGateCheckingTitle: string;
-  providerGateCheckingDescription: string;
-  providerGateCheckingAgentsDescription: string;
-  providerGateInstallTitle: string;
-  providerGateInstallDescription: string;
-  providerGateInstallAction: string;
-  providerGateLoginTitle: string;
-  providerGateLoginDescription: string;
-  providerGateLoginAction: string;
-  providerGateComingSoonTitle: string;
-  providerGateComingSoonDescription: string;
-  providerGateComingSoonAction: string;
-  providerGateUnavailableTitle: string;
-  providerGateUnavailableDescription: string;
-  providerGateRetryAction: string;
   providerGatePendingInstall: string;
   providerGatePendingLogin: string;
   providerGatePendingRefresh: string;
