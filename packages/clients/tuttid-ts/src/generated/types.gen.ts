@@ -644,6 +644,14 @@ export type AgentTargetAuthMethod = {
   id: string;
   name: string;
   description?: string | null;
+  /**
+   * Provider-declared method kind (for example "terminal").
+   */
+  type?: string | null;
+  /**
+   * Ready-to-run interactive sign-in command for terminal-type methods.
+   */
+  terminalCommand?: string | null;
 };
 
 export type InstallAgentTargetRuntimeRequest = {
@@ -10724,7 +10732,7 @@ export type ForkWorkspaceAgentSessionErrors = {
    */
   405: ApiErrorResponse;
   /**
-   * The source session or requested fork boundary is not forkable
+   * The source session or requested fork boundary is not forkable. Boundary validation failures keep reason `agent_session_fork_conflict` and include the stable rejection code in `error.params.forkBoundaryReason`.
    */
   409: ApiErrorResponse;
   /**

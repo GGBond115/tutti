@@ -167,6 +167,14 @@ the provider driver must attest native `throughTurn` support and the selected
 canonical Turn must carry a non-empty provider root Turn binding. Historical
 prefix provenance, settled state, descendants, active work, and pending
 Interactions are not eligibility inputs.
+Every fail-closed boundary rejection retains a stable, content-free reason
+through Host. HTTP adapters may project it as structured diagnostic metadata
+while preserving their existing coarse conflict reason; transcript payloads
+and attachment contents never enter that reason.
+
+Session Fork is default-off behind the `lab.agentSessionFork` product flag.
+Desktop and Tuttid enforce the same opt-in for new Fork writes while retaining
+read and acknowledgement access to existing durable operations.
 
 Capability projection is preparation-free. It reads either the live runtime
 observation or the persisted runtime/driver attestation and never resolves

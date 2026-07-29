@@ -850,16 +850,16 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'source' AND turn_id = 'turn-
 `); err != nil {
 		t.Fatal(err)
 	}
-	if boundary, supported, err := store.CheckSessionForkThroughTurn(
+	if duplicateBoundary, supported, err := store.CheckSessionForkThroughTurn(
 		ctx,
 		"ws-1",
 		"source",
 		"turn-2",
-	); err != nil || !supported || len(boundary.RootProviderTurnIDs) != 1 ||
-		boundary.RootProviderTurnIDs[0] != "provider-turn-1" {
+	); err != nil || !supported || len(duplicateBoundary.RootProviderTurnIDs) != 1 ||
+		duplicateBoundary.RootProviderTurnIDs[0] != "provider-turn-1" {
 		t.Fatalf(
 			"duplicate provider turn prefix boundary=%#v supported=%v error=%v",
-			boundary,
+			duplicateBoundary,
 			supported,
 			err,
 		)

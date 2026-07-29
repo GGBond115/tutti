@@ -48,7 +48,14 @@ ORDER BY turn_sequence
 			return snapshot, err
 		}
 		if !found {
-			return snapshot, ErrSessionForkTurnState
+			return snapshot, newSessionForkBoundaryError(
+				SessionForkBoundaryReasonPrefixTurnMissing,
+				fmt.Sprintf(
+					"turn sequence %d references missing turn %q",
+					boundary.sequence,
+					boundary.turnID,
+				),
+			)
 		}
 		snapshot.Turns = append(snapshot.Turns, sessionForkTurnSnapshot{Sequence: boundary.sequence, Turn: turn})
 	}

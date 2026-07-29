@@ -90,7 +90,10 @@ func (s *Store) PrepareSessionFork(ctx context.Context, input SessionForkPrepare
 		return SessionForkOperation{}, false, err
 	}
 	if !found {
-		return SessionForkOperation{}, false, ErrSessionForkTurnState
+		return SessionForkOperation{}, false, newSessionForkBoundaryError(
+			SessionForkBoundaryReasonTurnNotFound,
+			"selected turn does not exist in the source session",
+		)
 	}
 	if err := tx.QueryRowContext(ctx, `
 SELECT turn_sequence
@@ -98,12 +101,18 @@ FROM workspace_agent_turn_sequences
 WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
 `, input.WorkspaceID, input.SourceAgentSessionID, input.SourceTurnID).Scan(&selectedSequence); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return SessionForkOperation{}, false, ErrSessionForkTurnState
+			return SessionForkOperation{}, false, newSessionForkBoundaryError(
+				SessionForkBoundaryReasonTurnSequenceMissing,
+				"selected turn has no canonical turn sequence",
+			)
 		}
 		return SessionForkOperation{}, false, fmt.Errorf("read session fork turn sequence: %w", err)
 	}
 	if strings.TrimSpace(selected.RootProviderTurnID) == "" {
-		return SessionForkOperation{}, false, ErrSessionForkTurnState
+		return SessionForkOperation{}, false, newSessionForkBoundaryError(
+			SessionForkBoundaryReasonProviderTurnMissing,
+			"selected turn has no provider turn binding",
+		)
 	}
 	var boundaryBusy int
 	if err := tx.QueryRowContext(ctx, `
@@ -155,7 +164,10 @@ SELECT EXISTS(
 	}
 	snapshotHash := hashSessionForkBytes(snapshotJSON)
 	if len(snapshot.Turns) == 0 || snapshot.Turns[len(snapshot.Turns)-1].Turn.TurnID != input.SourceTurnID {
-		return SessionForkOperation{}, false, ErrSessionForkTurnState
+		return SessionForkOperation{}, false, newSessionForkBoundaryError(
+			SessionForkBoundaryReasonProviderTurnBoundaryMismatch,
+			"canonical snapshot does not end at the selected turn",
+		)
 	}
 
 	var targetExists int
@@ -404,13 +416,27 @@ func (s *Store) CheckSessionForkThroughTurn(
 	if err != nil || !found {
 		return SessionForkBoundary{}, false, err
 	}
-	if session.Kind != SessionKindRoot ||
-		strings.TrimSpace(session.ProviderSessionID) == "" {
-		return SessionForkBoundary{}, false, nil
+	if session.Kind != SessionKindRoot {
+		return rejectedSessionForkBoundary(
+			SessionForkBoundaryReasonSourceNotRoot,
+			fmt.Sprintf("source session kind is %q, want %q", session.Kind, SessionKindRoot),
+		), false, nil
+	}
+	if strings.TrimSpace(session.ProviderSessionID) == "" {
+		return rejectedSessionForkBoundary(
+			SessionForkBoundaryReasonProviderSessionMissing,
+			"source session has no provider session id",
+		), false, nil
 	}
 	turn, found, err := getAgentTurnTx(ctx, tx, workspaceID, sourceSessionID, throughTurnID)
-	if err != nil || !found {
+	if err != nil {
 		return SessionForkBoundary{}, false, err
+	}
+	if !found {
+		return rejectedSessionForkBoundary(
+			SessionForkBoundaryReasonTurnNotFound,
+			"selected turn does not exist in the source session",
+		), false, nil
 	}
 	var sequence int64
 	if err := tx.QueryRowContext(ctx, `
@@ -418,13 +444,19 @@ SELECT turn_sequence FROM workspace_agent_turn_sequences
 WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
 `, workspaceID, sourceSessionID, throughTurnID).Scan(&sequence); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return SessionForkBoundary{}, false, nil
+			return rejectedSessionForkBoundary(
+				SessionForkBoundaryReasonTurnSequenceMissing,
+				"selected turn has no canonical turn sequence",
+			), false, nil
 		}
 		return SessionForkBoundary{}, false, err
 	}
 	providerTurnID := strings.TrimSpace(turn.RootProviderTurnID)
 	if providerTurnID == "" {
-		return SessionForkBoundary{}, false, nil
+		return rejectedSessionForkBoundary(
+			SessionForkBoundaryReasonProviderTurnMissing,
+			"selected turn has no provider turn binding",
+		), false, nil
 	}
 	return SessionForkBoundary{
 		Session:             session,

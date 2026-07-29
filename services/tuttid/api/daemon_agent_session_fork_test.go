@@ -3,14 +3,118 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 	agentservice "github.com/tutti-os/tutti/services/tuttid/service/agent"
 )
+
+func sessionForkTestPreferences(flags map[string]bool, err error) stubPreferencesService {
+	return stubPreferencesService{
+		getFn: func(context.Context) (preferencesbiz.DesktopPreferences, error) {
+			if err != nil {
+				return preferencesbiz.DesktopPreferences{}, err
+			}
+			return preferencesbiz.DesktopPreferences{FeatureFlags: flags}, nil
+		},
+	}
+}
+
+func enabledSessionForkTestPreferences() stubPreferencesService {
+	return sessionForkTestPreferences(
+		map[string]bool{preferencesbiz.LabFlagAgentSessionFork: true},
+		nil,
+	)
+}
+
+func TestForkWorkspaceAgentSessionRequiresLabOptIn(t *testing.T) {
+	for _, test := range []struct {
+		name               string
+		flags              map[string]bool
+		preferencesError   error
+		omitPreferencesAPI bool
+	}{
+		{name: "flag absent", flags: map[string]bool{}},
+		{
+			name: "flag explicitly disabled",
+			flags: map[string]bool{
+				preferencesbiz.LabFlagAgentSessionFork: false,
+			},
+		},
+		{
+			name:             "preferences unreadable",
+			preferencesError: errors.New("preferences unavailable"),
+		},
+		{name: "preferences service missing", omitPreferencesAPI: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			forkCalls := 0
+			api := DaemonAPI{
+				AgentSessionService: stubAgentSessionService{
+					forkFn: func(
+						context.Context,
+						string,
+						string,
+						agentservice.ForkSessionInput,
+					) (agentservice.SessionForkOperation, error) {
+						forkCalls++
+						return agentservice.SessionForkOperation{}, nil
+					},
+				},
+			}
+			if !test.omitPreferencesAPI {
+				api.PreferencesService = sessionForkTestPreferences(
+					test.flags,
+					test.preferencesError,
+				)
+			}
+			mux := http.NewServeMux()
+			RegisterRoutes(mux, NewRoutes(api))
+
+			recorder := performGeneratedRouteRequest(
+				t,
+				mux,
+				http.MethodPost,
+				"/v1/workspaces/workspace-1/agent-sessions/source-1/fork",
+				map[string]any{
+					"targetAgentSessionId": "f0f21d94-af7c-4bdd-8f24-bffd169474bc",
+					"requestId":            "request-1",
+					"point": map[string]any{
+						"type": "throughTurn", "turnId": "turn-7",
+					},
+				},
+			)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf(
+					"status = %d, want 400; body=%s",
+					recorder.Code,
+					recorder.Body.String(),
+				)
+			}
+			var body tuttigenerated.ApiErrorResponse
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Error.Reason == nil ||
+				*body.Error.Reason != "agent_session_fork_disabled" {
+				t.Fatalf("reason=%v, want agent_session_fork_disabled", body.Error.Reason)
+			}
+			if forkCalls != 0 {
+				t.Fatalf("fork service called %d times, want 0", forkCalls)
+			}
+		})
+	}
+}
 
 func TestForkWorkspaceAgentSessionPreservesExactThroughTurnIdentity(t *testing.T) {
 	var observedWorkspaceID, observedSourceID string
@@ -49,7 +153,10 @@ func TestForkWorkspaceAgentSessionPreservesExactThroughTurnIdentity(t *testing.T
 		},
 	}
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, NewRoutes(DaemonAPI{AgentSessionService: service}))
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		AgentSessionService: service,
+		PreferencesService:  enabledSessionForkTestPreferences(),
+	}))
 
 	recorder := performGeneratedRouteRequest(
 		t,
@@ -114,6 +221,7 @@ func TestForkWorkspaceAgentSessionPreservesExactThroughTurnIdentity(t *testing.T
 func TestForkWorkspaceAgentSessionUnsupportedIsConflict(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		PreferencesService: enabledSessionForkTestPreferences(),
 		AgentSessionService: stubAgentSessionService{
 			forkFn: func(
 				context.Context,
@@ -144,6 +252,63 @@ func TestForkWorkspaceAgentSessionUnsupportedIsConflict(t *testing.T) {
 	}
 }
 
+func TestForkWorkspaceAgentSessionReportsBoundaryRejectionReason(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		PreferencesService: enabledSessionForkTestPreferences(),
+		AgentSessionService: stubAgentSessionService{
+			forkFn: func(
+				context.Context,
+				string,
+				string,
+				agentservice.ForkSessionInput,
+			) (agentservice.SessionForkOperation, error) {
+				boundaryErr := &storesqlite.SessionForkBoundaryError{
+					Reason: storesqlite.SessionForkBoundaryReasonTurnSequenceUnverified,
+				}
+				return agentservice.SessionForkOperation{}, fmt.Errorf(
+					"%w: %w",
+					agentservice.ErrSessionForkConflict,
+					boundaryErr,
+				)
+			},
+		},
+	}))
+
+	recorder := performGeneratedRouteRequest(
+		t,
+		mux,
+		http.MethodPost,
+		"/v1/workspaces/workspace-1/agent-sessions/source-1/fork",
+		map[string]any{
+			"targetAgentSessionId": "f0f21d94-af7c-4bdd-8f24-bffd169474bc",
+			"requestId":            "request-1",
+			"point": map[string]any{
+				"type": "throughTurn", "turnId": "turn-7",
+			},
+		},
+	)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", recorder.Code, recorder.Body.String())
+	}
+	var body tuttigenerated.ApiErrorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Error.Reason == nil || *body.Error.Reason != "agent_session_fork_conflict" {
+		t.Fatalf("reason=%v", body.Error.Reason)
+	}
+	if body.Error.Params == nil ||
+		(*body.Error.Params)["forkBoundaryReason"] !=
+			string(storesqlite.SessionForkBoundaryReasonTurnSequenceUnverified) {
+		t.Fatalf("params=%v", body.Error.Params)
+	}
+	if body.Error.DeveloperMessage == nil ||
+		!strings.Contains(*body.Error.DeveloperMessage, storesqlite.ErrSessionForkTurnState.Error()) {
+		t.Fatalf("developerMessage=%v", body.Error.DeveloperMessage)
+	}
+}
+
 func TestForkWorkspaceAgentSessionReturnsDurableOutcomesAsOperationSnapshots(t *testing.T) {
 	for _, test := range []struct {
 		name       string
@@ -158,6 +323,7 @@ func TestForkWorkspaceAgentSessionReturnsDurableOutcomesAsOperationSnapshots(t *
 		t.Run(test.name, func(t *testing.T) {
 			mux := http.NewServeMux()
 			RegisterRoutes(mux, NewRoutes(DaemonAPI{
+				PreferencesService: enabledSessionForkTestPreferences(),
 				AgentSessionService: stubAgentSessionService{
 					forkFn: func(
 						context.Context,
@@ -455,6 +621,7 @@ func TestForkWorkspaceAgentSessionRejectsUnknownPoint(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		PreferencesService:  enabledSessionForkTestPreferences(),
 		AgentSessionService: stubAgentSessionService{},
 	}))
 	request := httptest.NewRequest(

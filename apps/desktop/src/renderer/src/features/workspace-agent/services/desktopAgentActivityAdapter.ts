@@ -26,7 +26,10 @@ import type {
   WorkspaceAgentSessionForkOperation,
   WorkspaceAgentProvider
 } from "@tutti-os/client-tuttid-ts";
-import { isTuttidProtocolError } from "@tutti-os/client-tuttid-ts";
+import {
+  isTuttidProtocolError,
+  TuttidProtocolError
+} from "@tutti-os/client-tuttid-ts";
 import type { DesktopRuntimeApi } from "@preload/types";
 import { getActiveLocale } from "../../../i18n/runtime.ts";
 import { wrapLocalizedTuttidErrorIfSpecific } from "../../../lib/desktopErrors.ts";
@@ -352,11 +355,18 @@ export function createDesktopAgentActivityAdapter({
         ReturnType<TuttidClient["sendWorkspaceAgentSessionInput"]>
       >;
       try {
-        result = await tuttidClient.sendWorkspaceAgentSessionInput(
-          input.workspaceId,
-          input.agentSessionId,
-          request
-        );
+        result = input.signal
+          ? await tuttidClient.sendWorkspaceAgentSessionInput(
+              input.workspaceId,
+              input.agentSessionId,
+              request,
+              { signal: input.signal }
+            )
+          : await tuttidClient.sendWorkspaceAgentSessionInput(
+              input.workspaceId,
+              input.agentSessionId,
+              request
+            );
       } catch (error) {
         reportDesktopAgentSubmitTrace(runtimeApi, {
           agentSessionId: input.agentSessionId,
@@ -455,17 +465,26 @@ export function createDesktopAgentActivityAdapter({
       };
     },
     async submitInteractive(input) {
-      const session = await tuttidClient.submitWorkspaceAgentInteractive(
-        input.workspaceId,
-        input.agentSessionId,
-        input.requestId,
-        {
-          turnId: input.turnId,
-          action: input.action ?? null,
-          optionId: input.optionId ?? null,
-          payload: input.payload ?? null
-        }
-      );
+      const request = {
+        turnId: input.turnId,
+        action: input.action ?? null,
+        optionId: input.optionId ?? null,
+        payload: input.payload ?? null
+      };
+      const session = input.signal
+        ? await tuttidClient.submitWorkspaceAgentInteractive(
+            input.workspaceId,
+            input.agentSessionId,
+            input.requestId,
+            request,
+            { signal: input.signal }
+          )
+        : await tuttidClient.submitWorkspaceAgentInteractive(
+            input.workspaceId,
+            input.agentSessionId,
+            input.requestId,
+            request
+          );
       return {
         session: agentActivitySessionFromTuttidSession(
           input.workspaceId,
@@ -504,7 +523,8 @@ export function createDesktopAgentActivityAdapter({
       const session = await tuttidClient.updateWorkspaceAgentSessionPin(
         input.workspaceId,
         input.agentSessionId,
-        { pinned: input.pinned }
+        { pinned: input.pinned },
+        { signal: input.signal }
       );
       return agentActivitySessionFromTuttidSession(input.workspaceId, session);
     },
@@ -522,7 +542,9 @@ export function createDesktopAgentActivityAdapter({
           { signal: input.signal }
         );
       } catch (error) {
-        if (isTuttidProtocolError(error)) throw error;
+        if (isTuttidProtocolError(error)) {
+          throw sessionForkProtocolError(error);
+        }
         throw sessionForkDeliveryUnknownError(error);
       }
       const reconciledOperation =
@@ -634,6 +656,28 @@ function waitForSessionForkOperationPoll(
       );
     };
     signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
+function sessionForkProtocolError(
+  error: TuttidProtocolError
+): TuttidProtocolError {
+  const boundaryReason = error.params.forkBoundaryReason;
+  if (
+    typeof boundaryReason !== "string" ||
+    !boundaryReason.trim() ||
+    error.reason !== "agent_session_fork_conflict"
+  ) {
+    return error;
+  }
+  return new TuttidProtocolError({
+    code: error.code,
+    correlationId: error.correlationId,
+    developerMessage: error.developerMessage,
+    params: error.params,
+    reason: boundaryReason.trim(),
+    retryable: error.retryable,
+    statusCode: error.statusCode
   });
 }
 

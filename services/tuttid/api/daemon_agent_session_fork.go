@@ -15,6 +15,11 @@ func (api DaemonAPI) ForkWorkspaceAgentSession(
 	ctx context.Context,
 	request tuttigenerated.ForkWorkspaceAgentSessionRequestObject,
 ) (tuttigenerated.ForkWorkspaceAgentSessionResponseObject, error) {
+	if !api.agentSessionForkWritesEnabled(ctx) {
+		return tuttigenerated.ForkWorkspaceAgentSession400JSONResponse{
+			InvalidRequestErrorJSONResponse: agentSessionForkWriteDisabledError(),
+		}, nil
+	}
 	if api.AgentSessionService == nil {
 		return tuttigenerated.ForkWorkspaceAgentSession503JSONResponse{
 			ServiceUnavailableErrorJSONResponse: agentSessionServiceUnavailableError(),
@@ -243,11 +248,17 @@ func writeForkWorkspaceAgentSessionError(
 			protocolErrorResponse(protocolErr),
 		)
 	case errors.Is(err, agentservice.ErrSessionForkConflict):
+		options := []apierrors.Option{apierrors.WithCause(err)}
+		if boundaryReason := sessionForkBoundaryReason(err); boundaryReason != "" {
+			options = append(options, apierrors.WithParams(map[string]any{
+				"forkBoundaryReason": boundaryReason,
+			}))
+		}
 		protocolErr = apierrors.New(
 			409,
 			tuttigenerated.WorkspaceOperationFailed,
 			"agent_session_fork_conflict",
-			apierrors.WithCause(err),
+			options...,
 		)
 		return tuttigenerated.ForkWorkspaceAgentSession409JSONResponse(
 			protocolErrorResponse(protocolErr),
@@ -282,4 +293,16 @@ func writeForkWorkspaceAgentSessionError(
 			WorkspaceOperationErrorJSONResponse: workspaceOperationError(protocolErr),
 		}
 	}
+}
+
+type sessionForkBoundaryReasoner interface {
+	ForkBoundaryReason() string
+}
+
+func sessionForkBoundaryReason(err error) string {
+	var reasoner sessionForkBoundaryReasoner
+	if !errors.As(err, &reasoner) {
+		return ""
+	}
+	return strings.TrimSpace(reasoner.ForkBoundaryReason())
 }

@@ -448,6 +448,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 	switch request.Type {
 	case "inspect_fork_checkpoints":
 		return c.emit(
+			request.Version,
 			request.ID,
 			"ok",
 			map[string]any{
@@ -466,6 +467,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			request.Payload["targetProviderSessionId"],
 		) != "" {
 			return c.emit(
+				request.Version,
 				request.ID,
 				"error",
 				map[string]any{
@@ -477,6 +479,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 		targetID, targetTurnID, ok := c.transport.forkTarget(sourceID)
 		if !ok {
 			return c.emit(
+				request.Version,
 				request.ID,
 				"error",
 				map[string]any{
@@ -486,6 +489,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			)
 		}
 		return c.emit(
+			request.Version,
 			request.ID,
 			"ok",
 			map[string]any{
@@ -499,6 +503,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 		)
 	case "start":
 		return c.emit(
+			request.Version,
 			request.ID,
 			"session_started",
 			map[string]any{
@@ -513,6 +518,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			request.Payload["promptCorrelationId"],
 		)
 		if err := c.emit(
+			request.Version,
 			"",
 			"provider_turn_started",
 			map[string]any{
@@ -523,6 +529,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			return err
 		}
 		if err := c.emit(
+			request.Version,
 			"",
 			"assistant_completed",
 			map[string]any{
@@ -534,6 +541,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			return err
 		}
 		return c.emit(
+			request.Version,
 			"",
 			"turn_completed",
 			map[string]any{
@@ -543,19 +551,20 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			},
 		)
 	case "close":
-		return c.emit(request.ID, "ok", nil)
+		return c.emit(request.Version, request.ID, "ok", nil)
 	default:
-		return c.emit(request.ID, "ok", nil)
+		return c.emit(request.Version, request.ID, "ok", nil)
 	}
 }
 
 func (c *claudeForkIntegrationConnection) emit(
+	protocolVersion int,
 	id string,
 	eventType string,
 	payload map[string]any,
 ) error {
 	data, err := json.Marshal(map[string]any{
-		"version": 6,
+		"version": protocolVersion,
 		"id":      id,
 		"type":    eventType,
 		"payload": payload,
