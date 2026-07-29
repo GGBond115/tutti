@@ -1078,6 +1078,96 @@ func TestClaudeCodeSDKAdapterKeepsLateChildEventsOnOriginalChildTurn(t *testing.
 	}
 }
 
+func TestClaudeCodeSDKAdapterCompletesParentCallAfterChildSettles(t *testing.T) {
+	adapter := NewClaudeCodeSDKAdapter(nil)
+	session := standardTestSession(ProviderClaudeCode)
+	adapterSession := &claudeSDKAdapterSession{
+		conn:            &recordingClaudeSDKConnection{},
+		pendingRequests: make(map[string]*pendingInteractiveRequest),
+		liveState:       newClaudeSDKLiveState(),
+	}
+	adapter.storeSession(session.AgentSessionID, adapterSession)
+
+	started, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-task", claudeSDKSidecarEvent{
+		Type: "tool_started",
+		Payload: map[string]any{
+			"turnId":     "turn-task",
+			"toolCallId": "toolu-agent",
+			"toolName":   "Agent",
+			"callType":   "subagent",
+			"input": map[string]any{
+				"description":       "Inspect lifecycle ownership",
+				"prompt":            "Find the first failed boundary",
+				"run_in_background": true,
+			},
+		},
+	})
+	if err != nil || terminal || len(started) != 3 {
+		t.Fatalf("tool_started events=%#v terminal=%v err=%v", started, terminal, err)
+	}
+	child := adapterSession.claudeSDKChildByKey("toolu-agent")
+	if child.AgentSessionID == "" || child.TurnID == "" || child.Status != "running" {
+		t.Fatalf("started child=%#v, want running child", child)
+	}
+
+	completedChild, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-task", claudeSDKSidecarEvent{
+		Type: "task_completed",
+		Payload: map[string]any{
+			"turnId":          "turn-task",
+			"taskId":          "task-1",
+			"agentId":         "agent-1",
+			"parentToolUseId": "toolu-agent",
+			"status":          "completed",
+			"summary":         "Lifecycle owner found",
+		},
+	})
+	if err != nil || terminal || len(completedChild) != 3 {
+		t.Fatalf("task_completed events=%#v terminal=%v err=%v", completedChild, terminal, err)
+	}
+	child = adapterSession.claudeSDKChildByKey("toolu-agent")
+	adapter.markClaudeSDKTurnClosed(adapterSession, child.TurnID, "completed")
+	if child.Status != "completed" || !adapter.turnAlreadySettled(adapterSession, child.TurnID) {
+		t.Fatalf("completed child=%#v settled=%v", child, adapter.turnAlreadySettled(adapterSession, child.TurnID))
+	}
+
+	completedParent, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-task", claudeSDKSidecarEvent{
+		Type: "tool_completed",
+		Payload: map[string]any{
+			"turnId":     "turn-task",
+			"toolCallId": "toolu-agent",
+			"toolName":   "Agent",
+			"callType":   "subagent",
+			"status":     "completed",
+			"input": map[string]any{
+				"description":       "Inspect lifecycle ownership",
+				"prompt":            "Find the first failed boundary",
+				"run_in_background": true,
+			},
+			"output": map[string]any{"text": "Lifecycle owner found"},
+			"metadata": map[string]any{
+				"subagentAsync":   true,
+				"subagentStatus":  "completed",
+				"taskId":          "task-1",
+				"agentId":         "agent-1",
+				"subagentAgentId": "agent-1",
+			},
+		},
+	})
+	if err != nil || terminal {
+		t.Fatalf("tool_completed terminal=%v err=%v", terminal, err)
+	}
+	if len(completedParent) != 1 ||
+		completedParent[0].Type != activityshared.EventCallCompleted ||
+		completedParent[0].AgentSessionID != session.AgentSessionID ||
+		completedParent[0].Payload.TurnID != "turn-task" {
+		t.Fatalf("parent completion events=%#v, want one root call completion", completedParent)
+	}
+	child = adapterSession.claudeSDKChildByKey("toolu-agent")
+	if child.Status != "completed" {
+		t.Fatalf("child status=%q, want terminal status to remain completed", child.Status)
+	}
+}
+
 func TestClaudeCodeSDKAdapterDropsLateChildFailureAfterTargetedCancel(t *testing.T) {
 	adapter := NewClaudeCodeSDKAdapter(nil)
 	conn := &ackClaudeSDKConnection{}

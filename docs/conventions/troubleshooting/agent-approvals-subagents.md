@@ -205,10 +205,12 @@ session-level child summaries.
   result, while the child session keeps its early generic title.
 - Fix: keep every lifecycle event for the delegation tool call on its launching
   parent turn; use only an explicit nested `parent_tool_use_id` to select a
-  parent child turn. Merge a later real description into the existing child
-  session and publish a normal child title update. The compact card may still
-  show only the latest child activity, but its name and task strip come from
-  canonical child/parent data rather than that activity label.
+  parent child turn. Resolve that same owner before applying the closed-Turn
+  fence; checking child aliases first can discard a valid parent completion
+  after the child settles. Merge a later real description into the existing
+  child session and publish a normal child title update. The compact card may
+  still show only the latest child activity, but its name and task strip come
+  from canonical child/parent data rather than that activity label.
 - Validate: start with a generic Agent event, finish the same call with a full
   description and prompt, then settle the root provider turn. Assert one
   completed parent call with full input, one updated child title, no synthetic

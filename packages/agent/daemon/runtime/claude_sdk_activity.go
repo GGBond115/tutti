@@ -60,27 +60,12 @@ func (s *claudeSDKAdapterSession) claudeSDKToolEvents(session Session, turnID st
 		return nil
 	}
 	isDelegation := payloadString(payload, "callType") == "subagent"
+	owner := s.claudeSDKToolEventOwner(turnID, payload)
+	events := []activityshared.Event{owner.event(session, payload, eventType, status)}
 	if isDelegation {
-		toolEvent := claudeSDKToolActivityEvent(session, turnID, payload, eventType, status)
-		// The Agent/Task call belongs to the session that launched the child,
-		// not to the child it creates. Claude's completed event repeats the
-		// spawned child's own tool call id, so resolving the owner from every
-		// child alias would move the completion into the new child turn and
-		// leave the parent's started call dangling. Only an explicit
-		// parentToolUseId identifies a nested delegation owned by another child.
-		if parent, ok := s.claudeSDKDelegationParentForPayload(payload); ok {
-			toolEvent = claudeSDKToolActivityEvent(claudeSDKChildRuntimeSession(session, parent), parent.TurnID, payload, eventType, status)
-			toolEvent = claudeSDKEventForChild(toolEvent, parent)
-		}
-		events := []activityshared.Event{toolEvent}
 		return append(events, s.updateClaudeSDKChildFromTool(session, turnID, payload, eventType, sidecarType)...)
 	}
-	if child, ok := s.claudeSDKChildForPayload(payload); ok {
-		childSession := claudeSDKChildRuntimeSession(session, child)
-		event := claudeSDKToolActivityEvent(childSession, child.TurnID, payload, eventType, status)
-		return []activityshared.Event{claudeSDKEventForChild(event, child)}
-	}
-	return []activityshared.Event{claudeSDKToolActivityEvent(session, turnID, payload, eventType, status)}
+	return events
 }
 
 func (s *claudeSDKAdapterSession) claudeSDKTaskLifecycleEvents(session Session, turnID string, sidecarType string, payload map[string]any) []activityshared.Event {
@@ -255,7 +240,7 @@ func (s *claudeSDKAdapterSession) updateClaudeSDKChild(session Session, update c
 		child.LastToolName = update.LastToolName
 	}
 	child.Async = child.Async || update.Async
-	child.Status = firstNonEmptyString(claudeSDKNormalizeTaskStatus(update.Status), child.Status, string(activityshared.ActivityStatusRunning))
+	child.Status = claudeSDKMergeChildStatus(child.Status, update.Status)
 	if update.Started && child.StartedAtUnixMS == 0 {
 		child.StartedAtUnixMS = updatedAt
 	}

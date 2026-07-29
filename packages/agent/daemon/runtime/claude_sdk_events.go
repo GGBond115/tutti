@@ -488,45 +488,6 @@ func (a *ClaudeCodeSDKAdapter) stampTurnLifecycleSnapshots(adapterSession *claud
 	return events
 }
 
-// turnAlreadySettled reports whether a terminal event for the turn already
-// left this adapter.
-func (a *ClaudeCodeSDKAdapter) turnAlreadySettled(adapterSession *claudeSDKAdapterSession, turnID string) bool {
-	if a == nil || adapterSession == nil {
-		return false
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	_, settled := adapterSession.settledTurns[strings.TrimSpace(turnID)]
-	return settled
-}
-
-// claudeSDKToolEventTargetsClosedTurn preserves the SDK's normal weak ordering:
-// an active child may still report after the root provider turn has ended. Once
-// services/tuttid explicitly cancels that exact child turn, however, later SDK
-// tool events are cancellation fallout and must not reopen or reclassify it.
-func (a *ClaudeCodeSDKAdapter) claudeSDKToolEventTargetsClosedTurn(
-	adapterSession *claudeSDKAdapterSession,
-	rootTurnID string,
-	payload map[string]any,
-) bool {
-	if child, ok := adapterSession.claudeSDKChildForPayload(payload); ok {
-		return a.turnAlreadySettled(adapterSession, child.TurnID)
-	}
-	return a.turnAlreadySettled(adapterSession, rootTurnID)
-}
-
-func (a *ClaudeCodeSDKAdapter) markClaudeSDKTurnClosed(adapterSession *claudeSDKAdapterSession, turnID string, outcome string) {
-	if a == nil || adapterSession == nil || strings.TrimSpace(turnID) == "" {
-		return
-	}
-	a.mu.Lock()
-	if adapterSession.settledTurns == nil {
-		adapterSession.settledTurns = make(map[string]string)
-	}
-	adapterSession.settledTurns[strings.TrimSpace(turnID)] = strings.TrimSpace(outcome)
-	a.mu.Unlock()
-}
-
 func (a *ClaudeCodeSDKAdapter) dispatchClaudeSDKEvent(agentSessionID string, adapterSession *claudeSDKAdapterSession, event claudeSDKSidecarEvent) {
 	if a == nil || adapterSession == nil {
 		return

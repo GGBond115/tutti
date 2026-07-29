@@ -175,6 +175,13 @@ observed by the SDK level signal and exact delegated-task states known to Tutti.
 This makes missing terminal edges visible in logs while leaving the GUI's
 existing running/processing presentation unchanged.
 
+The daemon resolves one owner for each Claude tool event before both closed-Turn
+admission and activity projection. A delegation call belongs to the Session
+that launched the child; an ordinary tool executed by a child belongs to that
+child. Settling the child therefore cannot suppress a later completion of its
+still-open parent Agent call, and repeated parent updates cannot move a terminal
+child back to running.
+
 The SDK may also report one completed child twice: first as `task_updated` with
 only its task description, then as `task_notification` with the actual result.
 The first edge settles the child lifecycle; the later notification updates the
