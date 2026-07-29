@@ -9,8 +9,7 @@ export type {
   AgentSideConversationSnapshot,
   AgentSideConversationState,
   AgentSideInteraction,
-  AgentSideInteractionAction,
-  AgentSideMessage
+  AgentSideInteractionAction
 } from "./agentSideConversationRuntime";
 export { createAgentSideConversationRuntime } from "./agentSideConversationController";
 export type {

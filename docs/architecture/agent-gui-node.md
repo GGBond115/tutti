@@ -261,8 +261,10 @@ provider Side runtime observation
   -> SideStreamObserver
   -> tuttid agent.side.updated publisher
   -> Desktop business-event adapter
-  -> AgentGUI transient Side controller/store
-  -> Side pane
+  -> AgentGUI Side event normalizer
+  -> activity-core ephemeral conversation projector
+  -> shared AgentConversationVM projection
+  -> Side timeline + composer instances
 ```
 
 The provider adapter owns provider-specific context snapshot mechanics. Host
@@ -277,16 +279,30 @@ Each mounted embedded or detached AgentGUI surface creates and disposes its
 own runtime instance, so transient identity and cleanup ownership cannot race
 between windows.
 
-The Side controller is not an `AgentSessionEngine` and must never dispatch
-Side events into `agent-activity-core`. It retains only the selected surface's
-active Side identity, Side-local messages, active Turn, pending Interaction,
-sequence, and error. The owning AgentGUI surface closes the Side identity when
-the selected source changes or the surface is destroyed. Its external-store
-subscription owns the transient event and connection subscriptions. Once the
-last surface subscriber is gone, those subscriptions are released. Disconnect,
-source-identity mismatch, or a sequence gap expires local state and prevents
-further rendering; no canonical reconciliation fallback exists for this
-ephemeral lane.
+The Side controller is not an `AgentSessionEngine` and must never dispatch Side
+events into the durable workspace engine. AgentGUI normalizes the transient
+envelope into the React-free `activity-core` ephemeral conversation projector,
+which emits the same `AgentActivitySnapshot`/Turn vocabulary consumed by the
+shared conversation projection. This reuse is projection-only: it does not
+load, retain, reconcile, or persist a workspace Session.
+
+The controller retains only the selected surface's active Side identity,
+ephemeral projection, pending Interaction, sequence, and error. The owning
+AgentGUI surface closes the Side identity when the selected source changes or
+the surface is destroyed. Its external-store subscription owns the transient
+event and connection subscriptions. Once the last surface subscriber is gone,
+those subscriptions are released. Disconnect, source-identity mismatch, or a
+sequence gap expires local state and prevents further rendering; no canonical
+reconciliation fallback exists for this ephemeral lane.
+
+The Side UI is a docked sibling of the main detail surface, not an overlay and
+not a nested durable Session route. It creates a second instance of the shared
+conversation timeline and a second instance of the shared composer. Each
+instance owns its own draft, scroll-follow state, focus/shortcut scope, Turn
+gate, and interrupt action. The Side composer inherits the provider/model/cwd
+boundary captured at open time and presents those settings read-only. A normal
+main-composer submission always stays on the main Session; only the explicit
+`/side` command opens or targets the Side lane.
 
 Side capability is enabled only when the exact selected live runtime reports
 all mandatory facts: native support, an active source Turn, ephemeral lifetime,

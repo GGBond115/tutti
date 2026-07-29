@@ -4,6 +4,7 @@ import {
   type EngineStateStore
 } from "./shared/engine/useEngineSelector";
 import type { AgentPromptContentBlock } from "./shared/contracts/dto/agentSession";
+import type { AgentActivityEphemeralConversationProjection } from "@tutti-os/agent-activity-core";
 
 export interface AgentSideCapabilities {
   supported: boolean;
@@ -11,13 +12,6 @@ export interface AgentSideCapabilities {
   ephemeral: boolean;
   hideInheritedTurns: boolean;
   modelBoundaryInjected: boolean;
-}
-
-export interface AgentSideMessage {
-  id: string;
-  role: "assistant" | "system" | "user";
-  text: string;
-  turnId: string | null;
 }
 
 export interface AgentSideInteractionAction {
@@ -41,7 +35,7 @@ export interface AgentSideConversationState {
   sideAgentSessionId: string;
   status: "idle" | "opening" | "running" | "expired" | "error";
   activeTurnId: string | null;
-  messages: readonly AgentSideMessage[];
+  projection: AgentActivityEphemeralConversationProjection;
   pendingInteraction: AgentSideInteraction | null;
   error: string | null;
   sequence: number;
@@ -55,6 +49,8 @@ export interface AgentSideConversationSnapshot {
 export interface AgentSideConversationOpenInput {
   workspaceId: string;
   sourceAgentSessionId: string;
+  provider?: string | null;
+  cwd?: string | null;
 }
 
 export interface AgentSideConversationSendInput {

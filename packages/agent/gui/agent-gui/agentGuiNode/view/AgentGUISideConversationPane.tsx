@@ -1,43 +1,129 @@
-import type { ComponentProps } from "react";
-import type { AgentSideConversationState } from "../../../agentSideConversationRuntime";
-import { AgentInteractivePromptSurface } from "../../../shared/agentConversation/components/AgentInteractivePromptSurface";
-import type { AgentConversationPromptVM } from "../../../shared/agentConversation/contracts/agentConversationVM";
+import { useCallback, useRef, useState, type CSSProperties } from "react";
+import { X } from "lucide-react";
+import { ScrollArea } from "@tutti-os/ui-system/components";
+import type { AgentSideConversationViewState } from "../../../agentSideConversationViewProjection";
+import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../../shared/AgentMessageMarkdown";
+import type { WorkspaceLinkAction } from "../../../actions/workspaceLinkActions";
+import type { AgentTranscriptVirtualScrollController } from "../../../shared/agentConversation/components/AgentTranscriptView";
+import { AgentComposer, type AgentComposerProps } from "../AgentComposer";
+import type { AgentGUIProviderSkillOption } from "../model/agentGuiNodeTypes";
+import { AgentGUIConversationTimelinePane } from "./AgentGUIConversationTimelinePane";
 import { useTranslation } from "../../../i18n/index";
+import styles from "../AgentGUINode.styles";
 
-interface AgentGUISideConversationPaneProps {
-  active: AgentSideConversationState;
-  interactivePrompt: AgentConversationPromptVM | null;
-  interactionSubmitting: boolean;
-  interactivePromptLabels: ComponentProps<
-    typeof AgentInteractivePromptSurface
-  >["labels"];
+const SIDE_TIMELINE_CONTENT_STYLE: CSSProperties = {
+  width: "100%",
+  minWidth: "100%",
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr)",
+  gap: "24px"
+};
+
+export interface AgentGUISideConversationPaneProps {
+  active: AgentSideConversationViewState;
+  availableSkills: readonly AgentGUIProviderSkillOption[];
+  composerProps: AgentComposerProps;
+  conversationFlowLabels: {
+    thinkingLabel: string;
+    toolCallsLabel: (count: number) => string;
+    processing: string;
+    turnSummary: string;
+    userMessageLocator: string;
+  };
+  isVisible: boolean;
+  loadingLabel: string;
+  workspaceAppIcons: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   onClose(): void;
-  onSubmitInteraction: ComponentProps<
-    typeof AgentInteractivePromptSurface
-  >["onSubmit"];
+  onFocusChange(focused: boolean): void;
+  onLinkAction?: (action: WorkspaceLinkAction) => void;
 }
 
 export function AgentGUISideConversationPane({
   active,
-  interactivePrompt,
-  interactionSubmitting,
-  interactivePromptLabels,
+  availableSkills,
+  composerProps,
+  conversationFlowLabels,
+  isVisible,
+  loadingLabel,
+  workspaceAppIcons,
   onClose,
-  onSubmitInteraction
+  onFocusChange,
+  onLinkAction
 }: AgentGUISideConversationPaneProps): React.JSX.Element {
   const { t } = useTranslation();
+  const timelineRef = useRef<HTMLDivElement | null>(null);
+  const timelineContentRef = useRef<HTMLDivElement | null>(null);
+  const virtualScrollControllerRef =
+    useRef<AgentTranscriptVirtualScrollController | null>(null);
+  const [followEndMode, setFollowEndMode] = useState<"following" | "detached">(
+    "following"
+  );
+  const [widthPx, setWidthPx] = useState(440);
+
+  const resize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const pane = handle.parentElement;
+    const workbench = pane?.parentElement;
+    if (!pane || !workbench) return;
+    const paneRight = pane.getBoundingClientRect().right;
+    const maxWidth = Math.min(
+      600,
+      Math.max(360, workbench.getBoundingClientRect().width - 320)
+    );
+    handle.setPointerCapture(event.pointerId);
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      setWidthPx(
+        Math.min(maxWidth, Math.max(360, paneRight - moveEvent.clientX))
+      );
+    };
+    const finish = () => {
+      handle.removeEventListener("pointermove", onPointerMove);
+      handle.removeEventListener("pointerup", finish);
+      handle.removeEventListener("pointercancel", finish);
+    };
+    handle.addEventListener("pointermove", onPointerMove);
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
+  }, []);
+
   return (
     <section
-      className="mx-3 mb-2 max-h-52 overflow-auto rounded-xl border border-border/70 bg-background/95 p-3 shadow-sm"
+      className={styles.sidePane}
+      style={{ "--agent-gui-side-pane-width": `${widthPx}px` } as CSSProperties}
       aria-label={t("agentHost.agentGui.sidePanelTitle")}
       data-testid="agent-gui-side-panel"
+      onFocusCapture={() => onFocusChange(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          onFocusChange(false);
+        }
+      }}
     >
-      <header className="mb-2 flex items-center justify-between gap-2">
-        <div>
-          <div className="text-sm font-medium">
+      <div
+        className={styles.sideResizeHandle}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t("agentHost.agentGui.sideResize")}
+        tabIndex={0}
+        onPointerDown={resize}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          setWidthPx((current) =>
+            Math.min(
+              600,
+              Math.max(360, current + (event.key === "ArrowLeft" ? 24 : -24))
+            )
+          );
+        }}
+      />
+      <header className={styles.sideHeader}>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium">
             {t("agentHost.agentGui.sidePanelTitle")}
           </div>
-          <div className="text-xs text-muted-foreground">
+          <div className="truncate text-xs text-muted-foreground">
             {active.status === "opening"
               ? t("agentHost.agentGui.sideOpening")
               : t("agentHost.agentGui.sideEphemeralHint")}
@@ -45,44 +131,61 @@ export function AgentGUISideConversationPane({
         </div>
         <button
           type="button"
-          className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+          className={styles.sideCloseButton}
+          aria-label={t("agentHost.agentGui.sideClose")}
+          title={t("agentHost.agentGui.sideClose")}
           onClick={onClose}
         >
-          {t("agentHost.agentGui.sideClose")}
+          <X aria-hidden="true" size={16} />
         </button>
       </header>
-      <div className="space-y-2">
-        {active.messages.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {t("agentHost.agentGui.sideEmpty")}
-          </p>
-        ) : (
-          active.messages.map((message) => (
-            <div
-              key={message.id}
-              className="rounded-lg bg-muted/60 px-3 py-2 text-sm whitespace-pre-wrap"
-              data-role={message.role}
-            >
-              {message.text}
-            </div>
-          ))
-        )}
+      <ScrollArea
+        scrollbarMode="native"
+        className={styles.sideTimelineFrame}
+        viewportRef={timelineRef}
+        viewportContentRef={timelineContentRef}
+        viewportTestId="agent-gui-side-timeline"
+        viewportClassName={styles.sideTimeline}
+        viewportContentStyle={SIDE_TIMELINE_CONTENT_STYLE}
+        viewportProps={{
+          onScroll: (event) => {
+            const viewport = event.currentTarget;
+            const distance =
+              viewport.scrollHeight -
+              viewport.clientHeight -
+              viewport.scrollTop;
+            setFollowEndMode(distance <= 24 ? "following" : "detached");
+          }
+        }}
+      >
+        <AgentGUIConversationTimelinePane
+          conversation={active.conversation}
+          followEndMode={followEndMode}
+          isLoading={false}
+          isLoadingOlderMessages={false}
+          isVisible={isVisible}
+          loadingLabel={loadingLabel}
+          empty={
+            <p className={styles.sideEmpty}>
+              {t("agentHost.agentGui.sideEmpty")}
+            </p>
+          }
+          onLinkAction={onLinkAction}
+          availableSkills={availableSkills}
+          workspaceAppIcons={workspaceAppIcons}
+          labels={conversationFlowLabels}
+          virtualScrollControllerRef={virtualScrollControllerRef}
+        />
         {active.error ? (
-          <p className="text-sm text-destructive">
+          <p className={styles.sideError}>
             {active.error === "content_unsupported"
               ? t("agentHost.agentGui.sideContentUnsupported")
               : t("agentHost.agentGui.sideOperationFailed")}
           </p>
         ) : null}
-        {interactivePrompt ? (
-          <AgentInteractivePromptSurface
-            embedded
-            prompt={interactivePrompt}
-            isSubmitting={interactionSubmitting}
-            onSubmit={onSubmitInteraction}
-            labels={interactivePromptLabels}
-          />
-        ) : null}
+      </ScrollArea>
+      <div className={styles.sideComposer}>
+        <AgentComposer {...composerProps} />
       </div>
     </section>
   );

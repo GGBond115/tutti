@@ -31,7 +31,7 @@ import type { AgentTranscriptVirtualScrollController } from "../../../shared/age
 import type { AgentGUIDetailPaneProps } from "./AgentGUINodeView.types";
 import { useAgentGUIDetailEditRetry } from "./useAgentGUIDetailEditRetry";
 import { useAgentGUIDetailSideConversation } from "./useAgentGUIDetailSideConversation";
-import { AgentGUISideConversationPane } from "./AgentGUISideConversationPane";
+import { useAgentGUIDetailSideChrome } from "./useAgentGUIDetailSideChrome";
 export const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
   [];
 export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
@@ -110,6 +110,9 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     bottomDockDismissedPromptRequestId,
     setBottomDockDismissedPromptRequestId
   ] = useState<string | null>(null);
+  const [focusedSideAgentSessionId, setFocusedSideAgentSessionId] = useState<
+    string | null
+  >(null);
   const {
     bottomDockLiftedPrompt,
     bottomDockReplacementPrompt,
@@ -367,22 +370,16 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     timelineRef,
     viewModel
   });
-  const {
-    active: activeSide,
-    close: closeSide,
-    commands: sideAvailableCommands,
-    interactionSubmitting: sideInteractionSubmitting,
-    interactivePrompt: sideInteractivePrompt,
-    interrupt: interruptSideAware,
-    submit: submitSideAware,
-    submitInteraction: submitSideInteraction
-  } = useAgentGUIDetailSideConversation({
+  const sideConversation = useAgentGUIDetailSideConversation({
     workspaceId: viewModel.shell.workspaceId,
     sourceAgentSessionId: viewModel.rail.activeConversationId,
+    provider: composerProvider,
+    cwd: viewModel.shell.workspacePath ?? null,
     availableCommands: viewModel.composer.availableCommands,
-    submitPrompt: tuttiWorkflowComposer.submitPromptOrDecidePlan,
-    interruptCurrentTurn: handleInterruptCurrentTurn
+    submitPrompt: tuttiWorkflowComposer.submitPromptOrDecidePlan
   });
+  const sideComposerFocused =
+    sideConversation.active?.sideAgentSessionId === focusedSideAgentSessionId;
 
   const baseComposerProps = useMemo<AgentComposerProps>(
     () => ({
@@ -402,7 +399,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         agentSessionId: viewModel.rail.activeConversationId
       }),
       ...composerInputHistoryProps,
-      availableCommands: sideAvailableCommands,
+      availableCommands: sideConversation.commands,
       hasCompactableContext: viewModel.detail.hasSentUserMessage,
       compactSupported: viewModel.composer.compactSupported,
       availableSkills: viewModel.composer.availableSkills,
@@ -420,8 +417,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       disabledReason: composerDisabledReason,
       presentationSubmitDisabled:
         timelineInteractionLocked ||
-        tuttiWorkflowDock.phase?.kind === "materializing" ||
-        Boolean(activeSide?.activeTurnId),
+        tuttiWorkflowDock.phase?.kind === "materializing",
       tuttiModeActive: viewModel.composer.isTuttiModeActive,
       tuttiModeUpdating: viewModel.composer.isTuttiModeUpdating,
       tuttiModeEffect: viewModel.composer.tuttiModeEffect,
@@ -435,9 +431,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         ? labels.followupPlaceholder
         : labels.initialPlaceholder,
       showStopButton:
-        Boolean(activeSide?.activeTurnId) ||
-        showStopButton ||
-        tuttiWorkflowComposer.tuttiExecutionActive,
+        showStopButton || tuttiWorkflowComposer.tuttiExecutionActive,
       activeTurnId: sourceActiveTurn?.turnId ?? null,
       draftOverridesStopButton: tuttiWorkflowComposer.tuttiExecutionActive,
       stopDisabled:
@@ -450,7 +444,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       activePromptKeyboardShortcutsEnabled: isActive,
       promptTips: labels.promptTips,
       composerFocusRequestSequence,
-      isActive,
+      isActive: isActive && !sideComposerFocused,
       promptImagesSupported: viewModel.composer.promptImagesSupported,
       providerSelectLabel: labels.providerSwitchLabel,
       handoffLabel: labels.handoffConversation,
@@ -490,7 +484,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
           ? setTuttiModeSpeed
           : undefined,
       onPlanIssueBudgetPresetChange: updatePlanIssueBudgetPreset,
-      onSubmit: submitSideAware,
+      onSubmit: sideConversation.submitMain,
       onSubmitEmpty: tuttiWorkflowComposer.planReviewSendActive
         ? tuttiWorkflowComposer.acceptPendingPlan
         : undefined,
@@ -504,7 +498,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       onSendQueuedPromptNext: sendQueuedPromptNext,
       onRemoveQueuedPrompt: removeQueuedPrompt,
       onEditQueuedPrompt: editQueuedPrompt,
-      onInterruptCurrentTurn: interruptSideAware,
+      onInterruptCurrentTurn: handleInterruptCurrentTurn,
       onSubmitInteractivePrompt: submitInteractivePrompt,
       onCapabilitySettingsRequest,
       onLinkAction: stableLinkAction,
@@ -531,8 +525,8 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       composerSelectedProviderTarget,
       timelineInteractionLocked,
       handleInterruptCurrentTurn,
-      interruptSideAware,
       isActive,
+      sideComposerFocused,
       isComposerSending,
       labels.followupPlaceholder,
       labels.handoffConversation,
@@ -565,7 +559,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       setTuttiModeSpeed,
       submitInteractivePrompt,
       tuttiWorkflowComposer.submitPromptOrDecidePlan,
-      submitSideAware,
+      sideConversation.submitMain,
       tuttiWorkflowComposer.planReviewSendActive,
       tuttiWorkflowComposer.tuttiExecutionActive,
       tuttiWorkflowComposer.tuttiExecutionStopping,
@@ -586,8 +580,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       updateSelectedProjectPath,
       viewModel.rail.activeConversationId,
       viewModel.composer.availableCommands,
-      sideAvailableCommands,
-      activeSide?.activeTurnId,
+      sideConversation.commands,
       viewModel.composer.availableSkills,
       viewModel.composer.compactSupported,
       viewModel.composer.composerSettings,
@@ -617,7 +610,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       selectHomeComposerAgentTargetAndFocus
     ]
   );
-  const composerFooterAccessory =
+  const hostComposerFooterAccessory =
     renderComposerFooterAccessory?.({
       agentSessionId: baseComposerProps.agentSessionId,
       isActive: baseComposerProps.isActive,
@@ -626,13 +619,28 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       composerSettings: baseComposerProps.composerSettings,
       selectedAgentTarget: baseComposerProps.selectedAgentTarget
     }) ?? null;
-  const bottomDockComposerProps = useMemo<AgentComposerProps>(
-    () => ({
-      ...baseComposerProps,
-      footerAccessory: composerFooterAccessory
-    }),
-    [baseComposerProps, composerFooterAccessory]
-  );
+  const { bottomDockComposerProps, sidePane } = useAgentGUIDetailSideChrome({
+    active: sideConversation.active,
+    availableSkills: viewModel.composer.availableSkills,
+    baseComposerProps,
+    canOpen: sideConversation.canOpen,
+    conversationFlowLabels,
+    draftContent: sideConversation.draftContent,
+    focused: sideComposerFocused,
+    hostFooterAccessory: hostComposerFooterAccessory,
+    interactionSubmitting: sideConversation.interactionSubmitting,
+    interactivePrompt: sideConversation.interactivePrompt,
+    isVisible,
+    loadingLabel: labels.loadingConversation,
+    sourceAgentSessionId: viewModel.rail.activeConversationId,
+    onClose: sideConversation.close,
+    onDraftContentChange: sideConversation.setDraftContent,
+    onFocusChange: setFocusedSideAgentSessionId,
+    onInterrupt: sideConversation.interrupt,
+    onOpen: sideConversation.open,
+    onSubmit: sideConversation.submitSide,
+    onSubmitInteraction: sideConversation.submitInteraction
+  });
   const emptyHeroComposerProps = useMemo<AgentComposerProps>(
     () => ({
       ...bottomDockComposerProps,
@@ -724,79 +732,71 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
           message={labels.goalRemoved}
         />
       ) : null}
-      <AgentGUIDetailTimeline
-        availableSkills={viewModel.composer.availableSkills}
-        conversation={conversation}
-        editRetry={editRetry}
-        conversationFlowEmpty={conversationFlowEmpty}
-        conversationFlowLabels={conversationFlowLabels}
-        followEndMode={followEndMode}
-        forkedFrom={forkedFrom}
-        hasActiveConversation={hasActiveConversation}
-        homeContent={homeContent}
-        isLoadingOlderMessages={viewModel.detail.isLoadingOlderMessages}
-        isVisible={isVisible}
-        isTimelineScrolledToTop={isTimelineScrolledToTop}
-        labels={labels}
-        onAuthLogin={authLogin}
-        onForkThroughTurn={forkHandler}
-        onOpenForkSourceSession={openForkSourceSession}
-        forkThroughTurnPendingTurnIds={
-          viewModel.operations.forkThroughTurnPendingTurnIds
-        }
-        onLinkAction={stableLinkAction}
-        showTimelineSkeleton={showTimelineSkeleton}
-        showUnavailableChatEmpty={showUnavailableChatEmpty}
-        timelineContentRef={timelineContentRef}
-        timelineRef={timelineRef}
-        virtualScrollControllerRef={setVirtualScrollController}
-        workspaceAppIcons={workspaceAppIcons}
-      />
-      {hasActiveConversation &&
-      activeSide &&
-      activeSide.sourceAgentSessionId ===
-        viewModel.rail.activeConversationId ? (
-        <AgentGUISideConversationPane
-          active={activeSide}
-          interactivePrompt={sideInteractivePrompt}
-          interactionSubmitting={sideInteractionSubmitting}
-          interactivePromptLabels={interactivePromptLabels}
-          onClose={closeSide}
-          onSubmitInteraction={submitSideInteraction}
-        />
-      ) : null}
-      {hasActiveConversation ? (
-        <AgentGUIBottomDockPane
-          bottomDockRef={bottomDockRef}
-          showScrollToBottom={!isTimelineScrolledToBottom}
-          scrollToBottomLabel={labels.scrollToBottom}
-          onScrollToBottom={scrollTimelineToBottom}
-          bottomDockLiftedPrompt={bottomDockLiftedPrompt}
-          bottomDockReplacementPrompt={bottomDockReplacementPrompt}
-          composerProps={bottomDockComposerProps}
-          inlineNoticeChrome={inlineNoticeChrome}
-          isRespondingApproval={isInteractionPending}
-          sessionChrome={sessionChrome}
-          keyboardShortcutsEnabled={isActive}
-          chromeLabels={chromeLabels}
-          goalBannerLabels={goalBannerLabels}
-          promptLabels={interactivePromptLabels}
-          onSubmitApprovalOption={submitApprovalOption}
-          onRetryActivation={retryActivation}
-          onRetryInlineNotice={retryInlineNotice}
-          onAuthLogin={authLogin}
-          onContinueInNewConversation={continueInNewConversation}
-          onSubmitBottomDockInteractivePrompt={
-            submitBottomDockInteractivePrompt
-          }
-          onGoalControl={goalControl}
-          goalPauseSupported={viewModel.composer.goalPauseSupported}
-          tuttiWorkflowDock={tuttiWorkflowDock}
-          tuttiWorkflowDockLabels={labels.tuttiWorkflowDock}
-          tuttiPlanPanelLabels={labels.tuttiModePlanPanel}
-          tuttiPlanIssuePanelLabels={labels.tuttiModePlanIssuePanel}
-        />
-      ) : null}
+      <div className={styles.detailWorkbench}>
+        <section className={styles.detailPrimary}>
+          <AgentGUIDetailTimeline
+            availableSkills={viewModel.composer.availableSkills}
+            conversation={conversation}
+            editRetry={editRetry}
+            conversationFlowEmpty={conversationFlowEmpty}
+            conversationFlowLabels={conversationFlowLabels}
+            followEndMode={followEndMode}
+            forkedFrom={forkedFrom}
+            hasActiveConversation={hasActiveConversation}
+            homeContent={homeContent}
+            isLoadingOlderMessages={viewModel.detail.isLoadingOlderMessages}
+            isVisible={isVisible}
+            isTimelineScrolledToTop={isTimelineScrolledToTop}
+            labels={labels}
+            onAuthLogin={authLogin}
+            onForkThroughTurn={forkHandler}
+            onOpenForkSourceSession={openForkSourceSession}
+            forkThroughTurnPendingTurnIds={
+              viewModel.operations.forkThroughTurnPendingTurnIds
+            }
+            onLinkAction={stableLinkAction}
+            showTimelineSkeleton={showTimelineSkeleton}
+            showUnavailableChatEmpty={showUnavailableChatEmpty}
+            timelineContentRef={timelineContentRef}
+            timelineRef={timelineRef}
+            virtualScrollControllerRef={setVirtualScrollController}
+            workspaceAppIcons={workspaceAppIcons}
+          />
+          {hasActiveConversation ? (
+            <AgentGUIBottomDockPane
+              bottomDockRef={bottomDockRef}
+              showScrollToBottom={!isTimelineScrolledToBottom}
+              scrollToBottomLabel={labels.scrollToBottom}
+              onScrollToBottom={scrollTimelineToBottom}
+              bottomDockLiftedPrompt={bottomDockLiftedPrompt}
+              bottomDockReplacementPrompt={bottomDockReplacementPrompt}
+              composerProps={bottomDockComposerProps}
+              inlineNoticeChrome={inlineNoticeChrome}
+              isRespondingApproval={isInteractionPending}
+              sessionChrome={sessionChrome}
+              keyboardShortcutsEnabled={isActive && !sideComposerFocused}
+              chromeLabels={chromeLabels}
+              goalBannerLabels={goalBannerLabels}
+              promptLabels={interactivePromptLabels}
+              onSubmitApprovalOption={submitApprovalOption}
+              onRetryActivation={retryActivation}
+              onRetryInlineNotice={retryInlineNotice}
+              onAuthLogin={authLogin}
+              onContinueInNewConversation={continueInNewConversation}
+              onSubmitBottomDockInteractivePrompt={
+                submitBottomDockInteractivePrompt
+              }
+              onGoalControl={goalControl}
+              goalPauseSupported={viewModel.composer.goalPauseSupported}
+              tuttiWorkflowDock={tuttiWorkflowDock}
+              tuttiWorkflowDockLabels={labels.tuttiWorkflowDock}
+              tuttiPlanPanelLabels={labels.tuttiModePlanPanel}
+              tuttiPlanIssuePanelLabels={labels.tuttiModePlanIssuePanel}
+            />
+          ) : null}
+        </section>
+        {hasActiveConversation ? sidePane : null}
+      </div>
     </main>
   );
 });

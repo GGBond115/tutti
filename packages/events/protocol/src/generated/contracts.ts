@@ -466,17 +466,23 @@ export type AgentSideUpdatedPayloadV1 =
         turnId: string;
         role: string;
         kind?: string;
+        occurredAtUnixMs?: number;
         content?: {
           operation: "append_text" | "set";
           text?: string;
           value?: unknown;
         };
+        payloadSet?: Record<string, unknown>;
+        payloadUnset?: readonly string[];
+        semantics?: Record<string, unknown>;
         toolOutput?: {
           operation: string;
           text: string;
           offsetBytes?: number;
         };
         status?: string;
+        startedAtUnixMs?: number;
+        completedAtUnixMs?: number;
       };
     }
   | {
@@ -491,8 +497,17 @@ export type AgentSideUpdatedPayloadV1 =
         role: string;
         kind?: string;
         status?: string;
+        seq?: number;
+        callId?: string;
+        parentCallId?: string;
+        rootCallId?: string;
+        title?: string;
+        semantics?: Record<string, unknown>;
         contentDelta?: string;
         payload?: Record<string, unknown>;
+        occurredAtUnixMs?: number;
+        startedAtUnixMs?: number;
+        completedAtUnixMs?: number;
       };
     }
   | {
@@ -502,11 +517,27 @@ export type AgentSideUpdatedPayloadV1 =
       sequence: number;
       eventType: "state_patch";
       data: {
+        provider?: string;
+        cwd?: string;
+        title?: string;
         lifecycleStatus?: string;
         currentPhase?: string;
         status?: string;
+        occurredAtUnixMs?: number;
         turnLifecycle?: {
           activeTurnId?: string | null;
+        };
+        turn?: {
+          turnId: string;
+          activeTurnId?: string | null;
+          phase?: string;
+          outcome?: string;
+          origin?: string;
+          error?: Record<string, unknown> | null;
+          fileChanges?: Record<string, unknown> | null;
+          startedAtUnixMs?: number;
+          completedAtUnixMs?: number;
+          updatedAtUnixMs?: number;
         };
         interactionTransition?: {
           requestId: string;
@@ -516,6 +547,7 @@ export type AgentSideUpdatedPayloadV1 =
           toolName?: string;
           input?: Record<string, unknown>;
           metadata?: Record<string, unknown>;
+          output?: Record<string, unknown>;
         };
       };
     }

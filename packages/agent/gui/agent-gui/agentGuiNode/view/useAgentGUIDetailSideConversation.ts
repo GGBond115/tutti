@@ -5,26 +5,55 @@ import {
 } from "../../../agentSideConversationRuntime";
 import type { AgentConversationPromptVM } from "../../../shared/agentConversation/contracts/agentConversationVM";
 import type { AgentComposerProps } from "../AgentComposer";
+import type { AgentComposerDraft } from "../model/agentGuiNodeTypes";
+import { emptyAgentComposerDraft } from "../model/agentComposerDraft";
 import { useTranslation } from "../../../i18n/index";
+import { projectAgentSideConversationViewState } from "../../../agentSideConversationViewProjection";
 
 interface UseAgentGUIDetailSideConversationInput {
   workspaceId: string;
   sourceAgentSessionId: string | null;
+  provider: string;
+  cwd: string | null;
   availableCommands: AgentComposerProps["availableCommands"];
   submitPrompt: NonNullable<AgentComposerProps["onSubmit"]>;
-  interruptCurrentTurn(): void;
 }
 
 export function useAgentGUIDetailSideConversation({
   workspaceId,
   sourceAgentSessionId,
+  provider,
+  cwd,
   availableCommands,
-  submitPrompt,
-  interruptCurrentTurn
+  submitPrompt
 }: UseAgentGUIDetailSideConversationInput) {
   const { t } = useTranslation();
   const runtime = useOptionalAgentSideConversationRuntime();
-  const active = useAgentSideConversationSnapshot(workspaceId).active;
+  const runtimeActive = useAgentSideConversationSnapshot(workspaceId).active;
+  const active = useMemo(
+    () => projectAgentSideConversationViewState(runtimeActive),
+    [runtimeActive]
+  );
+  const activeSideAgentSessionId = active?.sideAgentSessionId ?? null;
+  const emptyDraft = useMemo(emptyAgentComposerDraft, [
+    activeSideAgentSessionId
+  ]);
+  const [draftState, setDraftState] = useState<{
+    sideAgentSessionId: string | null;
+    content: AgentComposerDraft;
+  }>(() => ({
+    sideAgentSessionId: null,
+    content: emptyAgentComposerDraft()
+  }));
+  const draftContent =
+    draftState.sideAgentSessionId === activeSideAgentSessionId
+      ? draftState.content
+      : emptyDraft;
+  const setDraftContent = useCallback(
+    (content: AgentComposerDraft) =>
+      setDraftState({ sideAgentSessionId: activeSideAgentSessionId, content }),
+    [activeSideAgentSessionId]
+  );
 
   // The surface owns the runtime. This single lifecycle binding closes a Side
   // when its source changes or the surface unmounts; runtime.dispose covers
@@ -49,60 +78,85 @@ export function useAgentGUIDetailSideConversation({
     [runtime, sourceAgentSessionId, workspaceId]
   );
 
-  const submit = useCallback<NonNullable<AgentComposerProps["onSubmit"]>>(
+  const open = useCallback(
+    async (initialPrompt?: string | null) => {
+      if (!runtime || !sourceAgentSessionId) return null;
+      const existing = runtime.getSnapshot(workspaceId).active;
+      if (existing?.sourceAgentSessionId === sourceAgentSessionId) {
+        if (initialPrompt?.trim() && existing.status === "idle") {
+          await runtime.send({
+            workspaceId,
+            sideAgentSessionId: existing.sideAgentSessionId,
+            content: [{ type: "text", text: initialPrompt.trim() }],
+            displayPrompt: initialPrompt.trim()
+          });
+        }
+        return existing;
+      }
+      const capabilities = await runtime.resolveCapabilities({
+        workspaceId,
+        sourceAgentSessionId,
+        provider,
+        cwd
+      });
+      if (
+        !capabilities.supported ||
+        !capabilities.ephemeral ||
+        !capabilities.hideInheritedTurns ||
+        !capabilities.modelBoundaryInjected ||
+        !capabilities.activeSourceTurn
+      ) {
+        throw new Error("side_conversation_unsupported");
+      }
+      const opened = await runtime.open({
+        workspaceId,
+        sourceAgentSessionId,
+        provider,
+        cwd
+      });
+      if (initialPrompt?.trim()) {
+        await runtime.send({
+          workspaceId,
+          sideAgentSessionId: opened.sideAgentSessionId,
+          content: [{ type: "text", text: initialPrompt.trim() }],
+          displayPrompt: initialPrompt.trim()
+        });
+      }
+      return opened;
+    },
+    [cwd, provider, runtime, sourceAgentSessionId, workspaceId]
+  );
+
+  const submitMain = useCallback<NonNullable<AgentComposerProps["onSubmit"]>>(
     (content, displayPrompt, options) => {
       const text = content
         .filter((block) => block.type === "text")
         .map((block) => block.text ?? "")
         .join("");
       const invocation = text.trim().match(/^\/side(?:\s+([\s\S]*))?$/);
-      if (!runtime || !sourceAgentSessionId) {
-        if (invocation) return;
+      if (!invocation) {
         submitPrompt(content, displayPrompt, options);
         return;
       }
-      if (!active && invocation) {
-        void runtime
-          .resolveCapabilities({ workspaceId, sourceAgentSessionId })
-          .then((capabilities) => {
-            if (
-              !capabilities.supported ||
-              !capabilities.ephemeral ||
-              !capabilities.hideInheritedTurns ||
-              !capabilities.modelBoundaryInjected ||
-              !capabilities.activeSourceTurn
-            ) {
-              throw new Error("side_conversation_unsupported");
-            }
-            return runtime.open({ workspaceId, sourceAgentSessionId });
-          })
-          .then((opened) => {
-            const initialPrompt = invocation[1]?.trim();
-            if (!initialPrompt) return;
-            return runtime.send({
-              workspaceId,
-              sideAgentSessionId: opened.sideAgentSessionId,
-              content: [{ type: "text", text: initialPrompt }],
-              displayPrompt: initialPrompt
-            });
-          })
-          .catch(() => {});
-        return;
-      }
-      if (active?.sourceAgentSessionId === sourceAgentSessionId) {
-        void runtime
-          .send({
-            workspaceId,
-            sideAgentSessionId: active.sideAgentSessionId,
-            content,
-            displayPrompt
-          })
-          .catch(() => {});
-        return;
-      }
-      submitPrompt(content, displayPrompt, options);
+      void open(invocation[1]?.trim() ?? null).catch(() => {});
     },
-    [active, runtime, sourceAgentSessionId, submitPrompt, workspaceId]
+    [open, submitPrompt]
+  );
+
+  const submitSide = useCallback<NonNullable<AgentComposerProps["onSubmit"]>>(
+    (content, displayPrompt) => {
+      if (!runtime || !active || active.status !== "idle") return;
+      void runtime
+        .send({
+          workspaceId,
+          sideAgentSessionId: active.sideAgentSessionId,
+          content,
+          displayPrompt
+        })
+        .then(() => setDraftContent(emptyAgentComposerDraft()))
+        .catch(() => {});
+    },
+    [active, runtime, workspaceId]
   );
 
   const commands = useMemo(
@@ -122,18 +176,15 @@ export function useAgentGUIDetailSideConversation({
   );
 
   const interrupt = useCallback(() => {
-    if (runtime && active?.activeTurnId) {
-      void runtime
-        .cancel({
-          workspaceId,
-          sideAgentSessionId: active.sideAgentSessionId,
-          turnId: active.activeTurnId
-        })
-        .catch(() => {});
-      return;
-    }
-    interruptCurrentTurn();
-  }, [active, interruptCurrentTurn, runtime, workspaceId]);
+    if (!runtime || !active?.activeTurnId) return;
+    void runtime
+      .cancel({
+        workspaceId,
+        sideAgentSessionId: active.sideAgentSessionId,
+        turnId: active.activeTurnId
+      })
+      .catch(() => {});
+  }, [active, runtime, workspaceId]);
 
   const close = useCallback(() => {
     if (!runtime || !active) return;
@@ -248,12 +299,17 @@ export function useAgentGUIDetailSideConversation({
 
   return {
     active,
+    canOpen: Boolean(runtime && sourceAgentSessionId),
     close,
     commands,
+    draftContent,
     interactionSubmitting,
     interactivePrompt,
     interrupt,
-    submit,
+    open,
+    setDraftContent,
+    submitMain,
+    submitSide,
     submitInteraction
   };
 }

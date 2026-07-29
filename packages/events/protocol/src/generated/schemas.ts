@@ -1770,6 +1770,10 @@ export const agentSideUpdatedPayloadSchema = {
             kind: {
               type: "string"
             },
+            occurredAtUnixMs: {
+              type: "integer",
+              minimum: 1
+            },
             content: {
               type: "object",
               additionalProperties: false,
@@ -1783,6 +1787,22 @@ export const agentSideUpdatedPayloadSchema = {
                 },
                 value: true
               }
+            },
+            payloadSet: {
+              type: "object",
+              additionalProperties: true
+            },
+            payloadUnset: {
+              type: "array",
+              items: {
+                type: "string",
+                minLength: 1
+              },
+              uniqueItems: true
+            },
+            semantics: {
+              type: "object",
+              additionalProperties: true
             },
             toolOutput: {
               type: "object",
@@ -1804,6 +1824,14 @@ export const agentSideUpdatedPayloadSchema = {
             },
             status: {
               type: "string"
+            },
+            startedAtUnixMs: {
+              type: "integer",
+              minimum: 1
+            },
+            completedAtUnixMs: {
+              type: "integer",
+              minimum: 1
             }
           }
         }
@@ -1862,12 +1890,44 @@ export const agentSideUpdatedPayloadSchema = {
             status: {
               type: "string"
             },
+            seq: {
+              type: "integer",
+              minimum: 1
+            },
+            callId: {
+              type: "string"
+            },
+            parentCallId: {
+              type: "string"
+            },
+            rootCallId: {
+              type: "string"
+            },
+            title: {
+              type: "string"
+            },
+            semantics: {
+              type: "object",
+              additionalProperties: true
+            },
             contentDelta: {
               type: "string"
             },
             payload: {
               type: "object",
               additionalProperties: true
+            },
+            occurredAtUnixMs: {
+              type: "integer",
+              minimum: 1
+            },
+            startedAtUnixMs: {
+              type: "integer",
+              minimum: 1
+            },
+            completedAtUnixMs: {
+              type: "integer",
+              minimum: 1
             }
           }
         }
@@ -1908,6 +1968,15 @@ export const agentSideUpdatedPayloadSchema = {
           type: "object",
           additionalProperties: true,
           properties: {
+            provider: {
+              type: "string"
+            },
+            cwd: {
+              type: "string"
+            },
+            title: {
+              type: "string"
+            },
             lifecycleStatus: {
               type: "string"
             },
@@ -1917,12 +1986,59 @@ export const agentSideUpdatedPayloadSchema = {
             status: {
               type: "string"
             },
+            occurredAtUnixMs: {
+              type: "integer",
+              minimum: 1
+            },
             turnLifecycle: {
               type: "object",
               additionalProperties: true,
               properties: {
                 activeTurnId: {
                   type: ["string", "null"]
+                }
+              }
+            },
+            turn: {
+              type: "object",
+              additionalProperties: true,
+              required: ["turnId"],
+              properties: {
+                turnId: {
+                  type: "string",
+                  minLength: 1
+                },
+                activeTurnId: {
+                  type: ["string", "null"]
+                },
+                phase: {
+                  type: "string"
+                },
+                outcome: {
+                  type: "string"
+                },
+                origin: {
+                  type: "string"
+                },
+                error: {
+                  type: ["object", "null"],
+                  additionalProperties: true
+                },
+                fileChanges: {
+                  type: ["object", "null"],
+                  additionalProperties: true
+                },
+                startedAtUnixMs: {
+                  type: "integer",
+                  minimum: 1
+                },
+                completedAtUnixMs: {
+                  type: "integer",
+                  minimum: 1
+                },
+                updatedAtUnixMs: {
+                  type: "integer",
+                  minimum: 1
                 }
               }
             },
@@ -1954,6 +2070,10 @@ export const agentSideUpdatedPayloadSchema = {
                   additionalProperties: true
                 },
                 metadata: {
+                  type: "object",
+                  additionalProperties: true
+                },
+                output: {
                   type: "object",
                   additionalProperties: true
                 }

@@ -773,9 +773,12 @@ export const enAgentGui = {
   syncFailed: "Cloud sync failed",
   sideCommandDescription:
     "Open a temporary conversation from the current live context",
+  sideOpen: "Side",
   sidePanelTitle: "Side conversation",
   sideOpening: "Opening from the current live context…",
   sideEphemeralHint: "Temporary · not added to conversation history",
+  sideInputPlaceholder: "Ask a related question",
+  sideResize: "Resize Side conversation",
   sideClose: "Close",
   sideEmpty: "Ask a related question without interrupting the main turn.",
   sideInteractionTitle: "Side needs your response",

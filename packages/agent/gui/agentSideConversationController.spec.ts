@@ -4,6 +4,26 @@ import {
   type AgentSideConversationStreamEvent,
   type AgentSideConversationTransport
 } from "./agentSideConversationController";
+import { projectAgentSideConversationVM } from "./agentSideConversationViewProjection";
+
+function projectedMessages(
+  runtime: ReturnType<typeof createAgentSideConversationRuntime>,
+  workspaceId = "workspace-1"
+) {
+  return (
+    projectAgentSideConversationVM(
+      runtime.getSnapshot(workspaceId).active!.projection
+    )?.rows.flatMap((row) =>
+      row.kind === "message"
+        ? row.messages.map((message) => ({
+            id: message.id,
+            role: row.speaker,
+            text: message.body
+          }))
+        : []
+    ) ?? []
+  );
+}
 
 function transportHarness() {
   let connectionState:
@@ -77,7 +97,7 @@ describe("AgentSideConversationController", () => {
     const snapshot = runtime.getSnapshot("workspace-1");
     expect(snapshot.active?.sourceAgentSessionId).toBe("source-1");
     expect(snapshot.active?.activeTurnId).toBeTruthy();
-    expect(snapshot.active?.messages).toMatchObject([
+    expect(projectedMessages(runtime)).toMatchObject([
       { role: "user", text: "question" }
     ]);
     expect(harness.transport.send).toHaveBeenCalledOnce();
@@ -112,7 +132,7 @@ describe("AgentSideConversationController", () => {
     harness.publish(event(1, "duplicate"));
     harness.publish(event(2, "lo"));
 
-    expect(runtime.getSnapshot("workspace-1").active?.messages).toMatchObject([
+    expect(projectedMessages(runtime)).toMatchObject([
       { id: "assistant-1", text: "Hello" }
     ]);
     expect(runtime.getSnapshot("workspace-1").active?.sequence).toBe(2);
@@ -126,7 +146,7 @@ describe("AgentSideConversationController", () => {
         content: { operation: "set", value: "corrected" }
       }
     });
-    expect(runtime.getSnapshot("workspace-1").active?.messages).toMatchObject([
+    expect(projectedMessages(runtime)).toMatchObject([
       { id: "assistant-1", text: "corrected" }
     ]);
     unsubscribe();
@@ -159,9 +179,16 @@ describe("AgentSideConversationController", () => {
     });
 
     expect(opened.sequence).toBe(1);
-    expect(opened.messages).toMatchObject([
-      { id: "assistant-1", text: "live" }
-    ]);
+    expect(
+      projectAgentSideConversationVM(opened.projection)?.rows.flatMap((row) =>
+        row.kind === "message"
+          ? row.messages.map((message) => ({
+              id: message.id,
+              text: message.body
+            }))
+          : []
+      )
+    ).toMatchObject([{ id: "assistant-1", text: "live" }]);
   });
 
   it("cleans a remote Side that commits after an in-flight disconnect", async () => {
@@ -219,11 +246,15 @@ describe("AgentSideConversationController", () => {
         messageId: "provider-user-1",
         role: "user",
         turnId,
-        contentDelta: "question"
+        kind: "text",
+        status: "completed",
+        seq: 1,
+        payload: { text: "question", content: "question" },
+        occurredAtUnixMs: Date.now()
       }
     });
 
-    expect(runtime.getSnapshot("workspace-1").active?.messages).toMatchObject([
+    expect(projectedMessages(runtime)).toMatchObject([
       { id: "provider-user-1", role: "user", text: "question" }
     ]);
   });
@@ -393,11 +424,7 @@ describe("AgentSideConversationController", () => {
         turnLifecycle: { activeTurnId: null }
       }
     });
-    expect(runtime.getSnapshot("workspace-1").active).toMatchObject({
-      status: "expired",
-      activeTurnId: null,
-      pendingInteraction: null
-    });
+    expect(runtime.getSnapshot("workspace-1").active).toBeNull();
   });
 
   it("rejects attachments before optimistic send", async () => {
@@ -416,7 +443,7 @@ describe("AgentSideConversationController", () => {
       })
     ).rejects.toThrow("content_unsupported");
     expect(harness.transport.send).not.toHaveBeenCalled();
-    expect(runtime.getSnapshot("workspace-1").active?.messages).toEqual([]);
+    expect(projectedMessages(runtime)).toEqual([]);
   });
 
   it("releases transient state before remote close settles", async () => {

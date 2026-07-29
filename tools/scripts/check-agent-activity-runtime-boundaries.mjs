@@ -78,7 +78,10 @@ const forbiddenPatterns = [
       // the runtime Side envelope directly and must not enter
       // AgentSessionEngine merely to satisfy the durable lifecycle vocabulary
       // guard enforced for ordinary AgentGUI consumers.
-      "packages/agent/gui/agentSideConversationController.ts"
+      "packages/agent/gui/agentSideConversationController.ts",
+      // The Side adapter normalizes the same transient envelope into the pure
+      // ephemeral projector before shared conversation rendering.
+      "packages/agent/gui/agentSideConversationProjection.ts"
     ]),
     label: "deprecated session lifecycle decision read",
     pattern:

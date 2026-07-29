@@ -62,6 +62,7 @@
               "turnId": { "type": "string", "minLength": 1 },
               "role": { "type": "string", "minLength": 1 },
               "kind": { "type": "string" },
+              "occurredAtUnixMs": { "type": "integer", "minimum": 1 },
               "content": {
                 "type": "object",
                 "additionalProperties": false,
@@ -71,6 +72,19 @@
                   "text": { "type": "string" },
                   "value": true
                 }
+              },
+              "payloadSet": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "payloadUnset": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true
+              },
+              "semantics": {
+                "type": "object",
+                "additionalProperties": true
               },
               "toolOutput": {
                 "type": "object",
@@ -82,7 +96,9 @@
                   "offsetBytes": { "type": "integer", "minimum": 0 }
                 }
               },
-              "status": { "type": "string" }
+              "status": { "type": "string" },
+              "startedAtUnixMs": { "type": "integer", "minimum": 1 },
+              "completedAtUnixMs": { "type": "integer", "minimum": 1 }
             }
           }
         }
@@ -114,11 +130,23 @@
               "role": { "type": "string", "minLength": 1 },
               "kind": { "type": "string" },
               "status": { "type": "string" },
+              "seq": { "type": "integer", "minimum": 1 },
+              "callId": { "type": "string" },
+              "parentCallId": { "type": "string" },
+              "rootCallId": { "type": "string" },
+              "title": { "type": "string" },
+              "semantics": {
+                "type": "object",
+                "additionalProperties": true
+              },
               "contentDelta": { "type": "string" },
               "payload": {
                 "type": "object",
                 "additionalProperties": true
-              }
+              },
+              "occurredAtUnixMs": { "type": "integer", "minimum": 1 },
+              "startedAtUnixMs": { "type": "integer", "minimum": 1 },
+              "completedAtUnixMs": { "type": "integer", "minimum": 1 }
             }
           }
         }
@@ -144,14 +172,41 @@
             "type": "object",
             "additionalProperties": true,
             "properties": {
+              "provider": { "type": "string" },
+              "cwd": { "type": "string" },
+              "title": { "type": "string" },
               "lifecycleStatus": { "type": "string" },
               "currentPhase": { "type": "string" },
               "status": { "type": "string" },
+              "occurredAtUnixMs": { "type": "integer", "minimum": 1 },
               "turnLifecycle": {
                 "type": "object",
                 "additionalProperties": true,
                 "properties": {
                   "activeTurnId": { "type": ["string", "null"] }
+                }
+              },
+              "turn": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": ["turnId"],
+                "properties": {
+                  "turnId": { "type": "string", "minLength": 1 },
+                  "activeTurnId": { "type": ["string", "null"] },
+                  "phase": { "type": "string" },
+                  "outcome": { "type": "string" },
+                  "origin": { "type": "string" },
+                  "error": {
+                    "type": ["object", "null"],
+                    "additionalProperties": true
+                  },
+                  "fileChanges": {
+                    "type": ["object", "null"],
+                    "additionalProperties": true
+                  },
+                  "startedAtUnixMs": { "type": "integer", "minimum": 1 },
+                  "completedAtUnixMs": { "type": "integer", "minimum": 1 },
+                  "updatedAtUnixMs": { "type": "integer", "minimum": 1 }
                 }
               },
               "interactionTransition": {
@@ -169,6 +224,10 @@
                     "additionalProperties": true
                   },
                   "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "output": {
                     "type": "object",
                     "additionalProperties": true
                   }

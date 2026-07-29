@@ -1,12 +1,18 @@
+import {
+  createAgentActivityEphemeralConversationProjector,
+  type AgentActivityEphemeralConversationProjection,
+  type AgentActivityEphemeralConversationProjector,
+  type AgentActivityInteraction
+} from "@tutti-os/agent-activity-core";
+import type { AgentSideUpdatedPayloadV1 } from "@tutti-os/event-protocol";
+import { normalizeAgentSideConversationEvent } from "./agentSideConversationProjection.ts";
 import type {
   AgentSideCapabilities,
   AgentSideConversationRuntime,
   AgentSideConversationSnapshot,
   AgentSideConversationState,
-  AgentSideInteraction,
-  AgentSideMessage
+  AgentSideInteraction
 } from "./agentSideConversationRuntime";
-import type { AgentSideUpdatedPayloadV1 } from "@tutti-os/event-protocol";
 
 export type { AgentSideConversationRuntime } from "./agentSideConversationRuntime";
 
@@ -65,110 +71,59 @@ function newId(): string {
   );
 }
 
-function eventText(data: unknown): string {
-  if (!data || typeof data !== "object") return "";
-  const value = data as Record<string, unknown>;
-  if (typeof value.text === "string") return value.text;
-  if (typeof value.content === "string") return value.content;
-  if (typeof value.contentDelta === "string") return value.contentDelta;
-  if (value.content && typeof value.content === "object") {
-    const content = value.content as Record<string, unknown>;
-    if (typeof content.text === "string") return content.text;
-    if (typeof content.value === "string") return content.value;
-  }
-  if (value.payload && typeof value.payload === "object") {
-    const payload = value.payload as Record<string, unknown>;
-    if (typeof payload.text === "string") return payload.text;
-    if (typeof payload.content === "string") return payload.content;
-  }
-  return "";
-}
-
-function eventTextOperation(data: unknown): "append" | "set" {
-  if (!data || typeof data !== "object") return "set";
-  const value = data as Record<string, unknown>;
-  if (!value.content || typeof value.content !== "object") return "set";
-  const operation = (value.content as Record<string, unknown>).operation;
-  return operation === "append_text" ? "append" : "set";
-}
-
-function eventIdentity(data: unknown): {
-  messageId: string;
-  role: AgentSideMessage["role"];
-  turnId: string | null;
-} {
-  const value =
-    data && typeof data === "object" ? (data as Record<string, unknown>) : {};
-  const role =
-    value.role === "user" || value.role === "system" ? value.role : "assistant";
+function interactionFromProjection(
+  interaction: AgentActivityInteraction | null
+): AgentSideInteraction | null {
+  if (!interaction || interaction.status !== "pending") return null;
+  const rawActions = Array.isArray(interaction.metadata?.actions)
+    ? interaction.metadata.actions
+    : [];
   return {
-    messageId:
-      typeof value.messageId === "string"
-        ? value.messageId
-        : typeof value.id === "string"
-          ? value.id
-          : `event-${newId()}`,
-    role,
-    turnId: typeof value.turnId === "string" ? value.turnId : null
+    requestId: interaction.requestId,
+    turnId: interaction.turnId,
+    kind: interaction.kind,
+    toolName: interaction.toolName ?? null,
+    input: interaction.input ?? {},
+    actions: rawActions.flatMap((rawAction) => {
+      if (!rawAction || typeof rawAction !== "object") return [];
+      const action = rawAction as Record<string, unknown>;
+      const id = typeof action.id === "string" ? action.id : "";
+      if (!id) return [];
+      return [
+        {
+          id,
+          label: typeof action.label === "string" ? action.label : id,
+          semantic: typeof action.semantic === "string" ? action.semantic : ""
+        }
+      ];
+    })
   };
 }
 
-function interactionFromStatePatch(
-  statePatch: Record<string, unknown> | null
-): AgentSideInteraction | null | undefined {
-  const raw = statePatch?.interactionTransition;
-  if (!raw || typeof raw !== "object") return undefined;
-  const transition = raw as Record<string, unknown>;
-  const requestId =
-    typeof transition.requestId === "string" ? transition.requestId : "";
-  const turnId = typeof transition.turnId === "string" ? transition.turnId : "";
-  if (!requestId || !turnId) return undefined;
-  const status =
-    typeof transition.status === "string"
-      ? transition.status.trim().toLowerCase()
-      : "";
-  if (
-    status === "answered" ||
-    status === "superseded" ||
-    status === "interrupted"
-  ) {
-    return null;
-  }
-  const metadata =
-    transition.metadata && typeof transition.metadata === "object"
-      ? (transition.metadata as Record<string, unknown>)
-      : {};
-  const rawActions = Array.isArray(metadata.actions) ? metadata.actions : [];
-  const actions = rawActions.flatMap((rawAction) => {
-    if (!rawAction || typeof rawAction !== "object") return [];
-    const action = rawAction as Record<string, unknown>;
-    const id = typeof action.id === "string" ? action.id : "";
-    if (!id) return [];
-    return [
-      {
-        id,
-        label: typeof action.label === "string" ? action.label : id,
-        semantic: typeof action.semantic === "string" ? action.semantic : ""
-      }
-    ];
-  });
-  const kind =
-    transition.kind === "question"
-      ? "question"
-      : transition.kind === "plan"
-        ? "plan"
-        : "approval";
+function stateFromProjection(
+  current: AgentSideConversationState,
+  projection: AgentActivityEphemeralConversationProjection
+): AgentSideConversationState {
+  const session = projection.activitySnapshot.sessions[0] ?? null;
+  const pendingInteraction =
+    session?.pendingInteractions.at(-1) ??
+    projection.interactions.findLast(
+      (interaction) => interaction.status === "pending"
+    ) ??
+    null;
   return {
-    requestId,
-    turnId,
-    kind,
-    toolName:
-      typeof transition.toolName === "string" ? transition.toolName : null,
-    input:
-      transition.input && typeof transition.input === "object"
-        ? (transition.input as Record<string, unknown>)
-        : {},
-    actions
+    ...current,
+    status: projection.expired
+      ? "expired"
+      : current.status === "opening" || current.status === "error"
+        ? current.status
+        : session?.activeTurnId
+          ? "running"
+          : "idle",
+    activeTurnId: projection.expired ? null : (session?.activeTurnId ?? null),
+    projection,
+    pendingInteraction: interactionFromProjection(pendingInteraction),
+    sequence: projection.sequence
   };
 }
 
@@ -176,6 +131,10 @@ export function createAgentSideConversationRuntime(
   transport: AgentSideConversationTransport
 ): AgentSideConversationRuntime & { dispose(): void } {
   const snapshots = new Map<string, AgentSideConversationSnapshot>();
+  const projectors = new Map<
+    string,
+    AgentActivityEphemeralConversationProjector
+  >();
   const pendingCloses = new Map<
     string,
     { workspaceId: string; sideAgentSessionId: string }
@@ -212,129 +171,37 @@ export function createAgentSideConversationRuntime(
       workspaceId,
       sideAgentSessionId: active.sideAgentSessionId
     };
+    projectors.delete(active.sideAgentSessionId);
     setActive(workspaceId, null);
     void closeWithTombstone(closeIdentity).catch(() => {});
   };
   const handleEvent = (event: AgentSideConversationStreamEvent) => {
-    const snapshot = snapshots.get(event.workspaceId);
-    const active = snapshot?.active;
+    const active = snapshots.get(event.workspaceId)?.active;
     if (!active || active.sideAgentSessionId !== event.sideAgentSessionId) {
       return;
     }
-    if (active.status === "expired") return;
-    if (
-      event.sourceAgentSessionId !== active.sourceAgentSessionId ||
-      event.sequence > active.sequence + 1
-    ) {
+    const projector = projectors.get(active.sideAgentSessionId);
+    if (!projector) {
       expireAndClose(event.workspaceId, active);
       return;
     }
-    if (event.sequence <= active.sequence) return;
-    const identity = eventIdentity(event.data);
-    const text = eventText(event.data);
-    let messages = active.messages;
-    if (
-      text &&
-      (event.eventType === "message_delta" ||
-        event.eventType === "message_update")
-    ) {
-      let index = messages.findIndex(
-        (message) => message.id === identity.messageId
-      );
-      if (index < 0 && identity.role === "user" && identity.turnId) {
-        index = messages.findIndex(
-          (message) =>
-            message.role === "user" && message.turnId === identity.turnId
-        );
-      }
-      if (index >= 0) {
-        messages = messages.map((message, messageIndex) =>
-          messageIndex === index
-            ? {
-                ...message,
-                id: identity.messageId,
-                text:
-                  event.eventType === "message_delta" &&
-                  identity.role !== "user" &&
-                  eventTextOperation(event.data) === "append"
-                    ? message.text + text
-                    : text
-              }
-            : message
-        );
-      } else {
-        messages = [
-          ...messages,
-          {
-            id: identity.messageId,
-            role: identity.role,
-            text,
-            turnId: identity.turnId
-          }
-        ];
-      }
+    const result = projector.apply(normalizeAgentSideConversationEvent(event));
+    if (result.expired) {
+      expireAndClose(event.workspaceId, active);
+      return;
     }
-    const statePatch =
-      event.eventType === "state_patch" &&
-      event.data &&
-      typeof event.data === "object"
-        ? (event.data as Record<string, unknown>)
-        : null;
-    const turnLifecycle =
-      statePatch?.turnLifecycle && typeof statePatch.turnLifecycle === "object"
-        ? (statePatch.turnLifecycle as Record<string, unknown>)
-        : null;
-    const interaction = interactionFromStatePatch(statePatch);
-    const activeTurnId =
-      typeof turnLifecycle?.activeTurnId === "string"
-        ? turnLifecycle.activeTurnId
-        : turnLifecycle?.activeTurnId === null
-          ? null
-          : active.activeTurnId;
-    const lifecycleStatus =
-      typeof statePatch?.lifecycleStatus === "string"
-        ? statePatch.lifecycleStatus.trim().toLowerCase()
-        : "";
-    const currentPhase =
-      typeof statePatch?.currentPhase === "string"
-        ? statePatch.currentPhase.trim().toLowerCase()
-        : "";
-    const terminal =
-      lifecycleStatus === "completed" ||
-      lifecycleStatus === "failed" ||
-      lifecycleStatus === "ended" ||
-      statePatch?.status === "expired" ||
-      statePatch?.status === "completed" ||
-      statePatch?.status === "failed";
-    const status = terminal
-      ? ("expired" as const)
-      : activeTurnId ||
-          (currentPhase !== "" &&
-            currentPhase !== "idle" &&
-            currentPhase !== "settled")
-        ? ("running" as const)
-        : currentPhase === "idle" || currentPhase === "settled"
-          ? ("idle" as const)
-          : active.status;
-    setActive(event.workspaceId, {
-      ...active,
-      activeTurnId: terminal ? null : activeTurnId,
-      status,
-      messages,
-      pendingInteraction: terminal
-        ? null
-        : interaction === undefined
-          ? active.pendingInteraction
-          : interaction,
-      sequence: event.sequence
-    });
+    if (!result.applied) return;
+    setActive(
+      event.workspaceId,
+      stateFromProjection(active, projector.getSnapshot())
+    );
   };
   const handleConnectionState = (
     state: "connected" | "connecting" | "disconnected" | "disposed"
   ) => {
     if (state !== "disconnected" && state !== "disposed") return;
     for (const [workspaceId, snapshot] of snapshots) {
-      if (!snapshot.active || snapshot.active.status === "expired") continue;
+      if (!snapshot.active) continue;
       expireAndClose(workspaceId, snapshot.active);
     }
   };
@@ -369,7 +236,7 @@ export function createAgentSideConversationRuntime(
   return {
     resolveCapabilities: ({ workspaceId, sourceAgentSessionId }) =>
       transport.resolveCapabilities(workspaceId, sourceAgentSessionId),
-    async open({ workspaceId, sourceAgentSessionId }) {
+    async open({ workspaceId, sourceAgentSessionId, provider, cwd }) {
       ensureTransportSubscriptions();
       connectionState = transport.getConnectionState();
       if (connectionState !== "connected") {
@@ -390,13 +257,21 @@ export function createAgentSideConversationRuntime(
         throw new Error("event_stream_unavailable");
       }
       const sideAgentSessionId = newId();
+      const projector = createAgentActivityEphemeralConversationProjector({
+        workspaceId,
+        agentSessionId: sideAgentSessionId,
+        sourceAgentSessionId,
+        provider: provider?.trim() || "unknown",
+        cwd: cwd?.trim() || null
+      });
+      projectors.set(sideAgentSessionId, projector);
       const state: AgentSideConversationState = {
         workspaceId,
         sourceAgentSessionId,
         sideAgentSessionId,
         status: "opening",
         activeTurnId: null,
-        messages: [],
+        projection: projector.getSnapshot(),
         pendingInteraction: null,
         error: null,
         sequence: 0
@@ -411,18 +286,17 @@ export function createAgentSideConversationRuntime(
         });
         const current = snapshots.get(workspaceId)?.active;
         if (!current || current.sideAgentSessionId !== sideAgentSessionId) {
+          projectors.delete(sideAgentSessionId);
           await closeWithTombstone({ workspaceId, sideAgentSessionId });
           throw new Error("Side conversation identity changed while opening.");
         }
         const opened: AgentSideConversationState = {
-          ...current,
-          status:
-            current.status === "opening"
-              ? current.activeTurnId
-                ? "running"
-                : "idle"
-              : current.status,
-          error: current.status === "opening" ? null : current.error
+          ...stateFromProjection(current, projector.getSnapshot()),
+          status: projector.getSnapshot().activitySnapshot.sessions[0]
+            ?.activeTurnId
+            ? "running"
+            : "idle",
+          error: null
         };
         setActive(workspaceId, opened);
         return opened;
@@ -443,9 +317,15 @@ export function createAgentSideConversationRuntime(
     },
     async send(input) {
       const turnId = newId();
-      const snapshot = snapshots.get(input.workspaceId);
-      const active = snapshot?.active;
-      if (!active || active.sideAgentSessionId !== input.sideAgentSessionId) {
+      const active = snapshots.get(input.workspaceId)?.active;
+      const projector = active
+        ? projectors.get(active.sideAgentSessionId)
+        : null;
+      if (
+        !active ||
+        active.sideAgentSessionId !== input.sideAgentSessionId ||
+        !projector
+      ) {
         throw new Error("Side conversation is not active.");
       }
       if (active.status !== "idle" || active.activeTurnId) {
@@ -464,14 +344,15 @@ export function createAgentSideConversationRuntime(
           .filter((block) => block.type === "text")
           .map((block) => block.text ?? "")
           .join("");
+      projector.beginTurn({
+        turnId,
+        content: text,
+        displayPrompt: input.displayPrompt
+      });
       setActive(input.workspaceId, {
-        ...active,
+        ...stateFromProjection(active, projector.getSnapshot()),
         status: "running",
-        activeTurnId: turnId,
-        messages: [
-          ...active.messages,
-          { id: `user-${turnId}`, role: "user", text, turnId }
-        ]
+        error: null
       });
       try {
         await transport.send({
@@ -480,12 +361,15 @@ export function createAgentSideConversationRuntime(
           clientSubmitId: newId()
         });
       } catch (error) {
+        projector.failTurn({
+          turnId,
+          message: error instanceof Error ? error.message : null
+        });
         const current = snapshots.get(input.workspaceId)?.active;
         if (current?.sideAgentSessionId === input.sideAgentSessionId) {
           setActive(input.workspaceId, {
-            ...current,
+            ...stateFromProjection(current, projector.getSnapshot()),
             status: "error",
-            activeTurnId: null,
             error: "side_send_failed"
           });
         }
@@ -518,6 +402,7 @@ export function createAgentSideConversationRuntime(
     async close(input) {
       const active = snapshots.get(input.workspaceId)?.active;
       if (active?.sideAgentSessionId === input.sideAgentSessionId) {
+        projectors.delete(input.sideAgentSessionId);
         setActive(input.workspaceId, null);
       }
       releaseTransportSubscriptionsIfUnused();
@@ -559,6 +444,7 @@ export function createAgentSideConversationRuntime(
       }
       listeners.clear();
       snapshots.clear();
+      projectors.clear();
       pendingCloses.clear();
     }
   };
