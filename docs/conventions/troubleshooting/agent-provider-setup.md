@@ -478,21 +478,21 @@ file or directory`. If the CLI path exists but `codex app-server` cannot
 - Fix:
   Keep the CLI's transport failure message explicit about the sandbox but
   provider-neutral. The Tutti Desktop host explicitly enables command network
-  access only for the built-in `tutti-agent` through
-  `agentdaemon.Config.CommandNetworkAccessPolicy`. Derive this decision from
-  the provider registry's app-server runtime kind and local-IPC execution
-  strategy instead of branching on provider identity. This preserves the
-  permission-mode filesystem sandbox and approval policy. Codex continues to
-  use `sandbox_permissions=require_escalated`, while ACP providers should use
-  an execution environment with localhost/IPC access and not invent Codex
+  access for the built-in `codex` and `tutti-agent` app-servers through
+  `agentdaemon.Config.CommandNetworkAccessPolicy`. Keep this an explicit
+  provider-registry Desktop opt-in instead of branching on provider identity or
+  granting every future app-server network access. This preserves the
+  permission-mode filesystem sandbox and approval policy. Codex should run the
+  CLI normally first and use `sandbox_permissions=require_escalated` only as a
+  fallback for hosts that do not grant command networking. ACP providers should
+  use an execution environment with localhost/IPC access and not invent Codex
   flags.
 - Validation:
   Verify the default adapter policy enables
-  `sandboxPolicy.networkAccess=true` for `tutti-agent` read-only and
-  workspace-write turns but leaves Codex disabled. Verify the Desktop host
-  policy rejects Codex, external ACP IDs, and empty provider IDs. Retain CLI
-  daemon-client coverage for provider-neutral agent hints and provider runtime
-  policy coverage so only Codex receives
+  `sandboxPolicy.networkAccess=true` for Codex and `tutti-agent` read-only and
+  workspace-write turns. Verify the Desktop host policy rejects Claude Code,
+  external ACP IDs, and empty provider IDs. Retain CLI daemon-client coverage
+  for provider-neutral agent hints and Codex fallback coverage for
   `sandbox_permissions=require_escalated`.
 - References:
   [client.go](../../../apps/cli/internal/daemon/client.go)

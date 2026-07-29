@@ -47,7 +47,7 @@ func TestResolveAnalyticsDebugPublisherSkipsDisabledAnalytics(t *testing.T) {
 	}
 }
 
-func TestTuttiDesktopCommandNetworkAccessPolicyAllowsOnlyTuttiAgent(t *testing.T) {
+func TestTuttiDesktopCommandNetworkAccessPolicyAllowsOptedInAppServers(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
@@ -55,7 +55,8 @@ func TestTuttiDesktopCommandNetworkAccessPolicyAllowsOnlyTuttiAgent(t *testing.T
 		want     bool
 	}{
 		{provider: providerregistry.TuttiAgentProviderID, want: true},
-		{provider: providerregistry.CodexProviderID, want: false},
+		{provider: providerregistry.CodexProviderID, want: true},
+		{provider: providerregistry.ClaudeCodeProviderID, want: false},
 		{provider: "acp:custom-agent", want: false},
 		{provider: "", want: false},
 	} {
