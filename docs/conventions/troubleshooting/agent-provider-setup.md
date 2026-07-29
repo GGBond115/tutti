@@ -753,6 +753,44 @@ file or directory`. If the CLI path exists but `codex app-server` cannot
   [codex_model_catalog.go](../../../services/tuttid/service/agent/codex_model_catalog.go)
   [codex_model_catalog_test.go](../../../services/tuttid/service/agent/codex_model_catalog_test.go)
 
+### Codex composer model and reasoning selectors stay loading
+
+- Symptom:
+  The empty Codex composer shows loading placeholders for both model and
+  reasoning, even though provider status reports Codex as ready.
+- Quick checks:
+  Correlate a ready Codex provider snapshot in `tuttid.log` with
+  `agent.composer_options.load` in `tutti-desktop.log`. A duration near 15
+  seconds with `errorCode=ETIMEDOUT` means the Desktop request deadline expired
+  before Composer Options returned. If tuttid later logs
+  `superfluous response.WriteHeader`, or a detached `codex app-server` remains
+  after the request, the canceled handler did not finish cleaning up its
+  discovery subprocess.
+- Root cause:
+  Codex Composer Options needs both `model/list` and the app-server capability
+  catalog. Running those independent, individually bounded probes in series
+  can exceed the Desktop's aggregate request deadline. A second failure mode
+  occurs when timeout kills only the JavaScript launcher: its native child
+  inherits stdout, the response scanner never receives EOF, and deferred
+  `Wait` cannot run because it sits behind that scanner.
+- Fix:
+  Start model-catalog loading before capability discovery so the two independent
+  app-server exchanges overlap. Run every short-lived Codex app-server in its
+  own process group, begin process reaping immediately, and make timeout cancel
+  the entire group. Keep the Desktop deadline unchanged so a genuinely stuck
+  daemon request still fails closed.
+- Validation:
+  Block both catalog fixtures and assert both start before either is released.
+  Use a fake app-server whose child retains stdout and assert model and
+  capability timeouts return promptly with no surviving child. Finally, time a
+  cold Composer Options request and confirm it completes within the Desktop
+  deadline.
+- References:
+  [composer_options.go](../../../services/tuttid/service/agent/composer_options.go)
+  [codex_appserver_process.go](../../../services/tuttid/service/agent/codex_appserver_process.go)
+  [codex_model_catalog.go](../../../services/tuttid/service/agent/codex_model_catalog.go)
+  [codex_capability_catalog.go](../../../services/tuttid/service/agent/codex_capability_catalog.go)
+
 ### Codex custom model_provider mixes models, duplicates replies, or shows metadata warnings
 
 - Symptom:
