@@ -455,35 +455,50 @@ file or directory`. If the CLI path exists but `codex app-server` cannot
 ### Agent sandbox cannot reach local daemon
 
 - Symptom:
-  An AgentGUI-backed Codex turn runs a dynamic Tutti CLI command such as
-  `tutti-dev automation --help` and gets `daemon is not reachable`, while
-  `~/.tutti-dev/run/tuttid.listener.json` exists and the desktop daemon is
-  running.
+  An AgentGUI-backed Codex-compatible turn runs a dynamic Tutti CLI command
+  such as `tutti agent get --session-id <id>` and gets
+  `reasonCode=daemon_unavailable` or `daemon is not reachable`, while the
+  listener file exists and the desktop daemon is serving other requests.
 - Quick checks:
   Inspect the turn context in the provider session JSONL. If
   `network_access=false`, a plain `exec_command` cannot reach localhost/IPC.
-  For Codex sessions, also confirm the command was not rerun with
+  Identify the executing provider from that same session instead of inferring
+  it from a queried session ID. For Codex sessions, also confirm the command
+  was not rerun with
   `sandbox_permissions=require_escalated`. Other providers need their own
   local-daemon-capable shell/runtime path, not Codex-specific sandbox syntax.
 - Root cause:
   Dynamic CLI scopes fetch command capabilities from the local daemon before
   printing scope help. In a sandboxed provider command environment, localhost
-  access can be blocked even though the daemon is reachable from the host.
+  access can be blocked even though the daemon is reachable from the host. For
+  a Codex-compatible app-server, omitting
+  `sandboxPolicy.networkAccess=true` from a `readOnly` or `workspaceWrite` turn
+  creates this exact split between successful host requests and failed
+  in-sandbox CLI requests.
 - Fix:
-  In agent environments, keep the CLI's transport failure message explicit
-  about the sandbox but provider-neutral. Put provider-specific recovery steps
-  in the injected runtime policy: Codex can use
-  `sandbox_permissions=require_escalated`, while ACP providers should be told to
-  use an execution environment with localhost/IPC access and not to invent Codex
+  Keep the CLI's transport failure message explicit about the sandbox but
+  provider-neutral. The Tutti Desktop host explicitly enables command network
+  access only for the built-in `tutti-agent` through
+  `agentdaemon.Config.CommandNetworkAccessPolicy`. Derive this decision from
+  the provider registry's app-server runtime kind and local-IPC execution
+  strategy instead of branching on provider identity. This preserves the
+  permission-mode filesystem sandbox and approval policy. Codex continues to
+  use `sandbox_permissions=require_escalated`, while ACP providers should use
+  an execution environment with localhost/IPC access and not invent Codex
   flags.
 - Validation:
-  Add CLI daemon-client coverage that non-agent failures keep the plain
-  `daemon is not reachable` message, while agent failures include the
-  localhost/IPC execution-environment hint. Add provider policy coverage so only
-  Codex receives `sandbox_permissions=require_escalated`.
+  Verify the default adapter policy enables
+  `sandboxPolicy.networkAccess=true` for `tutti-agent` read-only and
+  workspace-write turns but leaves Codex disabled. Verify the Desktop host
+  policy rejects Codex, external ACP IDs, and empty provider IDs. Retain CLI
+  daemon-client coverage for provider-neutral agent hints and provider runtime
+  policy coverage so only Codex receives
+  `sandbox_permissions=require_escalated`.
 - References:
   [client.go](../../../apps/cli/internal/daemon/client.go)
   [run.go](../../../apps/cli/internal/app/run.go)
+  [agent daemon runtime.go](../../../packages/agent/daemon/runtime.go)
+  [tuttid command network policy](../../../services/tuttid/agent_command_network_policy.go)
 
 ### Codex provider install fails with missing npm
 

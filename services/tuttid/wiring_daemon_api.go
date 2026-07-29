@@ -284,7 +284,8 @@ func buildDaemonAPI(
 		AdapterResolver: agentextensionservice.RuntimeResolver{
 			Manager: agentExtensionManager, Transport: sessionRecordingTransport, Host: agentHostMetadata,
 		},
-		ProviderCommandResolver: agentProviderCommandResolver(&agentStatusService),
+		ProviderCommandResolver:    agentProviderCommandResolver(&agentStatusService),
+		CommandNetworkAccessPolicy: tuttiDesktopCommandNetworkAccessPolicy,
 	}
 	agentRuntimeConfig = applyAgentReplayRuntimeComposition(agentRuntimeConfig, replayComposition)
 	agentRuntime, err := agentdaemon.NewRuntime(agentRuntimeConfig)
