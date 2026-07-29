@@ -19,10 +19,12 @@ import {
   desktopComputerUseStatusesEqual,
   type DesktopComputerUseStatus
 } from "@shared/contracts/ipc";
+import { useService } from "@tutti-os/infra/di";
 import type {
   AgentProviderStatusSnapshot,
   IAgentProviderStatusService
 } from "../services/agentProviderStatusService.interface";
+import { IAgentEnvService } from "../services/agentEnvService.interface.ts";
 import {
   desktopAccountRefreshProviders,
   ensureDesktopManagedAgentProviderStatuses,
@@ -259,6 +261,7 @@ export function useDesktopAgentGUIReadiness(input: {
       ]);
     }
   }, [accountState.loginStatus, accountUserId, agentProviderStatusService]);
+  const agentEnvService = useService(IAgentEnvService);
   const handleProviderReadinessGateAction = useCallback(
     (
       actionProvider: AgentGUIProvider,
@@ -271,12 +274,18 @@ export function useDesktopAgentGUIReadiness(input: {
         void agentProviderStatusService?.refresh([actionProvider]);
         return;
       }
+      if (action === "choose") {
+        // The runtime choice lives in the setup wizard's picker, not in a
+        // daemon action, so open the wizard for this provider.
+        agentEnvService.open({ provider: actionProvider });
+        return;
+      }
       void agentProviderStatusService?.runAction(actionProvider, action, {
         context: { workbenchHost: host, workspaceId },
         origin: "user"
       });
     },
-    [agentProviderStatusService, host, workspaceId]
+    [agentEnvService, agentProviderStatusService, host, workspaceId]
   );
   const providerReadinessGates = useMemo(() => {
     const gates = projectDesktopAgentProviderReadinessGates({

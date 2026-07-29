@@ -35,6 +35,10 @@ export const enAgentGui = {
   providerGateUnavailableDescription:
     "We could not confirm that {{provider}} is ready. Try checking again.",
   providerGateRetryAction: "Check again",
+  providerGateRuntimeSelectionTitle: "Choose which {{provider}} to use",
+  providerGateRuntimeSelectionDescription:
+    "Multiple {{provider}} installations were found — pick one to continue.",
+  providerGateRuntimeSelectionAction: "Choose",
   providerGatePendingInstall: "Connecting…",
   providerGatePendingLogin: "Opening sign in…",
   providerGatePendingRefresh: "Checking…",

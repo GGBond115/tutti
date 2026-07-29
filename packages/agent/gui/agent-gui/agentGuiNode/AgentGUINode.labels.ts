@@ -181,6 +181,17 @@ export function useAgentGUIViewLabels(input: {
         { provider: displayProviderLabel }
       ),
       providerGateRetryAction: t("agentHost.agentGui.providerGateRetryAction"),
+      providerGateRuntimeSelectionTitle: t(
+        "agentHost.agentGui.providerGateRuntimeSelectionTitle",
+        { provider: displayProviderLabel }
+      ),
+      providerGateRuntimeSelectionDescription: t(
+        "agentHost.agentGui.providerGateRuntimeSelectionDescription",
+        { provider: displayProviderLabel }
+      ),
+      providerGateRuntimeSelectionAction: t(
+        "agentHost.agentGui.providerGateRuntimeSelectionAction"
+      ),
       providerGatePendingInstall: t(
         "agentHost.agentGui.providerGatePendingInstall"
       ),
