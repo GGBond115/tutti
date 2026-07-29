@@ -117,8 +117,9 @@ Identity, time, and state use canonical representations. Unknown enum values pro
 AgentGUI / Message Center / host surface
   -> typed intent or AgentActivityRuntime command
   -> workspace AgentSessionEngine
-  -> injected command port
-  -> Desktop or Mobile workspace activity adapter
+  -> shared typed lifecycle effect projection
+  -> Desktop or Mobile AgentSessionEffectPort
+     (host-only commands use the narrow EngineExtensionCommand adapter)
   -> tuttid HTTP and product adapter
   -> packages/agent/host
   -> canonical store transaction + provider runtime port
@@ -596,6 +597,13 @@ disable submission, but must not change editor editability.
   Event callbacks that need current canonical data read the engine snapshot at
   event time instead of retaining a whole-workspace render snapshot
 - lifecycle writes use typed intents/commands
+- the Engine alone translates shared activation, prompt send, settings update,
+  turn cancel, Interaction response, pin, and batch-delete commands into
+  `AgentSessionEffectPort` calls. Desktop and Mobile implement those semantic
+  methods and must not duplicate a command-type switch for them. Platform-only
+  commands remain in each host's `EngineExtensionCommand` adapter. Every effect
+  propagates the Engine-owned AbortSignal to its transport; a required settings
+  precondition rechecks cancellation before prompt send
 - consumers do not read reducer maps directly
 - consumers do not create canonical session/message mirrors
 - optimistic records define confirmation, rejection, timeout, and uncertain-delivery paths
@@ -901,10 +909,15 @@ High-frequency transcript updates must not pair DOM mutation with unconditional 
 Transcript end-following is one UI-local state machine shared by DOM, TanStack
 Virtual, and React Native adapters. It has only `following` and `detached`
 modes. User scroll-away intent detaches synchronously, before the first scroll
-frame. Conversation selection, prompt submission, an explicit scroll-to-end
-request, or the user actually reaching the end may reattach. Content growth,
-layout effects, observers, virtualizer geometry, and near-end thresholds are
-sensors or executors only; they must not transition the mode.
+frame. A mounted detail view retains the scroll anchor and follow-end mode for
+each exact Agent Session it visits. First selection follows the end; returning
+to a detached Session restores its retained position, while returning to a
+following Session stays at the end. This memory expires with the mounted view
+and never enters navigation, Engine, or Session state. Prompt submission, an
+explicit scroll-to-end request, or the user actually reaching the end may
+reattach. Content growth, layout effects, observers, virtualizer geometry, and
+near-end thresholds are sensors or executors only; they must not transition the
+mode.
 
 Turn-level virtualization has one geometry owner. When the transcript is
 virtualized and the state machine is `following`, TanStack Virtual owns append
@@ -1191,7 +1204,8 @@ remains a separate adjacent action, and all controls stay disabled while an
 activation update is unresolved. The Desktop command host and HTTP adapter must
 preserve the optimistic CAS revision and both optional preferences; dropping
 any field turns a valid UI intent into a stale or semantically mismatched
-response.
+response. Tutti Desktop always advertises the Tutti Mode host capability;
+historical `lab.tuttiMode` preference values do not hide or disable it.
 
 The preference popup uses two independent 0-100 sliders. `effect` raises the
 minimum model capability and task-verification breadth. `speed` asks the
@@ -1589,14 +1603,23 @@ The controller's new-conversation command must distinguish rail placement from
 the active Session's runtime working directory before entering the home
 composer. A Session in the Chats section may have a generated `cwd`, but that
 path is not a selected user project and must be cleared. A Session in a
-canonical project section keeps its working directory, while a command already
-on the home composer preserves the user's explicit project selection. Views
-only forward new-conversation intent; unresolved active rail membership fails
-closed rather than guessing from composer presentation fields.
+canonical project section resolves that section key back to the registered
+project root; its runtime `cwd` may instead be a nested directory or isolated
+worktree and is never reused as project identity. “Continue in new
+conversation” uses the same resolution before moving the mention draft to
+Home. A command already on the home composer preserves the user's explicit
+project selection. Views only forward new-conversation intent; unresolved
+active rail membership fails closed rather than guessing from composer
+presentation fields.
 For delegated/shared execution, the initiating caller remains the placement
 authority: the adapter forwards that caller-selected `RailPlacement` through
 the binding to the owner Host. The owner persists the same section key and does
 not recompute it from the owner's user-project list.
+The Agent CLI handoff adapter also inherits the caller Session's runtime `cwd`
+so the delegate starts inside the same checkout or linked worktree. If a
+project-backed caller has no runtime `cwd`, its canonical project path is the
+fallback. A supplied caller Session ID that cannot be resolved fails the start
+instead of creating a detached Session in an allocator directory.
 
 ### 7.2 Existing conversation submit
 
@@ -1731,8 +1754,9 @@ Do not start by adding a fallback to the visible component.
 
 ### 8.1 Agent settings surface
 
-The desktop settings panel's Agent section has four independently gated tabs:
-General Settings, Agent Runtime, Custom Agents, and Automation. The Agent
+The desktop settings panel's Agent section has General Settings, Agent Runtime,
+and Custom Agents available by default; Automation remains independently
+gated. The Agent
 Runtime tab renders provider rows from the authoritative
 identity catalog plus the live `IAgentProviderStatusService`; it does not copy
 a provider registry. Its Enable/Disable control reads all Agent Targets from
