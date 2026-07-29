@@ -207,7 +207,13 @@ export function useComposerPaletteCatalog({
             label: capLabel,
             description: capDescription,
             settingsAriaLabel: capSettingsLabel,
-            settingsLabel: labels.capabilityInlineSettingsLabel,
+            // Tutti Mode has no inline settings surface (its "settings" button
+            // was a no-op), so omit the label to drop the button entirely; the
+            // row body still toggles the capability.
+            settingsLabel:
+              command.capability === "tutti"
+                ? undefined
+                : labels.capabilityInlineSettingsLabel,
             disabled: capabilityControlsReadOnly,
             selectAction:
               command.capability === "computerUse" &&

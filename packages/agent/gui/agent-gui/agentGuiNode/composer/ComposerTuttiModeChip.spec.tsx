@@ -22,18 +22,23 @@ function chipProps(
 }
 
 describe("ComposerTuttiModeChip", () => {
-  it("arms tutti mode through the activation callback", () => {
+  it("arms tutti mode through the activation callback", async () => {
     const onTuttiModeChange = vi.fn();
     render(<ComposerTuttiModeChip {...chipProps({ onTuttiModeChange })} />);
 
     expect(screen.getByText("Tutti Mode")).toBeInTheDocument();
-    // The chip shows only icon + label + switch; the description stays a tooltip.
+    // The chip shows only icon + label + switch; the description surfaces in a
+    // hover tooltip (design-system Tooltip), not inline.
     expect(
       screen.queryByText("Plan first, then orchestrate agents")
     ).not.toBeInTheDocument();
-    expect(
-      screen.getByTestId("agent-gui-composer-tutti-mode-toggle")
-    ).toHaveAttribute("title", "Plan first, then orchestrate agents");
+    fireEvent.pointerMove(
+      screen.getByTestId("agent-gui-composer-tutti-mode-toggle"),
+      { pointerType: "mouse" }
+    );
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Plan first, then orchestrate agents"
+    );
     const toggle = screen.getByTestId(
       "agent-gui-composer-tutti-mode-toggle-switch"
     );

@@ -1,5 +1,11 @@
 import { useId, useState } from "react";
-import { Switch } from "@tutti-os/ui-system";
+import {
+  Switch,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from "@tutti-os/ui-system";
 import { cn } from "../../../app/renderer/lib/utils";
 import tuttiModeLinedIconUrl from "../../../app/renderer/assets/icons/tutti-mode-lined.svg";
 import tuttiSnapStarsLightUrl from "../../../app/renderer/assets/animations/tutti-snap-stars-light.png";
@@ -43,53 +49,59 @@ export function ComposerTuttiModeChip({
     return null;
   }
   return (
-    <label
-      htmlFor={switchId}
-      title={description ?? label}
-      data-testid="agent-gui-composer-tutti-mode-toggle"
-      data-agent-tutti-mode-active={active ? "true" : undefined}
-      className={cn(
-        styles.composerMenuTrigger,
-        "group w-auto !gap-1.5",
-        updating ? "cursor-wait" : "cursor-pointer"
-      )}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <span
-        aria-hidden
-        className={styles.composerTuttiModeIcon}
-        data-snap-active={shouldPlaySnap ? "true" : undefined}
-      >
-        <span
-          className={styles.composerTuttiModeIconStatic}
-          style={{
-            WebkitMaskImage: `url("${tuttiModeLinedIconUrl}")`,
-            WebkitMaskPosition: "center",
-            WebkitMaskRepeat: "no-repeat",
-            WebkitMaskSize: "contain",
-            maskImage: `url("${tuttiModeLinedIconUrl}")`,
-            maskPosition: "center",
-            maskRepeat: "no-repeat",
-            maskSize: "contain"
-          }}
-        />
-        {shouldPlaySnap ? (
-          <ComposerTuttiModeSnapAnimation active={active} />
-        ) : null}
-      </span>
-      <span className="min-w-0 truncate">{label}</span>
-      <Switch
-        id={switchId}
-        size="sm"
-        checked={active}
-        disabled={updating}
-        aria-label={label}
-        className="ml-0.5"
-        data-testid="agent-gui-composer-tutti-mode-toggle-switch"
-        onCheckedChange={(checked) => onTuttiModeChange(checked)}
-      />
-    </label>
+    <TooltipProvider delayDuration={120}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <label
+            htmlFor={switchId}
+            data-testid="agent-gui-composer-tutti-mode-toggle"
+            data-agent-tutti-mode-active={active ? "true" : undefined}
+            className={cn(
+              styles.composerMenuTrigger,
+              "group w-auto !gap-1.5",
+              updating ? "cursor-wait" : "cursor-pointer"
+            )}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+          >
+            <span
+              aria-hidden
+              className={styles.composerTuttiModeIcon}
+              data-snap-active={shouldPlaySnap ? "true" : undefined}
+            >
+              <span
+                className={styles.composerTuttiModeIconStatic}
+                style={{
+                  WebkitMaskImage: `url("${tuttiModeLinedIconUrl}")`,
+                  WebkitMaskPosition: "center",
+                  WebkitMaskRepeat: "no-repeat",
+                  WebkitMaskSize: "contain",
+                  maskImage: `url("${tuttiModeLinedIconUrl}")`,
+                  maskPosition: "center",
+                  maskRepeat: "no-repeat",
+                  maskSize: "contain"
+                }}
+              />
+              {shouldPlaySnap ? (
+                <ComposerTuttiModeSnapAnimation active={active} />
+              ) : null}
+            </span>
+            <span className="min-w-0 truncate">{label}</span>
+            <Switch
+              id={switchId}
+              size="sm"
+              checked={active}
+              disabled={updating}
+              aria-label={label}
+              className="ml-0.5"
+              data-testid="agent-gui-composer-tutti-mode-toggle-switch"
+              onCheckedChange={(checked) => onTuttiModeChange(checked)}
+            />
+          </label>
+        </TooltipTrigger>
+        <TooltipContent side="top">{description ?? label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
