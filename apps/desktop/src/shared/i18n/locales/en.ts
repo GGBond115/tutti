@@ -287,7 +287,7 @@ export const en = {
       runtimeTitle: "Choose Codex CLI",
       runtimeDiscovering: "Checking local Codex CLI installations…",
       runtimeSelectionRequiredDescription:
-        "More than one working Codex CLI was found. Choose the one Tutti should use.",
+        "Tutti found more than one working Codex CLI on this machine and won't guess which to use. Pick one below — each option shows where it's installed and its path. You can change this later in Agent setup.",
       runtimeStaleDescription:
         "The Codex CLI you chose is no longer available. Choose another working installation.",
       runtimeChangeDescription:
@@ -1361,6 +1361,7 @@ export const en = {
           "Unable to update the local agent right now. Try again in a moment.",
         updateFailedTimedOut: "Update timed out. Try again in a moment.",
         loginRequired: "Sign in to the local CLI to use this agent",
+        manageActionChoose: "Choose",
         manageActionConnect: "Connect",
         manageActionLogin: "Sign in",
         manageActionOpeningLogin: "Opening...",
@@ -1384,6 +1385,7 @@ export const en = {
         manageStatusAvailable: "Available to connect",
         manageStatusChecking: "Checking",
         manageStatusConnected: "Connected",
+        manageStatusSelectionRequired: "Multiple installs — choose one",
         manageStatusUnknown: "Status unavailable",
         manageStatusUnsupported: "Updating in background",
         manageTitle: "Manage Agents",

@@ -895,6 +895,13 @@ function ReadyWorkspaceWorkbenchWithSession({
           open={agentProviderManageDialogOpen}
           workbenchHost={workbenchHost}
           workspaceId={state.workspace.id}
+          onChooseRuntime={(provider) => {
+            // Hand off to the setup wizard, which renders the runtime picker
+            // for the blocked provider. Close this table first so the two
+            // dialogs never stack.
+            setAgentProviderManageDialogOpen(false);
+            agentEnvService.open({ provider });
+          }}
           onOpenChange={setAgentProviderManageDialogOpen}
         />
         <WorkspaceLaunchpadOverlay

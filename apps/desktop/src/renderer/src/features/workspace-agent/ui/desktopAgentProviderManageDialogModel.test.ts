@@ -25,6 +25,7 @@ test("projects ready provider as connected without an action", () => {
       pending: false,
       primaryActionId: null,
       provider: "codex",
+      runtimeSelectionRequired: false,
       status: "connected"
     }
   );
@@ -49,6 +50,7 @@ test("projects not installed provider to a connect action", () => {
       pending: false,
       primaryActionId: "install",
       provider: "hermes",
+      runtimeSelectionRequired: false,
       status: "available"
     }
   );
@@ -73,6 +75,7 @@ test("projects auth required provider to a login action", () => {
       pending: false,
       primaryActionId: "login",
       provider: "claude-code",
+      runtimeSelectionRequired: false,
       status: "auth_required"
     }
   );
@@ -128,15 +131,37 @@ test("projects missing provider as checking while loading", () => {
       pending: false,
       primaryActionId: null,
       provider: "hermes",
+      runtimeSelectionRequired: false,
       status: "checking"
     }
   );
+});
+
+test("flags codex runtime selection so the host can offer a choose action", () => {
+  const row = projectDesktopAgentProviderManageRow({
+    isLoading: false,
+    pendingActions: [],
+    provider: "codex",
+    status: createStatus({
+      actions: [],
+      adapterInstalled: true,
+      availability: "unknown",
+      availabilityReasonCode: "codex_runtime_selection_required",
+      provider: "codex"
+    })
+  });
+
+  assert.equal(row.runtimeSelectionRequired, true);
+  // Stays "unknown" in the status enum; the flag is what drives the CTA.
+  assert.equal(row.status, "unknown");
+  assert.equal(row.primaryActionId, null);
 });
 
 function createStatus(input: {
   actions: AgentProviderStatus["actions"];
   adapterInstalled: boolean;
   availability: AgentProviderStatus["availability"]["status"];
+  availabilityReasonCode?: string | null;
   provider: WorkspaceAgentProvider;
 }): AgentProviderStatus {
   return {
@@ -149,7 +174,8 @@ function createStatus(input: {
       status: input.availability === "auth_required" ? "required" : "unknown"
     },
     availability: {
-      status: input.availability
+      status: input.availability,
+      reasonCode: input.availabilityReasonCode ?? null
     },
     cli: {
       installed: input.availability !== "not_installed"
