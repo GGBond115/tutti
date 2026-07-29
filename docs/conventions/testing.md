@@ -66,9 +66,9 @@ run the owning package and transitive workspace dependents' tests; tool-only
 changes keep the context as a passing no-op because repository tool tests belong
 to `Tooling Consistency`. Lockfile, workspace, shared test configuration, runner,
 deleted-package, and relevant root manifest changes run all package tests.
-Selected packages are distributed across at most three runner shards; packages
-inside each runner remain serial so their own test workers do not oversubscribe
-the runner.
+Selected packages are greedily balanced across at most three runner shards by
+their discovered test file counts; packages inside each runner remain serial so
+their own test workers do not oversubscribe the runner.
 
 A package that declares a `test` script must contain at least one package-local
 `*.test.*` or `*.spec.*` file. The root runner rejects zero-test scripts so an

@@ -225,8 +225,30 @@ export function shardWorkspaceTestPackages(packages, shard) {
   if (shard === null) {
     return packages;
   }
-  return packages.filter(
-    (_packageConfig, index) => index % shard.total === shard.index - 1
+
+  const buckets = Array.from({ length: shard.total }, () => ({
+    packageNames: new Set(),
+    testFileCount: 0
+  }));
+  const packagesByWeight = packages
+    .map((packageConfig, index) => ({ index, packageConfig }))
+    .sort(
+      (left, right) =>
+        (right.packageConfig.testFileCount ?? 1) -
+          (left.packageConfig.testFileCount ?? 1) || left.index - right.index
+    );
+
+  for (const { packageConfig } of packagesByWeight) {
+    const bucket = buckets.reduce((lightest, candidate) =>
+      candidate.testFileCount < lightest.testFileCount ? candidate : lightest
+    );
+    bucket.packageNames.add(packageConfig.name);
+    bucket.testFileCount += packageConfig.testFileCount ?? 1;
+  }
+
+  const selectedNames = buckets[shard.index - 1].packageNames;
+  return packages.filter((packageConfig) =>
+    selectedNames.has(packageConfig.name)
   );
 }
 

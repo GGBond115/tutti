@@ -158,3 +158,26 @@ test("partitions workspace tests deterministically by plan order", () => {
   );
   assert.deepEqual(shardWorkspaceTestPackages(packages, null), packages);
 });
+
+test("balances workspace test shards by package test file count", () => {
+  const packages = [
+    { name: "heavy", root: "apps/heavy", testFileCount: 100 },
+    { name: "medium", root: "apps/medium", testFileCount: 90 },
+    { name: "small-one", root: "packages/small-one", testFileCount: 30 },
+    { name: "small-two", root: "packages/small-two", testFileCount: 30 },
+    { name: "small-three", root: "packages/small-three", testFileCount: 30 }
+  ];
+
+  assert.deepEqual(
+    shardWorkspaceTestPackages(packages, { index: 1, total: 3 }),
+    [packages[0]]
+  );
+  assert.deepEqual(
+    shardWorkspaceTestPackages(packages, { index: 2, total: 3 }),
+    [packages[1]]
+  );
+  assert.deepEqual(
+    shardWorkspaceTestPackages(packages, { index: 3, total: 3 }),
+    packages.slice(2)
+  );
+});
