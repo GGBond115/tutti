@@ -14,6 +14,8 @@ jobs:
     name: PR Change Classification
     runs-on: ubuntu-latest
     outputs:
+      pack_all: ${{ steps.changed-files.outputs.pack_all }}
+      pack_packages: ${{ steps.changed-files.outputs.pack_packages }}
       run_boundaries: ${{ steps.changed-files.outputs.run_boundaries }}
       run_contracts: ${{ steps.changed-files.outputs.run_contracts }}
       run_generated: ${{ steps.changed-files.outputs.run_generated }}
@@ -221,7 +223,15 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate package tarballs
-        run: pnpm release:pack:check
+        env:
+          PACK_ALL: ${{ needs.changes.outputs.pack_all }}
+          PACK_PACKAGES: ${{ needs.changes.outputs.pack_packages }}
+        run: >-
+          if [ "${PACK_ALL}" = "true" ]; then
+            pnpm release:pack:check;
+          else
+            pnpm release:pack:check -- --packages-json "${PACK_PACKAGES}";
+          fi
 
   go-tests:
     name: Go Tests

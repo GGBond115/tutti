@@ -37,6 +37,24 @@ test("language jobs do not own repository checks", () => {
   }
 });
 
+test("package pack CI receives the classified package subset", () => {
+  const changes = workflow.jobs.changes;
+  const packJob = workflow.jobs["npm-package-packs"];
+  const packStep = packJob.steps.find(
+    (step) => step.name === "Validate package tarballs"
+  );
+
+  assert.equal(
+    changes.outputs.pack_packages,
+    "${{ steps.changed-files.outputs.pack_packages }}"
+  );
+  assert.equal(
+    packStep.env.PACK_PACKAGES,
+    "${{ needs.changes.outputs.pack_packages }}"
+  );
+  assert.match(packStep.run, /--packages-json/u);
+});
+
 function stepScripts(job) {
   return job.steps.map((step) => step.run ?? "").join("\n");
 }
