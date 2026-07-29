@@ -31,6 +31,7 @@ type sessionRuntimeSnapshot struct {
 	WorkspaceAgentRevision      int64
 	HarnessAgentTargetID        string
 	Provider                    string
+	LegacyEmptyOpenProvider     bool
 	Model                       string
 	ModelConfigurationSource    string
 	ModelPlanID                 string
@@ -66,6 +67,7 @@ func (s *Service) AgentSessionCommandCapabilityProjection(
 	}
 	snapshot, exists, err := sessionRuntimeSnapshotFromContext(
 		result.Canonical.InternalRuntimeContext,
+		result.Canonical.Provider,
 	)
 	if err != nil {
 		return nil, err
@@ -97,7 +99,7 @@ func runtimeContextWithSessionRuntimeSnapshot(
 		"version":              sessionRuntimeSnapshotVersion,
 		"agentTargetId":        strings.TrimSpace(input.AgentTargetID),
 		"harnessAgentTargetId": harnessAgentTargetID,
-		"provider":             agentprovider.Normalize(provider),
+		"provider":             agentprovider.NormalizeOpen(provider),
 		"model":                strings.TrimSpace(value(input.Model)),
 		"modelConfiguration": map[string]any{
 			"source":       configuration.Source,
@@ -179,7 +181,10 @@ func sessionRuntimeEffectiveConfig(input CreateSessionInput) map[string]any {
 	return result
 }
 
-func sessionRuntimeSnapshotFromContext(runtimeContext map[string]any) (sessionRuntimeSnapshot, bool, error) {
+func sessionRuntimeSnapshotFromContext(
+	runtimeContext map[string]any,
+	fallbackProviders ...string,
+) (sessionRuntimeSnapshot, bool, error) {
 	raw, exists := runtimeContext[sessionRuntimeSnapshotContextKey]
 	if !exists {
 		return sessionRuntimeSnapshot{}, false, nil
@@ -196,11 +201,12 @@ func sessionRuntimeSnapshotFromContext(runtimeContext map[string]any) (sessionRu
 	if !ok {
 		return sessionRuntimeSnapshot{}, true, fmt.Errorf("%w: model configuration is missing", ErrSessionRuntimeSnapshotUnavailable)
 	}
+	rawProvider := snapshotString(payload["provider"])
 	snapshot := sessionRuntimeSnapshot{
 		Version:                     int(version),
 		AgentTargetID:               snapshotString(payload["agentTargetId"]),
 		HarnessAgentTargetID:        snapshotString(payload["harnessAgentTargetId"]),
-		Provider:                    agentprovider.Normalize(snapshotString(payload["provider"])),
+		Provider:                    agentprovider.NormalizeOpen(rawProvider),
 		Model:                       snapshotString(payload["model"]),
 		ModelConfigurationSource:    snapshotString(configuration["source"]),
 		ModelPlanID:                 snapshotString(configuration["modelPlanId"]),
@@ -221,6 +227,16 @@ func sessionRuntimeSnapshotFromContext(runtimeContext map[string]any) (sessionRu
 	}
 	if revision, ok := snapshotUint64(configuration["modelPlanRevision"]); ok {
 		snapshot.ModelPlanRevision = revision
+	}
+	if snapshot.Provider == "" && rawProvider == "" && len(fallbackProviders) > 0 {
+		fallbackProvider := agentprovider.NormalizeOpen(fallbackProviders[0])
+		if fallbackProvider != "" &&
+			agentprovider.Normalize(fallbackProvider) == "" &&
+			snapshot.ModelConfigurationSource == modelConfigurationSourceProviderNative &&
+			snapshot.ModelFingerprint == legacyEmptyProviderNativeModelFingerprint(snapshot.AgentTargetID) {
+			snapshot.Provider = fallbackProvider
+			snapshot.LegacyEmptyOpenProvider = true
+		}
 	}
 	if snapshot.AgentTargetID == "" || snapshot.HarnessAgentTargetID == "" || snapshot.Provider == "" || snapshot.ModelFingerprint == "" {
 		return sessionRuntimeSnapshot{}, true, fmt.Errorf("%w: launch identity is incomplete", ErrSessionRuntimeSnapshotUnavailable)
@@ -265,7 +281,10 @@ func (s *Service) modelEndpointFromSessionRuntimeSnapshot(
 ) (*runtimeprep.ModelEndpointConfig, error) {
 	if snapshot.ModelConfigurationSource == modelConfigurationSourceProviderNative {
 		expected := newProviderNativeModelConfiguration(snapshot.Provider, snapshot.AgentTargetID)
-		if expected.Fingerprint != snapshot.ModelFingerprint {
+		if expected.Fingerprint != snapshot.ModelFingerprint &&
+			(!snapshot.LegacyEmptyOpenProvider ||
+				legacyEmptyProviderNativeModelFingerprint(snapshot.AgentTargetID) !=
+					snapshot.ModelFingerprint) {
 			return nil, fmt.Errorf("%w: provider-native fingerprint does not match", ErrSessionRuntimeSnapshotUnavailable)
 		}
 		return nil, nil
@@ -352,10 +371,11 @@ func modelPlanFingerprintMatchesSnapshot(snapshot sessionRuntimeSnapshot, plan m
 func (s *Service) validateSessionModelAgainstRuntimeSnapshot(
 	ctx context.Context,
 	workspaceID string,
+	provider string,
 	runtimeContext map[string]any,
 	model string,
 ) error {
-	snapshot, exists, err := sessionRuntimeSnapshotFromContext(runtimeContext)
+	snapshot, exists, err := sessionRuntimeSnapshotFromContext(runtimeContext, provider)
 	if err != nil || !exists {
 		return err
 	}
@@ -387,12 +407,20 @@ func (s *Service) applyHarnessFromSessionRuntimeSnapshot(
 		return fmt.Errorf("%w: harness launch reference is invalid", ErrSessionRuntimeSnapshotUnavailable)
 	}
 	provider, _ := providerTargetRef["provider"].(string)
-	if agentprovider.Normalize(provider) != snapshot.Provider {
+	if agentprovider.NormalizeOpen(provider) != snapshot.Provider {
 		return fmt.Errorf("%w: harness provider does not match", ErrSessionRuntimeSnapshotUnavailable)
 	}
 	input.HarnessAgentTargetID = snapshot.HarnessAgentTargetID
 	input.ProviderTargetRef = providerTargetRef
 	return nil
+}
+
+func legacyEmptyProviderNativeModelFingerprint(agentTargetID string) string {
+	return fingerprintModelConfiguration(modelConfigurationFingerprintPayload{
+		Provider:      "",
+		AgentTargetID: strings.TrimSpace(agentTargetID),
+		Source:        modelConfigurationSourceProviderNative,
+	})
 }
 
 func normalizedSnapshotStrings(values []string) []string {

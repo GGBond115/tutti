@@ -1759,13 +1759,26 @@ Turn state, loading, cancel, restore, file-change undo, rail projection, event u
 - Symptom:
   An Agent Extension conversation works until `tuttid` restarts. Its history
   remains visible, but AgentGUI says it cannot resume on this device and only
-  offers continuing through an `@` mention.
+  offers continuing through an `@` mention. In an affected live extension
+  session, the `tutti` shim can be present on `PATH` while many public commands,
+  including `tutti agent list`, return `command_not_found`. After restart,
+  sending to the same session can fail with
+  `session runtime snapshot is unavailable: launch identity is incomplete`.
 - Quick checks:
   Confirm the persisted session still has `provider_session_id` and
   `agent_target_id`. If the Target remains enabled and names a fixed extension
   installation, compare list-time `resumable` calculation with the actual
   Resume path. An empty process-local adapter registry after restart is not
   evidence that the session cannot be restored.
+  For the CLI variant, first distinguish discovery from routing: look for
+  `tutti cli shim ready` in Desktop logs and `path_contains_tutti_bin=true` in
+  the provider process diagnostics. If both are present but the provider tool
+  reports `unknown command`, compare
+  `workspace_agent_sessions.provider` with
+  `internal_runtime_context_json.$.sessionRuntimeSnapshot.provider`. An
+  extension provider such as `acp:<name>` beside an empty snapshot provider,
+  followed by `launch identity is incomplete`, identifies the durable snapshot
+  path rather than a PATH or listener failure.
 - Root cause:
   Dynamic Agent Extension adapters are created on demand and cached only for
   the daemon lifetime. Computing `resumable` from that cache maps restart state
@@ -1773,7 +1786,14 @@ Turn state, loading, cancel, restore, file-change undo, rail projection, event u
   The same false result occurs when an adapter rebuilds the runtime resume input
   but drops `agentTargetId`: the fixed Target ref then fails the controller's
   complete binding check even though persistence and Target resolution are
-  correct.
+  correct. A separate snapshot variant occurs when provider-neutral metadata
+  uses the closed built-in-provider normalizer for an open extension identity.
+  The writer then persists an empty provider and fingerprints the
+  provider-native configuration with that empty value. Session-scoped CLI
+  capability projection validates the snapshot before returning the command
+  catalog; validation failure collapses discovery to an empty catalog, so
+  otherwise valid commands appear unknown. Runtime resume rejects the same
+  incomplete identity after daemon restart.
 - Fix:
   At the service boundary, re-derive `ProviderTargetRef` from the persisted
   session's enabled `agentTargetId`. At the runtime boundary, validate the
@@ -1786,15 +1806,27 @@ Turn state, loading, cancel, restore, file-change undo, rail projection, event u
   preserve `agentTargetId` and `ProviderTargetRef` together. Cover the complete
   service-to-adapter-to-controller path instead of testing each endpoint with
   independently constructed valid inputs.
+  Persist and compare snapshot provider metadata with the open provider
+  normalizer; launch authority still comes exclusively from the exact enabled
+  Agent Target. For already-written empty-provider extension snapshots, recover
+  only when the canonical session provider is a valid unregistered open
+  identity, the snapshot declares provider-native configuration, and its
+  fingerprint exactly matches the historical empty-provider payload. Keep
+  every other malformed or mismatched snapshot fail-closed, and do not rewrite
+  the database merely to make discovery succeed.
 - Validation:
   Start from a controller with no cached extension adapter. Assert a persisted
   Target-bound session is resumable, malformed or mismatched bindings fail
   closed, and the eligibility check does not launch the provider. Then run
   `go test ./packages/agent/daemon/runtime ./services/tuttid/service/agent`.
+  Also cover new extension snapshots preserving `acp:*`, verified legacy
+  empty-provider recovery, registered-provider fallback rejection, CLI command
+  projection for the recovered session, and runtime preparation after restart.
 - References:
   [controller_session_registry.go](../../../packages/agent/daemon/runtime/controller_session_registry.go)
   [agent_runtime_adapter.go](../../../services/tuttid/agent_runtime_adapter.go)
   [service_session.go](../../../services/tuttid/service/agent/service_session.go)
+  [session_runtime_snapshot.go](../../../services/tuttid/service/agent/session_runtime_snapshot.go)
   [agent-extensions.md](../../architecture/agent-extensions.md)
 
 ### An authorized observer loops unavailable while a session is resuming

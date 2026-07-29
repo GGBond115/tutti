@@ -23,7 +23,9 @@ Use the focused runtime index or open one area directly:
   Includes shared-device recovery that looks terminal while the host is still retrying.
   Also covers new-conversation requests that silently fail after a Chats
   Session working directory is mistaken for a selected project, and one hung
-  provider startup blocking unrelated Agent sessions. Includes cassette replay
+  provider startup blocking unrelated Agent sessions. Extension snapshot
+  failures that erase the Agent's Tutti CLI command catalog or block restart
+  resume are covered here as well. Includes cassette replay
   startup that fails when concurrent provider input and output are treated as a
   strict scheduling order, false final-state mismatches caused by replay-generated
   child identities, and canonical completion delayed behind a streaming activity-report
