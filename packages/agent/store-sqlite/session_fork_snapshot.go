@@ -292,17 +292,71 @@ func nextSessionForkTargetTitleTx(
 	if sourceTitle == "" {
 		return "", nil
 	}
-	var activeForkCount int64
+
+	familyRootSessionID := sourceAgentSessionID
 	if err := tx.QueryRowContext(ctx, `
-SELECT COUNT(*)
-FROM workspace_agent_session_fork_operations
-WHERE workspace_id = ?
-  AND source_agent_session_id = ?
-  AND status <> ?
-`, workspaceID, sourceAgentSessionID, SessionForkStatusFailed).Scan(&activeForkCount); err != nil {
-		return "", fmt.Errorf("count source session forks for title: %w", err)
+WITH RECURSIVE ancestors(agent_session_id) AS (
+  SELECT ?
+  UNION
+  SELECT fork.source_agent_session_id
+  FROM workspace_agent_session_forks fork
+  JOIN ancestors
+    ON ancestors.agent_session_id = fork.target_agent_session_id
+  WHERE fork.workspace_id = ?
+)
+SELECT ancestor.agent_session_id
+FROM ancestors ancestor
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM workspace_agent_session_forks parent_fork
+  WHERE parent_fork.workspace_id = ?
+    AND parent_fork.target_agent_session_id = ancestor.agent_session_id
+)
+LIMIT 1
+`, sourceAgentSessionID, workspaceID, workspaceID).Scan(&familyRootSessionID); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("resolve session fork title family root: %w", err)
+		}
+		familyRootSessionID = sourceAgentSessionID
 	}
-	return fmt.Sprintf("%s (%d)", sourceTitle, activeForkCount+2), nil
+
+	baseTitle := sourceTitle
+	var familyRootTitle string
+	if err := tx.QueryRowContext(ctx, `
+SELECT title
+FROM workspace_agent_sessions
+WHERE workspace_id = ? AND agent_session_id = ?
+`, workspaceID, familyRootSessionID).Scan(&familyRootTitle); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("read session fork title family root: %w", err)
+		}
+	} else if familyRootTitle = strings.TrimSpace(familyRootTitle); familyRootTitle != "" {
+		baseTitle = familyRootTitle
+	}
+
+	var familyForkCount int64
+	if err := tx.QueryRowContext(ctx, `
+WITH RECURSIVE family(agent_session_id) AS (
+  SELECT ?
+  UNION
+  SELECT operation.target_agent_session_id
+  FROM workspace_agent_session_fork_operations operation
+  JOIN family
+    ON family.agent_session_id = operation.source_agent_session_id
+  WHERE operation.workspace_id = ?
+    AND operation.status <> ?
+)
+SELECT COUNT(*)
+FROM workspace_agent_session_fork_operations operation
+JOIN family
+  ON family.agent_session_id = operation.source_agent_session_id
+WHERE operation.workspace_id = ?
+  AND operation.status <> ?
+`, familyRootSessionID, workspaceID, SessionForkStatusFailed, workspaceID,
+		SessionForkStatusFailed).Scan(&familyForkCount); err != nil {
+		return "", fmt.Errorf("count session fork title family: %w", err)
+	}
+	return fmt.Sprintf("%s (%d)", baseTitle, familyForkCount+2), nil
 }
 
 func sessionForkResultLineage(

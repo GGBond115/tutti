@@ -586,6 +586,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
       conversation.sourceDetail.session.kind !== "root" ||
       lifecycleCapabilities.forkThroughTurn !== true ||
       !canonicalTurn ||
+      canonicalTurn.phase !== "settled" ||
       canonicalTurn.providerForkBindingAvailable !== true
     ) {
       return null;

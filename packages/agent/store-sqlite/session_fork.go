@@ -95,6 +95,12 @@ func (s *Store) PrepareSessionFork(ctx context.Context, input SessionForkPrepare
 			"selected turn does not exist in the source session",
 		)
 	}
+	if selected.Phase != TurnPhaseSettled {
+		return SessionForkOperation{}, false, newSessionForkBoundaryError(
+			SessionForkBoundaryReasonTurnNotSettled,
+			fmt.Sprintf("selected turn phase is %q, want %q", selected.Phase, TurnPhaseSettled),
+		)
+	}
 	if err := tx.QueryRowContext(ctx, `
 SELECT turn_sequence
 FROM workspace_agent_turn_sequences
@@ -436,6 +442,12 @@ func (s *Store) CheckSessionForkThroughTurn(
 		return rejectedSessionForkBoundary(
 			SessionForkBoundaryReasonTurnNotFound,
 			"selected turn does not exist in the source session",
+		), false, nil
+	}
+	if turn.Phase != TurnPhaseSettled {
+		return rejectedSessionForkBoundary(
+			SessionForkBoundaryReasonTurnNotSettled,
+			fmt.Sprintf("selected turn phase is %q, want %q", turn.Phase, TurnPhaseSettled),
 		), false, nil
 	}
 	var sequence int64

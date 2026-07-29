@@ -100,11 +100,34 @@ async function forkClaudeSessionResolved(
   requireIdentity(checkpointId, "checkpoint message id");
 
   onStage("provider_fork");
-  const forkResult = await sdk.forkSession(input.sessionId, {
-    ...options,
-    upToMessageId: checkpointId,
-    ...(input.title.trim() ? { title: input.title.trim() } : {})
-  });
+  let forkResult;
+  try {
+    forkResult = await forkProviderSession(sdk, input, options, checkpointId);
+  } catch (error) {
+    if (
+      !input.providerCheckpointMessageId.trim() ||
+      !isMissingPersistedCheckpoint(error, input.sessionId, checkpointId)
+    ) {
+      throw error;
+    }
+    // Older Tutti builds could persist UUIDs from Claude's ephemeral
+    // session_state_changed notifications. The official SDK rejects that
+    // checkpoint before creating a child, so this one recovery lookup is safe
+    // and cannot duplicate a provider session.
+    const sourceMessages = (await sdk.getSessionMessages(
+      input.sessionId,
+      transcriptReadOptions
+    )) as SDKMessage[];
+    const recoveredCheckpointId = checkpointForProviderTurn(
+      sourceMessages,
+      input.providerTurnId
+    );
+    if (recoveredCheckpointId === checkpointId) {
+      throw error;
+    }
+    checkpointId = recoveredCheckpointId;
+    forkResult = await forkProviderSession(sdk, input, options, checkpointId);
+  }
   const childSessionId = messageIdentity(forkResult?.sessionId);
   requireUUID(childSessionId, "forked provider session id");
   if (childSessionId === input.sessionId) {
@@ -148,6 +171,31 @@ async function forkClaudeSessionResolved(
     stateBindingReceipt: `claude-sdk-fork-v2:${receipt}`,
     deliveryDisposition: "accepted"
   };
+}
+
+function forkProviderSession(
+  sdk: ClaudeForkSDK,
+  input: ForkInput,
+  options: { dir?: string },
+  checkpointId: string
+) {
+  return sdk.forkSession(input.sessionId, {
+    ...options,
+    upToMessageId: checkpointId,
+    ...(input.title.trim() ? { title: input.title.trim() } : {})
+  });
+}
+
+function isMissingPersistedCheckpoint(
+  error: unknown,
+  sessionId: string,
+  checkpointId: string
+): boolean {
+  return (
+    error instanceof Error &&
+    error.message.trim() ===
+      `Message ${checkpointId} not found in session ${sessionId}`
+  );
 }
 
 class ClaudeForkError extends Error {

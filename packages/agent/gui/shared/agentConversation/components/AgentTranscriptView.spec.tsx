@@ -327,7 +327,7 @@ describe("AgentTranscriptView", () => {
   });
 
   it.each(["codex", "claude-code", "cursor", "opencode"])(
-    "shows Fork while a provider-bound %s Turn is running",
+    "hides Fork while a provider-bound %s Turn is running",
     (provider) => {
       const detail = detailViewModel();
       const runningTurn = canonicalTurn();
@@ -365,14 +365,14 @@ describe("AgentTranscriptView", () => {
       );
 
       expect(
-        screen.getByRole("button", {
+        screen.queryByRole("button", {
           name: "agentHost.agentGui.forkThroughTurn"
         })
-      ).not.toBeDisabled();
+      ).toBeNull();
     }
   );
 
-  it("keeps Fork visible when the running Turn settles", () => {
+  it("exposes Fork only after the running Turn settles", () => {
     const detail = detailViewModel();
     const runningTurn = canonicalTurn();
     const runningConversation = projectAgentConversationVM(
@@ -423,10 +423,10 @@ describe("AgentTranscriptView", () => {
     );
 
     expect(
-      screen.getByRole("button", {
+      screen.queryByRole("button", {
         name: "agentHost.agentGui.forkThroughTurn"
       })
-    ).not.toBeDisabled();
+    ).toBeNull();
 
     rerender(
       <AgentTranscriptView
@@ -447,7 +447,7 @@ describe("AgentTranscriptView", () => {
     ).not.toBeDisabled();
   });
 
-  it("keeps Fork available on both settled and active provider-bound Turns", () => {
+  it("keeps an older settled Turn forkable while the current Turn is active", () => {
     const detail = detailViewModel();
     const runningTurn = canonicalTurn({
       turnId: "turn-active",
@@ -508,11 +508,9 @@ describe("AgentTranscriptView", () => {
     const buttons = screen.getAllByRole("button", {
       name: "agentHost.agentGui.forkThroughTurn"
     });
-    expect(buttons).toHaveLength(2);
+    expect(buttons).toHaveLength(1);
     fireEvent.click(buttons[0]!);
     expect(onForkThroughTurn).toHaveBeenCalledWith("turn-1");
-    fireEvent.click(buttons[1]!);
-    expect(onForkThroughTurn).toHaveBeenCalledWith("turn-active");
 
     const settledActiveTurn = {
       ...runningTurn,

@@ -127,7 +127,7 @@ func GoalScenarios() []Scenario {
 // weakening the base Driver contract for providers that do not implement it.
 func SessionForkScenarios() []SessionForkScenario {
 	return []SessionForkScenario{
-		{Name: "active through-turn binding can fork", run: runActiveBoundaryFork},
+		{Name: "settled through-turn binding can fork while source is active", run: runActiveSourceFork},
 		{Name: "through-turn fork replay does not redispatch provider", run: runThroughTurnForkReplay},
 		{Name: "provider-accepted fork recovers local commit", run: runProviderAcceptedForkRecovery},
 	}

@@ -251,47 +251,104 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'target'
 	}
 }
 
-func TestSessionForkNormalizesActiveBoundaryInFrozenTarget(t *testing.T) {
-	t.Parallel()
-	store := openTestStore(t, testOptions(&staticProjectPaths{}))
-	ctx := context.Background()
-	seedForkSession(t, store)
-	if _, err := store.db.ExecContext(ctx, `
+func TestSessionForkRejectsUnsettledSelectedTurn(t *testing.T) {
+	for _, phase := range []string{TurnPhaseRunning, TurnPhaseWaiting} {
+		phase := phase
+		t.Run(phase, func(t *testing.T) {
+			t.Parallel()
+			store := openTestStore(t, testOptions(&staticProjectPaths{}))
+			ctx := context.Background()
+			seedForkSession(t, store)
+			if _, err := store.db.ExecContext(ctx, `
 UPDATE workspace_agent_turns
-SET phase = 'running', outcome = NULL, settled_at_unix_ms = NULL,
+SET phase = ?, outcome = NULL, settled_at_unix_ms = NULL,
     root_provider_turn_phase = 'running', root_provider_turn_outcome = NULL
 WHERE workspace_id = 'ws-1' AND agent_session_id = 'source' AND turn_id = 'turn-1'
-`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.db.ExecContext(ctx, `
+`, phase); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.db.ExecContext(ctx, `
 UPDATE workspace_agent_sessions
 SET active_turn_id = 'turn-1'
 WHERE workspace_id = 'ws-1' AND agent_session_id = 'source'
 `); err != nil {
+				t.Fatal(err)
+			}
+
+			boundary, supported, err := store.CheckSessionForkThroughTurn(
+				ctx, "ws-1", "source", "turn-1",
+			)
+			if err != nil || supported ||
+				boundary.RejectionReason != SessionForkBoundaryReasonTurnNotSettled {
+				t.Fatalf(
+					"CheckSessionForkThroughTurn() boundary=%#v supported=%v error=%v",
+					boundary,
+					supported,
+					err,
+				)
+			}
+
+			_, changed, err := store.PrepareSessionFork(ctx, SessionForkPrepare{
+				OperationID: "fork-" + phase, WorkspaceID: "ws-1",
+				RequestID: "request-" + phase, RequestHash: "hash-" + phase,
+				SourceAgentSessionID: "source",
+				TargetAgentSessionID: "target-" + phase,
+				SourceTurnID:         "turn-1",
+				PointKind:            SessionForkPointThroughTurn,
+				DriverKind:           "codex",
+				DriverVersion:        "1",
+				OccurredAtUnixMS:     100,
+			})
+			var boundaryErr *SessionForkBoundaryError
+			if changed || !errors.Is(err, ErrSessionForkTurnState) ||
+				!errors.As(err, &boundaryErr) ||
+				boundaryErr.Reason != SessionForkBoundaryReasonTurnNotSettled {
+				t.Fatalf("PrepareSessionFork() changed=%v error=%v", changed, err)
+			}
+		})
+	}
+}
+
+func TestSessionForkAllowsSettledBoundaryWhileNewerTurnIsActive(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	seedForkSession(t, store)
+	if _, err := store.ReportActivityState(ctx, ActivityStateReport{
+		Session: SessionStateReport{
+			WorkspaceID: "ws-1", AgentSessionID: "source", Kind: SessionKindRoot,
+			Origin: "runtime", Provider: "codex", ProviderSessionID: "provider-source",
+			Status: "active", CurrentPhase: "working", OccurredAtUnixMS: 30,
+		},
+		Turn: &TurnTransition{
+			WorkspaceID: "ws-1", AgentSessionID: "source", TurnID: "turn-3",
+			Phase: TurnPhaseRunning, OccurredAtUnixMS: 30,
+		},
+		RootProviderTurn: &RootProviderTurnTransition{
+			WorkspaceID: "ws-1", RootAgentSessionID: "source", RootTurnID: "turn-3",
+			ProviderTurnID: "provider-turn-3", Phase: RootProviderTurnPhaseRunning,
+			OccurredAtUnixMS: 30,
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
-	result := commitFork(t, store, SessionForkPrepare{
-		OperationID: "fork-active", WorkspaceID: "ws-1",
-		RequestID: "request-active", RequestHash: "hash-active",
-		SourceAgentSessionID: "source", TargetAgentSessionID: "target-active",
-		SourceTurnID: "turn-1", DriverKind: "codex", DriverVersion: "1",
-		OccurredAtUnixMS: 100,
-	})
-	turns, err := store.ListSessionTurns(ctx, "ws-1", "target-active")
-	if err != nil || len(turns) != 1 ||
-		turns[0].TurnID != result.Operation.TargetTurnID ||
-		turns[0].Phase != TurnPhaseSettled ||
-		turns[0].Outcome != TurnOutcomeInterrupted {
-		t.Fatalf("target active-boundary turns=%#v error=%v", turns, err)
+	if _, supported, err := store.CheckSessionForkThroughTurn(
+		ctx, "ws-1", "source", "turn-2",
+	); err != nil || !supported {
+		t.Fatalf("CheckSessionForkThroughTurn() supported=%v error=%v", supported, err)
 	}
-	target, found, err := store.GetSession(ctx, "ws-1", "target-active")
-	if err != nil || !found || target.ActiveTurnID != "" {
-		t.Fatalf("target session=%#v found=%v error=%v", target, found, err)
-	}
-	source, found, err := store.GetSession(ctx, "ws-1", "source")
-	if err != nil || !found || source.ActiveTurnID != "turn-1" {
-		t.Fatalf("source session=%#v found=%v error=%v", source, found, err)
+	if _, changed, err := store.PrepareSessionFork(ctx, SessionForkPrepare{
+		OperationID: "fork-settled", WorkspaceID: "ws-1",
+		RequestID: "request-settled", RequestHash: "hash-settled",
+		SourceAgentSessionID: "source",
+		TargetAgentSessionID: "target-settled",
+		SourceTurnID:         "turn-2",
+		PointKind:            SessionForkPointThroughTurn,
+		DriverKind:           "codex",
+		DriverVersion:        "1",
+		OccurredAtUnixMS:     100,
+	}); err != nil || !changed {
+		t.Fatalf("PrepareSessionFork() changed=%v error=%v", changed, err)
 	}
 }
 
@@ -381,7 +438,7 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'source' AND turn_id = 'turn-
 	}
 }
 
-func TestSessionForkTitlesIncrementPerSourceSession(t *testing.T) {
+func TestSessionForkTitlesIncrementAcrossForkFamily(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
 	ctx := context.Background()
@@ -404,28 +461,28 @@ func TestSessionForkTitlesIncrementPerSourceSession(t *testing.T) {
 	if first.Session.Title != "123 (2)" {
 		t.Fatalf("first Fork title=%q, want %q", first.Session.Title, "123 (2)")
 	}
-	if _, found, changed, err := store.AcknowledgeSessionForkOperation(
-		ctx,
-		"ws-1",
-		"fork-title-1",
-		104,
-	); err != nil || !found || !changed {
-		t.Fatalf(
-			"AcknowledgeSessionForkOperation() found=%v changed=%v error=%v",
-			found,
-			changed,
-			err,
-		)
-	}
 	second := commitFork(t, store, SessionForkPrepare{
 		OperationID: "fork-title-2", WorkspaceID: "ws-1",
 		RequestID: "request-title-2", RequestHash: "hash-title-2",
-		SourceAgentSessionID: "source", TargetAgentSessionID: "target-title-2",
-		SourceTurnID: "turn-2", DriverKind: "codex", DriverVersion: "1",
-		OccurredAtUnixMS: 200,
+		SourceAgentSessionID: "target-title-1",
+		TargetAgentSessionID: "target-title-2",
+		SourceTurnID:         first.Operation.TargetTurnID,
+		DriverKind:           "codex",
+		DriverVersion:        "1",
+		OccurredAtUnixMS:     200,
 	})
 	if second.Session.Title != "123 (3)" {
 		t.Fatalf("second Fork title=%q, want %q", second.Session.Title, "123 (3)")
+	}
+	third := commitFork(t, store, SessionForkPrepare{
+		OperationID: "fork-title-3", WorkspaceID: "ws-1",
+		RequestID: "request-title-3", RequestHash: "hash-title-3",
+		SourceAgentSessionID: "source", TargetAgentSessionID: "target-title-3",
+		SourceTurnID: "turn-2", DriverKind: "codex", DriverVersion: "1",
+		OccurredAtUnixMS: 300,
+	})
+	if third.Session.Title != "123 (4)" {
+		t.Fatalf("third Fork title=%q, want %q", third.Session.Title, "123 (4)")
 	}
 }
 

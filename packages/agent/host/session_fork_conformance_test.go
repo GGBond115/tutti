@@ -155,24 +155,30 @@ func (d *sqliteSessionForkConformanceDriver) ResetSessionFork(
 	}); err != nil {
 		return err
 	}
-	if fixture.KeepBoundaryActive {
-		turn, found, err := d.store.GetTurn(
-			ctx, "workspace-fork", "session-source", "turn-boundary",
-		)
-		if err != nil || !found || turn.RootProviderTurnID == "" {
-			return errors.Join(err, errors.New(
-				"active fork boundary provider binding was not durable",
-			))
-		}
-		if _, supported, err := d.store.CheckSessionForkThroughTurn(
-			ctx, "workspace-fork", "session-source", "turn-boundary",
-		); err != nil || !supported {
-			return errors.Join(err, errors.New(
-				"active fork boundary was not eligible",
-			))
-		}
+	if result, err := d.store.ReportActivityState(ctx, storesqlite.ActivityStateReport{
+		Session: storesqlite.SessionStateReport{
+			WorkspaceID:       "workspace-fork",
+			AgentSessionID:    "session-source",
+			Kind:              storesqlite.SessionKindRoot,
+			Origin:            "user",
+			Provider:          "codex",
+			ProviderSessionID: "provider-source",
+			Cwd:               "/workspace",
+			OccurredAtUnixMS:  30,
+		},
+		RootProviderTurn: &storesqlite.RootProviderTurnTransition{
+			WorkspaceID:        "workspace-fork",
+			RootAgentSessionID: "session-source",
+			RootTurnID:         "turn-boundary",
+			ProviderTurnID:     "provider-turn",
+			Phase:              storesqlite.RootProviderTurnPhaseCompleted,
+			Outcome:            storesqlite.TurnOutcomeCompleted,
+			OccurredAtUnixMS:   30,
+		},
+	}); err != nil || !result.RootTurnAccepted {
+		return errors.Join(err, errors.New("seed settled fork boundary was rejected"))
 	}
-	if !fixture.KeepBoundaryActive {
+	if fixture.KeepSourceActive {
 		if result, err := d.store.ReportActivityState(ctx, storesqlite.ActivityStateReport{
 			Session: storesqlite.SessionStateReport{
 				WorkspaceID:       "workspace-fork",
@@ -182,19 +188,25 @@ func (d *sqliteSessionForkConformanceDriver) ResetSessionFork(
 				Provider:          "codex",
 				ProviderSessionID: "provider-source",
 				Cwd:               "/workspace",
-				OccurredAtUnixMS:  30,
+				OccurredAtUnixMS:  31,
+			},
+			Turn: &storesqlite.TurnTransition{
+				WorkspaceID:      "workspace-fork",
+				AgentSessionID:   "session-source",
+				TurnID:           "turn-active",
+				Phase:            storesqlite.TurnPhaseRunning,
+				OccurredAtUnixMS: 31,
 			},
 			RootProviderTurn: &storesqlite.RootProviderTurnTransition{
 				WorkspaceID:        "workspace-fork",
 				RootAgentSessionID: "session-source",
-				RootTurnID:         "turn-boundary",
-				ProviderTurnID:     "provider-turn",
-				Phase:              storesqlite.RootProviderTurnPhaseCompleted,
-				Outcome:            storesqlite.TurnOutcomeCompleted,
-				OccurredAtUnixMS:   30,
+				RootTurnID:         "turn-active",
+				ProviderTurnID:     "provider-turn-active",
+				Phase:              storesqlite.RootProviderTurnPhaseRunning,
+				OccurredAtUnixMS:   31,
 			},
-		}); err != nil || !result.RootTurnAccepted {
-			return errors.Join(err, errors.New("seed settled fork boundary was rejected"))
+		}); err != nil || !result.TurnAccepted || !result.RootTurnAccepted {
+			return errors.Join(err, errors.New("seed active source turn was rejected"))
 		}
 	}
 
@@ -208,7 +220,7 @@ func (d *sqliteSessionForkConformanceDriver) ResetSessionFork(
 		SessionForkRecovery: forkStore,
 		SessionForkRuntime:  d.runtime,
 	})
-	if fixture.KeepBoundaryActive {
+	if fixture.KeepSourceActive {
 		if _, supported, err := forkStore.CheckSessionForkThroughTurn(
 			ctx, "workspace-fork", "session-source", "turn-boundary",
 		); err != nil || !supported {
@@ -219,7 +231,7 @@ func (d *sqliteSessionForkConformanceDriver) ResetSessionFork(
 				ctx, "workspace-fork", "session-source", "turn-boundary",
 			)
 			return errors.Join(err, fmt.Errorf(
-				"active fork boundary became ineligible after host construction: sessionFound=%v session=%#v sessionErr=%v turnFound=%v turn=%#v turnErr=%v",
+				"settled fork boundary became ineligible while source was active: sessionFound=%v session=%#v sessionErr=%v turnFound=%v turn=%#v turnErr=%v",
 				sessionFound, session, sessionErr, turnFound, turn, turnErr,
 			))
 		}

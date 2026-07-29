@@ -164,17 +164,20 @@ idempotent replay through Host.
 `ForkSession` creates an independent root Session through an inclusive
 canonical `SessionForkPoint`. Availability is intentionally optimistic:
 the provider driver must attest native `throughTurn` support and the selected
-canonical Turn must carry a non-empty provider root Turn binding. Historical
-prefix provenance, settled state, descendants, active work, and pending
-Interactions are not eligibility inputs.
+canonical Turn must be settled and carry a non-empty provider root Turn
+binding. Historical prefix provenance, descendants, active work on other Turns,
+and pending Interactions are not eligibility inputs.
+Target titles use one lineage-family sequence (`Title (2)`, `Title (3)`, ...)
+rather than restarting the suffix when a child Session becomes the next source.
 Every fail-closed boundary rejection retains a stable, content-free reason
 through Host. HTTP adapters may project it as structured diagnostic metadata
 while preserving their existing coarse conflict reason; transcript payloads
 and attachment contents never enter that reason.
 
 Session Fork is default-off behind the `lab.agentSessionFork` product flag.
-Desktop and Tuttid enforce the same opt-in for new Fork writes while retaining
-read and acknowledgement access to existing durable operations.
+Desktop exposes the persisted switch in Developer settings, and Desktop plus
+Tuttid enforce the same opt-in for new Fork writes while retaining read and
+acknowledgement access to existing durable operations.
 
 Capability projection is preparation-free. It reads either the live runtime
 observation or the persisted runtime/driver attestation and never resolves
@@ -188,9 +191,9 @@ referenced by that snapshot. Source reporting and Goal/runtime/submit activity
 continue against the live source; only physical deletion is retained while the
 operation may still need frozen resources. Multiple explicit Forks from the
 same boundary are valid. Host eligibility remains independent of source
-activity. The shared GUI exposes Fork on any provider-bound Turn, including an
-active or waiting Turn, and disables only the exact Turn whose own Fork request
-is currently in flight.
+activity. The shared GUI exposes Fork only on settled, provider-bound Turns,
+including earlier settled Turns while newer work is active, and disables only
+the exact Turn whose own Fork request is currently in flight.
 
 Fork uses the durable
 `prepared -> dispatching -> provider_accepted -> committed` saga. Provider

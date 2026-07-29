@@ -98,6 +98,56 @@ test("Claude fork uses a persisted checkpoint without reading the source transcr
   assert.equal(result.targetProviderCheckpointMessageId, "child-answer-1");
 });
 
+test("Claude fork recovers an ephemeral persisted checkpoint before creating a child", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const sdk = fakeSDK(calls);
+  const forkSession = sdk.forkSession as unknown as (
+    sessionId: string,
+    options?: Record<string, unknown>
+  ) => Promise<{ sessionId: string }>;
+  sdk.forkSession = (async (
+    sessionId: string,
+    options?: Record<string, unknown>
+  ) => {
+    if (options?.upToMessageId === "ephemeral-idle") {
+      calls.push({ sessionId, options });
+      throw new Error("Message ephemeral-idle not found in session source");
+    }
+    return forkSession(sessionId, options);
+  }) as never;
+
+  const result = await forkClaudeSession(
+    {
+      sessionId: "source",
+      providerTurnId: "prompt-1",
+      providerCheckpointMessageId: "ephemeral-idle",
+      cwd: "/workspace",
+      title: "Child"
+    },
+    sdk
+  );
+
+  assert.equal(result.providerSessionId, childSessionId);
+  assert.deepEqual(calls, [
+    {
+      sessionId: "source",
+      options: {
+        dir: "/workspace",
+        upToMessageId: "ephemeral-idle",
+        title: "Child"
+      }
+    },
+    {
+      sessionId: "source",
+      options: {
+        dir: "/workspace",
+        upToMessageId: "answer-1",
+        title: "Child"
+      }
+    }
+  ]);
+});
+
 test("legacy checkpoint lookup keeps task notifications inside the selected turn", async () => {
   const calls: Array<Record<string, unknown>> = [];
   const sdk = fakeSDK(calls);

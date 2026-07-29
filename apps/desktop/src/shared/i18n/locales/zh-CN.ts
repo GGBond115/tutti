@@ -1127,6 +1127,9 @@ export const zhCN = {
         agentSessionRecordingDescription:
           "在 Agent 首页显示会话录制与回放开发入口",
         agentSessionRecordingLabel: "Agent 会话录制",
+        agentSessionForkDescription:
+          "允许从支持的已完成轮次创建新的 Agent 会话",
+        agentSessionForkLabel: "会话 Fork",
         removeFileDefaultOpener: "移除 .{{extension}}",
         releaseChannelDescription: "选择稳定版更新；需要提前验收时可切到预览版",
         releaseChannelLabel: "发布渠道",
@@ -1156,9 +1159,6 @@ export const zhCN = {
         agentInputHistoryDescription:
           "在 Agent 输入框中使用上下键切换当前会话的历史输入",
         agentInputHistoryLabel: "Agent 输入历史",
-        agentSessionForkDescription:
-          "允许从支持的已完成轮次创建新的 Agent 会话分支",
-        agentSessionForkLabel: "Agent 会话分支",
         backLabel: "返回",
         automationRulesDescription: "显示自动化规则配置与会话覆盖选项",
         automationRulesLabel: "自动化规则",

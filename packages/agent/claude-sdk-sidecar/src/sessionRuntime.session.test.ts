@@ -94,6 +94,87 @@ test("Claude-persisted user UUID becomes the provider Turn identity", async () =
   }
 });
 
+test("ephemeral Claude session state UUID does not replace the durable checkpoint", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  try {
+    const session = new SessionRuntime(
+      "provider-session-checkpoint",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => ({
+        async *[Symbol.asyncIterator]() {
+          const iterator = prompt[Symbol.asyncIterator]();
+          const outbound = await iterator.next();
+          yield {
+            ...outbound.value,
+            uuid: "persisted-user-uuid",
+            type: "user",
+            parent_tool_use_id: null,
+            session_id: "provider-session-checkpoint"
+          } as never;
+          yield {
+            type: "assistant",
+            uuid: "persisted-assistant-uuid",
+            parent_tool_use_id: null,
+            session_id: "provider-session-checkpoint",
+            message: {
+              id: "assistant-message",
+              role: "assistant",
+              content: [{ type: "text", text: "hello" }]
+            }
+          } as never;
+          yield {
+            type: "system",
+            subtype: "session_state_changed",
+            state: "idle",
+            uuid: "ephemeral-idle-uuid",
+            parent_tool_use_id: null,
+            session_id: "provider-session-checkpoint"
+          } as never;
+          yield { type: "result", subtype: "success" } as never;
+        },
+        close() {}
+      })
+    );
+
+    await session.start();
+    session.exec(
+      "turn-checkpoint",
+      "hello",
+      undefined,
+      undefined,
+      undefined,
+      "",
+      "outbound-correlation-id"
+    );
+    await waitForEvent(events, "turn_completed");
+
+    const checkpoints = events.filter(
+      (event) => event.type === "provider_turn_checkpoint"
+    );
+    assert.deepEqual(
+      checkpoints.map((event) => event.payload?.providerCheckpointMessageId),
+      ["persisted-user-uuid", "persisted-assistant-uuid"]
+    );
+  } finally {
+    restoreSink();
+  }
+});
+
 test("tutti host context shares one SDK prompt with unchanged user input", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   const messages: Array<{

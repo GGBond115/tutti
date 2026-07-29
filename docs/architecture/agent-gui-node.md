@@ -346,7 +346,10 @@ User-initiated Fork creates a new root Session rather than a provider-native
 subagent. The child records durable lineage to the source Session and inclusive
 boundary Turn, but receives a caller-reserved canonical Session id and a
 provider-created Session id. Canonical Session, Turn, Message, and Interaction
-identities are session-scoped and are remapped during the atomic clone.
+identities are session-scoped and are remapped during the atomic clone. Fork
+titles are allocated across the complete lineage family, so a source titled
+`Session` produces `Session (2)`, `Session (3)`, and so on even when a later
+Fork starts from an earlier child.
 
 ### 3.1.1 Session Fork
 
@@ -369,18 +372,20 @@ it does not prepare or launch a runtime. The full preparation and exact driver
 revalidation happen after the user requests Fork.
 Turn-level eligibility is the single
 `providerForkBindingAvailable` fact projected from a non-empty canonical
-`rootProviderTurnId`. Host eligibility remains optimistic and verifies only
-those two facts. AgentGUI exposes Fork for every provider-bound Turn, including
-an active or waiting Turn. This per-Turn presentation rule is shared by every
-Agent provider. Source activity, pending Interactions, descendants, and
-historical prefix provenance do not hide Fork actions. Only an in-flight Fork
-for that exact canonical Turn disables its button.
+`rootProviderTurnId`, plus the canonical Turn being `settled`. Host eligibility
+remains optimistic and verifies only those selected-Turn facts. AgentGUI
+exposes Fork only for settled, provider-bound Turns. This per-Turn presentation
+rule is shared by every Agent provider. Source activity, pending Interactions,
+descendants, and historical prefix provenance do not hide Fork actions for
+earlier settled Turns. Only an in-flight Fork for that exact canonical Turn
+disables its button.
 
-Session Fork is also a default-off Lab capability. Desktop maps
-`lab.agentSessionFork` to an explicit AgentGUI host opt-in, so provider support
-alone does not expose the action. Tuttid independently enforces the same flag
-on new Fork writes; disabling it leaves existing lineage, operation reads, and
-operation acknowledgements available.
+Session Fork is also a default-off Developer capability. Desktop exposes its
+persisted `lab.agentSessionFork` switch in Developer settings and maps it to an
+explicit AgentGUI host opt-in, so provider support alone does not expose the
+action. Tuttid independently enforces the same flag on new Fork writes;
+disabling it leaves existing lineage, operation reads, and operation
+acknowledgements available.
 
 Execution still rejects a worktree-isolated source because a provider-native
 Fork retains the provider cwd and Tutti must not silently transfer worktree

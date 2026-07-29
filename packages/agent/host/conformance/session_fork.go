@@ -84,22 +84,22 @@ func runProviderAcceptedForkRecovery(
 	return nil
 }
 
-func runActiveBoundaryFork(
+func runActiveSourceFork(
 	ctx context.Context,
 	driver SessionForkDriver,
 ) error {
 	if err := driver.ResetSessionFork(ctx, SessionForkFixture{
-		KeepBoundaryActive: true,
+		KeepSourceActive: true,
 	}); err != nil {
 		return err
 	}
 	result, err := driver.ForkSession(ctx, sessionForkInput())
 	if err != nil {
-		return fmt.Errorf("ForkSession(active boundary): %w", err)
+		return fmt.Errorf("ForkSession(active source): %w", err)
 	}
 	if result.Operation.Status != storesqlite.SessionForkStatusCommitted {
 		return fmt.Errorf(
-			"ForkSession(active boundary) status = %q, want committed",
+			"ForkSession(active source) status = %q, want committed",
 			result.Operation.Status,
 		)
 	}

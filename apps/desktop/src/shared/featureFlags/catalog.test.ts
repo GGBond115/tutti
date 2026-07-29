@@ -94,16 +94,29 @@ test("labFeatureDefinitions excludes the master switch", () => {
 });
 
 test("experimental Agent features require independent Lab opt-ins", () => {
-  const flags = [
-    LAB_AGENT_INPUT_HISTORY_FLAG,
-    LAB_AGENT_SESSION_FORK_FLAG,
-    LAB_AUTOMATION_RULES_FLAG
-  ];
+  const flags = [LAB_AGENT_INPUT_HISTORY_FLAG, LAB_AUTOMATION_RULES_FLAG];
 
   for (const flag of flags) {
     assert.equal(isFeatureEnabled({}, flag), false);
     assert.equal(isFeatureEnabled({ [flag]: true }, flag), true);
   }
+});
+
+test("session Fork keeps its durable flag without appearing in Lab settings", () => {
+  assert.equal(isFeatureEnabled({}, LAB_AGENT_SESSION_FORK_FLAG), false);
+  assert.equal(
+    isFeatureEnabled(
+      { [LAB_AGENT_SESSION_FORK_FLAG]: true },
+      LAB_AGENT_SESSION_FORK_FLAG
+    ),
+    true
+  );
+  assert.equal(
+    labFeatureDefinitions().some(
+      (definition) => definition.key === LAB_AGENT_SESSION_FORK_FLAG
+    ),
+    false
+  );
 });
 
 test("graduated Agent features are not registered as Lab flags", () => {
