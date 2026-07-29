@@ -231,7 +231,6 @@ export {
   selectEngineSessionDetailHydrated,
   selectEngineSessionDetailLoading,
   selectEngineSessionReconcile,
-  selectEngineSessionStateHydrated,
   type AuthoritativeHistoryRequirement
 } from "./engine/sessionReconcile.selectors.ts";
 export {

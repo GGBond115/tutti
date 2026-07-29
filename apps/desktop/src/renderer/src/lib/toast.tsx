@@ -9,8 +9,6 @@ import {
   Toaster
 } from "@tutti-os/ui-system";
 import {
-  desktopToastAutoDismissDelayMs,
-  desktopToastMaximumVisibleDurationMs,
   desktopToastMountKey,
   enqueueDesktopToast,
   type DesktopToastItem,
@@ -86,15 +84,7 @@ export const Toast = {
       }
       toasts = toasts.map((toast) =>
         toast.id === id
-          ? {
-              autoDismissAtUnixMs:
-                Date.now() + desktopToastMaximumVisibleDurationMs,
-              busy: false,
-              description,
-              id,
-              title: nextTitle,
-              tone
-            }
+          ? { busy: false, description, id, title: nextTitle, tone }
           : toast
       );
       emitToastChange();
@@ -119,22 +109,6 @@ export function DesktopToastProvider({
     getSnapshot: getToastSnapshot,
     subscribe: subscribeToToasts
   });
-
-  React.useEffect(() => {
-    const nowUnixMs = Date.now();
-    const timers = snapshot.flatMap((toast) => {
-      const delayMs = desktopToastAutoDismissDelayMs(toast, nowUnixMs);
-      if (delayMs === null) {
-        return [];
-      }
-      return [window.setTimeout(() => dismissToast(toast.id), delayMs)];
-    });
-    return () => {
-      for (const timer of timers) {
-        window.clearTimeout(timer);
-      }
-    };
-  }, [snapshot]);
 
   return (
     <ToastProvider swipeDirection="right">
@@ -179,15 +153,7 @@ export function DesktopToastProvider({
 
 function pushToast(input: Omit<DesktopToastItem, "id">): void {
   const id = `desktop-toast-${++nextToastID}`;
-  const nextToasts = enqueueDesktopToast(
-    toasts,
-    {
-      ...input,
-      autoDismissAtUnixMs: Date.now() + desktopToastMaximumVisibleDurationMs,
-      id
-    },
-    toastLimit
-  );
+  const nextToasts = enqueueDesktopToast(toasts, { ...input, id }, toastLimit);
   if (nextToasts === toasts) {
     return;
   }

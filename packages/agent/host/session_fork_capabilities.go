@@ -2,6 +2,7 @@ package agenthost
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
@@ -22,7 +23,18 @@ func (h *Host) GetSessionForkCapabilities(
 	if err != nil || !found {
 		return SessionForkCapabilities{}, err
 	}
-	runtimeSource := h.sessionForkCapabilityRuntimeSource(sourceSession)
+	runtimeSource, err := h.sessionForkRuntimeSource(ctx, sourceSession)
+	if err != nil {
+		return SessionForkCapabilities{}, err
+	}
+	if _, err := h.prepareSessionForkTargetContext(
+		ctx, sourceSession, runtimeSource,
+	); err != nil {
+		if errors.Is(err, ErrSessionForkUnsupported) {
+			return SessionForkCapabilities{}, nil
+		}
+		return SessionForkCapabilities{}, err
+	}
 	if strings.TrimSpace(runtimeSource.ProviderSessionID) !=
 		strings.TrimSpace(sourceSession.ProviderSessionID) {
 		return SessionForkCapabilities{}, nil
@@ -53,32 +65,43 @@ func (h *Host) GetSessionForkCapabilities(
 				runtimeSource.Provider,
 			),
 	}
+	if !capabilities.ThroughTurn ||
+		!descriptor.ThroughProviderTurnIDsKnown {
+		return capabilities, nil
+	}
+	capabilities.ThroughTurnIDsKnown = true
+	identities, err := h.sessionForks.ListSessionForkTurnIdentities(
+		ctx,
+		input.WorkspaceID,
+		input.SourceAgentSessionID,
+	)
+	if err != nil {
+		return SessionForkCapabilities{}, err
+	}
+	capabilities.ThroughTurnIDs = matchingSessionForkTurnPrefix(
+		identities,
+		descriptor.ThroughProviderTurnIDs,
+	)
+	capabilities.ThroughTurn = len(capabilities.ThroughTurnIDs) != 0
 	return capabilities, nil
 }
 
-// sessionForkCapabilityRuntimeSource is intentionally preparation-free.
-// Capability projection runs on Session detail reads and may only consume a
-// live runtime observation or persisted canonical attestation. Full runtime,
-// target, credential, and worktree preparation belongs to ForkSession.
-func (h *Host) sessionForkCapabilityRuntimeSource(
-	session storesqlite.Session,
-) ProviderRuntimeSession {
-	if h != nil && h.runtime != nil {
-		if live, found := h.runtime.Session(session.WorkspaceID, session.ID); found {
-			return cloneSessionForkRuntimeSource(live)
+func matchingSessionForkTurnPrefix(
+	identities []storesqlite.SessionForkTurnIdentity,
+	providerTurnIDs []string,
+) []string {
+	matched := make([]string, 0, min(len(identities), len(providerTurnIDs)))
+	for index, identity := range identities {
+		if index >= len(providerTurnIDs) ||
+			identity.Phase != storesqlite.TurnPhaseSettled ||
+			strings.TrimSpace(identity.TurnID) == "" ||
+			strings.TrimSpace(identity.ProviderTurnID) == "" ||
+			strings.TrimSpace(identity.ProviderTurnID) != providerTurnIDs[index] {
+			break
 		}
+		matched = append(matched, strings.TrimSpace(identity.TurnID))
 	}
-	settings := composerSettingsFromMap(session.Settings)
-	return ProviderRuntimeSession{
-		ID: session.ID, WorkspaceID: session.WorkspaceID, UserID: session.UserID,
-		AgentTargetID: session.AgentTargetID, Provider: session.Provider,
-		ProviderSessionID: session.ProviderSessionID, Resumable: true,
-		Cwd: session.Cwd, Settings: &settings,
-		RuntimeContext: cloneMap(session.InternalRuntimeContext),
-		Status:         persistedRuntimeStatus(session.ActiveTurnID), Title: session.Title,
-		PinnedAtUnixMS: session.PinnedAtUnixMS, CreatedAtUnixMS: session.CreatedAtUnixMS,
-		UpdatedAtUnixMS: session.UpdatedAtUnixMS,
-	}
+	return matched
 }
 
 func normalizeSessionForkDriverDescriptor(input *SessionForkDriverDescriptor) {
@@ -87,6 +110,26 @@ func normalizeSessionForkDriverDescriptor(input *SessionForkDriverDescriptor) {
 	if input.StateBindingMode == "" {
 		input.StateBindingMode = SessionForkStateBindingHostCopy
 	}
+	if !input.ThroughProviderTurnIDsKnown {
+		input.ThroughProviderTurnIDs = nil
+		return
+	}
+	normalized := make([]string, 0, len(input.ThroughProviderTurnIDs))
+	seen := make(map[string]struct{}, len(input.ThroughProviderTurnIDs))
+	for _, rawTurnID := range input.ThroughProviderTurnIDs {
+		turnID := strings.TrimSpace(rawTurnID)
+		if turnID == "" {
+			input.ThroughProviderTurnIDs = nil
+			return
+		}
+		if _, duplicate := seen[turnID]; duplicate {
+			input.ThroughProviderTurnIDs = nil
+			return
+		}
+		seen[turnID] = struct{}{}
+		normalized = append(normalized, turnID)
+	}
+	input.ThroughProviderTurnIDs = normalized
 }
 
 func validSessionForkStateBindingMode(

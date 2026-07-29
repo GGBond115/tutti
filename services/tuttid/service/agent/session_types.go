@@ -286,8 +286,10 @@ type SessionForkLineage struct {
 // These values are projected from canonical state and the attached runtime;
 // they are deliberately separate from provider/composer capabilities.
 type SessionLifecycleCapabilities struct {
-	Fork            bool
-	ForkThroughTurn bool
+	Fork                    bool
+	ForkThroughTurn         bool
+	ForkThroughTurnIDs      []string
+	ForkThroughTurnIDsKnown bool
 }
 
 type SessionIsolation struct {

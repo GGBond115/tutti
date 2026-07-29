@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -26,11 +25,14 @@ func TestSessionForkConformance(t *testing.T) {
 	}
 }
 
-func TestPreparedSessionForkRecoveryKeepsSnapshotAndDoesNotFenceSourceWrites(t *testing.T) {
+func TestPreparedSessionForkRecoveryReleasesSQLiteFences(t *testing.T) {
 	driver := &sqliteSessionForkConformanceDriver{t: t}
 	if err := driver.ResetSessionFork(t.Context(), hostconformance.SessionForkFixture{}); err != nil {
 		t.Fatal(err)
 	}
+	sourceHash := sessionForkConformanceSourceHash(
+		t, driver.store, "workspace-fork", "session-source",
+	)
 	if _, _, err := driver.store.PrepareSessionFork(
 		t.Context(),
 		storesqlite.SessionForkPrepare{
@@ -41,9 +43,9 @@ func TestPreparedSessionForkRecoveryKeepsSnapshotAndDoesNotFenceSourceWrites(t *
 			SourceAgentSessionID: "session-source",
 			TargetAgentSessionID: "session-abandoned-target",
 			SourceTurnID:         "turn-boundary",
-			PointKind:            storesqlite.SessionForkPointThroughTurn,
 			DriverKind:           "codex-app-server",
 			DriverVersion:        "1",
+			ExpectedSourceHash:   sourceHash,
 			OccurredAtUnixMS:     40,
 		},
 	); err != nil {
@@ -56,7 +58,7 @@ func TestPreparedSessionForkRecoveryKeepsSnapshotAndDoesNotFenceSourceWrites(t *
 		t.Context(), "workspace-fork", "operation-abandoned",
 	)
 	if err != nil || !found ||
-		operation.Status != storesqlite.SessionForkStatusCommitted {
+		operation.Status != storesqlite.SessionForkStatusFailed {
 		t.Fatalf("recovered operation=%#v found=%v error=%v", operation, found, err)
 	}
 	if _, err := driver.store.ReportSessionState(
@@ -70,7 +72,28 @@ func TestPreparedSessionForkRecoveryKeepsSnapshotAndDoesNotFenceSourceWrites(t *
 			OccurredAtUnixMS:  50,
 		},
 	); err != nil {
-		t.Fatalf("source write was fenced by prepared fork: %v", err)
+		t.Fatalf("source remained fenced after recovery: %v", err)
+	}
+	sourceHash = sessionForkConformanceSourceHash(
+		t, driver.store, "workspace-fork", "session-source",
+	)
+	if _, _, err := driver.store.PrepareSessionFork(
+		t.Context(),
+		storesqlite.SessionForkPrepare{
+			OperationID:          "operation-retry",
+			WorkspaceID:          "workspace-fork",
+			RequestID:            "request-retry",
+			RequestHash:          "hash-retry",
+			SourceAgentSessionID: "session-source",
+			TargetAgentSessionID: "session-abandoned-target",
+			SourceTurnID:         "turn-boundary",
+			DriverKind:           "codex-app-server",
+			DriverVersion:        "1",
+			ExpectedSourceHash:   sourceHash,
+			OccurredAtUnixMS:     60,
+		},
+	); err != nil {
+		t.Fatalf("released target could not be reserved again: %v", err)
 	}
 }
 
@@ -178,37 +201,6 @@ func (d *sqliteSessionForkConformanceDriver) ResetSessionFork(
 	}); err != nil || !result.RootTurnAccepted {
 		return errors.Join(err, errors.New("seed settled fork boundary was rejected"))
 	}
-	if fixture.KeepSourceActive {
-		if result, err := d.store.ReportActivityState(ctx, storesqlite.ActivityStateReport{
-			Session: storesqlite.SessionStateReport{
-				WorkspaceID:       "workspace-fork",
-				AgentSessionID:    "session-source",
-				Kind:              storesqlite.SessionKindRoot,
-				Origin:            "user",
-				Provider:          "codex",
-				ProviderSessionID: "provider-source",
-				Cwd:               "/workspace",
-				OccurredAtUnixMS:  31,
-			},
-			Turn: &storesqlite.TurnTransition{
-				WorkspaceID:      "workspace-fork",
-				AgentSessionID:   "session-source",
-				TurnID:           "turn-active",
-				Phase:            storesqlite.TurnPhaseRunning,
-				OccurredAtUnixMS: 31,
-			},
-			RootProviderTurn: &storesqlite.RootProviderTurnTransition{
-				WorkspaceID:        "workspace-fork",
-				RootAgentSessionID: "session-source",
-				RootTurnID:         "turn-active",
-				ProviderTurnID:     "provider-turn-active",
-				Phase:              storesqlite.RootProviderTurnPhaseRunning,
-				OccurredAtUnixMS:   31,
-			},
-		}); err != nil || !result.TurnAccepted || !result.RootTurnAccepted {
-			return errors.Join(err, errors.New("seed active source turn was rejected"))
-		}
-	}
 
 	forkStore := &failOnceSessionForkStore{
 		Store:          d.store,
@@ -220,24 +212,18 @@ func (d *sqliteSessionForkConformanceDriver) ResetSessionFork(
 		SessionForkRecovery: forkStore,
 		SessionForkRuntime:  d.runtime,
 	})
-	if fixture.KeepSourceActive {
-		if _, supported, err := forkStore.CheckSessionForkThroughTurn(
-			ctx, "workspace-fork", "session-source", "turn-boundary",
-		); err != nil || !supported {
-			session, sessionFound, sessionErr := forkStore.GetSession(
-				ctx, "workspace-fork", "session-source",
-			)
-			turn, turnFound, turnErr := forkStore.GetTurn(
-				ctx, "workspace-fork", "session-source", "turn-boundary",
-			)
-			return errors.Join(err, fmt.Errorf(
-				"settled fork boundary became ineligible while source was active: sessionFound=%v session=%#v sessionErr=%v turnFound=%v turn=%#v turnErr=%v",
-				sessionFound, session, sessionErr, turnFound, turn, turnErr,
-			))
-		}
-	}
 	if !fixture.RecoverProviderAccepted {
 		return nil
+	}
+	source, found, err := d.store.GetSession(
+		ctx, "workspace-fork", "session-source",
+	)
+	if err != nil || !found {
+		return errors.Join(err, errors.New("seed source session was not found"))
+	}
+	sourceHash, err := storesqlite.SessionForkSourceHash(source)
+	if err != nil {
+		return err
 	}
 	operation, _, err := d.store.PrepareSessionFork(ctx, storesqlite.SessionForkPrepare{
 		OperationID:          "operation-fork",
@@ -247,9 +233,9 @@ func (d *sqliteSessionForkConformanceDriver) ResetSessionFork(
 		SourceAgentSessionID: "session-source",
 		TargetAgentSessionID: "session-target",
 		SourceTurnID:         "turn-boundary",
-		PointKind:            storesqlite.SessionForkPointThroughTurn,
 		DriverKind:           "codex-app-server",
 		DriverVersion:        "1",
+		ExpectedSourceHash:   sourceHash,
 		OccurredAtUnixMS:     40,
 	})
 	if err != nil {
@@ -267,16 +253,27 @@ func (d *sqliteSessionForkConformanceDriver) ResetSessionFork(
 			OperationID:             operation.OperationID,
 			Status:                  storesqlite.SessionForkStatusProviderAccepted,
 			TargetProviderSessionID: "provider-target",
-			TargetProviderTurnBindings: []storesqlite.SessionForkProviderTurnBinding{{
-				ProviderTurnID:      "forked-provider-turn",
-				CheckpointMessageID: "forked-provider-checkpoint",
-			}},
-			StateBindingMode:    string(agenthost.SessionForkStateBindingProviderOwned),
-			StateBindingReceipt: "conformance-provider-owned-receipt",
-			OccurredAtUnixMS:    42,
+			OccurredAtUnixMS:        42,
 		},
 	)
 	return err
+}
+
+func sessionForkConformanceSourceHash(
+	t *testing.T,
+	store *storesqlite.Store,
+	workspaceID, sessionID string,
+) string {
+	t.Helper()
+	source, found, err := store.GetSession(t.Context(), workspaceID, sessionID)
+	if err != nil || !found {
+		t.Fatalf("GetSession() found=%v error=%v", found, err)
+	}
+	hash, err := storesqlite.SessionForkSourceHash(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
 }
 
 func (d *sqliteSessionForkConformanceDriver) ForkSession(
@@ -341,14 +338,15 @@ func (r *sessionForkConformanceRuntime) ForkSession(
 	input agenthost.RuntimeSessionForkInput,
 ) (agenthost.RuntimeSessionForkResult, error) {
 	r.forkCalls++
+	targetTurnIDs := make([]string, 0, len(input.SourceProviderTurnIDs))
+	for _, sourceID := range input.SourceProviderTurnIDs {
+		targetTurnIDs = append(targetTurnIDs, "forked-"+sourceID)
+	}
 	return agenthost.RuntimeSessionForkResult{
-		ProviderSessionID: "provider-target",
-		TargetProviderTurnBindings: []agenthost.SessionForkProviderTurnBinding{{
-			ProviderTurnID:      "forked-" + input.SourceProviderTurnID,
-			CheckpointMessageID: "checkpoint-" + input.SourceProviderTurnID,
-		}},
-		StateBindingMode:    agenthost.SessionForkStateBindingProviderOwned,
-		StateBindingReceipt: "conformance-provider-owned-receipt",
-		DeliveryDisposition: agenthost.SessionForkDeliveryAccepted,
+		ProviderSessionID:     "provider-target",
+		TargetProviderTurnIDs: targetTurnIDs,
+		StateBindingMode:      agenthost.SessionForkStateBindingProviderOwned,
+		StateBindingReceipt:   "conformance-provider-owned-receipt",
+		DeliveryDisposition:   agenthost.SessionForkDeliveryAccepted,
 	}, nil
 }

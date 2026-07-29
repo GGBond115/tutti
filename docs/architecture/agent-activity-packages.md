@@ -428,24 +428,13 @@ seconds across controller remounts and repeated target switches. In-flight
 request coalescing remains controller-local; the factory shares only resolved
 entries across controllers. The cache never owns session entities, titles,
 lifecycle, or interaction state.
-Pin, delete, and through-Turn Fork are engine mutations, not direct runtime
-calls from AgentGUI.
+Pin and delete are engine mutations, not direct runtime calls from AgentGUI.
 The engine records the pending mutation, emits one semantic command, and feeds
 the command result back through its reducer loop. Successful pin results and
 delete tombstones enter canonical state as follow-up intents in the same engine
 drain. The desktop activity facade may await that engine record, but its command
 port is the only transport executor. Settled mutation records use a bounded
 window; they are workflow evidence, not an unbounded history store.
-Fork is long-lived: an HTTP `202 accepted` keeps the mutation in flight until
-the canonical target Session with matching durable lineage is upserted. The
-Engine disables only another Fork for that exact source Turn. Source activity,
-pending Interactions, and an observation ACK for an already committed child do
-not become Fork availability gates.
-The Desktop activity adapter reconciles an accepted operation through the
-durable operation GET endpoint with capped backoff. It never redispatches the
-provider mutation. A committed result enters the Engine as the canonical child;
-failed or delivery-unknown results terminate the mutation so the action can
-report failure and be retried with the correct identity.
 When one of those canonical commits changes page membership, the rail query
 controller reloads only the affected first pages. Its public snapshot contains
 daemon membership and query publication state, not derived Engine

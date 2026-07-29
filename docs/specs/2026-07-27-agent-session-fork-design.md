@@ -1,14 +1,6 @@
 # Agent Session Fork Design
 
-Status: superseded by the 2026-07-29 optimistic through-turn Fork contract
-
-This document is retained as historical design context and is no longer the
-implementation contract. The current contract lives in
-`docs/architecture/agent-gui-node.md` and `packages/agent/host/README.md`: only
-the selected canonical Turn's provider binding is verified; historical prefix
-state is trusted; the source remains writable; provider Fork precedes local
-materialization; unknown delivery is never redispatched; and no legacy
-compatibility path is exposed.
+Status: throughTurn implemented
 
 Date: 2026-07-27
 
@@ -188,8 +180,7 @@ child 继承 prepare 时冻结的：
 - rail placement、visibility；
 - 从 source title 派生并冻结的 child title，格式为
   `<source title> (<同一 source 的有效 Fork 序号>)`，首个 child 例如 `123 (2)`；
-- boundary 内的 Turns、Messages、Interactions；非 terminal boundary 在 child
-  中规范化为 `settled/interrupted`，pending Interaction 规范化为 `superseded`；
+- boundary 内的 settled Turns、Messages、terminal Interactions；
 - provider 可恢复上下文。
 
 历史 Session 先经过一次 `RuntimePreparation`，同一份 prepared runtime identity 同时用于
@@ -370,26 +361,26 @@ Claude SDK Driver 使用固定版本的官方公开 API：
 1. Go adapter 在提交前生成的 UUID 仅用于出站 prompt 关联，不作为 provider 身份；
    Claude Code 可能在持久化 transcript 时改写 caller UUID，因此 sidecar 必须等待 root
    user-message 回显，读取 Claude 实际 UUID 后发出 `provider_turn_started`，canonical
-   `RootProviderTurnID` 只接受该已观察身份；
-2. sidecar 为主链 user/assistant/system 消息发出
-   `provider_turn_checkpoint`，Store 将最新外层 UUID 持久化为 Turn 的
-   `ProviderCheckpointMessageID`；Turn settlement 不冻结该字段，因为尾随 system
-   message 可能稍后到达；
-3. capability 只声明固定 SDK/sidecar 的结构能力，不读取 transcript。Prepare 将所选
-   Turn 的 `RootProviderTurnID` 与 `ProviderCheckpointMessageID` 一起冻结到 operation；
-   新 Turn 在 dispatch 时 O(1) 取得 checkpoint。迁移前的旧 Turn 字段为空时，才读取一次
-   source transcript，查找所选 origin root user UUID，并取下一个 origin root user
-   之前的最后消息 UUID；task notification 与内部 synthetic user 不作为新 Turn 边界；
+   `RootProviderTurnID` 只接受该已观察身份；旧版没有真实 SDK UUID 的历史记录不会猜测或
+   回填，因此 fail closed；
+2. capability 通过 stateless sidecar 调用
+   `getSessionMessages(..., {includeSystemMessages: true})`，只返回 root user-message UUID
+   allowlist，但保留 system message 用于精确 checkpoint 与完整 prefix 校验；
+3. dispatch 前再次读取 source transcript，验证 canonical ordered UUID prefix，并把所选
+   root user message 到下一个 root user message之前的最后消息作为 inclusive checkpoint；
 4. 调用 `forkSession(source, {upToMessageId, title: frozenTargetTitle})`；
-5. Fork 后只读取 child 的 `getSessionInfo` / `getSessionMessages`，确认 child 身份独立可读；
-   不复读 source，也不比较 Tutti 与 provider 的历史 prefix；
-6. child UUID 会被 SDK 重映射。sidecar 只在 child 尾部定位最后一个真实 origin root user
-   作为所选 Turn 的新 provider 身份，并从该 Turn 起取最后一个可见消息 UUID 作为 child
-   checkpoint；它不验证更早历史消息的 UUID 完整性，最终返回只绑定 source/child
-   session、所选 source/child Turn 与两端 checkpoint 的 `provider_owned` receipt；
+5. 再次读取 source，并读取 child 的 `getSessionInfo` / `getSessionMessages`；两次
+   `getSessionMessages` 均使用 `includeSystemMessages: true`。source 选中 prefix
+   必须在调用前后不变。官方 SDK 可能已将尾随 system message 写入 child transcript，
+   但在后续 user message 扩展 parent chain 前不从 `getSessionMessages` 返回它；因此 child
+   与去除尾随 system message 后的 SDK 可观察 prefix 做结构等价验证
+   (`type/message/parent_tool_use_id`，忽略已重映射的 UUID/session id)，receipt 仍绑定
+   source 的完整 inclusive checkpoint；
+6. 只有完整验证后才按已证明的可观察 root user-message 顺序双射生成 source→child
+   provider Turn UUID mapping，返回绑定完整 source checkpoint 与可观察 child prefix 的
+   `provider_owned` receipt；消息内容只在 sidecar 内比较，不返回或记录；
 7. Store 在 `provider_accepted` checkpoint 原子保存 mapping/receipt，并在 canonical clone
-   时重写所选 child Turn 的 `RootProviderTurnID` 与
-   `ProviderCheckpointMessageID`，使 fork child 可以继续 Fork；
+   时重写每个 child Turn 的 `RootProviderTurnID`，使 fork child 可以继续 Fork；
 8. child 恢复时拒绝 source 的 stale `resumeCursor`，只从 canonical child
    `providerSessionId` 启动；该约束覆盖进程重启后的首次续聊。
 
@@ -407,12 +398,12 @@ partial tail 在内的全部原始字节都是 source rollout 的严格前缀时
 
 runtime 到 Host 使用显式 delivery disposition：
 
-| disposition   | 含义                                        | Host 结果         |
-| ------------- | ------------------------------------------- | ----------------- |
-| `not_started` | RPC 前失败，确定未发送                      | failed            |
-| `rejected`    | 收到明确 JSON-RPC error response            | failed            |
-| `unknown`     | timeout/disconnect/响应不可验证             | unknown           |
-| `accepted`    | provider child 已创建且所选 Turn 已重新绑定 | provider_accepted |
+| disposition   | 含义                                | Host 结果         |
+| ------------- | ----------------------------------- | ----------------- |
+| `not_started` | RPC 前失败，确定未发送              | failed            |
+| `rejected`    | 收到明确 JSON-RPC error response    | failed            |
+| `unknown`     | timeout/disconnect/响应不可验证     | unknown           |
+| `accepted`    | provider child 和 prefix 均验证通过 | provider_accepted |
 
 明确 provider rejection 不归类为 unknown；反之，RPC 已发送后的 timeout 也不能归类为
 普通失败并生成第二个 provider child。`accepted` 是进入 `provider_accepted` 的硬门槛；

@@ -103,39 +103,6 @@ test("identical session snapshots preserve canonical state references", () => {
   assert.equal(second, first);
 });
 
-test("lightweight session snapshots cannot downgrade projected lifecycle capabilities", () => {
-  const authoritative = {
-    ...session(null, 2),
-    lifecycleCapabilities: { fork: false, forkThroughTurn: true },
-    lifecycleCapabilitiesProjected: true
-  };
-  const first = reduce(createInitialSessionLifecycleState(), {
-    type: "session/upserted",
-    session: authoritative
-  }).state;
-  const lightweight = {
-    ...authoritative,
-    lifecycleCapabilities: { fork: false, forkThroughTurn: false },
-    lifecycleCapabilitiesProjected: undefined,
-    title: "Updated rail title",
-    updatedAtUnixMs: 3
-  };
-  const second = reduce(first, {
-    type: "session/snapshotReceived",
-    sessions: [lightweight]
-  }).state;
-
-  assert.equal(second.sessionsById["session-1"]?.title, "Updated rail title");
-  assert.deepEqual(
-    second.sessionsById["session-1"]?.lifecycleCapabilities,
-    authoritative.lifecycleCapabilities
-  );
-  assert.equal(
-    second.sessionsById["session-1"]?.lifecycleCapabilitiesProjected,
-    true
-  );
-});
-
 test("equal-version sessions still merge changed pending interactions", () => {
   const source = session(activeTurn(2), 2);
   source.latestTurnInteractions = [interaction("pending", 2)];

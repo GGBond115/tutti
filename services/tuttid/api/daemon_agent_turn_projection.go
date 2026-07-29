@@ -67,22 +67,21 @@ func generatedWorkspaceAgentTurn(turn agentactivitybiz.Turn) tuttigenerated.Work
 		sourceGoalRepairEpoch = &value
 	}
 	return tuttigenerated.WorkspaceAgentTurn{
-		AgentSessionId:               strings.TrimSpace(turn.AgentSessionID),
-		ProviderForkBindingAvailable: strings.TrimSpace(turn.RootProviderTurnID) != "",
-		CapabilityRefs:               capabilityRefs,
-		CompletedCommand:             completedCommand,
-		Error:                        turnError,
-		FileChanges:                  fileChanges,
-		Origin:                       tuttigenerated.WorkspaceAgentTurnOrigin(strings.TrimSpace(turn.Origin)),
-		Outcome:                      outcome,
-		Phase:                        tuttigenerated.WorkspaceAgentTurnPhase(turn.Phase),
-		SettledAtUnixMs:              settledAt,
-		SourceGoalOperationId:        sourceGoalOperationID,
-		SourceGoalRepairEpoch:        sourceGoalRepairEpoch,
-		SourceGoalRevision:           sourceGoalRevision,
-		StartedAtUnixMs:              turn.StartedAtUnixMS,
-		TurnId:                       strings.TrimSpace(turn.TurnID),
-		UpdatedAtUnixMs:              turn.UpdatedAtUnixMS,
+		AgentSessionId:        strings.TrimSpace(turn.AgentSessionID),
+		CapabilityRefs:        capabilityRefs,
+		CompletedCommand:      completedCommand,
+		Error:                 turnError,
+		FileChanges:           fileChanges,
+		Origin:                tuttigenerated.WorkspaceAgentTurnOrigin(strings.TrimSpace(turn.Origin)),
+		Outcome:               outcome,
+		Phase:                 tuttigenerated.WorkspaceAgentTurnPhase(turn.Phase),
+		SettledAtUnixMs:       settledAt,
+		SourceGoalOperationId: sourceGoalOperationID,
+		SourceGoalRepairEpoch: sourceGoalRepairEpoch,
+		SourceGoalRevision:    sourceGoalRevision,
+		StartedAtUnixMs:       turn.StartedAtUnixMS,
+		TurnId:                strings.TrimSpace(turn.TurnID),
+		UpdatedAtUnixMs:       turn.UpdatedAtUnixMS,
 	}
 }
 

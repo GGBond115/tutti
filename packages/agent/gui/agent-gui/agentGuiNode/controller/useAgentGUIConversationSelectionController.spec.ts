@@ -84,7 +84,6 @@ describe("clearRolledBackAgentGUISelection", () => {
         isMountedRef: { current: true },
         loadDraftComposerOptions: vi.fn(),
         loadSelectedConversationMessages: vi.fn(async () => undefined),
-        loadSessionState: vi.fn(),
         markSelectedConversationDetailPending: vi.fn(() => null),
         onDataChangeRef: { current: onDataChange },
         sessionEngine: {
@@ -195,7 +194,6 @@ describe("clearRolledBackAgentGUISelection", () => {
         isMountedRef: { current: true },
         loadDraftComposerOptions: vi.fn(),
         loadSelectedConversationMessages: vi.fn(async () => undefined),
-        loadSessionState: vi.fn(),
         markSelectedConversationDetailPending: vi.fn(() => null),
         onDataChangeRef: { current: onDataChange },
         sessionEngine: {
@@ -313,7 +311,6 @@ describe("clearRolledBackAgentGUISelection", () => {
         isMountedRef: { current: true },
         loadDraftComposerOptions: vi.fn(),
         loadSelectedConversationMessages: vi.fn(async () => undefined),
-        loadSessionState: vi.fn(),
         markSelectedConversationDetailPending: vi.fn(() => null),
         onDataChangeRef: { current: onDataChange },
         sessionEngine: {
@@ -421,7 +418,6 @@ describe("conversation reload ownership", () => {
         isMountedRef: { current: true },
         loadDraftComposerOptions: vi.fn(),
         loadSelectedConversationMessages,
-        loadSessionState: vi.fn(),
         markSelectedConversationDetailPending: (agentSessionId) =>
           agentSessionId,
         onDataChangeRef: {

@@ -73,7 +73,6 @@ test("desktop agent activity adapter preserves a settled latest turn on reload",
     origin: "goal_continuation" as const,
     outcome: "failed" as const,
     phase: "settled" as const,
-    providerForkBindingAvailable: true,
     settledAtUnixMs: 30,
     sourceGoalOperationId: "goal-operation-1",
     sourceGoalRepairEpoch: 4,
@@ -1868,7 +1867,6 @@ test("desktop agent activity adapter maps a committed fork operation", async () 
   assert.equal(result.status, "committed");
   assert.equal(result.operationId, "fork-operation");
   assert.equal(result.session?.agentSessionId, "target-session");
-  assert.equal(result.session?.lifecycleCapabilitiesProjected, true);
 });
 
 test("desktop agent activity adapter preserves a recovered committed identity", async () => {
@@ -1912,7 +1910,7 @@ test("desktop agent activity adapter preserves a recovered committed identity", 
   assert.equal(result.session?.agentSessionId, "original-target");
 });
 
-test("desktop agent activity adapter reconciles an accepted fork to failure", async () => {
+test("desktop agent activity adapter reconciles an accepted fork operation", async () => {
   const calls: string[] = [];
   const adapter = createDesktopAgentActivityAdapter({
     tuttidClient: createTuttidClient({
@@ -2039,7 +2037,7 @@ test("desktop agent activity adapter classifies an aborted POST as delivery unkn
   );
 });
 
-test("desktop agent activity adapter aborts accepted operation reconciliation", async () => {
+test("desktop agent activity adapter classifies aborted accepted polling as delivery unknown", async () => {
   const controller = new AbortController();
   const adapter = createDesktopAgentActivityAdapter({
     tuttidClient: createTuttidClient({
@@ -2063,9 +2061,11 @@ test("desktop agent activity adapter aborts accepted operation reconciliation", 
       turnId: "source-turn",
       workspaceId
     }),
-    /caller cancelled/
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { reason?: string }).reason ===
+        "agent_session_fork_delivery_unknown"
   );
-  assert.equal(controller.signal.aborted, true);
 });
 
 test("desktop agent activity adapter correlates a recovered durable unknown to the current command", async () => {
@@ -2109,7 +2109,6 @@ function createForkOperation(
     session: null,
     sourceAgentSessionId: "source-session",
     status: "accepted",
-    phase: "frozen",
     targetAgentSessionId: "target-session",
     ...overrides
   };
@@ -2228,7 +2227,6 @@ function createSession(
           outcome: null,
           phase:
             status === "waiting" ? ("waiting" as const) : ("running" as const),
-          providerForkBindingAvailable: false,
           startedAtUnixMs: createdAtUnixMs,
           settledAtUnixMs: null,
           turnId: "turn-active",
@@ -2245,7 +2243,6 @@ function createSession(
           origin: "user_prompt" as const,
           outcome: status as "completed" | "failed" | "canceled",
           phase: "settled" as const,
-          providerForkBindingAvailable: false,
           settledAtUnixMs: updatedAtUnixMs,
           startedAtUnixMs: createdAtUnixMs,
           turnId: "turn-latest",
@@ -2307,7 +2304,6 @@ function createSendInputResponse(session: WorkspaceAgentSession) {
       origin: "user_prompt" as const,
       outcome: null,
       phase: "submitted" as const,
-      providerForkBindingAvailable: false,
       settledAtUnixMs: null,
       startedAtUnixMs: 1,
       turnId: "turn-1",

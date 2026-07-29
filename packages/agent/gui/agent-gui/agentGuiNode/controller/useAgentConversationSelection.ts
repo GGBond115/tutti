@@ -39,9 +39,7 @@ interface AgentConversationSelectionInput {
   };
   detail: {
     ensureHydrated(agentSessionId: string): void;
-    ensureStateHydrated(agentSessionId: string): void;
     isHydrated(agentSessionId: string): boolean;
-    isStateHydrated(agentSessionId: string): boolean;
     markPending(agentSessionId: string): void;
     setLoading(loading: boolean): void;
   };
@@ -117,7 +115,6 @@ export function useAgentConversationSelection(
       const current = inputRef.current;
       const previous = current.selection.getActiveSessionId();
       const detailHydrated = current.detail.isHydrated(normalized);
-      const stateHydrated = current.detail.isStateHydrated(normalized);
       const activationPending = current.activation.isPending(normalized);
       current.selection.setComposerHome(false);
       if (previous && previous !== normalized)
@@ -146,8 +143,6 @@ export function useAgentConversationSelection(
         }
         if (!detailHydrated) {
           current.detail.ensureHydrated(normalized);
-        } else if (!stateHydrated) {
-          current.detail.ensureStateHydrated(normalized);
         }
       }
       persistActiveConversation(normalized);

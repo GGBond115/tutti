@@ -232,7 +232,6 @@ func isReportableActivityType(eventType activityshared.EventType) bool {
 		activityshared.EventTurnCompleted,
 		activityshared.EventTurnFailed,
 		activityshared.EventRootProviderTurnStarted,
-		activityshared.EventRootProviderTurnCheckpoint,
 		activityshared.EventRootProviderTurnCompleted,
 		activityshared.EventMessageAppended,
 		activityshared.EventMessageCreated,

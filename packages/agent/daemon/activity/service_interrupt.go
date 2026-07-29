@@ -183,7 +183,6 @@ func statePatchFromActivityEvent(source EventSource, event activityshared.Event,
 	}
 	if turnID := strings.TrimSpace(event.Payload.TurnID); turnID != "" &&
 		event.Type != activityshared.EventRootProviderTurnStarted &&
-		event.Type != activityshared.EventRootProviderTurnCheckpoint &&
 		event.Type != activityshared.EventRootProviderTurnCompleted {
 		patch.Turn = &WorkspaceAgentTurnPatch{
 			TurnID:                turnID,
@@ -231,23 +230,17 @@ func statePatchFromActivityEvent(source EventSource, event activityshared.Event,
 			patch.Turn.CompletedAtUnixMS = timestamp
 			patch.Turn.Phase = firstNonEmptyString(patch.Turn.Phase, patch.CurrentPhase)
 		}
-	case activityshared.EventRootProviderTurnStarted,
-		activityshared.EventRootProviderTurnCheckpoint,
-		activityshared.EventRootProviderTurnCompleted:
+	case activityshared.EventRootProviderTurnStarted, activityshared.EventRootProviderTurnCompleted:
 		phase := RootProviderTurnPhaseRunning
-		switch event.Type {
-		case activityshared.EventRootProviderTurnCompleted:
+		if event.Type == activityshared.EventRootProviderTurnCompleted {
 			phase = RootProviderTurnPhaseCompleted
-		case activityshared.EventRootProviderTurnCheckpoint:
-			phase = ""
 		}
 		patch.RootProviderTurn = &WorkspaceAgentRootProviderTurnTransition{
-			RootTurnID:                  strings.TrimSpace(event.Payload.TurnID),
-			ProviderTurnID:              strings.TrimSpace(event.Payload.ProviderTurnID),
-			ProviderCheckpointMessageID: strings.TrimSpace(event.Payload.ProviderCheckpointMessageID),
-			Phase:                       phase,
-			Outcome:                     strings.TrimSpace(event.Payload.TurnOutcome),
-			ErrorMessage:                activityshared.BestEffortErrorMessage(event.Payload),
+			RootTurnID:     strings.TrimSpace(event.Payload.TurnID),
+			ProviderTurnID: strings.TrimSpace(event.Payload.ProviderTurnID),
+			Phase:          phase,
+			Outcome:        strings.TrimSpace(event.Payload.TurnOutcome),
+			ErrorMessage:   activityshared.BestEffortErrorMessage(event.Payload),
 		}
 	}
 	return patch, true

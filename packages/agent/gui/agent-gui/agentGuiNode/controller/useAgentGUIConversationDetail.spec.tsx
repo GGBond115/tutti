@@ -167,7 +167,9 @@ describe("useAgentGUIConversationDetail", () => {
       result.current.conversation?.sourceDetail.session.lifecycleCapabilities
     ).toEqual({
       fork: false,
-      forkThroughTurn: true
+      forkThroughTurn: true,
+      forkThroughTurnIds: [],
+      forkThroughTurnIdsKnown: false
     });
   });
 
@@ -219,7 +221,9 @@ describe("useAgentGUIConversationDetail", () => {
         .lifecycleCapabilities
     ).toEqual({
       fork: false,
-      forkThroughTurn: true
+      forkThroughTurn: true,
+      forkThroughTurnIds: [],
+      forkThroughTurnIdsKnown: false
     });
   });
 });

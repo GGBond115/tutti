@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -13,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
 const (
@@ -25,82 +22,6 @@ const (
 type PromptAttachmentStore struct {
 	RootDir       string
 	SourceRootDir string
-}
-
-func (s PromptAttachmentStore) StageSessionForkAttachments(
-	_ context.Context,
-	workspaceID, sourceAgentSessionID, targetAgentSessionID string,
-	bindings []storesqlite.SessionForkAttachmentBinding,
-) error {
-	for _, binding := range bindings {
-		sourcePath, mimeType, err := s.findAttachmentPath(
-			workspaceID,
-			sourceAgentSessionID,
-			binding.SourceAttachmentID,
-		)
-		if err != nil {
-			return fmt.Errorf("resolve session fork attachment: %w", err)
-		}
-		data, err := os.ReadFile(sourcePath)
-		if err != nil {
-			return fmt.Errorf("read session fork attachment: %w", err)
-		}
-		if int64(len(data)) > maxPromptAttachmentSourceBytes {
-			return ErrInvalidArgument
-		}
-		targetPath, err := s.attachmentPath(
-			workspaceID,
-			targetAgentSessionID,
-			binding.TargetAttachmentID,
-			mimeType,
-		)
-		if err != nil {
-			return err
-		}
-		sourceDigest := sha256.Sum256(data)
-		if existing, readErr := os.ReadFile(targetPath); readErr == nil {
-			if sha256.Sum256(existing) != sourceDigest {
-				return errors.New("staged session fork attachment hash mismatch")
-			}
-			continue
-		} else if !errors.Is(readErr, os.ErrNotExist) {
-			return fmt.Errorf("read staged session fork attachment: %w", readErr)
-		}
-		if err := os.MkdirAll(filepath.Dir(targetPath), 0o700); err != nil {
-			return fmt.Errorf("create session fork attachment directory: %w", err)
-		}
-		staged, err := os.CreateTemp(filepath.Dir(targetPath), ".fork-attachment-*")
-		if err != nil {
-			return fmt.Errorf("create staged session fork attachment: %w", err)
-		}
-		stagedPath := staged.Name()
-		removeStaged := true
-		defer func() {
-			if removeStaged {
-				_ = os.Remove(stagedPath)
-			}
-		}()
-		if err := staged.Chmod(0o600); err != nil {
-			_ = staged.Close()
-			return err
-		}
-		if _, err := staged.Write(data); err != nil {
-			_ = staged.Close()
-			return fmt.Errorf("write staged session fork attachment: %w", err)
-		}
-		if err := staged.Sync(); err != nil {
-			_ = staged.Close()
-			return fmt.Errorf("sync staged session fork attachment: %w", err)
-		}
-		if err := staged.Close(); err != nil {
-			return fmt.Errorf("close staged session fork attachment: %w", err)
-		}
-		if err := os.Rename(stagedPath, targetPath); err != nil {
-			return fmt.Errorf("publish staged session fork attachment: %w", err)
-		}
-		removeStaged = false
-	}
-	return nil
 }
 
 func TextPromptContent(text string) []PromptContentBlock {

@@ -117,41 +117,6 @@ func TestClaudeCodeSDKAdapterMapsObservedProviderTurnIdentity(t *testing.T) {
 	}
 }
 
-func TestClaudeCodeSDKAdapterMapsProviderTurnCheckpoint(t *testing.T) {
-	adapter := NewClaudeCodeSDKAdapter(nil)
-	session := standardTestSession(ProviderClaudeCode)
-	adapterSession := &claudeSDKAdapterSession{liveState: newClaudeSDKLiveState()}
-	adapter.beginClaudeSDKRootTurn(
-		adapterSession,
-		"canonical-turn-1",
-		"provider-prompt-1",
-	)
-
-	events, terminal, err := adapter.sidecarTurnEvents(
-		adapterSession,
-		session,
-		"canonical-turn-1",
-		claudeSDKSidecarEvent{
-			Type: "provider_turn_checkpoint",
-			Payload: map[string]any{
-				"turnId":                      "canonical-turn-1",
-				"providerTurnId":              "provider-prompt-1",
-				"providerCheckpointMessageId": "provider-system-1",
-			},
-		},
-	)
-	if err != nil || terminal {
-		t.Fatalf("provider_turn_checkpoint err=%v terminal=%v", err, terminal)
-	}
-	if len(events) != 1 ||
-		events[0].Type != activityshared.EventRootProviderTurnCheckpoint ||
-		events[0].Payload.TurnID != "canonical-turn-1" ||
-		events[0].Payload.ProviderTurnID != "provider-prompt-1" ||
-		events[0].Payload.ProviderCheckpointMessageID != "provider-system-1" {
-		t.Fatalf("events = %#v, want provider checkpoint", events)
-	}
-}
-
 func TestClaudeCodeSDKAdapterCompletesCanonicalTurnByProviderIdentity(t *testing.T) {
 	adapter := NewClaudeCodeSDKAdapter(nil)
 	session := standardTestSession(ProviderClaudeCode)

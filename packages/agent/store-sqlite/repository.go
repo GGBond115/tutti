@@ -400,7 +400,6 @@ type Turn struct {
 	SourceGoalRevision                     int64
 	SourceGoalRepairEpoch                  int64
 	RootProviderTurnID                     string
-	ProviderCheckpointMessageID            string
 	RootProviderTurnPhase                  string
 	RootProviderTurnOutcome                string
 	RootProviderTurnErrorMessage           string
@@ -455,18 +454,17 @@ const (
 )
 
 type RootProviderTurnTransition struct {
-	WorkspaceID                 string
-	RootAgentSessionID          string
-	RootTurnID                  string
-	ProviderTurnID              string
-	ProviderCheckpointMessageID string
-	Phase                       string
-	Outcome                     string
-	ErrorMessage                string
-	ErrorCode                   string
-	CompletedCommandKind        string
-	CompletedCommandStatus      string
-	OccurredAtUnixMS            int64
+	WorkspaceID            string
+	RootAgentSessionID     string
+	RootTurnID             string
+	ProviderTurnID         string
+	Phase                  string
+	Outcome                string
+	ErrorMessage           string
+	ErrorCode              string
+	CompletedCommandKind   string
+	CompletedCommandStatus string
+	OccurredAtUnixMS       int64
 }
 
 // TurnTransition records one turn phase transition. Transitions are written

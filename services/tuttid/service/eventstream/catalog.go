@@ -703,21 +703,21 @@ func validateAgentActivityUpdatedData(decoded agentActivityUpdatedPayload) error
 		if err := requireJSONFields(decoded.Data, "", "occurredAtUnixMs", "activeTurnId", "turn"); err != nil {
 			return err
 		}
-		if err := requireJSONFields(decoded.Data, "turn", "turnId", "agentSessionId", "providerForkBindingAvailable", "phase", "origin", "outcome", "error", "fileChanges", "completedCommand", "startedAtUnixMs", "settledAtUnixMs", "updatedAtUnixMs"); err != nil {
+		if err := requireJSONFields(decoded.Data, "turn", "turnId", "agentSessionId", "phase", "origin", "outcome", "error", "fileChanges", "completedCommand", "startedAtUnixMs", "settledAtUnixMs", "updatedAtUnixMs"); err != nil {
 			return err
 		}
 		var data agentActivityTurnUpdateData
 		if err := decodeJSONStrict(decoded.Data, &data); err != nil {
 			return fmt.Errorf("decode turn_update data: %w", err)
 		}
-		if data.OccurredAtUnixMS == nil || strings.TrimSpace(data.Turn.TurnId) == "" || data.Turn.AgentSessionId != agentSessionID ||
-			!isOneOf(string(data.Turn.Phase), "submitted", "running", "waiting", "settling", "settled") {
+		if data.OccurredAtUnixMS == nil || strings.TrimSpace(data.Turn.TurnID) == "" || data.Turn.AgentSessionID != agentSessionID ||
+			!isOneOf(data.Turn.Phase, "submitted", "running", "waiting", "settling", "settled") || data.Turn.StartedAtUnixMS == nil || data.Turn.UpdatedAtUnixMS == nil {
 			return fmt.Errorf("data.turn is invalid")
 		}
-		if !isOneOf(string(data.Turn.Origin), "user_prompt", "goal_arm", "goal_continuation", "provider_initiated", "legacy_unknown") {
+		if !isOneOf(data.Turn.Origin, "user_prompt", "goal_arm", "goal_continuation", "provider_initiated", "legacy_unknown") {
 			return fmt.Errorf("data.turn.origin is invalid")
 		}
-		if data.Turn.SourceGoalOperationId != nil && strings.TrimSpace(*data.Turn.SourceGoalOperationId) == "" {
+		if data.Turn.SourceGoalOperationID != nil && strings.TrimSpace(*data.Turn.SourceGoalOperationID) == "" {
 			return fmt.Errorf("data.turn.sourceGoalOperationId must be non-empty when present")
 		}
 		if data.Turn.SourceGoalRevision != nil && *data.Turn.SourceGoalRevision < 0 {
@@ -726,24 +726,22 @@ func validateAgentActivityUpdatedData(decoded agentActivityUpdatedPayload) error
 		if data.Turn.SourceGoalRepairEpoch != nil && *data.Turn.SourceGoalRepairEpoch < 0 {
 			return fmt.Errorf("data.turn.sourceGoalRepairEpoch is invalid")
 		}
-		if data.Turn.Outcome != nil && !isOneOf(string(*data.Turn.Outcome), "completed", "failed", "canceled", "interrupted") {
+		if data.Turn.Outcome != nil && !isOneOf(*data.Turn.Outcome, "completed", "failed", "canceled", "interrupted") {
 			return fmt.Errorf("data.turn.outcome is invalid")
 		}
-		if data.Turn.CapabilityRefs != nil {
-			for index, reference := range *data.Turn.CapabilityRefs {
-				if reference.Capability != "tutti" || reference.Source != "slash_command" {
-					return fmt.Errorf("data.turn.capabilityRefs[%d] is invalid", index)
-				}
+		for index, reference := range data.Turn.CapabilityRefs {
+			if reference.Capability != "tutti" || reference.Source != "slash_command" {
+				return fmt.Errorf("data.turn.capabilityRefs[%d] is invalid", index)
 			}
 		}
 		if data.Turn.Phase == "settled" {
-			if data.ActiveTurnID != nil || data.Turn.Outcome == nil || data.Turn.SettledAtUnixMs == nil {
+			if data.ActiveTurnID != nil || data.Turn.Outcome == nil || data.Turn.SettledAtUnixMS == nil {
 				return fmt.Errorf("settled turn must clear activeTurnId and include outcome/settledAtUnixMs")
 			}
-		} else if data.ActiveTurnID == nil || strings.TrimSpace(*data.ActiveTurnID) != data.Turn.TurnId || data.Turn.Outcome != nil || data.Turn.SettledAtUnixMs != nil {
+		} else if data.ActiveTurnID == nil || strings.TrimSpace(*data.ActiveTurnID) != data.Turn.TurnID || data.Turn.Outcome != nil || data.Turn.SettledAtUnixMS != nil {
 			return fmt.Errorf("live turn must own activeTurnId and omit outcome/settledAtUnixMs")
 		}
-		if data.Turn.Error != nil && (data.Turn.Outcome == nil || !isOneOf(string(*data.Turn.Outcome), "failed", "interrupted")) {
+		if data.Turn.Error != nil && (data.Turn.Outcome == nil || !isOneOf(*data.Turn.Outcome, "failed", "interrupted")) {
 			return fmt.Errorf("data.turn.error requires failed or interrupted outcome")
 		}
 	case "interaction_update":

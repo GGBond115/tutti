@@ -89,9 +89,9 @@ export async function handleRequest(
         const result = await forkClaudeSession({
           sessionId: stringValue(payload.providerSessionId),
           providerTurnId: stringValue(payload.providerTurnId),
-          providerCheckpointMessageId: stringValue(
-            payload.providerCheckpointMessageId
-          ),
+          providerTurnIds: Array.isArray(payload.providerTurnIds)
+            ? payload.providerTurnIds.map(stringValue)
+            : [],
           cwd: stringValue(payload.cwd),
           title: stringValue(payload.title)
         });

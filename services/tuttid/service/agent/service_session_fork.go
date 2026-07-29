@@ -47,7 +47,6 @@ type SessionForkOperation struct {
 	TargetAgentSessionID string
 	Point                SessionForkPoint
 	Status               SessionForkOperationStatus
-	Phase                string
 	Session              *Session
 	Lineage              *SessionForkLineage
 	Error                *string
@@ -55,9 +54,8 @@ type SessionForkOperation struct {
 
 // Fork delegates the durable fork saga to Agent Host and projects the
 // committed child through the same public Session boundary as other commands.
-// Once Host freezes an operation, Fork returns its accepted phase immediately;
-// later durable phases are read through GetSessionForkOperation. Only
-// validation and pre-creation failures remain request errors.
+// Once Host has created an operation, durable accepted/failed/unknown state is
+// returned as data; only validation and pre-creation failures remain errors.
 func (s *Service) Fork(
 	ctx context.Context,
 	workspaceID, sourceAgentSessionID string,
@@ -80,7 +78,6 @@ func (s *Service) Fork(
 		SourceAgentSessionID: sourceAgentSessionID,
 		TargetAgentSessionID: input.TargetAgentSessionID,
 		RequestID:            input.RequestID,
-		Asynchronous:         true,
 		Point: agenthost.SessionForkPoint{
 			Kind:   agenthost.SessionForkPointThroughTurn,
 			TurnID: input.ThroughTurnID,
@@ -163,7 +160,6 @@ func (s *Service) projectSessionForkOperation(
 			TurnID: strings.TrimSpace(result.Operation.SourceTurnID),
 		},
 		Status: status,
-		Phase:  publicSessionForkOperationPhase(result.Operation.Status),
 	}
 	if lastError := strings.TrimSpace(result.Operation.LastError); lastError != "" {
 		operation.Error = &lastError
@@ -197,25 +193,6 @@ func (s *Service) projectSessionForkOperation(
 		operation.Session = &session
 	}
 	return operation, nil
-}
-
-func publicSessionForkOperationPhase(status string) string {
-	switch strings.TrimSpace(status) {
-	case storesqlite.SessionForkStatusPrepared:
-		return "frozen"
-	case storesqlite.SessionForkStatusDispatching:
-		return "dispatching"
-	case storesqlite.SessionForkStatusProviderAccepted:
-		return "materializing"
-	case storesqlite.SessionForkStatusCommitted:
-		return "committed"
-	case storesqlite.SessionForkStatusFailed:
-		return "failed"
-	case storesqlite.SessionForkStatusUnknown:
-		return "deliveryUnknown"
-	default:
-		return ""
-	}
 }
 
 func validateCommittedSessionForkResult(result agenthost.ForkSessionResult) error {
@@ -268,14 +245,16 @@ func publicSessionForkOperationStatus(
 }
 
 // withSessionForkCapabilities is fail-closed. This is a provider/session-level
-// capability shared by provider-bound Turn actions; boundary-specific
-// validation is repeated transactionally when the selected Turn is forked.
+// capability shared by settled Turn actions; boundary-specific validation is
+// repeated transactionally when the selected Turn is forked.
 func (s *Service) withSessionForkCapabilities(
 	ctx context.Context,
 	workspaceID string,
 	session Session,
 ) Session {
 	session.LifecycleCapabilities.ForkThroughTurn = false
+	session.LifecycleCapabilities.ForkThroughTurnIDs = nil
+	session.LifecycleCapabilities.ForkThroughTurnIDsKnown = false
 	session.LifecycleCapabilities.Fork = false
 	if s == nil || strings.TrimSpace(workspaceID) == "" ||
 		strings.TrimSpace(session.ID) == "" ||
@@ -292,6 +271,12 @@ func (s *Service) withSessionForkCapabilities(
 	if err == nil {
 		session.LifecycleCapabilities.Fork = capabilities.FullSession
 		session.LifecycleCapabilities.ForkThroughTurn = capabilities.ThroughTurn
+		session.LifecycleCapabilities.ForkThroughTurnIDs = append(
+			[]string(nil),
+			capabilities.ThroughTurnIDs...,
+		)
+		session.LifecycleCapabilities.ForkThroughTurnIDsKnown =
+			capabilities.ThroughTurnIDsKnown
 	}
 	return session
 }

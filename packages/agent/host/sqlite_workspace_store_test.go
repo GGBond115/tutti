@@ -38,10 +38,12 @@ func (workspaceStoreForkRuntime) ResolveSessionFork(
 	_ agenthost.ProviderRuntimeSession,
 ) (agenthost.SessionForkDriverDescriptor, error) {
 	return agenthost.SessionForkDriverDescriptor{
-		Kind:             "codex",
-		Version:          "1",
-		ThroughTurn:      true,
-		StateBindingMode: agenthost.SessionForkStateBindingProviderOwned,
+		Kind:                        "codex",
+		Version:                     "1",
+		ThroughTurn:                 true,
+		ThroughProviderTurnIDsKnown: true,
+		ThroughProviderTurnIDs:      []string{"provider-turn-1"},
+		StateBindingMode:            agenthost.SessionForkStateBindingProviderOwned,
 	}, nil
 }
 
@@ -219,8 +221,10 @@ func TestSQLiteWorkspaceStoreProjectsForkTurnIdentitiesThroughProductionPort(t *
 	if err != nil {
 		t.Fatalf("GetSessionForkCapabilities() error = %v", err)
 	}
-	if !capabilities.ThroughTurn {
-		t.Fatalf("GetSessionForkCapabilities() = %#v, want through-turn enabled", capabilities)
+	if !capabilities.ThroughTurn || !capabilities.ThroughTurnIDsKnown ||
+		len(capabilities.ThroughTurnIDs) != 1 ||
+		capabilities.ThroughTurnIDs[0] != "turn-1" {
+		t.Fatalf("GetSessionForkCapabilities() = %#v, want turn-1 enabled", capabilities)
 	}
 }
 

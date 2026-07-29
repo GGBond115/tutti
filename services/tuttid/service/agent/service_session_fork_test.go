@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
@@ -85,10 +84,12 @@ func (r *sessionForkCapabilityRuntime) ResolveSessionFork(
 	r.calls++
 	r.source = source
 	return agenthost.SessionForkDriverDescriptor{
-		Kind:             "native",
-		Version:          "v1",
-		StateBindingMode: agenthost.SessionForkStateBindingProviderOwned,
-		ThroughTurn:      true,
+		Kind:                        "native",
+		Version:                     "v1",
+		StateBindingMode:            agenthost.SessionForkStateBindingProviderOwned,
+		ThroughTurn:                 true,
+		ThroughProviderTurnIDs:      []string{"provider-turn-7"},
+		ThroughProviderTurnIDsKnown: true,
 	}, nil
 }
 
@@ -115,6 +116,14 @@ func TestWithSessionForkCapabilitiesUsesProviderSessionCapability(t *testing.T) 
 	}
 	if projected.LifecycleCapabilities.Fork {
 		t.Fatal("Fork = true, want unsupported full-session capability")
+	}
+	if !projected.LifecycleCapabilities.ForkThroughTurnIDsKnown ||
+		len(projected.LifecycleCapabilities.ForkThroughTurnIDs) != 1 ||
+		projected.LifecycleCapabilities.ForkThroughTurnIDs[0] != "turn-7" {
+		t.Fatalf(
+			"ForkThroughTurn projection=%#v",
+			projected.LifecycleCapabilities,
+		)
 	}
 	if store.workspaceID != "workspace-1" || store.sourceSessionID != "source-1" {
 		t.Fatalf(
@@ -399,7 +408,7 @@ func TestWithSessionForkCapabilitiesKeepsProviderCapabilityWhileBusy(t *testing.
 	}
 }
 
-func TestForkReturnsAcceptedThenExposesDurableProviderOutcome(t *testing.T) {
+func TestForkReturnsDurableProviderOutcomeInsteadOfOrdinaryError(t *testing.T) {
 	for _, test := range []struct {
 		name        string
 		disposition agenthost.SessionForkDeliveryDisposition
@@ -440,56 +449,31 @@ func TestForkReturnsAcceptedThenExposesDurableProviderOutcome(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Fork() error=%v", err)
 			}
-			if operation.Status != SessionForkOperationAccepted ||
-				operation.Phase != "frozen" ||
-				operation.OperationID == "" {
-				t.Fatalf("Fork() operation=%#v", operation)
-			}
-
-			deadline := time.Now().Add(time.Second)
-			for operation.Status == SessionForkOperationAccepted &&
-				time.Now().Before(deadline) {
-				operation, err = service.GetSessionForkOperation(
-					t.Context(),
-					"workspace-1",
-					operation.OperationID,
-				)
-				if err != nil {
-					t.Fatalf("GetSessionForkOperation() error=%v", err)
-				}
-				if operation.Status == SessionForkOperationAccepted {
-					time.Sleep(time.Millisecond)
-				}
-			}
 			if operation.Status != test.wantStatus ||
+				operation.OperationID == "" ||
 				operation.Error == nil ||
 				*operation.Error != "provider fork failed" {
-				t.Fatalf("terminal operation=%#v", operation)
+				t.Fatalf("Fork() operation=%#v", operation)
 			}
 		})
 	}
 }
 
 func TestPublicSessionForkOperationStatusCollapsesActiveInternalPhases(t *testing.T) {
-	for _, test := range []struct {
-		internal string
-		phase    string
-	}{
-		{internal: storesqlite.SessionForkStatusPrepared, phase: "frozen"},
-		{internal: storesqlite.SessionForkStatusDispatching, phase: "dispatching"},
-		{internal: storesqlite.SessionForkStatusProviderAccepted, phase: "materializing"},
+	for _, internal := range []string{
+		storesqlite.SessionForkStatusPrepared,
+		storesqlite.SessionForkStatusDispatching,
+		storesqlite.SessionForkStatusProviderAccepted,
 	} {
-		status, err := publicSessionForkOperationStatus(test.internal)
+		status, err := publicSessionForkOperationStatus(internal)
 		if err != nil {
-			t.Fatalf("publicSessionForkOperationStatus(%q) error=%v", test.internal, err)
+			t.Fatalf("publicSessionForkOperationStatus(%q) error=%v", internal, err)
 		}
-		if status != SessionForkOperationAccepted ||
-			publicSessionForkOperationPhase(test.internal) != test.phase {
+		if status != SessionForkOperationAccepted {
 			t.Fatalf(
-				"public fork projection(%q)=status %q phase %q",
-				test.internal,
+				"publicSessionForkOperationStatus(%q)=%q, want accepted",
+				internal,
 				status,
-				publicSessionForkOperationPhase(test.internal),
 			)
 		}
 	}

@@ -238,6 +238,7 @@ export function useAgentGUIConversationMetadataActions(
       try {
         const result = await dispatchSessionForkThroughTurn(sessionEngine, {
           sourceAgentSessionId: normalizedSourceAgentSessionId,
+          timeoutMs: 30_000,
           turnId: normalizedTurnId,
           workspaceId
         });

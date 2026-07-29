@@ -29,19 +29,68 @@ LIMIT 1
 	return operationID, true, nil
 }
 
-// requireSessionForkSourceWritableTx remains as the shared write-path hook, but
-// optimistic Fork freezes its own canonical snapshot and never fences source
-// activity. Physical cleanup is guarded separately by the retention check in
-// requireSessionForkDeleteAllowedTx.
+// requireSessionForkSourceWritableTx is called by every canonical activity
+// entity write path. The fence remains held through provider acceptance and is
+// released only by a terminal fork transition.
 func requireSessionForkSourceWritableTx(
 	ctx context.Context,
 	tx *sql.Tx,
 	workspaceID, agentSessionID string,
 ) error {
-	_ = ctx
-	_ = tx
-	_ = workspaceID
-	_ = agentSessionID
+	_, active, err := activeSessionForkSourceOperationTx(ctx, tx, workspaceID, agentSessionID)
+	if err != nil {
+		return err
+	}
+	if active {
+		return ErrSessionForkInProgress
+	}
+	return nil
+}
+
+func requireSessionForkSourceQuiescentTx(
+	ctx context.Context,
+	tx *sql.Tx,
+	workspaceID, agentSessionID string,
+) error {
+	var busy int
+	if err := tx.QueryRowContext(ctx, `
+SELECT EXISTS(
+  SELECT 1
+  FROM workspace_agent_goal_control_operations
+  WHERE workspace_id = ? AND agent_session_id = ?
+    AND status IN ('prepared','dispatched')
+  UNION ALL
+  SELECT 1
+  FROM workspace_agent_runtime_operations
+  WHERE workspace_id = ? AND agent_session_id = ?
+    AND status IN ('prepared','leased')
+  UNION ALL
+  SELECT 1
+  FROM workspace_agent_session_goals
+  WHERE workspace_id = ? AND agent_session_id = ?
+    AND (
+      pending_operation_id IS NOT NULL
+      OR sync_status IN ('pending','applying')
+    )
+  UNION ALL
+  SELECT 1
+  FROM workspace_agent_goal_reconcile_inbox
+  WHERE workspace_id = ? AND agent_session_id = ?
+    AND status IN ('prepared','leased')
+  UNION ALL
+  SELECT 1
+  FROM workspace_agent_submit_claims
+  WHERE workspace_id = ? AND agent_session_id = ?
+    AND status = 'prepared'
+)
+`, workspaceID, agentSessionID, workspaceID, agentSessionID,
+		workspaceID, agentSessionID, workspaceID, agentSessionID,
+		workspaceID, agentSessionID).Scan(&busy); err != nil {
+		return fmt.Errorf("read session fork source quiescence: %w", err)
+	}
+	if busy != 0 {
+		return ErrSessionForkSourceState
+	}
 	return nil
 }
 
@@ -52,12 +101,8 @@ func requireSessionForkDeleteAllowedTx(
 	agentSessionIDs []string,
 ) error {
 	for _, agentSessionID := range normalizedSessionIDs(agentSessionIDs) {
-		if _, active, err := activeSessionForkSourceOperationTx(
-			ctx, tx, workspaceID, agentSessionID,
-		); err != nil {
+		if err := requireSessionForkSourceWritableTx(ctx, tx, workspaceID, agentSessionID); err != nil {
 			return err
-		} else if active {
-			return ErrSessionForkInProgress
 		}
 		var status string
 		err := tx.QueryRowContext(ctx, `

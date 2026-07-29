@@ -62,9 +62,7 @@ the registry default; absent unregistered keys resolve to `false`
 `lab.agentSessionFork` is a capability flag. Desktop hides new Session Fork
 actions unless the flag is enabled, and tuttid rejects direct Fork writes when
 it is absent, false, or unreadable. Existing fork lineage plus operation reads
-and acknowledgements remain available while the flag is off. Its durable key
-predates graduation from Lab; the switch is now presented in Developer
-settings without renaming the stored key or losing existing user choices.
+and acknowledgements remain available while the flag is off.
 
 `services/tuttid/service/agentextension/manager.go` is the existing example
 of feature-owned semantics: it reads the raw flag map, derives its own keys

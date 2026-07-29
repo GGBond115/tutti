@@ -775,6 +775,12 @@ func generatedAgentSession(session agentservice.Session) (tuttigenerated.Workspa
 			TargetTurnId:         strings.TrimSpace(session.ForkedFrom.TargetTurnID),
 		}
 	}
+	forkThroughTurnIDs := append(
+		[]string(nil),
+		session.LifecycleCapabilities.ForkThroughTurnIDs...,
+	)
+	forkThroughTurnIDsKnown :=
+		session.LifecycleCapabilities.ForkThroughTurnIDsKnown
 	return tuttigenerated.WorkspaceAgentSession{
 		ActiveTurn:             activeTurn,
 		ActiveTurnId:           optionalStringPointer(strings.TrimSpace(session.ActiveTurnID)),
@@ -792,8 +798,10 @@ func generatedAgentSession(session agentservice.Session) (tuttigenerated.Workspa
 		LatestTurnInteractions: latestTurnInteractions,
 		MessageVersion:         messageVersion,
 		LifecycleCapabilities: tuttigenerated.WorkspaceAgentSessionLifecycleCapabilities{
-			Fork:            session.LifecycleCapabilities.Fork,
-			ForkThroughTurn: session.LifecycleCapabilities.ForkThroughTurn,
+			Fork:                    session.LifecycleCapabilities.Fork,
+			ForkThroughTurn:         session.LifecycleCapabilities.ForkThroughTurn,
+			ForkThroughTurnIds:      &forkThroughTurnIDs,
+			ForkThroughTurnIdsKnown: &forkThroughTurnIDsKnown,
 		},
 		ParentAgentSessionId: optionalStringPointer(strings.TrimSpace(session.ParentAgentSessionID)),
 		ParentToolCallId:     optionalStringPointer(strings.TrimSpace(session.ParentToolCallID)),

@@ -195,7 +195,9 @@ describe("AgentTranscriptView virtual rendering", () => {
           ...baseConversation.sourceDetail.session,
           lifecycleCapabilities: {
             fork: false,
-            forkThroughTurn: true
+            forkThroughTurn: true,
+            forkThroughTurnIds: ["turn-10"],
+            forkThroughTurnIdsKnown: true
           }
         })
       }
@@ -254,7 +256,7 @@ describe("AgentTranscriptView virtual rendering", () => {
       screen.getByRole("button", {
         name: "agentHost.agentGui.forkThroughTurn"
       })
-    ).not.toBeDisabled();
+    ).toBeDisabled();
   });
 
   it("preserves mutation anchoring but disables append following while detached", () => {
@@ -1176,7 +1178,6 @@ function conversationWithCollapsibleTurns(
         agentSessionId: "session-1",
         origin: "user_prompt" as const,
         phase: "settled" as const,
-        providerForkBindingAvailable: true,
         outcome: "completed" as const,
         startedAtUnixMs: 1,
         settledAtUnixMs: 3,

@@ -120,8 +120,9 @@ type ForkSessionInput struct {
 	TargetAgentSessionID string
 	RequestID            string
 	Point                SessionForkPoint
-	// Asynchronous returns after the frozen durable operation is accepted.
-	Asynchronous bool
+	// ThroughTurnID is a temporary source-compatibility alias. New callers
+	// must use Point so adding whole-session mode does not reopen Host APIs.
+	ThroughTurnID string
 }
 
 type SessionForkPointKind string
@@ -147,8 +148,10 @@ type SessionForkCapabilityInput struct {
 }
 
 type SessionForkCapabilities struct {
-	FullSession bool
-	ThroughTurn bool
+	FullSession         bool
+	ThroughTurn         bool
+	ThroughTurnIDs      []string
+	ThroughTurnIDsKnown bool
 }
 
 // SessionForkTargetContext freezes the host-owned runtime context that the
@@ -163,17 +166,24 @@ type SessionForkDriverDescriptor struct {
 	Kind             string
 	Version          string
 	StateBindingMode SessionForkStateBindingMode
-	FullSession      bool
-	ThroughTurn      bool
+	// DeterministicTargetSessionID guarantees that ForkSession honors
+	// TargetProviderSessionID and that repeating the same input reconciles or
+	// creates that one provider child instead of allocating another identity.
+	DeterministicTargetSessionID bool
+	FullSession                  bool
+	ThroughTurn                  bool
+	ThroughProviderTurnIDs       []string
+	ThroughProviderTurnIDsKnown  bool
 }
 
 type RuntimeSessionForkInput struct {
-	Source                            ProviderRuntimeSession
-	SourceProviderTurnID              string
-	SourceProviderCheckpointMessageID string
-	TargetTitle                       string
-	RequestID                         string
-	Driver                            SessionForkDriverDescriptor
+	Source                  ProviderRuntimeSession
+	SourceProviderTurnID    string
+	SourceProviderTurnIDs   []string
+	TargetProviderSessionID string
+	TargetTitle             string
+	RequestID               string
+	Driver                  SessionForkDriverDescriptor
 }
 
 type SessionForkDeliveryDisposition string
@@ -186,16 +196,11 @@ const (
 )
 
 type RuntimeSessionForkResult struct {
-	ProviderSessionID          string
-	TargetProviderTurnBindings []SessionForkProviderTurnBinding
-	StateBindingMode           SessionForkStateBindingMode
-	StateBindingReceipt        string
-	DeliveryDisposition        SessionForkDeliveryDisposition
-}
-
-type SessionForkProviderTurnBinding struct {
-	ProviderTurnID      string
-	CheckpointMessageID string
+	ProviderSessionID     string
+	TargetProviderTurnIDs []string
+	StateBindingMode      SessionForkStateBindingMode
+	StateBindingReceipt   string
+	DeliveryDisposition   SessionForkDeliveryDisposition
 }
 
 type SessionForkStateBindingMode string

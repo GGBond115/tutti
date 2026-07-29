@@ -36,7 +36,9 @@ test("normalizes a transport session into the complete canonical contract", () =
     latestTurnInteractions: [],
     lifecycleCapabilities: {
       fork: false,
-      forkThroughTurn: false
+      forkThroughTurn: false,
+      forkThroughTurnIds: [],
+      forkThroughTurnIdsKnown: false
     },
     messageVersion: 0,
     pendingInteractions: [],

@@ -486,7 +486,6 @@ export function useAgentGUINodeController({
     isMountedRef,
     loadDraftComposerOptions: () => loadDraftComposerOptionsRef.current(),
     loadSelectedConversationMessages,
-    loadSessionState,
     markSelectedConversationDetailPending,
     onDataChangeRef,
     sessionEngine,

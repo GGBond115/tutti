@@ -249,15 +249,20 @@ function requestForkThroughTurn(
     sourceSession?.workspaceId !== workspaceId ||
     sourceSession.kind !== "root" ||
     sourceSession.lifecycleCapabilities.forkThroughTurn !== true ||
-    turn?.providerForkBindingAvailable !== true ||
+    Boolean(sourceSession.activeTurnId?.trim()) ||
+    Object.values(context.interactionsById ?? {}).some(
+      (interaction) =>
+        interaction.agentSessionId === sourceAgentSessionId &&
+        interaction.status === "pending"
+    ) ||
+    turn?.phase !== "settled" ||
     context.sessionsById[targetAgentSessionId] !== undefined ||
-    Object.values(state.byMutationId).some(
-      (record) =>
-        record.kind === "forkThroughTurn" &&
-        record.status === "inFlight" &&
-        record.workspaceId === workspaceId &&
-        record.agentSessionIds[0] === sourceAgentSessionId &&
-        record.turnId === turnId
+    hasInFlightOverlap(state, [sourceAgentSessionId]) ||
+    hasUnresolvedForkObservationAckOverlap(
+      state,
+      workspaceId,
+      sourceAgentSessionId,
+      turnId
     )
   ) {
     return unchanged(state);
@@ -435,6 +440,21 @@ function hasInFlightOverlap(
     (record) =>
       record.status === "inFlight" &&
       record.agentSessionIds.some((id) => ids.has(id))
+  );
+}
+
+function hasUnresolvedForkObservationAckOverlap(
+  state: SessionMutationsState,
+  workspaceId: string,
+  sourceAgentSessionId: string,
+  turnId: string
+): boolean {
+  return Object.values(state.byMutationId).some(
+    (record) =>
+      isUnresolvedForkObservationAck(record) &&
+      record.workspaceId === workspaceId &&
+      record.agentSessionIds[0] === sourceAgentSessionId &&
+      record.turnId === turnId
   );
 }
 
@@ -734,6 +754,16 @@ function isUnresolvedForkCoordination(
     record.kind === "forkThroughTurn" &&
     (record.status === "unknown" ||
       (record.ackStatus !== "idle" && record.ackStatus !== "acknowledged"))
+  );
+}
+
+function isUnresolvedForkObservationAck(
+  record: SessionMutationRecord
+): record is SessionForkThroughTurnMutationRecord {
+  return (
+    record.kind === "forkThroughTurn" &&
+    record.ackStatus !== "idle" &&
+    record.ackStatus !== "acknowledged"
   );
 }
 

@@ -19,7 +19,6 @@ type sessionForkCanonicalIdentityMap struct {
 	TurnIDs         map[string]string
 	MessageIDs      map[string]string
 	InteractionIDs  map[sessionForkInteractionRef]string
-	AttachmentIDs   map[string]string
 }
 
 func buildSessionForkCanonicalIdentityMap(
@@ -32,7 +31,6 @@ func buildSessionForkCanonicalIdentityMap(
 		TurnIDs:         make(map[string]string, len(snapshot.Turns)),
 		MessageIDs:      make(map[string]string, len(snapshot.Messages)),
 		InteractionIDs:  make(map[sessionForkInteractionRef]string, len(snapshot.Interactions)),
-		AttachmentIDs:   make(map[string]string),
 	}
 	if strings.TrimSpace(operation.WorkspaceID) == "" ||
 		strings.TrimSpace(operation.OperationID) == "" ||
@@ -72,7 +70,6 @@ func buildSessionForkCanonicalIdentityMap(
 
 	targetMessageIDs := make(map[string]string, len(snapshot.Messages))
 	for _, message := range snapshot.Messages {
-		collectSessionForkAttachmentIDs(message.Payload, identityMap.AttachmentIDs)
 		sourceID := strings.TrimSpace(message.MessageID)
 		if sourceID == "" {
 			return sessionForkCanonicalIdentityMap{}, errors.New(
@@ -104,13 +101,6 @@ func buildSessionForkCanonicalIdentityMap(
 		}
 		identityMap.MessageIDs[sourceID] = targetID
 		targetMessageIDs[targetID] = sourceID
-	}
-	for sourceID := range identityMap.AttachmentIDs {
-		identityMap.AttachmentIDs[sourceID] = deterministicSessionForkCanonicalID(
-			operation,
-			"attachment",
-			sourceID,
-		)
 	}
 
 	targetInteractionIDs := make(map[sessionForkInteractionRef]sessionForkInteractionRef, len(snapshot.Interactions))
@@ -353,64 +343,7 @@ func rewriteSessionForkMessagePayload(
 			},
 		)
 	}
-	rewritten, err := rewriteSessionForkCanonicalPaths(
-		payload,
-		sourceTurnID,
-		identityMap,
-		paths,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return rewriteSessionForkAttachmentIDs(rewritten, identityMap.AttachmentIDs), nil
-}
-
-func collectSessionForkAttachmentIDs(
-	value any,
-	ids map[string]string,
-) {
-	switch typed := value.(type) {
-	case map[string]any:
-		if attachmentID, ok := typed["attachmentId"].(string); ok {
-			if attachmentID = strings.TrimSpace(attachmentID); attachmentID != "" {
-				ids[attachmentID] = ""
-			}
-		}
-		for _, nested := range typed {
-			collectSessionForkAttachmentIDs(nested, ids)
-		}
-	case []any:
-		for _, nested := range typed {
-			collectSessionForkAttachmentIDs(nested, ids)
-		}
-	}
-}
-
-func rewriteSessionForkAttachmentIDs(
-	value any,
-	ids map[string]string,
-) map[string]any {
-	payload, _ := cloneSessionForkCanonicalValue(value).(map[string]any)
-	var rewrite func(any)
-	rewrite = func(candidate any) {
-		switch typed := candidate.(type) {
-		case map[string]any:
-			if sourceID, ok := typed["attachmentId"].(string); ok {
-				if targetID := ids[strings.TrimSpace(sourceID)]; targetID != "" {
-					typed["attachmentId"] = targetID
-				}
-			}
-			for _, nested := range typed {
-				rewrite(nested)
-			}
-		case []any:
-			for _, nested := range typed {
-				rewrite(nested)
-			}
-		}
-	}
-	rewrite(payload)
-	return payload
+	return rewriteSessionForkCanonicalPaths(payload, sourceTurnID, identityMap, paths)
 }
 
 func sessionForkInteractiveCallPayload(payload map[string]any) bool {

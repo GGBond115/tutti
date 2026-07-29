@@ -16,23 +16,20 @@ func (h *Host) RecoverSessionForks(ctx context.Context) error {
 	}
 	var recoveryErrors []error
 	handleOperation := func(operation storesqlite.SessionForkOperation) {
-		if operation.Status == storesqlite.SessionForkStatusDispatching {
-			_, _, err := h.sessionForks.RecordSessionForkProviderResult(
+		if operation.Status == storesqlite.SessionForkStatusPrepared {
+			// No dispatch marker proves the provider call never started. Mark
+			// the abandoned request failed so its durable source fence cannot
+			// freeze the session after the caller/UI process has restarted.
+			_, _, err := h.sessionForks.FailPreparedSessionFork(
 				ctx,
-				storesqlite.SessionForkProviderResult{
-					WorkspaceID:      operation.WorkspaceID,
-					OperationID:      operation.OperationID,
-					Status:           storesqlite.SessionForkStatusUnknown,
-					LastError:        "provider fork delivery is unknown after restart",
-					OccurredAtUnixMS: h.now().UnixMilli(),
-				},
+				operation.WorkspaceID,
+				operation.OperationID,
+				"prepared session fork was abandoned during restart",
+				h.now().UnixMilli(),
 			)
 			if err != nil {
 				recoveryErrors = append(recoveryErrors, err)
 			}
-			return
-		}
-		if operation.Status == storesqlite.SessionForkStatusUnknown {
 			return
 		}
 		if _, err := h.processSessionForkOperation(ctx, operation); err != nil &&

@@ -539,7 +539,6 @@ func isAgentStatusEvent(eventType activityshared.EventType) bool {
 		activityshared.EventTurnCompleted,
 		activityshared.EventTurnFailed,
 		activityshared.EventRootProviderTurnStarted,
-		activityshared.EventRootProviderTurnCheckpoint,
 		activityshared.EventRootProviderTurnCompleted:
 		return true
 	default:

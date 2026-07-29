@@ -27,6 +27,7 @@ import {
   findParticipantHeaderRenderKeys
 } from "./agentTurnWorkSectionModel";
 import { assessAgentTranscriptComplexity } from "./agentTranscriptComplexity";
+import { stringListEquals } from "./agentTranscriptEquality";
 import { useTurnDisclosureMotion } from "./useTurnDisclosureMotion";
 import {
   AgentMessageLocatorRail,
@@ -184,8 +185,6 @@ function transcriptCanonicalTurnsEqual(
           turn.turnId === nextTurn?.turnId &&
           turn.phase === nextTurn.phase &&
           turn.outcome === nextTurn.outcome &&
-          turn.providerForkBindingAvailable ===
-            nextTurn.providerForkBindingAvailable &&
           turn.startedAtUnixMs === nextTurn.startedAtUnixMs &&
           turn.settledAtUnixMs === nextTurn.settledAtUnixMs
         );
@@ -215,6 +214,14 @@ function transcriptConversationRenderInputEquals(
       previous.sourceDetail.session.kind === next.sourceDetail.session.kind &&
       previous.sourceDetail.session.lifecycleCapabilities.forkThroughTurn ===
         next.sourceDetail.session.lifecycleCapabilities.forkThroughTurn &&
+      previous.sourceDetail.session.lifecycleCapabilities
+        .forkThroughTurnIdsKnown ===
+        next.sourceDetail.session.lifecycleCapabilities
+          .forkThroughTurnIdsKnown &&
+      stringListEquals(
+        previous.sourceDetail.session.lifecycleCapabilities.forkThroughTurnIds,
+        next.sourceDetail.session.lifecycleCapabilities.forkThroughTurnIds
+      ) &&
       previous.sourceDetail.session.pendingInteractions ===
         next.sourceDetail.session.pendingInteractions &&
       previous.sourceDetail.cwd === next.sourceDetail.cwd &&
@@ -573,26 +580,25 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
 
   const resolveForkThroughTurnAction = (
     turnId: string | null
-  ): { disabled: boolean; pending: boolean; turnId: string } | null => {
+  ): { disabled: boolean; turnId: string } | null => {
     const lifecycleCapabilities =
       conversation.sourceDetail.session.lifecycleCapabilities;
-    const canonicalTurn =
-      turnId === null ? null : (canonicalTurnById.get(turnId) ?? null);
     if (
       !turnId ||
       !onForkThroughTurn ||
+      canonicalTurnById.get(turnId)?.phase !== "settled" ||
       conversation.sourceDetail.session.kind !== "root" ||
       lifecycleCapabilities.forkThroughTurn !== true ||
-      !canonicalTurn ||
-      canonicalTurn.phase !== "settled" ||
-      canonicalTurn.providerForkBindingAvailable !== true
+      lifecycleCapabilities.forkThroughTurnIdsKnown !== true ||
+      !lifecycleCapabilities.forkThroughTurnIds?.includes(turnId)
     ) {
       return null;
     }
-    const pending = forkThroughTurnPendingTurnIds.includes(turnId);
     return {
-      disabled: pending,
-      pending,
+      disabled:
+        Boolean(conversation.sourceDetail.session.activeTurnId?.trim()) ||
+        conversation.sourceDetail.session.pendingInteractions.length !== 0 ||
+        forkThroughTurnPendingTurnIds.includes(turnId),
       turnId
     };
   };
@@ -604,7 +610,6 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     const forkButton = forkAction ? (
       <AgentForkThroughTurnButton
         disabled={forkAction.disabled}
-        pending={forkAction.pending}
         onFork={() => onForkThroughTurn?.(forkAction.turnId)}
       />
     ) : null;
@@ -634,7 +639,6 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
         {forkAction && footerRowIndex === null ? (
           <AgentForkThroughTurnFooter
             disabled={forkAction.disabled}
-            pending={forkAction.pending}
             onFork={() => onForkThroughTurn?.(forkAction.turnId)}
           />
         ) : null}
@@ -651,7 +655,6 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     const forkButton = forkAction ? (
       <AgentForkThroughTurnButton
         disabled={forkAction.disabled}
-        pending={forkAction.pending}
         onFork={() => onForkThroughTurn?.(forkAction.turnId)}
       />
     ) : null;
@@ -680,7 +683,6 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
           forkAction && footerRowIndex === null ? (
             <AgentForkThroughTurnFooter
               disabled={forkAction.disabled}
-              pending={forkAction.pending}
               onFork={() => onForkThroughTurn?.(forkAction.turnId)}
             />
           ) : null

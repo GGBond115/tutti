@@ -18,25 +18,15 @@ func (s *Store) applyRootProviderTurnTransitionTx(
 	rootAgentSessionID := strings.TrimSpace(transition.RootAgentSessionID)
 	rootTurnID := strings.TrimSpace(transition.RootTurnID)
 	providerTurnID := strings.TrimSpace(transition.ProviderTurnID)
-	checkpointMessageID := strings.TrimSpace(
-		transition.ProviderCheckpointMessageID,
-	)
 	phase := strings.TrimSpace(transition.Phase)
 	if workspaceID == "" || rootAgentSessionID == "" || rootTurnID == "" || providerTurnID == "" {
 		return Turn{}, false, errors.New("workspace id, root session id, root turn id, and provider turn id are required")
 	}
-	if phase == "" && checkpointMessageID == "" {
-		return Turn{}, false, errors.New(
-			"root provider turn transition requires lifecycle or checkpoint data",
-		)
-	}
-	if phase != "" &&
-		phase != RootProviderTurnPhaseRunning &&
-		phase != RootProviderTurnPhaseCompleted {
+	if phase != RootProviderTurnPhaseRunning && phase != RootProviderTurnPhaseCompleted {
 		return Turn{}, false, fmt.Errorf("unsupported root provider turn phase %q", phase)
 	}
 	outcome := strings.TrimSpace(transition.Outcome)
-	if phase != RootProviderTurnPhaseCompleted && outcome != "" {
+	if phase == RootProviderTurnPhaseRunning && outcome != "" {
 		return Turn{}, false, errors.New("running root provider turn cannot have an outcome")
 	}
 	if phase == RootProviderTurnPhaseCompleted {
@@ -76,44 +66,6 @@ WHERE workspace_id = ? AND agent_session_id = ? AND deleted_at_unix_ms = 0
 	if occurred <= 0 {
 		occurred = now
 	}
-	if phase == "" {
-		if rootTurn.RootProviderTurnID != providerTurnID {
-			return rootTurn, false, nil
-		}
-		if rootTurn.RootProviderTurnUpdatedAtUnixMS > occurred {
-			return rootTurn, false, nil
-		}
-		if rootTurn.ProviderCheckpointMessageID == checkpointMessageID {
-			return rootTurn, false, nil
-		}
-		if _, err := tx.ExecContext(ctx, `
-UPDATE workspace_agent_turns
-SET provider_checkpoint_message_id = ?,
-    root_provider_turn_updated_at_unix_ms = ?
-WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
-`, checkpointMessageID, occurred, workspaceID, rootAgentSessionID, rootTurnID); err != nil {
-			return Turn{}, false, fmt.Errorf(
-				"record root provider turn checkpoint: %w",
-				err,
-			)
-		}
-		updated, found, err := getAgentTurnTx(
-			ctx,
-			tx,
-			workspaceID,
-			rootAgentSessionID,
-			rootTurnID,
-		)
-		if err != nil {
-			return Turn{}, false, err
-		}
-		if !found {
-			return Turn{}, false, errors.New(
-				"updated root provider checkpoint references an unknown root turn",
-			)
-		}
-		return updated, false, nil
-	}
 	if rootTurn.RootProviderTurnUpdatedAtUnixMS > occurred {
 		return rootTurn, false, nil
 	}
@@ -134,16 +86,11 @@ WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
 UPDATE workspace_agent_turns
 SET root_provider_turn_id = ?, root_provider_turn_phase = ?, root_provider_turn_outcome = ?,
     root_provider_turn_error_json = ?, root_provider_turn_completed_command_json = ?,
-    provider_checkpoint_message_id = CASE
-      WHEN ? = '' THEN provider_checkpoint_message_id
-      ELSE ?
-    END,
     root_provider_turn_updated_at_unix_ms = ?
 WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
 `, providerTurnID, phase, nullString(outcome),
 		encodeTurnErrorJSON(transition.ErrorMessage, transition.ErrorCode),
 		encodeCompletedCommandJSON(transition.CompletedCommandKind, transition.CompletedCommandStatus),
-		checkpointMessageID, checkpointMessageID,
 		occurred, workspaceID, rootAgentSessionID, rootTurnID); err != nil {
 		return Turn{}, false, fmt.Errorf("record root provider turn transition: %w", err)
 	}

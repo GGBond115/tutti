@@ -7,10 +7,8 @@ import {
 import {
   selectEngineSessionDetailHydrated,
   selectEngineSessionDetailLoading,
-  selectEngineSessionReconcile,
-  selectEngineSessionStateHydrated
+  selectEngineSessionReconcile
 } from "./sessionReconcile.selectors.ts";
-import { normalizeAgentActivitySession } from "../sessionNormalization.ts";
 
 test("session reconcile selector normalizes ids and hides reducer storage", () => {
   const state = rootEngineReducer(createInitialAgentSessionEngineState(), {
@@ -71,38 +69,4 @@ test("state-only reconcile does not block conversation detail", () => {
 
   assert.equal(selectEngineSessionDetailHydrated(state, "session-1"), false);
   assert.equal(selectEngineSessionDetailLoading(state, "session-1"), false);
-});
-
-test("state hydration requires an authoritative lifecycle capability projection", () => {
-  let state = rootEngineReducer(createInitialAgentSessionEngineState(), {
-    session: normalizeAgentActivitySession({
-      activeTurnId: null,
-      agentSessionId: "session-1",
-      cwd: "/workspace",
-      latestTurnInteractions: [],
-      pendingInteractions: [],
-      provider: "codex",
-      title: "Session",
-      workspaceId: "workspace-1"
-    }),
-    type: "session/upserted"
-  }).state;
-  assert.equal(selectEngineSessionStateHydrated(state, "session-1"), false);
-
-  state = rootEngineReducer(state, {
-    session: normalizeAgentActivitySession({
-      activeTurnId: null,
-      agentSessionId: "session-1",
-      cwd: "/workspace",
-      latestTurnInteractions: [],
-      lifecycleCapabilities: { fork: false, forkThroughTurn: true },
-      lifecycleCapabilitiesProjected: true,
-      pendingInteractions: [],
-      provider: "codex",
-      title: "Session",
-      workspaceId: "workspace-1"
-    }),
-    type: "session/upserted"
-  }).state;
-  assert.equal(selectEngineSessionStateHydrated(state, " session-1 "), true);
 });

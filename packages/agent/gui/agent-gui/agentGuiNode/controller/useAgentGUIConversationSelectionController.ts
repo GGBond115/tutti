@@ -2,7 +2,6 @@ import {
   isPendingActivationViable,
   selectEngineSession,
   selectEngineSessionDetailHydrated,
-  selectEngineSessionStateHydrated,
   selectLatestActivationForSession,
   type AttentionReadRecord,
   type AgentSessionEngine,
@@ -70,7 +69,6 @@ interface UseAgentGUIConversationSelectionControllerInput {
     agentSessionId: string,
     options?: { force?: boolean }
   ): Promise<void>;
-  loadSessionState(agentSessionId: string): void;
   markSelectedConversationDetailPending(agentSessionId: string): string | null;
   onDataChangeRef: RefObject<
     (updater: (current: AgentGUINodeData) => AgentGUINodeData) => void
@@ -150,7 +148,6 @@ export function useAgentGUIConversationSelectionController(
     isMountedRef,
     loadDraftComposerOptions,
     loadSelectedConversationMessages,
-    loadSessionState,
     markSelectedConversationDetailPending,
     onDataChangeRef,
     sessionEngine,
@@ -418,14 +415,8 @@ export function useAgentGUIConversationSelectionController(
       ensureHydrated: (agentSessionId) => {
         void loadSelectedConversationMessages(agentSessionId);
       },
-      ensureStateHydrated: loadSessionState,
       isHydrated: (agentSessionId) =>
         selectEngineSessionDetailHydrated(
-          sessionEngine.getSnapshot(),
-          agentSessionId
-        ),
-      isStateHydrated: (agentSessionId) =>
-        selectEngineSessionStateHydrated(
           sessionEngine.getSnapshot(),
           agentSessionId
         ),

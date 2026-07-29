@@ -9,7 +9,6 @@ import (
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
-	eventstreamservice "github.com/tutti-os/tutti/services/tuttid/service/eventstream"
 )
 
 func TestPublishPersistedTurnStateObservesOnlyCanonicalSettlement(t *testing.T) {
@@ -113,43 +112,8 @@ func TestGeneratedWorkspaceAgentTurnCoversAllFields(t *testing.T) {
 		SettledAtUnixMS:        1717200001000,
 		CreatedAtUnixMS:        1717200000000,
 		UpdatedAtUnixMS:        1717200001000,
-		RootProviderTurnID:     "provider-turn-1",
 	})
 	assertGeneratedFieldsPopulated(t, projected)
-}
-
-func TestGeneratedTurnUpdatePayloadPassesEventstreamCatalog(t *testing.T) {
-	t.Parallel()
-
-	service := eventstreamservice.NewService(eventstreamservice.DefaultCatalog(), nil)
-	publisher := eventstreamservice.AgentActivityPublisher{Service: service}
-	turn := agentactivitybiz.Turn{
-		WorkspaceID:        "ws-1",
-		AgentSessionID:     "session-1",
-		TurnID:             "turn-1",
-		Origin:             agentactivitybiz.TurnOriginUserPrompt,
-		Phase:              agentactivitybiz.TurnPhaseSettled,
-		Outcome:            agentactivitybiz.TurnOutcomeCompleted,
-		StartedAtUnixMS:    1717200000000,
-		SettledAtUnixMS:    1717200001000,
-		UpdatedAtUnixMS:    1717200001000,
-		RootProviderTurnID: "provider-turn-1",
-	}
-
-	if err := publisher.PublishAgentActivityUpdated(
-		context.Background(),
-		turn.WorkspaceID,
-		turn.AgentSessionID,
-		"turn_update",
-		activityTurnUpdateEventPayload(
-			turn.WorkspaceID,
-			turn.AgentSessionID,
-			turn,
-			turn.UpdatedAtUnixMS,
-		),
-	); err != nil {
-		t.Fatalf("generated turn_update payload failed eventstream validation: %v", err)
-	}
 }
 
 func TestGeneratedWorkspaceAgentTurnOmitsErrorForCanceledOutcome(t *testing.T) {

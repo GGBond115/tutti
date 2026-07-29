@@ -131,7 +131,9 @@ func TestForkWorkspaceAgentSessionPreservesExactThroughTurnIdentity(t *testing.T
 				ID: input.TargetAgentSessionID, Kind: agentactivitybiz.SessionKindRoot,
 				Provider: "codex", RailSectionKey: "conversations", CreatedAt: now,
 				LifecycleCapabilities: agentservice.SessionLifecycleCapabilities{
-					ForkThroughTurn: true,
+					ForkThroughTurn:         true,
+					ForkThroughTurnIDs:      []string{"target-turn-7"},
+					ForkThroughTurnIDsKnown: true,
 				},
 			}
 			lineage := agentservice.SessionForkLineage{
@@ -147,7 +149,6 @@ func TestForkWorkspaceAgentSessionPreservesExactThroughTurnIdentity(t *testing.T
 					Type: "throughTurn", TurnID: input.ThroughTurnID,
 				},
 				Status:  agentservice.SessionForkOperationCommitted,
-				Phase:   "committed",
 				Session: &session, Lineage: &lineage,
 			}, nil
 		},
@@ -189,11 +190,12 @@ func TestForkWorkspaceAgentSessionPreservesExactThroughTurnIdentity(t *testing.T
 		Operation struct {
 			OperationID string `json:"operationId"`
 			Status      string `json:"status"`
-			Phase       string `json:"phase"`
 			Session     *struct {
 				ID                    string `json:"id"`
 				LifecycleCapabilities struct {
-					ForkThroughTurn bool `json:"forkThroughTurn"`
+					ForkThroughTurn         bool     `json:"forkThroughTurn"`
+					ForkThroughTurnIDs      []string `json:"forkThroughTurnIds"`
+					ForkThroughTurnIDsKnown bool     `json:"forkThroughTurnIdsKnown"`
 				} `json:"lifecycleCapabilities"`
 			} `json:"session"`
 			Lineage *struct {
@@ -207,10 +209,12 @@ func TestForkWorkspaceAgentSessionPreservesExactThroughTurnIdentity(t *testing.T
 	}
 	if body.Operation.OperationID != "operation-1" ||
 		body.Operation.Status != "committed" ||
-		body.Operation.Phase != "committed" ||
 		body.Operation.Session == nil ||
 		body.Operation.Session.ID != "f0f21d94-af7c-4bdd-8f24-bffd169474bc" ||
 		!body.Operation.Session.LifecycleCapabilities.ForkThroughTurn ||
+		!body.Operation.Session.LifecycleCapabilities.ForkThroughTurnIDsKnown ||
+		len(body.Operation.Session.LifecycleCapabilities.ForkThroughTurnIDs) != 1 ||
+		body.Operation.Session.LifecycleCapabilities.ForkThroughTurnIDs[0] != "target-turn-7" ||
 		body.Operation.Lineage == nil ||
 		body.Operation.Lineage.SourceTurnID != "turn-7" ||
 		body.Operation.Lineage.TargetTurnID != "target-turn-7" {

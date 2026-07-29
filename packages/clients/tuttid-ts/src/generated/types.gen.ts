@@ -2224,9 +2224,17 @@ export type WorkspaceAgentSessionLifecycleCapabilities = {
    */
   fork: boolean;
   /**
-   * Whether this exact session can fork through a provider-bound canonical Turn.
+   * Whether this exact session can fork through a settled canonical Turn.
    */
   forkThroughTurn: boolean;
+  /**
+   * Canonical Turn ids currently verified against provider-native history.
+   */
+  forkThroughTurnIds?: Array<string>;
+  /**
+   * Whether forkThroughTurnIds is an authoritative provider-history projection.
+   */
+  forkThroughTurnIdsKnown?: boolean;
 };
 
 export type WorkspaceAgentSessionForkThroughTurnPoint = {
@@ -2264,17 +2272,6 @@ export type WorkspaceAgentSessionForkOperationStatus =
   | "failed"
   | "unknown";
 
-/**
- * Durable execution phase for progress and recovery diagnostics.
- */
-export type WorkspaceAgentSessionForkOperationPhase =
-  | "frozen"
-  | "dispatching"
-  | "materializing"
-  | "committed"
-  | "failed"
-  | "deliveryUnknown";
-
 export type WorkspaceAgentSessionForkOperation = {
   operationId: string;
   requestId: string;
@@ -2282,7 +2279,6 @@ export type WorkspaceAgentSessionForkOperation = {
   targetAgentSessionId: string;
   point: WorkspaceAgentSessionForkPoint;
   status: WorkspaceAgentSessionForkOperationStatus;
-  phase: WorkspaceAgentSessionForkOperationPhase;
   /**
    * Complete target Session projection when status is committed.
    */
@@ -2568,10 +2564,6 @@ export type WorkspaceAgentCompletedCommand = {
 export type WorkspaceAgentTurn = {
   turnId: string;
   agentSessionId: string;
-  /**
-   * Whether this canonical Turn currently has the provider Turn binding required to attempt an exact native Fork. Historical prefix state does not participate in this projection.
-   */
-  providerForkBindingAvailable: boolean;
   phase: WorkspaceAgentTurnPhase;
   /**
    * Durable business provenance; steer is input on an existing turn and is never an origin.

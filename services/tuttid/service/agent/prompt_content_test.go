@@ -1,15 +1,12 @@
 package agent
 
 import (
-	"context"
 	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
 func TestNormalizePromptContentAcceptsImagePath(t *testing.T) {
@@ -106,52 +103,6 @@ func TestPromptAttachmentStoreUsesSessionScopedPath(t *testing.T) {
 	}
 	if strings.Contains(path, "workspace-1") {
 		t.Fatalf("attachment path leaks workspace id: %q", path)
-	}
-}
-
-func TestPromptAttachmentStoreStagesForkAttachmentsIdempotently(t *testing.T) {
-	root := t.TempDir()
-	store := PromptAttachmentStore{RootDir: root}
-	sourcePath, err := store.attachmentPath(
-		"workspace-1", "session-source", "attachment-source", "image/png",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	want := []byte("fork attachment")
-	if err := os.WriteFile(sourcePath, want, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	bindings := []storesqlite.SessionForkAttachmentBinding{{
-		SourceAttachmentID: "attachment-source",
-		TargetAttachmentID: "attachment-target",
-	}}
-	for range 2 {
-		if err := store.StageSessionForkAttachments(
-			context.Background(),
-			"workspace-1",
-			"session-source",
-			"session-target",
-			bindings,
-		); err != nil {
-			t.Fatalf("StageSessionForkAttachments() error=%v", err)
-		}
-	}
-	targetPath, err := store.attachmentPath(
-		"workspace-1", "session-target", "attachment-target", "image/png",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(targetPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != string(want) {
-		t.Fatalf("staged attachment=%q want=%q", got, want)
 	}
 }
 

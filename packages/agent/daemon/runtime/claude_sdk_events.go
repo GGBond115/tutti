@@ -89,22 +89,6 @@ func (a *ClaudeCodeSDKAdapter) sidecarTurnEvents(adapterSession *claudeSDKAdapte
 			providerTurnID,
 			map[string]any{"adapter": claudeSDKSidecarAdapterName},
 		)}, false, nil
-	case "provider_turn_checkpoint":
-		checkpointMessageID := payloadString(
-			event.Payload,
-			"providerCheckpointMessageId",
-		)
-		if eventTurnID == "" || providerTurnID == "" || checkpointMessageID == "" {
-			return nil, false, errors.New(
-				"claude SDK provider turn checkpoint omitted identity",
-			)
-		}
-		return []activityshared.Event{claudeSDKRootProviderTurnCheckpointEvent(
-			session,
-			eventTurnID,
-			providerTurnID,
-			checkpointMessageID,
-		)}, false, nil
 	case "turn_started":
 		metadata := map[string]any{
 			"adapter": claudeSDKSidecarAdapterName,
@@ -335,7 +319,7 @@ func (a *ClaudeCodeSDKAdapter) sidecarTurnEvents(adapterSession *claudeSDKAdapte
 
 func isClaudeSDKGoalClearHiddenEvent(eventType string) bool {
 	switch eventType {
-	case "turn_started", "provider_turn_checkpoint", "assistant_delta", "assistant_completed", "assistant_failed", "thinking_delta", "thinking_completed":
+	case "turn_started", "assistant_delta", "assistant_completed", "assistant_failed", "thinking_delta", "thinking_completed":
 		return true
 	default:
 		return false
@@ -349,6 +333,80 @@ func isClaudeSDKTerminalEvent(eventType string) bool {
 	default:
 		return false
 	}
+}
+
+func claudeSDKRootProviderTurnStartedEvent(session Session, rootTurnID string, providerTurnID string, metadata map[string]any) activityshared.Event {
+	ctx, ok := activityEventContext(session, "claude-sdk:provider-turn-started:"+providerTurnID, rootTurnID)
+	if !ok {
+		return activityshared.Event{}
+	}
+	event := activityshared.NewRootProviderTurnStarted(ctx, rootTurnID, providerTurnID)
+	event.Payload.Metadata = clonePayload(metadata)
+	return event
+}
+
+func claudeSDKRootProviderTurnCompletedEvent(session Session, rootTurnID string, providerTurnID string, outcome activityshared.TurnOutcome, metadata map[string]any) activityshared.Event {
+	ctx, ok := activityEventContext(session, "claude-sdk:provider-turn-completed:"+providerTurnID, rootTurnID)
+	if !ok {
+		return activityshared.Event{}
+	}
+	event := activityshared.NewRootProviderTurnCompleted(ctx, rootTurnID, providerTurnID, outcome)
+	event.Payload.Metadata = clonePayload(metadata)
+	return event
+}
+
+func (a *ClaudeCodeSDKAdapter) beginClaudeSDKRootTurn(adapterSession *claudeSDKAdapterSession, rootTurnID string, providerTurnID string) {
+	if a == nil || adapterSession == nil {
+		return
+	}
+	rootTurnID = strings.TrimSpace(rootTurnID)
+	providerTurnID = strings.TrimSpace(providerTurnID)
+	a.mu.Lock()
+	adapterSession.rootTurnID = rootTurnID
+	adapterSession.rootProviderTurns = make(map[string]struct{})
+	if providerTurnID != "" {
+		adapterSession.rootProviderTurns[providerTurnID] = struct{}{}
+	}
+	a.mu.Unlock()
+}
+
+func (a *ClaudeCodeSDKAdapter) claudeSDKRootTurnID(adapterSession *claudeSDKAdapterSession, fallback string) string {
+	if a == nil || adapterSession == nil {
+		return strings.TrimSpace(fallback)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if rootTurnID := strings.TrimSpace(adapterSession.rootTurnID); rootTurnID != "" {
+		return rootTurnID
+	}
+	adapterSession.rootTurnID = strings.TrimSpace(fallback)
+	return adapterSession.rootTurnID
+}
+
+func (a *ClaudeCodeSDKAdapter) rememberClaudeSDKRootProviderTurn(adapterSession *claudeSDKAdapterSession, providerTurnID string) {
+	if a == nil || adapterSession == nil || strings.TrimSpace(providerTurnID) == "" {
+		return
+	}
+	a.mu.Lock()
+	if adapterSession.rootProviderTurns == nil {
+		adapterSession.rootProviderTurns = make(map[string]struct{})
+	}
+	adapterSession.rootProviderTurns[strings.TrimSpace(providerTurnID)] = struct{}{}
+	a.mu.Unlock()
+}
+
+func (a *ClaudeCodeSDKAdapter) consumeClaudeSDKRootProviderTurn(adapterSession *claudeSDKAdapterSession, providerTurnID string) bool {
+	if a == nil || adapterSession == nil || strings.TrimSpace(providerTurnID) == "" {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	providerTurnID = strings.TrimSpace(providerTurnID)
+	if _, ok := adapterSession.rootProviderTurns[providerTurnID]; !ok {
+		return false
+	}
+	delete(adapterSession.rootProviderTurns, providerTurnID)
+	return true
 }
 
 func (a *ClaudeCodeSDKAdapter) startClaudeSDKReader(agentSessionID string, adapterSession *claudeSDKAdapterSession) error {

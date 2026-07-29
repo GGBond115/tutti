@@ -210,6 +210,12 @@ export function conversationDetailSessionsEqual(
     left.lifecycleCapabilities.fork === right.lifecycleCapabilities.fork &&
     left.lifecycleCapabilities.forkThroughTurn ===
       right.lifecycleCapabilities.forkThroughTurn &&
+    left.lifecycleCapabilities.forkThroughTurnIdsKnown ===
+      right.lifecycleCapabilities.forkThroughTurnIdsKnown &&
+    stringArraysEqual(
+      left.lifecycleCapabilities.forkThroughTurnIds,
+      right.lifecycleCapabilities.forkThroughTurnIds
+    ) &&
     left.forkedFrom?.sourceAgentSessionId ===
       right.forkedFrom?.sourceAgentSessionId &&
     left.forkedFrom?.sourceTurnId === right.forkedFrom?.sourceTurnId &&
