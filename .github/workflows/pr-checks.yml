@@ -213,8 +213,7 @@ jobs:
           if [ "${TEST_ALL}" = "true" ]; then
             pnpm test:ts -- --shard "${TEST_SHARD}";
           else
-            pnpm test:ts -- --packages-json "${TEST_PACKAGES}"
-            --shard "${TEST_SHARD}";
+            pnpm test:ts -- --packages-json "${TEST_PACKAGES}" --shard "${TEST_SHARD}";
           fi
 
   ts-tests:

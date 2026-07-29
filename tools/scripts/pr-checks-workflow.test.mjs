@@ -92,6 +92,7 @@ test("TypeScript Tests preserves its required context across package shards", ()
   );
   assert.match(testStep.run, /--packages-json/u);
   assert.match(testStep.run, /--shard/u);
+  assert.match(testStep.run, /--packages-json[^\n]*--shard/u);
   assert.equal(
     requireShardsStep.env.SHARDS_RESULT,
     "${{ needs.ts-test-shards.result }}"
