@@ -129,6 +129,14 @@ materialization, dispatchable listing, durable claim, and final dispatch CAS.
 Retain the prepared or settled wake history so clearing the pause continues
 from the same checkpoint and graph revision.
 
+If pause races after Agent Host has already accepted the wake Turn but before
+the final dispatch CAS, cancel that Turn before making the wake retryable. An
+accepted `clientSubmitId` cannot execute again, so atomically cancel the leased
+wake and prepare the next sequence with a fresh identity under the same active
+checkpoint. Keep the replacement hidden while paused. If canonical Turn
+cancellation fails, retain the lease until expiry to prevent overlapping
+orchestrator Turns.
+
 Run `tutti plan issue get --issue-id <id> --json`. A paused snapshot must expose
 `dispatchPaused=true`, omit `plan issue schedule` from `allowedActions`, and
 advertise `plan issue resume`. Only the original source Session may execute
@@ -138,10 +146,11 @@ new capability, the exact compatibility request
 to the same source-scoped control; mixed field updates and other generic
 managed-Issue mutations remain rejected.
 
-Validate paused list/claim/finalize races, deferred watchdog sequence creation,
-idempotent source-scoped resume, the paused execution snapshot, and both CLI
-entry points. Restarting Desktop is not a resume operation and must not create
-another wake.
+Validate paused list/claim/finalize races, fresh wake identity after a canceled
+accepted Turn, lease retention when cancellation fails, deferred watchdog
+sequence creation, idempotent source-scoped resume, the paused execution
+snapshot, and both CLI entry points. Restarting Desktop is not a resume
+operation and must not create another wake.
 
 ## Stop remains pending while the Agent Turn is already canceled
 
