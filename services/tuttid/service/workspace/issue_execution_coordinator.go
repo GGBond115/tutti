@@ -244,41 +244,46 @@ func (s IssueManagerService) ResumeTuttiModeIssueExecution(
 	if workspaceID == "" || issueID == "" || sourceSessionID == "" {
 		return workspaceissues.Issue{}, workspaceissues.ErrInvalidArgument
 	}
-	unlock := s.MutationLocks.Lock(workspaceID, issueID)
-	detail, err := s.domainService().GetIssueDetail(ctx, workspaceID, issueID)
+	issue, changed, err := func() (workspaceissues.Issue, bool, error) {
+		unlock := s.MutationLocks.Lock(workspaceID, issueID)
+		defer unlock()
+
+		detail, err := s.domainService().GetIssueDetail(ctx, workspaceID, issueID)
+		if err != nil {
+			return workspaceissues.Issue{}, false, err
+		}
+		if detail.Issue.PlanningSource != workspaceissues.PlanningSourceTuttiModePlan {
+			return workspaceissues.Issue{}, false, workspaceissues.ErrInvalidArgument
+		}
+		if strings.TrimSpace(detail.Issue.SourceSessionID) != sourceSessionID {
+			return workspaceissues.Issue{}, false, executionbiz.Reject(
+				executionbiz.ErrScheduleRejected,
+				executionbiz.RejectionWrongSourceSession,
+				"",
+			)
+		}
+		if !detail.Issue.DispatchPaused {
+			return detail.Issue, false, nil
+		}
+		issue := detail.Issue
+		issue.DispatchPaused = false
+		issue.UpdatedAtUnixMS = time.Now().UTC().UnixMilli()
+		issue, err = s.Store.UpdateIssue(ctx, issue)
+		if err != nil {
+			return workspaceissues.Issue{}, false, err
+		}
+		return issue, true, nil
+	}()
 	if err != nil {
-		unlock()
 		return workspaceissues.Issue{}, err
 	}
-	if detail.Issue.PlanningSource != workspaceissues.PlanningSourceTuttiModePlan {
-		unlock()
-		return workspaceissues.Issue{}, workspaceissues.ErrInvalidArgument
+	if changed {
+		s.publishWorkspaceIssueUpdated(ctx, eventstreamservice.WorkspaceIssueUpdate{
+			WorkspaceID: issue.WorkspaceID,
+			IssueID:     issue.IssueID,
+			ChangeKind:  eventstreamservice.WorkspaceIssueChangeIssueUpdated,
+		})
 	}
-	if strings.TrimSpace(detail.Issue.SourceSessionID) != sourceSessionID {
-		unlock()
-		return workspaceissues.Issue{}, executionbiz.Reject(
-			executionbiz.ErrScheduleRejected,
-			executionbiz.RejectionWrongSourceSession,
-			"",
-		)
-	}
-	if !detail.Issue.DispatchPaused {
-		unlock()
-		return detail.Issue, nil
-	}
-	issue := detail.Issue
-	issue.DispatchPaused = false
-	issue.UpdatedAtUnixMS = time.Now().UTC().UnixMilli()
-	issue, err = s.Store.UpdateIssue(ctx, issue)
-	unlock()
-	if err != nil {
-		return workspaceissues.Issue{}, err
-	}
-	s.publishWorkspaceIssueUpdated(ctx, eventstreamservice.WorkspaceIssueUpdate{
-		WorkspaceID: issue.WorkspaceID,
-		IssueID:     issue.IssueID,
-		ChangeKind:  eventstreamservice.WorkspaceIssueChangeIssueUpdated,
-	})
 	return issue, nil
 }
 
