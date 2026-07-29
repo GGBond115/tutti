@@ -397,24 +397,6 @@ export class WorkspaceAgentActivityMutationOperations {
     return result;
   }
 
-  async renameSession(
-    input: Parameters<AgentActivityAdapter["renameSession"]>[0]
-  ): Promise<AgentActivitySession> {
-    const workspaceId = normalizeWorkspaceId(input.workspaceId);
-    const agentSessionId = input.agentSessionId.trim();
-    const target = this.dependencies.sessionCommandTarget(workspaceId);
-    const session = await target.adapter.renameSession({
-      ...input,
-      agentSessionId,
-      workspaceId
-    });
-    this.dependencies.upsertAuthoritativeSession(
-      session,
-      "rename_session_result"
-    );
-    return session;
-  }
-
   async updateSessionSettings(input: {
     agentSessionId: string;
     signal?: AbortSignal;

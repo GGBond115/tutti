@@ -244,7 +244,7 @@ func TestAgentActivityUpdatedValidationRejectsUnknownTypedEntityFields(t *testin
 			"occurredAtUnixMs":1,
 			"activeTurnId":null,
 			"unexpected":true,
-			"turn":{"turnId":"turn-1","agentSessionId":"agent-session-1","phase":"settled","origin":"user_prompt","outcome":"completed","error":null,"fileChanges":null,"completedCommand":null,"startedAtUnixMs":1,"settledAtUnixMs":1,"updatedAtUnixMs":1}
+			"turn":{"turnId":"turn-1","agentSessionId":"agent-session-1","providerForkBindingAvailable":false,"phase":"settled","origin":"user_prompt","outcome":"completed","error":null,"fileChanges":null,"completedCommand":null,"startedAtUnixMs":1,"settledAtUnixMs":1,"updatedAtUnixMs":1}
 		}
 	}`
 	if err := catalog.ValidatePublish(
@@ -303,7 +303,7 @@ func TestAgentActivityUpdatedValidationEnforcesFullEntityStateMachines(t *testin
 	validSettledTurn := `{
 		"workspaceId":"workspace-1","agentSessionId":"session-1","eventType":"turn_update",
 		"data":{"workspaceId":"workspace-1","agentSessionId":"session-1","eventType":"turn_update","occurredAtUnixMs":10,"activeTurnId":null,
-		"turn":{"turnId":"turn-1","agentSessionId":"session-1","phase":"settled","origin":"user_prompt","outcome":"completed","error":null,"fileChanges":null,"completedCommand":null,"startedAtUnixMs":1,"settledAtUnixMs":10,"updatedAtUnixMs":10}}
+		"turn":{"turnId":"turn-1","agentSessionId":"session-1","providerForkBindingAvailable":false,"phase":"settled","origin":"user_prompt","outcome":"completed","error":null,"fileChanges":null,"completedCommand":null,"startedAtUnixMs":1,"settledAtUnixMs":10,"updatedAtUnixMs":10}}
 	}`
 	if err := catalog.ValidatePublish(TopicAgentActivityUpdated, DirectionServerToClient, []byte(validSettledTurn)); err != nil {
 		t.Fatalf("valid settled turn: %v", err)
@@ -311,7 +311,7 @@ func TestAgentActivityUpdatedValidationEnforcesFullEntityStateMachines(t *testin
 	validLiveTurn := `{
 		"workspaceId":"workspace-1","agentSessionId":"session-1","eventType":"turn_update",
 		"data":{"workspaceId":"workspace-1","agentSessionId":"session-1","eventType":"turn_update","occurredAtUnixMs":11,"activeTurnId":"turn-live",
-		"turn":{"turnId":"turn-live","agentSessionId":"session-1","phase":"running","origin":"goal_continuation","sourceGoalOperationId":"goal-op-1","sourceGoalRevision":1,"sourceGoalRepairEpoch":0,"outcome":null,"error":null,"fileChanges":null,"completedCommand":null,"startedAtUnixMs":11,"settledAtUnixMs":null,"updatedAtUnixMs":11}}
+		"turn":{"turnId":"turn-live","agentSessionId":"session-1","providerForkBindingAvailable":true,"phase":"running","origin":"goal_continuation","sourceGoalOperationId":"goal-op-1","sourceGoalRevision":1,"sourceGoalRepairEpoch":0,"outcome":null,"error":null,"fileChanges":null,"completedCommand":null,"startedAtUnixMs":11,"settledAtUnixMs":null,"updatedAtUnixMs":11}}
 	}`
 	if err := catalog.ValidatePublish(TopicAgentActivityUpdated, DirectionServerToClient, []byte(validLiveTurn)); err != nil {
 		t.Fatalf("valid live turn with nullable outcome: %v", err)
@@ -329,6 +329,24 @@ func TestAgentActivityUpdatedValidationEnforcesFullEntityStateMachines(t *testin
 	}
 }
 
+func TestAgentActivityUpdatedValidationRequiresProviderForkBindingAvailability(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte(`{
+		"workspaceId":"workspace-1","agentSessionId":"session-1","eventType":"turn_update",
+		"data":{"workspaceId":"workspace-1","agentSessionId":"session-1","eventType":"turn_update","occurredAtUnixMs":10,"activeTurnId":null,
+		"turn":{"turnId":"turn-1","agentSessionId":"session-1","phase":"settled","origin":"user_prompt","outcome":"completed","error":null,"fileChanges":null,"completedCommand":null,"startedAtUnixMs":1,"settledAtUnixMs":10,"updatedAtUnixMs":10}}
+	}`)
+	err := DefaultCatalog().ValidatePublish(
+		TopicAgentActivityUpdated,
+		DirectionServerToClient,
+		payload,
+	)
+	if err == nil || !strings.Contains(err.Error(), "providerForkBindingAvailable is required") {
+		t.Fatalf("ValidatePublish() error = %v, want missing providerForkBindingAvailable", err)
+	}
+}
+
 func TestAgentActivityUpdatedValidationAcceptsLiveTurnCapabilityReferences(t *testing.T) {
 	t.Parallel()
 	catalog := DefaultCatalog()
@@ -339,7 +357,7 @@ func TestAgentActivityUpdatedValidationAcceptsLiveTurnCapabilityReferences(t *te
 			payload := strings.Replace(`{
 		"workspaceId":"workspace-1","agentSessionId":"session-1","eventType":"turn_update",
 		"data":{"workspaceId":"workspace-1","agentSessionId":"session-1","eventType":"turn_update","occurredAtUnixMs":10,"activeTurnId":"turn-1",
-		"turn":{"turnId":"turn-1","agentSessionId":"session-1","capabilityRefs":[{"capability":"tutti","source":"slash_command"}],"phase":"PHASE","origin":"user_prompt","outcome":null,"error":null,"fileChanges":null,"completedCommand":null,"startedAtUnixMs":10,"settledAtUnixMs":null,"updatedAtUnixMs":10}}
+		"turn":{"turnId":"turn-1","agentSessionId":"session-1","providerForkBindingAvailable":false,"capabilityRefs":[{"capability":"tutti","source":"slash_command"}],"phase":"PHASE","origin":"user_prompt","outcome":null,"error":null,"fileChanges":null,"completedCommand":null,"startedAtUnixMs":10,"settledAtUnixMs":null,"updatedAtUnixMs":10}}
 	}`, "PHASE", phase, 1)
 			if err := catalog.ValidatePublish(TopicAgentActivityUpdated, DirectionServerToClient, []byte(payload)); err != nil {
 				t.Fatalf("valid %s turn with capability refs: %v", phase, err)
@@ -354,7 +372,7 @@ func TestAgentActivityUpdatedValidationRejectsUnsupportedTurnCapabilityReference
 	valid := `{
 		"workspaceId":"workspace-1","agentSessionId":"session-1","eventType":"turn_update",
 		"data":{"workspaceId":"workspace-1","agentSessionId":"session-1","eventType":"turn_update","occurredAtUnixMs":10,"activeTurnId":"turn-1",
-		"turn":{"turnId":"turn-1","agentSessionId":"session-1","capabilityRefs":[{"capability":"tutti","source":"slash_command"}],"phase":"running","outcome":null,"error":null,"fileChanges":null,"completedCommand":null,"startedAtUnixMs":10,"settledAtUnixMs":null,"updatedAtUnixMs":10}}
+		"turn":{"turnId":"turn-1","agentSessionId":"session-1","providerForkBindingAvailable":false,"capabilityRefs":[{"capability":"tutti","source":"slash_command"}],"phase":"running","origin":"user_prompt","outcome":null,"error":null,"fileChanges":null,"completedCommand":null,"startedAtUnixMs":10,"settledAtUnixMs":null,"updatedAtUnixMs":10}}
 	}`
 	invalid := []string{
 		strings.Replace(valid, `"capability":"tutti"`, `"capability":"other"`, 1),

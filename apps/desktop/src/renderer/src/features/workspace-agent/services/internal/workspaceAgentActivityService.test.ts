@@ -2948,6 +2948,71 @@ test("WorkspaceAgentActivityService pins through the engine command port", async
   );
 });
 
+test("WorkspaceAgentActivityService renames through the engine command port", async () => {
+  const calls: unknown[] = [];
+  const initial = workspaceAgentSession({ status: "completed" });
+  const service = new WorkspaceAgentActivityService({
+    tuttidClient: {
+      listWorkspaceAgentSessions: async () => ({
+        hasMore: false,
+        sessions: [initial],
+        workspaceId: "ws-1"
+      }),
+      updateWorkspaceAgentSessionTitle: async (
+        workspaceId: string,
+        agentSessionId: string,
+        request: { title: string },
+        options?: { signal?: AbortSignal }
+      ) => {
+        calls.push({ agentSessionId, options, request, workspaceId });
+        return {
+          ...initial,
+          title: request.title,
+          updatedAtUnixMs: Date.parse("2026-06-16T00:00:01.000Z")
+        };
+      }
+    } as unknown as TuttidClient,
+    runtimeApi: { logTerminalDiagnostic: async () => {} }
+  });
+  const engine = service.getSessionEngine("ws-1");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const result = await service.renameSession({
+    agentSessionId: "session-1",
+    title: "  Renamed session  ",
+    workspaceId: "ws-1"
+  });
+
+  const call = calls[0] as
+    | {
+        agentSessionId: string;
+        options?: { signal?: AbortSignal };
+        request: { title: string };
+        workspaceId: string;
+      }
+    | undefined;
+  assert.deepEqual(
+    call
+      ? {
+          agentSessionId: call.agentSessionId,
+          request: call.request,
+          workspaceId: call.workspaceId
+        }
+      : null,
+    {
+      agentSessionId: "session-1",
+      request: { title: "Renamed session" },
+      workspaceId: "ws-1"
+    }
+  );
+  assert.ok(call?.options?.signal instanceof AbortSignal);
+  assert.equal(result.title, "Renamed session");
+  assert.equal(
+    selectSessionMutations(engine.getSnapshot()).at(-1)?.status,
+    "succeeded"
+  );
+});
+
 test("WorkspaceAgentActivityService single delete uses the authoritative batch result without reloading", async () => {
   const calls: unknown[] = [];
   let listCalls = 0;

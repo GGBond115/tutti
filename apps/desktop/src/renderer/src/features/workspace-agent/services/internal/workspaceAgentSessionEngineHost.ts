@@ -153,6 +153,13 @@ export function createWorkspaceAgentSessionEngineHost(
             ...effectInput,
             signal: options?.signal
           }),
+        renameSession: async (effectInput, options) => {
+          const session = await adapter.renameSession({
+            ...effectInput,
+            signal: options?.signal
+          });
+          return { session };
+        },
         respondToInteraction: (effectInput, options) =>
           input.submitInteractive({
             ...effectInput,

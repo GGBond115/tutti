@@ -20,8 +20,8 @@ transport commands and normalize observations before they enter the engine.
 - analyzes normalized activity events into one inline-observation intent plus
   an explicit authoritative-reconcile requirement
 - projects shared activation, prompt send, settings update, turn cancel,
-  Interaction response, pin, and batch-delete commands onto one typed host
-  effect port
+  Interaction response, rename, pin, and batch-delete commands onto one typed
+  host effect port
 - executes the shared prompt state machine, including serialized required
   settings persistence before send
 - exposes selectors such as `selectNeedsAttentionCount`
@@ -53,13 +53,21 @@ Engine rules:
 - Instances are identified by the workspace + origin pair and injected
   explicitly. There is no module-level singleton; hosts running multiple
   runtimes against one workspace create one engine per origin.
-- `dispatch(intent)` is the only input. Reducers are pure and return new state
-  plus command descriptions; the effect executor performs commands and feeds
-  every settlement (success, failure, timeout) back into the loop as
-  command-result intents.
+- Normalized observations and advanced lifecycle intents enter through
+  `dispatch(intent)`. Session rename, pin, and batch delete enter through the
+  semantic `engine.renameSession`, `engine.setSessionPinned`, and
+  `engine.deleteSessions` methods. Those methods derive workspace identity,
+  allocate mutation identity, own the default timeout and caller cancellation,
+  await settlement, and return canonical results without exposing reducer
+  protocol to hosts. Cancellation aborts the host effect; once delivery may
+  have started, the mutation remains delivery-unknown rather than becoming a
+  confirmed failure.
+- Reducers are pure and return new state plus command descriptions; the effect
+  executor performs commands and feeds every settlement (success, failure,
+  timeout) back into the loop as command-result intents.
 - New hosts implement `AgentSessionEffectPort` for activation, prompt send,
-  settings update, turn cancellation, Interaction response, pin, and batch
-  delete. The Engine owns command-to-capability projection and
+  settings update, turn cancellation, Interaction response, rename, pin, and
+  batch delete. The Engine owns command-to-capability projection and
   the settings-precondition state machine. A typed port declares
   `kind: "typed"` and its `execute` callback receives only
   `EngineExtensionCommand`; the discriminated legacy shape keeps the
@@ -73,6 +81,9 @@ Engine rules:
 - `getSnapshot()` / `subscribe()` expose the immutable state tree. React
   surfaces subscribe through the single `useEngineSelector` binding in
   `@tutti-os/agent-gui`.
+- `dispatchSessionMutation` remains a compatibility entrypoint for published
+  consumers migrating to the semantic Engine methods. New product-host code
+  must not construct mutation ids, timeout policy, or mutation-record reads.
 
 The state tree includes lifecycle entities, message windows, prompt queue,
 pending intents, composer options, runtime availability, reconciliation, and
@@ -284,8 +295,9 @@ and Session reference consistent.
 The Engine projects shared lifecycle command descriptions onto
 `AgentSessionEffectPort`: `activateSession`, `sendInput`,
 `updateSessionSettings`, `cancelTurn`, `respondToInteraction`,
-`setSessionPinned`, and `deleteSessions`. Hosts implement transport and result
-mapping without switching on those command types. When a queued prompt includes
+`renameSession`, `setSessionPinned`, and `deleteSessions`. Hosts implement
+transport and result mapping without switching on those command types. When a
+queued prompt includes
 a required settings patch, the Engine records a prompt continuation and enters
 that patch into the same per-Session settings lane as direct UI changes and
 post-activation settings persistence. Only one settings write for a Session

@@ -48,6 +48,8 @@ export function createWorkspaceActivityEffectPort(
       cancelTurn(getContext(), input, options?.signal),
     deleteSessions: (input, options) =>
       deleteSessions(getContext(), input, options?.signal),
+    renameSession: (input, options) =>
+      renameSession(getContext(), input, options?.signal),
     respondToInteraction: (input, options) =>
       respondToInteraction(getContext(), input, options?.signal),
     sendInput: (input, options) =>
@@ -253,6 +255,25 @@ function respondToInteraction(
         payload: input.payload ?? null,
         turnId: input.turnId
       },
+      ...requestOptionsArgs(signal)
+    )
+    .then((session) => ({ session: context.mapSession(session) }));
+}
+
+function renameSession(
+  context: WorkspaceActivityEngineCommandContext,
+  input: {
+    agentSessionId: string;
+    title: string;
+    workspaceId: string;
+  },
+  signal?: AbortSignal
+): Promise<unknown> {
+  return context.client
+    .updateWorkspaceAgentSessionTitle(
+      input.workspaceId,
+      input.agentSessionId,
+      { title: input.title },
       ...requestOptionsArgs(signal)
     )
     .then((session) => ({ session: context.mapSession(session) }));

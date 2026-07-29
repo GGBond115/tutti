@@ -1,6 +1,5 @@
 import {
   agentActivitySessionMessageWindowFromDescendingPage,
-  dispatchSessionMutation,
   type AgentActivityAdapter,
   type AgentActivityComposerOptions,
   type AgentActivityGoalControlResult,
@@ -136,7 +135,6 @@ export class WorkspaceAgentActivityService
     }>
   >();
   private composerOptionsCommandSequence = 1;
-  private sessionMutationSequence = 1;
   // Collaboration-run/model-plan requests are not part of the TuttidClient
   // wrapper yet, so they call the generated SDK directly. The client is
   // re-resolved from the backend config on every call (cached per endpoint)
@@ -447,27 +445,10 @@ export class WorkspaceAgentActivityService
     input: Parameters<IWorkspaceAgentActivityService["deleteSessionsBatch"]>[0]
   ): ReturnType<IWorkspaceAgentActivityService["deleteSessionsBatch"]> {
     const workspaceId = normalizeWorkspaceId(input.workspaceId);
-    const mutation = await dispatchSessionMutation(
-      this.entry(workspaceId).engine,
-      {
-        agentSessionIds: input.sessionIds,
-        mutationId: this.nextSessionMutationId("delete"),
-        timeoutMs: 30_000,
-        type: "sessions/deleteRequested",
-        workspaceId
-      }
-    );
-    if (mutation.kind !== "delete" || !mutation.deleteResult) {
-      throw new Error("workspace_agent_delete_result_missing");
-    }
-    return {
-      cleanupFailedSessionIds: [
-        ...mutation.deleteResult.cleanupFailedSessionIds
-      ],
-      removedMessages: mutation.deleteResult.removedMessages,
-      removedSessionIds: [...mutation.deleteResult.removedSessionIds],
-      removedSessions: mutation.deleteResult.removedSessions
-    };
+    return this.entry(workspaceId).engine.deleteSessions({
+      agentSessionIds: input.sessionIds,
+      ...(input.signal ? { signal: input.signal } : {})
+    });
   }
 
   async scanExternalSessionImports(
@@ -498,22 +479,10 @@ export class WorkspaceAgentActivityService
     workspaceId: string;
   }): Promise<AgentActivitySession> {
     const workspaceId = normalizeWorkspaceId(input.workspaceId);
-    const agentSessionId = input.agentSessionId.trim();
-    await dispatchSessionMutation(this.entry(workspaceId).engine, {
-      agentSessionId,
-      mutationId: this.nextSessionMutationId("pin"),
-      pinned: input.pinned,
-      timeoutMs: 30_000,
-      type: "session/pinRequested",
-      workspaceId
+    return this.entry(workspaceId).engine.setSessionPinned({
+      agentSessionId: input.agentSessionId,
+      pinned: input.pinned
     });
-    const activitySession = this.getSnapshot(workspaceId).sessions.find(
-      (session) => session.agentSessionId === agentSessionId
-    );
-    if (!activitySession) {
-      throw new Error("workspace_agent_pin_result_missing");
-    }
-    return activitySession;
   }
 
   async createSession(
@@ -898,7 +867,12 @@ export class WorkspaceAgentActivityService
   async renameSession(
     input: Parameters<AgentActivityAdapter["renameSession"]>[0]
   ): Promise<AgentActivitySession> {
-    return this.mutationOperations.renameSession(input);
+    const workspaceId = normalizeWorkspaceId(input.workspaceId);
+    return this.entry(workspaceId).engine.renameSession({
+      agentSessionId: input.agentSessionId,
+      ...(input.signal ? { signal: input.signal } : {}),
+      title: input.title
+    });
   }
 
   async getSession(
@@ -1087,11 +1061,6 @@ export class WorkspaceAgentActivityService
         // Replay instrumentation cannot block the product command path.
       }
     }
-  }
-
-  private nextSessionMutationId(kind: "delete" | "pin"): string {
-    const sequence = this.sessionMutationSequence++;
-    return `${kind}:${Date.now()}:${sequence}`;
   }
 }
 

@@ -101,7 +101,7 @@ VALUES
 	}
 }
 
-func TestSubmitClaimTransitionsRespectActiveSessionForkFence(t *testing.T) {
+func TestSubmitClaimTransitionsContinueDuringActiveSessionFork(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
 	ctx := context.Background()
@@ -135,16 +135,15 @@ func TestSubmitClaimTransitionsRespectActiveSessionForkFence(t *testing.T) {
 	); !errors.Is(err, ErrSubmitClaimTurnConflict) || changed || claim.Status != "accepted" {
 		t.Fatalf("conflicting replay claim=%#v changed=%v error=%v", claim, changed, err)
 	}
-	if deleted, err := store.DeleteSubmitClaim(ctx, "ws-1", "source", "accepted"); !errors.Is(err, ErrSessionForkInProgress) || deleted {
+	if deleted, err := store.DeleteSubmitClaim(ctx, "ws-1", "source", "accepted"); err != nil || !deleted {
 		t.Fatalf("delete accepted during fork deleted=%v error=%v", deleted, err)
 	}
 	if deleted, err := store.DeleteSubmitClaim(ctx, "ws-1", "source", "absent"); err != nil || deleted {
 		t.Fatalf("delete absent during fork deleted=%v error=%v", deleted, err)
 	}
 
-	// Simulate a prepared claim left by an older writer which did not know
-	// about the source fork fence. Current transitions must still refuse to
-	// mutate it while the source snapshot is reserved.
+	// Prepared submit claims remain independently mutable after the Fork
+	// snapshot is frozen.
 	if _, err := store.db.ExecContext(ctx, `
 INSERT INTO workspace_agent_submit_claims (
   workspace_id, agent_session_id, client_submit_id, status, turn_id,
@@ -155,14 +154,14 @@ INSERT INTO workspace_agent_submit_claims (
 	}
 	if claim, changed, err := store.AcceptSubmitClaim(
 		ctx, "ws-1", "source", "legacy-prepared", "turn-2", 102,
-	); !errors.Is(err, ErrSessionForkInProgress) || changed || claim != (SubmitClaim{}) {
+	); err != nil || !changed || claim.Status != "accepted" {
 		t.Fatalf("accept prepared during fork claim=%#v changed=%v error=%v", claim, changed, err)
 	}
-	if deleted, err := store.DeleteSubmitClaim(ctx, "ws-1", "source", "legacy-prepared"); !errors.Is(err, ErrSessionForkInProgress) || deleted {
+	if deleted, err := store.DeleteSubmitClaim(ctx, "ws-1", "source", "legacy-prepared"); err != nil || !deleted {
 		t.Fatalf("delete prepared during fork deleted=%v error=%v", deleted, err)
 	}
 	persisted, ok, err := store.GetSubmitClaim(ctx, "ws-1", "source", "legacy-prepared")
-	if err != nil || !ok || persisted.Status != "prepared" {
+	if err != nil || ok || persisted != (SubmitClaim{}) {
 		t.Fatalf("prepared claim after fenced transitions=%#v ok=%v error=%v", persisted, ok, err)
 	}
 }
@@ -208,15 +207,6 @@ func TestSubmitClaimResolutionAndSessionForkPrepareSerialize(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			source, found, err := store.GetSession(ctx, "ws-1", "source")
-			if err != nil || !found {
-				t.Fatalf("source session found=%v error=%v", found, err)
-			}
-			sourceHash, err := SessionForkSourceHash(source)
-			if err != nil {
-				t.Fatal(err)
-			}
-
 			start := make(chan struct{})
 			var group sync.WaitGroup
 			var resolveErr, forkErr error
@@ -235,7 +225,6 @@ func TestSubmitClaimResolutionAndSessionForkPrepareSerialize(t *testing.T) {
 					SourceAgentSessionID: "source", TargetAgentSessionID: "target-concurrent",
 					SourceTurnID: "turn-1", PointKind: SessionForkPointThroughTurn,
 					DriverKind: "codex", DriverVersion: "1", OccurredAtUnixMS: 100,
-					ExpectedSourceHash: sourceHash,
 				})
 			}()
 			close(start)

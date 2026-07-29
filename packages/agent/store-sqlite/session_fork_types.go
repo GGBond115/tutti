@@ -43,7 +43,7 @@ var (
 	ErrSessionForkRequestConflict = errors.New("agent session fork request conflicts with an existing operation")
 	ErrSessionForkSourceState     = errors.New("agent session cannot be forked in its current state")
 	ErrSessionForkInProgress      = errors.New("agent session has a fork operation in progress")
-	ErrSessionForkTurnState       = errors.New("agent session fork turn is not a verified settled boundary")
+	ErrSessionForkTurnState       = errors.New("agent session fork turn does not have a usable provider binding")
 	ErrSessionForkTargetReserved  = errors.New("agent session fork target is reserved")
 	ErrSessionForkTransition      = errors.New("agent session fork operation transition is invalid")
 )
@@ -95,35 +95,36 @@ type SessionForkLineage struct {
 }
 
 type SessionForkOperation struct {
-	CommitTransactionID     string           `json:"-"`
-	CommitDelta             TransactionDelta `json:"-"`
-	OperationID             string
-	WorkspaceID             string
-	RequestID               string
-	RequestHash             string
-	SourceAgentSessionID    string
-	TargetAgentSessionID    string
-	SourceProviderSessionID string
-	SourceTurnID            string
-	SourceProviderTurnID    string
-	TargetTurnID            string
-	PointKind               string
-	DriverKind              string
-	DriverVersion           string
-	Status                  string
-	TargetProviderSessionID string
-	TargetProviderTurnIDs   []string
-	TargetTitle             string
-	StateBindingMode        string
-	StateBindingReceipt     string
-	SnapshotHash            string
-	LastError               string
-	CreatedAtUnixMS         int64
-	UpdatedAtUnixMS         int64
-	DispatchedAtUnixMS      int64
-	AcceptedAtUnixMS        int64
-	CompletedAtUnixMS       int64
-	ClientObservedAtUnixMS  int64
+	CommitTransactionID               string           `json:"-"`
+	CommitDelta                       TransactionDelta `json:"-"`
+	OperationID                       string
+	WorkspaceID                       string
+	RequestID                         string
+	RequestHash                       string
+	SourceAgentSessionID              string
+	TargetAgentSessionID              string
+	SourceProviderSessionID           string
+	SourceTurnID                      string
+	SourceProviderTurnID              string
+	SourceProviderCheckpointMessageID string
+	TargetTurnID                      string
+	PointKind                         string
+	DriverKind                        string
+	DriverVersion                     string
+	Status                            string
+	TargetProviderSessionID           string
+	TargetProviderTurnBindings        []SessionForkProviderTurnBinding
+	TargetTitle                       string
+	StateBindingMode                  string
+	StateBindingReceipt               string
+	SnapshotHash                      string
+	LastError                         string
+	CreatedAtUnixMS                   int64
+	UpdatedAtUnixMS                   int64
+	DispatchedAtUnixMS                int64
+	AcceptedAtUnixMS                  int64
+	CompletedAtUnixMS                 int64
+	ClientObservedAtUnixMS            int64
 }
 
 type SessionForkPrepare struct {
@@ -137,7 +138,6 @@ type SessionForkPrepare struct {
 	PointKind            string
 	DriverKind           string
 	DriverVersion        string
-	ExpectedSourceHash   string
 	TargetCwd            string
 	TargetRuntimeContext map[string]any
 	TargetSettings       map[string]any
@@ -145,15 +145,20 @@ type SessionForkPrepare struct {
 }
 
 type SessionForkProviderResult struct {
-	WorkspaceID             string
-	OperationID             string
-	Status                  string
-	TargetProviderSessionID string
-	TargetProviderTurnIDs   []string
-	StateBindingMode        string
-	StateBindingReceipt     string
-	LastError               string
-	OccurredAtUnixMS        int64
+	WorkspaceID                string
+	OperationID                string
+	Status                     string
+	TargetProviderSessionID    string
+	TargetProviderTurnBindings []SessionForkProviderTurnBinding
+	StateBindingMode           string
+	StateBindingReceipt        string
+	LastError                  string
+	OccurredAtUnixMS           int64
+}
+
+type SessionForkProviderTurnBinding struct {
+	ProviderTurnID      string `json:"providerTurnId"`
+	CheckpointMessageID string `json:"checkpointMessageId"`
 }
 
 type SessionForkCommitResult struct {
@@ -195,6 +200,14 @@ type SessionForkTurnIdentity struct {
 	TurnID         string
 	ProviderTurnID string
 	Phase          string
+}
+
+// SessionForkAttachmentBinding is frozen with the canonical snapshot. The
+// target identity is deterministic for the operation, so staging is
+// idempotent across a crash before provider dispatch.
+type SessionForkAttachmentBinding struct {
+	SourceAttachmentID string
+	TargetAttachmentID string
 }
 
 // SessionForkRecoveryCursor is the exclusive lower bound for a stable

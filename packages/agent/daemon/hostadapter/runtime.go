@@ -378,14 +378,11 @@ func (a *RuntimeController) ResolveSessionFork(
 		return host.SessionForkDriverDescriptor{}, nil
 	}
 	return host.SessionForkDriverDescriptor{
-		Kind:                         firstNonEmptyString(capabilities.DriverKind, "daemon-runtime-native"),
-		Version:                      firstNonEmptyString(capabilities.DriverVersion, "v1"),
-		StateBindingMode:             host.SessionForkStateBindingMode(firstNonEmptyString(capabilities.StateBindingMode, string(host.SessionForkStateBindingHostCopy))),
-		DeterministicTargetSessionID: capabilities.DeterministicTargetSessionID,
-		FullSession:                  capabilities.FullSession,
-		ThroughTurn:                  capabilities.ThroughTurn,
-		ThroughProviderTurnIDs:       append([]string(nil), capabilities.ThroughProviderTurnIDs...),
-		ThroughProviderTurnIDsKnown:  capabilities.ThroughProviderTurnIDsKnown,
+		Kind:             firstNonEmptyString(capabilities.DriverKind, "daemon-runtime-native"),
+		Version:          firstNonEmptyString(capabilities.DriverVersion, "v1"),
+		StateBindingMode: host.SessionForkStateBindingMode(firstNonEmptyString(capabilities.StateBindingMode, string(host.SessionForkStateBindingHostCopy))),
+		FullSession:      capabilities.FullSession,
+		ThroughTurn:      capabilities.ThroughTurn,
 	}, nil
 }
 
@@ -405,20 +402,32 @@ func (a *RuntimeController) ForkSession(
 		}, host.ErrSessionForkUnsupported
 	}
 	result, err := backend.Fork(ctx, agentruntime.SessionForkInput{
-		Source:                  runtimeSession(input.Source),
-		ProviderTurnID:          input.SourceProviderTurnID,
-		ProviderTurnIDs:         append([]string(nil), input.SourceProviderTurnIDs...),
-		TargetProviderSessionID: strings.TrimSpace(input.TargetProviderSessionID),
-		TargetTitle:             input.TargetTitle,
+		Source:                      runtimeSession(input.Source),
+		ProviderTurnID:              input.SourceProviderTurnID,
+		ProviderCheckpointMessageID: input.SourceProviderCheckpointMessageID,
+		TargetTitle:                 input.TargetTitle,
 	})
 	mapped := host.RuntimeSessionForkResult{
-		ProviderSessionID:     strings.TrimSpace(result.ProviderSessionID),
-		TargetProviderTurnIDs: append([]string(nil), result.TargetProviderTurnIDs...),
-		StateBindingMode:      host.SessionForkStateBindingMode(strings.TrimSpace(result.StateBindingMode)),
-		StateBindingReceipt:   strings.TrimSpace(result.StateBindingReceipt),
+		ProviderSessionID: strings.TrimSpace(result.ProviderSessionID),
+		TargetProviderTurnBindings: make(
+			[]host.SessionForkProviderTurnBinding,
+			0,
+			len(result.TargetProviderTurnBindings),
+		),
+		StateBindingMode:    host.SessionForkStateBindingMode(strings.TrimSpace(result.StateBindingMode)),
+		StateBindingReceipt: strings.TrimSpace(result.StateBindingReceipt),
 		DeliveryDisposition: host.SessionForkDeliveryDisposition(
 			result.DeliveryDisposition,
 		),
+	}
+	for _, binding := range result.TargetProviderTurnBindings {
+		mapped.TargetProviderTurnBindings = append(
+			mapped.TargetProviderTurnBindings,
+			host.SessionForkProviderTurnBinding{
+				ProviderTurnID:      strings.TrimSpace(binding.ProviderTurnID),
+				CheckpointMessageID: strings.TrimSpace(binding.CheckpointMessageID),
+			},
+		)
 	}
 	if mapped.StateBindingMode == "" {
 		mapped.StateBindingMode = host.SessionForkStateBindingHostCopy

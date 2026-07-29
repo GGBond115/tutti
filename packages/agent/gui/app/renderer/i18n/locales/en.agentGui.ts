@@ -321,6 +321,7 @@ export const enAgentGui = {
   pastedTextRestoreToComposer: "Show in text field",
   copyMessage: "Copy message",
   forkThroughTurn: "Fork through this turn",
+  forkThroughTurnPending: "Forking through this turn",
   continuedFromTask: "Continued from task",
   sourceConversationNotFound: "Original conversation not found",
   copyImage: "Copy image",

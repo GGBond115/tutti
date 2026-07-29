@@ -661,13 +661,15 @@ export function createWorkspaceAgentClient(
     async updateWorkspaceAgentSessionTitle(
       workspaceID,
       agentSessionID,
-      request
+      request,
+      requestOptions
     ) {
       return unwrapData(
         await updateWorkspaceAgentSessionTitle({
           client,
           body: request,
-          path: { agentSessionID, workspaceID }
+          path: { agentSessionID, workspaceID },
+          ...requestOptions
         }),
         "Update workspace agent session title failed."
       ).session;

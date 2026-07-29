@@ -73,6 +73,18 @@ export function selectEngineSessionDetailHydrated(
   );
 }
 
+export function selectEngineSessionStateHydrated(
+  state: AgentSessionEngineState,
+  agentSessionId: string | null | undefined
+): boolean {
+  const id = agentSessionId?.trim() ?? "";
+  return (
+    id !== "" &&
+    state.sessionLifecycle.sessionsById[id]?.lifecycleCapabilitiesProjected ===
+      true
+  );
+}
+
 export function selectEngineSessionDetailLoading(
   state: AgentSessionEngineState,
   agentSessionId: string | null | undefined

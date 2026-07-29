@@ -26,6 +26,9 @@ test("projects shared commands onto typed lifecycle effects without host switche
     async respondToInteraction(input, options) {
       calls.push({ input, kind: "respond", signal: options?.signal });
     },
+    async renameSession(input, options) {
+      calls.push({ input, kind: "rename", signal: options?.signal });
+    },
     async sendInput(input, options) {
       calls.push({ input, kind: "send", signal: options?.signal });
     },
@@ -112,6 +115,14 @@ test("projects shared commands onto typed lifecycle effects without host switche
     workspaceId: "workspace-1"
   });
   await executeAndWait(port, {
+    agentSessionId: "session-1",
+    commandId: "rename-1",
+    correlationId: "rename-1",
+    title: "Renamed session",
+    type: "session/rename",
+    workspaceId: "workspace-1"
+  });
+  await executeAndWait(port, {
     agentSessionIds: ["session-1", "session-2"],
     commandId: "delete-1",
     correlationId: "delete-1",
@@ -134,7 +145,16 @@ test("projects shared commands onto typed lifecycle effects without host switche
   assert.equal(extensionCalls, 0);
   assert.deepEqual(
     calls.map((call) => call.kind),
-    ["activate", "send", "settings", "cancel", "pin", "delete", "respond"]
+    [
+      "activate",
+      "send",
+      "settings",
+      "cancel",
+      "pin",
+      "rename",
+      "delete",
+      "respond"
+    ]
   );
   assert.deepEqual(calls[0]?.input, {
     agentSessionId: "session-1",
@@ -185,6 +205,11 @@ test("projects shared commands onto typed lifecycle effects without host switche
     workspaceId: "workspace-1"
   });
   assert.deepEqual(calls[5]?.input, {
+    agentSessionId: "session-1",
+    title: "Renamed session",
+    workspaceId: "workspace-1"
+  });
+  assert.deepEqual(calls[6]?.input, {
     agentSessionIds: ["session-1", "session-2"],
     workspaceId: "workspace-1"
   });

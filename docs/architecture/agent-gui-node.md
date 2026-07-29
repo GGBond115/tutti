@@ -346,7 +346,10 @@ User-initiated Fork creates a new root Session rather than a provider-native
 subagent. The child records durable lineage to the source Session and inclusive
 boundary Turn, but receives a caller-reserved canonical Session id and a
 provider-created Session id. Canonical Session, Turn, Message, and Interaction
-identities are session-scoped and are remapped during the atomic clone.
+identities are session-scoped and are remapped during the atomic clone. Fork
+titles are allocated across the complete lineage family, so a source titled
+`Session` produces `Session (2)`, `Session (3)`, and so on even when a later
+Fork starts from an earlier child.
 
 ### 3.1.1 Session Fork
 
@@ -355,42 +358,40 @@ included. AgentGUI emits only the canonical Turn id. Host resolves its durable
 provider root Turn id and invokes the exact provider adapter selected by the
 runtime registry; shared UI and Host code never branch on provider names.
 
-The projected Session capability is an exact, fail-closed provider/runtime
-conjunction:
+The projected Session capability is provider/runtime-level:
 
 ```text
 provider registry declares native Session Fork
   AND the exact adapter/version attests throughTurn support
-  AND product-owned Session context can be transferred safely
   AND provider state has an explicit host-copy or provider-owned binding mode
 ```
 
 Only that conjunction projects `lifecycleCapabilities.forkThroughTurn=true`.
-The Codex adapter reads the initialized version from an exact live process when
-one exists. For a historical, detached, or newly forked Session it performs one
-cached short-lived initialize probe against the same resolved adapter/runtime;
-that probe neither resumes the provider thread nor creates a canonical Turn.
-AgentGUI renders an action only when the capability response contains a known
-canonical Turn-id allowlist and the settled root Turn is in that list; an
-unknown or absent list is fail-closed. Boundary availability is deliberately
-separate: execution
-transactionally rejects an unverified prefix, descendant lane, or
-session-scoped local attachment. This prevents a later unavailable Turn from
-hiding an earlier valid Turn while preserving a fail-closed commit.
+Projection consumes a live observation or persisted driver attestation only;
+it does not prepare or launch a runtime. The full preparation and exact driver
+revalidation happen after the user requests Fork.
+Turn-level eligibility is the single
+`providerForkBindingAvailable` fact projected from a non-empty canonical
+`rootProviderTurnId`, plus the canonical Turn being `settled`. Host eligibility
+remains optimistic and verifies only those selected-Turn facts. AgentGUI
+exposes Fork only for settled, provider-bound Turns. This per-Turn presentation
+rule is shared by every Agent provider. Source activity, pending Interactions,
+descendants, and historical prefix provenance do not hide Fork actions for
+earlier settled Turns. Only an in-flight Fork for that exact canonical Turn
+disables its button.
 
-Session Fork is also a default-off Lab capability. Desktop maps
-`lab.agentSessionFork` to an explicit AgentGUI host opt-in, so provider support
-alone does not expose the action. Tuttid independently enforces the same flag
-on new Fork writes; disabling it leaves existing lineage, operation reads, and
-operation acknowledgements available.
+Session Fork is also a default-off Developer capability. Desktop exposes its
+persisted `lab.agentSessionFork` switch in Developer settings and maps it to an
+explicit AgentGUI host opt-in, so provider support alone does not expose the
+action. Tuttid independently enforces the same flag on new Fork writes;
+disabling it leaves existing lineage, operation reads, and operation
+acknowledgements available.
 
-Tuttid currently rejects worktree-isolated sources at the Session capability
-layer. A provider-native thread Fork keeps the provider cwd; copying the
-source worktree ownership or silently selecting another checkout would be
-incorrect. Non-isolated stable runtime facts are frozen into the target
-snapshot. Session-scoped local attachments are also fail-closed until a
-versioned through-Turn resource manifest and atomic resource binding exist;
-the implementation never copies the whole source attachment directory.
+Execution still rejects a worktree-isolated source because a provider-native
+Fork retains the provider cwd and Tutti must not silently transfer worktree
+ownership. Non-isolated runtime facts are frozen into the target snapshot.
+Only attachments referenced by that snapshot are staged into the target
+namespace; the source attachment directory is never copied wholesale.
 
 Fork is a durable Host-owned saga:
 
@@ -401,53 +402,29 @@ prepared -> dispatching -> provider_accepted -> committed
 ```
 
 `requestId` is the caller-stable replay identity and
-`targetAgentSessionId` is reserved at prepare. The prepared snapshot freezes
-the source provider Session, provider Turn boundary, driver kind/version, and
-canonical prefix proof. A source Fork fence prevents reporting, goal/runtime
-mutations, deletion, or another Fork from changing that source while provider
-and canonical state are being matched. The provider call begins only after the
-`dispatching` marker commits. Once provider acceptance is known, all
-checkpoints and the local clone use a detached bounded context so an HTTP
-disconnect cannot lose the child identity.
+`targetAgentSessionId` is reserved at prepare. Prepare freezes the complete
+canonical snapshot through the selected Turn, the selected provider binding,
+driver kind/version, runtime context, settings, and a deterministic attachment
+manifest. Referenced attachments are staged into the target namespace before
+provider dispatch. The source remains writable; only physical deletion retains
+the frozen resources. A second explicit Fork from the same boundary is valid.
+The provider call begins only after the `dispatching` marker commits.
 
-Before `provider_accepted`, Host requires typed binding evidence. `host_copy`
-requires a configured binder that explicitly supports the source provider;
-otherwise capability is unavailable and a direct request is rejected before
-provider dispatch. A binder failure after provider acceptance is `unknown`,
-never an implicit success. Codex validates every JSONL record plus the accepted
-child `session_meta.id`, verifies source/target size and SHA-256, and atomically
-copies only that rollout from the source run-scoped `CODEX_HOME` into the
-target run-scoped `CODEX_HOME`. File and directory fsync make the rename
-crash-durable before the Host checkpoint where directory fsync is supported;
-Windows retains file fsync plus atomic rename because its portable filesystem
-API does not expose directory fsync. The target therefore owns resumable
-provider state independently of source cleanup. Claude uses `provider_owned`:
-the official SDK writes the child into its shared session store, and the
-short-lived sidecar proves it is independently readable with `getSessionInfo`
-and `getSessionMessages`. It returns a verification receipt plus the
-source-to-child provider Turn UUID mapping. Store persists that evidence at
-`provider_accepted` and rewrites cloned Turns to the child UUIDs in the
-canonical commit.
-Claude's official `forkSession` allocates the provider child UUID, so this
-driver does not attest deterministic provider identity. Host still reserves a
-deterministic canonical target Session ID, dispatches the provider mutation
-once, and fails closed without replay when delivery becomes `unknown`.
-For live Claude Turns, a daemon-generated prompt UUID is correlation only:
-Claude Code may rewrite it before persisting the transcript. The sidecar binds
-provider Turn identity from the observed root user-message UUID and emits
-`provider_turn_started`; the daemon must not publish canonical provider
-identity before that observation.
-Binding failure becomes `unknown`; Host neither commits the canonical child nor
-reissues `thread/fork`.
+The provider adapter verifies only that the selected provider Turn exists in
+the provider source. Tutti deliberately trusts earlier provider and canonical
+history to represent the same conversation. Provider acceptance and the child
+provider Session id are persisted before host-copy binding and canonical
+materialization. A binding or materialization failure therefore leaves
+`provider_accepted`; retry continues only local work and never reissues the
+provider mutation.
 
-`provider_accepted` recovery retries only the atomic local clone, never the
-provider call. A crash in `dispatching` becomes `unknown` and is never
-automatically redispatched. On startup, a `prepared` operation is safely marked
-failed because its durable state proves provider dispatch never began; this
-releases the abandoned source fence and target reservation without requiring a
-live runtime. Terminal `unknown`, `failed`, and `committed` states release the source fence.
-The canonical commit re-proves the frozen prefix, clones the inclusive history
-and lineage in one transaction, and emits the complete committed delta.
+`prepared` recovery safely continues dispatch because the durable marker proves
+the provider call has not begun. A crash in `dispatching` becomes `unknown` and
+is never automatically redispatched. `provider_accepted` recovery retries only
+local binding and materialization. The canonical commit consumes the frozen
+snapshot without re-proving the live prefix, remaps all session-scoped ids,
+normalizes a live boundary to `settled/interrupted`, supersedes copied pending
+Interactions, persists lineage, and emits the complete committed delta.
 
 ### 3.2 Turn
 
@@ -665,21 +642,34 @@ disable submission, but must not change editor editability.
   aggregate reads, but do not belong in high-frequency AgentGUI render paths.
   Event callbacks that need current canonical data read the engine snapshot at
   event time instead of retaining a whole-workspace render snapshot
-- lifecycle writes use typed intents/commands
+- lifecycle writes use semantic Engine operations or typed intents/commands
 - the Engine alone translates shared activation, prompt send, settings update,
-  turn cancel, Interaction response, pin, and batch-delete commands into
-  `AgentSessionEffectPort` calls. Desktop and Mobile implement those semantic
-  methods and must not duplicate a command-type switch for them. Platform-only
-  commands remain in each host's `EngineExtensionCommand` adapter. Every effect
-  propagates the Engine-owned AbortSignal to its transport. Direct settings
-  changes, post-activation persistence, and prompt-required settings share one
-  per-Session Engine lane. Owner boundaries are serialization barriers rather
-  than coalescing opportunities. A validated precondition updates canonical
-  Session state before the Engine starts send, while a failed or timed-out
-  precondition prevents delivery. A timed-out settings write remains
-  delivery-unknown and does not release queued writes automatically. A fresh
-  explicit settings selection is the user's retry: Desktop AgentGUI and Native
-  Mobile derive that retry from the exact Engine settings-operation state
+  turn cancel, Interaction response, rename, pin, and batch-delete commands
+  into `AgentSessionEffectPort` calls. Desktop and Mobile implement those
+  semantic methods and must not duplicate a command-type switch for them.
+  Host activity facades call `engine.renameSession`,
+  `engine.setSessionPinned`, and `engine.deleteSessions`; these deep methods
+  own workspace projection, mutation identity, default timeout, cancellation,
+  settlement waiting, and canonical result projection. Hosts must not
+  reconstruct that protocol with `dispatchSessionMutation` and snapshot reads.
+  Platform-only commands remain in each host's `EngineExtensionCommand`
+  adapter. Every effect propagates the Engine-owned AbortSignal to its
+  transport. Rename, pin, and delete settle through the shared Session-mutation
+  state. Rename and pin may update canonical Session state only from a validated
+  authoritative Session result. Delete may remove canonical Sessions only from
+  a validated `SessionDeleteMutationResult`, projected as `session/removed`
+  tombstone intents. Caller cancellation aborts the host effect, but an already
+  accepted write remains delivery-unknown until later canonical reconciliation;
+  it is never converted into a confirmed failure. Direct settings changes,
+  post-activation persistence, and
+  prompt-required settings share one per-Session Engine lane. Owner boundaries
+  are serialization barriers rather than coalescing opportunities. A validated
+  precondition updates canonical Session state before the Engine starts send,
+  while a failed or timed-out precondition prevents delivery. A timed-out
+  settings write remains delivery-unknown and does not release queued writes
+  automatically. A fresh explicit settings selection is the user's retry:
+  Desktop AgentGUI and Native Mobile derive that retry from the exact Engine
+  settings-operation state
 - consumers do not read reducer maps directly
 - consumers do not create canonical session/message mirrors
 - optimistic records define confirmation, rejection, timeout, and uncertain-delivery paths
@@ -1521,7 +1511,7 @@ DOM.
 
 ### 6.3 `AgentActivityRuntime` and `AgentHostApi`
 
-`AgentActivityRuntime` is the AgentGUI activity-data and command boundary. Session, messages, activation, send, cancel, Interaction, Goal, settings, composer options, pin, and delete enter through it.
+`AgentActivityRuntime` is the AgentGUI activity-data and command boundary. Session, messages, activation, send, cancel, Interaction, Goal, settings, composer options, rename, pin, and delete enter through it.
 
 `AgentHostApi` supplies host capabilities only: files, clipboard, project/account lookup, Agent Target setup/probes, diagnostics, and OS/Workbench helpers. It must not become a Session, Turn, timeline, or write source again.
 

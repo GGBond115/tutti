@@ -1,6 +1,10 @@
 export type DesktopToastTone = "default" | "destructive" | "success";
 
+export const desktopToastMaximumVisibleDurationMs = 8000;
+
 export interface DesktopToastItem {
+  /** Hard deadline for settled toasts when Radix's interaction timer stays paused. */
+  autoDismissAtUnixMs?: number;
   /** True while a loading toast's async work has not settled yet. */
   busy?: boolean;
   description?: string;
@@ -11,6 +15,16 @@ export interface DesktopToastItem {
 
 export function desktopToastMountKey(toast: DesktopToastItem): string {
   return `${toast.id}:${toast.busy ? "busy" : "settled"}`;
+}
+
+export function desktopToastAutoDismissDelayMs(
+  toast: DesktopToastItem,
+  nowUnixMs: number
+): number | null {
+  if (toast.busy || toast.autoDismissAtUnixMs === undefined) {
+    return null;
+  }
+  return Math.max(0, toast.autoDismissAtUnixMs - nowUnixMs);
 }
 
 export function enqueueDesktopToast(

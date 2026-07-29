@@ -33,6 +33,21 @@ const child = [
     childSessionId
   )
 ];
+const childThroughSecond = [
+  ...child,
+  message(
+    "user",
+    "child-prompt-2",
+    { role: "user", content: "two" },
+    childSessionId
+  ),
+  message(
+    "assistant",
+    "child-answer-2",
+    { role: "assistant", content: "second" },
+    childSessionId
+  )
+];
 
 test("Claude fork inspection exposes only root user message UUIDs", async () => {
   const result = await inspectClaudeForkCheckpoints(
@@ -48,7 +63,7 @@ test("Claude fork uses the official mutation and maps remapped UUIDs", async () 
     {
       sessionId: "source",
       providerTurnId: "prompt-1",
-      providerTurnIds: ["prompt-1"],
+      providerCheckpointMessageId: "",
       cwd: "/workspace",
       title: "Source (2)"
     },
@@ -56,9 +71,14 @@ test("Claude fork uses the official mutation and maps remapped UUIDs", async () 
   );
 
   assert.equal(result.providerSessionId, childSessionId);
-  assert.deepEqual(result.targetProviderTurnIds, ["child-prompt-1"]);
+  assert.deepEqual(result.targetProviderTurnBindings, [
+    {
+      providerTurnId: "child-prompt-1",
+      checkpointMessageId: "child-answer-1"
+    }
+  ]);
   assert.equal(result.stateBindingMode, "provider_owned");
-  assert.match(String(result.stateBindingReceipt), /^claude-sdk-fork-v1:/);
+  assert.match(String(result.stateBindingReceipt), /^claude-sdk-fork-v3:/);
   assert.deepEqual(calls, [
     {
       sessionId: "source",
@@ -66,6 +86,155 @@ test("Claude fork uses the official mutation and maps remapped UUIDs", async () 
         dir: "/workspace",
         upToMessageId: "answer-1",
         title: "Source (2)"
+      }
+    }
+  ]);
+});
+
+test("Claude fork uses a persisted checkpoint without reading the source transcript", async () => {
+  let sourceReads = 0;
+  const sdk = fakeSDK();
+  const getSessionMessages = sdk.getSessionMessages;
+  sdk.getSessionMessages = async (sessionId: string) => {
+    if (sessionId === "source") {
+      sourceReads += 1;
+    }
+    return getSessionMessages(sessionId);
+  };
+
+  const result = await forkClaudeSession(
+    {
+      sessionId: "source",
+      providerTurnId: "prompt-1",
+      providerCheckpointMessageId: "answer-1",
+      cwd: "/workspace",
+      title: "Child"
+    },
+    sdk
+  );
+
+  assert.equal(sourceReads, 0);
+  assert.deepEqual(result.targetProviderTurnBindings, [
+    {
+      providerTurnId: "child-prompt-1",
+      checkpointMessageId: "child-answer-1"
+    }
+  ]);
+});
+
+test("Claude fork returns every child provider turn and checkpoint binding", async () => {
+  const result = await forkClaudeSession(
+    {
+      sessionId: "source",
+      providerTurnId: "prompt-2",
+      providerCheckpointMessageId: "answer-2",
+      cwd: "/workspace",
+      title: "Child"
+    },
+    fakeSDK([], childThroughSecond)
+  );
+
+  assert.deepEqual(result.targetProviderTurnBindings, [
+    {
+      providerTurnId: "child-prompt-1",
+      checkpointMessageId: "child-answer-1"
+    },
+    {
+      providerTurnId: "child-prompt-2",
+      checkpointMessageId: "child-answer-2"
+    }
+  ]);
+});
+
+test("Claude fork recovers an ephemeral persisted checkpoint before creating a child", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const sdk = fakeSDK(calls);
+  const forkSession = sdk.forkSession as unknown as (
+    sessionId: string,
+    options?: Record<string, unknown>
+  ) => Promise<{ sessionId: string }>;
+  sdk.forkSession = (async (
+    sessionId: string,
+    options?: Record<string, unknown>
+  ) => {
+    if (options?.upToMessageId === "ephemeral-idle") {
+      calls.push({ sessionId, options });
+      throw new Error("Message ephemeral-idle not found in session source");
+    }
+    return forkSession(sessionId, options);
+  }) as never;
+
+  const result = await forkClaudeSession(
+    {
+      sessionId: "source",
+      providerTurnId: "prompt-1",
+      providerCheckpointMessageId: "ephemeral-idle",
+      cwd: "/workspace",
+      title: "Child"
+    },
+    sdk
+  );
+
+  assert.equal(result.providerSessionId, childSessionId);
+  assert.deepEqual(calls, [
+    {
+      sessionId: "source",
+      options: {
+        dir: "/workspace",
+        upToMessageId: "ephemeral-idle",
+        title: "Child"
+      }
+    },
+    {
+      sessionId: "source",
+      options: {
+        dir: "/workspace",
+        upToMessageId: "answer-1",
+        title: "Child"
+      }
+    }
+  ]);
+});
+
+test("legacy checkpoint lookup keeps task notifications inside the selected turn", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const sdk = fakeSDK(calls);
+  const getSessionMessages = sdk.getSessionMessages;
+  sdk.getSessionMessages = async (sessionId: string) => {
+    if (sessionId !== "source") {
+      return getSessionMessages(sessionId);
+    }
+    return [
+      source[0]!,
+      source[1]!,
+      message("user", "task-notification-1", {
+        role: "user",
+        content:
+          "<task-notification><tool-use-id>tool-1</tool-use-id><status>completed</status></task-notification>"
+      }),
+      source[2]!,
+      source[3]!
+    ];
+  };
+
+  await forkClaudeSession(
+    {
+      sessionId: "source",
+      providerTurnId: "prompt-1",
+      providerCheckpointMessageId: "",
+      cwd: "/workspace",
+      title: "Child"
+    },
+    sdk
+  );
+
+  assert.deepEqual(calls, [
+    {
+      sessionId: "source",
+      options: {
+        dir: "/workspace",
+        upToMessageId: "task-notification-1",
+        title: "Child"
       }
     }
   ]);
@@ -124,7 +293,7 @@ test("official Claude fork preserves a trailing system checkpoint", async () => 
     {
       sessionId: sourceSessionId,
       providerTurnId: sourcePrompt1,
-      providerTurnIds: [sourcePrompt1],
+      providerCheckpointMessageId: "",
       cwd: "/workspace",
       title: "Child"
     },
@@ -137,13 +306,16 @@ test("official Claude fork preserves a trailing system checkpoint", async () => 
     providerSessionId,
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
   );
-  assert.ok(Array.isArray(result.targetProviderTurnIds));
-  assert.equal(result.targetProviderTurnIds.length, 1);
+  assert.ok(Array.isArray(result.targetProviderTurnBindings));
+  assert.equal(result.targetProviderTurnBindings.length, 1);
+  const targetBinding = result.targetProviderTurnBindings[0] as {
+    providerTurnId: string;
+  };
   assert.match(
-    String(result.targetProviderTurnIds[0]),
+    String(targetBinding.providerTurnId),
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
   );
-  assert.notEqual(result.targetProviderTurnIds[0], sourcePrompt1);
+  assert.notEqual(targetBinding.providerTurnId, sourcePrompt1);
   assert.ok(
     store
       .getEntries({ projectKey, sessionId: providerSessionId })
@@ -161,7 +333,7 @@ test("Claude fork accepts a child readable only through its transcript", async (
     {
       sessionId: "source",
       providerTurnId: "prompt-1",
-      providerTurnIds: ["prompt-1"],
+      providerCheckpointMessageId: "",
       cwd: "/workspace",
       title: "Child"
     },
@@ -181,7 +353,7 @@ test("Claude fork reports the provider stage and cause after mutation starts", a
       {
         sessionId: "source",
         providerTurnId: "prompt-1",
-        providerTurnIds: ["prompt-1"],
+        providerCheckpointMessageId: "",
         cwd: "/workspace",
         title: "Source (2)"
       },
@@ -198,7 +370,7 @@ test("Claude fork reports the provider stage and cause after mutation starts", a
   );
 });
 
-test("Claude fork validates checkpoint identity before SDK mutation", async () => {
+test("Claude legacy fork requires an exact checkpoint at the selected turn boundary", async () => {
   const calls: Array<Record<string, unknown>> = [];
   const sdk = fakeSDK(calls);
   sdk.getSessionMessages = (async () => [
@@ -211,7 +383,7 @@ test("Claude fork validates checkpoint identity before SDK mutation", async () =
       {
         sessionId: "source",
         providerTurnId: "prompt-1",
-        providerTurnIds: ["prompt-1"],
+        providerCheckpointMessageId: "",
         cwd: "/workspace",
         title: ""
       },
@@ -219,7 +391,7 @@ test("Claude fork validates checkpoint identity before SDK mutation", async () =
     ),
     (error: unknown) =>
       error instanceof Error &&
-      error.message.includes("source_validation") &&
+      error.message.includes("source_lookup") &&
       "deliveryDisposition" in error &&
       error.deliveryDisposition === "not_started"
   );
@@ -232,7 +404,7 @@ test("Claude fork supports an untitled canonical session", async () => {
     {
       sessionId: "source",
       providerTurnId: "prompt-1",
-      providerTurnIds: ["prompt-1"],
+      providerCheckpointMessageId: "",
       cwd: "/workspace",
       title: " "
     },
@@ -251,7 +423,7 @@ test("Claude fork supports an untitled canonical session", async () => {
   ]);
 });
 
-test("Claude fork reports child verification mismatch as unknown", async () => {
+test("Claude fork accepts provider-owned child content without prefix comparison", async () => {
   const sdk = fakeSDK(
     [],
     [
@@ -265,23 +437,100 @@ test("Claude fork reports child verification mismatch as unknown", async () => {
     ]
   );
 
-  await assert.rejects(
-    forkClaudeSession(
-      {
-        sessionId: "source",
-        providerTurnId: "prompt-1",
-        providerTurnIds: ["prompt-1"],
-        cwd: "/workspace",
-        title: "Child"
-      },
-      sdk
-    ),
-    (error: unknown) =>
-      error instanceof Error &&
-      error.message.includes("child_verification") &&
-      "deliveryDisposition" in error &&
-      error.deliveryDisposition === "unknown"
+  const result = await forkClaudeSession(
+    {
+      sessionId: "source",
+      providerTurnId: "prompt-1",
+      providerCheckpointMessageId: "",
+      cwd: "/workspace",
+      title: "Child"
+    },
+    sdk
   );
+  assert.equal(result.providerSessionId, childSessionId);
+  assert.deepEqual(result.targetProviderTurnBindings, [
+    {
+      providerTurnId: "child-prompt-1",
+      checkpointMessageId: "child-answer-1"
+    }
+  ]);
+});
+
+test("Claude fork ignores malformed history before the selected child turn", async () => {
+  const sdk = fakeSDK(
+    [],
+    [
+      message(
+        "user",
+        "",
+        { role: "user", content: "unbound legacy prompt" },
+        childSessionId
+      ),
+      message(
+        "assistant",
+        "duplicate-history-id",
+        { role: "assistant", content: "legacy answer" },
+        childSessionId
+      ),
+      message(
+        "system",
+        "duplicate-history-id",
+        { subtype: "legacy" },
+        childSessionId
+      ),
+      ...child
+    ]
+  );
+
+  const result = await forkClaudeSession(
+    {
+      sessionId: "source",
+      providerTurnId: "prompt-1",
+      providerCheckpointMessageId: "answer-1",
+      cwd: "/workspace",
+      title: "Child"
+    },
+    sdk
+  );
+
+  assert.deepEqual(result.targetProviderTurnBindings, [
+    {
+      providerTurnId: "child-prompt-1",
+      checkpointMessageId: "child-answer-1"
+    }
+  ]);
+});
+
+test("Claude fork does not bind a task notification as the child provider turn", async () => {
+  const taskNotification = message(
+    "user",
+    "child-task-notification",
+    {
+      role: "user",
+      content:
+        "<task-notification><tool-use-id>tool-1</tool-use-id><status>completed</status></task-notification>"
+    },
+    childSessionId
+  );
+  const sdk = fakeSDK([], [...child, taskNotification]);
+
+  const result = await forkClaudeSession(
+    {
+      sessionId: "source",
+      providerTurnId: "prompt-1",
+      providerCheckpointMessageId: "answer-1",
+      cwd: "/workspace",
+      title: "Child"
+    },
+    sdk
+  );
+
+  assert.deepEqual(result.targetProviderTurnBindings, [
+    {
+      providerTurnId: "child-prompt-1",
+      checkpointMessageId: "child-task-notification"
+    }
+  ]);
 });
 
 test("Claude fork can branch again from a provider-owned child", async () => {
@@ -333,7 +582,7 @@ test("Claude fork can branch again from a provider-owned child", async () => {
     {
       sessionId: childSessionId,
       providerTurnId: "child-prompt-1",
-      providerTurnIds: ["child-prompt-1"],
+      providerCheckpointMessageId: "",
       cwd: "/workspace",
       title: "Grandchild"
     },
@@ -341,7 +590,12 @@ test("Claude fork can branch again from a provider-owned child", async () => {
   );
 
   assert.equal(result.providerSessionId, grandchildSessionId);
-  assert.deepEqual(result.targetProviderTurnIds, ["grandchild-prompt-1"]);
+  assert.deepEqual(result.targetProviderTurnBindings, [
+    {
+      providerTurnId: "grandchild-prompt-1",
+      checkpointMessageId: "grandchild-answer-1"
+    }
+  ]);
   assert.deepEqual(calls, [
     {
       sessionId: childSessionId,

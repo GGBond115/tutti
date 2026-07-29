@@ -228,6 +228,7 @@ function createSession(id: string, status: string): WorkspaceAgentSession {
           origin: "user_prompt",
           outcome: null,
           phase: "running",
+          providerForkBindingAvailable: false,
           settledAtUnixMs: null,
           startedAtUnixMs: 1,
           turnId: "turn-1",

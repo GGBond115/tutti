@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	eventstreamservice "github.com/tutti-os/tutti/services/tuttid/service/eventstream"
 )
 
 func TestCancelOutboxProjectsEveryRootAndChildTurn(t *testing.T) {
@@ -45,6 +46,43 @@ func TestCancelOutboxProjectsEveryRootAndChildTurn(t *testing.T) {
 	}
 	if len(observer.turns) != 0 {
 		t.Fatalf("outbox replay re-observed committed root turns=%#v", observer.turns)
+	}
+}
+
+func TestCancelOutboxReplayPublishesProviderForkBindingThroughEventstream(t *testing.T) {
+	t.Parallel()
+
+	repo := &activityProjectionRepoStub{turnResults: map[string]agentactivitybiz.Turn{
+		"session-1\x00turn-1": {
+			WorkspaceID:        "ws-1",
+			AgentSessionID:     "session-1",
+			TurnID:             "turn-1",
+			Origin:             agentactivitybiz.TurnOriginUserPrompt,
+			Phase:              agentactivitybiz.TurnPhaseSettled,
+			Outcome:            agentactivitybiz.TurnOutcomeCanceled,
+			StartedAtUnixMS:    1717200000000,
+			SettledAtUnixMS:    1717200001000,
+			UpdatedAtUnixMS:    1717200001000,
+			RootProviderTurnID: "provider-turn-1",
+		},
+	}}
+	service := eventstreamservice.NewService(eventstreamservice.DefaultCatalog(), nil)
+	projection := NewActivityProjection(repo)
+	projection.SetPublisher(eventstreamservice.AgentActivityPublisher{Service: service})
+
+	err := projection.PublishRuntimeOperationEvent(context.Background(), agentactivitybiz.RuntimeOperationEvent{
+		WorkspaceID:    "ws-1",
+		AgentSessionID: "session-1",
+		Kind:           agentactivitybiz.RuntimeOperationEventTurnCanceled,
+		Payload: map[string]any{
+			"targets": []any{
+				map[string]any{"agentSessionId": "session-1", "turnId": "turn-1", "outcome": "canceled"},
+			},
+		},
+		CreatedAtUnixMS: 1717200001000,
+	})
+	if err != nil {
+		t.Fatalf("cancel outbox replay failed eventstream validation: %v", err)
 	}
 }
 

@@ -949,7 +949,8 @@ export interface TuttidClient
   updateWorkspaceAgentSessionTitle(
     workspaceID: string,
     agentSessionID: string,
-    request: UpdateWorkspaceAgentSessionTitleRequest
+    request: UpdateWorkspaceAgentSessionTitleRequest,
+    requestOptions?: TuttidRequestOptions
   ): Promise<WorkspaceAgentSession>;
   updateWorkspaceAgentSessionVisibility(
     workspaceID: string,

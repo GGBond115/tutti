@@ -15,6 +15,7 @@ import type {
 
 export interface AgentActivitySessionMappingOptions {
   currentUserId: string;
+  lifecycleCapabilitiesProjected?: boolean;
 }
 
 export function agentActivitySessionFromTuttidSession(
@@ -52,6 +53,12 @@ export function agentActivitySessionFromTuttidSession(
       ? cloneSerializable(session.capabilities)
       : null,
     lifecycleCapabilities: cloneSerializable(session.lifecycleCapabilities),
+    ...(options.lifecycleCapabilitiesProjected === undefined
+      ? {}
+      : {
+          lifecycleCapabilitiesProjected:
+            options.lifecycleCapabilitiesProjected === true
+        }),
     forkedFrom: session.forkedFrom
       ? cloneSerializable(session.forkedFrom)
       : null,
@@ -78,6 +85,7 @@ export function agentActivityTurnFromTuttidTurn(
 ): AgentActivityTurn {
   return {
     agentSessionId: turn.agentSessionId,
+    providerForkBindingAvailable: turn.providerForkBindingAvailable,
     completedCommand: turn.completedCommand,
     error: turn.error,
     fileChanges: turn.fileChanges,

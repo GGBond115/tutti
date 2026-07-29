@@ -16,23 +16,59 @@ export interface DispatchSessionForkThroughTurnInput {
   workspaceId: string;
 }
 
+/** @internal */
+export interface SessionMutationCancellation {
+  abortCommand(commandId: string, reason: string): void;
+  signal?: AbortSignal;
+}
+
+/**
+ * Compatibility entrypoint for consumers that still dispatch the reducer
+ * protocol directly. Product hosts should use the semantic mutation methods
+ * on AgentSessionEngine instead.
+ *
+ * @deprecated Use AgentSessionEngine.renameSession, setSessionPinned, or
+ * deleteSessions.
+ */
 export function dispatchSessionMutation(
   engine: AgentSessionEngine,
   intent: SessionMutationsIntent
+): Promise<SessionMutationRecord> {
+  return dispatchSessionMutationWithCancellation(engine, intent);
+}
+
+/** @internal */
+export function dispatchSessionMutationWithCancellation(
+  engine: AgentSessionEngine,
+  intent: SessionMutationsIntent,
+  cancellation?: SessionMutationCancellation
 ): Promise<SessionMutationRecord> {
   const mutationId =
     intent.type === "session/forkThroughTurnRequested"
       ? intent.requestId.trim()
       : intent.mutationId.trim();
+  if (cancellation?.signal?.aborted) {
+    return Promise.reject(sessionMutationAbortError(cancellation.signal));
+  }
   return new Promise((resolve, reject) => {
     let settled = false;
     let unsubscribe = (): void => {};
+    const cleanup = (): void => {
+      unsubscribe();
+      cancellation?.signal?.removeEventListener("abort", onAbort);
+    };
+    const rejectOnce = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
     const observe = (): void => {
       if (settled) return;
       const record = selectSessionMutation(engine.getSnapshot(), mutationId);
       if (!record || record.status === "inFlight") return;
       settled = true;
-      unsubscribe();
+      cleanup();
       if (record.status === "succeeded") {
         resolve(record);
         return;
@@ -43,13 +79,17 @@ export function dispatchSessionMutation(
       if (record.errorCode) error.code = record.errorCode;
       reject(error);
     };
+    const onAbort = (): void => {
+      const error = sessionMutationAbortError(cancellation?.signal);
+      cancellation?.abortCommand(mutationId, error.message);
+      rejectOnce(error);
+    };
     unsubscribe = engine.subscribe(observe);
+    cancellation?.signal?.addEventListener("abort", onAbort, { once: true });
     engine.dispatch(intent);
     const accepted = selectSessionMutation(engine.getSnapshot(), mutationId);
     if (!accepted) {
-      settled = true;
-      unsubscribe();
-      reject(new Error("session mutation was not accepted"));
+      rejectOnce(new Error("session mutation was not accepted"));
       return;
     }
     observe();
@@ -109,4 +149,20 @@ function createSessionForkIdentity(): string {
   }
   const fallbackHex = Math.random().toString(16).slice(2).padEnd(12, "0");
   return `00000000-0000-4000-8000-${fallbackHex.slice(0, 12)}`;
+}
+
+function sessionMutationAbortError(signal?: AbortSignal): Error & {
+  code: string;
+} {
+  const reason = signal?.reason;
+  const error = new Error(
+    reason instanceof Error
+      ? reason.message
+      : typeof reason === "string" && reason.trim()
+        ? reason
+        : "session mutation aborted"
+  ) as Error & { code: string };
+  error.code = "aborted";
+  error.name = "AbortError";
+  return error;
 }

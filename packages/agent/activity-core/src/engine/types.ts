@@ -199,7 +199,7 @@ export type EngineExternalCommandExceptPlanDecision = Exclude<
 type AgentSessionEffectCommand =
   | Extract<
       SessionMutationCommand,
-      { type: "session/setPinned" | "sessions/delete" }
+      { type: "session/rename" | "session/setPinned" | "sessions/delete" }
     >
   | InteractionRespondCommand
   | PromptQueueSendCommand
@@ -354,6 +354,10 @@ export interface AgentSessionEffectPort {
     input: AgentActivitySubmitInteractiveInput,
     options?: EngineEffectOptions
   ): Promise<unknown>;
+  renameSession(
+    input: Omit<AgentActivityRenameSessionInput, "signal">,
+    options?: EngineEffectOptions
+  ): Promise<unknown>;
   sendInput(
     input: AgentActivitySendInput,
     options?: EngineEffectOptions
@@ -429,9 +433,27 @@ export type AgentSessionEngineIntentObserver = (intent: EngineIntent) => void;
 
 export interface AgentSessionEngine {
   readonly identity: AgentSessionEngineIdentity;
+  deleteSessions(
+    input: Omit<AgentActivityDeleteSessionsInput, "signal" | "workspaceId"> & {
+      signal?: AbortSignal;
+    }
+  ): Promise<AgentActivityDeleteSessionsResult>;
   dispatch(intent: EngineIntent, options?: EngineDispatchOptions): void;
   dispose(): void;
   getSnapshot(): AgentSessionEngineState;
+  renameSession(
+    input: Omit<AgentActivityRenameSessionInput, "signal" | "workspaceId"> & {
+      signal?: AbortSignal;
+    }
+  ): Promise<AgentActivitySession>;
+  setSessionPinned(
+    input: Omit<
+      AgentActivitySetSessionPinnedInput,
+      "signal" | "workspaceId"
+    > & {
+      signal?: AbortSignal;
+    }
+  ): Promise<AgentActivitySession>;
   subscribe(listener: AgentSessionEngineListener): () => void;
 }
 import type {
@@ -491,9 +513,12 @@ import type {
 import type {
   AgentActivityCancelTurnInput,
   AgentActivityDeleteSessionsInput,
+  AgentActivityDeleteSessionsResult,
   AgentActivityInitialGoalControl,
+  AgentActivityRenameSessionInput,
   AgentActivitySendInput,
   AgentActivitySetSessionPinnedInput,
+  AgentActivitySession,
   AgentActivitySessionSettings,
   AgentActivitySubmitDiagnostics,
   AgentActivitySubmitInteractiveInput,
