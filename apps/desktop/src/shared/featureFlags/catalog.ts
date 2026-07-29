@@ -191,9 +191,9 @@ export const FEATURE_FLAG_DEFINITIONS: readonly FeatureFlagDefinition[] = [
   {
     key: LAB_AGENT_SESSION_FORK_FLAG,
     default: false,
-    group: "lab",
-    labelKey: "workspace.settings.lab.agentSessionForkLabel",
-    descriptionKey: "workspace.settings.lab.agentSessionForkDescription"
+    group: "developer",
+    labelKey: "workspace.settings.developer.agentSessionForkLabel",
+    descriptionKey: "workspace.settings.developer.agentSessionForkDescription"
   },
   {
     key: EARLY_ACCESS_AGENT_INTEGRATIONS_FLAG,

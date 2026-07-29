@@ -18,7 +18,7 @@ func loadSessionForkSnapshotTx(
 ) (sessionForkSnapshot, error) {
 	snapshot := sessionForkSnapshot{Version: 1, Session: session}
 	rows, err := tx.QueryContext(ctx, `
-SELECT turn_id, turn_sequence, provenance
+SELECT turn_id, turn_sequence
 FROM workspace_agent_turn_sequences
 WHERE workspace_id = ? AND agent_session_id = ? AND turn_sequence <= ?
 ORDER BY turn_sequence
@@ -27,14 +27,13 @@ ORDER BY turn_sequence
 		return snapshot, fmt.Errorf("read session fork turns: %w", err)
 	}
 	type turnBoundary struct {
-		turnID     string
-		sequence   int64
-		provenance string
+		turnID   string
+		sequence int64
 	}
 	var boundaries []turnBoundary
 	for rows.Next() {
 		var boundary turnBoundary
-		if err := rows.Scan(&boundary.turnID, &boundary.sequence, &boundary.provenance); err != nil {
+		if err := rows.Scan(&boundary.turnID, &boundary.sequence); err != nil {
 			rows.Close()
 			return snapshot, err
 		}
@@ -58,38 +57,6 @@ ORDER BY turn_sequence
 				),
 			)
 		}
-		if !isVerifiedSessionForkSequence(boundary.provenance) {
-			return snapshot, newSessionForkBoundaryError(
-				SessionForkBoundaryReasonPrefixSequenceUnverified,
-				fmt.Sprintf(
-					"turn %q at sequence %d has provenance %q",
-					boundary.turnID,
-					boundary.sequence,
-					boundary.provenance,
-				),
-			)
-		}
-		if turn.Phase != TurnPhaseSettled {
-			return snapshot, newSessionForkBoundaryError(
-				SessionForkBoundaryReasonPrefixTurnNotSettled,
-				fmt.Sprintf(
-					"turn %q at sequence %d has phase %q",
-					boundary.turnID,
-					boundary.sequence,
-					turn.Phase,
-				),
-			)
-		}
-		if strings.TrimSpace(turn.RootProviderTurnID) == "" {
-			return snapshot, newSessionForkBoundaryError(
-				SessionForkBoundaryReasonPrefixProviderTurnMissing,
-				fmt.Sprintf(
-					"turn %q at sequence %d has no root provider turn id",
-					boundary.turnID,
-					boundary.sequence,
-				),
-			)
-		}
 		snapshot.Turns = append(snapshot.Turns, sessionForkTurnSnapshot{Sequence: boundary.sequence, Turn: turn})
 	}
 	boundaryMessageID := frozenBoundaryMessageID
@@ -109,34 +76,7 @@ WHERE message.workspace_id = ?
 			return snapshot, fmt.Errorf("read session fork message boundary: %w", err)
 		}
 	}
-	if boundaryMessageID <= 0 {
-		return snapshot, newSessionForkBoundaryError(
-			SessionForkBoundaryReasonBoundaryMessagesMissing,
-			"fork boundary contains no canonical messages",
-		)
-	}
 	snapshot.BoundaryMessageID = boundaryMessageID
-	var unsupportedTurnless int
-	if err := tx.QueryRowContext(ctx, `
-SELECT EXISTS(
-  SELECT 1
-  FROM workspace_agent_messages
-  WHERE workspace_id = ?
-    AND agent_session_id = ?
-    AND deleted_at_unix_ms = 0
-    AND id <= ?
-    AND turn_id IS NULL
-    AND kind <> 'session_audit'
-)
-`, session.WorkspaceID, session.ID, boundaryMessageID).Scan(&unsupportedTurnless); err != nil {
-		return snapshot, fmt.Errorf("read unsupported turnless session fork messages: %w", err)
-	}
-	if unsupportedTurnless != 0 {
-		return snapshot, newSessionForkBoundaryError(
-			SessionForkBoundaryReasonTurnlessMessageUnsupported,
-			"fork boundary contains a non-audit message without a turn",
-		)
-	}
 	messageRows, err := tx.QueryContext(ctx, `
 SELECT message.id, message.agent_session_id, message.message_id, message.version,
        message.turn_id, message.role, message.kind, message.status,
@@ -191,11 +131,9 @@ JOIN workspace_agent_turn_sequences sequence
 WHERE interaction.workspace_id = ?
   AND interaction.agent_session_id = ?
   AND sequence.turn_sequence <= ?
-  AND interaction.status IN (?, ?)
 ORDER BY sequence.turn_sequence, interaction.created_at_unix_ms,
          interaction.request_id
-`, session.WorkspaceID, session.ID, throughSequence,
-		InteractionStatusAnswered, InteractionStatusSuperseded)
+`, session.WorkspaceID, session.ID, throughSequence)
 	if err != nil {
 		return snapshot, fmt.Errorf("read session fork interactions: %w", err)
 	}
@@ -354,17 +292,71 @@ func nextSessionForkTargetTitleTx(
 	if sourceTitle == "" {
 		return "", nil
 	}
-	var activeForkCount int64
+
+	familyRootSessionID := sourceAgentSessionID
 	if err := tx.QueryRowContext(ctx, `
-SELECT COUNT(*)
-FROM workspace_agent_session_fork_operations
-WHERE workspace_id = ?
-  AND source_agent_session_id = ?
-  AND status <> ?
-`, workspaceID, sourceAgentSessionID, SessionForkStatusFailed).Scan(&activeForkCount); err != nil {
-		return "", fmt.Errorf("count source session forks for title: %w", err)
+WITH RECURSIVE ancestors(agent_session_id) AS (
+  SELECT ?
+  UNION
+  SELECT fork.source_agent_session_id
+  FROM workspace_agent_session_forks fork
+  JOIN ancestors
+    ON ancestors.agent_session_id = fork.target_agent_session_id
+  WHERE fork.workspace_id = ?
+)
+SELECT ancestor.agent_session_id
+FROM ancestors ancestor
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM workspace_agent_session_forks parent_fork
+  WHERE parent_fork.workspace_id = ?
+    AND parent_fork.target_agent_session_id = ancestor.agent_session_id
+)
+LIMIT 1
+`, sourceAgentSessionID, workspaceID, workspaceID).Scan(&familyRootSessionID); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("resolve session fork title family root: %w", err)
+		}
+		familyRootSessionID = sourceAgentSessionID
 	}
-	return fmt.Sprintf("%s (%d)", sourceTitle, activeForkCount+2), nil
+
+	baseTitle := sourceTitle
+	var familyRootTitle string
+	if err := tx.QueryRowContext(ctx, `
+SELECT title
+FROM workspace_agent_sessions
+WHERE workspace_id = ? AND agent_session_id = ?
+`, workspaceID, familyRootSessionID).Scan(&familyRootTitle); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("read session fork title family root: %w", err)
+		}
+	} else if familyRootTitle = strings.TrimSpace(familyRootTitle); familyRootTitle != "" {
+		baseTitle = familyRootTitle
+	}
+
+	var familyForkCount int64
+	if err := tx.QueryRowContext(ctx, `
+WITH RECURSIVE family(agent_session_id) AS (
+  SELECT ?
+  UNION
+  SELECT operation.target_agent_session_id
+  FROM workspace_agent_session_fork_operations operation
+  JOIN family
+    ON family.agent_session_id = operation.source_agent_session_id
+  WHERE operation.workspace_id = ?
+    AND operation.status <> ?
+)
+SELECT COUNT(*)
+FROM workspace_agent_session_fork_operations operation
+JOIN family
+  ON family.agent_session_id = operation.source_agent_session_id
+WHERE operation.workspace_id = ?
+  AND operation.status <> ?
+`, familyRootSessionID, workspaceID, SessionForkStatusFailed, workspaceID,
+		SessionForkStatusFailed).Scan(&familyForkCount); err != nil {
+		return "", fmt.Errorf("count session fork title family: %w", err)
+	}
+	return fmt.Sprintf("%s (%d)", baseTitle, familyForkCount+2), nil
 }
 
 func sessionForkResultLineage(
@@ -404,10 +396,11 @@ INSERT INTO workspace_agent_turns (
   error_json, file_changes_json, completed_command_json, backfilled,
   started_at_unix_ms, settled_at_unix_ms, created_at_unix_ms, updated_at_unix_ms,
   turn_origin, source_goal_operation_id, source_goal_revision, source_goal_repair_epoch,
-  root_provider_turn_id, root_provider_turn_phase, root_provider_turn_outcome,
+  root_provider_turn_id, provider_checkpoint_message_id,
+  root_provider_turn_phase, root_provider_turn_outcome,
   root_provider_turn_error_json, root_provider_turn_completed_command_json,
   root_provider_turn_updated_at_unix_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)
 `, workspaceID, sessionID, turn.TurnID, string(capabilityRefsJSON), turn.Phase,
 		nullString(turn.Outcome), encodeTurnErrorJSON(turn.ErrorMessage, turn.ErrorCode),
 		fileChangesJSON,
@@ -416,7 +409,9 @@ INSERT INTO workspace_agent_turns (
 		}),
 		turn.Backfilled, turn.StartedAtUnixMS, nullInt64(turn.SettledAtUnixMS),
 		turn.CreatedAtUnixMS, turn.UpdatedAtUnixMS, turn.Origin,
-		nullString(turn.RootProviderTurnID), nullString(turn.RootProviderTurnPhase),
+		nullString(turn.RootProviderTurnID),
+		nullString(turn.ProviderCheckpointMessageID),
+		nullString(turn.RootProviderTurnPhase),
 		nullString(turn.RootProviderTurnOutcome),
 		encodeTurnErrorJSON(turn.RootProviderTurnErrorMessage, turn.RootProviderTurnErrorCode),
 		encodeCompletedCommandJSON(turn.RootProviderTurnCompletedCommandKind, turn.RootProviderTurnCompletedCommandStatus, finalAssistantWatermark{}),

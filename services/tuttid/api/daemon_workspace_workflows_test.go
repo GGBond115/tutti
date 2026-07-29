@@ -91,7 +91,7 @@ func TestListWorkspaceWorkflowsReturnsAuthoritativeMarkdownSnapshot(t *testing.T
 
 func TestListWorkspaceWorkflowsFiltersPendingWhenRequested(t *testing.T) {
 	service := &stubTuttiModePlanService{views: []tuttimodeplanservice.SnapshotView{workflowViewFixture()}}
-	status := tuttigenerated.Pending
+	status := tuttigenerated.ListWorkspaceWorkflowsParamsCheckpointStatusPending
 	response, err := (DaemonAPI{TuttiModePlanService: service}).ListWorkspaceWorkflows(context.Background(), tuttigenerated.ListWorkspaceWorkflowsRequestObject{
 		WorkspaceID: "workspace-1",
 		Params: tuttigenerated.ListWorkspaceWorkflowsParams{

@@ -21,31 +21,32 @@ const (
 type EventType string
 
 const (
-	EventPresenceHeartbeat         EventType = "presence.heartbeat"
-	EventSessionStarted            EventType = "session.started"
-	EventSessionUpdated            EventType = "session.updated"
-	EventSessionCompleted          EventType = "session.completed"
-	EventSessionFailed             EventType = "session.failed"
-	EventSessionAudit              EventType = "session.audit"
-	EventGoalReconcileRequired     EventType = "goal.reconcile_required"
-	EventTurnStarted               EventType = "turn.started"
-	EventTurnUpdated               EventType = "turn.updated"
-	EventTurnCompleted             EventType = "turn.completed"
-	EventTurnFailed                EventType = "turn.failed"
-	EventTurnCanceled              EventType = "turn.canceled"
-	EventRootProviderTurnStarted   EventType = "root_provider_turn.started"
-	EventRootProviderTurnCompleted EventType = "root_provider_turn.completed"
-	EventMessageAppended           EventType = "message.appended"
-	EventMessageCreated            EventType = "message.created"
-	EventActivityStarted           EventType = "activity.started"
-	EventActivityUpdated           EventType = "activity.updated"
-	EventActivityCompleted         EventType = "activity.completed"
-	EventActivityFailed            EventType = "activity.failed"
-	EventCallStarted               EventType = "call.started"
-	EventCallCompleted             EventType = "call.completed"
-	EventCallFailed                EventType = "call.failed"
-	EventInteractionRequested      EventType = "interaction.requested"
-	EventInteractionSuperseded     EventType = "interaction.superseded"
+	EventPresenceHeartbeat          EventType = "presence.heartbeat"
+	EventSessionStarted             EventType = "session.started"
+	EventSessionUpdated             EventType = "session.updated"
+	EventSessionCompleted           EventType = "session.completed"
+	EventSessionFailed              EventType = "session.failed"
+	EventSessionAudit               EventType = "session.audit"
+	EventGoalReconcileRequired      EventType = "goal.reconcile_required"
+	EventTurnStarted                EventType = "turn.started"
+	EventTurnUpdated                EventType = "turn.updated"
+	EventTurnCompleted              EventType = "turn.completed"
+	EventTurnFailed                 EventType = "turn.failed"
+	EventTurnCanceled               EventType = "turn.canceled"
+	EventRootProviderTurnStarted    EventType = "root_provider_turn.started"
+	EventRootProviderTurnCheckpoint EventType = "root_provider_turn.checkpoint"
+	EventRootProviderTurnCompleted  EventType = "root_provider_turn.completed"
+	EventMessageAppended            EventType = "message.appended"
+	EventMessageCreated             EventType = "message.created"
+	EventActivityStarted            EventType = "activity.started"
+	EventActivityUpdated            EventType = "activity.updated"
+	EventActivityCompleted          EventType = "activity.completed"
+	EventActivityFailed             EventType = "activity.failed"
+	EventCallStarted                EventType = "call.started"
+	EventCallCompleted              EventType = "call.completed"
+	EventCallFailed                 EventType = "call.failed"
+	EventInteractionRequested       EventType = "interaction.requested"
+	EventInteractionSuperseded      EventType = "interaction.superseded"
 )
 
 type PresenceStatus string
@@ -145,30 +146,31 @@ type InteractionTransition struct {
 }
 
 type EventPayload struct {
-	PresenceStatus  string
-	LifecycleStatus string
-	EffectiveStatus string
-	TurnID          string
-	TurnPhase       string
-	TurnOutcome     string
-	ProviderTurnID  string
-	ActivityStatus  string
-	CWD             string
-	Role            MessageRole
-	Content         string
-	CallID          string
-	CallType        string
-	Name            string
-	Status          string
-	Input           map[string]any
-	Output          map[string]any
-	Error           map[string]any
-	EventKey        string
-	ActivityKey     string
-	Metadata        map[string]any
-	LeaseTTLSeconds int
-	Title           string
-	Interaction     *InteractionTransition
+	PresenceStatus              string
+	LifecycleStatus             string
+	EffectiveStatus             string
+	TurnID                      string
+	TurnPhase                   string
+	TurnOutcome                 string
+	ProviderTurnID              string
+	ProviderCheckpointMessageID string
+	ActivityStatus              string
+	CWD                         string
+	Role                        MessageRole
+	Content                     string
+	CallID                      string
+	CallType                    string
+	Name                        string
+	Status                      string
+	Input                       map[string]any
+	Output                      map[string]any
+	Error                       map[string]any
+	EventKey                    string
+	ActivityKey                 string
+	Metadata                    map[string]any
+	LeaseTTLSeconds             int
+	Title                       string
+	Interaction                 *InteractionTransition
 }
 
 type EventContext struct {
@@ -341,6 +343,20 @@ func NewRootProviderTurnStarted(ctx EventContext, rootTurnID string, providerTur
 		ProviderTurnID: strings.TrimSpace(providerTurnID),
 		TurnPhase:      string(TurnPhaseRunning),
 		CWD:            strings.TrimSpace(ctx.CWD),
+	})
+}
+
+func NewRootProviderTurnCheckpoint(
+	ctx EventContext,
+	rootTurnID string,
+	providerTurnID string,
+	providerCheckpointMessageID string,
+) Event {
+	return eventFromContext(ctx, EventRootProviderTurnCheckpoint, EventPayload{
+		TurnID:                      strings.TrimSpace(rootTurnID),
+		ProviderTurnID:              strings.TrimSpace(providerTurnID),
+		ProviderCheckpointMessageID: strings.TrimSpace(providerCheckpointMessageID),
+		CWD:                         strings.TrimSpace(ctx.CWD),
 	})
 }
 

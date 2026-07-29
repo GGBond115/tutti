@@ -13,7 +13,8 @@ SELECT workspace_id, agent_session_id, turn_id, phase, outcome, error_json,
 	       started_at_unix_ms, settled_at_unix_ms, created_at_unix_ms, updated_at_unix_ms,
 	       turn_origin, COALESCE(source_goal_operation_id, ''), COALESCE(source_goal_revision, 0),
 	       COALESCE(source_goal_repair_epoch, 0),
-	       root_provider_turn_id, root_provider_turn_phase, root_provider_turn_outcome,
+	       root_provider_turn_id, COALESCE(provider_checkpoint_message_id, ''),
+	       root_provider_turn_phase, root_provider_turn_outcome,
        root_provider_turn_error_json, root_provider_turn_completed_command_json,
        root_provider_turn_updated_at_unix_ms, capability_refs_json
 FROM workspace_agent_turns`
@@ -48,6 +49,7 @@ func scanAgentTurn(scanner rowScanner) (Turn, error) {
 		&turn.SourceGoalRevision,
 		&turn.SourceGoalRepairEpoch,
 		&rootProviderTurnID,
+		&turn.ProviderCheckpointMessageID,
 		&rootProviderTurnPhase,
 		&rootProviderTurnOutcome,
 		&rootProviderTurnErrorJSON,

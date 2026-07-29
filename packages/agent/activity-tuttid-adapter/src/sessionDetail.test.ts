@@ -51,6 +51,7 @@ test("detail mapping preserves the authoritative root, children, and Turns", () 
 
   assert.equal(detail.session.agentSessionId, "root-1");
   assert.equal(detail.session.userId, "account-user-1");
+  assert.equal(detail.session.lifecycleCapabilitiesProjected, true);
   assert.deepEqual(detail.editRetry, {
     availableActions: ["reconcile"],
     eligible: true,
@@ -65,6 +66,7 @@ test("detail mapping preserves the authoritative root, children, and Turns", () 
       agentSessionId: session.agentSessionId,
       parentAgentSessionId: session.parentAgentSessionId,
       rootAgentSessionId: session.rootAgentSessionId,
+      lifecycleCapabilitiesProjected: session.lifecycleCapabilitiesProjected,
       userId: session.userId
     })),
     [
@@ -72,6 +74,7 @@ test("detail mapping preserves the authoritative root, children, and Turns", () 
         agentSessionId: "child-1",
         parentAgentSessionId: "root-1",
         rootAgentSessionId: "root-1",
+        lifecycleCapabilitiesProjected: true,
         userId: "account-user-1"
       }
     ]
@@ -96,6 +99,12 @@ test("detail mapping keeps unresolved capability projections out of authoritativ
     agentActivitySessionDetailFromTuttid("workspace-1", "root-1", detail, {
       currentUserId: "account-user-1"
     })
+  );
+  assert.equal(
+    agentActivitySessionDetailFromTuttid("workspace-1", "root-1", detail, {
+      currentUserId: "account-user-1"
+    }).session.lifecycleCapabilitiesProjected,
+    false
   );
   const inconsistent = {
     ...detail,
@@ -310,6 +319,7 @@ function createTurn(
     origin: "user_prompt",
     outcome: null,
     phase: "settled",
+    providerForkBindingAvailable: false,
     settledAtUnixMs: 3,
     startedAtUnixMs: 1,
     turnId: overrides.turnId,

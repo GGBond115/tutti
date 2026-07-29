@@ -14,7 +14,9 @@ func sessionForkInput() agenthost.ForkSessionInput {
 		SourceAgentSessionID: "session-source",
 		TargetAgentSessionID: "session-target",
 		RequestID:            "request-fork",
-		ThroughTurnID:        "turn-boundary",
+		Point: agenthost.SessionForkPoint{
+			Kind: agenthost.SessionForkPointThroughTurn, TurnID: "turn-boundary",
+		},
 	}
 }
 
@@ -78,6 +80,31 @@ func runProviderAcceptedForkRecovery(
 	}
 	if calls := driver.SessionForkMetrics().ProviderForkCalls; calls != 0 {
 		return fmt.Errorf("provider ForkSession calls during recovery = %d, want 0", calls)
+	}
+	return nil
+}
+
+func runActiveSourceFork(
+	ctx context.Context,
+	driver SessionForkDriver,
+) error {
+	if err := driver.ResetSessionFork(ctx, SessionForkFixture{
+		KeepSourceActive: true,
+	}); err != nil {
+		return err
+	}
+	result, err := driver.ForkSession(ctx, sessionForkInput())
+	if err != nil {
+		return fmt.Errorf("ForkSession(active source): %w", err)
+	}
+	if result.Operation.Status != storesqlite.SessionForkStatusCommitted {
+		return fmt.Errorf(
+			"ForkSession(active source) status = %q, want committed",
+			result.Operation.Status,
+		)
+	}
+	if calls := driver.SessionForkMetrics().ProviderForkCalls; calls != 1 {
+		return fmt.Errorf("provider ForkSession calls = %d, want 1", calls)
 	}
 	return nil
 }

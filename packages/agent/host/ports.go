@@ -72,10 +72,7 @@ type SessionForkStore interface {
 	PrepareSessionFork(context.Context, storesqlite.SessionForkPrepare) (storesqlite.SessionForkOperation, bool, error)
 	GetSessionForkOperation(context.Context, string, string) (storesqlite.SessionForkOperation, bool, error)
 	GetSessionForkOperationByRequest(context.Context, string, string) (storesqlite.SessionForkOperation, bool, error)
-	GetUnknownSessionForkOperation(context.Context, string, string, string, string) (storesqlite.SessionForkOperation, bool, error)
-	GetBlockingSessionForkOperation(context.Context, string, string, string, string) (storesqlite.SessionForkOperation, bool, error)
 	MarkSessionForkDispatching(context.Context, string, string, int64) (storesqlite.SessionForkOperation, bool, error)
-	RetryUnknownSessionFork(context.Context, string, string, int64) (storesqlite.SessionForkOperation, bool, error)
 	FailPreparedSessionFork(context.Context, string, string, string, int64) (storesqlite.SessionForkOperation, bool, error)
 	RecordSessionForkProviderResult(context.Context, storesqlite.SessionForkProviderResult) (storesqlite.SessionForkOperation, bool, error)
 	CommitSessionFork(context.Context, string, string, int64) (storesqlite.SessionForkCommitResult, error)
@@ -89,6 +86,24 @@ type SessionForkTurnIdentityStore interface {
 		string,
 		string,
 	) ([]storesqlite.SessionForkTurnIdentity, error)
+}
+
+type SessionForkAttachmentStore interface {
+	ListSessionForkAttachmentBindings(
+		context.Context,
+		string,
+		string,
+	) ([]storesqlite.SessionForkAttachmentBinding, error)
+}
+
+type SessionForkAttachmentStager interface {
+	StageSessionForkAttachments(
+		context.Context,
+		string,
+		string,
+		string,
+		[]storesqlite.SessionForkAttachmentBinding,
+	) error
 }
 
 // SessionForkRecoveryStore is workspace-global because startup recovery must
@@ -122,9 +137,9 @@ type SessionForkContextPolicy interface {
 }
 
 // SessionForkProviderStateBinder transfers only the accepted provider child
-// state needed by the target runtime namespace. A failure is delivery-unknown:
-// the provider mutation may already exist. Only a driver with an attested
-// deterministic target identity may reconcile it by replaying the same UUID.
+// state needed by the target runtime namespace. Provider acceptance is already
+// durable when this runs, so a failure retries only this local binding and
+// never redispatches the provider mutation.
 type SessionForkProviderStateBinder interface {
 	SupportsSessionForkProviderStateBinding(provider string) bool
 	BindSessionForkProviderState(context.Context, SessionForkProviderStateBinding) error

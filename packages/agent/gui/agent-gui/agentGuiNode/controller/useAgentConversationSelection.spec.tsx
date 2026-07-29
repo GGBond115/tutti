@@ -24,7 +24,9 @@ describe("useAgentConversationSelection", () => {
         },
         detail: {
           ensureHydrated,
+          ensureStateHydrated: vi.fn(),
           isHydrated: () => false,
+          isStateHydrated: () => false,
           markPending,
           setLoading
         },
@@ -68,6 +70,7 @@ describe("useAgentConversationSelection", () => {
     const active = { current: "session-1" as string | null };
     const markPending = vi.fn();
     const ensureHydrated = vi.fn();
+    const ensureStateHydrated = vi.fn();
     const setLoading = vi.fn();
     const data: AgentGUINodeData = {
       agentTargetId: null,
@@ -87,7 +90,9 @@ describe("useAgentConversationSelection", () => {
         },
         detail: {
           ensureHydrated,
+          ensureStateHydrated,
           isHydrated: () => true,
+          isStateHydrated: () => true,
           markPending,
           setLoading
         },
@@ -120,6 +125,56 @@ describe("useAgentConversationSelection", () => {
     expect(setLoading).toHaveBeenCalledWith(false);
     expect(markPending).not.toHaveBeenCalled();
     expect(ensureHydrated).not.toHaveBeenCalled();
+    expect(ensureStateHydrated).not.toHaveBeenCalled();
+  });
+
+  it("hydrates authoritative state when cached messages came from a lightweight projection", () => {
+    const active = { current: "session-1" as string | null };
+    const ensureHydrated = vi.fn();
+    const ensureStateHydrated = vi.fn();
+    const { result } = renderHook(() =>
+      useAgentConversationSelection({
+        activation: {
+          canReload: () => true,
+          forget: vi.fn(),
+          isPending: () => false
+        },
+        conversations: {
+          agentTargetIdFor: () => "local:codex",
+          contains: () => true
+        },
+        detail: {
+          ensureHydrated,
+          ensureStateHydrated,
+          isHydrated: () => true,
+          isStateHydrated: () => false,
+          markPending: vi.fn(),
+          setLoading: vi.fn()
+        },
+        hasConversationListQuery: () => true,
+        isMounted: () => true,
+        onMissingConversationListQuery: vi.fn(),
+        persistence: { update: vi.fn() },
+        rail: {
+          clearRevealRequest: vi.fn(),
+          requestReveal: vi.fn()
+        },
+        selection: {
+          clearDetailError: vi.fn(),
+          getActiveSessionId: () => active.current,
+          setActiveSessionId: (agentSessionId) => {
+            active.current = agentSessionId;
+          },
+          setComposerHome: vi.fn(),
+          setIntent: vi.fn()
+        }
+      })
+    );
+
+    act(() => result.current.selectConversation("session-2"));
+
+    expect(ensureHydrated).not.toHaveBeenCalled();
+    expect(ensureStateHydrated).toHaveBeenCalledWith("session-2");
   });
 
   it("selects an optimistic pending session without reloading durable detail", () => {
@@ -140,7 +195,9 @@ describe("useAgentConversationSelection", () => {
         },
         detail: {
           ensureHydrated,
+          ensureStateHydrated: vi.fn(),
           isHydrated: () => false,
+          isStateHydrated: () => false,
           markPending: vi.fn(),
           setLoading
         },
@@ -192,7 +249,9 @@ describe("useAgentConversationSelection", () => {
         },
         detail: {
           ensureHydrated,
+          ensureStateHydrated: vi.fn(),
           isHydrated: () => false,
+          isStateHydrated: () => false,
           markPending: vi.fn(),
           setLoading: vi.fn()
         },

@@ -33,11 +33,14 @@ export function replaceCanonicalSessionSnapshot(
     const incomingSession = canonicalSession(source);
     const useIncoming = shouldUseIncomingSession(current, incomingSession);
     const candidateSession = useIncoming
-      ? preserveCanonicalActiveTurnProjection(
-          state,
+      ? preserveProjectedSessionState(
           current,
-          incomingSession,
-          source
+          preserveCanonicalActiveTurnProjection(
+            state,
+            current,
+            incomingSession,
+            source
+          )
         )
       : current!;
     sessionsById[id] =
@@ -157,7 +160,10 @@ export function upsertCanonicalSession(
   const incoming = canonicalSession(source);
   const useIncoming = shouldUseIncomingSession(current, incoming);
   const candidateSession = useIncoming
-    ? preserveCanonicalActiveTurnProjection(state, current, incoming, source)
+    ? preserveProjectedSessionState(
+        current,
+        preserveCanonicalActiveTurnProjection(state, current, incoming, source)
+      )
     : current!;
   const nextSession =
     current && areJsonLikeValuesEqual(current, candidateSession)
@@ -654,6 +660,23 @@ function preserveCanonicalActiveTurnProjection(
   return incomingVersion > currentVersion
     ? incoming
     : { ...incoming, activeTurnId: currentActiveTurnId };
+}
+
+function preserveProjectedSessionState(
+  current: CanonicalAgentSession | undefined,
+  incoming: CanonicalAgentSession
+): CanonicalAgentSession {
+  if (
+    current?.lifecycleCapabilitiesProjected === true &&
+    incoming.lifecycleCapabilitiesProjected !== true
+  ) {
+    return {
+      ...incoming,
+      lifecycleCapabilities: current.lifecycleCapabilities,
+      lifecycleCapabilitiesProjected: true
+    };
+  }
+  return incoming;
 }
 
 function sessionVersion(session: CanonicalAgentSession): number {

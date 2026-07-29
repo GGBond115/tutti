@@ -16,6 +16,7 @@ func TestGeneratedWorkspaceAgentTurnCoversAllFields(t *testing.T) {
 		WorkspaceID:            "ws-1",
 		AgentSessionID:         "session-1",
 		TurnID:                 "turn-1",
+		RootProviderTurnID:     "provider-turn-1",
 		CapabilityRefs:         []agentactivitybiz.CapabilityReference{{Capability: "tutti", Source: "slash_command"}},
 		Origin:                 agentactivitybiz.TurnOriginGoalContinuation,
 		SourceGoalOperationID:  "goal-operation-1",

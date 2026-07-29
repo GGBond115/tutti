@@ -4,27 +4,38 @@ import "strings"
 
 func validSessionForkProviderResult(
 	result RuntimeSessionForkResult,
-	sourceProviderTurnIDs []string,
 ) bool {
 	switch result.StateBindingMode {
 	case SessionForkStateBindingHostCopy:
-		return len(result.TargetProviderTurnIDs) == 0 &&
+		return len(result.TargetProviderTurnBindings) == 0 &&
 			result.StateBindingReceipt == ""
 	case SessionForkStateBindingProviderOwned:
 		if result.StateBindingReceipt == "" ||
-			len(result.TargetProviderTurnIDs) != len(sourceProviderTurnIDs) {
+			len(result.TargetProviderTurnBindings) == 0 {
 			return false
 		}
-		seen := make(map[string]struct{}, len(result.TargetProviderTurnIDs))
-		for _, rawID := range result.TargetProviderTurnIDs {
-			id := strings.TrimSpace(rawID)
-			if id == "" {
+		seenProviderTurnIDs := make(
+			map[string]struct{},
+			len(result.TargetProviderTurnBindings),
+		)
+		seenCheckpointMessageIDs := make(
+			map[string]struct{},
+			len(result.TargetProviderTurnBindings),
+		)
+		for _, binding := range result.TargetProviderTurnBindings {
+			providerTurnID := strings.TrimSpace(binding.ProviderTurnID)
+			checkpointMessageID := strings.TrimSpace(binding.CheckpointMessageID)
+			if providerTurnID == "" || checkpointMessageID == "" {
 				return false
 			}
-			if _, duplicate := seen[id]; duplicate {
+			if _, duplicate := seenProviderTurnIDs[providerTurnID]; duplicate {
 				return false
 			}
-			seen[id] = struct{}{}
+			if _, duplicate := seenCheckpointMessageIDs[checkpointMessageID]; duplicate {
+				return false
+			}
+			seenProviderTurnIDs[providerTurnID] = struct{}{}
+			seenCheckpointMessageIDs[checkpointMessageID] = struct{}{}
 		}
 		return true
 	default:

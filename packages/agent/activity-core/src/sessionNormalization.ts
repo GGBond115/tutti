@@ -55,21 +55,18 @@ export function normalizeAgentActivitySession(
     lifecycleCapabilities: source.lifecycleCapabilities
       ? {
           fork: source.lifecycleCapabilities.fork === true,
-          forkThroughTurn:
-            source.lifecycleCapabilities.forkThroughTurn === true,
-          forkThroughTurnIds:
-            source.lifecycleCapabilities.forkThroughTurnIds
-              ?.map((turnId) => turnId.trim())
-              .filter(Boolean) ?? [],
-          forkThroughTurnIdsKnown:
-            source.lifecycleCapabilities.forkThroughTurnIdsKnown === true
+          forkThroughTurn: source.lifecycleCapabilities.forkThroughTurn === true
         }
       : {
           fork: false,
-          forkThroughTurn: false,
-          forkThroughTurnIds: [],
-          forkThroughTurnIdsKnown: false
+          forkThroughTurn: false
         },
+    ...(source.lifecycleCapabilitiesProjected === undefined
+      ? {}
+      : {
+          lifecycleCapabilitiesProjected:
+            source.lifecycleCapabilitiesProjected === true
+        }),
     forkedFrom: source.forkedFrom
       ? {
           sourceAgentSessionId: source.forkedFrom.sourceAgentSessionId.trim(),

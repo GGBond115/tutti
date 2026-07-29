@@ -4,6 +4,7 @@ import {
   getSessionInfo,
   getSessionMessages
 } from "@anthropic-ai/claude-agent-sdk";
+import { readUserMessageNotificationText } from "./taskNotification.ts";
 
 type SDKMessage = {
   type?: unknown;
@@ -11,6 +12,8 @@ type SDKMessage = {
   session_id?: unknown;
   message?: unknown;
   parent_tool_use_id?: unknown;
+  isSynthetic?: unknown;
+  origin?: unknown;
 };
 
 type ForkInspectInput = {
@@ -20,7 +23,7 @@ type ForkInspectInput = {
 
 type ForkInput = ForkInspectInput & {
   providerTurnId: string;
-  providerTurnIds: string[];
+  providerCheckpointMessageId: string;
   title: string;
 };
 
@@ -36,10 +39,7 @@ const defaultClaudeForkSDK: ClaudeForkSDK = {
   getSessionInfo
 };
 
-type ClaudeForkStage =
-  | "source_validation"
-  | "provider_fork"
-  | "child_verification";
+type ClaudeForkStage = "source_lookup" | "provider_fork" | "child_verification";
 
 export async function inspectClaudeForkCheckpoints(
   input: ForkInspectInput,
@@ -60,9 +60,9 @@ export async function forkClaudeSession(
   sdk: ClaudeForkSDK = defaultClaudeForkSDK
 ): Promise<Record<string, unknown>> {
   let forkStarted = false;
-  let stage: ClaudeForkStage = "source_validation";
+  let stage: ClaudeForkStage = "source_lookup";
   try {
-    return await forkClaudeSessionVerified(input, sdk, (nextStage) => {
+    return await forkClaudeSessionResolved(input, sdk, (nextStage) => {
       stage = nextStage;
       if (nextStage === "provider_fork") {
         forkStarted = true;
@@ -77,41 +77,57 @@ export async function forkClaudeSession(
   }
 }
 
-async function forkClaudeSessionVerified(
+async function forkClaudeSessionResolved(
   input: ForkInput,
   sdk: ClaudeForkSDK,
   onStage: (stage: ClaudeForkStage) => void
 ): Promise<Record<string, unknown>> {
   requireIdentity(input.sessionId, "provider session id");
   requireIdentity(input.providerTurnId, "provider turn id");
-  const expectedTurnIds = normalizedIdentities(input.providerTurnIds);
-  if (
-    expectedTurnIds.length === 0 ||
-    expectedTurnIds.at(-1) !== input.providerTurnId
-  ) {
-    throw new Error("provider turn prefix does not end at the selected turn");
-  }
-
   const options = sdkOptions(input.cwd);
   const transcriptReadOptions = transcriptOptions(input.cwd);
-  const sourceA = (await sdk.getSessionMessages(
-    input.sessionId,
-    transcriptReadOptions
-  )) as SDKMessage[];
-  const sourcePrefix = exactSourcePrefix(sourceA, expectedTurnIds);
-  const sourceMessageIds = messageIdentities(
-    sourcePrefix,
-    "source transcript prefix"
-  );
-  const checkpointId = sourceMessageIds.at(-1) ?? "";
+  let checkpointId = input.providerCheckpointMessageId.trim();
+  if (!checkpointId) {
+    const sourceMessages = (await sdk.getSessionMessages(
+      input.sessionId,
+      transcriptReadOptions
+    )) as SDKMessage[];
+    checkpointId = checkpointForProviderTurn(
+      sourceMessages,
+      input.providerTurnId
+    );
+  }
   requireIdentity(checkpointId, "checkpoint message id");
 
   onStage("provider_fork");
-  const forkResult = await sdk.forkSession(input.sessionId, {
-    ...options,
-    upToMessageId: checkpointId,
-    ...(input.title.trim() ? { title: input.title.trim() } : {})
-  });
+  let forkResult;
+  try {
+    forkResult = await forkProviderSession(sdk, input, options, checkpointId);
+  } catch (error) {
+    if (
+      !input.providerCheckpointMessageId.trim() ||
+      !isMissingPersistedCheckpoint(error, input.sessionId, checkpointId)
+    ) {
+      throw error;
+    }
+    // Older Tutti builds could persist UUIDs from Claude's ephemeral
+    // session_state_changed notifications. The official SDK rejects that
+    // checkpoint before creating a child, so this one recovery lookup is safe
+    // and cannot duplicate a provider session.
+    const sourceMessages = (await sdk.getSessionMessages(
+      input.sessionId,
+      transcriptReadOptions
+    )) as SDKMessage[];
+    const recoveredCheckpointId = checkpointForProviderTurn(
+      sourceMessages,
+      input.providerTurnId
+    );
+    if (recoveredCheckpointId === checkpointId) {
+      throw error;
+    }
+    checkpointId = recoveredCheckpointId;
+    forkResult = await forkProviderSession(sdk, input, options, checkpointId);
+  }
   const childSessionId = messageIdentity(forkResult?.sessionId);
   requireUUID(childSessionId, "forked provider session id");
   if (childSessionId === input.sessionId) {
@@ -119,30 +135,12 @@ async function forkClaudeSessionVerified(
   }
 
   onStage("child_verification");
-  const [sourceB, childInfo, childMessages] = await Promise.all([
-    sdk.getSessionMessages(input.sessionId, transcriptReadOptions) as Promise<
-      SDKMessage[]
-    >,
+  const [childInfo, childMessages] = await Promise.all([
     sdk.getSessionInfo(childSessionId, options),
     sdk.getSessionMessages(childSessionId, transcriptReadOptions) as Promise<
       SDKMessage[]
     >
   ]);
-  const sourcePrefixB = exactSourcePrefix(sourceB, expectedTurnIds);
-  const sourceMessageIdsB = messageIdentities(
-    sourcePrefixB,
-    "re-read source transcript prefix"
-  );
-  assertStructuralEquality(
-    sourcePrefix,
-    sourcePrefixB,
-    "source transcript changed during fork"
-  );
-  assertIdentityEquality(
-    sourceMessageIds,
-    sourceMessageIdsB,
-    "source transcript identities changed during fork"
-  );
   const childInfoSessionId = messageIdentity(childInfo?.sessionId);
   if (childInfoSessionId && childInfoSessionId !== childSessionId) {
     throw new Error("forked Claude session resolved to another session");
@@ -150,70 +148,56 @@ async function forkClaudeSessionVerified(
   if (!childInfoSessionId && childMessages.length === 0) {
     throw new Error("forked Claude session is not independently discoverable");
   }
-  return verifiedForkResult({
-    input,
-    checkpointId,
-    sourcePrefix,
-    sourceMessageIds,
-    childSessionId,
-    childMessages,
-    expectedTurnIds
-  });
-}
-
-function verifiedForkResult(input: {
-  input: ForkInput;
-  checkpointId: string;
-  sourcePrefix: SDKMessage[];
-  sourceMessageIds: string[];
-  childSessionId: string;
-  childMessages: SDKMessage[];
-  expectedTurnIds: string[];
-}): Record<string, unknown> {
-  const {
-    checkpointId,
-    sourcePrefix,
-    sourceMessageIds,
-    childSessionId,
-    childMessages,
-    expectedTurnIds
-  } = input;
-  const childMessageIds = messageIdentities(
-    childMessages,
-    "forked transcript prefix"
-  );
-  const observableSourcePrefix = forkObservablePrefix(sourcePrefix);
-  assertStructuralEquality(
-    observableSourcePrefix,
-    childMessages,
-    "forked Claude transcript does not equal the selected source prefix"
-  );
-
-  const targetProviderTurnIds = rootProviderTurnIds(childMessages);
-  if (targetProviderTurnIds.length !== expectedTurnIds.length) {
-    throw new Error("forked Claude transcript has a different root Turn count");
+  const targetTurnBindings = providerTurnBindings(childMessages);
+  if (targetTurnBindings.length === 0) {
+    throw new Error("forked Claude session has no provider turn bindings");
   }
-  const targetCheckpointId = childMessageIds.at(-1) ?? "";
+  const targetBoundaryBinding =
+    targetTurnBindings[targetTurnBindings.length - 1]!;
   const receipt = createHash("sha256")
     .update(
       JSON.stringify({
-        sourceSessionId: input.input.sessionId,
+        sourceSessionId: input.sessionId,
         childSessionId,
         checkpointId,
-        targetCheckpointId,
-        sourceMessageIds,
-        expectedTurnIds,
-        targetProviderTurnIds
+        targetTurnBindings,
+        sourceProviderTurnId: input.providerTurnId,
+        targetProviderTurnId: targetBoundaryBinding.providerTurnId
       })
     )
     .digest("hex");
   return {
     providerSessionId: childSessionId,
-    targetProviderTurnIds,
+    targetProviderTurnBindings: targetTurnBindings,
     stateBindingMode: "provider_owned",
-    stateBindingReceipt: `claude-sdk-fork-v1:${receipt}`,
+    stateBindingReceipt: `claude-sdk-fork-v3:${receipt}`,
     deliveryDisposition: "accepted"
   };
+}
+
+function forkProviderSession(
+  sdk: ClaudeForkSDK,
+  input: ForkInput,
+  options: { dir?: string },
+  checkpointId: string
+) {
+  return sdk.forkSession(input.sessionId, {
+    ...options,
+    upToMessageId: checkpointId,
+    ...(input.title.trim() ? { title: input.title.trim() } : {})
+  });
+}
+
+function isMissingPersistedCheckpoint(
+  error: unknown,
+  sessionId: string,
+  checkpointId: string
+): boolean {
+  return (
+    error instanceof Error &&
+    error.message.trim() ===
+      `Message ${checkpointId} not found in session ${sessionId}`
+  );
 }
 
 class ClaudeForkError extends Error {
@@ -233,14 +217,6 @@ class ClaudeForkError extends Error {
   }
 }
 
-function forkObservablePrefix(messages: SDKMessage[]): SDKMessage[] {
-  let end = messages.length;
-  while (end > 0 && messages[end - 1]?.type === "system") {
-    end -= 1;
-  }
-  return messages.slice(0, end);
-}
-
 function forkErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
     return error.message.trim();
@@ -251,22 +227,13 @@ function forkErrorMessage(error: unknown): string {
   return "unknown error";
 }
 
-function exactSourcePrefix(
+function checkpointForProviderTurn(
   messages: SDKMessage[],
-  expectedTurnIds: string[]
-): SDKMessage[] {
-  const actualRootIds = rootProviderTurnIds(messages);
-  if (
-    expectedTurnIds.some((turnId, index) => actualRootIds[index] !== turnId)
-  ) {
-    throw new Error(
-      "canonical provider turn prefix does not match Claude transcript"
-    );
-  }
+  providerTurnId: string
+): string {
   const selectedIndex = messages.findIndex(
     (message) =>
-      isRootUserMessage(message) &&
-      messageIdentity(message) === expectedTurnIds.at(-1)
+      isRootUserMessage(message) && messageIdentity(message) === providerTurnId
   );
   if (selectedIndex < 0) {
     throw new Error("selected provider turn is absent from Claude transcript");
@@ -280,7 +247,65 @@ function exactSourcePrefix(
       "selected provider turn has no exact transcript checkpoint"
     );
   }
-  return messages.slice(0, end);
+  const checkpointId = messageIdentity(messages[end - 1]);
+  requireIdentity(checkpointId, "checkpoint message id");
+  return checkpointId;
+}
+
+function providerTurnBindings(messages: SDKMessage[]): Array<{
+  providerTurnId: string;
+  checkpointMessageId: string;
+}> {
+  const result: Array<{
+    providerTurnId: string;
+    checkpointMessageId: string;
+  }> = [];
+  const seenProviderTurnIds = new Set<string>();
+  const seenCheckpointMessageIds = new Set<string>();
+  let current:
+    | {
+        providerTurnId: string;
+        checkpointMessageId: string;
+      }
+    | undefined;
+  const commitCurrent = () => {
+    if (!current) {
+      return;
+    }
+    const { providerTurnId, checkpointMessageId } = current;
+    if (
+      seenProviderTurnIds.has(providerTurnId) ||
+      seenCheckpointMessageIds.has(checkpointMessageId)
+    ) {
+      throw new Error("forked Claude transcript contains duplicate bindings");
+    }
+    seenProviderTurnIds.add(providerTurnId);
+    seenCheckpointMessageIds.add(checkpointMessageId);
+    result.push({ providerTurnId, checkpointMessageId });
+    current = undefined;
+  };
+  for (const message of messages) {
+    if (isRootUserMessage(message)) {
+      commitCurrent();
+      const providerTurnId = messageIdentity(message);
+      if (providerTurnId) {
+        current = {
+          providerTurnId,
+          checkpointMessageId: providerTurnId
+        };
+      }
+      continue;
+    }
+    if (!current) {
+      continue;
+    }
+    const checkpointMessageId = messageIdentity(message);
+    if (checkpointMessageId) {
+      current.checkpointMessageId = checkpointMessageId;
+    }
+  }
+  commitCurrent();
+  return result;
 }
 
 function rootProviderTurnIds(messages: SDKMessage[]): string[] {
@@ -303,61 +328,23 @@ function rootProviderTurnIds(messages: SDKMessage[]): string[] {
 }
 
 function isRootUserMessage(message: SDKMessage): boolean {
-  return message?.type === "user" && !message?.parent_tool_use_id;
-}
-
-function assertStructuralEquality(
-  source: SDKMessage[],
-  target: SDKMessage[],
-  error: string
-): void {
   if (
-    source.length !== target.length ||
-    source.some(
-      (message, index) =>
-        JSON.stringify(normalizedMessage(message)) !==
-        JSON.stringify(normalizedMessage(target[index]))
-    )
+    message?.type !== "user" ||
+    message?.parent_tool_use_id ||
+    message?.isSynthetic === true
   ) {
-    throw new Error(error);
+    return false;
   }
-}
-
-function normalizedMessage(
-  message: SDKMessage | undefined
-): Record<string, unknown> {
-  return {
-    type: message?.type,
-    message: message?.message,
-    parent_tool_use_id: message?.parent_tool_use_id ?? null
-  };
-}
-
-function messageIdentities(messages: SDKMessage[], label: string): string[] {
-  const result: string[] = [];
-  const seen = new Set<string>();
-  for (const message of messages) {
-    const identity = messageIdentity(message);
-    if (!identity || seen.has(identity)) {
-      throw new Error(`${label} does not have a complete identity bijection`);
-    }
-    seen.add(identity);
-    result.push(identity);
+  const origin =
+    message.origin && typeof message.origin === "object"
+      ? (message.origin as { kind?: unknown })
+      : undefined;
+  if (origin?.kind === "coordinator") {
+    return false;
   }
-  return result;
-}
-
-function assertIdentityEquality(
-  source: string[],
-  target: string[],
-  error: string
-): void {
-  if (
-    source.length !== target.length ||
-    source.some((identity, index) => identity !== target[index])
-  ) {
-    throw new Error(error);
-  }
+  return !readUserMessageNotificationText(
+    message as { message?: { content?: unknown } }
+  ).includes("<task-notification>");
 }
 
 function sdkOptions(cwd: string): { dir?: string } {
@@ -373,20 +360,6 @@ function transcriptOptions(cwd: string): {
     ...sdkOptions(cwd),
     includeSystemMessages: true
   };
-}
-
-function normalizedIdentities(values: string[]): string[] {
-  const result: string[] = [];
-  const seen = new Set<string>();
-  for (const value of values) {
-    const identity = value.trim();
-    if (!identity || seen.has(identity)) {
-      throw new Error("provider turn prefix contains an invalid identity");
-    }
-    seen.add(identity);
-    result.push(identity);
-  }
-  return result;
 }
 
 function messageIdentity(value: unknown): string {

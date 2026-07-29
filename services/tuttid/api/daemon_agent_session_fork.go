@@ -153,10 +153,13 @@ func generatedAgentSessionForkOperation(
 		operationError = &value
 	}
 	return tuttigenerated.WorkspaceAgentSessionForkOperation{
-		Error:                operationError,
-		Lineage:              lineage,
-		OperationId:          strings.TrimSpace(operation.OperationID),
-		Point:                point,
+		Error:       operationError,
+		Lineage:     lineage,
+		OperationId: strings.TrimSpace(operation.OperationID),
+		Point:       point,
+		Phase: tuttigenerated.WorkspaceAgentSessionForkOperationPhase(
+			operation.Phase,
+		),
 		RequestId:            strings.TrimSpace(operation.RequestID),
 		Session:              session,
 		SourceAgentSessionId: strings.TrimSpace(operation.SourceAgentSessionID),

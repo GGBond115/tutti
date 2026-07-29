@@ -50,13 +50,17 @@ export interface CreateDesktopAgentActivityAdapterInput {
 
 const defaultComposerOptionsRequestTimeoutMs = 15_000;
 const agentActivitySessionListLimit = 100;
+const sessionForkOperationPollBackoffMs = [0, 200, 500, 1_000, 2_000] as const;
+const sessionForkOperationMaxConsecutiveReadFailures = 3;
 
 export function agentActivitySessionFromTuttidSession(
   workspaceId: string,
-  session: WorkspaceAgentSession
+  session: WorkspaceAgentSession,
+  options: { lifecycleCapabilitiesProjected?: boolean } = {}
 ): AgentActivitySession {
   return mapAgentActivitySessionFromTuttidSession(workspaceId, session, {
-    currentUserId: DESKTOP_AGENT_GUI_CURRENT_USER_ID
+    currentUserId: DESKTOP_AGENT_GUI_CURRENT_USER_ID,
+    ...options
   });
 }
 
@@ -545,15 +549,18 @@ export function createDesktopAgentActivityAdapter({
         }
         throw sessionForkDeliveryUnknownError(error);
       }
-      const operation = await waitForWorkspaceAgentSessionForkOperation(
-        tuttidClient,
-        input.workspaceId,
-        startedOperation,
-        input.signal
-      );
+      const reconciledOperation =
+        startedOperation.status === "accepted"
+          ? await reconcileAcceptedSessionForkOperation(
+              tuttidClient,
+              input.workspaceId,
+              startedOperation,
+              input.signal
+            )
+          : startedOperation;
       const result = agentActivityForkSessionResult(
         input.workspaceId,
-        operation
+        reconciledOperation
       );
       if (result.status === "committed") {
         // A committed, unacknowledged operation recovered by boundary owns the
@@ -575,59 +582,6 @@ export function createDesktopAgentActivityAdapter({
   };
 }
 
-async function waitForWorkspaceAgentSessionForkOperation(
-  client: TuttidClient,
-  workspaceId: string,
-  startedOperation: WorkspaceAgentSessionForkOperation,
-  signal?: AbortSignal
-): Promise<WorkspaceAgentSessionForkOperation> {
-  let operation = startedOperation;
-  while (operation.status === "accepted") {
-    if (signal?.aborted) {
-      throw sessionForkDeliveryUnknownError(
-        signal.reason ?? new Error("session fork polling aborted")
-      );
-    }
-    try {
-      operation = await client.getWorkspaceAgentSessionForkOperation(
-        workspaceId,
-        operation.operationId,
-        { signal }
-      );
-    } catch (error) {
-      throw sessionForkDeliveryUnknownError(error);
-    }
-    if (operation.status === "accepted") {
-      try {
-        await waitForSessionForkPoll(signal);
-      } catch (error) {
-        throw sessionForkDeliveryUnknownError(error);
-      }
-    }
-  }
-  return operation;
-}
-
-function waitForSessionForkPoll(signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(signal.reason ?? new Error("session fork polling aborted"));
-      return;
-    }
-    const timeout = setTimeout(finish, 500);
-    function finish(): void {
-      signal?.removeEventListener("abort", abort);
-      resolve();
-    }
-    function abort(): void {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", abort);
-      reject(signal?.reason ?? new Error("session fork polling aborted"));
-    }
-    signal?.addEventListener("abort", abort, { once: true });
-  });
-}
-
 function sessionForkDeliveryUnknownError(error: unknown): Error {
   return Object.assign(
     new Error(
@@ -637,6 +591,74 @@ function sessionForkDeliveryUnknownError(error: unknown): Error {
     ),
     { reason: "agent_session_fork_delivery_unknown" }
   );
+}
+
+async function reconcileAcceptedSessionForkOperation(
+  tuttidClient: TuttidClient,
+  workspaceId: string,
+  startedOperation: WorkspaceAgentSessionForkOperation,
+  signal?: AbortSignal
+): Promise<WorkspaceAgentSessionForkOperation> {
+  let operation = startedOperation;
+  let pollAttempt = 0;
+  let consecutiveReadFailures = 0;
+  while (operation.status === "accepted") {
+    await waitForSessionForkOperationPoll(
+      sessionForkOperationPollBackoffMs[
+        Math.min(pollAttempt, sessionForkOperationPollBackoffMs.length - 1)
+      ] ?? 2_000,
+      signal
+    );
+    try {
+      operation = await tuttidClient.getWorkspaceAgentSessionForkOperation(
+        workspaceId,
+        operation.operationId,
+        { signal }
+      );
+      consecutiveReadFailures = 0;
+    } catch (error) {
+      if (signal?.aborted) {
+        throw signal.reason ?? error;
+      }
+      consecutiveReadFailures += 1;
+      if (
+        consecutiveReadFailures >=
+        sessionForkOperationMaxConsecutiveReadFailures
+      ) {
+        throw sessionForkDeliveryUnknownError(error);
+      }
+    }
+    pollAttempt += 1;
+  }
+  return operation;
+}
+
+function waitForSessionForkOperationPoll(
+  delayMs: number,
+  signal?: AbortSignal
+): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(
+      signal.reason ?? new Error("Session fork reconciliation was aborted.")
+    );
+  }
+  if (delayMs <= 0) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const timeoutId = globalThis.setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, delayMs);
+    const abort = () => {
+      globalThis.clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", abort);
+      reject(
+        signal?.reason ?? new Error("Session fork reconciliation was aborted.")
+      );
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function sessionForkProtocolError(
@@ -670,7 +692,9 @@ function agentActivityForkSessionResult(
     operationId: operation.operationId,
     requestId: operation.requestId,
     session: operation.session
-      ? agentActivitySessionFromTuttidSession(workspaceId, operation.session)
+      ? agentActivitySessionFromTuttidSession(workspaceId, operation.session, {
+          lifecycleCapabilitiesProjected: true
+        })
       : null,
     sourceAgentSessionId: operation.sourceAgentSessionId,
     status: operation.status,

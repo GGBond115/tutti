@@ -46,9 +46,10 @@ descriptions or prompts.
 
 `inspect_fork_checkpoints` and `fork_session` are stateless requests: they do
 not create a `SessionRuntime` or resume a query. They use the official SDK
-session APIs, verify the selected source prefix and the independently readable
-child transcript, and return identities plus a provider-owned binding receipt;
-prompt and tool content never cross this protocol boundary.
+session APIs and return identities plus a provider-owned binding receipt;
+prompt and tool content never cross this protocol boundary. A persisted
+`providerCheckpointMessageId` avoids reading the source transcript. Legacy
+Turns without that field perform one source lookup at Fork execution time.
 
 `fork_session` calls the official `forkSession(..., {upToMessageId, title})`
 mutation directly. Claude allocates the provider child UUID, while Host keeps
@@ -56,9 +57,11 @@ the canonical target Agent Session ID deterministic. The driver therefore does
 not attest deterministic provider identity: after mutation starts, any SDK or
 verification failure is `unknown` and must never be replayed. A trailing system
 message may be present in the provider-owned child file but hidden by
-`getSessionMessages()` until a later message extends the chain, so verification
-compares the SDK-observable prefix while the source checkpoint receipt still
-binds the full inclusive prefix.
+`getSessionMessages()` until a later message extends the chain. The driver
+therefore binds the selected remapped child root UUID and the last SDK-visible
+child checkpoint without comparing source and child message content. Task
+notifications and internal synthetic user messages extend the checkpoint when
+visible, but are not treated as origin root Turns.
 
 For live Turns, the UUID supplied on the outbound SDK user message is a
 `promptCorrelationId` only because Claude Code may rewrite it in the durable

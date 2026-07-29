@@ -51,14 +51,6 @@ func (c *Controller) Fork(
 			DeliveryDisposition: SessionForkDeliveryNotStarted,
 		}, err
 	}
-	key := sessionKey(source.RoomID, source.AgentSessionID)
-	c.mu.Lock()
-	_, active := c.turns[key]
-	c.mu.Unlock()
-	if active {
-		return SessionForkResult{DeliveryDisposition: SessionForkDeliveryNotStarted}, ErrSessionActiveTurn
-	}
-
 	forkAdapter, ok := adapter.(SessionForkAdapter)
 	if !ok {
 		return SessionForkResult{DeliveryDisposition: SessionForkDeliveryNotStarted}, ErrSessionForkUnsupported

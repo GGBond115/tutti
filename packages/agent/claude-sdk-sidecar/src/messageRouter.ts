@@ -99,8 +99,9 @@ export class SDKMessageRouter {
 
     if (message.type === "system") {
       const raw = message as unknown as Record<string, unknown>;
+      const systemSubtype = stringValue(raw.subtype);
       if (
-        stringValue(raw.subtype) === "session_state_changed" &&
+        systemSubtype === "session_state_changed" &&
         stringValue(raw.state) === "idle" &&
         this.activities.clearBackgroundContinuation()
       ) {
@@ -109,6 +110,13 @@ export class SDKMessageRouter {
         });
       }
       this.projection.handleSystemMessage(raw);
+      // session_state_changed is an SDK live-state notification. It can carry
+      // a UUID, but Claude does not persist it in the transcript accepted by
+      // forkSession(upToMessageId). Persisting that UUID would overwrite the
+      // preceding durable assistant checkpoint with an unforkable boundary.
+      if (systemSubtype !== "session_state_changed") {
+        this.emitProviderCheckpoint(message, parentToolUseID);
+      }
       return;
     }
 
@@ -119,6 +127,7 @@ export class SDKMessageRouter {
 
     if (message.type === "assistant") {
       this.handleAssistant(message, parentToolUseID);
+      this.emitProviderCheckpoint(message, parentToolUseID);
       return;
     }
 
@@ -127,6 +136,7 @@ export class SDKMessageRouter {
         return;
       }
       this.handleUser(message, parentToolUseID);
+      this.emitProviderCheckpoint(message, parentToolUseID);
       return;
     }
 
@@ -336,6 +346,29 @@ export class SDKMessageRouter {
           "Subagent task completed."
       });
     }
+  }
+
+  private emitProviderCheckpoint(
+    message: SDKMessage,
+    parentToolUseID: string
+  ): void {
+    if (parentToolUseID) {
+      return;
+    }
+    const checkpointMessageId = readSDKMessageUuid(message);
+    const turnId = this.turns.lastTurnId.trim();
+    const providerTurnId = this.turns.lastProviderTurnId.trim();
+    if (!checkpointMessageId || !turnId || !providerTurnId) {
+      return;
+    }
+    this.emit({
+      type: "provider_turn_checkpoint",
+      payload: {
+        turnId,
+        providerTurnId,
+        providerCheckpointMessageId: checkpointMessageId
+      }
+    });
   }
 
   private handleUser(message: SDKMessage, parentToolUseID: string): void {

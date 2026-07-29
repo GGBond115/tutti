@@ -103,7 +103,6 @@ describe("useAgentGUIConversationMetadataActions fork identity", () => {
       expect.anything(),
       {
         sourceAgentSessionId: "session-source",
-        timeoutMs: 30_000,
         turnId: "turn-1",
         workspaceId: "workspace-1"
       }
@@ -113,7 +112,6 @@ describe("useAgentGUIConversationMetadataActions fork identity", () => {
       expect.anything(),
       {
         sourceAgentSessionId: "session-source",
-        timeoutMs: 30_000,
         turnId: "turn-1",
         workspaceId: "workspace-1"
       }

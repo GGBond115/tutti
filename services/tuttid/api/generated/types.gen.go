@@ -2761,6 +2761,36 @@ func (e WorkspaceAgentSessionDetailProjection) Valid() bool {
 	}
 }
 
+// Defines values for WorkspaceAgentSessionForkOperationPhase.
+const (
+	WorkspaceAgentSessionForkOperationPhaseCommitted       WorkspaceAgentSessionForkOperationPhase = "committed"
+	WorkspaceAgentSessionForkOperationPhaseDeliveryUnknown WorkspaceAgentSessionForkOperationPhase = "deliveryUnknown"
+	WorkspaceAgentSessionForkOperationPhaseDispatching     WorkspaceAgentSessionForkOperationPhase = "dispatching"
+	WorkspaceAgentSessionForkOperationPhaseFailed          WorkspaceAgentSessionForkOperationPhase = "failed"
+	WorkspaceAgentSessionForkOperationPhaseFrozen          WorkspaceAgentSessionForkOperationPhase = "frozen"
+	WorkspaceAgentSessionForkOperationPhaseMaterializing   WorkspaceAgentSessionForkOperationPhase = "materializing"
+)
+
+// Valid indicates whether the value is a known member of the WorkspaceAgentSessionForkOperationPhase enum.
+func (e WorkspaceAgentSessionForkOperationPhase) Valid() bool {
+	switch e {
+	case WorkspaceAgentSessionForkOperationPhaseCommitted:
+		return true
+	case WorkspaceAgentSessionForkOperationPhaseDeliveryUnknown:
+		return true
+	case WorkspaceAgentSessionForkOperationPhaseDispatching:
+		return true
+	case WorkspaceAgentSessionForkOperationPhaseFailed:
+		return true
+	case WorkspaceAgentSessionForkOperationPhaseFrozen:
+		return true
+	case WorkspaceAgentSessionForkOperationPhaseMaterializing:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WorkspaceAgentSessionForkOperationStatus.
 const (
 	WorkspaceAgentSessionForkOperationStatusAccepted  WorkspaceAgentSessionForkOperationStatus = "accepted"
@@ -3759,13 +3789,13 @@ func (e ListWorkspaceAgentSessionMessagesParamsOrder) Valid() bool {
 
 // Defines values for ListWorkspaceWorkflowsParamsCheckpointStatus.
 const (
-	Pending ListWorkspaceWorkflowsParamsCheckpointStatus = "pending"
+	ListWorkspaceWorkflowsParamsCheckpointStatusPending ListWorkspaceWorkflowsParamsCheckpointStatus = "pending"
 )
 
 // Valid indicates whether the value is a known member of the ListWorkspaceWorkflowsParamsCheckpointStatus enum.
 func (e ListWorkspaceWorkflowsParamsCheckpointStatus) Valid() bool {
 	switch e {
-	case Pending:
+	case ListWorkspaceWorkflowsParamsCheckpointStatusPending:
 		return true
 	default:
 		return false
@@ -7374,8 +7404,11 @@ type WorkspaceAgentSessionForkOperation struct {
 	// Lineage Durable lineage when status is committed.
 	Lineage     *WorkspaceAgentSessionForkLineage `json:"lineage"`
 	OperationId string                            `json:"operationId"`
-	Point       WorkspaceAgentSessionForkPoint    `json:"point"`
-	RequestId   string                            `json:"requestId"`
+
+	// Phase Durable execution phase for progress and recovery diagnostics.
+	Phase     WorkspaceAgentSessionForkOperationPhase `json:"phase"`
+	Point     WorkspaceAgentSessionForkPoint          `json:"point"`
+	RequestId string                                  `json:"requestId"`
 
 	// Session Complete target Session projection when status is committed.
 	Session              *WorkspaceAgentSession `json:"session"`
@@ -7385,6 +7418,9 @@ type WorkspaceAgentSessionForkOperation struct {
 	Status               WorkspaceAgentSessionForkOperationStatus `json:"status"`
 	TargetAgentSessionId string                                   `json:"targetAgentSessionId"`
 }
+
+// WorkspaceAgentSessionForkOperationPhase Durable execution phase for progress and recovery diagnostics.
+type WorkspaceAgentSessionForkOperationPhase string
 
 // WorkspaceAgentSessionForkOperationResponse defines model for WorkspaceAgentSessionForkOperationResponse.
 type WorkspaceAgentSessionForkOperationResponse struct {
@@ -7478,14 +7514,8 @@ type WorkspaceAgentSessionLifecycleCapabilities struct {
 	// Fork Whether this exact session can fork its latest settled state.
 	Fork bool `json:"fork"`
 
-	// ForkThroughTurn Whether this exact session can fork through a settled canonical Turn.
+	// ForkThroughTurn Whether this exact session can fork through a provider-bound canonical Turn.
 	ForkThroughTurn bool `json:"forkThroughTurn"`
-
-	// ForkThroughTurnIds Canonical Turn ids currently verified against provider-native history.
-	ForkThroughTurnIds *[]string `json:"forkThroughTurnIds,omitempty"`
-
-	// ForkThroughTurnIdsKnown Whether forkThroughTurnIds is an authoritative provider-history projection.
-	ForkThroughTurnIdsKnown *bool `json:"forkThroughTurnIdsKnown,omitempty"`
 }
 
 // WorkspaceAgentSessionListResponse defines model for WorkspaceAgentSessionListResponse.
@@ -7614,14 +7644,17 @@ type WorkspaceAgentTurn struct {
 	Outcome *WorkspaceAgentTurnOutcome `json:"outcome"`
 
 	// Phase Protocol v2 closed turn phase vocabulary. submitted -> running -> waiting (interactions) -> settling -> settled.
-	Phase                 WorkspaceAgentTurnPhase `json:"phase"`
-	SettledAtUnixMs       *int64                  `json:"settledAtUnixMs"`
-	SourceGoalOperationId *string                 `json:"sourceGoalOperationId,omitempty"`
-	SourceGoalRepairEpoch *int64                  `json:"sourceGoalRepairEpoch,omitempty"`
-	SourceGoalRevision    *int64                  `json:"sourceGoalRevision,omitempty"`
-	StartedAtUnixMs       int64                   `json:"startedAtUnixMs"`
-	TurnId                string                  `json:"turnId"`
-	UpdatedAtUnixMs       int64                   `json:"updatedAtUnixMs"`
+	Phase WorkspaceAgentTurnPhase `json:"phase"`
+
+	// ProviderForkBindingAvailable Whether this canonical Turn currently has the provider Turn binding required to attempt an exact native Fork. Historical prefix state does not participate in this projection.
+	ProviderForkBindingAvailable bool    `json:"providerForkBindingAvailable"`
+	SettledAtUnixMs              *int64  `json:"settledAtUnixMs"`
+	SourceGoalOperationId        *string `json:"sourceGoalOperationId,omitempty"`
+	SourceGoalRepairEpoch        *int64  `json:"sourceGoalRepairEpoch,omitempty"`
+	SourceGoalRevision           *int64  `json:"sourceGoalRevision,omitempty"`
+	StartedAtUnixMs              int64   `json:"startedAtUnixMs"`
+	TurnId                       string  `json:"turnId"`
+	UpdatedAtUnixMs              int64   `json:"updatedAtUnixMs"`
 }
 
 // WorkspaceAgentTurnOrigin Durable business provenance; steer is input on an existing turn and is never an origin.
