@@ -123,7 +123,11 @@ func TestCodexAppServerSideUsesEphemeralForkAndInjectedBoundary(t *testing.T) {
 		fork["excludeTurns"] != true ||
 		!strings.Contains(
 			asString(fork["developerInstructions"]),
-			"side conversation",
+			"Only user instructions submitted after the Side boundary",
+		) ||
+		!strings.Contains(
+			asString(fork["developerInstructions"]),
+			"Do not create or delegate to sub-agents",
 		) {
 		t.Fatalf("thread/fork params = %#v", fork)
 	}
@@ -142,6 +146,14 @@ func TestCodexAppServerSideUsesEphemeralForkAndInjectedBoundary(t *testing.T) {
 				)["text"],
 			),
 			"side_conversation_boundary",
+		) ||
+		!strings.Contains(
+			asString(
+				payloadObject(
+					payloadArray(payloadObject(items[0])["content"])[0],
+				)["text"],
+			),
+			"Only messages after this marker",
 		) {
 		t.Fatalf("thread/inject_items items = %#v", inject["items"])
 	}
@@ -188,6 +200,16 @@ func TestCodexAppServerSideUsesEphemeralForkAndInjectedBoundary(t *testing.T) {
 	}
 	if count, live := transport.snapshot(); count != 1 || len(live) != 1 {
 		t.Fatalf("after side close = spawned %d/live %d, want shared parent 1/1", count, len(live))
+	}
+	unsubscribes := appServerRequestParamsList(
+		t, sideConn, appServerMethodThreadUnsubscribe,
+	)
+	if len(unsubscribes) != 1 ||
+		asString(unsubscribes[0]["threadId"]) != "codex-thread-fork" {
+		t.Fatalf("thread/unsubscribe requests = %#v", unsubscribes)
+	}
+	if deletes := appServerRequestParamsList(t, sideConn, "thread/delete"); len(deletes) != 0 {
+		t.Fatalf("ephemeral Side issued thread/delete = %#v", deletes)
 	}
 
 	transport.conn(0).server.completePendingTurn()
@@ -259,7 +281,7 @@ func TestSharedAppServerRouterPrefersExactSideThreadOverParentChildIndex(
 	}
 }
 
-func TestCodexAppServerSideMalformedLineageDeletesEphemeralChild(t *testing.T) {
+func TestCodexAppServerSideMalformedLineageUnsubscribesEphemeralChild(t *testing.T) {
 	transport := &multiProcAppServerTransport{}
 	transport.setConfigure(func(server *fakeCodexAppServer) {
 		server.userAgent = "codex/0.144.1"
@@ -281,13 +303,66 @@ func TestCodexAppServerSideMalformedLineageDeletesEphemeralChild(t *testing.T) {
 		t.Fatalf("OpenSide error = %v, want invalid lineage", err)
 	}
 	conn := transport.conn(0)
-	deletes := appServerRequestParamsList(t, conn, "thread/delete")
-	if len(deletes) != 1 ||
-		asString(deletes[0]["threadId"]) != "codex-thread-fork" {
-		t.Fatalf("thread/delete requests = %#v", deletes)
+	unsubscribes := appServerRequestParamsList(
+		t, conn, appServerMethodThreadUnsubscribe,
+	)
+	if len(unsubscribes) != 1 ||
+		asString(unsubscribes[0]["threadId"]) != "codex-thread-fork" {
+		t.Fatalf("thread/unsubscribe requests = %#v", unsubscribes)
 	}
 	parent, found := controller.Session("workspace-side-lineage", "parent")
 	if !found || !adapter.HasLiveSession(parent) {
 		t.Fatal("malformed Side lineage disturbed the parent")
+	}
+}
+
+func TestCodexSideInstructionsPreserveEffectiveCollaborationPolicy(t *testing.T) {
+	tests := []struct {
+		name             string
+		planMode         bool
+		planModeMask     map[string]any
+		defaultModeMask  map[string]any
+		wantBasePolicy   string
+		unwantedBaseMode string
+	}{
+		{
+			name: "default mode",
+			defaultModeMask: map[string]any{
+				"developer_instructions": "Existing default policy.",
+			},
+			planModeMask: map[string]any{
+				"developer_instructions": "Existing plan policy.",
+			},
+			wantBasePolicy:   "Existing default policy.",
+			unwantedBaseMode: "Existing plan policy.",
+		},
+		{
+			name:     "plan mode nested settings",
+			planMode: true,
+			defaultModeMask: map[string]any{
+				"developer_instructions": "Existing default policy.",
+			},
+			planModeMask: map[string]any{
+				"settings": map[string]any{
+					"developer_instructions": "Existing plan policy.",
+				},
+			},
+			wantBasePolicy:   "Existing plan policy.",
+			unwantedBaseMode: "Existing default policy.",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := codexSideInstructions(
+				Session{Settings: &SessionSettings{PlanMode: test.planMode}},
+				test.planModeMask,
+				test.defaultModeMask,
+			)
+			if !strings.HasPrefix(got, test.wantBasePolicy+"\n\n") ||
+				!strings.Contains(got, codexSideDeveloperInstructions) ||
+				strings.Contains(got, test.unwantedBaseMode) {
+				t.Fatalf("Side instructions = %q", got)
+			}
+		})
 	}
 }

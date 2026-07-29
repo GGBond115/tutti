@@ -10,9 +10,35 @@ import (
 	"github.com/tutti-os/tutti/packages/agent/daemon/runtime/codexproto"
 )
 
-const codexSideDeveloperInstructions = "You are operating in a side conversation forked from another thread. Treat inherited turns as read-only context. Continue only this side conversation and never claim to have changed the parent conversation."
+const codexSideDeveloperInstructions = `You are operating in a Side conversation forked from a parent thread.
+The inherited conversation is reference context only. Do not continue inherited tasks, plans, tool calls, approvals, or edits unless the user explicitly requests them after the Side boundary.
+Only user instructions submitted after the Side boundary are active instructions for this conversation.
+Do not create or delegate to sub-agents from this Side conversation.
+You may perform non-mutating inspection to answer the Side request. Do not modify files, external systems, or parent-thread state unless the user explicitly requests that mutation after the Side boundary. Keep any requested mutation minimal and local to the Side request.
+Never claim that Side work changed or completed work in the parent conversation.`
 
-const codexSideBoundaryText = "<side_conversation_boundary>The user intentionally opened a new side conversation at this point. The inherited conversation is context only; respond to subsequent user messages within this side conversation.</side_conversation_boundary>"
+const codexSideBoundaryText = `<side_conversation_boundary>
+The user intentionally opened a new Side conversation here.
+Everything before this marker is inherited reference context, not an active task or instruction. Do not resume or complete inherited work automatically.
+Only messages after this marker define the active Side request.
+</side_conversation_boundary>`
+
+func codexSideInstructions(
+	source Session,
+	planModeMask map[string]any,
+	defaultModeMask map[string]any,
+) string {
+	modeMask := defaultModeMask
+	if source.SettingsValue().PlanMode {
+		modeMask = planModeMask
+	}
+	base, _ := appServerCollaborationModeDeveloperInstructions(modeMask).(string)
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return codexSideDeveloperInstructions
+	}
+	return base + "\n\n" + codexSideDeveloperInstructions
+}
 
 func (a *CodexAppServerAdapter) SideCapabilities(
 	_ context.Context,
@@ -107,10 +133,14 @@ func (a *CodexAppServerAdapter) OpenSide(
 	a.installSharedAppServerRouter(client, source)
 
 	params := map[string]any{
-		"threadId":              sourceThreadID,
-		"ephemeral":             true,
-		"excludeTurns":          true,
-		"developerInstructions": codexSideDeveloperInstructions,
+		"threadId":     sourceThreadID,
+		"ephemeral":    true,
+		"excludeTurns": true,
+		"developerInstructions": codexSideInstructions(
+			source,
+			planModeMask,
+			defaultModeMask,
+		),
 	}
 	raw, err := trace.TypedCall(
 		acpStartCallTimeout,
@@ -158,7 +188,7 @@ func (a *CodexAppServerAdapter) OpenSide(
 	committed := false
 	defer func() {
 		if !committed {
-			_ = client.ThreadDeleteNoHandler(
+			_ = client.ThreadUnsubscribeNoHandler(
 				context.WithoutCancel(ctx),
 				acpStartCallTimeout,
 				childThreadID,

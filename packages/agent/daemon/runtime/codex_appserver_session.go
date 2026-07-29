@@ -392,7 +392,7 @@ func (a *CodexAppServerAdapter) Close(ctx context.Context, session Session) erro
 		if appSession := a.getSession(agentSessionID); appSession != nil &&
 			appSession.client != nil &&
 			strings.TrimSpace(appSession.threadID) != "" {
-			if err := appSession.client.ThreadDeleteNoHandler(
+			if err := appSession.client.ThreadUnsubscribeNoHandler(
 				ctx,
 				acpStartCallTimeout,
 				appSession.threadID,

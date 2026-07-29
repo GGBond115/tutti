@@ -264,10 +264,15 @@ func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) 
 				"thread": thread,
 			},
 		})
-	case appServerMethodThreadInjectItems, "thread/delete":
+	case appServerMethodThreadInjectItems:
 		s.sendJSON(map[string]any{
 			"id":     message.ID,
 			"result": map[string]any{},
+		})
+	case appServerMethodThreadUnsubscribe:
+		s.sendJSON(map[string]any{
+			"id":     message.ID,
+			"result": map[string]any{"status": "unsubscribed"},
 		})
 	case appServerMethodThreadRead:
 		s.mu.Lock()

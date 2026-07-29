@@ -472,7 +472,7 @@ func (c *codexAppServerClient) ThreadInjectItems(
 	return caller.rawResult, nil
 }
 
-func (c *codexAppServerClient) ThreadDeleteNoHandler(
+func (c *codexAppServerClient) ThreadUnsubscribeNoHandler(
 	ctx context.Context,
 	timeout time.Duration,
 	threadID string,
@@ -483,8 +483,10 @@ func (c *codexAppServerClient) ThreadDeleteNoHandler(
 	_, err := c.raw.CallNoHandlerWithTimeout(
 		ctx,
 		timeout,
-		"thread/delete",
-		codexproto.ThreadDeleteParams{ThreadID: strings.TrimSpace(threadID)},
+		appServerMethodThreadUnsubscribe,
+		codexproto.ThreadUnsubscribeParams{
+			ThreadID: strings.TrimSpace(threadID),
+		},
 	)
 	return err
 }

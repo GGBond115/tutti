@@ -30,6 +30,7 @@ const (
 	appServerMethodThreadResume          = "thread/resume"
 	appServerMethodThreadFork            = "thread/fork"
 	appServerMethodThreadInjectItems     = "thread/inject_items"
+	appServerMethodThreadUnsubscribe     = "thread/unsubscribe"
 	appServerMethodThreadRollback        = "thread/rollback"
 	appServerMethodThreadRead            = "thread/read"
 	appServerMethodThreadCompact         = "thread/compact/start"
