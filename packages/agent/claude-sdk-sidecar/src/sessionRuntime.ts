@@ -126,8 +126,7 @@ export class SessionRuntime {
       () => this.turns.activeId,
       emit,
       () => this.turns.expectSyntheticContinuation(),
-      () => this.turns.lastTurnId,
-      () => this.turns.awaitingContinuation
+      () => this.turns.lastTurnId
     );
     this.compaction = new CompactionTracker({
       activeTurnId: () => this.turns.activeId,

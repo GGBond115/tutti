@@ -44,10 +44,8 @@ func adapterSnapshotForTurnEvent(event activityshared.Event) (activityshared.Tur
 			return activityshared.TurnLifecycleSnapshot{ActiveTurnID: turnID, Phase: string(activityshared.TurnPhaseSubmitted)}, true
 		case string(activityshared.TurnPhaseWorking), string(activityshared.TurnPhaseRunning), "streaming":
 			return activityshared.TurnLifecycleSnapshot{ActiveTurnID: turnID, Phase: string(activityshared.TurnPhaseRunning)}, true
-		case string(activityshared.TurnPhaseWaitingApproval):
+		case string(activityshared.TurnPhaseWaitingApproval), string(activityshared.TurnPhaseWaiting):
 			return activityshared.TurnLifecycleSnapshot{ActiveTurnID: turnID, Phase: string(activityshared.TurnPhaseWaitingApproval)}, true
-		case string(activityshared.TurnPhaseWaiting):
-			return activityshared.TurnLifecycleSnapshot{ActiveTurnID: turnID, Phase: string(activityshared.TurnPhaseWaiting)}, true
 		case string(activityshared.TurnPhaseWaitingInput):
 			return activityshared.TurnLifecycleSnapshot{ActiveTurnID: turnID, Phase: string(activityshared.TurnPhaseWaitingInput)}, true
 		default:

@@ -110,7 +110,6 @@ export interface AgentTranscriptViewProps {
     toolCallsLabel: (count: number) => string;
     thinkingLabel: string;
     processing: string;
-    providerContinuation?: string;
     turnSummary: string;
     rawTimelineJson?: string;
     userMessageLocator?: string;
@@ -168,7 +167,6 @@ function transcriptLabelsEqual(
     previous === next ||
     (previous.thinkingLabel === next.thinkingLabel &&
       previous.processing === next.processing &&
-      previous.providerContinuation === next.providerContinuation &&
       previous.turnSummary === next.turnSummary &&
       previous.rawTimelineJson === next.rawTimelineJson &&
       previous.userMessageLocator === next.userMessageLocator &&

@@ -174,13 +174,6 @@ export class TurnLifecycle {
     }
     const turn = this.activateSynthetic();
     turn.awaitingContinuation = true;
-    this.emit({
-      type: "turn_waiting",
-      payload: {
-        turnId: turn.turnId,
-        reason: "provider_continuation"
-      }
-    });
     this.continuationStartTimer = setTimeout(() => {
       if (this.active !== turn || turn.settled || !turn.awaitingContinuation) {
         return;
@@ -358,13 +351,6 @@ export class TurnLifecycle {
     }
     this.active.awaitingContinuation = false;
     this.clearContinuationStartTimer();
-    this.emit({
-      type: "turn_running",
-      payload: {
-        turnId: this.active.turnId,
-        reason: "provider_continuation_started"
-      }
-    });
   }
 
   private clearContinuationStartTimer(): void {

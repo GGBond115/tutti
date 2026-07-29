@@ -3,12 +3,10 @@ import type { AgentProcessingRowVM } from "../contracts/agentProcessingRowVM";
 
 export function AgentProcessingRow({
   row,
-  label,
-  providerContinuationLabel
+  label
 }: {
   row: AgentProcessingRowVM;
   label: string;
-  providerContinuationLabel?: string;
 }): JSX.Element {
   "use memo";
 
@@ -18,26 +16,16 @@ export function AgentProcessingRow({
       className="workspace-agents-status-panel__detail-processing inline-flex items-center gap-1.5"
     >
       <span className="inline-flex min-w-0 items-center gap-1 font-semibold">
-        <span>{processingLabel(row, label, providerContinuationLabel)}</span>
+        <span>{processingLabel(row, label)}</span>
         <LoadingEllipsis />
       </span>
     </div>
   );
 }
 
-function processingLabel(
-  row: AgentProcessingRowVM,
-  fallback: string,
-  providerContinuationLabel?: string
-): string {
+function processingLabel(row: AgentProcessingRowVM, fallback: string): string {
   if (row.label?.trim()) {
     return row.label.trim();
-  }
-  if (
-    row.reason === "provider-continuation" &&
-    providerContinuationLabel?.trim()
-  ) {
-    return providerContinuationLabel.trim();
   }
   return fallback;
 }

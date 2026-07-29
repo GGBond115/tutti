@@ -1443,23 +1443,6 @@ describe("projectAgentConversationVM", () => {
     );
   });
 
-  it("labels Claude's canonical continuation wait without completing the turn", () => {
-    const conversation = projectAgentConversationVM(
-      detailViewModel({
-        providerContinuationWaiting: true,
-        showProcessingIndicator: true
-      })
-    );
-
-    expect(conversation.rows.find((row) => row.kind === "processing")).toEqual(
-      expect.objectContaining({
-        id: "processing:turn-1",
-        reason: "provider-continuation",
-        turnId: "turn-1"
-      })
-    );
-  });
-
   it("scopes transient processing to the canonical active turn", () => {
     const baseDetail = detailViewModel();
     const conversation = projectAgentConversationVM(

@@ -3,6 +3,5 @@ export interface AgentProcessingRowVM {
   id: string;
   turnId: string | null;
   label?: string | null;
-  reason?: "provider-continuation" | null;
   occurredAtUnixMs: number | null;
 }

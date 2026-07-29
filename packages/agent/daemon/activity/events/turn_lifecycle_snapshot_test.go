@@ -67,7 +67,7 @@ func TestTurnLifecyclePhaseIsLive(t *testing.T) {
 			t.Fatalf("canonical live phase %q not live", phase)
 		}
 	}
-	for _, phase := range []string{"working", "streaming", "awaiting_approval"} {
+	for _, phase := range []string{"working", "streaming", "waiting", "awaiting_approval"} {
 		if !TurnLifecyclePhaseIsLive(phase) {
 			t.Fatalf("legacy live phase %q not live", phase)
 		}

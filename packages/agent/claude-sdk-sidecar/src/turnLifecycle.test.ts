@@ -171,7 +171,10 @@ test("notification-reserved synthetic turn reports delay without settling", asyn
   });
   assert.equal(lifecycle.ensureActive("assistant"), reserved);
   assert.equal(lifecycle.awaitingContinuation, false);
-  assert.equal(events.at(-1)?.type, "turn_running");
+  assert.equal(
+    events.some((event) => event.type === "turn_running"),
+    false
+  );
   lifecycle.settleActive("turn_completed");
 });
 

@@ -23,14 +23,16 @@ input and output. Every request and event carries `"version": 6`; either side
 rejects unsupported or missing versions instead of guessing compatibility.
 Protocol types and validation live in `src/protocol.ts`.
 
-Protocol version 6 adds background-task level and provider-continuation
-lifecycle events. `background_tasks_changed` is a full replace-set of currently
-running SDK background tasks, not a terminal root-turn signal. When the set
-becomes empty, the sidecar reserves a synthetic continuation and emits
-`turn_waiting`; later root assistant output emits `turn_running`, and only its
-result settles that continuation. A delayed continuation stays live and emits
+Protocol version 6 adds background-task level and continuation diagnostics.
+`background_tasks_changed` is a full replace-set of currently running SDK
+background tasks, not a terminal root-turn signal. When the set becomes empty,
+the sidecar reserves a synthetic continuation; only the provider's later result
+settles it. The synthetic turn keeps the existing running/processing
+presentation. A delayed continuation stays live and emits
 `continuation_delayed` for diagnostics instead of being completed by a local
-timeout.
+timeout. Background-level events include aggregate provider and projected-task
+counts so diagnostics can expose missing terminal task edges without logging
+task descriptions or prompts.
 
 `inspect_fork_checkpoints` and `fork_session` are stateless requests: they do
 not create a `SessionRuntime` or resume a query. They use the official SDK

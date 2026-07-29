@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -38,51 +39,29 @@ func TestClaudeCodeSDKAdapterMapsSyntheticTurnStarted(t *testing.T) {
 	}
 }
 
-func TestClaudeCodeSDKAdapterMapsBackgroundContinuationWaitingAndRunning(t *testing.T) {
-	adapter := NewClaudeCodeSDKAdapter(nil)
-	session := standardTestSession(ProviderClaudeCode)
-	adapterSession := &claudeSDKAdapterSession{liveState: newClaudeSDKLiveState()}
-	adapter.beginClaudeSDKRootTurn(adapterSession, "root-turn-1", "provider-turn-1")
-
-	waiting, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "synthetic-1", claudeSDKSidecarEvent{
-		Type: "turn_waiting",
-		Payload: map[string]any{
-			"turnId": "synthetic-1",
-			"reason": "provider_continuation",
-		},
+func TestClaudeSDKLifecycleLogArgsKeepsZeroCounts(t *testing.T) {
+	got := claudeSDKLifecycleLogArgs(map[string]any{
+		"backgroundTasksObservedCount":     float64(6),
+		"backgroundTasksRunningCount":      float64(0),
+		"backgroundTasksNoLongerLiveCount": float64(6),
+		"delegatedTasksKnownCount":         float64(6),
+		"delegatedTasksRunningCount":       float64(3),
+		"delegatedTasksCompletedCount":     float64(3),
+		"delegatedTasksFailedCount":        float64(0),
+		"delegatedTasksStoppedCount":       float64(0),
 	})
-	if err != nil || terminal || len(waiting) != 2 {
-		t.Fatalf("turn_waiting events=%#v terminal=%v err=%v", waiting, terminal, err)
+	want := []any{
+		"background_tasks_observed", int64(6),
+		"background_tasks_running", int64(0),
+		"background_tasks_no_longer_live", int64(6),
+		"delegated_tasks_known", int64(6),
+		"delegated_tasks_running", int64(3),
+		"delegated_tasks_completed", int64(3),
+		"delegated_tasks_failed", int64(0),
+		"delegated_tasks_stopped", int64(0),
 	}
-	waiting = adapter.stampTurnLifecycleSnapshots(adapterSession, waiting)
-	snapshot, ok := activityshared.TurnLifecycleSnapshotFromEvent(waiting[0])
-	if waiting[0].Type != activityshared.EventTurnUpdated ||
-		waiting[0].Payload.TurnID != "root-turn-1" ||
-		waiting[0].Payload.TurnPhase != string(activityshared.TurnPhaseWaiting) ||
-		!ok || snapshot.Phase != string(activityshared.TurnPhaseWaiting) {
-		t.Fatalf("waiting event=%#v snapshot=%#v ok=%v", waiting[0], snapshot, ok)
-	}
-	if waiting[1].Type != activityshared.EventActivityStarted ||
-		waiting[1].Payload.Metadata["kind"] != "provider_continuation" {
-		t.Fatalf("waiting semantic event=%#v", waiting[1])
-	}
-
-	running, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "synthetic-1", claudeSDKSidecarEvent{
-		Type: "turn_running",
-		Payload: map[string]any{
-			"turnId": "synthetic-1",
-			"reason": "provider_continuation_started",
-		},
-	})
-	if err != nil || terminal || len(running) != 2 ||
-		running[0].Type != activityshared.EventTurnUpdated ||
-		running[0].Payload.TurnID != "root-turn-1" ||
-		running[0].Payload.TurnPhase != string(activityshared.TurnPhaseRunning) {
-		t.Fatalf("turn_running events=%#v terminal=%v err=%v", running, terminal, err)
-	}
-	if running[1].Type != activityshared.EventActivityCompleted ||
-		running[1].Payload.Metadata["kind"] != "provider_continuation" {
-		t.Fatalf("running semantic event=%#v", running[1])
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("log args = %#v, want %#v", got, want)
 	}
 }
 

@@ -526,7 +526,6 @@ export const zhCNAgentGui = {
   goalClearAction: "删除目标",
   goalRemoved: "目标已移除",
   processing: "正在规划下一步",
-  providerContinuation: "等待 Claude 汇总",
   turnProcessedSeconds: "已处理 {{seconds}} 秒",
   turnProcessedMinutes: "已处理 {{minutes}} 分钟",
   turnProcessedMinutesSeconds: "已处理 {{minutes}} 分 {{seconds}} 秒",

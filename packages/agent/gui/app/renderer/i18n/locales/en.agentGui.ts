@@ -507,7 +507,6 @@ export const enAgentGui = {
   goalClearAction: "Delete goal",
   goalRemoved: "Goal removed",
   processing: "Planning next moves",
-  providerContinuation: "Waiting for Claude to summarize",
   turnProcessedSeconds: "Processed for {{seconds}}s",
   turnProcessedMinutes: "Processed for {{minutes}}m",
   turnProcessedMinutesSeconds: "Processed for {{minutes}}m {{seconds}}s",

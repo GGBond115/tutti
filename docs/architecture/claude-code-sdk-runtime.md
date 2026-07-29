@@ -154,19 +154,19 @@ Background-task lifecycle uses the SDK's `background_tasks_changed` system
 message as a level signal. Its `tasks` array fully replaces the previous live
 set. An empty set means the background children have quiesced; it does not mean
 the root Turn is complete. If the root result already settled, the sidecar
-reserves a synthetic continuation and reports it as waiting. The next root
-assistant message moves that continuation back to running, and only the
-provider's result settles it. The continuation-start timer is diagnostic only:
-it emits `continuation_delayed` and never fabricates completion or interrupts
-the SDK query.
+reserves a synthetic continuation. It remains in the existing running phase,
+and only the provider's result settles it. The continuation-start timer is
+diagnostic only: it emits `continuation_delayed` and never fabricates completion
+or interrupts the SDK query.
 
 Exact task terminal events and the level signal are not ordered by contract.
 The sidecar therefore waits for a short quiescence grace after the live set
 becomes empty. Exact terminal edges received during that window win; after the
 window, the daemon marks only still-unresolved asynchronous child Turns as
-interrupted. The daemon exposes the root waiting state through normalized
-`provider_continuation` activity semantics, so GUI consumers can render
-"Waiting for Claude to summarize" without branching on the provider name.
+interrupted. Background-level diagnostics record aggregate counts for tasks
+observed by the SDK level signal and exact delegated-task states known to Tutti.
+This makes missing terminal edges visible in logs while leaving the GUI's
+existing running/processing presentation unchanged.
 
 ## Protocol and compatibility
 

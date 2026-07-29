@@ -22,7 +22,7 @@ type TurnLifecycleSnapshot struct {
 	Seq uint64 `json:"seq"`
 	// ActiveTurnID is empty once the turn settled.
 	ActiveTurnID string `json:"activeTurnId,omitempty"`
-	// Phase is one of TurnPhaseSubmitted/Running/Waiting/WaitingApproval/WaitingInput
+	// Phase is one of TurnPhaseSubmitted/Running/WaitingApproval/WaitingInput
 	// while live, or TurnPhaseSettled.
 	Phase string `json:"phase"`
 	// Outcome is set only when Phase is settled: completed/failed/interrupted.
@@ -50,26 +50,25 @@ const (
 var LiveTurnLifecyclePhases = []string{
 	string(TurnPhaseSubmitted),
 	string(TurnPhaseRunning),
-	string(TurnPhaseWaiting),
 	string(TurnPhaseWaitingApproval),
 	string(TurnPhaseWaitingInput),
 }
 
 // TurnLifecyclePhaseIsLive reports whether a lifecycle phase means a turn is
 // currently running. Besides the canonical LiveTurnLifecyclePhases it accepts
-// the legacy tokens older writers persisted (working/streaming/
+// the legacy tokens older writers persisted (working/streaming/waiting/
 // awaiting_approval) so stored records from before the snapshot contract keep
 // reading correctly.
 func TurnLifecyclePhaseIsLive(phase string) bool {
 	switch strings.TrimSpace(phase) {
 	case string(TurnPhaseSubmitted),
 		string(TurnPhaseRunning),
-		string(TurnPhaseWaiting),
 		string(TurnPhaseWaitingApproval),
 		string(TurnPhaseWaitingInput),
 		// Legacy persisted tokens.
 		string(TurnPhaseWorking),
 		"streaming",
+		string(TurnPhaseWaiting),
 		"awaiting_approval":
 		return true
 	default:
@@ -78,7 +77,7 @@ func TurnLifecyclePhaseIsLive(phase string) bool {
 }
 
 // TurnLifecyclePhaseIsWaiting reports whether the phase is a waiting variant
-// (provider continuation, approval, or user input).
+// (approval or user input), including the legacy collapsed "waiting" token.
 func TurnLifecyclePhaseIsWaiting(phase string) bool {
 	switch strings.TrimSpace(phase) {
 	case string(TurnPhaseWaitingApproval),

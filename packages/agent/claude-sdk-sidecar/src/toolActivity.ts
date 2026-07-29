@@ -32,9 +32,9 @@ export class ToolActivityProjector {
   private readonly emit: ClaudeSDKSidecarEventEmitter;
   private readonly onFinalDelegatedTaskSettling: () => void;
   private readonly lastTurnId: () => string;
-  private readonly isAwaitingContinuation: () => boolean;
   private backgroundTaskLevelObserved = false;
   private liveBackgroundTaskCount = 0;
+  private readonly observedBackgroundTaskIDs = new Set<string>();
   private backgroundContinuationPending = false;
   private backgroundTaskQuiescenceTimer?: ReturnType<typeof setTimeout>;
 
@@ -42,14 +42,12 @@ export class ToolActivityProjector {
     activeTurnId: () => string,
     emit: ClaudeSDKSidecarEventEmitter,
     onFinalDelegatedTaskSettling: () => void = () => {},
-    lastTurnId: () => string = activeTurnId,
-    isAwaitingContinuation: () => boolean = () => false
+    lastTurnId: () => string = activeTurnId
   ) {
     this.activeTurnId = activeTurnId;
     this.emit = emit;
     this.onFinalDelegatedTaskSettling = onFinalDelegatedTaskSettling;
     this.lastTurnId = lastTurnId;
-    this.isAwaitingContinuation = isAwaitingContinuation;
     this.taskPlan = new TaskPlanTracker(activeTurnId, emit);
     this.tools = new ToolEventProjector(
       (tool) => this.resolveToolEventTurnId(tool),
@@ -68,21 +66,26 @@ export class ToolActivityProjector {
     this.clearBackgroundTaskQuiescenceTimer();
     this.backgroundTaskLevelObserved = false;
     this.liveBackgroundTaskCount = 0;
+    this.observedBackgroundTaskIDs.clear();
     this.backgroundContinuationPending = false;
   }
 
   handleBackgroundTasksChanged(message: Record<string, unknown>): void {
     const tasks = Array.isArray(message.tasks) ? message.tasks : [];
+    for (const task of tasks) {
+      const taskID = stringValue(recordValue(task)?.task_id);
+      if (taskID) {
+        this.observedBackgroundTaskIDs.add(taskID);
+      }
+    }
     const previousCount = this.liveBackgroundTaskCount;
     const previouslyObserved = this.backgroundTaskLevelObserved;
     this.backgroundTaskLevelObserved = true;
     this.liveBackgroundTaskCount = tasks.length;
+    const turnId = this.activeTurnId() || this.lastTurnId();
     this.emit({
       type: "background_tasks_changed",
-      payload: {
-        turnId: this.activeTurnId() || this.lastTurnId(),
-        runningCount: tasks.length
-      }
+      payload: this.backgroundTaskDiagnosticPayload(turnId)
     });
     if (tasks.length > 0) {
       this.clearBackgroundTaskQuiescenceTimer();
@@ -123,10 +126,7 @@ export class ToolActivityProjector {
       }
       this.emit({
         type: "background_tasks_quiesced",
-        payload: {
-          turnId,
-          runningCount: 0
-        }
+        payload: this.backgroundTaskDiagnosticPayload(turnId)
       });
     }, BACKGROUND_TASK_QUIESCENCE_GRACE_MS);
     this.backgroundTaskQuiescenceTimer.unref?.();
@@ -627,20 +627,45 @@ export class ToolActivityProjector {
   }
 
   private reserveBackgroundContinuation(): void {
-    if (!this.backgroundContinuationPending) {
-      return;
-    }
-    if (this.isAwaitingContinuation()) {
-      this.backgroundContinuationPending = false;
-      return;
-    }
-    if (this.activeTurnId()) {
+    if (!this.backgroundContinuationPending || this.activeTurnId()) {
       return;
     }
     this.onFinalDelegatedTaskSettling();
-    if (this.isAwaitingContinuation()) {
-      this.backgroundContinuationPending = false;
+    this.backgroundContinuationPending = false;
+  }
+
+  private backgroundTaskDiagnosticPayload(
+    turnId: string
+  ): Record<string, unknown> {
+    const delegatedCounts: Record<DelegatedTaskStatus, number> = {
+      running: 0,
+      completed: 0,
+      failed: 0,
+      stopped: 0
+    };
+    let knownCount = 0;
+    for (const task of this.delegatedTasksByParentToolUseID.values()) {
+      if (turnId && task.turnId !== turnId) {
+        continue;
+      }
+      knownCount += 1;
+      delegatedCounts[task.status] += 1;
     }
+    return {
+      turnId,
+      runningCount: this.liveBackgroundTaskCount,
+      backgroundTasksObservedCount: this.observedBackgroundTaskIDs.size,
+      backgroundTasksRunningCount: this.liveBackgroundTaskCount,
+      backgroundTasksNoLongerLiveCount: Math.max(
+        0,
+        this.observedBackgroundTaskIDs.size - this.liveBackgroundTaskCount
+      ),
+      delegatedTasksKnownCount: knownCount,
+      delegatedTasksRunningCount: delegatedCounts.running,
+      delegatedTasksCompletedCount: delegatedCounts.completed,
+      delegatedTasksFailedCount: delegatedCounts.failed,
+      delegatedTasksStoppedCount: delegatedCounts.stopped
+    };
   }
 
   private emitDelegatedTaskParentUpdate(

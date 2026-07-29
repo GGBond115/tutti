@@ -405,7 +405,12 @@ test("background task level reserves continuation when terminal task edges are m
       events.some(
         (event) =>
           event.type === "background_tasks_changed" &&
-          event.payload?.runningCount === 0
+          event.payload?.backgroundTasksObservedCount === 1 &&
+          event.payload?.backgroundTasksRunningCount === 0 &&
+          event.payload?.backgroundTasksNoLongerLiveCount === 1 &&
+          event.payload?.delegatedTasksKnownCount === 1 &&
+          event.payload?.delegatedTasksRunningCount === 1 &&
+          event.payload?.delegatedTasksCompletedCount === 0
       )
     );
     assert.ok(
@@ -415,12 +420,9 @@ test("background task level reserves continuation when terminal task edges are m
           event.payload?.runningCount === 0
       )
     );
-    assert.ok(
-      events.some(
-        (event) =>
-          event.type === "turn_waiting" &&
-          event.payload?.turnId === syntheticTurnId
-      )
+    assert.equal(
+      events.some((event) => event.type === "turn_waiting"),
+      false
     );
     assert.ok(
       events.some(
@@ -429,12 +431,9 @@ test("background task level reserves continuation when terminal task edges are m
           event.payload?.turnId === syntheticTurnId
       )
     );
-    assert.ok(
-      events.some(
-        (event) =>
-          event.type === "turn_running" &&
-          event.payload?.turnId === syntheticTurnId
-      )
+    assert.equal(
+      events.some((event) => event.type === "turn_running"),
+      false
     );
     assert.equal(
       events.some((event) => event.type === "task_completed"),
