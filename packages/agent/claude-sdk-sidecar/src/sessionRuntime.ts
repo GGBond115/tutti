@@ -204,6 +204,12 @@ export class SessionRuntime {
       onSessionState: () => this.emitSessionState(),
       onMaybeTitle: (shouldEmit) =>
         this.maybeEmitSessionTitleUpdated(shouldEmit),
+      onTerminalConnectionError: () => {
+        const generation = this.queryGeneration;
+        this.queryGeneration = undefined;
+        generation?.revoke();
+        generation?.closeQuery();
+      },
       turns: this.turns,
       assistant: this.assistantStream,
       activities: this.activities,
