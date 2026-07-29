@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"reflect"
 	"sync"
 	"testing"
@@ -62,6 +63,15 @@ func TestClaudeSDKLifecycleLogArgsKeepsZeroCounts(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("log args = %#v, want %#v", got, want)
+	}
+}
+
+func TestClaudeSDKContinuationDelayUsesWarningLogLevel(t *testing.T) {
+	if got := claudeSDKLifecycleEventLogLevel("continuation_delayed"); got != slog.LevelWarn {
+		t.Fatalf("log level = %v, want warning", got)
+	}
+	if got := claudeSDKLifecycleEventLogLevel("background_tasks_changed"); got != slog.LevelInfo {
+		t.Fatalf("ordinary lifecycle log level = %v, want info", got)
 	}
 }
 

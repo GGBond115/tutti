@@ -155,9 +155,10 @@ message as a level signal. Its `tasks` array fully replaces the previous live
 set. An empty set means the background children have quiesced; it does not mean
 the root Turn is complete. If the root result already settled, the sidecar
 reserves a synthetic continuation. It remains in the existing running phase,
-and only the provider's result settles it. The continuation-start timer is
-diagnostic only: it emits `continuation_delayed` and never fabricates completion
-or interrupts the SDK query.
+and only the provider's result settles it. After 30 seconds without root
+output, a diagnostic timer emits the `continuation_delayed` warning; it never
+fabricates completion, interrupts the SDK query, or rejects later provider
+output.
 
 Exact task terminal events and the level signal are not ordered by contract.
 The sidecar therefore waits for a short quiescence grace after the live set

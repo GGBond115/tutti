@@ -11,7 +11,7 @@ import {
   fakeGuidedDelegatedContinuationQuery,
   fakeRacedDelegatedTaskAliasQuery,
   fakeStoppableDelegatedTaskQuery,
-  fakeTimedOutDelegatedTaskQuery
+  fakeDelayedDelegatedTaskQuery
 } from "./sessionRuntimeTestQueries.delegated.ts";
 import {
   fakeConcurrentDelegatedTaskCreatedHookQuery,
@@ -313,7 +313,7 @@ test("delegated task continuation emits synthetic turn started", async () => {
   }
 });
 
-test("delegated continuation start timeout reports delay without interrupting", async () => {
+test("delegated continuation delay diagnostic does not interrupt", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   let interrupts = 0;
   const restoreSink = withSidecarEventSinkForTest((event) =>
@@ -336,7 +336,7 @@ test("delegated continuation start timeout reports delay without interrupting", 
       sidecarClaudeOptionsFromPayload({}),
       undefined,
       ({ prompt }) =>
-        fakeTimedOutDelegatedTaskQuery(prompt, () => {
+        fakeDelayedDelegatedTaskQuery(prompt, () => {
           interrupts += 1;
         }),
       5
@@ -451,7 +451,7 @@ test("background task level reserves continuation when terminal task edges are m
   }
 });
 
-test("cancel during delegated continuation wait disarms timeout", async () => {
+test("cancel during delegated continuation wait disarms delay diagnostic", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   let interrupts = 0;
   const restoreSink = withSidecarEventSinkForTest((event) =>
@@ -474,7 +474,7 @@ test("cancel during delegated continuation wait disarms timeout", async () => {
       sidecarClaudeOptionsFromPayload({}),
       undefined,
       ({ prompt }) =>
-        fakeTimedOutDelegatedTaskQuery(prompt, () => {
+        fakeDelayedDelegatedTaskQuery(prompt, () => {
           interrupts += 1;
         }),
       100

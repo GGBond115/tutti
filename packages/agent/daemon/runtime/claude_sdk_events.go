@@ -592,7 +592,12 @@ func (a *ClaudeCodeSDKAdapter) logClaudeSDKLifecycleEvent(agentSessionID string,
 		"sidecar_event_type", strings.TrimSpace(event.Type),
 	}
 	args = append(args, claudeSDKLifecycleLogArgs(payload)...)
-	slog.Info("agent session Claude SDK lifecycle event", args...)
+	slog.Log(
+		context.Background(),
+		claudeSDKLifecycleEventLogLevel(event.Type),
+		"agent session Claude SDK lifecycle event",
+		args...,
+	)
 }
 
 func claudeSDKLifecycleEventDiagnostic(event claudeSDKSidecarEvent) bool {

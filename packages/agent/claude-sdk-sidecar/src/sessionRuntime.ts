@@ -104,7 +104,7 @@ export class SessionRuntime {
     claudeOptions: SidecarClaudeOptions,
     resumeCursor?: Record<string, unknown>,
     queryFactory?: ClaudeQueryFactory,
-    continuationStartTimeoutMs = 30_000
+    continuationDelayDiagnosticMs?: number
   ) {
     const resumeSessionId = stringValue(resumeCursor?.resume);
     this.providerSessionId = resumeSessionId || providerSessionId;
@@ -116,7 +116,7 @@ export class SessionRuntime {
       emit,
       onActivate: () => this.resetTurnScratch(),
       onSettled: () => this.emitSessionState(),
-      continuationStartTimeoutMs
+      continuationDelayDiagnosticMs
     });
     this.assistantStream = new AssistantStreamProjector(
       () => this.turns.activeId,

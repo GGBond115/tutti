@@ -1,6 +1,16 @@
 package agentruntime
 
-import "strings"
+import (
+	"log/slog"
+	"strings"
+)
+
+func claudeSDKLifecycleEventLogLevel(eventType string) slog.Level {
+	if strings.TrimSpace(eventType) == "continuation_delayed" {
+		return slog.LevelWarn
+	}
+	return slog.LevelInfo
+}
 
 func claudeSDKLifecycleLogArgs(payload map[string]any) []any {
 	args := make([]any, 0, 42)

@@ -30,7 +30,7 @@ the sidecar reserves a synthetic continuation; only the provider's later result
 settles it. The synthetic turn keeps the existing running/processing
 presentation. A delayed continuation stays live and emits
 `continuation_delayed` for diagnostics instead of being completed by a local
-timeout. Background-level events include aggregate provider and projected-task
+deadline. Background-level events include aggregate provider and projected-task
 counts so diagnostics can expose missing terminal task edges without logging
 task descriptions or prompts.
 

@@ -28,30 +28,28 @@ export class TurnLifecycle {
   private readonly emit: ClaudeSDKSidecarEventEmitter;
   private readonly onActivate: () => void;
   private readonly onSettled: () => void;
-  private readonly onContinuationStartTimeout: () => void;
-  private readonly continuationStartTimeoutMs: number;
+  private readonly continuationDelayDiagnosticMs: number;
   private active: RuntimeTurn | undefined;
   private activeIdValue = "";
   private lastTurnIdValue = "";
   private pendingOrphanCount = 0;
   private cancelledValue = false;
   private completedTurnCount = 0;
-  private continuationStartTimer: ReturnType<typeof setTimeout> | undefined;
+  private continuationDelayDiagnosticTimer:
+    | ReturnType<typeof setTimeout>
+    | undefined;
 
   constructor(options: {
     emit: ClaudeSDKSidecarEventEmitter;
     onActivate: () => void;
     onSettled: () => void;
-    onContinuationStartTimeout?: () => void;
-    continuationStartTimeoutMs?: number;
+    continuationDelayDiagnosticMs?: number;
   }) {
     this.emit = options.emit;
     this.onActivate = options.onActivate;
     this.onSettled = options.onSettled;
-    this.onContinuationStartTimeout =
-      options.onContinuationStartTimeout ?? (() => {});
-    this.continuationStartTimeoutMs =
-      options.continuationStartTimeoutMs ?? 30_000;
+    this.continuationDelayDiagnosticMs =
+      options.continuationDelayDiagnosticMs ?? 30_000;
   }
 
   get activeId(): string {
@@ -174,7 +172,7 @@ export class TurnLifecycle {
     }
     const turn = this.activateSynthetic();
     turn.awaitingContinuation = true;
-    this.continuationStartTimer = setTimeout(() => {
+    this.continuationDelayDiagnosticTimer = setTimeout(() => {
       if (this.active !== turn || turn.settled || !turn.awaitingContinuation) {
         return;
       }
@@ -182,13 +180,12 @@ export class TurnLifecycle {
         type: "continuation_delayed",
         payload: {
           turnId: turn.turnId,
-          waitedMs: this.continuationStartTimeoutMs
+          waitedMs: this.continuationDelayDiagnosticMs
         }
       });
-      this.onContinuationStartTimeout();
-    }, this.continuationStartTimeoutMs);
+    }, this.continuationDelayDiagnosticMs);
     (
-      this.continuationStartTimer as ReturnType<typeof setTimeout> & {
+      this.continuationDelayDiagnosticTimer as ReturnType<typeof setTimeout> & {
         unref?: () => void;
       }
     ).unref?.();
@@ -222,7 +219,7 @@ export class TurnLifecycle {
           : {})
       }
     });
-    this.clearContinuationStartTimer();
+    this.clearContinuationDelayDiagnostic();
     this.active = undefined;
     this.activeIdValue = "";
     this.compactQueue();
@@ -254,7 +251,7 @@ export class TurnLifecycle {
 
   cancelQueued(): boolean {
     this.cancelledValue = true;
-    this.clearContinuationStartTimer();
+    this.clearContinuationDelayDiagnostic();
     if (this.active) {
       this.active.awaitingContinuation = false;
     }
@@ -296,7 +293,7 @@ export class TurnLifecycle {
   }
 
   close(): void {
-    this.clearContinuationStartTimer();
+    this.clearContinuationDelayDiagnostic();
   }
 
   private activate(turn: RuntimeTurn): void {
@@ -350,15 +347,15 @@ export class TurnLifecycle {
       return;
     }
     this.active.awaitingContinuation = false;
-    this.clearContinuationStartTimer();
+    this.clearContinuationDelayDiagnostic();
   }
 
-  private clearContinuationStartTimer(): void {
-    if (!this.continuationStartTimer) {
+  private clearContinuationDelayDiagnostic(): void {
+    if (!this.continuationDelayDiagnosticTimer) {
       return;
     }
-    clearTimeout(this.continuationStartTimer);
-    this.continuationStartTimer = undefined;
+    clearTimeout(this.continuationDelayDiagnosticTimer);
+    this.continuationDelayDiagnosticTimer = undefined;
   }
 
   private settleQueuedTurn(
