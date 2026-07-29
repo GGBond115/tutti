@@ -167,6 +167,38 @@ describe("AgentSubAgentCard", () => {
     expect(screen.getByText("Completed")).toBeInTheDocument();
     expect(screen.queryByText("Starting…")).not.toBeInTheDocument();
   });
+
+  it("shows failed instead of starting when failure detail is absent", async () => {
+    setAgentGuiI18nTestLocale("en");
+
+    render(
+      <AgentSubAgentCard
+        subAgent={subAgent({
+          status: "failed",
+          terminalAtUnixMs: 2_000
+        })}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Sub-agent Repo smell analyst Failed/
+      })
+    );
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+
+    expect(
+      screen.getByText("Failed", {
+        selector:
+          ".workspace-agents-status-panel__detail-subagent-activity--in-terminal"
+      })
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Starting…")).not.toBeInTheDocument();
+  });
 });
 
 function subAgent(

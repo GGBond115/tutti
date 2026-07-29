@@ -219,9 +219,11 @@ function SubAgentProgress({
         ? "agentHost.agentTool.statusCompleted"
         : subAgent.status === "canceled"
           ? "agentHost.agentTool.statusCanceled"
-          : subAgent.queued
-            ? "agentHost.agentTool.details.subAgentQueued"
-            : "agentHost.agentTool.details.subAgentStarting"
+          : subAgent.status === "failed"
+            ? "agentHost.agentTool.statusFailed"
+            : subAgent.queued
+              ? "agentHost.agentTool.details.subAgentQueued"
+              : "agentHost.agentTool.details.subAgentStarting"
     );
   return (
     <div
