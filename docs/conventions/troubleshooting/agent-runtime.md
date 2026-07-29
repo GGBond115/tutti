@@ -82,6 +82,7 @@ Turn state, loading, cancel, restore, rail projection, event updates, imports, a
 - [Claude Code starts another command after Stop](./agent-session-lifecycle.md#claude-code-starts-another-command-after-stop)
 - [AgentGUI freezes when session history is large](./agent-session-lifecycle.md#agentgui-freezes-when-session-history-is-large)
 - [AgentGUI @ Sessions tab is empty](./agent-session-lifecycle.md#agentgui--sessions-tab-is-empty)
+- [Fork reports only `agent_session_fork_conflict`](./agent-session-lifecycle.md#fork-reports-only-agent_session_fork_conflict)
 - [Agent diagnostics flood while a turn is streaming](./agent-session-lifecycle.md#agent-diagnostics-flood-while-a-turn-is-streaming)
 - [Codex turn stays working before any reply or tool activity](./agent-session-lifecycle.md#codex-turn-stays-working-before-any-reply-or-tool-activity)
 - [Codex WebSocket reconnect rejects a long prompt metadata header](./agent-session-lifecycle.md#codex-websocket-reconnect-rejects-a-long-prompt-metadata-header)

@@ -1912,6 +1912,42 @@ test("desktop agent activity adapter classifies an ambiguous POST failure as del
   );
 });
 
+test("desktop agent activity adapter promotes the exact fork boundary reason", async () => {
+  const adapter = createDesktopAgentActivityAdapter({
+    tuttidClient: createTuttidClient({
+      async forkWorkspaceAgentSession() {
+        throw new TuttidProtocolError({
+          code: "workspace_operation_failed",
+          developerMessage:
+            "agent session fork turn is not a verified settled boundary: selected turn sequence provenance is legacy_unverified",
+          params: {
+            forkBoundaryReason: "agent_session_fork_turn_sequence_unverified"
+          },
+          reason: "agent_session_fork_conflict",
+          statusCode: 409
+        });
+      }
+    }),
+    runtimeApi: createRuntimeApi()
+  });
+
+  await assert.rejects(
+    adapter.forkSession({
+      requestId: "fork-request",
+      sourceAgentSessionId: "source-session",
+      targetAgentSessionId: "target-session",
+      turnId: "source-turn",
+      workspaceId
+    }),
+    (error: unknown) =>
+      error instanceof TuttidProtocolError &&
+      error.reason === "agent_session_fork_turn_sequence_unverified" &&
+      error.params.forkBoundaryReason ===
+        "agent_session_fork_turn_sequence_unverified" &&
+      error.message.includes("legacy_unverified")
+  );
+});
+
 test("desktop agent activity adapter classifies an aborted POST as delivery unknown", async () => {
   const controller = new AbortController();
   const adapter = createDesktopAgentActivityAdapter({
