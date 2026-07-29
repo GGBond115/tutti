@@ -413,9 +413,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     locatorRef: turnAttachmentLocatorRef,
     onVisibilityChange: onTurnAttachmentVisibilityChange,
     rowVirtualizer,
-    shouldVirtualize: true,
-    turnGroups,
-    virtualizerHostRef
+    turnGroups
   });
   const handleLocateUserMessage = useCallback(
     async (

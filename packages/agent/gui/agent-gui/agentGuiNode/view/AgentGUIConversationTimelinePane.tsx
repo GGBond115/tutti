@@ -9,8 +9,6 @@ import type {
   AgentTranscriptTurnAttachment,
   AgentTranscriptVirtualScrollController
 } from "../../../shared/agentConversation/components/AgentTranscriptView";
-import { setAgentTranscriptScrollTop } from "../../../shared/agentConversation/components/agentTranscriptScrollController";
-import { userScrollBehavior } from "./agentGUIDetailScrollHelpers";
 import type { AgentConversationFollowEndMode } from "../../../shared/agentConversation/agentConversationFollowEndController";
 
 const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
@@ -107,19 +105,3 @@ export const AgentGUIConversationTimelinePane = memo(
     );
   }
 );
-
-export function setTimelineScrollTopInstantly(
-  element: HTMLElement,
-  top: number
-): void {
-  // Timeline anchoring runs for high-frequency streaming updates. Smooth scrolling
-  // queues animations that can overlap with incoming layout commits and make the transcript flicker.
-  setAgentTranscriptScrollTop(element, top);
-}
-
-export function setTimelineScrollTopWithUserTransition(
-  element: HTMLElement,
-  top: number
-): void {
-  setAgentTranscriptScrollTop(element, top, userScrollBehavior());
-}

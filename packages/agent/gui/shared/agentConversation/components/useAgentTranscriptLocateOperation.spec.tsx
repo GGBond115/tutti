@@ -21,7 +21,6 @@ describe("useAgentTranscriptLocateOperation", () => {
         })
     );
     const attachmentLocatorRef = createRef<AgentTranscriptAttachmentLocator>();
-    const virtualizerHostRef = createRef<HTMLDivElement>();
     const { result } = renderHook(() => {
       const locateOperation = useAgentTranscriptLocateOperation(true);
       useAgentTranscriptTurnAttachments({
@@ -36,9 +35,7 @@ describe("useAgentTranscriptLocateOperation", () => {
         locateOperation,
         locatorRef: attachmentLocatorRef,
         rowVirtualizer: { scrollToKey },
-        shouldVirtualize: true,
-        turnGroups: [{ key: "turn-a", rows: [], turnId: "turn-a" }],
-        virtualizerHostRef
+        turnGroups: [{ key: "turn-a", rows: [], turnId: "turn-a" }]
       });
       return locateOperation;
     });

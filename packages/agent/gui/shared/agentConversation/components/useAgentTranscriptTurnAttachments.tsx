@@ -5,14 +5,9 @@ import {
   useRef,
   type JSX,
   type ReactNode,
-  type Ref,
-  type RefObject
+  type Ref
 } from "react";
-import { findMessageLocatorScrollParent } from "./AgentMessageLocatorRail";
-import {
-  highlightTranscriptLocatorTarget,
-  scrollTranscriptRowIntoView
-} from "./agentMessageLocatorNavigation";
+import { highlightTranscriptLocatorTarget } from "./agentMessageLocatorNavigation";
 import type { AgentTranscriptTurnGroup } from "./agentTranscriptModel";
 import type { AgentTranscriptLocateOperation } from "./useAgentTranscriptLocateOperation";
 
@@ -39,9 +34,7 @@ export function useAgentTranscriptTurnAttachments(input: {
   locatorRef?: Ref<AgentTranscriptAttachmentLocator>;
   onVisibilityChange?: (attachmentId: string, visible: boolean) => void;
   rowVirtualizer: TurnAttachmentVirtualizer;
-  shouldVirtualize: boolean;
   turnGroups: readonly AgentTranscriptTurnGroup[];
-  virtualizerHostRef: RefObject<HTMLDivElement | null>;
 }): {
   byGroupIndex: ReadonlyMap<number, readonly AgentTranscriptTurnAttachment[]>;
   onElementChange: (attachmentId: string, element: HTMLElement | null) => void;
@@ -112,53 +105,27 @@ export function useAgentTranscriptTurnAttachments(input: {
     (attachmentId: string): void => {
       const signal = input.locateOperation.begin();
       if (!input.isVisible || signal.aborted) return;
-      const scrollParent = input.virtualizerHostRef.current
-        ? findMessageLocatorScrollParent(input.virtualizerHostRef.current)
-        : null;
-      const scrollToRenderedAttachment = (): HTMLElement | null => {
-        if (signal.aborted) return null;
-        const renderedAttachment =
-          attachmentElementsRef.current.get(attachmentId);
-        const resolvedScrollParent =
-          scrollParent ??
-          (renderedAttachment
-            ? findMessageLocatorScrollParent(renderedAttachment)
-            : null);
-        if (!renderedAttachment || !resolvedScrollParent) return null;
-        if (
-          !scrollTranscriptRowIntoView(renderedAttachment, resolvedScrollParent)
-        ) {
-          return null;
-        }
-        highlightTranscriptLocatorTarget(renderedAttachment);
-        return renderedAttachment;
-      };
-
       const groupIndex = projection.groupIndexByAttachmentId.get(attachmentId);
-      if (input.shouldVirtualize && groupIndex !== undefined) {
-        const turnKey = input.turnGroups[groupIndex]?.key;
-        if (!turnKey) return;
-        void input.rowVirtualizer
-          .scrollToKey(
-            turnKey,
-            () => attachmentElementsRef.current.get(attachmentId) ?? null,
-            { align: "center", signal }
-          )
-          .then((target) => {
-            if (!signal.aborted && target) {
-              highlightTranscriptLocatorTarget(target);
-            }
-          });
-        return;
-      }
-      scrollToRenderedAttachment();
+      if (groupIndex === undefined) return;
+      const turnKey = input.turnGroups[groupIndex]?.key;
+      if (!turnKey) return;
+      void input.rowVirtualizer
+        .scrollToKey(
+          turnKey,
+          () => attachmentElementsRef.current.get(attachmentId) ?? null,
+          { align: "center", signal }
+        )
+        .then((target) => {
+          if (!signal.aborted && target) {
+            highlightTranscriptLocatorTarget(target);
+          }
+        });
     },
     [
       input.isVisible,
       input.locateOperation,
       input.rowVirtualizer,
-      input.shouldVirtualize,
-      input.virtualizerHostRef,
+      input.turnGroups,
       projection.groupIndexByAttachmentId
     ]
   );
