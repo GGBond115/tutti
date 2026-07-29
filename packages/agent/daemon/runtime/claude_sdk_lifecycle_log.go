@@ -21,6 +21,7 @@ func claudeSDKLifecycleLogArgs(payload map[string]any) []any {
 		{logKey: "turn_id", payloadKey: "turnId"},
 		{logKey: "sdk_message_type", payloadKey: "sdkMessageType"},
 		{logKey: "sdk_message_subtype", payloadKey: "sdkMessageSubtype"},
+		{logKey: "sdk_message_origin", payloadKey: "sdkMessageOrigin"},
 		{logKey: "active_turn_id_before", payloadKey: "activeTurnIdBefore"},
 		{logKey: "task_id", payloadKey: "taskId"},
 		{logKey: "agent_id", payloadKey: "agentId"},
@@ -29,6 +30,7 @@ func claudeSDKLifecycleLogArgs(payload map[string]any) []any {
 		{logKey: "parent_tool_use_id", payloadKey: "parentToolUseId"},
 		{logKey: "tool_name", payloadKey: "toolName"},
 		{logKey: "status", payloadKey: "status"},
+		{logKey: "state", payloadKey: "state"},
 		{logKey: "stop_reason", payloadKey: "stopReason"},
 	} {
 		if value := strings.TrimSpace(payloadString(payload, field.payloadKey)); value != "" {

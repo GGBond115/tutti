@@ -98,9 +98,17 @@ export class SDKMessageRouter {
     }
 
     if (message.type === "system") {
-      this.projection.handleSystemMessage(
-        message as unknown as Record<string, unknown>
-      );
+      const raw = message as unknown as Record<string, unknown>;
+      if (
+        stringValue(raw.subtype) === "session_state_changed" &&
+        stringValue(raw.state) === "idle" &&
+        this.activities.clearBackgroundContinuation()
+      ) {
+        this.turns.settleActive("turn_completed", {
+          stopReason: "background_agent_idle"
+        });
+      }
+      this.projection.handleSystemMessage(raw);
       return;
     }
 
@@ -158,7 +166,8 @@ export class SDKMessageRouter {
         messageSubtype === "task_progress" ||
         messageSubtype === "task_notification" ||
         messageSubtype === "task_updated" ||
-        messageSubtype === "background_tasks_changed");
+        messageSubtype === "background_tasks_changed" ||
+        messageSubtype === "session_state_changed");
     const rootContinuationCandidate =
       messageType === "assistant" &&
       !parentToolUseID &&
@@ -194,6 +203,10 @@ export class SDKMessageRouter {
           ? { toolUseId: stringValue(raw.tool_use_id) }
           : {}),
         ...(stringValue(raw.status) ? { status: stringValue(raw.status) } : {}),
+        ...(stringValue(raw.state) ? { state: stringValue(raw.state) } : {}),
+        ...(stringValue(recordValue(raw.origin)?.kind)
+          ? { sdkMessageOrigin: stringValue(recordValue(raw.origin)?.kind) }
+          : {}),
         ...(raw.is_error === true ? { sdkResultIsError: true } : {}),
         ...(typeof raw.api_error_status === "number"
           ? { sdkApiErrorStatus: raw.api_error_status }
@@ -277,7 +290,6 @@ export class SDKMessageRouter {
     if (!this.turns.ensureActive("assistant")) {
       return;
     }
-    this.activities.handleRootAssistantStarted();
     const assistantError = stringValue(
       (message as unknown as Record<string, unknown>).error
     );
@@ -381,6 +393,7 @@ export class SDKMessageRouter {
       usage?: unknown;
       modelUsage?: unknown;
       total_cost_usd?: unknown;
+      origin?: { kind?: string };
     };
     this.projection.emitFastModeState(
       (message as unknown as Record<string, unknown>).fast_mode_state
@@ -401,12 +414,16 @@ export class SDKMessageRouter {
       result.subtype === "success" &&
       result.is_error !== true &&
       !assistantError;
-    const awaitingMoreDelegatedContinuations =
-      succeeded && this.activities.consumeDelegatedContinuationResult();
-    if (awaitingMoreDelegatedContinuations) {
+    const taskNotificationResult = result.origin?.kind === "task-notification";
+    if (succeeded && taskNotificationResult) {
+      this.activities.markTaskNotificationContinuation();
       void this.emitResultUsage(turnId, contextUsageGeneration, result);
       return;
     }
+    const completedSyntheticContinuation =
+      succeeded &&
+      this.turns.activeTurn?.synthetic === true &&
+      this.activities.hasPendingBackgroundContinuation();
     if (this.turns.cancelled) {
       this.turns.settleActive("turn_canceled");
       this.turns.clearCancelled();
@@ -425,7 +442,11 @@ export class SDKMessageRouter {
           : {})
       });
     }
-    this.activities.handleRootResultSettled(succeeded);
+    if (completedSyntheticContinuation) {
+      this.activities.clearBackgroundContinuation();
+    } else {
+      this.activities.handleRootResultSettled(succeeded);
+    }
     void this.emitResultUsage(turnId, contextUsageGeneration, result);
     void this.onMaybeTitle(
       () => this.contextUsageGeneration === contextUsageGeneration

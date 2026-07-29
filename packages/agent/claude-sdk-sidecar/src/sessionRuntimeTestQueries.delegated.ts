@@ -226,9 +226,89 @@ export function fakeParallelDelegatedTaskContinuationQuery(
         } as unknown as SDKMessage;
         yield {
           type: "result",
-          subtype: "success"
+          subtype: "success",
+          origin: { kind: "task-notification" }
         } as unknown as SDKMessage;
       }
+      yield {
+        type: "system",
+        subtype: "session_state_changed",
+        state: "idle",
+        uuid: "44444444-4444-4444-8444-444444444444",
+        session_id: "provider-session-1"
+      } as unknown as SDKMessage;
+    },
+    close() {}
+  } as AsyncIterable<SDKMessage>;
+}
+
+export function fakeCoalescedDelegatedTaskContinuationQuery(
+  prompt: AsyncIterable<SDKUserMessage>,
+  options: { idleDelayMs?: number } = {}
+): AsyncIterable<SDKMessage> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      const firstPrompt = await prompt[Symbol.asyncIterator]().next();
+      const promptMessage = firstPrompt.value as SDKUserMessage & {
+        uuid?: string;
+      };
+      yield {
+        ...promptMessage,
+        uuid: promptMessage.uuid,
+        type: "user",
+        parent_tool_use_id: null,
+        session_id: "provider-session-1"
+      } as SDKMessage;
+      for (const index of [1, 2, 3, 4, 5, 6]) {
+        yield delegatedAgentToolUse(`toolu-agent-${index}`, `Task ${index}`);
+        yield delegatedAgentToolResult(
+          `toolu-agent-${index}`,
+          `agent-${index}`
+        );
+        yield {
+          type: "system",
+          subtype: "task_started",
+          task_id: `task-${index}`,
+          agent_id: `agent-${index}`,
+          description: `Task ${index}`
+        } as unknown as SDKMessage;
+        yield {
+          type: "system",
+          subtype: "task_notification",
+          task_id: `task-${index}`,
+          status: "completed",
+          summary: `Result ${index}`
+        } as unknown as SDKMessage;
+      }
+      for (const index of [1, 2, 3]) {
+        yield {
+          type: "assistant",
+          uuid: `assistant-continuation-${index}`,
+          parent_tool_use_id: null,
+          session_id: "provider-session-1",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: `Continuation ${index}` }]
+          }
+        } as unknown as SDKMessage;
+        yield {
+          type: "result",
+          subtype: "success",
+          origin: { kind: "task-notification" }
+        } as unknown as SDKMessage;
+      }
+      if (options.idleDelayMs) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, options.idleDelayMs)
+        );
+      }
+      yield {
+        type: "system",
+        subtype: "session_state_changed",
+        state: "idle",
+        uuid: "55555555-5555-4555-8555-555555555555",
+        session_id: "provider-session-1"
+      } as unknown as SDKMessage;
     },
     close() {}
   } as AsyncIterable<SDKMessage>;

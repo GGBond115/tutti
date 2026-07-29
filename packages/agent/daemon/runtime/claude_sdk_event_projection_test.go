@@ -42,6 +42,8 @@ func TestClaudeCodeSDKAdapterMapsSyntheticTurnStarted(t *testing.T) {
 
 func TestClaudeSDKLifecycleLogArgsKeepsZeroCounts(t *testing.T) {
 	got := claudeSDKLifecycleLogArgs(map[string]any{
+		"sdkMessageOrigin":                 "task-notification",
+		"state":                            "idle",
 		"backgroundTasksObservedCount":     float64(6),
 		"backgroundTasksRunningCount":      float64(0),
 		"backgroundTasksNoLongerLiveCount": float64(6),
@@ -52,6 +54,8 @@ func TestClaudeSDKLifecycleLogArgsKeepsZeroCounts(t *testing.T) {
 		"delegatedTasksStoppedCount":       float64(0),
 	})
 	want := []any{
+		"sdk_message_origin", "task-notification",
+		"state", "idle",
 		"background_tasks_observed", int64(6),
 		"background_tasks_running", int64(0),
 		"background_tasks_no_longer_live", int64(6),

@@ -118,6 +118,7 @@ export class SessionRuntime {
       onSettled: () => this.emitSessionState(),
       continuationStartTimeoutMs,
       onContinuationStartTimeout: () => {
+        this.activities.clearBackgroundContinuation();
         void this.query?.interrupt?.().catch((error) => {
           emit({
             type: "error",

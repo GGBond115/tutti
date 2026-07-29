@@ -6,6 +6,7 @@ import { sidecarClaudeOptionsFromPayload } from "./options.ts";
 import {
   fakeBackgroundBashAndSubagentQuery,
   fakeBackgroundTasksLevelContinuationQuery,
+  fakeCoalescedDelegatedTaskContinuationQuery,
   fakeDelegatedAssistantParentQuery,
   fakeDelegatedTaskQuery,
   fakeGuidedDelegatedContinuationQuery,
@@ -314,7 +315,7 @@ test("delegated task continuation emits synthetic turn started", async () => {
   }
 });
 
-test("parallel delegated notifications keep the original turn open until every result arrives", async () => {
+test("parallel delegated notifications keep the original turn open until session idle", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   const restoreSink = withSidecarEventSinkForTest((event) =>
     events.push(event)
@@ -383,6 +384,119 @@ test("parallel delegated notifications keep the original turn open until every r
     assert.equal(continuationMessages.length, 2);
     assert.equal(continuationMessages[0]?.payload?.turnId, "turn-1");
     assert.equal(continuationMessages[1]?.payload?.turnId, "turn-1");
+  } finally {
+    restoreSink();
+  }
+});
+
+test("session idle settles coalesced delegated notifications without result-count pairing", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  try {
+    const session = new SessionRuntime(
+      "provider-session-1",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => fakeCoalescedDelegatedTaskContinuationQuery(prompt)
+    );
+
+    await session.start();
+    session.exec("turn-1", "delegate six tasks");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.equal(
+      events.filter((event) => event.type === "task_completed").length,
+      6
+    );
+    assert.equal(
+      events.filter(
+        (event) =>
+          event.type === "assistant_completed" &&
+          String(event.payload?.content ?? "").startsWith("Continuation ")
+      ).length,
+      3
+    );
+    assert.equal(
+      events.filter(
+        (event) =>
+          event.type === "sdk_lifecycle_observed" &&
+          event.payload?.sdkMessageType === "result" &&
+          event.payload?.sdkMessageOrigin === "task-notification"
+      ).length,
+      3
+    );
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === "sdk_lifecycle_observed" &&
+          event.payload?.sdkMessageSubtype === "session_state_changed" &&
+          event.payload?.state === "idle"
+      )
+    );
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === "turn_completed")
+        .map((event) => event.payload?.turnId),
+      ["turn-1"]
+    );
+  } finally {
+    restoreSink();
+  }
+});
+
+test("task-notification results wait for delayed session idle", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  try {
+    const session = new SessionRuntime(
+      "provider-session-1",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) =>
+        fakeCoalescedDelegatedTaskContinuationQuery(prompt, {
+          idleDelayMs: 40
+        })
+    );
+
+    await session.start();
+    session.exec("turn-1", "delegate six tasks");
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assert.equal(
+      events.some((event) => event.type === "turn_completed"),
+      false
+    );
+
+    await waitForEvent(events, "turn_completed");
+    const completed = events.find((event) => event.type === "turn_completed");
+    assert.equal(completed?.payload?.turnId, "turn-1");
+    assert.equal(completed?.payload?.stopReason, "background_agent_idle");
+    assert.equal(completed?.payload?.syntheticTimeout, undefined);
   } finally {
     restoreSink();
   }

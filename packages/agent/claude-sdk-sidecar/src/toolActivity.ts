@@ -36,8 +36,7 @@ export class ToolActivityProjector {
   private liveBackgroundTaskCount = 0;
   private readonly observedBackgroundTaskIDs = new Set<string>();
   private backgroundContinuationPending = false;
-  private pendingDelegatedContinuations = 0;
-  private delegatedContinuationStarted = false;
+  private taskNotificationContinuationPending = false;
   private backgroundTaskQuiescenceTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
@@ -70,8 +69,7 @@ export class ToolActivityProjector {
     this.liveBackgroundTaskCount = 0;
     this.observedBackgroundTaskIDs.clear();
     this.backgroundContinuationPending = false;
-    this.pendingDelegatedContinuations = 0;
-    this.delegatedContinuationStarted = false;
+    this.taskNotificationContinuationPending = false;
   }
 
   handleBackgroundTasksChanged(message: Record<string, unknown>): void {
@@ -108,28 +106,27 @@ export class ToolActivityProjector {
     this.clearBackgroundTaskQuiescenceTimer();
   }
 
-  handleRootAssistantStarted(): void {
-    this.backgroundContinuationPending = false;
-    if (this.pendingDelegatedContinuations > 0) {
-      this.delegatedContinuationStarted = true;
-    }
+  hasPendingBackgroundContinuation(): boolean {
+    return (
+      this.backgroundContinuationPending ||
+      this.taskNotificationContinuationPending
+    );
   }
 
-  consumeDelegatedContinuationResult(): boolean {
-    if (!this.delegatedContinuationStarted) {
-      return false;
-    }
-    this.delegatedContinuationStarted = false;
-    this.pendingDelegatedContinuations = Math.max(
-      0,
-      this.pendingDelegatedContinuations - 1
-    );
-    return this.pendingDelegatedContinuations > 0;
+  markTaskNotificationContinuation(): void {
+    this.taskNotificationContinuationPending = true;
+  }
+
+  clearBackgroundContinuation(): boolean {
+    const pending = this.hasPendingBackgroundContinuation();
+    this.backgroundContinuationPending = false;
+    this.taskNotificationContinuationPending = false;
+    return pending;
   }
 
   handleRootResultSettled(succeeded: boolean): void {
     if (!succeeded) {
-      this.backgroundContinuationPending = false;
+      this.clearBackgroundContinuation();
       return;
     }
     this.reserveBackgroundContinuation();
@@ -254,7 +251,7 @@ export class ToolActivityProjector {
           return;
         }
         if (status !== "stopped") {
-          this.pendingDelegatedContinuations += 1;
+          this.taskNotificationContinuationPending = true;
         }
         this.emitDelegatedTaskLifecycleEvent(
           "task_result_updated",
@@ -267,9 +264,9 @@ export class ToolActivityProjector {
       // synthetic continuation turn (which would time out and interrupt).
       // task_updated is only the SDK's lifecycle patch. The later
       // task_notification carries the model continuation and often a richer
-      // result, so only that notification contributes to the queue.
+      // result, so only that notification marks a pending follow-up.
       if (subtype === "task_notification" && status !== "stopped") {
-        this.pendingDelegatedContinuations += 1;
+        this.taskNotificationContinuationPending = true;
       }
       if (status !== "stopped") {
         this.prepareDelegatedTaskTerminal(task);
@@ -669,11 +666,10 @@ export class ToolActivityProjector {
   }
 
   private reserveBackgroundContinuation(): void {
-    if (!this.backgroundContinuationPending || this.activeTurnId()) {
+    if (!this.hasPendingBackgroundContinuation() || this.activeTurnId()) {
       return;
     }
     this.onFinalDelegatedTaskSettling();
-    this.backgroundContinuationPending = false;
   }
 
   private backgroundTaskDiagnosticPayload(

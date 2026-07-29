@@ -164,6 +164,13 @@ session-level child summaries.
     provider turn before emitting the child terminal. The expected normalized
     order is `turn_started` and then `task_completed`; the later root assistant
     confirms that reserved provider turn instead of opening another one.
+  - Identify background follow-up results from
+    `origin.kind=task-notification`. Do not compare task-notification and result
+    counts: the SDK may coalesce queued follow-ups.
+  - Settle normally on `session_state_changed: idle`, after the SDK has flushed
+    its held-back result and exited the background-agent loop. Do not start a
+    post-result settlement timeout: queued follow-ups may begin several seconds
+    apart, so interrupting that wait converts valid work into provider errors.
   - If root output does not begin within 30 seconds, emit the
     `continuation_delayed` warning, complete the reservation with
     `stop_reason=background_agent_continuation_timeout`, interrupt the pending
@@ -176,9 +183,11 @@ session-level child summaries.
   output either confirms that provider turn or reaches the bounded timeout.
 
 - Validate: test both event orders—root terminal before the last child and last
-  child before root terminal—plus continuation start, timeout, late-output
-  rejection, cancellation, and guidance during the reserved window. Confirm
-  that composer availability follows only the durable canonical root.
+  child before root terminal—plus coalesced notifications/results, session
+  idle, delayed idle without early settlement, continuation start, timeout,
+  late-output rejection, cancellation, and guidance during the reserved
+  window. Confirm that composer availability follows only the durable canonical
+  root.
 
 ### Claude child card shows a generic Agent title and no task detail
 

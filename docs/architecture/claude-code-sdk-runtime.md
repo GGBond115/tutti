@@ -155,9 +155,14 @@ message as a level signal. Its `tasks` array fully replaces the previous live
 set. An empty set means the background children have quiesced; it does not mean
 the root Turn is complete. If the root result already settled, the sidecar
 reserves a synthetic continuation. It remains in the existing running phase,
-and the provider's result normally settles it. If root output does not begin
-within 30 seconds, the sidecar emits the `continuation_delayed` warning,
-completes the synthetic reservation with
+and results with `origin.kind = task-notification` confirm background
+follow-up output without settling it by notification/result count. The SDK's
+`session_state_changed: idle` event is the authoritative turn-over edge after
+the held-back result and background-agent loop drain. The sidecar does not
+start a post-result settlement timer: queued follow-ups may legitimately begin
+several seconds apart, and interrupting that queue fabricates provider errors.
+If root output does not begin within 30 seconds, the sidecar emits the
+`continuation_delayed` warning, completes the synthetic reservation with
 `background_agent_continuation_timeout`, interrupts the pending SDK query, and
 rejects that continuation's late output so it cannot attach to a later Turn.
 
@@ -173,11 +178,11 @@ existing running/processing presentation unchanged.
 The SDK may also report one completed child twice: first as `task_updated` with
 only its task description, then as `task_notification` with the actual result.
 The first edge settles the child lifecycle; the later notification updates the
-same child assistant-message snapshot and queues its root continuation. Several
-queued notifications keep the currently active root provider Turn open until
-all paired provider results have arrived. If the original Turn settled before
-those notifications, they instead share one reserved synthetic Turn. In either
-ordering, an early result cannot terminate the remaining continuations.
+same child assistant-message snapshot and marks its root continuation pending.
+Several queued notifications may be coalesced into fewer follow-up results, so
+they share the currently active root provider Turn or one reserved synthetic
+Turn. Result origin identifies those follow-ups; session idle, rather than a
+cardinality comparison, terminates the shared continuation.
 
 ## Protocol and compatibility
 
