@@ -86,6 +86,9 @@ func TestMigratedTuttiAgentDescriptorRequiresRefreshCapableVersion(t *testing.T)
 		descriptor.ComposerProfile.ConfigOptionIDs.Speed != "" {
 		t.Fatalf("Tutti Agent must hide provider-wide reasoning and speed controls: %#v", descriptor.ComposerProfile)
 	}
+	if descriptor.ComposerProfile.CapabilityCatalog.Kind != CapabilityCatalogKindAppServerSkills {
+		t.Fatalf("CapabilityCatalog = %#v, want skills-only app-server catalog", descriptor.ComposerProfile.CapabilityCatalog)
+	}
 }
 
 func TestValidateRejectsInvalidMinimumVersionFloor(t *testing.T) {

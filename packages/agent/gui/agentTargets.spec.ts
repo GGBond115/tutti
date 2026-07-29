@@ -48,10 +48,10 @@ describe("agent gui provider targets", () => {
     expect(
       createLocalAgentGUIAgentTargets().map((target) => target.targetId)
     ).toEqual([
+      "local:tutti-agent",
       "local:codex",
       "local:claude-code",
       "local:cursor",
-      "local:tutti-agent",
       "local:opencode",
       "local:nexight",
       "local:openclaw"
@@ -278,10 +278,10 @@ describe("agent gui provider targets", () => {
         provider: target.provider
       }))
     ).toEqual([
+      { disabled: false, provider: "tutti-agent" },
       { disabled: false, provider: "codex" },
       { disabled: false, provider: "claude-code" },
       { disabled: false, provider: "cursor" },
-      { disabled: false, provider: "tutti-agent" },
       { disabled: false, provider: "opencode" },
       { disabled: true, provider: "nexight" },
       { disabled: true, provider: "openclaw" }

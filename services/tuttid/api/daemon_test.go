@@ -2815,10 +2815,10 @@ func TestDaemonAPIGeneratedRoutesListAgentTargets(t *testing.T) {
 		t.Fatalf("targets len = %d, want descriptor catalog size 7", len(response.Targets))
 	}
 	wantIDs := []string{
+		agenttargetbiz.IDLocalTuttiAgent,
 		agenttargetbiz.IDLocalCodex,
 		agenttargetbiz.IDLocalClaudeCode,
 		agenttargetbiz.IDLocalCursor,
-		agenttargetbiz.IDLocalTuttiAgent,
 		agenttargetbiz.IDLocalOpenCode,
 		providerregistry.NexightTargetID,
 		providerregistry.OpenClawTargetID,

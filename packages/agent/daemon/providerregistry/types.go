@@ -426,7 +426,8 @@ const ConfiguredModelOverrideCodexCustomProvider ConfiguredModelOverrideKind = "
 type CapabilityCatalogKind string
 
 const (
-	CapabilityCatalogKindCodexAppServer CapabilityCatalogKind = "codex_app_server"
+	CapabilityCatalogKindCodexAppServer  CapabilityCatalogKind = "codex_app_server"
+	CapabilityCatalogKindAppServerSkills CapabilityCatalogKind = "app_server_skills"
 )
 
 type CapabilityCatalogDescriptor struct {

@@ -262,9 +262,14 @@ SELECT applied_at_unix_ms FROM agent_store_schema_migrations WHERE id = ?
 	if len(targets) != len(descriptors) {
 		t.Fatalf("targets after upgrade = %#v, want %d descriptor targets", targets, len(descriptors))
 	}
+	descriptorsByTargetID := make(map[string]providerregistry.ProviderDescriptor, len(descriptors))
+	for _, descriptor := range descriptors {
+		descriptorsByTargetID[descriptor.Target.ID] = descriptor
+	}
 	for index, target := range targets {
-		if target.ID != descriptors[index].Target.ID || target.Provider != descriptors[index].Identity.ID || target.Enabled != descriptors[index].Target.Enabled {
-			t.Fatalf("target[%d] after upgrade = %#v, want descriptor target %#v", index, target, descriptors[index].Target)
+		descriptor, ok := descriptorsByTargetID[target.ID]
+		if !ok || target.Provider != descriptor.Identity.ID || target.Enabled != descriptor.Target.Enabled {
+			t.Fatalf("target[%d] after upgrade = %#v, want matching descriptor target", index, target)
 		}
 	}
 

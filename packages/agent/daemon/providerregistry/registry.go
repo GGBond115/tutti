@@ -382,7 +382,7 @@ func Validate(descriptor ProviderDescriptor) error {
 		return fmt.Errorf("provider %q configured model override %q is unsupported", providerID, descriptor.ComposerProfile.ConfiguredModelOverride)
 	}
 	switch descriptor.ComposerProfile.CapabilityCatalog.Kind {
-	case "", CapabilityCatalogKindCodexAppServer:
+	case "", CapabilityCatalogKindCodexAppServer, CapabilityCatalogKindAppServerSkills:
 	default:
 		return fmt.Errorf("provider %q capability catalog kind %q is unsupported", providerID, descriptor.ComposerProfile.CapabilityCatalog.Kind)
 	}

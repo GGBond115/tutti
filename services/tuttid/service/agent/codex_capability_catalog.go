@@ -16,10 +16,18 @@ import (
 
 const codexAppServerCapabilityListTimeout = 8 * time.Second
 
+type appServerCatalogRequestSet string
+
+const (
+	appServerCatalogRequestSetCodex      appServerCatalogRequestSet = "codex"
+	appServerCatalogRequestSetSkillsOnly appServerCatalogRequestSet = "skills_only"
+)
+
 type CodexCLICapabilityLister struct {
 	Command          string
 	Args             []string
 	Timeout          time.Duration
+	RequestSet       appServerCatalogRequestSet
 	Environ          func() []string
 	HomeDir          func() (string, error)
 	IsExecutableFile func(string) bool
@@ -85,7 +93,7 @@ func composerCapabilityCatalogLister(profile composerProfile) (CodexCLICapabilit
 	switch profile.CapabilityCatalogKind {
 	case "":
 		return CodexCLICapabilityLister{}, false, nil
-	case providerregistry.CapabilityCatalogKindCodexAppServer:
+	case providerregistry.CapabilityCatalogKindCodexAppServer, providerregistry.CapabilityCatalogKindAppServerSkills:
 		command := append([]string(nil), profile.CapabilityCatalogCommand...)
 		if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
 			return CodexCLICapabilityLister{}, false, fmt.Errorf("capability catalog command is required")
@@ -95,9 +103,14 @@ func composerCapabilityCatalogLister(profile composerProfile) (CodexCLICapabilit
 				return CodexCLICapabilityLister{}, false, fmt.Errorf("capability catalog command argument %d is empty", index+1)
 			}
 		}
+		requestSet := appServerCatalogRequestSetCodex
+		if profile.CapabilityCatalogKind == providerregistry.CapabilityCatalogKindAppServerSkills {
+			requestSet = appServerCatalogRequestSetSkillsOnly
+		}
 		return CodexCLICapabilityLister{
-			Command: command[0],
-			Args:    command[1:],
+			Command:    command[0],
+			Args:       command[1:],
+			RequestSet: requestSet,
 		}, true, nil
 	default:
 		return CodexCLICapabilityLister{}, false, fmt.Errorf("unsupported capability catalog kind %q", profile.CapabilityCatalogKind)
@@ -129,7 +142,7 @@ func (l CodexCLICapabilityLister) List(ctx context.Context, cwd string) (codexCa
 	if err != nil {
 		return codexCapabilityListResult{}, err
 	}
-	result, err := requestCodexCapabilityList(process.stdin, process.stdout, cwd)
+	result, err := requestAppServerCapabilityList(process.stdin, process.stdout, cwd, l.RequestSet)
 	processErr := processCtx.Err()
 	_ = process.stop(cancel)
 	if err == nil {
@@ -145,6 +158,19 @@ func (l CodexCLICapabilityLister) List(ctx context.Context, cwd string) (codexCa
 }
 
 func requestCodexCapabilityList(stdin io.Writer, stdout io.Reader, cwd string) (codexCapabilityListResult, error) {
+	return requestAppServerCapabilityList(stdin, stdout, cwd, appServerCatalogRequestSetCodex)
+}
+
+func requestAppServerCapabilityList(
+	stdin io.Writer,
+	stdout io.Reader,
+	cwd string,
+	requestSet appServerCatalogRequestSet,
+) (codexCapabilityListResult, error) {
+	requests, pending, err := appServerCatalogRequests(cwd, requestSet)
+	if err != nil {
+		return codexCapabilityListResult{}, err
+	}
 	encoder := json.NewEncoder(stdin)
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), codexModelListMaxLineBytes)
@@ -172,6 +198,21 @@ func requestCodexCapabilityList(stdin io.Writer, stdout io.Reader, cwd string) (
 	}); err != nil {
 		return codexCapabilityListResult{}, fmt.Errorf("write codex app-server initialized: %w", err)
 	}
+	for _, request := range requests {
+		if err := encoder.Encode(request); err != nil {
+			return codexCapabilityListResult{}, fmt.Errorf("write codex app-server %s: %w", request["method"], err)
+		}
+	}
+	return readAppServerCapabilityListResponses(scanner, pending)
+}
+
+func appServerCatalogRequests(
+	cwd string,
+	requestSet appServerCatalogRequestSet,
+) ([]map[string]any, map[string]string, error) {
+	if requestSet == "" {
+		requestSet = appServerCatalogRequestSetCodex
+	}
 	cwds := []string{}
 	if trimmedCwd := strings.TrimSpace(cwd); trimmedCwd != "" {
 		cwds = append(cwds, trimmedCwd)
@@ -185,7 +226,19 @@ func requestCodexCapabilityList(stdin io.Writer, stdout io.Reader, cwd string) (
 				"forceReload": false,
 			},
 		},
-		{
+	}
+	pending := map[string]string{
+		"2": "skills/list",
+	}
+	switch requestSet {
+	case appServerCatalogRequestSetSkillsOnly:
+		return requests, pending, nil
+	case appServerCatalogRequestSetCodex:
+	default:
+		return nil, nil, fmt.Errorf("unsupported app-server catalog request set %q", requestSet)
+	}
+	requests = append(requests,
+		map[string]any{
 			"id":     "3",
 			"method": "app/list",
 			"params": map[string]any{
@@ -193,14 +246,14 @@ func requestCodexCapabilityList(stdin io.Writer, stdout io.Reader, cwd string) (
 				"forceRefetch": false,
 			},
 		},
-		{
+		map[string]any{
 			"id":     "4",
 			"method": "plugin/list",
 			"params": map[string]any{
 				"cwds": cwds,
 			},
 		},
-		{
+		map[string]any{
 			"id":     "5",
 			"method": "mcpServerStatus/list",
 			"params": map[string]any{
@@ -208,22 +261,26 @@ func requestCodexCapabilityList(stdin io.Writer, stdout io.Reader, cwd string) (
 				"detail": "toolsAndAuthOnly",
 			},
 		},
-	}
-	for _, request := range requests {
-		if err := encoder.Encode(request); err != nil {
-			return codexCapabilityListResult{}, fmt.Errorf("write codex app-server %s: %w", request["method"], err)
-		}
-	}
-	return readCodexCapabilityListResponses(scanner)
+	)
+	pending["3"] = "app/list"
+	pending["4"] = "plugin/list"
+	pending["5"] = "mcpServerStatus/list"
+	return requests, pending, nil
 }
 
 func readCodexCapabilityListResponses(scanner *bufio.Scanner) (codexCapabilityListResult, error) {
-	pending := map[string]string{
+	return readAppServerCapabilityListResponses(scanner, map[string]string{
 		"2": "skills/list",
 		"3": "app/list",
 		"4": "plugin/list",
 		"5": "mcpServerStatus/list",
-	}
+	})
+}
+
+func readAppServerCapabilityListResponses(
+	scanner *bufio.Scanner,
+	pending map[string]string,
+) (codexCapabilityListResult, error) {
 	result := codexCapabilityListResult{
 		Options: make([]ComposerCapabilityOption, 0),
 		Errors:  make([]string, 0),

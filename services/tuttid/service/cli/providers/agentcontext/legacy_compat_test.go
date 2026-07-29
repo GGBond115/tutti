@@ -82,11 +82,20 @@ func TestUnknownAgentErrorIncludesRecovery(t *testing.T) {
 
 func TestLegacyProviderCatalogMarksMultipleTargetsAmbiguous(t *testing.T) {
 	targets := agenttargetbiz.DefaultSystemTargets(1)
-	duplicate := targets[0]
+	var duplicate agenttargetbiz.Target
+	for _, target := range targets {
+		if target.ID == agenttargetbiz.IDLocalCodex {
+			duplicate = target
+			break
+		}
+	}
+	if duplicate.ID == "" {
+		t.Fatal("built-in Codex target missing")
+	}
 	duplicate.ID = "user:reviewer"
 	duplicate.Name = "Reviewer"
 	duplicate.Source = agenttargetbiz.SourceUser
-	targets = append([]agenttargetbiz.Target{targets[0], duplicate}, targets[1:]...)
+	targets = append(targets, duplicate)
 	provider := NewProviderWithAgentTargets(
 		fakeWorkspaceCatalog{startup: workspacebiz.Summary{ID: "workspace-1"}},
 		&fakeAgentSessions{}, nil, fakeAgentTargetList{targets: targets},

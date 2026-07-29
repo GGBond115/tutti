@@ -57,7 +57,17 @@ func TestEnabledTargetsByProviderPreservesOrderAndCanonicalizes(t *testing.T) {
 
 func TestEnabledTargetsPreservesEveryValidEnabledTargetInOrder(t *testing.T) {
 	targets := DefaultSystemTargets(1)
-	duplicate := targets[0]
+	var codex Target
+	var claude Target
+	for _, target := range targets {
+		switch target.ID {
+		case IDLocalCodex:
+			codex = target
+		case IDLocalClaudeCode:
+			claude = target
+		}
+	}
+	duplicate := codex
 	duplicate.ID = "user:reviewer"
 	duplicate.Name = "Reviewer"
 	duplicate.Provider = "CODEX"
@@ -68,11 +78,11 @@ func TestEnabledTargetsPreservesEveryValidEnabledTargetInOrder(t *testing.T) {
 	invalid := duplicate
 	invalid.ID = "invalid target"
 
-	enabled := EnabledTargets([]Target{duplicate, disabled, invalid, targets[0], targets[1]})
+	enabled := EnabledTargets([]Target{duplicate, disabled, invalid, codex, claude})
 	if len(enabled) != 3 {
 		t.Fatalf("len(enabled) = %d, want 3: %#v", len(enabled), enabled)
 	}
-	if enabled[0].ID != "user:reviewer" || enabled[1].ID != targets[0].ID || enabled[2].ID != targets[1].ID {
+	if enabled[0].ID != "user:reviewer" || enabled[1].ID != codex.ID || enabled[2].ID != claude.ID {
 		t.Fatalf("enabled order = %#v", enabled)
 	}
 	if enabled[0].Provider != enabled[1].Provider {

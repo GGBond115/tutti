@@ -1149,6 +1149,14 @@ selected native plugin can actually run. The provider descriptor carries
 the complete Composer plugin surface, including when it is empty; other
 providers retain the ordinary Skills and connector projection.
 
+App-server-backed capability discovery also follows the descriptor boundary.
+Codex requests its complete native catalog and applies the authoritative plugin
+projection; Tutti Agent requests only `skills/list` and retains the ordinary
+Skill projection. Both providers share the app-server transport, capability
+contract, cache, and structured prompt-item submission path. AgentGUI continues
+to expose Skills only through `$`; `/` remains commands and product
+capabilities.
+
 ### 5.3 Agent Directory and setup
 
 The host provides a complete, ordered Agent Directory with this load lifecycle:
@@ -1158,6 +1166,11 @@ idle | loading | ready | error
 ```
 
 `ready` may contain an authoritative empty list. `error` may retain the last successful snapshot. Components must not infer loading from `agents.length`.
+
+The provider descriptor's target sort order owns the default built-in Agent
+order. Tutti Agent is the first built-in target; an explicit device-local
+Provider Rail reorder remains a presentation preference and takes precedence
+over that default.
 
 The directory owns Agent presentation. `agents[].iconUrl` is the primary
 presentation asset used by conversation identity, Message Center, mentions,

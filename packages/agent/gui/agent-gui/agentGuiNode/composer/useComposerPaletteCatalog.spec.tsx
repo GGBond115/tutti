@@ -94,6 +94,38 @@ describe("useComposerPaletteCatalog", () => {
       }
     ]);
   });
+
+  it("keeps skills out of the slash-command query surface", () => {
+    const { result } = renderHook(() =>
+      useComposerPaletteCatalog({
+        provider: "tutti-agent",
+        isGoalModeActive: false,
+        goalSupported: false,
+        paletteDraftPrompt: "/",
+        availableCommands: [],
+        availableSkills: [
+          {
+            name: "review",
+            trigger: "$review",
+            invocation: "promptItem",
+            sourceKind: "plugin",
+            kind: "skill",
+            path: "/skills/review/SKILL.md"
+          }
+        ],
+        hasCompactableContext: false,
+        compactSupported: false,
+        composerSettings: composerSettings(),
+        capabilityControlsReadOnly: false,
+        labels: labels(),
+        uiLanguage: "en",
+        editorHandleRef: createRef<AgentRichTextEditorHandle>()
+      })
+    );
+
+    expect(result.current.filteredSkills).toEqual([]);
+    expect(result.current.slashPaletteEntries).toEqual([]);
+  });
 });
 
 function composerSettings(): AgentGUIComposerSettingsVM {

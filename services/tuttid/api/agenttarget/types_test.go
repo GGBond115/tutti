@@ -8,6 +8,7 @@ import (
 )
 
 func TestGeneratedListAgentTargetsResponseFromBizSkipsInvalidTargets(t *testing.T) {
+	defaultTarget := agenttargetbiz.DefaultSystemTargets(0)[0]
 	response, err := GeneratedListAgentTargetsResponseFromBiz([]agenttargetbiz.Target{
 		{
 			ID:            "broken-target",
@@ -17,7 +18,7 @@ func TestGeneratedListAgentTargetsResponseFromBizSkipsInvalidTargets(t *testing.
 			Enabled:       true,
 			Source:        agenttargetbiz.SourceUser,
 		},
-		agenttargetbiz.DefaultSystemTargets(0)[0],
+		defaultTarget,
 	})
 	if err != nil {
 		t.Fatalf("GeneratedListAgentTargetsResponseFromBiz() error = %v", err)
@@ -25,8 +26,8 @@ func TestGeneratedListAgentTargetsResponseFromBizSkipsInvalidTargets(t *testing.
 	if len(response.Targets) != 1 {
 		t.Fatalf("response targets len = %d, want 1", len(response.Targets))
 	}
-	if response.Targets[0].Id != agenttargetbiz.IDLocalCodex {
-		t.Fatalf("response target id = %q, want %s", response.Targets[0].Id, agenttargetbiz.IDLocalCodex)
+	if response.Targets[0].Id != defaultTarget.ID {
+		t.Fatalf("response target id = %q, want %s", response.Targets[0].Id, defaultTarget.ID)
 	}
 }
 

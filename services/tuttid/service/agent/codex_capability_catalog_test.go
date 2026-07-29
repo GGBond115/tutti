@@ -20,7 +20,12 @@ import (
 
 func TestParseCodexCapabilityResponses(t *testing.T) {
 	skills := parseCodexSkillCapabilities(json.RawMessage(`{"data":[{"skills":[{"name":"review","description":"Review code","path":"/tmp/review/SKILL.md","enabled":true}]}]}`))
-	if len(skills) != 1 || skills[0].Kind != "skill" || skills[0].Trigger != "$review" || skills[0].Path == "" {
+	if len(skills) != 1 ||
+		skills[0].Kind != "skill" ||
+		skills[0].Status != "available" ||
+		skills[0].Trigger != "$review" ||
+		skills[0].Path == "" ||
+		skills[0].Invocation != "promptItem" {
 		t.Fatalf("parseCodexSkillCapabilities = %#v", skills)
 	}
 
@@ -248,6 +253,44 @@ func TestRequestCodexCapabilityListCompletesInitializeHandshake(t *testing.T) {
 	}
 	if len(result.Errors) != 0 {
 		t.Fatalf("errors = %#v, want empty", result.Errors)
+	}
+}
+
+func TestRequestAppServerCapabilityListSkillsOnly(t *testing.T) {
+	transport := &strictCodexCapabilityHandshakeTransport{}
+
+	result, err := requestAppServerCapabilityList(
+		transport,
+		transport,
+		"/tmp/workspace",
+		appServerCatalogRequestSetSkillsOnly,
+	)
+	if err != nil {
+		t.Fatalf("requestAppServerCapabilityList returned error: %v", err)
+	}
+	wantMethods := []string{"initialize", "initialized", "skills/list"}
+	if !reflect.DeepEqual(transport.methods, wantMethods) {
+		t.Fatalf("request methods = %#v, want %#v", transport.methods, wantMethods)
+	}
+	if len(result.Errors) != 0 {
+		t.Fatalf("errors = %#v, want empty", result.Errors)
+	}
+	if len(result.Options) != 1 {
+		t.Fatalf("options = %#v, want one skill", result.Options)
+	}
+	skill := result.Options[0]
+	if skill.ID != "skill:review" ||
+		skill.Kind != "skill" ||
+		skill.Trigger != "$review" ||
+		skill.Path != "/tmp/review/SKILL.md" ||
+		skill.Invocation != "promptItem" {
+		t.Fatalf("skill option = %#v", skill)
+	}
+}
+
+func TestAppServerCatalogRequestsRejectsUnknownSet(t *testing.T) {
+	if _, _, err := appServerCatalogRequests("/tmp/workspace", "poison"); err == nil {
+		t.Fatal("appServerCatalogRequests() error = nil, want unsupported request set")
 	}
 }
 

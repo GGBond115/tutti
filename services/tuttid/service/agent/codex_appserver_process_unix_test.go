@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+const codexAppServerProcessTreeTestTimeout = 3 * time.Second
+
 func TestCodexCLIModelListerStopsProcessTreeOnTimeout(t *testing.T) {
 	childPIDPath := filepath.Join(t.TempDir(), "model-child.pid")
 	scriptPath := writeHangingCodexAppServer(t, childPIDPath)
@@ -22,12 +24,12 @@ func TestCodexCLIModelListerStopsProcessTreeOnTimeout(t *testing.T) {
 	startedAt := time.Now()
 	_, err := (CodexCLIModelLister{
 		Command: scriptPath,
-		Timeout: time.Second,
+		Timeout: codexAppServerProcessTreeTestTimeout,
 	}).ListModels(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "model/list timed out") {
 		t.Fatalf("ListModels error = %v, want model/list timeout", err)
 	}
-	if elapsed := time.Since(startedAt); elapsed > 3*time.Second {
+	if elapsed := time.Since(startedAt); elapsed > 5*time.Second {
 		t.Fatalf("ListModels returned after %s, want bounded process cleanup", elapsed)
 	}
 	assertProcessExited(t, readChildPID(t, childPIDPath))
@@ -40,12 +42,12 @@ func TestCodexCLICapabilityListerStopsProcessTreeOnTimeout(t *testing.T) {
 	startedAt := time.Now()
 	_, err := (CodexCLICapabilityLister{
 		Command: scriptPath,
-		Timeout: time.Second,
+		Timeout: codexAppServerProcessTreeTestTimeout,
 	}).List(context.Background(), "")
 	if err == nil || !strings.Contains(err.Error(), "capability discovery timed out") {
 		t.Fatalf("List error = %v, want capability discovery timeout", err)
 	}
-	if elapsed := time.Since(startedAt); elapsed > 3*time.Second {
+	if elapsed := time.Since(startedAt); elapsed > 5*time.Second {
 		t.Fatalf("List returned after %s, want bounded process cleanup", elapsed)
 	}
 	assertProcessExited(t, readChildPID(t, childPIDPath))
