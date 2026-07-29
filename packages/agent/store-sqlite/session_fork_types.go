@@ -113,8 +113,7 @@ type SessionForkOperation struct {
 	DriverVersion                     string
 	Status                            string
 	TargetProviderSessionID           string
-	TargetProviderTurnIDs             []string
-	TargetProviderCheckpointMessageID string
+	TargetProviderTurnBindings        []SessionForkProviderTurnBinding
 	TargetTitle                       string
 	StateBindingMode                  string
 	StateBindingReceipt               string
@@ -146,16 +145,20 @@ type SessionForkPrepare struct {
 }
 
 type SessionForkProviderResult struct {
-	WorkspaceID                       string
-	OperationID                       string
-	Status                            string
-	TargetProviderSessionID           string
-	TargetProviderTurnIDs             []string
-	TargetProviderCheckpointMessageID string
-	StateBindingMode                  string
-	StateBindingReceipt               string
-	LastError                         string
-	OccurredAtUnixMS                  int64
+	WorkspaceID                string
+	OperationID                string
+	Status                     string
+	TargetProviderSessionID    string
+	TargetProviderTurnBindings []SessionForkProviderTurnBinding
+	StateBindingMode           string
+	StateBindingReceipt        string
+	LastError                  string
+	OccurredAtUnixMS           int64
+}
+
+type SessionForkProviderTurnBinding struct {
+	ProviderTurnID      string `json:"providerTurnId"`
+	CheckpointMessageID string `json:"checkpointMessageId"`
 }
 
 type SessionForkCommitResult struct {

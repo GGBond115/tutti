@@ -148,27 +148,29 @@ async function forkClaudeSessionResolved(
   if (!childInfoSessionId && childMessages.length === 0) {
     throw new Error("forked Claude session is not independently discoverable");
   }
-  const childBinding = latestProviderTurnBinding(childMessages);
-  const targetProviderTurnId = childBinding.providerTurnId;
-  const targetCheckpointId = childBinding.checkpointMessageId;
+  const targetTurnBindings = providerTurnBindings(childMessages);
+  if (targetTurnBindings.length === 0) {
+    throw new Error("forked Claude session has no provider turn bindings");
+  }
+  const targetBoundaryBinding =
+    targetTurnBindings[targetTurnBindings.length - 1]!;
   const receipt = createHash("sha256")
     .update(
       JSON.stringify({
         sourceSessionId: input.sessionId,
         childSessionId,
         checkpointId,
-        targetCheckpointId,
+        targetTurnBindings,
         sourceProviderTurnId: input.providerTurnId,
-        targetProviderTurnId
+        targetProviderTurnId: targetBoundaryBinding.providerTurnId
       })
     )
     .digest("hex");
   return {
     providerSessionId: childSessionId,
-    targetProviderTurnIds: [targetProviderTurnId],
-    targetProviderCheckpointMessageId: targetCheckpointId,
+    targetProviderTurnBindings: targetTurnBindings,
     stateBindingMode: "provider_owned",
-    stateBindingReceipt: `claude-sdk-fork-v2:${receipt}`,
+    stateBindingReceipt: `claude-sdk-fork-v3:${receipt}`,
     deliveryDisposition: "accepted"
   };
 }
@@ -250,37 +252,60 @@ function checkpointForProviderTurn(
   return checkpointId;
 }
 
-function latestProviderTurnBinding(messages: SDKMessage[]): {
+function providerTurnBindings(messages: SDKMessage[]): Array<{
   providerTurnId: string;
   checkpointMessageId: string;
-} {
-  let selectedIndex = -1;
-  let providerTurnId = "";
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]!;
-    if (!isRootUserMessage(message)) {
+}> {
+  const result: Array<{
+    providerTurnId: string;
+    checkpointMessageId: string;
+  }> = [];
+  const seenProviderTurnIds = new Set<string>();
+  const seenCheckpointMessageIds = new Set<string>();
+  let current:
+    | {
+        providerTurnId: string;
+        checkpointMessageId: string;
+      }
+    | undefined;
+  const commitCurrent = () => {
+    if (!current) {
+      return;
+    }
+    const { providerTurnId, checkpointMessageId } = current;
+    if (
+      seenProviderTurnIds.has(providerTurnId) ||
+      seenCheckpointMessageIds.has(checkpointMessageId)
+    ) {
+      throw new Error("forked Claude transcript contains duplicate bindings");
+    }
+    seenProviderTurnIds.add(providerTurnId);
+    seenCheckpointMessageIds.add(checkpointMessageId);
+    result.push({ providerTurnId, checkpointMessageId });
+    current = undefined;
+  };
+  for (const message of messages) {
+    if (isRootUserMessage(message)) {
+      commitCurrent();
+      const providerTurnId = messageIdentity(message);
+      if (providerTurnId) {
+        current = {
+          providerTurnId,
+          checkpointMessageId: providerTurnId
+        };
+      }
       continue;
     }
-    const identity = messageIdentity(message);
-    if (!identity) {
+    if (!current) {
       continue;
     }
-    selectedIndex = index;
-    providerTurnId = identity;
-    break;
-  }
-  requireIdentity(providerTurnId, "forked provider turn id");
-
-  let checkpointMessageId = "";
-  for (let index = messages.length - 1; index >= selectedIndex; index -= 1) {
-    const identity = messageIdentity(messages[index]);
-    if (identity) {
-      checkpointMessageId = identity;
-      break;
+    const checkpointMessageId = messageIdentity(message);
+    if (checkpointMessageId) {
+      current.checkpointMessageId = checkpointMessageId;
     }
   }
-  requireIdentity(checkpointMessageId, "forked checkpoint message id");
-  return { providerTurnId, checkpointMessageId };
+  commitCurrent();
+  return result;
 }
 
 function rootProviderTurnIds(messages: SDKMessage[]): string[] {

@@ -469,3 +469,64 @@ CREATE UNIQUE INDEX idx_workspace_agent_session_fork_operations_active_boundary
 	}
 	return nil
 }
+
+// applyWorkspaceAgentSessionForkV7 stores the complete provider-owned child
+// Turn/checkpoint mapping as one ordered receipt. Existing committed
+// operations retain only their historical boundary receipt so idempotent
+// reads remain possible; their already-materialized child Turns are not
+// backfilled.
+func (s *Store) applyWorkspaceAgentSessionForkV7(ctx context.Context) error {
+	applied, err := s.hasMigration(ctx, schemaMigrationWorkspaceAgentSessionForkV7)
+	if err != nil || applied {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin workspace agent session fork v7: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var nonterminal int
+	if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM workspace_agent_session_fork_operations
+WHERE status IN ('prepared','dispatching','provider_accepted')
+`).Scan(&nonterminal); err != nil {
+		return fmt.Errorf("count nonterminal session forks before v7: %w", err)
+	}
+	if nonterminal != 0 {
+		return fmt.Errorf(
+			"workspace agent session fork v7 requires draining %d nonterminal operations",
+			nonterminal,
+		)
+	}
+	if _, err := tx.ExecContext(ctx, `
+ALTER TABLE workspace_agent_session_fork_operations
+ADD COLUMN target_provider_turn_bindings_json TEXT NOT NULL DEFAULT '[]'
+CHECK (
+  json_valid(target_provider_turn_bindings_json)
+  AND json_type(target_provider_turn_bindings_json) = 'array'
+);
+
+UPDATE workspace_agent_session_fork_operations
+SET target_provider_turn_bindings_json = json_array(
+  json_object(
+    'providerTurnId',
+    json_extract(target_provider_turn_ids_json, '$[#-1]'),
+    'checkpointMessageId',
+    target_provider_checkpoint_message_id
+  )
+)
+WHERE provider_state_binding_mode = 'provider_owned'
+  AND json_array_length(target_provider_turn_ids_json) > 0
+  AND TRIM(COALESCE(target_provider_checkpoint_message_id, '')) <> '';
+`); err != nil {
+		return fmt.Errorf("add workspace agent session fork full turn bindings: %w", err)
+	}
+	if err := recordMigrationTx(ctx, tx, schemaMigrationWorkspaceAgentSessionForkV7); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit workspace agent session fork v7: %w", err)
+	}
+	return nil
+}

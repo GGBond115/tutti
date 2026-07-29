@@ -183,12 +183,16 @@ const (
 )
 
 type RuntimeSessionForkResult struct {
-	ProviderSessionID                 string
-	TargetProviderTurnIDs             []string
-	TargetProviderCheckpointMessageID string
-	StateBindingMode                  SessionForkStateBindingMode
-	StateBindingReceipt               string
-	DeliveryDisposition               SessionForkDeliveryDisposition
+	ProviderSessionID          string
+	TargetProviderTurnBindings []SessionForkProviderTurnBinding
+	StateBindingMode           SessionForkStateBindingMode
+	StateBindingReceipt        string
+	DeliveryDisposition        SessionForkDeliveryDisposition
+}
+
+type SessionForkProviderTurnBinding struct {
+	ProviderTurnID      string
+	CheckpointMessageID string
 }
 
 type SessionForkStateBindingMode string

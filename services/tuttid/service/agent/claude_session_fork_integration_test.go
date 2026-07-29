@@ -493,12 +493,16 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			request.ID,
 			"ok",
 			map[string]any{
-				"providerSessionId":                 targetID,
-				"targetProviderTurnIds":             []string{targetTurnID},
-				"targetProviderCheckpointMessageId": "checkpoint-" + targetID,
-				"stateBindingMode":                  "provider_owned",
-				"stateBindingReceipt":               "claude-sdk-fork-v2:" + targetID,
-				"deliveryDisposition":               "accepted",
+				"providerSessionId": targetID,
+				"targetProviderTurnBindings": []any{
+					map[string]any{
+						"providerTurnId":      targetTurnID,
+						"checkpointMessageId": "checkpoint-" + targetID,
+					},
+				},
+				"stateBindingMode":    "provider_owned",
+				"stateBindingReceipt": "claude-sdk-fork-v3:" + targetID,
+				"deliveryDisposition": "accepted",
 			},
 		)
 	case "start":

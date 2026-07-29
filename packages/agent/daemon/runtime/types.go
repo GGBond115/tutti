@@ -138,14 +138,18 @@ const (
 // SessionForkResult contains only provider-native durable identity. Canonical
 // session creation and history copying are owned by the host.
 type SessionForkResult struct {
-	ProviderSessionID                 string                         `json:"providerSessionId"`
-	ForkedFromProviderSessionID       string                         `json:"forkedFromProviderSessionId"`
-	ThroughProviderTurnID             string                         `json:"throughProviderTurnId,omitempty"`
-	TargetProviderTurnIDs             []string                       `json:"targetProviderTurnIds,omitempty"`
-	TargetProviderCheckpointMessageID string                         `json:"targetProviderCheckpointMessageId,omitempty"`
-	StateBindingMode                  string                         `json:"stateBindingMode,omitempty"`
-	StateBindingReceipt               string                         `json:"stateBindingReceipt,omitempty"`
-	DeliveryDisposition               SessionForkDeliveryDisposition `json:"deliveryDisposition"`
+	ProviderSessionID           string                           `json:"providerSessionId"`
+	ForkedFromProviderSessionID string                           `json:"forkedFromProviderSessionId"`
+	ThroughProviderTurnID       string                           `json:"throughProviderTurnId,omitempty"`
+	TargetProviderTurnBindings  []SessionForkProviderTurnBinding `json:"targetProviderTurnBindings,omitempty"`
+	StateBindingMode            string                           `json:"stateBindingMode,omitempty"`
+	StateBindingReceipt         string                           `json:"stateBindingReceipt,omitempty"`
+	DeliveryDisposition         SessionForkDeliveryDisposition   `json:"deliveryDisposition"`
+}
+
+type SessionForkProviderTurnBinding struct {
+	ProviderTurnID      string `json:"providerTurnId"`
+	CheckpointMessageID string `json:"checkpointMessageId"`
 }
 
 type ExecInput struct {

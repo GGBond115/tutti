@@ -41,12 +41,20 @@ func TestClaudeSDKForkReturnsProviderOwnedIdentityEvidence(t *testing.T) {
 	conn := &claudeSDKForkTestConnection{
 		responseType: "ok",
 		responsePayload: map[string]any{
-			"providerSessionId":                 "claude-child",
-			"targetProviderTurnIds":             []string{"child-prompt-1", "child-prompt-2"},
-			"targetProviderCheckpointMessageId": "child-answer-2",
-			"stateBindingMode":                  "provider_owned",
-			"stateBindingReceipt":               "claude-sdk-fork-v1:receipt",
-			"deliveryDisposition":               "accepted",
+			"providerSessionId": "claude-child",
+			"targetProviderTurnBindings": []any{
+				map[string]any{
+					"providerTurnId":      "child-prompt-1",
+					"checkpointMessageId": "child-answer-1",
+				},
+				map[string]any{
+					"providerTurnId":      "child-prompt-2",
+					"checkpointMessageId": "child-answer-2",
+				},
+			},
+			"stateBindingMode":    "provider_owned",
+			"stateBindingReceipt": "claude-sdk-fork-v3:receipt",
+			"deliveryDisposition": "accepted",
 		},
 	}
 	adapter := NewClaudeCodeSDKAdapter(claudeSDKForkTestTransport{conn: conn})
@@ -64,11 +72,19 @@ func TestClaudeSDKForkReturnsProviderOwnedIdentityEvidence(t *testing.T) {
 	if result.ProviderSessionID != "claude-child" ||
 		result.DeliveryDisposition != SessionForkDeliveryAccepted ||
 		result.StateBindingMode != "provider_owned" ||
-		result.TargetProviderCheckpointMessageID != "child-answer-2" ||
 		result.StateBindingReceipt == "" ||
 		!reflect.DeepEqual(
-			result.TargetProviderTurnIDs,
-			[]string{"child-prompt-1", "child-prompt-2"},
+			result.TargetProviderTurnBindings,
+			[]SessionForkProviderTurnBinding{
+				{
+					ProviderTurnID:      "child-prompt-1",
+					CheckpointMessageID: "child-answer-1",
+				},
+				{
+					ProviderTurnID:      "child-prompt-2",
+					CheckpointMessageID: "child-answer-2",
+				},
+			},
 		) {
 		t.Fatalf("result=%#v", result)
 	}
@@ -112,12 +128,16 @@ func TestClaudeSDKForkedChildCanResumeAndStartTurn(t *testing.T) {
 	forkConn := &claudeSDKForkTestConnection{
 		responseType: "ok",
 		responsePayload: map[string]any{
-			"providerSessionId":                 "claude-child",
-			"targetProviderTurnIds":             []string{"child-prompt-1"},
-			"targetProviderCheckpointMessageId": "child-answer-1",
-			"stateBindingMode":                  "provider_owned",
-			"stateBindingReceipt":               "claude-sdk-fork-v1:receipt",
-			"deliveryDisposition":               "accepted",
+			"providerSessionId": "claude-child",
+			"targetProviderTurnBindings": []any{
+				map[string]any{
+					"providerTurnId":      "child-prompt-1",
+					"checkpointMessageId": "child-answer-1",
+				},
+			},
+			"stateBindingMode":    "provider_owned",
+			"stateBindingReceipt": "claude-sdk-fork-v3:receipt",
+			"deliveryDisposition": "accepted",
 		},
 	}
 	childConn := &scriptedClaudeSDKConnection{

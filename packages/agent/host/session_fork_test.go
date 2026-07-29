@@ -888,18 +888,21 @@ func (f *fakeSessionForkRuntime) ForkSession(
 		disposition = SessionForkDeliveryAccepted
 	}
 	mode := f.effectiveStateBindingMode()
-	var targetProviderTurnIDs []string
+	var targetProviderTurnBindings []SessionForkProviderTurnBinding
 	receipt := ""
 	if mode == SessionForkStateBindingProviderOwned {
 		receipt = "fake-provider-owned-receipt"
-		targetProviderTurnIDs = []string{"forked-" + input.SourceProviderTurnID}
+		targetProviderTurnBindings = []SessionForkProviderTurnBinding{{
+			ProviderTurnID:      "forked-" + input.SourceProviderTurnID,
+			CheckpointMessageID: "checkpoint-" + input.SourceProviderTurnID,
+		}}
 	}
 	return RuntimeSessionForkResult{
-		ProviderSessionID:     f.providerSessionID,
-		TargetProviderTurnIDs: targetProviderTurnIDs,
-		StateBindingMode:      mode,
-		StateBindingReceipt:   receipt,
-		DeliveryDisposition:   disposition,
+		ProviderSessionID:          f.providerSessionID,
+		TargetProviderTurnBindings: targetProviderTurnBindings,
+		StateBindingMode:           mode,
+		StateBindingReceipt:        receipt,
+		DeliveryDisposition:        disposition,
 	}, f.forkErr
 }
 
@@ -1187,9 +1190,9 @@ func (f *fakeSessionForkStore) RecordSessionForkProviderResult(
 ) (storesqlite.SessionForkOperation, bool, error) {
 	f.operation.Status = input.Status
 	f.operation.TargetProviderSessionID = input.TargetProviderSessionID
-	f.operation.TargetProviderTurnIDs = append(
-		[]string(nil),
-		input.TargetProviderTurnIDs...,
+	f.operation.TargetProviderTurnBindings = append(
+		[]storesqlite.SessionForkProviderTurnBinding(nil),
+		input.TargetProviderTurnBindings...,
 	)
 	f.operation.StateBindingMode = input.StateBindingMode
 	f.operation.StateBindingReceipt = input.StateBindingReceipt

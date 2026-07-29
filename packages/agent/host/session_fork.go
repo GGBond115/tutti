@@ -487,13 +487,14 @@ func (h *Host) processSessionForkOperationWithSource(
 	operation, _, err = h.sessionForks.RecordSessionForkProviderResult(
 		checkpointCtx, storesqlite.SessionForkProviderResult{
 			WorkspaceID: operation.WorkspaceID, OperationID: operation.OperationID,
-			Status:                            storesqlite.SessionForkStatusProviderAccepted,
-			TargetProviderSessionID:           targetProviderSessionID,
-			TargetProviderTurnIDs:             append([]string(nil), providerResult.TargetProviderTurnIDs...),
-			TargetProviderCheckpointMessageID: providerResult.TargetProviderCheckpointMessageID,
-			StateBindingMode:                  string(providerResult.StateBindingMode),
-			StateBindingReceipt:               providerResult.StateBindingReceipt,
-			OccurredAtUnixMS:                  h.now().UnixMilli(),
+			Status:                  storesqlite.SessionForkStatusProviderAccepted,
+			TargetProviderSessionID: targetProviderSessionID,
+			TargetProviderTurnBindings: storeSessionForkProviderTurnBindings(
+				providerResult.TargetProviderTurnBindings,
+			),
+			StateBindingMode:    string(providerResult.StateBindingMode),
+			StateBindingReceipt: providerResult.StateBindingReceipt,
+			OccurredAtUnixMS:    h.now().UnixMilli(),
 		},
 	)
 	if err != nil {
@@ -501,6 +502,23 @@ func (h *Host) processSessionForkOperationWithSource(
 			errors.Join(ErrSessionForkDeliveryUnknown, err)
 	}
 	return h.processSessionForkOperation(checkpointCtx, operation)
+}
+
+func storeSessionForkProviderTurnBindings(
+	bindings []SessionForkProviderTurnBinding,
+) []storesqlite.SessionForkProviderTurnBinding {
+	result := make(
+		[]storesqlite.SessionForkProviderTurnBinding,
+		0,
+		len(bindings),
+	)
+	for _, binding := range bindings {
+		result = append(result, storesqlite.SessionForkProviderTurnBinding{
+			ProviderTurnID:      strings.TrimSpace(binding.ProviderTurnID),
+			CheckpointMessageID: strings.TrimSpace(binding.CheckpointMessageID),
+		})
+	}
+	return result
 }
 
 func (h *Host) prepareSessionForkTargetContext(

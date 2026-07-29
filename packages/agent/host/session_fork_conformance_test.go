@@ -267,10 +267,13 @@ func (d *sqliteSessionForkConformanceDriver) ResetSessionFork(
 			OperationID:             operation.OperationID,
 			Status:                  storesqlite.SessionForkStatusProviderAccepted,
 			TargetProviderSessionID: "provider-target",
-			TargetProviderTurnIDs:   []string{"forked-provider-turn"},
-			StateBindingMode:        string(agenthost.SessionForkStateBindingProviderOwned),
-			StateBindingReceipt:     "conformance-provider-owned-receipt",
-			OccurredAtUnixMS:        42,
+			TargetProviderTurnBindings: []storesqlite.SessionForkProviderTurnBinding{{
+				ProviderTurnID:      "forked-provider-turn",
+				CheckpointMessageID: "forked-provider-checkpoint",
+			}},
+			StateBindingMode:    string(agenthost.SessionForkStateBindingProviderOwned),
+			StateBindingReceipt: "conformance-provider-owned-receipt",
+			OccurredAtUnixMS:    42,
 		},
 	)
 	return err
@@ -339,10 +342,13 @@ func (r *sessionForkConformanceRuntime) ForkSession(
 ) (agenthost.RuntimeSessionForkResult, error) {
 	r.forkCalls++
 	return agenthost.RuntimeSessionForkResult{
-		ProviderSessionID:     "provider-target",
-		TargetProviderTurnIDs: []string{"forked-" + input.SourceProviderTurnID},
-		StateBindingMode:      agenthost.SessionForkStateBindingProviderOwned,
-		StateBindingReceipt:   "conformance-provider-owned-receipt",
-		DeliveryDisposition:   agenthost.SessionForkDeliveryAccepted,
+		ProviderSessionID: "provider-target",
+		TargetProviderTurnBindings: []agenthost.SessionForkProviderTurnBinding{{
+			ProviderTurnID:      "forked-" + input.SourceProviderTurnID,
+			CheckpointMessageID: "checkpoint-" + input.SourceProviderTurnID,
+		}},
+		StateBindingMode:    agenthost.SessionForkStateBindingProviderOwned,
+		StateBindingReceipt: "conformance-provider-owned-receipt",
+		DeliveryDisposition: agenthost.SessionForkDeliveryAccepted,
 	}, nil
 }

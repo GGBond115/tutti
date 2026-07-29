@@ -300,14 +300,26 @@ func (a *RuntimeController) ForkSession(
 		TargetTitle:                 input.TargetTitle,
 	})
 	mapped := host.RuntimeSessionForkResult{
-		ProviderSessionID:                 strings.TrimSpace(result.ProviderSessionID),
-		TargetProviderTurnIDs:             append([]string(nil), result.TargetProviderTurnIDs...),
-		TargetProviderCheckpointMessageID: strings.TrimSpace(result.TargetProviderCheckpointMessageID),
-		StateBindingMode:                  host.SessionForkStateBindingMode(strings.TrimSpace(result.StateBindingMode)),
-		StateBindingReceipt:               strings.TrimSpace(result.StateBindingReceipt),
+		ProviderSessionID: strings.TrimSpace(result.ProviderSessionID),
+		TargetProviderTurnBindings: make(
+			[]host.SessionForkProviderTurnBinding,
+			0,
+			len(result.TargetProviderTurnBindings),
+		),
+		StateBindingMode:    host.SessionForkStateBindingMode(strings.TrimSpace(result.StateBindingMode)),
+		StateBindingReceipt: strings.TrimSpace(result.StateBindingReceipt),
 		DeliveryDisposition: host.SessionForkDeliveryDisposition(
 			result.DeliveryDisposition,
 		),
+	}
+	for _, binding := range result.TargetProviderTurnBindings {
+		mapped.TargetProviderTurnBindings = append(
+			mapped.TargetProviderTurnBindings,
+			host.SessionForkProviderTurnBinding{
+				ProviderTurnID:      strings.TrimSpace(binding.ProviderTurnID),
+				CheckpointMessageID: strings.TrimSpace(binding.CheckpointMessageID),
+			},
+		)
 	}
 	if mapped.StateBindingMode == "" {
 		mapped.StateBindingMode = host.SessionForkStateBindingHostCopy

@@ -162,7 +162,7 @@ INSERT INTO workspace_agent_session_fork_target_reservations (
 			t.Fatal(err)
 		}
 	}
-	assertRecoverableSessionForkV1Fixture(t, store, statuses)
+	assertRecoverableSessionForkV1Fixture(t, db, statuses)
 	assertSessionForkMigrationCounts(t, db, len(statuses))
 	if _, err := db.ExecContext(ctx, `
 UPDATE workspace_agent_session_fork_operations
@@ -172,6 +172,9 @@ WHERE status IN ('prepared','dispatching','provider_accepted')
 		t.Fatal(err)
 	}
 	if err := store.applyWorkspaceAgentSessionForkV6(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.applyWorkspaceAgentSessionForkV7(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -204,6 +207,7 @@ func TestSessionForkV6MigrationRefusesOldNonterminalOperations(t *testing.T) {
 		store.applyWorkspaceAgentSessionForkV4,
 		store.applyWorkspaceAgentSessionForkV5,
 		store.applyWorkspaceAgentProviderCheckpointV1,
+		store.applyWorkspaceAgentSessionForkV7,
 	} {
 		if err := migrate(ctx); err != nil {
 			t.Fatal(err)
@@ -315,10 +319,36 @@ ORDER BY turn_sequence
 	}
 }
 
-func assertRecoverableSessionForkV1Fixture(t *testing.T, store *Store, statuses []string) {
+func assertRecoverableSessionForkV1Fixture(t *testing.T, db *sql.DB, statuses []string) {
 	t.Helper()
-	operations, err := store.ListRecoverableSessionForkOperations(context.Background(), 100)
+	rows, err := db.Query(`
+SELECT operation_id, status, point_kind
+FROM workspace_agent_session_fork_operations
+WHERE status IN ('prepared','dispatching','provider_accepted','unknown')
+ORDER BY created_at_unix_ms, operation_id
+`)
 	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	type recoverableOperation struct {
+		operationID string
+		status      string
+		pointKind   string
+	}
+	var operations []recoverableOperation
+	for rows.Next() {
+		var operation recoverableOperation
+		if err := rows.Scan(
+			&operation.operationID,
+			&operation.status,
+			&operation.pointKind,
+		); err != nil {
+			t.Fatal(err)
+		}
+		operations = append(operations, operation)
+	}
+	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
 	if len(operations) != len(statuses) {
@@ -326,9 +356,9 @@ func assertRecoverableSessionForkV1Fixture(t *testing.T, store *Store, statuses 
 	}
 	for index, status := range statuses {
 		operation := operations[index]
-		if operation.OperationID != "operation-"+status ||
-			operation.Status != status ||
-			operation.PointKind != SessionForkPointThroughTurn {
+		if operation.operationID != "operation-"+status ||
+			operation.status != status ||
+			operation.pointKind != SessionForkPointThroughTurn {
 			t.Fatalf("recoverable operation[%d]=%#v, want status=%q and through_turn", index, operation, status)
 		}
 	}
@@ -388,6 +418,7 @@ WHERE id IN (
   'workspace_agent_session_fork_v4',
   'workspace_agent_session_fork_v5',
   'workspace_agent_session_fork_v6_optimistic',
+  'workspace_agent_session_fork_v7_full_turn_bindings',
   'workspace_agent_provider_checkpoint_v1'
 );
 `); err != nil {
