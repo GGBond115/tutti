@@ -92,6 +92,10 @@ export interface EngineIntentExpiredIntent {
   dueAtUnixMs: number;
 }
 
+/**
+ * Host-dispatchable and host-observable Engine input. Reducer-only
+ * continuations belong to the private root-reducer contract.
+ */
 export type EngineIntent =
   | AttentionReadIntent
   | EngineCommandResultIntent
@@ -109,6 +113,7 @@ export type EngineIntent =
   | SessionCommandsIntent
   | SessionLifecycleIntent
   | ComposerOptionsIntent
+  | EditRetryIntent
   | TuttiModeActivationIntent;
 
 // ---------------------------------------------------------------------------
@@ -183,6 +188,7 @@ export type EngineExternalCommand =
   | SessionMutationCommand
   | TurnCancelCommand
   | ComposerOptionsCommand
+  | EditRetryCommand
   | TuttiModeActivationCommand;
 
 export type EngineExternalCommandExceptPlanDecision = Exclude<
@@ -243,8 +249,13 @@ export interface EngineRuntimeState {
   };
 }
 
+/**
+ * Host-observable Engine snapshot. Reducer execution ledgers are deliberately
+ * omitted from this public state contract.
+ */
 export interface AgentSessionEngineState {
   attentionReadState: AttentionReadState;
+  editRetry: EditRetryState;
   engineRuntime: EngineRuntimeState;
   pendingIntents: PendingIntentsState;
   planDecisions: PlanDecisionState;
@@ -493,3 +504,8 @@ import type {
   AgentActivityCapabilityReference,
   AgentActivityInitialTuttiModeActivation
 } from "../tuttiMode.types.ts";
+import type {
+  EditRetryCommand,
+  EditRetryIntent,
+  EditRetryState
+} from "./editRetry.types.ts";

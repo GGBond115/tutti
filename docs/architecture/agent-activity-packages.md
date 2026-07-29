@@ -175,7 +175,7 @@ It owns:
 - agent activity contracts used by UI packages and host adapters
 - the host adapter interface
 - canonical session, turn, interaction, message, composer-option, prompt-queue,
-  and attention state inside one workspace engine
+  attention, and edit-retry command state inside one workspace engine
 - memoized projection from engine state to the `AgentActivitySnapshot` runtime
   contract
 - message merge, immutable presentation-sequence ordering, mutable version
@@ -192,14 +192,48 @@ It owns:
   batching, with scheduler/clock/command ports injected by the host
 - the typed frontend effect seam for activation, prompt send, settings update,
   turn cancellation, Interaction response, pin, and batch delete, including
-  lossless command projection and required-settings-before-send ordering; hosts
-  retain transport, DTO mapping, AbortSignal propagation, and product-specific
-  command extensions (see
+  lossless command projection and a serialized settings-precondition state
+  machine; hosts retain transport, DTO mapping, AbortSignal propagation, and
+  product-specific command extensions (see
   [Agent GUI Node](./agent-gui-node.md#4-workspace-frontend-engine))
 
 The public seam is `AgentSessionEffectPort`. Prompt precondition ordering and
 its helper port are Engine implementation details and are not exported from the
-package root.
+package root. Reducer-only prompt continuation intents are absent from public
+`EngineIntent`; their bookkeeping is also absent from
+`AgentSessionEngineState`, `getSnapshot()`, and subscription callbacks.
+
+Edit retry follows the same frontend command rule as pin, delete, cancel, and
+reconcile: the engine owns the stable client operation id, pending/failure
+record, typed recovery intent, and authoritative state-and-message follow-up.
+React may retain an unsent editor draft, but it must not subscribe to raw
+transport events or sequence edit-retry HTTP calls itself. The Desktop command
+port translates `turn/editRetry` and `turn/recoverEditRetry` to the injected
+`TuttidClient`; the result re-enters the reducer as `reconciling`, while only
+the authoritative session-detail projection may replace edit-retry
+availability and release that fence.
+
+Edit retry also requires deletion-capable history convergence. The engine keeps
+the required history revision separate from the applied revision. An empty
+cache may establish its initial revision through the ordinary detail-plus-page
+read; once messages are cached, a changed or explicitly required revision must
+use one composite authoritative snapshot that replaces Session, Turn, and
+Message projections instead of incrementally merging them. Desktop serializes
+same-Session events and reads, loads the complete descending history at a fixed
+newest-page anchor, drains the ascending tail, fences the read with session
+detail before and after, and retries transient projection failures while the
+event stream is connected. Reconnect rechecks every cached Session.
+
+That composite snapshot also reconciles settled optimistic submissions and
+completion attention. It removes an optimistic row only when its stable Turn
+and client-submit identity are both absent from effective history; unresolved
+requests and turnless controls remain. Historical Turns are projection truth,
+not live attention signals. Files changed by a retracted Turn remain real
+filesystem effects and are not compensated by this renderer replacement.
+The daemon Session-detail projection must therefore read effective Turns;
+complete `ListSessionTurns` results remain available only to audit-oriented
+queries. Terminal message-delta overlays use the same effective Turn and
+client-submit identities when authoritative history makes omission meaningful.
 
 It does not own:
 
@@ -861,7 +895,12 @@ and normalized requested settings in addition to the target key.
 Ordinary home-target and project switches use that signature-aware cache and
 must not force a second transport request from the click handler. Forced loads
 are reserved for explicit catalog invalidation, activation/creation settlement,
-or provider-declared draft-session prewarming.
+provider-declared draft-session prewarming, or a validated settings result whose
+current target options declare `refreshModelOptionsAfterSettings`. The Engine
+uses the authoritative returned Session to issue that target-scoped refresh;
+Desktop and Mobile adapters must not upsert the Session or choose reload policy
+themselves. Options refresh is independent of the current prompt continuation
+and never blocks its send.
 
 Composer-options loading may be suppressed while a new-session activation is
 pending, but that guard follows the current engine state rather than a
@@ -1226,8 +1265,11 @@ For runtime boundary enforcement:
   `session/detailSnapshotReceived` intent. The mapper verifies the requested
   Session identity, child hierarchy, and Turn ownership; a malformed nested
   entity rejects the aggregate instead of publishing a partial hierarchy.
-- Engine prompt commands use the activity-core prompt executor. Required
-  settings are persisted before send, and a failed settings write prevents
-  delivery; transport request mapping remains host-owned.
+- Engine prompt commands use the activity-core prompt state machine. Required
+  settings enter the same serialized per-Session settings lane as direct
+  updates and post-activation persistence. Settings from different owners form
+  queue barriers and are not coalesced together; validated Session truth is
+  applied before send, and a failed or timed-out settings write prevents
+  delivery. Transport request mapping remains host-owned.
 - External repository adoption should require implementing the adapter, not
   copying session merge or needs-attention logic.

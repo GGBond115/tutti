@@ -3,9 +3,9 @@ import type { SendInputResultValidation } from "./commandResult.validation.ts";
 import type { ScopedSessionResultValidation } from "./commandResult.validation.ts";
 import type { CancelResultValidation } from "./commandResult.validation.ts";
 import {
-  createInitialSettingsUpdate,
   reconcileSettingsUpdates,
   requestSettingsUpdate,
+  resumeSettingsQueueAfterPrompt,
   resumeSettingsUpdateWhenRuntimeAvailable,
   settleSettingsUpdate
 } from "./sessionSettings.reducer.ts";
@@ -26,10 +26,17 @@ import {
   upsertCanonicalSession,
   upsertCanonicalTurn
 } from "./sessionEntities.reducer.ts";
+import { replaceAuthoritativeSessionHistory } from "./sessionLifecycle.authoritativeHistory.ts";
 import {
   canonicalInteractionKey,
   canonicalTurnKey
 } from "./sessionEntityKeys.ts";
+import {
+  cancelPending,
+  initialCancel,
+  initialOperation,
+  requestedCancel
+} from "./sessionLifecycle.state.ts";
 
 const NO_COMMANDS: readonly EngineCommand[] = [];
 const TURN_CANCEL_TIMEOUT_MS = 30_000;
@@ -81,6 +88,17 @@ export function sessionLifecycleReducer(
           upsertCanonicalSession(state, intent.session, initialOperation)
         )
       );
+    case "session/historyAuthoritativeSnapshotReceived": {
+      const next = replaceAuthoritativeSessionHistory(
+        state,
+        intent,
+        initialOperation
+      );
+      return reconcilePendingCancels(
+        state,
+        reconcileInteractionResponses(state, next)
+      );
+    }
     case "session/metadataPatched":
       return patchSessionMetadata(state, intent.agentSessionId, intent.patch);
     case "session/runtimeAvailabilityChanged":
@@ -120,7 +138,11 @@ export function sessionLifecycleReducer(
     case "session/stopRequested":
       return requestCancel(state, intent);
     case "session/settingsUpdateRequested":
+    case "session/settingsActivationRequested":
+    case "session/settingsPreconditionRequested":
       return requestSettingsUpdate(state, intent);
+    case "session/settingsQueueResumeRequested":
+      return resumeSettingsQueueAfterPrompt(state, intent);
     case "submit/requested":
       return context.sendNowSubmitRequiresCancel
         ? requestCancel(state, {
@@ -713,42 +735,6 @@ function setOperation(
     ...state,
     operationBySessionId: { ...state.operationBySessionId, [id]: operation }
   };
-}
-function initialOperation(): SessionOperationState {
-  return {
-    runtimeAvailability: { state: "available" },
-    cancel: initialCancel(),
-    operationError: null,
-    settingsUpdate: createInitialSettingsUpdate()
-  };
-}
-function initialCancel(): SessionCancelState {
-  return {
-    commandId: null,
-    errorCode: null,
-    errorMessage: null,
-    expiryId: null,
-    requestedSessionVersion: null,
-    requestedWorkspaceId: null,
-    status: "idle",
-    turnId: null
-  };
-}
-function requestedCancel(
-  commandId: string,
-  turnId: string | null,
-  requestedWorkspaceId: string
-): SessionCancelState {
-  return {
-    ...initialCancel(),
-    commandId,
-    requestedWorkspaceId,
-    status: "requested",
-    turnId
-  };
-}
-function cancelPending(cancel: SessionCancelState): boolean {
-  return cancel.status === "requested" || cancel.status === "awaitingTurn";
 }
 function cancelCommand(
   workspaceId: string,

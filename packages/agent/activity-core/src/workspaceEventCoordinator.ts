@@ -15,6 +15,8 @@ import type {
   EngineConnectionStatus
 } from "./engine/types.ts";
 
+const EMPTY_MESSAGES: readonly AgentActivityMessage[] = [];
+
 export interface AgentActivityWorkspaceReconcileKey {
   agentSessionId?: string;
   workspaceId: string;
@@ -66,6 +68,11 @@ export interface AgentActivityWorkspaceEventCoordinator {
   reconcileMessages(
     agentSessionId: string,
     canonicalMessages?: readonly AgentActivityMessage[]
+  ): void;
+  reconcileAuthoritativeHistory(
+    agentSessionId: string,
+    canonicalMessages: readonly AgentActivityMessage[],
+    effectiveTurns: readonly AgentActivityTurn[]
   ): void;
   removeSession(agentSessionId: string): boolean;
   subscribe(listener: () => void): () => void;
@@ -172,7 +179,7 @@ export function createAgentActivityWorkspaceEventCoordinator({
     for (const agentSessionId of sessionIds) {
       sessionMessagesById[agentSessionId] = overlay.project(
         { agentSessionId, workspaceId: normalizedWorkspaceId },
-        canonical.sessionMessagesById[agentSessionId] ?? []
+        canonical.sessionMessagesById[agentSessionId] ?? EMPTY_MESSAGES
       );
     }
     const projected = { ...canonical, sessionMessagesById };
@@ -400,6 +407,25 @@ export function createAgentActivityWorkspaceEventCoordinator({
           readCanonicalSnapshot().sessionMessagesById[normalizedSessionId] ??
           []
       );
+      markChanged();
+    },
+    reconcileAuthoritativeHistory(
+      agentSessionId,
+      canonicalMessages,
+      effectiveTurns
+    ) {
+      if (disposed) return;
+      const normalizedSessionId = agentSessionId.trim();
+      if (!normalizedSessionId) return;
+      overlay.reconcileAuthoritativeHistory(
+        {
+          agentSessionId: normalizedSessionId,
+          workspaceId: normalizedWorkspaceId
+        },
+        canonicalMessages,
+        effectiveTurns
+      );
+      overlaySessionIds.add(normalizedSessionId);
       markChanged();
     },
     removeSession,

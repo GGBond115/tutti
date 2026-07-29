@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type {
+  WorkspaceAgentEditRetryAvailability,
   WorkspaceAgentSession,
   WorkspaceAgentSessionDetailResponse,
   WorkspaceAgentTurn
@@ -12,6 +13,16 @@ test("detail mapping preserves the authoritative root, children, and Turns", () 
     "workspace-1",
     "root-1",
     {
+      editRetry: {
+        ...createEditRetryAvailability(),
+        availableActions: ["reconcile"],
+        eligible: true,
+        historyRevision: 7,
+        operationId: "operation-1",
+        recoveryState: "recovery_required",
+        supported: true,
+        turnId: "turn-root-1"
+      },
       projection: "full",
       lifecycleCapabilitiesProjected: true,
       session: createSession({
@@ -41,6 +52,15 @@ test("detail mapping preserves the authoritative root, children, and Turns", () 
   assert.equal(detail.session.agentSessionId, "root-1");
   assert.equal(detail.session.userId, "account-user-1");
   assert.equal(detail.session.lifecycleCapabilitiesProjected, true);
+  assert.deepEqual(detail.editRetry, {
+    availableActions: ["reconcile"],
+    eligible: true,
+    historyRevision: 7,
+    operationId: "operation-1",
+    recoveryState: "recovery_required",
+    supported: true,
+    turnId: "turn-root-1"
+  });
   assert.deepEqual(
     detail.childSessions.map((session) => ({
       agentSessionId: session.agentSessionId,
@@ -67,6 +87,7 @@ test("detail mapping preserves the authoritative root, children, and Turns", () 
 
 test("detail mapping keeps unresolved capability projections out of authoritative reads", () => {
   const detail = {
+    editRetry: createEditRetryAvailability(),
     projection: "messageHydration",
     lifecycleCapabilitiesProjected: false,
     session: createSession({ id: "root-1", kind: "root" }),
@@ -119,6 +140,7 @@ test("detail mapping fails the entire aggregate when a child violates protocol v
         "workspace-1",
         "root-1",
         {
+          editRetry: createEditRetryAvailability(),
           projection: "full",
           lifecycleCapabilitiesProjected: true,
           session: createSession({ id: "root-1", kind: "root" }),
@@ -138,6 +160,7 @@ test("detail mapping rejects a response for a different requested Session", () =
         "workspace-1",
         "requested-1",
         {
+          editRetry: createEditRetryAvailability(),
           projection: "full",
           lifecycleCapabilitiesProjected: true,
           session: createSession({ id: "other-1", kind: "root" }),
@@ -157,6 +180,7 @@ test("detail mapping rejects children outside the requested hierarchy", () => {
         "workspace-1",
         "root-1",
         {
+          editRetry: createEditRetryAvailability(),
           projection: "full",
           lifecycleCapabilitiesProjected: true,
           session: createSession({ id: "root-1", kind: "root" }),
@@ -181,6 +205,7 @@ test("detail mapping accepts descendants below a requested child Session", () =>
     "workspace-1",
     "child-1",
     {
+      editRetry: createEditRetryAvailability(),
       projection: "full",
       lifecycleCapabilitiesProjected: true,
       session: createSession({
@@ -217,6 +242,7 @@ test("detail mapping rejects malformed or foreign Turns atomically", () => {
           "workspace-1",
           "root-1",
           {
+            editRetry: createEditRetryAvailability(),
             projection: "full",
             lifecycleCapabilitiesProjected: true,
             session: createSession({ id: "root-1", kind: "root" }),
@@ -229,6 +255,16 @@ test("detail mapping rejects malformed or foreign Turns atomically", () => {
     );
   }
 });
+
+function createEditRetryAvailability(): WorkspaceAgentEditRetryAvailability {
+  return {
+    availableActions: [],
+    eligible: false,
+    historyRevision: 0,
+    recoveryState: "completed",
+    supported: false
+  };
+}
 
 function createSession(
   overrides: Partial<WorkspaceAgentSession>

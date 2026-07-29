@@ -24,7 +24,6 @@ import { toTuttidPromptContent } from "./workspaceActivityCommandSupport";
 interface WorkspaceActivityEngineCommandContext {
   client: TuttidClient;
   engine: AgentSessionEngine;
-  loadComposerOptions(options?: { force?: boolean }): void;
   mapSession(
     session: Parameters<typeof agentActivitySessionFromTuttidSession>[1]
   ): AgentActivitySession;
@@ -97,6 +96,10 @@ export function executeWorkspaceActivityExtensionCommand(
     case "session/forkThroughTurn":
     case "session/unactivate":
     case "tuttiMode/update":
+    // Mobile does not expose edit and retry yet. Keep this explicit so the
+    // shared Engine command union cannot silently reach the exhaustive case.
+    case "turn/editRetry":
+    case "turn/recoverEditRetry":
       return Promise.reject(
         new Error(`unsupported mobile agent command: ${command.type}`)
       );
@@ -292,19 +295,11 @@ function updateSessionSettings(
     )
     .then((session) => {
       const activitySession = context.mapSession(session);
-      context.engine.dispatch({
+      return {
+        agentSessionId: input.agentSessionId,
         session: activitySession,
-        type: "session/upserted"
-      });
-      const options = activitySession.agentTargetId
-        ? context.engine.getSnapshot().composerOptions.optionsByTargetKey[
-            activitySession.agentTargetId
-          ]
-        : null;
-      if (options?.behavior.refreshModelOptionsAfterSettings === true) {
-        context.loadComposerOptions({ force: true });
-      }
-      return { session: activitySession };
+        settings: activitySession.settings
+      };
     });
 }
 

@@ -8,6 +8,8 @@ import (
 
 type Config struct {
 	CanonicalStore         CanonicalStore
+	TurnSubmissions        TurnSubmissionStore
+	EffectiveHistory       EffectiveHistoryStore
 	SessionManagement      SessionManagementStore
 	SessionBatchManagement SessionBatchManagementStore
 	SessionDeletionGuard   SessionDeletionGuard
@@ -19,6 +21,7 @@ type Config struct {
 	SessionForkState       SessionForkProviderStateBinder
 	SessionForkAttachments SessionForkAttachmentStager
 	Runtime                RuntimeController
+	HistoryRuntime         RuntimeHistoryController
 	RuntimePreparation     RuntimePreparationPort
 	SettingsPolicy         SettingsPolicy
 	Attachments            AttachmentMaterializer
@@ -49,6 +52,8 @@ type Config struct {
 
 type Host struct {
 	store                  CanonicalStore
+	turnSubmissions        TurnSubmissionStore
+	effectiveHistory       EffectiveHistoryStore
 	sessionManagement      SessionManagementStore
 	sessionBatchManagement SessionBatchManagementStore
 	sessionDeletionGuard   SessionDeletionGuard
@@ -60,6 +65,7 @@ type Host struct {
 	sessionForkState       SessionForkProviderStateBinder
 	sessionForkAttachments SessionForkAttachmentStager
 	runtime                RuntimeController
+	historyRuntime         RuntimeHistoryController
 	preparation            RuntimePreparationPort
 	settingsPolicy         SettingsPolicy
 	attachments            AttachmentMaterializer
@@ -99,11 +105,13 @@ func New(config Config) *Host {
 		sessionMutationActor = NewSessionActor()
 	}
 	host := &Host{
-		store: config.CanonicalStore, sessionManagement: config.SessionManagement, sessionBatchManagement: config.SessionBatchManagement, sessionDeletionGuard: config.SessionDeletionGuard, sessionPurge: config.SessionPurge,
+		store: config.CanonicalStore, turnSubmissions: config.TurnSubmissions, effectiveHistory: config.EffectiveHistory,
+		sessionManagement: config.SessionManagement, sessionBatchManagement: config.SessionBatchManagement, sessionDeletionGuard: config.SessionDeletionGuard, sessionPurge: config.SessionPurge,
 		sessionForks: config.SessionForks, sessionForkRuntime: config.SessionForkRuntime,
 		sessionForkContext: config.SessionForkContext, sessionForkState: config.SessionForkState,
 		sessionForkAttachments: config.SessionForkAttachments,
 		runtime:                config.Runtime,
+		historyRuntime:         config.HistoryRuntime,
 		sessionForkRecovery:    config.SessionForkRecovery,
 		preparation:            config.RuntimePreparation, settingsPolicy: config.SettingsPolicy, attachments: config.Attachments,
 		clock: config.Clock, locker: config.SessionLocker, startupGate: config.RuntimeStartGate,
@@ -122,6 +130,12 @@ func New(config Config) *Host {
 	}
 	if host.operations != nil && host.commitObserver != nil {
 		host.operations = &observedRuntimeOperationStore{RuntimeOperationStore: host.operations, host: host}
+	}
+	if host.effectiveHistory != nil && host.commitObserver != nil {
+		host.effectiveHistory = &observedEffectiveHistoryStore{
+			EffectiveHistoryStore: host.effectiveHistory,
+			host:                  host,
+		}
 	}
 	if host.goals != nil && host.commitObserver != nil {
 		host.goals = &observedGoalStateStore{GoalStateStore: host.goals, host: host}
