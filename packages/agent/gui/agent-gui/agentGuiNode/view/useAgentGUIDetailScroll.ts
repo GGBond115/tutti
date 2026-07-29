@@ -15,6 +15,7 @@ import type {
 import { AGENT_TRANSCRIPT_TOP_LOADING_THRESHOLD_PX } from "../../../shared/agentConversation/components/agentTranscriptScrollController";
 import {
   createAgentConversationFollowEndController,
+  isAgentConversationViewportAtEnd,
   type AgentConversationFollowEndEvent
 } from "../../../shared/agentConversation/agentConversationFollowEndController";
 import type { AgentGUINodeViewModel } from "../model/agentGuiNodeTypes";
@@ -29,7 +30,6 @@ import {
 } from "./agentGUIDetailScrollHelpers";
 
 const AGENT_GUI_TOP_MASK_SCROLL_EPSILON_PX = 1;
-const AGENT_GUI_REACHED_END_EPSILON_PX = 1;
 
 interface Input {
   actions: AgentGUINodeViewProps["actions"];
@@ -73,6 +73,8 @@ export function useAgentGUIDetailScroll(input: Input) {
     viewModel
   } = input;
   const [isTimelineScrolledToTop, setIsTimelineScrolledToTop] = useState(true);
+  const [isTimelineScrolledToBottom, setIsTimelineScrolledToBottom] =
+    useState(true);
   const followEndControllerRef = useRef(
     createAgentConversationFollowEndController()
   );
@@ -370,10 +372,16 @@ export function useAgentGUIDetailScroll(input: Input) {
     const captureVirtualViewport = (
       snapshot: AgentTranscriptViewportSnapshot
     ): void => {
+      const isAtEnd = isAgentConversationViewportAtEnd(
+        snapshot.distanceFromBottomPx
+      );
+      setIsTimelineScrolledToBottom(
+        isAgentConversationViewportAtEnd(snapshot.contentDistanceFromBottomPx)
+      );
       if (
         followEndController.getSnapshot() === "detached" &&
         userScrollDirectionRef.current === "toward-end" &&
-        snapshot.distanceFromBottomPx <= AGENT_GUI_REACHED_END_EPSILON_PX
+        isAtEnd
       ) {
         dispatchFollowEnd("user-reached-end");
       }
@@ -459,7 +467,7 @@ export function useAgentGUIDetailScroll(input: Input) {
 
   return {
     followEndMode,
-    isTimelineScrolledToBottom: followEndMode === "following",
+    isTimelineScrolledToBottom,
     isTimelineScrolledToTop,
     setVirtualScrollController,
     scrollTimelineToBottom

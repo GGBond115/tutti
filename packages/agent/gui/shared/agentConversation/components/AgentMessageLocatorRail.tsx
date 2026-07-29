@@ -7,9 +7,9 @@ import {
   useState,
   type FocusEvent,
   type JSX,
-  type PointerEvent,
-  type WheelEvent
+  type PointerEvent
 } from "react";
+import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
 import type { AgentMessageLocatorItem } from "./agentTranscriptModel";
 import {
   findMessageLocatorScrollParent,
@@ -45,8 +45,12 @@ const AGENT_MESSAGE_LOCATOR_PANEL_FADE_MS = 160;
 const AGENT_MESSAGE_LOCATOR_MAX_HEIGHT_PX = 640;
 const AGENT_MESSAGE_LOCATOR_MIN_ITEMS = 4;
 const AGENT_MESSAGE_LOCATOR_MIN_TRAILING_SPACE_PX = 48;
+const AGENT_MESSAGE_LOCATOR_TEMP_DIAGNOSTIC_MARKER =
+  "[TEMP:locator-infinite-scroll]";
 
 export function AgentMessageLocatorRail({
+  agentSessionId,
+  diagnosticRuntime,
   items,
   isConversationHistoryComplete = true,
   isVisible = true,
@@ -55,6 +59,8 @@ export function AgentMessageLocatorRail({
   onLocate,
   viewportSource
 }: {
+  agentSessionId?: string;
+  diagnosticRuntime?: Pick<AgentActivityRuntime, "reportDiagnostic">;
   items: readonly AgentMessageLocatorItem[];
   isConversationHistoryComplete?: boolean;
   isVisible?: boolean;
@@ -73,6 +79,18 @@ export function AgentMessageLocatorRail({
   const locatorRef = useRef<HTMLElement | null>(null);
   const locatorViewportRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const diagnosticItemsRef = useRef<readonly AgentMessageLocatorItem[] | null>(
+    null
+  );
+  const locatorAlignmentInputsRef = useRef<{
+    hasTrailingSpace: boolean;
+    isIdleMounted: boolean;
+    isVisible: boolean;
+    items: readonly AgentMessageLocatorItem[];
+    scrubTargetKey: string | null;
+    visibleActiveKey: string | null;
+    visibleFrame: AgentMessageLocatorVisibleFrame | null;
+  } | null>(null);
   const closePanelTimeoutRef = useRef<number | null>(null);
   const scrubPointerIdRef = useRef<number | null>(null);
   const scrubItemKeyRef = useRef<string | null>(null);
@@ -105,6 +123,23 @@ export function AgentMessageLocatorRail({
   >(new Set());
   const [visibleFrame, setVisibleFrame] =
     useState<AgentMessageLocatorVisibleFrame | null>(null);
+  const reportLocatorDiagnostic = useCallback(
+    (event: string, details: Record<string, unknown>): void => {
+      const reportDiagnostic = diagnosticRuntime?.reportDiagnostic;
+      if (!reportDiagnostic) return;
+      const result = reportDiagnostic.call(diagnosticRuntime, {
+        details: {
+          agentSessionId: agentSessionId ?? null,
+          ...details
+        },
+        event: `${AGENT_MESSAGE_LOCATOR_TEMP_DIAGNOSTIC_MARKER} ${event}`,
+        level: "info",
+        source: "agent-gui"
+      });
+      void Promise.resolve(result).then(undefined, () => {});
+    },
+    [agentSessionId, diagnosticRuntime]
+  );
   const itemByKey = useMemo(
     () => new Map(items.map((item) => [item.key, item])),
     [items]
@@ -147,7 +182,8 @@ export function AgentMessageLocatorRail({
         return;
       }
       const locateOptions = {
-        ...options,
+        align: options.align,
+        behavior: "auto" as const,
         signal
       };
       void Promise.resolve(onLocate(item, locateOptions))
@@ -208,6 +244,25 @@ export function AgentMessageLocatorRail({
     locatorRef
   });
   useEffect(() => {
+    if (diagnosticItemsRef.current !== items) {
+      diagnosticItemsRef.current = items;
+      reportLocatorDiagnostic("items_changed", {
+        duplicateKeyCount: duplicateLocatorFieldCount(
+          items.map((item) => item.key)
+        ),
+        duplicateRowKeyCount: duplicateLocatorFieldCount(
+          items.map((item) => item.rowKey)
+        ),
+        itemCount: items.length,
+        items: items.slice(0, 100).map((item, index) => ({
+          index,
+          rowIndex: item.rowIndex,
+          summaryHash: locatorDiagnosticHash(item.summary),
+          turnGroupIndex: item.turnGroupIndex
+        })),
+        sampleTruncated: items.length > 100
+      });
+    }
     const previousAgentResponseByKey = previousAgentResponseByKeyRef.current;
     const currentKeys = new Set(items.map((item) => item.key));
 
@@ -253,7 +308,7 @@ export function AgentMessageLocatorRail({
     previousAgentResponseByKeyRef.current = new Map(
       items.map((item) => [item.key, item.hasAgentResponse])
     );
-  }, [items, visibleKeys]);
+  }, [items, reportLocatorDiagnostic, visibleKeys]);
   useEffect(() => {
     if (
       !isVisible ||
@@ -415,7 +470,28 @@ export function AgentMessageLocatorRail({
     };
   }, [isIdleMounted, isVisible, items.length, viewportSource]);
   useLayoutEffect(() => {
+    const previousAlignmentInputs = locatorAlignmentInputsRef.current;
+    const alignmentInputs = {
+      hasTrailingSpace,
+      isIdleMounted,
+      isVisible,
+      items,
+      scrubTargetKey,
+      visibleActiveKey,
+      visibleFrame
+    };
+    locatorAlignmentInputsRef.current = alignmentInputs;
+    const shouldAlignLocator =
+      previousAlignmentInputs === null ||
+      previousAlignmentInputs.hasTrailingSpace !== hasTrailingSpace ||
+      previousAlignmentInputs.isIdleMounted !== isIdleMounted ||
+      previousAlignmentInputs.isVisible !== isVisible ||
+      previousAlignmentInputs.items !== items ||
+      previousAlignmentInputs.scrubTargetKey !== scrubTargetKey ||
+      previousAlignmentInputs.visibleActiveKey !== visibleActiveKey ||
+      previousAlignmentInputs.visibleFrame !== visibleFrame;
     if (
+      shouldAlignLocator &&
       isVisible &&
       isIdleMounted &&
       hasTrailingSpace &&
@@ -433,11 +509,22 @@ export function AgentMessageLocatorRail({
           railHeight,
           visibleFrame?.heightPx ?? railHeight
         );
+        const scrollTopBefore = viewport.scrollTop;
         scrollMessageLocatorViewportToIndex(
           viewport,
           selectedIndex,
           viewportHeight
         );
+        if (viewport.scrollTop !== scrollTopBefore) {
+          reportLocatorDiagnostic("selection_autoscroll", {
+            scrollHeight: viewport.scrollHeight,
+            scrollTopAfter: viewport.scrollTop,
+            scrollTopBefore,
+            selectedIndex,
+            viewportHeight,
+            visibleActiveKey
+          });
+        }
       }
     }
     const panel = panelRef.current;
@@ -463,6 +550,7 @@ export function AgentMessageLocatorRail({
     isPanelOpen,
     isVisible,
     items,
+    reportLocatorDiagnostic,
     visibleActiveKey,
     visibleFrame,
     scrubTargetKey
@@ -603,12 +691,19 @@ export function AgentMessageLocatorRail({
       items={items}
       label={label}
       locatorRef={setLocatorElement}
-      locatorViewportRef={locatorViewportRef}
-      onLocatorWheel={containMessageLocatorWheel}
-      onPanelWheel={containMessageLocatorWheel}
+      locatorViewportRef={createMessageLocatorWheelElementRef(
+        locatorViewportRef,
+        "rail",
+        reportLocatorDiagnostic
+      )}
       openPanel={openPanel}
       panelActiveKey={panelActiveKey}
-      panelRef={panelRef}
+      panelRef={createMessageLocatorWheelElementRef(
+        panelRef,
+        "panel",
+        reportLocatorDiagnostic
+      )}
+      panelSelectedKey={visibleActiveKey}
       setActiveKey={setActiveKey}
       shouldRenderPanel={shouldRenderPanel}
       scrubTargetKey={scrubTargetKey}
@@ -622,18 +717,68 @@ export function AgentMessageLocatorRail({
   );
 }
 
-function containMessageLocatorWheel(event: WheelEvent<HTMLDivElement>): void {
+function createMessageLocatorWheelElementRef(
+  targetRef: { current: HTMLDivElement | null },
+  surface: "panel" | "rail",
+  reportDiagnostic: (event: string, details: Record<string, unknown>) => void
+): (element: HTMLDivElement | null) => (() => void) | undefined {
+  return (element) => {
+    targetRef.current = element;
+    if (!element) return;
+    const handleWheel = (event: globalThis.WheelEvent): void => {
+      containMessageLocatorWheel(event, element, surface, reportDiagnostic);
+    };
+    element.addEventListener("wheel", handleWheel, { passive: false });
+    return () => {
+      element.removeEventListener("wheel", handleWheel);
+      if (targetRef.current === element) {
+        targetRef.current = null;
+      }
+    };
+  };
+}
+
+function containMessageLocatorWheel(
+  event: globalThis.WheelEvent,
+  target: HTMLDivElement,
+  surface: "panel" | "rail",
+  reportDiagnostic: (event: string, details: Record<string, unknown>) => void
+): void {
   event.stopPropagation();
   if (event.deltaY === 0) {
     return;
   }
   event.preventDefault();
+  const scrollTopBefore = target.scrollTop;
   const maximumScrollTop = Math.max(
     0,
-    event.currentTarget.scrollHeight - event.currentTarget.clientHeight
+    target.scrollHeight - target.clientHeight
   );
-  event.currentTarget.scrollTop = Math.min(
+  target.scrollTop = Math.min(
     maximumScrollTop,
-    Math.max(0, event.currentTarget.scrollTop + event.deltaY)
+    Math.max(0, target.scrollTop + event.deltaY)
   );
+  reportDiagnostic("wheel", {
+    clientHeight: target.clientHeight,
+    deltaMode: event.deltaMode,
+    deltaY: event.deltaY,
+    maximumScrollTop,
+    scrollHeight: target.scrollHeight,
+    scrollTopAfter: target.scrollTop,
+    scrollTopBefore,
+    surface
+  });
+}
+
+function duplicateLocatorFieldCount(values: readonly string[]): number {
+  return values.length - new Set(values).size;
+}
+
+function locatorDiagnosticHash(value: string): string {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }

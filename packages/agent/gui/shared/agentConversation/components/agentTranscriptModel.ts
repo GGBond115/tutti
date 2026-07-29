@@ -26,6 +26,22 @@ export interface AgentParticipantTurnProjection {
   turnIndexByRowIndex: ReadonlyMap<number, number>;
 }
 
+export function findLastAgentTranscriptMessageRowIndex(
+  rows: readonly AgentTranscriptTurnGroup["rows"][number][]
+): number | null {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const entry = rows[index];
+    if (
+      entry?.row.kind === "message" &&
+      entry.row.speaker === "assistant" &&
+      entry.row.messages.length > 0
+    ) {
+      return entry.rowIndex;
+    }
+  }
+  return null;
+}
+
 export function useEnteringTranscriptRows(
   rowKeys: string[]
 ): ReadonlySet<string> {

@@ -7404,6 +7404,10 @@ button.agent-gui-node__conversation-section-toggle:hover
   color: var(--text-primary, var(--tutti-text-primary));
 }
 
+.agent-gui-message-locator__panel-item[data-selected="true"] {
+  color: var(--text-primary, var(--tutti-text-primary));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .agent-gui-message-locator__dot,
   .agent-gui-message-locator__panel,

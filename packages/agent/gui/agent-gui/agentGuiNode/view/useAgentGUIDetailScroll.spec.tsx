@@ -72,6 +72,51 @@ describe("useAgentGUIDetailScroll", () => {
     expect(result.current.followEndMode).toBe("following");
   });
 
+  it("shows the end control when follow intent is active but geometry is away from the end", () => {
+    const harness = createHarness();
+    const controller = virtualScrollController("conversation-a", {
+      snapshot: viewportSnapshot({
+        distanceFromBottomPx: 2_900,
+        scrollTopPx: 2_000
+      })
+    });
+    harness.virtualScrollControllerRef.current = controller;
+
+    const { result } = renderHook(() =>
+      useAgentGUIDetailScroll(
+        harness.input({
+          activeConversationId: "conversation-a",
+          showTimelineSkeleton: false
+        })
+      )
+    );
+
+    expect(result.current.followEndMode).toBe("following");
+    expect(result.current.isTimelineScrolledToBottom).toBe(false);
+  });
+
+  it("treats retained response-spacer distance as the visual end", () => {
+    const harness = createHarness();
+    const controller = virtualScrollController("conversation-a", {
+      snapshot: viewportSnapshot({
+        contentDistanceFromBottomPx: 0,
+        distanceFromBottomPx: 120
+      })
+    });
+    harness.virtualScrollControllerRef.current = controller;
+
+    const { result } = renderHook(() =>
+      useAgentGUIDetailScroll(
+        harness.input({
+          activeConversationId: "conversation-a",
+          showTimelineSkeleton: false
+        })
+      )
+    );
+
+    expect(result.current.isTimelineScrolledToBottom).toBe(true);
+  });
+
   it("does not use a previous Session controller", () => {
     const harness = createHarness();
     const controller = virtualScrollController("conversation-previous");
@@ -279,13 +324,18 @@ describe("useAgentGUIDetailScroll", () => {
       );
     });
     act(() => {
-      controller.emit(viewportSnapshot({ distanceFromBottomPx: 0 }));
+      controller.emit(viewportSnapshot({ distanceFromBottomPx: 24 }));
     });
     expect(result.current.followEndMode).toBe("detached");
 
     act(() => {
       controller.emitUser("toward-end");
-      controller.emit(viewportSnapshot({ distanceFromBottomPx: 0 }));
+      controller.emit(viewportSnapshot({ distanceFromBottomPx: 24.01 }));
+    });
+    expect(result.current.followEndMode).toBe("detached");
+
+    act(() => {
+      controller.emit(viewportSnapshot({ distanceFromBottomPx: 24 }));
     });
     expect(result.current.followEndMode).toBe("following");
   });
@@ -572,6 +622,7 @@ function viewportSnapshot(
 ): AgentTranscriptViewportSnapshot {
   return {
     contentHeightPx: 5_000,
+    contentDistanceFromBottomPx: overrides.distanceFromBottomPx ?? 0,
     distanceFromBottomPx: 0,
     scrollPaddingBottomPx: 0,
     scrollPaddingTopPx: 0,

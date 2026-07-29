@@ -10,6 +10,7 @@ import {
   type ReactNode,
   type Ref
 } from "react";
+import { useOptionalAgentActivityRuntime } from "../../../agentActivityRuntime";
 import type { WorkspaceLinkAction } from "../../../contexts/workspace/presentation/renderer/actions/workspaceLinkActions";
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../AgentMessageMarkdown";
 import type { AgentGUIProviderSkillOption } from "../../../agent-gui/agentGuiNode/model/agentGuiNodeTypes";
@@ -23,11 +24,7 @@ import {
 } from "./AgentForkThroughTurnButton";
 import { useAgentTurnDisclosureStore } from "./AgentTurnDisclosureContext";
 import { AgentTurnWorkSection } from "./AgentTurnWorkSection";
-import {
-  buildAgentTurnWorkSectionModel,
-  findParticipantHeaderRenderKeys
-} from "./agentTurnWorkSectionModel";
-import { assessAgentTranscriptComplexity } from "./agentTranscriptComplexity";
+import { findParticipantHeaderRenderKeys } from "./agentTurnWorkSectionModel";
 import { stringListEquals } from "./agentTranscriptEquality";
 import {
   AgentMessageLocatorRail,
@@ -42,6 +39,7 @@ import {
   buildTurnGroupIndexByRowIndex,
   buildUserMessageLocatorItems,
   escapeCssString,
+  findLastAgentTranscriptMessageRowIndex,
   findTurnDividerRowIndexes,
   transcriptRowKey,
   useAgentTranscriptDisplayRows,
@@ -62,25 +60,6 @@ import {
 import { useAgentTranscriptTurnPresentation } from "./useAgentTranscriptTurnPresentation";
 import { useAgentTranscriptLocateOperation } from "./useAgentTranscriptLocateOperation";
 import { AgentTranscriptVirtualTurn } from "./AgentTranscriptVirtualTurn";
-
-function findLastMessageRowIndex(
-  rows: readonly {
-    row: AgentConversationVM["rows"][number];
-    rowIndex: number;
-  }[]
-): number | null {
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const entry = rows[index];
-    if (
-      entry?.row.kind === "message" &&
-      entry.row.speaker === "assistant" &&
-      entry.row.messages.length > 0
-    ) {
-      return entry.rowIndex;
-    }
-  }
-  return null;
-}
 
 export type {
   AgentTranscriptAttachmentLocator,
@@ -311,6 +290,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   labels
 }: AgentTranscriptViewProps): JSX.Element {
   "use memo";
+  const agentActivityRuntime = useOptionalAgentActivityRuntime();
   const [expandedToolRows, setExpandedToolRows] = useState<
     Record<string, boolean>
   >({});
@@ -378,6 +358,12 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   const { canonicalTurnById, turnWorkSectionModelByKey, virtualEntries } =
     useAgentTranscriptTurnPresentation(conversation, turnGroups);
   const latestTurnGroup = turnGroups.at(-1) ?? null;
+  const latestContentTurn =
+    latestTurnGroup?.turnId === null || latestTurnGroup?.turnId === undefined
+      ? null
+      : (conversation.sourceDetail.turns[
+          turnIndexById.get(latestTurnGroup.turnId) ?? -1
+        ] ?? null);
   const latestCanonicalTurn =
     latestTurnGroup?.turnId === null || latestTurnGroup?.turnId === undefined
       ? null
@@ -645,7 +631,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
         onFork={() => onForkThroughTurn?.(forkAction.turnId)}
       />
     ) : null;
-    const footerRowIndex = findLastMessageRowIndex(group.rows);
+    const footerRowIndex = findLastAgentTranscriptMessageRowIndex(group.rows);
     return (
       <Fragment key={group.key}>
         {group.rows.map(({ row, rowIndex }) => {
@@ -690,7 +676,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
         onFork={() => onForkThroughTurn?.(forkAction.turnId)}
       />
     ) : null;
-    const footerRowIndex = findLastMessageRowIndex(group.rows);
+    const footerRowIndex = findLastAgentTranscriptMessageRowIndex(group.rows);
 
     return (
       <AgentTurnWorkSection
@@ -735,6 +721,8 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   return (
     <>
       <AgentMessageLocatorRail
+        agentSessionId={agentSessionId}
+        diagnosticRuntime={agentActivityRuntime ?? undefined}
         items={userMessageLocatorItems}
         isConversationHistoryComplete={isConversationHistoryComplete}
         isVisible={isVisible}
@@ -770,6 +758,9 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
                 gapAfterPx={virtualEntries[virtualTurn.index]?.gapAfterPx ?? 0}
                 index={virtualTurn.index}
                 rowVirtualizer={rowVirtualizer}
+                synchronousMeasurementKey={
+                  isLatestTurnInProgress ? latestContentTurn : undefined
+                }
                 turnKey={group.key}
               >
                 {renderTurnGroup(group)}

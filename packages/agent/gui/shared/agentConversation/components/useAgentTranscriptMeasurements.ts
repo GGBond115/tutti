@@ -107,15 +107,11 @@ export function useAgentTranscriptMeasurements(
       measuredElementsRef.current.set(turnKey, element);
       mountedElementsPendingSyncMeasureRef.current.set(turnKey, element);
       resizeObservation.observe(element, (observation) => {
-        const key = (observation.target as HTMLElement).dataset
-          .agentTranscriptVirtualTurn;
         const height = Math.ceil(
           observation.borderBoxSize?.[0]?.blockSize ??
             observation.contentRect.height
         );
-        if (key) {
-          scheduleMeasurement(key, observation.target as HTMLElement, height);
-        }
+        scheduleMeasurement(turnKey, observation.target as HTMLElement, height);
       });
     },
     [resizeObservation, scheduleMeasurement]

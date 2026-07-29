@@ -7,6 +7,7 @@ export function AgentTranscriptVirtualTurn({
   gapAfterPx,
   index,
   rowVirtualizer,
+  synchronousMeasurementKey,
   turnKey
 }: {
   children: ReactNode;
@@ -14,17 +15,16 @@ export function AgentTranscriptVirtualTurn({
   gapAfterPx: number;
   index: number;
   rowVirtualizer: AgentTranscriptRowVirtualizer;
+  synchronousMeasurementKey?: unknown;
   turnKey: string;
 }): JSX.Element {
   const handleElement = useCallback(
     (element: HTMLDivElement | null) =>
       rowVirtualizer.measureElement(turnKey, element),
-    [rowVirtualizer, turnKey]
+    [rowVirtualizer, synchronousMeasurementKey, turnKey]
   );
   return (
     <div
-      ref={handleElement}
-      className="agent-gui-transcript-virtual-item"
       data-index={index}
       data-agent-transcript-virtual-turn={turnKey}
       style={{
@@ -36,7 +36,13 @@ export function AgentTranscriptVirtualTurn({
         overflow: constrainedHeightPx === undefined ? undefined : "hidden"
       }}
     >
-      {children}
+      <div
+        ref={handleElement}
+        className="agent-gui-transcript-virtual-item"
+        data-agent-transcript-virtual-turn-content={turnKey}
+      >
+        {children}
+      </div>
     </div>
   );
 }

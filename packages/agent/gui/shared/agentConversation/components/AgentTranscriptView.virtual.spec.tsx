@@ -123,7 +123,11 @@ describe("AgentTranscriptView Codex-style virtual rendering", () => {
     expect(turns.at(-1)?.dataset.agentTranscriptVirtualTurn).toBe("turn-39");
     expect(turns.every((turn) => turn.style.transform === "")).toBe(true);
     expect(
-      turns.at(-1)?.querySelectorAll(":scope > .agent-gui-transcript-row")
+      turns
+        .at(-1)
+        ?.querySelectorAll(
+          ":scope > .agent-gui-transcript-virtual-item > .agent-gui-transcript-row"
+        )
     ).toHaveLength(2);
     expect(screen.queryByText("turn 0 user row")).toBeNull();
   });
@@ -243,7 +247,7 @@ describe("AgentTranscriptView Codex-style virtual rendering", () => {
     );
     const measuredTurns = [
       ...document.querySelectorAll<HTMLElement>(
-        "[data-agent-transcript-virtual-turn]"
+        "[data-agent-transcript-virtual-turn-content]"
       )
     ].slice(0, 2);
     const observer = TestResizeObserver.instances[0];
@@ -299,20 +303,74 @@ describe("AgentTranscriptView Codex-style virtual rendering", () => {
     expect(offsetHeight).not.toHaveBeenCalled();
   });
 
+  it("remeasures the latest turn synchronously when its content turn changes", () => {
+    const conversation = conversationWithMultiRowTurns(4);
+    conversation.sourceDetail.session.activeTurnId = "turn-3";
+    const rendered = renderTranscript(conversation);
+    const offsetHeight = vi
+      .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.dataset.agentTranscriptVirtualTurnContent === "turn-3"
+          ? 520
+          : 0;
+      });
+    offsetHeight.mockClear();
+
+    rendered.rerender(
+      <div
+        data-testid="agent-gui-timeline"
+        style={{ height: "480px", overflow: "auto" }}
+      >
+        <AgentTranscriptView
+          conversation={{
+            ...conversation,
+            rows: conversation.rows.map((row, index) =>
+              index === conversation.rows.length - 1 && row.kind === "message"
+                ? {
+                    ...row,
+                    messages: row.messages.map((message) => ({
+                      ...message,
+                      body: `${message.body} updated`
+                    }))
+                  }
+                : row
+            ),
+            sourceDetail: {
+              ...conversation.sourceDetail,
+              turns: conversation.sourceDetail.turns.map((turn, index) =>
+                index === conversation.sourceDetail.turns.length - 1
+                  ? { ...turn }
+                  : turn
+              )
+            }
+          }}
+          labels={LABELS}
+        />
+      </div>
+    );
+
+    expect(offsetHeight).toHaveBeenCalled();
+    expect(
+      document.querySelector<HTMLElement>(
+        "[data-agent-transcript-virtualized='true']"
+      )?.style.height
+    ).toBe("1396px");
+  });
+
   it("preserves wheel distance across a detached measurement layout", async () => {
     renderTranscript(conversationWithMultiRowTurns(40), {
       followEndMode: "detached"
     });
     const timeline = screen.getByTestId("agent-gui-timeline");
-    const lastTurn = document.querySelector<HTMLElement>(
-      "[data-agent-transcript-virtual-turn='turn-39']"
+    const lastTurnContent = document.querySelector<HTMLElement>(
+      "[data-agent-transcript-virtual-turn-content='turn-39']"
     );
-    expect(lastTurn).toBeTruthy();
+    expect(lastTurnContent).toBeTruthy();
     act(() => {
       timeline.scrollTop = -500;
       fireEvent.scroll(timeline);
       TestResizeObserver.instances[0]?.emit([
-        { height: 400, target: lastTurn! }
+        { height: 400, target: lastTurnContent! }
       ]);
       timeline.dispatchEvent(
         new WheelEvent("wheel", { bubbles: true, deltaY: -40 })
@@ -358,12 +416,21 @@ describe("AgentTranscriptView Codex-style virtual rendering", () => {
 
     expect(settledTurn?.style.height).toBe("280px");
     expect(settledTurn?.style.overflow).toBe("hidden");
+    const settledTurnContent =
+      settledTurn?.querySelector<HTMLElement>(
+        "[data-agent-transcript-virtual-turn-content='turn-0']"
+      ) ?? null;
+    expect(settledTurnContent).toBeTruthy();
+    expect(settledTurnContent?.style.height).toBe("");
+    expect(
+      TestResizeObserver.instances[0]?.observed.has(settledTurnContent!)
+    ).toBe(true);
     expect(activeTurn?.style.height).toBe("");
     expect(latestTurn?.style.height).toBe("");
 
     await act(async () => {
       TestResizeObserver.instances[0]?.emit([
-        { height: 280, target: settledTurn! }
+        { height: 360, target: settledTurnContent! }
       ]);
       await Promise.resolve();
     });

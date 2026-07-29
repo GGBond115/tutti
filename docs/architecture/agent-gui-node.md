@@ -926,6 +926,10 @@ prompt submission, an explicit scroll-to-end request, or the user actually
 reaching the end may also reattach. Content growth,
 layout effects, observers, virtualizer geometry, and near-end thresholds are
 sensors or executors only; they must not transition the mode.
+The bottom-dock control is a geometry projection, not a follow-mode projection:
+the cached physical bottom distance at or below 24px is at the end even while
+user intent remains `detached`, and a `following` viewport farther away still
+shows the control.
 
 Turn-level virtualization has one geometry owner. When the transcript is
 mounted, the transcript virtualizer owns append following, streaming size
@@ -944,11 +948,14 @@ projected by stable Turn key instead of combining a new layout with an old
 index window. Resize observations from one delivery commit measured heights,
 the next layout, and the next range in one synchronous React transaction;
 DOM compensation happens after that commit and immediately reads back the
-browser-accepted scroll position. Newly mounted Turns are checked from layout
-height so a delayed observer delivery cannot leave an estimated slot behind;
-subsequent latest-Turn growth is measured by `ResizeObserver` instead of an
-unconditional layout-effect geometry read. Scroll padding is cached outside the
-scroll hot path. Before a measurement
+browser-accepted scroll position. An unmeasured settled Turn keeps its estimated
+height and clipping on an outer slot while an unconstrained inner node reports
+the real content height. Newly mounted Turns are checked from that inner node
+so a delayed observer delivery cannot leave an estimated slot behind.
+Subsequent latest-Turn growth is measured by `ResizeObserver`; a changed active
+content-Turn identity requests one synchronous mounted-node check instead of
+adding an unconditional layout-effect geometry read. Scroll padding is cached
+outside the scroll hot path. Before a measurement
 layout, the scroll owner snapshots bottom distance and native scroll height;
 wheel input received before that layout settles is accumulated into the
 restored distance. A following transcript starts at native `scrollTop = 0`.
@@ -956,7 +963,12 @@ The bottom-origin scroll controller owns physical distance as
 `max(0, -scrollTop)`. The virtualizer separately subtracts the retained
 latest-Turn response spacer when it calculates the rendered range. The spacer
 is a real sibling after the virtual list; it is not folded into composer
-`scroll-padding`. Turn measurement reports latest-Turn height changes
+`scroll-padding`. A running latest Turn activates it; settlement may retain it
+only within that mounted Session. An explicit scroll-to-end dismisses the
+spacer for that Session and Turn, including while it is running; viewport
+synchronization must not recreate it. A new Session or Turn may activate a new
+spacer, while selecting settled history starts with none. Turn measurement
+reports latest-Turn height changes
 separately and compensates measured rows from their previous bottom offsets.
 Whether ordinary measured rows preserve the viewport is controlled only by the
 latest Turn phase, not by tool or disclosure type. The scroll viewport disables
@@ -991,10 +1003,16 @@ intent. Detail subscribes to that intent; it does not install duplicate native
 input listeners. Every
 read or write checks the current Session identity; a stale controller is inert.
 Virtual range reveal and scroll-to-end writes use the same imperative scroll
-primitive. Its smooth requests run as a 260ms interruptible animation.
+primitive. Running latest-Turn or retained-spacer requests dismiss the spacer
+and reach the end immediately; other smooth requests run as a 260ms
+interruptible animation.
 Mounted message-locator targets use native `scrollIntoView`, matching the
 Codex rail. Wheel, keyboard, pointer, and directional touch intent cancel the
-active animation and any pending layout-preservation transaction.
+active animation and any pending layout-preservation transaction. Virtual Turn
+measurement, viewport resize, bottom-dock synchronization, and pending layout
+preservation may update cached layout during an explicit smooth scroll, but
+their internal compensation must not cancel or replace that user-requested
+target.
 On unmount, an in-memory Session-scoped store retains measured Turn heights
 only. Switching Sessions never restores the previous rendered window or bottom
 distance; the selected Session starts at the end. The height cache is
@@ -1028,12 +1046,16 @@ last message. Its connected dot rail stays vertically centered on the trailing
 edge and scrolls internally when needed, but remains fixed during pointer
 scrubbing so content movement cannot change the mark under the pointer. Hover
 or focus opens the complete single-line user-message list to its left; hover
-controls preview only and never overrides the visible active dot.
+controls preview only and never overrides the visible active dot or realigns
+the internally scrolled rail. Visible-selection and viewport-size changes may
+still keep the selected mark in view. The expanded list preserves the visible
+selection with accent styling while hover uses a separate transient surface.
 `Alt+ArrowUp` and `Alt+ArrowDown` navigate logical user messages from a 24px top
 threshold. The rail mounts during browser idle time and hides when less than
 48px exists between transcript content and the trailing edge. A mounted target
 is scrolled natively by the rail. An unmounted target asks the virtualizer only
-to reveal its stable Turn, then the rail re-queries the exact nested target.
+to reveal and align its stable Turn without smooth scrolling, then the rail
+re-queries the exact nested target.
 Keyboard reveal waits up to 1500ms for that DOM target, scrolls it natively,
 then after 350ms corrects once when the real top error exceeds 24px. Following
 and layout compensation do not overwrite an active locate. Every locate path shares one per-timeline

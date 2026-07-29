@@ -78,6 +78,17 @@ const ITEMS: readonly AgentMessageLocatorItem[] = Array.from(
     turnGroupIndex: index
   })
 );
+const MANY_ITEMS: readonly AgentMessageLocatorItem[] = Array.from(
+  { length: 24 },
+  (_, index) => ({
+    hasAgentResponse: true,
+    key: `many-message-${index + 1}`,
+    rowIndex: index,
+    rowKey: `many-row-${index + 1}`,
+    summary: `Many message ${index + 1}`,
+    turnGroupIndex: index
+  })
+);
 const VIEWPORT_SOURCE = {
   subscribeViewport(
     listener: Parameters<
@@ -88,6 +99,7 @@ const VIEWPORT_SOURCE = {
   ) {
     listener({
       contentHeightPx: 1_000,
+      contentDistanceFromBottomPx: 0,
       distanceFromBottomPx: 0,
       scrollPaddingBottomPx: 0,
       scrollPaddingTopPx: 0,
@@ -199,6 +211,25 @@ describe("AgentMessageLocatorRail", () => {
 
     expect(ticks[0]).toHaveAttribute("data-active", "true");
     expect(ticks[1]).not.toHaveAttribute("data-active");
+  });
+
+  it("does not pull the locator viewport back to the selected message on hover", () => {
+    renderRail({ items: MANY_ITEMS, onLocate: vi.fn() });
+
+    act(() => {
+      TestIntersectionObserver.current?.emit(new Set(["many-message-2"]));
+    });
+
+    const locator = screen.getByTestId("agent-message-locator");
+    const viewport = screen.getByTestId("agent-message-locator-viewport");
+    const ticks = locator.querySelectorAll<HTMLElement>(
+      ".agent-gui-message-locator__tick"
+    );
+    viewport.scrollTop = 64;
+
+    fireEvent.mouseEnter(ticks[10]!);
+
+    expect(viewport.scrollTop).toBe(64);
   });
 
   it("keeps the previous active Turn across a virtualized empty frame", () => {
@@ -381,6 +412,23 @@ describe("AgentMessageLocatorRail", () => {
       block: "start"
     });
     expect(timeline.scrollTop).toBe(-200);
+  });
+
+  it("reveals an unmounted click target without smooth virtual scrolling", async () => {
+    const onLocate = vi.fn(() => Promise.resolve(null));
+    render(<RailHarness items={ITEMS} mountedItems={[]} onLocate={onLocate} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Message 1" }));
+    await act(async () => undefined);
+
+    expect(onLocate).toHaveBeenCalledWith(
+      ITEMS[0],
+      expect.objectContaining({
+        align: "top",
+        behavior: "auto",
+        signal: expect.any(AbortSignal)
+      })
+    );
   });
 
   it("defers mounting the rail until the browser is idle", () => {
@@ -615,6 +663,9 @@ describe("AgentMessageLocatorRail", () => {
 
     fireEvent.mouseEnter(panelItems[2]!);
     expect(panelItems[2]).toHaveAttribute("data-active", "true");
+    expect(panelItems[2]).not.toHaveAttribute("data-selected");
+    expect(panelItems[0]).toHaveAttribute("data-selected", "true");
+    expect(panelItems[0]).toHaveAttribute("aria-current", "true");
     expect(dots[0]).toHaveAttribute("data-active", "true");
     expect(dots[2]).not.toHaveAttribute("data-active");
 

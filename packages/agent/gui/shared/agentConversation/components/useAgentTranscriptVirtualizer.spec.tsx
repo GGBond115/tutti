@@ -1,6 +1,11 @@
 import { act, renderHook } from "@testing-library/react";
-import { createRef } from "react";
+import { createRef, type RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  hasActiveAgentTranscriptScroll,
+  setAgentTranscriptScrollTop
+} from "./agentTranscriptScrollController";
+import { useAgentTranscriptLayoutPreservation } from "./useAgentTranscriptLayoutPreservation";
 import {
   useAgentTranscriptVirtualizer,
   type AgentTranscriptViewportSnapshot,
@@ -408,7 +413,7 @@ describe("useAgentTranscriptVirtualizer", () => {
     }
   );
 
-  it("places and retains a response spacer for the running Turn", async () => {
+  it("dismisses the response spacer until a new Session or Turn starts", async () => {
     const timeline = document.createElement("div");
     timeline.style.scrollPaddingBottom = "120px";
     const host = document.createElement("div");
@@ -416,15 +421,23 @@ describe("useAgentTranscriptVirtualizer", () => {
     document.body.append(timeline);
     const controller = createRef<AgentTranscriptVirtualScrollController>();
     const { result, rerender, unmount } = renderHook(
-      ({ inProgress }) =>
+      ({ agentSessionId, followEndMode, inProgress, turnKey }) =>
         useAgentTranscriptVirtualizer({
-          agentSessionId: "session-response-spacer",
-          entries: [{ gapAfterPx: 0, key: "turn-1" }],
+          agentSessionId,
+          entries: [{ gapAfterPx: 0, key: turnKey }],
+          followEndMode,
           isLatestTurnInProgress: inProgress,
-          latestTurnKey: "turn-1",
+          latestTurnKey: turnKey,
           virtualScrollControllerRef: controller
         }),
-      { initialProps: { inProgress: true } }
+      {
+        initialProps: {
+          agentSessionId: "session-response-spacer",
+          followEndMode: "following" as "detached" | "following",
+          inProgress: true,
+          turnKey: "turn-1"
+        }
+      }
     );
 
     act(() => {
@@ -434,10 +447,153 @@ describe("useAgentTranscriptVirtualizer", () => {
     await act(async () => Promise.resolve());
 
     expect(result.current.responseSpacerHeightPx).toBe(120);
-    rerender({ inProgress: false });
+    act(() => controller.current?.scrollToEnd());
+    expect(result.current.responseSpacerHeightPx).toBe(0);
+    act(() => controller.current?.syncViewport({ followEnd: true }));
+    expect(result.current.responseSpacerHeightPx).toBe(0);
+
+    rerender({
+      agentSessionId: "session-next",
+      followEndMode: "following",
+      inProgress: true,
+      turnKey: "turn-1"
+    });
+    act(() => controller.current?.syncViewport({ followEnd: true }));
     expect(result.current.responseSpacerHeightPx).toBe(120);
     act(() => controller.current?.scrollToEnd());
+    expect(result.current.responseSpacerHeightPx).toBe(0);
+
+    rerender({
+      agentSessionId: "session-next",
+      followEndMode: "following",
+      inProgress: true,
+      turnKey: "turn-2"
+    });
+    act(() => controller.current?.syncViewport({ followEnd: true }));
     expect(result.current.responseSpacerHeightPx).toBe(120);
+
+    rerender({
+      agentSessionId: "session-next",
+      followEndMode: "following",
+      inProgress: false,
+      turnKey: "turn-2"
+    });
+    expect(result.current.responseSpacerHeightPx).toBe(120);
+    act(() => controller.current?.scrollToEnd());
+    expect(result.current.responseSpacerHeightPx).toBe(0);
+
+    rerender({
+      agentSessionId: "session-next",
+      followEndMode: "detached",
+      inProgress: true,
+      turnKey: "turn-3"
+    });
+    act(() => controller.current?.scrollToEnd());
+    expect(result.current.responseSpacerHeightPx).toBe(0);
+    rerender({
+      agentSessionId: "session-next",
+      followEndMode: "following",
+      inProgress: true,
+      turnKey: "turn-3"
+    });
+    act(() => controller.current?.syncViewport({ followEnd: true }));
+    expect(result.current.responseSpacerHeightPx).toBe(0);
+
+    act(() => result.current.setVirtualizerHostElement(null));
+    unmount();
+    timeline.remove();
+  });
+
+  it("scrolls instantly while the latest Turn is running or a response spacer exists", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const timeline = document.createElement("div");
+    const host = document.createElement("div");
+    timeline.append(host);
+    document.body.append(timeline);
+    const controller = createRef<AgentTranscriptVirtualScrollController>();
+    const { result, rerender, unmount } = renderHook(
+      ({ inProgress }) =>
+        useAgentTranscriptVirtualizer({
+          agentSessionId: "session-running-instant-end",
+          entries: [{ gapAfterPx: 0, key: "turn-1" }],
+          isLatestTurnInProgress: inProgress,
+          latestTurnKey: "turn-1",
+          virtualScrollControllerRef: controller
+        }),
+      { initialProps: { inProgress: true } }
+    );
+    act(() => {
+      result.current.setVirtualizerHostElement(host);
+      result.current.rowVirtualizer.connectScrollElement(timeline);
+    });
+    await act(async () => Promise.resolve());
+    expect(result.current.responseSpacerHeightPx).toBeGreaterThan(0);
+
+    rerender({ inProgress: false });
+    timeline.scrollTop = -1_000;
+    frames.length = 0;
+    act(() => controller.current?.scrollToEnd({ behavior: "smooth" }));
+
+    expect(frames).toHaveLength(0);
+    expect(timeline.scrollTop).toBe(0);
+    expect(result.current.responseSpacerHeightPx).toBe(0);
+
+    rerender({ inProgress: true });
+    timeline.scrollTop = -1_000;
+    frames.length = 0;
+    act(() => controller.current?.scrollToEnd({ behavior: "smooth" }));
+
+    expect(frames).toHaveLength(0);
+    expect(timeline.scrollTop).toBe(0);
+    act(() => result.current.setVirtualizerHostElement(null));
+    unmount();
+    timeline.remove();
+  });
+
+  it("does not place a response spacer when opening settled session history", async () => {
+    const timeline = document.createElement("div");
+    timeline.style.scrollPaddingBottom = "120px";
+    const host = document.createElement("div");
+    timeline.append(host);
+    document.body.append(timeline);
+    const { result, rerender, unmount } = renderHook(
+      ({ agentSessionId, inProgress }) =>
+        useAgentTranscriptVirtualizer({
+          agentSessionId,
+          entries: [{ gapAfterPx: 0, key: "turn-1" }],
+          isLatestTurnInProgress: inProgress,
+          latestTurnKey: "turn-1"
+        }),
+      {
+        initialProps: {
+          agentSessionId: "session-running",
+          inProgress: true
+        }
+      }
+    );
+
+    act(() => {
+      result.current.setVirtualizerHostElement(host);
+      result.current.rowVirtualizer.connectScrollElement(timeline);
+    });
+    await act(async () => Promise.resolve());
+    expect(result.current.responseSpacerHeightPx).toBe(120);
+
+    rerender({
+      agentSessionId: "session-settled",
+      inProgress: false
+    });
+    expect(result.current.responseSpacerHeightPx).toBe(0);
+
+    rerender({
+      agentSessionId: "session-running",
+      inProgress: false
+    });
+    expect(result.current.responseSpacerHeightPx).toBe(0);
 
     act(() => result.current.setVirtualizerHostElement(null));
     unmount();
@@ -544,6 +700,155 @@ describe("useAgentTranscriptVirtualizer", () => {
     act(() => result.current.setVirtualizerHostElement(null));
     unmount();
     timeline.remove();
+  });
+
+  it("finishes a smooth end scroll across newly measured virtual Turns", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const timeline = document.createElement("div");
+    const host = document.createElement("div");
+    const measuredTurn = document.createElement("div");
+    measuredTurn.dataset.agentTranscriptVirtualTurn = "turn-8";
+    vi.spyOn(measuredTurn, "offsetHeight", "get").mockReturnValue(600);
+    host.append(measuredTurn);
+    timeline.append(host);
+    document.body.append(timeline);
+    const controller = createRef<AgentTranscriptVirtualScrollController>();
+    const { result, unmount } = renderHook(() =>
+      useAgentTranscriptVirtualizer({
+        agentSessionId: "session-smooth-measurement",
+        entries: Array.from({ length: 9 }, (_, index) => ({
+          gapAfterPx: 12,
+          key: `turn-${index}`
+        })),
+        virtualScrollControllerRef: controller
+      })
+    );
+    act(() => {
+      result.current.setVirtualizerHostElement(host);
+      result.current.rowVirtualizer.connectScrollElement(timeline);
+      timeline.scrollTop = -2_000;
+      controller.current?.scrollToEnd({ behavior: "smooth" });
+    });
+    act(() => frames.shift()?.(130));
+    expect(timeline.scrollTop).toBeGreaterThan(-2_000);
+    expect(timeline.scrollTop).toBeLessThan(0);
+
+    act(() => {
+      result.current.rowVirtualizer.measureElement("turn-8", measuredTurn);
+      result.current.rowVirtualizer.syncMeasurements();
+    });
+    act(() => result.current.rowVirtualizer.syncLayout());
+    act(() => frames.shift()?.(260));
+
+    expect(timeline.scrollTop).toBe(0);
+    act(() => result.current.setVirtualizerHostElement(null));
+    unmount();
+    timeline.remove();
+  });
+
+  it.each(["resize", "syncViewport"] as const)(
+    "does not let %s interrupt an active smooth end scroll",
+    (interruption) => {
+      const frames: FrameRequestCallback[] = [];
+      vi.spyOn(performance, "now").mockReturnValue(0);
+      vi.spyOn(window, "requestAnimationFrame").mockImplementation(
+        (callback) => {
+          frames.push(callback);
+          return frames.length;
+        }
+      );
+      const timeline = document.createElement("div");
+      const host = document.createElement("div");
+      timeline.append(host);
+      document.body.append(timeline);
+      const controller = createRef<AgentTranscriptVirtualScrollController>();
+      const { result, unmount } = renderHook(() =>
+        useAgentTranscriptVirtualizer({
+          agentSessionId: `session-smooth-${interruption}`,
+          entries: Array.from({ length: 9 }, (_, index) => ({
+            gapAfterPx: 12,
+            key: `turn-${index}`
+          })),
+          followEndMode: "detached",
+          virtualScrollControllerRef: controller
+        })
+      );
+      act(() => {
+        result.current.setVirtualizerHostElement(host);
+        result.current.rowVirtualizer.connectScrollElement(timeline);
+        timeline.scrollTop = -2_000;
+        controller.current?.scrollToEnd({ behavior: "smooth" });
+      });
+      act(() => frames.shift()?.(130));
+      expect(timeline.scrollTop).toBeGreaterThan(-2_000);
+      expect(timeline.scrollTop).toBeLessThan(0);
+
+      act(() => {
+        if (interruption === "resize") {
+          const viewportObserver = TestResizeObserver.instances.find(
+            (observer) => observer.observed.has(timeline)
+          );
+          viewportObserver?.emit(timeline, 520);
+        } else {
+          controller.current?.syncViewport({ followEnd: false });
+        }
+      });
+      expect(hasActiveAgentTranscriptScroll(timeline)).toBe(true);
+      act(() => frames.shift()?.(260));
+
+      expect(timeline.scrollTop).toBe(0);
+      act(() => result.current.setVirtualizerHostElement(null));
+      unmount();
+      timeline.remove();
+    }
+  );
+
+  it("does not let pending layout preservation interrupt an active smooth scroll", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const timeline = document.createElement("div");
+    let scrollHeight = 1_000;
+    Object.defineProperty(timeline, "scrollHeight", {
+      configurable: true,
+      get: () => scrollHeight
+    });
+    timeline.scrollTop = -500;
+    const scrollElementRef = {
+      current: timeline
+    } as RefObject<HTMLElement | null>;
+    const scrollPaddingBottomRef = {
+      current: 0
+    } as RefObject<number>;
+    const { result, unmount } = renderHook(() =>
+      useAgentTranscriptLayoutPreservation({
+        getDistanceFromBottomPx: () => -timeline.scrollTop,
+        scrollElementRef,
+        scrollPaddingBottomRef
+      })
+    );
+    act(() => result.current.preserveForNextLayout());
+    act(() => setAgentTranscriptScrollTop(timeline, 0, "smooth"));
+    scrollHeight = 1_200;
+
+    let restoredDistance: number | null = null;
+    act(() => {
+      restoredDistance = result.current.restoreAfterScrollHeightChange();
+    });
+
+    expect(restoredDistance).toBeNull();
+    expect(hasActiveAgentTranscriptScroll(timeline)).toBe(true);
+    act(() => frames[1]?.(260));
+    expect(timeline.scrollTop).toBe(0);
+    unmount();
   });
 
   it("cancels an active smooth scroll when the viewport disconnects", async () => {

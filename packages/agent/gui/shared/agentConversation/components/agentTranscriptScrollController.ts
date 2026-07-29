@@ -378,6 +378,10 @@ export function cancelAgentTranscriptScroll(element: HTMLElement): void {
   activeScrollByElement.delete(element);
 }
 
+export function hasActiveAgentTranscriptScroll(element: HTMLElement): boolean {
+  return activeScrollByElement.has(element);
+}
+
 export function setAgentTranscriptScrollTop(
   element: HTMLElement,
   top: number,

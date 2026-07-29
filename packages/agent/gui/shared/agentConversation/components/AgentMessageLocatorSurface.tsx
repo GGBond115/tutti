@@ -3,8 +3,7 @@ import type {
   FocusEventHandler,
   PointerEventHandler,
   Ref,
-  RefObject,
-  WheelEventHandler
+  RefObject
 } from "react";
 import type { AgentMessageLocatorItem } from "./agentTranscriptModel";
 import type { AgentMessageLocatorLocateOptions } from "./agentMessageLocatorNavigation";
@@ -27,12 +26,11 @@ interface AgentMessageLocatorSurfaceProps {
   items: readonly AgentMessageLocatorItem[];
   label?: string;
   locatorRef: Ref<HTMLElement>;
-  locatorViewportRef: RefObject<HTMLDivElement | null>;
-  onLocatorWheel: WheelEventHandler<HTMLDivElement>;
-  onPanelWheel: WheelEventHandler<HTMLDivElement>;
+  locatorViewportRef: Ref<HTMLDivElement>;
   openPanel(): void;
   panelActiveKey: string | null;
-  panelRef: RefObject<HTMLDivElement | null>;
+  panelRef: Ref<HTMLDivElement>;
+  panelSelectedKey: string | null;
   setActiveKey(key: string): void;
   shouldRenderPanel: boolean;
   scrubTargetKey: string | null;
@@ -57,11 +55,10 @@ export function AgentMessageLocatorSurface({
   label,
   locatorRef,
   locatorViewportRef,
-  onLocatorWheel,
-  onPanelWheel,
   openPanel,
   panelActiveKey,
   panelRef,
+  panelSelectedKey,
   setActiveKey,
   shouldRenderPanel,
   scrubTargetKey,
@@ -111,7 +108,6 @@ export function AgentMessageLocatorSurface({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={stopPointerScrub}
-        onWheel={onLocatorWheel}
       >
         <div
           className="agent-gui-message-locator__content"
@@ -176,14 +172,15 @@ export function AgentMessageLocatorSurface({
           data-testid="agent-message-locator-panel"
           onMouseEnter={openPanel}
           onMouseLeave={closePanelSoon}
-          onWheel={onPanelWheel}
         >
           {items.map((item) => (
             <button
               key={`panel:${item.key}`}
               type="button"
               className="agent-gui-message-locator__panel-item nodrag tsh-desktop-no-drag"
+              aria-current={item.key === panelSelectedKey ? "true" : undefined}
               data-active={item.key === panelActiveKey ? "true" : undefined}
+              data-selected={item.key === panelSelectedKey ? "true" : undefined}
               data-agent-message-locator-panel-key={item.key}
               onClick={() =>
                 handleLocateItem(item, {

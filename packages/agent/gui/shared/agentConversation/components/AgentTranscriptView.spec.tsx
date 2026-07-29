@@ -2261,8 +2261,14 @@ describe("AgentTranscriptView", () => {
       scrollHeight: { configurable: true, value: 300 }
     });
     panel.scrollTop = 200;
-    fireEvent.wheel(panel, { deltaY: 48 });
+    const panelWheel = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 48
+    });
+    panel.dispatchEvent(panelWheel);
 
+    expect(panelWheel.defaultPrevented).toBe(true);
     expect(timelineWheel).not.toHaveBeenCalled();
     expect(panel.scrollTop).toBe(200);
 
@@ -2276,7 +2282,13 @@ describe("AgentTranscriptView", () => {
       scrollHeight: { configurable: true, value: 300 }
     });
     viewport.scrollTop = 200;
-    fireEvent.wheel(viewport, { deltaY: 48 });
+    const viewportWheel = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 48
+    });
+    viewport.dispatchEvent(viewportWheel);
+    expect(viewportWheel.defaultPrevented).toBe(true);
     expect(timelineWheel).not.toHaveBeenCalled();
     expect(viewport.scrollTop).toBe(200);
   });

@@ -1,4 +1,6 @@
-import type { RefObject } from "react";
+import type { Ref, RefObject } from "react";
+import type { AgentConversationFollowEndMode } from "../agentConversationFollowEndController";
+import type { AgentTranscriptVirtualLayoutEntry } from "./agentTranscriptVirtualizerLayout";
 
 export interface AgentTranscriptVirtualizer {
   layoutRevision: number;
@@ -9,6 +11,15 @@ export interface AgentTranscriptVirtualizer {
   virtualItems: readonly AgentTranscriptVirtualItem[];
   virtualizerHostRef: RefObject<HTMLDivElement | null>;
   windowOffsetPx: number;
+}
+
+export interface AgentTranscriptVirtualizerInput {
+  agentSessionId: string;
+  entries: readonly AgentTranscriptVirtualLayoutEntry[];
+  followEndMode?: AgentConversationFollowEndMode;
+  isLatestTurnInProgress?: boolean;
+  latestTurnKey?: string | null;
+  virtualScrollControllerRef?: Ref<AgentTranscriptVirtualScrollController>;
 }
 
 export interface AgentTranscriptVirtualScrollController {
@@ -32,6 +43,7 @@ export interface AgentTranscriptVirtualScrollController {
 
 export interface AgentTranscriptViewportSnapshot {
   contentHeightPx: number;
+  contentDistanceFromBottomPx: number;
   distanceFromBottomPx: number;
   scrollPaddingBottomPx: number;
   scrollPaddingTopPx: number;

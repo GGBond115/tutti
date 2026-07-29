@@ -5,6 +5,7 @@ import {
 } from "./agentTranscriptPresentationScheduler";
 import {
   agentTranscriptNativeScrollTopForDistance,
+  hasActiveAgentTranscriptScroll,
   setAgentTranscriptScrollTop
 } from "./agentTranscriptScrollController";
 
@@ -70,6 +71,10 @@ export function useAgentTranscriptLayoutPreservation(input: {
     const preservation = pendingRef.current;
     if (!element || !preservation) return null;
     if (element.scrollHeight === preservation.scrollHeightPx) return null;
+    if (hasActiveAgentTranscriptScroll(element)) {
+      clear();
+      return null;
+    }
     const distance = consumeDistance();
     if (distance === null) return null;
     setAgentTranscriptScrollTop(
