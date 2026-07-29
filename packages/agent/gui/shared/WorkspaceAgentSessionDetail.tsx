@@ -52,6 +52,9 @@ export function WorkspaceAgentSessionDetail({
       thinkingLabel,
       toolCallsLabel,
       processing: translate("agentHost.agentGui.processing"),
+      providerContinuation: translate(
+        "agentHost.agentGui.providerContinuation"
+      ),
       turnSummary: translate("agentHost.agentGui.turnSummary"),
       rawTimelineJson: rawTimelineJsonLabel
     }),

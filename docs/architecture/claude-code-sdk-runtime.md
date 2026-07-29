@@ -150,6 +150,24 @@ result during resume, the new generation consumes that tail without attaching
 it to the new canonical Turn. Session close remains permanent and closes the
 current generation without creating a resumable successor.
 
+Background-task lifecycle uses the SDK's `background_tasks_changed` system
+message as a level signal. Its `tasks` array fully replaces the previous live
+set. An empty set means the background children have quiesced; it does not mean
+the root Turn is complete. If the root result already settled, the sidecar
+reserves a synthetic continuation and reports it as waiting. The next root
+assistant message moves that continuation back to running, and only the
+provider's result settles it. The continuation-start timer is diagnostic only:
+it emits `continuation_delayed` and never fabricates completion or interrupts
+the SDK query.
+
+Exact task terminal events and the level signal are not ordered by contract.
+The sidecar therefore waits for a short quiescence grace after the live set
+becomes empty. Exact terminal edges received during that window win; after the
+window, the daemon marks only still-unresolved asynchronous child Turns as
+interrupted. The daemon exposes the root waiting state through normalized
+`provider_continuation` activity semantics, so GUI consumers can render
+"Waiting for Claude to summarize" without branching on the provider name.
+
 ## Protocol and compatibility
 
 The daemon and sidecar exchange newline-delimited JSON over standard input and

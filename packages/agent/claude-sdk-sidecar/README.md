@@ -19,9 +19,18 @@ build step and no bundled entry point beyond the source files.
 ## Sidecar protocol
 
 The daemon and sidecar exchange newline-delimited JSON envelopes over standard
-input and output. Every request and event carries `"version": 5`; either side
+input and output. Every request and event carries `"version": 6`; either side
 rejects unsupported or missing versions instead of guessing compatibility.
 Protocol types and validation live in `src/protocol.ts`.
+
+Protocol version 6 adds background-task level and provider-continuation
+lifecycle events. `background_tasks_changed` is a full replace-set of currently
+running SDK background tasks, not a terminal root-turn signal. When the set
+becomes empty, the sidecar reserves a synthetic continuation and emits
+`turn_waiting`; later root assistant output emits `turn_running`, and only its
+result settles that continuation. A delayed continuation stays live and emits
+`continuation_delayed` for diagnostics instead of being completed by a local
+timeout.
 
 `inspect_fork_checkpoints` and `fork_session` are stateless requests: they do
 not create a `SessionRuntime` or resume a query. They use the official SDK

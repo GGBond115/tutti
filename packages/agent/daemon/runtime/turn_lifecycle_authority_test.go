@@ -388,7 +388,7 @@ func TestCodexAppServerAdapterApprovalErrorPathResumesLifecycle(t *testing.T) {
 func TestLiveTurnLifecyclePhasesCanonicalList(t *testing.T) {
 	t.Parallel()
 
-	want := []string{"submitted", "running", "waiting_approval", "waiting_input"}
+	want := []string{"submitted", "running", "waiting", "waiting_approval", "waiting_input"}
 	if len(activityshared.LiveTurnLifecyclePhases) != len(want) {
 		t.Fatalf("canonical list = %v, want %v", activityshared.LiveTurnLifecyclePhases, want)
 	}

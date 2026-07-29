@@ -39,6 +39,9 @@ function processingRow(
     kind: "processing",
     id: `processing:${turnId ?? "session"}`,
     turnId,
+    ...(detail.providerContinuationWaiting
+      ? { reason: "provider-continuation" as const }
+      : {}),
     occurredAtUnixMs:
       detail.session.updatedAtUnixMs ?? detail.session.createdAtUnixMs ?? null
   };

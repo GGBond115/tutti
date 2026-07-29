@@ -1,6 +1,7 @@
 package agentruntime
 
 import (
+	"sort"
 	"strings"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
@@ -103,6 +104,37 @@ func (s *claudeSDKAdapterSession) claudeSDKTaskLifecycleEvents(session Session, 
 		return nil
 	}
 	return claudeSDKChildEvents(session, child, created, titleChanged, sidecarType)
+}
+
+func (s *claudeSDKAdapterSession) endUnresolvedClaudeSDKBackgroundChildren(session Session) []activityshared.Event {
+	if s == nil || len(s.childSessions) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(s.childSessions))
+	for key := range s.childSessions {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	events := make([]activityshared.Event, 0)
+	for _, key := range keys {
+		child := s.childSessions[key]
+		if !child.Async || claudeSDKChildStatusIsTerminal(child.Status) {
+			continue
+		}
+		updatedAt := unixMS(now())
+		child.Status = "interrupted"
+		child.UpdatedAtUnixMS = updatedAt
+		child.CompletedAtUnixMS = updatedAt
+		s.childSessions[key] = child
+		events = append(events, claudeSDKChildEvents(
+			session,
+			child,
+			false,
+			false,
+			"background_level_ended",
+		)...)
+	}
+	return events
 }
 
 func (s *claudeSDKAdapterSession) updateClaudeSDKChildFromTool(session Session, turnID string, payload map[string]any, _ string, sidecarType string) []activityshared.Event {
@@ -435,6 +467,9 @@ func claudeSDKChildEvents(session Session, child claudeSDKChildSession, created 
 			events = append(events, activityshared.NewActivityCompleted(eventContext("activity-completed"), activityKey, metadata))
 			events = append(events, activityshared.NewTurnCompleted(eventContext("turn-completed"), child.TurnID, activityshared.TurnOutcomeCompleted))
 		}
+	case "background_level_ended":
+		events = append(events, activityshared.NewActivityCompleted(eventContext("activity-completed"), activityKey, metadata))
+		events = append(events, activityshared.NewTurnCompleted(eventContext("turn-completed"), child.TurnID, activityshared.TurnOutcomeInterrupted))
 	case "tool_started", "tool_updated":
 		if created {
 			events = append(events, activityshared.NewTurnStarted(eventContext("turn-started"), child.TurnID))
@@ -460,7 +495,7 @@ func claudeSDKChildEvents(session Session, child claudeSDKChildSession, created 
 
 func claudeSDKChildStatusIsTerminal(status string) bool {
 	switch claudeSDKNormalizeTaskStatus(status) {
-	case string(activityshared.ActivityStatusCompleted), string(activityshared.ActivityStatusFailed), "stopped":
+	case string(activityshared.ActivityStatusCompleted), string(activityshared.ActivityStatusFailed), "stopped", "interrupted":
 		return true
 	default:
 		return false
@@ -519,6 +554,8 @@ func claudeSDKNormalizeTaskStatus(status string) string {
 		return string(activityshared.ActivityStatusCompleted)
 	case "stopped", "cancelled", "canceled":
 		return "stopped"
+	case "interrupted":
+		return "interrupted"
 	case "running", "in_progress", "pending":
 		return string(activityshared.ActivityStatusRunning)
 	default:

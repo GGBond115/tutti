@@ -20,6 +20,7 @@ interface AgentTranscriptItemViewProps {
     toolCallsLabel: (count: number) => string;
     thinkingLabel: string;
     processing: string;
+    providerContinuation?: string;
     turnSummary: string;
     rawTimelineJson?: string;
   };
@@ -130,6 +131,12 @@ export const AgentTranscriptItemView = memo(function AgentTranscriptItemView({
         />
       );
     case "processing":
-      return <AgentProcessingRow row={row} label={labels.processing} />;
+      return (
+        <AgentProcessingRow
+          row={row}
+          label={labels.processing}
+          providerContinuationLabel={labels.providerContinuation}
+        />
+      );
   }
 });

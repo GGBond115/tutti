@@ -17,6 +17,8 @@ import type {
 import { ToolEventProjector } from "./toolEvents.ts";
 import { TaskPlanTracker } from "./taskPlan.ts";
 
+const BACKGROUND_TASK_QUIESCENCE_GRACE_MS = 250;
+
 export class ToolActivityProjector {
   private readonly tools: ToolEventProjector;
   private readonly taskPlan: TaskPlanTracker;
@@ -30,17 +32,24 @@ export class ToolActivityProjector {
   private readonly emit: ClaudeSDKSidecarEventEmitter;
   private readonly onFinalDelegatedTaskSettling: () => void;
   private readonly lastTurnId: () => string;
+  private readonly isAwaitingContinuation: () => boolean;
+  private backgroundTaskLevelObserved = false;
+  private liveBackgroundTaskCount = 0;
+  private backgroundContinuationPending = false;
+  private backgroundTaskQuiescenceTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     activeTurnId: () => string,
     emit: ClaudeSDKSidecarEventEmitter,
     onFinalDelegatedTaskSettling: () => void = () => {},
-    lastTurnId: () => string = activeTurnId
+    lastTurnId: () => string = activeTurnId,
+    isAwaitingContinuation: () => boolean = () => false
   ) {
     this.activeTurnId = activeTurnId;
     this.emit = emit;
     this.onFinalDelegatedTaskSettling = onFinalDelegatedTaskSettling;
     this.lastTurnId = lastTurnId;
+    this.isAwaitingContinuation = isAwaitingContinuation;
     this.taskPlan = new TaskPlanTracker(activeTurnId, emit);
     this.tools = new ToolEventProjector(
       (tool) => this.resolveToolEventTurnId(tool),
@@ -53,6 +62,82 @@ export class ToolActivityProjector {
   resetTurnScratch(): void {
     this.tools.reset();
     this.taskPlan.reset();
+  }
+
+  resetBackgroundTaskLevel(): void {
+    this.clearBackgroundTaskQuiescenceTimer();
+    this.backgroundTaskLevelObserved = false;
+    this.liveBackgroundTaskCount = 0;
+    this.backgroundContinuationPending = false;
+  }
+
+  handleBackgroundTasksChanged(message: Record<string, unknown>): void {
+    const tasks = Array.isArray(message.tasks) ? message.tasks : [];
+    const previousCount = this.liveBackgroundTaskCount;
+    const previouslyObserved = this.backgroundTaskLevelObserved;
+    this.backgroundTaskLevelObserved = true;
+    this.liveBackgroundTaskCount = tasks.length;
+    this.emit({
+      type: "background_tasks_changed",
+      payload: {
+        turnId: this.activeTurnId() || this.lastTurnId(),
+        runningCount: tasks.length
+      }
+    });
+    if (tasks.length > 0) {
+      this.clearBackgroundTaskQuiescenceTimer();
+      this.backgroundContinuationPending = false;
+      return;
+    }
+    if (!previouslyObserved || previousCount === 0) {
+      return;
+    }
+    this.backgroundContinuationPending = true;
+    this.scheduleBackgroundTaskQuiescence();
+    this.reserveBackgroundContinuation();
+  }
+
+  close(): void {
+    this.clearBackgroundTaskQuiescenceTimer();
+  }
+
+  handleRootAssistantStarted(): void {
+    this.backgroundContinuationPending = false;
+  }
+
+  handleRootResultSettled(succeeded: boolean): void {
+    if (!succeeded) {
+      this.backgroundContinuationPending = false;
+      return;
+    }
+    this.reserveBackgroundContinuation();
+  }
+
+  private scheduleBackgroundTaskQuiescence(): void {
+    this.clearBackgroundTaskQuiescenceTimer();
+    const turnId = this.activeTurnId() || this.lastTurnId();
+    this.backgroundTaskQuiescenceTimer = setTimeout(() => {
+      this.backgroundTaskQuiescenceTimer = undefined;
+      if (this.liveBackgroundTaskCount !== 0) {
+        return;
+      }
+      this.emit({
+        type: "background_tasks_quiesced",
+        payload: {
+          turnId,
+          runningCount: 0
+        }
+      });
+    }, BACKGROUND_TASK_QUIESCENCE_GRACE_MS);
+    this.backgroundTaskQuiescenceTimer.unref?.();
+  }
+
+  private clearBackgroundTaskQuiescenceTimer(): void {
+    if (this.backgroundTaskQuiescenceTimer === undefined) {
+      return;
+    }
+    clearTimeout(this.backgroundTaskQuiescenceTimer);
+    this.backgroundTaskQuiescenceTimer = undefined;
   }
 
   completeToolIndex(index: number): boolean {
@@ -538,6 +623,23 @@ export class ToolActivityProjector {
     );
     if (running.length === 1 && running[0] === task) {
       this.onFinalDelegatedTaskSettling();
+    }
+  }
+
+  private reserveBackgroundContinuation(): void {
+    if (!this.backgroundContinuationPending) {
+      return;
+    }
+    if (this.isAwaitingContinuation()) {
+      this.backgroundContinuationPending = false;
+      return;
+    }
+    if (this.activeTurnId()) {
+      return;
+    }
+    this.onFinalDelegatedTaskSettling();
+    if (this.isAwaitingContinuation()) {
+      this.backgroundContinuationPending = false;
     }
   }
 

@@ -118,6 +118,7 @@ export interface WorkspaceAgentSessionDetailViewModel {
   turns: WorkspaceAgentSessionDetailTurn[];
   sessionTurns?: readonly AgentActivityTurn[];
   showProcessingIndicator?: boolean;
+  providerContinuationWaiting?: boolean;
 }
 
 export interface BuildWorkspaceAgentSessionDetailInput {

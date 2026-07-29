@@ -42,6 +42,7 @@ export interface AgentConversationFlowProps {
     toolCallsLabel: (count: number) => string;
     thinkingLabel: string;
     processing: string;
+    providerContinuation?: string;
     turnSummary: string;
     rawTimelineJson?: string;
     userMessageLocator?: string;

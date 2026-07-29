@@ -65,8 +65,15 @@ export function buildCanonicalWorkspaceAgentDetailView({
   );
   const suppressedToolCallIds =
     suppressedUnavailableAskUserQuestionCallIds(sortedTimelineItems);
+  const providerContinuationWaiting = isProviderContinuationWaiting(
+    sortedTimelineItems,
+    session.activeTurnId
+  );
 
   for (const item of sortedTimelineItems) {
+    if (isProviderContinuationItem(item)) {
+      continue;
+    }
     const role = messageRole(item);
     const body = messageBody(item);
     const explicitTurnId = item.turnId?.trim();
@@ -257,8 +264,45 @@ export function buildCanonicalWorkspaceAgentDetailView({
     showProcessingIndicator: shouldShowProcessingIndicator(
       session,
       visibleTurns
-    )
+    ),
+    providerContinuationWaiting
   };
+}
+
+function isProviderContinuationWaiting(
+  items: readonly WorkspaceAgentActivityTimelineItem[],
+  activeTurnId: string | null
+): boolean {
+  if (!activeTurnId) {
+    return false;
+  }
+  let waiting = false;
+  for (const item of items) {
+    if (
+      item.turnId?.trim() !== activeTurnId ||
+      !isProviderContinuationItem(item)
+    ) {
+      continue;
+    }
+    const status = (
+      firstPresentString(
+        item.status,
+        stringRecordValue(item.payload, "status")
+      ) ?? ""
+    ).toLowerCase();
+    waiting =
+      status === "running" || status === "working" || status === "waiting";
+  }
+  return waiting;
+}
+
+function isProviderContinuationItem(
+  item: WorkspaceAgentActivityTimelineItem
+): boolean {
+  return (
+    item.callType === "provider_continuation" ||
+    stringRecordValue(item.payload, "kind") === "provider_continuation"
+  );
 }
 
 function getTurn(

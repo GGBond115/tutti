@@ -116,17 +116,7 @@ export class SessionRuntime {
       emit,
       onActivate: () => this.resetTurnScratch(),
       onSettled: () => this.emitSessionState(),
-      continuationStartTimeoutMs,
-      onContinuationStartTimeout: () => {
-        void this.query?.interrupt?.().catch((error) => {
-          emit({
-            type: "error",
-            payload: {
-              error: `Claude SDK continuation interrupt failed: ${errorMessage(error)}`
-            }
-          });
-        });
-      }
+      continuationStartTimeoutMs
     });
     this.assistantStream = new AssistantStreamProjector(
       () => this.turns.activeId,
@@ -136,7 +126,8 @@ export class SessionRuntime {
       () => this.turns.activeId,
       emit,
       () => this.turns.expectSyntheticContinuation(),
-      () => this.turns.lastTurnId
+      () => this.turns.lastTurnId,
+      () => this.turns.awaitingContinuation
     );
     this.compaction = new CompactionTracker({
       activeTurnId: () => this.turns.activeId,
@@ -501,6 +492,7 @@ export class SessionRuntime {
     this.sessionClosed = true;
     this.executionEpoch += 1;
     this.interactions.rejectAll(new Error("Tool use aborted"));
+    this.activities.close();
     this.turns.close();
     const generation = this.queryGeneration;
     this.queryGeneration = undefined;
@@ -639,6 +631,7 @@ export class SessionRuntime {
       ++this.nextQueryGenerationId,
       this.canceledQueryTailPending
     );
+    this.activities.resetBackgroundTaskLevel();
     this.queryGeneration = generation;
     const permissionMode = effectivePermissionMode(this.configuration.settings);
     const allowBypassPermissions = canBypassPermissions();

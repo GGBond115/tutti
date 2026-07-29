@@ -678,7 +678,7 @@ func applyStatusPayload(session *ProviderActivitySessionProjection, event activi
 			session.TurnPhase = event.Payload.TurnPhase
 		}
 		switch session.TurnPhase {
-		case string(activityshared.TurnPhaseWaitingApproval), string(activityshared.TurnPhaseWaitingInput):
+		case string(activityshared.TurnPhaseWaiting), string(activityshared.TurnPhaseWaitingApproval), string(activityshared.TurnPhaseWaitingInput):
 			session.EffectiveStatus = string(activityshared.SessionStatusWaiting)
 		case string(activityshared.TurnPhaseIdle):
 			session.EffectiveStatus = string(activityshared.SessionStatusIdle)

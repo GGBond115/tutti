@@ -5,6 +5,7 @@ import { SessionRuntime } from "./sessionRuntime.ts";
 import { sidecarClaudeOptionsFromPayload } from "./options.ts";
 import {
   fakeBackgroundBashAndSubagentQuery,
+  fakeBackgroundTasksLevelContinuationQuery,
   fakeDelegatedAssistantParentQuery,
   fakeDelegatedTaskQuery,
   fakeGuidedDelegatedContinuationQuery,
@@ -312,7 +313,7 @@ test("delegated task continuation emits synthetic turn started", async () => {
   }
 });
 
-test("delegated continuation start timeout interrupts and closes its synthetic turn", async () => {
+test("delegated continuation start timeout reports delay without interrupting", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   let interrupts = 0;
   const restoreSink = withSidecarEventSinkForTest((event) =>
@@ -346,17 +347,106 @@ test("delegated continuation start timeout interrupts and closes its synthetic t
     await waitForEvent(events, "task_completed");
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    const timedOut = events.find(
+    const delayed = events.find(
       (event) =>
-        event.type === "turn_completed" &&
-        event.payload?.syntheticTimeout === true
+        event.type === "continuation_delayed" &&
+        String(event.payload?.turnId ?? "").startsWith("synthetic-")
     );
-    assert.match(String(timedOut?.payload?.turnId ?? ""), /^synthetic-/);
+    assert.match(String(delayed?.payload?.turnId ?? ""), /^synthetic-/);
+    assert.equal(delayed?.payload?.waitedMs, 5);
+    assert.equal(interrupts, 0);
     assert.equal(
-      timedOut?.payload?.stopReason,
-      "background_agent_continuation_timeout"
+      events.some((event) => event.payload?.syntheticTimeout === true),
+      false
     );
-    assert.equal(interrupts, 1);
+    await session.close();
+  } finally {
+    restoreSink();
+  }
+});
+
+test("background task level reserves continuation when terminal task edges are missing", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  try {
+    const session = new SessionRuntime(
+      "provider-session-1",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => fakeBackgroundTasksLevelContinuationQuery(prompt),
+      5
+    );
+
+    await session.start();
+    session.exec("turn-1", "delegate task");
+    await waitForEvent(events, "assistant_completed");
+    await waitForEvent(events, "background_tasks_quiesced");
+
+    const synthetic = events.find(
+      (event) =>
+        event.type === "turn_started" && event.payload?.synthetic === true
+    );
+    const syntheticTurnId = String(synthetic?.payload?.turnId ?? "");
+    assert.match(syntheticTurnId, /^synthetic-/u);
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === "background_tasks_changed" &&
+          event.payload?.runningCount === 0
+      )
+    );
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === "background_tasks_quiesced" &&
+          event.payload?.runningCount === 0
+      )
+    );
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === "turn_waiting" &&
+          event.payload?.turnId === syntheticTurnId
+      )
+    );
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === "continuation_delayed" &&
+          event.payload?.turnId === syntheticTurnId
+      )
+    );
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === "turn_running" &&
+          event.payload?.turnId === syntheticTurnId
+      )
+    );
+    assert.equal(
+      events.some((event) => event.type === "task_completed"),
+      false
+    );
+    assert.ok(
+      events.some(
+        (event) =>
+          event.type === "turn_completed" &&
+          event.payload?.turnId === syntheticTurnId
+      )
+    );
   } finally {
     restoreSink();
   }

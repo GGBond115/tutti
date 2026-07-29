@@ -157,7 +157,8 @@ export class SDKMessageRouter {
       (messageSubtype === "task_started" ||
         messageSubtype === "task_progress" ||
         messageSubtype === "task_notification" ||
-        messageSubtype === "task_updated");
+        messageSubtype === "task_updated" ||
+        messageSubtype === "background_tasks_changed");
     const rootContinuationCandidate =
       messageType === "assistant" &&
       !parentToolUseID &&
@@ -276,6 +277,7 @@ export class SDKMessageRouter {
     if (!this.turns.ensureActive("assistant")) {
       return;
     }
+    this.activities.handleRootAssistantStarted();
     const assistantError = stringValue(
       (message as unknown as Record<string, unknown>).error
     );
@@ -384,7 +386,6 @@ export class SDKMessageRouter {
       (message as unknown as Record<string, unknown>).fast_mode_state
     );
     if (
-      this.turns.consumeTimedOutContinuationResult() ||
       this.turns.consumePendingOrphan() ||
       !this.turns.ensureActive("result")
     ) {
@@ -394,14 +395,15 @@ export class SDKMessageRouter {
     const contextUsageGeneration = this.contextUsageGeneration;
     const assistantError = this.activeRootAssistantError;
     this.activeRootAssistantError = "";
+    const succeeded =
+      !this.turns.cancelled &&
+      result.subtype === "success" &&
+      result.is_error !== true &&
+      !assistantError;
     if (this.turns.cancelled) {
       this.turns.settleActive("turn_canceled");
       this.turns.clearCancelled();
-    } else if (
-      result.subtype === "success" &&
-      result.is_error !== true &&
-      !assistantError
-    ) {
+    } else if (succeeded) {
       this.turns.settleActive("turn_completed", { stopReason: "end_turn" });
     } else {
       this.turns.settleActive("turn_failed", {
@@ -416,6 +418,7 @@ export class SDKMessageRouter {
           : {})
       });
     }
+    this.activities.handleRootResultSettled(succeeded);
     void this.emitResultUsage(turnId, contextUsageGeneration, result);
     void this.onMaybeTitle(
       () => this.contextUsageGeneration === contextUsageGeneration

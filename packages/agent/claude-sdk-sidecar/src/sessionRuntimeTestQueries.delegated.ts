@@ -191,6 +191,70 @@ export function fakeTimedOutDelegatedTaskQuery(
   };
 }
 
+export function fakeBackgroundTasksLevelContinuationQuery(
+  prompt: AsyncIterable<SDKUserMessage>
+): AsyncIterable<SDKMessage> & { close: () => void } {
+  return {
+    async *[Symbol.asyncIterator]() {
+      const firstPrompt = await prompt[Symbol.asyncIterator]().next();
+      const promptMessage = firstPrompt.value as SDKUserMessage & {
+        uuid?: string;
+      };
+      yield {
+        ...promptMessage,
+        uuid: promptMessage.uuid,
+        type: "user",
+        parent_tool_use_id: null,
+        session_id: "provider-session-1"
+      } as SDKMessage;
+      yield delegatedAgentToolUse("toolu-agent", "Fast child");
+      yield delegatedAgentToolResult("toolu-agent", "agent-1");
+      yield {
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: [
+          {
+            task_id: "agent-1",
+            task_type: "agent",
+            description: "Fast child"
+          }
+        ],
+        uuid: "33333333-3333-4333-8333-333333333333",
+        session_id: "provider-session-1"
+      } as SDKMessage;
+      yield {
+        type: "result",
+        subtype: "success"
+      } as unknown as SDKMessage;
+      // The task edge is intentionally absent. The replace-set level is the
+      // only authoritative evidence that no background work remains.
+      yield {
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: [],
+        uuid: "44444444-4444-4444-8444-444444444444",
+        session_id: "provider-session-1"
+      } as SDKMessage;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      yield {
+        type: "assistant",
+        uuid: "assistant-background-summary",
+        parent_tool_use_id: null,
+        session_id: "provider-session-1",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "Background summary." }]
+        }
+      } as unknown as SDKMessage;
+      yield {
+        type: "result",
+        subtype: "success"
+      } as unknown as SDKMessage;
+    },
+    close() {}
+  } as AsyncIterable<SDKMessage> & { close: () => void };
+}
+
 export function fakeBackgroundBashAndSubagentQuery(
   prompt: AsyncIterable<SDKUserMessage>
 ): AsyncIterable<SDKMessage> & {

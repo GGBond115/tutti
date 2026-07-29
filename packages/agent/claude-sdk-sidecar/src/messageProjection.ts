@@ -52,6 +52,10 @@ export class MessageProjection {
       this.handleTaskUpdated(message);
       return;
     }
+    if (subtype === "background_tasks_changed") {
+      this.activities.handleBackgroundTasksChanged(message);
+      return;
+    }
     if (subtype === "init" || subtype === "commands_changed") {
       const commands = commandEntries(message.commands);
       if (commands.length > 0 || Array.isArray(message.commands)) {

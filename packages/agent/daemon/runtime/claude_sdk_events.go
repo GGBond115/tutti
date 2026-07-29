@@ -70,6 +70,9 @@ func (a *ClaudeCodeSDKAdapter) sidecarTurnEvents(adapterSession *claudeSDKAdapte
 		return nil, true, nil
 	}
 	rootTurnID := a.claudeSDKRootTurnID(adapterSession, providerTurnID)
+	if events, handled := claudeSDKSidecarContinuationEvents(adapterSession, session, rootTurnID, event); handled {
+		return events, false, nil
+	}
 	switch event.Type {
 	case "ok":
 		return nil, false, nil
@@ -634,6 +637,8 @@ func claudeSDKLifecycleEventDiagnostic(event claudeSDKSidecarEvent) bool {
 	switch strings.TrimSpace(event.Type) {
 	case "sdk_lifecycle_observed",
 		"turn_started", "turn_completed", "turn_canceled", "turn_failed",
+		"turn_waiting", "turn_running", "continuation_delayed",
+		"background_tasks_changed", "background_tasks_quiesced",
 		"task_started", "task_progress", "task_completed":
 		return true
 	case "tool_started", "tool_completed", "tool_failed":

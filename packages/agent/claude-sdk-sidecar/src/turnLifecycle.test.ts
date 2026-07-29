@@ -143,7 +143,7 @@ test("turn lifecycle cancels queued turns and consumes their orphan results", ()
   assert.equal(events.at(-1)?.payload?.turnId, "turn-2");
 });
 
-test("notification-reserved synthetic turn times out and rejects late continuation", async () => {
+test("notification-reserved synthetic turn reports delay without settling", async () => {
   const timeouts = { count: 0 };
   const { lifecycle, events } = createLifecycle({
     continuationStartTimeoutMs: 5,
@@ -160,26 +160,19 @@ test("notification-reserved synthetic turn times out and rejects late continuati
   await new Promise((resolve) => setTimeout(resolve, 20));
 
   assert.equal(timeouts.count, 1);
-  assert.equal(lifecycle.activeId, "");
+  assert.equal(lifecycle.activeId, reserved?.turnId);
+  assert.equal(lifecycle.awaitingContinuation, true);
   assert.deepEqual(events.at(-1), {
-    type: "turn_completed",
+    type: "continuation_delayed",
     payload: {
-      stopReason: "background_agent_continuation_timeout",
-      syntheticTimeout: true,
-      turnId: reserved?.turnId
+      turnId: reserved?.turnId,
+      waitedMs: 5
     }
   });
-  assert.equal(lifecycle.ensureActive("assistant"), undefined);
-  assert.equal(lifecycle.consumeTimedOutContinuationResult(), true);
-
-  lifecycle.enqueue({
-    turnId: "turn-after-timeout",
-    promptUuid: "prompt-after-timeout",
-    settled: false
-  });
-  lifecycle.activateForUserMessage("prompt-after-timeout");
-  assert.equal(lifecycle.activeId, "turn-after-timeout");
-  assert.equal(lifecycle.consumeTimedOutContinuationResult(), false);
+  assert.equal(lifecycle.ensureActive("assistant"), reserved);
+  assert.equal(lifecycle.awaitingContinuation, false);
+  assert.equal(events.at(-1)?.type, "turn_running");
+  lifecycle.settleActive("turn_completed");
 });
 
 test("root output confirms a reserved continuation and disarms its start timeout", async () => {

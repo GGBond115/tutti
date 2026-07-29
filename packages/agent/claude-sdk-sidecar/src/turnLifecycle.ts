@@ -37,7 +37,6 @@ export class TurnLifecycle {
   private cancelledValue = false;
   private completedTurnCount = 0;
   private continuationStartTimer: ReturnType<typeof setTimeout> | undefined;
-  private rejectingTimedOutContinuation = false;
 
   constructor(options: {
     emit: ClaudeSDKSidecarEventEmitter;
@@ -132,9 +131,6 @@ export class TurnLifecycle {
           turn.awaitingProviderTurnIdentity === true
       );
     if (candidate) {
-      if (!candidate.synthetic) {
-        this.rejectingTimedOutContinuation = false;
-      }
       this.bindProviderTurnId(candidate, normalizedPromptUuid);
       this.activate(candidate);
       return;
@@ -148,9 +144,6 @@ export class TurnLifecycle {
         this.confirmContinuationStarted();
       }
       return this.active;
-    }
-    if (this.rejectingTimedOutContinuation && messageType !== "user") {
-      return undefined;
     }
     if (messageType !== "user" && this.pendingOrphanCount > 0) {
       return undefined;
@@ -179,20 +172,25 @@ export class TurnLifecycle {
     if (this.active && !this.active.settled) {
       return this.active;
     }
-    if (this.rejectingTimedOutContinuation) {
-      return undefined;
-    }
     const turn = this.activateSynthetic();
     turn.awaitingContinuation = true;
+    this.emit({
+      type: "turn_waiting",
+      payload: {
+        turnId: turn.turnId,
+        reason: "provider_continuation"
+      }
+    });
     this.continuationStartTimer = setTimeout(() => {
       if (this.active !== turn || turn.settled || !turn.awaitingContinuation) {
         return;
       }
-      turn.awaitingContinuation = false;
-      this.rejectingTimedOutContinuation = true;
-      this.settleActive("turn_completed", {
-        stopReason: "background_agent_continuation_timeout",
-        syntheticTimeout: true
+      this.emit({
+        type: "continuation_delayed",
+        payload: {
+          turnId: turn.turnId,
+          waitedMs: this.continuationStartTimeoutMs
+        }
       });
       this.onContinuationStartTimeout();
     }, this.continuationStartTimeoutMs);
@@ -202,14 +200,6 @@ export class TurnLifecycle {
       }
     ).unref?.();
     return turn;
-  }
-
-  consumeTimedOutContinuationResult(): boolean {
-    if (!this.rejectingTimedOutContinuation) {
-      return false;
-    }
-    this.rejectingTimedOutContinuation = false;
-    return true;
   }
 
   closeSyntheticBeforeUserTurn(): void {
@@ -368,6 +358,13 @@ export class TurnLifecycle {
     }
     this.active.awaitingContinuation = false;
     this.clearContinuationStartTimer();
+    this.emit({
+      type: "turn_running",
+      payload: {
+        turnId: this.active.turnId,
+        reason: "provider_continuation_started"
+      }
+    });
   }
 
   private clearContinuationStartTimer(): void {

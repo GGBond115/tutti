@@ -58,6 +58,50 @@ describe("buildWorkspaceAgentSessionDetailViewModel", () => {
     setAgentGuiI18nTestLocale("zh-CN");
   });
 
+  it("projects provider continuation semantics without rendering a tool call", () => {
+    const activeSession = normalizeAgentActivitySession({
+      ...session,
+      activeTurnId: "turn-1",
+      activeTurn: {
+        agentSessionId: "session-1",
+        turnId: "turn-1",
+        phase: "waiting",
+        origin: "provider_initiated",
+        outcome: null,
+        startedAtUnixMs: 1,
+        settledAtUnixMs: null,
+        updatedAtUnixMs: 2
+      }
+    });
+    const view = buildWorkspaceAgentSessionDetailViewModel({
+      activity,
+      session: activeSession,
+      timelineItems: [
+        item({
+          id: 1,
+          turnId: "turn-1",
+          itemType: "message.user",
+          role: "user",
+          content: "并行处理"
+        }),
+        item({
+          id: 2,
+          turnId: "turn-1",
+          itemType: "activity.started",
+          callType: "provider_continuation",
+          status: "running",
+          payload: {
+            kind: "provider_continuation",
+            status: "running"
+          }
+        })
+      ]
+    });
+
+    expect(view.providerContinuationWaiting).toBe(true);
+    expect(view.turns[0]?.toolCalls).toEqual([]);
+  });
+
   it("groups user, agent messages, and tool calls by turnId in timeline order", async () => {
     setAgentGuiI18nTestLocale("en");
 
