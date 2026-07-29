@@ -232,6 +232,147 @@ VALUES (?, ?)
 	return nil
 }
 
+// applyTuttiModeAgentCommandSourceV5 relaxes the activation source vocabulary
+// so the Agent-issued 'agent_command' source may originate both activation
+// states, mirroring activationbiz.IsStateSource. The v1 rules live in
+// table-level CHECK constraints that SQLite cannot ALTER, so both tables are
+// rebuilt with their full post-v4 column set and the relaxed CHECKs, following
+// the applyWorkspaceWorkflowRevisionPathReuseV3 rebuild pattern.
+func (s *SQLiteStore) applyTuttiModeAgentCommandSourceV5(ctx context.Context) (returnErr error) {
+	applied, err := s.hasMigration(ctx, schemaMigrationTuttiModeAgentCommandSourceV5)
+	if err != nil {
+		return err
+	}
+	if applied {
+		return nil
+	}
+
+	conn, err := s.writeDB.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire Tutti mode agent command source migration connection: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return fmt.Errorf("disable foreign keys for Tutti mode agent command source migration: %w", err)
+	}
+	foreignKeysDisabled := true
+	defer func() {
+		if !foreignKeysDisabled {
+			return
+		}
+		if _, enableErr := conn.ExecContext(context.Background(), "PRAGMA foreign_keys = ON"); returnErr == nil && enableErr != nil {
+			returnErr = fmt.Errorf("restore foreign keys after Tutti mode agent command source migration: %w", enableErr)
+		}
+	}()
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin Tutti mode agent command source migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+CREATE TABLE tutti_mode_activation_revisions_v5 (
+  workspace_id TEXT NOT NULL,
+  activation_id TEXT NOT NULL,
+  revision_id TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision > 0),
+  state TEXT NOT NULL CHECK (state IN ('active', 'inactive')),
+  source TEXT NOT NULL CHECK (source IN ('slash_command', 'badge_remove', 'agent_command')),
+  created_at_unix_ms INTEGER NOT NULL,
+  orchestration_intensity INTEGER NOT NULL DEFAULT 50 CHECK (orchestration_intensity BETWEEN 0 AND 100),
+  speed INTEGER NOT NULL DEFAULT 50 CHECK (speed BETWEEN 0 AND 100),
+  PRIMARY KEY (workspace_id, activation_id, revision_id),
+  UNIQUE (workspace_id, activation_id, revision),
+  FOREIGN KEY (workspace_id, activation_id)
+    REFERENCES tutti_mode_activations(workspace_id, activation_id) ON DELETE CASCADE,
+  CHECK ((state = 'active' AND source IN ('slash_command', 'agent_command')) OR
+         (state = 'inactive' AND source IN ('badge_remove', 'agent_command')))
+);
+
+INSERT INTO tutti_mode_activation_revisions_v5 (
+  workspace_id, activation_id, revision_id, revision, state, source,
+  created_at_unix_ms, orchestration_intensity, speed
+)
+SELECT
+  workspace_id, activation_id, revision_id, revision, state, source,
+  created_at_unix_ms, orchestration_intensity, speed
+FROM tutti_mode_activation_revisions;
+
+DROP TABLE tutti_mode_activation_revisions;
+ALTER TABLE tutti_mode_activation_revisions_v5 RENAME TO tutti_mode_activation_revisions;
+
+CREATE TABLE tutti_mode_turn_snapshots_v5 (
+  workspace_id TEXT NOT NULL,
+  agent_session_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  activation_id TEXT NOT NULL DEFAULT '',
+  revision_id TEXT NOT NULL DEFAULT '',
+  revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+  state TEXT NOT NULL CHECK (state IN ('active', 'inactive')),
+  source TEXT NOT NULL DEFAULT '' CHECK (source IN ('', 'slash_command', 'badge_remove', 'agent_command')),
+  created_at_unix_ms INTEGER NOT NULL,
+  dispatch_state TEXT NOT NULL DEFAULT 'accepted' CHECK (dispatch_state IN ('prepared', 'accepted')),
+  accepted_at_unix_ms INTEGER,
+  orchestration_intensity INTEGER NOT NULL DEFAULT 0 CHECK (orchestration_intensity BETWEEN 0 AND 100),
+  speed INTEGER NOT NULL DEFAULT 0 CHECK (speed BETWEEN 0 AND 100),
+  PRIMARY KEY (workspace_id, agent_session_id, turn_id),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  CHECK ((activation_id = '' AND revision_id = '' AND revision = 0 AND state = 'inactive' AND source = '') OR
+         (activation_id != '' AND revision_id != '' AND revision > 0 AND
+          ((state = 'active' AND source IN ('slash_command', 'agent_command')) OR
+           (state = 'inactive' AND source IN ('badge_remove', 'agent_command')))))
+);
+
+INSERT INTO tutti_mode_turn_snapshots_v5 (
+  workspace_id, agent_session_id, turn_id, activation_id, revision_id, revision,
+  state, source, created_at_unix_ms, dispatch_state, accepted_at_unix_ms,
+  orchestration_intensity, speed
+)
+SELECT
+  workspace_id, agent_session_id, turn_id, activation_id, revision_id, revision,
+  state, source, created_at_unix_ms, dispatch_state, accepted_at_unix_ms,
+  orchestration_intensity, speed
+FROM tutti_mode_turn_snapshots;
+
+DROP TABLE tutti_mode_turn_snapshots;
+ALTER TABLE tutti_mode_turn_snapshots_v5 RENAME TO tutti_mode_turn_snapshots;
+
+CREATE INDEX idx_tutti_mode_turn_snapshots_revision
+  ON tutti_mode_turn_snapshots(workspace_id, activation_id, revision);
+
+INSERT INTO tuttid_schema_migrations (id, applied_at_unix_ms)
+  VALUES (?, ?);
+`, schemaMigrationTuttiModeAgentCommandSourceV5, unixMs(time.Now().UTC())); err != nil {
+		return fmt.Errorf("rebuild Tutti mode activation tables for agent command source: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit Tutti mode agent command source migration: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+		return fmt.Errorf("restore foreign keys after Tutti mode agent command source migration: %w", err)
+	}
+	foreignKeysDisabled = false
+
+	rows, err := conn.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return fmt.Errorf("check foreign keys after Tutti mode agent command source migration: %w", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		var table, parent string
+		var rowID sql.NullInt64
+		var foreignKeyID int
+		if err := rows.Scan(&table, &rowID, &parent, &foreignKeyID); err != nil {
+			return fmt.Errorf("scan foreign key violation after Tutti mode agent command source migration: %w", err)
+		}
+		return fmt.Errorf("tutti mode agent command source migration left foreign key violation: table=%s parent=%s id=%d", table, parent, foreignKeyID)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate foreign key check after Tutti mode agent command source migration: %w", err)
+	}
+	return nil
+}
+
 func tuttiModeColumnExistsTx(ctx context.Context, tx *sql.Tx, tableName, columnName string) (bool, error) {
 	var count int
 	if err := tx.QueryRowContext(ctx, `
