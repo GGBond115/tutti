@@ -28,11 +28,12 @@ Protocol version 6 adds background-task level and continuation diagnostics.
 background tasks, not a terminal root-turn signal. When the set becomes empty,
 the sidecar reserves a synthetic continuation; only the provider's later result
 settles it. The synthetic turn keeps the existing running/processing
-presentation. A delayed continuation stays live and emits
-`continuation_delayed` for diagnostics instead of being completed by a local
-deadline. Background-level events include aggregate provider and projected-task
-counts so diagnostics can expose missing terminal task edges without logging
-task descriptions or prompts.
+presentation. If root output does not begin within 30 seconds, the sidecar
+emits a `continuation_delayed` warning, completes the synthetic reservation,
+interrupts the pending query, and rejects that continuation's late output.
+Background-level events include aggregate provider and projected-task counts so
+diagnostics can expose missing terminal task edges without logging task
+descriptions or prompts.
 
 `inspect_fork_checkpoints` and `fork_session` are stateless requests: they do
 not create a `SessionRuntime` or resume a query. They use the official SDK

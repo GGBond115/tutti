@@ -386,6 +386,7 @@ export class SDKMessageRouter {
       (message as unknown as Record<string, unknown>).fast_mode_state
     );
     if (
+      this.turns.consumeTimedOutContinuationResult() ||
       this.turns.consumePendingOrphan() ||
       !this.turns.ensureActive("result")
     ) {

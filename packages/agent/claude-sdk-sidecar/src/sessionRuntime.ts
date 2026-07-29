@@ -104,7 +104,7 @@ export class SessionRuntime {
     claudeOptions: SidecarClaudeOptions,
     resumeCursor?: Record<string, unknown>,
     queryFactory?: ClaudeQueryFactory,
-    continuationDelayDiagnosticMs?: number
+    continuationStartTimeoutMs = 30_000
   ) {
     const resumeSessionId = stringValue(resumeCursor?.resume);
     this.providerSessionId = resumeSessionId || providerSessionId;
@@ -116,7 +116,17 @@ export class SessionRuntime {
       emit,
       onActivate: () => this.resetTurnScratch(),
       onSettled: () => this.emitSessionState(),
-      continuationDelayDiagnosticMs
+      continuationStartTimeoutMs,
+      onContinuationStartTimeout: () => {
+        void this.query?.interrupt?.().catch((error) => {
+          emit({
+            type: "error",
+            payload: {
+              error: `Claude SDK continuation interrupt failed: ${errorMessage(error)}`
+            }
+          });
+        });
+      }
     });
     this.assistantStream = new AssistantStreamProjector(
       () => this.turns.activeId,

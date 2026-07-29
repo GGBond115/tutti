@@ -165,20 +165,20 @@ session-level child summaries.
     order is `turn_started` and then `task_completed`; the later root assistant
     confirms that reserved provider turn instead of opening another one.
   - If root output does not begin within 30 seconds, emit the
-    `continuation_delayed` warning with the elapsed threshold. Keep the
-    synthetic reservation live, do not interrupt the SDK query, and accept
-    later provider output. Cancellation disarms the diagnostic timer and
-    preserves the durable canceled outcome.
+    `continuation_delayed` warning, complete the reservation with
+    `stop_reason=background_agent_continuation_timeout`, interrupt the pending
+    SDK query, and drop that continuation's later output. Cancellation disarms
+    the same timeout and preserves the durable canceled outcome.
 
   Do not infer native SDK order from persisted message timestamps. Use the
   per-session lifecycle sequence to verify that the adapter-established
-  provider start precedes the final normalized child terminal and that delayed
-  root output confirms the same provider turn after the warning.
+  provider start precedes the final normalized child terminal and that root
+  output either confirms that provider turn or reaches the bounded timeout.
 
 - Validate: test both event orders—root terminal before the last child and last
-  child before root terminal—plus continuation start, delayed warning,
-  cancellation, and guidance during the reserved window. Confirm that composer
-  availability follows only the durable canonical root.
+  child before root terminal—plus continuation start, timeout, late-output
+  rejection, cancellation, and guidance during the reserved window. Confirm
+  that composer availability follows only the durable canonical root.
 
 ### Claude child card shows a generic Agent title and no task detail
 

@@ -165,7 +165,7 @@ export function fakeDelegatedTaskQuery(
   } as AsyncIterable<SDKMessage>;
 }
 
-export function fakeDelayedDelegatedTaskQuery(
+export function fakeTimedOutDelegatedTaskQuery(
   prompt: AsyncIterable<SDKUserMessage>,
   onInterrupt: () => void
 ): AsyncIterable<SDKMessage> & {

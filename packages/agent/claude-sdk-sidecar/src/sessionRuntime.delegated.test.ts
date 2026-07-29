@@ -11,7 +11,7 @@ import {
   fakeGuidedDelegatedContinuationQuery,
   fakeRacedDelegatedTaskAliasQuery,
   fakeStoppableDelegatedTaskQuery,
-  fakeDelayedDelegatedTaskQuery
+  fakeTimedOutDelegatedTaskQuery
 } from "./sessionRuntimeTestQueries.delegated.ts";
 import {
   fakeConcurrentDelegatedTaskCreatedHookQuery,
@@ -313,7 +313,7 @@ test("delegated task continuation emits synthetic turn started", async () => {
   }
 });
 
-test("delegated continuation delay diagnostic does not interrupt", async () => {
+test("delegated continuation start timeout interrupts and closes its synthetic turn", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   let interrupts = 0;
   const restoreSink = withSidecarEventSinkForTest((event) =>
@@ -336,7 +336,7 @@ test("delegated continuation delay diagnostic does not interrupt", async () => {
       sidecarClaudeOptionsFromPayload({}),
       undefined,
       ({ prompt }) =>
-        fakeDelayedDelegatedTaskQuery(prompt, () => {
+        fakeTimedOutDelegatedTaskQuery(prompt, () => {
           interrupts += 1;
         }),
       5
@@ -354,12 +354,17 @@ test("delegated continuation delay diagnostic does not interrupt", async () => {
     );
     assert.match(String(delayed?.payload?.turnId ?? ""), /^synthetic-/);
     assert.equal(delayed?.payload?.waitedMs, 5);
-    assert.equal(interrupts, 0);
-    assert.equal(
-      events.some((event) => event.payload?.syntheticTimeout === true),
-      false
+    const timedOut = events.find(
+      (event) =>
+        event.type === "turn_completed" &&
+        event.payload?.syntheticTimeout === true
     );
-    await session.close();
+    assert.equal(timedOut?.payload?.turnId, delayed?.payload?.turnId);
+    assert.equal(
+      timedOut?.payload?.stopReason,
+      "background_agent_continuation_timeout"
+    );
+    assert.equal(interrupts, 1);
   } finally {
     restoreSink();
   }
@@ -392,7 +397,6 @@ test("background task level reserves continuation when terminal task edges are m
 
     await session.start();
     session.exec("turn-1", "delegate task");
-    await waitForEvent(events, "assistant_completed");
     await waitForEvent(events, "background_tasks_quiesced");
 
     const synthetic = events.find(
@@ -443,15 +447,21 @@ test("background task level reserves continuation when terminal task edges are m
       events.some(
         (event) =>
           event.type === "turn_completed" &&
-          event.payload?.turnId === syntheticTurnId
+          event.payload?.turnId === syntheticTurnId &&
+          event.payload?.syntheticTimeout === true &&
+          event.payload?.stopReason === "background_agent_continuation_timeout"
       )
+    );
+    assert.equal(
+      events.filter((event) => event.type === "assistant_completed").length,
+      0
     );
   } finally {
     restoreSink();
   }
 });
 
-test("cancel during delegated continuation wait disarms delay diagnostic", async () => {
+test("cancel during delegated continuation wait disarms timeout", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   let interrupts = 0;
   const restoreSink = withSidecarEventSinkForTest((event) =>
@@ -474,7 +484,7 @@ test("cancel during delegated continuation wait disarms delay diagnostic", async
       sidecarClaudeOptionsFromPayload({}),
       undefined,
       ({ prompt }) =>
-        fakeDelayedDelegatedTaskQuery(prompt, () => {
+        fakeTimedOutDelegatedTaskQuery(prompt, () => {
           interrupts += 1;
         }),
       100

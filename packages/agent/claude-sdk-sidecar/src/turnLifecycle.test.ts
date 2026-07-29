@@ -143,9 +143,13 @@ test("turn lifecycle cancels queued turns and consumes their orphan results", ()
   assert.equal(events.at(-1)?.payload?.turnId, "turn-2");
 });
 
-test("notification-reserved synthetic turn reports delay without settling", async () => {
+test("notification-reserved synthetic turn times out and rejects late continuation", async () => {
+  const timeouts = { count: 0 };
   const { lifecycle, events } = createLifecycle({
-    continuationDelayDiagnosticMs: 5
+    continuationStartTimeoutMs: 5,
+    onContinuationStartTimeout: () => {
+      timeouts.count += 1;
+    }
   });
 
   const reserved = lifecycle.expectSyntheticContinuation();
@@ -155,27 +159,37 @@ test("notification-reserved synthetic turn reports delay without settling", asyn
 
   await new Promise((resolve) => setTimeout(resolve, 20));
 
-  assert.equal(lifecycle.activeId, reserved?.turnId);
-  assert.equal(lifecycle.awaitingContinuation, true);
+  assert.equal(timeouts.count, 1);
+  assert.equal(lifecycle.activeId, "");
+  assert.ok(events.some((event) => event.type === "continuation_delayed"));
   assert.deepEqual(events.at(-1), {
-    type: "continuation_delayed",
+    type: "turn_completed",
     payload: {
-      turnId: reserved?.turnId,
-      waitedMs: 5
+      stopReason: "background_agent_continuation_timeout",
+      syntheticTimeout: true,
+      turnId: reserved?.turnId
     }
   });
-  assert.equal(lifecycle.ensureActive("assistant"), reserved);
-  assert.equal(lifecycle.awaitingContinuation, false);
-  assert.equal(
-    events.some((event) => event.type === "turn_running"),
-    false
-  );
-  lifecycle.settleActive("turn_completed");
+  assert.equal(lifecycle.ensureActive("assistant"), undefined);
+  assert.equal(lifecycle.consumeTimedOutContinuationResult(), true);
+
+  lifecycle.enqueue({
+    turnId: "turn-after-timeout",
+    promptUuid: "prompt-after-timeout",
+    settled: false
+  });
+  lifecycle.activateForUserMessage("prompt-after-timeout");
+  assert.equal(lifecycle.activeId, "turn-after-timeout");
+  assert.equal(lifecycle.consumeTimedOutContinuationResult(), false);
 });
 
-test("root output disarms the continuation delay diagnostic", async () => {
+test("root output confirms a reserved continuation and disarms its start timeout", async () => {
+  const timeouts = { count: 0 };
   const { lifecycle, events } = createLifecycle({
-    continuationDelayDiagnosticMs: 5
+    continuationStartTimeoutMs: 5,
+    onContinuationStartTimeout: () => {
+      timeouts.count += 1;
+    }
   });
   const reserved = lifecycle.expectSyntheticContinuation();
 
@@ -183,10 +197,7 @@ test("root output disarms the continuation delay diagnostic", async () => {
   assert.equal(lifecycle.awaitingContinuation, false);
   await new Promise((resolve) => setTimeout(resolve, 20));
 
-  assert.equal(
-    events.some((event) => event.type === "continuation_delayed"),
-    false
-  );
+  assert.equal(timeouts.count, 0);
   assert.equal(
     events.filter((event) => event.type === "turn_started").length,
     1
@@ -198,9 +209,13 @@ test("root output disarms the continuation delay diagnostic", async () => {
   lifecycle.settleActive("turn_completed");
 });
 
-test("cancel and guidance disarm the continuation delay diagnostic", async () => {
+test("cancel and guidance preserve reserved continuation ownership", async () => {
+  const timeouts = { count: 0 };
   const { lifecycle, events } = createLifecycle({
-    continuationDelayDiagnosticMs: 5
+    continuationStartTimeoutMs: 5,
+    onContinuationStartTimeout: () => {
+      timeouts.count += 1;
+    }
   });
   const reserved = lifecycle.expectSyntheticContinuation();
 
@@ -213,10 +228,7 @@ test("cancel and guidance disarm the continuation delay diagnostic", async () =>
 
   assert.equal(lifecycle.cancelQueued(), true);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(
-    events.some((event) => event.type === "continuation_delayed"),
-    false
-  );
+  assert.equal(timeouts.count, 0);
   lifecycle.settleActive("turn_canceled");
   assert.equal(events.at(-1)?.type, "turn_canceled");
   assert.equal(events.at(-1)?.payload?.turnId, reserved?.turnId);
@@ -224,7 +236,8 @@ test("cancel and guidance disarm the continuation delay diagnostic", async () =>
 
 function createLifecycle(
   options: {
-    continuationDelayDiagnosticMs?: number;
+    continuationStartTimeoutMs?: number;
+    onContinuationStartTimeout?: () => void;
   } = {}
 ): {
   lifecycle: TurnLifecycle;
