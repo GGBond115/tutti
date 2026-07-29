@@ -357,6 +357,7 @@ export class SDKMessageRouter {
       this.turns.activeId &&
       this.turns.activeId !== activeTurnIdBefore
     ) {
+      this.activities.beginRootTurn();
       this.contextUsageGeneration += 1;
       this.activeRootAssistantError = "";
     }

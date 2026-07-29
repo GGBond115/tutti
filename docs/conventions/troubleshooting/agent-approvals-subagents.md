@@ -175,7 +175,11 @@ session-level child summaries.
     `continuation_delayed` warning, complete the reservation with
     `stop_reason=background_agent_continuation_timeout`, interrupt the pending
     SDK query, and drop that continuation's later output. Cancellation disarms
-    the same timeout and preserves the durable canceled outcome.
+    the same timeout and the pending background-task quiescence timer, and
+    preserves the durable canceled outcome.
+  - Record a failed or canceled root result in the background-task lifecycle
+    owner. A later empty level or task notification may finish child state, but
+    must not reserve another synthetic root Turn.
 
   Do not infer native SDK order from persisted message timestamps. Use the
   per-session lifecycle sequence to verify that the adapter-established
@@ -185,9 +189,10 @@ session-level child summaries.
 - Validate: test both event orders—root terminal before the last child and last
   child before root terminal—plus coalesced notifications/results, session
   idle, delayed idle without early settlement, continuation start, timeout,
-  late-output rejection, cancellation, and guidance during the reserved
-  window. Confirm that composer availability follows only the durable canonical
-  root.
+  late-output rejection, cancellation during the quiescence grace, late
+  empty-level/task-notification signals after root failure, and guidance during
+  the reserved window. Confirm that composer availability follows only the
+  durable canonical root.
 
 ### Claude child card shows a generic Agent title and no task detail
 

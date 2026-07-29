@@ -175,6 +175,12 @@ observed by the SDK level signal and exact delegated-task states known to Tutti.
 This makes missing terminal edges visible in logs while leaving the GUI's
 existing running/processing presentation unchanged.
 
+The background-task level tracker owns its quiescence timer and continuation
+reservation state. Query cancellation clears both before interrupting the SDK.
+A failed or canceled root result fences later empty-level and task-notification
+signals from opening a synthetic continuation, while those signals may still
+report diagnostics or settle their exact child lifecycle.
+
 The daemon resolves one owner for each Claude tool event before both closed-Turn
 admission and activity projection. A delegation call belongs to the Session
 that launched the child; an ordinary tool executed by a child belongs to that

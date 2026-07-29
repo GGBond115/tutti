@@ -1,5 +1,9 @@
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
+  BackgroundTaskLifecycle,
+  type DelegatedTaskCounts
+} from "./backgroundTaskLifecycle.ts";
+import {
   contentBlocksFromMessage,
   recordValue,
   type ToolState
@@ -17,11 +21,10 @@ import type {
 import { ToolEventProjector } from "./toolEvents.ts";
 import { TaskPlanTracker } from "./taskPlan.ts";
 
-const BACKGROUND_TASK_QUIESCENCE_GRACE_MS = 250;
-
 export class ToolActivityProjector {
   private readonly tools: ToolEventProjector;
   private readonly taskPlan: TaskPlanTracker;
+  private readonly backgroundTasks: BackgroundTaskLifecycle;
   private readonly delegatedTasksByParentToolUseID = new Map<
     string,
     DelegatedTaskState
@@ -30,14 +33,7 @@ export class ToolActivityProjector {
   private readonly delegatedParentByTaskID = new Map<string, string>();
   private readonly activeTurnId: () => string;
   private readonly emit: ClaudeSDKSidecarEventEmitter;
-  private readonly onFinalDelegatedTaskSettling: () => void;
   private readonly lastTurnId: () => string;
-  private backgroundTaskLevelObserved = false;
-  private liveBackgroundTaskCount = 0;
-  private readonly observedBackgroundTaskIDs = new Set<string>();
-  private backgroundContinuationPending = false;
-  private taskNotificationContinuationPending = false;
-  private backgroundTaskQuiescenceTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     activeTurnId: () => string,
@@ -47,7 +43,6 @@ export class ToolActivityProjector {
   ) {
     this.activeTurnId = activeTurnId;
     this.emit = emit;
-    this.onFinalDelegatedTaskSettling = onFinalDelegatedTaskSettling;
     this.lastTurnId = lastTurnId;
     this.taskPlan = new TaskPlanTracker(activeTurnId, emit);
     this.tools = new ToolEventProjector(
@@ -56,6 +51,13 @@ export class ToolActivityProjector {
         this.rememberDelegatedTaskFromToolPayload(tool, payload),
       emit
     );
+    this.backgroundTasks = new BackgroundTaskLifecycle({
+      activeTurnId,
+      lastTurnId,
+      delegatedTaskCounts: (turnId) => this.delegatedTaskCounts(turnId),
+      emit,
+      onContinuationPending: onFinalDelegatedTaskSettling
+    });
   }
 
   resetTurnScratch(): void {
@@ -64,96 +66,39 @@ export class ToolActivityProjector {
   }
 
   resetBackgroundTaskLevel(): void {
-    this.clearBackgroundTaskQuiescenceTimer();
-    this.backgroundTaskLevelObserved = false;
-    this.liveBackgroundTaskCount = 0;
-    this.observedBackgroundTaskIDs.clear();
-    this.backgroundContinuationPending = false;
-    this.taskNotificationContinuationPending = false;
+    this.backgroundTasks.reset();
   }
 
   handleBackgroundTasksChanged(message: Record<string, unknown>): void {
-    const tasks = Array.isArray(message.tasks) ? message.tasks : [];
-    for (const task of tasks) {
-      const taskID = stringValue(recordValue(task)?.task_id);
-      if (taskID) {
-        this.observedBackgroundTaskIDs.add(taskID);
-      }
-    }
-    const previousCount = this.liveBackgroundTaskCount;
-    const previouslyObserved = this.backgroundTaskLevelObserved;
-    this.backgroundTaskLevelObserved = true;
-    this.liveBackgroundTaskCount = tasks.length;
-    const turnId = this.activeTurnId() || this.lastTurnId();
-    this.emit({
-      type: "background_tasks_changed",
-      payload: this.backgroundTaskDiagnosticPayload(turnId)
-    });
-    if (tasks.length > 0) {
-      this.clearBackgroundTaskQuiescenceTimer();
-      this.backgroundContinuationPending = false;
-      return;
-    }
-    if (!previouslyObserved || previousCount === 0) {
-      return;
-    }
-    this.backgroundContinuationPending = true;
-    this.scheduleBackgroundTaskQuiescence();
-    this.reserveBackgroundContinuation();
+    this.backgroundTasks.handleLevelChanged(message);
+  }
+
+  beginRootTurn(): void {
+    this.backgroundTasks.beginRootTurn();
+  }
+
+  cancel(): void {
+    this.backgroundTasks.cancel();
   }
 
   close(): void {
-    this.clearBackgroundTaskQuiescenceTimer();
+    this.backgroundTasks.close();
   }
 
   hasPendingBackgroundContinuation(): boolean {
-    return (
-      this.backgroundContinuationPending ||
-      this.taskNotificationContinuationPending
-    );
+    return this.backgroundTasks.hasPendingContinuation();
   }
 
   markTaskNotificationContinuation(): void {
-    this.taskNotificationContinuationPending = true;
+    this.backgroundTasks.markTaskNotificationContinuation();
   }
 
   clearBackgroundContinuation(): boolean {
-    const pending = this.hasPendingBackgroundContinuation();
-    this.backgroundContinuationPending = false;
-    this.taskNotificationContinuationPending = false;
-    return pending;
+    return this.backgroundTasks.clearContinuation();
   }
 
   handleRootResultSettled(succeeded: boolean): void {
-    if (!succeeded) {
-      this.clearBackgroundContinuation();
-      return;
-    }
-    this.reserveBackgroundContinuation();
-  }
-
-  private scheduleBackgroundTaskQuiescence(): void {
-    this.clearBackgroundTaskQuiescenceTimer();
-    const turnId = this.activeTurnId() || this.lastTurnId();
-    this.backgroundTaskQuiescenceTimer = setTimeout(() => {
-      this.backgroundTaskQuiescenceTimer = undefined;
-      if (this.liveBackgroundTaskCount !== 0) {
-        return;
-      }
-      this.emit({
-        type: "background_tasks_quiesced",
-        payload: this.backgroundTaskDiagnosticPayload(turnId)
-      });
-    }, BACKGROUND_TASK_QUIESCENCE_GRACE_MS);
-    this.backgroundTaskQuiescenceTimer.unref?.();
-  }
-
-  private clearBackgroundTaskQuiescenceTimer(): void {
-    if (this.backgroundTaskQuiescenceTimer === undefined) {
-      return;
-    }
-    clearTimeout(this.backgroundTaskQuiescenceTimer);
-    this.backgroundTaskQuiescenceTimer = undefined;
+    this.backgroundTasks.handleRootResultSettled(succeeded);
   }
 
   completeToolIndex(index: number): boolean {
@@ -251,7 +196,7 @@ export class ToolActivityProjector {
           return;
         }
         if (status !== "stopped") {
-          this.taskNotificationContinuationPending = true;
+          this.backgroundTasks.markTaskNotificationContinuation();
         }
         this.emitDelegatedTaskLifecycleEvent(
           "task_result_updated",
@@ -266,7 +211,7 @@ export class ToolActivityProjector {
       // task_notification carries the model continuation and often a richer
       // result, so only that notification marks a pending follow-up.
       if (subtype === "task_notification" && status !== "stopped") {
-        this.taskNotificationContinuationPending = true;
+        this.backgroundTasks.markTaskNotificationContinuation();
       }
       if (status !== "stopped") {
         this.prepareDelegatedTaskTerminal(task);
@@ -661,20 +606,11 @@ export class ToolActivityProjector {
       (candidate) => candidate.status === "running"
     );
     if (running.length === 1 && running[0] === task) {
-      this.onFinalDelegatedTaskSettling();
+      this.backgroundTasks.reserveContinuation();
     }
   }
 
-  private reserveBackgroundContinuation(): void {
-    if (!this.hasPendingBackgroundContinuation() || this.activeTurnId()) {
-      return;
-    }
-    this.onFinalDelegatedTaskSettling();
-  }
-
-  private backgroundTaskDiagnosticPayload(
-    turnId: string
-  ): Record<string, unknown> {
+  private delegatedTaskCounts(turnId: string): DelegatedTaskCounts {
     const delegatedCounts: Record<DelegatedTaskStatus, number> = {
       running: 0,
       completed: 0,
@@ -689,21 +625,7 @@ export class ToolActivityProjector {
       knownCount += 1;
       delegatedCounts[task.status] += 1;
     }
-    return {
-      turnId,
-      runningCount: this.liveBackgroundTaskCount,
-      backgroundTasksObservedCount: this.observedBackgroundTaskIDs.size,
-      backgroundTasksRunningCount: this.liveBackgroundTaskCount,
-      backgroundTasksNoLongerLiveCount: Math.max(
-        0,
-        this.observedBackgroundTaskIDs.size - this.liveBackgroundTaskCount
-      ),
-      delegatedTasksKnownCount: knownCount,
-      delegatedTasksRunningCount: delegatedCounts.running,
-      delegatedTasksCompletedCount: delegatedCounts.completed,
-      delegatedTasksFailedCount: delegatedCounts.failed,
-      delegatedTasksStoppedCount: delegatedCounts.stopped
-    };
+    return { known: knownCount, ...delegatedCounts };
   }
 
   private emitDelegatedTaskParentUpdate(

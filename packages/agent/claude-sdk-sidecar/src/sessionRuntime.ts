@@ -461,6 +461,7 @@ export class SessionRuntime {
     } else {
       hasActiveTurn = this.turns.cancelQueued();
     }
+    this.activities.cancel();
     this.executionEpoch += 1;
     this.canceledQueryTailPending = true;
     this.interactions.rejectAll(new Error("Tool use aborted"));

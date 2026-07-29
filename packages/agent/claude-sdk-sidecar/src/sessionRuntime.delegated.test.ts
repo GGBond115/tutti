@@ -6,9 +6,11 @@ import { sidecarClaudeOptionsFromPayload } from "./options.ts";
 import {
   fakeBackgroundBashAndSubagentQuery,
   fakeBackgroundTasksLevelContinuationQuery,
+  fakeCancelableBackgroundTaskLevelQuery,
   fakeCoalescedDelegatedTaskContinuationQuery,
   fakeDelegatedAssistantParentQuery,
   fakeDelegatedTaskQuery,
+  fakeFailedBackgroundTaskSignalQuery,
   fakeGuidedDelegatedContinuationQuery,
   fakeParallelDelegatedTaskContinuationQuery,
   fakeRacedDelegatedTaskAliasQuery,
@@ -702,6 +704,106 @@ test("cancel during delegated continuation wait disarms timeout", async () => {
   }
 });
 
+test("cancel clears a pending background-task quiescence timer", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  try {
+    const session = new SessionRuntime(
+      "provider-session-1",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => fakeCancelableBackgroundTaskLevelQuery(prompt)
+    );
+
+    await session.start();
+    session.exec("turn-1", "delegate task");
+    await waitForMatchingEvent(
+      events,
+      (event) =>
+        event.type === "background_tasks_changed" &&
+        event.payload?.backgroundTasksRunningCount === 0,
+      "empty background task level"
+    );
+    await session.cancel();
+    await waitForEvent(events, "turn_canceled");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    assert.equal(
+      events.some((event) => event.type === "background_tasks_quiesced"),
+      false
+    );
+  } finally {
+    restoreSink();
+  }
+});
+
+for (const lateSignal of ["empty-level", "task-notification"] as const) {
+  test(`failed root ignores late ${lateSignal} continuation reservation`, async () => {
+    const events: Array<{ type: string; payload?: Record<string, unknown> }> =
+      [];
+    const restoreSink = withSidecarEventSinkForTest((event) =>
+      events.push(event)
+    );
+    try {
+      const session = new SessionRuntime(
+        "provider-session-1",
+        "/repo",
+        {},
+        false,
+        false,
+        {
+          model: "",
+          permissionModeId: "default",
+          planMode: false,
+          effort: "",
+          speed: ""
+        },
+        sidecarClaudeOptionsFromPayload({}),
+        undefined,
+        ({ prompt }) => fakeFailedBackgroundTaskSignalQuery(prompt, lateSignal)
+      );
+
+      await session.start();
+      session.exec("turn-1", "delegate task");
+      await waitForEvent(events, "turn_failed");
+      await waitForMatchingEvent(
+        events,
+        (event) =>
+          lateSignal === "empty-level"
+            ? event.type === "background_tasks_changed" &&
+              event.payload?.backgroundTasksRunningCount === 0
+            : event.type === "task_completed",
+        `late ${lateSignal}`
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      assert.equal(
+        events.some(
+          (event) =>
+            event.type === "turn_started" && event.payload?.synthetic === true
+        ),
+        false
+      );
+      await session.close();
+    } finally {
+      restoreSink();
+    }
+  });
+}
+
 test("guidance during delegated continuation wait stays on reserved synthetic turn", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   const restoreSink = withSidecarEventSinkForTest((event) =>
@@ -756,6 +858,26 @@ test("guidance during delegated continuation wait stays on reserved synthetic tu
     restoreSink();
   }
 });
+
+async function waitForMatchingEvent(
+  events: Array<{ type: string; payload?: Record<string, unknown> }>,
+  predicate: (event: {
+    type: string;
+    payload?: Record<string, unknown>;
+  }) => boolean,
+  description: string
+): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (events.some(predicate)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(
+    `timed out waiting for ${description}; events=${JSON.stringify(events)}`
+  );
+}
 
 test("background bash registers as a delegated task and defers the synthetic continuation", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];

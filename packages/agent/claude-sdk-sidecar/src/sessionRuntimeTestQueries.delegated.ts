@@ -404,6 +404,114 @@ export function fakeBackgroundTasksLevelContinuationQuery(
   } as AsyncIterable<SDKMessage> & { close: () => void };
 }
 
+export function fakeCancelableBackgroundTaskLevelQuery(
+  prompt: AsyncIterable<SDKUserMessage>
+): AsyncIterable<SDKMessage> & {
+  interrupt: () => Promise<void>;
+  close: () => void;
+} {
+  let releaseHold: () => void = () => {};
+  const hold = new Promise<void>((resolve) => {
+    releaseHold = resolve;
+  });
+  return {
+    async *[Symbol.asyncIterator]() {
+      const firstPrompt = await prompt[Symbol.asyncIterator]().next();
+      const promptMessage = firstPrompt.value as SDKUserMessage & {
+        uuid?: string;
+      };
+      yield {
+        ...promptMessage,
+        uuid: promptMessage.uuid,
+        type: "user",
+        parent_tool_use_id: null,
+        session_id: "provider-session-1"
+      } as SDKMessage;
+      yield {
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: [{ task_id: "task-1", task_type: "agent" }]
+      } as unknown as SDKMessage;
+      yield {
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: []
+      } as unknown as SDKMessage;
+      await hold;
+    },
+    async interrupt() {
+      releaseHold();
+    },
+    close() {
+      releaseHold();
+    }
+  };
+}
+
+export function fakeFailedBackgroundTaskSignalQuery(
+  prompt: AsyncIterable<SDKUserMessage>,
+  lateSignal: "empty-level" | "task-notification"
+): AsyncIterable<SDKMessage> & { close: () => void } {
+  let releaseHold: () => void = () => {};
+  const hold = new Promise<void>((resolve) => {
+    releaseHold = resolve;
+  });
+  return {
+    async *[Symbol.asyncIterator]() {
+      const firstPrompt = await prompt[Symbol.asyncIterator]().next();
+      const promptMessage = firstPrompt.value as SDKUserMessage & {
+        uuid?: string;
+      };
+      yield {
+        ...promptMessage,
+        uuid: promptMessage.uuid,
+        type: "user",
+        parent_tool_use_id: null,
+        session_id: "provider-session-1"
+      } as SDKMessage;
+      yield delegatedAgentToolUse("toolu-agent", "Failing parent");
+      yield delegatedAgentToolResult("toolu-agent", "agent-1");
+      yield {
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-1",
+        agent_id: "agent-1",
+        description: "Failing parent"
+      } as unknown as SDKMessage;
+      yield {
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: [{ task_id: "task-1", task_type: "agent" }]
+      } as unknown as SDKMessage;
+      yield {
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        errors: ["Root failed"]
+      } as unknown as SDKMessage;
+      if (lateSignal === "empty-level") {
+        yield {
+          type: "system",
+          subtype: "background_tasks_changed",
+          tasks: []
+        } as unknown as SDKMessage;
+      } else {
+        yield {
+          type: "system",
+          subtype: "task_notification",
+          task_id: "task-1",
+          status: "completed",
+          summary: "Late child result"
+        } as unknown as SDKMessage;
+      }
+      await hold;
+    },
+    close() {
+      releaseHold();
+    }
+  };
+}
+
 export function fakeBackgroundBashAndSubagentQuery(
   prompt: AsyncIterable<SDKUserMessage>
 ): AsyncIterable<SDKMessage> & {
