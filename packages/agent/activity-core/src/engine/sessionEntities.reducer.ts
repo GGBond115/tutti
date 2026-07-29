@@ -32,7 +32,10 @@ export function replaceCanonicalSessionSnapshot(
     const incomingSession = canonicalSession(source);
     const useIncoming = shouldUseIncomingSession(current, incomingSession);
     const candidateSession = useIncoming
-      ? preserveLiveTurnOnTimestampTie(current, incomingSession)
+      ? preserveProjectedSessionState(
+          current,
+          preserveLiveTurnOnTimestampTie(current, incomingSession)
+        )
       : current!;
     sessionsById[id] =
       current && areJsonLikeValuesEqual(current, candidateSession)
@@ -151,7 +154,10 @@ export function upsertCanonicalSession(
   const incoming = canonicalSession(source);
   const useIncoming = shouldUseIncomingSession(current, incoming);
   const candidateSession = useIncoming
-    ? preserveLiveTurnOnTimestampTie(current, incoming)
+    ? preserveProjectedSessionState(
+        current,
+        preserveLiveTurnOnTimestampTie(current, incoming)
+      )
     : current!;
   const nextSession =
     current && areJsonLikeValuesEqual(current, candidateSession)
@@ -463,6 +469,23 @@ function preserveLiveTurnOnTimestampTie(
     sessionVersion(current) === sessionVersion(incoming)
   ) {
     return { ...incoming, activeTurnId: current.activeTurnId };
+  }
+  return incoming;
+}
+
+function preserveProjectedSessionState(
+  current: CanonicalAgentSession | undefined,
+  incoming: CanonicalAgentSession
+): CanonicalAgentSession {
+  if (
+    current?.lifecycleCapabilitiesProjected === true &&
+    incoming.lifecycleCapabilitiesProjected !== true
+  ) {
+    return {
+      ...incoming,
+      lifecycleCapabilities: current.lifecycleCapabilities,
+      lifecycleCapabilitiesProjected: true
+    };
   }
   return incoming;
 }

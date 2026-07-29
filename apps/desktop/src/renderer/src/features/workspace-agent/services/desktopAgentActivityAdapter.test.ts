@@ -1868,6 +1868,7 @@ test("desktop agent activity adapter maps a committed fork operation", async () 
   assert.equal(result.status, "committed");
   assert.equal(result.operationId, "fork-operation");
   assert.equal(result.session?.agentSessionId, "target-session");
+  assert.equal(result.session?.lifecycleCapabilitiesProjected, true);
 });
 
 test("desktop agent activity adapter preserves a recovered committed identity", async () => {

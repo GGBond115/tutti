@@ -13,6 +13,7 @@ import type {
 
 export interface AgentActivitySessionMappingOptions {
   currentUserId: string;
+  lifecycleCapabilitiesProjected?: boolean;
 }
 
 export function agentActivitySessionFromTuttidSession(
@@ -50,6 +51,12 @@ export function agentActivitySessionFromTuttidSession(
       ? cloneSerializable(session.capabilities)
       : null,
     lifecycleCapabilities: cloneSerializable(session.lifecycleCapabilities),
+    ...(options.lifecycleCapabilitiesProjected === undefined
+      ? {}
+      : {
+          lifecycleCapabilitiesProjected:
+            options.lifecycleCapabilitiesProjected === true
+        }),
     forkedFrom: session.forkedFrom
       ? cloneSerializable(session.forkedFrom)
       : null,

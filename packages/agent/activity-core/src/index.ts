@@ -203,7 +203,8 @@ export {
 export {
   selectEngineSessionDetailHydrated,
   selectEngineSessionDetailLoading,
-  selectEngineSessionReconcile
+  selectEngineSessionReconcile,
+  selectEngineSessionStateHydrated
 } from "./engine/sessionReconcile.selectors.ts";
 export {
   canonicalInteractionKey,

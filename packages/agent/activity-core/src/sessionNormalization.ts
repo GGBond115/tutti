@@ -61,6 +61,12 @@ export function normalizeAgentActivitySession(
           fork: false,
           forkThroughTurn: false
         },
+    ...(source.lifecycleCapabilitiesProjected === undefined
+      ? {}
+      : {
+          lifecycleCapabilitiesProjected:
+            source.lifecycleCapabilitiesProjected === true
+        }),
     forkedFrom: source.forkedFrom
       ? {
           sourceAgentSessionId: source.forkedFrom.sourceAgentSessionId.trim(),

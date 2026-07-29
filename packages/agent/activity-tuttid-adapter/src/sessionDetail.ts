@@ -19,6 +19,10 @@ export function agentActivitySessionDetailFromTuttid(
   options: AgentActivitySessionMappingOptions
 ): AgentActivitySessionDetailSnapshot {
   assertTuttidSessionDetailContract(expectedAgentSessionId, detail);
+  const projectionOptions = {
+    ...options,
+    lifecycleCapabilitiesProjected: detail.lifecycleCapabilitiesProjected
+  };
   return {
     projection:
       detail.projection === "full" ? "authoritative" : "message_hydration",
@@ -26,10 +30,14 @@ export function agentActivitySessionDetailFromTuttid(
     session: agentActivitySessionFromTuttidSession(
       workspaceId,
       detail.session,
-      options
+      projectionOptions
     ),
     childSessions: detail.childSessions.map((session) =>
-      agentActivitySessionFromTuttidSession(workspaceId, session, options)
+      agentActivitySessionFromTuttidSession(
+        workspaceId,
+        session,
+        projectionOptions
+      )
     ),
     turns: detail.turns.map(agentActivityTurnFromTuttidTurn)
   };

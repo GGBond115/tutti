@@ -55,10 +55,12 @@ const sessionForkOperationMaxConsecutiveReadFailures = 3;
 
 export function agentActivitySessionFromTuttidSession(
   workspaceId: string,
-  session: WorkspaceAgentSession
+  session: WorkspaceAgentSession,
+  options: { lifecycleCapabilitiesProjected?: boolean } = {}
 ): AgentActivitySession {
   return mapAgentActivitySessionFromTuttidSession(workspaceId, session, {
-    currentUserId: DESKTOP_AGENT_GUI_CURRENT_USER_ID
+    currentUserId: DESKTOP_AGENT_GUI_CURRENT_USER_ID,
+    ...options
   });
 }
 
@@ -690,7 +692,9 @@ function agentActivityForkSessionResult(
     operationId: operation.operationId,
     requestId: operation.requestId,
     session: operation.session
-      ? agentActivitySessionFromTuttidSession(workspaceId, operation.session)
+      ? agentActivitySessionFromTuttidSession(workspaceId, operation.session, {
+          lifecycleCapabilitiesProjected: true
+        })
       : null,
     sourceAgentSessionId: operation.sourceAgentSessionId,
     status: operation.status,
