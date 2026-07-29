@@ -20,7 +20,7 @@ func TestGetSessionForkOperationReconcilesLocalCommitAfterProviderAcceptance(t *
 	input := ForkSessionInput{
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target", RequestID: "request",
-		ThroughTurnID: "turn",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 	}
 	first, err := host.ForkSession(context.Background(), input)
 	if err == nil || first.Operation.Status != storesqlite.SessionForkStatusProviderAccepted {
@@ -51,7 +51,7 @@ func TestForkSessionTransportFailureBecomesUnknownAndNeverRedispatches(t *testin
 	input := ForkSessionInput{
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target", RequestID: "request",
-		ThroughTurnID: "turn",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 	}
 	first, err := host.ForkSession(context.Background(), input)
 	if !errors.Is(err, ErrSessionForkDeliveryUnknown) ||
@@ -95,7 +95,7 @@ func TestForkSessionBindsAcceptedProviderStateBeforeCanonicalCommit(t *testing.T
 	result, err := host.ForkSession(t.Context(), ForkSessionInput{
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target", RequestID: "request",
-		ThroughTurnID: "turn",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 	})
 	if err != nil || result.Operation.Status != storesqlite.SessionForkStatusCommitted {
 		t.Fatalf("ForkSession() result=%#v error=%v", result, err)
@@ -116,7 +116,7 @@ func TestForkSessionBindsAcceptedProviderStateBeforeCanonicalCommit(t *testing.T
 	}
 }
 
-func TestForkSessionProviderStateBindingFailureBecomesUnknownAndNeverRedispatches(t *testing.T) {
+func TestForkSessionProviderStateBindingFailureRetainsAcceptedChildAndRetriesBinding(t *testing.T) {
 	store := newFakeSessionForkStore()
 	runtime := &fakeSessionForkRuntime{
 		providerSessionID: "provider-child",
@@ -129,30 +129,31 @@ func TestForkSessionProviderStateBindingFailureBecomesUnknownAndNeverRedispatche
 	input := ForkSessionInput{
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target", RequestID: "request",
-		ThroughTurnID: "turn",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 	}
 	first, err := host.ForkSession(t.Context(), input)
-	if !errors.Is(err, ErrSessionForkDeliveryUnknown) ||
-		first.Operation.Status != storesqlite.SessionForkStatusUnknown {
+	if err == nil ||
+		first.Operation.Status != storesqlite.SessionForkStatusProviderAccepted {
 		t.Fatalf("first ForkSession() result=%#v error=%v", first, err)
 	}
 	if first.Operation.TargetProviderSessionID != "provider-child" {
 		t.Fatalf(
-			"unknown operation target provider session=%q, want provider-child",
+			"accepted operation target provider session=%q, want provider-child",
 			first.Operation.TargetProviderSessionID,
 		)
 	}
 	if first.Session.ID != "" {
 		t.Fatalf("canonical child was committed after binding failure: %#v", first.Session)
 	}
+	binder.err = nil
 	second, err := host.ForkSession(t.Context(), input)
-	if !errors.Is(err, ErrSessionForkDeliveryUnknown) ||
-		second.Operation.Status != storesqlite.SessionForkStatusUnknown {
+	if err != nil ||
+		second.Operation.Status != storesqlite.SessionForkStatusCommitted {
 		t.Fatalf("second ForkSession() result=%#v error=%v", second, err)
 	}
-	if runtime.forkCalls != 1 || len(binder.inputs) != 1 {
+	if runtime.forkCalls != 1 || len(binder.inputs) != 2 {
 		t.Fatalf(
-			"replay calls provider=%d binder=%d, want 1/1",
+			"retry calls provider=%d binder=%d, want 1/2",
 			runtime.forkCalls,
 			len(binder.inputs),
 		)
@@ -170,7 +171,7 @@ func TestForkSessionHostCopyWithoutBinderFailsClosed(t *testing.T) {
 	}).ForkSession(t.Context(), ForkSessionInput{
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target", RequestID: "request",
-		ThroughTurnID: "turn",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 	})
 	if !errors.Is(err, ErrSessionForkUnsupported) ||
 		result.Operation.OperationID != "" ||
@@ -193,7 +194,7 @@ func TestForkSessionHostCopyWithUnsupportedBinderFailsBeforeDispatch(t *testing.
 	}).ForkSession(t.Context(), ForkSessionInput{
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target", RequestID: "request",
-		ThroughTurnID: "turn",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 	})
 	if !errors.Is(err, ErrSessionForkUnsupported) ||
 		result.Operation.OperationID != "" ||
@@ -209,7 +210,7 @@ func TestForkSessionLostCommittedResponseRecoversBeforeAcknowledgedNewBranch(t *
 	first, err := host.ForkSession(t.Context(), ForkSessionInput{
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target", RequestID: "request",
-		ThroughTurnID: "turn",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 	})
 	if err != nil || first.Operation.Status != storesqlite.SessionForkStatusCommitted {
 		t.Fatalf("first ForkSession() result=%#v error=%v", first, err)
@@ -218,7 +219,9 @@ func TestForkSessionLostCommittedResponseRecoversBeforeAcknowledgedNewBranch(t *
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target-after-restart",
 		RequestID:            "request-after-restart",
-		ThroughTurnID:        "turn",
+		Point: SessionForkPoint{
+			Kind: SessionForkPointThroughTurn, TurnID: "turn",
+		},
 	})
 	if err != nil ||
 		recovered.Operation.OperationID != first.Operation.OperationID ||
@@ -243,7 +246,7 @@ func TestForkSessionLostCommittedResponseRecoversBeforeAcknowledgedNewBranch(t *
 	next, err := host.ForkSession(t.Context(), ForkSessionInput{
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target-next", RequestID: "request-next",
-		ThroughTurnID: "turn",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 	})
 	if err != nil || next.Operation.RequestID != "request-next" ||
 		next.Operation.TargetAgentSessionID != "target-next" ||
@@ -257,7 +260,7 @@ func TestForkSessionLostCommittedResponseRecoversBeforeAcknowledgedNewBranch(t *
 	}
 }
 
-func TestGetSessionForkOperationFailsAbandonedPreparedOperation(t *testing.T) {
+func TestGetSessionForkOperationRetainsPreparedOperationForSafeDispatch(t *testing.T) {
 	store := newFakeSessionForkStore()
 	store.operation = storesqlite.SessionForkOperation{
 		OperationID: "operation", WorkspaceID: "ws", RequestID: "request",
@@ -273,8 +276,8 @@ func TestGetSessionForkOperationFailsAbandonedPreparedOperation(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("GetSessionForkOperation() found=%v error=%v", found, err)
 	}
-	if result.Operation.Status != storesqlite.SessionForkStatusFailed {
-		t.Fatalf("operation status=%q, want failed", result.Operation.Status)
+	if result.Operation.Status != storesqlite.SessionForkStatusPrepared {
+		t.Fatalf("operation status=%q, want prepared", result.Operation.Status)
 	}
 	if runtime.resolveCalls != 0 || runtime.forkCalls != 0 {
 		t.Fatalf(
@@ -285,7 +288,7 @@ func TestGetSessionForkOperationFailsAbandonedPreparedOperation(t *testing.T) {
 	}
 }
 
-func TestGetSessionForkOperationMarksAbandonedDispatchUnknown(t *testing.T) {
+func TestGetSessionForkOperationDoesNotMisclassifyLiveDispatch(t *testing.T) {
 	store := newFakeSessionForkStore()
 	store.operation = storesqlite.SessionForkOperation{
 		OperationID: "operation", WorkspaceID: "ws", RequestID: "request",
@@ -301,8 +304,8 @@ func TestGetSessionForkOperationMarksAbandonedDispatchUnknown(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("GetSessionForkOperation() found=%v error=%v", found, err)
 	}
-	if result.Operation.Status != storesqlite.SessionForkStatusUnknown {
-		t.Fatalf("operation status=%q, want unknown", result.Operation.Status)
+	if result.Operation.Status != storesqlite.SessionForkStatusDispatching {
+		t.Fatalf("operation status=%q, want dispatching", result.Operation.Status)
 	}
 	if runtime.resolveCalls != 0 || runtime.forkCalls != 0 {
 		t.Fatalf(
@@ -323,7 +326,7 @@ func TestForkSessionExplicitProviderRejectionFailsAndReleasesReservation(t *test
 	input := ForkSessionInput{
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target", RequestID: "request",
-		ThroughTurnID: "turn",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 	}
 	result, err := host.ForkSession(context.Background(), input)
 	if !errors.Is(err, ErrSessionForkFailed) ||
@@ -379,7 +382,7 @@ func TestForkSessionRequiresAcceptedDeliveryDisposition(t *testing.T) {
 			result, _ := host.ForkSession(t.Context(), ForkSessionInput{
 				WorkspaceID: "ws", SourceAgentSessionID: "source",
 				TargetAgentSessionID: "target", RequestID: "request",
-				ThroughTurnID: "turn",
+				Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 			})
 			if result.Operation.Status != test.wantStatus {
 				t.Fatalf(
@@ -420,7 +423,7 @@ func TestRecoverSessionForksMarksDispatchingUnknownWithoutProviderCall(t *testin
 	}
 }
 
-func TestRecoverSessionForksReplaysDeterministicProviderChildIdentity(t *testing.T) {
+func TestRecoverSessionForksNeverRedispatchesIndeterminateProviderDelivery(t *testing.T) {
 	for _, status := range []string{
 		storesqlite.SessionForkStatusDispatching,
 		storesqlite.SessionForkStatusUnknown,
@@ -441,7 +444,7 @@ func TestRecoverSessionForksReplaysDeterministicProviderChildIdentity(t *testing
 				descriptors: []SessionForkDriverDescriptor{{
 					Kind: "claude", Version: "deterministic-v1",
 					StateBindingMode: SessionForkStateBindingProviderOwned,
-					ThroughTurn:      true, DeterministicTargetSessionID: true,
+					ThroughTurn:      true,
 				}},
 			}
 			host := New(Config{
@@ -451,20 +454,17 @@ func TestRecoverSessionForksReplaysDeterministicProviderChildIdentity(t *testing
 			if err := host.RecoverSessionForks(context.Background()); err != nil {
 				t.Fatalf("RecoverSessionForks() error=%v", err)
 			}
-			if store.operation.Status != storesqlite.SessionForkStatusCommitted {
-				t.Fatalf("recovered status=%q, want committed", store.operation.Status)
+			if store.operation.Status != storesqlite.SessionForkStatusUnknown {
+				t.Fatalf("recovered status=%q, want unknown", store.operation.Status)
 			}
-			if runtime.forkCalls != 1 || len(runtime.forkInputs) != 1 {
+			if runtime.forkCalls != 0 || len(runtime.forkInputs) != 0 {
 				t.Fatalf("provider fork calls=%d inputs=%#v", runtime.forkCalls, runtime.forkInputs)
-			}
-			if got := runtime.forkInputs[0].TargetProviderSessionID; got != store.operation.OperationID {
-				t.Fatalf("target provider session id=%q", got)
 			}
 		})
 	}
 }
 
-func TestRecoverSessionForksFailsAbandonedPreparedWithoutLiveRuntime(t *testing.T) {
+func TestRecoverSessionForksFailsPreparedOperationBeforeProviderWhenRuntimeCannotRecover(t *testing.T) {
 	store := newFakeSessionForkStore()
 	store.operation = storesqlite.SessionForkOperation{
 		OperationID: "operation", WorkspaceID: "ws", RequestID: "request",
@@ -480,14 +480,14 @@ func TestRecoverSessionForksFailsAbandonedPreparedWithoutLiveRuntime(t *testing.
 	host := New(Config{
 		SessionForks: store, SessionForkRecovery: store, SessionForkRuntime: runtime,
 	})
-	if err := host.RecoverSessionForks(context.Background()); err != nil {
-		t.Fatalf("RecoverSessionForks() error=%v", err)
+	if err := host.RecoverSessionForks(context.Background()); err == nil {
+		t.Fatal("RecoverSessionForks() error=nil, want runtime recovery failure")
 	}
 	if store.operation.Status != storesqlite.SessionForkStatusFailed {
 		t.Fatalf("recovered status=%q, want failed", store.operation.Status)
 	}
-	if runtime.resolveCalls != 0 || runtime.forkCalls != 0 {
-		t.Fatalf("runtime calls resolve=%d fork=%d, want zero", runtime.resolveCalls, runtime.forkCalls)
+	if runtime.resolveCalls != 1 || runtime.forkCalls != 0 {
+		t.Fatalf("runtime calls resolve=%d fork=%d, want 1/0", runtime.resolveCalls, runtime.forkCalls)
 	}
 }
 
@@ -501,7 +501,7 @@ func TestRecoverSessionForksConsumesEveryStableCursorPage(t *testing.T) {
 			WorkspaceID: "ws", SourceAgentSessionID: fmt.Sprintf("source-%03d", index),
 			TargetAgentSessionID: fmt.Sprintf("target-%03d", index),
 			CreatedAtUnixMS:      100,
-			Status:               storesqlite.SessionForkStatusPrepared,
+			Status:               storesqlite.SessionForkStatusUnknown,
 		})
 	}
 	host := New(Config{
@@ -511,8 +511,8 @@ func TestRecoverSessionForksConsumesEveryStableCursorPage(t *testing.T) {
 	if err := host.RecoverSessionForks(context.Background()); err != nil {
 		t.Fatalf("RecoverSessionForks() error=%v", err)
 	}
-	if len(store.failed) != len(store.operations) {
-		t.Fatalf("failed operations=%d, want %d", len(store.failed), len(store.operations))
+	if len(store.failed) != 0 {
+		t.Fatalf("failed operations=%d, want 0", len(store.failed))
 	}
 }
 
@@ -527,7 +527,7 @@ func TestForkSessionPersistsProviderAcceptanceAfterCallerCancellation(t *testing
 	result, err := host.ForkSession(ctx, ForkSessionInput{
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target", RequestID: "request",
-		ThroughTurnID: "turn",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 	})
 	if err != nil {
 		t.Fatalf("ForkSession() error=%v", err)
@@ -552,7 +552,7 @@ func TestForkSessionFailsPreparedOperationWhenDriverChangesBeforeDispatch(t *tes
 	result, err := host.ForkSession(context.Background(), ForkSessionInput{
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target", RequestID: "request",
-		ThroughTurnID: "turn",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 	})
 	if !errors.Is(err, ErrSessionForkUnsupported) {
 		t.Fatalf("ForkSession() error=%v, want unsupported", err)
@@ -565,7 +565,7 @@ func TestForkSessionFailsPreparedOperationWhenDriverChangesBeforeDispatch(t *tes
 	}
 }
 
-func TestGetSessionForkCapabilitiesPreparesHistoricalRuntimeLikeResume(t *testing.T) {
+func TestGetSessionForkCapabilitiesUsesPersistedHistoricalAttestation(t *testing.T) {
 	store := newFakeSessionForkStore()
 	store.source = storesqlite.Session{
 		ID: "source", WorkspaceID: "ws", UserID: "user", Kind: storesqlite.SessionKindRoot,
@@ -596,22 +596,27 @@ func TestGetSessionForkCapabilitiesPreparesHistoricalRuntimeLikeResume(t *testin
 	if !capabilities.ThroughTurn {
 		t.Fatal("GetSessionForkCapabilities() ThroughTurn=false, want true")
 	}
-	if len(preparation.inputs) != 1 {
-		t.Fatalf("preparation calls=%d, want 1", len(preparation.inputs))
-	}
-	if preparation.inputs[0].AgentSessionID != "source" ||
-		preparation.inputs[0].ProviderSessionID != "provider-source" ||
-		preparation.inputs[0].Cwd != "/canonical" ||
-		preparation.inputs[0].Settings.Model != "canonical-model" {
-		t.Fatalf("preparation input=%#v", preparation.inputs[0])
+	if len(preparation.inputs) != 0 {
+		t.Fatalf("preparation calls=%d, want 0", len(preparation.inputs))
 	}
 	if len(runtime.resolvedSources) != 1 {
 		t.Fatalf("resolved sources=%d, want 1", len(runtime.resolvedSources))
 	}
-	assertPreparedForkSource(t, runtime.resolvedSources[0])
+	resolved := runtime.resolvedSources[0]
+	if resolved.ID != "source" ||
+		resolved.ProviderSessionID != "provider-source" ||
+		resolved.Cwd != "/canonical" ||
+		resolved.Settings == nil ||
+		resolved.Settings.Model != "canonical-model" ||
+		!reflect.DeepEqual(
+			resolved.RuntimeContext,
+			map[string]any{"origin": "canonical"},
+		) {
+		t.Fatalf("resolved persisted source=%#v", resolved)
+	}
 }
 
-func TestGetSessionForkCapabilitiesProjectsOnlyMatchingProviderTurnPrefix(t *testing.T) {
+func TestGetSessionForkCapabilitiesDoesNotReadHistoricalProviderPrefix(t *testing.T) {
 	store := newFakeSessionForkStore()
 	store.turnIdentities = []storesqlite.SessionForkTurnIdentity{
 		{TurnID: "turn-1", ProviderTurnID: "provider-turn-1", Phase: storesqlite.TurnPhaseSettled},
@@ -621,12 +626,6 @@ func TestGetSessionForkCapabilitiesProjectsOnlyMatchingProviderTurnPrefix(t *tes
 	}
 	runtime := &fakeSessionForkRuntime{descriptors: []SessionForkDriverDescriptor{{
 		Kind: "codex", Version: "1", ThroughTurn: true,
-		ThroughProviderTurnIDsKnown: true,
-		ThroughProviderTurnIDs: []string{
-			"provider-turn-1",
-			"provider-turn-2",
-			"provider-turn-3",
-		},
 	}}}
 	host := New(Config{SessionForks: store, SessionForkRuntime: runtime})
 
@@ -639,9 +638,11 @@ func TestGetSessionForkCapabilitiesProjectsOnlyMatchingProviderTurnPrefix(t *tes
 	if err != nil {
 		t.Fatalf("GetSessionForkCapabilities() error=%v", err)
 	}
-	if !capabilities.ThroughTurn || !capabilities.ThroughTurnIDsKnown ||
-		!reflect.DeepEqual(capabilities.ThroughTurnIDs, []string{"turn-1", "turn-2"}) {
-		t.Fatalf("capabilities=%#v, want matching prefix through turn-2", capabilities)
+	if !capabilities.ThroughTurn {
+		t.Fatalf("capabilities=%#v, want driver through-turn capability", capabilities)
+	}
+	if store.listTurnIdentityCalls != 0 {
+		t.Fatalf("turn identity reads=%d, want 0", store.listTurnIdentityCalls)
 	}
 }
 
@@ -671,7 +672,7 @@ func TestForkSessionReusesOnePreparedHistoricalIdentityThroughDispatch(t *testin
 	result, err := host.ForkSession(t.Context(), ForkSessionInput{
 		WorkspaceID: "ws", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target-session", RequestID: "request",
-		ThroughTurnID: "turn",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 	})
 	if err != nil {
 		t.Fatalf("ForkSession() error=%v", err)
@@ -688,13 +689,10 @@ func TestForkSessionReusesOnePreparedHistoricalIdentityThroughDispatch(t *testin
 	if len(runtime.forkInputs) != 1 {
 		t.Fatalf("fork inputs=%d, want 1", len(runtime.forkInputs))
 	}
-	if !reflect.DeepEqual(
-		runtime.forkInputs[0].SourceProviderTurnIDs,
-		[]string{"provider-turn"},
-	) {
+	if runtime.forkInputs[0].SourceProviderTurnID != "provider-turn" {
 		t.Fatalf(
-			"provider turn prefix=%v, want [provider-turn]",
-			runtime.forkInputs[0].SourceProviderTurnIDs,
+			"provider turn=%q, want provider-turn",
+			runtime.forkInputs[0].SourceProviderTurnID,
 		)
 	}
 	assertPreparedForkSource(t, runtime.resolvedSources[0])
@@ -761,7 +759,7 @@ func TestForkSessionDistinguishesMissingSourceFromUnavailableBoundary(t *testing
 		_, err := host.ForkSession(context.Background(), ForkSessionInput{
 			WorkspaceID: "ws", SourceAgentSessionID: "missing",
 			TargetAgentSessionID: "target", RequestID: "request",
-			ThroughTurnID: "turn",
+			Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 		})
 		if !errors.Is(err, ErrSessionNotFound) {
 			t.Fatalf("ForkSession() error=%v, want not found", err)
@@ -778,7 +776,7 @@ func TestForkSessionDistinguishesMissingSourceFromUnavailableBoundary(t *testing
 		_, err := host.ForkSession(context.Background(), ForkSessionInput{
 			WorkspaceID: "ws", SourceAgentSessionID: "source",
 			TargetAgentSessionID: "target", RequestID: "request",
-			ThroughTurnID: "turn",
+			Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
 		})
 		if !errors.Is(err, storesqlite.ErrSessionForkTurnState) {
 			t.Fatalf("ForkSession() error=%v, want boundary conflict", err)
@@ -886,9 +884,7 @@ func (f *fakeSessionForkRuntime) ForkSession(
 	receipt := ""
 	if mode == SessionForkStateBindingProviderOwned {
 		receipt = "fake-provider-owned-receipt"
-		for _, sourceID := range input.SourceProviderTurnIDs {
-			targetProviderTurnIDs = append(targetProviderTurnIDs, "forked-"+sourceID)
-		}
+		targetProviderTurnIDs = []string{"forked-" + input.SourceProviderTurnID}
 	}
 	return RuntimeSessionForkResult{
 		ProviderSessionID:     f.providerSessionID,
@@ -941,13 +937,14 @@ func assertPreparedForkSource(t *testing.T, source ProviderRuntimeSession) {
 }
 
 type fakeSessionForkStore struct {
-	operation           storesqlite.SessionForkOperation
-	prepare             storesqlite.SessionForkPrepare
-	failCommit          bool
-	sourceMissing       bool
-	boundaryUnsupported bool
-	source              storesqlite.Session
-	turnIdentities      []storesqlite.SessionForkTurnIdentity
+	operation             storesqlite.SessionForkOperation
+	prepare               storesqlite.SessionForkPrepare
+	failCommit            bool
+	sourceMissing         bool
+	boundaryUnsupported   bool
+	source                storesqlite.Session
+	turnIdentities        []storesqlite.SessionForkTurnIdentity
+	listTurnIdentityCalls int
 }
 
 type pagedSessionForkRecoveryStore struct {
@@ -1036,6 +1033,7 @@ func (f *fakeSessionForkStore) CheckSessionForkThroughTurn(
 func (f *fakeSessionForkStore) ListSessionForkTurnIdentities(
 	context.Context, string, string,
 ) ([]storesqlite.SessionForkTurnIdentity, error) {
+	f.listTurnIdentityCalls++
 	return append(
 		[]storesqlite.SessionForkTurnIdentity(nil),
 		f.turnIdentities...,
@@ -1178,6 +1176,12 @@ func (f *fakeSessionForkStore) RecordSessionForkProviderResult(
 ) (storesqlite.SessionForkOperation, bool, error) {
 	f.operation.Status = input.Status
 	f.operation.TargetProviderSessionID = input.TargetProviderSessionID
+	f.operation.TargetProviderTurnIDs = append(
+		[]string(nil),
+		input.TargetProviderTurnIDs...,
+	)
+	f.operation.StateBindingMode = input.StateBindingMode
+	f.operation.StateBindingReceipt = input.StateBindingReceipt
 	f.operation.LastError = input.LastError
 	return f.operation, true, nil
 }

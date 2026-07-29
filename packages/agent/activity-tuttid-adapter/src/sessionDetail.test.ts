@@ -274,6 +274,7 @@ function createTurn(
     origin: "user_prompt",
     outcome: null,
     phase: "settled",
+    providerForkBindingAvailable: false,
     settledAtUnixMs: 3,
     startedAtUnixMs: 1,
     turnId: overrides.turnId,

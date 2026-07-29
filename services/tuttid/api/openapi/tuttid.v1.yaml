@@ -11577,16 +11577,7 @@ components:
           description: Whether this exact session can fork its latest settled state.
         forkThroughTurn:
           type: boolean
-          description: Whether this exact session can fork through a settled canonical Turn.
-        forkThroughTurnIds:
-          type: array
-          items:
-            type: string
-            minLength: 1
-          description: Canonical Turn ids currently verified against provider-native history.
-        forkThroughTurnIdsKnown:
-          type: boolean
-          description: Whether forkThroughTurnIds is an authoritative provider-history projection.
+          description: Whether this exact session can fork through a provider-bound canonical Turn.
     WorkspaceAgentSessionForkThroughTurnPoint:
       type: object
       additionalProperties: false
@@ -11647,6 +11638,16 @@ components:
       description: >-
         Public durable operation state. accepted collapses the internal
         prepared, dispatching, and provider-accepted phases.
+    WorkspaceAgentSessionForkOperationPhase:
+      type: string
+      enum:
+        - frozen
+        - dispatching
+        - materializing
+        - committed
+        - failed
+        - deliveryUnknown
+      description: Durable execution phase for progress and recovery diagnostics.
     WorkspaceAgentSessionForkOperation:
       type: object
       additionalProperties: false
@@ -11657,6 +11658,7 @@ components:
         - targetAgentSessionId
         - point
         - status
+        - phase
         - session
         - lineage
         - error
@@ -11677,6 +11679,8 @@ components:
           $ref: "#/components/schemas/WorkspaceAgentSessionForkPoint"
         status:
           $ref: "#/components/schemas/WorkspaceAgentSessionForkOperationStatus"
+        phase:
+          $ref: "#/components/schemas/WorkspaceAgentSessionForkOperationPhase"
         session:
           allOf:
             - $ref: "#/components/schemas/WorkspaceAgentSession"
@@ -12128,6 +12132,7 @@ components:
       required:
         - turnId
         - agentSessionId
+        - providerForkBindingAvailable
         - phase
         - origin
         - outcome
@@ -12144,6 +12149,12 @@ components:
         agentSessionId:
           type: string
           minLength: 1
+        providerForkBindingAvailable:
+          type: boolean
+          description: >-
+            Whether this canonical Turn currently has the provider Turn
+            binding required to attempt an exact native Fork. Historical
+            prefix state does not participate in this projection.
         phase:
           $ref: "#/components/schemas/WorkspaceAgentTurnPhase"
         origin:

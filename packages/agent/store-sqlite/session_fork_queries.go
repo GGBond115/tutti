@@ -43,10 +43,12 @@ func getSessionForkOperationWithSnapshotTx(ctx context.Context, tx *sql.Tx, work
 SELECT operation_id, workspace_id, request_id, request_hash,
        source_agent_session_id, target_agent_session_id,
        source_provider_session_id, source_turn_id, source_provider_turn_id,
+       COALESCE(source_provider_checkpoint_message_id, ''),
        COALESCE(target_turn_id, ''),
        point_kind, driver_kind, driver_version, status,
        COALESCE(target_provider_session_id, ''),
        target_title, target_provider_turn_ids_json,
+       COALESCE(target_provider_checkpoint_message_id, ''),
        provider_state_binding_mode, provider_state_binding_receipt,
        snapshot_hash, last_error,
        created_at_unix_ms, updated_at_unix_ms,
@@ -63,32 +65,6 @@ WHERE workspace_id = ? AND operation_id = ?`, workspaceID, operationID)
 	return op, err == nil, snapshotJSON, err
 }
 
-func getSessionForkBoundaryBarrierTx(
-	ctx context.Context,
-	tx *sql.Tx,
-	workspaceID, sourceSessionID, pointKind, sourceTurnID string,
-) (SessionForkOperation, bool, error) {
-	var operationID string
-	err := tx.QueryRowContext(ctx, `
-SELECT operation_id
-FROM workspace_agent_session_fork_boundary_barriers
-WHERE workspace_id = ?
-  AND source_agent_session_id = ?
-  AND point_kind = ?
-  AND source_turn_id = ?
-`, workspaceID, sourceSessionID, pointKind, sourceTurnID).Scan(&operationID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return SessionForkOperation{}, false, nil
-	}
-	if err != nil {
-		return SessionForkOperation{}, false, fmt.Errorf(
-			"read session fork boundary barrier: %w",
-			err,
-		)
-	}
-	return getSessionForkOperationTx(ctx, tx, workspaceID, operationID)
-}
-
 func scanSessionForkOperation(scanner rowScanner) (SessionForkOperation, error) {
 	return scanSessionForkOperationWithExtra(scanner)
 }
@@ -100,9 +76,11 @@ func scanSessionForkOperationWithExtra(scanner rowScanner, extra ...any) (Sessio
 		&op.OperationID, &op.WorkspaceID, &op.RequestID, &op.RequestHash,
 		&op.SourceAgentSessionID, &op.TargetAgentSessionID,
 		&op.SourceProviderSessionID, &op.SourceTurnID, &op.SourceProviderTurnID,
+		&op.SourceProviderCheckpointMessageID,
 		&op.TargetTurnID,
 		&op.PointKind, &op.DriverKind, &op.DriverVersion, &op.Status, &op.TargetProviderSessionID,
 		&op.TargetTitle, &targetProviderTurnIDsJSON,
+		&op.TargetProviderCheckpointMessageID,
 		&op.StateBindingMode, &op.StateBindingReceipt,
 		&op.SnapshotHash, &op.LastError, &op.CreatedAtUnixMS, &op.UpdatedAtUnixMS,
 		&op.DispatchedAtUnixMS, &op.AcceptedAtUnixMS, &op.CompletedAtUnixMS,
@@ -167,12 +145,6 @@ func normalizeSessionForkPrepare(input *SessionForkPrepare) {
 	input.TargetAgentSessionID = strings.TrimSpace(input.TargetAgentSessionID)
 	input.SourceTurnID = strings.TrimSpace(input.SourceTurnID)
 	input.PointKind = strings.TrimSpace(input.PointKind)
-	if input.PointKind == "" {
-		// Session fork v1 only supported inclusive through-Turn forks. Preserve
-		// that exact meaning for in-process callers compiled before Point was
-		// promoted into the durable operation contract.
-		input.PointKind = SessionForkPointThroughTurn
-	}
 	input.DriverKind = strings.TrimSpace(input.DriverKind)
 	input.DriverVersion = strings.TrimSpace(input.DriverVersion)
 }
@@ -180,8 +152,4 @@ func normalizeSessionForkPrepare(input *SessionForkPrepare) {
 func hashSessionForkBytes(value []byte) string {
 	sum := sha256.Sum256(value)
 	return hex.EncodeToString(sum[:])
-}
-
-func isVerifiedSessionForkSequence(provenance string) bool {
-	return provenance == "verified" || provenance == "fork_clone_verified"
 }

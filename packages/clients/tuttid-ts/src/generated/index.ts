@@ -1810,6 +1810,7 @@ export type {
   WorkspaceAgentSessionEventEnvelope,
   WorkspaceAgentSessionForkLineage,
   WorkspaceAgentSessionForkOperation,
+  WorkspaceAgentSessionForkOperationPhase,
   WorkspaceAgentSessionForkOperationResponse,
   WorkspaceAgentSessionForkOperationStatus,
   WorkspaceAgentSessionForkPoint,

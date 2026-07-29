@@ -180,6 +180,7 @@ type Scenario struct {
 type SessionForkFixture struct {
 	FailFirstLocalCommit    bool
 	RecoverProviderAccepted bool
+	KeepBoundaryActive      bool
 }
 
 type SessionForkMetrics struct {

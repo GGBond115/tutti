@@ -72,6 +72,9 @@ test("Claude-persisted user UUID becomes the provider Turn identity", async () =
     const providerStarted = events.find(
       (event) => event.type === "provider_turn_started"
     );
+    const providerCheckpoint = events.find(
+      (event) => event.type === "provider_turn_checkpoint"
+    );
     const completed = events.find((event) => event.type === "turn_completed");
     assert.equal(
       providerStarted?.payload?.providerTurnId,
@@ -81,6 +84,11 @@ test("Claude-persisted user UUID becomes the provider Turn identity", async () =
       completed?.payload?.providerTurnId,
       "persisted-claude-user-uuid"
     );
+    assert.deepEqual(providerCheckpoint?.payload, {
+      turnId: "turn-identity",
+      providerTurnId: "persisted-claude-user-uuid",
+      providerCheckpointMessageId: "persisted-claude-user-uuid"
+    });
   } finally {
     restoreSink();
   }

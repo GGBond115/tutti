@@ -107,6 +107,7 @@ function forkReducerContext() {
         origin: "user_prompt" as const,
         outcome: "completed" as const,
         phase: "settled" as const,
+        providerForkBindingAvailable: true,
         settledAtUnixMs: 2,
         startedAtUnixMs: 1,
         turnId: "turn-1",
@@ -355,6 +356,7 @@ test("through-turn fork preserves exact identities and upserts the child session
     origin: "user_prompt" as const,
     outcome: "completed" as const,
     phase: "settled" as const,
+    providerForkBindingAvailable: true,
     settledAtUnixMs: 2,
     startedAtUnixMs: 1,
     turnId: "turn-1",
@@ -390,6 +392,20 @@ test("through-turn fork preserves exact identities and upserts the child session
       workspaceId: "workspace-1"
     }
   ]);
+  const duplicateBoundary = sessionMutationsReducer(
+    requested.state,
+    {
+      requestId: "request-2",
+      sourceAgentSessionId: "session-1",
+      targetAgentSessionId: "session-3",
+      turnId: "turn-1",
+      type: "session/forkThroughTurnRequested",
+      workspaceId: "workspace-1"
+    },
+    context
+  );
+  assert.deepEqual(duplicateBoundary.commands, []);
+  assert.equal(duplicateBoundary.state.byMutationId["request-2"], undefined);
 
   const child = normalizeAgentActivitySession({
     ...session,
@@ -679,7 +695,7 @@ test("fork observation ACK failure retries after bounded backoff without a new e
   );
 });
 
-test("unresolved fork ACK blocks only its exact boundary", () => {
+test("unresolved fork observation ACK does not block a new Fork", () => {
   const context = forkReducerContext();
   const requested = sessionMutationsReducer(
     createInitialSessionMutationsState(),
@@ -718,9 +734,9 @@ test("unresolved fork ACK blocks only its exact boundary", () => {
   const newRequest = sessionMutationsReducer(
     failedAck.state,
     {
-      requestId: "request-must-not-dispatch",
+      requestId: "request-new-fork",
       sourceAgentSessionId: "session-1",
-      targetAgentSessionId: "target-must-not-dispatch",
+      targetAgentSessionId: "target-new-fork",
       turnId: "turn-1",
       type: "session/forkThroughTurnRequested",
       workspaceId: "workspace-1"
@@ -728,14 +744,14 @@ test("unresolved fork ACK blocks only its exact boundary", () => {
     context
   );
 
-  assert.deepEqual(newRequest.commands, []);
+  assert.equal(newRequest.commands[0]?.type, "session/forkThroughTurn");
   assert.equal(
     newRequest.state.byMutationId["request-coordination"]?.kind,
     "forkThroughTurn"
   );
   assert.equal(
-    newRequest.state.byMutationId["request-must-not-dispatch"],
-    undefined
+    newRequest.state.byMutationId["request-new-fork"]?.status,
+    "inFlight"
   );
   const pinRequest = sessionMutationsReducer(
     failedAck.state,
@@ -765,6 +781,7 @@ test("unresolved fork ACK blocks only its exact boundary", () => {
         origin: "user_prompt" as const,
         outcome: "completed" as const,
         phase: "settled" as const,
+        providerForkBindingAvailable: true,
         settledAtUnixMs: 3,
         startedAtUnixMs: 2,
         turnId: "turn-2",
@@ -1090,6 +1107,7 @@ test("through-turn fork is rejected when exact-session capability is absent", ()
           origin: "user_prompt",
           outcome: "completed",
           phase: "settled",
+          providerForkBindingAvailable: true,
           settledAtUnixMs: 2,
           startedAtUnixMs: 1,
           turnId: "turn-1",
@@ -1103,7 +1121,7 @@ test("through-turn fork is rejected when exact-session capability is absent", ()
   assert.deepEqual(result.state.byMutationId, {});
 });
 
-test("through-turn fork capability stays structural while busy availability blocks dispatch", () => {
+test("through-turn fork remains available while the source has an active turn", () => {
   const forkableButBusy = normalizeAgentActivitySession({
     ...session,
     activeTurnId: "turn-active",
@@ -1131,6 +1149,7 @@ test("through-turn fork capability stays structural while busy availability bloc
           origin: "user_prompt",
           outcome: "completed",
           phase: "settled",
+          providerForkBindingAvailable: true,
           settledAtUnixMs: 2,
           startedAtUnixMs: 1,
           turnId: "turn-1",
@@ -1139,11 +1158,11 @@ test("through-turn fork capability stays structural while busy availability bloc
       }
     }
   );
-  assert.deepEqual(result.commands, []);
-  assert.deepEqual(result.state.byMutationId, {});
+  assert.equal(result.commands[0]?.type, "session/forkThroughTurn");
+  assert.equal(result.state.byMutationId["request-busy"]?.status, "inFlight");
 });
 
-test("through-turn fork is unavailable while the source has a pending interaction", () => {
+test("through-turn fork remains available while the source has a pending interaction", () => {
   const forkableSession = normalizeAgentActivitySession({
     ...session,
     lifecycleCapabilities: { fork: true, forkThroughTurn: true }
@@ -1181,6 +1200,7 @@ test("through-turn fork is unavailable while the source has a pending interactio
           origin: "user_prompt",
           outcome: "completed",
           phase: "settled",
+          providerForkBindingAvailable: true,
           settledAtUnixMs: 2,
           startedAtUnixMs: 1,
           turnId: "turn-1",
@@ -1189,8 +1209,11 @@ test("through-turn fork is unavailable while the source has a pending interactio
       }
     }
   );
-  assert.deepEqual(result.commands, []);
-  assert.deepEqual(result.state.byMutationId, {});
+  assert.equal(result.commands[0]?.type, "session/forkThroughTurn");
+  assert.equal(
+    result.state.byMutationId["request-pending"]?.status,
+    "inFlight"
+  );
 });
 
 test("through-turn fork replays the same request after timeout and confirms a late child", () => {
@@ -1206,6 +1229,7 @@ test("through-turn fork replays the same request after timeout and confirms a la
     origin: "user_prompt" as const,
     outcome: "completed" as const,
     phase: "settled" as const,
+    providerForkBindingAvailable: true,
     settledAtUnixMs: 2,
     startedAtUnixMs: 1,
     turnId: "turn-1",
@@ -1287,6 +1311,7 @@ test("through-turn fork keeps stable identity for a typed delivery-unknown failu
     origin: "user_prompt" as const,
     outcome: "completed" as const,
     phase: "settled" as const,
+    providerForkBindingAvailable: true,
     settledAtUnixMs: 2,
     startedAtUnixMs: 1,
     turnId: "turn-1",
@@ -1425,6 +1450,7 @@ test("through-turn fork facade allocates a new identity after a confirmed failur
       origin: "user_prompt",
       outcome: "completed",
       phase: "settled",
+      providerForkBindingAvailable: true,
       settledAtUnixMs: 2,
       startedAtUnixMs: 1,
       turnId: "turn-1",
@@ -1535,6 +1561,7 @@ test("through-turn fork facade reuses an Engine-owned delivery-unknown identity"
       origin: "user_prompt",
       outcome: "completed",
       phase: "settled",
+      providerForkBindingAvailable: true,
       settledAtUnixMs: 2,
       startedAtUnixMs: 1,
       turnId: "turn-1",
@@ -1626,6 +1653,7 @@ test("through-turn fork facade reuses an Engine-owned in-flight identity", async
       origin: "user_prompt",
       outcome: "completed",
       phase: "settled",
+      providerForkBindingAvailable: true,
       settledAtUnixMs: 2,
       startedAtUnixMs: 1,
       turnId: "turn-1",
@@ -1711,6 +1739,7 @@ test("through-turn fork facade reuses the mutation key after committed recovery 
       origin: "user_prompt",
       outcome: "completed",
       phase: "settled",
+      providerForkBindingAvailable: true,
       settledAtUnixMs: 2,
       startedAtUnixMs: 1,
       turnId: "turn-1",

@@ -57,10 +57,7 @@ func TestClaudeSessionForkTraversesProductionWiringAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSessionForkCapabilities: %v", err)
 	}
-	if !capabilities.ThroughTurn ||
-		!capabilities.ThroughTurnIDsKnown ||
-		len(capabilities.ThroughTurnIDs) != 1 ||
-		capabilities.ThroughTurnIDs[0] != "turn-source" {
+	if !capabilities.ThroughTurn {
 		t.Fatalf("source capabilities=%#v", capabilities)
 	}
 
@@ -95,10 +92,11 @@ func TestClaudeSessionForkTraversesProductionWiringAcrossRestart(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("get child turn found=%v error=%v", found, err)
 	}
-	if childTurn.RootProviderTurnID != "child-prompt-1" {
+	if childTurn.RootProviderTurnID != "child-prompt-1" ||
+		childTurn.ProviderCheckpointMessageID != "checkpoint-claude-child" {
 		t.Fatalf(
-			"child provider turn id=%q, want remapped UUID",
-			childTurn.RootProviderTurnID,
+			"child provider binding=%#v, want remapped UUIDs",
+			childTurn,
 		)
 	}
 	if bridge.RuntimeSessionLive("workspace-claude-fork", "session-source") {
@@ -491,11 +489,12 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			request.ID,
 			"ok",
 			map[string]any{
-				"providerSessionId":     targetID,
-				"targetProviderTurnIds": []string{targetTurnID},
-				"stateBindingMode":      "provider_owned",
-				"stateBindingReceipt":   "claude-sdk-fork-v1:" + targetID,
-				"deliveryDisposition":   "accepted",
+				"providerSessionId":                 targetID,
+				"targetProviderTurnIds":             []string{targetTurnID},
+				"targetProviderCheckpointMessageId": "checkpoint-" + targetID,
+				"stateBindingMode":                  "provider_owned",
+				"stateBindingReceipt":               "claude-sdk-fork-v2:" + targetID,
+				"deliveryDisposition":               "accepted",
 			},
 		)
 	case "start":
@@ -556,7 +555,7 @@ func (c *claudeForkIntegrationConnection) emit(
 	payload map[string]any,
 ) error {
 	data, err := json.Marshal(map[string]any{
-		"version": 5,
+		"version": 6,
 		"id":      id,
 		"type":    eventType,
 		"payload": payload,

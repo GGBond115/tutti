@@ -17,6 +17,7 @@ type Config struct {
 	SessionForkRuntime     SessionForkRuntime
 	SessionForkContext     SessionForkContextPolicy
 	SessionForkState       SessionForkProviderStateBinder
+	SessionForkAttachments SessionForkAttachmentStager
 	Runtime                RuntimeController
 	RuntimePreparation     RuntimePreparationPort
 	SettingsPolicy         SettingsPolicy
@@ -57,6 +58,7 @@ type Host struct {
 	sessionForkRuntime     SessionForkRuntime
 	sessionForkContext     SessionForkContextPolicy
 	sessionForkState       SessionForkProviderStateBinder
+	sessionForkAttachments SessionForkAttachmentStager
 	runtime                RuntimeController
 	preparation            RuntimePreparationPort
 	settingsPolicy         SettingsPolicy
@@ -100,9 +102,10 @@ func New(config Config) *Host {
 		store: config.CanonicalStore, sessionManagement: config.SessionManagement, sessionBatchManagement: config.SessionBatchManagement, sessionDeletionGuard: config.SessionDeletionGuard, sessionPurge: config.SessionPurge,
 		sessionForks: config.SessionForks, sessionForkRuntime: config.SessionForkRuntime,
 		sessionForkContext: config.SessionForkContext, sessionForkState: config.SessionForkState,
-		runtime:             config.Runtime,
-		sessionForkRecovery: config.SessionForkRecovery,
-		preparation:         config.RuntimePreparation, settingsPolicy: config.SettingsPolicy, attachments: config.Attachments,
+		sessionForkAttachments: config.SessionForkAttachments,
+		runtime:                config.Runtime,
+		sessionForkRecovery:    config.SessionForkRecovery,
+		preparation:            config.RuntimePreparation, settingsPolicy: config.SettingsPolicy, attachments: config.Attachments,
 		clock: config.Clock, locker: config.SessionLocker, startupGate: config.RuntimeStartGate,
 		observer: config.LifecycleObserver, commitObserver: config.CommitObserver,
 		operations: config.RuntimeOperations, events: config.OperationEvents,

@@ -58,8 +58,6 @@ export type AgentActivitySessionKind = "root" | "child";
 export interface AgentActivitySessionLifecycleCapabilities {
   fork: boolean;
   forkThroughTurn: boolean;
-  forkThroughTurnIds?: string[];
-  forkThroughTurnIdsKnown?: boolean;
 }
 
 export interface AgentActivitySessionForkLineage {
@@ -528,6 +526,8 @@ export interface AgentActivityCompletedCommand {
 
 export interface AgentActivityTurn {
   agentSessionId: string;
+  /** Exact selected-Turn binding needed to attempt a provider-native Fork. */
+  providerForkBindingAvailable?: boolean;
   /** Audit-only capability provenance for the turn; never current mode state. */
   capabilityRefs?: readonly AgentActivityCapabilityReference[];
   completedCommand?: AgentActivityCompletedCommand | null;

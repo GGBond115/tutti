@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestClaudeSDKForkCapabilitiesUsesStatelessTranscriptInspection(t *testing.T) {
+func TestClaudeSDKForkCapabilitiesAreStructuralAndDoNotReadTranscript(t *testing.T) {
 	conn := &claudeSDKForkTestConnection{
 		responseType: "ok",
 		responsePayload: map[string]any{
@@ -28,19 +28,11 @@ func TestClaudeSDKForkCapabilitiesUsesStatelessTranscriptInspection(t *testing.T
 	}
 	if capabilities.DriverKind != claudeSDKForkDriverKind ||
 		capabilities.DriverVersion != claudeSDKForkDriverVersion ||
-		capabilities.DeterministicTargetSessionID ||
-		!capabilities.ThroughTurn ||
-		!capabilities.ThroughProviderTurnIDsKnown ||
-		!reflect.DeepEqual(
-			capabilities.ThroughProviderTurnIDs,
-			[]string{"prompt-1", "prompt-2"},
-		) {
+		!capabilities.ThroughTurn {
 		t.Fatalf("capabilities=%#v", capabilities)
 	}
 	requests := conn.requests()
-	if len(requests) != 1 ||
-		requests[0].Type != "inspect_fork_checkpoints" ||
-		payloadString(requests[0].Payload, "providerSessionId") != "claude-source" {
+	if len(requests) != 0 {
 		t.Fatalf("requests=%#v", requests)
 	}
 }
@@ -49,11 +41,12 @@ func TestClaudeSDKForkReturnsProviderOwnedIdentityEvidence(t *testing.T) {
 	conn := &claudeSDKForkTestConnection{
 		responseType: "ok",
 		responsePayload: map[string]any{
-			"providerSessionId":     "claude-child",
-			"targetProviderTurnIds": []string{"child-prompt-1", "child-prompt-2"},
-			"stateBindingMode":      "provider_owned",
-			"stateBindingReceipt":   "claude-sdk-fork-v1:receipt",
-			"deliveryDisposition":   "accepted",
+			"providerSessionId":                 "claude-child",
+			"targetProviderTurnIds":             []string{"child-prompt-1", "child-prompt-2"},
+			"targetProviderCheckpointMessageId": "child-answer-2",
+			"stateBindingMode":                  "provider_owned",
+			"stateBindingReceipt":               "claude-sdk-fork-v1:receipt",
+			"deliveryDisposition":               "accepted",
 		},
 	}
 	adapter := NewClaudeCodeSDKAdapter(claudeSDKForkTestTransport{conn: conn})
@@ -62,8 +55,8 @@ func TestClaudeSDKForkReturnsProviderOwnedIdentityEvidence(t *testing.T) {
 
 	result, err := adapter.Fork(t.Context(), SessionForkInput{
 		Source: source, ProviderTurnID: "prompt-2",
-		ProviderTurnIDs: []string{"prompt-1", "prompt-2"},
-		TargetTitle:     "Claude session (2)",
+		ProviderCheckpointMessageID: "answer-2",
+		TargetTitle:                 "Claude session (2)",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -71,6 +64,7 @@ func TestClaudeSDKForkReturnsProviderOwnedIdentityEvidence(t *testing.T) {
 	if result.ProviderSessionID != "claude-child" ||
 		result.DeliveryDisposition != SessionForkDeliveryAccepted ||
 		result.StateBindingMode != "provider_owned" ||
+		result.TargetProviderCheckpointMessageID != "child-answer-2" ||
 		result.StateBindingReceipt == "" ||
 		!reflect.DeepEqual(
 			result.TargetProviderTurnIDs,
@@ -81,6 +75,10 @@ func TestClaudeSDKForkReturnsProviderOwnedIdentityEvidence(t *testing.T) {
 	requests := conn.requests()
 	if len(requests) != 1 || requests[0].Type != "fork_session" ||
 		payloadString(requests[0].Payload, "title") != "Claude session (2)" ||
+		payloadString(
+			requests[0].Payload,
+			"providerCheckpointMessageId",
+		) != "answer-2" ||
 		payloadString(requests[0].Payload, "targetProviderSessionId") != "" {
 		t.Fatalf("requests=%#v", requests)
 	}
@@ -100,7 +98,7 @@ func TestClaudeSDKForkPreservesUnknownDispositionAfterDispatch(t *testing.T) {
 	source.ProviderSessionID = "claude-source"
 	result, err := adapter.Fork(t.Context(), SessionForkInput{
 		Source: source, ProviderTurnID: "prompt-1",
-		ProviderTurnIDs: []string{"prompt-1"}, TargetTitle: "Child",
+		TargetTitle: "Child",
 	})
 	if err == nil || result.DeliveryDisposition != SessionForkDeliveryUnknown {
 		t.Fatalf("result=%#v error=%v", result, err)
@@ -114,11 +112,12 @@ func TestClaudeSDKForkedChildCanResumeAndStartTurn(t *testing.T) {
 	forkConn := &claudeSDKForkTestConnection{
 		responseType: "ok",
 		responsePayload: map[string]any{
-			"providerSessionId":     "claude-child",
-			"targetProviderTurnIds": []string{"child-prompt-1"},
-			"stateBindingMode":      "provider_owned",
-			"stateBindingReceipt":   "claude-sdk-fork-v1:receipt",
-			"deliveryDisposition":   "accepted",
+			"providerSessionId":                 "claude-child",
+			"targetProviderTurnIds":             []string{"child-prompt-1"},
+			"targetProviderCheckpointMessageId": "child-answer-1",
+			"stateBindingMode":                  "provider_owned",
+			"stateBindingReceipt":               "claude-sdk-fork-v1:receipt",
+			"deliveryDisposition":               "accepted",
 		},
 	}
 	childConn := &scriptedClaudeSDKConnection{
@@ -144,7 +143,7 @@ func TestClaudeSDKForkedChildCanResumeAndStartTurn(t *testing.T) {
 
 	result, err := adapter.Fork(t.Context(), SessionForkInput{
 		Source: source, ProviderTurnID: "prompt-1",
-		ProviderTurnIDs: []string{"prompt-1"}, TargetTitle: "Child",
+		TargetTitle: "Child",
 	})
 	if err != nil {
 		t.Fatalf("Fork: %v", err)

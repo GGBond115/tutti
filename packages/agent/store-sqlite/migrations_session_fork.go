@@ -420,3 +420,52 @@ WHERE TRIM(COALESCE(target_provider_session_id, '')) <> '';
 	}
 	return nil
 }
+
+// applyWorkspaceAgentSessionForkV6 is the intentional hard cutover to
+// optimistic Fork. It refuses to migrate while an old saga is non-terminal,
+// then replaces the source-wide constraint with an exact active-boundary
+// constraint. Different Turns can Fork independently while one Turn cannot
+// dispatch two provider mutations concurrently.
+func (s *Store) applyWorkspaceAgentSessionForkV6(ctx context.Context) error {
+	applied, err := s.hasMigration(ctx, schemaMigrationWorkspaceAgentSessionForkV6)
+	if err != nil || applied {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin workspace agent session fork v6: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var nonterminal int
+	if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM workspace_agent_session_fork_operations
+WHERE status IN ('prepared','dispatching','provider_accepted')
+`).Scan(&nonterminal); err != nil {
+		return fmt.Errorf("count nonterminal session forks before v6: %w", err)
+	}
+	if nonterminal != 0 {
+		return fmt.Errorf(
+			"workspace agent session fork v6 requires draining %d nonterminal operations",
+			nonterminal,
+		)
+	}
+	if _, err := tx.ExecContext(ctx, `
+DROP INDEX IF EXISTS idx_workspace_agent_session_fork_operations_active_source;
+
+CREATE UNIQUE INDEX idx_workspace_agent_session_fork_operations_active_boundary
+  ON workspace_agent_session_fork_operations(
+    workspace_id, source_agent_session_id, point_kind, source_turn_id
+  )
+  WHERE status IN ('prepared','dispatching','provider_accepted');
+`); err != nil {
+		return fmt.Errorf("replace session fork active-source constraint: %w", err)
+	}
+	if err := recordMigrationTx(ctx, tx, schemaMigrationWorkspaceAgentSessionForkV6); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit workspace agent session fork v6: %w", err)
+	}
+	return nil
+}

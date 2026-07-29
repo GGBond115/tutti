@@ -4129,6 +4129,12 @@ aside.workspace-agents-status-panel
     transform 120ms ease;
 }
 
+.agent-gui-conversation__message-copy-button[data-pending="true"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
 .agent-gui-conversation__message-footer
   > .agent-gui-conversation__message-copy-button
   + .agent-gui-conversation__message-copy-button {

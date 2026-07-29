@@ -86,6 +86,22 @@ func (a *ClaudeCodeSDKAdapter) sidecarTurnEvents(adapterSession *claudeSDKAdapte
 			providerTurnID,
 			map[string]any{"adapter": claudeSDKSidecarAdapterName},
 		)}, false, nil
+	case "provider_turn_checkpoint":
+		checkpointMessageID := payloadString(
+			event.Payload,
+			"providerCheckpointMessageId",
+		)
+		if eventTurnID == "" || providerTurnID == "" || checkpointMessageID == "" {
+			return nil, false, errors.New(
+				"claude SDK provider turn checkpoint omitted identity",
+			)
+		}
+		return []activityshared.Event{claudeSDKRootProviderTurnCheckpointEvent(
+			session,
+			eventTurnID,
+			providerTurnID,
+			checkpointMessageID,
+		)}, false, nil
 	case "turn_started":
 		metadata := map[string]any{
 			"adapter": claudeSDKSidecarAdapterName,
@@ -314,7 +330,7 @@ func (a *ClaudeCodeSDKAdapter) sidecarTurnEvents(adapterSession *claudeSDKAdapte
 
 func isClaudeSDKGoalClearHiddenEvent(eventType string) bool {
 	switch eventType {
-	case "turn_started", "assistant_delta", "assistant_completed", "assistant_failed", "thinking_delta", "thinking_completed":
+	case "turn_started", "provider_turn_checkpoint", "assistant_delta", "assistant_completed", "assistant_failed", "thinking_delta", "thinking_completed":
 		return true
 	default:
 		return false
@@ -338,6 +354,28 @@ func claudeSDKRootProviderTurnStartedEvent(session Session, rootTurnID string, p
 	event := activityshared.NewRootProviderTurnStarted(ctx, rootTurnID, providerTurnID)
 	event.Payload.Metadata = clonePayload(metadata)
 	return event
+}
+
+func claudeSDKRootProviderTurnCheckpointEvent(
+	session Session,
+	rootTurnID string,
+	providerTurnID string,
+	checkpointMessageID string,
+) activityshared.Event {
+	ctx, ok := activityEventContext(
+		session,
+		"claude-sdk:provider-turn-checkpoint:"+providerTurnID+":"+checkpointMessageID,
+		rootTurnID,
+	)
+	if !ok {
+		return activityshared.Event{}
+	}
+	return activityshared.NewRootProviderTurnCheckpoint(
+		ctx,
+		rootTurnID,
+		providerTurnID,
+		checkpointMessageID,
+	)
 }
 
 func claudeSDKRootProviderTurnCompletedEvent(session Session, rootTurnID string, providerTurnID string, outcome activityshared.TurnOutcome, metadata map[string]any) activityshared.Event {

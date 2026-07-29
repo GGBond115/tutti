@@ -340,6 +340,7 @@ export const zhCNAgentGui = {
   pastedTextRestoreToComposer: "在文本框中显示",
   copyMessage: "复制消息",
   forkThroughTurn: "从此轮分叉",
+  forkThroughTurnPending: "正在从此轮分叉",
   continuedFromTask: "接续自任务",
   sourceConversationNotFound: "原会话无法找到",
   copyImage: "复制图片",

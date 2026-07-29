@@ -1,5 +1,7 @@
 package eventstream
 
+import tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
+
 type agentActivityUpdatedDataHeader struct {
 	WorkspaceID    string `json:"workspaceId"`
 	AgentSessionID string `json:"agentSessionId"`
@@ -56,42 +58,9 @@ type agentActivitySessionAudit struct {
 
 type agentActivityTurnUpdateData struct {
 	agentActivityUpdatedDataHeader
-	OccurredAtUnixMS *int64                `json:"occurredAtUnixMs"`
-	ActiveTurnID     *string               `json:"activeTurnId"`
-	Turn             agentActivityTurnData `json:"turn"`
-}
-
-type agentActivityTurnData struct {
-	TurnID                string                                 `json:"turnId"`
-	AgentSessionID        string                                 `json:"agentSessionId"`
-	CapabilityRefs        []agentActivityCapabilityReferenceData `json:"capabilityRefs,omitempty"`
-	Phase                 string                                 `json:"phase"`
-	Origin                string                                 `json:"origin"`
-	SourceGoalOperationID *string                                `json:"sourceGoalOperationId,omitempty"`
-	SourceGoalRevision    *int64                                 `json:"sourceGoalRevision,omitempty"`
-	SourceGoalRepairEpoch *int64                                 `json:"sourceGoalRepairEpoch,omitempty"`
-	Outcome               *string                                `json:"outcome"`
-	Error                 *agentActivityTurnErrorData            `json:"error"`
-	FileChanges           *map[string]any                        `json:"fileChanges"`
-	CompletedCommand      *agentActivityCompletedCommand         `json:"completedCommand"`
-	StartedAtUnixMS       *int64                                 `json:"startedAtUnixMs"`
-	SettledAtUnixMS       *int64                                 `json:"settledAtUnixMs"`
-	UpdatedAtUnixMS       *int64                                 `json:"updatedAtUnixMs"`
-}
-
-type agentActivityCapabilityReferenceData struct {
-	Capability string `json:"capability"`
-	Source     string `json:"source"`
-}
-
-type agentActivityTurnErrorData struct {
-	Message string  `json:"message"`
-	Code    *string `json:"code"`
-}
-
-type agentActivityCompletedCommand struct {
-	Kind   string `json:"kind"`
-	Status string `json:"status"`
+	OccurredAtUnixMS *int64                            `json:"occurredAtUnixMs"`
+	ActiveTurnID     *string                           `json:"activeTurnId"`
+	Turn             tuttigenerated.WorkspaceAgentTurn `json:"turn"`
 }
 
 type agentActivityInteractionUpdateData struct {

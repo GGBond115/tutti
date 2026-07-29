@@ -87,13 +87,14 @@ type RailPlacement struct {
 }
 
 type WorkspaceAgentRootProviderTurnTransition struct {
-	RootTurnID       string                          `json:"rootTurnId"`
-	ProviderTurnID   string                          `json:"providerTurnId"`
-	Phase            string                          `json:"phase"`
-	Outcome          string                          `json:"outcome,omitempty"`
-	CompletedCommand *WorkspaceAgentCompletedCommand `json:"completedCommand,omitempty"`
-	ErrorMessage     string                          `json:"errorMessage,omitempty"`
-	ErrorCode        string                          `json:"errorCode,omitempty"`
+	RootTurnID                  string                          `json:"rootTurnId"`
+	ProviderTurnID              string                          `json:"providerTurnId"`
+	ProviderCheckpointMessageID string                          `json:"providerCheckpointMessageId,omitempty"`
+	Phase                       string                          `json:"phase,omitempty"`
+	Outcome                     string                          `json:"outcome,omitempty"`
+	CompletedCommand            *WorkspaceAgentCompletedCommand `json:"completedCommand,omitempty"`
+	ErrorMessage                string                          `json:"errorMessage,omitempty"`
+	ErrorCode                   string                          `json:"errorCode,omitempty"`
 }
 
 type WorkspaceAgentTurnStateUpdate struct {

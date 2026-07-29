@@ -4,7 +4,6 @@ import "strings"
 
 func validSessionForkProviderResult(
 	result RuntimeSessionForkResult,
-	sourceProviderTurnIDs []string,
 ) bool {
 	switch result.StateBindingMode {
 	case SessionForkStateBindingHostCopy:
@@ -12,7 +11,7 @@ func validSessionForkProviderResult(
 			result.StateBindingReceipt == ""
 	case SessionForkStateBindingProviderOwned:
 		if result.StateBindingReceipt == "" ||
-			len(result.TargetProviderTurnIDs) != len(sourceProviderTurnIDs) {
+			len(result.TargetProviderTurnIDs) == 0 {
 			return false
 		}
 		seen := make(map[string]struct{}, len(result.TargetProviderTurnIDs))

@@ -21,6 +21,7 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 		activityshared.EventTurnFailed,
 		activityshared.EventTurnCanceled,
 		activityshared.EventRootProviderTurnStarted,
+		activityshared.EventRootProviderTurnCheckpoint,
 		activityshared.EventRootProviderTurnCompleted,
 		activityshared.EventInteractionRequested,
 		activityshared.EventInteractionSuperseded:
@@ -60,6 +61,7 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 	}
 	if turnID := strings.TrimSpace(event.Payload.TurnID); turnID != "" &&
 		event.Type != activityshared.EventRootProviderTurnStarted &&
+		event.Type != activityshared.EventRootProviderTurnCheckpoint &&
 		event.Type != activityshared.EventRootProviderTurnCompleted {
 		patch.Turn = &agentsessionstore.WorkspaceAgentTurnPatch{
 			TurnID:                turnID,
@@ -81,7 +83,9 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 	if !applyLifecycleSnapshotToPatch(&patch, event) {
 		applyExplicitTurnLifecycleToPatch(&patch, event)
 	}
-	if event.Type == activityshared.EventRootProviderTurnStarted || event.Type == activityshared.EventRootProviderTurnCompleted {
+	if event.Type == activityshared.EventRootProviderTurnStarted ||
+		event.Type == activityshared.EventRootProviderTurnCheckpoint ||
+		event.Type == activityshared.EventRootProviderTurnCompleted {
 		// A provider lifecycle snapshot may update the controller/session view,
 		// but root-provider aliases never create canonical Turns implicitly.
 		// The verified Goal-start proposal below is the only exception. Completed
@@ -133,10 +137,14 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 			patch.Turn.CompletedAtUnixMS = timestamp
 			patch.Turn.Phase = firstNonEmptyString(patch.Turn.Phase, string(activityshared.TurnPhaseSettled))
 		}
-	case activityshared.EventRootProviderTurnStarted, activityshared.EventRootProviderTurnCompleted:
+	case activityshared.EventRootProviderTurnStarted,
+		activityshared.EventRootProviderTurnCheckpoint,
+		activityshared.EventRootProviderTurnCompleted:
 		phase := agentsessionstore.RootProviderTurnPhaseRunning
 		if event.Type == activityshared.EventRootProviderTurnCompleted {
 			phase = agentsessionstore.RootProviderTurnPhaseCompleted
+		} else if event.Type == activityshared.EventRootProviderTurnCheckpoint {
+			phase = ""
 		}
 		errorMessage := activityshared.BestEffortErrorMessage(event.Payload)
 		errorCode := ""
@@ -146,12 +154,13 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 			errorCode = visibleFailureCode(errorMessage)
 		}
 		patch.RootProviderTurn = &canonical.WorkspaceAgentRootProviderTurnTransition{
-			RootTurnID:     strings.TrimSpace(event.Payload.TurnID),
-			ProviderTurnID: strings.TrimSpace(event.Payload.ProviderTurnID),
-			Phase:          phase,
-			Outcome:        strings.TrimSpace(event.Payload.TurnOutcome),
-			ErrorMessage:   errorMessage,
-			ErrorCode:      errorCode,
+			RootTurnID:                  strings.TrimSpace(event.Payload.TurnID),
+			ProviderTurnID:              strings.TrimSpace(event.Payload.ProviderTurnID),
+			ProviderCheckpointMessageID: strings.TrimSpace(event.Payload.ProviderCheckpointMessageID),
+			Phase:                       phase,
+			Outcome:                     strings.TrimSpace(event.Payload.TurnOutcome),
+			ErrorMessage:                errorMessage,
+			ErrorCode:                   errorCode,
 		}
 		if event.Type == activityshared.EventRootProviderTurnStarted {
 			applyProviderCreatedGoalTurnToPatch(&patch, event, timestamp)

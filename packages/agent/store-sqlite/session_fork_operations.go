@@ -51,7 +51,7 @@ LIMIT ?`, SessionForkStatusPrepared, SessionForkStatusDispatching,
 
 func (s *Store) MarkSessionForkDispatching(ctx context.Context, workspaceID, operationID string, now int64) (SessionForkOperation, bool, error) {
 	return s.transitionSessionFork(ctx, workspaceID, operationID, SessionForkStatusPrepared,
-		SessionForkStatusDispatching, "", nil, "", "", "", now)
+		SessionForkStatusDispatching, "", nil, "", "", "", "", now)
 }
 
 // RetryUnknownSessionFork reopens only the durable dispatch marker. Callers
@@ -70,6 +70,7 @@ func (s *Store) RetryUnknownSessionFork(
 		SessionForkStatusDispatching,
 		"",
 		nil,
+		"",
 		"",
 		"",
 		"",
@@ -92,6 +93,7 @@ func (s *Store) FailPreparedSessionFork(
 		nil,
 		"",
 		"",
+		"",
 		lastError,
 		now,
 	)
@@ -103,6 +105,9 @@ func (s *Store) RecordSessionForkProviderResult(ctx context.Context, input Sessi
 	input.LastError = strings.TrimSpace(input.LastError)
 	input.StateBindingMode = strings.TrimSpace(input.StateBindingMode)
 	input.StateBindingReceipt = strings.TrimSpace(input.StateBindingReceipt)
+	input.TargetProviderCheckpointMessageID = strings.TrimSpace(
+		input.TargetProviderCheckpointMessageID,
+	)
 	rawTargetProviderTurnCount := len(input.TargetProviderTurnIDs)
 	input.TargetProviderTurnIDs = normalizedProviderIdentityList(input.TargetProviderTurnIDs)
 	if rawTargetProviderTurnCount != len(input.TargetProviderTurnIDs) {
@@ -144,8 +149,9 @@ func (s *Store) RecordSessionForkProviderResult(ctx context.Context, input Sessi
 	}
 	return s.transitionSessionFork(ctx, input.WorkspaceID, input.OperationID,
 		SessionForkStatusDispatching, input.Status, input.TargetProviderSessionID,
-		input.TargetProviderTurnIDs, input.StateBindingMode, input.StateBindingReceipt,
-		input.LastError, input.OccurredAtUnixMS)
+		input.TargetProviderTurnIDs, input.TargetProviderCheckpointMessageID,
+		input.StateBindingMode, input.StateBindingReceipt, input.LastError,
+		input.OccurredAtUnixMS)
 }
 
 func (s *Store) CommitSessionFork(ctx context.Context, workspaceID, operationID string, now int64) (SessionForkCommitResult, error) {
@@ -176,7 +182,7 @@ func (s *Store) CommitSessionFork(ctx context.Context, workspaceID, operationID 
 			snapshot.Version,
 		)
 	}
-	if snapshot.BoundaryMessageID <= 0 || len(snapshot.Turns) == 0 ||
+	if len(snapshot.Turns) == 0 ||
 		snapshot.Turns[len(snapshot.Turns)-1].Turn.TurnID != op.SourceTurnID {
 		return SessionForkCommitResult{}, ErrSessionForkTurnState
 	}
@@ -189,7 +195,7 @@ func (s *Store) CommitSessionFork(ctx context.Context, workspaceID, operationID 
 		}
 	case "provider_owned":
 		if op.StateBindingReceipt == "" ||
-			len(op.TargetProviderTurnIDs) != len(snapshot.Turns) {
+			len(op.TargetProviderTurnIDs) == 0 {
 			return SessionForkCommitResult{}, errors.New(
 				"provider-owned session fork has incomplete provider identity mapping",
 			)
@@ -224,10 +230,9 @@ func (s *Store) CommitSessionFork(ctx context.Context, workspaceID, operationID 
 	if !found || currentSource.ProviderSessionID != op.SourceProviderSessionID {
 		return SessionForkCommitResult{}, ErrSessionForkSourceState
 	}
-	var throughSequence int64
 	var currentProviderTurnID string
 	if err := tx.QueryRowContext(ctx, `
-SELECT sequence.turn_sequence, COALESCE(turn.root_provider_turn_id, '')
+SELECT COALESCE(turn.root_provider_turn_id, '')
 FROM workspace_agent_turn_sequences sequence
 JOIN workspace_agent_turns turn
   ON turn.workspace_id = sequence.workspace_id
@@ -237,7 +242,7 @@ WHERE sequence.workspace_id = ?
   AND sequence.agent_session_id = ?
   AND sequence.turn_id = ?
 `, workspaceID, op.SourceAgentSessionID, op.SourceTurnID).
-		Scan(&throughSequence, &currentProviderTurnID); err != nil {
+		Scan(&currentProviderTurnID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return SessionForkCommitResult{}, ErrSessionForkTurnState
 		}
@@ -253,28 +258,6 @@ WHERE sequence.workspace_id = ?
 	op.TargetTurnID = identityMap.TurnIDs[op.SourceTurnID]
 	if strings.TrimSpace(op.TargetTurnID) == "" {
 		return SessionForkCommitResult{}, ErrSessionForkTurnState
-	}
-	currentSnapshot, err := loadSessionForkSnapshotTx(
-		ctx, tx, currentSource, throughSequence, snapshot.BoundaryMessageID,
-	)
-	if err != nil {
-		return SessionForkCommitResult{}, err
-	}
-	// Session display/configuration fields are intentionally frozen at
-	// prepare. Re-proof only the canonical prefix plus provider identity so a
-	// harmless title/pin update does not invalidate the fork.
-	currentSnapshot.Session = snapshot.Session
-	currentSnapshot.TargetCwd = snapshot.TargetCwd
-	currentSnapshot.TargetRuntimeContext = cloneJSONMap(snapshot.TargetRuntimeContext)
-	currentSnapshot.TargetSettings = cloneJSONMap(snapshot.TargetSettings)
-	currentSnapshot.TargetTitle = snapshot.TargetTitle
-	currentSnapshot.Version = snapshot.Version
-	currentSnapshotJSON, err := json.Marshal(currentSnapshot)
-	if err != nil {
-		return SessionForkCommitResult{}, fmt.Errorf("encode current session fork prefix: %w", err)
-	}
-	if hashSessionForkBytes(currentSnapshotJSON) != op.SnapshotHash {
-		return SessionForkCommitResult{}, errors.New("agent session fork source prefix changed after prepare")
 	}
 	var reservationOperationID string
 	if err := tx.QueryRowContext(ctx, `
@@ -299,8 +282,24 @@ WHERE workspace_id = ? AND target_agent_session_id = ?
 		if err != nil {
 			return SessionForkCommitResult{}, err
 		}
-		if len(op.TargetProviderTurnIDs) != 0 {
-			turn.RootProviderTurnID = op.TargetProviderTurnIDs[index]
+		if turn.Phase != TurnPhaseSettled {
+			turn.Phase = TurnPhaseSettled
+			turn.Outcome = TurnOutcomeInterrupted
+			turn.SettledAtUnixMS = now
+			turn.UpdatedAtUnixMS = now
+			turn.RootProviderTurnPhase = RootProviderTurnPhaseCompleted
+			turn.RootProviderTurnOutcome = TurnOutcomeInterrupted
+			turn.RootProviderTurnUpdatedAtUnixMS = now
+		}
+		if op.StateBindingMode == "provider_owned" {
+			turn.RootProviderTurnID = ""
+			turn.ProviderCheckpointMessageID = ""
+			if index == len(snapshot.Turns)-1 {
+				turn.RootProviderTurnID =
+					op.TargetProviderTurnIDs[len(op.TargetProviderTurnIDs)-1]
+				turn.ProviderCheckpointMessageID =
+					op.TargetProviderCheckpointMessageID
+			}
 		}
 		if err := insertForkedTurnTx(ctx, tx, workspaceID, op.TargetAgentSessionID, turn); err != nil {
 			return SessionForkCommitResult{}, err
@@ -322,6 +321,10 @@ WHERE workspace_id = ? AND target_agent_session_id = ?
 		interaction, err = remapSessionForkInteraction(interaction, identityMap)
 		if err != nil {
 			return SessionForkCommitResult{}, err
+		}
+		if interaction.Status == InteractionStatusPending {
+			interaction.Status = InteractionStatusSuperseded
+			interaction.UpdatedAtUnixMS = now
 		}
 		if err := insertForkedInteractionTx(ctx, tx, workspaceID, op.TargetAgentSessionID, interaction); err != nil {
 			return SessionForkCommitResult{}, err
@@ -489,7 +492,8 @@ WHERE workspace_id = ? AND target_agent_session_id = ?
 func (s *Store) transitionSessionFork(
 	ctx context.Context,
 	workspaceID, operationID, fromStatus, toStatus, targetProviderSessionID string,
-	targetProviderTurnIDs []string, stateBindingMode, stateBindingReceipt, lastError string,
+	targetProviderTurnIDs []string, targetProviderCheckpointMessageID string,
+	stateBindingMode, stateBindingReceipt, lastError string,
 	now int64,
 ) (SessionForkOperation, bool, error) {
 	if s == nil || s.db == nil || strings.TrimSpace(workspaceID) == "" ||
@@ -513,6 +517,7 @@ func (s *Store) transitionSessionFork(
 UPDATE workspace_agent_session_fork_operations
 SET status = ?, target_provider_session_id = NULLIF(?, ''), last_error = ?,
     target_provider_turn_ids_json = ?,
+    target_provider_checkpoint_message_id = NULLIF(?, ''),
     provider_state_binding_mode = ?,
     provider_state_binding_receipt = ?,
     dispatched_at_unix_ms = CASE WHEN ? = 'dispatching' THEN ? ELSE dispatched_at_unix_ms END,
@@ -524,8 +529,10 @@ SET status = ?, target_provider_session_id = NULLIF(?, ''), last_error = ?,
     END,
     updated_at_unix_ms = ?
 WHERE workspace_id = ? AND operation_id = ? AND status = ?
-`, toStatus, strings.TrimSpace(targetProviderSessionID), strings.TrimSpace(lastError),
-		string(targetProviderTurnIDsJSON), strings.TrimSpace(stateBindingMode),
+	`, toStatus, strings.TrimSpace(targetProviderSessionID), strings.TrimSpace(lastError),
+		string(targetProviderTurnIDsJSON),
+		strings.TrimSpace(targetProviderCheckpointMessageID),
+		strings.TrimSpace(stateBindingMode),
 		strings.TrimSpace(stateBindingReceipt),
 		toStatus, now, toStatus, now, toStatus, toStatus, now, now,
 		workspaceID, operationID, fromStatus)

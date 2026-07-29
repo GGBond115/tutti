@@ -156,8 +156,8 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'source'
 		SourceTurnID: "turn-1", DriverKind: "codex-app-server",
 		DriverVersion: "1", OccurredAtUnixMS: 105,
 	})
-	if err != nil || created || recovered.OperationID != "fork-op" ||
-		recovered.TargetAgentSessionID != "target" ||
+	if err != nil || !created || recovered.OperationID != "fork-op-lost-response" ||
+		recovered.TargetAgentSessionID != "target-lost-response" ||
 		recovered.ClientObservedAtUnixMS != 0 {
 		t.Fatalf(
 			"unobserved committed barrier operation=%#v created=%v error=%v",
@@ -165,6 +165,11 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'source'
 			created,
 			err,
 		)
+	}
+	if _, changed, err := store.FailPreparedSessionFork(
+		ctx, "ws-1", recovered.OperationID, "test cleanup", 105,
+	); err != nil || !changed {
+		t.Fatalf("cleanup parallel fork changed=%v error=%v", changed, err)
 	}
 	if _, found, changed, err := store.AcknowledgeSessionForkOperation(
 		ctx,
@@ -246,11 +251,62 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'target'
 	}
 }
 
+func TestSessionForkNormalizesActiveBoundaryInFrozenTarget(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	seedForkSession(t, store)
+	if _, err := store.db.ExecContext(ctx, `
+UPDATE workspace_agent_turns
+SET phase = 'running', outcome = NULL, settled_at_unix_ms = NULL,
+    root_provider_turn_phase = 'running', root_provider_turn_outcome = NULL
+WHERE workspace_id = 'ws-1' AND agent_session_id = 'source' AND turn_id = 'turn-1'
+`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+UPDATE workspace_agent_sessions
+SET active_turn_id = 'turn-1'
+WHERE workspace_id = 'ws-1' AND agent_session_id = 'source'
+`); err != nil {
+		t.Fatal(err)
+	}
+	result := commitFork(t, store, SessionForkPrepare{
+		OperationID: "fork-active", WorkspaceID: "ws-1",
+		RequestID: "request-active", RequestHash: "hash-active",
+		SourceAgentSessionID: "source", TargetAgentSessionID: "target-active",
+		SourceTurnID: "turn-1", DriverKind: "codex", DriverVersion: "1",
+		OccurredAtUnixMS: 100,
+	})
+	turns, err := store.ListSessionTurns(ctx, "ws-1", "target-active")
+	if err != nil || len(turns) != 1 ||
+		turns[0].TurnID != result.Operation.TargetTurnID ||
+		turns[0].Phase != TurnPhaseSettled ||
+		turns[0].Outcome != TurnOutcomeInterrupted {
+		t.Fatalf("target active-boundary turns=%#v error=%v", turns, err)
+	}
+	target, found, err := store.GetSession(ctx, "ws-1", "target-active")
+	if err != nil || !found || target.ActiveTurnID != "" {
+		t.Fatalf("target session=%#v found=%v error=%v", target, found, err)
+	}
+	source, found, err := store.GetSession(ctx, "ws-1", "source")
+	if err != nil || !found || source.ActiveTurnID != "turn-1" {
+		t.Fatalf("source session=%#v found=%v error=%v", source, found, err)
+	}
+}
+
 func TestSessionForkProviderOwnedResultRewritesChildProviderTurnIdentity(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
 	seedForkSession(t, store)
+	if _, err := store.db.ExecContext(ctx, `
+UPDATE workspace_agent_turns
+SET provider_checkpoint_message_id = 'claude-source-checkpoint-1'
+WHERE workspace_id = 'ws-1' AND agent_session_id = 'source' AND turn_id = 'turn-1'
+`); err != nil {
+		t.Fatal(err)
+	}
 	if _, updated, err := store.UpdateSessionTitle(
 		ctx, "ws-1", "source", "Claude session",
 	); err != nil || !updated {
@@ -270,6 +326,10 @@ func TestSessionForkProviderOwnedResultRewritesChildProviderTurnIdentity(t *test
 	if operation.TargetTitle == "" {
 		t.Fatal("prepared operation omitted the frozen target title")
 	}
+	if operation.SourceProviderCheckpointMessageID !=
+		"claude-source-checkpoint-1" {
+		t.Fatalf("prepared operation=%#v", operation)
+	}
 	if _, _, err := store.MarkSessionForkDispatching(
 		ctx, input.WorkspaceID, input.OperationID, 501,
 	); err != nil {
@@ -279,12 +339,13 @@ func TestSessionForkProviderOwnedResultRewritesChildProviderTurnIdentity(t *test
 		ctx,
 		SessionForkProviderResult{
 			WorkspaceID: input.WorkspaceID, OperationID: input.OperationID,
-			Status:                  SessionForkStatusProviderAccepted,
-			TargetProviderSessionID: "claude-child",
-			TargetProviderTurnIDs:   []string{"claude-child-turn-1"},
-			StateBindingMode:        "provider_owned",
-			StateBindingReceipt:     "claude-sdk-fork-v1:receipt",
-			OccurredAtUnixMS:        502,
+			Status:                            SessionForkStatusProviderAccepted,
+			TargetProviderSessionID:           "claude-child",
+			TargetProviderTurnIDs:             []string{"claude-child-turn-1"},
+			TargetProviderCheckpointMessageID: "claude-child-checkpoint-1",
+			StateBindingMode:                  "provider_owned",
+			StateBindingReceipt:               "claude-sdk-fork-v1:receipt",
+			OccurredAtUnixMS:                  502,
 		},
 	)
 	if err != nil {
@@ -311,10 +372,11 @@ func TestSessionForkProviderOwnedResultRewritesChildProviderTurnIdentity(t *test
 	if err != nil || !found {
 		t.Fatalf("GetTurn() found=%v error=%v", found, err)
 	}
-	if turn.RootProviderTurnID != "claude-child-turn-1" {
+	if turn.RootProviderTurnID != "claude-child-turn-1" ||
+		turn.ProviderCheckpointMessageID != "claude-child-checkpoint-1" {
 		t.Fatalf(
-			"child root provider turn id=%q, want remapped Claude UUID",
-			turn.RootProviderTurnID,
+			"child provider binding=%#v, want remapped Claude UUIDs",
+			turn,
 		)
 	}
 }
@@ -500,7 +562,7 @@ INSERT INTO workspace_agent_interactions (
   workspace_id, agent_session_id, request_id, turn_id, kind, status,
   tool_name, input_json, output_json, metadata_json,
   created_at_unix_ms, updated_at_unix_ms
-) VALUES ('ws-1', 'source', 'request-1', 'turn-1', 'approval', 'answered', '',
+) VALUES ('ws-1', 'source', 'request-1', 'turn-1', 'approval', 'pending', '',
           '{"requestId":"request-1","toolCall":{"input":{"turnId":"turn-1","requestId":"request-1","messageId":"message-1"}},"content":"turn-1 request-1"}',
           '{"requestId":"request-1","payload":{"turnId":"turn-1","requestId":"request-1","messageId":"message-1"}}',
           '{"providerTurnId":"provider-turn-1","structured":{"agentSessionId":"source","turnId":"turn-1","requestId":"request-1"}}',
@@ -572,6 +634,7 @@ INSERT INTO workspace_agent_interactions (
 	interaction := interactions[0]
 	if interaction.TurnID != expectedTurnID ||
 		interaction.RequestID != expectedRequestID ||
+		interaction.Status != InteractionStatusSuperseded ||
 		interaction.Input["requestId"] != expectedRequestID ||
 		interaction.Input["content"] != "turn-1 request-1" ||
 		interaction.Output["requestId"] != expectedRequestID ||
@@ -604,7 +667,8 @@ INSERT INTO workspace_agent_interactions (
 	})
 	if err != nil || len(sourceInteractions) != 1 ||
 		sourceInteractions[0].TurnID != "turn-1" ||
-		sourceInteractions[0].RequestID != "request-1" {
+		sourceInteractions[0].RequestID != "request-1" ||
+		sourceInteractions[0].Status != InteractionStatusPending {
 		t.Fatalf("source interactions changed=%#v error=%v", sourceInteractions, err)
 	}
 
@@ -756,7 +820,7 @@ func TestSessionForkTypedRemapRejectsDanglingCanonicalReference(t *testing.T) {
 	}
 }
 
-func TestCheckSessionForkThroughTurnReturnsOrderedProviderTurnPrefix(t *testing.T) {
+func TestCheckSessionForkThroughTurnReturnsSelectedProviderTurn(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
 	ctx := context.Background()
@@ -770,7 +834,7 @@ func TestCheckSessionForkThroughTurnReturnsOrderedProviderTurnPrefix(t *testing.
 	if err != nil || !supported {
 		t.Fatalf("CheckSessionForkThroughTurn() supported=%v error=%v", supported, err)
 	}
-	want := []string{"provider-turn-1", "provider-turn-2"}
+	want := []string{"provider-turn-2"}
 	if len(boundary.RootProviderTurnIDs) != len(want) {
 		t.Fatalf("provider turn prefix=%v want=%v", boundary.RootProviderTurnIDs, want)
 	}
@@ -791,7 +855,8 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'source' AND turn_id = 'turn-
 		"ws-1",
 		"source",
 		"turn-2",
-	); err != nil || supported || len(boundary.RootProviderTurnIDs) != 0 {
+	); err != nil || !supported || len(boundary.RootProviderTurnIDs) != 1 ||
+		boundary.RootProviderTurnIDs[0] != "provider-turn-1" {
 		t.Fatalf(
 			"duplicate provider turn prefix boundary=%#v supported=%v error=%v",
 			boundary,
@@ -838,7 +903,7 @@ func TestListSessionForkTurnIdentitiesReturnsCanonicalSequence(t *testing.T) {
 	}
 }
 
-func TestSessionForkThroughTurnFailsClosedForUnverifiedBoundary(t *testing.T) {
+func TestSessionForkThroughTurnIgnoresHistoricalProvenance(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
 	seedForkSession(t, store)
@@ -850,7 +915,7 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'source' AND turn_id = 'turn-
 `); err != nil {
 		t.Fatal(err)
 	}
-	if _, supported, err := store.CheckSessionForkThroughTurn(ctx, "ws-1", "source", "turn-1"); err != nil || supported {
+	if _, supported, err := store.CheckSessionForkThroughTurn(ctx, "ws-1", "source", "turn-1"); err != nil || !supported {
 		t.Fatalf("CheckSessionForkThroughTurn() supported=%v error=%v", supported, err)
 	}
 	if _, _, err := prepareSessionForkForTest(t, store, ctx, SessionForkPrepare{
@@ -858,12 +923,12 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'source' AND turn_id = 'turn-
 		RequestHash: "hash-1", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target", SourceTurnID: "turn-1",
 		DriverKind: "codex", DriverVersion: "1", OccurredAtUnixMS: 100,
-	}); !errors.Is(err, ErrSessionForkTurnState) {
+	}); err != nil {
 		t.Fatalf("PrepareSessionFork() error=%v", err)
 	}
 }
 
-func TestSessionForkThroughTurnFailsClosedForLocalAttachmentReferences(t *testing.T) {
+func TestSessionForkThroughTurnStagesLocalAttachmentReferences(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
 	ctx := context.Background()
@@ -884,17 +949,54 @@ func TestSessionForkThroughTurnFailsClosedForLocalAttachmentReferences(t *testin
 	}
 	if _, supported, err := store.CheckSessionForkThroughTurn(
 		ctx, "ws-1", "source", "turn-1",
-	); err != nil || supported {
+	); err != nil || !supported {
 		t.Fatalf("CheckSessionForkThroughTurn() supported=%v error=%v", supported, err)
 	}
-	if _, _, err := prepareSessionForkForTest(t, store, ctx, SessionForkPrepare{
+	operation, _, err := prepareSessionForkForTest(t, store, ctx, SessionForkPrepare{
 		OperationID: "fork-attachment", WorkspaceID: "ws-1",
 		RequestID: "request-attachment", RequestHash: "hash-attachment",
 		SourceAgentSessionID: "source", TargetAgentSessionID: "target-attachment",
 		SourceTurnID: "turn-1", DriverKind: "codex", DriverVersion: "1",
 		OccurredAtUnixMS: 100,
-	}); !errors.Is(err, ErrSessionForkTurnState) {
+	})
+	if err != nil {
 		t.Fatalf("PrepareSessionFork() error=%v", err)
+	}
+	bindings, err := store.ListSessionForkAttachmentBindings(ctx, "ws-1", operation.OperationID)
+	if err != nil || len(bindings) != 1 ||
+		bindings[0].SourceAttachmentID != "attachment-before-boundary" ||
+		bindings[0].TargetAttachmentID == bindings[0].SourceAttachmentID {
+		t.Fatalf("attachment bindings=%#v error=%v", bindings, err)
+	}
+	if _, _, err := store.MarkSessionForkDispatching(
+		ctx, "ws-1", operation.OperationID, 101,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.RecordSessionForkProviderResult(
+		ctx,
+		SessionForkProviderResult{
+			WorkspaceID: "ws-1", OperationID: operation.OperationID,
+			Status:                  SessionForkStatusProviderAccepted,
+			TargetProviderSessionID: "provider-target-attachment",
+			OccurredAtUnixMS:        102,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CommitSessionFork(ctx, "ws-1", operation.OperationID, 103); err != nil {
+		t.Fatal(err)
+	}
+	page, found, err := store.ListSessionMessages(ctx, ListSessionMessagesInput{
+		WorkspaceID: "ws-1", AgentSessionID: "target-attachment", Limit: 10,
+	})
+	if err != nil || !found || len(page.Messages) != 1 {
+		t.Fatalf("target attachment messages=%#v found=%v error=%v", page.Messages, found, err)
+	}
+	content := page.Messages[0].Payload["content"].([]any)
+	image := content[0].(map[string]any)
+	if image["attachmentId"] != bindings[0].TargetAttachmentID {
+		t.Fatalf("target attachment payload=%#v binding=%#v", image, bindings[0])
 	}
 }
 
@@ -935,33 +1037,26 @@ func TestSessionForkThroughTurnIgnoresAttachmentReferencesAfterBoundary(t *testi
 	}
 }
 
-func TestSessionForkPrepareRejectsSourceDriftBeforeFence(t *testing.T) {
+func TestSessionForkPrepareFreezesCurrentSnapshotDespiteSourceDrift(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
 	ctx := context.Background()
 	seedForkSession(t, store)
-	source, found, err := store.GetSession(ctx, "ws-1", "source")
-	if err != nil || !found {
-		t.Fatalf("GetSession() found=%v error=%v", found, err)
-	}
-	staleHash, err := SessionForkSourceHash(source)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, _, err := store.UpdateSessionTitle(
 		ctx, "ws-1", "source", "changed before prepare",
 	); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := store.PrepareSessionFork(ctx, SessionForkPrepare{
+	if _, changed, err := store.PrepareSessionFork(ctx, SessionForkPrepare{
 		OperationID: "fork-stale-source", WorkspaceID: "ws-1",
 		RequestID: "request-stale-source", RequestHash: "hash-stale-source",
 		SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target-stale-source",
-		SourceTurnID:         "turn-1", DriverKind: "codex", DriverVersion: "1",
-		ExpectedSourceHash: staleHash, OccurredAtUnixMS: 100,
-	}); !errors.Is(err, ErrSessionForkSourceState) {
-		t.Fatalf("PrepareSessionFork() error=%v", err)
+		SourceTurnID:         "turn-1", PointKind: SessionForkPointThroughTurn,
+		DriverKind: "codex", DriverVersion: "1",
+		OccurredAtUnixMS: 100,
+	}); err != nil || !changed {
+		t.Fatalf("PrepareSessionFork() changed=%v error=%v", changed, err)
 	}
 }
 
@@ -1030,7 +1125,7 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'source'
 	}
 }
 
-func TestSessionForkSourceFenceBlocksWritesAndLifecycleUntilTerminal(t *testing.T) {
+func TestSessionForkKeepsSourceWritesAndLifecycleAvailable(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
 	ctx := context.Background()
@@ -1047,7 +1142,7 @@ func TestSessionForkSourceFenceBlocksWritesAndLifecycleUntilTerminal(t *testing.
 	if _, err := store.ReportSessionState(ctx, SessionStateReport{
 		WorkspaceID: "ws-1", AgentSessionID: "source", Provider: "codex",
 		OccurredAtUnixMS: 101,
-	}); !errors.Is(err, ErrSessionForkInProgress) {
+	}); err != nil {
 		t.Fatalf("ReportSessionState() error=%v", err)
 	}
 	if _, _, err := store.PrepareRuntimeOperation(ctx, RuntimeOperationPrepare{
@@ -1061,7 +1156,7 @@ func TestSessionForkSourceFenceBlocksWritesAndLifecycleUntilTerminal(t *testing.
 			}},
 		},
 		OccurredAtMS: 101,
-	}); !errors.Is(err, ErrSessionForkInProgress) {
+	}); err != nil {
 		t.Fatalf("PrepareRuntimeOperation() error=%v", err)
 	}
 	if _, err := store.PutGoalReconcileInbox(ctx, GoalReconcileInboxItem{
@@ -1069,7 +1164,7 @@ func TestSessionForkSourceFenceBlocksWritesAndLifecycleUntilTerminal(t *testing.
 		AgentSessionID:  "source",
 		Payload:         map[string]any{"phase": goalReconcilePhasePending},
 		CreatedAtUnixMS: 101,
-	}); !errors.Is(err, ErrSessionForkInProgress) {
+	}); err != nil {
 		t.Fatalf("PutGoalReconcileInbox() error=%v", err)
 	}
 	if _, _, err := store.UpdateSessionSettings(
@@ -1078,7 +1173,7 @@ func TestSessionForkSourceFenceBlocksWritesAndLifecycleUntilTerminal(t *testing.
 		"source",
 		"gpt-5",
 		map[string]any{"reasoningEffort": "high"},
-	); !errors.Is(err, ErrSessionForkInProgress) {
+	); err != nil {
 		t.Fatalf("UpdateSessionSettings() error=%v", err)
 	}
 	if _, updated, err := store.UpdateSessionTitle(
@@ -1101,26 +1196,25 @@ func TestSessionForkSourceFenceBlocksWritesAndLifecycleUntilTerminal(t *testing.
 		OperationID: "goal-after-fork", WorkspaceID: "ws-1",
 		AgentSessionID: "source", Action: "set", Objective: "ship",
 		OccurredAtUnixMS: 101,
-	}); !errors.Is(err, ErrSessionForkInProgress) {
+	}); err != nil {
 		t.Fatalf("PrepareGoalControlOperation() error=%v", err)
 	}
 	if _, _, err := store.PrepareSubmitClaim(ctx, SubmitClaimPrepare{
 		WorkspaceID: "ws-1", AgentSessionID: "source",
 		ClientSubmitID: "submit-after-fork", CanonicalTurnID: "turn-after-fork",
 		NowUnixMS: 101,
-	}); !errors.Is(err, ErrSessionForkInProgress) {
+	}); err != nil {
 		t.Fatalf("PrepareSubmitClaim() error=%v", err)
 	}
-	blocking, created, err := prepareSessionForkForTest(t, store, ctx, SessionForkPrepare{
+	_, created, err := prepareSessionForkForTest(t, store, ctx, SessionForkPrepare{
 		OperationID: "fork-other", WorkspaceID: "ws-1", RequestID: "request-other",
 		RequestHash: "hash-other", SourceAgentSessionID: "source",
 		TargetAgentSessionID: "target-other", SourceTurnID: "turn-1",
 		DriverKind: "codex", DriverVersion: "1", OccurredAtUnixMS: 101,
 	})
-	if err != nil || created || blocking.OperationID != "fork-fence" {
+	if !errors.Is(err, ErrSessionForkInProgress) || created {
 		t.Fatalf(
-			"second PrepareSessionFork() operation=%#v created=%v error=%v",
-			blocking,
+			"second PrepareSessionFork() created=%v error=%v",
 			created,
 			err,
 		)
@@ -1148,7 +1242,7 @@ func TestSessionForkSourceFenceBlocksWritesAndLifecycleUntilTerminal(t *testing.
 	if _, err := store.ReportSessionState(ctx, SessionStateReport{
 		WorkspaceID: "ws-1", AgentSessionID: "source", Provider: "codex",
 		OccurredAtUnixMS: 104,
-	}); !errors.Is(err, ErrSessionForkInProgress) {
+	}); err != nil {
 		t.Fatalf("ReportSessionState(provider accepted) error=%v", err)
 	}
 	if _, err := store.CommitSessionFork(ctx, "ws-1", "fork-fence", 105); err != nil {
@@ -1162,7 +1256,7 @@ func TestSessionForkSourceFenceBlocksWritesAndLifecycleUntilTerminal(t *testing.
 	}
 }
 
-func TestSessionForkSourceFenceBlocksRootTurnPatchFromChildReport(t *testing.T) {
+func TestSessionForkAllowsRootTurnPatchFromChildReport(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
 	ctx := context.Background()
@@ -1249,12 +1343,12 @@ func TestSessionForkSourceFenceBlocksRootTurnPatchFromChildReport(t *testing.T) 
 			OccurredAtUnixMS: 101,
 		},
 		101,
-	); !errors.Is(err, ErrSessionForkInProgress) {
+	); err != nil {
 		t.Fatalf("child root provider patch error=%v", err)
 	}
 }
 
-func TestSessionForkRejectsDescendantLaneInsideBoundary(t *testing.T) {
+func TestSessionForkAllowsDescendantLaneInsideBoundary(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))
 	ctx := context.Background()
@@ -1310,7 +1404,7 @@ func TestSessionForkRejectsDescendantLaneInsideBoundary(t *testing.T) {
 	)
 	if _, supported, err := store.CheckSessionForkThroughTurn(
 		ctx, "ws-1", "source", "turn-3",
-	); err != nil || supported {
+	); err != nil || !supported {
 		t.Fatalf("CheckSessionForkThroughTurn() supported=%v error=%v", supported, err)
 	}
 	if _, _, err := prepareSessionForkForTest(t, store, ctx, SessionForkPrepare{
@@ -1319,7 +1413,7 @@ func TestSessionForkRejectsDescendantLaneInsideBoundary(t *testing.T) {
 		SourceAgentSessionID: "source", TargetAgentSessionID: "target-descendant",
 		SourceTurnID: "turn-3", DriverKind: "codex", DriverVersion: "1",
 		OccurredAtUnixMS: 100,
-	}); !errors.Is(err, ErrSessionForkTurnState) {
+	}); err != nil {
 		t.Fatalf("PrepareSessionFork() error=%v", err)
 	}
 }
@@ -1402,16 +1496,8 @@ func TestSessionForkFailedAndUnknownReleaseSourceFence(t *testing.T) {
 			if err != nil {
 				t.Fatalf("PrepareSessionFork(after %s) error=%v", terminalStatus, err)
 			}
-			if terminalStatus == SessionForkStatusUnknown {
-				if created || next.OperationID != input.OperationID {
-					t.Fatalf(
-						"unknown barrier operation=%#v created=%v",
-						next,
-						created,
-					)
-				}
-			} else if !created {
-				t.Fatalf("failed operation did not release boundary barrier: %#v", next)
+			if !created || next.OperationID == input.OperationID {
+				t.Fatalf("terminal operation did not release boundary: %#v", next)
 			}
 		})
 	}
@@ -1464,7 +1550,7 @@ func TestRetryUnknownSessionForkReopensDurableDispatchMarker(t *testing.T) {
 	}
 }
 
-func TestSessionForkPrepareRequiresGoalAndRuntimeQuiescence(t *testing.T) {
+func TestSessionForkPrepareDoesNotRequireGoalOrRuntimeQuiescence(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
@@ -1544,14 +1630,14 @@ INSERT INTO workspace_agent_submit_claims (
 				RequestHash: "hash-busy", SourceAgentSessionID: "source",
 				TargetAgentSessionID: "target-busy", SourceTurnID: "turn-2",
 				DriverKind: "codex", DriverVersion: "1", OccurredAtUnixMS: 100,
-			}); !errors.Is(err, ErrSessionForkSourceState) {
+			}); err != nil {
 				t.Fatalf("PrepareSessionFork() error=%v", err)
 			}
 		})
 	}
 }
 
-func TestSessionForkCommitReprovesPrefixAndProviderIdentity(t *testing.T) {
+func TestSessionForkCommitUsesFrozenPrefixAndReprovesProviderIdentity(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
@@ -1601,8 +1687,8 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'source'
 				if !errors.Is(err, test.wantErr) {
 					t.Fatalf("CommitSessionFork() error=%v", err)
 				}
-			} else if err == nil {
-				t.Fatal("CommitSessionFork() unexpectedly succeeded")
+			} else if err != nil {
+				t.Fatalf("CommitSessionFork() error=%v", err)
 			}
 		})
 	}
@@ -1706,22 +1792,8 @@ func prepareSessionForkForTest(
 	input SessionForkPrepare,
 ) (SessionForkOperation, bool, error) {
 	t.Helper()
-	if input.ExpectedSourceHash == "" {
-		source, found, err := store.GetSession(
-			ctx,
-			input.WorkspaceID,
-			input.SourceAgentSessionID,
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !found {
-			t.Fatalf("source session %q not found", input.SourceAgentSessionID)
-		}
-		input.ExpectedSourceHash, err = SessionForkSourceHash(source)
-		if err != nil {
-			t.Fatal(err)
-		}
+	if input.PointKind == "" {
+		input.PointKind = SessionForkPointThroughTurn
 	}
 	return store.PrepareSessionFork(ctx, input)
 }

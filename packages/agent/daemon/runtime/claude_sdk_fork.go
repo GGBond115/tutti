@@ -11,45 +11,21 @@ const (
 	// The official SDK forkSession API allocates the provider child identity.
 	// Host therefore permits one dispatch and fails closed instead of replaying
 	// an unknown result that could create a duplicate provider child.
-	claudeSDKForkDriverVersion = "0.3.201/sidecar-v6-official-fork-api"
+	claudeSDKForkDriverVersion = "0.3.201/sidecar-v7-persisted-checkpoint"
 )
 
 func (a *ClaudeCodeSDKAdapter) ForkCapabilities(
-	ctx context.Context,
-	source Session,
+	_ context.Context,
+	_ Session,
 ) (SessionForkCapabilities, error) {
 	if a == nil || a.transport == nil {
 		return SessionForkCapabilities{}, nil
 	}
-	event, _, err := a.statelessClaudeSDKForkRequest(
-		ctx,
-		source,
-		claudeSDKSidecarRequest{
-			ID:   newID(),
-			Type: "inspect_fork_checkpoints",
-			Payload: map[string]any{
-				"providerSessionId": strings.TrimSpace(source.ProviderSessionID),
-				"cwd":               strings.TrimSpace(source.CWD),
-			},
-		},
-	)
-	if err != nil {
-		return SessionForkCapabilities{}, err
-	}
-	turnIDs, ok := claudeSDKPayloadStringList(event.Payload, "providerTurnIds")
-	if !ok {
-		return SessionForkCapabilities{}, errors.New(
-			"claude SDK fork inspection returned invalid provider turn identities",
-		)
-	}
 	return SessionForkCapabilities{
-		DriverKind:                   claudeSDKForkDriverKind,
-		DriverVersion:                claudeSDKForkDriverVersion,
-		StateBindingMode:             "provider_owned",
-		DeterministicTargetSessionID: false,
-		ThroughTurn:                  len(turnIDs) != 0,
-		ThroughProviderTurnIDs:       turnIDs,
-		ThroughProviderTurnIDsKnown:  true,
+		DriverKind:       claudeSDKForkDriverKind,
+		DriverVersion:    claudeSDKForkDriverVersion,
+		StateBindingMode: "provider_owned",
+		ThroughTurn:      true,
 	}, nil
 }
 
@@ -74,9 +50,11 @@ func (a *ClaudeCodeSDKAdapter) Fork(
 			Payload: map[string]any{
 				"providerSessionId": strings.TrimSpace(input.Source.ProviderSessionID),
 				"providerTurnId":    strings.TrimSpace(input.ProviderTurnID),
-				"providerTurnIds":   append([]string(nil), input.ProviderTurnIDs...),
-				"cwd":               strings.TrimSpace(input.Source.CWD),
-				"title":             strings.TrimSpace(input.TargetTitle),
+				"providerCheckpointMessageId": strings.TrimSpace(
+					input.ProviderCheckpointMessageID,
+				),
+				"cwd":   strings.TrimSpace(input.Source.CWD),
+				"title": strings.TrimSpace(input.TargetTitle),
 			},
 		},
 	)
@@ -104,6 +82,10 @@ func (a *ClaudeCodeSDKAdapter) Fork(
 	}
 	result.ProviderSessionID = payloadString(event.Payload, "providerSessionId")
 	result.TargetProviderTurnIDs = targetTurnIDs
+	result.TargetProviderCheckpointMessageID = payloadString(
+		event.Payload,
+		"targetProviderCheckpointMessageId",
+	)
 	result.StateBindingMode = payloadString(event.Payload, "stateBindingMode")
 	result.StateBindingReceipt = payloadString(event.Payload, "stateBindingReceipt")
 	result.DeliveryDisposition = SessionForkDeliveryDisposition(
@@ -111,6 +93,7 @@ func (a *ClaudeCodeSDKAdapter) Fork(
 	)
 	if result.ProviderSessionID == "" ||
 		result.ProviderSessionID == result.ForkedFromProviderSessionID ||
+		result.TargetProviderCheckpointMessageID == "" ||
 		result.StateBindingMode != "provider_owned" ||
 		result.StateBindingReceipt == "" ||
 		result.DeliveryDisposition != SessionForkDeliveryAccepted {
