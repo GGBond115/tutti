@@ -165,6 +165,75 @@ export function fakeDelegatedTaskQuery(
   } as AsyncIterable<SDKMessage>;
 }
 
+export function fakeParallelDelegatedTaskContinuationQuery(
+  prompt: AsyncIterable<SDKUserMessage>
+): AsyncIterable<SDKMessage> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      const firstPrompt = await prompt[Symbol.asyncIterator]().next();
+      const promptMessage = firstPrompt.value as SDKUserMessage & {
+        uuid?: string;
+      };
+      yield {
+        ...promptMessage,
+        uuid: promptMessage.uuid,
+        type: "user",
+        parent_tool_use_id: null,
+        session_id: "provider-session-1"
+      } as SDKMessage;
+      for (const index of [1, 2]) {
+        yield delegatedAgentToolUse(`toolu-agent-${index}`, `Task ${index}`);
+        yield delegatedAgentToolResult(
+          `toolu-agent-${index}`,
+          `agent-${index}`
+        );
+        yield {
+          type: "system",
+          subtype: "task_started",
+          task_id: `task-${index}`,
+          agent_id: `agent-${index}`,
+          description: `Task ${index}`
+        } as unknown as SDKMessage;
+      }
+      for (const index of [1, 2]) {
+        yield {
+          type: "system",
+          subtype: "task_updated",
+          task_id: `task-${index}`,
+          patch: {
+            status: "completed",
+            description: `Task ${index}`
+          }
+        } as unknown as SDKMessage;
+        yield {
+          type: "system",
+          subtype: "task_notification",
+          task_id: `task-${index}`,
+          status: "completed",
+          summary: `Result ${index}`
+        } as unknown as SDKMessage;
+      }
+      for (const index of [1, 2]) {
+        yield {
+          type: "assistant",
+          uuid: `assistant-continuation-${index}`,
+          parent_tool_use_id: null,
+          session_id: "provider-session-1",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: `Continuation ${index}` }]
+          }
+        } as unknown as SDKMessage;
+        yield {
+          type: "result",
+          subtype: "success"
+        } as unknown as SDKMessage;
+      }
+    },
+    close() {}
+  } as AsyncIterable<SDKMessage>;
+}
+
 export function fakeTimedOutDelegatedTaskQuery(
   prompt: AsyncIterable<SDKUserMessage>,
   onInterrupt: () => void

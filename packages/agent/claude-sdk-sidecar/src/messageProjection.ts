@@ -201,7 +201,7 @@ export class MessageProjection {
     if (status !== "completed" && status !== "failed" && status !== "killed") {
       return;
     }
-    this.activities.handleTaskSystemMessage("task_notification", {
+    this.activities.handleTaskSystemMessage("task_updated", {
       task_id: stringValue(message.task_id),
       tool_use_id: stringValue(message.tool_use_id),
       status: status === "killed" ? "stopped" : status,

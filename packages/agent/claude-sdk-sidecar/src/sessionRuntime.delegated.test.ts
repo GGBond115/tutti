@@ -9,6 +9,7 @@ import {
   fakeDelegatedAssistantParentQuery,
   fakeDelegatedTaskQuery,
   fakeGuidedDelegatedContinuationQuery,
+  fakeParallelDelegatedTaskContinuationQuery,
   fakeRacedDelegatedTaskAliasQuery,
   fakeStoppableDelegatedTaskQuery,
   fakeTimedOutDelegatedTaskQuery
@@ -308,6 +309,80 @@ test("delegated task continuation emits synthetic turn started", async () => {
     const observed = events[taskNotificationObservedIndex]?.payload;
     assert.equal(Object.hasOwn(observed ?? {}, "summary"), false);
     assert.equal(Object.hasOwn(observed ?? {}, "content"), false);
+  } finally {
+    restoreSink();
+  }
+});
+
+test("parallel delegated notifications keep the original turn open until every result arrives", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  try {
+    const session = new SessionRuntime(
+      "provider-session-1",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => fakeParallelDelegatedTaskContinuationQuery(prompt)
+    );
+
+    await session.start();
+    session.exec("turn-1", "delegate parallel tasks");
+    const deadline = Date.now() + 5000;
+    while (
+      Date.now() < deadline &&
+      events.filter((event) => event.type === "turn_completed").length < 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const syntheticStarts = events.filter(
+      (event) =>
+        event.type === "turn_started" && event.payload?.synthetic === true
+    );
+    const turnCompletions = events.filter(
+      (event) => event.type === "turn_completed"
+    );
+    const continuationMessages = events.filter(
+      (event) =>
+        event.type === "assistant_completed" &&
+        String(event.payload?.content ?? "").startsWith("Continuation ")
+    );
+    const taskCompletions = events.filter(
+      (event) => event.type === "task_completed"
+    );
+    const taskResultUpdates = events.filter(
+      (event) => event.type === "task_result_updated"
+    );
+
+    assert.equal(syntheticStarts.length, 0);
+    assert.deepEqual(
+      turnCompletions.map((event) => event.payload?.turnId),
+      ["turn-1"]
+    );
+    assert.deepEqual(
+      taskCompletions.map((event) => event.payload?.summary),
+      ["Task 1", "Task 2"]
+    );
+    assert.deepEqual(
+      taskResultUpdates.map((event) => event.payload?.summary),
+      ["Result 1", "Result 2"]
+    );
+    assert.equal(continuationMessages.length, 2);
+    assert.equal(continuationMessages[0]?.payload?.turnId, "turn-1");
+    assert.equal(continuationMessages[1]?.payload?.turnId, "turn-1");
   } finally {
     restoreSink();
   }

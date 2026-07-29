@@ -254,6 +254,8 @@ func (a *ClaudeCodeSDKAdapter) sidecarTurnEvents(adapterSession *claudeSDKAdapte
 		events := adapterSession.claudeSDKToolEvents(session, rootTurnID, event.Payload, EventCallFailed, messageStreamStateFailed, event.Type)
 		events = a.projectClaudeSDKTurnCallEvents(adapterSession, events)
 		return events, false, nil
+	case "task_result_updated":
+		return adapterSession.claudeSDKTaskResultUpdatedEvents(session, event.Payload), false, nil
 	case "task_started", "task_progress", "task_completed":
 		if child, ok := adapterSession.claudeSDKChildForPayload(event.Payload); ok &&
 			a.turnAlreadySettled(adapterSession, child.TurnID) {

@@ -36,6 +36,8 @@ export class ToolActivityProjector {
   private liveBackgroundTaskCount = 0;
   private readonly observedBackgroundTaskIDs = new Set<string>();
   private backgroundContinuationPending = false;
+  private pendingDelegatedContinuations = 0;
+  private delegatedContinuationStarted = false;
   private backgroundTaskQuiescenceTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
@@ -68,6 +70,8 @@ export class ToolActivityProjector {
     this.liveBackgroundTaskCount = 0;
     this.observedBackgroundTaskIDs.clear();
     this.backgroundContinuationPending = false;
+    this.pendingDelegatedContinuations = 0;
+    this.delegatedContinuationStarted = false;
   }
 
   handleBackgroundTasksChanged(message: Record<string, unknown>): void {
@@ -106,6 +110,21 @@ export class ToolActivityProjector {
 
   handleRootAssistantStarted(): void {
     this.backgroundContinuationPending = false;
+    if (this.pendingDelegatedContinuations > 0) {
+      this.delegatedContinuationStarted = true;
+    }
+  }
+
+  consumeDelegatedContinuationResult(): boolean {
+    if (!this.delegatedContinuationStarted) {
+      return false;
+    }
+    this.delegatedContinuationStarted = false;
+    this.pendingDelegatedContinuations = Math.max(
+      0,
+      this.pendingDelegatedContinuations - 1
+    );
+    return this.pendingDelegatedContinuations > 0;
   }
 
   handleRootResultSettled(succeeded: boolean): void {
@@ -198,7 +217,11 @@ export class ToolActivityProjector {
   }
 
   handleTaskSystemMessage(
-    subtype: "task_started" | "task_progress" | "task_notification",
+    subtype:
+      | "task_started"
+      | "task_progress"
+      | "task_updated"
+      | "task_notification",
     message: Record<string, unknown>
   ): void {
     // task_notification is included so a terminal notice for a task launched
@@ -206,7 +229,9 @@ export class ToolActivityProjector {
     // still settles a card instead of being dropped by the fresh instance.
     const task =
       this.resolveDelegatedTaskFromMessage(message) ??
-      (subtype === "task_started" || subtype === "task_notification"
+      (subtype === "task_started" ||
+      subtype === "task_updated" ||
+      subtype === "task_notification"
         ? this.rememberBackgroundTask(message)
         : undefined);
     if (!task) {
@@ -222,13 +247,30 @@ export class ToolActivityProjector {
     if (description && !task.description) {
       task.description = description;
     }
-    if (subtype === "task_notification") {
+    if (subtype === "task_updated" || subtype === "task_notification") {
+      const status = delegatedTaskStatus(message.status);
       if (task.status !== "running") {
+        if (subtype !== "task_notification") {
+          return;
+        }
+        if (status !== "stopped") {
+          this.pendingDelegatedContinuations += 1;
+        }
+        this.emitDelegatedTaskLifecycleEvent(
+          "task_result_updated",
+          task,
+          message
+        );
         return;
       }
-      const status = delegatedTaskStatus(message.status);
       // A user-initiated stop needs no model follow-up, so it must not open a
       // synthetic continuation turn (which would time out and interrupt).
+      // task_updated is only the SDK's lifecycle patch. The later
+      // task_notification carries the model continuation and often a richer
+      // result, so only that notification contributes to the queue.
+      if (subtype === "task_notification" && status !== "stopped") {
+        this.pendingDelegatedContinuations += 1;
+      }
       if (status !== "stopped") {
         this.prepareDelegatedTaskTerminal(task);
       }
@@ -714,7 +756,11 @@ export class ToolActivityProjector {
   }
 
   private emitDelegatedTaskLifecycleEvent(
-    type: "task_started" | "task_progress" | "task_completed",
+    type:
+      | "task_started"
+      | "task_progress"
+      | "task_completed"
+      | "task_result_updated",
     task: DelegatedTaskState,
     message: Record<string, unknown>
   ): void {

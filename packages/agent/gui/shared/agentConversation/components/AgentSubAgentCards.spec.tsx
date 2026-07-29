@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAgentGuiI18nTestLocale } from "../../../i18n/testUtils";
 import type { AgentTaskSubAgentVM } from "../contracts/agentTaskItemVM";
@@ -139,6 +139,33 @@ describe("AgentSubAgentCard", () => {
 
     expect(screen.getByText(/5\.0s · Completed/)).toBeInTheDocument();
     expect(screen.queryByText(/1m 59s/)).not.toBeInTheDocument();
+  });
+
+  it("shows completed instead of starting when terminal output is absent", async () => {
+    setAgentGuiI18nTestLocale("en");
+
+    render(
+      <AgentSubAgentCard
+        subAgent={subAgent({
+          status: "completed",
+          terminalAtUnixMs: 2_000
+        })}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Sub-agent Repo smell analyst Completed/
+      })
+    );
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.queryByText("Starting…")).not.toBeInTheDocument();
   });
 });
 

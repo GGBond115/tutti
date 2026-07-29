@@ -389,20 +389,48 @@ func TestClaudeCodeSDKAdapterCreatesAndSettlesChildSession(t *testing.T) {
 			"agentId":         "agent-1",
 			"parentToolUseId": "toolu-agent",
 			"status":          "completed",
-			"summary":         "Found relevant files",
+			"summary":         "Explore codebase structure",
 		},
 	})
 	if err != nil || terminal {
 		t.Fatalf("task_completed terminal=%v err=%v", terminal, err)
 	}
-	if len(completed) != 2 || completed[0].Type != activityshared.EventActivityCompleted ||
-		completed[1].Type != activityshared.EventTurnCompleted {
-		t.Fatalf("completed events = %#v, want child activity and turn completion", completed)
+	if len(completed) != 3 || completed[0].Type != activityshared.EventMessageAppended ||
+		completed[0].Payload.Content != "Explore codebase structure" ||
+		completed[1].Type != activityshared.EventActivityCompleted ||
+		completed[2].Type != activityshared.EventTurnCompleted {
+		t.Fatalf("completed events = %#v, want child result, activity, and turn completion", completed)
 	}
 	for _, event := range completed {
 		if event.AgentSessionID != childSessionID || event.Payload.TurnID != childTurnID || event.RootTurnID != "turn-task" {
 			t.Fatalf("child completion scope = %#v, want child session=%q turn=%q", event, childSessionID, childTurnID)
 		}
+	}
+
+	resultUpdated, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "", claudeSDKSidecarEvent{
+		Type: "task_result_updated",
+		Payload: map[string]any{
+			"taskId":          "task-1",
+			"agentId":         "agent-1",
+			"parentToolUseId": "toolu-agent",
+			"status":          "completed",
+			"summary":         "Found relevant files",
+		},
+	})
+	if err != nil || terminal {
+		t.Fatalf("task_result_updated terminal=%v err=%v", terminal, err)
+	}
+	if len(resultUpdated) != 1 || resultUpdated[0].Type != activityshared.EventMessageAppended ||
+		resultUpdated[0].Payload.Content != "Found relevant files" ||
+		resultUpdated[0].AgentSessionID != childSessionID ||
+		resultUpdated[0].Payload.TurnID != childTurnID {
+		t.Fatalf("result update = %#v, want final child result on settled child", resultUpdated)
+	}
+	if payloadString(completed[0].Payload.Metadata, "messageId") != payloadString(resultUpdated[0].Payload.Metadata, "messageId") {
+		t.Fatalf("message ids differ: completed=%#v updated=%#v", completed[0].Payload.Metadata, resultUpdated[0].Payload.Metadata)
+	}
+	if completed[0].EventID == resultUpdated[0].EventID {
+		t.Fatalf("event ids must differ so the final snapshot is not deduplicated: %q", completed[0].EventID)
 	}
 }
 
@@ -800,7 +828,7 @@ func TestClaudeCodeSDKAdapterUpdatesChildSessionByProviderAlias(t *testing.T) {
 		Payload: map[string]any{
 			"taskId":  "task-2",
 			"status":  "completed",
-			"summary": "Generated number",
+			"summary": "7",
 		},
 	})
 	if err != nil || terminal {
@@ -810,8 +838,10 @@ func TestClaudeCodeSDKAdapterUpdatesChildSessionByProviderAlias(t *testing.T) {
 		t.Fatalf("child one = %#v, want running", first)
 	}
 	childTwo = adapterSession.claudeSDKChildByKey("toolu-agent-2")
-	if childTwo.Status != "completed" || len(completed) != 2 || completed[1].Type != activityshared.EventTurnCompleted ||
-		completed[1].AgentSessionID != childTwo.AgentSessionID || completed[1].Payload.TurnID != childTwo.TurnID {
+	if childTwo.Status != "completed" || len(completed) != 3 || completed[0].Type != activityshared.EventMessageAppended ||
+		completed[0].AgentSessionID != childTwo.AgentSessionID || completed[0].Payload.TurnID != childTwo.TurnID ||
+		completed[0].Payload.Content != "7" || completed[2].Type != activityshared.EventTurnCompleted ||
+		completed[2].AgentSessionID != childTwo.AgentSessionID || completed[2].Payload.TurnID != childTwo.TurnID {
 		t.Fatalf("completed child/events = %#v / %#v", childTwo, completed)
 	}
 }
@@ -968,8 +998,10 @@ func TestClaudeCodeSDKAdapterKeepsChildSessionsSeparateOnAliasConflict(t *testin
 	}
 	first = adapterSession.claudeSDKChildByKey("toolu-agent-1")
 	second = adapterSession.claudeSDKChildByKey("toolu-agent-2")
-	if first.Status != "running" || second.Status != "completed" || len(completed) != 2 ||
-		completed[1].AgentSessionID != second.AgentSessionID {
+	if first.Status != "running" || second.Status != "completed" || len(completed) != 3 ||
+		completed[0].Type != activityshared.EventMessageAppended ||
+		completed[0].Payload.Content != "Generated number" ||
+		completed[2].AgentSessionID != second.AgentSessionID {
 		t.Fatalf("settled children/events = %#v / %#v / %#v", first, second, completed)
 	}
 }
@@ -1030,8 +1062,10 @@ func TestClaudeCodeSDKAdapterKeepsLateChildEventsOnOriginalChildTurn(t *testing.
 	if err != nil || terminal {
 		t.Fatalf("late task_completed terminal=%v err=%v", terminal, err)
 	}
-	if len(completed) != 2 || completed[1].Type != activityshared.EventTurnCompleted {
-		t.Fatalf("late task_completed events = %#v, want activity + child turn completion", completed)
+	if len(completed) != 3 || completed[0].Type != activityshared.EventMessageAppended ||
+		completed[0].Payload.Content != "Found relevant files" ||
+		completed[2].Type != activityshared.EventTurnCompleted {
+		t.Fatalf("late task_completed events = %#v, want result + activity + child turn completion", completed)
 	}
 	for _, event := range completed {
 		if event.AgentSessionID != childSessionID || event.Payload.TurnID != childTurnID || event.RootTurnID != "turn-task" {

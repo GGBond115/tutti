@@ -170,6 +170,15 @@ observed by the SDK level signal and exact delegated-task states known to Tutti.
 This makes missing terminal edges visible in logs while leaving the GUI's
 existing running/processing presentation unchanged.
 
+The SDK may also report one completed child twice: first as `task_updated` with
+only its task description, then as `task_notification` with the actual result.
+The first edge settles the child lifecycle; the later notification updates the
+same child assistant-message snapshot and queues its root continuation. Several
+queued notifications keep the currently active root provider Turn open until
+all paired provider results have arrived. If the original Turn settled before
+those notifications, they instead share one reserved synthetic Turn. In either
+ordering, an early result cannot terminate the remaining continuations.
+
 ## Protocol and compatibility
 
 The daemon and sidecar exchange newline-delimited JSON over standard input and

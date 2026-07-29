@@ -106,6 +106,18 @@ func (s *claudeSDKAdapterSession) claudeSDKTaskLifecycleEvents(session Session, 
 	return claudeSDKChildEvents(session, child, created, titleChanged, sidecarType)
 }
 
+func (s *claudeSDKAdapterSession) claudeSDKTaskResultUpdatedEvents(session Session, payload map[string]any) []activityshared.Event {
+	child, ok := s.claudeSDKChildForPayload(payload)
+	summary := strings.TrimSpace(payloadString(payload, "summary"))
+	if !ok || summary == "" {
+		return nil
+	}
+	child.Summary = summary
+	child.UpdatedAtUnixMS = unixMS(now())
+	s.childSessions[child.Key] = child
+	return claudeSDKChildResultEvents(session, child)
+}
+
 func (s *claudeSDKAdapterSession) endUnresolvedClaudeSDKBackgroundChildren(session Session) []activityshared.Event {
 	if s == nil || len(s.childSessions) == 0 {
 		return nil
@@ -456,6 +468,7 @@ func claudeSDKChildEvents(session Session, child claudeSDKChildSession, created 
 		events = append(events, activityshared.NewTurnUpdated(eventContext("turn-updated"), child.TurnID, activityshared.TurnPhaseWorking))
 		events = append(events, activityshared.NewActivityUpdated(eventContext("activity-updated"), activityKey, metadata))
 	case "task_completed":
+		events = append(events, claudeSDKChildResultEvents(session, child)...)
 		switch claudeSDKNormalizeTaskStatus(child.Status) {
 		case string(activityshared.ActivityStatusFailed):
 			events = append(events, activityshared.NewActivityFailed(eventContext("activity-failed"), activityKey, metadata))
@@ -491,6 +504,29 @@ func claudeSDKChildEvents(session Session, child claudeSDKChildSession, created 
 		events[index] = claudeSDKEventForChild(events[index], child)
 	}
 	return events
+}
+
+func claudeSDKChildResultEvents(session Session, child claudeSDKChildSession) []activityshared.Event {
+	if strings.TrimSpace(child.Summary) == "" {
+		return nil
+	}
+	messageID := "claude-sdk:child-result:" + child.Key
+	resultEvent := newTurnActivityEventWithIDAt(
+		claudeSDKChildRuntimeSession(session, child),
+		"claude-sdk:child-result-event:"+newID(),
+		EventMessage,
+		child.TurnID,
+		messageStreamStateCompleted,
+		RoleAssistant,
+		child.Summary,
+		map[string]any{
+			"messageId":   messageID,
+			"contentMode": messageContentModeSnapshot,
+			"streamState": messageStreamStateCompleted,
+		},
+		child.UpdatedAtUnixMS,
+	)
+	return []activityshared.Event{claudeSDKEventForChild(resultEvent, child)}
 }
 
 func claudeSDKChildStatusIsTerminal(status string) bool {

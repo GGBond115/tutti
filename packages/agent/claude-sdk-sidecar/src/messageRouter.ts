@@ -401,6 +401,12 @@ export class SDKMessageRouter {
       result.subtype === "success" &&
       result.is_error !== true &&
       !assistantError;
+    const awaitingMoreDelegatedContinuations =
+      succeeded && this.activities.consumeDelegatedContinuationResult();
+    if (awaitingMoreDelegatedContinuations) {
+      void this.emitResultUsage(turnId, contextUsageGeneration, result);
+      return;
+    }
     if (this.turns.cancelled) {
       this.turns.settleActive("turn_canceled");
       this.turns.clearCancelled();
