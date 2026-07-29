@@ -130,6 +130,40 @@
   [commands.go](../../../services/tuttid/service/cli/providers/tuttimodeplan/commands.go),
   [useTuttiModePlanPanels.ts](../../../packages/agent/gui/workspaceWorkflow/tuttiModePlan/useTuttiModePlanPanels.ts)
 
+### Existing Session shows Tutti active but the Agent reports Default mode
+
+- **Symptom:** Tutti Mode is enabled on an already-existing Session, but the
+  next Turn says the conversation is still in provider Default mode or has not
+  entered Tutti Mode because `plan propose` has not run.
+- **Quick checks:** Confirm the activation revision is active in the exported
+  Session or activation endpoint, then confirm the affected Turn owns an active
+  `TuttiModeTurnSnapshot`. For Codex, inspect that Turn's provider rollout
+  `turn_context`: the collaboration mode may legitimately remain `default`,
+  while its developer instructions must contain `<tutti-host-context>` with
+  `"state":"active"`. If both facts are present, existing-Session snapshot
+  delivery works and the response is an interpretation failure. If the host
+  context is absent, trace snapshot preparation and runtime dispatch instead.
+- **Root cause:** Tutti activation, provider Default/Plan collaboration mode,
+  and Tutti workflow existence are three independent facts. An instruction
+  that says a workflow exists only after `plan propose` can make a provider
+  incorrectly use the missing workflow as evidence that activation is
+  inactive, even though the active snapshot reached the reused provider
+  Session.
+- **Fix:** Make the Host Context's snapshot state the sole authority for
+  reporting Tutti Mode status. Provider Default/Plan mode and workflow
+  existence remain independent facts and cannot override it. A clear plan
+  request must still run `plan propose` instead of returning a chat-only plan.
+- **Validation:** On an existing Session, activate Tutti Mode and send a new
+  Turn while the provider collaboration mode remains Default. Verify the
+  provider receives the active Host Context, a status-only question reports
+  active without proposing a workflow, and a clear plan-generation request
+  invokes `plan propose`. Repeat with an inactive revision and verify it
+  reports inactive.
+- **References:**
+  [workspace-workflows.md](../../architecture/workspace-workflows.md),
+  [tutti_mode_host_context.go](../../../packages/agent/daemon/runtime/tutti_mode_host_context.go),
+  [tutti_mode_host_context_test.go](../../../packages/agent/daemon/runtime/tutti_mode_host_context_test.go)
+
 ### Tutti Mode Plan stops loading after a task-graph revision
 
 - **Symptom:** The configuration review panel works and `tutti plan revise`
