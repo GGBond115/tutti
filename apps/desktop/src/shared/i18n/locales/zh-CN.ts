@@ -281,7 +281,7 @@ export const zhCN = {
       runtimeTitle: "选择 Codex CLI",
       runtimeDiscovering: "正在检测本机的 Codex CLI 安装…",
       runtimeSelectionRequiredDescription:
-        "发现多个可用的 Codex CLI，请选择 Tutti 要使用的实例",
+        "Tutti 在本机发现了多个可用的 Codex CLI，不会替你猜用哪一个。请在下方选择一个——每个选项都标注了安装来源和完整路径。之后可在 Agent 设置里随时更改。",
       runtimeStaleDescription:
         "之前选择的 Codex CLI 已不可用，请选择其他可用实例",
       runtimeChangeDescription: "选择 Tutti 要使用的 Codex CLI 实例",
@@ -1270,6 +1270,7 @@ export const zhCN = {
         updateFailed: "更新失败",
         updateFailedDescription: "暂时无法更新本地 Agent，请稍后重试",
         updateFailedTimedOut: "更新超时，请稍后重试",
+        manageActionChoose: "选择",
         manageActionConnect: "连接",
         manageActionLogin: "登录",
         manageActionOpeningLogin: "打开中...",
@@ -1292,6 +1293,7 @@ export const zhCN = {
         manageStatusAvailable: "可连接",
         manageStatusChecking: "检测中",
         manageStatusConnected: "已连接",
+        manageStatusSelectionRequired: "发现多个安装，请选择",
         manageStatusUnknown: "状态不可用",
         manageStatusUnsupported: "后台更新中",
         manageTitle: "管理智能体",

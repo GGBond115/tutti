@@ -29,8 +29,19 @@ export interface DesktopAgentProviderManageRow {
   pending: boolean;
   primaryActionId: DesktopAgentProviderManageRowAction | null;
   provider: (typeof desktopAgentProviderManageDialogProviders)[number];
+  // True when the provider is blocked purely because several working local
+  // runtimes were found and the user must choose one. It stays additive to the
+  // status enum so callers that do not care keep treating the row as "unknown".
+  runtimeSelectionRequired: boolean;
   status: DesktopAgentProviderManageRowStatus;
 }
+
+// The daemon reports availability "unknown" with one of these reason codes when
+// it refuses to auto-pick between multiple healthy Codex installations.
+const runtimeSelectionReasonCodes = new Set<string>([
+  "codex_runtime_selection_required",
+  "codex_runtime_selection_stale"
+]);
 
 export function projectDesktopAgentProviderManageRows(input: {
   isLoading: boolean;
@@ -78,8 +89,18 @@ export function projectDesktopAgentProviderManageRow(input: {
     pending,
     primaryActionId,
     provider: input.provider,
+    runtimeSelectionRequired: resolveRuntimeSelectionRequired(input.status),
     status
   };
+}
+
+function resolveRuntimeSelectionRequired(
+  status: AgentProviderStatus | null
+): boolean {
+  return (
+    status?.availability.status === "unknown" &&
+    runtimeSelectionReasonCodes.has(status.availability.reasonCode ?? "")
+  );
 }
 
 function resolveDesktopAgentProviderManageRowStatus(

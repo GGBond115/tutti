@@ -39,6 +39,11 @@ import {
 interface DesktopAgentProviderManageDialogProps {
   agentProviderStatusService: IAgentProviderStatusService;
   focusedProvider: WorkspaceAgentProvider | null;
+  // Invoked when a provider is blocked on a local runtime choice and the user
+  // asks to resolve it. The host opens the agent setup wizard, which surfaces
+  // the runtime picker. Optional so the dialog degrades to a plain "-" if a
+  // host never wires it.
+  onChooseRuntime?: (provider: WorkspaceAgentProvider) => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
   workbenchHost: unknown;
@@ -83,6 +88,7 @@ export const statusLabelKeys = {
 export function DesktopAgentProviderManageDialog({
   agentProviderStatusService,
   focusedProvider,
+  onChooseRuntime,
   onOpenChange,
   open,
   workbenchHost,
@@ -263,6 +269,7 @@ export function DesktopAgentProviderManageDialog({
                   setRowElement={setRowElement}
                   t={t}
                   onAction={runAction}
+                  onChooseRuntime={onChooseRuntime}
                 />
               ))}
             </div>
@@ -276,12 +283,14 @@ export function DesktopAgentProviderManageDialog({
 function DesktopAgentProviderManageRowView({
   focused,
   onAction,
+  onChooseRuntime,
   row,
   setRowElement,
   t
 }: {
   focused: boolean;
   onAction: (row: DesktopAgentProviderManageRow) => void;
+  onChooseRuntime?: (provider: WorkspaceAgentProvider) => void;
   row: DesktopAgentProviderManageRow;
   setRowElement: (
     provider: WorkspaceAgentProvider,
@@ -289,7 +298,14 @@ function DesktopAgentProviderManageRowView({
   ) => void;
   t: TranslateFn;
 }) {
-  const statusLabel = t(statusLabelKeys[row.status]);
+  const statusLabel = row.runtimeSelectionRequired
+    ? t(
+        "workspace.workbenchDesktop.agentProviders.manageStatusSelectionRequired"
+      )
+    : t(statusLabelKeys[row.status]);
+  const statusTone = row.runtimeSelectionRequired
+    ? "amber"
+    : resolveStatusDotTone(row.status);
 
   return (
     <div
@@ -322,10 +338,7 @@ function DesktopAgentProviderManageRowView({
         </span>
       </div>
       <div className="flex min-w-0 items-center gap-2" role="cell">
-        <StatusDot
-          pulse={row.status === "checking"}
-          tone={resolveStatusDotTone(row.status)}
-        />
+        <StatusDot pulse={row.status === "checking"} tone={statusTone} />
         <span className="truncate font-medium text-[var(--text-primary)]">
           {statusLabel}
         </span>
@@ -343,6 +356,7 @@ function DesktopAgentProviderManageRowView({
           row={row}
           t={t}
           onAction={onAction}
+          onChooseRuntime={onChooseRuntime}
         />
       </div>
     </div>
@@ -351,13 +365,33 @@ function DesktopAgentProviderManageRowView({
 
 function DesktopAgentProviderManageActionButton({
   onAction,
+  onChooseRuntime,
   row,
   t
 }: {
   onAction: (row: DesktopAgentProviderManageRow) => void;
+  onChooseRuntime?: (provider: WorkspaceAgentProvider) => void;
   row: DesktopAgentProviderManageRow;
   t: TranslateFn;
 }) {
+  // A runtime choice is resolved in the setup wizard, not through a daemon
+  // runAction, so it takes its own button ahead of the install/login path.
+  if (row.runtimeSelectionRequired) {
+    if (!onChooseRuntime) {
+      return <span className="text-[var(--text-tertiary)]">-</span>;
+    }
+    return (
+      <Button
+        className="min-w-[104px]"
+        size="dialog"
+        type="button"
+        onClick={() => onChooseRuntime(row.provider)}
+      >
+        {t("workspace.workbenchDesktop.agentProviders.manageActionChoose")}
+      </Button>
+    );
+  }
+
   const actionLabelKey = resolveActionLabelKey(row);
   if (!actionLabelKey) {
     return <span className="text-[var(--text-tertiary)]">-</span>;

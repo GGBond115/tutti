@@ -23,12 +23,28 @@ function sourceLabel(source: string, t: Translate): string {
   }
 }
 
-function candidateDetails(
+// The source (Homebrew, PATH, Bun global…) is the most human-meaningful way to
+// tell two installations apart, so it leads the row. Two installs frequently
+// share a version, which is why the version alone cannot disambiguate them.
+function sourceSummary(
+  candidate: AgentProviderRuntimeCandidate,
+  t: Translate
+): string {
+  const labels = candidate.sources.map((source) => sourceLabel(source, t));
+  const unique = labels.filter(
+    (label, index) => labels.indexOf(label) === index
+  );
+  return unique.length > 0
+    ? unique.join(" · ")
+    : t("workspace.agentEnv.runtimeSourcePath");
+}
+
+function candidateSummary(
   candidate: AgentProviderRuntimeCandidate,
   t: Translate
 ): string {
   return [
-    candidate.sources.map((source) => sourceLabel(source, t)).join(" · "),
+    sourceSummary(candidate, t),
     candidate.version ?? t("workspace.agentEnv.valueUnknown"),
     candidate.launcherPath
   ].join(" · ");
@@ -109,8 +125,9 @@ export function CodexRuntimePicker({
                 <RadioIndicator checked={selected} className="mt-0.5" />
               )}
               <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2 text-[12px] font-medium text-[var(--text-primary)]">
-                  <span>
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] font-medium text-[var(--text-primary)]">
+                  <span>{sourceSummary(candidate, t)}</span>
+                  <span className="text-[11px] font-normal text-[var(--text-secondary)]">
                     {candidate.version ?? t("workspace.agentEnv.valueUnknown")}
                   </span>
                   {selected ? (
@@ -119,8 +136,13 @@ export function CodexRuntimePicker({
                     </span>
                   ) : null}
                 </span>
-                <span className="mt-0.5 block truncate text-[11px] text-[var(--text-secondary)]">
-                  {candidateDetails(candidate, t)}
+                {/* Full launcher path — not truncated — so two same-version
+                    installs remain distinguishable. */}
+                <span
+                  title={candidate.launcherPath}
+                  className="mt-0.5 block break-all text-[11px] text-[var(--text-secondary)]"
+                >
+                  {candidate.launcherPath}
                 </span>
               </span>
             </button>
@@ -137,9 +159,10 @@ export function CodexRuntimePicker({
             {unavailableCandidates.map((candidate) => (
               <span
                 key={candidate.id}
-                className="truncate text-[11px] text-[var(--text-secondary)]"
+                title={candidate.launcherPath}
+                className="block break-all text-[11px] text-[var(--text-secondary)]"
               >
-                {candidateDetails(candidate, t)}
+                {candidateSummary(candidate, t)}
                 {candidate.reasonCode ? ` · ${candidate.reasonCode}` : ""}
               </span>
             ))}
