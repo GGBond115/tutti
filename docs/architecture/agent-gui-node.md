@@ -1199,7 +1199,8 @@ remains a separate adjacent action, and all controls stay disabled while an
 activation update is unresolved. The Desktop command host and HTTP adapter must
 preserve the optimistic CAS revision and both optional preferences; dropping
 any field turns a valid UI intent into a stale or semantically mismatched
-response.
+response. Tutti Desktop always advertises the Tutti Mode host capability;
+historical `lab.tuttiMode` preference values do not hide or disable it.
 
 The preference popup uses two independent 0-100 sliders. `effect` raises the
 minimum model capability and task-verification breadth. `speed` asks the
@@ -1739,8 +1740,9 @@ Do not start by adding a fallback to the visible component.
 
 ### 8.1 Agent settings surface
 
-The desktop settings panel's Agent section has four independently gated tabs:
-General Settings, Agent Runtime, Custom Agents, and Automation. The Agent
+The desktop settings panel's Agent section has General Settings, Agent Runtime,
+and Custom Agents available by default; Automation remains independently
+gated. The Agent
 Runtime tab renders provider rows from the authoritative
 identity catalog plus the live `IAgentProviderStatusService`; it does not copy
 a provider registry. Its Enable/Disable control reads all Agent Targets from
