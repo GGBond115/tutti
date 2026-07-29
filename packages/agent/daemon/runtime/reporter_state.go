@@ -141,14 +141,20 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 		activityshared.EventRootProviderTurnCheckpoint,
 		activityshared.EventRootProviderTurnCompleted:
 		phase := agentsessionstore.RootProviderTurnPhaseRunning
-		if event.Type == activityshared.EventRootProviderTurnCompleted {
+		completed := false
+		started := false
+		switch event.Type {
+		case activityshared.EventRootProviderTurnCompleted:
 			phase = agentsessionstore.RootProviderTurnPhaseCompleted
-		} else if event.Type == activityshared.EventRootProviderTurnCheckpoint {
+			completed = true
+		case activityshared.EventRootProviderTurnCheckpoint:
 			phase = ""
+		case activityshared.EventRootProviderTurnStarted:
+			started = true
 		}
 		errorMessage := activityshared.BestEffortErrorMessage(event.Payload)
 		errorCode := ""
-		if event.Type == activityshared.EventRootProviderTurnCompleted &&
+		if completed &&
 			strings.TrimSpace(event.Payload.TurnOutcome) == string(activityshared.TurnOutcomeFailed) &&
 			strings.TrimSpace(errorMessage) != "" {
 			errorCode = visibleFailureCode(errorMessage)
@@ -162,7 +168,7 @@ func statePatchFromSessionEvent(source canonical.EventSource, event activityshar
 			ErrorMessage:                errorMessage,
 			ErrorCode:                   errorCode,
 		}
-		if event.Type == activityshared.EventRootProviderTurnStarted {
+		if started {
 			applyProviderCreatedGoalTurnToPatch(&patch, event, timestamp)
 		}
 	}

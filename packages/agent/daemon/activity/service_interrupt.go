@@ -235,9 +235,10 @@ func statePatchFromActivityEvent(source EventSource, event activityshared.Event,
 		activityshared.EventRootProviderTurnCheckpoint,
 		activityshared.EventRootProviderTurnCompleted:
 		phase := RootProviderTurnPhaseRunning
-		if event.Type == activityshared.EventRootProviderTurnCompleted {
+		switch event.Type {
+		case activityshared.EventRootProviderTurnCompleted:
 			phase = RootProviderTurnPhaseCompleted
-		} else if event.Type == activityshared.EventRootProviderTurnCheckpoint {
+		case activityshared.EventRootProviderTurnCheckpoint:
 			phase = ""
 		}
 		patch.RootProviderTurn = &WorkspaceAgentRootProviderTurnTransition{

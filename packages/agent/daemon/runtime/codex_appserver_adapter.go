@@ -138,8 +138,6 @@ const defaultCodexAppServerGoalContinuationGraceWindow = 1500 * time.Millisecond
 // generation and must never inherit the session's latest desired Goal identity.
 const defaultCodexAppServerGoalProvenanceGraceWindow = 250 * time.Millisecond
 
-const codexAppServerExecutableBase = "codex"
-
 type CodexAppServerAdapter struct {
 	transport                  ProcessTransport
 	host                       HostMetadata
