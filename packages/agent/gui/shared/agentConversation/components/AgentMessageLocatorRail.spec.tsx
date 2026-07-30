@@ -121,7 +121,7 @@ afterEach(() => {
 });
 
 describe("AgentMessageLocatorRail", () => {
-  it("stays hidden until history is complete and four messages exist", () => {
+  it("stays hidden until history is complete and two messages exist", () => {
     const onLocate = vi.fn();
     const { rerender } = renderRail({
       items: ITEMS.slice(0, 1),
@@ -140,7 +140,7 @@ describe("AgentMessageLocatorRail", () => {
 
     rerender(
       <RailHarness
-        items={ITEMS.slice(0, 3)}
+        items={ITEMS.slice(0, 1)}
         isConversationHistoryComplete
         onLocate={onLocate}
       />
@@ -149,7 +149,7 @@ describe("AgentMessageLocatorRail", () => {
 
     rerender(
       <RailHarness
-        items={ITEMS}
+        items={ITEMS.slice(0, 2)}
         isConversationHistoryComplete
         onLocate={onLocate}
       />
@@ -581,47 +581,6 @@ describe("AgentMessageLocatorRail", () => {
     expect(signal?.aborted).toBe(true);
   });
 
-  it("keeps the rail hidden before a narrow layout is measured", () => {
-    render(<NarrowRailHarness items={ITEMS} onLocate={vi.fn()} />);
-
-    expect(screen.getByTestId("agent-message-locator")).toHaveStyle({
-      visibility: "hidden"
-    });
-  });
-
-  it("keeps the last valid layout while resize reports a zero-size frame", () => {
-    let resizeCallback: ResizeObserverCallback | null = null;
-    class ResizeObserverMock implements ResizeObserver {
-      constructor(callback: ResizeObserverCallback) {
-        resizeCallback = callback;
-      }
-      disconnect(): void {}
-      observe(): void {}
-      unobserve(): void {}
-    }
-    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
-    renderRail({ items: ITEMS, onLocate: vi.fn() });
-    const locator = screen.getByTestId("agent-message-locator");
-    expect(locator).not.toHaveStyle({ visibility: "hidden" });
-
-    act(() => {
-      resizeCallback?.(
-        [
-          {
-            borderBoxSize: [],
-            contentBoxSize: [],
-            contentRect: rectWithWidth(0, 0),
-            devicePixelContentBoxSize: [],
-            target: screen.getByTestId("agent-gui-timeline")
-          } as ResizeObserverEntry
-        ],
-        {} as ResizeObserver
-      );
-    });
-
-    expect(locator).not.toHaveStyle({ visibility: "hidden" });
-  });
-
   it("highlights a revealed target once after locating resolves", async () => {
     const target = document.createElement("div");
     target.dataset.agentMessageLocatorKey = ITEMS[0]!.key;
@@ -776,30 +735,6 @@ function RailWithOperation({
   );
 }
 
-function NarrowRailHarness({
-  items,
-  onLocate
-}: {
-  items: readonly AgentMessageLocatorItem[];
-  onLocate: (
-    item: AgentMessageLocatorItem,
-    options?: AgentMessageLocatorLocateOptions
-  ) => void | Promise<HTMLElement | null>;
-}) {
-  const locateOperation = useAgentTranscriptLocateOperation(true);
-  return (
-    <div ref={setTimelineGeometry} data-testid="agent-gui-timeline">
-      <AgentMessageLocatorRail
-        items={items}
-        locateOperation={locateOperation}
-        onLocate={onLocate}
-        viewportSource={VIEWPORT_SOURCE}
-      />
-      <div ref={setNarrowContentGeometry} />
-    </div>
-  );
-}
-
 function rect(top: number, height = 40): DOMRect {
   return {
     bottom: top + height,
@@ -830,15 +765,6 @@ function setContentGeometry(element: HTMLDivElement | null): void {
     value: 900
   });
   element.getBoundingClientRect = () => rectWithWidth(0, 900);
-}
-
-function setNarrowContentGeometry(element: HTMLDivElement | null): void {
-  if (!element) return;
-  Object.defineProperty(element, "offsetWidth", {
-    configurable: true,
-    value: 980
-  });
-  element.getBoundingClientRect = () => rectWithWidth(0, 980);
 }
 
 function rectWithWidth(top: number, width: number): DOMRect {

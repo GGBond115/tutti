@@ -110,7 +110,7 @@
       "packages/agent/gui/agent-message-center/WorkspaceAgentMessageCenterCard.tsx": 1,
       "packages/agent/gui/app/renderer/components/ui/custom-scroll-area.tsx": 2,
       "packages/agent/gui/shared/AgentMessageMermaid.tsx": 1,
-      "packages/agent/gui/shared/agentConversation/components/AgentMessageLocatorRail.tsx": 2,
+      "packages/agent/gui/shared/agentConversation/components/AgentMessageLocatorRail.tsx": 1,
       "packages/agent/gui/shared/agentConversation/components/CollapsibleReveal.tsx": 6,
       "packages/agent/gui/shared/agentConversation/components/agentTranscriptPresentationScheduler.ts": 1,
       "packages/agent/gui/workbench/AgentGuiWorkbenchSessionMenu.tsx": 1,

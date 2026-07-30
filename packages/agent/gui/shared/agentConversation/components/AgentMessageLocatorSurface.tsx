@@ -21,7 +21,6 @@ interface AgentMessageLocatorSurfaceProps {
   ): void;
   handlePointerDown: PointerEventHandler<HTMLDivElement>;
   handlePointerMove: PointerEventHandler<HTMLDivElement>;
-  isLayoutVisible: boolean;
   isPanelOpen: boolean;
   items: readonly AgentMessageLocatorItem[];
   label?: string;
@@ -49,7 +48,6 @@ export function AgentMessageLocatorSurface({
   handleLocateItem,
   handlePointerDown,
   handlePointerMove,
-  isLayoutVisible,
   isPanelOpen,
   items,
   label,
@@ -87,8 +85,6 @@ export function AgentMessageLocatorSurface({
         {
           "--agent-message-locator-height": `${railHeight}px`,
           "--agent-message-locator-viewport-height": `${viewportHeight}px`,
-          visibility: isLayoutVisible ? undefined : "hidden",
-          pointerEvents: isLayoutVisible ? undefined : "none",
           ...(visibleFrame
             ? {
                 "--agent-message-locator-visible-height": `${visibleFrame.heightPx}px`,

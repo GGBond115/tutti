@@ -1035,7 +1035,7 @@ draft scope and local edit revision match; a scope change or other external
 replacement may rebuild the document.
 
 A message locator appears only after conversation history is complete and at
-least four non-empty user messages exist. Agent messages and tool calls do not
+least two non-empty user messages exist. Agent messages and tool calls do not
 count toward that threshold. It observes mounted user-message targets against
 the timeline viewport, reconciles targets as virtualization mounts and unmounts
 Turns, and marks the contiguous range from the first intersecting message to the
@@ -1051,9 +1051,8 @@ the internally scrolled rail. Visible-selection and viewport-size changes may
 still keep the selected mark in view. The expanded list preserves the visible
 selection with accent styling while hover uses a separate transient surface.
 `Alt+ArrowUp` and `Alt+ArrowDown` navigate logical user messages from a 24px top
-threshold. The rail mounts during browser idle time and hides when less than
-48px exists between transcript content and the trailing edge. A mounted target
-is scrolled natively by the rail. An unmounted target asks the virtualizer only
+threshold. The rail mounts during browser idle time. A mounted target is
+scrolled natively by the rail. An unmounted target asks the virtualizer only
 to reveal and align its stable Turn without smooth scrolling, then the rail
 re-queries the exact nested target.
 Keyboard reveal waits up to 1500ms for that DOM target, scrolls it natively,

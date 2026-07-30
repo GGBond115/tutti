@@ -43,8 +43,7 @@ export type { AgentMessageLocatorLocateOptions } from "./agentMessageLocatorNavi
 
 const AGENT_MESSAGE_LOCATOR_PANEL_FADE_MS = 160;
 const AGENT_MESSAGE_LOCATOR_MAX_HEIGHT_PX = 640;
-const AGENT_MESSAGE_LOCATOR_MIN_ITEMS = 4;
-const AGENT_MESSAGE_LOCATOR_MIN_TRAILING_SPACE_PX = 48;
+const AGENT_MESSAGE_LOCATOR_MIN_ITEMS = 2;
 const AGENT_MESSAGE_LOCATOR_TEMP_DIAGNOSTIC_MARKER =
   "[TEMP:locator-infinite-scroll]";
 
@@ -83,7 +82,6 @@ export function AgentMessageLocatorRail({
     null
   );
   const locatorAlignmentInputsRef = useRef<{
-    hasTrailingSpace: boolean;
     isIdleMounted: boolean;
     isVisible: boolean;
     items: readonly AgentMessageLocatorItem[];
@@ -99,7 +97,6 @@ export function AgentMessageLocatorRail({
   const suppressNextClickRef = useRef(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [isIdleMounted, setIsIdleMounted] = useState(false);
-  const [hasTrailingSpace, setHasTrailingSpace] = useState(false);
   const [shouldRenderPanel, setShouldRenderPanel] = useState(false);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [scrubTargetKey, setScrubTargetKey] = useState<string | null>(null);
@@ -109,7 +106,6 @@ export function AgentMessageLocatorRail({
       isVisible:
         isVisible &&
         isIdleMounted &&
-        hasTrailingSpace &&
         isConversationHistoryComplete &&
         items.length >= AGENT_MESSAGE_LOCATOR_MIN_ITEMS,
       locatorRef
@@ -313,7 +309,6 @@ export function AgentMessageLocatorRail({
     if (
       !isVisible ||
       !isIdleMounted ||
-      !hasTrailingSpace ||
       !isConversationHistoryComplete ||
       items.length < AGENT_MESSAGE_LOCATOR_MIN_ITEMS
     ) {
@@ -389,7 +384,6 @@ export function AgentMessageLocatorRail({
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, [
-    hasTrailingSpace,
     isConversationHistoryComplete,
     isIdleMounted,
     isVisible,
@@ -410,7 +404,6 @@ export function AgentMessageLocatorRail({
     if (!locator || !scrollParent) {
       return;
     }
-    const contentTarget = locator.nextElementSibling;
     const unsubscribeViewport = viewportSource.subscribeViewport((snapshot) => {
       const nextFrame = {
         heightPx: Math.max(
@@ -429,50 +422,11 @@ export function AgentMessageLocatorRail({
       );
     });
 
-    let scrollParentWidth = 0;
-    let contentWidth = 0;
-    const applyTrailingSpace = (): void => {
-      if (scrollParentWidth <= 0 || contentWidth <= 0) return;
-      setHasTrailingSpace(
-        scrollParentWidth - contentWidth >=
-          AGENT_MESSAGE_LOCATOR_MIN_TRAILING_SPACE_PX
-      );
-    };
-    const resizeObserver =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : // presentation-work: observe locator geometry only while the visible rail is mounted
-          new ResizeObserver((entries) => {
-            for (const entry of entries) {
-              const width =
-                entry.borderBoxSize?.[0]?.inlineSize ?? entry.contentRect.width;
-              if (width <= 0) continue;
-              if (entry.target === scrollParent) {
-                scrollParentWidth = width;
-              } else if (entry.target === contentTarget) {
-                contentWidth = width;
-              }
-            }
-            applyTrailingSpace();
-          });
-    resizeObserver?.observe(scrollParent);
-    if (contentTarget instanceof Element) {
-      resizeObserver?.observe(contentTarget);
-    }
-    if (contentTarget instanceof HTMLElement) {
-      scrollParentWidth = scrollParent.offsetWidth;
-      contentWidth = contentTarget.offsetWidth;
-      applyTrailingSpace();
-    }
-    return () => {
-      unsubscribeViewport();
-      resizeObserver?.disconnect();
-    };
-  }, [isIdleMounted, isVisible, items.length, viewportSource]);
+    return unsubscribeViewport;
+  }, [isIdleMounted, isVisible, viewportSource]);
   useLayoutEffect(() => {
     const previousAlignmentInputs = locatorAlignmentInputsRef.current;
     const alignmentInputs = {
-      hasTrailingSpace,
       isIdleMounted,
       isVisible,
       items,
@@ -483,7 +437,6 @@ export function AgentMessageLocatorRail({
     locatorAlignmentInputsRef.current = alignmentInputs;
     const shouldAlignLocator =
       previousAlignmentInputs === null ||
-      previousAlignmentInputs.hasTrailingSpace !== hasTrailingSpace ||
       previousAlignmentInputs.isIdleMounted !== isIdleMounted ||
       previousAlignmentInputs.isVisible !== isVisible ||
       previousAlignmentInputs.items !== items ||
@@ -494,7 +447,6 @@ export function AgentMessageLocatorRail({
       shouldAlignLocator &&
       isVisible &&
       isIdleMounted &&
-      hasTrailingSpace &&
       scrubPointerIdRef.current === null
     ) {
       const selectedIndex = visibleActiveKey
@@ -545,7 +497,6 @@ export function AgentMessageLocatorRail({
     }
   }, [
     activeKey,
-    hasTrailingSpace,
     isIdleMounted,
     isPanelOpen,
     isVisible,
@@ -686,7 +637,6 @@ export function AgentMessageLocatorRail({
       handleLocateItem={handleLocateItem}
       handlePointerDown={handlePointerDown}
       handlePointerMove={handlePointerMove}
-      isLayoutVisible={hasTrailingSpace}
       isPanelOpen={isPanelOpen}
       items={items}
       label={label}
