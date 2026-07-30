@@ -668,7 +668,7 @@ disable submission, but must not change editor editability.
   into `AgentSessionEffectPort` calls. Desktop and Mobile effect ports retain
   transport and DTO mapping but must not duplicate a command-type switch for
   these shared effects. Host activity facades call
-  `engine.updateSessionSettings`, `engine.renameSession`,
+  `engine.stopSession`, `engine.updateSessionSettings`, `engine.renameSession`,
   `engine.setSessionPinned`, and `engine.deleteSessions`; these deep methods
   own the applicable workspace projection, command or mutation identity,
   timeout, cancellation, settlement, and canonical result projection. Settings
@@ -677,6 +677,10 @@ disable submission, but must not change editor editability.
   failed, and unknown state. Hosts must not reconstruct mutation protocol with
   `dispatchSessionMutation` and snapshot reads or construct raw
   `session/settingsUpdateRequested` fields for an existing Session.
+  Session stop is also fire-and-observe admission: the Engine owns its command
+  identity, 30-second cancellation timeout, duplicate fence, and 30-second
+  first-Turn waiting window. Desktop AgentGUI and Native Mobile call
+  `engine.stopSession` and never construct raw `session/stopRequested` fields.
   Platform-only commands remain in each host's `EngineExtensionCommand`
   adapter. Every effect propagates the Engine-owned AbortSignal to its
   transport. Rename, pin, and delete settle through the shared Session-mutation
