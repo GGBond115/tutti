@@ -67,9 +67,10 @@ predates graduation from Lab; the switch is now presented in Developer
 settings without renaming the stored key or losing existing user choices.
 
 `services/tuttid/service/agentextension/manager.go` is the existing example
-of feature-owned semantics: it reads the raw flag map, derives its own keys
-(`"agent.extension."+source.Key`), and decides what disabled means for Agent
-Extension sources (reconcile and stop). New consumers should prefer the
-registry constants and `IsLabFlagEnabled` over poking the raw map, while
-keeping their own off semantics in the owning feature, exactly as the Agent
+of feature-owned semantics: stable sources are enabled by generated product
+configuration and ignore retired stored activation values, while Early Access
+sources derive their own keys (`"agent.extension."+source.Key`) and decide what
+disabled means (reconcile and stop). New consumers should prefer registry
+constants and `IsLabFlagEnabled` over poking the raw map, while keeping their
+own off and graduation semantics in the owning feature, exactly as the Agent
 Extension manager does.
