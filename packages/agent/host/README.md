@@ -116,6 +116,15 @@ authorization checkpoint. Replaying the same proof is idempotent; a later
 authoritative proof advances a new attempt only after the previous failed
 placeholder and claim are safely discarded.
 
+Rollback admission follows the same selected-boundary trust model as Session
+Fork. Host requires the exact provider Session, the same effective Turn count,
+and a latest provider Turn matching the canonical Turn being edited. Earlier
+provider Turn identities may have been remapped by a provider-native Fork and
+are therefore treated as an opaque historical prefix. Provider-native child
+Sessions block editing only when their immutable `rootTurnId` is the Turn being
+retracted; descendants rooted in an earlier Turn do not permanently disable
+editing a later completed Turn.
+
 A provider-accepted Goal operation has crossed the delivery boundary. The
 steady-state worker waits for applied evidence and never resubmits that
 mutation; the accepted convergence deadline terminates a lost-evidence case.
