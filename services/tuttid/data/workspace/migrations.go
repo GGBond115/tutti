@@ -77,6 +77,7 @@ const schemaMigrationTuttiModeActivationsV1 = "tutti_mode_activations_v1"
 const schemaMigrationTuttiModeTurnDispatchV2 = "tutti_mode_turn_dispatch_v2"
 const schemaMigrationTuttiModeOrchestrationIntensityV3 = "tutti_mode_orchestration_intensity_v3"
 const schemaMigrationTuttiModeEffectSpeedV4 = "tutti_mode_effect_speed_v4"
+const schemaMigrationTuttiModeAgentCommandSourceV5 = "tutti_mode_agent_command_source_v5"
 const schemaMigrationWorkspaceWorkflowTaskAssignmentsV4 = "workspace_workflow_task_assignments_v4"
 const schemaMigrationWorkspaceTuttiModeExecutionV1 = "workspace_tutti_mode_execution_v1"
 const schemaMigrationWorkspaceTuttiModeRunCancelCompensationV2 = "workspace_tutti_mode_run_cancel_compensation_v2"
@@ -352,6 +353,9 @@ INSERT OR IGNORE INTO tuttid_schema_migrations (id, applied_at_unix_ms)
 		return err
 	}
 	if err := s.applyTuttiModeEffectSpeedV4(ctx); err != nil {
+		return err
+	}
+	if err := s.applyTuttiModeAgentCommandSourceV5(ctx); err != nil {
 		return err
 	}
 	if err := s.applyWorkspaceWorkflowTaskAssignmentsV4(ctx); err != nil {
