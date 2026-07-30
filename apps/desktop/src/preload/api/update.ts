@@ -2,7 +2,8 @@ import { ipcRenderer } from "electron";
 import {
   desktopIpcChannels,
   type AppUpdateState,
-  type ConfigureAppUpdatesInput
+  type ConfigureAppUpdatesInput,
+  type MinimumVersionUpgradeState
 } from "../../shared/contracts/ipc";
 import type { DesktopUpdateApi } from "../types";
 import { invokeDesktopApi } from "./invoke";
@@ -37,6 +38,31 @@ export function createUpdateDesktopApi(): DesktopUpdateApi {
       return () => {
         ipcRenderer.removeListener(desktopIpcChannels.update.state, handler);
       };
+    },
+    minimumVersion: {
+      getState: () =>
+        invokeDesktopApi(desktopIpcChannels.update.minimumGetState),
+      start: () => invokeDesktopApi(desktopIpcChannels.update.minimumStart),
+      retry: () => invokeDesktopApi(desktopIpcChannels.update.minimumRetry),
+      later: () => invokeDesktopApi(desktopIpcChannels.update.minimumLater),
+      openManualDownload: () =>
+        invokeDesktopApi(desktopIpcChannels.update.minimumManualDownload),
+      exit: () => invokeDesktopApi(desktopIpcChannels.update.minimumExit),
+      onState(
+        listener: (state: MinimumVersionUpgradeState) => void
+      ): () => void {
+        const handler = (
+          _event: Electron.IpcRendererEvent,
+          payload: MinimumVersionUpgradeState
+        ) => listener(payload);
+        ipcRenderer.on(desktopIpcChannels.update.minimumState, handler);
+        return () => {
+          ipcRenderer.removeListener(
+            desktopIpcChannels.update.minimumState,
+            handler
+          );
+        };
+      }
     }
   };
 }

@@ -217,7 +217,14 @@ export const desktopIpcChannels = {
     download: "update:download",
     getState: "update:getState",
     install: "update:install",
-    state: "update:state"
+    state: "update:state",
+    minimumGetState: "update:minimum:get-state",
+    minimumStart: "update:minimum:start",
+    minimumRetry: "update:minimum:retry",
+    minimumLater: "update:minimum:later",
+    minimumManualDownload: "update:minimum:manual-download",
+    minimumExit: "update:minimum:exit",
+    minimumState: "update:minimum:state"
   },
   wallpaper: {
     clearCustom: "wallpaper:clearCustom",
@@ -876,6 +883,33 @@ export interface AppUpdateState {
   totalBytes: number | null;
 }
 
+export interface MinimumVersionCheckResponse {
+  product: "tutti-desktop";
+  platform: "macos" | "windows" | "linux";
+  architecture: "arm64" | "x64";
+  channel: "stable" | "rc" | "unmanaged";
+  currentVersion: string;
+  minimumVersion: string;
+  decision: "allowed" | "upgradeRequired" | "notApplicable";
+  reason: string;
+  policySource: string;
+  policyRevision: string;
+}
+
+export interface MinimumVersionUpgradeState {
+  phase:
+    | "blocked"
+    | "checking"
+    | "ready"
+    | "downloading"
+    | "downloaded"
+    | "error"
+    | "released";
+  check: MinimumVersionCheckResponse;
+  update: AppUpdateState;
+  message: string | null;
+}
+
 export { isDesktopLocale, type DesktopLocale };
 export {
   isDesktopThemeSource,
@@ -1119,6 +1153,12 @@ export interface DesktopInvokePayloadByChannel {
   [desktopIpcChannels.update.download]: undefined;
   [desktopIpcChannels.update.getState]: undefined;
   [desktopIpcChannels.update.install]: undefined;
+  [desktopIpcChannels.update.minimumGetState]: undefined;
+  [desktopIpcChannels.update.minimumStart]: undefined;
+  [desktopIpcChannels.update.minimumRetry]: undefined;
+  [desktopIpcChannels.update.minimumLater]: undefined;
+  [desktopIpcChannels.update.minimumManualDownload]: undefined;
+  [desktopIpcChannels.update.minimumExit]: undefined;
   [desktopIpcChannels.wallpaper.clearCustom]: undefined;
   [desktopIpcChannels.wallpaper.getCustom]: undefined;
   [desktopIpcChannels.wallpaper.setCustom]: DesktopSetCustomWallpaperInput;
@@ -1304,6 +1344,13 @@ export interface DesktopInvokeResultByChannel {
   [desktopIpcChannels.update.download]: AppUpdateState;
   [desktopIpcChannels.update.getState]: AppUpdateState;
   [desktopIpcChannels.update.install]: void;
+  [desktopIpcChannels.update
+    .minimumGetState]: MinimumVersionUpgradeState | null;
+  [desktopIpcChannels.update.minimumStart]: MinimumVersionUpgradeState | null;
+  [desktopIpcChannels.update.minimumRetry]: MinimumVersionUpgradeState | null;
+  [desktopIpcChannels.update.minimumLater]: void;
+  [desktopIpcChannels.update.minimumManualDownload]: void;
+  [desktopIpcChannels.update.minimumExit]: void;
   [desktopIpcChannels.wallpaper.clearCustom]: void;
   [desktopIpcChannels.wallpaper.getCustom]: DesktopCustomWallpaperImage | null;
   [desktopIpcChannels.wallpaper.setCustom]: DesktopCustomWallpaperImage;

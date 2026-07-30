@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, protocol } from "electron";
+import { app, BrowserWindow, powerMonitor, protocol } from "electron";
 import {
   initializeDesktopEnvironment,
   resolveDesktopDevelopmentAppName,
@@ -42,6 +42,10 @@ import { desktopCustomProtocolSchemes } from "./host/desktopCustomProtocolScheme
 import { createWorkspaceFileIconCacheStore } from "./host/workspaceFileIconCacheStore.ts";
 import { registerWorkspaceFileIconProtocol } from "./host/workspaceFileIconProtocol.ts";
 import { applyDesktopElectronPlatformCompatibility } from "./electronPlatformCompatibility.ts";
+import {
+  createMinimumVersionUpgradeController,
+  type MinimumVersionUpgradeController
+} from "./update/minimumVersionUpgradeController.ts";
 
 function envFlagEnabled(value: string | undefined): boolean {
   return /^(1|true|yes|on)$/iu.test(value?.trim() ?? "");
@@ -273,14 +277,38 @@ export async function bootstrapDesktopApp(): Promise<void> {
     updateService: desktopAppServices.updateService
   });
 
-  void desktopAppServices.updateService.configure({
-    channel: desktopAppServices.preferences.getUpdateChannel(),
-    policy: desktopAppServices.preferences.getUpdatePolicy()
-  });
-
-  await desktopAppServices.workspaceLaunch.openStartupWindow();
+  let businessWindowAllowed = false;
+  let businessWindowOpened = false;
+  const openBusinessWindow = async () => {
+    businessWindowAllowed = true;
+    if (!businessWindowOpened) {
+      businessWindowOpened = true;
+      await desktopAppServices.workspaceLaunch.openStartupWindow();
+    } else {
+      focusPrimaryDesktopWindow();
+    }
+  };
+  let minimumVersionController: MinimumVersionUpgradeController | null =
+    createMinimumVersionUpgradeController({
+      logger,
+      normalUpdatePreferences: () => ({
+        channel: desktopAppServices.preferences.getUpdateChannel(),
+        policy: desktopAppServices.preferences.getUpdatePolicy()
+      }),
+      openBusinessWindow,
+      preloadPath,
+      rendererFilePath: join(currentDir, "../renderer/index.html"),
+      rendererUrl,
+      updateService: desktopAppServices.updateService
+    });
+  const checkMinimumVersionAfterRestore = () => {
+    void minimumVersionController?.checkAfterForegroundRestore();
+  };
+  powerMonitor.on("resume", checkMinimumVersionAfterRestore);
+  app.on("browser-window-focus", checkMinimumVersionAfterRestore);
 
   registerDesktopAppLifecycle({
+    canOpenBusinessWindow: () => businessWindowAllowed,
     logger,
     tuttid: desktopAppServices.tuttid,
     disposables: [
@@ -291,9 +319,29 @@ export async function bootstrapDesktopApp(): Promise<void> {
         dispose() {
           appUpdateAnalytics.release();
         }
+      },
+      {
+        dispose() {
+          powerMonitor.removeListener(
+            "resume",
+            checkMinimumVersionAfterRestore
+          );
+          app.removeListener(
+            "browser-window-focus",
+            checkMinimumVersionAfterRestore
+          );
+          minimumVersionController?.dispose();
+          minimumVersionController = null;
+        }
       }
     ],
     updateService: desktopAppServices.updateService,
     workspaceLaunch: desktopAppServices.workspaceLaunch
   });
+
+  const startupBlocked = await minimumVersionController.runStartupCheck();
+  if (!startupBlocked) {
+    minimumVersionController.configureNormalUpdates();
+    await openBusinessWindow();
+  }
 }

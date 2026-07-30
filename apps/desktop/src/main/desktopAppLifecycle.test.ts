@@ -98,6 +98,28 @@ function createTuttidManager(stop: () => Promise<void>): TuttidManager {
   };
 }
 
+test("activate does not open a business window while minimum-version startup is blocked", () => {
+  const events: string[] = [];
+  const workspaceLaunch = createWorkspaceLaunch();
+  workspaceLaunch.openStartupWindow = async () => {
+    events.push("workspace:open");
+  };
+  const handlers = createDesktopAppLifecycleHandlers(
+    {
+      canOpenBusinessWindow: () => false,
+      logger: createLogger(events),
+      tuttid: createTuttidManager(async () => {}),
+      updateService: createUpdateService(events),
+      workspaceLaunch
+    },
+    createRuntime(events)
+  );
+
+  handlers.activate();
+
+  assert.deepEqual(events, []);
+});
+
 test("before quit waits for managed tuttid stop before quitting the app", async () => {
   const events: string[] = [];
   const stopSignal: { resolve: null | (() => void) } = { resolve: null };

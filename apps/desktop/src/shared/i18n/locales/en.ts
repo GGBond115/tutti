@@ -68,6 +68,35 @@ export const en = {
     restartAction: "Restart & install",
     retryAction: "Retry"
   },
+  minimumVersion: {
+    startupTitle: "A required Tutti update is available",
+    startupDetail:
+      "Update Tutti before continuing. Your regular update preference will not be changed.",
+    foregroundTitle: "A required Tutti update is available",
+    foregroundDetail:
+      "Update Now automatically installs and restarts after downloading. You can also continue this session and update next time.",
+    checkingTitle: "Checking the required update",
+    downloadingTitle: "Downloading the required update",
+    failedTitle: "Unable to complete the required update",
+    currentVersion: "Current version",
+    minimumVersion: "Minimum version",
+    downloadProgress: "Download progress",
+    autoRestartNotice:
+      "Tutti will install the update and restart automatically when the download completes.",
+    upgrade: "Upgrade",
+    upgradeNow: "Upgrade now",
+    later: "Later",
+    retry: "Retry",
+    manualDownload: "Manual download",
+    exit: "Exit",
+    errors: {
+      releaseBelowMinimum:
+        "The latest published update is below the required minimum version.",
+      policyCheckFailed: "The minimum-version policy could not be checked.",
+      installFailed: "The update was downloaded but could not be installed.",
+      updateFailed: "The update could not be downloaded or verified."
+    }
+  },
   desktop: {
     installGuard: {
       detail:

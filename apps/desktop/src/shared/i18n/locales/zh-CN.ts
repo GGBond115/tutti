@@ -67,6 +67,32 @@ export const zhCN = {
     restartAction: "重启安装",
     retryAction: "重试"
   },
+  minimumVersion: {
+    startupTitle: "Tutti 必须升级后才能继续",
+    startupDetail: "请先升级 Tutti；强制升级不会修改你的普通更新偏好。",
+    foregroundTitle: "Tutti 有必须安装的更新",
+    foregroundDetail:
+      "立即升级会在下载完成后自动安装并重启；你也可以继续本次会话，留到下次启动时升级。",
+    checkingTitle: "正在检查必须安装的更新",
+    downloadingTitle: "正在下载必须安装的更新",
+    failedTitle: "无法完成必须安装的更新",
+    currentVersion: "当前版本",
+    minimumVersion: "最低版本",
+    downloadProgress: "下载进度",
+    autoRestartNotice: "下载完成后 Tutti 会自动安装并重启。",
+    upgrade: "升级",
+    upgradeNow: "立即升级",
+    later: "稍后",
+    retry: "重试",
+    manualDownload: "手动下载",
+    exit: "退出",
+    errors: {
+      releaseBelowMinimum: "发布源中的最新版本仍低于最低版本，请联系管理员。",
+      policyCheckFailed: "暂时无法重新检查最低版本策略。",
+      installFailed: "更新已下载，但无法安装。",
+      updateFailed: "更新下载或校验失败。"
+    }
+  },
   desktop: {
     installGuard: {
       detail:

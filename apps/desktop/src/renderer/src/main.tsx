@@ -3,7 +3,6 @@ import * as React from "react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { TooltipProvider } from "@tutti-os/ui-system";
-import { RendererApp } from "./app";
 import { I18nProvider } from "./i18n";
 import { NativeTooltipSuppressor } from "./lib/nativeTooltipSuppression";
 import {
@@ -16,7 +15,6 @@ import { DesktopToastProvider } from "./lib/toast";
 import { registerDesktopModelMention } from "./features/workspace-agent/services/registerDesktopModelMention";
 import { registerDesktopPastedTextMention } from "./features/workspace-agent/services/registerDesktopPastedTextMention";
 import { registerBrowserElementMention } from "@tutti-os/agent-gui/workbench/browser-element-context";
-import type { WorkspaceWindowContainerResult } from "./app/windows/workspace/createWorkspaceWindowContainer.ts";
 import "./style.css";
 
 // Register host-owned agent mention kinds before the first composer/transcript
@@ -36,23 +34,43 @@ const logRendererDiagnostic = createRendererDiagnosticSink();
 installBrowserCrashLogging({
   logRendererDiagnostic
 });
-const workspaceWindowContainer: WorkspaceWindowContainerResult = (
-  await import("./app/windows/workspace/createWorkspaceWindowContainer.ts")
-).createWorkspaceWindowContainer();
-
-const rendererApp =
-  import.meta.env.DEV && import.meta.env.VITE_TUTTI_REACT_PROFILER === "1" ? (
-    createProfiledRendererApp(logRendererDiagnostic)
-  ) : (
-    <RendererApp workspaceWindowContainer={workspaceWindowContainer} />
+const minimumVersionRoute =
+  new URLSearchParams(window.location.search).get("view") === "minimum-upgrade";
+let rendererApp: React.ReactElement;
+if (minimumVersionRoute) {
+  const [
+    { MinimumVersionUpgradeApp },
+    { createMinimumVersionUpgradeWindowContainer }
+  ] = await Promise.all([
+    import("./app/MinimumVersionUpgradeApp.tsx"),
+    import("./app/windows/minimumUpgrade/createMinimumVersionUpgradeWindowContainer.ts")
+  ]);
+  const minimumVersionContainer = createMinimumVersionUpgradeWindowContainer();
+  rendererApp = (
+    <MinimumVersionUpgradeApp port={minimumVersionContainer.port} />
   );
+} else {
+  const [{ RendererApp }, { createWorkspaceWindowContainer }] =
+    await Promise.all([
+      import("./app/index.tsx"),
+      import("./app/windows/workspace/createWorkspaceWindowContainer.ts")
+    ]);
+  const application = (
+    <RendererApp workspaceWindowContainer={createWorkspaceWindowContainer()} />
+  );
+  rendererApp =
+    import.meta.env.DEV && import.meta.env.VITE_TUTTI_REACT_PROFILER === "1"
+      ? createProfiledRendererApp(logRendererDiagnostic, application)
+      : application;
+}
 const logReactRootError = createReactRootErrorLogger({
   captureOwnerStack: React.captureOwnerStack,
   logRendererDiagnostic
 });
 
 function createProfiledRendererApp(
-  logRendererDiagnostic: ReturnType<typeof createRendererDiagnosticSink>
+  logRendererDiagnostic: ReturnType<typeof createRendererDiagnosticSink>,
+  application: React.ReactElement
 ): React.ReactElement {
   const renderStormTracker = createRenderStormTracker({
     logRendererDiagnostic
@@ -79,7 +97,7 @@ function createProfiledRendererApp(
         });
       }}
     >
-      <RendererApp workspaceWindowContainer={workspaceWindowContainer} />
+      {application}
     </React.Profiler>
   );
 }

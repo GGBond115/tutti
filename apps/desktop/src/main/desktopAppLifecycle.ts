@@ -28,6 +28,7 @@ interface DesktopElectronModule {
 }
 
 export interface DesktopAppLifecycleDependencies {
+  canOpenBusinessWindow?: () => boolean;
   disposables?: readonly DesktopAppLifecycleDisposable[];
   logger: DesktopLogger;
   tuttid: TuttidManager;
@@ -103,7 +104,10 @@ export function createDesktopAppLifecycleHandlers(
 
   return {
     activate() {
-      if (runtime.getWindowCount() === 0) {
+      if (
+        runtime.getWindowCount() === 0 &&
+        (deps.canOpenBusinessWindow?.() ?? true)
+      ) {
         void deps.workspaceLaunch.openStartupWindow();
       }
     },
