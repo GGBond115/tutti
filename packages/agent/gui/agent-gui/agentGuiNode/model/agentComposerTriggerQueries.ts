@@ -42,13 +42,6 @@ export function getPromptStartSlashCommandQuery(draft: string): string | null {
   return match.start === leadingWhitespaceLength(draft) ? match.query : null;
 }
 
-export function getAgentComposerSkillQueryMatch(
-  draft: string
-): AgentComposerTriggerQueryMatch | null {
-  const match = getAgentComposerTriggerQueryMatch(draft);
-  return match?.prefix === "$" ? match : null;
-}
-
 export function draftForSlashCommandTrigger(input: {
   commandName: string;
   currentDraft?: string;

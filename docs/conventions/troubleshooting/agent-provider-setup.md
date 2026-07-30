@@ -4,32 +4,29 @@
 
 Provider discovery, installation, authentication, models, configuration, and runtime reachability.
 
-### Tutti Agent Skills appear under Plugins or in the `/` command palette
+### Tutti Agent Skills appear under Plugins
 
 - Symptom:
-  Typing `/` in a Tutti Agent composer shows app-server Skills under the
+  Typing `/` or `$` in a Tutti Agent composer shows app-server Skills under the
   Plugins heading, while the same Skill appears correctly with Codex.
 - Quick checks:
   Inspect `skills/list` and confirm each Skill has a `scope`. Then inspect the
   composer-options response and verify its capability entry keeps
-  `kind: "skill"` plus `sourceKind`. Use `$` to query Skills and `/` to query
-  commands and capabilities.
+  `kind: "skill"` plus `sourceKind`. Verify both `/` and `$` still query the
+  Skill.
 - Root cause:
   Codex also discovers filesystem Skills, so trigger deduplication could let
   the correctly sourced filesystem entry hide a later catalog entry. Tutti
   Agent uses the app-server catalog directly. When tuttid dropped `scope` and
   AgentGUI hard-coded every catalog-backed Skill as `plugin`, the same defect
-  became visible only for Tutti Agent. Generic slash-to-dollar aliasing also
-  admitted those Skills into the `/` palette.
+  became visible only for Tutti Agent.
 - Fix:
   Map app-server Skill scope into the canonical capability `sourceKind`, retain
   it through OpenAPI and the activity adapter, and let AgentGUI group by that
-  source. Keep Skill discovery on `$`; do not expose Skill aliases in the `/`
-  command query.
+  source. Preserve the existing `/` and `$` Skill query aliases.
 - Validation:
   Cover app-server `user`, `repo`, `system`, and `admin` scope mapping, transport
-  source preservation, ordinary Skill grouping, and the `$`-only Skill query
-  boundary.
+  source preservation, ordinary Skill grouping, and both Skill query aliases.
 - References:
   [agent-gui-node.md](../../architecture/agent-gui-node.md)
   [agent-activity-packages.md](../../architecture/agent-activity-packages.md)

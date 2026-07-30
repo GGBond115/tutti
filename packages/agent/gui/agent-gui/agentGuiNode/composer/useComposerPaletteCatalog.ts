@@ -22,7 +22,7 @@ import {
 } from "../model/agentSkillOptions";
 import {
   filterProviderSkillsForTrigger,
-  getAgentComposerSkillQueryMatch,
+  getAgentComposerTriggerQueryMatch,
   getPromptStartSlashCommandQuery
 } from "../model/agentComposerTriggerQueries";
 import {
@@ -82,7 +82,7 @@ export function useComposerPaletteCatalog({
   const promptBeforeSelection =
     editorHandleRef.current?.getPromptTextBeforeSelection() ?? "";
   const skillQueryDraft = promptBeforeSelection || paletteDraftPrompt;
-  const skillQueryMatch = getAgentComposerSkillQueryMatch(skillQueryDraft);
+  const skillQueryMatch = getAgentComposerTriggerQueryMatch(skillQueryDraft);
   const resolvedSlashCommands = useMemo(
     () =>
       resolveSlashCommandsForProvider({

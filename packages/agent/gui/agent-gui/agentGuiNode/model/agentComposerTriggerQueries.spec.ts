@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   draftForProviderSkillTrigger,
   filterProviderSkillsForTrigger,
-  getAgentComposerSkillQueryMatch,
   getAgentComposerTriggerQueryMatch,
   getPromptStartSlashCommandQuery
 } from "./agentComposerTriggerQueries";
@@ -17,16 +16,6 @@ describe("agentComposerTriggerQueries", () => {
     expect(getPromptStartSlashCommandQuery("hello /re")).toBeNull();
     expect(getPromptStartSlashCommandQuery("hello\n/re")).toBeNull();
     expect(getPromptStartSlashCommandQuery("`/re`")).toBeNull();
-  });
-
-  it("reserves dollar queries for skills and slash queries for commands", () => {
-    expect(getAgentComposerSkillQueryMatch("$review")).toEqual({
-      end: 7,
-      prefix: "$",
-      query: "review",
-      start: 0
-    });
-    expect(getAgentComposerSkillQueryMatch("/review")).toBeNull();
   });
 
   it("matches provider skill triggers at whitespace boundaries", () => {
