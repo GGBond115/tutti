@@ -762,11 +762,8 @@ func buildDaemonAPI(
 		replayComposition, accountService, &agentStatusService, agentTargets,
 	)
 
-	providerAuthWatcher := configureAgentProviderAuthWatcher(
-		replayComposition,
-		agentModelCatalog,
-		agentSessionService,
-		events,
+	providerAuthWatcher := startAgentModelInvalidationAuthWatcher(
+		replayComposition, agentModelCatalog, agentSessionService, events,
 	)
 
 	if refreshAgentExtensionsInBackground {

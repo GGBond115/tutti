@@ -22,8 +22,8 @@ func configureWorkspaceAgentProjection(
 	}
 }
 
-func configureAgentProviderAuthWatcher(
-	replay bool,
+func startAgentModelInvalidationAuthWatcher(
+	replayComposition bool,
 	modelCatalog *agentservice.CachedAgentModelCatalog,
 	sessions *agentservice.Service,
 	events *eventstreamservice.Service,
@@ -32,7 +32,7 @@ func configureAgentProviderAuthWatcher(
 	// auth/config files without notifying tuttid. Watch those files so cached
 	// model catalogs are dropped and the GUI hears about it immediately.
 	publisher := eventstreamservice.AgentModelCatalogPublisher{Service: events}
-	return startProviderAuthWatcher(replay, func(providers []string) {
+	return startProviderAuthWatcher(replayComposition, func(providers []string) {
 		modelCatalog.Invalidate(providers...)
 		for _, provider := range providers {
 			sessions.InvalidateLiveComposerModels(provider)
