@@ -424,10 +424,11 @@ func (a *ClaudeCodeSDKAdapter) sendGoalCommandExec(
 	// hang this goroutine forever.
 	ctx, cancel := context.WithTimeout(ctx, claudeSDKGoalCommandTimeout)
 	defer cancel()
+	promptCorrelationID := newID()
 	payload := map[string]any{
 		"agentSessionId":      session.AgentSessionID,
 		"turnId":              turnID,
-		"promptCorrelationId": turnID,
+		"promptCorrelationId": promptCorrelationID,
 		"prompt":              command,
 		"content":             promptContentForClaudeSDK(nil, command),
 	}

@@ -18,10 +18,40 @@ func (a *ClaudeCodeSDKAdapter) Exec(
 	displayPrompt string,
 	turnID string,
 	emit EventSink,
-	_ CommandSnapshotSink,
+	emitCommands CommandSnapshotSink,
 ) ([]activityshared.Event, error) {
+	return a.exec(
+		ctx,
+		session,
+		content,
+		displayPrompt,
+		turnID,
+		emit,
+		emitCommands,
+		nil,
+	)
+}
+
+func (a *ClaudeCodeSDKAdapter) exec(
+	ctx context.Context,
+	session Session,
+	content []PromptContentBlock,
+	displayPrompt string,
+	turnID string,
+	emit EventSink,
+	_ CommandSnapshotSink,
+	reportDispatch ProviderDispatchSink,
+) ([]activityshared.Event, error) {
+	reportNotDispatched := func() {
+		if reportDispatch != nil {
+			reportDispatch(ProviderDispatchResult{
+				Disposition: DispatchDispositionNotDispatched,
+			})
+		}
+	}
 	adapterSession := a.getSession(session.AgentSessionID)
 	if adapterSession == nil {
+		reportNotDispatched()
 		return nil, ErrSessionDisconnected
 	}
 	session.ProviderSessionID = adapterSession.providerSessionID
@@ -56,11 +86,13 @@ func (a *ClaudeCodeSDKAdapter) Exec(
 
 	providerContent, err := materializeProviderPromptImagesAtBoundary(ctx, content, a.promptImageMaterializer)
 	if err != nil {
+		reportNotDispatched()
 		events = append(events, a.claudeSDKRootProviderFailureEvents(adapterSession, session, turnID, promptCorrelationID, err)...)
 		return events, err
 	}
 	waiter := a.registerClaudeSDKTurn(adapterSession, turnID, emit)
 	if err := a.startClaudeSDKReader(session.AgentSessionID, adapterSession); err != nil {
+		reportNotDispatched()
 		a.unregisterClaudeSDKTurn(adapterSession, turnID, waiter)
 		events = append(events, a.claudeSDKRootProviderFailureEvents(adapterSession, session, turnID, promptCorrelationID, err)...)
 		return events, err
@@ -71,6 +103,7 @@ func (a *ClaudeCodeSDKAdapter) Exec(
 		Type:    "exec",
 		Payload: payload,
 	}); err != nil {
+		reportNotDispatched()
 		a.unregisterClaudeSDKTurn(adapterSession, turnID, waiter)
 		events = append(events, a.claudeSDKRootProviderFailureEvents(adapterSession, session, turnID, promptCorrelationID, err)...)
 		return events, err
@@ -145,7 +178,7 @@ func (a *ClaudeCodeSDKAdapter) ExecWithProviderAcceptance(
 			emit(events)
 		}
 	}
-	return a.Exec(
+	return a.exec(
 		ctx,
 		session,
 		content,
@@ -153,6 +186,7 @@ func (a *ClaudeCodeSDKAdapter) ExecWithProviderAcceptance(
 		turnID,
 		wrappedEmit,
 		emitCommands,
+		reportDispatch,
 	)
 }
 

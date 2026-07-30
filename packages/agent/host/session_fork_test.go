@@ -90,6 +90,34 @@ func TestForkSessionRepairsMissingProviderBindingFromOpaqueSubmitClaim(t *testin
 	}
 }
 
+func TestForkSessionBindingRecoveryFailureKeepsStableBoundaryReason(t *testing.T) {
+	store := newFakeSessionForkStore()
+	store.boundaryUnsupported = true
+	store.boundaryReason = storesqlite.SessionForkBoundaryReasonProviderTurnMissing
+	host := New(Config{
+		SessionForks:       store,
+		SessionForkRuntime: &fakeSessionForkRuntime{},
+	})
+
+	_, err := host.ForkSession(t.Context(), ForkSessionInput{
+		WorkspaceID: "ws", SourceAgentSessionID: "source",
+		TargetAgentSessionID: "target", RequestID: "request",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
+	})
+	if !errors.Is(err, storesqlite.ErrSessionForkTurnState) {
+		t.Fatalf("ForkSession() error=%v, want boundary conflict", err)
+	}
+	var reasoner interface{ ForkBoundaryReason() string }
+	if !errors.As(err, &reasoner) ||
+		reasoner.ForkBoundaryReason() !=
+			string(storesqlite.SessionForkBoundaryReasonProviderTurnMissing) {
+		t.Fatalf("ForkSession() boundary reason=%v", err)
+	}
+	if strings.Contains(err.Error(), "recover provider turn binding") {
+		t.Fatalf("ForkSession() leaked recovery diagnostic: %v", err)
+	}
+}
+
 func TestForkSessionTransportFailureBecomesUnknownAndNeverRedispatches(t *testing.T) {
 	store := newFakeSessionForkStore()
 	runtime := &fakeSessionForkRuntime{forkErr: errors.New("connection lost")}
