@@ -8,8 +8,8 @@ export function providerForkBindingAllowsAttempt(
 ): boolean {
   switch (turn.providerForkBindingState) {
     case "bound":
-    case "recovery_required":
       return true;
+    case "recovery_required":
     case "unavailable":
       return false;
     default:

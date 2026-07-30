@@ -229,6 +229,7 @@ function createSession(id: string, status: string): WorkspaceAgentSession {
           outcome: null,
           phase: "running",
           providerForkBindingAvailable: false,
+          providerForkBindingState: "unavailable",
           settledAtUnixMs: null,
           startedAtUnixMs: 1,
           turnId: "turn-1",

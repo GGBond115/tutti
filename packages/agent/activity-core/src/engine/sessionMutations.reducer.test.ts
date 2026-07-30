@@ -1389,7 +1389,7 @@ test("through-turn fork is rejected when exact-session capability is absent", ()
   assert.deepEqual(result.state.byMutationId, {});
 });
 
-test("through-turn fork dispatches a settled boundary that requires provider binding recovery", () => {
+test("through-turn fork rejects a settled boundary that still requires provider binding recovery", () => {
   const base = forkReducerContext();
   const context = {
     ...base,
@@ -1416,11 +1416,8 @@ test("through-turn fork dispatches a settled boundary that requires provider bin
     context
   );
 
-  assert.equal(result.commands[0]?.type, "session/forkThroughTurn");
-  assert.equal(
-    result.state.byMutationId["request-recovery"]?.status,
-    "inFlight"
-  );
+  assert.deepEqual(result.commands, []);
+  assert.equal(result.state.byMutationId["request-recovery"], undefined);
 });
 
 test("through-turn fork remains available while the source has an active turn", () => {

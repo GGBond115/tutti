@@ -2573,7 +2573,7 @@ export type WorkspaceAgentTurn = {
    */
   providerForkBindingAvailable: boolean;
   /**
-   * Canonical provider binding state for Fork projection. bound means the durable provider Turn identity is ready; recovery_required means a settled historical Turn may enter the Host's fail-closed evidence recovery path; unavailable means the Turn cannot yet be used as a Fork boundary.
+   * Canonical provider binding state for Fork projection. bound means the durable provider Turn identity is ready; recovery_required means a settled historical Turn must complete the Host's fail-closed evidence recovery before Fork can be offered; unavailable means the Turn cannot be used as a Fork boundary.
    */
   providerForkBindingState: "bound" | "recovery_required" | "unavailable";
   phase: WorkspaceAgentTurnPhase;

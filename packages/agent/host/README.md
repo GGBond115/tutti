@@ -244,12 +244,12 @@ referenced by that snapshot. Source reporting and Goal/runtime/submit activity
 continue against the live source; only physical deletion is retained while the
 operation may still need frozen resources. Multiple explicit Forks from the
 same boundary are valid. Host eligibility remains independent of source
-activity. The shared GUI exposes Fork on settled Turns whose provider binding
-is either durably bound or marked `recovery_required`, including earlier
-settled Turns while newer work is active. A recovery-required click reaches
-`ForkSession`, which persists exact evidence before preparing the Fork and
-fails closed when the historical binding cannot be proven. The GUI disables
-only the exact Turn whose own Fork request is currently in flight.
+activity. The shared GUI exposes Fork only on settled Turns whose provider
+binding is durably `bound`, including earlier settled Turns while newer work is
+active. A `recovery_required` Turn must be repaired and reprojected as `bound`
+before the action is exposed; the Fork action is not a binding-repair control.
+The GUI disables only the exact Turn whose own Fork request is currently in
+flight.
 
 Fork uses the durable
 `prepared -> dispatching -> provider_accepted -> committed` saga. Provider

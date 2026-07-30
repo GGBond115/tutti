@@ -7670,7 +7670,7 @@ type WorkspaceAgentTurn struct {
 	// ProviderForkBindingAvailable Whether this canonical Turn currently has a durably persisted provider Turn binding. This remains false while a settled historical Turn is waiting for an on-demand recovery attempt.
 	ProviderForkBindingAvailable bool `json:"providerForkBindingAvailable"`
 
-	// ProviderForkBindingState Canonical provider binding state for Fork projection. bound means the durable provider Turn identity is ready; recovery_required means a settled historical Turn may enter the Host's fail-closed evidence recovery path; unavailable means the Turn cannot yet be used as a Fork boundary.
+	// ProviderForkBindingState Canonical provider binding state for Fork projection. bound means the durable provider Turn identity is ready; recovery_required means a settled historical Turn must complete the Host's fail-closed evidence recovery before Fork can be offered; unavailable means the Turn cannot be used as a Fork boundary.
 	ProviderForkBindingState WorkspaceAgentTurnProviderForkBindingState `json:"providerForkBindingState"`
 	SettledAtUnixMs          *int64                                     `json:"settledAtUnixMs"`
 	SourceGoalOperationId    *string                                    `json:"sourceGoalOperationId,omitempty"`
@@ -7684,7 +7684,7 @@ type WorkspaceAgentTurn struct {
 // WorkspaceAgentTurnOrigin Durable business provenance; steer is input on an existing turn and is never an origin.
 type WorkspaceAgentTurnOrigin string
 
-// WorkspaceAgentTurnProviderForkBindingState Canonical provider binding state for Fork projection. bound means the durable provider Turn identity is ready; recovery_required means a settled historical Turn may enter the Host's fail-closed evidence recovery path; unavailable means the Turn cannot yet be used as a Fork boundary.
+// WorkspaceAgentTurnProviderForkBindingState Canonical provider binding state for Fork projection. bound means the durable provider Turn identity is ready; recovery_required means a settled historical Turn must complete the Host's fail-closed evidence recovery before Fork can be offered; unavailable means the Turn cannot be used as a Fork boundary.
 type WorkspaceAgentTurnProviderForkBindingState string
 
 // WorkspaceAgentTurnCancelResponse defines model for WorkspaceAgentTurnCancelResponse.

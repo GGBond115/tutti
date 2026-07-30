@@ -290,8 +290,7 @@ describe("AgentTranscriptView", () => {
     ).toHaveLength(1);
   });
 
-  it("shows Fork for a settled historical Turn that requires binding recovery", () => {
-    const onForkThroughTurn = vi.fn();
+  it("hides Fork for a settled historical Turn that still requires binding recovery", () => {
     const detail = detailViewModel();
     const conversation = projectAgentConversationVM(
       detailViewModel({
@@ -319,15 +318,14 @@ describe("AgentTranscriptView", () => {
           processing: "Planning next moves",
           turnSummary: "Changed files"
         }}
-        onForkThroughTurn={onForkThroughTurn}
+        onForkThroughTurn={vi.fn()}
       />
     );
-    fireEvent.click(
-      screen.getByRole("button", {
+    expect(
+      screen.queryByRole("button", {
         name: "agentHost.agentGui.forkThroughTurn"
       })
-    );
-    expect(onForkThroughTurn).toHaveBeenCalledWith("turn-1");
+    ).toBeNull();
   });
 
   it("hides Fork when provider binding recovery is unavailable", () => {
