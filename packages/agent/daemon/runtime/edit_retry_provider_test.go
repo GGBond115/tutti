@@ -69,7 +69,7 @@ func (reporter *providerAcceptanceBarrierReporter) ReportSubmitProvenance(
 
 func TestCodexEffectiveHistoryUsesNoHandlerTypedCommands(t *testing.T) {
 	adapter, transport, session := startedAppServerAdapter(t)
-	transport.conn.historyTurns = []any{
+	transport.server.historyTurns = []any{
 		map[string]any{
 			"id": "provider-turn-1", "status": "completed",
 			"items": []any{map[string]any{
@@ -78,7 +78,7 @@ func TestCodexEffectiveHistoryUsesNoHandlerTypedCommands(t *testing.T) {
 		},
 		map[string]any{"id": "provider-turn-2", "status": "failed", "items": []any{}},
 	}
-	transport.conn.rollbackHistoryTurns = []any{
+	transport.server.rollbackHistoryTurns = []any{
 		map[string]any{"id": "provider-turn-1", "status": "completed", "items": []any{}},
 	}
 
@@ -114,7 +114,7 @@ func TestCodexProviderTurnBindingRecoveryRequiresOneExactOpaqueToken(t *testing.
 	adapter := NewCodexAppServerAdapter(transport)
 	session := testAppServerSession()
 	session.ProviderSessionID = "codex-thread-1"
-	transport.conn.historyTurns = []any{
+	transport.server.historyTurns = []any{
 		map[string]any{
 			"id": "provider-turn-1", "status": "completed",
 			"items": []any{map[string]any{
@@ -142,7 +142,7 @@ func TestCodexProviderTurnBindingRecoveryRequiresOneExactOpaqueToken(t *testing.
 	}
 	ambiguousHistory := append(
 		[]any(nil),
-		transport.conn.historyTurns...,
+		transport.server.historyTurns...,
 	)
 	ambiguousHistory = append(
 		ambiguousHistory,
@@ -153,8 +153,8 @@ func TestCodexProviderTurnBindingRecoveryRequiresOneExactOpaqueToken(t *testing.
 			}},
 		},
 	)
-	transport.conn = newScriptedAppServerConnection()
-	transport.conn.historyTurns = ambiguousHistory
+	transport.conn, transport.server = newScriptedAppServerHarness()
+	transport.server.historyTurns = ambiguousHistory
 	if _, err := adapter.RecoverProviderTurnBinding(
 		t.Context(),
 		ProviderTurnBindingRecoveryInput{
@@ -167,7 +167,7 @@ func TestCodexProviderTurnBindingRecoveryRequiresOneExactOpaqueToken(t *testing.
 
 func TestCodexEffectiveHistoryRollbackReportsExplicitRejection(t *testing.T) {
 	adapter, transport, session := startedAppServerAdapter(t)
-	transport.conn.rollbackUnsupported = true
+	transport.server.rollbackUnsupported = true
 
 	result, err := adapter.RollbackLatestTurn(t.Context(), session)
 	if !errors.Is(err, ErrEffectiveHistoryUnsupported) {
@@ -298,7 +298,7 @@ func TestControllerHistoryReplacementAckTimeoutIsOutcomeUnknown(t *testing.T) {
 		adapter *CodexAppServerAdapter,
 		transport *scriptedAppServerTransport,
 	) {
-		transport.conn.hangTurnStart = true
+		transport.server.hangTurnStart = true
 		adapter.turnStartAckTimeout = 20 * time.Millisecond
 	})
 
@@ -325,7 +325,7 @@ func TestControllerHistoryReplacementExplicitRejectionIsTyped(t *testing.T) {
 		_ *CodexAppServerAdapter,
 		transport *scriptedAppServerTransport,
 	) {
-		transport.conn.turnStartError = true
+		transport.server.turnStartError = true
 	})
 
 	result, err := controller.Exec(t.Context(), ExecInput{
@@ -353,7 +353,7 @@ func TestControllerOrdinarySendStillReturnsBeforeTurnStartAck(t *testing.T) {
 		transport *scriptedAppServerTransport,
 	) {
 		connection = transport.conn
-		transport.conn.hangTurnStart = true
+		transport.server.hangTurnStart = true
 		adapter.turnStartAckTimeout = 200 * time.Millisecond
 	})
 
@@ -446,7 +446,7 @@ func TestControllerCancelDoesNotWaitForProviderAcceptanceDurability(t *testing.T
 		barrier,
 		func(_ *CodexAppServerAdapter, transport *scriptedAppServerTransport) {
 			connection = transport.conn
-			transport.conn.holdTurn = true
+			transport.server.holdTurn = true
 		},
 	)
 	type execOutcome struct {
@@ -630,12 +630,14 @@ func TestControllerHistoryReplacementNeverUsesSlashFallback(t *testing.T) {
 
 func TestControllerHistoryReplacementNeverSteersActiveTurn(t *testing.T) {
 	var connection *scriptedAppServerConnection
+	var server *fakeCodexAppServer
 	controller, _, sessionID := startedEditRetryController(t, func(
 		_ *CodexAppServerAdapter,
 		transport *scriptedAppServerTransport,
 	) {
 		connection = transport.conn
-		transport.conn.holdTurn = true
+		server = transport.server
+		transport.server.holdTurn = true
 	})
 
 	if _, err := controller.Exec(t.Context(), ExecInput{
@@ -665,7 +667,7 @@ func TestControllerHistoryReplacementNeverSteersActiveTurn(t *testing.T) {
 	if len(requests) != 1 {
 		t.Fatalf("turn/start requests = %d, want only the ordinary active turn", len(requests))
 	}
-	connection.completePendingTurn()
+	server.completePendingTurn()
 }
 
 func startedEditRetryController(
