@@ -6,7 +6,6 @@ import type {
   AgentGUIAgent,
   AgentGUIAgentDirectoryPort
 } from "@tutti-os/agent-gui";
-import { resolveAgentGUIProviderCatalogIdentity } from "@tutti-os/agent-gui/provider-catalog";
 import {
   createAgentGuiWorkbenchContribution,
   type AgentGuiWorkbenchConversationIdentity
@@ -99,10 +98,8 @@ export function createWorkspaceAgentGuiContribution(input: {
   workspaceUserProjectService: IWorkspaceUserProjectService;
   workspaceId: string;
 }): WorkbenchContribution {
-  const initialAgentDirectory = input.agentsService.getSnapshot();
-  const defaultAgentProvider = isWorkspaceAgentGuiProviderEnabledForNewEntry(
-    input.defaultAgentProvider,
-    initialAgentDirectory.agents
+  const defaultAgentProvider = isAgentGuiWorkbenchProvider(
+    input.defaultAgentProvider
   )
     ? input.defaultAgentProvider
     : null;
@@ -325,35 +322,26 @@ function resolveDefaultAgentTargetId(input: {
   );
 }
 
-function isWorkspaceAgentGuiProviderEnabledForNewEntry(
-  provider: string | null | undefined,
-  agents: readonly AgentGUIAgent[] | null | undefined
-): provider is AgentGuiWorkbenchProvider {
-  if (!isAgentGuiWorkbenchProvider(provider)) {
-    return false;
-  }
-  if (
-    resolveAgentGUIProviderCatalogIdentity(provider)?.desktop.visibilityGate !==
-    "tutti_agent"
-  ) {
-    return true;
-  }
-  return (agents ?? []).some(
-    (agent) =>
-      agent.provider === provider && agent.availability.status === "ready"
-  );
-}
-
 function resolveWorkspaceAgentGuiProviderAvailability(
   service: AgentProviderStatusService
 ): Partial<Record<AgentGuiWorkbenchProvider, boolean>> {
-  const availability: Partial<Record<AgentGuiWorkbenchProvider, boolean>> = {};
-  for (const status of service.getSnapshot().statuses) {
-    if (isAgentGuiWorkbenchProvider(status.provider)) {
-      availability[status.provider] = status.availability.status === "ready";
+  return new Proxy(
+    {},
+    {
+      get: (_target, property) => {
+        if (
+          typeof property !== "string" ||
+          !isAgentGuiWorkbenchProvider(property)
+        ) {
+          return undefined;
+        }
+        const status = service
+          .getSnapshot()
+          .statuses.find((entry) => entry.provider === property);
+        return status ? status.availability.status === "ready" : undefined;
+      }
     }
-  }
-  return availability;
+  );
 }
 
 function resolveWorkspaceAgentGuiDockPopupIdentity(

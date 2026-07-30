@@ -355,7 +355,9 @@ export function resolveAgentGuiWorkbenchLaunchPayload(
   const requestedProvider = providerFromState(payload);
   const resolved = resolveAgentGuiUnifiedDockLaunchPayload({
     agentDirectory: input.agentDirectory,
-    defaultProvider: requestedProvider ?? input.defaultProvider,
+    defaultProvider: isUnifiedDockLaunch
+      ? input.defaultProvider
+      : (requestedProvider ?? input.defaultProvider),
     providerAvailability: input.providerAvailability
   });
   if (!resolved.agentTargetId) {
