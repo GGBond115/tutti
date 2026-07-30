@@ -155,8 +155,18 @@ type RuntimeDescriptor struct {
 	// native session-fork primitive. The live adapter must still attest the
 	// exact protocol/version before advertising any fork capability.
 	NativeSessionFork bool
+	AppServerFork     AppServerForkDescriptor
 	Endpoint          RuntimeEndpointDescriptor
 	StandardACP       StandardACPRuntimeDescriptor
+}
+
+// AppServerForkDescriptor declares the provider-owned runtime attestation
+// required before the shared app-server adapter may expose through-turn fork.
+// UserAgentBrand is matched after lower-casing and normalizing underscores to
+// hyphens; ThroughTurnMinVersion is an exact stable version triplet.
+type AppServerForkDescriptor struct {
+	UserAgentBrand        string
+	ThroughTurnMinVersion string
 }
 
 type RuntimePermissionModeDescriptor struct {

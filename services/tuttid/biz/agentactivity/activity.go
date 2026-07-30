@@ -91,7 +91,7 @@ type MessagePage = agentstore.MessagePage
 type Turn = agentstore.Turn
 
 func HasUsableProviderTurnBinding(turn Turn) bool {
-	return agentstore.HasUsableProviderTurnBinding(turn)
+	return turn.ProviderForkBindingAvailable
 }
 
 type SessionTurnCursor = agentstore.SessionTurnCursor

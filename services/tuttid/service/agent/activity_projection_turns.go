@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
@@ -29,11 +30,11 @@ func (p *ActivityProjection) publishPersistedTurnState(
 	}
 	if result.TurnAccepted {
 		p.publishActivityUpdated(ctx, input.WorkspaceID, input.AgentSessionID, "turn_update",
-			activityTurnUpdateEventPayload(input.WorkspaceID, input.AgentSessionID, result.Turn, input.State.OccurredAtUnixMS))
+			p.activityTurnUpdateEventPayload(ctx, input.WorkspaceID, input.AgentSessionID, result.Turn, input.State.OccurredAtUnixMS))
 	}
 	if result.RootTurnAccepted {
 		p.publishActivityUpdated(ctx, input.WorkspaceID, result.RootTurn.AgentSessionID, "turn_update",
-			activityTurnUpdateEventPayload(input.WorkspaceID, result.RootTurn.AgentSessionID, result.RootTurn, input.State.OccurredAtUnixMS))
+			p.activityTurnUpdateEventPayload(ctx, input.WorkspaceID, result.RootTurn.AgentSessionID, result.RootTurn, input.State.OccurredAtUnixMS))
 	}
 	if result.InteractionResult == agentactivitybiz.InteractionTransitionApplied {
 		p.publishActivityUpdated(ctx, input.WorkspaceID, input.AgentSessionID, "interaction_update",
@@ -49,18 +50,16 @@ func rootProviderTurnTransitionFromStateInput(
 		return agentactivitybiz.RootProviderTurnTransition{}, false
 	}
 	transition := agentactivitybiz.RootProviderTurnTransition{
-		WorkspaceID:        strings.TrimSpace(input.WorkspaceID),
-		RootAgentSessionID: strings.TrimSpace(input.AgentSessionID),
-		RootTurnID:         strings.TrimSpace(root.RootTurnID),
-		ProviderTurnID:     strings.TrimSpace(root.ProviderTurnID),
-		ProviderCheckpointMessageID: strings.TrimSpace(
-			root.ProviderCheckpointMessageID,
-		),
-		Phase:            strings.TrimSpace(root.Phase),
-		Outcome:          normalizeTurnOutcomeV2(root.Outcome),
-		ErrorMessage:     strings.TrimSpace(root.ErrorMessage),
-		ErrorCode:        strings.TrimSpace(root.ErrorCode),
-		OccurredAtUnixMS: input.State.OccurredAtUnixMS,
+		WorkspaceID:             strings.TrimSpace(input.WorkspaceID),
+		RootAgentSessionID:      strings.TrimSpace(input.AgentSessionID),
+		RootTurnID:              strings.TrimSpace(root.RootTurnID),
+		ProviderTurnID:          strings.TrimSpace(root.ProviderTurnID),
+		ProviderTurnBindingJSON: append([]byte(nil), root.ProviderTurnBindingJSON...),
+		Phase:                   strings.TrimSpace(root.Phase),
+		Outcome:                 normalizeTurnOutcomeV2(root.Outcome),
+		ErrorMessage:            strings.TrimSpace(root.ErrorMessage),
+		ErrorCode:               strings.TrimSpace(root.ErrorCode),
+		OccurredAtUnixMS:        input.State.OccurredAtUnixMS,
 	}
 	if root.CompletedCommand != nil {
 		transition.CompletedCommandKind = strings.TrimSpace(root.CompletedCommand.Kind)
@@ -358,6 +357,38 @@ func activityTurnUpdateEventPayload(
 		"activeTurnId":     activeTurnID,
 		"turn":             generatedTypePayload(GeneratedWorkspaceAgentTurn(turn)),
 	}
+}
+
+func (p *ActivityProjection) activityTurnUpdateEventPayload(
+	ctx context.Context,
+	workspaceID string,
+	agentSessionID string,
+	turn agentactivitybiz.Turn,
+	occurredAtUnixMS int64,
+) map[string]any {
+	turn.ProviderForkBindingAvailable = false
+	if p != nil && p.turnForkabilityResolver != nil &&
+		turn.Phase == agentactivitybiz.TurnPhaseSettled {
+		forkable, err := p.turnForkabilityResolver.CanForkSessionTurn(
+			ctx,
+			agenthost.SessionTurnForkabilityInput{
+				WorkspaceID:             strings.TrimSpace(workspaceID),
+				SourceAgentSessionID:    strings.TrimSpace(agentSessionID),
+				CanonicalTurnID:         strings.TrimSpace(turn.TurnID),
+				ProviderTurnID:          strings.TrimSpace(turn.RootProviderTurnID),
+				ProviderTurnBindingJSON: append([]byte(nil), turn.ProviderTurnBindingJSON...),
+			},
+		)
+		if err == nil {
+			turn.ProviderForkBindingAvailable = forkable
+		}
+	}
+	return activityTurnUpdateEventPayload(
+		workspaceID,
+		agentSessionID,
+		turn,
+		occurredAtUnixMS,
+	)
 }
 
 func activityInteractionUpdateEventPayload(
