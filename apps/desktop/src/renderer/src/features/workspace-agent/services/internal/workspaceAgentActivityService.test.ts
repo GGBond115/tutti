@@ -1153,7 +1153,7 @@ test("WorkspaceAgentActivityService starts session-event streams and forwards ca
   assert.deepEqual(await receivedTurnEvent, turnEvent);
 });
 
-test("WorkspaceAgentActivityService reconciles a realtime message version gap before advancing the cursor", async () => {
+test("WorkspaceAgentActivityService reconciles a realtime message version gap after its streaming debounce", async () => {
   const listenersByTopic = new Map<string, (event: unknown) => void>();
   const messageRequests: Array<Record<string, unknown>> = [];
   const diagnostics: Array<{
@@ -1303,6 +1303,7 @@ test("WorkspaceAgentActivityService reconciles a realtime message version gap be
     }
   });
 
+  await new Promise((resolve) => setTimeout(resolve, 75));
   for (let attempt = 0; attempt < 10 && messageRequests.length < 2; attempt++) {
     await new Promise((resolve) => setImmediate(resolve));
   }

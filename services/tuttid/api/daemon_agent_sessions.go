@@ -215,7 +215,7 @@ func (api DaemonAPI) ListWorkspaceAgentSessionMessages(ctx context.Context, requ
 		}
 		input.Limit = *request.Params.Limit
 	}
-	slog.Info("workspace agent session messages list requested",
+	slog.Debug("workspace agent session messages list requested",
 		"event", "workspace.agent_session.messages.api.list_requested",
 		"workspace_id", workspaceID,
 		"agent_session_id", agentSessionID,
@@ -270,7 +270,7 @@ func (api DaemonAPI) ListWorkspaceAgentSessionMessages(ctx context.Context, requ
 		return writeListWorkspaceAgentSessionMessagesError(err), nil
 	}
 	firstVersion, lastVersion := generatedAgentSessionMessageVersionRange(messages)
-	slog.Info("workspace agent session messages list completed",
+	slog.Debug("workspace agent session messages list completed",
 		"event", "workspace.agent_session.messages.api.list_completed",
 		"workspace_id", workspaceID,
 		"agent_session_id", agentSessionID,

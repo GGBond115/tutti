@@ -11,6 +11,10 @@ import type {
 import type { CanonicalAgentSession } from "./sessionLifecycle.types.ts";
 
 const NO_COMMANDS: readonly EngineCommand[] = [];
+// Keep the renderer recovery window aligned with the daemon's fixed 50ms
+// streaming-report coalescer. They run in separate processes, so this is a
+// shared timing contract rather than one shared timer.
+const STREAMING_MESSAGE_COALESCE_WINDOW_MS = 50;
 
 export function createInitialSessionReconcileState(): SessionReconcileState {
   return { nextCommandSequence: 1, recordsBySessionId: {} };
@@ -51,6 +55,11 @@ export function sessionReconcileReducer(
       }
       return requestReconcile(state, {
         agentSessionId: intent.agentSessionId,
+        deferMessages:
+          intent.eventType === "message_update" &&
+          intent.hasCachedSession &&
+          intent.hasInlineMessages &&
+          intent.terminalTurn !== true,
         needsMessages:
           intent.eventType === "message_update" ||
           intent.eventType === "session_audit" ||
@@ -82,6 +91,8 @@ export function sessionReconcileReducer(
       return requestReconcile(state, intent);
     case "session/removed":
       return removeRecord(state, intent.agentSessionId);
+    case "engine/intentExpired":
+      return expireStreamingMessageReconcile(state, intent.expiryId);
     case "engine/commandResult":
       if (
         intent.commandType === "engine/reconcileWorkspace" &&
@@ -209,6 +220,7 @@ function requestReconcile(
     agentSessionId: string;
     live?: boolean;
     authoritativeMessages?: boolean;
+    deferMessages?: boolean;
     needsMessages: boolean;
     needsState: boolean;
     requiredHistoryRevision?: number;
@@ -239,9 +251,11 @@ function requestReconcile(
     inFlightCommandId: null,
     inFlightLive: false,
     inFlightScope: null,
+    messageRefreshScheduled: false,
     messagesHydrated: false,
     pendingLive: false,
     pendingMessages: false,
+    pendingMessagesImmediate: false,
     pendingState: false,
     requiredHistoryRevision: null,
     workspaceId
@@ -254,6 +268,19 @@ function requestReconcile(
           (current.requiredHistoryRevision ??
             current.appliedHistoryRevision ??
             -1)));
+  const deferMessages =
+    input.deferMessages === true &&
+    input.needsMessages &&
+    !input.needsState &&
+    input.live !== true &&
+    input.authoritativeMessages !== true &&
+    requiredHistoryRevision === null &&
+    !current.authoritativeMessagesRequired &&
+    !historyRevisionIsPending(current);
+  const pendingMessages =
+    current.pendingMessages ||
+    input.needsMessages ||
+    authoritativeDemandArrivedWhileInFlight;
   const record = {
     ...current,
     authoritativeMessagesRequired:
@@ -262,10 +289,11 @@ function requestReconcile(
     errorCode: null,
     errorMessage: null,
     pendingLive: current.pendingLive || input.live === true,
-    pendingMessages:
-      current.pendingMessages ||
-      input.needsMessages ||
-      authoritativeDemandArrivedWhileInFlight,
+    pendingMessages,
+    pendingMessagesImmediate:
+      pendingMessages &&
+      (current.pendingMessagesImmediate ||
+        (input.needsMessages && !deferMessages)),
     pendingState: current.pendingState || input.needsState,
     requiredHistoryRevision:
       requiredHistoryRevision === null
@@ -276,12 +304,31 @@ function requestReconcile(
           )
   };
   const next = replaceRecord(state, record);
-  return record.inFlightCommandId ||
-    (!record.pendingMessages &&
-      !record.pendingState &&
-      !record.authoritativeMessagesRequired &&
-      !historyRevisionIsPending(record))
-    ? { commands: NO_COMMANDS, state: next }
+  if (record.inFlightCommandId || !hasReconcileDemand(record)) {
+    return { commands: NO_COMMANDS, state: next };
+  }
+  if (record.messageRefreshScheduled) {
+    if (deferMessages) {
+      return { commands: NO_COMMANDS, state: next };
+    }
+    const unscheduled = { ...record, messageRefreshScheduled: false };
+    const started = startReconcile(
+      replaceRecord(state, unscheduled),
+      unscheduled
+    );
+    return {
+      commands: [
+        {
+          expiryId: streamingMessageReconcileExpiryId(record.agentSessionId),
+          type: "engine/cancelExpiry"
+        },
+        ...started.commands
+      ],
+      state: started.state
+    };
+  }
+  return deferMessages
+    ? scheduleStreamingMessageReconcile(next, record)
     : startReconcile(next, record);
 }
 
@@ -316,13 +363,74 @@ function settleReconcile(
       (intent.outcome !== "succeeded" && record.inFlightLive)
   };
   const next = replaceRecord(state, settled);
-  return settled.pendingMessages ||
+  const shouldContinue =
+    settled.pendingMessages ||
     settled.pendingState ||
     (intent.outcome === "succeeded" &&
       (settled.authoritativeMessagesRequired ||
-        historyRevisionIsPending(settled)))
-    ? startReconcile(next, settled)
-    : { commands: NO_COMMANDS, state: next };
+        historyRevisionIsPending(settled)));
+  if (!shouldContinue) {
+    return { commands: NO_COMMANDS, state: next };
+  }
+  return settled.pendingMessages &&
+    !settled.pendingMessagesImmediate &&
+    !settled.pendingState &&
+    !settled.pendingLive &&
+    !settled.authoritativeMessagesRequired &&
+    !historyRevisionIsPending(settled)
+    ? scheduleStreamingMessageReconcile(next, settled)
+    : startReconcile(next, settled);
+}
+
+function expireStreamingMessageReconcile(
+  state: SessionReconcileState,
+  expiryId: string
+): EngineReducerResult<SessionReconcileState> {
+  const record = Object.values(state.recordsBySessionId).find(
+    (candidate) =>
+      candidate.messageRefreshScheduled &&
+      streamingMessageReconcileExpiryId(candidate.agentSessionId) === expiryId
+  );
+  if (!record) return unchanged(state);
+  const ready = { ...record, messageRefreshScheduled: false };
+  const next = replaceRecord(state, ready);
+  if (ready.inFlightCommandId || !hasReconcileDemand(ready)) {
+    return { commands: NO_COMMANDS, state: next };
+  }
+  return startReconcile(next, ready);
+}
+
+function scheduleStreamingMessageReconcile(
+  state: SessionReconcileState,
+  record: SessionReconcileRecord
+): EngineReducerResult<SessionReconcileState> {
+  if (record.messageRefreshScheduled || record.inFlightCommandId) {
+    return { commands: NO_COMMANDS, state };
+  }
+  const scheduled = { ...record, messageRefreshScheduled: true };
+  return {
+    commands: [
+      {
+        delayMs: STREAMING_MESSAGE_COALESCE_WINDOW_MS,
+        expiryId: streamingMessageReconcileExpiryId(record.agentSessionId),
+        type: "engine/scheduleExpiryAfter"
+      }
+    ],
+    state: replaceRecord(state, scheduled)
+  };
+}
+
+function streamingMessageReconcileExpiryId(agentSessionId: string): string {
+  return `session:streaming-message-reconcile:${agentSessionId}`;
+}
+
+function hasReconcileDemand(record: SessionReconcileRecord): boolean {
+  return (
+    record.pendingMessages ||
+    record.pendingState ||
+    record.authoritativeMessagesRequired ||
+    historyRevisionIsPending(record)
+  );
 }
 
 function startReconcile(
@@ -368,8 +476,10 @@ function startReconcile(
         inFlightCommandId: commandId,
         inFlightLive: live,
         inFlightScope: scope,
+        messageRefreshScheduled: false,
         pendingLive: false,
         pendingMessages: false,
+        pendingMessagesImmediate: false,
         pendingState: false
       }
     )
@@ -400,9 +510,11 @@ function applyHistoryCheckpoint(
     inFlightCommandId: null,
     inFlightLive: false,
     inFlightScope: null,
+    messageRefreshScheduled: false,
     messagesHydrated: false,
     pendingLive: false,
     pendingMessages: false,
+    pendingMessagesImmediate: false,
     pendingState: false,
     requiredHistoryRevision: null,
     workspaceId
@@ -428,7 +540,11 @@ function applyHistoryCheckpoint(
     pendingMessages:
       authoritative && !requiredHistoryRevisionRemainsPending
         ? false
-        : current.pendingMessages
+        : current.pendingMessages,
+    pendingMessagesImmediate:
+      authoritative && !requiredHistoryRevisionRemainsPending
+        ? false
+        : current.pendingMessagesImmediate
   };
   return {
     commands: NO_COMMANDS,
@@ -468,12 +584,21 @@ function removeRecord(
   rawAgentSessionId: string
 ): EngineReducerResult<SessionReconcileState> {
   const records = { ...state.recordsBySessionId };
-  if (!records[rawAgentSessionId.trim()]) {
+  const agentSessionId = rawAgentSessionId.trim();
+  const record = records[agentSessionId];
+  if (!record) {
     return unchanged(state);
   }
-  delete records[rawAgentSessionId.trim()];
+  delete records[agentSessionId];
   return {
-    commands: NO_COMMANDS,
+    commands: record.messageRefreshScheduled
+      ? [
+          {
+            expiryId: streamingMessageReconcileExpiryId(agentSessionId),
+            type: "engine/cancelExpiry"
+          }
+        ]
+      : NO_COMMANDS,
     state: { ...state, recordsBySessionId: records }
   };
 }

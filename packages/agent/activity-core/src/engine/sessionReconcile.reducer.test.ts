@@ -78,6 +78,76 @@ test("activity observation derives reconcile scope inside the engine", () => {
   ]);
 });
 
+test("streaming message gaps coalesce into one delayed reconcile and one trailing read", () => {
+  const observation = {
+    agentSessionId: "session-1",
+    eventType: "message_update",
+    hasCachedSession: true,
+    hasInlineMessages: true,
+    inlineApplied: false,
+    type: "session/activityObserved" as const,
+    workspaceId: "workspace-1"
+  };
+  let result = reduce(createInitialSessionReconcileState(), observation);
+
+  assert.deepEqual(result.commands, [
+    {
+      delayMs: 50,
+      expiryId: "session:streaming-message-reconcile:session-1",
+      type: "engine/scheduleExpiryAfter"
+    }
+  ]);
+  result = reduce(result.state, observation);
+  assert.equal(result.commands.length, 0);
+
+  result = reduce(result.state, {
+    dueAtUnixMs: 50,
+    expiryId: "session:streaming-message-reconcile:session-1",
+    type: "engine/intentExpired"
+  });
+  assert.equal(result.commands[0]?.type, "session/reconcile");
+
+  result = reduce(result.state, observation);
+  assert.equal(result.commands.length, 0);
+
+  result = reduce(result.state, {
+    commandId: "session:reconcile:session-1:1",
+    commandType: "session/reconcile",
+    outcome: "succeeded",
+    type: "engine/commandResult"
+  });
+  assert.deepEqual(result.commands, [
+    {
+      delayMs: 50,
+      expiryId: "session:streaming-message-reconcile:session-1",
+      type: "engine/scheduleExpiryAfter"
+    }
+  ]);
+});
+
+test("an explicit message reconcile bypasses a pending streaming delay", () => {
+  const deferred = reduce(createInitialSessionReconcileState(), {
+    agentSessionId: "session-1",
+    eventType: "message_update",
+    hasCachedSession: true,
+    hasInlineMessages: true,
+    inlineApplied: false,
+    type: "session/activityObserved",
+    workspaceId: "workspace-1"
+  });
+
+  const immediate = reduce(deferred.state, {
+    agentSessionId: "session-1",
+    needsMessages: true,
+    needsState: false,
+    type: "session/reconcileRequested",
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(immediate.commands[0]?.type, "engine/cancelExpiry");
+  assert.equal(immediate.commands[1]?.type, "session/reconcile");
+});
+
 test("inline-applied activity does not schedule redundant transport work", () => {
   const result = reduce(createInitialSessionReconcileState(), {
     type: "session/activityObserved",
@@ -222,9 +292,11 @@ test("failed reconcile preserves typed error details for exact recovery", () => 
     inFlightCommandId: null,
     inFlightLive: false,
     inFlightScope: null,
+    messageRefreshScheduled: false,
     messagesHydrated: false,
     pendingLive: false,
     pendingMessages: false,
+    pendingMessagesImmediate: false,
     pendingState: false,
     requiredHistoryRevision: null,
     workspaceId: "workspace-1"
@@ -397,9 +469,11 @@ test("a history checkpoint initializes a complete inactive reconcile record", ()
     inFlightCommandId: null,
     inFlightLive: false,
     inFlightScope: null,
+    messageRefreshScheduled: false,
     messagesHydrated: false,
     pendingLive: false,
     pendingMessages: false,
+    pendingMessagesImmediate: false,
     pendingState: false,
     requiredHistoryRevision: null,
     workspaceId: "workspace-1"

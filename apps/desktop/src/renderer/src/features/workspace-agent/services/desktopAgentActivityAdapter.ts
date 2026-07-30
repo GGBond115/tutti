@@ -726,7 +726,7 @@ function reportDesktopAgentMessageListDiagnostic(
       .logTerminalDiagnostic({
         details,
         event: "agent.activity.messages.list",
-        level: details.event === "failed" ? "warn" : "info",
+        level: details.event === "failed" ? "warn" : "debug",
         workspaceId
       })
       .catch(() => {});

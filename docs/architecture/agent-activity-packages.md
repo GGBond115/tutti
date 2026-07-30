@@ -183,6 +183,11 @@ It owns:
 - authoritative Session reconcile execution: scope selection, mapped detail
   aggregation, message cursor/window policy, bounded page draining, the
   discovery/detail race fence, and atomic Engine application
+- a 50ms streaming message reconcile window, aligned with the daemon streaming
+  report coalescer, for cached `message_update` observations whose inline
+  message versions have a gap; explicit reads, lifecycle transitions, and state
+  repair remain immediate, and the deferred read still uses the authoritative
+  message cursor
 - selectors for reusable derived state
 - `selectNeedsAttentionCount`
 - `selectNeedsAttentionItems`

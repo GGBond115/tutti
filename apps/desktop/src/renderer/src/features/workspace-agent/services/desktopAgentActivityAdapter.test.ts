@@ -306,7 +306,7 @@ test("desktop agent activity adapter maps tuttid sessions and messages", async (
       order: null
     },
     event: "agent.activity.messages.list",
-    level: "info",
+    level: "debug",
     workspaceId
   });
   const resolvedDiagnostic = diagnostics[1] as {
@@ -316,7 +316,7 @@ test("desktop agent activity adapter maps tuttid sessions and messages", async (
     workspaceId?: string;
   };
   assert.equal(resolvedDiagnostic.event, "agent.activity.messages.list");
-  assert.equal(resolvedDiagnostic.level, "info");
+  assert.equal(resolvedDiagnostic.level, "debug");
   assert.equal(resolvedDiagnostic.workspaceId, workspaceId);
   assert.equal(resolvedDiagnostic.details?.agentSessionId, "agent-session-1");
   assert.equal(resolvedDiagnostic.details?.event, "resolved");

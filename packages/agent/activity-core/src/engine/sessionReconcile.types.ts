@@ -33,9 +33,11 @@ export interface SessionReconcileRecord {
   inFlightCommandId: string | null;
   inFlightLive: boolean;
   inFlightScope: SessionReconcileScope | null;
+  messageRefreshScheduled: boolean;
   messagesHydrated: boolean;
   pendingLive: boolean;
   pendingMessages: boolean;
+  pendingMessagesImmediate: boolean;
   pendingState: boolean;
   requiredHistoryRevision: number | null;
   workspaceId: string;
