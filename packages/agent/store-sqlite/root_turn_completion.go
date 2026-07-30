@@ -53,18 +53,19 @@ func (s *Store) applyRootProviderTurnTransitionTx(
 		return Turn{}, false, err
 	}
 
-	var sessionKind string
+	var sessionKind, providerSessionID string
 	err := tx.QueryRowContext(ctx, `
-SELECT session_kind
+SELECT session_kind, COALESCE(provider_session_id, '')
 FROM workspace_agent_sessions
 WHERE workspace_id = ? AND agent_session_id = ? AND deleted_at_unix_ms = 0
-`, workspaceID, rootAgentSessionID).Scan(&sessionKind)
+`, workspaceID, rootAgentSessionID).Scan(&sessionKind, &providerSessionID)
 	if err != nil {
 		return Turn{}, false, fmt.Errorf("read root provider turn session: %w", err)
 	}
 	if sessionKind != SessionKindRoot {
 		return Turn{}, false, errors.New("root provider turn must belong to a root session")
 	}
+	providerSessionID = strings.TrimSpace(providerSessionID)
 	rootTurn, ok, err := getAgentTurnTx(ctx, tx, workspaceID, rootAgentSessionID, rootTurnID)
 	if err != nil {
 		return Turn{}, false, err
@@ -128,6 +129,43 @@ WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
 		// A settled canonical root can still accept the matching provider's late
 		// terminal fact, but it must never be reopened by a late started event.
 		return rootTurn, false, nil
+	}
+	var conflictingTurnID string
+	if providerSessionID != "" {
+		err = tx.QueryRowContext(ctx, `
+SELECT turn.turn_id
+FROM workspace_agent_turns AS turn
+JOIN workspace_agent_sessions AS session
+  ON session.workspace_id = turn.workspace_id
+ AND session.agent_session_id = turn.agent_session_id
+WHERE turn.workspace_id = ?
+  AND session.provider_session_id = ?
+  AND turn.root_provider_turn_id = ?
+  AND NOT (turn.agent_session_id = ? AND turn.turn_id = ?)
+LIMIT 1
+`, workspaceID, providerSessionID, providerTurnID, rootAgentSessionID, rootTurnID).
+			Scan(&conflictingTurnID)
+	} else {
+		// Legacy/import fixtures may predate provider Session identity. They
+		// retain the original Session-local uniqueness fence; current runtime
+		// sessions take the stronger provider-Session-wide branch above.
+		err = tx.QueryRowContext(ctx, `
+SELECT turn_id
+FROM workspace_agent_turns
+WHERE workspace_id = ? AND agent_session_id = ?
+  AND root_provider_turn_id = ? AND turn_id != ?
+LIMIT 1
+`, workspaceID, rootAgentSessionID, providerTurnID, rootTurnID).
+			Scan(&conflictingTurnID)
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return Turn{}, false, fmt.Errorf(
+			"check root provider turn identity uniqueness: %w",
+			err,
+		)
+	}
+	if conflictingTurnID != "" {
+		return Turn{}, false, ErrProviderTurnBindingConflict
 	}
 
 	if _, err := tx.ExecContext(ctx, `

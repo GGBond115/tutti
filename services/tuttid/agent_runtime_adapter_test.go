@@ -39,6 +39,87 @@ func (submitProvenanceAdapterTestProvider) Cancel(context.Context, agentruntime.
 	return nil, nil
 }
 
+type providerAcceptanceMappingTestAdapter struct {
+	execCalls           int
+	acceptanceExecCalls int
+}
+
+func (*providerAcceptanceMappingTestAdapter) Provider() string {
+	return "provider-acceptance-mapping-test"
+}
+
+func (*providerAcceptanceMappingTestAdapter) Start(
+	_ context.Context,
+	session agentruntime.Session,
+) ([]activityshared.Event, error) {
+	event := activityshared.NewSessionStarted(activityshared.EventContext{
+		EventID:            "session-started",
+		Provider:           activityshared.Provider(session.Provider),
+		ProviderSessionID:  "provider-session-1",
+		AgentSessionID:     session.AgentSessionID,
+		SessionKind:        "root",
+		RootAgentSessionID: session.AgentSessionID,
+	})
+	return []activityshared.Event{event}, nil
+}
+
+func (*providerAcceptanceMappingTestAdapter) Resume(
+	context.Context,
+	agentruntime.Session,
+) error {
+	return nil
+}
+
+func (*providerAcceptanceMappingTestAdapter) Close(
+	context.Context,
+	agentruntime.Session,
+) error {
+	return nil
+}
+
+func (a *providerAcceptanceMappingTestAdapter) Exec(
+	context.Context,
+	agentruntime.Session,
+	[]agentruntime.PromptContentBlock,
+	string,
+	string,
+	agentruntime.EventSink,
+	agentruntime.CommandSnapshotSink,
+) ([]activityshared.Event, error) {
+	a.execCalls++
+	return nil, nil
+}
+
+func (a *providerAcceptanceMappingTestAdapter) ExecWithProviderAcceptance(
+	_ context.Context,
+	_ agentruntime.Session,
+	_ []agentruntime.PromptContentBlock,
+	_ string,
+	_ string,
+	_ agentruntime.EventSink,
+	_ agentruntime.CommandSnapshotSink,
+	report agentruntime.ProviderDispatchSink,
+) ([]activityshared.Event, error) {
+	a.acceptanceExecCalls++
+	report(agentruntime.ProviderDispatchResult{
+		Disposition: agentruntime.DispatchDispositionApplied,
+		Acceptance: &agentruntime.ProviderAcceptanceReceipt{
+			Source:            agentruntime.AcceptanceSourceTurnStartResponse,
+			ProviderSessionID: "provider-session-1",
+			ProviderTurnID:    "provider-turn-1",
+		},
+	})
+	return nil, nil
+}
+
+func (*providerAcceptanceMappingTestAdapter) Cancel(
+	context.Context,
+	agentruntime.Session,
+	string,
+) ([]activityshared.Event, error) {
+	return nil, nil
+}
+
 type submitProvenanceAdapterTestReporter struct {
 	provenance agentsessionstore.ReportActivityInput
 }
@@ -174,6 +255,43 @@ func TestAgentRuntimeAdapterRejectsNewTurnWithoutCanonicalTurnID(t *testing.T) {
 	})
 	if !errors.Is(err, agentservice.ErrInvalidArgument) {
 		t.Fatalf("Exec() error = %v, want ErrInvalidArgument", err)
+	}
+}
+
+func TestAgentRuntimeAdapterPreservesProviderAcceptanceRequirement(t *testing.T) {
+	provider := &providerAcceptanceMappingTestAdapter{}
+	reporter := &submitProvenanceAdapterTestReporter{}
+	controller := agentruntime.NewController(
+		[]agentruntime.Adapter{provider},
+		reporter,
+	)
+	adapter := newAgentRuntimeAdapter(controller)
+	session, err := adapter.Start(t.Context(), agentservice.RuntimeStartInput{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		Provider: provider.Provider(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adapter.Exec(t.Context(), agentservice.RuntimeExecInput{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		TurnID: "canonical-turn-1", ClientSubmitID: "opaque-submit-1",
+		CanonicalSubmitOccurredAtUnixMS: 1,
+		Content:                         agentservice.TextPromptContent("hello"),
+		RequireProviderAcceptance:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.acceptanceExecCalls != 1 || provider.execCalls != 0 {
+		t.Fatalf(
+			"provider calls acceptance=%d ordinary=%d",
+			provider.acceptanceExecCalls,
+			provider.execCalls,
+		)
+	}
+	if session.ProviderSessionID != "provider-session-1" {
+		t.Fatalf("provider session id = %q", session.ProviderSessionID)
 	}
 }
 

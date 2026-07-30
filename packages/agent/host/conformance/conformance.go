@@ -115,28 +115,29 @@ type InteractiveObservation struct {
 }
 
 type Metrics struct {
-	StartCalls               int
-	ResumeCalls              int
-	ExecCalls                int
-	CancelCalls              int
-	InteractiveCalls         int
-	UpdateSettingsCalls      int
-	CloseCalls               int
-	GoalControlCalls         int
-	GoalReconcileCalls       int
-	RuntimeOperationCommits  int
-	GoalOperationCommits     int
-	RootTurnSettlements      int
-	LastCancelTargets        []agenthost.RuntimeCancelTarget
-	LastInteractiveTurnID    string
-	LastInteractiveRequestID string
-	LastInitialTitle         string
-	LastResumeRecreate       bool
-	RecoverySteps            []string
-	DeleteAdmissionPlans     []agenthost.DeleteSessionsPlan
-	DeleteReports            []agenthost.DeleteSessionsReport
-	CanonicalDeleteCalls     int
-	DeletionEvents           []string
+	StartCalls                         int
+	ResumeCalls                        int
+	ExecCalls                          int
+	CancelCalls                        int
+	InteractiveCalls                   int
+	UpdateSettingsCalls                int
+	CloseCalls                         int
+	GoalControlCalls                   int
+	GoalReconcileCalls                 int
+	RuntimeOperationCommits            int
+	GoalOperationCommits               int
+	RootTurnSettlements                int
+	LastCancelTargets                  []agenthost.RuntimeCancelTarget
+	LastInteractiveTurnID              string
+	LastInteractiveRequestID           string
+	LastInitialTitle                   string
+	LastExecRequiresProviderAcceptance bool
+	LastResumeRecreate                 bool
+	RecoverySteps                      []string
+	DeleteAdmissionPlans               []agenthost.DeleteSessionsPlan
+	DeleteReports                      []agenthost.DeleteSessionsReport
+	CanonicalDeleteCalls               int
+	DeletionEvents                     []string
 }
 
 // Driver adapts one host implementation to the shared lifecycle scenarios.

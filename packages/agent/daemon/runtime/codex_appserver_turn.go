@@ -32,6 +32,28 @@ func (a *CodexAppServerAdapter) Exec(
 	)
 }
 
+func (a *CodexAppServerAdapter) ExecWithProviderAcceptance(
+	ctx context.Context,
+	session Session,
+	content []PromptContentBlock,
+	displayPrompt string,
+	turnID string,
+	emit EventSink,
+	emitCommands CommandSnapshotSink,
+	reportDispatch ProviderDispatchSink,
+) ([]activityshared.Event, error) {
+	return a.execBlocking(
+		ctx,
+		session,
+		content,
+		displayPrompt,
+		turnID,
+		emit,
+		emitCommands,
+		codexTurnExecOptions{reportDispatch: reportDispatch},
+	)
+}
+
 func (a *CodexAppServerAdapter) ExecAsync(
 	ctx context.Context,
 	session Session,
@@ -413,7 +435,7 @@ func (a *CodexAppServerAdapter) execBlocking(
 	execMetadata := execMetadataFromContext(ctx)
 	continuation := options.continuation
 	recordNotDispatched := func() {
-		if options.historyReplacement {
+		if options.reportDispatch != nil {
 			options.report(ProviderDispatchResult{
 				Disposition: DispatchDispositionNotDispatched,
 			})
@@ -578,10 +600,11 @@ func (a *CodexAppServerAdapter) execBlocking(
 		renderTuttiModeHostContext(tuttiModeTurnSnapshotFromContext(ctx)),
 		a.config.commandNetworkAccess,
 	)
-	if options.historyReplacement {
-		if clientUserMessageID := strings.TrimSpace(turnID); clientUserMessageID != "" {
-			turnParams["clientUserMessageId"] = clientUserMessageID
-		}
+	if clientUserMessageID := metadataString(execMetadata, "clientSubmitId"); clientUserMessageID != "" {
+		// clientSubmitId is an opaque, caller-stable recovery token. The
+		// canonical Turn id stays Tutti-owned and is never used as Codex client
+		// identity.
+		turnParams["clientUserMessageId"] = clientUserMessageID
 	}
 	trace.Log("turn.start.params", codexAppServerTraceTurnStartParams(session, turnParams, providerContent))
 	turnStartAckTimeout := a.turnStartAckTimeout
@@ -599,7 +622,7 @@ func (a *CodexAppServerAdapter) execBlocking(
 		if errors.As(err, &callErr) {
 			disposition = DispatchDispositionRejected
 		}
-		if options.historyReplacement {
+		if options.reportDispatch != nil {
 			options.report(ProviderDispatchResult{
 				Disposition: disposition,
 			})
@@ -658,7 +681,7 @@ func (a *CodexAppServerAdapter) execBlocking(
 		if a.setSessionActiveTurnID(session.AgentSessionID, appTurn, providerTurnID) {
 			a.interruptActiveTurnAsync(appSession, session, appTurn, providerTurnID, "queued cancel")
 		}
-		if options.historyReplacement {
+		if options.reportDispatch != nil {
 			options.report(ProviderDispatchResult{
 				Disposition: DispatchDispositionApplied,
 				Acceptance: &ProviderAcceptanceReceipt{
@@ -668,7 +691,7 @@ func (a *CodexAppServerAdapter) execBlocking(
 				},
 			})
 		}
-	} else if options.historyReplacement {
+	} else if options.reportDispatch != nil {
 		options.report(ProviderDispatchResult{
 			Disposition: DispatchDispositionOutcomeUnknown,
 		})
@@ -719,6 +742,8 @@ func (a *CodexAppServerAdapter) execBlocking(
 	emitTerminal(appServerTurnTerminalEvents(session, turnID, finalTurn, normalizer))
 	return snapshotEvents(), nil
 }
+
+var _ ProviderAcceptanceExecAdapter = (*CodexAppServerAdapter)(nil)
 
 func codexTurnStartClientUnhealthy(err error, client *codexAppServerClient) bool {
 	if errors.Is(err, context.Canceled) ||

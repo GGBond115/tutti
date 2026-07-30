@@ -56,6 +56,7 @@ var (
 	_ host.RuntimeSessionLiveness                  = (*RuntimeController)(nil)
 	_ host.RuntimeSubmitProvenanceReporter         = (*RuntimeController)(nil)
 	_ host.SessionForkRuntime                      = (*RuntimeController)(nil)
+	_ host.SessionForkTurnBindingRecoveryRuntime   = (*RuntimeController)(nil)
 	_ host.GoalRuntimeController                   = (*RuntimeController)(nil)
 	_ host.GoalRuntimeReconciler                   = (*RuntimeController)(nil)
 	_ host.GoalRuntimeRecoveryPolicyResolver       = (*RuntimeController)(nil)
@@ -65,6 +66,13 @@ var (
 type sessionForkRuntimeBackend interface {
 	ForkCapabilities(context.Context, agentruntime.Session) (agentruntime.SessionForkCapabilities, error)
 	Fork(context.Context, agentruntime.SessionForkInput) (agentruntime.SessionForkResult, error)
+}
+
+type providerTurnBindingRecoveryBackend interface {
+	RecoverProviderTurnBinding(
+		context.Context,
+		agentruntime.ProviderTurnBindingRecoveryInput,
+	) (agentruntime.ProviderTurnBindingRecoveryResult, error)
 }
 
 func (a *RuntimeController) SupportsEffectiveHistory(
@@ -441,6 +449,35 @@ func (a *RuntimeController) ForkSession(
 	return mapped, nil
 }
 
+func (a *RuntimeController) RecoverProviderTurnBinding(
+	ctx context.Context,
+	input host.RuntimeProviderTurnBindingRecoveryInput,
+) (host.RuntimeProviderTurnBindingRecoveryResult, error) {
+	if err := a.requireBackend(); err != nil {
+		return host.RuntimeProviderTurnBindingRecoveryResult{}, err
+	}
+	backend, ok := a.Backend.(providerTurnBindingRecoveryBackend)
+	if !ok {
+		return host.RuntimeProviderTurnBindingRecoveryResult{},
+			host.ErrSessionForkUnsupported
+	}
+	result, err := backend.RecoverProviderTurnBinding(
+		ctx,
+		agentruntime.ProviderTurnBindingRecoveryInput{
+			Source:               runtimeSession(input.Source),
+			CanonicalTurnID:      input.CanonicalTurnID,
+			RecoveryToken:        input.RecoveryToken,
+			LegacyTextHMACKey:    input.LegacyTextHMACKey,
+			LegacyTextHMACDigest: input.LegacyTextHMACDigest,
+		},
+	)
+	return host.RuntimeProviderTurnBindingRecoveryResult{
+		ProviderSessionID:           result.ProviderSessionID,
+		ProviderTurnID:              result.ProviderTurnID,
+		ProviderCheckpointMessageID: result.ProviderCheckpointMessageID,
+	}, mapRuntimeError(err)
+}
+
 func firstNonEmptyString(values ...string) string {
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
@@ -638,7 +675,8 @@ func runtimeExecInput(input host.RuntimeExecInput) agentruntime.ExecInput {
 		Content:                         runtimePromptContent(input.Content),
 		DisplayPrompt:                   input.DisplayPrompt, InitialTitle: input.InitialTitle, InitialTitleBase: input.InitialTitleBase,
 		Metadata: cloneMap(input.Metadata), Guidance: input.Guidance,
-		HistoryReplacement: input.HistoryReplacement,
+		HistoryReplacement:        input.HistoryReplacement,
+		RequireProviderAcceptance: input.RequireProviderAcceptance,
 	}
 }
 

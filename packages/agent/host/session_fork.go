@@ -70,6 +70,26 @@ func (h *Host) forkSessionSerialized(
 	if err != nil {
 		return ForkSessionResult{}, err
 	}
+	if !supported &&
+		boundary.RejectionReason == storesqlite.SessionForkBoundaryReasonProviderTurnMissing {
+		if err := h.recoverSessionForkTurnBinding(
+			ctx,
+			input.WorkspaceID,
+			input.SourceAgentSessionID,
+			input.Point.TurnID,
+		); err != nil {
+			return ForkSessionResult{}, err
+		}
+		boundary, supported, err = h.sessionForks.CheckSessionForkThroughTurn(
+			ctx,
+			input.WorkspaceID,
+			input.SourceAgentSessionID,
+			input.Point.TurnID,
+		)
+		if err != nil {
+			return ForkSessionResult{}, err
+		}
+	}
 	if !supported {
 		if rejectionErr := boundary.RejectionError(); rejectionErr != nil {
 			return ForkSessionResult{}, rejectionErr

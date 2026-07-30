@@ -942,7 +942,10 @@ func (d *legacyHostConformanceDriver) Metrics() hostconformance.Metrics {
 		metrics.LastInteractiveRequestID = last.RequestID
 	}
 	if len(d.runtime.execCalls) > 0 {
-		metrics.LastInitialTitle = d.runtime.execCalls[len(d.runtime.execCalls)-1].InitialTitle
+		last := d.runtime.execCalls[len(d.runtime.execCalls)-1]
+		metrics.LastInitialTitle = last.InitialTitle
+		metrics.LastExecRequiresProviderAcceptance =
+			last.RequireProviderAcceptance
 	}
 	if len(d.runtime.resumeCalls) > 0 {
 		metrics.LastResumeRecreate = d.runtime.resumeCalls[len(d.runtime.resumeCalls)-1].RecreateIfMissing

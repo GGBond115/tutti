@@ -71,6 +71,23 @@ func (c *Controller) Fork(
 	return forkAdapter.Fork(ctx, input)
 }
 
+func (c *Controller) RecoverProviderTurnBinding(
+	ctx context.Context,
+	input ProviderTurnBindingRecoveryInput,
+) (ProviderTurnBindingRecoveryResult, error) {
+	source, adapter, err := c.sessionForkSource(ctx, input.Source)
+	if err != nil {
+		return ProviderTurnBindingRecoveryResult{}, err
+	}
+	recovery, ok := adapter.(ProviderTurnBindingRecoveryAdapter)
+	if !ok {
+		return ProviderTurnBindingRecoveryResult{},
+			ErrSessionForkUnsupported
+	}
+	input.Source = source
+	return recovery.RecoverProviderTurnBinding(ctx, input)
+}
+
 func (c *Controller) sessionForkSource(
 	ctx context.Context,
 	requested Session,

@@ -86,6 +86,38 @@ func (c *Controller) runExecTurn(ctx context.Context, session Session, adapter A
 	})
 }
 
+func (c *Controller) runProviderAcceptanceTurn(
+	ctx context.Context,
+	session Session,
+	adapter ProviderAcceptanceExecAdapter,
+	content []PromptContentBlock,
+	displayPrompt string,
+	turnID string,
+	reportDispatch ProviderDispatchSink,
+) {
+	c.runBlockingExecTurn(ctx, session, adapter, turnID, func(
+		emit EventSink,
+		emitCommands CommandSnapshotSink,
+	) ([]activityshared.Event, error) {
+		events, err := adapter.ExecWithProviderAcceptance(
+			ctx,
+			session,
+			content,
+			displayPrompt,
+			turnID,
+			emit,
+			emitCommands,
+			reportDispatch,
+		)
+		if reportDispatch != nil {
+			reportDispatch(ProviderDispatchResult{
+				Disposition: DispatchDispositionOutcomeUnknown,
+			})
+		}
+		return events, err
+	})
+}
+
 func (c *Controller) runHistoryReplacementTurn(
 	ctx context.Context,
 	session Session,

@@ -44,6 +44,52 @@ func TestGetSessionForkOperationReconcilesLocalCommitAfterProviderAcceptance(t *
 	}
 }
 
+func TestForkSessionRepairsMissingProviderBindingFromOpaqueSubmitClaim(t *testing.T) {
+	store := &recoverableSessionForkStore{
+		fakeSessionForkStore: newFakeSessionForkStore(),
+		claim: storesqlite.SubmitClaim{
+			WorkspaceID: "ws", AgentSessionID: "source", TurnID: "turn",
+			ClientSubmitID: "opaque-submit-1",
+		},
+	}
+	store.boundaryUnsupported = true
+	store.boundaryReason = storesqlite.SessionForkBoundaryReasonProviderTurnMissing
+	runtime := &recoverableSessionForkRuntime{
+		fakeSessionForkRuntime: fakeSessionForkRuntime{
+			providerSessionID: "provider-child",
+		},
+	}
+	canonical := turnReadCanonicalStore{
+		turn: storesqlite.Turn{
+			WorkspaceID: "ws", AgentSessionID: "source", TurnID: "turn",
+			Phase: storesqlite.TurnPhaseSettled,
+		},
+	}
+	host := New(Config{
+		CanonicalStore: canonical, SessionForks: store,
+		SessionForkRuntime: runtime,
+	})
+	result, err := host.ForkSession(t.Context(), ForkSessionInput{
+		WorkspaceID: "ws", SourceAgentSessionID: "source",
+		TargetAgentSessionID: "target", RequestID: "request",
+		Point: SessionForkPoint{Kind: SessionForkPointThroughTurn, TurnID: "turn"},
+	})
+	if err != nil || result.Operation.Status != storesqlite.SessionForkStatusCommitted {
+		t.Fatalf("ForkSession() result=%#v error=%v", result, err)
+	}
+	if runtime.recoveryInput.RecoveryToken != "opaque-submit-1" ||
+		runtime.recoveryInput.CanonicalTurnID != "turn" ||
+		store.recovery.ProviderTurnID != "provider-turn" ||
+		store.checkCalls != 3 {
+		t.Fatalf(
+			"recovery runtime=%#v store=%#v checks=%d",
+			runtime.recoveryInput,
+			store.recovery,
+			store.checkCalls,
+		)
+	}
+}
+
 func TestForkSessionTransportFailureBecomesUnknownAndNeverRedispatches(t *testing.T) {
 	store := newFakeSessionForkStore()
 	runtime := &fakeSessionForkRuntime{forkErr: errors.New("connection lost")}
@@ -811,6 +857,23 @@ type fakeSessionForkRuntime struct {
 	stateBindingMode    SessionForkStateBindingMode
 }
 
+type recoverableSessionForkRuntime struct {
+	fakeSessionForkRuntime
+	recoveryInput RuntimeProviderTurnBindingRecoveryInput
+}
+
+func (r *recoverableSessionForkRuntime) RecoverProviderTurnBinding(
+	_ context.Context,
+	input RuntimeProviderTurnBindingRecoveryInput,
+) (RuntimeProviderTurnBindingRecoveryResult, error) {
+	r.recoveryInput = input
+	return RuntimeProviderTurnBindingRecoveryResult{
+		ProviderSessionID:           input.Source.ProviderSessionID,
+		ProviderTurnID:              "provider-turn",
+		ProviderCheckpointMessageID: "checkpoint-turn",
+	}, nil
+}
+
 type fakeSessionForkStateBinder struct {
 	inputs      []SessionForkProviderStateBinding
 	err         error
@@ -957,6 +1020,65 @@ type fakeSessionForkStore struct {
 	source                storesqlite.Session
 	turnIdentities        []storesqlite.SessionForkTurnIdentity
 	listTurnIdentityCalls int
+}
+
+type recoverableSessionForkStore struct {
+	*fakeSessionForkStore
+	claim      storesqlite.SubmitClaim
+	recovery   storesqlite.ProviderTurnBindingRecovery
+	recovered  bool
+	checkCalls int
+}
+
+func (s *recoverableSessionForkStore) CheckSessionForkThroughTurn(
+	ctx context.Context,
+	workspaceID, sessionID, turnID string,
+) (storesqlite.SessionForkBoundary, bool, error) {
+	s.checkCalls++
+	if !s.recovered {
+		return storesqlite.SessionForkBoundary{
+			RejectionReason: storesqlite.SessionForkBoundaryReasonProviderTurnMissing,
+		}, false, nil
+	}
+	return s.fakeSessionForkStore.CheckSessionForkThroughTurn(
+		ctx,
+		workspaceID,
+		sessionID,
+		turnID,
+	)
+}
+
+func (s *recoverableSessionForkStore) FindSubmitClaimByCanonicalTurn(
+	context.Context,
+	string,
+	string,
+	string,
+) (storesqlite.SubmitClaim, bool, error) {
+	return s.claim, true, nil
+}
+
+func (s *recoverableSessionForkStore) RecoverProviderTurnBinding(
+	_ context.Context,
+	input storesqlite.ProviderTurnBindingRecovery,
+) (storesqlite.ProviderTurnBindingRecoveryResult, error) {
+	s.recovery = input
+	s.recovered = true
+	s.boundaryUnsupported = false
+	return storesqlite.ProviderTurnBindingRecoveryResult{Changed: true}, nil
+}
+
+type turnReadCanonicalStore struct {
+	CanonicalStore
+	turn storesqlite.Turn
+}
+
+func (s turnReadCanonicalStore) GetTurn(
+	context.Context,
+	string,
+	string,
+	string,
+) (storesqlite.Turn, bool, error) {
+	return s.turn, true, nil
 }
 
 type pagedSessionForkRecoveryStore struct {

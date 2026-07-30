@@ -12,8 +12,8 @@ func TestPublishedScenarioCatalogsHaveUniqueNames(t *testing.T) {
 		scenarios []Scenario
 		wantCount int
 	}{
-		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 22},
-		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 17},
+		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 23},
+		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 18},
 		{name: "resume policy", scenarios: ResumePolicyScenarios(), wantCount: 5},
 		{name: "submission fence", scenarios: SubmissionFenceScenarios(), wantCount: 1},
 		{name: "title policy", scenarios: TitlePolicyScenarios(), wantCount: 1},
@@ -69,6 +69,7 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 		"create with explicit rail placement",
 		"resume persisted session",
 		"send input",
+		"new turns require durable provider acceptance",
 		"duplicate client submit id",
 		"exact turn cancel",
 		"interactive response",
@@ -93,6 +94,7 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 		"create with explicit rail placement",
 		"resume persisted session",
 		"send input",
+		"new turns require durable provider acceptance",
 		"duplicate client submit id",
 		"initial title cas",
 		"get session",

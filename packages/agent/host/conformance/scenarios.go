@@ -1,11 +1,15 @@
 package conformance
 
 var (
-	createEmptySessionScenario          = Scenario{Name: "create empty session", run: runCreateEmptySession}
-	createWithInitialContentScenario    = Scenario{Name: "create with initial content", run: runCreateWithInitialContent}
-	createWithRailPlacementScenario     = Scenario{Name: "create with explicit rail placement", run: runCreateWithRailPlacement}
-	resumePersistedSessionScenario      = Scenario{Name: "resume persisted session", run: runResumePersistedSession}
-	sendInputScenario                   = Scenario{Name: "send input", run: runSendInput}
+	createEmptySessionScenario       = Scenario{Name: "create empty session", run: runCreateEmptySession}
+	createWithInitialContentScenario = Scenario{Name: "create with initial content", run: runCreateWithInitialContent}
+	createWithRailPlacementScenario  = Scenario{Name: "create with explicit rail placement", run: runCreateWithRailPlacement}
+	resumePersistedSessionScenario   = Scenario{Name: "resume persisted session", run: runResumePersistedSession}
+	sendInputScenario                = Scenario{Name: "send input", run: runSendInput}
+	providerAcceptanceScenario       = Scenario{
+		Name: "new turns require durable provider acceptance",
+		run:  runNewTurnsRequireDurableProviderAcceptance,
+	}
 	duplicateClientSubmitIDScenario     = Scenario{Name: "duplicate client submit id", run: runDuplicateClientSubmitID}
 	exactTurnCancelScenario             = Scenario{Name: "exact turn cancel", run: runExactTurnCancel}
 	interactiveResponseScenario         = Scenario{Name: "interactive response", run: runInteractiveResponse}
@@ -48,6 +52,7 @@ func Scenarios() []Scenario {
 		createWithRailPlacementScenario,
 		resumePersistedSessionScenario,
 		sendInputScenario,
+		providerAcceptanceScenario,
 		duplicateClientSubmitIDScenario,
 		exactTurnCancelScenario,
 		interactiveResponseScenario,
@@ -152,6 +157,7 @@ func ApplicationCoreScenarios() []Scenario {
 		createWithRailPlacementScenario,
 		resumePersistedSessionScenario,
 		sendInputScenario,
+		providerAcceptanceScenario,
 		duplicateClientSubmitIDScenario,
 		initialTitleCASScenario,
 		getSessionScenario,

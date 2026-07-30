@@ -84,6 +84,13 @@ type SessionForkAdapter interface {
 	Fork(context.Context, SessionForkInput) (SessionForkResult, error)
 }
 
+type ProviderTurnBindingRecoveryAdapter interface {
+	RecoverProviderTurnBinding(
+		context.Context,
+		ProviderTurnBindingRecoveryInput,
+	) (ProviderTurnBindingRecoveryResult, error)
+}
+
 // TargetedCancelAdapter maps canonical root/child targets onto provider-native
 // handles. The controller supplies the root live session and never asks the
 // adapter to discover the durable child tree itself.
@@ -108,6 +115,23 @@ type ResolveInputBoundAdapter interface {
 
 type AsyncExecAdapter interface {
 	ExecAsync(context.Context, Session, []PromptContentBlock, string, string, EventSink, CommandSnapshotSink) error
+}
+
+// ProviderAcceptanceExecAdapter exposes the provider's exact acceptance
+// receipt without making canonical lifecycle depend on provider-specific
+// notifications arriving later through the ordinary report queue.
+type ProviderAcceptanceExecAdapter interface {
+	Adapter
+	ExecWithProviderAcceptance(
+		context.Context,
+		Session,
+		[]PromptContentBlock,
+		string,
+		string,
+		EventSink,
+		CommandSnapshotSink,
+		ProviderDispatchSink,
+	) ([]activityshared.Event, error)
 }
 
 type EffectiveHistoryTurn struct {

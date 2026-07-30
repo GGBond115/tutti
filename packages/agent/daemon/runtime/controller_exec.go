@@ -12,7 +12,7 @@ import (
 )
 
 func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResult, err error) {
-	if input.HistoryReplacement {
+	if input.HistoryReplacement || input.RequireProviderAcceptance {
 		defer func() {
 			if err != nil && result.ProviderDispatch == nil {
 				result.ProviderDispatch = &ProviderDispatchResult{
@@ -56,6 +56,18 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 					Disposition: DispatchDispositionNotDispatched,
 				},
 			}, ErrEffectiveHistoryUnsupported
+		}
+	}
+	var acceptanceAdapter ProviderAcceptanceExecAdapter
+	if input.RequireProviderAcceptance && !input.HistoryReplacement {
+		var ok bool
+		acceptanceAdapter, ok = adapter.(ProviderAcceptanceExecAdapter)
+		if !ok {
+			return ExecResult{
+				ProviderDispatch: &ProviderDispatchResult{
+					Disposition: DispatchDispositionNotDispatched,
+				},
+			}, errors.New("agent provider does not expose durable turn acceptance")
 		}
 	}
 	metadata := cloneExecMetadata(input.Metadata)
@@ -122,7 +134,7 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 	tuttiModeSnapshot := normalizeTuttiModeTurnSnapshot(input.TuttiModeSnapshot)
 	runCtx = withTuttiModeTurnSnapshot(runCtx, tuttiModeSnapshot)
 	var dispatchObserver *providerDispatchObserver
-	if historyAdapter != nil {
+	if historyAdapter != nil || acceptanceAdapter != nil {
 		dispatchObserver = newProviderDispatchObserver()
 	}
 	// beginTurn returns the zero session on failure; keep the real session
@@ -178,6 +190,16 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 			},
 			dispatchObserver.Report,
 		)
+	} else if acceptanceAdapter != nil {
+		go c.runProviderAcceptanceTurn(
+			runCtx,
+			session,
+			acceptanceAdapter,
+			content,
+			displayPrompt,
+			turnID,
+			dispatchObserver.Report,
+		)
 	} else {
 		go c.runExecTurn(runCtx, session, adapter, content, displayPrompt, turnID)
 	}
@@ -202,7 +224,17 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 			dispatch,
 		)
 		result.ProviderDispatch = &dispatch
-		return result, confirmErr
+		if confirmErr != nil {
+			return result, confirmErr
+		}
+		if dispatch.Disposition != DispatchDispositionApplied ||
+			dispatch.Acceptance == nil {
+			if input.RequireProviderAcceptance {
+				return result, errors.New("provider turn was not durably accepted")
+			}
+			return result, nil
+		}
+		return result, nil
 	case <-ctx.Done():
 		result.ProviderDispatch = &ProviderDispatchResult{
 			Disposition: DispatchDispositionOutcomeUnknown,

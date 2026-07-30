@@ -19,9 +19,14 @@ build step and no bundled entry point beyond the source files.
 ## Sidecar protocol
 
 The daemon and sidecar exchange newline-delimited JSON envelopes over standard
-input and output. Every request and event carries `"version": 6`; either side
+input and output. Every request and event carries `"version": 7`; either side
 rejects unsupported or missing versions instead of guessing compatibility.
 Protocol types and validation live in `src/protocol.ts`.
+
+Protocol version 7 adds the stateless `recover_turn_binding` read. It resolves
+exactly one root user-message UUID from an opaque recovery token, or performs a
+fail-closed HMAC equality check for complete legacy text, and returns Claude's
+provider Turn plus checkpoint identities without mutating provider history.
 
 Protocol version 6 adds background-task level and continuation diagnostics.
 `background_tasks_changed` is a full replace-set of currently running SDK

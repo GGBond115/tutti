@@ -152,6 +152,20 @@ type SessionForkProviderTurnBinding struct {
 	CheckpointMessageID string `json:"checkpointMessageId"`
 }
 
+type ProviderTurnBindingRecoveryInput struct {
+	Source               Session
+	CanonicalTurnID      string
+	RecoveryToken        string
+	LegacyTextHMACKey    string
+	LegacyTextHMACDigest string
+}
+
+type ProviderTurnBindingRecoveryResult struct {
+	ProviderSessionID           string
+	ProviderTurnID              string
+	ProviderCheckpointMessageID string
+}
+
 type ExecInput struct {
 	RoomID         string
 	AgentSessionID string
@@ -173,6 +187,10 @@ type ExecInput struct {
 	// The provider's complete EffectiveHistoryAdapter seam always returns one
 	// typed dispatch result before this call completes.
 	HistoryReplacement bool
+	// RequireProviderAcceptance keeps the canonical Turn in its submitted
+	// boundary until the provider has returned an exact Turn identity and that
+	// binding has crossed the durable activity reporter.
+	RequireProviderAcceptance bool
 }
 
 // SubmitProvenanceInput describes the canonical user submit that an adapter

@@ -175,6 +175,8 @@ func (a agentRuntimeAdapter) Exec(ctx context.Context, input agentservice.Runtim
 		InitialTitle:                    input.InitialTitle,
 		InitialTitleBase:                input.InitialTitleBase,
 		Guidance:                        input.Guidance,
+		HistoryReplacement:              input.HistoryReplacement,
+		RequireProviderAcceptance:       input.RequireProviderAcceptance,
 		Metadata:                        cloneRuntimeContext(input.Metadata),
 		TuttiModeSnapshot:               runtimeTuttiModeSnapshotFromService(input.TuttiModeSnapshot),
 	})

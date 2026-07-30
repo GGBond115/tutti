@@ -141,6 +141,15 @@ message. Host passes it to both runtime execution and durable submit-provenance
 reporting; adapters must derive the same message sequence from that occurrence
 regardless of which report reaches storage first. `ClientSubmitID` identifies
 the submission but is not itself an ordering value.
+For a user Turn, runtime acceptance is not complete until the provider returns
+its exact Turn identity and the activity reporter durably installs
+`canonicalTurnId -> providerSessionId + providerTurnId`. The direct acceptance
+path is synchronous with the Host command while subsequent provider output
+remains asynchronous. A local persistence failure after provider acceptance is
+reported as delivery-unknown and retains the submit claim; it must never cause
+an automatic redispatch. Providers receive only the opaque `ClientSubmitID` as
+a correlation identity. Canonical Turn ids remain Tutti-owned and are not
+projected into provider client-identity fields.
 Runtime adapters preserve explicit downstream failures as `ProviderError` so
 Host consumers can distinguish provider-owned rejection from preparation,
 canonical-store, timeout, and other local failures with `errors.As`. The
@@ -199,6 +208,18 @@ the provider driver must attest native `throughTurn` support and the selected
 canonical Turn must be settled and carry a non-empty provider root Turn
 binding. Historical prefix provenance, descendants, active work on other Turns,
 and pending Interactions are not eligibility inputs.
+If an otherwise eligible historical Turn is missing only that binding,
+`ForkSession` performs one read-only provider-history repair before repeating
+the canonical boundary check. The primary proof is the durable submit claim's
+opaque correlation identity. Truly old Claude text-only submissions may use a
+per-request HMAC equality proof over one complete text block; multimodal,
+attachment-bearing, context-enriched, incomplete, duplicated, and ambiguous
+history fails closed. Codex has no legacy text recovery because its stable
+`thread/read` shape does not expose an equally authoritative complete prompt.
+No provider Turn is ever selected by index. The SQLite repair is an idempotent
+empty-binding compare-and-swap and rejects provider Turn identities already
+owned by another canonical Turn. Claude additionally persists the recovered
+checkpoint; Codex `thread/fork(lastTurnId)` consumes only its provider Turn id.
 Target titles use one lineage-family sequence (`Title (2)`, `Title (3)`, ...)
 rather than restarting the suffix when a child Session becomes the next source.
 Every fail-closed boundary rejection retains a stable, content-free reason

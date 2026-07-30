@@ -124,6 +124,29 @@ type SessionForkRuntime interface {
 	ForkSession(context.Context, RuntimeSessionForkInput) (RuntimeSessionForkResult, error)
 }
 
+// SessionForkTurnBindingRecoveryRuntime performs a read-only provider-history
+// lookup for an exact opaque token or a complete legacy text proof. It must
+// never infer identity from Turn position.
+type SessionForkTurnBindingRecoveryRuntime interface {
+	RecoverProviderTurnBinding(
+		context.Context,
+		RuntimeProviderTurnBindingRecoveryInput,
+	) (RuntimeProviderTurnBindingRecoveryResult, error)
+}
+
+type SessionForkTurnBindingRecoveryStore interface {
+	FindSubmitClaimByCanonicalTurn(
+		context.Context,
+		string,
+		string,
+		string,
+	) (storesqlite.SubmitClaim, bool, error)
+	RecoverProviderTurnBinding(
+		context.Context,
+		storesqlite.ProviderTurnBindingRecovery,
+	) (storesqlite.ProviderTurnBindingRecoveryResult, error)
+}
+
 // SessionForkContextPolicy decides whether host-owned session context can be
 // transferred safely and returns the exact target context to freeze at
 // prepare. Product-specific resource ownership (for example worktrees) stays

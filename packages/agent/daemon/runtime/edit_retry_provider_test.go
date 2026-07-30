@@ -109,6 +109,62 @@ func TestCodexEffectiveHistoryUsesNoHandlerTypedCommands(t *testing.T) {
 	}
 }
 
+func TestCodexProviderTurnBindingRecoveryRequiresOneExactOpaqueToken(t *testing.T) {
+	transport := newScriptedAppServerTransport()
+	adapter := NewCodexAppServerAdapter(transport)
+	session := testAppServerSession()
+	session.ProviderSessionID = "codex-thread-1"
+	transport.conn.historyTurns = []any{
+		map[string]any{
+			"id": "provider-turn-1", "status": "completed",
+			"items": []any{map[string]any{
+				"type": "userMessage", "clientId": "opaque-submit-1",
+			}},
+		},
+		map[string]any{
+			"id": "provider-turn-2", "status": "failed",
+			"items": []any{map[string]any{
+				"type": "userMessage", "clientId": "opaque-submit-2",
+			}},
+		},
+	}
+	recovered, err := adapter.RecoverProviderTurnBinding(
+		t.Context(),
+		ProviderTurnBindingRecoveryInput{
+			Source: session, RecoveryToken: "opaque-submit-2",
+		},
+	)
+	if err != nil ||
+		recovered.ProviderSessionID != session.ProviderSessionID ||
+		recovered.ProviderTurnID != "provider-turn-2" ||
+		recovered.ProviderCheckpointMessageID != "" {
+		t.Fatalf("recovered binding = %#v error=%v", recovered, err)
+	}
+	ambiguousHistory := append(
+		[]any(nil),
+		transport.conn.historyTurns...,
+	)
+	ambiguousHistory = append(
+		ambiguousHistory,
+		map[string]any{
+			"id": "provider-turn-3", "status": "completed",
+			"items": []any{map[string]any{
+				"type": "userMessage", "clientId": "opaque-submit-2",
+			}},
+		},
+	)
+	transport.conn = newScriptedAppServerConnection()
+	transport.conn.historyTurns = ambiguousHistory
+	if _, err := adapter.RecoverProviderTurnBinding(
+		t.Context(),
+		ProviderTurnBindingRecoveryInput{
+			Source: session, RecoveryToken: "opaque-submit-2",
+		},
+	); err == nil {
+		t.Fatal("ambiguous provider recovery token was accepted")
+	}
+}
+
 func TestCodexEffectiveHistoryRollbackReportsExplicitRejection(t *testing.T) {
 	adapter, transport, session := startedAppServerAdapter(t)
 	transport.conn.rollbackUnsupported = true
@@ -175,7 +231,7 @@ func TestControllerHistoryReplacementReturnsDurableDirectReceipt(t *testing.T) {
 		t.Fatalf("provider dispatch = %#v", result.ProviderDispatch)
 	}
 	turnStart := appServerRequestParams(t, connection, appServerMethodTurnStart)
-	if got := asString(turnStart["clientUserMessageId"]); got != "replacement-turn-1" {
+	if got := asString(turnStart["clientUserMessageId"]); got != "replacement-submit-1" {
 		t.Fatalf("replacement clientUserMessageId = %q", got)
 	}
 }
@@ -303,8 +359,61 @@ func TestControllerOrdinarySendStillReturnsBeforeTurnStartAck(t *testing.T) {
 		return len(appServerRequestParamsList(t, connection, appServerMethodTurnStart)) == 1
 	})
 	turnStart := appServerRequestParams(t, connection, appServerMethodTurnStart)
-	if _, found := turnStart["clientUserMessageId"]; found {
-		t.Fatalf("ordinary clientUserMessageId = %#v, want omitted", turnStart["clientUserMessageId"])
+	if got := asString(turnStart["clientUserMessageId"]); got != "ordinary-submit-1" {
+		t.Fatalf("ordinary clientUserMessageId = %#v, want opaque submit identity", turnStart["clientUserMessageId"])
+	}
+}
+
+func TestControllerOrdinarySendRequiresDurableProviderAcceptance(t *testing.T) {
+	var connection *scriptedAppServerConnection
+	barrier := &providerAcceptanceBarrierReporter{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	controller, _, sessionID := startedEditRetryControllerWithReporter(
+		t,
+		barrier,
+		func(_ *CodexAppServerAdapter, transport *scriptedAppServerTransport) {
+			connection = transport.conn
+		},
+	)
+	type execOutcome struct {
+		result ExecResult
+		err    error
+	}
+	completed := make(chan execOutcome, 1)
+	go func() {
+		result, err := controller.Exec(t.Context(), ExecInput{
+			RoomID: "room-edit-retry", AgentSessionID: sessionID,
+			TurnID: "ordinary-turn-durable", ClientSubmitID: "opaque-submit-durable",
+			CanonicalSubmitOccurredAtUnixMS: 1_005,
+			Content:                         textPrompt("ordinary durable"),
+			RequireProviderAcceptance:       true,
+		})
+		completed <- execOutcome{result: result, err: err}
+	}()
+	select {
+	case <-barrier.entered:
+	case <-time.After(time.Second):
+		t.Fatal("ordinary provider acceptance did not reach durable reporter")
+	}
+	select {
+	case outcome := <-completed:
+		t.Fatalf("Exec returned before binding durability: %#v", outcome)
+	default:
+	}
+	close(barrier.release)
+	outcome := <-completed
+	if outcome.err != nil ||
+		outcome.result.ProviderDispatch == nil ||
+		outcome.result.ProviderDispatch.Disposition != DispatchDispositionApplied ||
+		outcome.result.ProviderDispatch.Acceptance == nil ||
+		outcome.result.ProviderDispatch.Acceptance.ProviderTurnID != "turn-1" {
+		t.Fatalf("durable ordinary acceptance = %#v error=%v", outcome.result, outcome.err)
+	}
+	turnStart := appServerRequestParams(t, connection, appServerMethodTurnStart)
+	if got := asString(turnStart["clientUserMessageId"]); got != "opaque-submit-durable" {
+		t.Fatalf("ordinary recovery token = %q", got)
 	}
 }
 

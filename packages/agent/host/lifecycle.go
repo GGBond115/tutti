@@ -192,9 +192,15 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		CapabilityRefs: append([]CapabilityReference(nil), input.CapabilityRefs...), Content: preparedContent.Hydrated,
 		DisplayPrompt: displayPrompt, InitialTitle: initialTitle, InitialTitleBase: session.Title,
 		Metadata: cloneMap(metadata), TuttiModeSnapshot: input.TuttiModeSnapshot,
+		RequireProviderAcceptance: true,
 	})
 	if err != nil {
 		h.observeStep(ctx, "session_create", "runtime_exec", session.ID, session.Provider, startedAt, err)
+		if execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionApplied ||
+			execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionOutcomeUnknown {
+			claimPending = false
+			return CreateSessionResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
+		}
 		return CreateSessionResult{}, cleanup(err, true, true)
 	}
 	turnID = strings.TrimSpace(execResult.TurnID)
@@ -466,13 +472,17 @@ func (h *Host) sendInputSerialized(
 			CapabilityRefs:                  append([]CapabilityReference(nil), input.CapabilityRefs...), Content: preparedContent.Hydrated,
 			DisplayPrompt: displayPrompt, InitialTitle: initialTitle, InitialTitleBase: session.Title,
 			Guidance: input.Guidance, Metadata: cloneMap(metadata), TuttiModeSnapshot: input.TuttiModeSnapshot,
+			RequireProviderAcceptance: !input.Guidance,
 		})
 	}()
 	if err != nil {
 		h.observeStep(ctx, "message_send", "runtime_exec", ref.AgentSessionID, session.Provider, startedAt, err)
-		if input.Guidance {
+		if input.Guidance ||
+			execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionApplied ||
+			execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionOutcomeUnknown {
 			// Guidance targets an already-live turn and transport failure cannot
-			// prove rejection. Preserve the claim as a replay fence.
+			// prove rejection. A positive/unknown provider dispatch likewise
+			// preserves the claim as a recovery fence.
 			claimPending = false
 			return SendInputResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
 		}

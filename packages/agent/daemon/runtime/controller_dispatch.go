@@ -40,10 +40,13 @@ func (c *Controller) confirmProviderDispatchDurable(
 	receipt := *dispatch.Acceptance
 	if receipt.Source != AcceptanceSourceTurnStartResponse ||
 		strings.TrimSpace(receipt.ProviderSessionID) == "" ||
-		strings.TrimSpace(receipt.ProviderTurnID) == "" {
+		strings.TrimSpace(receipt.ProviderTurnID) == "" ||
+		strings.TrimSpace(receipt.ProviderSessionID) !=
+			strings.TrimSpace(session.ProviderSessionID) {
 		return ProviderDispatchResult{
 			Disposition: DispatchDispositionOutcomeUnknown,
-		}, errors.New("provider dispatch returned an incomplete acceptance receipt")
+			Acceptance:  &receipt,
+		}, errors.New("provider dispatch returned an invalid acceptance receipt")
 	}
 	eventContext, ok := activityEventContext(
 		session,
@@ -53,6 +56,7 @@ func (c *Controller) confirmProviderDispatchDurable(
 	if !ok {
 		return ProviderDispatchResult{
 			Disposition: DispatchDispositionOutcomeUnknown,
+			Acceptance:  &receipt,
 		}, ErrSessionDisconnected
 	}
 	accepted := activityshared.NewRootProviderTurnStarted(
@@ -67,11 +71,13 @@ func (c *Controller) confirmProviderDispatchDurable(
 	if err != nil {
 		return ProviderDispatchResult{
 			Disposition: DispatchDispositionOutcomeUnknown,
+			Acceptance:  &receipt,
 		}, err
 	}
 	if !reported {
 		return ProviderDispatchResult{
 			Disposition: DispatchDispositionOutcomeUnknown,
+			Acceptance:  &receipt,
 		}, errors.New("durable provider acceptance reporter is unavailable")
 	}
 	return dispatch, nil

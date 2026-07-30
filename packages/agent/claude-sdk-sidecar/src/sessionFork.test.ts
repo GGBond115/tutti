@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac, randomBytes } from "node:crypto";
 import test from "node:test";
 import {
   forkSession as sdkForkSession,
@@ -8,7 +9,8 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   forkClaudeSession,
-  inspectClaudeForkCheckpoints
+  inspectClaudeForkCheckpoints,
+  recoverClaudeTurnBinding
 } from "./sessionFork.ts";
 
 const childSessionId = "11111111-1111-4111-8111-111111111111";
@@ -55,6 +57,107 @@ test("Claude fork inspection exposes only root user message UUIDs", async () => 
     fakeSDK()
   );
   assert.deepEqual(result, { providerTurnIds: ["prompt-1", "prompt-2"] });
+});
+
+test("Claude turn recovery resolves one exact opaque UUID and checkpoint", async () => {
+  const token = "opaque-submit-2";
+  const sdk = fakeSDK();
+  sdk.getSessionMessages = (async () => [
+    message("user", "prompt-1", {
+      role: "user",
+      content: "one"
+    }),
+    message("assistant", "answer-1", {
+      role: "assistant",
+      content: "first"
+    }),
+    message("user", token, {
+      role: "user",
+      content: "two"
+    }),
+    message("assistant", "answer-2", {
+      role: "assistant",
+      content: "second"
+    })
+  ]) as typeof sdk.getSessionMessages;
+  const result = await recoverClaudeTurnBinding(
+    {
+      sessionId: "source",
+      cwd: "/workspace",
+      recoveryToken: token,
+      legacyTextHMACKey: "",
+      legacyTextHMACDigest: ""
+    },
+    sdk
+  );
+  assert.deepEqual(result, {
+    providerSessionId: "source",
+    providerTurnId: token,
+    providerCheckpointMessageId: "answer-2"
+  });
+});
+
+test("Claude legacy text recovery fails closed for multimodal content", async () => {
+  const key = randomBytes(32);
+  const digest = createHmac("sha256", key).update("legacy text").digest();
+  const sdk = fakeSDK();
+  sdk.getSessionMessages = (async () => [
+    message("user", "prompt-legacy", {
+      role: "user",
+      content: [
+        { type: "text", text: "legacy text" },
+        { type: "image", source: { type: "base64", data: "AA==" } }
+      ]
+    }),
+    message("assistant", "answer-legacy", {
+      role: "assistant",
+      content: "answer"
+    })
+  ]) as typeof sdk.getSessionMessages;
+  await assert.rejects(
+    recoverClaudeTurnBinding(
+      {
+        sessionId: "source",
+        cwd: "/workspace",
+        recoveryToken: "",
+        legacyTextHMACKey: key.toString("base64url"),
+        legacyTextHMACDigest: digest.toString("base64url")
+      },
+      sdk
+    ),
+    /absent or ambiguous/
+  );
+});
+
+test("Claude legacy text recovery accepts one complete exact HMAC proof", async () => {
+  const key = randomBytes(32);
+  const digest = createHmac("sha256", key).update("legacy text").digest();
+  const sdk = fakeSDK();
+  sdk.getSessionMessages = (async () => [
+    message("user", "provider-legacy", {
+      role: "user",
+      content: "legacy text"
+    }),
+    message("assistant", "checkpoint-legacy", {
+      role: "assistant",
+      content: "answer"
+    })
+  ]) as typeof sdk.getSessionMessages;
+  const result = await recoverClaudeTurnBinding(
+    {
+      sessionId: "source",
+      cwd: "/workspace",
+      recoveryToken: "",
+      legacyTextHMACKey: key.toString("base64url"),
+      legacyTextHMACDigest: digest.toString("base64url")
+    },
+    sdk
+  );
+  assert.deepEqual(result, {
+    providerSessionId: "source",
+    providerTurnId: "provider-legacy",
+    providerCheckpointMessageId: "checkpoint-legacy"
+  });
 });
 
 test("Claude fork uses the official mutation and maps remapped UUIDs", async () => {

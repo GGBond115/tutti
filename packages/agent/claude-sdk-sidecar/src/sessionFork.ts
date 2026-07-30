@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import {
   forkSession,
   getSessionInfo,
@@ -27,6 +27,12 @@ type ForkInput = ForkInspectInput & {
   title: string;
 };
 
+type TurnBindingRecoveryInput = ForkInspectInput & {
+  recoveryToken: string;
+  legacyTextHMACKey: string;
+  legacyTextHMACDigest: string;
+};
+
 type ClaudeForkSDK = {
   forkSession: typeof forkSession;
   getSessionMessages: typeof getSessionMessages;
@@ -52,6 +58,28 @@ export async function inspectClaudeForkCheckpoints(
   )) as SDKMessage[];
   return {
     providerTurnIds: rootProviderTurnIds(messages)
+  };
+}
+
+export async function recoverClaudeTurnBinding(
+  input: TurnBindingRecoveryInput,
+  sdk: ClaudeForkSDK = defaultClaudeForkSDK
+): Promise<Record<string, unknown>> {
+  requireIdentity(input.sessionId, "provider session id");
+  const messages = (await sdk.getSessionMessages(
+    input.sessionId,
+    transcriptOptions(input.cwd)
+  )) as SDKMessage[];
+  const matches = rootTurnBindingMatches(messages, input);
+  if (matches.length !== 1) {
+    throw new Error(
+      "Claude provider turn recovery proof is absent or ambiguous"
+    );
+  }
+  return {
+    providerSessionId: input.sessionId,
+    providerTurnId: matches[0]!.providerTurnId,
+    providerCheckpointMessageId: matches[0]!.checkpointMessageId
   };
 }
 
@@ -306,6 +334,86 @@ function providerTurnBindings(messages: SDKMessage[]): Array<{
   }
   commitCurrent();
   return result;
+}
+
+function rootTurnBindingMatches(
+  messages: SDKMessage[],
+  input: TurnBindingRecoveryInput
+): Array<{ providerTurnId: string; checkpointMessageId: string }> {
+  const bindings = providerTurnBindings(messages);
+  const rootMessages = messages.filter(isRootUserMessage);
+  if (bindings.length !== rootMessages.length) {
+    throw new Error("Claude transcript contains incomplete root turn bindings");
+  }
+  const recoveryToken = input.recoveryToken.trim();
+  const legacyKey = decodeBase64URL(input.legacyTextHMACKey);
+  const legacyDigest = decodeBase64URL(input.legacyTextHMACDigest);
+  const result: Array<{
+    providerTurnId: string;
+    checkpointMessageId: string;
+  }> = [];
+  for (let index = 0; index < rootMessages.length; index += 1) {
+    const root = rootMessages[index]!;
+    const providerTurnId = messageIdentity(root);
+    const text = exactPureText(root);
+    const tokenMatch = recoveryToken !== "" && providerTurnId === recoveryToken;
+    const legacyMatch =
+      !recoveryToken &&
+      text !== undefined &&
+      legacyKey.length > 0 &&
+      legacyDigest.length > 0 &&
+      safeEqual(
+        createHmac("sha256", legacyKey).update(text).digest(),
+        legacyDigest
+      );
+    if (tokenMatch || legacyMatch) {
+      result.push(bindings[index]!);
+    }
+  }
+  return result;
+}
+
+function exactPureText(message: SDKMessage): string | undefined {
+  const content =
+    message.message && typeof message.message === "object"
+      ? (message.message as { content?: unknown }).content
+      : undefined;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content) || content.length === 0) {
+    return undefined;
+  }
+  const texts: string[] = [];
+  for (const block of content) {
+    if (
+      !block ||
+      typeof block !== "object" ||
+      Array.isArray(block) ||
+      (block as { type?: unknown }).type !== "text" ||
+      typeof (block as { text?: unknown }).text !== "string"
+    ) {
+      return undefined;
+    }
+    texts.push((block as { text: string }).text);
+  }
+  return texts.join("\n\n");
+}
+
+function decodeBase64URL(value: string): Buffer {
+  const normalized = value.trim();
+  if (!normalized) {
+    return Buffer.alloc(0);
+  }
+  try {
+    return Buffer.from(normalized, "base64url");
+  } catch {
+    return Buffer.alloc(0);
+  }
+}
+
+function safeEqual(left: Buffer, right: Buffer): boolean {
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 function rootProviderTurnIds(messages: SDKMessage[]): string[] {

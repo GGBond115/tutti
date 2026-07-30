@@ -198,6 +198,20 @@ type SessionForkProviderTurnBinding struct {
 	CheckpointMessageID string
 }
 
+type RuntimeProviderTurnBindingRecoveryInput struct {
+	Source               ProviderRuntimeSession
+	CanonicalTurnID      string
+	RecoveryToken        string
+	LegacyTextHMACKey    string
+	LegacyTextHMACDigest string
+}
+
+type RuntimeProviderTurnBindingRecoveryResult struct {
+	ProviderSessionID           string
+	ProviderTurnID              string
+	ProviderCheckpointMessageID string
+}
+
 type SessionForkStateBindingMode string
 
 const (
