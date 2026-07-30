@@ -3,10 +3,10 @@ import type { TranslationDictionary } from "../core/resources.ts";
 export const zhCN = {
   browser: {
     chromeImportNotification: {
-      completed: "已从 Chrome 导入 {{imported}} 项 Cookie",
-      failed: "Chrome Cookie 导入未完成",
-      partial: "已从 Chrome 导入 {{imported}} 项 Cookie，部分条目被跳过或失败",
-      title: "Chrome 登录状态导入"
+      completed: "已导入 {{imported}} 项登录 Cookie",
+      failed: "登录 Cookie 导入未完成",
+      partial: "已导入 {{imported}} 项登录 Cookie，部分条目被跳过或失败",
+      title: "登录状态导入"
     }
   },
   common: {
