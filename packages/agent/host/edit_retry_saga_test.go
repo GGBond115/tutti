@@ -160,6 +160,15 @@ func TestEditRetrySagaReconcilesAcceptedReplacementAfterResponseLoss(t *testing.
 			runtime.reconcileAcceptanceCalls,
 		)
 	}
+	if got, want := runtime.reconcileAcceptanceInput.RootTurnID, recovered.ReplacementTurnID; got != want {
+		t.Fatalf("acceptance root turn id = %q, want %q", got, want)
+	}
+	if got, want := runtime.reconcileAcceptanceInput.ClientUserMessageID, "edit-retry:"+first.OperationID; got != want {
+		t.Fatalf("acceptance client user message id = %q, want %q", got, want)
+	}
+	if runtime.reconcileAcceptanceInput.ClientUserMessageID == runtime.reconcileAcceptanceInput.RootTurnID {
+		t.Fatal("provider correlation identity reused canonical replacement turn id")
+	}
 }
 
 func TestEditRetrySagaRetriesReplacementOnlyAfterAuthoritativeAbsence(t *testing.T) {
@@ -421,6 +430,7 @@ type hostEditRetryRuntime struct {
 	execOutcomeUnknownAccepted  bool
 	execNotDispatchedBeforeTurn bool
 	reconcileAcceptanceCalls    int
+	reconcileAcceptanceInput    agenthost.RuntimeProviderTurnAcceptanceInput
 	goalControlCalls            int
 	content                     []agenthost.PromptContentBlock
 }
@@ -455,7 +465,7 @@ func (r *hostEditRetryRuntime) Exec(ctx context.Context, input agenthost.Runtime
 	if !outcomeUnknown || outcomeUnknownAccepted {
 		if !notDispatchedBeforeTurn {
 			r.providerTurns = append(r.providerTurns, agenthost.RuntimeHistoryTurn{
-				ID: providerTurnID, ClientUserMessageID: input.TurnID,
+				ID: providerTurnID, ClientUserMessageID: input.ClientSubmitID,
 			})
 		}
 	}
@@ -526,6 +536,7 @@ func (r *hostEditRetryRuntime) ReconcileProviderTurnAcceptance(
 ) error {
 	r.mu.Lock()
 	r.reconcileAcceptanceCalls++
+	r.reconcileAcceptanceInput = input
 	r.mu.Unlock()
 	_, err := r.store.ReportActivityState(ctx, storesqlite.ActivityStateReport{
 		Session: storesqlite.SessionStateReport{

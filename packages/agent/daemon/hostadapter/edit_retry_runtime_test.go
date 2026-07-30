@@ -48,7 +48,7 @@ func (backend *editRetryRuntimeBackend) ReadEffectiveHistory(
 		ProviderSessionID: "provider-session-1",
 		Turns: []agentruntime.EffectiveHistoryTurn{{
 			ID: "provider-turn-1", Status: "completed",
-			ClientUserMessageID: "replacement-turn-1",
+			ClientUserMessageID: "replacement-submit-1",
 		}},
 	}, nil
 }
@@ -96,7 +96,7 @@ func TestRuntimeControllerProjectsEditRetryProviderContracts(t *testing.T) {
 	}
 	if backend.historyInput.RoomID != historyInput.WorkspaceID ||
 		len(history.Turns) != 1 ||
-		history.Turns[0].ClientUserMessageID != "replacement-turn-1" {
+		history.Turns[0].ClientUserMessageID != "replacement-submit-1" {
 		t.Fatalf("history input=%#v result=%#v", backend.historyInput, history)
 	}
 

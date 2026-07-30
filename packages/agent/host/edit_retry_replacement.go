@@ -47,11 +47,11 @@ func (h *Host) reconcileEditRetryReplacement(
 		return failed, false, false, failErr
 	}
 	replacement := snapshot.Turns[len(snapshot.Turns)-1]
-	if strings.TrimSpace(replacement.ClientUserMessageID) != payload.ReplacementTurnID ||
+	if strings.TrimSpace(replacement.ClientUserMessageID) != payload.ClientSubmitID ||
 		strings.TrimSpace(replacement.ID) == "" {
 		failed, failErr := h.failEditRetryRecovery(
 			ctx, operation, owner, storesqlite.EditRetryReasonOperationConflict,
-			editRetryInvariant("provider replacement cannot be correlated to the stable turn identity"),
+			editRetryInvariant("provider replacement cannot be correlated to the stable submit identity"),
 		)
 		return failed, false, false, failErr
 	}
@@ -297,7 +297,7 @@ func (h *Host) completeEditRetryAcceptance(
 				RootTurnID:                payload.ReplacementTurnID,
 				ExpectedProviderSessionID: payload.ProviderSessionID,
 				ExpectedProviderTurnID:    receipt.ProviderTurnID,
-				ClientUserMessageID:       payload.ReplacementTurnID,
+				ClientUserMessageID:       payload.ClientSubmitID,
 			},
 		); err != nil {
 			return operation, err

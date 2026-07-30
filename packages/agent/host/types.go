@@ -400,7 +400,9 @@ type RuntimeProviderTurnAcceptanceInput struct {
 	RootTurnID                string
 	ExpectedProviderSessionID string
 	ExpectedProviderTurnID    string
-	ClientUserMessageID       string
+	// ClientUserMessageID is opaque provider correlation evidence. It must not
+	// reuse the canonical RootTurnID as provider-owned client identity.
+	ClientUserMessageID string
 }
 
 type RuntimeSubmitProvenanceInput struct {

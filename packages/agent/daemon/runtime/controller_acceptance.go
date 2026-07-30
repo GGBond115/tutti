@@ -17,7 +17,9 @@ type ProviderTurnAcceptanceInput struct {
 	RootTurnID                string
 	ExpectedProviderSessionID string
 	ExpectedProviderTurnID    string
-	ClientUserMessageID       string
+	// ClientUserMessageID is opaque provider correlation evidence and must be
+	// distinct from the canonical RootTurnID.
+	ClientUserMessageID string
 }
 
 func (c *Controller) ReconcileProviderTurnAcceptance(
@@ -34,7 +36,8 @@ func (c *Controller) ReconcileProviderTurnAcceptance(
 	if c == nil || input.RoomID == "" || input.AgentSessionID == "" ||
 		input.RootTurnID == "" || input.ExpectedProviderSessionID == "" ||
 		input.ExpectedProviderTurnID == "" ||
-		input.ClientUserMessageID != input.RootTurnID {
+		input.ClientUserMessageID == "" ||
+		input.ClientUserMessageID == input.RootTurnID {
 		return errors.New("valid provider turn acceptance evidence is required")
 	}
 	session, found := c.get(input.RoomID, input.AgentSessionID)

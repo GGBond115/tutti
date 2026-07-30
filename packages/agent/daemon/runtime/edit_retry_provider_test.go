@@ -255,7 +255,7 @@ func TestControllerReconcilesHistoryAcceptanceThroughDurableBarrier(t *testing.T
 				Provider: ProviderCodex, RootTurnID: "replacement-turn-history",
 				ExpectedProviderSessionID: "codex-thread-1",
 				ExpectedProviderTurnID:    "provider-turn-history",
-				ClientUserMessageID:       "replacement-turn-history",
+				ClientUserMessageID:       "edit-retry:operation-history",
 			},
 		)
 	}()
@@ -272,6 +272,24 @@ func TestControllerReconcilesHistoryAcceptanceThroughDurableBarrier(t *testing.T
 	close(barrier.release)
 	if err := <-completed; err != nil {
 		t.Fatalf("ReconcileProviderTurnAcceptance() error = %v", err)
+	}
+}
+
+func TestControllerRejectsCanonicalTurnIDAsProviderAcceptanceEvidence(t *testing.T) {
+	controller, _, sessionID := startedEditRetryController(t, nil)
+
+	err := controller.ReconcileProviderTurnAcceptance(
+		t.Context(),
+		ProviderTurnAcceptanceInput{
+			RoomID: "room-edit-retry", AgentSessionID: sessionID,
+			Provider: ProviderCodex, RootTurnID: "replacement-turn-history",
+			ExpectedProviderSessionID: "codex-thread-1",
+			ExpectedProviderTurnID:    "provider-turn-history",
+			ClientUserMessageID:       "replacement-turn-history",
+		},
+	)
+	if err == nil {
+		t.Fatal("ReconcileProviderTurnAcceptance() error = nil, want invalid evidence")
 	}
 }
 
