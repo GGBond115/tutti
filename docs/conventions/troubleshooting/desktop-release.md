@@ -120,7 +120,9 @@
   `no such table: model_plan_first_use_candidates`, followed by
   `tuttid exited before it published its listener info`. Another early form
   exits while checking prerequisites because a stale `pnpm` shim reports that
-  its bundled `../node/bin/node` no longer exists.
+  its bundled `../node/bin/node` no longer exists. A catalog form starts
+  successfully but selects a legacy workspace-app release because the daemon
+  reports the development package placeholder version `0.0.0`.
 - Quick checks:
   Run `DEV_GUI_SKIP_START=1 make dev-gui` to isolate prerequisite setup from
   Electron startup. If full startup exits after `start electron app...`, inspect
@@ -136,6 +138,9 @@
   app makes the dev app quit as a secondary instance. Agent shells launched from
   the packaged app may inherit `TUTTI_ENV=production`, so `make dev-gui` must
   force the development environment instead of preserving that inherited value.
+  Electron development reads the placeholder version from
+  `apps/desktop/package.json`; passing that value to the daemon makes
+  compatibility-gated catalog releases ineligible.
   The missing-table variant comes from a development database that already
   recorded `model_plans_v1` before the candidate table was added behind that
   same marker. SQLite correctly skips the recorded migration, so startup
@@ -147,14 +152,17 @@
   Electron userData to an environment-specific path before requesting the
   single-instance lock. Ensure the dev-gui script exports
   `TUTTI_ENV=development` before resolving pid files, installing the dev CLI, or
-  launching Electron.
+  launching Electron. Resolve and export `TUTTI_APP_VERSION` from the repository
+  Git description before launch, while preserving an explicit developer
+  override.
   Apply a new, idempotent `model_plan_first_use_candidates_v1` forward migration
   after `model_plans_v1`; do not require deleting the development database and
   do not rewrite or reuse the recorded migration identifier.
 - Validation:
-  Run `DEV_GUI_SKIP_START=1 make dev-gui`, then run full `make dev-gui` while
-  the packaged app is open and confirm the renderer dev server and development
-  `tuttid` start. Also run `pnpm --filter @tutti-os/desktop test`,
+  Run `DEV_GUI_SKIP_START=1 make dev-gui` and confirm it logs a SemVer-compatible
+  Git-derived desktop version rather than `0.0.0`. Then run full `make dev-gui`
+  while the packaged app is open and confirm the renderer dev server and
+  development `tuttid` start. Also run `pnpm --filter @tutti-os/desktop test`,
   `pnpm --filter @tutti-os/desktop typecheck`, and
   `pnpm check:electron-runtime-boundaries`.
   Retain a migration test that starts with `model_plans_v1` recorded and the

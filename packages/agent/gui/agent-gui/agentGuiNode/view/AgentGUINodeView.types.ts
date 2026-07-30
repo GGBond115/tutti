@@ -541,6 +541,7 @@ export interface AgentGUINodeViewProps {
     sourceAgentSessionId: string;
     userProjectPath?: string | null;
   }) => void | Promise<void>;
+  showHandoffTargetOwnershipLabels?: boolean;
   capabilityMenuState?: AgentComposerProps["capabilityMenuState"];
   capabilityControlsReadOnly?: AgentComposerProps["capabilityControlsReadOnly"];
   onCapabilitySettingsRequest?: AgentComposerProps["onCapabilitySettingsRequest"];
@@ -733,6 +734,7 @@ export interface AgentGUIDetailPaneProps {
   onSlashStatusRefresh?: AgentComposerProps["onSlashStatusRefresh"];
   onLinkAction?: (action: WorkspaceLinkAction) => void;
   onHandoffConversation?: AgentGUINodeViewProps["onHandoffConversation"];
+  showHandoffTargetOwnershipLabels?: boolean;
   capabilityMenuState?: AgentComposerProps["capabilityMenuState"];
   capabilityControlsReadOnly?: AgentComposerProps["capabilityControlsReadOnly"];
   onCapabilitySettingsRequest?: AgentComposerProps["onCapabilitySettingsRequest"];

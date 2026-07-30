@@ -20,6 +20,7 @@ interface AgentGUINodeProbeProps {
       availability: unknown;
       ref: unknown;
     }[];
+    showHandoffTargetOwnershipLabels?: boolean;
   };
 }
 
@@ -193,6 +194,20 @@ describe("AgentGUI i18n", () => {
     expect(
       screen.getByTestId("agent-gui-handoff-targets-probe")
     ).toHaveTextContent('["local-codex","shared-agent:claude"]');
+  });
+
+  it("forwards the host-owned handoff ownership presentation", () => {
+    render(
+      <AgentGUI
+        {...createAgentGUIProps("en")}
+        hostCapabilities={{ showHandoffTargetOwnershipLabels: true }}
+      />
+    );
+
+    const props = agentGuiNodeSpy.mock.calls.at(-1)?.[0] as
+      | AgentGUINodeProbeProps
+      | undefined;
+    expect(props?.hostCapabilities.showHandoffTargetOwnershipLabels).toBe(true);
   });
 
   it("reuses agent target projections across frame-only renders", () => {

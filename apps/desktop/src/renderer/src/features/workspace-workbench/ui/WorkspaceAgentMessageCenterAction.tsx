@@ -19,8 +19,7 @@ import {
 } from "@tutti-os/agent-gui/agent-message-center";
 import {
   type AgentActivityMessage,
-  type CanonicalAgentSession,
-  selectEngineInteraction
+  type CanonicalAgentSession
 } from "@tutti-os/agent-activity-core";
 import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
 import type { WorkbenchHostChromeRenderContext } from "@tutti-os/workbench-surface";
@@ -373,25 +372,10 @@ export function WorkspaceAgentMessageCenterAction({
         return;
       }
       if (!input.turnId) return;
-      const interaction = selectEngineInteraction(
-        sessionEngine.getSnapshot(),
-        input.agentSessionId,
-        input.turnId,
-        input.requestId
-      );
-      if (interaction?.status !== "pending") return;
-      sessionEngine.dispatch({
-        type: "interaction/responseRequested",
+      sessionEngine.submitInteractionResponse({
         agentSessionId: input.agentSessionId,
-        commandId: interactionCommandId({
-          workspaceId: workspace.id,
-          agentSessionId: input.agentSessionId,
-          requestId: input.requestId,
-          turnId: input.turnId
-        }),
         requestId: input.requestId,
         turnId: input.turnId,
-        workspaceId: workspace.id,
         ...(input.action ? { action: input.action } : {}),
         ...(input.optionId ? { optionId: input.optionId } : {}),
         ...(input.payload ? { payload: input.payload } : {})
@@ -466,20 +450,6 @@ export function WorkspaceAgentMessageCenterAction({
       />
     </>
   );
-}
-
-function interactionCommandId(input: {
-  agentSessionId: string;
-  requestId: string;
-  turnId?: string;
-  workspaceId: string;
-}): string {
-  return [
-    input.workspaceId,
-    input.agentSessionId,
-    input.turnId ?? "interaction",
-    input.requestId
-  ].join(":");
 }
 
 function hasCachedWorkspaceAgentSessionMessages(

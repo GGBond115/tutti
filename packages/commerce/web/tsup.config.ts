@@ -5,7 +5,8 @@ const assetSubpaths = [
   "@tutti-os/commerce/assets/star-lite.png",
   "@tutti-os/commerce/assets/star-pro.png",
   "@tutti-os/commerce/assets/star-ultra.png",
-  "@tutti-os/commerce/assets/registration-credits-bg.png"
+  "@tutti-os/commerce/assets/registration-credits-bg.png",
+  "@tutti-os/commerce/assets/titi-run.png"
 ];
 
 export default defineConfig({
@@ -19,7 +20,8 @@ export default defineConfig({
     "runtime-assets/star-pro-url": "src/runtime-assets/star-pro-url.ts",
     "runtime-assets/star-ultra-url": "src/runtime-assets/star-ultra-url.ts",
     "runtime-assets/registration-credits-bg-url":
-      "src/runtime-assets/registration-credits-bg-url.ts"
+      "src/runtime-assets/registration-credits-bg-url.ts",
+    "runtime-assets/titi-run-url": "src/runtime-assets/titi-run-url.ts"
   },
   external: [...assetSubpaths, "react", "react-dom"],
   format: ["esm"],

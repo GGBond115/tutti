@@ -1,6 +1,5 @@
 import {
   selectEngineSession,
-  selectEngineSessionSettingsUpdate,
   type AgentActivityTurn,
   type AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
@@ -28,7 +27,6 @@ import {
   resolveEffectiveComposerSettings,
   sameComposerSettings
 } from "./agentGuiController.composerHelpers";
-import { shouldRetrySessionSettingsUpdate } from "../model/composerModeSelection";
 import {
   enforceComposerModelBindingForHomeDefaults,
   nodeDataMatchesComposerTarget,
@@ -48,10 +46,7 @@ import {
   type AgentGUIComposerDefaultsMutation,
   type AgentGUIRetiredComposerDefault
 } from "./agentGuiComposerDefaultsReconciliation";
-import {
-  normalizeOptionalText,
-  createAgentGUIConversationId
-} from "./agentGuiController.promptHelpers";
+import { normalizeOptionalText } from "./agentGuiController.promptHelpers";
 import {
   composerDefaultsPatchFromSettings,
   composerOptionsForTarget,
@@ -455,18 +450,9 @@ export function useAgentGUIComposerSettingsActions(
             settings: { ...sessionSettingsPatch }
           });
         } else {
-          const settingsUpdate = selectEngineSessionSettingsUpdate(
-            sessionEngine.getSnapshot(),
-            agentSessionId
-          );
-          sessionEngine.dispatch({
+          sessionEngine.updateSessionSettings({
             agentSessionId,
-            commandId: `settings:${createAgentGUIConversationId()}`,
-            retry: shouldRetrySessionSettingsUpdate(settingsUpdate?.status),
-            settings: { ...sessionSettingsPatch },
-            timeoutMs: 30_000,
-            type: "session/settingsUpdateRequested",
-            workspaceId
+            settings: { ...sessionSettingsPatch }
           });
         }
         return;

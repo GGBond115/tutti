@@ -2,7 +2,6 @@ import {
   AGENT_SESSION_ENGINE_LOCAL_ORIGIN,
   createAgentActivitySnapshotProjector,
   createAgentSessionEngine,
-  selectEngineSessionSettingsUpdate,
   selectEngineSessionRuntimeAvailability,
   type AgentActivitySessionSettings,
   type AgentActivityInteraction,
@@ -39,7 +38,6 @@ import {
 } from "./workspaceActivityProjection";
 import { WorkspaceConversationRailService } from "./workspaceConversationRailService";
 import { createMobileActivityCommandId } from "./workspaceActivityCommandSupport";
-import { requestWorkspaceActivityInteractionResponse } from "./workspaceActivityInteractionCommand";
 import type { WorkspaceActivitySnapshot } from "./workspaceActivityTypes";
 import { WorkspaceAgentLiveLane } from "./workspaceAgentLiveLane";
 import { selectWorkspaceConversationRailSessionIds } from "./workspaceConversationRailProjection";
@@ -335,18 +333,9 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       return;
     }
     if (!target.agentSessionId) return;
-    const settingsUpdate = selectEngineSessionSettingsUpdate(
-      this.engine.getSnapshot(),
-      target.agentSessionId
-    );
-    this.engine.dispatch({
+    this.engine.updateSessionSettings({
       agentSessionId: target.agentSessionId,
-      commandId: createMobileActivityCommandId(),
-      retry: settingsUpdate?.status === "unknown",
-      settings,
-      timeoutMs: COMMAND_TIMEOUT_MS,
-      type: "session/settingsUpdateRequested",
-      workspaceId: this.workspace.id
+      settings
     });
   }
 
@@ -498,20 +487,19 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
 
   respondToInteraction(
     interaction: AgentActivityInteraction,
-    input?: {
+    input: {
       action?: string;
       optionId?: string;
       payload?: Readonly<Record<string, unknown>>;
     }
   ): void {
-    requestWorkspaceActivityInteractionResponse({
-      commandId: createMobileActivityCommandId(),
-      engine: this.engine,
-      interaction,
-      ...(input ? { response: input } : {}),
-      states: this.getSnapshot().interactionStates,
-      timeoutMs: COMMAND_TIMEOUT_MS,
-      workspaceId: this.workspace.id
+    this.engine.submitInteractionResponse({
+      agentSessionId: interaction.agentSessionId,
+      requestId: interaction.requestId,
+      turnId: interaction.turnId,
+      ...(input.action ? { action: input.action } : {}),
+      ...(input.optionId ? { optionId: input.optionId } : {}),
+      ...(input.payload ? { payload: input.payload } : {})
     });
   }
 

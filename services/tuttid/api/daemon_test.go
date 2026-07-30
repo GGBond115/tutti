@@ -1975,7 +1975,6 @@ func TestDaemonAPIGeneratedRoutesGetAgentProviderComposerOptions(t *testing.T) {
 						RefreshModelOptionsAfterSettings:    true,
 						PrewarmDraftSession:                 true,
 						PlanModeExclusiveWithPermissionMode: true,
-						NativePluginCatalogAuthoritative:    true,
 					},
 					SlashCommandPolicy: &providerregistry.SlashCommandPolicyDescriptor{
 						FallbackCommands:            []string{"compact", "goal"},
@@ -2037,9 +2036,7 @@ func TestDaemonAPIGeneratedRoutesGetAgentProviderComposerOptions(t *testing.T) {
 	}
 	if !response.Behavior.ModelOptionsAuthoritative ||
 		!response.Behavior.RefreshModelOptionsAfterSettings || !response.Behavior.PrewarmDraftSession ||
-		!response.Behavior.PlanModeExclusiveWithPermissionMode ||
-		response.Behavior.NativePluginCatalogAuthoritative == nil ||
-		!*response.Behavior.NativePluginCatalogAuthoritative {
+		!response.Behavior.PlanModeExclusiveWithPermissionMode {
 		t.Fatalf("behavior = %#v", response.Behavior)
 	}
 	if response.SlashCommandPolicy == nil ||

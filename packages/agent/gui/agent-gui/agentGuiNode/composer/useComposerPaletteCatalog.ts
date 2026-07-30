@@ -82,11 +82,7 @@ export function useComposerPaletteCatalog({
   const promptBeforeSelection =
     editorHandleRef.current?.getPromptTextBeforeSelection() ?? "";
   const skillQueryDraft = promptBeforeSelection || paletteDraftPrompt;
-  const triggerQueryMatch = getAgentComposerTriggerQueryMatch(skillQueryDraft);
-  // `$` is reserved for native Composer plugins. `/` remains the command and
-  // capability surface; do not synthesize a plugin alias into it.
-  const skillQueryMatch =
-    triggerQueryMatch?.prefix === "$" ? triggerQueryMatch : null;
+  const skillQueryMatch = getAgentComposerTriggerQueryMatch(skillQueryDraft);
   const resolvedSlashCommands = useMemo(
     () =>
       resolveSlashCommandsForProvider({
@@ -130,7 +126,7 @@ export function useComposerPaletteCatalog({
         : filterProviderSkillsForTrigger({
             skills: availableSkills,
             query: skillQueryMatch.query,
-            triggerPrefix: "$"
+            triggerPrefix: skillQueryMatch.prefix
           }),
     [availableSkills, skillQueryMatch]
   );
@@ -207,7 +203,13 @@ export function useComposerPaletteCatalog({
             label: capLabel,
             description: capDescription,
             settingsAriaLabel: capSettingsLabel,
-            settingsLabel: labels.capabilityInlineSettingsLabel,
+            // Tutti Mode has no inline settings surface (its "settings" button
+            // was a no-op), so omit the label to drop the button entirely; the
+            // row body still toggles the capability.
+            settingsLabel:
+              command.capability === "tutti"
+                ? undefined
+                : labels.capabilityInlineSettingsLabel,
             disabled: capabilityControlsReadOnly,
             selectAction:
               command.capability === "computerUse" &&
@@ -237,20 +239,6 @@ export function useComposerPaletteCatalog({
       });
     const skillEntries: AgentSlashPaletteEntry[] = filteredSkills.map(
       (skill) => {
-        if (skill.kind === "plugin" && skill.semantic !== undefined) {
-          return {
-            type: "plugin",
-            key: `plugin:${skill.semantic ?? skill.pluginName ?? skill.name}`,
-            label: nativePluginLabel(skill, labels),
-            ...(skillDescriptionForDisplay(skill.description)
-              ? { description: skillDescriptionForDisplay(skill.description) }
-              : {}),
-            selectAction: skill.status === "available" ? "insert" : "settings",
-            disabled:
-              skill.status !== "available" && skill.semantic !== "computerUse",
-            plugin: skill
-          };
-        }
         const trigger = skillTriggerForPrefix(skill, skillQueryMatch?.prefix);
         return {
           type: "skill",
@@ -316,18 +304,4 @@ export function useComposerPaletteCatalog({
     slashCommandPolicy,
     promptBeforeSelection
   };
-}
-
-function nativePluginLabel(
-  plugin: AgentGUIProviderSkillOption,
-  labels: AgentComposerProps["labels"]
-): string {
-  switch (plugin.semantic) {
-    case "browserUse":
-      return labels.browserUseCapabilityLabel;
-    case "computerUse":
-      return labels.computerUseCapabilityLabel;
-    default:
-      return plugin.name;
-  }
 }

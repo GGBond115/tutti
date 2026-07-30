@@ -93,20 +93,11 @@ type PrepareInput struct {
 	// conversation. Empty for non-imported sessions or when the source path
 	// wasn't captured at import time.
 	ExternalRolloutSourcePath string
-	// Optional Native-first backend preferences. Empty means auto.
-	BrowserBackendPreference  CapabilityBackendPreference
-	ComputerBackendPreference CapabilityBackendPreference
-	SitesBackendPreference    CapabilityBackendPreference
-	// AuthorizeCodexNativeComputerUse allows enabling a previously disabled
-	// session-scoped Computer Use MCP. Relative-to-absolute repairs of an
-	// already-enabled server do not require this flag.
-	AuthorizeCodexNativeComputerUse bool
 }
 
 type PreparedRuntime struct {
-	Cwd                  string
-	Env                  []string
-	NativeCapabilityPlan *NativeCapabilityPlan
+	Cwd string
+	Env []string
 }
 
 type ExtensionRuntimePrep struct {
@@ -184,7 +175,6 @@ type ProviderPrepareInput struct {
 }
 
 type ProviderPrepareResult struct {
-	Cwd                  string
-	Env                  []string
-	NativeCapabilityPlan *NativeCapabilityPlan
+	Cwd string
+	Env []string
 }

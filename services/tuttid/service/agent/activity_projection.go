@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -60,6 +61,21 @@ type SessionStateObserver interface {
 	ObserveAgentSessionState(context.Context, canonical.ReportSessionStateInput, canonical.ReportSessionStateReply)
 }
 
+type RootTurnSettlementPolicy string
+
+const (
+	RootTurnSettlementsObserve RootTurnSettlementPolicy = "observe"
+	RootTurnSettlementsIgnore  RootTurnSettlementPolicy = "ignore"
+)
+
+// SessionStateObserverRegistration forces production composition to make an
+// explicit decision about canonical root-turn settlements for every legacy
+// session-state observer.
+type SessionStateObserverRegistration struct {
+	Observer            SessionStateObserver
+	RootTurnSettlements RootTurnSettlementPolicy
+}
+
 type SessionMessageObserver interface {
 	ObserveAgentSessionMessages(context.Context, canonical.ReportSessionMessagesInput, canonical.ReportSessionMessagesReply)
 }
@@ -100,11 +116,28 @@ func (p *ActivityProjection) SetSessionMessageObserver(observer SessionMessageOb
 	p.sessionMessageObserver = observer
 }
 
-func (p *ActivityProjection) SetSessionStateObserver(observer SessionStateObserver) {
+func (p *ActivityProjection) ConfigureSessionStateObservers(registrations ...SessionStateObserverRegistration) error {
 	if p == nil {
-		return
+		return errors.New("activity projection is unavailable")
 	}
-	p.sessionStateObserver = observer
+	all := make(SessionStateObservers, 0, len(registrations))
+	rootSettlements := make(SessionStateObservers, 0, len(registrations))
+	for index, registration := range registrations {
+		if registration.Observer == nil {
+			return fmt.Errorf("session state observer %d is unavailable", index)
+		}
+		switch registration.RootTurnSettlements {
+		case RootTurnSettlementsObserve:
+			rootSettlements = append(rootSettlements, registration.Observer)
+		case RootTurnSettlementsIgnore:
+		default:
+			return fmt.Errorf("session state observer %d has no root-turn settlement policy", index)
+		}
+		all = append(all, registration.Observer)
+	}
+	p.sessionStateObserver = all
+	p.rootTurnSettleStateObserver = rootSettlements
+	return nil
 }
 
 func (p *ActivityProjection) SetRootTurnObserver(observer RootTurnObserver) {
@@ -160,16 +193,6 @@ func activityGoalProvenanceBinding(binding agentactivitybiz.GoalProvenanceBindin
 		OperationID: binding.OperationID, Revision: binding.Revision, RepairEpoch: binding.RepairEpoch,
 		Ambiguous: binding.Ambiguous, CreatedAtUnixMS: binding.CreatedAtUnixMS, UpdatedAtUnixMS: binding.UpdatedAtUnixMS,
 	}
-}
-
-// SetRootTurnSettleStateObserver registers the dedicated, opt-in consumer of
-// synthesized canonical root-turn settlement states (automation rules today).
-// Delivery is at-least-once; observers must be idempotent per settled turn.
-func (p *ActivityProjection) SetRootTurnSettleStateObserver(observer SessionStateObserver) {
-	if p == nil {
-		return
-	}
-	p.rootTurnSettleStateObserver = observer
 }
 
 func normalizeReportSessionOrigins(

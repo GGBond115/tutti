@@ -95,6 +95,7 @@ export function AgentGUINodeView({
   providerRailAllPresentation,
   onLinkAction,
   onHandoffConversation,
+  showHandoffTargetOwnershipLabels = false,
   capabilityMenuState,
   capabilityControlsReadOnly = false,
   onCapabilitySettingsRequest,
@@ -715,6 +716,9 @@ export function AgentGUINodeView({
                 onSlashStatusRefresh={onSlashStatusRefresh}
                 onLinkAction={onLinkAction}
                 onHandoffConversation={onHandoffConversation}
+                showHandoffTargetOwnershipLabels={
+                  showHandoffTargetOwnershipLabels
+                }
                 capabilityMenuState={capabilityMenuState}
                 capabilityControlsReadOnly={capabilityControlsReadOnly}
                 onCapabilitySettingsRequest={onCapabilitySettingsRequest}

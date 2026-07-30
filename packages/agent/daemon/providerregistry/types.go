@@ -454,7 +454,6 @@ type ComposerBehaviorDescriptor struct {
 	PrewarmDraftSession                 bool
 	PlanModeExclusiveWithPermissionMode bool
 	PreserveLiveModelCache              bool
-	NativePluginCatalogAuthoritative    bool
 }
 
 type ModelCapabilityRuleKind string

@@ -298,9 +298,22 @@ selection, desktop APIs, attachment ingress, and cloud inbox/outbox behavior.
 Adapter-only create fields such as transcript source paths and materialized
 skill bundles intentionally remain outside the Host contract.
 
-`tuttid` production wiring constructs one long-lived `Host`, installs it on the
-agent service adapter, invokes `Host.Recover` before serving traffic, and starts
-the Host-owned runtime and goal workers. Adapters can use the supervised
+`tuttid` production wiring resolves canonical/runtime ports and grouped adapter
+dependencies before constructing the agent service. It creates shared narrow
+components, uses their `HostSupportPorts` with canonical/runtime ports to
+compose one long-lived `Host`, then passes that completed Host and the same
+components to `NewService`. Production never mutates Service fields or calls a
+post-construction Host setter. Support adapters retain only their narrow
+component dependencies, never the complete Service facade. Runtime preparation
+may read Session Fork lineage and its operation through a committed-only seam:
+the lineage is created atomically with the committed fork, and the seam performs
+no canonical write or lifecycle reconciliation. That reader is a required
+canonical composition port rather than an optional runtime assertion, so
+provider-state binding cannot silently omit committed Fork identity
+verification.
+
+Startup invokes `Host.Recover` before serving traffic and starts the Host-owned
+runtime and goal workers. Adapters can use the supervised
 `Host.Run` entrypoint to start the runtime-operation, goal-operation, goal
 reconcile-inbox, and periodic worktree-GC workers as one lifecycle; an
 infrastructure-level worker exit cancels its siblings, while retryable item

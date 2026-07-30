@@ -294,7 +294,6 @@ type WorkspaceAccountMenuLabels = CommerceMenuLabels & {
   signIn: string;
   signOut: string;
   rewardToastTitle: string;
-  rewardToastDescription: string;
   rewardToastCreditsUnit: string;
   rewardToastClose: string;
 };
@@ -317,7 +316,6 @@ function useWorkspaceAccountMenuLabels(): WorkspaceAccountMenuLabels {
     unavailable: t("workspace.accountMenu.unavailable"),
     dataUnavailable: t("workspace.accountMenu.dataUnavailable"),
     rewardToastTitle: t("workspace.accountMenu.rewardToastTitle"),
-    rewardToastDescription: t("workspace.accountMenu.rewardToastDescription"),
     rewardToastCreditsUnit: t("workspace.accountMenu.rewardToastCreditsUnit"),
     rewardToastClose: t("workspace.accountMenu.rewardToastClose")
   };
@@ -397,7 +395,6 @@ const WorkspaceAccountMenuView = memo(function WorkspaceAccountMenuView({
             toast={accountMenuState.registrationCreditsToast}
             labels={{
               title: labels.rewardToastTitle,
-              description: labels.rewardToastDescription,
               creditsUnit: labels.rewardToastCreditsUnit,
               close: labels.rewardToastClose
             }}

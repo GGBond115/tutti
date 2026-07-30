@@ -440,6 +440,20 @@ export interface AgentSessionLoadComposerOptionsInput {
   targetKey: string;
 }
 
+export interface AgentSessionUpdateSettingsInput {
+  agentSessionId: string;
+  settings: AgentActivitySessionSettings;
+}
+
+export interface AgentSessionSubmitInteractionResponseInput {
+  action?: string;
+  agentSessionId: string;
+  optionId?: string;
+  payload?: Readonly<Record<string, unknown>>;
+  requestId: string;
+  turnId: string;
+}
+
 export interface AgentSessionEngine {
   readonly identity: AgentSessionEngineIdentity;
   deleteSessions(
@@ -466,7 +480,11 @@ export interface AgentSessionEngine {
       signal?: AbortSignal;
     }
   ): Promise<AgentActivitySession>;
+  submitInteractionResponse(
+    input: AgentSessionSubmitInteractionResponseInput
+  ): boolean;
   subscribe(listener: AgentSessionEngineListener): () => void;
+  updateSessionSettings(input: AgentSessionUpdateSettingsInput): void;
 }
 import type {
   PromptQueueIntent,

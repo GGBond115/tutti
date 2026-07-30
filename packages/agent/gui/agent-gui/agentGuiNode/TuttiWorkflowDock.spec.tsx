@@ -408,6 +408,6 @@ describe("TuttiWorkflowDock", () => {
     ).toHaveTextContent("Ship the workflow · Send to re-plan");
     expect(
       screen.getByTestId("agent-gui-tutti-workflow-intensity")
-    ).toHaveTextContent("80/90");
+    ).toHaveTextContent("80 · 90");
   });
 });

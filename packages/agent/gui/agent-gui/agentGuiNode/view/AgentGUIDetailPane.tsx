@@ -64,6 +64,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   onSlashStatusRefresh,
   onLinkAction,
   onHandoffConversation,
+  showHandoffTargetOwnershipLabels = false,
   capabilityMenuState,
   capabilityControlsReadOnly = false,
   onCapabilitySettingsRequest,
@@ -395,6 +396,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       selectedAgentTarget: composerSelectedProviderTarget,
       agentTargets: composerProviderTargets,
       handoffAgentTargets: composerHandoffProviderTargets,
+      showHandoffTargetOwnershipLabels,
       providerSelectReadonly:
         !canSwitchComposerProvider ||
         viewModel.rail.activeConversationId !== null,
@@ -541,6 +543,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       sendQueuedPromptNext,
       showPromptImagesUnsupported,
       showStopButton,
+      showHandoffTargetOwnershipLabels,
       stopDisabled,
       slashStatus,
       setTuttiModeEffect,

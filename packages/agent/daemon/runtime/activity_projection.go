@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"encoding/json"
 	"strings"
+	"unicode/utf8"
 
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
@@ -40,11 +41,13 @@ func ProjectActivityEventsToStreamEvents(session Session, events []activityshare
 				Data:      patch,
 			})
 		}
-		if delta, ok := liveMessageDeltaFromSessionEvent(session, event, sessionID, timestamp); ok {
-			out = append(out, StreamEvent{
-				EventType: StreamEventMessageDelta,
-				Data:      delta,
-			})
+		if deltas := liveMessageDeltasFromSessionEvent(session, event, sessionID, timestamp); len(deltas) > 0 {
+			for _, delta := range deltas {
+				out = append(out, StreamEvent{
+					EventType: StreamEventMessageDelta,
+					Data:      delta,
+				})
+			}
 			continue
 		}
 		if isPrecommitTerminalTextMessage(event) {
@@ -71,16 +74,16 @@ func ProjectActivityEventsToStreamEvents(session Session, events []activityshare
 	return out
 }
 
-func liveMessageDeltaFromSessionEvent(
+func liveMessageDeltasFromSessionEvent(
 	session Session,
 	event activityshared.Event,
 	sessionID string,
 	timestamp int64,
-) (liveprotocol.Event, bool) {
+) []liveprotocol.Event {
 	contentOperation, _ := event.Payload.Metadata[liveContentOperationMetadataKey].(*liveprotocol.MessageContentOperation)
 	toolOutputOperation, _ := event.Payload.Metadata[liveToolOutputOperationMetadataKey].(*liveprotocol.MessageToolOutputOperation)
 	if contentOperation == nil && toolOutputOperation == nil {
-		return liveprotocol.Event{}, false
+		return nil
 	}
 	messageID := firstNonEmptyString(stringFromPayload(event.Payload.Metadata, "messageId"), event.EventID)
 	if toolOutputOperation != nil {
@@ -92,7 +95,7 @@ func liveMessageDeltaFromSessionEvent(
 		messageID = toolCallMessageUpdateID(event, sessionID, timestamp)
 	}
 	if messageID == "" || strings.TrimSpace(event.Payload.TurnID) == "" || timestamp <= 0 {
-		return liveprotocol.Event{}, false
+		return nil
 	}
 	var contentOperationCopy *liveprotocol.MessageContentOperation
 	if contentOperation != nil {
@@ -124,8 +127,69 @@ func liveMessageDeltaFromSessionEvent(
 	if status != "" {
 		data.Status = &status
 	}
-	delta, err := liveprotocol.NewMessageDeltaEvent(data)
-	return delta, err == nil
+	return deliverableMessageDeltaEvents(data)
+}
+
+// JSON encoding can expand a single source byte to six bytes (for example,
+// control characters become \u00XX). Keeping each semantic tool-output chunk
+// to one eighth of the live delivery budget leaves room for that worst-case
+// expansion plus the message and protobuf envelopes.
+const liveToolOutputTextChunkMaxBytes = liveprotocol.DefaultDeliveryMaxBytes / 8
+
+func deliverableMessageDeltaEvents(data liveprotocol.MessageDeltaData) []liveprotocol.Event {
+	operation := data.ToolOutput
+	if operation == nil || len(operation.Text) <= liveToolOutputTextChunkMaxBytes {
+		delta, err := liveprotocol.NewMessageDeltaEvent(data)
+		if err != nil {
+			return nil
+		}
+		return []liveprotocol.Event{delta}
+	}
+
+	chunks := splitLiveToolOutputText(operation.Text)
+	out := make([]liveprotocol.Event, 0, len(chunks))
+	consumedBytes := int64(0)
+	if operation.OffsetBytes != nil {
+		consumedBytes = *operation.OffsetBytes
+	}
+	for index, chunk := range chunks {
+		part := data
+		partOperation := *operation
+		partOperation.Text = chunk
+		if index > 0 {
+			part.Status = nil
+			partOperation.Operation = "append_text"
+			offset := consumedBytes
+			partOperation.OffsetBytes = &offset
+		}
+		part.ToolOutput = &partOperation
+		delta, err := liveprotocol.NewMessageDeltaEvent(part)
+		if err != nil {
+			return nil
+		}
+		out = append(out, delta)
+		consumedBytes += int64(len(chunk))
+	}
+	return out
+}
+
+func splitLiveToolOutputText(text string) []string {
+	chunks := make([]string, 0, len(text)/liveToolOutputTextChunkMaxBytes+1)
+	for len(text) > liveToolOutputTextChunkMaxBytes {
+		end := liveToolOutputTextChunkMaxBytes
+		for end > 0 && !utf8.RuneStart(text[end]) {
+			end--
+		}
+		if end == 0 {
+			end = liveToolOutputTextChunkMaxBytes
+		}
+		chunks = append(chunks, text[:end])
+		text = text[end:]
+	}
+	if text != "" {
+		chunks = append(chunks, text)
+	}
+	return chunks
 }
 
 func isPrecommitTerminalTextMessage(event activityshared.Event) bool {

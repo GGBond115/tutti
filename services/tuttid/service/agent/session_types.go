@@ -86,10 +86,13 @@ type Service struct {
 	liveModelDiscoveryGroup        singleflight.Group
 	sessionSettingsMu              sync.Mutex
 	sessionSettingsLocks           map[string]*serviceSessionSettingsLock
+	sessionSettingsState           *serviceSessionSettingsState
 	applicationHostMu              sync.Mutex
 	applicationHost                *agenthost.Host
 	applicationHostProvider        func() *agenthost.Host
+	hostRuntimePreparation         serviceHostRuntimePreparationSupport
 	worktreeIsolationMu            sync.RWMutex
+	worktreeIsolationLock          *sync.RWMutex
 	generatedFilesCacheMu          sync.Mutex
 	generatedFilesCache            map[string]generatedFilesCacheEntry
 	// liveModelPersistedScanMissAtUnixMS memoizes, per live-model cache key,

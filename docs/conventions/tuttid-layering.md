@@ -105,6 +105,22 @@ Owns use-case orchestration:
 
 `service/` should not perform direct SQL or HTTP response writing.
 
+#### Agent service composition
+
+The `service/agent` facade is constructed from one responsibility-grouped
+`ServiceConfig`. Production wiring must resolve canonical/runtime ports,
+provider preparation, query/projection, composer, import, resource, and
+observer dependencies before calling `NewService`; it must not fill Service
+fields or install an application Host afterward.
+
+`packages/agent/host` remains the lifecycle owner. Its tuttid support ports are
+narrow components created from the completed config and must not retain the
+complete Service facade. A support component may share a lock, cache, runtime
+preparer, or observer registry with Service. Read-only canonical seams are
+allowed only when their lifecycle ownership is explicit; the Session Fork
+runtime-preparation seam reads lineage that can exist only after commit and
+never performs a lifecycle write.
+
 ### `biz/`
 
 Owns small, transport-agnostic domain models and domain rules that need to be shared across layers.

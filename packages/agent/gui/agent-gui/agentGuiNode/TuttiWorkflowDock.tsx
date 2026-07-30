@@ -304,7 +304,8 @@ export function TuttiWorkflowDock({
               ))}
             </span>
             <span className="inline-block w-[7ch] text-left text-[11px] tabular-nums">
-              {reviewDisplayEffect ?? review.effect}/
+              {reviewDisplayEffect ?? review.effect}
+              {" · "}
               {reviewDisplaySpeed ?? review.speed}
             </span>
           </button>

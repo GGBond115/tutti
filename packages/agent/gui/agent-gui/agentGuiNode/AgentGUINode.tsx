@@ -101,6 +101,7 @@ export const AgentGUINode = memo(function AgentGUINode({
     agentTargetsLoading = false,
     handoffAgentTargets,
     handoffAgentTargetsLoading = false,
+    showHandoffTargetOwnershipLabels = false,
     providerRailAllPresentation = null,
     providerRailMode = "catalog",
     comingSoonProviders,
@@ -489,6 +490,9 @@ export const AgentGUINode = memo(function AgentGUINode({
               onSlashStatusRefresh={handleSlashStatusRefresh}
               onLinkAction={handleLinkAction}
               onHandoffConversation={onHandoffConversation}
+              showHandoffTargetOwnershipLabels={
+                showHandoffTargetOwnershipLabels
+              }
               capabilityMenuState={capabilityMenuState}
               capabilityControlsReadOnly={capabilityControlsReadOnly}
               onCapabilitySettingsRequest={onCapabilitySettingsRequest}

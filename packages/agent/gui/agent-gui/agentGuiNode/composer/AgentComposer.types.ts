@@ -111,6 +111,7 @@ export interface AgentComposerProps {
   footerAccessory?: ReactNode;
   agentTargets?: readonly AgentGUIAgentTarget[];
   handoffAgentTargets?: readonly AgentGUIAgentTarget[];
+  showHandoffTargetOwnershipLabels?: boolean;
   providerSelectReadonly?: boolean;
   onProviderSelect?: (input: {
     provider: AgentGUIProvider;

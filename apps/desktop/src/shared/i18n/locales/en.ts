@@ -250,7 +250,6 @@ export const en = {
       dataUnavailable: "Some account data is unavailable",
       rewardToastTitle: "New user credits",
       rewardToastCreditsUnit: "credits",
-      rewardToastDescription: "Added to account balance",
       rewardToastClose: "Close credits reward notification",
       insufficientCreditsUpgradeMessage:
         "Your available credits are exhausted. Upgrade your membership for more credits",

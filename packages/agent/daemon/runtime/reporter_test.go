@@ -973,6 +973,89 @@ func TestReporterCanonicalizesToolOutputTextFromContentBlocks(t *testing.T) {
 	}
 }
 
+func TestReporterTruncatesFormalToolOutputFieldsBeforeLiveAndDurableProjection(t *testing.T) {
+	t.Parallel()
+
+	large := strings.Repeat("x", canonical.ToolOutputTextMaxBytes+64)
+	session := reportTestSession()
+	event := newTurnActivityEventWithID(
+		session,
+		"large-tool-output",
+		EventCallFailed,
+		"turn-large",
+		messageStreamStateFailed,
+		"",
+		"Run command",
+		map[string]any{
+			"callId": "call-large",
+			"input":  map[string]any{"text": large},
+			"output": map[string]any{
+				"text":    large,
+				"stdout":  large,
+				"message": large,
+				"steps": []any{
+					map[string]any{
+						"toolResult": map[string]any{"stdout": large},
+					},
+				},
+			},
+			"error": map[string]any{
+				"stderr": large,
+			},
+			"metadata": map[string]any{
+				"steps": []any{
+					map[string]any{
+						"toolError": map[string]any{"stderr": large},
+					},
+				},
+			},
+		},
+	)
+
+	stream := ProjectActivityEventsToStreamEvents(session, []activityshared.Event{event})
+	report := reportActivityInput(session, []activityshared.Event{event})
+	if len(stream) != 1 || len(report.MessageUpdates) != 1 {
+		t.Fatalf("stream=%#v report=%#v, want one update in each projection", stream, report)
+	}
+	liveUpdate := stream[0].Data.(agentsessionstore.WorkspaceAgentMessageUpdate)
+	for _, update := range []agentsessionstore.WorkspaceAgentMessageUpdate{
+		liveUpdate,
+		report.MessageUpdates[0],
+	} {
+		if update.Payload["input"].(map[string]any)["text"] != large {
+			t.Fatal("tool input was truncated")
+		}
+		output := update.Payload["output"].(map[string]any)
+		for _, key := range []string{"text", "stdout"} {
+			value := output[key].(string)
+			if len(value) > canonical.ToolOutputTextMaxBytes ||
+				!strings.HasSuffix(value, canonical.ToolOutputTruncationMarker) {
+				t.Fatalf("output.%s was not bounded: %d bytes", key, len(value))
+			}
+		}
+		if output["message"] != large {
+			t.Fatal("non-target structured output field was truncated")
+		}
+		step := output["steps"].([]any)[0].(map[string]any)
+		stdout := step["toolResult"].(map[string]any)["stdout"].(string)
+		if len(stdout) > canonical.ToolOutputTextMaxBytes ||
+			!strings.HasSuffix(stdout, canonical.ToolOutputTruncationMarker) {
+			t.Fatalf("nested stdout was not bounded: %d bytes", len(stdout))
+		}
+		stderr := update.Payload["error"].(map[string]any)["stderr"].(string)
+		if len(stderr) > canonical.ToolOutputTextMaxBytes ||
+			!strings.HasSuffix(stderr, canonical.ToolOutputTruncationMarker) {
+			t.Fatalf("error.stderr was not bounded: %d bytes", len(stderr))
+		}
+		metadataStep := update.Payload["metadata"].(map[string]any)["steps"].([]any)[0].(map[string]any)
+		metadataStderr := metadataStep["toolError"].(map[string]any)["stderr"].(string)
+		if len(metadataStderr) > canonical.ToolOutputTextMaxBytes ||
+			!strings.HasSuffix(metadataStderr, canonical.ToolOutputTruncationMarker) {
+			t.Fatalf("metadata step stderr was not bounded: %d bytes", len(metadataStderr))
+		}
+	}
+}
+
 func TestReporterProjectsFailedCallOutputAlongsideError(t *testing.T) {
 	t.Parallel()
 

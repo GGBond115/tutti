@@ -51,6 +51,7 @@ describe("AgentHandoffMenu", () => {
     render(
       <AgentHandoffMenu
         labels={labels}
+        showOwnershipLabels
         targets={targets}
         triggerLabel="Handoff"
         onSelect={onSelect}
@@ -86,6 +87,27 @@ describe("AgentHandoffMenu", () => {
 
     expect(onSelect).toHaveBeenCalledOnce();
     expect(onSelect).toHaveBeenCalledWith(targets[1]);
+  });
+
+  it("hides ownership labels by default", async () => {
+    render(
+      <AgentHandoffMenu
+        labels={labels}
+        targets={targets.filter((target) => target.ownership === "self")}
+        onSelect={vi.fn()}
+      />
+    );
+
+    fireEvent.pointerDown(screen.getByRole("combobox", { name: "Handoff" }), {
+      button: 0,
+      ctrlKey: false,
+      pointerType: "mouse"
+    });
+
+    const options = await screen.findAllByRole("option");
+    expect(options).toHaveLength(2);
+    expect(screen.queryByText("My Agent")).not.toBeInTheDocument();
+    expect(within(options[0]!).getByText("From My Mac mini")).toBeVisible();
   });
 
   it("supports an icon-only trigger and owns hover animation state", () => {

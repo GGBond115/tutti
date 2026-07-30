@@ -298,9 +298,19 @@ describe("WorkspaceActivityService", () => {
 
     await service.start();
     await flushAsyncWork();
+    const engine = (
+      service as unknown as {
+        engine: AgentSessionEngine;
+      }
+    ).engine;
+    const updateSessionSettings = jest.spyOn(engine, "updateSessionSettings");
     service.updateComposerSettings({ planMode: true });
     await flushAsyncWork();
 
+    expect(updateSessionSettings).toHaveBeenCalledWith({
+      agentSessionId: "session-1",
+      settings: { planMode: true }
+    });
     expect(settingsRequests).toEqual([{ planMode: true }]);
     expect(service.getSnapshot().selectedSession?.settings.planMode).toBe(true);
 
@@ -412,7 +422,7 @@ describe("WorkspaceActivityService", () => {
     service.dispose();
   });
 
-  test("retries a failed Interaction with the exact Engine-owned response", async () => {
+  test("retries a failed Interaction only when the user explicitly submits the same response", async () => {
     const interaction = createInteraction();
     const requests: Record<string, unknown>[] = [];
     let attempt = 0;
@@ -455,7 +465,11 @@ describe("WorkspaceActivityService", () => {
       service.getSnapshot().interactionStates[interactionKey]?.failed
     ).toBe(true);
 
-    service.respondToInteraction(interaction);
+    service.respondToInteraction(interaction, {});
+    await flushAsyncWork();
+    expect(requests).toHaveLength(1);
+
+    service.respondToInteraction(interaction, { optionId: "allow-once" });
     await flushAsyncWork();
 
     expect(requests).toEqual([

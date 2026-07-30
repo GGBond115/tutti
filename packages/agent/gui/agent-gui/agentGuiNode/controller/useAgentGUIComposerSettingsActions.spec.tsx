@@ -310,7 +310,10 @@ describe("useAgentGUIComposerSettingsActions", () => {
     const draftSettingsBySessionIdRef: {
       current: Record<string, AgentSessionComposerSettings>;
     } = { current: {} };
-    const dispatch = vi.spyOn(sessionEngine, "dispatch");
+    const updateSessionSettings = vi.spyOn(
+      sessionEngine,
+      "updateSessionSettings"
+    );
     const activeSettings: AgentSessionComposerSettings = {
       browserUse: true,
       computerUse: true,
@@ -364,14 +367,10 @@ describe("useAgentGUIComposerSettingsActions", () => {
       });
     });
 
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentSessionId: "session-1",
-        retry: true,
-        settings: { permissionModeId: "acceptEdits" },
-        type: "session/settingsUpdateRequested"
-      })
-    );
+    expect(updateSessionSettings).toHaveBeenCalledWith({
+      agentSessionId: "session-1",
+      settings: { permissionModeId: "acceptEdits" }
+    });
     expect(execute).toHaveBeenCalledTimes(2);
     expect(onRememberComposerDefaults).toHaveBeenCalledWith({
       agentTargetId: "local:claude-code",

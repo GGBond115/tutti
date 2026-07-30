@@ -245,7 +245,6 @@ export const zhCN = {
       dataUnavailable: "部分账号数据暂不可用",
       rewardToastTitle: "新用户积分",
       rewardToastCreditsUnit: "积分",
-      rewardToastDescription: "已添加到账户余额",
       rewardToastClose: "关闭积分奖励通知",
       insufficientCreditsUpgradeMessage:
         "您账户下可用的积分额度已耗尽，升级会员可获取更多额度",

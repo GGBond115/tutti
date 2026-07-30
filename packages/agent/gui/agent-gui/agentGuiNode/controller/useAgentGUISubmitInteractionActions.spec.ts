@@ -183,6 +183,46 @@ describe("conversation stop", () => {
   });
 });
 
+describe("interaction submissions", () => {
+  it("routes the explicit answer through the Engine semantic operation", () => {
+    const goalControl = vi.fn(async () => undefined);
+    const { input, sessionEngine, setDetailError } = createGoalControlInput(
+      goalControl as never
+    );
+    const submitInteractionResponse = vi
+      .spyOn(sessionEngine, "submitInteractionResponse")
+      .mockReturnValue(true);
+    const { result } = renderHook(() =>
+      useAgentGUISubmitInteractionActions({
+        ...input,
+        activeEnginePendingInteractions: [
+          {
+            agentSessionId: "session-1",
+            createdAtUnixMs: 1,
+            kind: "question",
+            requestId: "request-1",
+            status: "pending",
+            turnId: "turn-1",
+            updatedAtUnixMs: 1
+          }
+        ]
+      })
+    );
+
+    act(() =>
+      result.current.submitApprovalOption(" request-1 ", " allow-once ")
+    );
+
+    expect(submitInteractionResponse).toHaveBeenCalledWith({
+      agentSessionId: "session-1",
+      optionId: "allow-once",
+      requestId: "request-1",
+      turnId: "turn-1"
+    });
+    expect(setDetailError).toHaveBeenCalledWith(null);
+  });
+});
+
 describe("goal controls", () => {
   it("publishes an optimistic goal before the control API settles", async () => {
     const goalControl = vi.fn(() => new Promise<void>(() => {}));

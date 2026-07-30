@@ -207,6 +207,7 @@ func TestResolveCreateSessionModelPreservesClaudeAliases(t *testing.T) {
 		got := service.resolveCreateSessionModel(context.Background(), "claude-code", nil, "", stringPointer(want))
 		if got == nil {
 			t.Fatalf("resolveCreateSessionModel(%q) = nil, want %q", want, want)
+			return
 		}
 		if *got != want {
 			t.Fatalf("resolveCreateSessionModel(%q) = %q, want %q", want, *got, want)

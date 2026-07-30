@@ -185,7 +185,7 @@ func callMessageUpdateFromSessionEvent(
 		payload["toolName"] = toolName
 	}
 	if metadata, ok := event.Payload.Metadata["metadata"].(map[string]any); ok && len(metadata) > 0 {
-		payload["metadata"] = clonePayloadValue(metadata)
+		payload["metadata"] = canonicalToolMetadataPayload(metadata)
 	}
 	for _, key := range []string{"input", "output", "error", "content", "locations"} {
 		if value, ok := event.Payload.Metadata[key]; ok && !payloadValueIsEmpty(value) {
@@ -263,7 +263,17 @@ func canonicalToolBodyPayload(value any) any {
 			body["text"] = text
 		}
 	}
-	return body
+	return canonical.TruncateToolOutputBody(body)
+}
+
+func canonicalToolMetadataPayload(metadata map[string]any) map[string]any {
+	result := clonePayload(metadata)
+	if result == nil || result["steps"] == nil {
+		return result
+	}
+	truncated := canonical.TruncateToolOutputBody(map[string]any{"steps": result["steps"]})
+	result["steps"] = truncated["steps"]
+	return result
 }
 
 func canonicalToolBodyText(body map[string]any) string {

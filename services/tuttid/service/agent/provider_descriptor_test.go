@@ -31,18 +31,12 @@ func TestCodexComposerProfileComesFromProviderDescriptor(t *testing.T) {
 	if profile.CapabilityCatalogKind != providerregistry.CapabilityCatalogKindCodexAppServer {
 		t.Fatalf("capability catalog profile = %#v", profile)
 	}
-	if !profile.Behavior.NativePluginCatalogAuthoritative {
-		t.Fatalf("composer behavior = %#v", profile.Behavior)
-	}
 }
 
 func TestTuttiAgentComposerProfileUsesSkillsOnlyAppServerCatalog(t *testing.T) {
 	profile := composerProfileFor(agentprovider.TuttiAgent)
 	if profile.CapabilityCatalogKind != providerregistry.CapabilityCatalogKindAppServerSkills {
 		t.Fatalf("capability catalog profile = %#v", profile)
-	}
-	if profile.Behavior.NativePluginCatalogAuthoritative {
-		t.Fatalf("Tutti Agent must retain ordinary skill projection: %#v", profile.Behavior)
 	}
 }
 
@@ -123,6 +117,7 @@ func TestOpenCodeSlashCommandPolicyComesFromProviderDescriptor(t *testing.T) {
 	policy := composerSlashCommandPolicy(agentprovider.OpenCode)
 	if policy == nil {
 		t.Fatal("slash command policy missing")
+		return
 	}
 	if !reflect.DeepEqual(policy.FallbackCommands, []string{"compact", "goal", "review"}) {
 		t.Fatalf("fallbackCommands = %#v", policy.FallbackCommands)
@@ -232,6 +227,7 @@ func TestCodexSlashCommandPolicyComesFromProviderDescriptor(t *testing.T) {
 	policy := composerSlashCommandPolicy(agentprovider.Codex)
 	if policy == nil {
 		t.Fatal("slash command policy missing")
+		return
 	}
 	if !reflect.DeepEqual(policy.FallbackCommands, []string{"compact", "status", "fast", "goal", "review"}) {
 		t.Fatalf("fallbackCommands = %#v", policy.FallbackCommands)

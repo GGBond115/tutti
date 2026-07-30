@@ -51,3 +51,24 @@ func (s *Service) SumPolicyReviewUsage(ctx context.Context, workspaceID string, 
 	}
 	return count, totalTokens, nil
 }
+
+func (s *Service) HasPolicyReviewForTurn(ctx context.Context, workspaceID string, sourceSessionID string, turnID string) (bool, error) {
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return false, nil
+	}
+	runs, err := s.ListRuns(ctx, strings.TrimSpace(workspaceID), strings.TrimSpace(sourceSessionID), 0)
+	if err != nil {
+		return false, err
+	}
+	suffix := ":turn:" + turnID
+	for _, run := range runs {
+		if run.Mode == collabrunbiz.ModeConsult &&
+			run.TriggerSource == collabrunbiz.TriggerPolicy &&
+			strings.HasPrefix(run.TriggerReason, "review_rule:") &&
+			strings.HasSuffix(run.TriggerReason, suffix) {
+			return true, nil
+		}
+	}
+	return false, nil
+}

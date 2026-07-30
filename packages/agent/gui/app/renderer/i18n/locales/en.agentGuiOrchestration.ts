@@ -6,7 +6,7 @@ export const enAgentGuiOrchestration = {
   normalModeDescription: "Execute the request directly",
   tuttiModeLabel: "Tutti Mode",
   tuttiModeDescription:
-    "Ask the agent to prefer Tutti's native workflow capabilities",
+    "Type what you want done — Tutti plans it, splits the tasks, and assigns each to the right agent and model",
   tuttiModeRemove: "Turn off Tutti mode",
   tuttiBudgetTitle: "Tutti preferences",
   tuttiBudgetEffectLabel: "Effect",

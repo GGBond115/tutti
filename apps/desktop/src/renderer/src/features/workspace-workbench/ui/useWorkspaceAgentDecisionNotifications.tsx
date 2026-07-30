@@ -6,10 +6,7 @@ import {
   type WorkspaceAgentMessageCenterItem,
   type WorkspaceAgentMessageCenterModel
 } from "@tutti-os/agent-gui/agent-message-center";
-import {
-  selectEngineInteraction,
-  type AgentSessionEngine
-} from "@tutti-os/agent-activity-core";
+import type { AgentSessionEngine } from "@tutti-os/agent-activity-core";
 import { Button, CloseIcon, StatusDot, toast } from "@tutti-os/ui-system";
 import { INotificationService } from "@tutti-os/ui-notifications";
 import { useService } from "@tutti-os/infra/di";
@@ -188,32 +185,22 @@ export function useWorkspaceAgentDecisionNotifications(input: {
             }}
             onSubmit={async (submitInput) => {
               const target = item.pendingInteractionTarget;
-              if (!target || target.requestId !== submitInput.requestId) return;
-              const interaction = selectEngineInteraction(
-                sessionEngine.getSnapshot(),
-                target.agentSessionId,
-                target.turnId,
-                target.requestId
-              );
-              if (interaction?.status !== "pending") return;
-              sessionEngine.dispatch({
-                type: "interaction/responseRequested",
-                workspaceId,
+              if (!target || target.requestId !== submitInput.requestId) {
+                throw new Error("interaction_response_target_mismatch");
+              }
+              const accepted = sessionEngine.submitInteractionResponse({
                 agentSessionId: target.agentSessionId,
                 requestId: target.requestId,
                 turnId: target.turnId,
-                commandId: interactionCommandId({
-                  workspaceId,
-                  agentSessionId: target.agentSessionId,
-                  requestId: target.requestId,
-                  turnId: target.turnId
-                }),
                 ...(submitInput.action ? { action: submitInput.action } : {}),
                 ...(submitInput.optionId
                   ? { optionId: submitInput.optionId }
                   : {}),
                 ...(submitInput.payload ? { payload: submitInput.payload } : {})
               });
+              if (!accepted) {
+                throw new Error("interaction_response_not_accepted");
+              }
               activeWaitingNotificationToastIdsRef.current.delete(
                 notificationKey
               );
@@ -353,20 +340,6 @@ function waitingNotificationKey(item: WorkspaceAgentMessageCenterItem): string {
     "attention",
     item.needsAttentionKind ?? "waiting",
     item.sortTimeUnixMs
-  ].join(":");
-}
-
-function interactionCommandId(input: {
-  agentSessionId: string;
-  requestId: string;
-  turnId?: string;
-  workspaceId: string;
-}): string {
-  return [
-    input.workspaceId,
-    input.agentSessionId,
-    input.turnId ?? "interaction",
-    input.requestId
   ].join(":");
 }
 

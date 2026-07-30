@@ -261,7 +261,8 @@ export const zhCNAgentGui = {
   normalModeLabel: "普通",
   normalModeDescription: "直接执行请求",
   tuttiModeLabel: "Tutti Mode",
-  tuttiModeDescription: "提示 Agent 优先使用 Tutti 原生工作流能力",
+  tuttiModeDescription:
+    "输入你想做的，Tutti 会规划、拆分任务，并分派给合适的 Agent 和模型",
   tuttiModeRemove: "关闭 Tutti mode",
   tuttiBudgetTitle: "Tutti 偏好",
   tuttiBudgetEffectLabel: "效果",

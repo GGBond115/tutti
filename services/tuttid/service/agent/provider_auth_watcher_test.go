@@ -108,6 +108,7 @@ func TestDefaultProviderAuthWatcherReportsTuttiAgentLogin(t *testing.T) {
 	}
 	if tuttiAgentEntry == nil {
 		t.Fatal("default auth watcher is missing tutti-agent")
+		return
 	}
 
 	changes := make(chan []string, 1)

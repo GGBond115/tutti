@@ -18,20 +18,26 @@
 - Root cause:
   AgentGUI sessions are resumable, so stopping one turn does not necessarily
   make the durable session terminal. App Factory job lifecycle is a separate
-  projection: it must treat explicit canceled session/turn outcomes as job
-  cancellation, but it must not collapse every raw `interrupted` turn into a
-  canceled job because approval rejections and transient turn-level
-  interruptions can use the same vocabulary.
+  projection. Host-owned root-provider completion, failure, and cancellation
+  settle the canonical root Turn without sending the legacy live Turn state
+  patch. A consumer registered only on that legacy notification path therefore
+  misses all three terminal outcomes. Plain `interrupted` remains ambiguous
+  because approval rejections and transient turn-level interruptions can use
+  the same vocabulary.
 - Fix:
-  Keep plain active-session `interrupted` turn outcomes non-terminal. Cancel an
-  active App Factory job only when the state carries an explicit canceled
-  outcome, or when accepted message updates contain the runtime's canceled
-  interrupted non-approval tool-call shape.
+  Register App Factory explicitly for synthesized canonical root-Turn
+  settlement states. Route `completed` into validation, `failed` into job
+  failure, and `canceled` into job cancellation. Serialize terminal handling
+  per linked agent session so at-least-once or concurrent delivery cannot start
+  validation twice. Keep plain active-session `interrupted` non-terminal; only
+  the explicit canceled state or the runtime's canceled interrupted
+  non-approval tool-call shape cancels the job.
 - Validation:
   Add App Factory service tests for plain `interrupted` staying non-terminal,
   explicit `canceled` outcome canceling the job, canceled interrupted
-  non-approval tool calls canceling the job, and canceled approval updates being
-  ignored.
+  non-approval tool calls canceling the job, canceled approval updates being
+  ignored, all three canonical root-Turn terminal outcomes updating the job,
+  and duplicate completed settlements starting only one validation pass.
 - References:
   [app_factory_agent_state.go](../../../services/tuttid/service/workspace/app_factory_agent_state.go)
   [app_factory_test.go](../../../services/tuttid/service/workspace/app_factory_test.go)

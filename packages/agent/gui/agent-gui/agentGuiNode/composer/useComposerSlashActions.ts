@@ -36,7 +36,6 @@ import { skillTriggerForPrefix } from "../model/agentSkillOptions";
 import { moveSlashCommandHighlight } from "../model/agentSlashCommands";
 import {
   agentComposerDraftHasContent,
-  agentComposerDraftToPromptContent,
   buildAgentComposerDraft,
   emptyAgentComposerDraft,
   projectAgentComposerDraftSubmission,
@@ -243,14 +242,14 @@ export function useComposerSlashActions(input: UseComposerSlashActionsInput) {
         const submitOptions = effect.requiredSettingsPatch
           ? { requiredSettingsPatch: effect.requiredSettingsPatch }
           : undefined;
-        const content = agentComposerDraftToPromptContent({
-          draft: buildAgentComposerDraft({ prompt: effect.prompt }),
-          skills: availableSkills
-        });
         if (effect.displayPrompt) {
-          onSubmit(content, effect.displayPrompt, submitOptions);
+          onSubmit(
+            textPromptContent(effect.prompt),
+            effect.displayPrompt,
+            submitOptions
+          );
         } else {
-          onSubmit(content, undefined, submitOptions);
+          onSubmit(textPromptContent(effect.prompt), undefined, submitOptions);
         }
         return;
       }
@@ -350,7 +349,6 @@ export function useComposerSlashActions(input: UseComposerSlashActionsInput) {
       setIsPaletteOpen(false);
     },
     [
-      availableSkills,
       clearSlashCommandDraft,
       composerSettings.draftSettings.planMode,
       composerSettings.draftSettings.speed,
@@ -446,17 +444,6 @@ export function useComposerSlashActions(input: UseComposerSlashActionsInput) {
     [draftContent, onDraftContentChange, promptBeforeSelection, skillQueryMatch]
   );
 
-  const selectPluginSettings = useCallback(
-    (plugin: AgentGUIProviderSkillOption): void => {
-      if (capabilityControlsReadOnly || plugin.semantic !== "computerUse") {
-        return;
-      }
-      onCapabilitySettingsRequest?.("computerUse");
-      setIsPaletteOpen(false);
-    },
-    [capabilityControlsReadOnly, onCapabilitySettingsRequest, setIsPaletteOpen]
-  );
-
   const submitCurrentPrompt = useStableEventCallback(
     (options?: { guidance?: boolean }): void => {
       const canSubmitWhileSending = canQueueWhileBusy && isSendingTurn;
@@ -521,8 +508,7 @@ export function useComposerSlashActions(input: UseComposerSlashActionsInput) {
           commands: resolvedSlashCommands,
           draft: nextPrompt,
           provider,
-          policy: slashCommandPolicy,
-          skills: availableSkills
+          policy: slashCommandPolicy
         });
         if (slashCommandEffect) {
           if (
@@ -629,11 +615,7 @@ export function useComposerSlashActions(input: UseComposerSlashActionsInput) {
       if (event.key === "Tab" || event.key === "Enter") {
         event.preventDefault();
         const activeEntry = slashPaletteEntries[activeHighlight];
-        if (
-          (activeEntry?.type === "capability" ||
-            activeEntry?.type === "plugin") &&
-          activeEntry.disabled
-        ) {
+        if (activeEntry?.type === "capability" && activeEntry.disabled) {
           return true;
         }
         if (activeEntry?.type === "command") {
@@ -646,12 +628,6 @@ export function useComposerSlashActions(input: UseComposerSlashActionsInput) {
           }
         } else if (activeEntry?.type === "skill") {
           selectSkill(activeEntry.skill);
-        } else if (activeEntry?.type === "plugin") {
-          if (activeEntry.selectAction === "settings") {
-            selectPluginSettings(activeEntry.plugin);
-          } else {
-            selectSkill(activeEntry.plugin);
-          }
         }
         return true;
       }
@@ -684,7 +660,6 @@ export function useComposerSlashActions(input: UseComposerSlashActionsInput) {
     selectCapability,
     selectCapabilitySettings,
     selectCommand,
-    selectPluginSettings,
     selectSkill,
     settingsControlsDisabled,
     submit,

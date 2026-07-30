@@ -37,6 +37,37 @@ type preferencesStoreStub struct {
 	preferences preferencesbiz.DesktopPreferences
 }
 
+func TestRuntimeVersionProbeErrorClassifiesTimeoutAndCancellation(t *testing.T) {
+	t.Run("probe timeout", func(t *testing.T) {
+		probeCtx, cancel := context.WithDeadline(
+			context.Background(),
+			time.Now().Add(-time.Second),
+		)
+		defer cancel()
+
+		err := runtimeVersionProbeError(
+			context.Background(),
+			probeCtx,
+			errors.New("signal: killed"),
+		)
+		if !errors.Is(err, context.DeadlineExceeded) ||
+			!strings.Contains(err.Error(), "runtime version probe timed out after 30s") {
+			t.Fatalf("runtimeVersionProbeError() = %v", err)
+		}
+	})
+
+	t.Run("parent cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := runtimeVersionProbeError(ctx, ctx, errors.New("signal: killed"))
+		if !errors.Is(err, context.Canceled) ||
+			!strings.Contains(err.Error(), "runtime version probe aborted") {
+			t.Fatalf("runtimeVersionProbeError() = %v", err)
+		}
+	})
+}
+
 func (s *preferencesStoreStub) GetDesktopPreferences(context.Context) (preferencesbiz.DesktopPreferences, error) {
 	return s.preferences, nil
 }
@@ -634,6 +665,51 @@ func TestManagerStartupAndPreferenceReconcileUseDesktopAgentExtensionFeatureFlag
 	}
 	if _, ok := store.targets["extension:gemini"]; ok {
 		t.Fatal("disabled source target was not removed after preference change")
+	}
+}
+
+func TestStableSourceIgnoresRetiredActivationFlag(t *testing.T) {
+	source := tuttitypes.AgentExtensionSource{Key: "hermes", Enabled: true}
+	if !sourceEnabled(source, map[string]bool{"agent.extension.hermes": false}) {
+		t.Fatal("stable source was disabled by its retired activation flag")
+	}
+	manager := Manager{Sources: []tuttitypes.AgentExtensionSource{source}}
+	if manager.sourceActivationChanged(
+		map[string]bool{"agent.extension.hermes": false},
+		map[string]bool{"agent.extension.hermes": true},
+	) {
+		t.Fatal("retired stable-source flag unexpectedly triggered reconciliation")
+	}
+}
+
+func TestRegisterTargetPreservesExistingEnabledPreference(t *testing.T) {
+	manager := &Manager{
+		Installations: agentextensiondata.NewFileInstallationStore(t.TempDir()),
+		Store: &targetStoreStub{targets: map[string]agenttargetbiz.Target{
+			"extension:gemini": {
+				ID:      "extension:gemini",
+				Enabled: false,
+			},
+		}},
+	}
+	installation, err := installTestPackage(
+		t,
+		manager,
+		Release{AgentKey: "gemini", Version: "1.0.0"},
+		testPackageZIP(t),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.registerTarget(context.Background(), installation); err != nil {
+		t.Fatal(err)
+	}
+	target, err := manager.Store.GetAgentTarget(context.Background(), "extension:gemini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Enabled {
+		t.Fatal("extension target reconciliation overwrote the disabled preference")
 	}
 }
 

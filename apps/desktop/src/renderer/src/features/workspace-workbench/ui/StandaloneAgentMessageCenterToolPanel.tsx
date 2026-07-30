@@ -6,7 +6,6 @@ import {
   useSyncExternalStore,
   type ReactNode
 } from "react";
-import { selectEngineInteraction } from "@tutti-os/agent-activity-core";
 import {
   buildWorkspaceAgentMessageCenterModelFromEngine,
   dispatchAgentPlanPromptAction,
@@ -159,25 +158,10 @@ export function StandaloneAgentMessageCenterToolPanel({
         return;
       }
       if (!input.turnId) return;
-      const interaction = selectEngineInteraction(
-        engine.getSnapshot(),
-        input.agentSessionId,
-        input.turnId,
-        input.requestId
-      );
-      if (interaction?.status !== "pending") return;
-      engine.dispatch({
-        type: "interaction/responseRequested",
+      engine.submitInteractionResponse({
         agentSessionId: input.agentSessionId,
-        commandId: [
-          workspaceId,
-          input.agentSessionId,
-          input.turnId,
-          input.requestId
-        ].join(":"),
         requestId: input.requestId,
         turnId: input.turnId,
-        workspaceId,
         ...(input.action ? { action: input.action } : {}),
         ...(input.optionId ? { optionId: input.optionId } : {}),
         ...(input.payload ? { payload: input.payload } : {})

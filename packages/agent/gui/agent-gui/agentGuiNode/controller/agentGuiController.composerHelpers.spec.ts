@@ -47,8 +47,6 @@ describe("slash command policy equality", () => {
 describe("descriptor-backed skill invocation", () => {
   it("does not apply invocation metadata from unavailable capabilities", () => {
     const options = {
-      provider: "claude-code",
-      behavior: { nativePluginCatalogAuthoritative: false },
       skills: [
         {
           name: "example",
@@ -73,58 +71,6 @@ describe("descriptor-backed skill invocation", () => {
         name: "example",
         trigger: "/example",
         sourceKind: "plugin"
-      }
-    ]);
-  });
-
-  it("keeps non-Codex skills and connector prompt items in the Composer", () => {
-    const options = {
-      provider: "claude-code",
-      behavior: { nativePluginCatalogAuthoritative: false },
-      skills: [
-        {
-          name: "review",
-          trigger: "$review",
-          sourceKind: "plugin"
-        }
-      ],
-      capabilityCatalog: [
-        {
-          name: "review",
-          label: "Review",
-          kind: "skill",
-          status: "available",
-          trigger: "$review",
-          invocation: "promptItem"
-        },
-        {
-          name: "linear",
-          label: "Linear",
-          kind: "connector",
-          status: "available",
-          trigger: "$linear",
-          invocation: "promptItem",
-          path: "connector://linear",
-          description: "Search Linear issues"
-        }
-      ]
-    } as unknown as AgentActivityComposerOptions;
-
-    expect(providerSkillsFromComposerOptions(options)).toEqual([
-      {
-        name: "review",
-        trigger: "$review",
-        sourceKind: "plugin",
-        invocation: "promptItem"
-      },
-      {
-        name: "Linear",
-        trigger: "$linear",
-        invocation: "promptItem",
-        sourceKind: "connector",
-        kind: "connector",
-        path: "connector://linear",
-        description: "Search Linear issues"
       }
     ]);
   });
@@ -168,82 +114,6 @@ describe("descriptor-backed skill invocation", () => {
         kind: "skill",
         path: "/skills/review/SKILL.md",
         description: "Review code"
-      }
-    ]);
-  });
-
-  it("projects semantic native plugins into the Composer without unrelated skills", () => {
-    const options = {
-      provider: "codex",
-      behavior: { nativePluginCatalogAuthoritative: true },
-      skills: [
-        {
-          name: "imagegen",
-          trigger: "$imagegen",
-          sourceKind: "bundled"
-        }
-      ],
-      capabilityCatalog: [
-        {
-          name: "browser",
-          label: "Browser",
-          kind: "plugin",
-          status: "available",
-          trigger: "$browser",
-          path: "plugin://browser@openai-bundled",
-          pluginName: "browser",
-          invocation: "promptItem",
-          description: "Control the in-app browser",
-          semantic: "browserUse"
-        }
-      ]
-    } as unknown as AgentActivityComposerOptions;
-
-    expect(providerSkillsFromComposerOptions(options)).toEqual([
-      {
-        name: "Browser",
-        trigger: "$browser",
-        invocation: "promptItem",
-        sourceKind: "plugin",
-        kind: "plugin",
-        pluginName: "browser",
-        path: "plugin://browser@openai-bundled",
-        description: "Control the in-app browser",
-        semantic: "browserUse",
-        status: "available"
-      }
-    ]);
-  });
-
-  it("keeps a setup-required native Computer plugin visible for the setup action", () => {
-    const options = {
-      provider: "codex",
-      behavior: { nativePluginCatalogAuthoritative: true },
-      skills: [],
-      capabilityCatalog: [
-        {
-          name: "computer-use",
-          label: "Computer Use",
-          kind: "plugin",
-          status: "setupRequired",
-          invocation: "none",
-          path: "plugin://computer-use@openai-bundled",
-          pluginName: "computer-use",
-          semantic: "computerUse"
-        }
-      ]
-    } as unknown as AgentActivityComposerOptions;
-
-    expect(providerSkillsFromComposerOptions(options)).toEqual([
-      {
-        name: "Computer Use",
-        trigger: "",
-        sourceKind: "plugin",
-        kind: "plugin",
-        status: "setupRequired",
-        semantic: "computerUse",
-        pluginName: "computer-use",
-        path: "plugin://computer-use@openai-bundled"
       }
     ]);
   });

@@ -82,10 +82,6 @@ func generatedAgentProviderCapabilityOptions(options []agentservice.ComposerCapa
 		if path := strings.TrimSpace(option.Path); path != "" {
 			generated.Path = optionalStringPointer(path)
 		}
-		if semantic := strings.TrimSpace(option.Semantic); semantic != "" {
-			value := tuttigenerated.AgentProviderCapabilityOptionSemantic(semantic)
-			generated.Semantic = &value
-		}
 		result = append(result, generated)
 	}
 	return result

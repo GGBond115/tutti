@@ -61,7 +61,7 @@ export function ConversationScreenView({
   onRefreshQuickPrompts(): Promise<void>;
   onRespond(
     interaction: AgentActivityInteraction,
-    input?: {
+    input: {
       action?: string;
       optionId?: string;
       payload?: Readonly<Record<string, unknown>>;
@@ -252,7 +252,6 @@ export function ConversationScreenView({
                   failed={state.failed}
                   interaction={interaction}
                   key={interactionKey}
-                  onRetry={() => onRespond(interaction)}
                   onSubmit={(input) => onRespond(interaction, input)}
                   runtimeAvailable={state.runtimeAvailable}
                   submitting={state.submitting}

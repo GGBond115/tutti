@@ -189,11 +189,11 @@ func CompactToolCallPayload(status string, payload map[string]any) map[string]an
 
 	if output != nil {
 		delete(output, "content")
-		output = selectToolKeys(output, canonicalToolBodyKeys)
+		output = TruncateToolOutputBody(selectToolKeys(output, canonicalToolBodyKeys))
 	}
 	if toolError != nil {
 		delete(toolError, "content")
-		toolError = selectToolKeys(toolError, canonicalToolBodyKeys)
+		toolError = TruncateToolOutputBody(selectToolKeys(toolError, canonicalToolBodyKeys))
 	}
 
 	delete(result, "content")
@@ -386,7 +386,7 @@ func compactToolBody(value any) map[string]any {
 	delete(body, "content")
 	delete(body, "metadata")
 	delete(body, "toolResponse")
-	return selectToolKeys(body, canonicalToolBodyKeys)
+	return TruncateToolOutputBody(selectToolKeys(body, canonicalToolBodyKeys))
 }
 
 func compactToolMetadata(value any) map[string]any {

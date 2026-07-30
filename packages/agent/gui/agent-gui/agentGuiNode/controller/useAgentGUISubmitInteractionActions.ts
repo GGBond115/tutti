@@ -683,25 +683,16 @@ export function useAgentGUISubmitInteractionActions(
         return;
       }
       setDetailError(null);
-      sessionEngine.dispatch({
+      sessionEngine.submitInteractionResponse({
         ...(input.action?.trim() ? { action: input.action.trim() } : {}),
         agentSessionId,
-        commandId: `interaction:${createAgentGUIConversationId()}`,
         ...(normalizedOptionId ? { optionId: normalizedOptionId } : {}),
         ...(input.payload ? { payload: { ...input.payload } } : {}),
         requestId: normalizedRequestId,
-        turnId,
-        timeoutMs: 30_000,
-        type: "interaction/responseRequested",
-        workspaceId
+        turnId
       });
     },
-    [
-      activeEnginePendingInteractions,
-      isRespondingToInteraction,
-      sessionEngine,
-      workspaceId
-    ]
+    [activeEnginePendingInteractions, isRespondingToInteraction, sessionEngine]
   );
 
   const submitApprovalOption = useCallback(

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tuttitypes "github.com/tutti-os/tutti/services/tuttid/types"
@@ -84,6 +85,13 @@ func (s *Service) worktreeStateDir() string {
 		}
 	}
 	return tuttitypes.DefaultStateDir()
+}
+
+func (s *Service) worktreeLock() *sync.RWMutex {
+	if s != nil && s.worktreeIsolationLock != nil {
+		return s.worktreeIsolationLock
+	}
+	return &s.worktreeIsolationMu
 }
 
 func (s *Service) createSessionWorktree(
@@ -322,23 +330,43 @@ func (s *Service) SweepWorktreeIsolation(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
-	s.worktreeIsolationMu.Lock()
-	defer s.worktreeIsolationMu.Unlock()
-	if s.WorkspaceIDs == nil || s.SessionReader == nil {
+	return sweepConfiguredWorktreeIsolation(
+		ctx,
+		s.worktreeLock(),
+		s.WorktreeStateDir,
+		s.WorkspaceIDs,
+		s.SessionReader,
+		func(session PersistedSession) bool {
+			return s.persistedSessionCanResume(ctx, session)
+		},
+	)
+}
+
+func sweepConfiguredWorktreeIsolation(
+	ctx context.Context,
+	mu *sync.RWMutex,
+	stateDir string,
+	workspaceIDs func(context.Context) ([]string, error),
+	sessionReader SessionReader,
+	canResume func(PersistedSession) bool,
+) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if workspaceIDs == nil || sessionReader == nil {
 		return nil
 	}
-	workspaceIDs, err := s.WorkspaceIDs(ctx)
+	ids, err := workspaceIDs(ctx)
 	if err != nil {
 		return err
 	}
 	var sessions []PersistedSession
-	for _, workspaceID := range workspaceIDs {
-		roots, ok := s.SessionReader.ListSessions(workspaceID)
+	for _, workspaceID := range ids {
+		roots, ok := sessionReader.ListSessions(workspaceID)
 		if !ok {
 			continue
 		}
 		sessions = append(sessions, roots...)
-		childrenReader, hasChildren := s.SessionReader.(ChildSessionReader)
+		childrenReader, hasChildren := sessionReader.(ChildSessionReader)
 		if !hasChildren {
 			continue
 		}
@@ -350,9 +378,10 @@ func (s *Service) SweepWorktreeIsolation(ctx context.Context) error {
 			sessions = append(sessions, children...)
 		}
 	}
-	return sweepSessionWorktrees(ctx, s.worktreeStateDir(), sessions, func(session PersistedSession) bool {
-		return s.persistedSessionCanResume(ctx, session)
-	})
+	if strings.TrimSpace(stateDir) == "" {
+		stateDir = tuttitypes.DefaultStateDir()
+	}
+	return sweepSessionWorktrees(ctx, stateDir, sessions, canResume)
 }
 
 func sweepSessionWorktrees(

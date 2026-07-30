@@ -196,16 +196,33 @@ It owns:
   validation for rename and pin, validated delete-result tombstone projection,
   shared mutation settlement, and a serialized settings-precondition state
   machine
-- semantic `AgentSessionEngine` methods for composer-option loading, rename,
-  pin, and batch delete; these methods hide target/workspace projection,
-  command identity, cache or mutation coordination, settlement waiting, and
-  canonical result projection from product hosts; mutation methods also own
-  timeout and cancellation policy; hosts retain transport, DTO mapping,
-  AbortSignal propagation, and product-specific command extensions (see
+- semantic `AgentSessionEngine` methods for composer-option loading,
+  Interaction response submission, existing-Session settings updates, rename,
+  pin, and batch delete. Interaction and settings updates are intent admission:
+  the Engine owns workspace and command identity plus the 30-second delivery
+  timeout. Interaction submission additionally owns canonical pending-target
+  admission, in-flight deduplication, and exact failed-response retry; it never
+  recovers omitted answer fields from a prior attempt. Settings updates own
+  serialized patch merging and recognition of a fresh user update as retry
+  after unknown delivery. Consumers observe the existing operation
+  projections. The other methods additionally hide cache or mutation
+  coordination, settlement waiting, and canonical result projection from
+  product hosts. Mutation methods own timeout and cancellation policy; hosts
+  retain transport, DTO mapping, AbortSignal propagation, and product-specific
+  command extensions (see
   [Agent GUI Node](./agent-gui-node.md#4-workspace-frontend-engine))
 
 The public host-effect seam is `AgentSessionEffectPort`; the public
 application-write seam is the semantic `AgentSessionEngine` methods.
+Product hosts call `updateSessionSettings` for an existing Session instead of
+constructing `session/settingsUpdateRequested` protocol fields. Settings held
+before Session activation remain part of the activation flow and do not pass
+through this existing-Session method.
+AgentGUI, Message Center, Desktop notifications, and Mobile call
+`submitInteractionResponse` for a canonical pending Interaction instead of
+constructing `interaction/responseRequested` protocol fields. A failed
+submission becomes retryable only when the surface explicitly submits the same
+answer again; a missing or changed answer fails closed.
 Rename and pin effects return an authoritative Session envelope, and batch
 delete returns the complete typed deletion result. Reducers still validate
 those results before applying canonical state, while the public port prevents
@@ -700,6 +717,16 @@ message cannot become the result of an already settled Turn. Result readers use
 the exact frozen message, return no message for a resolved-empty watermark, and
 reserve the bounded fallback scan for legacy turns without resolution metadata.
 
+Root-provider settlement notifications are a separate compatibility path
+because provider adapters do not emit the legacy terminal Turn state patch.
+Production composition must register every session-state observer through
+`ConfigureSessionStateObservers` and explicitly choose whether it observes
+canonical root-Turn settlements. An omitted choice is a configuration error.
+Settlement delivery is at-least-once, so opted-in consumers must use the exact
+canonical Turn ID for durable deduplication or otherwise serialize an
+idempotent terminal transition. Choosing to ignore settlements requires an
+explicit lifecycle ruling for that consumer.
+
 Cancellation of the caller waiting on an interactive-response operation is not
 a provider outcome and must not terminalize the runtime request. Before a
 response is dispatched it remains `pending` for durable retry; after dispatch it
@@ -993,10 +1020,14 @@ reconciliation instead of guessed concatenation. When an explicit provider
 output notification races immediately ahead of its `item/started`, the
 provider normalizer may retain that prefix in a bounded pre-anchor buffer, but
 it must emit nothing until the real anchor arrives; it then publishes the
-anchor first and the retained prefix as `set`. An unmatched or oversized
-prefix is dropped with diagnostics rather than inventing a tool row.
-Completed, failed, canceled, and rewritten tool results remain full canonical
-`message_update` snapshots.
+anchor first and the retained prefix as `set`. Output beyond the canonical
+1 MiB field budget becomes a valid UTF-8 prefix plus `[Output truncated]`; the
+live projection expresses that bounded snapshot as one `set` followed by
+contiguous `append_text` operations that fit the transport envelope. An
+unmatched prefix, or one rejected by the aggregate pre-anchor call or byte
+budget, is dropped with diagnostics rather than inventing a tool row.
+Completed, failed, canceled, and rewritten tool results remain authoritative,
+bounded canonical `message_update` snapshots.
 
 Durable tool snapshots contain the business projection, not a provider-result
 archive. Before `workspace_agent_messages.payload_json` is written, the
@@ -1007,7 +1038,10 @@ Provider envelopes and duplicate representations such as top-level `content`,
 `output.content`, `rawInput`/`rawOutput`, Claude `toolResponse`, adapter
 metadata, image base64, and unknown provider-only result keys are not retained.
 Provider adapters may continue accepting those wire shapes, but shared
-business code consumes only the explicit canonical fields. Agent
+business code consumes only the explicit canonical fields. Each canonical
+`output` or `error` `text`, `stdout`, and `stderr` field, including nested tool
+steps, is bounded to 1 MiB total by retaining a valid UTF-8 prefix and the fixed
+`[Output truncated]` marker. Agent
 reference/session output uses the same canonical projection rather than
 depending on a retained raw tool result. This is a forward-write rule: existing
 rows are not rewritten, their removed fields are ignored, and normal retention
@@ -1041,15 +1075,18 @@ projection remains explicitly not caught up until the matching barrier is
 replayed. A host must not publish `AttachmentCaughtUp` for a replacement
 attachment until it has rerun the complete canonical baseline.
 
-Frames are bounded but not fragmented. The publisher may coalesce only adjacent
-pure `append_text` operations for the same message and Turn; tool-output
-operations additionally require contiguous byte offsets. Status, payload,
-semantic, or lifecycle mutations remain separate deliveries. A single delivery
-over the configured safe limit (1 MiB by default, with a 2 MiB encoded-frame
-ceiling and an 8 MiB replay-byte budget) is replaced with a `delivery_too_large`
-discontinuity carrying reconcile keys, and the caller falls back to canonical
-data. This avoids maintaining a second chunk assembly protocol while ensuring
-that the final oversized event is not silently lost.
+Frames are bounded but not fragmented. Before publication, a canonical
+tool-output operation that would consume the delivery budget is represented as
+one `set` followed by contiguous `append_text` operations; this reuses the
+existing semantic operation contract rather than introducing transport-frame
+fragment assembly. The publisher may coalesce only adjacent pure `append_text`
+operations for the same message and Turn; tool-output operations additionally
+require contiguous byte offsets. Status, payload, semantic, or lifecycle
+mutations remain separate deliveries. A single delivery over the configured
+safe limit (1 MiB by default, with a 2 MiB encoded-frame ceiling and an 8 MiB
+replay-byte budget) is replaced with a `delivery_too_large` discontinuity
+carrying reconcile keys, and the caller falls back to canonical data. This
+ensures that the final oversized event is not silently lost.
 
 The publisher also keeps a bounded FIFO of the most recent settled Turn ids.
 Those fences convert late text or tool deltas into scoped discontinuities

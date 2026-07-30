@@ -550,18 +550,14 @@ func composerSettingsPatchFromGenerated(settings tuttigenerated.AgentSessionComp
 
 func generatedAgentProviderComposerOptions(options agentservice.ComposerOptions) tuttigenerated.AgentProviderComposerOptionsResponse {
 	effectiveSettings := generatedAgentSessionComposerSettings(options.EffectiveSettings)
-	behavior := tuttigenerated.AgentProviderComposerBehavior{
-		CollapseModelOptionsToLatest:        options.Behavior.CollapseModelOptionsToLatest,
-		ModelOptionsAuthoritative:           options.Behavior.ModelOptionsAuthoritative,
-		RefreshModelOptionsAfterSettings:    options.Behavior.RefreshModelOptionsAfterSettings,
-		PrewarmDraftSession:                 options.Behavior.PrewarmDraftSession,
-		PlanModeExclusiveWithPermissionMode: options.Behavior.PlanModeExclusiveWithPermissionMode,
-	}
-	if options.Behavior.NativePluginCatalogAuthoritative {
-		behavior.NativePluginCatalogAuthoritative = &options.Behavior.NativePluginCatalogAuthoritative
-	}
 	return tuttigenerated.AgentProviderComposerOptionsResponse{
-		Behavior:          behavior,
+		Behavior: tuttigenerated.AgentProviderComposerBehavior{
+			CollapseModelOptionsToLatest:        options.Behavior.CollapseModelOptionsToLatest,
+			ModelOptionsAuthoritative:           options.Behavior.ModelOptionsAuthoritative,
+			RefreshModelOptionsAfterSettings:    options.Behavior.RefreshModelOptionsAfterSettings,
+			PrewarmDraftSession:                 options.Behavior.PrewarmDraftSession,
+			PlanModeExclusiveWithPermissionMode: options.Behavior.PlanModeExclusiveWithPermissionMode,
+		},
 		Capabilities:      generatedAgentSessionCapabilities(options.Capabilities),
 		CapabilityCatalog: generatedAgentProviderCapabilityOptions(options.CapabilityCatalog),
 		Commands:          generatedAgentProviderComposerCommands(options.Commands),

@@ -87,7 +87,9 @@ DCO sign-off, PR workflow, review gates, and multilingual documentation updates.
 - Chinese user-facing UI copy must not end with a Chinese full stop (。); keep this punctuation rule consistent across settings and other product surfaces.
 - Change `services/tuttid/api/openapi/tuttid.v1.yaml` before daemon HTTP request/response contracts.
 - Document new supported runtime/env overrides in the matching durable convention doc.
-- Business-code files should stay at or below `800` lines. Prefer decomposition before adding more logic.
+- Business-code files should stay at or below `800` lines as measured by the
+  repository `file-length-limit` lint rule, which excludes blank and
+  comment-only lines. Prefer decomposition before adding more logic.
 - When changing repository-managed checks, hooks, or static analysis, update `docs/conventions/local-git-hooks.md` or `docs/conventions/static-analysis.md`.
 - When a fix captures a recurring debugging trap, route it through `docs/conventions/troubleshooting/README.md` and update the matching domain file.
 
