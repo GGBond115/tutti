@@ -708,6 +708,16 @@ message cannot become the result of an already settled Turn. Result readers use
 the exact frozen message, return no message for a resolved-empty watermark, and
 reserve the bounded fallback scan for legacy turns without resolution metadata.
 
+Root-provider settlement notifications are a separate compatibility path
+because provider adapters do not emit the legacy terminal Turn state patch.
+Production composition must register every session-state observer through
+`ConfigureSessionStateObservers` and explicitly choose whether it observes
+canonical root-Turn settlements. An omitted choice is a configuration error.
+Settlement delivery is at-least-once, so opted-in consumers must use the exact
+canonical Turn ID for durable deduplication or otherwise serialize an
+idempotent terminal transition. Choosing to ignore settlements requires an
+explicit lifecycle ruling for that consumer.
+
 Cancellation of the caller waiting on an interactive-response operation is not
 a provider outcome and must not terminalize the runtime request. Before a
 response is dispatched it remains `pending` for durable retry; after dispatch it

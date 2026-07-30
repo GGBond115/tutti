@@ -66,6 +66,9 @@ func (s *AppFactoryService) ObserveAgentSessionState(_ context.Context, input ca
 }
 
 func (s *AppFactoryService) handleAgentSessionTerminalState(ctx context.Context, workspaceID string, agentSessionID string, status string, lastError string) error {
+	unlock := s.settlementLocks.Lock(appFactoryActionKey("agent-settlement", workspaceID, agentSessionID))
+	defer unlock()
+
 	job, ok, err := s.findAppFactoryJobByAgentSessionID(ctx, workspaceID, agentSessionID)
 	if err != nil || !ok {
 		return err

@@ -573,19 +573,6 @@ func buildDaemonAPI(
 			}
 		}
 	}
-	agentActivityProjection.SetRootTurnObserver(rootTurnObserverFanout{
-		agentRuntimeController,
-		tuttiModeSourceTurnActivityObserver{
-			Activities: tuttiModeSourceActivity,
-		},
-		tuttiModeMainWakeTurnObserver{
-			Settlements: tuttiModeExecutions,
-			Queue:       issueService.ExecutionRecoveryQueue,
-		},
-		tuttiModeReviewerTurnObserver{
-			Settlements: tuttiModeExecutions,
-		},
-	})
 	appCenterService := &workspaceservice.AppCenterService{
 		Store:                 appStore,
 		AppFactoryStore:       appFactoryStore,
@@ -646,18 +633,30 @@ func buildDaemonAPI(
 		StateDir:              tuttitypes.DefaultStateDir(),
 		Publisher:             eventstreamservice.WorkspaceAppFactoryPublisher{Service: events},
 	}
+	agentActivityProjection.SetRootTurnObserver(rootTurnObserverFanout{
+		agentRuntimeController,
+		tuttiModeSourceTurnActivityObserver{
+			Activities: tuttiModeSourceActivity,
+		},
+		tuttiModeMainWakeTurnObserver{
+			Settlements: tuttiModeExecutions,
+			Queue:       issueService.ExecutionRecoveryQueue,
+		},
+		tuttiModeReviewerTurnObserver{
+			Settlements: tuttiModeExecutions,
+		},
+	})
 	agentActivityProjection.SetSessionMessageObserver(appFactoryService)
-	agentActivityProjection.SetSessionStateObserver(agentservice.SessionStateObservers{appFactoryService, modelPolicies, automationRules, issueExecutionCoordinator})
-	// Canonical root-turn settlements (root-provider aggregation, child-drain
-	// reconcile, cancel) fan out at-least-once to this dedicated opt-in list
-	// only. Automation rules and the Issue-run observer are the consumers
-	// cleared for it today: the general session-state observers historically
-	// never received live turn settles, and each needs its own semantic ruling
-	// before opting in (W4③-11). The Issue-run observer matches the settled
-	// turn against the run's initiating "issue-run:<runID>" submit, so an
-	// unrelated turn settling in a delegate session can never complete the
-	// run, and repeated terminal completion is idempotent.
-	agentActivityProjection.SetRootTurnSettleStateObserver(agentservice.SessionStateObservers{automationRules, issueExecutionCoordinator})
+	sessionStateObservers := []agentservice.SessionStateObserverRegistration{
+		{Observer: appFactoryService, RootTurnSettlements: agentservice.RootTurnSettlementsObserve},
+		{Observer: modelPolicies, RootTurnSettlements: agentservice.RootTurnSettlementsObserve},
+		{Observer: automationRules, RootTurnSettlements: agentservice.RootTurnSettlementsObserve},
+		{Observer: issueExecutionCoordinator, RootTurnSettlements: agentservice.RootTurnSettlementsObserve},
+	}
+	if err := agentActivityProjection.ConfigureSessionStateObservers(sessionStateObservers...); err != nil {
+		agentRuntime.Close()
+		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("configure agent session state observers: %w", err)
+	}
 	if _, err := appFactoryService.ReconcileInterruptedJobs(ctx); err != nil {
 		agentRuntime.Close()
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("reconcile interrupted app factory jobs: %w", err)

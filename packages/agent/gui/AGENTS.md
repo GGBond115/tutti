@@ -14,6 +14,10 @@ module, read this architecture document first:
 
 - [docs/architecture/agent-gui-node.md](../../../docs/architecture/agent-gui-node.md)
 
+Before reviewing changes in this package, also read
+[REVIEW.md](./REVIEW.md) and report every triggered review lane with concrete
+evidence.
+
 When changing `AgentActivityRuntime`, `agent-activity-core`, workspace engine,
 event/reconcile behavior, package exports, or a host adapter, also read the
 package/activity boundary document:
