@@ -435,6 +435,86 @@ func TestControllerOrdinarySendRequiresDurableProviderAcceptance(t *testing.T) {
 	}
 }
 
+func TestControllerCancelDoesNotWaitForProviderAcceptanceDurability(t *testing.T) {
+	var connection *scriptedAppServerConnection
+	barrier := &providerAcceptanceBarrierReporter{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	controller, _, sessionID := startedEditRetryControllerWithReporter(
+		t,
+		barrier,
+		func(_ *CodexAppServerAdapter, transport *scriptedAppServerTransport) {
+			connection = transport.conn
+			transport.conn.holdTurn = true
+		},
+	)
+	type execOutcome struct {
+		result ExecResult
+		err    error
+	}
+	execCompleted := make(chan execOutcome, 1)
+	go func() {
+		result, err := controller.Exec(t.Context(), ExecInput{
+			RoomID: "room-edit-retry", AgentSessionID: sessionID,
+			TurnID: "ordinary-turn-cancel", ClientSubmitID: "opaque-submit-cancel",
+			CanonicalSubmitOccurredAtUnixMS: 1_006,
+			Content:                         textPrompt("ordinary durable"),
+			RequireProviderAcceptance:       true,
+		})
+		execCompleted <- execOutcome{result: result, err: err}
+	}()
+	select {
+	case <-barrier.entered:
+	case <-time.After(time.Second):
+		t.Fatal("ordinary provider acceptance did not reach durable reporter")
+	}
+
+	cancelCompleted := make(chan error, 1)
+	go func() {
+		_, err := controller.Cancel(
+			context.Background(),
+			rootCancelInput(
+				"room-edit-retry",
+				sessionID,
+				"ordinary-turn-cancel",
+				"user requested",
+			),
+		)
+		cancelCompleted <- err
+	}()
+	select {
+	case err := <-cancelCompleted:
+		if err != nil {
+			t.Fatalf("Cancel: %v", err)
+		}
+	case <-time.After(time.Second):
+		close(barrier.release)
+		<-execCompleted
+		t.Fatal("Cancel waited for provider acceptance durability")
+	}
+	select {
+	case outcome := <-execCompleted:
+		t.Fatalf("Exec abandoned provider binding after Cancel: %#v", outcome)
+	default:
+	}
+	close(barrier.release)
+	outcome := <-execCompleted
+	if outcome.err != nil ||
+		outcome.result.ProviderDispatch == nil ||
+		outcome.result.ProviderDispatch.Disposition != DispatchDispositionApplied ||
+		outcome.result.ProviderDispatch.Acceptance == nil {
+		t.Fatalf("provider binding after Cancel = %#v error=%v", outcome.result, outcome.err)
+	}
+	if requests := appServerRequestParamsList(
+		t,
+		connection,
+		appServerMethodTurnInterrupt,
+	); len(requests) != 1 {
+		t.Fatalf("turn/interrupt requests = %#v, want one immediate cancel", requests)
+	}
+}
+
 func TestControllerCompatibilityProviderDoesNotRequireForkTurnAcceptance(t *testing.T) {
 	t.Parallel()
 

@@ -22,7 +22,12 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 		}()
 	}
 	releaseLifecycleLock := c.acquireLifecycleLock(input.RoomID, input.AgentSessionID)
-	defer releaseLifecycleLock()
+	lifecycleLockHeld := true
+	defer func() {
+		if lifecycleLockHeld {
+			releaseLifecycleLock()
+		}
+	}()
 
 	session, adapter, err := c.sessionAndAdapter(input.RoomID, input.AgentSessionID)
 	if err != nil {
@@ -214,13 +219,21 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 		TurnLifecycle:      *session.TurnLifecycle,
 		SubmitAvailability: *session.SubmitAvailability,
 	}
+	// The lifecycle lock protects canonical admission through durable submit
+	// and provider goroutine launch. Provider acceptance may arrive later (or
+	// never); keeping the lock while waiting would prevent Cancel from
+	// interrupting the active provider operation during that window.
+	releaseLifecycleLock()
+	lifecycleLockHeld = false
 	if dispatchObserver == nil {
 		return result, nil
 	}
 	select {
 	case dispatch := <-dispatchObserver.result:
 		dispatch, confirmErr := c.confirmProviderDispatchDurable(
-			runCtx,
+			// Once the provider has positively accepted a Turn, user
+			// cancellation must not abort persistence of that identity.
+			context.WithoutCancel(runCtx),
 			session,
 			turnID,
 			dispatch,
@@ -229,8 +242,11 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 		if confirmErr != nil {
 			return result, confirmErr
 		}
-		if dispatch.Disposition != DispatchDispositionApplied ||
+		if dispatch.Disposition == DispatchDispositionAppliedWithoutProviderTurn &&
 			dispatch.Acceptance == nil {
+			return result, nil
+		}
+		if dispatch.Disposition != DispatchDispositionApplied || dispatch.Acceptance == nil {
 			if input.RequireProviderAcceptance {
 				return result, errors.New("provider turn was not durably accepted")
 			}

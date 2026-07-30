@@ -12,6 +12,7 @@ func TestRuntimeDispatchDispositionContractValues(t *testing.T) {
 		want string
 	}{
 		{name: "applied", got: RuntimeDispatchDispositionApplied, want: "applied"},
+		{name: "applied without provider turn", got: RuntimeDispatchDispositionAppliedWithoutProviderTurn, want: "applied_without_provider_turn"},
 		{name: "rejected", got: RuntimeDispatchDispositionRejected, want: "rejected"},
 		{name: "not dispatched", got: RuntimeDispatchDispositionNotDispatched, want: "not_dispatched"},
 		{name: "outcome unknown", got: RuntimeDispatchDispositionOutcomeUnknown, want: "outcome_unknown"},

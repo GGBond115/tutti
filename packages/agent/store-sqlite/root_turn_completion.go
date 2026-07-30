@@ -130,9 +130,10 @@ WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
 		// terminal fact, but it must never be reopened by a late started event.
 		return rootTurn, false, nil
 	}
-	var conflictingTurnID string
-	if providerSessionID != "" {
-		err = tx.QueryRowContext(ctx, `
+	if rootTurn.RootProviderTurnID != providerTurnID {
+		var conflictingTurnID string
+		if providerSessionID != "" {
+			err = tx.QueryRowContext(ctx, `
 SELECT turn.turn_id
 FROM workspace_agent_turns AS turn
 JOIN workspace_agent_sessions AS session
@@ -144,28 +145,29 @@ WHERE turn.workspace_id = ?
   AND NOT (turn.agent_session_id = ? AND turn.turn_id = ?)
 LIMIT 1
 `, workspaceID, providerSessionID, providerTurnID, rootAgentSessionID, rootTurnID).
-			Scan(&conflictingTurnID)
-	} else {
-		// Legacy/import fixtures may predate provider Session identity. They
-		// retain the original Session-local uniqueness fence; current runtime
-		// sessions take the stronger provider-Session-wide branch above.
-		err = tx.QueryRowContext(ctx, `
+				Scan(&conflictingTurnID)
+		} else {
+			// Legacy/import fixtures may predate provider Session identity. They
+			// retain the original Session-local uniqueness fence; current runtime
+			// sessions take the stronger provider-Session-wide branch above.
+			err = tx.QueryRowContext(ctx, `
 SELECT turn_id
 FROM workspace_agent_turns
 WHERE workspace_id = ? AND agent_session_id = ?
   AND root_provider_turn_id = ? AND turn_id != ?
 LIMIT 1
 `, workspaceID, rootAgentSessionID, providerTurnID, rootTurnID).
-			Scan(&conflictingTurnID)
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return Turn{}, false, fmt.Errorf(
-			"check root provider turn identity uniqueness: %w",
-			err,
-		)
-	}
-	if conflictingTurnID != "" {
-		return Turn{}, false, ErrProviderTurnBindingConflict
+				Scan(&conflictingTurnID)
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return Turn{}, false, fmt.Errorf(
+				"check root provider turn identity uniqueness: %w",
+				err,
+			)
+		}
+		if conflictingTurnID != "" {
+			return Turn{}, false, ErrProviderTurnBindingConflict
+		}
 	}
 
 	if _, err := tx.ExecContext(ctx, `

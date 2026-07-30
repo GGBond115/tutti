@@ -158,9 +158,10 @@ type HistoryReplacementExecInput struct {
 	TurnID        string
 }
 
-// ProviderDispatchSink reports the provider's direct replacement-start
-// outcome. Implementations must report exactly once before
-// ExecHistoryReplacement returns.
+// ProviderDispatchSink reports the provider's direct operation outcome. A
+// successful operation that does not create a provider Turn uses
+// DispatchDispositionAppliedWithoutProviderTurn. Implementations must report
+// exactly once before a typed execution method returns.
 type ProviderDispatchSink func(ProviderDispatchResult)
 
 // EffectiveHistoryAdapter is the complete provider capability required by

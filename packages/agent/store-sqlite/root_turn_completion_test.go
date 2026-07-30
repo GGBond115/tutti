@@ -5,6 +5,80 @@ import (
 	"testing"
 )
 
+func TestHistoricalDuplicateProviderBindingCanStillAdvance(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	if _, err := store.ReportSessionState(ctx, SessionStateReport{
+		WorkspaceID: "ws-1", AgentSessionID: "source", Kind: SessionKindRoot,
+		Origin: "runtime", Provider: "codex", ProviderSessionID: "provider-source",
+		Status: "ready", CurrentPhase: "idle", OccurredAtUnixMS: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for index, turnID := range []string{"turn-1", "turn-2"} {
+		occurred := int64(10 + index*10)
+		providerTurnID := "provider-" + turnID
+		if _, err := store.ReportActivityState(ctx, ActivityStateReport{
+			Session: SessionStateReport{
+				WorkspaceID: "ws-1", AgentSessionID: "source", Kind: SessionKindRoot,
+				Origin: "runtime", Provider: "codex", ProviderSessionID: "provider-source",
+				Status: "active", CurrentPhase: "working", OccurredAtUnixMS: occurred,
+			},
+			Turn: &TurnTransition{
+				WorkspaceID: "ws-1", AgentSessionID: "source", TurnID: turnID,
+				Phase: TurnPhaseRunning, OccurredAtUnixMS: occurred,
+			},
+			RootProviderTurn: &RootProviderTurnTransition{
+				WorkspaceID: "ws-1", RootAgentSessionID: "source", RootTurnID: turnID,
+				ProviderTurnID: providerTurnID, Phase: RootProviderTurnPhaseRunning,
+				OccurredAtUnixMS: occurred,
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if turnID == "turn-1" {
+			reportRootProviderTurn(
+				t,
+				store,
+				"source",
+				turnID,
+				providerTurnID,
+				RootProviderTurnPhaseCompleted,
+				occurred+1,
+			)
+		}
+	}
+	if _, err := store.db.ExecContext(ctx, `
+UPDATE workspace_agent_turns
+SET root_provider_turn_id = 'provider-turn-1'
+WHERE workspace_id = 'ws-1' AND agent_session_id = 'source' AND turn_id = 'turn-2'
+`); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := store.ReportActivityState(ctx, ActivityStateReport{
+		Session: SessionStateReport{
+			WorkspaceID: "ws-1", AgentSessionID: "source",
+			OccurredAtUnixMS: 100,
+		},
+		RootProviderTurn: &RootProviderTurnTransition{
+			WorkspaceID: "ws-1", RootAgentSessionID: "source",
+			RootTurnID: "turn-2", ProviderTurnID: "provider-turn-1",
+			Phase: RootProviderTurnPhaseCompleted, Outcome: TurnOutcomeCompleted,
+			OccurredAtUnixMS: 100,
+		},
+	})
+	if err != nil {
+		t.Fatalf("advance historical duplicate binding: %v", err)
+	}
+	if result.RootTurn.RootProviderTurnID != "provider-turn-1" ||
+		result.RootTurn.RootProviderTurnPhase != RootProviderTurnPhaseCompleted ||
+		result.RootTurn.Phase != TurnPhaseSettled {
+		t.Fatalf("advanced historical turn = %#v", result.RootTurn)
+	}
+}
+
 func TestProviderCheckpointPersistsThroughAndAfterTurnSettlement(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))

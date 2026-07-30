@@ -465,10 +465,11 @@ type ExecResult struct {
 type DispatchDisposition string
 
 const (
-	DispatchDispositionApplied        DispatchDisposition = "applied"
-	DispatchDispositionRejected       DispatchDisposition = "rejected"
-	DispatchDispositionNotDispatched  DispatchDisposition = "not_dispatched"
-	DispatchDispositionOutcomeUnknown DispatchDisposition = "outcome_unknown"
+	DispatchDispositionApplied                    DispatchDisposition = "applied"
+	DispatchDispositionAppliedWithoutProviderTurn DispatchDisposition = "applied_without_provider_turn"
+	DispatchDispositionRejected                   DispatchDisposition = "rejected"
+	DispatchDispositionNotDispatched              DispatchDisposition = "not_dispatched"
+	DispatchDispositionOutcomeUnknown             DispatchDisposition = "outcome_unknown"
 )
 
 type AcceptanceSource string

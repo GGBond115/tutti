@@ -336,10 +336,11 @@ type RuntimeExecResult struct {
 type RuntimeDispatchDisposition string
 
 const (
-	RuntimeDispatchDispositionApplied        RuntimeDispatchDisposition = "applied"
-	RuntimeDispatchDispositionRejected       RuntimeDispatchDisposition = "rejected"
-	RuntimeDispatchDispositionNotDispatched  RuntimeDispatchDisposition = "not_dispatched"
-	RuntimeDispatchDispositionOutcomeUnknown RuntimeDispatchDisposition = "outcome_unknown"
+	RuntimeDispatchDispositionApplied                    RuntimeDispatchDisposition = "applied"
+	RuntimeDispatchDispositionAppliedWithoutProviderTurn RuntimeDispatchDisposition = "applied_without_provider_turn"
+	RuntimeDispatchDispositionRejected                   RuntimeDispatchDisposition = "rejected"
+	RuntimeDispatchDispositionNotDispatched              RuntimeDispatchDisposition = "not_dispatched"
+	RuntimeDispatchDispositionOutcomeUnknown             RuntimeDispatchDisposition = "outcome_unknown"
 )
 
 type RuntimeAcceptanceSource string
