@@ -2569,9 +2569,13 @@ export type WorkspaceAgentTurn = {
   turnId: string;
   agentSessionId: string;
   /**
-   * Whether this canonical Turn currently has the provider Turn binding required to attempt an exact native Fork. Historical prefix state does not participate in this projection.
+   * Whether this canonical Turn currently has a durably persisted provider Turn binding. This remains false while a settled historical Turn is waiting for an on-demand recovery attempt.
    */
   providerForkBindingAvailable: boolean;
+  /**
+   * Canonical provider binding state for Fork projection. bound means the durable provider Turn identity is ready; recovery_required means a settled historical Turn may enter the Host's fail-closed evidence recovery path; unavailable means the Turn cannot yet be used as a Fork boundary.
+   */
+  providerForkBindingState: "bound" | "recovery_required" | "unavailable";
   phase: WorkspaceAgentTurnPhase;
   /**
    * Durable business provenance; steer is input on an existing turn and is never an origin.

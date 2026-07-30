@@ -8,6 +8,7 @@ import (
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
+	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 	eventstreamservice "github.com/tutti-os/tutti/services/tuttid/service/eventstream"
 )
@@ -116,6 +117,26 @@ func TestGeneratedWorkspaceAgentTurnCoversAllFields(t *testing.T) {
 		RootProviderTurnID:     "provider-turn-1",
 	})
 	assertGeneratedFieldsPopulated(t, projected)
+}
+
+func TestGeneratedWorkspaceAgentTurnMarksSettledMissingBindingForRecovery(t *testing.T) {
+	t.Parallel()
+
+	projected := GeneratedWorkspaceAgentTurn(agentactivitybiz.Turn{
+		AgentSessionID: "session-1",
+		TurnID:         "turn-1",
+		Phase:          agentactivitybiz.TurnPhaseSettled,
+	})
+	if projected.ProviderForkBindingAvailable {
+		t.Fatal("provider fork binding available = true, want false before recovery")
+	}
+	if projected.ProviderForkBindingState !=
+		tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateRecoveryRequired {
+		t.Fatalf(
+			"provider fork binding state = %q, want recovery_required",
+			projected.ProviderForkBindingState,
+		)
+	}
 }
 
 func TestGeneratedTurnUpdatePayloadPassesEventstreamCatalog(t *testing.T) {

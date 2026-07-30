@@ -223,7 +223,7 @@ describe("AgentTranscriptView", () => {
     expect(onForkThroughTurn.mock.calls).toEqual([["turn-1"], ["turn-2"]]);
   });
 
-  it("only exposes Fork for Turns verified in provider-native history", () => {
+  it("does not expose Fork for Turns whose binding state is unavailable", () => {
     const detail = detailViewModel();
     const secondTurn = {
       ...detail.turns[0]!,
@@ -255,6 +255,7 @@ describe("AgentTranscriptView", () => {
             outcome: "completed",
             phase: "settled",
             providerForkBindingAvailable: false,
+            providerForkBindingState: "unavailable",
             settledAtUnixMs: 7_000
           }),
           canonicalTurn({
@@ -289,7 +290,8 @@ describe("AgentTranscriptView", () => {
     ).toHaveLength(1);
   });
 
-  it("fails closed when provider Turn boundary identities are unknown", () => {
+  it("shows Fork for a settled historical Turn that requires binding recovery", () => {
+    const onForkThroughTurn = vi.fn();
     const detail = detailViewModel();
     const conversation = projectAgentConversationVM(
       detailViewModel({
@@ -302,6 +304,46 @@ describe("AgentTranscriptView", () => {
             outcome: "completed",
             phase: "settled",
             providerForkBindingAvailable: false,
+            providerForkBindingState: "recovery_required",
+            settledAtUnixMs: 7_000
+          })
+        ]
+      })
+    );
+    render(
+      <AgentTranscriptView
+        conversation={conversation}
+        labels={{
+          thinkingLabel: "Thought process",
+          toolCallsLabel: (count: number) => `Tool calls (${count})`,
+          processing: "Planning next moves",
+          turnSummary: "Changed files"
+        }}
+        onForkThroughTurn={onForkThroughTurn}
+      />
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentHost.agentGui.forkThroughTurn"
+      })
+    );
+    expect(onForkThroughTurn).toHaveBeenCalledWith("turn-1");
+  });
+
+  it("hides Fork when provider binding recovery is unavailable", () => {
+    const detail = detailViewModel();
+    const conversation = projectAgentConversationVM(
+      detailViewModel({
+        session: normalizeAgentActivitySession({
+          ...detail.session,
+          lifecycleCapabilities: { fork: false, forkThroughTurn: true }
+        }),
+        sessionTurns: [
+          canonicalTurn({
+            outcome: "completed",
+            phase: "settled",
+            providerForkBindingAvailable: false,
+            providerForkBindingState: "unavailable",
             settledAtUnixMs: 7_000
           })
         ]
@@ -3478,6 +3520,7 @@ function canonicalTurn(
     origin: "user_prompt",
     phase: "running",
     providerForkBindingAvailable: true,
+    providerForkBindingState: "bound",
     startedAtUnixMs: 5_000,
     turnId: "turn-1",
     updatedAtUnixMs: 6_000,

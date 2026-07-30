@@ -86,6 +86,7 @@ export function agentActivityTurnFromTuttidTurn(
   return {
     agentSessionId: turn.agentSessionId,
     providerForkBindingAvailable: turn.providerForkBindingAvailable,
+    providerForkBindingState: turn.providerForkBindingState,
     completedCommand: turn.completedCommand,
     error: turn.error,
     fileChanges: turn.fileChanges,

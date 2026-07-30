@@ -515,6 +515,11 @@ export type AgentActivityTurnOutcome =
   | "canceled"
   | "interrupted";
 
+export type AgentActivityProviderForkBindingState =
+  | "bound"
+  | "recovery_required"
+  | "unavailable";
+
 /**
  * Durable provenance assigned when the Turn is created. Historical Turns must
  * remain `legacy_unknown`; clients must never infer an origin from later state.
@@ -533,8 +538,10 @@ export interface AgentActivityCompletedCommand {
 
 export interface AgentActivityTurn {
   agentSessionId: string;
-  /** Exact selected-Turn binding needed to attempt a provider-native Fork. */
+  /** Whether the exact provider Turn binding is already durably persisted. */
   providerForkBindingAvailable?: boolean;
+  /** Distinguishes a bound Turn from one that may enter on-demand recovery. */
+  providerForkBindingState?: AgentActivityProviderForkBindingState;
   /** Audit-only capability provenance for the turn; never current mode state. */
   capabilityRefs?: readonly AgentActivityCapabilityReference[];
   completedCommand?: AgentActivityCompletedCommand | null;

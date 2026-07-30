@@ -423,4 +423,5 @@ export type {
   AgentActivityForkSessionResult,
   AgentActivityForkSessionThroughTurnInput
 } from "./sessionFork.types.ts";
+export { providerForkBindingAllowsAttempt } from "./sessionFork.types.ts";
 export { workspaceAgentSessionStatus } from "./workspaceAgentSessionProjection.ts";

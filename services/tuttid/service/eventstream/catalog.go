@@ -703,7 +703,7 @@ func validateAgentActivityUpdatedData(decoded agentActivityUpdatedPayload) error
 		if err := requireJSONFields(decoded.Data, "", "occurredAtUnixMs", "activeTurnId", "turn"); err != nil {
 			return err
 		}
-		if err := requireJSONFields(decoded.Data, "turn", "turnId", "agentSessionId", "providerForkBindingAvailable", "phase", "origin", "outcome", "error", "fileChanges", "completedCommand", "startedAtUnixMs", "settledAtUnixMs", "updatedAtUnixMs"); err != nil {
+		if err := requireJSONFields(decoded.Data, "turn", "turnId", "agentSessionId", "providerForkBindingAvailable", "providerForkBindingState", "phase", "origin", "outcome", "error", "fileChanges", "completedCommand", "startedAtUnixMs", "settledAtUnixMs", "updatedAtUnixMs"); err != nil {
 			return err
 		}
 		var data agentActivityTurnUpdateData
@@ -716,6 +716,17 @@ func validateAgentActivityUpdatedData(decoded agentActivityUpdatedPayload) error
 		}
 		if !isOneOf(string(data.Turn.Origin), "user_prompt", "goal_arm", "goal_continuation", "provider_initiated", "legacy_unknown") {
 			return fmt.Errorf("data.turn.origin is invalid")
+		}
+		if !isOneOf(string(data.Turn.ProviderForkBindingState), "bound", "recovery_required", "unavailable") {
+			return fmt.Errorf("data.turn.providerForkBindingState is invalid")
+		}
+		if data.Turn.ProviderForkBindingAvailable !=
+			(string(data.Turn.ProviderForkBindingState) == "bound") {
+			return fmt.Errorf("data.turn provider Fork binding projection is inconsistent")
+		}
+		if string(data.Turn.ProviderForkBindingState) == "recovery_required" &&
+			string(data.Turn.Phase) != "settled" {
+			return fmt.Errorf("data.turn provider Fork binding recovery requires a settled Turn")
 		}
 		if data.Turn.SourceGoalOperationId != nil && strings.TrimSpace(*data.Turn.SourceGoalOperationId) == "" {
 			return fmt.Errorf("data.turn.sourceGoalOperationId must be non-empty when present")

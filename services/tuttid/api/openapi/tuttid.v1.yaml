@@ -12591,6 +12591,7 @@ components:
         - turnId
         - agentSessionId
         - providerForkBindingAvailable
+        - providerForkBindingState
         - phase
         - origin
         - outcome
@@ -12610,9 +12611,21 @@ components:
         providerForkBindingAvailable:
           type: boolean
           description: >-
-            Whether this canonical Turn currently has the provider Turn
-            binding required to attempt an exact native Fork. Historical
-            prefix state does not participate in this projection.
+            Whether this canonical Turn currently has a durably persisted
+            provider Turn binding. This remains false while a settled
+            historical Turn is waiting for an on-demand recovery attempt.
+        providerForkBindingState:
+          type: string
+          description: >-
+            Canonical provider binding state for Fork projection. bound means
+            the durable provider Turn identity is ready; recovery_required
+            means a settled historical Turn may enter the Host's fail-closed
+            evidence recovery path; unavailable means the Turn cannot yet be
+            used as a Fork boundary.
+          enum:
+            - bound
+            - recovery_required
+            - unavailable
         phase:
           $ref: "#/components/schemas/WorkspaceAgentTurnPhase"
         origin:

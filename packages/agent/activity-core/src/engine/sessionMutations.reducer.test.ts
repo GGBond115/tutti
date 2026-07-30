@@ -108,6 +108,7 @@ function forkReducerContext() {
         outcome: "completed" as const,
         phase: "settled" as const,
         providerForkBindingAvailable: true,
+        providerForkBindingState: "bound" as const,
         settledAtUnixMs: 2,
         startedAtUnixMs: 1,
         turnId: "turn-1",
@@ -1386,6 +1387,40 @@ test("through-turn fork is rejected when exact-session capability is absent", ()
 
   assert.deepEqual(result.commands, []);
   assert.deepEqual(result.state.byMutationId, {});
+});
+
+test("through-turn fork dispatches a settled boundary that requires provider binding recovery", () => {
+  const base = forkReducerContext();
+  const context = {
+    ...base,
+    turnsById: {
+      ...base.turnsById,
+      [canonicalTurnKey("session-1", "turn-1")]: {
+        ...base.turnsById[canonicalTurnKey("session-1", "turn-1")]!,
+        providerForkBindingAvailable: false,
+        providerForkBindingState: "recovery_required" as const
+      }
+    }
+  };
+
+  const result = sessionMutationsReducer(
+    createInitialSessionMutationsState(),
+    {
+      requestId: "request-recovery",
+      sourceAgentSessionId: "session-1",
+      targetAgentSessionId: "session-2",
+      turnId: "turn-1",
+      type: "session/forkThroughTurnRequested",
+      workspaceId: "workspace-1"
+    },
+    context
+  );
+
+  assert.equal(result.commands[0]?.type, "session/forkThroughTurn");
+  assert.equal(
+    result.state.byMutationId["request-recovery"]?.status,
+    "inFlight"
+  );
 });
 
 test("through-turn fork remains available while the source has an active turn", () => {

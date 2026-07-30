@@ -4,6 +4,7 @@ import type {
   AgentActivityTurn
 } from "../types.ts";
 import { normalizeAgentActivitySession } from "../sessionNormalization.ts";
+import { providerForkBindingAllowsAttempt } from "../sessionFork.types.ts";
 import type { CanonicalAgentSession } from "./sessionLifecycle.types.ts";
 import { canonicalTurnKey } from "./sessionEntityKeys.ts";
 import {
@@ -272,7 +273,8 @@ function requestForkThroughTurn(
     sourceSession?.workspaceId !== workspaceId ||
     sourceSession.kind !== "root" ||
     sourceSession.lifecycleCapabilities.forkThroughTurn !== true ||
-    turn?.providerForkBindingAvailable !== true ||
+    !turn ||
+    !providerForkBindingAllowsAttempt(turn) ||
     context.sessionsById[targetAgentSessionId] !== undefined ||
     Object.values(state.byMutationId).some(
       (record) =>

@@ -291,6 +291,7 @@ func GeneratedWorkspaceAgentTurn(turn agentactivitybiz.Turn) tuttigenerated.Work
 	return tuttigenerated.WorkspaceAgentTurn{
 		AgentSessionId:               strings.TrimSpace(turn.AgentSessionID),
 		ProviderForkBindingAvailable: strings.TrimSpace(turn.RootProviderTurnID) != "",
+		ProviderForkBindingState:     providerForkBindingState(turn),
 		CapabilityRefs:               capabilityRefs,
 		CompletedCommand:             completedCommand,
 		Error:                        turnError,
@@ -306,6 +307,18 @@ func GeneratedWorkspaceAgentTurn(turn agentactivitybiz.Turn) tuttigenerated.Work
 		TurnId:                       strings.TrimSpace(turn.TurnID),
 		UpdatedAtUnixMs:              turn.UpdatedAtUnixMS,
 	}
+}
+
+func providerForkBindingState(
+	turn agentactivitybiz.Turn,
+) tuttigenerated.WorkspaceAgentTurnProviderForkBindingState {
+	if strings.TrimSpace(turn.RootProviderTurnID) != "" {
+		return tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateBound
+	}
+	if turn.Phase == agentactivitybiz.TurnPhaseSettled {
+		return tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateRecoveryRequired
+	}
+	return tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateUnavailable
 }
 
 // GeneratedWorkspaceAgentInteraction is the completeness-guarded projection from

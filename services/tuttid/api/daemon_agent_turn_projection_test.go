@@ -52,6 +52,45 @@ func TestGeneratedWorkspaceAgentTurnOmitsErrorForCanceledOutcome(t *testing.T) {
 	}
 }
 
+func TestGeneratedWorkspaceAgentTurnProjectsProviderForkBindingState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		turn agentactivitybiz.Turn
+		want string
+	}{
+		{
+			name: "bound",
+			turn: agentactivitybiz.Turn{
+				Phase:              agentactivitybiz.TurnPhaseSettled,
+				RootProviderTurnID: "provider-turn-1",
+			},
+			want: "bound",
+		},
+		{
+			name: "settled recovery required",
+			turn: agentactivitybiz.Turn{Phase: agentactivitybiz.TurnPhaseSettled},
+			want: "recovery_required",
+		},
+		{
+			name: "running unavailable",
+			turn: agentactivitybiz.Turn{Phase: agentactivitybiz.TurnPhaseRunning},
+			want: "unavailable",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := generatedWorkspaceAgentTurn(test.turn)
+			if string(got.ProviderForkBindingState) != test.want {
+				t.Fatalf("provider fork binding state = %q, want %q", got.ProviderForkBindingState, test.want)
+			}
+		})
+	}
+}
+
 func TestGeneratedWorkspaceAgentInteractionCoversAllFields(t *testing.T) {
 	t.Parallel()
 

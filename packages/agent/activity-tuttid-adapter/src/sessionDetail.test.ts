@@ -320,6 +320,7 @@ function createTurn(
     outcome: null,
     phase: "settled",
     providerForkBindingAvailable: false,
+    providerForkBindingState: "recovery_required",
     settledAtUnixMs: 3,
     startedAtUnixMs: 1,
     turnId: overrides.turnId,

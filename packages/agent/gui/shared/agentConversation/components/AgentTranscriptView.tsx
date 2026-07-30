@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type Ref
 } from "react";
+import { providerForkBindingAllowsAttempt } from "@tutti-os/agent-activity-core";
 import type { WorkspaceLinkAction } from "../../../contexts/workspace/presentation/renderer/actions/workspaceLinkActions";
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../AgentMessageMarkdown";
 import type { AgentGUIProviderSkillOption } from "../../../agent-gui/agentGuiNode/model/agentGuiNodeTypes";
@@ -186,6 +187,7 @@ function transcriptCanonicalTurnsEqual(
           turn.outcome === nextTurn.outcome &&
           turn.providerForkBindingAvailable ===
             nextTurn.providerForkBindingAvailable &&
+          turn.providerForkBindingState === nextTurn.providerForkBindingState &&
           turn.startedAtUnixMs === nextTurn.startedAtUnixMs &&
           turn.settledAtUnixMs === nextTurn.settledAtUnixMs
         );
@@ -585,7 +587,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
       lifecycleCapabilities.forkThroughTurn !== true ||
       !canonicalTurn ||
       canonicalTurn.phase !== "settled" ||
-      canonicalTurn.providerForkBindingAvailable !== true
+      !providerForkBindingAllowsAttempt(canonicalTurn)
     ) {
       return null;
     }

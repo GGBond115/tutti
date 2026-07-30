@@ -2995,6 +2995,27 @@ func (e WorkspaceAgentTurnOrigin) Valid() bool {
 	}
 }
 
+// Defines values for WorkspaceAgentTurnProviderForkBindingState.
+const (
+	WorkspaceAgentTurnProviderForkBindingStateBound            WorkspaceAgentTurnProviderForkBindingState = "bound"
+	WorkspaceAgentTurnProviderForkBindingStateRecoveryRequired WorkspaceAgentTurnProviderForkBindingState = "recovery_required"
+	WorkspaceAgentTurnProviderForkBindingStateUnavailable      WorkspaceAgentTurnProviderForkBindingState = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the WorkspaceAgentTurnProviderForkBindingState enum.
+func (e WorkspaceAgentTurnProviderForkBindingState) Valid() bool {
+	switch e {
+	case WorkspaceAgentTurnProviderForkBindingStateBound:
+		return true
+	case WorkspaceAgentTurnProviderForkBindingStateRecoveryRequired:
+		return true
+	case WorkspaceAgentTurnProviderForkBindingStateUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WorkspaceAgentTurnCancelResultReason.
 const (
 	AlreadySettled WorkspaceAgentTurnCancelResultReason = "already_settled"
@@ -3378,22 +3399,22 @@ func (e WorkspaceFileTreePrefetchReason) Valid() bool {
 
 // Defines values for WorkspaceFileTreePrefetchState.
 const (
-	Loaded      WorkspaceFileTreePrefetchState = "loaded"
-	NotLoaded   WorkspaceFileTreePrefetchState = "not_loaded"
-	Partial     WorkspaceFileTreePrefetchState = "partial"
-	Unavailable WorkspaceFileTreePrefetchState = "unavailable"
+	WorkspaceFileTreePrefetchStateLoaded      WorkspaceFileTreePrefetchState = "loaded"
+	WorkspaceFileTreePrefetchStateNotLoaded   WorkspaceFileTreePrefetchState = "not_loaded"
+	WorkspaceFileTreePrefetchStatePartial     WorkspaceFileTreePrefetchState = "partial"
+	WorkspaceFileTreePrefetchStateUnavailable WorkspaceFileTreePrefetchState = "unavailable"
 )
 
 // Valid indicates whether the value is a known member of the WorkspaceFileTreePrefetchState enum.
 func (e WorkspaceFileTreePrefetchState) Valid() bool {
 	switch e {
-	case Loaded:
+	case WorkspaceFileTreePrefetchStateLoaded:
 		return true
-	case NotLoaded:
+	case WorkspaceFileTreePrefetchStateNotLoaded:
 		return true
-	case Partial:
+	case WorkspaceFileTreePrefetchStatePartial:
 		return true
-	case Unavailable:
+	case WorkspaceFileTreePrefetchStateUnavailable:
 		return true
 	default:
 		return false
@@ -7646,19 +7667,25 @@ type WorkspaceAgentTurn struct {
 	// Phase Protocol v2 closed turn phase vocabulary. submitted -> running -> waiting (interactions) -> settling -> settled.
 	Phase WorkspaceAgentTurnPhase `json:"phase"`
 
-	// ProviderForkBindingAvailable Whether this canonical Turn currently has the provider Turn binding required to attempt an exact native Fork. Historical prefix state does not participate in this projection.
-	ProviderForkBindingAvailable bool    `json:"providerForkBindingAvailable"`
-	SettledAtUnixMs              *int64  `json:"settledAtUnixMs"`
-	SourceGoalOperationId        *string `json:"sourceGoalOperationId,omitempty"`
-	SourceGoalRepairEpoch        *int64  `json:"sourceGoalRepairEpoch,omitempty"`
-	SourceGoalRevision           *int64  `json:"sourceGoalRevision,omitempty"`
-	StartedAtUnixMs              int64   `json:"startedAtUnixMs"`
-	TurnId                       string  `json:"turnId"`
-	UpdatedAtUnixMs              int64   `json:"updatedAtUnixMs"`
+	// ProviderForkBindingAvailable Whether this canonical Turn currently has a durably persisted provider Turn binding. This remains false while a settled historical Turn is waiting for an on-demand recovery attempt.
+	ProviderForkBindingAvailable bool `json:"providerForkBindingAvailable"`
+
+	// ProviderForkBindingState Canonical provider binding state for Fork projection. bound means the durable provider Turn identity is ready; recovery_required means a settled historical Turn may enter the Host's fail-closed evidence recovery path; unavailable means the Turn cannot yet be used as a Fork boundary.
+	ProviderForkBindingState WorkspaceAgentTurnProviderForkBindingState `json:"providerForkBindingState"`
+	SettledAtUnixMs          *int64                                     `json:"settledAtUnixMs"`
+	SourceGoalOperationId    *string                                    `json:"sourceGoalOperationId,omitempty"`
+	SourceGoalRepairEpoch    *int64                                     `json:"sourceGoalRepairEpoch,omitempty"`
+	SourceGoalRevision       *int64                                     `json:"sourceGoalRevision,omitempty"`
+	StartedAtUnixMs          int64                                      `json:"startedAtUnixMs"`
+	TurnId                   string                                     `json:"turnId"`
+	UpdatedAtUnixMs          int64                                      `json:"updatedAtUnixMs"`
 }
 
 // WorkspaceAgentTurnOrigin Durable business provenance; steer is input on an existing turn and is never an origin.
 type WorkspaceAgentTurnOrigin string
+
+// WorkspaceAgentTurnProviderForkBindingState Canonical provider binding state for Fork projection. bound means the durable provider Turn identity is ready; recovery_required means a settled historical Turn may enter the Host's fail-closed evidence recovery path; unavailable means the Turn cannot yet be used as a Fork boundary.
+type WorkspaceAgentTurnProviderForkBindingState string
 
 // WorkspaceAgentTurnCancelResponse defines model for WorkspaceAgentTurnCancelResponse.
 type WorkspaceAgentTurnCancelResponse struct {

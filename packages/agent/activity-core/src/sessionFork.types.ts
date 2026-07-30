@@ -1,4 +1,21 @@
-import type { AgentActivitySession } from "./types.ts";
+import type { AgentActivitySession, AgentActivityTurn } from "./types.ts";
+
+export function providerForkBindingAllowsAttempt(
+  turn: Pick<
+    AgentActivityTurn,
+    "providerForkBindingAvailable" | "providerForkBindingState"
+  >
+): boolean {
+  switch (turn.providerForkBindingState) {
+    case "bound":
+    case "recovery_required":
+      return true;
+    case "unavailable":
+      return false;
+    default:
+      return turn.providerForkBindingAvailable === true;
+  }
+}
 
 export interface AgentActivityForkSessionThroughTurnInput {
   workspaceId: string;
