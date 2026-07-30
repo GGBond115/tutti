@@ -152,6 +152,36 @@ test("terminal SDK connection error replaces the query before the next turn", as
   }
 });
 
+test("terminal SDK connection error fails another turn queued on the retired query", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const calls: Array<{
+    generation: number;
+    options: ClaudeQueryOptions;
+  }> = [];
+  const closes: number[] = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  const session = createSession("connection-error", calls, closes);
+  try {
+    await session.start();
+    session.exec("turn-failed", "first");
+    session.exec("turn-queued", "second");
+    await waitForEvent(events, "turn_failed");
+
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === "turn_failed")
+        .map((event) => event.payload?.turnId)
+        .sort(),
+      ["turn-failed", "turn-queued"]
+    );
+  } finally {
+    await session.close();
+    restoreSink();
+  }
+});
+
 for (const scenario of [
   {
     name: "a transient connection retry that succeeds",

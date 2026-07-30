@@ -206,6 +206,8 @@ export class SessionRuntime {
         this.maybeEmitSessionTitleUpdated(shouldEmit),
       onTerminalConnectionError: () =>
         QueryGeneration.retire(this.queryGeneration, () => {
+          this.executionEpoch += 1;
+          this.turns.failQueuedTurns("Claude SDK connection lost");
           this.queryGeneration = undefined;
         }),
       turns: this.turns,
