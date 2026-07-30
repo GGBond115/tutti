@@ -273,8 +273,8 @@ incomplete`, while a newly created session can still launch.
 - **Symptom:** After updating, `tuttid` exits immediately on every launch and the
   desktop reports `tuttid exited before it published its listener info`; the daemon
   log shows `recover agent host: process runtime operation <id>: agent session not
-  found` (or `... agent history was rolled back but the edited turn still needs to
-  be resent`). The app never opens.
+found` (or `... agent history was rolled back but the edited turn still needs to
+be resent`). The app never opens.
 - **Quick checks:** Look for a durable `edit_retry` runtime operation stuck at the
   `resend_pending` checkpoint — the last Turn was rolled back on the provider but
   the replacement was never re-sent. While the daemon runs, the live worker only
@@ -290,13 +290,16 @@ incomplete`, while a newly created session can still launch.
   marks it failed AND clears the session's effective-history fence back to `ready`
   so the conversation can still send — and returns non-fatally, so existing poison
   pills self-heal on the next boot. New edit-retries are refused at the entry
-  points. Sessions fenced before the neutralization (owning operation already
-  failed, so recovery cannot see it) self-heal at the send gate: the first send
-  clears an abandoned fence instead of rejecting. The durable rule: never let one
-  runtime operation's error abort daemon startup.
+  points. The durable rule: never let one runtime operation's error abort daemon
+  startup.
 - **Rescue:** For an install that cannot update yet, quit Tutti and run
   `tools/scripts/rescue-edit-retry-poison-pill.sh`, which quarantines the stuck
   rows and clears the session fence in `~/.tutti/tuttid.db` after backing it up.
+  The script is also the fix for a session fenced at `recovery_required` by an
+  operation that already failed before the neutralization: recovery only sees
+  claimable operations, and such sessions had no recovery action even when the
+  feature was enabled (a pre-existing dead end, deliberately left out of the
+  in-app fix to keep every daily code path untouched).
 - **Validation:** `packages/agent/host/edit_retry_disabled_test.go` builds a
   genuinely stuck operation, asserts enabled recovery is boot-fatal, and asserts
   the disabled path quarantines it, returns nil, and leaves the session at
