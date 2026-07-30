@@ -487,7 +487,7 @@ func sessionForkTargetProviderTurnBindings(
 	}
 	sourceTurnIDs := make([]string, 0, len(snapshot.Turns))
 	for _, item := range snapshot.Turns {
-		if strings.TrimSpace(item.Turn.RootProviderTurnID) == "" {
+		if !HasUsableProviderTurnBinding(item.Turn) {
 			continue
 		}
 		sourceTurnIDs = append(sourceTurnIDs, item.Turn.TurnID)

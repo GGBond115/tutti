@@ -113,10 +113,10 @@ WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
 		}
 		return SessionForkOperation{}, false, fmt.Errorf("read session fork turn sequence: %w", err)
 	}
-	if strings.TrimSpace(selected.RootProviderTurnID) == "" {
+	if !HasUsableProviderTurnBinding(selected) {
 		return SessionForkOperation{}, false, newSessionForkBoundaryError(
 			SessionForkBoundaryReasonProviderTurnMissing,
-			"selected turn has no provider turn binding",
+			"selected turn has no usable provider turn binding",
 		)
 	}
 	var boundaryBusy int
@@ -463,10 +463,10 @@ WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
 		return SessionForkBoundary{}, false, err
 	}
 	providerTurnID := strings.TrimSpace(turn.RootProviderTurnID)
-	if providerTurnID == "" {
+	if !HasUsableProviderTurnBinding(turn) {
 		return rejectedSessionForkBoundary(
 			SessionForkBoundaryReasonProviderTurnMissing,
-			"selected turn has no provider turn binding",
+			"selected turn has no usable provider turn binding",
 		), false, nil
 	}
 	return SessionForkBoundary{
@@ -515,6 +515,10 @@ ORDER BY sequence.turn_sequence ASC
 			&identity.Phase,
 		); err != nil {
 			return nil, fmt.Errorf("scan session fork turn identity: %w", err)
+		}
+		if strings.TrimSpace(identity.ProviderTurnID) ==
+			strings.TrimSpace(identity.TurnID) {
+			identity.ProviderTurnID = ""
 		}
 		identities = append(identities, identity)
 	}

@@ -49,6 +49,7 @@ func (s *Store) RecoverProviderTurnBinding(
 	if s == nil || s.db == nil || input.WorkspaceID == "" ||
 		input.AgentSessionID == "" || input.TurnID == "" ||
 		input.ExpectedProviderSessionID == "" || input.ProviderTurnID == "" ||
+		input.ProviderTurnID == input.TurnID ||
 		input.OccurredAtUnixMS <= 0 {
 		return ProviderTurnBindingRecoveryResult{}, errors.New(
 			"invalid provider turn binding recovery",
@@ -95,7 +96,7 @@ WHERE workspace_id = ? AND agent_session_id = ? AND deleted_at_unix_ms = 0
 		return ProviderTurnBindingRecoveryResult{},
 			ErrProviderTurnBindingConflict
 	}
-	if turn.RootProviderTurnID != "" &&
+	if HasUsableProviderTurnBinding(turn) &&
 		turn.RootProviderTurnID != input.ProviderTurnID {
 		return ProviderTurnBindingRecoveryResult{},
 			ErrProviderTurnBindingConflict
@@ -167,7 +168,8 @@ SET root_provider_turn_id = ?,
     root_provider_turn_updated_at_unix_ms = ?
 WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
   AND (root_provider_turn_id IS NULL OR TRIM(root_provider_turn_id) = ?
-       OR root_provider_turn_id = ?)
+       OR root_provider_turn_id = ?
+       OR root_provider_turn_id = turn_id)
 `, input.ProviderTurnID,
 		input.ProviderCheckpointMessageID,
 		input.ProviderCheckpointMessageID,

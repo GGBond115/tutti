@@ -38,6 +38,52 @@ func TestRecoverProviderTurnBindingIsCASAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestRecoverProviderTurnBindingReplacesLegacyCanonicalIdentityEcho(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	seedSettledTurnWithoutProviderBinding(t, store, "turn-1", 10)
+	if _, err := store.db.ExecContext(ctx, `
+UPDATE workspace_agent_turns
+SET root_provider_turn_id = turn_id
+WHERE workspace_id = 'ws-recovery'
+  AND agent_session_id = 'root'
+  AND turn_id = 'turn-1'
+`); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := store.RecoverProviderTurnBinding(ctx, ProviderTurnBindingRecovery{
+		WorkspaceID: "ws-recovery", AgentSessionID: "root", TurnID: "turn-1",
+		ExpectedProviderSessionID:   "provider-session",
+		ProviderTurnID:              "provider-turn-1",
+		ProviderCheckpointMessageID: "checkpoint-1",
+		OccurredAtUnixMS:            20,
+	})
+	if err != nil || !result.Changed ||
+		result.Turn.RootProviderTurnID != "provider-turn-1" ||
+		result.Turn.ProviderCheckpointMessageID != "checkpoint-1" {
+		t.Fatalf("legacy binding recovery = %#v error=%v", result, err)
+	}
+}
+
+func TestRecoverProviderTurnBindingRejectsCanonicalIdentityEcho(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	seedSettledTurnWithoutProviderBinding(t, store, "turn-1", 10)
+
+	_, err := store.RecoverProviderTurnBinding(ctx, ProviderTurnBindingRecovery{
+		WorkspaceID: "ws-recovery", AgentSessionID: "root", TurnID: "turn-1",
+		ExpectedProviderSessionID: "provider-session",
+		ProviderTurnID:            "turn-1",
+		OccurredAtUnixMS:          20,
+	})
+	if err == nil {
+		t.Fatal("canonical identity echo recovery unexpectedly succeeded")
+	}
+}
+
 func TestRecoverProviderTurnBindingRejectsDuplicateProviderIdentity(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))

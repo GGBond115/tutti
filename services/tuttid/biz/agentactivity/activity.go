@@ -89,6 +89,11 @@ type MessageSemantics = agentstore.MessageSemantics
 type MessagePage = agentstore.MessagePage
 
 type Turn = agentstore.Turn
+
+func HasUsableProviderTurnBinding(turn Turn) bool {
+	return agentstore.HasUsableProviderTurnBinding(turn)
+}
+
 type SessionTurnCursor = agentstore.SessionTurnCursor
 type ListSessionTurnSummariesInput = agentstore.ListSessionTurnSummariesInput
 type SessionTurnSummary = agentstore.SessionTurnSummary

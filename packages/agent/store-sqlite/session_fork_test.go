@@ -1059,6 +1059,56 @@ WHERE workspace_id = 'ws-1' AND agent_session_id = 'source' AND turn_id = 'turn-
 	}
 }
 
+func TestSessionForkRejectsLegacyCanonicalProviderTurnBinding(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	seedForkSession(t, store)
+	if _, err := store.db.ExecContext(ctx, `
+UPDATE workspace_agent_turns
+SET root_provider_turn_id = turn_id
+WHERE workspace_id = 'ws-1'
+  AND agent_session_id = 'source'
+  AND turn_id = 'turn-2'
+`); err != nil {
+		t.Fatal(err)
+	}
+
+	boundary, supported, err := store.CheckSessionForkThroughTurn(
+		ctx,
+		"ws-1",
+		"source",
+		"turn-2",
+	)
+	if err != nil || supported ||
+		boundary.RejectionReason != SessionForkBoundaryReasonProviderTurnMissing {
+		t.Fatalf(
+			"CheckSessionForkThroughTurn() boundary=%#v supported=%v error=%v",
+			boundary,
+			supported,
+			err,
+		)
+	}
+
+	_, changed, err := store.PrepareSessionFork(ctx, SessionForkPrepare{
+		OperationID: "fork-legacy-binding", WorkspaceID: "ws-1",
+		RequestID: "request-legacy-binding", RequestHash: "hash-legacy-binding",
+		SourceAgentSessionID: "source",
+		TargetAgentSessionID: "target-legacy-binding",
+		SourceTurnID:         "turn-2",
+		PointKind:            SessionForkPointThroughTurn,
+		DriverKind:           "claude-agent-sdk-session-fork",
+		DriverVersion:        "1",
+		OccurredAtUnixMS:     100,
+	})
+	var boundaryErr *SessionForkBoundaryError
+	if changed || !errors.Is(err, ErrSessionForkTurnState) ||
+		!errors.As(err, &boundaryErr) ||
+		boundaryErr.Reason != SessionForkBoundaryReasonProviderTurnMissing {
+		t.Fatalf("PrepareSessionFork() changed=%v error=%v", changed, err)
+	}
+}
+
 func TestListSessionForkTurnIdentitiesReturnsCanonicalSequence(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))

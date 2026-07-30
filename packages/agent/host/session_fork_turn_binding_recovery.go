@@ -43,7 +43,7 @@ func (h *Host) recoverSessionForkTurnBinding(
 		return err
 	}
 	if !found || turn.Phase != storesqlite.TurnPhaseSettled ||
-		strings.TrimSpace(turn.RootProviderTurnID) != "" {
+		storesqlite.HasUsableProviderTurnBinding(turn) {
 		return storesqlite.ErrSessionForkTurnState
 	}
 

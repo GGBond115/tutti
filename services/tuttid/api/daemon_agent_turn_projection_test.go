@@ -56,26 +56,44 @@ func TestGeneratedWorkspaceAgentTurnProjectsProviderForkBindingState(t *testing.
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		turn agentactivitybiz.Turn
-		want string
+		name          string
+		turn          agentactivitybiz.Turn
+		want          string
+		wantAvailable bool
 	}{
 		{
 			name: "bound",
 			turn: agentactivitybiz.Turn{
+				TurnID:             "turn-1",
 				Phase:              agentactivitybiz.TurnPhaseSettled,
 				RootProviderTurnID: "provider-turn-1",
 			},
-			want: "bound",
+			want:          "bound",
+			wantAvailable: true,
 		},
 		{
 			name: "settled recovery required",
-			turn: agentactivitybiz.Turn{Phase: agentactivitybiz.TurnPhaseSettled},
+			turn: agentactivitybiz.Turn{
+				TurnID: "turn-1",
+				Phase:  agentactivitybiz.TurnPhaseSettled,
+			},
+			want: "recovery_required",
+		},
+		{
+			name: "settled canonical identity echo requires recovery",
+			turn: agentactivitybiz.Turn{
+				TurnID:             "turn-1",
+				Phase:              agentactivitybiz.TurnPhaseSettled,
+				RootProviderTurnID: "turn-1",
+			},
 			want: "recovery_required",
 		},
 		{
 			name: "running unavailable",
-			turn: agentactivitybiz.Turn{Phase: agentactivitybiz.TurnPhaseRunning},
+			turn: agentactivitybiz.Turn{
+				TurnID: "turn-1",
+				Phase:  agentactivitybiz.TurnPhaseRunning,
+			},
 			want: "unavailable",
 		},
 	}
@@ -86,6 +104,13 @@ func TestGeneratedWorkspaceAgentTurnProjectsProviderForkBindingState(t *testing.
 			got := generatedWorkspaceAgentTurn(test.turn)
 			if string(got.ProviderForkBindingState) != test.want {
 				t.Fatalf("provider fork binding state = %q, want %q", got.ProviderForkBindingState, test.want)
+			}
+			if got.ProviderForkBindingAvailable != test.wantAvailable {
+				t.Fatalf(
+					"provider fork binding available = %v, want %v",
+					got.ProviderForkBindingAvailable,
+					test.wantAvailable,
+				)
 			}
 		})
 	}

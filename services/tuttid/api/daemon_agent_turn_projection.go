@@ -68,7 +68,7 @@ func generatedWorkspaceAgentTurn(turn agentactivitybiz.Turn) tuttigenerated.Work
 	}
 	return tuttigenerated.WorkspaceAgentTurn{
 		AgentSessionId:               strings.TrimSpace(turn.AgentSessionID),
-		ProviderForkBindingAvailable: strings.TrimSpace(turn.RootProviderTurnID) != "",
+		ProviderForkBindingAvailable: agentactivitybiz.HasUsableProviderTurnBinding(turn),
 		ProviderForkBindingState:     providerForkBindingState(turn),
 		CapabilityRefs:               capabilityRefs,
 		CompletedCommand:             completedCommand,
@@ -90,7 +90,7 @@ func generatedWorkspaceAgentTurn(turn agentactivitybiz.Turn) tuttigenerated.Work
 func providerForkBindingState(
 	turn agentactivitybiz.Turn,
 ) tuttigenerated.WorkspaceAgentTurnProviderForkBindingState {
-	if strings.TrimSpace(turn.RootProviderTurnID) != "" {
+	if agentactivitybiz.HasUsableProviderTurnBinding(turn) {
 		return tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateBound
 	}
 	if turn.Phase == agentactivitybiz.TurnPhaseSettled {

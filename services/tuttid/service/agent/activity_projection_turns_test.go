@@ -122,20 +122,27 @@ func TestGeneratedWorkspaceAgentTurnCoversAllFields(t *testing.T) {
 func TestGeneratedWorkspaceAgentTurnMarksSettledMissingBindingForRecovery(t *testing.T) {
 	t.Parallel()
 
-	projected := GeneratedWorkspaceAgentTurn(agentactivitybiz.Turn{
-		AgentSessionID: "session-1",
-		TurnID:         "turn-1",
-		Phase:          agentactivitybiz.TurnPhaseSettled,
-	})
-	if projected.ProviderForkBindingAvailable {
-		t.Fatal("provider fork binding available = true, want false before recovery")
-	}
-	if projected.ProviderForkBindingState !=
-		tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateRecoveryRequired {
-		t.Fatalf(
-			"provider fork binding state = %q, want recovery_required",
-			projected.ProviderForkBindingState,
-		)
+	for _, rootProviderTurnID := range []string{"", "turn-1"} {
+		rootProviderTurnID := rootProviderTurnID
+		t.Run(rootProviderTurnID, func(t *testing.T) {
+			t.Parallel()
+			projected := GeneratedWorkspaceAgentTurn(agentactivitybiz.Turn{
+				AgentSessionID:     "session-1",
+				TurnID:             "turn-1",
+				RootProviderTurnID: rootProviderTurnID,
+				Phase:              agentactivitybiz.TurnPhaseSettled,
+			})
+			if projected.ProviderForkBindingAvailable {
+				t.Fatal("provider fork binding available = true, want false before recovery")
+			}
+			if projected.ProviderForkBindingState !=
+				tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateRecoveryRequired {
+				t.Fatalf(
+					"provider fork binding state = %q, want recovery_required",
+					projected.ProviderForkBindingState,
+				)
+			}
+		})
 	}
 }
 
