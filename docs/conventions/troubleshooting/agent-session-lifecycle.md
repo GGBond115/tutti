@@ -290,8 +290,10 @@ incomplete`, while a newly created session can still launch.
   marks it failed AND clears the session's effective-history fence back to `ready`
   so the conversation can still send — and returns non-fatally, so existing poison
   pills self-heal on the next boot. New edit-retries are refused at the entry
-  points. The durable rule: never let one runtime operation's error abort daemon
-  startup.
+  points. Sessions fenced before the neutralization (owning operation already
+  failed, so recovery cannot see it) self-heal at the send gate: the first send
+  clears an abandoned fence instead of rejecting. The durable rule: never let one
+  runtime operation's error abort daemon startup.
 - **Rescue:** For an install that cannot update yet, quit Tutti and run
   `tools/scripts/rescue-edit-retry-poison-pill.sh`, which quarantines the stuck
   rows and clears the session fence in `~/.tutti/tuttid.db` after backing it up.
