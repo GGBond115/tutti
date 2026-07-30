@@ -48,6 +48,14 @@ type Config struct {
 	GoalDispatchDeadline   time.Duration
 	GoalActor              *SessionActor
 	SessionMutationActor   *SessionActor
+
+	// EditRetryDisabled neutralizes the durable edit-and-retry feature (PR
+	// #1681). When set, new edit-retry operations are refused and any operation
+	// left over from before it was disabled is quarantined during recovery
+	// instead of engaging the saga. The zero value keeps the feature enabled so
+	// its unit/conformance tests still exercise it; production wiring sets this
+	// true. Remove once the saga's resend/recovery gap is fixed.
+	EditRetryDisabled bool
 }
 
 type Host struct {
@@ -92,6 +100,7 @@ type Host struct {
 	goalDispatchDeadline   time.Duration
 	goalActor              *SessionActor
 	sessionMutationActor   *SessionActor
+	editRetryDisabled      bool
 	goalFencesRestored     sync.Map
 }
 
@@ -124,6 +133,7 @@ func New(config Config) *Host {
 		goalAttemptTimeout: config.GoalAttemptTimeout, goalRecoveryBudget: config.GoalRecoveryBudget,
 		goalMaxAttempts: config.GoalMaxAttempts, goalDispatchDeadline: config.GoalDispatchDeadline,
 		goalActor: goalActor, sessionMutationActor: sessionMutationActor,
+		editRetryDisabled: config.EditRetryDisabled,
 	}
 	if host.sessionForkRecovery == nil {
 		host.sessionForkRecovery, _ = host.sessionForks.(SessionForkRecoveryStore)

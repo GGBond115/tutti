@@ -208,5 +208,9 @@ func composeApplicationHost(
 		GoalAttemptTimeout: support.GoalAttemptTimeout, GoalRecoveryBudget: support.GoalRecoveryBudget,
 		GoalMaxAttempts: support.GoalMaxAttempts, GoalDispatchDeadline: support.GoalDispatchDeadline,
 		GoalActor: agenthost.NewSessionActor(),
+		// Durable edit-and-retry (PR #1681) is neutralized: its saga can strand a
+		// session in a rolled-back-but-not-resent state whose runtime operation
+		// becomes a cold-recovery poison pill that crashes tuttid on launch.
+		EditRetryDisabled: true,
 	})
 }
