@@ -491,12 +491,10 @@ describe("agent GUI workbench contribution copy", () => {
     const contribution = createTestAgentGuiWorkbenchContribution({
       agentDirectory,
       defaultProvider: "tutti-agent",
-      providerAvailability: {
+      providerAvailability: () => ({
         codex: true,
-        get "tutti-agent"() {
-          return tuttiAgentReady;
-        }
-      },
+        "tutti-agent": tuttiAgentReady
+      }),
       renderBody: () => null,
       workspaceId: "workspace-1"
     });

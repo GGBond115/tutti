@@ -252,9 +252,10 @@ export function createWorkspaceAgentGuiContribution(input: {
     frame: workspaceAgentGuiNodeFrame,
     defaultProvider: defaultAgentProvider,
     agentDirectory: input.agentsService,
-    providerAvailability: resolveWorkspaceAgentGuiProviderAvailability(
-      input.agentProviderStatusService
-    ),
+    providerAvailability: () =>
+      resolveWorkspaceAgentGuiProviderAvailability(
+        input.agentProviderStatusService
+      ),
     renderBody: (context, helpers) =>
       renderAgentGuiWorkbenchBody(context, helpers),
     resolveDockPopupIdentity: (state) =>
@@ -325,23 +326,13 @@ function resolveDefaultAgentTargetId(input: {
 function resolveWorkspaceAgentGuiProviderAvailability(
   service: AgentProviderStatusService
 ): Partial<Record<AgentGuiWorkbenchProvider, boolean>> {
-  return new Proxy(
-    {},
-    {
-      get: (_target, property) => {
-        if (
-          typeof property !== "string" ||
-          !isAgentGuiWorkbenchProvider(property)
-        ) {
-          return undefined;
-        }
-        const status = service
-          .getSnapshot()
-          .statuses.find((entry) => entry.provider === property);
-        return status ? status.availability.status === "ready" : undefined;
-      }
+  const availability: Partial<Record<AgentGuiWorkbenchProvider, boolean>> = {};
+  for (const status of service.getSnapshot().statuses) {
+    if (isAgentGuiWorkbenchProvider(status.provider)) {
+      availability[status.provider] = status.availability.status === "ready";
     }
-  );
+  }
+  return availability;
 }
 
 function resolveWorkspaceAgentGuiDockPopupIdentity(
