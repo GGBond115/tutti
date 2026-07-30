@@ -1444,6 +1444,7 @@ const (
 	DesktopDefaultAgentProviderCodex      DesktopDefaultAgentProvider = "codex"
 	DesktopDefaultAgentProviderCursor     DesktopDefaultAgentProvider = "cursor"
 	DesktopDefaultAgentProviderOpencode   DesktopDefaultAgentProvider = "opencode"
+	DesktopDefaultAgentProviderTuttiAgent DesktopDefaultAgentProvider = "tutti-agent"
 )
 
 // Valid indicates whether the value is a known member of the DesktopDefaultAgentProvider enum.
@@ -1456,6 +1457,8 @@ func (e DesktopDefaultAgentProvider) Valid() bool {
 	case DesktopDefaultAgentProviderCursor:
 		return true
 	case DesktopDefaultAgentProviderOpencode:
+		return true
+	case DesktopDefaultAgentProviderTuttiAgent:
 		return true
 	default:
 		return false

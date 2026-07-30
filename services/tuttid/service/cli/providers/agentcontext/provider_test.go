@@ -1151,8 +1151,8 @@ func TestAgentsCommandReturnsAvailability(t *testing.T) {
 	if len(agents) != 1 || agents[0].(map[string]any)["id"] != agenttargetbiz.IDLocalCodex {
 		t.Fatalf("agents = %#v", agents)
 	}
-	if output.Value["defaultAgentTargetId"] != agenttargetbiz.IDLocalCodex {
-		t.Fatalf("defaultAgentTargetId = %#v, want global default %q", output.Value["defaultAgentTargetId"], agenttargetbiz.IDLocalCodex)
+	if output.Value["defaultAgentTargetId"] != agenttargetbiz.IDLocalTuttiAgent {
+		t.Fatalf("defaultAgentTargetId = %#v, want global default %q", output.Value["defaultAgentTargetId"], agenttargetbiz.IDLocalTuttiAgent)
 	}
 	if len(sessions.availabilityIn) != 1 || sessions.availabilityIn[0].Provider != "codex" {
 		t.Fatalf("availability inputs = %#v, want only requested provider", sessions.availabilityIn)
@@ -1768,8 +1768,8 @@ func TestAgentListKeepsMultipleAgentsForOneProvider(t *testing.T) {
 	if !equalStrings(codexAgentIDs, []string{"user:reviewer", agenttargetbiz.IDLocalCodex}) {
 		t.Fatalf("codex agent ids = %#v", codexAgentIDs)
 	}
-	if output.Value["defaultAgentTargetId"] != agenttargetbiz.IDLocalCodex {
-		t.Fatalf("defaultAgentTargetId = %#v, want exact built-in target %q", output.Value["defaultAgentTargetId"], agenttargetbiz.IDLocalCodex)
+	if output.Value["defaultAgentTargetId"] != agenttargetbiz.IDLocalTuttiAgent {
+		t.Fatalf("defaultAgentTargetId = %#v, want exact built-in target %q", output.Value["defaultAgentTargetId"], agenttargetbiz.IDLocalTuttiAgent)
 	}
 }
 
@@ -1871,8 +1871,8 @@ func TestAgentListFallsBackWhenDesktopPreferencesCannotBeRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
 	}
-	if output.Value["defaultAgentTargetId"] != agenttargetbiz.IDLocalCodex {
-		t.Fatalf("defaultAgentTargetId = %#v, want built-in fallback %q", output.Value["defaultAgentTargetId"], agenttargetbiz.IDLocalCodex)
+	if output.Value["defaultAgentTargetId"] != agenttargetbiz.IDLocalTuttiAgent {
+		t.Fatalf("defaultAgentTargetId = %#v, want built-in fallback %q", output.Value["defaultAgentTargetId"], agenttargetbiz.IDLocalTuttiAgent)
 	}
 }
 

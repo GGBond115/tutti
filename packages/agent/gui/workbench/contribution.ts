@@ -115,7 +115,7 @@ export interface CreateAgentGuiWorkbenchContributionInput {
   dockSectionId?: string;
   frame?: WorkbenchFrame;
   id?: string;
-  providerAvailability?: AgentGuiWorkbenchProviderAvailability;
+  providerAvailability?: AgentGuiWorkbenchProviderAvailabilitySource;
   renderBody(
     context: WorkbenchHostNodeBodyContext<
       AgentGuiWorkbenchState | null,
@@ -586,7 +586,7 @@ import {
   resolveAgentGuiWorkbenchContributionCopy,
   resolveAgentGuiWorkbenchDefaultLaunchFrame
 } from "./contributionDock.tsx";
-import type { AgentGuiWorkbenchProviderAvailability } from "./contributionDock.tsx";
+import type { AgentGuiWorkbenchProviderAvailabilitySource } from "./contributionDock.tsx";
 export {
   agentGuiWorkbenchCompactVisibleAreaRatio,
   agentGuiWorkbenchDefaultCopy,
@@ -602,5 +602,6 @@ export {
 } from "./contributionDock.tsx";
 export type {
   AgentGuiWorkbenchProviderAvailability,
+  AgentGuiWorkbenchProviderAvailabilitySource,
   BuildAgentGuiDockEntriesInput
 } from "./contributionDock.tsx";

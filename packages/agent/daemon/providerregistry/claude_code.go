@@ -146,7 +146,7 @@ func claudeCodeDescriptor() ProviderDescriptor {
 			TurnLifecycleProjection: TurnLifecycleProjectionExplicit,
 		},
 		Sidecar: SidecarDescriptor{MentionRouting: SidecarMentionRoutingClaudeNamespaced, ExecutionEnvironment: SidecarExecutionEnvironmentClaudeIPC},
-		Desktop: DesktopIntegrationDescriptor{Managed: true, ManagedOrder: 1, StatusProbePriority: 2, UsageProbeKind: DesktopUsageProbeClaudeCode, DeveloperLogs: true, DefaultProviderEligible: true, DefaultProviderPriority: 2},
+		Desktop: DesktopIntegrationDescriptor{Managed: true, ManagedOrder: 1, StatusProbePriority: 2, UsageProbeKind: DesktopUsageProbeClaudeCode, DeveloperLogs: true, DefaultProviderEligible: true, DefaultProviderPriority: 3},
 		ExternalImport: ExternalImportDescriptor{
 			Enabled:               true,
 			RootEnvVar:            "CLAUDE_CONFIG_DIR",

@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS desktop_preferences (
   dock_icon_style TEXT NOT NULL DEFAULT 'flat',
   dock_placement TEXT NOT NULL DEFAULT 'bottom',
   deleted_agent_conversation_retention_days INTEGER NOT NULL DEFAULT 30,
-  default_agent_provider TEXT NOT NULL DEFAULT 'codex',
+  default_agent_provider TEXT NOT NULL DEFAULT 'tutti-agent',
   agent_conversation_detail_mode TEXT NOT NULL DEFAULT 'coding',
   agent_composer_defaults_by_provider_json TEXT NOT NULL DEFAULT '{}',
   agent_gui_conversation_rail_collapsed_by_provider_json TEXT NOT NULL DEFAULT '{}',
@@ -600,7 +600,7 @@ func (s *SQLiteStore) applyDesktopPreferencesDefaultAgentProviderV1(ctx context.
 	if !hasDefaultAgentProvider {
 		if _, err := s.writeDB.ExecContext(ctx, `
 ALTER TABLE desktop_preferences
-  ADD COLUMN default_agent_provider TEXT NOT NULL DEFAULT 'codex';`); err != nil {
+  ADD COLUMN default_agent_provider TEXT NOT NULL DEFAULT 'tutti-agent';`); err != nil {
 			return fmt.Errorf("migrate workspace database for desktop default agent provider: %w", err)
 		}
 	}

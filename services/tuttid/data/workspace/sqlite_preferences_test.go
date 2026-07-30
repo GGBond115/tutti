@@ -32,8 +32,8 @@ func TestSQLiteStoreGetDesktopPreferencesDefaultsWhenUnset(t *testing.T) {
 	if preferences.DeletedAgentConversationRetentionDays != 30 {
 		t.Fatalf("GetDesktopPreferences() retention days = %d, want 30", preferences.DeletedAgentConversationRetentionDays)
 	}
-	if preferences.DefaultAgentProvider != "codex" {
-		t.Fatalf("GetDesktopPreferences() defaultAgentProvider = %q, want codex", preferences.DefaultAgentProvider)
+	if preferences.DefaultAgentProvider != "tutti-agent" {
+		t.Fatalf("GetDesktopPreferences() defaultAgentProvider = %q, want tutti-agent", preferences.DefaultAgentProvider)
 	}
 	if preferences.AgentConversationDetailMode != "coding" {
 		t.Fatalf("GetDesktopPreferences() agentConversationDetailMode = %q, want coding", preferences.AgentConversationDetailMode)

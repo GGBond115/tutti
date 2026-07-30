@@ -6,7 +6,6 @@ import type {
   AgentGUIAgent,
   AgentGUIAgentDirectoryPort
 } from "@tutti-os/agent-gui";
-import { resolveAgentGUIProviderCatalogIdentity } from "@tutti-os/agent-gui/provider-catalog";
 import {
   createAgentGuiWorkbenchContribution,
   type AgentGuiWorkbenchConversationIdentity
@@ -99,10 +98,8 @@ export function createWorkspaceAgentGuiContribution(input: {
   workspaceUserProjectService: IWorkspaceUserProjectService;
   workspaceId: string;
 }): WorkbenchContribution {
-  const initialAgentDirectory = input.agentsService.getSnapshot();
-  const defaultAgentProvider = isWorkspaceAgentGuiProviderEnabledForNewEntry(
-    input.defaultAgentProvider,
-    initialAgentDirectory.agents
+  const defaultAgentProvider = isAgentGuiWorkbenchProvider(
+    input.defaultAgentProvider
   )
     ? input.defaultAgentProvider
     : null;
@@ -255,9 +252,10 @@ export function createWorkspaceAgentGuiContribution(input: {
     frame: workspaceAgentGuiNodeFrame,
     defaultProvider: defaultAgentProvider,
     agentDirectory: input.agentsService,
-    providerAvailability: resolveWorkspaceAgentGuiProviderAvailability(
-      input.agentProviderStatusService
-    ),
+    providerAvailability: () =>
+      resolveWorkspaceAgentGuiProviderAvailability(
+        input.agentProviderStatusService
+      ),
     renderBody: (context, helpers) =>
       renderAgentGuiWorkbenchBody(context, helpers),
     resolveDockPopupIdentity: (state) =>
@@ -322,25 +320,6 @@ function resolveDefaultAgentTargetId(input: {
     input.agents.find((agent) => agent.availability.status === "ready")
       ?.agentTargetId ??
     null
-  );
-}
-
-function isWorkspaceAgentGuiProviderEnabledForNewEntry(
-  provider: string | null | undefined,
-  agents: readonly AgentGUIAgent[] | null | undefined
-): provider is AgentGuiWorkbenchProvider {
-  if (!isAgentGuiWorkbenchProvider(provider)) {
-    return false;
-  }
-  if (
-    resolveAgentGUIProviderCatalogIdentity(provider)?.desktop.visibilityGate !==
-    "tutti_agent"
-  ) {
-    return true;
-  }
-  return (agents ?? []).some(
-    (agent) =>
-      agent.provider === provider && agent.availability.status === "ready"
   );
 }
 

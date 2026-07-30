@@ -476,6 +476,62 @@ describe("agent GUI workbench contribution copy", () => {
     });
   });
 
+  it("uses a default provider that becomes ready after contribution creation", () => {
+    let tuttiAgentReady = false;
+    let currentAgents = [createAgent("codex")];
+    const agentDirectory: AgentGUIAgentDirectoryPort = {
+      getSnapshot: () => ({
+        agents: currentAgents,
+        capturedAtUnixMs: 1,
+        error: null,
+        status: "ready"
+      }),
+      subscribe: () => () => {}
+    };
+    const contribution = createTestAgentGuiWorkbenchContribution({
+      agentDirectory,
+      defaultProvider: "tutti-agent",
+      providerAvailability: () => ({
+        codex: true,
+        "tutti-agent": tuttiAgentReady
+      }),
+      renderBody: () => null,
+      workspaceId: "workspace-1"
+    });
+    const [dockEntry] = contribution.dockEntries ?? [];
+
+    expect(dockEntry?.launchPayload).toMatchObject({
+      provider: "codex"
+    });
+
+    tuttiAgentReady = true;
+    currentAgents = [createAgent("codex"), createAgent("tutti-agent")];
+
+    const launchResult = contribution.onLaunchRequest?.({
+      dockEntryId: dockEntry?.id,
+      layoutConstraints: testLaunchLayout.layoutConstraints,
+      payload: dockEntry?.launchPayload,
+      reason: "dock",
+      surfaceSize: testLaunchLayout.surfaceSize,
+      typeId: agentGuiWorkbenchTypeId,
+      workspaceId: "workspace-1"
+    }) as
+      | {
+          instanceId: string;
+        }
+      | null
+      | undefined;
+
+    expect(
+      contribution.externalStateSource?.getSnapshotNodeState?.({
+        instanceId: launchResult?.instanceId ?? "",
+        typeId: agentGuiWorkbenchTypeId
+      } as never)
+    ).toMatchObject({
+      agentTargetId: "local:tutti-agent"
+    });
+  });
+
   it("keeps one contribution while dock launches and body reads follow live directory updates", () => {
     let currentAgents = [createAgent("codex")];
     const listeners = new Set<() => void>();
