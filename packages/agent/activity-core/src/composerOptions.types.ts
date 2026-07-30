@@ -48,10 +48,6 @@ export interface AgentActivityComposerCapabilityOption {
   invocation: "promptItem" | "textTrigger" | "none";
   description?: string;
   source?: string;
-  sourceKind?: Exclude<
-    AgentActivityComposerSkillOption["sourceKind"],
-    "connector"
-  >;
   pluginName?: string;
   serverName?: string;
   toolName?: string;

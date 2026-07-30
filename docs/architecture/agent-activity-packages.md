@@ -609,12 +609,6 @@ typed composer capability contract and must remain an unknown/loading state.
 Core capability booleans must not be reconstructed from private
 `runtimeContext` fields or represented as plugin/tool entries in the composer
 capability catalog.
-Composer capability DTO mapping preserves the semantic capability kind and, for
-Skills, its typed source provenance. A unified catalog is a transport shape,
-not a presentation category: the tuttid adapter must retain `sourceKind`, and
-AgentGUI must derive the Skill, plugin, and connector groups from those
-canonical facts instead of assuming that every catalog-backed Skill is a
-plugin.
 The activity snapshot also exposes the composer-options request lifecycle per
 opaque target key. Consumers use `loading` only for the initial request when no
 cached options exist; background refreshes keep rendering the last successful

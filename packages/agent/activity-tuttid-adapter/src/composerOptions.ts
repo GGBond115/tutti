@@ -424,13 +424,6 @@ function normalizeSkillSourceKind(
   }
 }
 
-function normalizeCapabilitySourceKind(
-  value: unknown
-): AgentActivityComposerCapabilityOption["sourceKind"] | null {
-  const sourceKind = normalizeSkillSourceKind(value);
-  return sourceKind === "connector" ? null : sourceKind;
-}
-
 function capabilityOptionsFromValue(
   value: unknown
 ): AgentActivityComposerCapabilityOption[] {
@@ -461,7 +454,6 @@ function capabilityOptionsFromValue(
     seen.add(id);
     const description = normalizeText(record.description);
     const source = normalizeText(record.source);
-    const sourceKind = normalizeCapabilitySourceKind(record.sourceKind);
     const pluginName = normalizeText(record.pluginName);
     const serverName = normalizeText(record.serverName);
     const toolName = normalizeText(record.toolName);
@@ -476,7 +468,6 @@ function capabilityOptionsFromValue(
       invocation,
       ...(description ? { description } : {}),
       ...(source ? { source } : {}),
-      ...(sourceKind ? { sourceKind } : {}),
       ...(pluginName ? { pluginName } : {}),
       ...(serverName ? { serverName } : {}),
       ...(toolName ? { toolName } : {}),

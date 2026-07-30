@@ -402,7 +402,7 @@ describe("AgentSlashCommandPalette", () => {
     expect(onSelectCapabilitySettings).not.toHaveBeenCalled();
   });
 
-  it("separates ordinary skills, plugins, and connectors into source groups", () => {
+  it("separates catalog skills, plugins, and connectors into source groups", () => {
     render(
       <AgentSlashCommandPalette
         label="Slash commands"
@@ -416,12 +416,13 @@ describe("AgentSlashCommandPalette", () => {
         entries={[
           {
             type: "skill",
-            key: "skill:personal-review",
-            label: "personal-review",
+            key: "skill:catalog-review",
+            label: "catalog-review",
             skill: {
-              name: "personal-review",
-              trigger: "$personal-review",
-              sourceKind: "personal"
+              name: "catalog-review",
+              trigger: "$catalog-review",
+              sourceKind: "plugin",
+              kind: "skill"
             }
           },
           {

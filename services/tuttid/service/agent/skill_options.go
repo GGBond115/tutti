@@ -720,7 +720,6 @@ func composerCapabilityCatalogFromSkills(provider string, skills []ComposerSkill
 			Label:       name,
 			Description: strings.TrimSpace(skill.Description),
 			Status:      "available",
-			SourceKind:  strings.TrimSpace(skill.SourceKind),
 			PluginName:  strings.TrimSpace(skill.PluginName),
 			Trigger:     trigger,
 			Path:        strings.TrimSpace(skill.Path),

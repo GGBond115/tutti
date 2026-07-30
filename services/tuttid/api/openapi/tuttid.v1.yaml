@@ -11071,22 +11071,6 @@ components:
             - unsupported
         source:
           type: string
-        sourceKind:
-          type: string
-          enum:
-            - project
-            - personal
-            - bundled
-            - plugin
-            - system
-            - tutti-injected
-          x-enum-varnames:
-            - AgentProviderCapabilityOptionSourceKindProject
-            - AgentProviderCapabilityOptionSourceKindPersonal
-            - AgentProviderCapabilityOptionSourceKindBundled
-            - AgentProviderCapabilityOptionSourceKindPlugin
-            - AgentProviderCapabilityOptionSourceKindSystem
-            - AgentProviderCapabilityOptionSourceKindTuttiInjected
         pluginName:
           type: string
         serverName:

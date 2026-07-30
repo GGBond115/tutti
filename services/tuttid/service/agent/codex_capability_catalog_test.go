@@ -10,11 +10,10 @@ import (
 )
 
 func TestParseCodexCapabilityResponses(t *testing.T) {
-	skills := parseCodexSkillCapabilities(json.RawMessage(`{"data":[{"skills":[{"name":"review","description":"Review code","path":"/tmp/review/SKILL.md","scope":"user","enabled":true}]}]}`))
+	skills := parseCodexSkillCapabilities(json.RawMessage(`{"data":[{"skills":[{"name":"review","description":"Review code","path":"/tmp/review/SKILL.md","enabled":true}]}]}`))
 	if len(skills) != 1 ||
 		skills[0].Kind != "skill" ||
 		skills[0].Status != "available" ||
-		skills[0].SourceKind != composerSkillSourcePersonal ||
 		skills[0].Trigger != "$review" ||
 		skills[0].Path == "" ||
 		skills[0].Invocation != "promptItem" {
@@ -29,22 +28,6 @@ func TestParseCodexCapabilityResponses(t *testing.T) {
 	mcp := parseCodexMCPCapabilities(json.RawMessage(`{"data":[{"name":"docs","status":"running","tools":[{"name":"search","description":"Search docs"}]}]}`))
 	if len(mcp) != 2 || mcp[0].Kind != "mcpServer" || mcp[1].Kind != "mcpTool" || mcp[1].ToolName != "search" {
 		t.Fatalf("parseCodexMCPCapabilities = %#v", mcp)
-	}
-}
-
-func TestComposerSkillSourceKindForAppServerScope(t *testing.T) {
-	testCases := map[string]string{
-		"user":    composerSkillSourcePersonal,
-		"repo":    composerSkillSourceProject,
-		"system":  composerSkillSourceSystem,
-		"admin":   composerSkillSourceSystem,
-		"unknown": "",
-		"":        "",
-	}
-	for scope, want := range testCases {
-		if got := composerSkillSourceKindForAppServerScope(scope); got != want {
-			t.Errorf("composerSkillSourceKindForAppServerScope(%q) = %q, want %q", scope, got, want)
-		}
 	}
 }
 
@@ -87,7 +70,7 @@ func TestAppServerCapabilityListSkillsOnly(t *testing.T) {
 	}
 
 	options, err := readAppServerCapabilityListResponses(
-		strings.NewReader(`{"id":"2","result":{"data":[{"skills":[{"name":"review","description":"Review","path":"/tmp/review/SKILL.md","scope":"repo","enabled":true}]}]}}`+"\n"),
+		strings.NewReader(`{"id":"2","result":{"data":[{"skills":[{"name":"review","description":"Review","path":"/tmp/review/SKILL.md","enabled":true}]}]}}`+"\n"),
 		appServerCatalogRequestSetSkillsOnly,
 	)
 	if err != nil {
@@ -99,7 +82,6 @@ func TestAppServerCapabilityListSkillsOnly(t *testing.T) {
 	skill := options[0]
 	if skill.ID != "skill:review" ||
 		skill.Kind != "skill" ||
-		skill.SourceKind != composerSkillSourceProject ||
 		skill.Trigger != "$review" ||
 		skill.Path != "/tmp/review/SKILL.md" ||
 		skill.Invocation != "promptItem" {

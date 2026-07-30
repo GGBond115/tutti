@@ -236,14 +236,11 @@ export function providerSkillsFromComposerOptions(
       )
       .map((capability): AgentGUIProviderSkillOption => {
         const isConnector = capability.kind === "connector";
-        const sourceKind =
-          capability.sourceKind ??
-          (capability.pluginName ? "plugin" : "system");
         return {
           name: isConnector ? capability.label : capability.name,
           trigger: capability.trigger!,
           invocation: "promptItem",
-          sourceKind: isConnector ? "connector" : sourceKind,
+          sourceKind: isConnector ? "connector" : "plugin",
           kind: isConnector ? "connector" : "skill",
           ...(capability.description
             ? { description: capability.description }

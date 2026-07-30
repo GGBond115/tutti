@@ -89,7 +89,6 @@ describe("descriptor-backed skill invocation", () => {
           status: "available",
           trigger: "$review",
           invocation: "promptItem",
-          sourceKind: "personal",
           path: "/skills/review/SKILL.md",
           description: "Review code"
         },
@@ -111,7 +110,7 @@ describe("descriptor-backed skill invocation", () => {
         name: "review",
         trigger: "$review",
         invocation: "promptItem",
-        sourceKind: "personal",
+        sourceKind: "plugin",
         kind: "skill",
         path: "/skills/review/SKILL.md",
         description: "Review code"
