@@ -290,43 +290,51 @@ describe("AgentTranscriptView", () => {
     ).toHaveLength(1);
   });
 
-  it("hides Fork for a settled historical Turn that still requires binding recovery", () => {
-    const detail = detailViewModel();
-    const conversation = projectAgentConversationVM(
-      detailViewModel({
-        session: normalizeAgentActivitySession({
-          ...detail.session,
-          lifecycleCapabilities: { fork: false, forkThroughTurn: true }
-        }),
-        sessionTurns: [
-          canonicalTurn({
-            outcome: "completed",
-            phase: "settled",
-            providerForkBindingAvailable: false,
-            providerForkBindingState: "recovery_required",
-            settledAtUnixMs: 7_000
-          })
-        ]
-      })
-    );
-    render(
-      <AgentTranscriptView
-        conversation={conversation}
-        labels={{
-          thinkingLabel: "Thought process",
-          toolCallsLabel: (count: number) => `Tool calls (${count})`,
-          processing: "Planning next moves",
-          turnSummary: "Changed files"
-        }}
-        onForkThroughTurn={vi.fn()}
-      />
-    );
-    expect(
-      screen.queryByRole("button", {
-        name: "agentHost.agentGui.forkThroughTurn"
-      })
-    ).toBeNull();
-  });
+  it.each(["codex", "claude-code", "cursor", "opencode"])(
+    "hides Fork for a settled historical %s Turn that still requires binding recovery",
+    (provider) => {
+      const detail = detailViewModel();
+      const conversation = projectAgentConversationVM(
+        detailViewModel({
+          activity: {
+            ...detail.activity,
+            agentProvider: provider
+          },
+          session: normalizeAgentActivitySession({
+            ...detail.session,
+            lifecycleCapabilities: { fork: false, forkThroughTurn: true },
+            provider
+          }),
+          sessionTurns: [
+            canonicalTurn({
+              outcome: "completed",
+              phase: "settled",
+              providerForkBindingAvailable: false,
+              providerForkBindingState: "recovery_required",
+              settledAtUnixMs: 7_000
+            })
+          ]
+        })
+      );
+      render(
+        <AgentTranscriptView
+          conversation={conversation}
+          labels={{
+            thinkingLabel: "Thought process",
+            toolCallsLabel: (count: number) => `Tool calls (${count})`,
+            processing: "Planning next moves",
+            turnSummary: "Changed files"
+          }}
+          onForkThroughTurn={vi.fn()}
+        />
+      );
+      expect(
+        screen.queryByRole("button", {
+          name: "agentHost.agentGui.forkThroughTurn"
+        })
+      ).toBeNull();
+    }
+  );
 
   it("hides Fork when provider binding recovery is unavailable", () => {
     const detail = detailViewModel();
