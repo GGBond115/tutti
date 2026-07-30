@@ -427,6 +427,52 @@ describe("AgentSideConversationController", () => {
     expect(runtime.getSnapshot("workspace-1").active).toBeNull();
   });
 
+  it("keeps a failed interactive request pending and projects an error", async () => {
+    const harness = transportHarness();
+    const runtime = createAgentSideConversationRuntime(harness.transport);
+    runtime.subscribe("workspace-1", () => {});
+    const opened = await runtime.open({
+      workspaceId: "workspace-1",
+      sourceAgentSessionId: "source-1"
+    });
+    harness.publish({
+      workspaceId: "workspace-1",
+      sideAgentSessionId: opened.sideAgentSessionId,
+      sourceAgentSessionId: "source-1",
+      sequence: 1,
+      eventType: "state_patch",
+      data: {
+        lifecycleStatus: "working",
+        turnLifecycle: { activeTurnId: "turn-1" },
+        interactionTransition: {
+          requestId: "request-1",
+          turnId: "turn-1",
+          kind: "approval",
+          status: "pending",
+          input: {},
+          metadata: { actions: [] }
+        }
+      }
+    });
+    vi.mocked(harness.transport.respond).mockRejectedValueOnce(
+      new Error("network unavailable")
+    );
+
+    await expect(
+      runtime.respond({
+        workspaceId: "workspace-1",
+        sideAgentSessionId: opened.sideAgentSessionId,
+        turnId: "turn-1",
+        requestId: "request-1",
+        optionId: "allow"
+      })
+    ).rejects.toThrow("network unavailable");
+    expect(runtime.getSnapshot("workspace-1").active).toMatchObject({
+      error: "side_interaction_failed",
+      pendingInteraction: { requestId: "request-1" }
+    });
+  });
+
   it("rejects attachments before optimistic send", async () => {
     const harness = transportHarness();
     const runtime = createAgentSideConversationRuntime(harness.transport);
@@ -446,7 +492,7 @@ describe("AgentSideConversationController", () => {
     expect(projectedMessages(runtime)).toEqual([]);
   });
 
-  it("releases transient state before remote close settles", async () => {
+  it("keeps a closing state visible until remote close settles", async () => {
     const harness = transportHarness();
     const runtime = createAgentSideConversationRuntime(harness.transport);
     const opened = await runtime.open({
@@ -466,10 +512,15 @@ describe("AgentSideConversationController", () => {
       sideAgentSessionId: opened.sideAgentSessionId
     });
 
-    expect(runtime.getSnapshot("workspace-1").active).toBeNull();
+    expect(runtime.getSnapshot("workspace-1").active).toMatchObject({
+      sideAgentSessionId: opened.sideAgentSessionId,
+      status: "closing",
+      error: null
+    });
     expect(harness.transport.close).toHaveBeenCalledOnce();
     resolveClose();
     await closePromise;
+    expect(runtime.getSnapshot("workspace-1").active).toBeNull();
   });
 
   it("retains failed close ownership and retries before the next open", async () => {
@@ -489,7 +540,11 @@ describe("AgentSideConversationController", () => {
         sideAgentSessionId: opened.sideAgentSessionId
       })
     ).rejects.toThrow("daemon unavailable");
-    expect(runtime.getSnapshot("workspace-1").active).toBeNull();
+    expect(runtime.getSnapshot("workspace-1").active).toMatchObject({
+      sideAgentSessionId: opened.sideAgentSessionId,
+      status: "error",
+      error: "side_close_failed"
+    });
 
     await runtime.open({
       workspaceId: "workspace-1",

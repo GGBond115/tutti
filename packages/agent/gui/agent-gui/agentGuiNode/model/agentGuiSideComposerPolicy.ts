@@ -8,7 +8,8 @@ export function projectAgentSideComposerGate(
   active: AgentSideConversationState
 ): AgentGUIComposerGate {
   const terminal = active.status === "error" || active.status === "expired";
-  const opening = active.status === "opening";
+  const transitioning =
+    active.status === "opening" || active.status === "closing";
   const pendingInteraction = active.pendingInteraction !== null;
   const busy = active.activeTurnId !== null || active.status === "running";
   return {
@@ -26,12 +27,12 @@ export function projectAgentSideComposerGate(
         },
     editor: terminal
       ? { status: "blocked", reason: "runtime_blocked" }
-      : opening
+      : transitioning
         ? { status: "blocked", reason: "submitting" }
         : { status: "editable", reason: null },
     submission: terminal
       ? { status: "blocked", reason: "runtime_blocked" }
-      : opening
+      : transitioning
         ? { status: "blocked", reason: "submitting" }
         : pendingInteraction
           ? { status: "blocked", reason: "pending_interactive_prompt" }

@@ -115,7 +115,9 @@ function stateFromProjection(
     ...current,
     status: projection.expired
       ? "expired"
-      : current.status === "opening" || current.status === "error"
+      : current.status === "opening" ||
+          current.status === "closing" ||
+          current.status === "error"
         ? current.status
         : session?.activeTurnId
           ? "running"
@@ -243,8 +245,20 @@ export function createAgentSideConversationRuntime(
         releaseTransportSubscriptionsIfUnused();
         throw new Error("event_stream_unavailable");
       }
-      if (snapshots.get(workspaceId)?.active) {
-        throw new Error("A Side conversation is already active.");
+      const existingActive = snapshots.get(workspaceId)?.active;
+      if (existingActive) {
+        const failedClose = pendingCloses.get(workspaceId);
+        if (
+          existingActive.status === "error" &&
+          existingActive.error === "side_close_failed" &&
+          failedClose?.sideAgentSessionId === existingActive.sideAgentSessionId
+        ) {
+          await closeWithTombstone(failedClose);
+          projectors.delete(existingActive.sideAgentSessionId);
+          setActive(workspaceId, null);
+        } else {
+          throw new Error("A Side conversation is already active.");
+        }
       }
       const pendingClose = pendingCloses.get(workspaceId);
       if (pendingClose) {
@@ -397,16 +411,51 @@ export function createAgentSideConversationRuntime(
       ) {
         throw new Error("Side interaction is not active.");
       }
-      await transport.respond(input);
+      try {
+        await transport.respond(input);
+        const current = snapshots.get(input.workspaceId)?.active;
+        if (current?.sideAgentSessionId === input.sideAgentSessionId) {
+          setActive(input.workspaceId, { ...current, error: null });
+        }
+      } catch (error) {
+        const current = snapshots.get(input.workspaceId)?.active;
+        if (current?.sideAgentSessionId === input.sideAgentSessionId) {
+          setActive(input.workspaceId, {
+            ...current,
+            error: "side_interaction_failed"
+          });
+        }
+        throw error;
+      }
     },
     async close(input) {
       const active = snapshots.get(input.workspaceId)?.active;
       if (active?.sideAgentSessionId === input.sideAgentSessionId) {
-        projectors.delete(input.sideAgentSessionId);
-        setActive(input.workspaceId, null);
+        setActive(input.workspaceId, {
+          ...active,
+          status: "closing",
+          error: null
+        });
       }
-      releaseTransportSubscriptionsIfUnused();
-      await closeWithTombstone(input);
+      try {
+        await closeWithTombstone(input);
+        const current = snapshots.get(input.workspaceId)?.active;
+        if (current?.sideAgentSessionId === input.sideAgentSessionId) {
+          projectors.delete(input.sideAgentSessionId);
+          setActive(input.workspaceId, null);
+        }
+        releaseTransportSubscriptionsIfUnused();
+      } catch (error) {
+        const current = snapshots.get(input.workspaceId)?.active;
+        if (current?.sideAgentSessionId === input.sideAgentSessionId) {
+          setActive(input.workspaceId, {
+            ...current,
+            status: "error",
+            error: "side_close_failed"
+          });
+        }
+        throw error;
+      }
     },
     getSnapshot(workspaceId) {
       return snapshots.get(workspaceId) ?? { workspaceId, active: null };

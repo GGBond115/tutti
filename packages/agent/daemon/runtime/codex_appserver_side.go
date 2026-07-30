@@ -44,7 +44,8 @@ func (a *CodexAppServerAdapter) SideCapabilities(
 	_ context.Context,
 	source Session,
 ) (SideConversationCapabilities, error) {
-	if a == nil || !a.config.nativeSessionFork ||
+	strategy, supported := a.forkStrategy()
+	if !supported ||
 		strings.TrimSpace(source.ProviderSessionID) == "" {
 		return SideConversationCapabilities{}, nil
 	}
@@ -55,8 +56,8 @@ func (a *CodexAppServerAdapter) SideCapabilities(
 		appSession.threadID == sourceThreadID {
 		serverInfo := clonePayload(appSession.serverInfo)
 		a.mu.Unlock()
-		if version, ok := codexAppServerUserAgentVersion(serverInfo); ok &&
-			versionAtLeast(version, codexThroughTurnMinimumVersion) {
+		if version, ok := appServerForkVersion(strategy, serverInfo); ok &&
+			versionAtLeast(version, strategy.throughTurnMinimumVersion) {
 			return codexSideCapabilities(), nil
 		}
 		return SideConversationCapabilities{}, nil
@@ -85,7 +86,8 @@ func (a *CodexAppServerAdapter) OpenSide(
 	source := input.Source
 	side := input.Side
 	sourceThreadID := strings.TrimSpace(source.ProviderSessionID)
-	if a == nil || !a.config.nativeSessionFork {
+	strategy, supported := a.forkStrategy()
+	if !supported {
 		return SideConversationOpenResult{}, ErrSideConversationUnsupported
 	}
 	if sourceThreadID == "" || strings.TrimSpace(side.AgentSessionID) == "" {
@@ -114,8 +116,8 @@ func (a *CodexAppServerAdapter) OpenSide(
 	defaultModeMask := sourceAppSession.defaultModeMask
 	defaultModel := sourceAppSession.defaultModel
 	a.mu.Unlock()
-	version, ok := codexAppServerUserAgentVersion(serverInfo)
-	if !ok || !versionAtLeast(version, codexThroughTurnMinimumVersion) {
+	version, ok := appServerForkVersion(strategy, serverInfo)
+	if !ok || !versionAtLeast(version, strategy.throughTurnMinimumVersion) {
 		return SideConversationOpenResult{}, ErrSideConversationUnsupported
 	}
 	if err := a.beginPendingSideRoute(client, sourceThreadID); err != nil {
@@ -160,6 +162,22 @@ func (a *CodexAppServerAdapter) OpenSide(
 						ctx, client, side, "", message, nil, nil, nil,
 					)
 					return handleErr
+				},
+				func(raw json.RawMessage) {
+					var lateResponse codexproto.ThreadForkResponse
+					if json.Unmarshal(raw, &lateResponse) != nil ||
+						lateResponse.Thread == nil {
+						return
+					}
+					childThreadID := strings.TrimSpace(lateResponse.Thread.ID)
+					if childThreadID == "" || childThreadID == sourceThreadID {
+						return
+					}
+					_ = client.ThreadUnsubscribeNoHandler(
+						context.Background(),
+						acpStartCallTimeout,
+						childThreadID,
+					)
 				},
 			)
 		},

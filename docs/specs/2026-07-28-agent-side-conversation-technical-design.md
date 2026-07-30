@@ -184,6 +184,12 @@ Side reuses the Controller's existing execution machinery:
 - command/config snapshots;
 - provider Close.
 
+`InteractiveAdapter` implementations share one error taxonomy:
+`ErrInteractiveResponseInvalid` for malformed or unavailable options,
+`ErrInteractiveRequestNotLive` for stale requests, and
+`ErrInteractiveAlreadyAnswered` after terminal resolution. This keeps Side API
+classification provider-neutral when additional adapters opt in.
+
 The scope changes the sinks:
 
 ```text
@@ -258,7 +264,7 @@ Codex validation rules:
   validation;
 - per-RPC handlers cannot override the connection-wide thread router;
 - the client is reference-counted across its parent and Side sessions;
-- closing Side deletes only the ephemeral child thread; the parent client and
+- closing Side unsubscribes and releases only the ephemeral child thread; the parent client and
   active Turn are unchanged.
 
 The injected developer instructions and user boundary tell the model that
@@ -359,9 +365,11 @@ creates and disposes its own Side runtime so embedded and detached windows
 cannot overwrite one another's transient ownership. The renderer keeps Side
 in that dedicated store keyed by workspace and active `sideId`;
 canonical Session/Turn/Message reducers must reject `scope=side`. Closing a
-pane sends `agent.side.close`. A daemon disconnect immediately clears every
-visible local Side identity and retains a close tombstone until remote cleanup
-succeeds; the next open retries unresolved cleanup first.
+pane sends `agent.side.close` and keeps the pane in `closing` until the remote
+acknowledgment; a failed close remains visible and retryable. A daemon
+disconnect immediately clears every visible local Side identity and retains a
+close tombstone until remote cleanup succeeds; the next open retries unresolved
+cleanup first.
 
 ### Phase D — additional providers
 
@@ -409,28 +417,28 @@ prompt text, injected model context, credentials, or environment values.
 
 The implementation review produced the following corrections:
 
-| Review risk                                                       | Resolution                                                                   |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| cross-process fork could miss the active source suffix            | Codex now forks on the source-owned connection                               |
-| one callback handler could mix parent and Side events             | connection-wide `threadId` router overrides per-RPC handlers                 |
-| fork could emit a child notification before child identity exists | provisional connection route buffers then replays against the committed Side |
-| legacy approval requests use `conversationId`                     | one thread-id extractor handles modern and legacy request schemas            |
-| closing Side could terminate the parent process                   | shared-client reference counting plus child `thread/unsubscribe`             |
-| an unhealthy shared transport could leave sibling refs live       | transport invalidation expires every parent/Side ref and closes once         |
-| Host Open/Close could create a ghost ready entry                  | source/side session actors serialize the transition                          |
-| a stale Host registration could target a canonical runtime        | every Side operation revalidates scope, source, and request                  |
-| a canonical id could be reused as a Side id                       | Host checks the canonical store before reservation                           |
-| events or command/config snapshots could overtake open            | one provisional drain loop covers all three channels                         |
-| partial capability claims could commit                            | preflight and open results validate every mandatory fact                     |
-| an offline source could be treated as live                        | `LiveSessionProbeAdapter` is mandatory and historical fallback is forbidden  |
-| goal/provenance paths could write Side state durably              | goal APIs are disabled and every durable sink has a Side guard               |
-| the canonical idle reaper could silently expire Side              | Side is excluded; explicit Side lifecycle owns expiration                    |
-| provider failure could leave delayed callbacks/resources          | `OpenSide` now has an explicit quiesce-and-cleanup-on-error contract         |
-| malformed fork lineage could leak an ephemeral child              | cleanup is armed as soon as a distinct child id is returned                  |
-| invalid provider identity could close a canonical session         | unvalidated identities are never passed to ordinary `Close`                  |
-| two AgentGUI surfaces could share transient Side ownership        | Desktop injects a factory and each mounted surface owns one runtime          |
-| a stale connection sample could admit Side without events         | connection state methods are mandatory and sampled around subscription/open  |
-| a parent child index could steal the exact Side thread            | exact provider-session matches run before child-thread fallback              |
+| Review risk                                                       | Resolution                                                                                                     |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| cross-process fork could miss the active source suffix            | Codex now forks on the source-owned connection                                                                 |
+| one callback handler could mix parent and Side events             | connection-wide `threadId` router overrides per-RPC handlers                                                   |
+| fork could emit a child notification before child identity exists | provisional connection route buffers then replays against the committed Side                                   |
+| legacy approval requests use `conversationId`                     | one thread-id extractor handles modern and legacy request schemas                                              |
+| closing Side could terminate the parent process                   | shared-client reference counting plus child `thread/unsubscribe`                                               |
+| an unhealthy shared transport could leave sibling refs live       | transport invalidation expires every parent/Side ref and closes once                                           |
+| Host Open/Close could create a ghost ready entry                  | source/side session actors serialize the transition                                                            |
+| a stale Host registration could target a canonical runtime        | every Side operation revalidates scope, source, and request                                                    |
+| a canonical id could be reused as a Side id                       | Host checks the canonical store before reservation                                                             |
+| events or command/config snapshots could overtake open            | one provisional drain loop covers all three channels                                                           |
+| partial capability claims could commit                            | preflight and open results validate every mandatory fact                                                       |
+| an offline source could be treated as live                        | `LiveSessionProbeAdapter` is mandatory and historical fallback is forbidden                                    |
+| goal/provenance paths could write Side state durably              | goal APIs are disabled and every durable sink has a Side guard                                                 |
+| the canonical idle reaper could silently expire Side              | Side is excluded; explicit Side lifecycle owns expiration                                                      |
+| provider failure could leave delayed callbacks/resources          | `OpenSide` keeps resource-creating response identities until response/client shutdown and cleans late children |
+| malformed fork lineage could leak an ephemeral child              | cleanup is armed as soon as a distinct child id is returned                                                    |
+| invalid provider identity could close a canonical session         | unvalidated identities are never passed to ordinary `Close`                                                    |
+| two AgentGUI surfaces could share transient Side ownership        | Desktop injects a factory and each mounted surface owns one runtime                                            |
+| a stale connection sample could admit Side without events         | connection state methods are mandatory and sampled around subscription/open                                    |
+| a parent child index could steal the exact Side thread            | exact provider-session matches run before child-thread fallback                                                |
 
 This document covers the provider-neutral infrastructure, Codex adapter,
 public service command/event schema, and the user-visible AgentGUI `/side`

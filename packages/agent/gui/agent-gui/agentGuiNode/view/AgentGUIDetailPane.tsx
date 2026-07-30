@@ -1,5 +1,4 @@
 import { memo, useCallback, useMemo, useState } from "react";
-import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../../shared/AgentMessageMarkdown";
 import { latestAssistantMessageText } from "../../../shared/agentConversation/projection/agentConversationProjection";
 import { AGENT_GUI_WORKBENCH_OPEN_EXTERNAL_IMPORT_EVENT } from "../../../workbench/contribution";
 import type { AgentComposerProps } from "../AgentComposer";
@@ -32,8 +31,7 @@ import { useAgentGUIDetailEditRetry } from "./useAgentGUIDetailEditRetry";
 import { useAgentGUIDetailSideConversation } from "./useAgentGUIDetailSideConversation";
 import { useAgentGUIDetailSideChrome } from "./useAgentGUIDetailSideChrome";
 import { useAgentGUIDetailScrollRefs } from "./useAgentGUIDetailScrollRefs";
-export const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
-  [];
+export const EMPTY_WORKSPACE_APP_ICONS = [] as const;
 export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   shell,
   rail,
@@ -362,6 +360,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   const sideConversation = useAgentGUIDetailSideConversation({
     workspaceId: viewModel.shell.workspaceId,
     sourceAgentSessionId: viewModel.rail.activeConversationId,
+    sourceTurnActive: showStopButton,
     provider: composerProvider,
     cwd: viewModel.shell.workspacePath ?? null,
     availableCommands: viewModel.composer.availableCommands,
@@ -429,7 +428,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       workspaceReferencePickerOpen,
       referenceProvenanceFilters,
       activePrompt: composerActivePrompt,
-      activePromptKeyboardShortcutsEnabled: isActive,
+      activePromptKeyboardShortcutsEnabled: isActive && !sideComposerFocused,
       promptTips: labels.promptTips,
       composerFocusRequestSequence,
       isActive: isActive && !sideComposerFocused,
@@ -684,9 +683,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   return (
     <main
       className={styles.detail}
-      aria-busy={timelineInteractionLocked || undefined}
       data-agent-session-id={viewModel.rail.activeConversationId ?? undefined}
-      inert={timelineInteractionLocked}
     >
       {viewModel.operations.goalClearNoticeSequence > 0 ? (
         <AgentGUIContentToast
@@ -696,7 +693,10 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         />
       ) : null}
       <div className={styles.detailWorkbench}>
-        <section className={styles.detailPrimary}>
+        <section
+          className={styles.detailPrimary}
+          inert={timelineInteractionLocked}
+        >
           <AgentGUIDetailTimeline
             availableSkills={viewModel.composer.availableSkills}
             conversation={conversation}

@@ -35,6 +35,9 @@ var (
 	ErrSideConversationInProgress        = errors.New("agent side conversation is being opened")
 	ErrSideConversationConflict          = errors.New("agent side conversation identity conflicts with an existing side")
 	ErrSideConversationExpired           = errors.New("agent side conversation has expired")
+	ErrInteractiveRequestNotLive         = errors.New("agent interactive request is no longer live")
+	ErrInteractiveAlreadyAnswered        = errors.New("agent interactive request has already been answered")
+	ErrInteractiveResponseInvalid        = errors.New("agent interactive response is invalid")
 )
 
 // ProviderError preserves a provider-owned failure across the runtime adapter

@@ -126,7 +126,9 @@ export function AgentGUISideConversationPane({
           <div className="truncate text-xs text-muted-foreground">
             {active.status === "opening"
               ? t("agentHost.agentGui.sideOpening")
-              : t("agentHost.agentGui.sideEphemeralHint")}
+              : active.status === "closing"
+                ? t("agentHost.agentGui.sideClosing")
+                : t("agentHost.agentGui.sideEphemeralHint")}
           </div>
         </div>
         <button
@@ -135,6 +137,7 @@ export function AgentGUISideConversationPane({
           aria-label={t("agentHost.agentGui.sideClose")}
           title={t("agentHost.agentGui.sideClose")}
           onClick={onClose}
+          disabled={active.status === "closing"}
         >
           <X aria-hidden="true" size={16} />
         </button>

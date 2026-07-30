@@ -272,3 +272,69 @@ func TestSubmitWorkspaceAgentSideConversationInteractiveUsesExactIdentity(
 		t.Fatalf("interactive identity = %#v", observed)
 	}
 }
+
+func TestSubmitWorkspaceAgentSideConversationInteractiveClassifiesErrors(
+	t *testing.T,
+) {
+	for _, test := range []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantReason string
+	}{
+		{
+			name:       "request no longer live",
+			err:        agenthost.ErrInteractiveRequestNotLive,
+			wantStatus: http.StatusConflict,
+			wantReason: "agent_side_interaction_not_live",
+		},
+		{
+			name:       "invalid option",
+			err:        agenthost.ErrInteractiveResponseInvalid,
+			wantStatus: http.StatusBadRequest,
+			wantReason: "agent_side_interaction_invalid_response",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := sideConversationServiceStub{
+				respondFn: func(
+					context.Context,
+					agenthost.RuntimeSubmitInteractiveInput,
+				) (agenthost.RuntimeSubmitInteractiveResult, error) {
+					return agenthost.RuntimeSubmitInteractiveResult{}, test.err
+				},
+			}
+			mux := http.NewServeMux()
+			RegisterRoutes(
+				mux,
+				NewRoutes(DaemonAPI{SideConversationService: service}),
+			)
+			recorder := performGeneratedRouteRequest(
+				t,
+				mux,
+				http.MethodPost,
+				"/v1/workspaces/workspace-1/agent-side-conversations/side-1/turns/turn-1/interactive/request-1",
+				map[string]any{"optionId": "allow"},
+			)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf(
+					"status = %d, want %d; body=%s",
+					recorder.Code,
+					test.wantStatus,
+					recorder.Body.String(),
+				)
+			}
+			var body struct {
+				Error struct {
+					Reason *string `json:"reason"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Error.Reason == nil || *body.Error.Reason != test.wantReason {
+				t.Fatalf("reason = %#v, want %q", body.Error.Reason, test.wantReason)
+			}
+		})
+	}
+}

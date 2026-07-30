@@ -776,6 +776,7 @@ export const enAgentGui = {
   sideOpen: "Side",
   sidePanelTitle: "Side conversation",
   sideOpening: "Opening from the current live context…",
+  sideClosing: "Closing Side conversation…",
   sideEphemeralHint: "Temporary · not added to conversation history",
   sideInputPlaceholder: "Ask a related question",
   sideResize: "Resize Side conversation",

@@ -439,19 +439,20 @@ func (c *codexAppServerClient) ThreadForkSide(
 	timeout time.Duration,
 	params map[string]any,
 	handler acpMessageHandler,
+	lateResult func(json.RawMessage),
 ) (json.RawMessage, error) {
 	typedParams, err := codexProtoParams[codexSideThreadForkParams](params)
 	if err != nil {
 		return nil, err
 	}
-	client, caller := c.typed(timeout, handler, false)
-	var response codexproto.ThreadForkResponse
-	if err := client.Call(
-		ctx, appServerMethodThreadFork, typedParams, &response,
-	); err != nil {
-		return nil, err
-	}
-	return caller.rawResult, nil
+	_ = handler
+	return c.raw.CallNoHandlerWithLateResult(
+		ctx,
+		timeout,
+		appServerMethodThreadFork,
+		typedParams,
+		lateResult,
+	)
 }
 
 func (c *codexAppServerClient) ThreadInjectItems(

@@ -560,6 +560,15 @@ func mapRuntimeError(err error) error {
 	if errors.Is(err, agentruntime.ErrSideConversationExpired) {
 		return errors.Join(host.ErrSideConversationExpired, err)
 	}
+	if errors.Is(err, agentruntime.ErrInteractiveRequestNotLive) {
+		return errors.Join(host.ErrInteractiveRequestNotLive, err)
+	}
+	if errors.Is(err, agentruntime.ErrInteractiveAlreadyAnswered) {
+		return errors.Join(host.ErrInteractiveAlreadyAnswered, err)
+	}
+	if errors.Is(err, agentruntime.ErrInteractiveResponseInvalid) {
+		return errors.Join(host.ErrInteractiveResponseInvalid, err)
+	}
 	var appErr *agentruntime.AppError
 	if errors.As(err, &appErr) && appErr != nil {
 		if errors.Is(appErr, context.Canceled) || errors.Is(appErr, context.DeadlineExceeded) {

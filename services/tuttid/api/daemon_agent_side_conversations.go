@@ -54,6 +54,10 @@ func sideConflictError(err error) tuttigenerated.ApiErrorResponse {
 		reason = "agent_side_conversation_expired"
 	case errors.Is(err, agentservice.ErrRuntimeSessionDisconnected):
 		reason = "agent_side_conversation_expired"
+	case errors.Is(err, agenthost.ErrInteractiveRequestNotLive):
+		reason = "agent_side_interaction_not_live"
+	case errors.Is(err, agenthost.ErrInteractiveAlreadyAnswered):
+		reason = "agent_side_interaction_already_answered"
 	}
 	return protocolErrorResponse(apierrors.New(
 		apierrors.StatusWorkspaceIssueExists,
@@ -68,7 +72,9 @@ func isSideConflict(err error) bool {
 		errors.Is(err, agentservice.ErrSideConversationInProgress) ||
 		errors.Is(err, agentservice.ErrSideConversationConflict) ||
 		errors.Is(err, agentservice.ErrSideConversationExpired) ||
-		errors.Is(err, agentservice.ErrRuntimeSessionDisconnected)
+		errors.Is(err, agentservice.ErrRuntimeSessionDisconnected) ||
+		errors.Is(err, agenthost.ErrInteractiveRequestNotLive) ||
+		errors.Is(err, agenthost.ErrInteractiveAlreadyAnswered)
 }
 
 func (api DaemonAPI) ResolveWorkspaceAgentSideCapabilities(
@@ -277,6 +283,16 @@ func (api DaemonAPI) SubmitWorkspaceAgentSideConversationInteractive(
 			return tuttigenerated.SubmitWorkspaceAgentSideConversationInteractive409JSONResponse(
 				sideConflictError(err),
 			), nil
+		}
+		if errors.Is(err, agenthost.ErrInteractiveResponseInvalid) {
+			return tuttigenerated.SubmitWorkspaceAgentSideConversationInteractive400JSONResponse{
+				InvalidRequestErrorJSONResponse: invalidRequestError(
+					apierrors.InvalidRequest(
+						"agent_side_interaction_invalid_response",
+						apierrors.WithCause(err),
+					),
+				),
+			}, nil
 		}
 		protocolErr := apierrors.Classify(err)
 		if protocolErr.Code == tuttigenerated.InvalidRequest {

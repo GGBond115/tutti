@@ -137,6 +137,14 @@ type Adapter interface {
 	Cancel(context.Context, Session, string) ([]activityshared.Event, error)
 }
 
+// CloseQuiesceAdapter lets a shared provider connection stop session-owned
+// work before Controller cancels the local Exec context and detaches the
+// session. Without this phase a local cancellation can erase the provider Turn
+// handle while the shared process remains alive for another session.
+type CloseQuiesceAdapter interface {
+	QuiesceForClose(context.Context, Session) error
+}
+
 // SessionForkAdapter is an optional provider-native capability. Providers that
 // cannot prove an exact fork boundary do not implement it.
 type SessionForkAdapter interface {
@@ -376,6 +384,10 @@ type ConfigOptionsUpdateSinkAdapter interface {
 }
 
 type InteractiveAdapter interface {
+	// SubmitInteractive returns ErrInteractiveResponseInvalid for malformed or
+	// unavailable response options, ErrInteractiveRequestNotLive for stale
+	// requests, and ErrInteractiveAlreadyAnswered after terminal resolution.
+	// This taxonomy is part of the provider-neutral Host/API contract.
 	SubmitInteractive(context.Context, Session, SubmitInteractiveInput) (SubmitInteractiveResult, error)
 }
 

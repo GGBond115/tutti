@@ -220,6 +220,58 @@ func TestCodexAppServerSideUsesEphemeralForkAndInjectedBoundary(t *testing.T) {
 	}
 }
 
+func TestCodexSideLateForkResponseUnsubscribesOrphan(t *testing.T) {
+	adapter, transport, session := startedAppServerAdapter(t)
+	appSession := adapter.getSession(session.AgentSessionID)
+	transport.conn.mu.Lock()
+	transport.server.forkResponseDelay = 40 * time.Millisecond
+	transport.conn.mu.Unlock()
+	lateCleaned := make(chan struct{}, 1)
+
+	_, err := appSession.client.ThreadForkSide(
+		context.Background(),
+		5*time.Millisecond,
+		map[string]any{
+			"threadId":     appSession.threadID,
+			"ephemeral":    true,
+			"excludeTurns": true,
+		},
+		nil,
+		func(raw json.RawMessage) {
+			var response struct {
+				Thread *struct {
+					ID string `json:"id"`
+				} `json:"thread"`
+			}
+			if json.Unmarshal(raw, &response) != nil || response.Thread == nil {
+				return
+			}
+			_ = appSession.client.ThreadUnsubscribeNoHandler(
+				context.Background(),
+				time.Second,
+				response.Thread.ID,
+			)
+			lateCleaned <- struct{}{}
+		},
+	)
+	if err == nil {
+		t.Fatal("ThreadForkSide unexpectedly completed before timeout")
+	}
+	select {
+	case <-lateCleaned:
+	case <-time.After(time.Second):
+		t.Fatal("late fork result was not reconciled")
+	}
+	unsubscribe := appServerRequestParams(
+		t,
+		transport.conn,
+		appServerMethodThreadUnsubscribe,
+	)
+	if asString(unsubscribe["threadId"]) != "codex-thread-fork" {
+		t.Fatalf("late cleanup unsubscribe = %#v", unsubscribe)
+	}
+}
+
 func TestAppServerMessageThreadIDSupportsLegacyConversationID(t *testing.T) {
 	if got := appServerMessageThreadID(map[string]any{
 		"conversationId": "legacy-side-thread",

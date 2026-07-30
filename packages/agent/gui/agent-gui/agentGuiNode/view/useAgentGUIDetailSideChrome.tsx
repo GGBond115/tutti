@@ -46,6 +46,7 @@ export function useAgentGUIDetailSideChrome({
     canOpen,
     close,
     draftContent,
+    entryError,
     focused,
     interactionSubmitting,
     interactivePrompt,
@@ -82,6 +83,13 @@ export function useAgentGUIDetailSideChrome({
             <span>{t("agentHost.agentGui.sideOpen")}</span>
           </span>
         </button>
+      ) : null}
+      {entryError ? (
+        <span className="text-xs text-destructive">
+          {entryError === "content_unsupported"
+            ? t("agentHost.agentGui.sideContentUnsupported")
+            : t("agentHost.agentGui.sideOperationFailed")}
+        </span>
       ) : null}
       {hostFooterAccessory}
     </>

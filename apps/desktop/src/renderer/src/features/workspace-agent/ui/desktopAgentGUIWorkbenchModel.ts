@@ -166,6 +166,8 @@ export function areDesktopAgentGUIWorkbenchBodyPropsEqual(
 ): boolean {
   return (
     previous.agentActivityRuntime === next.agentActivityRuntime &&
+    previous.agentSideConversationRuntime ===
+      next.agentSideConversationRuntime &&
     previous.agentHostApi === next.agentHostApi &&
     previous.agentStatusSource === next.agentStatusSource &&
     previous.tuttiModePlanReviewRuntime === next.tuttiModePlanReviewRuntime &&

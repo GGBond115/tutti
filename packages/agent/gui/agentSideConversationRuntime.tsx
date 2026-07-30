@@ -14,6 +14,18 @@ export interface AgentSideCapabilities {
   modelBoundaryInjected: boolean;
 }
 
+export function supportsAgentSideConversation(
+  capabilities: AgentSideCapabilities
+): boolean {
+  return (
+    capabilities.supported &&
+    capabilities.activeSourceTurn &&
+    capabilities.ephemeral &&
+    capabilities.hideInheritedTurns &&
+    capabilities.modelBoundaryInjected
+  );
+}
+
 export interface AgentSideInteractionAction {
   id: string;
   label: string;
@@ -33,7 +45,7 @@ export interface AgentSideConversationState {
   workspaceId: string;
   sourceAgentSessionId: string;
   sideAgentSessionId: string;
-  status: "idle" | "opening" | "running" | "expired" | "error";
+  status: "idle" | "opening" | "running" | "closing" | "expired" | "error";
   activeTurnId: string | null;
   projection: AgentActivityEphemeralConversationProjection;
   pendingInteraction: AgentSideInteraction | null;

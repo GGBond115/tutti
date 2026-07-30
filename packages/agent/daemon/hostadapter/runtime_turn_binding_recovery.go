@@ -37,8 +37,8 @@ func (a *RuntimeController) RecoverProviderTurnBinding(
 		},
 	)
 	return host.RuntimeProviderTurnBindingRecoveryResult{
-		ProviderSessionID:           result.ProviderSessionID,
-		ProviderTurnID:              result.ProviderTurnID,
-		ProviderCheckpointMessageID: result.ProviderCheckpointMessageID,
+		ProviderSessionID:       result.ProviderSessionID,
+		ProviderTurnID:          result.ProviderTurnID,
+		ProviderTurnBindingJSON: append([]byte(nil), result.ProviderTurnBindingJSON...),
 	}, mapRuntimeError(err)
 }

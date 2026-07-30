@@ -1,6 +1,9 @@
 package agentruntime
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 type scriptedSessionState struct {
 	modelList                      []any
@@ -11,6 +14,8 @@ type scriptedSessionState struct {
 	emptyForkedFromThreadID        bool
 	forkResponseLastTurnID         string
 	forkResponseTurnIDs            []string
+	forkNotificationBeforeResponse bool
+	forkResponseDelay              time.Duration
 	threadReadTurnIDs              []string
 	forkRPCError                   bool
 	requiresAuth                   bool
@@ -258,12 +263,23 @@ func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) 
 				"threadName": "Early Side title",
 			})
 		}
-		s.sendJSON(map[string]any{
+		s.mu.Lock()
+		forkResponseDelay := s.forkResponseDelay
+		s.mu.Unlock()
+		response := map[string]any{
 			"id": message.ID,
 			"result": map[string]any{
 				"thread": thread,
 			},
-		})
+		}
+		if forkResponseDelay > 0 {
+			go func() {
+				time.Sleep(forkResponseDelay)
+				s.sendJSON(response)
+			}()
+			return true
+		}
+		s.sendJSON(response)
 	case appServerMethodThreadInjectItems:
 		s.sendJSON(map[string]any{
 			"id":     message.ID,

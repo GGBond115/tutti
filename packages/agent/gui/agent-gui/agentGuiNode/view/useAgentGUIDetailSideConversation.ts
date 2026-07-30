@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  supportsAgentSideConversation,
   useAgentSideConversationSnapshot,
   useOptionalAgentSideConversationRuntime
 } from "../../../agentSideConversationRuntime";
@@ -9,10 +10,46 @@ import type { AgentComposerDraft } from "../model/agentGuiNodeTypes";
 import { emptyAgentComposerDraft } from "../model/agentComposerDraft";
 import { useTranslation } from "../../../i18n/index";
 import { projectAgentSideConversationViewState } from "../../../agentSideConversationViewProjection";
+import type { AgentPromptContentBlock } from "../../../shared/contracts/dto/agentSession";
+
+export function parseAgentSideInvocation(
+  content: readonly AgentPromptContentBlock[]
+): { prompt: string | null; contentSupported: boolean } | null {
+  const text = content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text ?? "")
+    .join("");
+  const invocation = text.trim().match(/^\/side(?:\s+([\s\S]*))?$/);
+  if (!invocation) return null;
+  return {
+    prompt: invocation[1]?.trim() || null,
+    contentSupported: content.every((block) => block.type === "text")
+  };
+}
+
+export function appendAgentSidePromptToDraft(
+  draft: AgentComposerDraft,
+  prompt: string
+): AgentComposerDraft {
+  const normalizedPrompt = prompt.trim();
+  if (!normalizedPrompt) return draft;
+  const [textBlock, ...attachmentBlocks] = draft;
+  const currentText = textBlock.text.trim();
+  return [
+    {
+      ...textBlock,
+      text: currentText
+        ? `${textBlock.text}\n${normalizedPrompt}`
+        : normalizedPrompt
+    },
+    ...attachmentBlocks
+  ];
+}
 
 interface UseAgentGUIDetailSideConversationInput {
   workspaceId: string;
   sourceAgentSessionId: string | null;
+  sourceTurnActive: boolean;
   provider: string;
   cwd: string | null;
   availableCommands: AgentComposerProps["availableCommands"];
@@ -22,6 +59,7 @@ interface UseAgentGUIDetailSideConversationInput {
 export function useAgentGUIDetailSideConversation({
   workspaceId,
   sourceAgentSessionId,
+  sourceTurnActive,
   provider,
   cwd,
   availableCommands,
@@ -29,6 +67,90 @@ export function useAgentGUIDetailSideConversation({
 }: UseAgentGUIDetailSideConversationInput) {
   const { t } = useTranslation();
   const runtime = useOptionalAgentSideConversationRuntime();
+  const [capabilityState, setCapabilityState] = useState<{
+    identity: string;
+    runtime: NonNullable<typeof runtime>;
+    supported: boolean;
+  } | null>(null);
+  const [entryErrorState, setEntryErrorState] = useState<{
+    identity: string;
+    runtime: typeof runtime;
+    code: "content_unsupported" | "operation_failed";
+  } | null>(null);
+  const capabilityIdentity = `${workspaceId}:${sourceAgentSessionId ?? ""}:${provider}:${cwd ?? ""}:${sourceTurnActive ? "active" : "idle"}`;
+  const lifecycleTokenRef = useRef<{
+    runtime: typeof runtime;
+    sourceAgentSessionId: string | null;
+    workspaceId: string;
+  } | null>(null);
+  const entryError =
+    entryErrorState?.identity === capabilityIdentity &&
+    entryErrorState.runtime === runtime
+      ? entryErrorState.code
+      : null;
+  useEffect(() => {
+    let canceled = false;
+    const lifecycleToken = { runtime, sourceAgentSessionId, workspaceId };
+    lifecycleTokenRef.current = lifecycleToken;
+    if (runtime && sourceAgentSessionId && sourceTurnActive) {
+      void runtime
+        .resolveCapabilities({
+          workspaceId,
+          sourceAgentSessionId,
+          provider,
+          cwd
+        })
+        .then((capabilities) => {
+          if (canceled) return;
+          setCapabilityState({
+            identity: capabilityIdentity,
+            runtime,
+            supported: supportsAgentSideConversation(capabilities)
+          });
+        })
+        .catch(() => {
+          if (!canceled) {
+            setCapabilityState({
+              identity: capabilityIdentity,
+              runtime,
+              supported: false
+            });
+          }
+        });
+    }
+    return () => {
+      canceled = true;
+      queueMicrotask(() => {
+        const next = lifecycleTokenRef.current;
+        const ownershipEnded =
+          next === lifecycleToken ||
+          next?.runtime !== runtime ||
+          next?.sourceAgentSessionId !== sourceAgentSessionId ||
+          next?.workspaceId !== workspaceId;
+        if (!ownershipEnded || !runtime || !sourceAgentSessionId) return;
+        const ownedSide = runtime.getSnapshot(workspaceId).active;
+        if (ownedSide?.sourceAgentSessionId !== sourceAgentSessionId) return;
+        void runtime
+          .close({
+            workspaceId,
+            sideAgentSessionId: ownedSide.sideAgentSessionId
+          })
+          .catch(() => {});
+      });
+    };
+  }, [
+    capabilityIdentity,
+    cwd,
+    provider,
+    runtime,
+    sourceAgentSessionId,
+    sourceTurnActive,
+    workspaceId
+  ]);
+  const sideSupported =
+    capabilityState?.identity === capabilityIdentity &&
+    capabilityState.runtime === runtime &&
+    capabilityState.supported;
   const runtimeActive = useAgentSideConversationSnapshot(workspaceId).active;
   const active = useMemo(
     () => projectAgentSideConversationViewState(runtimeActive),
@@ -66,92 +188,108 @@ export function useAgentGUIDetailSideConversation({
     [activeSideAgentSessionId]
   );
 
-  // The surface owns the runtime. This single lifecycle binding closes a Side
-  // when its source changes or the surface unmounts; runtime.dispose covers
-  // host-owned teardown outside React.
-  useEffect(
-    () => () => {
-      const ownedSide = runtime?.getSnapshot(workspaceId).active;
-      if (
-        !runtime ||
-        !ownedSide ||
-        ownedSide.sourceAgentSessionId !== sourceAgentSessionId
-      ) {
-        return;
-      }
-      void runtime
-        .close({
-          workspaceId,
-          sideAgentSessionId: ownedSide.sideAgentSessionId
-        })
-        .catch(() => {});
-    },
-    [runtime, sourceAgentSessionId, workspaceId]
-  );
-
   const open = useCallback(
     async (initialPrompt?: string | null) => {
       if (!runtime || !sourceAgentSessionId) return null;
-      const existing = runtime.getSnapshot(workspaceId).active;
-      if (existing?.sourceAgentSessionId === sourceAgentSessionId) {
-        if (initialPrompt?.trim() && existing.status === "idle") {
+      setEntryErrorState(null);
+      try {
+        const existing = runtime.getSnapshot(workspaceId).active;
+        if (existing?.sourceAgentSessionId === sourceAgentSessionId) {
+          if (
+            existing.status === "error" &&
+            existing.error === "side_close_failed"
+          ) {
+            await runtime.close({
+              workspaceId,
+              sideAgentSessionId: existing.sideAgentSessionId
+            });
+          } else {
+            const prompt = initialPrompt?.trim();
+            if (prompt) {
+              if (existing.status === "idle") {
+                await runtime.send({
+                  workspaceId,
+                  sideAgentSessionId: existing.sideAgentSessionId,
+                  content: [{ type: "text", text: prompt }],
+                  displayPrompt: prompt
+                });
+              } else {
+                setDraftState((current) => ({
+                  sideAgentSessionId: existing.sideAgentSessionId,
+                  content: appendAgentSidePromptToDraft(
+                    current.sideAgentSessionId === existing.sideAgentSessionId
+                      ? current.content
+                      : emptyAgentComposerDraft(),
+                    prompt
+                  )
+                }));
+                setFocusedSideAgentSessionId(existing.sideAgentSessionId);
+              }
+            }
+            return existing;
+          }
+        }
+        const capabilities = await runtime.resolveCapabilities({
+          workspaceId,
+          sourceAgentSessionId,
+          provider,
+          cwd
+        });
+        if (!supportsAgentSideConversation(capabilities)) {
+          throw new Error("side_conversation_unsupported");
+        }
+        const opened = await runtime.open({
+          workspaceId,
+          sourceAgentSessionId,
+          provider,
+          cwd
+        });
+        if (initialPrompt?.trim()) {
           await runtime.send({
             workspaceId,
-            sideAgentSessionId: existing.sideAgentSessionId,
+            sideAgentSessionId: opened.sideAgentSessionId,
             content: [{ type: "text", text: initialPrompt.trim() }],
             displayPrompt: initialPrompt.trim()
           });
         }
-        return existing;
-      }
-      const capabilities = await runtime.resolveCapabilities({
-        workspaceId,
-        sourceAgentSessionId,
-        provider,
-        cwd
-      });
-      if (
-        !capabilities.supported ||
-        !capabilities.ephemeral ||
-        !capabilities.hideInheritedTurns ||
-        !capabilities.modelBoundaryInjected ||
-        !capabilities.activeSourceTurn
-      ) {
-        throw new Error("side_conversation_unsupported");
-      }
-      const opened = await runtime.open({
-        workspaceId,
-        sourceAgentSessionId,
-        provider,
-        cwd
-      });
-      if (initialPrompt?.trim()) {
-        await runtime.send({
-          workspaceId,
-          sideAgentSessionId: opened.sideAgentSessionId,
-          content: [{ type: "text", text: initialPrompt.trim() }],
-          displayPrompt: initialPrompt.trim()
+        return opened;
+      } catch (error) {
+        setEntryErrorState({
+          identity: capabilityIdentity,
+          runtime,
+          code: "operation_failed"
         });
+        throw error;
       }
-      return opened;
     },
-    [cwd, provider, runtime, sourceAgentSessionId, workspaceId]
+    [
+      capabilityIdentity,
+      cwd,
+      provider,
+      runtime,
+      sourceAgentSessionId,
+      workspaceId
+    ]
   );
 
   const submitMain = useCallback<NonNullable<AgentComposerProps["onSubmit"]>>(
     (content, displayPrompt, options) => {
-      const text = content
-        .filter((block) => block.type === "text")
-        .map((block) => block.text ?? "")
-        .join("");
-      const invocation = text.trim().match(/^\/side(?:\s+([\s\S]*))?$/);
+      const invocation = parseAgentSideInvocation(content);
       if (!invocation) {
         submitPrompt(content, displayPrompt, options);
         return;
       }
-      void open(invocation[1]?.trim() ?? null).catch(() => {});
+      if (!invocation.contentSupported) {
+        setEntryErrorState({
+          identity: capabilityIdentity,
+          runtime,
+          code: "content_unsupported"
+        });
+        return;
+      }
+      void open(invocation.prompt).catch(() => {});
     },
-    [open, submitPrompt]
+    [capabilityIdentity, open, runtime, submitPrompt]
   );
 
   const submitSide = useCallback<NonNullable<AgentComposerProps["onSubmit"]>>(
@@ -172,7 +310,7 @@ export function useAgentGUIDetailSideConversation({
 
   const commands = useMemo(
     () =>
-      runtime && sourceAgentSessionId
+      runtime && sourceAgentSessionId && sideSupported
         ? [
             ...availableCommands.filter(
               (command) => command.name.trim().toLowerCase() !== "side"
@@ -183,7 +321,7 @@ export function useAgentGUIDetailSideConversation({
             }
           ]
         : availableCommands,
-    [availableCommands, runtime, sourceAgentSessionId, t]
+    [availableCommands, runtime, sideSupported, sourceAgentSessionId, t]
   );
 
   const interrupt = useCallback(() => {
@@ -286,7 +424,7 @@ export function useAgentGUIDetailSideConversation({
   }, [active?.pendingInteraction, t]);
 
   const submitInteraction = useCallback(
-    (input: {
+    async (input: {
       requestId: string;
       action?: string;
       optionId?: string;
@@ -295,25 +433,27 @@ export function useAgentGUIDetailSideConversation({
       const interaction = active?.pendingInteraction;
       if (!runtime || !active || !interaction) return;
       setInteractionSubmitting(true);
-      void runtime
-        .respond({
+      try {
+        await runtime.respond({
           workspaceId,
           sideAgentSessionId: active.sideAgentSessionId,
           turnId: interaction.turnId,
           ...input
-        })
-        .catch(() => {})
-        .finally(() => setInteractionSubmitting(false));
+        });
+      } finally {
+        setInteractionSubmitting(false);
+      }
     },
     [active, runtime, workspaceId]
   );
 
   return {
     active,
-    canOpen: Boolean(runtime && sourceAgentSessionId),
+    canOpen: Boolean(runtime && sourceAgentSessionId && sideSupported),
     close,
     commands,
     draftContent,
+    entryError,
     focused,
     interactionSubmitting,
     interactivePrompt,

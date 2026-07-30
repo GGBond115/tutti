@@ -227,6 +227,11 @@ func (c *Controller) Close(ctx context.Context, input CloseInput) (CloseResult, 
 		return CloseResult{}, err
 	}
 	key := sessionKey(session.RoomID, session.AgentSessionID)
+	if quiescer, ok := adapter.(CloseQuiesceAdapter); ok {
+		if err := quiescer.QuiesceForClose(ctx, session); err != nil {
+			return CloseResult{}, err
+		}
+	}
 	c.cancelActiveTurn(session.RoomID, session.AgentSessionID)
 	closeErr := adapter.Close(ctx, session)
 	if closeErr != nil && !input.PreserveCanonicalState {

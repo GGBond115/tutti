@@ -784,6 +784,7 @@ export const zhCNAgentGui = {
   sideOpen: "Side",
   sidePanelTitle: "Side 临时会话",
   sideOpening: "正在从当前实时上下文打开…",
+  sideClosing: "正在关闭侧边对话…",
   sideEphemeralHint: "临时会话 · 不会加入会话历史",
   sideInputPlaceholder: "追问一个相关问题",
   sideResize: "调整 Side 会话宽度",
