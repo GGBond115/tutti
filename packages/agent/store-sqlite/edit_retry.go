@@ -539,6 +539,88 @@ WHERE workspace_id = ? AND operation_id = ? AND status = 'leased' AND lease_owne
 	return op, true, nil
 }
 
+// QuarantineEditRetryOperation abandons a stuck edit-retry operation: it fails
+// the runtime operation AND clears the session's effective-history fence back to
+// ready (dropping operation_id), in one transaction. It is used when durable
+// edit-retry is disabled — the operation can never make progress, so leaving the
+// session fenced at rollback_pending/resend_pending/recovery_required would
+// permanently block every subsequent send (requireSendAllowedByEffectiveHistory).
+// Unlike AbortEditRetryRollback it tolerates any fenced state and does not restore
+// the retracted turn; the edit is abandoned so the conversation becomes usable.
+func (s *Store) QuarantineEditRetryOperation(ctx context.Context, input QuarantineEditRetryOperationInput) (RuntimeOperation, bool, error) {
+	if s == nil || s.db == nil {
+		return RuntimeOperation{}, false, errors.New("workspace database is not initialized")
+	}
+	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
+	input.OperationID = strings.TrimSpace(input.OperationID)
+	input.LeaseOwner = strings.TrimSpace(input.LeaseOwner)
+	if input.WorkspaceID == "" || input.OperationID == "" || input.LeaseOwner == "" || input.NowUnixMS <= 0 {
+		return RuntimeOperation{}, false, errors.New("valid edit retry quarantine input is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return RuntimeOperation{}, false, fmt.Errorf("begin edit retry quarantine: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	op, found, err := getRuntimeOperationTx(ctx, tx, input.WorkspaceID, input.OperationID)
+	if err != nil {
+		return RuntimeOperation{}, false, err
+	}
+	if !validEditRetryLease(op, found, input.LeaseOwner, input.NowUnixMS) {
+		return op, false, ErrRuntimeOperationLeaseLost
+	}
+	// Clear only the fence this operation owns so the session can send again. A
+	// fence owned by a newer operation (or already ready) is left untouched — that
+	// is not an error; the runtime operation is still abandoned below.
+	if _, err := tx.ExecContext(ctx, `
+UPDATE workspace_agent_session_history
+SET recovery_state = 'ready', operation_id = '', updated_at_unix_ms = ?
+WHERE workspace_id = ? AND agent_session_id = ?
+  AND operation_id = ? AND recovery_state != 'ready'
+`, input.NowUnixMS, op.WorkspaceID, op.AgentSessionID, op.OperationID); err != nil {
+		return RuntimeOperation{}, false, fmt.Errorf("clear edit retry history fence: %w", err)
+	}
+	var revision int64
+	if err := tx.QueryRowContext(ctx, `
+SELECT COALESCE((SELECT history_revision FROM workspace_agent_session_history
+    WHERE workspace_id = ? AND agent_session_id = ?), 0)
+`, op.WorkspaceID, op.AgentSessionID).Scan(&revision); err != nil {
+		return RuntimeOperation{}, false, fmt.Errorf("read edit retry quarantine history revision: %w", err)
+	}
+	update, err := tx.ExecContext(ctx, `
+UPDATE workspace_agent_runtime_operations
+SET status = 'failed', result = 'failed', lease_owner = NULL,
+    lease_expires_at_unix_ms = NULL, next_attempt_at_unix_ms = NULL,
+    version = version + 1, last_error = ?, updated_at_unix_ms = ?
+WHERE workspace_id = ? AND operation_id = ? AND status = 'leased' AND lease_owner = ?
+`, "edit_retry disabled; operation quarantined", input.NowUnixMS, op.WorkspaceID, op.OperationID, input.LeaseOwner)
+	if err != nil {
+		return RuntimeOperation{}, false, fmt.Errorf("fail quarantined edit retry operation: %w", err)
+	}
+	if changed, err := rowsWereAffected(update, "fail quarantined edit retry operation"); err != nil || !changed {
+		return RuntimeOperation{}, false, ErrRuntimeOperationLeaseLost
+	}
+	op, _, err = getRuntimeOperationTx(ctx, tx, op.WorkspaceID, op.OperationID)
+	if err != nil {
+		return RuntimeOperation{}, false, err
+	}
+	delta, err := s.commitTransaction(ctx, tx, op.WorkspaceID, []TransactionMutation{
+		transactionMutation(op.WorkspaceID, op.AgentSessionID, MutationEntitySession, op.AgentSessionID, "history_edit_retry_quarantined", revision),
+		transactionMutation(op.WorkspaceID, op.AgentSessionID, MutationEntityRuntimeOperation, op.OperationID, "fail", op.Version),
+	})
+	if err != nil {
+		return RuntimeOperation{}, false, fmt.Errorf("commit edit retry quarantine: %w", err)
+	}
+	committed = true
+	op.CommitTransactionID, op.CommitDelta = delta.TransactionID, delta
+	return op, true, nil
+}
+
 func validEditRetryLease(op RuntimeOperation, found bool, owner string, now int64) bool {
 	return found && op.Kind == RuntimeOperationKindEditRetry &&
 		op.Status == RuntimeOperationStatusLeased && op.LeaseOwner == owner &&

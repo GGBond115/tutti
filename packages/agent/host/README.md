@@ -86,6 +86,17 @@ algorithm. Startup and steady-state workers process fences before ordinary
 Goal operations; otherwise a prepared revoked Goal could be replayed during
 recovery before its fence reached the runtime.
 
+> **Currently disabled.** Durable edit-and-retry is neutralized in production via
+> `Config.EditRetryDisabled`: its saga can strand a session in a rolled-back-but-
+> not-resent state whose runtime operation becomes a cold-recovery poison pill
+> that crashes `tuttid` on launch. While disabled, `GetEditRetryAvailability`
+> reports unsupported, `EditRetry`/`RecoverEditRetry` refuse, and recovery
+> quarantines any leftover operation (failing it and clearing the session's
+> history fence back to `ready`). Re-enable only once the resend/recovery gap is
+> fixed. See the troubleshooting entry "A stuck edit-and-retry operation crashes
+> the daemon on every launch". The behavior below describes the feature when
+> enabled.
+
 A completed latest user Turn may be edited and retried only through
 `GetEditRetryAvailability`, `EditRetry`, and `RecoverEditRetry`. Host owns the
 complete lifecycle: it snapshots the lossless submitted content, serializes the

@@ -180,6 +180,12 @@ func (h *Host) processRuntimeOperation(ctx context.Context, operation storesqlit
 	case storesqlite.RuntimeOperationKindPlanDecision:
 		return h.executePlanDecisionRuntimeOperation(ctx, leased, owner)
 	case storesqlite.RuntimeOperationKindEditRetry:
+		if h.editRetryDisabled {
+			// Feature neutralized (PR #1681). Quarantine any leftover edit-retry
+			// operation so it can neither crash cold recovery nor hot-spin the
+			// live worker. See quarantineDisabledEditRetryOperation.
+			return h.quarantineDisabledEditRetryOperation(ctx, leased, owner)
+		}
 		if !editRetryActorHeld(ctx) {
 			var result storesqlite.RuntimeOperation
 			var executeErr error
@@ -342,6 +348,36 @@ func (h *Host) releaseRuntimeOperation(ctx context.Context, operation storesqlit
 		return released, fmt.Errorf("%w: %v", ErrRuntimeOperationInProgress, cause)
 	}
 	return released, cause
+}
+
+// quarantineDisabledEditRetryOperation dead-letters an edit-retry operation left
+// over from before the feature was neutralized (see Config.EditRetryDisabled).
+// It both marks the operation failed — dropping it from the claimable set
+// (ListClaimableRuntimeOperations only returns prepared/leased rows), so it can
+// neither fail cold recovery nor hot-spin the live worker — AND clears the
+// session's effective-history fence back to ready. The fence clear is essential:
+// a stuck operation leaves the session at resend_pending/rollback_pending/
+// recovery_required, and with the feature disabled no recovery path can move it
+// back to ready, so requireSendAllowedByEffectiveHistory would otherwise reject
+// every subsequent send for that conversation forever. It returns a nil error on
+// success: a completed quarantine is a terminal, non-fatal outcome for the worker,
+// so it must never abort daemon boot.
+func (h *Host) quarantineDisabledEditRetryOperation(ctx context.Context, operation storesqlite.RuntimeOperation, owner string) (storesqlite.RuntimeOperation, error) {
+	if h.effectiveHistory == nil {
+		return operation, errors.New("effective history store is unavailable")
+	}
+	failed, _, err := h.effectiveHistory.QuarantineEditRetryOperation(ctx, storesqlite.QuarantineEditRetryOperationInput{
+		WorkspaceID: operation.WorkspaceID, OperationID: operation.OperationID, LeaseOwner: owner,
+		NowUnixMS: h.now().UnixMilli(),
+	})
+	if err != nil {
+		return operation, err
+	}
+	logRuntimeOperationFailure(failed, errors.New("edit_retry disabled: quarantined orphaned runtime operation and cleared session history fence"))
+	if publishErr := h.publishRuntimeOperationEvents(ctx, operation.WorkspaceID); publishErr != nil {
+		logRuntimeOperationFailure(failed, publishErr)
+	}
+	return failed, nil
 }
 
 func (h *Host) StepRuntimeOperationWorker(ctx context.Context, recovering bool) error {

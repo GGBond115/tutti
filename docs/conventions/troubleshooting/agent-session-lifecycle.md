@@ -268,6 +268,43 @@ incomplete`, while a newly created session can still launch.
   failure, second-scan non-duplication, and outcome-write failure stopping
   startup.
 
+### A stuck edit-and-retry operation crashes the daemon on every launch
+
+- **Symptom:** After updating, `tuttid` exits immediately on every launch and the
+  desktop reports `tuttid exited before it published its listener info`; the daemon
+  log shows `recover agent host: process runtime operation <id>: agent session not
+  found` (or `... agent history was rolled back but the edited turn still needs to
+  be resent`). The app never opens.
+- **Quick checks:** Look for a durable `edit_retry` runtime operation stuck at the
+  `resend_pending` checkpoint — the last Turn was rolled back on the provider but
+  the replacement was never re-sent. While the daemon runs, the live worker only
+  logs this at 1 Hz; the fatality appears only on the next cold restart. The
+  affected session's `workspace_agent_session_history.recovery_state` is fenced
+  (non-`ready`).
+- **Root cause:** The cold-recovery pass (`RecoverRuntimeOperations`) treats a
+  per-operation error as fatal to `build tuttid server`, so a persisted edit-retry
+  operation that can never make progress becomes a boot poison pill. The live
+  worker tolerates the same error, which is why the app worked until the restart.
+- **Fix:** Durable edit-and-retry is disabled (`Config.EditRetryDisabled`, set in
+  production wiring). Recovery quarantines any leftover `edit_retry` operation —
+  marks it failed AND clears the session's effective-history fence back to `ready`
+  so the conversation can still send — and returns non-fatally, so existing poison
+  pills self-heal on the next boot. New edit-retries are refused at the entry
+  points. The durable rule: never let one runtime operation's error abort daemon
+  startup.
+- **Rescue:** For an install that cannot update yet, quit Tutti and run
+  `tools/scripts/rescue-edit-retry-poison-pill.sh`, which quarantines the stuck
+  rows and clears the session fence in `~/.tutti/tuttid.db` after backing it up.
+  The script is also the fix for a session fenced at `recovery_required` by an
+  operation that already failed before the neutralization: recovery only sees
+  claimable operations, and such sessions had no recovery action even when the
+  feature was enabled (a pre-existing dead end, deliberately left out of the
+  in-app fix to keep every daily code path untouched).
+- **Validation:** `packages/agent/host/edit_retry_disabled_test.go` builds a
+  genuinely stuck operation, asserts enabled recovery is boot-fatal, and asserts
+  the disabled path quarantines it, returns nil, and leaves the session at
+  `recovery_state = ready`.
+
 ### Many stopped Tutti Mode conversations start again when the app opens
 
 - **Symptom:** Starting the desktop app makes several old Tutti Mode source
