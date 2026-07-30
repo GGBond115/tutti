@@ -1489,16 +1489,20 @@ start a Commerce request.
 The optional `renderSlots.agentConfigAccount` is a presentation-only Host
 chrome seam for the exact selected Agent Target. Its paired
 `hostActions.onAgentConfigMenuOpen` notification lets the Host refresh account
-state without hiding workflow in the render slot. Returning no content keeps
-the provider account and quota block unchanged. AgentGUI never derives billing
-ownership from provider identity.
+state without hiding workflow in the render slot. Returning no renderable
+content keeps the provider account and quota block unchanged. Returning the
+package-owned `AgentGUIConfigAccountFallbackSuppressed` marker suppresses those
+generic fallback rows without adding Host content.
 
 Tutti Desktop fills this seam only for its self-owned local Tutti Agent target.
 The Desktop Account service remains the source of account, membership, credit,
 and Commerce-link state; opening the target menu asks that service to refresh,
-and the render slot stays request-free. Signed-out, shared, and non-Tutti
-targets return no Host content and retain AgentGUI's provider account and quota
-presentation.
+and the render slot stays request-free. Its compact Agent menu omits the
+redundant Tutti account identity row while retaining credit, membership, and
+account-center actions. A signed-out local Tutti Agent returns the suppression
+marker because the generic provider-account and quota rows do not describe its
+Host-owned account model. Other providers return `null` and retain AgentGUI's
+default provider-account and quota presentation.
 The optional `renderSlots.agentTargetInfo` seam enriches the exact target icon
 in the provider Rail and Conversation Rail. The same
 `AgentGUIAgentTargetInfoRenderer` may be passed to
