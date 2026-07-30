@@ -1255,11 +1255,6 @@ export const en = {
         showAppDeveloperSourcesLabel: "Show app authors and source",
         showAppDeveloperSourcesSaveFailed:
           "We couldn't update App Center source display.",
-        tuttiAgentSwitchDescription:
-          "Shows account and agent development controls.",
-        tuttiAgentSwitchLabel: "Tutti Agent Switch",
-        tuttiAgentSwitchSaveFailed:
-          "We couldn't update Tutti Agent availability.",
         visibilityDescription:
           "Hide this panel from settings. Tap the version number in About seven times to bring it back",
         visibilityLabel: "Show developer panel"
