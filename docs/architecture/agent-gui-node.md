@@ -1904,7 +1904,9 @@ Runtime tab renders provider rows from the authoritative
 identity catalog plus the live `IAgentProviderStatusService`; it does not copy
 a provider registry. Its Enable/Disable control reads all Agent Targets from
 `IAgentsService` and persists the daemon-owned Agent Target `enabled` field.
-Disabled targets remain in this settings control plane so they can be
+Tutti Agent is the built-in exception: its target is always enabled, its row
+cannot be disabled, and it has no separate developer visibility switch.
+Other disabled targets remain in this settings control plane so they can be
 re-enabled, but they are excluded from the AgentGUI agent projection and from
 CLI discovery and launch. The device-global provider-rail preferences remain
 presentation-only (ordering and optional sidebar personalization); they do not
