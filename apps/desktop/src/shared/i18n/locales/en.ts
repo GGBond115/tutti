@@ -1,11 +1,11 @@
 export const en = {
   browser: {
     chromeImportNotification: {
-      completed: "Imported {{imported}} Cookies from Chrome.",
-      failed: "Chrome Cookie import did not complete.",
+      completed: "Imported {{imported}} login Cookies.",
+      failed: "Login Cookie import did not complete.",
       partial:
-        "Imported {{imported}} Cookies from Chrome; some entries were skipped or failed.",
-      title: "Chrome login state import"
+        "Imported {{imported}} login Cookies; some entries were skipped or failed.",
+      title: "Login state import"
     }
   },
   common: {
