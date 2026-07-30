@@ -1818,6 +1818,31 @@ describe("AgentTranscriptView", () => {
     ).toBeTruthy();
   });
 
+  it("hides a turn attachment until its anchor turn is loaded", () => {
+    render(
+      <AgentTranscriptView
+        conversation={projectAgentConversationVM(detailViewModel())}
+        turnAttachments={[
+          {
+            id: "fork-lineage:fork-operation",
+            anchorTurnId: "unloaded-fork-turn",
+            content: <div>Continued from task</div>,
+            missingAnchorBehavior: "hide"
+          }
+        ]}
+        labels={{
+          thinkingLabel: "Thought process",
+          toolCallsLabel: (count) => `Tool calls (${count})`,
+          processing: "Planning next moves",
+          turnSummary: "Changed files"
+        }}
+      />
+    );
+
+    expect(screen.getByText("User asks for a fix")).toBeTruthy();
+    expect(screen.queryByText("Continued from task")).toBeNull();
+  });
+
   it("treats attachment reference changes as transcript render input", () => {
     const conversation = projectAgentConversationVM(detailViewModel());
     const labels = {

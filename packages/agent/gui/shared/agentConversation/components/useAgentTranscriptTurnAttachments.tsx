@@ -15,6 +15,7 @@ export interface AgentTranscriptTurnAttachment {
   id: string;
   anchorTurnId: string;
   content: ReactNode;
+  missingAnchorBehavior?: "hide";
 }
 
 export type AgentTranscriptAttachmentLocator = (attachmentId: string) => void;
@@ -48,6 +49,7 @@ export function useAgentTranscriptTurnAttachments(input: {
     for (const attachment of input.attachments) {
       const groupIndex = lastGroupIndexByTurnId.get(attachment.anchorTurnId);
       if (groupIndex === undefined) {
+        if (attachment.missingAnchorBehavior === "hide") continue;
         throw new Error(
           `Transcript attachment "${attachment.id}" references unavailable Turn "${attachment.anchorTurnId}"`
         );

@@ -1237,9 +1237,11 @@ apply only when the originating event path belongs to that exact timeline.
 Pointer capture lets dragging across locator marks reveal messages immediately.
 Locating an unmounted message or Turn attachment first selects the stable Turn
 key, waits for the virtual window to mount the target, and only then performs
-the exact nested-element alignment and highlight. A Turn attachment must name an
-exact Turn present in the transcript projection; it is rendered inside that
-Turn's virtual geometry and never falls back to an unmeasured trailing region.
+the exact nested-element alignment and highlight. A Turn attachment normally
+names an exact Turn present in the transcript projection; an attachment with
+explicit `missingAnchorBehavior: "hide"` stays absent while its Turn is not yet
+loaded. It is rendered inside that Turn's virtual geometry and never falls back
+to an unmeasured trailing region.
 
 Historical rich text renders from the canonical Tiptap document through a static schema renderer. Only interactive composer surfaces own a Tiptap Editor/ProseMirror EditorView; read-only transcript surfaces reuse the same mention/token presentation without mounting editor lifecycle. Settled transcript messages reuse a bounded cache of pure Markdown ASTs and Tiptap JSON documents keyed by message identity and exact parser input; rendered React elements are never cached, and streaming Markdown bypasses this cache. Conversation titles are a separate plain-text projection: Markdown mention links are normalized to their `@label` text and never render mention SVGs or interactive rich-text tokens.
 
