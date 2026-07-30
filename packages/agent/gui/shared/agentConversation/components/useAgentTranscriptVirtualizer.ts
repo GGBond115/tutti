@@ -12,7 +12,6 @@ import {
   agentTranscriptVirtualLayoutsEqual,
   agentTranscriptVirtualViewportRenderStateChanged as viewportRenderChanged,
   compensateAgentTranscriptDistanceForAnchor,
-  distanceFromBottomForAgentTranscriptTurn,
   findAgentTranscriptCompensationAnchor,
   findAgentTranscriptTurnIndexAtOffset,
   findAgentTranscriptVirtualRange,
@@ -21,6 +20,10 @@ import {
   AGENT_TRANSCRIPT_INITIAL_VIEWPORT_HEIGHT_PX,
   type AgentTranscriptVirtualViewportState
 } from "./agentTranscriptVirtualizerLayout";
+import {
+  agentTranscriptPhysicalDistanceForIndex,
+  agentTranscriptPhysicalDistanceForOffset
+} from "./agentTranscriptVirtualizerScrollTargets";
 import {
   readAgentTranscriptVirtualMeasurements,
   writeAgentTranscriptVirtualMeasurements
@@ -36,7 +39,6 @@ import { useAgentTranscriptVirtualLocate } from "./useAgentTranscriptVirtualLoca
 import { buildAgentTranscriptVirtualItems } from "./agentTranscriptVirtualItems";
 import type {
   AgentTranscriptRowVirtualizer,
-  AgentTranscriptViewportSnapshot,
   AgentTranscriptVirtualizer,
   AgentTranscriptVirtualizerInput,
   AgentTranscriptVirtualItem
@@ -58,9 +60,9 @@ import {
   hasActiveAgentTranscriptScroll,
   readAgentTranscriptScrollPadding,
   setAgentTranscriptScrollTop,
-  AGENT_TRANSCRIPT_TOP_LOADING_THRESHOLD_PX,
-  type AgentTranscriptUserScrollDirection
+  AGENT_TRANSCRIPT_TOP_LOADING_THRESHOLD_PX
 } from "./agentTranscriptScrollController";
+import { useAgentTranscriptViewportSubscriptions } from "./useAgentTranscriptViewportSubscriptions";
 const AGENT_TRANSCRIPT_END_THRESHOLD_PX = 24;
 
 export function useAgentTranscriptVirtualizer({
@@ -142,12 +144,6 @@ export function useAgentTranscriptVirtualizer({
     isLatestTurnInProgress,
     latestTurnKey
   });
-  const viewportListenersRef = useRef(
-    new Set<(snapshot: AgentTranscriptViewportSnapshot) => void>()
-  );
-  const userScrollListenersRef = useRef(
-    new Set<(direction: AgentTranscriptUserScrollDirection) => void>()
-  );
   const topLoadingHandlerRef = useRef<(() => Promise<"stop" | void>) | null>(
     null
   );
@@ -233,35 +229,21 @@ export function useAgentTranscriptVirtualizer({
       prepared.layout
     );
   };
-  const readViewportSnapshot = useCallback(
-    (): AgentTranscriptViewportSnapshot => ({
-      contentHeightPx:
-        scrollMarginRef.current +
-        layoutRef.current.totalHeightPx +
-        scrollPaddingBottomRef.current +
-        responseSpacerHeightRef.current,
-      contentDistanceFromBottomPx: Math.max(
-        0,
-        physicalDistanceFromBottomRef.current - responseSpacerHeightRef.current
-      ),
-      distanceFromBottomPx: physicalDistanceFromBottomRef.current,
-      scrollPaddingBottomPx: scrollPaddingBottomRef.current,
-      scrollPaddingTopPx: scrollPaddingTopRef.current,
-      scrollTopPx: scrollTopRef.current,
-      viewportHeightPx: virtualViewportRef.current.viewportHeightPx
-    }),
-    []
-  );
-  const notifyViewportListeners = useCallback((): void => {
-    const snapshot = readViewportSnapshot();
-    viewportListenersRef.current.forEach((listener) => listener(snapshot));
-  }, [readViewportSnapshot]);
-  const notifyUserScrollListeners = useCallback(
-    (direction: AgentTranscriptUserScrollDirection): void => {
-      userScrollListenersRef.current.forEach((listener) => listener(direction));
-    },
-    []
-  );
+  const {
+    notifyUserScrollListeners,
+    notifyViewportListeners,
+    subscribeUserScroll,
+    subscribeViewport
+  } = useAgentTranscriptViewportSubscriptions({
+    layoutRef,
+    physicalDistanceFromBottomRef,
+    responseSpacerHeightRef,
+    scrollMarginRef,
+    scrollPaddingBottomRef,
+    scrollPaddingTopRef,
+    scrollTopRef,
+    virtualViewportRef
+  });
   const loadOlderWhileAtTop = useCallback(async (): Promise<void> => {
     if (topLoadingInFlightRef.current) return;
     topLoadingInFlightRef.current = true;
@@ -341,16 +323,15 @@ export function useAgentTranscriptVirtualizer({
   );
   const scrollToOffset = useCallback(
     (offset: number, options?: { behavior?: ScrollBehavior }) => {
-      const maxScrollTop = Math.max(
-        0,
-        scrollMarginRef.current +
-          layoutRef.current.totalHeightPx -
-          virtualViewportRef.current.viewportHeightPx +
-          scrollPaddingBottomRef.current +
-          responseSpacerHeightRef.current
-      );
       applyPhysicalDistance(
-        Math.max(0, maxScrollTop - Math.max(0, offset)),
+        agentTranscriptPhysicalDistanceForOffset({
+          layout: layoutRef.current,
+          offset,
+          responseSpacerHeightPx: responseSpacerHeightRef.current,
+          scrollMarginPx: scrollMarginRef.current,
+          scrollPaddingBottomPx: scrollPaddingBottomRef.current,
+          viewportHeightPx: virtualViewportRef.current.viewportHeightPx
+        }),
         options?.behavior
       );
     },
@@ -631,20 +612,15 @@ export function useAgentTranscriptVirtualizer({
       index: number,
       options: { align: "center" | "top"; behavior?: ScrollBehavior }
     ) => {
-      const key = layoutRef.current.turnKeys[index];
-      if (!key) return;
-      const nextDistance = distanceFromBottomForAgentTranscriptTurn({
+      const nextDistance = agentTranscriptPhysicalDistanceForIndex({
         align: options.align,
         layout: layoutRef.current,
-        turnKey: key,
+        responseSpacerHeightPx: responseSpacerHeightRef.current,
+        turnIndex: index,
         viewportHeightPx: virtualViewportRef.current.viewportHeightPx
       });
-      if (nextDistance !== null) {
-        applyPhysicalDistance(
-          nextDistance + responseSpacerHeightRef.current,
-          options.behavior
-        );
-      }
+      if (nextDistance !== null)
+        applyPhysicalDistance(nextDistance, options.behavior);
     },
     [applyPhysicalDistance]
   );
@@ -680,11 +656,7 @@ export function useAgentTranscriptVirtualizer({
       getVirtualItems,
       measureElement,
       syncMeasurements: syncMountedElements,
-      subscribeViewport: (listener) => {
-        viewportListenersRef.current.add(listener);
-        listener(readViewportSnapshot());
-        return () => viewportListenersRef.current.delete(listener);
-      },
+      subscribeViewport,
       connectScrollElement,
       scrollToIndex,
       scrollToKey,
@@ -694,9 +666,9 @@ export function useAgentTranscriptVirtualizer({
       connectScrollElement,
       getVirtualItems,
       measureElement,
-      readViewportSnapshot,
       scrollToIndex,
       scrollToKey,
+      subscribeViewport,
       syncMountedElements,
       syncLayout
     ]
@@ -734,15 +706,8 @@ export function useAgentTranscriptVirtualizer({
       setTopLoadingHandler: (handler) => {
         topLoadingHandlerRef.current = handler;
       },
-      subscribeUserScroll: (listener) => {
-        userScrollListenersRef.current.add(listener);
-        return () => userScrollListenersRef.current.delete(listener);
-      },
-      subscribeViewport: (listener) => {
-        viewportListenersRef.current.add(listener);
-        listener(readViewportSnapshot());
-        return () => viewportListenersRef.current.delete(listener);
-      },
+      subscribeUserScroll,
+      subscribeViewport,
       syncViewport: ({ followEnd, scrollPaddingBottomAdjustmentPx = 0 }) => {
         const element = scrollElementRef.current;
         if (!element) return;
@@ -771,9 +736,10 @@ export function useAgentTranscriptVirtualizer({
       agentSessionId,
       applyPhysicalDistance,
       commitFromScrollElement,
-      readViewportSnapshot,
       scrollToOffset,
-      scrollToEnd
+      scrollToEnd,
+      subscribeUserScroll,
+      subscribeViewport
     ]
   );
   const setVirtualizerHostElement = useCallback(
