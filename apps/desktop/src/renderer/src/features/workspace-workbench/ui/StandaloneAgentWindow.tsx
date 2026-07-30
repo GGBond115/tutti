@@ -20,11 +20,9 @@ import { RichTextMentionServiceProvider } from "@tutti-os/ui-rich-text/editor";
 import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
 import { agentGuiWorkbenchProviderRailWidthPx } from "@tutti-os/agent-gui/workbench/contribution";
 import {
-  createAgentGuiWorkbenchRailLayoutStore,
   dispatchAgentGuiWorkbenchCommand,
   type AgentGuiWorkbenchSessionAction
 } from "@tutti-os/agent-gui/workbench";
-import type { AgentGUIConversationRailLayout } from "@tutti-os/agent-gui";
 import type {
   WorkbenchContribution,
   WorkbenchHostHandle
@@ -81,6 +79,7 @@ import { useWorkspaceSettingsService } from "./useWorkspaceSettingsService";
 import type { WorkspaceWorkbenchCapabilitySettingsTarget } from "../services/workspaceWorkbenchHostService.interface";
 import { resolveDesktopWindowIntent } from "@shared/contracts/windowIntent.ts";
 import { useStandaloneAgentLaunchRouting } from "./useStandaloneAgentLaunchRouting.ts";
+import { useStandaloneAgentWindowConversationRailLayout } from "./useStandaloneAgentWindowConversationRailLayout.ts";
 import {
   StandaloneAgentWindowHeader,
   useStandaloneAgentWindowHeaderIdentity
@@ -511,10 +510,8 @@ export function StandaloneAgentWindow({
     [desktopApi.dockPreviewCache]
   );
   const instanceId = useMemo(() => createAgentGuiWorkbenchInstanceId(), []);
-  const railLayoutStore = useMemo(
-    () => createAgentGuiWorkbenchRailLayoutStore(),
-    []
-  );
+  const { onConversationRailLayoutChange, railLayoutStore } =
+    useStandaloneAgentWindowConversationRailLayout(standaloneAgentNodeId);
   const activeAgentTargetId = nodeState.agentTargetId?.trim() || null;
   const activeAgent = agents.find(
     (agent) => agent.agentTargetId === activeAgentTargetId
@@ -669,12 +666,6 @@ export function StandaloneAgentWindow({
   const resizeStandaloneAgentWindowContentWidth = useCallback(
     (width: number, animate = false) => resizeContentWidth(width, animate),
     [resizeContentWidth]
-  );
-  const handleConversationRailLayoutChange = useCallback(
-    (layout: AgentGUIConversationRailLayout) => {
-      railLayoutStore.report(standaloneAgentNodeId, layout);
-    },
-    [railLayoutStore]
   );
   const handleCapabilitySettingsRequest = useCallback(
     (target: WorkspaceWorkbenchCapabilitySettingsTarget) => {
@@ -872,9 +863,7 @@ export function StandaloneAgentWindow({
                 agentGuiHostInput.trackAgentProviderChatReady
               }
               onEngagementEvent={trackStandaloneAgentGUIEngagement}
-              onConversationRailLayoutChange={
-                handleConversationRailLayoutChange
-              }
+              onConversationRailLayoutChange={onConversationRailLayoutChange}
               trackWorkspaceFileReferences={
                 agentGuiHostInput.trackWorkspaceFileReferences
               }
