@@ -8,8 +8,7 @@ import type {
   RichTextTriggerInsertResult,
   RichTextTriggerQueryMatch
 } from "@tutti-os/ui-rich-text/types";
-import { resolveAgentGUIProviderCatalogIdentity } from "@tutti-os/agent-gui/provider-catalog";
-import { workspaceAppExternalAgentIconDataUrlsByIconKey } from "./workspaceAppExternalAgentIconDataUrls.ts";
+import { serializeWorkspaceAppExternalAgentIconUrl } from "./workspaceAppExternalAgentIconDataUrls.ts";
 
 export function serializeWorkspaceAppExternalAtMatch(
   match: RichTextTriggerQueryMatch
@@ -113,23 +112,12 @@ function serializeWorkspaceAppExternalAtIconUrl(
     insertResult.kind === "mention"
       ? insertResult.mention.presentation?.agentProviderId
       : undefined;
-  return serializeWorkspaceAppExternalAtPresentationIconUrl(
-    iconUrl,
-    agentProviderId
-  );
+  return serializeWorkspaceAppExternalAgentIconUrl(iconUrl, agentProviderId);
 }
 
 function serializeWorkspaceAppExternalAtPresentationIconUrl(
   iconUrl: string | null | undefined,
   agentProviderId: string | null | undefined
 ): string {
-  const normalizedIconUrl = iconUrl?.trim() ?? "";
-  if (!normalizedIconUrl.startsWith("file:")) {
-    return normalizedIconUrl;
-  }
-  const iconKey =
-    resolveAgentGUIProviderCatalogIdentity(agentProviderId)?.iconKey ?? "";
-  return (
-    workspaceAppExternalAgentIconDataUrlsByIconKey[iconKey] ?? normalizedIconUrl
-  );
+  return serializeWorkspaceAppExternalAgentIconUrl(iconUrl, agentProviderId);
 }

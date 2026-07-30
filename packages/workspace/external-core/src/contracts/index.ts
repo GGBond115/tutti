@@ -241,6 +241,10 @@ export interface TuttiExternalAgentTarget {
     status: TuttiExternalAgentAvailabilityStatus;
   };
   description?: string | null;
+  /**
+   * Host-resolved presentation URL. This may be a data URL for Host-local
+   * assets. Consumers must retain a fallback when the URL cannot be rendered.
+   */
   iconUrl: string;
   name: string;
   provider: string;

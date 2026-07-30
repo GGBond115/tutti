@@ -37,6 +37,7 @@ import { useTranslation } from "@renderer/i18n";
 import { useWorkspaceWorkbenchHostService } from "./useWorkspaceWorkbenchHostService";
 import { useWorkspaceSettingsService } from "./useWorkspaceSettingsService";
 import { requestWorkspaceIssueManagerLaunch } from "../services/workspaceIssueManagerLaunchCoordinator";
+import { serializeWorkspaceAppExternalAgentIconUrl } from "../services/workspaceAppExternalAgentIconSerialization.ts";
 
 const workspaceFileReferenceLocaleKeyByPickerKey: Record<string, string> = {
   "actions.cancel": "common.cancel",
@@ -267,7 +268,10 @@ export function WorkspaceAppExternalBridge({
               agentTargetId: agent.agentTargetId,
               availability: { ...agent.availability },
               ...(agent.description ? { description: agent.description } : {}),
-              iconUrl: agent.iconUrl,
+              iconUrl: serializeWorkspaceAppExternalAgentIconUrl(
+                agent.iconUrl,
+                agent.provider
+              ),
               name: agent.name,
               provider: agent.provider
             })),
