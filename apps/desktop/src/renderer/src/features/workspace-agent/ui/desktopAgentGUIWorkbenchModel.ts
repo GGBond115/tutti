@@ -104,6 +104,7 @@ export interface DesktopAgentGUIWorkbenchBodyProps {
   >;
   trackAgentProviderChatReady?: (input: { provider: string }) => Promise<void>;
   onEngagementEvent?: AgentGUIProps["hostActions"]["onEngagementEvent"];
+  onConversationRailLayoutChange?: AgentGUIProps["hostActions"]["onConversationRailLayoutChange"];
   trackWorkspaceFileReferences?: AgentGUIProps["workspace"]["onFileReferencesAdded"];
   workspaceFileReferenceAdapter: NonNullable<
     AgentGUIProps["workspace"]["fileReferenceAdapter"]
@@ -199,6 +200,8 @@ export function areDesktopAgentGUIWorkbenchBodyPropsEqual(
     previous.runtimeApi === next.runtimeApi &&
     previous.trackAgentProviderChatReady === next.trackAgentProviderChatReady &&
     previous.onEngagementEvent === next.onEngagementEvent &&
+    previous.onConversationRailLayoutChange ===
+      next.onConversationRailLayoutChange &&
     previous.trackWorkspaceFileReferences ===
       next.trackWorkspaceFileReferences &&
     previous.workspaceFileReferenceAdapter ===

@@ -20,9 +20,11 @@ import { RichTextMentionServiceProvider } from "@tutti-os/ui-rich-text/editor";
 import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
 import { agentGuiWorkbenchProviderRailWidthPx } from "@tutti-os/agent-gui/workbench/contribution";
 import {
+  createAgentGuiWorkbenchRailLayoutStore,
   dispatchAgentGuiWorkbenchCommand,
   type AgentGuiWorkbenchSessionAction
 } from "@tutti-os/agent-gui/workbench";
+import type { AgentGUIConversationRailLayout } from "@tutti-os/agent-gui";
 import type {
   WorkbenchContribution,
   WorkbenchHostHandle
@@ -509,6 +511,10 @@ export function StandaloneAgentWindow({
     [desktopApi.dockPreviewCache]
   );
   const instanceId = useMemo(() => createAgentGuiWorkbenchInstanceId(), []);
+  const railLayoutStore = useMemo(
+    () => createAgentGuiWorkbenchRailLayoutStore(),
+    []
+  );
   const activeAgentTargetId = nodeState.agentTargetId?.trim() || null;
   const activeAgent = agents.find(
     (agent) => agent.agentTargetId === activeAgentTargetId
@@ -664,6 +670,12 @@ export function StandaloneAgentWindow({
     (width: number, animate = false) => resizeContentWidth(width, animate),
     [resizeContentWidth]
   );
+  const handleConversationRailLayoutChange = useCallback(
+    (layout: AgentGUIConversationRailLayout) => {
+      railLayoutStore.report(standaloneAgentNodeId, layout);
+    },
+    [railLayoutStore]
+  );
   const handleCapabilitySettingsRequest = useCallback(
     (target: WorkspaceWorkbenchCapabilitySettingsTarget) => {
       workspaceSettingsService.openPanel(
@@ -774,6 +786,7 @@ export function StandaloneAgentWindow({
               identity={headerIdentity}
               nodeId={standaloneAgentNodeId}
               providerRailWidthPx={agentGuiWorkbenchProviderRailWidthPx}
+              railLayoutStore={railLayoutStore}
               primaryAccessory={<AppUpdateStatus presentation="standalone" />}
               toolSidebar={isContentLoading ? null : toolSidebar}
               showConversationRailToggle={!isContentLoading}
@@ -859,6 +872,9 @@ export function StandaloneAgentWindow({
                 agentGuiHostInput.trackAgentProviderChatReady
               }
               onEngagementEvent={trackStandaloneAgentGUIEngagement}
+              onConversationRailLayoutChange={
+                handleConversationRailLayoutChange
+              }
               trackWorkspaceFileReferences={
                 agentGuiHostInput.trackWorkspaceFileReferences
               }

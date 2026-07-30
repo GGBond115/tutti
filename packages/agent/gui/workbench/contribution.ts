@@ -9,12 +9,11 @@ import {
   resolveAgentGUIConversationRailPresentation,
   resolveAgentGUIExpandedWindowFrame
 } from "../agent-gui/agentGuiNode/model/agentGuiRailLayout.ts";
-import { AgentGuiWorkbenchReactiveHeader } from "./AgentGuiWorkbenchReactiveHeader.tsx";
+import type { AgentGUIConversationRailLayout } from "../agent-gui/agentGuiNode/view/AgentGUINodeView.types.ts";
 import { setAgentGuiWorkbenchBodyRenderError } from "./bodyRenderErrorRegistry.ts";
-import {
-  AgentGuiWorkbenchHeader,
-  type AgentGuiWorkbenchHeaderProps
-} from "./header.ts";
+import { AgentGuiWorkbenchRailAlignedHeader } from "./AgentGuiWorkbenchRailAlignedHeader.tsx";
+import { createAgentGuiWorkbenchRailLayoutStore } from "./agentGuiWorkbenchRailLayout.ts";
+import type { AgentGuiWorkbenchHeaderProps } from "./header.ts";
 import type { AgentGuiWorkbenchConversationIdentity } from "./conversationIdentity.ts";
 import {
   agentGuiWorkbenchTypeId,
@@ -79,6 +78,7 @@ export interface AgentGuiWorkbenchRenderBodyHelpers {
   agentDirectory: AgentGUIAgentDirectoryPort;
   agentTargetId: string | null;
   nodeTypeId: string;
+  onConversationRailLayoutChange(layout: AgentGUIConversationRailLayout): void;
   onStateChange(state: AgentGuiWorkbenchState): void;
   provider: AgentGuiWorkbenchProvider | null;
 }
@@ -122,6 +122,7 @@ export function createAgentGuiWorkbenchContribution(
   const nodeStateSource = createAgentGuiWorkbenchNodeStateSource({
     workspaceId: input.workspaceId
   });
+  const railLayoutStore = createAgentGuiWorkbenchRailLayoutStore();
   const frame = input.frame ?? agentGuiWorkbenchDefaultNodeFrame;
   const copy = resolveAgentGuiWorkbenchContributionCopy(input.copy);
   return {
@@ -191,6 +192,9 @@ export function createAgentGuiWorkbenchContribution(
               agentDirectory: input.agentDirectory,
               agentTargetId: state.agentTargetId ?? null,
               nodeTypeId: agentGuiWorkbenchTypeId,
+              onConversationRailLayoutChange: (layout) => {
+                railLayoutStore.report(context.node.id, layout);
+              },
               onStateChange: (nextState) => {
                 nodeStateSource.writeNodeState({
                   instanceId: context.instanceId,
@@ -356,21 +360,18 @@ export function createAgentGuiWorkbenchContribution(
               persistConversationRailCollapsed(nextCollapsed);
             }
           } satisfies AgentGuiWorkbenchHeaderProps;
-          return input.sessionEngine
-            ? createElement(AgentGuiWorkbenchReactiveHeader, {
-                ...headerProps,
-                agentDirectory: input.agentDirectory,
-                dockIconUrls: input.dockIconUrls,
-                sessionEngine: input.sessionEngine,
-                workbenchState
-              })
-            : createElement(AgentGuiWorkbenchHeader, {
-                ...headerProps,
-                agentTitle: conversationIdentity?.agentTitle,
-                conversationIconUrl,
-                conversationTitle,
-                hasConversation
-              });
+          return createElement(AgentGuiWorkbenchRailAlignedHeader, {
+            ...headerProps,
+            agentDirectory: input.agentDirectory,
+            agentTitle: conversationIdentity?.agentTitle,
+            conversationIconUrl,
+            conversationTitle,
+            dockIconUrls: input.dockIconUrls,
+            hasConversation,
+            railLayoutStore,
+            sessionEngine: input.sessionEngine,
+            workbenchState
+          });
         },
         title: copy.nodeTitle,
         typeId: agentGuiWorkbenchTypeId,

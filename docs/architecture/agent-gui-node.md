@@ -1590,7 +1590,15 @@ package signals such as `hostActions.onConversationRailLayoutChange`; it must
 not observe package DOM, CSS variables, or class names with
 `MutationObserver`. Composer affordances belong in AgentGUI itself or a
 narrow `renderSlots` contract, not in host-owned portals inserted into package
-DOM.
+DOM. During a Conversation Rail drag, AgentGUI emits this signal with
+`resizing: true`; the Workbench and standalone desktop headers apply that
+ephemeral width only to their own grid alignment, while the existing
+`onUpdateNode` path remains the sole persistent width write. Hosts must not
+write node state for each pointer movement. AgentGUI updates both its grid
+track (`--agent-gui-conversation-rail-width`) and the Rail content width
+(`--agent-gui-conversation-rail-content-width`) in that same pointer move;
+updating only one leaves blank space when expanding or overflows detail content
+when shrinking.
 
 ### 6.3 `AgentActivityRuntime` and `AgentHostApi`
 

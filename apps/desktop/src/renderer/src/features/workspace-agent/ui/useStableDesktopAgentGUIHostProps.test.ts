@@ -94,6 +94,23 @@ test("forwards the host-owned Session fork experiment opt-in", () => {
   assert.equal(result.hostCapabilities.sessionForkEnabled, true);
 });
 
+test("forwards the live conversation rail layout signal", () => {
+  const onConversationRailLayoutChange = () => {};
+  const result = useStableDesktopAgentGUIHostProps({
+    hostActions: { onConversationRailLayoutChange },
+    hostCapabilities: {},
+    identity: { currentUserId: null, nodeId: "node-1", workspaceId: "ws-1" },
+    renderSlots: {},
+    runtimeRequests: {},
+    workspace: {}
+  } as never);
+
+  assert.strictEqual(
+    result.hostActions.onConversationRailLayoutChange,
+    onConversationRailLayoutChange
+  );
+});
+
 test("forwards every runtimeRequests field instead of silently dropping new ones", () => {
   // The manual field-keyed reconstruction below is exactly the pattern that
   // let an optional host request silently vanish. This test round-trips every

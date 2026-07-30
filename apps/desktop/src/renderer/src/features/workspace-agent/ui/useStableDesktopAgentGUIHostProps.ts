@@ -48,6 +48,7 @@ export type DesktopAgentGUIHostProps = {
     | "onUpdateNode"
     | "onRememberComposerDefaults"
     | "onEngagementEvent"
+    | "onConversationRailLayoutChange"
     | "onOpenConversationWindow"
   >;
   renderSlots: Pick<
@@ -128,6 +129,8 @@ export function useStableDesktopAgentGUIHostProps({
       onUpdateNode: nextHostActions.onUpdateNode,
       onRememberComposerDefaults: nextHostActions.onRememberComposerDefaults,
       onEngagementEvent: nextHostActions.onEngagementEvent,
+      onConversationRailLayoutChange:
+        nextHostActions.onConversationRailLayoutChange,
       onOpenConversationWindow: nextHostActions.onOpenConversationWindow
     },
     renderSlots: {

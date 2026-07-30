@@ -185,6 +185,7 @@ export function createWorkspaceAgentGuiContribution(input: {
         });
       },
       onStateChange: (...args) => helpers.onStateChange(...args),
+      onConversationRailLayoutChange: helpers.onConversationRailLayoutChange,
       agentsService: helpers.agentDirectory,
       allAgentsPresentation: input.allAgentsPresentation,
       renderAgentsEmpty: input.renderAgentsEmpty,

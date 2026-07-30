@@ -119,6 +119,7 @@ function DesktopAgentGUISurfaceImpl({
   runtimeApi,
   trackAgentProviderChatReady,
   onEngagementEvent,
+  onConversationRailLayoutChange,
   trackWorkspaceFileReferences,
   workspaceFileReferenceAdapter,
   resolveExternalPromptEntries,
@@ -657,6 +658,7 @@ function DesktopAgentGUISurfaceImpl({
       onUpdateNode: handleUpdateNode,
       onRememberComposerDefaults: handleRememberComposerDefaults,
       onEngagementEvent: onEngagementEvent,
+      onConversationRailLayoutChange,
       onOpenConversationWindow: !onOpenAgentConversationWindow
         ? undefined
         : handleOpenConversationWindow
