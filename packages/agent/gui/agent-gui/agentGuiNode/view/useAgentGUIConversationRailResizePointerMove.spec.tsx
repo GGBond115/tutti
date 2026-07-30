@@ -45,6 +45,11 @@ describe("useAgentGUIConversationRailResizePointerMove", () => {
         "--agent-gui-conversation-rail-width"
       )
     ).toBe("280px");
+    expect(
+      layoutElement.style.getPropertyValue(
+        "--agent-gui-conversation-rail-content-width"
+      )
+    ).toBe("280px");
     expect(resizeHandle.getAttribute("aria-valuenow")).toBe("280");
     expect(onConversationRailLayoutChange).toHaveBeenCalledWith({
       providerRailWidthPx: 52,

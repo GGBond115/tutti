@@ -32,7 +32,7 @@ import { AgentGuiWorkbenchSessionMenu } from "./AgentGuiWorkbenchSessionMenu.tsx
 import type {
   AgentGuiWorkbenchSessionAction,
   AgentGuiWorkbenchSessionMenuCopy
-} from "./sessionActions.ts";
+} from "./commands.ts";
 import type { AgentGuiWorkbenchSessionMenuAdditionalAction } from "./AgentGuiWorkbenchSessionMenu.tsx";
 import type { AgentToolSidebarHeaderLayout } from "./tool-sidebar/headerLayout.ts";
 
@@ -88,6 +88,7 @@ export interface AgentGuiWorkbenchHeaderProps extends HTMLAttributes<HTMLElement
   conversationTitle?: string | null;
   conversationTitleDisplayPrompt?: string | null;
   nodeId: string;
+  onHeaderElementChange?: (element: HTMLElement | null) => void;
   onCreateConversation?: () => void;
   onOpenDetachedWindow?: () => void;
   onSessionAction?: (action: AgentGuiWorkbenchSessionAction) => void;
@@ -125,6 +126,7 @@ export function AgentGuiWorkbenchHeader({
   conversationTitle,
   conversationTitleDisplayPrompt,
   nodeId,
+  onHeaderElementChange,
   onCreateConversation,
   onOpenDetachedWindow,
   onSessionAction,
@@ -213,6 +215,7 @@ export function AgentGuiWorkbenchHeader({
     "header",
     {
       ...headerProps,
+      ref: onHeaderElementChange,
       className: cn("agent-gui-workbench-header", className),
       "data-agent-gui-workbench-header": "true",
       "data-agent-gui-workbench-header-body-error": hasBodyRenderError

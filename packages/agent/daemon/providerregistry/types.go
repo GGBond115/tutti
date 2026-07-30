@@ -426,7 +426,8 @@ const ConfiguredModelOverrideCodexCustomProvider ConfiguredModelOverrideKind = "
 type CapabilityCatalogKind string
 
 const (
-	CapabilityCatalogKindCodexAppServer CapabilityCatalogKind = "codex_app_server"
+	CapabilityCatalogKindCodexAppServer  CapabilityCatalogKind = "codex_app_server"
+	CapabilityCatalogKindAppServerSkills CapabilityCatalogKind = "app_server_skills"
 )
 
 type CapabilityCatalogDescriptor struct {
@@ -575,12 +576,15 @@ const (
 )
 
 type DesktopIntegrationDescriptor struct {
-	Managed                    bool
-	ManagedOrder               int
-	StatusProbePriority        int
-	UsageProbeKind             DesktopUsageProbeKind
-	VisibilityGate             DesktopVisibilityGate
-	RuntimeProbeFallback       DesktopRuntimeProbeFallback
+	Managed              bool
+	ManagedOrder         int
+	StatusProbePriority  int
+	UsageProbeKind       DesktopUsageProbeKind
+	VisibilityGate       DesktopVisibilityGate
+	RuntimeProbeFallback DesktopRuntimeProbeFallback
+	// CommandNetworkAccess explicitly opts a Codex-compatible app-server into
+	// command networking when it runs under the Tutti Desktop host.
+	CommandNetworkAccess       bool
 	InstallBootstrap           bool
 	RefreshOnAccountChange     bool
 	UnavailableDockOrderOffset int

@@ -190,11 +190,24 @@ func appServerItemToolCallUpdate(item map[string]any, completed bool) (map[strin
 		}
 		if completed {
 			output := map[string]any{}
-			if result := item["result"]; result != nil {
-				output["result"] = result
+			if result := payloadObject(item["result"]); len(result) > 0 {
+				if content := result["content"]; content != nil {
+					update["content"] = clonePayloadValue(content)
+				}
+				if structuredContent := result["structuredContent"]; structuredContent != nil {
+					output["structuredContent"] = clonePayloadValue(structuredContent)
+				}
+				if isError, ok := result["isError"].(bool); ok {
+					output["isError"] = isError
+					if isError {
+						update["status"] = messageStreamStateFailed
+					}
+				}
+			} else if resultText := asStringRaw(item["result"]); resultText != "" {
+				output["text"] = resultText
 			}
 			if errText := asStringRaw(item["error"]); errText != "" {
-				output["error"] = errText
+				output["text"] = errText
 				update["status"] = messageStreamStateFailed
 			}
 			if len(output) > 0 {

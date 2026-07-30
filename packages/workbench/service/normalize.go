@@ -97,6 +97,11 @@ func normalizeWorkbenchSnapshot(snapshot WorkbenchSnapshot) (json.RawMessage, in
 			return nil, 0, fmt.Errorf("workbench snapshot layout basis: %w", err)
 		}
 	}
+	if snapshot.LockedLayout != nil {
+		if err := validateWorkbenchLockedLayout(*snapshot.LockedLayout, ids); err != nil {
+			return nil, 0, fmt.Errorf("workbench snapshot locked layout: %w", err)
+		}
+	}
 
 	canonicalSnapshot := canonicalizeWorkbenchSnapshot(snapshot)
 	normalizedJSON, err := json.Marshal(canonicalSnapshot)
@@ -111,14 +116,21 @@ func normalizeWorkbenchSnapshot(snapshot WorkbenchSnapshot) (json.RawMessage, in
 }
 
 type canonicalWorkbenchSnapshot struct {
-	SchemaVersion int                                `json:"schemaVersion"`
-	Nodes         []canonicalWorkbenchSnapshotNode   `json:"nodes"`
-	NodeStack     []string                           `json:"nodeStack"`
-	ActiveNodeID  *string                            `json:"activeNodeId"`
-	Spaces        *[]canonicalWorkbenchSnapshotSpace `json:"spaces,omitempty"`
-	ActiveSpaceID *string                            `json:"activeSpaceId"`
-	LayoutBasis   *WorkbenchSnapshotLayoutBasis      `json:"layoutBasis,omitempty"`
-	Metadata      map[string]interface{}             `json:"metadata,omitempty"`
+	SchemaVersion int                                     `json:"schemaVersion"`
+	Nodes         []canonicalWorkbenchSnapshotNode        `json:"nodes"`
+	NodeStack     []string                                `json:"nodeStack"`
+	ActiveNodeID  *string                                 `json:"activeNodeId"`
+	Spaces        *[]canonicalWorkbenchSnapshotSpace      `json:"spaces,omitempty"`
+	ActiveSpaceID *string                                 `json:"activeSpaceId"`
+	LayoutBasis   *WorkbenchSnapshotLayoutBasis           `json:"layoutBasis,omitempty"`
+	LockedLayout  *canonicalWorkbenchSnapshotLockedLayout `json:"lockedLayout,omitempty"`
+	Metadata      map[string]interface{}                  `json:"metadata,omitempty"`
+}
+
+type canonicalWorkbenchSnapshotLockedLayout struct {
+	Preset           WorkbenchSnapshotLayoutPreset               `json:"preset"`
+	NodeIDs          []string                                    `json:"nodeIDs"`
+	NormalizedFrames map[string]WorkbenchSnapshotNormalizedFrame `json:"normalizedFrames,omitempty"`
 }
 
 type canonicalWorkbenchSnapshotNode struct {
@@ -193,6 +205,7 @@ func canonicalizeWorkbenchSnapshot(snapshot WorkbenchSnapshot) canonicalWorkbenc
 		Spaces:        spaces,
 		ActiveSpaceID: canonicalActiveSpaceID(snapshot.ActiveSpaceID, spaces, spaceIDs),
 		LayoutBasis:   canonicalizeWorkbenchLayoutBasis(snapshot.LayoutBasis),
+		LockedLayout:  canonicalizeWorkbenchLockedLayout(snapshot.LockedLayout, nodeIDs),
 		Metadata:      snapshot.Metadata,
 	}
 }
@@ -254,6 +267,57 @@ func canonicalizeWorkbenchLayoutBasis(
 				Left:   canonicalizeWorkbenchNumber(layoutBasis.LayoutConstraints.SafeArea.Left),
 			},
 		},
+	}
+}
+
+func canonicalizeWorkbenchLockedLayout(
+	lockedLayout *WorkbenchSnapshotLockedLayout,
+	knownNodeIDs map[string]struct{},
+) *canonicalWorkbenchSnapshotLockedLayout {
+	if lockedLayout == nil {
+		return nil
+	}
+
+	nodeIDs := make([]string, 0, len(lockedLayout.NodeIDs))
+	for _, nodeID := range uniqueTrimmedStrings(lockedLayout.NodeIDs) {
+		if _, ok := knownNodeIDs[nodeID]; ok {
+			nodeIDs = append(nodeIDs, nodeID)
+		}
+	}
+	if len(nodeIDs) < 2 {
+		return nil
+	}
+
+	canonical := &canonicalWorkbenchSnapshotLockedLayout{
+		Preset:  lockedLayout.Preset,
+		NodeIDs: nodeIDs,
+	}
+	if lockedLayout.NormalizedFrames == nil {
+		return canonical
+	}
+
+	canonical.NormalizedFrames = make(
+		map[string]WorkbenchSnapshotNormalizedFrame,
+		len(nodeIDs),
+	)
+	for _, nodeID := range nodeIDs {
+		frame := lockedLayout.NormalizedFrames[nodeID]
+		canonical.NormalizedFrames[nodeID] = canonicalizeWorkbenchNormalizedFrame(frame)
+	}
+	return canonical
+}
+
+func canonicalizeWorkbenchNormalizedFrame(
+	frame WorkbenchSnapshotNormalizedFrame,
+) WorkbenchSnapshotNormalizedFrame {
+	x := canonicalizeWorkbenchNumber(frame.X)
+	y := canonicalizeWorkbenchNumber(frame.Y)
+
+	return WorkbenchSnapshotNormalizedFrame{
+		X:      x,
+		Y:      y,
+		Width:  math.Min(canonicalizeWorkbenchNumber(frame.Width), canonicalizeWorkbenchNumber(1-x)),
+		Height: math.Min(canonicalizeWorkbenchNumber(frame.Height), canonicalizeWorkbenchNumber(1-y)),
 	}
 }
 
@@ -407,6 +471,79 @@ func validateWorkbenchLayoutBasis(layoutBasis WorkbenchSnapshotLayoutBasis) erro
 		return errors.New("safe area must contain non-negative finite numbers")
 	}
 	return nil
+}
+
+func validateWorkbenchLockedLayout(
+	lockedLayout WorkbenchSnapshotLockedLayout,
+	knownNodeIDs map[string]struct{},
+) error {
+	if _, ok := workbenchSnapshotContractLayoutPresetKinds[lockedLayout.Preset.Kind]; !ok {
+		return errors.New("preset kind is invalid")
+	}
+	if len(lockedLayout.NodeIDs) < 2 {
+		return errors.New("must contain at least two node IDs")
+	}
+
+	lockedNodeIDs := make(map[string]struct{}, len(lockedLayout.NodeIDs))
+	for index, nodeID := range lockedLayout.NodeIDs {
+		trimmedNodeID := strings.TrimSpace(nodeID)
+		if trimmedNodeID == "" {
+			return fmt.Errorf("node ID %d is required", index)
+		}
+		if len(nodeID) > workbenchSnapshotContractMaxNodeIDLength {
+			return fmt.Errorf("node ID %d is too long", index)
+		}
+		if _, duplicate := lockedNodeIDs[trimmedNodeID]; duplicate {
+			return fmt.Errorf("node ID %d is duplicated", index)
+		}
+		if _, exists := knownNodeIDs[trimmedNodeID]; !exists {
+			return fmt.Errorf("node ID %d does not exist", index)
+		}
+		lockedNodeIDs[trimmedNodeID] = struct{}{}
+	}
+
+	if lockedLayout.NormalizedFrames == nil {
+		return nil
+	}
+	for nodeID := range lockedNodeIDs {
+		frame, exists := lockedLayout.NormalizedFrames[nodeID]
+		if !exists {
+			return fmt.Errorf("normalized frame for node %q is required", nodeID)
+		}
+		if err := validateWorkbenchNormalizedFrame(frame); err != nil {
+			return fmt.Errorf("normalized frame for node %q: %w", nodeID, err)
+		}
+	}
+	for nodeID := range lockedLayout.NormalizedFrames {
+		if _, ok := lockedNodeIDs[nodeID]; !ok {
+			return fmt.Errorf("normalized frame node %q is not locked", nodeID)
+		}
+	}
+	return nil
+}
+
+func validateWorkbenchNormalizedFrame(frame WorkbenchSnapshotNormalizedFrame) error {
+	if !isUnitInterval(frame.X, false) || !isUnitInterval(frame.Y, false) ||
+		!isUnitInterval(frame.Width, true) || !isUnitInterval(frame.Height, true) {
+		return errors.New("values must stay within the unit layout rect")
+	}
+	if frame.X+frame.Width > 1+workbenchNormalizedFrameUnitRectTransportTolerance ||
+		frame.Y+frame.Height > 1+workbenchNormalizedFrameUnitRectTransportTolerance {
+		return errors.New("must stay within the unit layout rect")
+	}
+	return nil
+}
+
+const workbenchNormalizedFrameUnitRectTransportTolerance = 0.000001
+
+func isUnitInterval(value float64, exclusiveMinimum bool) bool {
+	if !isFinite(value) || value > 1 {
+		return false
+	}
+	if exclusiveMinimum {
+		return value > 0
+	}
+	return value >= 0
 }
 
 func isPositiveFinite(value float64) bool {

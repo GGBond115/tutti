@@ -1,6 +1,8 @@
 import type {
   WorkbenchFrame as WorkbenchSnapshotFrame,
-  WorkbenchSnapshotDisplayModeV1
+  WorkbenchSnapshotDisplayModeV1,
+  WorkbenchSnapshotLayoutPresetV1,
+  WorkbenchSnapshotLockedLayoutV1
 } from "@tutti-os/workbench-snapshot";
 
 export interface WorkbenchSize {
@@ -38,10 +40,7 @@ export type WorkbenchQuickLayoutTarget =
   | "top-right"
   | "bottom-left"
   | "bottom-right";
-export type WorkbenchLayoutPreset =
-  | { kind: "balanced" }
-  | { kind: "row" }
-  | { kind: "column" };
+export type WorkbenchLayoutPreset = WorkbenchSnapshotLayoutPresetV1;
 
 /**
  * A layout preset that stays "locked" onto a set of nodes: whenever the surface
@@ -50,16 +49,13 @@ export type WorkbenchLayoutPreset =
  * locked node moves the shared grid dividers; the lock is only released
  * explicitly (titlebar button) or by programmatic moves.
  */
-export interface WorkbenchLockedLayout {
-  preset: WorkbenchLayoutPreset;
-  nodeIDs: string[];
+export interface WorkbenchLockedLayout extends WorkbenchSnapshotLockedLayoutV1 {
   /**
    * Custom slot geometry created when the user resizes a locked window,
    * normalized (0..1) against the safe layout rect. When present it takes
    * precedence over the preset frames; when absent the slots derive from the
    * preset.
    */
-  normalizedFrames?: Record<string, WorkbenchFrame>;
 }
 export type WorkbenchResizeHandle =
   | "north"

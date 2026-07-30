@@ -80,9 +80,42 @@ test("projectDesktopAgentProviderReadinessGates lets users retry missing statuse
   assert.equal(gates.codex?.pendingAction, null);
 });
 
+test("projectDesktopAgentProviderReadinessGates routes a Codex runtime choice to selection", () => {
+  const gates = projectDesktopAgentProviderReadinessGates({
+    snapshot: {
+      capturedAt: "2026-07-30T00:00:00.000Z",
+      defaultProvider: "codex",
+      error: null,
+      isLoading: false,
+      pendingActions: [],
+      statuses: [
+        providerStatus("codex", "unknown", "codex_runtime_selection_required")
+      ]
+    }
+  });
+
+  assert.equal(gates.codex?.status, "runtime_selection");
+});
+
+test("projectDesktopAgentProviderReadinessGates keeps a generic unknown unavailable", () => {
+  const gates = projectDesktopAgentProviderReadinessGates({
+    snapshot: {
+      capturedAt: "2026-07-30T00:00:00.000Z",
+      defaultProvider: "codex",
+      error: null,
+      isLoading: false,
+      pendingActions: [],
+      statuses: [providerStatus("codex", "unknown", "cli_probe_failed")]
+    }
+  });
+
+  assert.equal(gates.codex?.status, "unavailable");
+});
+
 function providerStatus(
   provider: WorkspaceAgentProvider,
-  availability: AgentProviderStatus["availability"]["status"]
+  availability: AgentProviderStatus["availability"]["status"],
+  reasonCode?: string | null
 ): AgentProviderStatus {
   return {
     actions: [],
@@ -94,7 +127,12 @@ function providerStatus(
       status: availability === "auth_required" ? "required" : "authenticated"
     },
     availability: {
-      reasonCode: availability === "ready" ? null : availability,
+      reasonCode:
+        reasonCode !== undefined
+          ? reasonCode
+          : availability === "ready"
+            ? null
+            : availability,
       status: availability
     },
     cli: {

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
+	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	modelbindingbiz "github.com/tutti-os/tutti/services/tuttid/biz/modelbinding"
 	modelplanbiz "github.com/tutti-os/tutti/services/tuttid/biz/modelplan"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
@@ -27,6 +28,49 @@ func (catalog snapshotCommandCatalog) Capabilities(
 	runtimeprep.CommandContext,
 ) []runtimeprep.CommandCapability {
 	return append([]runtimeprep.CommandCapability(nil), catalog...)
+}
+
+func legacyEmptyOpenProviderRuntimeContext(
+	provider string,
+	agentTargetID string,
+	projection *runtimeprep.CommandCapabilityProjection,
+) map[string]any {
+	runtimeContext := runtimeContextWithSessionRuntimeSnapshot(
+		nil,
+		CreateSessionInput{
+			AgentTargetID:               agentTargetID,
+			HarnessAgentTargetID:        agentTargetID,
+			CommandCapabilityProjection: projection,
+		},
+		provider,
+		modelPlanResolution{
+			ModelConfiguration: newProviderNativeModelConfiguration(
+				provider,
+				agentTargetID,
+			),
+		},
+	)
+	snapshot := runtimeContext[sessionRuntimeSnapshotContextKey].(map[string]any)
+	snapshot["provider"] = ""
+	configuration := snapshot["modelConfiguration"].(map[string]any)
+	configuration["fingerprint"] = legacyEmptyProviderNativeModelFingerprint(
+		agentTargetID,
+	)
+	return runtimeContext
+}
+
+func legacyFingerprintOpenProviderRuntimeContext(
+	provider string,
+	agentTargetID string,
+) map[string]any {
+	runtimeContext := legacyEmptyOpenProviderRuntimeContext(
+		provider,
+		agentTargetID,
+		nil,
+	)
+	snapshot := runtimeContext[sessionRuntimeSnapshotContextKey].(map[string]any)
+	snapshot["provider"] = provider
+	return runtimeContext
 }
 
 func (s revisionPlanSource) GetModelPlan(context.Context, string, string) (modelplanbiz.Plan, error) {
@@ -123,6 +167,173 @@ func TestSessionRuntimeSnapshotIsVersionedAndRedactionSafe(t *testing.T) {
 	}
 	if snapshot.Name != "Focused Writer" || snapshot.Description != "Make narrow repository changes." {
 		t.Fatalf("snapshot name/description = %q/%q", snapshot.Name, snapshot.Description)
+	}
+}
+
+func TestSessionRuntimeSnapshotPreservesOpenProviderIdentity(t *testing.T) {
+	t.Parallel()
+
+	const (
+		provider      = "acp:kimi-code"
+		agentTargetID = "extension:kimi-code"
+	)
+	runtimeContext := runtimeContextWithSessionRuntimeSnapshot(
+		nil,
+		CreateSessionInput{
+			AgentTargetID:        agentTargetID,
+			HarnessAgentTargetID: agentTargetID,
+		},
+		provider,
+		modelPlanResolution{
+			ModelConfiguration: newProviderNativeModelConfiguration(
+				provider,
+				agentTargetID,
+			),
+		},
+	)
+	raw := runtimeContext[sessionRuntimeSnapshotContextKey].(map[string]any)
+	if raw["provider"] != provider {
+		t.Fatalf("persisted provider = %#v, want %q", raw["provider"], provider)
+	}
+	snapshot, exists, err := sessionRuntimeSnapshotFromContext(runtimeContext)
+	if err != nil || !exists {
+		t.Fatalf(
+			"sessionRuntimeSnapshotFromContext() = %#v, exists=%v, error=%v",
+			snapshot,
+			exists,
+			err,
+		)
+	}
+	if snapshot.Provider != provider || snapshot.LegacyEmptyProviderFingerprint {
+		t.Fatalf("snapshot provider identity = %#v", snapshot)
+	}
+}
+
+func TestSessionRuntimeSnapshotRecoversVerifiedLegacyEmptyOpenProvider(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	const (
+		provider      = "acp:kimi-code"
+		agentTargetID = "extension:kimi-code"
+	)
+	runtimeContext := legacyEmptyOpenProviderRuntimeContext(
+		provider,
+		agentTargetID,
+		nil,
+	)
+	if _, _, err := sessionRuntimeSnapshotFromContext(runtimeContext); !errors.Is(
+		err,
+		ErrSessionRuntimeSnapshotUnavailable,
+	) {
+		t.Fatalf("snapshot without canonical fallback error = %v", err)
+	}
+	if _, _, err := sessionRuntimeSnapshotFromContext(
+		runtimeContext,
+		"codex",
+	); !errors.Is(err, ErrSessionRuntimeSnapshotUnavailable) {
+		t.Fatalf("snapshot with registered fallback error = %v", err)
+	}
+
+	snapshot, exists, err := sessionRuntimeSnapshotFromContext(
+		runtimeContext,
+		provider,
+	)
+	if err != nil || !exists {
+		t.Fatalf(
+			"legacy sessionRuntimeSnapshotFromContext() = %#v, exists=%v, error=%v",
+			snapshot,
+			exists,
+			err,
+		)
+	}
+	if snapshot.Provider != provider || !snapshot.LegacyEmptyProviderFingerprint {
+		t.Fatalf("recovered legacy snapshot = %#v", snapshot)
+	}
+	service := &Service{}
+	if _, err := service.modelEndpointFromSessionRuntimeSnapshot(
+		context.Background(),
+		"workspace-1",
+		snapshot,
+		"",
+	); err != nil {
+		t.Fatalf("legacy provider-native fingerprint recovery error = %v", err)
+	}
+}
+
+func TestSessionRuntimeSnapshotRecoversVerifiedLegacyFingerprintWithOpenProvider(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	const (
+		provider      = "acp:kimi-code"
+		agentTargetID = "extension:kimi-code"
+	)
+	runtimeContext := legacyFingerprintOpenProviderRuntimeContext(
+		provider,
+		agentTargetID,
+	)
+	for _, fallbackProvider := range []string{"", "codex", "acp:other"} {
+		snapshot, exists, err := sessionRuntimeSnapshotFromContext(
+			runtimeContext,
+			fallbackProvider,
+		)
+		if err != nil || !exists {
+			t.Fatalf(
+				"snapshot with fallback %q = %#v, exists=%v, error=%v",
+				fallbackProvider,
+				snapshot,
+				exists,
+				err,
+			)
+		}
+		if snapshot.LegacyEmptyProviderFingerprint {
+			t.Fatalf(
+				"snapshot with fallback %q trusted a mismatched provider: %#v",
+				fallbackProvider,
+				snapshot,
+			)
+		}
+		service := &Service{}
+		if _, err := service.modelEndpointFromSessionRuntimeSnapshot(
+			context.Background(),
+			"workspace-1",
+			snapshot,
+			"",
+		); !errors.Is(err, ErrSessionRuntimeSnapshotUnavailable) {
+			t.Fatalf(
+				"snapshot with fallback %q model endpoint error = %v",
+				fallbackProvider,
+				err,
+			)
+		}
+	}
+
+	snapshot, exists, err := sessionRuntimeSnapshotFromContext(
+		runtimeContext,
+		provider,
+	)
+	if err != nil || !exists {
+		t.Fatalf(
+			"matching legacy snapshot = %#v, exists=%v, error=%v",
+			snapshot,
+			exists,
+			err,
+		)
+	}
+	if snapshot.Provider != provider || !snapshot.LegacyEmptyProviderFingerprint {
+		t.Fatalf("recovered legacy fingerprint snapshot = %#v", snapshot)
+	}
+	service := &Service{}
+	if _, err := service.modelEndpointFromSessionRuntimeSnapshot(
+		context.Background(),
+		"workspace-1",
+		snapshot,
+		"",
+	); err != nil {
+		t.Fatalf("legacy fingerprint recovery error = %v", err)
 	}
 }
 
@@ -340,6 +551,48 @@ func TestAgentSessionCommandCapabilityProjectionReadsCanonicalSnapshot(t *testin
 	}
 }
 
+func TestAgentSessionCommandCapabilityProjectionRecoversLegacyOpenProvider(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	const (
+		provider      = "acp:hermes"
+		agentTargetID = "extension:hermes"
+	)
+	runtimeContext := legacyEmptyOpenProviderRuntimeContext(
+		provider,
+		agentTargetID,
+		&runtimeprep.CommandCapabilityProjection{
+			AllowedIDs: []string{"issue-manager.issue.get"},
+		},
+	)
+	service := NewService(newFakeRuntime())
+	service.SessionReader = fakeSessionReader{sessions: map[string]PersistedSession{
+		"workspace-1:session-1": {
+			ID: "session-1", WorkspaceID: "workspace-1",
+			AgentTargetID: agentTargetID, Provider: provider,
+			InternalRuntimeContext: runtimeContext,
+		},
+	}}
+	configureTestApplicationHost(service)
+
+	projection, err := service.AgentSessionCommandCapabilityProjection(
+		context.Background(),
+		"workspace-1",
+		"session-1",
+	)
+	if err != nil {
+		t.Fatalf("AgentSessionCommandCapabilityProjection() error = %v", err)
+	}
+	if projection == nil || !reflect.DeepEqual(
+		projection.AllowedIDs,
+		[]string{"issue-manager.issue.get"},
+	) {
+		t.Fatalf("legacy extension projection = %#v", projection)
+	}
+}
+
 // Sessions created before the Wave 4-2 contract cleanup persisted the Agent
 // description under the retired purpose key. Their durable snapshots must
 // keep resuming without a rewrite.
@@ -532,6 +785,97 @@ func TestPrepareRuntimeForResumeProviderNativeSnapshotIgnoresNewBinding(t *testi
 	}
 	if preparedInput.ModelEndpoint != nil {
 		t.Fatalf("provider-native resume used new binding endpoint %#v", preparedInput.ModelEndpoint)
+	}
+}
+
+func TestPrepareRuntimeForResumeRecoversLegacyEmptyOpenProvider(t *testing.T) {
+	t.Parallel()
+
+	const (
+		provider      = "acp:kimi-code"
+		agentTargetID = "extension:kimi-code"
+	)
+	targets := defaultTestAgentTargets()
+	targets[agentTargetID] = agenttargetbiz.Target{
+		ID:            agentTargetID,
+		Provider:      provider,
+		LaunchRefJSON: `{"type":"agent_extension","extensionInstallationId":"installation-1"}`,
+		Name:          "Kimi Code",
+		Enabled:       true,
+		Source:        agenttargetbiz.SourceUser,
+	}
+	service := &Service{}
+	service.AgentTargetStore = fakeAgentTargetStore{targets: targets}
+	var preparedInput runtimeprep.PrepareInput
+	service.RuntimePreparer = fakeRuntimePreparer{input: &preparedInput}
+
+	_, err := service.prepareRuntimeForResume(
+		context.Background(),
+		PersistedSession{
+			ID:            "session-1",
+			WorkspaceID:   "workspace-1",
+			AgentTargetID: agentTargetID,
+			Provider:      provider,
+			InternalRuntimeContext: legacyEmptyOpenProviderRuntimeContext(
+				provider,
+				agentTargetID,
+				nil,
+			),
+		},
+	)
+	if err != nil {
+		t.Fatalf("prepareRuntimeForResume() error = %v", err)
+	}
+	if preparedInput.Provider != provider {
+		t.Fatalf("prepared provider = %q, want %q", preparedInput.Provider, provider)
+	}
+	if preparedInput.ProviderTargetRef["kind"] !=
+		agenttargetbiz.LaunchRefTypeAgentExtension {
+		t.Fatalf(
+			"prepared provider target ref = %#v",
+			preparedInput.ProviderTargetRef,
+		)
+	}
+}
+
+func TestPrepareRuntimeForResumeRecoversLegacyFingerprintWithOpenProvider(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	const (
+		provider      = "acp:kimi-code"
+		agentTargetID = "extension:kimi-code"
+	)
+	targets := defaultTestAgentTargets()
+	targets[agentTargetID] = agenttargetbiz.Target{
+		ID:            agentTargetID,
+		Provider:      provider,
+		LaunchRefJSON: `{"type":"agent_extension","extensionInstallationId":"installation-1"}`,
+		Name:          "Kimi Code",
+		Enabled:       true,
+		Source:        agenttargetbiz.SourceUser,
+	}
+	service := &Service{}
+	service.AgentTargetStore = fakeAgentTargetStore{targets: targets}
+	var preparedInput runtimeprep.PrepareInput
+	service.RuntimePreparer = fakeRuntimePreparer{input: &preparedInput}
+
+	_, err := service.prepareRuntimeForResume(
+		context.Background(),
+		PersistedSession{
+			ID:                     "session-1",
+			WorkspaceID:            "workspace-1",
+			AgentTargetID:          agentTargetID,
+			Provider:               provider,
+			InternalRuntimeContext: legacyFingerprintOpenProviderRuntimeContext(provider, agentTargetID),
+		},
+	)
+	if err != nil {
+		t.Fatalf("prepareRuntimeForResume() error = %v", err)
+	}
+	if preparedInput.Provider != provider {
+		t.Fatalf("prepared provider = %q, want %q", preparedInput.Provider, provider)
 	}
 }
 

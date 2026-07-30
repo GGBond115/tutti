@@ -2,13 +2,11 @@ import {
   AGENT_SESSION_ENGINE_LOCAL_ORIGIN,
   createAgentActivitySnapshotProjector,
   createAgentSessionEngine,
-  dispatchSessionMutation,
   selectEngineSessionRuntimeAvailability,
   type AgentActivitySessionSettings,
   type AgentActivityInteraction,
   type AgentActivitySessionReconcileExecutor,
   type AgentSessionEngine,
-  type EngineExternalCommand,
   type SessionReconcileCommand
 } from "@tutti-os/agent-activity-core";
 import type {
@@ -30,14 +28,15 @@ import {
   type PendingSubmission
 } from "./pendingSubmission";
 import type { ClockPort, DeviceLinkPort } from "./servicePorts";
-import { executeWorkspaceActivityCommand } from "./workspaceActivityCommandAdapter";
+import {
+  createWorkspaceActivityEffectPort,
+  executeWorkspaceActivityExtensionCommand
+} from "./workspaceActivityEngineCommandPort";
 import {
   projectWorkspaceActivitySnapshot,
   resolveWorkspaceComposerTarget
 } from "./workspaceActivityProjection";
 import { WorkspaceConversationRailService } from "./workspaceConversationRailService";
-import { createMobileActivityCommandId } from "./workspaceActivityCommandSupport";
-import { requestWorkspaceActivityInteractionResponse } from "./workspaceActivityInteractionCommand";
 import type { WorkspaceActivitySnapshot } from "./workspaceActivityTypes";
 import { WorkspaceAgentLiveLane } from "./workspaceAgentLiveLane";
 import { selectWorkspaceConversationRailSessionIds } from "./workspaceConversationRailProjection";
@@ -47,8 +46,6 @@ import { WorkspaceMediaService } from "./workspaceMediaService";
 export type { WorkspaceActivitySnapshot } from "./workspaceActivityTypes";
 
 const MESSAGE_POLL_MS = 1_000;
-const COMMAND_TIMEOUT_MS = 30_000;
-const PENDING_EXPIRY_MS = 60_000;
 
 export class WorkspaceActivityService extends ObservableService<WorkspaceActivitySnapshot> {
   readonly _serviceBrand: undefined;
@@ -96,11 +93,28 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       workspaceId: workspace.id
     });
     this.projectActivity = createAgentActivitySnapshotProjector(workspace.id);
+    const commandContext = () => ({
+      client: this.client,
+      mapSession: this.mapping.mapSession,
+      mapSessionDetail: this.mapping.mapSessionDetail,
+      reconcileSession: (
+        reconcileCommand: SessionReconcileCommand,
+        reconcileSignal?: AbortSignal
+      ) =>
+        this.executeSessionReconcileCommand(reconcileCommand, reconcileSignal),
+      reconcileWorkspace: () => this.reconcileWorkspace()
+    });
     this.engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => this.clock.now() },
       commandPort: {
-        execute: (command, options) =>
-          this.executeCommand(command, options?.signal)
+        kind: "typed",
+        effects: createWorkspaceActivityEffectPort(commandContext),
+        execute: (command, options): Promise<unknown> =>
+          executeWorkspaceActivityExtensionCommand(
+            commandContext(),
+            command,
+            options
+          )
       },
       identity: {
         origin: AGENT_SESSION_ENGINE_LOCAL_ORIGIN,
@@ -143,6 +157,12 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       isSessionDeleted: (agentSessionId) =>
         this.liveLane.isSessionDeleted(agentSessionId),
       mapping: this.mapping,
+      reconcileAuthoritativeHistory: (agentSessionId, messages, turns) =>
+        this.liveLane.reconcileAuthoritativeHistory(
+          agentSessionId,
+          messages,
+          turns
+        ),
       reconcileOptimisticMessages: (agentSessionId) =>
         this.liveLane.reconcileMessages(agentSessionId),
       workspaceId: this.workspace.id
@@ -309,13 +329,9 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       return;
     }
     if (!target.agentSessionId) return;
-    this.engine.dispatch({
+    this.engine.updateSessionSettings({
       agentSessionId: target.agentSessionId,
-      commandId: createMobileActivityCommandId(),
-      settings,
-      timeoutMs: COMMAND_TIMEOUT_MS,
-      type: "session/settingsUpdateRequested",
-      workspaceId: this.workspace.id
+      settings
     });
   }
 
@@ -338,13 +354,9 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     );
     if (!session) return;
     try {
-      await dispatchSessionMutation(this.engine, {
+      await this.engine.setSessionPinned({
         agentSessionId,
-        mutationId: createMobileActivityCommandId(),
-        pinned: session.pinnedAtUnixMs == null,
-        timeoutMs: COMMAND_TIMEOUT_MS,
-        type: "session/pinRequested",
-        workspaceId: this.workspace.id
+        pinned: session.pinnedAtUnixMs == null
       });
       await this.rail.reconcile();
       this.errorCode = null;
@@ -358,16 +370,10 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     const normalizedTitle = title.trim();
     if (!normalizedTitle) return;
     try {
-      const session = await this.client.updateWorkspaceAgentSessionTitle(
-        this.workspace.id,
+      await this.engine.renameSession({
         agentSessionId,
-        { title: normalizedTitle }
-      );
-      this.engine.dispatch({
-        session: this.mapping.mapSession(session),
-        type: "session/upserted"
+        title: normalizedTitle
       });
-      await this.rail.reconcile();
       this.errorCode = null;
     } catch {
       if (!this.disposed) this.errorCode = "request_failed";
@@ -377,12 +383,8 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
 
   async deleteSession(agentSessionId: string): Promise<void> {
     try {
-      await dispatchSessionMutation(this.engine, {
-        agentSessionIds: [agentSessionId],
-        mutationId: createMobileActivityCommandId(),
-        timeoutMs: COMMAND_TIMEOUT_MS,
-        type: "sessions/deleteRequested",
-        workspaceId: this.workspace.id
+      await this.engine.deleteSessions({
+        agentSessionIds: [agentSessionId]
       });
       await this.rail.reconcile();
       this.errorCode = null;
@@ -427,40 +429,36 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       submittedAtUnixMs: now
     };
     if (snapshot.creating) {
-      this.engine.dispatch({
+      const accepted = this.engine.activateSession({
         agentSessionId: submission.agentSessionId,
         agentTargetId: submission.agentTargetId!,
         clientSubmitId: submission.clientSubmitId,
-        content,
-        expiresAtUnixMs: now + PENDING_EXPIRY_MS,
+        initialContent: content,
         initialTurnExpected: true,
         mode: "new",
         requestId: submission.clientSubmitId,
-        requestedAtUnixMs: now,
         runtimeContent: content,
         settings: snapshot.composerSettings,
         submitDiagnostics,
-        type: "activation/requested",
-        visible: true,
-        workspaceId: this.workspace.id
+        visible: true
       });
-      this.drafts.clear("new");
+      if (accepted) {
+        this.drafts.clear("new");
+      }
       return;
     }
     if (!snapshot.selectedAgentSessionId) return;
-    this.engine.dispatch({
+    const { accepted, queued } = this.engine.submitPrompt({
       agentSessionId: snapshot.selectedAgentSessionId,
       clientSubmitId: submission.clientSubmitId,
       content,
-      expiresAtUnixMs: now + PENDING_EXPIRY_MS,
-      requestedAtUnixMs: now,
       routing: "auto",
       runtimeContent: content,
-      submitDiagnostics,
-      type: "submit/requested",
-      workspaceId: this.workspace.id
+      submitDiagnostics
     });
-    this.drafts.clear(snapshot.selectedAgentSessionId);
+    if (accepted || queued) {
+      this.drafts.clear(snapshot.selectedAgentSessionId);
+    }
   }
 
   stop(): void {
@@ -468,33 +466,26 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     if (!snapshot.commandsAvailable) return;
     const selected = snapshot.selectedSession;
     if (!selected) return;
-    const now = this.clock.now();
-    this.engine.dispatch({
-      agentSessionId: selected.agentSessionId,
-      awaitingTurnExpiresAtUnixMs: now + PENDING_EXPIRY_MS,
-      commandId: createMobileActivityCommandId(),
-      timeoutMs: COMMAND_TIMEOUT_MS,
-      type: "session/stopRequested",
-      workspaceId: this.workspace.id
+    this.engine.stopSession({
+      agentSessionId: selected.agentSessionId
     });
   }
 
   respondToInteraction(
     interaction: AgentActivityInteraction,
-    input?: {
+    input: {
       action?: string;
       optionId?: string;
       payload?: Readonly<Record<string, unknown>>;
     }
   ): void {
-    requestWorkspaceActivityInteractionResponse({
-      commandId: createMobileActivityCommandId(),
-      engine: this.engine,
-      interaction,
-      ...(input ? { response: input } : {}),
-      states: this.getSnapshot().interactionStates,
-      timeoutMs: COMMAND_TIMEOUT_MS,
-      workspaceId: this.workspace.id
+    this.engine.submitInteractionResponse({
+      agentSessionId: interaction.agentSessionId,
+      requestId: interaction.requestId,
+      turnId: interaction.turnId,
+      ...(input.action ? { action: input.action } : {}),
+      ...(input.optionId ? { optionId: input.optionId } : {}),
+      ...(input.payload ? { payload: input.payload } : {})
     });
   }
 
@@ -601,29 +592,6 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     this.messages.requestLatest(agentSessionId);
   }
 
-  private executeCommand(
-    command: EngineExternalCommand,
-    signal?: AbortSignal
-  ): Promise<unknown> {
-    return executeWorkspaceActivityCommand(
-      {
-        client: this.client,
-        engine: this.engine,
-        loadComposerOptions: (options) => this.loadComposerOptions(options),
-        mapSession: this.mapping.mapSession,
-        mapSessionDetail: this.mapping.mapSessionDetail,
-        reconcileSession: (reconcileCommand, reconcileSignal) =>
-          this.executeSessionReconcileCommand(
-            reconcileCommand,
-            reconcileSignal
-          ),
-        reconcileWorkspace: () => this.reconcileWorkspace()
-      },
-      command,
-      signal
-    );
-  }
-
   private async reconcileWorkspace(): Promise<unknown> {
     const rail = await this.rail.reconcile();
     if (this.disposed || this.paused) {
@@ -664,16 +632,15 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     if (this.disposed || this.paused) return;
     const target = this.currentComposerTarget();
     if (!target) return;
-    this.engine.dispatch({
-      commandId: createMobileActivityCommandId(),
-      ...(target.cwd ? { cwd: target.cwd } : {}),
-      ...(options?.force ? { force: true } : {}),
-      provider: target.provider,
-      settings: target.settings,
-      targetKey: target.agentTargetId,
-      type: "composerOptions/loadRequested",
-      workspaceId: this.workspace.id
-    });
+    void this.engine
+      .loadComposerOptions({
+        ...(target.cwd ? { cwd: target.cwd } : {}),
+        ...(options?.force ? { force: true } : {}),
+        provider: target.provider,
+        settings: target.settings,
+        targetKey: target.agentTargetId
+      })
+      .catch(() => undefined);
   }
 
   private currentComposerTarget() {

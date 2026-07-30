@@ -248,20 +248,13 @@ function patchBatchFromPayload(
   toolOutput: Record<string, unknown> | null,
   options: AgentTurnSummaryProjectionOptions
 ): AgentTurnSummaryPatchBatchVM[] {
-  const toolState = objectValue(payload?.tool_state);
   const metadata = objectValue(payload?.metadata);
-  const input =
-    toolInput ?? objectValue(payload?.input) ?? objectValue(toolState?.input);
-  const output =
-    toolOutput ??
-    objectValue(payload?.output) ??
-    objectValue(toolState?.output);
-  const rawInput = objectValue(input?.rawInput);
+  const input = toolInput ?? objectValue(payload?.input);
+  const output = toolOutput ?? objectValue(payload?.output);
   const changes = firstFileChangeValue(
     output?.changes,
     payload?.changes,
-    input?.changes,
-    rawInput?.changes
+    input?.changes
   );
   const patchChanges = patchChangesFromChangeMap(changes);
   if (patchChanges.length === 0) {
@@ -273,7 +266,6 @@ function patchBatchFromPayload(
         firstNonEmptyString(
           stringValue(payload?.cwd),
           stringValue(input?.cwd),
-          stringValue(rawInput?.cwd),
           stringValue(output?.cwd),
           stringValue(metadata?.cwd),
           options.defaultCwd ?? null

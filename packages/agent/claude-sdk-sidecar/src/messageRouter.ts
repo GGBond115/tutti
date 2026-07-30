@@ -31,6 +31,7 @@ export class SDKMessageRouter {
   private readonly onRuntimeModel: (value: string) => void;
   private readonly onSessionState: () => void;
   private readonly onMaybeTitle: (shouldEmit?: () => boolean) => Promise<void>;
+  private readonly onTerminalConnectionError: () => void;
   private readonly turns: TurnLifecycle;
   private readonly assistant: AssistantStreamProjector;
   private readonly activities: ToolActivityProjector;
@@ -39,6 +40,7 @@ export class SDKMessageRouter {
   private readonly emit: ClaudeSDKSidecarEventEmitter;
   private contextUsageGeneration = 0;
   private activeRootAssistantError = "";
+  private activeRootConnectionRetry = false;
 
   constructor(options: {
     getProviderSessionId: () => string;
@@ -47,6 +49,7 @@ export class SDKMessageRouter {
     onRuntimeModel: (value: string) => void;
     onSessionState: () => void;
     onMaybeTitle: (shouldEmit?: () => boolean) => Promise<void>;
+    onTerminalConnectionError: () => void;
     turns: TurnLifecycle;
     assistant: AssistantStreamProjector;
     activities: ToolActivityProjector;
@@ -60,6 +63,7 @@ export class SDKMessageRouter {
     this.onRuntimeModel = options.onRuntimeModel;
     this.onSessionState = options.onSessionState;
     this.onMaybeTitle = options.onMaybeTitle;
+    this.onTerminalConnectionError = options.onTerminalConnectionError;
     this.turns = options.turns;
     this.assistant = options.assistant;
     this.activities = options.activities;
@@ -98,9 +102,32 @@ export class SDKMessageRouter {
     }
 
     if (message.type === "system") {
-      this.projection.handleSystemMessage(
-        message as unknown as Record<string, unknown>
-      );
+      const raw = message as unknown as Record<string, unknown>;
+      const systemSubtype = stringValue(raw.subtype);
+      if (
+        systemSubtype === "api_retry" &&
+        raw.error_status === null &&
+        this.turns.activeId
+      ) {
+        this.activeRootConnectionRetry = true;
+      }
+      if (
+        systemSubtype === "session_state_changed" &&
+        stringValue(raw.state) === "idle" &&
+        this.activities.clearBackgroundContinuation()
+      ) {
+        this.turns.settleActive("turn_completed", {
+          stopReason: "background_agent_idle"
+        });
+      }
+      this.projection.handleSystemMessage(raw);
+      // session_state_changed is an SDK live-state notification. It can carry
+      // a UUID, but Claude does not persist it in the transcript accepted by
+      // forkSession(upToMessageId). Persisting that UUID would overwrite the
+      // preceding durable assistant checkpoint with an unforkable boundary.
+      if (systemSubtype !== "session_state_changed") {
+        this.emitProviderCheckpoint(message, parentToolUseID);
+      }
       return;
     }
 
@@ -111,6 +138,7 @@ export class SDKMessageRouter {
 
     if (message.type === "assistant") {
       this.handleAssistant(message, parentToolUseID);
+      this.emitProviderCheckpoint(message, parentToolUseID);
       return;
     }
 
@@ -119,6 +147,7 @@ export class SDKMessageRouter {
         return;
       }
       this.handleUser(message, parentToolUseID);
+      this.emitProviderCheckpoint(message, parentToolUseID);
       return;
     }
 
@@ -157,7 +186,10 @@ export class SDKMessageRouter {
       (messageSubtype === "task_started" ||
         messageSubtype === "task_progress" ||
         messageSubtype === "task_notification" ||
-        messageSubtype === "task_updated");
+        messageSubtype === "task_updated" ||
+        messageSubtype === "background_tasks_changed" ||
+        messageSubtype === "session_state_changed");
+    const apiRetry = messageType === "system" && messageSubtype === "api_retry";
     const rootContinuationCandidate =
       messageType === "assistant" &&
       !parentToolUseID &&
@@ -166,6 +198,7 @@ export class SDKMessageRouter {
     if (
       !taskNotification &&
       !systemTaskLifecycle &&
+      !apiRetry &&
       !rootContinuationCandidate &&
       !result
     ) {
@@ -181,6 +214,7 @@ export class SDKMessageRouter {
         ...(rootContinuationCandidate
           ? { rootContinuationCandidate: true }
           : {}),
+        ...(apiRetry ? { apiRetry: true } : {}),
         activeTurnIdBefore: this.turns.activeId,
         ...(parentToolUseID ? { parentToolUseId: parentToolUseID } : {}),
         ...(stringValue(raw.task_id)
@@ -193,9 +227,31 @@ export class SDKMessageRouter {
           ? { toolUseId: stringValue(raw.tool_use_id) }
           : {}),
         ...(stringValue(raw.status) ? { status: stringValue(raw.status) } : {}),
+        ...(stringValue(raw.state) ? { state: stringValue(raw.state) } : {}),
+        ...(stringValue(recordValue(raw.origin)?.kind)
+          ? { sdkMessageOrigin: stringValue(recordValue(raw.origin)?.kind) }
+          : {}),
         ...(raw.is_error === true ? { sdkResultIsError: true } : {}),
         ...(typeof raw.api_error_status === "number"
           ? { sdkApiErrorStatus: raw.api_error_status }
+          : {}),
+        ...(apiRetry && raw.error_status === null
+          ? { sdkConnectionError: true }
+          : {}),
+        ...(apiRetry && typeof raw.error_status === "number"
+          ? { sdkApiErrorStatus: raw.error_status }
+          : {}),
+        ...(apiRetry && typeof raw.attempt === "number"
+          ? { sdkRetryAttempt: raw.attempt }
+          : {}),
+        ...(apiRetry && typeof raw.max_retries === "number"
+          ? { sdkMaxRetries: raw.max_retries }
+          : {}),
+        ...(apiRetry && typeof raw.retry_delay_ms === "number"
+          ? { sdkRetryDelayMs: raw.retry_delay_ms }
+          : {}),
+        ...(apiRetry && stringValue(raw.error)
+          ? { sdkAssistantError: stringValue(raw.error) }
           : {})
       }
     });
@@ -324,6 +380,29 @@ export class SDKMessageRouter {
     }
   }
 
+  private emitProviderCheckpoint(
+    message: SDKMessage,
+    parentToolUseID: string
+  ): void {
+    if (parentToolUseID) {
+      return;
+    }
+    const checkpointMessageId = readSDKMessageUuid(message);
+    const turnId = this.turns.lastTurnId.trim();
+    const providerTurnId = this.turns.lastProviderTurnId.trim();
+    if (!checkpointMessageId || !turnId || !providerTurnId) {
+      return;
+    }
+    this.emit({
+      type: "provider_turn_checkpoint",
+      payload: {
+        turnId,
+        providerTurnId,
+        providerCheckpointMessageId: checkpointMessageId
+      }
+    });
+  }
+
   private handleUser(message: SDKMessage, parentToolUseID: string): void {
     const notificationText = readUserMessageNotificationText(
       message as { message?: { content?: unknown } }
@@ -343,8 +422,10 @@ export class SDKMessageRouter {
       this.turns.activeId &&
       this.turns.activeId !== activeTurnIdBefore
     ) {
+      this.activities.beginRootTurn();
       this.contextUsageGeneration += 1;
       this.activeRootAssistantError = "";
+      this.activeRootConnectionRetry = false;
     }
     const blocks = contentBlocksFromMessage(message);
     if (
@@ -379,6 +460,7 @@ export class SDKMessageRouter {
       usage?: unknown;
       modelUsage?: unknown;
       total_cost_usd?: unknown;
+      origin?: { kind?: string };
     };
     this.projection.emitFastModeState(
       (message as unknown as Record<string, unknown>).fast_mode_state
@@ -393,17 +475,44 @@ export class SDKMessageRouter {
     const turnId = this.turns.activeId;
     const contextUsageGeneration = this.contextUsageGeneration;
     const assistantError = this.activeRootAssistantError;
+    const terminalConnectionError =
+      result.is_error === true &&
+      (result.api_error_status === null ||
+        (result.api_error_status === undefined &&
+          this.activeRootConnectionRetry));
     this.activeRootAssistantError = "";
+    this.activeRootConnectionRetry = false;
+    if (terminalConnectionError) {
+      this.onTerminalConnectionError();
+    }
+    const succeeded =
+      !this.turns.cancelled &&
+      result.subtype === "success" &&
+      result.is_error !== true &&
+      !assistantError;
+    const taskNotificationResult = result.origin?.kind === "task-notification";
+    if (succeeded && taskNotificationResult) {
+      this.activities.markTaskNotificationContinuation();
+      void this.emitResultUsage(turnId, contextUsageGeneration, result);
+      return;
+    }
+    const pendingBackgroundContinuation =
+      succeeded && this.activities.hasPendingBackgroundContinuation();
+    const completedSyntheticContinuation =
+      pendingBackgroundContinuation &&
+      this.turns.activeTurn?.synthetic === true;
+    // When the background level or task notifications already proved that
+    // follow-up output is pending, a successful root result is only the end of
+    // that provider response—not the canonical turn. Keep the original turn
+    // live until session idle instead of emitting a terminal/start pair that
+    // can settle durable state between the two events.
+    const retainRootForBackgroundContinuation =
+      pendingBackgroundContinuation &&
+      this.turns.activeTurn?.synthetic !== true;
     if (this.turns.cancelled) {
       this.turns.settleActive("turn_canceled");
       this.turns.clearCancelled();
-    } else if (
-      result.subtype === "success" &&
-      result.is_error !== true &&
-      !assistantError
-    ) {
-      this.turns.settleActive("turn_completed", { stopReason: "end_turn" });
-    } else {
+    } else if (!succeeded) {
       this.turns.settleActive("turn_failed", {
         error:
           result.errors?.[0] ||
@@ -415,6 +524,13 @@ export class SDKMessageRouter {
           ? { apiErrorStatus: result.api_error_status }
           : {})
       });
+    } else if (!retainRootForBackgroundContinuation) {
+      this.turns.settleActive("turn_completed", { stopReason: "end_turn" });
+    }
+    if (completedSyntheticContinuation) {
+      this.activities.clearBackgroundContinuation();
+    } else {
+      this.activities.handleRootResultSettled(succeeded);
     }
     void this.emitResultUsage(turnId, contextUsageGeneration, result);
     void this.onMaybeTitle(

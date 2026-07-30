@@ -140,13 +140,7 @@ describe("projectAgentConversationVM", () => {
         },
         output: {
           savedPath: "/workspace/output/generated-corgi.png",
-          content: [
-            {
-              type: "image",
-              uri: "/workspace/output/generated-corgi.png",
-              mimeType: "image/png"
-            }
-          ]
+          imageMimeType: "image/png"
         }
       }
     };

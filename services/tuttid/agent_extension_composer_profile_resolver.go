@@ -27,6 +27,7 @@ func (r agentExtensionComposerProfileResolver) ResolveExtensionComposerProfile(
 	result := agentservice.ExtensionComposerProfile{
 		Capabilities:           capabilities,
 		PermissionModeIDPolicy: agentservice.ExtensionPermissionModeIDPolicyRuntime,
+		RuntimePrep:            profile.RuntimePrep,
 	}
 	result.ModelConfigOptionID, result.PermissionConfigOptionID, result.ReasoningConfigOptionID = profile.ACPConfigOptionIDs()
 	if launchPermission := profile.LaunchPermissionSetting(); launchPermission != nil {
@@ -52,9 +53,10 @@ func (r agentExtensionComposerProfileResolver) ResolveExtensionComposerProfile(
 			})
 		}
 		result.Skills = &agentservice.ExtensionComposerSkillProfile{
-			Invocation:    profile.Skills.Invocation,
-			TriggerPrefix: profile.Skills.TriggerPrefix,
-			Roots:         roots,
+			Invocation:               profile.Skills.Invocation,
+			TriggerPrefix:            profile.Skills.TriggerPrefix,
+			RuntimeCommandProjection: profile.Skills.RuntimeCommandProjection,
+			Roots:                    roots,
 		}
 	}
 	if profile.SlashCommands != nil {

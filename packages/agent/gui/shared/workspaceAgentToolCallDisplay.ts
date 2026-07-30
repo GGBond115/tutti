@@ -106,15 +106,15 @@ export function resolveWorkspaceAgentToolName(
   const output = recordValue(item.payload, "output");
   const rawPayloadToolName = firstPresentString(
     stringRecordValue(item.payload, "toolName"),
-    stringRecordValue(metadata, "toolName"),
-    claudeCodeToolName(input),
-    claudeCodeToolName(output)
+    stringRecordValue(metadata, "toolName")
   );
   const imageGenerationToolName = resolveImageGenerationCanonicalToolName({
     toolName: rawPayloadToolName,
     displayName: item.name,
-    content: item.payload?.content,
-    outputContent: output?.content,
+    outputSavedPath: output?.savedPath,
+    outputSavedPaths: output?.savedPaths,
+    outputMimeType: output?.imageMimeType,
+    outputText: output?.text,
     inputPrompt: input?.prompt
   });
   if (imageGenerationToolName) {
@@ -468,7 +468,6 @@ function toolCallDetail(
     ),
     item.content,
     stringRecordValue(item.payload, "summary"),
-    stringRecordValue(item.payload, "content"),
     stringRecordValue(item.payload, "text"),
     stringRecordValue(metadata, "summary")
   );
@@ -530,9 +529,10 @@ function toolCallDetail(
   const imageGeneration = extractImageGenerationPreview({
     toolName,
     displayName: visibleRawToolName,
-    content: item.payload?.content,
-    outputContent: payloadOutput?.content,
-    outputSavedPath: payloadOutput?.savedPath ?? payloadOutput?.saved_path,
+    outputSavedPath: payloadOutput?.savedPath,
+    outputSavedPaths: payloadOutput?.savedPaths,
+    outputMimeType: payloadOutput?.imageMimeType,
+    outputText: payloadOutput?.text,
     inputPrompt: payloadInput?.prompt,
     payloadInputPrompt: metadataInput?.prompt
   });
@@ -645,7 +645,6 @@ function commandDetail(
   payloadInput: Record<string, unknown> | undefined,
   payloadError: Record<string, unknown> | undefined
 ): string {
-  const payloadRawInput = recordValue(payloadInput, "rawInput");
   return firstPresentString(
     stringRecordValue(payload, "command"),
     stringRecordValue(payload, "cmd"),
@@ -657,19 +656,9 @@ function commandDetail(
     stringRecordValue(metadataError, "command"),
     stringRecordValue(payloadInput, "cmd"),
     stringRecordValue(payloadInput, "command"),
-    stringRecordValue(payloadRawInput, "cmd"),
-    stringRecordValue(payloadRawInput, "command"),
     stringRecordValue(payloadError, "cmd"),
     stringRecordValue(payloadError, "command")
   );
-}
-
-function claudeCodeToolName(
-  value: Record<string, unknown> | undefined
-): string | undefined {
-  const meta = recordValue(value, "_meta");
-  const claudeCode = recordValue(meta, "claudeCode");
-  return stringRecordValue(claudeCode, "toolName");
 }
 
 function toolContentDetail(

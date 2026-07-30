@@ -11,6 +11,7 @@ import { CanvasNodeGhostIconButton } from "../shared/CanvasNodeGhostIconButton";
 import { CanvasNodePanelLinedIcon } from "../shared/canvasNodeChromeIcons";
 import { useAgentGUINodeController } from "./controller/useAgentGUINodeController";
 import { useAgentGUIStatus } from "./controller/useAgentGUIStatus";
+import { agentTargetForConversation } from "./controller/agentGuiController.providerHelpers";
 import { AgentGUINodeView } from "./AgentGUINodeView";
 import {
   normalizeAgentGUIProviderIdentity,
@@ -89,8 +90,7 @@ export const AgentGUINode = memo(function AgentGUINode({
   const {
     composerAppend: composerAppendRequest = null,
     composerFocusSequence: composerFocusRequestSequence = null,
-    newConversationSequence: newConversationRequestSequence = null,
-    sessionAction: sessionActionRequest = null,
+    workbench: workbenchCommandBridge = null,
     openSession: openSessionRequest = null,
     prefillPrompt: prefillPromptRequest = null,
     agentStatusController
@@ -102,6 +102,7 @@ export const AgentGUINode = memo(function AgentGUINode({
     agentTargetsLoading = false,
     handoffAgentTargets,
     handoffAgentTargetsLoading = false,
+    showHandoffTargetOwnershipLabels = false,
     providerRailAllPresentation = null,
     providerRailMode = "catalog",
     comingSoonProviders,
@@ -114,7 +115,8 @@ export const AgentGUINode = memo(function AgentGUINode({
     disabledHomeSuggestions,
     referenceProvenanceFilterCatalog: injectedReferenceProvenanceFilterCatalog,
     referenceProvenanceFilterEnabled = false,
-    sessionInputHistoryEnabled = false
+    sessionInputHistoryEnabled = false,
+    sessionForkEnabled = false
   } = hostCapabilities;
   const referenceProvenanceFilters = useAgentMentionProvenanceFilters({
     agentTargets,
@@ -322,12 +324,17 @@ export const AgentGUINode = memo(function AgentGUINode({
   const fallbackAgentTitle = t("sidebar.fallbackAgentLabel");
   const activeProvider =
     viewModel.rail.activeConversation?.provider ?? state.provider;
-  const selectedAgentTargetLabel =
-    viewModel.rail.selectedAgentTarget?.label ??
-    resolveAgentGUIProviderDisplayLabel(state.provider, fallbackAgentTitle);
-  const displayProviderLabel = viewModel.rail.activeConversation
-    ? resolveAgentGUIProviderDisplayLabel(activeProvider, fallbackAgentTitle)
-    : selectedAgentTargetLabel;
+  const activeConversationAgentTarget = agentTargetForConversation(
+    viewModel.rail.activeConversation,
+    viewModel.rail.agentTargets
+  );
+  const displayProviderLabel = resolveAgentGUIProviderDisplayLabel(
+    activeProvider,
+    fallbackAgentTitle,
+    viewModel.rail.activeConversation
+      ? activeConversationAgentTarget?.label
+      : viewModel.rail.selectedAgentTarget?.label
+  );
   const conversationRailLabels = useAgentGUIConversationRailLabels(t);
   const labels = useAgentGUIViewLabels({
     disabledHomeSuggestions,
@@ -462,8 +469,7 @@ export const AgentGUINode = memo(function AgentGUINode({
               isVisible={isVisible}
               onEngagementEvent={onEngagementEvent}
               composerFocusRequestSequence={composerFocusRequestSequence}
-              newConversationRequestSequence={newConversationRequestSequence}
-              sessionActionRequest={sessionActionRequest}
+              workbenchCommandBridge={workbenchCommandBridge}
               slashStatusLimits={slashStatusLimits}
               slashStatusLimitsLoading={controllerRailStatus?.loading ?? false}
               slashStatusLimitsUnavailable={slashStatusLimitsUnavailable}
@@ -490,6 +496,9 @@ export const AgentGUINode = memo(function AgentGUINode({
               onSlashStatusRefresh={handleSlashStatusRefresh}
               onLinkAction={handleLinkAction}
               onHandoffConversation={onHandoffConversation}
+              showHandoffTargetOwnershipLabels={
+                showHandoffTargetOwnershipLabels
+              }
               capabilityMenuState={capabilityMenuState}
               capabilityControlsReadOnly={capabilityControlsReadOnly}
               onCapabilitySettingsRequest={onCapabilitySettingsRequest}
@@ -548,6 +557,7 @@ export const AgentGUINode = memo(function AgentGUINode({
               workspaceAppIcons={workspaceAppIcons}
               referenceProvenanceFilters={referenceProvenanceFilters}
               sessionInputHistoryEnabled={sessionInputHistoryEnabled}
+              sessionForkEnabled={sessionForkEnabled}
               renderProjectDirectoryPickerHeaderActions={
                 renderProjectDirectoryPickerHeaderActions
               }

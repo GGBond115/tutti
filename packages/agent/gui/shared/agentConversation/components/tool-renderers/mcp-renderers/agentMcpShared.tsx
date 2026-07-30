@@ -38,8 +38,7 @@ export function normalizeMcpPayload(
 
   const structured = firstStructuredValue(
     call.output?.structuredContent,
-    parseJsonString(call.output?.content),
-    parseJsonString(call.output?.output),
+    parseJsonString(call.output?.text),
     parseJsonString(call.output?.stdout)
   );
 
@@ -55,9 +54,7 @@ export function normalizeMcpPayload(
     ),
     structured,
     text: firstString(
-      contentArrayText(call.output?.content),
-      stringValue(call.output?.content),
-      stringValue(call.output?.output),
+      stringValue(call.output?.text),
       stringValue(call.output?.stdout)
     )
   };
@@ -137,30 +134,6 @@ function parseJsonString(value: unknown): unknown {
   } catch {
     return null;
   }
-}
-
-function contentArrayText(value: unknown): string | null {
-  const items = arrayValue(value);
-  if (!items) {
-    return null;
-  }
-  const text = items
-    .flatMap((entry) => {
-      const record = objectValue(entry);
-      if (!record) {
-        return [];
-      }
-      return [
-        firstString(
-          stringValue(record.text),
-          stringValue(record.content),
-          stringValue(objectValue(record.content)?.text)
-        )
-      ].filter((candidate): candidate is string => Boolean(candidate));
-    })
-    .join("\n")
-    .trim();
-  return text || null;
 }
 
 function firstString(...values: Array<string | null>): string | null {

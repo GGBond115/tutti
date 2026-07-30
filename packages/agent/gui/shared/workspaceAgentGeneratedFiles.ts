@@ -81,6 +81,7 @@ export function collectWorkspaceAgentGeneratedFiles(
 type ChangedFilePathNormalizer = (value: unknown) => string | null;
 
 interface ChangedFileCollectionOptions {
+  canonicalFileChanges?: readonly Record<string, unknown>[];
   requireSuccessfulFileChangeTool?: boolean;
 }
 
@@ -100,6 +101,12 @@ export function changedFilesForSession(
     });
   };
 
+  for (const fileChanges of options.canonicalFileChanges ?? []) {
+    for (const path of canonicalFileChangePaths(fileChanges, normalizePath)) {
+      appendPath(path);
+    }
+  }
+
   for (const message of messages) {
     for (const path of changedFilePathsFromMessage(
       message,
@@ -111,6 +118,40 @@ export function changedFilesForSession(
   }
 
   return applyShortestUniqueFileLabels(Array.from(changedFilesByPath.values()));
+}
+
+function canonicalFileChangePaths(
+  fileChanges: Record<string, unknown>,
+  normalizePath: ChangedFilePathNormalizer
+): string[] {
+  const files = arrayValue(fileChanges.files);
+  if ("files" in fileChanges) {
+    return (files ?? [])
+      .map((file) =>
+        normalizeCanonicalFileChangePath(objectValue(file)?.path, normalizePath)
+      )
+      .filter((path): path is string => path !== null);
+  }
+
+  const paths =
+    "changes" in fileChanges
+      ? fileChangePathsFromChanges(fileChanges.changes)
+      : "coverage" in fileChanges
+        ? []
+        : fileChangePathsFromChanges(fileChanges);
+  return paths
+    .map((path) => normalizeCanonicalFileChangePath(path, normalizePath))
+    .filter((path): path is string => path !== null);
+}
+
+function normalizeCanonicalFileChangePath(
+  value: unknown,
+  normalizePath: ChangedFilePathNormalizer
+): string | null {
+  return (
+    normalizePath(value) ??
+    normalizedChangedFilePath(value, { allowRelative: true })
+  );
 }
 
 function changedFilePathsFromMessage(
@@ -134,9 +175,7 @@ function changedFilePathsFromMessage(
     return [];
   }
 
-  const toolState = objectValue(payload?.tool_state);
-  const input =
-    objectValue(payload?.input) ?? objectValue(toolState?.input) ?? null;
+  const input = objectValue(payload?.input);
   const output = objectValue(payload?.output);
   const paths = dedupeStrings([
     ...pathsValue(payload?.paths, normalizePath),
@@ -145,9 +184,6 @@ function changedFilePathsFromMessage(
     ...changeMapPaths(payload?.changes, normalizePath),
     ...changeMapPaths(output?.changes, normalizePath),
     ...changeMapPaths(input?.changes, normalizePath),
-    ...contentDiffPaths(payload?.content, normalizePath),
-    ...contentDiffPaths(output?.content, normalizePath),
-    ...contentDiffPaths(input?.content, normalizePath),
     stringValue(payload?.path),
     stringValue(payload?.filePath),
     stringValue(payload?.file_path),
@@ -275,24 +311,26 @@ function imageGenerationPathsFromMessages(
       continue;
     }
     const output = objectValue(payload.output);
-    const legacySavedPath =
-      stringValue(output?.savedPath) ?? stringValue(output?.saved_path);
-    const legacyImagePaths =
-      legacySavedPath &&
-      isImageGenerationToolCall({
+    const savedPath = stringValue(output?.savedPath);
+    const savedPaths =
+      arrayValue(output?.savedPaths)?.flatMap((value) => {
+        const path = stringValue(value);
+        return path ? [path] : [];
+      }) ?? [];
+    if (
+      !isImageGenerationToolCall({
         toolName: stringValue(payload.toolName),
         displayName: stringValue(payload.name),
-        content: payload.content,
-        outputContent: output?.content,
-        outputSavedPath: legacySavedPath
+        outputSavedPath: savedPath,
+        outputSavedPaths: savedPaths,
+        outputMimeType: output?.imageMimeType,
+        outputText: output?.text,
+        inputPrompt: objectValue(payload.input)?.prompt
       })
-        ? [legacySavedPath]
-        : [];
-    for (const uri of [
-      ...imageGenerationUris(payload.content),
-      ...imageGenerationUris(output?.content),
-      ...legacyImagePaths
-    ]) {
+    ) {
+      continue;
+    }
+    for (const uri of dedupeStrings([savedPath, ...savedPaths])) {
       const normalized = normalizePath(uri);
       if (normalized) {
         paths.push(normalized);
@@ -300,33 +338,6 @@ function imageGenerationPathsFromMessages(
     }
   }
   return dedupeStrings(paths);
-}
-
-function imageGenerationUris(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const uris: string[] = [];
-  for (const item of value) {
-    const record = objectValue(item);
-    if (!record) {
-      continue;
-    }
-    const content = objectValue(record.content) ?? record;
-    const type = stringValue(content.type)?.toLowerCase();
-    const uri = stringValue(content.uri) ?? stringValue(content.path);
-    if (!uri) {
-      continue;
-    }
-    if (
-      type === "image" ||
-      uri.toLowerCase().includes("generated_images") ||
-      /\.(?:png|jpe?g|gif|webp|bmp|svg)$/i.test(uri)
-    ) {
-      uris.push(uri);
-    }
-  }
-  return uris;
 }
 
 function isAgentStateGeneratedImagePath(path: string): boolean {
@@ -487,12 +498,10 @@ function hasFileChangeSignal(payload: Record<string, unknown> | null): boolean {
   if (!payload) {
     return false;
   }
-  const toolState = objectValue(payload.tool_state);
   return [
     payload,
     objectValue(payload.input),
-    objectValue(payload.output),
-    objectValue(toolState?.input)
+    objectValue(payload.output)
   ].some((record) => record !== null && recordHasFileChangeToolSignal(record));
 }
 
@@ -574,25 +583,6 @@ function changeMapPaths(
 ): string[] {
   return fileChangePathsFromChanges(value)
     .map((path) => normalizePath(path))
-    .filter((path): path is string => path !== null);
-}
-
-function contentDiffPaths(
-  value: unknown,
-  normalizePath: ChangedFilePathNormalizer = defaultChangedFilePathNormalizer
-): string[] {
-  const content = arrayValue(value);
-  if (!content) {
-    return [];
-  }
-  return content
-    .map((entry) => {
-      const record = objectValue(entry);
-      if (!record || stringValue(record.type) !== "diff") {
-        return null;
-      }
-      return normalizePath(record.path);
-    })
     .filter((path): path is string => path !== null);
 }
 

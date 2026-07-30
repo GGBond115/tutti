@@ -5,6 +5,7 @@ import { normalizeAgentActivitySession } from "../sessionNormalization.ts";
 import type { AgentActivitySessionInput } from "../sessionNormalization.ts";
 import type {
   CanonicalAgentSession,
+  CanonicalSessionMetadataPatch,
   SessionLifecycleState,
   SessionOperationState
 } from "./sessionLifecycle.types.ts";
@@ -32,7 +33,15 @@ export function replaceCanonicalSessionSnapshot(
     const incomingSession = canonicalSession(source);
     const useIncoming = shouldUseIncomingSession(current, incomingSession);
     const candidateSession = useIncoming
-      ? preserveLiveTurnOnTimestampTie(current, incomingSession)
+      ? preserveProjectedSessionState(
+          current,
+          preserveCanonicalActiveTurnProjection(
+            state,
+            current,
+            incomingSession,
+            source
+          )
+        )
       : current!;
     sessionsById[id] =
       current && areJsonLikeValuesEqual(current, candidateSession)
@@ -151,7 +160,10 @@ export function upsertCanonicalSession(
   const incoming = canonicalSession(source);
   const useIncoming = shouldUseIncomingSession(current, incoming);
   const candidateSession = useIncoming
-    ? preserveLiveTurnOnTimestampTie(current, incoming)
+    ? preserveProjectedSessionState(
+        current,
+        preserveCanonicalActiveTurnProjection(state, current, incoming, source)
+      )
     : current!;
   const nextSession =
     current && areJsonLikeValuesEqual(current, candidateSession)
@@ -193,6 +205,30 @@ export function upsertCanonicalSession(
     next = upsertCanonicalInteraction(next, interaction);
   }
   return next;
+}
+
+export function patchCanonicalSessionMetadata(
+  state: SessionLifecycleState,
+  rawAgentSessionId: string,
+  patch: CanonicalSessionMetadataPatch
+): SessionLifecycleState {
+  const agentSessionId = rawAgentSessionId.trim();
+  const session = state.sessionsById[agentSessionId];
+  if (
+    !session ||
+    Object.entries(patch).every(
+      ([key, value]) => session[key as keyof typeof session] === value
+    )
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    sessionsById: {
+      ...state.sessionsById,
+      [agentSessionId]: { ...session, ...patch }
+    }
+  };
 }
 
 function removeMissingPendingInteractions(
@@ -246,6 +282,81 @@ export function upsertCanonicalTurn(
   return {
     ...state,
     turnsById: { ...state.turnsById, [key]: { ...nextTurn } }
+  };
+}
+
+export function upsertCanonicalTurnProjection(
+  state: SessionLifecycleState,
+  input: CanonicalTurnProjection
+): SessionLifecycleState {
+  const agentSessionId = input.turn.agentSessionId.trim();
+  const turnId = input.turn.turnId.trim();
+  if (
+    !turnProjectionIsConsistent(input) ||
+    state.deletedSessionIds[agentSessionId]
+  ) {
+    return state;
+  }
+
+  const key = canonicalTurnKey(agentSessionId, turnId);
+  const currentTurn = state.turnsById[key];
+  if (currentTurn && !shouldUseIncomingTurn(currentTurn, input.turn)) {
+    return state;
+  }
+
+  const withTurn = upsertCanonicalTurn(state, input.turn);
+  const session = withTurn.sessionsById[agentSessionId];
+  if (!session) return withTurn;
+
+  const activeTurnId = projectedActiveTurnId(withTurn, session, input);
+  if (activeTurnId === undefined || session.activeTurnId === activeTurnId) {
+    return withTurn;
+  }
+  return {
+    ...withTurn,
+    sessionsById: {
+      ...withTurn.sessionsById,
+      [agentSessionId]: {
+        ...session,
+        activeTurnId
+      }
+    }
+  };
+}
+
+export function replaceCanonicalTurnSnapshot(
+  state: SessionLifecycleState,
+  agentSessionId: string,
+  turns: readonly AgentActivityTurn[]
+): SessionLifecycleState {
+  const id = agentSessionId.trim();
+  if (!id || state.deletedSessionIds[id]) return state;
+  const turnsById = Object.fromEntries(
+    Object.entries(state.turnsById).filter(
+      ([, turn]) => turn.agentSessionId !== id
+    )
+  );
+  for (const turn of turns) {
+    if (turn.agentSessionId.trim() !== id || !turn.turnId.trim()) continue;
+    turnsById[canonicalTurnKey(id, turn.turnId)] = { ...turn };
+  }
+  const validTurnIds = new Set(
+    turns
+      .filter((turn) => turn.agentSessionId.trim() === id)
+      .map((turn) => turn.turnId.trim())
+      .filter(Boolean)
+  );
+  const interactionsById = Object.fromEntries(
+    Object.entries(state.interactionsById).filter(
+      ([, interaction]) =>
+        interaction.agentSessionId !== id ||
+        validTurnIds.has(interaction.turnId.trim())
+    )
+  );
+  return {
+    ...state,
+    interactionsById,
+    turnsById
   };
 }
 
@@ -307,6 +418,47 @@ function shouldUseIncomingTurn(
   }
   if (!allowedTurnTransition(current.phase, incoming.phase)) return false;
   return true;
+}
+
+interface CanonicalTurnProjection {
+  activeTurnId: string | null;
+  turn: AgentActivityTurn;
+}
+
+function turnProjectionIsConsistent(input: CanonicalTurnProjection): boolean {
+  const turnId = input.turn.turnId.trim();
+  const activeTurnId = input.activeTurnId?.trim() ?? null;
+  return (
+    Boolean(input.turn.agentSessionId.trim()) &&
+    Boolean(turnId) &&
+    (input.turn.phase === "settled"
+      ? activeTurnId === null
+      : activeTurnId === turnId)
+  );
+}
+
+function projectedActiveTurnId(
+  state: SessionLifecycleState,
+  session: CanonicalAgentSession,
+  input: CanonicalTurnProjection
+): string | null | undefined {
+  const currentActiveTurnId = session.activeTurnId?.trim() ?? null;
+  const turnId = input.turn.turnId.trim();
+  if (input.turn.phase === "settled") {
+    return currentActiveTurnId === turnId ? null : undefined;
+  }
+  if (currentActiveTurnId === turnId) return turnId;
+
+  if (!currentActiveTurnId) {
+    return turnId;
+  }
+  const currentActiveTurn =
+    state.turnsById[
+      canonicalTurnKey(session.agentSessionId, currentActiveTurnId)
+    ];
+  const currentVersion =
+    currentActiveTurn?.updatedAtUnixMs ?? sessionVersion(session);
+  return input.turn.updatedAtUnixMs > currentVersion ? turnId : undefined;
 }
 
 function allowedTurnTransition(current: string, incoming: string): boolean {
@@ -453,16 +605,76 @@ function shouldUseIncomingSession(
   return !current || sessionVersion(incoming) >= sessionVersion(current);
 }
 
-function preserveLiveTurnOnTimestampTie(
+function preserveCanonicalActiveTurnProjection(
+  state: SessionLifecycleState,
+  current: CanonicalAgentSession | undefined,
+  incoming: CanonicalAgentSession,
+  source: AgentActivitySessionInput
+): CanonicalAgentSession {
+  const currentActiveTurnId = current?.activeTurnId?.trim() ?? null;
+  const incomingActiveTurnId = incoming.activeTurnId?.trim() ?? null;
+  if (incomingActiveTurnId) {
+    const cachedIncomingTurn =
+      state.turnsById[
+        canonicalTurnKey(incoming.agentSessionId, incomingActiveTurnId)
+      ];
+    if (cachedIncomingTurn?.phase === "settled") {
+      return {
+        ...incoming,
+        activeTurnId:
+          currentActiveTurnId === incomingActiveTurnId
+            ? null
+            : currentActiveTurnId
+      };
+    }
+  }
+  if (currentActiveTurnId === incomingActiveTurnId) {
+    return incoming;
+  }
+  if (!current || !currentActiveTurnId) return incoming;
+
+  const currentTurn =
+    state.turnsById[
+      canonicalTurnKey(incoming.agentSessionId, currentActiveTurnId)
+    ];
+  const currentVersion = Math.max(
+    sessionVersion(current),
+    currentTurn?.updatedAtUnixMs ?? 0
+  );
+  const incomingVersion = Math.max(
+    sessionVersion(incoming),
+    ...[source.activeTurn, source.latestTurn]
+      .filter((turn): turn is AgentActivityTurn => {
+        if (!turn) return false;
+        return (
+          turn.agentSessionId.trim() === incoming.agentSessionId &&
+          (incomingActiveTurnId
+            ? turn.turnId.trim() === incomingActiveTurnId &&
+              turn.phase !== "settled"
+            : turn.phase === "settled" &&
+              turn.turnId.trim() === currentActiveTurnId)
+        );
+      })
+      .map((turn) => turn.updatedAtUnixMs)
+  );
+  return incomingVersion > currentVersion
+    ? incoming
+    : { ...incoming, activeTurnId: currentActiveTurnId };
+}
+
+function preserveProjectedSessionState(
   current: CanonicalAgentSession | undefined,
   incoming: CanonicalAgentSession
 ): CanonicalAgentSession {
   if (
-    current?.activeTurnId &&
-    current.activeTurnId !== incoming.activeTurnId &&
-    sessionVersion(current) === sessionVersion(incoming)
+    current?.lifecycleCapabilitiesProjected === true &&
+    incoming.lifecycleCapabilitiesProjected !== true
   ) {
-    return { ...incoming, activeTurnId: current.activeTurnId };
+    return {
+      ...incoming,
+      lifecycleCapabilities: current.lifecycleCapabilities,
+      lifecycleCapabilitiesProjected: true
+    };
   }
   return incoming;
 }

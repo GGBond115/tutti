@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
@@ -9,7 +11,12 @@ import (
 
 func TestParseCodexCapabilityResponses(t *testing.T) {
 	skills := parseCodexSkillCapabilities(json.RawMessage(`{"data":[{"skills":[{"name":"review","description":"Review code","path":"/tmp/review/SKILL.md","enabled":true}]}]}`))
-	if len(skills) != 1 || skills[0].Kind != "skill" || skills[0].Trigger != "$review" || skills[0].Path == "" {
+	if len(skills) != 1 ||
+		skills[0].Kind != "skill" ||
+		skills[0].Status != "available" ||
+		skills[0].Trigger != "$review" ||
+		skills[0].Path == "" ||
+		skills[0].Invocation != "promptItem" {
 		t.Fatalf("parseCodexSkillCapabilities = %#v", skills)
 	}
 
@@ -40,5 +47,50 @@ func TestComposerCapabilityCatalogListerRequiresRuntimeCommand(t *testing.T) {
 	})
 	if err == nil || ok {
 		t.Fatalf("composerCapabilityCatalogLister() = (_, %v, %v), want command error", ok, err)
+	}
+}
+
+func TestAppServerCapabilityListSkillsOnly(t *testing.T) {
+	var stdin bytes.Buffer
+	if err := writeAppServerCapabilityListRequests(
+		&stdin,
+		"/tmp/workspace",
+		appServerCatalogRequestSetSkillsOnly,
+	); err != nil {
+		t.Fatalf("writeAppServerCapabilityListRequests returned error: %v", err)
+	}
+	requests := stdin.String()
+	if !strings.Contains(requests, `"method":"skills/list"`) {
+		t.Fatalf("requests = %q, want skills/list", requests)
+	}
+	for _, excluded := range []string{"app/list", "plugin/list", "mcpServerStatus/list"} {
+		if strings.Contains(requests, excluded) {
+			t.Fatalf("requests = %q, must not include %s", requests, excluded)
+		}
+	}
+
+	options, err := readAppServerCapabilityListResponses(
+		strings.NewReader(`{"id":"2","result":{"data":[{"skills":[{"name":"review","description":"Review","path":"/tmp/review/SKILL.md","enabled":true}]}]}}`+"\n"),
+		appServerCatalogRequestSetSkillsOnly,
+	)
+	if err != nil {
+		t.Fatalf("readAppServerCapabilityListResponses returned error: %v", err)
+	}
+	if len(options) != 1 {
+		t.Fatalf("options = %#v, want one skill", options)
+	}
+	skill := options[0]
+	if skill.ID != "skill:review" ||
+		skill.Kind != "skill" ||
+		skill.Trigger != "$review" ||
+		skill.Path != "/tmp/review/SKILL.md" ||
+		skill.Invocation != "promptItem" {
+		t.Fatalf("skill option = %#v", skill)
+	}
+}
+
+func TestAppServerCatalogRequestsRejectsUnknownSet(t *testing.T) {
+	if _, _, err := appServerCatalogRequests("/tmp/workspace", "poison"); err == nil {
+		t.Fatal("appServerCatalogRequests() error = nil, want unsupported request set")
 	}
 }

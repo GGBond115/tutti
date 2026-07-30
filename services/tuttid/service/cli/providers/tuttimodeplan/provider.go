@@ -7,6 +7,7 @@ import (
 	"context"
 
 	workspaceissues "github.com/tutti-os/tutti/packages/workspace/issues"
+	activationbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeactivation"
 	executionbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeexecution"
 	cliservice "github.com/tutti-os/tutti/services/tuttid/service/cli"
 	tuttimodeexecutionservice "github.com/tutti-os/tutti/services/tuttid/service/tuttimodeexecution"
@@ -73,12 +74,28 @@ type IssueDetails interface {
 	) (workspaceissues.IssueDetail, error)
 }
 
+type IssueResumes interface {
+	ResumeTuttiModeIssueExecution(
+		context.Context,
+		string,
+		string,
+		string,
+	) (workspaceissues.Issue, error)
+}
+
 type IssueExecutionReads interface {
 	GetByIssue(
 		context.Context,
 		string,
 		string,
 	) (executionbiz.Aggregate, error)
+}
+
+// TuttiModeActivations reads the caller session's durable Tutti Mode
+// activation so the plan and execution mutations can be gated on an active
+// session. It is optional wiring: an unset reader leaves the gate open.
+type TuttiModeActivations interface {
+	Get(context.Context, string, string) (*activationbiz.Activation, error)
 }
 
 type Provider struct {
@@ -92,6 +109,16 @@ type Provider struct {
 	acknowledgements IssueAcknowledgements
 	completions      IssueCompletions
 	archives         IssueArchives
+	resumes          IssueResumes
+	activations      TuttiModeActivations
+}
+
+// WithTuttiModeActivations wires the Tutti Mode activation reader used to gate
+// plan and execution mutations on an active session. It is a fluent optional
+// setter so existing constructors and their many call sites stay unchanged.
+func (p Provider) WithTuttiModeActivations(activations TuttiModeActivations) Provider {
+	p.activations = activations
+	return p
 }
 
 func NewProvider(
@@ -157,6 +184,9 @@ func NewProviderWithExecutionSnapshot(
 	)
 	provider.issueDetails = issueDetails
 	provider.executionReads = executionReads
+	if resumes, ok := issueDetails.(IssueResumes); ok {
+		provider.resumes = resumes
+	}
 	return provider
 }
 
@@ -180,6 +210,9 @@ func (p Provider) Commands() []cliservice.Command {
 	}
 	if p.issueDetails != nil && p.executionReads != nil {
 		commands = append(commands, p.newIssueGetCommand())
+	}
+	if p.resumes != nil {
+		commands = append(commands, p.newIssueResumeCommand())
 	}
 	return commands
 }
@@ -222,6 +255,35 @@ func (p Provider) requireAcknowledgements() error {
 func (p Provider) requirePlans() error {
 	if p.plans == nil {
 		return cliservice.ServiceUnavailableError("Tutti Mode Plan service is unavailable", nil)
+	}
+	return nil
+}
+
+func (p Provider) requireResumes() error {
+	if p.resumes == nil {
+		return cliservice.ServiceUnavailableError("Tutti Mode execution service is unavailable", nil)
+	}
+	return nil
+}
+
+// requireTuttiModeActive rejects a plan or execution mutation when the caller
+// session has not enabled Tutti Mode. The reader is optional wiring: when it is
+// unset the gate is skipped so the command surface degrades open rather than
+// failing closed.
+func (p Provider) requireTuttiModeActive(ctx context.Context, workspaceID string, sessionID string) error {
+	if p.activations == nil {
+		return nil
+	}
+	activation, err := p.activations.Get(ctx, workspaceID, sessionID)
+	if err != nil {
+		return cliservice.ServiceUnavailableError("Tutti Mode activation state is unavailable", err)
+	}
+	if activation == nil || activation.CurrentRevision.State != activationbiz.StateActive {
+		return cliservice.InvalidInputReasonError(
+			"tutti_mode_inactive",
+			"Tutti Mode is not active for this session; enable it with `tutti mode set --state active` before driving a Tutti Mode plan or execution.",
+			nil,
+		)
 	}
 	return nil
 }

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 	activationbiz "github.com/tutti-os/tutti/services/tuttid/biz/tuttimodeactivation"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
 )
@@ -22,15 +21,7 @@ var (
 	ErrServiceUnavailable      = errors.New("tutti mode activation service is unavailable")
 	ErrTurnSnapshotNotFound    = errors.New("tutti mode turn snapshot not found")
 	ErrTurnSnapshotNotAccepted = errors.New("tutti mode turn snapshot acceptance is not durable")
-	// ErrTuttiModeDisabled rejects writes while the lab.tuttiMode feature flag
-	// is off. Reads and turn-snapshot lifecycle stay available so existing
-	// activations keep working.
-	ErrTuttiModeDisabled = errors.New("tutti mode is disabled by the lab.tuttiMode feature flag")
 )
-
-// TuttiModeFeatureFlag is the desktop preferences feature-flag key that gates
-// Tutti Mode writes. Alias of the shared lab-flag catalog key.
-const TuttiModeFeatureFlag = preferencesbiz.LabFlagTuttiMode
 
 type Store interface {
 	GetTuttiModeActivation(context.Context, string, string) (activationbiz.Activation, bool, error)
@@ -51,12 +42,8 @@ type Publisher interface {
 type Service struct {
 	Store     Store
 	Publisher Publisher
-	// FeatureFlags reads the desktop preferences feature-flag map. Nil keeps
-	// every write allowed (tests and minimal embedders); when set, writes are
-	// rejected with ErrTuttiModeDisabled unless lab.tuttiMode is true.
-	FeatureFlags func(context.Context) (map[string]bool, error)
-	Now          func() time.Time
-	NewID        func() string
+	Now       func() time.Time
+	NewID     func() string
 }
 
 type SetInput struct {
@@ -117,9 +104,6 @@ func (s *Service) Set(ctx context.Context, input SetInput) (SetResult, error) {
 	if err := s.ready(); err != nil {
 		return SetResult{}, err
 	}
-	if err := s.requireTuttiModeEnabled(ctx); err != nil {
-		return SetResult{}, err
-	}
 	workspaceID, agentSessionID, err := normalizeIdentity(input.WorkspaceID, input.AgentSessionID)
 	if err != nil {
 		return SetResult{}, err
@@ -127,9 +111,8 @@ func (s *Service) Set(ctx context.Context, input SetInput) (SetResult, error) {
 	if !activationbiz.IsState(input.State) || !activationbiz.IsSource(input.Source) {
 		return SetResult{}, fmt.Errorf("%w: status and source are required", ErrInvalidInput)
 	}
-	if input.State == activationbiz.StateActive && input.Source != activationbiz.SourceSlashCommand ||
-		input.State == activationbiz.StateInactive && input.Source != activationbiz.SourceBadgeRemove {
-		return SetResult{}, fmt.Errorf("%w: status and source do not describe one user activation transition", ErrInvalidInput)
+	if !activationbiz.IsStateSource(input.State, input.Source) {
+		return SetResult{}, fmt.Errorf("%w: status and source do not describe one activation transition", ErrInvalidInput)
 	}
 	effect := input.Effect
 	if effect == nil {
@@ -282,23 +265,6 @@ func (s *Service) DeleteSessionState(ctx context.Context, workspaceID, agentSess
 func (s *Service) ready() error {
 	if s == nil || s.Store == nil {
 		return ErrServiceUnavailable
-	}
-	return nil
-}
-
-// requireTuttiModeEnabled enforces the lab.tuttiMode write gate. A flag-read
-// failure fails closed for writes: the durable state is unchanged either way,
-// and a misconfigured gate must not silently open the feature.
-func (s *Service) requireTuttiModeEnabled(ctx context.Context) error {
-	if s.FeatureFlags == nil {
-		return nil
-	}
-	flags, err := s.FeatureFlags(ctx)
-	if err != nil {
-		return fmt.Errorf("read tutti mode feature flag: %w", err)
-	}
-	if !preferencesbiz.IsLabFlagEnabled(flags, TuttiModeFeatureFlag) {
-		return ErrTuttiModeDisabled
 	}
 	return nil
 }

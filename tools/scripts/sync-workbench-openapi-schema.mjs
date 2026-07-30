@@ -20,6 +20,9 @@ const schemaNames = [
   "WorkbenchSafeArea",
   "WorkbenchLayoutConstraints",
   "WorkbenchLayoutBasis",
+  "WorkbenchLayoutPreset",
+  "WorkbenchNormalizedFrame",
+  "WorkbenchLockedLayout",
   "WorkbenchFrame",
   "WorkbenchSnapshotNode",
   "WorkbenchSnapshotSpace",
@@ -53,6 +56,9 @@ function buildOpenApiWorkbenchSchemas(schema) {
       defs.layoutConstraints
     ),
     WorkbenchLayoutBasis: convertJsonSchemaToOpenApi(defs.layoutBasis),
+    WorkbenchLayoutPreset: convertJsonSchemaToOpenApi(defs.layoutPreset),
+    WorkbenchNormalizedFrame: convertJsonSchemaToOpenApi(defs.normalizedFrame),
+    WorkbenchLockedLayout: convertJsonSchemaToOpenApi(defs.lockedLayout),
     WorkbenchFrame: convertJsonSchemaToOpenApi(defs.frame),
     WorkbenchSnapshotNode: convertJsonSchemaToOpenApi(defs.node),
     WorkbenchSnapshotSpace: convertJsonSchemaToOpenApi(defs.space),
@@ -100,6 +106,10 @@ function convertJsonSchemaToOpenApi(value) {
     if (key === "exclusiveMinimum" && typeof entryValue === "number") {
       output.minimum = entryValue;
       output.exclusiveMinimum = true;
+      continue;
+    }
+    if (key === "uniqueItems") {
+      output.uniqueItems = entryValue;
       continue;
     }
     if (key === "type" && Array.isArray(entryValue)) {
@@ -246,6 +256,18 @@ function rewriteRef(value) {
       "#/components/schemas/WorkbenchLayoutConstraints"
     )
     .replace("#/$defs/layoutBasis", "#/components/schemas/WorkbenchLayoutBasis")
+    .replace(
+      "#/$defs/layoutPreset",
+      "#/components/schemas/WorkbenchLayoutPreset"
+    )
+    .replace(
+      "#/$defs/normalizedFrame",
+      "#/components/schemas/WorkbenchNormalizedFrame"
+    )
+    .replace(
+      "#/$defs/lockedLayout",
+      "#/components/schemas/WorkbenchLockedLayout"
+    )
     .replace("#/$defs/node", "#/components/schemas/WorkbenchSnapshotNode")
     .replace("#/$defs/space", "#/components/schemas/WorkbenchSnapshotSpace");
 }

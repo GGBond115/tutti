@@ -403,6 +403,7 @@ func TestSQLiteStoreGetStartup(t *testing.T) {
 	}
 	if startup == nil {
 		t.Fatal("GetStartup() populated = nil")
+		return
 	}
 	if startup.ID != "ws-start-2" {
 		t.Fatalf("GetStartup() id = %q, want %q", startup.ID, "ws-start-2")

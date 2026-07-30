@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
+	"github.com/tutti-os/tutti/packages/agent/daemon/httpx"
 )
 
 var ErrPromptImageUnsupported = errors.New("agent prompt image input is unsupported")
@@ -61,6 +63,8 @@ func canonicalSubmitFactFromContext(ctx context.Context) canonicalSubmitFact {
 	fact, _ := ctx.Value(canonicalSubmitFactContextKey{}).(canonicalSubmitFact)
 	return fact
 }
+
+type providerPromptImageMaterializer func(context.Context, []PromptContentBlock) ([]PromptContentBlock, error)
 
 func normalizeRuntimePromptContent(content []PromptContentBlock) []PromptContentBlock {
 	out := make([]PromptContentBlock, 0, len(content))
@@ -352,10 +356,30 @@ func promptContentForACP(content []PromptContentBlock) []map[string]any {
 // require inline image data. AgentGUI and durable activity state intentionally
 // keep the uploaded URL; when a provider gains native URL support, only its
 // final adapter needs to stop calling this compatibility conversion.
+func materializeProviderPromptImages(ctx context.Context, content []PromptContentBlock) ([]PromptContentBlock, error) {
+	return materializeProviderPromptImagesWithClient(ctx, content, newProviderPromptImageHTTPClient(30*time.Second))
+}
+
+func materializeProviderPromptImagesAtBoundary(
+	ctx context.Context,
+	content []PromptContentBlock,
+	materializer providerPromptImageMaterializer,
+) ([]PromptContentBlock, error) {
+	if materializer == nil {
+		materializer = materializeProviderPromptImages
+	}
+	return materializer(ctx, content)
+}
+
+func newProviderPromptImageHTTPClient(timeout time.Duration) *http.Client {
+	return httpx.NewClient(timeout)
+}
+
 func materializeProviderPromptImagesWithClient(ctx context.Context, content []PromptContentBlock, client *http.Client) ([]PromptContentBlock, error) {
 	requestClient := *client
 	existingRedirectCheck := client.CheckRedirect
 	requestClient.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		request.Header.Del("Referer")
 		if !runtimePromptImageURLSafe(request.URL.String()) {
 			return ErrPromptImageUnsupported
 		}
@@ -465,5 +489,16 @@ func acpPromptImageSupported(raw json.RawMessage) bool {
 	}
 	return truthyNested(result, "promptCapabilities", "image") ||
 		truthyNested(result, "agentCapabilities", "promptImage") ||
-		truthyNested(result, "agentCapabilities", "image")
+		truthyNested(result, "agentCapabilities", "image") ||
+		acpAgentCapabilitiesPromptImageSupported(result)
+}
+
+// acpAgentCapabilitiesPromptImageSupported reads the standard ACP initialize
+// shape: agentCapabilities.promptCapabilities.image.
+func acpAgentCapabilitiesPromptImageSupported(result map[string]any) bool {
+	agentCapabilities, ok := result["agentCapabilities"].(map[string]any)
+	if !ok {
+		return false
+	}
+	return truthyNested(agentCapabilities, "promptCapabilities", "image")
 }

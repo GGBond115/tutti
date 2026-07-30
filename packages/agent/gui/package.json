@@ -24,6 +24,7 @@
     "./context-mention-provider": "./agent-gui/agentGuiNode/agentContextMentionProvider.ts",
     "./mention-file-presentation": "./agent-gui/shared/mentionFilePresentation.ts",
     "./agent-title-text": "./shared/utils/agentTitleText.ts",
+    "./activity-list-projection": "./activity-list-projection.ts",
     "./provider-identity": "./provider-identity.ts",
     "./provider-catalog": "./provider-catalog.ts",
     "./provider-icons": "./provider-icons.ts",
@@ -207,6 +208,10 @@
         "types": "./dist/agent-title-text.d.ts",
         "import": "./dist/agent-title-text.js"
       },
+      "./activity-list-projection": {
+        "types": "./dist/activity-list-projection.d.ts",
+        "import": "./dist/activity-list-projection.js"
+      },
       "./provider-icons": {
         "types": "./dist/provider-icons.d.ts",
         "import": "./dist/provider-icons.js"
@@ -338,6 +343,9 @@
         ],
         "agent-title-text": [
           "./dist/agent-title-text.d.ts"
+        ],
+        "activity-list-projection": [
+          "./dist/activity-list-projection.d.ts"
         ],
         "provider-icons": [
           "./dist/provider-icons.d.ts"

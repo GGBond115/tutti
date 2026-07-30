@@ -11,6 +11,13 @@ PACKAGE_JSON_FILE="${ROOT_DIR}/package.json"
 
 export TUTTI_ENV="${DEV_GUI_TUTTI_ENV:-development}"
 
+# Side-load the in-repo kimi-code agent extension. Its discovery prefers the
+# developer's native Kimi Code CLI (API-key setups) and falls back to the
+# managed Python runtime (membership login), which the currently published
+# 1.0.0 release cannot express. Remove this once the official 1.0.1 extension
+# release ships; until then the side-load shadows extension updates in dev.
+export TUTTI_AGENT_EXTENSION_KIMI_CODE_PACKAGE_DIR="${TUTTI_AGENT_EXTENSION_KIMI_CODE_PACKAGE_DIR:-${ROOT_DIR}/tools/dev/agent-extensions/kimi-code}"
+
 GO_BIN=""
 DEV_GUI_CHILD_PID=""
 DEV_GUI_PID_PATH=""
@@ -461,6 +468,19 @@ check_runtime_prerequisites() {
   ensure_go_runtime
 }
 
+configure_desktop_dev_version() {
+  if [[ -n "${TUTTI_APP_VERSION:-}" ]]; then
+    log "desktop version ${TUTTI_APP_VERSION} (environment override)"
+    return
+  fi
+
+  TUTTI_APP_VERSION="$(
+    node "${DESKTOP_APP_DIR}/scripts/resolve-build-version.mjs"
+  )"
+  export TUTTI_APP_VERSION
+  log "desktop version ${TUTTI_APP_VERSION}"
+}
+
 resolve_tuttid_binary_name() {
   case "$(uname -s)" in
     CYGWIN*|MINGW*|MSYS*)
@@ -568,6 +588,7 @@ main() {
   local binary_name
 
   check_runtime_prerequisites
+  configure_desktop_dev_version
   ensure_workspace_dependencies
 
   binary_name="$(resolve_tuttid_binary_name)"

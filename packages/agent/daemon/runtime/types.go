@@ -109,25 +109,21 @@ type CloseInput struct {
 // SessionForkCapabilities reports provider-native fork boundaries supported by
 // the exact runtime currently attached to a session.
 type SessionForkCapabilities struct {
-	DriverKind                   string   `json:"driverKind,omitempty"`
-	DriverVersion                string   `json:"driverVersion,omitempty"`
-	StateBindingMode             string   `json:"stateBindingMode,omitempty"`
-	DeterministicTargetSessionID bool     `json:"deterministicTargetSessionId,omitempty"`
-	FullSession                  bool     `json:"fullSession"`
-	ThroughTurn                  bool     `json:"throughTurn"`
-	ThroughProviderTurnIDs       []string `json:"throughProviderTurnIds,omitempty"`
-	ThroughProviderTurnIDsKnown  bool     `json:"throughProviderTurnIdsKnown,omitempty"`
+	DriverKind       string `json:"driverKind,omitempty"`
+	DriverVersion    string `json:"driverVersion,omitempty"`
+	StateBindingMode string `json:"stateBindingMode,omitempty"`
+	FullSession      bool   `json:"fullSession"`
+	ThroughTurn      bool   `json:"throughTurn"`
 }
 
 // SessionForkInput identifies a provider source and optional inclusive
 // provider-turn boundary. ProviderTurnID is deliberately distinct from the
 // canonical WorkspaceAgentTurn id.
 type SessionForkInput struct {
-	Source                  Session  `json:"-"`
-	ProviderTurnID          string   `json:"providerTurnId,omitempty"`
-	ProviderTurnIDs         []string `json:"providerTurnIds,omitempty"`
-	TargetProviderSessionID string   `json:"targetProviderSessionId,omitempty"`
-	TargetTitle             string   `json:"targetTitle,omitempty"`
+	Source                      Session `json:"-"`
+	ProviderTurnID              string  `json:"providerTurnId,omitempty"`
+	ProviderCheckpointMessageID string  `json:"providerCheckpointMessageId,omitempty"`
+	TargetTitle                 string  `json:"targetTitle,omitempty"`
 }
 
 type SessionForkDeliveryDisposition string
@@ -142,13 +138,32 @@ const (
 // SessionForkResult contains only provider-native durable identity. Canonical
 // session creation and history copying are owned by the host.
 type SessionForkResult struct {
-	ProviderSessionID           string                         `json:"providerSessionId"`
-	ForkedFromProviderSessionID string                         `json:"forkedFromProviderSessionId"`
-	ThroughProviderTurnID       string                         `json:"throughProviderTurnId,omitempty"`
-	TargetProviderTurnIDs       []string                       `json:"targetProviderTurnIds,omitempty"`
-	StateBindingMode            string                         `json:"stateBindingMode,omitempty"`
-	StateBindingReceipt         string                         `json:"stateBindingReceipt,omitempty"`
-	DeliveryDisposition         SessionForkDeliveryDisposition `json:"deliveryDisposition"`
+	ProviderSessionID           string                           `json:"providerSessionId"`
+	ForkedFromProviderSessionID string                           `json:"forkedFromProviderSessionId"`
+	ThroughProviderTurnID       string                           `json:"throughProviderTurnId,omitempty"`
+	TargetProviderTurnBindings  []SessionForkProviderTurnBinding `json:"targetProviderTurnBindings,omitempty"`
+	StateBindingMode            string                           `json:"stateBindingMode,omitempty"`
+	StateBindingReceipt         string                           `json:"stateBindingReceipt,omitempty"`
+	DeliveryDisposition         SessionForkDeliveryDisposition   `json:"deliveryDisposition"`
+}
+
+type SessionForkProviderTurnBinding struct {
+	ProviderTurnID      string `json:"providerTurnId"`
+	CheckpointMessageID string `json:"checkpointMessageId"`
+}
+
+type ProviderTurnBindingRecoveryInput struct {
+	Source               Session
+	CanonicalTurnID      string
+	RecoveryToken        string
+	LegacyTextHMACKey    string
+	LegacyTextHMACDigest string
+}
+
+type ProviderTurnBindingRecoveryResult struct {
+	ProviderSessionID           string
+	ProviderTurnID              string
+	ProviderCheckpointMessageID string
 }
 
 type ExecInput struct {
@@ -167,6 +182,17 @@ type ExecInput struct {
 	InitialTitleBase                string
 	Metadata                        map[string]any
 	Guidance                        bool
+	// HistoryReplacement requires a fresh provider turn. It may not steer an
+	// active turn or reinterpret the edited text as a provider slash command.
+	// The provider's complete EffectiveHistoryAdapter seam always returns one
+	// typed dispatch result before this call completes.
+	HistoryReplacement bool
+	// RequireProviderAcceptance keeps the canonical Turn of a fork-capable
+	// provider in its submitted boundary until the provider has returned an
+	// exact Turn identity and that binding has crossed the durable activity
+	// reporter. Compatibility-only adapters have no Fork entry or Turn binding
+	// contract and continue through the ordinary execution path.
+	RequireProviderAcceptance bool
 }
 
 // SubmitProvenanceInput describes the canonical user submit that an adapter
@@ -426,13 +452,42 @@ type CloseResult struct {
 }
 
 type ExecResult struct {
-	AgentSessionID     string             `json:"agentSessionId"`
-	Status             string             `json:"status"`
-	TurnID             string             `json:"turnId,omitempty"`
-	Accepted           bool               `json:"accepted"`
-	SessionStatus      string             `json:"sessionStatus"`
-	TurnLifecycle      TurnLifecycle      `json:"turnLifecycle"`
-	SubmitAvailability SubmitAvailability `json:"submitAvailability"`
+	AgentSessionID     string                  `json:"agentSessionId"`
+	Status             string                  `json:"status"`
+	TurnID             string                  `json:"turnId,omitempty"`
+	Accepted           bool                    `json:"accepted"`
+	SessionStatus      string                  `json:"sessionStatus"`
+	TurnLifecycle      TurnLifecycle           `json:"turnLifecycle"`
+	SubmitAvailability SubmitAvailability      `json:"submitAvailability"`
+	ProviderDispatch   *ProviderDispatchResult `json:"providerDispatch,omitempty"`
+}
+
+type DispatchDisposition string
+
+const (
+	DispatchDispositionApplied                    DispatchDisposition = "applied"
+	DispatchDispositionAppliedWithoutProviderTurn DispatchDisposition = "applied_without_provider_turn"
+	DispatchDispositionRejected                   DispatchDisposition = "rejected"
+	DispatchDispositionNotDispatched              DispatchDisposition = "not_dispatched"
+	DispatchDispositionOutcomeUnknown             DispatchDisposition = "outcome_unknown"
+)
+
+type AcceptanceSource string
+
+const (
+	AcceptanceSourceTurnStartResponse AcceptanceSource = "turn_start_response"
+	AcceptanceSourceHistoryRead       AcceptanceSource = "history_read"
+)
+
+type ProviderAcceptanceReceipt struct {
+	Source            AcceptanceSource `json:"source"`
+	ProviderSessionID string           `json:"providerSessionId"`
+	ProviderTurnID    string           `json:"providerTurnId"`
+}
+
+type ProviderDispatchResult struct {
+	Disposition DispatchDisposition        `json:"disposition"`
+	Acceptance  *ProviderAcceptanceReceipt `json:"acceptance,omitempty"`
 }
 
 type CompletedCommand struct {

@@ -191,6 +191,57 @@ func (s *Store) GetSubmitClaim(ctx context.Context, workspaceID, agentSessionID,
 	)
 }
 
+// FindSubmitClaimByCanonicalTurn resolves the opaque provider recovery token
+// owned by Tutti. More than one claim for a canonical Turn is ambiguous and
+// fails closed instead of selecting by creation order.
+func (s *Store) FindSubmitClaimByCanonicalTurn(
+	ctx context.Context,
+	workspaceID, agentSessionID, canonicalTurnID string,
+) (SubmitClaim, bool, error) {
+	workspaceID = strings.TrimSpace(workspaceID)
+	agentSessionID = strings.TrimSpace(agentSessionID)
+	canonicalTurnID = strings.TrimSpace(canonicalTurnID)
+	if s == nil || s.db == nil || workspaceID == "" ||
+		agentSessionID == "" || canonicalTurnID == "" {
+		return SubmitClaim{}, false, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT workspace_id, agent_session_id, client_submit_id, status,
+       canonical_turn_id, turn_id, created_at_unix_ms, updated_at_unix_ms
+FROM workspace_agent_submit_claims
+WHERE workspace_id = ? AND agent_session_id = ? AND canonical_turn_id = ?
+ORDER BY client_submit_id
+LIMIT 2
+`, workspaceID, agentSessionID, canonicalTurnID)
+	if err != nil {
+		return SubmitClaim{}, false, fmt.Errorf(
+			"find submit claim by canonical turn: %w",
+			err,
+		)
+	}
+	defer rows.Close()
+	var result SubmitClaim
+	count := 0
+	for rows.Next() {
+		claim, _, scanErr := scanSubmitClaim(rows)
+		if scanErr != nil {
+			return SubmitClaim{}, false, scanErr
+		}
+		result = claim
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return SubmitClaim{}, false, fmt.Errorf(
+			"iterate submit claims by canonical turn: %w",
+			err,
+		)
+	}
+	if count > 1 {
+		return SubmitClaim{}, false, ErrSubmitClaimTurnConflict
+	}
+	return result, count == 1, nil
+}
+
 func (s *Store) getSubmitClaim(ctx context.Context, workspaceID, agentSessionID, clientSubmitID string) (SubmitClaim, bool, error) {
 	return scanSubmitClaim(s.db.QueryRowContext(
 		ctx,

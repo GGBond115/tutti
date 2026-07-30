@@ -339,6 +339,23 @@ export function useAgentTranscriptVirtualizer({
     },
     [applyPhysicalDistance, dismissResponseSpacer, isLatestTurnInProgress]
   );
+  const scrollToOffset = useCallback(
+    (offset: number, options?: { behavior?: ScrollBehavior }) => {
+      const maxScrollTop = Math.max(
+        0,
+        scrollMarginRef.current +
+          layoutRef.current.totalHeightPx -
+          virtualViewportRef.current.viewportHeightPx +
+          scrollPaddingBottomRef.current +
+          responseSpacerHeightRef.current
+      );
+      applyPhysicalDistance(
+        Math.max(0, maxScrollTop - Math.max(0, offset)),
+        options?.behavior
+      );
+    },
+    [applyPhysicalDistance]
+  );
   const connectScrollElement = useCallback(
     (nextScrollElement: HTMLElement | null): void => {
       if (scrollElementRef.current === nextScrollElement) return;
@@ -712,6 +729,7 @@ export function useAgentTranscriptVirtualizer({
       },
       isAtEnd: (threshold = AGENT_TRANSCRIPT_END_THRESHOLD_PX) =>
         physicalDistanceFromBottomRef.current <= threshold,
+      scrollToOffset,
       scrollToEnd,
       setTopLoadingHandler: (handler) => {
         topLoadingHandlerRef.current = handler;
@@ -754,6 +772,7 @@ export function useAgentTranscriptVirtualizer({
       applyPhysicalDistance,
       commitFromScrollElement,
       readViewportSnapshot,
+      scrollToOffset,
       scrollToEnd
     ]
   );

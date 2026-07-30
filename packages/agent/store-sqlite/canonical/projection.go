@@ -315,6 +315,9 @@ func ProjectMessageUpdate(
 		message.Payload["text"] = stringValue(message.Payload["text"]) + update.ContentDelta
 	}
 	message.Payload = clearStaleToolPayloadForStatus(message.Kind, message.Status, message.Payload)
+	if strings.TrimSpace(message.Kind) == "tool_call" {
+		message.Payload = CompactToolCallPayload(message.Status, message.Payload)
+	}
 	if message.Payload == nil {
 		message.Payload = map[string]any{}
 	}

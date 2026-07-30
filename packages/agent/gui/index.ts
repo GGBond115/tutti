@@ -17,6 +17,7 @@ export type {
   AgentGUIReferenceProvenanceFilterCatalog
 } from "./AgentGUI";
 export type { AgentGUIAgentConfigMenuContext } from "./agent-gui/agentGuiNode/AgentGUINode.types";
+export { AgentGUIConfigAccountFallbackSuppressed } from "./agent-gui/agentGuiNode/view/AgentGUIAccountConfig";
 export type {
   TuttiModePlanAssignmentAgentDetail,
   TuttiModePlanAssignmentAgentOption,
@@ -176,12 +177,14 @@ export {
   AgentActivityRuntimeProvider,
   resetAgentActivityRuntimeForTests,
   setAgentActivityRuntimeForTests,
+  useAgentActivitySessionMessages,
   useAgentActivitySnapshot,
   useAgentActivityRuntime,
   useOptionalAgentActivityRuntime
 } from "./agentActivityRuntime";
 export type {
   AgentActivityRuntime,
+  AgentActivitySessionMessages,
   AgentActivityRuntimeListSessionMessagesInput,
   AgentActivityRuntimeProviderProps,
   AgentActivityRuntimePromptContentBlock,

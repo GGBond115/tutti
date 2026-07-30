@@ -53,6 +53,7 @@ describe("P0 new-conversation placement scenarios", () => {
     );
 
     const activation = await scenario.waitForActivation();
+    expect(scenario.activateSession).toHaveBeenCalledTimes(1);
     expect(activation).toMatchObject({
       cwd: "",
       initialContent: [{ type: "text", text: "start a new chat" }],
@@ -93,6 +94,42 @@ describe("P0 new-conversation placement scenarios", () => {
     expect(await scenario.waitForActivation()).toMatchObject({
       cwd: projectPath,
       initialContent: [{ type: "text", text: "continue in project" }],
+      railPlacement: {
+        version: 1,
+        kind: "project",
+        projectPath,
+        sectionKey
+      }
+    });
+  });
+
+  it("keeps the logical project when the active session runs in an isolated worktree", async () => {
+    const projectPath = "/workspace/project-a";
+    const sectionKey = "project:workspace-1:/workspace/project-a";
+    const scenario = renderNewConversationScenario({
+      activeConversation: conversationSummary({
+        cwd: "/state/task-worktrees/issue/task-run",
+        railSectionKey: sectionKey
+      }),
+      initialHomeProjectPath: null,
+      userProjects: [
+        {
+          id: "project-a",
+          label: "Project A",
+          path: projectPath,
+          pinnedAtUnixMs: 0,
+          sectionKey
+        }
+      ]
+    });
+
+    act(() => scenario.requestNewConversation());
+    act(() =>
+      scenario.submitPrompt([{ type: "text", text: "continue from worktree" }])
+    );
+
+    expect(await scenario.waitForActivation()).toMatchObject({
+      cwd: projectPath,
       railPlacement: {
         version: 1,
         kind: "project",
@@ -154,6 +191,7 @@ function renderNewConversationScenario(input: {
     identity: { origin: "test", workspaceId: "workspace-1" },
     scheduler: { schedule: () => ({ cancel() {} }) }
   });
+  const activateSession = vi.spyOn(sessionEngine, "activateSession");
   const target = createLocalAgentGUIAgentTarget("codex");
   const dataRef: { current: AgentGUINodeData } = {
     current: {
@@ -322,12 +360,14 @@ function renderNewConversationScenario(input: {
   });
 
   return {
+    activateSession,
     requestNewConversation() {
       requestAgentGUINewConversation({
         activeConversationId: activeConversationIdRef.current,
         conversations: conversationsRef.current,
         createConversation: result.current.createConversation,
-        transientConversation: null
+        transientConversation: null,
+        userProjects: input.userProjects
       });
     },
     persistActiveConversation,

@@ -59,6 +59,7 @@ type Fixture struct {
 	RecoverInteractive     bool
 	DisableGoalInbox       bool
 	AcceptGoalControlsOnly bool
+	CompleteGoalOnSet      bool
 	FailCommitObserver     bool
 	WorktreeGCSweepErr     error
 	DeleteAdmissionErr     error
@@ -115,28 +116,29 @@ type InteractiveObservation struct {
 }
 
 type Metrics struct {
-	StartCalls               int
-	ResumeCalls              int
-	ExecCalls                int
-	CancelCalls              int
-	InteractiveCalls         int
-	UpdateSettingsCalls      int
-	CloseCalls               int
-	GoalControlCalls         int
-	GoalReconcileCalls       int
-	RuntimeOperationCommits  int
-	GoalOperationCommits     int
-	RootTurnSettlements      int
-	LastCancelTargets        []agenthost.RuntimeCancelTarget
-	LastInteractiveTurnID    string
-	LastInteractiveRequestID string
-	LastInitialTitle         string
-	LastResumeRecreate       bool
-	RecoverySteps            []string
-	DeleteAdmissionPlans     []agenthost.DeleteSessionsPlan
-	DeleteReports            []agenthost.DeleteSessionsReport
-	CanonicalDeleteCalls     int
-	DeletionEvents           []string
+	StartCalls                         int
+	ResumeCalls                        int
+	ExecCalls                          int
+	CancelCalls                        int
+	InteractiveCalls                   int
+	UpdateSettingsCalls                int
+	CloseCalls                         int
+	GoalControlCalls                   int
+	GoalReconcileCalls                 int
+	RuntimeOperationCommits            int
+	GoalOperationCommits               int
+	RootTurnSettlements                int
+	LastCancelTargets                  []agenthost.RuntimeCancelTarget
+	LastInteractiveTurnID              string
+	LastInteractiveRequestID           string
+	LastInitialTitle                   string
+	LastExecRequiresProviderAcceptance bool
+	LastResumeRecreate                 bool
+	RecoverySteps                      []string
+	DeleteAdmissionPlans               []agenthost.DeleteSessionsPlan
+	DeleteReports                      []agenthost.DeleteSessionsReport
+	CanonicalDeleteCalls               int
+	DeletionEvents                     []string
 }
 
 // Driver adapts one host implementation to the shared lifecycle scenarios.
@@ -161,6 +163,7 @@ type Driver interface {
 	DeleteSessions(context.Context, agenthost.DeleteSessionsInput) (agenthost.DeleteSessionsResult, error)
 	PurgeDeletedSessions(context.Context, agenthost.PurgeDeletedSessionsInput) (agenthost.PurgeDeletedSessionsResult, error)
 	GoalControl(context.Context, agenthost.GoalControlInput) (GoalObservation, error)
+	AdoptProviderGoal(context.Context, agenthost.ProviderGoalAdoptionInput) (GoalObservation, error)
 	FenceGoalGeneration(context.Context, agenthost.FenceGoalGenerationInput) (agenthost.FenceGoalGenerationResult, error)
 	GetGoalState(context.Context, agenthost.SessionRef) (GoalObservation, error)
 	ReconcileGoal(context.Context, agenthost.SessionRef) (GoalObservation, error)
@@ -180,6 +183,7 @@ type Scenario struct {
 type SessionForkFixture struct {
 	FailFirstLocalCommit    bool
 	RecoverProviderAccepted bool
+	KeepSourceActive        bool
 }
 
 type SessionForkMetrics struct {

@@ -342,6 +342,10 @@ func (s *SQLiteStore) ListSessionTurns(ctx context.Context, workspaceID string, 
 	return s.agentReadStore().ListSessionTurns(ctx, workspaceID, agentSessionID)
 }
 
+func (s *SQLiteStore) ListEffectiveSessionTurns(ctx context.Context, workspaceID string, agentSessionID string) ([]agentactivitybiz.Turn, error) {
+	return s.agentReadStore().ListEffectiveSessionTurns(ctx, workspaceID, agentSessionID)
+}
+
 func (s *SQLiteStore) ListSessionTurnSummaries(ctx context.Context, input agentactivitybiz.ListSessionTurnSummariesInput) (agentactivitybiz.SessionTurnSummaryPage, error) {
 	return s.agentReadStore().ListSessionTurnSummaries(ctx, input)
 }
@@ -364,6 +368,10 @@ func (s *SQLiteStore) PrepareInteractiveRuntimeOperation(ctx context.Context, in
 
 func (s *SQLiteStore) PrepareGoalControlOperation(ctx context.Context, input agentactivitybiz.GoalControlOperationPrepare) (agentactivitybiz.GoalControlOperation, agentactivitybiz.SessionGoalState, bool, error) {
 	return s.agentStore().PrepareGoalControlOperation(ctx, input)
+}
+
+func (s *SQLiteStore) AdoptProviderGoalOperation(ctx context.Context, input agentactivitybiz.ProviderGoalAdoption) (agentactivitybiz.GoalControlOperation, agentactivitybiz.SessionGoalState, bool, error) {
+	return s.agentStore().AdoptProviderGoalOperation(ctx, input)
 }
 
 func (s *SQLiteStore) GetGoalControlAudit(ctx context.Context, workspaceID string, agentSessionID string, operationID string) (agentactivitybiz.Message, bool, error) {

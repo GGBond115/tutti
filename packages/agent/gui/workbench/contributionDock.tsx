@@ -80,6 +80,10 @@ export type AgentGuiWorkbenchProviderAvailability = Partial<
   >
 >;
 
+export type AgentGuiWorkbenchProviderAvailabilitySource =
+  | AgentGuiWorkbenchProviderAvailability
+  | (() => AgentGuiWorkbenchProviderAvailability);
+
 export interface BuildAgentGuiDockEntriesInput {
   agentDirectory: AgentGUIAgentDirectoryPort;
   defaultProvider?: AgentGuiWorkbenchProvider | null;
@@ -87,7 +91,7 @@ export interface BuildAgentGuiDockEntriesInput {
   dockIconUrls?: Partial<Record<AgentGuiWorkbenchProvider, string>>;
   label?: string;
   order?: number;
-  providerAvailability?: AgentGuiWorkbenchProviderAvailability;
+  providerAvailability?: AgentGuiWorkbenchProviderAvailabilitySource;
   resolveDockPopupIdentity?: CreateAgentGuiWorkbenchContributionInput["resolveDockPopupIdentity"];
   resolveDockPopupTitle?: CreateAgentGuiWorkbenchContributionInput["resolveDockPopupTitle"];
   sectionId?: string;
@@ -318,7 +322,7 @@ export function resolveAgentGuiWorkbenchLaunchPayload(
   input: {
     agentDirectory: AgentGUIAgentDirectoryPort;
     defaultProvider?: AgentGuiWorkbenchProvider | null;
-    providerAvailability?: AgentGuiWorkbenchProviderAvailability;
+    providerAvailability?: AgentGuiWorkbenchProviderAvailabilitySource;
   }
 ): unknown | null {
   if (hasAgentSessionId(request.payload)) {
@@ -355,7 +359,9 @@ export function resolveAgentGuiWorkbenchLaunchPayload(
   const requestedProvider = providerFromState(payload);
   const resolved = resolveAgentGuiUnifiedDockLaunchPayload({
     agentDirectory: input.agentDirectory,
-    defaultProvider: requestedProvider ?? input.defaultProvider,
+    defaultProvider: isUnifiedDockLaunch
+      ? input.defaultProvider
+      : (requestedProvider ?? input.defaultProvider),
     providerAvailability: input.providerAvailability
   });
   if (!resolved.agentTargetId) {
@@ -463,8 +469,15 @@ function preferredAgentGuiDockTargetForProvider(
 
 function isAgentGuiProviderAvailable(
   provider: AgentGuiWorkbenchProvider,
-  availability: AgentGuiWorkbenchProviderAvailability | null | undefined
+  availabilitySource:
+    | AgentGuiWorkbenchProviderAvailabilitySource
+    | null
+    | undefined
 ): boolean {
+  const availability =
+    typeof availabilitySource === "function"
+      ? availabilitySource()
+      : availabilitySource;
   const value = availability?.[provider];
   if (value === null || value === undefined) {
     return true;

@@ -47,8 +47,44 @@ func WorkbenchSnapshotFromGenerated(snapshot tuttigenerated.WorkbenchSnapshot) w
 		Spaces:        workbenchSpacesFromGenerated(snapshot.Spaces),
 		ActiveSpaceID: snapshot.ActiveSpaceId,
 		LayoutBasis:   workbenchLayoutBasisFromGenerated(snapshot.LayoutBasis),
+		LockedLayout:  workbenchLockedLayoutFromGenerated(snapshot.LockedLayout),
 		Metadata:      mapPointerValue(snapshot.Metadata),
 	}
+}
+
+func workbenchLockedLayoutFromGenerated(
+	lockedLayout *tuttigenerated.WorkbenchLockedLayout,
+) *workspaceservice.WorkbenchSnapshotLockedLayout {
+	if lockedLayout == nil {
+		return nil
+	}
+
+	result := &workspaceservice.WorkbenchSnapshotLockedLayout{
+		Preset: workspaceservice.WorkbenchSnapshotLayoutPreset{
+			Kind: workspaceservice.WorkbenchSnapshotLayoutPresetKind(
+				lockedLayout.Preset.Kind,
+			),
+		},
+		NodeIDs: append([]string(nil), lockedLayout.NodeIDs...),
+	}
+	if lockedLayout.NormalizedFrames == nil {
+		return result
+	}
+
+	normalizedFrames := make(
+		map[string]workspaceservice.WorkbenchSnapshotNormalizedFrame,
+		len(*lockedLayout.NormalizedFrames),
+	)
+	for nodeID, frame := range *lockedLayout.NormalizedFrames {
+		normalizedFrames[nodeID] = workspaceservice.WorkbenchSnapshotNormalizedFrame{
+			X:      float64(frame.X),
+			Y:      float64(frame.Y),
+			Width:  float64(frame.Width),
+			Height: float64(frame.Height),
+		}
+	}
+	result.NormalizedFrames = normalizedFrames
+	return result
 }
 
 func workbenchLayoutBasisFromGenerated(

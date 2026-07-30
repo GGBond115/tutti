@@ -11,6 +11,7 @@ export interface WorkbenchSnapshotV1 {
   spaces?: WorkbenchSnapshotSpaceV1[];
   activeSpaceId?: string | null;
   layoutBasis?: WorkbenchSnapshotLayoutBasisV1;
+  lockedLayout?: WorkbenchSnapshotLockedLayoutV1;
   metadata?: Record<string, unknown>;
 }
 
@@ -43,6 +44,24 @@ export interface WorkbenchSnapshotLayoutConstraintsV1 {
 export interface WorkbenchSnapshotLayoutBasisV1 {
   surfaceSize: WorkbenchSnapshotSizeV1;
   layoutConstraints: WorkbenchSnapshotLayoutConstraintsV1;
+}
+
+export type WorkbenchSnapshotLayoutPresetV1 =
+  | { kind: "balanced" }
+  | { kind: "row" }
+  | { kind: "column" };
+
+export interface WorkbenchSnapshotNormalizedFrameV1 {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface WorkbenchSnapshotLockedLayoutV1 {
+  preset: WorkbenchSnapshotLayoutPresetV1;
+  nodeIDs: string[];
+  normalizedFrames?: Record<string, WorkbenchSnapshotNormalizedFrameV1>;
 }
 
 export interface WorkbenchSnapshotNodeV1 {

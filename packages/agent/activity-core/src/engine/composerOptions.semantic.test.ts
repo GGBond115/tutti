@@ -1,0 +1,160 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type { AgentActivityComposerOptions } from "../types.ts";
+import { createAgentSessionEngine } from "./createAgentSessionEngine.ts";
+import type {
+  EngineCommandPort,
+  EngineExternalCommand,
+  EngineScheduler
+} from "./types.ts";
+
+function composerOptions(model: string): AgentActivityComposerOptions {
+  return {
+    behavior: {
+      collapseModelOptionsToLatest: false,
+      modelOptionsAuthoritative: true,
+      planModeExclusiveWithPermissionMode: false,
+      prewarmDraftSession: false,
+      refreshModelOptionsAfterSettings: false
+    },
+    capabilities: null,
+    loadedAtUnixMs: 1,
+    models: [{ label: model, value: model }],
+    provider: "codex",
+    reasoningEfforts: [],
+    skills: [],
+    speeds: []
+  };
+}
+
+function createHarness() {
+  const commands: EngineExternalCommand[] = [];
+  const settlers = new Map<
+    string,
+    { reject(error: unknown): void; resolve(value: unknown): void }
+  >();
+  const commandPort: EngineCommandPort = {
+    execute(command) {
+      commands.push(command);
+      return new Promise((resolve, reject) => {
+        settlers.set(command.commandId, { reject, resolve });
+      });
+    }
+  };
+  const scheduler: EngineScheduler = {
+    schedule() {
+      return { cancel() {} };
+    }
+  };
+  const engine = createAgentSessionEngine({
+    clock: { nowUnixMs: () => 10 },
+    commandPort,
+    identity: { origin: "test", workspaceId: "workspace-1" },
+    scheduler
+  });
+  return {
+    commands,
+    engine,
+    fail(commandId: string, error: unknown) {
+      settlers.get(commandId)?.reject(error);
+    },
+    succeed(commandId: string, value: unknown) {
+      settlers.get(commandId)?.resolve(value);
+    }
+  };
+}
+
+function loadInput(overrides: { cwd?: string; force?: boolean } = {}) {
+  return {
+    provider: "codex",
+    targetKey: "target-1",
+    ...overrides
+  };
+}
+
+test("semantic composer load joins an identical request and reuses its ready cache", async () => {
+  const harness = createHarness();
+  const first = harness.engine.loadComposerOptions(loadInput());
+  const second = harness.engine.loadComposerOptions(loadInput());
+
+  assert.equal(harness.commands.length, 1);
+  const commandId = harness.commands[0]!.commandId;
+  harness.succeed(commandId, composerOptions("gpt-5"));
+  assert.equal((await first).models[0]?.value, "gpt-5");
+  assert.equal((await second).models[0]?.value, "gpt-5");
+
+  const cached = await harness.engine.loadComposerOptions(loadInput());
+  assert.equal(cached.models[0]?.value, "gpt-5");
+  assert.equal(harness.commands.length, 1);
+});
+
+test("semantic composer load rejects an exact request when a newer signature supersedes it", async () => {
+  const harness = createHarness();
+  const first = harness.engine.loadComposerOptions(loadInput({ cwd: "/old" }));
+  const firstRejected = assert.rejects(
+    first,
+    /composer_options_load_superseded/
+  );
+  const second = harness.engine.loadComposerOptions(loadInput({ cwd: "/new" }));
+
+  assert.equal(harness.commands.length, 2);
+  await firstRejected;
+  harness.succeed(
+    harness.commands[0]!.commandId,
+    composerOptions("stale-model")
+  );
+  harness.succeed(harness.commands[1]!.commandId, composerOptions("new-model"));
+  assert.equal((await second).models[0]?.value, "new-model");
+});
+
+test("aborting one joined caller does not abort the shared composer load", async () => {
+  const harness = createHarness();
+  const first = harness.engine.loadComposerOptions(loadInput());
+  const controller = new AbortController();
+  const second = harness.engine.loadComposerOptions({
+    ...loadInput(),
+    signal: controller.signal
+  });
+
+  const abortReason = new Error("surface closed");
+  controller.abort(abortReason);
+  await assert.rejects(second, (error) => error === abortReason);
+  assert.equal(harness.commands.length, 1);
+
+  harness.succeed(
+    harness.commands[0]!.commandId,
+    composerOptions("shared-model")
+  );
+  assert.equal((await first).models[0]?.value, "shared-model");
+});
+
+test("invalidation keeps the current composer caller attached and makes the next load refetch", async () => {
+  const harness = createHarness();
+  const first = harness.engine.loadComposerOptions(loadInput());
+  harness.engine.dispatch({
+    targetKeys: ["target-1"],
+    type: "composerOptions/invalidated"
+  });
+  harness.succeed(harness.commands[0]!.commandId, composerOptions("model-1"));
+  assert.equal((await first).models[0]?.value, "model-1");
+
+  const second = harness.engine.loadComposerOptions(loadInput());
+  assert.equal(harness.commands.length, 2);
+  harness.succeed(harness.commands[1]!.commandId, composerOptions("model-2"));
+  assert.equal((await second).models[0]?.value, "model-2");
+});
+
+test("semantic composer load reports transport failure and engine disposal", async () => {
+  const failedHarness = createHarness();
+  const failed = failedHarness.engine.loadComposerOptions(loadInput());
+  failedHarness.fail(
+    failedHarness.commands[0]!.commandId,
+    new Error("provider unavailable")
+  );
+  await assert.rejects(failed, /composer_options_load_failed/);
+
+  const disposedHarness = createHarness();
+  const disposed = disposedHarness.engine.loadComposerOptions(loadInput());
+  disposedHarness.engine.dispose();
+  await assert.rejects(disposed, /agent_session_engine_disposed/);
+});

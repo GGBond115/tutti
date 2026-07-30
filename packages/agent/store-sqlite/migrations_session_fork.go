@@ -420,3 +420,113 @@ WHERE TRIM(COALESCE(target_provider_session_id, '')) <> '';
 	}
 	return nil
 }
+
+// applyWorkspaceAgentSessionForkV6 is the intentional hard cutover to
+// optimistic Fork. It refuses to migrate while an old saga is non-terminal,
+// then replaces the source-wide constraint with an exact active-boundary
+// constraint. Different Turns can Fork independently while one Turn cannot
+// dispatch two provider mutations concurrently.
+func (s *Store) applyWorkspaceAgentSessionForkV6(ctx context.Context) error {
+	applied, err := s.hasMigration(ctx, schemaMigrationWorkspaceAgentSessionForkV6)
+	if err != nil || applied {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin workspace agent session fork v6: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var nonterminal int
+	if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM workspace_agent_session_fork_operations
+WHERE status IN ('prepared','dispatching','provider_accepted')
+`).Scan(&nonterminal); err != nil {
+		return fmt.Errorf("count nonterminal session forks before v6: %w", err)
+	}
+	if nonterminal != 0 {
+		return fmt.Errorf(
+			"workspace agent session fork v6 requires draining %d nonterminal operations",
+			nonterminal,
+		)
+	}
+	if _, err := tx.ExecContext(ctx, `
+DROP INDEX IF EXISTS idx_workspace_agent_session_fork_operations_active_source;
+
+CREATE UNIQUE INDEX idx_workspace_agent_session_fork_operations_active_boundary
+  ON workspace_agent_session_fork_operations(
+    workspace_id, source_agent_session_id, point_kind, source_turn_id
+  )
+  WHERE status IN ('prepared','dispatching','provider_accepted');
+`); err != nil {
+		return fmt.Errorf("replace session fork active-source constraint: %w", err)
+	}
+	if err := recordMigrationTx(ctx, tx, schemaMigrationWorkspaceAgentSessionForkV6); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit workspace agent session fork v6: %w", err)
+	}
+	return nil
+}
+
+// applyWorkspaceAgentSessionForkV7 stores the complete provider-owned child
+// Turn/checkpoint mapping as one ordered receipt. Existing committed
+// operations retain only their historical boundary receipt so idempotent
+// reads remain possible; their already-materialized child Turns are not
+// backfilled.
+func (s *Store) applyWorkspaceAgentSessionForkV7(ctx context.Context) error {
+	applied, err := s.hasMigration(ctx, schemaMigrationWorkspaceAgentSessionForkV7)
+	if err != nil || applied {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin workspace agent session fork v7: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var nonterminal int
+	if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM workspace_agent_session_fork_operations
+WHERE status IN ('prepared','dispatching','provider_accepted')
+`).Scan(&nonterminal); err != nil {
+		return fmt.Errorf("count nonterminal session forks before v7: %w", err)
+	}
+	if nonterminal != 0 {
+		return fmt.Errorf(
+			"workspace agent session fork v7 requires draining %d nonterminal operations",
+			nonterminal,
+		)
+	}
+	if _, err := tx.ExecContext(ctx, `
+ALTER TABLE workspace_agent_session_fork_operations
+ADD COLUMN target_provider_turn_bindings_json TEXT NOT NULL DEFAULT '[]'
+CHECK (
+  json_valid(target_provider_turn_bindings_json)
+  AND json_type(target_provider_turn_bindings_json) = 'array'
+);
+
+UPDATE workspace_agent_session_fork_operations
+SET target_provider_turn_bindings_json = json_array(
+  json_object(
+    'providerTurnId',
+    json_extract(target_provider_turn_ids_json, '$[#-1]'),
+    'checkpointMessageId',
+    target_provider_checkpoint_message_id
+  )
+)
+WHERE provider_state_binding_mode = 'provider_owned'
+  AND json_array_length(target_provider_turn_ids_json) > 0
+  AND TRIM(COALESCE(target_provider_checkpoint_message_id, '')) <> '';
+`); err != nil {
+		return fmt.Errorf("add workspace agent session fork full turn bindings: %w", err)
+	}
+	if err := recordMigrationTx(ctx, tx, schemaMigrationWorkspaceAgentSessionForkV7); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit workspace agent session fork v7: %w", err)
+	}
+	return nil
+}

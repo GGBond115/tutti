@@ -2,11 +2,13 @@ package agentruntime
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 	"github.com/tutti-os/tutti/packages/agent/daemon/liveprotocol"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 func TestACPNormalizerProjectsSemanticMessageDeltaWithoutSnapshotDiff(t *testing.T) {
@@ -243,6 +245,80 @@ func TestExplicitToolOutputDeltaPersistsSnapshotAndProjectsOffsetAppend(t *testi
 	}
 }
 
+func TestExplicitToolOutputDeltaTruncatesOnceAndDropsLaterChunks(t *testing.T) {
+	t.Parallel()
+
+	session := reportTestSession()
+	normalizer := newACPTurnNormalizer()
+	started, ok := normalizer.ToolCallEvents(session, "turn-1", map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    "command-large",
+		"title":         "printf",
+		"kind":          "execute",
+		"status":        "in_progress",
+	})
+	if !ok || len(started) != 1 {
+		t.Fatalf("started = %#v, ok = %v", started, ok)
+	}
+
+	firstLength := canonical.ToolOutputTextMaxBytes -
+		len(canonical.ToolOutputTruncationMarker) -
+		len("\n") -
+		8
+	if events := normalizer.AppendToolOutputDelta(
+		session,
+		"turn-1",
+		"command-large",
+		strings.Repeat("x", firstLength),
+	); len(events) != 1 {
+		t.Fatalf("first output events = %#v, want one", events)
+	}
+	truncated := normalizer.AppendToolOutputDelta(
+		session,
+		"turn-1",
+		"command-large",
+		strings.Repeat("y", 64),
+	)
+	if len(truncated) != 1 {
+		t.Fatalf("truncated output events = %#v, want one", truncated)
+	}
+	if later := normalizer.AppendToolOutputDelta(
+		session,
+		"turn-1",
+		"command-large",
+		"ignored",
+	); len(later) != 0 {
+		t.Fatalf("later output events = %#v, want dropped after truncation", later)
+	}
+
+	output := payloadMap(truncated[0].Payload.Metadata, "output")["text"].(string)
+	if len(output) > canonical.ToolOutputTextMaxBytes ||
+		!strings.HasSuffix(output, canonical.ToolOutputTruncationMarker) {
+		t.Fatalf("snapshot output was not bounded: %d bytes", len(output))
+	}
+	stream := ProjectActivityEventsToStreamEvents(session, truncated)
+	if len(stream) != 1 || stream[0].EventType != StreamEventMessageDelta {
+		t.Fatalf("stream = %#v, want one tool output delta", stream)
+	}
+	var delta liveprotocol.MessageDeltaData
+	if err := json.Unmarshal(stream[0].Data.(liveprotocol.Event).Data, &delta); err != nil {
+		t.Fatal(err)
+	}
+	if delta.ToolOutput == nil ||
+		delta.ToolOutput.Operation != "append_text" ||
+		delta.ToolOutput.OffsetBytes == nil ||
+		*delta.ToolOutput.OffsetBytes != int64(firstLength) ||
+		!strings.HasSuffix(delta.ToolOutput.Text, canonical.ToolOutputTruncationMarker) {
+		t.Fatalf("truncated live operation = %#v", delta.ToolOutput)
+	}
+
+	report := reportActivityInput(session, truncated)
+	persisted := report.MessageUpdates[0].Payload["output"].(map[string]any)["text"].(string)
+	if persisted != output {
+		t.Fatal("live runtime snapshot and durable report used different truncated output")
+	}
+}
+
 func TestToolOutputDeltaWaitsForKnownStartAnchor(t *testing.T) {
 	t.Parallel()
 	session := reportTestSession()
@@ -283,6 +359,163 @@ func TestToolOutputDeltaWaitsForKnownStartAnchor(t *testing.T) {
 		delta.ToolOutput.Operation != "set" ||
 		delta.ToolOutput.Text != "first" {
 		t.Fatalf("buffered tool output = %#v", delta.ToolOutput)
+	}
+}
+
+func TestToolOutputDeltaTruncatesBufferedPreAnchorOutput(t *testing.T) {
+	t.Parallel()
+
+	session := reportTestSession()
+	normalizer := newACPTurnNormalizer()
+	large := strings.Repeat("x", canonical.ToolOutputTextMaxBytes+64)
+	if events := normalizer.AppendToolOutputDelta(
+		session,
+		"turn-1",
+		"buffered-large-command",
+		large,
+	); len(events) != 0 {
+		t.Fatalf("pre-anchor output events = %#v, want buffered output", events)
+	}
+	started, ok := normalizer.ToolCallEvents(session, "turn-1", map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    "buffered-large-command",
+		"title":         "printf",
+		"kind":          "execute",
+		"status":        "in_progress",
+	})
+	if !ok || len(started) != 2 {
+		t.Fatalf("started = %#v, ok = %v, want anchor and truncated buffered output", started, ok)
+	}
+	output := payloadMap(started[1].Payload.Metadata, "output")["text"].(string)
+	if len(output) > canonical.ToolOutputTextMaxBytes ||
+		!strings.HasSuffix(output, canonical.ToolOutputTruncationMarker) {
+		t.Fatalf("buffered output was not bounded: %d bytes", len(output))
+	}
+	if later := normalizer.AppendToolOutputDelta(
+		session,
+		"turn-1",
+		"buffered-large-command",
+		"ignored",
+	); len(later) != 0 {
+		t.Fatalf("later output events = %#v, want dropped after buffered truncation", later)
+	}
+}
+
+func TestTruncatedBufferedToolOutputFitsLivePublisher(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name  string
+		large string
+	}{
+		{
+			name:  "ASCII",
+			large: strings.Repeat("x", canonical.ToolOutputTextMaxBytes+64),
+		},
+		{
+			name:  "JSON escaping",
+			large: strings.Repeat("\x00", canonical.ToolOutputTextMaxBytes+64),
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			session := reportTestSession()
+			normalizer := newACPTurnNormalizer()
+			if events := normalizer.AppendToolOutputDelta(
+				session,
+				"turn-1",
+				"buffered-large-command",
+				test.large,
+			); len(events) != 0 {
+				t.Fatalf("pre-anchor output events = %#v, want buffered output", events)
+			}
+			started, ok := normalizer.ToolCallEvents(session, "turn-1", map[string]any{
+				"sessionUpdate": "tool_call",
+				"toolCallId":    "buffered-large-command",
+				"title":         "printf",
+				"kind":          "execute",
+				"status":        "in_progress",
+			})
+			if !ok || len(started) != 2 {
+				t.Fatalf("started = %#v, ok = %v, want anchor and buffered output", started, ok)
+			}
+			expected := payloadMap(started[1].Payload.Metadata, "output")["text"].(string)
+			stream := ProjectActivityEventsToStreamEvents(session, started)
+
+			publisher, err := liveprotocol.NewPublisher(liveprotocol.PublisherConfig{
+				StreamID: "stream-1", BindingID: "binding-1", Epoch: 1,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var delivered string
+			deltaCount := 0
+			for _, streamEvent := range stream {
+				if streamEvent.EventType != StreamEventMessageDelta {
+					continue
+				}
+				event, ok := streamEvent.Data.(liveprotocol.Event)
+				if !ok {
+					t.Fatalf("stream event data has type %T", streamEvent.Data)
+				}
+				frames, err := publisher.Publish(liveprotocol.PublishInput{
+					Event: &event, Immediate: true,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(frames) != 1 || len(frames[0].Deliveries) != 1 {
+					t.Fatalf("published frames = %#v, want one delivery", frames)
+				}
+				delivery := frames[0].Deliveries[0]
+				if delivery.Kind != liveprotocol.DeliveryKindEvent {
+					t.Fatalf("delivery kind = %v, want event", delivery.Kind)
+				}
+				deliveredEvent, err := liveprotocol.DecodeEvent(delivery.Event)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var delta liveprotocol.MessageDeltaData
+				if err := json.Unmarshal(deliveredEvent.Data, &delta); err != nil {
+					t.Fatal(err)
+				}
+				if delta.ToolOutput == nil {
+					t.Fatalf("delivered delta = %#v, want tool output", delta)
+				}
+				switch delta.ToolOutput.Operation {
+				case "set":
+					if deltaCount != 0 {
+						t.Fatalf("set operation arrived after %d deltas", deltaCount)
+					}
+					delivered = delta.ToolOutput.Text
+				case "append_text":
+					if delta.ToolOutput.OffsetBytes == nil ||
+						*delta.ToolOutput.OffsetBytes != int64(len(delivered)) {
+						t.Fatalf(
+							"append offset = %#v, delivered bytes = %d",
+							delta.ToolOutput.OffsetBytes,
+							len(delivered),
+						)
+					}
+					delivered += delta.ToolOutput.Text
+				default:
+					t.Fatalf("tool output operation = %#v", delta.ToolOutput)
+				}
+				deltaCount++
+			}
+			if deltaCount < 2 {
+				t.Fatalf("delta count = %d, want split delivery", deltaCount)
+			}
+			if delivered != expected ||
+				len(delivered) > canonical.ToolOutputTextMaxBytes ||
+				!strings.HasSuffix(delivered, canonical.ToolOutputTruncationMarker) {
+				t.Fatalf(
+					"delivered output mismatch: got %d bytes, want %d",
+					len(delivered),
+					len(expected),
+				)
+			}
+		})
 	}
 }
 

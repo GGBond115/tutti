@@ -3,10 +3,7 @@ import {
   selectFocusedWorkbenchNode,
   type WorkbenchHostHandle
 } from "@tutti-os/workbench-surface";
-import {
-  AGENT_GUI_WORKBENCH_NEW_CONVERSATION_EVENT,
-  type AgentGuiWorkbenchNewConversationDetail
-} from "@tutti-os/agent-gui/workbench/contribution";
+import { dispatchAgentGuiWorkbenchCommand } from "@tutti-os/agent-gui/workbench";
 import { requestWorkspaceAgentGuiLaunch } from "@renderer/features/workspace-agent/services/workspaceAgentGuiLaunchCoordinator.ts";
 import { workspaceAgentGuiNodeID } from "./workspaceAgentGuiLaunch.ts";
 import { createWorkspaceAgentGuiSameTypeWindowLaunchRequest } from "./workspaceWorkbenchShortcutAgentLaunch.ts";
@@ -39,16 +36,10 @@ export async function openWorkspaceWorkbenchAgentConversationShortcut(input: {
   const activeNode = resolveActiveWorkspaceWorkbenchNode(input.host);
   if (activeNode && isWorkspaceAgentGuiWorkbenchNode(activeNode)) {
     input.host.focusNode(activeNode.id);
-    window.dispatchEvent(
-      new CustomEvent<AgentGuiWorkbenchNewConversationDetail>(
-        AGENT_GUI_WORKBENCH_NEW_CONVERSATION_EVENT,
-        {
-          detail: {
-            instanceId: activeNode.data.instanceId
-          }
-        }
-      )
-    );
+    dispatchAgentGuiWorkbenchCommand({
+      instanceId: activeNode.data.instanceId,
+      type: "new-conversation"
+    });
     return;
   }
   await requestWorkspaceAgentGuiLaunch({

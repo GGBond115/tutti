@@ -155,6 +155,20 @@ func messageCompactText(payload map[string]any, kind string) string {
 			return trimmed
 		}
 	}
+	if strings.TrimSpace(kind) == "tool_call" {
+		for _, key := range []string{"output", "error"} {
+			if text := messageCompactToolBodyText(payload[key]); text != "" {
+				return text
+			}
+		}
+		if name := strings.TrimSpace(fmt.Sprint(payload["name"])); name != "" && name != "<nil>" {
+			return strings.TrimSpace(kind + ": " + name)
+		}
+		if status := strings.TrimSpace(fmt.Sprint(payload["status"])); status != "" && status != "<nil>" {
+			return strings.TrimSpace(kind + ": " + status)
+		}
+		return ""
+	}
 	if content, ok := payload["content"].(string); ok {
 		if trimmed := strings.TrimSpace(content); trimmed != "" {
 			return trimmed
@@ -170,6 +184,32 @@ func messageCompactText(payload map[string]any, kind string) string {
 	}
 	if status := strings.TrimSpace(fmt.Sprint(payload["status"])); status != "" && status != "<nil>" {
 		return strings.TrimSpace(kind + ": " + status)
+	}
+	return ""
+}
+
+func messageCompactToolBodyText(value any) string {
+	body, ok := value.(map[string]any)
+	if !ok {
+		return ""
+	}
+	for _, key := range []string{"text", "message", "summary", "stdout", "stderr"} {
+		if text, ok := body[key].(string); ok {
+			if trimmed := strings.TrimSpace(text); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	if matches, ok := body["matches"].([]any); ok {
+		values := make([]string, 0, len(matches))
+		for _, match := range matches {
+			if text, ok := match.(string); ok {
+				if trimmed := strings.TrimSpace(text); trimmed != "" {
+					values = append(values, trimmed)
+				}
+			}
+		}
+		return strings.Join(values, ", ")
 	}
 	return ""
 }
@@ -191,11 +231,14 @@ func compactTextFromContentBlocks(blocks []any) string {
 }
 
 func messageCompactImages(message agentservice.SessionMessage, imageLocalPath imageLocalPathResolver) []any {
+	images := messageCompactToolImages(message)
+	if strings.TrimSpace(message.Kind) == "tool_call" {
+		return images
+	}
 	blocks, ok := message.Payload["content"].([]any)
 	if !ok || len(blocks) == 0 {
-		return nil
+		return images
 	}
-	images := make([]any, 0)
 	for _, block := range blocks {
 		item, ok := block.(map[string]any)
 		if !ok || strings.TrimSpace(fmt.Sprint(item["type"])) != "image" {
@@ -224,6 +267,53 @@ func messageCompactImages(message agentservice.SessionMessage, imageLocalPath im
 		}
 	}
 	return images
+}
+
+func messageCompactToolImages(message agentservice.SessionMessage) []any {
+	if strings.TrimSpace(message.Kind) != "tool_call" {
+		return nil
+	}
+	output, ok := message.Payload["output"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	paths := make([]string, 0)
+	if values, ok := output["savedPaths"].([]any); ok {
+		for _, value := range values {
+			if path, ok := value.(string); ok {
+				if trimmed := strings.TrimSpace(path); trimmed != "" {
+					paths = appendUniqueCompactString(paths, trimmed)
+				}
+			}
+		}
+	}
+	if path, ok := output["savedPath"].(string); ok {
+		if trimmed := strings.TrimSpace(path); trimmed != "" {
+			paths = appendUniqueCompactString(paths, trimmed)
+		}
+	}
+	mimeType, _ := output["imageMimeType"].(string)
+	images := make([]any, 0, len(paths))
+	for _, path := range paths {
+		image := map[string]any{
+			"localPath": path,
+			"name":      filepath.Base(path),
+		}
+		if trimmed := strings.TrimSpace(mimeType); trimmed != "" {
+			image["mimeType"] = trimmed
+		}
+		images = append(images, image)
+	}
+	return images
+}
+
+func appendUniqueCompactString(values []string, value string) []string {
+	for _, current := range values {
+		if current == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func compactImageLocalPath(

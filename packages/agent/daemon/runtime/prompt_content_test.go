@@ -8,10 +8,65 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func textPrompt(text string) []PromptContentBlock {
 	return []PromptContentBlock{{Type: "text", Text: text}}
+}
+
+func TestACPPromptImageSupportedReadsStandardInitializeShape(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		raw  string
+		want bool
+	}{
+		"standard agentCapabilities.promptCapabilities.image true": {
+			raw:  `{"protocolVersion":1,"agentCapabilities":{"promptCapabilities":{"audio":false,"embeddedContext":true,"image":true}}}`,
+			want: true,
+		},
+		"standard agentCapabilities.promptCapabilities.image false": {
+			raw:  `{"protocolVersion":1,"agentCapabilities":{"promptCapabilities":{"image":false}}}`,
+			want: false,
+		},
+		"standard agentCapabilities without promptCapabilities": {
+			raw:  `{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}`,
+			want: false,
+		},
+		"legacy top-level promptCapabilities.image true": {
+			raw:  `{"protocolVersion":1,"promptCapabilities":{"image":true}}`,
+			want: true,
+		},
+		"legacy agentCapabilities.image true": {
+			raw:  `{"protocolVersion":1,"agentCapabilities":{"image":true}}`,
+			want: true,
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := acpPromptImageSupported(json.RawMessage(test.raw)); got != test.want {
+				t.Fatalf("acpPromptImageSupported(%s) = %v, want %v", test.raw, got, test.want)
+			}
+		})
+	}
+}
+
+func testRemotePromptImageMaterializer(t *testing.T) (string, providerPromptImageMaterializer) {
+	t.Helper()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/image.png" {
+			http.Error(response, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		response.Header().Set("Content-Type", "image/png")
+		_, _ = response.Write([]byte("hi"))
+	}))
+	t.Cleanup(server.Close)
+	return server.URL + "/image.png", func(ctx context.Context, content []PromptContentBlock) ([]PromptContentBlock, error) {
+		return materializeProviderPromptImagesWithClient(ctx, content, server.Client())
+	}
 }
 
 func TestNormalizeRuntimePromptContentPreservesURLOnlyImage(t *testing.T) {
@@ -19,6 +74,92 @@ func TestNormalizeRuntimePromptContentPreservesURLOnlyImage(t *testing.T) {
 	content := normalizeRuntimePromptContent([]PromptContentBlock{{Type: "image", MimeType: " image/webp ", URL: " " + signedURL + " ", Name: " image.webp "}})
 	if len(content) != 1 || content[0].URL != signedURL || content[0].Data != "" {
 		t.Fatalf("content = %#v, want normalized URL-only image", content)
+	}
+}
+
+func TestProviderPromptImageHTTPClientUsesSystemNetworkForReservedAddress(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "image/png")
+		_, _ = response.Write([]byte("hi"))
+	}))
+	defer server.Close()
+
+	client := newProviderPromptImageHTTPClient(time.Second)
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("prompt image transport = %T, want *http.Transport", client.Transport)
+	}
+	testTransport, ok := server.Client().Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("test transport = %T, want *http.Transport", server.Client().Transport)
+	}
+	transport = transport.Clone()
+	transport.TLSClientConfig = testTransport.TLSClientConfig.Clone()
+	client.Transport = transport
+
+	content, err := materializeProviderPromptImagesWithClient(context.Background(), []PromptContentBlock{{
+		Type: "image", MimeType: "image/png", URL: server.URL + "/image.png",
+	}}, client)
+	if err != nil {
+		t.Fatalf("materialize reserved-address image: %v", err)
+	}
+	if len(content) != 1 || content[0].URL != "" || content[0].Data != "aGk=" {
+		t.Fatalf("materialized content = %#v, want inline image data", content)
+	}
+}
+
+func TestMaterializeProviderPromptImagesRejectsHTTPRedirect(t *testing.T) {
+	t.Parallel()
+
+	var requests int
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		http.Redirect(response, request, "http://127.0.0.1/image.png", http.StatusFound)
+	}))
+	defer server.Close()
+
+	_, err := materializeProviderPromptImagesWithClient(context.Background(), []PromptContentBlock{{
+		Type: "image", MimeType: "image/png", URL: server.URL + "/start",
+	}}, server.Client())
+	if err == nil {
+		t.Fatal("materialize error = nil, want HTTP redirect rejection")
+	}
+	if requests != 1 {
+		t.Fatalf("server received %d requests, want only the HTTPS request", requests)
+	}
+}
+
+func TestMaterializeProviderPromptImagesDoesNotForwardSignedURLReferer(t *testing.T) {
+	t.Parallel()
+
+	var requests int
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		switch request.URL.Path {
+		case "/start":
+			http.Redirect(response, request, "/image.png", http.StatusFound)
+		case "/image.png":
+			if referer := request.Header.Get("Referer"); referer != "" {
+				t.Errorf("redirect Referer = %q, want empty", referer)
+			}
+			response.Header().Set("Content-Type", "image/png")
+			_, _ = response.Write([]byte("hi"))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	content, err := materializeProviderPromptImagesWithClient(context.Background(), []PromptContentBlock{{
+		Type: "image", MimeType: "image/png", URL: server.URL + "/start?X-Amz-Signature=secret",
+	}}, server.Client())
+	if err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	if requests != 2 || len(content) != 1 || content[0].Data != "aGk=" {
+		t.Fatalf("requests = %d, content = %#v, want redirected inline image", requests, content)
 	}
 }
 

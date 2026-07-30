@@ -67,6 +67,10 @@ Rules:
 - project normal-window visibility through the mounted body context; it is
   false while minimized, Genie-hidden, or in Mission Control, so heavy child
   presentation can wait without importing Workbench animation state
+- project Mission Control preview visibility separately from normal-window
+  visibility. A preview that Workbench paints must keep its body rendering even
+  when normal-window visibility is false; a preview filtered out of the
+  presentation must remain paused
 - separate a node's own exposure from whether it may occlude lower nodes.
   Scale restore, shell frame transitions, and onboarding entry keep their own
   body visible but do not cover lower bodies until the matching DOM animation
@@ -116,6 +120,14 @@ Rules:
   remain valid and use conservative bounds normalization; do not invent a
   historical surface size because that would turn unknown geometry into a
   misleading proportional migration
+- persist `lockedLayout` with the same snapshot as its node frames. On restore,
+  retain it only when at least two locked nodes are restored, so Mission Control
+  keeps its proportional grid and any user-adjusted divider geometry after a
+  Workspace reopen
+- canonicalize locked frame coordinates to three decimal places, then clamp
+  width and height to the normalized right and bottom edges. The daemon may
+  accept only bounded `float32` transport noise before storing this canonical
+  form
 - adapter-specific durable state should remain behind generic contract fields
   unless the adapter detail is part of the shared snapshot contract
 - desktop-owned workspace Dock retention is product metadata in the workspace

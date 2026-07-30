@@ -34,22 +34,31 @@ describe("agentToolRenderData", () => {
     });
   });
 
-  it("prefers canonical image content over the historical savedPath fallback", () => {
+  it("uses canonical generated image fields without content blocks", () => {
     const data = getImageGenerationRenderData(
       makeCall({
         toolName: "ImageGeneration",
-        content: [
-          {
-            type: "content",
-            content: {
-              type: "image",
-              uri: "/workspace/output/canonical.webp",
-              mimeType: "image/webp"
-            }
-          }
-        ],
         output: {
-          savedPath: "/workspace/output/legacy.png"
+          savedPaths: ["/workspace/output/canonical.png"],
+          imageMimeType: "image/png"
+        }
+      })
+    );
+
+    expect(data).toEqual({
+      prompt: null,
+      imageUri: "/workspace/output/canonical.png",
+      mimeType: "image/png"
+    });
+  });
+
+  it("uses the first canonical generated-image path", () => {
+    const data = getImageGenerationRenderData(
+      makeCall({
+        toolName: "ImageGeneration",
+        output: {
+          savedPaths: ["/workspace/output/canonical.webp"],
+          imageMimeType: "image/webp"
         }
       })
     );
@@ -71,7 +80,7 @@ describe("agentToolRenderData", () => {
         },
         output: {
           stdout: "total 8\n",
-          exit_code: 0,
+          exitCode: 0,
           duration: { secs: 0, nanos: 240164833 }
         }
       })
@@ -88,25 +97,16 @@ describe("agentToolRenderData", () => {
     expect(data.durationMs).toBeCloseTo(240.164833);
   });
 
-  it("extracts Claude Code command render data from nested rawInput metadata", () => {
+  it("extracts flattened canonical command input", () => {
     const data = getCommandRenderData(
       makeCall({
         toolName: "Bash",
         input: {
-          rawInput: {
-            command: "python3 hello.py"
-          }
-        },
-        payload: {
-          input: {
-            rawInput: {
-              command: "python3 hello.py"
-            }
-          }
+          command: "python3 hello.py"
         },
         output: {
           stdout: "Hello, World!\n",
-          exit_code: 0
+          exitCode: 0
         }
       })
     );
@@ -120,7 +120,7 @@ describe("agentToolRenderData", () => {
     });
   });
 
-  it("extracts durable command render data from aggregated output fields", () => {
+  it("extracts durable command render data from canonical output fields", () => {
     const data = getCommandRenderData(
       makeCall({
         toolName: "Bash",
@@ -128,9 +128,8 @@ describe("agentToolRenderData", () => {
           command: "sed -n 1,20p README.md"
         },
         output: {
-          aggregated_output: "# README\n\nhello\n",
-          formatted_output: "formatted fallback\n",
-          exit_code: 0
+          text: "# README\n\nhello\n",
+          exitCode: 0
         }
       })
     );
@@ -144,7 +143,7 @@ describe("agentToolRenderData", () => {
     });
   });
 
-  it("extracts ACP terminal command output from rawOutput payloads", () => {
+  it("extracts projected ACP terminal command output", () => {
     const data = getCommandRenderData(
       makeCall({
         toolName: "Bash",
@@ -154,14 +153,8 @@ describe("agentToolRenderData", () => {
         },
         output: {
           status: "completed",
-          content: [{ type: "terminal", terminalId: "call-1" }],
-          rawOutput:
-            '{\n  "schema_version": 1,\n  "ok": true,\n  "query": {\n    "kind": "active_peers"\n  }\n}',
-          _meta: {
-            terminal_exit: {
-              exit_code: 0
-            }
-          }
+          text: '{\n  "schema_version": 1,\n  "ok": true,\n  "query": {\n    "kind": "active_peers"\n  }\n}',
+          exitCode: 0
         }
       })
     );
@@ -176,7 +169,7 @@ describe("agentToolRenderData", () => {
     });
   });
 
-  it("extracts ACP terminal command output from active-peers room-id commands", () => {
+  it("extracts projected ACP terminal room output", () => {
     const data = getCommandRenderData(
       makeCall({
         toolName: "Bash",
@@ -186,14 +179,8 @@ describe("agentToolRenderData", () => {
         },
         output: {
           status: "completed",
-          content: [{ type: "terminal", terminalId: "call-1" }],
-          rawOutput:
-            '{\n  "schema_version": 1,\n  "ok": true,\n  "query": {\n    "kind": "active_peers",\n    "room_id": "room-123"\n  }\n}',
-          _meta: {
-            terminal_exit: {
-              exit_code: 0
-            }
-          }
+          text: '{\n  "schema_version": 1,\n  "ok": true,\n  "query": {\n    "kind": "active_peers",\n    "room_id": "room-123"\n  }\n}',
+          exitCode: 0
         }
       })
     );
@@ -208,7 +195,7 @@ describe("agentToolRenderData", () => {
     });
   });
 
-  it("extracts durable search output from aggregated output fields", () => {
+  it("extracts durable search output from canonical text", () => {
     const data = getSearchRenderData(
       makeCall({
         toolName: "Grep",
@@ -217,8 +204,7 @@ describe("agentToolRenderData", () => {
           path: "."
         },
         output: {
-          aggregated_output:
-            "src/app.ts:12: todo item\nsrc/list.ts:8: todo list\n"
+          text: "src/app.ts:12: todo item\nsrc/list.ts:8: todo list\n"
         }
       })
     );
@@ -227,17 +213,28 @@ describe("agentToolRenderData", () => {
     expect(data.mode).toBe("content");
   });
 
-  it("prefers structured ACP error text over JSON fallback", () => {
+  it("extracts search output from the canonical text field", () => {
+    const data = getSearchRenderData(
+      makeCall({
+        toolName: "Grep",
+        input: { pattern: "canonical" },
+        output: { text: "src/app.ts:12: canonical" }
+      })
+    );
+
+    expect(data.output).toBe("src/app.ts:12: canonical");
+    expect(data.mode).toBe("content");
+  });
+
+  it("prefers canonical error text over stdout", () => {
     const text = getToolFallbackText(
       makeCall({
         toolName: "Bash",
         status: "Failed",
         statusKind: "failed",
         error: {
-          aggregated_output: "permission denied\n",
-          stdout: "fallback stdout\n",
-          formatted_output: "formatted output\n",
-          nested: { noisy: true }
+          text: "permission denied\n",
+          stdout: "fallback stdout\n"
         }
       })
     );
@@ -480,27 +477,19 @@ describe("agentToolRenderData", () => {
     ]);
   });
 
-  it("extracts file changes from ACP-style write inputs with locations and diff content", () => {
+  it("extracts projected ACP write changes", () => {
     const changes = getFileChangeRenderData(
       makeCall({
         toolName: "Write",
         input: {
-          kind: "write",
-          locations: [{ path: "/workspace/today.txt" }],
-          content: [
-            {
-              type: "diff",
-              path: "/workspace/today.txt",
-              newText: "2026-05-22\n"
-            }
-          ],
-          rawInput: {
-            content: "2026-05-22\n"
-          }
+          kind: "write"
         },
         output: {
-          rawOutput: {
-            success: true
+          changes: {
+            "/workspace/today.txt": {
+              type: "create",
+              content: "2026-05-22\n"
+            }
           }
         }
       })
@@ -599,7 +588,7 @@ describe("agentToolRenderData", () => {
           }
         },
         output: {
-          content: "Story body"
+          text: "Story body"
         }
       })
     );
@@ -609,11 +598,11 @@ describe("agentToolRenderData", () => {
     expect(web.visibleContent).toBe("Story body");
   });
 
-  it("extracts web fetch content from canonical top-level payload content", () => {
+  it("extracts web fetch content from canonical output text without a URL", () => {
     const web = getWebFetchRenderData(
       makeCall({
         toolName: "WebFetch",
-        content: [{ type: "text", text: "Canonical page body" }]
+        output: { text: "Canonical page body" }
       })
     );
 
@@ -621,7 +610,7 @@ describe("agentToolRenderData", () => {
     expect(web.visibleContent).toBe("Canonical page body");
   });
 
-  it("extracts web fetch content from nested ACP output content blocks", () => {
+  it("extracts projected ACP web fetch content", () => {
     const web = getWebFetchRenderData(
       makeCall({
         toolName: "WebFetch",
@@ -629,7 +618,7 @@ describe("agentToolRenderData", () => {
           url: "https://dev.opencode.ai/"
         },
         output: {
-          content: [{ type: "text", text: "Full fetched page body" }]
+          text: "Full fetched page body"
         }
       })
     );
@@ -639,7 +628,20 @@ describe("agentToolRenderData", () => {
     expect(web.visibleContent).toBe("Full fetched page body");
   });
 
-  it("extracts search results from canonical top-level locations and content", () => {
+  it("extracts web fetch content from canonical output text", () => {
+    const web = getWebFetchRenderData(
+      makeCall({
+        toolName: "WebFetch",
+        input: { url: "https://example.com/story" },
+        output: { text: "Canonical fetched page body" }
+      })
+    );
+
+    expect(web.content).toBe("Canonical fetched page body");
+    expect(web.visibleContent).toBe("Canonical fetched page body");
+  });
+
+  it("extracts search results from canonical locations and output text", () => {
     const search = getSearchRenderData(
       makeCall({
         toolName: "Grep",
@@ -648,12 +650,9 @@ describe("agentToolRenderData", () => {
           { path: "src/agent.ts", line: 18 },
           { path: "src/tool.ts", line: 44 }
         ],
-        content: [
-          {
-            type: "text",
-            text: "src/agent.ts:18: rendererKind\nsrc/tool.ts:44: rendererKind"
-          }
-        ]
+        output: {
+          text: "src/agent.ts:18: rendererKind\nsrc/tool.ts:44: rendererKind"
+        }
       })
     );
 
@@ -706,19 +705,16 @@ describe("agentToolRenderData", () => {
     );
   });
 
-  it("extracts SDK web search output from top-level tool result content", () => {
+  it("extracts projected SDK web search output", () => {
     const web = getWebSearchRenderData(
       makeCall({
         toolName: "WebSearch",
         input: {
           query: "Tokyo weather now July 2026"
         },
-        content: [
-          {
-            type: "tool_result",
-            text: 'Web search results for query: "Tokyo weather now July 2026"'
-          }
-        ]
+        output: {
+          text: 'Web search results for query: "Tokyo weather now July 2026"'
+        }
       })
     );
 
@@ -775,9 +771,7 @@ describe("agentToolRenderData", () => {
         },
         output: null,
         error: {
-          rawOutput: {
-            message: "collab spawn failed: agent thread limit reached"
-          }
+          message: "collab spawn failed: agent thread limit reached"
         },
         task: {
           kind: "task",
@@ -802,18 +796,17 @@ describe("agentToolRenderData", () => {
     );
   });
 
-  it("extracts skill render data from legacy rawInput/rawOutput payloads", () => {
+  it("extracts canonical skill render data", () => {
     const skill = getSkillRenderData(
       makeCall({
         toolName: "Skill",
         input: {
-          rawInput: {
-            skill: "init",
-            args: "帮我写一个 todo-list"
-          }
+          skill: "init",
+          args: "帮我写一个 todo-list"
         },
         output: {
-          rawOutput: "Launching skill: init"
+          commandName: "init",
+          success: true
         }
       })
     );
@@ -826,17 +819,16 @@ describe("agentToolRenderData", () => {
     });
   });
 
-  it("does not mark legacy string rawOutput skill failures as loaded", () => {
+  it("renders canonical skill failures", () => {
     const skill = getSkillRenderData(
       makeCall({
         toolName: "Skill",
         input: {
-          rawInput: {
-            skill: "init"
-          }
+          skill: "init"
         },
         output: {
-          rawOutput: "Failed to load skill: init"
+          commandName: "init",
+          success: false
         }
       })
     );
@@ -865,12 +857,10 @@ function makeCall(
     summary: "",
     compactSummary: null,
     payload: null,
-    toolState: null,
     input: null,
     output: null,
     error: null,
     metadata: null,
-    content: null,
     locations: null,
     rendererKind: "default",
     approval: null,

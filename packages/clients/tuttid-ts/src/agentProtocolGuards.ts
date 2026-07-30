@@ -87,6 +87,8 @@ const workspaceAgentTurnCompletenessExemplar = {
   sourceGoalRevision: null,
   sourceGoalRepairEpoch: null,
   phase: "settled",
+  providerForkBindingAvailable: false,
+  providerForkBindingState: "recovery_required",
   outcome: "completed",
   error: { message: "" },
   fileChanges: null,

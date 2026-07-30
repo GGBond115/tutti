@@ -20,6 +20,9 @@ export interface AgentGUIProviderReadinessLabels {
   providerGateUnavailableTitle: string;
   providerGateUnavailableDescription: string;
   providerGateRetryAction: string;
+  providerGateRuntimeSelectionTitle: string;
+  providerGateRuntimeSelectionDescription: string;
+  providerGateRuntimeSelectionAction: string;
 }
 
 export function resolveAgentGUIProviderReadinessGateForView(input: {
@@ -74,6 +77,12 @@ export function resolveAgentGUIProviderReadinessContent(
         description: labels.providerGateComingSoonDescription,
         actionLabel: labels.providerGateComingSoonAction
       };
+    case "runtime_selection":
+      return {
+        title: labels.providerGateRuntimeSelectionTitle,
+        description: labels.providerGateRuntimeSelectionDescription,
+        actionLabel: labels.providerGateRuntimeSelectionAction
+      };
     case "unavailable":
       return {
         title: labels.providerGateUnavailableTitle,
@@ -91,6 +100,8 @@ export function resolveAgentGUIProviderReadinessAction(
       return "install";
     case "auth_required":
       return "login";
+    case "runtime_selection":
+      return "choose";
     case "unavailable":
       return "refresh";
     case "coming_soon":

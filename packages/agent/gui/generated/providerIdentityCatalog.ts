@@ -8,6 +8,7 @@ export const generatedProviderIdentityCatalog = [
     localeKey: "agentHost.agentGui.conversationFilterCodex",
     aliases: [],
     modelPlanProtocol: "openai",
+    statusKind: "codex_cli",
     target: {
       id: "local:codex",
       launchRefType: "local_cli",
@@ -26,7 +27,7 @@ export const generatedProviderIdentityCatalog = [
       unavailableDockOrderOffset: 0,
       developerLogs: true,
       defaultProviderEligible: true,
-      defaultProviderPriority: 1
+      defaultProviderPriority: 2
     }
   },
   {
@@ -36,6 +37,7 @@ export const generatedProviderIdentityCatalog = [
     localeKey: "agentHost.agentGui.conversationFilterClaudeCode",
     aliases: ["claude", "claude code"],
     modelPlanProtocol: "anthropic",
+    statusKind: "claude_cli",
     target: {
       id: "local:claude-code",
       launchRefType: "local_cli",
@@ -54,7 +56,7 @@ export const generatedProviderIdentityCatalog = [
       unavailableDockOrderOffset: 0,
       developerLogs: true,
       defaultProviderEligible: true,
-      defaultProviderPriority: 2
+      defaultProviderPriority: 3
     }
   },
   {
@@ -64,6 +66,7 @@ export const generatedProviderIdentityCatalog = [
     localeKey: "agentHost.agentGui.conversationFilterCursor",
     aliases: ["cursor-agent", "cursor agent", "cursor-cli"],
     modelPlanProtocol: "",
+    statusKind: "generic_cli",
     target: {
       id: "local:cursor",
       launchRefType: "local_cli",
@@ -82,7 +85,7 @@ export const generatedProviderIdentityCatalog = [
       unavailableDockOrderOffset: 0,
       developerLogs: true,
       defaultProviderEligible: true,
-      defaultProviderPriority: 3
+      defaultProviderPriority: 4
     }
   },
   {
@@ -92,11 +95,12 @@ export const generatedProviderIdentityCatalog = [
     localeKey: "agentHost.agentGui.conversationFilterTutti",
     aliases: ["tutti agent"],
     modelPlanProtocol: "openai",
+    statusKind: "generic_cli",
     target: {
       id: "local:tutti-agent",
       launchRefType: "local_cli",
-      enabled: false,
-      sortOrder: 40
+      enabled: true,
+      sortOrder: 5
     },
     desktop: {
       managed: true,
@@ -109,8 +113,8 @@ export const generatedProviderIdentityCatalog = [
       refreshOnAccountChange: true,
       unavailableDockOrderOffset: 0,
       developerLogs: true,
-      defaultProviderEligible: false,
-      defaultProviderPriority: 0
+      defaultProviderEligible: true,
+      defaultProviderPriority: 1
     }
   },
   {
@@ -120,6 +124,7 @@ export const generatedProviderIdentityCatalog = [
     localeKey: "agentHost.agentGui.conversationFilterOpenCode",
     aliases: ["open-code", "open code", "opencode-ai", "opencode_ai"],
     modelPlanProtocol: "openai",
+    statusKind: "opencode_cli",
     target: {
       id: "local:opencode",
       launchRefType: "local_cli",
@@ -138,7 +143,7 @@ export const generatedProviderIdentityCatalog = [
       unavailableDockOrderOffset: 0,
       developerLogs: false,
       defaultProviderEligible: true,
-      defaultProviderPriority: 4
+      defaultProviderPriority: 5
     }
   },
   {
@@ -148,6 +153,7 @@ export const generatedProviderIdentityCatalog = [
     localeKey: "agentHost.agentGui.conversationFilterNexight",
     aliases: ["tutti"],
     modelPlanProtocol: "",
+    statusKind: "generic_cli",
     target: {
       id: "local:nexight",
       launchRefType: "local_cli",
@@ -176,6 +182,7 @@ export const generatedProviderIdentityCatalog = [
     localeKey: "agentHost.agentGui.conversationFilterOpenClaw",
     aliases: ["open-claw"],
     modelPlanProtocol: "",
+    statusKind: "generic_cli",
     target: {
       id: "local:openclaw",
       launchRefType: "local_cli",

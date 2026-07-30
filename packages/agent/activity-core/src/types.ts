@@ -58,8 +58,6 @@ export type AgentActivitySessionKind = "root" | "child";
 export interface AgentActivitySessionLifecycleCapabilities {
   fork: boolean;
   forkThroughTurn: boolean;
-  forkThroughTurnIds?: string[];
-  forkThroughTurnIdsKnown?: boolean;
 }
 
 export interface AgentActivitySessionForkLineage {
@@ -98,6 +96,12 @@ export interface AgentActivitySession {
   permissionConfig: AgentActivitySessionPermissionConfig;
   capabilities: AgentActivitySessionCapabilities | null;
   lifecycleCapabilities: AgentActivitySessionLifecycleCapabilities;
+  /**
+   * True only when lifecycle capabilities came from an authoritative Session
+   * detail projection. Lightweight rail/list projections intentionally leave
+   * provider-backed lifecycle capabilities unresolved.
+   */
+  lifecycleCapabilitiesProjected?: boolean;
   forkedFrom: AgentActivitySessionForkLineage | null;
   usage: AgentActivitySessionUsage | null;
   goal: AgentActivitySessionGoal | null;
@@ -159,6 +163,7 @@ export interface AgentActivityRenameSessionInput {
   workspaceId: string;
   agentSessionId: string;
   title: string;
+  signal?: AbortSignal;
 }
 
 export interface AgentActivityPresence {
@@ -510,6 +515,11 @@ export type AgentActivityTurnOutcome =
   | "canceled"
   | "interrupted";
 
+export type AgentActivityProviderForkBindingState =
+  | "bound"
+  | "recovery_required"
+  | "unavailable";
+
 /**
  * Durable provenance assigned when the Turn is created. Historical Turns must
  * remain `legacy_unknown`; clients must never infer an origin from later state.
@@ -528,6 +538,10 @@ export interface AgentActivityCompletedCommand {
 
 export interface AgentActivityTurn {
   agentSessionId: string;
+  /** Whether the exact provider Turn binding is already durably persisted. */
+  providerForkBindingAvailable?: boolean;
+  /** Distinguishes a bound Turn from one that may enter on-demand recovery. */
+  providerForkBindingState?: AgentActivityProviderForkBindingState;
   /** Audit-only capability provenance for the turn; never current mode state. */
   capabilityRefs?: readonly AgentActivityCapabilityReference[];
   completedCommand?: AgentActivityCompletedCommand | null;
@@ -630,6 +644,7 @@ export interface AgentActivityTurnCancelResponse {
 
 export interface AgentActivityCancelTurnInput {
   agentSessionId: string;
+  signal?: AbortSignal;
   turnId: string;
   workspaceId: string;
 }

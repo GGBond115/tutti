@@ -4,9 +4,57 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 )
+
+func TestNormalizedApprovalInputCanonicalizesNestedToolCall(t *testing.T) {
+	t.Parallel()
+
+	input := normalizedApprovalInput(map[string]any{
+		"toolCallId": "tool-1",
+		"title":      "Edit",
+		"kind":       "edit",
+		"status":     "pending",
+		"rawInput": map[string]any{
+			"file_path": "/workspace/app.ts",
+		},
+		"content": []any{
+			map[string]any{
+				"type":    "diff",
+				"path":    "/workspace/app.ts",
+				"oldText": "before",
+				"newText": "after",
+			},
+		},
+		"providerDebug": map[string]any{"large": "discarded"},
+	}, []map[string]any{{"optionId": "allow", "kind": "allow_once"}}, "request-1", nil)
+
+	toolCall := payloadMap(input, "toolCall")
+	if toolCall["toolCallId"] != "tool-1" || toolCall["kind"] != "edit" {
+		t.Fatalf("toolCall = %#v, want canonical identity", toolCall)
+	}
+	for _, key := range []string{"rawInput", "content", "providerDebug"} {
+		if _, exists := toolCall[key]; exists {
+			t.Fatalf("toolCall.%s retained: %#v", key, toolCall)
+		}
+	}
+	want := map[string]any{
+		"file_path": "/workspace/app.ts",
+		"filePath":  "/workspace/app.ts",
+		"oldString": "before",
+		"newString": "after",
+	}
+	for key, value := range want {
+		if !reflect.DeepEqual(input[key], value) {
+			t.Fatalf("input.%s = %#v, want %#v (input=%#v)", key, input[key], value, input)
+		}
+	}
+	if toolCall["input"] != nil {
+		t.Fatalf("toolCall duplicated canonical display input: %#v", toolCall)
+	}
+}
 
 func TestPendingInteractionTransitionProjectsSelfDescribingActions(t *testing.T) {
 	t.Parallel()

@@ -8,7 +8,9 @@ import (
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
+	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
 	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	eventstreamservice "github.com/tutti-os/tutti/services/tuttid/service/eventstream"
 )
 
 func TestPublishPersistedTurnStateObservesOnlyCanonicalSettlement(t *testing.T) {
@@ -112,8 +114,70 @@ func TestGeneratedWorkspaceAgentTurnCoversAllFields(t *testing.T) {
 		SettledAtUnixMS:        1717200001000,
 		CreatedAtUnixMS:        1717200000000,
 		UpdatedAtUnixMS:        1717200001000,
+		RootProviderTurnID:     "provider-turn-1",
 	})
 	assertGeneratedFieldsPopulated(t, projected)
+}
+
+func TestGeneratedWorkspaceAgentTurnMarksSettledMissingBindingForRecovery(t *testing.T) {
+	t.Parallel()
+
+	for _, rootProviderTurnID := range []string{"", "turn-1"} {
+		rootProviderTurnID := rootProviderTurnID
+		t.Run(rootProviderTurnID, func(t *testing.T) {
+			t.Parallel()
+			projected := GeneratedWorkspaceAgentTurn(agentactivitybiz.Turn{
+				AgentSessionID:     "session-1",
+				TurnID:             "turn-1",
+				RootProviderTurnID: rootProviderTurnID,
+				Phase:              agentactivitybiz.TurnPhaseSettled,
+			})
+			if projected.ProviderForkBindingAvailable {
+				t.Fatal("provider fork binding available = true, want false before recovery")
+			}
+			if projected.ProviderForkBindingState !=
+				tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateRecoveryRequired {
+				t.Fatalf(
+					"provider fork binding state = %q, want recovery_required",
+					projected.ProviderForkBindingState,
+				)
+			}
+		})
+	}
+}
+
+func TestGeneratedTurnUpdatePayloadPassesEventstreamCatalog(t *testing.T) {
+	t.Parallel()
+
+	service := eventstreamservice.NewService(eventstreamservice.DefaultCatalog(), nil)
+	publisher := eventstreamservice.AgentActivityPublisher{Service: service}
+	turn := agentactivitybiz.Turn{
+		WorkspaceID:        "ws-1",
+		AgentSessionID:     "session-1",
+		TurnID:             "turn-1",
+		Origin:             agentactivitybiz.TurnOriginUserPrompt,
+		Phase:              agentactivitybiz.TurnPhaseSettled,
+		Outcome:            agentactivitybiz.TurnOutcomeCompleted,
+		StartedAtUnixMS:    1717200000000,
+		SettledAtUnixMS:    1717200001000,
+		UpdatedAtUnixMS:    1717200001000,
+		RootProviderTurnID: "provider-turn-1",
+	}
+
+	if err := publisher.PublishAgentActivityUpdated(
+		context.Background(),
+		turn.WorkspaceID,
+		turn.AgentSessionID,
+		"turn_update",
+		activityTurnUpdateEventPayload(
+			turn.WorkspaceID,
+			turn.AgentSessionID,
+			turn,
+			turn.UpdatedAtUnixMS,
+		),
+	); err != nil {
+		t.Fatalf("generated turn_update payload failed eventstream validation: %v", err)
+	}
 }
 
 func TestGeneratedWorkspaceAgentTurnOmitsErrorForCanceledOutcome(t *testing.T) {

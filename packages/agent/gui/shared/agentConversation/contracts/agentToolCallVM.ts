@@ -37,12 +37,10 @@ export interface AgentToolCallVM {
   summary: string;
   compactSummary: string | null;
   payload: Record<string, unknown> | null;
-  toolState: Record<string, unknown> | null;
   input: Record<string, unknown> | null;
   output: Record<string, unknown> | null;
   error: Record<string, unknown> | null;
   metadata: Record<string, unknown> | null;
-  content: unknown[] | null;
   locations: unknown[] | null;
   rendererKind: AgentToolRendererKind;
   approval: AgentApprovalItemVM | null;

@@ -65,7 +65,12 @@ func TestAutomationRuleFiresFromLiveRootProviderTurnSettlement(t *testing.T) {
 	automation := &Service{Store: rules, Executor: recordingExecutor{calls: calls}, Usage: staticUsage{}}
 
 	projection := agentservice.NewActivityProjection(store)
-	projection.SetRootTurnSettleStateObserver(automation)
+	if err := projection.ConfigureSessionStateObservers(agentservice.SessionStateObserverRegistration{
+		Observer:            automation,
+		RootTurnSettlements: agentservice.RootTurnSettlementsObserve,
+	}); err != nil {
+		t.Fatalf("ConfigureSessionStateObservers() error = %v", err)
+	}
 
 	const (
 		workspaceID = "ws"
@@ -163,7 +168,12 @@ func TestAutomationRuleFiresOnceFromCancelRuntimeOperationSettlement(t *testing.
 
 	projection := agentservice.NewActivityProjection(store)
 	projection.SetPublisher(noopActivityPublisher{})
-	projection.SetRootTurnSettleStateObserver(automation)
+	if err := projection.ConfigureSessionStateObservers(agentservice.SessionStateObserverRegistration{
+		Observer:            automation,
+		RootTurnSettlements: agentservice.RootTurnSettlementsObserve,
+	}); err != nil {
+		t.Fatalf("ConfigureSessionStateObservers() error = %v", err)
+	}
 
 	const (
 		workspaceID = "ws"

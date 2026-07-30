@@ -49,17 +49,9 @@ export function WorkspaceAccountMenu({
   signedOutPresentation = "signInButton",
   workspaceId
 }: WorkspaceAccountMenuProps) {
-  const { state: workspaceSettingsState } = useWorkspaceSettingsService();
-  const tuttiAgentEnabled =
-    workspaceSettingsState.tuttiAgentSwitchEnabled === true;
-
-  if (!tuttiAgentEnabled) {
-    return null;
-  }
-
   return (
     <WorkspaceAccountMenuEnabled
-      commerceEnabled={tuttiAgentEnabled}
+      commerceEnabled
       showLeadingDivider={showLeadingDivider}
       signedOutPresentation={signedOutPresentation}
       workspaceId={workspaceId}
@@ -294,7 +286,6 @@ type WorkspaceAccountMenuLabels = CommerceMenuLabels & {
   signIn: string;
   signOut: string;
   rewardToastTitle: string;
-  rewardToastDescription: string;
   rewardToastCreditsUnit: string;
   rewardToastClose: string;
 };
@@ -317,7 +308,6 @@ function useWorkspaceAccountMenuLabels(): WorkspaceAccountMenuLabels {
     unavailable: t("workspace.accountMenu.unavailable"),
     dataUnavailable: t("workspace.accountMenu.dataUnavailable"),
     rewardToastTitle: t("workspace.accountMenu.rewardToastTitle"),
-    rewardToastDescription: t("workspace.accountMenu.rewardToastDescription"),
     rewardToastCreditsUnit: t("workspace.accountMenu.rewardToastCreditsUnit"),
     rewardToastClose: t("workspace.accountMenu.rewardToastClose")
   };
@@ -397,7 +387,6 @@ const WorkspaceAccountMenuView = memo(function WorkspaceAccountMenuView({
             toast={accountMenuState.registrationCreditsToast}
             labels={{
               title: labels.rewardToastTitle,
-              description: labels.rewardToastDescription,
               creditsUnit: labels.rewardToastCreditsUnit,
               close: labels.rewardToastClose
             }}

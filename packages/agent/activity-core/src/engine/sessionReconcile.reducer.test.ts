@@ -4,6 +4,56 @@ import {
   createInitialSessionReconcileState,
   sessionReconcileReducer
 } from "./sessionReconcile.reducer.ts";
+import { selectEngineAuthoritativeHistoryRequirement } from "./sessionReconcile.selectors.ts";
+import { createInitialAgentSessionEngineState } from "./rootReducer.ts";
+
+test("an uncached initial read establishes a baseline without forcing full history", () => {
+  const requirement = selectEngineAuthoritativeHistoryRequirement(
+    createInitialAgentSessionEngineState(),
+    {
+      agentSessionId: "session-1",
+      observedHistoryRevision: 0
+    }
+  );
+  assert.deepEqual(requirement, {
+    appliedHistoryRevision: null,
+    minimumHistoryRevision: 0,
+    needsAuthoritativeMessages: false
+  });
+});
+
+test("cached messages without an applied revision require authoritative history", () => {
+  const initial = createInitialAgentSessionEngineState();
+  const requirement = selectEngineAuthoritativeHistoryRequirement(
+    {
+      ...initial,
+      sessionMessages: {
+        ...initial.sessionMessages,
+        messagesBySessionId: {
+          "session-1": [
+            {
+              agentSessionId: "session-1",
+              kind: "text",
+              messageId: "message-1",
+              occurredAtUnixMs: 1,
+              payload: {},
+              role: "user",
+              status: null,
+              turnId: "turn-1",
+              version: 1,
+              workspaceId: "workspace-1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      agentSessionId: "session-1",
+      observedHistoryRevision: 0
+    }
+  );
+  assert.equal(requirement.needsAuthoritativeMessages, true);
+});
 
 test("activity observation derives reconcile scope inside the engine", () => {
   const result = reduce(createInitialSessionReconcileState(), {
@@ -28,6 +78,76 @@ test("activity observation derives reconcile scope inside the engine", () => {
   ]);
 });
 
+test("streaming message gaps coalesce into one delayed reconcile and one trailing read", () => {
+  const observation = {
+    agentSessionId: "session-1",
+    eventType: "message_update",
+    hasCachedSession: true,
+    hasInlineMessages: true,
+    inlineApplied: false,
+    type: "session/activityObserved" as const,
+    workspaceId: "workspace-1"
+  };
+  let result = reduce(createInitialSessionReconcileState(), observation);
+
+  assert.deepEqual(result.commands, [
+    {
+      delayMs: 50,
+      expiryId: "session:streaming-message-reconcile:session-1",
+      type: "engine/scheduleExpiryAfter"
+    }
+  ]);
+  result = reduce(result.state, observation);
+  assert.equal(result.commands.length, 0);
+
+  result = reduce(result.state, {
+    dueAtUnixMs: 50,
+    expiryId: "session:streaming-message-reconcile:session-1",
+    type: "engine/intentExpired"
+  });
+  assert.equal(result.commands[0]?.type, "session/reconcile");
+
+  result = reduce(result.state, observation);
+  assert.equal(result.commands.length, 0);
+
+  result = reduce(result.state, {
+    commandId: "session:reconcile:session-1:1",
+    commandType: "session/reconcile",
+    outcome: "succeeded",
+    type: "engine/commandResult"
+  });
+  assert.deepEqual(result.commands, [
+    {
+      delayMs: 50,
+      expiryId: "session:streaming-message-reconcile:session-1",
+      type: "engine/scheduleExpiryAfter"
+    }
+  ]);
+});
+
+test("an explicit message reconcile bypasses a pending streaming delay", () => {
+  const deferred = reduce(createInitialSessionReconcileState(), {
+    agentSessionId: "session-1",
+    eventType: "message_update",
+    hasCachedSession: true,
+    hasInlineMessages: true,
+    inlineApplied: false,
+    type: "session/activityObserved",
+    workspaceId: "workspace-1"
+  });
+
+  const immediate = reduce(deferred.state, {
+    agentSessionId: "session-1",
+    needsMessages: true,
+    needsState: false,
+    type: "session/reconcileRequested",
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(immediate.commands[0]?.type, "engine/cancelExpiry");
+  assert.equal(immediate.commands[1]?.type, "session/reconcile");
+});
+
 test("inline-applied activity does not schedule redundant transport work", () => {
   const result = reduce(createInitialSessionReconcileState(), {
     type: "session/activityObserved",
@@ -39,6 +159,30 @@ test("inline-applied activity does not schedule redundant transport work", () =>
     workspaceId: "workspace-1"
   });
   assert.equal(result.commands.length, 0);
+});
+
+test("terminal turn observation always verifies state and messages", () => {
+  const result = reduce(createInitialSessionReconcileState(), {
+    type: "session/activityObserved",
+    agentSessionId: "session-1",
+    eventType: "turn_update",
+    hasCachedSession: true,
+    hasInlineMessages: true,
+    inlineApplied: true,
+    terminalTurn: true,
+    workspaceId: "workspace-1"
+  });
+  assert.deepEqual(result.commands, [
+    {
+      agentSessionId: "session-1",
+      commandId: "session:reconcile:session-1:1",
+      live: true,
+      scope: "state_and_messages",
+      timeoutMs: 30_000,
+      type: "session/reconcile",
+      workspaceId: "workspace-1"
+    }
+  ]);
 });
 
 test("reconcile requests merge while one command is in flight and rerun once", () => {
@@ -141,15 +285,20 @@ test("failed reconcile preserves typed error details for exact recovery", () => 
 
   assert.deepEqual(state.recordsBySessionId["session-1"], {
     agentSessionId: "session-1",
+    appliedHistoryRevision: null,
+    authoritativeMessagesRequired: false,
     errorCode: "session.not_found",
     errorMessage: "Session not found.",
     inFlightCommandId: null,
     inFlightLive: false,
     inFlightScope: null,
+    messageRefreshScheduled: false,
     messagesHydrated: false,
     pendingLive: false,
     pendingMessages: false,
+    pendingMessagesImmediate: false,
     pendingState: false,
+    requiredHistoryRevision: null,
     workspaceId: "workspace-1"
   });
 });
@@ -247,6 +396,132 @@ test("live Turn provenance forces state hydration after a failed reconcile", () 
   if (command?.type !== "session/reconcile") return;
   assert.equal(command.live, true);
   assert.equal(command.scope, "state_and_messages");
+});
+
+test("required history revision stays pending until a composite authoritative snapshot applies", () => {
+  let result = reduce(createInitialSessionReconcileState(), {
+    type: "session/reconcileRequested",
+    agentSessionId: "session-1",
+    needsMessages: false,
+    needsState: false,
+    requiredHistoryRevision: 4,
+    workspaceId: "workspace-1"
+  });
+  assert.deepEqual(result.commands, [
+    {
+      agentSessionId: "session-1",
+      authoritativeMessages: true,
+      commandId: "session:reconcile:session-1:1",
+      live: false,
+      requiredHistoryRevision: 4,
+      scope: "state_and_messages",
+      timeoutMs: 30_000,
+      type: "session/reconcile",
+      workspaceId: "workspace-1"
+    }
+  ]);
+
+  result = reduce(result.state, {
+    agentSessionId: "session-1",
+    childSessions: [],
+    historyRevision: 4,
+    messages: [],
+    session: {
+      agentSessionId: "session-1",
+      workspaceId: "workspace-1"
+    } as never,
+    turns: [],
+    type: "session/historyAuthoritativeSnapshotReceived",
+    workspaceId: "workspace-1"
+  });
+  assert.equal(
+    result.state.recordsBySessionId["session-1"]?.appliedHistoryRevision,
+    4
+  );
+  assert.equal(
+    result.state.recordsBySessionId["session-1"]?.authoritativeMessagesRequired,
+    false
+  );
+
+  result = reduce(result.state, {
+    type: "engine/commandResult",
+    commandId: "session:reconcile:session-1:1",
+    commandType: "session/reconcile",
+    outcome: "succeeded"
+  });
+  assert.equal(result.commands.length, 0);
+});
+
+test("a history checkpoint initializes a complete inactive reconcile record", () => {
+  const result = reduce(createInitialSessionReconcileState(), {
+    agentSessionId: "session-1",
+    historyRevision: 4,
+    type: "session/historyRevisionObserved",
+    workspaceId: "workspace-1"
+  });
+
+  assert.deepEqual(result.state.recordsBySessionId["session-1"], {
+    agentSessionId: "session-1",
+    appliedHistoryRevision: 4,
+    authoritativeMessagesRequired: false,
+    errorCode: null,
+    errorMessage: null,
+    inFlightCommandId: null,
+    inFlightLive: false,
+    inFlightScope: null,
+    messageRefreshScheduled: false,
+    messagesHydrated: false,
+    pendingLive: false,
+    pendingMessages: false,
+    pendingMessagesImmediate: false,
+    pendingState: false,
+    requiredHistoryRevision: null,
+    workspaceId: "workspace-1"
+  });
+});
+
+test("authoritative demand arriving during an ordinary read retries exactly once after failure", () => {
+  let result = reduce(createInitialSessionReconcileState(), {
+    type: "session/reconcileRequested",
+    agentSessionId: "session-1",
+    needsMessages: true,
+    needsState: true,
+    workspaceId: "workspace-1"
+  });
+  result = reduce(result.state, {
+    type: "session/reconcileRequested",
+    agentSessionId: "session-1",
+    authoritativeMessages: true,
+    needsMessages: false,
+    needsState: false,
+    requiredHistoryRevision: 2,
+    workspaceId: "workspace-1"
+  });
+  assert.equal(result.commands.length, 0);
+
+  result = reduce(result.state, {
+    type: "engine/commandResult",
+    commandId: "session:reconcile:session-1:1",
+    commandType: "session/reconcile",
+    errorMessage: "revision changed",
+    outcome: "failed"
+  });
+  assert.equal(result.commands[0]?.type, "session/reconcile");
+  assert.equal(
+    result.commands[0]?.type === "session/reconcile"
+      ? result.commands[0].authoritativeMessages
+      : false,
+    true
+  );
+
+  result = reduce(result.state, {
+    type: "engine/commandResult",
+    commandId: "session:reconcile:session-1:2",
+    commandType: "session/reconcile",
+    errorMessage: "still unavailable",
+    outcome: "failed"
+  });
+  assert.equal(result.commands.length, 0);
 });
 
 function reduce(

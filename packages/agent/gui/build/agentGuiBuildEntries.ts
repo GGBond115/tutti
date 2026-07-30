@@ -21,6 +21,7 @@ export const agentGUIBuildEntries = {
   "context-mention-provider":
     "agent-gui/agentGuiNode/agentContextMentionProvider.ts",
   "agent-title-text": "shared/utils/agentTitleText.ts",
+  "activity-list-projection": "activity-list-projection.ts",
   "provider-identity": "provider-identity.ts",
   "provider-icons": "provider-icons.ts",
   "i18n/index": "i18n/index.ts",
@@ -70,6 +71,7 @@ export const agentGUIDtsEntryGroups = [
     "i18n/index",
     "mention-file-presentation",
     "agent-title-text",
+    "activity-list-projection",
     "workspace-agent-generated-files",
     "conversation-message-controller",
     "conversation-rail-controller",

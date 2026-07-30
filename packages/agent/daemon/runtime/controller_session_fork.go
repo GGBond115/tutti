@@ -51,14 +51,6 @@ func (c *Controller) Fork(
 			DeliveryDisposition: SessionForkDeliveryNotStarted,
 		}, err
 	}
-	key := sessionKey(source.RoomID, source.AgentSessionID)
-	c.mu.Lock()
-	_, active := c.turns[key]
-	c.mu.Unlock()
-	if active {
-		return SessionForkResult{DeliveryDisposition: SessionForkDeliveryNotStarted}, ErrSessionActiveTurn
-	}
-
 	forkAdapter, ok := adapter.(SessionForkAdapter)
 	if !ok {
 		return SessionForkResult{DeliveryDisposition: SessionForkDeliveryNotStarted}, ErrSessionForkUnsupported
@@ -77,6 +69,23 @@ func (c *Controller) Fork(
 	input.Source = source
 	input.ProviderTurnID = providerTurnID
 	return forkAdapter.Fork(ctx, input)
+}
+
+func (c *Controller) RecoverProviderTurnBinding(
+	ctx context.Context,
+	input ProviderTurnBindingRecoveryInput,
+) (ProviderTurnBindingRecoveryResult, error) {
+	source, adapter, err := c.sessionForkSource(ctx, input.Source)
+	if err != nil {
+		return ProviderTurnBindingRecoveryResult{}, err
+	}
+	recovery, ok := adapter.(ProviderTurnBindingRecoveryAdapter)
+	if !ok {
+		return ProviderTurnBindingRecoveryResult{},
+			ErrSessionForkUnsupported
+	}
+	input.Source = source
+	return recovery.RecoverProviderTurnBinding(ctx, input)
 }
 
 func (c *Controller) sessionForkSource(

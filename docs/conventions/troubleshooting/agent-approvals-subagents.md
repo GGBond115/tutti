@@ -84,6 +84,63 @@ session-level child summaries.
   after receiving the approval response, then stress the test and assert the
   call-resolution event always precedes the Turn terminal.
 
+### Kimi Code AskUserQuestion waits without showing a question card
+
+- Symptom: the Turn says it is waiting for an answer, and the transcript may
+  contain an `AskUserQuestion` tool row, but AgentGUI shows no selectable
+  question card.
+- A second failure can appear after the card is fixed: AgentGUI shows
+  `回答：<choice>`, but Kimi's tool output contains `answers: {}` and says the
+  user dismissed the question.
+- Check: compare the pending canonical Interaction with the matching tool-call
+  message. The broken signature has `kind=question` and
+  `tool_name=AskUserQuestion`, but its `input.questions` is absent while the
+  same-Turn tool row contains the complete questions and options.
+- For the empty-answer form, inspect the response to
+  `session/request_permission`. Kimi expects
+  `outcome.outcome=selected` with
+  `outcome.optionId=q0_opt_<index>`; a renderer-shaped
+  `outcome.outcome=submit` with an answer payload is treated as cancellation.
+- Cause: Kimi Code can send `session/request_permission` with the request
+  identity and selectable outcomes before sending the matching `tool_call`
+  update with the question body. A synchronous permission handler blocks that
+  later frame; publishing the partial Interaction first also makes the missing
+  input permanent because pending Interaction input is immutable. After the
+  user answers, ACP still requires one of the provider's opaque option IDs;
+  canonical GUI answer labels are not themselves a valid permission response.
+- Fix: keep the ACP reader active while the provider waits, correlate the two
+  frames by exact Turn and `toolCallId`, and publish `interaction.requested`
+  only after the question input is complete. Hide the same incomplete request
+  from `SessionState.PendingInteractive`; otherwise session-state reconciliation
+  can persist an immutable partial Interaction before the event is ready. Keep
+  response delivery and local call resolution ahead of the provider terminal
+  caused by that response.
+  For Kimi Code 0.29.x's one-shot question bridge, require exactly one
+  single-select question whose labels map one-to-one to the request's
+  non-rejection permission options; mark it option-only and fail the provider
+  request for multi-question, multi-select, free-text, malformed, duplicate,
+  or mismatched shapes. Preserve the accepted canonical answer payload
+  locally, resolve the single scalar `answersByQuestionId[questionId]` value
+  against the request's permission options, and send ACP `outcome=selected`
+  with the matching `optionId`. Never use the display-oriented flat `answers`
+  list as a routing fallback. Do not generalize this one-shot limit to ACP
+  providers that emit a correlated sequence of question permission requests;
+  those require an explicit multi-request transaction before Tutti may expose
+  a richer question surface.
+- Validate: replay permission-before-tool-input ordering, assert exactly one
+  question Interaction with the complete question/options, submit an answer,
+  assert the provider receives `selected` with the expected opaque option ID,
+  and assert `call.completed` precedes the provider Turn terminal. Also replay
+  multi-question and multi-select inputs and assert no
+  `interaction.requested` is published, plus submit an ambiguous canonical
+  answer and assert the Interaction is superseded rather than completed.
+  Repeat under the Go race detector.
+- References:
+  [acp_pending.go](../../../packages/agent/daemon/runtime/acp_pending.go),
+  [standard_acp_turn.go](../../../packages/agent/daemon/runtime/standard_acp_turn.go),
+  [standard_acp_stream.go](../../../packages/agent/daemon/runtime/standard_acp_stream.go),
+  [standard_acp_events.go](../../../packages/agent/daemon/runtime/standard_acp_events.go)
+
 ### Claude SDK ExitPlanMode is reported as interrupted after plan completion
 
 - Symptom: the plan is visible, but the approval row becomes interrupted or
@@ -164,10 +221,27 @@ session-level child summaries.
     provider turn before emitting the child terminal. The expected normalized
     order is `turn_started` and then `task_completed`; the later root assistant
     confirms that reserved provider turn instead of opening another one.
-  - If root output does not begin within 30 seconds, complete the reservation
-    with `stop_reason=background_agent_continuation_timeout`, interrupt the
-    pending SDK continuation, and drop its later output. Cancellation disarms
-    the same timeout and preserves the durable canceled outcome.
+  - Identify background follow-up results from
+    `origin.kind=task-notification`. Do not compare task-notification and result
+    counts: the SDK may coalesce queued follow-ups.
+  - If the background level or task notifications make continuation pending
+    before the ordinary root result, retain the original root Turn until
+    session idle. Do not emit `turn_completed(root)` followed by
+    `turn_started(synthetic)`: with every child already terminal, durable state
+    can settle between those events and must reject the late provider start.
+  - Settle normally on `session_state_changed: idle`, after the SDK has flushed
+    its held-back result and exited the background-agent loop. Do not start a
+    post-result settlement timeout: queued follow-ups may begin several seconds
+    apart, so interrupting that wait converts valid work into provider errors.
+  - If root output does not begin within 30 seconds, emit the
+    `continuation_delayed` warning, complete the reservation with
+    `stop_reason=background_agent_continuation_timeout`, interrupt the pending
+    SDK query, and drop that continuation's later output. Cancellation disarms
+    the same timeout and the pending background-task quiescence timer, and
+    preserves the durable canceled outcome.
+  - Record a failed or canceled root result in the background-task lifecycle
+    owner. A later empty level or task notification may finish child state, but
+    must not reserve another synthetic root Turn.
 
   Do not infer native SDK order from persisted message timestamps. Use the
   per-session lifecycle sequence to verify that the adapter-established
@@ -175,9 +249,12 @@ session-level child summaries.
   output either confirms that provider turn or reaches the bounded timeout.
 
 - Validate: test both event orders—root terminal before the last child and last
-  child before root terminal—plus continuation start, timeout, cancellation,
-  and guidance during the reserved window. Confirm that composer availability
-  follows only the durable canonical root.
+  child before root terminal—plus coalesced notifications/results, session
+  idle, delayed idle without early settlement, continuation start, timeout,
+  late-output rejection, cancellation during the quiescence grace, late
+  empty-level/task-notification signals after root failure, and guidance during
+  the reserved window. Confirm that composer availability follows only the
+  durable canonical root.
 
 ### Claude child card shows a generic Agent title and no task detail
 
@@ -195,10 +272,12 @@ session-level child summaries.
   result, while the child session keeps its early generic title.
 - Fix: keep every lifecycle event for the delegation tool call on its launching
   parent turn; use only an explicit nested `parent_tool_use_id` to select a
-  parent child turn. Merge a later real description into the existing child
-  session and publish a normal child title update. The compact card may still
-  show only the latest child activity, but its name and task strip come from
-  canonical child/parent data rather than that activity label.
+  parent child turn. Resolve that same owner before applying the closed-Turn
+  fence; checking child aliases first can discard a valid parent completion
+  after the child settles. Merge a later real description into the existing
+  child session and publish a normal child title update. The compact card may
+  still show only the latest child activity, but its name and task strip come
+  from canonical child/parent data rather than that activity label.
 - Validate: start with a generic Agent event, finish the same call with a full
   description and prompt, then settle the root provider turn. Assert one
   completed parent call with full input, one updated child title, no synthetic

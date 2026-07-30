@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1654,6 +1655,98 @@ func TestAppFactoryServiceFailedTurnOutcomeFailsGeneratingJob(t *testing.T) {
 	}
 	if job.FailureReason != state.LastError {
 		t.Fatalf("failure reason = %q, want %q", job.FailureReason, state.LastError)
+	}
+}
+
+func TestAppFactoryServiceCanonicalRootTurnSettlementUpdatesGeneratingJob(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		outcome    string
+		wantStatus workspacebiz.AppFactoryJobStatus
+	}{
+		{name: "completed starts validation", outcome: "completed", wantStatus: workspacebiz.AppFactoryJobStatusFailed},
+		{name: "failed marks failed", outcome: "failed", wantStatus: workspacebiz.AppFactoryJobStatusFailed},
+		{name: "canceled marks canceled", outcome: "canceled", wantStatus: workspacebiz.AppFactoryJobStatusCanceled},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			store := newAppFactoryStoreStub()
+			if err := store.PutAppFactoryJob(ctx, workspacebiz.AppFactoryJob{
+				AgentSessionID: "session-1",
+				AppID:          "app_1",
+				DraftDir:       t.TempDir(),
+				JobID:          "job-1",
+				Status:         workspacebiz.AppFactoryJobStatusGenerating,
+				WorkspaceID:    "ws-1",
+			}); err != nil {
+				t.Fatalf("PutAppFactoryJob() error = %v", err)
+			}
+			service := AppFactoryService{Store: store}
+			service.ObserveAgentSessionState(ctx, canonical.ReportSessionStateInput{
+				WorkspaceID:    "ws-1",
+				AgentSessionID: "session-1",
+				State: canonical.WorkspaceAgentSessionStateUpdate{
+					LastError: "provider failed",
+					Turn: &canonical.WorkspaceAgentTurnStateUpdate{
+						TurnID:  "turn-1",
+						Phase:   agentactivitybiz.TurnPhaseSettled,
+						Outcome: test.outcome,
+					},
+				},
+			}, canonical.ReportSessionStateReply{Accepted: true, StateApplied: true})
+
+			job := waitForAppFactoryJobStatus(t, store, "ws-1", "job-1", test.wantStatus)
+			if test.outcome == "completed" && strings.TrimSpace(job.ValidationResultJSON) == "" {
+				t.Fatal("completed root turn did not run validation")
+			}
+		})
+	}
+}
+
+func TestAppFactoryServiceSerializesDuplicateCompletedSettlements(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newAppFactoryStoreStub()
+	if err := store.PutAppFactoryJob(ctx, workspacebiz.AppFactoryJob{
+		AgentSessionID: "session-1",
+		AppID:          "app_1",
+		DraftDir:       t.TempDir(),
+		JobID:          "job-1",
+		Status:         workspacebiz.AppFactoryJobStatusGenerating,
+		WorkspaceID:    "ws-1",
+	}); err != nil {
+		t.Fatalf("PutAppFactoryJob() error = %v", err)
+	}
+	publisher := &workspaceAppFactoryPublisherStub{}
+	service := AppFactoryService{Store: store, Publisher: publisher}
+
+	var wg sync.WaitGroup
+	errorsByAttempt := make([]error, 2)
+	for attempt := range errorsByAttempt {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errorsByAttempt[attempt] = service.handleAgentSessionTerminalState(
+				ctx, "ws-1", "session-1", "completed", "",
+			)
+		}()
+	}
+	wg.Wait()
+
+	for attempt, err := range errorsByAttempt {
+		if err != nil {
+			t.Fatalf("settlement attempt %d error = %v", attempt, err)
+		}
+	}
+	if len(publisher.published) != 3 {
+		t.Fatalf("published updates = %d, want one preparing, one validating, and one validation failure", len(publisher.published))
 	}
 }
 

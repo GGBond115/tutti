@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { isValidElement, useState, type ReactNode } from "react";
 import { Gauge, Wrench } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@tutti-os/ui-system";
 import { MoreHorizontalIcon } from "@tutti-os/ui-system/icons";
@@ -30,6 +30,10 @@ interface AgentGUIConfigMenuProps {
   onOpenAgentSettings: () => void;
 }
 
+export function AgentGUIConfigAccountFallbackSuppressed(): null {
+  return null;
+}
+
 export function AgentGUIConfigMenu({
   accountContent,
   environmentSetupVisible,
@@ -57,8 +61,15 @@ export function AgentGUIConfigMenu({
     ? labels.slashStatusProviderAccount(provider.trim())
     : null;
   const accountTitle = providerDisplayTitle ?? labels.slashStatusAccount;
+  const accountFallbackSuppressed =
+    isValidElement(accountContent) &&
+    accountContent.type === AgentGUIConfigAccountFallbackSuppressed;
   const hasAccountContent =
-    Boolean(accountContent) && typeof accountContent !== "boolean";
+    !accountFallbackSuppressed &&
+    Boolean(accountContent) &&
+    typeof accountContent !== "boolean";
+  const providerAccountFallbackVisible =
+    !accountFallbackSuppressed && !hasAccountContent;
   return (
     <Popover
       open={open}
@@ -99,7 +110,7 @@ export function AgentGUIConfigMenu({
               </div>
             </>
           ) : null}
-          {!hasAccountContent &&
+          {providerAccountFallbackVisible &&
           providerScopedActionsVisible &&
           providerAuthAccountLabel ? (
             <>
@@ -132,7 +143,7 @@ export function AgentGUIConfigMenu({
               ) : null}
             </>
           ) : null}
-          {!hasAccountContent &&
+          {providerAccountFallbackVisible &&
           providerScopedActionsVisible &&
           (slashStatusLimits.length > 0 ||
             slashStatusUsageAttempted ||

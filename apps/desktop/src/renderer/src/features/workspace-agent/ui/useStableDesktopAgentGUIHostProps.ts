@@ -23,6 +23,7 @@ export type DesktopAgentGUIHostProps = {
     AgentGUIProps["hostCapabilities"],
     | "referenceProvenanceFilterEnabled"
     | "sessionInputHistoryEnabled"
+    | "sessionForkEnabled"
     | "capabilityMenuState"
     | "visibleErrorPresentationOverrides"
     | "comingSoonProviders"
@@ -47,6 +48,7 @@ export type DesktopAgentGUIHostProps = {
     | "onUpdateNode"
     | "onRememberComposerDefaults"
     | "onEngagementEvent"
+    | "onConversationRailLayoutChange"
     | "onOpenConversationWindow"
   >;
   renderSlots: Pick<
@@ -92,8 +94,7 @@ export function useStableDesktopAgentGUIHostProps({
     runtimeRequests: {
       composerAppend: nextRuntimeRequests.composerAppend,
       composerFocusSequence: nextRuntimeRequests.composerFocusSequence,
-      newConversationSequence: nextRuntimeRequests.newConversationSequence,
-      sessionAction: nextRuntimeRequests.sessionAction,
+      workbench: nextRuntimeRequests.workbench,
       openSession: nextRuntimeRequests.openSession,
       prefillPrompt: nextRuntimeRequests.prefillPrompt,
       agentStatusController: nextRuntimeRequests.agentStatusController
@@ -103,6 +104,7 @@ export function useStableDesktopAgentGUIHostProps({
         nextHostCapabilities.referenceProvenanceFilterEnabled,
       sessionInputHistoryEnabled:
         nextHostCapabilities.sessionInputHistoryEnabled,
+      sessionForkEnabled: nextHostCapabilities.sessionForkEnabled,
       capabilityMenuState: nextHostCapabilities.capabilityMenuState,
       visibleErrorPresentationOverrides:
         nextHostCapabilities.visibleErrorPresentationOverrides,
@@ -127,6 +129,8 @@ export function useStableDesktopAgentGUIHostProps({
       onUpdateNode: nextHostActions.onUpdateNode,
       onRememberComposerDefaults: nextHostActions.onRememberComposerDefaults,
       onEngagementEvent: nextHostActions.onEngagementEvent,
+      onConversationRailLayoutChange:
+        nextHostActions.onConversationRailLayoutChange,
       onOpenConversationWindow: nextHostActions.onOpenConversationWindow
     },
     renderSlots: {

@@ -6,7 +6,6 @@ import { RegistrationCreditsToast } from "./RegistrationCreditsToast";
 const labels = {
   title: "Welcome credits",
   creditsUnit: "credits",
-  description: "Registration reward",
   close: "Close"
 };
 

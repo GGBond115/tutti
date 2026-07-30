@@ -56,6 +56,17 @@ func TestWorkbenchSnapshotFromGeneratedPreservesCanonicalFields(t *testing.T) {
 			},
 		},
 	}
+	normalizedFrames := map[string]tuttigenerated.WorkbenchNormalizedFrame{
+		"workspace-files": {X: 0, Y: 0, Width: 0.5, Height: 1},
+		"agent-a":         {X: 0.5, Y: 0, Width: 0.5, Height: 1},
+	}
+	lockedLayout := tuttigenerated.WorkbenchLockedLayout{
+		Preset: tuttigenerated.WorkbenchLayoutPreset{
+			Kind: tuttigenerated.WorkbenchLayoutPresetKind("row"),
+		},
+		NodeIDs:          []string{"workspace-files", "agent-a"},
+		NormalizedFrames: &normalizedFrames,
+	}
 
 	snapshot := WorkbenchSnapshotFromGenerated(tuttigenerated.WorkbenchSnapshot{
 		SchemaVersion: 1,
@@ -82,6 +93,7 @@ func TestWorkbenchSnapshotFromGeneratedPreservesCanonicalFields(t *testing.T) {
 		Spaces:        &spaces,
 		ActiveSpaceId: &activeSpaceID,
 		LayoutBasis:   &layoutBasis,
+		LockedLayout:  &lockedLayout,
 		Metadata:      &metadata,
 	})
 
@@ -102,6 +114,12 @@ func TestWorkbenchSnapshotFromGeneratedPreservesCanonicalFields(t *testing.T) {
 	}
 	if snapshot.LayoutBasis == nil || snapshot.LayoutBasis.SurfaceSize.Width != 1440 {
 		t.Fatalf("LayoutBasis = %#v, want surface width 1440", snapshot.LayoutBasis)
+	}
+	if snapshot.LockedLayout == nil || snapshot.LockedLayout.Preset.Kind != "row" {
+		t.Fatalf("LockedLayout = %#v, want row layout", snapshot.LockedLayout)
+	}
+	if snapshot.LockedLayout.NormalizedFrames["agent-a"].Width != 0.5 {
+		t.Fatalf("LockedLayout frames = %#v, want agent-a width 0.5", snapshot.LockedLayout.NormalizedFrames)
 	}
 	if len(snapshot.Nodes) != 1 {
 		t.Fatalf("nodes len = %d, want 1", len(snapshot.Nodes))

@@ -84,6 +84,13 @@ type SessionForkAdapter interface {
 	Fork(context.Context, SessionForkInput) (SessionForkResult, error)
 }
 
+type ProviderTurnBindingRecoveryAdapter interface {
+	RecoverProviderTurnBinding(
+		context.Context,
+		ProviderTurnBindingRecoveryInput,
+	) (ProviderTurnBindingRecoveryResult, error)
+}
+
 // TargetedCancelAdapter maps canonical root/child targets onto provider-native
 // handles. The controller supplies the root live session and never asks the
 // adapter to discover the durable child tree itself.
@@ -108,6 +115,71 @@ type ResolveInputBoundAdapter interface {
 
 type AsyncExecAdapter interface {
 	ExecAsync(context.Context, Session, []PromptContentBlock, string, string, EventSink, CommandSnapshotSink) error
+}
+
+// ProviderAcceptanceExecAdapter exposes the provider's exact acceptance
+// receipt without making canonical lifecycle depend on provider-specific
+// notifications arriving later through the ordinary report queue.
+type ProviderAcceptanceExecAdapter interface {
+	Adapter
+	ExecWithProviderAcceptance(
+		context.Context,
+		Session,
+		[]PromptContentBlock,
+		string,
+		string,
+		EventSink,
+		CommandSnapshotSink,
+		ProviderDispatchSink,
+	) ([]activityshared.Event, error)
+}
+
+type EffectiveHistoryTurn struct {
+	ID                  string
+	Status              string
+	ClientUserMessageID string
+}
+
+// EffectiveHistorySnapshot is the provider's authoritative thread membership
+// after a read or rollback. Canonical messages remain store-owned.
+type EffectiveHistorySnapshot struct {
+	ProviderSessionID string
+	Turns             []EffectiveHistoryTurn
+}
+
+type HistoryMutationResult struct {
+	Disposition DispatchDisposition
+	Snapshot    *EffectiveHistorySnapshot
+}
+
+type HistoryReplacementExecInput struct {
+	Content       []PromptContentBlock
+	DisplayPrompt string
+	TurnID        string
+}
+
+// ProviderDispatchSink reports the provider's direct operation outcome. A
+// successful operation that does not create a provider Turn uses
+// DispatchDispositionAppliedWithoutProviderTurn. Implementations must report
+// exactly once before a typed execution method returns.
+type ProviderDispatchSink func(ProviderDispatchResult)
+
+// EffectiveHistoryAdapter is the complete provider capability required by
+// edit-retry: authoritative history reads, rollback, and a fresh replacement
+// turn start with typed acceptance evidence. Shared code fails closed unless
+// the provider implements the entire seam.
+type EffectiveHistoryAdapter interface {
+	Adapter
+	ReadEffectiveHistory(context.Context, Session) (EffectiveHistorySnapshot, error)
+	RollbackLatestTurn(context.Context, Session) (HistoryMutationResult, error)
+	ExecHistoryReplacement(
+		context.Context,
+		Session,
+		HistoryReplacementExecInput,
+		EventSink,
+		CommandSnapshotSink,
+		ProviderDispatchSink,
+	) ([]activityshared.Event, error)
 }
 
 // RootProviderTurnLifecycleAdapter reports provider-turn lifecycle facts
@@ -188,6 +260,17 @@ type GoalProvenanceDurableSink interface {
 
 type GoalProvenanceDurableSinkAdapter interface {
 	SetGoalProvenanceDurableSink(GoalProvenanceDurableSink)
+}
+
+type ProviderGoalAdoptionRequest struct {
+	Fingerprint string
+	Goal        map[string]any
+}
+
+type ProviderGoalAdoptionSink func(context.Context, Session, ProviderGoalAdoptionRequest) (GoalProvenanceBinding, error)
+
+type ProviderGoalAdoptionSinkAdapter interface {
+	SetProviderGoalAdoptionSink(ProviderGoalAdoptionSink)
 }
 
 type ConfigOptionsUpdateSinkAdapter interface {

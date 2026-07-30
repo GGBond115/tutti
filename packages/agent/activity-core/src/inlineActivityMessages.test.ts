@@ -16,6 +16,8 @@ const completeTurnContract = {
   origin: "goal_continuation",
   outcome: "completed",
   phase: "settled",
+  providerForkBindingAvailable: false,
+  providerForkBindingState: "recovery_required",
   settledAtUnixMs: 2,
   sourceGoalOperationId: "goal-operation-contract",
   sourceGoalRepairEpoch: 3,

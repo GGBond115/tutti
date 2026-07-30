@@ -63,7 +63,7 @@ test("createDesktopHostPreferencesState initializes missing preferences with dar
         deletedAgentConversationRetentionDays: 30,
         appCatalogChannel: "production",
         browserUseConnectionMode: "isolated",
-        defaultAgentProvider: "codex",
+        defaultAgentProvider: "tutti-agent",
         featureFlags: {},
         workbenchShortcuts: defaultDesktopWorkbenchShortcuts,
         dockIconStyle: "default",
@@ -87,7 +87,7 @@ test("createDesktopHostPreferencesState initializes missing preferences with dar
   assert.equal(state.getAgentCliUpdateCheckEnabled(), true);
   assert.equal(state.getDockPlacement(), "bottom");
   assert.equal(state.getLocale(), "zh-CN");
-  assert.equal(state.getDefaultAgentProvider(), "codex");
+  assert.equal(state.getDefaultAgentProvider(), "tutti-agent");
   assert.deepEqual(state.getAgentGUIConversationRailCollapsedByProvider(), {});
   assert.equal(state.getBrowserUseConnectionMode(), "isolated");
   assert.equal(state.getSleepPreventionMode(), "never");

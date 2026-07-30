@@ -18,6 +18,12 @@ export interface AgentGUIComposerTargetData {
   targetId: string;
 }
 
+export interface AgentGUIActiveSessionTarget {
+  agentTargetId: string | null;
+  agentSessionId: string;
+  provider: AgentGUIProvider;
+}
+
 export interface OptimisticComposerTarget {
   agentSessionId: string;
   target: AgentGUIComposerTargetData;
@@ -48,6 +54,7 @@ export function composerTargetDataFromNodeData(
 
 export function composerTargetDataForConversation(input: {
   activeConversationId: string | null;
+  activeSessionTarget: AgentGUIActiveSessionTarget | null;
   data: AgentGUINodeData;
   optimisticTarget: OptimisticComposerTarget | null;
   selectedTarget: AgentGUIComposerTargetData;
@@ -61,7 +68,39 @@ export function composerTargetDataForConversation(input: {
   ) {
     return input.optimisticTarget.target;
   }
-  return composerTargetDataFromNodeData(input.data);
+  if (
+    !input.activeSessionTarget ||
+    input.activeSessionTarget.agentSessionId !== input.activeConversationId
+  ) {
+    return {
+      agentTargetId: null,
+      provider: input.data.provider,
+      targetId: "__active_session_loading__",
+      data: {
+        ...input.data,
+        agentTargetId: null
+      }
+    };
+  }
+  const activeAgentTargetId = normalizeOptionalText(
+    input.activeSessionTarget.agentTargetId
+  );
+  const dataMatchesActiveSessionTarget =
+    input.data.provider === input.activeSessionTarget.provider &&
+    normalizeOptionalText(input.data.agentTargetId) === activeAgentTargetId;
+  return {
+    agentTargetId: activeAgentTargetId,
+    provider: input.activeSessionTarget.provider,
+    targetId:
+      activeAgentTargetId ?? `local:${input.activeSessionTarget.provider}`,
+    data: dataMatchesActiveSessionTarget
+      ? input.data
+      : {
+          ...input.data,
+          agentTargetId: activeAgentTargetId,
+          provider: input.activeSessionTarget.provider
+        }
+  };
 }
 
 export function reconcileOptimisticComposerTarget(input: {

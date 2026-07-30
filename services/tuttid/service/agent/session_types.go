@@ -86,10 +86,13 @@ type Service struct {
 	liveModelDiscoveryGroup        singleflight.Group
 	sessionSettingsMu              sync.Mutex
 	sessionSettingsLocks           map[string]*serviceSessionSettingsLock
+	sessionSettingsState           *serviceSessionSettingsState
 	applicationHostMu              sync.Mutex
 	applicationHost                *agenthost.Host
 	applicationHostProvider        func() *agenthost.Host
+	hostRuntimePreparation         serviceHostRuntimePreparationSupport
 	worktreeIsolationMu            sync.RWMutex
+	worktreeIsolationLock          *sync.RWMutex
 	generatedFilesCacheMu          sync.Mutex
 	generatedFilesCache            map[string]generatedFilesCacheEntry
 	// liveModelPersistedScanMissAtUnixMS memoizes, per live-model cache key,
@@ -204,6 +207,7 @@ type ExtensionComposerProfile struct {
 	PermissionModes                  []ExtensionComposerPermissionMode
 	ReasoningConfigOptionID          string
 	Skills                           *ExtensionComposerSkillProfile
+	RuntimePrep                      *runtimeprep.ExtensionRuntimePrep
 	SlashCommands                    []ExtensionComposerSlashCommand
 	SlashCommandCatalogAuthoritative bool
 }
@@ -214,9 +218,10 @@ type ExtensionComposerPermissionMode struct {
 }
 
 type ExtensionComposerSkillProfile struct {
-	Invocation    string
-	TriggerPrefix string
-	Roots         []ExtensionComposerSkillRoot
+	Invocation               string
+	TriggerPrefix            string
+	RuntimeCommandProjection string
+	Roots                    []ExtensionComposerSkillRoot
 }
 
 type ExtensionComposerSkillRoot struct {
@@ -242,6 +247,8 @@ type Session struct {
 	Provider             string
 	ProviderSessionID    string
 	Cwd                  string
+	RailSectionKind      string
+	RailProjectPath      string
 	RailSectionKey       string
 	Visible              bool
 	Resumable            bool
@@ -282,10 +289,8 @@ type SessionForkLineage struct {
 // These values are projected from canonical state and the attached runtime;
 // they are deliberately separate from provider/composer capabilities.
 type SessionLifecycleCapabilities struct {
-	Fork                    bool
-	ForkThroughTurn         bool
-	ForkThroughTurnIDs      []string
-	ForkThroughTurnIDsKnown bool
+	Fork            bool
+	ForkThroughTurn bool
 }
 
 type SessionIsolation struct {
@@ -465,6 +470,7 @@ type SessionDetail struct {
 	Session       Session
 	ChildSessions []Session
 	Turns         []agentactivitybiz.Turn
+	EditRetry     agenthost.EditRetryAvailability
 }
 
 type SessionSectionsReader interface {

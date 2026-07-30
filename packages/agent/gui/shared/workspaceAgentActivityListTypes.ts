@@ -1,4 +1,7 @@
-import type { AgentActivityMessage } from "@tutti-os/agent-activity-core";
+import type {
+  AgentActivityMessage,
+  AgentActivityTurn
+} from "@tutti-os/agent-activity-core";
 import type { AgentHostUserInfo } from "./contracts/dto";
 import type { WorkspaceAgentToolCallDisplay } from "./workspaceAgentToolCallDisplay";
 import type {
@@ -39,6 +42,13 @@ export interface WorkspaceAgentActivityListViewModel {
 
 export interface BuildWorkspaceAgentActivityListOptions {
   sessionMessagesById?: Record<string, AgentActivityMessage[]>;
+  /**
+   * Canonical Turn file-change snapshots not retained on the Session's latest
+   * Turn. Hosts may provide older Turns here after mapping transport DTOs.
+   */
+  sessionTurnFileChangesById?: Readonly<
+    Record<string, readonly NonNullable<AgentActivityTurn["fileChanges"]>[]>
+  >;
   userProfilesById?: Record<string, AgentHostUserInfo>;
 }
 

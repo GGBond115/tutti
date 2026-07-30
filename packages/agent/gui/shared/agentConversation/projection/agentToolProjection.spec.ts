@@ -186,7 +186,7 @@ describe("projectAgentToolCall", () => {
     expect(task.task?.steps).toHaveLength(1);
   });
 
-  it("normalizes persisted standard ACP envelopes for specialized tool renderers", () => {
+  it("uses canonical input and output for specialized tool renderers", () => {
     const projected = projectAgentToolCall({
       ...baseCall(),
       toolName: "Edit",
@@ -195,20 +195,16 @@ describe("projectAgentToolCall", () => {
         input: {
           kind: "edit",
           title: "apply_patch",
-          rawInput: { patchText: "*** Begin Patch" }
+          patchText: "*** Begin Patch"
         },
         output: {
-          rawOutput: {
-            metadata: {
-              diff: "Index: /workspace/index.html\n--- /workspace/index.html\n+++ /workspace/index.html",
-              files: [
-                {
-                  filePath: "/workspace/index.html",
-                  patch: "Index: /workspace/index.html"
-                }
-              ]
+          diff: "Index: /workspace/index.html\n--- /workspace/index.html\n+++ /workspace/index.html",
+          files: [
+            {
+              filePath: "/workspace/index.html",
+              patch: "Index: /workspace/index.html"
             }
-          }
+          ]
         }
       }
     });
@@ -259,67 +255,51 @@ describe("projectAgentToolCall", () => {
     expect(projected.approval?.title).toBe("playwright / browser_close");
   });
 
-  it("projects canonical top-level content and locations into the tool vm", () => {
+  it("projects canonical locations into the tool vm", () => {
     const projected = projectAgentToolCall({
       ...baseCall(),
       toolName: "Read",
       payload: {
-        locations: [{ path: "/workspace/src/app.ts", line: 4 }],
-        content: [{ type: "text", text: "export const ready = true\n" }]
+        locations: [{ path: "/workspace/src/app.ts", line: 4 }]
       }
     });
 
     expect(projected.locations).toEqual([
       { path: "/workspace/src/app.ts", line: 4 }
     ]);
-    expect(projected.content).toEqual([
-      { type: "text", text: "export const ready = true\n" }
-    ]);
   });
 
-  it("detects opaque image generation aliases from canonical content blocks", () => {
+  it("detects opaque image generation aliases from canonical output fields", () => {
     const projected = projectAgentToolCall({
       ...baseCall(),
       toolName: "ig_05eb62dbe723c910016a1336ad3de881919216a6f64051a5e2",
       name: "ig_05eb62dbe723c910016a1336ad3de881919216a6f64051a5e2",
       payload: {
-        content: [
-          {
-            type: "content",
-            content: {
-              type: "text",
-              text: "Revised prompt: a joyful little girl dancing"
-            }
-          },
-          {
-            type: "content",
-            content: {
-              type: "image",
-              uri: "/workspace/output/generated.png",
-              mimeType: "image/png"
-            }
-          }
-        ]
+        input: { prompt: "a joyful little girl dancing" },
+        output: {
+          savedPath: "/workspace/output/generated.png",
+          imageMimeType: "image/png"
+        }
       }
     });
 
     expect(projected.rendererKind).toBe("image-generation");
   });
 
-  it("preserves nested output.output text for task results and step summaries", () => {
+  it("projects canonical text for task results and step summaries", () => {
     const projected = projectAgentToolCall({
       ...baseCall(),
       toolName: "Task",
       callType: "tool",
       payload: {
         output: {
-          output: "Task finished successfully",
+          text: "Task finished successfully",
           steps: [
             {
               id: "step-1",
               toolName: "Read",
               status: "completed",
-              toolResult: { output: "Loaded docs chunk" }
+              toolResult: { text: "Loaded docs chunk" }
             }
           ]
         }
@@ -353,7 +333,7 @@ describe("projectAgentToolCall", () => {
     expect(projected.task?.resultMarkdown).toBeNull();
   });
 
-  it("projects Claude subagent prompt, duration, result, and steps from nested tool response payloads", () => {
+  it("projects canonical subagent prompt, duration, result, and steps", () => {
     const projected = projectAgentToolCall({
       ...baseCall(),
       name: "Task: Search today top news",
@@ -361,27 +341,14 @@ describe("projectAgentToolCall", () => {
       callType: "tool",
       payload: {
         input: {
-          _meta: {
-            claudeCode: {
-              toolResponse: {
-                prompt: "Search for today's top news (2026年5月24日).",
-                agentId: "child-agent-1",
-                totalDurationMs: 42_400
-              }
-            }
-          }
+          prompt: "Search for today's top news (2026年5月24日)."
         },
         output: {
-          content: [
-            {
-              type: "content",
-              content: {
-                text: "Here is a summary of today's top news (2026年5月24日):"
-              }
-            }
-          ]
+          text: "Here is a summary of today's top news (2026年5月24日):"
         },
         metadata: {
+          agentId: "child-agent-1",
+          durationMs: 42_400,
           steps: [
             {
               id: "step-1",

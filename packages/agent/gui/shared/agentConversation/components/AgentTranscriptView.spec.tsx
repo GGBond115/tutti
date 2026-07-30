@@ -38,7 +38,7 @@ afterEach(() => {
 });
 
 describe("AgentTranscriptView", () => {
-  it("shows through-turn fork only for a supported settled Turn and passes its exact id", () => {
+  it("shows through-turn fork for a supported provider-bound Turn and passes its exact id", () => {
     const onForkThroughTurn = vi.fn();
     const settledTurn = canonicalTurn({
       outcome: "completed",
@@ -52,9 +52,7 @@ describe("AgentTranscriptView", () => {
           ...detail.session,
           lifecycleCapabilities: {
             fork: false,
-            forkThroughTurn: true,
-            forkThroughTurnIds: ["turn-1"],
-            forkThroughTurnIdsKnown: true
+            forkThroughTurn: true
           }
         }),
         sessionTurns: [settledTurn]
@@ -116,9 +114,7 @@ describe("AgentTranscriptView", () => {
           ...detail.session,
           lifecycleCapabilities: {
             fork: false,
-            forkThroughTurn: true,
-            forkThroughTurnIds: ["turn-1"],
-            forkThroughTurnIdsKnown: true
+            forkThroughTurn: true
           }
         }),
         sessionTurns: [
@@ -193,9 +189,7 @@ describe("AgentTranscriptView", () => {
           ...detail.session,
           lifecycleCapabilities: {
             fork: false,
-            forkThroughTurn: true,
-            forkThroughTurnIds: ["turn-1", "turn-2"],
-            forkThroughTurnIdsKnown: true
+            forkThroughTurn: true
           }
         }),
         sessionTurns: [
@@ -238,7 +232,7 @@ describe("AgentTranscriptView", () => {
     expect(onForkThroughTurn.mock.calls).toEqual([["turn-1"], ["turn-2"]]);
   });
 
-  it("only exposes Fork for Turns verified in provider-native history", () => {
+  it("does not expose Fork for Turns whose binding state is unavailable", () => {
     const detail = detailViewModel();
     const secondTurn = {
       ...detail.turns[0]!,
@@ -262,15 +256,15 @@ describe("AgentTranscriptView", () => {
           ...detail.session,
           lifecycleCapabilities: {
             fork: false,
-            forkThroughTurn: true,
-            forkThroughTurnIds: ["turn-1"],
-            forkThroughTurnIdsKnown: true
+            forkThroughTurn: true
           }
         }),
         sessionTurns: [
           canonicalTurn({
             outcome: "completed",
             phase: "settled",
+            providerForkBindingAvailable: false,
+            providerForkBindingState: "unavailable",
             settledAtUnixMs: 7_000
           }),
           canonicalTurn({
@@ -305,7 +299,53 @@ describe("AgentTranscriptView", () => {
     ).toHaveLength(1);
   });
 
-  it("fails closed when provider Turn boundary identities are unknown", () => {
+  it.each(["codex", "claude-code", "cursor", "opencode"])(
+    "hides Fork for a settled historical %s Turn that still requires binding recovery",
+    (provider) => {
+      const detail = detailViewModel();
+      const conversation = projectAgentConversationVM(
+        detailViewModel({
+          activity: {
+            ...detail.activity,
+            agentProvider: provider
+          },
+          session: normalizeAgentActivitySession({
+            ...detail.session,
+            lifecycleCapabilities: { fork: false, forkThroughTurn: true },
+            provider
+          }),
+          sessionTurns: [
+            canonicalTurn({
+              outcome: "completed",
+              phase: "settled",
+              providerForkBindingAvailable: false,
+              providerForkBindingState: "recovery_required",
+              settledAtUnixMs: 7_000
+            })
+          ]
+        })
+      );
+      render(
+        <AgentTranscriptView
+          conversation={conversation}
+          labels={{
+            thinkingLabel: "Thought process",
+            toolCallsLabel: (count: number) => `Tool calls (${count})`,
+            processing: "Planning next moves",
+            turnSummary: "Changed files"
+          }}
+          onForkThroughTurn={vi.fn()}
+        />
+      );
+      expect(
+        screen.queryByRole("button", {
+          name: "agentHost.agentGui.forkThroughTurn"
+        })
+      ).toBeNull();
+    }
+  );
+
+  it("hides Fork when provider binding recovery is unavailable", () => {
     const detail = detailViewModel();
     const conversation = projectAgentConversationVM(
       detailViewModel({
@@ -317,6 +357,8 @@ describe("AgentTranscriptView", () => {
           canonicalTurn({
             outcome: "completed",
             phase: "settled",
+            providerForkBindingAvailable: false,
+            providerForkBindingState: "unavailable",
             settledAtUnixMs: 7_000
           })
         ]
@@ -341,27 +383,92 @@ describe("AgentTranscriptView", () => {
     ).toBeNull();
   });
 
-  it("does not expose Fork for a canonical Turn that is still running", () => {
+  it.each(["codex", "claude-code", "cursor", "opencode"])(
+    "hides Fork while a provider-bound %s Turn is running",
+    (provider) => {
+      const detail = detailViewModel();
+      const runningTurn = canonicalTurn();
+      const conversation = projectAgentConversationVM(
+        detailViewModel({
+          activity: {
+            ...detail.activity,
+            agentProvider: provider
+          },
+          session: normalizeAgentActivitySession({
+            ...detail.session,
+            activeTurn: runningTurn,
+            activeTurnId: runningTurn.turnId,
+            lifecycleCapabilities: {
+              fork: false,
+              forkThroughTurn: true
+            },
+            provider
+          }),
+          sessionTurns: [runningTurn]
+        })
+      );
+
+      render(
+        <AgentTranscriptView
+          conversation={conversation}
+          labels={{
+            thinkingLabel: "Thought process",
+            toolCallsLabel: (count: number) => `Tool calls (${count})`,
+            processing: "Planning next moves",
+            turnSummary: "Changed files"
+          }}
+          onForkThroughTurn={vi.fn()}
+        />
+      );
+
+      expect(
+        screen.queryByRole("button", {
+          name: "agentHost.agentGui.forkThroughTurn"
+        })
+      ).toBeNull();
+    }
+  );
+
+  it("exposes Fork only after the running Turn settles", () => {
     const detail = detailViewModel();
-    const conversation = projectAgentConversationVM(
+    const runningTurn = canonicalTurn();
+    const runningConversation = projectAgentConversationVM(
       detailViewModel({
         session: normalizeAgentActivitySession({
           ...detail.session,
-          activeTurnId: "turn-1",
+          activeTurn: runningTurn,
+          activeTurnId: runningTurn.turnId,
           lifecycleCapabilities: {
             fork: false,
-            forkThroughTurn: true,
-            forkThroughTurnIds: ["turn-1"],
-            forkThroughTurnIdsKnown: true
+            forkThroughTurn: true
           }
         }),
-        sessionTurns: [canonicalTurn()]
+        sessionTurns: [runningTurn]
+      })
+    );
+    const settledTurn = canonicalTurn({
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 7_000
+    });
+    const settledConversation = projectAgentConversationVM(
+      detailViewModel({
+        session: normalizeAgentActivitySession({
+          ...detail.session,
+          activeTurn: null,
+          activeTurnId: null,
+          lifecycleCapabilities: {
+            fork: false,
+            forkThroughTurn: true
+          }
+        }),
+        sessionTurns: [settledTurn]
       })
     );
 
-    render(
+    const { rerender } = render(
       <AgentTranscriptView
-        conversation={conversation}
+        conversation={runningConversation}
         labels={{
           thinkingLabel: "Thought process",
           toolCallsLabel: (count: number) => `Tool calls (${count})`,
@@ -377,34 +484,10 @@ describe("AgentTranscriptView", () => {
         name: "agentHost.agentGui.forkThroughTurn"
       })
     ).toBeNull();
-  });
 
-  it("keeps provider capability visible but disables fork while the Session is busy", () => {
-    const detail = detailViewModel();
-    const conversation = projectAgentConversationVM(
-      detailViewModel({
-        session: normalizeAgentActivitySession({
-          ...detail.session,
-          activeTurnId: "turn-active",
-          lifecycleCapabilities: {
-            fork: false,
-            forkThroughTurn: true,
-            forkThroughTurnIds: ["turn-1"],
-            forkThroughTurnIdsKnown: true
-          }
-        }),
-        sessionTurns: [
-          canonicalTurn({
-            outcome: "completed",
-            phase: "settled",
-            settledAtUnixMs: 7_000
-          })
-        ]
-      })
-    );
-    render(
+    rerender(
       <AgentTranscriptView
-        conversation={conversation}
+        conversation={settledConversation}
         labels={{
           thinkingLabel: "Thought process",
           toolCallsLabel: (count: number) => `Tool calls (${count})`,
@@ -418,7 +501,114 @@ describe("AgentTranscriptView", () => {
       screen.getByRole("button", {
         name: "agentHost.agentGui.forkThroughTurn"
       })
-    ).toBeDisabled();
+    ).not.toBeDisabled();
+  });
+
+  it("keeps an older settled Turn forkable while the current Turn is active", () => {
+    const detail = detailViewModel();
+    const runningTurn = canonicalTurn({
+      turnId: "turn-active",
+      updatedAtUnixMs: 9_000
+    });
+    const activeTranscriptTurn = {
+      ...detail.turns[0]!,
+      id: runningTurn.turnId,
+      userMessage: { id: "user-active", body: "Keep working" },
+      userMessages: [{ id: "user-active", body: "Keep working" }],
+      agentMessages: [{ id: "assistant-active", body: "Working" }],
+      toolCalls: [],
+      toolCallCount: 0,
+      hasFailedToolCall: false,
+      agentItems: [
+        {
+          kind: "message" as const,
+          message: { id: "assistant-active", body: "Working" }
+        }
+      ]
+    };
+    const conversation = projectAgentConversationVM(
+      detailViewModel({
+        session: normalizeAgentActivitySession({
+          ...detail.session,
+          activeTurn: runningTurn,
+          activeTurnId: runningTurn.turnId,
+          lifecycleCapabilities: {
+            fork: false,
+            forkThroughTurn: true
+          }
+        }),
+        sessionTurns: [
+          canonicalTurn({
+            outcome: "completed",
+            phase: "settled",
+            settledAtUnixMs: 7_000
+          }),
+          runningTurn
+        ],
+        turns: [detail.turns[0]!, activeTranscriptTurn]
+      })
+    );
+    const onForkThroughTurn = vi.fn();
+    const labels = {
+      thinkingLabel: "Thought process",
+      toolCallsLabel: (count: number) => `Tool calls (${count})`,
+      processing: "Planning next moves",
+      turnSummary: "Changed files"
+    };
+    const { rerender } = render(
+      <AgentTranscriptView
+        conversation={conversation}
+        labels={labels}
+        onForkThroughTurn={onForkThroughTurn}
+      />
+    );
+    const buttons = screen.getAllByRole("button", {
+      name: "agentHost.agentGui.forkThroughTurn"
+    });
+    expect(buttons).toHaveLength(1);
+    fireEvent.click(buttons[0]!);
+    expect(onForkThroughTurn).toHaveBeenCalledWith("turn-1");
+
+    const settledActiveTurn = {
+      ...runningTurn,
+      outcome: "completed" as const,
+      phase: "settled" as const,
+      settledAtUnixMs: 10_000,
+      updatedAtUnixMs: 10_000
+    };
+    rerender(
+      <AgentTranscriptView
+        conversation={projectAgentConversationVM(
+          detailViewModel({
+            session: normalizeAgentActivitySession({
+              ...detail.session,
+              activeTurn: null,
+              activeTurnId: null,
+              lifecycleCapabilities: {
+                fork: false,
+                forkThroughTurn: true
+              }
+            }),
+            sessionTurns: [
+              canonicalTurn({
+                outcome: "completed",
+                phase: "settled",
+                settledAtUnixMs: 7_000
+              }),
+              settledActiveTurn
+            ],
+            turns: [detail.turns[0]!, activeTranscriptTurn]
+          })
+        )}
+        labels={labels}
+        onForkThroughTurn={onForkThroughTurn}
+      />
+    );
+    expect(
+      screen.getAllByRole("button", {
+        name: "agentHost.agentGui.forkThroughTurn"
+      })
+    ).toHaveLength(2);
   });
 
   it("disables only the Engine-owned in-flight Fork boundary", () => {
@@ -429,9 +619,7 @@ describe("AgentTranscriptView", () => {
           ...detail.session,
           lifecycleCapabilities: {
             fork: false,
-            forkThroughTurn: true,
-            forkThroughTurnIds: ["turn-1"],
-            forkThroughTurnIdsKnown: true
+            forkThroughTurn: true
           }
         }),
         sessionTurns: [
@@ -458,9 +646,11 @@ describe("AgentTranscriptView", () => {
       />
     );
     const button = screen.getByRole("button", {
-      name: "agentHost.agentGui.forkThroughTurn"
+      name: "agentHost.agentGui.forkThroughTurnPending"
     });
     expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button).toHaveAttribute("data-pending", "true");
 
     rerender(
       <AgentTranscriptView
@@ -470,7 +660,11 @@ describe("AgentTranscriptView", () => {
         onForkThroughTurn={vi.fn()}
       />
     );
-    expect(button).not.toBeDisabled();
+    const availableButton = screen.getByRole("button", {
+      name: "agentHost.agentGui.forkThroughTurn"
+    });
+    expect(availableButton).not.toBeDisabled();
+    expect(availableButton).not.toHaveAttribute("aria-busy");
   });
 
   it("treats status-only conversation object changes as equal for transcript rendering", () => {
@@ -538,7 +732,7 @@ describe("AgentTranscriptView", () => {
     ).toBe(false);
   });
 
-  it("rerenders and disables Fork when a pending interaction appears", () => {
+  it("rerenders but keeps a settled Turn Fork visible when a pending interaction appears", () => {
     const labels = {
       thinkingLabel: "Thought process",
       toolCallsLabel: (count: number) => `Tool calls (${count})`,
@@ -552,9 +746,7 @@ describe("AgentTranscriptView", () => {
           ...detail.session,
           lifecycleCapabilities: {
             fork: false,
-            forkThroughTurn: true,
-            forkThroughTurnIds: ["turn-1"],
-            forkThroughTurnIdsKnown: true
+            forkThroughTurn: true
           }
         }),
         sessionTurns: [
@@ -617,7 +809,7 @@ describe("AgentTranscriptView", () => {
       screen.getByRole("button", {
         name: "agentHost.agentGui.forkThroughTurn"
       })
-    ).toBeDisabled();
+    ).not.toBeDisabled();
   });
 
   it("compares participant presentation by its explicit state and identity data", () => {
@@ -1060,6 +1252,29 @@ describe("AgentTranscriptView", () => {
       areAgentTranscriptViewPropsEqual(
         { conversation, labels },
         { conversation: settledConversation, labels }
+      )
+    ).toBe(false);
+  });
+
+  it("rerenders when the selected Turn gains a provider Fork binding", () => {
+    const labels = {
+      thinkingLabel: "Thought process",
+      toolCallsLabel: (count: number) => `Tool calls (${count})`,
+      processing: "Planning next moves",
+      turnSummary: "Changed files"
+    };
+    const unbound = projectAgentConversationVM(
+      detailViewModel({
+        sessionTurns: [canonicalTurn({ providerForkBindingAvailable: false })]
+      })
+    );
+    const bound = projectAgentConversationVM(
+      detailViewModel({ sessionTurns: [canonicalTurn()] })
+    );
+    expect(
+      areAgentTranscriptViewPropsEqual(
+        { conversation: unbound, labels },
+        { conversation: bound, labels }
       )
     ).toBe(false);
   });
@@ -3414,6 +3629,8 @@ function canonicalTurn(
     agentSessionId: "session-1",
     origin: "user_prompt",
     phase: "running",
+    providerForkBindingAvailable: true,
+    providerForkBindingState: "bound",
     startedAtUnixMs: 5_000,
     turnId: "turn-1",
     updatedAtUnixMs: 6_000,

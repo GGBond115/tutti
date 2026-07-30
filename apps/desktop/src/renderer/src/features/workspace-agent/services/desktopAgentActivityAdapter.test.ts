@@ -73,6 +73,8 @@ test("desktop agent activity adapter preserves a settled latest turn on reload",
     origin: "goal_continuation" as const,
     outcome: "failed" as const,
     phase: "settled" as const,
+    providerForkBindingAvailable: true,
+    providerForkBindingState: "bound" as const,
     settledAtUnixMs: 30,
     sourceGoalOperationId: "goal-operation-1",
     sourceGoalRepairEpoch: 4,
@@ -304,7 +306,7 @@ test("desktop agent activity adapter maps tuttid sessions and messages", async (
       order: null
     },
     event: "agent.activity.messages.list",
-    level: "info",
+    level: "debug",
     workspaceId
   });
   const resolvedDiagnostic = diagnostics[1] as {
@@ -314,7 +316,7 @@ test("desktop agent activity adapter maps tuttid sessions and messages", async (
     workspaceId?: string;
   };
   assert.equal(resolvedDiagnostic.event, "agent.activity.messages.list");
-  assert.equal(resolvedDiagnostic.level, "info");
+  assert.equal(resolvedDiagnostic.level, "debug");
   assert.equal(resolvedDiagnostic.workspaceId, workspaceId);
   assert.equal(resolvedDiagnostic.details?.agentSessionId, "agent-session-1");
   assert.equal(resolvedDiagnostic.details?.event, "resolved");
@@ -361,16 +363,19 @@ test("desktop agent activity adapter preserves session-level turnless messages",
 
 test("desktop agent activity adapter forwards typed submit diagnostics", async () => {
   const calls: unknown[] = [];
+  const controller = new AbortController();
   const adapter = createDesktopAgentActivityAdapter({
     tuttidClient: createTuttidClient({
       async sendWorkspaceAgentSessionInput(
         requestWorkspaceId,
         agentSessionId,
-        request
+        request,
+        requestOptions
       ) {
         calls.push({
           agentSessionId,
           request,
+          signal: requestOptions?.signal,
           workspaceId: requestWorkspaceId
         });
         return createSendInputResponse(
@@ -388,6 +393,7 @@ test("desktop agent activity adapter forwards typed submit diagnostics", async (
     capabilityRefs: [{ capability: "tutti", source: "slash_command" }],
     content: [{ type: "text", text: "hello" }],
     guidance: true,
+    signal: controller.signal,
     submitDiagnostics: {
       submittedAtUnixMs: 1234,
       source: "agent-gui"
@@ -408,6 +414,7 @@ test("desktop agent activity adapter forwards typed submit diagnostics", async (
           source: "agent-gui"
         }
       } satisfies SendWorkspaceAgentSessionInputRequest,
+      signal: controller.signal,
       workspaceId
     }
   ]);
@@ -784,15 +791,23 @@ test("desktop agent activity adapter leaves session event subscription to the se
 
 test("desktop agent activity adapter submits interactive responses through tuttid", async () => {
   const calls: unknown[] = [];
+  const controller = new AbortController();
   const adapter = createDesktopAgentActivityAdapter({
     tuttidClient: createTuttidClient({
       async submitWorkspaceAgentInteractive(
         requestWorkspaceId,
         agentSessionId,
         requestId,
-        request
+        request,
+        requestOptions
       ) {
-        calls.push([requestWorkspaceId, agentSessionId, requestId, request]);
+        calls.push([
+          requestWorkspaceId,
+          agentSessionId,
+          requestId,
+          request,
+          requestOptions
+        ]);
         return createSession({ id: agentSessionId, status: "waiting" });
       }
     }),
@@ -804,6 +819,7 @@ test("desktop agent activity adapter submits interactive responses through tutti
     optionId: "acceptEdits",
     payload: { path: "/Users/example/demo/src/styles.css" },
     requestId: "interactive-1",
+    signal: controller.signal,
     turnId: "turn-1",
     workspaceId
   });
@@ -818,12 +834,54 @@ test("desktop agent activity adapter submits interactive responses through tutti
         optionId: "acceptEdits",
         payload: { path: "/Users/example/demo/src/styles.css" },
         turnId: "turn-1"
-      }
+      },
+      { signal: controller.signal }
     ]
   ]);
   assert.equal(result.session.workspaceId, workspaceId);
   assert.equal(result.session.agentSessionId, "agent-session-1");
   assert.equal(result.session.activeTurn?.phase, "waiting");
+});
+
+test("desktop agent activity adapter forwards pin cancellation to tuttid", async () => {
+  const calls: unknown[] = [];
+  const controller = new AbortController();
+  const adapter = createDesktopAgentActivityAdapter({
+    tuttidClient: createTuttidClient({
+      async updateWorkspaceAgentSessionPin(
+        requestWorkspaceId,
+        agentSessionId,
+        request,
+        requestOptions
+      ) {
+        calls.push([
+          requestWorkspaceId,
+          agentSessionId,
+          request,
+          requestOptions
+        ]);
+        return createSession({ id: agentSessionId, pinnedAtUnixMs: 10 });
+      }
+    }),
+    runtimeApi: createRuntimeApi()
+  });
+
+  const result = await adapter.setSessionPinned({
+    agentSessionId: "agent-session-1",
+    pinned: true,
+    signal: controller.signal,
+    workspaceId
+  });
+
+  assert.deepEqual(calls, [
+    [
+      workspaceId,
+      "agent-session-1",
+      { pinned: true },
+      { signal: controller.signal }
+    ]
+  ]);
+  assert.equal(result.pinnedAtUnixMs, 10);
 });
 
 test("desktop agent activity adapter normalizes provider composer options", async () => {
@@ -1811,6 +1869,7 @@ test("desktop agent activity adapter maps a committed fork operation", async () 
   assert.equal(result.status, "committed");
   assert.equal(result.operationId, "fork-operation");
   assert.equal(result.session?.agentSessionId, "target-session");
+  assert.equal(result.session?.lifecycleCapabilitiesProjected, true);
 });
 
 test("desktop agent activity adapter preserves a recovered committed identity", async () => {
@@ -1854,7 +1913,7 @@ test("desktop agent activity adapter preserves a recovered committed identity", 
   assert.equal(result.session?.agentSessionId, "original-target");
 });
 
-test("desktop agent activity adapter reconciles an accepted fork operation", async () => {
+test("desktop agent activity adapter reconciles an accepted fork to failure", async () => {
   const calls: string[] = [];
   const adapter = createDesktopAgentActivityAdapter({
     tuttidClient: createTuttidClient({
@@ -1912,6 +1971,42 @@ test("desktop agent activity adapter classifies an ambiguous POST failure as del
   );
 });
 
+test("desktop agent activity adapter promotes the exact fork boundary reason", async () => {
+  const adapter = createDesktopAgentActivityAdapter({
+    tuttidClient: createTuttidClient({
+      async forkWorkspaceAgentSession() {
+        throw new TuttidProtocolError({
+          code: "workspace_operation_failed",
+          developerMessage:
+            "agent session fork turn is not a verified settled boundary: selected turn sequence provenance is legacy_unverified",
+          params: {
+            forkBoundaryReason: "agent_session_fork_turn_sequence_unverified"
+          },
+          reason: "agent_session_fork_conflict",
+          statusCode: 409
+        });
+      }
+    }),
+    runtimeApi: createRuntimeApi()
+  });
+
+  await assert.rejects(
+    adapter.forkSession({
+      requestId: "fork-request",
+      sourceAgentSessionId: "source-session",
+      targetAgentSessionId: "target-session",
+      turnId: "source-turn",
+      workspaceId
+    }),
+    (error: unknown) =>
+      error instanceof TuttidProtocolError &&
+      error.reason === "agent_session_fork_turn_sequence_unverified" &&
+      error.params.forkBoundaryReason ===
+        "agent_session_fork_turn_sequence_unverified" &&
+      error.message.includes("legacy_unverified")
+  );
+});
+
 test("desktop agent activity adapter classifies an aborted POST as delivery unknown", async () => {
   const controller = new AbortController();
   const adapter = createDesktopAgentActivityAdapter({
@@ -1945,7 +2040,7 @@ test("desktop agent activity adapter classifies an aborted POST as delivery unkn
   );
 });
 
-test("desktop agent activity adapter classifies aborted accepted polling as delivery unknown", async () => {
+test("desktop agent activity adapter aborts accepted operation reconciliation", async () => {
   const controller = new AbortController();
   const adapter = createDesktopAgentActivityAdapter({
     tuttidClient: createTuttidClient({
@@ -1969,11 +2064,9 @@ test("desktop agent activity adapter classifies aborted accepted polling as deli
       turnId: "source-turn",
       workspaceId
     }),
-    (error: unknown) =>
-      error instanceof Error &&
-      (error as Error & { reason?: string }).reason ===
-        "agent_session_fork_delivery_unknown"
+    /caller cancelled/
   );
+  assert.equal(controller.signal.aborted, true);
 });
 
 test("desktop agent activity adapter correlates a recovered durable unknown to the current command", async () => {
@@ -2017,6 +2110,7 @@ function createForkOperation(
     session: null,
     sourceAgentSessionId: "source-session",
     status: "accepted",
+    phase: "frozen",
     targetAgentSessionId: "target-session",
     ...overrides
   };
@@ -2135,6 +2229,8 @@ function createSession(
           outcome: null,
           phase:
             status === "waiting" ? ("waiting" as const) : ("running" as const),
+          providerForkBindingAvailable: false,
+          providerForkBindingState: "unavailable" as const,
           startedAtUnixMs: createdAtUnixMs,
           settledAtUnixMs: null,
           turnId: "turn-active",
@@ -2151,6 +2247,8 @@ function createSession(
           origin: "user_prompt" as const,
           outcome: status as "completed" | "failed" | "canceled",
           phase: "settled" as const,
+          providerForkBindingAvailable: false,
+          providerForkBindingState: "recovery_required" as const,
           settledAtUnixMs: updatedAtUnixMs,
           startedAtUnixMs: createdAtUnixMs,
           turnId: "turn-latest",
@@ -2212,6 +2310,8 @@ function createSendInputResponse(session: WorkspaceAgentSession) {
       origin: "user_prompt" as const,
       outcome: null,
       phase: "submitted" as const,
+      providerForkBindingAvailable: false,
+      providerForkBindingState: "unavailable" as const,
       settledAtUnixMs: null,
       startedAtUnixMs: 1,
       turnId: "turn-1",

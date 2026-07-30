@@ -138,8 +138,6 @@ const defaultCodexAppServerGoalContinuationGraceWindow = 1500 * time.Millisecond
 // generation and must never inherit the session's latest desired Goal identity.
 const defaultCodexAppServerGoalProvenanceGraceWindow = 250 * time.Millisecond
 
-const codexAppServerExecutableBase = "codex"
-
 type CodexAppServerAdapter struct {
 	transport                  ProcessTransport
 	host                       HostMetadata
@@ -154,6 +152,8 @@ type CodexAppServerAdapter struct {
 	eventSink                  SessionEventSink
 	goalReconcileSink          GoalReconcileDurableSink
 	goalProvenanceSink         GoalProvenanceDurableSink
+	providerGoalAdoptionSink   ProviderGoalAdoptionSink
+	promptImageMaterializer    providerPromptImageMaterializer
 	goalReconcileAckTimeout    time.Duration
 	configSink                 ConfigOptionsUpdateSink
 	// lifecycleMu guards lifecycleLocks; the per-session locks serialize
@@ -175,14 +175,6 @@ type CodexAppServerAdapter struct {
 	// per adapter instance (each instance owns one command).
 	cliVersionMu     sync.Mutex
 	cliVersionCached string
-	// forkCapabilityMu serializes historical initialize probes. The bounded LRU
-	// is keyed by a SHA-256 launch fingerprint (including the resolved
-	// executable identity), so it retains no prepared environment material;
-	// unverifiable wrapper launches are never cached. Live sessions always use
-	// their exact process user-agent.
-	forkCapabilityMu       sync.Mutex
-	forkCapabilityVersions map[string][3]int
-	forkCapabilityOrder    []string
 	// startupModelRetryBackoffs is the wait schedule between background model/list
 	// refetches when the initial probe came back empty; the slice length bounds
 	// the number of retries. Nil falls back to defaultStartupModelRetryBackoffs.
@@ -229,8 +221,13 @@ type codexAppServerSession struct {
 	goalGenerationBindings           map[string]codexGoalGenerationBinding
 	goalGenerationOrder              []string
 	currentGoalGenerationFingerprint string
-	goalTurnEvidence                 map[string]*codexGoalTurnEvidence
-	pendingGoalTurns                 map[string]*codexPendingGoalTurn
+	// providerGoalAdoptionsInFlight keeps provider-authored generation
+	// persistence off the app-server read loop while preventing a continuation
+	// turn from exhausting its provenance grace window before the durable
+	// identity is available.
+	providerGoalAdoptionsInFlight map[string]struct{}
+	goalTurnEvidence              map[string]*codexGoalTurnEvidence
+	pendingGoalTurns              map[string]*codexPendingGoalTurn
 	// goalContinuationClaim is an in-process, single-use compatibility fence
 	// for Codex versions whose thread/goal/updated notification omits turnId.
 	// A successful Goal RPC seeds the first claim; each adopted Goal turn may
@@ -397,6 +394,7 @@ func NewCodexAppServerAdapterWithHostMetadataAndCommandResolver(
 		transport,
 		host,
 		commandResolver,
+		providerAdapterOptions{},
 	)
 	codexAdapter, ok := adapter.(*CodexAppServerAdapter)
 	if !ok {
@@ -433,7 +431,13 @@ func newTuttiAgentAppServerAdapterWithHostMetadata(
 	if !ok {
 		panic("tutti-agent provider descriptor is missing")
 	}
-	adapter := newAdapterFromProviderDescriptor(descriptor, transport, host, nil)
+	adapter := newAdapterFromProviderDescriptor(
+		descriptor,
+		transport,
+		host,
+		nil,
+		providerAdapterOptions{},
+	)
 	appServerAdapter, ok := adapter.(*CodexAppServerAdapter)
 	if !ok {
 		panic(fmt.Sprintf("Tutti Agent provider descriptor constructed %T", adapter))
@@ -548,6 +552,15 @@ func (a *CodexAppServerAdapter) SetGoalProvenanceDurableSink(sink GoalProvenance
 	}
 	a.mu.Lock()
 	a.goalProvenanceSink = sink
+	a.mu.Unlock()
+}
+
+func (a *CodexAppServerAdapter) SetProviderGoalAdoptionSink(sink ProviderGoalAdoptionSink) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.providerGoalAdoptionSink = sink
 	a.mu.Unlock()
 }
 

@@ -20,6 +20,7 @@ const displayModes = new Set<WorkbenchSnapshotDisplayModeV1>([
   "floating",
   "fullscreen"
 ]);
+const layoutPresetKinds = new Set(["balanced", "row", "column"]);
 
 export function validateWorkbenchSnapshot(
   value: unknown
@@ -40,6 +41,7 @@ export function validateWorkbenchSnapshot(
       "spaces",
       "activeSpaceId",
       "layoutBasis",
+      "lockedLayout",
       "metadata"
     ],
     issues
@@ -79,6 +81,14 @@ export function validateWorkbenchSnapshot(
 
   if (value.layoutBasis !== undefined) {
     validateLayoutBasis(value.layoutBasis, "layoutBasis", issues);
+  }
+  if (value.lockedLayout !== undefined) {
+    validateLockedLayout(
+      value.lockedLayout,
+      "lockedLayout",
+      knownSnapshotNodeIDs(value.nodes),
+      issues
+    );
   }
 
   const serializedBytes = serializedByteLength(value);
@@ -356,6 +366,175 @@ function validateLayoutBasis(
     value.layoutConstraints,
     `${path}.layoutConstraints`,
     issues
+  );
+}
+
+function validateLockedLayout(
+  value: unknown,
+  path: string,
+  knownNodeIDs: ReadonlySet<string>,
+  issues: WorkbenchSnapshotValidationIssue[]
+): void {
+  if (!isRecord(value)) {
+    issues.push({ path, message: "locked layout must be an object" });
+    return;
+  }
+  validateAllowedKeys(
+    value,
+    path,
+    ["preset", "nodeIDs", "normalizedFrames"],
+    issues
+  );
+
+  if (!isRecord(value.preset)) {
+    issues.push({
+      path: `${path}.preset`,
+      message: "preset must be an object"
+    });
+  } else {
+    validateAllowedKeys(value.preset, `${path}.preset`, ["kind"], issues);
+    if (
+      typeof value.preset.kind !== "string" ||
+      !layoutPresetKinds.has(value.preset.kind)
+    ) {
+      issues.push({
+        path: `${path}.preset.kind`,
+        message: "preset kind must be balanced, row, or column"
+      });
+    }
+  }
+
+  if (!Array.isArray(value.nodeIDs)) {
+    issues.push({
+      path: `${path}.nodeIDs`,
+      message: "node IDs must be an array"
+    });
+    return;
+  }
+
+  if (value.nodeIDs.length < 2) {
+    issues.push({
+      path: `${path}.nodeIDs`,
+      message: "locked layout must contain at least two node IDs"
+    });
+  }
+  const lockedNodeIDs = new Set<string>();
+  value.nodeIDs.forEach((nodeID, index) => {
+    const itemPath = `${path}.nodeIDs[${index}]`;
+    const normalizedNodeID = validateRequiredString(nodeID, itemPath, issues, {
+      maxLength: workbenchSnapshotLimits.maxNodeIDLength
+    });
+    if (!normalizedNodeID) {
+      return;
+    }
+    if (lockedNodeIDs.has(normalizedNodeID)) {
+      issues.push({ path: itemPath, message: "node IDs must be unique" });
+      return;
+    }
+    lockedNodeIDs.add(normalizedNodeID);
+    if (!knownNodeIDs.has(normalizedNodeID)) {
+      issues.push({ path: itemPath, message: "node ID must exist in nodes" });
+    }
+  });
+
+  if (value.normalizedFrames !== undefined) {
+    validateNormalizedFrames(
+      value.normalizedFrames,
+      `${path}.normalizedFrames`,
+      lockedNodeIDs,
+      issues
+    );
+  }
+}
+
+function validateNormalizedFrames(
+  value: unknown,
+  path: string,
+  lockedNodeIDs: ReadonlySet<string>,
+  issues: WorkbenchSnapshotValidationIssue[]
+): void {
+  if (!isRecord(value)) {
+    issues.push({ path, message: "normalized frames must be an object" });
+    return;
+  }
+
+  for (const nodeID of lockedNodeIDs) {
+    if (!(nodeID in value)) {
+      issues.push({ path: `${path}.${nodeID}`, message: "frame is required" });
+    }
+  }
+  for (const [nodeID, frame] of Object.entries(value)) {
+    const framePath = `${path}.${nodeID}`;
+    if (!lockedNodeIDs.has(nodeID)) {
+      issues.push({ path: framePath, message: "frame node ID must be locked" });
+      continue;
+    }
+    validateNormalizedFrame(frame, framePath, issues);
+  }
+}
+
+function validateNormalizedFrame(
+  value: unknown,
+  path: string,
+  issues: WorkbenchSnapshotValidationIssue[]
+): void {
+  if (!isRecord(value)) {
+    issues.push({ path, message: "normalized frame must be an object" });
+    return;
+  }
+  validateAllowedKeys(value, path, ["x", "y", "width", "height"], issues);
+  validateUnitInterval(value.x, `${path}.x`, false, issues);
+  validateUnitInterval(value.y, `${path}.y`, false, issues);
+  validateUnitInterval(value.width, `${path}.width`, true, issues);
+  validateUnitInterval(value.height, `${path}.height`, true, issues);
+
+  if (
+    typeof value.x === "number" &&
+    typeof value.y === "number" &&
+    typeof value.width === "number" &&
+    typeof value.height === "number" &&
+    Number.isFinite(value.x) &&
+    Number.isFinite(value.y) &&
+    Number.isFinite(value.width) &&
+    Number.isFinite(value.height) &&
+    (value.x + value.width > 1 || value.y + value.height > 1)
+  ) {
+    issues.push({
+      path,
+      message: "normalized frame must stay within its layout rect"
+    });
+  }
+}
+
+function validateUnitInterval(
+  value: unknown,
+  path: string,
+  exclusiveMinimum: boolean,
+  issues: WorkbenchSnapshotValidationIssue[]
+): void {
+  validateFiniteNumber(value, path, issues);
+  if (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    (value > 1 || (exclusiveMinimum ? value <= 0 : value < 0))
+  ) {
+    issues.push({
+      path,
+      message: exclusiveMinimum
+        ? "value must be greater than zero and at most one"
+        : "value must be between zero and one"
+    });
+  }
+}
+
+function knownSnapshotNodeIDs(value: unknown): Set<string> {
+  if (!Array.isArray(value)) {
+    return new Set();
+  }
+  return new Set(
+    value.flatMap((node) =>
+      isRecord(node) && typeof node.id === "string" ? [node.id.trim()] : []
+    )
   );
 }
 

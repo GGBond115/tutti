@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createAgentActivitySnapshotProjector } from "./engine/agentActivitySnapshot.projector.ts";
 import { createAgentSessionEngine } from "./engine/createAgentSessionEngine.ts";
+import { canonicalTurnKey } from "./engine/sessionEntityKeys.ts";
 import type { EngineExternalCommand } from "./engine/types.ts";
+import { normalizeAgentActivitySession } from "./sessionNormalization.ts";
+import type {
+  AgentActivityTurn,
+  AgentActivityTurnUpdatedEvent
+} from "./types.ts";
 import { createAgentActivityWorkspaceEventCoordinator } from "./workspaceEventCoordinator.ts";
 
 function createHarness() {
@@ -81,6 +87,307 @@ test("projects message deltas and clears them on authoritative deletion", () => 
     harness.coordinator.project(harness.readCanonicalSnapshot())
       .sessionMessagesById["session-1"],
     undefined
+  );
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("applies a settled Turn and its cleared Session reference atomically", () => {
+  const harness = createHarness();
+  const runningTurn = turn("running", 1);
+  harness.engine.dispatch({
+    session: session(runningTurn, 1),
+    type: "session/upserted"
+  });
+  const observations: Array<{
+    activeTurnId: string | null;
+    turnPhase: AgentActivityTurn["phase"] | null;
+  }> = [];
+  const unsubscribe = harness.engine.subscribe((state) => {
+    observations.push({
+      activeTurnId:
+        state.sessionLifecycle.sessionsById["session-1"]?.activeTurnId ?? null,
+      turnPhase:
+        state.sessionLifecycle.turnsById[
+          canonicalTurnKey("session-1", "turn-1")
+        ]?.phase ?? null
+    });
+  });
+
+  const result = harness.coordinator.ingestEvent(turnUpdateEvent("settled", 2));
+  const lifecycle = harness.engine.getSnapshot().sessionLifecycle;
+
+  assert.equal(result.accepted, true);
+  assert.equal(lifecycle.sessionsById["session-1"]?.activeTurnId, null);
+  assert.equal(lifecycle.sessionsById["session-1"]?.updatedAtUnixMs, 1);
+  assert.equal(
+    lifecycle.turnsById[canonicalTurnKey("session-1", "turn-1")]?.phase,
+    "settled"
+  );
+  assert.equal(
+    harness.engine.getSnapshot().attentionReadState.partitionsByUserId["user-1"]
+      ?.recordsBySessionId["session-1"]?.isUnread,
+    true
+  );
+  assert.ok(
+    observations.every(
+      (observation) =>
+        observation.turnPhase !== "settled" || observation.activeTurnId === null
+    )
+  );
+  assert.ok(
+    harness.commands.some(
+      (command) =>
+        command.type === "session/reconcile" &&
+        command.agentSessionId === "session-1" &&
+        command.live &&
+        command.scope === "state_and_messages"
+    )
+  );
+
+  unsubscribe();
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("rejects a late Turn fact without leaking completion into attention", () => {
+  const harness = createHarness();
+  const runningTurn = turn("running", 4);
+  harness.engine.dispatch({
+    session: session(runningTurn, 4),
+    type: "session/upserted"
+  });
+
+  const result = harness.coordinator.ingestEvent(
+    turnUpdateEvent("settled", 2, "turn-1", 100)
+  );
+  const snapshot = harness.engine.getSnapshot();
+
+  assert.equal(result.accepted, true);
+  assert.equal(
+    snapshot.sessionLifecycle.turnsById[canonicalTurnKey("session-1", "turn-1")]
+      ?.phase,
+    "running"
+  );
+  assert.equal(
+    snapshot.sessionLifecycle.sessionsById["session-1"]?.activeTurnId,
+    "turn-1"
+  );
+  assert.equal(
+    snapshot.attentionReadState.partitionsByUserId["user-1"],
+    undefined
+  );
+
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("replays an accepted completion after live reconcile supplies identity", () => {
+  const harness = createHarness();
+  const settledTurn = turn("settled", 2);
+  harness.coordinator.ingestEvent(turnUpdateEvent("settled", 2));
+  assert.equal(
+    harness.engine.getSnapshot().attentionReadState.partitionsByUserId[
+      "user-1"
+    ],
+    undefined
+  );
+  const reconciled = session(null, 2);
+  reconciled.latestTurn = settledTurn;
+
+  harness.engine.dispatch({
+    childSessions: [],
+    live: true,
+    session: reconciled,
+    turns: [],
+    type: "session/detailSnapshotReceived",
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(
+    harness.engine.getSnapshot().attentionReadState.partitionsByUserId["user-1"]
+      ?.recordsBySessionId["session-1"]?.isUnread,
+    true
+  );
+
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("stale historical snapshot cannot leak completion into attention", () => {
+  const harness = createHarness();
+  const runningTurn = turn("running", 4);
+  harness.engine.dispatch({
+    session: session(runningTurn, 4),
+    type: "session/upserted"
+  });
+  const stale = session(null, 2);
+  stale.latestTurn = turn("settled", 2);
+
+  harness.engine.dispatch({
+    sessions: [stale],
+    type: "session/snapshotReceived"
+  });
+
+  assert.equal(
+    harness.engine.getSnapshot().attentionReadState.partitionsByUserId[
+      "user-1"
+    ],
+    undefined
+  );
+
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("rejected historical snapshot cannot replace newer attention", () => {
+  const harness = createHarness();
+  const oldTurn = turn("settled", 2, "turn-a");
+  harness.engine.dispatch({ turn: oldTurn, type: "turn/upserted" });
+  harness.engine.dispatch({
+    session: session(null, 10),
+    type: "session/upserted"
+  });
+  harness.engine.dispatch({
+    activeTurnId: null,
+    turn: turn("settled", 10, "turn-b"),
+    type: "turn/projectionReceived",
+    workspaceId: "workspace-1"
+  });
+  const stale = session(null, 2);
+  stale.latestTurn = oldTurn;
+
+  harness.engine.dispatch({
+    sessions: [stale],
+    type: "session/snapshotReceived"
+  });
+
+  assert.deepEqual(
+    harness.engine.getSnapshot().attentionReadState.partitionsByUserId["user-1"]
+      ?.recordsBySessionId["session-1"],
+    {
+      completionKey: "turn:session-1:turn-b:completed",
+      isUnread: true,
+      kind: "completed",
+      markedUnreadByUser: false
+    }
+  );
+
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("rejects an inconsistent Turn projection and reconciles state", () => {
+  const harness = createHarness();
+  const runningTurn = turn("running", 1);
+  harness.engine.dispatch({
+    session: session(runningTurn, 1),
+    type: "session/upserted"
+  });
+  const inconsistent = turnUpdateEvent("settled", 2);
+  inconsistent.data.activeTurnId = "turn-1";
+
+  const result = harness.coordinator.ingestEvent(inconsistent);
+  const lifecycle = harness.engine.getSnapshot().sessionLifecycle;
+
+  assert.equal(result.accepted, false);
+  assert.equal(result.reason, "invalid_turn");
+  assert.equal(
+    lifecycle.turnsById[canonicalTurnKey("session-1", "turn-1")]?.phase,
+    "running"
+  );
+  assert.equal(lifecycle.sessionsById["session-1"]?.activeTurnId, "turn-1");
+  assert.ok(
+    harness.commands.some(
+      (command) =>
+        command.type === "session/reconcile" &&
+        command.agentSessionId === "session-1" &&
+        command.live &&
+        command.scope === "state"
+    )
+  );
+
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("authoritative history drops a terminal optimistic row from a retracted Turn", () => {
+  const harness = createHarness();
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "message_delta",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      messageId: "retracted-message",
+      turnId: "retracted-turn",
+      role: "assistant",
+      kind: "text",
+      occurredAtUnixMs: 10,
+      completedAtUnixMs: 11,
+      status: "completed",
+      content: { operation: "set", value: "old answer" }
+    }
+  });
+
+  assert.equal(
+    harness.coordinator.project(harness.readCanonicalSnapshot())
+      .sessionMessagesById["session-1"]?.length,
+    1
+  );
+
+  harness.coordinator.reconcileAuthoritativeHistory("session-1", [], []);
+
+  assert.equal(
+    harness.coordinator.project(harness.readCanonicalSnapshot())
+      .sessionMessagesById["session-1"]?.length,
+    0
+  );
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+
+test("preserves unrelated Session message projections during an optimistic delta", () => {
+  const harness = createHarness();
+  harness.engine.dispatch({
+    messages: [
+      message("session-a", "message-a", "canonical a"),
+      message("session-b", "message-b", "canonical b")
+    ],
+    type: "message/snapshotReceived",
+    workspaceId: "workspace-1"
+  });
+  const before = harness.coordinator.project(harness.readCanonicalSnapshot());
+
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-a",
+    eventType: "message_delta",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-a",
+      messageId: "message-a",
+      turnId: "turn-1",
+      role: "assistant",
+      kind: "text",
+      occurredAtUnixMs: 10,
+      content: { operation: "set", value: "canonical a live" }
+    }
+  });
+
+  const after = harness.coordinator.project(harness.readCanonicalSnapshot());
+  assert.notEqual(
+    after.sessionMessagesById["session-a"],
+    before.sessionMessagesById["session-a"]
+  );
+  assert.equal(
+    after.sessionMessagesById["session-a"]?.[0]?.payload.text,
+    "canonical a live"
+  );
+  assert.equal(
+    after.sessionMessagesById["session-b"],
+    before.sessionMessagesById["session-b"]
   );
   harness.coordinator.dispose();
   harness.engine.dispose();
@@ -168,6 +475,131 @@ test("reconnect hydrates the workspace, priority session, and cached messages", 
   harness.coordinator.dispose();
   harness.engine.dispose();
 });
+
+test("settled turn updates request a combined reconcile even without inline messages", () => {
+  const harness = createHarness();
+
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "turn_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "turn_update",
+      occurredAtUnixMs: 10,
+      activeTurnId: null,
+      turn: {
+        agentSessionId: "session-1",
+        completedCommand: null,
+        error: null,
+        fileChanges: null,
+        origin: "user_prompt",
+        outcome: "completed",
+        phase: "settled",
+        startedAtUnixMs: 1,
+        settledAtUnixMs: 10,
+        turnId: "turn-1",
+        updatedAtUnixMs: 10
+      }
+    }
+  });
+
+  assert.ok(
+    harness.commands.some(
+      (command) =>
+        command.type === "session/reconcile" &&
+        command.agentSessionId === "session-1" &&
+        command.scope === "state_and_messages"
+    )
+  );
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
+function message(agentSessionId: string, messageId: string, text: string) {
+  return {
+    workspaceId: "workspace-1",
+    agentSessionId,
+    messageId,
+    version: 1,
+    sequence: 1,
+    turnId: "turn-1",
+    role: "assistant" as const,
+    kind: "text",
+    payload: { text },
+    occurredAtUnixMs: 1
+  };
+}
+
+function session(turnValue: AgentActivityTurn | null, updatedAtUnixMs: number) {
+  return normalizeAgentActivitySession({
+    activeTurn: turnValue,
+    activeTurnId: turnValue?.turnId ?? null,
+    agentSessionId: "session-1",
+    cwd: "/workspace",
+    latestTurn: turnValue,
+    latestTurnInteractions: [],
+    pendingInteractions: [],
+    provider: "codex",
+    title: "Session",
+    updatedAtUnixMs,
+    userId: "user-1",
+    workspaceId: "workspace-1"
+  });
+}
+
+function turn(
+  phase: AgentActivityTurn["phase"],
+  updatedAtUnixMs: number,
+  turnId = "turn-1"
+): AgentActivityTurn {
+  return {
+    agentSessionId: "session-1",
+    ...(phase === "settled"
+      ? {
+          completedCommand: null,
+          error: null,
+          fileChanges: null,
+          outcome: "completed" as const,
+          settledAtUnixMs: updatedAtUnixMs
+        }
+      : {}),
+    origin: "user_prompt",
+    phase,
+    startedAtUnixMs: 1,
+    turnId,
+    updatedAtUnixMs
+  };
+}
+
+function turnUpdateEvent(
+  phase: AgentActivityTurn["phase"],
+  updatedAtUnixMs: number,
+  turnId = "turn-1",
+  occurredAtUnixMs = updatedAtUnixMs
+): AgentActivityTurnUpdatedEvent {
+  const turnValue = turn(phase, updatedAtUnixMs, turnId);
+  return {
+    agentSessionId: "session-1",
+    data: {
+      activeTurnId: phase === "settled" ? null : turnId,
+      agentSessionId: "session-1",
+      eventType: "turn_update",
+      occurredAtUnixMs,
+      turn: {
+        ...turnValue,
+        completedCommand: null,
+        error: turnValue.error ?? null,
+        fileChanges: turnValue.fileChanges ?? null,
+        outcome: turnValue.outcome ?? null,
+        settledAtUnixMs: turnValue.settledAtUnixMs ?? null
+      },
+      workspaceId: "workspace-1"
+    },
+    eventType: "turn_update",
+    workspaceId: "workspace-1"
+  };
+}
 
 test("invalid wire delta stays inside the coordinator and requests reconcile", () => {
   const harness = createHarness();

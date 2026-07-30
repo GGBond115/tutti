@@ -30,7 +30,6 @@ func (observers agentCommitObservers) ObserveCommitted(ctx context.Context, delt
 func buildAgentSessionRecordingService(
 	store workspacedata.CatalogStore,
 	transport *agentdaemon.SessionRecordingProcessTransport,
-	_ *agentservice.Service,
 ) (*agentsessionreplay.Service, error) {
 	fixtures, ok := store.(agentsessionreplay.StateFixtureStore)
 	if !ok {
@@ -60,10 +59,8 @@ func buildAgentSessionRecordingService(
 
 func configureAgentSessionRecordingObservers(
 	projection *agentservice.ActivityProjection,
-	sessions *agentservice.Service,
 	runtime agentservice.RootTurnObserver,
 	_ *agentsessionreplay.Service,
 ) {
 	projection.SetRootTurnObserver(runtime)
-	sessions.CommitObserver = agentCommitObservers{projection}
 }

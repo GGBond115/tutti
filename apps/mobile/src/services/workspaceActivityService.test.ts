@@ -1,7 +1,11 @@
-import { canonicalInteractionKey } from "@tutti-os/agent-activity-core";
+import {
+  canonicalInteractionKey,
+  type AgentSessionEngine
+} from "@tutti-os/agent-activity-core";
 import type {
   TuttidClient,
   WorkspaceAgentInteraction,
+  WorkspaceAgentEditRetryAvailability,
   WorkspaceAgentSession,
   WorkspaceAgentSessionDetailResponse,
   WorkspaceAgentSessionMessage,
@@ -22,9 +26,20 @@ const workspace: WorkspaceSummary = {
 };
 
 const fullSessionDetailProjection = {
+  editRetry: createEditRetryAvailability(),
   lifecycleCapabilitiesProjected: true,
   projection: "full"
 } as const;
+
+function createEditRetryAvailability(): WorkspaceAgentEditRetryAvailability {
+  return {
+    availableActions: [],
+    eligible: false,
+    historyRevision: 0,
+    recoveryState: "completed",
+    supported: false
+  };
+}
 
 describe("WorkspaceActivityService", () => {
   test("disposes the conversation Rail it owns", () => {
@@ -110,6 +125,8 @@ describe("WorkspaceActivityService", () => {
       origin: "user_prompt",
       outcome: null,
       phase: "running",
+      providerForkBindingAvailable: false,
+      providerForkBindingState: "unavailable",
       settledAtUnixMs: null,
       startedAtUnixMs: 2,
       turnId: "turn-1",
@@ -159,10 +176,29 @@ describe("WorkspaceActivityService", () => {
 
     await service.start();
     await flushAsyncWork();
+    const engine = (
+      service as unknown as {
+        engine: AgentSessionEngine;
+      }
+    ).engine;
+    const submitPrompt = jest.spyOn(engine, "submitPrompt");
     service.setDraft("continue");
     await service.send();
     await flushAsyncWork();
 
+    expect(submitPrompt).toHaveBeenCalledWith({
+      agentSessionId: "session-1",
+      clientSubmitId: expect.any(String),
+      content: [{ text: "continue", type: "text" }],
+      routing: "auto",
+      runtimeContent: [{ text: "continue", type: "text" }],
+      submitDiagnostics: {
+        blockCount: 1,
+        promptLength: 8,
+        source: "mobile",
+        submittedAtUnixMs: expect.any(Number)
+      }
+    });
     expect(sends).toHaveLength(1);
     expect(sends[0]).toMatchObject({
       agentSessionId: "session-1",
@@ -174,6 +210,30 @@ describe("WorkspaceActivityService", () => {
     expect(service.getSnapshot().draft).toBe("");
     expect(service.getSnapshot().sending).toBe(true);
 
+    service.dispose();
+  });
+
+  test("preserves the Mobile draft when the Engine rejects submission admission", async () => {
+    const service = createService(
+      createClient({ listMessages: emptyMessagePage })
+    );
+
+    await service.start();
+    await flushAsyncWork();
+    const engine = (
+      service as unknown as {
+        engine: AgentSessionEngine;
+      }
+    ).engine;
+    jest.spyOn(engine, "submitPrompt").mockReturnValue({
+      accepted: false,
+      queued: false
+    });
+    service.setDraft("continue");
+
+    await service.send();
+
+    expect(service.getSnapshot().draft).toBe("continue");
     service.dispose();
   });
 
@@ -207,15 +267,89 @@ describe("WorkspaceActivityService", () => {
 
     await service.start();
     await flushAsyncWork();
+    const engine = (
+      service as unknown as {
+        engine: AgentSessionEngine;
+      }
+    ).engine;
+    const activateSession = jest.spyOn(engine, "activateSession");
     service.startCreating();
     service.setDraft("start");
     await service.send();
     await flushAsyncWork();
 
+    expect(activateSession).toHaveBeenCalledTimes(1);
+    expect(activateSession).toHaveBeenCalledWith({
+      agentSessionId: expect.any(String),
+      agentTargetId: "target-1",
+      clientSubmitId: expect.any(String),
+      initialContent: [{ text: "start", type: "text" }],
+      initialTurnExpected: true,
+      mode: "new",
+      requestId: expect.any(String),
+      runtimeContent: [{ text: "start", type: "text" }],
+      settings: {
+        model: null,
+        permissionModeId: null,
+        planMode: null,
+        reasoningEffort: null,
+        speed: null
+      },
+      submitDiagnostics: {
+        blockCount: 1,
+        promptLength: 5,
+        source: "mobile",
+        submittedAtUnixMs: expect.any(Number)
+      },
+      visible: true
+    });
+    const activationInput = activateSession.mock.calls[0]?.[0];
+    expect(activationInput?.mode).toBe("new");
+    if (activationInput?.mode === "new") {
+      expect(activationInput.requestId).toBe(activationInput.clientSubmitId);
+    }
     expect(createCalls).toBe(1);
     expect(service.getSnapshot().selectedAgentSessionId).not.toBeNull();
     expect(service.getSnapshot().sending).toBe(false);
 
+    service.dispose();
+  });
+
+  test("preserves the new-Session draft when activation admission is rejected", async () => {
+    const service = createService(
+      createClient({
+        composerOptions: async () => ({
+          behavior: {
+            collapseModelOptionsToLatest: false,
+            modelOptionsAuthoritative: true,
+            planModeExclusiveWithPermissionMode: false,
+            prewarmDraftSession: false,
+            refreshModelOptionsAfterSettings: false
+          },
+          effectiveSettings: {},
+          provider: "codex"
+        }),
+        listMessages: emptyMessagePage,
+        session: () => null,
+        targets: [createTarget()]
+      })
+    );
+
+    await service.start();
+    await flushAsyncWork();
+    const engine = (
+      service as unknown as {
+        engine: AgentSessionEngine;
+      }
+    ).engine;
+    jest.spyOn(engine, "activateSession").mockReturnValue(false);
+    service.startCreating();
+    service.setDraft("start");
+
+    await service.send();
+
+    expect(service.getSnapshot().draft).toBe("start");
+    expect(service.getSnapshot().sending).toBe(false);
     service.dispose();
   });
 
@@ -281,11 +415,96 @@ describe("WorkspaceActivityService", () => {
 
     await service.start();
     await flushAsyncWork();
+    const engine = (
+      service as unknown as {
+        engine: AgentSessionEngine;
+      }
+    ).engine;
+    const updateSessionSettings = jest.spyOn(engine, "updateSessionSettings");
     service.updateComposerSettings({ planMode: true });
     await flushAsyncWork();
 
+    expect(updateSessionSettings).toHaveBeenCalledWith({
+      agentSessionId: "session-1",
+      settings: { planMode: true }
+    });
     expect(settingsRequests).toEqual([{ planMode: true }]);
     expect(service.getSnapshot().selectedSession?.settings.planMode).toBe(true);
+
+    service.dispose();
+  });
+
+  test("routes Session stop through the Engine semantic operation", async () => {
+    const service = createService(
+      createClient({ listMessages: emptyMessagePage })
+    );
+
+    await service.start();
+    await flushAsyncWork();
+    const engine = (
+      service as unknown as {
+        engine: AgentSessionEngine;
+      }
+    ).engine;
+    const stopSession = jest.spyOn(engine, "stopSession");
+
+    service.stop();
+
+    expect(stopSession).toHaveBeenCalledTimes(1);
+    expect(stopSession).toHaveBeenCalledWith({
+      agentSessionId: "session-1"
+    });
+    service.dispose();
+  });
+
+  test("treats a new Mobile settings selection as a retry after unknown delivery", async () => {
+    const settingsRequests: Array<Record<string, unknown>> = [];
+    const client = createClient({
+      listMessages: emptyMessagePage,
+      session: () => ({ ...createSession(), agentTargetId: "target-1" }),
+      settings: (_workspaceId, _sessionId, settings) => {
+        settingsRequests.push(settings);
+        if (settingsRequests.length === 1) {
+          return new Promise<WorkspaceAgentSession>(() => undefined);
+        }
+        return Promise.resolve({
+          ...createSession(),
+          agentTargetId: "target-1",
+          settings
+        });
+      }
+    });
+    const service = createService(client);
+
+    await service.start();
+    await flushAsyncWork();
+    service.updateComposerSettings({ planMode: true });
+    await flushAsyncWork();
+
+    const engine = (
+      service as unknown as {
+        engine: AgentSessionEngine;
+      }
+    ).engine;
+    const firstCommandId =
+      engine.getSnapshot().sessionLifecycle.operationBySessionId["session-1"]
+        ?.settingsUpdate.commandId;
+    expect(firstCommandId).toBeTruthy();
+    engine.dispatch({
+      commandId: firstCommandId!,
+      commandType: "session/updateSettings",
+      correlationId: "session-1",
+      outcome: "timedOut",
+      type: "engine/commandResult"
+    });
+
+    service.updateComposerSettings({ model: "model-2" });
+    await flushAsyncWork();
+
+    expect(settingsRequests).toEqual([
+      { planMode: true },
+      { model: "model-2", planMode: true }
+    ]);
 
     service.dispose();
   });
@@ -343,7 +562,7 @@ describe("WorkspaceActivityService", () => {
     service.dispose();
   });
 
-  test("retries a failed Interaction with the exact Engine-owned response", async () => {
+  test("retries a failed Interaction only when the user explicitly submits the same response", async () => {
     const interaction = createInteraction();
     const requests: Record<string, unknown>[] = [];
     let attempt = 0;
@@ -386,7 +605,11 @@ describe("WorkspaceActivityService", () => {
       service.getSnapshot().interactionStates[interactionKey]?.failed
     ).toBe(true);
 
-    service.respondToInteraction(interaction);
+    service.respondToInteraction(interaction, {});
+    await flushAsyncWork();
+    expect(requests).toHaveLength(1);
+
+    service.respondToInteraction(interaction, { optionId: "allow-once" });
     await flushAsyncWork();
 
     expect(requests).toEqual([
@@ -459,7 +682,7 @@ describe("WorkspaceActivityService", () => {
     service.dispose();
   });
 
-  test("renames a session and reconciles the canonical rail snapshot", async () => {
+  test("renames a session through the engine without reloading rail membership", async () => {
     let session: WorkspaceAgentSession | null = createSession();
     const renameRequests: string[] = [];
     const client = createClient({
@@ -472,12 +695,15 @@ describe("WorkspaceActivityService", () => {
       session: () => session
     });
     const service = createService(client);
+    const reconcileRail = jest.spyOn(service.rail, "reconcile");
 
     await service.start();
     await flushAsyncWork();
+    reconcileRail.mockClear();
     await service.renameSession("session-1", "  Renamed session  ");
 
     expect(renameRequests).toEqual(["Renamed session"]);
+    expect(reconcileRail).not.toHaveBeenCalled();
     expect(service.getSnapshot().selectedSession?.title).toBe(
       "Renamed session"
     );
@@ -1363,6 +1589,8 @@ function createTurn(
     origin: "user_prompt",
     outcome: null,
     phase: "settled",
+    providerForkBindingAvailable: false,
+    providerForkBindingState: "recovery_required",
     settledAtUnixMs: 3,
     startedAtUnixMs: 2,
     turnId,

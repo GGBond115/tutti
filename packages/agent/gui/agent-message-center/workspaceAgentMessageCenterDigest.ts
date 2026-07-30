@@ -250,13 +250,16 @@ function messageSummaryCandidates(
     summaryCandidate("payload.summary", payload.summary),
     summaryCandidate("payload.displayPrompt", payload.displayPrompt),
     summaryCandidate("payload.text", payload.text),
-    summaryCandidate("payload.content", payload.content),
     summaryCandidate("payload.message", payload.message),
     summaryCandidate("payload.body", payload.body)
   ];
   if (!isToolMessage) {
     return [
       ...explicitCandidates,
+      summaryCandidate(
+        "payload.content",
+        textFromContentValue(payload.content)
+      ),
       summaryCandidate("payload.title", payload.title)
     ].filter((candidate): candidate is MessageSummaryCandidate =>
       Boolean(candidate)
@@ -285,26 +288,16 @@ function toolErrorSummaryCandidate(
   payload: Record<string, unknown>
 ): MessageSummaryCandidate | null {
   const error = recordValue(payload.error);
-  const rawOutput = recordValue(error.rawOutput);
   return summaryCandidate(
     "tool.error",
     firstNonEmptyString(
       stringValue(payload.error),
       stringValue(error.summary),
       stringValue(error.message),
-      stringValue(error.detail),
       stringValue(error.text),
-      textFromContentValue(error.content),
-      stringValue(error.output),
       stringValue(error.stdout),
       stringValue(error.stderr),
-      stringValue(error.aggregated_output),
-      stringValue(error.formatted_output),
-      stringValue(rawOutput.stdout),
-      stringValue(rawOutput.stderr),
-      stringValue(rawOutput.aggregated_output),
-      stringValue(rawOutput.formatted_output),
-      stringValue(error.error)
+      stringValue(error.status)
     )
   );
 }
@@ -313,26 +306,15 @@ function toolOutputSummaryCandidate(
   payload: Record<string, unknown>
 ): MessageSummaryCandidate | null {
   const output = recordValue(payload.output);
-  const rawOutput = recordValue(output.rawOutput);
   return summaryCandidate(
     "tool.output",
     firstNonEmptyString(
       stringValue(output.summary),
       stringValue(output.message),
       stringValue(output.text),
-      textFromContentValue(output.content),
-      stringValue(output.content),
-      stringValue(output.result),
-      stringValue(output.output),
       stringValue(output.stdout),
       stringValue(output.stderr),
-      stringValue(output.aggregated_output),
-      stringValue(output.formatted_output),
-      stringValue(rawOutput.stdout),
-      stringValue(rawOutput.stderr),
-      stringValue(rawOutput.aggregated_output),
-      stringValue(rawOutput.formatted_output),
-      stringValue(payload.result)
+      stringValue(output.status)
     )
   );
 }
@@ -341,7 +323,6 @@ function toolInputSummaryCandidate(
   payload: Record<string, unknown>
 ): MessageSummaryCandidate | null {
   const input = recordValue(payload.input);
-  const rawInput = recordValue(input.rawInput);
   const action = recordValue(input.action);
   return summaryCandidate(
     "tool.input",
@@ -349,8 +330,6 @@ function toolInputSummaryCandidate(
       stringValue(input.summary),
       stringValue(input.command),
       stringValue(input.cmd),
-      stringValue(rawInput.command),
-      stringValue(rawInput.cmd),
       stringValue(input.path),
       stringValue(input.file_path),
       stringValue(input.fileName),

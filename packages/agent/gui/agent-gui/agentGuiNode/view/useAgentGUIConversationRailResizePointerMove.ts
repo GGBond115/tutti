@@ -47,6 +47,10 @@ export function useAgentGUIConversationRailResizePointerMove({
         "--agent-gui-conversation-rail-width",
         `${nextWidthPx}px`
       );
+      layoutElementRef.current?.style.setProperty(
+        "--agent-gui-conversation-rail-content-width",
+        `${nextWidthPx}px`
+      );
       reportConversationRailLayoutChange?.({
         providerRailWidthPx,
         conversationRailWidthPx: nextWidthPx,

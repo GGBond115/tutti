@@ -36,6 +36,37 @@ func TestMessageCompactTextUsesContentBlocks(t *testing.T) {
 	}
 }
 
+func TestMessageCompactValueUsesCanonicalToolResult(t *testing.T) {
+	value := messageCompactValue(agentservice.SessionMessage{
+		Role:   "assistant",
+		Kind:   "tool_call",
+		Status: "completed",
+		Payload: map[string]any{
+			"name": "Generate image",
+			"output": map[string]any{
+				"text":          "Generated image",
+				"savedPath":     "/tmp/generated/image.png",
+				"savedPaths":    []any{"/tmp/generated/image.png"},
+				"imageMimeType": "image/png",
+			},
+		},
+	}, nil)
+
+	if value["text"] != "Generated image" {
+		t.Fatalf("value = %#v, want canonical tool output text", value)
+	}
+	images, ok := value["images"].([]any)
+	if !ok || len(images) != 1 {
+		t.Fatalf("images = %#v", value["images"])
+	}
+	image := images[0].(map[string]any)
+	if image["localPath"] != "/tmp/generated/image.png" ||
+		image["name"] != "image.png" ||
+		image["mimeType"] != "image/png" {
+		t.Fatalf("image = %#v", image)
+	}
+}
+
 func TestMessageCompactValueIncludesImages(t *testing.T) {
 	value := messageCompactValue(agentservice.SessionMessage{
 		AgentSessionID:   "SESSION-1",

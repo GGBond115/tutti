@@ -1,10 +1,14 @@
 import type { EngineDiagnosticSink } from "./diagnostics.ts";
+import type { AgentActivitySendInput } from "../types.ts";
 import type {
+  AgentSessionActivateEffectInput,
   EngineCommandPort,
+  EngineCommandResultContract,
   EngineCommandResultIntent,
   EngineExternalCommand,
   EngineScheduledTask,
-  EngineScheduler
+  EngineScheduler,
+  EngineTypedCommandPort
 } from "./types.ts";
 
 // Effect executor: performs external command descriptions through the
@@ -15,7 +19,7 @@ import type {
 // reducer transitions, never executed in place here.
 
 export interface CreateEngineEffectExecutorInput {
-  commandPort: EngineCommandPort;
+  commandPort: EngineCommandPort | EngineTypedCommandPort;
   diagnosticSink?: EngineDiagnosticSink;
   onResult: (intent: EngineCommandResultIntent) => void;
   scheduler: EngineScheduler;
@@ -52,7 +56,12 @@ export function createEngineEffectExecutor({
     abort(commandId, reason) {
       const controller = abortControllersByCommandId.get(commandId.trim());
       if (!controller || controller.signal.aborted) return;
-      controller.abort(new Error(reason.trim() || "engine command aborted"));
+      const error = new Error(
+        reason.trim() || "engine command aborted"
+      ) as Error & { code: string };
+      error.code = "aborted";
+      error.name = "AbortError";
+      controller.abort(error);
     },
     dispose() {
       disposed = true;
@@ -66,10 +75,17 @@ export function createEngineEffectExecutor({
       abortControllersByCommandId.clear();
     },
     execute(command) {
+      commandPort.observe?.(command);
       let settled = false;
       let timeoutTask: EngineScheduledTask | null = null;
       const abortController = new AbortController();
       abortControllersByCommandId.set(command.commandId, abortController);
+      const resultContract = commandResultContract(commandPort, command);
+      const execution = executeCommand(
+        commandPort,
+        command,
+        abortController.signal
+      );
 
       const finishTimeoutTask = (): void => {
         if (
@@ -98,24 +114,13 @@ export function createEngineEffectExecutor({
             commandType: command.type,
             ...commandCorrelationFields(command),
             outcome: "timedOut",
+            resultContract,
             type: "engine/commandResult"
           });
         });
         timeoutTasks.add(timeoutTask);
       }
 
-      const execution =
-        command.type === "plan/submitDecision"
-          ? commandPort.executePlanDecision
-            ? commandPort.executePlanDecision(command, {
-                signal: abortController.signal
-              })
-            : Promise.reject(
-                new Error(
-                  "EngineCommandPort.executePlanDecision is not configured"
-                )
-              )
-          : commandPort.execute(command, { signal: abortController.signal });
       execution.then(
         (value) => {
           if (settled) {
@@ -132,6 +137,7 @@ export function createEngineEffectExecutor({
             commandType: command.type,
             ...commandCorrelationFields(command),
             outcome: "succeeded",
+            resultContract,
             type: "engine/commandResult",
             value
           });
@@ -152,12 +158,188 @@ export function createEngineEffectExecutor({
             ...commandCorrelationFields(command),
             ...engineCommandErrorFields(error),
             outcome: "failed",
+            resultContract,
             type: "engine/commandResult"
           });
         }
       );
     }
   };
+}
+
+function executeCommand(
+  commandPort: EngineCommandPort | EngineTypedCommandPort,
+  command: EngineExternalCommand,
+  signal: AbortSignal
+): Promise<unknown> {
+  if (
+    command.type === "queue/sendPrompt" &&
+    command.requiredSettingsPatch !== undefined
+  ) {
+    return Promise.reject(
+      new Error(
+        "queue/sendPrompt settings preconditions must be resolved by the Engine before execution"
+      )
+    );
+  }
+  if (command.type === "plan/submitDecision") {
+    return commandPort.executePlanDecision
+      ? commandPort.executePlanDecision(command, { signal })
+      : Promise.reject(
+          new Error("EngineCommandPort.executePlanDecision is not configured")
+        );
+  }
+  if (commandPort.kind !== "typed") {
+    return commandPort.execute(command, { signal });
+  }
+  const effects = commandPort.effects;
+  switch (command.type) {
+    case "session/activate":
+      return effects.activateSession(activationInput(command), {
+        signal
+      });
+    case "queue/sendPrompt":
+      return effects.sendInput(promptInput(command), { signal });
+    case "session/updateSettings":
+      return effects.updateSessionSettings(
+        {
+          agentSessionId: command.agentSessionId,
+          commandId: command.commandId,
+          correlationId: command.correlationId,
+          settings: command.settings,
+          workspaceId: command.workspaceId
+        },
+        { signal }
+      );
+    case "turn/cancel":
+      return effects.cancelTurn(
+        {
+          agentSessionId: command.agentSessionId,
+          turnId: command.turnId,
+          workspaceId: command.workspaceId
+        },
+        { signal }
+      );
+    case "sessions/delete":
+      return effects.deleteSessions(
+        {
+          agentSessionIds: [...command.agentSessionIds],
+          workspaceId: command.workspaceId
+        },
+        { signal }
+      );
+    case "interaction/respond":
+      return effects.respondToInteraction(
+        {
+          ...(command.action ? { action: command.action } : {}),
+          agentSessionId: command.agentSessionId,
+          ...(command.optionId ? { optionId: command.optionId } : {}),
+          ...(command.payload ? { payload: { ...command.payload } } : {}),
+          requestId: command.requestId,
+          turnId: command.turnId,
+          workspaceId: command.workspaceId
+        },
+        { signal }
+      );
+    case "session/setPinned":
+      return effects.setSessionPinned(
+        {
+          agentSessionId: command.agentSessionId,
+          pinned: command.pinned,
+          workspaceId: command.workspaceId
+        },
+        { signal }
+      );
+    case "session/rename":
+      return effects.renameSession(
+        {
+          agentSessionId: command.agentSessionId,
+          title: command.title,
+          workspaceId: command.workspaceId
+        },
+        { signal }
+      );
+    default:
+      return commandPort.execute(command, { signal });
+  }
+}
+
+function commandResultContract(
+  commandPort: EngineCommandPort | EngineTypedCommandPort,
+  command: EngineExternalCommand
+): EngineCommandResultContract {
+  return commandPort.kind === "typed" && command.type === "session/activate"
+    ? "activation-v1"
+    : "opaque";
+}
+
+function promptInput(
+  command: Extract<EngineExternalCommand, { type: "queue/sendPrompt" }>
+): AgentActivitySendInput {
+  return {
+    agentSessionId: command.agentSessionId,
+    ...(command.capabilityRefs?.length
+      ? { capabilityRefs: command.capabilityRefs }
+      : {}),
+    clientSubmitId: command.clientSubmitId,
+    content: [...command.content],
+    displayPrompt: command.displayPrompt ?? null,
+    ...(command.guidance === true ? { guidance: true } : {}),
+    ...(command.submitDiagnostics
+      ? { submitDiagnostics: { ...command.submitDiagnostics } }
+      : {}),
+    workspaceId: command.workspaceId
+  };
+}
+
+function activationInput(
+  command: Extract<EngineExternalCommand, { type: "session/activate" }>
+): AgentSessionActivateEffectInput {
+  const shared = {
+    agentSessionId: command.agentSessionId,
+    ...(command.capabilityRefs?.length
+      ? { capabilityRefs: command.capabilityRefs }
+      : {}),
+    ...(command.cwd !== undefined ? { cwd: command.cwd } : {}),
+    ...(command.initialContent
+      ? { initialContent: [...command.initialContent] }
+      : {}),
+    ...(command.initialDisplayPrompt !== undefined
+      ? { initialDisplayPrompt: command.initialDisplayPrompt }
+      : {}),
+    ...(command.railPlacement
+      ? { railPlacement: { ...command.railPlacement } }
+      : {}),
+    ...(command.settings ? { settings: { ...command.settings } } : {}),
+    ...(command.submitDiagnostics
+      ? { submitDiagnostics: { ...command.submitDiagnostics } }
+      : {}),
+    ...(command.title !== undefined ? { title: command.title } : {}),
+    ...(command.visible !== undefined ? { visible: command.visible } : {}),
+    workspaceId: command.workspaceId
+  };
+  return command.mode === "new"
+    ? {
+        ...shared,
+        agentTargetId: command.agentTargetId,
+        clientSubmitId: command.clientSubmitId,
+        ...(command.initialGoalControl
+          ? { initialGoalControl: { ...command.initialGoalControl } }
+          : {}),
+        ...(command.initialTuttiModeActivation
+          ? {
+              initialTuttiModeActivation: {
+                ...command.initialTuttiModeActivation
+              }
+            }
+          : {}),
+        mode: "new"
+      }
+    : {
+        ...shared,
+        agentTargetId: command.agentTargetId,
+        mode: "existing"
+      };
 }
 
 function commandCorrelationFields(command: EngineExternalCommand): {
@@ -182,6 +364,9 @@ function engineCommandErrorFields(error: unknown): {
       ? (error as Record<string, unknown>)
       : null;
   const code = typeof record?.code === "string" ? record.code.trim() : "";
+  const normalizedCode =
+    code ||
+    (error instanceof Error && error.name === "AbortError" ? "aborted" : "");
   const reason = typeof record?.reason === "string" ? record.reason.trim() : "";
   const message =
     error instanceof Error
@@ -190,7 +375,7 @@ function engineCommandErrorFields(error: unknown): {
         ? record.message
         : String(error);
   return {
-    ...(code ? { errorCode: code } : {}),
+    ...(normalizedCode ? { errorCode: normalizedCode } : {}),
     ...(reason ? { errorReason: reason } : {}),
     errorMessage: message
   };

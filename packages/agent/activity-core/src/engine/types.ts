@@ -66,6 +66,13 @@ export interface EngineExpiryCancelRequestedIntent {
 export type EngineCommandOutcome = "failed" | "succeeded" | "timedOut";
 
 /**
+ * Describes the runtime result contract used by one command execution.
+ * Older command ports and manually dispatched results omit this field and
+ * retain opaque acknowledgement semantics.
+ */
+export type EngineCommandResultContract = "activation-v1" | "opaque";
+
+/**
  * Every command execution settles back into the loop as this intent, so
  * failure and timeout handling are explicit reducer transitions instead of
  * executor-side improvisation.
@@ -76,6 +83,7 @@ export interface EngineCommandResultIntent {
   commandType: EngineExternalCommand["type"];
   correlationId?: string;
   outcome: EngineCommandOutcome;
+  resultContract?: EngineCommandResultContract;
   value?: unknown;
   errorCode?: string;
   errorReason?: string;
@@ -92,6 +100,10 @@ export interface EngineIntentExpiredIntent {
   dueAtUnixMs: number;
 }
 
+/**
+ * Host-dispatchable and host-observable Engine input. Reducer-only
+ * continuations belong to the private root-reducer contract.
+ */
 export type EngineIntent =
   | AttentionReadIntent
   | EngineCommandResultIntent
@@ -109,6 +121,7 @@ export type EngineIntent =
   | SessionCommandsIntent
   | SessionLifecycleIntent
   | ComposerOptionsIntent
+  | EditRetryIntent
   | TuttiModeActivationIntent;
 
 // ---------------------------------------------------------------------------
@@ -183,11 +196,28 @@ export type EngineExternalCommand =
   | SessionMutationCommand
   | TurnCancelCommand
   | ComposerOptionsCommand
+  | EditRetryCommand
   | TuttiModeActivationCommand;
 
 export type EngineExternalCommandExceptPlanDecision = Exclude<
   EngineExternalCommand,
   PlanSubmitDecisionCommand
+>;
+
+type AgentSessionEffectCommand =
+  | Extract<
+      SessionMutationCommand,
+      { type: "session/rename" | "session/setPinned" | "sessions/delete" }
+    >
+  | InteractionRespondCommand
+  | PromptQueueSendCommand
+  | SessionActivateCommand
+  | SessionUpdateSettingsCommand
+  | TurnCancelCommand;
+
+export type EngineExtensionCommand = Exclude<
+  EngineExternalCommandExceptPlanDecision,
+  AgentSessionEffectCommand
 >;
 
 export type EngineCommand = EngineExternalCommand | EngineInternalCommand;
@@ -227,8 +257,13 @@ export interface EngineRuntimeState {
   };
 }
 
+/**
+ * Host-observable Engine snapshot. Reducer execution ledgers are deliberately
+ * omitted from this public state contract.
+ */
 export interface AgentSessionEngineState {
   attentionReadState: AttentionReadState;
+  editRetry: EditRetryState;
   engineRuntime: EngineRuntimeState;
   pendingIntents: PendingIntentsState;
   planDecisions: PlanDecisionState;
@@ -274,16 +309,131 @@ export interface EngineClock {
   nowUnixMs(): number;
 }
 
-/** Transport adapter surface: executes external command descriptions. */
-export interface EngineCommandPort {
-  execute(
-    command: EngineExternalCommandExceptPlanDecision,
-    options?: { signal?: AbortSignal }
+export interface EngineEffectOptions {
+  signal?: AbortSignal;
+}
+
+interface AgentSessionActivateEffectInputBase {
+  agentSessionId: string;
+  capabilityRefs?: readonly AgentActivityCapabilityReference[];
+  cwd?: string;
+  initialContent?: AgentPromptContentBlock[];
+  initialDisplayPrompt?: string;
+  railPlacement?: AgentActivityRailPlacement;
+  settings?: AgentActivitySessionSettings;
+  submitDiagnostics?: Readonly<AgentActivitySubmitDiagnostics>;
+  title?: string;
+  visible?: boolean;
+  workspaceId: string;
+}
+
+/**
+ * Host-neutral activation request. Engine commands stay private orchestration
+ * details; hosts implement lifecycle capabilities in domain terms.
+ */
+export type AgentSessionActivateEffectInput =
+  | (AgentSessionActivateEffectInputBase & {
+      agentTargetId: string;
+      clientSubmitId: string;
+      initialGoalControl?: Readonly<AgentActivityInitialGoalControl>;
+      initialTuttiModeActivation?: AgentActivityInitialTuttiModeActivation;
+      mode: "new";
+    })
+  | (AgentSessionActivateEffectInputBase & {
+      agentTargetId?: string | null;
+      clientSubmitId?: never;
+      mode: "existing";
+    });
+
+/**
+ * Authoritative activation payload returned by preferred typed hosts.
+ * Existing-session activation carries the complete detail aggregate so the
+ * Engine, rather than the host effect, applies Session/Turn state.
+ */
+export type AgentSessionActivateEffectResult =
+  | {
+      activation: { mode: "new"; status: "attached" };
+      session: AgentActivitySession;
+    }
+  | {
+      activation: { mode: "existing"; status: "already_attached" };
+      detail: AgentActivitySessionDetailSnapshot;
+      session: AgentActivitySession;
+    };
+
+export interface AgentSessionEffectPort {
+  activateSession(
+    input: AgentSessionActivateEffectInput,
+    options?: EngineEffectOptions
+  ): Promise<AgentSessionActivateEffectResult>;
+  cancelTurn(
+    input: AgentActivityCancelTurnInput,
+    options?: EngineEffectOptions
   ): Promise<unknown>;
+  deleteSessions(
+    input: Omit<AgentActivityDeleteSessionsInput, "signal">,
+    options?: EngineEffectOptions
+  ): Promise<AgentActivityDeleteSessionsResult>;
+  respondToInteraction(
+    input: AgentActivitySubmitInteractiveInput,
+    options?: EngineEffectOptions
+  ): Promise<unknown>;
+  renameSession(
+    input: Omit<AgentActivityRenameSessionInput, "signal">,
+    options?: EngineEffectOptions
+  ): Promise<{ session: AgentActivitySession }>;
+  sendInput(
+    input: AgentActivitySendInput,
+    options?: EngineEffectOptions
+  ): Promise<unknown>;
+  setSessionPinned(
+    input: Omit<AgentActivitySetSessionPinnedInput, "signal">,
+    options?: EngineEffectOptions
+  ): Promise<{ session: AgentActivitySession }>;
+  updateSessionSettings(
+    input: {
+      agentSessionId: string;
+      commandId: string;
+      correlationId: string;
+      settings: AgentActivitySessionSettings;
+      workspaceId: string;
+    },
+    options?: EngineEffectOptions
+  ): Promise<unknown>;
+}
+
+interface EngineCommandPortBase {
+  observe?(command: EngineExternalCommand): void;
   executePlanDecision?(
     command: PlanSubmitDecisionCommand,
-    options?: { signal?: AbortSignal }
+    options?: EngineEffectOptions
   ): Promise<PlanSubmitDecisionResult>;
+}
+
+/**
+ * Compatibility surface for published-package consumers that still translate
+ * the complete command union themselves.
+ */
+export interface EngineCommandPort extends EngineCommandPortBase {
+  effects?: never;
+  kind?: "legacy";
+  execute(
+    command: EngineExternalCommandExceptPlanDecision,
+    options?: EngineEffectOptions
+  ): Promise<unknown>;
+}
+
+/**
+ * Preferred host surface. The Engine owns shared lifecycle projection and the
+ * host executes only platform/product extensions.
+ */
+export interface EngineTypedCommandPort extends EngineCommandPortBase {
+  effects: AgentSessionEffectPort;
+  execute(
+    command: EngineExtensionCommand,
+    options?: EngineEffectOptions
+  ): Promise<unknown>;
+  kind: "typed";
 }
 
 // ---------------------------------------------------------------------------
@@ -305,12 +455,123 @@ export type AgentSessionEngineListener = (
 
 export type AgentSessionEngineIntentObserver = (intent: EngineIntent) => void;
 
+export interface AgentSessionLoadComposerOptionsInput {
+  cwd?: string | null;
+  force?: boolean;
+  provider: string;
+  settings?: AgentActivityComposerSettings | null;
+  signal?: AbortSignal;
+  targetKey: string;
+}
+
+export interface AgentSessionUpdateSettingsInput {
+  agentSessionId: string;
+  settings: AgentActivitySessionSettings;
+}
+
+export interface AgentSessionSubmitInteractionResponseInput {
+  action?: string;
+  agentSessionId: string;
+  optionId?: string;
+  payload?: Readonly<Record<string, unknown>>;
+  requestId: string;
+  turnId: string;
+}
+
+interface AgentSessionActivationInputBase {
+  agentSessionId: string;
+  capabilityRefs?: readonly AgentActivityCapabilityReference[];
+  cwd?: string;
+  initialContent?: readonly AgentPromptContentBlock[];
+  initialDisplayPrompt?: string;
+  initialTurnExpected?: boolean;
+  railPlacement?: AgentActivityRailPlacement;
+  railSectionKey?: string;
+  requestId: string;
+  runtimeContent?: readonly AgentPromptContentBlock[];
+  settings?: AgentActivitySessionSettings;
+  submitDiagnostics?: Readonly<AgentActivitySubmitDiagnostics>;
+  title?: string;
+  visible?: boolean;
+}
+
+export type AgentSessionActivationInput =
+  | (AgentSessionActivationInputBase & {
+      agentTargetId: string;
+      clientSubmitId: string;
+      initialGoalControl?: Readonly<AgentActivityInitialGoalControl>;
+      initialTuttiModeActivation?: AgentActivityInitialTuttiModeActivation;
+      mode: "new";
+      optimisticTitle?: string;
+      tuttiModeDraftKey?: string;
+    })
+  | (AgentSessionActivationInputBase & {
+      agentTargetId?: string | null;
+      clientSubmitId?: never;
+      initialGoalControl?: never;
+      initialTuttiModeActivation?: never;
+      mode: "existing";
+      optimisticTitle?: never;
+      tuttiModeDraftKey?: never;
+    });
+
+export interface AgentSessionSubmitPromptInput {
+  agentSessionId: string;
+  capabilityRefs?: readonly AgentActivityCapabilityReference[];
+  clientSubmitId: string;
+  content: readonly AgentPromptContentBlock[];
+  displayPrompt?: string;
+  requiredSettingsPatch?: Readonly<AgentActivitySubmitSettingsPatch>;
+  routing?: "auto" | "immediate" | "send_now";
+  runtimeContent?: readonly AgentPromptContentBlock[];
+  submitDiagnostics?: Readonly<AgentActivitySubmitDiagnostics>;
+}
+
+export interface AgentSessionSubmitPromptResult {
+  accepted: boolean;
+  queued: boolean;
+}
+
+export interface AgentSessionStopInput {
+  agentSessionId: string;
+}
+
 export interface AgentSessionEngine {
   readonly identity: AgentSessionEngineIdentity;
+  activateSession(input: AgentSessionActivationInput): boolean;
+  deleteSessions(
+    input: Omit<AgentActivityDeleteSessionsInput, "signal" | "workspaceId"> & {
+      signal?: AbortSignal;
+    }
+  ): Promise<AgentActivityDeleteSessionsResult>;
   dispatch(intent: EngineIntent, options?: EngineDispatchOptions): void;
   dispose(): void;
   getSnapshot(): AgentSessionEngineState;
+  loadComposerOptions(
+    input: AgentSessionLoadComposerOptionsInput
+  ): Promise<AgentActivityComposerOptions>;
+  renameSession(
+    input: Omit<AgentActivityRenameSessionInput, "signal" | "workspaceId"> & {
+      signal?: AbortSignal;
+    }
+  ): Promise<AgentActivitySession>;
+  setSessionPinned(
+    input: Omit<
+      AgentActivitySetSessionPinnedInput,
+      "signal" | "workspaceId"
+    > & {
+      signal?: AbortSignal;
+    }
+  ): Promise<AgentActivitySession>;
+  submitInteractionResponse(
+    input: AgentSessionSubmitInteractionResponseInput
+  ): boolean;
+  submitPrompt(
+    input: AgentSessionSubmitPromptInput
+  ): AgentSessionSubmitPromptResult;
+  stopSession(input: AgentSessionStopInput): void;
   subscribe(listener: AgentSessionEngineListener): () => void;
+  updateSessionSettings(input: AgentSessionUpdateSettingsInput): void;
 }
 import type {
   PromptQueueIntent,
@@ -331,6 +592,7 @@ import type {
   TurnCancelCommand
 } from "./sessionLifecycle.types.ts";
 import type {
+  AgentActivitySessionDetailSnapshot,
   SessionReconcileCommand,
   SessionReconcileIntent,
   SessionReconcileState
@@ -366,3 +628,30 @@ import type {
   TuttiModeActivationIntent,
   TuttiModeActivationState
 } from "./tuttiModeActivation.types.ts";
+import type {
+  AgentActivityCancelTurnInput,
+  AgentActivityComposerOptions,
+  AgentActivityComposerSettings,
+  AgentActivityDeleteSessionsInput,
+  AgentActivityDeleteSessionsResult,
+  AgentActivityInitialGoalControl,
+  AgentActivityRenameSessionInput,
+  AgentActivitySendInput,
+  AgentActivitySetSessionPinnedInput,
+  AgentActivitySession,
+  AgentActivitySessionSettings,
+  AgentActivitySubmitDiagnostics,
+  AgentActivitySubmitInteractiveInput,
+  AgentActivitySubmitSettingsPatch,
+  AgentPromptContentBlock
+} from "../types.ts";
+import type { AgentActivityRailPlacement } from "../railPlacement.types.ts";
+import type {
+  AgentActivityCapabilityReference,
+  AgentActivityInitialTuttiModeActivation
+} from "../tuttiMode.types.ts";
+import type {
+  EditRetryCommand,
+  EditRetryIntent,
+  EditRetryState
+} from "./editRetry.types.ts";

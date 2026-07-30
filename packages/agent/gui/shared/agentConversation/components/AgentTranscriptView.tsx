@@ -11,6 +11,7 @@ import {
   type Ref
 } from "react";
 import { useOptionalAgentActivityRuntime } from "../../../agentActivityRuntime";
+import { providerForkBindingAllowsAttempt } from "@tutti-os/agent-activity-core";
 import type { WorkspaceLinkAction } from "../../../contexts/workspace/presentation/renderer/actions/workspaceLinkActions";
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../AgentMessageMarkdown";
 import type { AgentGUIProviderSkillOption } from "../../../agent-gui/agentGuiNode/model/agentGuiNodeTypes";
@@ -25,7 +26,6 @@ import {
 import { useAgentTurnDisclosureStore } from "./AgentTurnDisclosureContext";
 import { AgentTurnWorkSection } from "./AgentTurnWorkSection";
 import { findParticipantHeaderRenderKeys } from "./agentTurnWorkSectionModel";
-import { stringListEquals } from "./agentTranscriptEquality";
 import {
   AgentMessageLocatorRail,
   findMessageLocatorScrollParent
@@ -60,6 +60,11 @@ import {
 import { useAgentTranscriptTurnPresentation } from "./useAgentTranscriptTurnPresentation";
 import { useAgentTranscriptLocateOperation } from "./useAgentTranscriptLocateOperation";
 import { AgentTranscriptVirtualTurn } from "./AgentTranscriptVirtualTurn";
+import {
+  editRetryControlsEqual,
+  type AgentTranscriptEditRetryControl,
+  useAgentTranscriptEditRetryProjection
+} from "./useAgentTranscriptEditRetryProjection";
 
 export type {
   AgentTranscriptAttachmentLocator,
@@ -69,11 +74,11 @@ export type {
   AgentTranscriptViewportSnapshot,
   AgentTranscriptVirtualScrollController
 } from "./useAgentTranscriptVirtualizer";
-
 export interface AgentTranscriptViewProps {
   conversation: AgentConversationVM;
   isConversationHistoryComplete?: boolean;
   isVisible?: boolean;
+  editRetry?: AgentTranscriptEditRetryControl;
   turnAttachments?: readonly AgentTranscriptTurnAttachment[];
   turnAttachmentLocatorRef?: Ref<AgentTranscriptAttachmentLocator>;
   onTurnAttachmentVisibilityChange?: (
@@ -183,6 +188,9 @@ function transcriptCanonicalTurnsEqual(
           turn.turnId === nextTurn?.turnId &&
           turn.phase === nextTurn.phase &&
           turn.outcome === nextTurn.outcome &&
+          turn.providerForkBindingAvailable ===
+            nextTurn.providerForkBindingAvailable &&
+          turn.providerForkBindingState === nextTurn.providerForkBindingState &&
           turn.startedAtUnixMs === nextTurn.startedAtUnixMs &&
           turn.settledAtUnixMs === nextTurn.settledAtUnixMs
         );
@@ -212,14 +220,6 @@ function transcriptConversationRenderInputEquals(
       previous.sourceDetail.session.kind === next.sourceDetail.session.kind &&
       previous.sourceDetail.session.lifecycleCapabilities.forkThroughTurn ===
         next.sourceDetail.session.lifecycleCapabilities.forkThroughTurn &&
-      previous.sourceDetail.session.lifecycleCapabilities
-        .forkThroughTurnIdsKnown ===
-        next.sourceDetail.session.lifecycleCapabilities
-          .forkThroughTurnIdsKnown &&
-      stringListEquals(
-        previous.sourceDetail.session.lifecycleCapabilities.forkThroughTurnIds,
-        next.sourceDetail.session.lifecycleCapabilities.forkThroughTurnIds
-      ) &&
       previous.sourceDetail.session.pendingInteractions ===
         next.sourceDetail.session.pendingInteractions &&
       previous.sourceDetail.cwd === next.sourceDetail.cwd &&
@@ -257,6 +257,7 @@ export function areAgentTranscriptViewPropsEqual(
     previous.turnAttachmentLocatorRef === next.turnAttachmentLocatorRef &&
     previous.onTurnAttachmentVisibilityChange ===
       next.onTurnAttachmentVisibilityChange &&
+    editRetryControlsEqual(previous.editRetry, next.editRetry) &&
     previous.showRawTimelineJson === next.showRawTimelineJson &&
     previous.followEndMode === next.followEndMode &&
     previous.virtualListLayoutRevision === next.virtualListLayoutRevision &&
@@ -273,6 +274,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   conversation,
   isConversationHistoryComplete = true,
   isVisible = true,
+  editRetry,
   turnAttachments = [],
   turnAttachmentLocatorRef,
   onTurnAttachmentVisibilityChange,
@@ -308,6 +310,12 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
   );
   const displayRows = transcriptRowSet.rows;
   const rowKeys = transcriptRowSet.rowKeys;
+  const { editableUserMessageRowId, scopedEditRetry } =
+    useAgentTranscriptEditRetryProjection(
+      displayRows,
+      conversation.sourceDetail.session.agentSessionId,
+      editRetry
+    );
   const participantTurnProjection = transcriptRowSet.participantTurnProjection;
   const turnGroups = useMemo(
     () => buildAgentTranscriptTurnGroups(displayRows, rowKeys),
@@ -571,6 +579,9 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
           workspaceRoot={workspaceRoot}
           basePath={basePath}
           row={row}
+          editRetry={
+            row.id === editableUserMessageRowId ? scopedEditRetry : undefined
+          }
           labels={labels}
           onLinkAction={onLinkAction}
           onAuthLogin={onAuthLogin}
@@ -596,25 +607,26 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
 
   const resolveForkThroughTurnAction = (
     turnId: string | null
-  ): { disabled: boolean; turnId: string } | null => {
+  ): { disabled: boolean; pending: boolean; turnId: string } | null => {
     const lifecycleCapabilities =
       conversation.sourceDetail.session.lifecycleCapabilities;
+    const canonicalTurn =
+      turnId === null ? null : (canonicalTurnById.get(turnId) ?? null);
     if (
       !turnId ||
       !onForkThroughTurn ||
-      canonicalTurnById.get(turnId)?.phase !== "settled" ||
       conversation.sourceDetail.session.kind !== "root" ||
       lifecycleCapabilities.forkThroughTurn !== true ||
-      lifecycleCapabilities.forkThroughTurnIdsKnown !== true ||
-      !lifecycleCapabilities.forkThroughTurnIds?.includes(turnId)
+      !canonicalTurn ||
+      canonicalTurn.phase !== "settled" ||
+      !providerForkBindingAllowsAttempt(canonicalTurn)
     ) {
       return null;
     }
+    const pending = forkThroughTurnPendingTurnIds.includes(turnId);
     return {
-      disabled:
-        Boolean(conversation.sourceDetail.session.activeTurnId?.trim()) ||
-        conversation.sourceDetail.session.pendingInteractions.length !== 0 ||
-        forkThroughTurnPendingTurnIds.includes(turnId),
+      disabled: pending,
+      pending,
       turnId
     };
   };
@@ -626,6 +638,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     const forkButton = forkAction ? (
       <AgentForkThroughTurnButton
         disabled={forkAction.disabled}
+        pending={forkAction.pending}
         onFork={() => onForkThroughTurn?.(forkAction.turnId)}
       />
     ) : null;
@@ -655,6 +668,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
         {forkAction && footerRowIndex === null ? (
           <AgentForkThroughTurnFooter
             disabled={forkAction.disabled}
+            pending={forkAction.pending}
             onFork={() => onForkThroughTurn?.(forkAction.turnId)}
           />
         ) : null}
@@ -671,6 +685,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
     const forkButton = forkAction ? (
       <AgentForkThroughTurnButton
         disabled={forkAction.disabled}
+        pending={forkAction.pending}
         onFork={() => onForkThroughTurn?.(forkAction.turnId)}
       />
     ) : null;
@@ -698,6 +713,7 @@ export const AgentTranscriptView = memo(function AgentTranscriptView({
           forkAction && footerRowIndex === null ? (
             <AgentForkThroughTurnFooter
               disabled={forkAction.disabled}
+              pending={forkAction.pending}
               onFork={() => onForkThroughTurn?.(forkAction.turnId)}
             />
           ) : null

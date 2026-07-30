@@ -31,6 +31,16 @@
 pnpm install
 ```
 
+对于新建的链接 Git worktree，请改用：
+
+```sh
+pnpm setup:worktree
+```
+
+该命令会安装 workspace 依赖，再在并行测试运行前预热 Electron。它会复用共享的
+Electron 下载缓存，并把运行时解压到新 worktree；不会复用其他 worktree 的
+`Electron.app`。
+
 安装固定版本的 `golangci-lint`：
 
 ```sh

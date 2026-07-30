@@ -88,6 +88,7 @@ func (a *CodexAppServerAdapter) execReviewSlashCommand(
 	emitEvents func([]activityshared.Event),
 	emitTerminal func([]activityshared.Event),
 	emitCommands CommandSnapshotSink,
+	reportDispatch ProviderDispatchSink,
 ) (bool, error) {
 	normalizer.SetThinkingPresentation("review-process")
 	params := map[string]any{
@@ -102,6 +103,7 @@ func (a *CodexAppServerAdapter) execReviewSlashCommand(
 	result, err := appSession.client.ReviewStart(ctx, params,
 		a.appServerMessageHandler(appSession, session, turnID, normalizer, emitEvents, emitCommands))
 	if err != nil {
+		reportCodexDispatchFailure(reportDispatch, err)
 		if errors.Is(err, context.Canceled) || errors.Is(err, errPermissionRequestCanceled) {
 			terminalEvents := a.pendingRequestFailureEvents(session, turnID, errPermissionRequestCanceled)
 			terminalEvents = append(terminalEvents, normalizer.FinishInterrupted(session, turnID, "interrupted")...)
@@ -120,6 +122,11 @@ func (a *CodexAppServerAdapter) execReviewSlashCommand(
 	if providerTurnID := asString(initialTurn["id"]); providerTurnID != "" {
 		a.setSessionActiveTurnID(session.AgentSessionID, appTurn, providerTurnID)
 	}
+	reportCodexProviderTurnAccepted(
+		reportDispatch,
+		appSession.threadID,
+		asString(initialTurn["id"]),
+	)
 	finalTurn, finishErr := a.awaitTurnCompletion(ctx, appSession, appTurn, initialTurn)
 	if finishErr != nil {
 		if errors.Is(finishErr, context.Canceled) || errors.Is(finishErr, errPermissionRequestCanceled) {

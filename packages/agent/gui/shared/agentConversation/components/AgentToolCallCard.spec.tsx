@@ -585,23 +585,13 @@ describe("Agent specialized tool cards", () => {
             toolName: "ig_05eb62dbe723c910016a1336ad3de881919216a6f64051a5e2",
             name: "ig_05eb62dbe723c910016a1336ad3de881919216a6f64051a5e2",
             payload: {
-              content: [
-                {
-                  type: "content",
-                  content: {
-                    type: "text",
-                    text: "Revised prompt: a joyful little girl dancing"
-                  }
-                },
-                {
-                  type: "content",
-                  content: {
-                    type: "image",
-                    uri: "/workspace/output/generated.png",
-                    mimeType: "image/png"
-                  }
-                }
-              ]
+              input: {
+                prompt: "Revised prompt: a joyful little girl dancing"
+              },
+              output: {
+                savedPath: "/workspace/output/generated.png",
+                imageMimeType: "image/png"
+              }
             }
           })
         )}
@@ -686,23 +676,13 @@ describe("Agent specialized tool cards", () => {
             status: "Running",
             statusKind: "working",
             payload: {
-              content: [
-                {
-                  type: "content",
-                  content: {
-                    type: "text",
-                    text: "Revised prompt: a joyful little girl dancing"
-                  }
-                },
-                {
-                  type: "content",
-                  content: {
-                    type: "image",
-                    uri: "/workspace/output/generated.png",
-                    mimeType: "image/png"
-                  }
-                }
-              ]
+              input: {
+                prompt: "Revised prompt: a joyful little girl dancing"
+              },
+              output: {
+                savedPath: "/workspace/output/generated.png",
+                imageMimeType: "image/png"
+              }
             }
           })
         )}

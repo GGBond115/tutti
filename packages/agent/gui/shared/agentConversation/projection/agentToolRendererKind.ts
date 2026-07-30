@@ -13,7 +13,6 @@ interface AgentToolRendererProbe {
   callType: string | null | undefined;
   input?: Record<string, unknown> | null;
   output?: Record<string, unknown> | null;
-  content?: unknown[] | null;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -64,9 +63,10 @@ export function resolveAgentToolRendererKind(
     isImageGenerationToolCall({
       toolName: call.toolName,
       displayName: call.displayName,
-      content: call.content,
-      outputContent: call.output?.content,
-      outputSavedPath: call.output?.savedPath ?? call.output?.saved_path,
+      outputSavedPath: call.output?.savedPath,
+      outputSavedPaths: call.output?.savedPaths,
+      outputMimeType: call.output?.imageMimeType,
+      outputText: call.output?.text,
       inputPrompt: call.input?.prompt
     })
   ) {

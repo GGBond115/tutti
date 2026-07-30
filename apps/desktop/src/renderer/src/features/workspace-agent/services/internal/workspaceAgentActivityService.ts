@@ -1,11 +1,12 @@
 import {
   agentActivitySessionMessageWindowFromDescendingPage,
-  dispatchSessionMutation,
   type AgentActivityAdapter,
   type AgentActivityComposerOptions,
   type AgentActivityGoalControlResult,
   type AgentActivityMessagePage,
   type AgentActivitySession,
+  type AgentActivitySessionDetailSnapshot,
+  type AgentSessionActivateEffectResult,
   type AgentSessionEngine,
   type AgentActivitySnapshot,
   type EngineExternalCommand,
@@ -50,7 +51,6 @@ import { reportAgentSubmitTraceDiagnostic } from "../desktopAgentRuntimeSubmitDi
 import { WorkspaceAgentActivityAnalytics } from "./workspaceAgentActivityAnalytics.ts";
 import { WorkspaceAgentActivityQueryOperations } from "./workspaceAgentActivityQueryOperations.ts";
 import { WorkspaceAgentActivityImportOperations } from "./workspaceAgentActivityImportOperations.ts";
-import { loadWorkspaceAgentComposerOptions } from "./workspaceAgentComposerOptions.ts";
 import { WorkspaceAgentActivityMutationOperations } from "./workspaceAgentActivityMutationOperations.ts";
 import { AgentSessionRecordingBinding } from "../../../agent-session-replay/services/agentSessionRecordingBinding.ts";
 import {
@@ -135,8 +135,6 @@ export class WorkspaceAgentActivityService
       observeIntent(intent: EngineIntent): void;
     }>
   >();
-  private composerOptionsCommandSequence = 1;
-  private sessionMutationSequence = 1;
   // Collaboration-run/model-plan requests are not part of the TuttidClient
   // wrapper yet, so they call the generated SDK directly. The client is
   // re-resolved from the backend config on every call (cached per endpoint)
@@ -168,19 +166,13 @@ export class WorkspaceAgentActivityService
       tuttidClient: dependencies.tuttidClient
     });
     this.mutationOperations = new WorkspaceAgentActivityMutationOperations({
-      getSession: (workspaceId, agentSessionId) =>
-        this.getSession(workspaceId, agentSessionId),
-      hostFilesApi: dependencies.hostFilesApi,
-      load: (workspaceId, signal) => this.load(workspaceId, signal),
-      markSessionDeleted: (input) => this.markSessionDeleted(input),
       runtimeApi: dependencies.runtimeApi,
       sessionCommandTarget: (workspaceId) => ({
         adapter: this.entry(workspaceId).adapter
       }),
       tuttidClient: dependencies.tuttidClient,
       upsertAuthoritativeSession: (session, source) =>
-        this.upsertAuthoritativeSession(session, source),
-      workspaceUserProjectService: dependencies.workspaceUserProjectService
+        this.upsertAuthoritativeSession(session, source)
     });
   }
 
@@ -447,27 +439,10 @@ export class WorkspaceAgentActivityService
     input: Parameters<IWorkspaceAgentActivityService["deleteSessionsBatch"]>[0]
   ): ReturnType<IWorkspaceAgentActivityService["deleteSessionsBatch"]> {
     const workspaceId = normalizeWorkspaceId(input.workspaceId);
-    const mutation = await dispatchSessionMutation(
-      this.entry(workspaceId).engine,
-      {
-        agentSessionIds: input.sessionIds,
-        mutationId: this.nextSessionMutationId("delete"),
-        timeoutMs: 30_000,
-        type: "sessions/deleteRequested",
-        workspaceId
-      }
-    );
-    if (mutation.kind !== "delete" || !mutation.deleteResult) {
-      throw new Error("workspace_agent_delete_result_missing");
-    }
-    return {
-      cleanupFailedSessionIds: [
-        ...mutation.deleteResult.cleanupFailedSessionIds
-      ],
-      removedMessages: mutation.deleteResult.removedMessages,
-      removedSessionIds: [...mutation.deleteResult.removedSessionIds],
-      removedSessions: mutation.deleteResult.removedSessions
-    };
+    return this.entry(workspaceId).engine.deleteSessions({
+      agentSessionIds: input.sessionIds,
+      ...(input.signal ? { signal: input.signal } : {})
+    });
   }
 
   async scanExternalSessionImports(
@@ -498,25 +473,21 @@ export class WorkspaceAgentActivityService
     workspaceId: string;
   }): Promise<AgentActivitySession> {
     const workspaceId = normalizeWorkspaceId(input.workspaceId);
-    const agentSessionId = input.agentSessionId.trim();
-    await dispatchSessionMutation(this.entry(workspaceId).engine, {
-      agentSessionId,
-      mutationId: this.nextSessionMutationId("pin"),
-      pinned: input.pinned,
-      timeoutMs: 30_000,
-      type: "session/pinRequested",
-      workspaceId
+    return this.entry(workspaceId).engine.setSessionPinned({
+      agentSessionId: input.agentSessionId,
+      pinned: input.pinned
     });
-    const activitySession = this.getSnapshot(workspaceId).sessions.find(
-      (session) => session.agentSessionId === agentSessionId
-    );
-    if (!activitySession) {
-      throw new Error("workspace_agent_pin_result_missing");
-    }
-    return activitySession;
   }
 
   async createSession(
+    input: Parameters<AgentActivityAdapter["createSession"]>[0]
+  ): Promise<AgentActivitySession> {
+    const session = await this.executeCreateSessionEffect(input);
+    this.upsertAuthoritativeSession(session, "create_session_result");
+    return session;
+  }
+
+  private async executeCreateSessionEffect(
     input: Parameters<AgentActivityAdapter["createSession"]>[0]
   ): Promise<AgentActivitySession> {
     try {
@@ -532,6 +503,21 @@ export class WorkspaceAgentActivityService
   async activateSession(
     input: Parameters<AgentActivityRuntime["activateSession"]>[0]
   ): ReturnType<IWorkspaceAgentActivityService["activateSession"]> {
+    const result = await this.executeSessionActivationEffect(input);
+    if ("detail" in result) {
+      this.upsertAuthoritativeSessionDetail(
+        result.detail,
+        "get_session_result"
+      );
+    } else {
+      this.upsertAuthoritativeSession(result.session, "create_session_result");
+    }
+    return result;
+  }
+
+  private async executeSessionActivationEffect(
+    input: Parameters<AgentActivityRuntime["activateSession"]>[0]
+  ): Promise<AgentSessionActivateEffectResult> {
     const workspaceId = normalizeWorkspaceId(input.workspaceId);
     const requestedAgentSessionId = input.agentSessionId.trim();
     reportAgentSubmitTraceDiagnostic(this.dependencies.runtimeApi, {
@@ -580,9 +566,17 @@ export class WorkspaceAgentActivityService
         }
       });
     }
+    let detail: AgentActivitySessionDetailSnapshot | null = null;
     let session: AgentActivitySession;
     if (input.mode === "existing") {
-      session = await this.getSession(workspaceId, requestedAgentSessionId);
+      detail = await this.fetchActivitySessionDetail(
+        workspaceId,
+        requestedAgentSessionId,
+        "get_session",
+        "full",
+        input.signal
+      );
+      session = detail.session;
     } else {
       reportAgentSubmitTraceDiagnostic(this.dependencies.runtimeApi, {
         agentSessionId: requestedAgentSessionId,
@@ -597,7 +591,7 @@ export class WorkspaceAgentActivityService
             input.initialTuttiModeActivation != null
         }
       });
-      session = await this.createSession({
+      session = await this.executeCreateSessionEffect({
         clientSubmitId: input.clientSubmitId,
         workspaceId,
         agentSessionId: requestedAgentSessionId,
@@ -644,11 +638,18 @@ export class WorkspaceAgentActivityService
         latestTurnOutcome: session.latestTurn?.outcome ?? null
       }
     });
+    if (input.mode === "existing") {
+      if (!detail) {
+        throw new Error("workspace_agent_activation_detail_missing");
+      }
+      return {
+        activation: { mode: "existing", status: "already_attached" },
+        detail,
+        session
+      };
+    }
     return {
-      activation: {
-        mode: input.mode,
-        status: input.mode === "existing" ? "already_attached" : "attached"
-      },
+      activation: { mode: "new", status: "attached" },
       session
     };
   }
@@ -713,6 +714,7 @@ export class WorkspaceAgentActivityService
 
   async cancelTurn(input: {
     agentSessionId: string;
+    signal?: AbortSignal;
     turnId: string;
     workspaceId: string;
   }): Promise<
@@ -893,17 +895,25 @@ export class WorkspaceAgentActivityService
   async renameSession(
     input: Parameters<AgentActivityAdapter["renameSession"]>[0]
   ): Promise<AgentActivitySession> {
-    return this.mutationOperations.renameSession(input);
+    const workspaceId = normalizeWorkspaceId(input.workspaceId);
+    return this.entry(workspaceId).engine.renameSession({
+      agentSessionId: input.agentSessionId,
+      ...(input.signal ? { signal: input.signal } : {}),
+      title: input.title
+    });
   }
 
   async getSession(
     workspaceId: string,
-    agentSessionId: string
+    agentSessionId: string,
+    signal?: AbortSignal
   ): Promise<AgentActivitySession> {
     const detail = await this.fetchActivitySessionDetail(
       workspaceId,
       agentSessionId,
-      "get_session"
+      "get_session",
+      "full",
+      signal
     );
     this.upsertAuthoritativeSessionDetail(detail, "get_session_result");
     return detail.session;
@@ -921,21 +931,19 @@ export class WorkspaceAgentActivityService
     const provider = resolveDesktopAgentGUIProvider(input.provider);
     const workspaceId = normalizeWorkspaceId(input.workspaceId);
     const entry = this.entry(workspaceId);
-    return loadWorkspaceAgentComposerOptions({
-      agentTargetId: input.agentTargetId,
-      commandId: `composer-options:${this.composerOptionsCommandSequence++}`,
-      engine: entry.engine,
-      provider,
+    return entry.engine.loadComposerOptions({
       cwd: input.cwd,
       force: input.force,
+      provider,
       settings: normalizeComposerSettings(input.settings),
       signal: input.signal,
-      workspaceId
+      targetKey: input.agentTargetId
     });
   }
 
   async updateSessionSettings(input: {
     agentSessionId: string;
+    signal?: AbortSignal;
     settings: Parameters<typeof normalizeComposerSettings>[0];
     workspaceId: string;
   }): ReturnType<IWorkspaceAgentActivityService["updateSessionSettings"]> {
@@ -1005,7 +1013,7 @@ export class WorkspaceAgentActivityService
         }
       },
       activateSession: async (input) => {
-        const activation = await this.activateSession(input);
+        const activation = await this.executeSessionActivationEffect(input);
         this.analytics.trackEngineActivation(input, activation);
         return activation;
       },
@@ -1078,11 +1086,6 @@ export class WorkspaceAgentActivityService
         // Replay instrumentation cannot block the product command path.
       }
     }
-  }
-
-  private nextSessionMutationId(kind: "delete" | "pin"): string {
-    const sequence = this.sessionMutationSequence++;
-    return `${kind}:${Date.now()}:${sequence}`;
   }
 }
 

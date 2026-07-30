@@ -20,10 +20,6 @@ export function AgentReadContent({
   const file = objectValue(call.output?.file);
   const outputText =
     stringValue(call.output?.text) ??
-    stringValue(call.output?.output) ??
-    contentText(call.output?.content) ??
-    stringValue(call.output?.aggregated_output) ??
-    stringValue(call.output?.formatted_output) ??
     stringValue(call.output?.stdout) ??
     (!file ? call.summary.trim() || null : null);
   const fileLineRange = fileRange(file);
@@ -70,33 +66,6 @@ export function fileRange(file: Record<string, unknown> | null): string | null {
   }
   const endLine = startLine + numLines - 1;
   return startLine === endLine ? `L${startLine}` : `L${startLine}-${endLine}`;
-}
-
-function contentText(value: unknown): string | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const text = value
-    .flatMap((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) {
-        return [];
-      }
-      const record = item as Record<string, unknown>;
-      const nestedContent =
-        record.content &&
-        typeof record.content === "object" &&
-        !Array.isArray(record.content)
-          ? (record.content as Record<string, unknown>)
-          : null;
-      return [
-        stringValue(record.text),
-        stringValue(record.content),
-        stringValue(nestedContent?.text)
-      ].filter((entry): entry is string => Boolean(entry));
-    })
-    .join("\n")
-    .trim();
-  return text || null;
 }
 
 function numericValue(value: unknown): number | null {

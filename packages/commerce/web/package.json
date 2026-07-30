@@ -36,6 +36,12 @@
       "browser": "./src/assets/registration-credits-bg.png",
       "node": "./src/runtime-assets/registration-credits-bg-url.ts",
       "default": "./src/assets/registration-credits-bg.png"
+    },
+    "./assets/titi-run.png": {
+      "types": "./src/assets/titi-run.png.d.ts",
+      "browser": "./src/assets/titi-run.png",
+      "node": "./src/runtime-assets/titi-run-url.ts",
+      "default": "./src/assets/titi-run.png"
     }
   },
   "files": [
@@ -116,6 +122,12 @@
         "browser": "./dist/assets/registration-credits-bg.png",
         "node": "./dist/runtime-assets/registration-credits-bg-url.js",
         "default": "./dist/assets/registration-credits-bg.png"
+      },
+      "./assets/titi-run.png": {
+        "types": "./dist/assets/titi-run.png.d.ts",
+        "browser": "./dist/assets/titi-run.png",
+        "node": "./dist/runtime-assets/titi-run-url.js",
+        "default": "./dist/assets/titi-run.png"
       }
     },
     "types": "./dist/index.d.ts",

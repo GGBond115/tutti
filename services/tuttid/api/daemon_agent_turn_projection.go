@@ -67,22 +67,36 @@ func generatedWorkspaceAgentTurn(turn agentactivitybiz.Turn) tuttigenerated.Work
 		sourceGoalRepairEpoch = &value
 	}
 	return tuttigenerated.WorkspaceAgentTurn{
-		AgentSessionId:        strings.TrimSpace(turn.AgentSessionID),
-		CapabilityRefs:        capabilityRefs,
-		CompletedCommand:      completedCommand,
-		Error:                 turnError,
-		FileChanges:           fileChanges,
-		Origin:                tuttigenerated.WorkspaceAgentTurnOrigin(strings.TrimSpace(turn.Origin)),
-		Outcome:               outcome,
-		Phase:                 tuttigenerated.WorkspaceAgentTurnPhase(turn.Phase),
-		SettledAtUnixMs:       settledAt,
-		SourceGoalOperationId: sourceGoalOperationID,
-		SourceGoalRepairEpoch: sourceGoalRepairEpoch,
-		SourceGoalRevision:    sourceGoalRevision,
-		StartedAtUnixMs:       turn.StartedAtUnixMS,
-		TurnId:                strings.TrimSpace(turn.TurnID),
-		UpdatedAtUnixMs:       turn.UpdatedAtUnixMS,
+		AgentSessionId:               strings.TrimSpace(turn.AgentSessionID),
+		ProviderForkBindingAvailable: agentactivitybiz.HasUsableProviderTurnBinding(turn),
+		ProviderForkBindingState:     providerForkBindingState(turn),
+		CapabilityRefs:               capabilityRefs,
+		CompletedCommand:             completedCommand,
+		Error:                        turnError,
+		FileChanges:                  fileChanges,
+		Origin:                       tuttigenerated.WorkspaceAgentTurnOrigin(strings.TrimSpace(turn.Origin)),
+		Outcome:                      outcome,
+		Phase:                        tuttigenerated.WorkspaceAgentTurnPhase(turn.Phase),
+		SettledAtUnixMs:              settledAt,
+		SourceGoalOperationId:        sourceGoalOperationID,
+		SourceGoalRepairEpoch:        sourceGoalRepairEpoch,
+		SourceGoalRevision:           sourceGoalRevision,
+		StartedAtUnixMs:              turn.StartedAtUnixMS,
+		TurnId:                       strings.TrimSpace(turn.TurnID),
+		UpdatedAtUnixMs:              turn.UpdatedAtUnixMS,
 	}
+}
+
+func providerForkBindingState(
+	turn agentactivitybiz.Turn,
+) tuttigenerated.WorkspaceAgentTurnProviderForkBindingState {
+	if agentactivitybiz.HasUsableProviderTurnBinding(turn) {
+		return tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateBound
+	}
+	if turn.Phase == agentactivitybiz.TurnPhaseSettled {
+		return tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateRecoveryRequired
+	}
+	return tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateUnavailable
 }
 
 func generatedWorkspaceAgentInteraction(interaction agentactivitybiz.Interaction) tuttigenerated.WorkspaceAgentInteraction {

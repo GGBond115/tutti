@@ -4,6 +4,8 @@ import {
   attentionReadStateReducer,
   createInitialAttentionReadState
 } from "./attentionReadState.reducer.ts";
+import { canonicalTurnKey } from "./sessionEntityKeys.ts";
+import type { AgentActivityTurn } from "../types.ts";
 
 const turn = {
   turnId: "turn-1",
@@ -16,6 +18,20 @@ const turn = {
   updatedAtUnixMs: 2
 };
 
+function acceptedTurnContext(...turns: readonly AgentActivityTurn[]) {
+  return {
+    previousSessionsById: {},
+    previousTurnsById: {},
+    sessionsById: { "session-1": { userId: "user-1" } },
+    turnsById: Object.fromEntries(
+      turns.map((item) => [
+        canonicalTurnKey(item.agentSessionId, item.turnId),
+        item
+      ])
+    )
+  };
+}
+
 test("a live canonical completion becomes unread and read intent clears it", () => {
   let state = attentionReadStateReducer(
     createInitialAttentionReadState(),
@@ -23,7 +39,7 @@ test("a live canonical completion becomes unread and read intent clears it", () 
       type: "turn/upserted",
       turn
     },
-    { sessionsById: { "session-1": { userId: "user-1" } } }
+    acceptedTurnContext(turn)
   ).state;
   assert.deepEqual(
     state.partitionsByUserId["user-1"]?.recordsBySessionId["session-1"],
@@ -52,11 +68,10 @@ test("a live canonical completion becomes unread and read intent clears it", () 
 });
 
 test("manual unread provenance survives until the completion is read or replaced", () => {
-  const context = { sessionsById: { "session-1": { userId: "user-1" } } };
   let state = attentionReadStateReducer(
     createInitialAttentionReadState(),
     { type: "turn/upserted", turn },
-    context
+    acceptedTurnContext(turn)
   ).state;
   state = attentionReadStateReducer(state, {
     type: "attention/read",
@@ -78,13 +93,18 @@ test("manual unread provenance survives until the completion is read or replaced
     }
   );
 
+  const replacementTurn = {
+    ...turn,
+    turnId: "turn-2",
+    updatedAtUnixMs: 3
+  };
   state = attentionReadStateReducer(
     state,
     {
       type: "turn/upserted",
-      turn: { ...turn, turnId: "turn-2", updatedAtUnixMs: 3 }
+      turn: replacementTurn
     },
-    context
+    acceptedTurnContext(replacementTurn)
   ).state;
   assert.equal(
     state.partitionsByUserId["user-1"]?.recordsBySessionId["session-1"]
@@ -94,7 +114,6 @@ test("manual unread provenance survives until the completion is read or replaced
 });
 
 test("a new completion re-lights a session that was already read", () => {
-  const context = { sessionsById: { "session-1": { userId: "user-1" } } };
   const turn2 = {
     ...turn,
     turnId: "turn-2",
@@ -112,7 +131,7 @@ test("a new completion re-lights a session that was already read", () => {
   state = attentionReadStateReducer(
     state,
     { type: "turn/upserted", turn },
-    context
+    acceptedTurnContext(turn)
   ).state;
   state = attentionReadStateReducer(state, {
     type: "attention/read",
@@ -128,7 +147,7 @@ test("a new completion re-lights a session that was already read", () => {
   state = attentionReadStateReducer(
     state,
     { type: "turn/upserted", turn: turn2 },
-    context
+    acceptedTurnContext(turn2)
   ).state;
   assert.equal(
     state.partitionsByUserId["user-1"]?.recordsBySessionId["session-1"]
@@ -144,8 +163,8 @@ test("a new completion re-lights a session that was already read", () => {
 });
 
 test("historical snapshot completion stays read unless persistence says unread", () => {
-  const initial = attentionReadStateReducer(createInitialAttentionReadState(), {
-    type: "session/snapshotReceived",
+  const snapshot = {
+    type: "session/snapshotReceived" as const,
     sessions: [
       {
         ...{
@@ -164,7 +183,12 @@ test("historical snapshot completion stays read unless persistence says unread",
         latestTurn: turn
       }
     ]
-  }).state;
+  };
+  const initial = attentionReadStateReducer(
+    createInitialAttentionReadState(),
+    snapshot,
+    acceptedTurnContext(turn)
+  ).state;
   assert.equal(
     initial.partitionsByUserId["user-1"]?.recordsBySessionId["session-1"]
       ?.isUnread,
@@ -176,33 +200,104 @@ test("historical snapshot completion stays read unless persistence says unread",
     completed: { readIds: [], unreadIds: ["turn:session-1:turn-1:completed"] },
     failed: { readIds: [], unreadIds: [] }
   }).state;
-  hydrated = attentionReadStateReducer(hydrated, {
-    type: "session/snapshotReceived",
-    sessions: [
-      {
-        ...{
-          activeTurnId: null,
-          latestTurnInteractions: [],
-          pendingInteractions: []
-        },
-        workspaceId: "workspace-1",
-        agentSessionId: "session-1",
-        provider: "codex",
-        cwd: "/workspace",
-        title: "Session",
-        userId: "user-1",
-        activeTurnId: null,
-        activeTurn: null,
-        latestTurn: turn
-      }
-    ]
-  }).state;
+  hydrated = attentionReadStateReducer(
+    hydrated,
+    snapshot,
+    acceptedTurnContext(turn)
+  ).state;
   assert.equal(
     hydrated.partitionsByUserId["user-1"]?.recordsBySessionId["session-1"]
       ?.isUnread,
     true
   );
 });
+
+test("authoritative turn history removes attention for a retracted completion", () => {
+  let state = attentionReadStateReducer(
+    createInitialAttentionReadState(),
+    { type: "turn/upserted", turn },
+    acceptedTurnContext(turn)
+  ).state;
+
+  state = attentionReadStateReducer(state, {
+    agentSessionId: "session-1",
+    childSessions: [],
+    historyRevision: 1,
+    messages: [],
+    session: authoritativeSession(),
+    turns: [],
+    type: "session/historyAuthoritativeSnapshotReceived",
+    workspaceId: "workspace-1"
+  }).state;
+
+  assert.equal(
+    state.partitionsByUserId["user-1"]?.recordsBySessionId["session-1"],
+    undefined
+  );
+});
+
+test("authoritative history preserves live completion provenance atomically", () => {
+  const state = attentionReadStateReducer(
+    createInitialAttentionReadState(),
+    {
+      agentSessionId: "session-1",
+      childSessions: [],
+      historyRevision: 1,
+      liveTurnId: turn.turnId,
+      messages: [],
+      session: { ...authoritativeSession(), latestTurn: turn },
+      turns: [turn],
+      type: "session/historyAuthoritativeSnapshotReceived",
+      workspaceId: "workspace-1"
+    },
+    acceptedTurnContext(turn)
+  ).state;
+
+  assert.equal(
+    state.partitionsByUserId["user-1"]?.recordsBySessionId["session-1"]
+      ?.isUnread,
+    true
+  );
+});
+
+function authoritativeSession() {
+  return {
+    activeTurn: null,
+    activeTurnId: null,
+    agentSessionId: "session-1",
+    agentTargetId: null,
+    capabilities: null,
+    createdAtUnixMs: 1,
+    cwd: "/workspace",
+    endedAtUnixMs: null,
+    goal: null,
+    imported: false,
+    kind: "root" as const,
+    lastEventUnixMs: 2,
+    latestTurn: null,
+    latestTurnInteractions: [],
+    messageVersion: 1,
+    parentAgentSessionId: null,
+    parentToolCallId: null,
+    parentTurnId: null,
+    pendingInteractions: [],
+    permissionConfig: { configurable: false, modes: [] },
+    pinnedAtUnixMs: null,
+    provider: "codex",
+    providerSessionId: null,
+    resumable: true,
+    rootAgentSessionId: null,
+    rootTurnId: null,
+    settings: {},
+    startedAtUnixMs: 1,
+    title: "Session",
+    tuttiModeActivation: null,
+    updatedAtUnixMs: 2,
+    usage: null,
+    visible: true,
+    workspaceId: "workspace-1"
+  };
+}
 
 test("late hydration authoritatively clears an already observed unread completion", () => {
   let state = attentionReadStateReducer(
@@ -211,7 +306,7 @@ test("late hydration authoritatively clears an already observed unread completio
       type: "turn/upserted",
       turn
     },
-    { sessionsById: { "session-1": { userId: "user-1" } } }
+    acceptedTurnContext(turn)
   ).state;
   state = attentionReadStateReducer(state, {
     type: "attention/readStateHydrated",
@@ -239,7 +334,7 @@ test("read state is isolated between users in one workspace engine", () => {
   let state = attentionReadStateReducer(
     createInitialAttentionReadState(),
     { type: "turn/upserted", turn },
-    { sessionsById: { "session-1": { userId: "user-1" } } }
+    acceptedTurnContext(turn)
   ).state;
   state = attentionReadStateReducer(state, {
     type: "attention/read",
@@ -276,9 +371,7 @@ test("reading one observed session preserves hydrated ids for unloaded sessions"
   state = attentionReadStateReducer(
     state,
     { type: "turn/upserted", turn },
-    {
-      sessionsById: { "session-1": { userId: "user-1" } }
-    }
+    acceptedTurnContext(turn)
   ).state;
   state = attentionReadStateReducer(state, {
     type: "attention/read",
@@ -322,7 +415,7 @@ test("session upserts do not drive attention; the turn signal does", () => {
   const lit = attentionReadStateReducer(
     upserted,
     { type: "turn/upserted", turn },
-    { sessionsById: { "session-1": { userId: "user-1" } } }
+    acceptedTurnContext(turn)
   ).state;
   assert.equal(
     lit.partitionsByUserId["user-1"]?.recordsBySessionId["session-1"]?.isUnread,
@@ -363,9 +456,7 @@ test("hydration and writes cross the engine command port without dropping unload
   result = attentionReadStateReducer(
     result.state,
     { type: "turn/upserted", turn },
-    {
-      sessionsById: { "session-1": { userId: "user-1" } }
-    }
+    acceptedTurnContext(turn)
   );
   assert.equal(result.commands[0]?.type, "attention/readState/write");
   result = attentionReadStateReducer(result.state, {
@@ -403,9 +494,7 @@ test("a completion observed before empty hydration is merged and persisted", () 
   let result = attentionReadStateReducer(
     createInitialAttentionReadState(),
     { type: "turn/upserted", turn },
-    {
-      sessionsById: { "session-1": { userId: "user-1" } }
-    }
+    acceptedTurnContext(turn)
   );
   result = attentionReadStateReducer(result.state, {
     type: "attention/hydrateRequested",
@@ -461,9 +550,7 @@ test("rapid attention changes serialize full snapshot writes", () => {
   result = attentionReadStateReducer(
     result.state,
     { type: "turn/upserted", turn },
-    {
-      sessionsById: { "session-1": { userId: "user-1" } }
-    }
+    acceptedTurnContext(turn)
   );
   assert.deepEqual(
     result.commands.map((command) => command.type),
@@ -528,9 +615,7 @@ test("write failure is visible and an explicit retry emits the latest snapshot",
   result = attentionReadStateReducer(
     result.state,
     { type: "turn/upserted", turn },
-    {
-      sessionsById: { "session-1": { userId: "user-1" } }
-    }
+    acceptedTurnContext(turn)
   );
   result = attentionReadStateReducer(result.state, {
     type: "engine/commandResult",

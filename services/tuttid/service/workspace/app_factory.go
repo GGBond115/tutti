@@ -47,7 +47,8 @@ type AppFactoryService struct {
 	StateDir              string
 	Publisher             WorkspaceAppFactoryEventPublisher
 
-	publishLocks keyedOperationLocks
+	publishLocks    keyedOperationLocks
+	settlementLocks keyedOperationLocks
 }
 
 type keyedOperationLocks struct {

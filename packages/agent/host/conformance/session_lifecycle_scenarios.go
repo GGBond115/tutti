@@ -236,6 +236,56 @@ func runSendInput(ctx context.Context, driver Driver) error {
 	return nil
 }
 
+func runNewTurnsRequireDurableProviderAcceptance(
+	ctx context.Context,
+	driver Driver,
+) error {
+	if err := driver.Reset(ctx, Fixture{}); err != nil {
+		return err
+	}
+	_, _, err := driver.Create(ctx, "workspace-1", agenthost.CreateSessionInput{
+		AgentSessionID: "session-acceptance-create",
+		AgentTargetID:  "target-1",
+		Provider:       "codex",
+		InitialContent: []agenthost.PromptContentBlock{{
+			Type: "text", Text: "create with durable acceptance",
+		}},
+		ClientSubmitID: "acceptance-create-1",
+	})
+	if err != nil {
+		return fmt.Errorf("create with provider acceptance: %w", err)
+	}
+	if !driver.Metrics().LastExecRequiresProviderAcceptance {
+		return errors.New("initial Turn did not require durable provider acceptance")
+	}
+
+	if err := driver.Reset(
+		ctx,
+		liveSessionFixture("session-acceptance-send", ""),
+	); err != nil {
+		return err
+	}
+	_, err = driver.SendInput(
+		ctx,
+		agenthost.SessionRef{
+			WorkspaceID: "workspace-1", AgentSessionID: "session-acceptance-send",
+		},
+		agenthost.SendInput{
+			Content: []agenthost.PromptContentBlock{{
+				Type: "text", Text: "send with durable acceptance",
+			}},
+			ClientSubmitID: "acceptance-send-1",
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("send with provider acceptance: %w", err)
+	}
+	if !driver.Metrics().LastExecRequiresProviderAcceptance {
+		return errors.New("sent Turn did not require durable provider acceptance")
+	}
+	return nil
+}
+
 func runDuplicateClientSubmitID(ctx context.Context, driver Driver) error {
 	if err := driver.Reset(ctx, liveSessionFixture("session-duplicate", "")); err != nil {
 		return err

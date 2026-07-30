@@ -37,6 +37,12 @@ type RuntimeBackend interface {
 	GoalCapabilities(context.Context, agentruntime.GoalReconcileInput) (agentruntime.GoalAdapterCapabilities, error)
 }
 
+type runtimeHistoryBackend interface {
+	SupportsEffectiveHistory(context.Context, agentruntime.EffectiveHistoryInput) (bool, error)
+	ReadEffectiveHistory(context.Context, agentruntime.EffectiveHistoryInput) (agentruntime.EffectiveHistorySnapshot, error)
+	RollbackLatestTurn(context.Context, agentruntime.EffectiveHistoryInput) (agentruntime.HistoryMutationResult, error)
+}
+
 // RuntimeController implements Agent Host runtime ports with a daemon backend.
 type RuntimeController struct {
 	Backend       RuntimeBackend
@@ -44,19 +50,84 @@ type RuntimeController struct {
 }
 
 var (
-	_ host.RuntimeController                 = (*RuntimeController)(nil)
-	_ host.RuntimeSessionLiveness            = (*RuntimeController)(nil)
-	_ host.RuntimeSubmitProvenanceReporter   = (*RuntimeController)(nil)
-	_ host.SessionForkRuntime                = (*RuntimeController)(nil)
-	_ host.GoalRuntimeController             = (*RuntimeController)(nil)
-	_ host.GoalRuntimeReconciler             = (*RuntimeController)(nil)
-	_ host.GoalRuntimeRecoveryPolicyResolver = (*RuntimeController)(nil)
-	_ host.GoalRuntimeGenerationFencer       = (*RuntimeController)(nil)
+	_ host.RuntimeController                       = (*RuntimeController)(nil)
+	_ host.RuntimeHistoryController                = (*RuntimeController)(nil)
+	_ host.RuntimeProviderTurnAcceptanceReconciler = (*RuntimeController)(nil)
+	_ host.RuntimeSessionLiveness                  = (*RuntimeController)(nil)
+	_ host.RuntimeSubmitProvenanceReporter         = (*RuntimeController)(nil)
+	_ host.SessionForkRuntime                      = (*RuntimeController)(nil)
+	_ host.SessionForkTurnBindingRecoveryRuntime   = (*RuntimeController)(nil)
+	_ host.GoalRuntimeController                   = (*RuntimeController)(nil)
+	_ host.GoalRuntimeReconciler                   = (*RuntimeController)(nil)
+	_ host.GoalRuntimeRecoveryPolicyResolver       = (*RuntimeController)(nil)
+	_ host.GoalRuntimeGenerationFencer             = (*RuntimeController)(nil)
 )
 
 type sessionForkRuntimeBackend interface {
 	ForkCapabilities(context.Context, agentruntime.Session) (agentruntime.SessionForkCapabilities, error)
 	Fork(context.Context, agentruntime.SessionForkInput) (agentruntime.SessionForkResult, error)
+}
+
+type providerTurnBindingRecoveryBackend interface {
+	RecoverProviderTurnBinding(
+		context.Context,
+		agentruntime.ProviderTurnBindingRecoveryInput,
+	) (agentruntime.ProviderTurnBindingRecoveryResult, error)
+}
+
+func (a *RuntimeController) SupportsEffectiveHistory(
+	ctx context.Context,
+	input host.RuntimeHistoryInput,
+) (bool, error) {
+	if err := a.requireBackend(); err != nil {
+		return false, err
+	}
+	backend, ok := a.Backend.(runtimeHistoryBackend)
+	if !ok {
+		return false, nil
+	}
+	return backend.SupportsEffectiveHistory(ctx, runtimeHistoryInput(input))
+}
+
+func (a *RuntimeController) ReadEffectiveHistory(
+	ctx context.Context,
+	input host.RuntimeHistoryInput,
+) (host.RuntimeHistorySnapshot, error) {
+	if err := a.requireBackend(); err != nil {
+		return host.RuntimeHistorySnapshot{}, err
+	}
+	backend, ok := a.Backend.(runtimeHistoryBackend)
+	if !ok {
+		return host.RuntimeHistorySnapshot{}, host.ErrRuntimeHistoryUnsupported
+	}
+	snapshot, err := backend.ReadEffectiveHistory(ctx, runtimeHistoryInput(input))
+	return hostHistorySnapshot(snapshot), mapRuntimeError(err)
+}
+
+func (a *RuntimeController) RollbackLatestTurn(
+	ctx context.Context,
+	input host.RuntimeHistoryInput,
+) (host.RuntimeHistoryMutationResult, error) {
+	if err := a.requireBackend(); err != nil {
+		return host.RuntimeHistoryMutationResult{
+			Disposition: host.RuntimeDispatchDispositionNotDispatched,
+		}, err
+	}
+	backend, ok := a.Backend.(runtimeHistoryBackend)
+	if !ok {
+		return host.RuntimeHistoryMutationResult{
+			Disposition: host.RuntimeDispatchDispositionNotDispatched,
+		}, host.ErrRuntimeHistoryUnsupported
+	}
+	result, err := backend.RollbackLatestTurn(ctx, runtimeHistoryInput(input))
+	projected := host.RuntimeHistoryMutationResult{
+		Disposition: host.RuntimeDispatchDisposition(result.Disposition),
+	}
+	if result.Snapshot != nil {
+		snapshot := hostHistorySnapshot(*result.Snapshot)
+		projected.Snapshot = &snapshot
+	}
+	return projected, mapRuntimeError(err)
 }
 
 func (a *RuntimeController) Start(ctx context.Context, input host.RuntimeStartInput) (host.ProviderRuntimeSession, error) {
@@ -137,7 +208,7 @@ func (a *RuntimeController) Exec(ctx context.Context, input host.RuntimeExecInpu
 		return host.RuntimeExecResult{}, err
 	}
 	result, err := a.Backend.Exec(ctx, runtimeExecInput(input))
-	return host.RuntimeExecResult{
+	projected := host.RuntimeExecResult{
 		AgentSessionID: result.AgentSessionID,
 		Status:         result.Status,
 		TurnID:         result.TurnID,
@@ -147,7 +218,22 @@ func (a *RuntimeController) Exec(ctx context.Context, input host.RuntimeExecInpu
 		SubmitAvailability: host.SubmitAvailability{
 			State: result.SubmitAvailability.State, Reason: result.SubmitAvailability.Reason,
 		},
-	}, mapRuntimeError(err)
+	}
+	if result.ProviderDispatch != nil {
+		projected.ProviderDispatch.Disposition = host.RuntimeDispatchDisposition(
+			result.ProviderDispatch.Disposition,
+		)
+		if result.ProviderDispatch.Acceptance != nil {
+			projected.ProviderDispatch.Acceptance = &host.RuntimeProviderAcceptanceReceipt{
+				ProviderSessionID: result.ProviderDispatch.Acceptance.ProviderSessionID,
+				ProviderTurnID:    result.ProviderDispatch.Acceptance.ProviderTurnID,
+				Source: host.RuntimeAcceptanceSource(
+					result.ProviderDispatch.Acceptance.Source,
+				),
+			}
+		}
+	}
+	return projected, mapRuntimeError(err)
 }
 
 func (a *RuntimeController) DurablyReportSubmitProvenance(ctx context.Context, input host.RuntimeSubmitProvenanceInput) error {
@@ -155,6 +241,36 @@ func (a *RuntimeController) DurablyReportSubmitProvenance(ctx context.Context, i
 		return err
 	}
 	return mapRuntimeError(a.Backend.DurablyReportSubmitProvenance(ctx, runtimeSubmitProvenanceInput(input)))
+}
+
+func (a *RuntimeController) ReconcileProviderTurnAcceptance(
+	ctx context.Context,
+	input host.RuntimeProviderTurnAcceptanceInput,
+) error {
+	if err := a.requireBackend(); err != nil {
+		return err
+	}
+	reconciler, ok := a.Backend.(interface {
+		ReconcileProviderTurnAcceptance(
+			context.Context,
+			agentruntime.ProviderTurnAcceptanceInput,
+		) error
+	})
+	if !ok {
+		return errors.New("agent runtime cannot reconcile provider turn acceptance")
+	}
+	return mapRuntimeError(reconciler.ReconcileProviderTurnAcceptance(
+		ctx,
+		agentruntime.ProviderTurnAcceptanceInput{
+			RoomID:                    input.WorkspaceID,
+			AgentSessionID:            input.AgentSessionID,
+			Provider:                  input.Provider,
+			RootTurnID:                input.RootTurnID,
+			ExpectedProviderSessionID: input.ExpectedProviderSessionID,
+			ExpectedProviderTurnID:    input.ExpectedProviderTurnID,
+			ClientUserMessageID:       input.ClientUserMessageID,
+		},
+	))
 }
 
 func (a *RuntimeController) ValidatePromptContent(ctx context.Context, input host.RuntimeExecInput) error {
@@ -270,14 +386,11 @@ func (a *RuntimeController) ResolveSessionFork(
 		return host.SessionForkDriverDescriptor{}, nil
 	}
 	return host.SessionForkDriverDescriptor{
-		Kind:                         firstNonEmptyString(capabilities.DriverKind, "daemon-runtime-native"),
-		Version:                      firstNonEmptyString(capabilities.DriverVersion, "v1"),
-		StateBindingMode:             host.SessionForkStateBindingMode(firstNonEmptyString(capabilities.StateBindingMode, string(host.SessionForkStateBindingHostCopy))),
-		DeterministicTargetSessionID: capabilities.DeterministicTargetSessionID,
-		FullSession:                  capabilities.FullSession,
-		ThroughTurn:                  capabilities.ThroughTurn,
-		ThroughProviderTurnIDs:       append([]string(nil), capabilities.ThroughProviderTurnIDs...),
-		ThroughProviderTurnIDsKnown:  capabilities.ThroughProviderTurnIDsKnown,
+		Kind:             firstNonEmptyString(capabilities.DriverKind, "daemon-runtime-native"),
+		Version:          firstNonEmptyString(capabilities.DriverVersion, "v1"),
+		StateBindingMode: host.SessionForkStateBindingMode(firstNonEmptyString(capabilities.StateBindingMode, string(host.SessionForkStateBindingHostCopy))),
+		FullSession:      capabilities.FullSession,
+		ThroughTurn:      capabilities.ThroughTurn,
 	}, nil
 }
 
@@ -297,20 +410,32 @@ func (a *RuntimeController) ForkSession(
 		}, host.ErrSessionForkUnsupported
 	}
 	result, err := backend.Fork(ctx, agentruntime.SessionForkInput{
-		Source:                  runtimeSession(input.Source),
-		ProviderTurnID:          input.SourceProviderTurnID,
-		ProviderTurnIDs:         append([]string(nil), input.SourceProviderTurnIDs...),
-		TargetProviderSessionID: strings.TrimSpace(input.TargetProviderSessionID),
-		TargetTitle:             input.TargetTitle,
+		Source:                      runtimeSession(input.Source),
+		ProviderTurnID:              input.SourceProviderTurnID,
+		ProviderCheckpointMessageID: input.SourceProviderCheckpointMessageID,
+		TargetTitle:                 input.TargetTitle,
 	})
 	mapped := host.RuntimeSessionForkResult{
-		ProviderSessionID:     strings.TrimSpace(result.ProviderSessionID),
-		TargetProviderTurnIDs: append([]string(nil), result.TargetProviderTurnIDs...),
-		StateBindingMode:      host.SessionForkStateBindingMode(strings.TrimSpace(result.StateBindingMode)),
-		StateBindingReceipt:   strings.TrimSpace(result.StateBindingReceipt),
+		ProviderSessionID: strings.TrimSpace(result.ProviderSessionID),
+		TargetProviderTurnBindings: make(
+			[]host.SessionForkProviderTurnBinding,
+			0,
+			len(result.TargetProviderTurnBindings),
+		),
+		StateBindingMode:    host.SessionForkStateBindingMode(strings.TrimSpace(result.StateBindingMode)),
+		StateBindingReceipt: strings.TrimSpace(result.StateBindingReceipt),
 		DeliveryDisposition: host.SessionForkDeliveryDisposition(
 			result.DeliveryDisposition,
 		),
+	}
+	for _, binding := range result.TargetProviderTurnBindings {
+		mapped.TargetProviderTurnBindings = append(
+			mapped.TargetProviderTurnBindings,
+			host.SessionForkProviderTurnBinding{
+				ProviderTurnID:      strings.TrimSpace(binding.ProviderTurnID),
+				CheckpointMessageID: strings.TrimSpace(binding.CheckpointMessageID),
+			},
+		)
 	}
 	if mapped.StateBindingMode == "" {
 		mapped.StateBindingMode = host.SessionForkStateBindingHostCopy
@@ -322,6 +447,35 @@ func (a *RuntimeController) ForkSession(
 		return mapped, mapRuntimeError(err)
 	}
 	return mapped, nil
+}
+
+func (a *RuntimeController) RecoverProviderTurnBinding(
+	ctx context.Context,
+	input host.RuntimeProviderTurnBindingRecoveryInput,
+) (host.RuntimeProviderTurnBindingRecoveryResult, error) {
+	if err := a.requireBackend(); err != nil {
+		return host.RuntimeProviderTurnBindingRecoveryResult{}, err
+	}
+	backend, ok := a.Backend.(providerTurnBindingRecoveryBackend)
+	if !ok {
+		return host.RuntimeProviderTurnBindingRecoveryResult{},
+			host.ErrSessionForkUnsupported
+	}
+	result, err := backend.RecoverProviderTurnBinding(
+		ctx,
+		agentruntime.ProviderTurnBindingRecoveryInput{
+			Source:               runtimeSession(input.Source),
+			CanonicalTurnID:      input.CanonicalTurnID,
+			RecoveryToken:        input.RecoveryToken,
+			LegacyTextHMACKey:    input.LegacyTextHMACKey,
+			LegacyTextHMACDigest: input.LegacyTextHMACDigest,
+		},
+	)
+	return host.RuntimeProviderTurnBindingRecoveryResult{
+		ProviderSessionID:           result.ProviderSessionID,
+		ProviderTurnID:              result.ProviderTurnID,
+		ProviderCheckpointMessageID: result.ProviderCheckpointMessageID,
+	}, mapRuntimeError(err)
 }
 
 func firstNonEmptyString(values ...string) string {
@@ -401,6 +555,9 @@ func mapRuntimeError(err error) error {
 	}
 	if errors.Is(err, agentruntime.ErrSessionDisconnected) {
 		return errors.Join(host.ErrRuntimeSessionDisconnected, err)
+	}
+	if errors.Is(err, agentruntime.ErrEffectiveHistoryUnsupported) {
+		return host.ErrRuntimeHistoryUnsupported
 	}
 	var appErr *agentruntime.AppError
 	if errors.As(err, &appErr) && appErr != nil {
@@ -518,6 +675,29 @@ func runtimeExecInput(input host.RuntimeExecInput) agentruntime.ExecInput {
 		Content:                         runtimePromptContent(input.Content),
 		DisplayPrompt:                   input.DisplayPrompt, InitialTitle: input.InitialTitle, InitialTitleBase: input.InitialTitleBase,
 		Metadata: cloneMap(input.Metadata), Guidance: input.Guidance,
+		HistoryReplacement:        input.HistoryReplacement,
+		RequireProviderAcceptance: input.RequireProviderAcceptance,
+	}
+}
+
+func runtimeHistoryInput(input host.RuntimeHistoryInput) agentruntime.EffectiveHistoryInput {
+	return agentruntime.EffectiveHistoryInput{
+		RoomID: input.WorkspaceID, AgentSessionID: input.AgentSessionID,
+		Provider: input.Provider,
+	}
+}
+
+func hostHistorySnapshot(input agentruntime.EffectiveHistorySnapshot) host.RuntimeHistorySnapshot {
+	turns := make([]host.RuntimeHistoryTurn, 0, len(input.Turns))
+	for _, turn := range input.Turns {
+		turns = append(turns, host.RuntimeHistoryTurn{
+			ID: turn.ID, Status: turn.Status,
+			ClientUserMessageID: turn.ClientUserMessageID,
+		})
+	}
+	return host.RuntimeHistorySnapshot{
+		ProviderSessionID: input.ProviderSessionID,
+		Turns:             turns,
 	}
 }
 

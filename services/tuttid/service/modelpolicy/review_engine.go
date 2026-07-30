@@ -28,6 +28,7 @@ type SessionTargetResolver interface {
 type ReviewConsultInput struct {
 	WorkspaceID   string
 	SourceSession string
+	TurnID        string
 	ModelPlanID   string
 	Model         string
 	Question      string
@@ -53,6 +54,7 @@ type ReviewConsultRunner interface {
 // ReviewBudgetReader reports how much policy-triggered review the session has
 // already consumed.
 type ReviewBudgetReader interface {
+	HasPolicyReviewForTurn(ctx context.Context, workspaceID string, sourceSessionID string, turnID string) (bool, error)
 	SumPolicyReviewUsage(ctx context.Context, workspaceID string, sourceSessionID string) (runs int, totalTokens int64, err error)
 }
 
@@ -91,7 +93,10 @@ func (s *Service) ObserveAgentSessionState(ctx context.Context, input canonical.
 	}
 	sessionKey := workspaceID + "/" + agentSessionID
 	turnID := ""
-	if lifecycle.ActiveTurnID != nil {
+	if input.State.Turn != nil {
+		turnID = strings.TrimSpace(input.State.Turn.TurnID)
+	}
+	if turnID == "" && lifecycle.ActiveTurnID != nil {
 		turnID = strings.TrimSpace(*lifecycle.ActiveTurnID)
 	}
 
@@ -149,7 +154,7 @@ func (s *Service) ObserveAgentSessionState(ctx context.Context, input canonical.
 		}()
 		reviewCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
-		s.runReview(reviewCtx, workspaceID, agentSessionID, policy)
+		s.runReview(reviewCtx, workspaceID, agentSessionID, turnID, policy)
 	}()
 }
 
@@ -186,8 +191,25 @@ func (s *Service) resolveEffectivePolicy(ctx context.Context, workspaceID string
 	return policy, true
 }
 
-func (s *Service) runReview(ctx context.Context, workspaceID string, agentSessionID string, policy modelpolicybiz.Policy) {
+func (s *Service) runReview(ctx context.Context, workspaceID string, agentSessionID string, turnID string, policy modelpolicybiz.Policy) {
 	if s.Budget != nil {
+		if turnID != "" {
+			reviewed, err := s.Budget.HasPolicyReviewForTurn(ctx, workspaceID, agentSessionID, turnID)
+			if err != nil {
+				slog.Warn("model policy review turn dedup read failed; skipping automated review",
+					"event", "model_policy.review_turn_dedup_read_failed",
+					"workspace_id", workspaceID,
+					"agent_session_id", agentSessionID,
+					"turn_id", turnID,
+					"policy_id", policy.ID,
+					"error", err,
+				)
+				return
+			}
+			if reviewed {
+				return
+			}
+		}
 		runs, totalTokens, err := s.Budget.SumPolicyReviewUsage(ctx, workspaceID, agentSessionID)
 		if err != nil {
 			// Fail closed: without trustworthy usage accounting the per-session
@@ -217,12 +239,13 @@ func (s *Service) runReview(ctx context.Context, workspaceID string, agentSessio
 	result, err := s.Runner.RunPolicyReviewConsult(ctx, ReviewConsultInput{
 		WorkspaceID:   workspaceID,
 		SourceSession: agentSessionID,
+		TurnID:        turnID,
 		ModelPlanID:   policy.Review.ModelPlanID,
 		Model:         policy.Review.Model,
 		Question: "Review the work this coding agent session just claimed to complete. " +
 			"Judge whether the claimed outcome is plausible and internally consistent. " +
 			"Answer with your findings, then end with exactly one final line: VERDICT: PASS or VERDICT: FAIL.",
-		TriggerReason: "review_rule:" + string(policy.ReviewRule.Trigger),
+		TriggerReason: policyReviewTriggerReason(policy.ReviewRule.Trigger, turnID),
 		MaxTokens:     2048,
 	})
 	if err != nil || result.Failed {
@@ -252,6 +275,14 @@ func (s *Service) runReview(ctx context.Context, workspaceID string, agentSessio
 		ReviewRunID:    result.RunID,
 		UpdatedAt:      s.now(),
 	})
+}
+
+func policyReviewTriggerReason(trigger modelpolicybiz.ReviewTrigger, turnID string) string {
+	reason := "review_rule:" + string(trigger)
+	if turnID != "" {
+		reason += ":turn:" + turnID
+	}
+	return reason
 }
 
 // reviewVerdictPassed parses the required final verdict line. Missing or

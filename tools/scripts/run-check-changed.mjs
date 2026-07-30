@@ -24,7 +24,12 @@ import {
   resolveGoModuleRoot,
   resolveGoValidationTargets
 } from "./run-check-changed-targets.mjs";
-import { classifyChangedFiles } from "./change-classification.mjs";
+import {
+  classifyChangedFiles,
+  createPackageManifestPackRelevance,
+  createRootManifestTestRelevance,
+  isPackagePackRelevantPath
+} from "./change-classification.mjs";
 import {
   selectRepositoryCheckInputs,
   selectRepositoryChecks
@@ -148,7 +153,17 @@ export async function main() {
 
 function buildChangedLanes() {
   const changedFiles = listChangedFiles(baseRef);
-  const classification = classifyChangedFiles(changedFiles);
+  const isPackageManifestPackRelevant = createPackageManifestPackRelevance({
+    baseRef,
+    root: workspaceRoot
+  });
+  const classification = classifyChangedFiles(changedFiles, {
+    isPackageManifestPackRelevant,
+    isRootManifestTestRelevant: createRootManifestTestRelevance({
+      baseRef,
+      root: workspaceRoot
+    })
+  });
   const lanesByKey = new Map();
   const addLane = (lane) => {
     const normalizedInputs = Array.from(new Set(lane.inputFiles)).sort();
@@ -251,6 +266,7 @@ function buildChangedLanes() {
       addLane({
         key: "build:go",
         label: "build:go",
+        serialGroup: "tuttid-builtin-assets",
         command: [...pnpmCommand, "run", "build:go"],
         inputFiles: changedFiles.filter(isGoValidationInput)
       });
@@ -310,9 +326,11 @@ function buildChangedLanes() {
 
     if (
       pushReady &&
-      !classification.runPack &&
+      !classification.packPackages.includes(packageInfo.name) &&
       packageInfo.scripts.build &&
-      packageFiles.some(isBuildRelevant)
+      packageFiles.some((file) =>
+        isPackageBuildRelevant(file, isPackageManifestPackRelevant)
+      )
     ) {
       addLane({
         key: `${packageInfo.name}:build`,
@@ -324,10 +342,13 @@ function buildChangedLanes() {
   }
 
   if (pushReady && classification.runPack) {
+    const packageArgs = classification.packAll
+      ? []
+      : ["--", "--packages-json", JSON.stringify(classification.packPackages)];
     addLane({
       key: "pack:npm",
       label: "npm package pack",
-      command: [...pnpmCommand, "run", "release:pack:check"],
+      command: [...pnpmCommand, "run", "release:pack:check", ...packageArgs],
       inputFiles: changedFiles
     });
   }
@@ -344,6 +365,7 @@ function readLatestSummary() {
 
 export async function runLanes(inputLanes, runDirectory) {
   const results = [];
+  const serialGroups = new Map();
   let nextIndex = 0;
   const workerCount = Math.max(1, Math.min(maxParallel, inputLanes.length));
 
@@ -352,12 +374,32 @@ export async function runLanes(inputLanes, runDirectory) {
       while (nextIndex < inputLanes.length) {
         const laneIndex = nextIndex++;
         const lane = inputLanes[laneIndex];
-        results.push(await runLane(lane, laneIndex, runDirectory));
+        results.push(
+          await runLaneInSerialGroup(
+            lane,
+            laneIndex,
+            runDirectory,
+            serialGroups
+          )
+        );
       }
     })
   );
 
   return results.sort((left, right) => left.index - right.index);
+}
+
+function runLaneInSerialGroup(lane, index, runDirectory, serialGroups) {
+  if (!lane.serialGroup) {
+    return runLane(lane, index, runDirectory);
+  }
+  const previous = serialGroups.get(lane.serialGroup) ?? Promise.resolve();
+  const current = previous.then(() => runLane(lane, index, runDirectory));
+  serialGroups.set(
+    lane.serialGroup,
+    current.catch(() => undefined)
+  );
+  return current;
 }
 
 function runLane(lane, index, runDirectory) {
@@ -639,7 +681,16 @@ function isPackageValidationRelevant(file) {
   );
 }
 
-function isBuildRelevant(file) {
+export function isPackageBuildRelevant(file, isPackageManifestPackRelevant) {
+  if (!isPackagePackRelevantPath(file)) {
+    return false;
+  }
+  if (
+    /(?:^|\/)package\.json$/u.test(file) &&
+    !isPackageManifestPackRelevant(file)
+  ) {
+    return false;
+  }
   return (
     isPackageValidationRelevant(file) ||
     /(?:^|\/)(assets|public|style|styles)\//u.test(file) ||

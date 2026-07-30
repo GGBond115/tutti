@@ -315,7 +315,9 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 		SessionBatchManagement: d.deletionStore,
 		SessionDeletionGuard:   d.deletionGuard,
 		Runtime:                serviceHostRuntime{service: d.service},
-		SessionLocker:          serviceHostLocker{service: d.service},
+		SessionLocker: serviceHostLocker{
+			mu: &d.service.sessionSettingsMu, locks: &d.service.sessionSettingsLocks,
+		},
 	})
 	d.deletionAdapter = newUnconfiguredIsolatedAgentService(d.runtime)
 	d.deletionAdapter.SetApplicationHost(d.deletionHost)
@@ -331,6 +333,9 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 		switch input.Action {
 		case "set":
 			providerGoal = map[string]any{"objective": input.Objective, "status": "active"}
+			if fixture.CompleteGoalOnSet {
+				providerGoal["status"] = "completed"
+			}
 		case "pause":
 			providerGoal = clonePayload(providerGoal)
 			providerGoal["status"] = "paused"
@@ -855,6 +860,32 @@ func (d *legacyHostConformanceDriver) GoalControl(ctx context.Context, input age
 	return observation, nil
 }
 
+func (d *legacyHostConformanceDriver) AdoptProviderGoal(ctx context.Context, input agenthost.ProviderGoalAdoptionInput) (hostconformance.GoalObservation, error) {
+	var (
+		result agenthost.ProviderGoalAdoptionResult
+		err    error
+	)
+	if d.directHost {
+		result, err = d.service.ApplicationHost().AdoptProviderGoal(ctx, input)
+	} else {
+		result, err = d.service.AdoptProviderGoal(ctx, input)
+	}
+	if err != nil {
+		return hostconformance.GoalObservation{}, err
+	}
+	state, stateErr := d.service.ApplicationHost().GetGoalState(ctx, agenthost.SessionRef{
+		WorkspaceID: input.WorkspaceID, AgentSessionID: input.AgentSessionID,
+	})
+	if stateErr != nil {
+		return hostconformance.GoalObservation{}, stateErr
+	}
+	return hostconformance.GoalObservation{
+		Goal: clonePayload(result.Goal), OperationID: result.OperationID,
+		Revision: state.State.Revision, PendingOperationID: state.State.PendingOperationID,
+		SyncStatus: state.State.SyncStatus,
+	}, nil
+}
+
 func (d *legacyHostConformanceDriver) FenceGoalGeneration(ctx context.Context, input agenthost.FenceGoalGenerationInput) (agenthost.FenceGoalGenerationResult, error) {
 	return d.service.ApplicationHost().FenceGoalGeneration(ctx, input)
 }
@@ -942,7 +973,10 @@ func (d *legacyHostConformanceDriver) Metrics() hostconformance.Metrics {
 		metrics.LastInteractiveRequestID = last.RequestID
 	}
 	if len(d.runtime.execCalls) > 0 {
-		metrics.LastInitialTitle = d.runtime.execCalls[len(d.runtime.execCalls)-1].InitialTitle
+		last := d.runtime.execCalls[len(d.runtime.execCalls)-1]
+		metrics.LastInitialTitle = last.InitialTitle
+		metrics.LastExecRequiresProviderAcceptance =
+			last.RequireProviderAcceptance
 	}
 	if len(d.runtime.resumeCalls) > 0 {
 		metrics.LastResumeRecreate = d.runtime.resumeCalls[len(d.runtime.resumeCalls)-1].RecreateIfMissing
@@ -1125,147 +1159,6 @@ func (i legacyHostConformanceSessionInitializer) InitializeRuntimeSession(
 		i.sessions.sessions[persisted.WorkspaceID+":"+persisted.ID] = persisted
 	}
 	return persisted, err
-}
-
-type legacyHostConformanceTurnStore struct {
-	sessions     map[string]agentactivitybiz.Session
-	turns        map[string]agentactivitybiz.Turn
-	interactions map[string][]agentactivitybiz.Interaction
-}
-
-func (s *legacyHostConformanceTurnStore) GetLatestTurn(_ context.Context, _ string, sessionID string) (agentactivitybiz.Turn, bool, error) {
-	for _, turn := range s.turns {
-		if turn.AgentSessionID == sessionID {
-			return turn, true, nil
-		}
-	}
-	return agentactivitybiz.Turn{}, false, nil
-}
-
-func (s *legacyHostConformanceTurnStore) GetTurn(_ context.Context, _ string, sessionID, turnID string) (agentactivitybiz.Turn, bool, error) {
-	turn, ok := s.turns[sessionID+":"+turnID]
-	return turn, ok, nil
-}
-
-func (s *legacyHostConformanceTurnStore) GetSession(_ context.Context, _ string, sessionID string) (agentactivitybiz.Session, bool, error) {
-	session, ok := s.sessions[sessionID]
-	return session, ok, nil
-}
-
-func (s *legacyHostConformanceTurnStore) ListSessionTurns(_ context.Context, _ string, sessionID string) ([]agentactivitybiz.Turn, error) {
-	result := make([]agentactivitybiz.Turn, 0)
-	for _, turn := range s.turns {
-		if turn.AgentSessionID == sessionID {
-			result = append(result, turn)
-		}
-	}
-	return result, nil
-}
-
-func (s *legacyHostConformanceTurnStore) ListSessionTurnSummaries(_ context.Context, input agentactivitybiz.ListSessionTurnSummariesInput) (agentactivitybiz.SessionTurnSummaryPage, error) {
-	turns := make([]agentactivitybiz.SessionTurnSummary, 0)
-	for _, turn := range s.turns {
-		if turn.WorkspaceID != input.WorkspaceID || turn.AgentSessionID != input.AgentSessionID {
-			continue
-		}
-		turns = append(turns, agentactivitybiz.SessionTurnSummary{
-			TurnID: turn.TurnID, Phase: turn.Phase, Outcome: turn.Outcome,
-			FinalAssistantMessageID: turn.FinalAssistantMessageID,
-			StartedAtUnixMS:         turn.StartedAtUnixMS, SettledAtUnixMS: turn.SettledAtUnixMS, Origin: turn.Origin,
-		})
-	}
-	sort.Slice(turns, func(left, right int) bool {
-		if turns[left].StartedAtUnixMS != turns[right].StartedAtUnixMS {
-			return turns[left].StartedAtUnixMS > turns[right].StartedAtUnixMS
-		}
-		return turns[left].TurnID > turns[right].TurnID
-	})
-	if input.Before != nil {
-		filtered := turns[:0]
-		for _, turn := range turns {
-			if turn.StartedAtUnixMS < input.Before.StartedAtUnixMS ||
-				(turn.StartedAtUnixMS == input.Before.StartedAtUnixMS && turn.TurnID < input.Before.TurnID) {
-				filtered = append(filtered, turn)
-			}
-		}
-		turns = filtered
-	}
-	hasMore := len(turns) > input.Limit
-	if hasMore {
-		turns = turns[:input.Limit]
-	}
-	return agentactivitybiz.SessionTurnSummaryPage{Turns: turns, HasMore: hasMore}, nil
-}
-
-func (s *legacyHostConformanceTurnStore) ListSessionInteractions(_ context.Context, input agentactivitybiz.ListSessionInteractionsInput) ([]agentactivitybiz.Interaction, error) {
-	result := make([]agentactivitybiz.Interaction, 0, len(s.interactions[input.AgentSessionID]))
-	for _, interaction := range s.interactions[input.AgentSessionID] {
-		if input.TurnID != "" && interaction.TurnID != input.TurnID {
-			continue
-		}
-		if input.RequestID != "" && interaction.RequestID != input.RequestID {
-			continue
-		}
-		result = append(result, interaction)
-	}
-	return result, nil
-}
-
-func (s *legacyHostConformanceTurnStore) interaction(sessionID, turnID, requestID string) (agentactivitybiz.Interaction, bool) {
-	for _, interaction := range s.interactions[sessionID] {
-		if interaction.TurnID == turnID && interaction.RequestID == requestID {
-			return interaction, true
-		}
-	}
-	return agentactivitybiz.Interaction{}, false
-}
-
-func (s *legacyHostConformanceTurnStore) storeInteraction(updated agentactivitybiz.Interaction) {
-	interactions := s.interactions[updated.AgentSessionID]
-	for index, interaction := range interactions {
-		if interaction.TurnID == updated.TurnID && interaction.RequestID == updated.RequestID {
-			interactions[index] = updated
-			s.interactions[updated.AgentSessionID] = interactions
-			return
-		}
-	}
-	s.interactions[updated.AgentSessionID] = append(interactions, updated)
-}
-
-func (s *legacyHostConformanceTurnStore) ListLatestTurns(_ context.Context, _ string, sessionIDs []string) (map[string]agentactivitybiz.Turn, error) {
-	result := map[string]agentactivitybiz.Turn{}
-	for _, sessionID := range sessionIDs {
-		if turn, ok, _ := s.GetLatestTurn(context.Background(), "", sessionID); ok {
-			result[sessionID] = turn
-		}
-	}
-	return result, nil
-}
-
-func (s *legacyHostConformanceTurnStore) ListLatestTurnInteractions(_ context.Context, _ string, sessionIDs []string) (map[string][]agentactivitybiz.Interaction, error) {
-	result := map[string][]agentactivitybiz.Interaction{}
-	for _, sessionID := range sessionIDs {
-		result[sessionID] = append([]agentactivitybiz.Interaction(nil), s.interactions[sessionID]...)
-	}
-	return result, nil
-}
-
-func (s *legacyHostConformanceTurnStore) ListTurnsBySession(_ context.Context, _ string, activeTurnIDs map[string]string) (map[string]agentactivitybiz.Turn, error) {
-	result := map[string]agentactivitybiz.Turn{}
-	for sessionID, turnID := range activeTurnIDs {
-		if turn, ok := s.turns[sessionID+":"+turnID]; ok {
-			result[sessionID] = turn
-		}
-	}
-	return result, nil
-}
-
-func (s *legacyHostConformanceTurnStore) ListPendingInteractionsBySession(_ context.Context, _ string, sessionIDs []string) (map[string][]agentactivitybiz.Interaction, error) {
-	result := map[string][]agentactivitybiz.Interaction{}
-	for _, sessionID := range sessionIDs {
-		result[sessionID] = append([]agentactivitybiz.Interaction(nil), s.interactions[sessionID]...)
-	}
-	return result, nil
 }
 
 func legacyHostSessionObservation(session Session) hostconformance.SessionObservation {

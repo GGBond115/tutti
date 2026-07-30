@@ -10,10 +10,10 @@ profiles, locale resources, and static assets.
 ## Trust And Distribution
 
 Configured sources live in `config/tutti.defaults.json`. Each source pins an
-agent key, HTTPS `versions.json` URL, feature flag, signing key ID, and Ed25519
-public key. `tuttid` accepts only active compatible releases whose canonical
-release JSON signature, artifact SHA-256, byte size, manifest identity, and
-package contents all validate.
+agent key, HTTPS `versions.json` URL, default activation state, signing key ID,
+and Ed25519 public key. `tuttid` accepts only active compatible releases whose
+canonical release JSON signature, artifact SHA-256, byte size, manifest
+identity, and package contents all validate.
 
 Release ZIPs are data-only. Installation rejects path traversal, symlinks,
 executable regular files, unsupported file types, excessive entry counts, and
@@ -82,6 +82,14 @@ prepended to the shared runtime-command environment, so the extension can
 describe an official vendor install location without adding provider-specific
 filesystem code to `tuttid`. It never loads JavaScript, React, Go plugins, or
 native modules from the extension.
+
+Composer skill roots remain declarative runtime inputs. Workspace roots must be
+safe relative paths at both installation validation and service consumption
+boundaries; absolute and parent-traversing paths are ignored before runtime
+preparation or discovery. Tutti materializes only its managed skills into those
+roots and replaces the same managed directories on repeated preparation, so a
+persistent workspace cannot accumulate suffixed copies. User-owned colliding
+directories are never replaced.
 
 The generic adapter applies declarative tool aliases before canonical activity
 normalization and maps composer permission semantics onto runtime permission
@@ -178,9 +186,17 @@ catalog and attach shared command effects such as submit-immediate, show-status,
 activate-goal-mode, and toggle-plan-mode. `tuttid` applies that declarative
 policy before returning composer options, so extension commands can reuse the
 shared AgentGUI slash-command behavior without a provider-name branch. Signed
-capability profiles may declare canonical GUI capabilities such as `compact`
-and `planMode`. A declaration becomes effective only when current ACP runtime
-facts and host support also establish it. The closed, signed
+profiles may also set
+`skills.runtimeCommandProjection: "unlisted-as-skills"` alongside an
+authoritative slash-command catalog. In that mode, runtime-advertised entries
+outside the signed core-command list are projected through the typed `skills`
+field with their exact slash trigger and runtime description. AgentGUI then
+renders separate command, capability, and skill groups without a
+provider-name branch; known Tutti-injected routing skills remain hidden from
+the composer picker.
+Signed capability profiles may declare canonical GUI capabilities such as
+`compact` and `planMode`. A declaration becomes effective only when current ACP
+runtime facts and host support also establish it. The closed, signed
 `workflowModes.plan` enabled/disabled ID pair is itself sufficient runtime
 contract evidence for `planMode`, including agents that implement
 `session/set_mode` without advertising a mode catalog from `session/new`.
@@ -208,9 +224,10 @@ daemon lifetime. A cached generic adapter now fails closed when the requested
 Target or fixed installation differs, while composer-context reuse uses the
 full scope above. Sessions persist `agentTargetId` and resume re-derives the
 extension installation from that Target. A composite session-pinned
-runtime/profile fingerprint remains required before automatic extension
-upgrades; until then, sources remain feature-gated and releases are activated
-deliberately.
+runtime/profile fingerprint remains required before automatic in-session
+extension upgrades. Stable sources may still be active by default; release
+activation remains deliberate and existing sessions stay pinned to their
+recorded Target installation.
 
 ## Target-managed Runtime Setup
 
@@ -294,6 +311,30 @@ streamed directly into the private staging root with exclusive creation and a
 hard byte limit; Tutti verifies response transport, size, digest, executable
 mode, and native Mach-O/ELF/PE platform identity. It never invokes an upstream
 installer, shell, archive extractor, or PATH/rc mutation for this runtime kind.
+
+The `uv` runner does not follow the stage-then-rename model: uv tool
+environments embed absolute paths (bin symlinks, venv shebangs, `pyvenv.cfg`)
+and cannot survive the activation rename. uv runtimes install in place. Tutti
+first resolves a Tutti-managed uv toolchain — a pinned uv version declared in
+`config/tutti.defaults.json` (`agentRuntimeTools.uv`) with per-platform
+archives, SHA-256, and byte sizes — downloaded with the same streaming
+verification as binary artifacts, extracted as a single pinned member, and
+cached under `~/.local/share/tutti/agent-runtimes/_tools/uv/<platform>/<version>`.
+The user machine needs no preinstalled uv or Python. The install invokes the
+managed uv executable by absolute path, while also prepending its directory to
+`PATH` for uv subprocesses. Confinement variables point into the final root:
+`UV_TOOL_DIR=<installRoot>/tools`, `UV_TOOL_BIN_DIR=<installRoot>/bin`,
+`UV_PYTHON_INSTALL_DIR=<installRoot>/python`, a shared content-addressed
+`UV_CACHE_DIR` under `_tools/uv/cache`, and `UV_NO_CONFIG=1`. Tutti also sets
+`UV_PYTHON=3.12` and `UV_MANAGED_PYTHON=1`, so package resolution and execution
+use a Tutti-owned Python 3.12 instead of whichever system Python happens to
+appear on the daemon PATH. A previously committed root (valid
+`activation.json`) is moved to `<runtimeIdentity>.previous` before installing
+and restored on any failure; an uncommitted partial root is discarded, and a
+missing root with a self-consistent backup (matching activation identity plus
+executable fingerprint) is restored instead of reinstalling. `activation.json`
+remains the commit marker, and the fingerprint/version/ACP-probe verification
+chain is unchanged.
 
 For both install kinds, Tutti fingerprints the ordinary in-root executable,
 runs the discovery profile's version check, then performs ACP `initialize` and
@@ -391,6 +432,15 @@ requires `session/new` to succeed. Only that result produces `ready`; methods
 being advertised is never itself an auth verdict. Authentication actions are
 durable and never persist credentials.
 
+A method may declare a provider-specific kind. Tutti reads the top-level
+`type`/`args` fields first and falls back to the ACP `_meta["terminal-auth"]`
+extension (the shape Kimi Code publishes, with `type`, `args`, `command`,
+`env`, and `label`). Methods of type `terminal` require an interactive
+terminal login that can never complete inside the headless setup process, so
+the daemon rejects ACP `authenticate` for them immediately and the snapshot
+carries a ready-to-run terminal command (the resolved runtime executable plus
+the declared args) for the host to surface or launch.
+
 An ACP `authenticate` result may expose non-secret account identity through a
 namespaced `_meta` entry ending in `/userinfo`. Setup normalizes only the user
 ID, display name, organization, and selected auth method; it discards all other
@@ -449,22 +499,25 @@ than starting duplicate polls. Closing remains controlled, and the Dialog
 stays mounted through ready transitions so its pointer/scroll lock can clean
 up. Active conversations are never replaced by setup UI.
 
-## Feature Gate And Failure Behavior
+## Activation And Failure Behavior
 
-Source defaults come from generated configuration. Desktop Developer settings
-override them through generic `agent.extension.<key>` feature flags. A
-preference write reconciles only when an extension source changes effective
+Source defaults come from generated configuration. A source with `enabled:
+true` is a stable integration and is always reconciled; historical
+`agent.extension.<key>` preference values no longer override it. Sources with
+`enabled: false` remain Early Access integrations that Desktop settings can
+activate through the generic `agent.extension.<key>` feature flag. A preference
+write reconciles only when one of those opt-in sources changes effective
 activation, then the desktop refreshes its Agent Target catalog. The daemon
-keeps this source-key driven; it has no Gemini or CodeBuddy branch.
+keeps this source-key driven rather than branching on individual providers.
 
-Disabled sources do not perform network requests and their system Target is
-removed. When an enabled source cannot reach its index, a previously verified
-active installation remains available. If no verified installation exists,
-the source is not registered and `tuttid` logs one
+Disabled Early Access sources do not perform network requests and their system
+Target is removed. When an active source cannot reach its index, a previously
+verified active installation remains available. If no verified installation
+exists, the source is not registered and `tuttid` logs one
 `agent_extension.reconcile_failed` record with a JSON payload.
 
-Daemon startup restores and verifies every enabled source's local active
-installation before serving Agent Target reads. When every enabled source has
+Daemon startup restores and verifies every active source's local active
+installation before serving Agent Target reads. When every active source has
 a usable local installation, release-index refresh runs in the background and
 does not delay the daemon listener. If any enabled source has no usable local
 installation, startup keeps the synchronous reconcile path so that a first

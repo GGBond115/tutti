@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
@@ -17,10 +15,18 @@ import (
 
 const codexAppServerCapabilityListTimeout = 8 * time.Second
 
+type appServerCatalogRequestSet string
+
+const (
+	appServerCatalogRequestSetCodex      appServerCatalogRequestSet = "codex"
+	appServerCatalogRequestSetSkillsOnly appServerCatalogRequestSet = "skills_only"
+)
+
 type CodexCLICapabilityLister struct {
 	Command          string
 	Args             []string
 	Timeout          time.Duration
+	RequestSet       appServerCatalogRequestSet
 	Environ          func() []string
 	HomeDir          func() (string, error)
 	IsExecutableFile func(string) bool
@@ -70,7 +76,7 @@ func composerCapabilityCatalogLister(profile composerProfile) (CodexCLICapabilit
 	switch profile.CapabilityCatalogKind {
 	case "":
 		return CodexCLICapabilityLister{}, false, nil
-	case providerregistry.CapabilityCatalogKindCodexAppServer:
+	case providerregistry.CapabilityCatalogKindCodexAppServer, providerregistry.CapabilityCatalogKindAppServerSkills:
 		command := append([]string(nil), profile.CapabilityCatalogCommand...)
 		if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
 			return CodexCLICapabilityLister{}, false, fmt.Errorf("capability catalog command is required")
@@ -80,9 +86,14 @@ func composerCapabilityCatalogLister(profile composerProfile) (CodexCLICapabilit
 				return CodexCLICapabilityLister{}, false, fmt.Errorf("capability catalog command argument %d is empty", index+1)
 			}
 		}
+		requestSet := appServerCatalogRequestSetCodex
+		if profile.CapabilityCatalogKind == providerregistry.CapabilityCatalogKindAppServerSkills {
+			requestSet = appServerCatalogRequestSetSkillsOnly
+		}
 		return CodexCLICapabilityLister{
-			Command: command[0],
-			Args:    command[1:],
+			Command:    command[0],
+			Args:       command[1:],
+			RequestSet: requestSet,
 		}, true, nil
 	default:
 		return CodexCLICapabilityLister{}, false, fmt.Errorf("unsupported capability catalog kind %q", profile.CapabilityCatalogKind)
@@ -94,8 +105,6 @@ func (l CodexCLICapabilityLister) List(ctx context.Context, cwd string) ([]Compo
 	if timeout <= 0 {
 		timeout = codexAppServerCapabilityListTimeout
 	}
-	processCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 
 	command := strings.TrimSpace(l.Command)
 	if command == "" {
@@ -110,57 +119,44 @@ func (l CodexCLICapabilityLister) List(ctx context.Context, cwd string) ([]Compo
 	processEnv := resolver.Env(nil)
 	command = resolver.Resolve(command, processEnv)
 	args := append([]string{}, l.Args...)
-	cmd := exec.CommandContext(processCtx, command, args...)
-	cmd.Env = processEnv
-	cmd.WaitDelay = codexAppServerShutdownWaitDelay
-	stdin, err := cmd.StdinPipe()
+	processCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	process, err := startCodexAppServerProcess(processCtx, command, args, processEnv)
 	if err != nil {
-		return nil, fmt.Errorf("open codex app-server stdin: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("open codex app-server stdout: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("open codex app-server stderr: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start codex app-server: %w", err)
-	}
-
-	stderrBuf := &truncatingBuffer{max: codexModelListMaxStderrBytes}
-	var stderrWG sync.WaitGroup
-	stderrWG.Add(1)
-	go func() {
-		defer stderrWG.Done()
-		_, _ = io.Copy(stderrBuf, stderr)
-	}()
-
-	defer func() {
-		_ = stdin.Close()
-		cancel()
-		_ = cmd.Wait()
-		stderrWG.Wait()
-	}()
-
-	if err := writeCodexCapabilityListRequests(stdin, cwd); err != nil {
 		return nil, err
 	}
-	options, err := readCodexCapabilityListResponses(stdout)
+	if err := writeAppServerCapabilityListRequests(process.stdin, cwd, l.RequestSet); err != nil {
+		processErr := processCtx.Err()
+		_ = process.stop(cancel)
+		if processErr != nil {
+			return nil, fmt.Errorf("codex app-server capability discovery timed out: %w", processErr)
+		}
+		return nil, err
+	}
+	options, err := readAppServerCapabilityListResponses(process.stdout, l.RequestSet)
+	processErr := processCtx.Err()
+	_ = process.stop(cancel)
 	if err == nil {
 		return options, nil
 	}
-	if processCtx.Err() != nil {
-		return nil, fmt.Errorf("codex app-server capability discovery timed out: %w", processCtx.Err())
+	if processErr != nil {
+		return nil, fmt.Errorf("codex app-server capability discovery timed out: %w", processErr)
 	}
-	if stderr := strings.TrimSpace(stderrBuf.String()); stderr != "" {
+	if stderr := strings.TrimSpace(process.stderr.String()); stderr != "" {
 		return nil, fmt.Errorf("%w: %s", err, stderr)
 	}
 	return nil, err
 }
 
-func writeCodexCapabilityListRequests(stdin io.Writer, cwd string) error {
+func writeAppServerCapabilityListRequests(
+	stdin io.Writer,
+	cwd string,
+	requestSet appServerCatalogRequestSet,
+) error {
+	requests, _, err := appServerCatalogRequests(cwd, requestSet)
+	if err != nil {
+		return err
+	}
 	encoder := json.NewEncoder(stdin)
 	if err := encoder.Encode(map[string]any{
 		"id":     "1",
@@ -183,6 +179,21 @@ func writeCodexCapabilityListRequests(stdin io.Writer, cwd string) error {
 	}); err != nil {
 		return fmt.Errorf("write codex app-server initialized: %w", err)
 	}
+	for _, request := range requests {
+		if err := encoder.Encode(request); err != nil {
+			return fmt.Errorf("write codex app-server %s: %w", request["method"], err)
+		}
+	}
+	return nil
+}
+
+func appServerCatalogRequests(
+	cwd string,
+	requestSet appServerCatalogRequestSet,
+) ([]map[string]any, map[string]string, error) {
+	if requestSet == "" {
+		requestSet = appServerCatalogRequestSetCodex
+	}
 	cwds := []string{}
 	if trimmedCwd := strings.TrimSpace(cwd); trimmedCwd != "" {
 		cwds = append(cwds, trimmedCwd)
@@ -196,7 +207,19 @@ func writeCodexCapabilityListRequests(stdin io.Writer, cwd string) error {
 				"forceReload": false,
 			},
 		},
-		{
+	}
+	pending := map[string]string{
+		"2": "skills/list",
+	}
+	switch requestSet {
+	case appServerCatalogRequestSetSkillsOnly:
+		return requests, pending, nil
+	case appServerCatalogRequestSetCodex:
+	default:
+		return nil, nil, fmt.Errorf("unsupported app-server catalog request set %q", requestSet)
+	}
+	requests = append(requests,
+		map[string]any{
 			"id":     "3",
 			"method": "app/list",
 			"params": map[string]any{
@@ -204,14 +227,14 @@ func writeCodexCapabilityListRequests(stdin io.Writer, cwd string) error {
 				"forceRefetch": false,
 			},
 		},
-		{
+		map[string]any{
 			"id":     "4",
 			"method": "plugin/list",
 			"params": map[string]any{
 				"limit": 200,
 			},
 		},
-		{
+		map[string]any{
 			"id":     "5",
 			"method": "mcpServerStatus/list",
 			"params": map[string]any{
@@ -219,19 +242,27 @@ func writeCodexCapabilityListRequests(stdin io.Writer, cwd string) error {
 				"detail": "toolsAndAuthOnly",
 			},
 		},
-	}
-	for _, request := range requests {
-		if err := encoder.Encode(request); err != nil {
-			return fmt.Errorf("write codex app-server %s: %w", request["method"], err)
-		}
-	}
-	return nil
+	)
+	pending["3"] = "app/list"
+	pending["4"] = "plugin/list"
+	pending["5"] = "mcpServerStatus/list"
+	return requests, pending, nil
 }
 
-func readCodexCapabilityListResponses(stdout io.Reader) ([]ComposerCapabilityOption, error) {
+func readAppServerCapabilityListResponses(
+	stdout io.Reader,
+	requestSet appServerCatalogRequestSet,
+) ([]ComposerCapabilityOption, error) {
+	_, pendingMethods, err := appServerCatalogRequests("", requestSet)
+	if err != nil {
+		return nil, err
+	}
+	pending := make(map[string]struct{}, len(pendingMethods))
+	for id := range pendingMethods {
+		pending[id] = struct{}{}
+	}
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), codexModelListMaxLineBytes)
-	pending := map[string]struct{}{"2": {}, "3": {}, "4": {}, "5": {}}
 	options := make([]ComposerCapabilityOption, 0)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())

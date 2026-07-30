@@ -27,6 +27,7 @@ export interface AgentTranscriptVirtualScrollController {
   enabled: boolean;
   isAtEnd(threshold?: number): boolean;
   cancelScroll(): void;
+  scrollToOffset(offset: number, options?: { behavior?: ScrollBehavior }): void;
   scrollToEnd(options?: { behavior?: ScrollBehavior }): void;
   setTopLoadingHandler(handler: (() => Promise<"stop" | void>) | null): void;
   subscribeUserScroll(

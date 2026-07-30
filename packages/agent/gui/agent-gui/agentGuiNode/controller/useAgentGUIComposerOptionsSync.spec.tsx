@@ -27,6 +27,7 @@ describe("useAgentGUIComposerOptionsSync", () => {
         dataRef.current = target.data;
         selectedTargetRef.current = target;
         return useAgentGUIComposerOptionsSync({
+          activeSessionTarget: null,
           activeConversationId: null,
           activeConversationIdRef,
           agentActivityRuntime: {
@@ -122,6 +123,7 @@ describe("useAgentGUIComposerOptionsSync", () => {
     const { rerender } = renderHook(
       ({ isCreatingConversation }) =>
         useAgentGUIComposerOptionsSync({
+          activeSessionTarget: null,
           activeConversationId: null,
           activeConversationIdRef,
           agentActivityRuntime: {
@@ -180,6 +182,10 @@ describe("useAgentGUIComposerOptionsSync", () => {
       ({ activeConversationId }) => {
         activeConversationIdRef.current = activeConversationId;
         return useAgentGUIComposerOptionsSync({
+          activeSessionTarget: {
+            ...target,
+            agentSessionId: activeConversationId
+          },
           activeConversationId,
           activeConversationIdRef,
           agentActivityRuntime: {
@@ -223,6 +229,68 @@ describe("useAgentGUIComposerOptionsSync", () => {
     );
   });
 
+  it("loads options from one canonical active-session target identity", async () => {
+    const getComposerOptions = vi.fn(async () => ({}));
+    const provider = "acp:hermes" as AgentGUIProvider;
+    const data: AgentGUINodeData = {
+      agentTargetId: "local:opencode",
+      provider: "opencode",
+      lastActiveAgentSessionId: "session-1"
+    };
+    const selectedTarget: AgentGUIComposerTargetData = {
+      agentTargetId: "local:opencode",
+      data,
+      provider: "opencode",
+      targetId: "local:opencode"
+    };
+
+    renderHook(() =>
+      useAgentGUIComposerOptionsSync({
+        activeSessionTarget: {
+          agentTargetId: "extension:hermes",
+          agentSessionId: "session-1",
+          provider
+        },
+        activeConversationId: "session-1",
+        activeConversationIdRef: { current: "session-1" },
+        agentActivityRuntime: {
+          getComposerOptions,
+          getSnapshot: () => ({})
+        } as unknown as AgentActivityRuntime,
+        composerTargetData: selectedTarget,
+        conversationFilter: null,
+        currentUserId: "user-1",
+        data,
+        dataRef: { current: data },
+        defaultReasoningEffort: null,
+        draftSettingsBySessionIdRef: { current: {} },
+        isComposerHome: false,
+        isComposerHomeRef: { current: false },
+        isCreatingConversation: false,
+        loadDraftComposerOptionsRef: { current: () => {} },
+        loadSessionState: vi.fn(),
+        onComposerDefaultsAuthorityReloadedRef:
+          createComposerDefaultsAuthorityReconcilerRef(),
+        providerComposerOptions: null,
+        selectedComposerTargetDataRef: { current: selectedTarget },
+        selectedProjectPath: "/workspace/project",
+        selectedProjectPathRef: { current: "/workspace/project" },
+        syncConversationListProjection: vi.fn(async () => {}),
+        workspaceId: "workspace-1",
+        workspacePath: "/workspace"
+      })
+    );
+
+    await waitFor(() =>
+      expect(getComposerOptions).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentTargetId: "extension:hermes",
+          provider
+        })
+      )
+    );
+  });
+
   it("rereads target authority on invalidation without sending local persistent intent", async () => {
     const getComposerOptions = vi.fn(async () => ({}));
     let emitHostEvent: ((event: unknown) => void) | null = null;
@@ -251,6 +319,7 @@ describe("useAgentGUIComposerOptionsSync", () => {
       createComposerDefaultsAuthorityReconcilerRef();
     const rendered = renderHook(() =>
       useAgentGUIComposerOptionsSync({
+        activeSessionTarget: null,
         activeConversationId: null,
         activeConversationIdRef: { current: null },
         agentActivityRuntime: {
@@ -365,6 +434,7 @@ describe("useAgentGUIComposerOptionsSync", () => {
 
     renderHook(() =>
       useAgentGUIComposerOptionsSync({
+        activeSessionTarget: null,
         activeConversationId: null,
         activeConversationIdRef: { current: null },
         agentActivityRuntime: {
@@ -425,6 +495,10 @@ describe("useAgentGUIComposerOptionsSync", () => {
       createComposerDefaultsAuthorityReconcilerRef();
     renderHook(() =>
       useAgentGUIComposerOptionsSync({
+        activeSessionTarget: {
+          ...target,
+          agentSessionId: "session-1"
+        },
         activeConversationId: "session-1",
         activeConversationIdRef: { current: "session-1" },
         agentActivityRuntime: {

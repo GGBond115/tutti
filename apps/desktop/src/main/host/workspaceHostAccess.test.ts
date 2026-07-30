@@ -328,6 +328,12 @@ function createTransportClient(
     async getAgentProviderStatuses() {
       throw new Error("not used");
     },
+    async getAgentProviderRuntimeCandidates() {
+      throw new Error("not used");
+    },
+    async setAgentProviderRuntimeSelection() {
+      throw new Error("not used");
+    },
     async probeAgentProvider() {
       throw new Error("not used");
     },
@@ -464,6 +470,12 @@ function createTransportClient(
       throw new Error("not used");
     },
     async cancelWorkspaceAgentTurn() {
+      throw new Error("not used");
+    },
+    async editRetry() {
+      throw new Error("not used");
+    },
+    async recoverEditRetry() {
       throw new Error("not used");
     },
     async goalControlWorkspaceAgentSession() {

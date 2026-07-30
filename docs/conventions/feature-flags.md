@@ -31,6 +31,12 @@ already generic (`DesktopPreferences.FeatureFlags`,
 `NormalizeDesktopFeatureFlags`, preferences eventstream updates), so a new
 flag only needs registry entries and copy.
 
+When a feature graduates, remove its registry entries and every owning-feature
+gate in the same change. Historical stored values may remain in generic
+preferences for compatibility, but graduated features must not consult them;
+this makes the feature available to existing profiles even when their old
+value was `false`.
+
 Resolution rule on both sides: a stored value wins; absent keys fall back to
 the registry default; absent unregistered keys resolve to `false`
 (`IsLabFlagEnabled` in Go, `isFeatureEnabled` in TS).
@@ -53,10 +59,18 @@ the registry default; absent unregistered keys resolve to `false`
 
 ## Existing reference pattern
 
+`lab.agentSessionFork` is a capability flag. Desktop hides new Session Fork
+actions unless the flag is enabled, and tuttid rejects direct Fork writes when
+it is absent, false, or unreadable. Existing fork lineage plus operation reads
+and acknowledgements remain available while the flag is off. Its durable key
+predates graduation from Lab; the switch is now presented in Developer
+settings without renaming the stored key or losing existing user choices.
+
 `services/tuttid/service/agentextension/manager.go` is the existing example
-of feature-owned semantics: it reads the raw flag map, derives its own keys
-(`"agent.extension."+source.Key`), and decides what disabled means for Agent
-Extension sources (reconcile and stop). New consumers should prefer the
-registry constants and `IsLabFlagEnabled` over poking the raw map, while
-keeping their own off semantics in the owning feature, exactly as the Agent
+of feature-owned semantics: stable sources are enabled by generated product
+configuration and ignore retired stored activation values, while Early Access
+sources derive their own keys (`"agent.extension."+source.Key`) and decide what
+disabled means (reconcile and stop). New consumers should prefer registry
+constants and `IsLabFlagEnabled` over poking the raw map, while keeping their
+own off and graduation semantics in the owning feature, exactly as the Agent
 Extension manager does.

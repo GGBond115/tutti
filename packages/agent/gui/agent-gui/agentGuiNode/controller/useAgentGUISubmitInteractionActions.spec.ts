@@ -160,26 +160,132 @@ describe("new-conversation home draft lifecycle", () => {
 });
 
 describe("conversation stop", () => {
-  it("dispatches one unified stop intent for activation and active-turn states", () => {
+  it("routes activation and active-turn stop through the Engine semantic operation", () => {
     const goalControl = vi.fn(async () => undefined);
     const { input, sessionEngine } = createGoalControlInput(
       goalControl as never
     );
-    const dispatch = vi.spyOn(sessionEngine, "dispatch");
+    const stopSession = vi.spyOn(sessionEngine, "stopSession");
     const { result } = renderHook(() =>
       useAgentGUISubmitInteractionActions(input)
     );
 
     act(() => result.current.interruptCurrentTurn("not running"));
 
-    expect(dispatch).toHaveBeenCalledTimes(1);
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentSessionId: "session-1",
-        type: "session/stopRequested",
-        workspaceId: "workspace-1"
+    expect(stopSession).toHaveBeenCalledTimes(1);
+    expect(stopSession).toHaveBeenCalledWith({
+      agentSessionId: "session-1"
+    });
+  });
+});
+
+describe("interaction submissions", () => {
+  it("routes the explicit answer through the Engine semantic operation", () => {
+    const goalControl = vi.fn(async () => undefined);
+    const { input, sessionEngine, setDetailError } = createGoalControlInput(
+      goalControl as never
+    );
+    const submitInteractionResponse = vi
+      .spyOn(sessionEngine, "submitInteractionResponse")
+      .mockReturnValue(true);
+    const { result } = renderHook(() =>
+      useAgentGUISubmitInteractionActions({
+        ...input,
+        activeEnginePendingInteractions: [
+          {
+            agentSessionId: "session-1",
+            createdAtUnixMs: 1,
+            kind: "question",
+            requestId: "request-1",
+            status: "pending",
+            turnId: "turn-1",
+            updatedAtUnixMs: 1
+          }
+        ]
       })
     );
+
+    act(() =>
+      result.current.submitApprovalOption(" request-1 ", " allow-once ")
+    );
+
+    expect(submitInteractionResponse).toHaveBeenCalledWith({
+      agentSessionId: "session-1",
+      optionId: "allow-once",
+      requestId: "request-1",
+      turnId: "turn-1"
+    });
+    expect(setDetailError).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("existing-session prompt submission", () => {
+  it("routes submission through the Engine semantic operation", () => {
+    const goalControl = vi.fn(async () => undefined);
+    const { input, draftByScopeKeyRef, sessionEngine, setDraftByScopeKey } =
+      createGoalControlInput(goalControl as never);
+    draftByScopeKeyRef.current = {
+      "session:session-1": draft("continue")
+    };
+    const submitPrompt = vi
+      .spyOn(sessionEngine, "submitPrompt")
+      .mockReturnValue({ accepted: true, queued: false });
+    const { result } = renderHook(() =>
+      useAgentGUISubmitInteractionActions(input)
+    );
+
+    act(() =>
+      result.current.submitPrompt(
+        [{ type: "text", text: "continue" }],
+        " Continue ",
+        {
+          capabilityRefs: [{ capability: "tutti", source: "slash_command" }],
+          requiredSettingsPatch: { computerUse: true }
+        }
+      )
+    );
+
+    expect(submitPrompt).toHaveBeenCalledWith({
+      agentSessionId: "session-1",
+      capabilityRefs: [{ capability: "tutti", source: "slash_command" }],
+      clientSubmitId: expect.any(String),
+      content: [{ type: "text", text: "continue" }],
+      displayPrompt: " Continue ",
+      requiredSettingsPatch: { computerUse: true },
+      runtimeContent: [{ type: "text", text: "continue" }],
+      submitDiagnostics: expect.objectContaining({
+        source: "agent-gui"
+      })
+    });
+    expect(setDraftByScopeKey).toHaveBeenCalledTimes(1);
+    expect(
+      agentComposerDraftPrompt(draftByScopeKeyRef.current["session:session-1"]!)
+    ).toBe("");
+  });
+
+  it("keeps the draft when the Engine does not admit the submission", () => {
+    const goalControl = vi.fn(async () => undefined);
+    const { input, draftByScopeKeyRef, sessionEngine, setDraftByScopeKey } =
+      createGoalControlInput(goalControl as never);
+    draftByScopeKeyRef.current = {
+      "session:session-1": draft("continue")
+    };
+    vi.spyOn(sessionEngine, "submitPrompt").mockReturnValue({
+      accepted: false,
+      queued: false
+    });
+    const { result } = renderHook(() =>
+      useAgentGUISubmitInteractionActions(input)
+    );
+
+    act(() =>
+      result.current.submitPrompt([{ type: "text", text: "continue" }])
+    );
+
+    expect(setDraftByScopeKey).not.toHaveBeenCalled();
+    expect(
+      agentComposerDraftPrompt(draftByScopeKeyRef.current["session:session-1"]!)
+    ).toBe("continue");
   });
 });
 

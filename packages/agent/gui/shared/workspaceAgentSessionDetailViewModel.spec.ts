@@ -238,7 +238,7 @@ describe("buildWorkspaceAgentSessionDetailViewModel", () => {
     ]);
   });
 
-  it("recognizes opaque image generation tool aliases from canonical content blocks", async () => {
+  it("recognizes opaque image generation tool aliases from canonical output fields", async () => {
     setAgentGuiI18nTestLocale("en");
 
     const view = buildWorkspaceAgentSessionDetailViewModel({
@@ -260,23 +260,13 @@ describe("buildWorkspaceAgentSessionDetailViewModel", () => {
           payload: {
             toolName: "ig_05eb62dbe723c910016a1336ad3de881919216a6f64051a5e2",
             callType: "tool",
-            content: [
-              {
-                type: "content",
-                content: {
-                  type: "text",
-                  text: "Revised prompt: a joyful little girl dancing"
-                }
-              },
-              {
-                type: "content",
-                content: {
-                  type: "image",
-                  uri: "/workspace/output/generated.png",
-                  mimeType: "image/png"
-                }
-              }
-            ]
+            input: {
+              prompt: "Revised prompt: a joyful little girl dancing"
+            },
+            output: {
+              savedPath: "/workspace/output/generated.png",
+              imageMimeType: "image/png"
+            }
           }
         })
       ]
@@ -2241,7 +2231,7 @@ describe("buildWorkspaceAgentSessionDetailViewModel", () => {
     ]);
   });
 
-  it("uses Claude Code nested canonical tool names instead of opaque call_function ids", () => {
+  it("uses canonical tool names instead of opaque call_function ids", () => {
     const view = buildWorkspaceAgentSessionDetailViewModel({
       activity,
       session,
@@ -2256,24 +2246,11 @@ describe("buildWorkspaceAgentSessionDetailViewModel", () => {
           status: "completed",
           payload: {
             callType: "tool",
+            toolName: "Bash",
             input: {
-              _meta: {
-                claudeCode: {
-                  toolName: "Bash"
-                }
-              },
               kind: "execute",
-              rawInput: {
-                command: "ls -la"
-              },
+              command: "ls -la",
               title: "ls -la"
-            },
-            output: {
-              _meta: {
-                claudeCode: {
-                  toolName: "Bash"
-                }
-              }
             }
           }
         })
@@ -2310,7 +2287,7 @@ describe("buildWorkspaceAgentSessionDetailViewModel", () => {
               subagent_type: "Explore"
             },
             output: {
-              output: "Workspace is empty."
+              text: "Workspace is empty."
             }
           }
         }),
@@ -2325,12 +2302,10 @@ describe("buildWorkspaceAgentSessionDetailViewModel", () => {
           payload: {
             toolName: "Glob",
             input: {
-              pattern: "**/*",
-              _meta: {
-                claudeCode: {
-                  parentToolUseId: "call_parent_agent"
-                }
-              }
+              pattern: "**/*"
+            },
+            metadata: {
+              parentToolUseId: "call_parent_agent"
             },
             output: {
               stdout: "index.html\nCLAUDE.md\n"
@@ -2348,12 +2323,10 @@ describe("buildWorkspaceAgentSessionDetailViewModel", () => {
           payload: {
             toolName: "Bash",
             input: {
-              command: "ls -la",
-              _meta: {
-                claudeCode: {
-                  parentToolUseId: "call_parent_agent"
-                }
-              }
+              command: "ls -la"
+            },
+            metadata: {
+              parentToolUseId: "call_parent_agent"
             },
             output: {
               stdout: "total 0\n"

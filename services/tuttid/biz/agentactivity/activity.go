@@ -9,6 +9,7 @@ import (
 
 type Repository = agentstore.Repository
 type SessionTurnSummaryReader = agentstore.SessionTurnSummaryReader
+type EffectiveSessionTurnReader = agentstore.EffectiveSessionTurnReader
 
 type ClearSessionsResult = agentstore.ClearSessionsResult
 type PurgeDeletedSessionsInput = agentstore.PurgeDeletedSessionsInput
@@ -88,6 +89,11 @@ type MessageSemantics = agentstore.MessageSemantics
 type MessagePage = agentstore.MessagePage
 
 type Turn = agentstore.Turn
+
+func HasUsableProviderTurnBinding(turn Turn) bool {
+	return agentstore.HasUsableProviderTurnBinding(turn)
+}
+
 type SessionTurnCursor = agentstore.SessionTurnCursor
 type ListSessionTurnSummariesInput = agentstore.ListSessionTurnSummariesInput
 type SessionTurnSummary = agentstore.SessionTurnSummary
@@ -121,6 +127,7 @@ type RuntimeOperationCompletion = agentstore.RuntimeOperationCompletion
 type SessionGoalState = agentstore.SessionGoalState
 type GoalControlOperation = agentstore.GoalControlOperation
 type GoalControlOperationPrepare = agentstore.GoalControlOperationPrepare
+type ProviderGoalAdoption = agentstore.ProviderGoalAdoption
 type GoalControlOperationComplete = agentstore.GoalControlOperationComplete
 type GoalControlOperationAcknowledge = agentstore.GoalControlOperationAcknowledge
 type GoalObservationReconcile = agentstore.GoalObservationReconcile
@@ -196,6 +203,7 @@ const (
 	RuntimeOperationKindInteractiveResponse    = agentstore.RuntimeOperationKindInteractiveResponse
 	RuntimeOperationKindCancelTurn             = agentstore.RuntimeOperationKindCancelTurn
 	RuntimeOperationKindPlanDecision           = agentstore.RuntimeOperationKindPlanDecision
+	RuntimeOperationKindEditRetry              = agentstore.RuntimeOperationKindEditRetry
 	RuntimeOperationStatusPrepared             = agentstore.RuntimeOperationStatusPrepared
 	RuntimeOperationStatusLeased               = agentstore.RuntimeOperationStatusLeased
 	RuntimeOperationStatusCompleted            = agentstore.RuntimeOperationStatusCompleted
@@ -210,6 +218,10 @@ const (
 	RuntimeOperationEventTurnCanceled          = agentstore.RuntimeOperationEventTurnCanceled
 	RuntimeOperationEventPlanDecisionPending   = agentstore.RuntimeOperationEventPlanDecisionPending
 	RuntimeOperationEventPlanDecisionCompleted = agentstore.RuntimeOperationEventPlanDecisionCompleted
+	RuntimeOperationEventEditRetryPending      = agentstore.RuntimeOperationEventEditRetryPending
+	RuntimeOperationEventEditRetryRollback     = agentstore.RuntimeOperationEventEditRetryRollback
+	RuntimeOperationEventEditRetryCompleted    = agentstore.RuntimeOperationEventEditRetryCompleted
+	RuntimeOperationEventEditRetryRecovery     = agentstore.RuntimeOperationEventEditRetryRecovery
 
 	GoalSyncStatusPending         = agentstore.GoalSyncStatusPending
 	GoalSyncStatusApplying        = agentstore.GoalSyncStatusApplying

@@ -86,6 +86,7 @@ export function AgentGUINodeView({
   viewModel,
   referenceProvenanceFilters = null,
   sessionInputHistoryEnabled = false,
+  sessionForkEnabled = false,
   renderAgentTargetInfo,
   renderProjectDirectoryPickerHeaderActions,
   renderSidebarFooter,
@@ -94,6 +95,7 @@ export function AgentGUINodeView({
   providerRailAllPresentation,
   onLinkAction,
   onHandoffConversation,
+  showHandoffTargetOwnershipLabels = false,
   capabilityMenuState,
   capabilityControlsReadOnly = false,
   onCapabilitySettingsRequest,
@@ -101,8 +103,7 @@ export function AgentGUINodeView({
   isVisible = true,
   onEngagementEvent,
   composerFocusRequestSequence = null,
-  newConversationRequestSequence = null,
-  sessionActionRequest = null,
+  workbenchCommandBridge = null,
   slashStatusLimits = [],
   slashStatusLimitsLoading = false,
   slashStatusLimitsUnavailable = false,
@@ -448,12 +449,11 @@ export function AgentGUINodeView({
   const { registerRailInteractionLockProbe } = useAgentGUIExternalRequests({
     createConversationDisabled,
     labels,
-    newConversationRequestSequence,
     requestCreateConversation,
     requestRenameConversation,
-    sessionActionRequest,
     uiLanguage,
-    viewModel
+    viewModel,
+    workbenchCommandBridge
   });
   const conversationRailStoreState = useMemo<AgentGUIConversationRailState>(
     () => ({
@@ -696,6 +696,7 @@ export function AgentGUINodeView({
                 homeTargetProjection={homeTargetProjection}
                 referenceProvenanceFilters={referenceProvenanceFilters}
                 sessionInputHistoryEnabled={sessionInputHistoryEnabled}
+                sessionForkEnabled={sessionForkEnabled}
                 composerEngagement={composerEngagement}
                 actions={actions}
                 labels={labels}
@@ -715,6 +716,9 @@ export function AgentGUINodeView({
                 onSlashStatusRefresh={onSlashStatusRefresh}
                 onLinkAction={onLinkAction}
                 onHandoffConversation={onHandoffConversation}
+                showHandoffTargetOwnershipLabels={
+                  showHandoffTargetOwnershipLabels
+                }
                 capabilityMenuState={capabilityMenuState}
                 capabilityControlsReadOnly={capabilityControlsReadOnly}
                 onCapabilitySettingsRequest={onCapabilitySettingsRequest}

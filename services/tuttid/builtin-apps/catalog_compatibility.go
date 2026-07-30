@@ -96,6 +96,8 @@ func parseRemoteCatalogForHost(data []byte, host CatalogHost) ([]App, error) {
 			seenVersions := make(map[string]struct{}, len(entries))
 			seenMinimums := make(map[string]struct{}, len(entries))
 			selected, hasSelected := appsByID[appID]
+			selectedMinimum := ""
+			hasCompatibleSelection := false
 			for _, entry := range entries {
 				minimum, ok := tuttitypes.NormalizeSemver(entry.MinTuttiVersion)
 				if !ok {
@@ -123,9 +125,11 @@ func parseRemoteCatalogForHost(data []byte, host CatalogHost) ([]App, error) {
 					return nil, fmt.Errorf("app catalog compatibility app %q has duplicate version %q", appID, app.Manifest.Version)
 				}
 				seenVersions[version] = struct{}{}
-				if !hasSelected || compareCatalogAppVersions(app, selected) > 0 {
+				if !hasCompatibleSelection || semver.Compare(minimum, selectedMinimum) > 0 {
 					selected = app
 					hasSelected = true
+					selectedMinimum = minimum
+					hasCompatibleSelection = true
 				}
 			}
 			if hasSelected {

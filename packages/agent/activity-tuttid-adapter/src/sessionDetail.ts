@@ -1,6 +1,7 @@
 import type { AgentActivitySessionDetailSnapshot } from "@tutti-os/agent-activity-core";
 import type { WorkspaceAgentSessionDetailResponse } from "@tutti-os/client-tuttid-ts";
 import {
+  agentActivityEditRetryAvailabilityFromTuttid,
   agentActivitySessionFromTuttidSession,
   agentActivityTurnFromTuttidTurn,
   type AgentActivitySessionMappingOptions
@@ -19,17 +20,26 @@ export function agentActivitySessionDetailFromTuttid(
   options: AgentActivitySessionMappingOptions
 ): AgentActivitySessionDetailSnapshot {
   assertTuttidSessionDetailContract(expectedAgentSessionId, detail);
+  const projectionOptions = {
+    ...options,
+    lifecycleCapabilitiesProjected: detail.lifecycleCapabilitiesProjected
+  };
   return {
     projection:
       detail.projection === "full" ? "authoritative" : "message_hydration",
     lifecycleCapabilitiesProjected: detail.lifecycleCapabilitiesProjected,
+    editRetry: agentActivityEditRetryAvailabilityFromTuttid(detail.editRetry),
     session: agentActivitySessionFromTuttidSession(
       workspaceId,
       detail.session,
-      options
+      projectionOptions
     ),
     childSessions: detail.childSessions.map((session) =>
-      agentActivitySessionFromTuttidSession(workspaceId, session, options)
+      agentActivitySessionFromTuttidSession(
+        workspaceId,
+        session,
+        projectionOptions
+      )
     ),
     turns: detail.turns.map(agentActivityTurnFromTuttidTurn)
   };

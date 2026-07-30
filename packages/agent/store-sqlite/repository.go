@@ -64,6 +64,12 @@ type SessionTurnSummaryReader interface {
 	ListSessionTurnSummaries(context.Context, ListSessionTurnSummariesInput) (SessionTurnSummaryPage, error)
 }
 
+// EffectiveSessionTurnReader is the current-history projection. The ordinary
+// audit read deliberately remains complete.
+type EffectiveSessionTurnReader interface {
+	ListEffectiveSessionTurns(context.Context, string, string) ([]Turn, error)
+}
+
 // GoalProvenanceLedger is a narrow optional persistence capability. It stays
 // separate from Repository so read-only/custom activity repositories do not
 // need to implement provider-specific Goal attribution.
@@ -394,6 +400,7 @@ type Turn struct {
 	SourceGoalRevision                     int64
 	SourceGoalRepairEpoch                  int64
 	RootProviderTurnID                     string
+	ProviderCheckpointMessageID            string
 	RootProviderTurnPhase                  string
 	RootProviderTurnOutcome                string
 	RootProviderTurnErrorMessage           string
@@ -448,17 +455,18 @@ const (
 )
 
 type RootProviderTurnTransition struct {
-	WorkspaceID            string
-	RootAgentSessionID     string
-	RootTurnID             string
-	ProviderTurnID         string
-	Phase                  string
-	Outcome                string
-	ErrorMessage           string
-	ErrorCode              string
-	CompletedCommandKind   string
-	CompletedCommandStatus string
-	OccurredAtUnixMS       int64
+	WorkspaceID                 string
+	RootAgentSessionID          string
+	RootTurnID                  string
+	ProviderTurnID              string
+	ProviderCheckpointMessageID string
+	Phase                       string
+	Outcome                     string
+	ErrorMessage                string
+	ErrorCode                   string
+	CompletedCommandKind        string
+	CompletedCommandStatus      string
+	OccurredAtUnixMS            int64
 }
 
 // TurnTransition records one turn phase transition. Transitions are written

@@ -72,6 +72,46 @@ describe("useAgentGUIDetailScroll", () => {
     expect(result.current.followEndMode).toBe("following");
   });
 
+  it("restores a reselected virtualized Session's detached scroll position", () => {
+    const harness = createHarness();
+    const firstController = virtualScrollController("conversation-a");
+    harness.virtualScrollControllerRef.current = firstController;
+    const { result, rerender } = renderHook(
+      ({ activeConversationId }) =>
+        useAgentGUIDetailScroll(
+          harness.input({ activeConversationId, showTimelineSkeleton: false })
+        ),
+      { initialProps: { activeConversationId: "conversation-a" } }
+    );
+
+    act(() => {
+      firstController.emitUser("away");
+      firstController.emit(
+        viewportSnapshot({
+          distanceFromBottomPx: 2_900,
+          scrollTopPx: 2_000
+        })
+      );
+    });
+    expect(result.current.followEndMode).toBe("detached");
+
+    const secondController = virtualScrollController("conversation-b");
+    harness.virtualScrollControllerRef.current = secondController;
+    rerender({ activeConversationId: "conversation-b" });
+    expect(secondController.scrollToEnd).toHaveBeenCalledWith({
+      behavior: "auto"
+    });
+
+    harness.virtualScrollControllerRef.current = firstController;
+    firstController.scrollToEnd.mockClear();
+    rerender({ activeConversationId: "conversation-a" });
+
+    expect(firstController.scrollToOffset).toHaveBeenCalledWith(2_000, {
+      behavior: "auto"
+    });
+    expect(firstController.scrollToEnd).not.toHaveBeenCalled();
+  });
+
   it("shows the end control when follow intent is active but geometry is away from the end", () => {
     const harness = createHarness();
     const controller = virtualScrollController("conversation-a", {
@@ -561,6 +601,9 @@ interface TestVirtualScrollController extends AgentTranscriptVirtualScrollContro
   emitUser(direction: "away" | "toward-end"): void;
   triggerTopLoading(): Promise<"stop" | void>;
   scrollToEnd: Mock<(options?: { behavior?: ScrollBehavior }) => void>;
+  scrollToOffset: Mock<
+    (offset: number, options?: { behavior?: ScrollBehavior }) => void
+  >;
   syncViewport: Mock<
     (options: {
       followEnd: boolean;
@@ -599,6 +642,7 @@ function virtualScrollController(
       (threshold = 24) => snapshot.distanceFromBottomPx <= threshold
     ),
     scrollToEnd: vi.fn(),
+    scrollToOffset: vi.fn(),
     setTopLoadingHandler: vi.fn((handler) => {
       topLoadingHandler = handler;
     }),

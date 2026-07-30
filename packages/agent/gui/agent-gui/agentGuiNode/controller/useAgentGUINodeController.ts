@@ -340,6 +340,7 @@ export function useAgentGUINodeController({
     agentActivityRuntimeOrigin,
     dataRef,
     isMountedRef,
+    sessionFamily: activeSessionFamily,
     sessionEngine,
     workspaceId
   });
@@ -485,6 +486,7 @@ export function useAgentGUINodeController({
     isMountedRef,
     loadDraftComposerOptions: () => loadDraftComposerOptionsRef.current(),
     loadSelectedConversationMessages,
+    loadSessionState,
     markSelectedConversationDetailPending,
     onDataChangeRef,
     sessionEngine,
@@ -584,6 +586,7 @@ export function useAgentGUINodeController({
     useAgentGUIComposerOptionsSync({
       activeConversationId,
       activeConversationIdRef,
+      activeSessionTarget: activeEngineSession,
       agentActivityRuntime,
       composerTargetData,
       conversationFilter,

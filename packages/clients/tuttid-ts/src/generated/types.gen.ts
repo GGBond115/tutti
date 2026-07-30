@@ -460,6 +460,7 @@ export type DesktopAgentComposerDefaults = {
 export type DesktopAgentConversationDetailMode = "coding" | "general";
 
 export type DesktopDefaultAgentProvider =
+  | "tutti-agent"
   | "claude-code"
   | "codex"
   | "cursor"
@@ -644,6 +645,14 @@ export type AgentTargetAuthMethod = {
   id: string;
   name: string;
   description?: string | null;
+  /**
+   * Provider-declared method kind (for example "terminal").
+   */
+  type?: string | null;
+  /**
+   * Ready-to-run interactive sign-in command for terminal-type methods.
+   */
+  terminalCommand?: string | null;
 };
 
 export type InstallAgentTargetRuntimeRequest = {
@@ -2038,6 +2047,61 @@ export type AgentProviderStatusListResponse = {
   providers: Array<AgentProviderStatus>;
 };
 
+export type AgentProviderRuntimeCandidateState =
+  | "ready"
+  | "unsupported"
+  | "failed";
+
+export type AgentProviderRuntimeSelectionState =
+  | "unavailable"
+  | "implicit_unique"
+  | "selection_required"
+  | "selected"
+  | "stale";
+
+export type AgentProviderRuntimeCandidate = {
+  /**
+   * Opaque identifier valid only for the enclosing catalog revision
+   */
+  id: string;
+  launcherPath: string;
+  packageRoot: string | null;
+  sources: Array<
+    "path" | "bun_global" | "pnpm_global" | "npm_global" | "homebrew"
+  >;
+  version: string | null;
+  state: AgentProviderRuntimeCandidateState;
+  reasonCode: string | null;
+  appServerReady: boolean;
+  packageLayoutOk: boolean;
+};
+
+export type AgentProviderRuntimeSelection = {
+  state: AgentProviderRuntimeSelectionState;
+  candidateId: string | null;
+  launcherPath: string | null;
+  updatedAt: string | null;
+};
+
+export type AgentProviderRuntimeCatalogResponse = {
+  capturedAt: string;
+  provider: WorkspaceAgentProvider;
+  revision: string;
+  selection: AgentProviderRuntimeSelection;
+  candidates: Array<AgentProviderRuntimeCandidate>;
+};
+
+export type SetAgentProviderRuntimeSelectionRequest = {
+  /**
+   * Opaque identifier from the current runtime candidate catalog
+   */
+  candidateId: string;
+  /**
+   * Must match the catalog revision that supplied candidateId
+   */
+  revision: string;
+};
+
 export type TuttiModeActivationStatus = "active" | "inactive";
 
 /**
@@ -2156,17 +2220,9 @@ export type WorkspaceAgentSessionLifecycleCapabilities = {
    */
   fork: boolean;
   /**
-   * Whether this exact session can fork through a settled canonical Turn.
+   * Whether this exact session can fork through a provider-bound canonical Turn.
    */
   forkThroughTurn: boolean;
-  /**
-   * Canonical Turn ids currently verified against provider-native history.
-   */
-  forkThroughTurnIds?: Array<string>;
-  /**
-   * Whether forkThroughTurnIds is an authoritative provider-history projection.
-   */
-  forkThroughTurnIdsKnown?: boolean;
 };
 
 export type WorkspaceAgentSessionForkThroughTurnPoint = {
@@ -2204,6 +2260,17 @@ export type WorkspaceAgentSessionForkOperationStatus =
   | "failed"
   | "unknown";
 
+/**
+ * Durable execution phase for progress and recovery diagnostics.
+ */
+export type WorkspaceAgentSessionForkOperationPhase =
+  | "frozen"
+  | "dispatching"
+  | "materializing"
+  | "committed"
+  | "failed"
+  | "deliveryUnknown";
+
 export type WorkspaceAgentSessionForkOperation = {
   operationId: string;
   requestId: string;
@@ -2211,6 +2278,7 @@ export type WorkspaceAgentSessionForkOperation = {
   targetAgentSessionId: string;
   point: WorkspaceAgentSessionForkPoint;
   status: WorkspaceAgentSessionForkOperationStatus;
+  phase: WorkspaceAgentSessionForkOperationPhase;
   /**
    * Complete target Session projection when status is committed.
    */
@@ -2355,6 +2423,7 @@ export type WorkspaceAgentSessionDetailResponse = {
    */
   lifecycleCapabilitiesProjected: boolean;
   session: WorkspaceAgentSession;
+  editRetry: WorkspaceAgentEditRetryAvailability;
   /**
    * Flat collection of every nested child session below session. Clients reconstruct the tree from the immutable parent fields.
    */
@@ -2363,6 +2432,61 @@ export type WorkspaceAgentSessionDetailResponse = {
    * Ordered durable turns owned by session. This detail-only collection is the canonical source for turn-scoped history such as file changes; clients must not reconstruct it from provider tool payloads.
    */
   turns: Array<WorkspaceAgentTurn>;
+};
+
+export type WorkspaceAgentEditRetryAvailability = {
+  supported: boolean;
+  eligible: boolean;
+  turnId?: string;
+  historyRevision: number;
+  recoveryState:
+    | "prepared"
+    | "rolling_back"
+    | "resend_pending"
+    | "recovery_required"
+    | "completed";
+  operationId?: string;
+  availableActions: Array<WorkspaceAgentEditRetryRecoveryAction>;
+  reasonCode?: WorkspaceAgentEditRetryReasonCode;
+};
+
+export type WorkspaceAgentEditRetryRecoveryAction =
+  | "reconcile"
+  | "retry_replacement";
+
+export type WorkspaceAgentEditRetryReasonCode =
+  | "provider_unsupported"
+  | "turn_not_found"
+  | "turn_not_latest"
+  | "turn_not_settled"
+  | "history_revision_conflict"
+  | "operation_conflict"
+  | "recovery_required"
+  | "provider_outcome_unknown"
+  | "replacement_not_proven_absent";
+
+export type EditRetryWorkspaceAgentTurnRequest = {
+  editedText: string;
+  clientOperationId: string;
+  expectedHistoryRevision: number;
+};
+
+export type RecoverWorkspaceAgentEditRetryRequest = {
+  action: WorkspaceAgentEditRetryRecoveryAction;
+};
+
+export type WorkspaceAgentEditRetryResponse = {
+  operationId: string;
+  state:
+    | "prepared"
+    | "rolling_back"
+    | "resend_pending"
+    | "recovery_required"
+    | "completed";
+  retractedTurnId: string;
+  replacementTurnId?: string;
+  historyRevision: number;
+  reasonCode?: WorkspaceAgentEditRetryReasonCode;
 };
 
 export type SendWorkspaceAgentSessionInputResponse =
@@ -2440,6 +2564,14 @@ export type WorkspaceAgentCompletedCommand = {
 export type WorkspaceAgentTurn = {
   turnId: string;
   agentSessionId: string;
+  /**
+   * Whether this canonical Turn currently has a durably persisted provider Turn binding. This remains false while a settled historical Turn is waiting for an on-demand recovery attempt.
+   */
+  providerForkBindingAvailable: boolean;
+  /**
+   * Canonical provider binding state for Fork projection. bound means the durable provider Turn identity is ready; recovery_required means a settled historical Turn must complete the Host's fail-closed evidence recovery before Fork can be offered; unavailable means the Turn cannot be used as a Fork boundary.
+   */
+  providerForkBindingState: "bound" | "recovery_required" | "unavailable";
   phase: WorkspaceAgentTurnPhase;
   /**
    * Durable business provenance; steer is input on an existing turn and is never an origin.
@@ -2688,11 +2820,17 @@ export type WorkspaceAgentSessionPageResponse = {
   page: WorkspaceAgentSessionPage;
 };
 
+/**
+ * Selects which provider data-export archive format to parse. Omit for backward compatibility with clients that only send archivePath; the daemon then defaults to the Claude data-export format.
+ */
+export type ExternalAgentImportArchiveKind = "claude" | "chatgpt";
+
 export type ExternalAgentImportScanRequest = {
   /**
    * Absolute path to a supported provider data-export ZIP archive. When supplied, scan the archive instead of local CLI history.
    */
   archivePath?: string;
+  archiveKind?: ExternalAgentImportArchiveKind;
   providers?: Array<WorkspaceAgentProvider>;
   /**
    * Limit the scan to conversations updated within the last N days. Omit or 0 for the default 30-day window; a negative value scans all available history.
@@ -2722,7 +2860,7 @@ export type ExternalAgentImportSession = {
   id: string;
   projectPath: string;
   provider: WorkspaceAgentProvider;
-  sourcePath: string;
+  sourcePath?: string | null;
   title: string;
   messageCount: number;
   lastUpdatedAtUnixMs?: number | null;
@@ -2755,6 +2893,7 @@ export type ImportExternalAgentSessionsRequest = {
    * Absolute path to the same provider data-export ZIP archive used for the preceding scan. The daemon revalidates and rereads the archive before importing the selected conversations.
    */
   archivePath?: string;
+  archiveKind?: ExternalAgentImportArchiveKind;
   projects: Array<ExternalAgentImportProjectSelection>;
   registerUserProjects?: boolean;
   importSessions?: boolean;
@@ -3442,6 +3581,25 @@ export type PreflightUploadWorkspaceFilesResponse = {
   conflicts: Array<WorkspaceFileUploadConflict>;
 };
 
+export type WorkbenchLayoutPreset = {
+  kind: "balanced" | "row" | "column";
+};
+
+export type WorkbenchNormalizedFrame = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type WorkbenchLockedLayout = {
+  preset: WorkbenchLayoutPreset;
+  nodeIDs: Array<string>;
+  normalizedFrames?: {
+    [key: string]: WorkbenchNormalizedFrame;
+  };
+};
+
 export type WorkbenchSize = {
   width: number;
   height: number;
@@ -3504,6 +3662,7 @@ export type WorkbenchSnapshot = {
   spaces?: Array<WorkbenchSnapshotSpace>;
   activeSpaceId?: string | null;
   layoutBasis?: WorkbenchLayoutBasis;
+  lockedLayout?: WorkbenchLockedLayout;
   metadata?: {
     [key: string]: unknown;
   };
@@ -10271,6 +10430,88 @@ export type GetAgentProviderComposerOptionsResponses = {
 export type GetAgentProviderComposerOptionsResponse =
   GetAgentProviderComposerOptionsResponses[keyof GetAgentProviderComposerOptionsResponses];
 
+export type GetAgentProviderRuntimeCandidatesData = {
+  body?: never;
+  path: {
+    provider: WorkspaceAgentProvider;
+  };
+  query?: never;
+  url: "/v1/agent-providers/{provider}/runtime-candidates";
+};
+
+export type GetAgentProviderRuntimeCandidatesErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type GetAgentProviderRuntimeCandidatesError =
+  GetAgentProviderRuntimeCandidatesErrors[keyof GetAgentProviderRuntimeCandidatesErrors];
+
+export type GetAgentProviderRuntimeCandidatesResponses = {
+  /**
+   * Current runtime candidates and selection policy
+   */
+  200: AgentProviderRuntimeCatalogResponse;
+};
+
+export type GetAgentProviderRuntimeCandidatesResponse =
+  GetAgentProviderRuntimeCandidatesResponses[keyof GetAgentProviderRuntimeCandidatesResponses];
+
+export type SetAgentProviderRuntimeSelectionData = {
+  body: SetAgentProviderRuntimeSelectionRequest;
+  path: {
+    provider: WorkspaceAgentProvider;
+  };
+  query?: never;
+  url: "/v1/agent-providers/{provider}/runtime-selection";
+};
+
+export type SetAgentProviderRuntimeSelectionErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type SetAgentProviderRuntimeSelectionError =
+  SetAgentProviderRuntimeSelectionErrors[keyof SetAgentProviderRuntimeSelectionErrors];
+
+export type SetAgentProviderRuntimeSelectionResponses = {
+  /**
+   * Updated runtime candidate catalog and selection policy
+   */
+  200: AgentProviderRuntimeCatalogResponse;
+};
+
+export type SetAgentProviderRuntimeSelectionResponse =
+  SetAgentProviderRuntimeSelectionResponses[keyof SetAgentProviderRuntimeSelectionResponses];
+
 export type ProbeAgentProviderData = {
   body?: never;
   path: {
@@ -10716,7 +10957,7 @@ export type ForkWorkspaceAgentSessionErrors = {
    */
   405: ApiErrorResponse;
   /**
-   * The source session or requested fork boundary is not forkable
+   * The source session or requested fork boundary is not forkable. Boundary validation failures keep reason `agent_session_fork_conflict` and include the stable rejection code in `error.params.forkBoundaryReason`.
    */
   409: ApiErrorResponse;
   /**
@@ -11434,6 +11675,124 @@ export type CancelWorkspaceAgentTurnResponses = {
 
 export type CancelWorkspaceAgentTurnResponse =
   CancelWorkspaceAgentTurnResponses[keyof CancelWorkspaceAgentTurnResponses];
+
+export type EditRetryWorkspaceAgentTurnData = {
+  body: EditRetryWorkspaceAgentTurnRequest;
+  path: {
+    workspaceID: string;
+    agentSessionID: string;
+    turnID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/turns/{turnID}/edit-retry";
+};
+
+export type EditRetryWorkspaceAgentTurnErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * The turn, history revision, or operation identity conflicts with current canonical state
+   */
+  409: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type EditRetryWorkspaceAgentTurnError =
+  EditRetryWorkspaceAgentTurnErrors[keyof EditRetryWorkspaceAgentTurnErrors];
+
+export type EditRetryWorkspaceAgentTurnResponses = {
+  /**
+   * Edit-retry operation completed
+   */
+  200: WorkspaceAgentEditRetryResponse;
+  /**
+   * Edit-retry operation is durably pending confirmation or recovery
+   */
+  202: WorkspaceAgentEditRetryResponse;
+};
+
+export type EditRetryWorkspaceAgentTurnResponse =
+  EditRetryWorkspaceAgentTurnResponses[keyof EditRetryWorkspaceAgentTurnResponses];
+
+export type RecoverWorkspaceAgentEditRetryData = {
+  body: RecoverWorkspaceAgentEditRetryRequest;
+  path: {
+    workspaceID: string;
+    agentSessionID: string;
+    operationID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/edit-retry-operations/{operationID}/recover";
+};
+
+export type RecoverWorkspaceAgentEditRetryErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * The operation identity or requested recovery action conflicts with current canonical state
+   */
+  409: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type RecoverWorkspaceAgentEditRetryError =
+  RecoverWorkspaceAgentEditRetryErrors[keyof RecoverWorkspaceAgentEditRetryErrors];
+
+export type RecoverWorkspaceAgentEditRetryResponses = {
+  /**
+   * Edit-retry recovery completed
+   */
+  200: WorkspaceAgentEditRetryResponse;
+  /**
+   * Edit-retry operation remains durably pending confirmation or recovery
+   */
+  202: WorkspaceAgentEditRetryResponse;
+};
+
+export type RecoverWorkspaceAgentEditRetryResponse =
+  RecoverWorkspaceAgentEditRetryResponses[keyof RecoverWorkspaceAgentEditRetryResponses];
 
 export type SubmitWorkspaceAgentPlanDecisionData = {
   body: SubmitWorkspaceAgentPlanDecisionRequest;

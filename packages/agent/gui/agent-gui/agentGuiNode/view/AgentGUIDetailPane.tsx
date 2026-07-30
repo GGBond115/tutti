@@ -30,6 +30,7 @@ import { useAgentGUIComposerInputHistoryProps } from "./useAgentGUIComposerInput
 import { useAgentGUITuttiWorkflow } from "./useAgentGUITuttiWorkflow";
 import type { AgentTranscriptVirtualScrollController } from "../../../shared/agentConversation/components/AgentTranscriptView";
 import type { AgentGUIDetailPaneProps } from "./AgentGUINodeView.types";
+import { useAgentGUIDetailEditRetry } from "./useAgentGUIDetailEditRetry";
 export const EMPTY_WORKSPACE_APP_ICONS = [] as const;
 export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   shell,
@@ -42,6 +43,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   homeTargetProjection,
   referenceProvenanceFilters = null,
   sessionInputHistoryEnabled = false,
+  sessionForkEnabled = false,
   composerEngagement,
   actions,
   labels,
@@ -60,6 +62,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   onSlashStatusRefresh,
   onLinkAction,
   onHandoffConversation,
+  showHandoffTargetOwnershipLabels = false,
   capabilityMenuState,
   capabilityControlsReadOnly = false,
   onCapabilitySettingsRequest,
@@ -150,9 +153,14 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       void actions.forkConversationThroughTurn(agentSessionId, turnId);
     }
   });
+  const forkHandler = sessionForkEnabled ? handleForkThroughTurn : undefined;
   const openForkSourceSession = useStableEventCallback(
     actions.openForkSourceConversation
   );
+  const editRetry = useAgentGUIDetailEditRetry({
+    agentSessionId: viewModel.rail.activeConversationId,
+    workspaceId: viewModel.shell.workspaceId
+  });
   const submitApprovalOption = useStableEventCallback(
     actions.submitApprovalOption
   );
@@ -177,7 +185,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   const retryComposerOptions = useStableEventCallback(
     actions.retryComposerOptions
   );
-  const setTuttiModeActive = useStableEventCallback(actions.setTuttiModeActive);
   const setTuttiModeEffect = useStableEventCallback(actions.setTuttiModeEffect);
   const setTuttiModeSpeed = useStableEventCallback(actions.setTuttiModeSpeed);
   const updatePlanIssueBudgetPreset = useStableEventCallback(
@@ -195,8 +202,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   );
   const handleSelectHomeSuggestion = useCallback(
     (prompt: string) => {
-      // Don't request focus here: replacing the draft already focuses the
-      // filled prompt at the end. A second focus request would race it.
       updateDraftContent(
         updateAgentComposerDraft(viewModel.composer.draftContent, { prompt })
       );
@@ -206,7 +211,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   const handleHomeSuggestionAction = useCallback(
     (action: AgentHomeSuggestionAction) => {
       if (action === "import-session") {
-        // The host chrome owns the external-agent import wizard; let it open.
         window.dispatchEvent(
           new CustomEvent(AGENT_GUI_WORKBENCH_OPEN_EXTERNAL_IMPORT_EVENT)
         );
@@ -390,6 +394,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       selectedAgentTarget: composerSelectedProviderTarget,
       agentTargets: composerProviderTargets,
       handoffAgentTargets: composerHandoffProviderTargets,
+      showHandoffTargetOwnershipLabels,
       providerSelectReadonly:
         !canSwitchComposerProvider ||
         viewModel.rail.activeConversationId !== null,
@@ -425,7 +430,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         tuttiWorkflowComposer.tuttiExecutionStopping,
       workspaceReferencePickerOpen,
       referenceProvenanceFilters,
-      // Plan decisions replace the composer; approval / ask-user embed here.
       activePrompt: composerActivePrompt,
       activePromptKeyboardShortcutsEnabled: isActive,
       promptTips: labels.promptTips,
@@ -457,9 +461,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       onProjectPathChange: updateSelectedProjectPath,
       onSettingsChange: updateComposerSettings,
       onRetryComposerOptions: retryComposerOptions,
-      // Only wire Tutti Mode callbacks when the host explicitly enables the
-      // capability. Composer footer chip keys off callback presence; slash/badge
-      // use capabilityMenuState.tuttiMode.enabled === true (fail closed).
       onTuttiModeChange:
         capabilityMenuState?.tuttiMode?.enabled === true
           ? tuttiWorkflowComposer.setTuttiModeActiveAndSettleReview
@@ -540,9 +541,9 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       sendQueuedPromptNext,
       showPromptImagesUnsupported,
       showStopButton,
+      showHandoffTargetOwnershipLabels,
       stopDisabled,
       slashStatus,
-      setTuttiModeActive,
       setTuttiModeEffect,
       setTuttiModeSpeed,
       submitInteractivePrompt,
@@ -641,11 +642,9 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     viewModel.composer.drainingQueuedPromptId ?? "",
     isInteractionPending ? "1" : "0"
   ].join("|");
-
   useEffect(() => {
     setBottomDockDismissedPromptRequestId(null);
   }, [activePromptRequestId]);
-
   const {
     followEndMode,
     isTimelineScrolledToBottom,
@@ -734,6 +733,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       <AgentGUIDetailTimeline
         availableSkills={viewModel.composer.availableSkills}
         conversation={conversation}
+        editRetry={editRetry}
         conversationFlowEmpty={conversationFlowEmpty}
         conversationFlowLabels={conversationFlowLabels}
         followEndMode={followEndMode}
@@ -749,7 +749,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         isTimelineScrolledToTop={isTimelineScrolledToTop}
         labels={labels}
         onAuthLogin={authLogin}
-        onForkThroughTurn={handleForkThroughTurn}
+        onForkThroughTurn={forkHandler}
         onOpenForkSourceSession={openForkSourceSession}
         forkThroughTurnPendingTurnIds={
           viewModel.operations.forkThroughTurnPendingTurnIds

@@ -42,6 +42,7 @@ function conversationDetailInput(
     draftByScopeKey: {},
     errorFor: () => null,
     providerComposerOptions: null,
+    projectedSessionMessagesById: {},
     selectedComposerTargetData: {
       agentTargetId: null,
       data: {
@@ -166,9 +167,7 @@ describe("useAgentGUIConversationDetail", () => {
       result.current.conversation?.sourceDetail.session.lifecycleCapabilities
     ).toEqual({
       fork: false,
-      forkThroughTurn: true,
-      forkThroughTurnIds: [],
-      forkThroughTurnIdsKnown: false
+      forkThroughTurn: true
     });
   });
 
@@ -220,9 +219,7 @@ describe("useAgentGUIConversationDetail", () => {
         .lifecycleCapabilities
     ).toEqual({
       fork: false,
-      forkThroughTurn: true,
-      forkThroughTurnIds: [],
-      forkThroughTurnIdsKnown: false
+      forkThroughTurn: true
     });
   });
 });

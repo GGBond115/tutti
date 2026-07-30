@@ -10,8 +10,17 @@ import type {
   AttentionReadPartition,
   AttentionReadState
 } from "./attentionReadState.types.ts";
+import type { CanonicalAgentSession } from "./sessionLifecycle.types.ts";
+import { canonicalTurnKey } from "./sessionEntityKeys.ts";
 
 const NO_COMMANDS: readonly EngineCommand[] = [];
+
+interface AttentionReadStateContext {
+  previousSessionsById: Readonly<Record<string, CanonicalAgentSession>>;
+  previousTurnsById: Readonly<Record<string, AgentActivityTurn>>;
+  sessionsById: Readonly<Record<string, { userId?: string }>>;
+  turnsById: Readonly<Record<string, AgentActivityTurn>>;
+}
 
 export function createInitialAttentionReadState(): AttentionReadState {
   return { partitionsByUserId: {} };
@@ -20,9 +29,12 @@ export function createInitialAttentionReadState(): AttentionReadState {
 export function attentionReadStateReducer(
   state: AttentionReadState,
   intent: EngineIntent,
-  context: {
-    sessionsById: Readonly<Record<string, { userId?: string }>>;
-  } = { sessionsById: {} }
+  context: AttentionReadStateContext = {
+    previousSessionsById: {},
+    previousTurnsById: {},
+    sessionsById: {},
+    turnsById: {}
+  }
 ): EngineReducerResult<AttentionReadState> {
   switch (intent.type) {
     case "attention/hydrateRequested":
@@ -51,21 +63,34 @@ export function attentionReadStateReducer(
         return settlePersistenceWrite(state, intent);
       }
       return unchanged(state);
-    case "turn/upserted":
+    case "turn/projectionReceived":
+    case "turn/upserted": {
+      const turn = acceptedCanonicalTurn(intent.turn, context);
+      if (!turn) return unchanged(state);
       return observeTurn(
         state,
-        context.sessionsById[intent.turn.agentSessionId]?.userId ?? "",
-        intent.turn,
+        context.sessionsById[turn.agentSessionId]?.userId ?? "",
+        turn,
         true
       );
+    }
+    case "session/historyAuthoritativeSnapshotReceived":
+      return reconcileAuthoritativeHistoryAttention(state, intent, context);
     case "session/snapshotReceived": {
       let next = state;
       for (const session of intent.sessions) {
-        if (session.latestTurn?.phase === "settled") {
+        if (session.latestTurn) {
+          const turn = acceptedCanonicalTurn(session.latestTurn, context);
+          const id = session.agentSessionId.trim();
+          const key = canonicalTurnKey(id, session.latestTurn.turnId);
+          const snapshotAccepted =
+            context.sessionsById[id] !== context.previousSessionsById[id] ||
+            turn !== context.previousTurnsById[key];
+          if (!turn || !snapshotAccepted) continue;
           next = observeTurn(
             next,
-            session.userId?.trim() ?? "",
-            session.latestTurn,
+            context.sessionsById[turn.agentSessionId]?.userId ?? "",
+            turn,
             false
           ).state;
         }
@@ -91,6 +116,151 @@ export function attentionReadStateReducer(
     default:
       return unchanged(state);
   }
+}
+
+function acceptedCanonicalTurn(
+  incoming: AgentActivityTurn,
+  context: AttentionReadStateContext
+): AgentActivityTurn | null {
+  const key = canonicalTurnKey(incoming.agentSessionId, incoming.turnId);
+  const turn = context.turnsById[key];
+  return turn &&
+    turn.phase === incoming.phase &&
+    turn.outcome === incoming.outcome &&
+    turn.updatedAtUnixMs === incoming.updatedAtUnixMs
+    ? turn
+    : null;
+}
+
+function reconcileAuthoritativeTurns(
+  state: AttentionReadState,
+  rawSessionId: string,
+  turns: readonly AgentActivityTurn[]
+): EngineReducerResult<AttentionReadState> {
+  const sessionId = rawSessionId.trim();
+  if (!sessionId) return unchanged(state);
+  const authoritativeCompletionKeys = new Set<string>();
+  for (const turn of turns) {
+    if (turn.agentSessionId.trim() !== sessionId) continue;
+    const turnId = turn.turnId.trim();
+    const kind = completionKind(turn);
+    if (turnId && kind) {
+      authoritativeCompletionKeys.add(`turn:${sessionId}:${turnId}:${kind}`);
+    }
+  }
+
+  let next = state;
+  const commands: EngineCommand[] = [];
+  for (const [userId, partition] of Object.entries(state.partitionsByUserId)) {
+    const current = partition.recordsBySessionId[sessionId];
+    const removeRecord =
+      current !== undefined &&
+      !authoritativeCompletionKeys.has(current.completionKey);
+    const hydrated = partition.hydrated;
+    let nextHydrated = hydrated;
+    if (hydrated) {
+      const completedReadIds = retainAuthoritativeCompletionKeys(
+        hydrated.completedReadIds,
+        sessionId,
+        authoritativeCompletionKeys
+      );
+      const completedUnreadIds = retainAuthoritativeCompletionKeys(
+        hydrated.completedUnreadIds,
+        sessionId,
+        authoritativeCompletionKeys
+      );
+      const failedReadIds = retainAuthoritativeCompletionKeys(
+        hydrated.failedReadIds,
+        sessionId,
+        authoritativeCompletionKeys
+      );
+      const failedUnreadIds = retainAuthoritativeCompletionKeys(
+        hydrated.failedUnreadIds,
+        sessionId,
+        authoritativeCompletionKeys
+      );
+      if (
+        completedReadIds !== hydrated.completedReadIds ||
+        completedUnreadIds !== hydrated.completedUnreadIds ||
+        failedReadIds !== hydrated.failedReadIds ||
+        failedUnreadIds !== hydrated.failedUnreadIds
+      ) {
+        nextHydrated = {
+          completedReadIds,
+          completedUnreadIds,
+          failedReadIds,
+          failedUnreadIds
+        };
+      }
+    }
+    if (!removeRecord && nextHydrated === hydrated) continue;
+
+    let recordsBySessionId = partition.recordsBySessionId;
+    if (removeRecord) {
+      const mutableRecords: Record<string, AttentionReadRecord> = {
+        ...partition.recordsBySessionId
+      };
+      delete mutableRecords[sessionId];
+      recordsBySessionId = mutableRecords;
+    }
+    const reconciledPartition: AttentionReadPartition = {
+      ...partition,
+      hydrated: nextHydrated,
+      recordsBySessionId
+    };
+    const persistence =
+      nextHydrated !== hydrated
+        ? queuePersistence(reconciledPartition, userId)
+        : { commands: NO_COMMANDS, partition: reconciledPartition };
+    commands.push(...persistence.commands);
+    next = replacePartition(next, userId, persistence.partition);
+  }
+  return next === state ? unchanged(state) : changed(next, commands);
+}
+
+function reconcileAuthoritativeHistoryAttention(
+  state: AttentionReadState,
+  intent: Extract<
+    EngineIntent,
+    { type: "session/historyAuthoritativeSnapshotReceived" }
+  >,
+  context: AttentionReadStateContext
+): EngineReducerResult<AttentionReadState> {
+  const reconciled = reconcileAuthoritativeTurns(
+    state,
+    intent.agentSessionId,
+    intent.turns
+  );
+  const liveTurnId = intent.liveTurnId?.trim() ?? "";
+  const incomingLiveTurn = liveTurnId
+    ? intent.turns.find((turn) => turn.turnId.trim() === liveTurnId)
+    : undefined;
+  const liveTurn = incomingLiveTurn
+    ? acceptedCanonicalTurn(incomingLiveTurn, context)
+    : null;
+  if (!liveTurn) return reconciled;
+  const observed = observeTurn(
+    reconciled.state,
+    context.sessionsById[intent.agentSessionId]?.userId ?? "",
+    liveTurn,
+    true
+  );
+  return {
+    commands: [...reconciled.commands, ...observed.commands],
+    state: observed.state
+  };
+}
+
+function retainAuthoritativeCompletionKeys(
+  keys: readonly string[],
+  sessionId: string,
+  authoritativeCompletionKeys: ReadonlySet<string>
+): readonly string[] {
+  const prefix = `turn:${sessionId}:`;
+  const filtered = keys.filter(
+    (key) => !key.startsWith(prefix) || authoritativeCompletionKeys.has(key)
+  );
+  return filtered.length === keys.length ? keys : filtered;
 }
 
 function observeTurn(

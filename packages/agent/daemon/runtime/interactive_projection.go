@@ -350,17 +350,38 @@ func normalizedInteractivePrompt(toolCall map[string]any, options []map[string]a
 }
 
 func normalizedApprovalInput(toolCall map[string]any, options []map[string]any, requestID string, knownInput map[string]any) map[string]any {
+	displayInput := normalizedApprovalDisplayInput(toolCall, knownInput)
 	input := map[string]any{
 		"requestId": requestID,
-		"toolCall":  clonePayload(toolCall),
+		"toolCall":  normalizedApprovalToolCall(toolCall),
 		"options":   cloneOptionMaps(options),
 	}
-	for key, value := range normalizedApprovalDisplayInput(toolCall, knownInput) {
+	for key, value := range displayInput {
 		if _, exists := input[key]; !exists {
 			input[key] = clonePayloadValue(value)
 		}
 	}
 	return input
+}
+
+func normalizedApprovalToolCall(toolCall map[string]any) map[string]any {
+	normalized := map[string]any{}
+	for _, key := range []string{
+		"toolCallId",
+		"callId",
+		"id",
+		"title",
+		"name",
+		"toolName",
+		"kind",
+		"status",
+		"locations",
+	} {
+		if value, exists := toolCall[key]; exists {
+			normalized[key] = clonePayloadValue(value)
+		}
+	}
+	return normalized
 }
 
 // normalizedApprovalDisplayInput builds the preview detail (command, path,
@@ -418,6 +439,7 @@ func normalizedApprovalDisplayInput(toolCall map[string]any, knownInput map[stri
 			displayInput[key] = clonePayloadValue(value)
 		}
 	}
+	acpApplyDiffContent(displayInput, toolCall["content"])
 	if command := normalizedApprovalDisplayCommand(firstNonEmptyShellCommand(displayInput["command"], displayInput["cmd"])); command != "" {
 		displayInput["command"] = command
 		delete(displayInput, "cmd")

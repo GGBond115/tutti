@@ -295,12 +295,17 @@ export type AgentGUIProviderReadinessGateStatus =
   | "coming_soon"
   | "not_installed"
   | "auth_required"
+  // The runtime exists and works, but more than one local install was found
+  // and the user must pick which one to use before the provider is usable.
+  | "runtime_selection"
   | "unavailable";
 
 export type AgentGUIProviderReadinessGateAction =
   | "install"
   | "login"
-  | "refresh";
+  | "refresh"
+  // Opens the setup surface where the user chooses among detected runtimes.
+  | "choose";
 
 export interface AgentGUIProviderReadinessGate {
   status: AgentGUIProviderReadinessGateStatus;

@@ -46,7 +46,6 @@ import {
 } from "../services/desktopAgentGUIPrefillPromptActivation.ts";
 import {
   logAgentComposerDefaultsDiagnostic,
-  logAgentGUIConversationRailPreferenceDiagnostic,
   stringifyDiagnosticError
 } from "./desktopAgentGUIWorkbenchDiagnostics.ts";
 import {
@@ -64,21 +63,23 @@ import {
   type DesktopAgentGUISurfaceProps,
   type DesktopAgentGUIWorkbenchBodyProps
 } from "./desktopAgentGUIWorkbenchModel.ts";
-export { DESKTOP_AGENT_GUI_CONVERSATION_RAIL_TOGGLE_EVENT } from "./desktopAgentGUIWorkbenchModel.ts";
-export type { DesktopAgentGUIConversationRailToggleDetail } from "./desktopAgentGUIWorkbenchModel.ts";
 import { useDesktopAgentStatusController } from "./useDesktopAgentStatusController.ts";
 import { useDesktopAgentGUIContextMentions } from "./useDesktopAgentGUIContextMentions.ts";
 import { useDesktopAgentGUIReadiness } from "./useDesktopAgentGUIReadiness.ts";
 import { useDesktopAgentGUIOpenConversationWindow } from "./useDesktopAgentGUIOpenConversationWindow.ts";
-import { useDesktopAgentGUIWorkbenchEvents } from "./useDesktopAgentGUIWorkbenchEvents.ts";
 import { useStableDesktopAgentGUIHostProps } from "./useStableDesktopAgentGUIHostProps.ts";
 import { resolveDesktopAgentGUIEmbeddedDesktopSize } from "./desktopAgentGUIEmbeddedFrame.ts";
 import { scheduleDesktopAgentGUIWorkbenchHydration } from "./desktopAgentGUIWorkbenchHydration.ts";
+import { resolveDesktopAgentGUIWorkbenchBodyVisibility } from "./desktopAgentGUIWorkbenchVisibility.ts";
 import { useDesktopAgentConfigCommerce } from "./useDesktopAgentConfigCommerce.tsx";
 import { hasDesktopLocalTuttiAgent } from "./desktopAgentConfigCommerceContext.ts";
 import { useDesktopAgentGUIComposerFooterAccessory } from "./useDesktopAgentGUIComposerFooterAccessory.tsx";
 import { useDesktopAgentGUIOpenSessionComposerRequest } from "./useDesktopAgentGUIOpenSessionComposerRequest.ts";
 import { useDesktopAgentGUIProviderAuthAccountLabels } from "./useDesktopAgentGUIProviderAuthAccountLabels.ts";
+import {
+  useDesktopAgentGUIConversationRailPreference,
+  useDesktopAgentGUIConversationRailToggle
+} from "./useDesktopAgentGUIConversationRailPreference.ts";
 import { IAgentEnvService } from "../services/agentEnvService.interface.ts";
 import { preloadDesktopAgentGuiMentionBrowse } from "../services/preloadDesktopAgentGuiMentionBrowse.ts";
 import { DESKTOP_AGENT_GUI_CURRENT_USER_ID } from "../services/desktopAgentGuiIdentity.ts";
@@ -87,7 +88,7 @@ import {
   AGENT_REFERENCE_PROVENANCE_FILTER_FLAG,
   isFeatureEnabled,
   LAB_AGENT_INPUT_HISTORY_FLAG,
-  LAB_TUTTI_MODE_FLAG
+  LAB_AGENT_SESSION_FORK_FLAG
 } from "../../../../../shared/featureFlags/catalog.ts";
 
 function DesktopAgentGUISurfaceImpl({
@@ -118,6 +119,7 @@ function DesktopAgentGUISurfaceImpl({
   runtimeApi,
   trackAgentProviderChatReady,
   onEngagementEvent,
+  onConversationRailLayoutChange,
   trackWorkspaceFileReferences,
   workspaceFileReferenceAdapter,
   resolveExternalPromptEntries,
@@ -290,6 +292,12 @@ function DesktopAgentGUISurfaceImpl({
   // referentially stable and effects don't resubscribe each render.
   const onStateChangeRef = useRef(onStateChange);
   onStateChangeRef.current = onStateChange;
+  const rememberConversationRailPreference =
+    useDesktopAgentGUIConversationRailPreference({
+      desktopPreferencesService,
+      runtimeApi,
+      workspaceId
+    });
   // The only writer persists when the projected workbench state changes.
   const handleUpdateNode = useCallback(
     (
@@ -306,32 +314,8 @@ function DesktopAgentGUISurfaceImpl({
       nodeStateRef.current = next;
       const previousRailCollapsed = current.conversationRailCollapsed === true;
       const nextRailCollapsed = next.conversationRailCollapsed === true;
-      if (
-        previousRailCollapsed !== nextRailCollapsed &&
-        isDesktopAgentProvider(next.provider)
-      ) {
-        void desktopPreferencesService
-          .rememberAgentGuiConversationRailCollapsed(
-            next.provider,
-            nextRailCollapsed
-          )
-          .then(() => {
-            logAgentGUIConversationRailPreferenceDiagnostic({
-              collapsed: nextRailCollapsed,
-              provider: next.provider,
-              runtimeApi,
-              workspaceId
-            });
-          })
-          .catch((error) => {
-            logAgentGUIConversationRailPreferenceDiagnostic({
-              collapsed: nextRailCollapsed,
-              error,
-              provider: next.provider,
-              runtimeApi,
-              workspaceId
-            });
-          });
+      if (previousRailCollapsed !== nextRailCollapsed) {
+        rememberConversationRailPreference(next.provider, nextRailCollapsed);
       }
       const nextWorkbenchState = projectDesktopAgentGUIWorkbenchState(next);
       if (
@@ -343,8 +327,15 @@ function DesktopAgentGUISurfaceImpl({
         onStateChangeRef.current(nextWorkbenchState);
       }
     },
-    [desktopPreferencesService, nodeProvider, runtimeApi, workspaceId]
+    [nodeProvider, rememberConversationRailPreference]
   );
+  const handleWorkbenchConversationRailToggle =
+    useDesktopAgentGUIConversationRailToggle({
+      nodeStateRef,
+      rememberConversationRailPreference,
+      stateOwner: surface.conversationRailStateOwner,
+      updateNode: handleUpdateNode
+    });
   const agentStatusController = useDesktopAgentStatusController(
     {
       agentActivityRuntime,
@@ -444,19 +435,6 @@ function DesktopAgentGUISurfaceImpl({
       setPrefillPromptRequest(request);
     }
   }, [surface.activation, surface.host, surface.nodeId, handleUpdateNode]);
-
-  const {
-    newConversationSequence: newConversationRequestSequence,
-    sessionActionRequest
-  } = useDesktopAgentGUIWorkbenchEvents({
-    instanceId: surface.instanceId,
-    onConversationRailToggle: (conversationRailCollapsed) => {
-      handleUpdateNode((current) => ({
-        ...current,
-        conversationRailCollapsed
-      }));
-    }
-  });
 
   const handleOpenConversationWindow = useDesktopAgentGUIOpenConversationWindow(
     {
@@ -562,17 +540,10 @@ function DesktopAgentGUISurfaceImpl({
         installed: computerUseStatus?.installed ?? null
       },
       tuttiMode: {
-        enabled: isFeatureEnabled(
-          desktopPreferencesState.featureFlags,
-          LAB_TUTTI_MODE_FLAG
-        )
+        enabled: true
       }
     }),
-    [
-      computerUseStatus,
-      desktopPreferencesState.browserUseConnectionMode,
-      desktopPreferencesState.featureFlags
-    ]
+    [computerUseStatus, desktopPreferencesState.browserUseConnectionMode]
   );
   const handleAgentEnvPanelOpen = useCallback<
     NonNullable<AgentGUIProps["hostActions"]["onAgentEnvPanelOpen"]>
@@ -584,6 +555,10 @@ function DesktopAgentGUISurfaceImpl({
   const sessionInputHistoryEnabled = isFeatureEnabled(
     desktopPreferencesState.featureFlags,
     LAB_AGENT_INPUT_HISTORY_FLAG
+  );
+  const sessionForkEnabled = isFeatureEnabled(
+    desktopPreferencesState.featureFlags,
+    LAB_AGENT_SESSION_FORK_FLAG
   );
   const providerAuthAccountLabels = useDesktopAgentGUIProviderAuthAccountLabels(
     providerStatusSnapshot.statuses
@@ -646,8 +621,10 @@ function DesktopAgentGUISurfaceImpl({
           }
         : composerAppendRequest,
       composerFocusSequence: composerFocusRequestSequence,
-      newConversationSequence: newConversationRequestSequence,
-      sessionAction: sessionActionRequest,
+      workbench: {
+        instanceId: surface.instanceId,
+        onConversationRailToggle: handleWorkbenchConversationRailToggle
+      },
       openSession: openSessionRequest,
       prefillPrompt: prefillPromptRequest,
       agentStatusController: agentStatusController
@@ -655,6 +632,7 @@ function DesktopAgentGUISurfaceImpl({
     hostCapabilities: {
       referenceProvenanceFilterEnabled,
       sessionInputHistoryEnabled,
+      sessionForkEnabled,
       capabilityMenuState,
       visibleErrorPresentationOverrides,
       comingSoonProviders: comingSoonAgentProviders,
@@ -680,6 +658,7 @@ function DesktopAgentGUISurfaceImpl({
       onUpdateNode: handleUpdateNode,
       onRememberComposerDefaults: handleRememberComposerDefaults,
       onEngagementEvent: onEngagementEvent,
+      onConversationRailLayoutChange,
       onOpenConversationWindow: !onOpenAgentConversationWindow
         ? undefined
         : handleOpenConversationWindow
@@ -742,7 +721,11 @@ function DesktopAgentGUIWorkbenchBodyAdapter({
       visualOcclusionPresentation
     )
   );
-  const isBodyVisible = context.isVisible && isVisuallyExposed;
+  const isBodyVisible = resolveDesktopAgentGUIWorkbenchBodyVisibility({
+    isPresentationVisible: context.isPresentationVisible,
+    isVisible: context.isVisible,
+    isVisuallyExposed
+  });
   const [bodyHydrated, setBodyHydrated] = useState(
     context.isFocused || isBodyVisible
   );
@@ -768,6 +751,7 @@ function DesktopAgentGUIWorkbenchBodyAdapter({
   }
   const surface: DesktopAgentGUISurfaceContext = {
     activation: context.activation,
+    conversationRailStateOwner: "workbench-node-source",
     displayMode: context.displayMode,
     frame: context.node.frame,
     host: context.host,

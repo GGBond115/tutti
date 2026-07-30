@@ -64,6 +64,7 @@ interface Props {
   effectiveHandoffMenuLabel: string;
   handoffMenuTargets: readonly AgentGUIAgentTarget[];
   onHandoffConversation?: (target: AgentGUIAgentTarget) => void;
+  showHandoffTargetOwnershipLabels?: boolean;
   showProviderSelect: boolean;
   selectedProviderSwitchTarget: AgentGUIAgentTarget | null;
   providerSelectDisabled: boolean;
@@ -111,6 +112,7 @@ export function ComposerFooter({
   effectiveHandoffMenuLabel,
   handoffMenuTargets,
   onHandoffConversation,
+  showHandoffTargetOwnershipLabels = false,
   showProviderSelect,
   selectedProviderSwitchTarget,
   providerSelectDisabled,
@@ -236,6 +238,7 @@ export function ComposerFooter({
                 shared: labels.handoffTargetShared,
                 tooltip: labels.handoffConversationTooltip
               }}
+              showOwnershipLabels={showHandoffTargetOwnershipLabels}
               targets={handoffMenuTargets}
               triggerLabel={effectiveHandoffLabel}
               onSelect={(target) => {

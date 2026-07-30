@@ -21,6 +21,10 @@ type WorkbenchSnapshotSize = workbenchservice.WorkbenchSnapshotSize
 type WorkbenchSnapshotSafeArea = workbenchservice.WorkbenchSnapshotSafeArea
 type WorkbenchSnapshotLayoutConstraints = workbenchservice.WorkbenchSnapshotLayoutConstraints
 type WorkbenchSnapshotLayoutBasis = workbenchservice.WorkbenchSnapshotLayoutBasis
+type WorkbenchSnapshotLayoutPreset = workbenchservice.WorkbenchSnapshotLayoutPreset
+type WorkbenchSnapshotLayoutPresetKind = workbenchservice.WorkbenchSnapshotLayoutPresetKind
+type WorkbenchSnapshotNormalizedFrame = workbenchservice.WorkbenchSnapshotNormalizedFrame
+type WorkbenchSnapshotLockedLayout = workbenchservice.WorkbenchSnapshotLockedLayout
 type WorkbenchSnapshotDisplayMode = workbenchservice.WorkbenchSnapshotDisplayMode
 
 const (
@@ -197,6 +201,30 @@ func filterMissingTerminalSnapshotNodes(
 			spaces[index].NodeIDs = filterWorkbenchNodeIDs(space.NodeIDs, removedNodeIDs)
 		}
 		snapshot.Spaces = &spaces
+	}
+	if snapshot.LockedLayout != nil {
+		lockedLayout := *snapshot.LockedLayout
+		lockedLayout.NodeIDs = filterWorkbenchNodeIDs(
+			lockedLayout.NodeIDs,
+			removedNodeIDs,
+		)
+		if len(lockedLayout.NodeIDs) < 2 {
+			snapshot.LockedLayout = nil
+		} else {
+			if lockedLayout.NormalizedFrames != nil {
+				normalizedFrames := make(
+					map[string]WorkbenchSnapshotNormalizedFrame,
+					len(lockedLayout.NodeIDs),
+				)
+				for _, nodeID := range lockedLayout.NodeIDs {
+					if frame, ok := lockedLayout.NormalizedFrames[nodeID]; ok {
+						normalizedFrames[nodeID] = frame
+					}
+				}
+				lockedLayout.NormalizedFrames = normalizedFrames
+			}
+			snapshot.LockedLayout = &lockedLayout
+		}
 	}
 
 	return snapshot, true

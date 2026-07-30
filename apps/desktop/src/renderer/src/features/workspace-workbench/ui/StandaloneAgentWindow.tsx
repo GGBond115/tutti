@@ -18,15 +18,11 @@ import {
 import type { AgentGUIComposerAppendRequest } from "@tutti-os/agent-gui";
 import { RichTextMentionServiceProvider } from "@tutti-os/ui-rich-text/editor";
 import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
+import { agentGuiWorkbenchProviderRailWidthPx } from "@tutti-os/agent-gui/workbench/contribution";
 import {
-  AGENT_GUI_WORKBENCH_CONVERSATION_RAIL_TOGGLE_EVENT,
-  AGENT_GUI_WORKBENCH_NEW_CONVERSATION_EVENT,
-  agentGuiWorkbenchProviderRailWidthPx,
-  dispatchAgentGuiWorkbenchSessionAction,
-  type AgentGuiWorkbenchConversationRailToggleDetail,
-  type AgentGuiWorkbenchNewConversationDetail,
+  dispatchAgentGuiWorkbenchCommand,
   type AgentGuiWorkbenchSessionAction
-} from "@tutti-os/agent-gui/workbench/contribution";
+} from "@tutti-os/agent-gui/workbench";
 import type {
   WorkbenchContribution,
   WorkbenchHostHandle
@@ -83,6 +79,7 @@ import { useWorkspaceSettingsService } from "./useWorkspaceSettingsService";
 import type { WorkspaceWorkbenchCapabilitySettingsTarget } from "../services/workspaceWorkbenchHostService.interface";
 import { resolveDesktopWindowIntent } from "@shared/contracts/windowIntent.ts";
 import { useStandaloneAgentLaunchRouting } from "./useStandaloneAgentLaunchRouting.ts";
+import { useStandaloneAgentWindowConversationRailLayout } from "./useStandaloneAgentWindowConversationRailLayout.ts";
 import {
   StandaloneAgentWindowHeader,
   useStandaloneAgentWindowHeaderIdentity
@@ -513,6 +510,8 @@ export function StandaloneAgentWindow({
     [desktopApi.dockPreviewCache]
   );
   const instanceId = useMemo(() => createAgentGuiWorkbenchInstanceId(), []);
+  const { onConversationRailLayoutChange, railLayoutStore } =
+    useStandaloneAgentWindowConversationRailLayout(standaloneAgentNodeId);
   const activeAgentTargetId = nodeState.agentTargetId?.trim() || null;
   const activeAgent = agents.find(
     (agent) => agent.agentTargetId === activeAgentTargetId
@@ -574,6 +573,7 @@ export function StandaloneAgentWindow({
   const surface = useMemo<DesktopAgentGUISurfaceContext>(
     () => ({
       activation,
+      conversationRailStateOwner: "surface",
       conversationRailAutoCollapseMode: "preserve-middle-content",
       displayMode: "floating",
       frame: agentGuiFrame,
@@ -613,21 +613,11 @@ export function StandaloneAgentWindow({
           );
         }
       }
-      setNodeState((current) => ({
-        ...current,
-        conversationRailCollapsed: collapsed
-      }));
-      window.dispatchEvent(
-        new CustomEvent<AgentGuiWorkbenchConversationRailToggleDetail>(
-          AGENT_GUI_WORKBENCH_CONVERSATION_RAIL_TOGGLE_EVENT,
-          {
-            detail: {
-              conversationRailCollapsed: collapsed,
-              instanceId
-            }
-          }
-        )
-      );
+      dispatchAgentGuiWorkbenchCommand({
+        conversationRailCollapsed: collapsed,
+        instanceId,
+        type: "conversation-rail-toggle"
+      });
     },
     [
       agentGuiFrame.width,
@@ -638,21 +628,18 @@ export function StandaloneAgentWindow({
     ]
   );
   const handleCreateConversation = useCallback(() => {
-    window.dispatchEvent(
-      new CustomEvent<AgentGuiWorkbenchNewConversationDetail>(
-        AGENT_GUI_WORKBENCH_NEW_CONVERSATION_EVENT,
-        {
-          detail: { instanceId }
-        }
-      )
-    );
+    dispatchAgentGuiWorkbenchCommand({
+      instanceId,
+      type: "new-conversation"
+    });
   }, [instanceId]);
   const handleSessionAction = useCallback(
     (action: AgentGuiWorkbenchSessionAction) => {
-      dispatchAgentGuiWorkbenchSessionAction({
+      dispatchAgentGuiWorkbenchCommand({
         action,
         agentSessionId: nodeState.lastActiveAgentSessionId,
-        instanceId
+        instanceId,
+        type: "session-action"
       });
     },
     [instanceId, nodeState.lastActiveAgentSessionId]
@@ -790,6 +777,7 @@ export function StandaloneAgentWindow({
               identity={headerIdentity}
               nodeId={standaloneAgentNodeId}
               providerRailWidthPx={agentGuiWorkbenchProviderRailWidthPx}
+              railLayoutStore={railLayoutStore}
               primaryAccessory={<AppUpdateStatus presentation="standalone" />}
               toolSidebar={isContentLoading ? null : toolSidebar}
               showConversationRailToggle={!isContentLoading}
@@ -875,6 +863,7 @@ export function StandaloneAgentWindow({
                 agentGuiHostInput.trackAgentProviderChatReady
               }
               onEngagementEvent={trackStandaloneAgentGUIEngagement}
+              onConversationRailLayoutChange={onConversationRailLayoutChange}
               trackWorkspaceFileReferences={
                 agentGuiHostInput.trackWorkspaceFileReferences
               }

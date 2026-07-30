@@ -258,7 +258,7 @@ func (a *CodexAppServerAdapter) ExecGoalControl(
 		return nil, true, ErrSessionDisconnected
 	}
 	session.ProviderSessionID = appSession.threadID
-	events, err := a.execGoalControlCommand(ctx, appSession, session, args, "", content, explicitDisplayPrompt, visibleText, nil)
+	events, err := a.execGoalControlCommand(ctx, appSession, session, args, "", content, explicitDisplayPrompt, visibleText, nil, nil)
 	return events, true, err
 }
 
@@ -277,6 +277,7 @@ func (a *CodexAppServerAdapter) execGoalControlCommand(
 	explicitDisplayPrompt string,
 	displayPrompt string,
 	emit EventSink,
+	reportDispatch ProviderDispatchSink,
 ) ([]activityshared.Event, error) {
 	method, params := appServerGoalSlashRequest(args, appSession.threadID)
 	// NoHandler: the active turn keeps streaming while this control RPC runs;
@@ -288,6 +289,7 @@ func (a *CodexAppServerAdapter) execGoalControlCommand(
 		}))),
 	}
 	if err != nil {
+		reportCodexDispatchFailure(reportDispatch, err)
 		if strings.TrimSpace(turnID) != "" {
 			events = append(events, appServerSystemNoticeEvent(session, turnID, "warning", "Goal command failed.", err.Error()))
 		}
@@ -296,6 +298,7 @@ func (a *CodexAppServerAdapter) execGoalControlCommand(
 		}
 		return events, nil
 	}
+	reportCodexAppliedWithoutProviderTurn(reportDispatch)
 	goalUpdateType := "thread_goal_update"
 	if method == appServerMethodThreadGoalClear {
 		a.applyGoalClear(session.AgentSessionID)
@@ -326,6 +329,7 @@ func (a *CodexAppServerAdapter) execSlashCommand(
 	emitEvents func([]activityshared.Event),
 	emitTerminal func([]activityshared.Event),
 	emitCommands CommandSnapshotSink,
+	reportDispatch ProviderDispatchSink,
 ) (bool, error) {
 	command, args := splitSlashCommand(displayPrompt)
 	switch command {
@@ -347,12 +351,14 @@ func (a *CodexAppServerAdapter) execSlashCommand(
 			"threadId": appSession.threadID,
 		}, a.appServerMessageHandler(appSession, session, turnID, normalizer, emitEvents, emitCommands))
 		if err != nil {
+			reportCodexDispatchFailure(reportDispatch, err)
 			emitTerminal(append(
 				normalizer.settlePendingCompactionEvents(session, turnID, "failed"),
 				newTurnActivityEvent(session, EventTurnFailed, turnID, SessionStatusFailed, "", "", acpFailureMetadata(err)),
 			))
 			return true, nil
 		}
+		reportCodexAppliedWithoutProviderTurn(reportDispatch)
 		// Block until the App Server signals turn/completed. The session-level
 		// handler keeps activeTurn alive during this wait, so the
 		// contextCompaction item/completed notification fires appServerItemEvents
@@ -411,6 +417,7 @@ func (a *CodexAppServerAdapter) execSlashCommand(
 		result, err := appSession.callGoal(ctx, method, params,
 			a.appServerMessageHandler(appSession, session, turnID, normalizer, emitEvents, emitCommands))
 		if err != nil {
+			reportCodexDispatchFailure(reportDispatch, err)
 			if goalDrivesTurn {
 				if len(previousGoal) > 0 {
 					a.applyGoalUpdate(session.AgentSessionID, previousGoal)
@@ -420,6 +427,16 @@ func (a *CodexAppServerAdapter) execSlashCommand(
 			}
 			emitTerminal([]activityshared.Event{newTurnActivityEvent(session, EventTurnFailed, turnID, SessionStatusFailed, "", "", acpFailureMetadata(err))})
 			return true, nil
+		}
+		if goalDrivesTurn {
+			initialTurn := appServerTurnFromResult(result)
+			reportCodexProviderTurnAccepted(
+				reportDispatch,
+				appSession.threadID,
+				asString(initialTurn["id"]),
+			)
+		} else {
+			reportCodexAppliedWithoutProviderTurn(reportDispatch)
 		}
 		if method == appServerMethodThreadGoalClear {
 			a.applyGoalClear(session.AgentSessionID)
@@ -495,16 +512,18 @@ func (a *CodexAppServerAdapter) execSlashCommand(
 		emitTerminal(terminalEvents)
 		return true, nil
 	case appServerSlashReview:
-		return a.execReviewSlashCommand(ctx, appSession, session, args, turnID, appTurn, normalizer, emitEvents, emitTerminal, emitCommands)
+		return a.execReviewSlashCommand(ctx, appSession, session, args, turnID, appTurn, normalizer, emitEvents, emitTerminal, emitCommands, reportDispatch)
 	case appServerSlashUndo:
 		_, err := appSession.client.ThreadRollback(ctx, map[string]any{
 			"threadId": appSession.threadID,
 			"numTurns": 1,
 		}, a.appServerMessageHandler(appSession, session, turnID, normalizer, emitEvents, emitCommands))
 		if err != nil {
+			reportCodexDispatchFailure(reportDispatch, err)
 			emitTerminal([]activityshared.Event{newTurnActivityEvent(session, EventTurnFailed, turnID, SessionStatusFailed, "", "", acpFailureMetadata(err))})
 			return true, nil
 		}
+		reportCodexAppliedWithoutProviderTurn(reportDispatch)
 		emitTerminal([]activityshared.Event{
 			appServerSystemNoticeEvent(session, turnID, "system_notice", "Removed the last turn from the conversation. Local file changes are not reverted.", ""),
 			newTurnActivityEvent(session, EventTurnCompleted, turnID, SessionStatusReady, "", "", map[string]any{

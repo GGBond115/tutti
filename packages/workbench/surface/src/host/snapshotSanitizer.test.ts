@@ -38,6 +38,16 @@ test("sanitizeWorkbenchHostSnapshot keeps only shell state and host identity", (
           },
           typeId: "terminal"
         }
+      },
+      {
+        id: "agent:session-1",
+        kind: "agent",
+        title: "Agent",
+        frame: { x: 830, y: 30, width: 400, height: 500 },
+        data: {
+          instanceId: "session-1",
+          typeId: "agent"
+        }
       }
     ],
     nodeStack: ["terminal:session-1"],
@@ -54,6 +64,14 @@ test("sanitizeWorkbenchHostSnapshot keeps only shell state and host identity", (
       }
     ],
     activeSpaceId: "space-1",
+    lockedLayout: {
+      preset: { kind: "row" },
+      nodeIDs: ["terminal:session-1", "agent:session-1"],
+      normalizedFrames: {
+        "terminal:session-1": { x: 0, y: 0, width: 0.5, height: 1 },
+        "agent:session-1": { x: 0.5, y: 0, width: 0.5, height: 1 }
+      }
+    },
     metadata: {
       hostPayload: {
         agentStatus: "running"
@@ -63,25 +81,28 @@ test("sanitizeWorkbenchHostSnapshot keeps only shell state and host identity", (
     }
   });
 
-  assert.deepEqual(sanitized.nodes[0], {
-    id: "terminal:session-1",
-    kind: "terminal",
-    title: "Terminal",
-    frame: { x: 20, y: 30, width: 800, height: 500 },
-    displayMode: "fullscreen",
-    restoreFrame: { x: 10, y: 10, width: 640, height: 420 },
-    isMinimized: true,
-    data: {
-      dockEntryId: "terminal",
-      snapshotNodeState: {
-        activePaneId: "preview"
-      },
-      instanceId: "session-1",
-      instanceKey: "workspace-terminal",
-      isProjected: true,
-      typeId: "terminal"
+  assert.deepEqual(
+    sanitized.nodes.find((node) => node.id === "terminal:session-1"),
+    {
+      id: "terminal:session-1",
+      kind: "terminal",
+      title: "Terminal",
+      frame: { x: 20, y: 30, width: 800, height: 500 },
+      displayMode: "fullscreen",
+      restoreFrame: { x: 10, y: 10, width: 640, height: 420 },
+      isMinimized: true,
+      data: {
+        dockEntryId: "terminal",
+        snapshotNodeState: {
+          activePaneId: "preview"
+        },
+        instanceId: "session-1",
+        instanceKey: "workspace-terminal",
+        isProjected: true,
+        typeId: "terminal"
+      }
     }
-  });
+  );
   assert.deepEqual(sanitized.spaces?.[0], {
     id: "space-1",
     name: "Main",
@@ -91,6 +112,14 @@ test("sanitizeWorkbenchHostSnapshot keeps only shell state and host identity", (
   assert.deepEqual(sanitized.metadata, {
     tuttiWorkbenchInitialized: true,
     workbenchHostInitialized: true
+  });
+  assert.deepEqual(sanitized.lockedLayout, {
+    preset: { kind: "row" },
+    nodeIDs: ["terminal:session-1", "agent:session-1"],
+    normalizedFrames: {
+      "terminal:session-1": { x: 0, y: 0, width: 0.5, height: 1 },
+      "agent:session-1": { x: 0.5, y: 0, width: 0.5, height: 1 }
+    }
   });
 });
 

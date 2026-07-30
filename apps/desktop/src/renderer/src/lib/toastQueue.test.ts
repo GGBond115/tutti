@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  desktopToastAutoDismissDelayMs,
   desktopToastMountKey,
   enqueueDesktopToast,
   type DesktopToastItem
@@ -82,4 +83,28 @@ test("desktop loading toast remounts when it settles", () => {
   };
 
   assert.notEqual(desktopToastMountKey(loading), desktopToastMountKey(settled));
+});
+
+test("desktop settled toast exposes its remaining hard auto-dismiss delay", () => {
+  const toast: DesktopToastItem = {
+    autoDismissAtUnixMs: 9000,
+    id: "settled-toast",
+    title: "Fork failed",
+    tone: "destructive"
+  };
+
+  assert.equal(desktopToastAutoDismissDelayMs(toast, 2500), 6500);
+  assert.equal(desktopToastAutoDismissDelayMs(toast, 9500), 0);
+});
+
+test("desktop loading toast does not auto-dismiss before it settles", () => {
+  const toast: DesktopToastItem = {
+    autoDismissAtUnixMs: 9000,
+    busy: true,
+    id: "loading-toast",
+    title: "Forking",
+    tone: "default"
+  };
+
+  assert.equal(desktopToastAutoDismissDelayMs(toast, 9500), null);
 });

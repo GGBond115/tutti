@@ -12,6 +12,7 @@ import {
   deleteWorkspaceAgentSessionsBatch,
   forkWorkspaceAgentSession,
   getWorkspaceAgentSessionForkOperation,
+  editRetryWorkspaceAgentTurn,
   getWorkspaceAgentSession,
   getAgentSessionRecording,
   getWorkspaceAgentSessionGoal,
@@ -34,6 +35,7 @@ import {
   failAgentSessionReplayRun,
   markAgentSessionReplayRunRunning,
   prepareAgentSessionReplayRun,
+  recoverWorkspaceAgentEditRetry,
   resolveWorkspaceGitPatchSupport,
   scanWorkspaceExternalAgentSessionImports,
   sendWorkspaceAgentSessionInput,
@@ -64,6 +66,7 @@ type WorkspaceAgentClient = Pick<
   | "deleteWorkspaceAgentSessionsBatch"
   | "forkWorkspaceAgentSession"
   | "getWorkspaceAgentSessionForkOperation"
+  | "editRetry"
   | "getWorkspaceAgentSession"
   | "getAgentSessionRecording"
   | "getWorkspaceAgentSessionGoal"
@@ -86,6 +89,7 @@ type WorkspaceAgentClient = Pick<
   | "failAgentSessionReplayRun"
   | "markAgentSessionReplayRunRunning"
   | "prepareAgentSessionReplayRun"
+  | "recoverEditRetry"
   | "resolveWorkspaceGitPatchSupport"
   | "scanWorkspaceExternalAgentSessionImports"
   | "sendWorkspaceAgentSessionInput"
@@ -457,13 +461,53 @@ export function createWorkspaceAgentClient(
         "Workspace agent session messages request failed."
       );
     },
-    async cancelWorkspaceAgentTurn(workspaceID, agentSessionID, turnID) {
+    async cancelWorkspaceAgentTurn(
+      workspaceID,
+      agentSessionID,
+      turnID,
+      requestOptions
+    ) {
       return unwrapData(
         await cancelWorkspaceAgentTurn({
           client,
-          path: { agentSessionID, turnID, workspaceID }
+          path: { agentSessionID, turnID, workspaceID },
+          ...requestOptions
         }),
         "Cancel workspace agent turn failed."
+      );
+    },
+    async editRetry(
+      workspaceID,
+      agentSessionID,
+      turnID,
+      request,
+      requestOptions
+    ) {
+      return unwrapData(
+        await editRetryWorkspaceAgentTurn({
+          client,
+          body: request,
+          path: { agentSessionID, turnID, workspaceID },
+          ...requestOptions
+        }),
+        "Edit and retry request failed."
+      );
+    },
+    async recoverEditRetry(
+      workspaceID,
+      agentSessionID,
+      operationID,
+      request,
+      requestOptions
+    ) {
+      return unwrapData(
+        await recoverWorkspaceAgentEditRetry({
+          client,
+          body: request,
+          path: { agentSessionID, operationID, workspaceID },
+          ...requestOptions
+        }),
+        "Edit and retry recovery failed."
       );
     },
     async goalControlWorkspaceAgentSession(
@@ -498,12 +542,18 @@ export function createWorkspaceAgentClient(
         "Reconcile workspace agent goal state failed."
       );
     },
-    async sendWorkspaceAgentSessionInput(workspaceID, agentSessionID, request) {
+    async sendWorkspaceAgentSessionInput(
+      workspaceID,
+      agentSessionID,
+      request,
+      requestOptions
+    ) {
       return unwrapData(
         await sendWorkspaceAgentSessionInput({
           client,
           body: request,
-          path: { agentSessionID, workspaceID }
+          path: { agentSessionID, workspaceID },
+          ...requestOptions
         }),
         "Send workspace agent session input failed."
       );
@@ -579,23 +629,31 @@ export function createWorkspaceAgentClient(
     async updateWorkspaceAgentSessionSettings(
       workspaceID,
       agentSessionID,
-      request
+      request,
+      requestOptions
     ) {
       return unwrapData(
         await updateWorkspaceAgentSessionSettings({
           client,
           body: request,
-          path: { agentSessionID, workspaceID }
+          path: { agentSessionID, workspaceID },
+          ...requestOptions
         }),
         "Update workspace agent session settings failed."
       ).session;
     },
-    async updateWorkspaceAgentSessionPin(workspaceID, agentSessionID, request) {
+    async updateWorkspaceAgentSessionPin(
+      workspaceID,
+      agentSessionID,
+      request,
+      requestOptions
+    ) {
       return unwrapData(
         await updateWorkspaceAgentSessionPin({
           client,
           body: request,
-          path: { agentSessionID, workspaceID }
+          path: { agentSessionID, workspaceID },
+          ...requestOptions
         }),
         "Update workspace agent session pin failed."
       ).session;
@@ -603,13 +661,15 @@ export function createWorkspaceAgentClient(
     async updateWorkspaceAgentSessionTitle(
       workspaceID,
       agentSessionID,
-      request
+      request,
+      requestOptions
     ) {
       return unwrapData(
         await updateWorkspaceAgentSessionTitle({
           client,
           body: request,
-          path: { agentSessionID, workspaceID }
+          path: { agentSessionID, workspaceID },
+          ...requestOptions
         }),
         "Update workspace agent session title failed."
       ).session;
@@ -632,13 +692,15 @@ export function createWorkspaceAgentClient(
       workspaceID,
       agentSessionID,
       requestID,
-      request
+      request,
+      requestOptions
     ) {
       return unwrapData(
         await submitWorkspaceAgentInteractive({
           client,
           body: request,
-          path: { agentSessionID, requestID, workspaceID }
+          path: { agentSessionID, requestID, workspaceID },
+          ...requestOptions
         }),
         "Submit workspace agent interactive response failed."
       ).session;

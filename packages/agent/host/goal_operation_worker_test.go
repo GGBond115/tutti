@@ -2,13 +2,32 @@ package agenthost
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
 
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	_ "modernc.org/sqlite"
 )
+
+func openGoalOperationWorkerStore(t *testing.T) *storesqlite.Store {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "goal-operation-worker.db"))
+	if err != nil {
+		t.Fatalf("open SQLite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+	store := storesqlite.New(db, storesqlite.Options{})
+	if err := store.Migrate(t.Context()); err != nil {
+		t.Fatalf("migrate SQLite: %v", err)
+	}
+	return store
+}
 
 type goalCommandCanonicalStore struct {
 	CanonicalStore
@@ -45,6 +64,8 @@ type blockingGoalRuntime struct {
 	actions    []string
 	setEntered chan struct{}
 	releaseSet chan struct{}
+	setErr     error
+	policy     RuntimeGoalRecoveryPolicy
 }
 
 func (r *blockingGoalRuntime) GoalControl(ctx context.Context, input RuntimeGoalControlInput) (RuntimeGoalControlResult, error) {
@@ -58,9 +79,19 @@ func (r *blockingGoalRuntime) GoalControl(ctx context.Context, input RuntimeGoal
 			return RuntimeGoalControlResult{}, ctx.Err()
 		case <-r.releaseSet:
 		}
+		if r.setErr != nil {
+			return RuntimeGoalControlResult{}, r.setErr
+		}
 		return RuntimeGoalControlResult{Goal: map[string]any{"objective": input.Objective, "status": "active"}}, nil
 	}
 	return RuntimeGoalControlResult{}, nil
+}
+
+func (r *blockingGoalRuntime) GoalRecoveryPolicy(
+	context.Context,
+	RuntimeGoalControlInput,
+) (RuntimeGoalRecoveryPolicy, error) {
+	return r.policy, nil
 }
 
 func (r *blockingGoalRuntime) recordedActions() []string {
@@ -112,6 +143,93 @@ func TestGoalCommandsSerializeProviderMutations(t *testing.T) {
 	}
 	if got := goalRuntime.recordedActions(); !reflect.DeepEqual(got, []string{"set", "clear"}) {
 		t.Fatalf("provider actions = %#v", got)
+	}
+}
+
+func TestGoalCommandsReleaseMutationLaneAfterProviderFailure(t *testing.T) {
+	store := openGoalOperationWorkerStore(t)
+	canonical := storesqlite.Session{
+		ID: "session-1", WorkspaceID: "workspace-1", Kind: storesqlite.SessionKindRoot,
+		Provider: "claude-code", ProviderSessionID: "provider-session-1",
+	}
+	if _, err := store.ReportSessionState(t.Context(), storesqlite.SessionStateReport{
+		WorkspaceID: canonical.WorkspaceID, AgentSessionID: canonical.ID,
+		Provider: canonical.Provider, ProviderSessionID: canonical.ProviderSessionID,
+		OccurredAtUnixMS: 1,
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+	runtimeSession := ProviderRuntimeSession{
+		ID: "session-1", WorkspaceID: "workspace-1", Provider: "claude-code",
+		ProviderSessionID: "provider-session-1",
+	}
+	goalRuntime := &blockingGoalRuntime{
+		setEntered: make(chan struct{}),
+		releaseSet: make(chan struct{}),
+		setErr:     context.DeadlineExceeded,
+	}
+	host := New(Config{
+		CanonicalStore: goalCommandCanonicalStore{session: canonical},
+		Runtime:        goalCommandRuntime{session: runtimeSession},
+		GoalStore:      store,
+		GoalRuntime:    goalRuntime,
+	})
+	setDone := make(chan error, 1)
+	go func() {
+		_, err := host.GoalControl(context.Background(), GoalControlInput{
+			WorkspaceID: "workspace-1", AgentSessionID: "session-1", Action: "set", Objective: "old",
+		})
+		setDone <- err
+	}()
+	<-goalRuntime.setEntered
+	clearDone := make(chan error, 1)
+	go func() {
+		_, err := host.GoalControl(context.Background(), GoalControlInput{
+			WorkspaceID: "workspace-1", AgentSessionID: "session-1", Action: "clear",
+		})
+		clearDone <- err
+	}()
+	close(goalRuntime.releaseSet)
+	if err := <-setDone; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("set goal error = %v, want deadline exceeded", err)
+	}
+	if err := <-clearDone; err != nil {
+		t.Fatalf("clear goal after failed set: %v", err)
+	}
+	if got := goalRuntime.recordedActions(); !reflect.DeepEqual(got, []string{"set", "clear"}) {
+		t.Fatalf("provider actions = %#v, want failed set then clear", got)
+	}
+	state, found, err := store.GetSessionGoalState(t.Context(), canonical.WorkspaceID, canonical.ID)
+	if err != nil || !found || state.Revision != 2 || !state.Tombstoned ||
+		len(state.Desired) != 0 || state.SyncStatus != storesqlite.GoalSyncStatusSynced ||
+		state.PendingOperationID != "" {
+		t.Fatalf("goal state = %#v, found = %v, error = %v", state, found, err)
+	}
+}
+
+func TestResolveRuntimeGoalRecoveryPolicyUsesOptionalCapability(t *testing.T) {
+	runtime := &blockingGoalRuntime{
+		policy: RuntimeGoalRecoveryPolicy{QuerySupported: true, ReplaySetAfterRestart: true},
+	}
+	policy, err := ResolveRuntimeGoalRecoveryPolicy(
+		context.Background(),
+		runtime,
+		RuntimeGoalControlInput{},
+	)
+	if err != nil || !policy.QuerySupported || !policy.ReplaySetAfterRestart {
+		t.Fatalf("resolved policy = %#v, error = %v", policy, err)
+	}
+
+	// Hiding the optional resolver models an unknown or older adapter. Host
+	// must fail closed instead of assuming replay or query support.
+	unknown := struct{ GoalRuntimeController }{GoalRuntimeController: runtime}
+	policy, err = ResolveRuntimeGoalRecoveryPolicy(
+		context.Background(),
+		unknown,
+		RuntimeGoalControlInput{},
+	)
+	if err != nil || policy.QuerySupported || policy.ReplaySetAfterRestart {
+		t.Fatalf("missing-resolver policy = %#v, error = %v", policy, err)
 	}
 }
 

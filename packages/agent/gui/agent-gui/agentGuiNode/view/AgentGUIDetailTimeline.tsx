@@ -17,6 +17,10 @@ import { AgentGUIConversationTimelinePane } from "./AgentGUIConversationTimeline
 import styles from "../AgentGUINode.styles";
 import type { AgentTranscriptVirtualScrollController } from "../../../shared/agentConversation/components/AgentTranscriptView";
 import type { AgentConversationFollowEndMode } from "../../../shared/agentConversation/agentConversationFollowEndController";
+import type { AgentTranscriptEditRetryControl } from "../../../shared/agentConversation/components/useAgentTranscriptEditRetryProjection";
+import type { AgentActivityEditRetryRecoveryAction } from "@tutti-os/agent-activity-core";
+import type { AgentGUIEditRetryPresentation } from "../model/agentGUIEditRetryModel";
+import { AgentGUIEditRetryStatus } from "./AgentGUIEditRetryStatus";
 
 const TIMELINE_CONTENT_STYLE: CSSProperties = {
   width: "100%",
@@ -31,6 +35,11 @@ const TIMELINE_CONTENT_STYLE: CSSProperties = {
 interface AgentGUIDetailTimelineProps {
   availableSkills: readonly AgentGUIProviderSkillOption[];
   conversation: AgentConversationVM | null;
+  editRetry?: {
+    control?: AgentTranscriptEditRetryControl;
+    presentation: AgentGUIEditRetryPresentation;
+    recover: (action: AgentActivityEditRetryRecoveryAction) => Promise<void>;
+  };
   conversationFlowEmpty: React.JSX.Element;
   conversationFlowLabels: {
     thinkingLabel: string;
@@ -67,6 +76,7 @@ interface AgentGUIDetailTimelineProps {
 export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
   availableSkills,
   conversation,
+  editRetry,
   conversationFlowEmpty,
   conversationFlowLabels,
   hasActiveConversation,
@@ -158,6 +168,7 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
             conversation={conversation}
             turnAttachments={forkLineageAttachments}
             isConversationHistoryComplete={isConversationHistoryComplete}
+            editRetry={editRetry?.control}
             followEndMode={followEndMode}
             isLoading={showTimelineSkeleton}
             isLoadingOlderMessages={isLoadingOlderMessages}
@@ -173,6 +184,12 @@ export const AgentGUIDetailTimeline = memo(function AgentGUIDetailTimeline({
             labels={conversationFlowLabels}
             virtualScrollControllerRef={virtualScrollControllerRef}
           />
+          {editRetry ? (
+            <AgentGUIEditRetryStatus
+              presentation={editRetry.presentation}
+              onRecover={editRetry.recover}
+            />
+          ) : null}
         </>
       ) : (
         homeContent

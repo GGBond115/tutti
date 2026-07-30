@@ -1,18 +1,12 @@
 interface ImageGenerationProbe {
   toolName?: string | null;
   displayName?: string | null;
-  content?: unknown;
-  outputContent?: unknown;
   outputSavedPath?: unknown;
+  outputSavedPaths?: unknown;
+  outputMimeType?: unknown;
+  outputText?: unknown;
   inputPrompt?: unknown;
   payloadInputPrompt?: unknown;
-}
-
-interface ImageGenerationContentEntry {
-  type: string | null;
-  text: string | null;
-  uri: string | null;
-  mimeType: string | null;
 }
 
 export interface ImageGenerationPreview {
@@ -65,23 +59,24 @@ export function isImageGenerationToolCall(
 export function extractImageGenerationPreview(
   probe: ImageGenerationProbe
 ): ImageGenerationPreview {
-  const entries = [
-    ...contentEntries(probe.content),
-    ...contentEntries(probe.outputContent)
-  ];
   const prompt =
     firstString(
       stringValue(probe.inputPrompt),
       stringValue(probe.payloadInputPrompt),
-      promptFromEntries(entries)
+      stringValue(probe.outputText)
     ) ?? null;
-  const imageEntry = entries.find((entry) => isImageEntry(entry));
+  const savedPaths = Array.isArray(probe.outputSavedPaths)
+    ? probe.outputSavedPaths.flatMap((value) => {
+        const path = stringValue(value);
+        return path ? [path] : [];
+      })
+    : [];
 
   return {
     prompt,
     imageUri:
-      firstString(imageEntry?.uri, stringValue(probe.outputSavedPath)) ?? null,
-    mimeType: imageEntry?.mimeType ?? null
+      firstString(stringValue(probe.outputSavedPath), savedPaths[0]) ?? null,
+    mimeType: stringValue(probe.outputMimeType)
   };
 }
 
@@ -146,55 +141,6 @@ export function resolveImageGenerationPreviewSrc(
     return `file:///${trimmed.replace(/\\/g, "/")}`;
   }
   return trimmed;
-}
-
-function contentEntries(value: unknown): ImageGenerationContentEntry[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.flatMap((item) => {
-    const record = recordValue(item);
-    if (!record) {
-      return [];
-    }
-    const nestedContent = recordValue(record.content);
-    return [toContentEntry(nestedContent ?? record)];
-  });
-}
-
-function promptFromEntries(
-  entries: ImageGenerationContentEntry[]
-): string | null {
-  const revisedPrompt = entries.find(
-    (entry) =>
-      entry.text && entry.text.toLowerCase().startsWith("revised prompt:")
-  );
-  return (
-    firstString(
-      revisedPrompt?.text,
-      entries.find((entry) => entry.text)?.text
-    ) ?? null
-  );
-}
-
-function toContentEntry(
-  value: Record<string, unknown>
-): ImageGenerationContentEntry {
-  return {
-    type: stringValue(value.type),
-    text:
-      firstString(stringValue(value.text), stringValue(value.content)) ?? null,
-    uri: firstString(stringValue(value.uri), stringValue(value.path)) ?? null,
-    mimeType: stringValue(value.mimeType)
-  };
-}
-
-function isImageEntry(entry: ImageGenerationContentEntry): boolean {
-  return (
-    entry.type?.toLowerCase() === "image" ||
-    (entry.mimeType?.toLowerCase().startsWith("image/") ?? false) ||
-    entry.uri !== null
-  );
 }
 
 function looksLikeImageRecord(value: Record<string, unknown>): boolean {

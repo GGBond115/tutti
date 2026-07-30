@@ -4,18 +4,28 @@ import type {
   AgentActivityTurn
 } from "../types.ts";
 import { normalizeAgentActivitySession } from "../sessionNormalization.ts";
+import { providerForkBindingAllowsAttempt } from "../sessionFork.types.ts";
 import type { CanonicalAgentSession } from "./sessionLifecycle.types.ts";
 import { canonicalTurnKey } from "./sessionEntityKeys.ts";
 import {
   validDeleteResult,
   validForkResult,
-  validPinResult
+  validPinResult,
+  validRenameResult
 } from "./sessionMutationResults.ts";
 import type {
   EngineCommand,
   EngineIntent,
   EngineReducerResult
 } from "./types.ts";
+import {
+  hasInFlightOverlap,
+  invalidResult,
+  replaceRecord,
+  unchanged,
+  withRecord,
+  withRequestedRecord
+} from "./sessionMutations.state.ts";
 import type {
   SessionForkThroughTurnMutationRecord,
   SessionMutationRecord,
@@ -23,7 +33,6 @@ import type {
 } from "./sessionMutations.types.ts";
 
 const NO_COMMANDS: readonly EngineCommand[] = [];
-const MAX_SETTLED_SESSION_MUTATIONS = 128;
 export const SESSION_FORK_OBSERVATION_ACK_TIMEOUT_MS = 10_000;
 export const SESSION_FORK_OBSERVATION_ACK_RETRY_BACKOFF_MS = [
   1_000, 2_000, 5_000, 10_000, 30_000
@@ -45,6 +54,9 @@ export function sessionMutationsReducer(
 ): EngineReducerResult<SessionMutationsState> {
   if (intent.type === "session/pinRequested") {
     return requestPin(state, intent, context);
+  }
+  if (intent.type === "session/renameRequested") {
+    return requestRename(state, intent, context);
   }
   if (intent.type === "sessions/deleteRequested") {
     return requestDelete(state, intent, context);
@@ -70,6 +82,7 @@ export function sessionMutationsReducer(
   }
   if (
     intent.commandType !== "session/setPinned" &&
+    intent.commandType !== "session/rename" &&
     intent.commandType !== "sessions/delete" &&
     intent.commandType !== "session/forkThroughTurn"
   ) {
@@ -82,6 +95,7 @@ export function sessionMutationsReducer(
     record.commandId !== intent.commandId ||
     record.status !== "inFlight" ||
     (record.kind === "pin" && intent.commandType !== "session/setPinned") ||
+    (record.kind === "rename" && intent.commandType !== "session/rename") ||
     (record.kind === "delete" && intent.commandType !== "sessions/delete") ||
     (record.kind === "forkThroughTurn" &&
       intent.commandType !== "session/forkThroughTurn")
@@ -92,8 +106,9 @@ export function sessionMutationsReducer(
     const errorIdentity =
       intent.errorReason?.trim() || intent.errorCode?.trim() || null;
     const deliveryUnknown =
-      record.kind === "forkThroughTurn" &&
-      errorIdentity === "agent_session_fork_delivery_unknown";
+      errorIdentity === "aborted" ||
+      (record.kind === "forkThroughTurn" &&
+        errorIdentity === "agent_session_fork_delivery_unknown");
     return replaceRecord(state, {
       ...record,
       errorCode: errorIdentity,
@@ -111,6 +126,15 @@ export function sessionMutationsReducer(
   }
   if (record.kind === "pin") {
     const session = validPinResult(intent.value, record);
+    if (!session) return invalidResult(state, record);
+    return {
+      commands: NO_COMMANDS,
+      followUpIntents: [{ session, type: "session/upserted" }],
+      state: withRecord(state, { ...record, status: "succeeded" })
+    };
+  }
+  if (record.kind === "rename") {
+    const session = validRenameResult(intent.value, record);
     if (!session) return invalidResult(state, record);
     return {
       commands: NO_COMMANDS,
@@ -249,20 +273,16 @@ function requestForkThroughTurn(
     sourceSession?.workspaceId !== workspaceId ||
     sourceSession.kind !== "root" ||
     sourceSession.lifecycleCapabilities.forkThroughTurn !== true ||
-    Boolean(sourceSession.activeTurnId?.trim()) ||
-    Object.values(context.interactionsById ?? {}).some(
-      (interaction) =>
-        interaction.agentSessionId === sourceAgentSessionId &&
-        interaction.status === "pending"
-    ) ||
-    turn?.phase !== "settled" ||
+    !turn ||
+    !providerForkBindingAllowsAttempt(turn) ||
     context.sessionsById[targetAgentSessionId] !== undefined ||
-    hasInFlightOverlap(state, [sourceAgentSessionId]) ||
-    hasUnresolvedForkObservationAckOverlap(
-      state,
-      workspaceId,
-      sourceAgentSessionId,
-      turnId
+    Object.values(state.byMutationId).some(
+      (record) =>
+        record.kind === "forkThroughTurn" &&
+        record.status === "inFlight" &&
+        record.workspaceId === workspaceId &&
+        record.agentSessionIds[0] === sourceAgentSessionId &&
+        record.turnId === turnId
     )
   ) {
     return unchanged(state);
@@ -362,6 +382,63 @@ function requestPin(
   };
 }
 
+function requestRename(
+  state: SessionMutationsState,
+  intent: Extract<EngineIntent, { type: "session/renameRequested" }>,
+  context: {
+    deletedSessionIds: Readonly<Record<string, true>>;
+    sessionsById: Readonly<Record<string, CanonicalAgentSession>>;
+  }
+): EngineReducerResult<SessionMutationsState> {
+  const mutationId = intent.mutationId.trim();
+  const agentSessionId = intent.agentSessionId.trim();
+  const title = intent.title.trim();
+  const workspaceId = intent.workspaceId.trim();
+  const session = context.sessionsById[agentSessionId];
+  if (
+    !mutationId ||
+    !agentSessionId ||
+    !title ||
+    !workspaceId ||
+    state.byMutationId[mutationId] ||
+    context.deletedSessionIds[agentSessionId] ||
+    session?.workspaceId !== workspaceId ||
+    hasInFlightOverlap(state, [agentSessionId])
+  ) {
+    return unchanged(state);
+  }
+  const record: Extract<SessionMutationRecord, { kind: "rename" }> = {
+    agentSessionIds: [agentSessionId],
+    commandId: mutationId,
+    errorCode: null,
+    errorMessage: null,
+    kind: "rename",
+    mutationId,
+    status: "inFlight",
+    title,
+    workspaceId
+  };
+  if (session.title === title) {
+    return replaceRecord(state, { ...record, status: "succeeded" });
+  }
+  return {
+    commands: [
+      {
+        agentSessionId,
+        commandId: mutationId,
+        correlationId: mutationId,
+        title,
+        ...(intent.timeoutMs === undefined
+          ? {}
+          : { timeoutMs: intent.timeoutMs }),
+        type: "session/rename",
+        workspaceId
+      }
+    ],
+    state: withRequestedRecord(state, record)
+  };
+}
+
 function requestDelete(
   state: SessionMutationsState,
   intent: Extract<EngineIntent, { type: "sessions/deleteRequested" }>,
@@ -429,33 +506,6 @@ function requestDelete(
     ],
     state: withRequestedRecord(state, record)
   };
-}
-
-function hasInFlightOverlap(
-  state: SessionMutationsState,
-  agentSessionIds: readonly string[]
-): boolean {
-  const ids = new Set(agentSessionIds);
-  return Object.values(state.byMutationId).some(
-    (record) =>
-      record.status === "inFlight" &&
-      record.agentSessionIds.some((id) => ids.has(id))
-  );
-}
-
-function hasUnresolvedForkObservationAckOverlap(
-  state: SessionMutationsState,
-  workspaceId: string,
-  sourceAgentSessionId: string,
-  turnId: string
-): boolean {
-  return Object.values(state.byMutationId).some(
-    (record) =>
-      isUnresolvedForkObservationAck(record) &&
-      record.workspaceId === workspaceId &&
-      record.agentSessionIds[0] === sourceAgentSessionId &&
-      record.turnId === turnId
-  );
 }
 
 function observeForkedSession(
@@ -667,108 +717,4 @@ function removeSessionForkCoordination(
       )
     }
   };
-}
-
-function invalidResult(
-  state: SessionMutationsState,
-  record: SessionMutationRecord
-): EngineReducerResult<SessionMutationsState> {
-  return replaceRecord(state, {
-    ...record,
-    errorCode: "invalid_command_result",
-    errorMessage: null,
-    status: "unknown"
-  });
-}
-
-function replaceRecord(
-  state: SessionMutationsState,
-  record: SessionMutationRecord
-): EngineReducerResult<SessionMutationsState> {
-  return { commands: NO_COMMANDS, state: withRecord(state, record) };
-}
-
-function withRecord(
-  state: SessionMutationsState,
-  record: SessionMutationRecord
-): SessionMutationsState {
-  return boundedMutationState(
-    { ...state.byMutationId, [record.mutationId]: record },
-    record.mutationId
-  );
-}
-
-function withRequestedRecord(
-  state: SessionMutationsState,
-  record: SessionMutationRecord
-): SessionMutationsState {
-  const ids = new Set(record.agentSessionIds);
-  return boundedMutationState(
-    {
-      ...Object.fromEntries(
-        Object.entries(state.byMutationId).filter(
-          ([, current]) =>
-            current.status === "inFlight" ||
-            isUnresolvedForkCoordination(current) ||
-            !current.agentSessionIds.some((id) => ids.has(id))
-        )
-      ),
-      [record.mutationId]: record
-    },
-    record.mutationId
-  );
-}
-
-function boundedMutationState(
-  records: Readonly<Record<string, SessionMutationRecord>>,
-  currentMutationId: string
-): SessionMutationsState {
-  const entries = Object.entries(records);
-  const settled = entries.filter(
-    ([, record]) =>
-      record.status !== "inFlight" && !isUnresolvedForkCoordination(record)
-  );
-  const retainedSettledIds = new Set(
-    settled
-      .filter(([mutationId]) => mutationId !== currentMutationId)
-      .slice(-(MAX_SETTLED_SESSION_MUTATIONS - 1))
-      .map(([mutationId]) => mutationId)
-  );
-  retainedSettledIds.add(currentMutationId);
-  return {
-    byMutationId: Object.fromEntries(
-      entries.filter(
-        ([mutationId, record]) =>
-          record.status === "inFlight" ||
-          isUnresolvedForkCoordination(record) ||
-          retainedSettledIds.has(mutationId)
-      )
-    )
-  };
-}
-
-function isUnresolvedForkCoordination(
-  record: SessionMutationRecord
-): record is SessionForkThroughTurnMutationRecord {
-  return (
-    record.kind === "forkThroughTurn" &&
-    (record.status === "unknown" ||
-      (record.ackStatus !== "idle" && record.ackStatus !== "acknowledged"))
-  );
-}
-
-function isUnresolvedForkObservationAck(
-  record: SessionMutationRecord
-): record is SessionForkThroughTurnMutationRecord {
-  return (
-    record.kind === "forkThroughTurn" &&
-    record.ackStatus !== "idle" &&
-    record.ackStatus !== "acknowledged"
-  );
-}
-
-function unchanged(
-  state: SessionMutationsState
-): EngineReducerResult<SessionMutationsState> {
-  return { commands: NO_COMMANDS, state };
 }

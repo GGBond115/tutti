@@ -137,9 +137,107 @@ func TestComposerRuntimeContextPersistedFallbackRequiresPinnedIdentity(t *testin
 func TestExtensionCapabilitiesRemainUnknownWithoutLiveRuntimeFacts(t *testing.T) {
 	options := applyExtensionComposerCapabilities(ComposerOptions{
 		RuntimeContext: map[string]any{},
-	}, ExtensionComposerProfile{Capabilities: []string{"compact", "planMode"}})
+	}, ExtensionComposerProfile{Capabilities: []string{"compact", "planMode"}}, false)
 	if len(options.Capabilities) != 0 {
 		t.Fatalf("capabilities = %#v, want no fabricated signed-only runtime facts", options.Capabilities)
+	}
+}
+
+func TestExtensionPersistedModelFallbackRequiresExactRuntimeIdentity(t *testing.T) {
+	project := t.TempDir()
+	settings := ComposerSettings{}
+	oldRef := map[string]any{"kind": "agent_extension", "extensionInstallationId": "example@1.0.0"}
+	currentRef := map[string]any{"kind": "agent_extension", "extensionInstallationId": "example@2.0.0"}
+	oldContext := stampAgentExtensionComposerScope(map[string]any{
+		"configOptions": []any{map[string]any{
+			"id": "model",
+			"options": []any{
+				map[string]any{"value": "old-model", "name": "Old Model"},
+			},
+		}},
+	}, oldRef, project, settings)
+
+	runtime := newFakeRuntime()
+	runtime.startHook = func(_ RuntimeStartInput, session ProviderRuntimeSession) ProviderRuntimeSession {
+		session.RuntimeContext["configOptions"] = []any{map[string]any{
+			"id": "model",
+			"options": []any{
+				map[string]any{"value": "current-model", "name": "Current Model"},
+			},
+		}}
+		return session
+	}
+	service := newIsolatedAgentService(runtime)
+	service.SessionReader = fakeSessionReader{sessions: map[string]PersistedSession{
+		"workspace-1:old-installation": {
+			ID:                     "old-installation",
+			WorkspaceID:            "workspace-1",
+			Provider:               "acp:example",
+			AgentTargetID:          "extension:example",
+			InternalRuntimeContext: oldContext,
+			UpdatedAtUnixMS:        100,
+		},
+	}}
+	input := extensionComposerDiscoveryInput(project)
+	input.providerTargetRef = currentRef
+
+	options, err := service.mergeLiveComposerModelsForComposerOptions(
+		context.Background(),
+		input,
+		settings,
+		ComposerOptions{
+			Provider:          "acp:example",
+			EffectiveSettings: settings,
+			RuntimeContext:    map[string]any{},
+		},
+	)
+	if err != nil {
+		t.Fatalf("mergeLiveComposerModelsForComposerOptions error = %v", err)
+	}
+	if len(runtime.startCalls) != 1 {
+		t.Fatalf("runtime starts = %d, want an exact-scope discovery handshake", len(runtime.startCalls))
+	}
+	if len(options.ModelConfig.Options) != 1 || options.ModelConfig.Options[0].Value != "current-model" {
+		t.Fatalf("model options = %#v, want current installation catalog", options.ModelConfig.Options)
+	}
+}
+
+func TestExtensionBrowserCapabilityHonorsMasterSwitch(t *testing.T) {
+	t.Setenv("TUTTI_BROWSER_USE", "0")
+	options := applyExtensionComposerCapabilities(ComposerOptions{
+		RuntimeContext: map[string]any{"capabilities": []string{"browserUse", "compact"}},
+	}, ExtensionComposerProfile{Capabilities: []string{"browserUse", "compact"}}, false)
+	if slices.Contains(options.Capabilities, "browserUse") {
+		t.Fatalf("capabilities = %#v, want browserUse omitted when master switch is off", options.Capabilities)
+	}
+	if !slices.Contains(options.Capabilities, "compact") {
+		t.Fatalf("capabilities = %#v, want unrelated capability preserved", options.Capabilities)
+	}
+}
+
+func TestExtensionComputerUseCapabilityRequiresHostAvailability(t *testing.T) {
+	t.Setenv("TUTTI_COMPUTER_USE", "1")
+	profile := ExtensionComposerProfile{Capabilities: []string{"computerUse", "compact"}}
+	options := applyExtensionComposerCapabilities(ComposerOptions{
+		RuntimeContext: map[string]any{"capabilities": []string{"compact"}},
+	}, profile, true)
+	if !slices.Contains(options.Capabilities, "computerUse") {
+		t.Fatalf("capabilities = %#v, want extension-declared computerUse when host is available", options.Capabilities)
+	}
+
+	options = applyExtensionComposerCapabilities(ComposerOptions{
+		RuntimeContext: map[string]any{"capabilities": []string{"computerUse", "compact"}},
+	}, profile, false)
+	if slices.Contains(options.Capabilities, "computerUse") {
+		t.Fatalf("capabilities = %#v, want computerUse omitted when host is unavailable", options.Capabilities)
+	}
+
+	t.Setenv("TUTTI_COMPUTER_USE", "0")
+	options = applyExtensionComposerCapabilities(ComposerOptions{
+		RuntimeContext: map[string]any{"capabilities": []string{"computerUse", "compact"}},
+	}, profile, true)
+	if slices.Contains(options.Capabilities, "computerUse") {
+		t.Fatalf("capabilities = %#v, want computerUse omitted when master switch is off", options.Capabilities)
 	}
 }
 

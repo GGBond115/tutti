@@ -57,10 +57,7 @@ func TestClaudeSessionForkTraversesProductionWiringAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSessionForkCapabilities: %v", err)
 	}
-	if !capabilities.ThroughTurn ||
-		!capabilities.ThroughTurnIDsKnown ||
-		len(capabilities.ThroughTurnIDs) != 1 ||
-		capabilities.ThroughTurnIDs[0] != "turn-source" {
+	if !capabilities.ThroughTurn {
 		t.Fatalf("source capabilities=%#v", capabilities)
 	}
 
@@ -95,10 +92,11 @@ func TestClaudeSessionForkTraversesProductionWiringAcrossRestart(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("get child turn found=%v error=%v", found, err)
 	}
-	if childTurn.RootProviderTurnID != "child-prompt-1" {
+	if childTurn.RootProviderTurnID != "child-prompt-1" ||
+		childTurn.ProviderCheckpointMessageID != "checkpoint-claude-child" {
 		t.Fatalf(
-			"child provider turn id=%q, want remapped UUID",
-			childTurn.RootProviderTurnID,
+			"child provider binding=%#v, want remapped UUIDs",
+			childTurn,
 		)
 	}
 	if bridge.RuntimeSessionLive("workspace-claude-fork", "session-source") {
@@ -450,6 +448,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 	switch request.Type {
 	case "inspect_fork_checkpoints":
 		return c.emit(
+			request.Version,
 			request.ID,
 			"ok",
 			map[string]any{
@@ -468,6 +467,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			request.Payload["targetProviderSessionId"],
 		) != "" {
 			return c.emit(
+				request.Version,
 				request.ID,
 				"error",
 				map[string]any{
@@ -479,6 +479,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 		targetID, targetTurnID, ok := c.transport.forkTarget(sourceID)
 		if !ok {
 			return c.emit(
+				request.Version,
 				request.ID,
 				"error",
 				map[string]any{
@@ -488,18 +489,25 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			)
 		}
 		return c.emit(
+			request.Version,
 			request.ID,
 			"ok",
 			map[string]any{
-				"providerSessionId":     targetID,
-				"targetProviderTurnIds": []string{targetTurnID},
-				"stateBindingMode":      "provider_owned",
-				"stateBindingReceipt":   "claude-sdk-fork-v1:" + targetID,
-				"deliveryDisposition":   "accepted",
+				"providerSessionId": targetID,
+				"targetProviderTurnBindings": []any{
+					map[string]any{
+						"providerTurnId":      targetTurnID,
+						"checkpointMessageId": "checkpoint-" + targetID,
+					},
+				},
+				"stateBindingMode":    "provider_owned",
+				"stateBindingReceipt": "claude-sdk-fork-v3:" + targetID,
+				"deliveryDisposition": "accepted",
 			},
 		)
 	case "start":
 		return c.emit(
+			request.Version,
 			request.ID,
 			"session_started",
 			map[string]any{
@@ -514,6 +522,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			request.Payload["promptCorrelationId"],
 		)
 		if err := c.emit(
+			request.Version,
 			"",
 			"provider_turn_started",
 			map[string]any{
@@ -524,6 +533,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			return err
 		}
 		if err := c.emit(
+			request.Version,
 			"",
 			"assistant_completed",
 			map[string]any{
@@ -535,6 +545,7 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			return err
 		}
 		return c.emit(
+			request.Version,
 			"",
 			"turn_completed",
 			map[string]any{
@@ -544,19 +555,20 @@ func (c *claudeForkIntegrationConnection) Send(data []byte) error {
 			},
 		)
 	case "close":
-		return c.emit(request.ID, "ok", nil)
+		return c.emit(request.Version, request.ID, "ok", nil)
 	default:
-		return c.emit(request.ID, "ok", nil)
+		return c.emit(request.Version, request.ID, "ok", nil)
 	}
 }
 
 func (c *claudeForkIntegrationConnection) emit(
+	protocolVersion int,
 	id string,
 	eventType string,
 	payload map[string]any,
 ) error {
 	data, err := json.Marshal(map[string]any{
-		"version": 5,
+		"version": protocolVersion,
 		"id":      id,
 		"type":    eventType,
 		"payload": payload,

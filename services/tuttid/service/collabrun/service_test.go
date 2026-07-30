@@ -268,6 +268,41 @@ func TestStartConsultSuccessRecordsResultUsageAndEvents(t *testing.T) {
 	}
 }
 
+func TestHasPolicyReviewForTurnMatchesExactPolicyRun(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMemoryRunStore()
+	for _, run := range []collabrunbiz.Run{
+		{
+			ID: "matching", WorkspaceID: "ws", Mode: collabrunbiz.ModeConsult,
+			TriggerSource:   collabrunbiz.TriggerPolicy,
+			TriggerReason:   "review_rule:on_task_complete:turn:turn-1",
+			SourceSessionID: "session-1",
+		},
+		{
+			ID: "user-consult", WorkspaceID: "ws", Mode: collabrunbiz.ModeConsult,
+			TriggerSource:   collabrunbiz.TriggerUser,
+			TriggerReason:   "review_rule:on_task_complete:turn:turn-2",
+			SourceSessionID: "session-1",
+		},
+	} {
+		if err := store.PutCollaborationRun(ctx, run); err != nil {
+			t.Fatalf("PutCollaborationRun() error = %v", err)
+		}
+	}
+	service := &Service{Store: store}
+
+	reviewed, err := service.HasPolicyReviewForTurn(ctx, "ws", "session-1", "turn-1")
+	if err != nil || !reviewed {
+		t.Fatalf("matching review = %v, error = %v, want true", reviewed, err)
+	}
+	reviewed, err = service.HasPolicyReviewForTurn(ctx, "ws", "session-1", "turn-2")
+	if err != nil || reviewed {
+		t.Fatalf("user consult review = %v, error = %v, want false", reviewed, err)
+	}
+}
+
 func TestStartConsultFailureRecordsSanitizedFailureReason(t *testing.T) {
 	t.Parallel()
 

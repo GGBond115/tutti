@@ -9,12 +9,11 @@ import {
   resolveAgentGUIConversationRailPresentation,
   resolveAgentGUIExpandedWindowFrame
 } from "../agent-gui/agentGuiNode/model/agentGuiRailLayout.ts";
-import { AgentGuiWorkbenchReactiveHeader } from "./AgentGuiWorkbenchReactiveHeader.tsx";
+import type { AgentGUIConversationRailLayout } from "../agent-gui/agentGuiNode/view/AgentGUINodeView.types.ts";
 import { setAgentGuiWorkbenchBodyRenderError } from "./bodyRenderErrorRegistry.ts";
-import {
-  AgentGuiWorkbenchHeader,
-  type AgentGuiWorkbenchHeaderProps
-} from "./header.ts";
+import { AgentGuiWorkbenchRailAlignedHeader } from "./AgentGuiWorkbenchRailAlignedHeader.tsx";
+import { createAgentGuiWorkbenchRailLayoutStore } from "./agentGuiWorkbenchRailLayout.ts";
+import type { AgentGuiWorkbenchHeaderProps } from "./header.ts";
 import type { AgentGuiWorkbenchConversationIdentity } from "./conversationIdentity.ts";
 import {
   agentGuiWorkbenchTypeId,
@@ -33,22 +32,13 @@ import type {
 } from "./types.ts";
 import type { AgentGUIAgentDirectoryPort } from "../types.ts";
 import {
-  AGENT_GUI_WORKBENCH_SESSION_ACTION_EVENT,
-  dispatchAgentGuiWorkbenchSessionAction,
+  dispatchAgentGuiWorkbenchCommand,
   isAgentGuiWorkbenchSessionAction
-} from "./sessionActions.ts";
+} from "./commands.ts";
 import type {
   AgentGuiWorkbenchSessionAction,
-  AgentGuiWorkbenchSessionActionDetail,
-  AgentGuiWorkbenchSessionActionRequest,
   AgentGuiWorkbenchSessionMenuCopy
-} from "./sessionActions.ts";
-
-export const AGENT_GUI_WORKBENCH_CONVERSATION_RAIL_TOGGLE_EVENT =
-  "tutti:agent-gui-workbench-conversation-rail-toggle";
-
-export const AGENT_GUI_WORKBENCH_NEW_CONVERSATION_EVENT =
-  "tutti:agent-gui-workbench-new-conversation";
+} from "./commands.ts";
 
 /**
  * Fired when the empty-hero "Import session" suggestion is chosen. The host
@@ -58,24 +48,9 @@ export const AGENT_GUI_WORKBENCH_NEW_CONVERSATION_EVENT =
 export const AGENT_GUI_WORKBENCH_OPEN_EXTERNAL_IMPORT_EVENT =
   "tutti:agent-gui-workbench-open-external-import";
 
-export interface AgentGuiWorkbenchConversationRailToggleDetail {
-  conversationRailCollapsed: boolean;
-  instanceId: string;
-}
-
-export interface AgentGuiWorkbenchNewConversationDetail {
-  instanceId: string;
-}
-
-export {
-  AGENT_GUI_WORKBENCH_SESSION_ACTION_EVENT,
-  dispatchAgentGuiWorkbenchSessionAction,
-  isAgentGuiWorkbenchSessionAction
-};
+export { dispatchAgentGuiWorkbenchCommand, isAgentGuiWorkbenchSessionAction };
 export type {
   AgentGuiWorkbenchSessionAction,
-  AgentGuiWorkbenchSessionActionDetail,
-  AgentGuiWorkbenchSessionActionRequest,
   AgentGuiWorkbenchSessionMenuCopy
 };
 
@@ -103,6 +78,7 @@ export interface AgentGuiWorkbenchRenderBodyHelpers {
   agentDirectory: AgentGUIAgentDirectoryPort;
   agentTargetId: string | null;
   nodeTypeId: string;
+  onConversationRailLayoutChange(layout: AgentGUIConversationRailLayout): void;
   onStateChange(state: AgentGuiWorkbenchState): void;
   provider: AgentGuiWorkbenchProvider | null;
 }
@@ -115,7 +91,7 @@ export interface CreateAgentGuiWorkbenchContributionInput {
   dockSectionId?: string;
   frame?: WorkbenchFrame;
   id?: string;
-  providerAvailability?: AgentGuiWorkbenchProviderAvailability;
+  providerAvailability?: AgentGuiWorkbenchProviderAvailabilitySource;
   renderBody(
     context: WorkbenchHostNodeBodyContext<
       AgentGuiWorkbenchState | null,
@@ -146,6 +122,7 @@ export function createAgentGuiWorkbenchContribution(
   const nodeStateSource = createAgentGuiWorkbenchNodeStateSource({
     workspaceId: input.workspaceId
   });
+  const railLayoutStore = createAgentGuiWorkbenchRailLayoutStore();
   const frame = input.frame ?? agentGuiWorkbenchDefaultNodeFrame;
   const copy = resolveAgentGuiWorkbenchContributionCopy(input.copy);
   return {
@@ -215,6 +192,9 @@ export function createAgentGuiWorkbenchContribution(
               agentDirectory: input.agentDirectory,
               agentTargetId: state.agentTargetId ?? null,
               nodeTypeId: agentGuiWorkbenchTypeId,
+              onConversationRailLayoutChange: (layout) => {
+                railLayoutStore.report(context.node.id, layout);
+              },
               onStateChange: (nextState) => {
                 nodeStateSource.writeNodeState({
                   instanceId: context.instanceId,
@@ -292,38 +272,20 @@ export function createAgentGuiWorkbenchContribution(
               typeId: agentGuiWorkbenchTypeId
             });
           };
-          const announceConversationRailCollapsed = (collapsed: boolean) => {
-            window.dispatchEvent(
-              new CustomEvent<AgentGuiWorkbenchConversationRailToggleDetail>(
-                AGENT_GUI_WORKBENCH_CONVERSATION_RAIL_TOGGLE_EVENT,
-                {
-                  detail: {
-                    conversationRailCollapsed: collapsed,
-                    instanceId
-                  }
-                }
-              )
-            );
-          };
           const announceNewConversation = () => {
-            window.dispatchEvent(
-              new CustomEvent<AgentGuiWorkbenchNewConversationDetail>(
-                AGENT_GUI_WORKBENCH_NEW_CONVERSATION_EVENT,
-                {
-                  detail: {
-                    instanceId
-                  }
-                }
-              )
-            );
+            dispatchAgentGuiWorkbenchCommand({
+              instanceId,
+              type: "new-conversation"
+            });
           };
           const announceSessionAction = (
             action: AgentGuiWorkbenchSessionAction
           ) => {
-            dispatchAgentGuiWorkbenchSessionAction({
+            dispatchAgentGuiWorkbenchCommand({
               action,
               agentSessionId: workbenchState.lastActiveAgentSessionId,
-              instanceId
+              instanceId,
+              type: "session-action"
             });
           };
 
@@ -364,7 +326,11 @@ export function createAgentGuiWorkbenchContribution(
               }
             },
             onToggleConversationRail: (nextCollapsed) => {
-              announceConversationRailCollapsed(nextCollapsed);
+              dispatchAgentGuiWorkbenchCommand({
+                conversationRailCollapsed: nextCollapsed,
+                instanceId,
+                type: "conversation-rail-toggle"
+              });
               if (
                 isConversationRailCollapsed &&
                 nextCollapsed === false &&
@@ -394,21 +360,18 @@ export function createAgentGuiWorkbenchContribution(
               persistConversationRailCollapsed(nextCollapsed);
             }
           } satisfies AgentGuiWorkbenchHeaderProps;
-          return input.sessionEngine
-            ? createElement(AgentGuiWorkbenchReactiveHeader, {
-                ...headerProps,
-                agentDirectory: input.agentDirectory,
-                dockIconUrls: input.dockIconUrls,
-                sessionEngine: input.sessionEngine,
-                workbenchState
-              })
-            : createElement(AgentGuiWorkbenchHeader, {
-                ...headerProps,
-                agentTitle: conversationIdentity?.agentTitle,
-                conversationIconUrl,
-                conversationTitle,
-                hasConversation
-              });
+          return createElement(AgentGuiWorkbenchRailAlignedHeader, {
+            ...headerProps,
+            agentDirectory: input.agentDirectory,
+            agentTitle: conversationIdentity?.agentTitle,
+            conversationIconUrl,
+            conversationTitle,
+            dockIconUrls: input.dockIconUrls,
+            hasConversation,
+            railLayoutStore,
+            sessionEngine: input.sessionEngine,
+            workbenchState
+          });
         },
         title: copy.nodeTitle,
         typeId: agentGuiWorkbenchTypeId,
@@ -586,7 +549,7 @@ import {
   resolveAgentGuiWorkbenchContributionCopy,
   resolveAgentGuiWorkbenchDefaultLaunchFrame
 } from "./contributionDock.tsx";
-import type { AgentGuiWorkbenchProviderAvailability } from "./contributionDock.tsx";
+import type { AgentGuiWorkbenchProviderAvailabilitySource } from "./contributionDock.tsx";
 export {
   agentGuiWorkbenchCompactVisibleAreaRatio,
   agentGuiWorkbenchDefaultCopy,
@@ -602,5 +565,6 @@ export {
 } from "./contributionDock.tsx";
 export type {
   AgentGuiWorkbenchProviderAvailability,
+  AgentGuiWorkbenchProviderAvailabilitySource,
   BuildAgentGuiDockEntriesInput
 } from "./contributionDock.tsx";

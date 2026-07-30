@@ -36,7 +36,6 @@ export function delegatedToolStepFromCall(
     metadata: normalizedPayload(
       payload?.metadata as WorkspaceAgentActivityTimelineItem["payload"]
     ),
-    content: Array.isArray(payload?.content) ? payload.content : null,
     locations: Array.isArray(payload?.locations) ? payload.locations : null,
     occurredAtUnixMs: call.occurredAtUnixMs ?? null
   };
@@ -58,21 +57,9 @@ export function parentToolUseIdFromCall(
   const metadata = normalizedPayload(
     call.payload?.metadata as WorkspaceAgentActivityTimelineItem["payload"]
   );
-  const input = normalizedPayload(
-    call.payload?.input as WorkspaceAgentActivityTimelineItem["payload"]
-  );
-  const output = normalizedPayload(
-    call.payload?.output as WorkspaceAgentActivityTimelineItem["payload"]
-  );
-  const error = normalizedPayload(
-    call.payload?.error as WorkspaceAgentActivityTimelineItem["payload"]
-  );
   return firstPresentString(
     stringRecordValue(metadata, "parentToolUseId"),
-    stringRecordValue(call.payload, "parentToolUseId"),
-    claudeCodeMetaValue(input, "parentToolUseId"),
-    claudeCodeMetaValue(output, "parentToolUseId"),
-    claudeCodeMetaValue(error, "parentToolUseId")
+    stringRecordValue(call.payload, "parentToolUseId")
   );
 }
 
@@ -210,19 +197,6 @@ export function stringRecordValue(record: unknown, key: string): string | null {
     return null;
   const value = (record as Record<string, unknown>)[key];
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-export function claudeCodeMetaValue(
-  record: Record<string, unknown> | null,
-  key: string
-): string | null {
-  const meta = normalizedPayload(
-    record?._meta as WorkspaceAgentActivityTimelineItem["payload"]
-  );
-  const claudeCode = normalizedPayload(
-    meta?.claudeCode as WorkspaceAgentActivityTimelineItem["payload"]
-  );
-  return stringRecordValue(claudeCode, key);
 }
 
 export function firstPresentString(

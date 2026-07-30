@@ -14,14 +14,15 @@ const (
 )
 
 type WorkbenchSnapshot struct {
-	SchemaVersion int                           `json:"schemaVersion"`
-	Nodes         []WorkbenchSnapshotNode       `json:"nodes"`
-	NodeStack     *[]string                     `json:"nodeStack,omitempty"`
-	ActiveNodeID  *string                       `json:"activeNodeId,omitempty"`
-	Spaces        *[]WorkbenchSnapshotSpace     `json:"spaces,omitempty"`
-	ActiveSpaceID *string                       `json:"activeSpaceId,omitempty"`
-	LayoutBasis   *WorkbenchSnapshotLayoutBasis `json:"layoutBasis,omitempty"`
-	Metadata      map[string]interface{}        `json:"metadata,omitempty"`
+	SchemaVersion int                            `json:"schemaVersion"`
+	Nodes         []WorkbenchSnapshotNode        `json:"nodes"`
+	NodeStack     *[]string                      `json:"nodeStack,omitempty"`
+	ActiveNodeID  *string                        `json:"activeNodeId,omitempty"`
+	Spaces        *[]WorkbenchSnapshotSpace      `json:"spaces,omitempty"`
+	ActiveSpaceID *string                        `json:"activeSpaceId,omitempty"`
+	LayoutBasis   *WorkbenchSnapshotLayoutBasis  `json:"layoutBasis,omitempty"`
+	LockedLayout  *WorkbenchSnapshotLockedLayout `json:"lockedLayout,omitempty"`
+	Metadata      map[string]interface{}         `json:"metadata,omitempty"`
 }
 
 type WorkbenchSnapshotNode struct {
@@ -76,12 +77,43 @@ type WorkbenchSnapshotLayoutBasis struct {
 	LayoutConstraints WorkbenchSnapshotLayoutConstraints `json:"layoutConstraints"`
 }
 
+type WorkbenchSnapshotNormalizedFrame struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
+type WorkbenchSnapshotLayoutPreset struct {
+	Kind WorkbenchSnapshotLayoutPresetKind `json:"kind"`
+}
+
+type WorkbenchSnapshotLockedLayout struct {
+	Preset           WorkbenchSnapshotLayoutPreset               `json:"preset"`
+	NodeIDs          []string                                    `json:"nodeIDs"`
+	NormalizedFrames map[string]WorkbenchSnapshotNormalizedFrame `json:"normalizedFrames,omitempty"`
+}
+
 type WorkbenchSnapshotDisplayMode string
 
 const (
 	WorkbenchSnapshotDisplayModeFloating   WorkbenchSnapshotDisplayMode = "floating"
 	WorkbenchSnapshotDisplayModeFullscreen WorkbenchSnapshotDisplayMode = "fullscreen"
 )
+
+type WorkbenchSnapshotLayoutPresetKind string
+
+const (
+	WorkbenchSnapshotLayoutPresetKindBalanced WorkbenchSnapshotLayoutPresetKind = "balanced"
+	WorkbenchSnapshotLayoutPresetKindRow      WorkbenchSnapshotLayoutPresetKind = "row"
+	WorkbenchSnapshotLayoutPresetKindColumn   WorkbenchSnapshotLayoutPresetKind = "column"
+)
+
+var workbenchSnapshotContractLayoutPresetKinds = map[WorkbenchSnapshotLayoutPresetKind]struct{}{
+	WorkbenchSnapshotLayoutPresetKindBalanced: {},
+	WorkbenchSnapshotLayoutPresetKindRow:      {},
+	WorkbenchSnapshotLayoutPresetKindColumn:   {},
+}
 
 var workbenchSnapshotContractDisplayModes = map[WorkbenchSnapshotDisplayMode]struct{}{
 	WorkbenchSnapshotDisplayModeFloating:   {},

@@ -5,8 +5,6 @@ import {
   AGENT_EXTENSION_CODEBUDDY_FLAG,
   AGENT_EXTENSION_COPILOT_FLAG,
   AGENT_EXTENSION_GEMINI_FLAG,
-  AGENT_EXTENSION_HERMES_FLAG,
-  AGENT_EXTENSION_KIMI_CODE_FLAG,
   AGENT_EXTENSION_GROK_FLAG,
   AGENT_EXTENSION_KILO_FLAG,
   AGENT_EXTENSION_QWEN_FLAG,
@@ -17,12 +15,12 @@ import {
   labFeatureDefinitions,
   LAB_ENABLED_FLAG,
   LAB_AGENT_INPUT_HISTORY_FLAG,
+  LAB_AGENT_SESSION_FORK_FLAG,
   LAB_AUTOMATION_RULES_FLAG,
-  LAB_MODEL_PLANS_FLAG,
-  LAB_TUTTI_MODE_FLAG,
-  LAB_WORKSPACE_AGENTS_FLAG,
   MOBILE_REMOTE_ACCESS_SETTINGS_FLAG,
+  isStableAgentExtensionTarget,
   resolveDesktopWorkspaceUiMode,
+  STABLE_AGENT_EXTENSION_INTEGRATIONS,
   withDesktopWorkspaceUiMode,
   WORKSPACE_STANDALONE_AGENT_MODE_FLAG
 } from "./catalog.ts";
@@ -34,13 +32,23 @@ test("Agent Extension activation flags stay catalog-driven", () => {
     AGENT_EXTENSION_COPILOT_FLAG,
     AGENT_EXTENSION_KILO_FLAG,
     AGENT_EXTENSION_QWEN_FLAG,
-    AGENT_EXTENSION_HERMES_FLAG,
-    AGENT_EXTENSION_KIMI_CODE_FLAG,
     AGENT_EXTENSION_GROK_FLAG
   ]);
   for (const flag of AGENT_EXTENSION_ACTIVATION_FLAGS) {
     assert.equal(isFeatureEnabled({}, flag), false);
   }
+});
+
+test("stable Agent Extensions do not depend on activation flags", () => {
+  assert.deepEqual(
+    STABLE_AGENT_EXTENSION_INTEGRATIONS.map(
+      (integration) => integration.targetId
+    ),
+    ["extension:hermes", "extension:kimi-code"]
+  );
+  assert.equal(isStableAgentExtensionTarget("extension:hermes"), true);
+  assert.equal(isStableAgentExtensionTarget("extension:kimi-code"), true);
+  assert.equal(isStableAgentExtensionTarget("extension:gemini"), false);
 });
 
 test("isFeatureEnabled falls back to catalog default when key absent", () => {
@@ -96,17 +104,42 @@ test("labFeatureDefinitions excludes the master switch", () => {
 });
 
 test("experimental Agent features require independent Lab opt-ins", () => {
-  const flags = [
-    LAB_AGENT_INPUT_HISTORY_FLAG,
-    LAB_TUTTI_MODE_FLAG,
-    LAB_MODEL_PLANS_FLAG,
-    LAB_WORKSPACE_AGENTS_FLAG,
-    LAB_AUTOMATION_RULES_FLAG
-  ];
+  const flags = [LAB_AGENT_INPUT_HISTORY_FLAG, LAB_AUTOMATION_RULES_FLAG];
 
   for (const flag of flags) {
     assert.equal(isFeatureEnabled({}, flag), false);
     assert.equal(isFeatureEnabled({ [flag]: true }, flag), true);
+  }
+});
+
+test("session Fork keeps its durable flag without appearing in Lab settings", () => {
+  assert.equal(isFeatureEnabled({}, LAB_AGENT_SESSION_FORK_FLAG), false);
+  assert.equal(
+    isFeatureEnabled(
+      { [LAB_AGENT_SESSION_FORK_FLAG]: true },
+      LAB_AGENT_SESSION_FORK_FLAG
+    ),
+    true
+  );
+  assert.equal(
+    labFeatureDefinitions().some(
+      (definition) => definition.key === LAB_AGENT_SESSION_FORK_FLAG
+    ),
+    false
+  );
+});
+
+test("graduated Agent features are not registered as Lab flags", () => {
+  const definitions = labFeatureDefinitions();
+  for (const retiredKey of [
+    "lab.tuttiMode",
+    "lab.modelPlans",
+    "lab.workspaceAgents"
+  ]) {
+    assert.equal(
+      definitions.some((definition) => definition.key === retiredKey),
+      false
+    );
   }
 });
 

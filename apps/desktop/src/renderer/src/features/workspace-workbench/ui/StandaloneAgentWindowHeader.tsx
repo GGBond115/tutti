@@ -6,6 +6,7 @@ import {
   agentGuiWorkbenchConversationIdentitiesEqual,
   resolveAgentGuiWorkbenchConversationIdentity
 } from "@tutti-os/agent-gui/workbench";
+import type { AgentGuiWorkbenchRailLayoutStore } from "@tutti-os/agent-gui/workbench";
 import type { IWorkspaceAgentActivityService as WorkspaceAgentActivityService } from "@renderer/features/workspace-agent/services/workspaceAgentActivityService.interface.ts";
 import type {
   DesktopAgentGUIProvider,
@@ -78,10 +79,12 @@ export interface StandaloneAgentWindowHeaderProps extends Omit<
   | "hasConversation"
 > {
   identity: StandaloneAgentWindowHeaderIdentity;
+  railLayoutStore: AgentGuiWorkbenchRailLayoutStore;
 }
 
 export function StandaloneAgentWindowHeader({
   identity,
+  railLayoutStore,
   ...props
 }: StandaloneAgentWindowHeaderProps): ReactNode {
   return (
@@ -93,6 +96,7 @@ export function StandaloneAgentWindowHeader({
       conversationTitle={identity.conversationTitle}
       conversationTitleDisplayPrompt={identity.conversationTitleDisplayPrompt}
       hasConversation={identity.hasConversation}
+      onHeaderElementChange={railLayoutStore.getHeaderElementRef(props.nodeId)}
     />
   );
 }

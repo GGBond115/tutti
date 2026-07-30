@@ -3,10 +3,10 @@ import type { TranslationDictionary } from "../core/resources.ts";
 export const zhCN = {
   browser: {
     chromeImportNotification: {
-      completed: "已从 Chrome 导入 {{imported}} 项 Cookie",
-      failed: "Chrome Cookie 导入未完成",
-      partial: "已从 Chrome 导入 {{imported}} 项 Cookie，部分条目被跳过或失败",
-      title: "Chrome 登录状态导入"
+      completed: "已导入 {{imported}} 项登录 Cookie",
+      failed: "登录 Cookie 导入未完成",
+      partial: "已导入 {{imported}} 项登录 Cookie，部分条目被跳过或失败",
+      title: "登录状态导入"
     }
   },
   common: {
@@ -245,7 +245,6 @@ export const zhCN = {
       dataUnavailable: "部分账号数据暂不可用",
       rewardToastTitle: "新用户积分",
       rewardToastCreditsUnit: "积分",
-      rewardToastDescription: "已添加到账户余额",
       rewardToastClose: "关闭积分奖励通知",
       insufficientCreditsUpgradeMessage:
         "您账户下可用的积分额度已耗尽，升级会员可获取更多额度",
@@ -278,6 +277,20 @@ export const zhCN = {
       actionRelogin: "重新登录",
       actionLogin: "登录",
       actionRetry: "重试",
+      runtimeTitle: "选择 Codex CLI",
+      runtimeDiscovering: "正在检测本机的 Codex CLI 安装…",
+      runtimeSelectionRequiredDescription:
+        "Tutti 在本机发现了多个可用的 Codex CLI，不会替你猜用哪一个。请在下方选择一个——每个选项都标注了安装来源和完整路径。之后可在 Agent 设置里随时更改。",
+      runtimeStaleDescription:
+        "之前选择的 Codex CLI 已不可用，请选择其他可用实例",
+      runtimeChangeDescription: "选择 Tutti 要使用的 Codex CLI 实例",
+      runtimeSelected: "正在使用",
+      runtimeUnavailableTitle: "其他已发现的安装",
+      runtimeSourceBun: "Bun",
+      runtimeSourcePnpm: "pnpm",
+      runtimeSourceNpm: "npm",
+      runtimeSourceHomebrew: "Homebrew",
+      runtimeSourcePath: "PATH",
       stepCli: "{{provider}} CLI",
       stepVersion: "受支持的版本",
       stepAuth: "已登录",
@@ -400,7 +413,21 @@ export const zhCN = {
         "Claude 导出扫描完成，有 {{count}} 个对话可供检查。",
       archiveSelectDescription: "搜索并勾选要导入的 Claude 对话",
       back: "返回",
+      chatgptEmpty: "这个 ChatGPT 导出中没有找到受支持的对话",
+      chatgptGroupLabel: "ChatGPT 对话",
+      chatgptOptionDescription: "选择从 ChatGPT 数据导出中下载的 ZIP 文件",
+      chatgptOptionTitle: "ChatGPT 导出数据导入",
+      chatgptPickFailed: "无法打开 ChatGPT 导出文件选择器。",
+      chatgptResult:
+        "已从 ChatGPT 导出中导入 {{sessions}} 个对话和 {{messages}} 条消息",
+      chatgptScanFailed: "无法将这个 ZIP 读取为支持的 ChatGPT 数据导出。",
+      chatgptScanning: "正在读取 ChatGPT 导出对话...",
+      chatgptSearchPlaceholder: "搜索 ChatGPT 对话",
+      chatgptSelectDescription: "搜索并勾选要导入的 ChatGPT 对话",
+      chatgptSelectionReady:
+        "ChatGPT 导出扫描完成，有 {{count}} 个对话可供检查。",
       chooseArchive: "选择 ZIP",
+      chooseChatgptArchive: "选择 ZIP",
       description: "导入本机 Codex、Claude Code 历史或 Claude 数据导出",
       done: "完成",
       empty: "未找到本机 Codex 或 Claude Code 的项目历史",
@@ -870,15 +897,13 @@ export const zhCN = {
           deleteConfirm: "删除这个 Agent？",
           deleteFailed: "Agent 删除失败，请重试",
           deleting: "删除中...",
-          description:
-            "将 Agent Runtime 与模型方案、指令组合成具名的 Agent 选项",
-          disabled: "已停用",
+          description: "选择 Agent Runtime、模型和指令，创建可重复使用的 Agent",
           edit: "编辑",
           editTitle: "编辑 {{agent}}",
           editorDescription: "保存后，它会成为新会话中可选择的一个 Agent",
           emptyDescription:
-            "添加 Agent，把 Agent Runtime 和模型方案映射成可复用的会话选项",
-          emptyTitle: "还没有工作区 Agent",
+            "添加一个 Agent，为它选择 Agent Runtime、模型和工作指令",
+          emptyTitle: "还没有自定义 Agent",
           ready: "可用",
           harnessLabel: "Agent Runtime",
           harnessUnavailable: "Agent Runtime 不可用",
@@ -971,8 +996,7 @@ export const zhCN = {
           deleteConfirm: "删除此方案？",
           deleteFailed: "删除失败，请重试",
           deleting: "删除中...",
-          description:
-            "配置具名的模型接入方案——官方订阅、Coding Plan、国内模型、中转服务或自定义接口，供工作区的 Agent 和应用使用",
+          description: "配置模型接口及可用模型，供工作区的 Agent 和应用使用",
           confirmModelRangeImpact: "确认影响并保存",
           detect: "检测连接",
           detectFailed: "连接检测失败，请重试",
@@ -982,7 +1006,7 @@ export const zhCN = {
           edit: "编辑",
           editTitle: "编辑 {{plan}}",
           emptyDescription:
-            "点「添加方案」用你的 API 密钥接入订阅、中转或自定义接口",
+            "点「添加方案」，填写接口协议、Base URL、API 密钥和可用模型",
           emptyTitle: "还没有模型方案",
           enabled: "启用 {{plan}}",
           fetchModels: "拉取模型",
@@ -990,7 +1014,6 @@ export const zhCN = {
           fetchModelsFailed: "拉取模型失败，请检查凭证与 Base URL 后重试",
           fetchModelsResult: "已拉取 {{count}} 个可选模型",
           fetchingModels: "拉取中...",
-          getApiKey: "获取 {{provider}} API 密钥",
           hideApiKey: "隐藏密钥",
           keepExistingKey: "留空则继续使用已保存的密钥",
           lastDetectedAt: "上次检测 {{time}}",
@@ -1010,23 +1033,6 @@ export const zhCN = {
           nameLabel: "名称",
           namePlaceholder: "我的模型方案",
           neverDetected: "尚未检测",
-          presetLabel: "服务商预设",
-          presets: {
-            agnes: "Agnes",
-            anthropicOfficial: "Anthropic (Claude)",
-            codingPlanAnthropic: "Claude Coding Plan",
-            codingPlanCustom: "其他 Coding Plan",
-            customAnthropic: "自定义 Anthropic 兼容接口",
-            customOpenai: "自定义 OpenAI 兼容接口",
-            deepseekAnthropic: "DeepSeek - Anthropic",
-            deepseekOpenai: "DeepSeek - OpenAI",
-            mimoAnthropic: "MiMo (Xiaomi) - Anthropic",
-            mimoOpenai: "MiMo (Xiaomi) - OpenAI",
-            minimaxAnthropic: "MiniMax - Anthropic",
-            minimaxOpenai: "MiniMax - OpenAI",
-            openaiOfficial: "OpenAI 官方",
-            relayCustom: "中转接入点"
-          },
           protocolLabel: "接口协议",
           protocols: {
             anthropic: "Anthropic 兼容",
@@ -1059,8 +1065,9 @@ export const zhCN = {
               label: "Coding Plan"
             },
             custom: {
-              guidance: "使用你自己的密钥接入任意 OpenAI 或 Anthropic 兼容接口",
-              label: "自定义兼容接口"
+              guidance:
+                "填写 OpenAI 或 Anthropic 兼容接口的 Base URL、API 密钥和模型",
+              label: "模型接口"
             },
             domestic: {
               guidance: "接入 DeepSeek、MiniMax、MiMo 等国内模型服务",
@@ -1075,7 +1082,6 @@ export const zhCN = {
               label: "中转服务"
             }
           },
-          templatePickerTitle: "选择接入方式",
           title: "模型方案",
           toggleFailed: "状态更新失败，请重试"
         }
@@ -1148,6 +1154,9 @@ export const zhCN = {
         agentSessionRecordingDescription:
           "在 Agent 首页显示会话录制与回放开发入口",
         agentSessionRecordingLabel: "Agent 会话录制",
+        agentSessionForkDescription:
+          "允许从支持的已完成轮次创建新的 Agent 会话",
+        agentSessionForkLabel: "会话 Fork",
         removeFileDefaultOpener: "移除 .{{extension}}",
         releaseChannelDescription: "选择稳定版更新；需要提前验收时可切到预览版",
         releaseChannelLabel: "发布渠道",
@@ -1166,9 +1175,6 @@ export const zhCN = {
           "在应用中心卡片中展示应用作者和 GitHub 来源",
         showAppDeveloperSourcesLabel: "展示应用作者与来源",
         showAppDeveloperSourcesSaveFailed: "暂时无法更新应用中心来源展示设置",
-        tuttiAgentSwitchDescription: "显示账号与 Agent 开发控制项",
-        tuttiAgentSwitchLabel: "Tutti Agent Switch",
-        tuttiAgentSwitchSaveFailed: "暂时无法更新 Tutti Agent 可用状态",
         visibilityDescription:
           "在设置中隐藏此面板在「关于」里连续点击版本号七次即可重新显示",
         visibilityLabel: "显示开发者面板"
@@ -1181,21 +1187,15 @@ export const zhCN = {
         automationRulesDescription: "显示自动化规则配置与会话覆盖选项",
         automationRulesLabel: "自动化规则",
         clearShortcutLabel: "清除 {{label}}",
-        modelPlansDescription: "显示用于配置模型方案的模型设置",
-        modelPlansLabel: "模型方案",
         newAgentConversationShortcutLabel: "新建 Agent 对话",
         newSameTypeWindowShortcutLabel: "新建同类型窗口",
         preferencesSaveFailed: "暂时无法更新实验室设置",
         previewAgentsDescription: "显示仍在 Tutti 中测试和验证的 Agent 集成",
         previewAgentsLabel: "抢先体验 Agent 集成",
         shortcutUnbound: "未绑定",
-        tuttiModeDescription: "启用 Agent 对话中的 Tutti 模式规划与编排控制",
-        tuttiModeLabel: "Tutti 模式",
         workbenchShortcutsDescription: "启用可配置的工作台快捷键操作",
         workbenchShortcutsLabel: "工作台快捷键",
-        workbenchShortcutsManageLabel: "配置键盘快捷键",
-        workspaceAgentsDescription: "显示自定义 Agent 的创建与配置",
-        workspaceAgentsLabel: "自定义 Agent"
+        workbenchShortcutsManageLabel: "配置键盘快捷键"
       },
       title: "设置",
       trigger: "设置"
@@ -1266,6 +1266,7 @@ export const zhCN = {
         updateFailed: "更新失败",
         updateFailedDescription: "暂时无法更新本地 Agent，请稍后重试",
         updateFailedTimedOut: "更新超时，请稍后重试",
+        manageActionChoose: "选择",
         manageActionConnect: "连接",
         manageActionLogin: "登录",
         manageActionOpeningLogin: "打开中...",
@@ -1288,6 +1289,7 @@ export const zhCN = {
         manageStatusAvailable: "可连接",
         manageStatusChecking: "检测中",
         manageStatusConnected: "已连接",
+        manageStatusSelectionRequired: "发现多个安装，请选择",
         manageStatusUnknown: "状态不可用",
         manageStatusUnsupported: "后台更新中",
         manageTitle: "管理智能体",

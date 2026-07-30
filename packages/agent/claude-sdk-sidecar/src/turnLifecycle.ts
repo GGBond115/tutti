@@ -33,6 +33,7 @@ export class TurnLifecycle {
   private active: RuntimeTurn | undefined;
   private activeIdValue = "";
   private lastTurnIdValue = "";
+  private lastProviderTurnIdValue = "";
   private pendingOrphanCount = 0;
   private cancelledValue = false;
   private completedTurnCount = 0;
@@ -66,6 +67,12 @@ export class TurnLifecycle {
    */
   get lastTurnId(): string {
     return this.activeIdValue || this.lastTurnIdValue;
+  }
+
+  get lastProviderTurnId(): string {
+    return this.active
+      ? this.providerTurnId(this.active)
+      : this.lastProviderTurnIdValue;
   }
 
   get activeTurn(): RuntimeTurn | undefined {
@@ -188,6 +195,13 @@ export class TurnLifecycle {
       if (this.active !== turn || turn.settled || !turn.awaitingContinuation) {
         return;
       }
+      this.emit({
+        type: "continuation_delayed",
+        payload: {
+          turnId: turn.turnId,
+          waitedMs: this.continuationStartTimeoutMs
+        }
+      });
       turn.awaitingContinuation = false;
       this.rejectingTimedOutContinuation = true;
       this.settleActive("turn_completed", {
@@ -323,6 +337,7 @@ export class TurnLifecycle {
     this.active = turn;
     this.activeIdValue = turn.turnId;
     this.lastTurnIdValue = turn.turnId;
+    this.lastProviderTurnIdValue = this.providerTurnId(turn);
     this.cancelledValue = false;
     this.pendingOrphanCount = 0;
     this.onActivate();
@@ -409,6 +424,9 @@ export class TurnLifecycle {
       return;
     }
     turn.providerTurnId = providerTurnId;
+    if (turn === this.active || turn.turnId === this.lastTurnIdValue) {
+      this.lastProviderTurnIdValue = providerTurnId;
+    }
     turn.awaitingProviderTurnIdentity = false;
     turn.providerTurnStarted = true;
     this.emit({

@@ -16,6 +16,7 @@ func TestGeneratedWorkspaceAgentTurnCoversAllFields(t *testing.T) {
 		WorkspaceID:            "ws-1",
 		AgentSessionID:         "session-1",
 		TurnID:                 "turn-1",
+		RootProviderTurnID:     "provider-turn-1",
 		CapabilityRefs:         []agentactivitybiz.CapabilityReference{{Capability: "tutti", Source: "slash_command"}},
 		Origin:                 agentactivitybiz.TurnOriginGoalContinuation,
 		SourceGoalOperationID:  "goal-operation-1",
@@ -48,6 +49,70 @@ func TestGeneratedWorkspaceAgentTurnOmitsErrorForCanceledOutcome(t *testing.T) {
 	})
 	if projected.Error != nil {
 		t.Fatalf("canceled turn error = %#v, want omitted transport-only error", projected.Error)
+	}
+}
+
+func TestGeneratedWorkspaceAgentTurnProjectsProviderForkBindingState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		turn          agentactivitybiz.Turn
+		want          string
+		wantAvailable bool
+	}{
+		{
+			name: "bound",
+			turn: agentactivitybiz.Turn{
+				TurnID:             "turn-1",
+				Phase:              agentactivitybiz.TurnPhaseSettled,
+				RootProviderTurnID: "provider-turn-1",
+			},
+			want:          "bound",
+			wantAvailable: true,
+		},
+		{
+			name: "settled recovery required",
+			turn: agentactivitybiz.Turn{
+				TurnID: "turn-1",
+				Phase:  agentactivitybiz.TurnPhaseSettled,
+			},
+			want: "recovery_required",
+		},
+		{
+			name: "settled canonical identity echo requires recovery",
+			turn: agentactivitybiz.Turn{
+				TurnID:             "turn-1",
+				Phase:              agentactivitybiz.TurnPhaseSettled,
+				RootProviderTurnID: "turn-1",
+			},
+			want: "recovery_required",
+		},
+		{
+			name: "running unavailable",
+			turn: agentactivitybiz.Turn{
+				TurnID: "turn-1",
+				Phase:  agentactivitybiz.TurnPhaseRunning,
+			},
+			want: "unavailable",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := generatedWorkspaceAgentTurn(test.turn)
+			if string(got.ProviderForkBindingState) != test.want {
+				t.Fatalf("provider fork binding state = %q, want %q", got.ProviderForkBindingState, test.want)
+			}
+			if got.ProviderForkBindingAvailable != test.wantAvailable {
+				t.Fatalf(
+					"provider fork binding available = %v, want %v",
+					got.ProviderForkBindingAvailable,
+					test.wantAvailable,
+				)
+			}
+		})
 	}
 }
 

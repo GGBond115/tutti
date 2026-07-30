@@ -106,7 +106,6 @@ function projectTaskStepCall(step: AgentTaskStepVM): AgentToolCallVM {
       step.payload.error !== null
         ? (step.payload.error as Record<string, unknown>)
         : null,
-    content: null,
     locations: null,
     occurredAtUnixMs: step.occurredAtUnixMs ?? null
   });

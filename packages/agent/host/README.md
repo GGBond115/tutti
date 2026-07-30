@@ -26,8 +26,11 @@ The module owns:
 - the direct and typed goal-control saga, revision actor, durable operation and
   reconcile-inbox workers, exact Goal-generation fences, provider evidence
   repair, and goal recovery policy;
-- the provider-neutral Session Fork saga, source mutation fence, exact
-  capability resolution, durable lineage, and startup recovery policy;
+- the provider-neutral Session Fork saga, selected-Turn binding check, source
+  mutation fence, exact capability resolution, frozen canonical snapshot,
+  attachment staging, durable lineage, and startup recovery policy;
+- the durable edit-retry saga, effective-history revision fence, authoritative
+  provider-history reconciliation, and explicit replacement recovery policy;
 - typed conformance scenarios under `conformance`.
 
 `CreateSession` has two explicit modes: an empty session, or one command with
@@ -46,11 +49,22 @@ or another adapter-side view change never reassigns an existing session to
 Cancellation exposes durable intent acceptance, provider confirmation, and
 canonical settlement as separate facts. `GoalControl`, `GetGoalState`, and
 `ReconcileGoal` are provider-neutral Host APIs; typed `/goal` commands enter the
-same durable saga without opening a turn. A caller-stable `ClientSubmitID`
+same durable saga without opening a turn. `AdoptProviderGoal` is the narrow
+reverse boundary for a Goal created by a provider tool during an already
+accepted Turn. It atomically records the active provider generation as a
+completed, applied operation and converged desired/observed state; it never
+dispatches another provider mutation. The provider session plus immutable
+generation fingerprint form its replay identity. A conflicting pending or
+active durable generation is rejected, so runtime continuation remains
+fail-closed instead of inheriting whichever Goal happens to be current.
+Terminal and cleared generations may advance to a new provider-authored Goal;
+that transition receives a new durable revision.
+A caller-stable `ClientSubmitID`
 makes one goal mutation idempotent across retries and Host restarts (and takes
 precedence over the legacy metadata field). `GetGoalState` is a pure canonical
-read: only `GoalControl`, `ReconcileGoal`, and recovery workers may create or
-change the durable goal projection. `Recover` first requeues and recovers
+read: only `GoalControl`, `AdoptProviderGoal`, `ReconcileGoal`, and recovery
+workers may create or change the durable goal projection. `Recover` first
+requeues and recovers
 durable runtime operations, then goal operations and the goal reconcile inbox,
 then settles unrecoverable stale turns, and finally invokes the adapter's
 worktree-isolation sweep. Configuring a goal store
@@ -84,6 +98,35 @@ algorithm. Startup and steady-state workers process fences before ordinary
 Goal operations; otherwise a prepared revoked Goal could be replayed during
 recovery before its fence reached the runtime.
 
+A completed latest user Turn may be edited and retried only through
+`GetEditRetryAvailability`, `EditRetry`, and `RecoverEditRetry`. Host owns the
+complete lifecycle: it snapshots the lossless submitted content, serializes the
+Session mutation, checkpoints before provider rollback, retracts exactly one
+effective Turn only after authoritative confirmation, then submits a stable
+replacement Turn. The replacement keeps attachments, mentions, capability
+references, and the Tutti mode snapshot while replacing only the first text
+block. Retraction changes model-visible history and canonical projections; it
+does not compensate filesystem changes produced by the original Turn.
+Conversation timelines hide retracted Turns, while audit reads and generated
+file projections retain their submitted content and filesystem side effects.
+
+`operationId`, replacement `turnId`, and `clientSubmitId` remain stable across
+retries and process restarts. A direct provider acceptance receipt completes
+the operation without polling. If a rollback or replacement response is lost,
+Host reads the provider's effective history and fails closed on identity
+divergence. An uncertain rollback is never dispatched twice. An uncertain
+replacement is never resent until an explicit `retry_replacement` command has
+proved its absence from authoritative history; a read-only `reconcile` command
+cannot dispatch provider work. While history is fenced in
+`rollback_pending`, `resend_pending`, or `recovery_required`, ordinary sends
+are rejected rather than appended to an uncertain model context.
+The authoritative absence proof is consumed in the same SQLite transaction
+that removes a discardable failed replacement placeholder and advances the
+stable replacement attempt. There is no separately committed redispatch
+authorization checkpoint. Replaying the same proof is idempotent; a later
+authoritative proof advances a new attempt only after the previous failed
+placeholder and claim are safely discarded.
+
 A provider-accepted Goal operation has crossed the delivery boundary. The
 steady-state worker waits for applied evidence and never resubmits that
 mutation; the accepted convergence deadline terminates a lost-evidence case.
@@ -109,6 +152,15 @@ message. Host passes it to both runtime execution and durable submit-provenance
 reporting; adapters must derive the same message sequence from that occurrence
 regardless of which report reaches storage first. `ClientSubmitID` identifies
 the submission but is not itself an ordering value.
+For a user Turn, runtime acceptance is not complete until the provider returns
+its exact Turn identity and the activity reporter durably installs
+`canonicalTurnId -> providerSessionId + providerTurnId`. The direct acceptance
+path is synchronous with the Host command while subsequent provider output
+remains asynchronous. A local persistence failure after provider acceptance is
+reported as delivery-unknown and retains the submit claim; it must never cause
+an automatic redispatch. Providers receive only the opaque `ClientSubmitID` as
+a correlation identity. Canonical Turn ids remain Tutti-owned and are not
+projected into provider client-identity fields.
 Runtime adapters preserve explicit downstream failures as `ProviderError` so
 Host consumers can distinguish provider-owned rejection from preparation,
 canonical-store, timeout, and other local failures with `errors.As`. The
@@ -161,69 +213,79 @@ descriptors and aggregate message/payload counts. The shared conformance
 scenario verifies live and too-new preservation, exact-cutoff removal, and
 idempotent replay through Host.
 
-`ForkSession` creates a new root Session from an inclusive canonical
-`ThroughTurnID`. Host resolves that Turn to its durable provider root Turn id,
-pins the exact provider Session and runtime driver descriptor, and reserves the
-caller-supplied target Session id before invoking provider code. Provider
-support is advertised at Session scope only when the exact adapter/version
-attests native `throughTurn` support and the product context policy can safely
-transfer Host-owned runtime facts. A live adapter supplies its initialized
-version directly; a historical Codex Session uses one cached, short-lived
-initialize probe and does not create a canonical Turn or register a live
-Session. Historical capability and dispatch probes pass through the same
-`RuntimePreparation` contract as resume so cwd, env, provider target, settings,
-and runtime context match the runtime that would be resumed. One Fork attempt
-freezes that prepared observation across driver attestation and provider
-dispatch; an existing live observation bypasses preparation. Consumers hide
-settled Turn actions when that capability is absent.
-Boundary validity remains a separate transactional proof, so an unavailable
-latest Turn does not suppress an earlier valid boundary.
+`ForkSession` creates an independent root Session through an inclusive
+canonical `SessionForkPoint`. Availability is intentionally optimistic:
+the provider driver must attest native `throughTurn` support and the selected
+canonical Turn must be settled and carry a non-empty provider root Turn
+binding. Historical prefix provenance, descendants, active work on other Turns,
+and pending Interactions are not eligibility inputs.
+If an otherwise eligible historical Turn is missing only that binding,
+`ForkSession` performs one read-only provider-history repair before repeating
+the canonical boundary check. The primary proof is the durable submit claim's
+opaque correlation identity. Truly old Claude text-only submissions may use a
+per-request HMAC equality proof over one complete text block; multimodal,
+attachment-bearing, context-enriched, incomplete, duplicated, and ambiguous
+history fails closed. Codex has no legacy text recovery because its stable
+`thread/read` shape does not expose an equally authoritative complete prompt.
+No provider Turn is ever selected by index. The SQLite repair is an idempotent
+empty-binding compare-and-swap and rejects provider Turn identities already
+owned by another canonical Turn. Claude additionally persists the recovered
+checkpoint; Codex `thread/fork(lastTurnId)` consumes only its provider Turn id.
+Target titles use one lineage-family sequence (`Title (2)`, `Title (3)`, ...)
+rather than restarting the suffix when a child Session becomes the next source.
+Every fail-closed boundary rejection retains a stable, content-free reason
+through Host. HTTP adapters may project it as structured diagnostic metadata
+while preserving their existing coarse conflict reason; transcript payloads
+and attachment contents never enter that reason.
 
-Fork uses a durable `prepared -> dispatching -> provider_accepted -> committed`
-saga. `RequestID` is the replay key. A source fence serializes the snapshot
-with report, Goal/runtime mutation, deletion, and competing Fork writes.
-An accepted provider child is not checkpointed as `provider_accepted` until a
-provider-state binder has made the exact child state independently discoverable
-from the target Session runtime namespace. Binding failure is delivery-unknown,
-because the provider mutation may already exist.
-Provider dispatch starts only after its marker commits. Provider acceptance is
-checkpointed with a detached bounded context and recovery retries only the
-atomic canonical prefix clone; a crash with an indeterminate provider result
-becomes `unknown`. Drivers are never blindly redispatched. A driver may
-explicitly attest deterministic target identity: Host then derives the provider
-child UUID from the durable operation id, requires the returned identity to
-match, and may reconcile `dispatching` or `unknown` by repeating the same
-request. The provider adapter must first verify an existing child at that UUID
-and create it only when absent. Drivers without that attestation keep the
-fail-closed `unknown` behavior. A later request for the same source boundary
-recovers the durable operation. A committed operation also retains the boundary
-barrier until the Engine explicitly acknowledges that its authoritative child
-Session has entered canonical UI state. Thus, losing a committed HTTP response
-and restarting with fresh request/target ids returns the original operation and
-child instead of creating another provider identity. The ACK is committed-only
-and idempotent; it releases the barrier so a later explicit action may create
-another branch from the same Turn. `unknown` cannot be acknowledged. Startup
-marks abandoned `prepared` work failed—its marker proves provider dispatch
-never began—and releases its source fence and target reservation without
-requiring a live runtime.
-Public adapters keep the operation as the response once its durable row
-exists: internal `prepared`, `dispatching`, and `provider_accepted` phases
-collapse to `accepted`, while `committed`, `failed`, and `unknown` remain
-terminal results. Operation lookup by id returns the same snapshot; committed
-results reconstruct the fully projected target Session and durable lineage
-from the immutable operation snapshot even after the canonical child is
-deleted.
-The commit re-proves the frozen prefix and provider identity, remaps
-session-scoped canonical ids, persists lineage, and emits the complete
-transaction delta.
-The target cwd and runtime context are produced from the same prepared runtime
-identity used for provider attestation and dispatch, validated by
-`SessionForkContextPolicy`, and frozen at prepare together with settings. Tutti
-currently rejects worktree-isolated sources
-instead of copying their ownership. Prefixes with session-scoped attachment
-references fail closed until an immutable resource-manifest binding exists;
-copying an entire Session attachment namespace is forbidden because it can
-cross the selected Turn boundary.
+Session Fork is default-off behind the `lab.agentSessionFork` product flag.
+Desktop exposes the persisted switch in Developer settings, and Desktop plus
+Tuttid enforce the same opt-in for new Fork writes while retaining read and
+acknowledgement access to existing durable operations.
+
+Capability projection is preparation-free. It reads either the live runtime
+observation or the persisted runtime/driver attestation and never resolves
+credentials, prepares a target context, or starts a provider process merely to
+render a Fork action. `ForkSession` performs the complete preparation and
+revalidates the exact driver before dispatch.
+
+Prepare freezes the complete canonical snapshot through the selected Turn,
+allocates all target canonical identities, and stages only the attachments
+referenced by that snapshot. Source reporting and Goal/runtime/submit activity
+continue against the live source; only physical deletion is retained while the
+operation may still need frozen resources. Multiple explicit Forks from the
+same boundary are valid. Host eligibility remains independent of source
+activity. The shared GUI exposes Fork only on settled Turns whose provider
+binding is durably `bound`, including earlier settled Turns while newer work is
+active. A `recovery_required` Turn must be repaired and reprojected as `bound`
+before the action is exposed; the Fork action is not a binding-repair control.
+The GUI disables only the exact Turn whose own Fork request is currently in
+flight.
+
+Fork uses the durable
+`prepared -> dispatching -> provider_accepted -> committed` saga. Provider
+dispatch happens only after `dispatching` commits. The selected provider Turn
+must exist in the provider source; earlier provider history is trusted and is
+not compared with Tutti's canonical prefix. Provider acceptance, including the
+child provider Session id, is persisted before any host-copy binding or
+canonical materialization. A `provider_accepted` retry therefore performs only
+idempotent local binding and commit and never invokes the provider again.
+
+`prepared` is safe to continue during startup recovery because provider
+dispatch has not begun. A crash in `dispatching` becomes `unknown` and is never
+automatically redispatched. There is no deterministic-replay compatibility
+path. Public status retains `accepted / committed / failed / unknown`, while
+the operation phase exposes `frozen / dispatching / materializing / committed /
+failed / deliveryUnknown`.
+
+Canonical commit consumes the frozen snapshot rather than re-reading the live
+source. It remaps Session, Turn, Message, Interaction, and attachment ids,
+persists immutable lineage, normalizes a nonterminal boundary to
+`settled/interrupted`, and changes copied pending Interactions to `superseded`.
+Provider-owned mode records the returned selected-Turn mapping; host-copy mode
+first makes the accepted provider child independently readable. The target cwd,
+settings, and runtime context come from the same prepared runtime observation
+used for provider dispatch.
 
 Interactive responses establish their winner at the canonical interaction
 transition, not in a GUI or CLI adapter. Preparing an interactive runtime
@@ -247,9 +309,22 @@ selection, desktop APIs, attachment ingress, and cloud inbox/outbox behavior.
 Adapter-only create fields such as transcript source paths and materialized
 skill bundles intentionally remain outside the Host contract.
 
-`tuttid` production wiring constructs one long-lived `Host`, installs it on the
-agent service adapter, invokes `Host.Recover` before serving traffic, and starts
-the Host-owned runtime and goal workers. Adapters can use the supervised
+`tuttid` production wiring resolves canonical/runtime ports and grouped adapter
+dependencies before constructing the agent service. It creates shared narrow
+components, uses their `HostSupportPorts` with canonical/runtime ports to
+compose one long-lived `Host`, then passes that completed Host and the same
+components to `NewService`. Production never mutates Service fields or calls a
+post-construction Host setter. Support adapters retain only their narrow
+component dependencies, never the complete Service facade. Runtime preparation
+may read Session Fork lineage and its operation through a committed-only seam:
+the lineage is created atomically with the committed fork, and the seam performs
+no canonical write or lifecycle reconciliation. That reader is a required
+canonical composition port rather than an optional runtime assertion, so
+provider-state binding cannot silently omit committed Fork identity
+verification.
+
+Startup invokes `Host.Recover` before serving traffic and starts the Host-owned
+runtime and goal workers. Adapters can use the supervised
 `Host.Run` entrypoint to start the runtime-operation, goal-operation, goal
 reconcile-inbox, and periodic worktree-GC workers as one lifecycle; an
 infrastructure-level worker exit cancels its siblings, while retryable item

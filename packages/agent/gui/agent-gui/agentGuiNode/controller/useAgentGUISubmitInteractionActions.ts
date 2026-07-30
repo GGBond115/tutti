@@ -1,7 +1,4 @@
 import {
-  selectEngineCancelState,
-  selectEngineHasVisibleQueuedSubmit,
-  selectPendingSubmitsForSession,
   type AgentActivityGoalControlAction,
   type AgentActivityInteraction,
   type AgentActivityTurn,
@@ -47,7 +44,6 @@ import {
   getAgentGUIErrorMessage,
   isNonRetryableResumeErrorCode
 } from "./agentGuiController.errors";
-import { createAgentGUIConversationId } from "./agentGuiController.promptHelpers";
 import {
   agentSubmitTraceDiagnostics,
   createAgentSubmitTraceState,
@@ -297,17 +293,15 @@ export function useAgentGUISubmitInteractionActions(
           targetMode: "existing"
         }
       });
-      sessionEngine.dispatch({
+      const { accepted, queued } = sessionEngine.submitPrompt({
         agentSessionId,
         ...(options?.capabilityRefs?.length
           ? { capabilityRefs: options.capabilityRefs }
           : {}),
         clientSubmitId: submitTrace.clientSubmitId,
         content: normalizedContent,
-        expiresAtUnixMs: submittedAtUnixMs + 120_000,
         ...(displayPrompt && displayPrompt.trim() ? { displayPrompt } : {}),
         submitDiagnostics: agentSubmitTraceDiagnostics(submitTrace),
-        requestedAtUnixMs: submittedAtUnixMs,
         ...(options?.requiredSettingsPatch
           ? {
               requiredSettingsPatch: {
@@ -320,21 +314,8 @@ export function useAgentGUISubmitInteractionActions(
           : options?.sendNow === true
             ? { routing: "send_now" as const }
             : {}),
-        runtimeContent: toRuntimeSendContent(normalizedContent),
-        type: "submit/requested",
-        workspaceId
+        runtimeContent: toRuntimeSendContent(normalizedContent)
       });
-      const queued = Boolean(
-        selectEngineHasVisibleQueuedSubmit(
-          sessionEngine.getSnapshot(),
-          agentSessionId,
-          submitTrace.clientSubmitId
-        )
-      );
-      const accepted = selectPendingSubmitsForSession(
-        sessionEngine.getSnapshot(),
-        agentSessionId
-      ).some((record) => record.clientSubmitId === submitTrace.clientSubmitId);
       submitTrace.queued = queued;
       setDetailError(null);
       // Clear the composer optimistically the instant the engine takes the
@@ -683,25 +664,16 @@ export function useAgentGUISubmitInteractionActions(
         return;
       }
       setDetailError(null);
-      sessionEngine.dispatch({
+      sessionEngine.submitInteractionResponse({
         ...(input.action?.trim() ? { action: input.action.trim() } : {}),
         agentSessionId,
-        commandId: `interaction:${createAgentGUIConversationId()}`,
         ...(normalizedOptionId ? { optionId: normalizedOptionId } : {}),
         ...(input.payload ? { payload: { ...input.payload } } : {}),
         requestId: normalizedRequestId,
-        turnId,
-        timeoutMs: 30_000,
-        type: "interaction/responseRequested",
-        workspaceId
+        turnId
       });
     },
-    [
-      activeEnginePendingInteractions,
-      isRespondingToInteraction,
-      sessionEngine,
-      workspaceId
-    ]
+    [activeEnginePendingInteractions, isRespondingToInteraction, sessionEngine]
   );
 
   const submitApprovalOption = useCallback(
@@ -714,29 +686,12 @@ export function useAgentGUISubmitInteractionActions(
   const interruptCurrentTurn = useCallback(
     (noRunningResponseMessage: string) => {
       const agentSessionId = activeConversationIdRef.current;
-      const cancelStatus = agentSessionId
-        ? selectEngineCancelState(sessionEngine.getSnapshot(), agentSessionId)
-            ?.status
-        : null;
-      if (
-        !agentSessionId ||
-        cancelStatus === "requested" ||
-        cancelStatus === "awaitingTurn"
-      ) {
-        return;
-      }
+      if (!agentSessionId) return;
       void noRunningResponseMessage;
       setDetailError(null);
-      sessionEngine.dispatch({
-        agentSessionId,
-        awaitingTurnExpiresAtUnixMs: Date.now() + 30_000,
-        commandId: createAgentGUIConversationId(),
-        timeoutMs: 30_000,
-        type: "session/stopRequested",
-        workspaceId
-      });
+      sessionEngine.stopSession({ agentSessionId });
     },
-    [sessionEngine, workspaceId]
+    [sessionEngine]
   );
 
   const updateDraftContent = useCallback(

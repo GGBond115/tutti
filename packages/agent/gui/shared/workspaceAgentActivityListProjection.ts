@@ -62,6 +62,15 @@ export function buildWorkspaceAgentActivityListViewModel(
         agentName,
         userName: user.userName
       });
+      const canonicalFileChanges = [
+        ...(resolveWorkspaceAgentSessionTurnFileChanges(
+          options.sessionTurnFileChangesById,
+          session
+        ) ?? []),
+        ...(session.latestTurn?.fileChanges
+          ? [session.latestTurn.fileChanges]
+          : [])
+      ];
 
       const activity: WorkspaceAgentActivityCard = {
         id: `activity-${session.agentSessionId}`,
@@ -75,7 +84,9 @@ export function buildWorkspaceAgentActivityListViewModel(
         status,
         latestActivitySummary: latestActivity.summary,
         latestActivityActorName: latestActivity.actorName,
-        changedFiles: changedFilesForSession(messages),
+        changedFiles: changedFilesForSession(messages, undefined, {
+          canonicalFileChanges
+        }),
         sortTimeUnixMs: resolvedSortTimeUnixMs,
         readTimeUnixMs: readTimeUnixMs(session, status, resolvedSortTimeUnixMs)
       };
@@ -88,6 +99,24 @@ export function buildWorkspaceAgentActivityListViewModel(
     .sort(compareActivities);
 
   return { activities };
+}
+
+function resolveWorkspaceAgentSessionTurnFileChanges(
+  sessionTurnFileChangesById:
+    | BuildWorkspaceAgentActivityListOptions["sessionTurnFileChangesById"]
+    | undefined,
+  session: AgentActivitySession
+): readonly Record<string, unknown>[] | null {
+  if (!sessionTurnFileChangesById) {
+    return null;
+  }
+  for (const alias of workspaceAgentSessionMessageAliases(session)) {
+    const fileChanges = sessionTurnFileChangesById[alias];
+    if (fileChanges) {
+      return fileChanges;
+    }
+  }
+  return null;
 }
 
 export function reuseWorkspaceAgentActivityListViewModelIfUnchanged(

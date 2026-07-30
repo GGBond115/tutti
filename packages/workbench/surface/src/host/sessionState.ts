@@ -390,35 +390,38 @@ export function createProjectedNodeID(
 export function persistedWorkbenchState(
   state: Pick<
     WorkbenchState<WorkbenchHostNodeData>,
-    "layoutConstraints" | "nodeStack" | "nodes" | "surfaceSize"
+    "layoutConstraints" | "lockedLayout" | "nodeStack" | "nodes" | "surfaceSize"
   >,
   nodeDefinitionByType: Map<string, WorkbenchHostNodeDefinition>
 ): Pick<
   WorkbenchState<WorkbenchHostNodeData>,
-  "layoutConstraints" | "nodeStack" | "nodes" | "surfaceSize"
+  "layoutConstraints" | "lockedLayout" | "nodeStack" | "nodes" | "surfaceSize"
 > {
+  const nodes = state.nodes
+    .filter((node) => {
+      return (
+        nodeDefinitionByType.get(node.data.typeId)?.window?.persists !== false
+      );
+    })
+    .map((node) => ({
+      ...node,
+      data: {
+        dockEntryId: node.data.dockEntryId ?? null,
+        ...(node.data.snapshotNodeState === undefined
+          ? {}
+          : { snapshotNodeState: node.data.snapshotNodeState }),
+        instanceId: node.data.instanceId,
+        instanceKey: node.data.instanceKey ?? null,
+        ...(node.data.isProjected === true ? { isProjected: true } : {}),
+        typeId: node.data.typeId
+      }
+    }));
+
   return {
     layoutConstraints: state.layoutConstraints,
+    lockedLayout: restrictLockedLayoutToNodes(state.lockedLayout, nodes),
     nodeStack: state.nodeStack,
-    nodes: state.nodes
-      .filter((node) => {
-        return (
-          nodeDefinitionByType.get(node.data.typeId)?.window?.persists !== false
-        );
-      })
-      .map((node) => ({
-        ...node,
-        data: {
-          dockEntryId: node.data.dockEntryId ?? null,
-          ...(node.data.snapshotNodeState === undefined
-            ? {}
-            : { snapshotNodeState: node.data.snapshotNodeState }),
-          instanceId: node.data.instanceId,
-          instanceKey: node.data.instanceKey ?? null,
-          ...(node.data.isProjected === true ? { isProjected: true } : {}),
-          typeId: node.data.typeId
-        }
-      })),
+    nodes,
     surfaceSize: state.surfaceSize
   };
 }
@@ -488,7 +491,7 @@ export function stateFromSnapshotOrDefinitions(
     }
   }
 
-  return mergeProjectedNodesIntoState(
+  const restoredState = mergeProjectedNodesIntoState(
     {
       nodeStack,
       nodes
@@ -499,6 +502,43 @@ export function stateFromSnapshotOrDefinitions(
       snapshot
     }
   );
+  return {
+    ...restoredState,
+    lockedLayout: restrictLockedLayoutToNodes(
+      snapshotState.lockedLayout,
+      restoredState.nodes ?? []
+    )
+  };
+}
+
+function restrictLockedLayoutToNodes<TData>(
+  lockedLayout: WorkbenchState<TData>["lockedLayout"],
+  nodes: readonly WorkbenchNode<TData>[]
+): WorkbenchState<TData>["lockedLayout"] {
+  if (!lockedLayout) {
+    return null;
+  }
+
+  const knownNodeIDs = new Set(nodes.map((node) => node.id));
+  const nodeIDs = lockedLayout.nodeIDs.filter((nodeID) =>
+    knownNodeIDs.has(nodeID)
+  );
+  if (nodeIDs.length < 2) {
+    return null;
+  }
+
+  if (!lockedLayout.normalizedFrames) {
+    return { preset: { ...lockedLayout.preset }, nodeIDs };
+  }
+
+  const normalizedFrames = Object.fromEntries(
+    nodeIDs.map((nodeID) => [nodeID, lockedLayout.normalizedFrames![nodeID]!])
+  );
+  return {
+    preset: { ...lockedLayout.preset },
+    nodeIDs,
+    normalizedFrames
+  };
 }
 
 export function restoredSnapshotNodesByID(

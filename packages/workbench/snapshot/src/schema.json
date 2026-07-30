@@ -23,6 +23,7 @@
     },
     "activeSpaceId": { "type": ["string", "null"] },
     "layoutBasis": { "$ref": "#/$defs/layoutBasis" },
+    "lockedLayout": { "$ref": "#/$defs/lockedLayout" },
     "metadata": { "type": "object" }
   },
   "$defs": {
@@ -75,6 +76,48 @@
       "properties": {
         "surfaceSize": { "$ref": "#/$defs/size" },
         "layoutConstraints": { "$ref": "#/$defs/layoutConstraints" }
+      }
+    },
+    "layoutPreset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["balanced", "row", "column"] }
+      }
+    },
+    "normalizedFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 1 },
+        "y": { "type": "number", "minimum": 0, "maximum": 1 },
+        "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+      }
+    },
+    "lockedLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preset", "nodeIDs"],
+      "properties": {
+        "preset": { "$ref": "#/$defs/layoutPreset" },
+        "nodeIDs": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 160 }
+        },
+        "normalizedFrames": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "additionalProperties": { "$ref": "#/$defs/normalizedFrame" }
+        }
       }
     },
     "node": {

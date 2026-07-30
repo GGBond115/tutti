@@ -53,11 +53,14 @@ func rootProviderTurnTransitionFromStateInput(
 		RootAgentSessionID: strings.TrimSpace(input.AgentSessionID),
 		RootTurnID:         strings.TrimSpace(root.RootTurnID),
 		ProviderTurnID:     strings.TrimSpace(root.ProviderTurnID),
-		Phase:              strings.TrimSpace(root.Phase),
-		Outcome:            normalizeTurnOutcomeV2(root.Outcome),
-		ErrorMessage:       strings.TrimSpace(root.ErrorMessage),
-		ErrorCode:          strings.TrimSpace(root.ErrorCode),
-		OccurredAtUnixMS:   input.State.OccurredAtUnixMS,
+		ProviderCheckpointMessageID: strings.TrimSpace(
+			root.ProviderCheckpointMessageID,
+		),
+		Phase:            strings.TrimSpace(root.Phase),
+		Outcome:          normalizeTurnOutcomeV2(root.Outcome),
+		ErrorMessage:     strings.TrimSpace(root.ErrorMessage),
+		ErrorCode:        strings.TrimSpace(root.ErrorCode),
+		OccurredAtUnixMS: input.State.OccurredAtUnixMS,
 	}
 	if root.CompletedCommand != nil {
 		transition.CompletedCommandKind = strings.TrimSpace(root.CompletedCommand.Kind)
@@ -286,22 +289,36 @@ func GeneratedWorkspaceAgentTurn(turn agentactivitybiz.Turn) tuttigenerated.Work
 		capabilityRefs = &mapped
 	}
 	return tuttigenerated.WorkspaceAgentTurn{
-		AgentSessionId:        strings.TrimSpace(turn.AgentSessionID),
-		CapabilityRefs:        capabilityRefs,
-		CompletedCommand:      completedCommand,
-		Error:                 turnError,
-		FileChanges:           fileChanges,
-		Outcome:               outcome,
-		Origin:                origin,
-		Phase:                 tuttigenerated.WorkspaceAgentTurnPhase(turn.Phase),
-		SettledAtUnixMs:       settledAt,
-		StartedAtUnixMs:       turn.StartedAtUnixMS,
-		SourceGoalOperationId: sourceGoalOperationID,
-		SourceGoalRevision:    sourceGoalRevision,
-		SourceGoalRepairEpoch: sourceGoalRepairEpoch,
-		TurnId:                strings.TrimSpace(turn.TurnID),
-		UpdatedAtUnixMs:       turn.UpdatedAtUnixMS,
+		AgentSessionId:               strings.TrimSpace(turn.AgentSessionID),
+		ProviderForkBindingAvailable: agentactivitybiz.HasUsableProviderTurnBinding(turn),
+		ProviderForkBindingState:     providerForkBindingState(turn),
+		CapabilityRefs:               capabilityRefs,
+		CompletedCommand:             completedCommand,
+		Error:                        turnError,
+		FileChanges:                  fileChanges,
+		Outcome:                      outcome,
+		Origin:                       origin,
+		Phase:                        tuttigenerated.WorkspaceAgentTurnPhase(turn.Phase),
+		SettledAtUnixMs:              settledAt,
+		StartedAtUnixMs:              turn.StartedAtUnixMS,
+		SourceGoalOperationId:        sourceGoalOperationID,
+		SourceGoalRevision:           sourceGoalRevision,
+		SourceGoalRepairEpoch:        sourceGoalRepairEpoch,
+		TurnId:                       strings.TrimSpace(turn.TurnID),
+		UpdatedAtUnixMs:              turn.UpdatedAtUnixMS,
 	}
+}
+
+func providerForkBindingState(
+	turn agentactivitybiz.Turn,
+) tuttigenerated.WorkspaceAgentTurnProviderForkBindingState {
+	if agentactivitybiz.HasUsableProviderTurnBinding(turn) {
+		return tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateBound
+	}
+	if turn.Phase == agentactivitybiz.TurnPhaseSettled {
+		return tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateRecoveryRequired
+	}
+	return tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateUnavailable
 }
 
 // GeneratedWorkspaceAgentInteraction is the completeness-guarded projection from

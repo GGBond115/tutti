@@ -112,13 +112,7 @@ function resolveToolDetailInput(
       "searchQuery",
       "pattern"
     ]) ??
-    firstObjectValue(toolCall, [
-      "input",
-      "rawInput",
-      "raw_input",
-      "arguments",
-      "args"
-    ]) ??
+    firstObjectValue(toolCall, ["input", "arguments", "args"]) ??
     toolCall ??
     input
   );

@@ -36,10 +36,14 @@ func TestSQLiteStoreSeedsSystemAgentTargets(t *testing.T) {
 	if len(targets) != len(descriptors) {
 		t.Fatalf("ListAgentTargets() len = %d, want descriptor count %d", len(targets), len(descriptors))
 	}
+	descriptorsByTargetID := make(map[string]providerregistry.ProviderDescriptor, len(descriptors))
+	for _, descriptor := range descriptors {
+		descriptorsByTargetID[descriptor.Target.ID] = descriptor
+	}
 	for index, target := range targets {
-		descriptor := descriptors[index]
-		if target.ID != descriptor.Target.ID || target.Provider != descriptor.Identity.ID || target.Enabled != descriptor.Target.Enabled {
-			t.Fatalf("target[%d] = %#v, want descriptor target %#v", index, target, descriptor.Target)
+		descriptor, ok := descriptorsByTargetID[target.ID]
+		if !ok || target.Provider != descriptor.Identity.ID || target.Enabled != descriptor.Target.Enabled {
+			t.Fatalf("target[%d] = %#v, want matching descriptor target", index, target)
 		}
 		if target.Source != agenttargetbiz.SourceSystem {
 			t.Fatalf("target %q source = %q, want system", target.ID, target.Source)

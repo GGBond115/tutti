@@ -38,7 +38,14 @@ func (localInstallCommandRunner) Run(ctx context.Context, command []string, cwd 
 	cmd.Stdout = output
 	cmd.Stderr = output
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("install command %s failed: %w", filepath.Base(command[0]), err)
+		if errors.Is(err, exec.ErrNotFound) {
+			return fmt.Errorf("install command %s failed: %[1]s is not installed or not on the daemon PATH", filepath.Base(command[0]))
+		}
+		detail := strings.TrimSpace(output.buffer.String())
+		if detail == "" {
+			return fmt.Errorf("install command %s failed: %w", filepath.Base(command[0]), err)
+		}
+		return fmt.Errorf("install command %s failed: %w: %s", filepath.Base(command[0]), err, detail)
 	}
 	return nil
 }
@@ -76,6 +83,9 @@ func (s *SetupService) executeInstall(
 	if plan.Runner != installation.Manifest.Runtime.Install.Runner ||
 		plan.PublishUserCommand != publishesUserCommand(installation.Manifest) {
 		return fmt.Errorf("%w: runtime install contract changed", ErrRuntimeInstallFailed)
+	}
+	if plan.Runner == "uv" {
+		return s.executeUVInstallInPlace(ctx, installation, plan, discoveryRoot, update)
 	}
 	workspace, err := openManagedRuntimeWorkspaceForInstall(
 		s.Plans.Manager.RuntimeInstallDir,

@@ -87,6 +87,47 @@ test("rejects malformed layout bases", () => {
   );
 });
 
+test("rejects malformed locked layouts", () => {
+  const result = validateWorkbenchSnapshot({
+    schemaVersion: workbenchSnapshotSchemaVersion,
+    nodes: [
+      {
+        id: "a",
+        kind: "agent",
+        title: "A",
+        frame: { x: 0, y: 0, width: 320, height: 240 }
+      },
+      {
+        id: "b",
+        kind: "agent",
+        title: "B",
+        frame: { x: 330, y: 0, width: 320, height: 240 }
+      }
+    ],
+    lockedLayout: {
+      preset: { kind: "diagonal" },
+      nodeIDs: ["a", "missing"],
+      normalizedFrames: {
+        a: { x: 0, y: 0, width: 0.6, height: 1 },
+        missing: { x: 0.6, y: 0, width: 0.6, height: 1 }
+      }
+    }
+  });
+
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.issues.some((issue) => issue.path === "lockedLayout.preset.kind")
+  );
+  assert.ok(
+    result.issues.some((issue) => issue.path === "lockedLayout.nodeIDs[1]")
+  );
+  assert.ok(
+    result.issues.some(
+      (issue) => issue.path === "lockedLayout.normalizedFrames.missing"
+    )
+  );
+});
+
 test("rejects deprecated renderer node fields", () => {
   const result = validateWorkbenchSnapshot({
     schemaVersion: workbenchSnapshotSchemaVersion,

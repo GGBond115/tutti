@@ -70,11 +70,10 @@ export type {
   EngineDiagnosticEvent,
   EngineDiagnosticSink
 } from "./engine/diagnostics.ts";
-export {
-  executeAgentActivityPromptCommand,
-  type AgentActivityPromptCommandPort
-} from "./engine/promptCommandExecution.ts";
 export type {
+  AgentSessionActivateEffectInput,
+  AgentSessionActivateEffectResult,
+  AgentSessionEffectPort,
   AgentSessionEngine,
   AgentSessionEngineIdentity,
   AgentSessionEngineListener,
@@ -86,17 +85,46 @@ export type {
   EngineConnectionStatus,
   EngineDispatchOptions,
   EngineDomainReducer,
+  EngineEffectOptions,
   EngineExternalCommand,
   EngineExternalCommandExceptPlanDecision,
+  EngineExtensionCommand,
   EngineIntent,
   EngineInternalCommand,
   EngineReducerResult,
   EngineRuntimeState,
   EngineScheduledTask,
-  EngineScheduler
+  EngineScheduler,
+  EngineTypedCommandPort
 } from "./engine/types.ts";
 export { AGENT_SESSION_ENGINE_LOCAL_ORIGIN } from "./engine/types.ts";
 export { selectWorkspaceReconcileState } from "./engine/engineRuntime.selectors.ts";
+export {
+  editRetryPresentationRecordsEqual,
+  selectEditRetryAvailabilityIsNewer,
+  selectEditRetryPresentation,
+  type EditRetryPresentationRecord
+} from "./engine/editRetry.selectors.ts";
+export {
+  dispatchEditRetry,
+  dispatchEditRetryRecovery
+} from "./engine/editRetry.command.ts";
+export type {
+  AgentActivityEditRetryAvailability,
+  AgentActivityEditRetryInput,
+  AgentActivityEditRetryReasonCode,
+  AgentActivityEditRetryRecoveryAction,
+  AgentActivityEditRetryRecoveryState,
+  AgentActivityEditRetryResult,
+  AgentActivityRecoverEditRetryInput,
+  EditRetryCommand,
+  EditRetryIntent,
+  EditRetryOperationRecord,
+  EditRetryOperationStatus,
+  EditRetryState,
+  TurnEditRetryCommand,
+  TurnRecoverEditRetryCommand
+} from "./engine/editRetry.types.ts";
 export {
   dispatchSessionForkThroughTurn,
   dispatchSessionMutation,
@@ -200,9 +228,12 @@ export {
   selectWorkspaceAgentRootConversationSessions
 } from "./engine/sessionLifecycle.selectors.ts";
 export {
+  selectEngineAuthoritativeHistoryRequirement,
   selectEngineSessionDetailHydrated,
   selectEngineSessionDetailLoading,
-  selectEngineSessionReconcile
+  selectEngineSessionReconcile,
+  selectEngineSessionStateHydrated,
+  type AuthoritativeHistoryRequirement
 } from "./engine/sessionReconcile.selectors.ts";
 export {
   canonicalInteractionKey,
@@ -393,4 +424,5 @@ export type {
   AgentActivityForkSessionResult,
   AgentActivityForkSessionThroughTurnInput
 } from "./sessionFork.types.ts";
+export { providerForkBindingAllowsAttempt } from "./sessionFork.types.ts";
 export { workspaceAgentSessionStatus } from "./workspaceAgentSessionProjection.ts";

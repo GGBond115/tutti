@@ -639,6 +639,9 @@ export function AgentComposerView(input: Props): React.JSX.Element {
             effectiveHandoffMenuLabel={effectiveHandoffMenuLabel}
             handoffMenuTargets={handoffMenuTargets}
             onHandoffConversation={onHandoffConversation}
+            showHandoffTargetOwnershipLabels={
+              input.props.showHandoffTargetOwnershipLabels
+            }
             showProviderSelect={showProviderSelect}
             selectedProviderSwitchTarget={selectedProviderSwitchTarget}
             providerSelectDisabled={providerSelectDisabled}

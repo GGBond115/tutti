@@ -4,29 +4,28 @@ import { Text } from "react-native";
 import { PrimaryButton } from "./PrimaryButton";
 import { MobileInteractionCard } from "./MobileConversationRows";
 
-test("renders Engine-owned submitting and failure state", () => {
-  let retries = 0;
+test("keeps the explicit Interaction choices available after a failed response", () => {
+  const submissions: Record<string, unknown>[] = [];
   let renderer: ReactTestRenderer;
   act(() => {
     renderer = create(
       <MobileInteractionCard
         failed
         interaction={approvalInteraction()}
-        onRetry={() => {
-          retries += 1;
+        onSubmit={(input) => {
+          submissions.push(input);
         }}
-        onSubmit={() => undefined}
         runtimeAvailable
         submitting={false}
       />
     );
   });
 
-  const retry = renderer!.root.findByType(PrimaryButton);
-  expect(retry.props.disabled).toBe(false);
-  expect(retry.props.label).toBe("Retry");
-  act(() => retry.props.onPress());
-  expect(retries).toBe(1);
+  const option = renderer!.root.findByType(PrimaryButton);
+  expect(option.props.disabled).toBe(false);
+  expect(option.props.label).toBe("Allow");
+  act(() => option.props.onPress());
+  expect(submissions).toEqual([{ optionId: "allow-once" }]);
   expect(
     renderer!.root
       .findAllByType(Text)
@@ -50,7 +49,6 @@ test("fails closed when an exit-plan Interaction has no runtime-authored options
         onSubmit={() => {
           submissions += 1;
         }}
-        onRetry={() => undefined}
         runtimeAvailable
         submitting={false}
       />

@@ -22,6 +22,7 @@ type acpClient struct {
 	nextID              atomic.Int64
 	callMu              sync.Mutex
 	sendMu              sync.Mutex
+	dispatchMu          sync.Mutex
 	mu                  sync.Mutex
 	pending             map[int64]*acpPendingCall
 	active              *acpActiveHandler
@@ -395,6 +396,29 @@ func (c *acpClient) Respond(ctx context.Context, id json.RawMessage, result any,
 	return c.sendJSON(ctx, message)
 }
 
+// respondWithDispatchFence keeps the response's local lifecycle publication
+// ahead of provider messages caused by that response. The ACP read loop is
+// otherwise free to receive those messages while the interactive responder
+// runs asynchronously.
+func (c *acpClient) respondWithDispatchFence(
+	ctx context.Context,
+	id json.RawMessage,
+	result any,
+	responseErr *acpError,
+	complete func(error),
+) error {
+	if c == nil {
+		return errors.New("acp client is nil")
+	}
+	c.dispatchMu.Lock()
+	defer c.dispatchMu.Unlock()
+	err := c.Respond(ctx, id, result, responseErr)
+	if complete != nil {
+		complete(err)
+	}
+	return err
+}
+
 func (c *acpClient) sendJSON(ctx context.Context, value any) error {
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -476,7 +500,9 @@ func (c *acpClient) readLoop() {
 func (c *acpClient) setStderrTail(tail []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.stderrTail = append(c.stderrTail[:0], tail...)
+	// Process frames can split UTF-8 runes. Diagnostics must remain valid text
+	// even after the bounded tail discards a prefix.
+	c.stderrTail = []byte(strings.ToValidUTF8(string(tail), "�"))
 }
 
 func (c *acpClient) setStdoutTail(tail []byte) {
@@ -617,6 +643,8 @@ func benignACPStdoutLine(line []byte) bool {
 }
 
 func (c *acpClient) dispatchMessage(message acpMessage) {
+	c.dispatchMu.Lock()
+	defer c.dispatchMu.Unlock()
 	slog.Debug("agent session ACP message received",
 		"event", "agent_session.acp.message.received",
 		"method", message.Method,
@@ -734,6 +762,11 @@ func acpErrorSummary(err *acpError) string {
 		message = fmt.Sprintf("code %d", err.Code)
 	}
 	data := strings.TrimSpace(string(err.Data))
+	// A JSON null payload carries no information; rendering it as
+	// "data: null" only adds noise to user-visible error text.
+	if data == "null" {
+		data = ""
+	}
 	if data != "" {
 		return fmt.Sprintf("%s (code %d, data: %s)", message, err.Code, truncateACPLogValue(data, 1200))
 	}

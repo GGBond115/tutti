@@ -1,5 +1,6 @@
 import type { WorkspaceAgentSessionDetailTurn } from "../../workspaceAgentSessionDetailViewModel";
 import { linkifyPastedTextReferences } from "../../pastedTextReferenceProjection";
+import { parseTuttiModeCheckpointWake } from "../tuttiModeCheckpointWakeMarker";
 import type {
   AgentMessageContentVM,
   AgentMessageRowVM
@@ -11,22 +12,86 @@ export function projectConversationUserRow(
   workspaceId: string | null | undefined
 ): AgentMessageRowVM {
   const turnId = message.turnId ?? fallbackTurnId;
+  const rawFirstTextBlock = firstRawUserPromptTextBlock(message);
   return {
     kind: "message",
     id: `message:user:${message.id}`,
     turnId,
     speaker: "user",
-    messages: projectUserMessageContentParts(message, turnId, workspaceId),
+    rawFirstTextBlock,
+    messages: projectUserMessageContentParts(
+      message,
+      turnId,
+      workspaceId,
+      rawFirstTextBlock
+    ),
     thinking: [],
     occurredAtUnixMs: message.occurredAtUnixMs ?? null
   };
 }
 
+// A daemon checkpoint-wake prompt is detected by its agent-inert sentinel line
+// (parseTuttiModeCheckpointWake), never by matching the prompt prose. When
+// present we render a single compact summary card instead of the wall of text;
+// the full prompt stays available behind the card's expand affordance.
+function tuttiModeCheckpointWakePart(
+  message: WorkspaceAgentSessionDetailTurn["userMessages"][number],
+  turnId: string,
+  rawFirstTextBlock: string | null
+): AgentMessageContentVM | null {
+  const parsed = parseTuttiModeCheckpointWake(rawFirstTextBlock);
+  if (!parsed) {
+    return null;
+  }
+  return {
+    kind: "message-content",
+    id: `${message.id}:checkpoint-wake`,
+    turnId,
+    body: parsed.body,
+    presentationKind: "content",
+    contentKind: "tutti-checkpoint-wake",
+    checkpointWake: parsed.marker,
+    copyText: parsed.body,
+    occurredAtUnixMs: message.occurredAtUnixMs ?? null,
+    sourceTimelineItems: message.sourceTimelineItems
+  };
+}
+
+function firstRawUserPromptTextBlock(
+  message: WorkspaceAgentSessionDetailTurn["userMessages"][number]
+): string | null {
+  for (const item of message.sourceTimelineItems ?? []) {
+    const content = item.payload?.content;
+    if (!Array.isArray(content)) {
+      continue;
+    }
+    for (const raw of content) {
+      const block =
+        raw && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : null;
+      if (block?.type === "text" && typeof block.text === "string") {
+        return block.text;
+      }
+    }
+  }
+  return null;
+}
+
 function projectUserMessageContentParts(
   message: WorkspaceAgentSessionDetailTurn["userMessages"][number],
   turnId: string,
-  workspaceId: string | null | undefined
+  workspaceId: string | null | undefined,
+  rawFirstTextBlock: string | null
 ): AgentMessageContentVM[] {
+  const checkpointWake = tuttiModeCheckpointWakePart(
+    message,
+    turnId,
+    rawFirstTextBlock
+  );
+  if (checkpointWake) {
+    return [checkpointWake];
+  }
   const blocks = userPromptContentBlocks(message, workspaceId);
   if (blocks.length === 0) {
     return [textPart(message, turnId)];

@@ -2812,10 +2812,10 @@ func TestDaemonAPIGeneratedRoutesListAgentTargets(t *testing.T) {
 		t.Fatalf("targets len = %d, want descriptor catalog size 7", len(response.Targets))
 	}
 	wantIDs := []string{
+		agenttargetbiz.IDLocalTuttiAgent,
 		agenttargetbiz.IDLocalCodex,
 		agenttargetbiz.IDLocalClaudeCode,
 		agenttargetbiz.IDLocalCursor,
-		agenttargetbiz.IDLocalTuttiAgent,
 		agenttargetbiz.IDLocalOpenCode,
 		providerregistry.NexightTargetID,
 		providerregistry.OpenClawTargetID,
@@ -2893,6 +2893,28 @@ func TestDaemonAPIGeneratedRoutesSetSystemAgentTargetEnabledRejectsUserTarget(t 
 		mux,
 		http.MethodPatch,
 		"/v1/agent-targets/custom-codex/enabled",
+		map[string]any{"enabled": false},
+	)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body: %s", recorder.Code, http.StatusBadRequest, recorder.Body.String())
+	}
+}
+
+func TestDaemonAPIGeneratedRoutesRejectsDisablingTuttiAgent(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		AgentTargetService: stubAgentTargetService{
+			setEnabledFn: func(context.Context, agenttargetservice.SetEnabledInput) (agenttargetbiz.Target, error) {
+				return agenttargetbiz.Target{}, agenttargetservice.ErrTuttiAgentAlwaysEnabled
+			},
+		},
+	}))
+
+	recorder := performGeneratedRouteRequest(
+		t,
+		mux,
+		http.MethodPatch,
+		"/v1/agent-targets/local:tutti-agent/enabled",
 		map[string]any{"enabled": false},
 	)
 	if recorder.Code != http.StatusBadRequest {

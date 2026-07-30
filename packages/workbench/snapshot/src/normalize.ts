@@ -3,7 +3,9 @@ import {
   workbenchSnapshotSchemaVersion,
   type WorkbenchFrameV1,
   type WorkbenchSnapshotLayoutBasisV1,
+  type WorkbenchSnapshotLockedLayoutV1,
   type WorkbenchSnapshotNodeV1,
+  type WorkbenchSnapshotNormalizedFrameV1,
   type WorkbenchSnapshotSpaceV1,
   type WorkbenchSnapshotV1
 } from "./types.ts";
@@ -47,6 +49,9 @@ export function normalizeWorkbenchSnapshot(
     activeSpaceId,
     layoutBasis: value.layoutBasis
       ? normalizeLayoutBasis(value.layoutBasis)
+      : undefined,
+    lockedLayout: value.lockedLayout
+      ? normalizeLockedLayout(value.lockedLayout, nodeIDs)
       : undefined,
     metadata: value.metadata
   });
@@ -124,6 +129,47 @@ function normalizeLayoutBasis(
         left: normalizeNumber(layoutBasis.layoutConstraints.safeArea.left)
       }
     }
+  };
+}
+
+function normalizeLockedLayout(
+  lockedLayout: WorkbenchSnapshotLockedLayoutV1,
+  knownNodeIDs: ReadonlySet<string>
+): WorkbenchSnapshotLockedLayoutV1 | undefined {
+  const nodeIDs = uniqueStrings(lockedLayout.nodeIDs).filter((nodeID) =>
+    knownNodeIDs.has(nodeID)
+  );
+  if (nodeIDs.length < 2) {
+    return undefined;
+  }
+
+  const normalizedFrames = lockedLayout.normalizedFrames
+    ? Object.fromEntries(
+        nodeIDs.map((nodeID) => [
+          nodeID,
+          normalizeNormalizedFrame(lockedLayout.normalizedFrames![nodeID]!)
+        ])
+      )
+    : undefined;
+
+  return stripUndefined({
+    preset: { kind: lockedLayout.preset.kind },
+    nodeIDs,
+    normalizedFrames
+  });
+}
+
+function normalizeNormalizedFrame(
+  frame: WorkbenchSnapshotNormalizedFrameV1
+): WorkbenchSnapshotNormalizedFrameV1 {
+  const x = normalizeNumber(frame.x);
+  const y = normalizeNumber(frame.y);
+
+  return {
+    x,
+    y,
+    width: Math.min(normalizeNumber(frame.width), normalizeNumber(1 - x)),
+    height: Math.min(normalizeNumber(frame.height), normalizeNumber(1 - y))
   };
 }
 

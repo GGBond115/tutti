@@ -90,8 +90,7 @@ function approvalPreviewCall(call: AgentToolCallVM): AgentToolCallVM | null {
   if (!preview) {
     return null;
   }
-  const input = objectValue(toolCall.rawInput) ?? objectValue(toolCall.input);
-  const content = arrayValue(toolCall.content);
+  const input = objectValue(toolCall.input) ?? call.input;
   const locations = arrayValue(toolCall.locations);
   return {
     kind: "tool-call",
@@ -106,15 +105,12 @@ function approvalPreviewCall(call: AgentToolCallVM): AgentToolCallVM | null {
     compactSummary: null,
     payload: {
       input,
-      content,
       locations
     },
-    toolState: null,
     input,
     output: null,
     error: null,
     metadata: null,
-    content,
     locations,
     rendererKind: preview.rendererKind,
     approval: null,

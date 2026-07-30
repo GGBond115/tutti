@@ -421,14 +421,7 @@ function askUserPromptFromMessage(
     return null;
   }
   const payload = recordValue(message.payload);
-  // The structured questions live on the tool-call input (payload.input.questions
-  // or payload.tool_state.input.questions) — the same source the in-conversation
-  // projection reads — so the deck card renders the identical question + options.
-  const toolState = recordValue(payload.tool_state);
-  const input =
-    Object.keys(recordValue(payload.input)).length > 0
-      ? recordValue(payload.input)
-      : recordValue(toolState.input);
+  const input = recordValue(payload.input);
   const questions = normalizeAskUserQuestions(input.questions);
   if (questions.length === 0) {
     return null;

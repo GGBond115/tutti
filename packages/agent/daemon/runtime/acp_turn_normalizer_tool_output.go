@@ -3,15 +3,18 @@ package agentruntime
 import (
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 	"github.com/tutti-os/tutti/packages/agent/daemon/liveprotocol"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 type earlyToolOutputSnapshot struct {
-	turnID  string
-	text    string
-	dropped bool
+	turnID    string
+	text      string
+	dropped   bool
+	truncated bool
 }
 
 const maxEarlyToolOutputCalls = 64
@@ -39,8 +42,11 @@ func (n *acpTurnNormalizer) AppendToolOutputDelta(
 		n.bufferEarlyToolOutput(turnID, rawToolCallID, delta)
 		return nil
 	}
+	if n.toolOutputTruncated[eventID] {
+		return nil
+	}
 	current := n.toolOutputText[eventID]
-	next := current + delta
+	next, truncated := appendBoundedToolOutputText(current, delta)
 	payload := clonePayload(pending.payload)
 	if payload == nil {
 		payload = map[string]any{}
@@ -58,11 +64,15 @@ func (n *acpTurnNormalizer) AppendToolOutputDelta(
 		Operation: "set",
 		Text:      next,
 	}
-	if current != "" {
+	if current != "" && (!truncated || strings.HasPrefix(next, current)) {
 		offset := int64(len(current))
+		operationText := delta
+		if truncated {
+			operationText = strings.TrimPrefix(next, current)
+		}
 		operation = &liveprotocol.MessageToolOutputOperation{
 			Operation:   "append_text",
-			Text:        delta,
+			Text:        operationText,
 			OffsetBytes: &offset,
 		}
 	}
@@ -78,8 +88,20 @@ func (n *acpTurnNormalizer) AppendToolOutputDelta(
 	)
 	attachToolOutputLiveOperation(&event, operation)
 	n.toolOutputText[eventID] = next
+	n.toolOutputTruncated[eventID] = truncated
 	n.trackToolCallEvent(event)
 	return []activityshared.Event{event}
+}
+
+func appendBoundedToolOutputText(current string, delta string) (string, bool) {
+	if len(current)+len(delta) <= canonical.ToolOutputTextMaxBytes {
+		return current + delta, false
+	}
+	remaining := canonical.ToolOutputTextMaxBytes + utf8.UTFMax - len(current)
+	if remaining < len(delta) {
+		delta = delta[:remaining]
+	}
+	return canonical.TruncateToolOutputText(current + delta), true
 }
 
 func (n *acpTurnNormalizer) bufferEarlyToolOutput(turnID string, rawToolCallID string, delta string) {
@@ -105,10 +127,12 @@ func (n *acpTurnNormalizer) bufferEarlyToolOutput(turnID string, rawToolCallID s
 		n.earlyToolOutputBytes -= len(current.text)
 		current = earlyToolOutputSnapshot{turnID: turnID}
 	}
-	if current.dropped {
+	if current.dropped || current.truncated {
 		return
 	}
-	if n.earlyToolOutputBytes+len(delta) > liveprotocol.DefaultDeliveryMaxBytes {
+	next, truncated := appendBoundedToolOutputText(current.text, delta)
+	nextTotalBytes := n.earlyToolOutputBytes - len(current.text) + len(next)
+	if nextTotalBytes > liveprotocol.DefaultDeliveryMaxBytes {
 		n.earlyToolOutputBytes -= len(current.text)
 		current.text = ""
 		current.dropped = true
@@ -122,8 +146,9 @@ func (n *acpTurnNormalizer) bufferEarlyToolOutput(turnID string, rawToolCallID s
 		return
 	}
 	current.turnID = turnID
-	current.text += delta
-	n.earlyToolOutputBytes += len(delta)
+	current.text = next
+	current.truncated = truncated
+	n.earlyToolOutputBytes = nextTotalBytes
 	n.earlyToolOutput[rawToolCallID] = current
 }
 
@@ -145,5 +170,11 @@ func (n *acpTurnNormalizer) consumeEarlyToolOutput(
 	if pending.dropped || pending.turnID != strings.TrimSpace(turnID) || pending.text == "" {
 		return nil
 	}
-	return n.AppendToolOutputDelta(session, turnID, rawToolCallID, pending.text)
+	events := n.AppendToolOutputDelta(session, turnID, rawToolCallID, pending.text)
+	if pending.truncated {
+		if eventID := n.knownToolItemID(rawToolCallID); eventID != "" {
+			n.toolOutputTruncated[eventID] = true
+		}
+	}
+	return events
 }

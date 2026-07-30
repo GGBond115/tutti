@@ -1,56 +1,22 @@
 import {
   selectSessionActivationPresentations,
   sessionActivationPresentationMapsEqual,
-  type AgentActivityCapabilityReference,
-  type AgentActivityInitialGoalControl,
-  type AgentActivityInitialTuttiModeActivation,
-  type AgentActivitySubmitDiagnostics,
-  type AgentActivityRailPlacement,
   type PendingActivationIntentRecord,
   type AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
 import { useCallback, useMemo, useRef } from "react";
-import {
-  type AppErrorCode,
-  type AgentPromptContentBlock
-} from "../../../shared/contracts/dto";
-import type { AgentSessionComposerSettings } from "../../../shared/agentSessionTypes";
+import { type AppErrorCode } from "../../../shared/contracts/dto";
 import { useEngineSelector } from "../../../shared/engine/useEngineSelector";
 
 type AgentGUILiveState = "inactive" | "activating" | "active" | "failed";
 
-interface AgentGUIActivateInputBase {
-  agentSessionId: string;
-  capabilityRefs?: readonly AgentActivityCapabilityReference[];
-  cwd?: string;
-  initialContent?: AgentPromptContentBlock[];
-  initialTurnExpected?: boolean;
-  initialGoalControl?: AgentActivityInitialGoalControl;
-  railSectionKey?: string;
-  railPlacement?: AgentActivityRailPlacement;
-  initialDisplayPrompt?: string;
-  runtimeContent?: AgentPromptContentBlock[];
-  submitDiagnostics?: AgentActivitySubmitDiagnostics;
-  settings?: AgentSessionComposerSettings;
-  title?: string;
-  visible?: boolean;
-}
-
-type AgentGUIActivateInput =
-  | (AgentGUIActivateInputBase & {
-      agentTargetId: string;
-      clientSubmitId: string;
-      initialTuttiModeActivation?: AgentActivityInitialTuttiModeActivation;
-      mode: "new";
-      optimisticTitle?: string;
-      tuttiModeDraftKey?: string;
-    })
-  | (AgentGUIActivateInputBase & {
-      agentTargetId?: string | null;
-      clientSubmitId?: never;
-      mode: "existing";
-      optimisticTitle?: never;
-    });
+type AgentGUIActivateInput = Parameters<
+  AgentSessionEngine["activateSession"]
+>[0] extends infer TInput
+  ? TInput extends { requestId: string }
+    ? Omit<TInput, "requestId">
+    : never
+  : never;
 
 interface UseAgentGUIActivationInput {
   engine: AgentSessionEngine;
@@ -58,8 +24,6 @@ interface UseAgentGUIActivationInput {
   getErrorMessage: (error: unknown) => string;
   getErrorCode?: (error: unknown) => AppErrorCode | null;
 }
-
-const ACTIVATION_EXPIRY_MS = 45_000;
 
 export function isPendingNewConversationActivation(
   activation:
@@ -109,89 +73,14 @@ export function useAgentGUIActivation({
   const activate = useCallback(
     (input: AgentGUIActivateInput): string | null => {
       const agentSessionId = input.agentSessionId.trim();
-      const agentTargetId = input.agentTargetId?.trim() ?? "";
-      if (!agentSessionId) {
-        return null;
-      }
-      if (input.mode === "new" && !agentTargetId) {
-        return null;
-      }
-
-      const requestedAtUnixMs = Date.now();
       const requestId = nextRequestId("activation", agentSessionId);
-      const clientSubmitId = input.clientSubmitId?.trim() ?? "";
-      if (input.mode === "new" && !clientSubmitId) {
-        return null;
-      }
-      const sharedIntent = {
-        type: "activation/requested",
+      return engine.activateSession({
+        ...input,
         agentSessionId,
-        ...(input.capabilityRefs?.length
-          ? { capabilityRefs: input.capabilityRefs }
-          : {}),
-        ...(input.initialContent ? { content: input.initialContent } : {}),
-        ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
-        expiresAtUnixMs: requestedAtUnixMs + ACTIVATION_EXPIRY_MS,
-        ...(input.initialTurnExpected !== undefined
-          ? { initialTurnExpected: input.initialTurnExpected }
-          : {}),
-        ...(input.initialGoalControl
-          ? { initialGoalControl: { ...input.initialGoalControl } }
-          : {}),
-        ...(input.railSectionKey?.trim()
-          ? { railSectionKey: input.railSectionKey.trim() }
-          : {}),
-        ...(input.railPlacement
-          ? { railPlacement: { ...input.railPlacement } }
-          : {}),
-        ...(input.initialDisplayPrompt
-          ? { initialDisplayPrompt: input.initialDisplayPrompt }
-          : {}),
-        ...(input.runtimeContent
-          ? { runtimeContent: input.runtimeContent }
-          : {}),
-        ...(input.submitDiagnostics
-          ? { submitDiagnostics: input.submitDiagnostics }
-          : {}),
-        requestedAtUnixMs,
-        requestId,
-        ...(input.settings
-          ? {
-              settings: input.settings
-            }
-          : {}),
-        ...(input.title ? { title: input.title } : {}),
-        ...(input.visible !== undefined ? { visible: input.visible } : {}),
-        workspaceId
-      } as const;
-      if (input.mode === "new") {
-        engine.dispatch({
-          ...sharedIntent,
-          agentTargetId,
-          clientSubmitId,
-          ...(input.initialTuttiModeActivation
-            ? {
-                initialTuttiModeActivation: {
-                  ...input.initialTuttiModeActivation
-                }
-              }
-            : {}),
-          mode: "new",
-          ...(input.optimisticTitle
-            ? { optimisticTitle: input.optimisticTitle }
-            : {}),
-          ...(input.tuttiModeDraftKey?.trim()
-            ? { tuttiModeDraftKey: input.tuttiModeDraftKey.trim() }
-            : {})
-        });
-      } else {
-        engine.dispatch({
-          ...sharedIntent,
-          ...(agentTargetId ? { agentTargetId } : {}),
-          mode: "existing"
-        });
-      }
-      return requestId;
+        requestId
+      })
+        ? requestId
+        : null;
     },
     [engine, workspaceId]
   );

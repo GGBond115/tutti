@@ -25,76 +25,39 @@ export {
 export function getCommandRenderData(
   call: AgentToolCallVM
 ): AgentCommandRenderData {
-  const inputRawInput = recordValue(call.input?.rawInput);
   const payloadInput = recordValue(call.payload?.input);
-  const payloadInputRawInput = recordValue(payloadInput?.rawInput);
-  const outputRawOutput = recordValue(call.output?.rawOutput);
-  const errorRawOutput = recordValue(call.error?.rawOutput);
   return {
     command: firstString(
       stringValue(call.input?.command),
       stringValue(call.input?.cmd),
       commandArrayToString(call.input?.command),
-      stringValue(inputRawInput?.command),
-      stringValue(inputRawInput?.cmd),
       stringValue(call.payload?.command),
       stringValue(payloadInput?.command),
-      stringValue(payloadInputRawInput?.command),
-      stringValue(payloadInputRawInput?.cmd)
+      stringValue(payloadInput?.cmd)
     ),
     cwd: firstString(
       stringValue(call.input?.cwd),
-      stringValue(inputRawInput?.cwd),
-      stringValue(payloadInput?.cwd),
-      stringValue(payloadInputRawInput?.cwd)
+      stringValue(payloadInput?.cwd)
     ),
     stdout:
       firstRawString(
         rawStringValue(call.output?.stdout),
-        rawStringValue(call.output?.output),
-        rawStringValue(call.output?.aggregated_output),
-        rawStringValue(call.output?.formatted_output),
-        rawStringValue(call.output?.rawOutput),
-        rawStringValue(outputRawOutput?.stdout),
-        rawStringValue(outputRawOutput?.output),
-        rawStringValue(outputRawOutput?.aggregated_output),
-        contentText(call.output?.content),
         rawStringValue(call.output?.text),
-        rawStringValue(call.error?.aggregated_output),
         rawStringValue(call.error?.stdout),
-        rawStringValue(call.error?.formatted_output),
-        rawStringValue(call.error?.rawOutput),
-        rawStringValue(errorRawOutput?.stdout),
-        rawStringValue(errorRawOutput?.output),
-        rawStringValue(errorRawOutput?.aggregated_output)
+        rawStringValue(call.error?.text)
       ) ?? "",
     stderr:
       firstRawString(
         rawStringValue(call.output?.stderr),
-        rawStringValue(outputRawOutput?.stderr),
-        rawStringValue(call.error?.stderr),
-        rawStringValue(errorRawOutput?.stderr)
+        rawStringValue(call.error?.stderr)
       ) ?? "",
     exitCode:
-      numberValue(call.output?.exit_code) ??
-      numberValue(call.output?.exitCode) ??
-      numberValue(outputRawOutput?.exit_code) ??
-      numberValue(outputRawOutput?.exitCode) ??
-      numberValue(call.error?.exit_code) ??
-      numberValue(call.error?.exitCode) ??
-      numberValue(errorRawOutput?.exit_code) ??
-      numberValue(errorRawOutput?.exitCode),
+      numberValue(call.output?.exitCode) ?? numberValue(call.error?.exitCode),
     durationMs:
       durationToMs(call.output?.duration) ??
-      numberValue(call.output?.duration_ms) ??
       numberValue(call.output?.durationMs) ??
-      durationToMs(outputRawOutput?.duration) ??
-      numberValue(outputRawOutput?.duration_ms) ??
-      numberValue(outputRawOutput?.durationMs) ??
       durationToMs(call.error?.duration) ??
-      durationToMs(errorRawOutput?.duration) ??
-      numberValue(errorRawOutput?.duration_ms) ??
-      numberValue(errorRawOutput?.durationMs),
+      numberValue(call.error?.durationMs),
     status: normalizeCommandStatus(call.statusKind ?? call.status)
   };
 }
@@ -102,16 +65,10 @@ export function getCommandRenderData(
 export function getSearchRenderData(
   call: AgentToolCallVM
 ): AgentSearchRenderData {
-  const canonicalContent = contentText(call.content);
   const canonicalFiles = locationPaths(call.locations);
   const output =
     firstString(
-      canonicalContent,
-      contentText(call.output?.content),
-      stringValue(call.output?.content),
-      stringValue(call.output?.output),
-      stringValue(call.output?.aggregated_output),
-      stringValue(call.output?.formatted_output),
+      stringValue(call.output?.text),
       stringValue(call.output?.stdout),
       stringValue(call.summary),
       ""
@@ -149,9 +106,9 @@ export function getSearchRenderData(
     output,
     error:
       firstString(
-        stringValue(call.error?.aggregated_output),
+        stringValue(call.error?.text),
         stringValue(call.error?.stdout),
-        stringValue(call.error?.formatted_output),
+        stringValue(call.error?.stderr),
         stringValue(call.error?.message)
       ) ?? ""
   };
@@ -180,11 +137,7 @@ export function getWebSearchRenderData(
     output:
       firstString(
         stringValue(call.output?.text),
-        contentText(call.content),
-        contentText(call.output?.content),
-        stringValue(call.output?.stdout),
-        stringValue(call.output?.output),
-        stringValue(call.output?.content)
+        stringValue(call.output?.stdout)
       ) ?? "",
     error:
       firstString(
@@ -203,10 +156,7 @@ export function getWebFetchRenderData(
     stringValue(recordValue(call.input?.action)?.url)
   );
   const content = firstString(
-    contentText(call.content),
-    contentText(call.output?.content),
-    stringValue(call.output?.output),
-    stringValue(call.output?.content),
+    stringValue(call.output?.text),
     stringValue(call.output?.stdout)
   );
   return {
@@ -249,8 +199,7 @@ export function getMcpRenderData(call: AgentToolCallVM): AgentMcpRenderData {
     summary: stringValue(call.summary),
     output:
       firstString(
-        stringValue(call.output?.content),
-        stringValue(call.output?.output),
+        stringValue(call.output?.text),
         stringValue(call.output?.stdout)
       ) ?? ""
   };
@@ -264,10 +213,7 @@ export function getToolSearchRenderData(
     arrayValue(call.output?.matches)
       ?.map(stringValue)
       .filter((value): value is string => value !== null) ?? [];
-  const totalDeferredTools =
-    numberValue(call.output?.total_deferred_tools) ??
-    numberValue(call.output?.totalDeferredTools) ??
-    numberValue(recordValue(call.payload?.output)?.total_deferred_tools);
+  const totalDeferredTools = numberValue(call.output?.totalDeferredTools);
   const mode: AgentToolSearchRenderData["mode"] = query?.startsWith("select:")
     ? "direct"
     : "search";
@@ -293,7 +239,6 @@ export function getPlanModeRenderData(
       ? firstString(
           stringValue(call.planMode?.plan),
           stringValue(call.output?.text),
-          stringValue(call.input?.content),
           nonEmpty(call.summary),
           "Exploring codebase and designing implementation approach."
         )
@@ -321,8 +266,6 @@ export function getTaskRenderData(call: AgentToolCallVM): AgentTaskRenderData {
   const task = call.task;
   const steps: AgentTaskStepVM[] =
     task?.steps ?? normalizeTaskStepsFromCall(call);
-  const outputRawOutput = recordValue(call.output?.rawOutput);
-  const errorRawOutput = recordValue(call.error?.rawOutput);
   return {
     title: task?.title ?? call.name,
     status:
@@ -353,33 +296,23 @@ export function getTaskRenderData(call: AgentToolCallVM): AgentTaskRenderData {
     steps,
     resultMarkdown: firstString(
       stringValue(task?.resultMarkdown),
-      firstNonEmptyStructuredText(call.output, outputRawOutput)
+      firstNonEmptyStructuredText(call.output)
     ),
-    errorMarkdown: firstNonEmptyStructuredText(call.error, errorRawOutput)
+    errorMarkdown: firstNonEmptyStructuredText(call.error)
   };
 }
 
 export function getSkillRenderData(
   call: AgentToolCallVM
 ): AgentSkillRenderData {
-  const inputRawInput = recordValue(call.input?.rawInput);
-  const outputRawOutput = call.output?.rawOutput;
-  const success =
-    booleanValue(call.output?.success) ??
-    legacySkillSuccess(outputRawOutput) ??
-    booleanValue(recordValue(outputRawOutput)?.success);
+  const success = booleanValue(call.output?.success);
   return {
     skill: firstString(
       stringValue(call.input?.skill),
-      stringValue(inputRawInput?.skill),
       stringValue(call.output?.commandName),
-      stringValue(recordValue(outputRawOutput)?.commandName),
       nonEmpty(call.summary)
     ),
-    args: firstString(
-      stringValue(call.input?.args),
-      stringValue(inputRawInput?.args)
-    ),
+    args: stringValue(call.input?.args),
     success,
     statusText:
       success === null
@@ -396,9 +329,10 @@ export function getImageGenerationRenderData(
   const preview = extractImageGenerationPreview({
     toolName: call.toolName,
     displayName: call.name,
-    content: call.content,
-    outputContent: call.output?.content,
-    outputSavedPath: call.output?.savedPath ?? call.output?.saved_path,
+    outputSavedPath: stringValue(call.output?.savedPath),
+    outputSavedPaths: call.output?.savedPaths,
+    outputMimeType: call.output?.imageMimeType,
+    outputText: call.output?.text,
     inputPrompt: call.input?.prompt,
     payloadInputPrompt: recordValue(call.payload?.input)?.prompt
   });
@@ -407,29 +341,6 @@ export function getImageGenerationRenderData(
     imageUri: preview.imageUri,
     mimeType: preview.mimeType
   };
-}
-
-function legacySkillSuccess(value: unknown): boolean | null {
-  if (typeof value !== "string" || !value.trim()) {
-    return null;
-  }
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized.includes("failed") ||
-    normalized.includes("error") ||
-    normalized.includes("unable") ||
-    normalized.includes("not found")
-  ) {
-    return false;
-  }
-  if (
-    normalized.includes("launching skill:") ||
-    normalized.includes("skill loaded") ||
-    normalized.includes("loaded skill")
-  ) {
-    return true;
-  }
-  return null;
 }
 
 export function getToolFallbackText(
@@ -610,30 +521,6 @@ function durationToMs(value: unknown): number | null {
   return secs * 1000 + nanos / 1_000_000;
 }
 
-function contentText(value: unknown): string | null {
-  const items = arrayValue(value);
-  if (!items) {
-    return null;
-  }
-  const text = items
-    .flatMap((item) => {
-      const record = recordValue(item);
-      if (!record) {
-        return [];
-      }
-      return [
-        firstString(
-          stringValue(record.text),
-          stringValue(record.content),
-          stringValue(recordValue(record.content)?.text)
-        )
-      ].filter(Boolean) as string[];
-    })
-    .join("\n")
-    .trim();
-  return text || null;
-}
-
 function structuredText(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) {
     return value.trim();
@@ -648,14 +535,9 @@ function structuredText(value: unknown): string | null {
   const preferred = firstString(
     stringValue(record.plan),
     stringValue(record.text),
-    stringValue(record.output),
-    stringValue(record.content),
-    contentText(record.content),
     stringValue(record.summary),
     stringValue(record.result),
     stringValue(record.message),
-    stringValue(record.aggregated_output),
-    stringValue(record.formatted_output),
     stringValue(record.stdout),
     stringValue(record.stderr),
     stringValue(record.query),

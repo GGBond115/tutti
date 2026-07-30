@@ -7,6 +7,11 @@ import {
   promptQueueReducer
 } from "./promptQueue.reducer.ts";
 import {
+  createInitialPromptExecutionState,
+  promptExecutionReducer,
+  selectPromptSettingsExecution
+} from "./promptExecution.reducer.ts";
+import {
   resolvePromptSendNowStrategy,
   resolveQueuedPromptSendNowStrategy
 } from "./promptQueue.sendNow.ts";
@@ -27,10 +32,10 @@ import {
   sessionReconcileReducer
 } from "./sessionReconcile.reducer.ts";
 import type {
-  AgentSessionEngineState,
-  EngineIntent,
-  EngineReducerResult
-} from "./types.ts";
+  RootAgentSessionEngineState,
+  RootEngineIntent,
+  RootEngineReducerResult
+} from "./rootReducer.types.ts";
 import {
   attentionReadStateReducer,
   createInitialAttentionReadState
@@ -66,17 +71,23 @@ import {
   createInitialTuttiModeActivationState,
   tuttiModeActivationReducer
 } from "./tuttiModeActivation.reducer.ts";
+import {
+  createInitialEditRetryState,
+  editRetryReducer
+} from "./editRetry.reducer.ts";
 
 // Root reducer: static composition of domain reducers, zero business logic.
 // Cross-domain read-only context is passed explicitly; domains still own all
 // decisions and state transitions in their own reducer.
 
-export function createInitialAgentSessionEngineState(): AgentSessionEngineState {
+export function createInitialAgentSessionEngineState(): RootAgentSessionEngineState {
   return {
     attentionReadState: createInitialAttentionReadState(),
+    editRetry: createInitialEditRetryState(),
     engineRuntime: createInitialEngineRuntimeState(),
     pendingIntents: createInitialPendingIntentsState(),
     planDecisions: createInitialPlanDecisionState(),
+    promptExecutions: createInitialPromptExecutionState(),
     promptQueue: createInitialPromptQueueState(),
     sessionReconcile: createInitialSessionReconcileState(),
     sessionMutations: createInitialSessionMutationsState(),
@@ -89,9 +100,25 @@ export function createInitialAgentSessionEngineState(): AgentSessionEngineState 
 }
 
 export function rootEngineReducer(
-  state: AgentSessionEngineState,
-  intent: EngineIntent
-): EngineReducerResult<AgentSessionEngineState> {
+  state: RootAgentSessionEngineState,
+  intent: RootEngineIntent
+): RootEngineReducerResult<RootAgentSessionEngineState> {
+  if (intent.type === "prompt/executionRequested") {
+    const promptExecutions = promptExecutionReducer(
+      state.promptExecutions,
+      intent
+    );
+    return {
+      commands: promptExecutions.commands,
+      ...(promptExecutions.followUpIntents
+        ? { followUpIntents: promptExecutions.followUpIntents }
+        : {}),
+      state:
+        promptExecutions.state === state.promptExecutions
+          ? state
+          : { ...state, promptExecutions: promptExecutions.state }
+    };
+  }
   const sendResultValidation =
     intent.type === "engine/commandResult" &&
     intent.commandType === "queue/sendPrompt" &&
@@ -151,6 +178,11 @@ export function rootEngineReducer(
               })(),
           true
         )
+      : null;
+  const promptSettingsExecution =
+    intent.type === "engine/commandResult" &&
+    intent.commandType === "session/updateSettings"
+      ? selectPromptSettingsExecution(state.promptExecutions, intent.commandId)
       : null;
   const cancelEntry =
     intent.type === "engine/commandResult" &&
@@ -322,6 +354,11 @@ export function rootEngineReducer(
       cancelResultValidation
     }
   );
+  const promptExecutions = promptExecutionReducer(
+    state.promptExecutions,
+    intent,
+    { settingsResultValidation }
+  );
   const promptQueue = promptQueueReducer(state.promptQueue, intent, {
     cancelResultValidation,
     deletedSessionIds: sessionLifecycle.state.deletedSessionIds,
@@ -331,13 +368,21 @@ export function rootEngineReducer(
     sendResultValidation,
     submitRequestAccepted,
     sendNowStrategy,
+    settingsPreconditionPromptCommandId:
+      promptSettingsExecution?.promptCommand.commandId ?? null,
     settingsResultValidation
   });
   const attentionReadState = attentionReadStateReducer(
     state.attentionReadState,
     intent,
-    { sessionsById: sessionLifecycle.state.sessionsById }
+    {
+      previousSessionsById: state.sessionLifecycle.sessionsById,
+      previousTurnsById: state.sessionLifecycle.turnsById,
+      sessionsById: sessionLifecycle.state.sessionsById,
+      turnsById: sessionLifecycle.state.turnsById
+    }
   );
+  const editRetry = editRetryReducer(state.editRetry, intent);
   const pendingIntents = pendingIntentsReducer(state.pendingIntents, intent, {
     deletedSessionIds: sessionLifecycle.state.deletedSessionIds,
     turnsById: sessionLifecycle.state.turnsById,
@@ -379,7 +424,13 @@ export function rootEngineReducer(
       sessionsById: sessionLifecycle.state.sessionsById
     }
   );
-  const composerOptions = composerOptionsReducer(state.composerOptions, intent);
+  const composerOptions = composerOptionsReducer(
+    state.composerOptions,
+    intent,
+    {
+      settingsResultValidation
+    }
+  );
   const tuttiModeActivation = tuttiModeActivationReducer(
     state.tuttiModeActivation,
     intent,
@@ -387,9 +438,11 @@ export function rootEngineReducer(
   );
   const unchanged =
     attentionReadState.state === state.attentionReadState &&
+    editRetry.state === state.editRetry &&
     engineRuntime.state === state.engineRuntime &&
     pendingIntents.state === state.pendingIntents &&
     planDecisions.state === state.planDecisions &&
+    promptExecutions.state === state.promptExecutions &&
     promptQueue.state === state.promptQueue &&
     sessionReconcile.state === state.sessionReconcile &&
     sessionMutations.state === state.sessionMutations &&
@@ -402,9 +455,11 @@ export function rootEngineReducer(
     ? state
     : {
         attentionReadState: attentionReadState.state,
+        editRetry: editRetry.state,
         engineRuntime: engineRuntime.state,
         pendingIntents: pendingIntents.state,
         planDecisions: planDecisions.state,
+        promptExecutions: promptExecutions.state,
         promptQueue: promptQueue.state,
         sessionReconcile: sessionReconcile.state,
         sessionMutations: sessionMutations.state,
@@ -415,15 +470,21 @@ export function rootEngineReducer(
         tuttiModeActivation: tuttiModeActivation.state
       };
   const followUpIntents = [
+    ...(editRetry.followUpIntents ?? []),
     ...(sessionReconcile.followUpIntents ?? []),
-    ...(sessionMutations.followUpIntents ?? [])
+    ...(sessionMutations.followUpIntents ?? []),
+    ...(pendingIntents.followUpIntents ?? []),
+    ...(promptExecutions.followUpIntents ?? []),
+    ...(promptQueue.followUpIntents ?? [])
   ];
   return {
     commands: [
       ...attentionReadState.commands,
+      ...editRetry.commands,
       ...engineRuntime.commands,
       ...pendingIntents.commands,
       ...planDecisions.commands,
+      ...promptExecutions.commands,
       ...sessionReconcile.commands,
       ...sessionMutations.commands,
       ...sessionCommands.commands,

@@ -2,9 +2,167 @@ package storesqlite
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 )
+
+func TestProviderGoalAdoptionCompletesWithoutProviderRedispatch(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	if _, err := store.ReportSessionState(ctx, SessionStateReport{
+		WorkspaceID: "ws-provider", AgentSessionID: "session-provider",
+		Provider: "codex", ProviderSessionID: "thread-provider", OccurredAtUnixMS: 10,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	input := ProviderGoalAdoption{
+		OperationID: "goal-provider-1", WorkspaceID: "ws-provider", AgentSessionID: "session-provider",
+		ClientSubmitID: "provider-goal:thread-provider:fingerprint-1",
+		Goal: map[string]any{
+			"threadId": "thread-provider", "objective": "continue autonomously",
+			"status": "active", "createdAt": int64(10), "updatedAt": int64(20),
+		},
+		Evidence: map[string]any{
+			"source": "provider_goal_adoption", "fingerprint": "fingerprint-1",
+		},
+		OccurredAtUnixMS: 20,
+	}
+	op, state, changed, err := store.AdoptProviderGoalOperation(ctx, input)
+	if err != nil || !changed {
+		t.Fatalf("adopt operation=%#v state=%#v changed=%v error=%v", op, state, changed, err)
+	}
+	if op.Status != GoalOperationStatusCompleted || op.ProviderPhase != GoalProviderPhaseApplied ||
+		op.GoalRevision != 1 || state.Revision != 1 ||
+		state.SyncStatus != GoalSyncStatusSynced || state.PendingOperationID != "" ||
+		state.Desired["objective"] != "continue autonomously" ||
+		state.Observed["objective"] != "continue autonomously" {
+		t.Fatalf("adopted operation=%#v state=%#v", op, state)
+	}
+	claimable, err := store.ListClaimableGoalControlOperations(ctx, ListClaimableGoalControlOperationsInput{
+		NowUnixMS: 30,
+	})
+	if err != nil || len(claimable) != 0 {
+		t.Fatalf("adopted operation scheduled provider work: claimable=%#v error=%v", claimable, err)
+	}
+
+	replayed, replayedState, changed, err := store.AdoptProviderGoalOperation(ctx, input)
+	if err != nil || changed || replayed.OperationID != op.OperationID ||
+		replayedState.Revision != state.Revision {
+		t.Fatalf("replay operation=%#v state=%#v changed=%v error=%v", replayed, replayedState, changed, err)
+	}
+}
+
+func TestProviderGoalAdoptionRejectsConflictingActiveGeneration(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	if _, err := store.ReportSessionState(ctx, SessionStateReport{
+		WorkspaceID: "ws-provider-conflict", AgentSessionID: "session-provider-conflict",
+		Provider: "codex", OccurredAtUnixMS: 10,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
+		OperationID: "goal-provider-first", WorkspaceID: "ws-provider-conflict",
+		AgentSessionID: "session-provider-conflict", ClientSubmitID: "provider-first",
+		Goal:             map[string]any{"objective": "first", "status": "active"},
+		OccurredAtUnixMS: 20,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, err := store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
+		OperationID: "goal-provider-same-objective", WorkspaceID: "ws-provider-conflict",
+		AgentSessionID: "session-provider-conflict", ClientSubmitID: "provider-same-objective",
+		Goal:             map[string]any{"objective": "first", "status": "active"},
+		OccurredAtUnixMS: 25,
+	})
+	if !errors.Is(err, ErrGoalOperationConflict) {
+		t.Fatalf("same-objective generation replacement error = %v", err)
+	}
+	_, _, _, err = store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
+		OperationID: "goal-provider-second", WorkspaceID: "ws-provider-conflict",
+		AgentSessionID: "session-provider-conflict", ClientSubmitID: "provider-second",
+		Goal:             map[string]any{"objective": "second", "status": "active"},
+		OccurredAtUnixMS: 30,
+	})
+	if !errors.Is(err, ErrGoalOperationConflict) {
+		t.Fatalf("conflicting adoption error = %v", err)
+	}
+	if _, err := store.ReconcileSessionGoalObservation(ctx, GoalObservationReconcile{
+		WorkspaceID: "ws-provider-conflict", AgentSessionID: "session-provider-conflict",
+		Observed: map[string]any{"objective": "first", "status": "completed"},
+		Evidence: map[string]any{
+			"source": "provider_notification", "operationId": "goal-provider-first", "revision": int64(1),
+		},
+		OccurredAtUnixMS: 31,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	second, secondState, changed, err := store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
+		OperationID: "goal-provider-second", WorkspaceID: "ws-provider-conflict",
+		AgentSessionID: "session-provider-conflict", ClientSubmitID: "provider-second",
+		Goal:             map[string]any{"objective": "second", "status": "active"},
+		OccurredAtUnixMS: 40,
+	})
+	if err != nil || !changed || second.GoalRevision != 2 || secondState.Revision != 2 {
+		t.Fatalf("terminal advancement operation=%#v state=%#v changed=%v error=%v", second, secondState, changed, err)
+	}
+	_, _, _, err = store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
+		OperationID: "goal-provider-first", WorkspaceID: "ws-provider-conflict",
+		AgentSessionID: "session-provider-conflict", ClientSubmitID: "provider-first",
+		Goal:             map[string]any{"objective": "first", "status": "active"},
+		OccurredAtUnixMS: 50,
+	})
+	if !errors.Is(err, ErrGoalOperationConflict) {
+		t.Fatalf("stale adoption replay error = %v", err)
+	}
+}
+
+func TestProviderGoalAdoptionAdvancesAfterClearedGeneration(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	if _, err := store.ReportSessionState(ctx, SessionStateReport{
+		WorkspaceID: "ws-provider-cleared", AgentSessionID: "session-provider-cleared",
+		Provider: "codex", OccurredAtUnixMS: 10,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
+		OperationID: "goal-provider-before-clear", WorkspaceID: "ws-provider-cleared",
+		AgentSessionID: "session-provider-cleared", ClientSubmitID: "provider-before-clear",
+		Goal:             map[string]any{"objective": "first", "status": "active"},
+		OccurredAtUnixMS: 20,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.PrepareGoalControlOperation(ctx, GoalControlOperationPrepare{
+		OperationID: "goal-provider-clear", WorkspaceID: "ws-provider-cleared",
+		AgentSessionID: "session-provider-cleared", ClientSubmitID: "provider-clear",
+		Action: "clear", OccurredAtUnixMS: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, cleared, changed, err := store.CompleteGoalControlOperation(ctx, GoalControlOperationComplete{
+		WorkspaceID: "ws-provider-cleared", OperationID: "goal-provider-clear",
+		Succeeded: true, OccurredAtUnixMS: 40,
+		Evidence: map[string]any{"source": "provider_ack", "confidence": "authoritative"},
+	}); err != nil || !changed || !cleared.Tombstoned || cleared.PendingOperationID != "" {
+		t.Fatalf("clear state=%#v changed=%v error=%v", cleared, changed, err)
+	}
+	next, state, changed, err := store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
+		OperationID: "goal-provider-after-clear", WorkspaceID: "ws-provider-cleared",
+		AgentSessionID: "session-provider-cleared", ClientSubmitID: "provider-after-clear",
+		Goal:             map[string]any{"objective": "second", "status": "active"},
+		OccurredAtUnixMS: 50,
+	})
+	if err != nil || !changed || next.GoalRevision != 3 || state.Revision != 3 ||
+		state.Tombstoned || state.SyncStatus != GoalSyncStatusSynced {
+		t.Fatalf("post-clear adoption operation=%#v state=%#v changed=%v error=%v", next, state, changed, err)
+	}
+}
 
 func TestGoalControlOperationPersistsWithoutTurn(t *testing.T) {
 	t.Parallel()

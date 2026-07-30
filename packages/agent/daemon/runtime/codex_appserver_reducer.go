@@ -277,6 +277,7 @@ func (r codexAppServerReducer) reduceNotification(
 		goal := payloadObject(params["goal"])
 		a.observeGoalTurnGeneration(session, strings.TrimSpace(asString(params["turnId"])), goal)
 		_, newStatus, statusChanged := a.applyGoalUpdate(session.AgentSessionID, goal)
+		a.scheduleProviderGoalAdoption(session, goal)
 		goalEvents := []activityshared.Event{}
 		if event, ok := normalizedGoalUpdatedEvent(session, "thread_goal_update"); ok {
 			goalEvents = append(goalEvents, event)

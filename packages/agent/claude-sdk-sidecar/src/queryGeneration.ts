@@ -39,6 +39,17 @@ export class QueryGeneration {
     this.quarantineCanceledTail = quarantineCanceledTail;
   }
 
+  static retire(
+    generation: QueryGeneration | undefined,
+    detachOwner: () => void
+  ): void {
+    // Detach first so the consumer's finally block cannot close the live
+    // Session while this obsolete generation unwinds.
+    detachOwner();
+    generation?.revoke();
+    generation?.closeQuery();
+  }
+
   expectPromptEcho(promptUuid: string): void {
     if (this.quarantineCanceledTail) {
       this.expectedPromptUuid = promptUuid.trim();
@@ -149,7 +160,8 @@ function isTaskLifecycleTail(
       "task_started",
       "task_progress",
       "task_notification",
-      "task_updated"
+      "task_updated",
+      "background_tasks_changed"
     ].includes(stringValue(raw.subtype));
   }
   if (messageType === "attachment") {

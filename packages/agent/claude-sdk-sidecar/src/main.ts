@@ -14,7 +14,8 @@ import { sidecarSessionSettings } from "./sessionSettings.ts";
 import { SessionRuntime } from "./sessionRuntime.ts";
 import {
   forkClaudeSession,
-  inspectClaudeForkCheckpoints
+  inspectClaudeForkCheckpoints,
+  recoverClaudeTurnBinding
 } from "./sessionFork.ts";
 
 const sessions = new Map<string, SessionRuntime>();
@@ -84,14 +85,26 @@ export async function handleRequest(
         emit({ id, type: "ok", payload: result });
         return;
       }
+      case "recover_turn_binding": {
+        const payload = request.payload ?? {};
+        const result = await recoverClaudeTurnBinding({
+          sessionId: stringValue(payload.providerSessionId),
+          cwd: stringValue(payload.cwd),
+          recoveryToken: stringValue(payload.recoveryToken),
+          legacyTextHMACKey: stringValue(payload.legacyTextHmacKey),
+          legacyTextHMACDigest: stringValue(payload.legacyTextHmacDigest)
+        });
+        emit({ id, type: "ok", payload: result });
+        return;
+      }
       case "fork_session": {
         const payload = request.payload ?? {};
         const result = await forkClaudeSession({
           sessionId: stringValue(payload.providerSessionId),
           providerTurnId: stringValue(payload.providerTurnId),
-          providerTurnIds: Array.isArray(payload.providerTurnIds)
-            ? payload.providerTurnIds.map(stringValue)
-            : [],
+          providerCheckpointMessageId: stringValue(
+            payload.providerCheckpointMessageId
+          ),
           cwd: stringValue(payload.cwd),
           title: stringValue(payload.title)
         });

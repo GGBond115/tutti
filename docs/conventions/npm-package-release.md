@@ -231,6 +231,19 @@ Use this command to inspect publish contents:
 pnpm release:pack:check
 ```
 
+Without arguments the command builds and inspects every configured public npm
+package. Repository-managed changed-file gates may pass a validated package
+subset:
+
+```bash
+pnpm release:pack:check -- --packages-json '["@tutti-os/agent-gui"]'
+```
+
+The subset build includes the selected packages' workspace dependencies, but
+only the selected package tarballs are inspected. Use the unfiltered command
+for release infrastructure, workspace dependency, lockfile, Changesets, or
+fixed release-group changes.
+
 Before publishing a package that exposes runtime assets, verify all of the
 following:
 

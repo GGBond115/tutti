@@ -66,9 +66,56 @@ describe("descriptor-backed skill invocation", () => {
       ]
     } as unknown as AgentActivityComposerOptions;
 
-    expect(
-      providerSkillsFromComposerOptions(options)[0]?.invocation
-    ).toBeUndefined();
+    expect(providerSkillsFromComposerOptions(options)).toEqual([
+      {
+        name: "example",
+        trigger: "/example",
+        sourceKind: "plugin"
+      }
+    ]);
+  });
+
+  it("projects capability-only prompt-item skills for ordinary provider catalogs", () => {
+    const options = {
+      provider: "tutti-agent",
+      behavior: { nativePluginCatalogAuthoritative: false },
+      skills: [],
+      capabilityCatalog: [
+        {
+          id: "skill:review",
+          name: "review",
+          label: "Review",
+          kind: "skill",
+          status: "available",
+          trigger: "$review",
+          invocation: "promptItem",
+          path: "/skills/review/SKILL.md",
+          description: "Review code"
+        },
+        {
+          id: "skill:disabled",
+          name: "disabled",
+          label: "Disabled",
+          kind: "skill",
+          status: "disabled",
+          trigger: "$disabled",
+          invocation: "promptItem",
+          path: "/skills/disabled/SKILL.md"
+        }
+      ]
+    } as unknown as AgentActivityComposerOptions;
+
+    expect(providerSkillsFromComposerOptions(options)).toEqual([
+      {
+        name: "review",
+        trigger: "$review",
+        invocation: "promptItem",
+        sourceKind: "plugin",
+        kind: "skill",
+        path: "/skills/review/SKILL.md",
+        description: "Review code"
+      }
+    ]);
   });
 });
 

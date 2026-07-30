@@ -25,8 +25,6 @@ export function getFileChangeRenderData(
 ): AgentFileChangeRenderData[] {
   const payloadInput = recordValue(call.payload?.input);
   const payloadOutput = recordValue(call.payload?.output);
-  const rawInput =
-    recordValue(call.input?.rawInput) ?? recordValue(payloadInput?.rawInput);
   const inputLocations =
     arrayValue(call.locations) ??
     arrayValue(call.input?.locations) ??
@@ -52,7 +50,9 @@ export function getFileChangeRenderData(
   }
 
   const fromFileChanges = fileChangesFiles(
-    call.payload?.fileChanges ?? payloadOutput?.fileChanges
+    call.input?.fileChanges ??
+      call.payload?.fileChanges ??
+      payloadOutput?.fileChanges
   );
   if (fromFileChanges.length > 0) {
     return fromFileChanges;
@@ -66,23 +66,6 @@ export function getFileChangeRenderData(
   );
   if (fromChangeMap.length > 0) {
     return fromChangeMap;
-  }
-
-  const fromContentDiff = contentDiffFiles(
-    call.content ??
-      call.output?.content ??
-      payloadOutput?.content ??
-      call.input?.content ??
-      payloadInput?.content ??
-      call.payload?.content,
-    call.output?.changes ??
-      payloadOutput?.changes ??
-      call.input?.changes ??
-      payloadInput?.changes,
-    call.toolName
-  );
-  if (fromContentDiff.length > 0) {
-    return fromContentDiff;
   }
 
   const inputPath = firstString(
@@ -110,18 +93,21 @@ export function getFileChangeRenderData(
 
   const content = firstString(
     stringValue(call.input?.content),
-    stringValue(payloadInput?.content),
-    stringValue(rawInput?.content)
+    stringValue(payloadInput?.content)
   );
   const oldString = firstString(
     stringValue(call.input?.old_string),
+    stringValue(call.input?.oldString),
     stringValue(payloadInput?.old_string),
+    stringValue(payloadInput?.oldString),
     stringValue(call.output?.oldString),
     stringValue(payloadOutput?.oldString)
   );
   const newString = firstString(
     stringValue(call.input?.new_string),
+    stringValue(call.input?.newString),
     stringValue(payloadInput?.new_string),
+    stringValue(payloadInput?.newString),
     stringValue(call.output?.newString),
     stringValue(payloadOutput?.newString)
   );
@@ -376,135 +362,6 @@ function changeMapFiles(value: unknown): AgentFileChangeRenderData[] {
         path: normalizedPath,
         changeType,
         language: languageForPath(normalizedPath),
-        content,
-        oldString,
-        newString,
-        unifiedDiff: normalizedUnifiedDiff,
-        added: stats.added,
-        removed: stats.removed
-      }
-    ];
-  });
-}
-
-function contentDiffFiles(
-  value: unknown,
-  changesValue: unknown,
-  toolName: string | null
-): AgentFileChangeRenderData[] {
-  const items = arrayValue(value);
-  if (!items) {
-    return [];
-  }
-  const changesByPath = new Map(
-    fileChangeEntriesFromChanges(changesValue).map((entry) => [
-      entry.path,
-      entry.change
-    ])
-  );
-  return items.flatMap((item) => {
-    const record = recordValue(item);
-    if (!record) {
-      return [];
-    }
-    const type = stringValue(record.type);
-    if (type && type !== "diff") {
-      return [];
-    }
-    const path = stringValue(record.path);
-    if (!path) {
-      return [];
-    }
-    const relatedChange = changesByPath.get(path) ?? null;
-    const unifiedDiff = firstString(
-      stringValue(record.diff),
-      stringValue(record.patch),
-      stringValue(relatedChange?.unified_diff),
-      stringValue(relatedChange?.unifiedDiff)
-    );
-    const normalizedType = normalizeChangeType(
-      relatedChange ? fileChangeTypeValue(relatedChange) : null
-    );
-    let oldString = firstString(
-      stringValue(record.oldText),
-      stringValue(record.oldString),
-      stringValue(relatedChange?.old_string),
-      stringValue(relatedChange?.oldString)
-    );
-    let newString = firstString(
-      stringValue(record.newText),
-      stringValue(record.newString),
-      stringValue(relatedChange?.new_string),
-      stringValue(relatedChange?.newString),
-      stringValue(relatedChange?.content)
-    );
-    if (
-      normalizedType === "created" &&
-      oldString === null &&
-      newString !== null
-    ) {
-      oldString = "";
-    }
-    if (
-      normalizedType === "deleted" &&
-      oldString === null &&
-      newString !== null
-    ) {
-      oldString = newString;
-      newString = "";
-    }
-    if (
-      normalizedType === "deleted" &&
-      newString === null &&
-      oldString !== null
-    ) {
-      newString = "";
-    }
-    const explicitContent = firstString(
-      stringValue(record.content),
-      stringValue(relatedChange?.content)
-    );
-    const changeType = firstKnownChangeType(
-      normalizedType,
-      inferFileChangeType(
-        toolName,
-        unifiedDiff,
-        normalizedType === "deleted" ? null : explicitContent,
-        oldString,
-        newString
-      )
-    );
-    if (changeType === "created" && oldString === null && newString !== null) {
-      oldString = "";
-    }
-    const content = firstString(
-      changeType === "deleted" ? null : explicitContent,
-      changeType === "created" ? newString : null
-    );
-    if (
-      !unifiedDiff &&
-      oldString === null &&
-      newString === null &&
-      content === null
-    ) {
-      return [];
-    }
-    const normalizedUnifiedDiff =
-      !unifiedDiff && oldString !== null && newString !== null
-        ? syntheticUnifiedDiff(path, changeType, oldString, newString)
-        : unifiedDiff;
-    const stats = fileChangeStats(
-      changeType,
-      normalizedUnifiedDiff,
-      content,
-      oldString,
-      newString
-    );
-    return [
-      {
-        path,
-        changeType,
-        language: languageForPath(path),
         content,
         oldString,
         newString,

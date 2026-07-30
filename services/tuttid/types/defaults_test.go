@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -52,7 +53,7 @@ func TestResolveDefaultsFromEnvAppliesOverrides(t *testing.T) {
 	assertEqual(t, got.Transport.TCPAddr, "127.0.0.1:1111")
 }
 
-func TestResolveAgentExtensionSourcesIgnoresRemovedEnabledOverride(t *testing.T) {
+func TestResolveAgentExtensionSourcesUsesGeneratedActivationDefaults(t *testing.T) {
 	t.Setenv("TUTTI_AGENT_EXTENSION_GEMINI_ENABLED", "true")
 
 	sources := ResolveAgentExtensionSources()
@@ -78,6 +79,15 @@ func TestResolveAgentExtensionSourcesIgnoresRemovedEnabledOverride(t *testing.T)
 		}
 		if source.SigningKeyID == "" || source.SigningPublicKey == "" {
 			t.Fatalf("agent extension trust configuration is incomplete: %#v", source)
+		}
+	}
+	for _, key := range []string{"hermes", "kimi-code"} {
+		source := agentExtensionSourceByKey(t, sources, key)
+		if !source.Enabled {
+			t.Fatalf("stable agent extension source must be enabled: %#v", source)
+		}
+		if source.SigningKeyID == "" || source.SigningPublicKey == "" {
+			t.Fatalf("stable agent extension trust configuration is incomplete: %#v", source)
 		}
 	}
 }
@@ -127,6 +137,55 @@ func agentExtensionSourceByKey(t *testing.T, sources []AgentExtensionSource, key
 	}
 	t.Fatalf("agent extension source %q not found", key)
 	return AgentExtensionSource{}
+}
+
+func TestResolveUVToolArtifactSelectsPlatform(t *testing.T) {
+	artifact, ok := ResolveUVToolArtifact("darwin-arm64")
+	if !ok {
+		t.Fatal("ResolveUVToolArtifact(darwin-arm64) ok = false, want true")
+	}
+	assertEqual(t, artifact.Version, "0.11.31")
+	assertEqual(t, artifact.Platform, "darwin-arm64")
+	assertEqual(t, artifact.URL, "https://github.com/astral-sh/uv/releases/download/0.11.31/uv-aarch64-apple-darwin.tar.gz")
+	assertEqual(t, artifact.SHA256, "b2b93e82a6786f9c7cb89fd4ca0e859a147b292ae8f6f95784f9742f0efec39e")
+	assertEqual(t, artifact.Archive, "tar.gz")
+	assertEqual(t, artifact.ArchiveExecutable, "uv-aarch64-apple-darwin/uv")
+	if artifact.SizeBytes <= 0 {
+		t.Fatalf("artifact size = %d, want > 0", artifact.SizeBytes)
+	}
+}
+
+func TestResolveUVToolArtifactCoversSupportedPlatforms(t *testing.T) {
+	platforms := []string{"darwin-arm64", "darwin-amd64", "linux-amd64", "linux-arm64", "windows-amd64"}
+	for _, platform := range platforms {
+		artifact, ok := ResolveUVToolArtifact(platform)
+		if !ok {
+			t.Fatalf("ResolveUVToolArtifact(%q) ok = false, want true", platform)
+		}
+		if !strings.HasPrefix(artifact.URL, "https://") {
+			t.Fatalf("platform %q url = %q, want https", platform, artifact.URL)
+		}
+		if len(artifact.SHA256) != 64 {
+			t.Fatalf("platform %q sha256 length = %d, want 64", platform, len(artifact.SHA256))
+		}
+		if artifact.SizeBytes <= 0 {
+			t.Fatalf("platform %q size = %d, want > 0", platform, artifact.SizeBytes)
+		}
+		if artifact.Archive != "tar.gz" && artifact.Archive != "zip" {
+			t.Fatalf("platform %q archive = %q, want tar.gz or zip", platform, artifact.Archive)
+		}
+		if artifact.ArchiveExecutable == "" {
+			t.Fatalf("platform %q archive executable is empty", platform)
+		}
+	}
+}
+
+func TestResolveUVToolArtifactRejectsUnknownPlatform(t *testing.T) {
+	for _, platform := range []string{"", "plan9-amd64", "darwin"} {
+		if artifact, ok := ResolveUVToolArtifact(platform); ok {
+			t.Fatalf("ResolveUVToolArtifact(%q) = %#v, want ok=false", platform, artifact)
+		}
+	}
 }
 
 func TestDesktopLoginCallbackURLUsesEnvironmentScheme(t *testing.T) {

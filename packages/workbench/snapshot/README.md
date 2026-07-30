@@ -13,5 +13,7 @@ helpers, and the published JSON schema at:
 Snapshots may include an additive `layoutBasis` containing the surface size and
 layout constraints used to produce persisted frames. Workbench hosts use that
 basis to restore window and space frames relative to a different surface.
+They may also include an additive `lockedLayout` for a Mission Control layout
+that must continue to reflow its node set across subsequent surface resizes.
 Snapshots written before this field existed remain valid schema-version-1
 snapshots and restore through the host's conservative legacy bounds policy.

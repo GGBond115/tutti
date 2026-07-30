@@ -37,6 +37,7 @@ import {
   AGENT_REFERENCE_PROVENANCE_FILTER_FLAG,
   AGENT_SESSION_RECORDING_FLAG,
   isFeatureEnabled,
+  LAB_AGENT_SESSION_FORK_FLAG,
   LAB_ENABLED_FLAG,
   MOBILE_REMOTE_ACCESS_SETTINGS_FLAG
 } from "../../../../../shared/featureFlags/catalog.ts";
@@ -94,6 +95,10 @@ export function WorkspaceDeveloperSettingsSection() {
     pendingFeatureFlags,
     AGENT_SESSION_RECORDING_FLAG
   );
+  const agentSessionForkEnabled = isFeatureEnabled(
+    pendingFeatureFlags,
+    LAB_AGENT_SESSION_FORK_FLAG
+  );
   const mobileRemoteAccessSettingsEnabled = isFeatureEnabled(
     pendingFeatureFlags,
     MOBILE_REMOTE_ACCESS_SETTINGS_FLAG
@@ -102,7 +107,6 @@ export function WorkspaceDeveloperSettingsSection() {
     desktopPreferencesState.changingFeatureFlags !== null;
   const showAppDeveloperSources =
     desktopPreferencesState.showAppDeveloperSources;
-  const tuttiAgentSwitchEnabled = settingsState.tuttiAgentSwitchEnabled;
   const updateChannel = desktopPreferencesState.updateChannel;
   const onAnalyticsDebugEnabledChange = (enabled: boolean) => {
     analyticsDebugPreferenceService.setEnabled(enabled);
@@ -165,11 +169,14 @@ export function WorkspaceDeveloperSettingsSection() {
       [AGENT_SESSION_RECORDING_FLAG]: enabled
     });
   };
+  const onAgentSessionForkEnabledChange = (enabled: boolean) => {
+    void settingsService.changeFeatureFlags({
+      ...pendingFeatureFlags,
+      [LAB_AGENT_SESSION_FORK_FLAG]: enabled
+    });
+  };
   const onShowAppDeveloperSourcesChange = (show: boolean) => {
     void settingsService.changeShowAppDeveloperSources(show);
-  };
-  const onTuttiAgentSwitchEnabledChange = (enabled: boolean) => {
-    void settingsService.setTuttiAgentSwitchEnabled(enabled);
   };
   const onUpdateChannelChange = (channel: DesktopUpdateChannel) => {
     void settingsService.changeUpdateChannel(channel);
@@ -316,6 +323,23 @@ export function WorkspaceDeveloperSettingsSection() {
       <div className="flex w-full items-center justify-between gap-4 max-[560px]:flex-col max-[560px]:items-stretch">
         <div className="flex min-w-0 flex-1 flex-col gap-1 max-[560px]:w-full">
           <strong className="text-[13px] font-semibold text-[var(--text-primary)]">
+            {t("workspace.settings.developer.agentSessionForkLabel")}
+          </strong>
+          <p className="m-0 text-[13px] leading-[1.3] text-[var(--text-secondary)]">
+            {t("workspace.settings.developer.agentSessionForkDescription")}
+          </p>
+        </div>
+        <Switch
+          aria-label={t("workspace.settings.developer.agentSessionForkLabel")}
+          checked={agentSessionForkEnabled}
+          disabled={featureFlagsUpdating}
+          onCheckedChange={onAgentSessionForkEnabledChange}
+        />
+      </div>
+
+      <div className="flex w-full items-center justify-between gap-4 max-[560px]:flex-col max-[560px]:items-stretch">
+        <div className="flex min-w-0 flex-1 flex-col gap-1 max-[560px]:w-full">
+          <strong className="text-[13px] font-semibold text-[var(--text-primary)]">
             {t("workspace.settings.developer.quickPromptLibraryLabel")}
           </strong>
           <p className="m-0 text-[13px] leading-[1.3] text-[var(--text-secondary)]">
@@ -400,22 +424,6 @@ export function WorkspaceDeveloperSettingsSection() {
         updateChannel={updateChannel}
         onUpdateChannelChange={onUpdateChannelChange}
       />
-
-      <div className="flex w-full items-center justify-between gap-4 max-[560px]:flex-col max-[560px]:items-stretch">
-        <div className="flex min-w-0 flex-1 flex-col gap-1 max-[560px]:w-full">
-          <strong className="text-[13px] font-semibold text-[var(--text-primary)]">
-            {t("workspace.settings.developer.tuttiAgentSwitchLabel")}
-          </strong>
-          <p className="m-0 text-[13px] leading-[1.3] text-[var(--text-secondary)]">
-            {t("workspace.settings.developer.tuttiAgentSwitchDescription")}
-          </p>
-        </div>
-        <Switch
-          aria-label={t("workspace.settings.developer.tuttiAgentSwitchLabel")}
-          checked={tuttiAgentSwitchEnabled}
-          onCheckedChange={onTuttiAgentSwitchEnabledChange}
-        />
-      </div>
 
       <div className="flex w-full items-center justify-between gap-4 max-[560px]:flex-col max-[560px]:items-stretch">
         <div className="flex min-w-0 flex-1 flex-col gap-1 max-[560px]:w-full">

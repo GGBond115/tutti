@@ -95,6 +95,20 @@ type GoalControlOperationPrepare struct {
 	OccurredAtUnixMS int64
 }
 
+// ProviderGoalAdoption atomically promotes one provider-authored Goal
+// generation into the durable Goal operation lane after the provider has
+// already applied it. OperationID and ClientSubmitID must be deterministic for
+// the provider generation so notification replay is idempotent.
+type ProviderGoalAdoption struct {
+	OperationID      string
+	WorkspaceID      string
+	AgentSessionID   string
+	ClientSubmitID   string
+	Goal             map[string]any
+	Evidence         map[string]any
+	OccurredAtUnixMS int64
+}
+
 type GoalControlOperationComplete struct {
 	OperationID      string
 	WorkspaceID      string

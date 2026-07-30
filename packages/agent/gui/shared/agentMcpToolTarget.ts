@@ -14,16 +14,15 @@ export interface ExtractAgentMcpToolTargetInput {
 }
 
 export function extractAgentMcpToolTarget({
-  input: rawInput,
+  input: providedInput,
   metadata: rawMetadata,
   payload: rawPayload,
   toolName
 }: ExtractAgentMcpToolTargetInput): AgentMcpToolTarget | null {
   const payload = objectValue(rawPayload);
-  const input = objectValue(rawInput) ?? objectValue(payload?.input);
+  const input = objectValue(providedInput) ?? objectValue(payload?.input);
   const metadata = objectValue(rawMetadata) ?? objectValue(payload?.metadata);
   const toolCall = objectValue(input?.toolCall);
-  const toolCallRawInput = objectValue(toolCall?.rawInput);
   const request = objectValue(input?.request) ?? objectValue(toolCall?.request);
   const requestMeta = objectValue(request?._meta);
   const parsedToolName = parseMcpToolName(
@@ -40,9 +39,6 @@ export function extractAgentMcpToolTarget({
     stringValue(toolCall?.server),
     stringValue(toolCall?.server_name),
     stringValue(toolCall?.serverName),
-    stringValue(toolCallRawInput?.server),
-    stringValue(toolCallRawInput?.server_name),
-    stringValue(toolCallRawInput?.serverName),
     parsedToolName?.server
   );
   const tool = firstString(
@@ -52,8 +48,6 @@ export function extractAgentMcpToolTarget({
     stringValue(input?.toolName),
     stringValue(toolCall?.tool),
     stringValue(toolCall?.toolName),
-    stringValue(toolCallRawInput?.tool),
-    stringValue(toolCallRawInput?.toolName),
     parsedToolName?.tool
   );
   if (!server || !tool) {
@@ -67,8 +61,7 @@ export function extractAgentMcpToolTarget({
       firstString(
         formatToolParamsDisplay(requestMeta?.tool_params_display),
         formatObjectInstruction(requestMeta?.tool_params),
-        formatObjectInstruction(input?.arguments),
-        formatObjectInstruction(toolCallRawInput?.arguments)
+        formatObjectInstruction(input?.arguments)
       ) ?? null
   };
 }

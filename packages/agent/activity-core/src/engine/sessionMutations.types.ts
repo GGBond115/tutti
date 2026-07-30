@@ -44,6 +44,17 @@ export type SessionMutationRecord =
     }
   | {
       agentSessionIds: readonly [string];
+      commandId: string;
+      errorCode: string | null;
+      errorMessage: string | null;
+      kind: "rename";
+      mutationId: string;
+      status: SessionMutationStatus;
+      title: string;
+      workspaceId: string;
+    }
+  | {
+      agentSessionIds: readonly [string];
       ackCommandId: string | null;
       ackErrorMessage: string | null;
       ackRetryAttempt: number;
@@ -80,6 +91,15 @@ export interface SessionPinRequestedIntent {
   workspaceId: string;
 }
 
+export interface SessionRenameRequestedIntent {
+  type: "session/renameRequested";
+  agentSessionId: string;
+  mutationId: string;
+  title: string;
+  timeoutMs?: number;
+  workspaceId: string;
+}
+
 export interface SessionsDeleteRequestedIntent {
   type: "sessions/deleteRequested";
   agentSessionIds: readonly string[];
@@ -101,6 +121,7 @@ export interface SessionForkThroughTurnRequestedIntent {
 export type SessionMutationsIntent =
   | SessionForkThroughTurnRequestedIntent
   | SessionPinRequestedIntent
+  | SessionRenameRequestedIntent
   | SessionsDeleteRequestedIntent;
 
 export interface SessionSetPinnedCommand {
@@ -109,6 +130,16 @@ export interface SessionSetPinnedCommand {
   commandId: string;
   correlationId: string;
   pinned: boolean;
+  timeoutMs?: number;
+  workspaceId: string;
+}
+
+export interface SessionRenameCommand {
+  type: "session/rename";
+  agentSessionId: string;
+  commandId: string;
+  correlationId: string;
+  title: string;
   timeoutMs?: number;
   workspaceId: string;
 }
@@ -146,6 +177,7 @@ export interface SessionAcknowledgeForkObservedCommand {
 export type SessionMutationCommand =
   | SessionAcknowledgeForkObservedCommand
   | SessionForkThroughTurnCommand
+  | SessionRenameCommand
   | SessionSetPinnedCommand
   | SessionsDeleteCommand;
 

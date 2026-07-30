@@ -37,6 +37,7 @@ export interface AgentHandoffMenuProps {
   isolateTriggerEvents?: boolean;
   labels: AgentHandoffMenuLabels;
   onSelect: (target: AgentGUIAgentTarget) => void;
+  showOwnershipLabels?: boolean;
   targets: readonly AgentGUIAgentTarget[];
   testId?: string;
   triggerClassName?: string;
@@ -56,6 +57,7 @@ export function AgentHandoffMenu({
   isolateTriggerEvents = false,
   labels,
   onSelect,
+  showOwnershipLabels = false,
   targets,
   testId,
   triggerClassName,
@@ -184,10 +186,12 @@ export function AgentHandoffMenu({
           aria-label={labels.menu}
         >
           {targets.map((target) => {
-            const ownershipLabel = resolveHandoffTargetOwnershipLabel(target, {
-              self: labels.self,
-              shared: labels.shared
-            });
+            const ownershipLabel = showOwnershipLabels
+              ? resolveHandoffTargetOwnershipLabel(target, {
+                  self: labels.self,
+                  shared: labels.shared
+                })
+              : null;
             const ownerDeviceLabel = target.ownerDeviceLabel?.trim() ?? "";
             const deviceSourceLabel = ownerDeviceLabel
               ? (labels.deviceSource?.(ownerDeviceLabel) ?? ownerDeviceLabel)

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { createAgentSessionEngine } from "./createAgentSessionEngine.ts";
 import type { EngineDiagnosticEvent } from "./diagnostics.ts";
 import type {
+  AgentSessionEngine,
   AgentSessionEngineState,
   EngineClock,
   EngineCommandPort,
@@ -325,6 +326,28 @@ test("command success feeds back into the loop as a result intent", async () => 
   });
 });
 
+test("command execution observes the state produced by its triggering intent", () => {
+  const timer = createManualTimer();
+  let engine: AgentSessionEngine;
+  let snapshotDuringExecution: AgentSessionEngineState | undefined;
+  const commandPort: EngineCommandPort = {
+    execute() {
+      snapshotDuringExecution = engine.getSnapshot();
+      return new Promise(() => {});
+    }
+  };
+  engine = createAgentSessionEngine({
+    clock: timer.clock,
+    commandPort,
+    identity: { origin: "local-tuttid", workspaceId: "ws-1" },
+    scheduler: timer.scheduler
+  });
+
+  engine.dispatch({ probeId: "snapshot-order", type: "engine/probeRequested" });
+
+  assert.equal(snapshotDuringExecution?.engineRuntime.processedIntentCount, 1);
+});
+
 test("command failure feeds back as a failed result with the error message", async () => {
   const { commandPort, engine } = createHarness();
   engine.dispatch({ probeId: "p-2", type: "engine/probeRequested" });
@@ -334,6 +357,206 @@ test("command failure feeds back as a failed result with the error message", asy
     commandId: "p-2",
     errorMessage: "transport down",
     outcome: "failed"
+  });
+});
+
+test("settings precondition updates canonical Session before send and survives send failure", async () => {
+  const harness = createHarness({ workspaceId: "workspace-1" });
+  harness.engine.dispatch({
+    sessions: [
+      activitySession("session-1", {
+        agentTargetId: "target-1",
+        settings: { browserUse: false }
+      })
+    ],
+    type: "session/snapshotReceived"
+  });
+  harness.engine.dispatch({
+    agentSessionId: "session-1",
+    clientSubmitId: "submit-settings",
+    content: [{ text: "browse", type: "text" }],
+    expiresAtUnixMs: 120_000,
+    requestedAtUnixMs: 1,
+    requiredSettingsPatch: { browserUse: true },
+    type: "submit/requested",
+    workspaceId: "workspace-1"
+  });
+
+  const settingsCommand = harness.commandPort.executedCommands.at(-1);
+  assert.equal(settingsCommand?.type, "session/updateSettings");
+  assert.equal(
+    settingsCommand?.type === "session/updateSettings"
+      ? settingsCommand.settings.browserUse
+      : null,
+    true
+  );
+  assert.equal(
+    harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"]
+      ?.inFlight?.stage,
+    "preparingSettings"
+  );
+
+  harness.commandPort.succeed(settingsCommand!.commandId, {
+    agentSessionId: "session-1",
+    session: activitySession("session-1", {
+      agentTargetId: "target-1",
+      settings: { browserUse: true },
+      updatedAtUnixMs: 2
+    })
+  });
+  await flushMicrotasks();
+
+  const sendCommand = harness.commandPort.executedCommands.at(-1);
+  assert.equal(sendCommand?.type, "queue/sendPrompt");
+  assert.equal(
+    sendCommand?.type === "queue/sendPrompt"
+      ? sendCommand.requiredSettingsPatch
+      : null,
+    undefined
+  );
+  assert.equal(
+    harness.engine.getSnapshot().sessionLifecycle.sessionsById["session-1"]
+      ?.settings.browserUse,
+    true
+  );
+  assert.equal(
+    harness.engine.getSnapshot().promptQueue.recordsBySessionId["session-1"]
+      ?.inFlight?.stage,
+    "sending"
+  );
+
+  harness.commandPort.fail(sendCommand!.commandId, new Error("send rejected"));
+  await flushMicrotasks();
+
+  assert.equal(
+    harness.engine.getSnapshot().sessionLifecycle.sessionsById["session-1"]
+      ?.settings.browserUse,
+    true
+  );
+  assert.equal(
+    harness.engine.getSnapshot().pendingIntents.submitsByClientSubmitId[
+      "submit-settings"
+    ]?.status,
+    "failed"
+  );
+});
+
+test("public snapshots omit private prompt execution bookkeeping", () => {
+  const harness = createHarness({ workspaceId: "workspace-1" });
+  assert.equal(
+    Object.hasOwn(harness.engine.getSnapshot(), "promptExecutions"),
+    false
+  );
+
+  harness.engine.dispatch({
+    sessions: [
+      activitySession("session-private-state", {
+        agentTargetId: "target-1",
+        settings: { browserUse: false }
+      })
+    ],
+    type: "session/snapshotReceived"
+  });
+  harness.engine.dispatch({
+    agentSessionId: "session-private-state",
+    clientSubmitId: "submit-private-state",
+    content: [{ text: "browse", type: "text" }],
+    expiresAtUnixMs: 120_000,
+    requestedAtUnixMs: 1,
+    requiredSettingsPatch: { browserUse: true },
+    type: "submit/requested",
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(
+    Object.hasOwn(harness.engine.getSnapshot(), "promptExecutions"),
+    false
+  );
+  assert.equal(
+    harness.notifiedStates.some((state) =>
+      Object.hasOwn(state, "promptExecutions")
+    ),
+    false
+  );
+  assert.equal(
+    harness.commandPort.executedCommands.at(-1)?.type,
+    "session/updateSettings"
+  );
+});
+
+test("activation settings enter the shared Session settings lane", async () => {
+  const harness = createHarness({ workspaceId: "workspace-1" });
+  harness.engine.dispatch({
+    agentSessionId: "session-new",
+    agentTargetId: "target-1",
+    clientSubmitId: "submit-create",
+    content: [{ text: "create", type: "text" }],
+    cwd: "/workspace",
+    expiresAtUnixMs: 60_000,
+    mode: "new",
+    requestedAtUnixMs: 1,
+    requestId: "activation-1",
+    type: "activation/requested",
+    workspaceId: "workspace-1"
+  });
+  harness.engine.dispatch({
+    agentSessionId: "session-new",
+    settings: { model: "model-2" },
+    type: "activation/settingsPatched"
+  });
+  harness.engine.dispatch({
+    sessions: [
+      activitySession("session-new", {
+        agentTargetId: "target-1",
+        createdAtUnixMs: 2,
+        settings: { model: "model-1" }
+      })
+    ],
+    type: "session/snapshotReceived"
+  });
+
+  const activationSettings = harness.commandPort.executedCommands.at(-1);
+  assert.deepEqual(activationSettings, {
+    agentSessionId: "session-new",
+    commandId: "activation-settings:activation-1",
+    correlationId: "session-new",
+    settings: { model: "model-2" },
+    type: "session/updateSettings",
+    workspaceId: "workspace-1"
+  });
+
+  harness.engine.dispatch({
+    agentSessionId: "session-new",
+    commandId: "settings-after",
+    settings: { speed: "fast" },
+    type: "session/settingsUpdateRequested",
+    workspaceId: "workspace-1"
+  });
+  assert.equal(
+    harness.commandPort.executedCommands.filter(
+      (command) => command.type === "session/updateSettings"
+    ).length,
+    1
+  );
+
+  harness.commandPort.succeed(activationSettings!.commandId, {
+    agentSessionId: "session-new",
+    session: activitySession("session-new", {
+      agentTargetId: "target-1",
+      createdAtUnixMs: 2,
+      settings: { model: "model-2" },
+      updatedAtUnixMs: 3
+    })
+  });
+  await flushMicrotasks();
+
+  assert.deepEqual(harness.commandPort.executedCommands.at(-1), {
+    agentSessionId: "session-new",
+    commandId: "settings-after",
+    correlationId: "session-new",
+    settings: { speed: "fast" },
+    type: "session/updateSettings",
+    workspaceId: "workspace-1"
   });
 });
 
@@ -590,6 +813,151 @@ test("stop aborts activation immediately and cancels the first turn when it arri
       type: "turn/cancel",
       workspaceId: "ws-1"
     }
+  );
+});
+
+test("activation command result settles a new Session inside the Engine", async () => {
+  const { engine } = createHarness({
+    workspaceId: "workspace-1"
+  });
+  assert.equal(
+    engine.activateSession({
+      agentSessionId: "session-created",
+      agentTargetId: "target-1",
+      clientSubmitId: "submit-created",
+      mode: "new",
+      requestId: "activation-created"
+    }),
+    true
+  );
+  const created = activitySession("session-created", {
+    createdAtUnixMs: 1,
+    updatedAtUnixMs: 1
+  });
+  engine.dispatch({
+    commandId: "activate:activation-created",
+    commandType: "session/activate",
+    correlationId: "activation-created",
+    outcome: "succeeded",
+    resultContract: "activation-v1",
+    type: "engine/commandResult",
+    value: {
+      activation: { mode: "new", status: "attached" },
+      session: created
+    }
+  });
+  await flushMicrotasks();
+
+  assert.equal(
+    engine.getSnapshot().sessionLifecycle.sessionsById["session-created"]
+      ?.agentSessionId,
+    "session-created"
+  );
+  assert.equal(
+    engine.getSnapshot().pendingIntents.activationsByRequestId[
+      "activation-created"
+    ]?.status,
+    "confirmed"
+  );
+});
+
+test("activation command result hydrates existing Session detail inside the Engine", async () => {
+  const { engine } = createHarness({
+    workspaceId: "workspace-1"
+  });
+  assert.equal(
+    engine.activateSession({
+      agentSessionId: "session-existing",
+      mode: "existing",
+      requestId: "activation-existing"
+    }),
+    true
+  );
+  const existing = activitySession("session-existing", {
+    updatedAtUnixMs: 2
+  });
+  const turn = activityTurn("session-existing", "turn-existing");
+  engine.dispatch({
+    commandId: "activate:activation-existing",
+    commandType: "session/activate",
+    correlationId: "activation-existing",
+    outcome: "succeeded",
+    resultContract: "activation-v1",
+    type: "engine/commandResult",
+    value: {
+      activation: { mode: "existing", status: "already_attached" },
+      detail: {
+        childSessions: [],
+        lifecycleCapabilitiesProjected: true,
+        projection: "authoritative",
+        session: existing,
+        turns: [turn]
+      },
+      session: existing
+    }
+  });
+  await flushMicrotasks();
+
+  const snapshot = engine.getSnapshot();
+  assert.equal(
+    snapshot.pendingIntents.activationsByRequestId["activation-existing"]
+      ?.status,
+    "confirmed"
+  );
+  assert.equal(
+    Object.values(snapshot.sessionLifecycle.turnsById)[0]?.turnId,
+    "turn-existing"
+  );
+});
+
+test("late activation projection cannot regress a newer realtime Session", async () => {
+  const { engine } = createHarness({
+    workspaceId: "workspace-1"
+  });
+  assert.equal(
+    engine.activateSession({
+      agentSessionId: "session-existing",
+      mode: "existing",
+      requestId: "activation-existing"
+    }),
+    true
+  );
+  engine.dispatch({
+    session: activitySession("session-existing", {
+      title: "Realtime title",
+      updatedAtUnixMs: 20
+    }),
+    type: "session/upserted"
+  });
+  const stale = activitySession("session-existing", {
+    title: "Stale activation title",
+    updatedAtUnixMs: 10
+  });
+  engine.dispatch({
+    commandId: "activate:activation-existing",
+    commandType: "session/activate",
+    correlationId: "activation-existing",
+    outcome: "succeeded",
+    resultContract: "activation-v1",
+    type: "engine/commandResult",
+    value: {
+      activation: { mode: "existing", status: "already_attached" },
+      detail: {
+        childSessions: [],
+        lifecycleCapabilitiesProjected: true,
+        projection: "authoritative",
+        session: stale,
+        turns: []
+      },
+      session: stale
+    }
+  });
+  await flushMicrotasks();
+
+  assert.equal(
+    engine.getSnapshot().sessionLifecycle.sessionsById["session-existing"]
+      ?.title,
+    "Realtime title"
   );
 });
 

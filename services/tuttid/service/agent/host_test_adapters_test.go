@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
@@ -14,6 +15,22 @@ import (
 // agenthost.SQLiteWorkspaceStore; package tests retain this adapter for their
 // narrow in-memory service fakes.
 type serviceHostStore struct{ service *Service }
+
+func (serviceHostStore) GetSessionForkLineage(
+	context.Context,
+	string,
+	string,
+) (storesqlite.SessionForkLineage, bool, error) {
+	return storesqlite.SessionForkLineage{}, false, nil
+}
+
+func (serviceHostStore) GetSessionForkOperation(
+	context.Context,
+	string,
+	string,
+) (storesqlite.SessionForkOperation, bool, error) {
+	return storesqlite.SessionForkOperation{}, false, nil
+}
 
 type canonicalSessionMessageReader interface {
 	ListSessionMessages(context.Context, storesqlite.ListSessionMessagesInput) (storesqlite.MessagePage, bool, error)
@@ -349,9 +366,125 @@ func (a serviceHostGoalRuntime) FenceGoalGeneration(ctx context.Context, input a
 	return normalizeRuntimeError(fencer.FenceGoalGeneration(ctx, input))
 }
 
+func hostSupportPortsForService(
+	s *Service,
+	_ committedSessionForkReader,
+	worktreeGC ...agenthost.WorktreeGarbageCollector,
+) HostSupportPorts {
+	var gc agenthost.WorktreeGarbageCollector = s
+	if len(worktreeGC) > 0 {
+		gc = worktreeGC[0]
+	}
+	return HostSupportPorts{
+		SessionPurge:         s.SessionPurgeStore,
+		SessionDeletionGuard: s.SessionDeletionGuard,
+		SessionForkContext: serviceHostSessionForkContextPolicy{
+			runtimePreparer: s.RuntimePreparer,
+		},
+		SessionForkState: serviceHostSessionForkProviderStateBinder{
+			runtimePreparer: s.RuntimePreparer,
+		},
+		RuntimePreparation: serviceHostPreparation{
+			support: s, runtimePreparer: s.RuntimePreparer,
+		},
+		Attachments:    s.PromptAttachmentStore,
+		SettingsPolicy: serviceHostSettingsPolicy{catalog: s.ModelCatalog},
+		Clock:          testServiceHostClock{service: s},
+		SessionLocker: serviceHostLocker{
+			mu: &s.sessionSettingsMu, locks: &s.sessionSettingsLocks,
+		},
+		RuntimeStartGate:     serviceHostStartupGate{gate: s.claudeStartupLock},
+		LifecycleObserver:    serviceHostLifecycleObserver{reporter: s.AnalyticsReporter},
+		CommitObserver:       testServiceHostCommitObserver{service: s},
+		RuntimeOperations:    s.RuntimeOperationStore,
+		OperationEvents:      testServiceHostRuntimeOperationEventPublisher{service: s},
+		OperationOwner:       s.RuntimeOperationOwner,
+		StaleTurnSettler:     s.StaleTurnSettler,
+		WorktreeGC:           gc,
+		GoalStore:            s.GoalStateStore,
+		GoalFences:           s.GoalGenerationFenceStore,
+		GoalInbox:            s.GoalReconcileInboxStore,
+		GoalOwner:            s.GoalOperationOwner,
+		GoalClock:            testServiceHostClock{service: s, goal: true},
+		GoalAttemptTimeout:   s.GoalOperationAttemptTimeout,
+		GoalRecoveryBudget:   s.GoalOperationRecoveryBudget,
+		GoalMaxAttempts:      s.GoalOperationMaxAttempts,
+		GoalDispatchDeadline: s.GoalOperationDispatchDeadline,
+	}
+}
+
 func newApplicationHost(s *Service, worktreeGC agenthost.WorktreeGarbageCollector) *agenthost.Host {
 	store := serviceHostStore{service: s}
-	return composeApplicationHost(s, worktreeGC, store, store, store, nil, serviceHostRuntime{service: s}, serviceHostGoalRuntime{service: s})
+	support := hostSupportPortsForService(s, nil, worktreeGC)
+	return composeApplicationHost(
+		support,
+		store,
+		store,
+		store,
+		nil,
+		serviceHostRuntime{service: s},
+		serviceHostGoalRuntime{service: s},
+	)
+}
+
+type testServiceHostClock struct {
+	service *Service
+	goal    bool
+}
+
+func (c testServiceHostClock) Now() time.Time {
+	if c.service != nil {
+		if c.goal && c.service.GoalOperationClock != nil {
+			return c.service.GoalOperationClock().UTC()
+		}
+		if !c.goal && c.service.RuntimeOperationClock != nil {
+			return c.service.RuntimeOperationClock().UTC()
+		}
+	}
+	return time.Now().UTC()
+}
+
+type testServiceHostCommitObserver struct {
+	service *Service
+}
+
+func (o testServiceHostCommitObserver) ObserveCommitted(ctx context.Context, delta agenthost.CommittedDelta) error {
+	if o.service == nil || o.service.CommitObserver == nil {
+		return nil
+	}
+	return o.service.CommitObserver.ObserveCommitted(ctx, delta)
+}
+
+type testServiceHostRuntimeOperationEventPublisher struct {
+	service *Service
+}
+
+func (p testServiceHostRuntimeOperationEventPublisher) PublishRuntimeOperationEvent(
+	ctx context.Context,
+	event storesqlite.RuntimeOperationEvent,
+) error {
+	if p.service == nil || p.service.RuntimeOperationEventPublisher == nil {
+		return nil
+	}
+	return p.service.RuntimeOperationEventPublisher.PublishRuntimeOperationEvent(ctx, event)
+}
+
+// SetApplicationHost is test-only compatibility for conformance fixtures that
+// replace the exact Host under test. Production construction is immutable.
+func (s *Service) SetApplicationHost(host *agenthost.Host) {
+	if s == nil || host == nil {
+		panic("agent service requires an application host")
+	}
+	s.applicationHostMu.Lock()
+	defer s.applicationHostMu.Unlock()
+	if s.applicationHostProvider != nil {
+		if s.applicationHost == host {
+			return
+		}
+		panic("agent service application host is already configured")
+	}
+	s.applicationHost = host
+	s.applicationHostProvider = func() *agenthost.Host { return host }
 }
 
 func configureTestApplicationHost(s *Service) {

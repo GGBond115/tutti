@@ -2,15 +2,8 @@ package agentruntime
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"reflect"
-	"strings"
 	"testing"
-	"time"
 )
 
 func TestCodexAppServerForkCapabilitiesRequireExactSupportedRuntime(t *testing.T) {
@@ -23,13 +16,6 @@ func TestCodexAppServerForkCapabilitiesRequireExactSupportedRuntime(t *testing.T
 		if capabilities.FullSession || !capabilities.ThroughTurn {
 			t.Fatalf("capabilities = %#v, want through-turn only", capabilities)
 		}
-		if !capabilities.ThroughProviderTurnIDsKnown ||
-			!reflect.DeepEqual(
-				capabilities.ThroughProviderTurnIDs,
-				[]string{"provider-turn-1", "provider-turn-2"},
-			) {
-			t.Fatalf("capabilities = %#v, want provider Turn projection", capabilities)
-		}
 		if spawned, live := transport.snapshot(); spawned != 1 || len(live) != 1 {
 			t.Fatalf(
 				"capability probe processes = spawned %d/live %d, want existing 1/1",
@@ -41,8 +27,8 @@ func TestCodexAppServerForkCapabilitiesRequireExactSupportedRuntime(t *testing.T
 
 	t.Run("older codex", func(t *testing.T) {
 		transport := &multiProcAppServerTransport{}
-		transport.setConfigure(func(conn *scriptedAppServerConnection) {
-			conn.userAgent = "codex/0.143.9"
+		transport.setConfigure(func(server *fakeCodexAppServer) {
+			server.userAgent = "codex/0.143.9"
 		})
 		adapter := NewCodexAppServerAdapter(transport)
 		source := testAppServerSession()
@@ -54,17 +40,15 @@ func TestCodexAppServerForkCapabilitiesRequireExactSupportedRuntime(t *testing.T
 		if err != nil {
 			t.Fatalf("ForkCapabilities: %v", err)
 		}
-		if capabilities.FullSession || capabilities.ThroughTurn ||
-			capabilities.ThroughProviderTurnIDsKnown ||
-			len(capabilities.ThroughProviderTurnIDs) != 0 {
+		if capabilities.FullSession || capabilities.ThroughTurn {
 			t.Fatalf("capabilities = %#v, want unsupported", capabilities)
 		}
 	})
 
 	t.Run("tutti agent does not inherit codex capability", func(t *testing.T) {
 		transport := &multiProcAppServerTransport{}
-		transport.setConfigure(func(conn *scriptedAppServerConnection) {
-			conn.userAgent = "codex/0.144.1"
+		transport.setConfigure(func(server *fakeCodexAppServer) {
+			server.userAgent = "codex/0.144.1"
 		})
 		adapter := NewTuttiAgentAppServerAdapterWithHostMetadata(
 			transport,
@@ -80,251 +64,70 @@ func TestCodexAppServerForkCapabilitiesRequireExactSupportedRuntime(t *testing.T
 		if err != nil {
 			t.Fatalf("ForkCapabilities: %v", err)
 		}
-		if capabilities.FullSession || capabilities.ThroughTurn ||
-			capabilities.ThroughProviderTurnIDsKnown ||
-			len(capabilities.ThroughProviderTurnIDs) != 0 {
+		if capabilities.FullSession || capabilities.ThroughTurn {
 			t.Fatalf("capabilities = %#v, want unsupported", capabilities)
 		}
 	})
 }
 
-func TestCodexAppServerForkCapabilitiesReadHistoricalRuntimeEveryTime(t *testing.T) {
+func TestCodexAppServerForkCapabilitiesUsePersistedRuntimeAttestation(t *testing.T) {
 	transport := &multiProcAppServerTransport{}
-	transport.setConfigure(func(conn *scriptedAppServerConnection) {
-		conn.userAgent = "codex/0.144.1"
-	})
 	adapter := NewCodexAppServerAdapter(transport)
-	adapter.config.command = []string{writeFakeCodexExecutable(t, "v1"), "app-server"}
 	source := testAppServerSession()
 	source.ProviderSessionID = "codex-thread-1"
+	source.RuntimeContext = map[string]any{
+		"agent": map[string]any{"userAgent": "codex/0.144.1"},
+	}
 
-	for index := 0; index < 2; index++ {
-		capabilities, err := adapter.ForkCapabilities(context.Background(), source)
-		if err != nil {
-			t.Fatalf("ForkCapabilities call %d: %v", index+1, err)
-		}
-		if capabilities.FullSession || !capabilities.ThroughTurn {
-			t.Fatalf("capabilities = %#v, want through-turn only", capabilities)
-		}
+	capabilities, err := adapter.ForkCapabilities(context.Background(), source)
+	if err != nil {
+		t.Fatalf("ForkCapabilities: %v", err)
 	}
-	spawned, live := transport.snapshot()
-	if spawned != 2 || len(live) != 0 {
-		t.Fatalf("processes = spawned %d/live %d, want 2/0", spawned, len(live))
+	if capabilities.FullSession || !capabilities.ThroughTurn {
+		t.Fatalf("capabilities = %#v, want through-turn only", capabilities)
 	}
-	if adapter.HasLiveSession(source) {
-		t.Fatal("historical capability probe registered a live session")
+	if spawned, live := transport.snapshot(); spawned != 0 || len(live) != 0 {
+		t.Fatalf(
+			"capability projection processes = spawned %d/live %d, want 0/0",
+			spawned,
+			len(live),
+		)
 	}
 }
 
-func TestCodexAppServerForkCapabilitiesAreScopedToExactHistoricalLaunch(t *testing.T) {
-	t.Run("different prepared cwd", func(t *testing.T) {
+func TestCodexAppServerForkCapabilitiesRequirePersistedAttestation(t *testing.T) {
+	t.Run("missing attestation", func(t *testing.T) {
 		transport := &multiProcAppServerTransport{}
-		probes := 0
-		transport.setConfigure(func(conn *scriptedAppServerConnection) {
-			probes++
-			if probes == 1 {
-				conn.userAgent = "codex/0.144.1"
-			} else {
-				conn.userAgent = "codex/0.143.9"
-			}
-		})
 		adapter := NewCodexAppServerAdapter(transport)
-		adapter.config.command = []string{
-			writeFakeCodexExecutable(t, "same-binary"),
-			"app-server",
-		}
-		first := testAppServerSession()
-		first.ProviderSessionID = "codex-thread-1"
-		first.CWD = t.TempDir()
-		second := first
-		second.AgentSessionID = "agent-session-2"
-		second.ProviderSessionID = "codex-thread-2"
-		second.CWD = t.TempDir()
-
-		supported, err := adapter.ForkCapabilities(t.Context(), first)
-		if err != nil || !supported.ThroughTurn {
-			t.Fatalf("first capabilities=%#v error=%v", supported, err)
-		}
-		unsupported, err := adapter.ForkCapabilities(t.Context(), second)
-		if err != nil || unsupported.ThroughTurn {
-			t.Fatalf("second capabilities=%#v error=%v", unsupported, err)
-		}
-		if spawned, _ := transport.snapshot(); spawned != 2 {
-			t.Fatalf("historical probes=%d, want 2", spawned)
-		}
-	})
-
-	t.Run("executable upgrade", func(t *testing.T) {
-		transport := &multiProcAppServerTransport{}
-		probes := 0
-		transport.setConfigure(func(conn *scriptedAppServerConnection) {
-			probes++
-			if probes == 1 {
-				conn.userAgent = "codex/0.143.9"
-			} else {
-				conn.userAgent = "codex/0.144.1"
-			}
-		})
-		adapter := NewCodexAppServerAdapter(transport)
-		executable := writeFakeCodexExecutable(t, "before-upgrade")
-		adapter.config.command = []string{executable, "app-server"}
 		source := testAppServerSession()
 		source.ProviderSessionID = "codex-thread-1"
 
-		before, err := adapter.ForkCapabilities(t.Context(), source)
-		if err != nil || before.ThroughTurn {
-			t.Fatalf("before capabilities=%#v error=%v", before, err)
+		capabilities, err := adapter.ForkCapabilities(t.Context(), source)
+		if err != nil || capabilities.ThroughTurn {
+			t.Fatalf("capabilities=%#v error=%v, want unsupported", capabilities, err)
 		}
-		upgraded := append(
-			[]byte{0xcf, 0xfa, 0xed, 0xfe},
-			[]byte("after-upgrade-longer")...,
-		)
-		if err := os.WriteFile(executable, upgraded, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		future := time.Now().Add(time.Second)
-		if err := os.Chtimes(executable, future, future); err != nil {
-			t.Fatal(err)
-		}
-		after, err := adapter.ForkCapabilities(t.Context(), source)
-		if err != nil || !after.ThroughTurn {
-			t.Fatalf("after capabilities=%#v error=%v", after, err)
-		}
-		if spawned, _ := transport.snapshot(); spawned != 2 {
-			t.Fatalf("historical probes=%d, want 2", spawned)
+		if spawned, _ := transport.snapshot(); spawned != 0 {
+			t.Fatalf("capability projection spawned=%d, want 0", spawned)
 		}
 	})
-}
 
-func writeFakeCodexExecutable(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "codex")
-	bytes := append([]byte{0xcf, 0xfa, 0xed, 0xfe}, []byte(content)...)
-	if err := os.WriteFile(path, bytes, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
+	t.Run("older persisted runtime", func(t *testing.T) {
+		transport := &multiProcAppServerTransport{}
+		adapter := NewCodexAppServerAdapter(transport)
+		source := testAppServerSession()
+		source.ProviderSessionID = "codex-thread-1"
+		source.RuntimeContext = map[string]any{
+			"agent": map[string]any{"userAgent": "codex/0.143.9"},
+		}
 
-func TestCodexForkLaunchFingerprintHashesSensitiveMaterial(t *testing.T) {
-	executable := writeFakeCodexExecutable(t, "fingerprint")
-	fingerprint, cacheable := codexForkLaunchFingerprint(ProcessSpec{
-		Command: []string{executable, "app-server"},
-		Env:     []string{"CODEX_TEST_SECRET=do-not-retain"},
-		CWD:     t.TempDir(),
+		capabilities, err := adapter.ForkCapabilities(t.Context(), source)
+		if err != nil || capabilities.ThroughTurn {
+			t.Fatalf("capabilities=%#v error=%v, want unsupported", capabilities, err)
+		}
+		if spawned, _ := transport.snapshot(); spawned != 0 {
+			t.Fatalf("capability projection spawned=%d, want 0", spawned)
+		}
 	})
-	if !cacheable {
-		t.Fatal("native Codex launch was not cacheable")
-	}
-	if len(fingerprint) != sha256.Size*2 {
-		t.Fatalf("fingerprint length=%d, want %d", len(fingerprint), sha256.Size*2)
-	}
-	if strings.Contains(fingerprint, "do-not-retain") ||
-		strings.Contains(fingerprint, "CODEX_TEST_SECRET") {
-		t.Fatalf("fingerprint retained sensitive environment: %q", fingerprint)
-	}
-}
-
-func TestCodexForkLaunchFingerprintRejectsScriptAndSymlinkWrappers(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		path func(*testing.T) string
-	}{
-		{
-			name: "direct shebang",
-			path: func(t *testing.T) string {
-				path := filepath.Join(t.TempDir(), "codex")
-				if err := os.WriteFile(
-					path,
-					[]byte("#!/usr/bin/env node\nconsole.log('wrapper')\n"),
-					0o755,
-				); err != nil {
-					t.Fatal(err)
-				}
-				return path
-			},
-		},
-		{
-			name: "symlink to shebang",
-			path: func(t *testing.T) string {
-				dir := t.TempDir()
-				target := filepath.Join(dir, "codex.js")
-				if err := os.WriteFile(
-					target,
-					[]byte("#!/usr/bin/env node\nconsole.log('wrapper')\n"),
-					0o755,
-				); err != nil {
-					t.Fatal(err)
-				}
-				link := filepath.Join(dir, "codex")
-				if err := os.Symlink(target, link); err != nil {
-					t.Fatal(err)
-				}
-				return link
-			},
-		},
-		{
-			name: "package manager command",
-			path: func(t *testing.T) string {
-				path := filepath.Join(t.TempDir(), "npx")
-				if err := os.WriteFile(
-					path,
-					append(
-						[]byte{0xcf, 0xfa, 0xed, 0xfe},
-						[]byte("package-manager")...,
-					),
-					0o755,
-				); err != nil {
-					t.Fatal(err)
-				}
-				return path
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if fingerprint, cacheable := codexForkLaunchFingerprint(ProcessSpec{
-				Command: []string{test.path(t), "app-server"},
-			}); cacheable || fingerprint != "" {
-				t.Fatalf(
-					"wrapper fingerprint=%q cacheable=%v, want fail-closed",
-					fingerprint,
-					cacheable,
-				)
-			}
-		})
-	}
-}
-
-func TestCodexForkCapabilityCacheIsBoundedLRU(t *testing.T) {
-	adapter := NewCodexAppServerAdapter(&multiProcAppServerTransport{})
-	for index := 0; index < codexForkCapabilityCacheCapacity; index++ {
-		adapter.cacheForkCapabilityVersion(
-			fmt.Sprintf("fingerprint-%02d", index),
-			[3]int{0, 144, index},
-		)
-	}
-	if _, ok := adapter.cachedForkCapabilityVersion("fingerprint-00"); !ok {
-		t.Fatal("cache did not contain the oldest entry before promotion")
-	}
-	adapter.cacheForkCapabilityVersion(
-		"fingerprint-overflow",
-		[3]int{0, 145, 0},
-	)
-	if len(adapter.forkCapabilityVersions) != codexForkCapabilityCacheCapacity ||
-		len(adapter.forkCapabilityOrder) != codexForkCapabilityCacheCapacity {
-		t.Fatalf(
-			"cache sizes versions=%d order=%d, want %d",
-			len(adapter.forkCapabilityVersions),
-			len(adapter.forkCapabilityOrder),
-			codexForkCapabilityCacheCapacity,
-		)
-	}
-	if _, ok := adapter.forkCapabilityVersions["fingerprint-01"]; ok {
-		t.Fatal("least-recently-used entry was not evicted")
-	}
-	if _, ok := adapter.forkCapabilityVersions["fingerprint-00"]; !ok {
-		t.Fatal("recently promoted entry was evicted")
-	}
 }
 
 func TestCodexAppServerForkThroughProviderTurn(t *testing.T) {
@@ -377,9 +180,9 @@ func TestCodexAppServerForkedChildCanResumeAndStartTurn(t *testing.T) {
 		t.Fatalf("Fork: %v", err)
 	}
 
-	transport.setConfigure(func(conn *scriptedAppServerConnection) {
-		conn.userAgent = "codex/0.144.1"
-		conn.holdTurn = true
+	transport.setConfigure(func(server *fakeCodexAppServer) {
+		server.userAgent = "codex/0.144.1"
+		server.holdTurn = true
 	})
 	target := source
 	target.AgentSessionID = "agent-session-fork"
@@ -434,15 +237,14 @@ func TestCodexAppServerForkRejectsUnavailableBoundaryBeforeProviderMutation(
 	t *testing.T,
 ) {
 	adapter, source, transport := startForkCapableCodexAdapter(t)
-	transport.setConfigure(func(conn *scriptedAppServerConnection) {
-		conn.userAgent = "codex/0.144.1"
-		conn.threadReadTurnIDs = []string{"provider-turn-1"}
+	transport.setConfigure(func(server *fakeCodexAppServer) {
+		server.userAgent = "codex/0.144.1"
+		server.threadReadTurnIDs = []string{"provider-turn-1"}
 	})
 
 	result, err := adapter.Fork(t.Context(), SessionForkInput{
-		Source:          source,
-		ProviderTurnID:  "provider-turn-2",
-		ProviderTurnIDs: []string{"provider-turn-1", "provider-turn-2"},
+		Source:         source,
+		ProviderTurnID: "provider-turn-2",
 	})
 	if err == nil ||
 		result.DeliveryDisposition != SessionForkDeliveryNotStarted {
@@ -460,45 +262,45 @@ func TestCodexAppServerForkRejectsUnavailableBoundaryBeforeProviderMutation(
 func TestCodexAppServerForkRejectsUnverifiedChild(t *testing.T) {
 	tests := []struct {
 		name      string
-		configure func(*scriptedAppServerConnection)
+		configure func(*fakeCodexAppServer)
 	}{
 		{
 			name: "lineage missing",
-			configure: func(conn *scriptedAppServerConnection) {
-				conn.omitForkedFromThreadID = true
+			configure: func(server *fakeCodexAppServer) {
+				server.omitForkedFromThreadID = true
 			},
 		},
 		{
 			name: "lineage empty",
-			configure: func(conn *scriptedAppServerConnection) {
-				conn.emptyForkedFromThreadID = true
+			configure: func(server *fakeCodexAppServer) {
+				server.emptyForkedFromThreadID = true
 			},
 		},
 		{
 			name: "lineage mismatch",
-			configure: func(conn *scriptedAppServerConnection) {
-				conn.forkedFromThreadID = "different-source"
+			configure: func(server *fakeCodexAppServer) {
+				server.forkedFromThreadID = "different-source"
 			},
 		},
 		{
 			name: "boundary mismatch",
-			configure: func(conn *scriptedAppServerConnection) {
-				conn.forkResponseLastTurnID = "different-turn"
+			configure: func(server *fakeCodexAppServer) {
+				server.forkResponseLastTurnID = "different-turn"
 			},
 		},
 		{
 			name: "source returned as child",
-			configure: func(conn *scriptedAppServerConnection) {
-				conn.forkChildThreadID = "codex-thread-1"
+			configure: func(server *fakeCodexAppServer) {
+				server.forkChildThreadID = "codex-thread-1"
 			},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			adapter, source, transport := startForkCapableCodexAdapter(t)
-			transport.setConfigure(func(conn *scriptedAppServerConnection) {
-				conn.userAgent = "codex/0.144.1"
-				test.configure(conn)
+			transport.setConfigure(func(server *fakeCodexAppServer) {
+				server.userAgent = "codex/0.144.1"
+				test.configure(server)
 			})
 			result, err := adapter.Fork(context.Background(), SessionForkInput{
 				Source:         source,
@@ -520,9 +322,9 @@ func TestCodexAppServerForkRejectsUnverifiedChild(t *testing.T) {
 
 func TestCodexAppServerForkClassifiesExplicitRPCRejection(t *testing.T) {
 	adapter, source, transport := startForkCapableCodexAdapter(t)
-	transport.setConfigure(func(conn *scriptedAppServerConnection) {
-		conn.userAgent = "codex/0.144.1"
-		conn.forkRPCError = true
+	transport.setConfigure(func(server *fakeCodexAppServer) {
+		server.userAgent = "codex/0.144.1"
+		server.forkRPCError = true
 	})
 	result, err := adapter.Fork(context.Background(), SessionForkInput{
 		Source:         source,
@@ -540,16 +342,15 @@ func TestCodexAppServerForkClassifiesExplicitRPCRejection(t *testing.T) {
 	}
 }
 
-func TestCodexAppServerForkVerifiesExactProviderTurnPrefix(t *testing.T) {
+func TestCodexAppServerForkVerifiesSelectedProviderTurnBinding(t *testing.T) {
 	adapter, source, transport := startForkCapableCodexAdapter(t)
-	transport.setConfigure(func(conn *scriptedAppServerConnection) {
-		conn.userAgent = "codex/0.144.1"
-		conn.forkResponseTurnIDs = []string{"provider-turn-1", "provider-turn-2"}
+	transport.setConfigure(func(server *fakeCodexAppServer) {
+		server.userAgent = "codex/0.144.1"
+		server.forkResponseTurnIDs = []string{"provider-turn-1", "provider-turn-2"}
 	})
 	result, err := adapter.Fork(context.Background(), SessionForkInput{
-		Source:          source,
-		ProviderTurnID:  "provider-turn-2",
-		ProviderTurnIDs: []string{"provider-turn-1", "provider-turn-2"},
+		Source:         source,
+		ProviderTurnID: "provider-turn-2",
 	})
 	if err != nil {
 		t.Fatalf("Fork: %v", err)
@@ -558,35 +359,42 @@ func TestCodexAppServerForkVerifiesExactProviderTurnPrefix(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 
-	transport.setConfigure(func(conn *scriptedAppServerConnection) {
-		conn.userAgent = "codex/0.144.1"
-		conn.forkResponseTurnIDs = []string{"provider-turn-2"}
+	transport.setConfigure(func(server *fakeCodexAppServer) {
+		server.userAgent = "codex/0.144.1"
+		server.forkResponseTurnIDs = []string{"provider-turn-2"}
+	})
+	selectedOnly, err := adapter.Fork(context.Background(), SessionForkInput{
+		Source:         source,
+		ProviderTurnID: "provider-turn-2",
+	})
+	if err != nil || selectedOnly.DeliveryDisposition != SessionForkDeliveryAccepted {
+		t.Fatalf("selected-only Fork result=%#v error=%v", selectedOnly, err)
+	}
+
+	transport.setConfigure(func(server *fakeCodexAppServer) {
+		server.userAgent = "codex/0.144.1"
+		server.forkResponseTurnIDs = []string{"provider-turn-1"}
 	})
 	rejected, err := adapter.Fork(context.Background(), SessionForkInput{
-		Source:          source,
-		ProviderTurnID:  "provider-turn-2",
-		ProviderTurnIDs: []string{"provider-turn-1", "provider-turn-2"},
+		Source:         source,
+		ProviderTurnID: "provider-turn-2",
 	})
-	if err == nil {
-		t.Fatal("Fork succeeded with an incomplete provider prefix")
-	}
-	if rejected.DeliveryDisposition != SessionForkDeliveryUnknown {
-		t.Fatalf("result = %#v, want delivery unknown", rejected)
+	if err == nil || rejected.DeliveryDisposition != SessionForkDeliveryUnknown {
+		t.Fatalf("missing selected binding result=%#v error=%v", rejected, err)
 	}
 }
 
 func TestControllerForkUsesOptionalSessionForkAdapter(t *testing.T) {
 	transport := &multiProcAppServerTransport{}
-	transport.setConfigure(func(conn *scriptedAppServerConnection) {
-		conn.userAgent = "codex/0.144.1"
+	transport.setConfigure(func(server *fakeCodexAppServer) {
+		server.userAgent = "codex/0.144.1"
 	})
 	adapter := NewCodexAppServerAdapter(transport)
-	adapter.config.command = []string{
-		writeFakeCodexExecutable(t, "controller"),
-		"app-server",
-	}
 	source := testAppServerSession()
 	source.ProviderSessionID = "codex-thread-1"
+	source.RuntimeContext = map[string]any{
+		"agent": map[string]any{"userAgent": "codex/0.144.1"},
+	}
 	controller := NewController([]Adapter{adapter}, nil)
 
 	capabilities, err := controller.ForkCapabilities(context.Background(), source)
@@ -607,8 +415,8 @@ func TestControllerForkUsesOptionalSessionForkAdapter(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 	spawned, live := transport.snapshot()
-	if spawned != 3 || len(live) != 0 {
-		t.Fatalf("processes = spawned %d/live %d, want 3/0", spawned, len(live))
+	if spawned != 1 || len(live) != 0 {
+		t.Fatalf("processes = spawned %d/live %d, want 1/0", spawned, len(live))
 	}
 	if adapter.HasLiveSession(source) {
 		t.Fatal("historical fork registered a live source session")
@@ -619,12 +427,12 @@ func TestControllerForkUsesOptionalSessionForkAdapter(t *testing.T) {
 		turnID: "canonical-turn-running",
 	}
 	controller.mu.Unlock()
-	_, err = controller.Fork(context.Background(), SessionForkInput{
+	activeResult, err := controller.Fork(context.Background(), SessionForkInput{
 		Source:         source,
 		ProviderTurnID: "provider-turn-2",
 	})
-	if !errors.Is(err, ErrSessionActiveTurn) {
-		t.Fatalf("Fork active turn error = %v, want %v", err, ErrSessionActiveTurn)
+	if err != nil || activeResult.DeliveryDisposition != SessionForkDeliveryAccepted {
+		t.Fatalf("Fork active turn result=%#v error=%v", activeResult, err)
 	}
 }
 
@@ -718,8 +526,9 @@ func startForkCapableCodexAdapter(
 ) (*CodexAppServerAdapter, Session, *multiProcAppServerTransport) {
 	t.Helper()
 	transport := &multiProcAppServerTransport{}
-	transport.setConfigure(func(conn *scriptedAppServerConnection) {
-		conn.userAgent = "codex/0.144.1"
+	transport.setConfigure(func(server *fakeCodexAppServer) {
+		server.userAgent = "codex/0.144.1"
+		server.threadReadTurnIDs = []string{"provider-turn-1", "provider-turn-2"}
 	})
 	adapter := NewCodexAppServerAdapter(transport)
 	source := testAppServerSession()

@@ -17,7 +17,7 @@ import {
 import type {
   AgentGuiWorkbenchSessionAction,
   AgentGuiWorkbenchSessionMenuCopy
-} from "./sessionActions.ts";
+} from "./commands.ts";
 
 const menuContentClassName =
   "w-max min-w-44 nodrag [-webkit-app-region:no-drag]";

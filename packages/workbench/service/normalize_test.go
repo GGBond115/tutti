@@ -63,6 +63,115 @@ func TestNormalizeWorkbenchSnapshotRejectsInvalidLayoutBasis(t *testing.T) {
 	}
 }
 
+func TestNormalizeWorkbenchSnapshotPreservesLockedLayout(t *testing.T) {
+	t.Parallel()
+
+	snapshot := WorkbenchSnapshot{
+		SchemaVersion: workbenchSnapshotContractSchemaVersion,
+		Nodes: []WorkbenchSnapshotNode{
+			{ID: "a", Kind: "agent", Title: "A", Frame: validWorkbenchSnapshotFrame()},
+			{ID: "b", Kind: "agent", Title: "B", Frame: validWorkbenchSnapshotFrame()},
+		},
+		LockedLayout: &WorkbenchSnapshotLockedLayout{
+			Preset: WorkbenchSnapshotLayoutPreset{
+				Kind: WorkbenchSnapshotLayoutPresetKindRow,
+			},
+			NodeIDs: []string{"a", "b"},
+			NormalizedFrames: map[string]WorkbenchSnapshotNormalizedFrame{
+				"a": {X: 0, Y: 0, Width: 0.4, Height: 1},
+				"b": {X: 0.42, Y: 0, Width: 0.58, Height: 1},
+			},
+		},
+	}
+
+	normalizedJSON, _, err := normalizeWorkbenchSnapshot(snapshot)
+	if err != nil {
+		t.Fatalf("normalizeWorkbenchSnapshot() error = %v", err)
+	}
+
+	var decoded WorkbenchSnapshot
+	if err := json.Unmarshal(normalizedJSON, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if decoded.LockedLayout == nil || decoded.LockedLayout.Preset.Kind != WorkbenchSnapshotLayoutPresetKindRow {
+		t.Fatalf("LockedLayout = %#v, want row layout", decoded.LockedLayout)
+	}
+	if decoded.LockedLayout.NormalizedFrames["b"].Width != 0.58 {
+		t.Fatalf("LockedLayout frames = %#v, want b width 0.58", decoded.LockedLayout.NormalizedFrames)
+	}
+}
+
+func TestNormalizeWorkbenchSnapshotCanonicalizesLockedLayoutFramesAtUnitRectEdge(t *testing.T) {
+	t.Parallel()
+
+	float32X := float64(float32(0.2))
+	float32Width := float64(float32(0.8))
+	if float32X+float32Width <= 1 {
+		t.Fatal("float32 layout edge must exceed the unit rect after widening")
+	}
+
+	snapshot := WorkbenchSnapshot{
+		SchemaVersion: workbenchSnapshotContractSchemaVersion,
+		Nodes: []WorkbenchSnapshotNode{
+			{ID: "a", Kind: "agent", Title: "A", Frame: validWorkbenchSnapshotFrame()},
+			{ID: "b", Kind: "agent", Title: "B", Frame: validWorkbenchSnapshotFrame()},
+		},
+		LockedLayout: &WorkbenchSnapshotLockedLayout{
+			Preset: WorkbenchSnapshotLayoutPreset{
+				Kind: WorkbenchSnapshotLayoutPresetKindRow,
+			},
+			NodeIDs: []string{"a", "b"},
+			NormalizedFrames: map[string]WorkbenchSnapshotNormalizedFrame{
+				"a": {X: 0.0625, Y: 0, Width: 0.9375, Height: 1},
+				"b": {X: float32X, Y: 0, Width: float32Width, Height: 1},
+			},
+		},
+	}
+
+	normalizedJSON, _, err := normalizeWorkbenchSnapshot(snapshot)
+	if err != nil {
+		t.Fatalf("normalizeWorkbenchSnapshot() error = %v", err)
+	}
+
+	var decoded WorkbenchSnapshot
+	if err := json.Unmarshal(normalizedJSON, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got := decoded.LockedLayout.NormalizedFrames["a"]; got.X != 0.063 || got.Width != 0.937 {
+		t.Fatalf("rounded edge frame = %#v, want x=0.063 width=0.937", got)
+	}
+	if got := decoded.LockedLayout.NormalizedFrames["b"]; got.X != 0.2 || got.Width != 0.8 {
+		t.Fatalf("float32 edge frame = %#v, want x=0.2 width=0.8", got)
+	}
+}
+
+func TestNormalizeWorkbenchSnapshotRejectsLockedLayoutFrameBeyondTransportTolerance(t *testing.T) {
+	t.Parallel()
+
+	snapshot := WorkbenchSnapshot{
+		SchemaVersion: workbenchSnapshotContractSchemaVersion,
+		Nodes: []WorkbenchSnapshotNode{
+			{ID: "a", Kind: "agent", Title: "A", Frame: validWorkbenchSnapshotFrame()},
+			{ID: "b", Kind: "agent", Title: "B", Frame: validWorkbenchSnapshotFrame()},
+		},
+		LockedLayout: &WorkbenchSnapshotLockedLayout{
+			Preset: WorkbenchSnapshotLayoutPreset{
+				Kind: WorkbenchSnapshotLayoutPresetKindRow,
+			},
+			NodeIDs: []string{"a", "b"},
+			NormalizedFrames: map[string]WorkbenchSnapshotNormalizedFrame{
+				"a": {X: 0.2, Y: 0, Width: 0.801, Height: 1},
+				"b": {X: 0, Y: 0, Width: 1, Height: 1},
+			},
+		},
+	}
+
+	_, _, err := normalizeWorkbenchSnapshot(snapshot)
+	if err == nil || !strings.Contains(err.Error(), "unit layout rect") {
+		t.Fatalf("normalizeWorkbenchSnapshot() error = %v, want unit rect error", err)
+	}
+}
+
 func TestNormalizeWorkbenchSnapshotRejectsOversizedPayload(t *testing.T) {
 	t.Parallel()
 

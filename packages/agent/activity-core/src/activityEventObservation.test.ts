@@ -105,7 +105,7 @@ test("message updates fail closed when acceptedCount disagrees with the payload"
   assert.equal(observation.intent.inlineApplied, false);
 });
 
-test("turn and interaction observations require canonical state reconciliation", () => {
+test("reconcile-required observations request canonical state reconciliation", () => {
   const event: Extract<
     AgentActivityUpdatedEvent,
     { eventType: "session_reconcile_required" }
@@ -138,6 +138,72 @@ test("turn and interaction observations require canonical state reconciliation",
     type: "session/activityObserved",
     workspaceId: "workspace-1"
   });
+});
+
+test("settled turn observations request terminal reconciliation", () => {
+  const event: Extract<
+    AgentActivityUpdatedEvent,
+    { eventType: "turn_update" }
+  > = {
+    agentSessionId: "session-1",
+    data: {
+      activeTurnId: null,
+      agentSessionId: "session-1",
+      eventType: "turn_update",
+      occurredAtUnixMs: 10,
+      turn: {
+        agentSessionId: "session-1",
+        completedCommand: null,
+        error: null,
+        fileChanges: null,
+        origin: "user_prompt",
+        outcome: "completed",
+        phase: "settled",
+        settledAtUnixMs: 10,
+        startedAtUnixMs: 1,
+        turnId: "turn-1",
+        updatedAtUnixMs: 10
+      },
+      workspaceId: "workspace-1"
+    },
+    eventType: "turn_update",
+    workspaceId: "workspace-1"
+  };
+
+  const observation = analyzeAgentActivityEventObservation({
+    cachedMessages: [],
+    event,
+    hasCachedSession: true
+  });
+
+  assert.equal(observation.intent.terminalTurn, true);
+});
+
+test("turn observations with a missing turn payload do not throw or claim terminal state", () => {
+  const event: Extract<
+    AgentActivityUpdatedEvent,
+    { eventType: "turn_update" }
+  > = {
+    agentSessionId: "session-1",
+    data: {
+      activeTurnId: null,
+      agentSessionId: "session-1",
+      eventType: "turn_update",
+      occurredAtUnixMs: 10,
+      turn: undefined as never,
+      workspaceId: "workspace-1"
+    },
+    eventType: "turn_update",
+    workspaceId: "workspace-1"
+  };
+
+  const observation = analyzeAgentActivityEventObservation({
+    cachedMessages: [],
+    event,
+    hasCachedSession: true
+  });
+
+  assert.equal(observation.intent.terminalTurn, undefined);
 });
 
 function message(version: number): AgentActivityMessage {

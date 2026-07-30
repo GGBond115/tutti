@@ -152,8 +152,13 @@ func (r *recordingRunner) RunPolicyReviewConsult(_ context.Context, input Review
 }
 
 type staticBudget struct {
-	runs   int
-	tokens int64
+	reviewedTurn bool
+	runs         int
+	tokens       int64
+}
+
+func (s staticBudget) HasPolicyReviewForTurn(context.Context, string, string, string) (bool, error) {
+	return s.reviewedTurn, nil
 }
 
 func (s staticBudget) SumPolicyReviewUsage(context.Context, string, string) (int, int64, error) {
@@ -161,6 +166,10 @@ func (s staticBudget) SumPolicyReviewUsage(context.Context, string, string) (int
 }
 
 type erroringBudget struct{ err error }
+
+func (b erroringBudget) HasPolicyReviewForTurn(context.Context, string, string, string) (bool, error) {
+	return false, b.err
+}
 
 func (b erroringBudget) SumPolicyReviewUsage(context.Context, string, string) (int, int64, error) {
 	return 0, 0, b.err
@@ -185,6 +194,11 @@ func settledCompletedInput(turnID string) canonical.ReportSessionStateInput {
 				ActiveTurnID: &turnID,
 				Phase:        "settled",
 				Outcome:      &completed,
+			},
+			Turn: &canonical.WorkspaceAgentTurnStateUpdate{
+				TurnID:  turnID,
+				Phase:   "settled",
+				Outcome: "completed",
 			},
 		},
 	}
@@ -250,6 +264,9 @@ func TestReviewRuleRunsAndMarksAutoChecked(t *testing.T) {
 	if len(runner.inputs) != 1 || runner.inputs[0].ModelPlanID != "mp-1" || runner.inputs[0].Model != "review-model" {
 		t.Fatalf("runner inputs = %#v", runner.inputs)
 	}
+	if runner.inputs[0].TurnID != "turn-1" {
+		t.Fatalf("runner turn id = %q, want turn-1", runner.inputs[0].TurnID)
+	}
 	if !strings.Contains(runner.inputs[0].TriggerReason, "review_rule:on_task_complete") {
 		t.Fatalf("trigger reason = %q", runner.inputs[0].TriggerReason)
 	}
@@ -259,6 +276,35 @@ func TestReviewRuleRunsAndMarksAutoChecked(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if len(runner.inputs) != 1 {
 		t.Fatalf("same turn should not re-trigger: %#v", runner.inputs)
+	}
+}
+
+func TestCanonicalRootSettlementUsesTurnIDAndSkipsDurableReviewReplay(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newMemoryPolicyStore()
+	service := newPolicyTestService(store)
+	policy := seedReviewPolicy(t, service)
+	runner := &recordingRunner{result: ReviewConsultResult{RunID: "duplicate", ResultText: "VERDICT: PASS"}}
+	service.ConfigureReviewAutomation(
+		staticBindings{binding: modelbindingbiz.Binding{ModelPolicyID: policy.ID}},
+		nil,
+		runner,
+		staticBudget{reviewedTurn: true},
+	)
+	input := settledCompletedInput("turn-replayed")
+	input.State.TurnLifecycle.ActiveTurnID = nil
+
+	service.ObserveAgentSessionState(ctx, input, canonical.ReportSessionStateReply{})
+	time.Sleep(100 * time.Millisecond)
+
+	if len(runner.inputs) != 0 {
+		t.Fatalf("durably reviewed root turn triggered another review: %#v", runner.inputs)
+	}
+	acceptance, ok, err := service.GetAcceptance(ctx, "ws", "session-1")
+	if err != nil || !ok || acceptance.State != modelpolicybiz.AcceptanceAgentClaimed {
+		t.Fatalf("acceptance = %#v ok=%v err=%v, want agent_claimed", acceptance, ok, err)
 	}
 }
 

@@ -45,6 +45,34 @@ test("snapshot decomposes protocol v2 session and turn entities", () => {
   );
 });
 
+test("authoritative turn history removes a retracted turn from canonical state", () => {
+  const source = session(activeTurn(2), 2);
+  let state = reduce(createInitialSessionLifecycleState(), {
+    type: "session/upserted",
+    session: source
+  }).state;
+  assert.ok(state.turnsById[canonicalTurnKey("session-1", "turn-1")]);
+
+  state = reduce(state, {
+    agentSessionId: "session-1",
+    childSessions: [],
+    historyRevision: 1,
+    messages: [],
+    session: {
+      ...session(null, 3),
+      latestTurn: source.latestTurn
+    },
+    turns: [],
+    type: "session/historyAuthoritativeSnapshotReceived",
+    workspaceId: "workspace-1"
+  }).state;
+
+  assert.equal(
+    state.turnsById[canonicalTurnKey("session-1", "turn-1")],
+    undefined
+  );
+});
+
 test("identical session upserts preserve canonical state references", () => {
   const source = session(activeTurn(2), 2);
   const first = reduce(createInitialSessionLifecycleState(), {
@@ -73,6 +101,39 @@ test("identical session snapshots preserve canonical state references", () => {
   }).state;
 
   assert.equal(second, first);
+});
+
+test("lightweight session snapshots cannot downgrade projected lifecycle capabilities", () => {
+  const authoritative = {
+    ...session(null, 2),
+    lifecycleCapabilities: { fork: false, forkThroughTurn: true },
+    lifecycleCapabilitiesProjected: true
+  };
+  const first = reduce(createInitialSessionLifecycleState(), {
+    type: "session/upserted",
+    session: authoritative
+  }).state;
+  const lightweight = {
+    ...authoritative,
+    lifecycleCapabilities: { fork: false, forkThroughTurn: false },
+    lifecycleCapabilitiesProjected: undefined,
+    title: "Updated rail title",
+    updatedAtUnixMs: 3
+  };
+  const second = reduce(first, {
+    type: "session/snapshotReceived",
+    sessions: [lightweight]
+  }).state;
+
+  assert.equal(second.sessionsById["session-1"]?.title, "Updated rail title");
+  assert.deepEqual(
+    second.sessionsById["session-1"]?.lifecycleCapabilities,
+    authoritative.lifecycleCapabilities
+  );
+  assert.equal(
+    second.sessionsById["session-1"]?.lifecycleCapabilitiesProjected,
+    true
+  );
 });
 
 test("equal-version sessions still merge changed pending interactions", () => {
@@ -164,6 +225,210 @@ test("settings timeout requires an explicit retry before sending again", () => {
     type: "session/updateSettings",
     workspaceId: "workspace-1"
   });
+});
+
+test("prompt settings preconditions serialize later user settings until send starts", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    type: "session/snapshotReceived",
+    sessions: [session(null, 1)]
+  }).state;
+  const precondition = reduce(state, {
+    agentSessionId: "session-1",
+    commandId: "prompt:settings:send-1",
+    settings: { browserUse: true },
+    type: "session/settingsPreconditionRequested",
+    workspaceId: "workspace-1"
+  });
+  assert.equal(precondition.commands[0]?.type, "session/updateSettings");
+
+  const queued = reduce(
+    precondition.state,
+    settingsUpdateRequested("settings-after", { model: "model-2" })
+  );
+  assert.deepEqual(queued.commands, []);
+  assert.equal(
+    queued.state.operationBySessionId["session-1"]?.settingsUpdate
+      .queuedRequests[0]?.commandId,
+    "settings-after"
+  );
+
+  const acceptedSession = {
+    ...session(null, 2),
+    settings: { browserUse: true }
+  };
+  const accepted = sessionLifecycleReducer(
+    queued.state,
+    {
+      commandId: "prompt:settings:send-1",
+      commandType: "session/updateSettings",
+      correlationId: "session-1",
+      outcome: "succeeded",
+      type: "engine/commandResult",
+      value: {
+        agentSessionId: "session-1",
+        session: acceptedSession
+      }
+    },
+    {
+      queueSendNowRequiresCancel: false,
+      settingsResultValidation: {
+        kind: "valid",
+        session: acceptedSession
+      }
+    }
+  );
+  assert.deepEqual(accepted.commands, []);
+  assert.equal(
+    accepted.state.operationBySessionId["session-1"]?.settingsUpdate.status,
+    "waitingForPromptSend"
+  );
+
+  const resumed = reduce(accepted.state, {
+    agentSessionId: "session-1",
+    settingsCommandId: "prompt:settings:send-1",
+    type: "session/settingsQueueResumeRequested"
+  });
+  assert.deepEqual(resumed.commands, [
+    {
+      agentSessionId: "session-1",
+      commandId: "settings-after",
+      correlationId: "session-1",
+      settings: { model: "model-2" },
+      type: "session/updateSettings",
+      workspaceId: "workspace-1"
+    }
+  ]);
+});
+
+test("prompt settings preconditions wait behind an existing user settings write", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    type: "session/snapshotReceived",
+    sessions: [session(null, 1)]
+  }).state;
+  state = reduce(state, settingsUpdateRequested("settings-first")).state;
+  const queued = reduce(state, {
+    agentSessionId: "session-1",
+    commandId: "prompt:settings:send-1",
+    settings: { computerUse: true },
+    type: "session/settingsPreconditionRequested",
+    workspaceId: "workspace-1"
+  });
+  assert.deepEqual(queued.commands, []);
+
+  const acceptedSession = {
+    ...session(null, 2),
+    settings: { permissionModeId: "acceptEdits" }
+  };
+  const accepted = sessionLifecycleReducer(
+    queued.state,
+    {
+      commandId: "settings-first",
+      commandType: "session/updateSettings",
+      correlationId: "session-1",
+      outcome: "succeeded",
+      type: "engine/commandResult",
+      value: {
+        agentSessionId: "session-1",
+        session: acceptedSession
+      }
+    },
+    {
+      queueSendNowRequiresCancel: false,
+      settingsResultValidation: {
+        kind: "valid",
+        session: acceptedSession
+      }
+    }
+  );
+  assert.deepEqual(accepted.commands, [
+    {
+      agentSessionId: "session-1",
+      commandId: "prompt:settings:send-1",
+      correlationId: "session-1",
+      settings: { computerUse: true },
+      type: "session/updateSettings",
+      workspaceId: "workspace-1"
+    }
+  ]);
+});
+
+test("activation settings use the same serialized lane without coalescing owners", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    type: "session/snapshotReceived",
+    sessions: [session(null, 1)]
+  }).state;
+  state = reduce(state, settingsUpdateRequested("settings-first")).state;
+  state = reduce(state, {
+    agentSessionId: "session-1",
+    commandId: "activation-settings:activation-1",
+    settings: { model: "model-from-activation" },
+    type: "session/settingsActivationRequested",
+    workspaceId: "workspace-1"
+  }).state;
+  state = reduce(
+    state,
+    settingsUpdateRequested("settings-after", { speed: "fast" })
+  ).state;
+
+  const firstSession = {
+    ...session(null, 2),
+    settings: { permissionModeId: "acceptEdits" }
+  };
+  const firstSettled = sessionLifecycleReducer(
+    state,
+    {
+      commandId: "settings-first",
+      commandType: "session/updateSettings",
+      correlationId: "session-1",
+      outcome: "succeeded",
+      type: "engine/commandResult",
+      value: { agentSessionId: "session-1", session: firstSession }
+    },
+    {
+      queueSendNowRequiresCancel: false,
+      settingsResultValidation: { kind: "valid", session: firstSession }
+    }
+  );
+  assert.deepEqual(firstSettled.commands, [
+    {
+      agentSessionId: "session-1",
+      commandId: "activation-settings:activation-1",
+      correlationId: "session-1",
+      settings: { model: "model-from-activation" },
+      type: "session/updateSettings",
+      workspaceId: "workspace-1"
+    }
+  ]);
+
+  const activationSession = {
+    ...session(null, 3),
+    settings: { model: "model-from-activation" }
+  };
+  const activationSettled = sessionLifecycleReducer(
+    firstSettled.state,
+    {
+      commandId: "activation-settings:activation-1",
+      commandType: "session/updateSettings",
+      correlationId: "session-1",
+      outcome: "succeeded",
+      type: "engine/commandResult",
+      value: { agentSessionId: "session-1", session: activationSession }
+    },
+    {
+      queueSendNowRequiresCancel: false,
+      settingsResultValidation: { kind: "valid", session: activationSession }
+    }
+  );
+  assert.deepEqual(activationSettled.commands, [
+    {
+      agentSessionId: "session-1",
+      commandId: "settings-after",
+      correlationId: "session-1",
+      settings: { speed: "fast" },
+      type: "session/updateSettings",
+      workspaceId: "workspace-1"
+    }
+  ]);
 });
 
 test("blocked runtime availability rejects settings and interactive commands", () => {
@@ -1360,6 +1625,243 @@ test("delete tombstone rejects late orphan turn and interaction upserts", () => 
   }).state;
   assert.equal(Object.keys(state.turnsById).length, 0);
   assert.equal(Object.keys(state.interactionsById).length, 0);
+});
+
+test("realtime Turn projection atomically clears its owned Session reference", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    sessions: [session(activeTurn(1), 1)],
+    type: "session/snapshotReceived"
+  }).state;
+
+  state = reduce(state, {
+    activeTurnId: null,
+    turn: {
+      ...activeTurn(2),
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 2
+    },
+    type: "turn/projectionReceived",
+    workspaceId: "workspace-1"
+  }).state;
+
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, null);
+  assert.equal(state.sessionsById["session-1"]?.updatedAtUnixMs, 1);
+  assert.equal(state.sessionsById["session-1"]?.lastEventUnixMs, 1);
+  assert.equal(
+    state.turnsById[canonicalTurnKey("session-1", "turn-1")]?.phase,
+    "settled"
+  );
+
+  state = reduce(state, {
+    session: session(activeTurn(1), 1),
+    type: "session/upserted"
+  }).state;
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, null);
+
+  state = reduce(state, {
+    session: { ...session(null, 3), title: "Reconciled" },
+    type: "session/upserted"
+  }).state;
+  assert.equal(state.sessionsById["session-1"]?.title, "Reconciled");
+  assert.equal(state.sessionsById["session-1"]?.updatedAtUnixMs, 3);
+});
+
+test("cached Turn projection fences a stale Session loaded afterward", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    activeTurnId: null,
+    turn: {
+      ...activeTurn(2),
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 2
+    },
+    type: "turn/projectionReceived",
+    workspaceId: "workspace-1"
+  }).state;
+  assert.equal(state.sessionsById["session-1"], undefined);
+
+  state = reduce(state, {
+    session: session(activeTurn(1), 1),
+    type: "session/upserted"
+  }).state;
+
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, null);
+  assert.equal(
+    state.turnsById[canonicalTurnKey("session-1", "turn-1")]?.phase,
+    "settled"
+  );
+});
+
+test("a settled Turn cannot clear a different active Turn loaded afterward", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    activeTurnId: null,
+    turn: {
+      ...activeTurn(5),
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 5,
+      turnId: "turn-a"
+    },
+    type: "turn/projectionReceived",
+    workspaceId: "workspace-1"
+  }).state;
+  const turnB = { ...activeTurn(5), turnId: "turn-b" };
+
+  state = reduce(state, {
+    session: session(turnB, 5),
+    type: "session/upserted"
+  }).state;
+
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, "turn-b");
+});
+
+test("a cached settlement fences only the same incoming Turn", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    activeTurnId: null,
+    turn: {
+      ...activeTurn(10),
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 10,
+      turnId: "turn-a"
+    },
+    type: "turn/projectionReceived",
+    workspaceId: "workspace-1"
+  }).state;
+  state = reduce(state, {
+    activeTurnId: null,
+    turn: {
+      ...activeTurn(6),
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 6,
+      turnId: "turn-b"
+    },
+    type: "turn/projectionReceived",
+    workspaceId: "workspace-1"
+  }).state;
+
+  state = reduce(state, {
+    session: session({ ...activeTurn(5), turnId: "turn-b" }, 5),
+    type: "session/upserted"
+  }).state;
+
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, null);
+  assert.equal(
+    state.turnsById[canonicalTurnKey("session-1", "turn-b")]?.phase,
+    "settled"
+  );
+});
+
+test("an unrelated settled Turn cannot clear the current active Turn", () => {
+  const turnB = { ...activeTurn(8), turnId: "turn-b" };
+  let state = reduce(createInitialSessionLifecycleState(), {
+    sessions: [session(turnB, 8)],
+    type: "session/snapshotReceived"
+  }).state;
+  const snapshot = session(null, 8);
+  snapshot.latestTurn = {
+    ...activeTurn(10),
+    outcome: "completed",
+    phase: "settled",
+    settledAtUnixMs: 10,
+    turnId: "turn-a"
+  };
+
+  state = reduce(state, {
+    session: snapshot,
+    type: "session/upserted"
+  }).state;
+
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, "turn-b");
+});
+
+test("same-Turn terminal evidence repairs an inconsistent active pointer", () => {
+  const turnB = { ...activeTurn(1), turnId: "turn-b" };
+  let state = reduce(createInitialSessionLifecycleState(), {
+    sessions: [session(turnB, 1)],
+    type: "session/snapshotReceived"
+  }).state;
+  state = reduce(state, {
+    turn: {
+      ...turnB,
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 2,
+      updatedAtUnixMs: 2
+    },
+    type: "turn/upserted"
+  }).state;
+
+  state = reduce(state, {
+    session: session(turnB, 1),
+    type: "session/upserted"
+  }).state;
+
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, null);
+});
+
+test("realtime live Turn projection claims an idle Session atomically", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    sessions: [session(null, 1)],
+    type: "session/snapshotReceived"
+  }).state;
+  const liveTurn = { ...activeTurn(1), turnId: "turn-2" };
+
+  state = reduce(state, {
+    activeTurnId: "turn-2",
+    turn: liveTurn,
+    type: "turn/projectionReceived",
+    workspaceId: "workspace-1"
+  }).state;
+
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, "turn-2");
+  assert.deepEqual(
+    state.turnsById[canonicalTurnKey("session-1", "turn-2")],
+    liveTurn
+  );
+});
+
+test("late Turn projection cannot clear or replace a newer active Turn", () => {
+  const newerTurn = { ...activeTurn(4), turnId: "turn-2" };
+  let state = reduce(createInitialSessionLifecycleState(), {
+    sessions: [session(newerTurn, 4)],
+    type: "session/snapshotReceived"
+  }).state;
+  state = reduce(state, {
+    turn: activeTurn(1),
+    type: "turn/upserted"
+  }).state;
+
+  state = reduce(state, {
+    activeTurnId: null,
+    turn: {
+      ...activeTurn(2),
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 2
+    },
+    type: "turn/projectionReceived",
+    workspaceId: "workspace-1"
+  }).state;
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, "turn-2");
+  assert.equal(
+    state.turnsById[canonicalTurnKey("session-1", "turn-1")]?.phase,
+    "settled"
+  );
+
+  state = reduce(createInitialSessionLifecycleState(), {
+    sessions: [session(newerTurn, 4)],
+    type: "session/snapshotReceived"
+  }).state;
+  state = reduce(state, {
+    activeTurnId: "turn-1",
+    turn: { ...activeTurn(3), turnId: "turn-1" },
+    type: "turn/projectionReceived",
+    workspaceId: "workspace-1"
+  }).state;
+  assert.equal(state.sessionsById["session-1"]?.activeTurnId, "turn-2");
 });
 
 test("settled turn is terminal against newer live phases and outcome changes", () => {

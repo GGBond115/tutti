@@ -35,6 +35,10 @@ export const enAgentGui = {
   providerGateUnavailableDescription:
     "We could not confirm that {{provider}} is ready. Try checking again.",
   providerGateRetryAction: "Check again",
+  providerGateRuntimeSelectionTitle: "Choose which {{provider}} to use",
+  providerGateRuntimeSelectionDescription:
+    "Multiple {{provider}} installations were found — pick one to continue.",
+  providerGateRuntimeSelectionAction: "Choose",
   providerGatePendingInstall: "Connecting…",
   providerGatePendingLogin: "Opening sign in…",
   providerGatePendingRefresh: "Checking…",
@@ -65,6 +69,18 @@ export const enAgentGui = {
   targetSetupAuthFailed: "Authentication did not complete",
   targetSetupNoAuthMethods:
     "No supported sign-in method was reported. Check the runtime again.",
+  targetSetupTerminalAuthHint:
+    "This sign-in method must be completed in a terminal. Run the command below, finish the sign-in flow, then come back and check again.",
+  targetSetupCopyCommand: "Copy command",
+  targetSetupCommandCopied: "Copied",
+  targetSetupTerminalLoginStart: "Start sign in",
+  targetSetupTerminalLoginWaiting:
+    "A terminal has been opened in the workspace. Finish signing in there; this page checks the status automatically.",
+  targetSetupTerminalLoginCancel: "Cancel",
+  targetSetupTerminalLoginTimedOut:
+    "Timed out waiting for sign in to finish. Try again.",
+  targetSetupTerminalLoginUnavailable:
+    "A terminal could not be opened in this window. Copy the command and run it in your own terminal.",
   targetSetupRetry: "Check again",
   targetSetupFailed: "Runtime setup failed",
   targetSetupPhase: {
@@ -309,9 +325,18 @@ export const enAgentGui = {
   pastedTextRestoreToComposer: "Show in text field",
   copyMessage: "Copy message",
   forkThroughTurn: "Fork through this turn",
+  forkThroughTurnPending: "Forking through this turn",
   continuedFromTask: "Continued from task",
   sourceConversationNotFound: "Original conversation not found",
   copyImage: "Copy image",
+  editRetryEditMessage: "Edit message",
+  editRetryCancel: "Cancel",
+  editRetrySubmit: "Save and retry",
+  editRetryProcessing: "Updating conversation history and retrying…",
+  editRetryNeedsAction:
+    "Conversation history was updated, but the edited message still needs recovery",
+  editRetryReconcile: "Reconcile",
+  editRetryRetryReplacement: "Retry message",
   messageCopied: "Copied",
   promptTipsPrefix: "Tips: ",
   reviewPicker: {
@@ -526,6 +551,16 @@ export const enAgentGui = {
   contextCompactionInProgress: "Compacting context",
   contextCompactionCompleted: "Context compacted.",
   contextCompactionInterrupted: "Context compaction interrupted.",
+  tuttiModeCheckpointWakeTaskSettled: "A task finished — review needed",
+  tuttiModeCheckpointWakeTaskFailed: "A task failed — review needed",
+  tuttiModeCheckpointWakeTaskCanceled: "A task was canceled — review needed",
+  tuttiModeCheckpointWakeGoalReview: "Final goal review needed",
+  tuttiModeCheckpointWakeInitialSchedule: "Ready to schedule the next tasks",
+  tuttiModeCheckpointWakeDefault: "Execution checkpoint needs your review",
+  tuttiModeCheckpointWakeIssue: "Issue {{issue}}",
+  tuttiModeCheckpointWakeExpand: "Show full prompt",
+  tuttiModeCheckpointWakeCollapse: "Hide full prompt",
+  tuttiModePlanIssueLinkCreated: "Issue created from this plan",
   ...enAgentGuiModelPlans,
   turnSummary: "Changed files",
   userMessageLocator: "User messages",

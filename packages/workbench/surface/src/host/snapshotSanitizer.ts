@@ -36,6 +36,7 @@ export function sanitizeWorkbenchHostSnapshot(
     spaces: normalized.spaces?.map(sanitizeSpace),
     activeSpaceId: normalized.activeSpaceId,
     layoutBasis: normalized.layoutBasis,
+    lockedLayout: normalized.lockedLayout,
     metadata: sanitizeMetadata(normalized.metadata)
   });
 }

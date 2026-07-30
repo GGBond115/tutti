@@ -116,6 +116,12 @@ func TestWorkbenchServiceFiltersMissingTerminalNodesFromStoredSnapshot(t *testin
 							},
 						},
 						ActiveSpaceID: stringPointer("space-1"),
+						LockedLayout: &WorkbenchSnapshotLockedLayout{
+							Preset: WorkbenchSnapshotLayoutPreset{
+								Kind: WorkbenchSnapshotLayoutPresetKind("row"),
+							},
+							NodeIDs: []string{"files", "terminal:missing-term"},
+						},
 					}),
 				}, nil
 			},
@@ -148,6 +154,9 @@ func TestWorkbenchServiceFiltersMissingTerminalNodesFromStoredSnapshot(t *testin
 	}
 	if nodeIDs := (*decoded.Spaces)[0].NodeIDs; len(nodeIDs) != 1 || nodeIDs[0] != "files" {
 		t.Fatalf("space node IDs = %#v, want [files]", (*decoded.Spaces)[0].NodeIDs)
+	}
+	if decoded.LockedLayout != nil {
+		t.Fatalf("LockedLayout = %#v, want nil after terminal removal", decoded.LockedLayout)
 	}
 }
 

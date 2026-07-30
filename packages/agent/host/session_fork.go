@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -32,18 +33,7 @@ func (h *Host) ForkSession(
 		input.SourceAgentSessionID == input.TargetAgentSessionID {
 		return ForkSessionResult{}, ErrInvalidArgument
 	}
-	var result ForkSessionResult
-	err := h.withSessionMutationActor(
-		ctx,
-		input.WorkspaceID,
-		input.SourceAgentSessionID,
-		func(actorCtx context.Context) error {
-			var forkErr error
-			result, forkErr = h.forkSessionSerialized(actorCtx, input)
-			return forkErr
-		},
-	)
-	return result, err
+	return h.forkSessionSerialized(ctx, input)
 }
 
 func (h *Host) forkSessionSerialized(
@@ -54,14 +44,6 @@ func (h *Host) forkSessionSerialized(
 	if err != nil {
 		return ForkSessionResult{}, err
 	}
-	release, err := h.acquireSession(ctx, SessionRef{
-		WorkspaceID: input.WorkspaceID, AgentSessionID: input.SourceAgentSessionID,
-	})
-	if err != nil {
-		return ForkSessionResult{}, err
-	}
-	defer release()
-
 	if existing, found, err := h.sessionForks.GetSessionForkOperationByRequest(
 		ctx, input.WorkspaceID, input.RequestID,
 	); err != nil {
@@ -70,22 +52,12 @@ func (h *Host) forkSessionSerialized(
 		if existing.RequestHash != requestHash {
 			return ForkSessionResult{Operation: existing}, storesqlite.ErrSessionForkRequestConflict
 		}
+		if input.Asynchronous &&
+			existing.Status != storesqlite.SessionForkStatusCommitted {
+			return ForkSessionResult{Operation: existing}, nil
+		}
 		return h.processSessionForkOperation(ctx, existing)
 	}
-	blocking, found, err := h.sessionForks.GetBlockingSessionForkOperation(
-		ctx,
-		input.WorkspaceID,
-		input.SourceAgentSessionID,
-		string(input.Point.Kind),
-		input.Point.TurnID,
-	)
-	if err != nil {
-		return ForkSessionResult{}, err
-	}
-	if found {
-		return h.processSessionForkOperation(ctx, blocking)
-	}
-
 	if _, found, err := h.sessionForks.GetSessionForkSource(
 		ctx, input.WorkspaceID, input.SourceAgentSessionID,
 	); err != nil {
@@ -99,8 +71,46 @@ func (h *Host) forkSessionSerialized(
 	if err != nil {
 		return ForkSessionResult{}, err
 	}
+	if !supported &&
+		boundary.RejectionReason == storesqlite.SessionForkBoundaryReasonProviderTurnMissing {
+		if err := h.recoverSessionForkTurnBinding(
+			ctx,
+			input.WorkspaceID,
+			input.SourceAgentSessionID,
+			input.Point.TurnID,
+		); err != nil {
+			slog.Warn(
+				"agent session fork provider turn binding recovery failed",
+				"workspace_id", input.WorkspaceID,
+				"agent_session_id", input.SourceAgentSessionID,
+				"turn_id", input.Point.TurnID,
+				"boundary_reason", boundary.RejectionReason,
+				"error", err,
+			)
+			if rejectionErr := boundary.RejectionError(); rejectionErr != nil {
+				return ForkSessionResult{}, rejectionErr
+			}
+			return ForkSessionResult{}, storesqlite.ErrSessionForkTurnState
+		}
+		boundary, supported, err = h.sessionForks.CheckSessionForkThroughTurn(
+			ctx,
+			input.WorkspaceID,
+			input.SourceAgentSessionID,
+			input.Point.TurnID,
+		)
+		if err != nil {
+			return ForkSessionResult{}, err
+		}
+	}
 	if !supported {
-		return ForkSessionResult{}, storesqlite.ErrSessionForkTurnState
+		if rejectionErr := boundary.RejectionError(); rejectionErr != nil {
+			return ForkSessionResult{}, rejectionErr
+		}
+		return ForkSessionResult{}, fmt.Errorf(
+			"resolve selected provider fork binding for turn %q: %w",
+			input.Point.TurnID,
+			storesqlite.ErrSessionForkTurnState,
+		)
 	}
 	runtimeSource, err := h.sessionForkRuntimeSource(ctx, boundary.Session)
 	if err != nil {
@@ -132,10 +142,6 @@ func (h *Host) forkSessionSerialized(
 	if err != nil {
 		return ForkSessionResult{}, err
 	}
-	expectedSourceHash, err := storesqlite.SessionForkSourceHash(boundary.Session)
-	if err != nil {
-		return ForkSessionResult{}, err
-	}
 	operation, _, err := h.sessionForks.PrepareSessionFork(ctx, storesqlite.SessionForkPrepare{
 		OperationID:          uuid.NewString(),
 		WorkspaceID:          input.WorkspaceID,
@@ -147,7 +153,6 @@ func (h *Host) forkSessionSerialized(
 		PointKind:            string(input.Point.Kind),
 		DriverKind:           descriptor.Kind,
 		DriverVersion:        descriptor.Version,
-		ExpectedSourceHash:   expectedSourceHash,
 		TargetCwd:            targetContext.Cwd,
 		TargetRuntimeContext: targetContext.RuntimeContext,
 		TargetSettings: preparedSessionForkSettings(
@@ -157,14 +162,68 @@ func (h *Host) forkSessionSerialized(
 		OccurredAtUnixMS: h.now().UnixMilli(),
 	})
 	if err != nil {
-		return ForkSessionResult{}, err
+		return ForkSessionResult{}, fmt.Errorf("freeze session fork snapshot: %w", err)
 	}
-	return h.processSessionForkOperationWithSource(
+	if attachmentStore, ok := h.sessionForks.(SessionForkAttachmentStore); ok {
+		bindings, bindingErr := attachmentStore.ListSessionForkAttachmentBindings(
+			ctx,
+			operation.WorkspaceID,
+			operation.OperationID,
+		)
+		if bindingErr != nil {
+			return h.failPreparedSessionFork(
+				ctx,
+				operation,
+				"session fork attachment manifest could not be read",
+				bindingErr,
+			)
+		}
+		if len(bindings) != 0 {
+			if h.sessionForkAttachments == nil {
+				return h.failPreparedSessionFork(
+					ctx,
+					operation,
+					"session fork attachments cannot be staged",
+					errors.New("session fork attachment stager is unavailable"),
+				)
+			}
+			if stageErr := h.sessionForkAttachments.StageSessionForkAttachments(
+				ctx,
+				operation.WorkspaceID,
+				operation.SourceAgentSessionID,
+				operation.TargetAgentSessionID,
+				bindings,
+			); stageErr != nil {
+				return h.failPreparedSessionFork(
+					ctx,
+					operation,
+					"session fork attachments could not be staged",
+					stageErr,
+				)
+			}
+		}
+	}
+	if input.Asynchronous {
+		backgroundCtx := context.WithoutCancel(ctx)
+		source := cloneSessionForkRuntimeSource(runtimeSource)
+		go func() {
+			_, _ = h.processSessionForkOperationWithSource(
+				backgroundCtx,
+				operation,
+				&source,
+			)
+		}()
+		return ForkSessionResult{Operation: operation}, nil
+	}
+	result, err := h.processSessionForkOperationWithSource(
 		ctx,
 		operation,
 		&runtimeSource,
-		false,
 	)
+	if err != nil {
+		return result, fmt.Errorf("execute session fork operation: %w", err)
+	}
+	return result, nil
 }
 
 func (h *Host) GetSessionForkOperation(
@@ -182,67 +241,30 @@ func (h *Host) GetSessionForkOperation(
 	}
 	if op.Status == storesqlite.SessionForkStatusPrepared ||
 		op.Status == storesqlite.SessionForkStatusDispatching ||
-		op.Status == storesqlite.SessionForkStatusUnknown ||
-		op.Status == storesqlite.SessionForkStatusProviderAccepted {
-		var result ForkSessionResult
-		err = h.withSessionMutationActor(
-			ctx,
-			op.WorkspaceID,
-			op.SourceAgentSessionID,
-			func(actorCtx context.Context) error {
-				current, currentFound, currentErr := h.sessionForks.GetSessionForkOperation(
-					actorCtx, op.WorkspaceID, op.OperationID,
-				)
-				if currentErr != nil {
-					return currentErr
-				}
-				if !currentFound {
-					return fmt.Errorf(
-						"session fork operation %s disappeared during reconciliation",
-						op.OperationID,
-					)
-				}
-				if current.Status == storesqlite.SessionForkStatusPrepared {
-					failed, _, failErr := h.sessionForks.FailPreparedSessionFork(
-						actorCtx,
-						current.WorkspaceID,
-						current.OperationID,
-						"prepared session fork was abandoned before provider dispatch",
-						h.now().UnixMilli(),
-					)
-					result = ForkSessionResult{Operation: failed}
-					return failErr
-				}
-				if current.Status != storesqlite.SessionForkStatusDispatching &&
-					current.Status != storesqlite.SessionForkStatusUnknown &&
-					current.Status != storesqlite.SessionForkStatusProviderAccepted {
-					var resultErr error
-					result, resultErr = h.sessionForkResult(actorCtx, current)
-					return resultErr
-				}
-				result, currentErr = h.processSessionForkOperation(actorCtx, current)
-				if currentErr == nil {
-					return nil
-				}
+		op.Status == storesqlite.SessionForkStatusUnknown {
+		return ForkSessionResult{Operation: op}, true, nil
+	}
+	if op.Status == storesqlite.SessionForkStatusProviderAccepted {
+		result, processErr := h.processSessionForkOperation(ctx, op)
+		if processErr == nil {
+			return result, true, nil
+		}
 
-				// The provider result is already durable, so a local commit
-				// failure is safe to retry. Return the latest accepted
-				// snapshot instead of turning an observable operation into a
-				// transport failure; the next GET will reconcile it again.
-				current, currentFound, readErr := h.sessionForks.GetSessionForkOperation(
-					actorCtx, op.WorkspaceID, op.OperationID,
-				)
-				if readErr != nil {
-					return errors.Join(currentErr, readErr)
-				}
-				if !currentFound {
-					return currentErr
-				}
-				result, readErr = h.sessionForkResult(actorCtx, current)
-				return readErr
-			},
+		// The provider result is already durable, so a local commit failure is
+		// safe to retry. Return the latest accepted snapshot instead of turning
+		// an observable operation into a transport failure; the next GET will
+		// reconcile it again.
+		current, currentFound, readErr := h.sessionForks.GetSessionForkOperation(
+			ctx, op.WorkspaceID, op.OperationID,
 		)
-		return result, true, err
+		if readErr != nil {
+			return ForkSessionResult{}, true, errors.Join(processErr, readErr)
+		}
+		if !currentFound {
+			return ForkSessionResult{}, false, processErr
+		}
+		result, readErr = h.sessionForkResult(ctx, current)
+		return result, true, readErr
 	}
 	result, err := h.sessionForkResult(ctx, op)
 	return result, true, err
@@ -260,39 +282,17 @@ func (h *Host) AcknowledgeSessionForkOperation(
 	if workspaceID == "" || operationID == "" {
 		return ForkSessionResult{}, false, ErrInvalidArgument
 	}
-	initial, found, err := h.sessionForks.GetSessionForkOperation(
+	operation, found, _, err := h.sessionForks.AcknowledgeSessionForkOperation(
 		ctx,
 		workspaceID,
 		operationID,
+		h.now().UnixMilli(),
 	)
 	if err != nil || !found {
 		return ForkSessionResult{}, found, err
 	}
-	var result ForkSessionResult
-	err = h.withSessionMutationActor(
-		ctx,
-		workspaceID,
-		initial.SourceAgentSessionID,
-		func(actorCtx context.Context) error {
-			operation, currentFound, _, ackErr :=
-				h.sessionForks.AcknowledgeSessionForkOperation(
-					actorCtx,
-					workspaceID,
-					operationID,
-					h.now().UnixMilli(),
-				)
-			if ackErr != nil {
-				return ackErr
-			}
-			if !currentFound {
-				found = false
-				return nil
-			}
-			result, ackErr = h.sessionForkResult(actorCtx, operation)
-			return ackErr
-		},
-	)
-	return result, found, err
+	result, err := h.sessionForkResult(ctx, operation)
+	return result, true, err
 }
 
 func (h *Host) processSessionForkOperation(
@@ -303,8 +303,6 @@ func (h *Host) processSessionForkOperation(
 		ctx,
 		operation,
 		nil,
-		operation.Status == storesqlite.SessionForkStatusDispatching ||
-			operation.Status == storesqlite.SessionForkStatusUnknown,
 	)
 }
 
@@ -316,34 +314,60 @@ func (h *Host) processSessionForkOperationWithSource(
 	ctx context.Context,
 	operation storesqlite.SessionForkOperation,
 	preparedSource *ProviderRuntimeSession,
-	allowDeterministicReplay bool,
 ) (ForkSessionResult, error) {
-	replaying := operation.Status == storesqlite.SessionForkStatusDispatching ||
-		operation.Status == storesqlite.SessionForkStatusUnknown
 	switch operation.Status {
 	case storesqlite.SessionForkStatusCommitted:
 		return h.sessionForkResult(ctx, operation)
 	case storesqlite.SessionForkStatusProviderAccepted:
+		if operation.StateBindingMode == string(SessionForkStateBindingHostCopy) {
+			sourceSession, found, err := h.sessionForks.GetSessionForkSource(
+				ctx, operation.WorkspaceID, operation.SourceAgentSessionID,
+			)
+			if err != nil || !found {
+				return ForkSessionResult{Operation: operation}, errors.Join(
+					ErrSessionForkFailed, err,
+				)
+			}
+			if h.sessionForkState == nil {
+				return ForkSessionResult{Operation: operation},
+					errors.New("provider child state binding is unavailable")
+			}
+			if err := h.sessionForkState.BindSessionForkProviderState(
+				ctx,
+				SessionForkProviderStateBinding{
+					WorkspaceID:             operation.WorkspaceID,
+					Provider:                sourceSession.Provider,
+					SourceAgentSessionID:    operation.SourceAgentSessionID,
+					TargetAgentSessionID:    operation.TargetAgentSessionID,
+					SourceProviderSessionID: operation.SourceProviderSessionID,
+					TargetProviderSessionID: operation.TargetProviderSessionID,
+				},
+			); err != nil {
+				return ForkSessionResult{Operation: operation}, fmt.Errorf(
+					"bind accepted provider child state: %w",
+					err,
+				)
+			}
+		}
 		commit, err := h.sessionForks.CommitSessionFork(
 			ctx, operation.WorkspaceID, operation.OperationID, h.now().UnixMilli(),
 		)
 		if err != nil {
-			return ForkSessionResult{Operation: operation}, err
+			return ForkSessionResult{Operation: operation}, fmt.Errorf(
+				"materialize accepted session fork: %w",
+				err,
+			)
 		}
 		lineage := commit.Lineage
 		return ForkSessionResult{
 			Operation: commit.Operation, Session: commit.Session, Lineage: &lineage,
 		}, nil
 	case storesqlite.SessionForkStatusDispatching:
-		if !allowDeterministicReplay {
-			return ForkSessionResult{Operation: operation}, ErrSessionForkInProgress
-		}
+		return ForkSessionResult{Operation: operation}, ErrSessionForkInProgress
 	case storesqlite.SessionForkStatusFailed:
 		return ForkSessionResult{Operation: operation}, ErrSessionForkFailed
 	case storesqlite.SessionForkStatusUnknown:
-		if !allowDeterministicReplay {
-			return ForkSessionResult{Operation: operation}, ErrSessionForkDeliveryUnknown
-		}
+		return ForkSessionResult{Operation: operation}, ErrSessionForkDeliveryUnknown
 	case storesqlite.SessionForkStatusPrepared:
 	default:
 		return ForkSessionResult{Operation: operation}, storesqlite.ErrSessionForkTransition
@@ -352,25 +376,7 @@ func (h *Host) processSessionForkOperationWithSource(
 		message string,
 		cause error,
 	) (ForkSessionResult, error) {
-		if !replaying {
-			return h.failPreparedSessionFork(ctx, operation, message, cause)
-		}
-		if operation.Status == storesqlite.SessionForkStatusUnknown {
-			return ForkSessionResult{Operation: operation},
-				errors.Join(ErrSessionForkDeliveryUnknown, cause)
-		}
-		recorded, _, recordErr := h.sessionForks.RecordSessionForkProviderResult(
-			ctx,
-			storesqlite.SessionForkProviderResult{
-				WorkspaceID:      operation.WorkspaceID,
-				OperationID:      operation.OperationID,
-				Status:           storesqlite.SessionForkStatusUnknown,
-				LastError:        message,
-				OccurredAtUnixMS: h.now().UnixMilli(),
-			},
-		)
-		return ForkSessionResult{Operation: recorded},
-			errors.Join(ErrSessionForkDeliveryUnknown, cause, recordErr)
+		return h.failPreparedSessionFork(ctx, operation, message, cause)
 	}
 
 	boundary, supported, err := h.sessionForks.CheckSessionForkThroughTurn(
@@ -383,9 +389,13 @@ func (h *Host) processSessionForkOperationWithSource(
 		)
 	}
 	if !supported {
+		cause := storesqlite.ErrSessionForkTurnState
+		if rejectionErr := boundary.RejectionError(); rejectionErr != nil {
+			cause = rejectionErr
+		}
 		return failBeforeDispatch(
 			"canonical through-turn boundary is no longer forkable",
-			storesqlite.ErrSessionForkTurnState,
+			cause,
 		)
 	}
 	var source ProviderRuntimeSession
@@ -426,7 +436,6 @@ func (h *Host) processSessionForkOperationWithSource(
 	normalizeSessionForkDriverDescriptor(&descriptor)
 	if !descriptor.ThroughTurn || descriptor.Kind != operation.DriverKind ||
 		descriptor.Version != operation.DriverVersion ||
-		(replaying && !descriptor.DeterministicTargetSessionID) ||
 		!validSessionForkStateBindingMode(
 			descriptor.StateBindingMode,
 			h.sessionForkState,
@@ -437,48 +446,27 @@ func (h *Host) processSessionForkOperationWithSource(
 			ErrSessionForkUnsupported,
 		)
 	}
-	switch operation.Status {
-	case storesqlite.SessionForkStatusUnknown:
-		operation, _, err = h.sessionForks.RetryUnknownSessionFork(
-			ctx,
-			operation.WorkspaceID,
-			operation.OperationID,
-			h.now().UnixMilli(),
+	var dispatchChanged bool
+	operation, dispatchChanged, err = h.sessionForks.MarkSessionForkDispatching(
+		ctx, operation.WorkspaceID, operation.OperationID, h.now().UnixMilli(),
+	)
+	if err != nil {
+		return failBeforeDispatch(
+			"provider dispatch marker could not be persisted",
+			err,
 		)
-		if err != nil {
-			return failBeforeDispatch(
-				"provider replay marker could not be persisted",
-				err,
-			)
-		}
-	case storesqlite.SessionForkStatusPrepared:
-		var dispatchChanged bool
-		operation, dispatchChanged, err = h.sessionForks.MarkSessionForkDispatching(
-			ctx, operation.WorkspaceID, operation.OperationID, h.now().UnixMilli(),
-		)
-		if err != nil {
-			return failBeforeDispatch(
-				"provider dispatch marker could not be persisted",
-				err,
-			)
-		}
-		if !dispatchChanged {
-			return h.processSessionForkOperation(ctx, operation)
-		}
 	}
-	targetProviderSessionIDRequest := ""
-	if descriptor.DeterministicTargetSessionID {
-		targetProviderSessionIDRequest = operation.OperationID
+	if !dispatchChanged {
+		return h.processSessionForkOperation(ctx, operation)
 	}
 	providerResult, dispatchErr := h.sessionForkRuntime.ForkSession(
 		ctx, RuntimeSessionForkInput{
-			Source:                  cloneSessionForkRuntimeSource(source),
-			SourceProviderTurnID:    operation.SourceProviderTurnID,
-			SourceProviderTurnIDs:   append([]string(nil), boundary.RootProviderTurnIDs...),
-			TargetProviderSessionID: targetProviderSessionIDRequest,
-			TargetTitle:             operation.TargetTitle,
-			RequestID:               operation.RequestID,
-			Driver:                  descriptor,
+			Source:                            cloneSessionForkRuntimeSource(source),
+			SourceProviderTurnID:              operation.SourceProviderTurnID,
+			SourceProviderCheckpointMessageID: operation.SourceProviderCheckpointMessageID,
+			TargetTitle:                       operation.TargetTitle,
+			RequestID:                         operation.RequestID,
+			Driver:                            descriptor,
 		},
 	)
 	targetProviderSessionID := strings.TrimSpace(providerResult.ProviderSessionID)
@@ -495,22 +483,19 @@ func (h *Host) processSessionForkOperationWithSource(
 		providerResult.DeliveryDisposition != SessionForkDeliveryAccepted ||
 		targetProviderSessionID == "" ||
 		targetProviderSessionID == operation.SourceProviderSessionID ||
-		(targetProviderSessionIDRequest != "" &&
-			targetProviderSessionID != targetProviderSessionIDRequest) ||
 		providerResult.StateBindingMode != descriptor.StateBindingMode ||
-		!validSessionForkProviderResult(providerResult, boundary.RootProviderTurnIDs) {
+		!validSessionForkProviderResult(providerResult) {
 		message := "provider fork result was invalid"
 		status := storesqlite.SessionForkStatusUnknown
 		if dispatchErr != nil {
 			message = dispatchErr.Error()
-			if !replaying && (errors.Is(dispatchErr, ErrSessionForkUnsupported) ||
+			if errors.Is(dispatchErr, ErrSessionForkUnsupported) ||
 				providerResult.DeliveryDisposition == SessionForkDeliveryNotStarted ||
-				providerResult.DeliveryDisposition == SessionForkDeliveryRejected) {
+				providerResult.DeliveryDisposition == SessionForkDeliveryRejected {
 				status = storesqlite.SessionForkStatusFailed
 			}
-		} else if !replaying &&
-			(providerResult.DeliveryDisposition == SessionForkDeliveryNotStarted ||
-				providerResult.DeliveryDisposition == SessionForkDeliveryRejected) {
+		} else if providerResult.DeliveryDisposition == SessionForkDeliveryNotStarted ||
+			providerResult.DeliveryDisposition == SessionForkDeliveryRejected {
 			status = storesqlite.SessionForkStatusFailed
 		}
 		recorded, _, recordErr := h.sessionForks.RecordSessionForkProviderResult(
@@ -531,68 +516,17 @@ func (h *Host) processSessionForkOperationWithSource(
 		return ForkSessionResult{Operation: recorded},
 			errors.Join(ErrSessionForkDeliveryUnknown, dispatchErr)
 	}
-	if providerResult.StateBindingMode == SessionForkStateBindingHostCopy &&
-		h.sessionForkState == nil {
-		bindErr := errors.New("provider child state binding is unavailable")
-		recorded, _, recordErr := h.sessionForks.RecordSessionForkProviderResult(
-			checkpointCtx,
-			storesqlite.SessionForkProviderResult{
-				WorkspaceID:             operation.WorkspaceID,
-				OperationID:             operation.OperationID,
-				Status:                  storesqlite.SessionForkStatusUnknown,
-				TargetProviderSessionID: targetProviderSessionID,
-				LastError:               bindErr.Error(),
-				OccurredAtUnixMS:        h.now().UnixMilli(),
-			},
-		)
-		if recordErr != nil {
-			return ForkSessionResult{Operation: operation},
-				errors.Join(ErrSessionForkDeliveryUnknown, bindErr, recordErr)
-		}
-		return ForkSessionResult{Operation: recorded},
-			errors.Join(ErrSessionForkDeliveryUnknown, bindErr)
-	}
-	if providerResult.StateBindingMode == SessionForkStateBindingHostCopy {
-		bindErr := h.sessionForkState.BindSessionForkProviderState(
-			checkpointCtx,
-			SessionForkProviderStateBinding{
-				WorkspaceID:             operation.WorkspaceID,
-				Provider:                source.Provider,
-				SourceAgentSessionID:    operation.SourceAgentSessionID,
-				TargetAgentSessionID:    operation.TargetAgentSessionID,
-				SourceProviderSessionID: operation.SourceProviderSessionID,
-				TargetProviderSessionID: targetProviderSessionID,
-			},
-		)
-		if bindErr != nil {
-			recorded, _, recordErr := h.sessionForks.RecordSessionForkProviderResult(
-				checkpointCtx,
-				storesqlite.SessionForkProviderResult{
-					WorkspaceID:             operation.WorkspaceID,
-					OperationID:             operation.OperationID,
-					Status:                  storesqlite.SessionForkStatusUnknown,
-					TargetProviderSessionID: targetProviderSessionID,
-					LastError:               "provider child state could not be bound to target runtime: " + bindErr.Error(),
-					OccurredAtUnixMS:        h.now().UnixMilli(),
-				},
-			)
-			if recordErr != nil {
-				return ForkSessionResult{Operation: operation},
-					errors.Join(ErrSessionForkDeliveryUnknown, bindErr, recordErr)
-			}
-			return ForkSessionResult{Operation: recorded},
-				errors.Join(ErrSessionForkDeliveryUnknown, bindErr)
-		}
-	}
 	operation, _, err = h.sessionForks.RecordSessionForkProviderResult(
 		checkpointCtx, storesqlite.SessionForkProviderResult{
 			WorkspaceID: operation.WorkspaceID, OperationID: operation.OperationID,
 			Status:                  storesqlite.SessionForkStatusProviderAccepted,
 			TargetProviderSessionID: targetProviderSessionID,
-			TargetProviderTurnIDs:   append([]string(nil), providerResult.TargetProviderTurnIDs...),
-			StateBindingMode:        string(providerResult.StateBindingMode),
-			StateBindingReceipt:     providerResult.StateBindingReceipt,
-			OccurredAtUnixMS:        h.now().UnixMilli(),
+			TargetProviderTurnBindings: storeSessionForkProviderTurnBindings(
+				providerResult.TargetProviderTurnBindings,
+			),
+			StateBindingMode:    string(providerResult.StateBindingMode),
+			StateBindingReceipt: providerResult.StateBindingReceipt,
+			OccurredAtUnixMS:    h.now().UnixMilli(),
 		},
 	)
 	if err != nil {
@@ -600,6 +534,23 @@ func (h *Host) processSessionForkOperationWithSource(
 			errors.Join(ErrSessionForkDeliveryUnknown, err)
 	}
 	return h.processSessionForkOperation(checkpointCtx, operation)
+}
+
+func storeSessionForkProviderTurnBindings(
+	bindings []SessionForkProviderTurnBinding,
+) []storesqlite.SessionForkProviderTurnBinding {
+	result := make(
+		[]storesqlite.SessionForkProviderTurnBinding,
+		0,
+		len(bindings),
+	)
+	for _, binding := range bindings {
+		result = append(result, storesqlite.SessionForkProviderTurnBinding{
+			ProviderTurnID:      strings.TrimSpace(binding.ProviderTurnID),
+			CheckpointMessageID: strings.TrimSpace(binding.CheckpointMessageID),
+		})
+	}
+	return result
 }
 
 func (h *Host) prepareSessionForkTargetContext(
@@ -755,14 +706,6 @@ func normalizeForkSessionInput(input *ForkSessionInput) {
 	input.RequestID = strings.TrimSpace(input.RequestID)
 	input.Point.Kind = SessionForkPointKind(strings.TrimSpace(string(input.Point.Kind)))
 	input.Point.TurnID = strings.TrimSpace(input.Point.TurnID)
-	input.ThroughTurnID = strings.TrimSpace(input.ThroughTurnID)
-	if input.Point.Kind == "" && input.ThroughTurnID != "" {
-		input.Point = SessionForkPoint{
-			Kind:   SessionForkPointThroughTurn,
-			TurnID: input.ThroughTurnID,
-		}
-	}
-	input.ThroughTurnID = input.Point.TurnID
 }
 
 func normalizeSessionForkCapabilityInput(input *SessionForkCapabilityInput) {

@@ -217,8 +217,9 @@ export const desktopAgentProviders = [
 export type DesktopAgentProvider = (typeof desktopAgentProviders)[number];
 
 export const desktopDefaultAgentProviders = [
-  "claude-code",
+  "tutti-agent",
   "codex",
+  "claude-code",
   "cursor",
   "opencode"
 ] as const;
@@ -226,7 +227,8 @@ export const desktopDefaultAgentProviders = [
 export type DesktopDefaultAgentProvider =
   (typeof desktopDefaultAgentProviders)[number];
 
-export const defaultDesktopAgentProvider: DesktopDefaultAgentProvider = "codex";
+export const defaultDesktopAgentProvider: DesktopDefaultAgentProvider =
+  "tutti-agent";
 
 export interface DesktopAgentComposerDefaults {
   model?: string;

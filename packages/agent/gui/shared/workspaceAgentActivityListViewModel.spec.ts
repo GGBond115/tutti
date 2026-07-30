@@ -1764,16 +1764,10 @@ describe("buildWorkspaceAgentActivityListViewModel", () => {
             messageId: "message-canonical",
             payload: {
               toolName: "ImageGeneration",
-              content: [
-                {
-                  type: "content",
-                  content: {
-                    type: "image",
-                    uri: canonicalPath,
-                    mimeType: "image/webp"
-                  }
-                }
-              ]
+              output: {
+                savedPaths: [canonicalPath],
+                imageMimeType: "image/webp"
+              }
             },
             role: "assistant",
             status: "completed",

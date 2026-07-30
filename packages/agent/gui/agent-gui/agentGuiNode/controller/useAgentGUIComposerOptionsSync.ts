@@ -10,6 +10,7 @@ import type { AgentGUINodeData } from "../../../types";
 import { readNodeDefaultDraftSettings } from "./agentGuiController.composerHelpers";
 import {
   composerTargetDataForConversation,
+  type AgentGUIActiveSessionTarget,
   type AgentGUIComposerTargetData
 } from "./agentGuiController.composerPresentation";
 import {
@@ -23,6 +24,7 @@ import type { AgentGUIComposerDefaultsAuthorityReconciler } from "./agentGuiComp
 export function useAgentGUIComposerOptionsSync(input: {
   activeConversationId: string | null;
   activeConversationIdRef: RefObject<string | null>;
+  activeSessionTarget: AgentGUIActiveSessionTarget | null;
   agentActivityRuntime: AgentActivityRuntime;
   composerTargetData: AgentGUIComposerTargetData;
   conversationFilter: unknown;
@@ -136,6 +138,7 @@ export function useAgentGUIComposerOptionsSync(input: {
       void loadComposerOptionsForTarget(
         composerTargetDataForConversation({
           activeConversationId: input.activeConversationIdRef.current,
+          activeSessionTarget: input.activeSessionTarget,
           data: input.dataRef.current,
           optimisticTarget: null,
           selectedTarget: input.selectedComposerTargetDataRef.current
@@ -150,6 +153,9 @@ export function useAgentGUIComposerOptionsSync(input: {
     },
     [
       input.activeConversationIdRef,
+      input.activeSessionTarget?.agentTargetId,
+      input.activeSessionTarget?.agentSessionId,
+      input.activeSessionTarget?.provider,
       input.dataRef,
       input.isComposerHomeRef,
       input.selectedComposerTargetDataRef,
@@ -182,6 +188,7 @@ export function useAgentGUIComposerOptionsSync(input: {
       (event) => {
         const provider = composerTargetDataForConversation({
           activeConversationId: input.activeConversationIdRef.current,
+          activeSessionTarget: input.activeSessionTarget,
           data: input.dataRef.current,
           optimisticTarget: null,
           selectedTarget: input.selectedComposerTargetDataRef.current
@@ -205,6 +212,7 @@ export function useAgentGUIComposerOptionsSync(input: {
     return subscribe("agent-composer-defaults-invalidated", (event) => {
       const selectedTarget = composerTargetDataForConversation({
         activeConversationId: input.activeConversationIdRef.current,
+        activeSessionTarget: input.activeSessionTarget,
         data: input.dataRef.current,
         optimisticTarget: null,
         selectedTarget: input.selectedComposerTargetDataRef.current
@@ -230,6 +238,9 @@ export function useAgentGUIComposerOptionsSync(input: {
     });
   }, [
     input.defaultReasoningEffort,
+    input.activeSessionTarget?.agentTargetId,
+    input.activeSessionTarget?.agentSessionId,
+    input.activeSessionTarget?.provider,
     input.onComposerDefaultsAuthorityReloadedRef,
     loadComposerOptionsForTarget
   ]);

@@ -22,6 +22,9 @@ func TestDefaultSystemTargetsUseMigratedProviderDescriptors(t *testing.T) {
 	if len(targets) == 0 {
 		t.Fatal("DefaultSystemTargets() returned no targets")
 	}
+	if targets[0].ID != IDLocalTuttiAgent {
+		t.Fatalf("first default system target = %q, want %q", targets[0].ID, IDLocalTuttiAgent)
+	}
 	for index := 1; index < len(targets); index++ {
 		if targets[index-1].SortOrder > targets[index].SortOrder {
 			t.Fatalf("targets are not sorted by descriptor order: %#v", targets)

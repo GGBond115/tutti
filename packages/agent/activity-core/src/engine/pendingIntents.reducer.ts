@@ -8,10 +8,19 @@ import {
   type PendingIntentsState,
   type SessionActivationRequestedIntent
 } from "./pendingIntents.types.ts";
+import { reconcilePendingIntentsFromAuthoritativeHistory } from "./pendingIntents.authoritativeHistory.ts";
 import {
   pendingActivationGoalControlFields,
   pendingActivationRailSectionKeyFields
 } from "./pendingIntents.activationExtras.ts";
+import {
+  attachPendingActivationSettings,
+  settlePendingActivationSettings
+} from "./pendingIntents.activationSettings.ts";
+import {
+  activationCanAcceptCommandResult,
+  validateActivationCommandResult
+} from "./pendingIntents.activationResult.ts";
 import {
   markSessionActive,
   markSessionInactive,
@@ -109,10 +118,22 @@ export function pendingIntentsReducer(
         : unchanged(state);
     case "message/snapshotReceived":
       return confirmFromMessages(state, intent.messages);
+    case "session/historyAuthoritativeSnapshotReceived": {
+      const confirmed = confirmFromMessages(state, intent.messages);
+      const reconciled = reconcilePendingIntentsFromAuthoritativeHistory(
+        confirmed.state,
+        intent
+      );
+      return {
+        commands: [...confirmed.commands, ...reconciled.commands],
+        state: reconciled.state
+      };
+    }
     case "session/snapshotReceived":
       return receiveSessionSnapshot(state, intent.sessions, context.turnsById);
     case "session/upserted":
       return confirmActivationsFromSessions(state, [intent.session]);
+    case "turn/projectionReceived":
     case "turn/upserted":
       return confirmFromSessions(state, context.turnsById);
     case "engine/commandResult":
@@ -126,6 +147,9 @@ export function pendingIntentsReducer(
         const confirmed = confirmFromSessions(settled.state, context.turnsById);
         return {
           commands: [...settled.commands, ...confirmed.commands],
+          ...(confirmed.followUpIntents?.length
+            ? { followUpIntents: confirmed.followUpIntents }
+            : {}),
           state: confirmed.state
         };
       }
@@ -179,7 +203,10 @@ function patchActivationSettings(
   if (record.status === "confirmed") {
     const attached = attachPendingActivationSettings(patchedRecord);
     return {
-      commands: attached.commands,
+      commands: NO_COMMANDS,
+      ...(attached.followUpIntents.length
+        ? { followUpIntents: attached.followUpIntents }
+        : {}),
       state: replaceActivation(state, attached.record)
     };
   }
@@ -236,6 +263,7 @@ function requestActivation(
     errorCode: null,
     errorMessage: null,
     expiresAtUnixMs: intent.expiresAtUnixMs,
+    initialPromptRetracted: false,
     initialTurnExpected:
       intent.initialTurnExpected ?? runtimeContent.length > 0,
     ...pendingActivationGoalControlFields(intent),
@@ -382,6 +410,7 @@ function recordActivationFailure(
       errorCode: intent.errorCode?.trim() || null,
       errorMessage: intent.errorMessage.trim() || null,
       expiresAtUnixMs: Number.MAX_SAFE_INTEGER,
+      initialPromptRetracted: false,
       initialTurnExpected: false,
       mode: "existing",
       requestedAtUnixMs: intent.occurredAtUnixMs,
@@ -500,35 +529,51 @@ function settleActivationCommand(
   if (!record) {
     return unchanged(state);
   }
-  if (record.status === "canceled") return unchanged(state);
-  if (
-    intent.outcome === "succeeded" &&
-    isActivationCommandResult(intent.value)
-  ) {
-    const result = intent.value;
-    const failed = result.activation.status === "failed";
+  if (!activationCanAcceptCommandResult(record.status)) {
+    return unchanged(state);
+  }
+  if (intent.outcome === "succeeded") {
+    const settlement = validateActivationCommandResult(
+      intent.value,
+      record,
+      intent.resultContract
+    );
+    if (record.status === "confirmed") {
+      return settlement.kind === "acknowledged" &&
+        settlement.projectionIntent !== null
+        ? {
+            commands: NO_COMMANDS,
+            followUpIntents: [settlement.projectionIntent],
+            state
+          }
+        : unchanged(state);
+    }
+    if (settlement.kind === "invalid") {
+      return {
+        commands: NO_COMMANDS,
+        state: replaceActivation(state, {
+          ...record,
+          errorCode: settlement.errorCode,
+          errorMessage: settlement.errorMessage,
+          status: "uncertain"
+        })
+      };
+    }
+    const failed = settlement.kind === "failed";
     return {
       commands: NO_COMMANDS,
+      ...(settlement.projectionIntent
+        ? { followUpIntents: [settlement.projectionIntent] }
+        : {}),
       state: replaceActivation(
         markSessionActive(state, record.agentSessionId),
         {
           ...record,
-          errorCode: failed ? result.error?.code?.trim() || null : null,
-          errorMessage: failed ? result.error?.message?.trim() || null : null,
+          errorCode: settlement.errorCode,
+          errorMessage: settlement.errorMessage,
           status: failed ? "failed" : record.status
         }
       )
-    };
-  }
-  if (intent.outcome === "succeeded") {
-    return {
-      commands: NO_COMMANDS,
-      state: replaceActivation(state, {
-        ...record,
-        errorCode: "invalid_command_result",
-        errorMessage: null,
-        status: "uncertain"
-      })
     };
   }
   return {
@@ -552,8 +597,13 @@ function receiveSessionSnapshot(
 ): EngineReducerResult<PendingIntentsState> {
   const activationResult = confirmActivationsFromSessions(state, sessions);
   const submitResult = confirmFromSessions(activationResult.state, turnsById);
+  const followUpIntents = [
+    ...(activationResult.followUpIntents ?? []),
+    ...(submitResult.followUpIntents ?? [])
+  ];
   return {
     commands: [...activationResult.commands, ...submitResult.commands],
+    ...(followUpIntents.length ? { followUpIntents } : {}),
     state: submitResult.state
   };
 }
@@ -565,7 +615,7 @@ function confirmActivationsFromSessions(
   const sessionsById = new Map(
     sessions.map((session) => [session.agentSessionId, session])
   );
-  const commands: EngineCommand[] = [];
+  const followUpIntents: EngineIntent[] = [];
   let next = state;
   for (const record of Object.values(state.activationsByRequestId)) {
     if (record.status !== "requested" && record.status !== "uncertain") {
@@ -587,38 +637,15 @@ function confirmActivationsFromSessions(
       errorMessage: null,
       status: "confirmed"
     });
-    commands.push(...settingsUpdate.commands);
+    followUpIntents.push(...settingsUpdate.followUpIntents);
   }
-  return next === state ? unchanged(state) : { commands, state: next };
-}
-
-function attachPendingActivationSettings(
-  record: PendingActivationIntentRecord
-): {
-  commands: readonly EngineCommand[];
-  record: PendingActivationIntentRecord;
-} {
-  const settings = record.pendingSettingsPatch;
-  if (
-    !settings ||
-    Object.keys(settings).length === 0 ||
-    record.settingsUpdateStatus === "inFlight"
-  ) {
-    return { commands: NO_COMMANDS, record };
-  }
-  return {
-    commands: [
-      {
-        agentSessionId: record.agentSessionId,
-        commandId: `activation-settings:${record.requestId}`,
-        correlationId: record.requestId,
-        settings: { ...settings },
-        type: "session/updateSettings",
-        workspaceId: record.workspaceId
-      }
-    ],
-    record: { ...record, settingsUpdateStatus: "inFlight" }
-  };
+  return next === state && followUpIntents.length === 0
+    ? unchanged(state)
+    : {
+        commands: NO_COMMANDS,
+        ...(followUpIntents.length ? { followUpIntents } : {}),
+        state: next
+      };
 }
 
 function settleActivationSettingsCommand(
@@ -626,38 +653,14 @@ function settleActivationSettingsCommand(
   intent: EngineCommandResultIntent,
   validation: ScopedSessionResultValidation | null
 ): EngineReducerResult<PendingIntentsState> {
-  const requestId = intent.correlationId?.trim() ?? "";
-  const record = state.activationsByRequestId[requestId];
-  if (
-    !record ||
-    record.settingsUpdateStatus !== "inFlight" ||
-    intent.commandId !== `activation-settings:${requestId}`
-  ) {
-    return unchanged(state);
-  }
-  if (intent.outcome === "succeeded" && validation?.kind === "valid") {
-    const {
-      pendingSettingsPatch: _patch,
-      settingsUpdateStatus: _status,
-      ...next
-    } = record;
-    return { commands: NO_COMMANDS, state: replaceActivation(state, next) };
-  }
-  return {
-    commands: NO_COMMANDS,
-    state: replaceActivation(state, {
-      ...record,
-      errorCode:
-        intent.outcome === "succeeded"
-          ? "invalid_command_result"
-          : intent.errorCode?.trim() || "settings_update_failed",
-      errorMessage: intent.errorMessage?.trim() || null,
-      settingsUpdateStatus:
-        intent.outcome === "timedOut" || intent.outcome === "succeeded"
-          ? "unknown"
-          : "failed"
-    })
-  };
+  const record = settlePendingActivationSettings(
+    state.activationsByRequestId,
+    intent,
+    validation
+  );
+  return record
+    ? { commands: NO_COMMANDS, state: replaceActivation(state, record) }
+    : unchanged(state);
 }
 
 function expireActivation(
@@ -735,22 +738,6 @@ function removeSessionIntents(
       agentSessionId
     )
   };
-}
-
-function isActivationCommandResult(value: unknown): value is {
-  activation: { status: string };
-  error?: { code?: string; message?: string } | null;
-} {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const result = value as {
-    activation?: { status?: unknown };
-    error?: { code?: string; message?: string } | null;
-  };
-  return Boolean(
-    result.activation && typeof result.activation.status === "string"
-  );
 }
 
 function activationExpiryId(requestId: string): string {

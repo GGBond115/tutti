@@ -1,6 +1,10 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import {
+  dispatchAgentGuiWorkbenchCommand,
+  type AgentGuiWorkbenchSessionAction
+} from "../../../workbench/commands";
 import { AGENT_CONVERSATION_COPY_MAX_EMBEDDED_IMAGE_BYTES } from "../model/agentConversationCopy";
 import type { AgentGUINodeViewModel } from "../model/agentGuiNodeTypes";
 import { useAgentGUIExternalRequests } from "./useAgentGUIExternalRequests";
@@ -176,15 +180,108 @@ function baseProps(
   return {
     createConversationDisabled: true,
     labels: LABELS,
-    newConversationRequestSequence: null,
     requestCreateConversation: vi.fn(),
     requestRenameConversation: vi.fn(),
-    sessionActionRequest: null,
     uiLanguage: "en",
     viewModel: makeViewModel({}),
+    workbenchCommandBridge: { instanceId: "instance-1" },
     ...overrides
   };
 }
+
+function dispatchSessionAction(
+  action: AgentGuiWorkbenchSessionAction,
+  agentSessionId: string | null = null,
+  instanceId = "instance-1"
+): void {
+  act(() => {
+    dispatchAgentGuiWorkbenchCommand({
+      type: "session-action",
+      action,
+      agentSessionId,
+      instanceId
+    });
+  });
+}
+
+describe("useAgentGUIExternalRequests workbench commands", () => {
+  it("routes commands only to the matching workbench instance", () => {
+    const requestCreateConversation = vi.fn();
+    renderHook(useAgentGUIExternalRequests, {
+      initialProps: baseProps({
+        createConversationDisabled: false,
+        requestCreateConversation
+      })
+    });
+
+    act(() => {
+      dispatchAgentGuiWorkbenchCommand({
+        instanceId: "other-instance",
+        type: "new-conversation"
+      });
+      dispatchAgentGuiWorkbenchCommand({
+        instanceId: "instance-1",
+        type: "new-conversation"
+      });
+    });
+
+    expect(requestCreateConversation).toHaveBeenCalledTimes(1);
+    expect(requestCreateConversation).toHaveBeenCalledWith({
+      source: "external_request"
+    });
+  });
+
+  it("honors the current disabled state for new conversations", () => {
+    const requestCreateConversation = vi.fn();
+    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+      initialProps: baseProps({ requestCreateConversation })
+    });
+
+    act(() => {
+      dispatchAgentGuiWorkbenchCommand({
+        instanceId: "instance-1",
+        type: "new-conversation"
+      });
+    });
+    expect(requestCreateConversation).not.toHaveBeenCalled();
+
+    rerender(
+      baseProps({
+        createConversationDisabled: false,
+        requestCreateConversation
+      })
+    );
+    act(() => {
+      dispatchAgentGuiWorkbenchCommand({
+        instanceId: "instance-1",
+        type: "new-conversation"
+      });
+    });
+    expect(requestCreateConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it("delegates standalone rail persistence through the bridge callback", () => {
+    const onConversationRailToggle = vi.fn();
+    renderHook(useAgentGUIExternalRequests, {
+      initialProps: baseProps({
+        workbenchCommandBridge: {
+          instanceId: "instance-1",
+          onConversationRailToggle
+        }
+      })
+    });
+
+    act(() => {
+      dispatchAgentGuiWorkbenchCommand({
+        conversationRailCollapsed: true,
+        instanceId: "instance-1",
+        type: "conversation-rail-toggle"
+      });
+    });
+
+    expect(onConversationRailToggle).toHaveBeenCalledWith(true);
+  });
+});
 
 describe("useAgentGUIExternalRequests session actions", () => {
   it("executes rename against the conversation the request targets", () => {
@@ -199,18 +296,11 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active, other]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "rename",
-        agentSessionId: "session-2",
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("rename", "session-2");
 
     expect(requestRenameConversation).toHaveBeenCalledTimes(1);
     expect(requestRenameConversation).toHaveBeenCalledWith(other);
@@ -227,23 +317,16 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "rename",
-        agentSessionId: null,
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("rename");
 
     expect(requestRenameConversation).toHaveBeenCalledWith(active);
   });
 
-  it("consumes each request sequence exactly once", () => {
+  it("consumes each dispatched command, including repeated actions", () => {
     installHostApi();
     const active = makeConversation();
     const requestRenameConversation = vi.fn();
@@ -254,23 +337,12 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    const request = {
-      action: "rename" as const,
-      agentSessionId: null,
-      sequence: 1
-    };
-    rerender({ ...props, sessionActionRequest: request });
-    rerender({ ...props, sessionActionRequest: request });
-    expect(requestRenameConversation).toHaveBeenCalledTimes(1);
-
-    rerender({
-      ...props,
-      sessionActionRequest: { ...request, sequence: 2 }
-    });
+    dispatchSessionAction("rename");
+    dispatchSessionAction("rename");
     expect(requestRenameConversation).toHaveBeenCalledTimes(2);
   });
 
@@ -285,19 +357,12 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender, result } = renderHook(useAgentGUIExternalRequests, {
+    const { result } = renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
     result.current.registerRailInteractionLockProbe(() => true);
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "rename",
-        agentSessionId: null,
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("rename");
 
     expect(requestRenameConversation).not.toHaveBeenCalled();
     expect(toastError).toHaveBeenCalledTimes(1);
@@ -310,18 +375,11 @@ describe("useAgentGUIExternalRequests session actions", () => {
     const props = baseProps({
       viewModel: makeViewModel({ activeConversation: null, conversations: [] })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "copy-markdown",
-        agentSessionId: "session-ghost",
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("copy-markdown", "session-ghost");
 
     expect(writeText).not.toHaveBeenCalled();
     expect(toastError).toHaveBeenCalledWith(LABELS.sessionActionUnavailable);
@@ -337,18 +395,11 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "copy-markdown",
-        agentSessionId: "session-1",
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("copy-markdown", "session-1");
 
     expect(toastLoading).toHaveBeenCalledWith(
       LABELS.conversationCopyInProgress
@@ -366,18 +417,11 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "copy-markdown",
-        agentSessionId: "session-1",
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("copy-markdown", "session-1");
 
     expect(toastInfo).toHaveBeenCalledWith(LABELS.conversationCopyInProgress);
   });
@@ -392,18 +436,11 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "copy-markdown",
-        agentSessionId: "session-1",
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("copy-markdown", "session-1");
 
     await waitFor(() => {
       expect(toastHandleResolve).toHaveBeenCalledWith(LABELS.copiedToClipboard);
@@ -447,18 +484,11 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "copy-markdown",
-        agentSessionId: "session-1",
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("copy-markdown", "session-1");
 
     await waitFor(() => {
       expect(toastHandleResolve).toHaveBeenCalledWith(LABELS.copiedToClipboard);
@@ -521,18 +551,11 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "copy-markdown",
-        agentSessionId: "session-1",
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("copy-markdown", "session-1");
 
     await waitFor(() => {
       expect(toastHandleResolve).toHaveBeenCalledWith(LABELS.copiedToClipboard);
@@ -595,18 +618,11 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "copy-markdown",
-        agentSessionId: "session-1",
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("copy-markdown", "session-1");
 
     await waitFor(() => {
       expect(toastHandleInfo).toHaveBeenCalledWith(
@@ -632,18 +648,11 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "copy-markdown",
-        agentSessionId: "session-1",
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("copy-markdown", "session-1");
 
     await waitFor(() => {
       expect(toastHandleResolve).toHaveBeenCalledWith(LABELS.copiedToClipboard);
@@ -663,18 +672,11 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "copy-reference",
-        agentSessionId: "session-1",
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("copy-reference", "session-1");
 
     await waitFor(() => {
       expect(toastSuccess).toHaveBeenCalledWith(LABELS.copiedToClipboard);
@@ -695,18 +697,11 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "copy-markdown",
-        agentSessionId: null,
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("copy-markdown");
 
     await waitFor(() => {
       expect(toastHandleReject).toHaveBeenCalledWith(LABELS.copyFailed);
@@ -730,18 +725,11 @@ describe("useAgentGUIExternalRequests session actions", () => {
         conversations: [active]
       })
     });
-    const { rerender } = renderHook(useAgentGUIExternalRequests, {
+    renderHook(useAgentGUIExternalRequests, {
       initialProps: props
     });
 
-    rerender({
-      ...props,
-      sessionActionRequest: {
-        action: "copy-markdown",
-        agentSessionId: null,
-        sequence: 1
-      }
-    });
+    dispatchSessionAction("copy-markdown");
 
     await waitFor(() => {
       expect(toastError).toHaveBeenCalledWith(LABELS.copyFailed);

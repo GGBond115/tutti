@@ -62,7 +62,7 @@ export function createWorkbenchNodeFromSnapshot<TData = unknown>(
 
 export function createWorkbenchStateFromSnapshot<TData = unknown>(
   snapshot: WorkbenchSnapshot
-): Pick<WorkbenchState<TData>, "nodeStack" | "nodes"> {
+): Pick<WorkbenchState<TData>, "lockedLayout" | "nodeStack" | "nodes"> {
   const normalized = normalizeWorkbenchSnapshot(snapshot);
   const nodes = normalized.nodes.map((node) =>
     createWorkbenchNodeFromSnapshot<TData>(node)
@@ -70,13 +70,19 @@ export function createWorkbenchStateFromSnapshot<TData = unknown>(
 
   return {
     nodes,
-    nodeStack: normalized.nodeStack ?? nodes.map((node) => node.id)
+    nodeStack: normalized.nodeStack ?? nodes.map((node) => node.id),
+    lockedLayout: normalized.lockedLayout ?? null
   };
 }
 
 export function createWorkbenchSnapshotFromState<TData = unknown>(
   state: Pick<WorkbenchState<TData>, "nodeStack" | "nodes"> &
-    Partial<Pick<WorkbenchState<TData>, "layoutConstraints" | "surfaceSize">>,
+    Partial<
+      Pick<
+        WorkbenchState<TData>,
+        "layoutConstraints" | "lockedLayout" | "surfaceSize"
+      >
+    >,
   options: CreateWorkbenchSnapshotFromStateOptions = {}
 ): WorkbenchSnapshot {
   return normalizeWorkbenchSnapshot({
@@ -97,6 +103,7 @@ export function createWorkbenchSnapshotFromState<TData = unknown>(
     spaces: options.spaces,
     activeSpaceId: options.activeSpaceId,
     layoutBasis: createWorkbenchSnapshotLayoutBasis(state),
+    lockedLayout: state.lockedLayout ?? undefined,
     metadata: options.metadata
   });
 }

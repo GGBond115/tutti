@@ -122,6 +122,74 @@ test("load preserves an initialized empty snapshot without reopening defaults", 
   session.dispose();
 });
 
+test("load restores a locked AgentGUI layout across a workspace reopen", async () => {
+  const persistedSnapshot = createWorkbenchSnapshotFromState(
+    {
+      lockedLayout: {
+        preset: { kind: "row" },
+        nodeIDs: ["agent-gui:agent-a", "agent-gui:agent-b"]
+      },
+      nodeStack: ["agent-gui:agent-a", "agent-gui:agent-b"],
+      nodes: [
+        {
+          data: {
+            instanceId: "agent-a",
+            instanceKey: null,
+            typeId: "agent-gui"
+          },
+          displayMode: "floating",
+          frame: { x: 0, y: 52, width: 500, height: 580 },
+          id: "agent-gui:agent-a",
+          isMinimized: false,
+          kind: "agent-gui",
+          restoreFrame: null,
+          title: "Agent A"
+        },
+        {
+          data: {
+            instanceId: "agent-b",
+            instanceKey: null,
+            typeId: "agent-gui"
+          },
+          displayMode: "floating",
+          frame: { x: 512, y: 52, width: 500, height: 580 },
+          id: "agent-gui:agent-b",
+          isMinimized: false,
+          kind: "agent-gui",
+          restoreFrame: null,
+          title: "Agent B"
+        }
+      ]
+    },
+    {
+      metadata: { workbenchHostInitialized: true }
+    }
+  );
+  const session = createWorkbenchHostSession({
+    nodes: [agentGuiNodeDefinition],
+    snapshotRepository: {
+      async load() {
+        return persistedSnapshot;
+      },
+      async save(_workspaceId, snapshot) {
+        return snapshot;
+      }
+    },
+    workspaceId: "workspace-1"
+  });
+
+  await session.load();
+  assert.deepEqual(session.controller.getSnapshot().lockedLayout, {
+    preset: { kind: "row" },
+    nodeIDs: ["agent-gui:agent-a", "agent-gui:agent-b"]
+  });
+
+  session.controller.commands.setSurfaceSize({ width: 1440, height: 900 });
+  assert.notEqual(session.controller.getSnapshot().lockedLayout, null);
+
+  session.dispose();
+});
+
 test("runtime node state stays out of the workbench host snapshot", async () => {
   let savedSnapshot = createWorkbenchSnapshotFromState({
     nodeStack: [],

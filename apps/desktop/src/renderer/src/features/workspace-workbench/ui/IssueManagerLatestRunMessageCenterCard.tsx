@@ -202,12 +202,6 @@ function IssueManagerLatestRunMessageCenterCard({
       payload?: Record<string, unknown>;
       requestId: string;
     }) => {
-      const commandId = [
-        workspaceId,
-        item.agentSessionId,
-        "interaction",
-        submitInput.requestId
-      ].join(":");
       if (
         item.pendingPrompt?.kind === "plan-implementation" &&
         (submitInput.action === "implement" ||
@@ -231,13 +225,10 @@ function IssueManagerLatestRunMessageCenterCard({
           item.agentSessionId
         ).find((candidate) => candidate.requestId === submitInput.requestId);
         if (!interaction) return;
-        sessionEngine.dispatch({
-          type: "interaction/responseRequested",
+        sessionEngine.submitInteractionResponse({
           agentSessionId: item.agentSessionId,
-          commandId,
           requestId: submitInput.requestId,
           turnId: interaction.turnId,
-          workspaceId,
           ...(submitInput.action ? { action: submitInput.action } : {}),
           ...(submitInput.optionId ? { optionId: submitInput.optionId } : {}),
           ...(submitInput.payload ? { payload: submitInput.payload } : {})

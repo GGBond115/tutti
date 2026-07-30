@@ -403,6 +403,30 @@ func TestParseRemoteCatalogSelectsHighestCompatibleAppVersion(t *testing.T) {
 	}
 }
 
+func TestParseRemoteCatalogSelectsHighestCompatibleTuttiVersionTier(t *testing.T) {
+	legacy := remoteCatalogAppForVersionTest("automation", "0.1.0+f279cf1f96ab")
+	current := remoteCatalogAppForVersionTest("automation", "0.1.0+954ca3ea7534")
+	document := remoteCatalogDocument{
+		SchemaVersion: remoteCatalogSchemaVersionV1,
+		Apps:          []remoteCatalogApp{legacy},
+		Compatibility: &remoteCatalogCompatibility{Apps: map[string][]remoteCatalogCompatibilityEntry{
+			"automation": {
+				{MinTuttiVersion: "0.0.0", App: legacy},
+				{MinTuttiVersion: "0.1.18", App: current},
+			},
+		}},
+	}
+	data := remoteCatalogDataForTest(t, document)
+
+	apps, err := parseRemoteCatalogForTuttiVersion(data, "0.2.4-rc.1-14-g5cbafc453-dirty")
+	if err != nil {
+		t.Fatalf("parse catalog: %v", err)
+	}
+	if app := findCatalogAppForTest(apps, "automation"); app == nil || app.Manifest.Version != "0.1.0+954ca3ea7534" {
+		t.Fatalf("automation app = %#v, want current compatibility tier", app)
+	}
+}
+
 func TestParseRemoteCatalogSelectsCapabilityCompatibleAppVersion(t *testing.T) {
 	legacy := remoteCatalogAppForVersionTest("capability-app", "1.0.0")
 	versionCompatible := remoteCatalogAppForVersionTest("capability-app", "1.1.0")

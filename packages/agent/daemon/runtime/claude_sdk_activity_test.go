@@ -552,10 +552,15 @@ func TestClaudeCodeSDKAdapterMapsToolLifecycleAndFileMetadata(t *testing.T) {
 			"status":     "completed",
 			"output": map[string]any{
 				"text": "updated",
+				"structuredPatch": []any{
+					map[string]any{"path": "/tmp/a.txt", "oldString": "old", "newString": "new"},
+				},
 			},
 			"metadata": map[string]any{
 				"claudeToolResponse": map[string]any{
-					"structuredPatch": map[string]any{"path": "/tmp/a.txt"},
+					"agentId":         "agent-1",
+					"totalDurationMs": 123,
+					"originalFile":    "large provider snapshot",
 				},
 			},
 		},
@@ -584,8 +589,14 @@ func TestClaudeCodeSDKAdapterMapsToolLifecycleAndFileMetadata(t *testing.T) {
 		t.Fatalf("fileChange metadata = %#v, want edit diff text", fileChange)
 	}
 	completedMetadata := payloadMap(completed[0].Payload.Metadata, "metadata")
-	if toolResponse := payloadMap(completedMetadata, "claudeToolResponse"); payloadMap(toolResponse, "structuredPatch") == nil {
-		t.Fatalf("completed metadata = %#v, want structuredPatch", completed[0].Payload.Metadata)
+	if completedMetadata["agentId"] != "agent-1" || completedMetadata["durationMs"] != 123 {
+		t.Fatalf("completed metadata = %#v, want canonical Claude metadata", completed[0].Payload.Metadata)
+	}
+	if completedMetadata["claudeToolResponse"] != nil {
+		t.Fatalf("completed metadata retained Claude response envelope: %#v", completed[0].Payload.Metadata)
+	}
+	if patches, ok := completed[0].Payload.Output["structuredPatch"].([]any); !ok || len(patches) != 1 {
+		t.Fatalf("completed output = %#v, want canonical structured patch", completed[0].Payload.Output)
 	}
 	turnFiles := payloadArray(payloadMap(completed[1].Payload.Metadata, "fileChanges")["files"])
 	if len(turnFiles) != 1 || turnFiles[0]["path"] != "/tmp/a.txt" || turnFiles[0]["change"] != "modified" {

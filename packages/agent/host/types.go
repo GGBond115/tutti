@@ -1,6 +1,9 @@
 package agenthost
 
-import storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+import (
+	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
+)
 
 // SessionRef identifies one canonical session without carrying host transport
 // or authorization state.
@@ -117,9 +120,8 @@ type ForkSessionInput struct {
 	TargetAgentSessionID string
 	RequestID            string
 	Point                SessionForkPoint
-	// ThroughTurnID is a temporary source-compatibility alias. New callers
-	// must use Point so adding whole-session mode does not reopen Host APIs.
-	ThroughTurnID string
+	// Asynchronous returns after the frozen durable operation is accepted.
+	Asynchronous bool
 }
 
 type SessionForkPointKind string
@@ -145,10 +147,8 @@ type SessionForkCapabilityInput struct {
 }
 
 type SessionForkCapabilities struct {
-	FullSession         bool
-	ThroughTurn         bool
-	ThroughTurnIDs      []string
-	ThroughTurnIDsKnown bool
+	FullSession bool
+	ThroughTurn bool
 }
 
 // SessionForkTargetContext freezes the host-owned runtime context that the
@@ -163,24 +163,17 @@ type SessionForkDriverDescriptor struct {
 	Kind             string
 	Version          string
 	StateBindingMode SessionForkStateBindingMode
-	// DeterministicTargetSessionID guarantees that ForkSession honors
-	// TargetProviderSessionID and that repeating the same input reconciles or
-	// creates that one provider child instead of allocating another identity.
-	DeterministicTargetSessionID bool
-	FullSession                  bool
-	ThroughTurn                  bool
-	ThroughProviderTurnIDs       []string
-	ThroughProviderTurnIDsKnown  bool
+	FullSession      bool
+	ThroughTurn      bool
 }
 
 type RuntimeSessionForkInput struct {
-	Source                  ProviderRuntimeSession
-	SourceProviderTurnID    string
-	SourceProviderTurnIDs   []string
-	TargetProviderSessionID string
-	TargetTitle             string
-	RequestID               string
-	Driver                  SessionForkDriverDescriptor
+	Source                            ProviderRuntimeSession
+	SourceProviderTurnID              string
+	SourceProviderCheckpointMessageID string
+	TargetTitle                       string
+	RequestID                         string
+	Driver                            SessionForkDriverDescriptor
 }
 
 type SessionForkDeliveryDisposition string
@@ -193,11 +186,30 @@ const (
 )
 
 type RuntimeSessionForkResult struct {
-	ProviderSessionID     string
-	TargetProviderTurnIDs []string
-	StateBindingMode      SessionForkStateBindingMode
-	StateBindingReceipt   string
-	DeliveryDisposition   SessionForkDeliveryDisposition
+	ProviderSessionID          string
+	TargetProviderTurnBindings []SessionForkProviderTurnBinding
+	StateBindingMode           SessionForkStateBindingMode
+	StateBindingReceipt        string
+	DeliveryDisposition        SessionForkDeliveryDisposition
+}
+
+type SessionForkProviderTurnBinding struct {
+	ProviderTurnID      string
+	CheckpointMessageID string
+}
+
+type RuntimeProviderTurnBindingRecoveryInput struct {
+	Source               ProviderRuntimeSession
+	CanonicalTurnID      string
+	RecoveryToken        string
+	LegacyTextHMACKey    string
+	LegacyTextHMACDigest string
+}
+
+type RuntimeProviderTurnBindingRecoveryResult struct {
+	ProviderSessionID           string
+	ProviderTurnID              string
+	ProviderCheckpointMessageID string
 }
 
 type SessionForkStateBindingMode string
@@ -280,6 +292,8 @@ type RuntimeExecInput struct {
 	InitialTitleBase                string
 	Metadata                        map[string]any
 	Guidance                        bool
+	HistoryReplacement              bool
+	RequireProviderAcceptance       bool
 	TuttiModeSnapshot               *TuttiModeTurnSnapshot
 }
 
@@ -313,9 +327,83 @@ type RuntimeExecResult struct {
 	Status             string
 	TurnID             string
 	Accepted           bool
+	ProviderDispatch   RuntimeProviderDispatchResult
 	SessionStatus      string
 	TurnLifecycle      TurnLifecycle
 	SubmitAvailability SubmitAvailability
+}
+
+type RuntimeDispatchDisposition string
+
+const (
+	RuntimeDispatchDispositionApplied                    RuntimeDispatchDisposition = "applied"
+	RuntimeDispatchDispositionAppliedWithoutProviderTurn RuntimeDispatchDisposition = "applied_without_provider_turn"
+	RuntimeDispatchDispositionRejected                   RuntimeDispatchDisposition = "rejected"
+	RuntimeDispatchDispositionNotDispatched              RuntimeDispatchDisposition = "not_dispatched"
+	RuntimeDispatchDispositionOutcomeUnknown             RuntimeDispatchDisposition = "outcome_unknown"
+)
+
+type RuntimeAcceptanceSource string
+
+const (
+	RuntimeAcceptanceSourceTurnStartResponse RuntimeAcceptanceSource = "turn_start_response"
+	RuntimeAcceptanceSourceHistoryRead       RuntimeAcceptanceSource = "history_read"
+)
+
+// RuntimeProviderAcceptanceReceipt is positive provider evidence that a
+// replacement turn crossed the provider delivery boundary.
+type RuntimeProviderAcceptanceReceipt struct {
+	ProviderSessionID string
+	ProviderTurnID    string
+	Source            RuntimeAcceptanceSource
+}
+
+// RuntimeProviderDispatchResult separates an explicit provider outcome from a
+// transport failure whose effect is unknown. Acceptance is present only when
+// the provider supplied positive evidence for the dispatched turn.
+type RuntimeProviderDispatchResult struct {
+	Disposition RuntimeDispatchDisposition
+	Acceptance  *RuntimeProviderAcceptanceReceipt
+}
+
+type RuntimeHistoryTurn struct {
+	ID                  string
+	Status              string
+	ClientUserMessageID string
+}
+
+// RuntimeHistorySnapshot is the provider runtime's authoritative effective
+// thread membership and ordering. Canonical history revisions intentionally
+// stay outside this provider observation.
+type RuntimeHistorySnapshot struct {
+	ProviderSessionID string
+	Turns             []RuntimeHistoryTurn
+}
+
+type RuntimeHistoryInput struct {
+	WorkspaceID    string
+	AgentSessionID string
+	Provider       string
+}
+
+type RuntimeHistoryMutationResult struct {
+	Disposition RuntimeDispatchDisposition
+	Snapshot    *RuntimeHistorySnapshot
+}
+
+// RuntimeProviderTurnAcceptanceInput carries an authoritative provider-history
+// observation back through the normal durable activity projection. It is not a
+// dispatch command and must never start or retry a provider turn.
+type RuntimeProviderTurnAcceptanceInput struct {
+	WorkspaceID               string
+	AgentSessionID            string
+	Provider                  string
+	RootTurnID                string
+	ExpectedProviderSessionID string
+	ExpectedProviderTurnID    string
+	// ClientUserMessageID is opaque provider correlation evidence. It must not
+	// reuse the canonical RootTurnID as provider-owned client identity.
+	ClientUserMessageID string
 }
 
 type RuntimeSubmitProvenanceInput struct {
@@ -505,6 +593,66 @@ type SubmitPlanDecisionInput struct {
 	PromptKind     string
 	Action         string
 	IdempotencyKey string
+}
+
+type EditRetryRecoveryAction string
+
+const (
+	EditRetryRecoveryActionReconcile        EditRetryRecoveryAction = "reconcile"
+	EditRetryRecoveryActionRetryReplacement EditRetryRecoveryAction = "retry_replacement"
+)
+
+// EditRetryReasonCode is the stable, coarse provider-neutral classification
+// shared by Host projections and durable edit-retry operations. Provider codes
+// and diagnostics must not be exposed or persisted through this type.
+type EditRetryReasonCode = canonical.EditRetryReasonCode
+
+const (
+	EditRetryReasonCodeProviderUnsupported        = canonical.EditRetryReasonProviderUnsupported
+	EditRetryReasonCodeTurnNotFound               = canonical.EditRetryReasonTurnNotFound
+	EditRetryReasonCodeTurnNotLatest              = canonical.EditRetryReasonTurnNotLatest
+	EditRetryReasonCodeTurnNotSettled             = canonical.EditRetryReasonTurnNotSettled
+	EditRetryReasonCodeHistoryRevisionConflict    = canonical.EditRetryReasonHistoryRevisionConflict
+	EditRetryReasonCodeOperationConflict          = canonical.EditRetryReasonOperationConflict
+	EditRetryReasonCodeRecoveryRequired           = canonical.EditRetryReasonRecoveryRequired
+	EditRetryReasonCodeProviderOutcomeUnknown     = canonical.EditRetryReasonProviderOutcomeUnknown
+	EditRetryReasonCodeReplacementNotProvenAbsent = canonical.EditRetryReasonReplacementNotProvenAbsent
+)
+
+type EditRetryInput struct {
+	EditedText              string
+	ClientOperationID       string
+	ExpectedHistoryRevision uint64
+}
+
+type EditRetryState string
+
+const (
+	EditRetryStatePrepared         EditRetryState = "prepared"
+	EditRetryStateRollingBack      EditRetryState = "rolling_back"
+	EditRetryStateResendPending    EditRetryState = "resend_pending"
+	EditRetryStateRecoveryRequired EditRetryState = "recovery_required"
+	EditRetryStateCompleted        EditRetryState = "completed"
+)
+
+type EditRetryResult struct {
+	OperationID       string
+	State             EditRetryState
+	RetractedTurnID   string
+	ReplacementTurnID string
+	HistoryRevision   uint64
+	ReasonCode        EditRetryReasonCode
+}
+
+type EditRetryAvailability struct {
+	Supported        bool
+	Eligible         bool
+	TurnID           string
+	HistoryRevision  uint64
+	RecoveryState    EditRetryState
+	OperationID      string
+	AvailableActions []EditRetryRecoveryAction
+	ReasonCode       EditRetryReasonCode
 }
 
 type CancelTurnInput struct {
@@ -724,6 +872,26 @@ type GoalControlResult struct {
 	Goal        map[string]any
 	OperationID string
 	GoalState   *storesqlite.SessionGoalState
+}
+
+// ProviderGoalAdoptionInput identifies one Goal generation that the provider
+// created while executing an accepted Turn. Fingerprint is derived from the
+// provider's immutable generation fields and makes notification replay
+// idempotent.
+type ProviderGoalAdoptionInput struct {
+	WorkspaceID       string
+	AgentSessionID    string
+	ProviderSessionID string
+	Fingerprint       string
+	Goal              map[string]any
+}
+
+type ProviderGoalAdoptionResult struct {
+	Canonical   storesqlite.Session
+	Goal        map[string]any
+	OperationID string
+	Revision    int64
+	RepairEpoch int64
 }
 
 type GoalStateResult struct {

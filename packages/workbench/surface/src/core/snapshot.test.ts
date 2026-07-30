@@ -97,6 +97,40 @@ test("serializes the surface layout basis with workbench state", () => {
   });
 });
 
+test("round-trips a locked layout through the snapshot contract", () => {
+  const snapshot = createWorkbenchSnapshotFromState({
+    lockedLayout: {
+      preset: { kind: "row" },
+      nodeIDs: ["agent-a", "agent-b"],
+      normalizedFrames: {
+        "agent-a": { x: 0, y: 0, width: 0.4, height: 1 },
+        "agent-b": { x: 0.42, y: 0, width: 0.58, height: 1 }
+      }
+    },
+    nodeStack: ["agent-a", "agent-b"],
+    nodes: [
+      createWorkbenchNode({
+        id: "agent-a",
+        kind: "agent",
+        title: "Agent A",
+        frame: { x: 0, y: 0, width: 400, height: 600 },
+        data: {}
+      }),
+      createWorkbenchNode({
+        id: "agent-b",
+        kind: "agent",
+        title: "Agent B",
+        frame: { x: 420, y: 0, width: 580, height: 600 },
+        data: {}
+      })
+    ]
+  });
+
+  const restored = createWorkbenchStateFromSnapshot(snapshot);
+
+  assert.deepEqual(restored.lockedLayout, snapshot.lockedLayout);
+});
+
 test("omits the layout basis while the measured surface is collapsed", () => {
   const snapshot = createWorkbenchSnapshotFromState({
     layoutConstraints: {

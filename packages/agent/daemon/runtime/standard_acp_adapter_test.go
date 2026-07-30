@@ -43,6 +43,22 @@ func TestStandardACPAdapterStampsAuthoritativeTurnLifecycle(t *testing.T) {
 	}
 }
 
+func TestStandardACPAdaptersDoNotAdvertiseSessionFork(t *testing.T) {
+	t.Parallel()
+
+	adapters := map[string]Adapter{
+		"cursor":   newCursorAdapterWithHostMetadata(nil, LegacyHostMetadata(), nil),
+		"opencode": newOpenCodeTestAdapter(nil),
+		"nexight":  NewNexightAdapter(nil),
+		"openclaw": NewOpenClawAdapter(nil),
+	}
+	for name, adapter := range adapters {
+		if _, ok := adapter.(SessionForkAdapter); ok {
+			t.Fatalf("%s standard ACP adapter advertises Session Fork", name)
+		}
+	}
+}
+
 func TestStandardACPAdaptersReportProviderLifecycleWithoutSettlingCanonicalRoot(t *testing.T) {
 	t.Parallel()
 
@@ -652,6 +668,172 @@ func TestRunStandardACPSetupPreservesExplicitAuthenticationFailure(t *testing.T)
 	}
 	if result.Status != StandardACPSetupAuthRequired || len(result.AuthMethods) != 1 {
 		t.Fatalf("setup result = %#v", result)
+	}
+}
+
+func TestRunStandardACPSetupRejectsTerminalMethodWithoutAuthenticate(t *testing.T) {
+	t.Parallel()
+
+	transport := newStandardACPTransport("Example Agent", "setup-session")
+	transport.conn.authMethods = []map[string]any{{
+		"id": "login", "name": "Login with Example account",
+		"description": "Run `example login` in a terminal",
+		"type":        "terminal", "args": []any{"login"},
+	}}
+	transport.conn.requireAuthentication = true
+	result, err := runStandardACPSetupTest(t, transport, "login")
+	if !errors.Is(err, ErrACPAuthMethodTerminal) {
+		t.Fatalf("error = %v, want ErrACPAuthMethodTerminal", err)
+	}
+	if result.Status != StandardACPSetupAuthRequired || len(result.AuthMethods) != 1 {
+		t.Fatalf("setup result = %#v", result)
+	}
+	method := result.AuthMethods[0]
+	if method.Type != "terminal" || len(method.Args) != 1 || method.Args[0] != "login" {
+		t.Fatalf("terminal auth method = %#v", method)
+	}
+	if got := transport.conn.authenticatedMethodID(); got != "" {
+		t.Fatalf("authenticated method id = %q, want no ACP authenticate call", got)
+	}
+}
+
+func TestRunStandardACPSetupParsesAuthMethodTypeAndArgs(t *testing.T) {
+	t.Parallel()
+
+	initializeResult := json.RawMessage(`{"authMethods":[
+		{"id":"browser","name":"Browser","description":"d"},
+		{"id":"login","name":"Terminal login","type":"terminal","args":["login","--device"]},
+		{"id":"bad","name":"Bad","type":"terminal","args":["", "ok"]}
+	]}`)
+	methods := parseStandardACPAuthMethods(initializeResult)
+	if len(methods) != 3 {
+		t.Fatalf("auth methods = %#v", methods)
+	}
+	if methods[0].Type != "" || methods[0].Args != nil {
+		t.Fatalf("browser method = %#v", methods[0])
+	}
+	if methods[1].Type != "terminal" || strings.Join(methods[1].Args, " ") != "login --device" {
+		t.Fatalf("terminal method = %#v", methods[1])
+	}
+	if methods[2].Type != "terminal" || methods[2].Args != nil {
+		t.Fatalf("method with invalid args = %#v", methods[2])
+	}
+}
+
+func TestRunStandardACPSetupParsesAuthMethodTerminalMeta(t *testing.T) {
+	t.Parallel()
+
+	// Kimi Code declares the terminal login metadata inside the ACP _meta
+	// extension, not as top-level type/args fields.
+	initializeResult := json.RawMessage(`{"authMethods":[
+		{"id":"login","name":"Login with Kimi account","description":"Run ` + "`kimi login`" + ` in a terminal",
+			"_meta":{"terminal-auth":{"command":"/opt/kimi/bin/kimi","args":["login"],"label":"Kimi Code Login","env":{},"type":"terminal"}}},
+		{"id":"both","name":"Both","type":"browser","args":["--top"],
+			"_meta":{"terminal-auth":{"type":"terminal","args":["login"]}}},
+		{"id":"weird","name":"Weird","_meta":{"other":{"type":"terminal"}}}
+	]}`)
+	methods := parseStandardACPAuthMethods(initializeResult)
+	if len(methods) != 3 {
+		t.Fatalf("auth methods = %#v", methods)
+	}
+	if methods[0].Type != "terminal" || len(methods[0].Args) != 1 || methods[0].Args[0] != "login" {
+		t.Fatalf("meta terminal method = %#v", methods[0])
+	}
+	if methods[1].Type != "browser" || strings.Join(methods[1].Args, " ") != "--top" {
+		t.Fatalf("top-level fields must win over _meta = %#v", methods[1])
+	}
+	if methods[2].Type != "" || methods[2].Args != nil {
+		t.Fatalf("unrelated _meta must be ignored = %#v", methods[2])
+	}
+}
+
+func TestRunStandardACPSetupRejectsTerminalMetaMethodWithoutAuthenticate(t *testing.T) {
+	t.Parallel()
+
+	transport := newStandardACPTransport("Example Agent", "setup-session")
+	transport.conn.authMethods = []map[string]any{{
+		"id": "login", "name": "Login with Example account",
+		"description": "Run `example login` in a terminal",
+		"_meta": map[string]any{
+			"terminal-auth": map[string]any{"type": "terminal", "args": []any{"login"}},
+		},
+	}}
+	transport.conn.requireAuthentication = true
+	result, err := runStandardACPSetupTest(t, transport, "login")
+	if !errors.Is(err, ErrACPAuthMethodTerminal) {
+		t.Fatalf("error = %v, want ErrACPAuthMethodTerminal", err)
+	}
+	if result.Status != StandardACPSetupAuthRequired || len(result.AuthMethods) != 1 {
+		t.Fatalf("setup result = %#v", result)
+	}
+	if got := transport.conn.authenticatedMethodID(); got != "" {
+		t.Fatalf("authenticated method id = %q, want no ACP authenticate call", got)
+	}
+}
+
+func TestRunStandardACPSetupFlagsSessionWithoutUsableModel(t *testing.T) {
+	t.Parallel()
+
+	// Kimi Code with a saved OAuth token but an unseeded model config:
+	// session/new succeeds yet advertises zero models, and every prompt would
+	// fail. The probe must keep the target in auth_required so the gate
+	// re-offers the terminal login that seeds the config.
+	transport := newStandardACPTransport("Example Agent", "setup-session")
+	transport.conn.authMethods = []map[string]any{{
+		"id": "login", "name": "Login with Example account",
+		"_meta": map[string]any{
+			"terminal-auth": map[string]any{"type": "terminal", "args": []any{"login"}},
+		},
+	}}
+	transport.conn.models = map[string]any{"availableModels": []any{}, "currentModelId": ""}
+	result, err := runStandardACPSetupTest(t, transport, "")
+	if err != nil {
+		t.Fatalf("probe without method must not fail hard: %v", err)
+	}
+	if result.Status != StandardACPSetupAuthRequired || len(result.AuthMethods) != 1 {
+		t.Fatalf("setup result = %#v", result)
+	}
+	if method := result.AuthMethods[0]; method.Type != "terminal" || len(method.Args) != 1 || method.Args[0] != "login" {
+		t.Fatalf("terminal auth method = %#v", method)
+	}
+}
+
+func TestRunStandardACPSetupReadyWithSeededModels(t *testing.T) {
+	t.Parallel()
+
+	transport := newStandardACPTransport("Example Agent", "setup-session")
+	transport.conn.models = map[string]any{
+		"availableModels": []any{map[string]any{"modelId": "example-model", "name": "Example Model"}},
+		"currentModelId":  "example-model",
+	}
+	result, err := runStandardACPSetupTest(t, transport, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != StandardACPSetupReady {
+		t.Fatalf("setup result = %#v", result)
+	}
+}
+
+func TestACPSessionHasNoUsableModel(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"empty list and no current model", `{"models":{"availableModels":[],"currentModelId":""}}`, true},
+		{"populated list", `{"models":{"availableModels":[{"modelId":"m"}],"currentModelId":"m"}}`, false},
+		{"empty list but current model set", `{"models":{"availableModels":[],"currentModelId":"m"}}`, false},
+		{"models state without list", `{"models":{"currentModelId":"m"}}`, false},
+		{"no models state", `{"sessionId":"s"}`, false},
+		{"null models state", `{"models":null}`, false},
+	}
+	for _, tc := range cases {
+		if got := acpSessionHasNoUsableModel(json.RawMessage(tc.raw)); got != tc.want {
+			t.Fatalf("%s: acpSessionHasNoUsableModel = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 
@@ -1663,6 +1845,89 @@ func TestCursorAdapterAllowsImagePromptWithoutInitializeCapability(t *testing.T)
 	}
 }
 
+func TestStandardACPAdapterExecMaterializesRemoteImageAtProviderBoundary(t *testing.T) {
+	t.Parallel()
+
+	transport := newStandardACPTransport("OpenCode", "opencode-session-remote-image")
+	adapter := newOpenCodeTestAdapter(transport)
+	imageURL, materializer := testRemotePromptImageMaterializer(t)
+	adapter.promptImageMaterializer = materializer
+	session := standardTestSession(ProviderOpenCode)
+	if _, err := adapter.Start(context.Background(), session); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	session.ProviderSessionID = "opencode-session-remote-image"
+
+	if _, err := adapter.Exec(context.Background(), session, []PromptContentBlock{
+		{Type: "text", Text: "what is in this screenshot?"},
+		{Type: "image", MimeType: "image/png", URL: imageURL},
+	}, "", "turn-remote-image", nil, nil); err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+
+	params := transport.conn.lastPromptParams()
+	prompt, _ := params["prompt"].([]any)
+	if len(prompt) != 2 {
+		t.Fatalf("session/prompt content = %#v, want text+image", params["prompt"])
+	}
+	image, _ := prompt[1].(map[string]any)
+	if image["mimeType"] != "image/png" || image["data"] != "aGk=" {
+		t.Fatalf("session/prompt image = %#v, want inline image data", image)
+	}
+}
+
+func TestStandardACPAdapterRemoteImageFailurePreservesPromptAndClosesProviderTurn(t *testing.T) {
+	t.Parallel()
+
+	transport := newStandardACPTransport("OpenCode", "opencode-session-remote-image-failure")
+	adapter := newOpenCodeTestAdapter(transport)
+	materializeErr := errors.New("remote image unavailable")
+	adapter.promptImageMaterializer = func(context.Context, []PromptContentBlock) ([]PromptContentBlock, error) {
+		return nil, materializeErr
+	}
+	session := standardTestSession(ProviderOpenCode)
+	if _, err := adapter.Start(context.Background(), session); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	session.ProviderSessionID = "opencode-session-remote-image-failure"
+
+	var streamed []activityshared.Event
+	events, err := adapter.Exec(context.Background(), session, []PromptContentBlock{
+		{Type: "text", Text: "what is in this screenshot?"},
+		{Type: "image", MimeType: "image/png", URL: "https://images.example/screenshot.png"},
+	}, "", "turn-remote-image-failure", func(next []activityshared.Event) {
+		streamed = append(streamed, next...)
+	}, nil)
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if params := transport.conn.lastPromptParams(); len(params) != 0 {
+		t.Fatalf("session/prompt params = %#v, want no provider request after materialization failure", params)
+	}
+	messages := eventsOfType(events, activityshared.EventMessageAppended)
+	if len(messages) != 1 || messages[0].Payload.Role != activityshared.MessageRoleUser ||
+		messages[0].Payload.Content != "what is in this screenshot?" {
+		t.Fatalf("user prompt events = %#v, want original prompt preserved", messages)
+	}
+	if turnStarted := eventsOfType(events, activityshared.EventTurnStarted); len(turnStarted) != 1 {
+		t.Fatalf("turn started events = %#v, want one", turnStarted)
+	}
+	started := eventsOfType(events, activityshared.EventRootProviderTurnStarted)
+	if len(started) != 1 || started[0].Payload.ProviderTurnID != "turn-remote-image-failure" {
+		t.Fatalf("provider turn started events = %#v, want one", started)
+	}
+	completed := eventsOfType(events, activityshared.EventRootProviderTurnCompleted)
+	if len(completed) != 1 ||
+		completed[0].Payload.ProviderTurnID != "turn-remote-image-failure" ||
+		completed[0].Payload.TurnOutcome != string(activityshared.TurnOutcomeFailed) ||
+		completed[0].Payload.Metadata["error"] != materializeErr.Error() {
+		t.Fatalf("provider turn completed events = %#v, want failed materialization lifecycle", completed)
+	}
+	if len(streamed) != len(events) {
+		t.Fatalf("streamed event count = %d, returned = %d", len(streamed), len(events))
+	}
+}
+
 func TestStandardACPAdapterRejectsImagePromptWithoutCapability(t *testing.T) {
 	t.Parallel()
 
@@ -1903,6 +2168,351 @@ func TestStandardACPAdapterSessionStateExposesPendingAskUserPrompt(t *testing.T)
 	payload, _ := outcome["payload"].(map[string]any)
 	if payload == nil || payload["answersByQuestionId"] == nil {
 		t.Fatalf("interactive payload = %#v, want answersByQuestionId", outcome)
+	}
+}
+
+// Kimi Code sends session/request_permission before the matching tool_call
+// update. The first frame identifies AskUserQuestion and its selectable
+// outcomes; the next frame carries the question body. AgentGUI reads canonical
+// Interactions rather than transcript tool rows, so the adapter must join both
+// frames before publishing interaction.requested.
+func TestStandardACPAdapterJoinsKimiAskUserQuestionInputAfterPermission(t *testing.T) {
+	t.Parallel()
+
+	transport := newStandardACPTransport("Kimi Code", "kimi-session-interactive-1")
+	transport.conn.promptKind = "ask-user-after-permission"
+	toolUpdateGate := make(chan struct{})
+	transport.conn.pauseBeforeAskUserToolUpdate = toolUpdateGate
+	var releaseToolUpdate sync.Once
+	release := func() {
+		releaseToolUpdate.Do(func() {
+			close(toolUpdateGate)
+		})
+	}
+	defer release()
+	adapter := newHermesExtensionTestAdapter(transport)
+	session := standardTestSession(hermesExtensionTestProvider)
+	session.Provider = "acp:kimi-code"
+	if _, err := adapter.Start(context.Background(), session); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	session.ProviderSessionID = "kimi-session-interactive-1"
+
+	var mu sync.Mutex
+	var emittedActivity []activityshared.Event
+	permissionStarted := make(chan struct{}, 1)
+	requested := make(chan activityshared.Event, 1)
+	execDone := make(chan error, 1)
+	go func() {
+		_, err := adapter.Exec(context.Background(), session, textPrompt("ask how I feel"), "", "turn-kimi-ask-user", func(events []activityshared.Event) {
+			mu.Lock()
+			emittedActivity = append(emittedActivity, events...)
+			mu.Unlock()
+			for _, event := range events {
+				if event.Type == activityshared.EventCallStarted &&
+					event.Payload.CallID == "interactive-ask-1" {
+					select {
+					case permissionStarted <- struct{}{}:
+					default:
+					}
+				}
+				if event.Type == activityshared.EventInteractionRequested {
+					select {
+					case requested <- event:
+					default:
+					}
+				}
+			}
+		}, nil)
+		execDone <- err
+	}()
+
+	select {
+	case <-permissionStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Kimi permission request was not observed before the tool update")
+	}
+	if snapshot := adapter.SessionState(session); snapshot.PendingInteractive != nil {
+		t.Fatalf(
+			"pending interactive before tool input = %#v, want incomplete prompt hidden from SessionState",
+			snapshot.PendingInteractive,
+		)
+	}
+	mu.Lock()
+	prematureRequested := eventsOfType(emittedActivity, activityshared.EventInteractionRequested)
+	mu.Unlock()
+	if len(prematureRequested) != 0 {
+		t.Fatalf("premature interaction.requested events = %#v, want none before tool input", prematureRequested)
+	}
+	release()
+
+	var interaction activityshared.Event
+	select {
+	case interaction = <-requested:
+	case <-time.After(2 * time.Second):
+		t.Fatal("AskUserQuestion interaction was not published after the tool input arrived")
+	}
+	if interaction.Payload.Interaction == nil {
+		t.Fatalf("interaction event = %#v, want canonical interaction payload", interaction)
+	}
+	questions := payloadArray(interaction.Payload.Interaction.Input["questions"])
+	if len(questions) != 1 ||
+		asString(questions[0]["id"]) != "question-1" ||
+		asString(questions[0]["question"]) != "你今天心情怎么样？" ||
+		len(payloadArray(questions[0]["options"])) != 3 ||
+		questions[0]["allowFreeText"] != false {
+		t.Fatalf("interaction questions = %#v, want one normalized option-only Kimi question", questions)
+	}
+
+	snapshot := adapter.SessionState(session)
+	if snapshot.PendingInteractive == nil ||
+		len(payloadArray(snapshot.PendingInteractive.Input["questions"])) != 1 {
+		t.Fatalf("pending interactive = %#v, want the joined Kimi question input", snapshot.PendingInteractive)
+	}
+
+	if _, err := adapter.SubmitInteractive(context.Background(), session, SubmitInteractiveInput{
+		RoomID:         session.RoomID,
+		AgentSessionID: session.AgentSessionID,
+		TurnID:         "turn-kimi-ask-user",
+		RequestID:      "permission-1",
+		Action:         "submit",
+		Payload: map[string]any{
+			"answers":             []any{"很好"},
+			"answersByQuestionId": map[string]any{"question-1": "很好"},
+		},
+	}); err != nil {
+		t.Fatalf("SubmitInteractive: %v", err)
+	}
+	select {
+	case err := <-execDone:
+		if err != nil {
+			t.Fatalf("Exec after interactive submission: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Exec did not finish after the Kimi interactive response")
+	}
+
+	mu.Lock()
+	requestedEvents := eventsOfType(emittedActivity, activityshared.EventInteractionRequested)
+	mu.Unlock()
+	if len(requestedEvents) != 1 {
+		t.Fatalf("interaction.requested count = %d, want one complete canonical interaction", len(requestedEvents))
+	}
+	outcome := transport.conn.interactiveOutcome()
+	if got := asString(outcome["outcome"]); got != "selected" {
+		t.Fatalf("Kimi ACP outcome = %#v, want selected", outcome)
+	}
+	if got := asString(outcome["optionId"]); got != "q0_opt_0" {
+		t.Fatalf("Kimi ACP outcome = %#v, want optionId q0_opt_0", outcome)
+	}
+	if payload, _ := outcome["payload"].(map[string]any); len(payload) != 0 {
+		t.Fatalf("Kimi ACP outcome = %#v, want protocol-native selected response without payload", outcome)
+	}
+	callCompletedIndex := -1
+	providerCompletedIndex := -1
+	var callCompletedOutput map[string]any
+	for index, event := range emittedActivity {
+		if event.Type == activityshared.EventCallCompleted &&
+			event.Payload.CallID == "interactive-ask-1" {
+			callCompletedIndex = index
+			callCompletedOutput = event.Payload.Output
+		}
+		if event.Type == activityshared.EventRootProviderTurnCompleted {
+			providerCompletedIndex = index
+		}
+	}
+	if callCompletedIndex < 0 ||
+		providerCompletedIndex < 0 ||
+		callCompletedIndex >= providerCompletedIndex {
+		t.Fatalf(
+			"interactive call completed index=%d provider turn completed index=%d, want local resolution first",
+			callCompletedIndex,
+			providerCompletedIndex,
+		)
+	}
+	localPayload := payloadObject(callCompletedOutput["payload"])
+	localAnswers, _ := localPayload["answers"].([]any)
+	if len(localAnswers) != 1 || asString(localAnswers[0]) != "很好" {
+		t.Fatalf("local completed output = %#v, want the canonical answer preserved", callCompletedOutput)
+	}
+	localAnswersByQuestionID := payloadObject(localPayload["answersByQuestionId"])
+	if len(localAnswersByQuestionID) != 1 || asString(localAnswersByQuestionID["question-1"]) != "很好" {
+		t.Fatalf("local completed output = %#v, want the canonical per-question answer preserved", callCompletedOutput)
+	}
+}
+
+func TestStandardACPAdapterRejectsUnsupportedKimiAskUserQuestionBeforePublication(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		promptKind string
+		wantError  string
+	}{
+		{
+			name:       "multiple questions",
+			promptKind: "ask-user-after-permission-multi-question",
+			wantError:  "exactly one question",
+		},
+		{
+			name:       "multi select",
+			promptKind: "ask-user-after-permission-multi-select",
+			wantError:  "does not support multi-select",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			transport := newStandardACPTransport("Kimi Code", "kimi-session-unsupported-"+strings.ReplaceAll(tt.name, " ", "-"))
+			transport.conn.promptKind = tt.promptKind
+			adapter := newHermesExtensionTestAdapter(transport)
+			session := standardTestSession(hermesExtensionTestProvider)
+			session.Provider = "acp:kimi-code"
+			if _, err := adapter.Start(context.Background(), session); err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			session.ProviderSessionID = transport.conn.sessionID
+
+			var mu sync.Mutex
+			var emittedActivity []activityshared.Event
+			execDone := make(chan error, 1)
+			go func() {
+				_, err := adapter.Exec(context.Background(), session, textPrompt("ask unsupported question"), "", "turn-kimi-unsupported", func(events []activityshared.Event) {
+					mu.Lock()
+					emittedActivity = append(emittedActivity, events...)
+					mu.Unlock()
+				}, nil)
+				execDone <- err
+			}()
+
+			select {
+			case err := <-execDone:
+				if err != nil {
+					t.Fatalf("Exec after unsupported question rejection: %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("Exec did not finish after rejecting the unsupported Kimi question")
+			}
+
+			mu.Lock()
+			requested := eventsOfType(emittedActivity, activityshared.EventInteractionRequested)
+			superseded := eventsOfType(emittedActivity, activityshared.EventInteractionSuperseded)
+			completed := eventsOfType(emittedActivity, activityshared.EventCallCompleted)
+			failed := eventsOfType(emittedActivity, activityshared.EventCallFailed)
+			mu.Unlock()
+			if len(requested) != 0 {
+				t.Fatalf("interaction.requested events = %#v, want none for unsupported provider shape", requested)
+			}
+			if len(superseded) != 0 {
+				t.Fatalf("interaction.superseded events = %#v, want no canonical Interaction before publication", superseded)
+			}
+			for _, event := range completed {
+				if event.Payload.CallID == "interactive-ask-1" {
+					t.Fatalf("unsupported AskUserQuestion completed locally: %#v", event)
+				}
+			}
+			if len(failed) == 0 {
+				t.Fatal("unsupported AskUserQuestion did not emit call.failed")
+			}
+			responseErr := transport.conn.interactiveError()
+			if responseErr == nil || !strings.Contains(responseErr.Message, tt.wantError) {
+				t.Fatalf("provider response error = %#v, want containing %q", responseErr, tt.wantError)
+			}
+			if snapshot := adapter.SessionState(session); snapshot.PendingInteractive != nil {
+				t.Fatalf("pending interactive = %#v, want unsupported request removed", snapshot.PendingInteractive)
+			}
+		})
+	}
+}
+
+func TestStandardACPAdapterRejectsNonCanonicalKimiAskUserAnswer(t *testing.T) {
+	t.Parallel()
+
+	transport := newStandardACPTransport("Kimi Code", "kimi-session-invalid-answer")
+	transport.conn.promptKind = "ask-user-after-permission"
+	adapter := newHermesExtensionTestAdapter(transport)
+	session := standardTestSession(hermesExtensionTestProvider)
+	session.Provider = "acp:kimi-code"
+	if _, err := adapter.Start(context.Background(), session); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	session.ProviderSessionID = "kimi-session-invalid-answer"
+
+	var mu sync.Mutex
+	var emittedActivity []activityshared.Event
+	requested := make(chan struct{}, 1)
+	execDone := make(chan error, 1)
+	go func() {
+		_, err := adapter.Exec(context.Background(), session, textPrompt("ask how I feel"), "", "turn-kimi-invalid-answer", func(events []activityshared.Event) {
+			mu.Lock()
+			emittedActivity = append(emittedActivity, events...)
+			mu.Unlock()
+			for _, event := range events {
+				if event.Type == activityshared.EventInteractionRequested {
+					select {
+					case requested <- struct{}{}:
+					default:
+					}
+				}
+			}
+		}, nil)
+		execDone <- err
+	}()
+
+	select {
+	case <-requested:
+	case <-time.After(2 * time.Second):
+		t.Fatal("supported Kimi question was not published")
+	}
+	result, err := adapter.SubmitInteractive(context.Background(), session, SubmitInteractiveInput{
+		RoomID:         session.RoomID,
+		AgentSessionID: session.AgentSessionID,
+		TurnID:         "turn-kimi-invalid-answer",
+		RequestID:      "permission-1",
+		Action:         "submit",
+		Payload: map[string]any{
+			"answers": []any{"很好", "一般"},
+			"answersByQuestionId": map[string]any{
+				"question-1": "很好",
+				"question-2": "一般",
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "exactly one canonical answer") {
+		t.Fatalf("SubmitInteractive error = %v, want canonical-answer rejection", err)
+	}
+	if result.Disposition != InteractiveDispositionSuperseded {
+		t.Fatalf("SubmitInteractive disposition = %q, want superseded", result.Disposition)
+	}
+	select {
+	case err := <-execDone:
+		if err != nil {
+			t.Fatalf("Exec after invalid answer rejection: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Exec did not finish after invalid answer rejection")
+	}
+
+	mu.Lock()
+	completed := eventsOfType(emittedActivity, activityshared.EventCallCompleted)
+	failed := eventsOfType(emittedActivity, activityshared.EventCallFailed)
+	superseded := eventsOfType(emittedActivity, activityshared.EventInteractionSuperseded)
+	mu.Unlock()
+	for _, event := range completed {
+		if event.Payload.CallID == "interactive-ask-1" {
+			t.Fatalf("invalid AskUser answer completed locally: %#v", event)
+		}
+	}
+	if len(failed) == 0 || len(superseded) == 0 {
+		t.Fatalf("failed events = %d, superseded events = %d, want both", len(failed), len(superseded))
+	}
+	if responseErr := transport.conn.interactiveError(); responseErr == nil ||
+		!strings.Contains(responseErr.Message, "exactly one canonical answer") {
+		t.Fatalf("provider response error = %#v, want canonical-answer rejection", responseErr)
+	}
+	if disposition := adapter.InteractiveDisposition(session, "turn-kimi-invalid-answer", "permission-1"); disposition != InteractiveDispositionSuperseded {
+		t.Fatalf("terminal disposition = %q, want superseded", disposition)
 	}
 }
 
@@ -3484,9 +4094,11 @@ type standardACPConnection struct {
 	promptKind                    string
 	pauseBeforePromptResult       chan struct{}
 	pauseBeforeToolCallCompletion chan struct{}
+	pauseBeforeAskUserToolUpdate  chan struct{}
 	pendingPermissionCallID       json.RawMessage
 	selectedPermissionOption      string
 	selectedInteractiveResult     map[string]any
+	selectedInteractiveError      *acpError
 	appliedModeID                 string
 	lastSetModeParamsSnapshot     map[string]any
 	lastAuthenticatedMethodID     string
@@ -3855,12 +4467,34 @@ func (c *standardACPConnection) Send(data []byte) error {
 						"options":  options,
 					},
 				})
+				if strings.HasPrefix(c.promptKind, "ask-user-after-permission") {
+					if c.pauseBeforeAskUserToolUpdate != nil {
+						<-c.pauseBeforeAskUserToolUpdate
+					}
+					c.sendJSON(map[string]any{
+						"jsonrpc": "2.0",
+						"method":  acpMethodUpdate,
+						"params": map[string]any{
+							"sessionId": c.sessionID,
+							"update": map[string]any{
+								"sessionUpdate": "tool_call",
+								"toolCallId":    "interactive-ask-1",
+								"title":         "AskUserQuestion",
+								"status":        "pending",
+								"rawInput": map[string]any{
+									"questions": c.askUserQuestionsAfterPermission(),
+								},
+							},
+						},
+					})
+				}
 				return nil
 			}
 			c.streamPromptResult(message.ID)
 		default:
 			if (c.promptPermission || c.promptKind != "") && acpRequestID(message.ID) == "permission-1" {
 				var response struct {
+					Error  *acpError `json:"error"`
 					Result struct {
 						Outcome struct {
 							OptionID string         `json:"optionId"`
@@ -3877,6 +4511,7 @@ func (c *standardACPConnection) Send(data []byte) error {
 					"optionId": response.Result.Outcome.OptionID,
 					"payload":  clonePayload(response.Result.Outcome.Payload),
 				}
+				c.selectedInteractiveError = response.Error
 				promptID := append(json.RawMessage(nil), c.pendingPermissionCallID...)
 				c.mu.Unlock()
 				c.streamPromptResult(promptID)
@@ -4088,6 +4723,16 @@ func (c *standardACPConnection) interactiveOutcome() map[string]any {
 	return clonePayload(c.selectedInteractiveResult)
 }
 
+func (c *standardACPConnection) interactiveError() *acpError {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.selectedInteractiveError == nil {
+		return nil
+	}
+	copied := *c.selectedInteractiveError
+	return &copied
+}
+
 func (c *standardACPConnection) promptRequest() (map[string]any, []map[string]any) {
 	switch c.promptKind {
 	case "ask-user":
@@ -4106,6 +4751,18 @@ func (c *standardACPConnection) promptRequest() (map[string]any, []map[string]an
 				}},
 			},
 		}, nil
+	case "ask-user-after-permission",
+		"ask-user-after-permission-multi-question",
+		"ask-user-after-permission-multi-select":
+		return map[string]any{
+				"toolCallId": "interactive-ask-1",
+				"title":      "AskUserQuestion",
+			}, []map[string]any{
+				{"optionId": "q0_opt_0", "name": "很好", "kind": "allow_once"},
+				{"optionId": "q0_opt_1", "name": "一般", "kind": "allow_once"},
+				{"optionId": "q0_opt_2", "name": "不太好", "kind": "allow_once"},
+				{"optionId": "q0_skip", "name": "Skip", "kind": "reject_once"},
+			}
 	case "exit-plan":
 		return map[string]any{
 			"toolCallId": "interactive-plan-1",
@@ -4123,6 +4780,28 @@ func (c *standardACPConnection) promptRequest() (map[string]any, []map[string]an
 				{"optionId": "reject", "label": "Reject", "kind": "reject_once"},
 			}
 	}
+}
+
+func (c *standardACPConnection) askUserQuestionsAfterPermission() []any {
+	first := map[string]any{
+		"header":      "心情",
+		"question":    "你今天心情怎么样？",
+		"multiSelect": c.promptKind == "ask-user-after-permission-multi-select",
+		"options": []any{
+			map[string]any{"label": "很好", "description": "精神饱满，充满活力"},
+			map[string]any{"label": "一般", "description": "状态平稳，可以正常进行工作"},
+			map[string]any{"label": "不太好", "description": "有些疲惫或注意力分散，需要调整"},
+		},
+	}
+	questions := []any{first}
+	if c.promptKind == "ask-user-after-permission-multi-question" {
+		questions = append(questions, map[string]any{
+			"header":   "安排",
+			"question": "接下来做什么？",
+			"options":  []any{map[string]any{"label": "继续"}, map[string]any{"label": "休息"}},
+		})
+	}
+	return questions
 }
 
 func (c *standardACPConnection) lastModeID() string {

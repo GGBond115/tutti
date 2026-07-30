@@ -148,6 +148,7 @@ func (api DaemonAPI) GetWorkspaceAgentSession(ctx context.Context, request tutti
 		Turns:                          generatedAgentTurns(detail.Turns),
 		Projection:                     tuttigenerated.WorkspaceAgentSessionDetailProjection(projection),
 		LifecycleCapabilitiesProjected: projection == agentservice.SessionDetailProjectionFull,
+		EditRetry:                      generatedAgentEditRetryAvailability(detail.EditRetry),
 	}, nil
 }
 
@@ -214,7 +215,7 @@ func (api DaemonAPI) ListWorkspaceAgentSessionMessages(ctx context.Context, requ
 		}
 		input.Limit = *request.Params.Limit
 	}
-	slog.Info("workspace agent session messages list requested",
+	slog.Debug("workspace agent session messages list requested",
 		"event", "workspace.agent_session.messages.api.list_requested",
 		"workspace_id", workspaceID,
 		"agent_session_id", agentSessionID,
@@ -269,7 +270,7 @@ func (api DaemonAPI) ListWorkspaceAgentSessionMessages(ctx context.Context, requ
 		return writeListWorkspaceAgentSessionMessagesError(err), nil
 	}
 	firstVersion, lastVersion := generatedAgentSessionMessageVersionRange(messages)
-	slog.Info("workspace agent session messages list completed",
+	slog.Debug("workspace agent session messages list completed",
 		"event", "workspace.agent_session.messages.api.list_completed",
 		"workspace_id", workspaceID,
 		"agent_session_id", agentSessionID,
@@ -770,12 +771,6 @@ func generatedAgentSession(session agentservice.Session) (tuttigenerated.Workspa
 			TargetTurnId:         strings.TrimSpace(session.ForkedFrom.TargetTurnID),
 		}
 	}
-	forkThroughTurnIDs := append(
-		[]string(nil),
-		session.LifecycleCapabilities.ForkThroughTurnIDs...,
-	)
-	forkThroughTurnIDsKnown :=
-		session.LifecycleCapabilities.ForkThroughTurnIDsKnown
 	return tuttigenerated.WorkspaceAgentSession{
 		ActiveTurn:             activeTurn,
 		ActiveTurnId:           optionalStringPointer(strings.TrimSpace(session.ActiveTurnID)),
@@ -793,10 +788,8 @@ func generatedAgentSession(session agentservice.Session) (tuttigenerated.Workspa
 		LatestTurnInteractions: latestTurnInteractions,
 		MessageVersion:         messageVersion,
 		LifecycleCapabilities: tuttigenerated.WorkspaceAgentSessionLifecycleCapabilities{
-			Fork:                    session.LifecycleCapabilities.Fork,
-			ForkThroughTurn:         session.LifecycleCapabilities.ForkThroughTurn,
-			ForkThroughTurnIds:      &forkThroughTurnIDs,
-			ForkThroughTurnIdsKnown: &forkThroughTurnIDsKnown,
+			Fork:            session.LifecycleCapabilities.Fork,
+			ForkThroughTurn: session.LifecycleCapabilities.ForkThroughTurn,
 		},
 		ParentAgentSessionId: optionalStringPointer(strings.TrimSpace(session.ParentAgentSessionID)),
 		ParentToolCallId:     optionalStringPointer(strings.TrimSpace(session.ParentToolCallID)),

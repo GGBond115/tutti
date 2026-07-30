@@ -31,6 +31,17 @@ Install workspace dependencies:
 pnpm install
 ```
 
+For a new linked Git worktree, use this instead:
+
+```sh
+pnpm setup:worktree
+```
+
+It installs workspace dependencies, then prewarms Electron before parallel
+tests run. The command reuses the shared Electron download cache and extracts
+the runtime into the new worktree; it never reuses another worktree's
+`Electron.app`.
+
 Install the pinned `golangci-lint` version:
 
 ```sh

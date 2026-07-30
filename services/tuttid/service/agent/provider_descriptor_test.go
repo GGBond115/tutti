@@ -33,6 +33,13 @@ func TestCodexComposerProfileComesFromProviderDescriptor(t *testing.T) {
 	}
 }
 
+func TestTuttiAgentComposerProfileUsesSkillsOnlyAppServerCatalog(t *testing.T) {
+	profile := composerProfileFor(agentprovider.TuttiAgent)
+	if profile.CapabilityCatalogKind != providerregistry.CapabilityCatalogKindAppServerSkills {
+		t.Fatalf("capability catalog profile = %#v", profile)
+	}
+}
+
 func TestClaudeCodeComposerProfileComesFromProviderDescriptor(t *testing.T) {
 	profile := composerProfileFor(agentprovider.ClaudeCode)
 	if profile.LiveModelDiscoveryKind != providerregistry.LiveModelDiscoveryKindClaudeSDK ||
@@ -110,6 +117,7 @@ func TestOpenCodeSlashCommandPolicyComesFromProviderDescriptor(t *testing.T) {
 	policy := composerSlashCommandPolicy(agentprovider.OpenCode)
 	if policy == nil {
 		t.Fatal("slash command policy missing")
+		return
 	}
 	if !reflect.DeepEqual(policy.FallbackCommands, []string{"compact", "goal", "review"}) {
 		t.Fatalf("fallbackCommands = %#v", policy.FallbackCommands)
@@ -191,12 +199,35 @@ func TestCodexCapabilityCatalogCommandComesFromRuntimeDescriptor(t *testing.T) {
 	if lister.Command != "poison-codex" || !reflect.DeepEqual(lister.Args, []string{"poison-app-server"}) {
 		t.Fatalf("lister command = %q %#v", lister.Command, lister.Args)
 	}
+	if lister.RequestSet != appServerCatalogRequestSetCodex {
+		t.Fatalf("lister request set = %q, want codex", lister.RequestSet)
+	}
+}
+
+func TestTuttiAgentCapabilityCatalogCommandComesFromRuntimeDescriptor(t *testing.T) {
+	descriptor, ok := providerregistry.Find(agentprovider.TuttiAgent)
+	if !ok {
+		t.Fatal("tutti-agent descriptor missing")
+	}
+	descriptor.Runtime.Command = []string{"poison-tutti-agent", "poison-app-server"}
+	profile := composerProfileFromDescriptor(descriptor)
+	lister, ok, err := composerCapabilityCatalogLister(profile)
+	if err != nil || !ok {
+		t.Fatalf("composerCapabilityCatalogLister() = (%#v, %v, %v)", lister, ok, err)
+	}
+	if lister.Command != "poison-tutti-agent" || !reflect.DeepEqual(lister.Args, []string{"poison-app-server"}) {
+		t.Fatalf("lister command = %q %#v", lister.Command, lister.Args)
+	}
+	if lister.RequestSet != appServerCatalogRequestSetSkillsOnly {
+		t.Fatalf("lister request set = %q, want skills_only", lister.RequestSet)
+	}
 }
 
 func TestCodexSlashCommandPolicyComesFromProviderDescriptor(t *testing.T) {
 	policy := composerSlashCommandPolicy(agentprovider.Codex)
 	if policy == nil {
 		t.Fatal("slash command policy missing")
+		return
 	}
 	if !reflect.DeepEqual(policy.FallbackCommands, []string{"compact", "status", "fast", "goal", "review"}) {
 		t.Fatalf("fallbackCommands = %#v", policy.FallbackCommands)

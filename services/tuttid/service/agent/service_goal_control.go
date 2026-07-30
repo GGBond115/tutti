@@ -19,6 +19,14 @@ type GoalControlSessionResult struct {
 	GoalState   *agentactivitybiz.SessionGoalState
 }
 
+func (s *Service) AdoptProviderGoal(ctx context.Context, input agenthost.ProviderGoalAdoptionInput) (agenthost.ProviderGoalAdoptionResult, error) {
+	result, err := s.ApplicationHost().AdoptProviderGoal(ctx, input)
+	if err != nil {
+		return agenthost.ProviderGoalAdoptionResult{}, normalizeRuntimeError(err)
+	}
+	return result, nil
+}
+
 func (s *Service) GoalControl(ctx context.Context, workspaceID string, agentSessionID string, action string, objective string) (GoalControlSessionResult, error) {
 	return s.goalControl(ctx, workspaceID, agentSessionID, action, objective, nil)
 }

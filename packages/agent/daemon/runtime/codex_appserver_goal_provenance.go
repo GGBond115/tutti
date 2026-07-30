@@ -706,6 +706,15 @@ func (a *CodexAppServerAdapter) expirePendingGoalTurn(agentSessionID, providerTu
 		a.schedulePendingGoalTurnExpiry(agentSessionID, providerTurnID, grace)
 		return
 	}
+	if len(appSession.providerGoalAdoptionsInFlight) > 0 {
+		grace := a.goalProvenanceGraceWindow
+		if grace <= 0 {
+			grace = defaultCodexAppServerGoalProvenanceGraceWindow
+		}
+		a.mu.Unlock()
+		a.schedulePendingGoalTurnExpiry(agentSessionID, providerTurnID, grace)
+		return
+	}
 	current := goalOperationIdentity{
 		operationID: appSession.goalOperationID,
 		revision:    appSession.goalRevision,

@@ -27,6 +27,7 @@ type acpTurnNormalizer struct {
 	toolCallsSeen             map[string]bool
 	pendingToolCalls          map[string]pendingToolCallSnapshot
 	toolOutputText            map[string]string
+	toolOutputTruncated       map[string]bool
 	earlyToolOutput           map[string]earlyToolOutputSnapshot
 	earlyToolOutputBytes      int
 	fileChanges               map[string]any
@@ -114,11 +115,12 @@ func (n *acpTurnNormalizer) SuppressAssistantOutput() {
 
 func newACPTurnNormalizer() *acpTurnNormalizer {
 	return &acpTurnNormalizer{
-		toolItemIDs:      make(map[string]string),
-		toolCallsSeen:    make(map[string]bool),
-		pendingToolCalls: make(map[string]pendingToolCallSnapshot),
-		toolOutputText:   make(map[string]string),
-		earlyToolOutput:  make(map[string]earlyToolOutputSnapshot),
+		toolItemIDs:         make(map[string]string),
+		toolCallsSeen:       make(map[string]bool),
+		pendingToolCalls:    make(map[string]pendingToolCallSnapshot),
+		toolOutputText:      make(map[string]string),
+		toolOutputTruncated: make(map[string]bool),
+		earlyToolOutput:     make(map[string]earlyToolOutputSnapshot),
 	}
 }
 
@@ -610,6 +612,7 @@ func (n *acpTurnNormalizer) trackToolCallEvent(event activityshared.Event) {
 	case activityshared.EventCallCompleted, activityshared.EventCallFailed:
 		delete(n.pendingToolCalls, event.EventID)
 		delete(n.toolOutputText, event.EventID)
+		delete(n.toolOutputTruncated, event.EventID)
 	}
 }
 

@@ -209,7 +209,6 @@ function hasGenericStructuredContent(call: AgentToolCallVM): boolean {
     call.error ||
     call.payload ||
     call.metadata ||
-    call.content?.length ||
     call.locations?.length
   );
 }
@@ -237,10 +236,6 @@ function hasReadContent(call: AgentToolCallVM): boolean {
   const file = objectValue(call.output?.file);
   return Boolean(
     stringValue(call.output?.text) ||
-    stringValue(call.output?.output) ||
-    readContentText(call.output?.content) ||
-    stringValue(call.output?.aggregated_output) ||
-    stringValue(call.output?.formatted_output) ||
     stringValue(call.output?.stdout) ||
     (!file && call.summary.trim()) ||
     stringValue(call.input?.path) ||
@@ -278,33 +273,6 @@ function hasEditContent(call: AgentToolCallVM): boolean {
         stringValue(call.input?.file_path) ||
         stringValue(call.input?.filePath)))
   );
-}
-
-function readContentText(value: unknown): string | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const text = value
-    .flatMap((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) {
-        return [];
-      }
-      const record = item as Record<string, unknown>;
-      const nestedContent =
-        record.content &&
-        typeof record.content === "object" &&
-        !Array.isArray(record.content)
-          ? (record.content as Record<string, unknown>)
-          : null;
-      return [
-        stringValue(record.text),
-        stringValue(record.content),
-        stringValue(nestedContent?.text)
-      ].filter((entry): entry is string => Boolean(entry));
-    })
-    .join("\n")
-    .trim();
-  return text || null;
 }
 
 export function normalizeTaskSteps(call: AgentToolCallVM): TaskStepView[] {
@@ -428,10 +396,7 @@ function structuredText(value: unknown): string | null {
   const preferred = [
     stringValue(record.plan),
     stringValue(record.text),
-    stringValue(record.output),
-    stringValue(record.content),
     stringValue(record.summary),
-    stringValue(record.result),
     stringValue(record.message),
     stringValue(record.stdout),
     stringValue(record.stderr),
