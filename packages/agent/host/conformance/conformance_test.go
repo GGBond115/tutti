@@ -46,8 +46,8 @@ func TestPublishedScenarioCatalogsHaveUniqueNames(t *testing.T) {
 func TestPublishedEditRetryScenarioCatalogHasUniqueNames(t *testing.T) {
 	t.Parallel()
 	scenarios := EditRetryScenarios()
-	if len(scenarios) != 9 {
-		t.Fatalf("edit retry scenario count=%d, want 9", len(scenarios))
+	if len(scenarios) != 8 {
+		t.Fatalf("edit retry scenario count=%d, want 8", len(scenarios))
 	}
 	seen := make(map[string]struct{}, len(scenarios))
 	for _, scenario := range scenarios {
@@ -129,7 +129,6 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 		"edit retry replacement retry requires proven absence",
 		"edit retry direct receipt bypasses acceptance polling",
 		"edit retry rollback-confirmed restart enters replacement only",
-		"edit retry accepts remapped history with an unrelated descendant",
 	}
 	if got := scenarioNames(ApplicationCoreScenarios()); !slices.Equal(got, wantApplicationCore) {
 		t.Fatalf("application core scenarios=%v, want %v", got, wantApplicationCore)

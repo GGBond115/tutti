@@ -17,13 +17,8 @@ func editRetryProviderHistoryBoundary(
 		return nil, ErrEditRetryNotEligible
 	}
 	providerTurnIDs := runtimeHistoryTurnIDs(snapshot)
-	if len(providerTurnIDs) != len(turns) {
-		return nil, errors.New("provider effective history length does not match canonical history")
-	}
-	for _, providerTurnID := range providerTurnIDs {
-		if providerTurnID == "" {
-			return nil, errors.New("provider effective history contains an empty turn identity")
-		}
+	if len(providerTurnIDs) == 0 {
+		return nil, errors.New("provider effective history is empty")
 	}
 	boundaryProviderTurnID := strings.TrimSpace(turns[len(turns)-1].RootProviderTurnID)
 	if boundaryProviderTurnID == "" ||

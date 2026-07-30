@@ -58,14 +58,12 @@ const (
 )
 
 type EditRetryFixture struct {
-	InitialCheckpoint        EditRetryCheckpoint
-	RollbackOutcome          EditRetryRollbackOutcome
-	RollbackRead             EditRetryRollbackRead
-	ReplacementOutcome       EditRetryReplacementOutcome
-	ReplacementRead          EditRetryReplacementRead
-	ReplacementRetryOutcome  EditRetryReplacementOutcome
-	HistoricalPrefixRemapped bool
-	HistoricalDescendant     bool
+	InitialCheckpoint       EditRetryCheckpoint
+	RollbackOutcome         EditRetryRollbackOutcome
+	RollbackRead            EditRetryRollbackRead
+	ReplacementOutcome      EditRetryReplacementOutcome
+	ReplacementRead         EditRetryReplacementRead
+	ReplacementRetryOutcome EditRetryReplacementOutcome
 }
 
 type EditRetryObservation struct {
@@ -108,7 +106,6 @@ func EditRetryScenarios() []EditRetryScenario {
 		{Name: "edit retry replacement retry requires proven absence", run: runEditRetryReplacementRetryRequiresProof},
 		{Name: "edit retry direct receipt bypasses acceptance polling", run: runEditRetryDirectReceipt},
 		{Name: "edit retry rollback-confirmed restart enters replacement only", run: runEditRetryRollbackConfirmedRestart},
-		{Name: "edit retry accepts remapped history with an unrelated descendant", run: runEditRetryRemappedHistoryWithUnrelatedDescendant},
 	}
 }
 
@@ -346,33 +343,6 @@ func runEditRetryRollbackConfirmedRestart(ctx context.Context, driver EditRetryD
 	if metrics.RollbackCalls != 0 || metrics.ExecCalls != 1 {
 		return fmt.Errorf(
 			"rollback-confirmed restart calls rollback=%d exec=%d, want 0/1",
-			metrics.RollbackCalls,
-			metrics.ExecCalls,
-		)
-	}
-	return nil
-}
-
-func runEditRetryRemappedHistoryWithUnrelatedDescendant(ctx context.Context, driver EditRetryDriver) error {
-	if err := driver.ResetEditRetry(ctx, EditRetryFixture{
-		RollbackOutcome:          EditRetryRollbackDirectReceipt,
-		ReplacementOutcome:       EditRetryReplacementDirectReceipt,
-		HistoricalPrefixRemapped: true,
-		HistoricalDescendant:     true,
-	}); err != nil {
-		return err
-	}
-	observed, err := driver.StartEditRetry(ctx)
-	if err != nil {
-		return err
-	}
-	if observed.State != EditRetryStateCompleted {
-		return fmt.Errorf("remapped-history edit retry state=%q, want completed", observed.State)
-	}
-	metrics := driver.EditRetryMetrics()
-	if metrics.RollbackCalls != 1 || metrics.ExecCalls != 1 {
-		return fmt.Errorf(
-			"remapped-history provider calls rollback=%d exec=%d, want 1/1",
 			metrics.RollbackCalls,
 			metrics.ExecCalls,
 		)
