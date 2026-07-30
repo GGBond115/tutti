@@ -81,6 +81,17 @@ func (s *observedEffectiveHistoryStore) FailEditRetryRecovery(
 	return op, changed, err
 }
 
+func (s *observedEffectiveHistoryStore) QuarantineEditRetryOperation(
+	ctx context.Context,
+	input storesqlite.QuarantineEditRetryOperationInput,
+) (storesqlite.RuntimeOperation, bool, error) {
+	op, changed, err := s.EffectiveHistoryStore.QuarantineEditRetryOperation(ctx, input)
+	if err == nil && changed {
+		s.host.notifyCommitted(ctx, runtimeOperationDelta(RuntimeOperationFailed, op, nil))
+	}
+	return op, changed, err
+}
+
 type observedRuntimeOperationStore struct {
 	RuntimeOperationStore
 	host *Host

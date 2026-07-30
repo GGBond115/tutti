@@ -352,21 +352,28 @@ func (h *Host) releaseRuntimeOperation(ctx context.Context, operation storesqlit
 
 // quarantineDisabledEditRetryOperation dead-letters an edit-retry operation left
 // over from before the feature was neutralized (see Config.EditRetryDisabled).
-// Marking it failed drops it from the claimable set (ListClaimableRuntimeOperations
-// only returns prepared/leased rows), so it can neither fail cold recovery nor
-// hot-spin the live worker. It returns a nil error on success: a completed
-// quarantine is a terminal, non-fatal outcome for the worker — that is the whole
-// point of the neutralization, so it must never abort daemon boot.
+// It both marks the operation failed — dropping it from the claimable set
+// (ListClaimableRuntimeOperations only returns prepared/leased rows), so it can
+// neither fail cold recovery nor hot-spin the live worker — AND clears the
+// session's effective-history fence back to ready. The fence clear is essential:
+// a stuck operation leaves the session at resend_pending/rollback_pending/
+// recovery_required, and with the feature disabled no recovery path can move it
+// back to ready, so requireSendAllowedByEffectiveHistory would otherwise reject
+// every subsequent send for that conversation forever. It returns a nil error on
+// success: a completed quarantine is a terminal, non-fatal outcome for the worker,
+// so it must never abort daemon boot.
 func (h *Host) quarantineDisabledEditRetryOperation(ctx context.Context, operation storesqlite.RuntimeOperation, owner string) (storesqlite.RuntimeOperation, error) {
-	failed, _, err := h.operations.ReleaseOrFailRuntimeOperation(ctx, storesqlite.ReleaseOrFailRuntimeOperationInput{
+	if h.effectiveHistory == nil {
+		return operation, errors.New("effective history store is unavailable")
+	}
+	failed, _, err := h.effectiveHistory.QuarantineEditRetryOperation(ctx, storesqlite.QuarantineEditRetryOperationInput{
 		WorkspaceID: operation.WorkspaceID, OperationID: operation.OperationID, LeaseOwner: owner,
-		LastError: "edit_retry runtime operations are disabled; operation quarantined",
-		NowUnixMS: h.now().UnixMilli(), Fail: true,
+		NowUnixMS: h.now().UnixMilli(),
 	})
 	if err != nil {
 		return operation, err
 	}
-	logRuntimeOperationFailure(failed, errors.New("edit_retry disabled: quarantined orphaned runtime operation"))
+	logRuntimeOperationFailure(failed, errors.New("edit_retry disabled: quarantined orphaned runtime operation and cleared session history fence"))
 	if publishErr := h.publishRuntimeOperationEvents(ctx, operation.WorkspaceID); publishErr != nil {
 		logRuntimeOperationFailure(failed, publishErr)
 	}

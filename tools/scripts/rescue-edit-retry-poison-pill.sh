@@ -74,8 +74,19 @@ BAK="${DB}.bak.$(date +%Y%m%d%H%M%S)"
 sqlite3 "$DB" ".backup '$BAK'"
 echo "🗄  Backup written: $BAK"
 
-# 5. Apply. next_attempt/lease cleared so the row can never be claimed again.
+# 5. Apply. Two parts, both required:
+#    (a) unfence the affected sessions' effective history back to 'ready' so they
+#        can send again — a stuck edit_retry leaves recovery_state at
+#        resend_pending/rollback_pending/recovery_required, which blocks every
+#        subsequent prompt. This MUST run before deleting the operation rows,
+#        because it identifies the fenced sessions via those rows.
+#    (b) fail (or delete) the stuck operation rows so recovery no longer trips.
 NOW_MS="CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)"
+sqlite3 "$DB" ".timeout 5000" "
+  UPDATE workspace_agent_session_history
+     SET recovery_state='ready', operation_id='', updated_at_unix_ms=$NOW_MS
+   WHERE recovery_state != 'ready'
+     AND operation_id IN (SELECT operation_id FROM workspace_agent_runtime_operations WHERE kind='edit_retry');"
 if [[ "$MODE" == "delete" ]]; then
   sqlite3 "$DB" ".timeout 5000" "DELETE FROM workspace_agent_runtime_operations WHERE $WHERE;"
 else

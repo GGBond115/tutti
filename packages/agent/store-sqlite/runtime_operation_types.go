@@ -199,6 +199,13 @@ type FailEditRetryRecoveryInput struct {
 	NowUnixMS   int64
 }
 
+type QuarantineEditRetryOperationInput struct {
+	WorkspaceID string
+	OperationID string
+	LeaseOwner  string
+	NowUnixMS   int64
+}
+
 type RuntimeOperationEvent struct {
 	ID                int64
 	OperationID       string
