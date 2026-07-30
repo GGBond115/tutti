@@ -16,7 +16,11 @@ vi.mock("../../../i18n/index", async (importOriginal) => {
       t: (key: string, options?: Record<string, unknown>) =>
         key === "agentHost.agentGui.turnProcessedSeconds"
           ? `Processed for ${String(options?.seconds)}s`
-          : key
+          : key === "agentHost.agentGui.turnPeerDeviceOfflinePendingSync"
+            ? "Other device offline · Progress pending sync"
+            : key === "agentHost.agentGui.turnPeerDeviceProgressSynchronizing"
+              ? "Synchronizing progress from other device…"
+              : key
     })
   };
 });
@@ -52,6 +56,35 @@ describe("AgentTurnWorkSection", () => {
       act(() => vi.advanceTimersByTime(5_000));
       expect(screen.getByText("Processed for 50s")).toBeTruthy();
       expect(renderRow).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["peer-offline" as const, "Other device offline · Progress pending sync"],
+    ["synchronizing" as const, "Synchronizing progress from other device…"]
+  ])("shows %s observation-gap copy instead of a live timer", (state, copy) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(50_000);
+    try {
+      render(
+        <AgentTurnWorkSection
+          group={turnGroup()}
+          sessionId="session-1"
+          turn={canonicalTurn()}
+          isActiveTurn
+          observationGapPresentationState={state}
+          disclosureStore={disclosureStore}
+          renderRow={(row, rowIndex) => (
+            <div key={`${row.id}:${rowIndex}`}>{row.id}</div>
+          )}
+        />
+      );
+
+      expect(screen.getByText(copy)).toBeTruthy();
+      expect(screen.queryByText("Processed for 45s")).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
     }
@@ -340,6 +373,7 @@ function AgentTurnWorkSection({
   sessionId,
   turn,
   isActiveTurn,
+  observationGapPresentationState,
   disclosureStore,
   renderRow
 }: {
@@ -347,6 +381,7 @@ function AgentTurnWorkSection({
   sessionId: string;
   turn: AgentActivityTurn;
   isActiveTurn: boolean;
+  observationGapPresentationState?: "peer-offline" | "synchronizing";
   disclosureStore: AgentTurnDisclosureStore;
   renderRow: (
     row: AgentTranscriptRowVM,
@@ -355,7 +390,8 @@ function AgentTurnWorkSection({
   ) => JSX.Element;
 }): JSX.Element {
   const model = buildAgentTurnWorkSectionModel(group, turn, isActiveTurn, {
-    collapseIntermediateAssistantReplies: true
+    collapseIntermediateAssistantReplies: true,
+    liveObservationGapPresentationState: observationGapPresentationState
   });
   if (!model) {
     throw new Error("Test expected a timing-enabled turn disclosure model");

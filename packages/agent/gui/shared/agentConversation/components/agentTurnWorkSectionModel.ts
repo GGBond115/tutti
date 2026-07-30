@@ -1,4 +1,5 @@
 import type { AgentActivityTurn } from "@tutti-os/agent-activity-core";
+import type { AgentGUIObservationGap } from "../../../types";
 import type {
   AgentMessageContentVM,
   AgentMessageRowVM
@@ -6,7 +7,14 @@ import type {
 import type { AgentTranscriptTurnGroup } from "./agentTranscriptModel";
 
 export type AgentTurnTiming =
-  | { kind: "live"; startedAtUnixMs: number }
+  | {
+      kind: "live";
+      startedAtUnixMs: number;
+      frozenAtUnixMs?: number | null;
+      observationGapPresentationState?: NonNullable<
+        AgentGUIObservationGap["presentationState"]
+      >;
+    }
   | { kind: "settled"; elapsedSeconds: number };
 
 export type AgentTurnDuration =
@@ -106,6 +114,10 @@ export function findParticipantHeaderRenderKeys(
 
 interface AgentTurnWorkSectionOptions {
   collapseIntermediateAssistantReplies?: boolean;
+  liveFrozenAtUnixMs?: number | null;
+  liveObservationGapPresentationState?:
+    | AgentGUIObservationGap["presentationState"]
+    | null;
 }
 
 export function resolveAgentTurnTiming(
@@ -197,7 +209,22 @@ export function buildAgentTurnWorkSectionModel(
     !group.rows.some(({ row }) => row.kind === "generated-image");
 
   return {
-    timing,
+    timing:
+      timing.kind === "live"
+        ? {
+            ...timing,
+            ...(Number.isFinite(options.liveFrozenAtUnixMs) &&
+            (options.liveFrozenAtUnixMs as number) >= timing.startedAtUnixMs
+              ? { frozenAtUnixMs: options.liveFrozenAtUnixMs as number }
+              : {}),
+            ...(options.liveObservationGapPresentationState
+              ? {
+                  observationGapPresentationState:
+                    options.liveObservationGapPresentationState
+                }
+              : {})
+          }
+        : timing,
     leadingRows,
     sections,
     collapseEligible

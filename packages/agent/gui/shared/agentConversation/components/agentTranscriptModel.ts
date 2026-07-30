@@ -57,6 +57,22 @@ export function transcriptRowKey(
   return row.id;
 }
 
+export function isAssistantParticipantContentRow(
+  row: AgentConversationVM["rows"][number]
+): boolean {
+  switch (row.kind) {
+    case "message":
+      return row.speaker === "assistant";
+    case "generated-image":
+    case "processing":
+    case "tool-group":
+    case "turn-summary":
+      return true;
+    case "goal-control":
+      return false;
+  }
+}
+
 export function findLastMessageRowIndex(
   rows: readonly {
     row: AgentConversationVM["rows"][number];

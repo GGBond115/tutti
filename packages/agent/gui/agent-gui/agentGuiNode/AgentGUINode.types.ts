@@ -16,6 +16,7 @@ import type {
   AgentGUIProviderRailAllPresentation,
   AgentGUIProviderRailMode,
   AgentGUIProviderReadinessGate,
+  AgentGUIObservationGapSource,
   AgentGUITargetConnectionSource,
   AgentGUIHomeSuggestionId,
   AgentGUIAgentTarget,
@@ -151,6 +152,8 @@ export interface AgentGUINodeHostCapabilities {
     Record<AgentGUIProvider, AgentGUIProviderReadinessGate | null>
   > | null;
   targetConnectionSource?: AgentGUITargetConnectionSource | null;
+  /** Host-owned, ephemeral projection gap keyed by exact Session and Turn. */
+  observationGapSource?: AgentGUIObservationGapSource | null;
   defaultAgentTargetId?: string | null;
   providerAuthAccountLabels?: Partial<Record<string, string>>;
   mentionService?: RichTextMentionService;
@@ -426,6 +429,7 @@ export function areAgentGUINodePropsEqual(
     pc.comingSoonProviders === nc.comingSoonProviders &&
     pc.providerReadinessGates === nc.providerReadinessGates &&
     pc.targetConnectionSource === nc.targetConnectionSource &&
+    pc.observationGapSource === nc.observationGapSource &&
     pc.defaultAgentTargetId === nc.defaultAgentTargetId &&
     pc.providerAuthAccountLabels === nc.providerAuthAccountLabels &&
     pc.mentionService === nc.mentionService &&

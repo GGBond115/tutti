@@ -159,7 +159,23 @@ provider runtime observation
 
 `services/tuttid/api/openapi/tuttid.v1.yaml` is authoritative for HTTP request/response contracts. It projects the canonical domain; it does not replace `store-sqlite/canonical`.
 
-### 2.4 On-demand status
+### 2.4 Ephemeral observation gaps
+
+A Host may expose an ephemeral observation gap for one exact Session and Turn
+when its caller-side projection may be stale. The gap is presentation-only:
+AgentGUI pauses the processing animation, keeps recovery chrome visible, and
+blocks commands that require current state until the Host removes the gap. A
+Host may additionally classify the gap as peer-offline or synchronizing; while
+that classification is present, AgentGUI replaces the numeric live duration
+with the matching status copy. An older Host that omits the classification
+retains the frozen-duration fallback.
+
+An observation gap does not settle, interrupt, or otherwise rewrite the
+canonical Turn. The Host owns reconnect and catch-up fencing and must remove
+the gap only after the same Turn is authoritative again. When the capability
+is absent, AgentGUI preserves its existing lifecycle presentation.
+
+### 2.5 On-demand status
 
 AgentGUI owns one provider-neutral `AgentStatusController` for `/status`, Agent
 Info, and Agent Config. These surfaces are explicit bounded reads; mounting an
@@ -231,7 +247,7 @@ Tutti Agent use their validated local credential files as the primary auth
 signal; malformed files may fall back to one CLI check. Cursor's single
 `about --format json` result supplies both auth and version when available.
 
-### 2.5 Developer cassette replay
+### 2.6 Developer cassette replay
 
 The developer-only `agent.sessionRecording` desktop preference defaults off.
 When enabled, Desktop injects its recording and replay controls through generic

@@ -39,5 +39,6 @@ export const zhCNAgentGuiRuntimeNotices = {
     "正在重新连接 {{device}} · 第 {{attempt}} 次重试…",
   runtimeUnavailable: "与 {{device}} 的连接已断开，系统将自动重试",
   runtimeUnavailableActive:
-    "与 {{device}} 的连接已断开，暂时无法发送或停止；任务可能仍在设备上运行"
+    "与 {{device}} 的连接已断开，暂时无法发送或停止；任务可能仍在设备上运行",
+  runtimeSynchronizingProgress: "正在同步最新任务进度…"
 } as const;

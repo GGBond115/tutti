@@ -956,7 +956,6 @@ export function useReferenceSourcePickerView({
         controller.toggleSingleSelectionAndExpand(node);
         return;
       }
-      controller.clearSelection();
       if (node.kind === "folder") {
         controller.toggleNode(node);
       }

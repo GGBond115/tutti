@@ -34,6 +34,7 @@ interface AgentTranscriptItemViewProps {
   participantPresentation?: AgentConversationParticipantPresentation;
   showParticipantHeader?: boolean;
   isActiveTurn?: boolean;
+  processingPaused?: boolean;
   toolGroupExpanded?: boolean;
   toolGroupExpansionKey?: string;
   onToolGroupExpandedChange?: (key: string, expanded: boolean) => void;
@@ -55,6 +56,7 @@ export const AgentTranscriptItemView = memo(function AgentTranscriptItemView({
   participantPresentation,
   showParticipantHeader,
   isActiveTurn = false,
+  processingPaused = false,
   toolGroupExpanded,
   toolGroupExpansionKey,
   onToolGroupExpandedChange,
@@ -134,6 +136,12 @@ export const AgentTranscriptItemView = memo(function AgentTranscriptItemView({
         />
       );
     case "processing":
-      return <AgentProcessingRow row={row} label={labels.processing} />;
+      return (
+        <AgentProcessingRow
+          row={row}
+          label={labels.processing}
+          paused={processingPaused}
+        />
+      );
   }
 });

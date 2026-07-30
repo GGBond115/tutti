@@ -44,5 +44,6 @@ export const enAgentGuiRuntimeNotices = {
   runtimeUnavailable:
     "Connection to {{device}} was lost. The system will retry automatically.",
   runtimeUnavailableActive:
-    "Connection to {{device}} was lost. Sending and stopping are temporarily unavailable; the task may still be running on the device."
+    "Connection to {{device}} was lost. Sending and stopping are temporarily unavailable; the task may still be running on the device.",
+  runtimeSynchronizingProgress: "Synchronizing the latest task progress…"
 } as const;

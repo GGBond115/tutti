@@ -119,6 +119,8 @@ export type {
   AgentGUIProviderReadinessGate,
   AgentGUIProviderReadinessGateAction,
   AgentGUIProviderReadinessGateStatus,
+  AgentGUIObservationGap,
+  AgentGUIObservationGapSource,
   AgentGUITargetConnectionSource,
   AgentGUITargetConnectionState,
   AgentGUITargetConnectionStatus,

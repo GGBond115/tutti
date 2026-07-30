@@ -378,6 +378,81 @@ test("reference source picker shows html source as text", async () => {
   }
 });
 
+test("expanding an unselectable folder preserves selected files", async () => {
+  const dom = new JSDOM('<!doctype html><div id="root"></div>');
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousHTMLElement = globalThis.HTMLElement;
+  const previousActEnvironment = (
+    globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT;
+  globalThis.window = dom.window;
+  globalThis.document = dom.window.document;
+  globalThis.HTMLElement = dom.window.HTMLElement;
+  (
+    globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+
+  let root: Root | null = null;
+  try {
+    const container = dom.window.document.getElementById("root");
+    assert.ok(container);
+
+    const selectedFile = file("/workspace/selected.md", "selected.md");
+    const otherFolder = folder("/workspace/other", "other");
+    const nestedFile = file("/workspace/other/nested.md", "nested.md");
+    const aggregator = createSidebarAggregator([selectedFile, otherFolder], {
+      [otherFolder.ref.nodeId]: [nestedFile]
+    });
+    let latestView: PickerView | null = null;
+
+    function Harness() {
+      latestView = useReferenceSourcePickerView({
+        aggregator,
+        isNodeSelectable: (node) => node.kind === "file",
+        onClose() {},
+        onConfirm() {},
+        open: true,
+        workspaceId: "workspace-reference-preserve-selection"
+      });
+      return null;
+    }
+
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(createElement(Harness));
+      await flushEffects();
+    });
+
+    await act(async () => {
+      requireLatestView(latestView).toggleSelection(selectedFile);
+    });
+    await act(async () => {
+      requireLatestView(latestView).toggleSingleSelectionAndExpand(otherFolder);
+      await flushEffects();
+    });
+
+    const view = requireLatestView(latestView);
+    assert.deepEqual(view.selection, [selectedFile]);
+    assert.equal(view.expandedKeys[nodeRefKey(otherFolder.ref)], true);
+    assert.deepEqual(view.childrenByKey[nodeRefKey(otherFolder.ref)]?.entries, [
+      nestedFile
+    ]);
+  } finally {
+    if (root) {
+      await act(async () => {
+        root?.unmount();
+      });
+    }
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+    globalThis.HTMLElement = previousHTMLElement;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+  }
+});
+
 test("single-selection picker uses the source heading as root and selects sidebar directories", async () => {
   const dom = new JSDOM('<!doctype html><div id="root"></div>');
   const previousWindow = globalThis.window;

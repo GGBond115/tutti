@@ -182,10 +182,36 @@ function AgentTurnDurationLabel({
 }): JSX.Element {
   const { t } = useTranslation();
   const liveElapsedSeconds = useElapsedSeconds(
-    timing.kind === "live" ? timing.startedAtUnixMs : null
+    timing.kind === "live" &&
+      timing.observationGapPresentationState === undefined &&
+      !Number.isFinite(timing.frozenAtUnixMs)
+      ? timing.startedAtUnixMs
+      : null
   );
+  if (
+    timing.kind === "live" &&
+    timing.observationGapPresentationState !== undefined
+  ) {
+    return (
+      <span>
+        {timing.observationGapPresentationState === "peer-offline"
+          ? t("agentHost.agentGui.turnPeerDeviceOfflinePendingSync")
+          : t("agentHost.agentGui.turnPeerDeviceProgressSynchronizing")}
+      </span>
+    );
+  }
   const elapsedSeconds =
-    timing.kind === "live" ? (liveElapsedSeconds ?? 0) : timing.elapsedSeconds;
+    timing.kind === "live"
+      ? Number.isFinite(timing.frozenAtUnixMs)
+        ? Math.max(
+            0,
+            Math.floor(
+              ((timing.frozenAtUnixMs as number) - timing.startedAtUnixMs) /
+                1_000
+            )
+          )
+        : (liveElapsedSeconds ?? 0)
+      : timing.elapsedSeconds;
   return <span>{translateDuration(t, timing.kind, elapsedSeconds)}</span>;
 }
 

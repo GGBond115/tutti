@@ -553,6 +553,8 @@ export const zhCNAgentGui = {
   turnProcessedSeconds: "已处理 {{seconds}} 秒",
   turnProcessedMinutes: "已处理 {{minutes}} 分钟",
   turnProcessedMinutesSeconds: "已处理 {{minutes}} 分 {{seconds}} 秒",
+  turnPeerDeviceOfflinePendingSync: "对方设备离线 · 进度待同步",
+  turnPeerDeviceProgressSynchronizing: "正在同步对方设备进度…",
   turnTotalSeconds: "总用时 {{seconds}} 秒",
   turnTotalMinutes: "总用时 {{minutes}} 分钟",
   turnTotalMinutesSeconds: "总用时 {{minutes}} 分 {{seconds}} 秒",

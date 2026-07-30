@@ -13,6 +13,7 @@ import {
   AgentTranscriptView,
   areAgentTranscriptViewPropsEqual
 } from "./AgentTranscriptView";
+import { AgentObservationGapSourceProvider } from "../AgentObservationGapContext";
 import { AgentTurnDisclosureProvider } from "./AgentTurnDisclosureContext";
 import { projectAgentConversationVM } from "../projection/agentConversationProjection";
 
@@ -1384,6 +1385,65 @@ describe("AgentTranscriptView", () => {
         vi.advanceTimersByTime(2_000);
       });
       expect(screen.getByText("Processed for 47s")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("replaces live duration and pauses the processing animation during an observation gap", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(50_000);
+    const turn = canonicalTurn();
+    const baseDetail = detailViewModel();
+    try {
+      const { container } = render(
+        <AgentObservationGapSourceProvider
+          source={{
+            getObservationGap: (agentSessionId, turnId) =>
+              agentSessionId === "session-1" && turnId === "turn-1"
+                ? {
+                    startedAtUnixMs: 48_000,
+                    presentationState: "peer-offline"
+                  }
+                : null,
+            subscribe: () => () => undefined
+          }}
+        >
+          <AgentTranscriptView
+            conversation={projectAgentConversationVM(
+              detailViewModel({
+                session: {
+                  ...baseDetail.session,
+                  activeTurnId: turn.turnId,
+                  activeTurn: turn
+                },
+                sessionTurns: [turn],
+                showProcessingIndicator: true
+              })
+            )}
+            labels={{
+              thinkingLabel: "Thought process",
+              toolCallsLabel: (count) => `Tool calls (${count})`,
+              processing: "Planning next moves",
+              turnSummary: "Changed files"
+            }}
+          />
+        </AgentObservationGapSourceProvider>
+      );
+
+      expect(
+        screen.getByText("Other device offline · Progress pending sync")
+      ).toBeTruthy();
+      expect(screen.queryByText("Processed for 43s")).toBeNull();
+      expect(
+        container.querySelector(".tsh-inline-loading-ellipsis--entry-timing")
+      ).toBeNull();
+      act(() => {
+        vi.advanceTimersByTime(2_000);
+      });
+      expect(
+        screen.getByText("Other device offline · Progress pending sync")
+      ).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }
@@ -3547,6 +3607,10 @@ function translateTestKey(
       return `Processed for ${minutes}m`;
     case "agentHost.agentGui.turnProcessedMinutesSeconds":
       return `Processed for ${minutes}m ${seconds}s`;
+    case "agentHost.agentGui.turnPeerDeviceOfflinePendingSync":
+      return "Other device offline · Progress pending sync";
+    case "agentHost.agentGui.turnPeerDeviceProgressSynchronizing":
+      return "Synchronizing progress from other device…";
     case "agentHost.agentGui.turnTotalSeconds":
       return `Total ${seconds}s`;
     case "agentHost.agentGui.turnTotalMinutes":

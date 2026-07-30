@@ -272,6 +272,30 @@ export interface AgentGUITargetConnectionSource {
   subscribe(listener: () => void): () => void;
 }
 
+/**
+ * Caller-side presentation gap for one exact Session Turn.
+ *
+ * The canonical Turn remains authoritative and active. Hosts expose this only
+ * while their projection may be stale so AgentGUI can pause live presentation
+ * until the exact Turn has caught up again.
+ */
+export interface AgentGUIObservationGap {
+  startedAtUnixMs: number;
+  /**
+   * Optional Host-owned presentation classification. Older Hosts may omit it
+   * and retain the frozen-duration fallback.
+   */
+  presentationState?: "peer-offline" | "synchronizing";
+}
+
+export interface AgentGUIObservationGapSource {
+  getObservationGap(
+    agentSessionId: string,
+    turnId: string
+  ): AgentGUIObservationGap | null;
+  subscribe(listener: () => void): () => void;
+}
+
 export interface AgentGUIProviderRailAllPresentation {
   iconUrl?: string | null;
 }

@@ -20,7 +20,10 @@ import {
 } from "../../../shared/agentConversation/planImplementationPresentation";
 import type { AgentSessionState } from "../../../shared/agentSessionTypes";
 import type { AppErrorCode } from "../../../shared/contracts/dto";
-import type { AgentGUITargetConnectionSource } from "../../../types";
+import type {
+  AgentGUIObservationGapSource,
+  AgentGUITargetConnectionSource
+} from "../../../types";
 import { useEngineSelector } from "../../../shared/engine/useEngineSelector";
 import type {
   AgentGUIConversationSummary,
@@ -45,6 +48,7 @@ import { projectAgentGUIMessagesToTimelineItems } from "./agentGuiController.pro
 import { promptRequestId } from "./agentGuiController.diagnostics";
 import { reportAgentGUIRenderStateDiagnostic } from "./agentGuiController.reporting";
 import { useAgentGUITargetConnectionState } from "./useAgentGUITargetConnectionState";
+import { useAgentObservationGap } from "../../../shared/agentConversation/AgentObservationGapContext";
 
 interface CurrentValue<T> {
   current: T;
@@ -93,6 +97,7 @@ interface UseAgentGUISessionPresentationInput {
   sessionEngine: AgentSessionEngine;
   targetConnectionAgentTargetId?: string | null;
   targetConnectionSource?: AgentGUITargetConnectionSource | null;
+  observationGapSource?: AgentGUIObservationGapSource | null;
   workspaceId: string;
 }
 
@@ -154,6 +159,11 @@ export function useAgentGUISessionPresentation(
     agentTargetId: input.targetConnectionAgentTargetId,
     source: input.targetConnectionSource
   });
+  const observationGap = useAgentObservationGap(
+    input.activeEngineSession?.agentSessionId ?? input.activeConversationId,
+    input.activeEngineActiveTurn?.turnId,
+    input.observationGapSource
+  );
   const activeConversationBusy = input.activeEngineSession
     ? input.activeEngineAvailability === "blocked"
     : agentActivityDisplayStatusBusy(input.activityDisplayStatus) ||
@@ -226,6 +236,18 @@ export function useAgentGUISessionPresentation(
         rawState: sessionChromeRawState
       };
     }
+    if (observationGap !== null) {
+      return {
+        auth: null,
+        approval: null,
+        recovery: {
+          kind: "transport-connecting",
+          message: translate("agentHost.agentGui.runtimeSynchronizingProgress"),
+          canRetry: false
+        },
+        rawState: sessionChromeRawState
+      };
+    }
     const normalizedError = input.activationError?.trim() ?? "";
     const authState = input.activeSessionState?.authState?.trim() ?? "";
     const providerSessionMissing = isNonRetryableResumeErrorCode(
@@ -291,6 +313,7 @@ export function useAgentGUISessionPresentation(
     input.pendingApproval,
     input.ownerDeviceLabel,
     targetConnection.visibleState,
+    observationGap,
     sessionChromeRawState
   ]);
   const hasNonRetryableRecoveryFailure =
@@ -324,7 +347,8 @@ export function useAgentGUISessionPresentation(
         pendingInteractivePrompt: hasPendingInteractivePrompt,
         providerReadinessGate: input.providerReadinessGate,
         sessionRuntimeBlockedReason,
-        targetConnectionBlocked: targetConnection.blocked
+        targetConnectionBlocked:
+          targetConnection.blocked || observationGap !== null
       }),
     [
       activeConversationBusy,
@@ -343,7 +367,8 @@ export function useAgentGUISessionPresentation(
       isCollaboratorConversation,
       pendingApproval,
       sessionRuntimeBlockedReason,
-      targetConnection.blocked
+      targetConnection.blocked,
+      observationGap
     ]
   );
   const canSubmit = composerGate.submission.status === "ready";

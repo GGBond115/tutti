@@ -108,6 +108,7 @@ export const AgentGUINode = memo(function AgentGUINode({
     comingSoonProviders,
     providerReadinessGates = null,
     targetConnectionSource = null,
+    observationGapSource = null,
     defaultAgentTargetId = null,
     providerAuthAccountLabels,
     mentionService,
@@ -291,6 +292,7 @@ export const AgentGUINode = memo(function AgentGUINode({
     comingSoonProviders,
     providerReadinessGates,
     targetConnectionSource,
+    observationGapSource,
     defaultAgentTargetId,
     onDataChange: handleDataChange,
     onComposerAppendHandled,
@@ -382,7 +384,10 @@ export const AgentGUINode = memo(function AgentGUINode({
     : null;
 
   return (
-    <AgentGUIMentionServiceBoundary service={mentionService}>
+    <AgentGUIMentionServiceBoundary
+      service={mentionService}
+      observationGapSource={observationGapSource}
+    >
       <WorkspaceNodeWindow
         nodeId={nodeId}
         kind="agentGui"

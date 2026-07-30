@@ -3,10 +3,12 @@ import type { AgentProcessingRowVM } from "../contracts/agentProcessingRowVM";
 
 export function AgentProcessingRow({
   row,
-  label
+  label,
+  paused = false
 }: {
   row: AgentProcessingRowVM;
   label: string;
+  paused?: boolean;
 }): JSX.Element {
   "use memo";
 
@@ -17,7 +19,7 @@ export function AgentProcessingRow({
     >
       <span className="inline-flex min-w-0 items-center gap-1 font-semibold">
         <span>{processingLabel(row, label)}</span>
-        <LoadingEllipsis />
+        {paused ? null : <LoadingEllipsis />}
       </span>
     </div>
   );
