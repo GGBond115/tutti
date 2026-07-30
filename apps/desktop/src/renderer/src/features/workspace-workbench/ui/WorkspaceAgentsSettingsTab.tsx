@@ -453,7 +453,8 @@ export function WorkspaceAgentsSettingsTab({
             const agentEnabledPending = targetID
               ? pendingAgentTargetIDs.has(targetID)
               : false;
-            const alwaysEnabled = targetID === "local:tutti-agent";
+            const alwaysEnabled =
+              targetID === "local:tutti-agent" && agentEnabled;
             const isEarlyAccess =
               isWorkspaceAgentGuiEarlyAccessProvider(provider);
             const environmentLabel = t("workspace.agentEnv.configTitle", {
