@@ -206,12 +206,6 @@ type QuarantineEditRetryOperationInput struct {
 	NowUnixMS   int64
 }
 
-type ClearAbandonedEditRetryFenceInput struct {
-	WorkspaceID    string
-	AgentSessionID string
-	NowUnixMS      int64
-}
-
 type RuntimeOperationEvent struct {
 	ID                int64
 	OperationID       string

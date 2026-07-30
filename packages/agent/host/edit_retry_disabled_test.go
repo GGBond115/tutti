@@ -3,7 +3,6 @@ package agenthost_test
 import (
 	"errors"
 	"testing"
-	"time"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
@@ -139,74 +138,5 @@ func TestEditRetryDisabledQuarantinesStuckOperationDuringRecovery(t *testing.T) 
 			"disabled recovery touched provider: rollback %d->%d exec %d->%d reads %d->%d",
 			rollbackBefore, runtime.rollbackCalls, execBefore, runtime.execCalls, readsBefore, runtime.historyReads,
 		)
-	}
-}
-
-// TestEditRetryDisabledHealsLegacyFencedSessionOnSend covers sessions fenced
-// BEFORE the feature was neutralized: the operation is already failed (e.g. via
-// FailEditRetryRecovery), so recovery — which only sees claimable operations —
-// can never quarantine it and the fence would survive every boot. The send gate
-// must self-heal such a fence so the conversation is not blocked forever.
-func TestEditRetryDisabledHealsLegacyFencedSessionOnSend(t *testing.T) {
-	enabled, store, runtime := newHostEditRetryFixture(t)
-	ref := agenthost.SessionRef{WorkspaceID: "workspace-1", AgentSessionID: "session-1"}
-
-	// Strand an edit-retry at resend_pending, then reproduce the legacy terminal
-	// state: FailEditRetryRecovery fences the session at recovery_required and
-	// fails the operation in one transaction.
-	runtime.mu.Lock()
-	runtime.execNotDispatchedBeforeTurn = true
-	runtime.mu.Unlock()
-	result, err := enabled.EditRetry(t.Context(), ref, "turn-original", agenthost.EditRetryInput{
-		EditedText: "edited prompt", ClientOperationID: "edit-legacy", ExpectedHistoryRevision: 0,
-	})
-	if !errors.Is(err, agenthost.ErrEditRetryResendPending) {
-		t.Fatalf("EditRetry() error = %v, want ErrEditRetryResendPending", err)
-	}
-	now := time.Now().UnixMilli()
-	if _, claimed, claimErr := store.ClaimRuntimeOperationLease(t.Context(), storesqlite.ClaimRuntimeOperationLeaseInput{
-		WorkspaceID: "workspace-1", OperationID: result.OperationID,
-		LeaseOwner: "legacy-worker", NowUnixMS: now, LeaseExpiresAtMS: now + 30_000,
-	}); claimErr != nil || !claimed {
-		t.Fatalf("ClaimRuntimeOperationLease() claimed=%v error=%v", claimed, claimErr)
-	}
-	if _, changed, failErr := store.FailEditRetryRecovery(t.Context(), storesqlite.FailEditRetryRecoveryInput{
-		WorkspaceID: "workspace-1", OperationID: result.OperationID, LeaseOwner: "legacy-worker",
-		ReasonCode: storesqlite.EditRetryReasonRecoveryRequired, NowUnixMS: now,
-	}); failErr != nil || !changed {
-		t.Fatalf("FailEditRetryRecovery() changed=%v error=%v", changed, failErr)
-	}
-	if history, _, _ := store.GetSessionHistory(t.Context(), "workspace-1", "session-1"); history.RecoveryState != storesqlite.SessionHistoryRecoveryRequired {
-		t.Fatalf("legacy recovery_state = %q, want %q", history.RecoveryState, storesqlite.SessionHistoryRecoveryRequired)
-	}
-
-	// Guard: the enabled host's send gate rejects this state, proving SendInput
-	// reaches the effective-history fence in this fixture.
-	prompt := agenthost.SendInput{Content: []agenthost.PromptContentBlock{{Type: "text", Text: "hello again"}}}
-	if _, sendErr := enabled.SendInput(t.Context(), ref, prompt); !errors.Is(sendErr, agenthost.ErrEditRetryRecoveryRequired) {
-		t.Fatalf("SendInput(enabled) error = %v, want ErrEditRetryRecoveryRequired", sendErr)
-	}
-
-	// Recovery on the disabled host is non-fatal but cannot see the failed
-	// operation, so the fence survives the boot pass.
-	disabled := newDisabledEditRetryHost(store, runtime)
-	if recErr := disabled.RecoverRuntimeOperations(t.Context()); recErr != nil {
-		t.Fatalf("RecoverRuntimeOperations(disabled) = %v, want nil", recErr)
-	}
-	if history, _, _ := store.GetSessionHistory(t.Context(), "workspace-1", "session-1"); history.RecoveryState != storesqlite.SessionHistoryRecoveryRequired {
-		t.Fatalf("post-recovery recovery_state = %q, want it untouched (%q)", history.RecoveryState, storesqlite.SessionHistoryRecoveryRequired)
-	}
-
-	// The first send self-heals the abandoned fence and proceeds past the gate.
-	if _, sendErr := disabled.SendInput(t.Context(), ref, prompt); errors.Is(sendErr, agenthost.ErrEditRetryRecoveryRequired) ||
-		errors.Is(sendErr, agenthost.ErrEditRetryResendPending) || errors.Is(sendErr, agenthost.ErrEditRetryInProgress) {
-		t.Fatalf("SendInput(disabled) error = %v, want the fence error healed", sendErr)
-	}
-	history, found, err := store.GetSessionHistory(t.Context(), "workspace-1", "session-1")
-	if err != nil || !found {
-		t.Fatalf("GetSessionHistory() found=%v error=%v", found, err)
-	}
-	if history.RecoveryState != storesqlite.SessionHistoryRecoveryReady {
-		t.Fatalf("post-send recovery_state = %q, want %q", history.RecoveryState, storesqlite.SessionHistoryRecoveryReady)
 	}
 }
