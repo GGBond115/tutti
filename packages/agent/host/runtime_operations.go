@@ -180,6 +180,12 @@ func (h *Host) processRuntimeOperation(ctx context.Context, operation storesqlit
 	case storesqlite.RuntimeOperationKindPlanDecision:
 		return h.executePlanDecisionRuntimeOperation(ctx, leased, owner)
 	case storesqlite.RuntimeOperationKindEditRetry:
+		if h.editRetryDisabled {
+			// Feature neutralized (PR #1681). Quarantine any leftover edit-retry
+			// operation so it can neither crash cold recovery nor hot-spin the
+			// live worker. See quarantineDisabledEditRetryOperation.
+			return h.quarantineDisabledEditRetryOperation(ctx, leased, owner)
+		}
 		if !editRetryActorHeld(ctx) {
 			var result storesqlite.RuntimeOperation
 			var executeErr error
@@ -342,6 +348,29 @@ func (h *Host) releaseRuntimeOperation(ctx context.Context, operation storesqlit
 		return released, fmt.Errorf("%w: %v", ErrRuntimeOperationInProgress, cause)
 	}
 	return released, cause
+}
+
+// quarantineDisabledEditRetryOperation dead-letters an edit-retry operation left
+// over from before the feature was neutralized (see Config.EditRetryDisabled).
+// Marking it failed drops it from the claimable set (ListClaimableRuntimeOperations
+// only returns prepared/leased rows), so it can neither fail cold recovery nor
+// hot-spin the live worker. It returns a nil error on success: a completed
+// quarantine is a terminal, non-fatal outcome for the worker — that is the whole
+// point of the neutralization, so it must never abort daemon boot.
+func (h *Host) quarantineDisabledEditRetryOperation(ctx context.Context, operation storesqlite.RuntimeOperation, owner string) (storesqlite.RuntimeOperation, error) {
+	failed, _, err := h.operations.ReleaseOrFailRuntimeOperation(ctx, storesqlite.ReleaseOrFailRuntimeOperationInput{
+		WorkspaceID: operation.WorkspaceID, OperationID: operation.OperationID, LeaseOwner: owner,
+		LastError: "edit_retry runtime operations are disabled; operation quarantined",
+		NowUnixMS: h.now().UnixMilli(), Fail: true,
+	})
+	if err != nil {
+		return operation, err
+	}
+	logRuntimeOperationFailure(failed, errors.New("edit_retry disabled: quarantined orphaned runtime operation"))
+	if publishErr := h.publishRuntimeOperationEvents(ctx, operation.WorkspaceID); publishErr != nil {
+		logRuntimeOperationFailure(failed, publishErr)
+	}
+	return failed, nil
 }
 
 func (h *Host) StepRuntimeOperationWorker(ctx context.Context, recovering bool) error {

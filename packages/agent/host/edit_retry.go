@@ -38,6 +38,14 @@ func (h *Host) GetEditRetryAvailability(ctx context.Context, ref SessionRef) (Ed
 	if ref.WorkspaceID == "" || ref.AgentSessionID == "" {
 		return EditRetryAvailability{}, ErrInvalidArgument
 	}
+	if h != nil && h.editRetryDisabled {
+		// Feature neutralized: report unsupported so the GUI hides the
+		// edit-and-retry affordance entirely.
+		return EditRetryAvailability{
+			RecoveryState: EditRetryStatePrepared,
+			ReasonCode:    EditRetryReasonCodeProviderUnsupported,
+		}, nil
+	}
 	if h == nil || h.store == nil || h.operations == nil || h.effectiveHistory == nil ||
 		h.turnSubmissions == nil || h.historyRuntime == nil || h.runtime == nil {
 		return EditRetryAvailability{
@@ -153,6 +161,10 @@ func (h *Host) EditRetry(
 	if h == nil || ref.WorkspaceID == "" || ref.AgentSessionID == "" {
 		return EditRetryResult{}, ErrInvalidArgument
 	}
+	if h.editRetryDisabled {
+		// Feature neutralized: refuse before any durable operation is created.
+		return EditRetryResult{}, ErrRuntimeHistoryUnsupported
+	}
 	var result EditRetryResult
 	err := h.withSessionMutationActor(ctx, ref.WorkspaceID, ref.AgentSessionID, func(actorCtx context.Context) error {
 		var commandErr error
@@ -179,6 +191,11 @@ func (h *Host) RecoverEditRetry(
 		(action != EditRetryRecoveryActionReconcile &&
 			action != EditRetryRecoveryActionRetryReplacement) {
 		return EditRetryResult{}, ErrInvalidArgument
+	}
+	if h.editRetryDisabled {
+		// Feature neutralized: leftover operations are quarantined by the
+		// recovery worker, so there is nothing to recover here.
+		return EditRetryResult{}, ErrRuntimeHistoryUnsupported
 	}
 	var result EditRetryResult
 	err := h.withSessionMutationActor(ctx, ref.WorkspaceID, ref.AgentSessionID, func(actorCtx context.Context) error {
