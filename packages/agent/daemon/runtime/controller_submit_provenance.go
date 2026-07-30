@@ -26,13 +26,6 @@ func (c *Controller) DurablyReportSubmitProvenance(ctx context.Context, input Su
 	if input.RoomID == "" || input.AgentSessionID == "" || input.TurnID == "" || input.ClientSubmitID == "" {
 		return errors.New("workspace id, agent session id, turn id, and client submit id are required")
 	}
-	canonicalSubmit, err := newCanonicalSubmitFact(
-		input.ClientSubmitID,
-		input.CanonicalSubmitOccurredAtUnixMS,
-	)
-	if err != nil {
-		return err
-	}
 	session, ok := c.get(input.RoomID, input.AgentSessionID)
 	if !ok {
 		return ErrSessionNotFound
@@ -50,6 +43,13 @@ func (c *Controller) DurablyReportSubmitProvenance(ctx context.Context, input Su
 	}
 	if session.IsSideConversation() {
 		return ErrSideConversationUnsupported
+	}
+	canonicalSubmit, err := newCanonicalSubmitFact(
+		input.ClientSubmitID,
+		input.CanonicalSubmitOccurredAtUnixMS,
+	)
+	if err != nil {
+		return err
 	}
 	content := normalizeRuntimePromptContent(input.Content)
 	if len(content) == 0 {

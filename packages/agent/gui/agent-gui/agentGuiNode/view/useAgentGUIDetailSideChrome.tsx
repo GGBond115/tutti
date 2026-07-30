@@ -1,8 +1,8 @@
 import { useMemo, type ReactNode } from "react";
 import { PanelRightOpen } from "lucide-react";
-import type { AgentSideConversationViewState } from "../../../agentSideConversationViewProjection";
-import type { AgentConversationPromptVM } from "../../../shared/agentConversation/contracts/agentConversationVM";
 import type { AgentComposerProps } from "../AgentComposer";
+import type { AgentGUIDetailPaneProps } from "./AgentGUINodeView.types";
+import type { useAgentGUIDetailSideConversation } from "./useAgentGUIDetailSideConversation";
 import {
   projectAgentSideComposerGate,
   projectAgentSideComposerSettings
@@ -19,54 +19,53 @@ const EMPTY_WORKSPACE_APP_ICONS: NonNullable<
 > = [];
 
 interface UseAgentGUIDetailSideChromeInput {
-  active: AgentSideConversationViewState | null;
   availableSkills: AgentGUISideConversationPaneProps["availableSkills"];
   baseComposerProps: AgentComposerProps;
-  canOpen: boolean;
+  controller: ReturnType<typeof useAgentGUIDetailSideConversation>;
   conversationFlowLabels: AgentGUISideConversationPaneProps["conversationFlowLabels"];
-  draftContent: AgentComposerProps["draftContent"];
-  focused: boolean;
-  interactionSubmitting: boolean;
-  interactivePrompt: AgentConversationPromptVM | null;
   isVisible: boolean;
   loadingLabel: string;
-  sourceAgentSessionId: string | null;
-  hostFooterAccessory: ReactNode;
-  onClose(): void;
-  onDraftContentChange: AgentComposerProps["onDraftContentChange"];
-  onFocusChange(sideAgentSessionId: string | null): void;
-  onInterrupt: AgentComposerProps["onInterruptCurrentTurn"];
-  onOpen(): Promise<unknown>;
-  onSubmit: AgentComposerProps["onSubmit"];
-  onSubmitInteraction: AgentComposerProps["onSubmitInteractivePrompt"];
+  renderComposerFooterAccessory: AgentGUIDetailPaneProps["renderComposerFooterAccessory"];
 }
 
 export function useAgentGUIDetailSideChrome({
-  active,
   availableSkills,
   baseComposerProps,
-  canOpen,
+  controller,
   conversationFlowLabels,
-  draftContent,
-  focused,
-  interactionSubmitting,
-  interactivePrompt,
   isVisible,
   loadingLabel,
-  sourceAgentSessionId,
-  hostFooterAccessory,
-  onClose,
-  onDraftContentChange,
-  onFocusChange,
-  onInterrupt,
-  onOpen,
-  onSubmit,
-  onSubmitInteraction
+  renderComposerFooterAccessory
 }: UseAgentGUIDetailSideChromeInput): {
   bottomDockComposerProps: AgentComposerProps;
   sidePane: ReactNode;
 } {
   const { t } = useTranslation();
+  const {
+    active,
+    canOpen,
+    close,
+    draftContent,
+    focused,
+    interactionSubmitting,
+    interactivePrompt,
+    interrupt,
+    open,
+    setDraftContent,
+    setFocused,
+    sourceAgentSessionId,
+    submitInteraction,
+    submitSide
+  } = controller;
+  const hostFooterAccessory =
+    renderComposerFooterAccessory?.({
+      agentSessionId: baseComposerProps.agentSessionId,
+      isActive: baseComposerProps.isActive,
+      isSendingTurn: baseComposerProps.isSendingTurn,
+      isSubmittingPrompt: baseComposerProps.isSubmittingPrompt,
+      composerSettings: baseComposerProps.composerSettings,
+      selectedAgentTarget: baseComposerProps.selectedAgentTarget
+    }) ?? null;
   const footerAccessory = (
     <>
       {canOpen && !active && baseComposerProps.showStopButton ? (
@@ -76,7 +75,7 @@ export function useAgentGUIDetailSideChrome({
           aria-label={t("agentHost.agentGui.sideOpen")}
           title={t("agentHost.agentGui.sideOpen")}
           data-testid="agent-gui-open-side"
-          onClick={() => void onOpen().catch(() => {})}
+          onClick={() => void open().catch(() => {})}
         >
           <span className="flex min-w-0 items-center gap-1.5">
             <PanelRightOpen aria-hidden="true" className="size-3.5" />
@@ -139,14 +138,14 @@ export function useAgentGUIDetailSideChrome({
       labels: baseComposerProps.labels,
       workspaceUserProjectI18n: baseComposerProps.workspaceUserProjectI18n,
       capabilityControlsReadOnly: true,
-      onDraftContentChange,
+      onDraftContentChange: setDraftContent,
       onSettingsChange: () => {},
-      onSubmit,
+      onSubmit: submitSide,
       onSendQueuedPromptNext: () => {},
       onRemoveQueuedPrompt: () => {},
       onEditQueuedPrompt: () => {},
-      onInterruptCurrentTurn: onInterrupt,
-      onSubmitInteractivePrompt: onSubmitInteraction,
+      onInterruptCurrentTurn: interrupt,
+      onSubmitInteractivePrompt: submitInteraction,
       onLinkAction: baseComposerProps.onLinkAction
     };
   }, [
@@ -156,10 +155,10 @@ export function useAgentGUIDetailSideChrome({
     focused,
     interactionSubmitting,
     interactivePrompt,
-    onDraftContentChange,
-    onInterrupt,
-    onSubmit,
-    onSubmitInteraction,
+    interrupt,
+    setDraftContent,
+    submitInteraction,
+    submitSide,
     t
   ]);
   const sidePane =
@@ -176,10 +175,8 @@ export function useAgentGUIDetailSideChrome({
         workspaceAppIcons={
           baseComposerProps.workspaceAppIcons ?? EMPTY_WORKSPACE_APP_ICONS
         }
-        onClose={onClose}
-        onFocusChange={(nextFocused) =>
-          onFocusChange(nextFocused ? active.sideAgentSessionId : null)
-        }
+        onClose={close}
+        onFocusChange={setFocused}
         onLinkAction={baseComposerProps.onLinkAction}
       />
     ) : null;

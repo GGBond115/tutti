@@ -66,19 +66,6 @@ var (
 	_ host.GoalRuntimeGenerationFencer             = (*RuntimeController)(nil)
 )
 
-type sessionForkRuntimeBackend interface {
-	ForkCapabilities(context.Context, agentruntime.Session) (agentruntime.SessionForkCapabilities, error)
-	CanForkProviderTurn(context.Context, agentruntime.ProviderTurnForkabilityInput) (bool, error)
-	Fork(context.Context, agentruntime.SessionForkInput) (agentruntime.SessionForkResult, error)
-}
-
-type providerTurnBindingRecoveryBackend interface {
-	RecoverProviderTurnBinding(
-		context.Context,
-		agentruntime.ProviderTurnBindingRecoveryInput,
-	) (agentruntime.ProviderTurnBindingRecoveryResult, error)
-}
-
 func (a *RuntimeController) SupportsEffectiveHistory(
 	ctx context.Context,
 	input host.RuntimeHistoryInput,
@@ -132,11 +119,6 @@ func (a *RuntimeController) RollbackLatestTurn(
 		projected.Snapshot = &snapshot
 	}
 	return projected, mapRuntimeError(err)
-}
-
-type sideConversationRuntimeBackend interface {
-	SideCapabilities(context.Context, string, string) (agentruntime.SideConversationCapabilities, error)
-	OpenSide(context.Context, agentruntime.SideConversationOpenInput) (agentruntime.SideConversationOpenResult, error)
 }
 
 func (a *RuntimeController) Start(ctx context.Context, input host.RuntimeStartInput) (host.ProviderRuntimeSession, error) {
@@ -486,93 +468,6 @@ func (a *RuntimeController) CanForkProviderTurn(
 			ProviderTurnBindingJSON: append([]byte(nil), input.ProviderTurnBindingJSON...),
 		},
 	)
-}
-
-func (a *RuntimeController) RecoverProviderTurnBinding(
-	ctx context.Context,
-	input host.RuntimeProviderTurnBindingRecoveryInput,
-) (host.RuntimeProviderTurnBindingRecoveryResult, error) {
-	if err := a.requireBackend(); err != nil {
-		return host.RuntimeProviderTurnBindingRecoveryResult{}, err
-	}
-	backend, ok := a.Backend.(providerTurnBindingRecoveryBackend)
-	if !ok {
-		return host.RuntimeProviderTurnBindingRecoveryResult{},
-			host.ErrSessionForkUnsupported
-	}
-	result, err := backend.RecoverProviderTurnBinding(
-		ctx,
-		agentruntime.ProviderTurnBindingRecoveryInput{
-			Source:               runtimeSession(input.Source),
-			CanonicalTurnID:      input.CanonicalTurnID,
-			RecoveryToken:        input.RecoveryToken,
-			LegacyTextHMACKey:    input.LegacyTextHMACKey,
-			LegacyTextHMACDigest: input.LegacyTextHMACDigest,
-		},
-	)
-	return host.RuntimeProviderTurnBindingRecoveryResult{
-		ProviderSessionID:       result.ProviderSessionID,
-		ProviderTurnID:          result.ProviderTurnID,
-		ProviderTurnBindingJSON: append([]byte(nil), result.ProviderTurnBindingJSON...),
-	}, mapRuntimeError(err)
-}
-
-func (a *RuntimeController) ResolveSideConversation(
-	ctx context.Context,
-	source host.ProviderRuntimeSession,
-) (host.SideConversationCapabilities, error) {
-	if err := a.requireBackend(); err != nil {
-		return host.SideConversationCapabilities{}, err
-	}
-	backend, ok := a.Backend.(sideConversationRuntimeBackend)
-	if !ok {
-		return host.SideConversationCapabilities{}, nil
-	}
-	capabilities, err := backend.SideCapabilities(
-		ctx, source.WorkspaceID, source.ID,
-	)
-	return hostSideCapabilities(capabilities), mapRuntimeError(err)
-}
-
-func (a *RuntimeController) OpenSideConversation(
-	ctx context.Context,
-	input host.RuntimeOpenSideConversationInput,
-) (host.OpenSideConversationResult, error) {
-	if err := a.requireBackend(); err != nil {
-		return host.OpenSideConversationResult{}, err
-	}
-	backend, ok := a.Backend.(sideConversationRuntimeBackend)
-	if !ok {
-		return host.OpenSideConversationResult{}, host.ErrSideConversationUnsupported
-	}
-	result, err := backend.OpenSide(
-		ctx,
-		agentruntime.SideConversationOpenInput{
-			RoomID:               input.Source.WorkspaceID,
-			SourceAgentSessionID: input.Source.ID,
-			SideAgentSessionID:   input.SideAgentSessionID,
-			RequestID:            input.RequestID,
-		},
-	)
-	if err != nil {
-		return host.OpenSideConversationResult{}, mapRuntimeError(err)
-	}
-	return host.OpenSideConversationResult{
-		Session:      a.sessionWithState(result.Session),
-		Capabilities: hostSideCapabilities(result.Capabilities),
-	}, nil
-}
-
-func hostSideCapabilities(
-	capabilities agentruntime.SideConversationCapabilities,
-) host.SideConversationCapabilities {
-	return host.SideConversationCapabilities{
-		Supported:             capabilities.Supported,
-		ActiveSourceTurn:      capabilities.ActiveSourceTurn,
-		Ephemeral:             capabilities.Ephemeral,
-		HideInheritedTurns:    capabilities.HideInheritedTurns,
-		ModelBoundaryInjected: capabilities.ModelBoundaryInjected,
-	}
 }
 
 func firstNonEmptyString(values ...string) string {

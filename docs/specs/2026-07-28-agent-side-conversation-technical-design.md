@@ -198,6 +198,12 @@ reconcile APIs are unsupported for Side until a provider-neutral transient
 goal contract exists. Side events remain available synchronously through the
 dedicated observer and per-session EventHub.
 
+Durable Session Fork may recover a missing selected-Turn provider binding from
+authoritative provider history before dispatch. Side must never call that
+recovery path: it forks the exact live connection without `lastTurnId`.
+Likewise, a Side `clientSubmitId` is transient correlation and carries no
+canonical submit occurrence.
+
 The public business-event bridge forwards a discriminated Side event union for
 message deltas, message updates, state patches, command/config snapshots, and
 session audits. Every variant is validated by the generated event protocol
@@ -409,7 +415,7 @@ The implementation review produced the following corrections:
 | one callback handler could mix parent and Side events             | connection-wide `threadId` router overrides per-RPC handlers                 |
 | fork could emit a child notification before child identity exists | provisional connection route buffers then replays against the committed Side |
 | legacy approval requests use `conversationId`                     | one thread-id extractor handles modern and legacy request schemas            |
-| closing Side could terminate the parent process                   | shared-client reference counting plus child `thread/delete`                  |
+| closing Side could terminate the parent process                   | shared-client reference counting plus child `thread/unsubscribe`             |
 | an unhealthy shared transport could leave sibling refs live       | transport invalidation expires every parent/Side ref and closes once         |
 | Host Open/Close could create a ghost ready entry                  | source/side session actors serialize the transition                          |
 | a stale Host registration could target a canonical runtime        | every Side operation revalidates scope, source, and request                  |

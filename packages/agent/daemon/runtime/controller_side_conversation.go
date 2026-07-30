@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
@@ -54,7 +55,15 @@ func (c *Controller) OpenSide(
 		return SideConversationOpenResult{}, ErrSideConversationConflict
 	}
 
-	release := c.acquireLifecycleLock(roomID, sideID)
+	release, err := c.acquireSideConversationLifecycleLocks(
+		ctx,
+		roomID,
+		sourceID,
+		sideID,
+	)
+	if err != nil {
+		return SideConversationOpenResult{}, err
+	}
 	defer release()
 	key := sessionKey(roomID, sideID)
 
@@ -201,6 +210,35 @@ func (c *Controller) OpenSide(
 		c.publishAdapterCommandSnapshot(opened, adapter)
 	}
 	return result, nil
+}
+
+func (c *Controller) acquireSideConversationLifecycleLocks(
+	ctx context.Context,
+	roomID string,
+	sourceAgentSessionID string,
+	sideAgentSessionID string,
+) (func(), error) {
+	sessionIDs := []string{
+		strings.TrimSpace(sourceAgentSessionID),
+		strings.TrimSpace(sideAgentSessionID),
+	}
+	sort.Strings(sessionIDs)
+	releases := make([]func(), 0, len(sessionIDs))
+	for _, sessionID := range sessionIDs {
+		release, err := c.acquireLifecycleLockContext(ctx, roomID, sessionID)
+		if err != nil {
+			for index := len(releases) - 1; index >= 0; index-- {
+				releases[index]()
+			}
+			return nil, err
+		}
+		releases = append(releases, release)
+	}
+	return func() {
+		for index := len(releases) - 1; index >= 0; index-- {
+			releases[index]()
+		}
+	}, nil
 }
 
 func (c *Controller) drainSideOpenBuffers(session Session, key string) bool {

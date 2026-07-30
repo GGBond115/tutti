@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../../shared/AgentMessageMarkdown";
 import { latestAssistantMessageText } from "../../../shared/agentConversation/projection/agentConversationProjection";
 import { AGENT_GUI_WORKBENCH_OPEN_EXTERNAL_IMPORT_EVENT } from "../../../workbench/contribution";
@@ -27,11 +27,11 @@ import { useAgentGUIDetailScroll } from "./useAgentGUIDetailScroll";
 import { useAgentGUIDetailModel } from "./useAgentGUIDetailModel";
 import { useAgentGUIComposerInputHistoryProps } from "./useAgentGUIComposerInputHistoryProps";
 import { useAgentGUITuttiWorkflow } from "./useAgentGUITuttiWorkflow";
-import type { AgentTranscriptVirtualScrollController } from "../../../shared/agentConversation/components/AgentTranscriptView";
 import type { AgentGUIDetailPaneProps } from "./AgentGUINodeView.types";
 import { useAgentGUIDetailEditRetry } from "./useAgentGUIDetailEditRetry";
 import { useAgentGUIDetailSideConversation } from "./useAgentGUIDetailSideConversation";
 import { useAgentGUIDetailSideChrome } from "./useAgentGUIDetailSideChrome";
+import { useAgentGUIDetailScrollRefs } from "./useAgentGUIDetailScrollRefs";
 export const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
   [];
 export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
@@ -89,30 +89,19 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     readiness,
     operations
   };
-  const timelineRef = useRef<HTMLDivElement | null>(null);
-  const timelineContentRef = useRef<HTMLDivElement | null>(null);
-  const virtualScrollControllerRef =
-    useRef<AgentTranscriptVirtualScrollController | null>(null);
-  const bottomDockRef = useRef<HTMLDivElement | null>(null);
-  const timelineScrollAnchorRef = useRef<{
-    conversationId: string;
-    scrollHeight: number;
-    scrollTop: number;
-    clientHeight: number;
-  } | null>(null);
-  const submittedPromptScrollConversationRef = useRef<string | null>(null);
-  const pendingPrependScrollAnchorRef = useRef<{
-    conversationId: string;
-    scrollHeight: number;
-    scrollTop: number;
-  } | null>(null);
+  const {
+    bottomDockRef,
+    pendingPrependScrollAnchorRef,
+    submittedPromptScrollConversationRef,
+    timelineContentRef,
+    timelineRef,
+    timelineScrollAnchorRef,
+    virtualScrollControllerRef
+  } = useAgentGUIDetailScrollRefs();
   const [
     bottomDockDismissedPromptRequestId,
     setBottomDockDismissedPromptRequestId
   ] = useState<string | null>(null);
-  const [focusedSideAgentSessionId, setFocusedSideAgentSessionId] = useState<
-    string | null
-  >(null);
   const {
     bottomDockLiftedPrompt,
     bottomDockReplacementPrompt,
@@ -378,8 +367,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     availableCommands: viewModel.composer.availableCommands,
     submitPrompt: tuttiWorkflowComposer.submitPromptOrDecidePlan
   });
-  const sideComposerFocused =
-    sideConversation.active?.sideAgentSessionId === focusedSideAgentSessionId;
+  const sideComposerFocused = sideConversation.focused;
 
   const baseComposerProps = useMemo<AgentComposerProps>(
     () => ({
@@ -610,36 +598,14 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       selectHomeComposerAgentTargetAndFocus
     ]
   );
-  const hostComposerFooterAccessory =
-    renderComposerFooterAccessory?.({
-      agentSessionId: baseComposerProps.agentSessionId,
-      isActive: baseComposerProps.isActive,
-      isSendingTurn: baseComposerProps.isSendingTurn,
-      isSubmittingPrompt: baseComposerProps.isSubmittingPrompt,
-      composerSettings: baseComposerProps.composerSettings,
-      selectedAgentTarget: baseComposerProps.selectedAgentTarget
-    }) ?? null;
   const { bottomDockComposerProps, sidePane } = useAgentGUIDetailSideChrome({
-    active: sideConversation.active,
     availableSkills: viewModel.composer.availableSkills,
     baseComposerProps,
-    canOpen: sideConversation.canOpen,
+    controller: sideConversation,
     conversationFlowLabels,
-    draftContent: sideConversation.draftContent,
-    focused: sideComposerFocused,
-    hostFooterAccessory: hostComposerFooterAccessory,
-    interactionSubmitting: sideConversation.interactionSubmitting,
-    interactivePrompt: sideConversation.interactivePrompt,
     isVisible,
     loadingLabel: labels.loadingConversation,
-    sourceAgentSessionId: viewModel.rail.activeConversationId,
-    onClose: sideConversation.close,
-    onDraftContentChange: sideConversation.setDraftContent,
-    onFocusChange: setFocusedSideAgentSessionId,
-    onInterrupt: sideConversation.interrupt,
-    onOpen: sideConversation.open,
-    onSubmit: sideConversation.submitSide,
-    onSubmitInteraction: sideConversation.submitInteraction
+    renderComposerFooterAccessory
   });
   const emptyHeroComposerProps = useMemo<AgentComposerProps>(
     () => ({
@@ -662,9 +628,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     viewModel.composer.drainingQueuedPromptId ?? "",
     isInteractionPending ? "1" : "0"
   ].join("|");
-  useEffect(() => {
-    setBottomDockDismissedPromptRequestId(null);
-  }, [activePromptRequestId]);
   const {
     followEndMode,
     isTimelineScrolledToBottom,

@@ -28,6 +28,13 @@ The Controller owns scope isolation, open reservation/buffering, idempotency,
 transient event routing, lifecycle reuse, cleanup, and the prohibition on
 durable reporting or automatic resume. Agent Host owns the product lifecycle
 entry points and keeps Side separate from canonical submit/cancel sagas.
+Open holds the source and Side lifecycle identities in stable order until the
+provider snapshot is committed or rolled back, so source close cannot overtake
+the live fork.
+In particular, Side never consumes or repairs the durable
+canonical-Turn-to-provider-Turn binding used by Session Fork. Its
+`clientSubmitId` is transient provider/event correlation only and must not be
+paired with a canonical submit occurrence.
 
 ```mermaid
 flowchart LR
@@ -79,9 +86,9 @@ Codex uses the source-owned app-server connection and sends:
 The connection has a thread-aware router and is referenced by both runtime
 sessions. Notifications for a new child that arrive before `thread/fork`
 responds are buffered in a provisional route and replayed only after lineage
-validation and Side registration. Closing Side sends `thread/delete` for the
-ephemeral child and drops only the Side reference; it cannot close the live
-parent connection. Losing the shared connection produces
+validation and Side registration. Closing Side unsubscribes the ephemeral
+child and drops only the Side reference; it does not issue `thread/delete` and
+cannot close the live parent connection. Losing the shared connection produces
 `ErrSideConversationExpired`; Side is never resumed as a canonical thread.
 
 This change establishes the infrastructure, Codex reference vertical slice,

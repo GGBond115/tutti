@@ -35,6 +35,10 @@ export function useAgentGUIDetailSideConversation({
     [runtimeActive]
   );
   const activeSideAgentSessionId = active?.sideAgentSessionId ?? null;
+  const [focusedSideAgentSessionId, setFocusedSideAgentSessionId] = useState<
+    string | null
+  >(null);
+  const focused = activeSideAgentSessionId === focusedSideAgentSessionId;
   const emptyDraft = useMemo(emptyAgentComposerDraft, [
     activeSideAgentSessionId
   ]);
@@ -52,6 +56,13 @@ export function useAgentGUIDetailSideConversation({
   const setDraftContent = useCallback(
     (content: AgentComposerDraft) =>
       setDraftState({ sideAgentSessionId: activeSideAgentSessionId, content }),
+    [activeSideAgentSessionId]
+  );
+  const setFocused = useCallback(
+    (nextFocused: boolean) =>
+      setFocusedSideAgentSessionId(
+        nextFocused ? activeSideAgentSessionId : null
+      ),
     [activeSideAgentSessionId]
   );
 
@@ -303,11 +314,14 @@ export function useAgentGUIDetailSideConversation({
     close,
     commands,
     draftContent,
+    focused,
     interactionSubmitting,
     interactivePrompt,
     interrupt,
     open,
+    setFocused,
     setDraftContent,
+    sourceAgentSessionId,
     submitMain,
     submitSide,
     submitInteraction

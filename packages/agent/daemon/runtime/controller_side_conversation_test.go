@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,8 @@ type sideConformanceAdapter struct {
 	capabilities  *SideConversationCapabilities
 	openCaps      *SideConversationCapabilities
 	openSession   *Session
+	openEntered   chan struct{}
+	openRelease   chan struct{}
 	closedIDs     []string
 }
 
@@ -122,9 +125,17 @@ func (a *sideConformanceAdapter) SideCapabilities(
 }
 
 func (a *sideConformanceAdapter) OpenSide(
-	_ context.Context,
+	ctx context.Context,
 	input SideConversationAdapterOpenInput,
 ) (SideConversationOpenResult, error) {
+	if a.openEntered != nil {
+		close(a.openEntered)
+		select {
+		case <-a.openRelease:
+		case <-ctx.Done():
+			return SideConversationOpenResult{}, ctx.Err()
+		}
+	}
 	side := input.Side
 	if a.sessionSink != nil {
 		a.sessionSink(side.AgentSessionID, []activityshared.Event{
@@ -152,6 +163,74 @@ func (a *sideConformanceAdapter) OpenSide(
 		Session:      side,
 		Capabilities: openCapabilities,
 	}, nil
+}
+
+func TestSideConversationOpenSerializesSourceClose(t *testing.T) {
+	adapter := newSideConformanceAdapter()
+	adapter.openEntered = make(chan struct{})
+	adapter.openRelease = make(chan struct{})
+	controller := NewController([]Adapter{adapter}, nil)
+	if _, err := controller.Start(t.Context(), StartInput{
+		RoomID: "workspace-side-lock", AgentSessionID: "parent",
+		Provider: adapter.Provider(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	openDone := make(chan error, 1)
+	go func() {
+		_, err := controller.OpenSide(t.Context(), SideConversationOpenInput{
+			RoomID: "workspace-side-lock", SourceAgentSessionID: "parent",
+			SideAgentSessionID: "side-lock", RequestID: "open-lock",
+		})
+		openDone <- err
+	}()
+	select {
+	case <-adapter.openEntered:
+	case <-time.After(time.Second):
+		t.Fatal("Side open did not reach provider")
+	}
+
+	closeDone := make(chan error, 1)
+	go func() {
+		_, err := controller.Close(t.Context(), CloseInput{
+			RoomID: "workspace-side-lock", AgentSessionID: "parent",
+		})
+		closeDone <- err
+	}()
+	lockDeadline := time.Now().Add(time.Second)
+	for {
+		controller.mu.Lock()
+		sourceLock := controller.lifecycleLocks[sessionKey(
+			"workspace-side-lock",
+			"parent",
+		)]
+		sourceLockRefs := 0
+		if sourceLock != nil {
+			sourceLockRefs = sourceLock.refs
+		}
+		controller.mu.Unlock()
+		if sourceLockRefs >= 2 {
+			break
+		}
+		if time.Now().After(lockDeadline) {
+			t.Fatal("source close did not contend on the Side snapshot lock")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case err := <-closeDone:
+		t.Fatalf("source close overtook Side snapshot: %v", err)
+	default:
+	}
+
+	close(adapter.openRelease)
+	if err := <-openDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-closeDone; err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (a *sideConformanceAdapter) SetSessionEventSink(sink SessionEventSink) {
@@ -256,8 +335,23 @@ func TestSideConversationOpensDuringActiveParentWithoutDurableWrites(t *testing.
 		t.Fatalf("Side goal provenance error = %v, want unsupported", err)
 	}
 	if _, err := controller.Exec(t.Context(), ExecInput{
+		RoomID: "workspace-side", AgentSessionID: "side-1",
+		TurnID:                          "side-turn-with-canonical-submit",
+		ClientSubmitID:                  "side-submit",
+		CanonicalSubmitOccurredAtUnixMS: 1,
+		Content: []PromptContentBlock{{
+			Type: "text", Text: "must remain transient",
+		}},
+	}); err == nil || !strings.Contains(err.Error(), "canonical submit occurrence") {
+		t.Fatalf(
+			"Side canonical submit occurrence error = %v, want transient-lane rejection",
+			err,
+		)
+	}
+	if _, err := controller.Exec(t.Context(), ExecInput{
 		RoomID: "workspace-side", AgentSessionID: "side-1", TurnID: "side-turn",
-		Content: []PromptContentBlock{{Type: "text", Text: "side question"}},
+		ClientSubmitID: "side-submit",
+		Content:        []PromptContentBlock{{Type: "text", Text: "side question"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
