@@ -86,6 +86,14 @@ func TestEditRetryDisabledQuarantinesStuckOperationDuringRecovery(t *testing.T) 
 		t.Fatal("EditRetry() returned empty operation id")
 	}
 
+	// The stuck operation fences the session's effective history, which blocks
+	// every subsequent send until the fence returns to ready.
+	if history, found, herr := store.GetSessionHistory(t.Context(), "workspace-1", "session-1"); herr != nil || !found ||
+		history.RecoveryState != storesqlite.SessionHistoryRecoveryResendPending {
+		t.Fatalf("pre-quarantine recovery_state = %q found=%v error=%v, want %q",
+			history.RecoveryState, found, herr, storesqlite.SessionHistoryRecoveryResendPending)
+	}
+
 	// With the feature enabled, cold recovery of the stuck operation is fatal —
 	// this is the boot crash the neutralization fixes.
 	if recErr := enabled.RecoverRuntimeOperations(t.Context()); recErr == nil {
@@ -109,6 +117,17 @@ func TestEditRetryDisabledQuarantinesStuckOperationDuringRecovery(t *testing.T) 
 	}
 	if !found || operation.Status != storesqlite.RuntimeOperationStatusFailed {
 		t.Fatalf("operation status = %q found=%v, want %q", operation.Status, found, storesqlite.RuntimeOperationStatusFailed)
+	}
+
+	// The session fence must be cleared back to ready, otherwise the daemon boots
+	// but the conversation can never send another message.
+	history, found, err := store.GetSessionHistory(t.Context(), "workspace-1", "session-1")
+	if err != nil || !found {
+		t.Fatalf("GetSessionHistory() found=%v error=%v", found, err)
+	}
+	if history.RecoveryState != storesqlite.SessionHistoryRecoveryReady {
+		t.Fatalf("post-quarantine recovery_state = %q, want %q (session must be able to send again)",
+			history.RecoveryState, storesqlite.SessionHistoryRecoveryReady)
 	}
 
 	// Quarantine is a pure store transition: it must not re-engage the provider.
