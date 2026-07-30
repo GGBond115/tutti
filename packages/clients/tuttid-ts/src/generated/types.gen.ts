@@ -460,6 +460,7 @@ export type DesktopAgentComposerDefaults = {
 export type DesktopAgentConversationDetailMode = "coding" | "general";
 
 export type DesktopDefaultAgentProvider =
+  | "tutti-agent"
   | "claude-code"
   | "codex"
   | "cursor"

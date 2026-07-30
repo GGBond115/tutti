@@ -27,7 +27,7 @@ export const generatedProviderIdentityCatalog = [
       unavailableDockOrderOffset: 0,
       developerLogs: true,
       defaultProviderEligible: true,
-      defaultProviderPriority: 1
+      defaultProviderPriority: 2
     }
   },
   {
@@ -56,7 +56,7 @@ export const generatedProviderIdentityCatalog = [
       unavailableDockOrderOffset: 0,
       developerLogs: true,
       defaultProviderEligible: true,
-      defaultProviderPriority: 2
+      defaultProviderPriority: 3
     }
   },
   {
@@ -85,7 +85,7 @@ export const generatedProviderIdentityCatalog = [
       unavailableDockOrderOffset: 0,
       developerLogs: true,
       defaultProviderEligible: true,
-      defaultProviderPriority: 3
+      defaultProviderPriority: 4
     }
   },
   {
@@ -113,8 +113,8 @@ export const generatedProviderIdentityCatalog = [
       refreshOnAccountChange: true,
       unavailableDockOrderOffset: 0,
       developerLogs: true,
-      defaultProviderEligible: false,
-      defaultProviderPriority: 0
+      defaultProviderEligible: true,
+      defaultProviderPriority: 1
     }
   },
   {
@@ -143,7 +143,7 @@ export const generatedProviderIdentityCatalog = [
       unavailableDockOrderOffset: 0,
       developerLogs: false,
       defaultProviderEligible: true,
-      defaultProviderPriority: 4
+      defaultProviderPriority: 5
     }
   },
   {

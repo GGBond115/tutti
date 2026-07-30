@@ -1157,6 +1157,12 @@ order. Tutti Agent is the first built-in target; an explicit device-local
 Provider Rail reorder remains a presentation preference and takes precedence
 over that default.
 
+Tutti Agent is also the first Desktop default Provider for ambiguous new
+entries. An exact persisted Agent Target or an explicit launch request still
+takes precedence. AgentGUI and launch surfaces that require readiness fall back
+through the authoritative ready Agent Directory when that default is
+unavailable.
+
 The directory owns Agent presentation. `agents[].iconUrl` is the primary
 presentation asset used by conversation identity, Message Center, mentions,
 and the empty-home carousel and Provider Rail. It is decorative metadata:

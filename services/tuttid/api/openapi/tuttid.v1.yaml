@@ -7881,11 +7881,13 @@ components:
     DesktopDefaultAgentProvider:
       type: string
       enum:
+        - tutti-agent
         - claude-code
         - codex
         - cursor
         - opencode
       x-enum-varnames:
+        - DesktopDefaultAgentProviderTuttiAgent
         - DesktopDefaultAgentProviderClaudeCode
         - DesktopDefaultAgentProviderCodex
         - DesktopDefaultAgentProviderCursor

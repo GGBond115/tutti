@@ -79,7 +79,7 @@
     },
     "defaultAgentProvider": {
       "type": "string",
-      "enum": ["claude-code", "codex", "cursor", "opencode"]
+      "enum": ["tutti-agent", "claude-code", "codex", "cursor", "opencode"]
     },
     "dockIconStyle": {
       "type": "string",
