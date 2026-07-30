@@ -1179,7 +1179,13 @@ names.
 App-server-backed skill discovery follows the descriptor boundary. Tutti Agent
 requests only `skills/list` and retains the ordinary Skill projection through
 the shared app-server transport, capability contract, cache, and structured
-prompt-item submission path.
+prompt-item submission path. The capability projection preserves Skill source
+provenance: app-server `user` maps to `personal`, `repo` maps to `project`, and
+managed `system` or `admin` maps to `system`. GUI adapters must not replace a
+Skill source with `plugin` merely because the Skill arrived through the unified
+capability catalog. Composer discovery reserves `$` for Skills and `/` for
+commands and capabilities; provider-authored invocation metadata remains
+authoritative when the selected item is submitted.
 
 ### 5.3 Agent Directory and setup
 

@@ -332,7 +332,8 @@ func parseCodexSkillCapabilities(raw json.RawMessage) []ComposerCapabilityOption
 	for _, group := range result.Data {
 		for _, skill := range group.Skills {
 			name := codexTextValue(skill, "name")
-			if name == "" {
+			sourceKind := composerSkillSourceKindForAppServerScope(codexTextValue(skill, "scope"))
+			if name == "" || sourceKind == "" {
 				continue
 			}
 			label := firstNonEmptyString(codexTextValue(codexNestedMap(skill, "interface"), "displayName"), name)
@@ -352,6 +353,7 @@ func parseCodexSkillCapabilities(raw json.RawMessage) []ComposerCapabilityOption
 				Label:       label,
 				Description: description,
 				Status:      status,
+				SourceKind:  sourceKind,
 				Trigger:     "$" + name,
 				Path:        path,
 				Invocation:  "promptItem",
@@ -359,6 +361,19 @@ func parseCodexSkillCapabilities(raw json.RawMessage) []ComposerCapabilityOption
 		}
 	}
 	return options
+}
+
+func composerSkillSourceKindForAppServerScope(scope string) string {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case "repo":
+		return composerSkillSourceProject
+	case "user":
+		return composerSkillSourcePersonal
+	case "system", "admin":
+		return composerSkillSourceSystem
+	default:
+		return ""
+	}
 }
 
 func parseCodexAppCapabilities(raw json.RawMessage) []ComposerCapabilityOption {

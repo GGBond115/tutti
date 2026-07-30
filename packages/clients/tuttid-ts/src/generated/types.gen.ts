@@ -1847,6 +1847,13 @@ export type AgentProviderCapabilityOption = {
     | "setupRequired"
     | "unsupported";
   source?: string;
+  sourceKind?:
+    | "project"
+    | "personal"
+    | "bundled"
+    | "plugin"
+    | "system"
+    | "tutti-injected";
   pluginName?: string;
   serverName?: string;
   toolName?: string;

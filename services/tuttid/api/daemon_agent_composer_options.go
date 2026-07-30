@@ -67,6 +67,10 @@ func generatedAgentProviderCapabilityOptions(options []agentservice.ComposerCapa
 		if source := strings.TrimSpace(option.Source); source != "" {
 			generated.Source = optionalStringPointer(source)
 		}
+		if sourceKind := strings.TrimSpace(option.SourceKind); sourceKind != "" {
+			value := tuttigenerated.AgentProviderCapabilityOptionSourceKind(sourceKind)
+			generated.SourceKind = &value
+		}
 		if pluginName := strings.TrimSpace(option.PluginName); pluginName != "" {
 			generated.PluginName = optionalStringPointer(pluginName)
 		}

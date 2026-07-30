@@ -103,6 +103,7 @@ type ComposerCapabilityOption struct {
 	Description string
 	Status      string
 	Source      string
+	SourceKind  string
 	PluginName  string
 	ServerName  string
 	ToolName    string

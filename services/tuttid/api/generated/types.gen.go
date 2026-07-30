@@ -352,6 +352,36 @@ func (e AgentProviderCapabilityOptionKind) Valid() bool {
 	}
 }
 
+// Defines values for AgentProviderCapabilityOptionSourceKind.
+const (
+	AgentProviderCapabilityOptionSourceKindBundled       AgentProviderCapabilityOptionSourceKind = "bundled"
+	AgentProviderCapabilityOptionSourceKindPersonal      AgentProviderCapabilityOptionSourceKind = "personal"
+	AgentProviderCapabilityOptionSourceKindPlugin        AgentProviderCapabilityOptionSourceKind = "plugin"
+	AgentProviderCapabilityOptionSourceKindProject       AgentProviderCapabilityOptionSourceKind = "project"
+	AgentProviderCapabilityOptionSourceKindSystem        AgentProviderCapabilityOptionSourceKind = "system"
+	AgentProviderCapabilityOptionSourceKindTuttiInjected AgentProviderCapabilityOptionSourceKind = "tutti-injected"
+)
+
+// Valid indicates whether the value is a known member of the AgentProviderCapabilityOptionSourceKind enum.
+func (e AgentProviderCapabilityOptionSourceKind) Valid() bool {
+	switch e {
+	case AgentProviderCapabilityOptionSourceKindBundled:
+		return true
+	case AgentProviderCapabilityOptionSourceKindPersonal:
+		return true
+	case AgentProviderCapabilityOptionSourceKindPlugin:
+		return true
+	case AgentProviderCapabilityOptionSourceKindProject:
+		return true
+	case AgentProviderCapabilityOptionSourceKindSystem:
+		return true
+	case AgentProviderCapabilityOptionSourceKindTuttiInjected:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AgentProviderCapabilityOptionStatus.
 const (
 	AgentProviderCapabilityOptionStatusAuthRequired  AgentProviderCapabilityOptionStatus = "authRequired"
@@ -4026,19 +4056,20 @@ type AgentProviderAvailabilityStatus string
 
 // AgentProviderCapabilityOption defines model for AgentProviderCapabilityOption.
 type AgentProviderCapabilityOption struct {
-	Description *string                                 `json:"description,omitempty"`
-	Id          string                                  `json:"id"`
-	Invocation  AgentProviderCapabilityOptionInvocation `json:"invocation"`
-	Kind        AgentProviderCapabilityOptionKind       `json:"kind"`
-	Label       string                                  `json:"label"`
-	Name        string                                  `json:"name"`
-	Path        *string                                 `json:"path,omitempty"`
-	PluginName  *string                                 `json:"pluginName,omitempty"`
-	ServerName  *string                                 `json:"serverName,omitempty"`
-	Source      *string                                 `json:"source,omitempty"`
-	Status      AgentProviderCapabilityOptionStatus     `json:"status"`
-	ToolName    *string                                 `json:"toolName,omitempty"`
-	Trigger     *string                                 `json:"trigger,omitempty"`
+	Description *string                                  `json:"description,omitempty"`
+	Id          string                                   `json:"id"`
+	Invocation  AgentProviderCapabilityOptionInvocation  `json:"invocation"`
+	Kind        AgentProviderCapabilityOptionKind        `json:"kind"`
+	Label       string                                   `json:"label"`
+	Name        string                                   `json:"name"`
+	Path        *string                                  `json:"path,omitempty"`
+	PluginName  *string                                  `json:"pluginName,omitempty"`
+	ServerName  *string                                  `json:"serverName,omitempty"`
+	Source      *string                                  `json:"source,omitempty"`
+	SourceKind  *AgentProviderCapabilityOptionSourceKind `json:"sourceKind,omitempty"`
+	Status      AgentProviderCapabilityOptionStatus      `json:"status"`
+	ToolName    *string                                  `json:"toolName,omitempty"`
+	Trigger     *string                                  `json:"trigger,omitempty"`
 }
 
 // AgentProviderCapabilityOptionInvocation defines model for AgentProviderCapabilityOption.Invocation.
@@ -4046,6 +4077,9 @@ type AgentProviderCapabilityOptionInvocation string
 
 // AgentProviderCapabilityOptionKind defines model for AgentProviderCapabilityOption.Kind.
 type AgentProviderCapabilityOptionKind string
+
+// AgentProviderCapabilityOptionSourceKind defines model for AgentProviderCapabilityOption.SourceKind.
+type AgentProviderCapabilityOptionSourceKind string
 
 // AgentProviderCapabilityOptionStatus defines model for AgentProviderCapabilityOption.Status.
 type AgentProviderCapabilityOptionStatus string

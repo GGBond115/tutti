@@ -68,3 +68,44 @@ test("keeps fallback slash commands when effects are absent", () => {
     commandEffects: []
   });
 });
+
+test("preserves capability skill source provenance", () => {
+  const response = {
+    behavior: {
+      collapseModelOptionsToLatest: false,
+      modelOptionsAuthoritative: false,
+      planModeExclusiveWithPermissionMode: false,
+      prewarmDraftSession: false,
+      refreshModelOptionsAfterSettings: false
+    },
+    capabilityCatalog: [
+      {
+        id: "skill:review",
+        invocation: "promptItem",
+        kind: "skill",
+        label: "Review",
+        name: "review",
+        path: "/skills/review/SKILL.md",
+        sourceKind: "personal",
+        status: "available",
+        trigger: "$review"
+      }
+    ],
+    commands: [],
+    effectiveSettings: {},
+    modelConfig: { configurable: false, options: [] },
+    permissionConfig: { configurable: false, modes: [] },
+    provider: "tutti-agent",
+    reasoningConfig: { configurable: false, options: [] },
+    reasoningOptionsByModel: {},
+    runtimeContext: {},
+    skills: []
+  } satisfies AgentProviderComposerOptionsResponse;
+
+  const options = agentActivityComposerOptionsFromTuttidResult(
+    "tutti-agent",
+    response
+  );
+
+  assert.equal(options.capabilityCatalog?.[0]?.sourceKind, "personal");
+});
