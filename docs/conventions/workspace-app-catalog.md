@@ -125,9 +125,11 @@ each app it contains the highest active release whose `minTuttiVersion` is
 
 The full compatibility entries contain the same manifest, localization, and
 remote distribution fields as `apps[]`; they are abbreviated above only for
-clarity. The frontier keeps only versions that can be selected for some Tutti
-version. The builder rejects catalog output above 1 MiB because legacy daemons
-enforce that response limit.
+clarity. For a valid host version, the daemon selects the eligible entry with
+the greatest `minTuttiVersion`; releases from lower compatibility tiers do not
+compete by app version. The frontier keeps only versions that can be selected
+for some Tutti version. The builder rejects catalog output above 1 MiB because
+legacy daemons enforce that response limit.
 
 Each app also owns `apps/<appId>/versions.json`. It retains the full active and
 withdrawn release history plus the explicit `minTuttiVersion` for each
@@ -135,6 +137,8 @@ immutable release. `latest.json` remains the absolute latest published release
 and is not a compatibility input.
 
 Managed Desktop passes its version to `tuttid` through `TUTTI_APP_VERSION`.
+Packaged Desktop uses the Electron package version; `make dev-gui` resolves the
+same Git-derived version used by desktop packaging before launching Electron.
 The daemon applies compatibility selection consistently to list, refresh,
 install, and update workflows. Missing or invalid host versions use `apps[]`.
 An installed app is updateable only when the selected catalog version is

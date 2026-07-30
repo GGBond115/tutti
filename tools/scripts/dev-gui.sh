@@ -468,6 +468,19 @@ check_runtime_prerequisites() {
   ensure_go_runtime
 }
 
+configure_desktop_dev_version() {
+  if [[ -n "${TUTTI_APP_VERSION:-}" ]]; then
+    log "desktop version ${TUTTI_APP_VERSION} (environment override)"
+    return
+  fi
+
+  TUTTI_APP_VERSION="$(
+    node "${DESKTOP_APP_DIR}/scripts/resolve-build-version.mjs"
+  )"
+  export TUTTI_APP_VERSION
+  log "desktop version ${TUTTI_APP_VERSION}"
+}
+
 resolve_tuttid_binary_name() {
   case "$(uname -s)" in
     CYGWIN*|MINGW*|MSYS*)
@@ -575,6 +588,7 @@ main() {
   local binary_name
 
   check_runtime_prerequisites
+  configure_desktop_dev_version
   ensure_workspace_dependencies
 
   binary_name="$(resolve_tuttid_binary_name)"
