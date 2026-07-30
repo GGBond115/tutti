@@ -187,9 +187,11 @@ type ExecInput struct {
 	// The provider's complete EffectiveHistoryAdapter seam always returns one
 	// typed dispatch result before this call completes.
 	HistoryReplacement bool
-	// RequireProviderAcceptance keeps the canonical Turn in its submitted
-	// boundary until the provider has returned an exact Turn identity and that
-	// binding has crossed the durable activity reporter.
+	// RequireProviderAcceptance keeps the canonical Turn of a fork-capable
+	// provider in its submitted boundary until the provider has returned an
+	// exact Turn identity and that binding has crossed the durable activity
+	// reporter. Compatibility-only adapters have no Fork entry or Turn binding
+	// contract and continue through the ordinary execution path.
 	RequireProviderAcceptance bool
 }
 

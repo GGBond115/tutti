@@ -43,6 +43,22 @@ func TestStandardACPAdapterStampsAuthoritativeTurnLifecycle(t *testing.T) {
 	}
 }
 
+func TestStandardACPAdaptersDoNotAdvertiseSessionFork(t *testing.T) {
+	t.Parallel()
+
+	adapters := map[string]Adapter{
+		"cursor":   newCursorAdapterWithHostMetadata(nil, LegacyHostMetadata(), nil),
+		"opencode": newOpenCodeTestAdapter(nil),
+		"nexight":  NewNexightAdapter(nil),
+		"openclaw": NewOpenClawAdapter(nil),
+	}
+	for name, adapter := range adapters {
+		if _, ok := adapter.(SessionForkAdapter); ok {
+			t.Fatalf("%s standard ACP adapter advertises Session Fork", name)
+		}
+	}
+}
+
 func TestStandardACPAdaptersReportProviderLifecycleWithoutSettlingCanonicalRoot(t *testing.T) {
 	t.Parallel()
 

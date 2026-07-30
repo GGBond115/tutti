@@ -60,14 +60,16 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 	}
 	var acceptanceAdapter ProviderAcceptanceExecAdapter
 	if input.RequireProviderAcceptance && !input.HistoryReplacement {
-		var ok bool
-		acceptanceAdapter, ok = adapter.(ProviderAcceptanceExecAdapter)
-		if !ok {
-			return ExecResult{
-				ProviderDispatch: &ProviderDispatchResult{
-					Disposition: DispatchDispositionNotDispatched,
-				},
-			}, errors.New("agent provider does not expose durable turn acceptance")
+		if _, forkCapable := adapter.(SessionForkAdapter); forkCapable {
+			var ok bool
+			acceptanceAdapter, ok = adapter.(ProviderAcceptanceExecAdapter)
+			if !ok {
+				return ExecResult{
+					ProviderDispatch: &ProviderDispatchResult{
+						Disposition: DispatchDispositionNotDispatched,
+					},
+				}, errors.New("fork-capable agent provider does not expose durable turn acceptance")
+			}
 		}
 	}
 	metadata := cloneExecMetadata(input.Metadata)

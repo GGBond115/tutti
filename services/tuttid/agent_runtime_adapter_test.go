@@ -120,6 +120,20 @@ func (*providerAcceptanceMappingTestAdapter) Cancel(
 	return nil, nil
 }
 
+func (*providerAcceptanceMappingTestAdapter) ForkCapabilities(
+	context.Context,
+	agentruntime.Session,
+) (agentruntime.SessionForkCapabilities, error) {
+	return agentruntime.SessionForkCapabilities{ThroughTurn: true}, nil
+}
+
+func (*providerAcceptanceMappingTestAdapter) Fork(
+	context.Context,
+	agentruntime.SessionForkInput,
+) (agentruntime.SessionForkResult, error) {
+	return agentruntime.SessionForkResult{}, nil
+}
+
 type submitProvenanceAdapterTestReporter struct {
 	provenance agentsessionstore.ReportActivityInput
 }

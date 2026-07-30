@@ -435,6 +435,87 @@ func TestControllerOrdinarySendRequiresDurableProviderAcceptance(t *testing.T) {
 	}
 }
 
+func TestControllerCompatibilityProviderDoesNotRequireForkTurnAcceptance(t *testing.T) {
+	t.Parallel()
+
+	adapter := &recordingStartAdapter{provider: ProviderOpenCode}
+	controller := NewController([]Adapter{adapter}, nil)
+	started, err := controller.Start(t.Context(), StartInput{
+		RoomID:         "room-compatibility-provider",
+		AgentSessionID: "session-compatibility-provider",
+		Provider:       ProviderOpenCode,
+		CWD:            "/workspace",
+		Title:          "OpenCode",
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	result, err := controller.Exec(t.Context(), ExecInput{
+		RoomID: "room-compatibility-provider", AgentSessionID: started.Session.AgentSessionID,
+		TurnID: "turn-compatibility-provider", ClientSubmitID: "submit-compatibility-provider",
+		CanonicalSubmitOccurredAtUnixMS: 1_006,
+		Content:                         textPrompt("ordinary compatibility prompt"),
+		RequireProviderAcceptance:       true,
+	})
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if result.ProviderDispatch != nil {
+		t.Fatalf("provider dispatch = %#v, want ordinary compatibility execution", result.ProviderDispatch)
+	}
+}
+
+func TestControllerForkCapableProviderCannotSkipTurnAcceptance(t *testing.T) {
+	t.Parallel()
+
+	adapter := &forkWithoutAcceptanceAdapter{
+		recordingStartAdapter: recordingStartAdapter{provider: "fork-provider"},
+	}
+	controller := NewController([]Adapter{adapter}, nil)
+	started, err := controller.Start(t.Context(), StartInput{
+		RoomID:         "room-fork-provider",
+		AgentSessionID: "session-fork-provider",
+		Provider:       "fork-provider",
+		CWD:            "/workspace",
+		Title:          "Fork Provider",
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	result, err := controller.Exec(t.Context(), ExecInput{
+		RoomID: "room-fork-provider", AgentSessionID: started.Session.AgentSessionID,
+		TurnID: "turn-fork-provider", ClientSubmitID: "submit-fork-provider",
+		CanonicalSubmitOccurredAtUnixMS: 1_007,
+		Content:                         textPrompt("fork-capable prompt"),
+		RequireProviderAcceptance:       true,
+	})
+	if err == nil {
+		t.Fatal("Exec error = nil, want missing durable acceptance failure")
+	}
+	if result.ProviderDispatch == nil ||
+		result.ProviderDispatch.Disposition != DispatchDispositionNotDispatched {
+		t.Fatalf("provider dispatch = %#v, want not_dispatched", result.ProviderDispatch)
+	}
+}
+
+type forkWithoutAcceptanceAdapter struct {
+	recordingStartAdapter
+}
+
+func (*forkWithoutAcceptanceAdapter) ForkCapabilities(
+	context.Context,
+	Session,
+) (SessionForkCapabilities, error) {
+	return SessionForkCapabilities{ThroughTurn: true}, nil
+}
+
+func (*forkWithoutAcceptanceAdapter) Fork(
+	context.Context,
+	SessionForkInput,
+) (SessionForkResult, error) {
+	return SessionForkResult{}, nil
+}
+
 func TestControllerHistoryReplacementNeverUsesSlashFallback(t *testing.T) {
 	var connection *scriptedAppServerConnection
 	controller, _, sessionID := startedEditRetryController(t, func(
