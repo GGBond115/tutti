@@ -864,6 +864,51 @@ test("WorkspaceModelPlansController does not offer the hand-off after editing", 
   assert.equal(store.modelPlans.createdPlanHandoff, null);
 });
 
+test("WorkspaceModelPlansController keeps a mid-flight created plan's count", async () => {
+  let releaseLookup!: () => void;
+  const lookupGate = new Promise<void>((resolve) => {
+    releaseLookup = resolve;
+  });
+  const { controller, store } = createController({
+    createModelPlan: async (_workspaceID, input) => ({
+      ...createPlan("plan-new", input.protocol),
+      name: input.name
+    }),
+    listModelPlans: async () => [createPlan("plan-1", "openai")],
+    listModelPlanReferences: async () => {
+      await lookupGate;
+      return [{ id: "local:codex", kind: "agent_target", name: "Codex" }];
+    }
+  });
+
+  // The reference-count load for plan-1 is now in flight...
+  await controller.refreshPlans();
+
+  // ...while the user creates another plan, which stamps its count as 0.
+  controller.beginDraft({
+    baseUrl: "https://api.example.com/v1",
+    name: "Example",
+    protocol: "openai",
+    templateId: null,
+    templateKind: "custom"
+  });
+  controller.updateDraft({
+    apiKey: "sk-test",
+    models: [{ id: "gpt-5-mini", name: "GPT-5 mini" }]
+  });
+  await controller.saveDraft();
+  assert.equal(store.modelPlans.planReferenceCounts["plan-new"], 0);
+
+  releaseLookup();
+  await flushBackgroundWork();
+
+  // The settled load must not wipe the count stamped for the newer plan.
+  assert.deepEqual(store.modelPlans.planReferenceCounts, {
+    "plan-1": 1,
+    "plan-new": 0
+  });
+});
+
 /** Settles the fire-and-forget reference-count load behind refreshPlans. */
 async function flushBackgroundWork(): Promise<void> {
   await new Promise((resolve) => {

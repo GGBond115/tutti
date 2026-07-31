@@ -510,7 +510,9 @@ export class WorkspaceModelPlansController implements IWorkspaceModelPlansContro
   /**
    * Loads per-plan reference counts behind the plan list. Failed lookups
    * stay absent from the map: an unknown count renders no usage claim, only
-   * an explicit 0 may present a plan as unused.
+   * an explicit 0 may present a plan as unused. Counts already stamped for
+   * plans this load never requested (a plan created while the load was in
+   * flight) survive the write; entries for plans that no longer exist drop.
    */
   private async refreshPlanReferenceCounts(
     workspaceID: string,
@@ -537,10 +539,21 @@ export class WorkspaceModelPlansController implements IWorkspaceModelPlansContro
     ) {
       return;
     }
+    const requested = new Set(planIDs);
     const counts: Record<string, number> = {};
     for (const entry of entries) {
       if (entry) {
         counts[entry[0]] = entry[1];
+      }
+    }
+    for (const [planID, count] of Object.entries(
+      this.state.planReferenceCounts
+    )) {
+      if (
+        !requested.has(planID) &&
+        this.state.plans.some((plan) => plan.id === planID)
+      ) {
+        counts[planID] = count;
       }
     }
     this.state.planReferenceCounts = counts;
