@@ -562,7 +562,16 @@ When every task is terminal and every terminal Run has its settlement
 checkpoint, the execution appends one ordered `all_tasks_terminal` checkpoint
 with `requiresGoalReview`. Promoting it moves the execution to
 `pending_goal_review`; the generic acknowledge command deliberately cannot
-resolve this boundary.
+resolve this boundary. If a graph mutation adds or reworks tasks while that
+terminal checkpoint is still pending, the mutation supersedes the stale
+terminal boundary. After the replacement work settles, the same deterministic
+terminal checkpoint is rearmed at the current graph revision and moved behind
+the new settlement checkpoint. This preserves one terminal identity while
+ensuring the final settlement can always promote a current Goal Review. The
+settlement recovery scan applies the same readiness check to persisted
+executions whose replacement Run had already settled before this invariant was
+enforced, so daemon recovery repairs the stranded terminal backlog without
+weakening acknowledge fences.
 
 After acceptance the source conversation embeds a live "issue panel view"
 (board/list) of the materialized Issue, fed by the same workspace issue events

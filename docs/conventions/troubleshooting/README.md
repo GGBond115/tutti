@@ -52,6 +52,7 @@ Issue dispatch, Run cancellation, Agent settlement, and stop coordination.
 
 - [Managed task deletion is reported as a stale checkpoint](./issue-execution.md#managed-task-deletion-is-reported-as-a-stale-checkpoint)
 - [Reworked task scheduling is reported as a stale checkpoint](./issue-execution.md#reworked-task-scheduling-is-reported-as-a-stale-checkpoint)
+- [Final rework passes review but Tutti never reaches Goal Review](./issue-execution.md#final-rework-passes-review-but-tutti-never-reaches-goal-review)
 - [Settled checkpoint keeps reopening the source Session](./issue-execution.md#settled-checkpoint-keeps-reopening-the-source-session)
 - [Paused Tutti Issue keeps reopening and reports no resume command](./issue-execution.md#paused-tutti-issue-keeps-reopening-and-reports-no-resume-command)
 - [Tutti composer stays busy after every task Turn settles](./issue-execution.md#tutti-composer-stays-busy-after-every-task-turn-settles)

@@ -2,6 +2,7 @@ package tuttimodeexecution_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -847,6 +848,39 @@ func (driver *sqliteConformanceDriver) PersistTerminalRunWithoutCheckpoint(
 	}
 	_, err = driver.store.RecalculateIssueProjection(ctx, input.WorkspaceID, input.IssueID)
 	return err
+}
+
+func (driver *sqliteConformanceDriver) SupersedeTerminalCheckpointForRecovery(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+) error {
+	db, err := sql.Open("sqlite", "file:"+driver.dbPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	result, err := db.ExecContext(ctx, `
+UPDATE workspace_tutti_execution_checkpoints
+SET status = 'superseded', updated_at_unix_ms = ?
+WHERE workspace_id = ?
+  AND execution_id = (
+    SELECT execution_id FROM workspace_tutti_executions
+    WHERE workspace_id = ? AND issue_id = ?
+  )
+  AND kind = 'all_tasks_terminal' AND status = 'pending'
+`, driver.clock.Now().UnixMilli(), workspaceID, workspaceID, issueID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("supersede terminal checkpoint rows = %d, want 1", rows)
+	}
+	return nil
 }
 
 func (driver *sqliteConformanceDriver) RepairSettlements(

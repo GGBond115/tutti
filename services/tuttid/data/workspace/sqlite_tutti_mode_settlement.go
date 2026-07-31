@@ -355,7 +355,10 @@ WHERE r.workspace_id = ? AND r.issue_id = ?
 		return nil
 	}
 	checkpointID, _ := executionbiz.AllTasksTerminalCheckpointID(executionID)
-	if _, found, err := getTuttiModeCheckpointTx(ctx, tx, workspaceID, executionID, checkpointID); err != nil || found {
+	existing, found, err := getTuttiModeCheckpointTx(
+		ctx, tx, workspaceID, executionID, checkpointID,
+	)
+	if err != nil {
 		return err
 	}
 	var maxSequence int64
@@ -365,6 +368,28 @@ FROM workspace_tutti_execution_checkpoints
 WHERE workspace_id = ? AND execution_id = ?
 `, workspaceID, executionID).Scan(&maxSequence); err != nil {
 		return fmt.Errorf("get terminal checkpoint sequence: %w", err)
+	}
+	if found {
+		if existing.Status != executionbiz.CheckpointStatusSuperseded {
+			return nil
+		}
+		result, err := tx.ExecContext(ctx, `
+UPDATE workspace_tutti_execution_checkpoints
+SET status = 'pending', sequence = ?, graph_revision = ?,
+    creation_reason = 'all_issue_tasks_terminal', requires_goal_review = 1,
+    created_at_unix_ms = ?, updated_at_unix_ms = ?, resolved_at_unix_ms = 0
+WHERE workspace_id = ? AND execution_id = ? AND checkpoint_id = ?
+  AND kind = 'all_tasks_terminal' AND status = 'superseded'
+`, maxSequence+1, graphRevision, unixMs(now), unixMs(now), workspaceID,
+			executionID, checkpointID)
+		if err != nil {
+			return fmt.Errorf("rearm superseded Tutti mode terminal checkpoint: %w", err)
+		}
+		return requireRowsAffected(
+			result,
+			executionbiz.ErrExecutionConflict,
+			"rearm superseded Tutti mode terminal checkpoint",
+		)
 	}
 	return insertTuttiModeExecutionCheckpoint(ctx, tx, workspaceID, executionbiz.Checkpoint{
 		ID: checkpointID, ExecutionID: executionID,
@@ -453,7 +478,96 @@ ORDER BY r.completed_at_unix_ms ASC, r.created_at_unix_ms ASC, r.run_id ASC
 			repaired++
 		}
 	}
-	return repaired, nil
+	terminalRepairs, err := s.repairSupersededTuttiModeTerminalCheckpoints(
+		ctx, workspaceID, now,
+	)
+	if err != nil {
+		return repaired, err
+	}
+	return repaired + terminalRepairs, nil
+}
+
+func (s *SQLiteStore) repairSupersededTuttiModeTerminalCheckpoints(
+	ctx context.Context,
+	workspaceID string,
+	now time.Time,
+) (int, error) {
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	type candidate struct {
+		issueID       string
+		executionID   string
+		graphRevision int64
+	}
+	rows, err := tx.QueryContext(ctx, `
+SELECT e.issue_id, e.execution_id, e.graph_revision
+FROM workspace_tutti_executions e
+JOIN workspace_tutti_execution_checkpoints terminal
+  ON terminal.workspace_id = e.workspace_id
+ AND terminal.execution_id = e.execution_id
+ AND terminal.kind = 'all_tasks_terminal'
+ AND terminal.status = 'superseded'
+WHERE e.workspace_id = ? AND e.status = 'awaiting_main'
+  AND EXISTS (
+    SELECT 1 FROM workspace_tutti_execution_checkpoints active
+    WHERE active.workspace_id = e.workspace_id
+      AND active.execution_id = e.execution_id
+      AND active.status = 'active'
+      AND active.kind IN ('task_settled', 'task_failed', 'task_canceled')
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM workspace_issue_tasks task
+    WHERE task.workspace_id = e.workspace_id
+      AND task.issue_id = e.issue_id
+      AND task.superseded_at_unix_ms = 0
+      AND task.status IN ('not_started', 'running')
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM workspace_issue_runs run
+    LEFT JOIN workspace_tutti_execution_checkpoints settlement
+      ON settlement.workspace_id = run.workspace_id
+     AND settlement.execution_id = e.execution_id
+     AND settlement.subject_run_id = run.run_id
+    WHERE run.workspace_id = e.workspace_id
+      AND run.issue_id = e.issue_id
+      AND run.status IN ('completed', 'failed', 'canceled')
+      AND settlement.checkpoint_id IS NULL
+  )
+ORDER BY e.updated_at_unix_ms ASC, e.execution_id ASC
+`, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("list superseded Tutti mode terminal checkpoints: %w", err)
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var current candidate
+		if err := rows.Scan(
+			&current.issueID, &current.executionID, &current.graphRevision,
+		); err != nil {
+			_ = rows.Close()
+			return 0, fmt.Errorf("scan superseded Tutti mode terminal checkpoint: %w", err)
+		}
+		candidates = append(candidates, current)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	for _, current := range candidates {
+		if err := appendAllTasksTerminalCheckpointIfReady(
+			ctx, tx, workspaceID, current.issueID, current.executionID,
+			current.graphRevision, now,
+		); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(candidates), nil
 }
 
 func (s *SQLiteStore) AdmitTuttiModeAcknowledge(

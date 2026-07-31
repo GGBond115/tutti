@@ -122,3 +122,117 @@ func runGraphMutationRebindsPromotedSettlementBacklog(
 	}
 	return nil
 }
+
+func runReworkRearmsSupersededTerminalCheckpoint(
+	ctx context.Context,
+	driver Driver,
+) error {
+	fixture := settlementFixture("rework-rearms-terminal")
+	fixture.Tasks = fixture.Tasks[:1]
+	issueID, firstRun, err := acceptAndScheduleSettlement(
+		ctx, driver, fixture, []string{"task-a"},
+	)
+	if err != nil {
+		return err
+	}
+	if err := driver.SettleRun(ctx, SettleRunInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		TaskID: "task-a", RunID: firstRun.RunIDs[0], Status: "completed",
+	}); err != nil {
+		return fmt.Errorf("SettleRun(A) error = %w", err)
+	}
+	settled, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil || len(settled.Checkpoints) != 3 ||
+		settled.Checkpoints[1].Status != "active" ||
+		settled.Checkpoints[2].Kind != "all_tasks_terminal" ||
+		settled.Checkpoints[2].Status != "pending" {
+		return fmt.Errorf("initial terminal backlog = %#v error=%v", settled.Checkpoints, err)
+	}
+	mutation, err := driver.Mutate(ctx, MutateInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          settled.Checkpoints[1].CheckpointID,
+		ExpectedGraphRevision: settled.Execution.GraphRevision,
+		Operations: []MutationOperation{{
+			Kind: "rework", TaskID: "task-a",
+			Task: schedulableTask("task-a-rework", "/tmp/tutti-settlement-task-a-rework"),
+		}},
+		RequestID: "rework-a-after-terminal-queued",
+	})
+	if err != nil {
+		return fmt.Errorf("Mutate(rework A) error = %w", err)
+	}
+	afterMutation, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil || afterMutation.Checkpoints[2].Status != "superseded" {
+		return fmt.Errorf(
+			"mutation did not supersede stale terminal checkpoint: %#v error=%v",
+			afterMutation.Checkpoints, err,
+		)
+	}
+	reworkRun, err := driver.Schedule(ctx, ScheduleInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          settled.Checkpoints[1].CheckpointID,
+		ExpectedGraphRevision: mutation.GraphRevision,
+		TaskIDs:               []string{"task-a-rework"},
+		RequestID:             "schedule-reworked-a",
+	})
+	if err != nil {
+		return fmt.Errorf("Schedule(reworked A) error = %w", err)
+	}
+	if err := driver.SettleRun(ctx, SettleRunInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		TaskID: "task-a-rework", RunID: reworkRun.RunIDs[0], Status: "completed",
+	}); err != nil {
+		return fmt.Errorf("SettleRun(reworked A) error = %w", err)
+	}
+	reworked, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil || len(reworked.Checkpoints) != 4 {
+		return fmt.Errorf("reworked settlement checkpoints = %#v error=%v", reworked.Checkpoints, err)
+	}
+	reworkSettlement := reworked.Checkpoints[2]
+	terminal := reworked.Checkpoints[3]
+	if reworkSettlement.Kind != "task_settled" || reworkSettlement.Status != "active" ||
+		terminal.Kind != "all_tasks_terminal" || terminal.Status != "pending" ||
+		terminal.Sequence <= reworkSettlement.Sequence ||
+		terminal.GraphRevision != mutation.GraphRevision {
+		return fmt.Errorf("rearmed terminal backlog = %#v", reworked.Checkpoints)
+	}
+	if err := driver.SupersedeTerminalCheckpointForRecovery(
+		ctx, fixture.WorkspaceID, issueID,
+	); err != nil {
+		return fmt.Errorf("SupersedeTerminalCheckpointForRecovery() error = %w", err)
+	}
+	if err := driver.RepairSettlements(ctx, fixture.WorkspaceID); err != nil {
+		return fmt.Errorf("RepairSettlements() error = %w", err)
+	}
+	recovered, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil || len(recovered.Checkpoints) != 4 ||
+		recovered.Checkpoints[3].Status != "pending" ||
+		recovered.Checkpoints[3].Sequence <= reworkSettlement.Sequence ||
+		recovered.Checkpoints[3].GraphRevision != mutation.GraphRevision {
+		return fmt.Errorf("recovered terminal backlog = %#v error=%v", recovered.Checkpoints, err)
+	}
+	terminal = recovered.Checkpoints[3]
+	acknowledged, err := driver.Acknowledge(ctx, AcknowledgeInput{
+		WorkspaceID: fixture.WorkspaceID, IssueID: issueID,
+		SourceSessionID:       fixture.SourceSessionID,
+		CheckpointID:          reworkSettlement.CheckpointID,
+		ExpectedGraphRevision: mutation.GraphRevision,
+		RequestID:             "acknowledge-reworked-a",
+	})
+	if err != nil {
+		return fmt.Errorf("Acknowledge(reworked A) error = %w", err)
+	}
+	goalReview, err := driver.GetSnapshot(ctx, fixture.WorkspaceID, issueID)
+	if err != nil || acknowledged.NextCheckpointID != terminal.CheckpointID ||
+		acknowledged.NextCheckpointKind != "all_tasks_terminal" ||
+		goalReview.Execution.Status != "pending_goal_review" ||
+		goalReview.Checkpoints[3].Status != "active" {
+		return fmt.Errorf(
+			"reworked goal review transition = %#v result=%#v error=%v",
+			goalReview.Checkpoints, acknowledged, err,
+		)
+	}
+	return nil
+}
