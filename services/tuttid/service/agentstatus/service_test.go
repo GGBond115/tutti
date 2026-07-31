@@ -2536,9 +2536,11 @@ func TestServiceRunActionCoalescesConcurrentInstallsForSameProvider(t *testing.T
 		result RunActionResult
 		err    error
 	}
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	defer cancelFirst()
 	firstDone := make(chan runResult, 1)
 	go func() {
-		result, err := service.RunAction(context.Background(), RunActionInput{
+		result, err := service.RunAction(firstCtx, RunActionInput{
 			Provider: "codex",
 			ActionID: ActionInstall,
 		})
@@ -2558,6 +2560,12 @@ func TestServiceRunActionCoalescesConcurrentInstallsForSameProvider(t *testing.T
 	select {
 	case second := <-secondDone:
 		t.Fatalf("second RunAction() returned before the shared install completed: %#v", second)
+	case <-time.After(100 * time.Millisecond):
+	}
+	cancelFirst()
+	select {
+	case first := <-firstDone:
+		t.Fatalf("first RunAction() returned after its request was canceled but before the shared install completed: %#v", first)
 	case <-time.After(100 * time.Millisecond):
 	}
 	close(releaseFirstInstall)

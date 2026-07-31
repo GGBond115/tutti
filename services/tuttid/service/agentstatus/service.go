@@ -576,9 +576,13 @@ func (s Service) RunAction(ctx context.Context, input RunActionInput) (RunAction
 
 func (s Service) runInstallAction(ctx context.Context, spec ProviderSpec, result RunActionResult) (RunActionResult, error) {
 	value, err, shared := providerInstallActions.Do(spec.Provider, func() (any, error) {
+		// The shared install must outlive any one caller's request. In
+		// particular, a disconnected renderer request must not cancel an
+		// install that the readiness reconciler is also waiting for.
+		sharedCtx := context.WithoutCancel(baseContext(ctx))
 		startedAt := s.now()
-		actionResult, actionErr := s.runInstallActionOnce(ctx, spec, result)
-		s.reportProviderSetupNodeResult(ctx, providerSetupNodeResultInput{
+		actionResult, actionErr := s.runInstallActionOnce(sharedCtx, spec, result)
+		s.reportProviderSetupNodeResult(sharedCtx, providerSetupNodeResultInput{
 			Error:     actionErr,
 			Node:      "install_daemon_action",
 			Provider:  spec.Provider,
