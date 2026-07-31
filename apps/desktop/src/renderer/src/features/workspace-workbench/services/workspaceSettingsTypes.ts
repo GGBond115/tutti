@@ -249,6 +249,17 @@ export interface WorkspaceModelPlanFeedback {
   kind: WorkspaceModelPlanFeedbackKind;
 }
 
+/**
+ * One-shot follow-up shown after a plan is created: the plan exists but no
+ * agent consumes it yet, so the UI offers a direct hand-off into the agent
+ * editor. Cleared on dismiss, on the hand-off itself, and when another
+ * draft session starts.
+ */
+export interface WorkspaceModelPlanCreatedHandoff {
+  readonly planID: string;
+  readonly planName: string;
+}
+
 export interface WorkspaceModelPlanDeleteBlock {
   readonly planID: string;
   readonly references: readonly WorkspaceModelPlanReference[];
@@ -262,6 +273,7 @@ export interface WorkspaceModelPlanSaveImpact {
 
 export interface WorkspaceSettingsModelPlansMutableState {
   confirmingDeletePlanID: string | null;
+  createdPlanHandoff: WorkspaceModelPlanCreatedHandoff | null;
   deleteBlock: WorkspaceModelPlanDeleteBlock | null;
   deletingPlanID: string | null;
   detectingPlanID: string | null;
@@ -273,6 +285,12 @@ export interface WorkspaceSettingsModelPlansMutableState {
   fetchingDraftModels: boolean;
   loading: boolean;
   planFeedback: Record<string, WorkspaceModelPlanFeedback>;
+  /**
+   * Reference count per plan id, loaded after the plan list. A missing key
+   * means "not known yet" and must render as nothing — only an explicit 0
+   * may claim the plan is unused.
+   */
+  planReferenceCounts: Record<string, number>;
   plans: WorkspaceModelPlan[];
   saving: boolean;
   togglingPlanID: string | null;
@@ -280,6 +298,7 @@ export interface WorkspaceSettingsModelPlansMutableState {
 
 export interface WorkspaceSettingsModelPlansSnapshotState {
   readonly confirmingDeletePlanID: string | null;
+  readonly createdPlanHandoff: Readonly<WorkspaceModelPlanCreatedHandoff> | null;
   readonly deleteBlock: WorkspaceModelPlanDeleteBlock | null;
   readonly deletingPlanID: string | null;
   readonly detectingPlanID: string | null;
@@ -293,6 +312,7 @@ export interface WorkspaceSettingsModelPlansSnapshotState {
   readonly planFeedback: Readonly<
     Record<string, Readonly<WorkspaceModelPlanFeedback>>
   >;
+  readonly planReferenceCounts: Readonly<Record<string, number>>;
   readonly plans: readonly WorkspaceModelPlan[];
   readonly saving: boolean;
   readonly togglingPlanID: string | null;

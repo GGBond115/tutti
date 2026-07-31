@@ -1,4 +1,5 @@
 import type { IWorkspaceAgentsController } from "../workspaceSettingsService.interface";
+import { modelPlanProtocolForAgentProvider } from "../workspaceModelPlanTemplates.ts";
 import type {
   WorkspaceAgentDefinition,
   WorkspaceAgentDraft,
@@ -108,6 +109,59 @@ export class WorkspaceAgentsController implements IWorkspaceAgentsController {
       description: "",
       harnessAgentTargetId: harness?.id ?? "",
       modelPlanId: "",
+      defaultModel: "",
+      instructions: "",
+      callConditions: "",
+      dormant: neutralWorkspaceAgentDormantFields()
+    };
+    this.state.feedback = null;
+    this.state.confirmingDeleteAgentID = null;
+  }
+
+  /**
+   * Hand-off entry from a saved model plan. Never clobbers an in-progress
+   * draft: an existing draft only adopts the plan when it is compatible with
+   * the draft's current runtime. A fresh draft prefers a runtime whose
+   * protocol can consume the plan and prefills the plan only on a match.
+   */
+  beginDraftForModelPlan(planID: string): void {
+    const plan = this.store.modelPlans.plans.find(
+      (candidate) => candidate.id === planID
+    );
+    if (!plan) {
+      if (!this.state.draft) {
+        this.beginDraft();
+      }
+      return;
+    }
+    const draft = this.state.draft;
+    if (draft) {
+      const provider =
+        this.state.harnessTargets.find(
+          (target) => target.id === draft.harnessAgentTargetId
+        )?.provider ?? "";
+      if (modelPlanProtocolForAgentProvider(provider) === plan.protocol) {
+        this.updateDraft({ defaultModel: "", modelPlanId: plan.id });
+      }
+      return;
+    }
+    const enabledTargets = this.state.harnessTargets.filter(
+      (target) => target.enabled
+    );
+    const harness =
+      enabledTargets.find(
+        (target) =>
+          modelPlanProtocolForAgentProvider(target.provider) === plan.protocol
+      ) ?? enabledTargets[0];
+    const planCompatible =
+      harness !== undefined &&
+      modelPlanProtocolForAgentProvider(harness.provider) === plan.protocol;
+    this.state.draft = {
+      agentId: null,
+      name: "",
+      description: "",
+      harnessAgentTargetId: harness?.id ?? "",
+      modelPlanId: planCompatible ? plan.id : "",
       defaultModel: "",
       instructions: "",
       callConditions: "",

@@ -39,6 +39,7 @@ export function createWorkspaceSettingsAutomationRulesState(): WorkspaceSettings
 export function createWorkspaceSettingsModelPlansState(): WorkspaceSettingsModelPlansMutableState {
   return {
     confirmingDeletePlanID: null,
+    createdPlanHandoff: null,
     deleteBlock: null,
     deletingPlanID: null,
     detectingPlanID: null,
@@ -50,6 +51,7 @@ export function createWorkspaceSettingsModelPlansState(): WorkspaceSettingsModel
     fetchingDraftModels: false,
     loading: false,
     planFeedback: {},
+    planReferenceCounts: {},
     plans: [],
     saving: false,
     togglingPlanID: null

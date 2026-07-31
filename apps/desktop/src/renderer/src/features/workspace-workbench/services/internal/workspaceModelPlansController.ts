@@ -50,6 +50,7 @@ export interface WorkspaceModelPlansControllerDependencies {
  */
 export class WorkspaceModelPlansController implements IWorkspaceModelPlansController {
   private readonly dependencies: WorkspaceModelPlansControllerDependencies;
+  private referenceCountsSequence = 0;
 
   constructor(dependencies: WorkspaceModelPlansControllerDependencies) {
     this.dependencies = dependencies;
@@ -80,6 +81,10 @@ export class WorkspaceModelPlansController implements IWorkspaceModelPlansContro
     try {
       this.state.plans =
         await this.dependencies.client.listModelPlans(workspaceID);
+      void this.refreshPlanReferenceCounts(
+        workspaceID,
+        this.state.plans.map((plan) => plan.id)
+      );
     } catch {
       this.dependencies.notifications.error({
         title: createActiveTranslator().t(
@@ -296,6 +301,7 @@ export class WorkspaceModelPlansController implements IWorkspaceModelPlansContro
         protocol: draft.protocol,
         templateKind: draft.templateKind
       };
+      const created = draft.planId === null;
       const saved = draft.planId
         ? await this.dependencies.client.updateModelPlan(
             workspaceID,
@@ -305,6 +311,18 @@ export class WorkspaceModelPlansController implements IWorkspaceModelPlansContro
         : await this.dependencies.client.createModelPlan(workspaceID, request);
       this.upsertPlan(saved);
       this.cancelDraft();
+      if (created) {
+        // A plan that was just created cannot be referenced yet; stamping
+        // the count keeps the unused indicator and the hand-off consistent.
+        this.state.planReferenceCounts = {
+          ...this.state.planReferenceCounts,
+          [saved.id]: 0
+        };
+        this.state.createdPlanHandoff = {
+          planID: saved.id,
+          planName: saved.name
+        };
+      }
     } catch {
       this.setDraftFeedback("saveFailed");
     } finally {
@@ -419,6 +437,14 @@ export class WorkspaceModelPlansController implements IWorkspaceModelPlansContro
       await this.dependencies.client.deleteModelPlan(workspaceID, planID);
       this.state.plans = this.state.plans.filter((plan) => plan.id !== planID);
       this.state.confirmingDeletePlanID = null;
+      if (this.state.createdPlanHandoff?.planID === planID) {
+        this.state.createdPlanHandoff = null;
+      }
+      if (planID in this.state.planReferenceCounts) {
+        const next = { ...this.state.planReferenceCounts };
+        delete next[planID];
+        this.state.planReferenceCounts = next;
+      }
       if (this.state.draft?.planId === planID) {
         this.cancelDraft();
       }
@@ -474,6 +500,50 @@ export class WorkspaceModelPlansController implements IWorkspaceModelPlansContro
     this.state.draftSaveImpact = null;
     this.state.confirmingDeletePlanID = null;
     this.state.deleteBlock = null;
+    this.state.createdPlanHandoff = null;
+  }
+
+  dismissCreatedPlanHandoff(): void {
+    this.state.createdPlanHandoff = null;
+  }
+
+  /**
+   * Loads per-plan reference counts behind the plan list. Failed lookups
+   * stay absent from the map: an unknown count renders no usage claim, only
+   * an explicit 0 may present a plan as unused.
+   */
+  private async refreshPlanReferenceCounts(
+    workspaceID: string,
+    planIDs: readonly string[]
+  ): Promise<void> {
+    const sequence = ++this.referenceCountsSequence;
+    const entries = await Promise.all(
+      planIDs.map(async (planID) => {
+        try {
+          const references =
+            await this.dependencies.client.listModelPlanReferences(
+              workspaceID,
+              planID
+            );
+          return [planID, references.length] as const;
+        } catch {
+          return null;
+        }
+      })
+    );
+    if (
+      sequence !== this.referenceCountsSequence ||
+      workspaceID !== this.store.workspaceID
+    ) {
+      return;
+    }
+    const counts: Record<string, number> = {};
+    for (const entry of entries) {
+      if (entry) {
+        counts[entry[0]] = entry[1];
+      }
+    }
+    this.state.planReferenceCounts = counts;
   }
 
   private upsertPlan(plan: WorkspaceModelPlan): void {

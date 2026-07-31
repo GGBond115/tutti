@@ -1128,6 +1128,63 @@ test("WorkspaceSettingsService deep-links to Custom Agents and Automation", () =
   assert.equal(service.store.agentTab, "automation");
 });
 
+test("WorkspaceSettingsService hands off a model plan into a prefilled agent draft", async () => {
+  const service = new WorkspaceSettingsService({
+    client: createWorkspaceSettingsClient({
+      listAgentTargets: async () => [
+        {
+          createdAtUnixMs: 1,
+          enabled: true,
+          iconKey: null,
+          id: "local:claude-code",
+          launchRef: { provider: "claude-code", type: "builtin_local" },
+          name: "Claude Code",
+          provider: "claude-code",
+          sortOrder: 1,
+          source: "system",
+          updatedAtUnixMs: 1
+        }
+      ],
+      listModelPlans: async () => [
+        {
+          baseUrl: "https://api.anthropic.com/v1",
+          createdAt: "2026-07-12T00:00:00Z",
+          defaultModel: null,
+          detection: { stages: [] },
+          enabled: true,
+          hasApiKey: true,
+          id: "plan-1",
+          models: [],
+          name: "Anthropic plan",
+          protocol: "anthropic",
+          status: "undetected",
+          templateKind: "custom",
+          updatedAt: "2026-07-12T00:00:00Z",
+          workspaceId: "workspace-1"
+        }
+      ]
+    })
+  });
+
+  service.openPanel({ id: "workspace-1" });
+  await service.modelPlans.refresh();
+  service.store.modelPlans.createdPlanHandoff = {
+    planID: "plan-1",
+    planName: "Anthropic plan"
+  };
+
+  await service.openAgentDraftForModelPlan("plan-1");
+
+  assert.equal(service.store.activeSection, "agent");
+  assert.equal(service.store.agentTab, "customAgents");
+  assert.equal(service.store.modelPlans.createdPlanHandoff, null);
+  assert.equal(
+    service.store.agents.draft?.harnessAgentTargetId,
+    "local:claude-code"
+  );
+  assert.equal(service.store.agents.draft?.modelPlanId, "plan-1");
+});
+
 test("WorkspaceSettingsService loads Plans only on the Model surface", async () => {
   let listPlansCalls = 0;
   let listWorkspaceAgentsCalls = 0;

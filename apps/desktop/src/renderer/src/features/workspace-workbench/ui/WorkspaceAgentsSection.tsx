@@ -93,6 +93,7 @@ export function WorkspaceAgentsSection() {
                 modelPlans={state.modelPlans.plans}
                 saving={agentsState.saving}
                 onCancel={() => service.agents.cancelDraft()}
+                onOpenModelPlans={() => service.selectSection("model")}
                 onSave={() => {
                   void service.agents.saveDraft();
                 }}
@@ -120,6 +121,7 @@ export function WorkspaceAgentsSection() {
               modelPlans={state.modelPlans.plans}
               saving={agentsState.saving}
               onCancel={() => service.agents.cancelDraft()}
+              onOpenModelPlans={() => service.selectSection("model")}
               onSave={() => {
                 void service.agents.saveDraft();
               }}

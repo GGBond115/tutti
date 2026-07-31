@@ -972,6 +972,8 @@ export const en = {
           modelPlanLabel: "Model plan",
           nameLabel: "Name",
           namePlaceholder: "Frontend reviewer",
+          createModelPlanLink: "Create a model plan",
+          noCompatiblePlansHint: "No compatible model plan yet.",
           noHarnesses: "No Agent Runtimes are available",
           noModelPlan: "Agent Runtime default models",
           onePerLine: "One entry per line",
@@ -1082,6 +1084,9 @@ export const en = {
             "Couldn't fetch the model list — check the credentials and Base URL, then try again.",
           fetchModelsResult: "Fetched {{count}} selectable models",
           fetchingModels: "Fetching...",
+          handoffConfigureAgent: "Set up an Agent",
+          handoffDismiss: "Not now",
+          handoffSavedHint: "Saved “{{plan}}” — no Agent is using it yet",
           hideApiKey: "Hide key",
           keepExistingKey: "Leave blank to keep the saved key",
           lastDetectedAt: "Checked {{time}}",
@@ -1154,7 +1159,8 @@ export const en = {
             }
           },
           title: "Model plans",
-          toggleFailed: "Couldn't update the plan state — try again."
+          toggleFailed: "Couldn't update the plan state — try again.",
+          unusedByAgents: "Not used by any Agent"
         }
       },
       developer: {

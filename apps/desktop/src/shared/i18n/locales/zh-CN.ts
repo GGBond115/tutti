@@ -915,6 +915,8 @@ export const zhCN = {
           modelPlanLabel: "模型方案",
           nameLabel: "名称",
           namePlaceholder: "前端审查 Agent",
+          createModelPlanLink: "去创建模型方案",
+          noCompatiblePlansHint: "尚无兼容的模型方案",
           noHarnesses: "暂无可用的 Agent Runtime",
           noModelPlan: "使用 Agent Runtime 默认模型",
           onePerLine: "每行填写一项",
@@ -1012,6 +1014,9 @@ export const zhCN = {
           fetchModelsFailed: "拉取模型失败，请检查凭证与 Base URL 后重试",
           fetchModelsResult: "已拉取 {{count}} 个可选模型",
           fetchingModels: "拉取中...",
+          handoffConfigureAgent: "去配置 Agent",
+          handoffDismiss: "暂不",
+          handoffSavedHint: "已保存「{{plan}}」，还没有 Agent 使用它",
           hideApiKey: "隐藏密钥",
           keepExistingKey: "留空则继续使用已保存的密钥",
           lastDetectedAt: "上次检测 {{time}}",
@@ -1081,7 +1086,8 @@ export const zhCN = {
             }
           },
           title: "模型方案",
-          toggleFailed: "状态更新失败，请重试"
+          toggleFailed: "状态更新失败，请重试",
+          unusedByAgents: "未被任何 Agent 使用"
         }
       },
       developer: {
