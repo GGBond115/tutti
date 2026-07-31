@@ -19,6 +19,7 @@ import {
   type AgentSetupStepStatus
 } from "../../../shared/agentEnv/AgentSetupDialog.tsx";
 import { useAgentTargetSetupController } from "../../../shared/agentEnv/agentTargetSetupController.tsx";
+import { resolveAgentErrorPresentation } from "../../../shared/agentEnv/agentErrorPresentation.ts";
 import { useAgentHostApi } from "../../../agentActivityHost.tsx";
 import type { AgentHostAgentTargetSetupSnapshot } from "../../../host/agentHostApi.ts";
 import { useTranslation } from "../../../i18n/index.ts";
@@ -115,6 +116,13 @@ export function AgentTargetSetupGate({
   const installStatus = resolveInstallStepStatus(snapshot);
   const loginStatus = resolveLoginStepStatus(snapshot);
   const providerLabel = agentTarget?.label ?? agentTargetId;
+  const setupFailurePresentation =
+    snapshot?.status === "failed"
+      ? resolveAgentErrorPresentation(snapshot.reason)
+      : null;
+  const setupFailureMessage = setupFailurePresentation?.messageKey
+    ? t(setupFailurePresentation.messageKey, { provider: providerLabel })
+    : null;
   const accountDetail = account
     ? [account.displayName, account.organization].filter(Boolean).join(" · ")
     : undefined;
@@ -124,7 +132,8 @@ export function AgentTargetSetupGate({
       ? t("agentHost.agentGui.targetSetupAuthRequired")
       : snapshot?.status === "ready"
         ? t("agentHost.agentGui.targetSetupReady")
-        : t("agentHost.agentGui.targetSetupDescription");
+        : (setupFailureMessage ??
+          t("agentHost.agentGui.targetSetupDescription"));
   const authenticationAvailable =
     snapshot?.status === "auth_required" || snapshot?.status === "ready";
   const signInApplicable =
@@ -357,7 +366,11 @@ export function AgentTargetSetupGate({
                     ? t("agentHost.agentGui.targetSetupAuthFailed")
                     : t("agentHost.agentGui.targetSetupFailed")}
                 </span>
-                {snapshot?.action?.errorMessage?.trim() ? (
+                {setupFailureMessage ? (
+                  <span className="mt-1 block break-words text-[var(--text-secondary)]">
+                    {setupFailureMessage}
+                  </span>
+                ) : snapshot?.action?.errorMessage?.trim() ? (
                   <span className="mt-1 block break-words text-[var(--text-secondary)]">
                     {snapshot.action.errorMessage.trim()}
                   </span>

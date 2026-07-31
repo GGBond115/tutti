@@ -563,6 +563,8 @@ export interface AgentGUINodeViewProps {
   slashStatusUsageCapturedAtUnixMs?: number | null;
   /** True when the latest usage probe fetch failed (drives the retry state). */
   slashStatusUsageDidFail?: boolean;
+  /** Localized stable error for the latest usage failure. */
+  slashStatusUsageErrorLabel?: string | null;
   /** True once a usage probe has run for this provider (snapshot or error), so
    * the config menu shows a "no limits / retry" row rather than hiding the
    * whole section when there are no meters to display. */

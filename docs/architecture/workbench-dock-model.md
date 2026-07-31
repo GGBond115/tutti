@@ -286,6 +286,13 @@ cards and context-menu rendering, and
 `useWorkbenchHostDockPopupPreviewCapture` owns capture, pending-operation
 fencing, and preview caches.
 
+`WorkbenchHost` normalizes its preview capture callbacks in both directions.
+Hosts that can capture `captureNodePreviewImages` do not also need to provide
+`captureNodePreviewImage`; the surface derives the Dock image from
+`dockPreviewImageUrl`. The legacy single-image callback remains supported and
+is preferred when both callbacks are present, so normalization never starts a
+second native capture.
+
 ### Matching
 
 For each dock entry, the host resolves matching nodes using:

@@ -6,6 +6,7 @@ import {
   type AgentActivityTurn,
   type CanonicalAgentSession,
   type PendingActivationIntentRecord,
+  type SessionGoalControlPresentation,
   type SessionRuntimeAvailability,
   type AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
@@ -33,16 +34,12 @@ import {
   isDifferentKnownConversationOwner,
   resolveAgentGUIComposerGate
 } from "../model/agentGuiComposerGate";
-import type {
-  AgentGUIOptimisticGoalControl,
-  AgentGUISessionChrome
-} from "../model/agentGuiNodeTypes";
+import type { AgentGUISessionChrome } from "../model/agentGuiNodeTypes";
 import { composerSettingsSupportFromOptions } from "../model/composerSettingsSupport";
 import {
   agentActivityDisplayStatusBusy,
   conversationBusyStatus
 } from "./agentGuiController.draftMessageHelpers";
-import { unresolvedOptimisticGoalControl } from "./agentGuiOptimisticGoal";
 import { isNonRetryableResumeErrorCode } from "./agentGuiController.errors";
 import { projectAgentGUIMessagesToTimelineItems } from "./agentGuiController.promptHelpers";
 import { promptRequestId } from "./agentGuiController.diagnostics";
@@ -63,6 +60,7 @@ interface UseAgentGUISessionPresentationInput {
   activeEngineLatestTurn: AgentActivityTurn | null;
   activeEngineRuntimeAvailability: SessionRuntimeAvailability | null;
   activeEngineSession: CanonicalAgentSession | null;
+  activeGoalControlPresentation: SessionGoalControlPresentation;
   activeLatestPendingSubmitTurnId: string | null;
   activeLiveState: "inactive" | "activating" | "active" | "failed";
   activeMessages: readonly AgentActivityMessage[];
@@ -87,7 +85,6 @@ interface UseAgentGUISessionPresentationInput {
   lastRenderStateDiagnosticKeyRef: CurrentValue<string | null>;
   pendingApproval: AgentApprovalItemVM | null;
   planImplementationTurnIdRef: CurrentValue<string | null>;
-  optimisticGoalControl: AgentGUIOptimisticGoalControl | null;
   providerReadinessGate:
     | import("../../../types").AgentGUIProviderReadinessGate
     | null;
@@ -181,29 +178,23 @@ export function useAgentGUISessionPresentation(
   const sessionChromeRawState = useMemo<
     AgentGUISessionChrome["rawState"]
   >(() => {
-    const optimisticGoalControl = unresolvedOptimisticGoalControl(
-      input.optimisticGoalControl,
-      input.activeConversationId,
-      input.activeEngineSession
-    );
     const agentSessionId =
       input.activeEngineSession?.agentSessionId ??
-      optimisticGoalControl?.agentSessionId;
+      input.activeGoalControlPresentation.agentSessionId ??
+      input.activeConversationId;
     if (!agentSessionId) {
       return null;
     }
     return {
       agentSessionId,
-      goal: optimisticGoalControl
-        ? optimisticGoalControl.goal
-        : (input.activeEngineSession?.goal ?? null),
-      goalIsOptimistic: optimisticGoalControl !== null
+      goal: input.activeGoalControlPresentation.goal,
+      goalControlStatus: input.activeGoalControlPresentation.status,
+      goalIsOptimistic: input.activeGoalControlPresentation.optimistic
     };
   }, [
     input.activeConversationId,
     input.activeEngineSession?.agentSessionId,
-    input.activeEngineSession?.goal,
-    input.optimisticGoalControl
+    input.activeGoalControlPresentation
   ]);
   const sessionChrome = useMemo<AgentGUISessionChrome>(() => {
     if (

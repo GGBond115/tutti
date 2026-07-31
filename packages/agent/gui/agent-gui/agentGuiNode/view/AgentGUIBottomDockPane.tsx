@@ -107,6 +107,9 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
   const goalTokensUsed = goal ? numberValue(goal.tokens) : null;
   const goalDurationMs = goal ? numberValue(goal.durationMs) : null;
   const goalIsOptimistic = sessionChrome.rawState?.goalIsOptimistic === true;
+  const goalControlPending =
+    sessionChrome.rawState?.goalControlStatus === "pending" ||
+    sessionChrome.rawState?.goalControlStatus === "pending_create";
   const showGoalBanner = isGoalBannerVisible(goalObjective, goalStatus);
 
   const workflowPhase = tuttiWorkflowDock.phase;
@@ -182,12 +185,18 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
               optimistic={goalIsOptimistic}
               labels={goalBannerLabels}
               onPauseGoal={
-                goalPauseSupported ? () => onGoalControl("pause") : undefined
+                goalPauseSupported && !goalControlPending
+                  ? () => onGoalControl("pause")
+                  : undefined
               }
               onResumeGoal={
-                goalPauseSupported ? () => onGoalControl("resume") : undefined
+                goalPauseSupported && !goalControlPending
+                  ? () => onGoalControl("resume")
+                  : undefined
               }
-              onClearGoal={() => onGoalControl("clear")}
+              onClearGoal={
+                goalControlPending ? undefined : () => onGoalControl("clear")
+              }
             />
           ) : null}
           {workflowPhase ? (

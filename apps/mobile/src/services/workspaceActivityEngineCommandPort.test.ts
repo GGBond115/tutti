@@ -1,7 +1,9 @@
 import type {
+  AgentActivityGoalControlResult,
   AgentActivitySendInput,
   AgentActivitySession,
   AgentActivitySessionDetailSnapshot,
+  AgentActivitySessionSettings,
   AgentSessionActivateEffectInput,
   TurnEditRetryCommand,
   TurnRecoverEditRetryCommand
@@ -12,11 +14,66 @@ import {
   executeWorkspaceActivityExtensionCommand
 } from "./workspaceActivityEngineCommandPort";
 
+function unexpectedGoalControlMapping(): never {
+  throw new Error("unexpected Goal Control mapping");
+}
+
 describe("createWorkspaceActivityEffectPort", () => {
+  test("filters unsupported settings from composer options requests", async () => {
+    const stopAfterCapture = new Error("stop after composer request capture");
+    const getAgentProviderComposerOptions = jest
+      .fn()
+      .mockRejectedValue(stopAfterCapture);
+    const settings: AgentActivitySessionSettings = {
+      browserUse: false,
+      computerUse: false,
+      model: "gpt-5"
+    };
+    await expect(
+      executeWorkspaceActivityExtensionCommand(
+        {
+          client: {
+            getAgentProviderComposerOptions
+          } as unknown as TuttidClient,
+          mapGoalControlResult: unexpectedGoalControlMapping,
+          mapSession(): AgentActivitySession {
+            throw new Error("unexpected Session mapping");
+          },
+          mapSessionDetail() {
+            throw new Error("unexpected detail mapping");
+          },
+          async reconcileSession() {},
+          async reconcileWorkspace() {}
+        },
+        {
+          commandId: "composer-1",
+          correlationId: "target-1",
+          provider: "codex",
+          settings,
+          targetKey: "target-1",
+          type: "composerOptions/load",
+          workspaceId: "workspace-1"
+        }
+      )
+    ).rejects.toBe(stopAfterCapture);
+
+    expect(getAgentProviderComposerOptions).toHaveBeenCalledWith(
+      "codex",
+      {
+        agentTargetId: "target-1",
+        locale: expect.any(String),
+        settings: { browserUse: false, model: "gpt-5" },
+        workspaceId: "workspace-1"
+      },
+      { signal: undefined }
+    );
+  });
+
   test("explicitly rejects edit-retry commands that Mobile does not support", async () => {
     const context = {
       client: {} as TuttidClient,
       loadComposerOptions() {},
+      mapGoalControlResult: unexpectedGoalControlMapping,
       mapSession(): AgentActivitySession {
         throw new Error("unexpected Session mapping");
       },
@@ -78,7 +135,14 @@ describe("createWorkspaceActivityEffectPort", () => {
       agentSessionId: "session-1",
       capabilityRefs: [{ capability: "tutti", source: "slash_command" }],
       clientSubmitId: "submit-1",
-      content: [{ text: "hello", type: "text" }],
+      content: [
+        {
+          hostPath: "/tmp/local-only.txt",
+          text: "hello",
+          type: "text",
+          uploadStatus: "uploaded"
+        }
+      ],
       displayPrompt: "/computer hello",
       guidance: true,
       submitDiagnostics: {
@@ -93,6 +157,7 @@ describe("createWorkspaceActivityEffectPort", () => {
       createWorkspaceActivityEffectPort(() => ({
         client,
         loadComposerOptions() {},
+        mapGoalControlResult: unexpectedGoalControlMapping,
         mapSession(): AgentActivitySession {
           throw new Error("unexpected Session mapping");
         },
@@ -119,6 +184,63 @@ describe("createWorkspaceActivityEffectPort", () => {
       }
     ]);
     expect(requestOptions).toEqual([{ signal: controller.signal }]);
+  });
+
+  test("Goal Control forwards Engine identity and returns the shared mapping", async () => {
+    const controller = new AbortController();
+    const rawResult = { session: { id: "session-1" } } as Awaited<
+      ReturnType<TuttidClient["goalControlWorkspaceAgentSession"]>
+    >;
+    const mappedResult = {
+      goal: { objective: "ship it", status: "active" },
+      operationId: "operation-1",
+      session: {
+        agentSessionId: "session-1",
+        workspaceId: "workspace-1"
+      } as AgentActivitySession
+    } satisfies AgentActivityGoalControlResult;
+    const goalControlWorkspaceAgentSession = jest
+      .fn()
+      .mockResolvedValue(rawResult);
+    const mapGoalControlResult = jest.fn().mockReturnValue(mappedResult);
+    const port = createWorkspaceActivityEffectPort(() => ({
+      client: {
+        goalControlWorkspaceAgentSession
+      } as unknown as TuttidClient,
+      mapGoalControlResult,
+      mapSession(): AgentActivitySession {
+        throw new Error("unexpected Session mapping");
+      },
+      mapSessionDetail() {
+        throw new Error("unexpected detail mapping");
+      },
+      async reconcileSession() {},
+      async reconcileWorkspace() {}
+    }));
+
+    const result = await port.controlGoal?.(
+      {
+        action: "set",
+        agentSessionId: "session-1",
+        clientSubmitId: "goal-submit-1",
+        objective: "ship it",
+        workspaceId: "workspace-1"
+      },
+      { signal: controller.signal }
+    );
+
+    expect(goalControlWorkspaceAgentSession).toHaveBeenCalledWith(
+      "workspace-1",
+      "session-1",
+      {
+        action: "set",
+        clientSubmitId: "goal-submit-1",
+        objective: "ship it"
+      },
+      { signal: controller.signal }
+    );
+    expect(mapGoalControlResult).toHaveBeenCalledWith(rawResult);
+    expect(result).toBe(mappedResult);
   });
 
   test("preserves activation semantics without inventing computerUse", async () => {
@@ -161,6 +283,7 @@ describe("createWorkspaceActivityEffectPort", () => {
       createWorkspaceActivityEffectPort(() => ({
         client,
         loadComposerOptions() {},
+        mapGoalControlResult: unexpectedGoalControlMapping,
         mapSession(): AgentActivitySession {
           throw new Error("unexpected Session mapping");
         },
@@ -195,6 +318,52 @@ describe("createWorkspaceActivityEffectPort", () => {
     expect(createRequest).not.toHaveProperty("computerUse");
   });
 
+  test("uses the typed initial Goal contract without sending command text", async () => {
+    let createRequest: Record<string, unknown> | null = null;
+    const stopAfterCapture = new Error("stop after create request capture");
+    const client = {
+      async createWorkspaceAgentSession(
+        _workspaceId: string,
+        request: Record<string, unknown>
+      ) {
+        createRequest = request;
+        throw stopAfterCapture;
+      }
+    } as unknown as TuttidClient;
+
+    await expect(
+      createWorkspaceActivityEffectPort(() => ({
+        client,
+        mapGoalControlResult: unexpectedGoalControlMapping,
+        mapSession(): AgentActivitySession {
+          throw new Error("unexpected Session mapping");
+        },
+        mapSessionDetail() {
+          throw new Error("unexpected detail mapping");
+        },
+        async reconcileSession() {},
+        async reconcileWorkspace() {}
+      })).activateSession({
+        agentSessionId: "session-1",
+        agentTargetId: "target-1",
+        clientSubmitId: "goal-submit-1",
+        initialContent: [{ text: "/goal ship it", type: "text" }],
+        initialGoalControl: { action: "set", objective: "ship it" },
+        mode: "new",
+        visible: true,
+        workspaceId: "workspace-1"
+      })
+    ).rejects.toBe(stopAfterCapture);
+
+    expect(createRequest).toEqual(
+      expect.objectContaining({
+        clientSubmitId: "goal-submit-1",
+        initialContent: [],
+        initialGoalControl: { action: "set", objective: "ship it" }
+      })
+    );
+  });
+
   test("forwards cancellation to an existing-session activation read", async () => {
     const controller = new AbortController();
     const stopAfterCapture = new Error("stop after detail request capture");
@@ -206,6 +375,7 @@ describe("createWorkspaceActivityEffectPort", () => {
       createWorkspaceActivityEffectPort(() => ({
         client: { getWorkspaceAgentSession } as unknown as TuttidClient,
         loadComposerOptions() {},
+        mapGoalControlResult: unexpectedGoalControlMapping,
         mapSession(): AgentActivitySession {
           throw new Error("unexpected Session mapping");
         },
@@ -251,6 +421,7 @@ describe("createWorkspaceActivityEffectPort", () => {
 
     const result = await createWorkspaceActivityEffectPort(() => ({
       client: { getWorkspaceAgentSession } as unknown as TuttidClient,
+      mapGoalControlResult: unexpectedGoalControlMapping,
       mapSession: () => activitySession,
       mapSessionDetail,
       async reconcileSession() {},
@@ -281,6 +452,7 @@ describe("createWorkspaceActivityEffectPort", () => {
       client: {
         updateWorkspaceAgentSessionSettings
       } as unknown as TuttidClient,
+      mapGoalControlResult: unexpectedGoalControlMapping,
       mapSession: () => activitySession,
       mapSessionDetail() {
         throw new Error("unexpected detail mapping");
@@ -292,7 +464,11 @@ describe("createWorkspaceActivityEffectPort", () => {
         agentSessionId: "session-1",
         commandId: "settings-1",
         correlationId: "request-1",
-        settings: { model: "model-1" },
+        settings: {
+          browserUse: false,
+          computerUse: false,
+          model: "model-1"
+        },
         workspaceId: "workspace-1"
       },
       { signal: controller.signal }
@@ -301,7 +477,7 @@ describe("createWorkspaceActivityEffectPort", () => {
     expect(updateWorkspaceAgentSessionSettings).toHaveBeenCalledWith(
       "workspace-1",
       "session-1",
-      { model: "model-1" },
+      { browserUse: false, model: "model-1" },
       { signal: controller.signal }
     );
     expect(result).toEqual({
@@ -327,6 +503,7 @@ describe("createWorkspaceActivityEffectPort", () => {
         submitWorkspaceAgentInteractive
       } as unknown as TuttidClient,
       loadComposerOptions() {},
+      mapGoalControlResult: unexpectedGoalControlMapping,
       mapSession: () => activitySession,
       mapSessionDetail() {
         throw new Error("unexpected detail mapping");
@@ -394,6 +571,7 @@ describe("createWorkspaceActivityEffectPort", () => {
         updateWorkspaceAgentSessionTitle
       } as unknown as TuttidClient,
       loadComposerOptions() {},
+      mapGoalControlResult: unexpectedGoalControlMapping,
       mapSession: () => activitySession,
       mapSessionDetail() {
         throw new Error("unexpected detail mapping");

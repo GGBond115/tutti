@@ -11,6 +11,7 @@ describe("resolvePendingSubmission", () => {
       agentSessionId: "session-1",
       agentTargetId: null,
       creating: false,
+      kind: "prompt",
       text: "continue"
     });
 
@@ -19,6 +20,7 @@ describe("resolvePendingSubmission", () => {
         agentSessionId: "session-1",
         agentTargetId: "ignored-for-existing-session",
         creating: false,
+        kind: "prompt",
         text: "continue"
       })
     ).toBe(first);
@@ -29,12 +31,14 @@ describe("resolvePendingSubmission", () => {
       agentSessionId: null,
       agentTargetId: "target-1",
       creating: true,
+      kind: "prompt",
       text: "start"
     });
     const retry = resolvePendingSubmission(first, {
       agentSessionId: null,
       agentTargetId: "target-1",
       creating: true,
+      kind: "prompt",
       text: "start"
     });
 
@@ -48,12 +52,14 @@ describe("resolvePendingSubmission", () => {
       agentSessionId: "session-1",
       agentTargetId: null,
       creating: false,
+      kind: "prompt",
       text: "first"
     });
     const changed = resolvePendingSubmission(first, {
       agentSessionId: "session-1",
       agentTargetId: null,
       creating: false,
+      kind: "prompt",
       text: "second"
     });
 
@@ -66,17 +72,39 @@ describe("resolvePendingSubmission", () => {
       agentSessionId: "session-1",
       agentTargetId: null,
       creating: false,
+      kind: "prompt",
       text: "continue"
     });
     const otherSession = resolvePendingSubmission(first, {
       agentSessionId: "session-2",
       agentTargetId: null,
       creating: false,
+      kind: "prompt",
       text: "continue"
     });
 
     expect(otherSession).not.toBe(first);
     expect(otherSession.agentSessionId).toBe("session-2");
+  });
+
+  it("does not reuse prompt identity for a Goal command", () => {
+    const prompt = resolvePendingSubmission(null, {
+      agentSessionId: "session-1",
+      agentTargetId: null,
+      creating: false,
+      kind: "prompt",
+      text: "/goal ship it"
+    });
+    const goal = resolvePendingSubmission(prompt, {
+      agentSessionId: "session-1",
+      agentTargetId: null,
+      creating: false,
+      kind: "goalControl",
+      text: "/goal ship it"
+    });
+
+    expect(goal).not.toBe(prompt);
+    expect(goal.clientSubmitId).not.toBe(prompt.clientSubmitId);
   });
 });
 
@@ -108,6 +136,7 @@ describe("dismissPendingSubmission", () => {
       agentTargetId: creating ? "target-1" : null,
       clientSubmitId: "submit-1",
       creating,
+      kind: "prompt",
       text: "hello"
     };
 

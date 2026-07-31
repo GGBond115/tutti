@@ -1,0 +1,78 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import type {
+  AgentPromptContentBlock,
+  AgentSessionActivateEffectInput
+} from "@tutti-os/agent-activity-core";
+import {
+  tuttiCreateWorkspaceAgentSessionRequestFromActivation,
+  tuttiCreateWorkspaceAgentSessionRequestFromActivity,
+  tuttiSendWorkspaceAgentSessionInputRequestFromActivity
+} from "./index.ts";
+
+test("create and send projections share one prompt allowlist", () => {
+  const content = [activityTextBlock()];
+  const activityCreate = tuttiCreateWorkspaceAgentSessionRequestFromActivity({
+    agentSessionId: "session-1",
+    agentTargetId: "target-1",
+    clientSubmitId: "submit-1",
+    initialContent: content,
+    workspaceId: "workspace-1"
+  });
+  const activationCreate =
+    tuttiCreateWorkspaceAgentSessionRequestFromActivation({
+      agentSessionId: "session-1",
+      agentTargetId: "target-1",
+      clientSubmitId: "submit-1",
+      initialContent: content,
+      mode: "new",
+      settings: { browserUse: true, computerUse: true },
+      workspaceId: "workspace-1"
+    } satisfies AgentSessionActivateEffectInput);
+  const send = tuttiSendWorkspaceAgentSessionInputRequestFromActivity({
+    agentSessionId: "session-1",
+    capabilityRefs: [{ capability: "tutti", source: "slash_command" }],
+    clientSubmitId: "submit-1",
+    content,
+    workspaceId: "workspace-1"
+  });
+
+  for (const projected of [
+    activityCreate.initialContent,
+    activationCreate.initialContent,
+    send.content
+  ]) {
+    assert.deepEqual(projected, [{ text: "hello", type: "text" }]);
+  }
+  assert.equal(activationCreate.browserUse, true);
+  assert.equal("computerUse" in activationCreate, false);
+  assert.deepEqual(send.capabilityRefs, [
+    { capability: "tutti", source: "slash_command" }
+  ]);
+});
+
+test("request projection rejects local file blocks", () => {
+  assert.throws(
+    () =>
+      tuttiSendWorkspaceAgentSessionInputRequestFromActivity({
+        agentSessionId: "session-1",
+        clientSubmitId: "submit-1",
+        content: [{ hostPath: "/tmp/file.txt", type: "file" }],
+        workspaceId: "workspace-1"
+      }),
+    /File prompt blocks must be uploaded before submission/
+  );
+});
+
+function activityTextBlock(): AgentPromptContentBlock {
+  return {
+    assetId: "asset-1",
+    hostPath: "/tmp/local-only.txt",
+    kind: "local-text",
+    sizeBytes: 5,
+    text: "hello",
+    type: "text",
+    uploadStatus: "uploaded",
+    uri: "file:///tmp/local-only.txt"
+  };
+}

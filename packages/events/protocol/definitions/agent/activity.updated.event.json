@@ -271,76 +271,151 @@
               "messages": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "required": [
-                    "agentSessionId",
-                    "kind",
-                    "messageId",
-                    "occurredAtUnixMs",
-                    "payload",
-                    "role",
-                    "sequence",
-                    "turnId",
-                    "version"
-                  ],
-                  "properties": {
-                    "agentSessionId": {
-                      "type": "string",
-                      "minLength": 1
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "agentSessionId",
+                        "kind",
+                        "messageId",
+                        "occurredAtUnixMs",
+                        "payload",
+                        "role",
+                        "sequence",
+                        "turnId",
+                        "version"
+                      ],
+                      "properties": {
+                        "agentSessionId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "kind": {
+                          "const": "collaboration"
+                        },
+                        "messageId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "payload": {
+                          "type": "object"
+                        },
+                        "role": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "sequence": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Stable message presentation order assigned when the durable message row is first created."
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "turnId": {
+                          "type": ["null"],
+                          "description": "Session-level collaboration messages do not belong to an agent turn."
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "occurredAtUnixMs": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "startedAtUnixMs": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "completedAtUnixMs": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "createdAtUnixMs": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "updatedAtUnixMs": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
                     },
-                    "kind": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "messageId": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "payload": {
-                      "type": "object"
-                    },
-                    "role": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "sequence": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "description": "Stable message presentation order assigned when the durable message row is first created."
-                    },
-                    "version": {
-                      "type": "integer",
-                      "minimum": 1
-                    },
-                    "turnId": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "Turn-scoped messages always reference a real persisted Turn. Session audits use the separate session_audit event."
-                    },
-                    "status": {
-                      "type": "string"
-                    },
-                    "occurredAtUnixMs": {
-                      "type": "integer",
-                      "minimum": 1
-                    },
-                    "startedAtUnixMs": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "completedAtUnixMs": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "createdAtUnixMs": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "updatedAtUnixMs": {
-                      "type": "integer",
-                      "minimum": 0
+                    {
+                      "type": "object",
+                      "required": [
+                        "agentSessionId",
+                        "kind",
+                        "messageId",
+                        "occurredAtUnixMs",
+                        "payload",
+                        "role",
+                        "sequence",
+                        "turnId",
+                        "version"
+                      ],
+                      "properties": {
+                        "agentSessionId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "kind": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "^(?!collaboration$|session_audit$).+"
+                        },
+                        "messageId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "payload": {
+                          "type": "object"
+                        },
+                        "role": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "sequence": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Stable message presentation order assigned when the durable message row is first created."
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "turnId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "Turn-scoped messages always reference a real persisted Turn. Session audits use the separate session_audit event."
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "occurredAtUnixMs": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "startedAtUnixMs": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "completedAtUnixMs": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "createdAtUnixMs": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "updatedAtUnixMs": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      }
                     }
-                  }
+                  ]
                 }
               }
             }

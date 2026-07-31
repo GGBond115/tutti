@@ -48,6 +48,10 @@ import {
   type EngineTypedCommandPort
 } from "./types.ts";
 import type {
+  AgentSessionControlGoalAdmission,
+  AgentSessionControlGoalInput
+} from "./sessionGoalControl.types.ts";
+import type {
   RootAgentSessionEngineState,
   RootEngineIntent
 } from "./rootReducer.types.ts";
@@ -64,6 +68,7 @@ import type {
  */
 export const ENGINE_INTENT_BATCH_DELAY_MS = 33;
 const SESSION_MUTATION_TIMEOUT_MS = 30_000;
+const SESSION_GOAL_CONTROL_TIMEOUT_MS = 30_000;
 const SESSION_SETTINGS_UPDATE_TIMEOUT_MS = 30_000;
 const SESSION_STOP_TIMEOUT_MS = 30_000;
 const INTERACTION_RESPONSE_TIMEOUT_MS = 30_000;
@@ -110,6 +115,7 @@ export function createAgentSessionEngine({
   let disposed = false;
   let composerOptionsCommandSequence = 1;
   let interactionResponseCommandSequence = 1;
+  let sessionGoalControlCommandSequence = 1;
   let sessionMutationSequence = 1;
   let sessionSettingsUpdateSequence = 1;
   let sessionStopCommandSequence = 1;
@@ -168,10 +174,13 @@ export function createAgentSessionEngine({
       ) {
         const result = rootEngineReducer(state, intent);
         if (result.state !== state) {
+          const previousRoot = state;
           state = result.state;
           publicSnapshot = projectPublicAgentSessionEngineState(
             state,
-            publicSnapshot
+            publicSnapshot,
+            previousRoot,
+            intent
           );
         }
         if (result.followUpIntents?.length) {
@@ -398,6 +407,52 @@ export function createAgentSessionEngine({
     return `interaction:${clock.nowUnixMs()}:${sequence}`;
   }
 
+  function nextSessionGoalControlCommandId(requestedAtUnixMs: number): string {
+    const sequence = sessionGoalControlCommandSequence++;
+    return `goal:${requestedAtUnixMs}:${sequence}`;
+  }
+
+  function controlGoal(
+    input: AgentSessionControlGoalInput
+  ): AgentSessionControlGoalAdmission {
+    const agentSessionId = input.agentSessionId.trim();
+    const requestedClientSubmitId = input.clientSubmitId.trim();
+    const objective = input.objective?.trim() || undefined;
+    if (
+      !agentSessionId ||
+      !requestedClientSubmitId ||
+      (input.action === "set" && !objective)
+    ) {
+      return { accepted: false, clientSubmitId: requestedClientSubmitId };
+    }
+    const current = state.goalControl.operationsBySessionId[agentSessionId];
+    const clientSubmitId =
+      current?.status === "unknown" &&
+      current.action === input.action &&
+      (input.action !== "set" || current.objective === objective)
+        ? current.clientSubmitId
+        : requestedClientSubmitId;
+    const requestedAtUnixMs = clock.nowUnixMs();
+    const commandId = nextSessionGoalControlCommandId(requestedAtUnixMs);
+    dispatch({
+      action: input.action,
+      agentSessionId,
+      clientSubmitId,
+      commandId,
+      ...(objective ? { objective } : {}),
+      requestedAtUnixMs,
+      timeoutMs: SESSION_GOAL_CONTROL_TIMEOUT_MS,
+      type: "goal/controlRequested",
+      workspaceId: engineIdentity.workspaceId
+    });
+    const operation = state.goalControl.operationsBySessionId[agentSessionId];
+    return {
+      accepted:
+        operation?.commandId === commandId && operation.status === "pending",
+      clientSubmitId
+    };
+  }
+
   function stopSession(input: AgentSessionStopInput): void {
     const agentSessionId = input.agentSessionId.trim();
     if (!agentSessionId) {
@@ -572,6 +627,7 @@ export function createAgentSessionEngine({
 
   const engine: AgentSessionEngine = {
     activateSession,
+    controlGoal,
     identity: engineIdentity,
     async deleteSessions(input) {
       const mutation = await dispatchSessionMutationWithCancellation(

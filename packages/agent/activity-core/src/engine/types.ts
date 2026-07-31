@@ -70,7 +70,10 @@ export type EngineCommandOutcome = "failed" | "succeeded" | "timedOut";
  * Older command ports and manually dispatched results omit this field and
  * retain opaque acknowledgement semantics.
  */
-export type EngineCommandResultContract = "activation-v1" | "opaque";
+export type EngineCommandResultContract =
+  | "activation-v1"
+  | "goal-control-v1"
+  | "opaque";
 
 /**
  * Every command execution settles back into the loop as this intent, so
@@ -120,6 +123,7 @@ export type EngineIntent =
   | SessionMutationsIntent
   | SessionCommandsIntent
   | SessionLifecycleIntent
+  | SessionGoalControlIntent
   | ComposerOptionsIntent
   | EditRetryIntent
   | TuttiModeActivationIntent;
@@ -194,6 +198,7 @@ export type EngineExternalCommand =
   | SessionUnactivateCommand
   | SessionReconcileCommand
   | SessionMutationCommand
+  | SessionGoalControlCommand
   | TurnCancelCommand
   | ComposerOptionsCommand
   | EditRetryCommand
@@ -212,6 +217,7 @@ type AgentSessionEffectCommand =
   | InteractionRespondCommand
   | PromptQueueSendCommand
   | SessionActivateCommand
+  | SessionGoalControlCommand
   | SessionUpdateSettingsCommand
   | TurnCancelCommand;
 
@@ -258,10 +264,11 @@ export interface EngineRuntimeState {
 }
 
 /**
- * Host-observable Engine snapshot. Reducer execution ledgers are deliberately
- * omitted from this public state contract.
+ * State shared by public snapshots and the private reducer root. Selectors
+ * that do not read Goal Control use this shape so the private Goal ledger does
+ * not have to masquerade as public state.
  */
-export interface AgentSessionEngineState {
+export interface AgentSessionEngineStateBase {
   attentionReadState: AttentionReadState;
   editRetry: EditRetryState;
   engineRuntime: EngineRuntimeState;
@@ -275,6 +282,14 @@ export interface AgentSessionEngineState {
   sessionMessages: SessionMessagesState;
   composerOptions: ComposerOptionsState;
   tuttiModeActivation: TuttiModeActivationState;
+}
+
+/**
+ * Host-observable Engine snapshot. Reducer execution ledgers are deliberately
+ * omitted from this public state contract.
+ */
+export interface AgentSessionEngineState extends AgentSessionEngineStateBase {
+  goalControl: SessionGoalControlPublicState;
 }
 
 export interface EngineReducerResult<TState> {
@@ -370,6 +385,10 @@ export interface AgentSessionEffectPort {
     input: AgentActivityCancelTurnInput,
     options?: EngineEffectOptions
   ): Promise<unknown>;
+  controlGoal?(
+    input: AgentSessionGoalControlEffectInput,
+    options?: EngineEffectOptions
+  ): Promise<AgentActivityGoalControlResult>;
   deleteSessions(
     input: Omit<AgentActivityDeleteSessionsInput, "signal">,
     options?: EngineEffectOptions
@@ -539,6 +558,9 @@ export interface AgentSessionStopInput {
 export interface AgentSessionEngine {
   readonly identity: AgentSessionEngineIdentity;
   activateSession(input: AgentSessionActivationInput): boolean;
+  controlGoal(
+    input: AgentSessionControlGoalInput
+  ): AgentSessionControlGoalAdmission;
   deleteSessions(
     input: Omit<AgentActivityDeleteSessionsInput, "signal" | "workspaceId"> & {
       signal?: AbortSignal;
@@ -634,6 +656,7 @@ import type {
   AgentActivityComposerSettings,
   AgentActivityDeleteSessionsInput,
   AgentActivityDeleteSessionsResult,
+  AgentActivityGoalControlResult,
   AgentActivityInitialGoalControl,
   AgentActivityRenameSessionInput,
   AgentActivitySendInput,
@@ -655,3 +678,11 @@ import type {
   EditRetryIntent,
   EditRetryState
 } from "./editRetry.types.ts";
+import type {
+  AgentSessionControlGoalAdmission,
+  AgentSessionControlGoalInput,
+  AgentSessionGoalControlEffectInput,
+  SessionGoalControlCommand,
+  SessionGoalControlIntent,
+  SessionGoalControlPublicState
+} from "./sessionGoalControl.types.ts";

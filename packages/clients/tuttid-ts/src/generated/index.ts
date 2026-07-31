@@ -1834,6 +1834,7 @@ export type {
   WorkspaceAgentGeneratedFileListResponse,
   WorkspaceAgentHarness,
   WorkspaceAgentId,
+  WorkspaceAgentInitialGoalControl,
   WorkspaceAgentInteraction,
   WorkspaceAgentInteractionKind,
   WorkspaceAgentInteractionStatus,

@@ -1,4 +1,4 @@
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 import type { SessionForkThroughTurnMutationRecord } from "./sessionMutations.types.ts";
 
 export interface SessionForkThroughTurnMutationSelectorInput {
@@ -13,13 +13,13 @@ export interface SessionForkThroughTurnPendingSelectorInput {
 }
 
 export function selectSessionMutation(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   mutationId: string
 ) {
   return state.sessionMutations.byMutationId[mutationId.trim()] ?? null;
 }
 
-export function selectSessionMutations(state: AgentSessionEngineState) {
+export function selectSessionMutations(state: AgentSessionEngineStateBase) {
   return Object.values(state.sessionMutations.byMutationId);
 }
 
@@ -31,7 +31,7 @@ export function selectSessionMutations(state: AgentSessionEngineState) {
  * until that barrier is acknowledged.
  */
 export function selectSessionForkThroughTurnMutation(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   input: SessionForkThroughTurnMutationSelectorInput
 ): SessionForkThroughTurnMutationRecord | null {
   const workspaceId = input.workspaceId.trim();
@@ -56,7 +56,7 @@ export function selectSessionForkThroughTurnMutation(
 }
 
 export function selectPendingSessionForkThroughTurnIds(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   input: SessionForkThroughTurnPendingSelectorInput
 ): string[] {
   const workspaceId = input.workspaceId.trim();

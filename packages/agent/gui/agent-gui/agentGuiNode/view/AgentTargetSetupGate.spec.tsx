@@ -150,6 +150,34 @@ describe("AgentTargetSetupGate", () => {
     );
   });
 
+  it("shows the account failure returned by the runtime probe", async () => {
+    const setup = createWatch({
+      snapshot: {
+        agentTargetId: "extension:gemini",
+        status: "failed",
+        runtimeSource: "managed",
+        runtimeVersion: "0.28.0",
+        reason: "subscription_required",
+        authMethods: [],
+        account: null,
+        plan: null,
+        action: null
+      },
+      loading: false,
+      failed: false
+    });
+    installHost(new Map([["extension:gemini", setup.watch]]));
+
+    render(<Harness openDialog target={geminiTarget} />);
+
+    expect(
+      await screen.findAllByText(
+        "Gemini CLI requires an active subscription or an eligible plan for this request"
+      )
+    ).toHaveLength(3);
+    expect(screen.getByText("Runtime setup failed")).toBeTruthy();
+  });
+
   it("authenticates with the selected method and renders action errors", async () => {
     const authenticate =
       vi.fn<AgentHostAgentTargetSetupWatch["authenticate"]>();

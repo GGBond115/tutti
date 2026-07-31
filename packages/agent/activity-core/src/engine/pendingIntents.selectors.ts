@@ -1,4 +1,4 @@
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 import type {
   PendingActivationIntentRecord,
   PendingSubmitIntentRecord
@@ -6,7 +6,7 @@ import type {
 import { canonicalTurnKey } from "./sessionEntityKeys.ts";
 
 export function selectPendingActivations(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineStateBase
 ): readonly PendingActivationIntentRecord[] {
   return Object.values(state.pendingIntents.activationsByRequestId).sort(
     (left, right) =>
@@ -16,7 +16,7 @@ export function selectPendingActivations(
 }
 
 export function selectPendingActivationByRequestId(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   requestId: string | null | undefined
 ): PendingActivationIntentRecord | null {
   const id = requestId?.trim() ?? "";
@@ -33,7 +33,7 @@ export interface SessionActivationPresentation {
 }
 
 export function selectPendingSubmitsForSession(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): readonly PendingSubmitIntentRecord[] {
   const id = agentSessionId?.trim() ?? "";
@@ -54,7 +54,7 @@ export function pendingSubmitRecordListsEqual(
 }
 
 export function selectSessionIsSubmitting(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): boolean {
   const id = agentSessionId?.trim() ?? "";
@@ -75,7 +75,7 @@ export function selectSessionIsSubmitting(
 }
 
 export function selectSessionHasUnconfirmedSubmit(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): boolean {
   const id = agentSessionId?.trim() ?? "";
@@ -96,7 +96,7 @@ export function selectSessionHasUnconfirmedSubmit(
 }
 
 export function selectLatestPendingSubmitForSession(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): PendingSubmitIntentRecord | null {
   let latest: PendingSubmitIntentRecord | null = null;
@@ -109,7 +109,7 @@ export function selectLatestPendingSubmitForSession(
 }
 
 export function selectLatestActivationForSession(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): PendingActivationIntentRecord | null {
   const id = agentSessionId?.trim() ?? "";
@@ -128,7 +128,7 @@ export function selectLatestActivationForSession(
 }
 
 export function selectSessionActivationPresentations(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineStateBase
 ): Readonly<Record<string, SessionActivationPresentation>> {
   const latestBySessionId = new Map<string, PendingActivationIntentRecord>();
   for (const activation of Object.values(

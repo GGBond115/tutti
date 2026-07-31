@@ -240,6 +240,9 @@ Bottom-up:
 2. Update only observed state and evidence.
 3. While an operation is pending, keep `syncStatus=applying`.
 4. Never replace desired state or clear a tombstone from an observation.
+5. Capture the canonical Goal revision before asynchronously adopting a
+   provider-authored generation, and reject the adoption if a newer mutation
+   serialized first.
 
 Calibration APIs:
 
@@ -258,6 +261,9 @@ Calibration APIs:
    `goal_arm`, or `goal_continuation`.
 7. Provider observations cannot erase newer desired state or tombstones.
 8. Provider-specific capabilities and evidence stay behind `GoalAdapter`.
+9. A provider-authored Goal adoption is conditional on the revision observed
+   when it entered the adoption lane; actor wait time cannot make stale
+   evidence appear newer.
 
 ## Compatibility
 

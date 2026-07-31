@@ -223,6 +223,12 @@ type codexAppServerSession struct {
 	goalGenerationBindings           map[string]codexGoalGenerationBinding
 	goalGenerationOrder              []string
 	currentGoalGenerationFingerprint string
+	// currentGoalGenerationLineage identifies the provider Goal independently
+	// of mutable status/progress timestamps. Its owner lets late updates from
+	// an older set/pause/resume/clear revision fail closed without entering
+	// provider-authored Goal adoption.
+	currentGoalGenerationLineage  string
+	currentGoalGenerationIdentity goalOperationIdentity
 	// providerGoalAdoptionsInFlight keeps provider-authored generation
 	// persistence off the app-server read loop while preventing a continuation
 	// turn from exhausting its provenance grace window before the durable

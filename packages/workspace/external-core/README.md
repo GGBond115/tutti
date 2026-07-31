@@ -46,6 +46,11 @@ Supporting hosts advertise this surface as `agentActivity@1` in
 `app.getContext().capabilities`. Apps should also feature-detect the bridge when
 they need to remain usable in a normal browser or on an older host.
 
+`listTargets().agents[].iconUrl` is a Host-resolved presentation URL and may be
+a small `data:` URL when the source icon is local to the Desktop Host. Apps
+should render it as an optional enhancement and keep a static or text fallback
+for missing, rejected, or unloadable icons.
+
 Use `getSnapshot()` to observe session, turn, and message outcomes. The browser
 app may poll this method; the host remains the owner of synchronization and
 provider-specific transport. Apps that need an independent, app-owned Agent

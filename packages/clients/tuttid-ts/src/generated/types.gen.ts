@@ -2511,7 +2511,7 @@ export type SendWorkspaceAgentSessionInputGoalControlResponse = {
    * Durable GoalControlOperation identity when kind is goalControl.
    */
   operationId?: string | null;
-  goal?: WorkspaceAgentSessionGoal | null;
+  goal: WorkspaceAgentSessionGoal | null;
   goalState?: WorkspaceAgentSessionGoalState | null;
 };
 
@@ -2972,12 +2972,16 @@ export type UpdateWorkspaceAgentSessionVisibilityRequest = {
 
 export type WorkspaceAgentSessionGoalControlRequest = {
   action: "pause" | "resume" | "clear" | "set";
+  /**
+   * Caller-stable idempotency identity for this Goal Control mutation.
+   */
+  clientSubmitId?: string;
   objective?: string;
 };
 
 export type WorkspaceAgentSessionGoalControlResponse = {
   session: WorkspaceAgentSession;
-  goal?: WorkspaceAgentSessionGoal | null;
+  goal: WorkspaceAgentSessionGoal | null;
   /**
    * Durable GoalControlOperation identity; null only for compatibility runtimes without a goal store.
    */
@@ -3011,6 +3015,11 @@ export type WorkspaceAgentSessionGoalStateResponse = {
   state: WorkspaceAgentSessionGoalState;
 };
 
+export type WorkspaceAgentInitialGoalControl = {
+  action: "pause" | "resume" | "clear" | "set";
+  objective?: string;
+};
+
 export type CreateWorkspaceAgentSessionRequest = {
   agentSessionId: string;
   /**
@@ -3024,6 +3033,10 @@ export type CreateWorkspaceAgentSessionRequest = {
   recordingId?: string | null;
   submitDiagnostics?: AgentSubmitDiagnostics;
   initialContent: Array<AgentPromptContentBlock>;
+  /**
+   * Optional typed Goal Control applied after the Session is created without opening an initial Turn. Must not be combined with non-empty initialContent.
+   */
+  initialGoalControl?: WorkspaceAgentInitialGoalControl | null;
   /**
    * Optional display-only text for the first turn (e.g. a folder bundle shown as one chip while initialContent carries the expanded files).
    */

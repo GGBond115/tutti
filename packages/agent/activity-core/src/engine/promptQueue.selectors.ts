@@ -1,11 +1,11 @@
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 import type {
   EngineQueuedPrompt,
   PromptQueueRecord
 } from "./promptQueue.types.ts";
 
 export function selectEnginePromptQueue(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): PromptQueueRecord | null {
   const id = agentSessionId?.trim() ?? "";
@@ -13,14 +13,14 @@ export function selectEnginePromptQueue(
 }
 
 export function selectEngineQueuedPrompts(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): readonly EngineQueuedPrompt[] {
   return selectEnginePromptQueue(state, agentSessionId)?.prompts ?? [];
 }
 
 export function selectEngineHasQueuedPrompts(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineStateBase
 ): boolean {
   return Object.values(state.promptQueue.recordsBySessionId).some(
     (record) => record.prompts.length > 0
@@ -28,7 +28,7 @@ export function selectEngineHasQueuedPrompts(
 }
 
 export function selectEngineQueuedPrompt(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined,
   promptId: string | null | undefined
 ): EngineQueuedPrompt | null {
@@ -41,14 +41,14 @@ export function selectEngineQueuedPrompt(
 }
 
 export function selectEnginePromptQueueError(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): string | null {
   return selectEnginePromptQueue(state, agentSessionId)?.failureMessage ?? null;
 }
 
 export function selectEngineHasVisibleQueuedSubmit(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined,
   clientSubmitId: string | null | undefined
 ): boolean {

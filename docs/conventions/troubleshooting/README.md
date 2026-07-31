@@ -109,6 +109,7 @@ App Center, workspace-app lifecycle, App Factory, file references, and File Mana
 
 - [App Factory job keeps loading after AgentGUI Stop](./workspace-apps-files.md#app-factory-job-keeps-loading-after-agentgui-stop)
 - [App Center list requests repeatedly log runtime preload](./workspace-apps-files.md#app-center-list-requests-repeatedly-log-runtime-preload)
+- [Workspace app commands fail inside Corepack before pnpm starts](./workspace-apps-files.md#workspace-app-commands-fail-inside-corepack-before-pnpm-starts)
 - [Workspace app uninstall fails on cached manifest validation](./workspace-apps-files.md#workspace-app-uninstall-fails-on-cached-manifest-validation)
 - [Workspace app update reopens the old dock window](./workspace-apps-files.md#workspace-app-update-reopens-the-old-dock-window)
 - [Agent inline app opening leaks into the OS App Center](./workspace-apps-files.md#agent-inline-app-opening-leaks-into-the-os-app-center)

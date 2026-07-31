@@ -20,8 +20,12 @@ interface AgentGUIConfigMenuProps {
   slashStatusLimitsResolvedEmpty: boolean;
   slashStatusUsageCapturedAtUnixMs: number | null;
   slashStatusUsageDidFail: boolean;
+  slashStatusUsageErrorLabel?: string | null;
   slashStatusUsageAttempted: boolean;
   provider?: string | null;
+  providerIconUrl?: string | null;
+  providerMaskIconUrl?: string | null;
+  providerLabel?: string | null;
   providerAuthAccountLabel?: string | null;
   onAgentConfigMenuOpen?: () => void;
   onAgentConfigMenuClose?: () => void;
@@ -44,8 +48,12 @@ export function AgentGUIConfigMenu({
   slashStatusLimitsResolvedEmpty,
   slashStatusUsageCapturedAtUnixMs,
   slashStatusUsageDidFail,
+  slashStatusUsageErrorLabel,
   slashStatusUsageAttempted,
   provider,
+  providerIconUrl,
+  providerMaskIconUrl: targetMaskIconUrl,
+  providerLabel,
   providerAuthAccountLabel,
   onAgentConfigMenuOpen,
   onAgentConfigMenuClose,
@@ -54,11 +62,18 @@ export function AgentGUIConfigMenu({
   onOpenAgentSettings
 }: AgentGUIConfigMenuProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const providerFlatIconUrl = resolveAgentGuiSessionProviderFlatIconUrl(
+  const builtInMaskIconUrl = resolveAgentGuiSessionProviderFlatIconUrl(
     provider ?? undefined
   );
-  const providerDisplayTitle = provider?.trim()
-    ? labels.slashStatusProviderAccount(provider.trim())
+  const providerImageIconUrl = builtInMaskIconUrl
+    ? null
+    : (providerIconUrl?.trim() ?? null);
+  const providerMaskIconUrl =
+    builtInMaskIconUrl ??
+    (providerImageIconUrl ? null : (targetMaskIconUrl?.trim() ?? null));
+  const providerDisplayName = providerLabel?.trim() || provider?.trim();
+  const providerDisplayTitle = providerDisplayName
+    ? labels.slashStatusProviderAccount(providerDisplayName)
     : null;
   const accountTitle = providerDisplayTitle ?? labels.slashStatusAccount;
   const accountFallbackSuppressed =
@@ -116,14 +131,21 @@ export function AgentGUIConfigMenu({
             <>
               <div className="flex min-w-0 flex-col gap-2 p-2">
                 <div className="flex min-w-0 items-center gap-2">
-                  {providerFlatIconUrl ? (
+                  {providerMaskIconUrl ? (
                     <span
                       aria-hidden="true"
                       className="size-4 shrink-0 bg-current"
                       style={{
-                        mask: `url("${providerFlatIconUrl}") center / contain no-repeat`,
-                        WebkitMask: `url("${providerFlatIconUrl}") center / contain no-repeat`
+                        mask: `url("${providerMaskIconUrl}") center / contain no-repeat`,
+                        WebkitMask: `url("${providerMaskIconUrl}") center / contain no-repeat`
                       }}
+                    />
+                  ) : providerImageIconUrl ? (
+                    <img
+                      alt=""
+                      aria-hidden="true"
+                      className="size-4 shrink-0 object-contain"
+                      src={providerImageIconUrl}
                     />
                   ) : null}
                   <span className="text-[13px] font-semibold leading-4">
@@ -167,9 +189,11 @@ export function AgentGUIConfigMenu({
                         className="min-w-0 truncate text-[var(--text-tertiary)]"
                         data-testid="agent-gui-config-usage-unavailable"
                       >
-                        {slashStatusLimitsResolvedEmpty
-                          ? labels.slashStatusEmptyValue
-                          : labels.slashStatusLimitsUnavailable}
+                        {slashStatusUsageDidFail && slashStatusUsageErrorLabel
+                          ? slashStatusUsageErrorLabel
+                          : slashStatusLimitsResolvedEmpty
+                            ? labels.slashStatusEmptyValue
+                            : labels.slashStatusLimitsUnavailable}
                       </span>
                     ) : null}
                   </div>

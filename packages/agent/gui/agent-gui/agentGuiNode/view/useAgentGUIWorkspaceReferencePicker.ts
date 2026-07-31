@@ -58,11 +58,9 @@ export function useAgentGUIWorkspaceReferencePicker(input: Input) {
       if (workspaceReferencePickerPurpose === "directory") {
         return node.kind === "folder";
       }
-      return (
-        node.ref.sourceId !== hostLocalFileSourceId || node.kind === "file"
-      );
+      return true;
     },
-    [hostLocalFileSourceId, workspaceReferencePickerPurpose]
+    [workspaceReferencePickerPurpose]
   );
   const requestWorkspaceReferences = useCallback(
     async (

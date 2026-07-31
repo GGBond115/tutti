@@ -320,6 +320,7 @@ function renderNewConversationScenario(input: {
     });
     const { submitPrompt } = useAgentGUISubmitInteractionActions({
       activation,
+      activeConversationId: activeConversationIdRef.current,
       activeConversationIdRef,
       activeEngineActiveTurn: null,
       activeEnginePendingInteractions: [],
@@ -333,7 +334,6 @@ function renderNewConversationScenario(input: {
       isCurrentConversation: () => false,
       isRespondingToInteraction: false,
       isSessionMarkedNonResumable: () => false,
-      optimisticGoalControl: null,
       persistActiveConversation: vi.fn(),
       planActionsRef: {
         current: {
@@ -349,7 +349,6 @@ function renderNewConversationScenario(input: {
       setDraftByScopeKey,
       setGoalClearNoticeSequence: vi.fn(),
       setIntent: vi.fn(),
-      setOptimisticGoalControl: vi.fn(),
       startConversation,
       submitPromptRef: { current: vi.fn() },
       submittedDraftSnapshotsRef,

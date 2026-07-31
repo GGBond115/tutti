@@ -6,6 +6,16 @@ import (
 	"strings"
 )
 
+type providerGoalGenerationRoute uint8
+
+const (
+	providerGoalGenerationKnownCurrent providerGoalGenerationRoute = iota
+	providerGoalGenerationPendingLocal
+	providerGoalGenerationStale
+	providerGoalGenerationBindCurrent
+	providerGoalGenerationAdopt
+)
+
 // scheduleProviderGoalAdoption moves provider-native create_goal persistence
 // off the app-server read loop. The in-flight generation marker keeps any
 // immediately following continuation buffered until Host accepts or rejects
@@ -28,9 +38,10 @@ func (a *CodexAppServerAdapter) scheduleProviderGoalAdoption(session Session, go
 		revision:    appSession.goalRevision,
 		repairEpoch: appSession.goalRepairEpoch,
 	}
-	if binding, found := appSession.goalGenerationBindings[fingerprint]; found &&
-		!binding.ambiguous && binding.identity == current &&
-		appSession.currentGoalGenerationFingerprint == fingerprint {
+	route := classifyProviderGoalGenerationLocked(appSession, goal, fingerprint, current)
+	if route == providerGoalGenerationKnownCurrent ||
+		route == providerGoalGenerationPendingLocal ||
+		route == providerGoalGenerationStale {
 		a.mu.Unlock()
 		return
 	}
@@ -50,7 +61,78 @@ func (a *CodexAppServerAdapter) scheduleProviderGoalAdoption(session Session, go
 	appSession.providerGoalAdoptionsInFlight[fingerprint] = struct{}{}
 	a.mu.Unlock()
 	session.ProviderSessionID = threadID
-	go a.adoptProviderGoalGeneration(session, clonePayload(goal), fingerprint, sink, threadID)
+	if route == providerGoalGenerationBindCurrent {
+		go a.bindCurrentProviderGoalGeneration(session, clonePayload(goal), fingerprint, current)
+		return
+	}
+	go a.adoptProviderGoalGeneration(session, clonePayload(goal), fingerprint, current.revision, sink, threadID)
+}
+
+func classifyProviderGoalGenerationLocked(
+	appSession *codexAppServerSession,
+	goal map[string]any,
+	fingerprint string,
+	current goalOperationIdentity,
+) providerGoalGenerationRoute {
+	if appSession == nil {
+		return providerGoalGenerationStale
+	}
+	if binding, found := appSession.goalGenerationBindings[fingerprint]; found {
+		if binding.ambiguous || binding.identity != current {
+			return providerGoalGenerationStale
+		}
+		return providerGoalGenerationKnownCurrent
+	}
+	if claim := appSession.goalContinuationClaim; claim != nil && !claim.ready && claim.identity == current {
+		return providerGoalGenerationPendingLocal
+	}
+	lineage := codexGoalGenerationLineage(goal)
+	if lineage != "" && lineage == appSession.currentGoalGenerationLineage {
+		if !current.valid() || appSession.currentGoalGenerationIdentity != current {
+			return providerGoalGenerationStale
+		}
+		return providerGoalGenerationBindCurrent
+	}
+	return providerGoalGenerationAdopt
+}
+
+func (a *CodexAppServerAdapter) providerGoalUpdateSuperseded(agentSessionID string, goal map[string]any) bool {
+	if a == nil {
+		return true
+	}
+	fingerprint := codexGoalGenerationFingerprint(goal)
+	if fingerprint == "" {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	appSession := a.sessions[strings.TrimSpace(agentSessionID)]
+	if appSession == nil {
+		return true
+	}
+	current := goalOperationIdentity{
+		operationID: appSession.goalOperationID,
+		revision:    appSession.goalRevision,
+		repairEpoch: appSession.goalRepairEpoch,
+	}
+	return classifyProviderGoalGenerationLocked(appSession, goal, fingerprint, current) == providerGoalGenerationStale
+}
+
+func (a *CodexAppServerAdapter) bindCurrentProviderGoalGeneration(
+	session Session,
+	goal map[string]any,
+	fingerprint string,
+	identity goalOperationIdentity,
+) {
+	agentSessionID := strings.TrimSpace(session.AgentSessionID)
+	defer a.finishProviderGoalAdoption(agentSessionID, fingerprint)
+	if err := a.bindGoalGeneration(context.Background(), session, goal, identity); err != nil {
+		slog.Warn("agent session app-server current Goal generation binding failed",
+			"event", "agent_session.app_server.goal.current_generation_binding_failed",
+			"agent_session_id", agentSessionID,
+			"error", err.Error(),
+		)
+	}
 }
 
 // adoptProviderGoalGeneration gives a provider-native create_goal call a
@@ -61,6 +143,7 @@ func (a *CodexAppServerAdapter) adoptProviderGoalGeneration(
 	session Session,
 	goal map[string]any,
 	fingerprint string,
+	expectedRevision int64,
 	sink ProviderGoalAdoptionSink,
 	threadID string,
 ) {
@@ -68,8 +151,9 @@ func (a *CodexAppServerAdapter) adoptProviderGoalGeneration(
 	defer a.finishProviderGoalAdoption(agentSessionID, fingerprint)
 	ackCtx, cancel := context.WithTimeout(context.Background(), goalProvenanceDurableAckTimeout)
 	binding, err := sink(ackCtx, session, ProviderGoalAdoptionRequest{
-		Fingerprint: fingerprint,
-		Goal:        normalizedCodexGoal(goal),
+		Fingerprint:      fingerprint,
+		ExpectedRevision: expectedRevision,
+		Goal:             normalizedCodexGoal(goal),
 	})
 	cancel()
 	if err != nil {

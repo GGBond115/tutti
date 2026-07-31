@@ -411,7 +411,7 @@ func resolvedExistingManagedNodeRuntime(root string, environ func() []string) (m
 	nodeBinDir := filepath.Join(root, "node", "bin")
 	nodePath := filepath.Join(nodeBinDir, nodeBinaryName())
 	npmPath := filepath.Join(nodeBinDir, npmBinaryName())
-	if !isExecutablePath(nodePath) || !isExecutablePath(npmPath) {
+	if !managedruntime.NodeReady(root) {
 		return managedruntime.ResolvedRuntime{}, false
 	}
 	baseEnv := []string(nil)
@@ -431,11 +431,6 @@ func resolvedExistingManagedNodeRuntime(root string, environ func() []string) (m
 			"PATH=" + strings.Join(append([]string{nodeBinDir}, filepath.SplitList(basePath)...), string(os.PathListSeparator)),
 		},
 	}, true
-}
-
-func isExecutablePath(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0
 }
 
 func (s Service) resolveManagedRuntimeForProvider(ctx context.Context, require bool) (managedruntime.ResolvedRuntime, bool) {

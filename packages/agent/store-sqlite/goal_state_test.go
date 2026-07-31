@@ -75,6 +75,7 @@ func TestProviderGoalAdoptionRejectsConflictingActiveGeneration(t *testing.T) {
 	_, _, _, err := store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
 		OperationID: "goal-provider-same-objective", WorkspaceID: "ws-provider-conflict",
 		AgentSessionID: "session-provider-conflict", ClientSubmitID: "provider-same-objective",
+		ExpectedRevision: 1,
 		Goal:             map[string]any{"objective": "first", "status": "active"},
 		OccurredAtUnixMS: 25,
 	})
@@ -84,6 +85,7 @@ func TestProviderGoalAdoptionRejectsConflictingActiveGeneration(t *testing.T) {
 	_, _, _, err = store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
 		OperationID: "goal-provider-second", WorkspaceID: "ws-provider-conflict",
 		AgentSessionID: "session-provider-conflict", ClientSubmitID: "provider-second",
+		ExpectedRevision: 1,
 		Goal:             map[string]any{"objective": "second", "status": "active"},
 		OccurredAtUnixMS: 30,
 	})
@@ -103,6 +105,7 @@ func TestProviderGoalAdoptionRejectsConflictingActiveGeneration(t *testing.T) {
 	second, secondState, changed, err := store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
 		OperationID: "goal-provider-second", WorkspaceID: "ws-provider-conflict",
 		AgentSessionID: "session-provider-conflict", ClientSubmitID: "provider-second",
+		ExpectedRevision: 1,
 		Goal:             map[string]any{"objective": "second", "status": "active"},
 		OccurredAtUnixMS: 40,
 	})
@@ -155,12 +158,60 @@ func TestProviderGoalAdoptionAdvancesAfterClearedGeneration(t *testing.T) {
 	next, state, changed, err := store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
 		OperationID: "goal-provider-after-clear", WorkspaceID: "ws-provider-cleared",
 		AgentSessionID: "session-provider-cleared", ClientSubmitID: "provider-after-clear",
+		ExpectedRevision: 2,
 		Goal:             map[string]any{"objective": "second", "status": "active"},
 		OccurredAtUnixMS: 50,
 	})
 	if err != nil || !changed || next.GoalRevision != 3 || state.Revision != 3 ||
 		state.Tombstoned || state.SyncStatus != GoalSyncStatusSynced {
 		t.Fatalf("post-clear adoption operation=%#v state=%#v changed=%v error=%v", next, state, changed, err)
+	}
+}
+
+func TestProviderGoalAdoptionRejectsObservationQueuedBeforeClear(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	if _, err := store.ReportSessionState(ctx, SessionStateReport{
+		WorkspaceID: "ws-provider-stale", AgentSessionID: "session-provider-stale",
+		Provider: "codex", OccurredAtUnixMS: 10,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
+		OperationID: "goal-provider-stale-first", WorkspaceID: "ws-provider-stale",
+		AgentSessionID: "session-provider-stale", ClientSubmitID: "provider-stale-first",
+		Goal:             map[string]any{"objective": "first", "status": "active"},
+		OccurredAtUnixMS: 20,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.PrepareGoalControlOperation(ctx, GoalControlOperationPrepare{
+		OperationID: "goal-provider-stale-clear", WorkspaceID: "ws-provider-stale",
+		AgentSessionID: "session-provider-stale", ClientSubmitID: "provider-stale-clear",
+		Action: "clear", OccurredAtUnixMS: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := store.CompleteGoalControlOperation(ctx, GoalControlOperationComplete{
+		WorkspaceID: "ws-provider-stale", OperationID: "goal-provider-stale-clear",
+		Succeeded: true, OccurredAtUnixMS: 40,
+		Evidence: map[string]any{"source": "provider_ack", "confidence": "authoritative"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, staleState, _, err := store.AdoptProviderGoalOperation(ctx, ProviderGoalAdoption{
+		OperationID: "goal-provider-stale-late", WorkspaceID: "ws-provider-stale",
+		AgentSessionID: "session-provider-stale", ClientSubmitID: "provider-stale-late",
+		ExpectedRevision: 1,
+		Goal:             map[string]any{"objective": "first", "status": "active"},
+		OccurredAtUnixMS: 50,
+	})
+	if !errors.Is(err, ErrGoalGenerationSuperseded) {
+		t.Fatalf("stale provider adoption error = %v", err)
+	}
+	if staleState.Revision != 2 || !staleState.Tombstoned || staleState.Desired != nil {
+		t.Fatalf("stale provider adoption changed cleared state: %#v", staleState)
 	}
 }
 

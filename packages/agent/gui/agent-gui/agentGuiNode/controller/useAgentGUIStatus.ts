@@ -1,7 +1,10 @@
 import { useCallback, useMemo } from "react";
 import type { TranslateFn } from "../../../i18n/index";
 import { useEngineSelector } from "../../../shared/engine/useEngineSelector";
-import { buildDockAgentProbeTooltipLines } from "../../workspaceDesktop/view/desktopDockAgentProbeTooltipModel";
+import {
+  agentProbeErrorLabel,
+  buildDockAgentProbeTooltipLines
+} from "../../workspaceDesktop/view/desktopDockAgentProbeTooltipModel";
 import type { AgentComposerSlashStatus } from "../AgentComposer";
 import type { AgentGUINodeProps } from "../AgentGUINode.types";
 import {
@@ -104,13 +107,18 @@ export function useAgentGUIStatus(input: {
       (value.limitsState === "available" || value.quotas.length > 0)
         ? {
             usage: {
+              accountTier: value.accountLabel ?? undefined,
               quotas: [...value.quotas],
               capturedAtUnixMs: value.limitsCapturedAtUnixMs ?? 0
             }
           }
         : {}),
       ...(value?.limitsState === "error"
-        ? { lastError: { code: "runtime_unavailable" } }
+        ? {
+            lastError: {
+              code: value.limitsErrorCode?.trim() || "runtime_unavailable"
+            }
+          }
         : {})
     };
   }, [activeAgentStatusSnapshot.value, input.activeProvider]);
@@ -263,6 +271,7 @@ export function useAgentGUIStatus(input: {
   ]);
   const controllerRailStatus = agentStatusController
     ? {
+        accountLabel: railAgentStatusSnapshot.value?.accountLabel ?? null,
         limits: railAgentStatusLimits,
         loading:
           railAgentStatusSnapshot.phase === "loading" &&
@@ -272,6 +281,13 @@ export function useAgentGUIStatus(input: {
         didFail:
           railAgentStatusSnapshot.errorCode !== null ||
           railAgentStatusSnapshot.value?.limitsState === "error",
+        errorLabel:
+          railAgentStatusSnapshot.value?.limitsState === "error"
+            ? agentProbeErrorLabel(
+                railAgentStatusSnapshot.value.limitsErrorCode,
+                t
+              )
+            : null,
         attempted:
           railAgentStatusSnapshot.value !== null ||
           railAgentStatusSnapshot.errorCode !== null,

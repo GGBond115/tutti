@@ -1,5 +1,6 @@
 export type { AgentActivityAdapter } from "./adapter.ts";
 export { AGENT_ACTIVITY_LIVE_PROTOCOL_REVISION } from "./liveProtocolRevision.gen.ts";
+export { parseAgentActivityGoalControlText } from "./goalControl.ts";
 export type { AgentActivityLiveEvent } from "./liveEvent.types.ts";
 export type { AgentActivityComposerModelConfiguration } from "./composerModelConfiguration.types.ts";
 export type { AgentActivityDisplayStatus } from "./displayStatus.types.ts";
@@ -98,6 +99,19 @@ export type {
   EngineTypedCommandPort
 } from "./engine/types.ts";
 export { AGENT_SESSION_ENGINE_LOCAL_ORIGIN } from "./engine/types.ts";
+export {
+  selectSessionGoalControlPresentation,
+  selectSessionGoalControlSettlement,
+  sessionGoalControlPresentationsEqual
+} from "./engine/sessionGoalControl.selectors.ts";
+export type {
+  AgentSessionControlGoalAdmission,
+  AgentSessionControlGoalInput,
+  AgentSessionGoalControlEffectInput,
+  SessionGoalControlPresentation,
+  SessionGoalControlPresentationStatus,
+  SessionGoalControlSettlement
+} from "./engine/sessionGoalControl.types.ts";
 export { selectWorkspaceReconcileState } from "./engine/engineRuntime.selectors.ts";
 export {
   editRetryPresentationRecordsEqual,
@@ -392,6 +406,8 @@ export type {
   AgentActivitySessionForkLineage,
   AgentActivitySessionCapabilities,
   AgentActivitySessionGoal,
+  AgentActivitySessionGoalState,
+  AgentActivitySessionGoalSyncStatus,
   AgentActivitySessionPermissionConfig,
   AgentActivitySessionUsage,
   AgentActivitySessionSettings,

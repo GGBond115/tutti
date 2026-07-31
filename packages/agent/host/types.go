@@ -559,10 +559,14 @@ type RailPlacement struct {
 // import paths, workspace resolution, identity, and transport state are not
 // part of this type.
 type CreateSessionInput struct {
-	AgentSessionID       string
-	AgentTargetID        string
-	Provider             string
-	InitialContent       []PromptContentBlock
+	AgentSessionID string
+	AgentTargetID  string
+	Provider       string
+	InitialContent []PromptContentBlock
+	// InitialGoalControl applies a Goal mutation after creating the Session
+	// without opening an initial Turn. It is mutually exclusive with
+	// InitialContent; ClientSubmitID is the durable mutation identity.
+	InitialGoalControl   *TypedGoalControl
 	InitialDisplayPrompt string
 	Metadata             map[string]any
 	// ClientSubmitID is the caller-owned idempotency identity for the optional
@@ -900,7 +904,11 @@ type ProviderGoalAdoptionInput struct {
 	AgentSessionID    string
 	ProviderSessionID string
 	Fingerprint       string
-	Goal              map[string]any
+	// ExpectedRevision is the canonical Goal revision observed when the
+	// provider generation entered the adoption lane. Host rejects the
+	// adoption if a newer set/clear/pause/resume serialized first.
+	ExpectedRevision int64
+	Goal             map[string]any
 }
 
 type ProviderGoalAdoptionResult struct {

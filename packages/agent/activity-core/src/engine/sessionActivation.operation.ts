@@ -1,7 +1,7 @@
 import { selectPendingActivationByRequestId } from "./pendingIntents.selectors.ts";
 import type {
   AgentSessionActivationInput,
-  AgentSessionEngineState,
+  AgentSessionEngineStateBase,
   EngineClock,
   EngineIntent
 } from "./types.ts";
@@ -11,7 +11,7 @@ const SESSION_ACTIVATION_CONFIRMATION_TIMEOUT_MS = 120_000;
 interface SessionActivationOperationContext {
   clock: EngineClock;
   dispatch(intent: EngineIntent): void;
-  getSnapshot(): AgentSessionEngineState;
+  getSnapshot(): AgentSessionEngineStateBase;
   workspaceId: string;
 }
 

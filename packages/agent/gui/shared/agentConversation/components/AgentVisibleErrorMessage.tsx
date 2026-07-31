@@ -84,7 +84,9 @@ export function AgentVisibleErrorMessage({
   // raw upstream text.
   const isPlanOrQuotaLimit =
     error?.code === "quota_or_rate_limit" ||
-    error?.code === "insufficient_credits";
+    error?.code === "insufficient_credits" ||
+    error?.code === "model_not_allowed" ||
+    error?.code === "subscription_required";
   return (
     <section
       role={isPlanOrQuotaLimit ? "status" : "alert"}

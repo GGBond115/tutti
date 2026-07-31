@@ -4,6 +4,7 @@ import {
   selectRootAgentSessionIdsWithPendingInteractions,
   selectEngineTurnsForSession,
   selectEngineInteractionResponse,
+  selectSessionGoalControlPresentation,
   selectEngineSessionRuntimeAvailability,
   selectComposerOptions,
   selectComposerOptionsLoadStatus,
@@ -160,7 +161,11 @@ export function projectWorkspaceActivitySnapshot({
         !sessions.some(
           (session) => session.agentSessionId === record.agentSessionId
         )
-    );
+    ) ||
+    selectSessionGoalControlPresentation(
+      state,
+      navigation.selectedAgentSessionId
+    ).status === "pending";
   const pinningSessionIds = selectSessionMutations(state).flatMap((mutation) =>
     mutation.kind === "pin" && mutation.status === "inFlight"
       ? mutation.agentSessionIds

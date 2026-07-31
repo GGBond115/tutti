@@ -9,6 +9,8 @@ export type AgentHostAgentSessionComposerSettings =
   SharedAgentHostAgentSessionComposerSettings;
 
 export interface AgentHostAgentSessionComposerSettingsInput {
+  browserUse?: boolean | null;
+  computerUse?: boolean | null;
   model?: string | null;
   permissionModeId?: string | null;
   planMode?: boolean | null;
@@ -35,6 +37,12 @@ export function normalizeComposerSettings(
   settings: AgentHostAgentSessionComposerSettingsInput | null | undefined
 ): AgentHostAgentSessionComposerSettings {
   return {
+    ...(typeof settings?.browserUse === "boolean"
+      ? { browserUse: settings.browserUse }
+      : {}),
+    ...(typeof settings?.computerUse === "boolean"
+      ? { computerUse: settings.computerUse }
+      : {}),
     model: normalizedOptionalString(settings?.model),
     permissionModeId: resolveComposerPermissionMode(settings),
     planMode: Boolean(settings?.planMode),

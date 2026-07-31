@@ -31,10 +31,12 @@ import type {
   WorkbenchContribution,
   WorkbenchHostDockEntryPresentationOverrides,
   WorkbenchHostHandle,
+  WorkbenchHostNodeData,
   WorkbenchHostNodeDefinition,
   WorkbenchHostRuntimeHandle,
   WorkbenchHostSnapshotRepository
 } from "./types.ts";
+import { useWorkbenchHostSurfaceRenderers } from "./useWorkbenchHostSurfaceRenderers.tsx";
 
 function WorkbenchGenieIdentityProbe({
   controller,
@@ -104,6 +106,80 @@ function createTestGenieController(
 }
 
 describe("WorkbenchHost", () => {
+  it("derives the Dock preview capture from combined preview images", async () => {
+    const captureNodePreviewImages = vi.fn(async () => ({
+      dockPreviewImageUrl: "data:image/png;base64,RE9DSw==",
+      genieImageUrl: "data:image/png;base64,R0VOSUU="
+    }));
+    const node = {
+      data: {
+        instanceId: "agent-gui-1",
+        instanceKey: null,
+        typeId: "agent-gui"
+      },
+      id: "agent-gui:agent-gui-1",
+      isMinimized: false
+    } as WorkbenchNode<WorkbenchHostNodeData>;
+    let captureNodePreviewImage:
+      | ReturnType<
+          typeof useWorkbenchHostSurfaceRenderers
+        >["captureNodePreviewImage"]
+      | null = null;
+
+    function CaptureProbe() {
+      captureNodePreviewImage = useWorkbenchHostSurfaceRenderers({
+        captureNodePreviewImages,
+        chromeContext: {} as never,
+        dockEntries: [],
+        hostI18n: {} as never,
+        hostSession: {
+          getSnapshot: () => ({ nodeStack: [node.id] })
+        } as WorkbenchHostRuntimeHandle,
+        nodeDefinitionByType: new Map(),
+        workspaceId: "workspace-1"
+      }).captureNodePreviewImage;
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const previousActEnvironment = (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT;
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(<CaptureProbe />);
+      });
+
+      const capture = captureNodePreviewImage as
+        | ReturnType<
+            typeof useWorkbenchHostSurfaceRenderers
+          >["captureNodePreviewImage"]
+        | null;
+      if (!capture) {
+        throw new Error("Expected Dock preview capture");
+      }
+      await expect(capture(node)).resolves.toBe(
+        "data:image/png;base64,RE9DSw=="
+      );
+      expect(captureNodePreviewImages).toHaveBeenCalledOnce();
+      expect(captureNodePreviewImages).toHaveBeenCalledWith(node);
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+      container.remove();
+      (
+        globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+      ).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    }
+  });
+
   it("keeps the host session when Dock presentation overrides change identity", async () => {
     const container = document.createElement("div");
     document.body.append(container);

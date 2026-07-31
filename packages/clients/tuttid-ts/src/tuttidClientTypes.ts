@@ -179,6 +179,7 @@ import type {
   UserProjectPathCheckResponse
 } from "./generated/index.ts";
 import type { WorkspaceAgentConfigurationClient } from "./workspaceAgentConfigurationClient.ts";
+import type { CollaborationRunsClient } from "./collaborationRunsClient.ts";
 import type { WorkspaceIssueOrchestrationClient } from "./workspaceIssueOrchestrationClient.ts";
 
 export type TuttidRequestOptions = Omit<
@@ -204,7 +205,10 @@ export interface MobileRemoteAccessClient {
 }
 
 export interface TuttidClient
-  extends WorkspaceAgentConfigurationClient, WorkspaceIssueOrchestrationClient {
+  extends
+    CollaborationRunsClient,
+    WorkspaceAgentConfigurationClient,
+    WorkspaceIssueOrchestrationClient {
   listAgentQuickPrompts(): Promise<AgentQuickPromptListResponse>;
   createAgentQuickPrompt(
     request: CreateAgentQuickPromptRequest
@@ -890,7 +894,8 @@ export interface TuttidClient
   goalControlWorkspaceAgentSession(
     workspaceID: string,
     agentSessionID: string,
-    request: WorkspaceAgentSessionGoalControlRequest
+    request: WorkspaceAgentSessionGoalControlRequest,
+    requestOptions?: TuttidRequestOptions
   ): Promise<GoalControlWorkspaceAgentSessionResponse>;
   getWorkspaceAgentSessionGoal(
     workspaceID: string,

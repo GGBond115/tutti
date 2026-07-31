@@ -93,6 +93,68 @@ describe("AgentGUIConfigMenu", () => {
     expect(screen.getByText("Weekly")).toBeInTheDocument();
   });
 
+  it("uses the Agent Target label in the account heading", () => {
+    render(
+      <AgentGUIConfigMenu
+        environmentSetupVisible={false}
+        labels={labels}
+        providerScopedActionsVisible
+        provider="acp:kimi-code"
+        providerIconUrl="kimi-code.png"
+        providerMaskIconUrl="kimi-code-mask.png"
+        providerLabel="Kimi Code"
+        providerAuthAccountLabel="API Usage Billing"
+        slashStatusLimits={[]}
+        slashStatusLimitsLoading={false}
+        slashStatusLimitsResolvedEmpty
+        slashStatusUsageCapturedAtUnixMs={100}
+        slashStatusUsageDidFail={false}
+        slashStatusUsageAttempted
+        onOpenAgentEnvSetup={vi.fn()}
+        onOpenAgentSettings={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+
+    expect(screen.getByText("Kimi Code account")).toBeInTheDocument();
+    expect(screen.getByText("API Usage Billing")).toBeInTheDocument();
+    expect(
+      document.querySelector('img[src="kimi-code.png"]')
+    ).toBeInTheDocument();
+    expect(
+      document.querySelector('span[style*="kimi-code-mask.png"]')
+    ).toBeNull();
+  });
+
+  it("uses a custom mask only when no original icon exists", () => {
+    render(
+      <AgentGUIConfigMenu
+        environmentSetupVisible={false}
+        labels={labels}
+        providerScopedActionsVisible
+        provider="acp:custom"
+        providerMaskIconUrl="custom-mask.png"
+        providerLabel="Custom"
+        providerAuthAccountLabel="Signed in"
+        slashStatusLimits={[]}
+        slashStatusLimitsLoading={false}
+        slashStatusLimitsResolvedEmpty
+        slashStatusUsageCapturedAtUnixMs={null}
+        slashStatusUsageDidFail={false}
+        slashStatusUsageAttempted
+        onOpenAgentEnvSetup={vi.fn()}
+        onOpenAgentSettings={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+
+    expect(
+      document.querySelector('span[style*="custom-mask.png"]')
+    ).toBeInTheDocument();
+  });
+
   it.each([false, true, 0, ""])(
     "preserves the provider fallback for non-rendering Host content %#",
     (accountContent) => {
@@ -161,5 +223,32 @@ describe("AgentGUIConfigMenu", () => {
     expect(screen.queryByText("tutti-agent account")).not.toBeInTheDocument();
     expect(screen.queryByText("233749")).not.toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
+  });
+
+  it("shows the localized stable usage error in the provider fallback", () => {
+    render(
+      <AgentGUIConfigMenu
+        environmentSetupVisible={false}
+        labels={labels}
+        providerScopedActionsVisible
+        provider="acp:kimi-code"
+        providerAuthAccountLabel="Coding Plan"
+        slashStatusLimits={[]}
+        slashStatusLimitsLoading={false}
+        slashStatusLimitsResolvedEmpty={false}
+        slashStatusUsageCapturedAtUnixMs={null}
+        slashStatusUsageDidFail
+        slashStatusUsageErrorLabel="Coding Plan required"
+        slashStatusUsageAttempted
+        onAgentConfigMenuOpen={vi.fn()}
+        onOpenAgentEnvSetup={vi.fn()}
+        onOpenAgentSettings={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+
+    expect(screen.getByText("Coding Plan required")).toBeInTheDocument();
+    expect(screen.queryByText("Unavailable")).not.toBeInTheDocument();
   });
 });

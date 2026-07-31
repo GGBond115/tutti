@@ -1,12 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
 	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
 	agentquickpromptbiz "github.com/tutti-os/tutti/services/tuttid/biz/agentquickprompt"
 )
@@ -191,5 +194,21 @@ func TestDaemonAPIAgentQuickPromptServiceUnavailable(t *testing.T) {
 	response := performGeneratedRouteRequest(t, mux, http.MethodGet, "/v1/agent-quick-prompts", nil)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d; body: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestGeneratedAgentSlashCommandPolicyKeepsEmptyCommandsAsArray(t *testing.T) {
+	policy := generatedAgentSlashCommandPolicy(
+		&providerregistry.SlashCommandPolicyDescriptor{},
+	)
+	if policy == nil {
+		t.Fatal("generatedAgentSlashCommandPolicy() = nil")
+	}
+	encoded, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if !bytes.Contains(encoded, []byte(`"fallbackCommands":[]`)) {
+		t.Fatalf("generated policy = %s, want empty fallbackCommands array", encoded)
 	}
 }

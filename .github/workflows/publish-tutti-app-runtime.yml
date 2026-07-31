@@ -186,13 +186,23 @@ jobs:
           script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
           exec "${script_dir}/node" "${script_dir}/../lib/node_modules/npm/bin/npx-cli.js" "$@"
           SH
-          chmod 0755 "${node_staging}/node/bin/npm" "${node_staging}/node/bin/npx"
+          cat > "${node_staging}/node/bin/corepack" <<'SH'
+          #!/bin/sh
+          script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+          exec "${script_dir}/node" "${script_dir}/../lib/node_modules/corepack/dist/corepack.js" "$@"
+          SH
+          chmod 0755 \
+            "${node_staging}/node/bin/npm" \
+            "${node_staging}/node/bin/npx" \
+            "${node_staging}/node/bin/corepack"
           test -x "${python_staging}/python/bin/python3"
           test -x "${node_staging}/node/bin/node"
           test -x "${node_staging}/node/bin/npm"
           test -x "${node_staging}/node/bin/npx"
+          test -x "${node_staging}/node/bin/corepack"
           PATH="${node_staging}/node/bin:${PATH}" "${node_staging}/node/bin/npm" --version
           PATH="${node_staging}/node/bin:${PATH}" "${node_staging}/node/bin/npx" --version
+          PATH="${node_staging}/node/bin:${PATH}" "${node_staging}/node/bin/corepack" --version
           find "${python_staging}" "${node_staging}" -exec touch -h -t 202606010000 {} +
           (cd "${python_staging}" && zip -X -qry "${python_artifact_dir}/${python_artifact_file}" .)
           (cd "${node_staging}" && zip -X -qry "${node_artifact_dir}/${node_artifact_file}" .)

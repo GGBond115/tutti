@@ -21,6 +21,7 @@ func (h *Host) AdoptProviderGoal(ctx context.Context, input ProviderGoalAdoption
 	fingerprint := strings.TrimSpace(input.Fingerprint)
 	goal := clonePayload(input.Goal)
 	if workspaceID == "" || agentSessionID == "" || providerSessionID == "" || fingerprint == "" ||
+		input.ExpectedRevision < 0 ||
 		strings.TrimSpace(metadataString(goal, "objective")) == "" ||
 		strings.TrimSpace(metadataString(goal, "status")) != "active" {
 		return ProviderGoalAdoptionResult{}, ErrInvalidArgument
@@ -46,7 +47,7 @@ func (h *Host) AdoptProviderGoal(ctx context.Context, input ProviderGoalAdoption
 			var adoptErr error
 			operation, state, _, adoptErr = h.goals.AdoptProviderGoalOperation(goalCtx, storesqlite.ProviderGoalAdoption{
 				OperationID: operationID, WorkspaceID: workspaceID, AgentSessionID: agentSessionID,
-				ClientSubmitID: clientSubmitID, Goal: goal,
+				ClientSubmitID: clientSubmitID, ExpectedRevision: input.ExpectedRevision, Goal: goal,
 				Evidence: map[string]any{
 					"source":            providerGoalAdoptionSource,
 					"confidence":        "authoritative",

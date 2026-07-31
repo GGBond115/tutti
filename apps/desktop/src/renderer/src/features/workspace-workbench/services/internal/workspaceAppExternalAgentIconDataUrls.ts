@@ -1,3 +1,4 @@
+import { resolveAgentGUIProviderCatalogIdentity } from "@tutti-os/agent-gui/provider-catalog";
 import claudeCodeIconDataUrl from "../../../../assets/workspace-app-external/agent-mentions/claudecode.webp?inline";
 import codexIconDataUrl from "../../../../assets/workspace-app-external/agent-mentions/codex.webp?inline";
 import cursorIconDataUrl from "../../../../assets/workspace-app-external/agent-mentions/cursor.webp?inline";
@@ -15,3 +16,18 @@ export const workspaceAppExternalAgentIconDataUrlsByIconKey: Readonly<
   opencode: opencodeIconDataUrl,
   tutti: tuttiIconDataUrl
 };
+
+export function serializeWorkspaceAppExternalAgentIconUrl(
+  iconUrl: string | null | undefined,
+  agentProviderId: string | null | undefined
+): string {
+  const normalizedIconUrl = iconUrl?.trim() ?? "";
+  if (!normalizedIconUrl.startsWith("file:")) {
+    return normalizedIconUrl;
+  }
+  const iconKey =
+    resolveAgentGUIProviderCatalogIdentity(agentProviderId)?.iconKey ?? "";
+  return (
+    workspaceAppExternalAgentIconDataUrlsByIconKey[iconKey] ?? normalizedIconUrl
+  );
+}

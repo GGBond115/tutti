@@ -21,6 +21,7 @@ type RuntimeBinding struct {
 	Version                      string
 	Source                       string
 	ToolAliases                  map[string]string
+	AuthenticationMethods        map[string]AuthenticationMethodProfile
 	ModelConfigOptionID          string
 	PermissionConfigOptionID     string
 	ReasoningConfigOptionID      string

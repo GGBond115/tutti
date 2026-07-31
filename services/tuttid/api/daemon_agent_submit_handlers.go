@@ -52,6 +52,7 @@ func (api DaemonAPI) CreateWorkspaceAgentSession(ctx context.Context, request tu
 			InvalidRequestErrorJSONResponse: invalidRequestError(activationErr),
 		}, nil
 	}
+	initialGoalControl := initialGoalControlFromGenerated(request.Body.InitialGoalControl)
 	clientSubmitID := strings.TrimSpace(request.Body.ClientSubmitId)
 	metadata := agentSubmitMetadata(request.Body.SubmitDiagnostics)
 	var recordingID string
@@ -80,6 +81,7 @@ func (api DaemonAPI) CreateWorkspaceAgentSession(ctx context.Context, request tu
 		AgentSessionID:             agentSessionID,
 		ClientSubmitID:             clientSubmitID,
 		AgentTargetID:              agentTargetID,
+		InitialGoalControl:         initialGoalControl,
 		InitialTuttiModeActivation: initialTuttiModeActivation,
 		CapabilityRefs:             capabilityRefs,
 		Cwd:                        request.Body.Cwd,
@@ -119,6 +121,7 @@ func (api DaemonAPI) CreateWorkspaceAgentSession(ctx context.Context, request tu
 			"content":                    request.Body.InitialContent,
 			"cwd":                        request.Body.Cwd,
 			"displayPrompt":              request.Body.InitialDisplayPrompt,
+			"initialGoalControl":         request.Body.InitialGoalControl,
 			"initialTuttiModeActivation": request.Body.InitialTuttiModeActivation,
 			"model":                      request.Body.Model,
 			"noProject":                  request.Body.NoProject,
@@ -161,6 +164,16 @@ func applyEffectiveCreateSessionLaunch(payload map[string]any, session agentserv
 	payload["planMode"] = session.Settings.PlanMode
 	payload["reasoningEffort"] = session.Settings.ReasoningEffort
 	payload["speed"] = session.Settings.Speed
+}
+
+func initialGoalControlFromGenerated(input *tuttigenerated.WorkspaceAgentInitialGoalControl) *agenthost.TypedGoalControl {
+	if input == nil {
+		return nil
+	}
+	return &agenthost.TypedGoalControl{
+		Action:    string(input.Action),
+		Objective: stringPtrValue(input.Objective),
+	}
 }
 
 func tuttiModeActivationIntentFromGenerated(input *tuttigenerated.TuttiModeActivationIntent) (*agentservice.TuttiModeActivationIntent, *apierrors.ProtocolError) {
@@ -254,7 +267,9 @@ func (api DaemonAPI) SendWorkspaceAgentSessionInput(ctx context.Context, request
 	var response tuttigenerated.SendWorkspaceAgentSessionInputResponse
 	if result.Kind == "goalControl" && result.GoalControl != nil {
 		goalResult := result.GoalControl
+		goal := generatedGoalControlProjection(&generatedSession, goalResult.Goal)
 		goalResponse := tuttigenerated.SendWorkspaceAgentSessionInputGoalControlResponse{
+			Goal:    goal,
 			Kind:    tuttigenerated.SendWorkspaceAgentSessionInputGoalControlResponseKindGoalControl,
 			Session: generatedSession,
 		}
@@ -264,12 +279,6 @@ func (api DaemonAPI) SendWorkspaceAgentSessionInput(ctx context.Context, request
 		if goalResult.GoalState != nil {
 			state := generatedAgentSessionGoalState(*goalResult.GoalState)
 			goalResponse.GoalState = &state
-		}
-		if len(goalResult.Goal) > 0 {
-			var goal tuttigenerated.WorkspaceAgentSessionGoal
-			if decodeTypedAgentSessionField(goalResult.Goal, &goal) {
-				goalResponse.Goal = &goal
-			}
 		}
 		if err := response.FromSendWorkspaceAgentSessionInputGoalControlResponse(goalResponse); err != nil {
 			return nil, err

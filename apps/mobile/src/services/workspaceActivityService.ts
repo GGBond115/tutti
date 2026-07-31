@@ -2,7 +2,10 @@ import {
   AGENT_SESSION_ENGINE_LOCAL_ORIGIN,
   createAgentActivitySnapshotProjector,
   createAgentSessionEngine,
+  parseAgentActivityGoalControlText,
   selectEngineSessionRuntimeAvailability,
+  selectPendingActivations,
+  selectSessionGoalControlSettlement,
   type AgentActivitySessionSettings,
   type AgentActivityInteraction,
   type AgentActivitySessionReconcileExecutor,
@@ -95,6 +98,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     this.projectActivity = createAgentActivitySnapshotProjector(workspace.id);
     const commandContext = () => ({
       client: this.client,
+      mapGoalControlResult: this.mapping.mapGoalControlResult,
       mapSession: this.mapping.mapSession,
       mapSessionDetail: this.mapping.mapSessionDetail,
       reconcileSession: (
@@ -402,12 +406,14 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     const draftKey = snapshot.creating
       ? "new"
       : (snapshot.selectedAgentSessionId ?? "none");
+    const goalControl = parseAgentActivityGoalControlText(text);
     const submission = resolvePendingSubmission(
       this.pendingSubmissionsByDraftKey.get(draftKey) ?? null,
       {
         agentSessionId: snapshot.selectedAgentSessionId,
         agentTargetId: snapshot.selectedAgentTargetId,
         creating: snapshot.creating,
+        kind: goalControl ? "goalControl" : "prompt",
         text
       }
     );
@@ -415,7 +421,9 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       await this.reconcileWorkspace().catch(() => undefined);
       this.reconcilePendingSubmissions();
       if (!this.pendingSubmissionsByDraftKey.has(draftKey)) return;
-      dismissPendingSubmission(this.engine, submission);
+      if (submission.kind === "prompt") {
+        dismissPendingSubmission(this.engine, submission);
+      }
       this.ambiguousDraftKeys.delete(draftKey);
       this.errorCode = null;
     }
@@ -434,7 +442,8 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
         agentTargetId: submission.agentTargetId!,
         clientSubmitId: submission.clientSubmitId,
         initialContent: content,
-        initialTurnExpected: true,
+        ...(goalControl ? { initialGoalControl: goalControl } : {}),
+        initialTurnExpected: !goalControl,
         mode: "new",
         requestId: submission.clientSubmitId,
         runtimeContent: content,
@@ -448,6 +457,25 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       return;
     }
     if (!snapshot.selectedAgentSessionId) return;
+    if (goalControl) {
+      const admission = this.engine.controlGoal({
+        action: goalControl.action,
+        agentSessionId: snapshot.selectedAgentSessionId,
+        clientSubmitId: submission.clientSubmitId,
+        ...(goalControl.objective ? { objective: goalControl.objective } : {})
+      });
+      // Keep the submitted text until Host durably accepts the Goal operation.
+      // The settlement pass clears it only if the user has not edited it.
+      if (!admission.accepted) {
+        this.pendingSubmissionsByDraftKey.delete(draftKey);
+      } else if (admission.clientSubmitId !== submission.clientSubmitId) {
+        this.pendingSubmissionsByDraftKey.set(draftKey, {
+          ...submission,
+          clientSubmitId: admission.clientSubmitId
+        });
+      }
+      return;
+    }
     const { accepted, queued } = this.engine.submitPrompt({
       agentSessionId: snapshot.selectedAgentSessionId,
       clientSubmitId: submission.clientSubmitId,
@@ -708,11 +736,52 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
           this.navigation.selectSession(submission.agentSessionId);
           continue;
         }
-        const record =
-          state.pendingIntents.activationsByRequestId[
-            submission.clientSubmitId
-          ];
+        const record = selectPendingActivations(state).find(
+          (activation) =>
+            activation.mode === "new" &&
+            activation.clientSubmitId === submission.clientSubmitId
+        );
+        if (record?.status === "canceled") {
+          this.pendingSubmissionsByDraftKey.delete(draftKey);
+          this.ambiguousDraftKeys.delete(draftKey);
+          this.errorCode = null;
+          if (!this.drafts.get(draftKey)) {
+            this.drafts.set(draftKey, submission.text);
+          }
+          continue;
+        }
         if (record?.status === "failed" || record?.status === "uncertain") {
+          this.markSubmissionAmbiguous(draftKey, submission.text);
+        }
+        continue;
+      }
+      if (submission.kind === "goalControl") {
+        const settlement = selectSessionGoalControlSettlement(
+          state,
+          submission.agentSessionId
+        );
+        if (
+          settlement?.clientSubmitId === submission.clientSubmitId &&
+          (settlement.status === "accepted" ||
+            settlement.status === "succeeded")
+        ) {
+          if (this.drafts.get(draftKey).trim() === submission.text) {
+            this.drafts.clear(draftKey);
+          }
+          this.pendingSubmissionsByDraftKey.delete(draftKey);
+          this.ambiguousDraftKeys.delete(draftKey);
+          this.errorCode = null;
+        } else if (
+          settlement?.clientSubmitId === submission.clientSubmitId &&
+          settlement.status === "failed"
+        ) {
+          this.pendingSubmissionsByDraftKey.delete(draftKey);
+          this.ambiguousDraftKeys.delete(draftKey);
+          this.errorCode = "request_failed";
+        } else if (
+          settlement?.clientSubmitId === submission.clientSubmitId &&
+          settlement.status === "unknown"
+        ) {
           this.markSubmissionAmbiguous(draftKey, submission.text);
         }
         continue;

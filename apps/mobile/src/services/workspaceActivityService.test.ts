@@ -1,5 +1,6 @@
 import {
   canonicalInteractionKey,
+  selectPendingActivations,
   type AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
 import type {
@@ -213,6 +214,225 @@ describe("WorkspaceActivityService", () => {
     service.dispose();
   });
 
+  test("routes an existing-session Goal command through the shared Engine operation", async () => {
+    const goalResult = {
+      goal: { objective: "ship it", status: "active" as const },
+      operationId: "goal-operation-1",
+      session: {
+        ...createSession(),
+        goal: { objective: "ship it", status: "active" as const },
+        updatedAtUnixMs: 2
+      },
+      state: {
+        desired: { objective: "ship it", status: "active" as const },
+        lastEvidence: { source: "mobile-test" },
+        observed: { objective: "ship it", status: "active" as const },
+        pendingOperationId: null,
+        revision: 1,
+        syncStatus: "synced" as const,
+        tombstoned: false,
+        updatedAtUnixMs: 2
+      }
+    };
+    let resolveGoalControl!: (result: typeof goalResult) => void;
+    const goalControl = jest.fn(
+      () =>
+        new Promise<typeof goalResult>((resolve) => {
+          resolveGoalControl = resolve;
+        })
+    );
+    const send = jest.fn(() => new Promise<never>(() => undefined));
+    const service = createService(
+      createClient({
+        goalControl,
+        listMessages: emptyMessagePage,
+        send
+      })
+    );
+
+    await service.start();
+    await flushAsyncWork();
+    const engine = (
+      service as unknown as {
+        engine: AgentSessionEngine;
+      }
+    ).engine;
+    const controlGoal = jest.spyOn(engine, "controlGoal");
+    service.setDraft("/goal ship it");
+
+    await service.send();
+
+    expect(controlGoal).toHaveBeenCalledWith({
+      action: "set",
+      agentSessionId: "session-1",
+      clientSubmitId: expect.any(String),
+      objective: "ship it"
+    });
+    expect(goalControl).toHaveBeenCalledWith(
+      "workspace-1",
+      "session-1",
+      {
+        action: "set",
+        clientSubmitId: expect.any(String),
+        objective: "ship it"
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect(send).not.toHaveBeenCalled();
+    expect(service.getSnapshot().draft).toBe("/goal ship it");
+    expect(service.getSnapshot().sending).toBe(true);
+
+    resolveGoalControl(goalResult);
+    await flushAsyncWork();
+
+    expect(service.getSnapshot().draft).toBe("");
+    expect(service.getSnapshot().sending).toBe(false);
+
+    service.dispose();
+  });
+
+  test("reuses the Engine Goal identity for an outcome-unknown alias retry", async () => {
+    const goalControl = jest
+      .fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce({
+        goal: null,
+        operationId: "goal-operation-1",
+        session: { ...createSession(), goal: null, updatedAtUnixMs: 2 },
+        state: {
+          desired: null,
+          lastEvidence: { source: "mobile-test" },
+          observed: null,
+          pendingOperationId: null,
+          revision: 1,
+          syncStatus: "synced",
+          tombstoned: true,
+          updatedAtUnixMs: 2
+        }
+      });
+    const service = createService(
+      createClient({ goalControl, listMessages: emptyMessagePage })
+    );
+
+    await service.start();
+    await flushAsyncWork();
+    service.setDraft("/goal reset");
+    await service.send();
+    await flushAsyncWork();
+
+    expect(service.getSnapshot().draft).toBe("/goal reset");
+    expect(service.getSnapshot().ambiguousSubmission).toBe(true);
+    const firstClientSubmitId = goalControl.mock.calls[0]?.[2].clientSubmitId;
+
+    service.setDraft("/goal clear");
+    await service.send();
+    await flushAsyncWork();
+
+    expect(goalControl).toHaveBeenCalledTimes(2);
+    expect(goalControl.mock.calls[1]?.[2].clientSubmitId).toBe(
+      firstClientSubmitId
+    );
+    expect(service.getSnapshot().draft).toBe("");
+    expect(service.getSnapshot().ambiguousSubmission).toBe(false);
+
+    service.dispose();
+  });
+
+  test("uses a new Goal identity after a definitive rejection", async () => {
+    const goalControl = jest
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("invalid goal"), { code: "invalid_request" })
+      )
+      .mockResolvedValueOnce({
+        goal: null,
+        operationId: "goal-operation-2",
+        session: { ...createSession(), goal: null, updatedAtUnixMs: 2 },
+        state: {
+          desired: null,
+          lastEvidence: { source: "mobile-test" },
+          observed: null,
+          pendingOperationId: null,
+          revision: 1,
+          syncStatus: "synced",
+          tombstoned: true,
+          updatedAtUnixMs: 2
+        }
+      });
+    const service = createService(
+      createClient({ goalControl, listMessages: emptyMessagePage })
+    );
+
+    await service.start();
+    await flushAsyncWork();
+    service.setDraft("/goal clear");
+    await service.send();
+    await flushAsyncWork();
+
+    expect(service.getSnapshot().draft).toBe("/goal clear");
+    expect(service.getSnapshot().ambiguousSubmission).toBe(false);
+    const failedClientSubmitId = goalControl.mock.calls[0]?.[2].clientSubmitId;
+
+    await service.send();
+    await flushAsyncWork();
+
+    expect(goalControl).toHaveBeenCalledTimes(2);
+    expect(goalControl.mock.calls[1]?.[2].clientSubmitId).not.toBe(
+      failedClientSubmitId
+    );
+    expect(service.getSnapshot().draft).toBe("");
+
+    service.dispose();
+  });
+
+  test("routes a new-session Goal command through typed activation without a Turn", async () => {
+    let createInput:
+      | Parameters<TuttidClient["createWorkspaceAgentSession"]>[1]
+      | null = null;
+    const service = createService(
+      createClient({
+        composerOptions: async () => ({
+          behavior: {
+            collapseModelOptionsToLatest: false,
+            modelOptionsAuthoritative: true,
+            planModeExclusiveWithPermissionMode: false,
+            prewarmDraftSession: false,
+            refreshModelOptionsAfterSettings: false
+          },
+          effectiveSettings: {},
+          provider: "codex"
+        }),
+        create: async (_workspaceId, input) => {
+          createInput = input;
+          return {
+            ...createSession(),
+            agentTargetId: "target-1",
+            goal: { objective: "ship it", status: "active" },
+            id: input.agentSessionId
+          };
+        },
+        listMessages: emptyMessagePage,
+        session: () => null,
+        targets: [createTarget()]
+      })
+    );
+
+    await service.start();
+    await flushAsyncWork();
+    service.startCreating();
+    service.setDraft("/goal ship it");
+
+    await service.send();
+    await flushAsyncWork();
+
+    expect(createInput).toMatchObject({
+      initialContent: [],
+      initialGoalControl: { action: "set", objective: "ship it" }
+    });
+    expect(service.getSnapshot().sending).toBe(false);
+    service.dispose();
+  });
+
   test("preserves the Mobile draft when the Engine rejects submission admission", async () => {
     const service = createService(
       createClient({ listMessages: emptyMessagePage })
@@ -350,6 +570,67 @@ describe("WorkspaceActivityService", () => {
 
     expect(service.getSnapshot().draft).toBe("start");
     expect(service.getSnapshot().sending).toBe(false);
+    service.dispose();
+  });
+
+  test("restores a canceled activation draft and uses a fresh submission identity", async () => {
+    const createInputs: Array<
+      Parameters<TuttidClient["createWorkspaceAgentSession"]>[1]
+    > = [];
+    const service = createService(
+      createClient({
+        composerOptions: async () => ({
+          behavior: {
+            collapseModelOptionsToLatest: false,
+            modelOptionsAuthoritative: true,
+            planModeExclusiveWithPermissionMode: false,
+            prewarmDraftSession: false,
+            refreshModelOptionsAfterSettings: false
+          },
+          effectiveSettings: {},
+          provider: "codex"
+        }),
+        create: (_workspaceId, input) => {
+          createInputs.push(input);
+          return new Promise<WorkspaceAgentSession>(() => undefined);
+        },
+        listMessages: emptyMessagePage,
+        session: () => null,
+        targets: [createTarget()]
+      })
+    );
+
+    await service.start();
+    await flushAsyncWork();
+    const engine = (
+      service as unknown as {
+        engine: AgentSessionEngine;
+      }
+    ).engine;
+    service.startCreating();
+    service.setDraft("start");
+
+    await service.send();
+    const activation = selectPendingActivations(engine.getSnapshot()).find(
+      (candidate) => candidate.mode === "new"
+    );
+    expect(activation).toBeDefined();
+    expect(service.getSnapshot().draft).toBe("");
+
+    engine.stopSession({
+      agentSessionId: activation!.agentSessionId
+    });
+    await flushAsyncWork();
+
+    expect(service.getSnapshot().draft).toBe("start");
+    expect(service.getSnapshot().ambiguousSubmission).toBe(false);
+
+    await service.send();
+
+    expect(createInputs).toHaveLength(2);
+    expect(createInputs[1]?.clientSubmitId).not.toBe(
+      createInputs[0]?.clientSubmitId
+    );
     service.dispose();
   });
 
@@ -1314,8 +1595,13 @@ function createClient(options: {
   ): Promise<Record<string, unknown>>;
   create?(
     workspaceId: string,
-    input: { agentSessionId: string }
+    input: Parameters<TuttidClient["createWorkspaceAgentSession"]>[1]
   ): Promise<WorkspaceAgentSession>;
+  goalControl?(
+    workspaceId: string,
+    agentSessionId: string,
+    input: Parameters<TuttidClient["goalControlWorkspaceAgentSession"]>[2]
+  ): ReturnType<TuttidClient["goalControlWorkspaceAgentSession"]>;
   detail?(
     workspaceId: string,
     agentSessionId: string
@@ -1384,6 +1670,7 @@ function createClient(options: {
     createWorkspaceAgentSession: options.create,
     deleteWorkspaceAgentSessionsBatch: options.deleteBatch,
     getAgentProviderComposerOptions: options.composerOptions,
+    goalControlWorkspaceAgentSession: options.goalControl,
     getWorkspaceAgentSession: async (
       ...args: Parameters<NonNullable<TuttidClient["getWorkspaceAgentSession"]>>
     ) => {

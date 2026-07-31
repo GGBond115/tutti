@@ -15,7 +15,6 @@ import type {
 } from "../model/agentGuiConversationRailViewState";
 import type {
   AgentComposerDraft,
-  AgentGUIOptimisticGoalControl,
   AgentGUIProjectConversationDeleteTarget,
   SubmittedDraftSnapshot
 } from "../model/agentGuiNodeTypes";
@@ -95,8 +94,6 @@ export function useAgentGUILocalState({
   const [listError, setListError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [goalClearNoticeSequence, setGoalClearNoticeSequence] = useState(0);
-  const [optimisticGoalControl, setOptimisticGoalControl] =
-    useState<AgentGUIOptimisticGoalControl | null>(null);
   const railRevealRevisionRef = useRef(0);
   const [railRevealRequest, setRailRevealRequest] =
     useState<AgentGUIConversationRailRevealRequest | null>(null);
@@ -130,7 +127,6 @@ export function useAgentGUILocalState({
     isLoadingMessages,
     isUserProjectMutationPending,
     listError,
-    optimisticGoalControl,
     pendingDeleteConversation,
     pendingDeleteProjectConversations,
     railRevealRequest,
@@ -150,7 +146,6 @@ export function useAgentGUILocalState({
     setIsLoadingMessages,
     setIsUserProjectMutationPending,
     setListError,
-    setOptimisticGoalControl,
     setPendingDeleteConversation,
     setPendingDeleteProjectConversations,
     setSelectedProjectPath,

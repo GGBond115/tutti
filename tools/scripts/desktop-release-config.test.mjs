@@ -129,6 +129,33 @@ test("desktop release workflow gates manual rc and stable modes by release branc
   );
 });
 
+test("desktop promotion requires the managed app runtime release first", async () => {
+  const promoteWorkflow = await readFile(promoteWorkflowPath, "utf8");
+  const checkoutIndex = promoteWorkflow.indexOf(
+    "name: Checkout release target"
+  );
+  const runtimeGateIndex = promoteWorkflow.indexOf(
+    "name: Verify managed app runtime is published"
+  );
+  const downloadIndex = promoteWorkflow.indexOf(
+    "name: Download staged GitHub release assets"
+  );
+
+  assert.ok(checkoutIndex >= 0, "promotion should checkout the release target");
+  assert.ok(
+    runtimeGateIndex > checkoutIndex,
+    "runtime gate should read the lock from the release target"
+  );
+  assert.ok(
+    downloadIndex > runtimeGateIndex,
+    "runtime gate should pass before promotion begins"
+  );
+  assert.match(
+    promoteWorkflow,
+    /node tools\/scripts\/verify-tutti-app-runtime-release\.mjs/
+  );
+});
+
 test("desktop release workflow schedules a daily Beijing 4:16am rc release", async () => {
   const workflow = await readFile(workflowPath, "utf8");
 

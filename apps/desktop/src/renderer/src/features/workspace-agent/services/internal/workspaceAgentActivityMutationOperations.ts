@@ -3,6 +3,7 @@ import type {
   AgentActivityGoalControlResult,
   AgentActivitySession
 } from "@tutti-os/agent-activity-core";
+import { tuttiAgentSessionComposerSettingsFromActivity } from "@tutti-os/agent-activity-tuttid-adapter";
 import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
 import type { TuttidClient } from "@tutti-os/client-tuttid-ts";
 import type { DesktopRuntimeApi } from "@preload/types";
@@ -146,7 +147,9 @@ export class WorkspaceAgentActivityMutationOperations {
     settings: Parameters<typeof normalizeComposerSettings>[0];
     workspaceId: string;
   }): ReturnType<IWorkspaceAgentActivityService["updateSessionSettings"]> {
-    const settingsInput = normalizeComposerSettings(input.settings);
+    const normalizedSettings = normalizeComposerSettings(input.settings);
+    const settingsInput =
+      tuttiAgentSessionComposerSettingsFromActivity(normalizedSettings);
     const session = input.signal
       ? await this.dependencies.tuttidClient.updateWorkspaceAgentSessionSettings(
           input.workspaceId,
@@ -161,7 +164,7 @@ export class WorkspaceAgentActivityMutationOperations {
         );
     const settings = session.settings
       ? normalizeComposerSettings(session.settings)
-      : normalizeComposerSettings(input.settings);
+      : normalizedSettings;
     return {
       agentSessionId: input.agentSessionId,
       settings,

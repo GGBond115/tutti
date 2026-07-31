@@ -30,6 +30,29 @@ func requireJSONFields(raw json.RawMessage, objectKey string, fields ...string) 
 	return nil
 }
 
+func requireJSONArrayItemFields(raw json.RawMessage, arrayKey string, fields ...string) error {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return fmt.Errorf("decode data presence: %w", err)
+	}
+	value, ok := root[arrayKey]
+	if !ok {
+		return fmt.Errorf("data.%s is required", arrayKey)
+	}
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(value, &items); err != nil {
+		return fmt.Errorf("data.%s must be an array of objects", arrayKey)
+	}
+	for index, item := range items {
+		for _, field := range fields {
+			if _, ok := item[field]; !ok {
+				return fmt.Errorf("data.%s[%d].%s is required", arrayKey, index, field)
+			}
+		}
+	}
+	return nil
+}
+
 func isOneOf(value string, allowed ...string) bool {
 	for _, candidate := range allowed {
 		if value == candidate {

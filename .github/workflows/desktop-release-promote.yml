@@ -202,6 +202,9 @@ jobs:
         with:
           node-version-file: .node-version
 
+      - name: Verify managed app runtime is published
+        run: node tools/scripts/verify-tutti-app-runtime-release.mjs
+
       - name: Download staged GitHub release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

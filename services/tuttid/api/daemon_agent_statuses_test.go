@@ -182,6 +182,7 @@ func TestDaemonAPIRoutesAgentProviderStatuses(t *testing.T) {
 	activeAction := response.Providers[0].ActiveAction
 	if activeAction == nil {
 		t.Fatal("activeAction = nil, want install progress")
+		return
 	}
 	if activeAction.Phase != tuttigenerated.AgentProviderActiveActionPhaseInstall {
 		t.Fatalf("activeAction.phase = %q, want install", activeAction.Phase)

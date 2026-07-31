@@ -70,6 +70,12 @@ describe("useAgentGUISessionPresentation", () => {
       activeEngineLatestTurn: null,
       activeEngineRuntimeAvailability: null,
       activeEngineSession: null,
+      activeGoalControlPresentation: {
+        agentSessionId: null,
+        goal: null,
+        optimistic: false,
+        status: "idle"
+      },
       activeLatestPendingSubmitTurnId: null,
       activeLiveState: "inactive",
       activeMessages: [],
@@ -98,7 +104,6 @@ describe("useAgentGUISessionPresentation", () => {
       isRespondingToInteraction: false,
       isSubmitting: false,
       lastRenderStateDiagnosticKeyRef: { current: null },
-      optimisticGoalControl: null,
       pendingApproval: null,
       planImplementationTurnIdRef: { current: null },
       providerReadinessGate: null,
@@ -168,6 +173,12 @@ describe("useAgentGUISessionPresentation", () => {
         goal: null,
         resumable: true
       },
+      activeGoalControlPresentation: {
+        agentSessionId: "session-1",
+        goal: null,
+        optimistic: false,
+        status: "idle"
+      },
       activeLatestPendingSubmitTurnId: null,
       activeLiveState: "active",
       activeMessages: [],
@@ -197,7 +208,6 @@ describe("useAgentGUISessionPresentation", () => {
       isSubmitting: false,
       lastRenderStateDiagnosticKeyRef: { current: null },
       observationGapSource,
-      optimisticGoalControl: null,
       pendingApproval: null,
       planImplementationTurnIdRef: { current: null },
       providerReadinessGate: null,

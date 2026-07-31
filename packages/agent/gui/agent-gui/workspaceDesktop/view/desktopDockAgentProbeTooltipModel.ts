@@ -113,6 +113,28 @@ export type DockAgentProbeTooltipLine =
       secondary?: string;
     };
 
+export function agentProbeErrorLabel(
+  code: string | null | undefined,
+  t: TranslateFn
+): string {
+  switch (code) {
+    case "auth_required":
+      return t("agentHost.workspaceAgentProbeErrorAuthRequired");
+    case "session_expired":
+      return t("agentHost.workspaceAgentProbeErrorSessionExpired");
+    case "subscription_required":
+      return t("agentHost.workspaceAgentProbeErrorSubscriptionRequired");
+    case "parse_failed":
+      return t("agentHost.workspaceAgentProbeErrorParseFailed");
+    case "no_data":
+      return t("agentHost.workspaceAgentProbeErrorNoData");
+    case "timeout":
+      return t("agentHost.workspaceAgentProbeErrorTimeout");
+    default:
+      return t("agentHost.workspaceAgentProbeErrorUnavailable");
+  }
+}
+
 /** Status text for dock popover / inline agent probe UI. */
 export function buildDockAgentProbeTooltipLines(
   probe: AgentProbeProvider | null,
@@ -292,6 +314,14 @@ function appendDockProbeUsageLines(
     lines.push({
       label: t("agentHost.workspaceAgentProbeDetailQuota"),
       primary: t("agentHost.workspaceAgentProbeUsageUnsupported")
+    });
+    return;
+  }
+
+  if (probe.lastError?.code) {
+    lines.push({
+      label: t("agentHost.workspaceAgentProbeDetailQuota"),
+      primary: agentProbeErrorLabel(probe.lastError.code, t)
     });
     return;
   }

@@ -1,4 +1,4 @@
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 import type {
   AgentActivityEditRetryAvailability,
   EditRetryOperationRecord
@@ -21,7 +21,7 @@ const IDLE_OPERATION: EditRetryOperationRecord = {
 };
 
 export function selectEditRetryPresentation(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): EditRetryPresentationRecord {
   const normalized = agentSessionId?.trim() ?? "";
@@ -33,7 +33,7 @@ export function selectEditRetryPresentation(
 }
 
 export function selectEditRetryAvailabilityIsNewer(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined,
   incoming: AgentActivityEditRetryAvailability
 ): boolean {

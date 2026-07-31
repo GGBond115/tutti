@@ -1,11 +1,13 @@
 import {
+  parseAgentActivityGoalControlText,
   type AgentActivityGoalControlAction,
   type AgentActivityInteraction,
   type AgentActivityTurn,
-  type AgentSessionEngine
+  type AgentSessionEngine,
+  type SessionGoalControlSettlement
 } from "@tutti-os/agent-activity-core";
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
 import { translate } from "../../../i18n/index";
 import type { AgentPromptContentBlock } from "../../../shared/contracts/dto";
@@ -19,7 +21,6 @@ import {
 } from "../model/agentComposerDraft";
 import type {
   AgentComposerDraft,
-  AgentGUIOptimisticGoalControl,
   SubmittedDraftSnapshot
 } from "../model/agentGuiNodeTypes";
 import { resolveAgentComposerDraftScopeKey } from "../model/agentComposerDraftScope";
@@ -36,7 +37,10 @@ import {
   toRuntimeSendContent
 } from "./agentGuiController.draftMessageHelpers";
 import { clearSubmittedAgentGUIHomeDraft } from "./agentGuiController.homeDraftHelpers";
-import { AgentGUIHomeDraftSettlementController } from "./AgentGUIHomeDraftSettlementController";
+import {
+  AgentGUIEngineSettlementController,
+  type AgentGUIGoalControlPendingSettlement
+} from "./AgentGUIEngineSettlementController";
 import {
   AGENT_RESUME_SESSION_NOT_LOCAL_ERROR,
   buildProviderSessionNotFoundActivationError,
@@ -63,6 +67,7 @@ import { useAgentGUIGoalControlActions } from "./useAgentGUIGoalControlActions";
 
 interface UseAgentGUISubmitInteractionActionsInput {
   activation: ReturnType<typeof useAgentGUIActivation>;
+  activeConversationId: string | null;
   activeConversationIdRef: RefObject<string | null>;
   activeEngineActiveTurn: AgentActivityTurn | null;
   activeEnginePendingInteractions: readonly AgentActivityInteraction[];
@@ -96,7 +101,6 @@ interface UseAgentGUISubmitInteractionActionsInput {
     skip(): void;
   }>;
   promptImagesSupported: boolean;
-  optimisticGoalControl: AgentGUIOptimisticGoalControl | null;
   sessionEngine: AgentSessionEngine;
   setActiveConversationId: Dispatch<SetStateAction<string | null>>;
   setDetailError: Dispatch<SetStateAction<string | null>>;
@@ -105,9 +109,6 @@ interface UseAgentGUISubmitInteractionActionsInput {
   >;
   setGoalClearNoticeSequence: Dispatch<SetStateAction<number>>;
   setIntent: Dispatch<SetStateAction<ConversationIntent>>;
-  setOptimisticGoalControl: Dispatch<
-    SetStateAction<AgentGUIOptimisticGoalControl | null>
-  >;
   submittedDraftSnapshotsRef: RefObject<Record<string, SubmittedDraftSnapshot>>;
   startConversation(
     content: AgentPromptContentBlock[],
@@ -139,24 +140,7 @@ export function typedGoalControlFromComposer(
   }
   // Structured content owns command semantics. displayPrompt may collapse a
   // bundle into a chip, but it must neither hide nor manufacture a control.
-  const prompt = (content[0].text ?? "").trim();
-  const match = /^\/goal(?:\s+([\s\S]+))?$/iu.exec(prompt);
-  const args = match?.[1]?.trim() ?? "";
-  if (!match || !args) {
-    return null;
-  }
-  switch (args.toLowerCase()) {
-    case "clear":
-    case "reset":
-      return { action: "clear" };
-    case "pause":
-      return { action: "pause" };
-    case "resume":
-    case "active":
-      return { action: "resume" };
-    default:
-      return { action: "set", objective: args };
-  }
+  return parseAgentActivityGoalControlText(content[0].text ?? "");
 }
 export function useAgentGUISubmitInteractionActions(
   input: UseAgentGUISubmitInteractionActionsInput
@@ -179,34 +163,28 @@ export function useAgentGUISubmitInteractionActions(
     persistActiveConversation,
     planActionsRef,
     promptImagesSupported,
-    optimisticGoalControl,
     sessionEngine,
     setActiveConversationId,
     setDetailError,
     setDraftByScopeKey,
     setGoalClearNoticeSequence,
     setIntent,
-    setOptimisticGoalControl,
     submittedDraftSnapshotsRef,
     startConversation,
     submitPromptRef,
     transientConversation,
     workspaceId
   } = input;
-  const { beginOptimisticGoalControl, goalControl } =
-    useAgentGUIGoalControlActions({
-      activeConversationIdRef,
-      agentActivityRuntime,
-      draftByScopeKeyRef,
-      isCurrentConversation,
-      optimisticGoalControl,
-      sessionEngine,
-      setDetailError,
-      setDraftByScopeKey,
-      setGoalClearNoticeSequence,
-      setOptimisticGoalControl,
-      workspaceId
-    });
+  const goalControlSettlementsRef = useRef<
+    Record<string, AgentGUIGoalControlPendingSettlement>
+  >({});
+  const { goalControl } = useAgentGUIGoalControlActions({
+    activeConversationIdRef,
+    draftByScopeKeyRef,
+    goalControlSettlementsRef,
+    sessionEngine,
+    setDetailError
+  });
   const retryActivation = useCallback(() => {
     const agentSessionId = activeConversationIdRef.current;
     if (!agentSessionId) {
@@ -321,7 +299,7 @@ export function useAgentGUISubmitInteractionActions(
       // Clear the composer optimistically the instant the engine takes the
       // prompt — whether it was queued behind a busy turn or accepted straight
       // into an idle session. The snapshot is retained so
-      // AgentGUIHomeDraftSettlementController can restore it if the send is
+      // AgentGUIEngineSettlementController can restore it if the send is
       // later rejected. A submit the engine never accepted is left untouched so
       // its text is not lost (deleteUnacceptedSubmittedDraftSnapshot cleans up).
       const submittedSnapshot =
@@ -362,7 +340,7 @@ export function useAgentGUISubmitInteractionActions(
   }, [executePrompt]);
 
   useEffect(() => {
-    const controller = new AgentGUIHomeDraftSettlementController({
+    const controller = new AgentGUIEngineSettlementController({
       applyDraftUpdate: (update) => {
         setDraftByScopeKey((current) => {
           const next = update(current);
@@ -371,13 +349,27 @@ export function useAgentGUISubmitInteractionActions(
         });
       },
       engine: sessionEngine,
+      goalControlSettlements: goalControlSettlementsRef.current,
+      isCurrentConversation,
+      onGoalControlCleared: () =>
+        setGoalClearNoticeSequence((current) => current + 1),
+      onGoalControlFailed: (settlement) => {
+        setDetailError(
+          settlement.errorMessage
+            ? getAgentGUIErrorMessage(goalControlSettlementError(settlement))
+            : translate("agentHost.agentGui.goalControlFailed")
+        );
+      },
       snapshots: submittedDraftSnapshotsRef.current
     });
     return controller.attach();
   }, [
     draftByScopeKeyRef,
+    isCurrentConversation,
     sessionEngine,
+    setDetailError,
     setDraftByScopeKey,
+    setGoalClearNoticeSequence,
     submittedDraftSnapshotsRef
   ]);
 
@@ -517,15 +509,6 @@ export function useAgentGUISubmitInteractionActions(
           typedGoal ?? undefined
         );
         if (activationResult) {
-          if (typedGoal) {
-            beginOptimisticGoalControl(
-              activationResult.agentSessionId,
-              typedGoal.action,
-              typedGoal.objective,
-              `goal-activation:${activationResult.requestId}`,
-              true
-            );
-          }
           draftByScopeKeyRef.current = clearSubmittedAgentGUIHomeDraft({
             draftKey: homeDraftKey,
             drafts: draftByScopeKeyRef.current,
@@ -562,7 +545,6 @@ export function useAgentGUISubmitInteractionActions(
     },
     [
       agentActivityRuntime,
-      beginOptimisticGoalControl,
       conversationListQuery,
       promptImagesSupported,
       goalControl,
@@ -725,4 +707,16 @@ export function useAgentGUISubmitInteractionActions(
     submitPrompt,
     updateDraftContent
   };
+}
+
+function goalControlSettlementError(
+  settlement: SessionGoalControlSettlement
+): Error {
+  const error = new Error(settlement.errorMessage ?? "") as Error & {
+    code?: string;
+    reason?: string;
+  };
+  if (settlement.errorCode) error.code = settlement.errorCode;
+  if (settlement.errorReason) error.reason = settlement.errorReason;
+  return error;
 }

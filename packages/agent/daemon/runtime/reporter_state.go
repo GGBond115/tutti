@@ -512,10 +512,13 @@ func statePatchLastError(event activityshared.Event) string {
 	}
 	code := visibleFailureCode(detail)
 	switch code {
-	case "provider_concurrency_limit",
+	case FailureCodeInsufficientCredits,
+		FailureCodeModelNotAllowed,
+		FailureCodeQuotaOrRateLimit,
+		FailureCodeSubscriptionRequired,
+		"provider_concurrency_limit",
 		"provider_config_timeout",
 		"provider_stream_disconnected",
-		"quota_or_rate_limit",
 		"request_timed_out":
 		phase := "turn"
 		if event.Type == activityshared.EventSessionFailed {

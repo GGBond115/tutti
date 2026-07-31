@@ -277,8 +277,9 @@ type GoalProvenanceDurableSinkAdapter interface {
 }
 
 type ProviderGoalAdoptionRequest struct {
-	Fingerprint string
-	Goal        map[string]any
+	Fingerprint      string
+	ExpectedRevision int64
+	Goal             map[string]any
 }
 
 type ProviderGoalAdoptionSink func(context.Context, Session, ProviderGoalAdoptionRequest) (GoalProvenanceBinding, error)

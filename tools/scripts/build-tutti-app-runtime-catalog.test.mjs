@@ -121,9 +121,12 @@ test("Tutti app runtime workflow publishes immutable artifacts and mutable catal
   assert.match(workflow, /npm-cli\.js/);
   assert.match(workflow, /node\/bin\/npx/);
   assert.match(workflow, /npx-cli\.js/);
+  assert.match(workflow, /node\/bin\/corepack/);
+  assert.match(workflow, /corepack\/dist\/corepack\.js/);
   assert.match(workflow, /\$\{node_staging\}\/node\/bin\/npm" --version/);
   assert.match(workflow, /"node-static": \["node"\]/);
   assert.match(workflow, /\$\{node_staging\}\/node\/bin\/npx" --version/);
+  assert.match(workflow, /\$\{node_staging\}\/node\/bin\/corepack" --version/);
   assert.match(workflow, /path: downloaded-tutti-app-runtime/);
   assert.match(workflow, /merge-multiple: false/);
   assert.match(workflow, /Restore runtime artifact layout/);

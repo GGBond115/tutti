@@ -886,6 +886,11 @@ exit 0
 `), 0o755); err != nil {
 		t.Fatalf("WriteFile(managed npm) error = %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(nodeBinDir, "corepack"), []byte(`#!/bin/sh
+exec "$(dirname "$0")/node" "$(dirname "$0")/../lib/node_modules/corepack/dist/corepack.js" "$@"
+`), 0o755); err != nil {
+		t.Fatalf("WriteFile(managed corepack) error = %v", err)
+	}
 	return runtimeRoot
 }
 

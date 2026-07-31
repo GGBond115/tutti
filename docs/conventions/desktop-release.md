@@ -310,8 +310,15 @@ Promotion performs these checks before changing public state:
 
 - the GitHub Release exists and its stable, RC, or beta shape matches the tag
 - the tag still points to the staged commit
+- the production managed app runtime catalog publishes at least the target
+  commit's locked `runtimeVersion` for every supported platform
 - `SHA256SUMS.txt` exists and the downloaded draft assets match it
 - the target version does not move the selected public channel backwards
+
+When `config/tutti.app-runtime.lock.json` changes, run `Publish Tutti App
+Runtime` and verify the production catalog before promoting the desktop release.
+The promotion gate reads the lock from the exact release target, so a later
+manual promotion cannot bypass this ordering.
 
 It then consumes the checksummed `release-summary.json` staged with the Draft Release, repairs or uploads the immutable AWS objects, updates release notes, publishes a stable GitHub Release when applicable, writes the selected stable/RC/beta pointer, refreshes the stable alias, verifies the public CloudFront pointer, and sends the promoted release notification. Promotion never regenerates the summary or calls the summary model. GitHub Draft assets remain mutable until promotion, so any restage or asset replacement invalidates the prior human approval and requires another review of the current `SHA256SUMS.txt`; cryptographic binding to an external approval record or immutable candidate ID is not implemented. Promotion is serialized with the `desktop-release-promotion` concurrency group because stable and prerelease pointers are mutable shared state.
 

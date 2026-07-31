@@ -94,7 +94,6 @@ export type WorkspaceWorkbenchCapabilitySettingsTarget =
   | "computerUse";
 
 export interface WorkspaceWorkbenchHostInput {
-  readonly captureNodePreviewImage?: WorkbenchHostProps["captureNodePreviewImage"];
   readonly captureNodePreviewImages?: WorkbenchHostProps["captureNodePreviewImages"];
   readonly contributions?: readonly WorkbenchContribution[];
   readonly debugDiagnostics?: WorkbenchDebugDiagnostics;

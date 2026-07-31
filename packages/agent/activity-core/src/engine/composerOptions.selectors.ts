@@ -2,10 +2,10 @@ import type {
   AgentActivityComposerOptions,
   AgentActivityComposerOptionsLoadStatus
 } from "../types.ts";
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 
 export function selectComposerOptions(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   targetKey: string | null | undefined
 ): AgentActivityComposerOptions | null {
   const key = targetKey?.trim() ?? "";
@@ -14,7 +14,7 @@ export function selectComposerOptions(
 }
 
 export function selectComposerOptionsLoadStatus(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   targetKey: string | null | undefined
 ): AgentActivityComposerOptionsLoadStatus | undefined {
   const key = targetKey?.trim() ?? "";

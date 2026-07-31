@@ -1,5 +1,7 @@
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 
-export function selectWorkspaceReconcileState(state: AgentSessionEngineState) {
+export function selectWorkspaceReconcileState(
+  state: AgentSessionEngineStateBase
+) {
   return state.engineRuntime.workspaceReconcile;
 }

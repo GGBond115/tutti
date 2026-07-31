@@ -47,6 +47,10 @@ import type { AgentGUINodeViewProps } from "./view/AgentGUINodeView.types";
 import { useAgentGUINodeEngagement } from "./engagement/useAgentGUINodeEngagement";
 import { isAgentGUIProviderReady } from "./model/agentGuiProviderReadiness";
 import {
+  resolveAgentGUIRailConfigProvider,
+  resolveAgentGUIRailStatusTarget
+} from "./AgentGUINode.usage";
+import {
   useAgentGUIConversationRailResizePointerMove,
   type AgentGUIConversationRailResizeInteraction
 } from "./view/useAgentGUIConversationRailResizePointerMove";
@@ -114,6 +118,7 @@ export function AgentGUINodeView({
   slashStatusLimitsResolvedEmpty = false,
   slashStatusUsageCapturedAtUnixMs = null,
   slashStatusUsageDidFail = false,
+  slashStatusUsageErrorLabel = null,
   slashStatusUsageAttempted = false,
   agentConfigAccountContent,
   onAgentConfigMenuClose,
@@ -269,7 +274,6 @@ export function AgentGUINodeView({
     [conversationRailMaxWidthPx, conversationRailMinWidthPx]
   );
   const providerRailWidthPx = conversationRailCollapsed ? 0 : 52;
-
   const handleConversationRailResizePointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>): void => {
       if (conversationRailCollapsed || event.button !== 0) {
@@ -380,29 +384,24 @@ export function AgentGUINodeView({
     gridTemplateColumns:
       "var(--agent-gui-provider-rail-width) var(--agent-gui-conversation-rail-width) minmax(var(--agent-gui-detail-min-width), 1fr)"
   } as CSSProperties;
-  const effectiveRailConfigProvider =
-    railConfigProvider === undefined
-      ? viewModel.shell.data.provider
-      : railConfigProvider;
+  const effectiveRailConfigProvider = resolveAgentGUIRailConfigProvider(
+    railConfigProvider,
+    viewModel.shell.data.provider
+  );
+  const railConfigTarget = resolveAgentGUIRailStatusTarget(viewModel.rail);
   const effectiveRailSlashStatusLimits =
     railSlashStatusLimits ?? slashStatusLimits;
   const shouldShowProviderRailConfigButton =
     viewModel.rail.conversationFilter.kind === "all" ||
     viewModel.rail.selectedAgentTarget?.disabled !== true;
   const effectiveProviderAuthAccountLabel = useMemo(() => {
-    const provider =
-      (effectiveRailConfigProvider ?? viewModel.shell.data.provider)?.trim() ??
-      "";
+    const provider = effectiveRailConfigProvider?.trim() ?? "";
     if (!provider) {
       return null;
     }
     const label = providerAuthAccountLabels?.[provider]?.trim();
     return label || null;
-  }, [
-    effectiveRailConfigProvider,
-    providerAuthAccountLabels,
-    viewModel.shell.data.provider
-  ]);
+  }, [effectiveRailConfigProvider, providerAuthAccountLabels]);
   const enabledProviderTargets = viewModel.rail.agentTargets.filter(
     (target) =>
       target.disabled !== true &&
@@ -622,8 +621,14 @@ export function AgentGUINodeView({
                     slashStatusUsageCapturedAtUnixMs
                   }
                   slashStatusUsageDidFail={slashStatusUsageDidFail}
+                  slashStatusUsageErrorLabel={slashStatusUsageErrorLabel}
                   slashStatusUsageAttempted={slashStatusUsageAttempted}
-                  provider={effectiveRailConfigProvider}
+                  provider={
+                    effectiveRailConfigProvider ?? railConfigTarget?.provider
+                  }
+                  providerIconUrl={railConfigTarget?.iconUrl ?? null}
+                  providerMaskIconUrl={railConfigTarget?.maskIconUrl ?? null}
+                  providerLabel={railConfigTarget?.label}
                   providerAuthAccountLabel={effectiveProviderAuthAccountLabel}
                   accountContent={agentConfigAccountContent}
                   onAgentConfigMenuClose={onAgentConfigMenuClose}

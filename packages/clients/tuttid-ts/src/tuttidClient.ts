@@ -96,6 +96,7 @@ import {
 } from "./generated/index.ts";
 import { createClient } from "./generated/client/index.ts";
 import { createAgentProvidersClient } from "./agentProvidersClient.ts";
+import { createCollaborationRunsClient } from "./collaborationRunsClient.ts";
 import { unwrapAccepted, unwrapData } from "./tuttidClientResponse.ts";
 import { createWorkspaceAppsClient } from "./workspaceAppsClient.ts";
 import { createWorkspaceAgentClient } from "./workspaceAgentClient.ts";
@@ -130,6 +131,7 @@ export function createTuttidClient(
   });
 
   return {
+    ...createCollaborationRunsClient(client),
     ...createWorkspaceAgentConfigurationClient(client),
     ...createWorkspaceIssueOrchestrationClient(client),
     async listAgentQuickPrompts() {

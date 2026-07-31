@@ -1,17 +1,17 @@
 import type { AgentActivityMessage } from "../types.ts";
 import type { AgentActivitySessionMessageWindow } from "../messageWindow.types.ts";
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 
 const EMPTY_MESSAGES: readonly AgentActivityMessage[] = [];
 
 export function selectSessionMessagesById(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineStateBase
 ): Readonly<Record<string, readonly AgentActivityMessage[]>> {
   return state.sessionMessages.messagesBySessionId;
 }
 
 export function selectSessionMessages(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): readonly AgentActivityMessage[] {
   const id = agentSessionId?.trim() ?? "";
@@ -20,7 +20,7 @@ export function selectSessionMessages(
 }
 
 export function selectSessionMessageWindow(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): Readonly<AgentActivitySessionMessageWindow> | null {
   const id = agentSessionId?.trim() ?? "";

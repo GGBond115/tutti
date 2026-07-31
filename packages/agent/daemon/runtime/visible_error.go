@@ -19,6 +19,14 @@ func IsAuthenticationRequired(err error) bool {
 	if err == nil {
 		return false
 	}
+	// Some runtimes wrap account-state failures in an authentication-shaped
+	// error because model discovery uses the same credentialed endpoint. The
+	// account state is more specific and must win, otherwise setup sends users
+	// back through login even though a subscription, balance, or quota is the
+	// actual blocker.
+	if ClassifyAccountFailure(err) != "" {
+		return false
+	}
 	var callErr *acpCallError
 	return (errors.As(err, &callErr) && callErr.AuthRequired()) || authFailurePattern.MatchString(err.Error())
 }
@@ -26,6 +34,11 @@ func IsAuthenticationRequired(err error) bool {
 const (
 	visibleErrorKind     = "agent_visible_error"
 	visibleErrorSeverity = "error"
+
+	FailureCodeInsufficientCredits  = "insufficient_credits"
+	FailureCodeModelNotAllowed      = "model_not_allowed"
+	FailureCodeQuotaOrRateLimit     = "quota_or_rate_limit"
+	FailureCodeSubscriptionRequired = "subscription_required"
 )
 
 var (
@@ -33,6 +46,25 @@ var (
 	authFailurePattern = regexp.MustCompile(
 		`(?i)\b(api key|credentials?|log in|login|logged in|sign in|signin|token|unauthori[sz]ed|unauthenticated|not authenticated|authentication required|authentication failed|authenticate|auth required)\b|auth_required`,
 	)
+	subscriptionRequiredFailureMarkers = []string{
+		"unable to verify your membership benefits",
+		"ensure your membership is active",
+		"subscription does not have access",
+		"current plan supports only",
+		"membership expired",
+		"subscription required",
+	}
+	quotaOrRateLimitFailureMarkers = []string{
+		"quota",
+		"rate limit",
+		"limit exceeded",
+		"usage limit",
+		"upgrade your plan to continue",
+		"add a payment method to continue",
+		"resource_exhausted",
+		"too many requests",
+		" 429",
+	}
 )
 
 func visibleFailureTimelineItem(
@@ -197,7 +229,11 @@ func limitVisibleErrorDetail(value string) string {
 
 func structuredProviderFailureCode(detail string) string {
 	normalized := strings.ToLower(detail)
-	for _, code := range []string{"insufficient_credits", "model_not_allowed", "no_biscuit_no_service"} {
+	for _, code := range []string{
+		FailureCodeInsufficientCredits,
+		FailureCodeModelNotAllowed,
+		"no_biscuit_no_service",
+	} {
 		if strings.Contains(normalized, code) {
 			return code
 		}
@@ -212,17 +248,30 @@ func visibleFailureCode(detail string) string {
 	// Tutti billing failures are actionable account state, not a generic provider
 	// crash. Prefer the structured code emitted by llm-token-usage, while also
 	// recognizing the legacy 402 text already present in persisted conversations.
-	case structuredCode == "insufficient_credits" ||
+	case structuredCode == FailureCodeInsufficientCredits ||
 		strings.Contains(normalized, "insufficient credits") ||
+		strings.Contains(normalized, "insufficient balance") ||
+		strings.Contains(normalized, "balance is insufficient") ||
 		(strings.Contains(normalized, "402 payment required") &&
 			(strings.Contains(normalized, "pre-deduct credits failed") ||
 				strings.Contains(normalized, "pre_deduct_failed"))):
-		return "insufficient_credits"
-	case structuredCode == "model_not_allowed":
-		return "model_not_allowed"
+		return FailureCodeInsufficientCredits
+	case containsFailureMarker(normalized, subscriptionRequiredFailureMarkers):
+		return FailureCodeSubscriptionRequired
+	case structuredCode == FailureCodeModelNotAllowed:
+		return FailureCodeModelNotAllowed
 	case structuredCode == "no_biscuit_no_service" &&
 		(strings.Contains(normalized, "codex_apps") || strings.Contains(normalized, "mcp")):
 		return "plugin_unavailable"
+	// HTTP 402 is an account payment state even when the provider wraps the
+	// response in text that also mentions credentials. Provider-specific
+	// membership wording is handled above.
+	case strings.Contains(normalized, "402 payment required"):
+		return FailureCodeInsufficientCredits
+	case strings.Contains(normalized, "concurrency limit exceeded"):
+		return "provider_concurrency_limit"
+	case containsFailureMarker(normalized, quotaOrRateLimitFailureMarkers):
+		return FailureCodeQuotaOrRateLimit
 	// A tool MCP server's OAuth failure (Notion/Figma/...) crashes codex's MCP
 	// client and bubbles up here mentioning "access token"/"AuthRequired", which
 	// trips the auth pattern. That is the MCP SERVER needing re-auth, not codex's
@@ -243,8 +292,6 @@ func visibleFailureCode(detail string) string {
 		strings.Contains(normalized, "version too old") ||
 		strings.Contains(normalized, "unsupported version"):
 		return "cli_version_unsupported"
-	case strings.Contains(normalized, "concurrency limit exceeded"):
-		return "provider_concurrency_limit"
 	case strings.Contains(normalized, "session/set_config_option") &&
 		strings.Contains(normalized, "timed out"):
 		return "provider_config_timeout"
@@ -257,22 +304,6 @@ func visibleFailureCode(detail string) string {
 	// code, but before request_timed_out so a low-level ETIMEDOUT reads as network.
 	case codexErrorLooksLikeNetwork(normalized):
 		return "network_error"
-	case strings.Contains(normalized, "quota") ||
-		strings.Contains(normalized, "rate limit") ||
-		strings.Contains(normalized, "limit exceeded") ||
-		// codex reports a depleted ChatGPT plan/credit cap as plain text — "You've
-		// hit your usage limit. Upgrade to Pro…" — with no structured codexErrorInfo
-		// and none of the other markers here, so it must be matched explicitly or it
-		// falls through to a generic "request failed".
-		strings.Contains(normalized, "usage limit") ||
-		// cursor-agent plan/payment gates use fixed copy without "quota"/"usage limit"
-		// markers; keep them in the quota bucket so residual failure cards stay calm.
-		strings.Contains(normalized, "upgrade your plan to continue") ||
-		strings.Contains(normalized, "add a payment method to continue") ||
-		strings.Contains(normalized, "resource_exhausted") ||
-		strings.Contains(normalized, "too many requests") ||
-		strings.Contains(normalized, " 429"):
-		return "quota_or_rate_limit"
 	case strings.Contains(normalized, "process exited") ||
 		strings.Contains(normalized, "exited with code") ||
 		strings.Contains(normalized, "exit status"):
@@ -299,6 +330,34 @@ func visibleFailureCode(detail string) string {
 		return "provider_error"
 	default:
 		return "unknown"
+	}
+}
+
+func containsFailureMarker(normalized string, markers []string) bool {
+	for _, marker := range markers {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// ClassifyAccountFailure returns a stable account-state code without exposing
+// a provider's raw error payload. Non-account runtime failures return an empty
+// code so callers can retain their owning phase's failure classification.
+func ClassifyAccountFailure(err error) string {
+	if err == nil {
+		return ""
+	}
+	code := visibleFailureCode(err.Error())
+	switch code {
+	case FailureCodeInsufficientCredits,
+		FailureCodeModelNotAllowed,
+		FailureCodeQuotaOrRateLimit,
+		FailureCodeSubscriptionRequired:
+		return code
+	default:
+		return ""
 	}
 }
 
@@ -415,16 +474,18 @@ func visibleFailureRetryable(code string, detail string) bool {
 		return true
 	}
 	normalized := strings.ToLower(detail)
-	return code == "quota_or_rate_limit" && strings.Contains(normalized, "rate")
+	return code == FailureCodeQuotaOrRateLimit && strings.Contains(normalized, "rate")
 }
 
 func visibleFailureContent(provider string, phase string, code string) string {
 	name := visibleProviderName(provider)
 	if phase == "start" {
 		switch code {
-		case "insufficient_credits":
-			return "Tutti Agent could not start because your Tutti credits are insufficient."
-		case "model_not_allowed":
+		case FailureCodeInsufficientCredits:
+			return fmt.Sprintf("%s could not start because the account has insufficient credits or balance.", name)
+		case FailureCodeSubscriptionRequired:
+			return fmt.Sprintf("%s could not start because the current account needs an eligible subscription.", name)
+		case FailureCodeModelNotAllowed:
 			return fmt.Sprintf("%s could not start because the selected model is unavailable for this account.", name)
 		case "plugin_unavailable":
 			return fmt.Sprintf("%s started without an optional integration that is currently unavailable.", name)
@@ -446,6 +507,8 @@ func visibleFailureContent(provider string, phase string, code string) string {
 			return fmt.Sprintf("%s stopped unexpectedly before it finished starting. Try again.", name)
 		case "request_timed_out":
 			return fmt.Sprintf("%s could not start before the request timed out.", name)
+		case FailureCodeQuotaOrRateLimit:
+			return fmt.Sprintf("%s could not start because a quota or rate limit was reached.", name)
 		case "runtime_unavailable":
 			return fmt.Sprintf("%s could not start because the runtime is unavailable.", name)
 		default:
@@ -453,9 +516,11 @@ func visibleFailureContent(provider string, phase string, code string) string {
 		}
 	}
 	switch code {
-	case "insufficient_credits":
-		return "Tutti Agent could not continue because your Tutti credits are insufficient."
-	case "model_not_allowed":
+	case FailureCodeInsufficientCredits:
+		return fmt.Sprintf("%s could not continue because the account has insufficient credits or balance.", name)
+	case FailureCodeSubscriptionRequired:
+		return fmt.Sprintf("%s requires an eligible subscription for this request.", name)
+	case FailureCodeModelNotAllowed:
 		return fmt.Sprintf("%s could not use the selected model. Choose another model and try again.", name)
 	case "plugin_unavailable":
 		return fmt.Sprintf("%s could not use an optional integration that is currently unavailable.", name)
@@ -477,7 +542,7 @@ func visibleFailureContent(provider string, phase string, code string) string {
 		return fmt.Sprintf("%s stopped unexpectedly before it finished responding. Try again.", name)
 	case "request_timed_out":
 		return fmt.Sprintf("%s request timed out.", name)
-	case "quota_or_rate_limit":
+	case FailureCodeQuotaOrRateLimit:
 		return fmt.Sprintf("%s request failed because a quota or rate limit was reached.", name)
 	default:
 		return fmt.Sprintf("%s request failed.", name)

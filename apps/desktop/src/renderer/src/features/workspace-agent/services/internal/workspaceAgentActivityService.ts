@@ -15,16 +15,10 @@ import {
 import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
 import type {
   AgentProviderStatusListResponse,
-  Client,
   CollaborationRun,
   TuttidClient,
   TuttidEventStreamClient,
   WorkspaceAgentProvider
-} from "@tutti-os/client-tuttid-ts";
-import {
-  createClient,
-  normalizeTuttidError,
-  setCollaborationRunAdoption
 } from "@tutti-os/client-tuttid-ts";
 import type { DesktopHostFilesApi, DesktopRuntimeApi } from "@preload/types";
 import type { IReporterService } from "../../../analytics/services/reporterService.interface.ts";
@@ -95,8 +89,7 @@ export interface WorkspaceAgentActivityServiceDependencies {
   tuttidClient: TuttidClient;
   reporterNow?: () => number;
   reporterService?: Pick<IReporterService, "trackEvents">;
-  runtimeApi: Pick<DesktopRuntimeApi, "logTerminalDiagnostic"> &
-    Partial<Pick<DesktopRuntimeApi, "getBackendConfig">>;
+  runtimeApi: Pick<DesktopRuntimeApi, "logTerminalDiagnostic">;
   forceRefreshAgentProviderStatuses?: (
     providers: WorkspaceAgentProvider[]
   ) => Promise<AgentProviderStatusListResponse | null>;
@@ -135,15 +128,6 @@ export class WorkspaceAgentActivityService
       observeIntent(intent: EngineIntent): void;
     }>
   >();
-  // Collaboration-run/model-plan requests are not part of the TuttidClient
-  // wrapper yet, so they call the generated SDK directly. The client is
-  // re-resolved from the backend config on every call (cached per endpoint)
-  // because the managed daemon can restart onto a new ephemeral port.
-  private collaborationClientCache: {
-    accessToken: string;
-    baseUrl: string;
-    client: Client;
-  } | null = null;
   constructor(dependencies: WorkspaceAgentActivityServiceDependencies) {
     super(dependencies);
     this.dependencies = dependencies;
@@ -598,10 +582,14 @@ export class WorkspaceAgentActivityService
         agentTargetId: input.agentTargetId,
         capabilityRefs: input.capabilityRefs ?? null,
         cwd: resolvedCwd?.cwd ?? null,
+        initialGoalControl: input.initialGoalControl ?? null,
         initialContent: input.initialContent ?? [],
         initialDisplayPrompt: input.initialDisplayPrompt ?? null,
         initialTuttiModeActivation: input.initialTuttiModeActivation ?? null,
         submitDiagnostics: input.submitDiagnostics,
+        ...(typeof input.settings?.browserUse === "boolean"
+          ? { browserUse: input.settings.browserUse }
+          : {}),
         model: input.settings?.model ?? null,
         planMode: input.settings?.planMode ?? null,
         permissionModeId: resolveComposerPermissionMode(input.settings),
@@ -738,51 +726,14 @@ export class WorkspaceAgentActivityService
     NonNullable<IWorkspaceAgentActivityService["setCollaborationAdoption"]>
   > {
     const workspaceId = normalizeWorkspaceId(input.workspaceId);
-    const client = await this.resolveCollaborationClient();
-    const response = await setCollaborationRunAdoption({
-      body: { adoption: input.adoption },
-      client,
-      path: {
-        collaborationRunID: input.runId,
-        workspaceID: workspaceId
-      },
-      signal: input.signal
-    });
-    return agentActivityCollaborationRunFromTuttid(
-      unwrapCollaborationData(
-        response,
-        "Collaboration adoption request failed."
-      )
-    );
-  }
-
-  private async resolveCollaborationClient(): Promise<Client> {
-    const getBackendConfig = this.dependencies.runtimeApi.getBackendConfig;
-    if (!getBackendConfig) {
-      throw new Error(
-        "Collaboration requests are unavailable: backend config resolver is missing."
+    const run =
+      await this.dependencies.tuttidClient.setCollaborationRunAdoption(
+        workspaceId,
+        input.runId,
+        { adoption: input.adoption },
+        { signal: input.signal }
       );
-    }
-    const config = await getBackendConfig();
-    const cached = this.collaborationClientCache;
-    if (
-      cached &&
-      cached.baseUrl === config.baseUrl &&
-      cached.accessToken === config.accessToken
-    ) {
-      return cached.client;
-    }
-    const client = createClient({
-      auth: config.accessToken,
-      baseUrl: config.baseUrl,
-      fetch: globalThis.fetch.bind(globalThis)
-    });
-    this.collaborationClientCache = {
-      accessToken: config.accessToken,
-      baseUrl: config.baseUrl,
-      client
-    };
-    return client;
+    return agentActivityCollaborationRunFromTuttid(run);
   }
 
   async listAutomationRules(input: {
@@ -1094,24 +1045,6 @@ export class WorkspaceAgentActivityService
       }
     }
   }
-}
-
-// Local equivalent of the TuttidClient unwrap helper for direct generated-SDK
-// calls: normalize protocol errors, otherwise fall back to the caller message.
-function unwrapCollaborationData<TResult>(
-  response: { data?: TResult; error?: unknown; response?: Response },
-  fallback: string
-): TResult {
-  if (response.error !== undefined) {
-    throw (
-      normalizeTuttidError(response.error, response.response?.status ?? 0) ??
-      new Error(fallback)
-    );
-  }
-  if (response.data === undefined) {
-    throw new Error(fallback);
-  }
-  return response.data;
 }
 
 function agentActivityCollaborationRunFromTuttid(run: CollaborationRun): {

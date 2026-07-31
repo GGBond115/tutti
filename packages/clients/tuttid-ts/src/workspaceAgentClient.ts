@@ -513,13 +513,15 @@ export function createWorkspaceAgentClient(
     async goalControlWorkspaceAgentSession(
       workspaceID,
       agentSessionID,
-      request
+      request,
+      requestOptions
     ) {
       return unwrapData(
         await goalControlWorkspaceAgentSession({
           client,
           body: request,
-          path: { agentSessionID, workspaceID }
+          path: { agentSessionID, workspaceID },
+          ...requestOptions
         }),
         "Goal control failed."
       );

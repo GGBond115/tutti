@@ -99,6 +99,55 @@ func TestAgentTargetSetupInstallsGenericExtensionRuntime(t *testing.T) {
 	}
 }
 
+func TestAgentTargetSetupSurfacesAccountFailureReason(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	transport := &probeTransport{}
+	service, targetID := setupFixture(
+		t, "generic", "Generic Agent", "@example/generic-agent", "1.2.3", "generic-agent", ">=1.2.3 <2.0.0",
+		&fixtureInstallRunner{binary: "generic-agent", packageName: "@example/generic-agent", version: "1.2.3"},
+		transport,
+	)
+	initial, err := service.GetSetup(context.Background(), InstallPlanInput{
+		WorkspaceID: "workspace-1", AgentTargetID: targetID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Install(context.Background(), InstallInput{
+		WorkspaceID: "workspace-1", AgentTargetID: targetID,
+		PlanDigest: initial.Plan.PlanDigest, ClientActionID: "account-failure-probe",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitForSetupStatus(t, service, targetID, SetupReady)
+
+	tests := map[string]string{
+		`Kimi Code models endpoint rejected OAuth credentials: status code: 402, message: We're unable to verify your membership benefits. Please ensure your membership is active.`: agentruntime.FailureCodeSubscriptionRequired,
+		`Kimi Code request rejected OAuth credentials: status code: 403, message: You've reached your usage limit for this billing cycle.`:                                           agentruntime.FailureCodeQuotaOrRateLimit,
+		`Kimi Code request rejected OAuth credentials: 402 Payment Required`:                                                                                                         agentruntime.FailureCodeInsufficientCredits,
+	}
+	for detail, wantReason := range tests {
+		probeErr := fmt.Errorf("%w: %s", ErrRuntimeProbeFailed, detail)
+		if got := installErrorCode(probeErr); got != wantReason {
+			t.Fatalf("installErrorCode(%q) = %q, want %q", detail, got, wantReason)
+		}
+		transport.setSessionError(detail)
+		snapshot, err := service.GetSetup(context.Background(), InstallPlanInput{
+			WorkspaceID: "workspace-1", AgentTargetID: targetID,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if snapshot.Status != SetupFailed || snapshot.Reason != wantReason {
+			t.Fatalf("account failure setup = %#v, want reason %q", snapshot, wantReason)
+		}
+	}
+	installErr := fmt.Errorf("%w: npm registry returned 429 Too Many Requests", ErrRuntimeInstallFailed)
+	if got := installErrorCode(installErr); got != "install_failed" {
+		t.Fatalf("installErrorCode(%q) = %q, want install_failed", installErr, got)
+	}
+}
+
 func TestManagedBinaryVersionFixture(_ *testing.T) {
 	if os.Getenv("TUTTI_TEST_MANAGED_BINARY_VERSION") != "1" {
 		return
@@ -514,23 +563,32 @@ func TestTerminalLoginCommand(t *testing.T) {
 	t.Parallel()
 
 	method := agentruntime.StandardACPAuthMethod{ID: "login", Type: "terminal", Args: []string{"login"}}
-	if got := terminalLoginCommand([]string{"/opt/agent/bin/kimi", "acp"}, method); got != "/opt/agent/bin/kimi login" {
+	if got := terminalLoginCommand([]string{"/opt/agent/bin/kimi", "acp"}, method, nil); got != "/opt/agent/bin/kimi login" {
 		t.Fatalf("terminalLoginCommand = %q", got)
 	}
-	// The native Kimi Code CLI declares its ACP terminal-auth entry point as
-	// launch-command flags (["--login"]), which must append to the full ACP
-	// launch command instead of replacing its serve arguments.
 	flagMethod := agentruntime.StandardACPAuthMethod{ID: "login", Type: "terminal", Args: []string{"--login"}}
-	if got := terminalLoginCommand([]string{"/opt/agent/bin/kimi", "acp"}, flagMethod); got != "/opt/agent/bin/kimi acp --login" {
+	if got := terminalLoginCommand([]string{"/opt/agent/bin/kimi", "acp"}, flagMethod, nil); got != "/opt/agent/bin/kimi acp --login" {
 		t.Fatalf("terminalLoginCommand with flag args = %q", got)
 	}
-	if got := terminalLoginCommand([]string{"/opt/agent dir/bin/kimi"}, method); got != `'/opt/agent dir/bin/kimi' login` {
+	var declared AuthenticationMethodProfile
+	declared.ID = "login"
+	declared.Type = "terminal"
+	declared.Command.Strategy = "runtime-subcommand"
+	declared.Command.Args = []string{"login"}
+	if got := terminalLoginCommand([]string{"/opt/agent/bin/kimi", "acp"}, flagMethod, &declared); got != "/opt/agent/bin/kimi login" {
+		t.Fatalf("terminalLoginCommand with extension declaration = %q", got)
+	}
+	browserMethod := agentruntime.StandardACPAuthMethod{ID: "login", Type: "browser", Args: []string{"runtime-browser"}}
+	if got := terminalLoginCommand([]string{"/opt/agent/bin/kimi", "acp"}, browserMethod, &declared); got != "" {
+		t.Fatalf("terminalLoginCommand with mismatched live type = %q", got)
+	}
+	if got := terminalLoginCommand([]string{"/opt/agent dir/bin/kimi"}, method, nil); got != `'/opt/agent dir/bin/kimi' login` {
 		t.Fatalf("terminalLoginCommand with spaces = %q", got)
 	}
-	if got := terminalLoginCommand([]string{"/opt/agent/bin/kimi"}, agentruntime.StandardACPAuthMethod{ID: "oauth"}); got != "" {
+	if got := terminalLoginCommand([]string{"/opt/agent/bin/kimi"}, agentruntime.StandardACPAuthMethod{ID: "oauth"}, nil); got != "" {
 		t.Fatalf("terminalLoginCommand for non-terminal method = %q", got)
 	}
-	if got := terminalLoginCommand(nil, method); got != "" {
+	if got := terminalLoginCommand(nil, method, nil); got != "" {
 		t.Fatalf("terminalLoginCommand without command = %q", got)
 	}
 }
@@ -948,6 +1006,7 @@ type probeTransport struct {
 	terminalAuthMeta   bool
 	authenticated      bool
 	authenticateError  string
+	sessionError       string
 }
 
 type fixtureRuntimeAuthInvalidation struct {
@@ -975,6 +1034,18 @@ func (t *probeTransport) isAuthenticated() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.authenticated
+}
+
+func (t *probeTransport) setSessionError(message string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.sessionError = message
+}
+
+func (t *probeTransport) getSessionError() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.sessionError
 }
 
 type probeConnection struct {
@@ -1035,6 +1106,14 @@ func (c *probeConnection) Send(value []byte) error {
 			response, _ := json.Marshal(map[string]any{
 				"jsonrpc": "2.0", "id": request.ID,
 				"error": map[string]any{"code": -32000, "message": "authentication required"},
+			})
+			c.frames <- agentruntime.ProcessFrame{Stdout: append(response, '\n')}
+			return nil
+		}
+		if message := c.owner.getSessionError(); message != "" {
+			response, _ := json.Marshal(map[string]any{
+				"jsonrpc": "2.0", "id": request.ID,
+				"error": map[string]any{"code": -32000, "message": message},
 			})
 			c.frames <- agentruntime.ProcessFrame{Stdout: append(response, '\n')}
 			return nil

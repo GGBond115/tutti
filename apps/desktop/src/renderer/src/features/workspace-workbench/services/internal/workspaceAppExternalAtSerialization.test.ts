@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { RichTextTriggerQueryMatch } from "@tutti-os/ui-rich-text/types";
 import { serializeWorkspaceAppExternalAtMatch } from "./workspaceAppExternalAtSerialization.ts";
-import { workspaceAppExternalAgentIconDataUrlsByIconKey } from "./workspaceAppExternalAgentIconDataUrls.ts";
+import {
+  serializeWorkspaceAppExternalAgentIconUrl,
+  workspaceAppExternalAgentIconDataUrlsByIconKey
+} from "./workspaceAppExternalAgentIconDataUrls.ts";
 
 type TestMentionInsert = Extract<
   RichTextTriggerQueryMatch["insertResult"],
@@ -323,6 +326,23 @@ test("preserves remote and data Agent icons for external apps", () => {
       iconUrl
     );
   }
+});
+
+test("serializes listTargets Agent icons with the same managed identity mapping", () => {
+  assert.equal(
+    serializeWorkspaceAppExternalAgentIconUrl(
+      "file:///Applications/Tutti.app/tutti-agent.png",
+      "tutti-agent"
+    ),
+    workspaceAppExternalAgentIconDataUrlsByIconKey.tutti
+  );
+  assert.equal(
+    serializeWorkspaceAppExternalAgentIconUrl(
+      "data:image/webp;base64,already-serialized",
+      "tutti-agent"
+    ),
+    "data:image/webp;base64,already-serialized"
+  );
 });
 
 function createMatch(

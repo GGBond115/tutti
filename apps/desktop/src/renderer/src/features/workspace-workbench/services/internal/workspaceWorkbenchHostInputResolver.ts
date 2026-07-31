@@ -212,8 +212,6 @@ export class WorkspaceWorkbenchHostInputResolver {
       input.workspaceId
     );
     const baseHostInput: WorkspaceWorkbenchHostInput = {
-      captureNodePreviewImage: async (node) =>
-        (await captureNodePreviewImages(node))?.dockPreviewImageUrl ?? null,
       captureNodePreviewImages,
       contributions: contributionRegistry.contributions,
       debugDiagnostics: createWorkspaceWorkbenchDebugDiagnostics(

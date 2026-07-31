@@ -184,6 +184,47 @@ test("shared tuttid client performs Agent quick prompt CRUD", async () => {
   );
 });
 
+test("shared tuttid client records Collaboration Run adoption", async () => {
+  const abortController = new AbortController();
+  const run = {
+    id: "run-1",
+    workspaceId: "ws-1",
+    mode: "consult",
+    triggerSource: "user",
+    sourceSessionId: "session-1",
+    modelPlanId: "plan-1",
+    model: "kimi-k2",
+    status: "completed",
+    adoption: "adopted",
+    usage: { inputTokens: 812, outputTokens: 96 },
+    durationMs: 5200,
+    startedAt: "2026-07-12T00:00:00.000Z",
+    completedAt: "2026-07-12T00:00:05.200Z",
+    createdAt: "2026-07-12T00:00:00.000Z",
+    updatedAt: "2026-07-12T00:00:05.200Z"
+  } as const;
+  const { client, requests } = captureClient(jsonResponse(run));
+
+  assert.deepEqual(
+    await client.setCollaborationRunAdoption(
+      "ws-1",
+      "run-1",
+      { adoption: "adopted" },
+      { signal: abortController.signal }
+    ),
+    run
+  );
+  assertRequest(requests[0]!, {
+    authorization: null,
+    body: { adoption: "adopted" },
+    method: "POST",
+    path: "/v1/workspaces/ws-1/collaboration-runs/run-1/adoption",
+    query: {}
+  });
+  abortController.abort();
+  assert.equal(requests[0]!.signal.aborted, true);
+});
+
 test("generated tuttid client returns parsed health response", async () => {
   const client = createClient({
     baseUrl: "http://localhost:4545/",

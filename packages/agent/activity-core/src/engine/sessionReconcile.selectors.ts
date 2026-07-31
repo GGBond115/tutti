@@ -1,8 +1,8 @@
 import type { SessionReconcileRecord } from "./sessionReconcile.types.ts";
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 
 export function selectEngineSessionReconcile(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): SessionReconcileRecord | null {
   const id = agentSessionId?.trim() ?? "";
@@ -16,7 +16,7 @@ export interface AuthoritativeHistoryRequirement {
 }
 
 export function selectEngineAuthoritativeHistoryRequirement(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   input: {
     agentSessionId: string;
     forceAuthoritativeMessages?: boolean;
@@ -59,7 +59,7 @@ export function selectEngineAuthoritativeHistoryRequirement(
 }
 
 export function selectEngineSessionDetailHydrated(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): boolean {
   const id = agentSessionId?.trim() ?? "";
@@ -74,7 +74,7 @@ export function selectEngineSessionDetailHydrated(
 }
 
 export function selectEngineSessionStateHydrated(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): boolean {
   const id = agentSessionId?.trim() ?? "";
@@ -86,7 +86,7 @@ export function selectEngineSessionStateHydrated(
 }
 
 export function selectEngineSessionDetailLoading(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): boolean {
   const record = selectEngineSessionReconcile(state, agentSessionId);

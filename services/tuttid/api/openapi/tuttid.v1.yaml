@@ -12473,6 +12473,7 @@ components:
       additionalProperties: false
       required:
         - session
+        - goal
         - kind
       properties:
         session:
@@ -13639,6 +13640,15 @@ components:
             - resume
             - clear
             - set
+          x-enum-varnames:
+            - WorkspaceAgentSessionGoalControlRequestActionPause
+            - WorkspaceAgentSessionGoalControlRequestActionResume
+            - WorkspaceAgentSessionGoalControlRequestActionClear
+            - WorkspaceAgentSessionGoalControlRequestActionSet
+        clientSubmitId:
+          type: string
+          minLength: 1
+          description: Caller-stable idempotency identity for this Goal Control mutation.
         objective:
           type: string
     WorkspaceAgentSessionGoalControlResponse:
@@ -13646,6 +13656,7 @@ components:
       additionalProperties: false
       required:
         - session
+        - goal
       properties:
         session:
           $ref: "#/components/schemas/WorkspaceAgentSession"
@@ -13721,6 +13732,27 @@ components:
           $ref: "#/components/schemas/WorkspaceAgentSession"
         state:
           $ref: "#/components/schemas/WorkspaceAgentSessionGoalState"
+    WorkspaceAgentInitialGoalControl:
+      type: object
+      additionalProperties: false
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum:
+            - pause
+            - resume
+            - clear
+            - set
+          x-enum-varnames:
+            - WorkspaceAgentInitialGoalControlActionPause
+            - WorkspaceAgentInitialGoalControlActionResume
+            - WorkspaceAgentInitialGoalControlActionClear
+            - WorkspaceAgentInitialGoalControlActionSet
+        objective:
+          type: string
+          minLength: 1
     CreateWorkspaceAgentSessionRequest:
       type: object
       additionalProperties: false
@@ -13750,9 +13782,13 @@ components:
           $ref: "#/components/schemas/AgentSubmitDiagnostics"
         initialContent:
           type: array
-          minItems: 1
           items:
             $ref: "#/components/schemas/AgentPromptContentBlock"
+        initialGoalControl:
+          allOf:
+            - $ref: "#/components/schemas/WorkspaceAgentInitialGoalControl"
+          nullable: true
+          description: Optional typed Goal Control applied after the Session is created without opening an initial Turn. Must not be combined with non-empty initialContent.
         initialDisplayPrompt:
           type: string
           nullable: true
@@ -14153,6 +14189,11 @@ components:
             - pause
             - resume
             - set-timing-mode
+          x-enum-varnames:
+            - UpdateAgentSessionReplayTransportPlaybackRequestCommandSetSpeed
+            - UpdateAgentSessionReplayTransportPlaybackRequestCommandPause
+            - UpdateAgentSessionReplayTransportPlaybackRequestCommandResume
+            - UpdateAgentSessionReplayTransportPlaybackRequestCommandSetTimingMode
         speed:
           type: number
           format: double

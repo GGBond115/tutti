@@ -1,8 +1,8 @@
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 import type { AttentionReadPartition } from "./attentionReadState.types.ts";
 
 export function selectSessionAttention(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   userId: string | null | undefined,
   agentSessionId: string | null | undefined
 ) {
@@ -15,7 +15,7 @@ export function selectSessionAttention(
 }
 
 export function selectAttentionReadState(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   userId: string | null | undefined
 ): AttentionReadPartition {
   const user = userId?.trim() ?? "";

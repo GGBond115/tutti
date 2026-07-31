@@ -12,6 +12,7 @@ import type {
   WorkspaceAgentSessionMessage,
   WorkspaceAgentTurn
 } from "@tutti-os/client-tuttid-ts";
+import { agentActivityCapabilityReferencesFromTuttid } from "./capabilityReferences.ts";
 
 export interface AgentActivitySessionMappingOptions {
   currentUserId: string;
@@ -83,8 +84,12 @@ export function agentActivitySessionFromTuttidSession(
 export function agentActivityTurnFromTuttidTurn(
   turn: WorkspaceAgentTurn
 ): AgentActivityTurn {
+  const capabilityRefs = agentActivityCapabilityReferencesFromTuttid(
+    turn.capabilityRefs
+  );
   return {
     agentSessionId: turn.agentSessionId,
+    ...(capabilityRefs.length > 0 ? { capabilityRefs } : {}),
     providerForkBindingAvailable: turn.providerForkBindingAvailable,
     providerForkBindingState: turn.providerForkBindingState,
     completedCommand: turn.completedCommand,

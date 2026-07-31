@@ -584,6 +584,9 @@ function createTransportClient(
     async cancelWorkspaceIssueExecution() {
       throw new Error("not used");
     },
+    async setCollaborationRunAdoption() {
+      throw new Error("not used");
+    },
     async cancelTuttiModeExecution() {
       throw new Error("not used");
     }

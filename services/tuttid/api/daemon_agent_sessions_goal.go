@@ -2,10 +2,11 @@ package api
 
 import (
 	"context"
+	"strings"
 
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
 	"github.com/tutti-os/tutti/services/tuttid/apierrors"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 )
 
 func (api DaemonAPI) GoalControlWorkspaceAgentSession(ctx context.Context, request tuttigenerated.GoalControlWorkspaceAgentSessionRequestObject) (tuttigenerated.GoalControlWorkspaceAgentSessionResponseObject, error) {
@@ -25,12 +26,17 @@ func (api DaemonAPI) GoalControlWorkspaceAgentSession(ctx context.Context, reque
 	if request.Body.Objective != nil {
 		objective = *request.Body.Objective
 	}
+	clientSubmitID := ""
+	if request.Body.ClientSubmitId != nil {
+		clientSubmitID = *request.Body.ClientSubmitId
+	}
 	result, err := api.AgentSessionService.GoalControl(
 		ctx,
 		string(request.WorkspaceID),
 		string(request.AgentSessionID),
 		string(request.Body.Action),
 		objective,
+		clientSubmitID,
 	)
 	if err != nil {
 		return writeGoalControlWorkspaceAgentSessionError(err), nil
@@ -39,7 +45,9 @@ func (api DaemonAPI) GoalControlWorkspaceAgentSession(ctx context.Context, reque
 	if err != nil {
 		return writeGoalControlWorkspaceAgentSessionError(err), nil
 	}
+	goal := generatedGoalControlProjection(&generatedSession, result.Goal)
 	response := tuttigenerated.GoalControlWorkspaceAgentSession200JSONResponse{
+		Goal:    goal,
 		Session: generatedSession,
 	}
 	if result.OperationID != "" {
@@ -49,17 +57,33 @@ func (api DaemonAPI) GoalControlWorkspaceAgentSession(ctx context.Context, reque
 		state := generatedAgentSessionGoalState(*result.GoalState)
 		response.State = &state
 	}
-	if len(result.Goal) > 0 {
-		var goal tuttigenerated.WorkspaceAgentSessionGoal
-		if decodeTypedAgentSessionField(result.Goal, &goal) {
-			response.Goal = &goal
-		}
-	}
 	api.recordAgentStimulus(ctx, "goal.control", string(request.WorkspaceID), string(request.AgentSessionID), map[string]any{
-		"action":    request.Body.Action,
-		"objective": request.Body.Objective,
+		"action":         request.Body.Action,
+		"clientSubmitId": request.Body.ClientSubmitId,
+		"objective":      request.Body.Objective,
 	})
 	return response, nil
+}
+
+// generatedGoalControlProjection makes the Host-owned Goal result authoritative
+// over the runtime Session snapshot returned by the adapter. In particular,
+// clear must remain an explicit nil projection even if the runtime snapshot
+// still carries the pre-clear Goal.
+func generatedGoalControlProjection(
+	session *tuttigenerated.WorkspaceAgentSession,
+	raw map[string]any,
+) *tuttigenerated.WorkspaceAgentSessionGoal {
+	var goal *tuttigenerated.WorkspaceAgentSessionGoal
+	if len(raw) > 0 {
+		var value tuttigenerated.WorkspaceAgentSessionGoal
+		if decodeTypedAgentSessionField(raw, &value) &&
+			strings.TrimSpace(value.Objective) != "" &&
+			value.Status.Valid() {
+			goal = &value
+		}
+	}
+	session.Goal = goal
+	return goal
 }
 
 func (api DaemonAPI) GetWorkspaceAgentSessionGoal(ctx context.Context, request tuttigenerated.GetWorkspaceAgentSessionGoalRequestObject) (tuttigenerated.GetWorkspaceAgentSessionGoalResponseObject, error) {

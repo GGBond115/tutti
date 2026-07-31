@@ -487,6 +487,9 @@ func installErrorCode(err error) string {
 	case errors.Is(err, ErrRuntimeVerifyFailed):
 		return "version_check_failed"
 	case errors.Is(err, ErrRuntimeProbeFailed):
+		if code := agentruntime.ClassifyAccountFailure(err); code != "" {
+			return code
+		}
 		return "acp_probe_failed"
 	case errors.Is(err, ErrRuntimeActivateFailed):
 		return "activation_failed"

@@ -155,12 +155,27 @@ export function useWorkbenchHostSurfaceRenderers(input: {
   );
 
   const captureNodePreviewImage = useCallback(
-    async (node: WorkbenchNode<WorkbenchHostNodeData>) =>
-      (await captureNodeDefinitionPreviewImage(node)) ??
-      (await Promise.resolve(
-        input.captureNodePreviewImage?.(node) ?? null
-      ).catch(() => null)),
-    [captureNodeDefinitionPreviewImage, input.captureNodePreviewImage]
+    async (node: WorkbenchNode<WorkbenchHostNodeData>) => {
+      const definitionPreviewImageUrl =
+        await captureNodeDefinitionPreviewImage(node);
+      if (definitionPreviewImageUrl !== null) {
+        return definitionPreviewImageUrl;
+      }
+      if (input.captureNodePreviewImage) {
+        return await Promise.resolve(input.captureNodePreviewImage(node)).catch(
+          () => null
+        );
+      }
+      const previewImages = await Promise.resolve(
+        input.captureNodePreviewImages?.(node) ?? null
+      ).catch(() => null);
+      return previewImages?.dockPreviewImageUrl ?? null;
+    },
+    [
+      captureNodeDefinitionPreviewImage,
+      input.captureNodePreviewImage,
+      input.captureNodePreviewImages
+    ]
   );
 
   const captureNodePreviewImages = useCallback(

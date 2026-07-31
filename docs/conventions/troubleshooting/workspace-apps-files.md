@@ -66,7 +66,42 @@
   uninstalled apps without invoking the runtime resolver.
 - References:
   [apps.go](../../../services/tuttid/service/workspace/apps.go)
-  [apps_test.go](../../../services/tuttid/service/workspace/apps_test.go)
+  [apps_catalog_test.go](../../../services/tuttid/service/workspace/apps_catalog_test.go)
+
+### Workspace app commands fail inside Corepack before pnpm starts
+
+- Symptom:
+  A workspace app launches successfully, but a repository check or Git hook
+  fails immediately with `Cannot find module './lib/corepack.cjs'`. The require
+  stack points at the managed runtime's `node/bin/corepack`, and several
+  unrelated check lanes fail before executing their own logic.
+- Quick checks:
+  Inspect `node/bin/corepack` below the injected `TUTTI_APP_RUNTIME_ROOT`. A
+  broken artifact contains the same JavaScript as Corepack's
+  `dist/corepack.js` as a regular file. A valid artifact contains a standalone
+  wrapper that invokes the packaged Node binary and
+  `../lib/node_modules/corepack/dist/corepack.js`.
+- Root cause:
+  Node publishes `bin/corepack` as a relative symlink. Dereferencing that
+  symlink while staging a zip copies the target JavaScript into `node/bin`;
+  its relative `./lib/corepack.cjs` import then resolves from the wrong
+  directory. Rewriting only the npm and npx shims leaves Corepack broken and
+  shadows any usable Corepack later on `PATH`.
+- Fix:
+  Replace `node/bin/corepack` during runtime artifact assembly with a standalone
+  wrapper, validate it with `corepack --version`, and bump the immutable runtime
+  version before publishing. Treat cached Node components without that wrapper
+  contract as unavailable so the resolver replaces an already-broken cache.
+- Validation:
+  Run
+  `node --test tools/scripts/build-tutti-app-runtime-catalog.test.mjs` and
+  `cd services/tuttid && go test ./service/managedruntime ./service/workspace`.
+  Inspect the assembled archive and confirm `node/bin/corepack --version`
+  succeeds with only the packaged runtime directory first on `PATH`.
+- References:
+  [publish-tutti-app-runtime.yml](../../../.github/workflows/publish-tutti-app-runtime.yml)
+  [runtime.go](../../../services/tuttid/service/managedruntime/runtime.go)
+  [workspace-app-runtime.md](../workspace-app-runtime.md)
 
 ### Workspace app uninstall fails on cached manifest validation
 

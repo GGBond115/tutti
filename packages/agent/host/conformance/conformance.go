@@ -62,6 +62,7 @@ type Fixture struct {
 	DisableGoalInbox       bool
 	AcceptGoalControlsOnly bool
 	CompleteGoalOnSet      bool
+	EmptyPauseResumeGoal   bool
 	FailCommitObserver     bool
 	WorktreeGCSweepErr     error
 	DeleteAdmissionErr     error

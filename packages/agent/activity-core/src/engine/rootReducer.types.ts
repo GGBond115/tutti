@@ -3,10 +3,11 @@ import type {
   PromptExecutionState
 } from "./promptExecution.types.ts";
 import type {
-  AgentSessionEngineState,
+  AgentSessionEngineStateBase,
   EngineCommand,
   EngineIntent
 } from "./types.ts";
+import type { SessionGoalControlState } from "./sessionGoalControl.types.ts";
 
 /**
  * Root-reducer-only intents. Hosts dispatch `EngineIntent`; continuations in
@@ -18,9 +19,10 @@ export type RootEngineIntent = EngineIntent | PromptExecutionIntent;
  * Root-reducer-only state. Public snapshots project the host-observable state
  * and omit execution bookkeeping.
  */
-export interface RootAgentSessionEngineState extends AgentSessionEngineState {
+export type RootAgentSessionEngineState = AgentSessionEngineStateBase & {
+  goalControl: SessionGoalControlState;
   promptExecutions: PromptExecutionState;
-}
+};
 
 export interface RootEngineReducerResult<TState> {
   commands: readonly EngineCommand[];

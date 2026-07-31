@@ -22,6 +22,7 @@ func TestDefaultResolverInjectsBaselineRuntime(t *testing.T) {
 	writeExecutable(t, filepath.Join(pythonBinDir, pythonBinaryName()))
 	writeExecutable(t, filepath.Join(nodeBinDir, nodeBinaryName()))
 	writeExecutable(t, filepath.Join(nodeBinDir, npmBinaryName()))
+	writeCorepackWrapper(t, filepath.Join(nodeBinDir, corepackBinaryName()))
 
 	resolved, err := DefaultResolver{
 		RuntimeRoot: root,
@@ -253,6 +254,63 @@ func TestDefaultResolverPreloadsRuntimeProfileComponents(t *testing.T) {
 	}
 }
 
+func TestDefaultResolverReplacesNodeComponentWithBrokenCorepackWrapper(t *testing.T) {
+	cacheRoot := t.TempDir()
+	root := filepath.Join(cacheRoot, appRuntimePlatformArch(runtime.GOOS, runtime.GOARCH))
+	nodeBinDir := filepath.Join(root, "node", "bin")
+	writeExecutable(t, filepath.Join(nodeBinDir, nodeBinaryName()))
+	writeExecutable(t, filepath.Join(nodeBinDir, npmBinaryName()))
+	writeExecutable(t, filepath.Join(nodeBinDir, corepackBinaryName()))
+
+	nodeArtifactPath := createManagedRuntimeComponentArchiveForTest(t, "node")
+	nodeSHA256, _, err := fileSHA256AndSize(nodeArtifactPath)
+	if err != nil {
+		t.Fatalf("fileSHA256AndSize() error = %v", err)
+	}
+	catalogPath := filepath.Join(t.TempDir(), "runtimes.json")
+	catalogJSON := `{
+  "schemaVersion": "tutti.app.runtimes.v2",
+  "runtimes": {
+    "` + appRuntimePlatformArch(runtime.GOOS, runtime.GOARCH) + `": {
+      "version": "test",
+      "components": {
+        "node": {
+          "version": "test-node",
+          "artifactUrl": "` + filepath.ToSlash(nodeArtifactPath) + `",
+          "artifactSha256": "` + nodeSHA256 + `"
+        }
+      },
+      "profiles": {
+        "baseline": ["node"],
+        "node-static": ["node"]
+      }
+    }
+  }
+}`
+	if err := os.WriteFile(catalogPath, []byte(catalogJSON), 0o644); err != nil {
+		t.Fatalf("write catalog: %v", err)
+	}
+
+	resolved, err := DefaultResolver{
+		Environ: func() []string {
+			return []string{
+				tuttiAppRuntimeCacheRootEnv + "=" + cacheRoot,
+				tuttiAppRuntimeCatalogEnv + "=" + catalogPath,
+				"PATH=/usr/bin:/bin",
+			}
+		},
+	}.ResolveProfile(context.Background(), appRuntimeNodeStaticProfile)
+	if err != nil {
+		t.Fatalf("ResolveProfile() error = %v", err)
+	}
+	if !isStandaloneCorepackWrapper(filepath.Join(nodeBinDir, corepackBinaryName())) {
+		t.Fatal("ResolveProfile() did not replace the broken corepack wrapper")
+	}
+	if resolved.Node != filepath.Join(nodeBinDir, nodeBinaryName()) {
+		t.Fatalf("resolved Node = %q, want managed node component", resolved.Node)
+	}
+}
+
 func TestDefaultResolverRejectsRuntimeShaMismatch(t *testing.T) {
 	cacheRoot := t.TempDir()
 	pythonArtifactPath := createManagedRuntimeComponentArchiveForTest(t, "python")
@@ -318,6 +376,27 @@ func writeExecutable(t *testing.T, path string) {
 	}
 }
 
+func writeCorepackWrapper(t *testing.T, path string) {
+	t.Helper()
+	body := `#!/bin/sh
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec "${script_dir}/node" "${script_dir}/../lib/node_modules/corepack/dist/corepack.js" "$@"
+`
+	mode := os.FileMode(0o755)
+	if runtime.GOOS == "windows" {
+		body = `@echo off
+"%~dp0node.exe" "%~dp0..\lib\node_modules\corepack\dist\corepack.js" %*
+`
+		mode = 0o644
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create corepack wrapper parent %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(body), mode); err != nil {
+		t.Fatalf("write corepack wrapper %s: %v", path, err)
+	}
+}
+
 func createManagedRuntimeComponentArchiveForTest(t *testing.T, componentName string) string {
 	t.Helper()
 
@@ -328,6 +407,7 @@ func createManagedRuntimeComponentArchiveForTest(t *testing.T, componentName str
 	case "node":
 		writeExecutable(t, filepath.Join(sourceDir, "node", "bin", nodeBinaryName()))
 		writeExecutable(t, filepath.Join(sourceDir, "node", "bin", npmBinaryName()))
+		writeCorepackWrapper(t, filepath.Join(sourceDir, "node", "bin", corepackBinaryName()))
 	default:
 		t.Fatalf("unsupported runtime component %q", componentName)
 	}

@@ -547,6 +547,7 @@ export const enAgentGui = {
   agentTargetRequired:
     "Select an available agent target before starting a session.",
   sessionActivationFailed: "The agent session could not be started.",
+  goalControlFailed: "The goal change could not be applied.",
   sessionNoLongerAvailable:
     "The previous agent session is no longer available.",
   promptImagesUnsupported:

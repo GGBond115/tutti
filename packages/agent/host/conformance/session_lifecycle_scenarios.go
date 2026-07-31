@@ -58,6 +58,88 @@ func runCreateWithInitialContent(ctx context.Context, driver Driver) error {
 	return nil
 }
 
+func runCreateWithInitialGoal(ctx context.Context, driver Driver) error {
+	if err := driver.Reset(ctx, Fixture{}); err != nil {
+		return err
+	}
+	if _, _, err := driver.Create(ctx, "workspace-1", agenthost.CreateSessionInput{
+		AgentSessionID: "session-ambiguous-initial-goal",
+		AgentTargetID:  "target-1",
+		Provider:       "codex",
+		ClientSubmitID: "create-goal-ambiguous-1",
+		InitialContent: []agenthost.PromptContentBlock{{
+			Type: "text",
+			Text: "ordinary prompt",
+		}},
+		InitialGoalControl: &agenthost.TypedGoalControl{
+			Action:    "set",
+			Objective: "ship the feature",
+		},
+	}); !errors.Is(err, agenthost.ErrInvalidArgument) {
+		return fmt.Errorf("ambiguous initial goal error=%v", err)
+	}
+	if metrics := driver.Metrics(); metrics.StartCalls != 0 {
+		return fmt.Errorf("ambiguous initial goal start calls=%d", metrics.StartCalls)
+	}
+
+	if err := driver.Reset(ctx, Fixture{CompleteGoalOnSet: true}); err != nil {
+		return err
+	}
+	input := agenthost.CreateSessionInput{
+		AgentSessionID:       "session-initial-goal",
+		AgentTargetID:        "target-1",
+		Provider:             "codex",
+		ClientSubmitID:       "create-goal-submit-1",
+		InitialDisplayPrompt: "/goal ship the feature",
+		InitialGoalControl: &agenthost.TypedGoalControl{
+			Action:    "set",
+			Objective: "ship the feature",
+		},
+	}
+	session, turnID, err := driver.Create(ctx, "workspace-1", input)
+	if err != nil {
+		return fmt.Errorf("create with typed initial goal: %w", err)
+	}
+	if session.SessionID != "session-initial-goal" || turnID != "" {
+		return fmt.Errorf("create with typed initial goal = %#v turn %q", session, turnID)
+	}
+	if session.Title != "/goal ship the feature" {
+		return fmt.Errorf("typed initial goal title=%q", session.Title)
+	}
+	goal, err := driver.GetGoalState(ctx, agenthost.SessionRef{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "session-initial-goal",
+	})
+	if err != nil {
+		return fmt.Errorf("read typed initial goal: %w", err)
+	}
+	if goal.Goal["objective"] != "ship the feature" {
+		return fmt.Errorf("typed initial goal = %#v", goal.Goal)
+	}
+	replayed, replayedTurnID, err := driver.Create(ctx, "workspace-1", input)
+	if err != nil {
+		return fmt.Errorf("retry create with typed initial goal: %w", err)
+	}
+	if replayed.SessionID != session.SessionID || replayedTurnID != "" {
+		return fmt.Errorf(
+			"retried typed initial goal = %#v turn %q, want session %q without turn",
+			replayed,
+			replayedTurnID,
+			session.SessionID,
+		)
+	}
+	metrics := driver.Metrics()
+	if metrics.StartCalls != 1 || metrics.ExecCalls != 0 || metrics.GoalControlCalls != 1 {
+		return fmt.Errorf(
+			"create with typed initial goal calls start=%d exec=%d goal=%d",
+			metrics.StartCalls,
+			metrics.ExecCalls,
+			metrics.GoalControlCalls,
+		)
+	}
+	return nil
+}
+
 func runCreateWithRailPlacement(ctx context.Context, driver Driver) error {
 	if err := driver.Reset(ctx, Fixture{}); err != nil {
 		return err

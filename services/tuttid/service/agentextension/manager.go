@@ -116,12 +116,31 @@ func (m *Manager) RestoreActive(ctx context.Context) (bool, []error) {
 			}
 			continue
 		}
+		if sourceUsesLocalPackage(source) {
+			// Development overrides are mutable inputs. Always snapshot the
+			// configured directory before serving requests so a missing,
+			// changed, or newly selected package cannot be hidden by an older
+			// local installation. Keep the persisted target until reconcile so
+			// registerTarget can preserve the user's enabled preference; a
+			// failed local reconcile removes the stale target.
+			requiresSynchronousReconcile = true
+			continue
+		}
 
 		installation, err := m.loadActive(source.Key)
 		if err != nil {
 			requiresSynchronousReconcile = true
 			if !errors.Is(err, os.ErrNotExist) {
 				errs = append(errs, fmt.Errorf("restore active agent extension %s: %w", source.Key, err))
+			}
+			continue
+		}
+		if !installationMatchesConfiguredSource(source, installation) {
+			requiresSynchronousReconcile = true
+			if m.Store != nil {
+				if err := m.Store.DeleteAgentTarget(ctx, targetID(source.Key)); err != nil {
+					errs = append(errs, fmt.Errorf("remove stale agent extension %s target: %w", source.Key, err))
+				}
 			}
 			continue
 		}
@@ -170,6 +189,14 @@ func sourceEnabled(source tuttitypes.AgentExtensionSource, featureFlags map[stri
 		return enabled
 	}
 	return source.Enabled
+}
+
+func sourceUsesLocalPackage(source tuttitypes.AgentExtensionSource) bool {
+	return strings.TrimSpace(source.LocalPackageDir) != ""
+}
+
+func installationMatchesConfiguredSource(source tuttitypes.AgentExtensionSource, installation Installation) bool {
+	return sourceUsesLocalPackage(source) == installation.HasLocalPackageProvenance()
 }
 
 func (m *Manager) ResolveRuntime(ctx context.Context, installationID string) (RuntimeBinding, error) {
@@ -285,6 +312,10 @@ func (m *Manager) runtimeBinding(installation Installation, command []string, ve
 	if err != nil {
 		return RuntimeBinding{}, err
 	}
+	authenticationMethods, err := loadAuthenticationMethods(installation)
+	if err != nil {
+		return RuntimeBinding{}, err
+	}
 	permissionModes, planModeRuntimeID, err := loadComposerModes(installation)
 	if err != nil {
 		return RuntimeBinding{}, err
@@ -321,7 +352,7 @@ func (m *Manager) runtimeBinding(installation Installation, command []string, ve
 	}
 	return RuntimeBinding{
 		Installation: installation, Command: command, Version: version, Source: source,
-		ToolAliases: aliases, ModelConfigOptionID: modelConfigOptionID,
+		ToolAliases: aliases, AuthenticationMethods: authenticationMethods, ModelConfigOptionID: modelConfigOptionID,
 		PermissionConfigOptionID: permissionConfigOptionID, ReasoningConfigOptionID: reasoningConfigOptionID,
 		PermissionModes: permissionModes, AutomaticPermissionDecisions: composerProfile.AutomaticPermissionDecisions(),
 		PlanModeRuntimeID:            planModeRuntimeID,
@@ -349,18 +380,11 @@ func (m *Manager) reconcileSource(ctx context.Context, source tuttitypes.AgentEx
 	if !safeKey.MatchString(source.Key) {
 		return Installation{}, errors.New("invalid extension key")
 	}
-	if strings.TrimSpace(source.LocalPackageDir) != "" {
+	if sourceUsesLocalPackage(source) {
 		return m.installLocalPackage(source.Key, source.LocalPackageDir)
 	}
-	var versions Versions
-	if err := m.getJSON(ctx, source.ReleaseIndexURL, maxIndexBytes, &versions); err != nil {
-		return Installation{}, err
-	}
-	record, err := selectVersion(versions, source.Key, tuttitypes.ResolveAppVersion())
+	record, err := m.resolveReleaseRecord(ctx, source)
 	if err != nil {
-		return Installation{}, err
-	}
-	if err := verifyRelease(record.Release, source); err != nil {
 		return Installation{}, err
 	}
 	if installed, err := m.loadActive(source.Key); err == nil && installed.Version == record.Version &&
@@ -563,7 +587,7 @@ func (m *Manager) validateInstallation(value Installation) (Installation, error)
 		return Installation{}, errors.New("extension installation package path is invalid")
 	}
 	var manifest Manifest
-	if strings.Contains(value.Version, localPackageVersionMarker) {
+	if value.HasLocalPackageProvenance() {
 		if !validPackageContentSHA256(value.PackageContentSHA256) {
 			return Installation{}, errors.New("local extension installation content identity is missing or invalid")
 		}
@@ -608,7 +632,7 @@ func (m *Manager) validateInstallation(value Installation) (Installation, error)
 }
 
 func legacyRemoteInstallationRecord(value Installation) bool {
-	return !strings.Contains(value.Version, localPackageVersionMarker) &&
+	return !value.HasLocalPackageProvenance() &&
 		value.ReleaseArtifactSHA256 == "" && value.ReleaseArtifactSizeBytes == 0
 }
 

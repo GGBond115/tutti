@@ -11,7 +11,7 @@ import {
   selectEnginePendingInteractions
 } from "./sessionLifecycle.selectors.ts";
 import type { CanonicalAgentSession } from "./sessionLifecycle.types.ts";
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 
 const EMPTY_MESSAGES: readonly AgentActivityMessage[] = [];
 
@@ -42,7 +42,7 @@ interface ProjectedSessionRecord {
  */
 export function createAgentSessionFamilySnapshotSelector(
   rootAgentSessionId: string | null | undefined
-): (state: AgentSessionEngineState) => AgentSessionFamilySnapshot {
+): (state: AgentSessionEngineStateBase) => AgentSessionFamilySnapshot {
   const rootId = rootAgentSessionId?.trim() ?? "";
   let previousRecordsById = new Map<string, ProjectedSessionRecord>();
   let previousSnapshot: AgentSessionFamilySnapshot = {

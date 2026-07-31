@@ -198,6 +198,21 @@ function executeCommand(
       return effects.activateSession(activationInput(command), {
         signal
       });
+    case "goal/control":
+      return effects.controlGoal
+        ? effects.controlGoal(
+            {
+              action: command.action,
+              agentSessionId: command.agentSessionId,
+              clientSubmitId: command.clientSubmitId,
+              ...(command.objective ? { objective: command.objective } : {}),
+              workspaceId: command.workspaceId
+            },
+            { signal }
+          )
+        : Promise.reject(
+            new Error("AgentSessionEffectPort.controlGoal is not configured")
+          );
     case "queue/sendPrompt":
       return effects.sendInput(promptInput(command), { signal });
     case "session/updateSettings":
@@ -268,9 +283,10 @@ function commandResultContract(
   commandPort: EngineCommandPort | EngineTypedCommandPort,
   command: EngineExternalCommand
 ): EngineCommandResultContract {
-  return commandPort.kind === "typed" && command.type === "session/activate"
-    ? "activation-v1"
-    : "opaque";
+  if (commandPort.kind !== "typed") return "opaque";
+  if (command.type === "session/activate") return "activation-v1";
+  if (command.type === "goal/control") return "goal-control-v1";
+  return "opaque";
 }
 
 function promptInput(

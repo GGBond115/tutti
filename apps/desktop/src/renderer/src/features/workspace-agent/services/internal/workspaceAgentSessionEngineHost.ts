@@ -151,6 +151,11 @@ export function createWorkspaceAgentSessionEngineHost(
           }),
         cancelTurn: (effectInput, options) =>
           input.cancelTurn({ ...effectInput, signal: options?.signal }),
+        controlGoal: (effectInput, options) =>
+          adapter.goalControl({
+            ...effectInput,
+            signal: options?.signal
+          }),
         deleteSessions: (effectInput, options) =>
           adapter.deleteSessions({
             ...effectInput,

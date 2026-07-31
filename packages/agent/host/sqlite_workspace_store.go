@@ -626,6 +626,22 @@ func (s *SQLiteWorkspaceStore) FailEditRetryRecovery(ctx context.Context, input 
 	return store.FailEditRetryRecovery(ctx, input)
 }
 
+func (s *SQLiteWorkspaceStore) QuarantineEditRetryOperation(ctx context.Context, input storesqlite.QuarantineEditRetryOperationInput) (storesqlite.RuntimeOperation, bool, error) {
+	store, err := s.store(input.WorkspaceID)
+	if err != nil {
+		return storesqlite.RuntimeOperation{}, false, err
+	}
+	return store.QuarantineEditRetryOperation(ctx, input)
+}
+
+func (s *SQLiteWorkspaceStore) ClearAbandonedEditRetryFence(ctx context.Context, input storesqlite.ClearAbandonedEditRetryFenceInput) (bool, error) {
+	store, err := s.store(input.WorkspaceID)
+	if err != nil {
+		return false, err
+	}
+	return store.ClearAbandonedEditRetryFence(ctx, input)
+}
+
 func (s *SQLiteWorkspaceStore) ListSessionTurnSummaries(ctx context.Context, input storesqlite.ListSessionTurnSummariesInput) (storesqlite.SessionTurnSummaryPage, error) {
 	store, err := s.store(input.WorkspaceID)
 	if err != nil {

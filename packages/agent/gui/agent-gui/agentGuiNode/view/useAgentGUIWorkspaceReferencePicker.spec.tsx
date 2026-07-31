@@ -31,6 +31,23 @@ function createInput(
 }
 
 describe("useAgentGUIWorkspaceReferencePicker project directory purpose", () => {
+  it("allows Host folders for ordinary workspace references", () => {
+    const { result } = renderHook(() =>
+      useAgentGUIWorkspaceReferencePicker(
+        createInput({} as ReferenceSourceAggregator)
+      )
+    );
+
+    expect(result.current.workspaceReferencePickerPurpose).toBe("reference");
+    expect(
+      result.current.isWorkspaceReferencePickerNodeSelectable({
+        displayName: "host-folder",
+        kind: "folder",
+        ref: { nodeId: "/Users/me/project", sourceId: "host-local-file" }
+      })
+    ).toBe(true);
+  });
+
   it("opens the shared picker with the directory aggregator and resolves one folder", async () => {
     const projectDirectorySourceAggregator = {} as ReferenceSourceAggregator;
     const { result } = renderHook(() =>

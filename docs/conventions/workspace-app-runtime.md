@@ -39,6 +39,7 @@ node component zip:
   node/bin/node
   node/bin/npm
   node/bin/npx
+  node/bin/corepack
 ```
 
 Windows runtime artifacts, when added, must use the Windows executable names expected by tuttid:
@@ -47,6 +48,7 @@ Windows runtime artifacts, when added, must use the Windows executable names exp
 python/bin/python.exe
 node/bin/node.exe
 node/bin/npm.cmd
+node/bin/corepack.cmd
 ```
 
 Catalog platform keys must use Go runtime names because tuttid resolves them with `runtime.GOOS` and `runtime.GOARCH`. Use `darwin-amd64` and `linux-amd64`, not Node's `darwin-x64` or `linux-x64` download labels.
@@ -100,6 +102,15 @@ https://d1x7gb6wqsqmnm.cloudfront.net/tutti-app-runtimes/catalog.json
 ```
 
 Artifacts are immutable and should use long cache headers. The catalog is mutable and should use a short cache header.
+
+The production runtime catalog must publish at least the `runtimeVersion` locked
+by the desktop release target for every supported platform before that desktop
+release is promoted. Runtime versions use an ordered `YYYY.MM.PATCH` format and
+newer runtime releases remain compatible with older desktop releases because
+tuttid always resolves the mutable catalog's current entry. The promotion
+workflow enforces this ordering with
+`tools/scripts/verify-tutti-app-runtime-release.mjs`; publish the managed runtime
+first when the lock version changes.
 
 ## Catalog Shape
 
@@ -157,9 +168,12 @@ Agent provider installers may also use the managed `TUTTI_APP_NPM` path to
 install ACP npm adapters into daemon-owned per-agent prefixes instead of npm
 global locations.
 
-Runtime artifacts must make `node/bin/npm` and `node/bin/npx` standalone
-wrappers that execute the packaged Node binary with npm's packaged CLI scripts.
-Do not rely on Node release symlinks surviving zip packaging.
+Runtime artifacts must make `node/bin/npm`, `node/bin/npx`, and
+`node/bin/corepack` standalone wrappers that execute the packaged Node binary
+with their packaged CLI scripts. Do not rely on Node release symlinks surviving
+zip packaging. The resolver treats a dereferenced Corepack distribution entry
+as an invalid Node component and downloads the current catalog artifact again,
+so existing caches recover when this wrapper contract changes.
 
 ## Validation
 

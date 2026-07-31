@@ -17,6 +17,25 @@ type TypedGoalControl struct {
 	Objective string
 }
 
+func normalizeTypedGoalControl(input TypedGoalControl) (TypedGoalControl, error) {
+	action := strings.ToLower(strings.TrimSpace(input.Action))
+	objective := strings.TrimSpace(input.Objective)
+	switch action {
+	case "set":
+		if objective == "" {
+			return TypedGoalControl{}, ErrInvalidArgument
+		}
+		return TypedGoalControl{Action: action, Objective: objective}, nil
+	case "pause", "resume", "clear":
+		if objective != "" {
+			return TypedGoalControl{}, ErrInvalidArgument
+		}
+		return TypedGoalControl{Action: action}, nil
+	default:
+		return TypedGoalControl{}, ErrInvalidArgument
+	}
+}
+
 func (h *Host) goalOperationOwner() string {
 	owner := strings.TrimSpace(h.goalOwner)
 	if owner == "" {
@@ -64,6 +83,65 @@ func goalControlClientSubmitID(input GoalControlInput, submissionMetadata map[st
 	return metadataString(submissionMetadata, "clientSubmitId")
 }
 
+// existingGoalControlResult resolves a durable replay before callers perform
+// any provider-side setup. CreateSession uses it to keep a response-loss retry
+// from starting a second provider Session after the Host process restarts.
+func (h *Host) existingGoalControlResult(
+	ctx context.Context,
+	input GoalControlInput,
+) (GoalControlResult, bool, error) {
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	agentSessionID := strings.TrimSpace(input.AgentSessionID)
+	clientSubmitID := goalControlClientSubmitID(input, input.SubmissionMetadata)
+	action := strings.TrimSpace(input.Action)
+	objective := strings.TrimSpace(input.Objective)
+	if h == nil || h.goals == nil || workspaceID == "" || agentSessionID == "" || clientSubmitID == "" {
+		return GoalControlResult{}, false, nil
+	}
+	operationID := goalControlOperationID(workspaceID, agentSessionID, clientSubmitID)
+	operation, found, err := h.goals.GetGoalControlOperation(ctx, workspaceID, operationID)
+	if err != nil || !found {
+		return GoalControlResult{}, false, err
+	}
+	if operation.AgentSessionID != agentSessionID ||
+		operation.ClientSubmitID != clientSubmitID ||
+		operation.Action != action ||
+		operation.Objective != objective {
+		return GoalControlResult{}, true, storesqlite.ErrGoalOperationConflict
+	}
+	switch operation.Status {
+	case storesqlite.GoalOperationStatusCompleted, storesqlite.GoalOperationStatusSuperseded:
+		state, stateFound, stateErr := h.goals.GetSessionGoalState(ctx, workspaceID, agentSessionID)
+		if stateErr != nil {
+			return GoalControlResult{}, true, stateErr
+		}
+		if !stateFound {
+			return GoalControlResult{}, true, storesqlite.ErrGoalStateAbsent
+		}
+		canonical, sessionFound, sessionErr := h.store.GetSession(ctx, workspaceID, agentSessionID)
+		if sessionErr != nil {
+			return GoalControlResult{}, true, sessionErr
+		}
+		if !sessionFound {
+			return GoalControlResult{}, true, ErrSessionNotFound
+		}
+		return GoalControlResult{
+			Canonical:   canonical,
+			Goal:        durableGoalForResponse(state),
+			OperationID: operation.OperationID,
+			GoalState:   &state,
+		}, true, nil
+	case storesqlite.GoalOperationStatusFailed:
+		return GoalControlResult{}, true, fmt.Errorf(
+			"%w: %s",
+			ErrRuntimeOperationFailed,
+			strings.TrimSpace(operation.LastError),
+		)
+	default:
+		return GoalControlResult{}, true, ErrRuntimeOperationInProgress
+	}
+}
+
 // ParseTypedGoalControl recognizes the text-only slash surface at the Host
 // command boundary. It intentionally runs before submit-claim allocation so typed and
 // dedicated controls share one durable saga and no Turn contract is opened.
@@ -97,6 +175,29 @@ func ParseTypedGoalControl(content []PromptContentBlock, guidance bool) (TypedGo
 	default:
 		return TypedGoalControl{Action: "set", Objective: args}, true
 	}
+}
+
+func typedGoalDisplayPrompt(goal TypedGoalControl) string {
+	if goal.Action == "set" {
+		return firstNonEmpty("/goal "+strings.TrimSpace(goal.Objective), "")
+	}
+	return firstNonEmpty("/goal "+strings.TrimSpace(goal.Action), "")
+}
+
+func initialGoalRuntimeTitle(
+	explicitTitle string,
+	displayPrompt string,
+	goal TypedGoalControl,
+	isTypedGoal bool,
+) (string, bool) {
+	title := strings.TrimSpace(explicitTitle)
+	if isTypedGoal && NormalizeTitle(title) == "" {
+		title = DeriveInitialTitle(
+			"",
+			firstNonEmpty(strings.TrimSpace(displayPrompt), typedGoalDisplayPrompt(goal)),
+		)
+	}
+	return title, NormalizeTitle(title) != ""
 }
 
 // GoalControl performs a direct goal action (pause/resume/clear/set) on the
@@ -327,6 +428,13 @@ func (h *Host) goalControlSerialized(
 		if persistErr != nil {
 			return GoalControlResult{}, persistErr
 		}
+	}
+	if persistedState != nil {
+		// GoalControlResult.Goal is the Host-owned durable projection used by
+		// every consumer. Provider output remains available independently as
+		// GoalState.Observed and may legitimately be empty while a pause or
+		// resume is applied. Only a durable tombstone projects an explicit nil.
+		responseGoal = durableGoalForResponse(*persistedState)
 	}
 	canonical, found, err := h.store.GetSession(ctx, workspaceID, agentSessionID)
 	if err != nil {

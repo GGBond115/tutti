@@ -104,6 +104,7 @@ type ProviderGoalAdoption struct {
 	WorkspaceID      string
 	AgentSessionID   string
 	ClientSubmitID   string
+	ExpectedRevision int64
 	Goal             map[string]any
 	Evidence         map[string]any
 	OccurredAtUnixMS int64

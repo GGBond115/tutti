@@ -1,6 +1,6 @@
 {
   "schemaVersion": "tutti.app.runtime-lock.v1",
-  "runtimeVersion": "2026.06.0",
+  "runtimeVersion": "2026.07.0",
   "uv": {
     "version": "0.11.19"
   },

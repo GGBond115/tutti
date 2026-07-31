@@ -30,8 +30,28 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		return CreateSessionResult{}, err
 	}
 	typedGoal, isTypedGoal := ParseTypedGoalControl(normalized, false)
+	if input.InitialGoalControl != nil {
+		if len(normalized) != 0 {
+			return CreateSessionResult{}, ErrInvalidArgument
+		}
+		typedGoal, err = normalizeTypedGoalControl(*input.InitialGoalControl)
+		if err != nil {
+			return CreateSessionResult{}, err
+		}
+		isTypedGoal = true
+	}
 	metadata := submissionMetadata(input.Metadata, input.ClientSubmitID)
 	goalMetadata := clonePayload(metadata)
+	goalInput := GoalControlInput{
+		WorkspaceID: workspaceID, AgentSessionID: input.AgentSessionID,
+		Action: typedGoal.Action, Objective: typedGoal.Objective,
+		ClientSubmitID: input.ClientSubmitID, SubmissionMetadata: goalMetadata,
+	}
+	if isTypedGoal {
+		if replay, found, replayErr := h.replayInitialGoalCreate(ctx, input, goalInput); found || replayErr != nil {
+			return replay, replayErr
+		}
+	}
 	claimMetadata := metadata
 	if isTypedGoal || len(normalized) == 0 {
 		normalized = nil
@@ -102,10 +122,11 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 	}
 	session, err := func() (ProviderRuntimeSession, error) {
 		defer release()
+		runtimeTitle, initialTitleEstablished := initialGoalRuntimeTitle(value(input.Title), input.InitialDisplayPrompt, typedGoal, isTypedGoal)
 		return h.runtime.Start(ctx, RuntimeStartInput{
 			WorkspaceID: workspaceID, AgentSessionID: input.AgentSessionID, AgentTargetID: input.AgentTargetID,
 			Provider: input.Provider, Cwd: prepared.Cwd, Env: append([]string(nil), prepared.Env...),
-			Title: value(input.Title), InitialTitleEstablished: NormalizeTitle(value(input.Title)) != "",
+			Title: runtimeTitle, InitialTitleEstablished: initialTitleEstablished,
 			PermissionModeID: value(input.PermissionModeID), Model: value(input.Model), PlanMode: valueBool(input.PlanMode),
 			BrowserUse: input.BrowserUse, ComputerUse: input.ComputerUse,
 			ProviderTargetRef: cloneMap(firstMap(prepared.ProviderTargetRef, input.ProviderTargetRef)),
@@ -143,11 +164,8 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		return CreateSessionResult{Session: session, Canonical: canonicalSession}, nil
 	}
 	if isTypedGoal {
-		goalResult, goalErr := h.goalControl(ctx, GoalControlInput{
-			WorkspaceID: workspaceID, AgentSessionID: session.ID,
-			Action: typedGoal.Action, Objective: typedGoal.Objective,
-			SubmissionMetadata: goalMetadata,
-		})
+		goalInput.AgentSessionID = session.ID
+		goalResult, goalErr := h.goalControl(ctx, goalInput)
 		if goalErr != nil {
 			// A typed goal starts from a non-provisional, already published
 			// session. Preserve that canonical session on command failure just as
@@ -371,6 +389,7 @@ func (h *Host) SendInput(ctx context.Context, ref SessionRef, input SendInput) (
 		goalResult, goalErr := h.goalControl(ctx, GoalControlInput{
 			WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID,
 			Action: typedGoal.Action, Objective: typedGoal.Objective,
+			ClientSubmitID:     input.ClientSubmitID,
 			SubmissionMetadata: metadata,
 		})
 		if goalErr != nil {
@@ -677,6 +696,19 @@ func (h *Host) requireSendAllowedByEffectiveHistory(ctx context.Context, ref Ses
 	history, found, err := h.effectiveHistory.GetSessionHistory(ctx, ref.WorkspaceID, ref.AgentSessionID)
 	if err != nil || !found || history.RecoveryState == storesqlite.SessionHistoryRecoveryReady {
 		return err
+	}
+	if h.editRetryDisabled {
+		// Durable edit-retry is neutralized, so a fence whose owning operation is
+		// no longer in flight can never clear through the saga (recovery only
+		// quarantines claimable operations; a previously failed one is invisible
+		// to it). Heal it here so the session is not send-blocked forever; if the
+		// clear does not apply (operation still in flight), fall through to the
+		// normal fence error.
+		if cleared, clearErr := h.effectiveHistory.ClearAbandonedEditRetryFence(ctx, storesqlite.ClearAbandonedEditRetryFenceInput{
+			WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID, NowUnixMS: h.now().UnixMilli(),
+		}); clearErr == nil && cleared {
+			return nil
+		}
 	}
 	switch history.RecoveryState {
 	case storesqlite.SessionHistoryRecoveryRollbackPending:

@@ -631,6 +631,9 @@ func validateAgentActivityUpdatedData(decoded agentActivityUpdatedPayload) error
 			return fmt.Errorf("data.deletedAtUnixMs is required")
 		}
 	case "message_update":
+		if err := requireJSONArrayItemFields(decoded.Data, "messages", "turnId"); err != nil {
+			return err
+		}
 		var data agentActivityMessageUpdateData
 		if err := decodeJSONStrict(decoded.Data, &data); err != nil {
 			return fmt.Errorf("decode message_update data: %w", err)
@@ -651,10 +654,11 @@ func validateAgentActivityUpdatedData(decoded agentActivityUpdatedPayload) error
 			if strings.TrimSpace(message.AgentSessionID) != agentSessionID {
 				return fmt.Errorf("data.messages[%d].agentSessionId must match agentSessionId", index)
 			}
-			if strings.TrimSpace(message.Kind) == "" {
+			kind := strings.TrimSpace(message.Kind)
+			if kind == "" {
 				return fmt.Errorf("data.messages[%d].kind is required", index)
 			}
-			if strings.TrimSpace(message.Kind) == "session_audit" {
+			if kind == "session_audit" {
 				return fmt.Errorf("data.messages[%d].kind must not be session_audit", index)
 			}
 			if strings.TrimSpace(message.MessageID) == "" {
@@ -672,7 +676,11 @@ func validateAgentActivityUpdatedData(decoded agentActivityUpdatedPayload) error
 			if message.Version == nil || *message.Version == 0 {
 				return fmt.Errorf("data.messages[%d].version is required", index)
 			}
-			if message.TurnID == nil || strings.TrimSpace(*message.TurnID) == "" {
+			if kind == "collaboration" {
+				if message.TurnID != nil {
+					return fmt.Errorf("data.messages[%d].turnId must be null for collaboration", index)
+				}
+			} else if message.TurnID == nil || strings.TrimSpace(*message.TurnID) == "" {
 				return fmt.Errorf("data.messages[%d].turnId is required", index)
 			}
 			if message.OccurredAtMS == nil || *message.OccurredAtMS <= 0 {
