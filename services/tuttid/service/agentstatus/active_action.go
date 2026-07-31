@@ -11,9 +11,9 @@ import (
 // Each install run owns its provider's active action via a unique token carried
 // on the run's context. Mutators are token-scoped: a stale or superseded run can
 // neither append into, overwrite, nor clear a newer run's active action for the
-// same provider. This prevents two concurrent installs of the SAME provider from
-// cross-contaminating stdout or having the first run's deferred clear delete the
-// second run's entry. Concurrent installs of DIFFERENT providers are unaffected
+// same provider. Install requests for the same provider are coalesced before
+// reaching this layer, but token scoping still protects overlapping install and
+// update actions. Concurrent actions for DIFFERENT providers are unaffected
 // (separate map entries).
 type activeActionTokenKey struct{}
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerstatus"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/singleflight"
 
 	agentproviderbiz "github.com/tutti-os/tutti/services/tuttid/biz/agentprovider"
 	externalagentregistry "github.com/tutti-os/tutti/services/tuttid/service/externalagentregistry"
@@ -346,6 +347,11 @@ const defaultProbeTimeout = 3 * time.Second
 const defaultProbeWaitDelay = 500 * time.Millisecond
 const externalRegistryNPMProbeTimeoutPadding = 100 * time.Millisecond
 
+// providerInstallActions coalesces overlapping install requests for the same
+// provider inside the daemon process. The file-based installer lock still
+// arbitrates npm mutations across processes and different providers.
+var providerInstallActions singleflight.Group
+
 // statusDetectionConcurrency bounds how many providers are detected at once.
 // Per-provider detection is dominated by short-lived subprocesses (auth status
 // command, `--version`, adapter probe), so running providers concurrently drops
@@ -560,16 +566,7 @@ func (s Service) RunAction(ctx context.Context, input RunActionInput) (RunAction
 
 	switch input.ActionID {
 	case ActionInstall:
-		startedAt := s.now()
-		result, err := s.runInstallAction(ctx, spec, result)
-		s.reportProviderSetupNodeResult(ctx, providerSetupNodeResultInput{
-			Error:     err,
-			Node:      "install_daemon_action",
-			Provider:  spec.Provider,
-			Result:    result,
-			StartedAt: startedAt,
-		})
-		return result, err
+		return s.runInstallAction(ctx, spec, result)
 	case ActionUpdate:
 		return s.runUpdateAction(ctx, spec, result)
 	default:
@@ -578,12 +575,38 @@ func (s Service) RunAction(ctx context.Context, input RunActionInput) (RunAction
 }
 
 func (s Service) runInstallAction(ctx context.Context, spec ProviderSpec, result RunActionResult) (RunActionResult, error) {
+	value, err, shared := providerInstallActions.Do(spec.Provider, func() (any, error) {
+		// The shared install must outlive any one caller's request. In
+		// particular, a disconnected renderer request must not cancel an
+		// install that the readiness reconciler is also waiting for.
+		sharedCtx := context.WithoutCancel(baseContext(ctx))
+		startedAt := s.now()
+		actionResult, actionErr := s.runInstallActionOnce(sharedCtx, spec, result)
+		s.reportProviderSetupNodeResult(sharedCtx, providerSetupNodeResultInput{
+			Error:     actionErr,
+			Node:      "install_daemon_action",
+			Provider:  spec.Provider,
+			Result:    actionResult,
+			StartedAt: startedAt,
+		})
+		return actionResult, actionErr
+	})
+	if shared {
+		slog.Info(
+			"agent provider install action coalesced",
+			"event", "tutti.agent_provider.install.coalesced",
+			"provider", spec.Provider,
+		)
+	}
+	return value.(RunActionResult), err
+}
+
+func (s Service) runInstallActionOnce(ctx context.Context, spec ProviderSpec, result RunActionResult) (RunActionResult, error) {
 	if result, ok := unsupportedProviderRunActionResult(spec, result); ok {
 		return result, nil
 	}
-	// Tag this run's context with a unique token and claim ownership of the
-	// provider's active action, so a concurrent install of the same provider
-	// can't cross-contaminate stdout or have our deferred clear delete its entry.
+	// Tag this run's context with a unique token so an overlapping update action
+	// cannot overwrite or clear the install's active action after ownership moves.
 	installCtx := withActiveActionToken(baseContext(ctx), nextActiveActionToken())
 	claimActiveAction(installCtx, spec.Provider, ActiveAction{
 		ID:     ActionInstall,

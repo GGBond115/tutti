@@ -2494,13 +2494,7 @@ func TestInstallCommandLockRecoverRetriesMalformedMetadataBeforeRemoving(t *test
 	}
 }
 
-func TestServiceRunActionStartsInstallTimeoutAfterLockAcquisition(t *testing.T) {
-	const (
-		installTimeout        = 2 * time.Second
-		firstInstallHold      = 800 * time.Millisecond
-		secondInstallDuration = 1400 * time.Millisecond
-	)
-
+func TestServiceRunActionCoalescesConcurrentInstallsForSameProvider(t *testing.T) {
 	home := t.TempDir()
 	binDir := filepath.Join(home, ".nvm", "versions", "node", "v24.12.0", "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -2508,7 +2502,6 @@ func TestServiceRunActionStartsInstallTimeoutAfterLockAcquisition(t *testing.T) 
 	}
 	service := probeTestService(home)
 	service.CodexProtocolProbe = codexProtocolReadyFixture
-	service.InstallTimeout = installTimeout
 	service.Registry = Registry{Specs: []ProviderSpec{{
 		Provider:           "codex",
 		BinaryNames:        []string{"codex"},
@@ -2526,22 +2519,13 @@ func TestServiceRunActionStartsInstallTimeoutAfterLockAcquisition(t *testing.T) 
 	var installCallCount atomic.Int32
 	firstInstallStarted := make(chan struct{})
 	releaseFirstInstall := make(chan struct{})
-	var startMu sync.Mutex
-	startedAt := make([]time.Time, 0, 2)
 	service.InstallCommand = func(ctx context.Context, _ InstallCommandInput) (InstallCommandResult, error) {
-		callIndex := installCallCount.Add(1)
-		startMu.Lock()
-		startedAt = append(startedAt, time.Now())
-		startMu.Unlock()
-		if callIndex == 1 {
-			close(firstInstallStarted)
-			select {
-			case <-releaseFirstInstall:
-			case <-ctx.Done():
-				return InstallCommandResult{ExitCode: 1, Stderr: ctx.Err().Error()}, ctx.Err()
-			}
-		} else {
-			time.Sleep(secondInstallDuration)
+		installCallCount.Add(1)
+		close(firstInstallStarted)
+		select {
+		case <-releaseFirstInstall:
+		case <-ctx.Done():
+			return InstallCommandResult{ExitCode: 1, Stderr: ctx.Err().Error()}, ctx.Err()
 		}
 		writeExecutable(t, filepath.Join(binDir, "codex"), "#!/bin/sh\nexit 0\n")
 		writeExecutable(t, filepath.Join(binDir, "codex-acp"), "#!/bin/sh\nsleep 5\n")
@@ -2552,9 +2536,11 @@ func TestServiceRunActionStartsInstallTimeoutAfterLockAcquisition(t *testing.T) 
 		result RunActionResult
 		err    error
 	}
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	defer cancelFirst()
 	firstDone := make(chan runResult, 1)
 	go func() {
-		result, err := service.RunAction(context.Background(), RunActionInput{
+		result, err := service.RunAction(firstCtx, RunActionInput{
 			Provider: "codex",
 			ActionID: ActionInstall,
 		})
@@ -2563,7 +2549,6 @@ func TestServiceRunActionStartsInstallTimeoutAfterLockAcquisition(t *testing.T) 
 
 	<-firstInstallStarted
 	secondDone := make(chan runResult, 1)
-	secondStartedAt := time.Now()
 	go func() {
 		result, err := service.RunAction(context.Background(), RunActionInput{
 			Provider: "codex",
@@ -2572,7 +2557,17 @@ func TestServiceRunActionStartsInstallTimeoutAfterLockAcquisition(t *testing.T) 
 		secondDone <- runResult{result: result, err: err}
 	}()
 
-	time.Sleep(firstInstallHold)
+	select {
+	case second := <-secondDone:
+		t.Fatalf("second RunAction() returned before the shared install completed: %#v", second)
+	case <-time.After(100 * time.Millisecond):
+	}
+	cancelFirst()
+	select {
+	case first := <-firstDone:
+		t.Fatalf("first RunAction() returned after its request was canceled but before the shared install completed: %#v", first)
+	case <-time.After(100 * time.Millisecond):
+	}
 	close(releaseFirstInstall)
 
 	first := <-firstDone
@@ -2590,17 +2585,11 @@ func TestServiceRunActionStartsInstallTimeoutAfterLockAcquisition(t *testing.T) 
 	if second.result.Status != RunActionCompleted {
 		t.Fatalf("second status = %q, want %q; result=%#v", second.result.Status, RunActionCompleted, second.result)
 	}
-	if got := installCallCount.Load(); got != 2 {
-		t.Fatalf("install call count = %d, want 2", got)
+	if got := installCallCount.Load(); got != 1 {
+		t.Fatalf("install call count = %d, want 1", got)
 	}
-
-	startMu.Lock()
-	defer startMu.Unlock()
-	if len(startedAt) != 2 {
-		t.Fatalf("len(startedAt) = %d, want 2", len(startedAt))
-	}
-	if wait := startedAt[1].Sub(secondStartedAt); wait < firstInstallHold-100*time.Millisecond {
-		t.Fatalf("second install started too early after %v, want it to wait for the lock", wait)
+	if !reflect.DeepEqual(second.result, first.result) {
+		t.Fatalf("second result = %#v, want shared first result %#v", second.result, first.result)
 	}
 }
 
