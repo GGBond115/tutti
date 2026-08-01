@@ -35,9 +35,9 @@ export type MinimumVersionAdmissionI18nRuntime =
   I18nRuntime<MinimumVersionAdmissionI18nKey>;
 
 export const minimumVersionAdmissionEn = {
-  startupTitle: "A required {{productName}} update is available",
+  startupTitle: "Update {{productName}} to continue",
   startupDetail:
-    "Update {{productName}} before continuing. Your regular update preference will not be changed.",
+    "Your {{productName}} version is outdated. Update to the latest version. Your automatic update settings will not be changed.",
   foregroundTitle: "A required {{productName}} update is available",
   foregroundDetail:
     "Update Now automatically installs and restarts after downloading. You can also continue this session and update next time.",
@@ -48,11 +48,11 @@ export const minimumVersionAdmissionEn = {
   simulationCompleteDetail:
     "The update reached the installation step. Development mode will not install or restart {{productName}}.",
   currentVersion: "Current version",
-  minimumVersion: "Minimum version",
+  minimumVersion: "Required version",
   downloadProgress: "Download progress",
   autoRestartNotice:
     "{{productName}} will install the update and restart automatically when the download completes.",
-  upgrade: "Upgrade",
+  upgrade: "Update now",
   upgradeNow: "Upgrade now",
   later: "Later",
   retry: "Retry",
@@ -70,8 +70,9 @@ export const minimumVersionAdmissionEn = {
 } as const satisfies I18nDictionary;
 
 export const minimumVersionAdmissionZhCN = {
-  startupTitle: "{{productName}} 必须更新后才能继续",
-  startupDetail: "请先更新 {{productName}}，普通更新偏好不会被修改",
+  startupTitle: "需要更新 {{productName}} 后才能继续使用",
+  startupDetail:
+    "你的 {{productName}} 版本过低，请更新到最新版本。你的自动更新设置不会被修改。",
   foregroundTitle: "{{productName}} 有必须安装的更新",
   foregroundDetail:
     "立即升级会在下载完成后自动安装并重启，你也可以继续本次会话并在下次启动时更新",
@@ -82,10 +83,10 @@ export const minimumVersionAdmissionZhCN = {
   simulationCompleteDetail:
     "更新流程已到达安装阶段，开发模式不会实际安装或重启 {{productName}}",
   currentVersion: "当前版本",
-  minimumVersion: "最低版本",
+  minimumVersion: "需要版本",
   downloadProgress: "下载进度",
   autoRestartNotice: "下载完成后，{{productName}} 将自动安装更新并重启",
-  upgrade: "升级",
+  upgrade: "立即更新",
   upgradeNow: "立即升级",
   later: "稍后",
   retry: "重试",
