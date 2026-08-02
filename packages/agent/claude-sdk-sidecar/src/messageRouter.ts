@@ -1,4 +1,7 @@
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  SDKMessage,
+  SessionStoreEntry
+} from "@anthropic-ai/claude-agent-sdk";
 import {
   contentBlocksFromMessage,
   isToolUseBlock,
@@ -117,10 +120,6 @@ export class SDKMessageRouter {
       this.onSessionState();
     }
 
-    const rawMessage = message as unknown as Record<string, unknown>;
-    if (this.goals.handle(rawMessage)) {
-      return;
-    }
     const messageType = (message as { type?: string }).type;
     if (messageType === "attachment") {
       const prompt = readQueuedTaskNotificationPrompt(
@@ -205,6 +204,17 @@ export class SDKMessageRouter {
     if (message.type === "result") {
       await this.handleResult(message, parentToolUseID);
     }
+  }
+
+  restoreGoalGeneration(
+    identity: Record<string, unknown> | undefined,
+    goal: Record<string, unknown> | undefined
+  ): void {
+    this.goals.restoreGeneration(identity, goal);
+  }
+
+  observeTranscriptEntries(entries: readonly SessionStoreEntry[]): void {
+    this.goals.observeTranscriptEntries(entries);
   }
 
   private emitLifecycleObservation(

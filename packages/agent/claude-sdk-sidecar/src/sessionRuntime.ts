@@ -40,11 +40,12 @@ import { ToolActivityProjector } from "./toolActivity.ts";
 import { SidecarTestDriver } from "./testDriver.ts";
 import { SessionConfiguration } from "./sessionConfiguration.ts";
 import { resolveClaudeCodeExecutablePath } from "./executablePath.ts";
-import { claudeSettingsEnv } from "./settingsEnv.ts";
+import { claudeQuerySettingsEnv } from "./settingsEnv.ts";
 import { CompactionTracker } from "./compaction.ts";
 import { MessageProjection } from "./messageProjection.ts";
 import { SDKMessageRouter } from "./messageRouter.ts";
 import { emit } from "./eventSink.ts";
+import { TranscriptObservationStore } from "./transcriptObservationStore.ts";
 import {
   resolveClaudeTurnBindingByRecoveryToken,
   type ClaudeTurnBindingResolver
@@ -319,6 +320,13 @@ export class SessionRuntime {
       initialized: this.initialized,
       queryClosed: this.sessionClosed
     });
+  }
+
+  restoreGoalGeneration(
+    identity: Record<string, unknown> | undefined,
+    goal: Record<string, unknown> | undefined
+  ): void {
+    this.router.restoreGoalGeneration(identity, goal);
   }
 
   exec(
@@ -723,7 +731,7 @@ export class SessionRuntime {
     // One settings snapshot feeds both the executable resolution and the SDK
     // env, so the two can never disagree (and the settings hierarchy is read
     // once per query creation).
-    const settingsEnv = claudeSettingsEnv(this.cwd || process.cwd());
+    const settingsEnv = claudeQuerySettingsEnv(this.cwd || process.cwd());
     // Same merge (and precedence) as queryOptions.env below, so an override
     // set in Claude settings files is honored exactly like one from the
     // process or session environment.
@@ -732,18 +740,32 @@ export class SessionRuntime {
       ...settingsEnv,
       ...this.env
     });
+    const queryEnv: Record<string, string | undefined> = {
+      ...process.env,
+      ...settingsEnv,
+      ...this.env,
+      CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1"
+    };
     const queryOptions: ClaudeQueryOptions = {
       cwd: this.cwd || process.cwd(),
-      env: {
-        ...process.env,
-        ...settingsEnv,
-        ...this.env,
-        CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1"
-      },
+      env: queryEnv,
       ...(claudeExecutablePath
         ? { pathToClaudeCodeExecutable: claudeExecutablePath }
         : {}),
       includePartialMessages: true,
+      sessionStore: new TranscriptObservationStore(
+        this.cwd || process.cwd(),
+        (key, entries) => {
+          if (
+            this.isQueryGenerationActive(generation) &&
+            !key.subpath &&
+            key.sessionId === this.providerSessionId
+          ) {
+            this.router.observeTranscriptEntries(entries);
+          }
+        }
+      ),
+      sessionStoreFlush: "eager",
       canUseTool: (toolName, toolInput, callbackOptions) =>
         this.handleToolPermission(
           generation,

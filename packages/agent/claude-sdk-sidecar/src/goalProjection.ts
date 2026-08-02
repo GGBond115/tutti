@@ -1,64 +1,155 @@
+import type { SessionStoreEntry } from "@anthropic-ai/claude-agent-sdk";
 import { numberValue, recordValue } from "./normalizer.ts";
 import type { ClaudeSDKSidecarEventEmitter } from "./protocol.ts";
 import { stringValue } from "./runtimeValues.ts";
 import type { TurnLifecycle } from "./turnLifecycle.ts";
 
-type GoalUpdateType =
-  | "thread_goal_update"
-  | "thread_goal_completed"
-  | "thread_goal_cleared";
+type GoalUpdateType = "thread_goal_update" | "thread_goal_completed";
 
-/** Projects Claude's live `active_goal` signal into the sidecar contract. */
+type GoalGeneration = {
+  readonly operationId: string;
+  readonly revision: number;
+  readonly repairEpoch: number;
+  readonly activatedAtUnixMs: number;
+  readonly objective: string;
+};
+
+/** Projects Claude's durable goal-status records into the sidecar contract. */
 export class ClaudeGoalProjection {
   private readonly turns: TurnLifecycle;
   private readonly emit: ClaudeSDKSidecarEventEmitter;
+  private readonly observedEntryIds = new Set<string>();
+  private currentGeneration: GoalGeneration | undefined;
 
   constructor(turns: TurnLifecycle, emit: ClaudeSDKSidecarEventEmitter) {
     this.turns = turns;
     this.emit = emit;
   }
 
-  handle(message: Record<string, unknown>): boolean {
-    if (stringValue(message.type) !== "active_goal") {
-      return false;
+  restoreGeneration(
+    identity: Record<string, unknown> | undefined,
+    goal: Record<string, unknown> | undefined
+  ): void {
+    const operationId = stringValue(identity?.operationId);
+    const revision = numberValue(identity?.revision);
+    const repairEpoch = numberValue(identity?.repairEpoch);
+    const activatedAtUnixMs = numberValue(identity?.activatedAtUnixMs);
+    const objective = stringValue(goal?.objective);
+    if (
+      !operationId ||
+      !Number.isInteger(revision) ||
+      revision <= 0 ||
+      !Number.isInteger(repairEpoch) ||
+      repairEpoch < 0 ||
+      !objective ||
+      stringValue(goal?.status) !== "active"
+    ) {
+      return;
     }
-    this.handleActiveGoal(message);
-    return true;
+    this.currentGeneration = {
+      operationId,
+      revision,
+      repairEpoch,
+      activatedAtUnixMs:
+        Number.isInteger(activatedAtUnixMs) && activatedAtUnixMs > 0
+          ? activatedAtUnixMs
+          : 0,
+      objective
+    };
   }
 
-  private handleActiveGoal(message: Record<string, unknown>): void {
-    const rawValue = message.value;
-    // Claude's current native runtime yields `value: undefined` when a Goal is
-    // met. JSON transport omits that property even though the SDK type says
-    // `null`. Both wire shapes mean the provider cleared its active hook.
-    if (rawValue === undefined || rawValue === null) {
+  observeTranscriptEntries(entries: readonly SessionStoreEntry[]): void {
+    for (const entry of entries) {
+      const attachment = recordValue(entry.attachment);
+      if (
+        stringValue(entry.type) !== "attachment" ||
+        stringValue(attachment?.type) !== "goal_status"
+      ) {
+        continue;
+      }
+      const entryId = stringValue(entry.uuid);
+      if (entryId && this.observedEntryIds.has(entryId)) {
+        continue;
+      }
+      const objective = stringValue(attachment?.condition);
+      if (!objective || typeof attachment?.met !== "boolean") {
+        continue;
+      }
+      const occurredAtUnixMs = transcriptTimestampUnixMs(entry.timestamp);
+      if (
+        this.currentGeneration?.activatedAtUnixMs &&
+        (occurredAtUnixMs === 0 ||
+          occurredAtUnixMs < this.currentGeneration.activatedAtUnixMs)
+      ) {
+        continue;
+      }
+      if (entryId) {
+        this.rememberEntry(entryId);
+      }
+      const activeTurn = this.turns.activeTurn;
+      if (attachment.sentinel === true && attachment.met === false) {
+        const operationId = activeTurn?.goalOperationId?.trim() ?? "";
+        const revision = activeTurn?.goalRevision ?? 0;
+        if (
+          activeTurn?.goalAction !== "set" ||
+          !operationId ||
+          !Number.isInteger(revision) ||
+          revision <= 0
+        ) {
+          continue;
+        }
+        this.currentGeneration = {
+          operationId,
+          revision,
+          repairEpoch: activeTurn.goalRepairEpoch ?? 0,
+          activatedAtUnixMs: occurredAtUnixMs,
+          objective
+        };
+      }
+      const generation = this.currentGeneration;
+      if (!generation || generation.objective !== objective) {
+        continue;
+      }
+      const failed = attachment.failed === true;
+      const goal: Record<string, unknown> = {
+        objective,
+        status: attachment.met ? "complete" : failed ? "blocked" : "active"
+      };
+      copyNonNegativeInteger(attachment, goal, "iterations");
+      copyNonNegativeInteger(attachment, goal, "durationMs");
+      copyNonNegativeInteger(attachment, goal, "tokens");
+      const reason = stringValue(attachment.reason);
+      if (reason) {
+        goal.reason = reason;
+      }
       this.emitObservation(
-        this.turns.activeTurn?.goalAction === "clear"
-          ? "thread_goal_cleared"
-          : "thread_goal_completed"
+        attachment.met ? "thread_goal_completed" : "thread_goal_update",
+        generation,
+        goal,
+        occurredAtUnixMs
       );
+      if (attachment.met || failed) {
+        this.currentGeneration = undefined;
+      }
+    }
+  }
+
+  private rememberEntry(entryId: string): void {
+    this.observedEntryIds.add(entryId);
+    if (this.observedEntryIds.size <= 1024) {
       return;
     }
-    const value = recordValue(rawValue);
-    const condition = stringValue(value?.condition);
-    if (!value || !condition || !isNonNegativeNumber(value.iterations)) {
-      return;
+    const oldest = this.observedEntryIds.values().next().value;
+    if (oldest) {
+      this.observedEntryIds.delete(oldest);
     }
-    const goal: Record<string, unknown> = {
-      objective: condition,
-      status: "active",
-      iterations: numberValue(value.iterations)
-    };
-    const reason = stringValue(value.last_reason);
-    if (reason) {
-      goal.reason = reason;
-    }
-    this.emitObservation("thread_goal_update", goal);
   }
 
   private emitObservation(
     updateType: GoalUpdateType,
-    goal?: Record<string, unknown>
+    generation: GoalGeneration,
+    goal: Record<string, unknown>,
+    occurredAtUnixMs: number
   ): void {
     const activeTurn = this.turns.activeTurn;
     this.emit({
@@ -69,14 +160,34 @@ export class ClaudeGoalProjection {
           ? { providerTurnId: this.turns.lastProviderTurnId }
           : {}),
         ...(activeTurn?.goalAction ? { action: activeTurn.goalAction } : {}),
-        source: "active_goal",
+        goalOperationId: generation.operationId,
+        goalRevision: generation.revision,
+        goalRepairEpoch: generation.repairEpoch,
+        ...(occurredAtUnixMs > 0 ? { occurredAtUnixMs } : {}),
+        source: "transcript_mirror",
         updateType,
-        ...(goal ? { goal } : {})
+        goal
       }
     });
   }
 }
 
-function isNonNegativeNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+function transcriptTimestampUnixMs(value: unknown): number {
+  const timestamp = Date.parse(stringValue(value));
+  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : 0;
+}
+
+function copyNonNegativeInteger(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+  key: string
+): void {
+  const raw = source[key];
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    return;
+  }
+  const value = numberValue(raw);
+  if (Number.isInteger(value) && value >= 0) {
+    target[key] = value;
+  }
 }

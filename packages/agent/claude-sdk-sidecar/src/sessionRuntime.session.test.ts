@@ -944,7 +944,7 @@ test("goal set scheduling ack followed by immediate clear coalesces before SDK a
   }
 });
 
-test("SDK active_goal messages normalize provider goal lifecycle", async () => {
+test("SDK transcript mirror normalizes provider goal lifecycle", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   const restoreSink = withSidecarEventSinkForTest((event) =>
     events.push(event)
@@ -965,7 +965,7 @@ test("SDK active_goal messages normalize provider goal lifecycle", async () => {
       },
       sidecarClaudeOptionsFromPayload({}),
       undefined,
-      ({ prompt }) => ({
+      ({ prompt, options }) => ({
         async *[Symbol.asyncIterator]() {
           const outbound = await prompt[Symbol.asyncIterator]().next();
           yield {
@@ -975,29 +975,65 @@ test("SDK active_goal messages normalize provider goal lifecycle", async () => {
             parent_tool_use_id: null,
             session_id: "provider-session-active-goal"
           } as never;
-          yield {
-            type: "active_goal",
-            value: "malformed",
-            uuid: "active-goal-malformed",
-            session_id: "provider-session-active-goal"
-          } as never;
-          yield {
-            type: "active_goal",
-            value: {
-              condition: "count to three",
-              iterations: 2,
-              set_at: "2026-08-02T00:00:00.000Z",
-              tokens_at_start: 100,
-              last_reason: "only reached two"
+          await options.sessionStore?.append(
+            {
+              projectKey: "repo",
+              sessionId: "provider-session-active-goal"
             },
-            uuid: "active-goal-1",
-            session_id: "provider-session-active-goal"
-          } as never;
-          yield {
-            type: "active_goal",
-            uuid: "active-goal-2",
-            session_id: "provider-session-active-goal"
-          } as never;
+            [
+              {
+                type: "attachment",
+                uuid: "attachment-other",
+                attachment: { type: "other" }
+              },
+              {
+                type: "attachment",
+                uuid: "goal-status-sentinel",
+                timestamp: "2026-08-02T05:26:47.783Z",
+                attachment: {
+                  type: "goal_status",
+                  met: false,
+                  sentinel: true,
+                  condition: "count to three"
+                }
+              },
+              {
+                type: "attachment",
+                uuid: "goal-status-active",
+                timestamp: "2026-08-02T05:26:53.921Z",
+                attachment: {
+                  type: "goal_status",
+                  met: false,
+                  condition: "count to three",
+                  iterations: 2,
+                  reason: "only reached two"
+                }
+              },
+              {
+                type: "attachment",
+                uuid: "goal-status-complete",
+                timestamp: "2026-08-02T05:27:01.472Z",
+                attachment: {
+                  type: "goal_status",
+                  met: true,
+                  condition: "count to three",
+                  iterations: 3,
+                  durationMs: 1200,
+                  tokens: 420,
+                  reason: "counted all three"
+                }
+              },
+              {
+                type: "attachment",
+                uuid: "goal-status-complete",
+                attachment: {
+                  type: "goal_status",
+                  met: true,
+                  condition: "count to three"
+                }
+              }
+            ]
+          );
           yield { type: "result", subtype: "success" } as never;
         },
         close() {}
@@ -1005,15 +1041,46 @@ test("SDK active_goal messages normalize provider goal lifecycle", async () => {
     );
 
     await session.start();
-    session.exec("goal-work-turn", "continue");
+    session.exec(
+      "goal-work-turn",
+      "/goal count to three",
+      undefined,
+      "goal_arm",
+      {
+        operationId: "goal-op-1",
+        revision: 7,
+        repairEpoch: 2,
+        action: "set"
+      }
+    );
     await waitForEvent(events, "turn_completed");
 
     const updates = events.filter((event) => event.type === "goal_observed");
-    assert.equal(updates.length, 2);
+    assert.equal(updates.length, 3);
     assert.deepEqual(updates[0]?.payload, {
       turnId: "goal-work-turn",
       providerTurnId: "provider-goal-turn",
-      source: "active_goal",
+      action: "set",
+      goalOperationId: "goal-op-1",
+      goalRevision: 7,
+      goalRepairEpoch: 2,
+      occurredAtUnixMs: Date.parse("2026-08-02T05:26:47.783Z"),
+      source: "transcript_mirror",
+      updateType: "thread_goal_update",
+      goal: {
+        objective: "count to three",
+        status: "active"
+      }
+    });
+    assert.deepEqual(updates[1]?.payload, {
+      turnId: "goal-work-turn",
+      providerTurnId: "provider-goal-turn",
+      action: "set",
+      goalOperationId: "goal-op-1",
+      goalRevision: 7,
+      goalRepairEpoch: 2,
+      occurredAtUnixMs: Date.parse("2026-08-02T05:26:53.921Z"),
+      source: "transcript_mirror",
       updateType: "thread_goal_update",
       goal: {
         objective: "count to three",
@@ -1022,72 +1089,25 @@ test("SDK active_goal messages normalize provider goal lifecycle", async () => {
         reason: "only reached two"
       }
     });
-    assert.deepEqual(updates[1]?.payload, {
+    assert.deepEqual(updates[2]?.payload, {
       turnId: "goal-work-turn",
       providerTurnId: "provider-goal-turn",
-      source: "active_goal",
-      updateType: "thread_goal_completed"
+      action: "set",
+      goalOperationId: "goal-op-1",
+      goalRevision: 7,
+      goalRepairEpoch: 2,
+      occurredAtUnixMs: Date.parse("2026-08-02T05:27:01.472Z"),
+      source: "transcript_mirror",
+      updateType: "thread_goal_completed",
+      goal: {
+        objective: "count to three",
+        status: "complete",
+        iterations: 3,
+        durationMs: 1200,
+        tokens: 420,
+        reason: "counted all three"
+      }
     });
-  } finally {
-    restoreSink();
-  }
-});
-
-test("SDK active_goal clear keeps the exact goal command action", async () => {
-  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
-  const restoreSink = withSidecarEventSinkForTest((event) =>
-    events.push(event)
-  );
-  try {
-    const session = new SessionRuntime(
-      "provider-session-goal-clear",
-      "/repo",
-      {},
-      false,
-      false,
-      {
-        model: "",
-        permissionModeId: "default",
-        planMode: false,
-        effort: "",
-        speed: ""
-      },
-      sidecarClaudeOptionsFromPayload({}),
-      undefined,
-      ({ prompt }) => ({
-        async *[Symbol.asyncIterator]() {
-          const outbound = await prompt[Symbol.asyncIterator]().next();
-          yield {
-            ...outbound.value,
-            uuid: "provider-goal-clear-turn",
-            type: "user",
-            parent_tool_use_id: null,
-            session_id: "provider-session-goal-clear"
-          } as never;
-          yield {
-            type: "active_goal",
-            value: null,
-            uuid: "active-goal-clear",
-            session_id: "provider-session-goal-clear"
-          } as never;
-          yield { type: "result", subtype: "success" } as never;
-        },
-        close() {}
-      })
-    );
-
-    await session.start();
-    session.exec("goal-clear-turn", "/goal clear", undefined, undefined, {
-      operationId: "goal-op-clear",
-      revision: 2,
-      action: "clear"
-    });
-    await waitForEvent(events, "turn_completed");
-
-    const update = events.find((event) => event.type === "goal_observed");
-    assert.equal(update?.payload?.action, "clear");
-    assert.equal(update?.payload?.source, "active_goal");
-    assert.equal(update?.payload?.updateType, "thread_goal_cleared");
   } finally {
     restoreSink();
   }

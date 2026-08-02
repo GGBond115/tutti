@@ -35,6 +35,7 @@
     "src/taskNotification.ts",
     "src/taskPlan.ts",
     "src/testDriver.ts",
+    "src/transcriptObservationStore.ts",
     "src/toolActivity.ts",
     "src/toolActivityTypes.ts",
     "src/toolEvents.ts",
