@@ -622,26 +622,6 @@ func TestClaudeSDKGoalCompletesOnlyFromProviderGoalObservation(t *testing.T) {
 	if goal := adapter.localGoal(adapterSession); goal["status"] != "complete" {
 		t.Fatalf("completed goal mirror = %#v", goal)
 	}
-
-	adapter.applyLocalGoal(adapterSession, map[string]any{"objective": "ship it", "status": "active"})
-	updates, terminal, err = adapter.sidecarTurnEvents(adapterSession, session, "turn-goal", claudeSDKSidecarEvent{
-		Type: "goal_observed",
-		Payload: map[string]any{
-			"turnId": "turn-goal", "source": "goal_status", "updateType": "thread_goal_update",
-			"goal": map[string]any{
-				"objective": "ship it", "status": "complete", "iterations": float64(3),
-				"reason": "all steps finished", "durationMs": float64(16_386), "tokens": float64(1_479),
-			},
-		},
-	})
-	if err != nil || terminal {
-		t.Fatalf("goal_status completion terminal=%v err=%v", terminal, err)
-	}
-	assertClaudeSDKGoalUpdateEvent(t, updates, "thread_goal_update")
-	goal := adapter.localGoal(adapterSession)
-	if goal["status"] != "complete" || goal["iterations"] != int64(3) || goal["durationMs"] != int64(16_386) || goal["tokens"] != int64(1_479) || goal["reason"] != "all steps finished" {
-		t.Fatalf("goal_status completion mirror = %#v", goal)
-	}
 }
 
 func TestClaudeSDKExplicitClearUsesNilActiveGoalAsClear(t *testing.T) {

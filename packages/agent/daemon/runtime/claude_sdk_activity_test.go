@@ -107,7 +107,6 @@ func TestClaudeCodeSDKAdapterMapsGoalObservedSidecarEvent(t *testing.T) {
 			"goal": map[string]any{
 				"objective": "ship native goal",
 				"status":    "active",
-				"sentinel":  true,
 			},
 		},
 	})

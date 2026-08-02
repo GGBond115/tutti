@@ -3949,6 +3949,39 @@ permanently ambiguous`. Provider status may already be `active` while the
   [agentTranscriptModel.ts](../../../packages/agent/gui/shared/agentConversation/components/agentTranscriptModel.ts)
   [AgentTranscriptView.tsx](../../../packages/agent/gui/shared/agentConversation/components/AgentTranscriptView.tsx)
 
+### Claude Goal finishes but the banner remains active
+
+- Symptom:
+  Claude reports that the objective is complete and the Turn settles, but the
+  Goal banner keeps showing an active Goal.
+- Quick checks:
+  Find the Turn's `result` and `turn_completed` entries, then look immediately
+  before them for `sidecar_event_type=goal_observed`,
+  `goal_source=active_goal`, and
+  `goal_update_type=thread_goal_completed`. If the transcript contains a
+  `goal_status` attachment with `met=true` but the lifecycle log has no
+  `goal_observed`, the provider completion signal was dropped at the SDK
+  boundary.
+- Root cause:
+  Claude's native runtime yields an `active_goal` message with
+  `value: undefined` after the Goal hook finishes. JSON transport omits that
+  property, although the SDK type declares a nullable value. Code that treats
+  an omitted value as malformed drops the completion. The transcript's
+  `goal_status` attachment is persisted audit data and is not part of the live
+  SDK iterator.
+- Fix:
+  Normalize missing and null `active_goal.value` at the Claude sidecar boundary
+  and use the exact Goal command action to distinguish explicit clear from
+  completion. Do not parse transcript files or infer Goal state from ordinary
+  Turn settlement.
+- Validation:
+  Feed the sidecar the exact JSON wire event `{ "type": "active_goal" }`, then
+  verify it emits `thread_goal_completed`, the Host persists a completed Goal,
+  and Turn settlement remains independent.
+- References:
+  [goalProjection.ts](../../../packages/agent/claude-sdk-sidecar/src/goalProjection.ts)
+  [Claude Code SDK runtime](../../architecture/claude-code-sdk-runtime.md)
+
 ### Recording fails when a tool message contains its runtime CWD
 
 - Symptom:

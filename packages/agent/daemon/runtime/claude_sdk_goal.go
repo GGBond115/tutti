@@ -706,7 +706,7 @@ func (a *ClaudeCodeSDKAdapter) goalEventsOnArmTurnFailed(
 }
 
 // applyClaudeSDKGoalObservation consumes the sidecar's normalized projection
-// of Claude active_goal messages and native goal_status attachments.
+// of Claude active_goal messages.
 func (a *ClaudeCodeSDKAdapter) applyClaudeSDKGoalObservation(
 	adapterSession *claudeSDKAdapterSession,
 	payload map[string]any,
@@ -746,13 +746,10 @@ func (a *ClaudeCodeSDKAdapter) applyClaudeSDKGoalObservation(
 	if reason := strings.TrimSpace(asString(goal["reason"])); reason != "" {
 		next["reason"] = reason
 	}
-	for _, key := range []string{"iterations", "durationMs", "tokens"} {
+	for _, key := range []string{"iterations"} {
 		if value, ok := firstInt64Value(goal, key); ok && value >= 0 {
 			next[key] = value
 		}
-	}
-	if sentinel, ok := goal["sentinel"].(bool); ok {
-		next["sentinel"] = sentinel
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
