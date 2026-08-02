@@ -125,7 +125,12 @@ test("restored active generation accepts later transcript completion", () => {
     events.push(event)
   );
   projection.restoreGeneration(
-    { operationId: "goal-op-restored", revision: 9, repairEpoch: 1 },
+    {
+      operationId: "goal-op-restored",
+      revision: 9,
+      repairEpoch: 1,
+      activatedAtUnixMs: Date.parse("2026-08-02T00:59:59.000Z")
+    },
     { objective: "ship it", status: "active" }
   );
 
@@ -133,6 +138,7 @@ test("restored active generation accepts later transcript completion", () => {
     {
       type: "attachment",
       uuid: "restored-complete",
+      timestamp: "2026-08-02T01:00:00.000Z",
       attachment: {
         type: "goal_status",
         met: true,
@@ -150,6 +156,42 @@ test("restored active generation accepts later transcript completion", () => {
     status: "complete",
     iterations: 3
   });
+});
+
+test("successful provider clear retires the replay generation", () => {
+  const events: EmittedEvent[] = [];
+  const projection = new ClaudeGoalProjection(
+    testTurnLifecycle(events),
+    (event) => events.push(event)
+  );
+  projection.restoreGeneration(
+    {
+      operationId: "goal-op-restored",
+      revision: 9,
+      repairEpoch: 1,
+      activatedAtUnixMs: Date.parse("2026-08-02T01:00:00.000Z")
+    },
+    { objective: "ship it", status: "active" }
+  );
+
+  projection.settleGoalControl("clear", false);
+  assert.equal(projection.shouldReplayNativeTranscript(), true);
+  projection.settleGoalControl("clear", true);
+  assert.equal(projection.shouldReplayNativeTranscript(), false);
+});
+
+test("restored generation without an activation fence fails closed", () => {
+  const events: EmittedEvent[] = [];
+  const projection = new ClaudeGoalProjection(
+    testTurnLifecycle(events),
+    (event) => events.push(event)
+  );
+  projection.restoreGeneration(
+    { operationId: "goal-op-restored", revision: 9, repairEpoch: 1 },
+    { objective: "ship it", status: "active" }
+  );
+
+  assert.equal(projection.shouldReplayNativeTranscript(), false);
 });
 
 test("restored repair generation ignores the prior repair terminal", () => {

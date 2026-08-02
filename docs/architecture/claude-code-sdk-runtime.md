@@ -62,15 +62,19 @@ cancel/fail/complete close dangling tool cards instead of leaving them
 in progress. Protocol-neutral session and interactive activity projection have
 their own modules, while Claude goal, command, usage, and interaction decoding
 stay inside the Claude SDK boundary.
-Claude Goal state comes only from the SDK's provider-owned `active_goal`
-observation. A non-null value keeps the condition active. The native runtime
-yields `value: undefined` when the Goal hook finishes, which JSON transports as
-an omitted property even though the SDK type declares `null`; the sidecar
-normalizes both missing and null values as the hook being cleared. It uses the
-exact command action and previous Goal observation to distinguish explicit
-clear from provider-reported completion. Persisted transcript `goal_status`
-attachments are audit data, not live SDK messages, and must not become a second
-runtime state source. Ordinary Turn completion has no Goal semantics.
+Claude Goal observations come from the provider-owned `goal_status` records in
+the official SDK transcript store. The sidecar observes the SDK's live
+`SessionStore.append` mirror first. When a root result arrives with a Goal
+generation still active, it performs a bounded replay through the SDK's
+`importSessionToStore`; this closes a delivery gap where Claude has persisted a
+terminal record but omitted it from the live mirror. Both paths feed the same
+idempotent generation-fenced projection, so replay is a recovery path for one
+provider source rather than a second Goal owner. Replay is buffered until the
+SDK import completes, bounded by the owning query's cancellation signal and a
+total deadline, and fenced to the provider root user plus its transcript
+parent/descendant chain. The sidecar never reads Claude's private transcript
+files directly and never infers Goal state from ordinary Turn completion.
+Explicit clear retires the matching projection generation.
 Command-consumption evidence travels as the internal `goal.control_applied`
 event to the Host Goal lane and must never be embedded in session runtime
 context.

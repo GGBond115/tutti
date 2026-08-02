@@ -2,9 +2,21 @@ import type { SessionStoreEntry } from "@anthropic-ai/claude-agent-sdk";
 import { numberValue, recordValue } from "./normalizer.ts";
 import type { ClaudeSDKSidecarEventEmitter } from "./protocol.ts";
 import { stringValue } from "./runtimeValues.ts";
+import type { TranscriptObservationSource } from "./transcriptObservationStore.ts";
 import type { TurnLifecycle } from "./turnLifecycle.ts";
 
 type GoalUpdateType = "thread_goal_update" | "thread_goal_completed";
+
+export type GoalTranscriptProjectionSummary = {
+  projectedUpdateCount: number;
+  projectedTerminalCount: number;
+  ignoredDuplicateCount: number;
+  ignoredInvalidCount: number;
+  ignoredStaleGenerationCount: number;
+  ignoredUnboundGenerationCount: number;
+  ignoredObjectiveMismatchCount: number;
+  ignoredOutsideCurrentTurnCount: number;
+};
 
 type GoalGeneration = {
   readonly operationId: string;
@@ -18,8 +30,10 @@ type GoalGeneration = {
 export class ClaudeGoalProjection {
   private readonly turns: TurnLifecycle;
   private readonly emit: ClaudeSDKSidecarEventEmitter;
-  private readonly observedEntryIds = new Set<string>();
+  private readonly projectedEntryIds = new Set<string>();
+  private readonly ignoredLiveEntryIds = new Set<string>();
   private currentGeneration: GoalGeneration | undefined;
+  private terminalOperationId = "";
 
   constructor(turns: TurnLifecycle, emit: ClaudeSDKSidecarEventEmitter) {
     this.turns = turns;
@@ -41,6 +55,8 @@ export class ClaudeGoalProjection {
       revision <= 0 ||
       !Number.isInteger(repairEpoch) ||
       repairEpoch < 0 ||
+      !Number.isInteger(activatedAtUnixMs) ||
+      activatedAtUnixMs <= 0 ||
       !objective ||
       stringValue(goal?.status) !== "active"
     ) {
@@ -50,15 +66,43 @@ export class ClaudeGoalProjection {
       operationId,
       revision,
       repairEpoch,
-      activatedAtUnixMs:
-        Number.isInteger(activatedAtUnixMs) && activatedAtUnixMs > 0
-          ? activatedAtUnixMs
-          : 0,
+      activatedAtUnixMs,
       objective
     };
+    this.terminalOperationId = "";
   }
 
-  observeTranscriptEntries(entries: readonly SessionStoreEntry[]): void {
+  shouldReplayNativeTranscript(): boolean {
+    const activeTurn = this.turns.activeTurn;
+    if (activeTurn?.goalAction === "clear") {
+      return false;
+    }
+    if (activeTurn?.goalAction === "set") {
+      return activeTurn.goalOperationId !== this.terminalOperationId;
+    }
+    return this.currentGeneration !== undefined;
+  }
+
+  settleGoalControl(
+    action: "set" | "clear" | undefined,
+    succeeded: boolean
+  ): void {
+    if (action === "clear" && succeeded) {
+      this.currentGeneration = undefined;
+      this.terminalOperationId = "";
+    }
+  }
+
+  observeTranscriptEntries(
+    entries: readonly SessionStoreEntry[],
+    transcriptSource: TranscriptObservationSource = "live_mirror"
+  ): GoalTranscriptProjectionSummary {
+    const summary = emptyProjectionSummary();
+    const activeTurn = this.turns.activeTurn;
+    const replayBoundary =
+      transcriptSource === "native_replay" && activeTurn?.goalAction === "set"
+        ? nativeReplayTurnBoundary(entries, this.turns.lastProviderTurnId)
+        : undefined;
     for (const entry of entries) {
       const attachment = recordValue(entry.attachment);
       if (
@@ -68,25 +112,37 @@ export class ClaudeGoalProjection {
         continue;
       }
       const entryId = stringValue(entry.uuid);
-      if (entryId && this.observedEntryIds.has(entryId)) {
+      if (
+        entryId &&
+        (this.projectedEntryIds.has(entryId) ||
+          (transcriptSource === "live_mirror" &&
+            this.ignoredLiveEntryIds.has(entryId)))
+      ) {
+        summary.ignoredDuplicateCount += 1;
         continue;
       }
       const objective = stringValue(attachment?.condition);
       if (!objective || typeof attachment?.met !== "boolean") {
+        summary.ignoredInvalidCount += 1;
         continue;
       }
       const occurredAtUnixMs = transcriptTimestampUnixMs(entry.timestamp);
+      if (
+        replayBoundary &&
+        (!entryId || !replayBoundary.lineageEntryIds.has(entryId))
+      ) {
+        summary.ignoredOutsideCurrentTurnCount += 1;
+        continue;
+      }
       if (
         this.currentGeneration?.activatedAtUnixMs &&
         (occurredAtUnixMs === 0 ||
           occurredAtUnixMs < this.currentGeneration.activatedAtUnixMs)
       ) {
+        summary.ignoredStaleGenerationCount += 1;
+        this.rememberIgnoredLiveEntry(entryId, transcriptSource);
         continue;
       }
-      if (entryId) {
-        this.rememberEntry(entryId);
-      }
-      const activeTurn = this.turns.activeTurn;
       if (attachment.sentinel === true && attachment.met === false) {
         const operationId = activeTurn?.goalOperationId?.trim() ?? "";
         const revision = activeTurn?.goalRevision ?? 0;
@@ -96,6 +152,18 @@ export class ClaudeGoalProjection {
           !Number.isInteger(revision) ||
           revision <= 0
         ) {
+          summary.ignoredUnboundGenerationCount += 1;
+          this.rememberIgnoredLiveEntry(entryId, transcriptSource);
+          continue;
+        }
+        if (
+          transcriptSource === "native_replay" &&
+          (entryId !== replayBoundary?.sentinelEntryId ||
+            !activeTurn.goalActivatedAtUnixMs ||
+            occurredAtUnixMs === 0 ||
+            occurredAtUnixMs < activeTurn.goalActivatedAtUnixMs)
+        ) {
+          summary.ignoredOutsideCurrentTurnCount += 1;
           continue;
         }
         this.currentGeneration = {
@@ -105,9 +173,16 @@ export class ClaudeGoalProjection {
           activatedAtUnixMs: occurredAtUnixMs,
           objective
         };
+        this.terminalOperationId = "";
       }
       const generation = this.currentGeneration;
       if (!generation || generation.objective !== objective) {
+        if (generation) {
+          summary.ignoredObjectiveMismatchCount += 1;
+        } else {
+          summary.ignoredUnboundGenerationCount += 1;
+        }
+        this.rememberIgnoredLiveEntry(entryId, transcriptSource);
         continue;
       }
       const failed = attachment.failed === true;
@@ -122,6 +197,17 @@ export class ClaudeGoalProjection {
       if (reason) {
         goal.reason = reason;
       }
+      if (entryId) {
+        // Dedupe only after immutable provenance has bound the record to the
+        // current Goal generation. An eager mirror can arrive before the root
+        // provider Turn activates; replay must be allowed to reconsider it.
+        this.rememberProjectedEntry(entryId);
+      }
+      if (attachment.met || failed) {
+        summary.projectedTerminalCount += 1;
+      } else {
+        summary.projectedUpdateCount += 1;
+      }
       this.emitObservation(
         attachment.met ? "thread_goal_completed" : "thread_goal_update",
         generation,
@@ -129,19 +215,23 @@ export class ClaudeGoalProjection {
         occurredAtUnixMs
       );
       if (attachment.met || failed) {
+        this.terminalOperationId = generation.operationId;
         this.currentGeneration = undefined;
       }
     }
+    return summary;
   }
 
-  private rememberEntry(entryId: string): void {
-    this.observedEntryIds.add(entryId);
-    if (this.observedEntryIds.size <= 1024) {
-      return;
-    }
-    const oldest = this.observedEntryIds.values().next().value;
-    if (oldest) {
-      this.observedEntryIds.delete(oldest);
+  private rememberProjectedEntry(entryId: string): void {
+    rememberBoundedEntry(this.projectedEntryIds, entryId);
+  }
+
+  private rememberIgnoredLiveEntry(
+    entryId: string,
+    source: TranscriptObservationSource
+  ): void {
+    if (source === "live_mirror" && entryId) {
+      rememberBoundedEntry(this.ignoredLiveEntryIds, entryId);
     }
   }
 
@@ -170,6 +260,63 @@ export class ClaudeGoalProjection {
       }
     });
   }
+}
+
+function rememberBoundedEntry(entries: Set<string>, entryId: string): void {
+  entries.add(entryId);
+  if (entries.size <= 1024) {
+    return;
+  }
+  const oldest = entries.values().next().value;
+  if (oldest) {
+    entries.delete(oldest);
+  }
+}
+
+function emptyProjectionSummary(): GoalTranscriptProjectionSummary {
+  return {
+    projectedUpdateCount: 0,
+    projectedTerminalCount: 0,
+    ignoredDuplicateCount: 0,
+    ignoredInvalidCount: 0,
+    ignoredStaleGenerationCount: 0,
+    ignoredUnboundGenerationCount: 0,
+    ignoredObjectiveMismatchCount: 0,
+    ignoredOutsideCurrentTurnCount: 0
+  };
+}
+
+function nativeReplayTurnBoundary(
+  entries: readonly SessionStoreEntry[],
+  providerTurnId: string
+): { sentinelEntryId: string; lineageEntryIds: ReadonlySet<string> } {
+  providerTurnId = providerTurnId.trim();
+  // Claude persists the /goal sentinel immediately before the command's root
+  // user entry and links that user back to the sentinel through parentUuid.
+  // That structural edge is the immutable replay boundary; timestamps only
+  // provide an additional fail-closed check.
+  const providerUser = entries.find(
+    (entry) =>
+      stringValue(entry.type) === "user" &&
+      stringValue(entry.uuid) === providerTurnId
+  );
+  const sentinelEntryId = stringValue(providerUser?.parentUuid);
+  const lineageEntryIds = new Set<string>();
+  if (!providerTurnId || !sentinelEntryId) {
+    return { sentinelEntryId: "", lineageEntryIds };
+  }
+  lineageEntryIds.add(providerTurnId);
+  for (const entry of entries) {
+    const entryId = stringValue(entry.uuid);
+    const parentEntryId = stringValue(entry.parentUuid);
+    if (entryId && parentEntryId && lineageEntryIds.has(parentEntryId)) {
+      lineageEntryIds.add(entryId);
+    }
+  }
+  // The sentinel itself is admissible, but its other children are sibling
+  // branches and must not inherit the current provider Turn's generation.
+  lineageEntryIds.add(sentinelEntryId);
+  return { sentinelEntryId, lineageEntryIds };
 }
 
 function transcriptTimestampUnixMs(value: unknown): number {

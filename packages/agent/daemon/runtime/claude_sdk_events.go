@@ -568,7 +568,7 @@ func claudeSDKLifecycleEventDiagnostic(event claudeSDKSidecarEvent) bool {
 	switch strings.TrimSpace(event.Type) {
 	case "sdk_lifecycle_observed",
 		"provider_turn_identity_resolved", "provider_turn_checkpoint",
-		"goal_observed",
+		"goal_observed", "goal_transcript_observed", "goal_transcript_replay",
 		"approval_requested", "user_input_requested",
 		"turn_started", "turn_completed", "turn_canceled", "turn_failed",
 		"continuation_delayed",

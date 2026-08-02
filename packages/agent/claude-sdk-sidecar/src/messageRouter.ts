@@ -7,7 +7,10 @@ import {
   isToolUseBlock,
   recordValue
 } from "./normalizer.ts";
-import { ClaudeGoalProjection } from "./goalProjection.ts";
+import {
+  ClaudeGoalProjection,
+  type GoalTranscriptProjectionSummary
+} from "./goalProjection.ts";
 import type { ClaudeSDKSidecarEventEmitter } from "./protocol.ts";
 import {
   readQueuedTaskNotificationPrompt,
@@ -26,6 +29,7 @@ import type { AssistantStreamProjector } from "./assistantStream.ts";
 import type { CompactionTracker } from "./compaction.ts";
 import type { MessageProjection } from "./messageProjection.ts";
 import type { ToolActivityProjector } from "./toolActivity.ts";
+import type { TranscriptObservationSource } from "./transcriptObservationStore.ts";
 import type { TurnLifecycle } from "./turnLifecycle.ts";
 import type { ProviderTurnPhase } from "./providerTurnAcceptance.ts";
 
@@ -57,6 +61,7 @@ export class SDKMessageRouter {
   private readonly ensureProviderTurnAcceptance: (
     phase: ObservableProviderTurnPhase
   ) => Promise<void>;
+  private readonly replayGoalTranscript: () => Promise<void>;
   private contextUsageGeneration = 0;
   private activeRootAssistantError = "";
   private activeRootConnectionRetry = false;
@@ -83,6 +88,7 @@ export class SDKMessageRouter {
     ensureProviderTurnAcceptance: (
       phase: ObservableProviderTurnPhase
     ) => Promise<void>;
+    replayGoalTranscript: () => Promise<void>;
   }) {
     this.getProviderSessionId = options.getProviderSessionId;
     this.setProviderSessionId = options.setProviderSessionId;
@@ -100,6 +106,7 @@ export class SDKMessageRouter {
     this.goals = new ClaudeGoalProjection(options.turns, options.emit);
     this.emitProviderCheckpointEvent = options.emitProviderCheckpoint;
     this.ensureProviderTurnAcceptance = options.ensureProviderTurnAcceptance;
+    this.replayGoalTranscript = options.replayGoalTranscript;
   }
 
   async handle(message: SDKMessage): Promise<void> {
@@ -213,8 +220,15 @@ export class SDKMessageRouter {
     this.goals.restoreGeneration(identity, goal);
   }
 
-  observeTranscriptEntries(entries: readonly SessionStoreEntry[]): void {
-    this.goals.observeTranscriptEntries(entries);
+  shouldReplayGoalTranscript(): boolean {
+    return this.goals.shouldReplayNativeTranscript();
+  }
+
+  observeTranscriptEntries(
+    entries: readonly SessionStoreEntry[],
+    source: TranscriptObservationSource = "live_mirror"
+  ): GoalTranscriptProjectionSummary {
+    return this.goals.observeTranscriptEntries(entries, source);
   }
 
   private emitLifecycleObservation(
@@ -521,6 +535,7 @@ export class SDKMessageRouter {
       return;
     }
     const turnId = this.turns.activeId;
+    const goalAction = this.turns.activeTurn?.goalAction;
     const contextUsageGeneration = this.contextUsageGeneration;
     const assistantError = this.activeRootAssistantError;
     const terminalConnectionError =
@@ -539,6 +554,9 @@ export class SDKMessageRouter {
       result.is_error !== true &&
       !assistantError;
     const taskNotificationResult = result.origin?.kind === "task-notification";
+    if (this.goals.shouldReplayNativeTranscript()) {
+      await this.replayGoalTranscript();
+    }
     if (succeeded && taskNotificationResult) {
       this.activities.markTaskNotificationContinuation();
       void this.emitResultUsage(turnId, contextUsageGeneration, result);
@@ -582,6 +600,7 @@ export class SDKMessageRouter {
     } else if (!retainRootForBackgroundContinuation) {
       this.turns.settleActive("turn_completed", { stopReason: "end_turn" });
     }
+    this.goals.settleGoalControl(goalAction, succeeded);
     if (completedSyntheticContinuation) {
       this.activities.clearBackgroundContinuation();
     } else {

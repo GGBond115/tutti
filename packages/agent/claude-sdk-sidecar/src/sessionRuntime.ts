@@ -2,7 +2,9 @@ import type {
   Options as ClaudeQueryOptions,
   PermissionResult,
   SDKMessage,
-  SDKUserMessage
+  SDKUserMessage,
+  SessionKey,
+  SessionStoreEntry
 } from "@anthropic-ai/claude-agent-sdk";
 import {
   numberValue,
@@ -44,8 +46,14 @@ import { claudeQuerySettingsEnv } from "./settingsEnv.ts";
 import { CompactionTracker } from "./compaction.ts";
 import { MessageProjection } from "./messageProjection.ts";
 import { SDKMessageRouter } from "./messageRouter.ts";
+import type { GoalTranscriptProjectionSummary } from "./goalProjection.ts";
+import { GoalTranscriptRecovery } from "./goalTranscriptRecovery.ts";
 import { emit } from "./eventSink.ts";
-import { TranscriptObservationStore } from "./transcriptObservationStore.ts";
+import {
+  TranscriptObservationStore,
+  type NativeTranscriptReplay,
+  type TranscriptObservationSource
+} from "./transcriptObservationStore.ts";
 import {
   resolveClaudeTurnBindingByRecoveryToken,
   type ClaudeTurnBindingResolver
@@ -66,6 +74,11 @@ type ClaudeQueryFactory = (input: {
   prompt: AsyncIterable<SDKUserMessage>;
   options: ClaudeQueryOptions;
 }) => ClaudeQueryRuntime;
+
+type SessionRuntimeDependencies = {
+  replayNativeSession?: NativeTranscriptReplay;
+  goalTranscriptReplayTimeoutMs?: number;
+};
 
 export class SessionRuntime {
   providerSessionId: string;
@@ -94,6 +107,8 @@ export class SessionRuntime {
   private readonly configuration: SessionConfiguration;
   private readonly claudeOptions: SidecarClaudeOptions;
   private readonly queryFactory?: ClaudeQueryFactory;
+  private readonly replayNativeSession?: NativeTranscriptReplay;
+  private readonly goalTranscriptRecovery: GoalTranscriptRecovery;
   private readonly interactions: InteractiveCoordinator;
   private readonly router: SDKMessageRouter;
   private readonly driver?: SidecarTestDriver;
@@ -117,7 +132,8 @@ export class SessionRuntime {
     queryFactory?: ClaudeQueryFactory,
     continuationStartTimeoutMs = 30_000,
     resolveProviderTurnIdentity: ClaudeTurnBindingResolver = resolveClaudeTurnBindingByRecoveryToken,
-    providerTurnIdentityResolutionTimeoutMs = 5_000
+    providerTurnIdentityResolutionTimeoutMs = 5_000,
+    dependencies: SessionRuntimeDependencies = {}
   ) {
     const resumeSessionId = stringValue(resumeCursor?.resume);
     this.providerSessionId = resumeSessionId || providerSessionId;
@@ -277,10 +293,18 @@ export class SessionRuntime {
           providerCheckpointMessageId
         ),
       ensureProviderTurnAcceptance: (phase) =>
-        this.ensureProviderTurnAcceptance(phase)
+        this.ensureProviderTurnAcceptance(phase),
+      replayGoalTranscript: () => this.recoverGoalTranscript()
     });
     this.claudeOptions = claudeOptions;
     this.queryFactory = queryFactory;
+    this.replayNativeSession = dependencies.replayNativeSession;
+    this.goalTranscriptRecovery = new GoalTranscriptRecovery({
+      emit,
+      getProviderSessionId: () => this.providerSessionId,
+      shouldReplay: () => this.router.shouldReplayGoalTranscript(),
+      timeoutMs: dependencies.goalTranscriptReplayTimeoutMs
+    });
     this.resumeCursor = normalizeResumeCursor(
       resumeCursor,
       this.providerSessionId
@@ -394,7 +418,10 @@ export class SessionRuntime {
             goalOperationId: goal.operationId,
             goalRevision: goal.revision,
             goalRepairEpoch: goal.repairEpoch ?? 0,
-            goalAction: goal.action
+            goalAction: goal.action,
+            ...(goal.action === "set"
+              ? { goalActivatedAtUnixMs: Date.now() }
+              : {})
           }
         : {}),
       settled: false
@@ -701,6 +728,55 @@ export class SessionRuntime {
     ]);
   }
 
+  private observeTranscriptBatch(
+    generation: QueryGeneration,
+    key: SessionKey,
+    entries: readonly SessionStoreEntry[],
+    source: TranscriptObservationSource
+  ): void {
+    const rootTranscript = !key.subpath;
+    const sessionMatches = key.sessionId === this.providerSessionId;
+    const counts = goalTranscriptEntryCounts(entries);
+    if (rootTranscript && sessionMatches) {
+      if (source === "live_mirror") {
+        generation.liveGoalTranscriptEntryCount += counts.total;
+      } else {
+        generation.replayedGoalTranscriptEntryCount += counts.total;
+      }
+    }
+    let projection: GoalTranscriptProjectionSummary | undefined;
+    if (
+      this.isQueryGenerationActive(generation) &&
+      rootTranscript &&
+      sessionMatches
+    ) {
+      projection = this.router.observeTranscriptEntries(entries, source);
+    }
+    if (counts.total > 0) {
+      emit({
+        type: "goal_transcript_observed",
+        payload: {
+          transcriptSource: source,
+          queryGenerationId: generation.id,
+          batchEntryCount: entries.length,
+          goalStatusEntryCount: counts.total,
+          terminalGoalStatusEntryCount: counts.terminal,
+          rootTranscript,
+          sessionMatches,
+          queryGenerationActive: this.isQueryGenerationActive(generation),
+          ...projection
+        }
+      });
+    }
+  }
+
+  private async recoverGoalTranscript(): Promise<void> {
+    const generation = this.queryGeneration;
+    if (generation && this.isQueryGenerationActive(generation)) {
+      await this.goalTranscriptRecovery.recover(generation);
+    }
+  }
+
   private async ensureQuery(
     startOptions: { initialize?: boolean } = {}
   ): Promise<void> {
@@ -746,6 +822,13 @@ export class SessionRuntime {
       ...this.env,
       CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1"
     };
+    const transcriptObservationStore = new TranscriptObservationStore(
+      this.cwd || process.cwd(),
+      (key, entries, source) =>
+        this.observeTranscriptBatch(generation, key, entries, source),
+      this.replayNativeSession
+    );
+    generation.transcriptObservationStore = transcriptObservationStore;
     const queryOptions: ClaudeQueryOptions = {
       cwd: this.cwd || process.cwd(),
       env: queryEnv,
@@ -753,18 +836,7 @@ export class SessionRuntime {
         ? { pathToClaudeCodeExecutable: claudeExecutablePath }
         : {}),
       includePartialMessages: true,
-      sessionStore: new TranscriptObservationStore(
-        this.cwd || process.cwd(),
-        (key, entries) => {
-          if (
-            this.isQueryGenerationActive(generation) &&
-            !key.subpath &&
-            key.sessionId === this.providerSessionId
-          ) {
-            this.router.observeTranscriptEntries(entries);
-          }
-        }
-      ),
+      sessionStore: transcriptObservationStore,
       sessionStoreFlush: "eager",
       canUseTool: (toolName, toolInput, callbackOptions) =>
         this.handleToolPermission(
@@ -1005,4 +1077,26 @@ export class SessionRuntime {
       // Claude Code has not written session metadata yet.
     }
   }
+}
+
+function goalTranscriptEntryCounts(entries: readonly SessionStoreEntry[]): {
+  total: number;
+  terminal: number;
+} {
+  let total = 0;
+  let terminal = 0;
+  for (const entry of entries) {
+    const attachment = recordValue(entry.attachment);
+    if (
+      stringValue(entry.type) !== "attachment" ||
+      stringValue(attachment?.type) !== "goal_status"
+    ) {
+      continue;
+    }
+    total += 1;
+    if (attachment?.met === true || attachment?.failed === true) {
+      terminal += 1;
+    }
+  }
+  return { total, terminal };
 }
