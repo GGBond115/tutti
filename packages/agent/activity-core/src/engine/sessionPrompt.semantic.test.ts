@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { normalizeAgentActivitySession } from "../sessionNormalization.ts";
 import type { AgentActivityTurn } from "../types.ts";
 import { createAgentSessionEngine } from "./createAgentSessionEngine.ts";
+import { createTestEngineCommandPort } from "./testEngineCommandPort.ts";
 import type {
-  EngineCommandPort,
   EngineExternalCommand,
   EngineIntent,
   EngineScheduler
@@ -14,12 +14,10 @@ function createHarness(active: boolean) {
   const commands: EngineExternalCommand[] = [];
   const observedIntents: EngineIntent[] = [];
   const scheduled: Array<{ canceled: boolean; delayMs: number }> = [];
-  const commandPort: EngineCommandPort = {
-    execute(command) {
-      commands.push(command);
-      return new Promise(() => undefined);
-    }
-  };
+  const commandPort = createTestEngineCommandPort((command) => {
+    commands.push(command);
+    return new Promise(() => undefined);
+  });
   const scheduler: EngineScheduler = {
     schedule(delayMs) {
       const task = { canceled: false, delayMs };
@@ -71,7 +69,7 @@ test("semantic prompt submission owns scope, confirmation window, and send proje
     requestedAtUnixMs: 100,
     routing: "auto",
     runtimeContent: [{ text: "runtime text", type: "text" }],
-    submitDiagnostics: { source: "test" },
+    submitDiagnostics: { queued: false, source: "test" },
     type: "submit/requested",
     workspaceId: "workspace-1"
   });
@@ -108,10 +106,19 @@ test("semantic prompt submission reports visible queue admission for a busy Sess
   const result = harness.engine.submitPrompt({
     agentSessionId: "session-1",
     clientSubmitId: "submit-1",
-    content: [{ text: "continue", type: "text" }]
+    content: [{ text: "continue", type: "text" }],
+    submitDiagnostics: { source: "test" }
   });
 
   assert.deepEqual(result, { accepted: true, queued: true });
+  const observed = harness.observedIntents.at(-1);
+  assert.equal(observed?.type, "submit/requested");
+  assert.equal(
+    observed && observed.type === "submit/requested"
+      ? observed.submitDiagnostics?.queued
+      : undefined,
+    true
+  );
   assert.deepEqual(harness.commands, []);
   assert.deepEqual(
     harness.scheduled.map((task) => task.delayMs),

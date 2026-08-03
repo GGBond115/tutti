@@ -78,6 +78,21 @@ one surface must use the package-owned surface-event predicate so both the
 parent ID and its `:tab:*` child IDs are accepted without admitting events from
 other Browser surfaces.
 
+Ordinary guest `target="_blank"` links and `window.open` calls emit an
+`open-url` event with the exact source child ID. The full workspace Browser host
+uses that identity to create and select a new tab in the same Browser surface.
+It must not translate this explicit popup intent into a passive Workbench
+`defaultUrl` update: controller synchronization deliberately ignores
+same-origin URL differences so normal in-page and authentication redirects are
+not reset by stale host state.
+
+The workspace host keeps one active Browser feature route per workspace and
+source. Rebuilding a Workbench contribution replaces and disconnects the prior
+route before it can handle another event, and disposing the Workbench session
+releases every Browser route for that workspace. A weak lookup does not replace
+this lifecycle: a route that still strongly owns its lookup key would also keep
+the obsolete feature and tab store alive.
+
 ## Package Entry Points
 
 The package uses multiple exports from one package rather than several small
@@ -202,12 +217,30 @@ The Desktop renderer owns page lifecycle. A renderer announces readiness only
 for its main-verified workspace and surface role. Main records the exact
 renderer that created each page, sends later select/close requests to that
 owner, and accepts a response only from the renderer that received the request.
-If no Agent renderer exists, Desktop starts one hidden without taking focus and
-waits for its readiness before creating the page. Agent Browser tabs are keyed
-by their resource Agent session; switching the window's active conversation
-does not rebind retained tabs to another session. Deleting an Agent session
-releases its leases and closes its retained Agent Browser surface through the
-same path.
+`new_page` always creates a new tab in the full workspace User Browser, even
+when an Agent session is the automation owner. The workspace renderer restores
+and focuses the preferred Browser node, or launches one when none exists, then
+returns the exact child tab id. If no User Browser host is ready, Main opens the
+workspace window explicitly, independent of the primary workspace UI mode, and
+waits for its verified readiness before sending the create request. Main then
+reveals and focuses that exact owning workspace window only after page creation
+succeeds. The Agent session identity still owns the
+automation lease and request guard; it does not choose a narrow Agent UI
+surface. Metadata-only inspection, screenshots, select, and close operations do
+not activate a window, and performance-headless runs remain non-activating.
+
+Automation-created tabs carry a narrow cold-materialization intent so their
+initial `about:blank` guest can attach before guarded navigation. Automation
+target identity alone does not materialize an ordinary cold Browser tab; this
+keeps restored and background Browser surfaces lazy.
+
+Agent Browser tabs may still be registered for session-owned embedded surfaces
+and remain visible only to their owning Agent. If no Agent renderer exists for
+an explicit Agent-surface operation, Desktop may start one hidden without
+taking focus and wait for readiness. Agent Browser tabs are keyed by their
+resource Agent session; switching the active conversation does not rebind them.
+Deleting an Agent session releases its leases and closes retained Agent Browser
+surfaces, while User Browser tabs remain under user lifecycle ownership.
 
 Network authorization runs before leasing or creating a tab. `new_page`
 creates only `about:blank`, attaches CDP request interception, and then loads

@@ -44,7 +44,7 @@ func TestCodexAppServerAdapterSessionStateIncludesModelsAccountAndRateLimits(t *
 	if asString(account["email"]) != "dev@example.com" || asString(account["planType"]) != "pro" {
 		t.Fatalf("account = %#v", account)
 	}
-	capabilities, _ := state.RuntimeContext["capabilities"].([]string)
+	capabilities := capabilitySnapshotValues(state.Capabilities)
 	if !containsString(capabilities, CapabilityActiveTurnGuidance) || !containsString(capabilities, CapabilityRateLimits) {
 		t.Fatalf("capabilities = %#v", capabilities)
 	}
@@ -392,7 +392,7 @@ func TestCodexAppServerAdapterReportsPlanModeCapabilityWhenCollaborationModesAva
 
 	adapter, _, session := startedAppServerAdapter(t)
 	state := adapter.SessionState(session)
-	capabilities, _ := state.RuntimeContext["capabilities"].([]string)
+	capabilities := capabilitySnapshotValues(state.Capabilities)
 	if !containsString(capabilities, CapabilityPlanMode) {
 		t.Fatalf("capabilities = %#v, want planMode", capabilities)
 	}
@@ -410,7 +410,7 @@ func TestCodexAppServerAdapterOmitsPlanModeCapabilityWithoutCollaborationModes(t
 	}
 	session.ProviderSessionID = "codex-thread-1"
 	state := adapter.SessionState(session)
-	capabilities, _ := state.RuntimeContext["capabilities"].([]string)
+	capabilities := capabilitySnapshotValues(state.Capabilities)
 	if containsString(capabilities, CapabilityPlanMode) {
 		t.Fatalf("capabilities = %#v, want no planMode without collaboration modes", capabilities)
 	}

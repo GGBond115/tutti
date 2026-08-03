@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createDefaultWorkspaceUserProjectI18nRuntime } from "@tutti-os/workspace-user-project/i18n";
 import { WorkspaceUserProjectSelect } from "@tutti-os/workspace-user-project/ui";
-import { AgentActivityHostProvider } from "../../agentActivityHost";
+import { AgentGUIActivityHostProvider } from "../../agentActivityHost";
 import type { AgentHostInputApi } from "../../host/agentHostApi";
 import { AgentProjectDropdown } from "./AgentComposerProjectMenu";
 
@@ -28,7 +28,7 @@ describe("AgentProjectDropdown project selection intent", () => {
     const onProjectPathChange = vi.fn();
 
     render(
-      <AgentActivityHostProvider
+      <AgentGUIActivityHostProvider
         agentHostApi={createAgentHostApi({
           getDefaultSelection,
           list: async () => ({ projects: [defaultProject] })
@@ -47,7 +47,7 @@ describe("AgentProjectDropdown project selection intent", () => {
           }}
           onProjectPathChange={onProjectPathChange}
         />
-      </AgentActivityHostProvider>
+      </AgentGUIActivityHostProvider>
     );
 
     await waitFor(() => expect(getDefaultSelection).toHaveBeenCalledTimes(1));

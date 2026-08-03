@@ -12,6 +12,9 @@ import (
 type RecordingProcessTransport struct {
 	base   ProcessTransport
 	writer *processCassetteWriter
+
+	mu            sync.RWMutex
+	inputUnitSink func(ProviderInputUnit) error
 }
 
 func NewRecordingProcessTransport(
@@ -36,17 +39,35 @@ func (t *RecordingProcessTransport) Start(
 	if err != nil {
 		return nil, err
 	}
-	connectionID, err := t.writer.start(spec)
+	connectionID, err := t.writer.start(
+		spec,
+		ProcessCassetteCaptureOriginProcessStart,
+	)
 	if err != nil {
 		_ = connection.Close()
 		return nil, err
 	}
 	return &recordingProcessConnection{
-		base:         connection,
-		connectionID: connectionID,
-		startedAt:    time.Now(),
-		writer:       t.writer,
+		base:          connection,
+		connectionID:  connectionID,
+		startedAt:     time.Now(),
+		writer:        t.writer,
+		inputUnitSink: t.providerInputUnitSink(),
 	}, nil
+}
+
+func (t *RecordingProcessTransport) SetProviderInputUnitSink(
+	sink func(ProviderInputUnit) error,
+) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.inputUnitSink = sink
+}
+
+func (t *RecordingProcessTransport) providerInputUnitSink() func(ProviderInputUnit) error {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.inputUnitSink
 }
 
 func (t *RecordingProcessTransport) Finalize() error {
@@ -57,10 +78,11 @@ func (t *RecordingProcessTransport) Finalize() error {
 }
 
 type recordingProcessConnection struct {
-	base         ProcessConnection
-	connectionID string
-	startedAt    time.Time
-	writer       *processCassetteWriter
+	base          ProcessConnection
+	connectionID  string
+	startedAt     time.Time
+	writer        *processCassetteWriter
+	inputUnitSink func(ProviderInputUnit) error
 
 	mu        sync.Mutex
 	chunkSeq  uint64
@@ -80,9 +102,12 @@ func (c *recordingProcessConnection) Recv() (ProcessFrame, error) {
 	if err != nil {
 		return ProcessFrame{}, err
 	}
-	if err := c.recordFrame(frame); err != nil {
+	chunkSeq, err := c.recordFrame(frame)
+	if err != nil {
 		return ProcessFrame{}, err
 	}
+	frame.ConnectionID = c.connectionID
+	frame.ChunkSeq = chunkSeq
 	return frame, nil
 }
 
@@ -95,10 +120,28 @@ func (c *recordingProcessConnection) RecvContext(ctx context.Context) (ProcessFr
 	if err != nil {
 		return ProcessFrame{}, err
 	}
-	if err := c.recordFrame(frame); err != nil {
+	chunkSeq, err := c.recordFrame(frame)
+	if err != nil {
 		return ProcessFrame{}, err
 	}
+	frame.ConnectionID = c.connectionID
+	frame.ChunkSeq = chunkSeq
 	return frame, nil
+}
+
+func (c *recordingProcessConnection) CompleteProviderInputUnit(
+	ctx context.Context,
+	unit ProviderInputUnit,
+) error {
+	if c.inputUnitSink != nil {
+		if err := c.inputUnitSink(unit); err != nil {
+			return err
+		}
+	}
+	if completion, ok := c.base.(ProviderInputUnitCompletion); ok {
+		return completion.CompleteProviderInputUnit(ctx, unit)
+	}
+	return nil
 }
 
 func (c *recordingProcessConnection) Close() error {
@@ -131,20 +174,24 @@ func (c *recordingProcessConnection) Kill() error {
 	return c.Close()
 }
 
-func (c *recordingProcessConnection) recordFrame(frame ProcessFrame) error {
+func (c *recordingProcessConnection) recordFrame(frame ProcessFrame) (uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.chunkSeq++
+	chunkSeq := c.chunkSeq
 	chunk, err := processCassetteFrameChunk(
 		c.connectionID,
-		c.chunkSeq,
+		chunkSeq,
 		time.Since(c.startedAt),
 		frame,
 	)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return c.writer.append(chunk)
+	if err := c.writer.append(chunk); err != nil {
+		return 0, err
+	}
+	return chunkSeq, nil
 }
 
 func (c *recordingProcessConnection) record(

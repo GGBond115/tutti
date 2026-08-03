@@ -4,7 +4,8 @@ import (
 	"errors"
 	"strings"
 
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 func cloneSessionMessages(messages []SessionMessage) []SessionMessage {
@@ -56,6 +57,7 @@ func cloneSession(session Session) Session {
 		cloned.EndedAt = &endedAt
 	}
 	cloned.ActiveTurn = cloneActivityTurn(session.ActiveTurn)
+	cloned.Capabilities = canonical.CloneCapabilitySnapshot(session.Capabilities)
 	cloned.LatestTurn = cloneActivityTurn(session.LatestTurn)
 	cloned.ActiveTurnID = strings.TrimSpace(session.ActiveTurnID)
 	cloned.LatestTurnInteractions = cloneActivityInteractions(session.LatestTurnInteractions)
@@ -65,7 +67,6 @@ func cloneSession(session Session) Session {
 
 func cloneSessionMetadata(metadata agentactivitybiz.SessionMetadata) agentactivitybiz.SessionMetadata {
 	cloned := metadata
-	cloned.Capabilities = append([]string(nil), metadata.Capabilities...)
 	if metadata.Usage != nil {
 		value := *metadata.Usage
 		if metadata.Usage.ContextWindow != nil {
@@ -120,6 +121,17 @@ func clonePayload(payload map[string]any) map[string]any {
 		out[key] = clonePayloadValue(value)
 	}
 	return out
+}
+
+func cloneOptionalPayload(payload map[string]any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	cloned := clonePayload(payload)
+	if cloned == nil {
+		return map[string]any{}
+	}
+	return cloned
 }
 
 func clonePayloadValue(value any) any {

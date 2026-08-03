@@ -286,6 +286,9 @@ export const AgentGUIConversationRailSection = memo(
         className={styles.conversationSection}
         data-collapsed={isSectionCollapsed}
         data-kind={section.kind}
+        data-testid={
+          projectId ? `agent-gui-project-section-${projectId}` : undefined
+        }
         data-project-dragging={projectDragging ? "true" : undefined}
         data-project-drop-indicator={projectDropIndicator ?? undefined}
         onDragOver={
@@ -311,6 +314,7 @@ export const AgentGUIConversationRailSection = memo(
           onToggleCollapsed={handleToggleCollapsed}
           onToggleProjectPinned={handleToggleProjectPinned}
           projectPinned={projectPinned}
+          projectId={projectId || null}
           sectionLabel={section.label}
         />
         <div

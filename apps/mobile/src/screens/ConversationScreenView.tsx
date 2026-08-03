@@ -12,19 +12,14 @@ import {
   useNativeTheme
 } from "@tutti-os/ui-system/native";
 import { useEffect, useRef, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Linking,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View
-} from "react-native";
+import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 import { MobileInteractionCard } from "../components/MobileConversationRows";
 import { MobileComposerDock } from "../components/MobileComposerDock";
 import { MobileConversationTimeline } from "../components/MobileConversationTimeline";
+import {
+  MobileKeyboardAvoidingView,
+  mobileKeyboardDismissMode
+} from "../components/MobileKeyboardAvoidingView";
 import {
   MobileComputerGlyph,
   MobileFolderGlyph
@@ -44,6 +39,7 @@ export function ConversationScreenView({
   onRefreshQuickPrompts,
   onRespond,
   onOpenSession,
+  onSelectProject,
   onSelectTarget,
   onSend,
   onStop,
@@ -68,6 +64,7 @@ export function ConversationScreenView({
     }
   ): void;
   onOpenSession(id: string): void;
+  onSelectProject(path: string | null): void;
   onSelectTarget(id: string): void;
   onSend(): void;
   onStop(): void;
@@ -126,10 +123,7 @@ export function ConversationScreenView({
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={styles.root}
-    >
+    <MobileKeyboardAvoidingView style={styles.root}>
       <View style={styles.conversationHeader}>
         <View style={styles.headerButtonSlot}>
           <NativeIconButton
@@ -142,7 +136,9 @@ export function ConversationScreenView({
         </View>
         <View style={styles.conversationTitle}>
           <Text numberOfLines={1} style={styles.sessionTitle}>
-            {model.selectedSession?.title || workspaceName}
+            {model.creating
+              ? t("newSession")
+              : model.selectedSession?.title || workspaceName}
           </Text>
           <View style={styles.locationRow}>
             <View style={styles.locationItem}>
@@ -178,7 +174,7 @@ export function ConversationScreenView({
         <View style={styles.conversationBody}>
           <ScrollView
             contentContainerStyle={styles.messageList}
-            keyboardDismissMode="interactive"
+            keyboardDismissMode={mobileKeyboardDismissMode}
             keyboardShouldPersistTaps="handled"
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             onContentSizeChange={() => {
@@ -272,25 +268,6 @@ export function ConversationScreenView({
       ) : model.creating ? (
         <View style={styles.center}>
           <Text style={styles.emptyText}>{t("newSessionHint")}</Text>
-          <ScrollView
-            contentContainerStyle={styles.targetList}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-          >
-            {model.targets.map((target) => (
-              <Pressable
-                key={target.id}
-                onPress={() => onSelectTarget(target.id)}
-                style={[
-                  styles.targetChip,
-                  target.id === model.selectedAgentTargetId &&
-                    styles.targetChipSelected
-                ]}
-              >
-                <Text style={styles.targetChipText}>{target.name}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
         </View>
       ) : (
         <View style={styles.center}>
@@ -307,12 +284,14 @@ export function ConversationScreenView({
           quickPromptLibrary={quickPromptLibrary}
           onDraftChange={onDraftChange}
           onRefreshQuickPrompts={onRefreshQuickPrompts}
+          onSelectProject={onSelectProject}
+          onSelectTarget={onSelectTarget}
           onSend={onSend}
           onStop={onStop}
           onUpdate={onUpdateComposerSettings}
         />
       ) : null}
-    </KeyboardAvoidingView>
+    </MobileKeyboardAvoidingView>
   );
 }
 
@@ -329,21 +308,15 @@ function createStyles(theme: NativeTheme) {
       alignItems: "center",
       flexDirection: "row",
       gap: theme.space.small,
-      minHeight: 82,
       paddingHorizontal: theme.space.medium,
       paddingVertical: theme.space.small
     },
-    conversationBody: { flex: 1, position: "relative" },
+    conversationBody: { flex: 1, minHeight: 0, position: "relative" },
     conversationTitle: {
-      backgroundColor: theme.color.panelRaised,
-      borderColor: theme.color.border,
-      borderRadius: 28,
-      borderWidth: StyleSheet.hairlineWidth,
+      alignItems: "center",
       flex: 1,
       justifyContent: "center",
-      minWidth: 0,
-      minHeight: 56,
-      paddingHorizontal: theme.space.medium
+      minWidth: 0
     },
     emptyText: {
       color: theme.color.textSecondary,
@@ -353,25 +326,25 @@ function createStyles(theme: NativeTheme) {
     },
     backIcon: {
       color: theme.color.text,
-      fontSize: 32,
-      fontWeight: "300",
-      lineHeight: 34
+      fontSize: 22,
+      fontWeight: "400",
+      lineHeight: 26
     },
     headerCircleButton: {
       alignItems: "center",
       backgroundColor: theme.color.panelRaised,
       borderColor: theme.color.border,
-      borderRadius: 28,
+      borderRadius: 20,
       borderWidth: StyleSheet.hairlineWidth,
       flexShrink: 0,
-      height: 56,
+      height: 40,
       justifyContent: "center",
-      width: 56
+      width: 40
     },
     headerButtonSlot: {
       flexShrink: 0,
-      height: 56,
-      width: 56
+      height: 40,
+      width: 40
     },
     inlineError: {
       backgroundColor: theme.color.panel,
@@ -389,27 +362,27 @@ function createStyles(theme: NativeTheme) {
     },
     locationLabel: {
       color: theme.color.textSecondary,
-      flex: 1,
       flexShrink: 1,
       fontSize: 12
     },
     locationItem: {
       alignItems: "center",
-      flex: 1,
       flexDirection: "row",
+      flexShrink: 1,
       gap: 4,
       minWidth: 0
     },
     locationRow: {
       flexDirection: "row",
       gap: theme.space.small,
+      justifyContent: "center",
       marginTop: 3,
       overflow: "hidden"
     },
     messageList: {
-      gap: theme.space.large,
+      gap: theme.space.medium,
       paddingBottom: theme.space.xlarge,
-      paddingHorizontal: theme.space.large,
+      paddingHorizontal: theme.space.medium,
       paddingTop: theme.space.medium
     },
     messageScroller: { flex: 1 },
@@ -430,16 +403,11 @@ function createStyles(theme: NativeTheme) {
       height: 64,
       width: "78%"
     },
-    sessionTitle: { color: theme.color.text, fontSize: 16, fontWeight: "700" },
-    targetChip: {
-      borderColor: theme.color.border,
-      borderRadius: theme.radius.large,
-      borderWidth: StyleSheet.hairlineWidth,
-      paddingHorizontal: theme.space.medium,
-      paddingVertical: theme.space.small
-    },
-    targetChipSelected: { borderColor: theme.color.accent },
-    targetChipText: { color: theme.color.text, fontSize: 13 },
-    targetList: { gap: theme.space.small }
+    sessionTitle: {
+      color: theme.color.text,
+      fontSize: 16,
+      fontWeight: "700",
+      textAlign: "center"
+    }
   });
 }

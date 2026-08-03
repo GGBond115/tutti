@@ -99,6 +99,12 @@ export type {
   WorkbenchNodePreviewImagesCapture
 } from "./react/nodePreviewCapture.ts";
 export {
+  createWorkbenchNodePreviewCaptureAdapter,
+  type WorkbenchNodePreviewCaptureAdapterOptions,
+  type WorkbenchNodePreviewCaptureDiagnostic,
+  type WorkbenchNodePreviewCaptureRectInput
+} from "./preview/createWorkbenchNodePreviewCaptureAdapter.ts";
+export {
   WorkbenchDockComponentPreviewFrame,
   type WorkbenchDockComponentPreviewFrameProps
 } from "./react/WorkbenchDockComponentPreviewFrame.tsx";

@@ -16,30 +16,10 @@ import {
   MANAGED_AGENT_ICON_ROUNDED_URLS,
   managedAgentRoundedIconUrl
 } from "./managedAgentIcons";
-import { RichTextMentionReadonly } from "@tutti-os/ui-rich-text/editor";
 import {
   parsedDocumentCacheStatsForTests,
   resetParsedDocumentCacheForTests
 } from "./parsedDocumentCache";
-
-describe("RichTextMentionReadonly compatibility", () => {
-  it("uses the resolved label without adding the persisted trigger", () => {
-    render(
-      <RichTextMentionReadonly
-        mention={{
-          trigger: "@",
-          providerId: "workspace-app",
-          entityId: "canvas",
-          label: "Canvas"
-        }}
-      />
-    );
-
-    expect(screen.getByText("Canvas")).toBeInTheDocument();
-    expect(screen.queryByText("@Canvas")).not.toBeInTheDocument();
-    expect(document.querySelector('[data-slot="mention-pill"]')).not.toBeNull();
-  });
-});
 
 describe("AgentMessageMarkdown", () => {
   afterEach(() => {
@@ -592,6 +572,42 @@ describe("AgentMessageMarkdown", () => {
     });
   });
 
+  it("decodes percent-encoded workspace markdown image paths before reading files", async () => {
+    const readFile = vi.fn().mockResolvedValue({
+      bytes: new Uint8Array([137, 80, 78, 71])
+    });
+    window.agentHostApi = {
+      ...(window.agentHostApi ?? {}),
+      workspace: {
+        ...(window.agentHostApi?.workspace ?? {}),
+        readFile
+      }
+    } as typeof window.agentHostApi;
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:tsh-markdown-image")
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn()
+    });
+
+    render(
+      <AgentMessageMarkdown
+        content={"![generated image](/workspace/可爱小狗.png)"}
+      />
+    );
+
+    expect(
+      await screen.findByRole("img", {
+        name: "generated image"
+      })
+    ).toHaveAttribute("src", "blob:tsh-markdown-image");
+    expect(readFile).toHaveBeenCalledWith({
+      path: "/workspace/可爱小狗.png"
+    });
+  });
+
   it("renders workspace markdown videos from workspace file bytes", async () => {
     const readFile = vi.fn().mockResolvedValue({
       bytes: new Uint8Array([0, 0, 0, 24])
@@ -983,7 +999,7 @@ describe("AgentMessageMarkdown", () => {
       window.removeEventListener("wheel", windowWheel);
     }
 
-    fireEvent.click(screen.getByRole("button", { name: /Minimize image/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Close$/ }));
     await waitFor(() => {
       expect(modalImage).toHaveAttribute("data-tsh-image-zoom", "1");
     });
@@ -1061,7 +1077,7 @@ describe("AgentMessageMarkdown", () => {
     const previewActionButtons = [
       screen.getByRole("button", { name: "Copy image" }),
       screen.getByRole("button", { name: "Download image" }),
-      screen.getByRole("button", { name: /Minimize image/ })
+      screen.getByRole("button", { name: /^Close$/ })
     ];
     expect(Array.from(toolbarActions?.children ?? [])).toEqual(
       previewActionButtons
@@ -1101,7 +1117,7 @@ describe("AgentMessageMarkdown", () => {
     clickDownload.mockRestore();
   });
 
-  it("closes the zoom preview when the unzoom button is clicked", async () => {
+  it("closes the zoom preview when the close button is clicked", async () => {
     const readFile = vi.fn().mockResolvedValue({
       bytes: new Uint8Array([137, 80, 78, 71])
     });
@@ -1133,11 +1149,52 @@ describe("AgentMessageMarkdown", () => {
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Minimize image/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Close$/ }));
     const modalImage = dialog.querySelector("[data-rmiz-modal-img]");
     expect(modalImage).toBeInstanceOf(HTMLElement);
     fireEvent.transitionEnd(modalImage as HTMLElement);
 
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+  });
+
+  it("closes the zoom preview when its empty content area is clicked", async () => {
+    const readFile = vi.fn().mockResolvedValue({
+      bytes: new Uint8Array([137, 80, 78, 71])
+    });
+    window.agentHostApi = {
+      ...(window.agentHostApi ?? {}),
+      workspace: {
+        ...(window.agentHostApi?.workspace ?? {}),
+        readFile
+      }
+    } as typeof window.agentHostApi;
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:tsh-markdown-image")
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn()
+    });
+
+    render(
+      <AgentMessageMarkdown
+        content={"![generated image](/workspace/output/imagegen/dance.png)"}
+        enableImageZoom
+      />
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Zoom image/ }));
+    const dialog = await screen.findByRole("dialog");
+    const emptyContentArea = dialog.querySelector("[data-rmiz-modal-content]");
+    expect(emptyContentArea).toBeInstanceOf(HTMLElement);
+
+    fireEvent.click(emptyContentArea as HTMLElement);
+
+    expect(dialog).toHaveAttribute("data-closing", "true");
+    fireEvent.animationEnd(dialog);
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).toBeNull();
     });

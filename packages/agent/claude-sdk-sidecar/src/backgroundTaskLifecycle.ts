@@ -90,7 +90,9 @@ export class BackgroundTaskLifecycle {
     if (!previouslyObserved || previousCount === 0) {
       return;
     }
-    this.levelContinuationPending = this.rootResultSucceeded !== false;
+    const delegated = this.delegatedTaskCounts(turnId);
+    this.levelContinuationPending =
+      this.rootResultSucceeded !== false && delegated.running > 0;
     this.scheduleQuiescence(turnId);
     this.reserveContinuation();
   }

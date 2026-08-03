@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	admissiondaemon "github.com/tutti-os/tutti/packages/desktop/update-admission/daemon"
 	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
 	preferencesapi "github.com/tutti-os/tutti/services/tuttid/api/preferences"
 	workspaceapi "github.com/tutti-os/tutti/services/tuttid/api/workspace"
@@ -28,42 +29,49 @@ type EventStreamService interface {
 	PublishFromServer(context.Context, string, []byte) error
 }
 
+type DesktopUpdateAdmissionService interface {
+	WaitInitial(context.Context) (admissiondaemon.Snapshot, error)
+	Snapshot() admissiondaemon.Snapshot
+	Refresh(context.Context, admissiondaemon.RefreshTrigger) (admissiondaemon.RefreshResult, error)
+}
+
 type DaemonAPI struct {
-	UserProjectService           UserProjectService
-	AgentQuickPromptService      AgentQuickPromptService
-	AgentTargetService           AgentTargetService
-	AgentTargetSetupService      AgentTargetSetupService
-	PreferencesService           preferencesapi.Service
-	AgentMaintenanceService      AgentMaintenanceService
-	ManagedCredentialsService    *managedcredentialsservice.Service
-	ModelPlanService             ModelPlanService
-	WorkspaceAgentService        WorkspaceAgentService
-	AgentModelBindingService     AgentModelBindingService
-	ModelPolicyService           ModelPolicyService
-	CollaborationRunService      CollaborationRunService
-	AutomationRuleService        AutomationRuleService
-	AccountService               AccountService
-	MobileRemoteService          MobileRemoteService
-	EventStreamService           EventStreamService
-	WorkspaceService             workspaceapi.CatalogService
-	WorkbenchService             workspaceapi.WorkbenchService
-	AppCenterService             workspaceapi.AppCenterService
-	AppFactoryService            AppFactoryService
-	FileService                  workspaceapi.FileService
-	AgentSessionService          AgentSessionService
-	AgentSessionRecordingService AgentSessionRecordingService
-	AgentSessionReplayVerifier   AgentSessionReplayVerifier
-	AgentStatusService           AgentProviderStatusService
-	TuttiAgentReadiness          TuttiAgentReadiness
-	TerminalService              workspaceapi.TerminalService
-	IssueService                 workspaceapi.IssueManagerService
-	IssueExecutionService        workspaceapi.IssueExecutionService
-	TuttiModePlanService         TuttiModePlanService
-	TuttiModeExecutionService    TuttiModeExecutionService
-	TuttiModeActivationService   TuttiModeActivationService
-	TuttiModeGoalReviewService   TuttiModeGoalReviewService
-	CLIRegistry                  *cliservice.Registry
-	AnalyticsReporter            reporterservice.Reporter
+	UserProjectService            UserProjectService
+	AgentQuickPromptService       AgentQuickPromptService
+	AgentTargetService            AgentTargetService
+	AgentTargetSetupService       AgentTargetSetupService
+	PreferencesService            preferencesapi.Service
+	AgentMaintenanceService       AgentMaintenanceService
+	ManagedCredentialsService     *managedcredentialsservice.Service
+	ModelPlanService              ModelPlanService
+	WorkspaceAgentService         WorkspaceAgentService
+	AgentModelBindingService      AgentModelBindingService
+	ModelPolicyService            ModelPolicyService
+	CollaborationRunService       CollaborationRunService
+	AutomationRuleService         AutomationRuleService
+	AccountService                AccountService
+	MobileRemoteService           MobileRemoteService
+	EventStreamService            EventStreamService
+	WorkspaceService              workspaceapi.CatalogService
+	WorkbenchService              workspaceapi.WorkbenchService
+	AppCenterService              workspaceapi.AppCenterService
+	AppFactoryService             AppFactoryService
+	FileService                   workspaceapi.FileService
+	AgentSessionService           AgentSessionService
+	AgentSessionRecordingService  AgentSessionRecordingService
+	AgentSessionReplayVerifier    AgentSessionReplayVerifier
+	AgentStatusService            AgentProviderStatusService
+	TuttiAgentReadiness           TuttiAgentReadiness
+	TerminalService               workspaceapi.TerminalService
+	IssueService                  workspaceapi.IssueManagerService
+	IssueExecutionService         workspaceapi.IssueExecutionService
+	TuttiModePlanService          TuttiModePlanService
+	TuttiModeExecutionService     TuttiModeExecutionService
+	TuttiModeActivationService    TuttiModeActivationService
+	TuttiModeGoalReviewService    TuttiModeGoalReviewService
+	CLIRegistry                   *cliservice.Registry
+	AnalyticsReporter             reporterservice.Reporter
+	DesktopUpdateAdmissionService DesktopUpdateAdmissionService
 	// OnListenerReady starts daemon work that may wake an Agent whose next
 	// action calls back into tuttid. Wiring invokes it only after publishing
 	// listener information.

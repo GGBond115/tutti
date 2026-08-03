@@ -124,6 +124,7 @@ function createWebRuntimeApi(
       return Promise.resolve({
         active: false,
         paused: false,
+        playbackElapsedMs: 0,
         speed: 1,
         timingMode: "realtime"
       });
@@ -139,6 +140,14 @@ function createWebRuntimeApi(
         resolveWebSocketUrl(backendConfig, "/v1/events/ws").toString()
       );
     },
+    importAgentSessionReplayCassettes() {
+      return Promise.reject(
+        electronDebugRequired("importAgentSessionReplayCassettes")
+      );
+    },
+    isAgentSessionReplayRuntime() {
+      return false;
+    },
     listWorkspaceAgentProbes(input) {
       return Promise.resolve({
         capturedAtUnixMs: Date.now(),
@@ -148,6 +157,11 @@ function createWebRuntimeApi(
     },
     launchAgentSessionReplay() {
       return Promise.reject(electronDebugRequired("launchAgentSessionReplay"));
+    },
+    revealAgentSessionReplayCassette() {
+      return Promise.reject(
+        electronDebugRequired("revealAgentSessionReplayCassette")
+      );
     },
     setAgentSessionReplayPlayback() {
       return Promise.reject(

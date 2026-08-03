@@ -97,9 +97,42 @@ func TestRunSinkRejectsResultThatDoesNotSummarizeAcknowledgements(t *testing.T) 
 	}
 }
 
+func TestRunSinkRejectsMissingPersistedSessionScope(t *testing.T) {
+	t.Parallel()
+
+	mutation := sessionMutation("mutation-1", "transaction-1", "title", 100)
+	acknowledgement := activityreplication.AcknowledgeApplied(mutation, 1)
+	entity, err := json.Marshal(mutation.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := &scriptedSink{
+		report: ApplyReport{
+			Result:           activityreplication.ApplyResult{AcceptedCount: 1, Cursor: 1},
+			Acknowledgements: []activityreplication.MutationAcknowledgement{acknowledgement},
+		},
+		snapshot: SinkSnapshot{Entity: entity},
+		found:    true,
+	}
+	err = RunSink(context.Background(), sink, SinkFixture{
+		Name: "missing persisted session scope",
+		Steps: []SinkStep{{
+			Name: "apply", Batch: batch(mutation),
+			WantResult: activityreplication.ApplyResult{AcceptedCount: 1, Cursor: 1}, WantAcknowledgements: []activityreplication.MutationAcknowledgement{acknowledgement},
+		}},
+		WantSnapshots: []SnapshotExpectation{presentSnapshot(mutation)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "session scope") {
+		t.Fatalf("RunSink() error = %v, want missing session scope", err)
+	}
+}
+
 type scriptedSink struct {
-	report ApplyReport
-	err    error
+	report    ApplyReport
+	err       error
+	snapshot  SinkSnapshot
+	found     bool
+	lookupErr error
 }
 
 func (*scriptedSink) Reset(context.Context) error { return nil }
@@ -108,6 +141,9 @@ func (s *scriptedSink) Apply(context.Context, activityreplication.ChangeBatch) (
 	return s.report, s.err
 }
 
-func (*scriptedSink) Lookup(context.Context, activityreplication.EntityType, activityreplication.EntityKey) (json.RawMessage, bool, error) {
-	return nil, false, errors.New("unexpected lookup")
+func (s *scriptedSink) Lookup(context.Context, activityreplication.EntityType, activityreplication.EntityKey) (SinkSnapshot, bool, error) {
+	if s.lookupErr != nil || s.found {
+		return s.snapshot, s.found, s.lookupErr
+	}
+	return SinkSnapshot{}, false, errors.New("unexpected lookup")
 }

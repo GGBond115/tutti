@@ -7,9 +7,10 @@ import (
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
 )
 
-// Canonical provider capability keys shared by all adapters and surfaced to
-// the GUI through runtimeContext.capabilities. Keep in sync with the
-// TypeScript side (packages/agent/activity-core/src/capabilities.ts).
+// Provider-runtime aliases for the canonical capability vocabulary owned by
+// packages/agent/store-sqlite/canonical/provider.go. Adapters report these
+// through the typed runtime Capabilities snapshot; generated clients project
+// the same canonical fields for presentation.
 const (
 	CapabilityImageInput                     = providerregistry.CapabilityImageInput
 	CapabilityModelImageInputRequired        = providerregistry.CapabilityModelImageInputRequired
@@ -30,8 +31,8 @@ const (
 	CapabilityModelPlanBinding               = providerregistry.CapabilityModelPlanBinding
 	// CapabilityGoalPause marks providers whose goal is a controllable
 	// entity with a real paused state (codex thread goals). Providers
-	// without it (Claude Code: /goal command in, goal_status attachments
-	// out, no pause) render the goal banner without pause/resume controls.
+	// without it (Claude Code: /goal command in, active_goal lifecycle out,
+	// no pause) render the goal banner without pause/resume controls.
 	CapabilityGoalPause = providerregistry.CapabilityGoalPause
 )
 

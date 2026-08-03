@@ -85,37 +85,71 @@ at most one Agent Session Cassette; failed or canceled Recordings produce none.
 Its state is independent of any toolbar lifetime.
 _Avoid_: UI recording, composer recording
 
-### Agent Session Replay Run
-
-One isolated execution of exactly one Agent Session Cassette. A Cassette may
-have many Replay Runs. A Replay Run owns execution status and verification
-outcome; its operational state may be discarded after the run is closed.
-_Avoid_: replay terminal, replay button
-
 ### Agent Session Cassette
 
 The minimal, immutable, portable output of a completed Agent Session Recording,
-containing only the selected SessionGraph baseline, accepted external stimuli,
-required provider tape, explicitly referenced blobs, and expected state. It
+containing only optional semantic initial state, accepted external stimuli,
+required Provider Tape, explicitly referenced blobs, and semantic expected state. It
 does not depend on the recording machine's database and never contains
 unreferenced Workspace, Session, credential, log, or runtime data.
 _Avoid_: recording state, replay state
 
-### Agent Session Checkpoint
+### Agent Session Replay State
 
-A stable Replay Run position that can be restored without inventing Agent,
-provider, or canonical state. It is not an arbitrary UI cursor offset.
+A deterministic Tutti-owned semantic description of canonical Agent state,
+Tutti Mode, Workflows, and Issues needed to resume execution or verify durable
+business outcomes. It is not a database snapshot or a collection of rows.
+_Avoid_: fixture, seed rows, expected rows
+
+### Replay Checkpoint
+
+A portable planned semantic state in `checkpoint-plan.json`. It combines a
+vector Replay Cursor, one deterministic Trigger, portable Logical Subjects,
+and canonical Readiness Predicates.
+_Avoid_: Activity-only boundary
+
+### Replay Cursor
+
+The portable vector position of the Activity Event lane and every Provider
+connection lane. Each component moves only forward.
+
+### Inspectable Checkpoint
+
+A reached Replay Checkpoint whose exact Replay Surface is mounted, selected,
+hydrated, and observing the canonical version that satisfied readiness. This
+arrival state is runtime-only.
+
+### Inspection Step
+
+Scenario-owned UI assertion or presentation action at an Inspectable
+Checkpoint. It does not repeat a recorded business stimulus.
+
+### Agent Target
+
+The product/runtime destination selected to launch an Agent, such as
+`local:codex`. It is distinct from the Provider protocol adapter.
+
+### Provider
+
+The protocol adapter used by one recorded Agent connection, such as `codex`.
+Provider identity remains on Provider Tape connection metadata.
 
 ### Agent Session Replay Surface
 
-An isolated developer surface that presents at most one active Agent Session
-Replay Run. Restarting, moving backward, or switching Cassette replaces the
-active Run instead of rewinding it.
-_Avoid_: Replay Run window, replay terminal
+A transient isolated developer surface that executes exactly one Agent Session
+Cassette. It owns temporary playback and verification state and is discarded
+when closed.
+_Avoid_: Replay Run, replay terminal
+
+### Agent Session Replay Workspace
+
+One isolated Replay window and runtime containing multiple Agent Session Replay
+Surfaces. It is distinct from the product Workspace and does not combine
+multiple root Sessions into one Cassette.
+_Avoid_: multi-Session Cassette
 
 ### Agent Session Replay Playback State
 
 The temporary playing, paused, seeking, or verifying state of an active Agent
-Session Replay Run. It is not the Run's durable execution status or verification
-outcome.
+Session Replay Surface.
 _Avoid_: Replay Run status, Agent Session status

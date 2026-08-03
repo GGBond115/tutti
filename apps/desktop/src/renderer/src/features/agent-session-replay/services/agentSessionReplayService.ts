@@ -10,21 +10,41 @@ export interface AgentSessionReplaySnapshot {
   recordings: readonly AgentSessionRecording[];
 }
 
+export interface AgentSessionReplayImportAdapterResult {
+  canceled: boolean;
+  failedCount: number;
+  importedCount: number;
+}
+
+export interface AgentSessionReplayImportResult {
+  failedCount: number;
+  importedCount: number;
+  outcome: "canceled" | "complete" | "partial" | "failed";
+}
+
+export interface AgentSessionReplayPrerequisites {
+  composerDefaults: {
+    model: string;
+    permissionModeId: string;
+    reasoningEffort: string;
+    speed: string;
+  };
+}
+
 export interface AgentSessionReplayServiceDependencies {
   armNextSessionRecording(recordingId: string): void;
   clearNextSessionRecording(recordingId?: string): void;
   discardActivityEventRecording(recordingId: string): void;
+  importCassettes(): Promise<AgentSessionReplayImportAdapterResult>;
   sealActivityEventRecording(recordingId: string): Promise<void>;
   startActivityEventRecording(recordingId: string): void;
   tuttidClient: Pick<
     TuttidClient,
     | "cancelAgentSessionRecording"
     | "completeAgentSessionRecording"
-    | "completeAgentSessionReplayRun"
-    | "failAgentSessionReplayRun"
+    | "deleteAgentSessionRecording"
     | "listAgentSessionRecordings"
-    | "markAgentSessionReplayRunRunning"
-    | "prepareAgentSessionReplayRun"
+    | "prepareAgentSessionReplayWorkspace"
     | "renameAgentSessionRecording"
     | "startAgentSessionRecording"
   >;
@@ -78,6 +98,7 @@ export class AgentSessionReplayService {
   async startRecording(input: {
     agentSessionId?: string | null;
     agentTargetId: string;
+    replayPrerequisites: AgentSessionReplayPrerequisites;
   }): Promise<void> {
     this.update({ error: null, loading: true });
     try {
@@ -86,7 +107,8 @@ export class AgentSessionReplayService {
           this.dependencies.workspaceId,
           {
             agentTargetId: input.agentTargetId,
-            agentSessionId: input.agentSessionId ?? undefined
+            agentSessionId: input.agentSessionId ?? undefined,
+            replayPrerequisites: input.replayPrerequisites
           }
         );
       this.dependencies.startActivityEventRecording(recording.id);
@@ -139,6 +161,22 @@ export class AgentSessionReplayService {
     }
   }
 
+  async deleteRecording(recordingId: string): Promise<void> {
+    this.update({ error: null, loading: true });
+    try {
+      await this.dependencies.tuttidClient.deleteAgentSessionRecording(
+        this.dependencies.workspaceId,
+        recordingId
+      );
+      this.removeRecording(recordingId);
+    } catch (error) {
+      this.update({ error });
+      throw error;
+    } finally {
+      this.update({ loading: false });
+    }
+  }
+
   async renameRecording(recordingId: string, name: string): Promise<void> {
     this.update({ error: null, loading: true });
     try {
@@ -157,42 +195,56 @@ export class AgentSessionReplayService {
     }
   }
 
-  prepareReplayRun(cassetteId: string) {
-    return this.dependencies.tuttidClient.prepareAgentSessionReplayRun(
-      this.dependencies.workspaceId,
-      cassetteId
-    );
-  }
-
-  markReplayRunRunning(runId: string) {
-    return this.dependencies.tuttidClient.markAgentSessionReplayRunRunning(
-      this.dependencies.workspaceId,
-      runId
-    );
-  }
-
-  completeReplayRun(runId: string) {
-    return this.dependencies.tuttidClient.completeAgentSessionReplayRun(
-      this.dependencies.workspaceId,
-      runId
-    );
-  }
-
-  failReplayRun(runId: string, error: unknown) {
-    return this.dependencies.tuttidClient.failAgentSessionReplayRun(
-      this.dependencies.workspaceId,
-      runId,
-      {
-        errorCode: "replay_runtime_failed",
-        errorMessage:
-          error instanceof Error && error.message.trim()
-            ? error.message
-            : String(error)
+  async importCassettes(): Promise<AgentSessionReplayImportResult> {
+    this.update({ error: null, loading: true });
+    try {
+      const result = await this.dependencies.importCassettes();
+      const importedCount = result.importedCount;
+      const failedCount = result.failedCount;
+      if (result.canceled) {
+        return {
+          failedCount,
+          importedCount,
+          outcome: "canceled"
+        };
       }
+      if (importedCount > 0) {
+        await this.loadRecordings({
+          preserveLoading: true,
+          throwOnError: true
+        });
+      }
+      return {
+        failedCount,
+        importedCount,
+        outcome:
+          failedCount === 0
+            ? "complete"
+            : importedCount > 0
+              ? "partial"
+              : "failed"
+      };
+    } catch (error) {
+      this.update({ error });
+      throw error;
+    } finally {
+      this.update({ loading: false });
+    }
+  }
+
+  prepareReplayWorkspace(cassetteIds: readonly string[]) {
+    return this.dependencies.tuttidClient.prepareAgentSessionReplayWorkspace(
+      this.dependencies.workspaceId,
+      { cassetteIds: [...cassetteIds] }
     );
   }
 
-  private async loadRecordings(): Promise<void> {
+  private async loadRecordings(
+    options: {
+      preserveLoading?: boolean;
+      throwOnError?: boolean;
+    } = {}
+  ): Promise<void> {
     try {
       const recordings =
         await this.dependencies.tuttidClient.listAgentSessionRecordings(
@@ -210,7 +262,7 @@ export class AgentSessionReplayService {
             activeStatuses.has(recording.status)
           ) ?? null,
         error: null,
-        loading: false,
+        loading: options.preserveLoading ? this.snapshot.loading : false,
         recordings: nextRecordings
       };
       if (
@@ -224,7 +276,13 @@ export class AgentSessionReplayService {
       this.snapshot = nextSnapshot;
       this.emit();
     } catch (error) {
-      this.update({ error, loading: false });
+      this.update({
+        error,
+        loading: options.preserveLoading ? this.snapshot.loading : false
+      });
+      if (options.throwOnError) {
+        throw error;
+      }
     }
   }
 

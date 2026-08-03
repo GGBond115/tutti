@@ -211,8 +211,8 @@ function createStyles(theme: NativeTheme) {
     },
     previewCloseText: {
       color: theme.color.text,
-      fontSize: 34,
-      lineHeight: 36
+      fontSize: 26,
+      lineHeight: 30
     },
     previewImage: { height: "88%", width: "100%" },
     thumbnail: {

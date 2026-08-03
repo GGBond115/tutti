@@ -1,5 +1,11 @@
 import type { ReactNode } from "react";
-import { Modal, Pressable, StyleSheet, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet
+} from "react-native";
 import { useNativeTheme } from "./theme-provider";
 
 export interface NativeSheetProps {
@@ -36,8 +42,10 @@ export function NativeSheet({
       transparent
       visible={open}
     >
-      <View
+      <KeyboardAvoidingView
         accessible={false}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
         onAccessibilityEscape={dismiss}
         style={styles.backdrop}
       >
@@ -57,7 +65,7 @@ export function NativeSheet({
         >
           {children}
         </Pressable>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

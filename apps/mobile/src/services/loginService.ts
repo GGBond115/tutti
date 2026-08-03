@@ -8,21 +8,15 @@ export type LoginErrorCode =
   | null;
 
 export interface LoginSnapshot {
-  code: string;
-  email: string;
   errorCode: LoginErrorCode;
-  pending: "email" | "github" | null;
-  step: "email" | "code";
+  pending: boolean;
 }
 
 export class LoginService extends ObservableService<LoginSnapshot> {
   readonly _serviceBrand: undefined;
   private snapshot: LoginSnapshot = {
-    code: "",
-    email: "",
     errorCode: null,
-    pending: null,
-    step: "email"
+    pending: false
   };
 
   constructor(
@@ -34,41 +28,11 @@ export class LoginService extends ObservableService<LoginSnapshot> {
 
   getSnapshot = (): LoginSnapshot => this.snapshot;
 
-  setEmail(email: string): void {
-    this.patch({ email });
-  }
-
-  setCode(code: string): void {
-    this.patch({ code });
-  }
-
-  async submitEmail(): Promise<void> {
-    if (this.snapshot.pending !== null) return;
-    this.patch({ errorCode: null, pending: "email" });
+  async submitLogin(): Promise<void> {
+    if (this.snapshot.pending) return;
+    this.patch({ errorCode: null, pending: true });
     try {
-      if (this.snapshot.step === "email") {
-        await this.account.sendEmailCode(this.snapshot.email);
-        this.patch({ pending: null, step: "code" });
-        return;
-      }
-      await this.onAuthenticated(
-        await this.account.verifyEmailCode(
-          this.snapshot.email,
-          this.snapshot.code
-        )
-      );
-    } catch {
-      this.patch({ errorCode: "request_failed", pending: null });
-      return;
-    }
-    this.patch({ pending: null });
-  }
-
-  async submitGitHub(): Promise<void> {
-    if (this.snapshot.pending !== null) return;
-    this.patch({ errorCode: null, pending: "github" });
-    try {
-      await this.onAuthenticated(await this.account.signInWithGitHub());
+      await this.onAuthenticated(await this.account.signInWithBrowser());
     } catch (cause) {
       const cancelled =
         typeof cause === "object" &&
@@ -77,11 +41,11 @@ export class LoginService extends ObservableService<LoginSnapshot> {
         cause.code === "BROWSER_LOGIN_CANCELLED";
       this.patch({
         errorCode: cancelled ? "browser_login_cancelled" : "request_failed",
-        pending: null
+        pending: false
       });
       return;
     }
-    this.patch({ pending: null });
+    this.patch({ pending: false });
   }
 
   dispose(): void {

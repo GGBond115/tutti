@@ -268,7 +268,7 @@
   `CSSMERR_TP_CERT_REVOKED`, remove or reinstall that specific Codex package.
 - Root cause:
   Provider status and composer capability discovery intentionally start Codex
-  commands such as `codex login status` and `codex app-server`. If the daemon
+  commands such as `codex app-server`. If the daemon
   resolves an older nvm global Codex package whose Developer ID certificate has
   been revoked, each otherwise harmless background probe can become a
   Gatekeeper dialog. This can happen even when `which codex` in the user's shell
@@ -360,7 +360,8 @@ information is not available yet`, but `ps` or `lsof` still shows an older
   **正在检查更新** badge. Rapid switches may spam updater checks in
   `tutti-desktop.log` (`Checking for update` next to
   `agent.gui.composer_defaults.remembered`). Local unpackaged dev usually hides
-  this because update checks are unsupported unless `TUTTI_APP_UPDATE_DEV` is set.
+  this because update checks are unsupported unless a shared
+  `DESKTOP_UPDATE_ADMISSION_*` development scenario is enabled.
 - Quick checks:
   Confirm packaged/`supportsUpdates`. Correlate
   `agent.gui.composer_defaults.remembered` with

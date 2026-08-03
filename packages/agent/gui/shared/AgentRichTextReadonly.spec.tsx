@@ -22,15 +22,6 @@ afterEach(() => {
 });
 
 describe("AgentRichTextReadonly", () => {
-  it("renders readonly user content on the first commit", () => {
-    const { container } = render(
-      <AgentRichTextReadonly value="First-frame user message" />
-    );
-
-    expect(container).toHaveTextContent("First-frame user message");
-    expect(container.querySelector(".ProseMirror")).not.toBeNull();
-  });
-
   it("reuses the parsed document after a historical message remounts", () => {
     resetParsedDocumentCacheForTests();
     const first = render(

@@ -8,7 +8,7 @@ import {
   selectEngineQueuedPrompt,
   type AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { AgentComposerDraft } from "../model/agentGuiNodeTypes";
 import {
   agentComposerDraftImages,
@@ -21,7 +21,7 @@ import { createAgentGUIConversationId } from "./agentGuiController.promptHelpers
 
 export interface UseAgentGUIQueueActionsInput {
   activeConversationIdRef: RefObject<string | null>;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   sessionEngine: AgentSessionEngine;
   setDraftByScopeKey: Dispatch<
     SetStateAction<Record<string, AgentComposerDraft>>

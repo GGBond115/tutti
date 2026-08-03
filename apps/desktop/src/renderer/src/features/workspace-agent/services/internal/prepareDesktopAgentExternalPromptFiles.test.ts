@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
+import type { AgentGUIRuntime } from "@tutti-os/agent-gui";
 import { DESKTOP_AGENT_PROMPT_FILE_MAX_BYTES } from "../../../../../../shared/agentPromptAssets.ts";
 import { createDesktopAgentExternalPromptFilePreparer } from "./prepareDesktopAgentExternalPromptFiles.ts";
 
@@ -10,7 +10,7 @@ test("external prompt preparation isolates per-file upload failures", async () =
     agentActivityRuntime: {
       async uploadPromptContent(
         input: Parameters<
-          NonNullable<AgentActivityRuntime["uploadPromptContent"]>
+          NonNullable<AgentGUIRuntime["uploadPromptContent"]>
         >[0]
       ) {
         const file = input.content[0]!;
@@ -20,7 +20,7 @@ test("external prompt preparation isolates per-file upload failures", async () =
           content: [{ ...file, path: `/prompt-assets/${file.name}` }]
         };
       }
-    } as unknown as AgentActivityRuntime,
+    } as unknown as AgentGUIRuntime,
     platformApi: {
       resolveDroppedEntries: () => [
         { kind: "file", path: "" },
@@ -59,7 +59,7 @@ test("external prompt preparation rejects path-backed files", async () => {
         uploadCalled = true;
         return { content: [] };
       }
-    } as unknown as AgentActivityRuntime,
+    } as unknown as AgentGUIRuntime,
     platformApi: {
       resolveDroppedEntries: () => [{ kind: "file", path: "/tmp/local.txt" }]
     },
@@ -90,7 +90,7 @@ test("external prompt preparation rejects oversized files before reading", async
         uploadCalled = true;
         return { content: [] };
       }
-    } as unknown as AgentActivityRuntime,
+    } as unknown as AgentGUIRuntime,
     platformApi: {
       resolveDroppedEntries: () => [{ kind: "file", path: "" }]
     },

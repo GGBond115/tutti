@@ -3,8 +3,10 @@ import type {
   AppendAgentSessionRecordingActivityEventsRequest,
   AppendAgentSessionRecordingActivityEventsResponse,
   AgentSessionRecording,
-  AgentSessionReplayLaunch,
-  AgentSessionReplayRun,
+  AgentSessionReplayTransportPlayback,
+  AgentSessionReplayWorkspaceLaunch,
+  ImportAgentSessionCassettesRequest,
+  ImportAgentSessionCassettesResponse,
   AccountLoginStartResponse,
   AccountLoginStatusResponse,
   AccountProductSummaryResponse,
@@ -46,7 +48,6 @@ import type {
   CreateAgentQuickPromptRequest,
   CreateWorkspaceAgentSessionRequest,
   StartAgentSessionRecordingRequest,
-  FailAgentSessionReplayRunRequest,
   CreateWorkspaceAppFactoryJobRequest,
   CreateWorkspaceTerminalRequest,
   DeleteWorkspaceAgentSessionResponse,
@@ -62,6 +63,9 @@ import type {
   DeleteUserProjectRequest,
   DeleteAgentQuickPromptRequest,
   DesktopPreferencesStateResponse,
+  DesktopUpdateAdmissionRefreshResult,
+  DesktopUpdateAdmissionRefreshTrigger,
+  DesktopUpdateAdmissionSnapshot,
   DeletedAgentConversationPurgeResult,
   EditRetryWorkspaceAgentTurnRequest,
   ExportWorkspaceAppRequest,
@@ -107,6 +111,7 @@ import type {
   RenameWorkspaceFileEntryRequest,
   RenameAgentSessionRecordingRequest,
   PrepareWorkspaceAppUploadRequest,
+  PrepareAgentSessionReplayWorkspaceRequest,
   PrepareWorkspaceAppUploadResponse,
   PreflightUploadWorkspaceFilesResponse,
   PutDesktopPreferencesRequest,
@@ -125,6 +130,7 @@ import type {
   UpdateWorkspaceAgentSessionTitleRequest,
   UpdateWorkspaceAgentSessionVisibilityRequest,
   UpdateAgentQuickPromptRequest,
+  UpdateAgentSessionReplayTransportPlaybackRequest,
   UpdateTuttiModeActivationRequest,
   UpdateTuttiModeActivationResponse,
   WorkspaceGitPatchRequest,
@@ -179,12 +185,23 @@ import type {
   UserProjectPathCheckResponse
 } from "./generated/index.ts";
 import type { WorkspaceAgentConfigurationClient } from "./workspaceAgentConfigurationClient.ts";
+import type { CollaborationRunsClient } from "./collaborationRunsClient.ts";
 import type { WorkspaceIssueOrchestrationClient } from "./workspaceIssueOrchestrationClient.ts";
 
 export type TuttidRequestOptions = Omit<
   RequestInit,
   "body" | "headers" | "method"
 >;
+
+export type AgentCommandRequestOptions = TuttidRequestOptions &
+  (
+    | {
+        agentCommandOrigin: "renderer-engine";
+      }
+    | {
+        agentCommandOrigin?: never;
+      }
+  );
 
 export type TuttidTrackEvent = TrackEvent;
 export type TuttidTrackEventsRequest = TrackEventsRequest;
@@ -204,7 +221,10 @@ export interface MobileRemoteAccessClient {
 }
 
 export interface TuttidClient
-  extends WorkspaceAgentConfigurationClient, WorkspaceIssueOrchestrationClient {
+  extends
+    CollaborationRunsClient,
+    WorkspaceAgentConfigurationClient,
+    WorkspaceIssueOrchestrationClient {
   listAgentQuickPrompts(): Promise<AgentQuickPromptListResponse>;
   createAgentQuickPrompt(
     request: CreateAgentQuickPromptRequest
@@ -325,7 +345,7 @@ export interface TuttidClient
   createWorkspaceAgentSession(
     workspaceID: string,
     request: CreateWorkspaceAgentSessionRequest,
-    requestOptions?: TuttidRequestOptions
+    requestOptions?: AgentCommandRequestOptions
   ): Promise<WorkspaceAgentSession>;
   forkWorkspaceAgentSession(
     workspaceID: string,
@@ -355,6 +375,10 @@ export interface TuttidClient
   listAgentSessionRecordings(
     workspaceID: string
   ): Promise<AgentSessionRecording[]>;
+  importAgentSessionCassettes(
+    workspaceID: string,
+    request: ImportAgentSessionCassettesRequest
+  ): Promise<ImportAgentSessionCassettesResponse>;
   getAgentSessionRecording(
     workspaceID: string,
     recordingID: string
@@ -364,6 +388,10 @@ export interface TuttidClient
     recordingID: string,
     request: RenameAgentSessionRecordingRequest
   ): Promise<AgentSessionRecording>;
+  deleteAgentSessionRecording(
+    workspaceID: string,
+    recordingID: string
+  ): Promise<void>;
   completeAgentSessionRecording(
     workspaceID: string,
     recordingID: string
@@ -372,27 +400,17 @@ export interface TuttidClient
     workspaceID: string,
     recordingID: string
   ): Promise<AgentSessionRecording>;
-  prepareAgentSessionReplayRun(
+  prepareAgentSessionReplayWorkspace(
     workspaceID: string,
+    request: PrepareAgentSessionReplayWorkspaceRequest
+  ): Promise<AgentSessionReplayWorkspaceLaunch>;
+  getAgentSessionReplayTransportPlayback(
     cassetteID: string
-  ): Promise<AgentSessionReplayLaunch>;
-  listAgentSessionReplayRuns(
-    workspaceID: string,
-    cassetteID: string
-  ): Promise<AgentSessionReplayRun[]>;
-  markAgentSessionReplayRunRunning(
-    workspaceID: string,
-    runID: string
-  ): Promise<AgentSessionReplayRun>;
-  completeAgentSessionReplayRun(
-    workspaceID: string,
-    runID: string
-  ): Promise<AgentSessionReplayRun>;
-  failAgentSessionReplayRun(
-    workspaceID: string,
-    runID: string,
-    request: FailAgentSessionReplayRunRequest
-  ): Promise<AgentSessionReplayRun>;
+  ): Promise<AgentSessionReplayTransportPlayback | null>;
+  updateAgentSessionReplayTransportPlayback(
+    cassetteID: string,
+    request: UpdateAgentSessionReplayTransportPlaybackRequest
+  ): Promise<AgentSessionReplayTransportPlayback>;
   createWorkspaceTerminal(
     workspaceID: string,
     request?: CreateWorkspaceTerminalRequest
@@ -440,6 +458,16 @@ export interface TuttidClient
     request: CopyWorkspaceFileEntryRequest
   ): Promise<WorkspaceFileEntryResponse>;
   getDesktopPreferences(): Promise<DesktopPreferencesStateResponse>;
+  getDesktopUpdateAdmissionSnapshot(
+    requestOptions?: TuttidRequestOptions
+  ): Promise<DesktopUpdateAdmissionSnapshot>;
+  getDesktopUpdateAdmissionStartup(
+    requestOptions?: TuttidRequestOptions
+  ): Promise<DesktopUpdateAdmissionSnapshot>;
+  refreshDesktopUpdateAdmission(
+    trigger: DesktopUpdateAdmissionRefreshTrigger,
+    requestOptions?: TuttidRequestOptions
+  ): Promise<DesktopUpdateAdmissionRefreshResult>;
   purgeDeletedAgentConversations(): Promise<DeletedAgentConversationPurgeResult>;
   getHealth(): Promise<HealthStatusResponse>;
   getStartupWorkspace(): Promise<WorkspaceSummary | null>;
@@ -871,7 +899,7 @@ export interface TuttidClient
     workspaceID: string,
     agentSessionID: string,
     turnID: string,
-    requestOptions?: TuttidRequestOptions
+    requestOptions?: AgentCommandRequestOptions
   ): Promise<WorkspaceAgentTurnCancelResponse>;
   editRetry(
     workspaceID: string,
@@ -890,7 +918,8 @@ export interface TuttidClient
   goalControlWorkspaceAgentSession(
     workspaceID: string,
     agentSessionID: string,
-    request: WorkspaceAgentSessionGoalControlRequest
+    request: WorkspaceAgentSessionGoalControlRequest,
+    requestOptions?: AgentCommandRequestOptions
   ): Promise<GoalControlWorkspaceAgentSessionResponse>;
   getWorkspaceAgentSessionGoal(
     workspaceID: string,
@@ -904,14 +933,15 @@ export interface TuttidClient
     workspaceID: string,
     agentSessionID: string,
     request: SendWorkspaceAgentSessionInputRequest,
-    requestOptions?: TuttidRequestOptions
+    requestOptions?: AgentCommandRequestOptions
   ): Promise<SendWorkspaceAgentSessionInputResponse>;
   submitWorkspaceAgentPlanDecision(
     workspaceID: string,
     agentSessionID: string,
     turnID: string,
     requestID: string,
-    request: SubmitWorkspaceAgentPlanDecisionRequest
+    request: SubmitWorkspaceAgentPlanDecisionRequest,
+    requestOptions?: AgentCommandRequestOptions
   ): Promise<WorkspaceAgentPlanDecisionResponse>;
   readWorkspaceAgentSessionAttachment(
     workspaceID: string,
@@ -938,7 +968,7 @@ export interface TuttidClient
     workspaceID: string,
     agentSessionID: string,
     request: AgentSessionComposerSettings,
-    requestOptions?: TuttidRequestOptions
+    requestOptions?: AgentCommandRequestOptions
   ): Promise<WorkspaceAgentSession>;
   updateWorkspaceAgentSessionPin(
     workspaceID: string,
@@ -962,7 +992,7 @@ export interface TuttidClient
     agentSessionID: string,
     requestID: string,
     request: SubmitWorkspaceAgentInteractiveRequest,
-    requestOptions?: TuttidRequestOptions
+    requestOptions?: AgentCommandRequestOptions
   ): Promise<WorkspaceAgentSession>;
   searchWorkspaceFiles(
     workspaceID: string,

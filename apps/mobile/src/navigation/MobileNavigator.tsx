@@ -14,6 +14,7 @@ import { ConversationScreen } from "../screens/ConversationScreen";
 import { ConversationsScreen } from "../screens/ConversationsScreen";
 import { DeviceScreen } from "../screens/DeviceScreen";
 import { LoginScreen } from "../screens/LoginScreen";
+import { SettingsScreen } from "../screens/SettingsScreen";
 import {
   availableMobileRoutes,
   type MobileRootStackParamList
@@ -61,6 +62,11 @@ export function MobileNavigator({
           <Stack.Group navigationKey={`account:${snapshot.session.userId}`}>
             <Stack.Screen name="Devices">
               {(props) => <DeviceScreen {...props} application={application} />}
+            </Stack.Screen>
+            <Stack.Screen name="Settings">
+              {(props) => (
+                <SettingsScreen {...props} application={application} />
+              )}
             </Stack.Screen>
             {availableRoutes.includes("Conversations") ? (
               <>

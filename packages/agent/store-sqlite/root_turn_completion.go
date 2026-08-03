@@ -1,8 +1,10 @@
 package storesqlite
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,65 +15,68 @@ func (s *Store) applyRootProviderTurnTransitionTx(
 	tx *sql.Tx,
 	transition RootProviderTurnTransition,
 	now int64,
-) (Turn, bool, error) {
+) (Turn, bool, bool, error) {
 	workspaceID := strings.TrimSpace(transition.WorkspaceID)
 	rootAgentSessionID := strings.TrimSpace(transition.RootAgentSessionID)
 	rootTurnID := strings.TrimSpace(transition.RootTurnID)
 	providerTurnID := strings.TrimSpace(transition.ProviderTurnID)
-	checkpointMessageID := strings.TrimSpace(
-		transition.ProviderCheckpointMessageID,
+	bindingJSON, err := normalizeProviderTurnBindingJSON(
+		transition.ProviderTurnBindingJSON,
 	)
+	if err != nil {
+		return Turn{}, false, false, err
+	}
 	phase := strings.TrimSpace(transition.Phase)
 	if workspaceID == "" || rootAgentSessionID == "" || rootTurnID == "" || providerTurnID == "" {
-		return Turn{}, false, errors.New("workspace id, root session id, root turn id, and provider turn id are required")
+		return Turn{}, false, false, errors.New("workspace id, root session id, root turn id, and provider turn id are required")
 	}
-	if phase == "" && checkpointMessageID == "" {
-		return Turn{}, false, errors.New(
-			"root provider turn transition requires lifecycle or checkpoint data",
+	if phase == "" && len(bindingJSON) == 0 {
+		return Turn{}, false, false, errors.New(
+			"root provider turn transition requires lifecycle or binding data",
 		)
 	}
 	if phase != "" &&
 		phase != RootProviderTurnPhaseRunning &&
 		phase != RootProviderTurnPhaseCompleted {
-		return Turn{}, false, fmt.Errorf("unsupported root provider turn phase %q", phase)
+		return Turn{}, false, false, fmt.Errorf("unsupported root provider turn phase %q", phase)
 	}
 	outcome := strings.TrimSpace(transition.Outcome)
 	if phase != RootProviderTurnPhaseCompleted && outcome != "" {
-		return Turn{}, false, errors.New("running root provider turn cannot have an outcome")
+		return Turn{}, false, false, errors.New("running root provider turn cannot have an outcome")
 	}
 	if phase == RootProviderTurnPhaseCompleted {
 		if outcome == "" {
 			outcome = TurnOutcomeCompleted
 		}
 		if !isKnownTurnOutcome(outcome) {
-			return Turn{}, false, fmt.Errorf("unknown root provider turn outcome %q", outcome)
+			return Turn{}, false, false, fmt.Errorf("unknown root provider turn outcome %q", outcome)
 		}
 	}
 	if err := requireSessionForkSourceWritableTx(
 		ctx, tx, workspaceID, rootAgentSessionID,
 	); err != nil {
-		return Turn{}, false, err
+		return Turn{}, false, false, err
 	}
 
 	var sessionKind, providerSessionID string
-	err := tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 SELECT session_kind, COALESCE(provider_session_id, '')
 FROM workspace_agent_sessions
 WHERE workspace_id = ? AND agent_session_id = ? AND deleted_at_unix_ms = 0
 `, workspaceID, rootAgentSessionID).Scan(&sessionKind, &providerSessionID)
 	if err != nil {
-		return Turn{}, false, fmt.Errorf("read root provider turn session: %w", err)
+		return Turn{}, false, false, fmt.Errorf("read root provider turn session: %w", err)
 	}
 	if sessionKind != SessionKindRoot {
-		return Turn{}, false, errors.New("root provider turn must belong to a root session")
+		return Turn{}, false, false, errors.New("root provider turn must belong to a root session")
 	}
 	providerSessionID = strings.TrimSpace(providerSessionID)
 	rootTurn, ok, err := getAgentTurnTx(ctx, tx, workspaceID, rootAgentSessionID, rootTurnID)
 	if err != nil {
-		return Turn{}, false, err
+		return Turn{}, false, false, err
 	}
 	if !ok {
-		return Turn{}, false, errors.New("root provider turn references an unknown root turn")
+		return Turn{}, false, false, errors.New("root provider turn references an unknown root turn")
 	}
 	occurred := transition.OccurredAtUnixMS
 	if occurred <= 0 {
@@ -79,22 +84,22 @@ WHERE workspace_id = ? AND agent_session_id = ? AND deleted_at_unix_ms = 0
 	}
 	if phase == "" {
 		if rootTurn.RootProviderTurnID != providerTurnID {
-			return rootTurn, false, nil
+			return rootTurn, false, false, nil
 		}
 		if rootTurn.RootProviderTurnUpdatedAtUnixMS > occurred {
-			return rootTurn, false, nil
+			return rootTurn, false, false, nil
 		}
-		if rootTurn.ProviderCheckpointMessageID == checkpointMessageID {
-			return rootTurn, false, nil
+		if bytes.Equal(rootTurn.ProviderTurnBindingJSON, bindingJSON) {
+			return rootTurn, false, false, nil
 		}
 		if _, err := tx.ExecContext(ctx, `
 UPDATE workspace_agent_turns
-SET provider_checkpoint_message_id = ?,
+SET provider_turn_binding_json = ?,
     root_provider_turn_updated_at_unix_ms = ?
 WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
-`, checkpointMessageID, occurred, workspaceID, rootAgentSessionID, rootTurnID); err != nil {
-			return Turn{}, false, fmt.Errorf(
-				"record root provider turn checkpoint: %w",
+`, string(bindingJSON), occurred, workspaceID, rootAgentSessionID, rootTurnID); err != nil {
+			return Turn{}, false, false, fmt.Errorf(
+				"record root provider turn binding: %w",
 				err,
 			)
 		}
@@ -106,29 +111,29 @@ WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
 			rootTurnID,
 		)
 		if err != nil {
-			return Turn{}, false, err
+			return Turn{}, false, false, err
 		}
 		if !found {
-			return Turn{}, false, errors.New(
-				"updated root provider checkpoint references an unknown root turn",
+			return Turn{}, false, false, errors.New(
+				"updated root provider binding references an unknown root turn",
 			)
 		}
-		return updated, false, nil
+		return updated, false, true, nil
 	}
 	if rootTurn.RootProviderTurnUpdatedAtUnixMS > occurred {
-		return rootTurn, false, nil
+		return rootTurn, false, false, nil
 	}
 	if rootTurn.RootProviderTurnID != "" && rootTurn.RootProviderTurnID != providerTurnID {
 		if phase == RootProviderTurnPhaseCompleted {
-			return rootTurn, false, nil
+			return rootTurn, false, false, nil
 		}
 	} else if rootTurn.RootProviderTurnPhase == RootProviderTurnPhaseCompleted && phase == RootProviderTurnPhaseRunning {
-		return rootTurn, false, nil
+		return rootTurn, false, false, nil
 	}
 	if rootTurn.Phase == TurnPhaseSettled && phase != RootProviderTurnPhaseCompleted {
 		// A settled canonical root can still accept the matching provider's late
 		// terminal fact, but it must never be reopened by a late started event.
-		return rootTurn, false, nil
+		return rootTurn, false, false, nil
 	}
 	if rootTurn.RootProviderTurnID != providerTurnID {
 		var conflictingTurnID string
@@ -160,45 +165,49 @@ LIMIT 1
 				Scan(&conflictingTurnID)
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return Turn{}, false, fmt.Errorf(
+			return Turn{}, false, false, fmt.Errorf(
 				"check root provider turn identity uniqueness: %w",
 				err,
 			)
 		}
 		if conflictingTurnID != "" {
-			return Turn{}, false, ErrProviderTurnBindingConflict
+			return Turn{}, false, false, ErrProviderTurnBindingConflict
 		}
 	}
 
+	persistedBindingJSON := bindingJSON
+	if rootTurn.RootProviderTurnID == providerTurnID && len(persistedBindingJSON) == 0 {
+		persistedBindingJSON = rootTurn.ProviderTurnBindingJSON
+	}
+	if len(persistedBindingJSON) == 0 {
+		persistedBindingJSON = json.RawMessage(`{}`)
+	}
 	if _, err := tx.ExecContext(ctx, `
 UPDATE workspace_agent_turns
 SET root_provider_turn_id = ?, root_provider_turn_phase = ?, root_provider_turn_outcome = ?,
     root_provider_turn_error_json = ?, root_provider_turn_completed_command_json = ?,
-    provider_checkpoint_message_id = CASE
-      WHEN ? = '' THEN provider_checkpoint_message_id
-      ELSE ?
-    END,
+    provider_turn_binding_json = ?,
     root_provider_turn_updated_at_unix_ms = ?
 WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
-`, providerTurnID, phase, nullString(outcome),
+	`, providerTurnID, phase, nullString(outcome),
 		encodeTurnErrorJSON(transition.ErrorMessage, transition.ErrorCode),
 		encodeCompletedCommandJSON(transition.CompletedCommandKind, transition.CompletedCommandStatus),
-		checkpointMessageID, checkpointMessageID,
+		string(persistedBindingJSON),
 		occurred, workspaceID, rootAgentSessionID, rootTurnID); err != nil {
-		return Turn{}, false, fmt.Errorf("record root provider turn transition: %w", err)
+		return Turn{}, false, false, fmt.Errorf("record root provider turn transition: %w", err)
 	}
 	if rootTurn.Phase == TurnPhaseSettled {
 		updated, found, err := getAgentTurnTx(ctx, tx, workspaceID, rootAgentSessionID, rootTurnID)
 		if err != nil {
-			return Turn{}, false, err
+			return Turn{}, false, false, err
 		}
 		if !found {
-			return Turn{}, false, errors.New("updated root provider turn references an unknown root turn")
+			return Turn{}, false, false, errors.New("updated root provider turn references an unknown root turn")
 		}
 		// The provider projection changed, but the canonical turn did not. Keep
 		// RootTurnAccepted false so callers do not publish or re-observe another
 		// canonical settlement.
-		return updated, false, nil
+		return updated, false, true, nil
 	}
 
 	canonicalPhase := TurnPhaseRunning
@@ -209,7 +218,7 @@ WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
 		// messages before entering this transaction.
 		activeChildren, err := countActiveChildTurnsTx(ctx, tx, workspaceID, rootAgentSessionID, rootTurnID)
 		if err != nil {
-			return Turn{}, false, err
+			return Turn{}, false, false, err
 		}
 		if activeChildren > 0 {
 			canonicalPhase = TurnPhaseWaiting
@@ -220,12 +229,12 @@ WHERE workspace_id = ? AND agent_session_id = ? AND turn_id = ?
 	canonical := retainedRootTurnTransition(transition, canonicalPhase, outcome, occurred)
 	turn, accepted, err := s.recordTurnTransitionTx(ctx, tx, canonical, now)
 	if err != nil {
-		return Turn{}, false, err
+		return Turn{}, false, false, err
 	}
 	if !accepted && !turnTransitionAlreadyApplied(turn, canonical) {
-		return Turn{}, false, errors.New("root turn transition was rejected")
+		return Turn{}, false, false, errors.New("root turn transition was rejected")
 	}
-	return turn, accepted, nil
+	return turn, accepted, true, nil
 }
 
 func (s *Store) reconcileRootTurnAfterChildTerminalTx(

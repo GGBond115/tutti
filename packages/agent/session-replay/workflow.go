@@ -6,22 +6,24 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
 type Workflow struct {
-	Fixtures  FixtureStore
+	States    ReplayStateStore
 	Artifacts ArtifactStore
 	Transport ProcessRecorder
 	Store     MetadataStore
-	Runtime   ReplayRuntime
 	NewID     IDGenerator
 	Now       Clock
 
 	mu                   sync.Mutex
 	active               *Recording
+	captureAdmissionID   string
+	initialState         []byte
 	nextActivityEventSeq uint64
 	activityEventsByID   map[string]ActivityEvent
 }
@@ -30,7 +32,7 @@ func (w *Workflow) Start(ctx context.Context, input StartRecordingInput) (Record
 	scopeID := strings.TrimSpace(input.ScopeID)
 	targetID := strings.TrimSpace(input.AgentTargetID)
 	selectedSessionID := strings.TrimSpace(input.AgentSessionID)
-	if scopeID == "" || targetID == "" || w.Fixtures == nil ||
+	if scopeID == "" || targetID == "" || w.States == nil ||
 		w.Artifacts == nil || w.Transport == nil || w.Store == nil ||
 		w.NewID == nil {
 		return Recording{}, ErrInvalidState
@@ -44,14 +46,15 @@ func (w *Workflow) Start(ctx context.Context, input StartRecordingInput) (Record
 	createdAt := w.now()
 	now := createdAt.UnixMilli()
 	recording := &Recording{
-		ID:              strings.TrimSpace(w.NewID()),
-		Name:            DefaultRecordingName(createdAt),
-		ScopeID:         scopeID,
-		AgentTargetID:   targetID,
-		Mode:            ScenarioModeCreateSession,
-		Status:          RecordingStatusPreparing,
-		CreatedAtUnixMS: now,
-		UpdatedAtUnixMS: now,
+		ID:                  strings.TrimSpace(w.NewID()),
+		Name:                DefaultRecordingName(createdAt),
+		ScopeID:             scopeID,
+		AgentTargetID:       targetID,
+		ReplayPrerequisites: input.ReplayPrerequisites.normalized(),
+		Mode:                ScenarioModeCreateSession,
+		Status:              RecordingStatusPreparing,
+		CreatedAtUnixMS:     now,
+		UpdatedAtUnixMS:     now,
 	}
 	if recording.ID == "" {
 		w.mu.Unlock()
@@ -61,6 +64,8 @@ func (w *Workflow) Start(ctx context.Context, input StartRecordingInput) (Record
 		recording.Mode = ScenarioModeContinueSession
 	}
 	w.active = recording
+	w.captureAdmissionID = ""
+	w.initialState = nil
 	w.nextActivityEventSeq = 0
 	w.activityEventsByID = make(map[string]ActivityEvent)
 	w.mu.Unlock()
@@ -83,7 +88,7 @@ func (w *Workflow) Start(ctx context.Context, input StartRecordingInput) (Record
 		return cloneRecording(recording), nil
 	}
 
-	rootID, err := w.Fixtures.ResolveRootAgentSession(ctx, scopeID, selectedSessionID)
+	rootID, err := w.States.ResolveRootAgentSession(ctx, scopeID, selectedSessionID)
 	if err != nil {
 		return w.fail(ctx, recording.ID, "session_graph_resolve_failed", err)
 	}
@@ -93,8 +98,8 @@ func (w *Workflow) Start(ctx context.Context, input StartRecordingInput) (Record
 	if recording.RootAgentSessionID == "" {
 		return w.fail(ctx, recording.ID, "session_graph_resolve_failed", errors.New("resolved root session id is empty"))
 	}
-	if err := w.captureFixture(ctx, recording, layout.SeedFixtureKey, FixturePhaseSeed); err != nil {
-		return w.fail(ctx, recording.ID, "seed_export_failed", err)
+	if err := w.captureState(ctx, recording, ReplayStatePhaseInitial); err != nil {
+		return w.fail(ctx, recording.ID, "initial_state_capture_failed", err)
 	}
 	if err := w.begin(ctx, recording, layout); err != nil {
 		return w.fail(ctx, recording.ID, "transport_arm_failed", err)
@@ -138,17 +143,21 @@ func (w *Workflow) begin(
 	recording *Recording,
 	layout ArtifactLayout,
 ) error {
-	if err := w.Transport.Arm(recording.RootAgentSessionID, layout.ProviderTapeKey); err != nil {
+	if !w.admitCapture(recording.ID) {
+		return ErrInvalidState
+	}
+	defer w.clearCaptureAdmission(recording.ID)
+	if err := w.Transport.Arm(
+		recording.RootAgentSessionID,
+		recording.ID,
+		layout.ProviderTapeKey,
+	); err != nil {
 		return err
 	}
 	if err := w.transitionAndPersist(ctx, recording, RecordingTransition{
 		Status:   RecordingStatusRecording,
 		AtUnixMS: w.now().UnixMilli(),
 	}); err != nil {
-		_ = w.Transport.Cancel(recording.RootAgentSessionID)
-		return err
-	}
-	if err := w.Artifacts.WriteScenario(ctx, *recording, w.nextActivityEventSeq); err != nil {
 		_ = w.Transport.Cancel(recording.RootAgentSessionID)
 		return err
 	}
@@ -169,7 +178,7 @@ func (w *Workflow) RecordActivityEvent(ctx context.Context, input ActivityEvent)
 	w.mu.Unlock()
 
 	if sessionID != "" && sessionID != rootID {
-		resolvedRoot, err := w.Fixtures.ResolveRootAgentSession(ctx, snapshot.ScopeID, sessionID)
+		resolvedRoot, err := w.States.ResolveRootAgentSession(ctx, snapshot.ScopeID, sessionID)
 		if err != nil || strings.TrimSpace(resolvedRoot) != rootID {
 			return nil
 		}
@@ -224,6 +233,16 @@ func (w *Workflow) RecordActivityEvent(ctx context.Context, input ActivityEvent)
 			return fmt.Errorf(
 				"effect activity event %q must reference an earlier intent",
 				eventID,
+			)
+		}
+		if !PortableActivityContract.AllowsEffect(cause.Type, input.Type) {
+			w.nextActivityEventSeq--
+			w.mu.Unlock()
+			return fmt.Errorf(
+				"effect activity event %q type %q is not allowed for intent type %q",
+				eventID,
+				input.Type,
+				cause.Type,
 			)
 		}
 		if input.CorrelationID != "" && cause.CorrelationID != "" &&
@@ -296,6 +315,35 @@ func (w *Workflow) RecordActivityEvents(
 	return acceptedThrough, nil
 }
 
+// acceptedActivityTimelineLocked snapshots the accepted in-memory timeline in
+// portable Sequence order. Callers must hold w.mu.
+func (w *Workflow) acceptedActivityTimelineLocked() []ActivityEvent {
+	events := make([]ActivityEvent, 0, len(w.activityEventsByID))
+	for _, event := range w.activityEventsByID {
+		events = append(events, event)
+	}
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Sequence < events[j].Sequence
+	})
+	return events
+}
+
+// AcceptedActivityEvent returns the canonical fact written to the recording,
+// including its Workflow-assigned sequence and timestamp.
+func (w *Workflow) AcceptedActivityEvent(
+	eventID string,
+) (ActivityEvent, bool) {
+	eventID = strings.TrimSpace(eventID)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	event, ok := w.activityEventsByID[eventID]
+	if !ok {
+		return ActivityEvent{}, false
+	}
+	cloned, err := cloneActivityEvent(event)
+	return cloned, err == nil
+}
+
 func (w *Workflow) Complete(ctx context.Context, recordingID string) (Recording, error) {
 	recordingID = strings.TrimSpace(recordingID)
 	w.mu.Lock()
@@ -324,14 +372,18 @@ func (w *Workflow) Complete(ctx context.Context, recordingID string) (Recording,
 	rootID := recording.RootAgentSessionID
 	snapshot := cloneRecording(recording)
 	sequence := w.nextActivityEventSeq
+	timeline := w.acceptedActivityTimelineLocked()
 	w.mu.Unlock()
+	if err := ValidateActivityTimelineComplete(timeline); err != nil {
+		return w.fail(ctx, recordingID, "activity_timeline_incomplete", err)
+	}
 	if err := w.Store.PutRecording(ctx, snapshot); err != nil {
 		return w.fail(ctx, recordingID, "metadata_write_failed", err)
 	}
 
 	finalizeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	if err := w.Fixtures.WaitAgentSessionGraphSettled(
+	if err := w.States.WaitAgentSessionGraphSettled(
 		finalizeCtx,
 		snapshot.ScopeID,
 		rootID,
@@ -341,19 +393,7 @@ func (w *Workflow) Complete(ctx context.Context, recordingID string) (Recording,
 	if err := w.Transport.Complete(rootID); err != nil {
 		return w.fail(ctx, recordingID, "transport_finalize_failed", err)
 	}
-	layout, err := w.Artifacts.LocateRecording(ctx, snapshot)
-	if err != nil {
-		return w.fail(ctx, recordingID, "artifact_locate_failed", err)
-	}
-	if err := w.Artifacts.WriteScenario(ctx, snapshot, sequence); err != nil {
-		return w.fail(ctx, recordingID, "scenario_write_failed", err)
-	}
-	if err := w.captureFixture(
-		ctx,
-		&snapshot,
-		layout.ExpectedFixtureKey,
-		FixturePhaseExpected,
-	); err != nil {
+	if err := w.captureState(ctx, &snapshot, ReplayStatePhaseExpected); err != nil {
 		return w.fail(ctx, recordingID, "expected_state_export_failed", err)
 	}
 	cassetteID := strings.TrimSpace(w.NewID())
@@ -384,21 +424,45 @@ func (w *Workflow) Complete(ctx context.Context, recordingID string) (Recording,
 	return completed, nil
 }
 
-func (w *Workflow) captureFixture(
+func (w *Workflow) captureState(
 	ctx context.Context,
 	recording *Recording,
-	destination string,
-	phase FixturePhase,
+	phase ReplayStatePhase,
 ) error {
-	if err := w.Fixtures.ExportAgentSessionGraph(
+	state, err := w.States.CaptureReplayState(
 		ctx,
 		recording.ScopeID,
 		recording.RootAgentSessionID,
-		destination,
-	); err != nil {
+	)
+	if err != nil {
 		return err
 	}
-	return w.Artifacts.CollectFixtureDependencies(ctx, *recording, phase)
+	if err := w.Artifacts.WriteReplayState(ctx, *recording, phase, state); err != nil {
+		return err
+	}
+	if phase == ReplayStatePhaseInitial {
+		w.mu.Lock()
+		if w.active != nil && w.active.ID == recording.ID {
+			w.initialState = append([]byte(nil), state...)
+		}
+		w.mu.Unlock()
+	}
+	return nil
+}
+
+// InitialReplayStateSnapshot returns the exact bytes captured and written
+// before a continue-session recording was armed.
+func (w *Workflow) InitialReplayStateSnapshot(
+	recordingID string,
+) ([]byte, bool) {
+	recordingID = strings.TrimSpace(recordingID)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.active == nil || w.active.ID != recordingID ||
+		len(w.initialState) == 0 {
+		return nil, false
+	}
+	return append([]byte(nil), w.initialState...), true
 }
 
 func (w *Workflow) Cancel(ctx context.Context, recordingID string) (Recording, error) {
@@ -437,6 +501,32 @@ func (w *Workflow) Cancel(ctx context.Context, recordingID string) (Recording, e
 		return Recording{}, fmt.Errorf("delete canceled recording metadata: %w", err)
 	}
 	return result, nil
+}
+
+func (w *Workflow) Delete(ctx context.Context, recordingID string) error {
+	recording, err := w.Get(ctx, recordingID)
+	if err != nil {
+		return err
+	}
+	if IsRecordingActive(recording.Status) {
+		return ErrInvalidState
+	}
+	if recording.CassetteID != "" {
+		if err := w.Artifacts.DiscardCassette(ctx, recording.CassetteID); err != nil {
+			return fmt.Errorf("discard recording cassette: %w", err)
+		}
+	} else if err := w.Artifacts.DiscardRecording(ctx, recording.ID); err != nil {
+		return fmt.Errorf("discard recording artifacts: %w", err)
+	}
+	if err := w.Store.DeleteRecording(ctx, recording.ID); err != nil {
+		return fmt.Errorf("delete recording metadata: %w", err)
+	}
+	w.mu.Lock()
+	if w.active != nil && w.active.ID == recording.ID {
+		w.active = nil
+	}
+	w.mu.Unlock()
+	return nil
 }
 
 func (w *Workflow) Get(ctx context.Context, recordingID string) (Recording, error) {
@@ -533,29 +623,6 @@ func (w *Workflow) Recover(ctx context.Context) error {
 		}
 		_ = w.Artifacts.DiscardRecording(ctx, recording.ID)
 		if err := w.Store.PutRecording(ctx, *recording); err != nil {
-			return err
-		}
-	}
-	runs, err := w.Store.ListReplayRuns(ctx, "")
-	if err != nil {
-		return err
-	}
-	for index := range runs {
-		run := &runs[index]
-		if run.Status != ReplayRunStatusStarting &&
-			run.Status != ReplayRunStatusRunning {
-			continue
-		}
-		if err := TransitionReplayRun(run, ReplayRunTransition{
-			Status:       ReplayRunStatusFailed,
-			AtUnixMS:     w.now().UnixMilli(),
-			Checkpoint:   run.Checkpoint,
-			ErrorCode:    "daemon_restarted",
-			ErrorMessage: "Replay was interrupted by a daemon restart.",
-		}); err != nil {
-			return err
-		}
-		if err := w.Store.PutReplayRun(ctx, *run); err != nil {
 			return err
 		}
 	}

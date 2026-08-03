@@ -29,11 +29,13 @@ export interface CreateDesktopAppServicesOptions {
   enableDevelopmentReloadShortcut?: boolean;
   fallbackLocale: DesktopLocale;
   browserNodeGuestPreloadPath?: string;
+  startedDaemonRuntime?: DesktopDaemonRuntime;
   isPackaged?: boolean;
   logger: DesktopLogger;
   preloadPath: string;
   rendererUrl?: string;
   startupFailureQueuePath?: string;
+  updateService?: AppUpdateService;
   workspaceAppPreloadPath?: string;
 }
 
@@ -52,9 +54,45 @@ export async function createDesktopAppServices(
   options: CreateDesktopAppServicesOptions,
   factories?: Partial<DesktopAppServiceFactories>
 ): Promise<DesktopAppServices> {
-  const daemonRuntime = await resolveDaemonRuntime(factories);
-  const updateService = await resolveUpdateService(factories);
+  const daemonRuntime =
+    options.startedDaemonRuntime ??
+    (await startDesktopDaemonRuntime(options, factories));
+  const updateService =
+    options.updateService ?? (await resolveUpdateService(factories));
 
+  void ensureCliShimInBackground(options, factories);
+
+  const hostServices = await resolveHostServices(factories, {
+    browserNodeGuestPreloadPath: options.browserNodeGuestPreloadPath,
+    enableDevelopmentReloadShortcut: options.enableDevelopmentReloadShortcut,
+    appVersion: options.appVersion,
+    fallbackLocale: options.fallbackLocale,
+    isPackaged: options.isPackaged,
+    logger: options.logger,
+    tuttidClient: daemonRuntime.tuttidClient,
+    preloadPath: options.preloadPath,
+    rendererUrl: options.rendererUrl,
+    workspaceAppPreloadPath: options.workspaceAppPreloadPath
+  });
+
+  return {
+    ...daemonRuntime,
+    ...hostServices,
+    updateService
+  };
+}
+
+export async function startDesktopDaemonRuntime(
+  options: Pick<
+    CreateDesktopAppServicesOptions,
+    "logger" | "startupFailureQueuePath"
+  > & {
+    daemonRuntime?: DesktopDaemonRuntime;
+  },
+  factories?: Partial<DesktopAppServiceFactories>
+): Promise<DesktopDaemonRuntime> {
+  const daemonRuntime =
+    options.daemonRuntime ?? (await resolveDaemonRuntime(factories));
   try {
     await daemonRuntime.tuttid.start();
   } catch (error) {
@@ -82,27 +120,7 @@ export async function createDesktopAppServices(
       error: formatErrorMessage(error)
     });
   });
-
-  void ensureCliShimInBackground(options, factories);
-
-  const hostServices = await resolveHostServices(factories, {
-    browserNodeGuestPreloadPath: options.browserNodeGuestPreloadPath,
-    enableDevelopmentReloadShortcut: options.enableDevelopmentReloadShortcut,
-    appVersion: options.appVersion,
-    fallbackLocale: options.fallbackLocale,
-    isPackaged: options.isPackaged,
-    logger: options.logger,
-    tuttidClient: daemonRuntime.tuttidClient,
-    preloadPath: options.preloadPath,
-    rendererUrl: options.rendererUrl,
-    workspaceAppPreloadPath: options.workspaceAppPreloadPath
-  });
-
-  return {
-    ...daemonRuntime,
-    ...hostServices,
-    updateService
-  };
+  return daemonRuntime;
 }
 
 async function ensureCliShimInBackground(

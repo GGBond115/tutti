@@ -11,10 +11,12 @@ var (
 	_ = (*agenthost.Host).UpdatePin
 	_ = (*agenthost.Host).DeleteSession
 	_ = (*agenthost.Host).GetTurn
+	_ = (*agenthost.Host).GetInteraction
 	_ = (*agenthost.Host).ListSessionTurns
 	_ = (*agenthost.Host).FindTurnByClientSubmitID
 	_ = (*agenthost.Host).ListSessionMessages
 	_ = (*agenthost.Host).GetSessionInteractionSnapshot
+	_ = (*agenthost.Host).GetSessionInteractionTreeSnapshot
 	_ = (*agenthost.Host).CancelTurn
 	_ = (*agenthost.Host).SubmitInteractive
 	_ = (*agenthost.Host).SubmitPlanDecision

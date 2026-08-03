@@ -221,6 +221,33 @@ describe("agent gui workbench launch contract", () => {
     });
   });
 
+  it("can force a new in-workspace instance without opening a new window", () => {
+    const descriptor = createAgentGuiWorkbenchLaunchDescriptor(
+      createAgentGuiWorkbenchSessionLaunchRequest({
+        forceNewInstance: true,
+        provider: "codex"
+      })
+    );
+
+    expect(descriptor.openInNewWindow).toBe(false);
+    expect(descriptor.reusePolicy).toEqual({ kind: "none" });
+    expect(descriptor.targetAgentSessionId).toBeNull();
+  });
+
+  it("does not reuse an existing session when a new instance is required", () => {
+    const descriptor = createAgentGuiWorkbenchLaunchDescriptor(
+      createAgentGuiWorkbenchSessionLaunchRequest({
+        agentSessionId: "session-replay",
+        forceNewInstance: true,
+        provider: "codex"
+      })
+    );
+
+    expect(descriptor.openInNewWindow).toBe(false);
+    expect(descriptor.reusePolicy).toEqual({ kind: "none" });
+    expect(descriptor.targetAgentSessionId).toBe("session-replay");
+  });
+
   it("does not reuse dock nodes for empty launches into new windows", () => {
     expect(
       createAgentGuiWorkbenchLaunchDescriptor({

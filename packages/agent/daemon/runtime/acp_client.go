@@ -13,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	sessionreplay "github.com/tutti-os/tutti/packages/agent/session-replay"
 )
 
 type acpClient struct {
@@ -435,68 +437,6 @@ func (c *acpClient) sendJSON(ctx context.Context, value any) error {
 	}
 }
 
-func (c *acpClient) readLoop() {
-	var pending []byte
-	var stderrTail []byte
-	var stdoutTail []byte
-	for {
-		frame, err := c.conn.Recv()
-		if err != nil {
-			c.finish(err)
-			return
-		}
-		if len(frame.Stderr) > 0 {
-			stderrTail = append(stderrTail, frame.Stderr...)
-			if len(stderrTail) > acpClientOutputTailLimit {
-				stderrTail = stderrTail[len(stderrTail)-acpClientOutputTailLimit:]
-			}
-			c.setStderrTail(stderrTail)
-			c.mu.Lock()
-			stderrSink := c.stderrSink
-			c.mu.Unlock()
-			if stderrSink != nil {
-				stderrSink(frame.Stderr)
-			}
-			if c.stderrMessageMapper != nil {
-				if message, ok := c.stderrMessageMapper(frame.Stderr); ok {
-					c.dispatchMessage(message)
-				}
-			}
-			slog.Warn("agent session ACP stderr",
-				"event", "agent_session.acp.stderr",
-				"message", truncateACPLogValue(string(frame.Stderr), 1200),
-			)
-			continue
-		}
-		if frame.ExitCode != nil {
-			c.setExitCode(*frame.ExitCode)
-			message := strings.TrimSpace(frame.Message)
-			if stderr := strings.TrimSpace(string(stderrTail)); stderr != "" {
-				message = firstNonEmpty(message, "process exited") + ": " + stderr
-			}
-			c.finish(fmt.Errorf("acp process exited with code %d: %s", *frame.ExitCode, message))
-			return
-		}
-		if len(frame.Stdout) == 0 {
-			continue
-		}
-		stdoutTail = append(stdoutTail, frame.Stdout...)
-		if len(stdoutTail) > acpClientOutputTailLimit {
-			stdoutTail = stdoutTail[len(stdoutTail)-acpClientOutputTailLimit:]
-		}
-		c.setStdoutTail(stdoutTail)
-		pending = append(pending, frame.Stdout...)
-		for {
-			line, rest, ok := bytes.Cut(pending, []byte("\n"))
-			if !ok {
-				break
-			}
-			pending = rest
-			c.dispatchLine(line)
-		}
-	}
-}
-
 func (c *acpClient) setStderrTail(tail []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -517,15 +457,23 @@ func (c *acpClient) setExitCode(exitCode int) {
 	c.exitCode = &exitCode
 }
 
-func (c *acpClient) dispatchLine(line []byte) {
+func (c *acpClient) dispatchLine(line []byte) bool {
+	return c.dispatchLineAt(line, ProcessFrame{}, 0)
+}
+
+func (c *acpClient) dispatchLineAt(
+	line []byte,
+	frame ProcessFrame,
+	unitIndex uint64,
+) bool {
 	line = bytes.TrimSpace(line)
 	if len(line) == 0 {
-		return
+		return false
 	}
 	if !bytes.HasPrefix(line, []byte("{")) {
 		if json.Valid(line) {
 			c.recordStdoutProtocolError("non_object_json", line, nil)
-			return
+			return false
 		}
 		if benignACPStdoutLine(line) {
 			c.resetStdoutProtocolErrors()
@@ -533,15 +481,15 @@ func (c *acpClient) dispatchLine(line []byte) {
 				"event", "agent_session.acp.stdout.provider_log",
 				"message", truncateACPLogValue(string(line), 1200),
 			)
-			return
+			return false
 		}
 		c.recordStdoutProtocolError("invalid_json", line, nil)
-		return
+		return false
 	}
 	var message acpMessage
 	if err := json.Unmarshal(line, &message); err != nil {
 		c.recordStdoutProtocolError("invalid_json", line, err)
-		return
+		return false
 	}
 	c.resetStdoutProtocolErrors()
 	slog.Debug("agent session ACP stdout",
@@ -554,7 +502,17 @@ func (c *acpClient) dispatchLine(line []byte) {
 		"error_message", acpErrorMessage(message.Error),
 		"error_data", acpErrorData(message.Error),
 	)
-	c.dispatchMessage(message)
+	if unitIndex == 0 {
+		c.dispatchMessage(message)
+	} else {
+		unit := providerInputUnit(
+			frame,
+			unitIndex,
+			sessionreplay.ProviderInputUnitProtocolMessage,
+		)
+		c.dispatchMessageAt(message, &unit)
+	}
+	return true
 }
 
 func (c *acpClient) resetStdoutProtocolErrors() {
@@ -645,6 +603,13 @@ func benignACPStdoutLine(line []byte) bool {
 func (c *acpClient) dispatchMessage(message acpMessage) {
 	c.dispatchMu.Lock()
 	defer c.dispatchMu.Unlock()
+	c.dispatchMessageAt(message, nil)
+}
+
+func (c *acpClient) dispatchMessageAt(
+	message acpMessage,
+	unit *ProviderInputUnit,
+) {
 	slog.Debug("agent session ACP message received",
 		"event", "agent_session.acp.message.received",
 		"method", message.Method,
@@ -676,6 +641,9 @@ func (c *acpClient) dispatchMessage(message acpMessage) {
 	}
 
 	handlerCtx, handler, active := c.messageHandler()
+	if unit != nil {
+		handlerCtx = contextWithProviderInputUnit(handlerCtx, *unit)
+	}
 	if handler == nil {
 		if len(message.ID) > 0 && message.Method != "" {
 			_ = c.Respond(context.Background(), message.ID, nil, &acpError{Code: -32601, Message: "method not supported"})
@@ -696,6 +664,22 @@ func (c *acpClient) dispatchMessage(message acpMessage) {
 			"id", strings.TrimSpace(string(message.ID)),
 			"error", err.Error(),
 		)
+	}
+}
+
+func providerInputUnit(
+	frame ProcessFrame,
+	unitIndex uint64,
+	kind sessionreplay.ProviderInputUnitKind,
+) ProviderInputUnit {
+	return ProviderInputUnit{
+		RecordingID: frame.RecordingID,
+		Position: sessionreplay.ProviderUnitPosition{
+			ConnectionID: frame.ConnectionID,
+			ChunkSeq:     frame.ChunkSeq,
+			UnitIndex:    unitIndex,
+		},
+		Kind: kind,
 	}
 }
 

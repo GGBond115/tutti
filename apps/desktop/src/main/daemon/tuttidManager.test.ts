@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   isLikelyTuttidProcess,
+  managedTuttidStartupError,
   resolveBrowserMcpDaemonEnv,
   resolveClaudeSDKSidecarDaemonEnv,
   resolveLaunchSpec,
@@ -24,6 +25,27 @@ import {
 const repoRoot = resolve(
   fileURLToPath(new URL("../../../../..", import.meta.url))
 );
+
+test("preserves managed tuttid stderr as a structured startup cause", () => {
+  const failure = managedTuttidStartupError(
+    new Error("tuttid exited before it published its listener info."),
+    "unsupported process cassette schema version 2\n"
+  );
+
+  assert.equal(
+    failure.message,
+    "tuttid exited before it published its listener info."
+  );
+  assert.deepEqual(failure.cause, {
+    code: "managed_process_stderr",
+    message: "unsupported process cassette schema version 2"
+  });
+});
+
+test("preserves the original startup error without a daemon diagnostic", () => {
+  const original = new Error("listener timeout");
+  assert.equal(managedTuttidStartupError(original, ""), original);
+});
 
 test("resolveLaunchSpec prefers the development tuttid binary when present", async (t) => {
   const previousEnv = { ...process.env };
@@ -357,6 +379,35 @@ test("resolveManagedDaemonProcessEnv passes the shared desktop app version", () 
   } finally {
     restoreEnv(previousEnv);
   }
+});
+
+test("resolveManagedDaemonProcessEnv injects one desktop admission identity", () => {
+  const got = resolveManagedDaemonProcessEnv({
+    desktopUpdateAdmission: {
+      architecture: "arm64",
+      currentVersion: "1.2.3",
+      managed: true,
+      packaged: true,
+      platform: "macos"
+    },
+    endpoint: {
+      accessToken: "token",
+      boundAddr: null,
+      listenerInfoPath: "/tmp/tuttid.listener.json",
+      pidPath: "/tmp/tuttid.pid",
+      requestedAddr: "127.0.0.1:4545"
+    },
+    logDir: "/tmp/tutti-logs",
+    logOutput: "file",
+    parentPID: 123,
+    sessionID: "session-1"
+  });
+
+  assert.equal(got.TUTTI_DESKTOP_UPDATE_ADMISSION_MANAGED, "1");
+  assert.equal(got.TUTTI_DESKTOP_UPDATE_ADMISSION_PACKAGED, "1");
+  assert.equal(got.TUTTI_DESKTOP_UPDATE_ADMISSION_CURRENT_VERSION, "1.2.3");
+  assert.equal(got.TUTTI_DESKTOP_UPDATE_ADMISSION_PLATFORM, "macos");
+  assert.equal(got.TUTTI_DESKTOP_UPDATE_ADMISSION_ARCHITECTURE, "arm64");
 });
 
 function restoreEnv(previousEnv: NodeJS.ProcessEnv): void {

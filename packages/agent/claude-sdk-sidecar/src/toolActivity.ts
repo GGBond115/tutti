@@ -15,6 +15,7 @@ import {
   taskNotificationToSystemMessage
 } from "./taskNotification.ts";
 import type {
+  BackgroundProcessState,
   DelegatedTaskState,
   DelegatedTaskStatus
 } from "./toolActivityTypes.ts";
@@ -31,6 +32,11 @@ export class ToolActivityProjector {
   >();
   private readonly delegatedParentByAgentID = new Map<string, string>();
   private readonly delegatedParentByTaskID = new Map<string, string>();
+  private readonly backgroundProcessesByParentToolUseID = new Map<
+    string,
+    BackgroundProcessState
+  >();
+  private readonly backgroundProcessParentByTaskID = new Map<string, string>();
   private readonly activeTurnId: () => string;
   private readonly emit: ClaudeSDKSidecarEventEmitter;
   private readonly lastTurnId: () => string;
@@ -101,6 +107,10 @@ export class ToolActivityProjector {
     this.backgroundTasks.handleRootResultSettled(succeeded);
   }
 
+  completePendingRootBackgroundLaunches(): void {
+    this.tools.completePendingRootBackgroundLaunches();
+  }
+
   completeToolIndex(index: number): boolean {
     return this.tools.completeIndex(index);
   }
@@ -144,7 +154,16 @@ export class ToolActivityProjector {
     const task = parentByAlias
       ? this.delegatedTasksByParentToolUseID.get(parentByAlias)
       : this.delegatedTasksByParentToolUseID.get(parentToolUseId || taskId);
-    return task?.status === "running" ? (task.taskId ?? "") : "";
+    if (task?.status === "running") {
+      return task.taskId ?? "";
+    }
+    const backgroundParent =
+      this.backgroundProcessParentByTaskID.get(taskId) ||
+      parentToolUseId ||
+      taskId;
+    const background =
+      this.backgroundProcessesByParentToolUseID.get(backgroundParent);
+    return background?.status === "running" ? background.taskId : "";
   }
 
   handleTaskNotificationFromText(text: string): void {
@@ -166,17 +185,16 @@ export class ToolActivityProjector {
       | "task_notification",
     message: Record<string, unknown>
   ): void {
-    // task_notification is included so a terminal notice for a task launched
-    // before a sidecar restart (reported e.g. as stopped on the next prompt)
-    // still settles a card instead of being dropped by the fresh instance.
     const task =
       this.resolveDelegatedTaskFromMessage(message) ??
-      (subtype === "task_started" ||
-      subtype === "task_updated" ||
-      subtype === "task_notification"
-        ? this.rememberBackgroundTask(message)
+      ((subtype === "task_started" ||
+        subtype === "task_updated" ||
+        subtype === "task_notification") &&
+      isExplicitSubagentTaskMessage(message)
+        ? this.rememberUnclaimedDelegatedTask(message)
         : undefined);
     if (!task) {
+      this.handleBackgroundProcessTaskMessage(subtype, message);
       return;
     }
     const taskId = stringValue(message.task_id) || stringValue(message.taskId);
@@ -474,29 +492,21 @@ export class ToolActivityProjector {
     }
   }
 
-  // Background launches the launch-result path does not register (most
-  // importantly `run_in_background` Bash) still announce themselves through
-  // the SDK task system. Registering them here puts them on the same
-  // delegated-task rails as background subagents, so they gate the root turn,
-  // show up as child sessions, and can be stopped individually — instead of
-  // running invisibly after the turn settled.
-  private rememberBackgroundTask(
+  // A sidecar restarted between a subagent launch and its terminal notice may
+  // receive an explicit agent task before rebuilding its alias maps. Only
+  // provider-declared agent work may recreate delegated state here; an
+  // unclaimed task-system event can also represent a detached Bash process.
+  private rememberUnclaimedDelegatedTask(
     message: Record<string, unknown>
   ): DelegatedTaskState | undefined {
     const parentToolUseId =
       stringValue(message.tool_use_id) || stringValue(message.toolCallId);
     const taskId = stringValue(message.task_id) || stringValue(message.taskId);
     if (!parentToolUseId || !taskId) {
-      // Without a launching tool use id this could be a racing alias for a
-      // not-yet-registered subagent launch; binding it here would poison the
-      // alias maps, so leave it for the launch result to register.
       return undefined;
     }
     const task: DelegatedTaskState = {
       parentToolUseId,
-      // Background task_started frequently arrives after the launching
-      // provider turn already settled; fall back to that turn so lifecycle
-      // events are not dropped for lack of a turn id.
       turnId: this.activeTurnId() || this.lastTurnId(),
       input: {},
       taskId,
@@ -505,6 +515,51 @@ export class ToolActivityProjector {
     this.delegatedTasksByParentToolUseID.set(parentToolUseId, task);
     this.delegatedParentByTaskID.set(taskId, parentToolUseId);
     return task;
+  }
+
+  private handleBackgroundProcessTaskMessage(
+    subtype:
+      | "task_started"
+      | "task_progress"
+      | "task_updated"
+      | "task_notification",
+    message: Record<string, unknown>
+  ): void {
+    const parentToolUseId =
+      stringValue(message.parentToolUseId) ||
+      stringValue(message.parent_tool_use_id) ||
+      stringValue(message.tool_use_id) ||
+      stringValue(message.toolCallId) ||
+      stringValue(message.callId);
+    const taskId = stringValue(message.task_id) || stringValue(message.taskId);
+    const knownParent =
+      this.backgroundProcessParentByTaskID.get(taskId) || parentToolUseId;
+    let process = knownParent
+      ? this.backgroundProcessesByParentToolUseID.get(knownParent)
+      : undefined;
+    if (!process && subtype === "task_started" && parentToolUseId && taskId) {
+      process = {
+        parentToolUseId,
+        taskId,
+        status: "running"
+      };
+      this.backgroundProcessesByParentToolUseID.set(parentToolUseId, process);
+      this.backgroundProcessParentByTaskID.set(taskId, parentToolUseId);
+      this.tools.completeBackgroundLaunch(parentToolUseId, taskId);
+      return;
+    }
+    if (
+      !process ||
+      (subtype !== "task_updated" && subtype !== "task_notification")
+    ) {
+      return;
+    }
+    if (!isTerminalTaskStatus(message.status)) {
+      return;
+    }
+    process.status = delegatedTaskStatus(message.status);
+    this.backgroundProcessesByParentToolUseID.delete(process.parentToolUseId);
+    this.backgroundProcessParentByTaskID.delete(process.taskId);
   }
 
   private resolveDelegatedTaskFromMessage(
@@ -748,6 +803,35 @@ function delegatedTaskSummaryFromMessage(
     stringValue(message.summary) ||
     stringValue(message.description)
   );
+}
+
+function isExplicitSubagentTaskMessage(
+  message: Record<string, unknown>
+): boolean {
+  const taskType = (
+    stringValue(message.task_type) || stringValue(message.taskType)
+  ).toLowerCase();
+  return Boolean(
+    stringValue(message.agent_id) ||
+    stringValue(message.agentId) ||
+    stringValue(message.agentID) ||
+    taskType === "agent" ||
+    taskType === "subagent"
+  );
+}
+
+function isTerminalTaskStatus(value: unknown): boolean {
+  switch (stringValue(value).toLowerCase()) {
+    case "completed":
+    case "failed":
+    case "error":
+    case "stopped":
+    case "canceled":
+    case "cancelled":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function delegatedTaskStatus(value: unknown): DelegatedTaskStatus {

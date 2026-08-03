@@ -106,3 +106,75 @@ INSERT INTO tuttid_schema_migrations (id, applied_at_unix_ms)
 	}
 	return nil
 }
+
+// applyAgentSessionReplayV3 migrates the Agent Session Replay schema shipped
+// on main to the current cassette-owned replay model. Workspace ownership is
+// derived from the source Recording, and replay runs are no longer persisted.
+func (s *SQLiteStore) applyAgentSessionReplayV3(ctx context.Context) error {
+	applied, err := s.hasMigration(ctx, schemaMigrationAgentSessionReplayV3)
+	if err != nil {
+		return err
+	}
+	if applied {
+		return nil
+	}
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin Agent Session Replay v3 migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `
+DROP TABLE IF EXISTS agent_session_replay_runs;
+DROP INDEX IF EXISTS idx_agent_session_cassettes_workspace_created;
+`); err != nil {
+		return fmt.Errorf("remove obsolete Agent Session Replay schema: %w", err)
+	}
+	var workspaceColumnCount int
+	if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM pragma_table_info('agent_session_cassettes')
+WHERE name = 'workspace_id'
+`).Scan(&workspaceColumnCount); err != nil {
+		return fmt.Errorf("inspect Agent Session Cassette workspace column: %w", err)
+	}
+	if workspaceColumnCount > 0 {
+		if _, err := tx.ExecContext(
+			ctx,
+			`ALTER TABLE agent_session_cassettes DROP COLUMN workspace_id`,
+		); err != nil {
+			return fmt.Errorf("drop Agent Session Cassette workspace column: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO tuttid_schema_migrations (id, applied_at_unix_ms)
+VALUES (?, ?)
+`, schemaMigrationAgentSessionReplayV3, unixMs(time.Now().UTC())); err != nil {
+		return fmt.Errorf("record Agent Session Replay v3 migration: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit Agent Session Replay v3 migration: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) applyAgentSessionReplayV4(ctx context.Context) error {
+	applied, err := s.hasMigration(ctx, schemaMigrationAgentSessionReplayV4)
+	if err != nil {
+		return err
+	}
+	if applied {
+		return nil
+	}
+	_, err = s.writeDB.ExecContext(ctx, `
+ALTER TABLE agent_session_recordings
+  ADD COLUMN replay_prerequisites_json TEXT NOT NULL DEFAULT '{}';
+
+INSERT INTO tuttid_schema_migrations (id, applied_at_unix_ms)
+VALUES (?, ?);
+`, schemaMigrationAgentSessionReplayV4, unixMs(time.Now().UTC()))
+	if err != nil {
+		return fmt.Errorf("migrate Agent Session Replay v4: %w", err)
+	}
+	return nil
+}

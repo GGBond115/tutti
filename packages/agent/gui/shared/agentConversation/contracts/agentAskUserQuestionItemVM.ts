@@ -1,4 +1,6 @@
 export interface AgentAskUserQuestionOptionVM {
+  /** Provider-owned durable identity used by interaction automation when present. */
+  id?: string;
   label: string;
   description: string;
 }

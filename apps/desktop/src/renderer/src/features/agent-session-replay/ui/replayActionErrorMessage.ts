@@ -18,3 +18,16 @@ export function replayActionErrorMessage(
   }
   return `${firstLine.slice(0, maximumReplayErrorCharacters - 1)}…`;
 }
+
+export function replayStatusVisibleError(
+  status: {
+    errorCause?: { message: string };
+    errorMessage?: string;
+  },
+  stateMismatchMessage: (table: string) => string
+): string | undefined {
+  const message = status.errorCause?.message || status.errorMessage;
+  return message
+    ? replayActionErrorMessage(message, stateMismatchMessage)
+    : undefined;
+}

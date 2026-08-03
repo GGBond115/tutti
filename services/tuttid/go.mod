@@ -22,6 +22,7 @@ require (
 	github.com/tutti-os/tutti/packages/auth/bridge-go v0.0.0
 	github.com/tutti-os/tutti/packages/commerce v0.0.0
 	github.com/tutti-os/tutti/packages/device-link v0.0.0
+	github.com/tutti-os/tutti/packages/desktop/update-admission v0.0.0
 	github.com/tutti-os/tutti/packages/events/stream-go v0.0.0
 	github.com/tutti-os/tutti/packages/workbench/service v0.0.0
 	github.com/tutti-os/tutti/packages/workspace/files v0.0.0
@@ -134,3 +135,5 @@ replace github.com/tutti-os/tutti/packages/auth/bridge-go => ../../packages/auth
 replace github.com/tutti-os/tutti/packages/commerce => ../../packages/commerce
 
 replace github.com/tutti-os/tutti/packages/device-link => ../../packages/device-link
+
+replace github.com/tutti-os/tutti/packages/desktop/update-admission => ../../packages/desktop/update-admission

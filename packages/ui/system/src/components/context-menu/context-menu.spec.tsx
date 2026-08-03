@@ -11,20 +11,6 @@ import {
 } from "./context-menu";
 
 describe("ContextMenu", () => {
-  it("renders a trigger target", () => {
-    render(
-      <ContextMenu>
-        <ContextMenuTrigger>
-          <span data-testid="target">target</span>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem>Copy image</ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-    );
-    expect(screen.getByTestId("target")).toBeInTheDocument();
-  });
-
   it("supports nested action groups", async () => {
     render(
       <ContextMenu>

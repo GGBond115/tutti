@@ -35,6 +35,7 @@ describe("agent target setup failure notifications", () => {
       expect(controller.observe(state(failed))).toEqual({
         actionId: "action-1",
         actionKind: kind,
+        errorCode: undefined,
         errorMessage: expectedErrorMessage,
         kind: "action_failed"
       });

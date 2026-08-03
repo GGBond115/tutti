@@ -31,6 +31,10 @@ export {
   type TuttidClient
 } from "./tuttidClient.ts";
 export {
+  createCollaborationRunsClient,
+  type CollaborationRunsClient
+} from "./collaborationRunsClient.ts";
+export {
   createWorkspaceAgentConfigurationClient,
   type ModelPlanBillingMode,
   type ModelPlanPricing,

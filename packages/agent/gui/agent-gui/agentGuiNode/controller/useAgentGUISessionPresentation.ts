@@ -6,11 +6,12 @@ import {
   type AgentActivityTurn,
   type CanonicalAgentSession,
   type PendingActivationIntentRecord,
+  type SessionGoalControlPresentation,
   type SessionRuntimeAvailability,
   type AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
 import { useEffect, useMemo } from "react";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { translate } from "../../../i18n/index";
 import type { AgentConversationVM } from "../../../shared/agentConversation/contracts/agentConversationVM";
 import type { AgentApprovalItemVM } from "../../../shared/agentConversation/contracts/agentApprovalItemVM";
@@ -33,16 +34,12 @@ import {
   isDifferentKnownConversationOwner,
   resolveAgentGUIComposerGate
 } from "../model/agentGuiComposerGate";
-import type {
-  AgentGUIOptimisticGoalControl,
-  AgentGUISessionChrome
-} from "../model/agentGuiNodeTypes";
+import type { AgentGUISessionChrome } from "../model/agentGuiNodeTypes";
 import { composerSettingsSupportFromOptions } from "../model/composerSettingsSupport";
 import {
   agentActivityDisplayStatusBusy,
   conversationBusyStatus
 } from "./agentGuiController.draftMessageHelpers";
-import { unresolvedOptimisticGoalControl } from "./agentGuiOptimisticGoal";
 import { isNonRetryableResumeErrorCode } from "./agentGuiController.errors";
 import { projectAgentGUIMessagesToTimelineItems } from "./agentGuiController.promptHelpers";
 import { promptRequestId } from "./agentGuiController.diagnostics";
@@ -54,6 +51,40 @@ interface CurrentValue<T> {
   current: T;
 }
 
+export function resolveAgentGUISharingRevokedRecovery(input: {
+  activeConversationId: string | null;
+  selectedAgentTargetOwnerLabel: string | null;
+  selectedAgentTargetUnavailable: boolean;
+  selectedAgentTargetUnavailableReason: string | null;
+  sessionRuntimeBlock: Extract<
+    SessionRuntimeAvailability,
+    { state: "blocked" }
+  > | null;
+}): AgentGUISessionChrome["recovery"] {
+  const selectedTargetSharingRevoked =
+    input.activeConversationId === null &&
+    input.selectedAgentTargetUnavailable &&
+    input.selectedAgentTargetUnavailableReason === "agent_sharing_revoked";
+  if (
+    input.sessionRuntimeBlock?.reason !== "agent_sharing_revoked" &&
+    !selectedTargetSharingRevoked
+  ) {
+    return null;
+  }
+  return {
+    kind: "agent-sharing-revoked",
+    message: translate("agentHost.agentGui.agentSharingRevoked", {
+      owner:
+        (input.sessionRuntimeBlock?.reason === "agent_sharing_revoked"
+          ? input.sessionRuntimeBlock.ownerLabel
+          : null) ??
+        input.selectedAgentTargetOwnerLabel ??
+        translate("agentHost.agentGui.sharedDeviceLabel")
+    }),
+    canRetry: false
+  };
+}
+
 interface UseAgentGUISessionPresentationInput {
   activeConversation: AgentGUIConversationSummary | null;
   activeConversationId: string | null;
@@ -63,6 +94,7 @@ interface UseAgentGUISessionPresentationInput {
   activeEngineLatestTurn: AgentActivityTurn | null;
   activeEngineRuntimeAvailability: SessionRuntimeAvailability | null;
   activeEngineSession: CanonicalAgentSession | null;
+  activeGoalControlPresentation: SessionGoalControlPresentation;
   activeLatestPendingSubmitTurnId: string | null;
   activeLiveState: "inactive" | "activating" | "active" | "failed";
   activeMessages: readonly AgentActivityMessage[];
@@ -75,7 +107,7 @@ interface UseAgentGUISessionPresentationInput {
   activationErrorCode: AppErrorCode | null;
   activationState: "inactive" | "activating" | "active" | "failed" | null;
   activityDisplayStatus: AgentActivityDisplayStatus | null;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   composerSupport: ReturnType<typeof composerSettingsSupportFromOptions>;
   conversation: AgentConversationVM | null;
   currentUserId?: string | null;
@@ -87,10 +119,12 @@ interface UseAgentGUISessionPresentationInput {
   lastRenderStateDiagnosticKeyRef: CurrentValue<string | null>;
   pendingApproval: AgentApprovalItemVM | null;
   planImplementationTurnIdRef: CurrentValue<string | null>;
-  optimisticGoalControl: AgentGUIOptimisticGoalControl | null;
   providerReadinessGate:
     | import("../../../types").AgentGUIProviderReadinessGate
     | null;
+  selectedAgentTargetUnavailable: boolean;
+  selectedAgentTargetUnavailableReason: string | null;
+  selectedAgentTargetOwnerLabel: string | null;
   agentTargetsLoading: boolean;
   ownerDeviceLabel?: string | null;
   serverInteractivePrompt: AgentGUIInteractivePrompt | null;
@@ -151,10 +185,11 @@ export function useAgentGUISessionPresentation(
     input.activeConversationId && input.activeLatestPendingSubmitTurnId
   );
   const activeSubmitBlocked = input.activeEngineAvailability === "blocked";
-  const sessionRuntimeBlockedReason =
+  const sessionRuntimeBlock =
     input.activeEngineRuntimeAvailability?.state === "blocked"
-      ? input.activeEngineRuntimeAvailability.reason
+      ? input.activeEngineRuntimeAvailability
       : null;
+  const sessionRuntimeBlockedReason = sessionRuntimeBlock?.reason ?? null;
   const targetConnection = useAgentGUITargetConnectionState({
     agentTargetId: input.targetConnectionAgentTargetId,
     source: input.targetConnectionSource
@@ -181,31 +216,41 @@ export function useAgentGUISessionPresentation(
   const sessionChromeRawState = useMemo<
     AgentGUISessionChrome["rawState"]
   >(() => {
-    const optimisticGoalControl = unresolvedOptimisticGoalControl(
-      input.optimisticGoalControl,
-      input.activeConversationId,
-      input.activeEngineSession
-    );
     const agentSessionId =
       input.activeEngineSession?.agentSessionId ??
-      optimisticGoalControl?.agentSessionId;
+      input.activeGoalControlPresentation.agentSessionId ??
+      input.activeConversationId;
     if (!agentSessionId) {
       return null;
     }
     return {
       agentSessionId,
-      goal: optimisticGoalControl
-        ? optimisticGoalControl.goal
-        : (input.activeEngineSession?.goal ?? null),
-      goalIsOptimistic: optimisticGoalControl !== null
+      goal: input.activeGoalControlPresentation.goal,
+      goalControlStatus: input.activeGoalControlPresentation.status,
+      goalIsOptimistic: input.activeGoalControlPresentation.optimistic
     };
   }, [
     input.activeConversationId,
     input.activeEngineSession?.agentSessionId,
-    input.activeEngineSession?.goal,
-    input.optimisticGoalControl
+    input.activeGoalControlPresentation
   ]);
   const sessionChrome = useMemo<AgentGUISessionChrome>(() => {
+    const sharingRevokedRecovery = resolveAgentGUISharingRevokedRecovery({
+      activeConversationId: input.activeConversationId,
+      selectedAgentTargetOwnerLabel: input.selectedAgentTargetOwnerLabel,
+      selectedAgentTargetUnavailable: input.selectedAgentTargetUnavailable,
+      selectedAgentTargetUnavailableReason:
+        input.selectedAgentTargetUnavailableReason,
+      sessionRuntimeBlock
+    });
+    if (sharingRevokedRecovery) {
+      return {
+        auth: null,
+        approval: null,
+        recovery: sharingRevokedRecovery,
+        rawState: sessionChromeRawState
+      };
+    }
     if (
       targetConnection.visibleState?.status === "connecting" ||
       targetConnection.visibleState?.status === "unavailable"
@@ -312,6 +357,10 @@ export function useAgentGUISessionPresentation(
     input.activePendingActivation?.mode,
     input.pendingApproval,
     input.ownerDeviceLabel,
+    input.selectedAgentTargetOwnerLabel,
+    input.selectedAgentTargetUnavailable,
+    input.selectedAgentTargetUnavailableReason,
+    sessionRuntimeBlock,
     targetConnection.visibleState,
     observationGap,
     sessionChromeRawState
@@ -346,6 +395,7 @@ export function useAgentGUISessionPresentation(
         pendingApproval,
         pendingInteractivePrompt: hasPendingInteractivePrompt,
         providerReadinessGate: input.providerReadinessGate,
+        selectedAgentTargetUnavailable: input.selectedAgentTargetUnavailable,
         sessionRuntimeBlockedReason,
         targetConnectionBlocked:
           targetConnection.blocked || observationGap !== null
@@ -364,6 +414,7 @@ export function useAgentGUISessionPresentation(
       input.isInterrupting,
       input.isSubmitting,
       input.providerReadinessGate,
+      input.selectedAgentTargetUnavailable,
       isCollaboratorConversation,
       pendingApproval,
       sessionRuntimeBlockedReason,
@@ -397,6 +448,13 @@ export function useAgentGUISessionPresentation(
       input.pendingApproval?.requestId ?? "",
       promptRequestId(pendingInteractivePrompt) ?? "",
       input.conversation?.activity.status ?? "",
+      input.conversation?.sourceDetail.showProcessingIndicator
+        ? "show-processing"
+        : "hide-processing",
+      input.conversation?.rows
+        .filter((row) => row.kind === "processing")
+        .map((row) => `${row.id}:${row.turnId ?? ""}`)
+        .join(",") ?? "",
       input.isCreatingConversation ? "creating" : "",
       input.isLoadingMessages ? "loading-messages" : "",
       input.isSubmitting ? "submitting" : "",
@@ -414,6 +472,9 @@ export function useAgentGUISessionPresentation(
       activeConversation: input.activeConversation,
       activeConversationBusy,
       activeConversationId: input.activeConversationId,
+      activeEngineActiveTurn: input.activeEngineActiveTurn,
+      activeEngineAvailability: input.activeEngineAvailability,
+      activeEngineLatestTurn: input.activeEngineLatestTurn,
       activeHasPendingSubmittedTurn,
       activeLiveState: input.activeLiveState,
       activeRuntimeSession: input.activeEngineSession,

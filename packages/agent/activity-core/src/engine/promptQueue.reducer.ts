@@ -36,6 +36,7 @@ import {
   type CanonicalSessionLifecycleView
 } from "./sessionLifecycle.availability.ts";
 import { canonicalTurnKey } from "./sessionEntityKeys.ts";
+import { promptVisibleInQueueAdmission } from "./promptQueue.admission.ts";
 import { queuedPromptFromSubmitIntent } from "./promptQueue.submit.ts";
 import {
   requestPromptExecution,
@@ -217,12 +218,9 @@ function enqueueSubmit(
     lifecycle,
     agentSessionId
   );
-  const visibleInQueue = Boolean(
-    current?.prompts.length ||
-    current?.inFlight ||
-    current?.uncertainDelivery ||
-    current?.deliveryBarrierTurnId ||
-    availability.state !== "available"
+  const visibleInQueue = promptVisibleInQueueAdmission(
+    current,
+    availability.state
   );
   // An ordinary submit that resumes a queue the user just explicitly
   // stopped is the user's next instruction, not a continuation of whatever

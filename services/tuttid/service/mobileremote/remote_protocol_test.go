@@ -72,6 +72,9 @@ func TestRemoteProtocolRejectsRoutesOutsideAgentSurface(t *testing.T) {
 		{http.MethodPut, "/v1/preferences/desktop"},
 		{http.MethodPost, "/v1/agent-quick-prompts"},
 		{http.MethodGet, "/v1/agent-quick-prompts/prompt-1"},
+		{http.MethodPost, "/v1/user-projects"},
+		{http.MethodDelete, "/v1/user-projects"},
+		{http.MethodPost, "/v1/user-projects/check"},
 		{http.MethodGet, "/v1/agent-providers/codex/composer-options"},
 		{http.MethodPost, "/v1/agent-providers/codex/composer-options/extra"},
 		{http.MethodPost, "https://example.com/v1/workspaces/workspace-1/agent-sessions"},
@@ -177,11 +180,12 @@ func TestRemoteProtocolAllowsReadOnlyAgentTargetCatalog(t *testing.T) {
 	}
 }
 
-func TestRemoteProtocolAllowsReadOnlyQuickPromptCapability(t *testing.T) {
+func TestRemoteProtocolAllowsReadOnlyMobileCatalogs(t *testing.T) {
 	t.Parallel()
 	for _, path := range []string{
 		"/v1/preferences/desktop",
 		"/v1/agent-quick-prompts",
+		"/v1/user-projects",
 	} {
 		path := path
 		t.Run(path, func(t *testing.T) {

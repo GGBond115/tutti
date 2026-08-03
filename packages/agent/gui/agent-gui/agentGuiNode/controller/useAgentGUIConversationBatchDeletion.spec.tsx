@@ -1,10 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { useAgentGUIConversationBatchDeletion } from "./useAgentGUIConversationBatchDeletion";
 
-function createInput(agentActivityRuntime: AgentActivityRuntime) {
+function createInput(agentActivityRuntime: AgentGUIRuntime) {
   return {
     activeConversationIdRef: { current: null as string | null },
     agentActivityRuntime,
@@ -66,7 +66,7 @@ describe("useAgentGUIConversationBatchDeletion", () => {
       deleteSession,
       deleteSessionsBatch,
       listSessionSectionDeletionCandidates
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     const input = createInput(runtime);
     const { result } = renderHook(() =>
       useAgentGUIConversationBatchDeletion(input)
@@ -119,7 +119,7 @@ describe("useAgentGUIConversationBatchDeletion", () => {
         workspaceId: "workspace-1"
       })),
       load
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     const { result } = renderHook(() =>
       useAgentGUIConversationBatchDeletion(createInput(runtime))
     );
@@ -150,7 +150,7 @@ describe("useAgentGUIConversationBatchDeletion", () => {
     const runtime = {
       deleteSession: vi.fn(),
       deleteSessionsBatch
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     const input = createInput(runtime);
     input.activeConversationIdRef.current = "loaded-session";
     input.conversationsRef.current = [
@@ -214,7 +214,7 @@ describe("useAgentGUIConversationBatchDeletion", () => {
     const input = createInput({
       deleteSession: vi.fn(),
       deleteSessionsBatch
-    } as unknown as AgentActivityRuntime);
+    } as unknown as AgentGUIRuntime);
     input.activeConversationIdRef.current = "loaded-session";
     const { result } = renderHook(() => {
       const [activeConversationId, setActiveConversationId] = useState<

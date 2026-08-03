@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
 // TurnStore is the narrow persisted-turn read surface the service needs for
@@ -267,6 +267,18 @@ func (s *Service) withProtocolV2TurnStateProjectionOptions(
 	}
 	if resolveProviderCapabilities {
 		session = s.withSessionForkCapabilities(ctx, workspaceID, session)
+		if session.ActiveTurn != nil {
+			value := s.withProviderTurnForkability(
+				ctx, workspaceID, session.ID, *session.ActiveTurn,
+			)
+			session.ActiveTurn = &value
+		}
+		if session.LatestTurn != nil {
+			value := s.withProviderTurnForkability(
+				ctx, workspaceID, session.ID, *session.LatestTurn,
+			)
+			session.LatestTurn = &value
+		}
 	}
 	session, err = s.withSessionForkLineage(ctx, workspaceID, session)
 	if err != nil {

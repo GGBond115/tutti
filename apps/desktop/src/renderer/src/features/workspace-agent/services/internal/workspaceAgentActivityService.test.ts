@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type {
   AgentActivityUpdatedEventV1,
+  CollaborationRun,
   TuttidClient
 } from "@tutti-os/client-tuttid-ts";
 import { TuttidProtocolError } from "@tutti-os/client-tuttid-ts";
@@ -218,7 +219,8 @@ test("Desktop Engine applies send results without a host-side Session dispatch",
         turn: workspaceAgentTurn({ phase: "submitted" })
       })
     } as unknown as TuttidClient,
-    runtimeApi: { logTerminalDiagnostic: async () => {} }
+    runtimeApi: { logTerminalDiagnostic: async () => {} },
+    sessionReplayEnabled: true
   });
   await service.load("ws-1");
   service.addSessionEngineActivityObserver("ws-1", {
@@ -307,6 +309,14 @@ test("WorkspaceAgentActivityService.activateSession creates target-backed sessio
       status: "active"
     },
     mode: "new",
+    settings: {
+      browserUse: false,
+      model: "gpt-5",
+      permissionModeId: "auto",
+      planMode: true,
+      reasoningEffort: "high",
+      speed: "fast"
+    },
     title: "Shared Codex",
     visible: true,
     workspaceId: "ws-1"
@@ -329,26 +339,28 @@ test("WorkspaceAgentActivityService.activateSession creates target-backed sessio
         source: "slash_command",
         status: "active"
       },
-      model: null,
+      browserUse: false,
+      model: "gpt-5",
       noProject: null,
-      permissionModeId: null,
-      planMode: null,
-      reasoningEffort: null,
-      speed: null,
+      permissionModeId: "auto",
+      planMode: true,
+      reasoningEffort: "high",
+      speed: "fast",
       title: "Shared Codex",
       visible: true
     }
   });
 });
 
-test("Desktop Engine applies activation results without a host-side Session dispatch", async () => {
+test("Desktop Engine applies activation results through its authoritative projection", async () => {
   const observedIntentTypes: string[] = [];
   const service = new WorkspaceAgentActivityService({
     tuttidClient: {
       createWorkspaceAgentSession: async () =>
         workspaceAgentSession({ status: "created" })
     } as unknown as TuttidClient,
-    runtimeApi: { logTerminalDiagnostic: async () => {} }
+    runtimeApi: { logTerminalDiagnostic: async () => {} },
+    sessionReplayEnabled: true
   });
   service.addSessionEngineActivityObserver("ws-1", {
     observeCommand() {},
@@ -373,7 +385,7 @@ test("Desktop Engine applies activation results without a host-side Session disp
   assert.ok(selectEngineSession(engine.getSnapshot(), "session-1"));
   assert.ok(observedIntentTypes.includes("activation/requested"));
   assert.ok(observedIntentTypes.includes("engine/commandResult"));
-  assert.equal(observedIntentTypes.includes("session/upserted"), false);
+  assert.equal(observedIntentTypes.includes("session/upserted"), true);
 });
 
 test("Desktop Engine activation reports a failed conversation provider from the shared create effect", async (t) => {
@@ -452,6 +464,23 @@ test("Desktop Engine activation reports a failed conversation provider from the 
     trigger: "conversation_start_failed",
     unavailable_reason: "not_authenticated"
   });
+  const activationNodeResult = reporterEvents.find(
+    (event) =>
+      event.name === "agent.node_result" &&
+      event.params?.node === "activate_session"
+  );
+  assert.deepEqual(
+    {
+      errorCode: activationNodeResult?.params?.error_code,
+      flow: activationNodeResult?.params?.flow,
+      status: activationNodeResult?.params?.status
+    },
+    {
+      errorCode: "agent_session_create_failed",
+      flow: "session_create",
+      status: "failure"
+    }
+  );
 });
 
 test("WorkspaceAgentActivityService does not report a cached availability snapshot when the forced refresh fails", async () => {
@@ -523,6 +552,7 @@ test("WorkspaceAgentActivityService confirms engine activation from the realtime
     capabilityRefs: [{ capability: "tutti", source: "slash_command" }],
     clientSubmitId: "submit-1",
     expiresAtUnixMs: requestedAtUnixMs + 45_000,
+    initialGoalControl: { action: "set", objective: "ship it" },
     mode: "new",
     initialTuttiModeActivation: {
       effect: 73,
@@ -544,6 +574,7 @@ test("WorkspaceAgentActivityService confirms engine activation from the realtime
     cwd: null,
     initialContent: [],
     initialDisplayPrompt: null,
+    initialGoalControl: { action: "set", objective: "ship it" },
     initialTuttiModeActivation: {
       effect: 73,
       speed: 61,
@@ -696,6 +727,42 @@ test("WorkspaceAgentActivityService reports session and message events from the 
       }
     ]
   );
+  assert.deepEqual(
+    reporterEvents
+      .filter((event) => event.name === "agent.node_result")
+      .map((event) => ({
+        flow: event.params?.flow,
+        node: event.params?.node,
+        status: event.params?.status
+      })),
+    [
+      {
+        flow: "session_create",
+        node: "activate_session",
+        status: "success"
+      },
+      {
+        flow: "session_create",
+        node: "session_started_reported",
+        status: "success"
+      },
+      {
+        flow: "session_create",
+        node: "message_sent_reported",
+        status: "success"
+      },
+      {
+        flow: "message_send",
+        node: "send_input_request",
+        status: "success"
+      },
+      {
+        flow: "message_send",
+        node: "message_sent_reported",
+        status: "success"
+      }
+    ]
+  );
 });
 
 test("WorkspaceAgentActivityService does not wait for pending activation analytics", async (t) => {
@@ -744,7 +811,7 @@ test("WorkspaceAgentActivityService does not wait for pending activation analyti
       ?.status,
     "active"
   );
-  assert.equal(analyticsCalls, 2);
+  assert.equal(analyticsCalls, 5);
 });
 
 test("WorkspaceAgentActivityService isolates rejected send analytics from the prompt command", async (t) => {
@@ -799,6 +866,63 @@ test("WorkspaceAgentActivityService isolates rejected send analytics from the pr
   assert.equal(
     selectEnginePromptQueue(engine.getSnapshot(), "session-1")?.inFlight,
     null
+  );
+});
+
+test("Desktop Engine preserves failed send node-result analytics", async (t) => {
+  const reporterEvents: ReporterEventInput[] = [];
+  const readySession = workspaceAgentSession({ status: "ready" });
+  const service = new WorkspaceAgentActivityService({
+    tuttidClient: {
+      listWorkspaceAgentSessions: async () => ({
+        hasMore: false,
+        sessions: [readySession],
+        workspaceId: "ws-1"
+      }),
+      sendWorkspaceAgentSessionInput: async () => {
+        throw new Error("send failed");
+      }
+    } as unknown as TuttidClient,
+    reporterService: {
+      async trackEvents(events) {
+        reporterEvents.push(...events);
+      }
+    },
+    runtimeApi: { logTerminalDiagnostic: async () => {} }
+  });
+  t.after(() => service.dispose());
+  const engine = service.getSessionEngine("ws-1");
+  await new Promise((resolve) => setImmediate(resolve));
+  const requestedAtUnixMs = Date.now();
+
+  engine.dispatch({
+    type: "submit/requested",
+    agentSessionId: "session-1",
+    clientSubmitId: "submit-failed",
+    content: [{ type: "text", text: "Continue" }],
+    expiresAtUnixMs: requestedAtUnixMs + 45_000,
+    requestedAtUnixMs,
+    workspaceId: "ws-1"
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const sendNodeResult = reporterEvents.find(
+    (event) =>
+      event.name === "agent.node_result" &&
+      event.params?.node === "send_input_request"
+  );
+  assert.deepEqual(
+    {
+      errorCode: sendNodeResult?.params?.error_code,
+      flow: sendNodeResult?.params?.flow,
+      status: sendNodeResult?.params?.status
+    },
+    {
+      errorCode: "agent_runtime_exec_failed",
+      flow: "message_send",
+      status: "failure"
+    }
   );
 });
 
@@ -910,9 +1034,15 @@ test("WorkspaceAgentActivityService does not reinterpret a failed Turn as activa
 test("WorkspaceAgentActivityService returns the authoritative canonical session after settings update", async () => {
   const controller = new AbortController();
   let requestSignal: AbortSignal | undefined;
+  let requestSettings: unknown = null;
   const updatedSession = workspaceAgentSession({
     provider: "claude-code",
-    settings: { model: "opus", planMode: true },
+    settings: {
+      browserUse: false,
+      computerUse: true,
+      model: "opus",
+      planMode: true
+    },
     status: "waiting"
   });
   const service = new WorkspaceAgentActivityService({
@@ -920,6 +1050,7 @@ test("WorkspaceAgentActivityService returns the authoritative canonical session 
       updateWorkspaceAgentSessionSettings: async (
         ...args: Parameters<TuttidClient["updateWorkspaceAgentSessionSettings"]>
       ) => {
+        requestSettings = args[2];
         requestSignal = args[3]?.signal ?? undefined;
         return updatedSession;
       }
@@ -930,13 +1061,28 @@ test("WorkspaceAgentActivityService returns the authoritative canonical session 
   const result = await service.updateSessionSettings({
     agentSessionId: "session-1",
     signal: controller.signal,
-    settings: { model: "opus", planMode: true },
+    settings: {
+      browserUse: false,
+      computerUse: true,
+      model: "opus",
+      planMode: true
+    },
     workspaceId: "ws-1"
   });
 
   assert.equal(result.agentSessionId, "session-1");
   assert.equal(requestSignal, controller.signal);
+  assert.deepEqual(requestSettings, {
+    browserUse: false,
+    model: "opus",
+    permissionModeId: null,
+    planMode: true,
+    reasoningEffort: null,
+    speed: null
+  });
   assert.deepEqual(result.settings, {
+    browserUse: false,
+    computerUse: true,
     model: "opus",
     permissionModeId: null,
     planMode: true,
@@ -947,9 +1093,89 @@ test("WorkspaceAgentActivityService returns the authoritative canonical session 
   assert.equal(result.session.agentSessionId, "session-1");
   assert.equal(result.session.provider, "claude-code");
   assert.deepEqual(result.session.settings, {
+    browserUse: false,
+    computerUse: true,
     model: "opus",
     planMode: true
   });
+});
+
+test("Desktop Engine preserves session settings analytics and diagnostics", async (t) => {
+  const reporterEvents: ReporterEventInput[] = [];
+  const terminalDiagnostics: unknown[] = [];
+  const previousSession = workspaceAgentSession({
+    settings: {
+      model: "gpt-5",
+      permissionModeId: "auto",
+      reasoningEffort: "medium"
+    },
+    status: "ready"
+  });
+  const updatedSession = workspaceAgentSession({
+    settings: {
+      model: "custom:local-model",
+      permissionModeId: "full-access",
+      reasoningEffort: "high"
+    },
+    status: "ready"
+  });
+  const service = new WorkspaceAgentActivityService({
+    tuttidClient: {
+      listWorkspaceAgentSessions: async () => ({
+        hasMore: false,
+        sessions: [previousSession],
+        workspaceId: "ws-1"
+      }),
+      updateWorkspaceAgentSessionSettings: async () => updatedSession
+    } as unknown as TuttidClient,
+    reporterNow: () => 1749124800000,
+    reporterService: {
+      async trackEvents(events) {
+        reporterEvents.push(...events);
+      }
+    },
+    runtimeApi: {
+      async logTerminalDiagnostic(input) {
+        terminalDiagnostics.push(input);
+      }
+    }
+  });
+  t.after(() => service.dispose());
+  await service.load("ws-1");
+
+  service.getSessionEngine("ws-1").updateSessionSettings({
+    agentSessionId: "session-1",
+    settings: {
+      model: "custom:local-model",
+      permissionModeId: "full-access",
+      reasoningEffort: "high"
+    }
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(
+    reporterEvents.map((event) => event.name),
+    [
+      "agent.settings.model_changed",
+      "agent.settings.permission_mode_changed",
+      "agent.settings.reasoning_effort_changed"
+    ]
+  );
+  assert.deepEqual(
+    terminalDiagnostics
+      .map((entry) => (entry as { event: string }).event)
+      .filter((event) => event.startsWith("agent.gui.composer_settings.")),
+    [
+      "agent.gui.composer_settings.update_requested",
+      "agent.gui.composer_settings.changed"
+    ]
+  );
+  assert.equal(
+    service.getSessionEngine("ws-1").getSnapshot().sessionLifecycle
+      .sessionsById["session-1"]?.settings?.model,
+    "custom:local-model"
+  );
 });
 
 test("WorkspaceAgentActivityService returns the authoritative canonical session after interactive submit", async () => {
@@ -3759,32 +3985,9 @@ test("WorkspaceAgentActivityService exposes durable AutomationRule session overr
   ]);
 });
 
-function createCollaborationService(
-  fetchStub: typeof fetch
-): WorkspaceAgentActivityService {
-  // The collaboration/model-plan requests call the generated SDK directly with
-  // a client built from getBackendConfig; the stubbed global fetch observes
-  // the raw HTTP request.
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = fetchStub;
-  test.after(() => {
-    globalThis.fetch = originalFetch;
-  });
-  return new WorkspaceAgentActivityService({
-    tuttidClient: {} as TuttidClient,
-    runtimeApi: {
-      getBackendConfig: async () => ({
-        accessToken: "token-1",
-        baseUrl: "http://127.0.0.1:7777"
-      }),
-      logTerminalDiagnostic: async () => {}
-    }
-  });
-}
-
 function collaborationRunResponseBody(
   overrides: Record<string, unknown> = {}
-): Record<string, unknown> {
+): CollaborationRun {
   return {
     id: "run-1",
     workspaceId: "ws-1",
@@ -3803,39 +4006,42 @@ function collaborationRunResponseBody(
     createdAt: "2026-07-12T00:00:00.000Z",
     updatedAt: "2026-07-12T00:00:05.200Z",
     ...overrides
-  };
+  } as CollaborationRun;
 }
 
-test("WorkspaceAgentActivityService.setCollaborationAdoption posts the adoption decision", async () => {
-  const observedRequests: Array<{ body: unknown; url: string }> = [];
-  const service = createCollaborationService((async (
-    input: RequestInfo | URL,
-    init?: RequestInit
-  ) => {
-    const request = new Request(input, init);
-    observedRequests.push({ body: await request.json(), url: request.url });
-    return new Response(
-      JSON.stringify(collaborationRunResponseBody({ adoption: "adopted" })),
-      {
-        headers: { "Content-Type": "application/json" },
-        status: 200
+test("WorkspaceAgentActivityService.setCollaborationAdoption delegates to the canonical tuttid client", async () => {
+  const calls: Parameters<TuttidClient["setCollaborationRunAdoption"]>[] = [];
+  const abortController = new AbortController();
+  const service = new WorkspaceAgentActivityService({
+    tuttidClient: {
+      async setCollaborationRunAdoption(
+        ...args: Parameters<TuttidClient["setCollaborationRunAdoption"]>
+      ) {
+        calls.push(args);
+        return collaborationRunResponseBody({ adoption: "adopted" });
       }
-    );
-  }) as typeof fetch);
+    } as unknown as TuttidClient,
+    runtimeApi: { logTerminalDiagnostic: async () => {} }
+  });
 
   const run = await service.setCollaborationAdoption({
     adoption: "adopted",
     agentSessionId: "session-1",
     runId: "run-1",
-    workspaceId: "ws-1"
+    signal: abortController.signal,
+    workspaceId: " ws-1 "
   });
 
-  assert.equal(
-    observedRequests[0]?.url,
-    "http://127.0.0.1:7777/v1/workspaces/ws-1/collaboration-runs/run-1/adoption"
-  );
-  assert.deepEqual(observedRequests[0]?.body, { adoption: "adopted" });
+  assert.deepEqual(calls, [
+    [
+      "ws-1",
+      "run-1",
+      { adoption: "adopted" },
+      { signal: abortController.signal }
+    ]
+  ]);
   assert.equal(run.adoption, "adopted");
+  assert.equal(run.workspaceId, "ws-1");
 });
 
 test("WorkspaceAgentActivityService engine owns edit retry and authoritative reconcile", async () => {
@@ -4082,5 +4288,142 @@ test("WorkspaceAgentActivityService retries a transient edit-retry projection fa
       .sessionMessagesById["session-1"]?.map((message) => message.messageId),
     ["replacement-answer"]
   );
+  service.dispose();
+});
+
+function activityRecorderHarness() {
+  const appended: { recordingId: string; types: string[] }[] = [];
+  const service = new WorkspaceAgentActivityService({
+    tuttidClient: {
+      appendAgentSessionRecordingActivityEvents: async (
+        _workspaceId: string,
+        recordingId: string,
+        body: { events: { type: string }[] }
+      ) => {
+        appended.push({
+          recordingId,
+          types: body.events.map((event) => event.type)
+        });
+      },
+      listWorkspaceAgentSessions: async () => ({
+        hasMore: false,
+        sessions: [],
+        workspaceId: "ws-1"
+      })
+    } as unknown as TuttidClient,
+    runtimeApi: { logTerminalDiagnostic: async () => {} },
+    sessionReplayEnabled: true
+  });
+  const getRecorders = () =>
+    (
+      service as unknown as {
+        sessionActivityEventRecorders: Map<string, unknown> | null;
+      }
+    ).sessionActivityEventRecorders;
+  return { appended, getRecorders, service };
+}
+
+test("WorkspaceAgentActivityService disabled composition creates no replay state", async () => {
+  const service = new WorkspaceAgentActivityService({
+    tuttidClient: {
+      listWorkspaceAgentSessions: async () => ({
+        hasMore: false,
+        sessions: [],
+        workspaceId: "ws-1"
+      })
+    } as unknown as TuttidClient,
+    runtimeApi: { logTerminalDiagnostic: async () => {} }
+  });
+  const engine = service.getSessionEngine("ws-1");
+  await service.load("ws-1");
+  engine.dispatch({
+    agentSessionId: "session-1",
+    promptId: "prompt-idle",
+    type: "queue/removed"
+  });
+
+  const replayState = service as unknown as {
+    sessionActivityEventRecorders: Map<string, unknown> | null;
+    sessionEngineActivityObservers: Map<string, unknown> | null;
+    sessionRecordingBinding: unknown | null;
+  };
+  assert.equal(replayState.sessionActivityEventRecorders, null);
+  assert.equal(replayState.sessionEngineActivityObservers, null);
+  assert.equal(replayState.sessionRecordingBinding, null);
+  assert.throws(
+    () => service.startSessionActivityEventRecording("ws-1", "recording-1"),
+    /agent_session_replay_not_composed/
+  );
+  service.dispose();
+});
+
+test("WorkspaceAgentActivityService keeps enabled observer state lazy without a recording", async () => {
+  const { appended, getRecorders, service } = activityRecorderHarness();
+  const observedIntentTypes: string[] = [];
+  const removeObserver = service.addSessionEngineActivityObserver("ws-1", {
+    observeCommand: () => {},
+    observeIntent: (intent) => {
+      observedIntentTypes.push(intent.type);
+    }
+  });
+  const engine = service.getSessionEngine("ws-1");
+  await service.load("ws-1");
+
+  engine.dispatch({
+    agentSessionId: "session-1",
+    promptId: "prompt-idle",
+    type: "queue/removed"
+  });
+
+  assert.equal(getRecorders(), null);
+  assert.equal(observedIntentTypes.includes("queue/removed"), true);
+  assert.deepEqual(appended, []);
+  removeObserver();
+  service.dispose();
+});
+
+test("WorkspaceAgentActivityService constructs the recorder at start and drops it after seal or discard", async () => {
+  const { appended, getRecorders, service } = activityRecorderHarness();
+  const engine = service.getSessionEngine("ws-1");
+  await service.load("ws-1");
+
+  engine.dispatch({
+    agentSessionId: "session-1",
+    promptId: "prompt-before",
+    type: "queue/removed"
+  });
+  assert.equal(getRecorders(), null);
+
+  service.startSessionActivityEventRecording("ws-1", "recording-1");
+  assert.equal(getRecorders()?.size, 1);
+  engine.dispatch({
+    agentSessionId: "session-1",
+    promptId: "prompt-recorded",
+    type: "queue/removed"
+  });
+  await service.sealSessionActivityEventRecording("ws-1", "recording-1");
+
+  assert.equal(getRecorders(), null);
+  assert.deepEqual(
+    appended.flatMap((batch) => batch.types),
+    ["queue/removed"]
+  );
+  assert.equal(
+    appended.every((batch) => batch.recordingId === "recording-1"),
+    true
+  );
+
+  service.startSessionActivityEventRecording("ws-1", "recording-2");
+  assert.equal(getRecorders()?.size, 1);
+  service.discardSessionActivityEventRecording("ws-1", "recording-2");
+  assert.equal(getRecorders(), null);
+
+  engine.dispatch({
+    agentSessionId: "session-1",
+    promptId: "prompt-after",
+    type: "queue/removed"
+  });
+  assert.equal(getRecorders(), null);
+  assert.equal(appended.length, 1);
   service.dispose();
 });

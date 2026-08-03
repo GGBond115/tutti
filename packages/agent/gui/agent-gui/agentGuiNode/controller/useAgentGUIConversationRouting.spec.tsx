@@ -4,13 +4,16 @@ import {
   selectEngineSessionReconcile
 } from "@tutti-os/agent-activity-core";
 import { describe, expect, it, vi } from "vitest";
+import { createTestEngineCommandPort } from "../../../shared/testing/createTestAgentSessionEngine";
 import { useAgentGUIConversationRouting } from "./useAgentGUIConversationRouting";
 
 describe("useAgentGUIConversationRouting", () => {
   it("keeps an explicitly selected active session outside bounded rail state", () => {
     const sessionEngine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => undefined },
+      commandPort: createTestEngineCommandPort({
+        execute: async () => undefined
+      }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -43,7 +46,9 @@ describe("useAgentGUIConversationRouting", () => {
   it("reconciles a persisted selection outside the bounded list after restart", () => {
     const sessionEngine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => undefined },
+      commandPort: createTestEngineCommandPort({
+        execute: async () => undefined
+      }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -86,7 +91,9 @@ describe("useAgentGUIConversationRouting", () => {
     (intentTag) => {
       const sessionEngine = createAgentSessionEngine({
         clock: { nowUnixMs: () => 1 },
-        commandPort: { execute: () => new Promise(() => {}) },
+        commandPort: createTestEngineCommandPort({
+          execute: () => new Promise(() => {})
+        }),
         identity: { origin: "test", workspaceId: "workspace-1" },
         scheduler: { schedule: () => ({ cancel() {} }) }
       });

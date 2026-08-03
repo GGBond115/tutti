@@ -1,7 +1,7 @@
 import { memo, useMemo, type JSX } from "react";
 import type { I18nRuntime } from "@tutti-os/ui-i18n-runtime";
 import { TooltipProvider } from "@tutti-os/ui-system";
-import type { AgentActivityRuntime } from "./agentActivityRuntime";
+import type { AgentGUIRuntime } from "./agentActivityRuntime";
 import type { AgentHostInputApi } from "./host/agentHostApi";
 import type {
   AgentGUIAgentDirectorySnapshot,
@@ -17,7 +17,7 @@ import {
   AgentGUINode,
   type AgentGUINodeProps
 } from "./agent-gui/agentGuiNode/AgentGUINode";
-import { AgentActivityHostProvider } from "./agentActivityHost";
+import { AgentGUIActivityHostProvider } from "./agentActivityHost";
 import { AgentGuiI18nProvider, type AgentGuiI18nLocale } from "./i18n/index";
 import {
   TuttiModePlanReviewRuntimeProvider,
@@ -56,7 +56,7 @@ export interface AgentGUIProps extends Omit<
   handoffAgentDirectory?: AgentGUIAgentDirectorySnapshot;
   allAgentsPresentation?: AgentGUIAllAgentsPresentation | null;
   renderAgentsEmpty?: AgentGUIAgentsEmptyRenderer;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   agentHostApi?: AgentHostInputApi | null;
   tuttiModePlanReviewRuntime?: TuttiModePlanReviewRuntime | null;
   /** Starter entries to hide below the empty new-session composer. */
@@ -154,7 +154,7 @@ export const AgentGUI = memo(function AgentGUI({
   const content = (
     <AgentGuiI18nProvider runtime={i18n} locale={locale}>
       <TuttiModePlanReviewRuntimeProvider runtime={tuttiModePlanReviewRuntime}>
-        <AgentActivityHostProvider
+        <AgentGUIActivityHostProvider
           agentActivityRuntime={agentActivityRuntime}
           agentHostApi={agentHostApi}
         >
@@ -163,7 +163,7 @@ export const AgentGUI = memo(function AgentGUI({
           >
             <AgentGUINode {...nodeProps} />
           </AgentVisibleErrorPresentationProvider>
-        </AgentActivityHostProvider>
+        </AgentGUIActivityHostProvider>
       </TuttiModePlanReviewRuntimeProvider>
     </AgentGuiI18nProvider>
   );

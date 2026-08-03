@@ -39,6 +39,7 @@ export {
   type WorkspaceAppManifestWindowMinimizeBehavior
 } from "./manifest.ts";
 export {
+  type WorkspaceAppCategoryId,
   type WorkspaceAppCatalogEntry,
   type WorkspaceAppCatalogLocalization,
   type WorkspaceAppCatalogSource,

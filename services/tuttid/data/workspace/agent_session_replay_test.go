@@ -8,14 +8,31 @@ import (
 	agentsessionreplay "github.com/tutti-os/tutti/services/tuttid/service/agentsessionreplay"
 )
 
-func TestAgentSessionReplayMetadataPersistsOneCassetteAndManyRuns(t *testing.T) {
+func TestAgentSessionReplayMetadataPersistsRecordingAndCassette(t *testing.T) {
 	store := openTestSQLiteStore(t)
 	ctx := context.Background()
+	var obsoleteTableCount int
+	if err := store.readDB.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM sqlite_master
+WHERE type = 'table' AND name = 'agent_session_replay_runs'
+`).Scan(&obsoleteTableCount); err != nil {
+		t.Fatal(err)
+	}
+	if obsoleteTableCount != 0 {
+		t.Fatal("fresh Replay schema created the obsolete replay table")
+	}
 	recording := agentsessionreplay.Recording{
-		ID:                 "recording-1",
-		Name:               "2026-07-28T10:00:00.000Z",
-		ScopeID:            "workspace-1",
-		AgentTargetID:      "local:codex",
+		ID:            "recording-1",
+		Name:          "2026-07-28T10:00:00.000Z",
+		ScopeID:       "workspace-1",
+		AgentTargetID: "local:codex",
+		ReplayPrerequisites: agentsessionreplay.ReplayPrerequisites{
+			ComposerDefaults: agentsessionreplay.ReplayComposerDefaults{
+				Model: "gpt-5.4", PermissionModeID: "default",
+				ReasoningEffort: "medium", Speed: "normal",
+			},
+		},
 		Mode:               agentsessionreplay.ScenarioModeCreateSession,
 		RootAgentSessionID: "session-1",
 		Status:             agentsessionreplay.StatusRecording,
@@ -29,7 +46,9 @@ func TestAgentSessionReplayMetadataPersistsOneCassetteAndManyRuns(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotRecording.ArtifactKey != "" || gotRecording.Status != agentsessionreplay.StatusRecording {
+	if gotRecording.ArtifactKey != "" ||
+		gotRecording.Status != agentsessionreplay.StatusRecording ||
+		gotRecording.ReplayPrerequisites != recording.ReplayPrerequisites {
 		t.Fatalf("recording = %#v", gotRecording)
 	}
 
@@ -41,7 +60,6 @@ func TestAgentSessionReplayMetadataPersistsOneCassetteAndManyRuns(t *testing.T) 
 		ID:                 recording.CassetteID,
 		Name:               recording.Name,
 		SourceRecordingID:  recording.ID,
-		ScopeID:            recording.ScopeID,
 		AgentTargetID:      recording.AgentTargetID,
 		RootAgentSessionID: recording.RootAgentSessionID,
 		Mode:               recording.Mode,
@@ -79,29 +97,6 @@ func TestAgentSessionReplayMetadataPersistsOneCassetteAndManyRuns(t *testing.T) 
 		gotCassette.ManifestSHA256 != cassette.ManifestSHA256 {
 		t.Fatalf("recording=%#v cassette=%#v", gotRecording, gotCassette)
 	}
-
-	for index, status := range []agentsessionreplay.ReplayRunStatus{
-		agentsessionreplay.ReplayRunStatusComplete,
-		agentsessionreplay.ReplayRunStatusFailed,
-	} {
-		run := agentsessionreplay.ReplayRun{
-			ID:              "run-" + string(rune('1'+index)),
-			CassetteID:      cassette.ID,
-			Status:          status,
-			CreatedAtUnixMS: int64(40 + index),
-			UpdatedAtUnixMS: int64(40 + index),
-		}
-		if err := store.PutReplayRun(ctx, run); err != nil {
-			t.Fatal(err)
-		}
-	}
-	runs, err := store.ListReplayRuns(ctx, cassette.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(runs) != 2 || runs[0].CassetteID != cassette.ID || runs[1].CassetteID != cassette.ID {
-		t.Fatalf("runs = %#v", runs)
-	}
 }
 
 func TestAgentSessionReplayMetadataReturnsDomainNotFoundErrors(t *testing.T) {
@@ -112,9 +107,6 @@ func TestAgentSessionReplayMetadataReturnsDomainNotFoundErrors(t *testing.T) {
 	}
 	if _, err := store.GetCassette(ctx, "missing"); !errors.Is(err, agentsessionreplay.ErrCassetteNotFound) {
 		t.Fatalf("GetCassette() error = %v", err)
-	}
-	if _, err := store.GetReplayRun(ctx, "missing"); !errors.Is(err, agentsessionreplay.ErrReplayRunNotFound) {
-		t.Fatalf("GetReplayRun() error = %v", err)
 	}
 }
 
@@ -146,5 +138,35 @@ func TestAgentSessionReplayMetadataDeletesCanceledRecording(t *testing.T) {
 	}
 	if len(recordings) != 0 {
 		t.Fatalf("recordings = %#v", recordings)
+	}
+}
+
+func TestAgentSessionReplayMetadataDeletesRecordingAndCassette(t *testing.T) {
+	store := openTestSQLiteStore(t)
+	ctx := context.Background()
+	recording := agentsessionreplay.Recording{
+		ID: "recording-1", Name: "checkout", CassetteID: "cassette-1",
+		ScopeID: "workspace-1", AgentTargetID: "local:codex",
+		Mode:   agentsessionreplay.ScenarioModeCreateSession,
+		Status: agentsessionreplay.StatusComplete, CreatedAtUnixMS: 10,
+		UpdatedAtUnixMS: 10,
+	}
+	cassette := agentsessionreplay.Cassette{
+		ID: "cassette-1", Name: "checkout", SourceRecordingID: recording.ID,
+		AgentTargetID:      recording.AgentTargetID,
+		RootAgentSessionID: "session-1", Mode: recording.Mode,
+		CreatedAtUnixMS: 10,
+	}
+	if err := store.PublishCassette(ctx, recording, cassette); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteRecording(ctx, recording.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetRecording(ctx, recording.ID); !errors.Is(err, agentsessionreplay.ErrNotFound) {
+		t.Fatalf("GetRecording() error = %v", err)
+	}
+	if _, err := store.GetCassette(ctx, cassette.ID); !errors.Is(err, agentsessionreplay.ErrCassetteNotFound) {
+		t.Fatalf("GetCassette() error = %v", err)
 	}
 }

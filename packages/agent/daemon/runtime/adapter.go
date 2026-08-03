@@ -2,9 +2,11 @@ package agentruntime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
+	sessionreplay "github.com/tutti-os/tutti/packages/agent/session-replay"
 )
 
 var ErrLiveSessionBusy = errors.New("agent live session is busy")
@@ -15,6 +17,7 @@ type ProcessSpec struct {
 	RootAgentSessionID string
 	RoomID             string
 	CWD                string
+	ProtocolCWD        string
 	Command            []string
 	Env                []string
 	DirectStart        bool
@@ -30,10 +33,13 @@ type ExecutableIdentity struct {
 }
 
 type ProcessFrame struct {
-	Stdout   []byte
-	Stderr   []byte
-	ExitCode *int
-	Message  string
+	Stdout       []byte
+	Stderr       []byte
+	ExitCode     *int
+	Message      string
+	RecordingID  string
+	ConnectionID string
+	ChunkSeq     uint64
 }
 
 type ProcessConnection interface {
@@ -42,12 +48,66 @@ type ProcessConnection interface {
 	Close() error
 }
 
+// ProcessCassetteCheckpointConnection is implemented by replay connections so
+// provider adapters can distinguish a cold process tape from capture attached
+// to an already initialized live provider connection.
+type ProcessCassetteCheckpointConnection interface {
+	ProcessConnection
+	ProcessCassetteCaptureOrigin() ProcessCassetteCaptureOrigin
+}
+
+func processCassetteCaptureOrigin(
+	connection ProcessConnection,
+) ProcessCassetteCaptureOrigin {
+	checkpoint, ok := connection.(ProcessCassetteCheckpointConnection)
+	if !ok {
+		return ""
+	}
+	return checkpoint.ProcessCassetteCaptureOrigin()
+}
+
 // ContextProcessConnection lets protocol readers stop waiting for output
 // without terminating the provider process. Long-lived provider startups use
 // this to detach a UI request timeout from the process lifecycle.
 type ContextProcessConnection interface {
 	ProcessConnection
 	RecvContext(context.Context) (ProcessFrame, error)
+}
+
+// ProviderInputUnitCompletion is the decoder-to-transport barrier. Recording
+// uses it to anchor semantic observations to transport positions. Replay uses
+// it to hold a connection after a complete input unit has been handled.
+type ProviderInputUnitCompletion interface {
+	CompleteProviderInputUnit(context.Context, ProviderInputUnit) error
+}
+
+// ProviderInputUnitTrackingTransport marks transports whose connections emit
+// stable process positions for recording or deterministic replay.
+type ProviderInputUnitTrackingTransport interface {
+	TracksProviderInputUnits() bool
+}
+
+type ProviderInputUnit struct {
+	RecordingID string
+	Position    sessionreplay.ProviderUnitPosition
+	Kind        sessionreplay.ProviderInputUnitKind
+}
+
+type providerInputUnitContextKey struct{}
+
+func contextWithProviderInputUnit(
+	ctx context.Context,
+	unit ProviderInputUnit,
+) context.Context {
+	return context.WithValue(ctx, providerInputUnitContextKey{}, unit)
+}
+
+func ProviderInputUnitFromContext(ctx context.Context) (ProviderInputUnit, bool) {
+	if ctx == nil {
+		return ProviderInputUnit{}, false
+	}
+	unit, ok := ctx.Value(providerInputUnitContextKey{}).(ProviderInputUnit)
+	return unit, ok
 }
 
 type GracefulProcessConnection interface {
@@ -82,6 +142,19 @@ type Adapter interface {
 type SessionForkAdapter interface {
 	ForkCapabilities(context.Context, Session) (SessionForkCapabilities, error)
 	Fork(context.Context, SessionForkInput) (SessionForkResult, error)
+}
+
+// ProviderTurnBindingAdapter owns the provider-specific Turn binding payload.
+// The host and store persist ProviderTurnBindingJSON opaquely and never infer
+// forkability from provider-specific fields.
+type ProviderTurnBindingAdapter interface {
+	WriteProviderTurnBinding(
+		ProviderTurnBindingWriteInput,
+	) (json.RawMessage, error)
+	CanForkProviderTurn(
+		context.Context,
+		ProviderTurnForkabilityInput,
+	) (bool, error)
 }
 
 type ProviderTurnBindingRecoveryAdapter interface {
@@ -131,6 +204,7 @@ type ProviderAcceptanceExecAdapter interface {
 		EventSink,
 		CommandSnapshotSink,
 		ProviderDispatchSink,
+		ProviderAcceptanceBarrier,
 	) ([]activityshared.Event, error)
 }
 
@@ -163,6 +237,12 @@ type HistoryReplacementExecInput struct {
 // DispatchDispositionAppliedWithoutProviderTurn. Implementations must report
 // exactly once before a typed execution method returns.
 type ProviderDispatchSink func(ProviderDispatchResult)
+
+// ProviderAcceptanceBarrier durably binds the canonical Turn to the exact
+// provider session and provider Turn before the adapter exposes any event that
+// depends on that identity. Implementations must call it synchronously on the
+// provider event path and stop event publication when it fails.
+type ProviderAcceptanceBarrier func(ProviderAcceptanceReceipt) error
 
 // EffectiveHistoryAdapter is the complete provider capability required by
 // edit-retry: authoritative history reads, rollback, and a fresh replacement
@@ -263,8 +343,9 @@ type GoalProvenanceDurableSinkAdapter interface {
 }
 
 type ProviderGoalAdoptionRequest struct {
-	Fingerprint string
-	Goal        map[string]any
+	Fingerprint      string
+	ExpectedRevision int64
+	Goal             map[string]any
 }
 
 type ProviderGoalAdoptionSink func(context.Context, Session, ProviderGoalAdoptionRequest) (GoalProvenanceBinding, error)

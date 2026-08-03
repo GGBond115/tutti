@@ -21,13 +21,15 @@ var (
 type SessionRecordingProcessTransport struct {
 	base ProcessTransport
 
-	mu          sync.Mutex
-	recording   *sessionRecording
-	connections map[*sessionRecordingProcessConnection]ProcessSpec
+	mu            sync.Mutex
+	recording     *sessionRecording
+	connections   map[*sessionRecordingProcessConnection]ProcessSpec
+	inputUnitSink func(ProviderInputUnit) error
 }
 
 type sessionRecording struct {
 	rootAgentSessionID string
+	recordingID        string
 	writer             *processCassetteWriter
 	connections        map[*sessionRecordingProcessConnection]struct{}
 }
@@ -42,10 +44,16 @@ func NewSessionRecordingProcessTransport(base ProcessTransport) (*SessionRecordi
 	}, nil
 }
 
-func (t *SessionRecordingProcessTransport) Arm(rootAgentSessionID, directory string) error {
+func (t *SessionRecordingProcessTransport) Arm(
+	rootAgentSessionID, recordingID, directory string,
+) error {
 	rootAgentSessionID = normalizeProcessCassetteIdentity(rootAgentSessionID)
 	if rootAgentSessionID == "" {
 		return errors.New("root agent session id is required")
+	}
+	recordingID = strings.TrimSpace(recordingID)
+	if recordingID == "" {
+		return errors.New("recording id is required")
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -58,6 +66,7 @@ func (t *SessionRecordingProcessTransport) Arm(rootAgentSessionID, directory str
 	}
 	t.recording = &sessionRecording{
 		rootAgentSessionID: rootAgentSessionID,
+		recordingID:        recordingID,
 		writer:             writer,
 		connections:        map[*sessionRecordingProcessConnection]struct{}{},
 	}
@@ -65,7 +74,12 @@ func (t *SessionRecordingProcessTransport) Arm(rootAgentSessionID, directory str
 		if rootProcessSessionID(spec) != rootAgentSessionID {
 			continue
 		}
-		if err := connection.attachCapture(writer, spec); err != nil {
+		if err := connection.attachCapture(
+			recordingID,
+			writer,
+			spec,
+			ProcessCassetteCaptureOriginAttachedLiveConnection,
+		); err != nil {
 			for attached := range t.recording.connections {
 				_ = attached.detachCapture()
 			}
@@ -89,6 +103,15 @@ func (t *SessionRecordingProcessTransport) Start(
 
 	wrapped := &sessionRecordingProcessConnection{
 		base: connection,
+		inputUnitSink: func(unit ProviderInputUnit) error {
+			t.mu.Lock()
+			sink := t.inputUnitSink
+			t.mu.Unlock()
+			if sink == nil {
+				return nil
+			}
+			return sink(unit)
+		},
 	}
 	wrapped.onClose = func() {
 		t.mu.Lock()
@@ -99,7 +122,12 @@ func (t *SessionRecordingProcessTransport) Start(
 	t.connections[wrapped] = spec
 	recording := t.recording
 	if recording != nil && rootProcessSessionID(spec) == recording.rootAgentSessionID {
-		if startErr := wrapped.attachCapture(recording.writer, spec); startErr != nil {
+		if startErr := wrapped.attachCapture(
+			recording.recordingID,
+			recording.writer,
+			spec,
+			ProcessCassetteCaptureOriginProcessStart,
+		); startErr != nil {
 			delete(t.connections, wrapped)
 			t.recording = nil
 			t.mu.Unlock()
@@ -111,6 +139,17 @@ func (t *SessionRecordingProcessTransport) Start(
 	}
 	t.mu.Unlock()
 	return wrapped, nil
+}
+
+func (t *SessionRecordingProcessTransport) SetProviderInputUnitSink(
+	sink func(ProviderInputUnit) error,
+) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.inputUnitSink = sink
 }
 
 func (t *SessionRecordingProcessTransport) ReplayPlaybackState() (ReplayPlaybackState, error) {
@@ -236,27 +275,31 @@ func rootProcessSessionID(spec ProcessSpec) string {
 }
 
 type sessionRecordingProcessConnection struct {
-	base    ProcessConnection
-	onClose func()
+	base          ProcessConnection
+	onClose       func()
+	inputUnitSink func(ProviderInputUnit) error
 
 	mu      sync.Mutex
 	capture *sessionProcessCapture
 }
 
 func (c *sessionRecordingProcessConnection) attachCapture(
+	recordingID string,
 	writer *processCassetteWriter,
 	spec ProcessSpec,
+	captureOrigin ProcessCassetteCaptureOrigin,
 ) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.capture != nil {
 		return errors.New("process connection is already being recorded")
 	}
-	connectionID, err := writer.start(spec)
+	connectionID, err := writer.start(spec, captureOrigin)
 	if err != nil {
 		return err
 	}
 	c.capture = &sessionProcessCapture{
+		recordingID:  recordingID,
 		connectionID: connectionID,
 		startedAt:    time.Now(),
 		writer:       writer,
@@ -265,6 +308,7 @@ func (c *sessionRecordingProcessConnection) attachCapture(
 }
 
 type sessionProcessCapture struct {
+	recordingID  string
 	connectionID string
 	startedAt    time.Time
 	writer       *processCassetteWriter
@@ -275,7 +319,8 @@ func (c *sessionRecordingProcessConnection) Send(data []byte) error {
 	if err := c.base.Send(data); err != nil {
 		return err
 	}
-	return c.record("outbound", data, ProcessFrame{})
+	_, _, _, err := c.record("outbound", data, ProcessFrame{})
+	return err
 }
 
 func (c *sessionRecordingProcessConnection) Recv() (ProcessFrame, error) {
@@ -283,9 +328,13 @@ func (c *sessionRecordingProcessConnection) Recv() (ProcessFrame, error) {
 	if err != nil {
 		return ProcessFrame{}, err
 	}
-	if err := c.record("", nil, frame); err != nil {
+	recordingID, connectionID, chunkSeq, err := c.record("", nil, frame)
+	if err != nil {
 		return ProcessFrame{}, err
 	}
+	frame.RecordingID = recordingID
+	frame.ConnectionID = connectionID
+	frame.ChunkSeq = chunkSeq
 	return frame, nil
 }
 
@@ -298,9 +347,13 @@ func (c *sessionRecordingProcessConnection) RecvContext(ctx context.Context) (Pr
 	if err != nil {
 		return ProcessFrame{}, err
 	}
-	if err := c.record("", nil, frame); err != nil {
+	recordingID, connectionID, chunkSeq, err := c.record("", nil, frame)
+	if err != nil {
 		return ProcessFrame{}, err
 	}
+	frame.RecordingID = recordingID
+	frame.ConnectionID = connectionID
+	frame.ChunkSeq = chunkSeq
 	return frame, nil
 }
 
@@ -308,11 +361,11 @@ func (c *sessionRecordingProcessConnection) record(
 	kind string,
 	data []byte,
 	frame ProcessFrame,
-) error {
+) (string, string, uint64, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.capture == nil {
-		return nil
+		return "", "", 0, nil
 	}
 	c.capture.chunkSeq++
 	var (
@@ -335,11 +388,26 @@ func (c *sessionRecordingProcessConnection) record(
 			frame,
 		)
 		if err != nil {
-			return err
+			return "", "", 0, err
 		}
 	}
 	if err := c.capture.writer.append(chunk); err != nil {
-		return fmt.Errorf("record process %s chunk: %w", chunk.Kind, err)
+		return "", "", 0, fmt.Errorf("record process %s chunk: %w", chunk.Kind, err)
+	}
+	return c.capture.recordingID, c.capture.connectionID, c.capture.chunkSeq, nil
+}
+
+func (c *sessionRecordingProcessConnection) CompleteProviderInputUnit(
+	ctx context.Context,
+	unit ProviderInputUnit,
+) error {
+	if c.inputUnitSink != nil && unit.Position.ConnectionID != "" {
+		if err := c.inputUnitSink(unit); err != nil {
+			return err
+		}
+	}
+	if completion, ok := c.base.(ProviderInputUnitCompletion); ok {
+		return completion.CompleteProviderInputUnit(ctx, unit)
 	}
 	return nil
 }

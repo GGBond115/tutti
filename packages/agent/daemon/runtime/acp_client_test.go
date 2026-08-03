@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	sessionreplay "github.com/tutti-os/tutti/packages/agent/session-replay"
 )
 
 func TestACPClientCallSerializesConcurrentRequests(t *testing.T) {
@@ -306,6 +308,82 @@ func TestACPClientDispatchLineFinishesAfterConsecutiveProtocolErrorsWithOutputTa
 	}
 }
 
+func TestACPClientCompletesTwoProtocolUnitsFromOneFrame(t *testing.T) {
+	t.Parallel()
+
+	connection := &inputUnitTestConnection{
+		frames: []ProcessFrame{{
+			ConnectionID: "connection-1",
+			ChunkSeq:     7,
+			Stdout: []byte(
+				"{\"jsonrpc\":\"2.0\",\"method\":\"first\"}\n" +
+					"{\"jsonrpc\":\"2.0\",\"method\":\"second\"}\n",
+			),
+		}},
+	}
+	client := newACPClientWithStderrMessageMapper(connection, nil)
+	client.SetMessageHandler(func(context.Context, acpMessage) error { return nil })
+	<-client.Done()
+
+	if len(connection.units) != 2 {
+		t.Fatalf("input units = %#v, want 2", connection.units)
+	}
+	for index, unit := range connection.units {
+		if unit.Kind != sessionreplay.ProviderInputUnitProtocolMessage ||
+			unit.Position.ConnectionID != "connection-1" ||
+			unit.Position.ChunkSeq != 7 ||
+			unit.Position.UnitIndex != uint64(index+1) {
+			t.Fatalf("input unit %d = %#v", index, unit)
+		}
+	}
+}
+
+func TestACPClientCompletesMappedStderrAndProcessExitUnits(t *testing.T) {
+	t.Parallel()
+
+	exitCode := 9
+	connection := &inputUnitTestConnection{
+		frames: []ProcessFrame{
+			{
+				ConnectionID: "connection-2",
+				ChunkSeq:     3,
+				Stderr:       []byte("mapped"),
+			},
+			{
+				ConnectionID: "connection-2",
+				ChunkSeq:     4,
+				ExitCode:     &exitCode,
+			},
+		},
+	}
+	client := newACPClientWithStderrMessageMapper(
+		connection,
+		func([]byte) (acpMessage, bool) {
+			return acpMessage{JSONRPC: "2.0", Method: "mapped"}, true
+		},
+	)
+	client.SetMessageHandler(func(context.Context, acpMessage) error { return nil })
+	<-client.Done()
+
+	if len(connection.units) != 2 {
+		t.Fatalf("input units = %#v, want 2", connection.units)
+	}
+	if connection.units[0].Kind != sessionreplay.ProviderInputUnitMappedStderr ||
+		connection.units[0].Position.ChunkSeq != 3 ||
+		connection.units[1].Kind != sessionreplay.ProviderInputUnitProcessExit ||
+		connection.units[1].Position.ChunkSeq != 4 {
+		t.Fatalf("input units = %#v", connection.units)
+	}
+	exitUnit, ok := providerInputUnitFromError(client.Err())
+	if !ok ||
+		exitUnit.Kind != sessionreplay.ProviderInputUnitProcessExit ||
+		exitUnit.Position.ConnectionID != "connection-2" ||
+		exitUnit.Position.ChunkSeq != 4 ||
+		exitUnit.Position.UnitIndex != 1 {
+		t.Fatalf("process exit error unit = %#v, ok=%v", exitUnit, ok)
+	}
+}
+
 func newTestACPClientForDispatchLine() *acpClient {
 	return &acpClient{
 		pending: make(map[int64]*acpPendingCall),
@@ -324,6 +402,37 @@ func assertACPClientNotDone(t *testing.T, client *acpClient) {
 
 type acpClientTestConnection struct {
 	send func([]byte) error
+}
+
+type inputUnitTestConnection struct {
+	mu     sync.Mutex
+	frames []ProcessFrame
+	units  []ProviderInputUnit
+}
+
+func (*inputUnitTestConnection) Send([]byte) error { return nil }
+
+func (c *inputUnitTestConnection) Recv() (ProcessFrame, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.frames) == 0 {
+		return ProcessFrame{}, io.EOF
+	}
+	frame := c.frames[0]
+	c.frames = c.frames[1:]
+	return frame, nil
+}
+
+func (*inputUnitTestConnection) Close() error { return nil }
+
+func (c *inputUnitTestConnection) CompleteProviderInputUnit(
+	_ context.Context,
+	unit ProviderInputUnit,
+) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.units = append(c.units, unit)
+	return nil
 }
 
 func (c acpClientTestConnection) Send(data []byte) error {

@@ -13,7 +13,11 @@ import {
   desktopErrorCodes,
   formatErrorMessage
 } from "../../shared/errors/desktopErrors.ts";
-import { getDesktopLogger, getDesktopLogSessionID } from "../logging.ts";
+import {
+  createBestEffortProcessSink,
+  getDesktopLogger,
+  getDesktopLogSessionID
+} from "../logging.ts";
 import {
   resolveBrowserNodeAutomationListenerInfoPath,
   resolveDesktopLogsDir,
@@ -25,11 +29,15 @@ import {
   createDaemonRestartController,
   type DaemonRestartController
 } from "./daemonRestartController.ts";
+import type { DesktopUpdateAdmissionDaemonConfig } from "../desktopDaemonRuntime.ts";
 
 const healthPollIntervalMs = 250;
 const healthTimeoutMs = 90_000;
+const maxStartupDiagnosticCharacters = 12_000;
 const shutdownTimeoutMs = 90_000;
 const staleProcessShutdownTimeoutMs = 3_000;
+const writeToProcessStdout = createBestEffortProcessSink(process.stdout);
+const writeToProcessStderr = createBestEffortProcessSink(process.stderr);
 
 const require = createRequire(import.meta.url);
 
@@ -56,9 +64,16 @@ interface ResolveLaunchSpecOptions {
 
 export function createTuttidManager(
   endpoint: DesktopDaemonEndpoint,
-  tuttidClient: TuttidClient
+  tuttidClient: TuttidClient,
+  options?: {
+    desktopUpdateAdmission?: DesktopUpdateAdmissionDaemonConfig;
+  }
 ): TuttidManager {
-  return new ManagedTuttid(endpoint, tuttidClient);
+  return new ManagedTuttid(
+    endpoint,
+    tuttidClient,
+    options?.desktopUpdateAdmission
+  );
 }
 
 class ManagedTuttid implements TuttidManager {
@@ -67,10 +82,18 @@ class ManagedTuttid implements TuttidManager {
   private readonly endpoint: DesktopDaemonEndpoint;
   private readonly tuttidClient: TuttidClient;
   private readonly restartController: DaemonRestartController;
+  private readonly desktopUpdateAdmission:
+    | DesktopUpdateAdmissionDaemonConfig
+    | undefined;
 
-  constructor(endpoint: DesktopDaemonEndpoint, tuttidClient: TuttidClient) {
+  constructor(
+    endpoint: DesktopDaemonEndpoint,
+    tuttidClient: TuttidClient,
+    desktopUpdateAdmission?: DesktopUpdateAdmissionDaemonConfig
+  ) {
     this.endpoint = endpoint;
     this.tuttidClient = tuttidClient;
+    this.desktopUpdateAdmission = desktopUpdateAdmission;
     this.restartController = createDaemonRestartController({
       restart: () => this.start(),
       isStopRequested: () => this.stopRequested,
@@ -117,6 +140,7 @@ class ManagedTuttid implements TuttidManager {
       detached: process.platform !== "win32",
       env: resolveManagedDaemonProcessEnv({
         endpoint: this.endpoint,
+        desktopUpdateAdmission: this.desktopUpdateAdmission,
         logOutput,
         userShellEnv
       }),
@@ -125,18 +149,22 @@ class ManagedTuttid implements TuttidManager {
 
     this.process = child;
     this.stopRequested = false;
+    let startupDiagnostic = "";
     logger.info("managed tuttid spawned", {
       pid: child.pid ?? null
     });
 
     if (forwardStdout) {
       child.stdout?.on("data", (chunk: Buffer | string) => {
-        process.stdout.write(`[tuttid] ${chunk.toString()}`);
+        void writeToProcessStdout(`[tuttid] ${chunk.toString()}`);
       });
     }
 
     child.stderr?.on("data", (chunk: Buffer | string) => {
-      process.stderr.write(`[tuttid] ${chunk.toString()}`);
+      startupDiagnostic = `${startupDiagnostic}${chunk.toString()}`.slice(
+        -maxStartupDiagnosticCharacters
+      );
+      void writeToProcessStderr(`[tuttid] ${chunk.toString()}`);
       getDesktopLogger().error("managed tuttid stderr", {
         chunk: chunk.toString().trim(),
         error_code: desktopErrorCodes.managedProcessStderr
@@ -166,7 +194,7 @@ class ManagedTuttid implements TuttidManager {
       await waitUntilHealthy(this.tuttidClient, () => this.isProcessAlive());
     } catch (error) {
       await this.terminateProcess();
-      throw error;
+      throw managedTuttidStartupError(error, startupDiagnostic);
     }
 
     this.restartController.notifyStarted();
@@ -214,6 +242,27 @@ class ManagedTuttid implements TuttidManager {
   }
 }
 
+export function managedTuttidStartupError(
+  error: unknown,
+  diagnostic: string
+): Error {
+  const message = formatErrorMessage(error);
+  const causeMessage = diagnostic.trim();
+  if (!causeMessage && error instanceof Error) {
+    return error;
+  }
+  return new Error(message, {
+    ...(causeMessage
+      ? {
+          cause: {
+            code: desktopErrorCodes.managedProcessStderr,
+            message: causeMessage
+          }
+        }
+      : {})
+  });
+}
+
 function resolveEndpointEnv(
   endpoint: DesktopDaemonEndpoint
 ): Record<string, string> {
@@ -224,6 +273,7 @@ function resolveEndpointEnv(
 }
 
 export interface ManagedDaemonProcessEnvInput {
+  desktopUpdateAdmission?: DesktopUpdateAdmissionDaemonConfig;
   endpoint: DesktopDaemonEndpoint;
   logDir?: string;
   logOutput: string;
@@ -333,6 +383,7 @@ function resolveManagedRuntimeDaemonEnv(
 export function resolveManagedDaemonProcessEnv(
   input: ManagedDaemonProcessEnvInput
 ): NodeJS.ProcessEnv {
+  const desktopUpdateAdmission = input.desktopUpdateAdmission;
   return {
     ...process.env,
     ...(input.userShellEnv ?? {}),
@@ -341,6 +392,18 @@ export function resolveManagedDaemonProcessEnv(
     ...resolveBrowserMcpDaemonEnv(),
     ...resolveClaudeSDKSidecarDaemonEnv(),
     TUTTI_APP_VERSION: process.env.TUTTI_APP_VERSION?.trim() ?? "",
+    TUTTI_DESKTOP_UPDATE_ADMISSION_ARCHITECTURE:
+      desktopUpdateAdmission?.architecture ?? "",
+    TUTTI_DESKTOP_UPDATE_ADMISSION_CURRENT_VERSION:
+      desktopUpdateAdmission?.currentVersion ?? "",
+    TUTTI_DESKTOP_UPDATE_ADMISSION_MANAGED: desktopUpdateAdmission?.managed
+      ? "1"
+      : "0",
+    TUTTI_DESKTOP_UPDATE_ADMISSION_PACKAGED: desktopUpdateAdmission?.packaged
+      ? "1"
+      : "0",
+    TUTTI_DESKTOP_UPDATE_ADMISSION_PLATFORM:
+      desktopUpdateAdmission?.platform ?? "",
     TUTTI_BROWSER_NODE_LISTENER_INFO:
       resolveBrowserNodeAutomationListenerInfoPath(),
     TUTTI_DESKTOP_PARENT_PID: String(input.parentPID ?? process.pid),

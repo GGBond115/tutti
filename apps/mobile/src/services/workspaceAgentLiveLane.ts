@@ -38,6 +38,7 @@ export class WorkspaceAgentLiveLane {
   private retryTask: { cancel(): void } | null = null;
   private railReconcileTask: { cancel(): void } | null = null;
   private subscription: { close(): void } | null = null;
+  private subscriptionGeneration = 0;
   // Mobile currently opens every native stream from epoch/sequence zero, so
   // this projection has the same lifetime as the subscription. A future
   // persisted resume cursor must persist this fence with it.
@@ -60,9 +61,13 @@ export class WorkspaceAgentLiveLane {
     this.retryTask?.cancel();
     this.retryTask = null;
     this.attachmentFence = null;
+    const subscriptionGeneration = ++this.subscriptionGeneration;
     this.subscription = this.options.deviceLink.subscribeAgentLive(
       this.options.workspaceId,
-      (delivery) => this.handleDelivery(delivery)
+      (delivery) => {
+        if (subscriptionGeneration !== this.subscriptionGeneration) return;
+        this.handleDelivery(delivery);
+      }
     );
   }
 
@@ -73,6 +78,7 @@ export class WorkspaceAgentLiveLane {
     this.retryTask = null;
     this.railReconcileTask?.cancel();
     this.railReconcileTask = null;
+    this.subscriptionGeneration += 1;
     this.subscription?.close();
     this.subscription = null;
     this.attachmentFence = null;
@@ -132,13 +138,14 @@ export class WorkspaceAgentLiveLane {
         this.setConnected(true);
         return;
       }
+      this.subscriptionGeneration += 1;
       this.subscription?.close();
       this.subscription = null;
       this.attachmentFence = null;
       this.coordinator.eventStreamConnectionChanged({
         status: "disconnected"
       });
-      this.setConnected(false);
+      this.setConnected(false, true);
       this.scheduleRetry();
       return;
     }
@@ -203,12 +210,13 @@ export class WorkspaceAgentLiveLane {
 
   private rejectAttachmentFence(reason: string): void {
     this.attachmentFence = null;
+    this.subscriptionGeneration += 1;
     this.subscription?.close();
     this.subscription = null;
     this.coordinator.eventStreamConnectionChanged({
       status: "disconnected"
     });
-    this.setConnected(false);
+    this.setConnected(false, true);
     this.reconcileDiscontinuity({
       kind: "discontinuity",
       reason,
@@ -262,11 +270,16 @@ export class WorkspaceAgentLiveLane {
     );
   }
 
-  private setConnected(connected: boolean): void {
-    if (this.connected === connected) return;
-    this.connected = connected;
-    this.options.rail.setLiveConnected(connected);
-    this.options.onConnectionChanged(connected);
+  private setConnected(connected: boolean, observedFailure = false): void {
+    if (this.connected !== connected) {
+      this.connected = connected;
+      this.options.rail.setLiveConnected(connected);
+      this.options.onConnectionChanged(connected);
+      return;
+    }
+    if (observedFailure) {
+      this.options.onConnectionChanged(false);
+    }
   }
 }
 

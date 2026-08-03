@@ -2,7 +2,6 @@ import { enAgentGui } from "./en.agentGui.ts";
 import { enMessages } from "./en.messages.ts";
 import { enSettingsPanel } from "./en.settingsPanel.ts";
 import { enWebsiteNode } from "./en.websiteNode.ts";
-
 export const en = {
   common: {
     add: "Add",
@@ -776,6 +775,7 @@ export const en = {
     workspaceAgentProbeQuotaCost: "Cost",
     workspaceAgentProbeErrorAuthRequired: "Sign in required",
     workspaceAgentProbeErrorSessionExpired: "Session expired",
+    workspaceAgentProbeErrorSubscriptionRequired: "Subscription required",
     workspaceAgentProbeErrorParseFailed: "Usage output could not be parsed",
     workspaceAgentProbeErrorNoData: "No usage data yet",
     workspaceAgentProbeErrorTimeout: "Usage probe timed out",

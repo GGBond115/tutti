@@ -282,6 +282,21 @@ export class WorkspaceSettingsService implements IWorkspaceSettingsService {
     this.refreshActiveAgentTab();
   }
 
+  async openAgentDraftForModelPlan(planID: string): Promise<void> {
+    this.modelPlans.dismissCreatedPlanHandoff();
+    const sectionChanged = this.store.activeSection !== "agent";
+    this.store.activeSection = "agent";
+    this.store.agentTab = "customAgents";
+    if (sectionChanged) {
+      this.reportSettingsSectionSwitched("agent");
+    }
+    // The runtime catalog feeds the compatibility prefill, so the draft only
+    // opens once the refresh settles. When a load is already in flight the
+    // call is a no-op and the draft falls back to manual runtime selection.
+    await this.agents.refresh();
+    this.agents.beginDraftForModelPlan(planID);
+  }
+
   setDeveloperPanelVisible(visible: boolean): void {
     if (this.store.developerPanelVisible === visible) {
       return;

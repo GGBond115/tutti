@@ -1,10 +1,13 @@
 import { createDecorator } from "@tutti-os/infra/di";
 import type {
-  AgentActivityRuntime,
+  AgentGUIRuntime,
+  AgentActivityRuntimeActivateSessionInput,
+  AgentActivityRuntimeUnactivateSessionInput,
   AgentActivityRuntimeUpdateSessionSettingsResult
 } from "@tutti-os/agent-gui";
 import type {
   AgentActivityCancelTurnInput,
+  AgentActivityActivateSessionResult,
   AgentActivityComposerOptions,
   AgentActivityGoalControlInput,
   AgentActivityGoalControlResult,
@@ -19,13 +22,16 @@ import type {
   AgentActivitySession,
   AgentActivitySnapshot,
   AgentActivitySnapshotListener,
+  AgentActivityUpdateTuttiModeActivationInput,
+  AgentActivityUpdateTuttiModeActivationResult,
   AgentSessionEngine,
-  EngineExternalCommand,
-  EngineIntent,
   AgentActivitySubmitInteractiveInput,
   AgentActivitySubmitInteractiveResult
 } from "@tutti-os/agent-activity-core";
-import type { AgentHostAgentSessionComposerSettings } from "@shared/contracts/dto";
+import type {
+  AgentHostAgentSessionComposerSettings,
+  AgentHostUnactivateAgentSessionResult
+} from "@shared/contracts/dto";
 import type {
   ExternalAgentImportResultResponse,
   ExternalAgentImportScanRequest,
@@ -73,45 +79,45 @@ export interface WorkspaceAgentActivitySessionPageResult {
 }
 
 export type WorkspaceAgentActivityListSessionSectionsInput = Parameters<
-  NonNullable<AgentActivityRuntime["listSessionSections"]>
+  NonNullable<AgentGUIRuntime["listSessionSections"]>
 >[0];
 
 export type WorkspaceAgentActivitySessionSectionsResult = Awaited<
-  ReturnType<NonNullable<AgentActivityRuntime["listSessionSections"]>>
+  ReturnType<NonNullable<AgentGUIRuntime["listSessionSections"]>>
 >;
 
 export type WorkspaceAgentActivityListSessionSectionPageInput = Parameters<
-  NonNullable<AgentActivityRuntime["listSessionSectionPage"]>
+  NonNullable<AgentGUIRuntime["listSessionSectionPage"]>
 >[0];
 
 export type WorkspaceAgentActivitySessionSectionResult = Awaited<
-  ReturnType<NonNullable<AgentActivityRuntime["listSessionSectionPage"]>>
+  ReturnType<NonNullable<AgentGUIRuntime["listSessionSectionPage"]>>
 >;
 
 export type WorkspaceAgentActivitySessionSectionScopeInput = Parameters<
-  NonNullable<AgentActivityRuntime["listSessionSectionDeletionCandidates"]>
+  NonNullable<AgentGUIRuntime["listSessionSectionDeletionCandidates"]>
 >[0];
 
 export type WorkspaceAgentActivitySessionSectionDeletionCandidates = Awaited<
   ReturnType<
-    NonNullable<AgentActivityRuntime["listSessionSectionDeletionCandidates"]>
+    NonNullable<AgentGUIRuntime["listSessionSectionDeletionCandidates"]>
   >
 >;
 
 export type WorkspaceAgentActivityDeleteSessionsBatchInput = Parameters<
-  NonNullable<AgentActivityRuntime["deleteSessionsBatch"]>
+  NonNullable<AgentGUIRuntime["deleteSessionsBatch"]>
 >[0];
 
 export type WorkspaceAgentActivityDeleteSessionsBatchResult = Awaited<
-  ReturnType<NonNullable<AgentActivityRuntime["deleteSessionsBatch"]>>
+  ReturnType<NonNullable<AgentGUIRuntime["deleteSessionsBatch"]>>
 >;
 
 export type WorkspaceAgentActivityListPinnedSessionsPageInput = Parameters<
-  NonNullable<AgentActivityRuntime["listPinnedSessionsPage"]>
+  NonNullable<AgentGUIRuntime["listPinnedSessionsPage"]>
 >[0];
 
 export type WorkspaceAgentActivityPinnedSessionsPageResult = Awaited<
-  ReturnType<NonNullable<AgentActivityRuntime["listPinnedSessionsPage"]>>
+  ReturnType<NonNullable<AgentGUIRuntime["listPinnedSessionsPage"]>>
 >;
 
 export interface WorkspaceAgentActivityEnsureSessionSynchronizedInput {
@@ -140,29 +146,9 @@ export interface WorkspaceAgentComposerDefaultsInvalidatedEvent {
 export interface IWorkspaceAgentActivityService {
   readonly _serviceBrand: undefined;
 
-  armNextSessionRecording?(workspaceId: string, recordingId: string): void;
-  clearNextSessionRecording?(workspaceId: string, recordingId?: string): void;
-  startSessionActivityEventRecording?(
-    workspaceId: string,
-    recordingId: string
-  ): void;
-  sealSessionActivityEventRecording?(
-    workspaceId: string,
-    recordingId: string
-  ): Promise<void>;
-  discardSessionActivityEventRecording?(
-    workspaceId: string,
-    recordingId: string
-  ): void;
-  addSessionEngineActivityObserver?(
-    workspaceId: string,
-    observer: {
-      observeCommand(command: EngineExternalCommand): void;
-      observeIntent(intent: EngineIntent): void;
-    }
-  ): () => void;
-
-  activateSession: AgentActivityRuntime["activateSession"];
+  activateSession(
+    input: AgentActivityRuntimeActivateSessionInput
+  ): Promise<AgentActivityActivateSessionResult>;
   cancelTurn?(
     input: AgentActivityCancelTurnInput
   ): Promise<
@@ -197,7 +183,9 @@ export interface IWorkspaceAgentActivityService {
     settings: AgentHostAgentSessionComposerSettings;
     workspaceId: string;
   }): Promise<AgentActivityRuntimeUpdateSessionSettingsResult>;
-  updateTuttiModeActivation: AgentActivityRuntime["updateTuttiModeActivation"];
+  updateTuttiModeActivation(
+    input: AgentActivityUpdateTuttiModeActivationInput
+  ): Promise<AgentActivityUpdateTuttiModeActivationResult>;
   getSnapshot(workspaceId: string): AgentActivitySnapshot;
   getSessionEngine(workspaceId: string): AgentSessionEngine;
   listSessionMessages(
@@ -270,11 +258,11 @@ export interface IWorkspaceAgentActivityService {
     attachmentId: string;
     workspaceId: string;
   }): Promise<WorkspaceAgentActivityAttachment>;
-  // Optional like their AgentActivityRuntime counterparts so lightweight
+  // Optional like their AgentGUIRuntime counterparts so lightweight
   // fakes/hosts without collaboration-run support can omit them; the runtime
   // wiring only exposes the commands when the service implements them.
   setCollaborationAdoption?: NonNullable<
-    AgentActivityRuntime["setCollaborationAdoption"]
+    AgentGUIRuntime["setCollaborationAdoption"]
   >;
   listAutomationRules?(input: {
     workspaceId: string;
@@ -322,7 +310,9 @@ export interface IWorkspaceAgentActivityService {
     workspaceId: string,
     listener: AgentActivitySnapshotListener
   ): () => void;
-  unactivateSession: AgentActivityRuntime["unactivateSession"];
+  unactivateSession(
+    input: AgentActivityRuntimeUnactivateSessionInput
+  ): Promise<AgentHostUnactivateAgentSessionResult>;
 }
 
 export const IWorkspaceAgentActivityService =

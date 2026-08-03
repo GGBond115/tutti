@@ -7,13 +7,17 @@ import {
 import type { NotificationService } from "@tutti-os/ui-notifications";
 import type { CompositeNotificationMessage } from "@renderer/lib/compositeNotificationService";
 import type { DesktopI18nKey, I18nParams } from "@shared/i18n";
-import type { IWorkspaceAgentActivityService } from "@renderer/features/workspace-agent";
+import type {
+  AgentsService,
+  IWorkspaceAgentActivityService
+} from "@renderer/features/workspace-agent";
 
 export interface WorkspaceAgentOutcomeNotificationController {
   dispose(): void;
 }
 
 export interface WorkspaceAgentOutcomeNotification {
+  agentTargetId: string | null;
   agentSessionId: string;
   conversationTitle: string;
   level: "error" | "success";
@@ -24,6 +28,7 @@ export interface WorkspaceAgentOutcomeNotification {
 }
 
 export interface WorkspaceAgentOutcomeForegroundNotification {
+  agentIconUrl: string | null;
   agentName: string;
   agentSessionId: string;
   body: string;
@@ -41,6 +46,9 @@ export interface WorkspaceAgentOutcomeForegroundNotificationPresenter {
 }
 
 export interface WorkspaceAgentOutcomeNotificationControllerInput {
+  agentDirectory: Pick<AgentsService, "getAgentPresentation"> & {
+    load(signal?: AbortSignal): Promise<unknown>;
+  };
   foreground?: WorkspaceAgentOutcomeForegroundNotificationPresenter;
   notifications: Pick<NotificationService, "notify">;
   translate(key: DesktopI18nKey, params?: I18nParams): string;
@@ -62,8 +70,48 @@ export function createWorkspaceAgentOutcomeNotificationController(
     input.workspaceAgentActivityService.getSessionEngine(workspaceId);
   const settledTurns = new Set<string>();
   const liveSettledTurns = new Set<string>();
+  const pendingNotifications: WorkspaceAgentOutcomeNotification[] = [];
+  let disposed = false;
+  let agentDirectoryLoadSettled = false;
   let hasAuthoritativeBaseline =
     engine.getSnapshot().engineRuntime.workspaceReconcile.status === "ready";
+
+  const emitNotification = (
+    notification: WorkspaceAgentOutcomeNotification
+  ) => {
+    if (disposed) return;
+    const agentPresentation = workspaceAgentOutcomePresentation(
+      notification,
+      input.agentDirectory,
+      input.translate
+    );
+    input.onNotificationEmitted?.(notification);
+    input.foreground?.show(
+      workspaceAgentOutcomeForegroundNotification(
+        notification,
+        agentPresentation,
+        input.translate
+      )
+    );
+    input.notifications.notify(
+      workspaceAgentOutcomeNotificationMessage(
+        notification,
+        agentPresentation,
+        input.translate
+      )
+    );
+  };
+  const settleAgentDirectoryLoad = () => {
+    if (agentDirectoryLoadSettled) return;
+    agentDirectoryLoadSettled = true;
+    const notifications = pendingNotifications.splice(0);
+    for (const notification of notifications) {
+      emitNotification(notification);
+    }
+  };
+  void input.agentDirectory
+    .load()
+    .then(settleAgentDirectoryLoad, settleAgentDirectoryLoad);
 
   const inspectEngineState = (
     state: AgentSessionEngineState,
@@ -88,16 +136,11 @@ export function createWorkspaceAgentOutcomeNotificationController(
           turn
         });
       if (!notification) continue;
-      input.onNotificationEmitted?.(notification);
-      input.foreground?.show(
-        workspaceAgentOutcomeForegroundNotification(
-          notification,
-          input.translate
-        )
-      );
-      input.notifications.notify(
-        workspaceAgentOutcomeNotificationMessage(notification, input.translate)
-      );
+      if (agentDirectoryLoadSettled) {
+        emitNotification(notification);
+      } else {
+        pendingNotifications.push(notification);
+      }
     }
   };
 
@@ -124,6 +167,8 @@ export function createWorkspaceAgentOutcomeNotificationController(
     });
   return {
     dispose() {
+      disposed = true;
+      pendingNotifications.length = 0;
       unsubscribeEngine();
       unsubscribeSessionEvents();
     }
@@ -155,6 +200,7 @@ export function buildWorkspaceAgentOutcomeNotificationFromSettledTurn(input: {
   const provider = input.session.provider.trim();
   if (!status || !workspaceId || !agentSessionId || !provider) return null;
   return {
+    agentTargetId: input.session.agentTargetId?.trim() || null,
     agentSessionId,
     conversationTitle: input.session.title,
     level: status === "completed" ? "success" : "error",
@@ -167,11 +213,11 @@ export function buildWorkspaceAgentOutcomeNotificationFromSettledTurn(input: {
 
 function workspaceAgentOutcomeNotificationMessage(
   notification: WorkspaceAgentOutcomeNotification,
+  agentPresentation: WorkspaceAgentOutcomeAgentPresentation,
   translate: WorkspaceAgentOutcomeNotificationControllerInput["translate"]
 ): CompositeNotificationMessage {
   const titleFallback =
-    notification.conversationTitle ||
-    formatWorkspaceAgentProviderName(notification.provider);
+    notification.conversationTitle || agentPresentation.agentName;
   return {
     description: translate(
       notification.status === "completed"
@@ -199,13 +245,12 @@ function workspaceAgentOutcomeNotificationMessage(
 
 function workspaceAgentOutcomeForegroundNotification(
   notification: WorkspaceAgentOutcomeNotification,
+  agentPresentation: WorkspaceAgentOutcomeAgentPresentation,
   translate: WorkspaceAgentOutcomeNotificationControllerInput["translate"]
 ): WorkspaceAgentOutcomeForegroundNotification {
-  const agentName =
-    formatWorkspaceAgentProviderName(notification.provider) ||
-    translate("workspace.agentGui.fallbackAgentLabel");
   return {
-    agentName,
+    agentIconUrl: agentPresentation.agentIconUrl,
+    agentName: agentPresentation.agentName,
     agentSessionId: notification.agentSessionId,
     body: translate(
       notification.status === "completed"
@@ -223,6 +268,28 @@ function workspaceAgentOutcomeForegroundNotification(
     ),
     turnId: notification.turnId,
     workspaceId: notification.workspaceId
+  };
+}
+
+interface WorkspaceAgentOutcomeAgentPresentation {
+  agentIconUrl: string | null;
+  agentName: string;
+}
+
+function workspaceAgentOutcomePresentation(
+  notification: WorkspaceAgentOutcomeNotification,
+  agentDirectory: WorkspaceAgentOutcomeNotificationControllerInput["agentDirectory"],
+  translate: WorkspaceAgentOutcomeNotificationControllerInput["translate"]
+): WorkspaceAgentOutcomeAgentPresentation {
+  const target = notification.agentTargetId
+    ? agentDirectory.getAgentPresentation({
+        agentTargetId: notification.agentTargetId
+      })
+    : null;
+  return {
+    agentIconUrl: target?.iconUrl.trim() || null,
+    agentName:
+      target?.name.trim() || translate("workspace.agentGui.fallbackAgentLabel")
   };
 }
 
@@ -255,15 +322,6 @@ function outcomeStatusFromTurnOutcome(
     default:
       return null;
   }
-}
-
-function formatWorkspaceAgentProviderName(provider: string): string {
-  return provider
-    .trim()
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function sessionTurnKey(agentSessionId: string, turnId: string): string {

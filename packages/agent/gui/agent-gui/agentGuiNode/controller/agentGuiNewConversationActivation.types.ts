@@ -1,6 +1,6 @@
 import { type AgentSessionEngine } from "@tutti-os/agent-activity-core";
 import { type Dispatch, type RefObject, type SetStateAction } from "react";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { type AgentGUIConversationListQuery } from "../../../contexts/workspace/presentation/renderer/agentGuiConversationList/useAgentGuiConversationList";
 import type {
   AgentSessionComposerSettings,
@@ -39,7 +39,7 @@ export interface UseAgentGUINewConversationActivationInput {
   draftSettingsBySessionIdRef: RefObject<
     Record<string, AgentSessionComposerSettings>
   >;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   workspaceId: string;
   activeConversationIdRef: RefObject<string | null>;
   isComposerHomeRef: RefObject<boolean>;

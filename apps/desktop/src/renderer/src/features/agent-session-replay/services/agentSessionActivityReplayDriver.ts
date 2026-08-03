@@ -1,21 +1,79 @@
 import type {
   AgentSessionEngine,
+  EngineExternalCommand,
   EngineIntent
 } from "@tutti-os/agent-activity-core";
+import { selectEngineSession } from "@tutti-os/agent-activity-core";
 import type { AgentSessionActivityEvent } from "./agentSessionActivityEventRecorder.ts";
+import {
+  agentSessionReplayEffectCommandIdBinding,
+  agentSessionReplayIntentRequiresCommandId,
+  alternateAgentSessionReplayEffectCorrelationField,
+  isAgentSessionReplayIntentReady,
+  isReplayableAgentSessionActivityEffectCommand,
+  rebaseAgentSessionReplayIntentPayload,
+  stableAgentSessionReplayEffectFields
+} from "./agentSessionReplayInteractionContract.ts";
 
-export interface AgentSessionActivityReplayDriver {
+export interface AgentSessionActivityReplayCassetteRegistration {
+  agentSessionIds: readonly string[];
+  cassetteId: string;
+}
+
+export interface AgentSessionActivityReplayCassetteController {
   dispatchIntent(event: AgentSessionActivityEvent): void;
   dispose(): void;
-  observeIntent(intent: EngineIntent): void;
   verifyEffect(event: AgentSessionActivityEvent): Promise<void>;
+  waitUntilIntentReady?(event: AgentSessionActivityEvent): Promise<void>;
+}
+
+export interface AgentSessionActivityReplayDriver {
+  dispose(): void;
+  dispatchCassetteIntent(
+    cassetteId: string,
+    event: AgentSessionActivityEvent
+  ): void;
+  hasRegisteredCassettes(): boolean;
+  observeCommand(command: EngineExternalCommand): void;
+  observeIntent(intent: EngineIntent): void;
+  registerCassette(
+    registration: AgentSessionActivityReplayCassetteRegistration
+  ): AgentSessionActivityReplayCassetteController;
+  removeCassette(cassetteId: string): void;
+  waitUntilCassetteIntentReady?(
+    cassetteId: string,
+    event: AgentSessionActivityEvent
+  ): Promise<void>;
+  verifyCassetteEffect(
+    cassetteId: string,
+    event: AgentSessionActivityEvent
+  ): Promise<void>;
+}
+
+interface ObservedCommand {
+  agentSessionId: string | null;
+  commandId: string;
+  correlationId: string | null;
+  payload: Readonly<Record<string, unknown>>;
+  type: string;
 }
 
 interface PendingEffectVerification {
+  commandId: string | null;
   event: AgentSessionActivityEvent;
   reject(error: Error): void;
   resolve(): void;
   timer: ReturnType<typeof setTimeout>;
+}
+
+interface ReplayCassetteState {
+  agentSessionIds: Set<string>;
+  commandIdByCorrelationId: Map<string, string>;
+  controller: AgentSessionActivityReplayCassetteController;
+  observedCommands: ObservedCommand[];
+  observedResultsByCommandId: Map<string, CommandResultIntent>;
+  pendingVerifications: PendingEffectVerification[];
+  cassetteId: string;
 }
 
 type CommandResultIntent = Extract<
@@ -28,10 +86,11 @@ interface AgentSessionActivityReplayGlobal {
 }
 
 const DEFAULT_EFFECT_TIMEOUT_MS = 30_000;
-
 export function installAgentSessionActivityReplayDriver(input: {
   effectTimeoutMs?: number;
-  engine: Pick<AgentSessionEngine, "dispatch" | "identity">;
+  engine: Pick<AgentSessionEngine, "dispatch" | "identity"> &
+    Partial<Pick<AgentSessionEngine, "getSnapshot" | "subscribe">>;
+  nowUnixMs?: () => number;
 }): AgentSessionActivityReplayDriver {
   const scopeId = input.engine.identity.workspaceId.trim();
   if (!scopeId) throw new Error("engine workspaceId is required");
@@ -41,34 +100,32 @@ export function installAgentSessionActivityReplayDriver(input: {
   }
 
   let disposed = false;
-  const observedResults: CommandResultIntent[] = [];
-  const pendingVerifications: PendingEffectVerification[] = [];
+  let fatalError: Error | null = null;
+  const cassettesById = new Map<string, ReplayCassetteState>();
+  const cassetteIdByAgentSessionId = new Map<string, string>();
+  const cassetteIdByCommandId = new Map<string, string>();
+  const completedCommandIds = new Set<string>();
 
   const driver: AgentSessionActivityReplayDriver = {
-    dispatchIntent(event) {
-      assertActive();
-      assertActivityEvent(event, "intent", scopeId);
-      assertPayloadDoesNotOverrideScope(event.payload);
-      input.engine.dispatch({
-        type: event.type,
-        workspaceId: event.scopeId,
-        ...(event.agentSessionId
-          ? { agentSessionId: event.agentSessionId }
-          : {}),
-        ...event.payload
-      } as EngineIntent);
+    dispatchCassetteIntent(cassetteId, event) {
+      registeredCassette(cassetteId).controller.dispatchIntent(event);
+    },
+
+    hasRegisteredCassettes() {
+      return cassettesById.size > 0;
     },
 
     dispose() {
       if (disposed) return;
       disposed = true;
-      observedResults.length = 0;
-      for (const pending of pendingVerifications.splice(0)) {
-        clearTimeout(pending.timer);
-        pending.reject(
+      for (const cassetteId of [...cassettesById.keys()]) {
+        removeCassette(
+          cassetteId,
           new Error("renderer activity replay driver was disposed")
         );
       }
+      cassetteIdByCommandId.clear();
+      completedCommandIds.clear();
       const replayGlobal = globalThis as typeof globalThis &
         AgentSessionActivityReplayGlobal;
       if (replayGlobal.__tuttiAgentSessionReplayDriver === driver) {
@@ -76,68 +133,422 @@ export function installAgentSessionActivityReplayDriver(input: {
       }
     },
 
-    observeIntent(intent) {
-      if (disposed || intent.type !== "engine/commandResult") return;
-      const pendingIndex = pendingVerifications.findIndex((pending) =>
-        isSameEffect(pending.event, intent)
+    observeCommand(command) {
+      assertActive();
+      if (!isReplayableAgentSessionActivityEffectCommand(command.type)) return;
+      const commandId = command.commandId.trim();
+      if (!commandId) {
+        failClosed(new Error("renderer activity replay commandId is required"));
+      }
+      if (
+        cassetteIdByCommandId.has(commandId) ||
+        completedCommandIds.has(commandId)
+      ) {
+        failClosed(
+          new Error(`duplicate renderer activity replay commandId ${commandId}`)
+        );
+      }
+      const cassette = resolveCommandCassette(command);
+      cassetteIdByCommandId.set(commandId, cassette.cassetteId);
+      const observedCommand: ObservedCommand = {
+        agentSessionId: commandAgentSessionId(command),
+        commandId,
+        correlationId: commandCorrelationId(command),
+        payload: stableEffectCommandPayload(command),
+        type: command.type
+      };
+      const pending = cassette.pendingVerifications.find(
+        (candidate) =>
+          candidate.commandId === null &&
+          isSameEffectCommand(cassette, candidate.event, observedCommand)
       );
-      if (pendingIndex < 0) {
-        observedResults.push(structuredClone(intent));
+      if (!pending) {
+        cassette.observedCommands.push(observedCommand);
         return;
       }
-      const [pending] = pendingVerifications.splice(pendingIndex, 1);
-      if (!pending) return;
-      clearTimeout(pending.timer);
-      settleEffectVerification(pending, intent);
+      pending.commandId = commandId;
+      settlePendingIfResultObserved(cassette, pending);
     },
 
-    verifyEffect(event) {
-      assertActive();
-      assertActivityEvent(event, "effect", scopeId);
-      assertEffectPayload(event);
-      const observedIndex = observedResults.findIndex((result) =>
-        isSameEffect(event, result)
+    observeIntent(intent) {
+      if (disposed || intent.type !== "engine/commandResult") return;
+      assertHealthy();
+      if (!isReplayableAgentSessionActivityEffectCommand(intent.commandType))
+        return;
+      const commandId = intent.commandId.trim();
+      const cassetteId = cassetteIdByCommandId.get(commandId);
+      if (!commandId || !cassetteId || completedCommandIds.has(commandId)) {
+        failClosed(
+          new Error(
+            `unknown renderer activity replay command result ${commandId || "<empty>"}`
+          )
+        );
+      }
+      const cassette = cassettesById.get(cassetteId);
+      if (!cassette) {
+        failClosed(
+          new Error(
+            `renderer activity replay command ${commandId} references missing cassette ${cassetteId}`
+          )
+        );
+      }
+      cassetteIdByCommandId.delete(commandId);
+      completedCommandIds.add(commandId);
+      const pending = cassette.pendingVerifications.find(
+        (candidate) => candidate.commandId === commandId
       );
-      if (observedIndex >= 0) {
-        const [result] = observedResults.splice(observedIndex, 1);
-        if (!result) {
-          return Promise.reject(
-            new Error("observed command result disappeared")
+      if (!pending) {
+        cassette.observedResultsByCommandId.set(
+          commandId,
+          structuredClone(intent)
+        );
+        return;
+      }
+      settleEffectVerification(cassette, pending, intent);
+    },
+
+    registerCassette(registration) {
+      assertActive();
+      const cassetteId = registration.cassetteId.trim();
+      if (!cassetteId) throw new Error("replay cassetteId is required");
+      if (cassettesById.has(cassetteId)) {
+        throw new Error(`replay cassette ${cassetteId} is already registered`);
+      }
+      const agentSessionIds = normalizeAgentSessionIds(
+        registration.agentSessionIds
+      );
+      for (const agentSessionId of agentSessionIds) {
+        const owner = cassetteIdByAgentSessionId.get(agentSessionId);
+        if (owner) {
+          throw new Error(
+            `Agent Session ${agentSessionId} is already registered to replay cassette ${owner}`
           );
         }
-        const mismatch = effectMismatch(event, result);
-        return mismatch ? Promise.reject(mismatch) : Promise.resolve();
       }
-      return new Promise<void>((resolve, reject) => {
-        const pending: PendingEffectVerification = {
-          event: structuredClone(event),
-          reject,
-          resolve,
-          timer: setTimeout(() => {
-            const index = pendingVerifications.indexOf(pending);
-            if (index >= 0) pendingVerifications.splice(index, 1);
-            reject(
-              new Error(
-                `timed out waiting for renderer effect ${effectDescription(event)}`
-              )
-            );
-          }, effectTimeoutMs)
-        };
-        pendingVerifications.push(pending);
-      });
+      const cassette = createCassette(cassetteId, agentSessionIds);
+      cassettesById.set(cassetteId, cassette);
+      for (const agentSessionId of agentSessionIds) {
+        cassetteIdByAgentSessionId.set(agentSessionId, cassetteId);
+      }
+      return cassette.controller;
+    },
+
+    removeCassette(cassetteId) {
+      assertActive();
+      removeCassette(
+        normalizeCassetteId(cassetteId),
+        new Error("renderer activity replay cassette was disposed")
+      );
+    },
+
+    verifyCassetteEffect(cassetteId, event) {
+      return registeredCassette(cassetteId).controller.verifyEffect(event);
+    },
+
+    waitUntilCassetteIntentReady(cassetteId, event) {
+      return (
+        registeredCassette(cassetteId).controller.waitUntilIntentReady?.(
+          event
+        ) ?? Promise.resolve()
+      );
     }
   };
+
+  function createCassette(
+    cassetteId: string,
+    agentSessionIds: readonly string[]
+  ): ReplayCassetteState {
+    let cassette: ReplayCassetteState;
+    const controller: AgentSessionActivityReplayCassetteController = {
+      dispatchIntent(event) {
+        assertActive();
+        assertActivityEvent(event, "intent", scopeId);
+        assertPayloadDoesNotOverrideScope(event.payload);
+        assertCassetteOwnsEvent(cassette, event);
+        input.engine.dispatch({
+          type: event.type,
+          workspaceId: event.scopeId,
+          ...(event.agentSessionId
+            ? { agentSessionId: event.agentSessionId }
+            : {}),
+          ...materializeReplayIntentPayload(
+            cassette,
+            event,
+            input.nowUnixMs?.() ?? Date.now()
+          )
+        } as EngineIntent);
+        assertHealthy();
+      },
+      dispose() {
+        if (!cassettesById.has(cassetteId)) return;
+        removeCassette(
+          cassetteId,
+          new Error("renderer activity replay cassette was disposed")
+        );
+      },
+      verifyEffect(event) {
+        assertActive();
+        assertActivityEvent(event, "effect", scopeId);
+        assertEffectPayload(event);
+        assertCassetteOwnsEvent(cassette, event);
+        const commandIndex = cassette.observedCommands.findIndex((command) =>
+          isSameEffectCommand(cassette, event, command)
+        );
+        const command =
+          commandIndex < 0
+            ? null
+            : (cassette.observedCommands.splice(commandIndex, 1)[0] ?? null);
+        return new Promise<void>((resolve, reject) => {
+          const pending: PendingEffectVerification = {
+            commandId: command?.commandId ?? null,
+            event: structuredClone(event),
+            reject,
+            resolve,
+            timer: setTimeout(() => {
+              const index = cassette.pendingVerifications.indexOf(pending);
+              if (index >= 0) cassette.pendingVerifications.splice(index, 1);
+              reject(
+                new Error(
+                  `timed out waiting for renderer effect ${effectDescription(event)}; ` +
+                    `commandId=${pending.commandId ?? "<unmatched>"}; ` +
+                    `observedCommands=${JSON.stringify(cassette.observedCommands)}; ` +
+                    `observedResultCommandIds=${JSON.stringify([
+                      ...cassette.observedResultsByCommandId.keys()
+                    ])}`
+                )
+              );
+            }, effectTimeoutMs)
+          };
+          cassette.pendingVerifications.push(pending);
+          settlePendingIfResultObserved(cassette, pending);
+        });
+      },
+      waitUntilIntentReady(event) {
+        assertActive();
+        assertActivityEvent(event, "intent", scopeId);
+        assertCassetteOwnsEvent(cassette, event);
+        return waitForIntentReadiness(input.engine, event, effectTimeoutMs);
+      }
+    };
+    cassette = {
+      agentSessionIds: new Set(agentSessionIds),
+      commandIdByCorrelationId: new Map(),
+      controller,
+      observedCommands: [],
+      observedResultsByCommandId: new Map(),
+      pendingVerifications: [],
+      cassetteId
+    };
+    return cassette;
+  }
+
+  function registeredCassette(cassetteId: string): ReplayCassetteState {
+    assertActive();
+    const normalized = normalizeCassetteId(cassetteId);
+    const cassette = cassettesById.get(normalized);
+    if (!cassette) {
+      throw new Error(`replay cassette ${normalized} is not registered`);
+    }
+    return cassette;
+  }
+
+  function assertCassetteOwnsEvent(
+    cassette: ReplayCassetteState,
+    event: AgentSessionActivityEvent
+  ): void {
+    const agentSessionId = normalizedAgentSessionId(event.agentSessionId);
+    if (
+      cassette.agentSessionIds.size === 0 ||
+      !agentSessionId ||
+      cassette.agentSessionIds.has(agentSessionId)
+    ) {
+      return;
+    }
+    const snapshot = input.engine.getSnapshot?.();
+    const session = snapshot
+      ? selectEngineSession(snapshot, agentSessionId)
+      : null;
+    const rootAgentSessionId = session?.rootAgentSessionId?.trim() ?? "";
+    if (
+      session?.kind !== "child" ||
+      session.workspaceId.trim() !== scopeId ||
+      !rootAgentSessionId ||
+      !cassette.agentSessionIds.has(rootAgentSessionId)
+    ) {
+      throw new Error(
+        `replay cassette ${cassette.cassetteId} does not own Agent Session ${event.agentSessionId}`
+      );
+    }
+    const owner = cassetteIdByAgentSessionId.get(agentSessionId);
+    if (owner && owner !== cassette.cassetteId) {
+      throw new Error(
+        `Agent Session ${agentSessionId} is already registered to replay cassette ${owner}`
+      );
+    }
+    cassette.agentSessionIds.add(agentSessionId);
+    cassetteIdByAgentSessionId.set(agentSessionId, cassette.cassetteId);
+  }
+
+  function resolveCommandCassette(
+    command: EngineExternalCommand
+  ): ReplayCassetteState {
+    const agentSessionId = commandAgentSessionId(command);
+    const cassetteId = agentSessionId
+      ? cassetteIdByAgentSessionId.get(agentSessionId)
+      : undefined;
+    const cassette = cassetteId ? cassettesById.get(cassetteId) : undefined;
+    if (!cassette) {
+      failClosed(
+        new Error(
+          `no replay cassette registered for command ${command.commandId} Agent Session ${agentSessionId ?? "<missing>"}`
+        )
+      );
+    }
+    return cassette;
+  }
+
+  function settlePendingIfResultObserved(
+    cassette: ReplayCassetteState,
+    pending: PendingEffectVerification
+  ): void {
+    if (!pending.commandId) return;
+    const result = cassette.observedResultsByCommandId.get(pending.commandId);
+    if (!result) return;
+    cassette.observedResultsByCommandId.delete(pending.commandId);
+    settleEffectVerification(cassette, pending, result);
+  }
+
+  function removeCassette(cassetteId: string, reason: Error): void {
+    const cassette = cassettesById.get(cassetteId);
+    if (!cassette) return;
+    cassettesById.delete(cassetteId);
+    for (const agentSessionId of cassette.agentSessionIds) {
+      if (cassetteIdByAgentSessionId.get(agentSessionId) === cassetteId) {
+        cassetteIdByAgentSessionId.delete(agentSessionId);
+      }
+    }
+    for (const [commandId, ownerCassetteId] of cassetteIdByCommandId) {
+      if (ownerCassetteId === cassetteId)
+        cassetteIdByCommandId.delete(commandId);
+    }
+    rejectPendingVerifications(cassette, reason);
+    cassette.observedCommands.length = 0;
+    cassette.observedResultsByCommandId.clear();
+    cassette.commandIdByCorrelationId.clear();
+  }
+
+  function failClosed(error: Error): never {
+    if (!fatalError) {
+      fatalError = error;
+      for (const cassette of cassettesById.values()) {
+        rejectPendingVerifications(cassette, error);
+      }
+    }
+    throw fatalError;
+  }
 
   function assertActive(): void {
     if (disposed) {
       throw new Error("renderer activity replay driver was disposed");
     }
+    assertHealthy();
+  }
+
+  function assertHealthy(): void {
+    if (fatalError) throw fatalError;
   }
 
   (
     globalThis as typeof globalThis & AgentSessionActivityReplayGlobal
   ).__tuttiAgentSessionReplayDriver = driver;
   return driver;
+}
+
+export function rebaseReplayIntentPayload(
+  event: AgentSessionActivityEvent,
+  nowUnixMs: number
+): Readonly<Record<string, unknown>> {
+  return rebaseAgentSessionReplayIntentPayload(
+    event.type,
+    event.payload,
+    event.occurredAtUnixMs,
+    nowUnixMs
+  );
+}
+
+function materializeReplayIntentPayload(
+  cassette: ReplayCassetteState,
+  event: AgentSessionActivityEvent,
+  nowUnixMs: number
+): Readonly<Record<string, unknown>> {
+  const payload = rebaseReplayIntentPayload(event, nowUnixMs);
+  const correlationId = normalizedCorrelationId(event.correlationId);
+  const boundCommandId = agentSessionReplayEffectCommandIdBinding(
+    event.type,
+    payload
+  );
+  if (boundCommandId) {
+    if (!correlationId) {
+      throw new Error(
+        `replay intent ${event.type} requires a stable correlationId to bind its engine commandId`
+      );
+    }
+    bindReplayCommandId(cassette, correlationId, boundCommandId);
+  }
+  if (!agentSessionReplayIntentRequiresCommandId(event.type)) return payload;
+  if (!correlationId) {
+    throw new Error(
+      `replay intent ${event.type} requires a stable correlationId to materialize commandId`
+    );
+  }
+  const commandId = replayCommandId(cassette.cassetteId, event.eventId);
+  bindReplayCommandId(cassette, correlationId, commandId);
+  return { ...payload, commandId };
+}
+
+function bindReplayCommandId(
+  cassette: ReplayCassetteState,
+  correlationId: string,
+  commandId: string
+): void {
+  const existingCommandId =
+    cassette.commandIdByCorrelationId.get(correlationId);
+  if (existingCommandId && existingCommandId !== commandId) {
+    throw new Error(
+      `replay cassette ${cassette.cassetteId} reuses correlationId ${correlationId}`
+    );
+  }
+  cassette.commandIdByCorrelationId.set(correlationId, commandId);
+}
+
+function replayCommandId(cassetteId: string, eventId: string): string {
+  return `replay:${cassetteId}:${eventId}`;
+}
+
+function rejectPendingVerifications(
+  cassette: ReplayCassetteState,
+  reason: Error
+): void {
+  for (const pending of cassette.pendingVerifications.splice(0)) {
+    clearTimeout(pending.timer);
+    pending.reject(reason);
+  }
+}
+
+function settleEffectVerification(
+  cassette: ReplayCassetteState,
+  pending: PendingEffectVerification,
+  result: CommandResultIntent
+): void {
+  const index = cassette.pendingVerifications.indexOf(pending);
+  if (index >= 0) cassette.pendingVerifications.splice(index, 1);
+  clearTimeout(pending.timer);
+  const mismatch = effectMismatch(pending.event, result);
+  if (mismatch) {
+    pending.reject(mismatch);
+    return;
+  }
+  pending.resolve();
 }
 
 function assertActivityEvent(
@@ -213,27 +624,129 @@ function assertEffectPayload(event: AgentSessionActivityEvent): void {
   }
 }
 
-function isSameEffect(
+function isSameEffectCommand(
+  cassette: ReplayCassetteState,
   event: AgentSessionActivityEvent,
-  result: CommandResultIntent
+  command: ObservedCommand
 ): boolean {
   return (
-    event.type === result.commandType &&
-    normalizedCorrelationId(event.correlationId) ===
-      normalizedCorrelationId(result.correlationId)
+    event.type === command.type &&
+    isSameEffectCorrelation(cassette, event, command) &&
+    normalizedAgentSessionId(event.agentSessionId) === command.agentSessionId &&
+    stableValue(eventStableEffectCommandPayload(event)) ===
+      stableValue(command.payload)
   );
 }
 
-function settleEffectVerification(
-  pending: PendingEffectVerification,
-  result: CommandResultIntent
-): void {
-  const mismatch = effectMismatch(pending.event, result);
-  if (mismatch) {
-    pending.reject(mismatch);
-    return;
+function isSameEffectCorrelation(
+  cassette: ReplayCassetteState,
+  event: AgentSessionActivityEvent,
+  command: ObservedCommand
+): boolean {
+  if (normalizedCorrelationId(event.correlationId) === command.correlationId) {
+    return true;
   }
-  pending.resolve();
+  const replayCommandId = cassette.commandIdByCorrelationId.get(
+    normalizedCorrelationId(event.correlationId) ?? ""
+  );
+  if (replayCommandId === command.commandId) return true;
+  // Declared alternate correlation rule from the interaction contract. The
+  // matched payload field also remains part of the stable-field comparison.
+  const alternateField = alternateAgentSessionReplayEffectCorrelationField(
+    event.type
+  );
+  if (!alternateField) return false;
+  const eventValue = event.payload[alternateField];
+  return (
+    typeof eventValue === "string" &&
+    eventValue.trim() !== "" &&
+    eventValue === command.payload[alternateField]
+  );
+}
+
+function stableEffectCommandPayload(
+  command: EngineExternalCommand
+): Readonly<Record<string, unknown>> {
+  return pickStableEffectFields(
+    command.type,
+    command as unknown as Readonly<Record<string, unknown>>
+  );
+}
+
+function eventStableEffectCommandPayload(
+  event: AgentSessionActivityEvent
+): Readonly<Record<string, unknown>> {
+  return pickStableEffectFields(
+    event.type as EngineExternalCommand["type"],
+    event.payload
+  );
+}
+
+function pickStableEffectFields(
+  type: EngineExternalCommand["type"],
+  value: Readonly<Record<string, unknown>>
+): Readonly<Record<string, unknown>> {
+  const fields = stableAgentSessionReplayEffectFields(type);
+  if (!fields) return {};
+  return Object.fromEntries(
+    fields
+      .filter((field) => Object.hasOwn(value, field))
+      .map((field) => [field, structuredClone(value[field])])
+  );
+}
+
+function stableValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableValue).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => `${JSON.stringify(key)}:${stableValue(nested)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
+}
+
+function waitForIntentReadiness(
+  engine: Pick<AgentSessionEngine, "dispatch" | "identity"> &
+    Partial<Pick<AgentSessionEngine, "getSnapshot" | "subscribe">>,
+  event: AgentSessionActivityEvent,
+  timeoutMs: number
+): Promise<void> {
+  if (!engine.getSnapshot || !engine.subscribe) return Promise.resolve();
+  if (isIntentReady(engine.getSnapshot(), event)) return Promise.resolve();
+  const subscribe = engine.subscribe;
+  return new Promise<void>((resolve, reject) => {
+    let unsubscribe = () => {};
+    const timer = setTimeout(() => {
+      unsubscribe();
+      reject(
+        new Error(
+          `timed out waiting for renderer intent readiness ${event.type} ` +
+            `${event.agentSessionId ?? "<missing>"}`
+        )
+      );
+    }, timeoutMs);
+    unsubscribe = subscribe((snapshot) => {
+      if (!isIntentReady(snapshot, event)) return;
+      clearTimeout(timer);
+      unsubscribe();
+      resolve();
+    });
+    if (isIntentReady(engine.getSnapshot!(), event)) {
+      clearTimeout(timer);
+      unsubscribe();
+      resolve();
+    }
+  });
+}
+
+function isIntentReady(
+  snapshot: ReturnType<AgentSessionEngine["getSnapshot"]>,
+  event: AgentSessionActivityEvent
+): boolean {
+  return isAgentSessionReplayIntentReady(snapshot, event);
 }
 
 function effectMismatch(
@@ -279,7 +792,39 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function commandAgentSessionId(command: EngineExternalCommand): string | null {
+  return "agentSessionId" in command &&
+    typeof command.agentSessionId === "string" &&
+    command.agentSessionId.trim()
+    ? command.agentSessionId.trim()
+    : null;
+}
+
+function commandCorrelationId(command: EngineExternalCommand): string | null {
+  return "correlationId" in command && typeof command.correlationId === "string"
+    ? normalizedCorrelationId(command.correlationId)
+    : null;
+}
+
+function normalizeAgentSessionIds(values: readonly string[]): string[] {
+  const normalized = [...new Set(values.map((value) => value.trim()))];
+  if (normalized.length === 0 || normalized.some((value) => !value)) {
+    throw new Error("replay cassette requires non-empty Agent Session ids");
+  }
+  return normalized;
+}
+
+function normalizeCassetteId(value: string): string {
+  const normalized = value.trim();
+  if (!normalized) throw new Error("replay cassetteId is required");
+  return normalized;
+}
+
 function normalizedCorrelationId(value: string | undefined): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizedAgentSessionId(value: string | undefined): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 

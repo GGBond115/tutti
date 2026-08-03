@@ -2,12 +2,14 @@ import type {
   AgentActivityDisplayStatus,
   AgentActivityMessage,
   AgentActivitySubmitDiagnostics,
+  AgentActivityTurn,
   CanonicalAgentSession
 } from "@tutti-os/agent-activity-core";
 import { toast } from "@tutti-os/ui-system";
-import { type AgentActivityRuntime } from "../../../agentActivityRuntime";
+import { type AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { AgentHostToastApi } from "../../../host/agentHostApi";
 import type { AgentConversationVM } from "../../../shared/agentConversation/contracts/agentConversationVM";
+import { createAgentClientId } from "../../../shared/agentConversation/agentClientIdentity";
 import type { AgentSessionState } from "../../../shared/agentSessionTypes";
 import type { AgentPromptContentBlock } from "../../../shared/contracts/dto";
 import { agentPromptContentHasImage } from "../model/agentComposerDraft";
@@ -17,6 +19,7 @@ import {
   type AgentGUIInteractivePrompt
 } from "../model/agentGuiConversationModel";
 import {
+  agentGUIActivityTurnDiagnosticDetails,
   agentGUIConversationDiagnosticDetails,
   agentGUIRuntimeSessionDiagnosticDetails,
   agentGUISessionStateDiagnosticDetails,
@@ -101,7 +104,7 @@ export function reportAgentGUIRuntimeError(input: {
   phase: AgentGUIRuntimeErrorPhase;
   provider?: string | null;
   requestId?: number | string | null;
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   workspaceId: string;
 }): void {
   const reportDiagnostic = input.runtime.reportDiagnostic;
@@ -151,7 +154,7 @@ export function reportAgentGUIConversationFilterTargetUnresolved(input: {
   agentTargetId: string | null;
   providerTargetCount: number;
   reason: "disabled" | "unresolved";
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   workspaceId: string;
 }): void {
   const reportDiagnostic = input.runtime.reportDiagnostic;
@@ -184,7 +187,7 @@ export function reportAgentGUIConversationFilterTargetUnresolved(input: {
 
 export function reportAgentGUIConversationBatchDeletionCapabilityIncomplete(input: {
   missingMethods: AgentConversationBatchDeletionCapability["missingMethods"];
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   workspaceId: string;
 }): void {
   const reportDiagnostic = input.runtime.reportDiagnostic;
@@ -221,7 +224,7 @@ export function reportAgentGUIMessagePageDiagnostic(input: {
   event: string;
   level?: "debug" | "info" | "warn";
   messages?: readonly AgentActivityMessage[];
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   workspaceId: string;
 }): void {
   const reportDiagnostic = input.runtime.reportDiagnostic;
@@ -265,6 +268,9 @@ export function reportAgentGUIRenderStateDiagnostic(input: {
   activeConversation: AgentGUIConversationSummary | null;
   activeConversationBusy: boolean;
   activeConversationId: string | null;
+  activeEngineActiveTurn: AgentActivityTurn | null;
+  activeEngineAvailability: "available" | "blocked" | "missing";
+  activeEngineLatestTurn: AgentActivityTurn | null;
   activeHasPendingSubmittedTurn: boolean;
   activeLiveState: "inactive" | "activating" | "active" | "failed";
   activeRuntimeSession: CanonicalAgentSession | null;
@@ -278,7 +284,7 @@ export function reportAgentGUIRenderStateDiagnostic(input: {
   isSubmitting: boolean;
   pendingApproval: AgentGUIApprovalRequest | null;
   pendingInteractivePrompt: AgentGUIInteractivePrompt | null;
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   workspaceId: string;
 }): void {
   const reportDiagnostic = input.runtime.reportDiagnostic;
@@ -289,10 +295,18 @@ export function reportAgentGUIRenderStateDiagnostic(input: {
     void Promise.resolve(
       reportDiagnostic.call(input.runtime, {
         details: {
+          temporaryMarker: "[TEMP:agent-session-premature-complete]",
           activeActivityDisplayStatus: input.activeActivityDisplayStatus,
           activeConversationBusy: input.activeConversationBusy,
           activeConversationId: input.activeConversationId,
           activeConversationStatus: input.activeConversation?.status ?? null,
+          activeEngineActiveTurn: agentGUIActivityTurnDiagnosticDetails(
+            input.activeEngineActiveTurn
+          ),
+          activeEngineAvailability: input.activeEngineAvailability,
+          activeEngineLatestTurn: agentGUIActivityTurnDiagnosticDetails(
+            input.activeEngineLatestTurn
+          ),
           activeHasPendingSubmittedTurn: input.activeHasPendingSubmittedTurn,
           activeLiveState: input.activeLiveState,
           activeSubmitBlocked: input.activeSubmitBlocked,
@@ -336,7 +350,7 @@ export function reportAgentGUIActiveConversationCleared(input: {
   details?: Record<string, unknown>;
   previousAgentSessionId: string | null;
   reason: string;
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   workspaceId: string;
 }): void {
   const reportDiagnostic = input.runtime.reportDiagnostic;
@@ -373,7 +387,7 @@ export function reportAgentGUIConversationListProjectionSkipped(input: {
   isComposerHome: boolean;
   provider: string | null;
   reason: string;
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   workspaceId: string;
   workspaceIdPresent: boolean;
 }): void {
@@ -416,7 +430,7 @@ export function reportAgentGUISubmitWithoutActiveConversation(input: {
   isComposerHome: boolean;
   promptLength: number;
   provider: string | null;
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   workspaceId: string;
 }): void {
   const reportDiagnostic = input.runtime.reportDiagnostic;
@@ -457,7 +471,7 @@ export function reportAgentGUISubmitRecoveredActiveConversation(input: {
   promptLength: number;
   provider: string | null;
   recoveredAgentSessionId: string;
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   workspaceId: string;
 }): void {
   const reportDiagnostic = input.runtime.reportDiagnostic;
@@ -492,7 +506,7 @@ export function reportAgentGUISubmitRecoveredActiveConversation(input: {
 
 export function reportAgentSubmitTraceDiagnostic(input: {
   event: string;
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   trace: AgentSubmitTraceState;
   workspaceId: string;
   fields?: Record<string, unknown>;
@@ -535,7 +549,7 @@ export function reportAgentSubmitTraceDiagnostic(input: {
 
 export function scheduleAgentSubmitTracePaint(input: {
   event?: string;
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   trace: AgentSubmitTraceState;
   workspaceId: string;
 }): void {
@@ -588,11 +602,7 @@ export function agentSubmitTraceDiagnostics(
 }
 
 export function createAgentSubmitTraceId(): string {
-  if (typeof globalThis.crypto?.randomUUID === "function") {
-    return globalThis.crypto.randomUUID();
-  }
-  const fallbackHex = Math.random().toString(16).slice(2).padEnd(12, "0");
-  return `submit-${Date.now().toString(36)}-${fallbackHex.slice(0, 12)}`;
+  return createAgentClientId();
 }
 
 /**

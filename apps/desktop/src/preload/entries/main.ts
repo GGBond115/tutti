@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { createDesktopFeatureAvailabilityApi } from "@tutti-os/desktop-update-admission/preload";
 import { createBrowserDesktopApi } from "../api/browser";
 import { createComputerUseDesktopApi } from "../api/computerUse";
 import { createDeveloperDesktopApi } from "../api/developer";
@@ -21,6 +22,12 @@ const desktopApi: DesktopApi = {
   computerUse: createComputerUseDesktopApi(),
   developer: createDeveloperDesktopApi(),
   dockPreviewCache: createDockPreviewCacheDesktopApi(),
+  featureAvailability: createDesktopFeatureAvailabilityApi({
+    invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
+    on: (channel, listener) => ipcRenderer.on(channel, listener),
+    removeListener: (channel, listener) =>
+      ipcRenderer.removeListener(channel, listener)
+  }),
   host: createHostDesktopApi(),
   platform: createPlatformDesktopApi(),
   runtime: createRuntimeDesktopApi(),

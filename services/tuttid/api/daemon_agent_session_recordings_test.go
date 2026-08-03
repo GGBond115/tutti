@@ -14,6 +14,7 @@ type agentSessionRecordingServiceStub struct {
 	startInput agentsessionreplay.StartInput
 	recording  agentsessionreplay.Recording
 	renameName string
+	deletedID  string
 	events     []agentsessionreplay.ActivityEvent
 }
 
@@ -61,6 +62,14 @@ func (s *agentSessionRecordingServiceStub) Rename(
 	return s.recording, nil
 }
 
+func (s *agentSessionRecordingServiceStub) Delete(
+	_ context.Context,
+	recordingID string,
+) error {
+	s.deletedID = recordingID
+	return nil
+}
+
 func TestStartAgentSessionRecordingAcceptsOpaqueExistingSessionID(t *testing.T) {
 	service := &agentSessionRecordingServiceStub{}
 	agentSessionID := "imported-codex-48e73404e80c12d2d18e5808"
@@ -73,6 +82,12 @@ func TestStartAgentSessionRecordingAcceptsOpaqueExistingSessionID(t *testing.T) 
 		Body: &tuttigenerated.StartAgentSessionRecordingRequest{
 			AgentTargetId:  "local:codex",
 			AgentSessionId: &agentSessionID,
+			ReplayPrerequisites: tuttigenerated.AgentSessionReplayPrerequisites{
+				ComposerDefaults: tuttigenerated.AgentSessionReplayComposerDefaults{
+					Model: "gpt-5.4", PermissionModeId: "default",
+					ReasoningEffort: "medium", Speed: "normal",
+				},
+			},
 		},
 	})
 	if err != nil {
@@ -85,6 +100,9 @@ func TestStartAgentSessionRecordingAcceptsOpaqueExistingSessionID(t *testing.T) 
 	}
 	if service.startInput.AgentSessionID != agentSessionID {
 		t.Fatalf("start input session = %q, want %q", service.startInput.AgentSessionID, agentSessionID)
+	}
+	if service.startInput.ReplayPrerequisites.ComposerDefaults.Model != "gpt-5.4" {
+		t.Fatalf("start input prerequisites = %#v", service.startInput.ReplayPrerequisites)
 	}
 	if created.RootAgentSessionId == nil || *created.RootAgentSessionId != agentSessionID {
 		t.Fatalf("response root session = %#v, want %q", created.RootAgentSessionId, agentSessionID)
@@ -120,6 +138,35 @@ func TestRenameAgentSessionRecordingUpdatesTheCassetteName(t *testing.T) {
 	if !ok || renamed.Name != "checkout regression" ||
 		service.renameName != "checkout regression" {
 		t.Fatalf("response=%#v rename=%q", response, service.renameName)
+	}
+}
+
+func TestDeleteAgentSessionRecordingDeletesWorkspaceRecording(t *testing.T) {
+	workspaceID := "934219f8-5fa2-4d28-aaf0-420a73d45847"
+	recordingID := "54f46b5c-34e5-40e2-8147-361bb0d046dc"
+	service := &agentSessionRecordingServiceStub{
+		recording: agentsessionreplay.Recording{
+			ID: recordingID, ScopeID: workspaceID,
+			Status: agentsessionreplay.StatusComplete,
+		},
+	}
+	response, err := (DaemonAPI{
+		AgentSessionRecordingService: service,
+	}).DeleteAgentSessionRecording(
+		context.Background(),
+		tuttigenerated.DeleteAgentSessionRecordingRequestObject{
+			WorkspaceID: workspaceID,
+			RecordingID: uuid.MustParse(recordingID),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := response.(tuttigenerated.DeleteAgentSessionRecording204Response); !ok {
+		t.Fatalf("response = %T, want 204", response)
+	}
+	if service.deletedID != recordingID {
+		t.Fatalf("deleted recording = %q, want %q", service.deletedID, recordingID)
 	}
 }
 

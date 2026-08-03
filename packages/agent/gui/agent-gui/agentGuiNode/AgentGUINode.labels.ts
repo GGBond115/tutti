@@ -15,6 +15,7 @@ import {
   type AgentGUIConversationRailLabels
 } from "./view/agentGUIConversationRailLabels";
 import { agentGUIProviderManagerLabels } from "./view/agentGUIProviderManagerLabels";
+import { agentGUIUsageStatusLabels } from "./view/agentGUIUsageStatusLabels";
 import { agentQuickPromptLabels } from "./composer/quickPrompts/agentQuickPromptLabels";
 import { agentGUITuttiModeLabels } from "./view/agentGUITuttiModeLabels";
 
@@ -330,6 +331,7 @@ export function useAgentGUIViewLabels(input: {
       slashStatusUsageRefreshAria: t(
         "agentHost.agentGui.slashStatusUsageRefreshAria"
       ),
+      ...agentGUIUsageStatusLabels(t),
       usageChipLabel: (input: { percent: number }) =>
         t("agentHost.agentGui.usageChipLabel", { percent: input.percent }),
       usageTooltipLabel: t("agentHost.agentGui.usageTooltipLabel"),

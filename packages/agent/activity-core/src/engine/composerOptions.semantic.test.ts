@@ -2,11 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentActivityComposerOptions } from "../types.ts";
 import { createAgentSessionEngine } from "./createAgentSessionEngine.ts";
-import type {
-  EngineCommandPort,
-  EngineExternalCommand,
-  EngineScheduler
-} from "./types.ts";
+import { createTestEngineCommandPort } from "./testEngineCommandPort.ts";
+import type { EngineExternalCommand, EngineScheduler } from "./types.ts";
 
 function composerOptions(model: string): AgentActivityComposerOptions {
   return {
@@ -33,14 +30,12 @@ function createHarness() {
     string,
     { reject(error: unknown): void; resolve(value: unknown): void }
   >();
-  const commandPort: EngineCommandPort = {
-    execute(command) {
-      commands.push(command);
-      return new Promise((resolve, reject) => {
-        settlers.set(command.commandId, { reject, resolve });
-      });
-    }
-  };
+  const commandPort = createTestEngineCommandPort((command) => {
+    commands.push(command);
+    return new Promise((resolve, reject) => {
+      settlers.set(command.commandId, { reject, resolve });
+    });
+  });
   const scheduler: EngineScheduler = {
     schedule() {
       return { cancel() {} };

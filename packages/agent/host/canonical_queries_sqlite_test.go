@@ -88,6 +88,86 @@ func TestSessionInteractionSnapshotReadsOnlyLatestTurnFromSQLite(t *testing.T) {
 	}
 }
 
+func TestGetInteractionReadsExactTurnAndRequestFromSQLite(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "agent-host-interaction.db"))
+	if err != nil {
+		t.Fatalf("open SQLite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+	store := storesqlite.New(db, storesqlite.Options{})
+	if err := store.Migrate(t.Context()); err != nil {
+		t.Fatalf("migrate SQLite: %v", err)
+	}
+	if _, err := store.ReportSessionState(t.Context(), storesqlite.SessionStateReport{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		Provider: "codex", OccurredAtUnixMS: 1,
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+	for index, turnID := range []string{"turn-old", "turn-current"} {
+		occurredAt := int64(index*10 + 2)
+		if _, accepted, err := store.RecordTurnTransition(t.Context(), storesqlite.TurnTransition{
+			WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+			TurnID: turnID, Phase: storesqlite.TurnPhaseRunning,
+			OccurredAtUnixMS: occurredAt,
+		}); err != nil || !accepted {
+			t.Fatalf("seed turn %s: accepted=%v err=%v", turnID, accepted, err)
+		}
+		if _, result, err := store.UpsertInteraction(t.Context(), storesqlite.InteractionUpsert{
+			WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+			TurnID: turnID, RequestID: "shared-request",
+			Kind:             storesqlite.InteractionKindQuestion,
+			Status:           storesqlite.InteractionStatusPending,
+			OccurredAtUnixMS: occurredAt + 1,
+		}); err != nil || result != storesqlite.InteractionTransitionApplied {
+			t.Fatalf("seed interaction for %s: result=%v err=%v", turnID, result, err)
+		}
+		if index == 0 {
+			if _, accepted, err := store.RecordTurnTransition(
+				t.Context(),
+				storesqlite.TurnTransition{
+					WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+					TurnID: turnID, Phase: storesqlite.TurnPhaseSettled,
+					Outcome:          storesqlite.TurnOutcomeCompleted,
+					OccurredAtUnixMS: occurredAt + 2,
+				},
+			); err != nil || !accepted {
+				t.Fatalf("settle turn %s: accepted=%v err=%v", turnID, accepted, err)
+			}
+		}
+	}
+
+	host := agenthost.New(agenthost.Config{
+		CanonicalStore: sqliteCanonicalStore{Store: store},
+	})
+	interaction, found, err := host.GetInteraction(
+		t.Context(),
+		agenthost.SessionRef{
+			WorkspaceID: " workspace-1 ", AgentSessionID: " session-1 ",
+		},
+		" turn-old ",
+		" shared-request ",
+	)
+	if err != nil || !found {
+		t.Fatalf("GetInteraction() found=%v error=%v", found, err)
+	}
+	if interaction.TurnID != "turn-old" ||
+		interaction.RequestID != "shared-request" {
+		t.Fatalf("GetInteraction() = %#v, want exact old-turn interaction", interaction)
+	}
+	if _, found, err := host.GetInteraction(
+		t.Context(),
+		agenthost.SessionRef{
+			WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		},
+		"turn-old",
+		"missing-request",
+	); err != nil || found {
+		t.Fatalf("GetInteraction(missing) found=%v error=%v", found, err)
+	}
+}
+
 func TestGetGoalStateDoesNotBootstrapMissingProjection(t *testing.T) {
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "agent-host-goal-read.db"))
 	if err != nil {

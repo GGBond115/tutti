@@ -1,6 +1,6 @@
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import type {
+  DesktopGetAgentSessionReplayStatusInput,
   DesktopAgentSessionReplayPhase,
   DesktopAgentSessionReplayStatus,
   DesktopAgentSessionReplayTimingMode,
@@ -19,61 +19,167 @@ const replayTimingModes = new Set<DesktopAgentSessionReplayTimingMode>([
 ]);
 
 export async function readAgentSessionReplayStatus(
-  statusPath = process.env.TUTTI_AGENT_SESSION_REPLAY_STATUS_PATH
+  input: DesktopGetAgentSessionReplayStatusInput,
+  surfaceStatusPath = process.env.TUTTI_AGENT_SESSION_REPLAY_SURFACE_STATUS_PATH
 ): Promise<DesktopAgentSessionReplayStatus> {
-  if (!statusPath?.trim()) {
+  const cassetteId = input.cassetteId.trim();
+  if (!cassetteId) {
     return { active: false };
   }
-  try {
-    const parsed = JSON.parse(await readFile(statusPath, "utf8")) as {
-      currentCheckpoint?: unknown;
-      errorMessage?: unknown;
-      paused?: unknown;
-      phase?: unknown;
-      targetCheckpoint?: unknown;
-      timingMode?: unknown;
-      totalCheckpoints?: unknown;
-    };
-    if (
-      typeof parsed.phase !== "string" ||
-      !replayPhases.has(parsed.phase as DesktopAgentSessionReplayPhase)
-    ) {
-      return { active: false };
+  const surfaceStatus = await readSurfaceStatus(surfaceStatusPath, cassetteId);
+  if (surfaceStatus) {
+    return surfaceStatus;
+  }
+  return { active: false };
+}
+
+export interface AgentSessionReplayCassetteStatusWriter {
+  write(
+    cassetteId: string,
+    status: DesktopAgentSessionReplayStatus
+  ): Promise<void>;
+}
+
+export function createAgentSessionReplayCassetteStatusWriter(
+  surfaceStatusPath: string
+): AgentSessionReplayCassetteStatusWriter {
+  const statuses = new Map<string, DesktopAgentSessionReplayStatus>();
+  let pending = Promise.resolve();
+  let temporaryFileSequence = 0;
+  return {
+    write(cassetteId, status) {
+      const normalizedCassetteId = cassetteId.trim();
+      if (!normalizedCassetteId) {
+        return Promise.reject(new Error("Replay Cassette id is required"));
+      }
+      const write = pending.then(async () => {
+        statuses.set(normalizedCassetteId, structuredClone(status));
+        temporaryFileSequence += 1;
+        const temporaryPath = `${surfaceStatusPath}.${process.pid}.${temporaryFileSequence}.tmp`;
+        try {
+          await writeFile(
+            temporaryPath,
+            JSON.stringify({
+              cassettes: Object.fromEntries(statuses),
+              schemaVersion: 1
+            }),
+            { mode: 0o600 }
+          );
+          await rename(temporaryPath, surfaceStatusPath);
+        } catch (error) {
+          await rm(temporaryPath, { force: true }).catch(() => undefined);
+          throw error;
+        }
+      });
+      pending = write.catch(() => undefined);
+      return write;
     }
-    const catalog = await readReplayCassetteCatalog(
-      join(dirname(statusPath), "replay-catalog.json")
-    );
-    return {
-      active: true,
-      ...catalog,
-      ...(isNonNegativeInteger(parsed.currentCheckpoint)
-        ? { currentCheckpoint: parsed.currentCheckpoint }
-        : {}),
-      ...(typeof parsed.errorMessage === "string" && parsed.errorMessage.trim()
-        ? { errorMessage: parsed.errorMessage }
-        : {}),
-      ...(typeof parsed.paused === "boolean" ? { paused: parsed.paused } : {}),
-      phase: parsed.phase as DesktopAgentSessionReplayPhase,
-      ...(parsed.targetCheckpoint === null
-        ? { targetCheckpoint: null }
-        : isNonNegativeInteger(parsed.targetCheckpoint)
-          ? { targetCheckpoint: parsed.targetCheckpoint }
-          : {}),
-      ...(typeof parsed.timingMode === "string" &&
-      replayTimingModes.has(
-        parsed.timingMode as DesktopAgentSessionReplayTimingMode
-      )
-        ? {
-            timingMode: parsed.timingMode as DesktopAgentSessionReplayTimingMode
-          }
-        : {}),
-      ...(isNonNegativeInteger(parsed.totalCheckpoints)
-        ? { totalCheckpoints: parsed.totalCheckpoints }
-        : {})
+  };
+}
+
+async function readSurfaceStatus(
+  path: string | undefined,
+  cassetteId: string
+): Promise<DesktopAgentSessionReplayStatus | null> {
+  if (!path?.trim()) return null;
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as {
+      cassettes?: Record<string, unknown>;
+      schemaVersion?: unknown;
     };
+    if (parsed.schemaVersion !== 1 || !parsed.cassettes) return null;
+    return resolveReplayStatus(parsed.cassettes[cassetteId]);
   } catch {
-    return { active: false };
+    return null;
   }
+}
+
+function resolveReplayStatus(
+  value: unknown
+): DesktopAgentSessionReplayStatus | null {
+  const parsed = value as {
+    active?: unknown;
+    cassetteId?: unknown;
+    cassettes?: unknown;
+    currentCheckpoint?: unknown;
+    errorCause?: unknown;
+    errorMessage?: unknown;
+    paused?: unknown;
+    phase?: unknown;
+    targetCheckpoint?: unknown;
+    timingMode?: unknown;
+    totalDurationMs?: unknown;
+    totalCheckpoints?: unknown;
+  };
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    parsed.active !== true ||
+    typeof parsed.phase !== "string" ||
+    !replayPhases.has(parsed.phase as DesktopAgentSessionReplayPhase)
+  ) {
+    return null;
+  }
+  return {
+    active: true,
+    ...(typeof parsed.cassetteId === "string"
+      ? { cassetteId: parsed.cassetteId }
+      : {}),
+    ...(Array.isArray(parsed.cassettes)
+      ? {
+          cassettes: parsed.cassettes.flatMap((cassette) => {
+            const item = cassette as { id?: unknown; name?: unknown };
+            return typeof item.id === "string" && typeof item.name === "string"
+              ? [{ id: item.id, name: item.name }]
+              : [];
+          })
+        }
+      : {}),
+    ...(isNonNegativeInteger(parsed.currentCheckpoint)
+      ? { currentCheckpoint: parsed.currentCheckpoint }
+      : {}),
+    ...(isReplayFailureCause(parsed.errorCause)
+      ? { errorCause: parsed.errorCause }
+      : {}),
+    ...(typeof parsed.errorMessage === "string" && parsed.errorMessage.trim()
+      ? { errorMessage: parsed.errorMessage }
+      : {}),
+    ...(typeof parsed.paused === "boolean" ? { paused: parsed.paused } : {}),
+    phase: parsed.phase as DesktopAgentSessionReplayPhase,
+    ...(parsed.targetCheckpoint === null
+      ? { targetCheckpoint: null }
+      : isNonNegativeInteger(parsed.targetCheckpoint)
+        ? { targetCheckpoint: parsed.targetCheckpoint }
+        : {}),
+    ...(typeof parsed.timingMode === "string" &&
+    replayTimingModes.has(
+      parsed.timingMode as DesktopAgentSessionReplayTimingMode
+    )
+      ? {
+          timingMode: parsed.timingMode as DesktopAgentSessionReplayTimingMode
+        }
+      : {}),
+    ...(isNonNegativeInteger(parsed.totalDurationMs)
+      ? { totalDurationMs: parsed.totalDurationMs }
+      : {}),
+    ...(isNonNegativeInteger(parsed.totalCheckpoints)
+      ? { totalCheckpoints: parsed.totalCheckpoints }
+      : {})
+  };
+}
+
+function isReplayFailureCause(
+  value: unknown
+): value is { code: string; message: string } {
+  const cause = value as { code?: unknown; message?: unknown };
+  return (
+    Boolean(cause) &&
+    typeof cause === "object" &&
+    typeof cause.code === "string" &&
+    Boolean(cause.code.trim()) &&
+    typeof cause.message === "string" &&
+    Boolean(cause.message.trim())
+  );
 }
 
 export function createAgentSessionReplayControlWriter(
@@ -86,17 +192,26 @@ export function createAgentSessionReplayControlWriter(
       if (!controlPath?.trim()) {
         throw new Error("Replay control is unavailable");
       }
-      const revision = (await readReplayControlRevision(controlPath)) + 1;
+      const cassetteId = input.cassetteId.trim();
+      if (!cassetteId) {
+        throw new Error("Replay Cassette id is required");
+      }
+      const document = await readReplayControlDocument(controlPath);
+      const revision = (document.cassettes[cassetteId]?.revision ?? 0) + 1;
       temporaryFileSequence += 1;
       const temporaryPath = `${controlPath}.${process.pid}.${temporaryFileSequence}.tmp`;
       try {
         await writeFile(
           temporaryPath,
           JSON.stringify({
-            schemaVersion: 1,
-            revision,
-            command: input.command,
-            ...("cassetteId" in input ? { cassetteId: input.cassetteId } : {})
+            schemaVersion: 2,
+            cassettes: {
+              ...document.cassettes,
+              [cassetteId]: {
+                command: input.command,
+                revision
+              }
+            }
           })
         );
         await rename(temporaryPath, controlPath);
@@ -110,46 +225,39 @@ export function createAgentSessionReplayControlWriter(
   };
 }
 
-async function readReplayCassetteCatalog(
-  path: string
-): Promise<Pick<DesktopAgentSessionReplayStatus, "cassetteId" | "cassettes">> {
-  try {
-    const parsed = JSON.parse(await readFile(path, "utf8")) as {
-      cassetteId?: unknown;
-      cassettes?: unknown;
-    };
-    if (
-      typeof parsed.cassetteId !== "string" ||
-      !Array.isArray(parsed.cassettes)
-    ) {
-      return {};
+interface ReplayControlDocument {
+  cassettes: Record<
+    string,
+    {
+      command: DesktopSendAgentSessionReplayControlInput["command"];
+      revision: number;
     }
-    const cassettes = parsed.cassettes.flatMap((cassette) => {
-      const value = cassette as { id?: unknown; name?: unknown };
-      return typeof value.id === "string" &&
-        typeof value.name === "string" &&
-        value.id.trim() &&
-        value.name.trim()
-        ? [{ id: value.id, name: value.name }]
-        : [];
-    });
-    return { cassetteId: parsed.cassetteId, cassettes };
-  } catch {
-    return {};
-  }
+  >;
+  schemaVersion: 2;
 }
 
-async function readReplayControlRevision(controlPath: string): Promise<number> {
+async function readReplayControlDocument(
+  controlPath: string
+): Promise<ReplayControlDocument> {
   try {
     const parsed = JSON.parse(await readFile(controlPath, "utf8")) as {
-      revision?: unknown;
+      cassettes?: unknown;
+      schemaVersion?: unknown;
     };
-    return Number.isSafeInteger(parsed.revision) &&
-      (parsed.revision as number) >= 0
-      ? (parsed.revision as number)
-      : 0;
+    if (
+      parsed.schemaVersion !== 2 ||
+      !parsed.cassettes ||
+      typeof parsed.cassettes !== "object" ||
+      Array.isArray(parsed.cassettes)
+    ) {
+      return { cassettes: {}, schemaVersion: 2 };
+    }
+    return {
+      cassettes: parsed.cassettes as ReplayControlDocument["cassettes"],
+      schemaVersion: 2
+    };
   } catch {
-    return 0;
+    return { cassettes: {}, schemaVersion: 2 };
   }
 }
 

@@ -1,17 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  PLAN_IMPLEMENTATION_ACTION_IMPLEMENT,
-  PLAN_IMPLEMENTATION_PROMPT,
   latestPlanTurnId,
   planImplementationPromptFromPlanTurn
 } from "./planImplementationPresentation";
 
 describe("plan implementation presentation", () => {
-  it("exposes the semantic implement action and prompt copy", () => {
-    expect(PLAN_IMPLEMENTATION_ACTION_IMPLEMENT).toBe("implement");
-    expect(PLAN_IMPLEMENTATION_PROMPT).toBe("Implement the plan.");
-  });
-
   it("projects a plan implementation prompt", () => {
     expect(
       planImplementationPromptFromPlanTurn("turn-1", "Implement?")

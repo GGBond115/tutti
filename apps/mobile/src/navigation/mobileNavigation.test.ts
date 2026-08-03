@@ -6,6 +6,7 @@ import {
 } from "./mobileNavigation";
 
 const session: AccountSession = {
+  avatarURL: "https://example.com/person.png",
   email: "person@example.com",
   name: "Person",
   sessionId: "session-cookie",
@@ -27,23 +28,25 @@ describe("mobile navigation access", () => {
   test("uses Devices as the authenticated root without a workspace route", () => {
     expect(
       availableMobileRoutes({
+        connection: { phase: "idle" },
         device: null,
         session,
         status: "authenticated",
         workspace: null
       })
-    ).toEqual(["Devices"]);
+    ).toEqual(["Devices", "Settings"]);
   });
 
   test("opens conversation routes only after the Personal workspace resolves", () => {
     expect(
       availableMobileRoutes({
+        connection: { phase: "connected" },
         device: { name: "Desktop", pairingId: "pairing-1" },
         session,
         status: "authenticated",
         workspace
       })
-    ).toEqual(["Devices", "Conversations", "Conversation"]);
+    ).toEqual(["Devices", "Settings", "Conversations", "Conversation"]);
   });
 });
 

@@ -63,7 +63,9 @@ func ProjectActivityEventsToStreamEvents(session Session, events []activityshare
 			out = append(out, StreamEvent{EventType: StreamEventSessionAudit, Data: audit})
 		}
 		if shouldAppendVisibleFailure(events, event) {
-			if update, ok := visibleFailureMessageUpdate(source, event, sessionID, timestamp); ok {
+			if audit, ok := visibleFailureSessionAuditUpdate(source, event, sessionID, timestamp); ok {
+				out = append(out, StreamEvent{EventType: StreamEventSessionAudit, Data: audit})
+			} else if update, ok := visibleFailureMessageUpdate(source, event, sessionID, timestamp); ok {
 				out = append(out, StreamEvent{
 					EventType: StreamEventMessageUpdate,
 					Data:      update,

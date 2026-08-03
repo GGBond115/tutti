@@ -4,12 +4,16 @@ import (
 	"encoding/json"
 	"strings"
 
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 )
 
-func generatedAgentSessionCapabilities(raw []string) *tuttigenerated.WorkspaceAgentCapabilities {
-	capabilities := generatedAgentCapabilities(raw)
+func generatedAgentSessionCapabilities(snapshot *canonical.CapabilitySnapshot) *tuttigenerated.WorkspaceAgentCapabilities {
+	if snapshot == nil {
+		return nil
+	}
+	capabilities := generatedAgentCapabilities(snapshot.Values)
 	return &capabilities
 }
 

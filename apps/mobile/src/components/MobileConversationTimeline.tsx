@@ -329,7 +329,7 @@ function MobileGoalControlRow({ body }: { body: string }) {
 
 function createStyles(theme: NativeTheme) {
   return StyleSheet.create({
-    disclosure: { color: theme.color.muted, fontSize: 22, lineHeight: 22 },
+    disclosure: { color: theme.color.muted, fontSize: 18, lineHeight: 18 },
     errorText: { color: theme.color.danger, fontSize: 14, lineHeight: 21 },
     fileList: { gap: theme.space.small, paddingTop: theme.space.small },
     fileName: { color: theme.color.textSecondary, fontSize: 13 },

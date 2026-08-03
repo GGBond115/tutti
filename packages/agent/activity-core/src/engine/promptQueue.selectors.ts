@@ -1,26 +1,47 @@
-import type { AgentSessionEngineState } from "./types.ts";
+import { promptVisibleInQueueAdmission } from "./promptQueue.admission.ts";
+import { deriveCanonicalSubmitAvailability } from "./sessionLifecycle.availability.ts";
+import type {
+  AgentSessionEngineState,
+  AgentSessionEngineStateBase
+} from "./types.ts";
 import type {
   EngineQueuedPrompt,
   PromptQueueRecord
 } from "./promptQueue.types.ts";
 
 export function selectEnginePromptQueue(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): PromptQueueRecord | null {
   const id = agentSessionId?.trim() ?? "";
   return state.promptQueue.recordsBySessionId[id] ?? null;
 }
 
-export function selectEngineQueuedPrompts(
+/**
+ * Mirrors the visible-queue admission decision in enqueueSubmit: true when an
+ * ordinary auto submit would remain in the composer queue instead of draining
+ * into an immediate send.
+ */
+export function selectEngineSubmitWouldBeVisibleInQueue(
   state: AgentSessionEngineState,
+  agentSessionId: string | null | undefined
+): boolean {
+  const id = agentSessionId?.trim() ?? "";
+  return promptVisibleInQueueAdmission(
+    state.promptQueue.recordsBySessionId[id],
+    deriveCanonicalSubmitAvailability(state.sessionLifecycle, id).state
+  );
+}
+
+export function selectEngineQueuedPrompts(
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): readonly EngineQueuedPrompt[] {
   return selectEnginePromptQueue(state, agentSessionId)?.prompts ?? [];
 }
 
 export function selectEngineHasQueuedPrompts(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineStateBase
 ): boolean {
   return Object.values(state.promptQueue.recordsBySessionId).some(
     (record) => record.prompts.length > 0
@@ -28,7 +49,7 @@ export function selectEngineHasQueuedPrompts(
 }
 
 export function selectEngineQueuedPrompt(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined,
   promptId: string | null | undefined
 ): EngineQueuedPrompt | null {
@@ -41,14 +62,14 @@ export function selectEngineQueuedPrompt(
 }
 
 export function selectEnginePromptQueueError(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): string | null {
   return selectEnginePromptQueue(state, agentSessionId)?.failureMessage ?? null;
 }
 
 export function selectEngineHasVisibleQueuedSubmit(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined,
   clientSubmitId: string | null | undefined
 ): boolean {

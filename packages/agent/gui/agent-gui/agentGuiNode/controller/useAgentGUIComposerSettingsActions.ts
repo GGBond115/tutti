@@ -1,11 +1,12 @@
 import {
   selectEngineSession,
+  type AgentActivityComposerOptions,
   type AgentActivityTurn,
   type AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { useCallback, useRef } from "react";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { translate } from "../../../i18n/index";
 import type {
   AgentSessionComposerSettings,
@@ -29,6 +30,7 @@ import {
 } from "./agentGuiController.composerHelpers";
 import {
   enforceComposerModelBindingForHomeDefaults,
+  effectiveComposerSettingsFromOptions,
   nodeDataMatchesComposerTarget,
   sanitizeComposerSettingsForTarget,
   type AgentGUIComposerTargetData
@@ -37,6 +39,7 @@ import {
   acknowledgeAgentGUIComposerDefaultsMutation,
   createAgentGUIComposerDefaultsLedger,
   prepareAcknowledgedComposerDefaultsAuthorityRead,
+  preserveAcknowledgedComposerDefaultsForReconciliation,
   registerAgentGUIComposerDefaultsMutation,
   removeRetiredComposerDefaults,
   retireAcknowledgedComposerDefaultsForRead,
@@ -61,7 +64,7 @@ interface UseAgentGUIComposerSettingsActionsInput {
   activeCanonicalComposerSettings: AgentSessionComposerSettings;
   activeConversationIdRef: RefObject<string | null>;
   activeEngineActiveTurn: AgentActivityTurn | null;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   composerSupportPermissionModeChangeDeferred: boolean;
   dataRef: RefObject<AgentGUINodeData>;
   defaultReasoningEffort: AgentSessionReasoningEffort | null;
@@ -131,15 +134,21 @@ export function useAgentGUIComposerSettingsActions(
     createAgentGUIComposerDefaultsLedger()
   );
   const retireAcknowledgedDefaultsForRead = useCallback(
-    (receipt: AgentGUIComposerDefaultsAuthorityReadReceipt | null) => {
+    (
+      receipt: AgentGUIComposerDefaultsAuthorityReadReceipt | null,
+      options: AgentActivityComposerOptions
+    ) => {
       if (!isMountedRef.current || !receipt) return;
       const currentDraft =
         draftSettingsBySessionIdRef.current[receipt.draftKey];
       if (!currentDraft) return;
+      const authoritativeSettings =
+        effectiveComposerSettingsFromOptions(options) ?? {};
       const retired = retireAcknowledgedComposerDefaultsForRead(
         composerDefaultsLedgerRef.current,
         receipt,
-        currentDraft
+        currentDraft,
+        authoritativeSettings
       );
       if (retired.length === 0) return;
       draftSettingsBySessionIdRef.current = reconcileRetiredDraftMap(
@@ -186,14 +195,20 @@ export function useAgentGUIComposerSettingsActions(
       if (!currentDraft) {
         return;
       }
-      const reconciledDraft = enforceComposerModelBindingForHomeDefaults(
-        sanitizeComposerSettingsForTarget({
-          settings: currentDraft,
-          target,
-          options
-        }),
-        options
-      );
+      const reconciledDraft =
+        preserveAcknowledgedComposerDefaultsForReconciliation(
+          composerDefaultsLedgerRef.current,
+          draftKey,
+          currentDraft,
+          enforceComposerModelBindingForHomeDefaults(
+            sanitizeComposerSettingsForTarget({
+              settings: currentDraft,
+              target,
+              options
+            }),
+            options
+          )
+        );
       if (sameComposerSettings(currentDraft, reconciledDraft)) {
         return;
       }

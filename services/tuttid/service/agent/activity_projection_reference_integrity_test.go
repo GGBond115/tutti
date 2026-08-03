@@ -144,6 +144,106 @@ func TestActivityProjectionReportSessionStateEnforcesTargetReferenceIntegrity(t 
 	}
 }
 
+func TestActivityProjectionTargetDiagnosticsPreserveRuntimeContextPatchMode(t *testing.T) {
+	ctx := context.Background()
+	store := openAgentServiceSQLiteStore(t)
+	if err := store.Create(ctx, workspacebiz.Summary{ID: "ws-1", Name: "Workspace One"}); err != nil {
+		t.Fatalf("Create workspace error = %v", err)
+	}
+
+	projection := NewActivityProjection(store)
+	projection.SetAgentTargetResolver(testSharedAgentTargetRegistry())
+	for _, tc := range []struct {
+		sessionID     string
+		agentTargetID string
+		wantTargetID  string
+		wantStashKey  string
+	}{
+		{"session-patch-alias", "02fc7056aaaa4bbb8cccdddd0000eeee", "shared-agent:codex-1", runtimeContextAliasedAgentTargetIDKey},
+		{"session-patch-unresolved", "02fc7056aaaa4bbb8cccdddd0000ffff", "", runtimeContextUnresolvedAgentTargetIDKey},
+	} {
+		if _, err := projection.ReportSessionState(ctx, canonical.ReportSessionStateInput{
+			WorkspaceID:    "ws-1",
+			AgentSessionID: tc.sessionID,
+			SessionOrigin:  agentsessionstore.WorkspaceAgentSessionOriginRuntime,
+			State: canonical.WorkspaceAgentSessionStateUpdate{
+				AgentTargetID: tc.agentTargetID,
+				Provider:      "codex",
+				RuntimeContextPatch: &canonical.RuntimeContextPatch{
+					Set: map[string]any{"providerState": "ready"},
+				},
+			},
+		}); err != nil {
+			t.Fatalf("ReportSessionState(%s) error = %v", tc.sessionID, err)
+		}
+		session, ok := projection.GetSession("ws-1", tc.sessionID)
+		if !ok {
+			t.Fatalf("GetSession(%s) not found", tc.sessionID)
+		}
+		if session.AgentTargetID != tc.wantTargetID {
+			t.Fatalf("agentTargetId = %q, want %q", session.AgentTargetID, tc.wantTargetID)
+		}
+		if session.InternalRuntimeContext["providerState"] != "ready" || session.InternalRuntimeContext[tc.wantStashKey] != tc.agentTargetID {
+			t.Fatalf("runtime context = %#v", session.InternalRuntimeContext)
+		}
+	}
+}
+
+func TestActivityProjectionTargetOnlyDiagnosticPreservesExistingRuntimeContext(t *testing.T) {
+	ctx := context.Background()
+	store := openAgentServiceSQLiteStore(t)
+	if err := store.Create(ctx, workspacebiz.Summary{ID: "ws-1", Name: "Workspace One"}); err != nil {
+		t.Fatalf("Create workspace error = %v", err)
+	}
+
+	projection := NewActivityProjection(store)
+	projection.SetAgentTargetResolver(testSharedAgentTargetRegistry())
+	for _, tc := range []struct {
+		sessionID     string
+		agentTargetID string
+		wantTargetID  string
+		wantStashKey  string
+	}{
+		{"session-target-only-alias", "02fc7056aaaa4bbb8cccdddd0000eeee", "shared-agent:codex-1", runtimeContextAliasedAgentTargetIDKey},
+		{"session-target-only-unresolved", "02fc7056aaaa4bbb8cccdddd0000ffff", agenttargetbiz.IDLocalCodex, runtimeContextUnresolvedAgentTargetIDKey},
+	} {
+		if _, err := projection.ReportSessionState(ctx, canonical.ReportSessionStateInput{
+			WorkspaceID:    "ws-1",
+			AgentSessionID: tc.sessionID,
+			SessionOrigin:  agentsessionstore.WorkspaceAgentSessionOriginRuntime,
+			State: canonical.WorkspaceAgentSessionStateUpdate{
+				AgentTargetID:    agenttargetbiz.IDLocalCodex,
+				Provider:         "codex",
+				RuntimeContext:   map[string]any{"providerState": "ready"},
+				OccurredAtUnixMS: 1,
+			},
+		}); err != nil {
+			t.Fatalf("seed ReportSessionState(%s) error = %v", tc.sessionID, err)
+		}
+		if _, err := projection.ReportSessionState(ctx, canonical.ReportSessionStateInput{
+			WorkspaceID:    "ws-1",
+			AgentSessionID: tc.sessionID,
+			SessionOrigin:  agentsessionstore.WorkspaceAgentSessionOriginRuntime,
+			State: canonical.WorkspaceAgentSessionStateUpdate{
+				AgentTargetID:    tc.agentTargetID,
+				OccurredAtUnixMS: 2,
+			},
+		}); err != nil {
+			t.Fatalf("target-only ReportSessionState(%s) error = %v", tc.sessionID, err)
+		}
+		session, ok := projection.GetSession("ws-1", tc.sessionID)
+		if !ok {
+			t.Fatalf("GetSession(%s) not found", tc.sessionID)
+		}
+		if session.AgentTargetID != tc.wantTargetID {
+			t.Fatalf("agentTargetId = %q, want %q", session.AgentTargetID, tc.wantTargetID)
+		}
+		if session.InternalRuntimeContext["providerState"] != "ready" || session.InternalRuntimeContext[tc.wantStashKey] != tc.agentTargetID {
+			t.Fatalf("runtime context = %#v", session.InternalRuntimeContext)
+		}
+	}
+}
+
 // TestActivityProjectionProjectsLegacyOwnerDomainTargetIDAtReadTime covers the
 // existing-data strategy: rows persisted before the ingestion boundary was
 // hardened are re-canonicalized at read time (non-destructively), so a legacy

@@ -17,9 +17,9 @@ import {
   resetCachedMarkdownMediaForTests,
   resolveMarkdownMediaKind,
   resolveMarkdownMediaType,
+  resolveMarkdownWorkspaceMediaPath,
   resolveRenderableMarkdownMediaSrc,
   retainCachedMarkdownMedia,
-  isLocalAbsolutePath,
   type MarkdownMediaState
 } from "./agentMessageMarkdownLinks";
 
@@ -43,7 +43,7 @@ export function MarkdownMedia({
   const isInsideLink = useContext(MarkdownLinkContext);
   const agentHostApi = useOptionalAgentHostApi() ?? getOptionalAgentHostApi();
   const workspacePath =
-    typeof src === "string" && isLocalAbsolutePath(src) ? src.trim() : null;
+    typeof src === "string" ? resolveMarkdownWorkspaceMediaPath(src) : null;
   const readWorkspaceImage = workspacePath
     ? agentHostApi?.workspace?.readFile
     : undefined;

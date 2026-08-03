@@ -105,10 +105,18 @@ export function pendingIntentsReducer(
       return requestSubmit(state, intent);
     case "plan/feedbackRequested":
       return context.planFeedbackAccepted === true
-        ? requestSubmit(state, {
-            ...intent,
-            type: "submit/requested"
-          })
+        ? requestSubmit(
+            state,
+            {
+              ...intent,
+              type: "submit/requested"
+            },
+            {
+              kind: "plan-feedback",
+              requestId: intent.requestId,
+              turnId: intent.turnId
+            }
+          )
         : unchanged(state);
     case "submit/dismissed":
       return removeSubmit(state, intent.clientSubmitId);

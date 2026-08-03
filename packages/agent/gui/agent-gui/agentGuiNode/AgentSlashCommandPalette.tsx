@@ -209,6 +209,11 @@ export function AgentSlashCommandPalette({
               role="option"
               aria-selected={isHighlighted}
               aria-disabled={isDisabled || undefined}
+              data-testid={
+                entry.type === "command"
+                  ? `agent-gui-composer-slash-command-${entry.command.name}`
+                  : undefined
+              }
               data-highlighted={isHighlighted ? "" : undefined}
               onMouseEnter={() => onHighlightChange(index)}
               onMouseDown={(event) => event.preventDefault()}

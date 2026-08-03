@@ -1,3 +1,4 @@
+import { useComposedInputValue } from "@tutti-os/ui-react-hooks";
 import {
   Button,
   CloseIcon,
@@ -38,6 +39,7 @@ export function WorkspaceAgentEditor({
   modelPlans,
   saving,
   onCancel,
+  onOpenModelPlans,
   onSave,
   onUpdate
 }: {
@@ -48,6 +50,7 @@ export function WorkspaceAgentEditor({
   modelPlans: readonly WorkspaceModelPlan[];
   saving: boolean;
   onCancel: () => void;
+  onOpenModelPlans?: () => void;
   onSave: () => void;
   onUpdate: (patch: Partial<WorkspaceAgentDraft>) => void;
 }) {
@@ -80,6 +83,10 @@ export function WorkspaceAgentEditor({
     protocol,
     draft.modelPlanId
   );
+  const nameInput = useComposedInputValue({
+    onCommit: (name) => onUpdate({ name }),
+    value: draft.name
+  });
   const selectedPlan =
     compatiblePlans.find((plan) => plan.id === draft.modelPlanId) ?? null;
   const editing = draft.agentId !== null;
@@ -118,8 +125,11 @@ export function WorkspaceAgentEditor({
           <Input
             placeholder={t("workspace.settings.apps.agents.namePlaceholder")}
             type="text"
-            value={draft.name}
-            onChange={(event) => onUpdate({ name: event.currentTarget.value })}
+            value={nameInput.value}
+            onBlur={nameInput.onBlur}
+            onChange={nameInput.onChange}
+            onCompositionEnd={nameInput.onCompositionEnd}
+            onCompositionStart={nameInput.onCompositionStart}
           />
         </label>
 
@@ -191,6 +201,20 @@ export function WorkspaceAgentEditor({
               ))}
             </SelectContent>
           </Select>
+          {protocol !== null &&
+          compatiblePlans.length === 0 &&
+          onOpenModelPlans ? (
+            <span className="text-[11px] leading-[1.4] text-[var(--text-tertiary)]">
+              {t("workspace.settings.apps.agents.noCompatiblePlansHint")}{" "}
+              <button
+                className="cursor-pointer border-0 bg-transparent p-0 text-[11px] text-[var(--text-secondary)] underline underline-offset-2 transition-colors duration-150 hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]"
+                type="button"
+                onClick={onOpenModelPlans}
+              >
+                {t("workspace.settings.apps.agents.createModelPlanLink")}
+              </button>
+            </span>
+          ) : null}
         </label>
 
         <label className="flex flex-col gap-1.5">

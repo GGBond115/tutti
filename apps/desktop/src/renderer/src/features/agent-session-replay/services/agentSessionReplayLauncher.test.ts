@@ -2,179 +2,172 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createAgentSessionReplayLauncher } from "./agentSessionReplayLauncher.ts";
 
-test("launches replay through Desktop runtime without opening a terminal", async () => {
+test("batch prepares and launches all Cassettes once without Renderer status writes", async () => {
   const events: string[] = [];
-  let resolveCompletion!: () => void;
-  const runtimeCompletion = new Promise<void>((resolve) => {
-    resolveCompletion = resolve;
-  });
   const launcher = createAgentSessionReplayLauncher({
-    workspaceId: "workspace-1",
+    createLaunchId: () => "launch-1",
+    createReplayWorkspaceId: () => "replay-workspace-1",
     runtimeApi: {
       async launchAgentSessionReplay(input) {
-        events.push(`launch:${input.runId}:${input.cassetteDirectory}`);
-        return { runId: input.runId };
+        events.push(
+          `launch:${input.playbackMode}:${input.cassettes.map((cassette) => cassette.cassetteId).join(",")}`
+        );
+        return {
+          launchId: input.launchId,
+          cassetteIds: input.cassettes.map((cassette) => cassette.cassetteId),
+          workspaceId: input.workspaceId
+        };
       },
       async waitForAgentSessionReplay(input) {
-        events.push(`wait:${input.runId}`);
-        await runtimeCompletion;
-        return { runId: "replay-run-2" };
+        events.push(`wait:${input.cassetteId}`);
+        return input;
       }
     },
     service: {
-      async prepareReplayRun(cassetteId) {
-        events.push(`prepare:${cassetteId}`);
+      async prepareReplayWorkspace(cassetteIds) {
+        events.push(`prepare:${cassetteIds.join(",")}`);
         return {
-          cassetteDirectory: "/cassette/recording-1",
-          run: {
+          launches: cassetteIds.map((cassetteId, index) => ({
+            cassetteDirectory: `/cassettes/${cassetteId}`,
             cassetteId,
-            checkpoint: 0,
-            createdAtUnixMs: 1,
-            id: "replay-run-1",
-            status: "starting" as const,
-            updatedAtUnixMs: 1
-          }
+            rootAgentSessionId: `session-${index + 1}`
+          }))
         };
-      },
-      async markReplayRunRunning(runId) {
-        events.push(`running:${runId}`);
-        return {} as never;
-      },
-      async completeReplayRun(runId) {
-        events.push(`complete:${runId}`);
-        return {} as never;
-      },
-      async failReplayRun(runId) {
-        events.push(`fail:${runId}`);
-        return {} as never;
       }
     }
   });
 
-  const launched = await launcher.launch("cassette-1");
-
-  assert.deepEqual(events, [
-    "prepare:cassette-1",
-    "running:replay-run-1",
-    "launch:replay-run-1:/cassette/recording-1",
-    "wait:replay-run-1"
-  ]);
-
-  resolveCompletion();
+  const launched = await launcher.launch(
+    ["cassette-1", "cassette-2"],
+    "manual"
+  );
   await launched.completion;
   assert.deepEqual(events, [
-    "prepare:cassette-1",
-    "running:replay-run-1",
-    "launch:replay-run-1:/cassette/recording-1",
-    "wait:replay-run-1",
-    "complete:replay-run-2"
+    "prepare:cassette-1,cassette-2",
+    "launch:manual:cassette-1,cassette-2",
+    "wait:cassette-1",
+    "wait:cassette-2"
   ]);
 });
 
-test("persists replay failure and never completes a failed launch", async () => {
-  const events: string[] = [];
+test("default launch id keeps the Crypto method receiver", async () => {
+  const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  const fakeCrypto = {
+    randomUUID() {
+      assert.equal(this, fakeCrypto);
+      return "launch-bound";
+    }
+  };
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: fakeCrypto
+  });
+  let launchId = "";
+  try {
+    const launcher = createAgentSessionReplayLauncher({
+      createReplayWorkspaceId: () => "replay-workspace-1",
+      runtimeApi: {
+        async launchAgentSessionReplay(input) {
+          launchId = input.launchId;
+          return {
+            launchId: input.launchId,
+            cassetteIds: input.cassettes.map((cassette) => cassette.cassetteId),
+            workspaceId: input.workspaceId
+          };
+        },
+        async waitForAgentSessionReplay(input) {
+          return input;
+        }
+      },
+      service: {
+        async prepareReplayWorkspace() {
+          return {
+            launches: [
+              {
+                cassetteDirectory: "/cassettes/1",
+                cassetteId: "cassette-1",
+                rootAgentSessionId: "session-1"
+              }
+            ]
+          };
+        }
+      }
+    });
+
+    const launched = await launcher.launch(["cassette-1"], "automatic");
+    await launched.completion;
+  } finally {
+    if (originalCrypto) {
+      Object.defineProperty(globalThis, "crypto", originalCrypto);
+    } else {
+      delete (globalThis as { crypto?: Crypto }).crypto;
+    }
+  }
+  assert.equal(launchId, "launch-bound");
+});
+
+test("does not wait when the Main launch fails", async () => {
+  let waited = false;
   const launcher = createAgentSessionReplayLauncher({
-    workspaceId: "workspace-1",
+    createLaunchId: () => "launch-1",
+    createReplayWorkspaceId: () => "replay-workspace-1",
     runtimeApi: {
       async launchAgentSessionReplay() {
-        events.push("launch");
-        throw new Error("cassette mismatch");
+        throw new Error("launch failed");
       },
-      async waitForAgentSessionReplay() {
-        events.push("wait");
-        return { runId: "run-1" };
+      async waitForAgentSessionReplay(input) {
+        waited = true;
+        return input;
       }
     },
     service: {
-      async prepareReplayRun() {
-        events.push("prepare");
+      async prepareReplayWorkspace() {
         return {
-          cassetteDirectory: "/cassette",
-          run: {
-            cassetteId: "cassette-1",
-            checkpoint: 0,
-            createdAtUnixMs: 1,
-            id: "run-1",
-            status: "starting" as const,
-            updatedAtUnixMs: 1
-          }
+          launches: [
+            {
+              cassetteDirectory: "/cassettes/1",
+              cassetteId: "cassette-1",
+              rootAgentSessionId: "session-1"
+            }
+          ]
         };
-      },
-      async markReplayRunRunning() {
-        events.push("running");
-        return {} as never;
-      },
-      async completeReplayRun() {
-        events.push("complete");
-        return {} as never;
-      },
-      async failReplayRun(_runId, error) {
-        events.push(`failed:${error instanceof Error ? error.message : error}`);
-        return {} as never;
       }
     }
   });
 
-  await assert.rejects(launcher.launch("cassette-1"), /cassette mismatch/u);
-  assert.deepEqual(events, [
-    "prepare",
-    "running",
-    "launch",
-    "failed:cassette mismatch"
-  ]);
+  await assert.rejects(
+    launcher.launch(["cassette-1"], "automatic"),
+    /launch failed/u
+  );
+  assert.equal(waited, false);
 });
 
-test("persists a replay failure that happens after the window opens", async () => {
-  const events: string[] = [];
+test("rejects empty and duplicate Cassette batches before preparation", async () => {
+  let prepared = false;
   const launcher = createAgentSessionReplayLauncher({
-    workspaceId: "workspace-1",
     runtimeApi: {
       async launchAgentSessionReplay() {
-        events.push("launch");
-        return { runId: "run-1" };
+        throw new Error("unexpected launch");
       },
-      async waitForAgentSessionReplay() {
-        events.push("wait");
-        throw new Error("transport mismatch");
+      async waitForAgentSessionReplay(input) {
+        return input;
       }
     },
     service: {
-      async prepareReplayRun() {
-        events.push("prepare");
-        return {
-          cassetteDirectory: "/cassette",
-          run: {
-            cassetteId: "cassette-1",
-            checkpoint: 0,
-            createdAtUnixMs: 1,
-            id: "run-1",
-            status: "starting" as const,
-            updatedAtUnixMs: 1
-          }
-        };
-      },
-      async markReplayRunRunning() {
-        events.push("running");
-        return {} as never;
-      },
-      async completeReplayRun() {
-        events.push("complete");
-        return {} as never;
-      },
-      async failReplayRun(_runId, error) {
-        events.push(`failed:${error instanceof Error ? error.message : error}`);
-        return {} as never;
+      async prepareReplayWorkspace() {
+        prepared = true;
+        throw new Error("unexpected preparation");
       }
     }
   });
 
-  const launched = await launcher.launch("cassette-1");
-  await assert.rejects(launched.completion, /transport mismatch/u);
-  assert.deepEqual(events, [
-    "prepare",
-    "running",
-    "launch",
-    "wait",
-    "failed:transport mismatch"
-  ]);
+  await assert.rejects(
+    launcher.launch([], "automatic"),
+    /requires at least one Cassette/u
+  );
+  await assert.rejects(
+    launcher.launch(["cassette-1", "cassette-1"], "automatic"),
+    /identities must be unique/u
+  );
+  assert.equal(prepared, false);
 });

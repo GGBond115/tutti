@@ -87,6 +87,32 @@ test("workflow and hook changes select repository tool contracts", () => {
   }
 });
 
+test("Agent Session Replay changes select the current-build closed loop", () => {
+  for (const file of [
+    "packages/agent/session-replay/cassette.go",
+    "packages/agent/daemon/runtime/process_transport_session_replay.go",
+    "services/tuttid/agent_session_recording.go",
+    "services/tuttid/data/workspace/migrations_agent_session_replay.go",
+    "apps/desktop/src/main/agentSessionReplayProcessManager.ts",
+    "apps/desktop/src/renderer/src/features/agent-session-replay/services/agentSessionReplayService.ts",
+    "tools/scripts/run-agent-session-replay.mjs"
+  ]) {
+    const classification = classifyChangedFiles([file], {
+      releasePackages
+    });
+    assert.equal(classification.runAgentSessionReplay, true, file);
+  }
+});
+
+test("unrelated UI changes do not select the Agent Session Replay closed loop", () => {
+  const classification = classifyChangedFiles(
+    ["apps/desktop/src/renderer/src/features/settings/Settings.tsx"],
+    { releasePackages }
+  );
+
+  assert.equal(classification.runAgentSessionReplay, false);
+});
+
 test("published CSS and assets select package packing and UI boundaries", () => {
   for (const file of [
     "packages/agent/gui/app/renderer/agentactivity.css",

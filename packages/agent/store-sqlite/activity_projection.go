@@ -14,9 +14,13 @@ func sessionStateReportApplied(input SessionStateReport, session agentactivitypr
 }
 
 func projectionSessionToDTO(session agentactivityprojection.SessionSnapshot) (Session, error) {
-	metadata, internal, err := splitSessionRuntimeContext(session.RuntimeContext)
+	metadata, legacyCapabilities, internal, err := splitSessionRuntimeContext(session.RuntimeContext)
 	if err != nil {
 		return Session{}, err
+	}
+	capabilities := session.Capabilities
+	if capabilities == nil {
+		capabilities = legacyCapabilities
 	}
 	return Session{
 		ID:                     session.AgentSessionID,
@@ -34,6 +38,7 @@ func projectionSessionToDTO(session agentactivityprojection.SessionSnapshot) (Se
 		ProviderSessionID:      session.ProviderSessionID,
 		Model:                  session.Model,
 		Settings:               cloneJSONMap(session.Settings),
+		Capabilities:           agentactivityprojection.CloneCapabilitySnapshot(capabilities),
 		Metadata:               metadata,
 		InternalRuntimeContext: internal,
 		Cwd:                    session.CWD,

@@ -6,6 +6,24 @@ import (
 	"testing"
 )
 
+func TestWithCORSPermitsAgentCommandProvenanceHeaders(t *testing.T) {
+	handler := WithCORS(http.NotFoundHandler())
+	request := httptest.NewRequest(http.MethodOptions, "/v1/workspaces/ws-1/agent-sessions/session-1/input", nil)
+	request.Header.Set("Origin", "http://127.0.0.1:5173")
+	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	request.Header.Set("Access-Control-Request-Headers", "authorization, content-type, x-tutti-agent-command-id, x-tutti-agent-command-origin")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusNoContent)
+	}
+	if got, want := response.Header().Get("Access-Control-Allow-Headers"), "Content-Type, Authorization, X-Tutti-Agent-Command-Origin"; got != want {
+		t.Fatalf("Access-Control-Allow-Headers = %q, want %q", got, want)
+	}
+}
+
 func TestWithBearerTokenAuthRejectsEmptyExpectedToken(t *testing.T) {
 	called := false
 	handler := WithBearerTokenAuthFunc("", nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

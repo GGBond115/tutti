@@ -282,6 +282,41 @@ deadline exceeded`. The failing test can take several seconds even though its
   [session.go](../../../services/tuttid/service/browser/session.go)
   [command.go](../../../services/tuttid/service/browser/command.go)
 
+### Browser Agent retries plausible commands that the CLI rejects
+
+- Symptom:
+  An Agent eventually opens the requested page but its transcript contains
+  repeated failures such as `browser open` returning `command_not_found`,
+  `json output is not supported`, or a cold `navigate` returning
+  `target closed while handling command`.
+- Quick checks:
+  Inspect the session's exact tool calls rather than relying on the final Agent
+  message. Compare the Browser command-group help with each leaf command's
+  advertised output modes, and check whether the first operation tried to
+  navigate a selected page before any workspace Browser page existed.
+- Root cause:
+  `open` was an intuitive but missing command, command-group help advertised a
+  generic `--json` flag even when leaf commands rejected JSON, and the Browser
+  skill led with page-scoped `navigate` instead of page-creating `new_page`.
+  Providers therefore converged on different retry sequences and surfaced
+  avoidable failures before finding a working command.
+- Fix:
+  Provide `browser open --url <url>` as the direct page-creation path, keep
+  `new-page` for explicit tab management, support JSON consistently across the
+  Browser command family, and advertise `--json` only on leaf commands that
+  support it. Lead the Browser skill with `open`; reserve `navigate` for an
+  already selected page.
+- Validation:
+  Test that `browser.open` maps to `new_page` with the exact workspace and Agent
+  session, that every Browser command accepts JSON output, and that CLI help
+  does not promise JSON for unsupported commands. In a live Agent session,
+  send `/browser` with a public URL and confirm the first Browser command
+  succeeds without retries.
+- References:
+  [commands.go](../../../services/tuttid/service/cli/providers/browser/commands.go)
+  [run.go](../../../apps/cli/internal/app/run.go)
+  [browser-use skill template](../../../packages/agent/runtimeprep/skill_templates/browser-use.md)
+
 ### Malformed user skill frontmatter breaks skill discovery
 
 - Symptom:
@@ -351,6 +386,46 @@ delimited by ---`, and the composer skill picker may show partial or
   [workspaceBrowserService.ts](../../../apps/desktop/src/renderer/src/features/workspace-workbench/services/internal/workspaceBrowserService.ts)
   [BrowserNode.tsx](../../../packages/browser/workbench-node/src/react/BrowserNode.tsx)
 
+### Browser Node same-origin target-blank link does nothing
+
+- Symptom:
+  Clicking a `target="_blank"` link in the full workspace Browser leaves the
+  current page unchanged and opens no tab. Desktop logs show the guest preload
+  reporting `action=open-url` with `defaultPrevented=true`, followed by both
+  `Browser Node guest open-url IPC received` and the guest `open-url` emission,
+  but no navigation to the requested URL. Cross-origin popup links may still
+  appear to work.
+- Quick checks:
+  Compare the current and requested origins. Confirm the event's
+  `sourceNodeId` names an existing `:tab:*` child and that the workspace Browser
+  route is registered with source `browser`.
+- Root cause:
+  The guest preload correctly suppresses Chromium's native popup and delegates
+  the URL to the host. Reusing the Browser surface through Workbench activation
+  then changed only the active tab's `defaultUrl`. Browser Node's passive host
+  synchronization intentionally ignores same-origin differences to avoid
+  fighting in-page and authentication redirects, so the explicit popup URL was
+  never loaded.
+- Fix:
+  Keep the same-origin synchronization guard. Route Browser-owned `open-url`
+  events by their exact source child ID, create and select a new tab on that
+  Browser surface, and retain the existing Workbench launch fallback for URLs
+  emitted by Workspace Apps or unavailable Browser surfaces. Treat the route
+  registration as a Workbench-session resource: replace an earlier route for
+  the same workspace/source generation and dispose all workspace routes when
+  its session closes.
+- Validation:
+  Cover a same-origin popup from an existing Browser child and assert that a
+  second selected tab owns the requested URL while no Workbench launch occurs.
+  Rebuild the Browser contribution and assert only the latest feature receives
+  the popup, then dispose the workspace and assert its feature no longer
+  receives events. Also retain coverage that Workspace App URLs still launch
+  through the workspace Browser coordinator.
+- References:
+  [workspaceBrowserService.ts](../../../apps/desktop/src/renderer/src/features/workspace-workbench/services/internal/workspaceBrowserService.ts)
+  [tabsStore.ts](../../../packages/browser/workbench-node/src/core/tabsStore.ts)
+  [nodeController.ts](../../../packages/browser/workbench-node/src/core/nodeController.ts)
+
 ### Standalone Agent Browser Node is blank and never attaches a guest
 
 - Symptom:
@@ -384,6 +459,86 @@ delimited by ---`, and the composer skill picker may show partial or
   [main.ts](../../../apps/desktop/src/preload/entries/main.ts)
   [workspaceSurfacePreload.ts](../../../apps/desktop/src/preload/entries/workspaceSurfacePreload.ts)
   [StandaloneAgentToolSidebar.tsx](../../../apps/desktop/src/renderer/src/features/workspace-workbench/ui/StandaloneAgentToolSidebar.tsx)
+
+### In-app Browser new-page fails to attach for every provider
+
+- Symptom:
+  `/browser` fails for Tutti Agent, Codex, Kimi Code, Claude Code, or another
+  Agent provider. `tutti browser new-page` returns `In-app Browser page did not
+attach: browser:...:tab:1`, while `list-pages` remains empty. Desktop logs
+  show the automation server listening and the workspace renderer returning a
+  stable node id, but never show that node registering as a Browser automation
+  target.
+- Quick checks:
+  Confirm the session advertises browser use and the slash command was rewritten
+  to the browser-use skill before debugging command discovery. If `new_page`
+  reaches the desktop host and returns a node id, inspect that node's initial
+  lifecycle and URL. Browser automation intentionally starts at `cold` and
+  `about:blank`; the creation path must carry an explicit cold-materialization
+  intent so the guest exists before the registry can attach request interception
+  and navigate.
+- Root cause:
+  All Agent providers use the same BrowserNode automation authority.
+  `new_page` deliberately creates an `about:blank` tab in the full workspace
+  Browser before enabling its CDP request guard. Treating every cold blank page
+  as a home surface suppresses the `<webview>` guest, so the automation registry
+  can never observe the node id returned by the renderer. The request then
+  times out identically for every provider.
+- Fix:
+  Materialize a cold Browser Node guest only when the automation creation path
+  marks that tab with the explicit materialization intent. Keep ordinary cold
+  tabs guest-free even though workspace Browser tabs also carry automation
+  target identity. Do not bypass the guarded `about:blank` sequence or navigate
+  before request interception is enabled.
+- Validation:
+  Assert that an explicitly materialized cold Browser Node renders a webview
+  while an ordinary automatable cold tab remains guest-free. Run the Browser
+  Node package tests and the
+  changed-aware repository checks. In a running desktop, execute
+  `tutti browser new-page --url https://example.com` from sessions belonging to
+  multiple providers, verify the full workspace Browser appears with each page
+  in `list-pages`, and close the temporary pages.
+- References:
+  [automationRegistry.ts](../../../packages/browser/workbench-node/src/electron-main/automationRegistry.ts)
+  [webviewController.ts](../../../packages/browser/workbench-node/src/core/webviewController.ts)
+  [workspaceBrowserService.ts](../../../apps/desktop/src/renderer/src/features/workspace-workbench/services/internal/workspaceBrowserService.ts)
+
+### Agent reports a loaded page but the full workspace Browser is not visible
+
+- Symptom:
+  An Agent reports that a page opened successfully, and `snapshot` or
+  `list-pages` returns the expected title and URL, but the full workspace
+  Browser does not come forward. Desktop logs show a Browser Node guest loading
+  the requested URL; they may even show `Browser automation host activated`
+  while the user still sees only the Agent conversation.
+- Quick checks:
+  Treat a successful snapshot as proof that the guest exists, not that its
+  owner window is visible. Confirm `new_page` requested `surfaceRole=user`, the
+  workspace renderer focused or launched the preferred Browser node, and Main
+  activated the exact workspace window that returned the created tab id.
+- Root cause:
+  Visibility has three independent gates. Page creation must route to the User
+  Browser rather than the embedded Agent Browser, the workspace renderer must
+  restore and focus the Browser node, and Main must reveal the exact owning
+  workspace window. Missing any gate lets an Agent inspect a real loaded page
+  while the user sees no full Browser surface.
+- Fix:
+  Keep Agent session identity as the automation lease owner, but create the tab
+  on `surfaceRole=user`. Focus or launch the exact full Browser node before
+  responding, then reveal and focus its workspace window after creation
+  succeeds. Do not activate windows for metadata reads, screenshots, select,
+  close, or performance-headless runs.
+- Validation:
+  Test that Agent-owned creation is sent to a User Browser host, the workspace
+  renderer focuses the preferred Browser node or launches the first one, and
+  Main activates the responding workspace window. In a running Desktop, create
+  a page through the CLI, verify a large Browser page comes forward with the
+  loaded URL, and confirm the log records `Browser automation host activated`.
+- References:
+  [browserAutomationCoordinator.ts](../../../apps/desktop/src/main/ipc/browserAutomationCoordinator.ts)
+  [browser.ts](../../../apps/desktop/src/main/ipc/browser.ts)
+  [workspaceBrowserService.ts](../../../apps/desktop/src/renderer/src/features/workspace-workbench/services/internal/workspaceBrowserService.ts)
+  [WorkspaceWorkbench.tsx](../../../apps/desktop/src/renderer/src/features/workspace-workbench/ui/WorkspaceWorkbench.tsx)
 
 ### Browser Node action finds a webview but page injection does nothing
 

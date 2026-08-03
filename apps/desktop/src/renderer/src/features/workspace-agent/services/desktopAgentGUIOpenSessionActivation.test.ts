@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSessionEngine } from "@tutti-os/agent-activity-core";
-import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
+import type { AgentGUIRuntime } from "@tutti-os/agent-gui";
 import {
   consumeDesktopAgentGUIOpenSessionActivation,
   resolveDesktopAgentGUIOpenSessionActivation
@@ -15,7 +15,7 @@ import type {
 function agentActivityRuntimeWithActivation(
   activateSession: AgentSessionEngine["activateSession"],
   onWorkspace?: (workspaceId: string) => void
-): Pick<AgentActivityRuntime, "getSessionEngine"> {
+): Pick<AgentGUIRuntime, "getSessionEngine"> {
   return {
     getSessionEngine(workspaceId) {
       onWorkspace?.(workspaceId);

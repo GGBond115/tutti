@@ -19,9 +19,11 @@ Use the focused runtime index or open one area directly:
   command/Skill palette hydration failures.
   Also covers uv-managed Extension installs that accidentally select an
   incompatible system Python.
+  Also covers Kimi Code ACP sessions that advertise no model or hide provider
+  failures behind an empty `end_turn`.
   Also covers focus-driven provider CLI scans, repeated Extension Target version
   probes, extension release refresh delaying daemon startup, and CPU spikes.
-- [Agent Sessions And Lifecycle](./agent-session-lifecycle.md): Turn state, activation, planning-mode classification, Tutti workflow response contracts, loading, cancel, goal controls, restore, file-change undo, rail projection, realtime completion provenance, event updates, imports, and performance.
+- [Agent Sessions And Lifecycle](./agent-session-lifecycle.md): Turn state, activation, planning-mode classification, capability snapshots, Tutti workflow response contracts, loading, cancel, goal controls, restore, file-change undo, rail projection, realtime completion provenance, event updates, imports, and performance.
   Includes shared-device recovery that looks terminal while the host is still retrying.
   Also covers new or derived conversations that silently fail or lose
   project/Git ownership when a runtime worktree is mistaken for a canonical
@@ -31,8 +33,9 @@ Use the focused runtime index or open one area directly:
   resume are covered here as well. Includes cassette replay
   startup that fails when concurrent provider input and output are treated as a
   strict scheduling order, false final-state mismatches caused by replay-generated
-  child identities, and canonical completion delayed behind a streaming activity-report
-  backlog. It also covers an active existing-Session Tutti snapshot being
+  child identities, an orphan managed Replay Desktop that crashes with `EPIPE`
+  after its owner exits, and canonical completion delayed behind a streaming
+  activity-report backlog. It also covers an active existing-Session Tutti snapshot being
   misread as provider Default mode, stopped Tutti Mode conversations revived by
   legacy startup wakes, provider-completed submissions reported as delivery
   unknown after canonical message provenance conflicts, completed Claude Code
@@ -50,6 +53,7 @@ Issue dispatch, Run cancellation, Agent settlement, and stop coordination.
 
 - [Managed task deletion is reported as a stale checkpoint](./issue-execution.md#managed-task-deletion-is-reported-as-a-stale-checkpoint)
 - [Reworked task scheduling is reported as a stale checkpoint](./issue-execution.md#reworked-task-scheduling-is-reported-as-a-stale-checkpoint)
+- [Final rework passes review but Tutti never reaches Goal Review](./issue-execution.md#final-rework-passes-review-but-tutti-never-reaches-goal-review)
 - [Settled checkpoint keeps reopening the source Session](./issue-execution.md#settled-checkpoint-keeps-reopening-the-source-session)
 - [Paused Tutti Issue keeps reopening and reports no resume command](./issue-execution.md#paused-tutti-issue-keeps-reopening-and-reports-no-resume-command)
 - [Tutti composer stays busy after every task Turn settles](./issue-execution.md#tutti-composer-stays-busy-after-every-task-turn-settles)
@@ -130,9 +134,12 @@ CLI behavior, CI, package assets, skills, Browser Node, and terminal input.
 - [GitHub Actions pnpm setup fails with ERR_PNPM_BAD_PM_VERSION](./toolchain-browser-terminal.md#github-actions-pnpm-setup-fails-with-errpnpmbadpmversion)
 - [Multi-entry tsup declaration build exhausts its worker heap](./toolchain-browser-terminal.md#multi-entry-tsup-declaration-build-exhausts-its-worker-heap)
 - [Browser CLI cold start timeout looks like an unreachable daemon](./toolchain-browser-terminal.md#browser-cli-cold-start-timeout-looks-like-an-unreachable-daemon)
+- [Browser Agent retries plausible commands that the CLI rejects](./toolchain-browser-terminal.md#browser-agent-retries-plausible-commands-that-the-cli-rejects)
 - [Malformed user skill frontmatter breaks skill discovery](./toolchain-browser-terminal.md#malformed-user-skill-frontmatter-breaks-skill-discovery)
 - [Browser Node failed navigation renders a blank panel](./toolchain-browser-terminal.md#browser-node-failed-navigation-renders-a-blank-panel)
 - [Standalone Agent Browser Node is blank and never attaches a guest](./toolchain-browser-terminal.md#standalone-agent-browser-node-is-blank-and-never-attaches-a-guest)
+- [Agent Browser new-page fails to attach for every provider](./toolchain-browser-terminal.md#agent-browser-new-page-fails-to-attach-for-every-provider)
+- [Agent reports a loaded page but no Browser window is visible](./toolchain-browser-terminal.md#agent-reports-a-loaded-page-but-no-browser-window-is-visible)
 - [Browser Node action finds a webview but page injection does nothing](./toolchain-browser-terminal.md#browser-node-action-finds-a-webview-but-page-injection-does-nothing)
 - [Hidden Browser Node webview covers another panel](./toolchain-browser-terminal.md#hidden-browser-node-webview-covers-another-panel)
 - [IME composition leaks native input into xterm terminals](./toolchain-browser-terminal.md#ime-composition-leaks-native-input-into-xterm-terminals)
@@ -152,8 +159,12 @@ Android app login, native bridge, secure identity, and mobile transport diagnost
 - [Mobile quick prompts are missing from the plus menu](./mobile.md#mobile-quick-prompts-are-missing-from-the-plus-menu)
 - [Mobile composer model and permission controls are missing](./mobile.md#mobile-composer-model-and-permission-controls-are-missing)
 - [Mobile composer option chips do not open](./mobile.md#mobile-composer-option-chips-do-not-open)
+- [Browser login completes but leaves the browser in front](./mobile.md#browser-login-completes-but-leaves-the-browser-in-front)
 - [Browser login returns to the App but remains signed out](./mobile.md#browser-login-returns-to-the-app-but-remains-signed-out)
 - [Android DeviceLink opens a session and then repeatedly restarts](./mobile.md#android-devicelink-opens-a-session-and-then-repeatedly-restarts)
+- [Mobile shows output from a completed Session after foreground resume](./mobile.md#mobile-shows-output-from-a-completed-session-after-foreground-resume)
+- [Mobile stays connected after a long lock-screen interval but sends fail](./mobile.md#mobile-stays-connected-after-a-long-lock-screen-interval-but-sends-fail)
+- [iOS App crashes after loading the JavaScript bundle](./mobile.md#ios-app-crashes-after-loading-the-javascript-bundle)
 - [iOS pod install intermittently reports pathname contains null byte](./mobile.md#ios-pod-install-intermittently-reports-pathname-contains-null-byte)
 - [Mobile Jest discovers tests inside iOS Pods](./mobile.md#mobile-jest-discovers-tests-inside-ios-pods)
 - [React Native Pressable rows stack their children vertically](./mobile.md#react-native-pressable-rows-stack-their-children-vertically)

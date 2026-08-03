@@ -299,7 +299,10 @@ func (s *SetupService) snapshotForPlan(ctx context.Context, plan InstallPlan, wo
 		probe, probeErr := ProbeRuntime(ctx, binding, plan.AgentTargetID, discoveryRoot, s.Transport, s.Host)
 		if probeErr != nil {
 			snapshot.Status = SetupFailed
-			snapshot.Reason = "acp_probe_failed"
+			snapshot.Reason = agentruntime.ClassifyAccountFailure(probeErr)
+			if snapshot.Reason == "" {
+				snapshot.Reason = "acp_probe_failed"
+			}
 			return snapshot, nil
 		}
 		snapshot.Status = SetupStatus(probe.Status)

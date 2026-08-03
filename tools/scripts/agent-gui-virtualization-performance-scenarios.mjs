@@ -405,7 +405,7 @@ async function executeOversizedActiveTurn(context, prepared, options) {
   );
   await waitForEvaluation(
     pageClient,
-    `({ ready: Boolean(document.querySelector('[data-testid="agent-gui-composer-stop-symbol"]')) })`,
+    `({ ready: Boolean(document.querySelector('[data-testid="agent-gui-composer-stop-active-turn"]')) })`,
     options.timeoutMs,
     "oversized fixture working state"
   );
@@ -419,7 +419,7 @@ async function executeOversizedActiveTurn(context, prepared, options) {
         .filter((count) => Number.isFinite(count));
       const activeToolCallCount = Math.max(0, ...counts);
       const root = document.querySelector('[data-agent-transcript-virtualized="true"]');
-      const working = Boolean(document.querySelector('[data-testid="agent-gui-composer-stop-symbol"]'));
+      const working = Boolean(document.querySelector('[data-testid="agent-gui-composer-stop-active-turn"]'));
       return {
         ready: Boolean(root && working && activeToolCallCount >= ${prepared.streamedToolCallCount}),
         activeToolCallCount,

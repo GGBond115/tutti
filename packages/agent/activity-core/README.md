@@ -19,9 +19,9 @@ transport commands and normalize observations before they enter the engine.
 - merges persisted and live messages with version-aware conflict handling
 - analyzes normalized activity events into one inline-observation intent plus
   an explicit authoritative-reconcile requirement
-- projects shared activation, prompt send, settings update, turn cancel,
-  Interaction response, rename, pin, and batch-delete commands onto one typed
-  host effect port
+- projects shared activation, prompt send, Goal Control, settings update, turn
+  cancel, Interaction response, rename, pin, and batch-delete commands onto one
+  typed host effect port
 - executes the shared prompt state machine, including serialized required
   settings persistence before send
 - exposes selectors such as `selectNeedsAttentionCount`
@@ -57,7 +57,8 @@ Engine rules:
   `dispatch(intent)`. Frontend activation enters through
   `engine.activateSession`; Session rename, pin, and batch delete enter through
   `engine.renameSession`, `engine.setSessionPinned`, and
-  `engine.deleteSessions`. Composer-option reads enter through
+  `engine.deleteSessions`. Existing-Session Goal Control enters through
+  `engine.controlGoal`. Composer-option reads enter through
   `engine.loadComposerOptions`. These semantic methods derive workspace
   identity or target scope and hide reducer protocol from hosts. Activation
   owns its timestamps, the 120-second confirmation window, intent projection,
@@ -74,13 +75,12 @@ Engine rules:
 - Reducers are pure and return new state plus command descriptions; the effect
   executor performs commands and feeds every settlement (success, failure,
   timeout) back into the loop as command-result intents.
-- New hosts implement `AgentSessionEffectPort` for activation, prompt send,
-  settings update, turn cancellation, Interaction response, rename, pin, and
-  batch delete. The Engine owns command-to-capability projection and
-  the settings-precondition state machine. A typed port declares
+- Hosts implement `AgentSessionEffectPort` for activation, prompt send,
+  Goal Control, settings update, turn cancellation, Interaction response,
+  rename, pin, and batch delete. The Engine owns command-to-capability
+  projection and the settings-precondition state machine. The command port declares
   `kind: "typed"` and its `execute` callback receives only
-  `EngineExtensionCommand`; the discriminated legacy shape keeps the
-  complete-command callback while existing package consumers migrate.
+  `EngineExtensionCommand`.
 - Timing is never read inside reducers. Deadlines are `scheduleExpiry`
   commands handled by the expiry clock, which re-enters the loop with expiry
   intents through the injected host scheduler.
@@ -90,9 +90,8 @@ Engine rules:
 - `getSnapshot()` / `subscribe()` expose the immutable state tree. React
   surfaces subscribe through the single `useEngineSelector` binding in
   `@tutti-os/agent-gui`.
-- `dispatchSessionMutation` remains a compatibility entrypoint for published
-  consumers migrating to the semantic Engine methods. New product-host code
-  must not construct mutation ids, timeout policy, or mutation-record reads.
+- Product hosts use the semantic Engine mutation methods and must not construct
+  mutation ids, timeout policy, or mutation-record reads.
 
 The state tree includes lifecycle entities, message windows, prompt queue,
 pending intents, composer options, runtime availability, reconciliation, and
@@ -203,10 +202,11 @@ The engine derives submit availability from canonical Turns and pending
 Interactions. Hosts must not copy deprecated session-level lifecycle or submit
 availability fields into the frontend.
 
-A host whose command transport can differ per Session may dispatch
-`session/runtimeAvailabilityChanged`. This ephemeral, session-scoped fact is
-kept outside the canonical Session and blocks runtime-dependent commands while
-the exact Session transport reconnects or is unavailable. Omitted availability
+A host whose command transport or access policy can differ per Session may
+dispatch `session/runtimeAvailabilityChanged`. This ephemeral, session-scoped
+fact is kept outside the canonical Session and blocks runtime-dependent
+commands while the exact Session transport reconnects, is unavailable, or
+shared access has been revoked. Omitted availability
 defaults to available, so ordinary local runtimes retain their existing
 behavior. A workspace-wide `engine/connectionChanged` event must not be used to
 represent one remote Session's transport because that would also block
@@ -308,7 +308,7 @@ and Session reference consistent.
 
 The Engine projects shared lifecycle command descriptions onto
 `AgentSessionEffectPort`: `activateSession`, `sendInput`,
-`updateSessionSettings`, `cancelTurn`, `respondToInteraction`,
+`controlGoal`, `updateSessionSettings`, `cancelTurn`, `respondToInteraction`,
 `renameSession`, `setSessionPinned`, and `deleteSessions`. Hosts implement
 transport and result mapping without switching on those command types. When a
 queued prompt includes
@@ -324,7 +324,39 @@ without attempting delivery. Capability references, structured content,
 display prompt, guidance, activation placement, Tutti-mode intent, and
 diagnostics survive the shared projection.
 Goal-on-create and settings command/correlation identities are also retained
-for external hosts that use them for goal setup or idempotency.
+for external hosts that use them for goal setup or idempotency. A typed
+new-Session Goal is part of activation: hosts forward `initialGoalControl` and
+empty initial content to their Create transport, and Agent Host creates the
+Session plus durable Goal operation without creating a Turn.
+Existing-Session Goal Control is a separate Engine operation. The caller
+proposes a stable client-submit identity; admission returns the effective
+identity actually used by the Engine. The Engine owns command identity,
+one-in-flight admission, the 30-second timeout, optimistic projection, typed
+Session/Goal result validation, and delivery-unknown identity reuse. Hosts only
+perform transport and result mapping. A successful typed result treats its
+top-level `goal` as the authoritative durable desired projection and normalizes
+the returned Session to the same value. Provider observation remains in
+`state.observed`, so an empty pause/resume observation cannot erase a Goal;
+only a durable tombstone produces `goal: null`. This also preserves an explicit
+clear even when a runtime Session snapshot still carries the previous Goal.
+Pending/applying results keep their older canonical Session until Host reports
+synced state. Every admitted action reaches Host so it can create the durable
+revision and audit, even when the visible Goal value is already equal.
+Pending/applying Host state is accepted; definitive protocol
+rejection is failed; transport loss, timeout, opaque/malformed success, and
+unknown/diverged Host state remain unknown. Retrying the same unknown action
+reuses its original `clientSubmitId`, and the admission result tells the
+surface to correlate settlement with that identity. A definitive failure
+releases the old identity so an explicit retry creates a new operation.
+Generic Session reconciliation and Goal
+value equality cannot prove a particular operation. The latest operation is
+bounded to one record per Session, is removed with that Session, and is exposed
+from `getSnapshot()` and the package root only through derived
+presentation/settlement state and narrow selectors; the reducer ledger is not
+present in the public runtime object. Those public maps are sparse and updated
+only for Session IDs whose canonical Goal, Goal operation, or Goal-bearing
+activation changed. Turn activity and unrelated Session metadata preserve the
+Goal branch and unaffected presentation references.
 Rename and pin effects return `{ session }` with the authoritative canonical
 Session, while batch delete returns `AgentActivityDeleteSessionsResult`.
 Runtime validation remains fail-closed, but the public port type prevents hosts
@@ -345,9 +377,7 @@ settings result requires a provider-declared options refresh. That refresh is
 target-scoped and non-blocking for the current send. Timeout, abort,
 observation, and command-result dispatch remain owned by the Engine effect
 executor. Every typed effect receives its own Engine command's `AbortSignal`;
-hosts must propagate it through their transport. The legacy full-command
-`execute` path is compatibility-only for existing published-package consumers
-such as tsh.
+hosts must propagate it through their transport.
 
 ## Message Merge Rules
 

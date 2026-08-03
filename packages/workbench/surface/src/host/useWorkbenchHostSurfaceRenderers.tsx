@@ -14,10 +14,8 @@ import type {
   WorkbenchDockPreviewCache,
   WorkbenchDockPreviewCacheKey
 } from "../react/dockPreviewCache.ts";
-import {
-  renderMinimizedDockPreviewContent,
-  WorkbenchHostDock
-} from "./WorkbenchHostDock.tsx";
+import { WorkbenchHostDock } from "./WorkbenchHostDock.tsx";
+import { renderMinimizedDockPreviewContent } from "./WorkbenchHostDockMinimizedPreview.tsx";
 import { MemoizedWorkbenchHostNodeBodyRenderer } from "./WorkbenchHostNodeBodyRenderer.tsx";
 import {
   createWorkbenchHostNodeBodyContext,

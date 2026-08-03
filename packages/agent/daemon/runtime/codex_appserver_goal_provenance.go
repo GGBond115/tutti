@@ -79,6 +79,22 @@ func codexGoalGenerationFingerprint(goal map[string]any) string {
 	return fmt.Sprintf("sha256:%x", digest)
 }
 
+// codexGoalGenerationLineage excludes updatedAt because Codex changes it for
+// pause, resume, and progress snapshots of the same Goal. It is not a Turn
+// provenance identity; it only prevents those mutable snapshots from being
+// mistaken for a provider-authored replacement Goal.
+func codexGoalGenerationLineage(goal map[string]any) string {
+	threadID := strings.TrimSpace(asString(goal["threadId"]))
+	objective := strings.TrimSpace(asStringRaw(goal["objective"]))
+	createdAt, createdOK := int64Value(goal["createdAt"])
+	if threadID == "" || objective == "" || !createdOK || createdAt <= 0 {
+		return ""
+	}
+	canonical := fmt.Sprintf("thread=%q;created=%d;objective=%q", threadID, createdAt, objective)
+	digest := sha256.Sum256([]byte(canonical))
+	return fmt.Sprintf("sha256:%x", digest)
+}
+
 // bindGoalGeneration records evidence from a successful durable Goal RPC.
 // It never rewrites an existing generation association. If the provider
 // reuses the same observable generation for two durable operations, that
@@ -173,6 +189,8 @@ func (a *CodexAppServerAdapter) bindGoalGeneration(_ context.Context, session Se
 	}
 	if current == identity && !binding.ambiguous && binding.identity == identity {
 		appSession.currentGoalGenerationFingerprint = fingerprint
+		appSession.currentGoalGenerationLineage = codexGoalGenerationLineage(goal)
+		appSession.currentGoalGenerationIdentity = identity
 	}
 	a.pruneGoalProvenanceLocked(appSession)
 	pendingTurnIDs := make([]string, 0, len(appSession.pendingGoalTurns))
@@ -463,6 +481,9 @@ func (*CodexAppServerAdapter) degradeGoalProvenanceLocked(appSession *codexAppSe
 	// now be released without allowing a later fingerprint to be rebound.
 	appSession.goalGenerationBindings = nil
 	appSession.goalGenerationOrder = nil
+	appSession.currentGoalGenerationFingerprint = ""
+	appSession.currentGoalGenerationLineage = ""
+	appSession.currentGoalGenerationIdentity = goalOperationIdentity{}
 	appSession.goalTurnEvidence = nil
 	return pending
 }
@@ -521,6 +542,9 @@ func (a *CodexAppServerAdapter) bufferPendingGoalTurnNotification(agentSessionID
 			appSession.provenanceDegraded = true
 			appSession.goalGenerationBindings = nil
 			appSession.goalGenerationOrder = nil
+			appSession.currentGoalGenerationFingerprint = ""
+			appSession.currentGoalGenerationLineage = ""
+			appSession.currentGoalGenerationIdentity = goalOperationIdentity{}
 			appSession.goalTurnEvidence = nil
 			session := pending.session
 			activeTurn := appSession.activeTurn

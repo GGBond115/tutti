@@ -10,7 +10,8 @@ import {
 import {
   forkClaudeSession,
   inspectClaudeForkCheckpoints,
-  recoverClaudeTurnBinding
+  recoverClaudeTurnBinding,
+  resolveClaudeTurnBindingByRecoveryToken
 } from "./sessionFork.ts";
 
 const childSessionId = "11111111-1111-4111-8111-111111111111";
@@ -95,6 +96,17 @@ test("Claude turn recovery resolves one exact opaque UUID and checkpoint", async
     providerTurnId: token,
     providerCheckpointMessageId: "answer-2"
   });
+  assert.deepEqual(
+    await resolveClaudeTurnBindingByRecoveryToken(
+      {
+        sessionId: "source",
+        cwd: "/workspace",
+        recoveryToken: token
+      },
+      sdk
+    ),
+    result
+  );
 });
 
 test("Claude legacy text recovery fails closed for multimodal content", async () => {
@@ -125,7 +137,7 @@ test("Claude legacy text recovery fails closed for multimodal content", async ()
       },
       sdk
     ),
-    /absent or ambiguous/
+    /proof is absent/
   );
 });
 

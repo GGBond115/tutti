@@ -55,6 +55,133 @@ func TestChildSessionsKeepImmutableRootAndParentRelations(t *testing.T) {
 	}
 }
 
+func TestChildSessionReportReturnsCanonicalRelations(t *testing.T) {
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	if _, err := store.ReportSessionState(ctx, SessionStateReport{
+		WorkspaceID: "ws-1", AgentSessionID: "root",
+		Kind: SessionKindRoot, Provider: "codex",
+		OccurredAtUnixMS: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, accepted, err := store.RecordTurnTransition(ctx, TurnTransition{
+		WorkspaceID: "ws-1", AgentSessionID: "root",
+		TurnID: "root-turn", Phase: TurnPhaseRunning,
+		OccurredAtUnixMS: 2,
+	}); err != nil || !accepted {
+		t.Fatalf("root turn accepted=%v error=%v", accepted, err)
+	}
+	for index, childID := range []string{"child-b", "child-a"} {
+		result, err := store.ReportSessionState(ctx, SessionStateReport{
+			WorkspaceID: "ws-1", AgentSessionID: childID,
+			Kind: SessionKindChild, Provider: "codex",
+			RootAgentSessionID: "root", RootTurnID: "root-turn",
+			ParentAgentSessionID: "root", ParentTurnID: "root-turn",
+			ParentToolCallID: "call-" + childID,
+			OccurredAtUnixMS: int64(3 + index),
+			CreatedAtUnixMS:  10,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Session.ID != childID ||
+			result.Session.ParentAgentSessionID != "root" {
+			t.Fatalf("%s canonical Session=%#v", childID, result.Session)
+		}
+	}
+	refreshed, err := store.ReportSessionState(ctx, SessionStateReport{
+		WorkspaceID: "ws-1", AgentSessionID: "child-b",
+		Kind: SessionKindChild, Provider: "codex",
+		RootAgentSessionID: "root", RootTurnID: "root-turn",
+		ParentAgentSessionID: "root", ParentTurnID: "root-turn",
+		ParentToolCallID: "call-child-b",
+		OccurredAtUnixMS: 6,
+	})
+	if err != nil || refreshed.Session.ID != "child-b" {
+		t.Fatalf("refreshed child-b=%#v error=%v", refreshed.Session, err)
+	}
+	if _, accepted, err := store.RecordTurnTransition(ctx, TurnTransition{
+		WorkspaceID: "ws-1", AgentSessionID: "child-b",
+		TurnID: "child-turn", Phase: TurnPhaseRunning,
+		OccurredAtUnixMS: 7,
+	}); err != nil || !accepted {
+		t.Fatalf("child turn accepted=%v error=%v", accepted, err)
+	}
+	for index, nestedID := range []string{"nested-z", "nested-a"} {
+		result, err := store.ReportSessionState(ctx, SessionStateReport{
+			WorkspaceID: "ws-1", AgentSessionID: nestedID,
+			Kind: SessionKindChild, Provider: "codex",
+			RootAgentSessionID: "root", RootTurnID: "root-turn",
+			ParentAgentSessionID: "child-b", ParentTurnID: "child-turn",
+			ParentToolCallID: "call-" + nestedID,
+			OccurredAtUnixMS: int64(8 + index),
+			CreatedAtUnixMS:  20,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Session.ID != nestedID ||
+			result.Session.ParentAgentSessionID != "child-b" {
+			t.Fatalf("%s canonical Session=%#v", nestedID, result.Session)
+		}
+	}
+	graph, err := store.CaptureHistoricalSessionGraph(ctx, "ws-1", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(graph.Sessions) != 5 {
+		t.Fatalf("captured Sessions=%#v", graph.Sessions)
+	}
+	if err := store.RestoreHistoricalSessionGraph(ctx, "ws-restore", graph); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := store.ListChildSessions(ctx, "ws-restore", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored) != 4 ||
+		restored[0].ID != "child-a" ||
+		restored[1].ID != "child-b" ||
+		restored[2].ID != "nested-a" ||
+		restored[3].ID != "nested-z" {
+		t.Fatalf("restored children=%#v", restored)
+	}
+}
+
+func TestChildSessionReportKeepsCreatorRelationImmutable(t *testing.T) {
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	if _, err := store.ReportSessionState(ctx, SessionStateReport{
+		WorkspaceID: "ws-1", AgentSessionID: "root",
+		Kind: SessionKindRoot, Provider: "codex", OccurredAtUnixMS: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, accepted, err := store.RecordTurnTransition(ctx, TurnTransition{
+		WorkspaceID: "ws-1", AgentSessionID: "root",
+		TurnID: "root-turn", Phase: TurnPhaseRunning, OccurredAtUnixMS: 2,
+	}); err != nil || !accepted {
+		t.Fatalf("root turn accepted=%v error=%v", accepted, err)
+	}
+	report := SessionStateReport{
+		WorkspaceID: "ws-1", AgentSessionID: "child",
+		Kind: SessionKindChild, Provider: "codex",
+		RootAgentSessionID: "root", RootTurnID: "root-turn",
+		ParentAgentSessionID: "root", ParentTurnID: "root-turn",
+		ParentToolCallID: "call-child", OccurredAtUnixMS: 3,
+	}
+	if _, err := store.ReportSessionState(ctx, report); err != nil {
+		t.Fatal(err)
+	}
+	report.OccurredAtUnixMS = 4
+	report.ParentToolCallID = "different-call"
+	if _, err := store.ReportSessionState(ctx, report); err == nil ||
+		!strings.Contains(err.Error(), "parent tool call id is immutable") {
+		t.Fatalf("changed creator relation error=%v", err)
+	}
+}
+
 func TestChildSessionRequiresLiveRootTurnAndExistingParentTurn(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))

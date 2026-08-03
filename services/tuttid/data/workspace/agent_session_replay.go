@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -27,12 +28,27 @@ func (s *SQLiteStore) DeleteRecording(ctx context.Context, recordingID string) e
 	if s == nil || s.writeDB == nil {
 		return errors.New("workspace database is not initialized")
 	}
-	if _, err := s.writeDB.ExecContext(
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete Agent Session Recording: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(
+		ctx,
+		`DELETE FROM agent_session_cassettes WHERE source_recording_id = ?`,
+		strings.TrimSpace(recordingID),
+	); err != nil {
+		return fmt.Errorf("delete Agent Session Cassette: %w", err)
+	}
+	if _, err := tx.ExecContext(
 		ctx,
 		`DELETE FROM agent_session_recordings WHERE recording_id = ?`,
 		strings.TrimSpace(recordingID),
 	); err != nil {
 		return fmt.Errorf("delete Agent Session Recording: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit Agent Session Recording delete: %w", err)
 	}
 	return nil
 }
@@ -94,20 +110,19 @@ func putAgentSessionCassette(
 ) error {
 	_, err := execer.ExecContext(ctx, `
 INSERT INTO agent_session_cassettes (
-  cassette_id, name, source_recording_id, workspace_id, agent_target_id,
+  cassette_id, name, source_recording_id, agent_target_id,
   root_agent_session_id, mode, total_bytes, manifest_sha256, created_at_unix_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(cassette_id) DO UPDATE SET
   name = excluded.name,
   source_recording_id = excluded.source_recording_id,
-  workspace_id = excluded.workspace_id,
   agent_target_id = excluded.agent_target_id,
   root_agent_session_id = excluded.root_agent_session_id,
   mode = excluded.mode,
   total_bytes = excluded.total_bytes,
   manifest_sha256 = excluded.manifest_sha256,
   created_at_unix_ms = excluded.created_at_unix_ms
-`, cassette.ID, cassette.Name, cassette.SourceRecordingID, cassette.ScopeID,
+`, cassette.ID, cassette.Name, cassette.SourceRecordingID,
 		cassette.AgentTargetID, cassette.RootAgentSessionID, cassette.Mode,
 		cassette.TotalBytes, cassette.ManifestSHA256, cassette.CreatedAtUnixMS,
 	)
@@ -123,18 +138,23 @@ func putAgentSessionRecording(
 	execer agentSessionReplayExecer,
 	recording agentsessionreplay.Recording,
 ) error {
-	_, err := execer.ExecContext(ctx, `
+	prerequisites, err := json.Marshal(recording.ReplayPrerequisites)
+	if err != nil {
+		return fmt.Errorf("marshal Replay prerequisites: %w", err)
+	}
+	_, err = execer.ExecContext(ctx, `
 INSERT INTO agent_session_recordings (
   recording_id, name, workspace_id, agent_target_id, mode, root_agent_session_id,
-  status, cassette_id, error_code, error_message, created_at_unix_ms,
+  replay_prerequisites_json, status, cassette_id, error_code, error_message, created_at_unix_ms,
   recording_at_unix_ms, stopped_at_unix_ms, updated_at_unix_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(recording_id) DO UPDATE SET
   name = excluded.name,
   workspace_id = excluded.workspace_id,
   agent_target_id = excluded.agent_target_id,
   mode = excluded.mode,
   root_agent_session_id = excluded.root_agent_session_id,
+  replay_prerequisites_json = excluded.replay_prerequisites_json,
   status = excluded.status,
   cassette_id = excluded.cassette_id,
   error_code = excluded.error_code,
@@ -143,7 +163,7 @@ ON CONFLICT(recording_id) DO UPDATE SET
   stopped_at_unix_ms = excluded.stopped_at_unix_ms,
   updated_at_unix_ms = excluded.updated_at_unix_ms
 `, recording.ID, recording.Name, recording.ScopeID, recording.AgentTargetID, recording.Mode,
-		recording.RootAgentSessionID, recording.Status, recording.CassetteID,
+		recording.RootAgentSessionID, string(prerequisites), recording.Status, recording.CassetteID,
 		recording.ErrorCode, recording.ErrorMessage, recording.CreatedAtUnixMS,
 		recording.RecordingAtUnixMS, recording.StoppedAtUnixMS, recording.UpdatedAtUnixMS,
 	)
@@ -159,7 +179,7 @@ func (s *SQLiteStore) GetRecording(
 	}
 	recording, err := scanAgentSessionRecording(s.readDB.QueryRowContext(ctx, `
 SELECT recording_id, name, workspace_id, agent_target_id, mode, root_agent_session_id,
-       status, cassette_id, error_code, error_message, created_at_unix_ms,
+       replay_prerequisites_json, status, cassette_id, error_code, error_message, created_at_unix_ms,
        recording_at_unix_ms, stopped_at_unix_ms, updated_at_unix_ms
 FROM agent_session_recordings
 WHERE recording_id = ?
@@ -180,7 +200,7 @@ func (s *SQLiteStore) ListRecordings(
 	workspaceID = strings.TrimSpace(workspaceID)
 	query := `
 SELECT recording_id, name, workspace_id, agent_target_id, mode, root_agent_session_id,
-       status, cassette_id, error_code, error_message, created_at_unix_ms,
+       replay_prerequisites_json, status, cassette_id, error_code, error_message, created_at_unix_ms,
        recording_at_unix_ms, stopped_at_unix_ms, updated_at_unix_ms
 FROM agent_session_recordings`
 	var args []any
@@ -211,6 +231,7 @@ type agentSessionReplayScanner interface {
 
 func scanAgentSessionRecording(scanner agentSessionReplayScanner) (agentsessionreplay.Recording, error) {
 	var recording agentsessionreplay.Recording
+	var prerequisites string
 	err := scanner.Scan(
 		&recording.ID,
 		&recording.Name,
@@ -218,6 +239,7 @@ func scanAgentSessionRecording(scanner agentSessionReplayScanner) (agentsessionr
 		&recording.AgentTargetID,
 		&recording.Mode,
 		&recording.RootAgentSessionID,
+		&prerequisites,
 		&recording.Status,
 		&recording.CassetteID,
 		&recording.ErrorCode,
@@ -227,7 +249,13 @@ func scanAgentSessionRecording(scanner agentSessionReplayScanner) (agentsessionr
 		&recording.StoppedAtUnixMS,
 		&recording.UpdatedAtUnixMS,
 	)
-	return recording, err
+	if err != nil {
+		return recording, err
+	}
+	if err := json.Unmarshal([]byte(prerequisites), &recording.ReplayPrerequisites); err != nil {
+		return agentsessionreplay.Recording{}, fmt.Errorf("decode Replay prerequisites: %w", err)
+	}
+	return recording, nil
 }
 
 func (s *SQLiteStore) GetCassette(
@@ -238,7 +266,7 @@ func (s *SQLiteStore) GetCassette(
 		return agentsessionreplay.Cassette{}, errors.New("workspace database is not initialized")
 	}
 	cassette, err := scanAgentSessionCassette(s.readDB.QueryRowContext(ctx, `
-SELECT cassette_id, name, source_recording_id, workspace_id, agent_target_id,
+SELECT cassette_id, name, source_recording_id, agent_target_id,
        root_agent_session_id, mode, total_bytes, manifest_sha256, created_at_unix_ms
 FROM agent_session_cassettes
 WHERE cassette_id = ?
@@ -258,15 +286,17 @@ func (s *SQLiteStore) ListCassettes(
 	}
 	workspaceID = strings.TrimSpace(workspaceID)
 	query := `
-SELECT cassette_id, name, source_recording_id, workspace_id, agent_target_id,
-       root_agent_session_id, mode, total_bytes, manifest_sha256, created_at_unix_ms
-FROM agent_session_cassettes`
+SELECT c.cassette_id, c.name, c.source_recording_id, c.agent_target_id,
+       c.root_agent_session_id, c.mode, c.total_bytes, c.manifest_sha256,
+       c.created_at_unix_ms
+FROM agent_session_cassettes c
+JOIN agent_session_recordings r ON r.recording_id = c.source_recording_id`
 	var args []any
 	if workspaceID != "" {
-		query += ` WHERE workspace_id = ?`
+		query += ` WHERE r.workspace_id = ?`
 		args = append(args, workspaceID)
 	}
-	query += ` ORDER BY created_at_unix_ms DESC, cassette_id`
+	query += ` ORDER BY c.created_at_unix_ms DESC, c.cassette_id`
 	rows, err := s.readDB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -289,7 +319,6 @@ func scanAgentSessionCassette(scanner agentSessionReplayScanner) (agentsessionre
 		&cassette.ID,
 		&cassette.Name,
 		&cassette.SourceRecordingID,
-		&cassette.ScopeID,
 		&cassette.AgentTargetID,
 		&cassette.RootAgentSessionID,
 		&cassette.Mode,
@@ -298,104 +327,4 @@ func scanAgentSessionCassette(scanner agentSessionReplayScanner) (agentsessionre
 		&cassette.CreatedAtUnixMS,
 	)
 	return cassette, err
-}
-
-func (s *SQLiteStore) PutReplayRun(
-	ctx context.Context,
-	run agentsessionreplay.ReplayRun,
-) error {
-	if s == nil || s.writeDB == nil {
-		return errors.New("workspace database is not initialized")
-	}
-	_, err := s.writeDB.ExecContext(ctx, `
-INSERT INTO agent_session_replay_runs (
-  replay_run_id, cassette_id, status, checkpoint, error_code, error_message,
-  created_at_unix_ms, started_at_unix_ms, completed_at_unix_ms, updated_at_unix_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(replay_run_id) DO UPDATE SET
-  status = excluded.status,
-  checkpoint = excluded.checkpoint,
-  error_code = excluded.error_code,
-  error_message = excluded.error_message,
-  started_at_unix_ms = excluded.started_at_unix_ms,
-  completed_at_unix_ms = excluded.completed_at_unix_ms,
-  updated_at_unix_ms = excluded.updated_at_unix_ms
-`, run.ID, run.CassetteID, run.Status, run.Checkpoint, run.ErrorCode,
-		run.ErrorMessage, run.CreatedAtUnixMS, run.StartedAtUnixMS,
-		run.CompletedAtUnixMS, run.UpdatedAtUnixMS,
-	)
-	if err != nil {
-		return fmt.Errorf("put Agent Session Replay Run: %w", err)
-	}
-	return nil
-}
-
-func (s *SQLiteStore) GetReplayRun(
-	ctx context.Context,
-	runID string,
-) (agentsessionreplay.ReplayRun, error) {
-	if s == nil || s.readDB == nil {
-		return agentsessionreplay.ReplayRun{}, errors.New("workspace database is not initialized")
-	}
-	run, err := scanAgentSessionReplayRun(s.readDB.QueryRowContext(ctx, `
-SELECT replay_run_id, cassette_id, status, checkpoint, error_code, error_message,
-       created_at_unix_ms, started_at_unix_ms, completed_at_unix_ms, updated_at_unix_ms
-FROM agent_session_replay_runs
-WHERE replay_run_id = ?
-`, strings.TrimSpace(runID)))
-	if errors.Is(err, sql.ErrNoRows) {
-		return agentsessionreplay.ReplayRun{}, agentsessionreplay.ErrReplayRunNotFound
-	}
-	return run, err
-}
-
-func (s *SQLiteStore) ListReplayRuns(
-	ctx context.Context,
-	cassetteID string,
-) ([]agentsessionreplay.ReplayRun, error) {
-	if s == nil || s.readDB == nil {
-		return nil, errors.New("workspace database is not initialized")
-	}
-	query := `
-SELECT replay_run_id, cassette_id, status, checkpoint, error_code, error_message,
-       created_at_unix_ms, started_at_unix_ms, completed_at_unix_ms, updated_at_unix_ms
-FROM agent_session_replay_runs
-`
-	args := []any{}
-	if cassetteID = strings.TrimSpace(cassetteID); cassetteID != "" {
-		query += "WHERE cassette_id = ?\n"
-		args = append(args, cassetteID)
-	}
-	query += "ORDER BY created_at_unix_ms DESC, replay_run_id"
-	rows, err := s.readDB.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := []agentsessionreplay.ReplayRun{}
-	for rows.Next() {
-		run, err := scanAgentSessionReplayRun(rows)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, run)
-	}
-	return result, rows.Err()
-}
-
-func scanAgentSessionReplayRun(scanner agentSessionReplayScanner) (agentsessionreplay.ReplayRun, error) {
-	var run agentsessionreplay.ReplayRun
-	err := scanner.Scan(
-		&run.ID,
-		&run.CassetteID,
-		&run.Status,
-		&run.Checkpoint,
-		&run.ErrorCode,
-		&run.ErrorMessage,
-		&run.CreatedAtUnixMS,
-		&run.StartedAtUnixMS,
-		&run.CompletedAtUnixMS,
-		&run.UpdatedAtUnixMS,
-	)
-	return run, err
 }

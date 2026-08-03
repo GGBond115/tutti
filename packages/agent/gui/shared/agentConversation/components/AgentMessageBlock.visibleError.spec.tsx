@@ -234,9 +234,7 @@ describe("AgentVisibleErrorMessage", () => {
     );
 
     expect(
-      getByText(
-        "Your Tutti credits are insufficient. Review credit options to continue"
-      )
+      getByText("Tutti has insufficient credits or account balance to continue")
     ).toBeTruthy();
     expect(queryByText("Open setup")).toBeNull();
     expect(queryByText("View credit options")).toBeNull();
@@ -303,9 +301,7 @@ describe("AgentVisibleErrorMessage", () => {
     );
 
     expect(
-      getByText(
-        "Your Tutti credits are insufficient. Review credit options to continue"
-      )
+      getByText("Codex has insufficient credits or account balance to continue")
     ).toBeTruthy();
     expect(queryByText("Recharge Tutti credits")).toBeNull();
     expect(queryByText("Recharge")).toBeNull();

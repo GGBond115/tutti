@@ -221,9 +221,22 @@ All providers implement one semantic boundary:
 - typed `/goal` classification before Turn allocation
 
 Codex uses thread goal RPCs and an authoritative goal query. Claude Code has no
-equivalent query API, so the adapter forwards native slash commands and labels
-its evidence as lifecycle-inferred. The upper layer, not the provider adapter,
-decides convergence.
+equivalent query API, so the adapter forwards native slash commands. With the
+Claude Agent SDK Goal contract, the sidecar accepts the SDK `active_goal`
+message and the native `/goal` Stop hook's top-level `goal_status` attachment,
+then emits one normalized `goal_observed` event. A non-null `active_goal` or
+`goal_status.met=false` is active, while `goal_status.met=true` is complete. A
+null `active_goal` means the native Goal hook was cleared; the adapter uses the
+exact command action plus its previous observation to distinguish an explicit
+clear from provider-reported completion. An ordinary `turn_completed` is
+never Goal evidence.
+
+Claude command consumption is a separate control transition. The sidecar emits
+`goal.control_applied` with immutable operation ID, revision, repair epoch, and
+action. Controller routes that internal event directly to the Host Goal lane;
+Host validates the current durable operation fence and completes it. Applied
+evidence is not stored in session runtime context and is not reconstructed from
+session snapshots.
 
 ## Synchronization And Repair
 
@@ -240,6 +253,11 @@ Bottom-up:
 2. Update only observed state and evidence.
 3. While an operation is pending, keep `syncStatus=applying`.
 4. Never replace desired state or clear a tombstone from an observation.
+5. Capture the canonical Goal revision before asynchronously adopting a
+   provider-authored generation, and reject the adoption if a newer mutation
+   serialized first.
+6. Route command-application evidence through the Host Goal state machine,
+   independently from public session metadata.
 
 Calibration APIs:
 
@@ -258,6 +276,12 @@ Calibration APIs:
    `goal_arm`, or `goal_continuation`.
 7. Provider observations cannot erase newer desired state or tombstones.
 8. Provider-specific capabilities and evidence stay behind `GoalAdapter`.
+9. A provider-authored Goal adoption is conditional on the revision observed
+   when it entered the adoption lane; actor wait time cannot make stale
+   evidence appear newer.
+10. Session runtime context cannot settle a Goal control operation; only an
+    exact Host-validated lifecycle observation or authoritative reconciliation
+    may do so.
 
 ## Compatibility
 

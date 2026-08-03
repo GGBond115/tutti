@@ -1591,7 +1591,7 @@ describe("agentGuiConversationModel", () => {
 
     expect(rows.map((row) => [row.role, row.content])).toEqual([
       ["assistant", "Hi"],
-      ["assistant", "there."]
+      ["assistant", " there."]
     ]);
   });
 

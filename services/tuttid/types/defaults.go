@@ -54,20 +54,22 @@ type generatedAgentExtensionDefaults struct {
 }
 
 type generatedAgentExtensionSourceDefaults struct {
-	Key              string
-	ReleaseIndexURL  string
-	SigningKeyID     string
-	SigningPublicKey string
-	Enabled          bool
+	Key                      string
+	ReleaseIndexURL          string
+	FallbackReleaseIndexURLs []string
+	SigningKeyID             string
+	SigningPublicKey         string
+	Enabled                  bool
 }
 
 type AgentExtensionSource struct {
-	Key              string
-	ReleaseIndexURL  string
-	SigningKeyID     string
-	SigningPublicKey string
-	LocalPackageDir  string
-	Enabled          bool
+	Key                      string
+	ReleaseIndexURL          string
+	FallbackReleaseIndexURLs []string
+	SigningKeyID             string
+	SigningPublicKey         string
+	LocalPackageDir          string
+	Enabled                  bool
 }
 
 type generatedAgentRuntimeToolDefaults struct {
@@ -205,12 +207,13 @@ func ResolveAgentExtensionSources() []AgentExtensionSource {
 			localPackageDir = strings.TrimSpace(os.Getenv(envPrefix + "_PACKAGE_DIR"))
 		}
 		result = append(result, AgentExtensionSource{
-			Key:              source.Key,
-			ReleaseIndexURL:  source.ReleaseIndexURL,
-			SigningKeyID:     source.SigningKeyID,
-			SigningPublicKey: source.SigningPublicKey,
-			LocalPackageDir:  localPackageDir,
-			Enabled:          source.Enabled,
+			Key:                      source.Key,
+			ReleaseIndexURL:          source.ReleaseIndexURL,
+			FallbackReleaseIndexURLs: append([]string(nil), source.FallbackReleaseIndexURLs...),
+			SigningKeyID:             source.SigningKeyID,
+			SigningPublicKey:         source.SigningPublicKey,
+			LocalPackageDir:          localPackageDir,
+			Enabled:                  source.Enabled,
 		})
 	}
 	return result

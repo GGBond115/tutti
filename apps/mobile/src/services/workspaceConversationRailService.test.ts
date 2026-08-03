@@ -2,6 +2,7 @@ import {
   AGENT_SESSION_ENGINE_LOCAL_ORIGIN,
   createAgentSessionEngine,
   selectEngineSession,
+  type AgentSessionEffectPort,
   type AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
 import { agentActivitySessionFromTuttidSession } from "@tutti-os/agent-activity-tuttid-adapter";
@@ -354,7 +355,9 @@ function createRailService(
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => clock.now() },
     commandPort: {
-      execute: () => Promise.reject(new Error("unexpected engine command"))
+      effects: unexpectedSessionEffects(),
+      execute: () => Promise.reject(new Error("unexpected engine command")),
+      kind: "typed"
     },
     identity: {
       origin: AGENT_SESSION_ENGINE_LOCAL_ORIGIN,
@@ -375,6 +378,21 @@ function createRailService(
       });
     }
   });
+}
+
+function unexpectedSessionEffects(): AgentSessionEffectPort {
+  const reject = () => Promise.reject(new Error("unexpected session effect"));
+  return {
+    activateSession: reject,
+    cancelTurn: reject,
+    controlGoal: reject,
+    deleteSessions: reject,
+    renameSession: reject,
+    respondToInteraction: reject,
+    sendInput: reject,
+    setSessionPinned: reject,
+    updateSessionSettings: reject
+  };
 }
 
 function createSession(

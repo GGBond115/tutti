@@ -1,5 +1,9 @@
 import { DeviceService } from "./deviceService";
-import type { AccountSession, DevicePairingChallenge } from "./mobileDomain";
+import type {
+  AccountSession,
+  DevicePairing,
+  DevicePairingChallenge
+} from "./mobileDomain";
 import type {
   ClockPort,
   MobileDiagnosticEvent,
@@ -8,6 +12,7 @@ import type {
 } from "./servicePorts";
 
 const session: AccountSession = {
+  avatarURL: "https://example.com/person.png",
   email: "person@example.com",
   name: "Person",
   sessionId: "session-cookie",
@@ -18,8 +23,23 @@ const pairingCode = JSON.stringify({
   secret: "a".repeat(43),
   version: 1
 });
+const activePairing: DevicePairing = {
+  controllerUserDeviceId: "mobile-1",
+  pairingId: "pairing-1",
+  revision: "1",
+  state: "active",
+  targetUserDeviceId: "desktop-1"
+};
 
 describe("DeviceService pairing lifecycle", () => {
+  test("publishes the negotiated DeviceLink path scope after connecting", async () => {
+    const harness = createHarness();
+
+    await expect(harness.service.connect(activePairing)).resolves.toBe(true);
+
+    expect(harness.service.getSnapshot().pathScope).toBe("local_subnet");
+  });
+
   test("keeps an Android scanner interaction alive across background and active transitions", async () => {
     const scannerResult = deferred<string>();
     const harness = createHarness({
@@ -320,7 +340,7 @@ function createHarness({
             state: "awaiting_confirmation"
           };
     },
-    connectPairedDevice: async () => undefined,
+    connectPairedDevice: async () => "local_subnet" as const,
     getPairingChallenge: async () => {
       challengeCalls += 1;
       return (

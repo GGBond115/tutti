@@ -84,6 +84,7 @@ export const AGENT_PROBE_ERROR_CODES = {
   updateRequired: "update_required",
   folderTrustRequired: "folder_trust_required",
   subscriptionRequired: "subscription_required",
+  quotaExhausted: "quota_exhausted",
   executionFailed: "execution_failed",
   unsupported: "unsupported",
   runtimeUnavailable: "runtime_unavailable"

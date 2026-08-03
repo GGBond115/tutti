@@ -3,8 +3,8 @@ package api
 import (
 	"strings"
 
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 )
 
 // generatedWorkspaceAgentTurn is the HTTP transport projection for the
@@ -68,7 +68,7 @@ func generatedWorkspaceAgentTurn(turn agentactivitybiz.Turn) tuttigenerated.Work
 	}
 	return tuttigenerated.WorkspaceAgentTurn{
 		AgentSessionId:               strings.TrimSpace(turn.AgentSessionID),
-		ProviderForkBindingAvailable: agentactivitybiz.HasUsableProviderTurnBinding(turn),
+		ProviderForkBindingAvailable: turn.ProviderForkBindingAvailable,
 		ProviderForkBindingState:     providerForkBindingState(turn),
 		CapabilityRefs:               capabilityRefs,
 		CompletedCommand:             completedCommand,
@@ -90,7 +90,7 @@ func generatedWorkspaceAgentTurn(turn agentactivitybiz.Turn) tuttigenerated.Work
 func providerForkBindingState(
 	turn agentactivitybiz.Turn,
 ) tuttigenerated.WorkspaceAgentTurnProviderForkBindingState {
-	if agentactivitybiz.HasUsableProviderTurnBinding(turn) {
+	if turn.ProviderForkBindingAvailable {
 		return tuttigenerated.WorkspaceAgentTurnProviderForkBindingStateBound
 	}
 	if turn.Phase == agentactivitybiz.TurnPhaseSettled {

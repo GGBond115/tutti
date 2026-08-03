@@ -468,6 +468,42 @@ test("blocked runtime availability rejects settings and interactive commands", (
   );
 });
 
+test("revoked sharing availability updates owner presentation without changing its reason", () => {
+  let state = reduce(createInitialSessionLifecycleState(), {
+    type: "session/snapshotReceived",
+    sessions: [session(null, 1)]
+  }).state;
+  state = reduce(state, {
+    type: "session/runtimeAvailabilityChanged",
+    agentSessionId: "session-1",
+    availability: {
+      state: "blocked",
+      reason: "agent_sharing_revoked",
+      ownerLabel: "Old owner"
+    }
+  }).state;
+
+  const renamed = reduce(state, {
+    type: "session/runtimeAvailabilityChanged",
+    agentSessionId: "session-1",
+    availability: {
+      state: "blocked",
+      reason: "agent_sharing_revoked",
+      ownerLabel: "Current owner"
+    }
+  });
+
+  assert.notEqual(renamed.state, state);
+  assert.deepEqual(
+    renamed.state.operationBySessionId["session-1"]?.runtimeAvailability,
+    {
+      state: "blocked",
+      reason: "agent_sharing_revoked",
+      ownerLabel: "Current owner"
+    }
+  );
+});
+
 test("a queued settings update waits for runtime reconnection", () => {
   let state = reduce(createInitialSessionLifecycleState(), {
     type: "session/snapshotReceived",

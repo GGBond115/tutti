@@ -16,7 +16,7 @@ import (
 	"github.com/tutti-os/tutti/packages/agent/daemon/titletext"
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 	userprojectbiz "github.com/tutti-os/tutti/services/tuttid/biz/userproject"
@@ -304,7 +304,7 @@ func (f fakeSessionInitializer) InitializeRuntimeSession(
 		RailSectionKind:        "conversations",
 		RailSectionKey:         "conversations",
 		Settings:               settings,
-		Metadata:               agentactivitybiz.SessionMetadata{Visible: session.Visible, Capabilities: []string{}},
+		Metadata:               agentactivitybiz.SessionMetadata{Visible: session.Visible},
 		InternalRuntimeContext: clonePayload(session.RuntimeContext),
 		Title:                  strings.TrimSpace(session.Title),
 		PinnedAtUnixMS:         session.PinnedAtUnixMS,

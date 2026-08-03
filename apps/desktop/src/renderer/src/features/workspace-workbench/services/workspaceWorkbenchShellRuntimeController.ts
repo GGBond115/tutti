@@ -4,6 +4,7 @@ import type {
   WorkbenchHostCloseDialogRequest,
   WorkbenchHostHandle,
   WorkbenchHostNodeData,
+  WorkbenchLayoutPreset,
   WorkbenchMissionControlAdapter
 } from "@tutti-os/workbench-surface";
 import type { I18nRuntime } from "@tutti-os/ui-i18n-runtime";
@@ -93,6 +94,11 @@ export interface WorkspaceWorkbenchShellRuntimeController {
   dispose: () => void;
   getSnapshot: () => WorkspaceWorkbenchShellRuntimeControllerSnapshot;
   missionControl: {
+    applyLayoutPreset: (
+      nodeIds: readonly string[],
+      preset: WorkbenchLayoutPreset,
+      lock?: boolean
+    ) => void;
     close: () => void;
     open: (
       request?:
@@ -208,6 +214,7 @@ export function createWorkspaceWorkbenchShellRuntimeController(input: {
     },
     getSnapshot: () => snapshot,
     missionControl: {
+      applyLayoutPreset: missionControl.applyLayoutPreset,
       close: missionControl.close,
       open: missionControl.open,
       setAdapter: missionControl.setAdapter,

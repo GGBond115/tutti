@@ -13,14 +13,12 @@ import (
 type workflowStore struct {
 	recordings map[string]Recording
 	cassettes  map[string]Cassette
-	runs       map[string]ReplayRun
 }
 
 func newWorkflowStore() *workflowStore {
 	return &workflowStore{
 		recordings: map[string]Recording{},
 		cassettes:  map[string]Cassette{},
-		runs:       map[string]ReplayRun{},
 	}
 }
 
@@ -30,6 +28,11 @@ func (s *workflowStore) PutRecording(_ context.Context, value Recording) error {
 	return nil
 }
 func (s *workflowStore) DeleteRecording(_ context.Context, id string) error {
+	for cassetteID, cassette := range s.cassettes {
+		if cassette.SourceRecordingID == id {
+			delete(s.cassettes, cassetteID)
+		}
+	}
 	delete(s.recordings, id)
 	return nil
 }
@@ -78,27 +81,8 @@ func (s *workflowStore) GetCassette(_ context.Context, id string) (Cassette, err
 func (s *workflowStore) ListCassettes(_ context.Context, scopeID string) ([]Cassette, error) {
 	var result []Cassette
 	for _, value := range s.cassettes {
-		if scopeID == "" || value.ScopeID == scopeID {
-			result = append(result, value)
-		}
-	}
-	return result, nil
-}
-func (s *workflowStore) PutReplayRun(_ context.Context, value ReplayRun) error {
-	s.runs[value.ID] = value
-	return nil
-}
-func (s *workflowStore) GetReplayRun(_ context.Context, id string) (ReplayRun, error) {
-	value, ok := s.runs[id]
-	if !ok {
-		return ReplayRun{}, ErrReplayRunNotFound
-	}
-	return value, nil
-}
-func (s *workflowStore) ListReplayRuns(_ context.Context, cassetteID string) ([]ReplayRun, error) {
-	var result []ReplayRun
-	for _, value := range s.runs {
-		if cassetteID == "" || value.CassetteID == cassetteID {
+		recording := s.recordings[value.SourceRecordingID]
+		if scopeID == "" || recording.ScopeID == scopeID {
 			result = append(result, value)
 		}
 	}
@@ -120,14 +104,13 @@ func (f workflowFixtures) ResolveRootAgentSession(
 	}
 	return sessionID, nil
 }
-func (f workflowFixtures) ExportAgentSessionGraph(
+func (f workflowFixtures) CaptureReplayState(
 	_ context.Context,
 	_ string,
 	_ string,
-	destination string,
-) error {
-	*f.events = append(*f.events, "fixture:"+destination)
-	return nil
+) ([]byte, error) {
+	*f.events = append(*f.events, "state")
+	return []byte(`{"schemaVersion":1}`), nil
 }
 func (f workflowFixtures) WaitAgentSessionGraphSettled(
 	context.Context,
@@ -139,17 +122,20 @@ func (f workflowFixtures) WaitAgentSessionGraphSettled(
 }
 
 type workflowArtifacts struct {
-	events         *[]string
-	activityEvents []ActivityEvent
-	cassettes      map[string]Cassette
+	events          *[]string
+	activityEvents  []ActivityEvent
+	cassettes       map[string]Cassette
+	resolveErrors   map[string]error
+	journalEntries  []ObservationJournalEntry
+	checkpointPlans []CheckpointPlan
 }
 
 func (a *workflowArtifacts) layout(recordingID string) ArtifactLayout {
 	return ArtifactLayout{
-		StorageKey:         "candidate/" + recordingID,
-		ProviderTapeKey:    "candidate/" + recordingID + "/provider",
-		SeedFixtureKey:     "candidate/" + recordingID + "/seed",
-		ExpectedFixtureKey: "candidate/" + recordingID + "/expected",
+		StorageKey:       "candidate/" + recordingID,
+		ProviderTapeKey:  "candidate/" + recordingID + "/provider",
+		InitialStateKey:  "candidate/" + recordingID + "/initial-state.json",
+		ExpectedStateKey: "candidate/" + recordingID + "/expected",
 	}
 }
 func (a *workflowArtifacts) Prepare(_ context.Context, recording Recording) (ArtifactLayout, error) {
@@ -167,14 +153,6 @@ func (a *workflowArtifacts) LocateRecording(
 	}
 	return a.layout(recording.ID), nil
 }
-func (a *workflowArtifacts) WriteScenario(
-	_ context.Context,
-	_ Recording,
-	count uint64,
-) error {
-	*a.events = append(*a.events, fmt.Sprintf("scenario:%d", count))
-	return nil
-}
 func (a *workflowArtifacts) AppendActivityEvent(
 	_ context.Context,
 	_ Recording,
@@ -184,12 +162,29 @@ func (a *workflowArtifacts) AppendActivityEvent(
 	*a.events = append(*a.events, fmt.Sprintf("event:%d", event.Sequence))
 	return nil
 }
-func (a *workflowArtifacts) CollectFixtureDependencies(
+func (a *workflowArtifacts) AppendObservationJournalEntry(
 	_ context.Context,
 	_ Recording,
-	phase FixturePhase,
+	entry ObservationJournalEntry,
 ) error {
-	*a.events = append(*a.events, "dependencies:"+string(phase))
+	a.journalEntries = append(a.journalEntries, entry)
+	return nil
+}
+func (a *workflowArtifacts) WriteCheckpointPlan(
+	_ context.Context,
+	_ Recording,
+	plan CheckpointPlan,
+) error {
+	a.checkpointPlans = append(a.checkpointPlans, plan)
+	return nil
+}
+func (a *workflowArtifacts) WriteReplayState(
+	_ context.Context,
+	_ Recording,
+	phase ReplayStatePhase,
+	_ []byte,
+) error {
+	*a.events = append(*a.events, "write-state:"+string(phase))
 	return nil
 }
 func (a *workflowArtifacts) Publish(
@@ -203,7 +198,6 @@ func (a *workflowArtifacts) Publish(
 		ID:                 cassetteID,
 		Name:               recording.Name,
 		SourceRecordingID:  recording.ID,
-		ScopeID:            recording.ScopeID,
 		AgentTargetID:      recording.AgentTargetID,
 		RootAgentSessionID: recording.RootAgentSessionID,
 		Mode:               recording.Mode,
@@ -245,6 +239,9 @@ func (a *workflowArtifacts) RollbackPublish(
 	return nil
 }
 func (a *workflowArtifacts) Resolve(_ context.Context, requested Cassette) (Artifact, error) {
+	if err := a.resolveErrors[requested.ID]; err != nil {
+		return Artifact{}, err
+	}
 	cassette, ok := a.cassettes[requested.ID]
 	if !ok {
 		return Artifact{}, ErrCassetteNotFound
@@ -258,11 +255,22 @@ func (a *workflowArtifacts) DiscardRecording(_ context.Context, id string) error
 	*a.events = append(*a.events, "discard:"+id)
 	return nil
 }
+func (a *workflowArtifacts) DiscardCassette(_ context.Context, id string) error {
+	delete(a.cassettes, id)
+	*a.events = append(*a.events, "discard-cassette:"+id)
+	return nil
+}
 
-type workflowRecorder struct{ events *[]string }
+type workflowRecorder struct {
+	events *[]string
+	onArm  func(recordingID string) error
+}
 
-func (r workflowRecorder) Arm(root, _ string) error {
+func (r workflowRecorder) Arm(root, recordingID, _ string) error {
 	*r.events = append(*r.events, "arm:"+root)
+	if r.onArm != nil {
+		return r.onArm(recordingID)
+	}
 	return nil
 }
 func (r workflowRecorder) Complete(root string) error {
@@ -274,20 +282,6 @@ func (r workflowRecorder) Cancel(root string) error {
 	return nil
 }
 
-type workflowRuntime struct {
-	started  []ReplayRequest
-	canceled []string
-}
-
-func (r *workflowRuntime) Start(_ context.Context, request ReplayRequest) error {
-	r.started = append(r.started, request)
-	return nil
-}
-func (r *workflowRuntime) Cancel(_ context.Context, runID string) error {
-	r.canceled = append(r.canceled, runID)
-	return nil
-}
-
 func newWorkflowForTest(ids ...string) (*Workflow, *workflowStore, *workflowArtifacts, *[]string) {
 	store := newWorkflowStore()
 	events := &[]string{}
@@ -295,7 +289,7 @@ func newWorkflowForTest(ids ...string) (*Workflow, *workflowStore, *workflowArti
 	next := 0
 	now := int64(1)
 	return &Workflow{
-		Fixtures:  workflowFixtures{events: events, root: "root-1"},
+		States:    workflowFixtures{events: events, root: "root-1"},
 		Artifacts: artifacts,
 		Transport: workflowRecorder{events: events},
 		Store:     store,
@@ -328,6 +322,49 @@ func TestRecordingWorkflowOwnsCreateBindStimuliAndCompleteOrder(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if err := workflow.RecordProviderInputUnit(
+		context.Background(),
+		recording.ID,
+		ObservationJournalEntry{
+			SchemaVersion: ObservationSchemaVersion,
+			Position: ProviderUnitPosition{
+				ConnectionID: "connection-1",
+				ChunkSeq:     4,
+				UnitIndex:    1,
+			},
+			UnitKind: ProviderInputUnitProtocolMessage,
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts.journalEntries) != 1 ||
+		artifacts.journalEntries[0].SchemaVersion != ObservationSchemaVersion {
+		t.Fatalf("journal entries = %#v", artifacts.journalEntries)
+	}
+	if err := workflow.RecordCheckpointPlan(
+		context.Background(),
+		recording.ID,
+		NewCheckpointPlan([]ReplayCheckpoint{{
+			Kind:    "replay.bootstrap",
+			Tags:    []string{"replay.bootstrap"},
+			Trigger: CheckpointTrigger{Source: CheckpointTriggerBootstrap},
+		}}),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts.checkpointPlans) != 1 {
+		t.Fatalf("checkpoint plans = %#v", artifacts.checkpointPlans)
+	}
+	if err := workflow.RecordCheckpointPlan(
+		context.Background(),
+		"stale-recording",
+		NewCheckpointPlan(nil),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts.checkpointPlans) != 1 {
+		t.Fatalf("stale checkpoint plan was written: %#v", artifacts.checkpointPlans)
 	}
 	batch := []ActivityEvent{
 		{
@@ -387,18 +424,151 @@ func TestRecordingWorkflowOwnsCreateBindStimuliAndCompleteOrder(t *testing.T) {
 	wantOrder := []string{
 		"prepare",
 		"arm:root-1",
-		"scenario:0",
 		"event:1",
 		"event:2",
 		"settle",
 		"transport-complete:root-1",
-		"scenario:2",
-		"fixture:candidate/recording-1/expected",
-		"dependencies:expected",
+		"state",
+		"write-state:expected",
 		"publish",
 	}
 	if !slices.Equal(*events, wantOrder) {
 		t.Fatalf("events = %#v, want %#v", *events, wantOrder)
+	}
+}
+
+func TestRecordingWorkflowRejectsContractViolationsAtRecordTime(t *testing.T) {
+	ctx := context.Background()
+	workflow, _, artifacts, _ := newWorkflowForTest("recording-1")
+	if _, err := workflow.Start(ctx, StartRecordingInput{
+		ScopeID: "scope-1", AgentTargetID: "target-1", AgentSessionID: "root-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := workflow.RecordActivityEvent(ctx, ActivityEvent{
+		Kind: ActivityEventKindIntent, Type: "not-a-real-intent",
+		EventID: "intent-1", ScopeID: "scope-1", AgentSessionID: "root-1",
+	}); err == nil || !strings.Contains(err.Error(), "not in the activity contract") {
+		t.Fatalf("unknown intent type error = %v", err)
+	}
+	intentType, _ := contractIntentByRequirement(t, false, false)
+	if err := workflow.RecordActivityEvent(ctx, ActivityEvent{
+		Kind: ActivityEventKindIntent, Type: intentType,
+		EventID: "intent-2", ScopeID: "scope-1", AgentSessionID: "root-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := workflow.RecordActivityEvent(ctx, ActivityEvent{
+		Kind: ActivityEventKindEffect, Type: "not-a-real-effect",
+		EventID: "effect-1", CausedByEventID: "intent-2",
+		ScopeID: "scope-1", AgentSessionID: "root-1",
+	}); err == nil || !strings.Contains(err.Error(), "not allowed for intent type") {
+		t.Fatalf("disallowed effect type error = %v", err)
+	}
+	if len(artifacts.activityEvents) != 1 ||
+		artifacts.activityEvents[0].Sequence != 1 ||
+		artifacts.activityEvents[0].EventID != "intent-2" {
+		t.Fatalf("accepted activity events = %#v", artifacts.activityEvents)
+	}
+}
+
+func TestRecordingWorkflowCompleteFailsOnIncompleteActivityTimeline(t *testing.T) {
+	ctx := context.Background()
+	workflow, store, _, events := newWorkflowForTest("recording-1", "cassette-1")
+	recording, err := workflow.Start(ctx, StartRecordingInput{
+		ScopeID: "scope-1", AgentTargetID: "target-1", AgentSessionID: "root-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intentType, _ := contractIntentByRequirement(t, true, true)
+	if err := workflow.RecordActivityEvent(ctx, ActivityEvent{
+		Kind: ActivityEventKindIntent, Type: intentType,
+		EventID: "intent-1", CorrelationID: "correlation-1",
+		ScopeID: "scope-1", AgentSessionID: "root-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workflow.Complete(ctx, recording.ID); err == nil ||
+		!strings.Contains(err.Error(), "requires at least one effect") {
+		t.Fatalf("Complete error = %v", err)
+	}
+	failed := store.recordings[recording.ID]
+	if failed.Status != RecordingStatusFailed ||
+		failed.ErrorCode != "activity_timeline_incomplete" {
+		t.Fatalf("failed recording = %#v", failed)
+	}
+	if slices.Contains(*events, "publish") {
+		t.Fatalf("incomplete timeline was published: %#v", *events)
+	}
+}
+
+func TestRecordingWorkflowIgnoresStaleProviderWritesAfterCancelAndRestart(
+	t *testing.T,
+) {
+	ctx := context.Background()
+	workflow, _, artifacts, _ := newWorkflowForTest(
+		"recording-1",
+		"recording-2",
+	)
+	first, err := workflow.Start(ctx, StartRecordingInput{
+		ScopeID: "scope-1", AgentTargetID: "target-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err = workflow.Bind(ctx, BindRecordingInput{
+		RecordingID: first.ID, ScopeID: "scope-1",
+		AgentTargetID: "target-1", AgentSessionID: "root-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workflow.Cancel(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	second, err := workflow.Start(ctx, StartRecordingInput{
+		ScopeID: "scope-1", AgentTargetID: "target-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err = workflow.Bind(ctx, BindRecordingInput{
+		RecordingID: second.ID, ScopeID: "scope-1",
+		AgentTargetID: "target-1", AgentSessionID: "root-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entry := ObservationJournalEntry{
+		SchemaVersion: ObservationSchemaVersion,
+		Position: ProviderUnitPosition{
+			ConnectionID: "connection-1",
+			ChunkSeq:     1,
+			UnitIndex:    1,
+		},
+		UnitKind: ProviderInputUnitProtocolMessage,
+	}
+	if err := workflow.RecordProviderInputUnit(ctx, first.ID, entry); err != nil {
+		t.Fatal(err)
+	}
+	if err := workflow.RecordCheckpointCandidate(
+		ctx,
+		first.ID,
+		entry,
+		NewCheckpointPlan(nil),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts.journalEntries) != 0 ||
+		len(artifacts.checkpointPlans) != 0 {
+		t.Fatalf(
+			"stale provider writes reached recording %q: journal=%d plans=%d",
+			second.ID,
+			len(artifacts.journalEntries),
+			len(artifacts.checkpointPlans),
+		)
 	}
 }
 
@@ -425,6 +595,51 @@ func TestRecordingWorkflowRenamesCompletedCassette(t *testing.T) {
 	}
 }
 
+func TestRecordingWorkflowDeletesCompletedRecordingAndCassette(t *testing.T) {
+	workflow, store, artifacts, events := newWorkflowForTest("recording-1", "cassette-1")
+	recording, err := workflow.Start(context.Background(), StartRecordingInput{
+		ScopeID: "scope-1", AgentTargetID: "target-1", AgentSessionID: "root-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recording, err = workflow.Complete(context.Background(), recording.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := workflow.Delete(context.Background(), recording.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.recordings[recording.ID]; ok {
+		t.Fatal("recording metadata still exists")
+	}
+	if _, ok := store.cassettes[recording.CassetteID]; ok {
+		t.Fatal("cassette metadata still exists")
+	}
+	if _, ok := artifacts.cassettes[recording.CassetteID]; ok {
+		t.Fatal("cassette artifact still exists")
+	}
+	if !slices.Contains(*events, "discard-cassette:"+recording.CassetteID) {
+		t.Fatalf("events = %#v", *events)
+	}
+}
+
+func TestRecordingWorkflowRejectsDeletingActiveRecording(t *testing.T) {
+	workflow, store, _, _ := newWorkflowForTest("recording-1")
+	recording, err := workflow.Start(context.Background(), StartRecordingInput{
+		ScopeID: "scope-1", AgentTargetID: "target-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := workflow.Delete(context.Background(), recording.ID); !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("Delete error = %v, want ErrInvalidState", err)
+	}
+	if _, ok := store.recordings[recording.ID]; !ok {
+		t.Fatal("active recording metadata was deleted")
+	}
+}
+
 func TestRecordingWorkflowCapturesContinueSeedBeforeArm(t *testing.T) {
 	workflow, _, _, events := newWorkflowForTest("recording-1")
 	recording, err := workflow.Start(context.Background(), StartRecordingInput{
@@ -439,13 +654,134 @@ func TestRecordingWorkflowCapturesContinueSeedBeforeArm(t *testing.T) {
 	}
 	want := []string{
 		"prepare",
-		"fixture:candidate/recording-1/seed",
-		"dependencies:seed",
+		"state",
+		"write-state:initial",
 		"arm:root-1",
-		"scenario:0",
 	}
 	if !slices.Equal(*events, want) {
 		t.Fatalf("events = %#v, want %#v", *events, want)
+	}
+	initial, found := workflow.InitialReplayStateSnapshot(recording.ID)
+	if !found || string(initial) != `{"schemaVersion":1}` {
+		t.Fatalf("initial state = %q, found=%v", initial, found)
+	}
+	initial[0] = '!'
+	again, found := workflow.InitialReplayStateSnapshot(recording.ID)
+	if !found || string(again) != `{"schemaVersion":1}` {
+		t.Fatalf("initial state snapshot was not isolated: %q", again)
+	}
+}
+
+func TestRecordingWorkflowAdmitsSynchronousArmCapture(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		continueSession bool
+	}{
+		{name: "create"},
+		{name: "continue", continueSession: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			workflow, _, artifacts, events := newWorkflowForTest("recording-1")
+			workflow.Transport = workflowRecorder{
+				events: events,
+				onArm: func(recordingID string) error {
+					snapshot, ok := workflow.RecordingCursorSnapshotForCapture(recordingID)
+					if !ok || snapshot.Recording.ID != recordingID {
+						t.Fatalf("capture snapshot = %#v, ok=%v", snapshot, ok)
+					}
+					if test.continueSession {
+						if _, ok := workflow.InitialReplayStateSnapshot(recordingID); !ok {
+							t.Fatal("initial replay state was unavailable inside Arm")
+						}
+					}
+					return workflow.RecordProviderInputUnit(
+						context.Background(),
+						recordingID,
+						ObservationJournalEntry{},
+					)
+				},
+			}
+
+			input := StartRecordingInput{
+				ScopeID: "scope-1", AgentTargetID: "target-1",
+			}
+			if test.continueSession {
+				input.AgentSessionID = "child-1"
+			}
+			recording, err := workflow.Start(context.Background(), input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !test.continueSession {
+				recording, err = workflow.Bind(context.Background(), BindRecordingInput{
+					RecordingID: recording.ID,
+					ScopeID:     "scope-1", AgentTargetID: "target-1",
+					AgentSessionID: "root-1",
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if recording.Status != RecordingStatusRecording {
+				t.Fatalf("recording status = %q", recording.Status)
+			}
+			if len(artifacts.journalEntries) != 1 {
+				t.Fatalf("journal entries = %d, want 1", len(artifacts.journalEntries))
+			}
+			if workflow.captureAdmissionID != "" {
+				t.Fatalf("capture admission remained %q", workflow.captureAdmissionID)
+			}
+		})
+	}
+}
+
+func TestRecordingWorkflowClearsCaptureAdmissionAfterArmFailure(t *testing.T) {
+	workflow, _, artifacts, events := newWorkflowForTest("recording-1")
+	armErr := errors.New("arm failed")
+	workflow.Transport = workflowRecorder{
+		events: events,
+		onArm: func(recordingID string) error {
+			if err := workflow.RecordProviderInputUnit(
+				context.Background(),
+				recordingID,
+				ObservationJournalEntry{},
+			); err != nil {
+				return err
+			}
+			return armErr
+		},
+	}
+	recording, err := workflow.Start(context.Background(), StartRecordingInput{
+		ScopeID: "scope-1", AgentTargetID: "target-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workflow.Bind(context.Background(), BindRecordingInput{
+		RecordingID: recording.ID,
+		ScopeID:     "scope-1", AgentTargetID: "target-1",
+		AgentSessionID: "root-1",
+	}); !errors.Is(err, armErr) {
+		t.Fatalf("Bind error = %v, want %v", err, armErr)
+	}
+	if workflow.captureAdmissionID != "" {
+		t.Fatalf("capture admission remained %q", workflow.captureAdmissionID)
+	}
+	if _, ok := workflow.RecordingCursorSnapshotForCapture(recording.ID); ok {
+		t.Fatal("failed recording remained admitted for capture")
+	}
+	if len(artifacts.journalEntries) != 1 {
+		t.Fatalf("journal entries after Arm = %d, want 1", len(artifacts.journalEntries))
+	}
+	if err := workflow.RecordProviderInputUnit(
+		context.Background(),
+		recording.ID,
+		ObservationJournalEntry{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts.journalEntries) != 1 {
+		t.Fatalf("late callback wrote after Arm failure: %d entries", len(artifacts.journalEntries))
 	}
 }
 
@@ -498,121 +834,152 @@ func TestRecordingWorkflowSingleActiveCancelAndRecover(t *testing.T) {
 	}
 }
 
-func TestReplayWorkflowCreatesManyRunsForOneCassette(t *testing.T) {
-	workflow, store, artifacts, _ := newWorkflowForTest("run-1", "run-2")
-	runtime := &workflowRuntime{}
-	workflow.Runtime = runtime
-	cassette := Cassette{ID: "cassette-1", ScopeID: "scope-1", ArtifactKey: "cassette/cassette-1"}
-	store.cassettes[cassette.ID] = cassette
-	artifacts.cassettes = map[string]Cassette{cassette.ID: cassette}
-
-	first, err := workflow.CreateReplayRun(context.Background(), cassette.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := workflow.CreateReplayRun(context.Background(), cassette.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.ID == second.ID || first.CassetteID != second.CassetteID {
-		t.Fatalf("runs = %#v %#v", first, second)
-	}
-	first, err = workflow.StartReplayRun(context.Background(), first.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err = workflow.StartReplayRun(context.Background(), second.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, err = workflow.CompleteReplayRun(context.Background(), first.ID, 9)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err = workflow.CancelReplayRun(context.Background(), second.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.Status != ReplayRunStatusComplete ||
-		second.Status != ReplayRunStatusCanceled ||
-		len(runtime.started) != 2 ||
-		!slices.Equal(runtime.canceled, []string{"run-2"}) {
-		t.Fatalf("first=%#v second=%#v runtime=%#v", first, second, runtime)
-	}
-}
-
-func TestReplayWorkflowPreparesAndMarksExternalRuntime(t *testing.T) {
-	workflow, store, artifacts, _ := newWorkflowForTest("run-1")
+func TestReplayWorkflowPreparesOneCassetteWithoutExecutionState(t *testing.T) {
+	workflow, store, artifacts, _ := newWorkflowForTest()
+	workflow.NewID = nil
+	workflow.Now = nil
 	cassette := Cassette{
-		ID:          "cassette-1",
-		ArtifactKey: "cassette-key",
+		ID:                 "cassette-1",
+		RootAgentSessionID: "root-1",
+		ArtifactKey:        "cassette-key",
 	}
 	store.cassettes[cassette.ID] = cassette
 	artifacts.cassettes = map[string]Cassette{cassette.ID: cassette}
-	request, err := workflow.PrepareReplayRun(context.Background(), "cassette-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if request.Run.Status != ReplayRunStatusStarting ||
-		request.Artifact.Layout.StorageKey != "cassette-key" {
-		t.Fatalf("prepared request = %#v", request)
-	}
-	run, err := workflow.MarkReplayRunRunning(context.Background(), request.Run.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if run.Status != ReplayRunStatusRunning {
-		t.Fatalf("run status = %q, want running", run.Status)
-	}
-}
-
-func TestReplayWorkflowAdvancesOnlyRunningRunCheckpoint(t *testing.T) {
-	workflow, store, _, _ := newWorkflowForTest()
-	store.runs["run-1"] = ReplayRun{
-		ID: "run-1", CassetteID: "cassette-1", Status: ReplayRunStatusRunning,
-		CreatedAtUnixMS: 1, StartedAtUnixMS: 2, UpdatedAtUnixMS: 2,
-	}
-	run, err := workflow.AdvanceReplayRunCheckpoint(
+	prepared, err := workflow.PrepareReplayBatch(
 		context.Background(),
-		"run-1",
-		2,
+		PrepareReplayBatchInput{
+			CassetteIDs: []string{cassette.ID},
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.Checkpoint != 2 || store.runs["run-1"].Checkpoint != 2 {
-		t.Fatalf("run = %#v stored = %#v", run, store.runs["run-1"])
-	}
-	if _, err := workflow.AdvanceReplayRunCheckpoint(
-		context.Background(),
-		"run-1",
-		1,
-	); !errors.Is(err, ErrInvalidState) {
-		t.Fatalf("backward advance error = %v", err)
-	}
-	run = store.runs["run-1"]
-	run.Status = ReplayRunStatusComplete
-	store.runs["run-1"] = run
-	if _, err := workflow.AdvanceReplayRunCheckpoint(
-		context.Background(),
-		"run-1",
-		3,
-	); !errors.Is(err, ErrInvalidState) {
-		t.Fatalf("terminal advance error = %v", err)
+	request := prepared.Requests[0]
+	if request.Cassette != cassette ||
+		request.Artifact.Cassette != cassette ||
+		request.Artifact.Layout.StorageKey != "cassette-key" {
+		t.Fatalf("prepared request = %#v", request)
 	}
 }
 
-func TestWorkflowRecoveryFailsInterruptedReplayRuns(t *testing.T) {
-	workflow, store, _, _ := newWorkflowForTest()
-	store.runs["run-1"] = ReplayRun{
-		ID: "run-1", CassetteID: "cassette-1", Status: ReplayRunStatusRunning,
-		CreatedAtUnixMS: 1, StartedAtUnixMS: 2, UpdatedAtUnixMS: 2,
+func TestReplayWorkflowPreparesFixedBatch(t *testing.T) {
+	workflow, store, artifacts, _ := newWorkflowForTest("unused-replay-id")
+	first := Cassette{
+		ID:                 "cassette-1",
+		RootAgentSessionID: "root-1",
+		ArtifactKey:        "cassette/1",
 	}
-	if err := workflow.Recover(context.Background()); err != nil {
+	second := Cassette{
+		ID:                 "cassette-2",
+		RootAgentSessionID: "root-2",
+		ArtifactKey:        "cassette/2",
+	}
+	store.cassettes[first.ID] = first
+	store.cassettes[second.ID] = second
+	artifacts.cassettes = map[string]Cassette{first.ID: first, second.ID: second}
+
+	prepared, err := workflow.PrepareReplayBatch(
+		context.Background(),
+		PrepareReplayBatchInput{
+			CassetteIDs: []string{"cassette-1", " cassette-2 "},
+		},
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
-	got := store.runs["run-1"]
-	if got.Status != ReplayRunStatusFailed || got.ErrorCode != "daemon_restarted" {
-		t.Fatalf("recovered run = %#v", got)
+	if len(prepared.Requests) != 2 {
+		t.Fatalf("prepared=%#v", prepared)
+	}
+	for index, request := range prepared.Requests {
+		wantRoot := fmt.Sprintf("root-%d", index+1)
+		if request.Cassette.RootAgentSessionID != wantRoot ||
+			request.Artifact.Cassette.ID != request.Cassette.ID {
+			t.Fatalf("request[%d] = %#v", index, request)
+		}
+	}
+}
+
+func TestReplayWorkflowBatchResolveFailureReturnsNoPreparedBatch(t *testing.T) {
+	workflow, store, artifacts, _ := newWorkflowForTest("unused-replay-id")
+	for index := 1; index <= 2; index++ {
+		id := fmt.Sprintf("cassette-%d", index)
+		cassette := Cassette{
+			ID:                 id,
+			RootAgentSessionID: fmt.Sprintf("root-%d", index),
+			ArtifactKey:        "cassette/" + id,
+		}
+		store.cassettes[id] = cassette
+		if artifacts.cassettes == nil {
+			artifacts.cassettes = map[string]Cassette{}
+		}
+		artifacts.cassettes[id] = cassette
+	}
+	artifacts.resolveErrors = map[string]error{"cassette-2": errors.New("artifact missing")}
+
+	_, err := workflow.PrepareReplayBatch(
+		context.Background(),
+		PrepareReplayBatchInput{
+			CassetteIDs: []string{"cassette-1", "cassette-2"},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "artifact missing") {
+		t.Fatalf("PrepareReplayBatch() error = %v", err)
+	}
+}
+
+func TestReplayWorkflowSingleCassetteResolveFailure(t *testing.T) {
+	workflow, store, artifacts, _ := newWorkflowForTest("unused-replay-id")
+	cassette := Cassette{
+		ID:                 "cassette-1",
+		RootAgentSessionID: "root-1",
+	}
+	store.cassettes[cassette.ID] = cassette
+	artifacts.cassettes = map[string]Cassette{cassette.ID: cassette}
+	artifacts.resolveErrors = map[string]error{cassette.ID: errors.New("artifact missing")}
+
+	if _, err := workflow.PrepareReplayBatch(
+		context.Background(),
+		PrepareReplayBatchInput{
+			CassetteIDs: []string{cassette.ID},
+		},
+	); err == nil || !strings.Contains(err.Error(), "artifact missing") {
+		t.Fatalf("PrepareReplayBatch() error = %v", err)
+	}
+}
+
+func TestReplayWorkflowRejectsDuplicateCassetteOrRoot(t *testing.T) {
+	tests := []struct {
+		name       string
+		cassetteID string
+		rootID     string
+	}{
+		{name: "cassette", cassetteID: "cassette-1", rootID: "root-2"},
+		{name: "root", cassetteID: "cassette-2", rootID: "root-1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workflow, store, artifacts, _ := newWorkflowForTest("unused-replay-id")
+			first := Cassette{
+				ID:                 "cassette-1",
+				RootAgentSessionID: "root-1",
+			}
+			second := Cassette{
+				ID:                 tt.cassetteID,
+				RootAgentSessionID: tt.rootID,
+			}
+			store.cassettes[first.ID] = first
+			store.cassettes[second.ID] = second
+			artifacts.cassettes = map[string]Cassette{first.ID: first, second.ID: second}
+
+			_, err := workflow.PrepareReplayBatch(
+				context.Background(),
+				PrepareReplayBatchInput{
+					CassetteIDs: []string{"cassette-1", tt.cassetteID},
+				},
+			)
+			if !errors.Is(err, ErrInvalidState) {
+				t.Fatalf("PrepareReplayBatch() error = %v", err)
+			}
+		})
 	}
 }

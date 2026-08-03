@@ -12,7 +12,7 @@ import type {
 import type { AgentGUIViewLabels } from "../AgentGUINodeView";
 import {
   isContextCanceledMessage,
-  isAgentGUITransportNoticeVisible,
+  isAgentGUIHomeStatusNoticeVisible,
   resolveAgentGUIHomeNoticeChrome,
   resolveAgentGUIStopControl,
   resolveSlashStatus,
@@ -90,7 +90,7 @@ export function useAgentGUIDetailModel(input: Input) {
     () => ({ ...viewModel.interaction.sessionChrome, approval: null }),
     [viewModel.interaction.sessionChrome]
   );
-  const transportNoticeVisible = isAgentGUITransportNoticeVisible(
+  const homeStatusNoticeVisible = isAgentGUIHomeStatusNoticeVisible(
     sessionChrome.recovery
   );
   const rawSlashStatus = useMemo(
@@ -125,7 +125,7 @@ export function useAgentGUIDetailModel(input: Input) {
     ]
   );
   const displayedInlineNotice = useMemo(() => {
-    if (transportNoticeVisible) {
+    if (homeStatusNoticeVisible) {
       return null;
     }
     const inlineNotice =
@@ -160,7 +160,7 @@ export function useAgentGUIDetailModel(input: Input) {
     tuttiModeUpdateNotice,
     viewModel.rail.activeConversation?.status,
     viewModel.readiness.activeLiveState,
-    transportNoticeVisible,
+    homeStatusNoticeVisible,
     viewModel.interaction.inlineNotice
   ]);
   const inlineNoticeChrome = useMemo<AgentGUISessionChrome | null>(() => {
@@ -192,7 +192,7 @@ export function useAgentGUIDetailModel(input: Input) {
     activePrompt?.kind === "plan-implementation";
   const activePromptIsVisible =
     activePrompt !== null &&
-    !transportNoticeVisible &&
+    !homeStatusNoticeVisible &&
     bottomDockDismissedPromptRequestId !== activePromptRequestId;
   const bottomDockReplacementPrompt =
     activePromptIsPlanDecision && activePromptIsVisible ? activePrompt : null;
@@ -511,6 +511,13 @@ export function useAgentGUIDetailModel(input: Input) {
       slashStatusUsageUpdating: labels.slashStatusUsageUpdating,
       slashStatusUsageRefreshFailed: labels.slashStatusUsageRefreshFailed,
       slashStatusUsageRefreshAria: labels.slashStatusUsageRefreshAria,
+      slashStatusUsageAuthRequired: labels.slashStatusUsageAuthRequired,
+      slashStatusUsageSessionExpired: labels.slashStatusUsageSessionExpired,
+      slashStatusUsageSubscriptionRequired:
+        labels.slashStatusUsageSubscriptionRequired,
+      slashStatusUsageQuotaExhausted: labels.slashStatusUsageQuotaExhausted,
+      slashStatusUsageParseFailed: labels.slashStatusUsageParseFailed,
+      slashStatusUsageError: labels.slashStatusUsageError,
       usageChipLabel: labels.usageChipLabel,
       usageTooltipLabel: labels.usageTooltipLabel,
       usagePopoverTitle: labels.usagePopoverTitle,
@@ -685,6 +692,12 @@ export function useAgentGUIDetailModel(input: Input) {
       labels.slashStatusUsageRefreshAria,
       labels.slashStatusUsageRefreshFailed,
       labels.slashStatusUsageUpdating,
+      labels.slashStatusUsageAuthRequired,
+      labels.slashStatusUsageSessionExpired,
+      labels.slashStatusUsageSubscriptionRequired,
+      labels.slashStatusUsageQuotaExhausted,
+      labels.slashStatusUsageParseFailed,
+      labels.slashStatusUsageError,
       labels.slashStatusSession,
       labels.slashStatusTitle,
       labels.usageChipLabel,

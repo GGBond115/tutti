@@ -236,9 +236,11 @@ Mobile、Tutti Personal 和 TSH 使用同一 tsh-server 账号体系。Tutti Per
 “同账号”以账号服务返回的 canonical `user_id` 为准，不以界面展示的邮箱字符串
 判断。GitHub 登录与邮箱验证码登录即使展示相同邮箱，也可能对应不同账号 identity；
 Mobile 应优先允许用户复用 Desktop 的登录方式，不能通过邮箱相等放宽配对校验。
-Android GitHub 登录直接打开现有 Web 登录页，通过只监听 `127.0.0.1` 的短时 bridge
+Mobile GitHub 登录直接打开现有 Web 登录页，通过只监听 `127.0.0.1` 的短时 bridge
 接收一次性 transfer code，再复用账号服务兑换会话；App 不接触 GitHub 凭据或网页
-Cookie，也不新增移动端账号实体。
+Cookie，也不新增移动端账号实体。Android 在浏览器 provider 支持时使用 Auth Tab，
+不支持时降级到外部系统浏览器；iOS 使用 `ASWebAuthenticationSession`。平台认证会话
+只负责 callback 匹配与回到前台，不拥有账号 session 或 provider OAuth 流程。
 
 配对必须同时满足：
 
@@ -251,9 +253,10 @@ Cookie，也不新增移动端账号实体。
 
 Desktop 的账号登录入口与手机远程访问入口独立发布。Tutti Agent 及工作区账号菜单
 默认显示且不再提供独立的开发者可见性开关。独立持久化的
-`mobile.remoteAccessSettings` feature flag 控制「连接」设置入口是否显示；「连接」
-页承载账号登录、退出、刷新、手机配对和远程访问能力。该开关只控制 Desktop
-入口可见性，不创建第二套登录态、设备实体或协议能力。
+`mobile.remoteAccessSettings` feature flag 控制手机远程访问能力和「连接」设置入口；
+关闭时 `tuttid` owner host 不得轮询账号、配对或 DeviceLink attempt 控制面，并关闭
+已有远程链路；开启时立即开始 owner-side discovery。「连接」页承载账号登录、退出、
+刷新、手机配对和远程访问能力。该开关不创建第二套登录态、设备实体或协议能力。
 
 QR 不包含 bearer token、私钥、原始候选或可长期使用的连接凭据。
 
@@ -533,7 +536,7 @@ pairing lifecycle 和 paired-device rendezvous 已完成并部署。Tutti Person
 控制面 adapter，以及 start/status/confirm/list/revoke 本地 API；challenge secret
 不会持久化，Desktop renderer 只在配对界面打开期间临时持有二维码 payload。
 Desktop UI 已接入 QR 创建、配对码显示/复制、状态轮询、自动确认和撤销；Android
-已接入系统浏览器 GitHub 登录、邮箱验证码登录、Keystore 设备身份、内置 ZXing
+已接入平台原生浏览器认证 GitHub 登录、邮箱验证码登录、Keystore 设备身份、内置 ZXing
 扫码/手动粘贴配对码、
 challenge claim/poll，并只展示属于当前 Mobile identity 的配对设备。
 真实账号二维码联调仍是 M2 的剩余端到端完成条件。
@@ -573,8 +576,9 @@ scoped discontinuity，再触发权威 snapshot reconcile。Session/Message poll
 
 完成条件：登录、配对、选设备、解析唯一 workspace、重连和撤销形成完整非 Agent UI 闭环。
 
-当前进度：bare React Native 0.86 Android 工程、系统浏览器 GitHub 登录、邮箱验证码登录、Keystore
-Ed25519 identity、扫码/粘贴配对码、配对设备列表、Native DeviceLink bridge、移动端 i18n
+当前进度：bare React Native 0.86 Android 工程、Auth Tab（不支持时降级系统浏览器）
+统一 Tutti 账号登录入口（具体登录方式由托管登录页提供）、Keystore Ed25519 identity、
+扫码/粘贴配对码、配对设备列表、Native DeviceLink bridge、移动端 i18n
 和 semantic theme mapping 已完成。账号、设备、workspace 和前后台生命周期已迁入
 纯 TypeScript DI service；页面只保留 binding 与 Native presentation。登录、
 设备、会话列表和会话详情使用类型安全的原生导航栈；连接 Device 后会校验并打开
@@ -587,7 +591,8 @@ Ed25519 identity、扫码/粘贴配对码、配对设备列表、Native DeviceLi
 iOS Simulator host 已在相同 `apps/mobile` application core 上建立。它复用全部
 TypeScript service、AgentGUI projection、Native renderer 和 Composer，只实现
 `TuttiMobileSecurity` / `TuttiDeviceLink` 平台 port。当前 iOS adapter 包含
-Keychain/CryptoKit identity、账号 session/Cookie、localhost browser login bridge、
+Keychain/CryptoKit identity、账号 session/Cookie、`ASWebAuthenticationSession`、
+localhost browser login bridge、
 AVFoundation scanner、gomobile XCFramework、Agent HTTP/live framing 和前后台 grace；
 Simulator 的相机路径明确使用现有手动配对码降级。真机与分发仍不属于本阶段完成条件。
 

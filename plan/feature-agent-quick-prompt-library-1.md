@@ -46,7 +46,7 @@ flowchart LR
 ```
 
 提示词库是设备级、与 workspace 和会话无关的用户数据。它由 tuttid 持久化；
-`AgentActivityRuntime` 继续只管理 Session/Turn/Interaction 等 canonical activity，不接收提示词库状态。
+`AgentGUIRuntime` 继续只管理 Session/Turn/Interaction 等 canonical activity，不接收提示词库状态。
 
 ## 1. Requirements & Constraints
 
@@ -100,7 +100,7 @@ flowchart LR
   圆角、焦点态和 destructive tone 必须来自 UI System 语义 token/variant。
 - **CON-003**: 不修改 `packages/ui/system` 源码、metadata 或 storyboard；若实现时发现既有组件缺少
   必要能力，先停下并单独评审 UI System 扩展，不能在 AgentGUI 内复制 primitive。
-- **CON-004**: 不把提示词库放入 `AgentActivityRuntime`、workspace engine、Session/Turn、
+- **CON-004**: 不把提示词库放入 `AgentGUIRuntime`、workspace engine、Session/Turn、
   desktop preferences、localStorage 或组件 module-global cache。
 - **CON-005**: 第一版不包含目录/标签/拖拽排序、变量模板、团队/云同步、导入导出、默认内置提示词、
   快捷键、自动发送和提示词使用统计。
@@ -194,7 +194,7 @@ flowchart LR
   也绕过仓库对 durable product state 的所有权规则。
 - **ALT-005**: 扩展 desktop preferences JSON。拒绝：提示词正文可能较大且敏感，整对象读写会扩大冲突与事件 payload，
   无法提供实体级 version/CRUD。
-- **ALT-006**: 把提示词放进 AgentActivityRuntime。拒绝：它不是 Session/Turn/Interaction canonical activity，
+- **ALT-006**: 把提示词放进 AgentGUIRuntime。拒绝：它不是 Session/Turn/Interaction canonical activity，
   会污染 workspace engine 并让设备级数据错误地按 workspace 复制。
 - **ALT-007**: 为本功能新增 PromptPicker/Modal/VirtualList primitive。拒绝：现有 Popover、Dialog、
   ConfirmationDialog、ScrollArea 和表单组件已经覆盖需求；第一版最多 100 条，不需要 virtualization。

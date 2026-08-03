@@ -63,6 +63,7 @@ import {
   type IDesktopRichTextAtService
 } from "@renderer/features/rich-text-at";
 import type { IWorkspaceUserProjectService } from "@renderer/features/workspace-user-project";
+import type { AgentSessionReplayDesktopComposition } from "@renderer/features/agent-session-replay/services/agentSessionReplayDesktopComposition.ts";
 import { createAgentGuiWorkbenchInstanceId } from "@tutti-os/agent-gui/workbench";
 import { DesktopAgentGUISurface } from "@renderer/features/workspace-agent/ui/DesktopAgentGUIWorkbenchBody.tsx";
 import type { DesktopAgentGUISurfaceContext } from "@renderer/features/workspace-agent/ui/desktopAgentGUIWorkbenchModel.ts";
@@ -120,6 +121,7 @@ function renderStandaloneAgentSidebarFooter(workspaceId: string): ReactNode {
 }
 
 export interface StandaloneAgentWindowProps {
+  agentSessionReplayComposition: AgentSessionReplayDesktopComposition | null;
   agentProviderStatusService: AgentProviderStatusService;
   desktopApi: DesktopApi;
   eventStreamClient: TuttidEventStreamClient;
@@ -150,6 +152,7 @@ export interface StandaloneAgentWindowProps {
 
 export function StandaloneAgentWindow({
   agentProviderStatusService,
+  agentSessionReplayComposition,
   desktopApi,
   eventStreamClient,
   hostWindowApi,
@@ -471,6 +474,7 @@ export function StandaloneAgentWindow({
     () =>
       createDesktopAgentGUIWorkbenchHostInput({
         agentQuickPromptService,
+        agentSessionReplayComposition,
         hostFilesApi: desktopApi.host.files,
         eventStreamClient,
         tuttidClient,
@@ -486,6 +490,7 @@ export function StandaloneAgentWindow({
       }),
     [
       agentQuickPromptService,
+      agentSessionReplayComposition,
       desktopApi.host.files,
       desktopApi.platform,
       desktopApi.runtime,
@@ -818,9 +823,6 @@ export function StandaloneAgentWindow({
               agentHostApi={agentGuiHostInput.agentHostApi}
               agentSessionReplayService={
                 agentGuiHostInput.agentSessionReplayService
-              }
-              agentSessionActivityReplay={
-                agentGuiHostInput.agentSessionActivityReplay
               }
               tuttiModePlanReviewRuntime={
                 agentGuiHostInput.tuttiModePlanReviewRuntime

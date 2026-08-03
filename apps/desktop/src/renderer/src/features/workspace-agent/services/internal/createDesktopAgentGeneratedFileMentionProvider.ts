@@ -1,4 +1,4 @@
-import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
+import type { AgentGUIRuntime } from "@tutti-os/agent-gui";
 import {
   AGENT_CONTEXT_MENTION_PROVIDER_IDS,
   type AgentContextMentionProvider
@@ -19,7 +19,7 @@ interface AgentGeneratedFileMentionItem {
 }
 
 export function createDesktopAgentGeneratedFileMentionProvider(input: {
-  agentActivityRuntime: Pick<AgentActivityRuntime, "listAgentGeneratedFiles">;
+  agentActivityRuntime: Pick<AgentGUIRuntime, "listAgentGeneratedFiles">;
   workspaceId: string;
 }): AgentContextMentionProvider<AgentGeneratedFileMentionItem> {
   return {

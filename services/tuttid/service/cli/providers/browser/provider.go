@@ -41,6 +41,7 @@ func (p Provider) Commands() []cliservice.Command {
 		p.newFillCommand(),
 		p.newEvalCommand(),
 		p.newListPagesCommand(),
+		p.newOpenCommand(),
 		p.newPageCommand(),
 		p.newSelectPageCommand(),
 		p.newClosePageCommand(),

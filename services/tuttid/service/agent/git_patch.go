@@ -337,7 +337,9 @@ func prepareTemporaryGitIndex(ctx context.Context, repo gitPatchRepo, tempDir st
 	if len(paths) == 0 {
 		return nextEnv, nil
 	}
-	args := append([]string{"add", "--"}, paths...)
+	// -f so ignored paths (e.g. under .gitignore) still enter the temp index;
+	// otherwise unstaged undo/reapply fails when the working tree wrote there.
+	args := append([]string{"add", "-f", "--"}, paths...)
 	addResult := runGitPatchCommand(ctx, repo.Root, nextEnv, args...)
 	if addResult.ExitCode != 0 {
 		return nextEnv, fmt.Errorf("prepare temporary git index: %s", strings.TrimSpace(addResult.Stderr))

@@ -110,3 +110,41 @@ func TestRecipientProjectorPreservesInteractionOpaquePayloads(t *testing.T) {
 		}
 	}
 }
+
+func TestRecipientProjectorProjectsCompleteInteractionSnapshot(t *testing.T) {
+	t.Parallel()
+	event, err := NewInteractionSnapshotEvent(InteractionSnapshotData{
+		WorkspaceID: "owner-workspace", AgentSessionID: "owner-session",
+		EventType: EventTypeInteractionSnapshot, OccurredAtUnixMS: 10,
+		Interactions: []EventInteraction{{
+			RequestID: "request-1", AgentSessionID: "owner-session", TurnID: "owner-turn",
+			Kind: "approval", Status: "pending", Input: json.RawMessage(`null`),
+			Output: json.RawMessage(`null`), Metadata: json.RawMessage(`null`),
+			CreatedAtUnixMS: 1, UpdatedAtUnixMS: 2,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projector, err := NewRecipientProjector(ProjectionContext{
+		OwnerWorkspaceID: "owner-workspace", OwnerAgentSessionID: "owner-session",
+		CanonicalTurnID: "owner-turn", RecipientWorkspaceID: "caller-workspace",
+		RecipientAgentSessionID: "caller-session", CallerTurnID: "caller-turn",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, err := projector.Project(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data InteractionSnapshotData
+	if err := json.Unmarshal(projected.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.AgentSessionID != "caller-session" || len(data.Interactions) != 1 ||
+		data.Interactions[0].AgentSessionID != "caller-session" ||
+		data.Interactions[0].TurnID != "caller-turn" {
+		t.Fatalf("projected interaction snapshot = %#v", data)
+	}
+}

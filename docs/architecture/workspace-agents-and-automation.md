@@ -325,7 +325,7 @@ runs and 200,000 tokens per source session. A stored zero continues to mean
 those same daemon defaults.
 
 AgentGUI surfaces session-local rule selection through the shared
-`AgentActivityRuntime` list/get/set commands. A new-conversation choice is
+`AgentGUIRuntime` list/get/set commands. A new-conversation choice is
 carried in `CreateWorkspaceAgentSessionRequest` and persisted by `tuttid` after
 the provider runtime starts but before the initial prompt executes; this avoids
 a first-turn race with `on_task_complete` or `on_task_failed`. An active-session

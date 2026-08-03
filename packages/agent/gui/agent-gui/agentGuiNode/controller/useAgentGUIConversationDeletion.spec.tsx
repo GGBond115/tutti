@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { AgentGUIConversationSummary } from "../model/agentGuiConversationModel";
 import { useAgentGUIConversationDeletion } from "./useAgentGUIConversationDeletion";
 
@@ -25,7 +25,7 @@ const nextConversation: AgentGUIConversationSummary = {
   updatedAtUnixMs: 1
 };
 
-function createInput(agentActivityRuntime: AgentActivityRuntime) {
+function createInput(agentActivityRuntime: AgentGUIRuntime) {
   const activeConversationIdRef = { current: targetConversation.id };
   const unactivate = vi.fn(async () => {});
   const toastError = vi.fn();
@@ -72,7 +72,7 @@ describe("useAgentGUIConversationDeletion", () => {
     });
     const { input, unactivate } = createInput({
       deleteSession
-    } as unknown as AgentActivityRuntime);
+    } as unknown as AgentGUIRuntime);
     const { result } = renderHook(() => {
       const [activeConversationId, setActiveConversationId] = useState<
         string | null
@@ -114,7 +114,7 @@ describe("useAgentGUIConversationDeletion", () => {
     });
     const { input, toastError, unactivate } = createInput({
       deleteSession
-    } as unknown as AgentActivityRuntime);
+    } as unknown as AgentGUIRuntime);
     const { result } = renderHook(() => {
       const [activeConversationId, setActiveConversationId] = useState<
         string | null
@@ -162,7 +162,7 @@ describe("useAgentGUIConversationDeletion", () => {
     });
     const { input, toastError, unactivate } = createInput({
       deleteSession
-    } as unknown as AgentActivityRuntime);
+    } as unknown as AgentGUIRuntime);
     const { result } = renderHook(() => useAgentGUIConversationDeletion(input));
 
     act(() => result.current.confirmDeleteConversation());

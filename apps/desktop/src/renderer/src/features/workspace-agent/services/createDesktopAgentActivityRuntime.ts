@@ -1,4 +1,4 @@
-import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
+import type { AgentGUIRuntime } from "@tutti-os/agent-gui";
 import { createAgentConversationRailRuntime } from "@tutti-os/agent-gui/conversation-rail-runtime";
 import { AGENT_SESSION_ENGINE_LOCAL_ORIGIN } from "@tutti-os/agent-activity-core";
 import type {
@@ -10,27 +10,10 @@ import type { IReporterService } from "../../analytics/services/reporterService.
 import { AgentConversationPinnedReporter } from "../../analytics/reporters/agent-conversation-pinned/agentConversationPinnedReporter.ts";
 import { AgentConversationUnpinnedReporter } from "../../analytics/reporters/agent-conversation-unpinned/agentConversationUnpinnedReporter.ts";
 import { AgentSettingsProjectChangedReporter } from "../../analytics/reporters/agent-settings-project-changed/agentSettingsProjectChangedReporter.ts";
-import {
-  createAgentMessageSentTracker,
-  createOptionalReporterService
-} from "./internal/agentMessageSentAnalytics.ts";
-import {
-  createAgentSessionStartedTracker,
-  resolveAgentSessionSource
-} from "./internal/agentSessionStartedAnalytics.ts";
-import {
-  normalizeComposerSettings,
-  resolveComposerPermissionMode,
-  resolveDesktopAgentGUIProvider
-} from "./internal/desktopAgentHostProjection.ts";
+import { createOptionalReporterService } from "./internal/agentMessageSentAnalytics.ts";
+import { resolveDesktopAgentGUIProvider } from "./internal/desktopAgentHostProjection.ts";
 import { reportAgentSessionSettingsChanges } from "./internal/agentSessionSettingsAnalytics.ts";
-import {
-  AgentAnalyticsErrorCode,
-  createAgentNodeResultTracker,
-  safeTrackAgentNodeResult
-} from "./internal/agentNodeResultAnalytics.ts";
 import type { IWorkspaceAgentActivityService } from "./workspaceAgentActivityService.interface";
-import type { IWorkspaceUserProjectService } from "../../workspace-user-project/index.ts";
 import {
   agentActivityMessageDiagnosticDetails,
   agentActivityMessagePageDiagnosticSignature,
@@ -38,11 +21,7 @@ import {
   agentActivitySnapshotDiagnosticSignature,
   reportSessionEventDiagnostic
 } from "./desktopAgentRuntimeStateDiagnostics.ts";
-import {
-  logAgentComposerSettingsDiagnostic,
-  promptContentDisplayText,
-  reportAgentSubmitTraceDiagnostic
-} from "./desktopAgentRuntimeSubmitDiagnostics.ts";
+import { logAgentComposerSettingsDiagnostic } from "./desktopAgentRuntimeSubmitDiagnostics.ts";
 import { uint8ArrayToBase64 } from "./internal/desktopAgentPromptAssetEncoding.ts";
 
 interface CreateDesktopAgentActivityRuntimeOptions {
@@ -55,16 +34,12 @@ interface CreateDesktopAgentActivityRuntimeOptions {
     DesktopRuntimeApi,
     "logRendererDiagnostic" | "logTerminalDiagnostic"
   >;
-  workspaceUserProjectService?: Pick<
-    IWorkspaceUserProjectService,
-    "isNoProjectPath"
-  >;
 }
 
 export function createDesktopAgentActivityRuntime(
   workspaceAgentActivityService: IWorkspaceAgentActivityService,
   options: CreateDesktopAgentActivityRuntimeOptions = {}
-): AgentActivityRuntime {
+): AgentGUIRuntime {
   const runtimeSnapshotDiagnosticSignatures = new Map<string, string>();
   const runtimeMessagePageDiagnosticSignatures = new Map<string, string>();
   const reportRuntimeDiagnostic = (input: {
@@ -109,7 +84,7 @@ export function createDesktopAgentActivityRuntime(
     });
   };
   const reportMessagePageDiagnostic = (
-    input: Parameters<AgentActivityRuntime["listSessionMessages"]>[0],
+    input: Parameters<AgentGUIRuntime["listSessionMessages"]>[0],
     page: AgentActivityMessagePage
   ): void => {
     const signature = agentActivityMessagePageDiagnosticSignature(page);
@@ -137,18 +112,6 @@ export function createDesktopAgentActivityRuntime(
       workspaceId: input.workspaceId
     });
   };
-  const messageSentTracker = createAgentMessageSentTracker({
-    reporterNow: options.reporterNow,
-    reporterService: options.reporterService
-  });
-  const sessionStartedTracker = createAgentSessionStartedTracker({
-    reporterNow: options.reporterNow,
-    reporterService: options.reporterService
-  });
-  const nodeResultTracker = createAgentNodeResultTracker({
-    reporterNow: options.reporterNow,
-    reporterService: options.reporterService
-  });
   const archiveAgentPromptFile = options.hostFilesApi?.archiveAgentPromptFile;
   const readLocalPreviewFile = options.hostFilesApi?.readLocalPreviewFile;
   const conversationRailRuntime = createAgentConversationRailRuntime(
@@ -164,115 +127,6 @@ export function createDesktopAgentActivityRuntime(
     getSessionEngine(workspaceId) {
       return workspaceAgentActivityService.getSessionEngine(workspaceId);
     },
-    async activateSession(input) {
-      reportAgentSubmitTraceDiagnostic(options.runtimeApi, {
-        agentSessionId: input.agentSessionId,
-        clientSubmitId: input.mode === "new" ? input.clientSubmitId : null,
-        event: "activity_runtime.activate.entered",
-        submitDiagnostics: input.submitDiagnostics,
-        workspaceId: input.workspaceId,
-        fields: {
-          mode: input.mode,
-          provider: null
-        }
-      });
-      const flow = "session_create" as const;
-      const node = "activate_session" as const;
-      const fallbackErrorCode =
-        input.mode === "existing"
-          ? AgentAnalyticsErrorCode.SessionResumeFailed
-          : AgentAnalyticsErrorCode.SessionCreateFailed;
-      let activation: Awaited<
-        ReturnType<IWorkspaceAgentActivityService["activateSession"]>
-      >;
-      try {
-        activation = await workspaceAgentActivityService.activateSession(input);
-      } catch (error) {
-        await safeTrackAgentNodeResult(nodeResultTracker, {
-          agentSessionId: input.agentSessionId,
-          error,
-          fallbackErrorCode,
-          flow,
-          node,
-          provider: null,
-          success: false
-        });
-        throw error;
-      }
-      reportAgentSubmitTraceDiagnostic(options.runtimeApi, {
-        agentSessionId: activation.session.agentSessionId,
-        clientSubmitId: input.mode === "new" ? input.clientSubmitId : null,
-        event: "activity_runtime.activate.resolved",
-        submitDiagnostics: input.submitDiagnostics,
-        workspaceId: input.workspaceId,
-        fields: {
-          mode: input.mode,
-          provider: activation.session.provider,
-          activationStatus: activation.activation.status
-        }
-      });
-      const activationFailed = activation.activation.status === "failed";
-      await safeTrackAgentNodeResult(nodeResultTracker, {
-        agentSessionId: activation.session.agentSessionId,
-        error: activationFailed
-          ? (activation.error?.message ??
-            activation.error?.code ??
-            "Agent session activation failed.")
-          : undefined,
-        fallbackErrorCode,
-        flow,
-        node,
-        provider: activation.session.provider,
-        success: !activationFailed
-      });
-      if (input.mode === "new" && !activationFailed) {
-        await sessionStartedTracker.track({
-          agentSessionId: activation.session.agentSessionId,
-          clientSubmitId: input.clientSubmitId,
-          hasProject:
-            Boolean(activation.session.cwd?.trim()) &&
-            !(
-              activation.session.cwd &&
-              options.workspaceUserProjectService?.isNoProjectPath(
-                activation.session.cwd
-              )
-            ),
-          model: input.settings?.model,
-          permissionMode: resolveComposerPermissionMode(input.settings),
-          provider: activation.session.provider,
-          source: resolveAgentSessionSource({ mode: input.mode })
-        });
-        await safeTrackAgentNodeResult(nodeResultTracker, {
-          agentSessionId: activation.session.agentSessionId,
-          flow,
-          node: "session_started_reported",
-          provider: activation.session.provider,
-          success: true
-        });
-        const initialPrompt =
-          input.initialDisplayPrompt?.trim() ||
-          promptContentDisplayText(input.initialContent ?? []);
-        if (initialPrompt) {
-          await messageSentTracker.track({
-            agentSessionId: activation.session.agentSessionId,
-            clientSubmitId: input.clientSubmitId,
-            prompt: initialPrompt,
-            provider: activation.session.provider
-          });
-          await safeTrackAgentNodeResult(nodeResultTracker, {
-            agentSessionId: activation.session.agentSessionId,
-            flow,
-            node: "message_sent_reported",
-            provider: activation.session.provider,
-            success: true
-          });
-        }
-      }
-      return activation;
-    },
-    goalControl: (input) => workspaceAgentActivityService.goalControl(input),
-    createSession: (input) =>
-      workspaceAgentActivityService.createSession(input),
     deleteSession: (input) =>
       workspaceAgentActivityService.deleteSession(input),
     getComposerOptions: (input) =>
@@ -312,81 +166,11 @@ export function createDesktopAgentActivityRuntime(
       });
       return workspaceAgentActivityService.ensureSessionSynchronized(input);
     },
-    async sendInput(input) {
-      reportAgentSubmitTraceDiagnostic(options.runtimeApi, {
-        agentSessionId: input.agentSessionId,
-        clientSubmitId: input.clientSubmitId,
-        event: "activity_runtime.send.entered",
-        submitDiagnostics: input.submitDiagnostics,
-        workspaceId: input.workspaceId
-      });
-      let result: Awaited<
-        ReturnType<IWorkspaceAgentActivityService["sendInput"]>
-      >;
-      try {
-        result = await workspaceAgentActivityService.sendInput(input);
-      } catch (error) {
-        await safeTrackAgentNodeResult(nodeResultTracker, {
-          agentSessionId: input.agentSessionId,
-          error,
-          fallbackErrorCode: AgentAnalyticsErrorCode.RuntimeExecFailed,
-          flow: "message_send",
-          node: "send_input_request",
-          provider: null,
-          success: false
-        });
-        throw error;
-      }
-      reportAgentSubmitTraceDiagnostic(options.runtimeApi, {
-        agentSessionId: result.session.agentSessionId,
-        clientSubmitId: input.clientSubmitId,
-        event: "activity_runtime.send.resolved",
-        submitDiagnostics: input.submitDiagnostics,
-        workspaceId: input.workspaceId,
-        fields:
-          result.kind === "goalControl"
-            ? {
-                provider: result.session.provider,
-                resultKind: "goalControl"
-              }
-            : {
-                provider: result.session.provider,
-                resultKind: "turn",
-                turnOutcome: result.turn.outcome ?? null,
-                turnId: result.turnId,
-                turnPhase: result.turn.phase
-              }
-      });
-      await safeTrackAgentNodeResult(nodeResultTracker, {
-        agentSessionId: result.session.agentSessionId,
-        flow: "message_send",
-        node: "send_input_request",
-        provider: result.session.provider,
-        success: true
-      });
-      await messageSentTracker.track({
-        agentSessionId: result.session.agentSessionId,
-        clientSubmitId: input.clientSubmitId,
-        isQueued: input.submitDiagnostics?.queued,
-        prompt:
-          input.displayPrompt?.trim() ||
-          promptContentDisplayText(input.content),
-        provider: result.session.provider
-      });
-      await safeTrackAgentNodeResult(nodeResultTracker, {
-        agentSessionId: result.session.agentSessionId,
-        flow: "message_send",
-        node: "message_sent_reported",
-        provider: result.session.provider,
-        success: true
-      });
-      return result;
-    },
     ...(archiveAgentPromptFile
       ? {
           async stagePastedText(
             input: Parameters<
-              NonNullable<AgentActivityRuntime["stagePastedText"]>
+              NonNullable<AgentGUIRuntime["stagePastedText"]>
             >[0]
           ) {
             const archived = await archiveAgentPromptFile({
@@ -405,7 +189,7 @@ export function createDesktopAgentActivityRuntime(
           },
           async uploadPromptContent(
             input: Parameters<
-              NonNullable<AgentActivityRuntime["uploadPromptContent"]>
+              NonNullable<AgentGUIRuntime["uploadPromptContent"]>
             >[0]
           ) {
             const content = await Promise.all(
@@ -464,7 +248,7 @@ export function createDesktopAgentActivityRuntime(
       ? {
           async readPromptAsset(
             input: Parameters<
-              NonNullable<AgentActivityRuntime["readPromptAsset"]>
+              NonNullable<AgentGUIRuntime["readPromptAsset"]>
             >[0]
           ) {
             const path = input.path?.trim() ?? "";
@@ -487,7 +271,7 @@ export function createDesktopAgentActivityRuntime(
       ? {
           setCollaborationAdoption: (
             input: Parameters<
-              NonNullable<AgentActivityRuntime["setCollaborationAdoption"]>
+              NonNullable<AgentGUIRuntime["setCollaborationAdoption"]>
             >[0]
           ) => workspaceAgentActivityService.setCollaborationAdoption!(input)
         }
@@ -512,70 +296,6 @@ export function createDesktopAgentActivityRuntime(
       ).report();
       return session;
     },
-    async updateSessionSettings(input) {
-      const previousState = await workspaceAgentActivityService.getSession(
-        input.workspaceId,
-        input.agentSessionId
-      );
-      const previousSettings = normalizeComposerSettings(
-        previousState.settings ?? {}
-      );
-      logAgentComposerSettingsDiagnostic({
-        agentSessionId: input.agentSessionId,
-        event: "agent.gui.composer_settings.update_requested",
-        nextSettings: input.settings,
-        previousSettings,
-        provider: previousState.provider,
-        runtimeApi: options.runtimeApi,
-        source: "session",
-        workspaceId: input.workspaceId
-      });
-      let result: Awaited<
-        ReturnType<IWorkspaceAgentActivityService["updateSessionSettings"]>
-      >;
-      try {
-        result =
-          await workspaceAgentActivityService.updateSessionSettings(input);
-      } catch (error) {
-        logAgentComposerSettingsDiagnostic({
-          agentSessionId: input.agentSessionId,
-          error,
-          event: "agent.gui.composer_settings.update_failed",
-          nextSettings: input.settings,
-          previousSettings,
-          provider: previousState.provider,
-          runtimeApi: options.runtimeApi,
-          source: "session",
-          workspaceId: input.workspaceId
-        });
-        throw error;
-      }
-      const normalizedResult = {
-        ...result,
-        settings: normalizeComposerSettings(result.settings)
-      };
-      await reportAgentSessionSettingsChanges({
-        agentSessionId: normalizedResult.agentSessionId,
-        nextSettings: normalizedResult.settings,
-        previousSettings,
-        provider: previousState.provider,
-        reporterNow: options.reporterNow,
-        reporterService: options.reporterService
-      });
-      logAgentComposerSettingsDiagnostic({
-        agentSessionId: normalizedResult.agentSessionId,
-        event: "agent.gui.composer_settings.changed",
-        nextSettings: normalizedResult.settings,
-        previousSettings,
-        provider: previousState.provider,
-        runtimeApi: options.runtimeApi,
-        source: "session",
-        workspaceId: input.workspaceId
-      });
-      return normalizedResult;
-    },
-    updateTuttiModeActivation: (input) =>
-      workspaceAgentActivityService.updateTuttiModeActivation(input),
     async trackSettingsProjectChange(input) {
       await new AgentSettingsProjectChangedReporter(
         {
@@ -628,10 +348,6 @@ export function createDesktopAgentActivityRuntime(
         );
         listener(event);
       }),
-    unactivateSession: (input) =>
-      workspaceAgentActivityService.unactivateSession(input),
-    submitInteractive: (input) =>
-      workspaceAgentActivityService.submitInteractive(input),
     subscribe: (workspaceId, listener) =>
       workspaceAgentActivityService.subscribe(workspaceId, (snapshot) => {
         reportSnapshotDiagnostic(workspaceId, snapshot, "subscribe");

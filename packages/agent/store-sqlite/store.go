@@ -153,3 +153,14 @@ func cloneJSONMap(payload map[string]any) map[string]any {
 	}
 	return out
 }
+
+func cloneOptionalJSONMap(payload map[string]any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	cloned := cloneJSONMap(payload)
+	if cloned == nil {
+		return map[string]any{}
+	}
+	return cloned
+}

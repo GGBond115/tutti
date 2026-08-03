@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
 // Completeness guards keep the API-owned projection in lockstep with generated
@@ -13,26 +13,27 @@ func TestGeneratedWorkspaceAgentTurnCoversAllFields(t *testing.T) {
 	t.Parallel()
 
 	projected := generatedWorkspaceAgentTurn(agentactivitybiz.Turn{
-		WorkspaceID:            "ws-1",
-		AgentSessionID:         "session-1",
-		TurnID:                 "turn-1",
-		RootProviderTurnID:     "provider-turn-1",
-		CapabilityRefs:         []agentactivitybiz.CapabilityReference{{Capability: "tutti", Source: "slash_command"}},
-		Origin:                 agentactivitybiz.TurnOriginGoalContinuation,
-		SourceGoalOperationID:  "goal-operation-1",
-		SourceGoalRevision:     2,
-		SourceGoalRepairEpoch:  1,
-		Phase:                  agentactivitybiz.TurnPhaseSettled,
-		Outcome:                agentactivitybiz.TurnOutcomeFailed,
-		ErrorMessage:           "provider exploded",
-		ErrorCode:              "provider_error",
-		FileChanges:            map[string]any{"added": 1},
-		CompletedCommandKind:   "review",
-		CompletedCommandStatus: "completed",
-		StartedAtUnixMS:        1717200000000,
-		SettledAtUnixMS:        1717200001000,
-		CreatedAtUnixMS:        1717200000000,
-		UpdatedAtUnixMS:        1717200001000,
+		WorkspaceID:                  "ws-1",
+		AgentSessionID:               "session-1",
+		TurnID:                       "turn-1",
+		RootProviderTurnID:           "provider-turn-1",
+		ProviderForkBindingAvailable: true,
+		CapabilityRefs:               []agentactivitybiz.CapabilityReference{{Capability: "tutti", Source: "slash_command"}},
+		Origin:                       agentactivitybiz.TurnOriginGoalContinuation,
+		SourceGoalOperationID:        "goal-operation-1",
+		SourceGoalRevision:           2,
+		SourceGoalRepairEpoch:        1,
+		Phase:                        agentactivitybiz.TurnPhaseSettled,
+		Outcome:                      agentactivitybiz.TurnOutcomeFailed,
+		ErrorMessage:                 "provider exploded",
+		ErrorCode:                    "provider_error",
+		FileChanges:                  map[string]any{"added": 1},
+		CompletedCommandKind:         "review",
+		CompletedCommandStatus:       "completed",
+		StartedAtUnixMS:              1717200000000,
+		SettledAtUnixMS:              1717200001000,
+		CreatedAtUnixMS:              1717200000000,
+		UpdatedAtUnixMS:              1717200001000,
 	})
 	assertGeneratedAgentProjectionFieldsPopulated(t, projected)
 }
@@ -64,9 +65,10 @@ func TestGeneratedWorkspaceAgentTurnProjectsProviderForkBindingState(t *testing.
 		{
 			name: "bound",
 			turn: agentactivitybiz.Turn{
-				TurnID:             "turn-1",
-				Phase:              agentactivitybiz.TurnPhaseSettled,
-				RootProviderTurnID: "provider-turn-1",
+				TurnID:                       "turn-1",
+				Phase:                        agentactivitybiz.TurnPhaseSettled,
+				RootProviderTurnID:           "provider-turn-1",
+				ProviderForkBindingAvailable: true,
 			},
 			want:          "bound",
 			wantAvailable: true,
@@ -85,6 +87,15 @@ func TestGeneratedWorkspaceAgentTurnProjectsProviderForkBindingState(t *testing.
 				TurnID:             "turn-1",
 				Phase:              agentactivitybiz.TurnPhaseSettled,
 				RootProviderTurnID: "turn-1",
+			},
+			want: "recovery_required",
+		},
+		{
+			name: "settled unverified historical binding requires recovery",
+			turn: agentactivitybiz.Turn{
+				TurnID:             "turn-1",
+				Phase:              agentactivitybiz.TurnPhaseSettled,
+				RootProviderTurnID: "provider-turn-legacy",
 			},
 			want: "recovery_required",
 		},

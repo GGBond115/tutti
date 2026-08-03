@@ -19,8 +19,10 @@ function createHarness() {
   const ipc = new EventEmitter();
   const hosts = new Map<number, FakeHost>();
   let nextRequestId = 0;
+  const activatedHostIds: number[] = [];
   const ensureCalls: Array<{ agentSessionId: string; workspaceId: string }> =
     [];
+  const ensureUserCalls: Array<{ workspaceId: string }> = [];
   const responses = new Map<
     number,
     (
@@ -90,7 +92,24 @@ function createHarness() {
       );
       announceReady(host);
     },
+    async ensureUserBrowserHost(input) {
+      ensureUserCalls.push(input);
+      const host = addHost(
+        98,
+        { kind: "workspace", workspaceId: input.workspaceId },
+        (request) => ({
+          nodeId:
+            request.action === "create" ? "workspace-page" : request.nodeId,
+          ok: true,
+          requestId: request.requestId
+        })
+      );
+      announceReady(host);
+    },
     runtime: {
+      activateHost(sender) {
+        activatedHostIds.push((sender as unknown as { id: number }).id);
+      },
       ipc: ipc as never,
       randomId: () => `request-${++nextRequestId}`,
       resolveHostContext: (webContents) =>
@@ -103,10 +122,44 @@ function createHarness() {
     }
   });
 
-  return { addHost, announceReady, coordinator, ensureCalls, ipc };
+  return {
+    activatedHostIds,
+    addHost,
+    announceReady,
+    coordinator,
+    ensureCalls,
+    ensureUserCalls,
+    ipc
+  };
 }
 
-test("Agent new_page starts and waits for a background Browser host", async () => {
+test("Agent new_page creates and reveals a full User Browser page", async () => {
+  const harness = createHarness();
+  const workspaceHost = harness.addHost(
+    4,
+    { kind: "workspace", workspaceId: "workspace-a" },
+    (request) => ({
+      nodeId: request.action === "create" ? "user-page" : request.nodeId,
+      ok: true,
+      requestId: request.requestId
+    })
+  );
+  harness.announceReady(workspaceHost);
+  const nodeId = await harness.coordinator.requestTarget({
+    agentSessionId: "session-a",
+    url: "https://example.com",
+    workspaceId: "workspace-a"
+  });
+
+  assert.equal(nodeId, "user-page");
+  assert.deepEqual(harness.ensureCalls, []);
+  assert.deepEqual(harness.activatedHostIds, [4]);
+  assert.equal(workspaceHost.requests[0]?.surfaceRole, "user");
+  assert.equal(workspaceHost.requests[0]?.agentSessionId, "session-a");
+  harness.coordinator.dispose();
+});
+
+test("Agent new_page opens a workspace Browser host when none is ready", async () => {
   const harness = createHarness();
   const nodeId = await harness.coordinator.requestTarget({
     agentSessionId: "session-a",
@@ -114,18 +167,18 @@ test("Agent new_page starts and waits for a background Browser host", async () =
     workspaceId: "workspace-a"
   });
 
-  assert.equal(nodeId, "background-page");
-  assert.deepEqual(harness.ensureCalls, [
-    { agentSessionId: "session-a", workspaceId: "workspace-a" }
-  ]);
+  assert.equal(nodeId, "workspace-page");
+  assert.deepEqual(harness.ensureUserCalls, [{ workspaceId: "workspace-a" }]);
+  assert.deepEqual(harness.ensureCalls, []);
+  assert.deepEqual(harness.activatedHostIds, [98]);
   harness.coordinator.dispose();
 });
 
-test("created targets remain routed to the exact Agent host that owns them", async () => {
+test("created targets remain routed to the exact User Browser host that owns them", async () => {
   const harness = createHarness();
   const first = harness.addHost(
     1,
-    { kind: "agent", workspaceId: "workspace-a" },
+    { kind: "workspace", workspaceId: "workspace-a" },
     (request) => ({
       nodeId: request.action === "create" ? "page-a" : request.nodeId,
       ok: true,
@@ -134,7 +187,7 @@ test("created targets remain routed to the exact Agent host that owns them", asy
   );
   const second = harness.addHost(
     2,
-    { kind: "agent", workspaceId: "workspace-a" },
+    { kind: "workspace", workspaceId: "workspace-a" },
     (request) => ({
       nodeId: request.action === "create" ? "page-b" : request.nodeId,
       ok: true,
@@ -153,8 +206,8 @@ test("created targets remain routed to the exact Agent host that owns them", asy
     agentSessionId: "session-b",
     nodeId: "page-b",
     selected: true,
-    surfaceId: "agent-surface",
-    surfaceRole: "agent",
+    surfaceId: "user-surface",
+    surfaceRole: "user",
     tabId: "page-b",
     title: "",
     url: "about:blank",
@@ -166,6 +219,30 @@ test("created targets remain routed to the exact Agent host that owns them", asy
     second.requests.map((request) => request.action),
     ["create", "select"]
   );
+  assert.deepEqual(harness.activatedHostIds, [2]);
+  harness.coordinator.dispose();
+});
+
+test("User Browser page creation activates its workspace host", async () => {
+  const harness = createHarness();
+  const workspaceHost = harness.addHost(
+    4,
+    { kind: "workspace", workspaceId: "workspace-a" },
+    (request) => ({
+      nodeId: request.action === "create" ? "user-page" : request.nodeId,
+      ok: true,
+      requestId: request.requestId
+    })
+  );
+  harness.announceReady(workspaceHost);
+
+  const nodeId = await harness.coordinator.requestTarget({
+    agentSessionId: null,
+    workspaceId: "workspace-a"
+  });
+
+  assert.equal(nodeId, "user-page");
+  assert.deepEqual(harness.activatedHostIds, [4]);
   harness.coordinator.dispose();
 });
 
@@ -184,13 +261,23 @@ test("ready announcements cannot claim another workspace or surface role", async
     surfaceRole: "agent",
     workspaceId: "workspace-b"
   });
+  const valid = harness.addHost(
+    5,
+    { kind: "workspace", workspaceId: "workspace-a" },
+    (request) => ({
+      nodeId: "valid-page",
+      ok: true,
+      requestId: request.requestId
+    })
+  );
+  harness.announceReady(valid);
 
   const nodeId = await harness.coordinator.requestTarget({
     agentSessionId: "session-a",
     workspaceId: "workspace-a"
   });
-  assert.equal(nodeId, "background-page");
+  assert.equal(nodeId, "valid-page");
   assert.deepEqual(forged.requests, []);
-  assert.equal(harness.ensureCalls.length, 1);
+  assert.equal(harness.ensureCalls.length, 0);
   harness.coordinator.dispose();
 });

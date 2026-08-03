@@ -30,8 +30,28 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		return CreateSessionResult{}, err
 	}
 	typedGoal, isTypedGoal := ParseTypedGoalControl(normalized, false)
+	if input.InitialGoalControl != nil {
+		if len(normalized) != 0 {
+			return CreateSessionResult{}, ErrInvalidArgument
+		}
+		typedGoal, err = normalizeTypedGoalControl(*input.InitialGoalControl)
+		if err != nil {
+			return CreateSessionResult{}, err
+		}
+		isTypedGoal = true
+	}
 	metadata := submissionMetadata(input.Metadata, input.ClientSubmitID)
 	goalMetadata := clonePayload(metadata)
+	goalInput := GoalControlInput{
+		WorkspaceID: workspaceID, AgentSessionID: input.AgentSessionID,
+		Action: typedGoal.Action, Objective: typedGoal.Objective,
+		ClientSubmitID: input.ClientSubmitID, SubmissionMetadata: goalMetadata,
+	}
+	if isTypedGoal {
+		if replay, found, replayErr := h.replayInitialGoalCreate(ctx, input, goalInput); found || replayErr != nil {
+			return replay, replayErr
+		}
+	}
 	claimMetadata := metadata
 	if isTypedGoal || len(normalized) == 0 {
 		normalized = nil
@@ -48,7 +68,7 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		return CreateSessionResult{}, err
 	}
 	if claim.ClientSubmitID != "" && !claimPending {
-		if claim.Status != "accepted" {
+		if claim.Status != "accepted" && claim.Status != "rejected" {
 			return CreateSessionResult{}, ErrSubmitDeliveryUnknown
 		}
 		canonicalSession, _, readErr := h.store.GetSession(ctx, workspaceID, input.AgentSessionID)
@@ -93,7 +113,6 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		}
 		return errors.Join(cleanupErrs...)
 	}
-
 	startedAt := h.now()
 	release, err := h.acquireStartup(ctx, input.Provider)
 	if err != nil {
@@ -102,10 +121,11 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 	}
 	session, err := func() (ProviderRuntimeSession, error) {
 		defer release()
+		runtimeTitle, initialTitleEstablished := initialGoalRuntimeTitle(value(input.Title), input.InitialDisplayPrompt, typedGoal, isTypedGoal)
 		return h.runtime.Start(ctx, RuntimeStartInput{
 			WorkspaceID: workspaceID, AgentSessionID: input.AgentSessionID, AgentTargetID: input.AgentTargetID,
 			Provider: input.Provider, Cwd: prepared.Cwd, Env: append([]string(nil), prepared.Env...),
-			Title: value(input.Title), InitialTitleEstablished: NormalizeTitle(value(input.Title)) != "",
+			Title: runtimeTitle, InitialTitleEstablished: initialTitleEstablished,
 			PermissionModeID: value(input.PermissionModeID), Model: value(input.Model), PlanMode: valueBool(input.PlanMode),
 			BrowserUse: input.BrowserUse, ComputerUse: input.ComputerUse,
 			ProviderTargetRef: cloneMap(firstMap(prepared.ProviderTargetRef, input.ProviderTargetRef)),
@@ -143,11 +163,8 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 		return CreateSessionResult{Session: session, Canonical: canonicalSession}, nil
 	}
 	if isTypedGoal {
-		goalResult, goalErr := h.goalControl(ctx, GoalControlInput{
-			WorkspaceID: workspaceID, AgentSessionID: session.ID,
-			Action: typedGoal.Action, Objective: typedGoal.Objective,
-			SubmissionMetadata: goalMetadata,
-		})
+		goalInput.AgentSessionID = session.ID
+		goalResult, goalErr := h.goalControl(ctx, goalInput)
 		if goalErr != nil {
 			// A typed goal starts from a non-provisional, already published
 			// session. Preserve that canonical session on command failure just as
@@ -196,8 +213,32 @@ func (h *Host) CreateSession(ctx context.Context, workspaceID string, input Crea
 	})
 	if err != nil {
 		h.observeStep(ctx, "session_create", "runtime_exec", session.ID, session.Provider, startedAt, err)
-		if execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionApplied ||
-			execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionOutcomeUnknown {
+		disposition := execResult.ProviderDispatch.Disposition
+		if disposition == RuntimeDispatchDispositionRejected ||
+			disposition == RuntimeDispatchDispositionApplied ||
+			disposition == RuntimeDispatchDispositionOutcomeUnknown {
+			if persistErr := h.persistRuntimeSubmitOutcome(
+				ctx, SessionRef{WorkspaceID: workspaceID, AgentSessionID: session.ID}, execResult,
+				firstNonEmpty(claim.ClientSubmitID, input.ClientSubmitID, legacyClientSubmitID(metadata)),
+				claim.CreatedAtUnixMS, preparedContent, displayPrompt, input.CapabilityRefs,
+				input.TuttiModeSnapshot,
+			); persistErr != nil {
+				claimPending = false
+				return CreateSessionResult{}, errors.Join(ErrSubmitDeliveryUnknown, err, persistErr)
+			}
+			if disposition == RuntimeDispatchDispositionRejected {
+				// A definitive rejection keeps the visible Session/failed Turn. Do
+				// not close the runtime before its terminal report is projected. Keep
+				// the claim as a terminal idempotency fence so a retry can render the
+				// same failed Turn without invoking the provider again.
+				if strings.TrimSpace(execResult.TurnID) != "" {
+					claimPending = false
+					if rejectErr := h.finalizeRejectedSubmitClaim(ref, firstNonEmpty(claim.ClientSubmitID, input.ClientSubmitID, legacyClientSubmitID(metadata)), execResult.TurnID); rejectErr != nil {
+						return CreateSessionResult{}, errors.Join(ErrSubmitDeliveryUnknown, err, rejectErr)
+					}
+				}
+				return CreateSessionResult{}, h.cleanupPreparedRuntime(ctx, err, workspaceID, input.AgentSessionID, input.Provider)
+			}
 			claimPending = false
 			return CreateSessionResult{}, errors.Join(ErrSubmitDeliveryUnknown, err)
 		}
@@ -371,6 +412,7 @@ func (h *Host) SendInput(ctx context.Context, ref SessionRef, input SendInput) (
 		goalResult, goalErr := h.goalControl(ctx, GoalControlInput{
 			WorkspaceID: ref.WorkspaceID, AgentSessionID: ref.AgentSessionID,
 			Action: typedGoal.Action, Objective: typedGoal.Objective,
+			ClientSubmitID:     input.ClientSubmitID,
 			SubmissionMetadata: metadata,
 		})
 		if goalErr != nil {
@@ -414,10 +456,10 @@ func (h *Host) sendInputSerialized(
 		return SendInputResult{}, err
 	}
 	if claim.ClientSubmitID != "" && !claimPending {
-		if claim.Status != "accepted" {
+		if claim.Status != "accepted" && claim.Status != "rejected" {
 			return SendInputResult{}, ErrSubmitDeliveryUnknown
 		}
-		return h.acceptedSubmitResult(ctx, ref, claim)
+		return h.replayedSubmitResult(ctx, ref, claim)
 	}
 	defer func() {
 		if claimPending {
@@ -477,6 +519,29 @@ func (h *Host) sendInputSerialized(
 	}()
 	if err != nil {
 		h.observeStep(ctx, "message_send", "runtime_exec", ref.AgentSessionID, session.Provider, startedAt, err)
+		if !input.Guidance && strings.TrimSpace(execResult.TurnID) != "" {
+			if persistErr := h.persistRuntimeSubmitOutcome(
+				ctx, ref, execResult,
+				firstNonEmpty(claim.ClientSubmitID, input.ClientSubmitID, legacyClientSubmitID(metadata)),
+				claim.CreatedAtUnixMS, preparedContent, displayPrompt, input.CapabilityRefs,
+				input.TuttiModeSnapshot,
+			); persistErr != nil {
+				claimPending = false
+				return SendInputResult{}, errors.Join(ErrSubmitDeliveryUnknown, err, persistErr)
+			}
+		}
+		if !input.Guidance &&
+			execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionRejected {
+			// The failed Turn and prompt are already durable. Resolve the claim to
+			// a terminal rejected state before the deferred cleanup can run.
+			if strings.TrimSpace(execResult.TurnID) != "" {
+				claimPending = false
+				if rejectErr := h.finalizeRejectedSubmitClaim(ref, firstNonEmpty(claim.ClientSubmitID, input.ClientSubmitID, legacyClientSubmitID(metadata)), execResult.TurnID); rejectErr != nil {
+					return SendInputResult{}, errors.Join(ErrSubmitDeliveryUnknown, err, rejectErr)
+				}
+				return SendInputResult{}, err
+			}
+		}
 		if input.Guidance ||
 			execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionApplied ||
 			execResult.ProviderDispatch.Disposition == RuntimeDispatchDispositionOutcomeUnknown {
@@ -570,63 +635,6 @@ func (h *Host) UpdateTitle(ctx context.Context, input UpdateTitleInput) (UpdateT
 	}
 	result.Session = runtimeSession
 	return result, nil
-}
-
-func (h *Host) acceptedSubmitResult(ctx context.Context, ref SessionRef, claim storesqlite.SubmitClaim) (SendInputResult, error) {
-	canonicalSession, ok, err := h.store.GetSession(ctx, ref.WorkspaceID, ref.AgentSessionID)
-	if err != nil {
-		return SendInputResult{}, err
-	}
-	if !ok {
-		if _, live := h.runtime.Session(ref.WorkspaceID, ref.AgentSessionID); !live {
-			return SendInputResult{}, ErrSessionNotFound
-		}
-	}
-	turn, ok, err := h.store.GetTurn(ctx, ref.WorkspaceID, ref.AgentSessionID, claim.TurnID)
-	if err != nil {
-		return SendInputResult{}, err
-	}
-	if !ok {
-		return SendInputResult{}, ErrSubmitDeliveryUnknown
-	}
-	live, _ := h.runtime.Session(ref.WorkspaceID, ref.AgentSessionID)
-	availability := SubmitAvailability{State: "available"}
-	if strings.TrimSpace(canonicalSession.ActiveTurnID) != "" {
-		availability = SubmitAvailability{State: "blocked", Reason: "active_turn"}
-	}
-	return SendInputResult{
-		Session: live, Canonical: canonicalSession, Turn: &turn, TurnID: claim.TurnID,
-		TurnLifecycle: lifecycleFromTurn(turn), SubmitAvailability: availability,
-	}, nil
-}
-
-type preparedPromptContent struct {
-	Persisted   []PromptContentBlock
-	Hydrated    []PromptContentBlock
-	DisplayText string
-}
-
-func (h *Host) prepareContent(workspaceID, sessionID string, content []PromptContentBlock) (preparedPromptContent, error) {
-	if h.attachments == nil {
-		cloned := append([]PromptContentBlock(nil), content...)
-		return preparedPromptContent{
-			Persisted: cloned,
-			Hydrated:  append([]PromptContentBlock(nil), cloned...),
-		}, nil
-	}
-	persisted, err := h.attachments.PersistRequestContent(workspaceID, sessionID, content)
-	if err != nil {
-		return preparedPromptContent{}, err
-	}
-	hydrated, err := h.attachments.HydrateRuntimeContent(workspaceID, sessionID, persisted)
-	if err != nil {
-		return preparedPromptContent{}, err
-	}
-	return preparedPromptContent{
-		Persisted:   append([]PromptContentBlock(nil), persisted...),
-		Hydrated:    append([]PromptContentBlock(nil), hydrated...),
-		DisplayText: imageOnlyDisplayText(persisted),
-	}, nil
 }
 
 func (h *Host) recordTurnSubmission(

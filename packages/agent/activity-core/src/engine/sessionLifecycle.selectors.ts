@@ -1,6 +1,9 @@
 import type { AgentActivityInteraction, AgentActivityTurn } from "../types.ts";
 import type { AgentActivityDisplayStatus } from "../displayStatus.types.ts";
-import type { AgentSessionEngineState } from "./types.ts";
+import type {
+  AgentSessionEngineState,
+  AgentSessionEngineStateBase
+} from "./types.ts";
 import type {
   InteractionResponseState,
   SessionCancelState,
@@ -41,7 +44,7 @@ export interface EngineSubmitAvailability {
 }
 
 export function selectEngineSessionRuntimeAvailability(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ) {
   const id = agentSessionId?.trim() ?? "";
@@ -60,7 +63,7 @@ const EMPTY_CONSUMER_COUNTS: WorkspaceAgentConsumerCounts = {
 };
 
 export function selectEngineSession(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): CanonicalAgentSession | null {
   const id = agentSessionId?.trim() ?? "";
@@ -69,7 +72,7 @@ export function selectEngineSession(
 }
 
 export function selectEngineSessionDeleted(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): boolean {
   const id = agentSessionId?.trim() ?? "";
@@ -77,7 +80,7 @@ export function selectEngineSessionDeleted(
 }
 
 export function selectEngineTurnsForSession(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): readonly AgentActivityTurn[] {
   const id = agentSessionId?.trim() ?? "";
@@ -88,7 +91,7 @@ export function selectEngineTurnsForSession(
 }
 
 export function selectEngineActiveTurn(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): AgentActivityTurn | null {
   const session = selectEngineSession(state, agentSessionId);
@@ -100,7 +103,7 @@ export function selectEngineActiveTurn(
 }
 
 export function selectEngineTurn(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined,
   turnId: string | null | undefined
 ): AgentActivityTurn | null {
@@ -113,7 +116,7 @@ export function selectEngineTurn(
 }
 
 export function selectEngineInteraction(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined,
   turnId: string | null | undefined,
   requestId: string | null | undefined
@@ -142,7 +145,7 @@ export function selectEngineInteraction(
 }
 
 export function selectEngineInteractionResponse(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined,
   turnId: string | null | undefined,
   requestId: string | null | undefined
@@ -158,7 +161,7 @@ export function selectEngineInteractionResponse(
 }
 
 export function selectEngineSessionIsRespondingToInteraction(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): boolean {
   const id = agentSessionId?.trim() ?? "";
@@ -170,7 +173,7 @@ export function selectEngineSessionIsRespondingToInteraction(
 }
 
 export function selectEngineSessionSettingsUpdate(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ) {
   const id = agentSessionId?.trim() ?? "";
@@ -179,8 +182,16 @@ export function selectEngineSessionSettingsUpdate(
   );
 }
 
-export function selectEngineInteractionResponseError(
+export function selectEngineGoalControl(
   state: AgentSessionEngineState,
+  agentSessionId: string | null | undefined
+) {
+  const id = agentSessionId?.trim() ?? "";
+  return state.goalControl.presentationsBySessionId[id] ?? null;
+}
+
+export function selectEngineInteractionResponseError(
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): string | null {
   const id = agentSessionId?.trim() ?? "";
@@ -193,7 +204,7 @@ export function selectEngineInteractionResponseError(
 }
 
 export function selectEngineLatestTurn(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): AgentActivityTurn | null {
   const id = agentSessionId?.trim() ?? "";
@@ -211,7 +222,7 @@ export function selectEngineLatestTurn(
 }
 
 export function selectEngineInteractionsForSession(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): readonly AgentActivityInteraction[] {
   const id = agentSessionId?.trim() ?? "";
@@ -234,7 +245,7 @@ export function selectEngineInteractionsForSession(
 }
 
 export function selectEnginePendingInteractions(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): readonly AgentActivityInteraction[] {
   return selectEngineInteractionsForSession(state, agentSessionId).filter(
@@ -243,7 +254,7 @@ export function selectEnginePendingInteractions(
 }
 
 export function selectEngineSubmitAvailability(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): EngineSubmitAvailability | null {
   const availability = deriveCanonicalSubmitAvailability(
@@ -257,7 +268,7 @@ export function selectEngineSubmitAvailability(
 }
 
 export function selectEngineCancelPending(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): boolean {
   const id = agentSessionId?.trim() ?? "";
@@ -268,7 +279,7 @@ export function selectEngineCancelPending(
 }
 
 export function selectEngineCancelState(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): SessionCancelState | null {
   const id = agentSessionId?.trim() ?? "";
@@ -276,7 +287,7 @@ export function selectEngineCancelState(
 }
 
 export function selectEngineSessionOperation(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): SessionOperationState | null {
   const id = agentSessionId?.trim() ?? "";
@@ -284,7 +295,7 @@ export function selectEngineSessionOperation(
 }
 
 export function selectEngineHasPendingInteractions(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): boolean {
   return selectEnginePendingInteractions(state, agentSessionId).length > 0;
@@ -295,7 +306,7 @@ export function selectEngineHasPendingInteractions(
  * belong to the owning Turn and must not be promoted into session chrome.
  */
 export function selectEngineSessionOperationError(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): string | null {
   const id = agentSessionId?.trim() ?? "";
@@ -305,7 +316,7 @@ export function selectEngineSessionOperationError(
 }
 
 export function selectWorkspaceAgentConsumerSessions(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineStateBase
 ): readonly WorkspaceAgentConsumerSession[] {
   return selectAllWorkspaceAgentConsumerSessions(state).filter(
     (item) => item.session.kind === "root" && item.session.visible !== false
@@ -313,7 +324,7 @@ export function selectWorkspaceAgentConsumerSessions(
 }
 
 export function selectRootAgentSessionIdsWithPendingInteractions(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineStateBase
 ): readonly string[] {
   const sessionIdsWithPendingInteractions = new Set<string>();
   for (const interaction of Object.values(
@@ -343,7 +354,7 @@ export function selectRootAgentSessionIdsWithPendingInteractions(
 }
 
 export function selectWorkspaceAgentRootConversationSessions(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineStateBase
 ): readonly WorkspaceAgentConsumerSession[] {
   const consumers = selectAllWorkspaceAgentConsumerSessions(state);
   const rootSessionIds = new Set(
@@ -389,7 +400,7 @@ export function selectWorkspaceAgentRootConversationSessions(
 }
 
 export function selectAllWorkspaceAgentConsumerSessions(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineStateBase
 ): readonly WorkspaceAgentConsumerSession[] {
   const latestTurnsBySessionId = new Map<string, AgentActivityTurn>();
   for (const turn of Object.values(state.sessionLifecycle.turnsById)) {
@@ -458,7 +469,7 @@ export function selectAllWorkspaceAgentConsumerSessions(
 }
 
 export function selectWorkspaceAgentConsumerSession(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): WorkspaceAgentConsumerSession | null {
   const id = agentSessionId?.trim() ?? "";
@@ -486,7 +497,7 @@ export function selectWorkspaceAgentConsumerSession(
 }
 
 export function selectWorkspaceAgentConsumerCounts(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineStateBase
 ): WorkspaceAgentConsumerCounts {
   return selectWorkspaceAgentConsumerSessions(state).reduce(
     (counts, item) => {
@@ -525,7 +536,7 @@ function displayStatusFromCanonicalState(state: {
 }
 
 function initialActivationTurnIsPending(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string,
   latestTurn: AgentActivityTurn | null
 ): boolean {

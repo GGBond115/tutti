@@ -326,6 +326,7 @@ type Driver interface {
 	ReturnUnknownNextCancellation()
 	HoldNextLaunchThenFailAuthoritatively() (<-chan struct{}, func())
 	PersistTerminalRunWithoutCheckpoint(context.Context, SettleRunInput) error
+	SupersedeTerminalCheckpointForRecovery(context.Context, string, string) error
 	RepairSettlements(context.Context, string) error
 	Acknowledge(context.Context, AcknowledgeInput) (AcknowledgeResult, error)
 	AcknowledgeReplica(context.Context, AcknowledgeInput) (AcknowledgeResult, error)

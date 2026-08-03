@@ -30,6 +30,13 @@ type CanonicalTurnStore interface {
 	ListSessionInteractions(context.Context, storesqlite.ListSessionInteractionsInput) ([]storesqlite.Interaction, error)
 }
 
+// CanonicalInteractionTreeStore is an optional read capability. Keeping it
+// separate preserves source compatibility for external CanonicalStore
+// implementations that do not consume execution-tree projections.
+type CanonicalInteractionTreeStore interface {
+	GetSessionInteractionTreeSnapshot(context.Context, storesqlite.SessionInteractionTreeQuery) (storesqlite.SessionInteractionTreeSnapshot, bool, error)
+}
+
 type CanonicalMessageStore interface {
 	ListSessionMessages(context.Context, storesqlite.ListSessionMessagesInput) (storesqlite.MessagePage, bool, error)
 }
@@ -62,6 +69,7 @@ type EffectiveHistoryStore interface {
 type CanonicalSubmitClaimStore interface {
 	PrepareSubmitClaim(context.Context, storesqlite.SubmitClaimPrepare) (storesqlite.SubmitClaim, bool, error)
 	AcceptSubmitClaim(context.Context, string, string, string, string, int64) (storesqlite.SubmitClaim, bool, error)
+	RejectSubmitClaim(context.Context, string, string, string, string, int64) (storesqlite.SubmitClaim, bool, error)
 	DeleteSubmitClaim(context.Context, string, string, string) (bool, error)
 }
 
@@ -123,6 +131,7 @@ type SessionForkRecoveryStore interface {
 // false, so Host never dispatches an emulated provider fork.
 type SessionForkRuntime interface {
 	ResolveSessionFork(context.Context, ProviderRuntimeSession) (SessionForkDriverDescriptor, error)
+	CanForkProviderTurn(context.Context, RuntimeProviderTurnForkabilityInput) (bool, error)
 	ForkSession(context.Context, RuntimeSessionForkInput) (RuntimeSessionForkResult, error)
 }
 
@@ -211,6 +220,22 @@ type SessionDeletionGuard interface {
 // local-file ownership policies remain outside Host.
 type SessionPurgeStore interface {
 	PurgeDeletedSessions(context.Context, storesqlite.PurgeDeletedSessionsInput) (storesqlite.PurgeDeletedSessionsResult, error)
+}
+
+// HistoricalSessionStateStore is the canonical persistence boundary used by
+// Replay before normal Host recovery. The contract contains business entities,
+// not rows, table names, or migration details.
+type HistoricalSessionStateStore interface {
+	CaptureHistoricalSessionGraph(
+		context.Context,
+		string,
+		string,
+	) (HistoricalSessionGraph, error)
+	RestoreHistoricalSessionGraph(
+		context.Context,
+		string,
+		HistoricalSessionGraph,
+	) error
 }
 
 // RuntimeController is the provider-neutral live-runtime surface needed by
@@ -325,6 +350,15 @@ type GoalReconcileInboxStore interface {
 
 type GoalRuntimeController interface {
 	GoalControl(context.Context, RuntimeGoalControlInput) (RuntimeGoalControlResult, error)
+}
+
+type RuntimeGoalControlAppliedSink func(context.Context, RuntimeGoalControlAppliedInput) error
+
+// GoalRuntimeControlLifecycleRegistrar lets the standard runtime adapter bind
+// provider lifecycle back to the Host-owned Goal state machine. Product
+// consumers must not reproduce this wiring themselves.
+type GoalRuntimeControlLifecycleRegistrar interface {
+	SetGoalControlAppliedSink(RuntimeGoalControlAppliedSink)
 }
 
 type GoalRuntimeReconciler interface {

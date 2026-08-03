@@ -83,6 +83,20 @@ func projectEventData(event Event, context ProjectionContext) ([]byte, error) {
 		// itself. Only that exact identity is projected.
 		value.Interaction.RequestID = projectedString(value.Interaction.RequestID, context.CanonicalTurnID, context.CallerTurnID)
 		data = value
+	case EventTypeInteractionSnapshot:
+		var value InteractionSnapshotData
+		if err := json.Unmarshal(event.Data, &value); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidLiveEvent, err)
+		}
+		value.WorkspaceID = projectedString(value.WorkspaceID, context.OwnerWorkspaceID, context.RecipientWorkspaceID)
+		value.AgentSessionID = projectedString(value.AgentSessionID, context.OwnerAgentSessionID, context.RecipientAgentSessionID)
+		for index := range value.Interactions {
+			interaction := &value.Interactions[index]
+			interaction.AgentSessionID = projectedString(interaction.AgentSessionID, context.OwnerAgentSessionID, context.RecipientAgentSessionID)
+			interaction.TurnID = projectedString(interaction.TurnID, context.CanonicalTurnID, context.CallerTurnID)
+			interaction.RequestID = projectedString(interaction.RequestID, context.CanonicalTurnID, context.CallerTurnID)
+		}
+		data = value
 	case EventTypeSessionAudit:
 		var value SessionAuditData
 		if err := json.Unmarshal(event.Data, &value); err != nil {

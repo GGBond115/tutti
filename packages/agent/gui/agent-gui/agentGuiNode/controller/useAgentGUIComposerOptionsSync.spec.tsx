@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { AgentGUIProvider, AgentGUINodeData } from "../../../types";
 import { setAgentHostApiForTests } from "../../../agentActivityHost";
 import type { AgentHostRuntimeApi } from "../../../host/agentHostApi";
@@ -33,7 +33,7 @@ describe("useAgentGUIComposerOptionsSync", () => {
           agentActivityRuntime: {
             getComposerOptions,
             getSnapshot: () => ({ composerOptionsByTargetKey })
-          } as unknown as AgentActivityRuntime,
+          } as unknown as AgentGUIRuntime,
           composerTargetData: target,
           conversationFilter: null,
           currentUserId: "user-1",
@@ -129,7 +129,7 @@ describe("useAgentGUIComposerOptionsSync", () => {
           agentActivityRuntime: {
             getComposerOptions,
             getSnapshot: () => ({})
-          } as unknown as AgentActivityRuntime,
+          } as unknown as AgentGUIRuntime,
           composerTargetData: target,
           conversationFilter: null,
           currentUserId: "user-1",
@@ -191,7 +191,7 @@ describe("useAgentGUIComposerOptionsSync", () => {
           agentActivityRuntime: {
             getComposerOptions,
             getSnapshot: () => ({})
-          } as unknown as AgentActivityRuntime,
+          } as unknown as AgentGUIRuntime,
           composerTargetData: target,
           conversationFilter: null,
           currentUserId: "user-1",
@@ -256,7 +256,7 @@ describe("useAgentGUIComposerOptionsSync", () => {
         agentActivityRuntime: {
           getComposerOptions,
           getSnapshot: () => ({})
-        } as unknown as AgentActivityRuntime,
+        } as unknown as AgentGUIRuntime,
         composerTargetData: selectedTarget,
         conversationFilter: null,
         currentUserId: "user-1",
@@ -325,7 +325,7 @@ describe("useAgentGUIComposerOptionsSync", () => {
         agentActivityRuntime: {
           getComposerOptions,
           getSnapshot: () => ({})
-        } as unknown as AgentActivityRuntime,
+        } as unknown as AgentGUIRuntime,
         composerTargetData: target,
         conversationFilter: null,
         currentUserId: "user-1",
@@ -404,7 +404,8 @@ describe("useAgentGUIComposerOptionsSync", () => {
         })
       );
       expect(authorityReconcilerRef.current.reloaded).toHaveBeenCalledWith(
-        permissionReceipt
+        permissionReceipt,
+        {}
       );
     } finally {
       rendered.unmount();
@@ -413,7 +414,13 @@ describe("useAgentGUIComposerOptionsSync", () => {
   });
 
   it("forces a later home authority read to reconcile acknowledged defaults", async () => {
-    const getComposerOptions = vi.fn(async () => ({}));
+    const returnedOptions = {
+      effectiveSettings: { permissionModeId: "default" }
+    };
+    const cachedOptions = {
+      effectiveSettings: { permissionModeId: "full-access" }
+    };
+    const getComposerOptions = vi.fn(async () => returnedOptions);
     const data = targetData("opencode");
     const target = composerTarget("opencode");
     const authorityReconcilerRef =
@@ -439,8 +446,12 @@ describe("useAgentGUIComposerOptionsSync", () => {
         activeConversationIdRef: { current: null },
         agentActivityRuntime: {
           getComposerOptions,
-          getSnapshot: () => ({})
-        } as unknown as AgentActivityRuntime,
+          getSnapshot: () => ({
+            composerOptionsByTargetKey: {
+              "local:opencode": cachedOptions
+            }
+          })
+        } as unknown as AgentGUIRuntime,
         composerTargetData: target,
         conversationFilter: null,
         currentUserId: "user-1",
@@ -483,7 +494,14 @@ describe("useAgentGUIComposerOptionsSync", () => {
     expect(authorityReconcilerRef.current.reloaded).toHaveBeenCalledWith(
       expect.objectContaining({
         draftKey: "__agent_gui_node_defaults__:target:local:opencode"
-      })
+      }),
+      returnedOptions
+    );
+    expect(
+      authorityReconcilerRef.current.reconcileHomeDefaults
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ agentTargetId: "local:opencode" }),
+      cachedOptions
     );
   });
 
@@ -504,7 +522,7 @@ describe("useAgentGUIComposerOptionsSync", () => {
         agentActivityRuntime: {
           getComposerOptions,
           getSnapshot: () => ({})
-        } as unknown as AgentActivityRuntime,
+        } as unknown as AgentGUIRuntime,
         composerTargetData: target,
         conversationFilter: null,
         currentUserId: "user-1",

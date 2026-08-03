@@ -141,6 +141,14 @@ type providerLaunchCleanupConnection struct {
 	cleanup func(context.Context)
 }
 
+func (c *providerLaunchCleanupConnection) ProcessCassetteCaptureOrigin() ProcessCassetteCaptureOrigin {
+	checkpoint, ok := c.ProcessConnection.(ProcessCassetteCheckpointConnection)
+	if !ok {
+		return ""
+	}
+	return checkpoint.ProcessCassetteCaptureOrigin()
+}
+
 func (c *providerLaunchCleanupConnection) RecvContext(ctx context.Context) (ProcessFrame, error) {
 	if contextual, ok := c.ProcessConnection.(ContextProcessConnection); ok {
 		return contextual.RecvContext(ctx)

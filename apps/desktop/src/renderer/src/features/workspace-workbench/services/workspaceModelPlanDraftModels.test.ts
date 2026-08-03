@@ -1,18 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  createEmptyWorkspaceModelPlanDraftModel,
   reconcileWorkspaceModelPlanDraftModelsForPreset,
   removeWorkspaceModelPlanDraftModel,
   replaceWorkspaceModelPlanDraftModel
 } from "./workspaceModelPlanDraftModels.ts";
-
-test("a new model draft slot is blank and carries no implicit selection", () => {
-  assert.deepEqual(createEmptyWorkspaceModelPlanDraftModel(), {
-    id: "",
-    name: ""
-  });
-});
 
 test("the first explicit model selection becomes the default and replaces the full slot", () => {
   const replacement = {

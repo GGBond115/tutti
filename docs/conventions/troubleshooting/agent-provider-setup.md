@@ -410,7 +410,7 @@ provider-status-focus-refresh --all-process-time-profile` on macOS when a
   but unable to start. A registry can also be reachable but too slow for the
   platform tarball, so retrying the same source burns the install timeout before
   mirrors are tried. The launcher itself uses `#!/usr/bin/env node`, so
-  daemon-run Codex commands (`--version`, `login status`, and `app-server`) need
+  daemon-run Codex commands (`--version`, login, and `app-server`) need
   a usable Node on `PATH`. Tutti should prefer the user's Node environment, but
   fall back to the managed Node runtime when the visible `codex` shim exists and
   no user Node is resolvable.
@@ -713,6 +713,30 @@ file or directory`. A failed `codex app-server` probe is diagnostic evidence,
   [providers.go](../../../packages/agent/daemon/providerregistry/providers.go)
   [acp_provider_cursor.go](../../../packages/agent/daemon/runtime/acp_provider_cursor.go)
   [standard_acp_adapter_test.go](../../../packages/agent/daemon/runtime/standard_acp_adapter_test.go)
+
+### Codex provider appears logged in with an empty auth.json
+
+- Symptom:
+  Provider management reports Codex as logged in when `~/.codex/auth.json` is
+  `{}`, but starting Codex fails during TUI bootstrap with
+  `account/read failed: plan type is required for chatgpt authentication`.
+- Quick checks:
+  Compare `codex login status` with a direct app-server `account/read`. The
+  former may print `Logged in using ChatGPT` and exit successfully solely
+  because `auth.json` exists, while the latter rejects the incomplete account.
+- Root cause:
+  Codex provider status used the generic text-command runner and accepted
+  `codex login status` as authoritative. That command's file-level check is
+  weaker than the account validation performed by the TUI and app-server.
+- Fix:
+  Use the descriptor-owned `codex_app_server_account` auth runner. It performs
+  the formal app-server initialize handshake and calls `account/read`; only a
+  structurally valid returned account is authenticated. A failed or malformed
+  response remains unknown and never falls back to auth-file existence.
+- Validation:
+  Cover authenticated, login-required, and account/read-error responses in the
+  shared app-server probe, then verify tuttID does not authenticate from a
+  present marker when account/read is unknown.
 
 ### Codex provider shows login required when global service tier is legacy
 
@@ -1138,14 +1162,14 @@ file or directory`. A failed `codex app-server` probe is diagnostic evidence,
   Keep the sidecar inheriting the user's Claude settings so credentials and base
   URL keep working. Fix provider access by changing the user's Claude settings or
   managed provider model config, not by hard-coding Tutti's static alias list.
-  When an old SDK session predates image-input support, normalize its
-  `runtimeContext.capabilities` before projecting it to AgentGUI so stale
-  persisted state does not disable prompt-image paste.
+  Report a typed `SessionStateSnapshot.Capabilities` value before projecting
+  the session to AgentGUI so stale provider-private runtime context cannot
+  disable prompt-image paste.
 - Validation:
   Confirm the session runtime context shows `adapter: claude-agent-sdk`, the
-  expected `providerConfig.baseUrl`, and an `imageInput` capability. Then run the
-  Claude SDK adapter tests plus the agent service tests covering runtime-context
-  normalization.
+  expected `providerConfig.baseUrl`, and confirm the typed session capability
+  snapshot includes `imageInput`. Then run the Claude SDK adapter tests plus the
+  agent service capability-projection tests.
 - References:
   [claude_sdk_adapter.go](../../../packages/agent/daemon/runtime/claude_sdk_adapter.go)
   [service_helpers.go](../../../services/tuttid/service/agent/service_helpers.go)
@@ -1341,6 +1365,54 @@ invalid_grant`. Search `tuttid.log` for
   [Kimi Claude Code setup](https://www.kimi.com/code/docs/en/third-party-tools/claude-code.html)
   [model_endpoint.go](../../../packages/agent/runtimeprep/model_endpoint.go)
   [messageRouter.ts](../../../packages/agent/claude-sdk-sidecar/src/messageRouter.ts)
+
+### Kimi Code shows no models and silently ends every turn
+
+- Symptom:
+  The Kimi Code model picker is empty. Sending a prompt appends the user
+  message, but no assistant message or visible error appears and the Turn
+  settles immediately.
+- Quick checks:
+  Inspect the ACP `session/new` result. Kimi may advertise the model selector
+  through `configOptions[id="model"]` with an empty `currentValue` and empty
+  `options`, rather than through the top-level `models` object. If
+  `session/prompt` then returns `stopReason: "end_turn"` without an assistant
+  chunk or tool call, treat it as a hidden provider failure rather than a
+  successful empty answer. Check that the signed Kimi Extension routes
+  `/status` and `/usage` to the runtime with the shared `submitImmediate`
+  effect. Those commands must remain runtime-owned: Tutti Desktop should
+  report its account-usage probe as `unsupported` for `acp:kimi-code` and must
+  not parse Kimi configuration or credentials itself.
+- Root cause:
+  Kimi Code can create an ACP session while no model is configured. Its ACP
+  adapter maps some underlying model, authentication, plan, and balance
+  failures to a normal `end_turn` with no output because ACP has no failed stop
+  reason. The setup guard previously recognized only the top-level `models`
+  shape. A provider-specific Desktop usage probe would also duplicate Kimi's
+  configuration, credential, endpoint, and quota semantics outside the signed
+  Extension/runtime boundary.
+- Fix:
+  Reject both empty ACP model shapes during generic setup. A normal ACP
+  terminal with neither assistant output nor tool activity must settle as
+  `provider_empty_response`, producing a visible conversation error card that
+  points users back to model and account setup. Turns with only thinking or a
+  system notice remain valid because they produced observable assistant
+  output. Keep Kimi's `/status` and `/usage` behavior declarative in the signed
+  Extension and execute it through the Kimi ACP runtime, which remains the
+  owner of provider configuration, credentials, account APIs, and quota
+  interpretation.
+- Validation:
+  Cover empty and populated `models`/`configOptions` selectors, thinking-only
+  and notice-only ACP turns, and an otherwise normal empty ACP `end_turn`.
+  Assert that an explicit Kimi Desktop usage probe stays `unsupported`, and
+  validate in the Extension repository that `/status` and `/usage` both use
+  `submitImmediate` against the pinned real runtime.
+- References:
+  [standard_acp_setup.go](../../../packages/agent/daemon/runtime/standard_acp_setup.go)
+  [standard_acp_turn.go](../../../packages/agent/daemon/runtime/standard_acp_turn.go)
+  [createDesktopAgentStatusSource.ts](../../../apps/desktop/src/renderer/src/features/workspace-agent/services/createDesktopAgentStatusSource.ts)
+  [Agent Extensions](../../architecture/agent-extensions.md)
+  [Kimi Code Agent Extension](https://github.com/tutti-os/agent-extension-kimi-code)
 
 ### Claude Code sessions fail with `effectiveSource: "none"` when CC-Switch or similar proxy tools are used
 
@@ -1622,14 +1694,18 @@ invalid_grant`. Search `tuttid.log` for
   Confirm the daemon process inherited the feature-gate environment variable,
   inspect `<state>/agent/extensions/<agentKey>`, and query `agent_targets` for
   `extension:<agentKey>`. Verify the public ZIP's signature, digest, size, entry
-  modes, and package structure using the same daemon installation path.
+  modes, and package structure using the same daemon installation path. A
+  version containing `+local.` is a development snapshot; it is intentionally
+  ineligible once the matching package-directory override is removed.
 - Root cause:
   A failed remote reconciliation can be obscured when the subsequent offline
   fallback error replaces the original error. ZIP directory entries commonly
   use mode `0755`; treating their search bits as executable file content rejects
   an otherwise valid data-only package before it can be registered. Runtime
   discovery can fail similarly when the daemon's strict JSON decoder does not
-  model a signed profile field such as the standard `probe` declaration.
+  model a signed profile field such as the standard `probe` declaration. A
+  previously active local snapshot must also not silently become the offline
+  fallback for a source that is now configured as signed remote.
 - Fix:
   Preserve both the remote reconciliation error and the offline fallback error.
   Reject symlinks for every entry, accept safe directory entries before checking
@@ -1637,6 +1713,10 @@ invalid_grant`. Search `tuttid.log` for
   the daemon discovery DTO aligned with the release profile contract, including
   optional probe metadata, even while a later migration phase owns executing
   the ACP readiness probe.
+  Treat local and remote installations as different source modes: removing the
+  local override removes a stale local Target and requires a compatible signed
+  remote installation, while a verified remote installation remains eligible
+  for normal offline fallback.
 - Validation:
   Cover a release ZIP with explicit `0755` directory entries and non-executable
   data files, retain a separate executable-file rejection test, and confirm a
@@ -1727,6 +1807,31 @@ invalid_grant`. Search `tuttid.log` for
   [setup.go](../../../services/tuttid/service/agentextension/setup.go)
   [AgentTargetSetupGate.tsx](../../../packages/agent/gui/agent-gui/agentGuiNode/view/AgentTargetSetupGate.tsx)
   [agentTargetSetupNotificationController.ts](../../../packages/agent/gui/shared/agentEnv/agentTargetSetupNotificationController.ts)
+
+### Standard ACP first-time configuration is reported as runtime installation failure
+
+- Symptom:
+  A managed standard ACP runtime installs and initializes successfully, but
+  `session/new` reports that no model or inference provider is configured.
+  Target setup then labels the installed runtime as failed instead of offering
+  the runtime's advertised terminal setup action.
+- Root cause:
+  Authentication classification covered credential and login failures but not
+  a runtime whose first-use gate is model-provider configuration. The setup
+  probe therefore discarded the terminal method learned from `initialize`.
+- Fix:
+  Treat an explicit missing-provider response as `auth_required` only when the
+  same `initialize` response advertised a usable terminal configuration
+  method. Keep the provider response as a hard runtime failure when no such
+  method exists, so unrelated launch failures are not hidden by the setup gate.
+- Validation:
+  Emulate `initialize` with a terminal setup method followed by a
+  missing-provider `session/new` error and assert that setup preserves the
+  method and returns `auth_required`. Also cover the no-method and unrelated
+  error boundaries.
+- References:
+  [standard_acp_setup.go](../../../packages/agent/daemon/runtime/standard_acp_setup.go)
+  [standard_acp_setup_test.go](../../../packages/agent/daemon/runtime/standard_acp_setup_test.go)
 
 ### Extension uv runtime install selects an incompatible system Python
 
@@ -2067,3 +2172,48 @@ invalid_grant`. Search `tuttid.log` for
   [agent-extensions.md](../../architecture/agent-extensions.md)
   [manager.go](../../../services/tuttid/service/agentextension/manager.go)
   [wiring_daemon_api.go](../../../services/tuttid/wiring_daemon_api.go)
+
+### Kimi Code remains in setup or reports login after authentication
+
+- Symptom:
+  Kimi Code remains blocked after terminal login, has no selectable model, or
+  reports an authentication problem when the account actually lacks an eligible
+  plan, has insufficient balance, or reached its billing-cycle limit.
+- Quick checks:
+  Build the extension package first, then pass its unpacked package directory:
+
+  ```sh
+  cd /path/to/agent-extension-kimi-code
+  pnpm package:tutti-agent
+  cd /path/to/tutti
+  DEV_GUI_KIMI_CODE_PACKAGE_DIR=/path/to/agent-extension-kimi-code/build/tutti-agent/package \
+    make dev-gui
+  ```
+
+  An explicit directory must exist and contain `tutti.agent.json`; `dev-gui.sh`
+  now rejects stale source-tree paths before Electron starts. Inspect the setup
+  snapshot `reason` and the structured conversation error `code`, not only raw
+  text that may mention API keys or OAuth credentials.
+
+- Root cause:
+  Kimi's model endpoint may wrap membership, model-plan, balance, and quota
+  responses in an authentication-shaped error. Classifying the credential words
+  first sends the user back through login and hides the actionable account
+  state. Separately, restoring a cached local extension snapshot can hide an
+  invalid or outdated development package path.
+- Fix:
+  Classify subscription, model access, HTTP 402 balance, and quota markers before
+  generic authentication. Project the stable reason through setup and localized
+  AgentGUI copy without rendering raw provider payloads. For local overrides,
+  synchronously snapshot the configured directory on every daemon start and
+  remove the stale Target if validation fails.
+- Validation:
+  Cover official membership/plan/quota message shapes that also mention
+  credentials, setup reason projection, localized account-state presentation,
+  invalid local paths, changed local package bytes, and preservation of the
+  Target enabled preference after a successful resnapshot.
+- References:
+  [agent-extensions.md](../../architecture/agent-extensions.md)
+  [runtime-overrides.md](../runtime-overrides.md)
+  [visible_error.go](../../../packages/agent/daemon/runtime/visible_error.go)
+  [setup.go](../../../services/tuttid/service/agentextension/setup.go)

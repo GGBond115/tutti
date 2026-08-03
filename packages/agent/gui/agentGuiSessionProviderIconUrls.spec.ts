@@ -30,10 +30,6 @@ describe("resolveAgentGuiSessionProviderIconUrl", () => {
     );
   });
 
-  it("keeps the legacy flat filled cursor icon available for older callers", () => {
-    expect(cursorFlatFilledIconUrl).toEqual(expect.any(String));
-  });
-
   it("returns the colorful tutti icon for native tutti sessions", () => {
     expect(resolveAgentGuiSessionProviderIconUrl("tutti")).toBe(
       manageAgentTuttiUrl

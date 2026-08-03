@@ -4,6 +4,7 @@ import {
   normalizeAgentActivitySession,
   type AgentActivitySession
 } from "@tutti-os/agent-activity-core";
+import { createTestEngineCommandPort } from "../shared/testing/createTestAgentSessionEngine";
 import {
   buildWorkspaceAgentMessageCenterModelFromEngine,
   selectWorkspaceAgentAttentionItems,
@@ -238,6 +239,45 @@ describe("workspaceAgentConsumerSelectors", () => {
         }
       }
     });
+  });
+
+  it("tracks Plan feedback through explicit source identity instead of submit-id parsing", () => {
+    const engine = createEngine();
+    engine.dispatch({
+      type: "session/snapshotReceived",
+      sessions: [
+        session({
+          latestTurn: {
+            turnId: "turn-plan",
+            agentSessionId: "session-1",
+            origin: "user_prompt",
+            phase: "settled",
+            outcome: "completed",
+            startedAtUnixMs: 10,
+            settledAtUnixMs: 20,
+            updatedAtUnixMs: 20
+          }
+        })
+      ]
+    });
+    engine.dispatch({
+      type: "plan/feedbackRequested",
+      agentSessionId: "session-1",
+      clientSubmitId: "opaque-feedback-id",
+      content: [{ type: "text", text: "Revise it" }],
+      expiresAtUnixMs: 120_000,
+      requestedAtUnixMs: 21,
+      requestId: "turn-plan",
+      turnId: "turn-plan",
+      workspaceId: "workspace-1"
+    });
+
+    const presentation = selectWorkspaceAgentMessageCenterPresentation(
+      engine.getSnapshot()
+    );
+    expect(
+      presentation.promptStatusByKey["session-1\0turn-plan\0turn-plan"]
+    ).toBe("responding");
   });
 
   it("keeps message-center presentation equal across unrelated engine changes", () => {
@@ -675,7 +715,7 @@ describe("workspaceAgentConsumerSelectors", () => {
 function createEngine() {
   return createAgentSessionEngine({
     clock: { nowUnixMs: () => 1 },
-    commandPort: { execute: async () => ({}) },
+    commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
     identity: { origin: "test", workspaceId: "workspace-1" },
     scheduler: { schedule: () => ({ cancel() {} }) }
   });

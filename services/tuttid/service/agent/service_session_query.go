@@ -7,7 +7,7 @@ import (
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
 func (s *Service) Get(ctx context.Context, workspaceID string, agentSessionID string) (Session, error) {
@@ -54,6 +54,16 @@ func (s *Service) GetDetailWithProjection(
 		turns, err := s.TurnStore.ListEffectiveSessionTurns(ctx, strings.TrimSpace(workspaceID), session.ID)
 		if err != nil {
 			return SessionDetail{}, err
+		}
+		if resolveProviderCapabilities {
+			for index := range turns {
+				turns[index] = s.withProviderTurnForkability(
+					ctx,
+					workspaceID,
+					session.ID,
+					turns[index],
+				)
+			}
 		}
 		detail.Turns = turns
 	}

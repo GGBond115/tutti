@@ -4,6 +4,7 @@ import {
   isToolUseBlock,
   recordValue
 } from "./normalizer.ts";
+import { ClaudeGoalProjection } from "./goalProjection.ts";
 import type { ClaudeSDKSidecarEventEmitter } from "./protocol.ts";
 import {
   readQueuedTaskNotificationPrompt,
@@ -23,6 +24,12 @@ import type { CompactionTracker } from "./compaction.ts";
 import type { MessageProjection } from "./messageProjection.ts";
 import type { ToolActivityProjector } from "./toolActivity.ts";
 import type { TurnLifecycle } from "./turnLifecycle.ts";
+import type { ProviderTurnPhase } from "./providerTurnAcceptance.ts";
+
+type ObservableProviderTurnPhase = Extract<
+  ProviderTurnPhase,
+  "streaming" | "running_tool"
+>;
 
 export class SDKMessageRouter {
   private readonly getProviderSessionId: () => string;
@@ -38,6 +45,15 @@ export class SDKMessageRouter {
   private readonly projection: MessageProjection;
   private readonly compaction: CompactionTracker;
   private readonly emit: ClaudeSDKSidecarEventEmitter;
+  private readonly goals: ClaudeGoalProjection;
+  private readonly emitProviderCheckpointEvent: (
+    turnId: string,
+    providerTurnId: string,
+    providerCheckpointMessageId: string
+  ) => void;
+  private readonly ensureProviderTurnAcceptance: (
+    phase: ObservableProviderTurnPhase
+  ) => Promise<void>;
   private contextUsageGeneration = 0;
   private activeRootAssistantError = "";
   private activeRootConnectionRetry = false;
@@ -56,6 +72,14 @@ export class SDKMessageRouter {
     projection: MessageProjection;
     compaction: CompactionTracker;
     emit: ClaudeSDKSidecarEventEmitter;
+    emitProviderCheckpoint: (
+      turnId: string,
+      providerTurnId: string,
+      providerCheckpointMessageId: string
+    ) => void;
+    ensureProviderTurnAcceptance: (
+      phase: ObservableProviderTurnPhase
+    ) => Promise<void>;
   }) {
     this.getProviderSessionId = options.getProviderSessionId;
     this.setProviderSessionId = options.setProviderSessionId;
@@ -70,6 +94,9 @@ export class SDKMessageRouter {
     this.projection = options.projection;
     this.compaction = options.compaction;
     this.emit = options.emit;
+    this.goals = new ClaudeGoalProjection(options.turns, options.emit);
+    this.emitProviderCheckpointEvent = options.emitProviderCheckpoint;
+    this.ensureProviderTurnAcceptance = options.ensureProviderTurnAcceptance;
   }
 
   async handle(message: SDKMessage): Promise<void> {
@@ -90,6 +117,10 @@ export class SDKMessageRouter {
       this.onSessionState();
     }
 
+    const rawMessage = message as unknown as Record<string, unknown>;
+    if (this.goals.handle(rawMessage)) {
+      return;
+    }
     const messageType = (message as { type?: string }).type;
     if (messageType === "attachment") {
       const prompt = readQueuedTaskNotificationPrompt(
@@ -104,6 +135,32 @@ export class SDKMessageRouter {
     if (message.type === "system") {
       const raw = message as unknown as Record<string, unknown>;
       const systemSubtype = stringValue(raw.subtype);
+      const sdkErrorStatus =
+        typeof raw.error_status === "number" ? raw.error_status : undefined;
+      const sdkAssistantError = stringValue(raw.error);
+      if (
+        systemSubtype === "api_retry" &&
+        !parentToolUseID &&
+        (sdkErrorStatus === 401 ||
+          sdkAssistantError === "authentication_failed")
+      ) {
+        // Claude reports an invalid API key as a system api_retry before it
+        // emits the later assistant/result pair. A 401 is definitive, so do
+        // not let the SDK spend several minutes retrying a turn that has not
+        // crossed the provider-acceptance boundary.
+        const turn = this.turns.ensureActive("api_retry");
+        if (turn && !this.turns.lastProviderTurnId.trim()) {
+          this.activeRootAssistantError = "authentication_failed";
+          this.turns.settleActive("turn_failed", {
+            error: "Claude authentication failed",
+            code: "authentication_failed",
+            apiErrorStatus: 401,
+            dispatchDisposition: "rejected"
+          });
+          this.onTerminalConnectionError();
+        }
+        return;
+      }
       if (
         systemSubtype === "api_retry" &&
         raw.error_status === null &&
@@ -132,11 +189,50 @@ export class SDKMessageRouter {
     }
 
     if (message.type === "stream_event") {
+      if (!parentToolUseID) {
+        await this.ensureProviderTurnAcceptance("streaming");
+      }
       this.handleStreamEvent(message, parentToolUseID);
       return;
     }
 
     if (message.type === "assistant") {
+      const assistantError = stringValue(
+        (message as unknown as Record<string, unknown>).error
+      );
+      if (
+        !parentToolUseID &&
+        assistantError === "authentication_failed" &&
+        !this.turns.lastProviderTurnId.trim()
+      ) {
+        // An SDK-level failure can arrive before Claude persists the root user
+        // message. Retain the structured failure for the terminal result, but
+        // do not enter identity recovery or publish provider output that has
+        // no durably accepted provider Turn.
+        if (this.turns.ensureActive("assistant")) {
+          this.activeRootAssistantError = assistantError;
+          const failureText =
+            contentBlocksFromMessage(message)
+              .filter((block) => block.type === "text")
+              .map((block) => stringValue(block.text))
+              .find((text) => text.trim()) || "Claude authentication failed";
+          // Authentication failures are definitive before Claude has created
+          // a provider Turn. Settle locally and retire the query immediately;
+          // waiting for the SDK's later result would leave the Host waiting on
+          // an acceptance barrier while the SDK retries the same request.
+          this.turns.settleActive("turn_failed", {
+            error: failureText,
+            code: assistantError,
+            apiErrorStatus: 401,
+            dispatchDisposition: "rejected"
+          });
+          this.onTerminalConnectionError();
+        }
+        return;
+      }
+      if (!parentToolUseID) {
+        await this.ensureProviderTurnAcceptance("streaming");
+      }
       this.handleAssistant(message, parentToolUseID);
       this.emitProviderCheckpoint(message, parentToolUseID);
       return;
@@ -152,6 +248,9 @@ export class SDKMessageRouter {
     }
 
     if (message.type === "tool_progress") {
+      if (!parentToolUseID) {
+        await this.ensureProviderTurnAcceptance("running_tool");
+      }
       if (!this.turns.ensureActive("tool_progress")) {
         return;
       }
@@ -350,7 +449,6 @@ export class SDKMessageRouter {
         Boolean(assistantError)
       );
     }
-    this.projection.emitGoalStatusFromBlocks(blocks);
   }
 
   private handleNestedAssistant(
@@ -393,14 +491,15 @@ export class SDKMessageRouter {
     if (!checkpointMessageId || !turnId || !providerTurnId) {
       return;
     }
-    this.emit({
-      type: "provider_turn_checkpoint",
-      payload: {
-        turnId,
-        providerTurnId,
-        providerCheckpointMessageId: checkpointMessageId
-      }
-    });
+    // Newer Claude SDK versions can omit the echoed root user message that
+    // normally binds Provider identity. The first durable root checkpoint is
+    // still Provider evidence, so announce the turn before its checkpoint.
+    this.turns.confirmProviderTurnStarted(providerTurnId);
+    this.emitProviderCheckpointEvent(
+      turnId,
+      providerTurnId,
+      checkpointMessageId
+    );
   }
 
   private handleUser(message: SDKMessage, parentToolUseID: string): void {
@@ -437,7 +536,6 @@ export class SDKMessageRouter {
     for (const block of blocks) {
       this.activities.handleUserContentBlock(block, parentToolUseID);
     }
-    this.projection.emitGoalStatusFromBlocks(blocks);
   }
 
   private async handleResult(
@@ -467,14 +565,24 @@ export class SDKMessageRouter {
     );
     if (
       this.turns.consumeTimedOutContinuationResult() ||
-      this.turns.consumePendingOrphan() ||
-      !this.turns.ensureActive("result")
+      this.turns.consumePendingOrphan()
     ) {
+      return;
+    }
+    const assistantError = this.activeRootAssistantError;
+    const rejectedBeforeAcceptance =
+      !this.turns.lastProviderTurnId.trim() &&
+      result.is_error === true &&
+      (result.api_error_status === 401 ||
+        assistantError === "authentication_failed");
+    if (!rejectedBeforeAcceptance) {
+      await this.ensureProviderTurnAcceptance("streaming");
+    }
+    if (!this.turns.ensureActive("result")) {
       return;
     }
     const turnId = this.turns.activeId;
     const contextUsageGeneration = this.contextUsageGeneration;
-    const assistantError = this.activeRootAssistantError;
     const terminalConnectionError =
       result.is_error === true &&
       (result.api_error_status === null ||
@@ -495,6 +603,13 @@ export class SDKMessageRouter {
       this.activities.markTaskNotificationContinuation();
       void this.emitResultUsage(turnId, contextUsageGeneration, result);
       return;
+    }
+    if (succeeded) {
+      // A successful provider result is authoritative that a root
+      // run_in_background invocation launched. Close the launch tool before
+      // the root terminal even when the SDK's task_started notification is
+      // delayed; the detached process itself remains independently stoppable.
+      this.activities.completePendingRootBackgroundLaunches();
     }
     const pendingBackgroundContinuation =
       succeeded && this.activities.hasPendingBackgroundContinuation();
@@ -522,7 +637,8 @@ export class SDKMessageRouter {
         ...(assistantError ? { code: assistantError } : {}),
         ...(typeof result.api_error_status === "number"
           ? { apiErrorStatus: result.api_error_status }
-          : {})
+          : {}),
+        ...(rejectedBeforeAcceptance ? { dispatchDisposition: "rejected" } : {})
       });
     } else if (!retainRootForBackgroundContinuation) {
       this.turns.settleActive("turn_completed", { stopReason: "end_turn" });

@@ -49,6 +49,58 @@ func (h *Host) ReconcileGoal(ctx context.Context, ref SessionRef) (GoalStateResu
 	return result, err
 }
 
+// ObserveRuntimeGoalControlApplied completes one exact durable Goal operation
+// from provider lifecycle evidence. Stale and duplicate observations are
+// harmless; mismatched identities never mutate the current revision.
+func (h *Host) ObserveRuntimeGoalControlApplied(ctx context.Context, input RuntimeGoalControlAppliedInput) error {
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	agentSessionID := strings.TrimSpace(input.AgentSessionID)
+	operationID := strings.TrimSpace(input.OperationID)
+	action := strings.TrimSpace(input.Action)
+	if h == nil || h.goals == nil || workspaceID == "" || agentSessionID == "" ||
+		operationID == "" || input.GoalRevision <= 0 || action == "" {
+		return ErrInvalidArgument
+	}
+	return h.withGoalActor(ctx, workspaceID, agentSessionID, func(actorCtx context.Context) error {
+		state, found, err := h.goals.GetSessionGoalState(actorCtx, workspaceID, agentSessionID)
+		if err != nil || !found {
+			return err
+		}
+		operation, found, err := h.goals.GetGoalControlOperation(actorCtx, workspaceID, operationID)
+		if err != nil || !found {
+			return err
+		}
+		if state.Revision != input.GoalRevision || state.PendingOperationID != operationID ||
+			operation.AgentSessionID != agentSessionID || operation.GoalRevision != input.GoalRevision ||
+			operation.RepairEpoch != input.RepairEpoch || operation.Action != action {
+			return nil
+		}
+		occurredAt := input.OccurredAtUnixMS
+		if occurredAt <= 0 {
+			occurredAt = h.goalOperationNow().UnixMilli()
+		}
+		_, _, _, err = h.goals.CompleteGoalControlOperation(actorCtx, storesqlite.GoalControlOperationComplete{
+			WorkspaceID: workspaceID,
+			OperationID: operationID,
+			Succeeded:   true,
+			Observed:    clonePayload(input.Observed),
+			Evidence: map[string]any{
+				"source":         "runtime_goal_control_lifecycle",
+				"confidence":     "provider_lifecycle",
+				"phase":          storesqlite.GoalProviderPhaseApplied,
+				"operationId":    operationID,
+				"revision":       input.GoalRevision,
+				"repairEpoch":    input.RepairEpoch,
+				"action":         action,
+				"providerTurnId": strings.TrimSpace(input.ProviderTurnID),
+			},
+			OccurredAtUnixMS: occurredAt,
+			RepairEpoch:      input.RepairEpoch,
+		})
+		return err
+	})
+}
+
 func (h *Host) reconcileGoalLocked(ctx context.Context, workspaceID, agentSessionID string) (GoalStateResult, error) {
 	if _, err := h.EnsureRuntimeSession(ctx, SessionRef{WorkspaceID: workspaceID, AgentSessionID: agentSessionID}); err != nil {
 		return GoalStateResult{}, err

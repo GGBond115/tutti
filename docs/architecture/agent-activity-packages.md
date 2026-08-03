@@ -195,17 +195,19 @@ It owns:
   `src/engine/`): intent dispatch loop, domain-composed pure reducers,
   command-description effect executor, expiry-intent clock, and intent frame
   batching, with scheduler/clock/command ports injected by the host
-- the typed frontend effect seam for activation, prompt send, settings update,
-  turn cancellation, Interaction response, rename, pin, and batch delete,
+- the typed frontend effect seam for activation, prompt send, Goal Control,
+  settings update, turn cancellation, Interaction response, rename, pin, and
+  batch delete,
   including lossless command projection, authoritative Session result
   validation for rename and pin, validated delete-result tombstone projection,
   shared mutation settlement, and a serialized settings-precondition state
   machine
 - semantic `AgentSessionEngine` methods for composer-option loading, Session
-  activation, existing-Session Prompt submission, Session stop, Interaction
-  response submission, existing-Session settings updates, rename, pin, and
-  batch delete. Activation, Prompt, stop, Interaction, and settings updates are
-  intent admission: the Engine owns workspace and protocol construction.
+  activation, existing-Session Prompt submission, Goal Control, Session stop,
+  Interaction response submission, existing-Session settings updates, rename,
+  pin, and batch delete. Activation, Prompt, Goal Control, stop, Interaction,
+  and settings updates are intent admission: the Engine owns workspace and
+  protocol construction.
   Activation owns requested/expiry timestamps, the 120-second confirmation
   window, and the accepted result. This window contains the 90-second
   new-Session activation command instead of allowing presentation expiry to
@@ -251,12 +253,17 @@ activation. The Engine validates activation mode plus workspace/Session
 identity and nested Session/Turn/Interaction entities before applying that
 result through its canonical reducers. Desktop and Mobile effects may retain
 product-local integration and observability, but must not dispatch Session
-state before returning. The effect executor marks only typed activation results
-with the versioned `activation-v1` result contract; commands whose result shape
-is not authoritative remain opaque. An untagged or opaque result from the
-legacy complete-command port remains an acknowledgement and is never
-reinterpreted as an authoritative projection, so published consumers can
-migrate without payload-shape heuristics.
+state before returning. The effect executor marks activation results with the
+versioned `activation-v1` result contract; commands whose result shape is not
+authoritative remain opaque.
+New-Session Goal Control uses the same activation path. The Engine carries a
+typed `initialGoalControl`; Desktop and Mobile send it through the typed Create
+contract with empty initial content. Agent Host creates the Session and durable
+Goal operation without creating a Turn. It establishes the canonical Session
+title from the display prompt, or from a synthesized `/goal` command when the
+display prompt is absent. Non-empty initial content and typed initial Goal are
+mutually exclusive, and product adapters must not reconstruct the command from
+display text.
 Desktop AgentGUI and Mobile call `stopSession` instead of constructing
 `session/stopRequested` protocol fields. The same method stops an active Turn
 or records a bounded request that cancels the first Turn produced by an
@@ -272,14 +279,50 @@ AgentGUI, Message Center, Desktop notifications, and Mobile call
 constructing `interaction/responseRequested` protocol fields. A failed
 submission becomes retryable only when the surface explicitly submits the same
 answer again; a missing or changed answer fails closed.
+AgentGUI calls `controlGoal` for an existing Session instead of calling the
+runtime adapter or constructing `goal/controlRequested`. The caller proposes
+a stable client-submit identity and admission returns the effective identity
+used by the Engine; the Engine owns command identity, 30-second
+timeout, one in-flight admission per Session, optimistic Goal projection,
+typed result validation, and exact-identity retry after unknown delivery.
+Desktop and Mobile `controlGoal` effects only forward transport and map the
+authoritative Session, Goal, durable operation identity, and Goal state. Goal
+Control responses carry `goal` as a required nullable field so a successful
+clear is an explicit `null`, never an omitted value that can fall back to a
+stale runtime Session projection. That field is Host's durable desired
+projection, while provider output remains separately observable through Goal
+state. An empty pause/resume observation therefore records divergence without
+erasing the visible Goal; only a durable tombstone returns `null`. The daemon
+overlays that Host-owned result onto `session.goal`, and the Engine applies the
+same invariant when a synced typed result reaches its canonical Session state.
+Engine-originated requests always send their caller-stable identity through to
+the existing Agent Host Goal saga.
+Every admitted mutation reaches Host; frontend Goal equality is not a no-op
+rule because Host owns durable revision and audit creation. Pending/applying
+Host state settles the frontend request as accepted, while transport loss,
+timeout, opaque/malformed success, or Host unknown/diverged state stays
+unknown. A retry of the same unknown mutation reuses the original
+`clientSubmitId`, while a definitive failure releases that identity so the
+next explicit attempt is a new operation. Generic Session reconciliation and
+Goal value equality cannot settle that operation because neither proves its
+durable identity.
+The public Goal presentation and settlement maps are sparse. The Engine
+updates them only for Session identities whose canonical Goal, Goal operation,
+or Goal-bearing activation changed; it indexes pending Goal activations once
+per relevant drain. Turn streaming and unrelated Session metadata preserve
+the Goal branch and unrelated per-Session presentation references.
+Desktop and Mobile keep a submitted Goal draft until that settlement reaches
+`accepted` or `succeeded`, and clear it only if the user has not edited the
+draft in the meantime. A definitive failure retains the text but releases the
+pending identity; an unknown result retains both the text and identity for
+explicit retry.
 Rename and pin effects return an authoritative Session envelope, and batch
 delete returns the complete typed deletion result. Reducers still validate
 those results before applying canonical state, while the public port prevents
 hosts from inventing a different result shape.
-`dispatchSessionMutation` remains compatibility-only while published consumers
-migrate and must not be used by new product-host code. Prompt precondition
-ordering and its helper port are Engine implementation details and are not
-exported from the package root. Reducer-only prompt continuation intents are
+The reducer mutation protocol remains an Engine implementation detail; product
+hosts use the semantic mutation methods. Prompt precondition ordering and its
+helper port are also not exported from the package root. Reducer-only prompt continuation intents are
 absent from public `EngineIntent`; their bookkeeping is also absent from
 `AgentSessionEngineState`, `getSnapshot()`, and subscription callbacks.
 
@@ -331,7 +374,11 @@ It does not own:
 platform-neutral mapping boundary between generated
 `@tutti-os/client-tuttid-ts` workspace-agent DTOs and `agent-activity-core`
 entities. Desktop and Mobile consume the same protocol-v2 contract assertions
-and Session, Turn, Message, and Tutti-mode projections.
+and Session, Turn, Message, and Tutti-mode projections. The package also owns
+the pure outbound create-Session and send-input projections into generated
+tuttid request DTOs. Those projections use explicit allowlists: activity-only
+prompt fields never cross the HTTP boundary, and Turn `capabilityRefs` survive
+both immediate send results and later detail reconciliation.
 Current-user identity is mandatory mapper input from the application host:
 Desktop supplies its local AgentGUI identity and Mobile supplies the immutable
 authenticated account user id.
@@ -339,9 +386,12 @@ authenticated account user id.
 It may depend on the generated client and `agent-activity-core`, but must not
 own HTTP execution, authentication, retries, event subscriptions, logging,
 i18n, Electron/React Native APIs, DI scopes, or command orchestration. Those
-remain application-host responsibilities. If a proposed extraction requires a
-large callback surface for those concerns, keep it in the application adapter
-instead.
+remain application-host responsibilities. Application hosts pass canonical
+activity inputs to this package and execute the returned generated request;
+for shared create/send/Turn contracts they do not maintain host-local request
+mirrors, object-spread casts, or response-field allowlists. If a proposed
+extraction requires a large callback surface for host concerns, keep it in the
+application adapter instead.
 
 ### `@tutti-os/agent-gui`
 
@@ -351,7 +401,7 @@ instead.
 It owns:
 
 - `AgentGUI`
-- `AgentActivityRuntime` provider and hooks
+- the `AgentGUIRuntime` provider and hooks used by AgentGUI
 - Agent GUI workbench node UI
 - session list and detail rendering
 - timeline, tool call, approval, and interactive prompt presentation
@@ -385,8 +435,11 @@ through the same exact target and shared prompt surface.
 
 It may depend on `@tutti-os/agent-activity-core`.
 
-Agent GUI must read and write agent session/activity data through
-`AgentActivityRuntime`. The effective `AgentHostApi` is limited to host
+Agent GUI reads activity data and resolves the workspace Engine through
+`AgentGUIRuntime`; lifecycle writes use semantic Engine methods or typed
+intents. The runtime has no duplicate activation, submit, Goal, Interaction,
+settings, Tutti Mode, or unactivation callbacks. The effective `AgentHostApi`
+is limited to host
 capabilities such as files, clipboard, runtime metadata, account/project
 lookup, diagnostics, setup, and OS/Workbench helpers. Its input type still
 accepts a legacy `agentSessions` shape, but `toAgentHostRuntimeApi` strips that
@@ -396,7 +449,7 @@ activity data. The desktop adapter combines the developer-gated preference,
 the generated `tuttid` client, and global invalidation events behind
 `AgentHostApi.quickPrompts`. AgentGUI may subscribe to that capability to render
 the composer picker and management dialogs, but quick-prompt entities must not
-be copied into `AgentActivityRuntime`, a workspace engine, a Session, or a Turn.
+be copied into `AgentGUIRuntime`, a workspace engine, a Session, or a Turn.
 The daemon remains authoritative for durable prompt records and optimistic
 version conflicts; event payloads are content-free refresh hints.
 Quick-prompt ordering follows the same boundary: `tuttid` stores a dense
@@ -410,7 +463,7 @@ applied, rollback means disabling the quick-prompt feature flag or reverting
 the renderer surface; do not run an older daemon writer against that database.
 Older writers do not maintain `sort_order`, so binary daemon downgrade followed
 by create/delete is not a supported recovery path.
-Conversation rail sections are also an `AgentActivityRuntime` contract:
+Conversation rail sections are also an `AgentGUIRuntime` contract:
 AgentGUI calls `listSessionSections` for the first page of every returned rail
 section and `listSessionSectionPage` for Show more by `sectionKey` and cursor.
 Hosts must pass those calls through to the daemon section endpoints so project
@@ -444,12 +497,12 @@ retained in a second host Rail entity store. Hosts retain only transport
 mapping, runtime-availability policy, surface lifecycle, presentation, and
 host-specific refresh cadence such as Mobile disconnected polling.
 The pure Rail contracts are the canonical source for both the controller and
-the compatibility-named `AgentActivityRuntime` Rail aliases. The public
+the `AgentGUIRuntime` Rail aliases. The public
 controller snapshot exposes memberships, ordered ids, pagination, search, and
 request state only; Desktop joins it with Engine state for localized
 conversation summaries outside the headless entrypoint. Resolved cache entries
 are shared by controllers created for the same workspace Engine; the factory,
-not `AgentActivityRuntime` or a host adapter, owns that registry. The cache
+not `AgentGUIRuntime` or a host adapter, owns that registry. The cache
 implementation has no published AgentGUI subpath. In-flight first-page entity
 payloads stay scoped to one attached controller generation so an obsolete mount
 cannot ingest or cache them.
@@ -527,6 +580,16 @@ the semantic rename, pin, and delete methods and never allocates mutation
 identity, chooses timeout policy, or reads mutation records. The command port is
 the only transport executor. Settled mutation records use a bounded window;
 they are workflow evidence, not an unbounded history store.
+Goal Control follows the same single-core rule without becoming a Session
+metadata mutation: `goalControl.operationsBySessionId` retains only the latest
+frontend operation for each Session. A validated typed response applies its
+Session through the canonical lifecycle reducer and retains Goal operation
+identity/state as settlement evidence. Canonical Session Goal equality is only
+presentation data and never confirms a pending or unknown operation. Durable
+Goal revision, provider application, recovery, audit, and idempotency remain
+owned by `packages/agent/host`. The package root exposes a narrow settlement
+projection rather than the internal operation ledger, and `getSnapshot()` does
+not carry that ledger at runtime.
 Fork is long-lived: an HTTP `202 accepted` keeps the mutation in flight until
 the canonical target Session with matching durable lineage is upserted. The
 Engine disables only another Fork for that exact source Turn. Source activity,
@@ -583,6 +646,14 @@ trimmed and deduplicated by source plus capability, but they do not own the
 activation. Every submit route, including immediate sends, active-turn
 guidance, queued delivery, and provider Plan feedback, preserves that audit
 metadata when Tutti is active.
+
+Pending submit records preserve business provenance separately from their
+opaque `clientSubmitId`. Provider Plan feedback uses the typed
+`plan-feedback` source with its exact Turn and request identities, and
+host-agnostic consumers locate it through the activity-core selector rather
+than parsing an ID prefix. AgentGUI-generated Prompt identities are UUID v4 so
+hosts may safely reuse them at a stricter shared-execution boundary; Activity
+Core itself keeps accepting opaque caller-owned identities.
 
 A create timeout does not negate the optimistic Tutti activation: the draft
 and badge remain pending until a canonical active revision arrives or the
@@ -675,8 +746,9 @@ paths must not call `workspaceAgents.list`,
 `workspaceAgents.listSessionMessages`, `agentSessions.retainEventStream`, or
 `agentSessions.subscribeEvents` directly. Production write paths must not call
 `agentSessions.exec`, `agentSessions.cancel`,
-`agentSessions.submitInteractive`, or `agentSessions.pinSession`; use
-`AgentActivityRuntime` instead. Legacy host DTOs are allowlisted only in the
+`agentSessions.submitInteractive`, or `agentSessions.pinSession`; lifecycle
+writes use the workspace `AgentSessionEngine`, while metadata actions still
+exposed to AgentGUI use `AgentGUIRuntime`. Legacy host DTOs are allowlisted only in the
 host API contract, explicit projection helpers, and message merge/page-loading
 helpers that accept runtime-shaped adapters.
 
@@ -862,8 +934,7 @@ It owns:
 - business-event WebSocket connection implementation
 - backend base URL and authentication details
 - preload/runtime/file adapters
-- `IWorkspaceAgentActivityService` and the desktop
-  `AgentActivityRuntime` wrapper
+- `IWorkspaceAgentActivityService` and the desktop `AgentGUIRuntime` wrapper
 - workspace chrome placement
 - workbench contribution wiring
 - desktop i18n overrides
@@ -888,7 +959,7 @@ createAgentSessionEngine({
 ```
 
 `plan/submitDecision` uses the dedicated
-`EngineCommandPort.executePlanDecision` method. Its public
+`EngineTypedCommandPort.executePlanDecision` method. Its public
 `PlanSubmitDecisionResult` contains the durable operation identity returned by
 the Host. It must not pass through the generic `execute(): Promise<unknown>`
 path or manufacture an operation id from a command id.
@@ -964,7 +1035,7 @@ addition to its session and turn id. Desktop adapters must reject a successful
 transport response that omits that turn; they must not reconstruct it from the
 deprecated session-level lifecycle or submit-availability fields.
 
-`AgentActivityRuntime.activateSession` requires `agentTargetId` for
+`AgentSessionActivateEffectInput` requires `agentTargetId` for
 `mode: "new"`. Shared UI passes it through unchanged; trusted host or daemon code
 resolves it against `agent_targets`, validates enabled state and launch ref
 shape, and derives the execution `provider` and runtime `providerTargetRef`
@@ -1169,11 +1240,16 @@ publishing `stream_ready`, so events produced during ready-frame delivery are
 already buffered instead of falling through a subscribe gap. The Android
 bridge keeps one long-lived DeviceLink stream and delegates frame decoding and
 continuity checks to the Agent-owned Go mobile Subscriber before emitting
-accepted deliveries to React Native. The Mobile Android host co-links that
-Subscriber and DeviceLink into its own composite AAR; the transport package's
-AAR and Java namespace remain Agent-free. Mobile disables its message and Rail
-pollers after `stream_ready`; those pollers are disconnected-transport fallback
-only.
+accepted deliveries to React Native. Each bridge subscription also carries a
+caller-owned local generation that is independent of the wire epoch and
+sequence cursor. Native stops the live stream immediately when the App enters
+the background, and both the Native-to-JS adapter and workspace live lane reject
+queued deliveries from a closed generation after foreground resume. The
+underlying DeviceLink may remain open for its background grace interval. The
+Mobile Android host co-links that Subscriber and DeviceLink into its own
+composite AAR; the transport package's AAR and Java namespace remain Agent-free.
+Mobile disables its message and Rail pollers after `stream_ready`; those pollers
+are disconnected-transport fallback only.
 
 After either transport is normalized, Desktop and Mobile call the same
 `AgentActivityWorkspaceEventCoordinator`. Its package-internal rules derive
@@ -1320,10 +1396,13 @@ The host owns:
 
 When command reachability differs by Session, the host also projects
 `session/runtimeAvailabilityChanged` into the shared engine. This state is
-ephemeral transport coordination, not a canonical Session field. The engine
-gates runtime-dependent commands and AgentGUI presents the same frozen/loading
-interaction for every host; a host must not map one Session's transport loss to
-the workspace-wide engine connection state.
+ephemeral command coordination, not a canonical Session field. In addition to
+transport and capability reasons, a shared host may project
+`agent_sharing_revoked` with the owner display label. The engine gates
+runtime-dependent commands and AgentGUI presents the same blocked interaction
+for every host; history remains canonical and readable. A host must not map one
+Session's transport loss or revoked sharing relationship to the workspace-wide
+engine connection state.
 
 ## Needs Attention Contract
 
@@ -1380,7 +1459,8 @@ For Agent GUI behavior:
 - focused tests for working, waiting, completed, failed, and needs-attention
   states
 - tests that AgentGUI list/detail and write operations use
-  `AgentActivityRuntime` when provided
+  `AgentGUIRuntime` when provided, with lifecycle writes asserted through the
+  workspace Engine
 
 For runtime boundary enforcement:
 

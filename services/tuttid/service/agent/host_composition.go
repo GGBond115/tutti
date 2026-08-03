@@ -147,6 +147,7 @@ func NewApplicationHostWithPorts(
 	support HostSupportPorts,
 	canonical ApplicationHostCanonicalPorts,
 	sessionForkRecovery agenthost.SessionForkRecoveryStore,
+	historicalState agenthost.HistoricalSessionStateStore,
 	runtime ApplicationHostRuntime,
 ) *agenthost.Host {
 	if canonical == nil || runtime == nil || support.RuntimePreparation == nil {
@@ -158,6 +159,7 @@ func NewApplicationHostWithPorts(
 		canonical,
 		canonical,
 		sessionForkRecovery,
+		historicalState,
 		runtime,
 		runtime,
 	)
@@ -169,6 +171,7 @@ func composeApplicationHost(
 	sessionManagement agenthost.SessionManagementStore,
 	sessionBatchManagement agenthost.SessionBatchManagementStore,
 	sessionForkRecovery agenthost.SessionForkRecoveryStore,
+	historicalState agenthost.HistoricalSessionStateStore,
 	runtime agenthost.RuntimeController,
 	goalRuntime agenthost.GoalRuntimeController,
 ) *agenthost.Host {
@@ -184,6 +187,7 @@ func composeApplicationHost(
 		CanonicalStore: canonical, SessionManagement: sessionManagement,
 		SessionBatchManagement: sessionBatchManagement, SessionPurge: support.SessionPurge,
 		SessionForks: sessionForks, SessionForkRecovery: sessionForkRecovery,
+		HistoricalState:        historicalState,
 		SessionForkRuntime:     sessionForkRuntime,
 		SessionForkContext:     support.SessionForkContext,
 		SessionForkState:       support.SessionForkState,

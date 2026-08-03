@@ -66,13 +66,15 @@ type GoalOperationCommitted struct {
 }
 
 type CanonicalProjectionDirty struct {
-	WorkspaceID    string
-	AgentSessionID string
-	MutationID     string
-	EntityKind     string
-	EntityID       string
-	Operation      string
-	Version        int64
+	WorkspaceID        string
+	AgentSessionID     string
+	RootAgentSessionID string
+	RootTurnID         string
+	MutationID         string
+	EntityKind         string
+	EntityID           string
+	Operation          string
+	Version            int64
 }
 
 type CanonicalViewInvalidated struct {
@@ -161,6 +163,7 @@ func committedDeltaFromMutations(transactionID string, mutations []storesqlite.T
 	for _, mutation := range mutations {
 		delta.ProjectionDirty = append(delta.ProjectionDirty, CanonicalProjectionDirty{
 			WorkspaceID: mutation.WorkspaceID, AgentSessionID: mutation.AgentSessionID,
+			RootAgentSessionID: mutation.RootAgentSessionID, RootTurnID: mutation.RootTurnID,
 			MutationID: mutation.MutationID, EntityKind: mutation.EntityKind, EntityID: mutation.EntityID,
 			Operation: mutation.Operation, Version: mutation.Version,
 		})

@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import {
   agentComposerDraftFiles,
   agentComposerDraftImages,
@@ -75,7 +75,7 @@ describe("buildContinueInNewConversationDraft", () => {
         accountProfilesByUserId: {},
         activeConversationIdRef,
         activePendingActivation: null,
-        agentActivityRuntime: {} as AgentActivityRuntime,
+        agentActivityRuntime: {} as AgentGUIRuntime,
         conversations: [activeConversation],
         currentUserId: "user-1",
         draftByScopeKey: {},

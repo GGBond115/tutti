@@ -5,12 +5,15 @@ import type { PropsWithChildren } from "react";
 import { StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { useServiceSnapshot } from "../bindings/useServiceSnapshot";
+import { mobileThemePreferenceService } from "../mobileRuntime";
 
 export function MobileUIProviders({ children }: PropsWithChildren) {
+  const { preference } = useServiceSnapshot(mobileThemePreferenceService);
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
-        <NativeThemeProvider>
+        <NativeThemeProvider mode={preference}>
           <BottomSheetModalProvider>
             {children}
             <PortalHost />

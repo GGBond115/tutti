@@ -1,6 +1,11 @@
 package agentextension
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+const LocalPackageVersionMarker = "+local."
 
 type Installation struct {
 	SchemaVersion            string    `json:"schemaVersion"`
@@ -16,6 +21,14 @@ type Installation struct {
 	InstalledAt              time.Time `json:"installedAt"`
 	DisplayName              string    `json:"displayName"`
 	AuthMessage              string    `json:"authMessage"`
+}
+
+// HasLocalPackageProvenance reports whether this durable installation was
+// snapshotted from an explicit development package override. The version marker
+// is part of the installation identity contract; keep its interpretation in the
+// owning business model instead of duplicating it across service workflows.
+func (installation Installation) HasLocalPackageProvenance() bool {
+	return strings.Contains(installation.Version, LocalPackageVersionMarker)
 }
 
 type RuntimeBinaryArtifact struct {
@@ -71,10 +84,11 @@ type Manifest struct {
 		} `json:"launch"`
 	} `json:"runtime"`
 	Profiles struct {
-		Discovery    string `json:"discovery"`
-		Tools        string `json:"tools,omitempty"`
-		Capabilities string `json:"capabilities,omitempty"`
-		Composer     string `json:"composer,omitempty"`
-		Events       string `json:"events,omitempty"`
+		Discovery      string `json:"discovery"`
+		Tools          string `json:"tools,omitempty"`
+		Capabilities   string `json:"capabilities,omitempty"`
+		Composer       string `json:"composer,omitempty"`
+		Authentication string `json:"authentication,omitempty"`
+		Events         string `json:"events,omitempty"`
 	} `json:"profiles"`
 }

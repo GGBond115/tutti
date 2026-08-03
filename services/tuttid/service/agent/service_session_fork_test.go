@@ -9,7 +9,6 @@ import (
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 )
 
 type sessionForkCapabilityStore struct {
@@ -104,9 +103,9 @@ func TestWithSessionForkCapabilitiesUsesProviderSessionCapability(t *testing.T) 
 		t.Context(),
 		"workspace-1",
 		Session{
-			ID: "source-1", Kind: agentactivitybiz.SessionKindRoot,
-			LatestTurn: &agentactivitybiz.Turn{
-				TurnID: "turn-7", Phase: agentactivitybiz.TurnPhaseSettled,
+			ID: "source-1", Kind: storesqlite.SessionKindRoot,
+			LatestTurn: &storesqlite.Turn{
+				TurnID: "turn-7", Phase: storesqlite.TurnPhaseSettled,
 			},
 		},
 	)
@@ -163,7 +162,7 @@ func TestProtocolV2BatchProjectionDoesNotProbeSessionForkCapabilities(t *testing
 		t.Context(),
 		"workspace-1",
 		[]Session{{
-			ID: "source-1", Kind: agentactivitybiz.SessionKindRoot,
+			ID: "source-1", Kind: storesqlite.SessionKindRoot,
 		}},
 	)
 	if err != nil {
@@ -196,7 +195,7 @@ func TestMessageHydrationProjectionDoesNotProbeSessionForkCapabilities(t *testin
 		t.Context(),
 		"workspace-1",
 		Session{
-			ID: "source-1", Kind: agentactivitybiz.SessionKindRoot,
+			ID: "source-1", Kind: storesqlite.SessionKindRoot,
 		},
 		false,
 	)
@@ -376,9 +375,9 @@ func TestWithSessionForkCapabilitiesKeepsProviderCapabilityWhileBusy(t *testing.
 		t.Context(),
 		"workspace-1",
 		Session{
-			ID: "source-1", Kind: agentactivitybiz.SessionKindRoot,
-			LatestTurn: &agentactivitybiz.Turn{
-				TurnID: "turn-7", Phase: agentactivitybiz.TurnPhaseRunning,
+			ID: "source-1", Kind: storesqlite.SessionKindRoot,
+			LatestTurn: &storesqlite.Turn{
+				TurnID: "turn-7", Phase: storesqlite.TurnPhaseRunning,
 			},
 			ActiveTurnID: "turn-7",
 			LifecycleCapabilities: SessionLifecycleCapabilities{
@@ -672,6 +671,13 @@ func (*serviceSessionForkOperationRuntime) ResolveSessionFork(
 	}, nil
 }
 
+func (*serviceSessionForkOperationRuntime) CanForkProviderTurn(
+	context.Context,
+	agenthost.RuntimeProviderTurnForkabilityInput,
+) (bool, error) {
+	return true, nil
+}
+
 func (r *serviceSessionForkOperationRuntime) ForkSession(
 	context.Context,
 	agenthost.RuntimeSessionForkInput,
@@ -713,7 +719,8 @@ func (*serviceSessionForkOperationStore) CheckSessionForkThroughTurn(
 		},
 		Turn: storesqlite.Turn{
 			TurnID: throughTurnID, Phase: storesqlite.TurnPhaseSettled,
-			RootProviderTurnID: "provider-turn",
+			RootProviderTurnID:      "provider-turn",
+			ProviderTurnBindingJSON: []byte(`{"schemaVersion":1}`),
 		},
 	}, true, nil
 }
@@ -729,7 +736,8 @@ func (s *serviceSessionForkOperationStore) PrepareSessionFork(
 		TargetAgentSessionID:    input.TargetAgentSessionID,
 		SourceProviderSessionID: "provider-source",
 		SourceTurnID:            input.SourceTurnID, SourceProviderTurnID: "provider-turn",
-		DriverKind: input.DriverKind, DriverVersion: input.DriverVersion,
+		SourceProviderTurnBindingJSON: []byte(`{"schemaVersion":1}`),
+		DriverKind:                    input.DriverKind, DriverVersion: input.DriverVersion,
 		Status: storesqlite.SessionForkStatusPrepared,
 	}
 	return s.operation, true, nil

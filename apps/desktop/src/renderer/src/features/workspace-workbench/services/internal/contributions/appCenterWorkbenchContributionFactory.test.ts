@@ -31,7 +31,7 @@ test("workspace app browser feature keeps browser events connected", async () =>
     "workspace-app-open-url",
     (request) => {
       requests.push(request);
-      return true;
+      return "browser:opened";
     }
   );
 
@@ -46,6 +46,7 @@ test("workspace app browser feature keeps browser events connected", async () =>
   disposeLaunchHandler();
   assert.deepEqual(requests, [
     {
+      kind: "open",
       reuseIfOpen: false,
       source: "workspace_app",
       url: "https://example.com/app-link",
@@ -126,7 +127,7 @@ test("workspace app browser feature launches workspace app window-open events", 
     "workspace-app-window-open-url",
     (request) => {
       requests.push(request);
-      return true;
+      return "browser:opened";
     }
   );
 
@@ -141,6 +142,7 @@ test("workspace app browser feature launches workspace app window-open events", 
   disposeLaunchHandler();
   assert.deepEqual(requests, [
     {
+      kind: "open",
       reuseIfOpen: false,
       source: "workspace_app",
       url: "https://www.producthunt.com/products/vc-boom",
@@ -174,7 +176,7 @@ test("workspace app browser feature keeps current app runtime URLs inside the ap
     "workspace-app-runtime-open-url",
     (request) => {
       requests.push(request);
-      return true;
+      return "browser:opened";
     }
   );
 
@@ -195,6 +197,7 @@ test("workspace app browser feature keeps current app runtime URLs inside the ap
   disposeLaunchHandler();
   assert.deepEqual(requests, [
     {
+      kind: "open",
       reuseIfOpen: true,
       source: "workspace_app",
       url: "http://127.0.0.1:5678/local-preview",
@@ -228,7 +231,7 @@ test("workspace app browser feature keeps runtime-origin open-url inside the app
     "workspace-app-runtime-handoff-open-url",
     (request) => {
       requests.push(request);
-      return true;
+      return "browser:opened";
     }
   );
 
@@ -279,7 +282,7 @@ test("workspace app browser feature keeps dock entry runtime URLs inside the app
     "workspace-app-dock-entry-open-url",
     (request) => {
       requests.push(request);
-      return true;
+      return "browser:opened";
     }
   );
 
@@ -316,7 +319,7 @@ test("workspace app browser feature ignores workspace browser open-url events", 
     "workspace-app-ignored-browser-open-url",
     (request) => {
       requests.push(request);
-      return true;
+      return "browser:opened";
     }
   );
 

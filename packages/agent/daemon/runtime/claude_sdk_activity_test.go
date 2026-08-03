@@ -90,7 +90,7 @@ func TestClaudeCodeSDKAdapterMirrorsGoalSlashPromptIntoRuntimeContext(t *testing
 	}
 }
 
-func TestClaudeCodeSDKAdapterMapsGoalUpdatedSidecarEvent(t *testing.T) {
+func TestClaudeCodeSDKAdapterMapsGoalObservedSidecarEvent(t *testing.T) {
 	t.Parallel()
 
 	adapter := NewClaudeCodeSDKAdapter(nil)
@@ -100,7 +100,7 @@ func TestClaudeCodeSDKAdapterMapsGoalUpdatedSidecarEvent(t *testing.T) {
 	session := standardTestSession(ProviderClaudeCode)
 
 	events, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-goal", claudeSDKSidecarEvent{
-		Type: "goal_updated",
+		Type: "goal_observed",
 		Payload: map[string]any{
 			"turnId":     "turn-goal",
 			"updateType": "thread_goal_update",
@@ -112,7 +112,7 @@ func TestClaudeCodeSDKAdapterMapsGoalUpdatedSidecarEvent(t *testing.T) {
 		},
 	})
 	if err != nil || terminal {
-		t.Fatalf("goal_updated terminal=%v err=%v", terminal, err)
+		t.Fatalf("goal_observed terminal=%v err=%v", terminal, err)
 	}
 	if len(activityEventsWithType(events, activityshared.EventSessionUpdated)) < 2 {
 		t.Fatalf("events = %#v, want goal session.updated events", events)
@@ -123,7 +123,7 @@ func TestClaudeCodeSDKAdapterMapsGoalUpdatedSidecarEvent(t *testing.T) {
 	}
 
 	events, terminal, err = adapter.sidecarTurnEvents(adapterSession, session, "turn-goal", claudeSDKSidecarEvent{
-		Type: "goal_updated",
+		Type: "goal_observed",
 		Payload: map[string]any{
 			"turnId":     "turn-goal",
 			"updateType": "thread_goal_cleared",
@@ -145,7 +145,7 @@ func TestClaudeCodeSDKAdapterExecLeavesInitialTitleToController(t *testing.T) {
 	session := standardTestSession(ProviderClaudeCode)
 	conn := &scriptedClaudeSDKConnection{
 		frames: []ProcessFrame{{
-			Stdout: []byte(`{"type":"turn_completed","payload":{"turnId":"turn-1","stopReason":"end_turn"}}` + "\n"),
+			Stdout: []byte(`{"type":"provider_turn_identity_resolved","payload":{"turnId":"turn-1","providerTurnId":"provider-turn-1"}}` + "\n" + `{"type":"turn_completed","payload":{"turnId":"turn-1","providerTurnId":"provider-turn-1","stopReason":"end_turn"}}` + "\n"),
 		}},
 	}
 	adapterSession := &claudeSDKAdapterSession{

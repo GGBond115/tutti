@@ -538,6 +538,7 @@ export const AgentGUIConversationRailPane = memo(
             variant="secondary"
             size="dialog"
             className={styles.newConversationIconButton}
+            data-testid="agent-gui-new-conversation"
             title={labels.newConversation}
             disabled={createConversationDisabled}
             onClick={() => onCreateConversation()}

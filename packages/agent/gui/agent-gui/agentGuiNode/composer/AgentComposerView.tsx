@@ -237,6 +237,12 @@ export function AgentComposerView(input: Props): React.JSX.Element {
     <form
       ref={input.composerRef}
       className={composerClassName}
+      data-testid={
+        input.props.activeTurnId?.trim()
+          ? "agent-gui-composer-active-turn"
+          : undefined
+      }
+      data-agent-turn-id={input.props.activeTurnId?.trim() || undefined}
       data-layout={layoutMode}
       style={composerStyle}
       onSubmit={submit}
@@ -391,6 +397,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
                     placeholder={effectivePlaceholder}
                     disabled={inputDisabled}
                     className={styles.composerTextarea}
+                    testId="agent-gui-composer-editor"
                     onChange={handleDraftChange}
                     onContentLayoutInvalidated={
                       input.layout.invalidateComposerMeasurement

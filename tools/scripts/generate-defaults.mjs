@@ -98,11 +98,12 @@ var generatedDefaults = generatedDefaultsSpec{
 ${(specification.agentExtensions?.sources ?? [])
   .map(
     (source) => `\t\t\t{
-\t\t\t\tKey:              ${goString(source.key)},
-\t\t\t\tReleaseIndexURL:  ${goString(source.releaseIndexUrl)},
-\t\t\t\tSigningKeyID:     ${goString(source.signingKeyId)},
-\t\t\t\tSigningPublicKey: ${goString(source.signingPublicKey)},
-\t\t\t\tEnabled:          ${source.enabled},
+\t\t\t\tKey:                      ${goString(source.key)},
+\t\t\t\tReleaseIndexURL:          ${goString(source.releaseIndexUrl)},
+\t\t\t\tFallbackReleaseIndexURLs: ${goStringSlice(source.fallbackReleaseIndexUrls)},
+\t\t\t\tSigningKeyID:             ${goString(source.signingKeyId)},
+\t\t\t\tSigningPublicKey:         ${goString(source.signingPublicKey)},
+\t\t\t\tEnabled:                  ${source.enabled},
 \t\t\t},`
   )
   .join("\n")}
@@ -159,6 +160,10 @@ export async function renderTSDefaults(specification) {
 
 function goString(value) {
   return JSON.stringify(value);
+}
+
+function goStringSlice(values = []) {
+  return `[]string{${values.map(goString).join(", ")}}`;
 }
 
 function formatGo(content) {

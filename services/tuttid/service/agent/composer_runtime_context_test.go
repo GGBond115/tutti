@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
-func TestComposerRuntimeContextRejoinsExactPersistedMetadataCapabilities(t *testing.T) {
+func TestComposerRuntimeContextProjectsExactPersistedCapabilities(t *testing.T) {
 	project := t.TempDir()
 	settings := ComposerSettings{ReasoningEffort: "high"}
 	ref := map[string]any{"kind": "agent_extension", "extensionInstallationId": "example@1.0.0"}
@@ -37,34 +37,34 @@ func TestComposerRuntimeContextRejoinsExactPersistedMetadataCapabilities(t *test
 	service.SessionReader = fakeSessionReader{sessions: map[string]PersistedSession{
 		"workspace-1:exact": {
 			ID: "exact", WorkspaceID: "workspace-1", Provider: "acp:example", AgentTargetID: "extension:example",
-			Metadata:               agentactivitybiz.SessionMetadata{Capabilities: []string{"imageInput", "interrupt"}},
+			Capabilities:           canonical.NewCapabilitySnapshot([]string{"imageInput", "interrupt"}),
 			InternalRuntimeContext: exact, UpdatedAtUnixMS: 100,
 		},
 		"workspace-1:wrong-installation": {
 			ID: "wrong-installation", WorkspaceID: "workspace-1", Provider: "acp:example", AgentTargetID: "extension:example",
-			Metadata:               agentactivitybiz.SessionMetadata{Capabilities: []string{"planMode"}},
+			Capabilities:           canonical.NewCapabilitySnapshot([]string{"planMode"}),
 			InternalRuntimeContext: wrongInstallation, UpdatedAtUnixMS: 500,
 		},
 		"workspace-1:wrong-project": {
 			ID: "wrong-project", WorkspaceID: "workspace-1", Provider: "acp:example", AgentTargetID: "extension:example",
-			Metadata:               agentactivitybiz.SessionMetadata{Capabilities: []string{"planMode"}},
+			Capabilities:           canonical.NewCapabilitySnapshot([]string{"planMode"}),
 			InternalRuntimeContext: wrongProject, UpdatedAtUnixMS: 600,
 		},
 		"workspace-1:wrong-settings": {
 			ID: "wrong-settings", WorkspaceID: "workspace-1", Provider: "acp:example", AgentTargetID: "extension:example",
-			Metadata:               agentactivitybiz.SessionMetadata{Capabilities: []string{"planMode"}},
+			Capabilities:           canonical.NewCapabilitySnapshot([]string{"planMode"}),
 			InternalRuntimeContext: wrongSettings, UpdatedAtUnixMS: 700,
 		},
 		"workspace-1:wrong-target": {
 			ID: "wrong-target", WorkspaceID: "workspace-1", Provider: "acp:example", AgentTargetID: "extension:other",
-			Metadata:               agentactivitybiz.SessionMetadata{Capabilities: []string{"planMode"}},
+			Capabilities:           canonical.NewCapabilitySnapshot([]string{"planMode"}),
 			InternalRuntimeContext: exact, UpdatedAtUnixMS: 800,
 		},
 	}}
 
 	context := service.composerRuntimeContextFromSession(scope)
 	if got := stringSliceFromAny(context["capabilities"]); !slices.Equal(got, []string{"imageInput", "interrupt"}) {
-		t.Fatalf("persisted capabilities = %#v, want metadata capabilities rejoined", got)
+		t.Fatalf("persisted capabilities = %#v, want typed capabilities projected", got)
 	}
 }
 

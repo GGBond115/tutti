@@ -64,18 +64,24 @@ final class MobileSecurityModule: NSObject {
     rejecter reject: RCTPromiseRejectBlock
   ) {
     do {
-      resolve(try store.loadSession())
+      guard var session = try store.loadSession() else {
+        resolve(nil)
+        return
+      }
+      session["avatarURL"] = session["avatarURL"] ?? ""
+      resolve(session)
     } catch {
       reject("SESSION_READ_FAILED", "Unable to read account session", error)
     }
   }
 
-  @objc(saveSession:userId:email:name:resolver:rejecter:)
+  @objc(saveSession:userId:email:name:avatarURL:resolver:rejecter:)
   func saveSession(
     _ sessionID: String,
     userId: String,
     email: String,
     name: String,
+    avatarURL: String,
     resolver resolve: RCTPromiseResolveBlock,
     rejecter reject: RCTPromiseRejectBlock
   ) {
@@ -85,6 +91,7 @@ final class MobileSecurityModule: NSObject {
         "userId": userId.trimmingCharacters(in: .whitespacesAndNewlines),
         "email": email.trimmingCharacters(in: .whitespacesAndNewlines),
         "name": name.trimmingCharacters(in: .whitespacesAndNewlines),
+        "avatarURL": avatarURL.trimmingCharacters(in: .whitespacesAndNewlines),
       ])
       resolve(nil)
     } catch {

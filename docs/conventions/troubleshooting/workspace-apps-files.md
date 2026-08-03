@@ -66,7 +66,7 @@
   uninstalled apps without invoking the runtime resolver.
 - References:
   [apps.go](../../../services/tuttid/service/workspace/apps.go)
-  [apps_test.go](../../../services/tuttid/service/workspace/apps_test.go)
+  [apps_catalog_test.go](../../../services/tuttid/service/workspace/apps_catalog_test.go)
 
 ### Workspace app commands fail inside Corepack before pnpm starts
 

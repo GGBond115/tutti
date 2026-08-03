@@ -6,6 +6,7 @@ export interface CanonicalSubmitAvailability {
     | "active_turn"
     | "agent_capability_checking"
     | "agent_capability_unavailable"
+    | "agent_sharing_revoked"
     | "waiting"
     | "transport_reconnecting"
     | "transport_unavailable";

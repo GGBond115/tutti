@@ -89,6 +89,8 @@ const schemaMigrationWorkspaceTuttiModeLegacyRecoveryCleanupV6 = "workspace_tutt
 const schemaMigrationAgentSessionReplayV1 = "agent_session_replay_v1"
 const schemaMigrationAgentSessionReplayV2 = "agent_session_replay_v2"
 const schemaMigrationAgentProviderRuntimeSelectionsV1 = "agent_provider_runtime_selections_v1"
+const schemaMigrationAgentSessionReplayV3 = "agent_session_replay_v3"
+const schemaMigrationAgentSessionReplayV4 = "agent_session_replay_v4"
 
 func (s *SQLiteStore) Migrate(ctx context.Context) error {
 	if s == nil || s.writeDB == nil {
@@ -390,6 +392,12 @@ INSERT OR IGNORE INTO tuttid_schema_migrations (id, applied_at_unix_ms)
 		return err
 	}
 	if err := s.applyAgentProviderRuntimeSelectionsV1(ctx); err != nil {
+		return err
+	}
+	if err := s.applyAgentSessionReplayV3(ctx); err != nil {
+		return err
+	}
+	if err := s.applyAgentSessionReplayV4(ctx); err != nil {
 		return err
 	}
 	return s.openReadPool(ctx)

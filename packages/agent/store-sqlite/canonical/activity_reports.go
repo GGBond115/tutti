@@ -63,7 +63,9 @@ type WorkspaceAgentSessionStateUpdate struct {
 	ProviderSessionID     string                                    `json:"providerSessionId,omitempty"`
 	Model                 string                                    `json:"model,omitempty"`
 	Settings              map[string]any                            `json:"settings,omitempty"`
+	Capabilities          *CapabilitySnapshot                       `json:"capabilities,omitempty"`
 	RuntimeContext        map[string]any                            `json:"runtimeContext,omitempty"`
+	RuntimeContextPatch   *RuntimeContextPatch                      `json:"runtimeContextPatch,omitempty"`
 	TurnLifecycle         *WorkspaceAgentTurnLifecycle              `json:"turnLifecycle,omitempty"`
 	SubmitAvailability    *WorkspaceAgentSubmitAvailability         `json:"submitAvailability,omitempty"`
 	InteractionTransition *WorkspaceAgentInteractionTransition      `json:"interactionTransition,omitempty"`
@@ -80,6 +82,34 @@ type WorkspaceAgentSessionStateUpdate struct {
 	RootProviderTurn      *WorkspaceAgentRootProviderTurnTransition `json:"rootProviderTurn,omitempty"`
 }
 
+// RuntimeContextPatch updates provider-private runtime context by top-level
+// key. Set values replace existing values; Unset removes keys explicitly.
+type RuntimeContextPatch struct {
+	Set   map[string]any `json:"set,omitempty"`
+	Unset []string       `json:"unset,omitempty"`
+}
+
+// IsReservedRuntimeContextKey reports whether a key belongs to canonical
+// session metadata rather than provider-private runtime context.
+func IsReservedRuntimeContextKey(key string) bool {
+	switch strings.TrimSpace(key) {
+	case "visible", "imported", "capabilities", "capabilitiesReported", "usage", "goal":
+		return true
+	default:
+		return false
+	}
+}
+
+func CloneRuntimeContextPatch(value *RuntimeContextPatch) *RuntimeContextPatch {
+	if value == nil {
+		return nil
+	}
+	return &RuntimeContextPatch{
+		Set:   cloneJSONMap(value.Set),
+		Unset: append([]string(nil), value.Unset...),
+	}
+}
+
 type RailPlacement struct {
 	Kind        string `json:"kind"`
 	ProjectPath string `json:"projectPath,omitempty"`
@@ -87,14 +117,14 @@ type RailPlacement struct {
 }
 
 type WorkspaceAgentRootProviderTurnTransition struct {
-	RootTurnID                  string                          `json:"rootTurnId"`
-	ProviderTurnID              string                          `json:"providerTurnId"`
-	ProviderCheckpointMessageID string                          `json:"providerCheckpointMessageId,omitempty"`
-	Phase                       string                          `json:"phase,omitempty"`
-	Outcome                     string                          `json:"outcome,omitempty"`
-	CompletedCommand            *WorkspaceAgentCompletedCommand `json:"completedCommand,omitempty"`
-	ErrorMessage                string                          `json:"errorMessage,omitempty"`
-	ErrorCode                   string                          `json:"errorCode,omitempty"`
+	RootTurnID              string                          `json:"rootTurnId"`
+	ProviderTurnID          string                          `json:"providerTurnId"`
+	ProviderTurnBindingJSON json.RawMessage                 `json:"providerTurnBindingJson,omitempty"`
+	Phase                   string                          `json:"phase,omitempty"`
+	Outcome                 string                          `json:"outcome,omitempty"`
+	CompletedCommand        *WorkspaceAgentCompletedCommand `json:"completedCommand,omitempty"`
+	ErrorMessage            string                          `json:"errorMessage,omitempty"`
+	ErrorCode               string                          `json:"errorCode,omitempty"`
 }
 
 type WorkspaceAgentTurnStateUpdate struct {

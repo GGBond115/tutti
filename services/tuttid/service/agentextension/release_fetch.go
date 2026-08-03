@@ -117,9 +117,66 @@ func (m *Manager) getJSON(ctx context.Context, rawURL string, limit int64, targe
 	if err != nil {
 		return err
 	}
+	return decodeJSON(data, target)
+}
+
+func decodeJSON(data []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(target)
+}
+
+func (m *Manager) resolveReleaseRecord(
+	ctx context.Context,
+	source tuttitypes.AgentExtensionSource,
+) (VersionRecord, error) {
+	indexURLs := releaseIndexURLs(source)
+	if len(indexURLs) == 0 {
+		return VersionRecord{}, errors.New("agent extension release index URL is required")
+	}
+	var fetchErrors []error
+	for _, indexURL := range indexURLs {
+		data, err := m.getBytes(ctx, indexURL, maxIndexBytes)
+		if err != nil {
+			fetchErrors = append(fetchErrors, fmt.Errorf("fetch release index %s: %w", indexURL, err))
+			continue
+		}
+		// Once an index is fetched, it is the configured authority for this
+		// source. Invalid JSON, identity, compatibility, withdrawal, or
+		// signature state must fail closed instead of reviving a release from a
+		// lower-priority legacy index.
+		var versions Versions
+		if err := decodeJSON(data, &versions); err != nil {
+			return VersionRecord{}, fmt.Errorf("decode release index %s: %w", indexURL, err)
+		}
+		record, err := selectVersion(versions, source.Key, tuttitypes.ResolveAppVersion())
+		if err != nil {
+			return VersionRecord{}, fmt.Errorf("select release from index %s: %w", indexURL, err)
+		}
+		if err := verifyRelease(record.Release, source); err != nil {
+			return VersionRecord{}, fmt.Errorf("verify release from index %s: %w", indexURL, err)
+		}
+		return record, nil
+	}
+	return VersionRecord{}, errors.Join(fetchErrors...)
+}
+
+func releaseIndexURLs(source tuttitypes.AgentExtensionSource) []string {
+	candidates := append([]string{source.ReleaseIndexURL}, source.FallbackReleaseIndexURLs...)
+	result := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		indexURL := strings.TrimSpace(candidate)
+		if indexURL == "" {
+			continue
+		}
+		if _, duplicate := seen[indexURL]; duplicate {
+			continue
+		}
+		seen[indexURL] = struct{}{}
+		result = append(result, indexURL)
+	}
+	return result
 }
 
 func (m *Manager) getBytes(ctx context.Context, rawURL string, limit int64) ([]byte, error) {

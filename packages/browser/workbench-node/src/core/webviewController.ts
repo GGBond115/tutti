@@ -41,6 +41,7 @@ interface BrowserNodeWebviewControllerContext {
   feature: BrowserNodeFeature;
   initialUrl: string;
   lifecycle: BrowserNodeLifecycle;
+  materializeCold?: boolean;
   navigationPolicy?: BrowserNodeNavigationPolicy | null;
   nodeId: string;
   onGuestInteraction?: () => void;
@@ -83,6 +84,7 @@ export function acquireBrowserNodeWebviewController(input: {
   feature: BrowserNodeFeature;
   initialUrl: string;
   lifecycle: BrowserNodeLifecycle;
+  materializeCold?: boolean;
   navigationPolicy?: BrowserNodeNavigationPolicy | null;
   nodeId: string;
   onGuestInteraction?: () => void;
@@ -98,6 +100,7 @@ export function acquireBrowserNodeWebviewController(input: {
       feature: input.feature,
       initialUrl: input.initialUrl,
       lifecycle: input.lifecycle,
+      materializeCold: input.materializeCold,
       navigationPolicy: input.navigationPolicy,
       nodeId: input.nodeId,
       onGuestInteraction: input.onGuestInteraction,
@@ -111,6 +114,7 @@ export function acquireBrowserNodeWebviewController(input: {
     feature: input.feature,
     initialUrl: input.initialUrl,
     lifecycle: input.lifecycle,
+    materializeCold: input.materializeCold,
     navigationPolicy: input.navigationPolicy,
     nodeId: input.nodeId,
     onGuestInteraction: input.onGuestInteraction,
@@ -223,7 +227,12 @@ function resolveBrowserNodeWebviewControllerState(
   });
   return {
     devToolsContextMenu: null,
-    shouldRenderWebview: context.lifecycle !== "cold",
+    // Automation-created pages intentionally start at about:blank so Electron
+    // can attach the CDP request guard before loading the requested URL. Only
+    // the explicit creation intent may materialize a cold guest; target
+    // metadata alone also exists on ordinary Browser tabs.
+    shouldRenderWebview:
+      context.lifecycle !== "cold" || context.materializeCold === true,
     webviewKey: `${context.nodeId}:${webviewPartition}`,
     webviewPartition,
     webviewSrc: browserNodeInitialWebviewSrc

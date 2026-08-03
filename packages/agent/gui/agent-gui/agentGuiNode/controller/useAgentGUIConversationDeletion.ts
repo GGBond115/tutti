@@ -6,7 +6,7 @@ import {
   type SetStateAction
 } from "react";
 import { flushSync } from "react-dom";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { useAgentHostApi } from "../../../agentActivityHost";
 import type { AgentSessionViewRef } from "../../../contexts/workspace/presentation/renderer/agentSessions/useAgentSessionPagingState";
 import type { useAgentGUIActivation } from "./useAgentGUIActivation";
@@ -45,7 +45,7 @@ export interface UseAgentGUIConversationDeletionInput {
     origin: string;
   };
   activation: ReturnType<typeof useAgentGUIActivation>;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   setDraftByScopeKey: Dispatch<
     SetStateAction<Record<string, AgentComposerDraft>>
   >;

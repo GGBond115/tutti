@@ -4,6 +4,7 @@ import type { SendInputResultValidation } from "./commandResult.validation.ts";
 import type {
   PendingIntentsState,
   PendingSubmitIntentRecord,
+  PendingSubmitSource,
   SubmitRequestedIntent
 } from "./pendingIntents.types.ts";
 import { canonicalTurnKey } from "./sessionEntityKeys.ts";
@@ -17,15 +18,18 @@ const NO_COMMANDS: readonly EngineCommand[] = [];
 
 export function requestSubmit(
   state: PendingIntentsState,
-  intent: SubmitRequestedIntent
+  intent: SubmitRequestedIntent,
+  source?: PendingSubmitSource
 ): EngineReducerResult<PendingIntentsState> {
   const clientSubmitId = intent.clientSubmitId.trim();
   const agentSessionId = intent.agentSessionId.trim();
+  const normalizedSource = source ? normalizePendingSubmitSource(source) : null;
   if (
     !clientSubmitId ||
     !agentSessionId ||
     intent.content.length === 0 ||
-    state.submitsByClientSubmitId[clientSubmitId]
+    state.submitsByClientSubmitId[clientSubmitId] ||
+    (source !== undefined && normalizedSource === null)
   ) {
     return unchanged(state);
   }
@@ -48,6 +52,7 @@ export function requestSubmit(
       ? { submitDiagnostics: { ...intent.submitDiagnostics } }
       : {}),
     requestedAtUnixMs: intent.requestedAtUnixMs,
+    ...(normalizedSource ? { source: normalizedSource } : {}),
     status: "requested",
     turnId: null,
     workspaceId: intent.workspaceId
@@ -62,6 +67,16 @@ export function requestSubmit(
     ],
     state: replaceSubmit(state, record)
   };
+}
+
+function normalizePendingSubmitSource(
+  source: PendingSubmitSource
+): PendingSubmitSource | null {
+  const requestId = source.requestId.trim();
+  const turnId = source.turnId.trim();
+  return source.kind === "plan-feedback" && requestId && turnId
+    ? { kind: source.kind, requestId, turnId }
+    : null;
 }
 
 export function settleSubmitCommand(

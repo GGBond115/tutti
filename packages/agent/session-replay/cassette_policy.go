@@ -39,14 +39,12 @@ var (
 	MaxCassetteBytes          = PortableCassettePolicy.Limits.MaxCassetteBytes
 	MaxPortableBlobBytes      = PortableCassettePolicy.Limits.MaxPortableBlobBytes
 
-	ScenarioFile         = cassettePolicyPath("scenario")
-	EnvironmentFile      = cassettePolicyPath("environment")
 	ActivityEventsFile   = cassettePolicyPath("activityEvents")
-	CheckpointsFile      = cassettePolicyPath("checkpoints")
-	SeedFixtureFile      = cassettePolicyPath("seedFixture")
+	CheckpointPlanFile   = cassettePolicyPath("checkpointPlan")
+	InitialStateFile     = cassettePolicyPath("initialState")
 	ProviderManifestFile = cassettePolicyPath("providerManifest")
 	ProviderFramesFile   = cassettePolicyPath("providerFrames")
-	ExpectedFixtureFile  = cassettePolicyPath("expectedFixture")
+	ExpectedStateFile    = cassettePolicyPath("expectedState")
 	BlobManifestFile     = cassettePolicyPath("blobManifest")
 	CassetteManifestFile = cassettePolicyPath("cassetteManifest")
 )

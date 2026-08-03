@@ -214,6 +214,21 @@ transport、Agent live Subscriber 和产品 adapter 的现有所有权，不把 
 `cocoapods_pathname_workaround.rb`；GitHub macOS runner 和本机 pnpm workspace
 都可能在 CocoaPods 生成工程时触发该符号链接解析缺陷。
 
+### 账号浏览器认证边界
+
+Mobile 继续复用 Desktop 使用的托管 Web 登录页、localhost callback bridge 和账号
+服务的一次性 transfer code，不维护独立登录页，也不把 provider 凭据或网页 Cookie
+带入 App。平台原生层只负责展示与回到前台：Android 在默认浏览器支持时使用
+AndroidX Auth Tab，不支持时降级到外部系统浏览器；iOS 使用
+`ASWebAuthenticationSession`。两端都以 `tutti://auth/login` 作为原生认证会话的
+callback，同时仍由 localhost bridge 交付 transfer code，因此展示方式不会成为新的
+账号 session owner。
+
+托管结果页应继续保留手动“打开 App”入口，供 Android 外部浏览器降级路径恢复。
+不要把 provider OAuth callback 改成 Mobile 专属页面，也不要绕过现有 transfer code
+兑换逻辑。后续若启用 verified App/Universal Links，应只替换前台返回地址，不改变
+Web 登录和账号会话边界。
+
 ## 5. 正式 App 的日常开发循环
 
 典型开发循环是：
@@ -261,8 +276,34 @@ screen composition and product-specific interaction.
 - `MobileUIProviders` owns the gesture root, safe-area provider, Bottom Sheet
   modal provider, and RN Primitives portal host. Do not mount duplicate roots
   inside screens.
+- Every screen with editable content uses the app-owned
+  `MobileKeyboardAvoidingView`: iOS applies keyboard padding, Android reduces
+  the available height, and Android keeps Activity `adjustResize` enabled for
+  edge-to-edge compatibility. The wrapper includes the top safe-area inset as
+  its screen-to-content offset; full-screen modal windows override that offset
+  to zero and bound keyboard-editable panels relative to the remaining height
+  instead of a fixed screen height. Scrollable content uses interactive
+  keyboard dismissal on iOS and on-drag dismissal on Android. Do not store
+  keyboard height in a service or add per-screen native keyboard listeners.
 - In a debug build, open the React Native developer menu and choose “Native UI
   gallery” to review the shared Native primitives on the actual renderer.
+- The authenticated computer screen exposes the account avatar as the direct
+  entry to the Mobile Settings screen. Settings currently owns the account
+  summary, installed app version, About Tutti summary, and confirmed sign-out;
+  it does not duplicate the computer list. The account service's avatar URL is
+  persisted with the secure session on both platforms, while sessions written
+  before that field existed continue to use the account-label fallback.
+  Software Update is an informational settings row until a signed release
+  manifest and updater service are introduced; the UI must not claim that an
+  update check ran before that application capability exists.
+- Mobile Settings exposes the device-local theme preference directly in the App
+  section. The row opens a compact single-choice sheet for system, light, and
+  dark modes; selection applies immediately across the full app and status bar.
+  Android persists the preference in private `SharedPreferences`, while iOS
+  uses `UserDefaults`. The preference survives sign-out and restart, does not
+  sync with Desktop or the account, and falls back to system for missing or
+  unsupported stored values. A failed write restores the previous theme and
+  reports the failure to the user.
 - React Native Reusables is a source-copy starting point for a Native primitive;
   adapt and promote a component into the UI System Native layer before an app
   consumes it. Apps must not acquire direct third-party component imports.
@@ -270,9 +311,10 @@ screen composition and product-specific interaction.
   and dynamic-height sheets; wrap it behind a UI System Native component when
   it becomes a reusable product pattern. The shared compact `NativeSheet` uses
   React Native's window-level `Modal` instead, so its controlled open state does
-  not pass through `@gorhom/portal`. Callers provide its localized accessible
-  close label and may set one fixed height; multi-snap behavior remains outside
-  the compact primitive.
+  not pass through `@gorhom/portal`. It owns keyboard avoidance inside that
+  separate window; callers provide its localized accessible close label and may
+  set one fixed height. Multi-snap behavior remains outside the compact
+  primitive.
 - Agent message Markdown is rendered natively with
   `react-native-enriched-markdown`; it consumes the existing AgentGUI
   conversation VM and maps every color, radius, and spacing decision back to
@@ -290,9 +332,22 @@ screen composition and product-specific interaction.
 
 需要在没有本机开发环境的真机上测试时，可从 GitHub Actions 手动运行
 `Mobile Internal Build` 并选择 `android`。它只上传保留 14 天的内部 artifact
-`tutti-mobile-internal-<commit>`，其中的 `tutti-mobile-internal.apk` 已嵌入
-JavaScript bundle，可直接侧载；不会创建 GitHub Release 或公开下载链接。每次
-运行使用新的临时签名 key，安装新构建前可能需要先卸载手机上的旧内部构建。
+`tutti-mobile-internal-<commit>`，其中的 `app-release.apk` 已嵌入 JavaScript
+bundle，可直接侧载；不会创建 GitHub Release 或公开下载链接。所有 Android
+artifact 使用同一把长期 release key 签名，因此可覆盖升级并为后续自动更新保留
+稳定的应用身份。CI 同时用仓库级 `github.run_number` 写入单调递增的 Android
+`versionCode`；`versionName` 仍由应用源码管理。工作流从 GitHub Actions Secrets
+读取以下四项，缺失任何一项都会在构建前失败，不得回退到临时 key 或 unsigned APK：
+
+- `ANDROID_RELEASE_KEYSTORE_BASE64`
+- `ANDROID_RELEASE_KEYSTORE_PASSWORD`
+- `ANDROID_RELEASE_KEY_ALIAS`
+- `ANDROID_RELEASE_KEY_PASSWORD`
+
+release keystore 必须在 GitHub 之外另做加密备份。GitHub Secret 的值无法再次读取，
+丢失私钥后将无法向已经安装该签名版本的用户提供原地升级。仓库只提交可公开的
+`apps/mobile/android/release-certificate.pem`；CI 会把 APK 的证书指纹与它比对，
+防止 Actions Secrets 被误换后产出另一条无法升级的签名链。
 
 在 iOS 真机上测试时，运行同一工作流并选择 `ios`。它使用仓库已有的 App Store
 Connect API Key 和 `IOS_DEVELOPMENT_TEAM` 仓库变量，让 Xcode 自动管理云签名并
@@ -363,7 +418,7 @@ Google Play 账号。以下事项等正式分发前再处理：
 
 - 最终 Android application ID
 - 正式应用名称和图标
-- release keystore 的保管方式
+- release keystore 的额外离线备份和密钥轮换应急方案
 - Google Play Console 账号和签名策略
 - 隐私政策、商店截图和分发地区
 
@@ -402,7 +457,9 @@ Google Play 账号。以下事项等正式分发前再处理：
 - Personal `tuttid` 已接入设备注册、QR challenge、Desktop confirm、配对列表和撤销；
 - Personal 配对 API 已进入生成的 Go/TypeScript daemon client，账号 cookie 和设备私钥不会返回给 UI。
 - Desktop 设置页已接入二维码创建、配对码复制、轮询确认和撤销；
-- `apps/mobile` 已接入系统浏览器 GitHub 登录和邮箱验证码登录、Android Keystore
+- Desktop owner host 仅在持久化的 `mobile.remoteAccessSettings` 能力开关开启时
+  轮询配对和 DeviceLink attempt 控制面；关闭会停止 discovery 并断开已有远程链路；
+- `apps/mobile` 已接入平台原生浏览器认证 GitHub 登录和邮箱验证码登录、Android Keystore
   设备身份、设备列表、内置 ZXing 二维码扫描或手动粘贴配对码，以及 challenge
   claim/poll；
 - React Native 0.86、Kotlin native module、DeviceLink AAR 和四 ABI debug APK
@@ -432,6 +489,8 @@ Google Play 账号。以下事项等正式分发前再处理：
   消息读取、新建/切换、发送、停止和结构化 Interaction 提交；Native 对话流遵循同一份
   消息合并、思考、工具活动、处理态和 Turn summary 语义，并复用 AgentGUI 的
   `following` / `detached` 末尾跟随状态机；Mobile 只负责原生手势、滚动执行与展开状态。
+  会话列表标题显示当前电脑和连接状态；连接详情仅展示 Native ICE 分类后的路径范围、
+  端到端 P2P 通道和即时健康探测耗时，不暴露 candidate 或地址信息。
   切换会话会定位最新内容，流式更新只在 `following` 时跟随；主动上滑会在首个滚动帧前
   进入 `detached` 并提供回到底部入口，内容增长和近底部几何不能自行恢复跟随；加载历史
   消息时保持当前阅读锚点；
@@ -487,10 +546,11 @@ Google Play 账号。以下事项等正式分发前再处理：
 
 ## 10. Personal MVP 真机验收
 
-这一步需要真实 Tutti 账号和 Android 13 或更高版本的手机。GitHub 登录会打开系统
-浏览器，并通过短时 localhost bridge 将一次性 transfer code 返回 App；GitHub
-凭据和网页 Cookie 不会进入 App。邮箱验证码仍可作为备选。不要在 Issue、PR、聊天
-或日志中粘贴验证码、session cookie、二维码、transfer code 或配对码。
+这一步需要真实 Tutti 账号和 Android 13 或更高版本的手机。App 只提供一个 Tutti
+账号登录入口；它会打开平台浏览器认证会话，由托管登录页提供具体登录方式，并通过
+短时 localhost bridge 将一次性 transfer code 返回 App。App 不再内置邮箱验证码
+表单，账号凭据和网页 Cookie 也不会进入 App。不要在 Issue、PR、聊天或日志中粘贴
+验证码、session cookie、二维码、transfer code 或配对码。
 
 ### 10.1 启动当前分支的 Desktop
 
@@ -534,9 +594,9 @@ pnpm mobile:android
 ```
 
 App 启动后，使用与 Desktop 相同的账号登录方式。如果 Desktop 使用 GitHub 登录，
-Mobile 也点击“使用 GitHub 登录”并在系统浏览器中完成登录；仅输入 GitHub 展示的
+Mobile 也点击“使用 GitHub 登录”并在平台浏览器认证会话中完成登录；仅输入 GitHub 展示的
 相同邮箱不保证得到同一个账号 identity。Desktop 先在设置的开发者页打开
-“显示手机远程访问设置”，再进入「连接」并点击“配对手机”生成二维码。Mobile
+“启用手机远程访问”，再进入「连接」并点击“配对手机”生成二维码。Mobile
 登录成功后点击配对，优先扫描 Desktop 二维码。首次扫码时允许 App 使用相机；如果
 当前环境无法使用相机，就在 Desktop 点击“复制配对码”，再在 Mobile 展开手动配对
 入口并粘贴。

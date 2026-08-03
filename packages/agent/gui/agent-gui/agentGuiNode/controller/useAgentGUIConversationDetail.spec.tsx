@@ -1,7 +1,7 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { normalizeAgentActivitySession } from "@tutti-os/agent-activity-core";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { createTestAgentSessionEngine } from "../../../shared/testing/createTestAgentSessionEngine";
 import type { AgentGUIConversationSummary } from "../model/agentGuiConversationModel";
 import { buildAgentComposerDraft } from "../model/agentComposerDraft";
@@ -35,7 +35,7 @@ function conversationDetailInput(
     activeSessionView: null,
     activeTimelineItems: [],
     activeTurn: null,
-    agentActivityRuntime: {} as AgentActivityRuntime,
+    agentActivityRuntime: {} as AgentGUIRuntime,
     avoidGroupingEdits: false,
     codeFor: () => null,
     detailError: null,

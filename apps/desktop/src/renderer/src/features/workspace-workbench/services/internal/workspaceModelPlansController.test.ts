@@ -710,6 +710,212 @@ test("WorkspaceModelPlansController records a failed enable toggle inline", asyn
   assert.equal(store.modelPlans.plans[0]?.enabled, true);
 });
 
+test("WorkspaceModelPlansController loads reference counts behind the plan list", async () => {
+  const { controller, store } = createController({
+    listModelPlans: async () => [
+      createPlan("plan-1", "openai"),
+      createPlan("plan-2", "openai")
+    ],
+    listModelPlanReferences: async (_workspaceID, planID) =>
+      planID === "plan-1"
+        ? [{ id: "local:codex", kind: "agent_target", name: "Codex" }]
+        : []
+  });
+
+  await controller.refreshPlans();
+  await flushBackgroundWork();
+
+  assert.deepEqual(store.modelPlans.planReferenceCounts, {
+    "plan-1": 1,
+    "plan-2": 0
+  });
+});
+
+test("WorkspaceModelPlansController keeps failed reference lookups unknown", async () => {
+  const { controller, store } = createController({
+    listModelPlans: async () => [
+      createPlan("plan-1", "openai"),
+      createPlan("plan-2", "openai")
+    ],
+    listModelPlanReferences: async (_workspaceID, planID) => {
+      if (planID === "plan-1") {
+        throw new Error("nope");
+      }
+      return [];
+    }
+  });
+
+  await controller.refreshPlans();
+  await flushBackgroundWork();
+
+  assert.deepEqual(store.modelPlans.planReferenceCounts, { "plan-2": 0 });
+});
+
+test("WorkspaceModelPlansController offers the Agent hand-off after creating a plan", async () => {
+  const { controller, store } = createController({
+    createModelPlan: async (_workspaceID, input) => ({
+      ...createPlan("plan-new", input.protocol),
+      name: input.name
+    })
+  });
+
+  controller.beginDraft({
+    baseUrl: "https://api.example.com/v1",
+    name: "Example",
+    protocol: "openai",
+    templateId: null,
+    templateKind: "custom"
+  });
+  controller.updateDraft({
+    apiKey: "sk-test",
+    models: [{ id: "gpt-5-mini", name: "GPT-5 mini" }]
+  });
+  await controller.saveDraft();
+
+  assert.deepEqual(store.modelPlans.createdPlanHandoff, {
+    planID: "plan-new",
+    planName: "Example"
+  });
+  assert.equal(store.modelPlans.planReferenceCounts["plan-new"], 0);
+
+  controller.dismissCreatedPlanHandoff();
+  assert.equal(store.modelPlans.createdPlanHandoff, null);
+});
+
+test("WorkspaceModelPlansController clears a pending hand-off when another draft starts", async () => {
+  const { controller, store } = createController({
+    createModelPlan: async (_workspaceID, input) => ({
+      ...createPlan("plan-new", input.protocol),
+      name: input.name
+    })
+  });
+
+  controller.beginDraft({
+    baseUrl: "https://api.example.com/v1",
+    name: "Example",
+    protocol: "openai",
+    templateId: null,
+    templateKind: "custom"
+  });
+  controller.updateDraft({
+    apiKey: "sk-test",
+    models: [{ id: "gpt-5-mini", name: "GPT-5 mini" }]
+  });
+  await controller.saveDraft();
+  assert.notEqual(store.modelPlans.createdPlanHandoff, null);
+
+  controller.beginDraft({
+    protocol: "openai",
+    templateKind: "custom"
+  });
+
+  assert.equal(store.modelPlans.createdPlanHandoff, null);
+});
+
+test("WorkspaceModelPlansController drops the hand-off and count with the deleted plan", async () => {
+  const deleted: string[] = [];
+  const { controller, store } = createController({
+    createModelPlan: async (_workspaceID, input) => ({
+      ...createPlan("plan-new", input.protocol),
+      name: input.name
+    }),
+    deleteModelPlan: async (_workspaceID, planID) => {
+      deleted.push(planID);
+    }
+  });
+
+  controller.beginDraft({
+    baseUrl: "https://api.example.com/v1",
+    name: "Example",
+    protocol: "openai",
+    templateId: null,
+    templateKind: "custom"
+  });
+  controller.updateDraft({
+    apiKey: "sk-test",
+    models: [{ id: "gpt-5-mini", name: "GPT-5 mini" }]
+  });
+  await controller.saveDraft();
+
+  await controller.confirmDeletePlan("plan-new");
+
+  assert.deepEqual(deleted, ["plan-new"]);
+  assert.equal(store.modelPlans.createdPlanHandoff, null);
+  assert.equal("plan-new" in store.modelPlans.planReferenceCounts, false);
+});
+
+test("WorkspaceModelPlansController does not offer the hand-off after editing", async () => {
+  const stored = {
+    ...createPlan("plan-1", "openai"),
+    defaultModel: "gpt-5-mini",
+    models: [{ id: "gpt-5-mini", name: "GPT-5 mini" }]
+  };
+  const { controller, store } = createController({
+    listModelPlans: async () => [stored],
+    updateModelPlan: async () => stored
+  });
+
+  await controller.refreshPlans();
+  controller.beginEditPlan("plan-1");
+  controller.updateDraft({ name: "Renamed" });
+  await controller.saveDraft();
+
+  assert.equal(store.modelPlans.draft, null);
+  assert.equal(store.modelPlans.createdPlanHandoff, null);
+});
+
+test("WorkspaceModelPlansController keeps a mid-flight created plan's count", async () => {
+  let releaseLookup!: () => void;
+  const lookupGate = new Promise<void>((resolve) => {
+    releaseLookup = resolve;
+  });
+  const { controller, store } = createController({
+    createModelPlan: async (_workspaceID, input) => ({
+      ...createPlan("plan-new", input.protocol),
+      name: input.name
+    }),
+    listModelPlans: async () => [createPlan("plan-1", "openai")],
+    listModelPlanReferences: async () => {
+      await lookupGate;
+      return [{ id: "local:codex", kind: "agent_target", name: "Codex" }];
+    }
+  });
+
+  // The reference-count load for plan-1 is now in flight...
+  await controller.refreshPlans();
+
+  // ...while the user creates another plan, which stamps its count as 0.
+  controller.beginDraft({
+    baseUrl: "https://api.example.com/v1",
+    name: "Example",
+    protocol: "openai",
+    templateId: null,
+    templateKind: "custom"
+  });
+  controller.updateDraft({
+    apiKey: "sk-test",
+    models: [{ id: "gpt-5-mini", name: "GPT-5 mini" }]
+  });
+  await controller.saveDraft();
+  assert.equal(store.modelPlans.planReferenceCounts["plan-new"], 0);
+
+  releaseLookup();
+  await flushBackgroundWork();
+
+  // The settled load must not wipe the count stamped for the newer plan.
+  assert.deepEqual(store.modelPlans.planReferenceCounts, {
+    "plan-1": 1,
+    "plan-new": 0
+  });
+});
+
+/** Settles the fire-and-forget reference-count load behind refreshPlans. */
+async function flushBackgroundWork(): Promise<void> {
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+}
+
 function createController(overrides: Partial<ModelPlansClient>): {
   controller: WorkspaceModelPlansController;
   notifications: string[];

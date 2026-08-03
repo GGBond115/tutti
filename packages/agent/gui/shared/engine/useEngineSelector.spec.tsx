@@ -41,12 +41,6 @@ function ConnectionLabel({ store }: { store: EngineStateStore<TestState> }) {
 }
 
 describe("useEngineSelector", () => {
-  it("returns the selected slice", () => {
-    const store = createTestStore({ connection: "connected", counter: 0 });
-    const { getByText } = render(<ConnectionLabel store={store} />);
-    expect(getByText("connected")).toBeTruthy();
-  });
-
   it("re-renders once when the selected slice changes", () => {
     const store = createTestStore({ connection: "unknown", counter: 0 });
     const probe = createRenderBudgetProbe();

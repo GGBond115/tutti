@@ -17,6 +17,7 @@ export interface AgentRichTextEditorProps {
   placeholder: string;
   removeMentionLabel?: string;
   className?: string;
+  testId?: string;
   onChange: (value: string) => void;
   onContentLayoutInvalidated?: () => void;
   onFocus?: (method: AgentGUIComposerFocusMethod) => void;

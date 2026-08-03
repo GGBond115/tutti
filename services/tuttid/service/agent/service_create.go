@@ -178,7 +178,7 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 	}
 	hostInput := agenthost.CreateSessionInput{
 		AgentSessionID: input.AgentSessionID, AgentTargetID: input.AgentTargetID, Provider: input.Provider,
-		InitialContent: normalizedContent, InitialDisplayPrompt: input.InitialDisplayPrompt,
+		InitialContent: normalizedContent, InitialGoalControl: input.InitialGoalControl, InitialDisplayPrompt: input.InitialDisplayPrompt,
 		Metadata: input.Metadata, ClientSubmitID: input.ClientSubmitID,
 		CapabilityRefs: append([]CapabilityReference(nil), input.CapabilityRefs...), Title: input.Title, Cwd: stringPointer(prepared.Cwd),
 		PermissionModeID: input.PermissionModeID,
@@ -196,7 +196,8 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 		return CreateSessionResult{}, err
 	}
 	var preparedTuttiModeTurnID string
-	_, typedGoal := agenthost.ParseTypedGoalControl(normalizedContent, false)
+	_, textGoal := agenthost.ParseTypedGoalControl(normalizedContent, false)
+	typedGoal := input.InitialGoalControl != nil || textGoal
 	if len(normalizedContent) > 0 && !typedGoal {
 		canonicalTurnID, claimErr := s.existingSubmitCanonicalTurnID(ctx, workspaceID, input.AgentSessionID, input.ClientSubmitID, input.Metadata)
 		if claimErr != nil {

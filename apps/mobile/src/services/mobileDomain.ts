@@ -1,4 +1,5 @@
 export interface AccountSession {
+  avatarURL: string;
   email: string;
   name: string;
   sessionId: string;
@@ -11,6 +12,15 @@ export interface DeviceIdentity {
   deviceName: string;
   publicKey: string;
 }
+
+/**
+ * Categorical scope of the negotiated device-link path, as classified by the
+ * native ICE agent. Carries no address information.
+ */
+export type DeviceLinkPathScope =
+  | "local_subnet"
+  | "private_network"
+  | "public_internet";
 
 export interface DevicePairing {
   confirmedAt?: string;

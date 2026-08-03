@@ -10,7 +10,7 @@ import {
   type PromptQueueInFlightCommand
 } from "@tutti-os/agent-activity-core";
 import { useEffect, useMemo, useRef } from "react";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { AgentConversationVM } from "../../../shared/agentConversation/contracts/agentConversationVM";
 import type {
   AgentPromptContentBlock,
@@ -71,7 +71,7 @@ interface UseAgentGUIConversationDetailInput {
     typeof buildAgentGUIConversationModels
   >[0]["timelineItems"];
   activeTurn: AgentActivityTurn | null;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   avoidGroupingEdits: boolean;
   codeFor(agentSessionId: string | null): AppErrorCode | null;
   detailError: string | null;

@@ -11,6 +11,7 @@ import {
   fakeDelegatedAssistantParentQuery,
   fakeDelegatedTaskQuery,
   fakeFailedBackgroundTaskSignalQuery,
+  fakeLongRunningBackgroundBashQuery,
   fakeGuidedDelegatedContinuationQuery,
   fakeParallelDelegatedTaskContinuationQuery,
   fakeRacedDelegatedTaskAliasQuery,
@@ -931,7 +932,7 @@ async function waitForMatchingEvent(
   );
 }
 
-test("background bash registers as a delegated task and defers the synthetic continuation", async () => {
+test("background bash completes its launch without gating the root turn or becoming a child task", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   const restoreSink = withSidecarEventSinkForTest((event) =>
     events.push(event)
@@ -960,38 +961,121 @@ test("background bash registers as a delegated task and defers the synthetic con
     session.exec("turn-1", "delegate and background");
     await waitForEvent(events, "turn_started");
 
-    // The background shell's task_started arrives after the provider turn
-    // settled, yet it must register and attribute to the launching turn.
     const bashStarted = events.find(
       (event) =>
         event.type === "task_started" && event.payload?.taskId === "bs-1"
     );
-    assert.equal(bashStarted?.payload?.turnId, "turn-1");
-    assert.equal(bashStarted?.payload?.parentToolUseId, "toolu-bash");
+    assert.equal(bashStarted, undefined);
+    const bashCompleted = events.find(
+      (event) =>
+        event.type === "tool_completed" &&
+        event.payload?.toolCallId === "toolu-bash"
+    );
+    assert.equal(bashCompleted?.payload?.turnId, "turn-1");
+    assert.deepEqual(
+      (bashCompleted?.payload?.metadata as Record<string, unknown> | undefined)
+        ?.backgroundProcess,
+      {
+        taskId: "bs-1",
+        status: "running"
+      }
+    );
 
     const agentCompletedIndex = events.findIndex(
       (event) =>
         event.type === "task_completed" && event.payload?.taskId === "task-1"
     );
-    const bashCompletedIndex = events.findIndex(
+    const rootCompletedIndex = events.findIndex(
       (event) =>
-        event.type === "task_completed" && event.payload?.taskId === "bs-1"
+        event.type === "turn_completed" && event.payload?.turnId === "turn-1"
     );
     const syntheticStartedIndex = events.findIndex(
       (event) =>
         event.type === "turn_started" && event.payload?.synthetic === true
     );
     assert.ok(agentCompletedIndex >= 0);
-    assert.ok(bashCompletedIndex > agentCompletedIndex);
-    // The subagent finishing first must not reserve the continuation while
-    // the background shell still runs; only the final bash completion may
-    // (the synthetic turn is reserved just before its task_completed).
-    assert.ok(syntheticStartedIndex > agentCompletedIndex);
-    assert.ok(bashCompletedIndex > syntheticStartedIndex);
-    assert.equal(events[bashCompletedIndex]?.payload?.turnId, "turn-1");
+    assert.ok(rootCompletedIndex >= 0);
+    // The delegated Agent still owns its provider continuation. The detached
+    // process remains alive but contributes no child task or continuation.
+    assert.ok(syntheticStartedIndex >= 0);
+    assert.ok(syntheticStartedIndex < agentCompletedIndex);
+    assert.equal(
+      events.some(
+        (event) =>
+          (event.type === "task_completed" ||
+            event.type === "task_result_updated") &&
+          event.payload?.taskId === "bs-1"
+      ),
+      false
+    );
     // Disarm the short continuation timer so it cannot leak into later tests.
     await session.close();
   } finally {
+    restoreSink();
+  }
+});
+
+test("long-running background bash does not keep a completed root turn busy", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  const session = new SessionRuntime(
+    "provider-session-1",
+    "/repo",
+    {},
+    false,
+    false,
+    {
+      model: "",
+      permissionModeId: "default",
+      planMode: false,
+      effort: "",
+      speed: ""
+    },
+    sidecarClaudeOptionsFromPayload({}),
+    undefined,
+    ({ prompt }) => fakeLongRunningBackgroundBashQuery(prompt),
+    50
+  );
+  try {
+    await session.start();
+    session.exec("turn-1", "start a persistent web server");
+    await waitForMatchingEvent(
+      events,
+      (event) =>
+        event.type === "turn_completed" && event.payload?.turnId === "turn-1",
+      "completed root turn"
+    );
+
+    const bashCompleted = events.find(
+      (event) =>
+        event.type === "tool_completed" &&
+        event.payload?.toolCallId === "toolu-bash"
+    );
+    assert.deepEqual(
+      (bashCompleted?.payload?.metadata as Record<string, unknown> | undefined)
+        ?.backgroundProcess,
+      {
+        status: "running"
+      }
+    );
+    assert.equal(
+      events.some(
+        (event) =>
+          event.type === "task_started" && event.payload?.taskId === "bs-1"
+      ),
+      false
+    );
+    assert.equal(
+      events.some(
+        (event) =>
+          event.type === "turn_started" && event.payload?.synthetic === true
+      ),
+      false
+    );
+  } finally {
+    await session.close();
     restoreSink();
   }
 });

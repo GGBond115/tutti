@@ -1,4 +1,4 @@
-import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
+import type { AgentGUIRuntime } from "@tutti-os/agent-gui";
 import type { WorkbenchHostActivation } from "@tutti-os/workbench-surface";
 import {
   areDesktopAgentGUINodeStatesEqual,
@@ -17,7 +17,7 @@ import {
 
 export interface ConsumeDesktopAgentGUIOpenSessionActivationInput {
   activation: WorkbenchHostActivation | null;
-  agentActivityRuntime: Pick<AgentActivityRuntime, "getSessionEngine">;
+  agentActivityRuntime: Pick<AgentGUIRuntime, "getSessionEngine">;
   clearNodeActivation?: (this: void, nodeId: string, sequence: number) => void;
   handledSequence: number | null;
   markHandled(this: void, sequence: number): void;

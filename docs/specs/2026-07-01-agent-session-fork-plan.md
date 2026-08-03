@@ -7,7 +7,7 @@ Status: superseded by
 
 **Goal:** Build provider-backed Codex agent session fork in Tutti, with durable fork lineage, child session history, API/client integration, and Agent GUI entry points.
 
-**Architecture:** The Codex app-server `thread/fork` RPC is the source of truth for child provider sessions. tuttid wraps that provider fork in a service-level saga that creates a child `workspace_agent_sessions` row, persists lineage in a dedicated table, seeds child messages, and publishes activity updates. Agent GUI calls the new tuttid fork endpoint through the existing `AgentActivityRuntime` and activates the returned child session.
+**Architecture:** The Codex app-server `thread/fork` RPC is the source of truth for child provider sessions. tuttid wraps that provider fork in a service-level saga that creates a child `workspace_agent_sessions` row, persists lineage in a dedicated table, seeds child messages, and publishes activity updates. Agent GUI calls the new tuttid fork endpoint through the existing `AgentGUIRuntime` and activates the returned child session.
 
 **Tech Stack:** Go tuttid daemon, SQLite workspace store, oapi-codegen OpenAPI server types, generated TypeScript tuttid client, React/TypeScript Agent GUI, Vitest, Go tests.
 
@@ -1527,7 +1527,7 @@ pnpm --filter @tutti-os/agent-gui test -- useAgentGUINodeController
 
 Expected: FAIL because actions are missing.
 
-- [ ] **Step 3: Extend AgentActivityRuntime interface**
+- [ ] **Step 3: Extend AgentGUIRuntime interface**
 
 Add to `agentActivityRuntime.tsx`:
 

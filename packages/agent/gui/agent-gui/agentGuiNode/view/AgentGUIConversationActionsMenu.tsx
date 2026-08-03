@@ -29,7 +29,7 @@ import {
 import { BareIconButton } from "@tutti-os/ui-system/components";
 import { resolveWorkspaceImageMimeType } from "@tutti-os/workspace-file-preview";
 import { useOptionalAgentHostApi } from "../../../agentActivityHost";
-import { useOptionalAgentActivityRuntime } from "../../../agentActivityRuntime";
+import { useOptionalAgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { UiLanguage } from "../../../contexts/settings/domain/agentSettings";
 import type {
   AgentHostToastHandle,
@@ -193,7 +193,7 @@ export function useAgentGUIConversationCopyAction(
   }
 ) => void {
   const agentHostApi = useOptionalAgentHostApi();
-  const agentActivityRuntime = useOptionalAgentActivityRuntime();
+  const agentActivityRuntime = useOptionalAgentGUIRuntime();
   const writeClipboardValue = useAgentGUIClipboardWriter(labels);
   return useCallback(
     (action, { conversation, uiLanguage, workspaceId }) => {
@@ -355,7 +355,7 @@ export function useConversationActionGroups({
   onRequestRenameConversation
 }: AgentGUIConversationActionsMenuProps): AgentGUIConversationActionsMenuState {
   const agentHostApi = useOptionalAgentHostApi();
-  const agentActivityRuntime = useOptionalAgentActivityRuntime();
+  const agentActivityRuntime = useOptionalAgentGUIRuntime();
   const copyConversationValue = useAgentGUIConversationCopyAction(labels);
   const [resetKey, setResetKey] = useState(0);
   const pendingActionRef = useRef(false);

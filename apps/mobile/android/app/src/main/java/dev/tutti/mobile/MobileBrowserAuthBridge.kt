@@ -3,9 +3,11 @@ package dev.tutti.mobile
 import android.content.Intent
 import android.net.Uri
 import android.util.Base64
+import androidx.browser.auth.AuthTabIntent
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.UiThreadUtil
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.Closeable
@@ -14,6 +16,7 @@ import java.io.OutputStreamWriter
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URLDecoder
@@ -80,7 +83,7 @@ internal class MobileBrowserAuthBridge(
                     starting = false
                     active = attempt
                 }
-                openBrowser(attempt.loginURL)
+                openBrowser(attempt)
                 serve(attempt)
             } catch (cause: Exception) {
                 val attempt =
@@ -141,6 +144,11 @@ internal class MobileBrowserAuthBridge(
                 }
             } catch (_: SocketTimeoutException) {
                 // Re-check expiry and module lifecycle.
+            } catch (cause: SocketException) {
+                if (!isActive(attempt)) {
+                    return
+                }
+                throw cause
             }
         }
         finish(
@@ -321,7 +329,61 @@ internal class MobileBrowserAuthBridge(
     private fun isActive(attempt: LoginAttempt): Boolean =
         synchronized(lock) { active === attempt && !closed }
 
-    private fun openBrowser(url: String) {
+    private fun openBrowser(attempt: LoginAttempt) {
+        UiThreadUtil.runOnUiThread {
+            if (!isActive(attempt)) {
+                return@runOnUiThread
+            }
+            try {
+                val activity = context.currentActivity as? MainActivity
+                val callbackScheme = URI(attempt.appCallbackURL).scheme
+                val launchedAuthTab =
+                    activity?.launchBrowserAuthentication(
+                        Uri.parse(attempt.loginURL),
+                        callbackScheme,
+                    ) { result -> handleAuthTabResult(attempt, result) } == true
+                if (!launchedAuthTab) {
+                    openSystemBrowser(attempt.loginURL)
+                }
+            } catch (cause: Exception) {
+                finish(
+                    attempt,
+                    Result.failure(
+                        BrowserLoginException(
+                            "BROWSER_LOGIN_FAILED",
+                            "Unable to open the system browser",
+                            cause,
+                        ),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun handleAuthTabResult(
+        attempt: LoginAttempt,
+        result: AuthTabIntent.AuthResult,
+    ) {
+        if (result.resultCode == AuthTabIntent.RESULT_OK) {
+            return
+        }
+        val cancelled = result.resultCode == AuthTabIntent.RESULT_CANCELED
+        finish(
+            attempt,
+            Result.failure(
+                BrowserLoginException(
+                    if (cancelled) "BROWSER_LOGIN_CANCELLED" else "BROWSER_LOGIN_FAILED",
+                    if (cancelled) {
+                        "Browser login was cancelled"
+                    } else {
+                        "Browser authentication tab failed"
+                    },
+                ),
+            ),
+        )
+    }
+
+    private fun openSystemBrowser(url: String) {
         context.startActivity(
             Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                 addCategory(Intent.CATEGORY_BROWSABLE)

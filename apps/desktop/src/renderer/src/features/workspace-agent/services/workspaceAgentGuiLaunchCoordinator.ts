@@ -5,6 +5,7 @@ export interface WorkspaceAgentGuiLaunchRequest {
   agentTargetId?: string | null;
   autoSubmit?: boolean;
   draftPrompt?: string;
+  forceNewInstance?: boolean;
   model?: string | null;
   modelPlanId?: string | null;
   openInNewWindow?: boolean;
@@ -15,7 +16,7 @@ export interface WorkspaceAgentGuiLaunchRequest {
 
 export type WorkspaceAgentGuiLaunchHandler = (
   request: WorkspaceAgentGuiLaunchRequest
-) => Promise<void> | void;
+) => Promise<string | null | void> | string | null | void;
 
 const launchHandlersByWorkspaceId = new Map<
   string,
@@ -42,13 +43,18 @@ export function registerWorkspaceAgentGuiLaunchHandler(
 export async function requestWorkspaceAgentGuiLaunch(
   request: WorkspaceAgentGuiLaunchRequest
 ): Promise<boolean> {
+  return (await requestWorkspaceAgentGuiNodeLaunch(request)) !== undefined;
+}
+
+export async function requestWorkspaceAgentGuiNodeLaunch(
+  request: WorkspaceAgentGuiLaunchRequest
+): Promise<string | null | undefined> {
   const handler = launchHandlersByWorkspaceId.get(request.workspaceId.trim());
   if (!handler) {
-    return false;
+    return undefined;
   }
 
-  await handler(request);
-  return true;
+  return (await handler(request)) ?? null;
 }
 
 function noop(): void {}

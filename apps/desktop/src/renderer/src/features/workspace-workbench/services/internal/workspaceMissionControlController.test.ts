@@ -183,6 +183,37 @@ test("workspace mission control controller unlocks the layout through the adapte
   assert.equal(controller.getSnapshot().isLayoutLocked, false);
 });
 
+test("workspace mission control controller applies layouts to exact nodes", () => {
+  const calls: unknown[] = [];
+  const controller = createWorkspaceMissionControlController();
+  controller.setAdapter({
+    ...createMissionControlAdapter(3),
+    applyLayoutPreset(nodeIds, preset, lock) {
+      calls.push({ lock, nodeIds, preset });
+    }
+  });
+
+  controller.applyLayoutPreset(
+    ["node-1", " node-2 ", "node-1"],
+    { kind: "balanced" },
+    true
+  );
+  controller.applyLayoutPreset(["node-1"], { kind: "row" });
+
+  assert.deepEqual(calls, [
+    {
+      lock: true,
+      nodeIds: ["node-1", "node-2"],
+      preset: { kind: "balanced" }
+    },
+    {
+      lock: false,
+      nodeIds: ["node-1"],
+      preset: { kind: "row" }
+    }
+  ]);
+});
+
 test("workspace mission control controller scopes open requests to node ids", () => {
   const controller = createWorkspaceMissionControlController();
   controller.setAdapter(createMissionControlAdapter(4));

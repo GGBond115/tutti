@@ -117,11 +117,19 @@ export function CollapsibleReveal({
       setVisible(false);
       setRevealHeight("0px");
       const animationFrame = requestAnimationFrame(() => {
-        measuredHeightRef.current = root.scrollHeight;
+        const measured = Math.max(
+          root.scrollHeight,
+          innerRef.current?.scrollHeight ?? 0
+        );
+        measuredHeightRef.current = measured;
+        // Make the reveal accessible on the first measure frame even when
+        // children have not reported a measurable height yet.
         setVisible(true);
-        setRevealHeight(`${measuredHeightRef.current}px`);
+        setRevealHeight(measured > 0 ? `${measured}px` : "auto");
       });
-      return () => cancelAnimationFrame(animationFrame);
+      return () => {
+        cancelAnimationFrame(animationFrame);
+      };
     }
 
     if (!wasExpanded) {

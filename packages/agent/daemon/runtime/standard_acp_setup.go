@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +14,10 @@ import (
 )
 
 var ErrACPAuthMethodUnavailable = errors.New("ACP authentication method is unavailable")
+
+var standardACPUnconfiguredProviderPattern = regexp.MustCompile(
+	`(?i)\bno (?:llm|model|inference) provider configured\b`,
+)
 
 // ErrACPAuthMethodTerminal marks authentication methods of type "terminal".
 // The ACP authenticate request would run the provider's interactive CLI login
@@ -138,7 +143,7 @@ func RunStandardACPSetup(
 			}
 			return StandardACPSetupResult{Status: StandardACPSetupAuthRequired, AuthMethods: methods}, nil
 		}
-		if IsAuthenticationRequired(err) {
+		if IsAuthenticationRequired(err) || standardACPSetupNeedsConfiguration(err, methods) {
 			if methodID != "" {
 				return StandardACPSetupResult{Status: StandardACPSetupAuthRequired, AuthMethods: methods}, err
 			}
@@ -152,6 +157,18 @@ func RunStandardACPSetup(
 		return StandardACPSetupResult{}, fmt.Errorf("close ACP setup session: %w", err)
 	}
 	return StandardACPSetupResult{Status: StandardACPSetupReady, AuthMethods: methods, Account: account}, nil
+}
+
+func standardACPSetupNeedsConfiguration(err error, methods []StandardACPAuthMethod) bool {
+	if err == nil || !standardACPUnconfiguredProviderPattern.MatchString(err.Error()) {
+		return false
+	}
+	for _, method := range methods {
+		if method.Type == "terminal" && len(method.Args) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func parseStandardACPAuthenticatedAccount(result json.RawMessage, methodID string) *StandardACPAuthenticatedAccount {
@@ -329,19 +346,46 @@ func findStandardACPAuthMethod(methods []StandardACPAuthMethod, methodID string)
 }
 
 // acpSessionHasNoUsableModel reports whether the session/new response carries
-// a models state that advertises zero available models and no current model —
-// the shape Kimi Code returns when its login saved a token but never seeded
-// the model config. A missing models state (providers that do not declare
-// one) and a populated list both pass.
+// a model selector that advertises zero available models and no current model.
+// ACP agents expose that state either through the legacy top-level `models`
+// object or through a model `configOptions` selector. A missing model selector
+// (providers that do not declare one) and a populated selector both pass.
 func acpSessionHasNoUsableModel(raw json.RawMessage) bool {
 	var payload struct {
 		Models *struct {
 			AvailableModels *[]json.RawMessage `json:"availableModels"`
 			CurrentModelID  string             `json:"currentModelId"`
 		} `json:"models"`
+		ConfigOptions []struct {
+			ID           string             `json:"id"`
+			Category     string             `json:"category"`
+			CurrentValue json.RawMessage    `json:"currentValue"`
+			Options      *[]json.RawMessage `json:"options"`
+		} `json:"configOptions"`
 	}
-	if json.Unmarshal(raw, &payload) != nil || payload.Models == nil || payload.Models.AvailableModels == nil {
+	if json.Unmarshal(raw, &payload) != nil {
 		return false
 	}
-	return len(*payload.Models.AvailableModels) == 0 && strings.TrimSpace(payload.Models.CurrentModelID) == ""
+	if payload.Models != nil &&
+		payload.Models.AvailableModels != nil &&
+		len(*payload.Models.AvailableModels) == 0 &&
+		strings.TrimSpace(payload.Models.CurrentModelID) == "" {
+		return true
+	}
+	for _, option := range payload.ConfigOptions {
+		isModelSelector :=
+			strings.EqualFold(strings.TrimSpace(option.ID), "model") ||
+				strings.EqualFold(strings.TrimSpace(option.Category), "model")
+		if !isModelSelector || option.Options == nil || len(*option.Options) != 0 {
+			continue
+		}
+		var currentValue string
+		if len(option.CurrentValue) == 0 ||
+			string(option.CurrentValue) == "null" ||
+			(json.Unmarshal(option.CurrentValue, &currentValue) == nil &&
+				strings.TrimSpace(currentValue) == "") {
+			return true
+		}
+	}
+	return false
 }

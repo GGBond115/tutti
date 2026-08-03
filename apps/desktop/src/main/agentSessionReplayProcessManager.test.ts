@@ -1,364 +1,325 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { access, readFile } from "node:fs/promises";
 import { PassThrough } from "node:stream";
-import { join } from "node:path";
 import test from "node:test";
 import type { DesktopLogger } from "./logging.ts";
-import { createAgentSessionReplayProcessManager } from "./agentSessionReplayProcessManager.ts";
+import {
+  createAgentSessionReplayProcessManager,
+  type AgentSessionReplayWorkspaceLaunch
+} from "./agentSessionReplayProcessManager.ts";
+import { monitorManagedReplayWorkspace } from "./agentSessionReplayProcessMonitor.ts";
 
-test("resolves launch when the Session is visible and completion separately", async () => {
+const launch: AgentSessionReplayWorkspaceLaunch = {
+  launchId: "launch-1",
+  cassettes: [
+    {
+      cassetteDirectory: "/cassettes/one",
+      cassetteId: "cassette-1",
+      rootAgentSessionId: "session-1"
+    },
+    {
+      cassetteDirectory: "/cassettes/two",
+      cassetteId: "cassette-2",
+      rootAgentSessionId: "session-2"
+    }
+  ],
+  playbackMode: "automatic",
+  workspaceId: "workspace-1"
+};
+
+test("launches one child with one fixed Cassette Workspace manifest", async () => {
   const child = createChild();
   let invocation:
-    | {
-        args: readonly string[];
-        command: string;
-        options: {
-          env: NodeJS.ProcessEnv;
-        };
-      }
+    | { args: readonly string[]; command: string; env: NodeJS.ProcessEnv }
     | undefined;
   const manager = createAgentSessionReplayProcessManager({
     electronEntry: "/repo/apps/desktop/out/main/index.js",
     electronExecutable: "/electron",
-    environment: { ELECTRON_RENDERER_URL: "http://127.0.0.1:5173" },
+    environment: { TUTTID_ACCESS_TOKEN: "must-not-leak" },
     logger: createLogger(),
     nodeExecutable: "/node",
     repositoryRoot: "/repo",
     spawnProcess(command, args, options) {
-      invocation = { args, command, options };
-      const runId = args[args.indexOf("--run-id") + 1];
+      invocation = { args, command, env: options.env };
       queueMicrotask(() => {
-        child.stdout.write(
-          `[tutti-agent-session-replay-ready] ${JSON.stringify({ runId })}\n`
-        );
+        writeEvent(child, "ready", { cassetteId: "cassette-1" });
+        writeEvent(child, "ready", { cassetteId: "cassette-2" });
       });
       return child;
     }
   });
-
-  const result = await manager.launch({
-    cassetteId: "cassette-1",
-    cassetteDirectory: "/cassette",
-    runId: "replay-run-1",
-    workspaceId: "workspace-1"
-  });
-
-  assert.equal(invocation?.command, "/node");
-  assert.deepEqual(invocation?.args.slice(1, 4), [
-    "--replay",
-    "/cassette",
-    "--managed"
-  ]);
-  assert.equal(
-    invocation?.options.env?.TUTTI_AGENT_SESSION_REPLAY_ELECTRON_EXECUTABLE,
-    "/electron"
-  );
-  assert.equal(
-    invocation?.options.env?.TUTTI_AGENT_SESSION_REPLAY_ELECTRON_ENTRY,
-    "/repo/apps/desktop/out/main/index.js"
-  );
-  assert.equal(
-    invocation?.options.env?.ELECTRON_RENDERER_URL,
-    "http://127.0.0.1:5173"
-  );
-  assert.equal(result.runId, "replay-run-1");
-  let completed = false;
-  const completion = manager
-    .waitForCompletion({ runId: "replay-run-1" })
-    .then(() => {
-      completed = true;
+  try {
+    assert.deepEqual(await manager.launch(launch), {
+      launchId: "launch-1",
+      cassetteIds: ["cassette-1", "cassette-2"],
+      workspaceId: "workspace-1"
     });
-  await Promise.resolve();
-  assert.equal(completed, false);
-
-  child.stdout.write(
-    `[tutti-agent-session-replay-complete] ${JSON.stringify({
-      runId: "replay-run-1"
-    })}\n`
-  );
-  await completion;
-  assert.equal(completed, true);
-
-  manager.dispose();
-  assert.equal(child.killed, true);
+    const manifestPath =
+      invocation?.args[
+        invocation.args.indexOf("--replay-workspace-manifest") + 1
+      ];
+    assert.ok(manifestPath);
+    assert.deepEqual(JSON.parse(await readFile(manifestPath, "utf8")), launch);
+    assert.equal(invocation?.env.TUTTID_ACCESS_TOKEN, undefined);
+    assert.ok(invocation?.env.TUTTI_AGENT_SESSION_REPLAY_SURFACE_STATUS_PATH);
+    await manager.shutdown();
+    await assert.rejects(access(manifestPath));
+  } finally {
+    manager.dispose();
+  }
 });
 
-test("rejects when replay validation fails before ready", async () => {
+test("settles interleaved Cassettes through local status only", async () => {
   const child = createChild();
+  const errors: {
+    fields?: Record<string, unknown>;
+    message: string;
+  }[] = [];
+  let surfaceStatusPath = "";
+  const manager = createManager(child, {
+    logger: {
+      ...createLogger(),
+      error(message, fields) {
+        errors.push({ fields, message });
+      }
+    },
+    onSpawn(environment) {
+      surfaceStatusPath =
+        environment.TUTTI_AGENT_SESSION_REPLAY_SURFACE_STATUS_PATH ?? "";
+    }
+  });
+  try {
+    const launched = manager.launch(launch);
+    writeEvent(child, "ready", { cassetteId: "cassette-1" });
+    writeEvent(child, "ready", { cassetteId: "cassette-2" });
+    await launched;
+    const first = manager.waitForCompletion({
+      cassetteId: "cassette-1",
+      launchId: launch.launchId
+    });
+    const second = manager.waitForCompletion({
+      cassetteId: "cassette-2",
+      launchId: launch.launchId
+    });
+    writeEvent(child, "failed", {
+      cassetteId: "cassette-1",
+      cause: {
+        code: "managed_process_stderr",
+        message: "unsupported process cassette schema version 2"
+      },
+      error: "Replay Workspace failed to start"
+    });
+    writeEvent(child, "checkpoint", {
+      cassetteId: "cassette-2",
+      checkpoint: 3,
+      totalDurationMs: 12_000,
+      totalCheckpoints: 8
+    });
+    writeEvent(child, "complete", { cassetteId: "cassette-2" });
+    await assert.rejects(first, /Replay Workspace failed to start/u);
+    assert.deepEqual(await second, { cassetteId: "cassette-2" });
+    assert.deepEqual(errors, [
+      {
+        fields: {
+          error: "Replay Workspace failed to start",
+          error_cause_code: "managed_process_stderr",
+          error_cause_message: "unsupported process cassette schema version 2",
+          launch_id: "launch-1",
+          replay_cassette_id: "cassette-1",
+          workspace_id: "workspace-1"
+        },
+        message: "managed Agent Session Replay Cassette failed"
+      }
+    ]);
+    await waitFor(async () => {
+      const statuses = JSON.parse(
+        await readFile(surfaceStatusPath, "utf8")
+      ).cassettes;
+      return (
+        statuses["cassette-1"].phase === "failed" &&
+        statuses["cassette-1"].errorCause?.code === "managed_process_stderr" &&
+        statuses["cassette-1"].errorCause?.message ===
+          "unsupported process cassette schema version 2" &&
+        statuses["cassette-2"].phase === "complete" &&
+        statuses["cassette-2"].currentCheckpoint === 3 &&
+        statuses["cassette-2"].totalDurationMs === 12_000 &&
+        statuses["cassette-2"].totalCheckpoints === 8
+      );
+    });
+  } finally {
+    await manager.shutdown();
+  }
+});
+
+test("allows the same Cassette in different launches", async () => {
+  const children = [createChild(), createChild()];
+  let index = 0;
   const manager = createAgentSessionReplayProcessManager({
     electronExecutable: "/electron",
     logger: createLogger(),
     nodeExecutable: "/node",
     repositoryRoot: "/repo",
     spawnProcess() {
-      queueMicrotask(() => {
-        child.stderr.write("process cassette outbound mismatch");
-        child.emit("exit", 1, null);
-      });
+      const child = children[index++]!;
+      queueMicrotask(() =>
+        writeEvent(child, "ready", { cassetteId: "cassette-1" })
+      );
       return child;
     }
   });
-
-  await assert.rejects(
-    manager.launch({
-      cassetteId: "cassette-1",
-      cassetteDirectory: "/cassette",
-      runId: "replay-run-1",
-      workspaceId: "workspace-1"
-    }),
-    /process cassette outbound mismatch/
-  );
-  assert.equal(child.killed, true);
+  try {
+    await Promise.all([
+      manager.launch({
+        ...launch,
+        launchId: "launch-a",
+        cassettes: [launch.cassettes[0]!]
+      }),
+      manager.launch({
+        ...launch,
+        launchId: "launch-b",
+        cassettes: [launch.cassettes[0]!]
+      })
+    ]);
+    assert.equal(index, 2);
+  } finally {
+    await manager.shutdown();
+  }
 });
 
-test("keeps a failed replay window available for restart", async () => {
-  const runtimeDirectory = await mkdtemp(join(tmpdir(), "replay-failed-"));
-  const children = [createChild(), createChild()];
-  const requests: string[] = [];
-  let invocation = 0;
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (resource) => {
-    const path = new URL(String(resource)).pathname;
-    requests.push(path);
-    if (path.endsWith("/agent-session-cassettes")) {
-      return Response.json({
-        cassettes: [{ id: "cassette-1", name: "One" }]
-      });
-    }
-    if (path.endsWith("/replay-runs")) {
-      return Response.json(
-        {
-          cassetteDirectory: "/cassette/restarted",
-          run: { id: "replay-run-2" }
-        },
-        { status: 201 }
-      );
-    }
-    return Response.json({});
-  }) as typeof globalThis.fetch;
+test("reserves launch identity before the first async boundary", async () => {
+  let releaseManifest!: (value: {
+    cleanup(): Promise<void>;
+    path: string;
+    surfaceStatusPath: string;
+  }) => void;
+  const manifest = new Promise<{
+    cleanup(): Promise<void>;
+    path: string;
+    surfaceStatusPath: string;
+  }>((resolve) => {
+    releaseManifest = resolve;
+  });
   const manager = createAgentSessionReplayProcessManager({
+    createCassetteStatusWriter: () => ({ async write() {} }),
     electronExecutable: "/electron",
-    endpoint: {
-      accessToken: "primary-secret",
-      boundAddr: "127.0.0.1:1234",
-      listenerInfoPath: "/tmp/listener.json",
-      pidPath: "/tmp/tuttid.pid",
-      requestedAddr: "127.0.0.1:0"
-    },
     logger: createLogger(),
     nodeExecutable: "/node",
     repositoryRoot: "/repo",
-    spawnProcess(_command, args) {
-      const child = children[invocation]!;
-      invocation += 1;
-      const runId = args[args.indexOf("--run-id") + 1];
+    spawnProcess() {
+      const child = createChild();
       queueMicrotask(() => {
-        child.stdout.write(
-          `[tutti-agent-session-replay-ready] ${JSON.stringify({
-            runId,
-            runtimeDirectory
-          })}\n`
-        );
+        writeEvent(child, "ready", { cassetteId: "cassette-1" });
+        writeEvent(child, "ready", { cassetteId: "cassette-2" });
       });
+      return child;
+    },
+    writeManifest: () => manifest
+  });
+  const first = manager.launch(launch);
+  await assert.rejects(manager.launch(launch), /launch is already active/u);
+  releaseManifest({
+    async cleanup() {},
+    path: "/tmp/replay-manifest.json",
+    surfaceStatusPath: "/tmp/replay-surface-status.json"
+  });
+  await first;
+  await manager.shutdown();
+});
+
+test("rejects duplicate Cassette identities inside one batch", async () => {
+  const manager = createManager(createChild());
+  await assert.rejects(
+    manager.launch({
+      ...launch,
+      cassettes: [launch.cassettes[0]!, launch.cassettes[0]!]
+    }),
+    /duplicate identities/u
+  );
+  manager.dispose();
+});
+
+test("rejects an unknown launch playback mode", async () => {
+  const manager = createManager(createChild());
+  await assert.rejects(
+    manager.launch({
+      ...launch,
+      playbackMode: "unexpected"
+    } as unknown as AgentSessionReplayWorkspaceLaunch),
+    /playback mode is invalid/u
+  );
+  manager.dispose();
+});
+
+test("keeps the final child diagnostic emitted between exit and close", async () => {
+  const child = createChild();
+  let terminatedMessage = "";
+  let failureLog:
+    | { fields?: Record<string, unknown>; message: string }
+    | undefined;
+  const monitored = monitorManagedReplayWorkspace(child, {
+    expectedCassetteIds: new Set(["cassette-1"]),
+    logger: {
+      ...createLogger(),
+      error(message, fields) {
+        failureLog = { fields, message };
+      }
+    },
+    onCheckpoint() {},
+    onComplete() {},
+    onFailed() {},
+    onReady() {},
+    async onTerminated(error) {
+      terminatedMessage = error?.message ?? "";
+    },
+    timeoutMs: 10_000
+  });
+
+  child.emit("exit", 1, null);
+  child.stderr.write("final replay failure");
+  child.emit("close", 1, null);
+  await monitored;
+
+  assert.match(terminatedMessage, /final replay failure/u);
+  assert.match(
+    failureLog?.message ?? "",
+    /managed Agent Session Replay Workspace failed/u
+  );
+  assert.equal(failureLog?.fields?.diagnostics, "final replay failure");
+  assert.equal(failureLog?.fields?.exit_code, 1);
+  assert.deepEqual(failureLog?.fields?.expected_cassette_ids, ["cassette-1"]);
+  assert.deepEqual(failureLog?.fields?.ready_cassette_ids, []);
+  assert.deepEqual(failureLog?.fields?.terminal_cassette_ids, []);
+});
+
+function createManager(
+  child: ReturnType<typeof createChild>,
+  options: {
+    logger?: DesktopLogger;
+    onSpawn?: (environment: NodeJS.ProcessEnv) => void;
+  } = {}
+) {
+  return createAgentSessionReplayProcessManager({
+    electronExecutable: "/electron",
+    logger: options.logger ?? createLogger(),
+    nodeExecutable: "/node",
+    repositoryRoot: "/repo",
+    spawnProcess(_command, _args, spawnOptions) {
+      options.onSpawn?.(spawnOptions.env);
       return child;
     }
   });
-  try {
-    await manager.launch({
-      cassetteId: "cassette-1",
-      cassetteDirectory: "/cassette",
-      runId: "replay-run-1",
-      workspaceId: "workspace-1"
-    });
-    const completion = manager.waitForCompletion({ runId: "replay-run-1" });
+}
 
-    children[0]!.stdout.write(
-      `[tutti-agent-session-replay-failed] ${JSON.stringify({
-        error: "expected state mismatch",
-        runId: "replay-run-1"
-      })}\n`
-    );
-
-    await assert.rejects(completion, /expected state mismatch/u);
-    assert.equal(children[0]!.killed, false);
-    children[0]!.stdout.write(
-      `[tutti-agent-session-replay-replace] ${JSON.stringify({
-        command: "restart",
-        currentCheckpoint: 3,
-        runId: "replay-run-1"
-      })}\n`
-    );
-    await Promise.resolve();
-    assert.equal(invocation, 1);
-    assert.equal(children[0]!.killed, false);
-    children[0]!.emit("exit", 0, null);
-    await waitFor(() => invocation === 2);
-    children[1]!.stdout.write(
-      `[tutti-agent-session-replay-complete] ${JSON.stringify({
-        runId: "replay-run-2"
-      })}\n`
-    );
-    await waitFor(() =>
-      requests.some((path) => path.endsWith("/replay-run-2/complete"))
-    );
-  } finally {
-    manager.dispose();
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("replaces a Run for previous checkpoint and completes the latest Run", async () => {
-  const runtimeDirectory = await mkdtemp(join(tmpdir(), "replay-supervisor-"));
-  const children = [createChild(), createChild(), createChild()];
-  const invocations: string[][] = [];
-  const requests: Array<{ body?: unknown; path: string }> = [];
-  let preparedRuns = 1;
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (resource, init) => {
-    const url = String(resource);
-    const path = new URL(url).pathname;
-    requests.push({
-      ...(typeof init?.body === "string"
-        ? { body: JSON.parse(init.body) }
-        : {}),
-      path
-    });
-    if (path.endsWith("/agent-session-cassettes")) {
-      return Response.json({
-        cassettes: [{ id: "cassette-1", name: "One" }]
-      });
-    }
-    if (path.endsWith("/replay-runs")) {
-      preparedRuns += 1;
-      return Response.json(
-        {
-          cassetteDirectory: "/cassette/replacement",
-          run: { id: `replay-run-${preparedRuns}` }
-        },
-        { status: 201 }
-      );
-    }
-    return Response.json({});
-  }) as typeof globalThis.fetch;
-  try {
-    const manager = createAgentSessionReplayProcessManager({
-      electronExecutable: "/electron",
-      endpoint: {
-        accessToken: "primary-secret",
-        boundAddr: "127.0.0.1:1234",
-        listenerInfoPath: "/tmp/listener.json",
-        pidPath: "/tmp/tuttid.pid",
-        requestedAddr: "127.0.0.1:0"
-      },
-      logger: createLogger(),
-      nodeExecutable: "/node",
-      repositoryRoot: "/repo",
-      spawnProcess(_command, args, options) {
-        assert.equal(
-          options.env.TUTTID_ACCESS_TOKEN,
-          undefined,
-          "primary daemon token must not enter the isolated runtime"
-        );
-        invocations.push([...args]);
-        const child = children[invocations.length - 1]!;
-        const runId = args[args.indexOf("--run-id") + 1];
-        queueMicrotask(() => {
-          child.stdout.write(
-            `[tutti-agent-session-replay-ready] ${JSON.stringify({
-              runId,
-              runtimeDirectory
-            })}\n`
-          );
-        });
-        return child;
-      }
-    });
-    await manager.launch({
-      cassetteId: "cassette-1",
-      cassetteDirectory: "/cassette/original",
-      runId: "replay-run-1",
-      workspaceId: "workspace-1"
-    });
-    const completion = manager.waitForCompletion({ runId: "replay-run-1" });
-    children[0]!.stdout.write(
-      `[tutti-agent-session-replay-checkpoint] ${JSON.stringify({
-        checkpoint: 2,
-        runId: "replay-run-1"
-      })}\n`
-    );
-    children[0]!.stdout.write(
-      `[tutti-agent-session-replay-replace] ${JSON.stringify({
-        command: "previous-checkpoint",
-        currentCheckpoint: 2,
-        runId: "replay-run-1"
-      })}\n`
-    );
-    await Promise.resolve();
-    assert.equal(invocations.length, 1);
-    assert.equal(children[0]!.killed, false);
-    children[0]!.emit("exit", 0, null);
-    await waitFor(() => invocations.length === 2);
-    assert.deepEqual(invocations[1]!.slice(-2), ["--target-checkpoint", "1"]);
-    children[1]!.stdout.write(
-      `[tutti-agent-session-replay-complete] ${JSON.stringify({
-        runId: "replay-run-2"
-      })}\n`
-    );
-    assert.deepEqual(await completion, { runId: "replay-run-2" });
-    assert.deepEqual(
-      requests
-        .filter(({ path }) => !path.endsWith("/agent-session-cassettes"))
-        .map(({ body, path }) => ({ body, path })),
-      [
-        {
-          body: { checkpoint: 2 },
-          path: "/v1/workspaces/workspace-1/agent-session-replay-runs/replay-run-1/checkpoint"
-        },
-        {
-          body: undefined,
-          path: "/v1/workspaces/workspace-1/agent-session-replay-runs/replay-run-1/cancel"
-        },
-        {
-          body: undefined,
-          path: "/v1/workspaces/workspace-1/agent-session-cassettes/cassette-1/replay-runs"
-        },
-        {
-          body: undefined,
-          path: "/v1/workspaces/workspace-1/agent-session-replay-runs/replay-run-2/running"
-        }
-      ]
-    );
-    children[1]!.stdout.write(
-      `[tutti-agent-session-replay-replace] ${JSON.stringify({
-        command: "restart",
-        currentCheckpoint: 2,
-        runId: "replay-run-2"
-      })}\n`
-    );
-    await Promise.resolve();
-    assert.equal(invocations.length, 2);
-    assert.equal(children[1]!.killed, false);
-    children[1]!.emit("exit", 0, null);
-    await waitFor(() => invocations.length === 3);
-    children[2]!.stdout.write(
-      `[tutti-agent-session-replay-complete] ${JSON.stringify({
-        runId: "replay-run-3"
-      })}\n`
-    );
-    await waitFor(() =>
-      requests.some(({ path }) => path.endsWith("/replay-run-3/complete"))
-    );
-    assert.equal(
-      requests.some(({ path }) => path.endsWith("/replay-run-2/cancel")),
-      false
-    );
-    manager.dispose();
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
+function writeEvent(
+  child: ReturnType<typeof createChild>,
+  event: "checkpoint" | "complete" | "failed" | "ready",
+  payload: Record<string, unknown>
+): void {
+  child.stdout.write(
+    `[tutti-agent-session-replay-${event}] ${JSON.stringify(payload)}\n`
+  );
+}
 
 function createChild() {
   const child = new EventEmitter() as EventEmitter & {
@@ -391,10 +352,10 @@ function createLogger(): DesktopLogger {
   };
 }
 
-async function waitFor(predicate: () => boolean): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 1));
+    if (await predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error("condition was not reached");
+  throw new Error("condition was not met");
 }

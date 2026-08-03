@@ -1,5 +1,5 @@
 import { useCallback, useRef, type RefObject } from "react";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { AgentComposerDraft } from "../model/agentGuiNodeTypes";
 import {
   agentComposerDraftHasContent,
@@ -30,7 +30,7 @@ interface Input {
     sourceScopeKey?: string
   ) => void;
   onRequestOlderPage?: () => void;
-  runtime: AgentActivityRuntime | null;
+  runtime: AgentGUIRuntime | null;
   workspaceId: string;
 }
 

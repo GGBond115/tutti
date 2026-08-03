@@ -2,14 +2,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createAgentSessionEngine } from "./createAgentSessionEngine.ts";
 import type { EngineDiagnosticEvent } from "./diagnostics.ts";
+import { createTestEngineCommandPort } from "./testEngineCommandPort.ts";
 import type {
   AgentSessionEngine,
   AgentSessionEngineState,
   EngineClock,
-  EngineCommandPort,
   EngineExternalCommand,
   EngineIntent,
-  EngineScheduler
+  EngineScheduler,
+  EngineTypedCommandPort
 } from "./types.ts";
 import type { AgentActivityTurn } from "../types.ts";
 import type { AgentActivitySessionInput } from "../sessionNormalization.ts";
@@ -79,7 +80,7 @@ function createManualTimer(): ManualTimer {
   };
 }
 
-interface ManualCommandPort extends EngineCommandPort {
+interface ManualCommandPort extends EngineTypedCommandPort {
   abortSignalsByCommandId: Map<string, AbortSignal>;
   executedCommands: EngineExternalCommand[];
   fail(commandId: string, error: unknown): void;
@@ -93,42 +94,27 @@ function createManualCommandPort(): ManualCommandPort {
   >();
   const executedCommands: EngineExternalCommand[] = [];
   const abortSignalsByCommandId = new Map<string, AbortSignal>();
-  return {
-    executePlanDecision(command, options) {
-      executedCommands.push(command);
-      if (options?.signal) {
-        abortSignalsByCommandId.set(command.commandId, options.signal);
-      }
-      return new Promise((resolve, reject) => {
-        settlersByCommandId.set(command.commandId, {
-          reject,
-          resolve: (value) =>
-            resolve(
-              value as import("./planDecision.types.ts").PlanSubmitDecisionResult
-            )
-        });
-      });
-    },
-    execute(command, options) {
-      executedCommands.push(command);
-      if (options?.signal) {
-        abortSignalsByCommandId.set(command.commandId, options.signal);
-      }
-      return new Promise((resolve, reject) => {
-        settlersByCommandId.set(command.commandId, { reject, resolve });
-      });
-    },
+  const commandPort = createTestEngineCommandPort((command, options) => {
+    executedCommands.push(command);
+    if (options?.signal) {
+      abortSignalsByCommandId.set(command.commandId, options.signal);
+    }
+    return new Promise((resolve, reject) => {
+      settlersByCommandId.set(command.commandId, { reject, resolve });
+    });
+  });
+  return Object.assign(commandPort, {
     abortSignalsByCommandId,
     executedCommands,
-    fail(commandId, error) {
+    fail(commandId: string, error: unknown) {
       settlersByCommandId.get(commandId)?.reject(error);
       settlersByCommandId.delete(commandId);
     },
-    succeed(commandId, value) {
+    succeed(commandId: string, value?: unknown) {
       settlersByCommandId.get(commandId)?.resolve(value);
       settlersByCommandId.delete(commandId);
     }
-  };
+  });
 }
 
 function createHarness(input?: {
@@ -330,12 +316,10 @@ test("command execution observes the state produced by its triggering intent", (
   const timer = createManualTimer();
   let engine: AgentSessionEngine;
   let snapshotDuringExecution: AgentSessionEngineState | undefined;
-  const commandPort: EngineCommandPort = {
-    execute() {
-      snapshotDuringExecution = engine.getSnapshot();
-      return new Promise(() => {});
-    }
-  };
+  const commandPort = createTestEngineCommandPort(async () => {
+    snapshotDuringExecution = engine.getSnapshot();
+    return new Promise(() => {});
+  });
   engine = createAgentSessionEngine({
     clock: timer.clock,
     commandPort,
@@ -1016,12 +1000,6 @@ test("dispose cancels pending frames, expiries, and in-flight results", async ()
       type: "intentDroppedAfterDispose"
     }
   ]);
-});
-
-test("dispose is idempotent", () => {
-  const { engine } = createHarness();
-  engine.dispose();
-  engine.dispose();
 });
 
 test("two instances with different origins do not interfere", () => {

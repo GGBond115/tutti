@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   answersFromInteractivePayload,
   commandEntries,
-  goalStateFromContentBlocks,
   sdkContentFromPromptBlocks,
   speedFromFastModeState,
   toolPayload
@@ -375,44 +374,6 @@ test("answersFromInteractivePayload keys answers by question text for Claude SDK
     {
       "Which framework?": "React",
       "Which areas?": "UI, daemon"
-    }
-  );
-});
-
-test("goalStateFromContentBlocks maps SDK goal_status attachments", () => {
-  assert.deepEqual(
-    goalStateFromContentBlocks([
-      {
-        type: "attachment",
-        attachment: {
-          type: "goal_status",
-          met: false,
-          sentinel: true,
-          condition: "ship native goal"
-        }
-      }
-    ]),
-    {
-      objective: "ship native goal",
-      status: "active",
-      sentinel: true
-    }
-  );
-  assert.deepEqual(
-    goalStateFromContentBlocks([
-      {
-        type: "goal_status",
-        met: true,
-        condition: "ship native goal",
-        reason: "done",
-        iterations: 1
-      }
-    ]),
-    {
-      objective: "ship native goal",
-      status: "complete",
-      reason: "done",
-      iterations: 1
     }
   );
 });

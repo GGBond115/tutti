@@ -10,9 +10,9 @@ var (
 	ErrBusy              = replay.ErrBusy
 	ErrNotFound          = replay.ErrRecordingNotFound
 	ErrCassetteNotFound  = replay.ErrCassetteNotFound
-	ErrReplayRunNotFound = replay.ErrReplayRunNotFound
 	ErrInvalidState      = replay.ErrInvalidState
 	ErrInvalidName       = replay.ErrInvalidName
+	ErrInvalidImport     = errors.New("agent session cassette import is invalid")
 	ErrUnsupportedTarget = errors.New("agent session recording target is unsupported")
 )
 
@@ -21,17 +21,27 @@ type ScenarioMode = replay.ScenarioMode
 type ActivityEventKind = replay.ActivityEventKind
 type Recording = replay.Recording
 type Cassette = replay.Cassette
-type ReplayRunStatus = replay.ReplayRunStatus
-type ReplayRun = replay.ReplayRun
-type ReplayRequest = replay.ReplayRequest
+type ArtifactLayout = replay.ArtifactLayout
 type MetadataStore = replay.MetadataStore
-type StateFixtureStore = replay.FixtureStore
+type ReplayStateStore = replay.ReplayStateStore
 type ProcessRecorder = replay.ProcessRecorder
+type ReplayComposerDefaults = replay.ReplayComposerDefaults
+type ReplayPrerequisites = replay.ReplayPrerequisites
+
+type ReplayWorkspaceCassette struct {
+	Cassette Cassette
+	Layout   ArtifactLayout
+}
+
+type ReplayWorkspaceRequest struct {
+	Cassettes []ReplayWorkspaceCassette
+}
 
 type StartInput struct {
-	WorkspaceID    string
-	AgentTargetID  string
-	AgentSessionID string
+	WorkspaceID         string
+	AgentTargetID       string
+	AgentSessionID      string
+	ReplayPrerequisites ReplayPrerequisites
 }
 
 type BindInput struct {
@@ -39,6 +49,21 @@ type BindInput struct {
 	WorkspaceID    string
 	AgentTargetID  string
 	AgentSessionID string
+}
+
+type ImportInput struct {
+	WorkspaceID       string
+	SourceDirectories []string
+}
+
+type ImportFailure struct {
+	Code            string
+	SourceDirectory string
+}
+
+type ImportResult struct {
+	Failures   []ImportFailure
+	Recordings []Recording
 }
 
 type ActivityEvent struct {
@@ -67,12 +92,6 @@ const (
 
 	ScenarioModeCreateSession   = replay.ScenarioModeCreateSession
 	ScenarioModeContinueSession = replay.ScenarioModeContinueSession
-
-	ReplayRunStatusStarting = replay.ReplayRunStatusStarting
-	ReplayRunStatusRunning  = replay.ReplayRunStatusRunning
-	ReplayRunStatusComplete = replay.ReplayRunStatusComplete
-	ReplayRunStatusFailed   = replay.ReplayRunStatusFailed
-	ReplayRunStatusCanceled = replay.ReplayRunStatusCanceled
 
 	ActivityEventKindIntent         = replay.ActivityEventKindIntent
 	ActivityEventKindEffect         = replay.ActivityEventKindEffect

@@ -4,8 +4,9 @@ Status: current implemented architecture
 
 Agent Extensions let independently released ACP agents integrate with Tutti
 without adding provider-specific executable code to this repository. An
-extension is declarative data: a manifest, discovery/tool/capability/composer
-profiles, locale resources, and static assets.
+extension is declarative data: a manifest,
+discovery/tool/capability/composer/authentication profiles, locale resources,
+and static assets.
 
 ## Trust And Distribution
 
@@ -14,6 +15,24 @@ agent key, HTTPS `versions.json` URL, default activation state, signing key ID,
 and Ed25519 public key. `tuttid` accepts only active compatible releases whose
 canonical release JSON signature, artifact SHA-256, byte size, manifest
 identity, and package contents all validate.
+
+During a versioned metadata-path rollout, a source may declare ordered fallback
+index URLs. Fallback is permitted only when a higher-priority index cannot be
+fetched, such as before the new CloudFront path has been published. Once an
+index is fetched, its JSON shape, agent identity, compatibility, active or
+withdrawn state, and selected release signature are authoritative and fail
+closed; a legacy index must never revive a release rejected by that authority.
+Remove rollout fallbacks after the new metadata path is published and the
+supporting Tutti version has propagated.
+
+`minTuttiVersion` is evaluated only after the complete versions document has
+been decoded. It therefore cannot protect an older strict decoder from a new
+field inside an embedded manifest. A release that extends the manifest wire
+shape must publish `versions.json` under a new versioned metadata path, leave
+the previous index unchanged for older Tutti builds, and switch the configured
+source URL only in a Tutti release that understands the new shape. Immutable
+artifacts may remain under the Agent's existing release path because older
+clients cannot discover them through their frozen metadata index.
 
 Release ZIPs are data-only. Installation rejects path traversal, symlinks,
 executable regular files, unsupported file types, excessive entry counts, and
@@ -38,8 +57,14 @@ configured source. The daemon applies the same data-only file, size, manifest,
 profile, asset, and runtime-contract validation, copies the package into its
 owned state, stamps a content-addressed `+local.<digest>` snapshot version, and
 registers the normal fixed Agent Target. It never runs from the mutable source
-directory. Production ignores this override and continues to require the
-signed HTTPS release path.
+directory. Every daemon start with an explicit local override synchronously
+snapshots and validates the currently configured directory before serving the
+Agent Target. A cached `+local` snapshot is never an offline fallback for a
+missing or invalid development directory; reconciliation removes the stale
+Target while preserving its enabled preference when a valid new snapshot is
+registered. Removing the override requires the signed remote source again.
+Production ignores this override and continues to require the signed HTTPS
+release path.
 
 ## Installation And Runtime Ownership
 
@@ -432,14 +457,25 @@ requires `session/new` to succeed. Only that result produces `ready`; methods
 being advertised is never itself an auth verdict. Authentication actions are
 durable and never persist credentials.
 
-A method may declare a provider-specific kind. Tutti reads the top-level
-`type`/`args` fields first and falls back to the ACP `_meta["terminal-auth"]`
-extension (the shape Kimi Code publishes, with `type`, `args`, `command`,
-`env`, and `label`). Methods of type `terminal` require an interactive
-terminal login that can never complete inside the headless setup process, so
-the daemon rejects ACP `authenticate` for them immediately and the snapshot
-carries a ready-to-run terminal command (the resolved runtime executable plus
-the declared args) for the host to surface or launch.
+A signed `authentication` profile may bind one runtime-advertised method ID to
+a closed terminal command declaration. Authentication profile v1 currently
+supports only `type: "terminal"` with
+`command.strategy: "runtime-subcommand"` and a bounded argv array. Tutti
+combines that declaration with the verified runtime executable only when its
+type matches the fresh ACP method type, so
+provider-specific subcommands such as a local CLI login remain in the extension
+package instead of daemon code. Profile declarations are argv data, never shell
+source, and the daemon quotes every projected argument before exposing the
+ready-to-run command.
+
+Without a signed declaration, Tutti retains compatibility with provider
+metadata: it reads top-level ACP `type`/`args` fields first and falls back to
+`_meta["terminal-auth"]`. Methods of type `terminal` require an interactive
+terminal that can never complete inside the headless setup process, so the
+daemon rejects ACP `authenticate` for them immediately and lets the host surface
+or launch the resolved command. The profile changes terminal presentation and
+launch policy only; the fresh ACP initialize response remains authoritative for
+which authentication methods are actually available.
 
 An ACP `authenticate` result may expose non-secret account identity through a
 namespaced `_meta` entry ending in `/userinfo`. Setup normalizes only the user

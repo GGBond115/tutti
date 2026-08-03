@@ -10,7 +10,7 @@ import {
 } from "@tutti-os/agent-activity-core";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { useCallback, useEffect, useRef } from "react";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { translate } from "../../../i18n/index";
 import type { AgentGUINodeData } from "../../../types";
 import type { AgentGUIConversationSummary } from "../model/agentGuiConversationModel";
@@ -51,7 +51,7 @@ interface UseAgentGUIConversationSelectionControllerInput {
   activeConversationIdRef: RefObject<string | null>;
   activePendingActivation: ActivationRecord | null;
   activeSessionReconcileErrorCode: string | null;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   attentionReadRecordsBySessionId: Record<
     string,
     AttentionReadRecord | undefined

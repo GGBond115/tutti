@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 func (a *CodexAppServerAdapter) ApplyPermissionMode(_ context.Context, session Session) error {
@@ -43,6 +45,12 @@ func (a *CodexAppServerAdapter) SessionState(session Session) SessionStateSnapsh
 	if !ok {
 		return snapshot
 	}
+	for key, value := range state.resumeRuntimeContext {
+		snapshot.RuntimeContext[key] = value
+	}
+	snapshot.RuntimeContext["cwd"] = session.CWD
+	snapshot.RuntimeContext["title"] = session.Title
+	snapshot.RuntimeContext["permissionModeId"] = session.PermissionModeID
 	if len(state.serverInfo) > 0 {
 		snapshot.RuntimeContext["agent"] = state.serverInfo
 	}
@@ -71,6 +79,14 @@ func (a *CodexAppServerAdapter) SessionState(session Session) SessionStateSnapsh
 	if state.currentMode != "" {
 		snapshot.RuntimeContext["mode"] = state.currentMode
 	}
+	if checkpoint := codexAppServerProtocolCheckpoint(
+		state.planModeMask,
+		state.defaultModeMask,
+		state.defaultModel,
+	); checkpoint != nil {
+		snapshot.RuntimeContext[canonical.ProviderResumeCheckpointRuntimeContextKey] =
+			checkpoint
+	}
 	if len(state.availableCommands) > 0 {
 		snapshot.RuntimeContext["commands"] = agentSessionCommandNames(state.availableCommands)
 	}
@@ -94,7 +110,7 @@ func (a *CodexAppServerAdapter) SessionState(session Session) SessionStateSnapsh
 	}
 	codexCapabilities = appendBrowserUseCapability(codexCapabilities, session.Env)
 	codexCapabilities = appendComputerUseCapability(codexCapabilities, session.Env)
-	snapshot.RuntimeContext["capabilities"] = codexCapabilities
+	snapshot.Capabilities = canonical.NewCapabilitySnapshot(codexCapabilities)
 	snapshot.Settings = codexAppServerSessionSettingsWithConfig(
 		session.Settings,
 		session.Provider,
@@ -130,6 +146,10 @@ type codexAppServerSessionStateSnapshot struct {
 	authState              string
 	authMessage            string
 	planModeSupported      bool
+	planModeMask           map[string]any
+	defaultModeMask        map[string]any
+	defaultModel           string
+	resumeRuntimeContext   map[string]any
 	acpLiveStateSnapshot
 	pendingPrompt *SessionInteractivePrompt
 }
@@ -161,9 +181,49 @@ func (a *CodexAppServerAdapter) snapshotSessionState(agentSessionID string) (cod
 		authState:              strings.TrimSpace(appSession.authState),
 		authMessage:            strings.TrimSpace(appSession.authMessage),
 		planModeSupported:      appSession.planModeMask != nil,
+		planModeMask:           clonePayload(appSession.planModeMask),
+		defaultModeMask:        clonePayload(appSession.defaultModeMask),
+		defaultModel:           strings.TrimSpace(appSession.defaultModel),
+		resumeRuntimeContext:   clonePayload(appSession.resumeRuntimeContext),
 		acpLiveStateSnapshot:   snapshotACPLiveState(appSession.acpLiveState),
 		pendingPrompt:          prompt,
 	}, true
+}
+
+func codexAppServerProtocolCheckpoint(
+	planModeMask map[string]any,
+	defaultModeMask map[string]any,
+	defaultModel string,
+) map[string]any {
+	checkpoint := map[string]any{}
+	if len(planModeMask) > 0 {
+		checkpoint["planModeMask"] = clonePayload(planModeMask)
+	}
+	if len(defaultModeMask) > 0 {
+		checkpoint["defaultModeMask"] = clonePayload(defaultModeMask)
+	}
+	if defaultModel = strings.TrimSpace(defaultModel); defaultModel != "" {
+		checkpoint["defaultModel"] = defaultModel
+	}
+	if len(checkpoint) == 0 {
+		return nil
+	}
+	return checkpoint
+}
+
+func codexAppServerProtocolCheckpointFromRuntimeContext(
+	runtimeContext map[string]any,
+) (map[string]any, map[string]any, string, bool) {
+	checkpoint, ok := runtimeContext[canonical.ProviderResumeCheckpointRuntimeContextKey].(map[string]any)
+	if !ok || len(checkpoint) == 0 {
+		return nil, nil, "", false
+	}
+	planModeMask, _ := checkpoint["planModeMask"].(map[string]any)
+	defaultModeMask, _ := checkpoint["defaultModeMask"].(map[string]any)
+	return clonePayload(planModeMask),
+		clonePayload(defaultModeMask),
+		strings.TrimSpace(asString(checkpoint["defaultModel"])),
+		true
 }
 
 func (a *CodexAppServerAdapter) SessionCommandSnapshot(session Session) (AgentSessionCommandSnapshot, bool) {
@@ -204,7 +264,10 @@ func (a *CodexAppServerAdapter) SubmitInteractive(ctx context.Context, session S
 		if !ok {
 			return SubmitInteractiveResult{}, fmt.Errorf("permission option %q is not available for request %q", optionID, requestID)
 		}
-		if _, err := pending.dispatchResponse(ctx, pendingInteractiveResponse{optionID: resolvedOptionID}); err != nil {
+		if _, err := pending.dispatchResponse(ctx, pendingInteractiveResponse{
+			optionID: resolvedOptionID,
+			payload:  clonePayload(input.Payload),
+		}); err != nil {
 			return SubmitInteractiveResult{}, err
 		}
 		if state, err := pending.waitForDisposition(ctx); err != nil {

@@ -272,24 +272,29 @@ export function projectWorkspaceAgentMessagesToTimelineItems(
       });
     }
 
+    const visibleError =
+      kind === "error" ||
+      normalizeToken(stringValue(payload.kind)) === "agent_visible_error";
     const statusTurnId =
-      turnId ?? `session-status:${kind === "error" ? "error" : "notice"}`;
+      turnId ?? `session-status:${visibleError ? "error" : "notice"}`;
     const statusMessage: AgentActivityMessage = {
       ...message,
-      payload:
-        kind === "error"
-          ? {
-              ...payload,
-              detail: messageText(message),
-              kind: "agent_visible_error"
-            }
-          : {
-              ...payload,
-              detail: messageText(message),
-              kind: "agent_system_notice",
-              noticeKind: kind,
-              severity: "info"
-            }
+      payload: visibleError
+        ? {
+            ...payload,
+            detail: firstNonEmptyString(
+              stringValue(payload.detail),
+              messageText(message)
+            ),
+            kind: "agent_visible_error"
+          }
+        : {
+            ...payload,
+            detail: messageText(message),
+            kind: "agent_system_notice",
+            noticeKind: kind,
+            severity: "info"
+          }
     };
     return messageTimelineItem({
       message: statusMessage,
@@ -545,12 +550,12 @@ function toolCallItemType(status: string | undefined): string {
 function messageText(message: AgentActivityMessage): string {
   const payload = normalizedPayload(message.payload);
   const title = messagePayloadString(message, "title");
-  return firstNonEmptyString(
-    stringValue(payload.displayPrompt),
-    stringValue(payload.text),
-    stringValue(payload.content),
-    stringValue(payload.message),
-    stringValue(payload.body),
+  return firstNonEmptyMessageText(
+    rawNonEmptyString(payload.displayPrompt),
+    rawNonEmptyString(payload.text),
+    rawNonEmptyString(payload.content),
+    rawNonEmptyString(payload.message),
+    rawNonEmptyString(payload.body),
     title
   );
 }
@@ -615,6 +620,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function rawNonEmptyString(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value : "";
+}
+
+function firstNonEmptyMessageText(
+  ...values: Array<string | undefined | null>
+): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return "";
 }
 
 function firstNonEmptyString(

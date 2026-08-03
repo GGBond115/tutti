@@ -20,12 +20,6 @@ import {
 } from "./agentGuiRailLayout";
 
 describe("agentGuiRailLayout", () => {
-  it("matches the issue manager task-list rail dimensions", () => {
-    expect(AGENT_GUI_CONVERSATION_RAIL_DEFAULT_WIDTH_PX).toBe(280);
-    expect(AGENT_GUI_CONVERSATION_RAIL_MIN_WIDTH_PX).toBe(248);
-    expect(AGENT_GUI_CONVERSATION_RAIL_MAX_WIDTH_PX).toBe(520);
-  });
-
   it("returns the default rail width when no persisted width exists", () => {
     expect(clampAgentGUIConversationRailWidthPx(null, 720)).toBe(
       AGENT_GUI_CONVERSATION_RAIL_DEFAULT_WIDTH_PX

@@ -1,0 +1,142 @@
+package agentruntime
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+
+	sessionreplay "github.com/tutti-os/tutti/packages/agent/session-replay"
+)
+
+func (c *acpClient) readLoop() {
+	var pending []byte
+	var stderrTail []byte
+	var stdoutTail []byte
+	for {
+		frame, err := c.conn.Recv()
+		if err != nil {
+			c.finish(err)
+			return
+		}
+		if len(frame.Stderr) > 0 {
+			stderrTail = append(stderrTail, frame.Stderr...)
+			if len(stderrTail) > acpClientOutputTailLimit {
+				stderrTail = stderrTail[len(stderrTail)-acpClientOutputTailLimit:]
+			}
+			c.setStderrTail(stderrTail)
+			c.mu.Lock()
+			stderrSink := c.stderrSink
+			c.mu.Unlock()
+			if stderrSink != nil {
+				stderrSink(frame.Stderr)
+			}
+			if c.stderrMessageMapper != nil {
+				if message, ok := c.stderrMessageMapper(frame.Stderr); ok {
+					unit := providerInputUnit(
+						frame,
+						1,
+						sessionreplay.ProviderInputUnitMappedStderr,
+					)
+					c.dispatchMessageAt(message, &unit)
+					if err := c.completeProviderInputUnit(
+						frame,
+						1,
+						sessionreplay.ProviderInputUnitMappedStderr,
+					); err != nil {
+						c.finish(err)
+						return
+					}
+				}
+			}
+			slog.Warn("agent session ACP stderr",
+				"event", "agent_session.acp.stderr",
+				"message", truncateACPLogValue(string(frame.Stderr), 1200),
+			)
+			continue
+		}
+		if frame.ExitCode != nil {
+			unit := providerInputUnit(
+				frame,
+				1,
+				sessionreplay.ProviderInputUnitProcessExit,
+			)
+			if err := c.completeProviderInputUnit(
+				frame,
+				1,
+				sessionreplay.ProviderInputUnitProcessExit,
+			); err != nil {
+				c.finish(err)
+				return
+			}
+			c.setExitCode(*frame.ExitCode)
+			message := strings.TrimSpace(frame.Message)
+			if stderr := strings.TrimSpace(string(stderrTail)); stderr != "" {
+				message = firstNonEmpty(message, "process exited") + ": " + stderr
+			}
+			c.finish(providerInputUnitError{
+				err: fmt.Errorf(
+					"acp process exited with code %d: %s",
+					*frame.ExitCode,
+					message,
+				),
+				unit: unit,
+			})
+			return
+		}
+		if len(frame.Stdout) == 0 {
+			continue
+		}
+		stdoutTail = append(stdoutTail, frame.Stdout...)
+		if len(stdoutTail) > acpClientOutputTailLimit {
+			stdoutTail = stdoutTail[len(stdoutTail)-acpClientOutputTailLimit:]
+		}
+		c.setStdoutTail(stdoutTail)
+		pending = append(pending, frame.Stdout...)
+		var unitIndex uint64
+		for {
+			line, rest, ok := bytes.Cut(pending, []byte("\n"))
+			if !ok {
+				break
+			}
+			pending = rest
+			nextUnitIndex := unitIndex + 1
+			if !c.dispatchLineAt(line, frame, nextUnitIndex) {
+				continue
+			}
+			unitIndex = nextUnitIndex
+			if err := c.completeProviderInputUnit(
+				frame,
+				unitIndex,
+				sessionreplay.ProviderInputUnitProtocolMessage,
+			); err != nil {
+				c.finish(err)
+				return
+			}
+		}
+	}
+}
+
+func (c *acpClient) completeProviderInputUnit(
+	frame ProcessFrame,
+	unitIndex uint64,
+	kind sessionreplay.ProviderInputUnitKind,
+) error {
+	completion, ok := c.conn.(ProviderInputUnitCompletion)
+	if !ok {
+		return nil
+	}
+	return completion.CompleteProviderInputUnit(
+		context.Background(),
+		ProviderInputUnit{
+			RecordingID: frame.RecordingID,
+			Position: sessionreplay.ProviderUnitPosition{
+				ConnectionID: frame.ConnectionID,
+				ChunkSeq:     frame.ChunkSeq,
+				UnitIndex:    unitIndex,
+			},
+			Kind: kind,
+		},
+	)
+}

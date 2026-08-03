@@ -1,0 +1,115 @@
+{
+  "name": "@tutti-os/desktop-update-admission",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "types": "./src/index.ts",
+  "bin": {
+    "desktop-update-admission-mock-server": "./dist/development/mock-server-cli.js"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./contracts": "./src/contracts/index.ts",
+    "./core": "./src/core/index.ts",
+    "./development": "./src/development/index.ts",
+    "./electron-main": "./src/electron-main/index.ts",
+    "./feature-availability": "./src/feature-availability/index.ts",
+    "./i18n": "./src/i18n/index.ts",
+    "./mandatory-updater": "./src/mandatory-updater/index.ts",
+    "./preload": "./src/preload/index.ts",
+    "./react": "./src/react/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tutti-os/tutti.git",
+    "directory": "packages/desktop/update-admission"
+  },
+  "scripts": {
+    "build": "tsup --config tsup.config.ts",
+    "test": "node --test --experimental-strip-types \"./src/**/*.test.ts\"",
+    "typecheck": "node ../../../tools/scripts/run-tsgo-typecheck.mjs"
+  },
+  "dependencies": {
+    "@tutti-os/ui-i18n-runtime": "workspace:*",
+    "@tutti-os/ui-system": "workspace:*"
+  },
+  "devDependencies": {
+    "@tutti-os/config-tsconfig": "workspace:*",
+    "@types/node": "^24.0.1",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.5",
+    "electron": "^43.2.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "typescript": "^5.8.3"
+  },
+  "peerDependencies": {
+    "electron": ">=35.7.5 <44",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "peerDependenciesMeta": {
+    "electron": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "tutti": {
+    "tailwindSourceRoot": "src/react"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./contracts": {
+        "types": "./dist/contracts/index.d.ts",
+        "import": "./dist/contracts/index.js"
+      },
+      "./core": {
+        "types": "./dist/core/index.d.ts",
+        "import": "./dist/core/index.js"
+      },
+      "./development": {
+        "types": "./dist/development/index.d.ts",
+        "import": "./dist/development/index.js"
+      },
+      "./electron-main": {
+        "types": "./dist/electron-main/index.d.ts",
+        "import": "./dist/electron-main/index.js"
+      },
+      "./feature-availability": {
+        "types": "./dist/feature-availability/index.d.ts",
+        "import": "./dist/feature-availability/index.js"
+      },
+      "./i18n": {
+        "types": "./dist/i18n/index.d.ts",
+        "import": "./dist/i18n/index.js"
+      },
+      "./mandatory-updater": {
+        "types": "./dist/mandatory-updater/index.d.ts",
+        "import": "./dist/mandatory-updater/index.js"
+      },
+      "./preload": {
+        "types": "./dist/preload/index.d.ts",
+        "import": "./dist/preload/index.js"
+      },
+      "./react": {
+        "types": "./dist/react/index.d.ts",
+        "import": "./dist/react/index.js"
+      }
+    },
+    "types": "./dist/index.d.ts"
+  }
+}

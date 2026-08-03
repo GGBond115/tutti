@@ -21,6 +21,7 @@ const readyInput: ResolveAgentGUIComposerGateInput = {
   pendingApproval: false,
   pendingInteractivePrompt: false,
   providerReadinessGate: null,
+  selectedAgentTargetUnavailable: false,
   sessionRuntimeBlockedReason: null,
   targetConnectionBlocked: false
 };
@@ -81,6 +82,21 @@ describe("resolveAgentGUIComposerGate", () => {
         expect(gate.editor.status).toBe("editable");
       }
     }
+  });
+
+  it("blocks editing and submission when the selected Home target is unavailable", () => {
+    expect(
+      resolveAgentGUIComposerGate({
+        ...readyInput,
+        activeConversationId: null,
+        activeLiveState: "inactive",
+        selectedAgentTargetUnavailable: true
+      })
+    ).toMatchObject({
+      runtime: { status: "ready", reason: null },
+      editor: { status: "blocked", reason: "provider_readiness" },
+      submission: { status: "blocked", reason: "provider_readiness" }
+    });
   });
 
   it("keeps the editor editable and projects queue submission while busy", () => {

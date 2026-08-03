@@ -33,7 +33,8 @@ INSERT INTO workspace_agent_messages (
   created_at_unix_ms, updated_at_unix_ms
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
 ON CONFLICT(workspace_id, agent_session_id, message_id) DO UPDATE SET
-  version = excluded.version, turn_id = excluded.turn_id, role = excluded.role, kind = excluded.kind,
+  version = excluded.version,
+  turn_id = excluded.turn_id, role = excluded.role, kind = excluded.kind,
   status = excluded.status, payload_json = excluded.payload_json,
   occurred_at_unix_ms = excluded.occurred_at_unix_ms,
   completed_at_unix_ms = excluded.completed_at_unix_ms,
@@ -46,8 +47,9 @@ ON CONFLICT(workspace_id, agent_session_id, message_id) DO UPDATE SET
 	}
 	return Message{
 		AgentSessionID: settlement.AgentSessionID,
-		MessageID:      messageID, Version: version, TurnID: settlement.TurnID,
-		Role: "assistant", Kind: "text", Status: "completed",
+		MessageID:      messageID, Version: version,
+		TurnID: settlement.TurnID,
+		Role:   "assistant", Kind: "text", Status: "completed",
 		OccurredAtUnixMS: now, CompletedAtUnixMS: now, CreatedAtUnixMS: now, UpdatedAtUnixMS: now,
 	}, nil
 }

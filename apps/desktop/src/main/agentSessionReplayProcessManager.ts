@@ -1,37 +1,52 @@
 import { spawn } from "node:child_process";
-import type { EventEmitter } from "node:events";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { rename, writeFile } from "node:fs/promises";
-import type { Readable } from "node:stream";
+import type {
+  DesktopAgentSessionReplayLaunchPlaybackMode,
+  DesktopAgentSessionReplayStatus
+} from "../shared/contracts/ipc.ts";
 import type { DesktopLogger } from "./logging.ts";
 import {
-  resolveDesktopDaemonBaseUrl,
-  type DesktopDaemonEndpoint
-} from "./transport/paths.ts";
+  createAgentSessionReplayCassetteStatusWriter,
+  type AgentSessionReplayCassetteStatusWriter
+} from "./agentSessionReplayStatus.ts";
+import {
+  monitorManagedReplayWorkspace,
+  type ManagedReplayChild
+} from "./agentSessionReplayProcessMonitor.ts";
 
-const readyPrefix = "[tutti-agent-session-replay-ready] ";
-const completePrefix = "[tutti-agent-session-replay-complete] ";
-const failedPrefix = "[tutti-agent-session-replay-failed] ";
-const checkpointPrefix = "[tutti-agent-session-replay-checkpoint] ";
-const replacePrefix = "[tutti-agent-session-replay-replace] ";
 const defaultLaunchTimeoutMs = 180_000;
-const maxDiagnosticCharacters = 12_000;
+
+export interface AgentSessionReplayCassetteLaunch {
+  cassetteDirectory: string;
+  rootAgentSessionId: string;
+  cassetteId: string;
+}
+
+export interface AgentSessionReplayWorkspaceLaunch {
+  launchId: string;
+  cassettes: AgentSessionReplayCassetteLaunch[];
+  playbackMode: DesktopAgentSessionReplayLaunchPlaybackMode;
+  workspaceId: string;
+}
 
 export interface AgentSessionReplayLaunchResult {
-  runId: string;
+  launchId: string;
+  cassetteIds: string[];
+  workspaceId: string;
 }
 
 export interface AgentSessionReplayProcessManager {
   dispose(): void;
-  launch(input: {
-    cassetteId: string;
-    cassetteDirectory: string;
-    runId: string;
-    workspaceId: string;
-  }): Promise<AgentSessionReplayLaunchResult>;
+  launch(
+    input: AgentSessionReplayWorkspaceLaunch
+  ): Promise<AgentSessionReplayLaunchResult>;
+  shutdown(): Promise<void>;
   waitForCompletion(input: {
-    runId: string;
-  }): Promise<AgentSessionReplayLaunchResult>;
+    cassetteId: string;
+    launchId: string;
+  }): Promise<{ cassetteId: string }>;
 }
 
 interface CreateAgentSessionReplayProcessManagerInput {
@@ -42,34 +57,11 @@ interface CreateAgentSessionReplayProcessManagerInput {
   logger: DesktopLogger;
   nodeExecutable: string;
   repositoryRoot: string | null;
-  endpoint?: DesktopDaemonEndpoint;
+  createCassetteStatusWriter?: (
+    path: string
+  ) => AgentSessionReplayCassetteStatusWriter;
   spawnProcess?: SpawnManagedReplayProcess;
-}
-
-interface ManagedReplayLaunch {
-  cassetteId: string;
-  cassetteDirectory: string;
-  runId: string;
-  targetCheckpoint?: number;
-  workspaceId: string;
-}
-
-interface ManagedReplayReplacement {
-  cassetteId?: string;
-  command: "previous-checkpoint" | "restart" | "switch-cassette";
-  currentCheckpoint: number;
-}
-
-type ManagedReplayOutcome =
-  | { type: "complete" }
-  | { replacement: ManagedReplayReplacement; type: "replace" };
-
-interface ManagedReplayChild extends EventEmitter {
-  exitCode: number | null;
-  kill(signal?: NodeJS.Signals): boolean;
-  signalCode: NodeJS.Signals | null;
-  stderr: Readable;
-  stdout: Readable;
+  writeManifest?: typeof writeReplayWorkspaceManifest;
 }
 
 type SpawnManagedReplayProcess = (
@@ -83,16 +75,35 @@ type SpawnManagedReplayProcess = (
   }
 ) => ManagedReplayChild;
 
+interface ManagedCassetteState {
+  completion: Promise<{ cassetteId: string }>;
+  launch: AgentSessionReplayCassetteLaunch;
+  rejectCompletion(error: Error): void;
+  resolveCompletion(result: { cassetteId: string }): void;
+  status: DesktopAgentSessionReplayStatus;
+  statusWriter: AgentSessionReplayCassetteStatusWriter;
+  surfaceReady: boolean;
+  terminal: boolean;
+}
+
+interface ManagedWorkspaceState {
+  child: ManagedReplayChild;
+  cleanupManifest(): Promise<void>;
+  closed: Promise<void>;
+  fatalError: Error | null;
+  launch: AgentSessionReplayWorkspaceLaunch;
+  cassettes: Map<string, ManagedCassetteState>;
+}
+
 export function createAgentSessionReplayProcessManager(
   input: CreateAgentSessionReplayProcessManagerInput
 ): AgentSessionReplayProcessManager {
-  const children = new Set<ManagedReplayChild>();
-  const completions = new Map<
-    string,
-    Promise<AgentSessionReplayLaunchResult>
-  >();
-  const checkpointUpdates = new Map<string, Promise<void>>();
-  let cassetteCatalogWrites = Promise.resolve();
+  const workspaces = new Map<string, ManagedWorkspaceState>();
+  const pendingLaunchIds = new Set<string>();
+  const createCassetteStatusWriter =
+    input.createCassetteStatusWriter ??
+    createAgentSessionReplayCassetteStatusWriter;
+  const writeManifest = input.writeManifest ?? writeReplayWorkspaceManifest;
   const spawnProcess: SpawnManagedReplayProcess =
     input.spawnProcess ??
     ((command, args, options) =>
@@ -100,74 +111,132 @@ export function createAgentSessionReplayProcessManager(
 
   return {
     async launch(launchInput) {
-      if (!input.repositoryRoot) {
-        throw new Error(
-          "Agent Session Replay is only available in a development checkout"
-        );
-      }
-      const runId = launchInput.runId.trim();
-      if (!runId) {
-        throw new Error("Agent Session Replay Run id is required");
-      }
-      const first = spawnReplay({
-        cassetteId: requiredIdentity(launchInput.cassetteId, "Cassette"),
-        cassetteDirectory: launchInput.cassetteDirectory,
-        runId,
-        workspaceId: requiredIdentity(launchInput.workspaceId, "Workspace")
-      });
-      const completion = supervise(first);
-      void completion.catch(() => undefined);
-      completions.set(runId, completion);
+      let reservedLaunchId: string | null = null;
+      let manifest: Awaited<
+        ReturnType<typeof writeReplayWorkspaceManifest>
+      > | null = null;
+      let states: Map<string, ManagedCassetteState> | null = null;
+      let supervisionOwnsSettlement = false;
       try {
-        await first.ready;
+        const launch = normalizeLaunch(launchInput);
+        if (
+          workspaces.has(launch.launchId) ||
+          pendingLaunchIds.has(launch.launchId)
+        ) {
+          throw new Error(
+            `Agent Session Replay launch is already active: ${launch.launchId}`
+          );
+        }
+        reservedLaunchId = launch.launchId;
+        pendingLaunchIds.add(reservedLaunchId);
+        if (!input.repositoryRoot) {
+          throw new Error(
+            "Agent Session Replay is only available in a development checkout"
+          );
+        }
+        manifest = await writeManifest(launch);
+        const statusWriter = createCassetteStatusWriter(
+          manifest.surfaceStatusPath
+        );
+        states = new Map(
+          launch.cassettes.map((cassette) => [
+            cassette.cassetteId,
+            createCassetteState(cassette, statusWriter)
+          ])
+        );
+        await Promise.all(
+          [...states.values()].map((state) =>
+            statusWriter.write(state.launch.cassetteId, state.status)
+          )
+        );
+        const workspace = spawnWorkspace(launch, states, manifest);
+        workspaces.set(launch.launchId, workspace);
+        releaseReservation(reservedLaunchId);
+        reservedLaunchId = null;
+        supervisionOwnsSettlement = true;
+        await workspaceReady(workspace);
+        return {
+          launchId: launch.launchId,
+          cassetteIds: launch.cassettes.map(({ cassetteId }) => cassetteId),
+          workspaceId: launch.workspaceId
+        };
       } catch (error) {
-        completions.delete(runId);
+        if (!supervisionOwnsSettlement) {
+          releaseReservation(reservedLaunchId);
+          await manifest?.cleanup().catch(() => undefined);
+        }
         throw error;
       }
-      return { runId };
     },
-    async waitForCompletion({ runId }) {
-      const completion = completions.get(runId);
-      if (!completion) {
-        throw new Error(`Agent Session Replay Run is not active: ${runId}`);
+
+    async waitForCompletion({ cassetteId, launchId }) {
+      const state = workspaces
+        .get(launchId.trim())
+        ?.cassettes.get(cassetteId.trim());
+      if (!state) {
+        throw new Error(
+          `Agent Session Replay Cassette is not active: ${launchId}/${cassetteId}`
+        );
       }
-      try {
-        return await completion;
-      } finally {
-        completions.delete(runId);
-      }
+      return state.completion;
     },
+
+    async shutdown() {
+      const active = [...workspaces.values()];
+      for (const workspace of active) {
+        workspace.child.kill("SIGTERM");
+      }
+      await Promise.allSettled(
+        active.flatMap((workspace) =>
+          [...workspace.cassettes.values()].map((cassette) =>
+            settleCanceled(cassette)
+          )
+        )
+      );
+      await Promise.allSettled(
+        active.map((workspace) => workspace.cleanupManifest())
+      );
+      workspaces.clear();
+    },
+
     dispose() {
-      for (const child of children) {
-        child.kill("SIGTERM");
+      for (const workspace of workspaces.values()) {
+        workspace.child.kill("SIGTERM");
+        void workspace.cleanupManifest();
       }
-      children.clear();
-      completions.clear();
+      workspaces.clear();
     }
   };
 
-  function spawnReplay(launch: ManagedReplayLaunch) {
+  function releaseReservation(launchId: string | null): void {
+    if (launchId) pendingLaunchIds.delete(launchId);
+  }
+
+  function spawnWorkspace(
+    launch: AgentSessionReplayWorkspaceLaunch,
+    states: Map<string, ManagedCassetteState>,
+    manifest: {
+      cleanup(): Promise<void>;
+      path: string;
+      surfaceStatusPath: string;
+    }
+  ): ManagedWorkspaceState {
     const repositoryRoot = resolve(input.repositoryRoot!);
-    const directory = resolve(launch.cassetteDirectory);
     const environment: NodeJS.ProcessEnv = {
       ...input.environment,
       TUTTI_AGENT_SESSION_REPLAY_ELECTRON_ENTRY:
         input.electronEntry?.trim() ?? "",
       TUTTI_AGENT_SESSION_REPLAY_ELECTRON_EXECUTABLE: input.electronExecutable,
-      TUTTI_AGENT_SESSION_REPLAY_PARENT_PID: String(process.pid)
+      TUTTI_AGENT_SESSION_REPLAY_PARENT_PID: String(process.pid),
+      TUTTI_AGENT_SESSION_REPLAY_SURFACE_STATUS_PATH: manifest.surfaceStatusPath
     };
     delete environment.ELECTRON_RUN_AS_NODE;
     delete environment.TUTTID_ACCESS_TOKEN;
     const args = [
       resolve(repositoryRoot, "tools/scripts/run-agent-session-replay.mjs"),
-      "--replay",
-      directory,
-      "--managed",
-      "--run-id",
-      launch.runId,
-      ...(launch.targetCheckpoint === undefined
-        ? []
-        : ["--target-checkpoint", String(launch.targetCheckpoint)])
+      "--replay-workspace-manifest",
+      manifest.path,
+      "--managed"
     ];
     const child = spawnProcess(input.nodeExecutable, args, {
       cwd: repositoryRoot,
@@ -175,250 +244,313 @@ export function createAgentSessionReplayProcessManager(
       env: environment,
       stdio: ["ignore", "pipe", "pipe"]
     });
-    children.add(child);
-    child.once("close", (code, signal) => {
-      children.delete(child);
-      input.logger.info("managed Agent Session Replay exited", {
-        exit_code: code,
-        replay_run_id: launch.runId,
-        signal
-      });
-    });
-    input.logger.info("managed Agent Session Replay starting", {
-      cassette_directory: directory,
-      replay_run_id: launch.runId,
-      target_checkpoint: launch.targetCheckpoint
-    });
-    const monitor = monitorManagedReplay(child, {
-      expectedRunId: launch.runId,
+    const workspace: ManagedWorkspaceState = {
+      child,
+      cleanupManifest: manifest.cleanup,
+      closed: Promise.resolve(),
+      fatalError: null,
+      launch,
+      cassettes: states
+    };
+    workspace.closed = monitorManagedReplayWorkspace(child, {
+      expectedCassetteIds: new Set(states.keys()),
       logger: input.logger,
-      ...(input.endpoint
-        ? {
-            onCheckpoint: (checkpoint: number) =>
-              updateReplayRunCheckpoint(launch, checkpoint),
-            onReady: (runtimeDirectory: string) =>
-              writeReplayCassetteCatalog(launch, runtimeDirectory)
-          }
-        : {}),
+      onCheckpoint(cassetteId, checkpoint, totalCheckpoints, totalDurationMs) {
+        updateCheckpoint(
+          workspace,
+          cassetteId,
+          checkpoint,
+          totalCheckpoints,
+          totalDurationMs
+        );
+      },
+      onComplete(cassetteId) {
+        void settleComplete(states.get(cassetteId)!).catch((error) =>
+          logSettlementError(cassetteId, error)
+        );
+      },
+      onFailed(cassetteId, error) {
+        const cause = replayFailureCause(error);
+        input.logger.error("managed Agent Session Replay Cassette failed", {
+          error: error.message,
+          ...(cause
+            ? {
+                error_cause_code: cause.code,
+                error_cause_message: cause.message
+              }
+            : {}),
+          launch_id: launch.launchId,
+          replay_cassette_id: cassetteId,
+          workspace_id: launch.workspaceId
+        });
+        void settleFailed(states.get(cassetteId)!, error).catch(
+          (settlementError) => logSettlementError(cassetteId, settlementError)
+        );
+      },
+      onReady(cassetteId) {
+        const cassette = states.get(cassetteId)!;
+        cassette.surfaceReady = true;
+        void writeCassetteStatus(cassette, {
+          phase: "verifying"
+        });
+      },
+      async onTerminated(error) {
+        workspace.fatalError = error;
+        await Promise.allSettled(
+          [...states.values()].map((cassette) =>
+            error ? settleFailed(cassette, error) : settleCanceled(cassette)
+          )
+        );
+        workspaces.delete(launch.launchId);
+        await manifest.cleanup();
+      },
       timeoutMs: input.launchTimeoutMs ?? defaultLaunchTimeoutMs
     });
-    return { ...monitor, launch };
+    child.once("close", (code, signal) => {
+      input.logger.info("managed Agent Session Replay Workspace exited", {
+        exit_code: code,
+        replay_cassette_ids: launch.cassettes.map(
+          ({ cassetteId }) => cassetteId
+        ),
+        signal,
+        workspace_id: launch.workspaceId
+      });
+    });
+    input.logger.info("managed Agent Session Replay Workspace starting", {
+      replay_cassette_ids: launch.cassettes.map(({ cassetteId }) => cassetteId),
+      workspace_id: launch.workspaceId
+    });
+    return workspace;
   }
 
-  async function supervise(
-    first: ReturnType<typeof spawnReplay>
-  ): Promise<AgentSessionReplayLaunchResult> {
-    let active = first;
-    for (;;) {
-      let outcome: ManagedReplayOutcome;
-      try {
-        outcome = await active.completion;
-      } catch (error) {
-        if (active !== first) {
-          await failReplayRun(active.launch, error).catch(() => undefined);
-        }
-        void superviseTerminalSurface(active).catch((supervisionError) => {
-          input.logger.error("failed replay surface supervision failed", {
-            error:
-              supervisionError instanceof Error
-                ? supervisionError.message
-                : String(supervisionError),
-            replay_run_id: active.launch.runId
-          });
-        });
-        throw error;
-      }
-      if (outcome.type === "complete") {
-        await checkpointUpdates.get(active.launch.runId);
-        void superviseTerminalSurface(active).catch((error) => {
-          input.logger.error("terminal replay surface supervision failed", {
-            error: error instanceof Error ? error.message : String(error),
-            replay_run_id: active.launch.runId
-          });
-        });
-        return { runId: active.launch.runId };
-      }
-      await checkpointUpdates.get(active.launch.runId);
-      await postReplayRunAction(active.launch, "cancel");
-      const next = await prepareReplacement(active.launch, outcome.replacement);
-      try {
-        await postReplayRunAction(next, "running");
-        active = spawnReplay(next);
-        await active.ready;
-      } catch (error) {
-        await failReplayRun(next, error).catch(() => undefined);
-        throw error;
-      }
-    }
+  function updateCheckpoint(
+    workspace: ManagedWorkspaceState,
+    cassetteId: string,
+    checkpoint: number,
+    totalCheckpoints: number,
+    totalDurationMs: number
+  ): void {
+    const cassette = workspace.cassettes.get(cassetteId)!;
+    if (cassette.terminal) return;
+    void writeCassetteStatus(cassette, {
+      currentCheckpoint: checkpoint,
+      phase: "replaying",
+      totalDurationMs,
+      totalCheckpoints
+    });
   }
 
-  async function superviseTerminalSurface(
-    terminalSurface: ReturnType<typeof spawnReplay>
+  async function settleComplete(cassette: ManagedCassetteState): Promise<void> {
+    if (cassette.terminal) return;
+    cassette.terminal = true;
+    await writeCassetteStatus(cassette, { phase: "complete" });
+    cassette.resolveCompletion({ cassetteId: cassette.launch.cassetteId });
+  }
+
+  async function settleFailed(
+    cassette: ManagedCassetteState,
+    error: unknown
   ): Promise<void> {
-    let previous = terminalSurface;
-    let replacement = await previous.postTerminalReplacement;
-    while (replacement) {
-      const next = await prepareReplacement(previous.launch, replacement);
-      let active: ReturnType<typeof spawnReplay>;
-      try {
-        await postReplayRunAction(next, "running");
-        active = spawnReplay(next);
-        await active.ready;
-      } catch (error) {
-        await failReplayRun(next, error).catch(() => undefined);
-        throw error;
-      }
-      let outcome: ManagedReplayOutcome;
-      try {
-        outcome = await active.completion;
-      } catch (error) {
-        await failReplayRun(active.launch, error).catch(() => undefined);
-        previous = active;
-        replacement = await active.postTerminalReplacement;
-        continue;
-      }
-      await checkpointUpdates.get(active.launch.runId);
-      if (outcome.type === "replace") {
-        await postReplayRunAction(active.launch, "cancel");
-        previous = active;
-        replacement = outcome.replacement;
-        continue;
-      }
-      await postReplayRunAction(active.launch, "complete");
-      previous = active;
-      replacement = await active.postTerminalReplacement;
-    }
+    if (cassette.terminal) return;
+    cassette.terminal = true;
+    const failure = toError(error);
+    const cause = replayFailureCause(failure);
+    await writeCassetteStatus(cassette, {
+      ...(cause ? { errorCause: cause } : {}),
+      errorMessage: failure.message,
+      phase: "failed"
+    });
+    cassette.rejectCompletion(failure);
   }
 
-  async function prepareReplacement(
-    previous: ManagedReplayLaunch,
-    replacement: ManagedReplayReplacement
-  ): Promise<ManagedReplayLaunch> {
-    const cassetteId =
-      replacement.command === "switch-cassette"
-        ? requiredIdentity(replacement.cassetteId, "Replacement Cassette")
-        : previous.cassetteId;
-    const prepared = await prepareReplayRun(previous.workspaceId, cassetteId);
+  function replayFailureCause(
+    error: Error
+  ): { code: string; message: string } | null {
+    const cause = error.cause as { code?: unknown; message?: unknown };
+    if (
+      !cause ||
+      typeof cause !== "object" ||
+      typeof cause.code !== "string" ||
+      !cause.code.trim() ||
+      typeof cause.message !== "string" ||
+      !cause.message.trim()
+    ) {
+      return null;
+    }
     return {
-      cassetteId,
-      cassetteDirectory: prepared.cassetteDirectory,
-      runId: prepared.run.id,
-      workspaceId: previous.workspaceId,
-      ...(replacement.command === "previous-checkpoint"
-        ? {
-            targetCheckpoint: Math.max(replacement.currentCheckpoint - 1, 0)
-          }
-        : {})
+      code: cause.code.trim(),
+      message: cause.message.trim()
     };
   }
 
-  async function prepareReplayRun(workspaceId: string, cassetteId: string) {
-    return requestPrimaryDaemon<{
-      cassetteDirectory: string;
-      run: { id: string };
-    }>(
-      `/v1/workspaces/${encodeURIComponent(workspaceId)}/agent-session-cassettes/${encodeURIComponent(cassetteId)}/replay-runs`,
-      { method: "POST" }
-    );
-  }
-
-  async function postReplayRunAction(
-    launch: ManagedReplayLaunch,
-    action: "cancel" | "complete" | "running"
-  ) {
-    await requestPrimaryDaemon(
-      `/v1/workspaces/${encodeURIComponent(launch.workspaceId)}/agent-session-replay-runs/${encodeURIComponent(launch.runId)}/${action}`,
-      { method: "POST" }
-    );
-  }
-
-  async function updateReplayRunCheckpoint(
-    launch: ManagedReplayLaunch,
-    checkpoint: number
-  ) {
-    const previous = checkpointUpdates.get(launch.runId) ?? Promise.resolve();
-    const update = previous.then(() =>
-      requestPrimaryDaemon(
-        `/v1/workspaces/${encodeURIComponent(launch.workspaceId)}/agent-session-replay-runs/${encodeURIComponent(launch.runId)}/checkpoint`,
-        {
-          body: JSON.stringify({ checkpoint }),
-          headers: { "content-type": "application/json" },
-          method: "POST"
-        }
-      ).then(() => undefined)
-    );
-    checkpointUpdates.set(launch.runId, update);
-    await update;
-  }
-
-  async function failReplayRun(launch: ManagedReplayLaunch, error: unknown) {
-    const message =
-      error instanceof Error && error.message.trim()
-        ? error.message
-        : String(error);
-    await requestPrimaryDaemon(
-      `/v1/workspaces/${encodeURIComponent(launch.workspaceId)}/agent-session-replay-runs/${encodeURIComponent(launch.runId)}/fail`,
-      {
-        body: JSON.stringify({
-          errorCode: "replay_runtime_failed",
-          errorMessage: message
-        }),
-        headers: { "content-type": "application/json" },
-        method: "POST"
-      }
-    );
-  }
-
-  function writeReplayCassetteCatalog(
-    launch: ManagedReplayLaunch,
-    runtimeDirectory: string
-  ): Promise<void> {
-    const write = cassetteCatalogWrites.then(async () => {
-      const catalog = await requestPrimaryDaemon<{
-        cassettes: Array<{ id: string; name: string }>;
-      }>(
-        `/v1/workspaces/${encodeURIComponent(launch.workspaceId)}/agent-session-cassettes`
-      );
-      const path = join(resolve(runtimeDirectory), "replay-catalog.json");
-      const temporaryPath = `${path}.${process.pid}.tmp`;
-      await writeFile(
-        temporaryPath,
-        JSON.stringify({
-          cassetteId: launch.cassetteId,
-          cassettes: catalog.cassettes.map(({ id, name }) => ({ id, name }))
-        })
-      );
-      await rename(temporaryPath, path);
+  async function settleCanceled(cassette: ManagedCassetteState): Promise<void> {
+    if (cassette.terminal) return;
+    cassette.terminal = true;
+    const closed = new Error("Agent Session Replay Workspace closed");
+    await writeCassetteStatus(cassette, {
+      active: false,
+      errorMessage: closed.message,
+      phase: "failed"
     });
-    cassetteCatalogWrites = write.catch(() => undefined);
-    return write;
+    cassette.rejectCompletion(closed);
   }
 
-  async function requestPrimaryDaemon<T = unknown>(
-    path: string,
-    init?: RequestInit
-  ): Promise<T> {
-    if (!input.endpoint) {
-      throw new Error("Primary daemon access is unavailable");
-    }
-    // eslint-disable-next-line no-restricted-globals -- This authenticated request targets the managed primary loopback daemon.
-    const response = await fetch(
-      `${resolveDesktopDaemonBaseUrl(input.endpoint)}${path}`,
-      {
-        ...init,
-        headers: {
-          authorization: `Bearer ${input.endpoint.accessToken}`,
-          ...init?.headers
-        }
-      }
+  function logSettlementError(cassetteId: string, error: unknown): void {
+    input.logger.error("Agent Session Replay Cassette settlement failed", {
+      error: toError(error).message,
+      replay_cassette_id: cassetteId
+    });
+  }
+
+  function writeCassetteStatus(
+    cassette: ManagedCassetteState,
+    patch: Partial<DesktopAgentSessionReplayStatus>
+  ): Promise<void> {
+    cassette.status = { ...cassette.status, ...patch };
+    return cassette.statusWriter.write(
+      cassette.launch.cassetteId,
+      cassette.status
     );
-    if (!response.ok) {
+  }
+}
+
+function normalizeLaunch(
+  input: AgentSessionReplayWorkspaceLaunch
+): AgentSessionReplayWorkspaceLaunch {
+  const launchId = requiredIdentity(input.launchId, "Replay launch");
+  const workspaceId = requiredIdentity(input.workspaceId, "Workspace");
+  const playbackMode = input.playbackMode;
+  if (playbackMode !== "automatic" && playbackMode !== "manual") {
+    throw new Error("Agent Session Replay playback mode is invalid");
+  }
+  if (!Array.isArray(input.cassettes) || input.cassettes.length === 0) {
+    throw new Error(
+      "Agent Session Replay Workspace requires at least one Cassette"
+    );
+  }
+  const cassetteIds = new Set<string>();
+  const rootSessionIds = new Set<string>();
+  const cassettes = input.cassettes.map((cassette) => {
+    const normalized = {
+      cassetteDirectory: resolve(cassette.cassetteDirectory),
+      cassetteId: requiredIdentity(cassette.cassetteId, "Replay Cassette"),
+      rootAgentSessionId: requiredIdentity(
+        cassette.rootAgentSessionId,
+        "Root Agent Session"
+      )
+    };
+    if (
+      cassetteIds.has(normalized.cassetteId) ||
+      rootSessionIds.has(normalized.rootAgentSessionId)
+    ) {
       throw new Error(
-        `Agent Session Replay supervisor request failed with ${response.status}: ${await response.text()}`
+        "Agent Session Replay Workspace contains duplicate identities"
       );
     }
-    return (await response.json()) as T;
+    cassetteIds.add(normalized.cassetteId);
+    rootSessionIds.add(normalized.rootAgentSessionId);
+    return normalized;
+  });
+  return { launchId, cassettes, playbackMode, workspaceId };
+}
+
+async function writeReplayWorkspaceManifest(
+  launch: AgentSessionReplayWorkspaceLaunch
+): Promise<{
+  cleanup(): Promise<void>;
+  path: string;
+  surfaceStatusPath: string;
+}> {
+  const directory = await mkdtemp(
+    join(tmpdir(), "tutti-agent-session-replay-workspace-")
+  );
+  const path = join(directory, "manifest.json");
+  const surfaceStatusPath = join(directory, "surface-status.json");
+  await writeFile(path, JSON.stringify(launch), { mode: 0o600 });
+  let cleaned = false;
+  return {
+    async cleanup() {
+      if (cleaned) return;
+      cleaned = true;
+      await rm(directory, { force: true, recursive: true });
+    },
+    path,
+    surfaceStatusPath
+  };
+}
+
+function createCassetteState(
+  launch: AgentSessionReplayCassetteLaunch,
+  statusWriter: AgentSessionReplayCassetteStatusWriter
+): ManagedCassetteState {
+  let resolveCompletion!: (result: { cassetteId: string }) => void;
+  let rejectCompletion!: (error: Error) => void;
+  const completion = new Promise<{ cassetteId: string }>((resolve, reject) => {
+    resolveCompletion = resolve;
+    rejectCompletion = reject;
+  });
+  void completion.catch(() => undefined);
+  return {
+    completion,
+    launch,
+    rejectCompletion,
+    resolveCompletion,
+    status: {
+      active: true,
+      cassetteId: launch.cassetteId,
+      currentCheckpoint: 0,
+      phase: "replaying",
+      totalCheckpoints: 1
+    },
+    statusWriter,
+    surfaceReady: false,
+    terminal: false
+  };
+}
+
+function workspaceReady(workspace: ManagedWorkspaceState): Promise<void> {
+  if (
+    [...workspace.cassettes.values()].every(
+      (cassette) => cassette.surfaceReady || cassette.terminal
+    )
+  ) {
+    return Promise.resolve();
   }
+  return new Promise<void>((resolveReady, rejectReady) => {
+    const interval = setInterval(() => {
+      if (workspace.fatalError) {
+        clearInterval(interval);
+        rejectReady(workspace.fatalError);
+        return;
+      }
+      if (
+        [...workspace.cassettes.values()].every(
+          (cassette) => cassette.surfaceReady || cassette.terminal
+        )
+      ) {
+        clearInterval(interval);
+        resolveReady();
+      }
+    }, 10);
+    void workspace.closed.then(() => {
+      clearInterval(interval);
+      if (workspace.fatalError) {
+        rejectReady(workspace.fatalError);
+      } else if (
+        [...workspace.cassettes.values()].every(
+          (cassette) => cassette.surfaceReady || cassette.terminal
+        )
+      ) {
+        resolveReady();
+      } else {
+        rejectReady(
+          new Error(
+            "Agent Session Replay Workspace exited before it became ready"
+          )
+        );
+      }
+    });
+  });
 }
 
 function requiredIdentity(value: string | undefined, label: string): string {
@@ -427,261 +559,6 @@ function requiredIdentity(value: string | undefined, label: string): string {
   return identity;
 }
 
-function monitorManagedReplay(
-  child: ManagedReplayChild,
-  input: {
-    expectedRunId: string;
-    logger: DesktopLogger;
-    timeoutMs: number;
-    onCheckpoint?: (checkpoint: number) => Promise<void>;
-    onReady?: (runtimeDirectory: string) => Promise<void>;
-  }
-): {
-  completion: Promise<ManagedReplayOutcome>;
-  postTerminalReplacement: Promise<ManagedReplayReplacement | null>;
-  ready: Promise<void>;
-} {
-  let complete = false;
-  let pendingReplacement: ManagedReplayReplacement | null = null;
-  let terminal = false;
-  let ready = false;
-  let stdoutBuffer = "";
-  let diagnostics = "";
-  let resolveComplete!: (outcome: ManagedReplayOutcome) => void;
-  let rejectComplete!: (error: Error) => void;
-  let resolveReady!: () => void;
-  let rejectReady!: (error: Error) => void;
-  let resolvePostTerminalReplacement!: (
-    replacement: ManagedReplayReplacement | null
-  ) => void;
-  const readyPromise = new Promise<void>((resolve, reject) => {
-    resolveReady = resolve;
-    rejectReady = reject;
-  });
-  const completionPromise = new Promise<ManagedReplayOutcome>(
-    (resolve, reject) => {
-      resolveComplete = resolve;
-      rejectComplete = reject;
-    }
-  );
-  void completionPromise.catch(() => undefined);
-  const postTerminalReplacementPromise =
-    new Promise<ManagedReplayReplacement | null>((resolve) => {
-      resolvePostTerminalReplacement = resolve;
-    });
-
-  const cleanup = () => {
-    clearTimeout(readyTimeout);
-    clearTimeout(completionTimeout);
-    child.off("error", onError);
-    child.off("exit", onExit);
-    child.stdout.off("data", onStdout);
-    child.stderr.off("data", onStderr);
-  };
-  const fail = (error: Error) => {
-    if (terminal) {
-      cleanup();
-      resolvePostTerminalReplacement(null);
-      return;
-    }
-    if (complete) return;
-    cleanup();
-    child.kill("SIGTERM");
-    if (!ready) {
-      rejectReady(error);
-    }
-    rejectComplete(error);
-  };
-  const appendDiagnostic = (chunk: unknown) => {
-    diagnostics = `${diagnostics}${String(chunk)}`.slice(
-      -maxDiagnosticCharacters
-    );
-  };
-  const onError = (error: Error) => fail(error);
-  const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
-    if (pendingReplacement) {
-      cleanup();
-      if (terminal) {
-        resolvePostTerminalReplacement(pendingReplacement);
-      } else {
-        complete = true;
-        resolveComplete({
-          replacement: pendingReplacement,
-          type: "replace"
-        });
-      }
-      return;
-    }
-    if (terminal) {
-      cleanup();
-      resolvePostTerminalReplacement(null);
-      return;
-    }
-    fail(
-      new Error(
-        `Replay Electron failed ${ready ? "before completion" : "before it became ready"} (${code ?? signal ?? "unknown"}): ${diagnostics.trim()}`
-      )
-    );
-  };
-  const onStderr = (chunk: unknown) => {
-    appendDiagnostic(chunk);
-    input.logger.debug("managed Agent Session Replay output", {
-      output: String(chunk).trim()
-    });
-  };
-  const parseEvent = (
-    line: string,
-    prefix: string,
-    event: string
-  ): Record<string, unknown> | null => {
-    try {
-      const payload = JSON.parse(line.slice(prefix.length)) as Record<
-        string,
-        unknown
-      >;
-      if (payload.runId !== input.expectedRunId) {
-        fail(new Error("Replay Electron reported a mismatched Run id"));
-        return null;
-      }
-      return payload;
-    } catch (error) {
-      fail(
-        new Error(
-          `Replay Electron reported an invalid ${event} event: ${error instanceof Error ? error.message : String(error)}`
-        )
-      );
-      return null;
-    }
-  };
-  const onStdout = (chunk: unknown) => {
-    appendDiagnostic(chunk);
-    stdoutBuffer += String(chunk);
-    for (;;) {
-      const newline = stdoutBuffer.indexOf("\n");
-      if (newline < 0) break;
-      const line = stdoutBuffer.slice(0, newline).trim();
-      stdoutBuffer = stdoutBuffer.slice(newline + 1);
-      if (line.startsWith(readyPrefix)) {
-        const payload = parseEvent(line, readyPrefix, "ready");
-        if (!ready && payload) {
-          const runtimeDirectory =
-            typeof payload.runtimeDirectory === "string"
-              ? payload.runtimeDirectory
-              : "";
-          if (input.onReady && !runtimeDirectory) {
-            fail(new Error("Replay Electron omitted its runtime directory"));
-            return;
-          }
-          clearTimeout(readyTimeout);
-          ready = true;
-          resolveReady();
-          void input.onReady?.(runtimeDirectory).catch(fail);
-        }
-        continue;
-      }
-      if (line.startsWith(checkpointPrefix)) {
-        const payload = parseEvent(line, checkpointPrefix, "checkpoint");
-        if (!payload) return;
-        const checkpoint = payload.checkpoint;
-        if (!Number.isSafeInteger(checkpoint) || (checkpoint as number) < 0) {
-          fail(new Error("Replay Electron reported an invalid checkpoint"));
-          return;
-        }
-        void input.onCheckpoint?.(checkpoint as number).catch(fail);
-        continue;
-      }
-      if (line.startsWith(replacePrefix)) {
-        const payload = parseEvent(line, replacePrefix, "replace");
-        if (!payload) return;
-        const command = payload.command;
-        const currentCheckpoint = payload.currentCheckpoint;
-        if (
-          !["previous-checkpoint", "restart", "switch-cassette"].includes(
-            String(command)
-          ) ||
-          !Number.isSafeInteger(currentCheckpoint) ||
-          (currentCheckpoint as number) < 0
-        ) {
-          fail(new Error("Replay Electron reported an invalid replacement"));
-          return;
-        }
-        const replacement: ManagedReplayReplacement = {
-          ...(typeof payload.cassetteId === "string"
-            ? { cassetteId: payload.cassetteId }
-            : {}),
-          command: command as ManagedReplayReplacement["command"],
-          currentCheckpoint: currentCheckpoint as number
-        };
-        pendingReplacement = replacement;
-        continue;
-      }
-      if (line.startsWith(completePrefix)) {
-        if (!ready) {
-          fail(
-            new Error(
-              "Replay Electron reported completion before it became ready"
-            )
-          );
-          return;
-        }
-        if (!parseEvent(line, completePrefix, "complete")) {
-          return;
-        }
-        if (!complete) {
-          complete = true;
-          terminal = true;
-          clearTimeout(completionTimeout);
-          resolveComplete({ type: "complete" });
-        }
-        continue;
-      }
-      if (line.startsWith(failedPrefix)) {
-        const payload = parseEvent(line, failedPrefix, "failed");
-        if (!payload) {
-          return;
-        }
-        const error = new Error(
-          (typeof payload.error === "string" && payload.error.trim()) ||
-            "Agent Session Replay failed"
-        );
-        if (!ready) {
-          fail(error);
-          return;
-        }
-        if (!complete) {
-          complete = true;
-          terminal = true;
-          clearTimeout(completionTimeout);
-          rejectComplete(error);
-        }
-      }
-    }
-  };
-  const readyTimeout = setTimeout(
-    () =>
-      fail(
-        new Error(
-          `Replay Electron did not become ready within ${input.timeoutMs} ms: ${diagnostics.trim()}`
-        )
-      ),
-    input.timeoutMs
-  );
-  const completionTimeout = setTimeout(
-    () =>
-      fail(
-        new Error(
-          `Replay Electron did not complete within ${input.timeoutMs} ms: ${diagnostics.trim()}`
-        )
-      ),
-    input.timeoutMs * 2
-  );
-  child.once("error", onError);
-  child.once("exit", onExit);
-  child.stdout.on("data", onStdout);
-  child.stderr.on("data", onStderr);
-  return {
-    completion: completionPromise,
-    postTerminalReplacement: postTerminalReplacementPromise,
-    ready: readyPromise
-  };
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }

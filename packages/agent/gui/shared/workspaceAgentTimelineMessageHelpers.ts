@@ -32,12 +32,13 @@ export function messageRole(
 export function messageBody(item: WorkspaceAgentActivityTimelineItem): string {
   const payloadContent = item.payload?.content;
   if (typeof payloadContent === "string" && payloadContent.trim()) {
-    const content = payloadContent.trim();
-    return isWorkspaceAgentSyntheticControlMessage(content) ? "" : content;
+    return isWorkspaceAgentSyntheticControlMessage(payloadContent)
+      ? ""
+      : payloadContent;
   }
 
-  const content = item.content?.trim();
-  if (content) {
+  const content = item.content;
+  if (content?.trim()) {
     return isWorkspaceAgentSyntheticControlMessage(content) ? "" : content;
   }
 
@@ -45,8 +46,10 @@ export function messageBody(item: WorkspaceAgentActivityTimelineItem): string {
   if (typeof payloadText !== "string") {
     return "";
   }
-  const text = payloadText.trim();
-  return isWorkspaceAgentSyntheticControlMessage(text) ? "" : text;
+  return payloadText.trim() &&
+    !isWorkspaceAgentSyntheticControlMessage(payloadText)
+    ? payloadText
+    : "";
 }
 
 export function thinkingStatusKind(

@@ -17,6 +17,7 @@ import type {
   WorkbenchHostCloseDialogRequest,
   WorkbenchHostHandle,
   WorkbenchHostNodeData,
+  WorkbenchLayoutPreset,
   WorkbenchMissionControlAdapter
 } from "@tutti-os/workbench-surface";
 import type { WorkspaceAppCenterApp } from "@tutti-os/workspace-app-center";
@@ -88,6 +89,11 @@ export interface WorkspaceWorkbenchShellRuntime {
     WorkspaceWorkbenchShellRuntimeController["getSnapshot"]
   >["hostInput"];
   missionControl: {
+    applyLayoutPreset: (
+      nodeIds: readonly string[],
+      preset: WorkbenchLayoutPreset,
+      lock?: boolean
+    ) => void;
     canOpen: boolean;
     close: () => void;
     isLayoutLocked: boolean;
@@ -463,6 +469,8 @@ export function useWorkspaceWorkbenchShellRuntime({
     featureFlags: desktopPreferencesState.featureFlags,
     hostInput: shellRuntimeSnapshot.hostInput,
     missionControl: {
+      applyLayoutPreset:
+        shellRuntimeController.missionControl.applyLayoutPreset,
       canOpen: shellRuntimeSnapshot.missionControl.canOpen,
       close: shellRuntimeController.missionControl.close,
       isLayoutLocked: shellRuntimeSnapshot.missionControl.isLayoutLocked,

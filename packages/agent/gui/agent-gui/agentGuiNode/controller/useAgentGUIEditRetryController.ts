@@ -6,7 +6,7 @@ import {
   selectEditRetryPresentation,
   type AgentActivityEditRetryRecoveryAction
 } from "@tutti-os/agent-activity-core";
-import { useAgentActivityRuntime } from "../../../agentActivityRuntime";
+import { useAgentGUIRuntime } from "../../../agentActivityRuntime";
 import { useEngineSelector } from "../../../shared/engine/useEngineSelector";
 import { projectAgentGUIEditRetryPresentation } from "../model/agentGUIEditRetryModel";
 
@@ -14,7 +14,7 @@ export function useAgentGUIEditRetryController(input: {
   agentSessionId: string | null;
   workspaceId: string;
 }) {
-  const runtime = useAgentActivityRuntime();
+  const runtime = useAgentGUIRuntime();
   const sessionEngine = runtime.getSessionEngine(input.workspaceId);
   const record = useEngineSelector(
     sessionEngine,

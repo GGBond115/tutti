@@ -3,7 +3,7 @@ import type {
   AgentPromptContentBlock
 } from "@tutti-os/agent-activity-core";
 import { isLocalImagePath } from "../../../shared/imageGenerationTool";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 
 const COPY_PAGE_SIZE = 200;
 const MAX_COPY_PAGES = 1_000;
@@ -46,7 +46,7 @@ export interface AgentGUIConversationSerializedTranscript {
 
 export async function loadCompleteAgentConversationMessages(input: {
   agentSessionId: string;
-  runtime: Pick<AgentActivityRuntime, "listSessionMessages">;
+  runtime: Pick<AgentGUIRuntime, "listSessionMessages">;
   workspaceId: string;
 }): Promise<AgentActivityMessage[]> {
   const messagesById = new Map<string, AgentActivityMessage>();

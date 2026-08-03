@@ -11,9 +11,14 @@ import type { IWorkspaceUserProjectService } from "../../workspace-user-project/
 import type { IDesktopPreferencesService } from "../../desktop-preferences/services/desktopPreferencesService.interface.ts";
 import type { NotificationService } from "@tutti-os/ui-notifications";
 import {
+  AGENT_SESSION_RECORDING_FLAG,
   EARLY_ACCESS_AGENT_INTEGRATIONS_FLAG,
   isFeatureEnabled
 } from "../../../../../shared/featureFlags/catalog.ts";
+import {
+  createAgentSessionReplayDesktopComposition,
+  type AgentSessionReplayDesktopComposition
+} from "../../agent-session-replay/services/agentSessionReplayDesktopComposition.ts";
 import type { WorkspaceWindowLifecycle } from "../../../lib/workspaceWindowLifecycle.ts";
 import { IAgentEnvService } from "./agentEnvService.interface.ts";
 import { IAgentProviderStatusService } from "./agentProviderStatusService.interface";
@@ -50,12 +55,11 @@ export interface WorkspaceAgentServiceRegistrationInput {
   notifications?: NotificationService;
   runtimeApi: Pick<
     DesktopRuntimeApi,
-    "logRendererDiagnostic" | "logTerminalDiagnostic"
-  > &
-    // Collaboration-run/model-plan requests resolve the daemon endpoint
-    // per-call; older hosts/tests may omit the resolver and those optional
-    // commands then fail at call time instead of registration time.
-    Partial<Pick<DesktopRuntimeApi, "getBackendConfig">>;
+    | "importAgentSessionReplayCassettes"
+    | "isAgentSessionReplayRuntime"
+    | "logRendererDiagnostic"
+    | "logTerminalDiagnostic"
+  >;
   resolveAgentTargetIconUrl?: (identity: {
     iconKey: string | null;
     provider: string;
@@ -73,6 +77,7 @@ export interface WorkspaceAgentServiceRegistrationResult {
   readManagedAgentProviderStatuses(): readonly AgentProviderStatus[] | null;
   subscribeManagedAgentProviderStatuses(listener: () => void): () => void;
   agentQuickPromptService: AgentQuickPromptService;
+  agentSessionReplayComposition: AgentSessionReplayDesktopComposition | null;
   workspaceAgentActivityService: IWorkspaceAgentActivityService;
   dispose(): void;
 }
@@ -140,12 +145,19 @@ export function registerWorkspaceAgentServices(
     tuttidClient: input.tuttidClient
   });
   registry.registerInstance(IAgentQuickPromptService, agentQuickPromptService);
+  const sessionReplayEnabled =
+    input.runtimeApi.isAgentSessionReplayRuntime?.() === true ||
+    isFeatureEnabled(
+      preferencesStore.featureFlags,
+      AGENT_SESSION_RECORDING_FLAG
+    );
   const workspaceAgentActivityService = new WorkspaceAgentActivityService({
     ...input,
     forceRefreshAgentProviderStatuses: (providers) =>
       agentProviderStatusService.refreshStatuses(providers),
     resolveAgentTargetProvider: (agentTargetId) =>
-      agentsService.getAgentTarget({ agentTargetId })?.provider ?? null
+      agentsService.getAgentTarget({ agentTargetId })?.provider ?? null,
+    sessionReplayEnabled
   });
   registry.registerInstance(
     IWorkspaceAgentActivityService,
@@ -159,6 +171,14 @@ export function registerWorkspaceAgentServices(
       workspaceUserProjectService: input.workspaceUserProjectService
     })
   );
+  const agentSessionReplayComposition = sessionReplayEnabled
+    ? createAgentSessionReplayDesktopComposition({
+        activityPort: workspaceAgentActivityService,
+        runtimeApi: input.runtimeApi,
+        tuttidClient: input.tuttidClient,
+        workspaceId: input.workspaceId
+      })
+    : null;
   return {
     agentEnvService,
     agentsService,
@@ -167,6 +187,7 @@ export function registerWorkspaceAgentServices(
     subscribeManagedAgentProviderStatuses: (listener) =>
       agentProviderStatusService.subscribe(listener),
     agentQuickPromptService,
+    agentSessionReplayComposition,
     workspaceAgentActivityService,
     dispose() {
       disposeAgentsEarlyAccessSync();

@@ -47,6 +47,7 @@ interface AgentGUIConversationRailSectionHeaderProps {
   onToggleCollapsed: () => void;
   onToggleProjectPinned: () => void;
   projectPinned: boolean;
+  projectId: string | null;
   sectionLabel: string;
 }
 
@@ -146,18 +147,23 @@ interface CreateActionProps {
   createConversationDisabled: boolean;
   createConversationLabel: string;
   onCreateConversation: () => void;
+  projectId: string | null;
 }
 
 const CreateAction = memo(function CreateAction({
   createConversationDisabled,
   createConversationLabel,
-  onCreateConversation
+  onCreateConversation,
+  projectId
 }: CreateActionProps): React.JSX.Element {
   "use memo";
   const button = (
     <BareIconButton
       className={styles.conversationSectionMoreButton}
       aria-label={createConversationLabel}
+      data-testid={
+        projectId ? `agent-gui-project-${projectId}-new-session` : undefined
+      }
       size="sm"
       title=""
       disabled={createConversationDisabled}
@@ -452,6 +458,7 @@ export const AgentGUIConversationRailSectionHeader = memo(
     onToggleCollapsed,
     onToggleProjectPinned,
     projectPinned,
+    projectId,
     sectionLabel
   }: AgentGUIConversationRailSectionHeaderProps): React.JSX.Element {
     "use memo";
@@ -489,6 +496,7 @@ export const AgentGUIConversationRailSectionHeader = memo(
               createConversationDisabled={createConversationDisabled}
               createConversationLabel={createConversationLabel}
               onCreateConversation={onCreateConversation}
+              projectId={projectId}
             />
             {hasProjectPath ? (
               <ProjectMenu

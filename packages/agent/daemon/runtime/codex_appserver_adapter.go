@@ -88,15 +88,17 @@ const (
 // Codex-compatible forks (Tutti Agent) without sharing brand, command, or
 // auth assumptions.
 type appServerAdapterConfig struct {
-	provider             string
-	runtimeName          string
-	displayName          string
-	command              []string
-	clientInfoName       string
-	authRequiredMessage  string
-	commandNetworkAccess bool
-	rateLimits           bool
-	nativeSessionFork    bool
+	provider                         string
+	runtimeName                      string
+	displayName                      string
+	command                          []string
+	clientInfoName                   string
+	authRequiredMessage              string
+	commandNetworkAccess             bool
+	rateLimits                       bool
+	nativeSessionFork                bool
+	sessionForkUserAgentBrand        string
+	sessionForkThroughTurnMinVersion string
 }
 
 // CodexAppServerAdapterOptions controls host-owned app-server execution policy
@@ -150,6 +152,7 @@ type CodexAppServerAdapter struct {
 	interactiveDispositionSink InteractiveDispositionSink
 	commandSink                CommandSnapshotSink
 	eventSink                  SessionEventSink
+	inputUnits                 *providerInputUnitTracker
 	goalReconcileSink          GoalReconcileDurableSink
 	goalProvenanceSink         GoalProvenanceDurableSink
 	providerGoalAdoptionSink   ProviderGoalAdoptionSink
@@ -204,9 +207,12 @@ type codexAppServerSession struct {
 	client     *codexAppServerClient
 	threadID   string
 	serverInfo map[string]any
-	account    map[string]any
-	rateLimits map[string]any
-	goal       map[string]any
+	// resumeRuntimeContext preserves the historical adapter projection only
+	// when replay attaches at an already-initialized connection checkpoint.
+	resumeRuntimeContext map[string]any
+	account              map[string]any
+	rateLimits           map[string]any
+	goal                 map[string]any
 	// goalOperationID/revision identify the latest durable desired-goal write.
 	// They gate future scheduling; accepted Turns retain their own identity.
 	goalOperationID string
@@ -221,6 +227,12 @@ type codexAppServerSession struct {
 	goalGenerationBindings           map[string]codexGoalGenerationBinding
 	goalGenerationOrder              []string
 	currentGoalGenerationFingerprint string
+	// currentGoalGenerationLineage identifies the provider Goal independently
+	// of mutable status/progress timestamps. Its owner lets late updates from
+	// an older set/pause/resume/clear revision fail closed without entering
+	// provider-authored Goal adoption.
+	currentGoalGenerationLineage  string
+	currentGoalGenerationIdentity goalOperationIdentity
 	// providerGoalAdoptionsInFlight keeps provider-authored generation
 	// persistence off the app-server read loop while preventing a continuation
 	// turn from exhausting its provenance grace window before the durable
@@ -461,6 +473,7 @@ func newAppServerAdapter(
 		cancelGraceWindow:   defaultCodexAppServerCancelGraceWindow,
 		turnStartAckTimeout: defaultCodexAppServerTurnStartAckTimeout,
 		turnSteerTimeout:    defaultCodexAppServerTurnSteerTimeout,
+		inputUnits:          providerInputUnitTrackerForTransport(transport),
 	}
 }
 

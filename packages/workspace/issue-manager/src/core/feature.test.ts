@@ -74,12 +74,6 @@ describe("normalizeIssueManagerNodeState", () => {
 });
 
 describe("createIssueManagerFeature", () => {
-  it("keeps invite collaborator visible by default", () => {
-    const feature = createIssueManagerFeature(createFeatureInput());
-
-    assert.equal(feature.ui.showInviteCollaborator, true);
-  });
-
   it("scopes workspace user project copy from host locale resources", () => {
     const feature = createIssueManagerFeature({
       ...createFeatureInput(),

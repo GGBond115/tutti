@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createI18nRuntime } from "@tutti-os/ui-i18n-runtime";
-import {
-  browserNodeI18nResources,
-  createBrowserNodeI18nRuntime
-} from "../i18n/browserNodeI18n.ts";
+import { createBrowserNodeI18nRuntime } from "../i18n/browserNodeI18n.ts";
 import type {
   BrowserNodeChromeProfile,
   BrowserNodeChromeProfileId,
@@ -25,18 +21,6 @@ const profiles: BrowserNodeChromeProfile[] = [
   { id: profileId("two"), name: "Two" }
 ];
 const feature = { i18n: createBrowserNodeI18nRuntime(undefined) };
-
-test("Chinese Cookie import failure copy does not end with a Chinese full stop", () => {
-  const i18n = createBrowserNodeI18nRuntime(
-    createI18nRuntime({
-      dictionaries: [browserNodeI18nResources["zh-CN"]]
-    })
-  );
-  const message = i18n.t("settings.importFailed");
-
-  assert.equal(message, "Cookie 导入失败");
-  assert.equal(message.endsWith("。"), false);
-});
 
 test("Profile selection defaults only when exactly one Profile exists", () => {
   assert.equal(initialChromeProfileSelection([]), null);

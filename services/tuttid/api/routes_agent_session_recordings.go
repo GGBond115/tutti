@@ -27,6 +27,8 @@ func registerAgentSessionRecordingRoutes(
 			wrapper.GetAgentSessionRecording(w, r)
 		case http.MethodPatch:
 			wrapper.RenameAgentSessionRecording(w, r)
+		case http.MethodDelete:
+			wrapper.DeleteAgentSessionRecording(w, r)
 		default:
 			tuttitypes.WriteMethodNotAllowed(w)
 		}

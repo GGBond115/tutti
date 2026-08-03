@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createLocalAgentGUIAgentTarget } from "../../../agentTargets";
 import {
-  AGENT_GUI_PROVIDER_RAIL_PREFERENCES_STORAGE_KEY,
-  agentGUIProviderRailOrderStorageKey,
   applyAgentGUIProviderRailOrder,
   applyAgentGUIProviderRailVisibility,
   agentGUIRunningTargetIds,
@@ -16,15 +14,6 @@ import {
 } from "./agentGuiProviderRailOrder";
 
 describe("agent gui provider rail order", () => {
-  it("uses one device-local storage key without a workspace or user id", () => {
-    expect(AGENT_GUI_PROVIDER_RAIL_PREFERENCES_STORAGE_KEY).toBe(
-      "agent-gui:provider-rail-preferences"
-    );
-    expect(agentGUIProviderRailOrderStorageKey()).toBe(
-      AGENT_GUI_PROVIDER_RAIL_PREFERENCES_STORAGE_KEY
-    );
-  });
-
   it("parses and serializes versioned order and visibility preferences", () => {
     const serialized = serializeAgentGUIProviderRailPreferences({
       hiddenTargetIds: [" local:cursor ", "local:cursor", ""],

@@ -15,6 +15,15 @@ const readyRecording: AgentSessionRecording = {
   updatedAtUnixMs: 1
 };
 
+const replayPrerequisites = {
+  composerDefaults: {
+    model: "gpt-5.4",
+    permissionModeId: "default",
+    reasoningEffort: "medium",
+    speed: "normal"
+  }
+};
+
 test("reconciles recording truth from the daemon list", async () => {
   const service = createService({
     listAgentSessionRecordings: async () => [readyRecording]
@@ -53,7 +62,10 @@ test("arms create-session recording outside AgentGUI", async () => {
     }
   );
 
-  await service.startRecording({ agentTargetId: "local:codex" });
+  await service.startRecording({
+    agentTargetId: "local:codex",
+    replayPrerequisites
+  });
 
   assert.deepEqual(armed, ["recording-1"]);
   assert.equal(service.getSnapshot().activeRecording?.id, "recording-1");
@@ -89,12 +101,14 @@ test("starts, seals, and discards the renderer activity recording with the daemo
 
   await service.startRecording({
     agentSessionId: "session-1",
-    agentTargetId: "local:codex"
+    agentTargetId: "local:codex",
+    replayPrerequisites
   });
   await service.completeRecording("recording-1");
   await service.startRecording({
     agentSessionId: "session-1",
-    agentTargetId: "local:codex"
+    agentTargetId: "local:codex",
+    replayPrerequisites
   });
   await service.cancelRecording("recording-1");
 
@@ -108,6 +122,34 @@ test("starts, seals, and discards the renderer activity recording with the daemo
     "daemon:cancel",
     "activity:discard:recording-1"
   ]);
+});
+
+test("a failed activity seal fails completion before the daemon call", async () => {
+  const sealError = new Error(
+    "activity event recording recording-1 is not replayable: " +
+      "uncorrelated-command commandType=queue/sendPrompt " +
+      "commandId=send-1 correlationId=<none>"
+  );
+  let daemonCompleteCalls = 0;
+  const service = createService(
+    {
+      completeAgentSessionRecording: async () => {
+        daemonCompleteCalls += 1;
+        return { ...readyRecording, status: "complete" };
+      }
+    },
+    {
+      sealActivityEventRecording: async () => {
+        throw sealError;
+      }
+    }
+  );
+
+  await assert.rejects(service.completeRecording("recording-1"), sealError);
+
+  assert.equal(daemonCompleteCalls, 0);
+  assert.equal(service.getSnapshot().error, sealError);
+  assert.equal(service.getSnapshot().loading, false);
 });
 
 test("keeps the new-session binding when cancellation fails", async () => {
@@ -165,10 +207,118 @@ test("replaces recording state after a persisted cassette rename", async () => {
   );
 });
 
+test("removes a deleted recording from the list", async () => {
+  const deleted: string[] = [];
+  const completeRecording = {
+    ...readyRecording,
+    cassetteId: "cassette-1",
+    status: "complete" as const
+  };
+  const service = createService({
+    deleteAgentSessionRecording: async (_workspaceId, recordingId) => {
+      deleted.push(recordingId);
+    },
+    listAgentSessionRecordings: async () => [completeRecording]
+  });
+  await service.refresh();
+
+  await service.deleteRecording(completeRecording.id);
+
+  assert.deepEqual(deleted, ["recording-1"]);
+  assert.deepEqual(service.getSnapshot().recordings, []);
+});
+
+test("imports cassettes through the host adapter and refreshes successful results", async () => {
+  const calls: string[] = [];
+  const loadingStates: boolean[] = [];
+  const service = createService(
+    {
+      listAgentSessionRecordings: async () => {
+        calls.push("daemon:list");
+        return [{ ...readyRecording, status: "complete" }];
+      }
+    },
+    {
+      importCassettes: async () => {
+        calls.push("host:import");
+        return { canceled: false, failedCount: 1, importedCount: 2 };
+      }
+    }
+  );
+  service.subscribe(() => {
+    loadingStates.push(service.getSnapshot().loading);
+  });
+
+  const result = await service.importCassettes();
+
+  assert.deepEqual(result, {
+    failedCount: 1,
+    importedCount: 2,
+    outcome: "partial"
+  });
+  assert.deepEqual(calls, ["host:import", "daemon:list"]);
+  assert.equal(service.getSnapshot().recordings.length, 1);
+  assert.equal(service.getSnapshot().loading, false);
+  assert.equal(loadingStates[0], true);
+  assert.equal(loadingStates.at(-1), false);
+});
+
+test("does not refresh when cassette selection is canceled", async () => {
+  let listCalls = 0;
+  const service = createService(
+    {
+      listAgentSessionRecordings: async () => {
+        listCalls += 1;
+        return [];
+      }
+    },
+    {
+      importCassettes: async () => ({
+        canceled: true,
+        failedCount: 0,
+        importedCount: 0
+      })
+    }
+  );
+
+  const result = await service.importCassettes();
+
+  assert.equal(result.outcome, "canceled");
+  assert.equal(listCalls, 0);
+  assert.equal(service.getSnapshot().loading, false);
+});
+
+test("owns import refresh failures in service state", async () => {
+  const refreshError = new Error("refresh imported cassettes failed");
+  const service = createService(
+    {
+      listAgentSessionRecordings: async () => {
+        throw refreshError;
+      }
+    },
+    {
+      importCassettes: async () => ({
+        canceled: false,
+        failedCount: 0,
+        importedCount: 1
+      })
+    }
+  );
+
+  await assert.rejects(service.importCassettes(), refreshError);
+
+  assert.equal(service.getSnapshot().error, refreshError);
+  assert.equal(service.getSnapshot().loading, false);
+});
+
 function createService(
   overrides: Partial<{
     cancelAgentSessionRecording(): Promise<AgentSessionRecording>;
     completeAgentSessionRecording(): Promise<AgentSessionRecording>;
+    deleteAgentSessionRecording(
+      workspaceId: string,
+      recordingId: string
+    ): Promise<void>;
     listAgentSessionRecordings(): Promise<AgentSessionRecording[]>;
     renameAgentSessionRecording(): Promise<AgentSessionRecording>;
     startAgentSessionRecording(): Promise<AgentSessionRecording>;
@@ -177,6 +327,11 @@ function createService(
     armNextSessionRecording(recordingId: string): void;
     clearNextSessionRecording(recordingId?: string): void;
     discardActivityEventRecording(recordingId: string): void;
+    importCassettes(): Promise<{
+      canceled: boolean;
+      failedCount: number;
+      importedCount: number;
+    }>;
     sealActivityEventRecording(recordingId: string): Promise<void>;
     startActivityEventRecording(recordingId: string): void;
   }> = {}
@@ -185,6 +340,11 @@ function createService(
     armNextSessionRecording: () => {},
     clearNextSessionRecording: () => {},
     discardActivityEventRecording: () => {},
+    importCassettes: async () => ({
+      canceled: true,
+      failedCount: 0,
+      importedCount: 0
+    }),
     sealActivityEventRecording: async () => {},
     startActivityEventRecording: () => {},
     tuttidClient: {
@@ -196,11 +356,9 @@ function createService(
         ...readyRecording,
         status: "complete"
       }),
-      completeAgentSessionReplayRun: async () => ({}) as never,
-      failAgentSessionReplayRun: async () => ({}) as never,
+      deleteAgentSessionRecording: async () => {},
       listAgentSessionRecordings: async () => [],
-      markAgentSessionReplayRunRunning: async () => ({}) as never,
-      prepareAgentSessionReplayRun: async () => ({}) as never,
+      prepareAgentSessionReplayWorkspace: async () => ({}) as never,
       renameAgentSessionRecording: async () => readyRecording,
       startAgentSessionRecording: async () => readyRecording,
       ...overrides

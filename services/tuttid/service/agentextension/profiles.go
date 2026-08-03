@@ -154,6 +154,20 @@ type CapabilitiesProfile struct {
 	Declared      map[string]bool `json:"declared"`
 }
 
+type AuthenticationProfile struct {
+	SchemaVersion string                        `json:"schemaVersion"`
+	Methods       []AuthenticationMethodProfile `json:"methods"`
+}
+
+type AuthenticationMethodProfile struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Command struct {
+		Strategy string   `json:"strategy"`
+		Args     []string `json:"args"`
+	} `json:"command"`
+}
+
 func (m *Manager) LoadComposerProfile(installationID string) (ComposerProfile, error) {
 	installation, err := m.loadInstallationByID(strings.TrimSpace(installationID))
 	if err != nil {
@@ -171,6 +185,28 @@ func (m *Manager) LoadComposerProfile(installationID string) (ComposerProfile, e
 		return ComposerProfile{}, err
 	}
 	return profile, nil
+}
+
+func loadAuthenticationMethods(installation Installation) (map[string]AuthenticationMethodProfile, error) {
+	if installation.Manifest.Profiles.Authentication == "" {
+		return nil, nil
+	}
+	var profile AuthenticationProfile
+	path := filepath.Join(installation.PackageDir, filepath.FromSlash(installation.Manifest.Profiles.Authentication))
+	if err := readJSON(path, &profile); err != nil {
+		return nil, err
+	}
+	if err := validateAuthenticationProfile(profile); err != nil {
+		return nil, err
+	}
+	methods := make(map[string]AuthenticationMethodProfile, len(profile.Methods))
+	for _, method := range profile.Methods {
+		method.ID = strings.TrimSpace(method.ID)
+		method.Type = strings.TrimSpace(method.Type)
+		method.Command.Strategy = strings.TrimSpace(method.Command.Strategy)
+		methods[method.ID] = method
+	}
+	return methods, nil
 }
 
 func (m *Manager) LoadDeclaredCapabilities(installationID string) ([]string, error) {
@@ -502,14 +538,63 @@ func validateComposerWorkflowModes(profile ComposerProfile) error {
 var composerSlashCommandName = regexp.MustCompile(`^[a-z0-9][a-z0-9._:-]{0,63}$`)
 var composerConfigOptionID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 var composerLaunchSettingValue = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+var authenticationMethodID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+
+func validateAuthenticationProfile(profile AuthenticationProfile) error {
+	if profile.SchemaVersion != "tutti.agent.authentication.v1" {
+		return errors.New("unsupported authentication profile schema")
+	}
+	if len(profile.Methods) == 0 || len(profile.Methods) > 16 {
+		return errors.New("authentication profile must declare 1..16 methods")
+	}
+	seen := map[string]struct{}{}
+	for _, method := range profile.Methods {
+		id := strings.TrimSpace(method.ID)
+		if !authenticationMethodID.MatchString(id) {
+			return errors.New("authentication method id is invalid")
+		}
+		if _, exists := seen[id]; exists {
+			return errors.New("authentication method id must be unique")
+		}
+		seen[id] = struct{}{}
+		if strings.TrimSpace(method.Type) != "terminal" {
+			return errors.New("authentication method type is unsupported")
+		}
+		if strings.TrimSpace(method.Command.Strategy) != "runtime-subcommand" {
+			return errors.New("authentication terminal command strategy is unsupported")
+		}
+		if len(method.Command.Args) == 0 || len(method.Command.Args) > 16 {
+			return errors.New("authentication terminal command must declare 1..16 args")
+		}
+		for _, argument := range method.Command.Args {
+			if !validAuthenticationCommandArgument(argument) {
+				return errors.New("authentication terminal command arg is invalid")
+			}
+		}
+	}
+	return nil
+}
+
+func validAuthenticationCommandArgument(argument string) bool {
+	if argument == "" || utf8.RuneCountInString(argument) > 256 {
+		return false
+	}
+	for _, character := range argument {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
+}
 
 func validateInstalledProfiles(root string, manifest Manifest) error {
 	for file, schema := range map[string]string{
-		manifest.Profiles.Discovery:    "tutti.agent.discovery.v1",
-		manifest.Profiles.Tools:        "tutti.agent.tools.v1",
-		manifest.Profiles.Capabilities: "tutti.agent.capabilities.v1",
-		manifest.Profiles.Composer:     "tutti.agent.composer.v1",
-		manifest.Profiles.Events:       "tutti.agent.events.v1",
+		manifest.Profiles.Discovery:      "tutti.agent.discovery.v1",
+		manifest.Profiles.Tools:          "tutti.agent.tools.v1",
+		manifest.Profiles.Capabilities:   "tutti.agent.capabilities.v1",
+		manifest.Profiles.Composer:       "tutti.agent.composer.v1",
+		manifest.Profiles.Authentication: "tutti.agent.authentication.v1",
+		manifest.Profiles.Events:         "tutti.agent.events.v1",
 	} {
 		if file == "" {
 			continue
@@ -552,6 +637,9 @@ func validateInstalledProfiles(root string, manifest Manifest) error {
 		return err
 	}
 	if _, err := loadToolAliases(installation); err != nil {
+		return err
+	}
+	if _, err := loadAuthenticationMethods(installation); err != nil {
 		return err
 	}
 	return nil

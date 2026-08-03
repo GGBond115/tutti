@@ -9,9 +9,10 @@ import (
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
 	"github.com/tutti-os/tutti/services/tuttid/apierrors"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 	agentservice "github.com/tutti-os/tutti/services/tuttid/service/agent"
 )
@@ -45,7 +46,7 @@ type AgentSessionService interface {
 	Clear(context.Context, string) (agentservice.ClearSessionsResult, error)
 	Delete(context.Context, string, string) (agentservice.DeleteSessionResult, error)
 	CancelTurn(context.Context, string, string, string) (agentservice.CancelTurnResult, error)
-	GoalControl(ctx context.Context, workspaceID string, agentSessionID string, action string, objective string) (agentservice.GoalControlSessionResult, error)
+	GoalControl(context.Context, agentservice.GoalControlInput) (agentservice.GoalControlSessionResult, error)
 	GetGoalState(context.Context, string, string) (agentservice.GoalStateSessionResult, error)
 	ReconcileGoal(context.Context, string, string) (agentservice.GoalStateSessionResult, error)
 	SendInput(context.Context, string, string, agentservice.SendInput) (agentservice.SendInputResult, error)
@@ -428,13 +429,17 @@ func (api DaemonAPI) SubmitWorkspaceAgentInteractive(ctx context.Context, reques
 	if err != nil {
 		return writeSubmitWorkspaceAgentInteractiveError(err), nil
 	}
-	api.recordAgentStimulus(ctx, "interactive.response", string(request.WorkspaceID), string(request.AgentSessionID), map[string]any{
-		"turnId":    request.Body.TurnId,
-		"requestId": string(request.RequestID),
-		"action":    request.Body.Action,
-		"optionId":  request.Body.OptionId,
-		"payload":   request.Body.Payload,
-	})
+	if !isRendererEngineCommandOrigin(
+		request.Params.XTuttiAgentCommandOrigin,
+	) {
+		api.recordAgentStimulus(ctx, "interactive.response", string(request.WorkspaceID), string(request.AgentSessionID), map[string]any{
+			"turnId":    request.Body.TurnId,
+			"requestId": string(request.RequestID),
+			"action":    request.Body.Action,
+			"optionId":  request.Body.OptionId,
+			"payload":   request.Body.Payload,
+		})
+	}
 	return tuttigenerated.SubmitWorkspaceAgentInteractive200JSONResponse{
 		Session: generatedSession,
 	}, nil
@@ -558,7 +563,7 @@ func generatedAgentProviderComposerOptions(options agentservice.ComposerOptions)
 			PrewarmDraftSession:                 options.Behavior.PrewarmDraftSession,
 			PlanModeExclusiveWithPermissionMode: options.Behavior.PlanModeExclusiveWithPermissionMode,
 		},
-		Capabilities:      generatedAgentSessionCapabilities(options.Capabilities),
+		Capabilities:      generatedAgentSessionCapabilities(canonical.NewCapabilitySnapshot(options.Capabilities)),
 		CapabilityCatalog: generatedAgentProviderCapabilityOptions(options.CapabilityCatalog),
 		Commands:          generatedAgentProviderComposerCommands(options.Commands),
 		EffectiveSettings: effectiveSettings,
@@ -775,7 +780,7 @@ func generatedAgentSession(session agentservice.Session) (tuttigenerated.Workspa
 		ActiveTurn:             activeTurn,
 		ActiveTurnId:           optionalStringPointer(strings.TrimSpace(session.ActiveTurnID)),
 		AgentTargetId:          optionalStringPointer(strings.TrimSpace(session.AgentTargetID)),
-		Capabilities:           generatedAgentSessionCapabilities(session.Metadata.Capabilities),
+		Capabilities:           generatedAgentSessionCapabilities(session.Capabilities),
 		CreatedAtUnixMs:        session.CreatedAt.UnixMilli(),
 		Cwd:                    stringPointer(strings.TrimSpace(session.Cwd)),
 		EndedAtUnixMs:          endedAtUnixMS,

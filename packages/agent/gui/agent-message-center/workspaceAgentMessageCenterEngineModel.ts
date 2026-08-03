@@ -9,7 +9,7 @@ import type {
 import { normalizeAgentApprovalPurpose } from "../shared/agentConversation/agentApprovalPurpose";
 import {
   selectEngineInteractionResponse,
-  selectPendingSubmitsForSession,
+  selectPendingPlanFeedbackSubmit,
   selectPlanDecisionForTurn,
   selectPlanTurnDismissed,
   selectWorkspaceAgentRootConversationSessions
@@ -131,15 +131,11 @@ export function selectWorkspaceAgentMessageCenterPresentation(
         decision.status === "requested" ? "responding" : decision.status;
       continue;
     }
-    const feedbackPrefix = [
-      "plan-implementation",
-      consumer.session.workspaceId,
+    const submit = selectPendingPlanFeedbackSubmit(
+      state,
       sessionId,
       turnId,
-      "feedback"
-    ].join(":");
-    const submit = selectPendingSubmitsForSession(state, sessionId).find(
-      (record) => record.clientSubmitId.startsWith(feedbackPrefix)
+      turnId
     );
     if (submit) {
       promptStatusByKey[promptStatusKey(sessionId, turnId, turnId)] =

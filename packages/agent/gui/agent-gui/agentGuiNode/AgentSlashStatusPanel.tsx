@@ -13,6 +13,7 @@ export interface AgentSlashStatusPanelStatus {
   limitsUnavailable?: boolean;
   limitsResolvedEmpty?: boolean;
   limitsCapturedAtUnixMs?: number | null;
+  limitsErrorMessage?: string | null;
   refreshFailed?: boolean;
   isRefreshing?: boolean;
 }
@@ -139,6 +140,15 @@ export function AgentSlashStatusPanel({
           </button>
         </div>
       </div>
+      {status?.limitsErrorMessage ? (
+        <div
+          className="mb-2 rounded-[6px] border border-[var(--on-danger-hover)] bg-[var(--on-danger)] px-2 py-1.5 text-[11px] leading-4 text-[var(--state-danger)]"
+          data-testid="agent-gui-slash-status-error"
+          role="alert"
+        >
+          {status.limitsErrorMessage}
+        </div>
+      ) : null}
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 font-mono text-[11px] leading-4">
         {showSessionDetails ? (
           <>

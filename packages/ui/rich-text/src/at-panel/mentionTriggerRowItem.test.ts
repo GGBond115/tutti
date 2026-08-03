@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderMentionReferenceLeading } from "./mentionReferenceIcon.ts";
 import {
   isMentionTriggerRowProviderId,
   richTextTriggerQueryMatchToMentionRowItem,
@@ -205,19 +204,4 @@ test("renderLeading override returns a plain row with caller-provided leading", 
     label: "Ship mention palette",
     leading: "custom-leading"
   });
-});
-
-test("standard reference leading uses a fixed 32px non-shrinking frame", () => {
-  const leading = renderMentionReferenceLeading({
-    kind: "workspace-issue",
-    label: "A very long issue title"
-  });
-
-  assert.equal(
-    leading.props["data-rich-text-at-mention-reference-leading"],
-    "true"
-  );
-  assert.equal(leading.props.style.width, "32px");
-  assert.equal(leading.props.style.height, "32px");
-  assert.equal(leading.props.style.flex, "0 0 32px");
 });

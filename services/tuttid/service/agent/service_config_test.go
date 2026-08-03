@@ -23,6 +23,7 @@ func TestConfiguredServiceReturnsPrecomposedApplicationHost(t *testing.T) {
 		components.HostSupportPorts(),
 		canonical,
 		nil,
+		nil,
 		hostRuntime,
 	)
 	if host == nil {

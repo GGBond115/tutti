@@ -1,6 +1,7 @@
 import { NativeListRow, NativeSheet } from "@tutti-os/ui-system/native";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { Modal, TextInput } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { AgentActivitySessionSettings } from "@tutti-os/agent-activity-core";
 import type { WorkspaceActivitySnapshot } from "../services/workspaceActivityService";
 import { MobileComposerDock } from "./MobileComposerDock";
@@ -86,6 +87,55 @@ test("closes settings and rejects a queued selection when commands become unavai
   expect(updates).toEqual([]);
 });
 
+test("selects the new-session Agent and working directory above the composer", () => {
+  const selectedTargets: string[] = [];
+  const selectedProjects: Array<string | null> = [];
+  let renderer: ReactTestRenderer;
+  act(() => {
+    renderer = create(
+      composerDock(
+        {
+          ...createModel(),
+          creating: true,
+          targets: [createTarget()],
+          userProjects: [createUserProject()]
+        },
+        () => undefined,
+        {
+          onSelectProject: (path) => selectedProjects.push(path),
+          onSelectTarget: (id) => selectedTargets.push(id)
+        }
+      )
+    );
+  });
+
+  press(renderer!, "mobile-composer-agent-select");
+  act(() => {
+    renderer!.root
+      .find(
+        (node) =>
+          node.type === NativeListRow &&
+          node.props.title === "Codex" &&
+          typeof node.props.onPress === "function"
+      )
+      .props.onPress();
+  });
+  press(renderer!, "mobile-composer-directory-select");
+  act(() => {
+    renderer!.root
+      .find(
+        (node) =>
+          node.type === NativeListRow &&
+          node.props.title === "tutti" &&
+          typeof node.props.onPress === "function"
+      )
+      .props.onPress();
+  });
+
+  expect(selectedTargets).toEqual(["target-1"]);
+  expect(selectedProjects).toEqual(["/workspace/tutti"]);
+});
+
 function press(renderer: ReactTestRenderer, testID: string): void {
   const target = renderer.root.find(
     (node) =>
@@ -110,24 +160,65 @@ function testTargetIsDisabled(
 
 function composerDock(
   model: WorkspaceActivitySnapshot,
-  onUpdate: (settings: AgentActivitySessionSettings) => void = () => undefined
+  onUpdate: (settings: AgentActivitySessionSettings) => void = () => undefined,
+  handlers: {
+    onSelectProject?(path: string | null): void;
+    onSelectTarget?(agentTargetId: string): void;
+  } = {}
 ) {
   return (
-    <MobileComposerDock
-      model={model}
-      onDraftChange={() => undefined}
-      onRefreshQuickPrompts={() => Promise.resolve()}
-      onSend={() => undefined}
-      onStop={() => undefined}
-      onUpdate={onUpdate}
-      quickPromptLibrary={{
-        enabled: false,
-        errorCode: null,
-        prompts: [],
-        status: "ready"
+    <SafeAreaProvider
+      initialMetrics={{
+        frame: { height: 800, width: 400, x: 0, y: 0 },
+        insets: { bottom: 16, left: 0, right: 0, top: 24 }
       }}
-    />
+    >
+      <MobileComposerDock
+        model={model}
+        onDraftChange={() => undefined}
+        onRefreshQuickPrompts={() => Promise.resolve()}
+        onSelectProject={handlers.onSelectProject ?? (() => undefined)}
+        onSelectTarget={handlers.onSelectTarget ?? (() => undefined)}
+        onSend={() => undefined}
+        onStop={() => undefined}
+        onUpdate={onUpdate}
+        quickPromptLibrary={{
+          enabled: false,
+          errorCode: null,
+          prompts: [],
+          status: "ready"
+        }}
+      />
+    </SafeAreaProvider>
   );
+}
+
+function createTarget() {
+  return {
+    availability: { status: "ready" as const },
+    createdAtUnixMs: 1,
+    enabled: true,
+    id: "target-1",
+    launchRef: { provider: "codex", type: "builtin_local" as const },
+    name: "Codex",
+    provider: "codex",
+    sortOrder: 1,
+    source: "system" as const,
+    updatedAtUnixMs: 1
+  };
+}
+
+function createUserProject() {
+  return {
+    createdAtUnixMs: 1,
+    id: "project-1",
+    label: "tutti",
+    lastUsedAtUnixMs: 1,
+    path: "/workspace/tutti",
+    pinnedAtUnixMs: 0,
+    sectionKey: "project:tutti",
+    updatedAtUnixMs: 1
+  };
 }
 
 function createModel(): WorkspaceActivitySnapshot {
@@ -185,8 +276,12 @@ function createModel(): WorkspaceActivitySnapshot {
     railStatus: "ready",
     selectedAgentSessionId: null,
     selectedAgentTargetId: null,
+    selectedProjectPath: null,
     selectedSession: null,
     sending: false,
-    targets: []
+    targets: [],
+    userProjectErrorCode: null,
+    userProjects: [],
+    userProjectsStatus: "ready"
   };
 }

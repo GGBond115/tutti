@@ -1,5 +1,5 @@
 // Package sessionreplay owns provider-neutral Agent Session recording,
-// cassette, and replay-run semantics.
+// Cassette, and replay preparation semantics.
 package sessionreplay
 
 import (
@@ -14,7 +14,6 @@ var (
 	ErrBusy              = errors.New("another agent session recording is active")
 	ErrRecordingNotFound = errors.New("agent session recording not found")
 	ErrCassetteNotFound  = errors.New("agent session cassette not found")
-	ErrReplayRunNotFound = errors.New("agent session replay run not found")
 	ErrInvalidState      = errors.New("agent session replay state is invalid")
 	ErrInvalidName       = errors.New("agent session recording name is invalid")
 )
@@ -44,28 +43,66 @@ const (
 // Recording is a mutable capture task. A successful Recording produces exactly
 // one Cassette whose replay payload is immutable and whose name is mutable.
 type Recording struct {
-	ID                 string          `json:"id"`
-	Name               string          `json:"name"`
-	CassetteID         string          `json:"cassetteId,omitempty"`
-	ScopeID            string          `json:"scopeId"`
-	AgentTargetID      string          `json:"agentTargetId"`
-	Mode               ScenarioMode    `json:"mode"`
-	RootAgentSessionID string          `json:"rootAgentSessionId,omitempty"`
-	Status             RecordingStatus `json:"status"`
-	ArtifactKey        string          `json:"-"`
-	ErrorCode          string          `json:"errorCode,omitempty"`
-	ErrorMessage       string          `json:"errorMessage,omitempty"`
-	CreatedAtUnixMS    int64           `json:"createdAtUnixMs"`
-	RecordingAtUnixMS  int64           `json:"recordingAtUnixMs,omitempty"`
-	StoppedAtUnixMS    int64           `json:"stoppedAtUnixMs,omitempty"`
-	UpdatedAtUnixMS    int64           `json:"updatedAtUnixMs"`
+	ID                  string              `json:"id"`
+	Name                string              `json:"name"`
+	CassetteID          string              `json:"cassetteId,omitempty"`
+	ScopeID             string              `json:"scopeId"`
+	AgentTargetID       string              `json:"agentTargetId"`
+	ReplayPrerequisites ReplayPrerequisites `json:"replayPrerequisites"`
+	Mode                ScenarioMode        `json:"mode"`
+	RootAgentSessionID  string              `json:"rootAgentSessionId,omitempty"`
+	Status              RecordingStatus     `json:"status"`
+	ArtifactKey         string              `json:"-"`
+	ErrorCode           string              `json:"errorCode,omitempty"`
+	ErrorMessage        string              `json:"errorMessage,omitempty"`
+	CreatedAtUnixMS     int64               `json:"createdAtUnixMs"`
+	RecordingAtUnixMS   int64               `json:"recordingAtUnixMs,omitempty"`
+	StoppedAtUnixMS     int64               `json:"stoppedAtUnixMs,omitempty"`
+	UpdatedAtUnixMS     int64               `json:"updatedAtUnixMs"`
 }
 
 type StartRecordingInput struct {
-	ScopeID       string
-	AgentTargetID string
+	ScopeID             string
+	AgentTargetID       string
+	ReplayPrerequisites ReplayPrerequisites
 	// AgentSessionID selects continue-session mode. Empty selects create-session.
 	AgentSessionID string
+}
+
+// ReplayComposerDefaults are the resolved composer settings required to
+// reproduce provider startup behavior. They are recorded in the portable
+// Cassette instead of being inferred from a development scenario.
+type ReplayComposerDefaults struct {
+	Model            string `json:"model"`
+	PermissionModeID string `json:"permissionModeId"`
+	ReasoningEffort  string `json:"reasoningEffort"`
+	Speed            string `json:"speed"`
+}
+
+// ReplayPrerequisites are immutable inputs that must be restored before a
+// Cassette is replayed in an otherwise clean runtime.
+type ReplayPrerequisites struct {
+	ComposerDefaults ReplayComposerDefaults `json:"composerDefaults"`
+}
+
+func (p ReplayPrerequisites) normalized() ReplayPrerequisites {
+	p.ComposerDefaults.Model = strings.TrimSpace(p.ComposerDefaults.Model)
+	p.ComposerDefaults.PermissionModeID = strings.TrimSpace(
+		p.ComposerDefaults.PermissionModeID,
+	)
+	p.ComposerDefaults.ReasoningEffort = strings.TrimSpace(
+		p.ComposerDefaults.ReasoningEffort,
+	)
+	p.ComposerDefaults.Speed = strings.TrimSpace(p.ComposerDefaults.Speed)
+	return p
+}
+
+func (p ReplayPrerequisites) valid() bool {
+	p = p.normalized()
+	return p.ComposerDefaults.Model != "" &&
+		p.ComposerDefaults.PermissionModeID != "" &&
+		p.ComposerDefaults.ReasoningEffort != "" &&
+		p.ComposerDefaults.Speed != ""
 }
 
 type BindRecordingInput struct {
@@ -75,11 +112,11 @@ type BindRecordingInput struct {
 	AgentSessionID string
 }
 
-type FixturePhase string
+type ReplayStatePhase string
 
 const (
-	FixturePhaseSeed     FixturePhase = "seed"
-	FixturePhaseExpected FixturePhase = "expected"
+	ReplayStatePhaseInitial  ReplayStatePhase = "initial"
+	ReplayStatePhaseExpected ReplayStatePhase = "expected"
 )
 
 // Cassette is the rebuildable catalog entry for one portable artifact. Its
@@ -90,7 +127,6 @@ type Cassette struct {
 	ID                 string       `json:"id"`
 	Name               string       `json:"name"`
 	SourceRecordingID  string       `json:"sourceRecordingId"`
-	ScopeID            string       `json:"scopeId"`
 	AgentTargetID      string       `json:"agentTargetId"`
 	RootAgentSessionID string       `json:"rootAgentSessionId"`
 	Mode               ScenarioMode `json:"mode"`
@@ -98,31 +134,6 @@ type Cassette struct {
 	ManifestSHA256     string       `json:"manifestSha256"`
 	ArtifactKey        string       `json:"-"`
 	CreatedAtUnixMS    int64        `json:"createdAtUnixMs"`
-}
-
-type ReplayRunStatus string
-
-const (
-	ReplayRunStatusStarting ReplayRunStatus = "starting"
-	ReplayRunStatusRunning  ReplayRunStatus = "running"
-	ReplayRunStatusComplete ReplayRunStatus = "complete"
-	ReplayRunStatusFailed   ReplayRunStatus = "failed"
-	ReplayRunStatusCanceled ReplayRunStatus = "canceled"
-)
-
-// ReplayRun is mutable execution state. Multiple runs may reference the same
-// immutable Cassette.
-type ReplayRun struct {
-	ID                string          `json:"id"`
-	CassetteID        string          `json:"cassetteId"`
-	Status            ReplayRunStatus `json:"status"`
-	Checkpoint        int64           `json:"checkpoint"`
-	ErrorCode         string          `json:"errorCode,omitempty"`
-	ErrorMessage      string          `json:"errorMessage,omitempty"`
-	CreatedAtUnixMS   int64           `json:"createdAtUnixMs"`
-	StartedAtUnixMS   int64           `json:"startedAtUnixMs,omitempty"`
-	CompletedAtUnixMS int64           `json:"completedAtUnixMs,omitempty"`
-	UpdatedAtUnixMS   int64           `json:"updatedAtUnixMs"`
 }
 
 // MetadataStore persists operational metadata. Implementations may use a
@@ -136,32 +147,30 @@ type MetadataStore interface {
 	UpdateCassette(context.Context, Recording, Cassette) error
 	GetCassette(context.Context, string) (Cassette, error)
 	ListCassettes(context.Context, string) ([]Cassette, error)
-	PutReplayRun(context.Context, ReplayRun) error
-	GetReplayRun(context.Context, string) (ReplayRun, error)
-	ListReplayRuns(context.Context, string) ([]ReplayRun, error)
 }
 
-// FixtureStore exports only the selected SessionGraph dependency closure.
-// destination is allocated by the product's artifact adapter.
-type FixtureStore interface {
+// ReplayStateStore captures a product-owned semantic state document for the
+// selected root Session without knowing artifact storage or filesystem paths.
+type ReplayStateStore interface {
 	ResolveRootAgentSession(context.Context, string, string) (string, error)
-	ExportAgentSessionGraph(context.Context, string, string, string) error
+	CaptureReplayState(context.Context, string, string) ([]byte, error)
 	WaitAgentSessionGraphSettled(context.Context, string, string) error
 }
 
 // ProcessRecorder captures provider protocol traffic for one root SessionGraph.
 // artifactKey is opaque to the core and resolved by the product adapter.
 type ProcessRecorder interface {
-	Arm(rootAgentSessionID, artifactKey string) error
+	Arm(rootAgentSessionID, recordingID, artifactKey string) error
 	Complete(rootAgentSessionID string) error
 	Cancel(rootAgentSessionID string) error
 }
 
 type ArtifactLayout struct {
-	StorageKey         string
-	ProviderTapeKey    string
-	SeedFixtureKey     string
-	ExpectedFixtureKey string
+	StorageKey        string
+	ProviderTapeKey   string
+	CheckpointPlanKey string
+	InitialStateKey   string
+	ExpectedStateKey  string
 }
 
 type Artifact struct {
@@ -169,31 +178,40 @@ type Artifact struct {
 	Layout   ArtifactLayout
 }
 
-// ArtifactStore owns every file operation for Recording candidates and
-// Cassettes. Keys are opaque to the application workflow.
+// ArtifactStore owns every required file operation for Recording candidates
+// and Cassettes, including cassette v7 checkpoint and observation persistence.
+// Keys are opaque to the application workflow.
 type ArtifactStore interface {
 	Prepare(context.Context, Recording) (ArtifactLayout, error)
 	LocateRecording(context.Context, Recording) (ArtifactLayout, error)
-	WriteScenario(context.Context, Recording, uint64) error
 	AppendActivityEvent(context.Context, Recording, ActivityEvent) error
-	CollectFixtureDependencies(context.Context, Recording, FixturePhase) error
+	AppendObservationJournalEntry(context.Context, Recording, ObservationJournalEntry) error
+	WriteCheckpointPlan(context.Context, Recording, CheckpointPlan) error
+	WriteReplayState(context.Context, Recording, ReplayStatePhase, []byte) error
 	Publish(context.Context, Recording, string, uint64) (Artifact, error)
 	RollbackPublish(context.Context, Artifact, Recording) error
 	Resolve(context.Context, Cassette) (Artifact, error)
 	RenameCassette(context.Context, Cassette, string) (Artifact, error)
 	DiscardRecording(context.Context, string) error
+	DiscardCassette(context.Context, string) error
+}
+
+type RecordingCursorSnapshot struct {
+	Recording             Recording
+	ActivityEventSequence uint64
 }
 
 type ReplayRequest struct {
-	Run      ReplayRun
+	Cassette Cassette
 	Artifact Artifact
 }
 
-// ReplayRuntime starts an isolated provider-free replay composition. Desktop,
-// daemon processes, VMs, and Electron windows are adapter concerns.
-type ReplayRuntime interface {
-	Start(context.Context, ReplayRequest) error
-	Cancel(context.Context, string) error
+type PrepareReplayBatchInput struct {
+	CassetteIDs []string
+}
+
+type ReplayBatchRequest struct {
+	Requests []ReplayRequest
 }
 
 type IDGenerator func() string

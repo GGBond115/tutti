@@ -31,7 +31,7 @@ test("allows an unrelated external-store subscription beside a session engine re
   const result = runBoundaryCheck(workspaceRoot);
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /agent activity runtime boundary check passed/i);
+  assert.match(result.stdout, /agent gui runtime boundary check passed/i);
 });
 
 test("rejects a direct session-engine external-store subscription", async () => {

@@ -39,8 +39,8 @@ export const nativeThemes = {
     textSecondary: "#6c6c6c"
   },
   dark: {
-    accent: "#ff6b4a",
-    accentPressed: "#eb5839",
+    accent: "#5a9bff",
+    accentPressed: "#4f8fff",
     background: "#111216",
     backgroundFronted: "#22252d",
     backgroundPanel: "#1a1c22",

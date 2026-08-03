@@ -38,9 +38,16 @@ type newPageInput struct {
 	URL string `cli:"url"`
 }
 
-func plainOutputSpec() framework.OutputSpec {
+func browserTextOutputSpec(view framework.OutputView) framework.OutputSpec {
 	return framework.OutputSpec{
 		DefaultMode: cliservice.OutputModePlain,
+		DefaultView: view,
+		JSON:        true,
+		JSONViews: map[framework.OutputView]func(any) map[string]any{
+			view: func(result any) map[string]any {
+				return map[string]any{"text": result.(string)}
+			},
+		},
 		PlainText: func(result any) string {
 			return result.(string)
 		},
@@ -57,7 +64,7 @@ func (p Provider) newNavigateCommand() cliservice.Command {
 		Workspace:   framework.WorkspaceRequired,
 		Workspaces:  p.workspaces,
 		Inputs:      framework.FromStruct[navigateInput](),
-		Output:      plainOutputSpec(),
+		Output:      browserTextOutputSpec(framework.ViewSummary),
 		Run: func(ctx context.Context, invoke framework.InvokeContext, input navigateInput) (any, error) {
 			return p.call(ctx, invoke, "navigate_page", map[string]any{"url": input.URL})
 		},
@@ -74,7 +81,7 @@ func (p Provider) newSnapshotCommand() cliservice.Command {
 		Workspace:   framework.WorkspaceRequired,
 		Workspaces:  p.workspaces,
 		Inputs:      framework.FromStruct[struct{}](),
-		Output:      plainOutputSpec(),
+		Output:      browserTextOutputSpec(framework.ViewDetail),
 		Run: func(ctx context.Context, invoke framework.InvokeContext, _ struct{}) (any, error) {
 			return p.call(ctx, invoke, "take_snapshot", map[string]any{})
 		},
@@ -91,7 +98,7 @@ func (p Provider) newScreenshotCommand() cliservice.Command {
 		Workspace:   framework.WorkspaceRequired,
 		Workspaces:  p.workspaces,
 		Inputs:      framework.FromStruct[screenshotInput](),
-		Output:      plainOutputSpec(),
+		Output:      browserTextOutputSpec(framework.ViewSummary),
 		Run:         p.runScreenshot,
 	})
 }
@@ -124,7 +131,7 @@ func (p Provider) newClickCommand() cliservice.Command {
 		Workspace:   framework.WorkspaceRequired,
 		Workspaces:  p.workspaces,
 		Inputs:      framework.FromStruct[uidInput](),
-		Output:      plainOutputSpec(),
+		Output:      browserTextOutputSpec(framework.ViewSummary),
 		Run: func(ctx context.Context, invoke framework.InvokeContext, input uidInput) (any, error) {
 			return p.call(ctx, invoke, "click", map[string]any{"uid": input.UID})
 		},
@@ -141,7 +148,7 @@ func (p Provider) newFillCommand() cliservice.Command {
 		Workspace:   framework.WorkspaceRequired,
 		Workspaces:  p.workspaces,
 		Inputs:      framework.FromStruct[fillInput](),
-		Output:      plainOutputSpec(),
+		Output:      browserTextOutputSpec(framework.ViewSummary),
 		Run: func(ctx context.Context, invoke framework.InvokeContext, input fillInput) (any, error) {
 			return p.call(ctx, invoke, "fill", map[string]any{"uid": input.UID, "value": input.Value})
 		},
@@ -158,7 +165,7 @@ func (p Provider) newEvalCommand() cliservice.Command {
 		Workspace:   framework.WorkspaceRequired,
 		Workspaces:  p.workspaces,
 		Inputs:      framework.FromStruct[evalInput](),
-		Output:      plainOutputSpec(),
+		Output:      browserTextOutputSpec(framework.ViewSummary),
 		Run: func(ctx context.Context, invoke framework.InvokeContext, input evalInput) (any, error) {
 			return p.call(ctx, invoke, "evaluate_script", map[string]any{"function": input.Script})
 		},
@@ -175,11 +182,11 @@ func (p Provider) newListPagesCommand() cliservice.Command {
 		Workspace:   framework.WorkspaceRequired,
 		Workspaces:  p.workspaces,
 		Inputs:      framework.FromStruct[struct{}](),
-		Output: framework.OutputSpec{
-			DefaultMode: cliservice.OutputModePlain,
-			PlainText:   func(result any) string { return result.(string) },
-			ListCompact: true,
-		},
+		Output: func() framework.OutputSpec {
+			output := browserTextOutputSpec(framework.ViewSummary)
+			output.ListCompact = true
+			return output
+		}(),
 		Run: func(ctx context.Context, invoke framework.InvokeContext, _ struct{}) (any, error) {
 			return p.call(ctx, invoke, "list_pages", map[string]any{})
 		},
@@ -191,18 +198,35 @@ func (p Provider) newPageCommand() cliservice.Command {
 		ID:          "browser.new-page",
 		Path:        []string{"browser", "new-page"},
 		Summary:     "Create a browser page",
-		Description: "Create a background page in the Agent Browser and select it for later commands.",
+		Description: "Create a page in the full workspace Browser and select it for later commands.",
 		Kind:        framework.KindAction,
 		Workspace:   framework.WorkspaceRequired,
 		Workspaces:  p.workspaces,
 		Inputs:      framework.FromStruct[newPageInput](),
-		Output:      plainOutputSpec(),
+		Output:      browserTextOutputSpec(framework.ViewSummary),
 		Run: func(ctx context.Context, invoke framework.InvokeContext, input newPageInput) (any, error) {
 			args := map[string]any{}
 			if input.URL != "" {
 				args["url"] = input.URL
 			}
 			return p.call(ctx, invoke, "new_page", args)
+		},
+	})
+}
+
+func (p Provider) newOpenCommand() cliservice.Command {
+	return framework.Register(framework.CommandSpec[navigateInput]{
+		ID:          "browser.open",
+		Path:        []string{"browser", "open"},
+		Summary:     "Open a URL in a new browser page",
+		Description: "Create a new page in the full workspace Browser for the URL and select it for later commands.",
+		Kind:        framework.KindAction,
+		Workspace:   framework.WorkspaceRequired,
+		Workspaces:  p.workspaces,
+		Inputs:      framework.FromStruct[navigateInput](),
+		Output:      browserTextOutputSpec(framework.ViewSummary),
+		Run: func(ctx context.Context, invoke framework.InvokeContext, input navigateInput) (any, error) {
+			return p.call(ctx, invoke, "new_page", map[string]any{"url": input.URL})
 		},
 	})
 }
@@ -217,7 +241,7 @@ func (p Provider) newSelectPageCommand() cliservice.Command {
 		Workspace:   framework.WorkspaceRequired,
 		Workspaces:  p.workspaces,
 		Inputs:      framework.FromStruct[pageInput](),
-		Output:      plainOutputSpec(),
+		Output:      browserTextOutputSpec(framework.ViewSummary),
 		Run: func(ctx context.Context, invoke framework.InvokeContext, input pageInput) (any, error) {
 			return p.call(ctx, invoke, "select_page", map[string]any{"pageId": input.PageID})
 		},
@@ -234,7 +258,7 @@ func (p Provider) newClosePageCommand() cliservice.Command {
 		Workspace:   framework.WorkspaceRequired,
 		Workspaces:  p.workspaces,
 		Inputs:      framework.FromStruct[pageInput](),
-		Output:      plainOutputSpec(),
+		Output:      browserTextOutputSpec(framework.ViewSummary),
 		Run: func(ctx context.Context, invoke framework.InvokeContext, input pageInput) (any, error) {
 			return p.call(ctx, invoke, "close_page", map[string]any{"pageId": input.PageID})
 		},

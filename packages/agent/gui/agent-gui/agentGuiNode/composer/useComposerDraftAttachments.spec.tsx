@@ -3,8 +3,8 @@ import type { PropsWithChildren } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 import {
-  AgentActivityRuntimeProvider,
-  type AgentActivityRuntime
+  AgentGUIRuntimeProvider,
+  type AgentGUIRuntime
 } from "../../../agentActivityRuntime";
 import {
   resetAgentHostApiForTests,
@@ -201,11 +201,11 @@ describe("useComposerDraftAttachments", () => {
     const runtime = {
       origin: "test",
       reportDiagnostic
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     const wrapper = ({ children }: PropsWithChildren) => (
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         {children}
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
     const prepareExternalPromptFiles = vi.fn<AgentExternalPromptFilePreparer>(
       async () => [

@@ -7,6 +7,7 @@ import type {
 import { isDeepStrictEqual } from "node:util";
 import { answersFromInteractivePayload } from "./normalizer.ts";
 import type { ClaudeSDKSidecarEventEmitter } from "./protocol.ts";
+import type { ProviderTurnPhase } from "./providerTurnAcceptance.ts";
 import { stringValue } from "./runtimeValues.ts";
 import {
   approvalOptions,
@@ -65,17 +66,26 @@ export class InteractiveCoordinator {
   private readonly settings: SidecarSessionSettings;
   private readonly resolveTurnId: (options: ToolPermissionOptions) => string;
   private readonly activateSyntheticTurn: () => string;
+  private readonly ensureProviderTurnAcceptance: (
+    phase: Extract<ProviderTurnPhase, "waiting_approval" | "waiting_input">,
+    signal?: AbortSignal
+  ) => Promise<void>;
   private readonly emit: ClaudeSDKSidecarEventEmitter;
 
   constructor(options: {
     settings: SidecarSessionSettings;
     resolveTurnId: (permission: ToolPermissionOptions) => string;
     activateSyntheticTurn: () => string;
+    ensureProviderTurnAcceptance: (
+      phase: Extract<ProviderTurnPhase, "waiting_approval" | "waiting_input">,
+      signal?: AbortSignal
+    ) => Promise<void>;
     emit: ClaudeSDKSidecarEventEmitter;
   }) {
     this.settings = options.settings;
     this.resolveTurnId = options.resolveTurnId;
     this.activateSyntheticTurn = options.activateSyntheticTurn;
+    this.ensureProviderTurnAcceptance = options.ensureProviderTurnAcceptance;
     this.emit = options.emit;
   }
 
@@ -236,13 +246,17 @@ export class InteractiveCoordinator {
     };
   }
 
-  private request(
+  private async request(
     eventType: "approval_requested" | "user_input_requested",
     toolName: string,
     toolInput: Record<string, unknown>,
     options: Array<Record<string, unknown>>,
     callbackOptions: ToolPermissionOptions
   ): Promise<InteractiveSubmission> {
+    await this.ensureProviderTurnAcceptance(
+      eventType === "approval_requested" ? "waiting_approval" : "waiting_input",
+      callbackOptions.signal
+    );
     const requestId = crypto.randomUUID();
     const toolUseID = callbackOptions.toolUseID || requestId;
     const agentId = stringValue(callbackOptions.agentID);

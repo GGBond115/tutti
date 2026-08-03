@@ -564,6 +564,33 @@ func TestSessionAuditProjectsSeparatelyFromTurnMessages(t *testing.T) {
 	}
 }
 
+func TestSessionFailureProjectsVisibleAuditWithoutTurn(t *testing.T) {
+	t.Parallel()
+	session := reportTestSession()
+	event := newSessionActivityEvent(session, EventSessionFailed, SessionStatusFailed, map[string]any{
+		"error": "provider failed before turn admission",
+	})
+
+	report := reportActivityInput(session, []activityshared.Event{event})
+	if len(report.StatePatches) != 1 || len(report.SessionAudits) != 1 || len(report.MessageUpdates) != 0 {
+		t.Fatalf("report = %#v, want state plus turnless visible audit", report)
+	}
+	audit := report.SessionAudits[0]
+	if audit.AuditID == "" || audit.Role != RoleAssistant || audit.Payload["kind"] != visibleErrorKind ||
+		audit.Payload["phase"] != "start" || audit.Payload["detail"] != "provider failed before turn admission" {
+		t.Fatalf("visible failure audit = %#v", audit)
+	}
+
+	stream := ProjectActivityEventsToStreamEvents(session, []activityshared.Event{event})
+	if len(stream) != 2 || stream[0].EventType != StreamEventStatePatch || stream[1].EventType != StreamEventSessionAudit {
+		t.Fatalf("stream = %#v, want state plus session audit", stream)
+	}
+	streamAudit, ok := stream[1].Data.(agentsessionstore.WorkspaceAgentSessionAuditUpdate)
+	if !ok || streamAudit.AuditID != audit.AuditID {
+		t.Fatalf("stream audit = %#v, want durable audit identity %q", stream[1].Data, audit.AuditID)
+	}
+}
+
 func TestGoalReconcileRequiredProjectsOnlyToInternalControlReport(t *testing.T) {
 	t.Parallel()
 	session := reportTestSession()
@@ -954,6 +981,14 @@ func TestProjectActivityEventsToStreamEventsAddsVisibleTurnFailureMessage(t *tes
 			"error": "\x1b[33mAPI Error: 429 rate limit\x1b[39m",
 		}),
 	})
+	report := reportActivityInput(session, []activityshared.Event{
+		newTurnActivityEventWithID(session, "turn-failed-report-1", EventTurnFailed, "turn-1", SessionStatusFailed, "", "", map[string]any{
+			"error": "API Error: 429 rate limit",
+		}),
+	})
+	if len(report.MessageUpdates) != 1 || len(report.SessionAudits) != 0 {
+		t.Fatalf("turn failure report = %#v, want turn message only", report)
+	}
 
 	if len(events) != 2 {
 		t.Fatalf("stream events = %#v, want state patch and visible failure message", events)

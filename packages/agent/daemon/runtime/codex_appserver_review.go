@@ -59,6 +59,11 @@ func appServerReviewReasoningSummary() string {
 // appServerMessageHandler builds the message callback shared by the
 // thread-control slash commands (compact, review, undo): every app-server
 // message is routed through handleAppServerMessage and its events emitted.
+// It begins the Provider input-unit tracker from the dispatch context so
+// checkpoint observations emitted during an in-flight RPC (or before the
+// session-level handler is restored) still receive transport positions —
+// without this, compact turn/started can update canonical state while
+// SemanticRuntime never sees a trigger match.
 func (a *CodexAppServerAdapter) appServerMessageHandler(
 	appSession *codexAppServerSession,
 	session Session,
@@ -68,6 +73,8 @@ func (a *CodexAppServerAdapter) appServerMessageHandler(
 	emitCommands CommandSnapshotSink,
 ) func(context.Context, acpMessage) error {
 	return func(ctx context.Context, message acpMessage) error {
+		endInputUnit := a.inputUnits.begin(ctx, session.AgentSessionID)
+		defer endInputUnit()
 		next, err := a.handleAppServerMessage(ctx, appSession.client, session, turnID, message, normalizer, emitEvents, emitCommands)
 		emitEvents(next)
 		return err
@@ -89,6 +96,7 @@ func (a *CodexAppServerAdapter) execReviewSlashCommand(
 	emitTerminal func([]activityshared.Event),
 	emitCommands CommandSnapshotSink,
 	reportDispatch ProviderDispatchSink,
+	admitProviderTurn func(string) error,
 ) (bool, error) {
 	normalizer.SetThinkingPresentation("review-process")
 	params := map[string]any{
@@ -122,11 +130,9 @@ func (a *CodexAppServerAdapter) execReviewSlashCommand(
 	if providerTurnID := asString(initialTurn["id"]); providerTurnID != "" {
 		a.setSessionActiveTurnID(session.AgentSessionID, appTurn, providerTurnID)
 	}
-	reportCodexProviderTurnAccepted(
-		reportDispatch,
-		appSession.threadID,
-		asString(initialTurn["id"]),
-	)
+	if err := admitProviderTurn(asString(initialTurn["id"])); err != nil {
+		return true, err
+	}
 	finalTurn, finishErr := a.awaitTurnCompletion(ctx, appSession, appTurn, initialTurn)
 	if finishErr != nil {
 		if errors.Is(finishErr, context.Canceled) || errors.Is(finishErr, errPermissionRequestCanceled) {

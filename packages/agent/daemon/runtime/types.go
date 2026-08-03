@@ -1,12 +1,14 @@
 package agentruntime
 
 import (
+	"encoding/json"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
+	canonical "github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 const (
@@ -120,10 +122,10 @@ type SessionForkCapabilities struct {
 // provider-turn boundary. ProviderTurnID is deliberately distinct from the
 // canonical WorkspaceAgentTurn id.
 type SessionForkInput struct {
-	Source                      Session `json:"-"`
-	ProviderTurnID              string  `json:"providerTurnId,omitempty"`
-	ProviderCheckpointMessageID string  `json:"providerCheckpointMessageId,omitempty"`
-	TargetTitle                 string  `json:"targetTitle,omitempty"`
+	Source                  Session         `json:"-"`
+	ProviderTurnID          string          `json:"providerTurnId,omitempty"`
+	ProviderTurnBindingJSON json.RawMessage `json:"providerTurnBindingJson,omitempty"`
+	TargetTitle             string          `json:"targetTitle,omitempty"`
 }
 
 type SessionForkDeliveryDisposition string
@@ -148,8 +150,30 @@ type SessionForkResult struct {
 }
 
 type SessionForkProviderTurnBinding struct {
-	ProviderTurnID      string `json:"providerTurnId"`
-	CheckpointMessageID string `json:"checkpointMessageId"`
+	ProviderTurnID          string          `json:"providerTurnId"`
+	ProviderTurnBindingJSON json.RawMessage `json:"providerTurnBindingJson"`
+}
+
+const (
+	ProviderTurnBindingWriteStarted    = "started"
+	ProviderTurnBindingWriteCheckpoint = "checkpoint"
+	ProviderTurnBindingWriteForked     = "forked"
+	ProviderTurnBindingWriteRecovered  = "recovered"
+)
+
+// ProviderTurnBindingWriteInput is deliberately provider-neutral. Payload is
+// supplied by the provider adapter and interpreted only by that adapter.
+type ProviderTurnBindingWriteInput struct {
+	Kind           string
+	ProviderTurnID string
+	Payload        map[string]any
+}
+
+type ProviderTurnForkabilityInput struct {
+	Source                  Session
+	CanonicalTurnID         string
+	ProviderTurnID          string
+	ProviderTurnBindingJSON json.RawMessage
 }
 
 type ProviderTurnBindingRecoveryInput struct {
@@ -161,9 +185,9 @@ type ProviderTurnBindingRecoveryInput struct {
 }
 
 type ProviderTurnBindingRecoveryResult struct {
-	ProviderSessionID           string
-	ProviderTurnID              string
-	ProviderCheckpointMessageID string
+	ProviderSessionID       string
+	ProviderTurnID          string
+	ProviderTurnBindingJSON json.RawMessage
 }
 
 type ExecInput struct {
@@ -385,21 +409,22 @@ type SessionInteractivePrompt struct {
 }
 
 type SessionStateSnapshot struct {
-	RoomID             string                    `json:"roomId"`
-	AgentSessionID     string                    `json:"agentSessionId"`
-	AgentTargetID      string                    `json:"agentTargetId,omitempty"`
-	Provider           string                    `json:"provider"`
-	ProviderSessionID  string                    `json:"providerSessionId,omitempty"`
-	Resumable          bool                      `json:"resumable"`
-	Status             string                    `json:"status"`
-	TurnLifecycle      *TurnLifecycle            `json:"turnLifecycle,omitempty"`
-	SubmitAvailability *SubmitAvailability       `json:"submitAvailability,omitempty"`
-	PermissionModeID   string                    `json:"permissionModeId,omitempty"`
-	Settings           *SessionSettings          `json:"settings,omitempty"`
-	AuthState          string                    `json:"authState,omitempty"`
-	RuntimeContext     map[string]any            `json:"runtimeContext,omitempty"`
-	PendingInteractive *SessionInteractivePrompt `json:"pendingInteractive,omitempty"`
-	UpdatedAtUnixMS    int64                     `json:"updatedAtUnixMs"`
+	RoomID             string                        `json:"roomId"`
+	AgentSessionID     string                        `json:"agentSessionId"`
+	AgentTargetID      string                        `json:"agentTargetId,omitempty"`
+	Provider           string                        `json:"provider"`
+	ProviderSessionID  string                        `json:"providerSessionId,omitempty"`
+	Resumable          bool                          `json:"resumable"`
+	Status             string                        `json:"status"`
+	TurnLifecycle      *TurnLifecycle                `json:"turnLifecycle,omitempty"`
+	SubmitAvailability *SubmitAvailability           `json:"submitAvailability,omitempty"`
+	PermissionModeID   string                        `json:"permissionModeId,omitempty"`
+	Settings           *SessionSettings              `json:"settings,omitempty"`
+	Capabilities       *canonical.CapabilitySnapshot `json:"capabilities,omitempty"`
+	AuthState          string                        `json:"authState,omitempty"`
+	RuntimeContext     map[string]any                `json:"runtimeContext,omitempty"`
+	PendingInteractive *SessionInteractivePrompt     `json:"pendingInteractive,omitempty"`
+	UpdatedAtUnixMS    int64                         `json:"updatedAtUnixMs"`
 }
 
 type AgentSessionCommand struct {
@@ -483,11 +508,20 @@ type ProviderAcceptanceReceipt struct {
 	Source            AcceptanceSource `json:"source"`
 	ProviderSessionID string           `json:"providerSessionId"`
 	ProviderTurnID    string           `json:"providerTurnId"`
+	// ProviderInputUnit is process-local Replay metadata from the stamped
+	// acceptance event. It must travel with the durable acceptance report so
+	// commit correlation can confirm against the same transaction that writes
+	// RootProviderTurn (Claude Code otherwise re-emits a later no-op report).
+	ProviderInputUnit *activityshared.ProviderInputUnitContext `json:"-"`
 }
 
 type ProviderDispatchResult struct {
 	Disposition DispatchDisposition        `json:"disposition"`
 	Acceptance  *ProviderAcceptanceReceipt `json:"acceptance,omitempty"`
+	// Failure is a process-local provider observation. It is carried only to
+	// the synchronous Controller caller and is never serialized or persisted as
+	// coordination state.
+	Failure error `json:"-"`
 }
 
 type CompletedCommand struct {

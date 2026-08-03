@@ -40,8 +40,8 @@ apps/desktop/
 Current concrete shape is still intentionally small:
 
 - `main` contains bootstrap composition, daemon supervision, host access, transport, IPC, update, generated defaults, logging, and window modules
-- `preload` currently boots through a single entrypoint
-- `renderer` currently resolves dashboard and workspace window shells from one bundle
+- `preload` uses one business entrypoint plus a capability-minimal minimum-version admission entry
+- `renderer` resolves dashboard and workspace shells from one business bundle and keeps minimum-version admission in an isolated bundle
 - `renderer` organizes growing UI behavior as feature modules with service-owned state
 - `shared` is used for narrow desktop-local contracts and i18n resources shared across main, preload, and renderer
 
@@ -181,6 +181,17 @@ Preferred shape:
 Do not collapse these responsibilities back into one long bootstrap file once
 the boundaries exist.
 
+Minimum-version admission is a lifecycle boundary:
+
+- `@tutti-os/desktop-update-admission` owns the product-neutral controller, response validation, mandatory updater lease, preload API, shared React presentation, and default i18n resources
+- bootstrap supplies product transport, updater adapter, window assets, download URL, logging sink, and business-window enumeration to that package
+- bootstrap may create the updater and the shared minimum-version controller before daemon, host-service, IPC, menu, or business-window composition
+- a blocked startup must not construct business services or start the managed daemon
+- the admission window uses its own renderer HTML entry and preload entry
+- the admission preload exposes only minimum-version commands; the normal preload must not duplicate those commands
+- mandatory update execution owns the updater through an exclusive session and restores the prior normal update configuration only when the policy block is released
+- host apps must not copy the controller, validation, lease, preload, renderer, or default-copy implementation back into app-local modules
+
 Lifecycle-specific rule:
 
 - when desktop shutdown depends on daemon cleanup, `before-quit` should act as an async gate instead of firing cleanup and exiting immediately
@@ -214,7 +225,8 @@ Normalization-specific rule:
 
 Current state:
 
-- desktop currently uses one preload entrypoint that composes the typed API surface
+- the business preload composes the normal typed API surface
+- the minimum-version preload is a separate, capability-minimal entry
 
 It should:
 
@@ -234,7 +246,8 @@ It should not:
 
 Current state:
 
-- renderer currently uses one React bundle and resolves window shells by startup view
+- business windows use one React bundle and resolve their window shells by startup view
+- the minimum-version admission window uses a separate renderer entry and must not import business composition
 - renderer window shells create window-scoped dependency containers and assemble features
 - feature services own renderer-local state, commands, and preload adapters
 
@@ -540,7 +553,8 @@ Windows are shells, not separate products.
 Current implementation:
 
 - dashboard and workspace are separate Electron windows
-- both currently resolve through one preload entry and one renderer bundle
+- both resolve through the business preload and renderer bundle
+- minimum-version admission is a separate Electron capability and renderer boundary
 
 Preferred growth path:
 

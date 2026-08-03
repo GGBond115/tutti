@@ -1,32 +1,66 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createEngineEffectExecutor } from "./effectExecutor.ts";
+import { createTestEngineCommandPort } from "./testEngineCommandPort.ts";
 import type { AgentActivitySession } from "../types.ts";
 import type {
   AgentSessionEffectPort,
-  EngineCommandPort,
   EngineCommandResultIntent,
   EngineExternalCommand,
   EngineTypedCommandPort
 } from "./types.ts";
 
 test("projects shared commands onto typed lifecycle effects without host switches", async () => {
-  const calls: Array<{ input: unknown; kind: string; signal?: AbortSignal }> =
-    [];
+  const calls: Array<{
+    commandId: string;
+    input: unknown;
+    kind: string;
+    origin?: "engine";
+    signal?: AbortSignal;
+  }> = [];
   const session = {} as AgentActivitySession;
   const effects: AgentSessionEffectPort = {
     async activateSession(input, options) {
-      calls.push({ input, kind: "activate", signal: options?.signal });
+      calls.push({
+        commandId: options.commandId,
+        input,
+        kind: "activate",
+        origin: options.origin,
+        signal: options.signal
+      });
       return {
         activation: { mode: "new", status: "attached" },
         session
       };
     },
     async cancelTurn(input, options) {
-      calls.push({ input, kind: "cancel", signal: options?.signal });
+      calls.push({
+        commandId: options.commandId,
+        input,
+        kind: "cancel",
+        origin: options.origin,
+        signal: options.signal
+      });
+    },
+    async controlGoal(input, options) {
+      assert.ok(options);
+      calls.push({
+        commandId: options.commandId,
+        input,
+        kind: "goal",
+        origin: options.origin,
+        signal: options.signal
+      });
+      return { goal: null, session };
     },
     async deleteSessions(input, options) {
-      calls.push({ input, kind: "delete", signal: options?.signal });
+      calls.push({
+        commandId: options?.commandId ?? "",
+        input,
+        kind: "delete",
+        origin: options?.origin ?? "engine",
+        signal: options?.signal
+      });
       return {
         cleanupFailedSessionIds: [],
         removedMessages: 0,
@@ -35,21 +69,51 @@ test("projects shared commands onto typed lifecycle effects without host switche
       };
     },
     async respondToInteraction(input, options) {
-      calls.push({ input, kind: "respond", signal: options?.signal });
+      calls.push({
+        commandId: options.commandId,
+        input,
+        kind: "respond",
+        origin: options.origin,
+        signal: options.signal
+      });
     },
     async renameSession(input, options) {
-      calls.push({ input, kind: "rename", signal: options?.signal });
+      calls.push({
+        commandId: options?.commandId ?? "",
+        input,
+        kind: "rename",
+        origin: options?.origin,
+        signal: options?.signal
+      });
       return { session };
     },
     async sendInput(input, options) {
-      calls.push({ input, kind: "send", signal: options?.signal });
+      calls.push({
+        commandId: options.commandId,
+        input,
+        kind: "send",
+        origin: options.origin,
+        signal: options.signal
+      });
     },
     async setSessionPinned(input, options) {
-      calls.push({ input, kind: "pin", signal: options?.signal });
+      calls.push({
+        commandId: options?.commandId ?? "",
+        input,
+        kind: "pin",
+        origin: options?.origin ?? "engine",
+        signal: options?.signal
+      });
       return { session };
     },
     async updateSessionSettings(input, options) {
-      calls.push({ input, kind: "settings", signal: options?.signal });
+      calls.push({
+        commandId: options.commandId,
+        input,
+        kind: "settings",
+        origin: options.origin,
+        signal: options.signal
+      });
     }
   };
   let extensionCalls = 0;
@@ -156,6 +220,16 @@ test("projects shared commands onto typed lifecycle effects without host switche
     type: "interaction/respond",
     workspaceId: "workspace-1"
   });
+  await executeAndWait(port, {
+    action: "set",
+    agentSessionId: "session-1",
+    clientSubmitId: "goal-submit-1",
+    commandId: "goal-1",
+    correlationId: "goal-submit-1",
+    objective: "ship it",
+    type: "goal/control",
+    workspaceId: "workspace-1"
+  });
 
   assert.equal(extensionCalls, 0);
   assert.deepEqual(
@@ -168,7 +242,22 @@ test("projects shared commands onto typed lifecycle effects without host switche
       "pin",
       "rename",
       "delete",
-      "respond"
+      "respond",
+      "goal"
+    ]
+  );
+  assert.deepEqual(
+    calls.map((call) => call.commandId),
+    [
+      "activate-1",
+      "send-1",
+      "settings-1",
+      "cancel-1",
+      "pin-1",
+      "rename-1",
+      "delete-1",
+      "respond-1",
+      "goal-1"
     ]
   );
   assert.deepEqual(calls[0]?.input, {
@@ -229,43 +318,76 @@ test("projects shared commands onto typed lifecycle effects without host switche
     workspaceId: "workspace-1"
   });
   assert.ok(calls.every((call) => call.signal instanceof AbortSignal));
+  assert.deepEqual(
+    calls.map((call) => call.origin),
+    [
+      "engine",
+      "engine",
+      "engine",
+      "engine",
+      "engine",
+      "engine",
+      "engine",
+      "engine",
+      "engine"
+    ]
+  );
 });
 
-test("keeps the complete command union available to legacy hosts", async () => {
-  const observed: string[] = [];
-  const executed: EngineExternalCommand[] = [];
-  const command: EngineExternalCommand = {
-    agentSessionId: "session-legacy",
-    commandId: "cancel-legacy",
-    turnId: "turn-legacy",
-    type: "turn/cancel",
-    workspaceId: "workspace-legacy"
-  };
+test("projects plan decisions with exact Engine provenance", async () => {
+  let receivedOptions: unknown;
+  let receivedSignal: AbortSignal | undefined;
   const result = await executeAndWait(
     {
-      async execute(candidate) {
-        executed.push(candidate);
-      },
-      observe(candidate) {
-        observed.push(candidate.commandId);
+      ...createTestEngineCommandPort(async () => {
+        throw new Error("unexpected generic execute");
+      }),
+      async executePlanDecision(_command, options) {
+        assert.ok(options);
+        receivedOptions = options;
+        receivedSignal = options.signal;
+        return {
+          operation: {
+            agentSessionId: "session-1",
+            idempotencyKey: "decision-1",
+            operationId: "operation-1",
+            requestId: "request-1",
+            status: "completed",
+            turnId: "turn-1",
+            workspaceId: "workspace-1"
+          }
+        };
       }
     },
-    command
+    {
+      action: "implement",
+      agentSessionId: "session-1",
+      commandId: "plan-1",
+      correlationId: "plan-1",
+      idempotencyKey: "decision-1",
+      promptKind: "plan-implementation",
+      requestId: "request-1",
+      turnId: "turn-1",
+      type: "plan/submitDecision",
+      workspaceId: "workspace-1"
+    }
   );
 
-  assert.deepEqual(executed, [command]);
-  assert.deepEqual(observed, ["cancel-legacy"]);
-  assert.equal(result.resultContract, "opaque");
+  assert.equal(result.outcome, "succeeded");
+  assert.deepEqual(receivedOptions, {
+    commandId: "plan-1",
+    origin: "engine",
+    signal: receivedSignal
+  });
+  assert.ok(receivedSignal instanceof AbortSignal);
 });
 
 test("rejects prompt settings preconditions that bypass the Engine state machine", async () => {
   let executed = false;
   const result = await executeAndWait(
-    {
-      async execute() {
-        executed = true;
-      }
-    },
+    createTestEngineCommandPort(async () => {
+      executed = true;
+    }),
     {
       agentSessionId: "session-1",
       clientSubmitId: "submit-1",
@@ -287,7 +409,7 @@ test("rejects prompt settings preconditions that bypass the Engine state machine
 });
 
 function executeAndWait(
-  commandPort: EngineCommandPort | EngineTypedCommandPort,
+  commandPort: EngineTypedCommandPort,
   command: EngineExternalCommand
 ): Promise<EngineCommandResultIntent> {
   return new Promise((resolve) => {

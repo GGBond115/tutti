@@ -68,7 +68,7 @@ function indexIdentities(
 ): ReadonlyMap<string, AgentGUIProviderIdentityCatalogEntry> {
   const result = new Map<string, AgentGUIProviderIdentityCatalogEntry>();
   for (const entry of entries) {
-    for (const key of [entry.providerId, ...entry.aliases]) {
+    for (const key of [entry.providerId, entry.target.id, ...entry.aliases]) {
       result.set(normalizeIdentityKey(key), entry);
     }
   }

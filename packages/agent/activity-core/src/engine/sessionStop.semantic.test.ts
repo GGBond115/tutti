@@ -4,11 +4,8 @@ import { normalizeAgentActivitySession } from "../sessionNormalization.ts";
 import type { AgentActivityTurn } from "../types.ts";
 import { createAgentSessionEngine } from "./createAgentSessionEngine.ts";
 import { selectEngineCancelState } from "./sessionLifecycle.selectors.ts";
-import type {
-  EngineCommandPort,
-  EngineExternalCommand,
-  EngineScheduler
-} from "./types.ts";
+import { createTestEngineCommandPort } from "./testEngineCommandPort.ts";
+import type { EngineExternalCommand, EngineScheduler } from "./types.ts";
 
 function createHarness(active: boolean) {
   let nowUnixMs = 100;
@@ -17,12 +14,10 @@ function createHarness(active: boolean) {
     canceled: boolean;
     delayMs: number;
   }> = [];
-  const commandPort: EngineCommandPort = {
-    execute(command) {
-      commands.push(command);
-      return new Promise(() => undefined);
-    }
-  };
+  const commandPort = createTestEngineCommandPort((command) => {
+    commands.push(command);
+    return new Promise(() => undefined);
+  });
   const scheduler: EngineScheduler = {
     schedule(delayMs) {
       const task = { canceled: false, delayMs };

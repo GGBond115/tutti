@@ -56,6 +56,14 @@ repository policy, contract, generated, and boundary checks. This preserves
 branch-protection compatibility while keeping those checks out of language
 jobs.
 
+Agent Session Replay has an additional changed-file lane,
+`run_agent_session_replay`. Changes to its core, provider transport, daemon
+recording/replay adapters, Desktop replay surfaces, deterministic fixture, or
+runner select this classification output. The PR replay job is currently
+disabled, so the output is advisory and does not execute a blocking gate.
+Keep the classification aligned with the real composition boundary so it can
+be enabled without replacing the closed loop with mock-only package selection.
+
 Validation runners that spawn nested pnpm commands should read the root
 `packageManager` field and invoke that pinned version through Corepack. Do not
 let runner-spawned lanes resolve a bare `pnpm` from `PATH`, because local
@@ -250,7 +258,7 @@ Desktop user-visible copy and locale resources are checked by `pnpm check:i18n`.
 
 `pnpm check:agent-activity-runtime-boundaries` scans Agent GUI and desktop
 renderer production code. Agent activity commands must go through
-`AgentActivityRuntime`; session-engine consumers must use exported selectors
+`AgentGUIRuntime`; session-engine consumers must use exported selectors
 instead of reading `sessionsById`, `turnsById`, `interactionsById`, pending
 intent maps, or prompt-queue records directly. Entity storage keys and reducer
 layout are engine implementation details, not consumer contracts. The check
@@ -445,6 +453,7 @@ The current root entrypoint runs the linter from:
 - `packages/agent/host`
 - `packages/agent/store-sqlite/canonical`
 - `packages/appcli/core`
+- `packages/clients/device-authority-go`
 - `packages/device-link`
 - `packages/agent/runtimeprep`
 - `packages/workspace/files`
@@ -464,7 +473,8 @@ Changed-aware Go validation includes the nested
 `packages/agent/activity-replication`, `packages/agent/daemon`,
 `packages/agent/host`,
 `packages/agent/runtimeprep`, `packages/agent/store-sqlite`, and
-`packages/agent/store-sqlite/canonical`, and `packages/device-link` modules.
+`packages/agent/store-sqlite/canonical`, `packages/clients/device-authority-go`,
+and `packages/device-link` modules.
 Codex app-server protocol changes should also run
 `pnpm check:codexproto-generated` when schema, generator, or generated protocol
 files are touched.
@@ -484,9 +494,15 @@ AAR assembly remains an explicit Android-SDK validation locally.
 The manually dispatched Mobile Internal Build workflow accepts `android`,
 `ios`, or `all`. Its Android job installs the pinned SDK/NDK versions,
 assembles the Mobile composite AAR and internal mobile APK, and uploads a
-private validation artifact. It validates the DeviceLink consumer build but
-does not publish Go module tags; the stable package release workflow owns those
-tags. Its iOS job runs on the pinned macOS 26 runner, assembles the same Mobile
+private validation artifact. Android release assembly requires the repository's
+stable keystore and credentials through the four `ANDROID_RELEASE_*` Actions
+secrets; the workflow fails closed when they are absent, and verifies both APK
+alignment and signing certificate before upload. It never generates a temporary
+signing identity. Each CI build also uses the repository-level workflow run
+number as its monotonically increasing Android `versionCode`. It validates the
+DeviceLink consumer build but does not publish Go module tags; the stable package
+release workflow owns those tags. Its iOS job runs on the pinned macOS 26 runner,
+assembles the same Mobile
 binding surface as an XCFramework, archives the React Native app, and uses the
 repository App Store Connect API key plus the `IOS_DEVELOPMENT_TEAM` repository
 variable for Xcode-managed cloud signing. It loads the Mobile Podfile's pnpm

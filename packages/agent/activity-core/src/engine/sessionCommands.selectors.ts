@@ -1,9 +1,9 @@
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 
 const EMPTY_ENGINE_AVAILABLE_COMMANDS: never[] = [];
 
 export function selectEngineAvailableCommands(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ) {
   const id = agentSessionId?.trim() ?? "";

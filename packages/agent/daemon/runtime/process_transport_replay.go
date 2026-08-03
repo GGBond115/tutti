@@ -11,21 +11,25 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
+	"time"
+
+	sessionreplay "github.com/tutti-os/tutti/packages/agent/session-replay"
 )
 
 type ReplayProcessTransport struct {
-	mu          sync.Mutex
-	manifest    ProcessCassetteManifest
-	connections map[string][]processCassetteChunk
-	records     map[string]ProcessCassetteConnectionRecord
-	launches    map[string]uint64
-	consumed    map[string]bool
-	sessionMap  map[string]string
-	started     []*replayProcessConnection
-	playback    *replayPlaybackController
+	mu           sync.Mutex
+	manifest     ProcessCassetteManifest
+	connections  map[string][]processCassetteChunk
+	records      map[string]ProcessCassetteConnectionRecord
+	optional     map[string]bool
+	launches     map[string]uint64
+	consumed     map[string]bool
+	sessionMap   map[string]string
+	started      []*replayProcessConnection
+	playback     *replayPlaybackController
+	inputBarrier *replayProviderInputBarrier
 }
 
 func NewReplayProcessTransport(directory string) (*ReplayProcessTransport, error) {
@@ -37,10 +41,16 @@ func NewReplayProcessTransport(directory string) (*ReplayProcessTransport, error
 	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
 		return nil, fmt.Errorf("decode process cassette manifest: %w", err)
 	}
-	if manifest.SchemaVersion != processCassetteSchemaVersion {
+	if manifest.SchemaVersion != ProcessCassetteSchemaVersion {
 		return nil, fmt.Errorf(
 			"unsupported process cassette schema version %d",
 			manifest.SchemaVersion,
+		)
+	}
+	if manifest.ProjectionVersion != ProcessCassetteProjectionVersion {
+		return nil, fmt.Errorf(
+			"unsupported process cassette projection version %d",
+			manifest.ProjectionVersion,
 		)
 	}
 	if manifest.Status != ProcessCassetteStatusComplete {
@@ -56,6 +66,35 @@ func NewReplayProcessTransport(directory string) (*ReplayProcessTransport, error
 	}
 	connections := make(map[string][]processCassetteChunk, len(manifest.Connections))
 	records := make(map[string]ProcessCassetteConnectionRecord, len(manifest.Connections))
+	optional := make(map[string]bool, len(manifest.Connections))
+	for _, record := range manifest.Connections {
+		descriptor, ok := sessionreplay.FindProviderReplayByProvider(record.Provider)
+		if !ok {
+			return nil, fmt.Errorf(
+				"process cassette provider %q has no replay adapter",
+				record.Provider,
+			)
+		}
+		if !descriptor.SupportsFormat(
+			manifest.SchemaVersion,
+			manifest.ProjectionVersion,
+		) || !processCassetteReplayAdapterSupported(descriptor) {
+			return nil, fmt.Errorf(
+				"process cassette provider %q has an incompatible replay adapter",
+				record.Provider,
+			)
+		}
+		switch record.CaptureOrigin {
+		case ProcessCassetteCaptureOriginProcessStart,
+			ProcessCassetteCaptureOriginAttachedLiveConnection:
+		default:
+			return nil, fmt.Errorf(
+				"process cassette connection %q has unsupported capture origin %q",
+				record.ConnectionID,
+				record.CaptureOrigin,
+			)
+		}
+	}
 	chunksFile, err := os.Open(framesPath)
 	if err != nil {
 		return nil, fmt.Errorf("open process cassette chunks: %w", err)
@@ -90,6 +129,9 @@ func NewReplayProcessTransport(directory string) (*ReplayProcessTransport, error
 		)
 	}
 	for _, connection := range manifest.Connections {
+		descriptor, _ := sessionreplay.FindProviderReplayByProvider(
+			connection.Provider,
+		)
 		key := processCassetteConnectionKey(
 			connection.AgentSessionID,
 			connection.Provider,
@@ -103,6 +145,11 @@ func NewReplayProcessTransport(directory string) (*ReplayProcessTransport, error
 		}
 		records[key] = connection
 		chunks := connections[connection.ConnectionID]
+		optional[key] = isOptionalReplayProbeConnection(
+			descriptor,
+			connection,
+			chunks,
+		)
 		for index, chunk := range chunks {
 			wantSeq := uint64(index + 1)
 			if chunk.ChunkSeq != wantSeq {
@@ -116,21 +163,37 @@ func NewReplayProcessTransport(directory string) (*ReplayProcessTransport, error
 		}
 	}
 	return &ReplayProcessTransport{
-		manifest:    manifest,
-		connections: connections,
-		records:     records,
-		launches:    map[string]uint64{},
-		consumed:    map[string]bool{},
-		sessionMap:  map[string]string{},
-		playback:    newReplayPlaybackController(),
+		manifest:     manifest,
+		connections:  connections,
+		records:      records,
+		optional:     optional,
+		launches:     map[string]uint64{},
+		consumed:     map[string]bool{},
+		sessionMap:   map[string]string{},
+		playback:     newReplayPlaybackController(),
+		inputBarrier: newReplayProviderInputBarrier(),
 	}, nil
+}
+
+func (t *ReplayProcessTransport) SetReplayProviderCursor(
+	targets []sessionreplay.ProviderUnitPosition,
+) error {
+	return t.inputBarrier.setTargets(targets)
+}
+
+func (t *ReplayProcessTransport) ClearReplayProviderCursor() {
+	t.inputBarrier.clearTargets()
+}
+
+func (t *ReplayProcessTransport) ReplayProviderCursor() map[string]sessionreplay.ProviderUnitPosition {
+	return t.inputBarrier.state()
 }
 
 func (t *ReplayProcessTransport) ReplayPlaybackState() ReplayPlaybackState {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	state := t.playback.state()
-	state.Drained = len(t.consumed) == len(t.manifest.Connections)
+	state.Drained = t.requiredConnectionsConsumed()
 	for _, connection := range t.started {
 		connection.mu.Lock()
 		drained := connection.failure == nil && connection.cursor == len(connection.chunks)
@@ -210,15 +273,32 @@ func (t *ReplayProcessTransport) Start(
 	}
 	t.consumed[key] = true
 	chunks := t.connections[record.ConnectionID]
+	descriptor, ok := sessionreplay.FindProviderReplayByProvider(record.Provider)
+	if !ok {
+		return nil, fmt.Errorf(
+			"process cassette provider %q has no replay adapter",
+			record.Provider,
+		)
+	}
 	connection := &replayProcessConnection{
-		connectionID: record.ConnectionID,
-		chunks:       chunks,
-		closed:       make(chan struct{}),
-		changed:      make(chan struct{}),
-		holdOpen:     len(chunks) == 0 || chunks[len(chunks)-1].Kind != "exit",
-		recordedCWD:  record.CWDToken,
-		replayCWD:    spec.CWD,
-		playback:     t.playback.newCursor(),
+		descriptor:    descriptor,
+		connectionID:  record.ConnectionID,
+		captureOrigin: record.CaptureOrigin,
+		chunks:        chunks,
+		closed:        make(chan struct{}),
+		changed:       make(chan struct{}),
+		holdOpen:      len(chunks) == 0 || chunks[len(chunks)-1].Kind != "exit",
+		recordedCWD:   record.CWDToken,
+		replayCWD:     processCassetteProtocolCWD(spec),
+		replayHome: processCassetteReplayHome(
+			spec,
+			descriptor,
+		),
+		playback:       t.playback.newCursor(),
+		inputBarrier:   t.inputBarrier,
+		skippedRPCs:    map[string]struct{}{},
+		responseIDs:    map[string]any{},
+		identityValues: map[string]string{},
 	}
 	t.started = append(t.started, connection)
 	return connection, nil
@@ -256,11 +336,22 @@ func (t *ReplayProcessTransport) resolveUnmappedRootConnection(
 func (t *ReplayProcessTransport) VerifyComplete() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if len(t.consumed) != len(t.manifest.Connections) {
+	if !t.requiredConnectionsConsumed() {
+		required := 0
+		consumed := 0
+		for key := range t.records {
+			if t.optional[key] {
+				continue
+			}
+			required++
+			if t.consumed[key] {
+				consumed++
+			}
+		}
 		return fmt.Errorf(
-			"process cassette consumed %d of %d connections",
-			len(t.consumed),
-			len(t.manifest.Connections),
+			"process cassette consumed %d of %d required connections",
+			consumed,
+			required,
 		)
 	}
 	for _, connection := range t.started {
@@ -269,6 +360,15 @@ func (t *ReplayProcessTransport) VerifyComplete() error {
 		}
 	}
 	return nil
+}
+
+func (t *ReplayProcessTransport) requiredConnectionsConsumed() bool {
+	for key := range t.records {
+		if !t.optional[key] && !t.consumed[key] {
+			return false
+		}
+	}
+	return true
 }
 
 func processCassetteConnectionKey(agentSessionID, provider string, launchOrdinal uint64) string {
@@ -280,25 +380,68 @@ func processCassetteConnectionKey(agentSessionID, provider string, launchOrdinal
 	)
 }
 
+func isOptionalReplayProbeConnection(
+	descriptor sessionreplay.ProviderReplayDescriptor,
+	record ProcessCassetteConnectionRecord,
+	chunks []processCassetteChunk,
+) bool {
+	if record.LaunchOrdinal <= 1 {
+		return false
+	}
+	hasProbe := false
+	for _, chunk := range chunks {
+		if chunk.Kind != "outbound" {
+			continue
+		}
+		method, _, ok := processCassetteJSONRPCRequest(chunk)
+		if !ok {
+			return false
+		}
+		switch {
+		case method == "initialize", method == "initialized":
+		case descriptor.IsOptionalProbeMethod(method):
+			hasProbe = true
+		default:
+			return false
+		}
+	}
+	return hasProbe
+}
+
 func (t *ReplayProcessTransport) Finalize() error {
 	return t.VerifyComplete()
 }
 
 type replayProcessConnection struct {
-	mu           sync.Mutex
-	recvMu       sync.Mutex
-	connectionID string
-	chunks       []processCassetteChunk
-	cursor       int
-	failure      error
-	closed       chan struct{}
-	changed      chan struct{}
-	closeOnce    sync.Once
-	closeErr     error
-	holdOpen     bool
-	recordedCWD  string
-	replayCWD    string
-	playback     *replayPlaybackCursor
+	descriptor               sessionreplay.ProviderReplayDescriptor
+	mu                       sync.Mutex
+	recvMu                   sync.Mutex
+	connectionID             string
+	captureOrigin            ProcessCassetteCaptureOrigin
+	chunks                   []processCassetteChunk
+	cursor                   int
+	failure                  error
+	closed                   chan struct{}
+	changed                  chan struct{}
+	closeOnce                sync.Once
+	closeErr                 error
+	holdOpen                 bool
+	recordedCWD              string
+	replayCWD                string
+	replayHome               string
+	playback                 *replayPlaybackCursor
+	inputBarrier             *replayProviderInputBarrier
+	skippedRPCs              map[string]struct{}
+	responseIDs              map[string]any
+	identityValues           map[string]string
+	skippingOptionalProbeRun bool
+}
+
+func (c *replayProcessConnection) ProcessCassetteCaptureOrigin() ProcessCassetteCaptureOrigin {
+	if c == nil {
+		return ""
+	}
+	return c.captureOrigin
 }
 
 func (c *replayProcessConnection) Send(data []byte) error {
@@ -309,6 +452,13 @@ func (c *replayProcessConnection) Send(data []byte) error {
 			return io.ErrClosedPipe
 		}
 		if c.cursor >= len(c.chunks) {
+			// Extra observational probes (for example child-nickname
+			// thread/read retries) may fire after the tape ends. Absorb them
+			// instead of failing the connection and blocking drain.
+			if c.isOptionalProbeOutboundLocked(data) {
+				c.mu.Unlock()
+				return nil
+			}
 			err := c.failLocked(fmt.Errorf(
 				"connection %s received unexpected outbound bytes after cassette end",
 				c.connectionID,
@@ -318,6 +468,13 @@ func (c *replayProcessConnection) Send(data []byte) error {
 		}
 		chunk := c.chunks[c.cursor]
 		if chunk.Kind != "outbound" {
+			// Don't queue optional probes behind inbound delivery — the client
+			// will time out waiting for a synthetic response, but the cassette
+			// connection stays healthy for required traffic.
+			if c.isOptionalProbeOutboundLocked(data) {
+				c.mu.Unlock()
+				return nil
+			}
 			changed := c.changed
 			c.mu.Unlock()
 			select {
@@ -333,12 +490,40 @@ func (c *replayProcessConnection) Send(data []byte) error {
 			c.mu.Unlock()
 			return err
 		}
-		if !bytes.Equal(data, expected) &&
-			!processCassetteJSONEqual(expected, data, c.recordedCWD, c.replayCWD) {
+		responseIDs, identityValues, matches := processCassetteJSONMatch(
+			c.descriptor,
+			expected,
+			data,
+			c.recordedCWD,
+			c.replayCWD,
+			c.replayHome,
+			c.identityValues,
+		)
+		if !bytes.Equal(data, expected) && !matches {
+			if method, responseID, ok := processCassetteJSONRPCRequest(chunk); ok &&
+				responseID != "" && c.descriptor.IsOptionalProbeMethod(method) {
+				c.playback.advanceTo(chunk.ElapsedMS)
+				c.skippedRPCs[responseID] = struct{}{}
+				c.cursor++
+				c.signalChangedLocked()
+				c.mu.Unlock()
+				continue
+			}
+			if c.isOptionalProbeOutboundLocked(data) {
+				c.mu.Unlock()
+				return nil
+			}
 			err = c.failLocked(processCassetteOutboundMismatch(chunk, expected, data))
 			c.mu.Unlock()
 			return err
 		}
+		for recordedID, replayID := range responseIDs {
+			c.responseIDs[recordedID] = replayID
+		}
+		for recordedValue, replayValue := range identityValues {
+			c.identityValues[recordedValue] = replayValue
+		}
+		c.skippingOptionalProbeRun = false
 		c.playback.advanceTo(chunk.ElapsedMS)
 		c.cursor++
 		c.signalChangedLocked()
@@ -347,87 +532,16 @@ func (c *replayProcessConnection) Send(data []byte) error {
 	}
 }
 
+func (c *replayProcessConnection) isOptionalProbeOutboundLocked(data []byte) bool {
+	method, _, ok := processCassetteJSONRPCRequestBytes(data)
+	return ok && c.descriptor.IsOptionalProbeMethod(method)
+}
+
 func (c *replayProcessConnection) failLocked(err error) error {
 	if c.failure == nil {
 		c.failure = err
 	}
 	return err
-}
-
-func processCassetteJSONEqual(
-	expected []byte,
-	actual []byte,
-	recordedCWD string,
-	replayCWD string,
-) bool {
-	expectedValues, ok := decodeProcessCassetteJSONValues(expected)
-	if !ok {
-		return false
-	}
-	actualValues, ok := decodeProcessCassetteJSONValues(actual)
-	if !ok || len(expectedValues) != len(actualValues) {
-		return false
-	}
-	for index := range expectedValues {
-		expectedValues[index] = mapProcessCassettePathFields(
-			expectedValues[index],
-			recordedCWD,
-			replayCWD,
-		)
-		if !reflect.DeepEqual(expectedValues[index], actualValues[index]) {
-			return false
-		}
-	}
-	return true
-}
-
-func decodeProcessCassetteJSONValues(data []byte) ([]any, bool) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	var values []any
-	for {
-		var value any
-		if err := decoder.Decode(&value); err != nil {
-			return values, errors.Is(err, io.EOF) && len(values) > 0
-		}
-		values = append(values, value)
-	}
-}
-
-func mapProcessCassettePathFields(value any, oldValue string, newValue string) any {
-	switch typed := value.(type) {
-	case []any:
-		for index := range typed {
-			typed[index] = mapProcessCassettePathFields(
-				typed[index],
-				oldValue,
-				newValue,
-			)
-		}
-		return typed
-	case map[string]any:
-		for key, child := range typed {
-			if isProcessCassettePathField(key) {
-				if path, ok := child.(string); ok && path == oldValue {
-					typed[key] = newValue
-					continue
-				}
-			}
-			typed[key] = mapProcessCassettePathFields(child, oldValue, newValue)
-		}
-		return typed
-	default:
-		return value
-	}
-}
-
-func isProcessCassettePathField(key string) bool {
-	switch strings.ToLower(strings.TrimSpace(key)) {
-	case "cwd", "workingdirectory", "working_directory", "statedirectory", "state_directory":
-		return true
-	default:
-		return false
-	}
 }
 
 func (c *replayProcessConnection) Recv() (ProcessFrame, error) {
@@ -463,6 +577,39 @@ func (c *replayProcessConnection) recvContext(ctx context.Context) (ProcessFrame
 		}
 		chunk := c.chunks[c.cursor]
 		if chunk.Kind == "outbound" {
+			if method, responseID, ok := processCassetteJSONRPCRequest(chunk); ok &&
+				responseID != "" && c.descriptor.IsOptionalProbeMethod(method) {
+				if !c.skippingOptionalProbeRun {
+					changed := c.changed
+					c.mu.Unlock()
+					timer := time.NewTimer(50 * time.Millisecond)
+					select {
+					case <-ctx.Done():
+						stopReplayPlaybackTimer(timer)
+						return ProcessFrame{}, ctx.Err()
+					case <-c.closed:
+						stopReplayPlaybackTimer(timer)
+						return ProcessFrame{}, io.EOF
+					case <-changed:
+						stopReplayPlaybackTimer(timer)
+						continue
+					case <-timer.C:
+					}
+					c.mu.Lock()
+					if c.cursor >= len(c.chunks) ||
+						c.chunks[c.cursor].ChunkSeq != chunk.ChunkSeq {
+						c.mu.Unlock()
+						continue
+					}
+				}
+				c.playback.advanceTo(chunk.ElapsedMS)
+				c.skippedRPCs[responseID] = struct{}{}
+				c.skippingOptionalProbeRun = true
+				c.cursor++
+				c.signalChangedLocked()
+				c.mu.Unlock()
+				continue
+			}
 			changed := c.changed
 			c.mu.Unlock()
 			select {
@@ -498,14 +645,53 @@ func (c *replayProcessConnection) recvContext(ctx context.Context) (ProcessFrame
 			endRelease()
 			return ProcessFrame{}, err
 		}
-		frame.Stdout = mapProcessCassetteFrameJSON(frame.Stdout, c.recordedCWD, c.replayCWD)
-		frame.Stderr = mapProcessCassetteFrameJSON(frame.Stderr, c.recordedCWD, c.replayCWD)
+		frame.Stdout = mapProcessCassetteFrameJSON(
+			frame.Stdout,
+			c.recordedCWD,
+			c.replayCWD,
+			c.replayHome,
+			c.descriptor,
+			c.identityValues,
+		)
+		frame.Stderr = mapProcessCassetteFrameJSON(
+			frame.Stderr,
+			c.recordedCWD,
+			c.replayCWD,
+			c.replayHome,
+			c.descriptor,
+			c.identityValues,
+		)
+		frame.Stdout = suppressSkippedProcessCassetteResponses(frame.Stdout, c.skippedRPCs)
+		frame.Stdout = mapProcessCassetteResponseIDs(frame.Stdout, c.responseIDs)
+		frame.ConnectionID = chunk.ConnectionID
+		frame.ChunkSeq = chunk.ChunkSeq
 		c.cursor++
 		c.signalChangedLocked()
 		c.mu.Unlock()
 		endRelease()
+		if len(frame.Stdout) == 0 && len(frame.Stderr) == 0 &&
+			frame.ExitCode == nil && frame.Message == "" {
+			continue
+		}
+		c.mu.Lock()
+		c.skippingOptionalProbeRun = false
+		c.mu.Unlock()
 		return frame, nil
 	}
+}
+
+func (c *replayProcessConnection) CompleteProviderInputUnit(
+	ctx context.Context,
+	unit ProviderInputUnit,
+) error {
+	if unit.Position.ConnectionID != c.connectionID {
+		return fmt.Errorf(
+			"provider input unit connection is %q, want %q",
+			unit.Position.ConnectionID,
+			c.connectionID,
+		)
+	}
+	return c.inputBarrier.complete(ctx, unit, c.closed)
 }
 
 func (c *replayProcessConnection) isClosed() bool {
@@ -514,8 +700,15 @@ func (c *replayProcessConnection) isClosed() bool {
 	return c.isClosedLocked()
 }
 
-func mapProcessCassetteFrameJSON(data []byte, recordedCWD, replayCWD string) []byte {
-	if len(data) == 0 || recordedCWD == "" || recordedCWD == replayCWD {
+func mapProcessCassetteFrameJSON(
+	data []byte,
+	recordedCWD string,
+	replayCWD string,
+	replayHome string,
+	descriptor sessionreplay.ProviderReplayDescriptor,
+	identityValues map[string]string,
+) []byte {
+	if len(data) == 0 {
 		return data
 	}
 	values, ok := decodeProcessCassetteJSONValues(data)
@@ -525,11 +718,33 @@ func mapProcessCassetteFrameJSON(data []byte, recordedCWD, replayCWD string) []b
 	var output bytes.Buffer
 	encoder := json.NewEncoder(&output)
 	for _, value := range values {
-		if err := encoder.Encode(mapProcessCassettePathFields(value, recordedCWD, replayCWD)); err != nil {
+		value = mapProcessCassettePathFields(value, recordedCWD, replayCWD)
+		value = mapProcessCassettePathFields(
+			value,
+			portableProcessCassetteHomeToken,
+			replayHome,
+		)
+		value = mapProcessCassetteGeneratedIdentityValues(
+			value,
+			descriptor,
+			identityValues,
+		)
+		if err := encoder.Encode(value); err != nil {
 			return data
 		}
 	}
 	return output.Bytes()
+}
+
+func processCassetteReplayHome(
+	spec ProcessSpec,
+	descriptor sessionreplay.ProviderReplayDescriptor,
+) string {
+	if roots := processCassettePersonalRoots(spec, descriptor); len(roots) > 0 {
+		return roots[0]
+	}
+	home, _ := os.UserHomeDir()
+	return strings.TrimSpace(home)
 }
 
 func (c *replayProcessConnection) Close() error {

@@ -1,5 +1,6 @@
 import type {
   AccountSession,
+  DeviceLinkPathScope,
   DevicePairing,
   DevicePairingPhase,
   UserDevice
@@ -42,6 +43,7 @@ export interface DeviceSnapshot {
   errorCode: DeviceErrorCode;
   pairingState: DevicePairingPhase;
   pairings: readonly DevicePairing[];
+  pathScope: DeviceLinkPathScope | null;
   refreshing: boolean;
 }
 
@@ -61,6 +63,7 @@ export class DeviceService extends ObservableService<DeviceSnapshot> {
     errorCode: null,
     pairingState: "idle",
     pairings: [],
+    pathScope: null,
     refreshing: false
   };
 
@@ -210,30 +213,41 @@ export class DeviceService extends ObservableService<DeviceSnapshot> {
     }
   }
 
-  async connect(pairing: DevicePairing, device?: UserDevice): Promise<void> {
+  connect(pairing: DevicePairing, device?: UserDevice): Promise<boolean> {
+    return this.connectDevice({
+      name: device?.displayName || device?.reportedName || "",
+      pairingId: pairing.pairingId
+    });
+  }
+
+  reconnect(device: ConnectedDevice): Promise<boolean> {
+    return this.connectDevice(device);
+  }
+
+  private async connectDevice(device: ConnectedDevice): Promise<boolean> {
     if (
       this.disposed ||
       !this.remoteOperationsEnabled ||
       this.snapshot.connectingPairingId !== null
     ) {
-      return;
+      return false;
     }
     const generation = ++this.connectionGeneration;
     this.patch({
-      connectingPairingId: pairing.pairingId,
-      errorCode: null
+      connectingPairingId: device.pairingId,
+      errorCode: null,
+      pathScope: null
     });
     try {
-      await this.pairing.connectPairedDevice(
+      const pathScope = await this.pairing.connectPairedDevice(
         this.session.sessionId,
-        pairing.pairingId,
+        device.pairingId,
         () => this.isConnectionCurrent(generation)
       );
-      if (!this.isConnectionCurrent(generation)) return;
-      await this.onConnected({
-        name: device?.displayName || device?.reportedName || "",
-        pairingId: pairing.pairingId
-      });
+      if (!this.isConnectionCurrent(generation)) return false;
+      this.patch({ pathScope });
+      await this.onConnected(device);
+      return this.isConnectionCurrent(generation);
     } catch (cause) {
       if (this.isConnectionCurrent(generation)) {
         this.patch({
@@ -243,6 +257,7 @@ export class DeviceService extends ObservableService<DeviceSnapshot> {
               : "connection_failed"
         });
       }
+      return false;
     } finally {
       if (this.isConnectionCurrent(generation)) {
         this.patch({ connectingPairingId: null });

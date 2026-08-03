@@ -125,6 +125,7 @@ function createHostServices(): DesktopHostServices {
     },
     workspaceLaunch: {
       async ensureAgentBrowserHost() {},
+      async ensureUserBrowserHost() {},
       async openStartupWindow() {},
       async replaceWorkspaceWindow() {},
       async showAgentWindow() {},
@@ -135,6 +136,9 @@ function createHostServices(): DesktopHostServices {
 
 function createUpdateService(): AppUpdateService {
   return {
+    async acquireMandatorySession() {
+      throw new Error("not used");
+    },
     async checkForUpdates() {
       throw new Error("not used");
     },
@@ -232,8 +236,8 @@ test("createDesktopAppServices does not wait for the CLI shim before creating ho
 
   assert.deepEqual(events, [
     "daemon-runtime:create",
-    "update-service:create",
     "tuttid:start",
+    "update-service:create",
     "cli-shim:ensure",
     "host-services:create"
   ]);
@@ -243,6 +247,67 @@ test("createDesktopAppServices does not wait for the CLI shim before creating ho
   assert.ok(finishCliShim);
   finishCliShim();
   await new Promise((resolve) => setImmediate(resolve));
+});
+
+test("createDesktopAppServices reuses an already started daemon runtime", async () => {
+  const events: string[] = [];
+  const daemonRuntime: DesktopDaemonRuntime = {
+    daemonEndpoint: {
+      accessToken: "token",
+      boundAddr: "127.0.0.1:43123",
+      listenerInfoPath: "/tmp/tuttid.listener.json",
+      pidPath: "/tmp/tuttid.pid",
+      requestedAddr: "127.0.0.1:0"
+    },
+    tuttid: {
+      async getHealth() {
+        throw new Error("not used");
+      },
+      async start() {
+        events.push("tuttid:start");
+      },
+      async stop() {}
+    },
+    tuttidClient: {} as DesktopDaemonRuntime["tuttidClient"]
+  };
+
+  const services = await createDesktopAppServices(
+    {
+      ...createOptions(events),
+      startedDaemonRuntime: daemonRuntime
+    },
+    {
+      createDaemonRuntime() {
+        events.push("daemon-runtime:create");
+        throw new Error("must not create a second daemon runtime");
+      },
+      async createHostServices() {
+        events.push("host-services:create");
+        return createHostServices();
+      },
+      createUpdateService() {
+        events.push("update-service:create");
+        return createUpdateService();
+      },
+      ensureCliShim() {
+        events.push("cli-shim:ensure");
+        return {
+          installed: false,
+          pathShimPath: null,
+          shimPath: "/tmp/tutti/bin/tutti"
+        };
+      }
+    }
+  );
+
+  assert.equal(services.tuttid, daemonRuntime.tuttid);
+  assert.equal(services.tuttidClient, daemonRuntime.tuttidClient);
+  assert.deepEqual(events, [
+    "update-service:create",
+    "cli-shim:ensure",
+    "host-services:create",
+    "warn:tutti cli shim is not discoverable on user PATH"
+  ]);
 });
 
 test("createDesktopAppServices rejects when managed tuttid fails to start", async () => {
@@ -305,7 +370,6 @@ test("createDesktopAppServices rejects when managed tuttid fails to start", asyn
 
   assert.deepEqual(events, [
     "daemon-runtime:create",
-    "update-service:create",
     "tuttid:start",
     "error:failed to start managed tuttid"
   ]);

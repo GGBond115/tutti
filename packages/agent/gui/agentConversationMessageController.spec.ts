@@ -1,11 +1,13 @@
 import {
   selectSessionMessages,
   selectSessionMessageWindow,
-  type AgentActivityMessagePage,
-  type EngineCommandPort
+  type AgentActivityMessagePage
 } from "@tutti-os/agent-activity-core";
 import { describe, expect, it, vi } from "vitest";
-import { createTestAgentSessionEngine } from "./shared/testing/createTestAgentSessionEngine";
+import {
+  createTestAgentSessionEngine,
+  type TestEngineCommandHandler
+} from "./shared/testing/createTestAgentSessionEngine";
 import {
   createAgentConversationMessageController,
   type AgentConversationMessagePageInput
@@ -13,7 +15,7 @@ import {
 
 describe("createAgentConversationMessageController", () => {
   it("routes initial and latest hydration through Engine reconcile commands", async () => {
-    const execute = vi.fn<EngineCommandPort["execute"]>(async () => ({
+    const execute = vi.fn<TestEngineCommandHandler["execute"]>(async () => ({
       affectedSessionIds: [],
       appliedMessages: [],
       session: null,
@@ -52,9 +54,11 @@ describe("createAgentConversationMessageController", () => {
   });
 
   it("treats repeated initial hydration as idempotent while reconcile is pending", async () => {
-    type CommandResult = Awaited<ReturnType<EngineCommandPort["execute"]>>;
+    type CommandResult = Awaited<
+      ReturnType<TestEngineCommandHandler["execute"]>
+    >;
     let resolveExecute: (result: CommandResult) => void = () => {};
-    const execute = vi.fn<EngineCommandPort["execute"]>(
+    const execute = vi.fn<TestEngineCommandHandler["execute"]>(
       () =>
         new Promise((resolve) => {
           resolveExecute = resolve;

@@ -1,4 +1,7 @@
-import type { CanonicalAgentSession } from "@tutti-os/agent-activity-core";
+import type {
+  AgentActivityTurn,
+  CanonicalAgentSession
+} from "@tutti-os/agent-activity-core";
 import type { AgentConversationVM } from "../../../shared/agentConversation/contracts/agentConversationVM";
 import type { AgentSessionState } from "../../../shared/agentSessionTypes";
 
@@ -24,11 +27,25 @@ export function agentGUIConversationDiagnosticDetails(
   );
   return {
     activityStatus: conversation.activity.status,
+    showProcessingIndicator:
+      conversation.sourceDetail.showProcessingIndicator === true,
     processingRowCount: processingRows.length,
     processingTurnIds: processingRows
       .map((row) => row.turnId)
       .filter((turnId): turnId is string => Boolean(turnId)),
     rowCount: conversation.rows.length,
+    sourceActiveTurn: agentGUIActivityTurnDiagnosticDetails(
+      conversation.sourceDetail.session.activeTurn
+    ),
+    sourceActiveTurnId: conversation.sourceDetail.session.activeTurnId ?? null,
+    sourceLatestTurn: agentGUIActivityTurnDiagnosticDetails(
+      conversation.sourceDetail.session.latestTurn
+    ),
+    sourceSessionTurnCount: conversation.sourceDetail.sessionTurns?.length ?? 0,
+    sourceSessionTurnTail:
+      conversation.sourceDetail.sessionTurns
+        ?.slice(-3)
+        .map(agentGUIActivityTurnDiagnosticDetails) ?? [],
     toolCallCount: toolCalls.length,
     turnCount: conversation.sourceDetail.turns.length,
     waitingToolCallCount: waitingToolCalls.length,
@@ -42,6 +59,19 @@ export function agentGUIConversationDiagnosticDetails(
       toolName: call.toolName,
       turnId: call.turnId
     }))
+  };
+}
+
+export function agentGUIActivityTurnDiagnosticDetails(
+  turn: AgentActivityTurn | null | undefined
+): Record<string, unknown> | null {
+  if (!turn) return null;
+  return {
+    outcome: turn.outcome ?? null,
+    phase: turn.phase,
+    settledAtUnixMs: turn.settledAtUnixMs ?? null,
+    turnId: turn.turnId,
+    updatedAtUnixMs: turn.updatedAtUnixMs
   };
 }
 

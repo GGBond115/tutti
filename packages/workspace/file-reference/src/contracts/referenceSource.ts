@@ -168,9 +168,16 @@ export interface ReferenceSourceCapabilities {
   navigable?: boolean;
   /**
    * 是否支持「全局文件类型筛选」(图片/文档/表格…)。为 true 时 picker 展示筛选下拉,
-   * 已选分类作为 search() 的 filters 下钻到 daemon 过滤。三源(本地/应用/任务)均为 true。
+   * 搜索态下已选分类作为 search() 的 filters 下钻到 source;无关键词时默认由 picker
+   * 递归投影浏览树。三源(本地/应用/任务)均为 true。
    */
   filterable?: boolean;
+  /**
+   * 无关键词、只有文件类型筛选时是否走 search(),而非由 picker 递归 listChildren()
+   * 投影浏览树。仅对同时支持 filterable/searchable/search() 的源有效。Host-local 等
+   * 权限敏感源可开启,避免筛选时递归触碰未授权目录。
+   */
+  filtersUseSearch?: boolean;
   /** 是否允许 picker 在该源的目录下创建子目录。 */
   directoryCreatable?: boolean;
   /** Provenance dimensions this source can enforce before pagination. */

@@ -26,7 +26,8 @@ RCT_EXTERN_METHOD(saveSession
                   : (NSString *)sessionId userId
                   : (NSString *)userId email
                   : (NSString *)email name
-                  : (NSString *)name resolver
+                  : (NSString *)name avatarURL
+                  : (NSString *)avatarURL resolver
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 
@@ -51,6 +52,17 @@ RCT_EXTERN_METHOD(scanQRCode
                   : (RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(cancelQRCodeScan
+                  : (RCTPromiseResolveBlock)resolve rejecter
+                  : (RCTPromiseRejectBlock)reject)
+
+@end
+
+@interface RCT_EXTERN_MODULE(TuttiMobilePreferences, NSObject)
+
+RCT_EXTERN__BLOCKING_SYNCHRONOUS_METHOD(loadThemePreference)
+
+RCT_EXTERN_METHOD(saveThemePreference
+                  : (NSString *)preference resolver
                   : (RCTPromiseResolveBlock)resolve rejecter
                   : (RCTPromiseRejectBlock)reject)
 

@@ -5,6 +5,7 @@ describe("parseAgentLiveDeliveries", () => {
     expect(
       parseAgentLiveDeliveries(
         "workspace-1",
+        7,
         JSON.stringify({
           result: {
             accepted: [
@@ -37,6 +38,7 @@ describe("parseAgentLiveDeliveries", () => {
               }
             ]
           },
+          subscriptionGeneration: 7,
           workspaceId: "workspace-1"
         })
       )
@@ -68,9 +70,11 @@ describe("parseAgentLiveDeliveries", () => {
     expect(
       parseAgentLiveDeliveries(
         "workspace-1",
+        7,
         JSON.stringify({
           reason: "stream_closed",
           status: "disconnected",
+          subscriptionGeneration: 7,
           workspaceId: "workspace-1"
         })
       )
@@ -84,9 +88,31 @@ describe("parseAgentLiveDeliveries", () => {
     expect(
       parseAgentLiveDeliveries(
         "workspace-1",
+        7,
         JSON.stringify({
           result: { accepted: [{ kind: "stream_ready" }] },
+          subscriptionGeneration: 7,
           workspaceId: "workspace-2"
+        })
+      )
+    ).toEqual([]);
+  });
+
+  test("rejects queued deliveries from an obsolete native subscription", () => {
+    const delivery = JSON.stringify({
+      result: { accepted: [{ kind: "stream_ready" }] },
+      subscriptionGeneration: 6,
+      workspaceId: "workspace-1"
+    });
+
+    expect(parseAgentLiveDeliveries("workspace-1", 7, delivery)).toEqual([]);
+    expect(
+      parseAgentLiveDeliveries(
+        "workspace-1",
+        7,
+        JSON.stringify({
+          result: { accepted: [{ kind: "stream_ready" }] },
+          workspaceId: "workspace-1"
         })
       )
     ).toEqual([]);
@@ -96,6 +122,7 @@ describe("parseAgentLiveDeliveries", () => {
     expect(
       parseAgentLiveDeliveries(
         "workspace-1",
+        7,
         JSON.stringify({
           result: {
             accepted: [
@@ -115,6 +142,7 @@ describe("parseAgentLiveDeliveries", () => {
             ],
             reconcileRequired: true
           },
+          subscriptionGeneration: 7,
           workspaceId: "workspace-1"
         })
       )
@@ -130,6 +158,7 @@ describe("parseAgentLiveDeliveries", () => {
     expect(
       parseAgentLiveDeliveries(
         "workspace-1",
+        7,
         JSON.stringify({
           result: {
             accepted: [
@@ -157,6 +186,7 @@ describe("parseAgentLiveDeliveries", () => {
               }
             ]
           },
+          subscriptionGeneration: 7,
           workspaceId: "workspace-1"
         })
       )
@@ -210,8 +240,10 @@ describe("parseAgentLiveDeliveries", () => {
     expect(
       parseAgentLiveDeliveries(
         "workspace-1",
+        7,
         JSON.stringify({
           result: { accepted: [accepted] },
+          subscriptionGeneration: 7,
           workspaceId: "workspace-1"
         })
       )
@@ -225,7 +257,7 @@ describe("parseAgentLiveDeliveries", () => {
   });
 
   test("turns invalid or unknown native deliveries into reconciliation", () => {
-    expect(parseAgentLiveDeliveries("workspace-1", "{")).toEqual([
+    expect(parseAgentLiveDeliveries("workspace-1", 7, "{")).toEqual([
       {
         kind: "discontinuity",
         reason: "invalid_native_delivery",
@@ -235,8 +267,10 @@ describe("parseAgentLiveDeliveries", () => {
     expect(
       parseAgentLiveDeliveries(
         "workspace-1",
+        7,
         JSON.stringify({
           result: { accepted: [{ kind: "future_delivery" }] },
+          subscriptionGeneration: 7,
           workspaceId: "workspace-1"
         })
       )

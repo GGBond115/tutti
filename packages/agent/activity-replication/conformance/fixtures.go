@@ -265,6 +265,7 @@ func turnMutation(mutationID, transactionID, phase string, outcome *string, upda
 	turn := &activityreplication.Turn{
 		WorkspaceID: "workspace-1", AgentSessionID: "session-1", TurnID: "turn-1", Phase: phase, Outcome: outcome,
 		Origin: canonical.TurnOriginUserPrompt, StartedAtUnixMS: updatedAt, CreatedAtUnixMS: 50, UpdatedAtUnixMS: updatedAt,
+		ProviderTurnBindingJSON: json.RawMessage(`{}`),
 	}
 	return activityreplication.Mutation{
 		SchemaVersion: activityreplication.SchemaVersion, MutationID: mutationID, TransactionID: transactionID,
@@ -311,7 +312,7 @@ func messageMutation(mutationID, transactionID string, updatedAt int64) activity
 func sessionScope(deviceID string) *activityreplication.SessionScope {
 	return &activityreplication.SessionScope{
 		InitiatorUserID: "caller-1", ExecutorOwnerUserID: "owner-1", SourceDeviceID: deviceID,
-		LaunchKind: "shared-agent", Visibility: activityreplication.VisibilityMembers,
+		SharedAgentBindingID: "binding-1", LaunchKind: "shared-agent", Visibility: activityreplication.VisibilityMembers,
 	}
 }
 
@@ -335,5 +336,14 @@ func presentSnapshot(mutation activityreplication.Mutation) SnapshotExpectation 
 	if err != nil {
 		panic(err)
 	}
-	return SnapshotExpectation{EntityType: mutation.EntityType, Key: mutation.Key, Present: true, Snapshot: raw}
+	return SnapshotExpectation{
+		EntityType: mutation.EntityType,
+		Key:        mutation.Key,
+		Present:    true,
+		Snapshot: SinkSnapshot{
+			Entity:       raw,
+			TargetScope:  mutation.TargetScope,
+			SessionScope: mutation.SessionScope,
+		},
+	}
 }

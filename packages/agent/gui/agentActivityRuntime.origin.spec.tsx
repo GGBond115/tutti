@@ -1,36 +1,36 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  AgentActivityRuntimeProvider,
-  resetAgentActivityRuntimeForTests,
-  useAgentActivityRuntime,
-  type AgentActivityRuntime
+  AgentGUIRuntimeProvider,
+  resetAgentGUIRuntimeForTests,
+  useAgentGUIRuntime,
+  type AgentGUIRuntime
 } from "./agentActivityRuntime";
 
-function createRuntime(origin: string): AgentActivityRuntime {
-  return { origin } as unknown as AgentActivityRuntime;
+function createRuntime(origin: string): AgentGUIRuntime {
+  return { origin } as unknown as AgentGUIRuntime;
 }
 
 function RuntimeIdentity({ testId }: { testId: string }) {
-  const runtime = useAgentActivityRuntime();
+  const runtime = useAgentGUIRuntime();
   return <div data-testid={testId}>{runtime.origin}</div>;
 }
 
 afterEach(() => {
   cleanup();
-  resetAgentActivityRuntimeForTests();
+  resetAgentGUIRuntimeForTests();
 });
 
-describe("AgentActivityRuntimeProvider identity isolation", () => {
+describe("AgentGUIRuntimeProvider identity isolation", () => {
   it("resolves coexisting runtimes only from the nearest provider", () => {
     render(
       <>
-        <AgentActivityRuntimeProvider runtime={createRuntime("origin-local")}>
+        <AgentGUIRuntimeProvider runtime={createRuntime("origin-local")}>
           <RuntimeIdentity testId="local-runtime" />
-        </AgentActivityRuntimeProvider>
-        <AgentActivityRuntimeProvider runtime={createRuntime("origin-shared")}>
+        </AgentGUIRuntimeProvider>
+        <AgentGUIRuntimeProvider runtime={createRuntime("origin-shared")}>
           <RuntimeIdentity testId="shared-runtime" />
-        </AgentActivityRuntimeProvider>
+        </AgentGUIRuntimeProvider>
       </>
     );
 
@@ -44,19 +44,19 @@ describe("AgentActivityRuntimeProvider identity isolation", () => {
 
   it("does not let a later sibling provider replace an existing consumer", () => {
     const view = render(
-      <AgentActivityRuntimeProvider runtime={createRuntime("origin-local")}>
+      <AgentGUIRuntimeProvider runtime={createRuntime("origin-local")}>
         <RuntimeIdentity testId="local-runtime" />
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
 
     view.rerender(
       <>
-        <AgentActivityRuntimeProvider runtime={createRuntime("origin-local")}>
+        <AgentGUIRuntimeProvider runtime={createRuntime("origin-local")}>
           <RuntimeIdentity testId="local-runtime" />
-        </AgentActivityRuntimeProvider>
-        <AgentActivityRuntimeProvider runtime={createRuntime("origin-shared")}>
+        </AgentGUIRuntimeProvider>
+        <AgentGUIRuntimeProvider runtime={createRuntime("origin-shared")}>
           <RuntimeIdentity testId="shared-runtime" />
-        </AgentActivityRuntimeProvider>
+        </AgentGUIRuntimeProvider>
       </>
     );
 

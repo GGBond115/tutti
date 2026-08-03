@@ -11,6 +11,7 @@ export interface BrowserLoginCompletion {
 }
 
 interface MobileSecurityNative {
+  readonly clientVersion: string;
   cancelQRCodeScan(): Promise<void>;
   clearLegacySessionCookie(accountBaseURL: string): Promise<void>;
   clearSession(): Promise<void>;
@@ -20,7 +21,8 @@ interface MobileSecurityNative {
     sessionId: string,
     userId: string,
     email: string,
-    name: string
+    name: string,
+    avatarURL: string
   ): Promise<void>;
   scanQRCode(): Promise<string>;
   sign(message: string): Promise<string>;
@@ -29,6 +31,11 @@ interface MobileSecurityNative {
     authLoginURL: string,
     appCallbackURL: string
   ): Promise<BrowserLoginCompletion>;
+}
+
+interface MobilePreferencesNative {
+  loadThemePreference(): unknown;
+  saveThemePreference(preference: string): Promise<void>;
 }
 
 interface DeviceLinkNative {
@@ -63,7 +70,10 @@ interface DeviceLinkNative {
   }>;
   removeListeners(count: number): void;
   runLoopbackProbe(timeoutMillis: number): Promise<string>;
-  startAgentLive(workspaceId: string): Promise<void>;
+  startAgentLive(
+    workspaceId: string,
+    subscriptionGeneration: number
+  ): Promise<void>;
   stopAgentLive(): Promise<void>;
 }
 
@@ -77,6 +87,9 @@ function requireNativeModule<T>(name: string): T {
 
 export const mobileSecurity = requireNativeModule<MobileSecurityNative>(
   "TuttiMobileSecurity"
+);
+export const mobilePreferences = requireNativeModule<MobilePreferencesNative>(
+  "TuttiMobilePreferences"
 );
 export const appLifecycle =
   requireNativeModule<AppLifecycleNative>("TuttiAppLifecycle");

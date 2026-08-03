@@ -6,6 +6,7 @@ import {
   type EngineExternalCommand
 } from "@tutti-os/agent-activity-core";
 import { describe, expect, it, vi } from "vitest";
+import { createTestEngineCommandPort } from "../../../shared/testing/createTestAgentSessionEngine";
 import {
   resolveAgentGUITuttiModeDraftKey,
   useAgentGUITuttiModeActivation
@@ -259,7 +260,7 @@ function createTestEngine() {
   });
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 1 },
-    commandPort: { execute },
+    commandPort: createTestEngineCommandPort({ execute }),
     identity: { origin: "test", workspaceId: "workspace-1" },
     scheduler: { schedule: () => ({ cancel() {} }) }
   });

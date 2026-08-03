@@ -14,6 +14,7 @@ test("interactive coordinator resolves approval on its originating turn", async 
       toolUseID: "tool-1"
     }
   );
+  await waitForInteraction(events);
   const request = events[0];
   const requestId = String(request?.payload?.requestId);
 
@@ -48,6 +49,7 @@ test("interactive coordinator replays identical submissions and rejects conflict
     { command: "pwd" },
     { signal: new AbortController().signal }
   );
+  await waitForInteraction(events);
   const requestId = String(events[0]?.payload?.requestId);
   const payload = { reason: "approved" };
 
@@ -87,6 +89,7 @@ test("interactive coordinator rejects all live requests on shutdown", async () =
     { command: "pwd" },
     { signal: new AbortController().signal }
   );
+  await waitForInteraction(events);
 
   coordinator.rejectAll(new Error("session closed"));
 
@@ -98,8 +101,39 @@ test("interactive coordinator rejects all live requests on shutdown", async () =
   });
 });
 
+test("interactive coordinator does not publish a canceled request before acceptance", async () => {
+  const events: Array<Omit<ClaudeSDKSidecarEvent, "version">> = [];
+  const controller = new AbortController();
+  const coordinator = createCoordinator(events, async (_phase, signal) => {
+    await new Promise<void>((_resolve, reject) => {
+      signal?.addEventListener(
+        "abort",
+        () => {
+          const error = new Error("acceptance canceled");
+          error.name = "AbortError";
+          reject(error);
+        },
+        { once: true }
+      );
+    });
+  });
+  const resultPromise = coordinator.handleToolPermission(
+    "Bash",
+    { command: "pwd" },
+    { signal: controller.signal }
+  );
+
+  controller.abort();
+
+  await assert.rejects(resultPromise, { name: "AbortError" });
+  assert.deepEqual(events, []);
+});
+
 function createCoordinator(
-  events: Array<Omit<ClaudeSDKSidecarEvent, "version">>
+  events: Array<Omit<ClaudeSDKSidecarEvent, "version">>,
+  ensureProviderTurnAcceptance: ConstructorParameters<
+    typeof InteractiveCoordinator
+  >[0]["ensureProviderTurnAcceptance"] = async () => {}
 ): InteractiveCoordinator {
   return new InteractiveCoordinator({
     settings: {
@@ -111,6 +145,16 @@ function createCoordinator(
     },
     resolveTurnId: () => "turn-1",
     activateSyntheticTurn: () => "synthetic-1",
+    ensureProviderTurnAcceptance,
     emit: (event) => events.push(event)
   });
+}
+
+async function waitForInteraction(
+  events: Array<Omit<ClaudeSDKSidecarEvent, "version">>
+): Promise<void> {
+  for (let attempt = 0; attempt < 10 && events.length === 0; attempt += 1) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  assert.notEqual(events.length, 0);
 }

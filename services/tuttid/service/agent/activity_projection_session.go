@@ -1,8 +1,10 @@
 package agent
 
 import (
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 	"strings"
+
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 func persistedSessionFromActivity(session agentactivitybiz.Session) PersistedSession {
@@ -26,6 +28,7 @@ func persistedSessionFromActivity(session agentactivitybiz.Session) PersistedSes
 		RailProjectPath:        strings.TrimSpace(session.RailProjectPath),
 		RailSectionKey:         strings.TrimSpace(session.RailSectionKey),
 		Settings:               composerSettingsFromPayload(session.Settings),
+		Capabilities:           canonical.CloneCapabilitySnapshot(session.Capabilities),
 		Metadata:               session.Metadata,
 		InternalRuntimeContext: clonePayload(session.InternalRuntimeContext),
 		Title:                  strings.TrimSpace(session.Title),

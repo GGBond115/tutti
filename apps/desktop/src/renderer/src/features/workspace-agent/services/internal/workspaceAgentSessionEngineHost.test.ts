@@ -7,8 +7,15 @@ import type {
   SessionAcknowledgeForkObservedCommand,
   TuttiModeActivationUpdateCommand
 } from "@tutti-os/agent-activity-core";
-import { normalizeAgentActivitySession } from "@tutti-os/agent-activity-core";
-import type { TuttidClient } from "@tutti-os/client-tuttid-ts";
+import {
+  normalizeAgentActivitySession,
+  selectSessionGoalControlSettlement
+} from "@tutti-os/agent-activity-core";
+import type {
+  TuttidClient,
+  WorkspaceAgentSession
+} from "@tutti-os/client-tuttid-ts";
+import { createDesktopAgentActivityAdapter } from "../desktopAgentActivityAdapter.ts";
 import {
   createWorkspaceAgentSessionEngineHost,
   executeWorkspaceAgentForkObservedAckCommand,
@@ -95,21 +102,22 @@ test("workspace engine host sends public intents and command settlements to the 
       observeCommand: (command) => commands.push(command),
       observeIntent: (intent) => intents.push(intent)
     },
-    activateSession: async () => ({}) as never,
-    cancelTurn: async () => ({}),
+    executeEngineActivateSession: async () => ({}) as never,
+    executeEngineCancelTurn: async () => ({}),
+    executeEngineGoalControl: async () => ({}) as never,
     reconcileSession: async () => ({}),
     restorePendingSessionRecording() {},
     runtimeApi: {
       logTerminalDiagnostic: async () => {}
     },
-    sendInput: async () => ({ ok: true }),
-    submitInteractive: async () => ({}) as never,
-    submitPlanDecision: async () => ({}) as never,
+    executeEngineSendInput: async () => ({ ok: true }),
+    executeEngineSubmitInteractive: async () => ({}) as never,
+    executeEngineSubmitPlanDecision: async () => ({}) as never,
     subscribeSessionEvents: () => () => {},
     takePendingSessionRecording: () => null,
     tuttidClient: {} as TuttidClient,
     unactivateSession: async () => ({}) as never,
-    updateSessionSettings: async () => ({}) as never,
+    executeEngineUpdateSessionSettings: async () => ({}) as never,
     updateTuttiModeActivation: async () => ({}) as never,
     workspaceId: "workspace-1"
   });
@@ -132,24 +140,25 @@ test("desktop host follows the shared settings-before-send workflow", async () =
   const operations: string[] = [];
   const updatedSession = session({ browserUse: true, updatedAtUnixMs: 2 });
   const host = createWorkspaceAgentSessionEngineHost({
-    activateSession: async () => ({}) as never,
-    cancelTurn: async () => ({}),
+    executeEngineActivateSession: async () => ({}) as never,
+    executeEngineCancelTurn: async () => ({}),
+    executeEngineGoalControl: async () => ({}) as never,
     reconcileSession: async () => ({}),
     restorePendingSessionRecording() {},
     runtimeApi: {
       logTerminalDiagnostic: async () => {}
     },
-    sendInput: async () => {
+    executeEngineSendInput: async () => {
       operations.push("send");
       throw new Error("send rejected");
     },
-    submitInteractive: async () => ({}) as never,
-    submitPlanDecision: async () => ({}) as never,
+    executeEngineSubmitInteractive: async () => ({}) as never,
+    executeEngineSubmitPlanDecision: async () => ({}) as never,
     subscribeSessionEvents: () => () => {},
     takePendingSessionRecording: () => null,
     tuttidClient: {} as TuttidClient,
     unactivateSession: async () => ({}) as never,
-    updateSessionSettings: async () => {
+    executeEngineUpdateSessionSettings: async () => {
       operations.push("settings");
       return {
         agentSessionId: "session-1",
@@ -186,6 +195,90 @@ test("desktop host follows the shared settings-before-send workflow", async () =
   host.dispose();
 });
 
+test("desktop host lets the Engine apply Goal Control transport results", async () => {
+  const calls: Array<
+    Parameters<TuttidClient["goalControlWorkspaceAgentSession"]>
+  > = [];
+  const tuttidClient = {
+    async goalControlWorkspaceAgentSession(
+      ...args: Parameters<TuttidClient["goalControlWorkspaceAgentSession"]>
+    ) {
+      calls.push(args);
+      return {
+        goal: { objective: "ship it", status: "active" as const },
+        operationId: "operation-1",
+        session: tuttidSession({
+          objective: "ship it",
+          status: "active"
+        })
+      };
+    }
+  } as TuttidClient;
+  const runtimeApi = {
+    logTerminalDiagnostic: async () => {}
+  };
+  const adapter = createDesktopAgentActivityAdapter({
+    runtimeApi,
+    tuttidClient
+  });
+  const host = createWorkspaceAgentSessionEngineHost({
+    executeEngineActivateSession: async () => ({}) as never,
+    executeEngineCancelTurn: async () => ({}),
+    executeEngineGoalControl: (input, options) =>
+      options === undefined
+        ? adapter.goalControl(input)
+        : adapter.goalControl(input, options),
+    reconcileSession: async () => ({}),
+    restorePendingSessionRecording() {},
+    runtimeApi,
+    executeEngineSendInput: async () => ({ ok: true }),
+    executeEngineSubmitInteractive: async () => ({}) as never,
+    executeEngineSubmitPlanDecision: async () => ({}) as never,
+    subscribeSessionEvents: () => () => {},
+    takePendingSessionRecording: () => null,
+    tuttidClient,
+    unactivateSession: async () => ({}) as never,
+    executeEngineUpdateSessionSettings: async () => ({}) as never,
+    updateTuttiModeActivation: async () => ({}) as never,
+    workspaceId: "workspace-1"
+  });
+  host.engine.dispatch({
+    session: session({}),
+    type: "session/upserted"
+  });
+
+  assert.equal(
+    host.engine.controlGoal({
+      action: "set",
+      agentSessionId: "session-1",
+      clientSubmitId: "goal-submit-1",
+      objective: "ship it"
+    }).accepted,
+    true
+  );
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(calls[0]?.slice(0, 3), [
+    "workspace-1",
+    "session-1",
+    {
+      action: "set",
+      clientSubmitId: "goal-submit-1",
+      objective: "ship it"
+    }
+  ]);
+  assert.deepEqual(
+    host.engine.getSnapshot().sessionLifecycle.sessionsById["session-1"]?.goal,
+    { objective: "ship it", status: "active" }
+  );
+  assert.equal(
+    selectSessionGoalControlSettlement(host.engine.getSnapshot(), "session-1")
+      ?.status,
+    "succeeded"
+  );
+  host.dispose();
+});
+
 test("workspace engine host still executes commands when the command observer fails", async () => {
   const host = createWorkspaceAgentSessionEngineHost({
     activityEventObserver: {
@@ -194,21 +287,22 @@ test("workspace engine host still executes commands when the command observer fa
       },
       observeIntent: () => {}
     },
-    activateSession: async () => ({}) as never,
-    cancelTurn: async () => ({}),
+    executeEngineActivateSession: async () => ({}) as never,
+    executeEngineCancelTurn: async () => ({}),
+    executeEngineGoalControl: async () => ({}) as never,
     reconcileSession: async () => ({}),
     restorePendingSessionRecording() {},
     runtimeApi: {
       logTerminalDiagnostic: async () => {}
     },
-    sendInput: async () => ({ ok: true }),
-    submitInteractive: async () => ({}) as never,
-    submitPlanDecision: async () => ({}) as never,
+    executeEngineSendInput: async () => ({ ok: true }),
+    executeEngineSubmitInteractive: async () => ({}) as never,
+    executeEngineSubmitPlanDecision: async () => ({}) as never,
     subscribeSessionEvents: () => () => {},
     takePendingSessionRecording: () => null,
     tuttidClient: {} as TuttidClient,
     unactivateSession: async () => ({}) as never,
-    updateSessionSettings: async () => ({}) as never,
+    executeEngineUpdateSessionSettings: async () => ({}) as never,
     updateTuttiModeActivation: async () => ({}) as never,
     workspaceId: "workspace-1"
   });
@@ -243,4 +337,45 @@ function session(
     updatedAtUnixMs,
     workspaceId: "workspace-1"
   });
+}
+
+function tuttidSession(
+  goal: WorkspaceAgentSession["goal"]
+): WorkspaceAgentSession {
+  return {
+    activeTurn: null,
+    activeTurnId: null,
+    agentTargetId: "target-1",
+    capabilities: null,
+    createdAtUnixMs: 1,
+    cwd: "/workspace",
+    endedAtUnixMs: null,
+    forkedFrom: null,
+    goal,
+    id: "session-1",
+    imported: false,
+    kind: "root",
+    latestTurn: null,
+    latestTurnInteractions: [],
+    lifecycleCapabilities: { fork: false, forkThroughTurn: false },
+    messageVersion: 0,
+    parentAgentSessionId: null,
+    parentToolCallId: null,
+    parentTurnId: null,
+    pendingInteractions: [],
+    permissionConfig: { configurable: false, modes: [] },
+    pinnedAtUnixMs: null,
+    provider: "codex",
+    providerSessionId: null,
+    railSectionKey: "conversations",
+    resumable: true,
+    rootAgentSessionId: null,
+    rootTurnId: null,
+    settings: {},
+    title: "Session",
+    tuttiModeActivation: null,
+    updatedAtUnixMs: 2,
+    usage: null,
+    visible: true
+  };
 }

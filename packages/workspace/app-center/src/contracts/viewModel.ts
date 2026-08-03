@@ -1,6 +1,7 @@
 import type { WorkspaceAppRuntimeStatus } from "./runtime.ts";
 import type { WorkspaceAppCatalogSourceKind } from "./catalog.ts";
 import type { WorkspaceAppInstallProgress } from "./runtime.ts";
+import type { WorkspaceAppCategoryId } from "./catalog.ts";
 
 export type WorkspaceAppStatusTone =
   | "neutral"
@@ -49,6 +50,7 @@ export interface WorkspaceAppCardViewModel {
   readonly version?: string;
   readonly availableVersion?: string;
   readonly category?: string | null;
+  readonly categoryId?: WorkspaceAppCategoryId | null;
   readonly updateAvailable: boolean;
   readonly icon?: {
     readonly type: "asset";

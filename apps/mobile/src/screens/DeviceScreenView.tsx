@@ -9,13 +9,22 @@ import {
   TextInput,
   View
 } from "react-native";
-import { type NativeTheme, useNativeTheme } from "@tutti-os/ui-system/native";
+import {
+  NativeAvatar,
+  type NativeTheme,
+  useNativeTheme
+} from "@tutti-os/ui-system/native";
+import {
+  MobileKeyboardAvoidingView,
+  mobileKeyboardDismissMode
+} from "../components/MobileKeyboardAvoidingView";
 import { PrimaryButton } from "../components/PrimaryButton";
 import { t } from "../i18n";
 import type { DeviceSnapshot } from "../services/deviceService";
 import type { DevicePairing, UserDevice } from "../services/mobileDomain";
 
 export interface DeviceScreenViewProps {
+  accountAvatarURL: string;
   accountName: string;
   manualPairingCode: string;
   manualPairingOpen: boolean;
@@ -24,12 +33,13 @@ export interface DeviceScreenViewProps {
   onManualPairingCodeChange(value: string): void;
   onManualPairingOpen(): void;
   onManualPairingSubmit(): void;
+  onOpenSettings(): void;
   onRefresh(): void;
   onScanPairingCode(): void;
-  onSignOut(): void;
 }
 
 export function DeviceScreenView({
+  accountAvatarURL,
   accountName,
   manualPairingCode,
   manualPairingOpen,
@@ -38,9 +48,9 @@ export function DeviceScreenView({
   onManualPairingCodeChange,
   onManualPairingOpen,
   onManualPairingSubmit,
+  onOpenSettings,
   onRefresh,
-  onScanPairingCode,
-  onSignOut
+  onScanPairingCode
 }: DeviceScreenViewProps) {
   const theme = useNativeTheme();
   const styles = createStyles(theme);
@@ -70,21 +80,32 @@ export function DeviceScreenView({
                 : null;
 
   return (
-    <View style={styles.root}>
+    <MobileKeyboardAvoidingView style={styles.root}>
       <View style={styles.header}>
         <View>
           <Text style={styles.eyebrow}>{accountName || t("welcome")}</Text>
           <Text style={styles.title}>{t("devices")}</Text>
         </View>
-        <PrimaryButton
-          label={t("logout")}
-          onPress={onSignOut}
-          secondary
-          size="compact"
-        />
+        <Pressable
+          accessibilityLabel={t("openSettings")}
+          accessibilityRole="button"
+          onPress={onOpenSettings}
+          style={({ pressed }) => [
+            styles.avatarButton,
+            pressed ? styles.pressed : undefined
+          ]}
+        >
+          <NativeAvatar
+            label={accountName || t("appName")}
+            size="compact"
+            src={accountAvatarURL}
+          />
+        </Pressable>
       </View>
       <ScrollView
         contentContainerStyle={styles.content}
+        keyboardDismissMode={mobileKeyboardDismissMode}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             onRefresh={onRefresh}
@@ -194,12 +215,18 @@ export function DeviceScreenView({
           />
         )}
       </View>
-    </View>
+    </MobileKeyboardAvoidingView>
   );
 }
 
 function createStyles(theme: NativeTheme) {
   return StyleSheet.create({
+    avatarButton: {
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: theme.control.regular,
+      minWidth: theme.control.regular
+    },
     card: {
       alignItems: "center",
       backgroundColor: theme.color.panel,
@@ -246,7 +273,8 @@ function createStyles(theme: NativeTheme) {
       borderBottomWidth: StyleSheet.hairlineWidth,
       flexDirection: "row",
       justifyContent: "space-between",
-      padding: theme.space.large
+      paddingHorizontal: theme.space.large,
+      paddingVertical: theme.space.medium
     },
     manualInput: {
       borderColor: theme.color.border,
@@ -284,9 +312,9 @@ function createStyles(theme: NativeTheme) {
     statusText: { color: theme.color.textSecondary, flex: 1, fontSize: 14 },
     title: {
       color: theme.color.text,
-      fontSize: 28,
+      fontSize: 24,
       fontWeight: "700",
-      marginTop: 4
+      marginTop: 2
     }
   });
 }

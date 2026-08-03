@@ -46,6 +46,14 @@ import { MessageProjection } from "./messageProjection.ts";
 import { SDKMessageRouter } from "./messageRouter.ts";
 import { emit } from "./eventSink.ts";
 import {
+  resolveClaudeTurnBindingByRecoveryToken,
+  type ClaudeTurnBindingResolver
+} from "./sessionFork.ts";
+import {
+  ProviderTurnAcceptanceCoordinator,
+  type ProviderTurnPhase
+} from "./providerTurnAcceptance.ts";
+import {
   canBypassPermissions,
   effectivePermissionMode,
   modelOptionValue,
@@ -89,6 +97,8 @@ export class SessionRuntime {
   private readonly router: SDKMessageRouter;
   private readonly driver?: SidecarTestDriver;
   private readonly goalExecQueue: GoalExecQueue;
+  private readonly providerTurnAcceptance: ProviderTurnAcceptanceCoordinator;
+  private readonly emittedProviderCheckpoints = new Set<string>();
 
   get query(): ClaudeQueryRuntime | undefined {
     return this.queryGeneration?.query;
@@ -104,7 +114,9 @@ export class SessionRuntime {
     claudeOptions: SidecarClaudeOptions,
     resumeCursor?: Record<string, unknown>,
     queryFactory?: ClaudeQueryFactory,
-    continuationStartTimeoutMs = 30_000
+    continuationStartTimeoutMs = 30_000,
+    resolveProviderTurnIdentity: ClaudeTurnBindingResolver = resolveClaudeTurnBindingByRecoveryToken,
+    providerTurnIdentityResolutionTimeoutMs = 5_000
   ) {
     const resumeSessionId = stringValue(resumeCursor?.resume);
     this.providerSessionId = resumeSessionId || providerSessionId;
@@ -115,7 +127,10 @@ export class SessionRuntime {
     this.turns = new TurnLifecycle({
       emit,
       onActivate: () => this.resetTurnScratch(),
-      onSettled: () => this.emitSessionState(),
+      onSettled: (turnId) => {
+        this.providerTurnAcceptance.terminal(turnId);
+        this.emitSessionState();
+      },
       continuationStartTimeoutMs,
       onContinuationStartTimeout: () => {
         this.activities.clearBackgroundContinuation();
@@ -128,6 +143,38 @@ export class SessionRuntime {
           });
         });
       }
+    });
+    this.providerTurnAcceptance = new ProviderTurnAcceptanceCoordinator({
+      cwd: this.cwd,
+      getProviderSessionId: () => this.providerSessionId,
+      resolveTarget: () => {
+        const turn =
+          this.turns.activeTurn ??
+          this.turns.queue.find(
+            (candidate) =>
+              !candidate.settled &&
+              !candidate.synthetic &&
+              candidate.awaitingProviderTurnIdentity === true
+          );
+        if (!turn || turn.synthetic) {
+          return undefined;
+        }
+        return {
+          turnId: turn.turnId,
+          promptCorrelationId: turn.promptUuid,
+          providerTurnId: turn.providerTurnId?.trim() ?? ""
+        };
+      },
+      resolveBinding: resolveProviderTurnIdentity,
+      bindIdentity: (turnId, providerTurnId) =>
+        this.turns.bindProviderTurnIdentity(turnId, providerTurnId),
+      emitCheckpoint: (turnId, binding) =>
+        this.emitProviderCheckpoint(
+          turnId,
+          binding.providerTurnId,
+          binding.providerCheckpointMessageId
+        ),
+      resolutionTimeoutMs: providerTurnIdentityResolutionTimeoutMs
     });
     this.assistantStream = new AssistantStreamProjector(
       () => this.turns.activeId,
@@ -172,6 +219,8 @@ export class SessionRuntime {
       resolveTurnId: (options) =>
         resolveInteractiveTurnId(options, this.turns, this.activities),
       activateSyntheticTurn: () => this.turns.activateSynthetic().turnId,
+      ensureProviderTurnAcceptance: (phase, signal) =>
+        this.ensureProviderTurnAcceptance(phase, signal),
       emit
     });
     this.driver = testDriver
@@ -215,7 +264,19 @@ export class SessionRuntime {
       activities: this.activities,
       projection: this.projection,
       compaction: this.compaction,
-      emit
+      emit,
+      emitProviderCheckpoint: (
+        turnId,
+        providerTurnId,
+        providerCheckpointMessageId
+      ) =>
+        this.emitProviderCheckpoint(
+          turnId,
+          providerTurnId,
+          providerCheckpointMessageId
+        ),
+      ensureProviderTurnAcceptance: (phase) =>
+        this.ensureProviderTurnAcceptance(phase)
     });
     this.claudeOptions = claudeOptions;
     this.queryFactory = queryFactory;
@@ -330,6 +391,7 @@ export class SessionRuntime {
         : {}),
       settled: false
     };
+    this.providerTurnAcceptance.markQueued(turnId);
     const executionEpoch = this.executionEpoch;
     this.turns.enqueue(turn);
     this.compaction.selectCommand(turnId, isCompactCommandPrompt(prompt));
@@ -366,6 +428,7 @@ export class SessionRuntime {
         }
         generation.expectPromptEcho(turn.promptUuid);
         this.turns.expectProviderTurnIdentity(turn.turnId);
+        this.providerTurnAcceptance.markDispatched(turn.turnId);
         generation.promptQueue.push({
           uuid: turn.promptUuid,
           type: "user",
@@ -469,6 +532,7 @@ export class SessionRuntime {
     }
     this.activities.cancel();
     this.executionEpoch += 1;
+    this.providerTurnAcceptance.cancel(expectedTurnId);
     this.canceledQueryTailPending = true;
     this.interactions.rejectAll(new Error("Tool use aborted"));
     const generation = this.queryGeneration;
@@ -508,6 +572,7 @@ export class SessionRuntime {
     }
     this.sessionClosed = true;
     this.executionEpoch += 1;
+    this.providerTurnAcceptance.cancel();
     this.interactions.rejectAll(new Error("Tool use aborted"));
     this.activities.close();
     this.turns.close();
@@ -789,6 +854,45 @@ export class SessionRuntime {
       toolInput,
       callbackOptions
     );
+  }
+
+  private ensureProviderTurnAcceptance(
+    phase: Extract<
+      ProviderTurnPhase,
+      "streaming" | "waiting_approval" | "waiting_input" | "running_tool"
+    >,
+    signal?: AbortSignal
+  ): Promise<void> {
+    return this.providerTurnAcceptance.ensure(phase, signal);
+  }
+
+  private emitProviderCheckpoint(
+    turnId: string,
+    providerTurnId: string,
+    providerCheckpointMessageId: string
+  ): void {
+    turnId = turnId.trim();
+    providerTurnId = providerTurnId.trim();
+    providerCheckpointMessageId = providerCheckpointMessageId.trim();
+    if (!turnId || !providerTurnId || !providerCheckpointMessageId) {
+      return;
+    }
+    const key = `${turnId}\u0000${providerTurnId}\u0000${providerCheckpointMessageId}`;
+    if (this.emittedProviderCheckpoints.has(key)) {
+      return;
+    }
+    this.emittedProviderCheckpoints.add(key);
+    while (this.emittedProviderCheckpoints.size > 128) {
+      const oldest = this.emittedProviderCheckpoints.values().next().value;
+      if (typeof oldest !== "string") {
+        break;
+      }
+      this.emittedProviderCheckpoints.delete(oldest);
+    }
+    emit({
+      type: "provider_turn_checkpoint",
+      payload: { turnId, providerTurnId, providerCheckpointMessageId }
+    });
   }
 
   private isQueryGenerationActive(generation: QueryGeneration): boolean {

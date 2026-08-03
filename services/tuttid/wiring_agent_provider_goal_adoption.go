@@ -20,6 +20,7 @@ func configureAgentProviderGoalAdoption(controller *agentruntime.Controller, hos
 			WorkspaceID: session.RoomID, AgentSessionID: session.AgentSessionID,
 			ProviderSessionID: session.ProviderSessionID,
 			Fingerprint:       request.Fingerprint,
+			ExpectedRevision:  request.ExpectedRevision,
 			Goal:              request.Goal,
 		})
 		if err != nil {

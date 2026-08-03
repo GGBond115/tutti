@@ -271,7 +271,7 @@ export async function prepareVirtualizedTranscript(
     `(() => {
       const timeline = document.querySelector('[data-testid="agent-gui-timeline"]');
       const virtualized = timeline?.querySelector('[data-agent-transcript-virtualized="true"]');
-      const editor = document.querySelector('#agent-gui-detail [contenteditable="true"][role="textbox"]');
+      const editor = document.querySelector('[data-testid="agent-gui-composer-editor"]');
       return {
         ready: Boolean(timeline && virtualized && editor && editor.getAttribute('aria-disabled') !== 'true'),
         virtualized: Boolean(virtualized)
@@ -320,7 +320,7 @@ async function executeVirtualizedStreaming(context, _prepared, options) {
   );
   const started = await waitForEvaluation(
     pageClient,
-    `({ ready: Boolean(document.querySelector('[data-testid="agent-gui-composer-stop-symbol"]')) })`,
+    `({ ready: Boolean(document.querySelector('[data-testid="agent-gui-composer-stop-active-turn"]')) })`,
     options.timeoutMs,
     "streaming fixture working state"
   );
@@ -330,7 +330,7 @@ async function executeVirtualizedStreaming(context, _prepared, options) {
     `(() => {
       const state = window.__tuttiPerfVirtualizedStreaming;
       return {
-        ready: Boolean(state?.firstMutationMarked && state.mutationBatches >= 8 && !document.querySelector('[data-testid="agent-gui-composer-stop-symbol"]')),
+        ready: Boolean(state?.firstMutationMarked && state.mutationBatches >= 8 && !document.querySelector('[data-testid="agent-gui-composer-stop-active-turn"]')),
         mutationBatches: state?.mutationBatches ?? 0,
         mutations: state?.mutations ?? 0,
         virtualizedAfter: Boolean(document.querySelector('[data-agent-transcript-virtualized="true"]'))
@@ -781,7 +781,7 @@ export async function enterAndSubmitComposerPrompt(client, prompt, timeoutMs) {
   await evaluate(
     client,
     `(() => {
-      const editor = document.querySelector('#agent-gui-detail [contenteditable="true"][role="textbox"]');
+      const editor = document.querySelector('[data-testid="agent-gui-composer-editor"]');
       if (!(editor instanceof HTMLElement)) throw new Error('composer editor is unavailable');
       editor.focus();
       document.execCommand('selectAll', false);
@@ -794,9 +794,7 @@ export async function enterAndSubmitComposerPrompt(client, prompt, timeoutMs) {
   await waitForEvaluation(
     client,
     `(() => {
-      const editor = document.querySelector('#agent-gui-detail [contenteditable="true"][role="textbox"]');
-      const form = editor?.closest('form');
-      const submit = form?.querySelector('button[type="submit"]');
+      const submit = document.querySelector('[data-testid="agent-gui-composer-send"]');
       return { ready: submit instanceof HTMLButtonElement && !submit.disabled };
     })()`,
     timeoutMs,
@@ -806,10 +804,9 @@ export async function enterAndSubmitComposerPrompt(client, prompt, timeoutMs) {
   await evaluate(
     client,
     `(() => {
-      const editor = document.querySelector('#agent-gui-detail [contenteditable="true"][role="textbox"]');
-      const form = editor.closest('form');
-      if (!(form instanceof HTMLFormElement)) throw new Error('composer form is unavailable');
-      form.requestSubmit();
+      const submit = document.querySelector('[data-testid="agent-gui-composer-send"]');
+      if (!(submit instanceof HTMLButtonElement) || submit.disabled) throw new Error('composer send button is unavailable');
+      submit.click();
       return true;
     })()`
   );

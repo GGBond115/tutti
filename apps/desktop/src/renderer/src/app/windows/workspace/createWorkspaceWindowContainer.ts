@@ -66,12 +66,14 @@ import type { IReporterService } from "@renderer/features/analytics/services/rep
 import type { IDesktopRichTextAtService } from "@renderer/features/rich-text-at/services/richTextAtService.interface.ts";
 import type { IWorkspaceUserProjectService } from "@renderer/features/workspace-user-project/services/workspaceUserProjectService.interface.ts";
 import type { IWorkspaceAppCenterService } from "@renderer/features/workspace-app-center/services/workspaceAppCenterService.interface.ts";
+import type { AgentSessionReplayDesktopComposition } from "@renderer/features/agent-session-replay/services/agentSessionReplayDesktopComposition.ts";
 
 const workspaceRendererInstanceId =
   createWorkspaceWindowInstanceId("workspace-renderer");
 let activeWorkspaceWindowRuntimeCount = 0;
 
 export interface WorkspaceWindowContainerResult {
+  agentSessionReplayComposition: AgentSessionReplayDesktopComposition | null;
   agentProviderStatusService: AgentProviderStatusService;
   container: InstantiationService;
   desktopApi: ReturnType<typeof resolveDesktopEnvironment>["desktopApi"];
@@ -90,7 +92,7 @@ export interface WorkspaceWindowContainerResult {
   markCommitted(): void;
 }
 
-export function createWorkspaceWindowContainer(): WorkspaceWindowContainerResult {
+export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowContainerResult> {
   const environment = resolveDesktopEnvironment(window.tutti);
   const desktopApi = environment.desktopApi;
   const routeParameters = new URLSearchParams(window.location.search);
@@ -142,7 +144,7 @@ export function createWorkspaceWindowContainer(): WorkspaceWindowContainerResult
     "workspace-renderer",
     reporterService
   );
-  const desktopPreferencesService = registerDesktopPreferencesServices(
+  const desktopPreferencesService = await registerDesktopPreferencesServices(
     registry,
     tuttidClient,
     tuttidEventStreamClient
@@ -244,6 +246,7 @@ export function createWorkspaceWindowContainer(): WorkspaceWindowContainerResult
   windowLifecycle.start();
   const agentOutcomeNotificationController =
     createWorkspaceAgentOutcomeNotificationController({
+      agentDirectory: workspaceAgentServices.agentsService,
       foreground: createWorkspaceAgentOutcomeForegroundNotificationPresenter(),
       notifications: notificationService,
       translate,
@@ -286,6 +289,8 @@ export function createWorkspaceWindowContainer(): WorkspaceWindowContainerResult
   });
   registerWorkspaceWorkbenchServices(registry, {
     agentQuickPromptService: workspaceAgentServices.agentQuickPromptService,
+    agentSessionReplayComposition:
+      workspaceAgentServices.agentSessionReplayComposition,
     browserApi: desktopApi.browser,
     computerUseApi: desktopApi.computerUse,
     developerApi: desktopApi.developer,
@@ -388,6 +393,8 @@ export function createWorkspaceWindowContainer(): WorkspaceWindowContainerResult
     });
   }
   return {
+    agentSessionReplayComposition:
+      workspaceAgentServices.agentSessionReplayComposition,
     agentProviderStatusService:
       workspaceAgentServices.agentProviderStatusService,
     container,

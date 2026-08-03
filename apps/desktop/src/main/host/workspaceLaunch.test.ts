@@ -39,6 +39,30 @@ function createAdapters(
   };
 }
 
+test("workspace launch ensures an exact User Browser host", async () => {
+  const calls: Array<{
+    options: { windowKind?: "agent" | "workspace" } | undefined;
+    workspaceID: string;
+  }> = [];
+  const launch = createWorkspaceLaunch({
+    adapters: createAdapters({
+      async showWorkspaceWindow(workspaceID, options) {
+        calls.push({ options, workspaceID });
+      }
+    }),
+    tuttidClient: createStartupWorkspaceClient()
+  });
+
+  await launch.ensureUserBrowserHost("ws-browser");
+
+  assert.deepEqual(calls, [
+    {
+      options: { windowKind: "workspace" },
+      workspaceID: "ws-browser"
+    }
+  ]);
+});
+
 test("workspace launch opens the daemon-resolved startup workspace", async () => {
   let startupCalls = 0;
   let openedWorkspaceID: string | null = null;

@@ -1,10 +1,10 @@
 import type {
-  AgentActivityRuntime,
+  AgentGUIRuntime,
   AgentActivityRuntimeDiagnosticInput
 } from "../../../agentActivityRuntime";
 
 export function reportAgentComposerDiagnostic(
-  runtime: AgentActivityRuntime | null,
+  runtime: AgentGUIRuntime | null,
   input: AgentActivityRuntimeDiagnosticInput
 ): void {
   const reportDiagnostic = runtime?.reportDiagnostic;
@@ -54,7 +54,7 @@ function reportAgentComposerDiagnosticFailure(
 }
 
 function agentComposerDevConsoleDiagnosticSinkEnabled(
-  runtime: AgentActivityRuntime
+  runtime: AgentGUIRuntime
 ): boolean {
   return (
     runtime.devDiagnosticConsoleSink !== false &&

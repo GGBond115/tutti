@@ -109,6 +109,38 @@ describe("AgentToolGroupRow", () => {
     ).toHaveLength(2);
   });
 
+  it("keeps inner tool cards collapsed until their own buttons are clicked", async () => {
+    const calls = [
+      toolCall({ id: "call:1", output: { text: "first output" } }),
+      toolCall({ id: "call:2", output: { text: "second output" } })
+    ];
+
+    render(
+      <AgentToolGroupRow
+        row={{
+          ...toolGroupRow(),
+          calls,
+          entries: calls.map((call) => ({ kind: "tool-call", call }))
+        }}
+        label={(count) => `Tool calls (${count})`}
+        thinkingLabel="Thought process"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Tool calls (2)" }));
+    await flushCollapsibleRevealFrames();
+
+    const innerToggles = document.querySelectorAll(
+      "button.workspace-agents-status-panel__detail-tool-row-head--button"
+    );
+    expect(innerToggles).toHaveLength(2);
+    expect(
+      [...innerToggles].every(
+        (toggle) => toggle.getAttribute("aria-expanded") === "false"
+      )
+    ).toBe(true);
+  });
+
   it("does not render grouped file-change summaries under the tool-call count", () => {
     render(
       <AgentToolGroupRow

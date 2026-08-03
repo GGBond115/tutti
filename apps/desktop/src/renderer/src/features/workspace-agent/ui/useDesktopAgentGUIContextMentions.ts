@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useSnapshot } from "valtio";
-import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
+import type { AgentGUIRuntime } from "@tutti-os/agent-gui";
 import {
   AGENT_CONTEXT_MENTION_PROVIDER_IDS,
   type AgentContextMentionProvider
@@ -19,7 +19,7 @@ import { wrapDesktopFileMentionProviderWithDockFiles } from "../services/interna
 import { DESKTOP_AGENT_GUI_EMPTY_CONTEXT_MENTION_PROVIDERS } from "./desktopAgentGUIWorkbenchModel.ts";
 
 export function useDesktopAgentGUIContextMentions(input: {
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   appCenterService: IWorkspaceAppCenterService;
   contextMentionProviders: readonly AgentContextMentionProvider[];
   dockPreviewCache: WorkbenchDockPreviewCache;

@@ -4,6 +4,8 @@ import type {
   AgentSessionEffectPort,
   AgentActivityCancelTurnInput,
   AgentActivityDeleteSessionsResult,
+  AgentActivityGoalControlResult,
+  AgentSessionGoalControlEffectInput,
   AgentActivitySendInput,
   AgentActivitySession,
   AgentActivitySessionDetailSnapshot,
@@ -16,11 +18,13 @@ import type {
 import {
   agentActivityComposerOptionsFromTuttidResult,
   agentActivitySessionFromTuttidSession,
-  agentActivityTurnFromTuttidTurn
+  agentActivityTurnFromTuttidTurn,
+  tuttiAgentSessionComposerSettingsFromActivity,
+  tuttiCreateWorkspaceAgentSessionRequestFromActivation,
+  tuttiSendWorkspaceAgentSessionInputRequestFromActivity
 } from "@tutti-os/agent-activity-tuttid-adapter";
 import type { TuttidClient } from "@tutti-os/client-tuttid-ts";
 import { mobileLocale } from "../i18n";
-import { toTuttidPromptContent } from "./workspaceActivityCommandSupport";
 
 interface WorkspaceActivityEngineCommandContext {
   client: TuttidClient;
@@ -31,6 +35,11 @@ interface WorkspaceActivityEngineCommandContext {
     expectedAgentSessionId: string,
     detail: Awaited<ReturnType<TuttidClient["getWorkspaceAgentSession"]>>
   ): AgentActivitySessionDetailSnapshot;
+  mapGoalControlResult(
+    response: Awaited<
+      ReturnType<TuttidClient["goalControlWorkspaceAgentSession"]>
+    >
+  ): AgentActivityGoalControlResult;
   reconcileSession(
     command: SessionReconcileCommand,
     signal?: AbortSignal
@@ -46,6 +55,8 @@ export function createWorkspaceActivityEffectPort(
       activateSession(getContext(), input, options?.signal),
     cancelTurn: (input, options) =>
       cancelTurn(getContext(), input, options?.signal),
+    controlGoal: (input, options) =>
+      controlGoal(getContext(), input, options?.signal),
     deleteSessions: (input, options) =>
       deleteSessions(getContext(), input, options?.signal),
     renameSession: (input, options) =>
@@ -59,6 +70,25 @@ export function createWorkspaceActivityEffectPort(
     updateSessionSettings: (input, options) =>
       updateSessionSettings(getContext(), input, options?.signal)
   };
+}
+
+function controlGoal(
+  context: WorkspaceActivityEngineCommandContext,
+  input: AgentSessionGoalControlEffectInput,
+  signal?: AbortSignal
+): Promise<AgentActivityGoalControlResult> {
+  return context.client
+    .goalControlWorkspaceAgentSession(
+      input.workspaceId,
+      input.agentSessionId,
+      {
+        action: input.action,
+        clientSubmitId: input.clientSubmitId,
+        ...(input.objective ? { objective: input.objective } : {})
+      },
+      ...requestOptionsArgs(signal)
+    )
+    .then(context.mapGoalControlResult);
 }
 
 export function executeWorkspaceActivityExtensionCommand(
@@ -85,7 +115,9 @@ export function executeWorkspaceActivityExtensionCommand(
             ...(command.cwd ? { cwd: command.cwd } : {}),
             locale: mobileLocale,
             workspaceId: command.workspaceId,
-            settings: command.settings ?? {}
+            settings: tuttiAgentSessionComposerSettingsFromActivity(
+              command.settings
+            )
           },
           { signal }
         )
@@ -138,48 +170,7 @@ async function activateSession(
   }
   const session = await context.client.createWorkspaceAgentSession(
     input.workspaceId,
-    {
-      agentSessionId: input.agentSessionId,
-      agentTargetId: input.agentTargetId,
-      ...(input.capabilityRefs?.length
-        ? {
-            capabilityRefs: input.capabilityRefs.map((reference) => ({
-              ...reference
-            }))
-          }
-        : {}),
-      clientSubmitId: input.clientSubmitId,
-      cwd: input.cwd ?? null,
-      initialContent: toTuttidPromptContent(input.initialContent ?? []),
-      initialDisplayPrompt: input.initialDisplayPrompt ?? null,
-      ...(input.initialTuttiModeActivation
-        ? {
-            initialTuttiModeActivation: {
-              ...input.initialTuttiModeActivation
-            }
-          }
-        : {}),
-      ...(input.railPlacement
-        ? { railPlacement: { ...input.railPlacement } }
-        : {}),
-      ...(input.settings?.model ? { model: input.settings.model } : {}),
-      ...(input.settings?.reasoningEffort
-        ? { reasoningEffort: input.settings.reasoningEffort }
-        : {}),
-      ...(input.settings?.speed ? { speed: input.settings.speed } : {}),
-      ...(input.settings?.permissionModeId
-        ? { permissionModeId: input.settings.permissionModeId }
-        : {}),
-      ...(typeof input.settings?.planMode === "boolean"
-        ? { planMode: input.settings.planMode }
-        : {}),
-      ...(typeof input.settings?.browserUse === "boolean"
-        ? { browserUse: input.settings.browserUse }
-        : {}),
-      submitDiagnostics: input.submitDiagnostics,
-      title: input.title ?? null,
-      visible: input.visible ?? true
-    },
+    tuttiCreateWorkspaceAgentSessionRequestFromActivation(input),
     { signal }
   );
   const activitySession = context.mapSession(session);
@@ -303,7 +294,7 @@ function updateSessionSettings(
     .updateWorkspaceAgentSessionSettings(
       input.workspaceId,
       input.agentSessionId,
-      input.settings,
+      tuttiAgentSessionComposerSettingsFromActivity(input.settings),
       ...requestOptionsArgs(signal)
     )
     .then((session) => {
@@ -324,20 +315,7 @@ async function sendPrompt(
   const result = await context.client.sendWorkspaceAgentSessionInput(
     input.workspaceId,
     input.agentSessionId,
-    {
-      ...(input.capabilityRefs?.length
-        ? {
-            capabilityRefs: input.capabilityRefs.map((reference) => ({
-              ...reference
-            }))
-          }
-        : {}),
-      clientSubmitId: input.clientSubmitId,
-      content: toTuttidPromptContent(input.content),
-      displayPrompt: input.displayPrompt ?? null,
-      guidance: input.guidance ?? false,
-      submitDiagnostics: input.submitDiagnostics
-    },
+    tuttiSendWorkspaceAgentSessionInputRequestFromActivity(input),
     ...requestOptionsArgs(signal)
   );
   if (result.kind === "goalControl") {

@@ -90,6 +90,7 @@ func testCommandCapabilities() []CommandCapability {
 		command("agent-context.agent.respond", []string{"agent", "respond"}, []string{"session-id", "request-id", "value"}, nil),
 		command("agent-context.agent.turn-resources", []string{"agent", "turn-resources"}, []string{"session-id", "turn-id"}, nil),
 		command("agent-context.agent.active-peers", []string{"agent", "active-peers"}, nil, nil),
+		command("browser.open", []string{"browser", "open"}, []string{"url"}, nil),
 		command("browser.navigate", []string{"browser", "navigate"}, []string{"url"}, nil),
 		command("browser.snapshot", []string{"browser", "snapshot"}, nil, nil),
 		command("browser.click", []string{"browser", "click"}, []string{"uid"}, nil),

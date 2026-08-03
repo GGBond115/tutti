@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	replay "github.com/tutti-os/tutti/packages/agent/session-replay"
 )
 
 // SessionActivityReporterAdapter bridges the coarse ActivityReporter interface
@@ -112,6 +114,12 @@ func (a *SessionActivityReporterAdapter) Report(ctx context.Context, input Repor
 	if workspaceID == "" {
 		return errors.New("workspace id is required")
 	}
+	replayContext, err := providerObservationCommitContext(
+		input.ProviderObservations,
+	)
+	if err != nil {
+		return err
+	}
 	if len(input.GoalReconcileRequests) > 0 {
 		goalReporter, ok := a.reporter.(GoalReconcileRequestReporter)
 		if !ok {
@@ -175,7 +183,12 @@ func (a *SessionActivityReporterAdapter) Report(ctx context.Context, input Repor
 	for _, agentSessionID := range order {
 		work := workBySession[agentSessionID]
 		a.markSyncPending(workspaceID, agentSessionID, len(work.states), work.messageUpdates)
-		if err := a.reportSessionWork(ctx, work.states, work.messages); err != nil {
+		if err := a.reportSessionWork(
+			ctx,
+			work.states,
+			work.messages,
+			replayContext,
+		); err != nil {
 			a.markSyncFailed(workspaceID, agentSessionID, err)
 			return err
 		}
@@ -188,14 +201,42 @@ func (a *SessionActivityReporterAdapter) reportSessionWork(
 	ctx context.Context,
 	states []ReportSessionStateInput,
 	messages []ReportSessionMessagesInput,
+	replayContext replay.ProviderObservationCommitContext,
 ) error {
+	contextual, supportsReplayContext :=
+		a.reporter.(SessionActivityCommitReporter)
+	if len(replayContext.Batches) > 0 && !supportsReplayContext {
+		return errors.New(
+			"agent activity reporter does not support Replay commit context",
+		)
+	}
 	for _, stateInput := range states {
-		if _, err := a.reporter.ReportSessionState(ctx, stateInput); err != nil {
+		var err error
+		if supportsReplayContext {
+			_, err = contextual.ReportSessionStateWithCommitContext(
+				ctx,
+				stateInput,
+				replayContext,
+			)
+		} else {
+			_, err = a.reporter.ReportSessionState(ctx, stateInput)
+		}
+		if err != nil {
 			return err
 		}
 	}
 	for _, messagesInput := range messages {
-		if _, err := a.reporter.ReportSessionMessages(ctx, messagesInput); err != nil {
+		var err error
+		if supportsReplayContext {
+			_, err = contextual.ReportSessionMessagesWithCommitContext(
+				ctx,
+				messagesInput,
+				replayContext,
+			)
+		} else {
+			_, err = a.reporter.ReportSessionMessages(ctx, messagesInput)
+		}
+		if err != nil {
 			return err
 		}
 	}

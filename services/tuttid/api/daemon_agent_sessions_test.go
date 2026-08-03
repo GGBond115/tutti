@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	tuttigenerated "github.com/tutti-os/tutti/services/tuttid/api/generated"
 	"github.com/tutti-os/tutti/services/tuttid/apierrors"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	agentservice "github.com/tutti-os/tutti/services/tuttid/service/agent"
 )
@@ -328,6 +328,42 @@ func TestDaemonAPIGeneratedRoutesCreateAgentSessionAllowsTargetOnlyRequest(t *te
 	decodeGeneratedRouteResponse(t, recorder, &response)
 	if response.Session.AgentTargetId == nil || *response.Session.AgentTargetId != agenttargetbiz.IDLocalCodex {
 		t.Fatalf("session agent target id = %#v, want %s", response.Session.AgentTargetId, agenttargetbiz.IDLocalCodex)
+	}
+}
+
+func TestDaemonAPIGeneratedRoutesCreateAgentSessionMapsTypedInitialGoal(t *testing.T) {
+	createdAt := time.Date(2026, 5, 30, 8, 0, 0, 0, time.UTC)
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, NewRoutes(DaemonAPI{
+		AgentSessionService: stubAgentSessionService{
+			createFn: func(_ context.Context, _ string, input agentservice.CreateSessionInput) (agentservice.Session, error) {
+				if input.InitialGoalControl == nil ||
+					input.InitialGoalControl.Action != "set" ||
+					input.InitialGoalControl.Objective != "ship it" {
+					t.Fatalf("initial goal control = %#v", input.InitialGoalControl)
+				}
+				if len(input.InitialContent) != 0 {
+					t.Fatalf("initial content = %#v, want empty", input.InitialContent)
+				}
+				return agentservice.Session{
+					ID:            input.AgentSessionID,
+					AgentTargetID: input.AgentTargetID,
+					Provider:      "codex",
+					CreatedAt:     createdAt,
+				}, nil
+			},
+		},
+	}))
+
+	recorder := performGeneratedRouteRequest(t, mux, http.MethodPost, "/v1/workspaces/ws-1/agent-sessions", map[string]any{
+		"agentSessionId":     "11111111-1111-4111-8111-111111111111",
+		"agentTargetId":      agenttargetbiz.IDLocalCodex,
+		"clientSubmitId":     "goal-submit-1",
+		"initialContent":     []map[string]any{},
+		"initialGoalControl": map[string]any{"action": "set", "objective": "ship it"},
+	})
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body: %s", recorder.Code, http.StatusCreated, recorder.Body.String())
 	}
 }
 

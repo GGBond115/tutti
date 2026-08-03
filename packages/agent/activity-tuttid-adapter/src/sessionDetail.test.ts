@@ -42,6 +42,7 @@ test("detail mapping preserves the authoritative root, children, and Turns", () 
       turns: [
         createTurn({
           agentSessionId: "root-1",
+          capabilityRefs: [{ capability: "tutti", source: "slash_command" }],
           turnId: "turn-root-1"
         })
       ]
@@ -83,6 +84,9 @@ test("detail mapping preserves the authoritative root, children, and Turns", () 
     detail.turns.map((turn) => [turn.agentSessionId, turn.turnId]),
     [["root-1", "turn-root-1"]]
   );
+  assert.deepEqual(detail.turns[0]?.capabilityRefs, [
+    { capability: "tutti", source: "slash_command" }
+  ]);
 });
 
 test("detail mapping keeps unresolved capability projections out of authoritative reads", () => {
@@ -309,10 +313,12 @@ function createSession(
 }
 
 function createTurn(
-  overrides: Pick<WorkspaceAgentTurn, "agentSessionId" | "turnId">
+  overrides: Pick<WorkspaceAgentTurn, "agentSessionId" | "turnId"> &
+    Partial<WorkspaceAgentTurn>
 ): WorkspaceAgentTurn {
+  const { agentSessionId, turnId, ...rest } = overrides;
   return {
-    agentSessionId: overrides.agentSessionId,
+    agentSessionId,
     completedCommand: null,
     error: null,
     fileChanges: null,
@@ -323,7 +329,8 @@ function createTurn(
     providerForkBindingState: "recovery_required",
     settledAtUnixMs: 3,
     startedAtUnixMs: 1,
-    turnId: overrides.turnId,
-    updatedAtUnixMs: 3
+    turnId,
+    updatedAtUnixMs: 3,
+    ...rest
   };
 }

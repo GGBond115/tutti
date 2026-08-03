@@ -24,6 +24,7 @@ import {
   interactiveOptionLabel,
   interactivePromptCardClassName,
   interactivePromptClassName,
+  isDenyApprovalOptionToken,
   isDarwinPlatform,
   isEditableKeyboardTarget,
   isEnterLikeKey,
@@ -65,6 +66,26 @@ export function ApprovalPromptSurface({
     [prompt.options]
   );
   const feedbackValue = feedback.trim();
+  const approveOptionId = useMemo(
+    () =>
+      prompt.options.find(
+        (option) =>
+          option.id !== feedbackOptionId &&
+          !isDenyApprovalOptionToken(option.id) &&
+          !isDenyApprovalOptionToken(option.kind)
+      )?.id ?? null,
+    [feedbackOptionId, prompt.options]
+  );
+  const denyOptionId = useMemo(
+    () =>
+      prompt.options.find(
+        (option) =>
+          option.id !== feedbackOptionId &&
+          (isDenyApprovalOptionToken(option.id) ||
+            isDenyApprovalOptionToken(option.kind))
+      )?.id ?? null,
+    [feedbackOptionId, prompt.options]
+  );
 
   useEffect(() => {
     setSubmittingOptionId(null);
@@ -152,7 +173,12 @@ export function ApprovalPromptSurface({
   ]);
 
   return (
-    <section className={interactivePromptClassName(embedded)}>
+    <section
+      className={interactivePromptClassName(embedded)}
+      data-agent-interaction-id={prompt.requestId}
+      data-agent-interaction-kind="approval"
+      data-testid={`agent-interaction-${prompt.requestId}`}
+    >
       <div className={interactivePromptCardClassName(edgeGlow)}>
         <div className={styles.interactivePromptLeadContent}>
           <div className={styles.interactivePromptLead}>
@@ -204,6 +230,12 @@ export function ApprovalPromptSurface({
               isDarwin
             );
             const showFeedbackComposer = pendingFeedbackOptionId === option.id;
+            const action = approvalActionTestId(
+              option.id,
+              approveOptionId,
+              denyOptionId,
+              feedbackOptionId
+            );
             if (showFeedbackComposer) {
               return (
                 <div
@@ -220,6 +252,7 @@ export function ApprovalPromptSurface({
                       optionLabel,
                       option.description
                     )}
+                    data-testid={`agent-approval-${prompt.requestId}-${action}-input`}
                     onChange={(event) => setFeedback(event.currentTarget.value)}
                     onKeyDown={(event) => {
                       if (
@@ -248,6 +281,7 @@ export function ApprovalPromptSurface({
                     aria-label={labels.sendFeedback}
                     title={labels.sendFeedback}
                     aria-busy={showSpinner}
+                    data-testid={`agent-approval-${prompt.requestId}-${action}-submit`}
                     onClick={() => {
                       if (!feedbackValue) {
                         feedbackTextareaRef.current?.focus();
@@ -274,6 +308,9 @@ export function ApprovalPromptSurface({
                   optionLabel,
                   option.description
                 )}
+                data-agent-approval-action={action}
+                data-agent-approval-option-id={option.id}
+                data-testid={`agent-approval-${prompt.requestId}-${action}`}
                 disabled={isSubmitting || submittingOptionId !== null}
                 onClick={() => submitOption(option.id)}
               >
@@ -310,6 +347,18 @@ export function ApprovalPromptSurface({
       </div>
     </section>
   );
+}
+
+function approvalActionTestId(
+  optionID: string,
+  approveOptionID: string | null,
+  denyOptionID: string | null,
+  feedbackOptionID: string | null
+): string {
+  if (optionID === feedbackOptionID) return "feedback";
+  if (optionID === denyOptionID) return "deny";
+  if (optionID === approveOptionID) return "approve";
+  return `option-${optionID}`;
 }
 
 export function ExitPlanPromptSurface({

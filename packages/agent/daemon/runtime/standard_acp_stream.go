@@ -245,7 +245,7 @@ func (a *standardACPAdapter) emitSessionEvents(agentSessionID string, events []a
 	if sink == nil {
 		return
 	}
-	sink(agentSessionID, events)
+	sink(agentSessionID, a.inputUnits.stamp(agentSessionID, events))
 }
 
 func activityEventTypeCounts(events []activityshared.Event) []string {

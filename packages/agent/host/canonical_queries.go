@@ -2,6 +2,8 @@ package agenthost
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
@@ -102,4 +104,83 @@ func (h *Host) GetSessionInteractionSnapshot(ctx context.Context, ref SessionRef
 		}
 	}
 	return SessionInteractionSnapshot{Interactions: interactions, PendingInteractions: pending}, nil
+}
+
+// GetSessionInteractionTreeSnapshot returns the canonical interaction state
+// for one root Turn and every descendant Session's latest Turn. It does not
+// start or resume a provider runtime.
+func (h *Host) GetSessionInteractionTreeSnapshot(
+	ctx context.Context,
+	root SessionRef,
+	query SessionInteractionTreeQuery,
+) (SessionInteractionTreeSnapshot, error) {
+	root = normalizedSessionRef(root)
+	query.RootTurnID = strings.TrimSpace(query.RootTurnID)
+	if h == nil || h.interactionTrees == nil || root.WorkspaceID == "" || root.AgentSessionID == "" {
+		return SessionInteractionTreeSnapshot{}, ErrInvalidArgument
+	}
+	snapshot, found, err := h.interactionTrees.GetSessionInteractionTreeSnapshot(ctx, storesqlite.SessionInteractionTreeQuery{
+		WorkspaceID: root.WorkspaceID, RootAgentSessionID: root.AgentSessionID, RootTurnID: query.RootTurnID,
+	})
+	if errors.Is(err, storesqlite.ErrInteractionTreeRootRequired) {
+		return SessionInteractionTreeSnapshot{}, ErrInvalidArgument
+	}
+	if errors.Is(err, storesqlite.ErrInteractionTreeRootTurnNotFound) {
+		return SessionInteractionTreeSnapshot{}, ErrTurnNotFound
+	}
+	if err != nil {
+		return SessionInteractionTreeSnapshot{}, err
+	}
+	if !found {
+		return SessionInteractionTreeSnapshot{}, ErrSessionNotFound
+	}
+	return SessionInteractionTreeSnapshot{
+		RootTurnID:          snapshot.RootTurnID,
+		Interactions:        snapshot.Interactions,
+		PendingInteractions: snapshot.PendingInteractions,
+	}, nil
+}
+
+// GetInteraction reads one exact canonical Interaction by its complete identity.
+// It does not derive actionability or mutate lifecycle.
+func (h *Host) GetInteraction(
+	ctx context.Context,
+	ref SessionRef,
+	turnID, requestID string,
+) (storesqlite.Interaction, bool, error) {
+	ref = normalizedSessionRef(ref)
+	turnID = strings.TrimSpace(turnID)
+	requestID = strings.TrimSpace(requestID)
+	if h == nil || h.store == nil ||
+		ref.WorkspaceID == "" || ref.AgentSessionID == "" ||
+		turnID == "" || requestID == "" {
+		return storesqlite.Interaction{}, false, ErrInvalidArgument
+	}
+	interactions, err := h.store.ListSessionInteractions(
+		ctx,
+		storesqlite.ListSessionInteractionsInput{
+			WorkspaceID:    ref.WorkspaceID,
+			AgentSessionID: ref.AgentSessionID,
+			TurnID:         turnID,
+			RequestID:      requestID,
+		},
+	)
+	if err != nil {
+		return storesqlite.Interaction{}, false, err
+	}
+	switch len(interactions) {
+	case 0:
+		return storesqlite.Interaction{}, false, nil
+	case 1:
+		return interactions[0], true, nil
+	default:
+		return storesqlite.Interaction{}, false, fmt.Errorf(
+			"canonical interaction invariant: identity (%q, %q, %q, %q) returned %d rows",
+			ref.WorkspaceID,
+			ref.AgentSessionID,
+			turnID,
+			requestID,
+			len(interactions),
+		)
+	}
 }

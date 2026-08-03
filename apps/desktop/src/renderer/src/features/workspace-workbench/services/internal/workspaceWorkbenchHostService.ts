@@ -90,6 +90,7 @@ import {
   IAgentsService,
   type IAgentsService as AgentsService
 } from "../../../workspace-agent/services/agentsService.interface.ts";
+import type { AgentSessionReplayDesktopComposition } from "../../../agent-session-replay/services/agentSessionReplayDesktopComposition.ts";
 import {
   createWorkbenchHostSessionConfiguration,
   WorkbenchHostCoordinator,
@@ -119,6 +120,7 @@ export interface WorkspaceWorkbenchHostServiceDependencies extends WorkspaceWork
 
 export interface WorkspaceWorkbenchHostExternalDependencies {
   agentQuickPromptService?: AgentQuickPromptService;
+  agentSessionReplayComposition?: AgentSessionReplayDesktopComposition | null;
   browserApi?: DesktopBrowserApi;
   computerUseApi: DesktopComputerUseApi;
   dockPreviewCacheApi: DesktopDockPreviewCacheApi;
@@ -192,6 +194,8 @@ export class WorkspaceWorkbenchHostService implements IWorkspaceWorkbenchHostSer
     this.dockRetention = createWorkspaceDockRetentionController(repository);
     this.dependencies = {
       agentQuickPromptService: externalDependencies.agentQuickPromptService,
+      agentSessionReplayComposition:
+        externalDependencies.agentSessionReplayComposition,
       agentProviderStatusService,
       agentsService,
       appCenterService,
@@ -223,8 +227,8 @@ export class WorkspaceWorkbenchHostService implements IWorkspaceWorkbenchHostSer
       this.dependencies
     );
     this.hostSessionConfiguration = createWorkbenchHostSessionConfiguration({
-      createSession: (partition) =>
-        new WorkbenchHostSession<
+      createSession: (partition) => {
+        const session = new WorkbenchHostSession<
           WorkspaceWorkbenchHostSessionUpdate,
           WorkspaceWorkbenchHostInput,
           CachedWorkspaceWorkbenchHostInput
@@ -236,7 +240,12 @@ export class WorkspaceWorkbenchHostService implements IWorkspaceWorkbenchHostSer
           partition,
           resolve: (update, current) =>
             this.hostInputResolver.resolve(update, current)
-        })
+        });
+        session.registerDisposable(() => {
+          this.dependencies.browserService.disposeWorkspace(partition.scope.id);
+        });
+        return session;
+      }
     });
     this.dependencies.repository.subscribe(() => {
       this.notifyWallpaperListeners();

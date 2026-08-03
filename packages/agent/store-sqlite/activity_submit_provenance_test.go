@@ -74,7 +74,8 @@ func TestReportActivityStateTreatsSemanticExistingMessageAsSubmitProvenanceRepla
 		t.Fatalf("submit provenance replay error=%v", err)
 	}
 	if provenance.Messages.AcceptedCount != 1 || provenance.Messages.LatestVersion != 1 ||
-		len(provenance.Messages.Messages) != 1 || provenance.Messages.Messages[0].Version != 1 {
+		len(provenance.Messages.Messages) != 1 ||
+		provenance.Messages.Messages[0].Version != 1 {
 		t.Fatalf("submit provenance replay result=%#v, want existing message version 1", provenance.Messages)
 	}
 	content, ok := provenance.Messages.Messages[0].Payload["content"].([]any)

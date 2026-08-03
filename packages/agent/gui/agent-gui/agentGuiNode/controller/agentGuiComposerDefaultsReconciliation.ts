@@ -14,6 +14,12 @@ interface AgentGUIComposerDefaultsGeneration {
   value: string;
 }
 
+interface AgentGUIAcknowledgedComposerDefaultsGeneration extends AgentGUIComposerDefaultsGeneration {
+  confirmationReadsRemaining: number;
+}
+
+const composerDefaultsConfirmationReadLimit = 2;
+
 export interface AgentGUIComposerDefaultsMutation {
   draftKey: string;
   fields: Partial<
@@ -25,7 +31,10 @@ export interface AgentGUIComposerDefaultsLedger {
   acknowledgedByDraftKey: Record<
     string,
     Partial<
-      Record<AgentGUIComposerDefaultsField, AgentGUIComposerDefaultsGeneration>
+      Record<
+        AgentGUIComposerDefaultsField,
+        AgentGUIAcknowledgedComposerDefaultsGeneration
+      >
     >
   >;
   latestByDraftKey: Record<
@@ -62,7 +71,10 @@ export interface AgentGUIComposerDefaultsAuthorityReconciler {
     target: AgentGUIComposerTargetData,
     options: AgentActivityComposerOptions
   ): void;
-  reloaded(receipt: AgentGUIComposerDefaultsAuthorityReadReceipt | null): void;
+  reloaded(
+    receipt: AgentGUIComposerDefaultsAuthorityReadReceipt | null,
+    options: AgentActivityComposerOptions
+  ): void;
 }
 
 export function createAgentGUIComposerDefaultsLedger(): AgentGUIComposerDefaultsLedger {
@@ -112,7 +124,10 @@ export function acknowledgeAgentGUIComposerDefaultsMutation(
     ) {
       continue;
     }
-    acknowledged[field] = requested;
+    acknowledged[field] = {
+      ...requested,
+      confirmationReadsRemaining: composerDefaultsConfirmationReadLimit
+    };
     changed = true;
   }
   return changed;
@@ -138,7 +153,10 @@ export function prepareAcknowledgedComposerDefaultsAuthorityRead(
         latest[field] === entry.generation &&
         normalizeOptionalText(authoritySettings[field]) === entry.value
       ) {
-        receipt.fields[field] = { ...entry };
+        receipt.fields[field] = {
+          generation: entry.generation,
+          value: entry.value
+        };
         delete authoritySettings[field];
       }
     }
@@ -156,7 +174,8 @@ export function prepareAcknowledgedComposerDefaultsAuthorityRead(
 export function retireAcknowledgedComposerDefaultsForRead(
   ledger: AgentGUIComposerDefaultsLedger,
   receipt: AgentGUIComposerDefaultsAuthorityReadReceipt,
-  settings: AgentSessionComposerSettings
+  settings: AgentSessionComposerSettings,
+  authoritativeSettings: AgentSessionComposerSettings
 ): AgentGUIRetiredComposerDefault[] {
   const latest = ledger.latestByDraftKey[receipt.draftKey];
   const acknowledged = ledger.acknowledgedByDraftKey[receipt.draftKey];
@@ -171,6 +190,27 @@ export function retireAcknowledgedComposerDefaultsForRead(
       currentEntry.generation !== readEntry.generation ||
       latest[field] !== readEntry.generation
     ) {
+      continue;
+    }
+    const authoritativeValue = normalizeOptionalText(
+      authoritativeSettings[field]
+    );
+    if (authoritativeValue === null) {
+      // This provider does not project authority for the field. Stop forcing
+      // uncached reads, but keep the optimistic draft as the user's intent.
+      delete acknowledged[field];
+      continue;
+    }
+    if (authoritativeValue !== readEntry.value) {
+      // A concrete different value can be a stale overlapping discovery.
+      // Bound retries because some providers normalize or reject defaults and
+      // never echo the requested value. Protect the optimistic intent during
+      // confirmation, then release the marker so later settled options can
+      // apply normal sanitization and reuse the Engine cache.
+      currentEntry.confirmationReadsRemaining -= 1;
+      if (currentEntry.confirmationReadsRemaining <= 0) {
+        delete acknowledged[field];
+      }
       continue;
     }
     if (normalizeOptionalText(settings[field]) === readEntry.value) {
@@ -193,6 +233,35 @@ export function removeRetiredComposerDefaults(
     if (normalizeOptionalText(result[entry.field]) === entry.value) {
       delete result[entry.field];
     }
+  }
+  return result;
+}
+
+export function preserveAcknowledgedComposerDefaultsForReconciliation(
+  ledger: AgentGUIComposerDefaultsLedger,
+  draftKey: string,
+  currentSettings: AgentSessionComposerSettings,
+  reconciledSettings: AgentSessionComposerSettings
+): AgentSessionComposerSettings {
+  const latest = ledger.latestByDraftKey[draftKey];
+  const acknowledged = ledger.acknowledgedByDraftKey[draftKey];
+  if (!latest || !acknowledged) return reconciledSettings;
+
+  let result = reconciledSettings;
+  for (const field of rememberComposerDefaultsFields) {
+    const entry = acknowledged[field];
+    if (
+      !entry ||
+      latest[field] !== entry.generation ||
+      normalizeOptionalText(currentSettings[field]) !== entry.value ||
+      normalizeOptionalText(result[field]) === entry.value
+    ) {
+      continue;
+    }
+    if (result === reconciledSettings) {
+      result = { ...reconciledSettings };
+    }
+    Object.assign(result, { [field]: currentSettings[field] });
   }
   return result;
 }

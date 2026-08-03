@@ -1,4 +1,8 @@
-import type { RootAgentSessionEngineState } from "./rootReducer.types.ts";
+import type {
+  RootAgentSessionEngineState,
+  RootEngineIntent
+} from "./rootReducer.types.ts";
+import { projectPublicSessionGoalControlState } from "./sessionGoalControl.selectors.ts";
 import type { AgentSessionEngineState } from "./types.ts";
 
 /**
@@ -8,13 +12,32 @@ import type { AgentSessionEngineState } from "./types.ts";
  */
 export function projectPublicAgentSessionEngineState(
   state: RootAgentSessionEngineState,
-  previous?: AgentSessionEngineState
+  previous?: AgentSessionEngineState,
+  previousRoot?: RootAgentSessionEngineState,
+  cause?: RootEngineIntent
 ): AgentSessionEngineState {
+  const goalControlUnchanged =
+    previous !== undefined &&
+    previousRoot !== undefined &&
+    state.goalControl.operationsBySessionId ===
+      previousRoot.goalControl.operationsBySessionId &&
+    state.pendingIntents.activationsByRequestId ===
+      previousRoot.pendingIntents.activationsByRequestId &&
+    state.sessionLifecycle.sessionsById ===
+      previousRoot.sessionLifecycle.sessionsById;
   const projected: AgentSessionEngineState = {
     attentionReadState: state.attentionReadState,
     composerOptions: state.composerOptions,
     editRetry: state.editRetry,
     engineRuntime: state.engineRuntime,
+    goalControl: goalControlUnchanged
+      ? previous.goalControl
+      : projectPublicSessionGoalControlState(
+          state,
+          previous?.goalControl,
+          previousRoot,
+          cause
+        ),
     pendingIntents: state.pendingIntents,
     planDecisions: state.planDecisions,
     promptQueue: state.promptQueue,

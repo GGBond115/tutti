@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from "react";
 import { LoaderCircle } from "lucide-react";
-import { useOptionalAgentActivityRuntime } from "../../../agentActivityRuntime";
+import { useOptionalAgentGUIRuntime } from "../../../agentActivityRuntime";
 import { ZoomableImage } from "../../../app/renderer/components/ZoomableImage";
 import styles from "../../../agent-gui/agentGuiNode/AgentGUIConversation.styles";
 import type {
@@ -63,7 +63,7 @@ function useAgentMessageImageSources(images: readonly AgentMessageImageVM[]): {
   loadingIds: ReadonlySet<string>;
   sources: ReadonlyMap<string, string>;
 } {
-  const runtime = useOptionalAgentActivityRuntime();
+  const runtime = useOptionalAgentGUIRuntime();
   const [sources, setSources] = useState<Map<string, string>>(() => new Map());
   const [loadingIds, setLoadingIds] = useState<Set<string>>(() => new Set());
   const missingImages = useMemo(

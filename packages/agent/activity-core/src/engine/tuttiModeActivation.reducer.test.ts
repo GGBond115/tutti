@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeAgentActivitySession } from "../sessionNormalization.ts";
 import type { AgentActivitySession } from "../types.ts";
-import type { AgentActivityTuttiModeActivationRevision } from "../tuttiMode.types.ts";
 import {
   createInitialTuttiModeActivationState,
   tuttiModeActivationReducer
@@ -10,48 +9,8 @@ import {
 import {
   selectTuttiModeActivationPresentation,
   selectTuttiModeDraftIsActive,
-  selectTuttiModeDraftOrchestrationIntensity,
-  type TuttiModeActivationPresentation
+  selectTuttiModeDraftOrchestrationIntensity
 } from "./tuttiModeActivation.selectors.ts";
-import type { TuttiModeActivationState } from "./tuttiModeActivation.types.ts";
-
-test("legacy public activation revisions remain source-compatible", () => {
-  const revision: AgentActivityTuttiModeActivationRevision = {
-    activationId: "activation-1",
-    createdAtUnixMs: 10,
-    orchestrationIntensity: 73,
-    revision: 1,
-    source: "slash_command",
-    status: "active"
-  };
-
-  assert.equal(revision.orchestrationIntensity, 73);
-
-  const presentation: TuttiModeActivationPresentation = {
-    activation: null,
-    active: true,
-    errorCode: null,
-    errorMessage: null,
-    orchestrationIntensity: 73,
-    updateStatus: "idle"
-  };
-  const legacyState: TuttiModeActivationState = {
-    activationsBySessionId: {},
-    draftsByKey: {
-      legacy: {
-        active: true,
-        draftKey: "legacy",
-        occurredAtUnixMs: 10,
-        orchestrationIntensity: 73,
-        source: "slash_command"
-      }
-    },
-    pendingCreatesBySessionId: {},
-    updatesBySessionId: {}
-  };
-  assert.equal(presentation.orchestrationIntensity, 73);
-  assert.equal(legacyState.draftsByKey.legacy?.orchestrationIntensity, 73);
-});
 
 test("legacy activation revisions normalize at the engine boundary", () => {
   const legacySession = session(

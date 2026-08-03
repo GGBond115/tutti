@@ -22,6 +22,7 @@ const (
 	MutationEntityGoalOperation        = "goal_operation"
 	MutationEntityGoalInbox            = "goal_reconcile_inbox"
 	MutationEntitySessionForkOperation = "session_fork_operation"
+	MutationEntityInteractionTree      = "interaction_tree"
 )
 
 // TransactionWriter is the intentionally narrow store-adapter seam for
@@ -38,13 +39,15 @@ type TransactionParticipant interface {
 }
 
 type TransactionMutation struct {
-	MutationID     string `json:"mutationId"`
-	WorkspaceID    string `json:"workspaceId"`
-	AgentSessionID string `json:"agentSessionId"`
-	EntityKind     string `json:"entityKind"`
-	EntityID       string `json:"entityId"`
-	Operation      string `json:"operation"`
-	Version        int64  `json:"version"`
+	MutationID         string `json:"mutationId"`
+	WorkspaceID        string `json:"workspaceId"`
+	AgentSessionID     string `json:"agentSessionId"`
+	RootAgentSessionID string `json:"rootAgentSessionId,omitempty"`
+	RootTurnID         string `json:"rootTurnId,omitempty"`
+	EntityKind         string `json:"entityKind"`
+	EntityID           string `json:"entityId"`
+	Operation          string `json:"operation"`
+	Version            int64  `json:"version"`
 }
 
 type TransactionDelta struct {
@@ -86,6 +89,11 @@ func (s *Store) participateTransaction(ctx context.Context, tx *sql.Tx, workspac
 			mutation.WorkspaceID = delta.WorkspaceID
 		}
 		delta.Mutations = append(delta.Mutations, mutation)
+	}
+	var err error
+	delta.Mutations, err = appendInteractionTreeProjectionMutations(ctx, tx, delta.Mutations)
+	if err != nil {
+		return TransactionDelta{}, err
 	}
 	if len(delta.Mutations) > 0 {
 		delta.TransactionID = uuid.NewString()

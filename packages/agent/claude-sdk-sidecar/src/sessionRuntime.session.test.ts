@@ -70,7 +70,7 @@ test("Claude-persisted user UUID becomes the provider Turn identity", async () =
     await waitForEvent(events, "turn_completed");
 
     const providerStarted = events.find(
-      (event) => event.type === "provider_turn_started"
+      (event) => event.type === "provider_turn_identity_resolved"
     );
     const providerCheckpoint = events.find(
       (event) => event.type === "provider_turn_checkpoint"
@@ -93,6 +93,488 @@ test("Claude-persisted user UUID becomes the provider Turn identity", async () =
     restoreSink();
   }
 });
+
+test("successful result recovers provider Turn identity when SDK omits the root user echo", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const recoveryInputs: Array<Record<string, string>> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  try {
+    const session = new SessionRuntime(
+      "provider-session-recovered",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => ({
+        async *[Symbol.asyncIterator]() {
+          await prompt[Symbol.asyncIterator]().next();
+          yield {
+            type: "assistant",
+            uuid: "persisted-assistant-uuid",
+            parent_tool_use_id: null,
+            session_id: "provider-session-recovered",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "hello" }]
+            }
+          } as never;
+          yield { type: "result", subtype: "success" } as never;
+        },
+        close() {}
+      }),
+      30_000,
+      async (input) => {
+        recoveryInputs.push(input);
+        return {
+          providerSessionId: input.sessionId,
+          providerTurnId: "persisted-user-uuid",
+          providerCheckpointMessageId: "persisted-assistant-uuid"
+        };
+      }
+    );
+
+    await session.start();
+    session.exec(
+      "turn-recovered",
+      "hello",
+      undefined,
+      undefined,
+      undefined,
+      "",
+      "outbound-correlation-id"
+    );
+    await waitForEvent(events, "turn_completed");
+
+    assert.deepEqual(recoveryInputs, [
+      {
+        sessionId: "provider-session-recovered",
+        cwd: "/repo",
+        recoveryToken: "outbound-correlation-id"
+      }
+    ]);
+    assert.deepEqual(
+      events
+        .filter((event) =>
+          [
+            "provider_turn_identity_resolved",
+            "provider_turn_checkpoint",
+            "turn_completed"
+          ].includes(event.type)
+        )
+        .map(({ type, payload }) => ({ type, payload })),
+      [
+        {
+          type: "provider_turn_identity_resolved",
+          payload: {
+            turnId: "turn-recovered",
+            providerTurnId: "persisted-user-uuid"
+          }
+        },
+        {
+          type: "provider_turn_checkpoint",
+          payload: {
+            turnId: "turn-recovered",
+            providerTurnId: "persisted-user-uuid",
+            providerCheckpointMessageId: "persisted-assistant-uuid"
+          }
+        },
+        {
+          type: "turn_completed",
+          payload: {
+            stopReason: "end_turn",
+            turnId: "turn-recovered",
+            providerTurnId: "persisted-user-uuid"
+          }
+        }
+      ]
+    );
+  } finally {
+    restoreSink();
+  }
+});
+
+test("goal result-only recovery binds provider identity before activation", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  try {
+    const session = new SessionRuntime(
+      "provider-session-goal-result-only",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => ({
+        async *[Symbol.asyncIterator]() {
+          await prompt[Symbol.asyncIterator]().next();
+          yield { type: "result", subtype: "success" } as never;
+        },
+        close() {}
+      }),
+      30_000,
+      async (input) => ({
+        providerSessionId: input.sessionId,
+        providerTurnId: "persisted-goal-user-uuid",
+        providerCheckpointMessageId: "persisted-goal-result-uuid"
+      })
+    );
+
+    await session.start();
+    session.exec(
+      "goal-result-only",
+      "/goal ship it",
+      undefined,
+      "goal_arm",
+      {
+        operationId: "goal-op-result",
+        revision: 3,
+        repairEpoch: 2,
+        action: "set"
+      },
+      "",
+      "goal-result-correlation-id"
+    );
+    await waitForEvent(events, "turn_completed");
+
+    const identityIndex = events.findIndex(
+      (event) => event.type === "provider_turn_identity_resolved"
+    );
+    const startedIndex = events.findIndex(
+      (event) => event.type === "turn_started"
+    );
+    const completedIndex = events.findIndex(
+      (event) => event.type === "turn_completed"
+    );
+    assert.ok(identityIndex >= 0 && identityIndex < startedIndex);
+    assert.ok(startedIndex < completedIndex);
+    assert.deepEqual(events[identityIndex]?.payload, {
+      turnId: "goal-result-only",
+      providerTurnId: "persisted-goal-user-uuid",
+      turnOrigin: "goal_arm",
+      sourceGoalOperationId: "goal-op-result",
+      sourceGoalRevision: 3,
+      sourceGoalRepairEpoch: 2
+    });
+    assert.equal(
+      events[completedIndex]?.payload?.providerTurnId,
+      "persisted-goal-user-uuid"
+    );
+  } finally {
+    restoreSink();
+  }
+});
+
+test("interactive request recovers provider Turn identity before waiting when SDK omits the root user echo", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const recoveryInputs: Array<Record<string, string>> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  let permissionResult: unknown;
+  try {
+    const session = new SessionRuntime(
+      "provider-session-interactive-recovered",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt, options }) => ({
+        async *[Symbol.asyncIterator]() {
+          await prompt[Symbol.asyncIterator]().next();
+          yield {
+            type: "assistant",
+            uuid: "persisted-tool-assistant-uuid",
+            parent_tool_use_id: null,
+            session_id: "provider-session-interactive-recovered",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool_use",
+                  id: "toolu-write",
+                  name: "Write",
+                  input: { file_path: "/repo/tetris.html" }
+                }
+              ]
+            }
+          } as never;
+          permissionResult = await options.canUseTool?.(
+            "Write",
+            { file_path: "/repo/tetris.html" },
+            testCanUseToolOptions({
+              requestId: "request-write",
+              toolUseID: "toolu-write"
+            })
+          );
+          yield { type: "result", subtype: "success" } as never;
+        },
+        close() {}
+      }),
+      30_000,
+      async (input) => {
+        recoveryInputs.push(input);
+        return {
+          providerSessionId: input.sessionId,
+          providerTurnId: "persisted-tool-user-uuid",
+          providerCheckpointMessageId: "persisted-tool-assistant-uuid"
+        };
+      }
+    );
+
+    await session.start();
+    session.exec(
+      "turn-interactive-recovered",
+      "write a file",
+      undefined,
+      undefined,
+      undefined,
+      "",
+      "outbound-interactive-correlation-id"
+    );
+    await waitForEvent(events, "approval_requested");
+
+    assert.deepEqual(recoveryInputs, [
+      {
+        sessionId: "provider-session-interactive-recovered",
+        cwd: "/repo",
+        recoveryToken: "outbound-interactive-correlation-id"
+      }
+    ]);
+    assert.deepEqual(
+      events
+        .filter((event) =>
+          [
+            "provider_turn_identity_resolved",
+            "provider_turn_checkpoint",
+            "approval_requested"
+          ].includes(event.type)
+        )
+        .map(({ type, payload }) => ({ type, payload })),
+      [
+        {
+          type: "provider_turn_identity_resolved",
+          payload: {
+            turnId: "turn-interactive-recovered",
+            providerTurnId: "persisted-tool-user-uuid"
+          }
+        },
+        {
+          type: "provider_turn_checkpoint",
+          payload: {
+            turnId: "turn-interactive-recovered",
+            providerTurnId: "persisted-tool-user-uuid",
+            providerCheckpointMessageId: "persisted-tool-assistant-uuid"
+          }
+        },
+        {
+          type: "approval_requested",
+          payload: events.find((event) => event.type === "approval_requested")
+            ?.payload
+        }
+      ]
+    );
+
+    const request = events.find((event) => event.type === "approval_requested");
+    session.submitInteractive(
+      "turn-interactive-recovered",
+      String(request?.payload?.requestId ?? ""),
+      "submit",
+      "allow",
+      {}
+    );
+    await waitForEvent(events, "turn_completed");
+
+    assert.deepEqual(permissionResult, {
+      behavior: "allow",
+      updatedInput: { file_path: "/repo/tetris.html" }
+    });
+    assert.equal(
+      events.filter((event) => event.type === "provider_turn_identity_resolved")
+        .length,
+      1
+    );
+  } finally {
+    restoreSink();
+  }
+});
+
+test("AskUserQuestion and ExitPlanMode share one accepted identity without root user echo", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  let recoveryCalls = 0;
+  try {
+    const session = new SessionRuntime(
+      "provider-session-multi-interaction",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt, options }) => ({
+        async *[Symbol.asyncIterator]() {
+          await prompt[Symbol.asyncIterator]().next();
+          yield {
+            type: "assistant",
+            uuid: "assistant-before-interactions",
+            parent_tool_use_id: null,
+            session_id: "provider-session-multi-interaction",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "I need two answers." }]
+            }
+          } as never;
+          await options.canUseTool?.(
+            "AskUserQuestion",
+            {
+              questions: [
+                {
+                  header: "Choice",
+                  question: "Pick one",
+                  options: [{ label: "A", description: "Alpha" }]
+                }
+              ]
+            },
+            testCanUseToolOptions({
+              requestId: "request-ask",
+              toolUseID: "toolu-ask"
+            })
+          );
+          await options.canUseTool?.(
+            "ExitPlanMode",
+            { plan: "Implement the selected option." },
+            testCanUseToolOptions({
+              requestId: "request-exit-plan",
+              toolUseID: "toolu-exit-plan"
+            })
+          );
+          yield { type: "result", subtype: "success" } as never;
+        },
+        close() {}
+      }),
+      30_000,
+      async (input) => {
+        recoveryCalls += 1;
+        return {
+          providerSessionId: input.sessionId,
+          providerTurnId: "provider-turn-multi-interaction",
+          providerCheckpointMessageId: "assistant-before-interactions"
+        };
+      }
+    );
+
+    await session.start();
+    session.exec(
+      "turn-multi-interaction",
+      "ask then exit plan",
+      undefined,
+      undefined,
+      undefined,
+      "",
+      "correlation-multi-interaction"
+    );
+    await waitForEventCount(events, "user_input_requested", 1);
+    const ask = events.find((event) => event.type === "user_input_requested");
+    session.submitInteractive(
+      "turn-multi-interaction",
+      String(ask?.payload?.requestId ?? ""),
+      "submit",
+      "",
+      { answers: { "Pick one": "A" } }
+    );
+    await waitForEventCount(events, "user_input_requested", 2);
+    const exitPlan = events.filter(
+      (event) => event.type === "user_input_requested"
+    )[1];
+    session.submitInteractive(
+      "turn-multi-interaction",
+      String(exitPlan?.payload?.requestId ?? ""),
+      "submit",
+      "default",
+      {}
+    );
+    await waitForEvent(events, "turn_completed");
+
+    const ordered = events.filter((event) =>
+      [
+        "provider_turn_identity_resolved",
+        "user_input_requested",
+        "turn_completed"
+      ].includes(event.type)
+    );
+    assert.equal(ordered[0]?.type, "provider_turn_identity_resolved");
+    assert.equal(
+      ordered.filter(
+        (event) => event.type === "provider_turn_identity_resolved"
+      ).length,
+      1
+    );
+    assert.equal(
+      ordered.filter((event) => event.type === "user_input_requested").length,
+      2
+    );
+    assert.equal(recoveryCalls, 1);
+    assert.equal(
+      ordered.at(-1)?.payload?.providerTurnId,
+      "provider-turn-multi-interaction"
+    );
+  } finally {
+    restoreSink();
+  }
+});
+
+async function waitForEventCount(
+  events: Array<{ type: string }>,
+  type: string,
+  count: number
+): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (events.filter((event) => event.type === type).length >= count) {
+      return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(`timed out waiting for ${count} ${type} events`);
+}
 
 test("ephemeral Claude session state UUID does not replace the durable checkpoint", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
@@ -340,6 +822,159 @@ test("SDK assistant authentication error fails the message and turn", async () =
   }
 });
 
+test("SDK authentication rejection before provider identity skips recovery", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  const failure =
+    "Failed to authenticate. API Error: 401 The API Key appears to be invalid.";
+  let identityRecoveryCalls = 0;
+  try {
+    const session = new SessionRuntime(
+      "provider-session-auth-rejected",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "k3",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => ({
+        async *[Symbol.asyncIterator]() {
+          const iterator = prompt[Symbol.asyncIterator]();
+          await iterator.next();
+          yield {
+            type: "assistant",
+            error: "authentication_failed",
+            message: {
+              id: "assistant-auth-rejected",
+              role: "assistant",
+              content: [{ type: "text", text: failure }]
+            },
+            parent_tool_use_id: null,
+            session_id: "provider-session-auth-rejected"
+          } as never;
+          yield {
+            type: "result",
+            subtype: "success",
+            is_error: true,
+            api_error_status: 401,
+            result: failure,
+            session_id: "provider-session-auth-rejected"
+          } as never;
+        },
+        close() {}
+      }),
+      30_000,
+      async () => {
+        identityRecoveryCalls += 1;
+        throw new Error("identity recovery must not run for an explicit 401");
+      },
+      50
+    );
+
+    await session.start();
+    session.exec("turn-auth-rejected", "hello");
+    await waitForEvent(events, "turn_failed");
+
+    assert.equal(identityRecoveryCalls, 0);
+    assert.equal(
+      events.some((event) => event.type === "assistant_failed"),
+      false,
+      "provider output must not escape before durable acceptance"
+    );
+    assert.equal(
+      events.some((event) => event.type === "provider_turn_identity_resolved"),
+      false
+    );
+    const failedTurn = events.find((event) => event.type === "turn_failed");
+    assert.equal(failedTurn?.payload?.turnId, "turn-auth-rejected");
+    assert.equal(failedTurn?.payload?.code, "authentication_failed");
+    assert.equal(failedTurn?.payload?.apiErrorStatus, 401);
+    assert.equal(failedTurn?.payload?.dispatchDisposition, "rejected");
+  } finally {
+    restoreSink();
+  }
+});
+
+test("SDK api_retry authentication error fails before retrying", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  let queryClosed = false;
+  let closeCalls = 0;
+  try {
+    const session = new SessionRuntime(
+      "provider-session-api-retry-auth",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "k3",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => ({
+        async *[Symbol.asyncIterator]() {
+          await prompt[Symbol.asyncIterator]().next();
+          yield {
+            type: "system",
+            subtype: "api_retry",
+            attempt: 1,
+            max_retries: 10,
+            retry_delay_ms: 100,
+            error_status: 401,
+            error: "authentication_failed",
+            session_id: "provider-session-api-retry-auth"
+          } as never;
+          while (!queryClosed) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+          }
+        },
+        close() {
+          closeCalls += 1;
+          queryClosed = true;
+        }
+      })
+    );
+
+    await session.start();
+    session.exec("turn-api-retry-auth", "hello");
+    await waitForEvent(events, "turn_failed");
+
+    const failedTurn = events.find((event) => event.type === "turn_failed");
+    assert.equal(failedTurn?.payload?.turnId, "turn-api-retry-auth");
+    assert.equal(failedTurn?.payload?.code, "authentication_failed");
+    assert.equal(failedTurn?.payload?.apiErrorStatus, 401);
+    assert.equal(failedTurn?.payload?.dispatchDisposition, "rejected");
+    assert.equal(closeCalls, 1);
+    assert.equal(
+      events.filter(
+        (event) =>
+          event.type === "sdk_lifecycle_observed" &&
+          event.payload?.sdkMessageSubtype === "api_retry"
+      ).length,
+      1
+    );
+  } finally {
+    queryClosed = true;
+    restoreSink();
+  }
+});
+
 test("guidance prompt stays on the active SDK turn", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   const prompts: string[] = [];
@@ -457,6 +1092,264 @@ test("goal set scheduling ack followed by immediate clear coalesces before SDK a
     );
     assert.equal(started?.payload?.operationId, "goal-op-clear");
     assert.equal(started?.payload?.revision, 2);
+  } finally {
+    restoreSink();
+  }
+});
+
+test("SDK active_goal messages normalize provider goal lifecycle", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  try {
+    const session = new SessionRuntime(
+      "provider-session-active-goal",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => ({
+        async *[Symbol.asyncIterator]() {
+          const outbound = await prompt[Symbol.asyncIterator]().next();
+          yield {
+            ...outbound.value,
+            uuid: "provider-goal-turn",
+            type: "user",
+            parent_tool_use_id: null,
+            session_id: "provider-session-active-goal"
+          } as never;
+          yield {
+            type: "active_goal",
+            value: "malformed",
+            uuid: "active-goal-malformed",
+            session_id: "provider-session-active-goal"
+          } as never;
+          yield {
+            type: "active_goal",
+            value: {
+              condition: "count to three",
+              iterations: 2,
+              set_at: "2026-08-02T00:00:00.000Z",
+              tokens_at_start: 100,
+              last_reason: "only reached two"
+            },
+            uuid: "active-goal-1",
+            session_id: "provider-session-active-goal"
+          } as never;
+          yield {
+            type: "active_goal",
+            value: null,
+            uuid: "active-goal-2",
+            session_id: "provider-session-active-goal"
+          } as never;
+          yield { type: "result", subtype: "success" } as never;
+        },
+        close() {}
+      })
+    );
+
+    await session.start();
+    session.exec("goal-work-turn", "continue");
+    await waitForEvent(events, "turn_completed");
+
+    const updates = events.filter((event) => event.type === "goal_observed");
+    assert.equal(updates.length, 2);
+    assert.deepEqual(updates[0]?.payload, {
+      turnId: "goal-work-turn",
+      providerTurnId: "provider-goal-turn",
+      source: "active_goal",
+      updateType: "thread_goal_update",
+      goal: {
+        objective: "count to three",
+        status: "active",
+        iterations: 2,
+        reason: "only reached two"
+      }
+    });
+    assert.deepEqual(updates[1]?.payload, {
+      turnId: "goal-work-turn",
+      providerTurnId: "provider-goal-turn",
+      source: "active_goal",
+      updateType: "thread_goal_completed"
+    });
+  } finally {
+    restoreSink();
+  }
+});
+
+test("SDK active_goal clear keeps the exact goal command action", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  try {
+    const session = new SessionRuntime(
+      "provider-session-goal-clear",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => ({
+        async *[Symbol.asyncIterator]() {
+          const outbound = await prompt[Symbol.asyncIterator]().next();
+          yield {
+            ...outbound.value,
+            uuid: "provider-goal-clear-turn",
+            type: "user",
+            parent_tool_use_id: null,
+            session_id: "provider-session-goal-clear"
+          } as never;
+          yield {
+            type: "active_goal",
+            value: null,
+            uuid: "active-goal-clear",
+            session_id: "provider-session-goal-clear"
+          } as never;
+          yield { type: "result", subtype: "success" } as never;
+        },
+        close() {}
+      })
+    );
+
+    await session.start();
+    session.exec("goal-clear-turn", "/goal clear", undefined, undefined, {
+      operationId: "goal-op-clear",
+      revision: 2,
+      action: "clear"
+    });
+    await waitForEvent(events, "turn_completed");
+
+    const update = events.find((event) => event.type === "goal_observed");
+    assert.equal(update?.payload?.action, "clear");
+    assert.equal(update?.payload?.source, "active_goal");
+    assert.equal(update?.payload?.updateType, "thread_goal_cleared");
+  } finally {
+    restoreSink();
+  }
+});
+
+test("native goal_status attachments normalize the live Stop hook lifecycle", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  try {
+    const session = new SessionRuntime(
+      "provider-session-goal-status",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => ({
+        async *[Symbol.asyncIterator]() {
+          const outbound = await prompt[Symbol.asyncIterator]().next();
+          yield {
+            ...outbound.value,
+            uuid: "provider-goal-status-turn",
+            type: "user",
+            parent_tool_use_id: null,
+            session_id: "provider-session-goal-status"
+          } as never;
+          yield {
+            type: "attachment",
+            attachment: {
+              type: "goal_status",
+              condition: "count to three"
+            }
+          } as never;
+          yield {
+            type: "attachment",
+            attachment: {
+              type: "goal_status",
+              met: false,
+              condition: "count to three",
+              reason: "only reached two",
+              iterations: 2
+            }
+          } as never;
+          yield {
+            type: "attachment",
+            attachment: {
+              type: "goal_status",
+              met: true,
+              condition: "count to three",
+              reason: "counted one number per turn",
+              iterations: 3,
+              durationMs: 16_386,
+              tokens: 1_479
+            }
+          } as never;
+          yield { type: "result", subtype: "success" } as never;
+        },
+        close() {}
+      })
+    );
+
+    await session.start();
+    session.exec(
+      "goal-status-turn",
+      "/goal count to three",
+      undefined,
+      undefined,
+      {
+        operationId: "goal-op-status",
+        revision: 1,
+        action: "set"
+      }
+    );
+    await waitForEvent(events, "turn_completed");
+
+    const updates = events.filter((event) => event.type === "goal_observed");
+    assert.equal(updates.length, 2);
+    assert.deepEqual(updates[0]?.payload?.goal, {
+      objective: "count to three",
+      status: "active",
+      reason: "only reached two",
+      iterations: 2
+    });
+    assert.deepEqual(updates[1]?.payload, {
+      turnId: "goal-status-turn",
+      providerTurnId: "provider-goal-status-turn",
+      action: "set",
+      source: "goal_status",
+      updateType: "thread_goal_update",
+      goal: {
+        objective: "count to three",
+        status: "complete",
+        reason: "counted one number per turn",
+        iterations: 3,
+        durationMs: 16_386,
+        tokens: 1_479
+      }
+    });
   } finally {
     restoreSink();
   }

@@ -13,6 +13,7 @@ import {
   type AgentHostInputApi,
   type AgentVisibleErrorOverrides
 } from "@tutti-os/agent-gui";
+import { useAgentSessionReplayNodeReadiness } from "../../agent-session-replay/ui/AgentSessionReplayWorkspaceBinding.tsx";
 import { resolveInsufficientCreditsSemantic } from "@tutti-os/commerce";
 import { useService } from "@tutti-os/infra/di";
 import { requestWorkspaceAgentGuiLaunch } from "../services/workspaceAgentGuiLaunchCoordinator.ts";
@@ -91,7 +92,6 @@ import {
 function DesktopAgentGUISurfaceImpl({
   agentActivityRuntime,
   agentHostApi,
-  agentSessionActivityReplay,
   agentSessionReplayService,
   agentStatusSource,
   tuttiModePlanReviewRuntime,
@@ -223,6 +223,13 @@ function DesktopAgentGUISurfaceImpl({
     workbenchStateRef.current = rawWorkbenchState;
   }
   const workbenchState = workbenchStateRef.current;
+  useAgentSessionReplayNodeReadiness({
+    agentActivityRuntime,
+    nodeId: surface.nodeId,
+    selectedAgentSessionId:
+      workbenchState.lastActiveAgentSessionId?.trim() || null,
+    workspaceId
+  });
   const workbenchAgentTargetId = workbenchState.agentTargetId?.trim() || null;
   const nodeProvider = useMemo(
     () =>
@@ -554,14 +561,15 @@ function DesktopAgentGUISurfaceImpl({
     },
     [workspaceId]
   );
-  const sessionRecordingEnabled = isFeatureEnabled(
-    desktopPreferencesState.featureFlags,
-    AGENT_SESSION_RECORDING_FLAG
-  );
+  const sessionRecordingEnabled =
+    isFeatureEnabled(
+      desktopPreferencesState.featureFlags,
+      AGENT_SESSION_RECORDING_FLAG
+    ) && agentSessionReplayService !== null;
   const renderComposerFooterAccessory =
     useDesktopAgentGUIComposerFooterAccessory({
-      agentSessionActivityReplay,
       agentSessionReplayService,
+      nodeId: surface.nodeId,
       runtimeApi,
       sessionRecordingEnabled,
       workspaceId

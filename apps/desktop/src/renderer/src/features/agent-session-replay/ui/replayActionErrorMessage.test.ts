@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { replayActionErrorMessage } from "./replayActionErrorMessage.ts";
+import {
+  replayActionErrorMessage,
+  replayStatusVisibleError
+} from "./replayActionErrorMessage.ts";
 
 test("summarizes a final state mismatch without exposing fixture JSON", () => {
   const message = replayActionErrorMessage(
@@ -23,4 +26,20 @@ test("limits other replay errors to one short line", () => {
   assert.equal(message.length, 240);
   assert.match(message, /…$/u);
   assert.doesNotMatch(message, /request|secret/u);
+});
+
+test("shows a structured Replay failure cause before the generic error", () => {
+  assert.equal(
+    replayStatusVisibleError(
+      {
+        errorCause: {
+          message: "unsupported process cassette schema version 2"
+        },
+        errorMessage:
+          "Replay Workspace exited before it became ready\nbuilding isolated tuttid"
+      },
+      (table) => `State mismatch: ${table}`
+    ),
+    "unsupported process cassette schema version 2"
+  );
 });

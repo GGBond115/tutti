@@ -25,7 +25,7 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 		a.rejectPendingRequests(session.AgentSessionID, errPermissionRequestCanceled)
 		_ = a.closeLiveSession(session.AgentSessionID)
 	}
-	client, initializeResult, err := a.startInitializedClient(ctx, session, trace)
+	client, initializeResult, _, err := a.startClient(ctx, session, trace, false)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +179,7 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 	trace.Log("resume.begin", map[string]any{
 		"thread_id": strings.TrimSpace(session.ProviderSessionID),
 	})
-	client, initializeResult, err := a.startInitializedClient(ctx, session, trace)
+	client, initializeResult, attachedCheckpoint, err := a.startClient(ctx, session, trace, true)
 	if err != nil {
 		return err
 	}
@@ -198,6 +198,44 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 			}
 		}
 	}()
+	if attachedCheckpoint {
+		planModeMask, defaultModeMask, defaultModel, checkpointFound :=
+			codexAppServerProtocolCheckpointFromRuntimeContext(session.RuntimeContext)
+		if !checkpointFound {
+			return errors.New(
+				"attached live Codex replay is missing provider resume checkpoint; record a new cassette",
+			)
+		}
+		liveState := newACPLiveState()
+		liveState.currentMode = codexACPEffectiveModeID(session)
+		liveState.availableCommands = codexAppServerCommands()
+		liveState.commandsKnown = true
+		applyACPConfigOptionDescriptors(
+			&liveState,
+			codexAppServerConfigOptionDescriptors(nil, session, nil),
+		)
+		started = true
+		keepSession = true
+		a.storeSession(session.AgentSessionID, &codexAppServerSession{
+			client:               client,
+			threadID:             strings.TrimSpace(session.ProviderSessionID),
+			resumeRuntimeContext: clonePayload(session.RuntimeContext),
+			planModeMask:         planModeMask,
+			defaultModeMask:      defaultModeMask,
+			defaultModel: firstNonEmpty(
+				strings.TrimSpace(session.SettingsValue().Model),
+				defaultModel,
+			),
+			authState:       "authenticated",
+			acpLiveState:    liveState,
+			pendingRequests: make(map[string]*pendingInteractiveRequest),
+		})
+		a.emitCommandSnapshot(AgentSessionCommandSnapshot{
+			AgentSessionID: strings.TrimSpace(session.AgentSessionID),
+			Commands:       codexAppServerCommands(),
+		})
+		return nil
+	}
 	serverInfo := a.appServerInfo(initializeResult)
 
 	account, authRequired := a.fetchAccount(ctx, client, session, trace)
@@ -351,14 +389,31 @@ func (a *CodexAppServerAdapter) startInitializedClient(
 	session Session,
 	trace *codexAppServerStartupTrace,
 ) (*codexAppServerClient, json.RawMessage, error) {
+	client, initializeResult, _, err := a.startClient(ctx, session, trace, false)
+	return client, initializeResult, err
+}
+
+func (a *CodexAppServerAdapter) startClient(
+	ctx context.Context,
+	session Session,
+	trace *codexAppServerStartupTrace,
+	allowAttachedCheckpoint bool,
+) (*codexAppServerClient, json.RawMessage, bool, error) {
 	spec, cleanup, err := a.prepareInitializedClientLaunch(ctx, session)
 	if err != nil {
 		trace.Log("process.prepare.failed", map[string]any{
 			"error": err.Error(),
 		})
-		return nil, nil, err
+		return nil, nil, false, err
 	}
-	return a.startInitializedClientPrepared(ctx, session, trace, spec, cleanup)
+	return a.startClientPrepared(
+		ctx,
+		session,
+		trace,
+		spec,
+		cleanup,
+		allowAttachedCheckpoint,
+	)
 }
 
 func (a *CodexAppServerAdapter) prepareInitializedClientLaunch(
@@ -393,13 +448,14 @@ func (a *CodexAppServerAdapter) prepareInitializedClientLaunch(
 	})
 }
 
-func (a *CodexAppServerAdapter) startInitializedClientPrepared(
+func (a *CodexAppServerAdapter) startClientPrepared(
 	ctx context.Context,
 	session Session,
 	trace *codexAppServerStartupTrace,
 	spec ProcessSpec,
 	cleanup func(context.Context),
-) (*codexAppServerClient, json.RawMessage, error) {
+	allowAttachedCheckpoint bool,
+) (*codexAppServerClient, json.RawMessage, bool, error) {
 	trace.Log("process.start.begin", map[string]any{
 		"command": strings.Join(spec.Command, " "),
 		"cwd":     spec.CWD,
@@ -412,7 +468,7 @@ func (a *CodexAppServerAdapter) startInitializedClientPrepared(
 			"duration_ms": time.Since(processStartedAt).Milliseconds(),
 			"error":       err.Error(),
 		})
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	conn = wrapProviderLaunchCleanup(conn, cleanup)
 	trace.Log("process.start.succeeded", map[string]any{
@@ -426,6 +482,8 @@ func (a *CodexAppServerAdapter) startInitializedClientPrepared(
 	// resolve the active turn context so notifications keep producing
 	// activity events after the RPC has returned.
 	client.SetMessageHandler(func(ctx context.Context, message acpMessage) error {
+		endInputUnit := a.inputUnits.begin(ctx, session.AgentSessionID)
+		defer endInputUnit()
 		turnSession := session
 		turnID := ""
 		var normalizer *acpTurnNormalizer
@@ -450,6 +508,16 @@ func (a *CodexAppServerAdapter) startInitializedClientPrepared(
 			_ = client.Close()
 		}
 	}()
+	captureOrigin := processCassetteCaptureOrigin(conn)
+	if captureOrigin == ProcessCassetteCaptureOriginAttachedLiveConnection {
+		if !allowAttachedCheckpoint {
+			return nil, nil, false, errors.New(
+				"attached live provider checkpoint cannot start a new Codex session",
+			)
+		}
+		started = true
+		return client, nil, true, nil
+	}
 
 	initializeResult, err := trace.TypedCall(acpStartCallTimeout, appServerMethodInitialize, func() (json.RawMessage, error) {
 		return client.Initialize(ctx, acpStartCallTimeout, map[string]any{
@@ -470,7 +538,7 @@ func (a *CodexAppServerAdapter) startInitializedClientPrepared(
 			"agent_session_id", session.AgentSessionID,
 			"error", err.Error(),
 		)
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	trace.Log("initialized.notify.begin", nil)
 	notifyStartedAt := time.Now()
@@ -479,11 +547,11 @@ func (a *CodexAppServerAdapter) startInitializedClientPrepared(
 			"duration_ms": time.Since(notifyStartedAt).Milliseconds(),
 			"error":       err.Error(),
 		})
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	trace.Log("initialized.notify.succeeded", map[string]any{
 		"duration_ms": time.Since(notifyStartedAt).Milliseconds(),
 	})
 	started = true
-	return client, initializeResult, nil
+	return client, initializeResult, false, nil
 }

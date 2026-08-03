@@ -146,3 +146,35 @@ func IsKnownCapability(value string) bool {
 	}
 	return false
 }
+
+// CapabilitySnapshot is an authoritative, complete session capability set.
+// A nil *CapabilitySnapshot means no authoritative session snapshot is
+// available (not yet reported or legacy-ambiguous); a non-nil snapshot with no
+// values means the runtime reported support for no canonical capabilities.
+type CapabilitySnapshot struct {
+	Values []string `json:"values"`
+}
+
+func NewCapabilitySnapshot(values []string) *CapabilitySnapshot {
+	seen := map[string]struct{}{}
+	normalized := make([]string, 0, len(values))
+	for _, raw := range values {
+		value := strings.TrimSpace(raw)
+		if !IsKnownCapability(value) {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	return &CapabilitySnapshot{Values: normalized}
+}
+
+func CloneCapabilitySnapshot(value *CapabilitySnapshot) *CapabilitySnapshot {
+	if value == nil {
+		return nil
+	}
+	return &CapabilitySnapshot{Values: append([]string{}, value.Values...)}
+}

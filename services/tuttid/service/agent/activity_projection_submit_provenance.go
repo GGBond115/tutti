@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	canonical "github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 )
 
 // ReportSubmitProvenance is a deliberately narrower contract than Report.
@@ -91,7 +91,18 @@ func (p *ActivityProjection) ReportSubmitProvenance(
 		LastEventAtUnixMS: result.State.LastEventUnixMS,
 		RequestBodyBytes:  result.State.RequestBodyBytes,
 	}
-	p.publishPersistedTurnState(ctx, stateInput, result)
+	provisional := activityStateIsProvisional(stateInput)
+	if !provisional {
+		p.publishPersistedTurnState(ctx, stateInput, result)
+	}
+	if provisional {
+		p.observeSessionState(ctx, stateInput, stateReply)
+		p.observeSessionMessages(ctx, messageInput, canonical.ReportSessionMessagesReply{
+			AcceptedCount: result.Messages.AcceptedCount,
+			LatestVersion: result.Messages.LatestVersion,
+		})
+		return nil
+	}
 	p.publishActivityUpdated(
 		ctx,
 		stateInput.WorkspaceID,
@@ -126,11 +137,12 @@ func (p *ActivityProjection) activityStateReport(
 	ctx context.Context,
 	input canonical.ReportSessionStateInput,
 ) (agentactivitybiz.ActivityStateReport, string, error) {
-	canonicalTargetID, runtimeContext := p.canonicalizeAgentTargetID(
+	canonicalTargetID, runtimeContext, runtimeContextPatch := p.canonicalizeAgentTargetState(
 		ctx,
 		input.WorkspaceID,
 		firstNonEmptyString(input.State.AgentTargetID, input.Source.AgentTargetID),
 		input.State.RuntimeContext,
+		input.State.RuntimeContextPatch,
 	)
 	stateReport := agentactivitybiz.SessionStateReport{
 		WorkspaceID:          strings.TrimSpace(input.WorkspaceID),
@@ -148,7 +160,9 @@ func (p *ActivityProjection) activityStateReport(
 		ProviderSessionID:    strings.TrimSpace(firstNonEmptyString(input.State.ProviderSessionID, input.Source.ProviderSessionID)),
 		Model:                strings.TrimSpace(input.State.Model),
 		Settings:             clonePayload(input.State.Settings),
-		RuntimeContext:       clonePayload(runtimeContext),
+		Capabilities:         canonical.CloneCapabilitySnapshot(input.State.Capabilities),
+		RuntimeContext:       cloneOptionalPayload(runtimeContext),
+		RuntimeContextPatch:  canonical.CloneRuntimeContextPatch(runtimeContextPatch),
 		Cwd:                  strings.TrimSpace(input.State.CWD),
 		Title:                strings.TrimSpace(sessionStateTitle(input.State)),
 		Status:               strings.TrimSpace(input.State.LifecycleStatus),

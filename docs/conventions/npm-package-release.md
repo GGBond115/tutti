@@ -19,6 +19,7 @@ The current fixed release group is:
 @tutti-os/analytics
 @tutti-os/analytics-debug
 @tutti-os/event-stream-core
+@tutti-os/connector-market
 @tutti-os/workspace-file-manager
 @tutti-os/workspace-file-reference
 @tutti-os/workspace-issue-manager
@@ -39,6 +40,7 @@ The current fixed release group is:
 @tutti-os/workbench-surface
 @tutti-os/app-release-tools
 @tutti-os/auth-bridge
+@tutti-os/desktop-update-admission
 @tutti-os/ui-i18n-runtime
 @tutti-os/ui-notifications
 @tutti-os/ui-rich-text
@@ -163,12 +165,14 @@ pnpm add @tutti-os/workspace-file-reference@beta
 pnpm add @tutti-os/workspace-file-preview@beta
 pnpm add @tutti-os/workspace-file-manager@beta
 pnpm add @tutti-os/workspace-issue-manager@beta
+pnpm add @tutti-os/connector-market@beta
 pnpm add @tutti-os/workspace-app-center@beta
 pnpm add @tutti-os/workspace-terminal@beta
 pnpm add @tutti-os/workbench-electron@beta
 pnpm add @tutti-os/workbench-host@beta
 pnpm add @tutti-os/workbench-surface@beta
 pnpm add @tutti-os/workbench-snapshot@beta
+pnpm add @tutti-os/desktop-update-admission@beta
 pnpm add @tutti-os/ui-i18n-runtime@beta
 pnpm add @tutti-os/ui-notifications@beta
 pnpm add @tutti-os/ui-rich-text@beta
@@ -321,6 +325,11 @@ The stable package entrypoints are:
 @tutti-os/ui-rich-text/plugins
 @tutti-os/ui-rich-text/types
 @tutti-os/ui-react-hooks
+@tutti-os/connector-market
+@tutti-os/connector-market/contracts
+@tutti-os/connector-market/openapi/connector-market.v1.yaml
+@tutti-os/connector-market/react
+@tutti-os/connector-market/services
 @tutti-os/workspace-app-center
 @tutti-os/workspace-app-center/contracts
 @tutti-os/workspace-app-center/core

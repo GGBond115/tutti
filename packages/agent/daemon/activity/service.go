@@ -9,6 +9,7 @@ import (
 	"time"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 type State struct {
@@ -515,7 +516,9 @@ func statePatchFromSessionState(agentSessionID string, state WorkspaceAgentSessi
 		ProviderSessionID:     strings.TrimSpace(state.ProviderSessionID),
 		Model:                 strings.TrimSpace(state.Model),
 		Settings:              clonePayloadMap(state.Settings),
+		Capabilities:          canonical.CloneCapabilitySnapshot(state.Capabilities),
 		RuntimeContext:        clonePayloadMap(state.RuntimeContext),
+		RuntimeContextPatch:   canonical.CloneRuntimeContextPatch(state.RuntimeContextPatch),
 		TurnLifecycle:         cloneTurnLifecycle(state.TurnLifecycle),
 		SubmitAvailability:    cloneSubmitAvailability(state.SubmitAvailability),
 		InteractionTransition: cloneInteractionTransition(state.InteractionTransition),

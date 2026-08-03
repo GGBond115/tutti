@@ -11,6 +11,7 @@ import {
   type WorkbenchHostSessionResolution
 } from "@tutti-os/workbench-host";
 import {
+  createWorkbenchNodePreviewCaptureAdapter,
   resolveWorkbenchHostPrepareClose,
   type WorkbenchDebugDiagnostics,
   type WorkbenchHostCloseDialogRequest
@@ -43,6 +44,7 @@ import type { IWorkspaceFilePreviewSurfaceHost } from "../../../workspace-file-p
 import type { IWorkspaceUserProjectService } from "../../../workspace-user-project/services/workspaceUserProjectService.interface.ts";
 import type { IAgentProviderStatusService as AgentProviderStatusService } from "../../../workspace-agent/services/agentProviderStatusService.interface.ts";
 import type { IAgentQuickPromptService as AgentQuickPromptService } from "../../../workspace-agent/services/agentQuickPromptService.interface.ts";
+import type { AgentSessionReplayDesktopComposition } from "../../../agent-session-replay/services/agentSessionReplayDesktopComposition.ts";
 import type { IAgentsService as AgentsService } from "../../../workspace-agent/services/agentsService.interface.ts";
 import type { IWorkspaceAgentActivityService as WorkspaceAgentActivityService } from "../../../workspace-agent/services/workspaceAgentActivityService.interface.ts";
 import type { IWorkspaceAgentPromptSessionService as WorkspaceAgentPromptSessionService } from "../../../workspace-agent/services/workspaceAgentPromptSessionService.interface.ts";
@@ -72,6 +74,7 @@ const workspaceDockNativePreviewTimeoutMs = 2_500;
 
 export interface WorkspaceWorkbenchHostInputResolverDependencies {
   agentQuickPromptService?: AgentQuickPromptService;
+  agentSessionReplayComposition?: AgentSessionReplayDesktopComposition | null;
   agentProviderStatusService: AgentProviderStatusService;
   agentsService: AgentsService;
   appCenterService: IWorkspaceAppCenterService;
@@ -156,6 +159,8 @@ export class WorkspaceWorkbenchHostInputResolver {
     const contributionRegistry = resolveWorkbenchCapabilityRegistry(
       createTuttiWorkbenchProductProfile({
         agentQuickPromptService: this.dependencies.agentQuickPromptService,
+        agentSessionReplayComposition:
+          this.dependencies.agentSessionReplayComposition,
         appI18n: input.appI18n,
         appLocale: input.appLocale,
         appCenterService: this.dependencies.appCenterService,
@@ -343,258 +348,25 @@ function createDesktopWorkspaceNodePreviewCapture(
   runtimeApi: Pick<DesktopRuntimeApi, "logRendererDiagnostic">,
   workspaceId: string
 ): NonNullable<WorkspaceWorkbenchHostInput["captureNodePreviewImages"]> {
-  return async (node) => {
-    if (node.isMinimized || document.visibilityState !== "visible") {
-      logDockPreviewCaptureDiagnostic(runtimeApi, workspaceId, {
-        details: {
-          documentVisibilityState: document.visibilityState,
-          isMinimized: node.isMinimized,
-          nodeId: node.id,
-          typeId: node.data.typeId
-        },
-        event: "dock_preview_capture.skipped",
-        level: "debug"
-      });
-      return null;
-    }
-
-    const captureContext = resolveWorkspaceNodeCaptureTarget(node.id);
-    if (!captureContext) {
-      logDockPreviewCaptureDiagnostic(runtimeApi, workspaceId, {
-        details: { nodeId: node.id, typeId: node.data.typeId },
-        event: "dock_preview_capture.target_missing",
-        level: "warn"
-      });
-      return null;
-    }
-
-    const { captureTarget, windowElement } = captureContext;
-    if (!isForegroundWorkspaceNodeCaptureTarget(windowElement)) {
-      return null;
-    }
-
-    const rect = captureTarget.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) {
-      logDockPreviewCaptureDiagnostic(runtimeApi, workspaceId, {
-        details: {
-          height: rect.height,
-          nodeId: node.id,
-          typeId: node.data.typeId,
-          width: rect.width,
-          x: rect.left,
-          y: rect.top
-        },
-        event: "dock_preview_capture.invalid_rect",
-        level: "warn"
-      });
-      return null;
-    }
-
-    const nativeCaptureBlockReason = resolveNativeCaptureBlockReason(
-      captureTarget,
-      rect
-    );
-    if (nativeCaptureBlockReason) {
-      logDockPreviewCaptureDiagnostic(runtimeApi, workspaceId, {
-        details: {
-          height: rect.height,
-          nodeId: node.id,
-          reason: nativeCaptureBlockReason,
-          typeId: node.data.typeId,
-          width: rect.width,
-          x: rect.left,
-          y: rect.top
-        },
-        event: "dock_preview_capture.native_skipped",
-        level: "debug"
-      });
-      return null;
-    }
-
-    const captureStartedAt = performance.now();
-    logDockPreviewCaptureDiagnostic(runtimeApi, workspaceId, {
-      details: {
-        height: rect.height,
-        nodeId: node.id,
-        timeoutMs: workspaceDockNativePreviewTimeoutMs,
-        typeId: node.data.typeId,
-        width: rect.width,
-        x: rect.left,
-        y: rect.top
-      },
-      event: "dock_preview_capture.started",
-      level: "info"
-    });
-
-    let captureResult: PreviewImagesCaptureResult;
-    try {
-      const capturePromise = hostWindowApi.capturePreviewImages({
-        maxHeight: workspaceDockNativePreviewMaxHeightPx,
-        maxWidth: workspaceDockNativePreviewMaxWidthPx,
-        rect: {
-          height: rect.height,
-          width: rect.width,
-          x: rect.left,
-          y: rect.top
-        }
-      });
-      capturePromise.catch(() => undefined);
-      captureResult = await resolvePreviewImagesCaptureWithTimeout(
-        capturePromise,
-        workspaceDockNativePreviewTimeoutMs
-      );
-    } catch (error) {
-      logDockPreviewCaptureDiagnostic(runtimeApi, workspaceId, {
-        details: {
-          durationMs: Math.round(performance.now() - captureStartedAt),
-          error: error instanceof Error ? error.message : String(error),
-          nodeId: node.id,
-          typeId: node.data.typeId
-        },
-        event: "dock_preview_capture.ipc_failed",
-        level: "warn"
-      });
-      return null;
-    }
-
-    if (captureResult.status === "timeout") {
-      logDockPreviewCaptureDiagnostic(runtimeApi, workspaceId, {
-        details: {
-          durationMs: Math.round(performance.now() - captureStartedAt),
-          nodeId: node.id,
-          timeoutMs: workspaceDockNativePreviewTimeoutMs,
-          typeId: node.data.typeId
-        },
-        event: "dock_preview_capture.timed_out",
-        level: "warn"
-      });
-      return null;
-    }
-
-    const previewImages = captureResult.previewImages;
-
-    if (!previewImages) {
-      logDockPreviewCaptureDiagnostic(runtimeApi, workspaceId, {
-        details: {
-          durationMs: Math.round(performance.now() - captureStartedAt),
-          height: rect.height,
-          nodeId: node.id,
-          typeId: node.data.typeId,
-          width: rect.width,
-          x: rect.left,
-          y: rect.top
-        },
-        event: "dock_preview_capture.empty_result",
-        level: "warn"
-      });
-    } else {
-      logDockPreviewCaptureDiagnostic(runtimeApi, workspaceId, {
-        details: {
-          durationMs: Math.round(performance.now() - captureStartedAt),
-          nodeId: node.id,
-          dockPreviewLength: previewImages.dockPreviewImageUrl.length,
-          genieImageLength: previewImages.genieImageUrl.length,
-          typeId: node.data.typeId
-        },
-        event: "dock_preview_capture.succeeded",
-        level: "info"
-      });
-    }
-
-    return previewImages;
-  };
-}
-
-function resolveNativeCaptureBlockReason(
-  _target: HTMLElement,
-  rect: DOMRect
-): "outside_viewport" | null {
-  if (
-    rect.left < 0 ||
-    rect.top < 0 ||
-    rect.right > window.innerWidth ||
-    rect.bottom > window.innerHeight
-  ) {
-    return "outside_viewport";
-  }
-  return null;
-}
-
-function isForegroundWorkspaceNodeCaptureTarget(
-  windowElement: HTMLElement
-): boolean {
-  return windowElement.dataset.focused === "true";
-}
-
-type PreviewImagesCaptureResult =
-  | {
-      previewImages: Awaited<
-        ReturnType<DesktopHostWindowApi["capturePreviewImages"]>
-      >;
-      status: "resolved";
-    }
-  | { status: "timeout" };
-
-function resolvePreviewImagesCaptureWithTimeout(
-  capturePromise: ReturnType<DesktopHostWindowApi["capturePreviewImages"]>,
-  timeoutMs: number
-): Promise<PreviewImagesCaptureResult> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<PreviewImagesCaptureResult>((resolve) => {
-    timeout = setTimeout(() => resolve({ status: "timeout" }), timeoutMs);
+  return createWorkbenchNodePreviewCaptureAdapter({
+    captureRect: ({ maxHeight, maxWidth, rect }) =>
+      hostWindowApi.capturePreviewImages({ maxHeight, maxWidth, rect }),
+    diagnostics: (diagnostic) => {
+      void runtimeApi
+        .logRendererDiagnostic({
+          details: diagnostic.details,
+          event: `dock_preview_${diagnostic.event}`,
+          level: diagnostic.level,
+          source: "workspace-workbench",
+          workspaceId
+        })
+        .catch(() => undefined);
+    },
+    maxHeight: workspaceDockNativePreviewMaxHeightPx,
+    maxWidth: workspaceDockNativePreviewMaxWidthPx,
+    resolveDiagnosticContext: (node) => ({ typeId: node.data.typeId }),
+    timeoutMs: workspaceDockNativePreviewTimeoutMs
   });
-  return Promise.race([
-    capturePromise.then((previewImages) => ({
-      previewImages,
-      status: "resolved" as const
-    })),
-    timeoutPromise
-  ]).finally(() => {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-  });
-}
-
-function logDockPreviewCaptureDiagnostic(
-  runtimeApi: Pick<DesktopRuntimeApi, "logRendererDiagnostic">,
-  workspaceId: string,
-  input: {
-    details: Record<string, unknown>;
-    event: string;
-    level: "debug" | "info" | "warn";
-  }
-): void {
-  void runtimeApi
-    .logRendererDiagnostic({
-      details: input.details,
-      event: input.event,
-      level: input.level,
-      source: "workspace-workbench",
-      workspaceId
-    })
-    .catch(() => undefined);
-}
-
-function resolveWorkspaceNodeCaptureTarget(nodeId: string): {
-  captureTarget: HTMLElement;
-  windowElement: HTMLElement;
-} | null {
-  const windowElement =
-    Array.from(
-      document.querySelectorAll<HTMLElement>("[data-workbench-window-id]")
-    ).find((candidate) => candidate.dataset.workbenchWindowId === nodeId) ??
-    null;
-  if (!windowElement) {
-    return null;
-  }
-  const captureTarget =
-    windowElement.querySelector<HTMLElement>(
-      '[data-workbench-window-capture="true"]'
-    ) ??
-    windowElement.querySelector<HTMLElement>(".workbench-window") ??
-    windowElement;
-  return { captureTarget, windowElement };
 }
 
 function createWorkspaceWorkbenchDebugDiagnostics(

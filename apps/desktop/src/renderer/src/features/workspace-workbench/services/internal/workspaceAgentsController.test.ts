@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentTarget } from "@tutti-os/client-tuttid-ts";
-import type { WorkspaceAgentDefinition } from "../workspaceSettingsTypes.ts";
+import type {
+  WorkspaceAgentDefinition,
+  WorkspaceModelPlan,
+  WorkspaceModelPlanProtocol
+} from "../workspaceSettingsTypes.ts";
 import {
   parseWorkspaceAgentList,
   WorkspaceAgentsController,
@@ -355,6 +359,98 @@ test("parseWorkspaceAgentList trims, removes blanks, and keeps stable uniqueness
     "beta"
   ]);
 });
+
+test("workspace agents controller prefills a compatible runtime and plan for the hand-off", () => {
+  const store = createWorkspaceSettingsStore();
+  store.workspaceID = "workspace-1";
+  store.agents.harnessTargets = [
+    { enabled: true, id: "local:codex", name: "Codex", provider: "codex" },
+    {
+      enabled: true,
+      id: "local:claude-code",
+      name: "Claude Code",
+      provider: "claude-code"
+    }
+  ];
+  store.modelPlans.plans = [createStoredModelPlan("plan-1", "anthropic")];
+  const controller = new WorkspaceAgentsController({
+    client: createClient(),
+    store
+  });
+
+  controller.beginDraftForModelPlan("plan-1");
+
+  assert.equal(store.agents.draft?.harnessAgentTargetId, "local:claude-code");
+  assert.equal(store.agents.draft?.modelPlanId, "plan-1");
+});
+
+test("workspace agents controller leaves the plan empty when no runtime is compatible", () => {
+  const store = createWorkspaceSettingsStore();
+  store.workspaceID = "workspace-1";
+  store.agents.harnessTargets = [
+    { enabled: true, id: "local:codex", name: "Codex", provider: "codex" }
+  ];
+  store.modelPlans.plans = [createStoredModelPlan("plan-1", "anthropic")];
+  const controller = new WorkspaceAgentsController({
+    client: createClient(),
+    store
+  });
+
+  controller.beginDraftForModelPlan("plan-1");
+
+  assert.equal(store.agents.draft?.harnessAgentTargetId, "local:codex");
+  assert.equal(store.agents.draft?.modelPlanId, "");
+});
+
+test("workspace agents controller adopts the plan into an existing draft only when compatible", () => {
+  const store = createWorkspaceSettingsStore();
+  store.workspaceID = "workspace-1";
+  store.agents.harnessTargets = [
+    { enabled: true, id: "local:codex", name: "Codex", provider: "codex" }
+  ];
+  store.modelPlans.plans = [
+    createStoredModelPlan("plan-anthropic", "anthropic"),
+    createStoredModelPlan("plan-openai", "openai")
+  ];
+  const controller = new WorkspaceAgentsController({
+    client: createClient(),
+    store
+  });
+  controller.beginDraft();
+  controller.updateDraft({ defaultModel: "gpt-5", name: "Keep me" });
+
+  controller.beginDraftForModelPlan("plan-anthropic");
+  assert.equal(store.agents.draft?.name, "Keep me");
+  assert.equal(store.agents.draft?.modelPlanId, "");
+  assert.equal(store.agents.draft?.defaultModel, "gpt-5");
+
+  controller.beginDraftForModelPlan("plan-openai");
+  assert.equal(store.agents.draft?.name, "Keep me");
+  assert.equal(store.agents.draft?.modelPlanId, "plan-openai");
+  assert.equal(store.agents.draft?.defaultModel, "");
+});
+
+function createStoredModelPlan(
+  id: string,
+  protocol: WorkspaceModelPlanProtocol
+): WorkspaceModelPlan {
+  return {
+    baseUrl: "https://api.example.com/v1",
+    createdAt: "2026-07-12T00:00:00Z",
+    defaultModel: null,
+    detection: { stages: [] },
+    enabled: true,
+    hasApiKey: true,
+    id,
+    models: [],
+    name: id,
+    protocol,
+    status: "undetected",
+    templateKind: "custom",
+    updatedAt: "2026-07-12T00:00:00Z",
+    workspaceId: "workspace-1"
+  };
+}
 
 function createClient(
   overrides: Partial<WorkspaceAgentsControllerDependencies["client"]> = {}

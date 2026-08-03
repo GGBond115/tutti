@@ -82,7 +82,7 @@ Rules:
 
 - organize packages by responsibility, not by language alone
 - use `clients/*` for domain-specific client access
-- use `device-link` for the shared ICE/QUIC peer transport and gomobile boundary consumed by Tutti, TSH, and mobile clients
+- use `device-link` for shared ICE/QUIC peer transport, product-neutral Relay stream mechanics, and the gomobile boundary consumed by Tutti, TSH, and mobile clients
 - use `events/*` for schema-first shared business event protocol contracts, validators, and generated transport metadata that multiple hosts consume
 - use `browser/*` for reusable browser/workbench node mechanics that are shared by desktop hosts without carrying product-specific bridge methods
 - use `configs/*` for shared engineering configuration
@@ -170,6 +170,35 @@ Desktop summary:
 
 The authoritative desktop directory shape and ownership rules live in [docs/conventions/desktop-layering.md](../conventions/desktop-layering.md). Keep this repository-level document as a summary, not a second full desktop structure spec.
 
+### `packages/desktop/*`
+
+Desktop packages own product-neutral lifecycle and native-host integration
+mechanics shared by more than one desktop product.
+
+Current packages:
+
+- `packages/desktop/update-admission`: minimum-version policy contracts,
+  validation, mandatory updater ownership, Electron admission lifecycle,
+  capability-minimal preload API, shared React presentation, and default i18n
+
+Product policy transport, normal update preferences, release feeds, download
+URLs, window assets, logging sinks, and business-window enumeration remain in
+the consuming desktop app.
+
+### `packages/connector/*`
+
+Connector packages own host-neutral connector domain boundaries shared across
+desktop daemons.
+
+Current packages:
+
+- `packages/connector/market`: connector catalog, installation,
+  authorization, compatibility, workspace-binding, operation, OpenAPI, and
+  renderer state contracts shared by Tutti and external hosts
+
+Catalog endpoints, local persistence, credentials, installation directories,
+generated daemon clients, and product integration remain in host adapters.
+
 ### `services/tuttid`
 
 `services/tuttid` is the primary business core.
@@ -187,6 +216,19 @@ Client packages provide domain-specific access helpers for consumers.
 
 They should remain focused, named by responsibility, and free of hidden business rules.
 
+`packages/clients/device-authority-go` is the shared Go client boundary for the
+Device Authority owner lifecycle across Tutti and TSH. The initial package is a
+staged cross-repository extraction from TSH: publish the stable module first,
+then refactor TSH to the released version without changing behavior, then wire
+the same client into Tutti. This ordering is required because cross-repository
+consumers must not use workspace replacements or pseudo-versions. The package
+owns the control-plane wire contract, canonical Ed25519 enrollment and
+owner-token signing, bounded HTTP response semantics, and credential-binding
+validation. Product adapters still own base-URL and API-prefix selection,
+account/session/device headers, durable identity storage, Relay demand and lease
+scheduling, logging, and retry policy. The client must not infer
+local-versus-remote deployment policy or import Relay transport lifecycle code.
+
 ### `packages/device-link`
 
 DeviceLink is the shared Go peer-transport boundary for Tutti Desktop, TSH
@@ -195,15 +237,20 @@ selected packet path, mutual ephemeral certificate pinning, categorical path
 classification, the gomobile build surface, and product-neutral authenticated
 link lifecycle mechanics: generation-fenced admission, establishment
 serialization, pooled stream ownership, connection racing, and annealed path
-probing.
+probing. It also owns generic Relay byte-stream dialing and the reusable
+reference-counted WebSocket/yamux owner-tunnel mechanics, including liveness,
+readiness ordering, reconnect backoff, stream dispatch, and close ordering.
 
-It exposes authenticated bidirectional streams and must remain independent of
-Agent, Session, Workspace, account, pairing, rendezvous, and Relay product
-policy. Peer keys and registration metadata stay opaque; host services and apps
-inject path dialers, credentials, fallback timing, and application stream
-protocols. The `tuttid` Mobile Remote owner is the first adapter for the shared
-manager; its pairing and Agent framing remain service-owned. Raw addresses,
-candidates, credentials, and payloads must not enter ordinary logs or metrics.
+It exposes authenticated bidirectional streams and generic Relay byte streams,
+and must remain independent of Agent, Session, Workspace, account, pairing,
+rendezvous, Relay authorization, and Relay product policy. Peer and owner keys
+stay opaque; host services and apps inject path dialers, credentials, leases,
+fallback timing, and application stream protocols. The `tuttid` Mobile Remote
+owner is the first adapter for the shared link manager; its pairing and Agent
+framing remain service-owned. TSH remains the product authority for its Relay
+registration and lease lifecycle even when it consumes the shared owner-tunnel
+mechanics. Raw addresses, candidates, credentials, and payloads must not enter
+ordinary logs or metrics.
 
 ### `packages/events/*`
 

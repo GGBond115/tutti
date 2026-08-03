@@ -67,7 +67,7 @@ const forbiddenPatterns = [
     pattern: /\bWorkspaceAgentActivity(?:Session|Snapshot|Presence)\b/g
   },
   {
-    label: "module-global AgentActivityRuntime resolver",
+    label: "legacy module-global activity runtime resolver",
     pattern:
       /\b(?:getAgentActivityRuntime|getAgentActivityRuntimeByOrigin|getOptionalAgentActivityRuntime)\b/g
   },
@@ -155,7 +155,7 @@ for (const filePath of scannedFiles) {
 
 if (violations.length > 0) {
   process.stderr.write(
-    "Agent consumers must use AgentActivityRuntime and AgentSessionEngine selectors.\n"
+    "Agent consumers must use AgentGUIRuntime and AgentSessionEngine selectors.\n"
   );
   process.stderr.write(
     "Move legacy AgentHostWorkspaceAgent access into host compatibility or projection boundary files.\n\n"
@@ -167,7 +167,7 @@ if (violations.length > 0) {
   }
   process.exitCode = 1;
 } else {
-  console.log("Agent activity runtime boundary check passed");
+  console.log("Agent GUI runtime boundary check passed");
 }
 
 function* walk(directory) {

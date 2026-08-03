@@ -12,7 +12,13 @@ Current examples include:
 - `dev-gui.sh` for checking local prerequisites, preparing workspace
   dependencies, downloading and building the development `tuttid` binary, and
   launching the desktop GUI with `TUTTID_BIN`; the renderer dev server warms
-  its reachable module graph before Electron opens
+  its reachable module graph before Electron opens. Agent Extensions use their
+  configured signed remote releases by default. The command clears inherited
+  Kimi Code package overrides so stale shell or launchd state cannot shadow the
+  release used by the shipped product; set `DEV_GUI_KIMI_CODE_PACKAGE_DIR` to
+  an explicit unpacked package path only when testing a local package. The
+  script canonicalizes the path and fails before launch when the directory or
+  `tutti.agent.json` is missing
 - `renderer-dev-warmup.mjs` for moving cold Vite and React Compiler transforms
   ahead of the Electron launch during desktop development
 - `setup-dev.mjs` for checking local developer prerequisites such as pinned lint tooling
@@ -35,7 +41,9 @@ Current examples include:
 - `run-agent-gui-performance.mjs` for starting an isolated Desktop from a
   consistent backup of the developer database, running a selected AgentGUI or
   window interaction, capturing its exact trace window, and generating
-  report-only JSON and Markdown summaries
+  report-only JSON and Markdown summaries. It reuses a fresh production
+  Desktop bundle when available, so each run starts the isolated Electron
+  process directly instead of starting a new Vite renderer dev server.
 - `lark-log-tool.mjs` for fetching Feishu/Lark message file attachments or Base bug-record attachments with `lark-cli`, extracting Tutti log bundles, summarizing repeated log failures around an anchor time, and optionally watching appended warn/error lines in real time
 
   ```bash
@@ -66,6 +74,27 @@ Current examples include:
   ```
 
 Core product behavior should graduate into Go services or first-class tools rather than remain in shell scripts indefinitely.
+
+## Agent Session Replay recording
+
+This repository owns the generic Electron record/replay runner. QA case
+metadata, scenario modules, fixtures, Cassettes, and evidence live in the
+separate `tutti-agent-session-replay-cases` repository.
+
+Record mode receives the case-owned module explicitly:
+
+```bash
+pnpm e2e:agent-gui -- \
+  --record .tmp/cassettes/c01_codex \
+  --scenario c01 \
+  --scenario-file ../tutti-agent-session-replay-cases/cases/c01/scenario.mjs
+```
+
+`run-agent-session-replay.mjs` owns CLI mode selection and record/replay
+orchestration. It validates that the external module's exported scenario ID
+matches `--scenario`. Cassette validation and artifacts, isolated runtime
+setup, and recording project preparation remain in
+`agent-session-replay-runner/`.
 
 Example desktop trace capture:
 

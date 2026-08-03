@@ -6,9 +6,9 @@ import type {
 import type { PropsWithChildren } from "react";
 import { describe, expect, it } from "vitest";
 import {
-  AgentActivityRuntimeProvider,
+  AgentGUIRuntimeProvider,
   useAgentActivitySessionMessages,
-  type AgentActivityRuntime
+  type AgentGUIRuntime
 } from "./agentActivityRuntime";
 
 describe("useAgentActivitySessionMessages", () => {
@@ -19,9 +19,9 @@ describe("useAgentActivitySessionMessages", () => {
       snapshot({ "session-a": messagesA, "session-b": messagesB })
     );
     const wrapper = ({ children }: PropsWithChildren) => (
-      <AgentActivityRuntimeProvider runtime={store.runtime}>
+      <AgentGUIRuntimeProvider runtime={store.runtime}>
         {children}
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
     let rendersA = 0;
     let rendersB = 0;
@@ -67,9 +67,9 @@ describe("useAgentActivitySessionMessages", () => {
       })
     );
     const wrapper = ({ children }: PropsWithChildren) => (
-      <AgentActivityRuntimeProvider runtime={store.runtime}>
+      <AgentGUIRuntimeProvider runtime={store.runtime}>
         {children}
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
     const rendered = renderHook(
       () => useAgentActivitySessionMessages("workspace-1", ["root", "child"]),
@@ -101,7 +101,7 @@ function createRuntimeStore(initial: AgentActivitySnapshot) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     }
-  } as unknown as AgentActivityRuntime;
+  } as unknown as AgentGUIRuntime;
   return {
     publish(next: AgentActivitySnapshot) {
       current = next;

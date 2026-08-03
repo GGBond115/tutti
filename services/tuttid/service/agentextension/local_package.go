@@ -11,9 +11,11 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	agentextensionbiz "github.com/tutti-os/tutti/services/tuttid/biz/agentextension"
 )
 
-const localPackageVersionMarker = "+local."
+const localPackageVersionMarker = agentextensionbiz.LocalPackageVersionMarker
 
 func (m *Manager) installLocalPackage(key, sourceDir string) (Installation, error) {
 	if m.Installations == nil {

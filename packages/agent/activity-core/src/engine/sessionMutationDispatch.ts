@@ -22,21 +22,6 @@ export interface SessionMutationCancellation {
   signal?: AbortSignal;
 }
 
-/**
- * Compatibility entrypoint for consumers that still dispatch the reducer
- * protocol directly. Product hosts should use the semantic mutation methods
- * on AgentSessionEngine instead.
- *
- * @deprecated Use AgentSessionEngine.renameSession, setSessionPinned, or
- * deleteSessions.
- */
-export function dispatchSessionMutation(
-  engine: AgentSessionEngine,
-  intent: SessionMutationsIntent
-): Promise<SessionMutationRecord> {
-  return dispatchSessionMutationWithCancellation(engine, intent);
-}
-
 /** @internal */
 export function dispatchSessionMutationWithCancellation(
   engine: AgentSessionEngine,
@@ -127,7 +112,7 @@ export function dispatchSessionForkThroughTurn(
     retryableExisting?.mutationId ?? createSessionForkIdentity();
   const targetAgentSessionId =
     retryableExisting?.targetAgentSessionId ?? createSessionForkIdentity();
-  return dispatchSessionMutation(engine, {
+  return dispatchSessionMutationWithCancellation(engine, {
     requestId,
     sourceAgentSessionId,
     targetAgentSessionId,

@@ -52,6 +52,10 @@ import type {
 } from "./nodePreviewCapture.ts";
 import type { WorkbenchNodePresentationTransitionStore } from "./nodePresentationTransitions.ts";
 import {
+  workbenchNodePreviewIdentity,
+  workbenchNodePreviewRuntime
+} from "../preview/workbenchNodePreviewRuntime.ts";
+import {
   resolveNativeFirstGenieTexture,
   scheduleWorkbenchGeniePostAnimationIdleTask,
   scheduleWorkbenchGenieWarmup,
@@ -68,14 +72,13 @@ const minimizedDockSlotEnterAnimationMs = 720;
 const dockAnchorResolveMaxAnimationFrames = 3;
 const dockPreviewMaxWidth = 260;
 const dockPreviewMaxHeight = 170;
-const dockPreviewImageCacheMaxEntries = 96;
 const minimizedGenieTextureCacheMaxBytes = 64 * 1024 * 1024;
 const minimizedGenieTextureCacheMaxEntries = 8;
 const inlineImageResourceCacheMaxEntries = 160;
 const inlineImageResizeTargetCacheMaxEntries = 4;
 const dockAnchorFallbackSizePx = 43.2;
 const genieInlineImageMaxDevicePixelRatio = 2;
-const dockPreviewImageByNodeID = new Map<string, string>();
+
 const inlineImageResourceByUrl = new Map<string, Promise<string | null>>();
 const resizedInlineImageResourceByUrl = new Map<
   string,
@@ -598,23 +601,17 @@ export function writeCachedWorkbenchNodePreviewImage(
   nodeID: string,
   previewImageUrl: string | null | undefined
 ): void {
-  if (previewImageUrl) {
-    dockPreviewImageByNodeID.delete(nodeID);
-    dockPreviewImageByNodeID.set(nodeID, previewImageUrl);
-    while (dockPreviewImageByNodeID.size > dockPreviewImageCacheMaxEntries) {
-      const oldestNodeID = dockPreviewImageByNodeID.keys().next().value;
-      if (typeof oldestNodeID !== "string") {
-        break;
-      }
-      dockPreviewImageByNodeID.delete(oldestNodeID);
-    }
-  }
+  workbenchNodePreviewRuntime.write({
+    identity: workbenchNodePreviewIdentity(nodeID),
+    nodeId: nodeID,
+    previewImageUrl
+  });
 }
 
 export function readCachedWorkbenchNodePreviewImage(
   nodeID: string
 ): string | null {
-  return dockPreviewImageByNodeID.get(nodeID) ?? null;
+  return workbenchNodePreviewRuntime.readLatest(nodeID);
 }
 
 export async function captureWorkbenchNodePreviewImage(

@@ -2,9 +2,9 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  resetAgentActivityRuntimeForTests,
-  setAgentActivityRuntimeForTests,
-  type AgentActivityRuntime
+  resetAgentGUIRuntimeForTests,
+  setAgentGUIRuntimeForTests,
+  type AgentGUIRuntime
 } from "../../agentActivityRuntime";
 import { AgentQueuedPromptPanel } from "./AgentQueuedPromptPanel";
 
@@ -19,7 +19,7 @@ const labels = {
 };
 
 afterEach(() => {
-  resetAgentActivityRuntimeForTests();
+  resetAgentGUIRuntimeForTests();
 });
 
 function textQueuedPrompt(id: string, text: string, createdAtUnixMs = 1) {
@@ -379,9 +379,9 @@ describe("AgentQueuedPromptPanel", () => {
       name: "staged.png",
       path: "/agent-prompt-assets/staged.png"
     }));
-    setAgentActivityRuntimeForTests({
+    setAgentGUIRuntimeForTests({
       readPromptAsset
-    } as unknown as AgentActivityRuntime);
+    } as unknown as AgentGUIRuntime);
 
     const { container } = render(
       <AgentQueuedPromptPanel
@@ -431,9 +431,9 @@ describe("AgentQueuedPromptPanel", () => {
       mimeType: "image/png",
       name: "attached.png"
     }));
-    setAgentActivityRuntimeForTests({
+    setAgentGUIRuntimeForTests({
       readSessionAttachment
-    } as unknown as AgentActivityRuntime);
+    } as unknown as AgentGUIRuntime);
 
     const { container } = render(
       <AgentQueuedPromptPanel
@@ -489,9 +489,9 @@ describe("AgentQueuedPromptPanel", () => {
           resolvers.set(`${input.workspaceId}:${input.path}`, resolve);
         })
     );
-    setAgentActivityRuntimeForTests({
+    setAgentGUIRuntimeForTests({
       readPromptAsset
-    } as unknown as AgentActivityRuntime);
+    } as unknown as AgentGUIRuntime);
     const createPanel = (workspaceId: string, path: string) => (
       <AgentQueuedPromptPanel
         agentSessionId="session-1"
@@ -575,7 +575,7 @@ describe("AgentQueuedPromptPanel", () => {
   it("does not hydrate or fetch queued HTTPS image URLs in the owner", () => {
     const readSessionAttachment = vi.fn();
     const url = "https://bucket.example/image.webp?token=secret";
-    setAgentActivityRuntimeForTests({ readSessionAttachment } as never);
+    setAgentGUIRuntimeForTests({ readSessionAttachment } as never);
     const { container } = render(
       <AgentQueuedPromptPanel
         queuedPrompts={[

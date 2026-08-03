@@ -24,41 +24,7 @@ interface UserInfo {
   user_id?: string;
 }
 
-export async function sendEmailCode(email: string): Promise<void> {
-  const payload = await accountRequest<{ success?: boolean }>(
-    "auth/v1/send_auth_code",
-    {
-      app_id: accountAppID,
-      email: email.trim()
-    }
-  );
-  if (payload.success !== true) {
-    throw new Error("verification code request was not accepted");
-  }
-}
-
-export async function verifyEmailCode(
-  email: string,
-  code: string
-): Promise<AccountSession> {
-  const verified = await accountRequest<{
-    sessionId?: string;
-    session_id?: string;
-  }>("auth/v1/verify_auth_code_for_session", {
-    app_id: accountAppID,
-    code: code.trim(),
-    email: email.trim()
-  });
-  const sessionId = String(
-    verified.sessionId ?? verified.session_id ?? ""
-  ).trim();
-  if (!sessionId) {
-    throw new Error("account session is missing");
-  }
-  return accountSession(sessionId, email);
-}
-
-export async function signInWithGitHub(): Promise<AccountSession> {
+export async function signInWithBrowser(): Promise<AccountSession> {
   const completion = await mobileSecurity.startBrowserLogin(
     accountAppID,
     accountAuthLoginURL,
@@ -83,10 +49,7 @@ export async function signInWithGitHub(): Promise<AccountSession> {
   return accountSession(sessionId);
 }
 
-async function accountSession(
-  sessionId: string,
-  fallbackEmail = ""
-): Promise<AccountSession> {
+async function accountSession(sessionId: string): Promise<AccountSession> {
   const user = await accountRequest<UserInfo>(
     "user/v1/user_info",
     {},
@@ -97,8 +60,9 @@ async function accountSession(
     throw new Error("account user is missing");
   }
   return {
+    avatarURL: String(user.avatar ?? "").trim(),
     email: String(
-      user.email ?? user.emailAddress ?? user.email_address ?? fallbackEmail
+      user.email ?? user.emailAddress ?? user.email_address ?? ""
     ).trim(),
     name: String(user.name ?? "").trim(),
     sessionId,

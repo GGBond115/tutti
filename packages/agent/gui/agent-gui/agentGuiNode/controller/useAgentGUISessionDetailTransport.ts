@@ -8,7 +8,7 @@ import type { RefObject } from "react";
 import { useCallback } from "react";
 import {
   useAgentActivitySessionMessages,
-  type AgentActivityRuntime
+  type AgentGUIRuntime
 } from "../../../agentActivityRuntime";
 import { useAgentSessionControllerState } from "../../../contexts/workspace/presentation/renderer/agentSessions/useAgentSessionControllerState";
 import type { AgentGUINodeData } from "../../../types";
@@ -22,7 +22,7 @@ import { useEngineSelector } from "../../../shared/engine/useEngineSelector";
 export function useAgentGUISessionDetailTransport(input: {
   activeConversationId: string | null;
   activeConversationIdRef: RefObject<string | null>;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   agentActivityRuntimeOrigin: string;
   dataRef: RefObject<AgentGUINodeData>;
   isMountedRef: RefObject<boolean>;

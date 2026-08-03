@@ -110,13 +110,19 @@ test("restart-aware fetch propagates config failures without using stale config"
 });
 
 test("restart-aware fetch propagates native fetch failures unchanged", async () => {
-  const fetchError = new TypeError("network failed");
+  const fetchError = new TypeError(
+    "network failed for http://127.0.0.1:18080/v1/health?access_token=must-not-log"
+  );
+  const diagnostics: unknown[] = [];
   const restartAwareFetch = createRestartAwareFetch(
     {
       getBackendConfig: async () => ({
         accessToken: "current-token",
         baseUrl: "http://127.0.0.1:18080"
-      })
+      }),
+      async logRendererDiagnostic(payload) {
+        diagnostics.push(payload);
+      }
     },
     async () => {
       throw fetchError;
@@ -127,4 +133,58 @@ test("restart-aware fetch propagates native fetch failures unchanged", async () 
     restartAwareFetch("http://tuttid.local/v1/health"),
     (error) => error === fetchError
   );
+
+  assert.deepEqual(diagnostics, [
+    {
+      details: {
+        backendOrigin: "http://127.0.0.1:18080",
+        errorMessage: "network failed for [url]",
+        errorName: "TypeError",
+        method: "GET",
+        requestBodyBytes: 0,
+        requestPath: "/v1/health",
+        stage: "fetch"
+      },
+      event: "tuttid.http.request_failed",
+      level: "warn",
+      source: "tuttid-fetch"
+    }
+  ]);
+});
+
+test("restart-aware fetch logs non-success responses without query parameters", async () => {
+  const diagnostics: unknown[] = [];
+  const restartAwareFetch = createRestartAwareFetch(
+    {
+      getBackendConfig: async () => ({
+        accessToken: "current-token",
+        baseUrl: "http://127.0.0.1:18080"
+      }),
+      async logRendererDiagnostic(payload) {
+        diagnostics.push(payload);
+      }
+    },
+    async () => new Response(null, { status: 503 })
+  );
+
+  const response = await restartAwareFetch(
+    "http://tuttid.local/v1/health?access_token=must-not-log"
+  );
+
+  assert.equal(response.status, 503);
+  assert.deepEqual(diagnostics, [
+    {
+      details: {
+        backendOrigin: "http://127.0.0.1:18080",
+        httpStatus: 503,
+        method: "GET",
+        requestBodyBytes: 0,
+        requestPath: "/v1/health",
+        stage: "response"
+      },
+      event: "tuttid.http.request_failed",
+      level: "warn",
+      source: "tuttid-fetch"
+    }
+  ]);
 });

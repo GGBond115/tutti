@@ -5,7 +5,7 @@ import {
   type RefObject,
   type SetStateAction
 } from "react";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { PendingActivationIntentRecord } from "@tutti-os/agent-activity-core";
 import type { AgentGUIConversationFilter } from "../model/agentGuiConversationFilter";
 import type { AgentComposerDraft } from "../model/agentGuiNodeTypes";
@@ -46,7 +46,7 @@ export interface UseAgentGUIConversationHomeInput {
   activeConversationId: string | null;
   activeConversationIdRef: RefObject<string | null>;
   activePendingActivation: PendingActivationIntentRecord | null;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   currentProvider: AgentGUIProvider;
   composerTargetDataFromProviderTarget: (input: {
     current: AgentGUINodeData;
@@ -78,7 +78,7 @@ export interface UseAgentGUIConversationHomeInput {
     details: Record<string, unknown>;
     previousAgentSessionId: string | null;
     reason: "create_conversation" | "prefill_prompt";
-    runtime: AgentActivityRuntime;
+    runtime: AgentGUIRuntime;
     workspaceId: string;
   }) => void;
   selectedComposerTargetDataRef: RefObject<AgentGUIComposerTargetData>;

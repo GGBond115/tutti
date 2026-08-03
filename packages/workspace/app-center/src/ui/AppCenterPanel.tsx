@@ -1,5 +1,12 @@
 import type { FormEvent, ReactElement } from "react";
-import { useEffect, useId, useMemo, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import {
   Badge,
   BareIconButton,
@@ -65,10 +72,18 @@ import {
   type AppCenterHostActions
 } from "./AppCard.tsx";
 import {
+  countWorkspaceAppsInCategory,
+  filterWorkspaceAppsByCategory
+} from "../core/workspaceAppCategory.ts";
+import {
+  handoffHiddenAppCenterCategoryTab,
+  resolveActiveAppCenterCategoryTab,
   resolveActiveAppCenterTab,
+  resolveVisibleAppCenterCategoryTabs,
   resolveVisibleAppCenterTabs,
   type AppCenterAppTab
 } from "./appCenterTabs.ts";
+import type { WorkspaceAppCategoryId } from "../contracts/catalog.ts";
 
 type FactoryTemplateID =
   | "lovart"
@@ -78,12 +93,7 @@ type FactoryTemplateID =
   | "news"
   | "gomoku";
 export type { AppCenterAppTab } from "./appCenterTabs.ts";
-type RecommendedCategoryTabID =
-  | "all"
-  | "product-design"
-  | "office"
-  | "tools"
-  | "content-creation";
+type RecommendedCategoryTabID = "all" | WorkspaceAppCategoryId;
 type FactorySettingsMenu = "model" | "permission" | "provider" | "reasoning";
 
 interface FactoryTemplate {
@@ -537,15 +547,26 @@ export function AppCenterPanel({
     recommendedApps,
     copy
   );
-  const activeRecommendedCategoryLabel =
-    recommendedCategoryTabs.find(
-      (tab) => tab.id === activeRecommendedCategoryTab
-    )?.category ?? null;
+  const visibleRecommendedCategoryTabs = resolveVisibleAppCenterCategoryTabs(
+    recommendedCategoryTabs,
+    "all"
+  );
+  const resolvedActiveRecommendedCategoryTab =
+    resolveActiveAppCenterCategoryTab(
+      activeRecommendedCategoryTab,
+      visibleRecommendedCategoryTabs,
+      "all"
+    );
+  const activeRecommendedCategory = visibleRecommendedCategoryTabs.find(
+    (tab) => tab.id === resolvedActiveRecommendedCategoryTab
+  );
   const activeRecommendedApps =
-    activeRecommendedCategoryLabel == null
+    activeRecommendedCategory?.category == null
       ? recommendedAppsForAllTab
-      : recommendedApps.filter(
-          (app) => app.category === activeRecommendedCategoryLabel
+      : filterWorkspaceAppsByCategory(
+          recommendedApps,
+          activeRecommendedCategory.category,
+          activeRecommendedCategory.label
         );
   const activeApps =
     activeAppTab === "recommended"
@@ -1482,8 +1503,8 @@ function AppCardGrid({
   );
 }
 
-interface RecommendedCategoryTab {
-  readonly category: string | null;
+export interface RecommendedCategoryTab {
+  readonly category: WorkspaceAppCategoryId | null;
   readonly count: number;
   readonly id: RecommendedCategoryTabID;
   readonly label: string;
@@ -1493,16 +1514,6 @@ function createRecommendedCategoryTabs(
   apps: AppCenterViewModel["apps"],
   copy: AppCenterI18nRuntime
 ): RecommendedCategoryTab[] {
-  const categoryCounts = new Map<string, number>();
-
-  for (const app of apps) {
-    const category = app.category?.trim();
-    if (!category) {
-      continue;
-    }
-    categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1);
-  }
-
   return recommendedCategoryTabDefinitions.map((definition) => {
     if (definition.id === "all") {
       return {
@@ -1513,17 +1524,17 @@ function createRecommendedCategoryTabs(
       };
     }
 
-    const category = copy.t(definition.labelKey);
+    const label = copy.t(definition.labelKey);
     return {
-      category,
-      count: categoryCounts.get(category) ?? 0,
+      category: definition.id,
+      count: countWorkspaceAppsInCategory(apps, definition.id, label),
       id: definition.id,
-      label: category
+      label
     };
   });
 }
 
-function RecommendedCategoryTabs({
+export function RecommendedCategoryTabs({
   copy,
   tabs,
   value,
@@ -1534,14 +1545,39 @@ function RecommendedCategoryTabs({
   readonly value: RecommendedCategoryTabID;
   readonly onValueChange: (value: RecommendedCategoryTabID) => void;
 }): ReactElement {
+  const visibleTabs = resolveVisibleAppCenterCategoryTabs(tabs, "all");
+  const resolvedValue = resolveActiveAppCenterCategoryTab(
+    value,
+    visibleTabs,
+    "all"
+  );
+  const fallbackTabRef = useRef<HTMLButtonElement>(null);
+  const activeTabRef = useRef<HTMLButtonElement>(null);
+  const visibleTabIds = new Set(visibleTabs.map((tab) => tab.id));
+  const renderedTabs =
+    resolvedValue === value
+      ? visibleTabs
+      : tabs.filter((tab) => visibleTabIds.has(tab.id) || tab.id === value);
+  useLayoutEffect(() => {
+    const activeTabHadFocus =
+      activeTabRef.current != null &&
+      activeTabRef.current.ownerDocument.activeElement === activeTabRef.current;
+    handoffHiddenAppCenterCategoryTab(
+      value,
+      resolvedValue,
+      activeTabHadFocus ? fallbackTabRef.current : null,
+      onValueChange
+    );
+  }, [onValueChange, resolvedValue, value]);
+
   return (
     <div
       aria-label={copy.t("labels.appCategories")}
       className="-mx-1 flex min-h-10 min-w-0 items-center gap-2 overflow-x-auto px-1 py-1"
       role="tablist"
     >
-      {tabs.map((tab) => {
-        const selected = tab.id === value;
+      {renderedTabs.map((tab) => {
+        const selected = tab.id === resolvedValue;
         return (
           <button
             aria-selected={selected}
@@ -1552,6 +1588,13 @@ function RecommendedCategoryTabs({
                 : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
             )}
             key={tab.id}
+            ref={
+              tab.id === "all"
+                ? fallbackTabRef
+                : tab.id === value
+                  ? activeTabRef
+                  : undefined
+            }
             role="tab"
             type="button"
             onClick={() => onValueChange(tab.id)}

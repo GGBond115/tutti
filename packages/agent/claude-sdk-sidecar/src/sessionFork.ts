@@ -33,6 +33,28 @@ type TurnBindingRecoveryInput = ForkInspectInput & {
   legacyTextHMACDigest: string;
 };
 
+export type ClaudeTurnBinding = {
+  providerSessionId: string;
+  providerTurnId: string;
+  providerCheckpointMessageId: string;
+};
+
+export type ClaudeTurnBindingResolver = (input: {
+  sessionId: string;
+  cwd: string;
+  recoveryToken: string;
+}) => Promise<ClaudeTurnBinding>;
+
+export class ClaudeTurnBindingResolutionError extends Error {
+  readonly reason: "absent" | "ambiguous";
+
+  constructor(reason: "absent" | "ambiguous") {
+    super(`Claude provider turn recovery proof is ${reason}`);
+    this.name = "ClaudeTurnBindingResolutionError";
+    this.reason = reason;
+  }
+}
+
 type ClaudeForkSDK = {
   forkSession: typeof forkSession;
   getSessionMessages: typeof getSessionMessages;
@@ -65,16 +87,39 @@ export async function recoverClaudeTurnBinding(
   input: TurnBindingRecoveryInput,
   sdk: ClaudeForkSDK = defaultClaudeForkSDK
 ): Promise<Record<string, unknown>> {
+  return resolveClaudeTurnBinding(input, sdk);
+}
+
+export async function resolveClaudeTurnBindingByRecoveryToken(
+  input: ForkInspectInput & { recoveryToken: string },
+  sdk: ClaudeForkSDK = defaultClaudeForkSDK
+): Promise<ClaudeTurnBinding> {
+  requireIdentity(input.recoveryToken, "provider turn recovery token");
+  return resolveClaudeTurnBinding(
+    {
+      ...input,
+      legacyTextHMACKey: "",
+      legacyTextHMACDigest: ""
+    },
+    sdk
+  );
+}
+
+async function resolveClaudeTurnBinding(
+  input: TurnBindingRecoveryInput,
+  sdk: ClaudeForkSDK
+): Promise<ClaudeTurnBinding> {
   requireIdentity(input.sessionId, "provider session id");
   const messages = (await sdk.getSessionMessages(
     input.sessionId,
     transcriptOptions(input.cwd)
   )) as SDKMessage[];
   const matches = rootTurnBindingMatches(messages, input);
-  if (matches.length !== 1) {
-    throw new Error(
-      "Claude provider turn recovery proof is absent or ambiguous"
-    );
+  if (matches.length === 0) {
+    throw new ClaudeTurnBindingResolutionError("absent");
+  }
+  if (matches.length > 1) {
+    throw new ClaudeTurnBindingResolutionError("ambiguous");
   }
   return {
     providerSessionId: input.sessionId,

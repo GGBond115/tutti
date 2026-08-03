@@ -19,6 +19,42 @@ export async function evaluate(client, expression, awaitPromise = false) {
   return response.result?.value;
 }
 
+const waitDiagnostics = {
+  log: null,
+  progressIntervalMs: 10_000,
+  stallTimeoutMs: 0
+};
+
+// Configure shared wait behavior for every waitForEvaluation call site:
+// - stallTimeoutMs > 0 fails a wait early when the observed value stops
+//   changing for that long, instead of consuming the full hard timeout;
+// - log receives throttled progress lines while a wait is pending.
+export function configureWaitDiagnostics(overrides) {
+  if (typeof overrides.log === "function") {
+    waitDiagnostics.log = overrides.log;
+  }
+  if (Number.isFinite(overrides.progressIntervalMs)) {
+    waitDiagnostics.progressIntervalMs = Math.max(
+      1_000,
+      overrides.progressIntervalMs
+    );
+  }
+  if (Number.isFinite(overrides.stallTimeoutMs)) {
+    waitDiagnostics.stallTimeoutMs = Math.max(0, overrides.stallTimeoutMs);
+  }
+}
+
+function compactValue(value, limit = 400) {
+  const serialized = JSON.stringify(value) ?? "undefined";
+  return serialized.length > limit
+    ? `${serialized.slice(0, limit)}… (${serialized.length} chars)`
+    : serialized;
+}
+
+function seconds(ms) {
+  return `${Math.round(ms / 1000)}s`;
+}
+
 export async function waitForEvaluation(
   client,
   expression,
@@ -26,14 +62,42 @@ export async function waitForEvaluation(
   label,
   intervalMs = 250
 ) {
-  const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  const { log, progressIntervalMs, stallTimeoutMs } = waitDiagnostics;
   let latest;
+  let latestSignature;
+  let lastChangeAt = startedAt;
+  let lastProgressAt = startedAt;
   while (Date.now() < deadline) {
     latest = await evaluate(client, expression);
     if (latest?.ready) return latest;
+    const now = Date.now();
+    const signature = JSON.stringify(latest);
+    if (signature !== latestSignature) {
+      latestSignature = signature;
+      lastChangeAt = now;
+    } else if (stallTimeoutMs > 0 && now - lastChangeAt >= stallTimeoutMs) {
+      throw new Error(
+        `stalled waiting for ${label}: no observable change for ` +
+          `${seconds(now - lastChangeAt)} (waited ${seconds(now - startedAt)} ` +
+          `of ${seconds(timeoutMs)} hard timeout); last: ${compactValue(latest)}`
+      );
+    }
+    if (log && now - lastProgressAt >= progressIntervalMs) {
+      lastProgressAt = now;
+      log(
+        `waiting for ${label} (${seconds(now - startedAt)} elapsed, ` +
+          `last change ${seconds(now - lastChangeAt)} ago): ` +
+          compactValue(latest, 200)
+      );
+    }
     await delay(intervalMs);
   }
-  throw new Error(`timed out waiting for ${label}: ${JSON.stringify(latest)}`);
+  throw new Error(
+    `timed out waiting for ${label} after ${seconds(timeoutMs)}: ` +
+      compactValue(latest)
+  );
 }
 
 export async function markRenderer(client, marker) {

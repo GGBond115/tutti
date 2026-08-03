@@ -511,6 +511,41 @@ func TestRunWaitCommandHelpDescribesTotalTimeoutWithoutFollowFlag(t *testing.T) 
 	}
 }
 
+func TestDynamicHelpOnlyAdvertisesJSONForCommandsThatSupportIt(t *testing.T) {
+	var stdout bytes.Buffer
+	plainCommand := daemon.Capability{
+		Path:    []string{"browser", "navigate"},
+		Output:  daemon.CapabilityOutput{DefaultMode: "plain"},
+		Summary: "Navigate",
+	}
+	printDynamicCommandHelp(&stdout, "tutti", plainCommand)
+	if strings.Contains(stdout.String(), "--json") {
+		t.Fatalf("plain-only command help advertises JSON:\n%s", stdout.String())
+	}
+
+	stdout.Reset()
+	jsonCommand := plainCommand
+	jsonCommand.Output.JSON = true
+	printDynamicCommandHelp(&stdout, "tutti", jsonCommand)
+	if !strings.Contains(stdout.String(), "--json") {
+		t.Fatalf("JSON-capable command help omits JSON:\n%s", stdout.String())
+	}
+}
+
+func TestCommandPrefixHelpDoesNotPromiseJSONForEveryChild(t *testing.T) {
+	var stdout bytes.Buffer
+	if !printCommandPrefixHelp(&stdout, "tutti", []string{"browser"}, []daemon.Capability{{
+		Path:    []string{"browser", "navigate"},
+		Output:  daemon.CapabilityOutput{DefaultMode: "plain"},
+		Summary: "Navigate",
+	}}) {
+		t.Fatal("browser command prefix was not found")
+	}
+	if strings.Contains(strings.SplitN(stdout.String(), "\n", 2)[0], "--json") {
+		t.Fatalf("prefix help promises JSON for every child:\n%s", stdout.String())
+	}
+}
+
 func TestRunWaitCommandTotalTimeoutDuringInvokeReturnsObservationNotTransportError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

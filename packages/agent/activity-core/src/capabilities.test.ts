@@ -30,6 +30,7 @@ test("runtime capabilities take precedence over composer options", () => {
 test("falls back to composer options when session has no capability list", () => {
   assert.equal(
     resolveAgentActivityCapability("skills", {
+      sessionCapabilities: null,
       composerOptions: composerOptions({ capabilities: ["skills"] })
     }),
     true

@@ -1,4 +1,5 @@
 import {
+  NativeAvatar,
   NativeButton,
   NativeIconButton,
   NativeListRow,
@@ -7,7 +8,15 @@ import {
   useNativeTheme
 } from "@tutti-os/ui-system/native";
 import { useState, type ReactNode } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View
+} from "react-native";
+import tuttiMark from "../assets/tutti-mark.png";
 import { t } from "../i18n";
 
 /** Native-only visual review surface for UI System primitive promotion. */
@@ -15,6 +24,7 @@ export function NativeComponentGallery({ onClose }: { onClose(): void }) {
   const theme = useNativeTheme();
   const styles = createStyles(theme);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const previewImageURI = Image.resolveAssetSource(tuttiMark).uri;
 
   return (
     <View style={styles.root}>
@@ -61,6 +71,27 @@ export function NativeComponentGallery({ onClose }: { onClose(): void }) {
             loading
             onPress={() => undefined}
           />
+        </GallerySection>
+
+        <GallerySection title="native-avatar">
+          <View style={styles.inline}>
+            <GalleryState label="fallback">
+              <NativeAvatar label="Tutti" size="compact" />
+            </GalleryState>
+            <GalleryState label="image">
+              <NativeAvatar label="Tutti" src={previewImageURI} />
+            </GalleryState>
+            <GalleryState label="loading">
+              <NativeAvatar label="Tutti" loading size="large" />
+            </GalleryState>
+            <GalleryState label="error">
+              <NativeAvatar
+                label="Broken image"
+                size="large"
+                src="invalid://native-avatar-preview"
+              />
+            </GalleryState>
+          </View>
         </GallerySection>
 
         <GallerySection title="native-icon-button">
@@ -120,6 +151,11 @@ export function NativeComponentGallery({ onClose }: { onClose(): void }) {
         <View style={styles.sheetContent}>
           <Text style={styles.sheetTitle}>{t("nativeGallerySheet")}</Text>
           <Text style={styles.description}>{t("nativeGallerySheetBody")}</Text>
+          <TextInput
+            placeholder={t("messageHint")}
+            placeholderTextColor={theme.color.muted}
+            style={styles.sheetInput}
+          />
           <NativeButton
             label={t("cancel")}
             onPress={() => setSheetOpen(false)}
@@ -127,6 +163,23 @@ export function NativeComponentGallery({ onClose }: { onClose(): void }) {
           />
         </View>
       </NativeSheet>
+    </View>
+  );
+}
+
+function GalleryState({
+  children,
+  label
+}: {
+  children: ReactNode;
+  label: string;
+}) {
+  const theme = useNativeTheme();
+  const styles = createStyles(theme);
+  return (
+    <View style={styles.galleryState}>
+      {children}
+      <Text style={styles.galleryStateLabel}>{label}</Text>
     </View>
   );
 }
@@ -162,6 +215,11 @@ function createStyles(theme: NativeTheme) {
     },
     header: { alignItems: "flex-start", flexDirection: "row" },
     headerCopy: { flex: 1 },
+    galleryState: { alignItems: "center", gap: theme.space.small / 2 },
+    galleryStateLabel: {
+      color: theme.color.muted,
+      fontSize: theme.space.small
+    },
     inline: { flexDirection: "row", gap: theme.space.small },
     moreIcon: {
       color: theme.color.text,
@@ -180,6 +238,16 @@ function createStyles(theme: NativeTheme) {
     sheetContent: {
       gap: theme.space.medium,
       padding: theme.space.large
+    },
+    sheetInput: {
+      backgroundColor: theme.color.panel,
+      borderColor: theme.color.border,
+      borderRadius: theme.radius.medium,
+      borderWidth: StyleSheet.hairlineWidth,
+      color: theme.color.text,
+      fontSize: 16,
+      minHeight: 48,
+      paddingHorizontal: theme.space.medium
     },
     sheetTitle: {
       color: theme.color.text,

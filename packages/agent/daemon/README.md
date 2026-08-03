@@ -81,22 +81,46 @@ the same virtual time, or fast-forward recorded waits. Fast-forward never skips
 frames or outbound assertions. It may temporarily pass a paused barrier for
 checkpoint seeking; disabling fast-forward restores the requested paused state.
 
+`NewSessionReplayProcessTransport` constructs one fixed replay router from
+Cassette, root Session, and Cassette-directory registrations. It keeps one
+`ReplayProcessTransport` per Cassette, routes process launches by
+`RootAgentSessionID`, and exposes Cassette-scoped playback and verification. Duplicate
+Cassette or root Session registrations fail construction. An unregistered root
+Session launch fails closed.
+
 `SessionRecordingProcessTransport` keeps lightweight wrappers around live
 provider connections, so `continue-session` capture can attach after a process
 has started. It also captures later root, parallel child, and nested child
 connections in the same SessionGraph. Each connection is keyed by recorded
 Session identity, provider, and Session-local launch ordinal; global sequence is
-diagnostic only. Provider probes and setup commands use the normal local
-transport. A complete manifest records the exact frame count, decoded payload
-bytes, stored bytes, largest frame, per-kind byte distribution, and SHA-256 of
-`frames.jsonl`, so deletion or mutation fails before replay starts. Recording
-fails before writing a decoded payload above 8 MiB or a tape above 256 MiB;
-provider traffic is a protocol stream, not a bulk-file archive.
+diagnostic only. `Arm` also freezes the owning Recording ID into every captured
+frame and decoded Provider input unit, so a delayed callback cannot be
+reattributed to a later capture generation.
+Provider tape schema v4 marks every connection as
+`process-start` or `attached-live-connection`. Provider adapters cold-bootstrap
+the former and restore their initialized protocol checkpoint for the latter;
+the checkpoint crosses the portable Host historical-state boundary as
+`providerResumeCheckpoint`, while unrelated private runtime context stays out
+of the Cassette. Missing or unknown origins fail closed. Provider probes and
+setup commands use the normal local transport. A complete manifest records the exact frame count,
+decoded payload bytes, stored bytes, largest frame, per-kind byte distribution,
+and SHA-256 of `frames.jsonl`, so deletion or mutation fails before replay
+starts. Recording fails before writing a decoded payload above 8 MiB or a tape
+above 256 MiB; provider traffic is a protocol stream, not a bulk-file archive.
 `Runtime.Close` closes live
 provider sessions first and then finalizes a transport that exposes
 `Finalize() error`, ensuring recording manifests are marked complete only after
 connection shutdown and replay verifies every recorded connection and chunk
 was consumed.
+
+Schema v4 also requires `projectionVersion: 1`. Recording sends original bytes
+to the live adapter and persists a protocol-aware projected copy: correlated
+account email and recognized CWD path fields become portable, while
+credential-bearing protocol methods and residual structured secrets or
+unclassified absolute paths fail closed. Recognized HOME paths use
+`${REPLAY_HOME}` and resolve against the isolated replay HOME. Projection
+preserves the frame that completes a split protocol message. It does not scan
+or rewrite ordinary prompt or Provider text.
 
 ## Package Ownership
 
@@ -118,9 +142,12 @@ The host daemon owns:
 
 ## Provider Authentication Status
 
-`providerregistry` owns each provider's auth status command and parser kind.
-Hosts execute that descriptor-owned command in their provider runtime, then use
-`providerstatus.ParseAuthStatusOutput` to interpret the output consistently.
+`providerregistry` owns each provider's auth status command, runner kind, and
+parser kind. Hosts execute the descriptor-owned runner in their provider
+runtime, then use `providerstatus.ParseAuthStatusOutput` for text-command
+results. Codex uses the dedicated `codex_app_server_account` runner: it
+initializes `codex app-server` and calls `account/read`, matching session
+startup instead of trusting the shallower `codex login status` output.
 The same package exposes narrow helpers for explicit Codex and Claude API
 billing configuration. Credential-file or token presence must not be used as
 proof that an OAuth session is still authenticated.

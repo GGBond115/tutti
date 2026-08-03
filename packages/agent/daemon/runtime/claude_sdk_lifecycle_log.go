@@ -32,6 +32,8 @@ func claudeSDKLifecycleLogArgs(payload map[string]any) []any {
 		{logKey: "status", payloadKey: "status"},
 		{logKey: "state", payloadKey: "state"},
 		{logKey: "stop_reason", payloadKey: "stopReason"},
+		{logKey: "goal_source", payloadKey: "source"},
+		{logKey: "goal_update_type", payloadKey: "updateType"},
 		{logKey: "sdk_assistant_error", payloadKey: "sdkAssistantError"},
 	} {
 		if value := strings.TrimSpace(payloadString(payload, field.payloadKey)); value != "" {
@@ -56,6 +58,11 @@ func claudeSDKLifecycleLogArgs(payload map[string]any) []any {
 	}
 	if payloadBoolValue(payload, "syntheticTimeout") {
 		args = append(args, "synthetic_timeout", true)
+	}
+	if goal := payloadObject(payload["goal"]); len(goal) > 0 {
+		if status := strings.TrimSpace(asString(goal["status"])); status != "" {
+			args = append(args, "goal_status", status)
+		}
 	}
 	for _, field := range []struct {
 		logKey     string

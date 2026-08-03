@@ -54,7 +54,10 @@ func (c *Controller) FenceGoalGeneration(ctx context.Context, input GoalGenerati
 	} else if err := c.ensureLiveAdapterSession(ctx, session, adapter); err != nil {
 		return err
 	}
-	return c.applyRetainedGoalGenerationFencesOrClose(ctx, session, adapter)
+	if err := c.applyRetainedGoalGenerationFencesOrClose(ctx, session, adapter); err != nil {
+		return err
+	}
+	return c.flushSessionReports(ctx, session)
 }
 
 func normalizeGoalGenerationFenceInput(input GoalGenerationFenceRequest) (GoalGenerationFenceInput, error) {

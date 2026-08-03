@@ -158,27 +158,53 @@ export const en = {
         list: "Recordings",
         record: {
           cancel: "Cancel recording",
+          delete: "Delete recording",
+          deleteCancel: "Keep recording",
+          deleteConfirm: "Delete",
+          deleteDescription:
+            '"{{name}}" and its replay data will be permanently deleted. This action cannot be undone.',
+          deleteFailed: "Could not delete recording",
+          deleteTitle: "Delete recording?",
+          import: "Import",
+          importAllFailed: "{{count}} cassettes failed to import",
+          importFailed: "Could not import cassettes",
+          importPartial:
+            "Imported {{importedCount}} cassettes; {{failedCount}} failed",
+          imported: "Imported {{count}} cassettes",
           rename: "Rename recording",
           renameCancel: "Cancel rename",
           renameFailed: "Could not rename recording",
           renameSave: "Save recording name",
+          reveal: "Show cassette in Finder",
+          revealFailed: "Could not show cassette in Finder",
           start: "Start recording",
           stop: "Stop and save recording"
         },
         replay: {
+          automatic: "Play automatically",
+          batchCancel: "Cancel",
+          batchLaunch: "Replay selected",
+          batchSameSession: "Another recording from this session is selected",
+          batchSelect: "Select",
+          batchSelectedCount: "{{count}} selected",
+          batchSelectRecording: "Select {{name}} for batch replay",
           cassette: "Replay cassette",
           checkpoint: "Checkpoint {{current}} of {{total}}",
+          choosePlaybackMode: "Choose replay mode",
           complete: "Validation passed",
           controlFailed: "Could not control replay",
+          elapsed: "Elapsed: {{elapsed}} of {{total}}",
           failed: "Validation failed",
           launching: "Starting isolated replay window",
+          launchingBatch:
+            "Starting isolated replay window with {{count}} sessions",
+          manual: "Start paused",
           next: "Next checkpoint",
           opened: "Isolated replay window opened",
+          openedBatch: "Isolated replay window opened with {{count}} sessions",
           pause: "Pause replay",
           play: "Play replay",
-          previous: "Previous checkpoint",
           replaying: "Replaying",
-          restart: "Replay from start",
           speed: "Replay speed",
           speedFailed: "Could not change replay speed",
           stateMismatch:
@@ -972,6 +998,8 @@ export const en = {
           modelPlanLabel: "Model plan",
           nameLabel: "Name",
           namePlaceholder: "Frontend reviewer",
+          createModelPlanLink: "Create a model plan",
+          noCompatiblePlansHint: "No compatible model plan yet.",
           noHarnesses: "No Agent Runtimes are available",
           noModelPlan: "Agent Runtime default models",
           onePerLine: "One entry per line",
@@ -1082,6 +1110,9 @@ export const en = {
             "Couldn't fetch the model list — check the credentials and Base URL, then try again.",
           fetchModelsResult: "Fetched {{count}} selectable models",
           fetchingModels: "Fetching...",
+          handoffConfigureAgent: "Set up an Agent",
+          handoffDismiss: "Not now",
+          handoffSavedHint: "Saved “{{plan}}” — no Agent is using it yet",
           hideApiKey: "Hide key",
           keepExistingKey: "Leave blank to keep the saved key",
           lastDetectedAt: "Checked {{time}}",
@@ -1154,7 +1185,8 @@ export const en = {
             }
           },
           title: "Model plans",
-          toggleFailed: "Couldn't update the plan state — try again."
+          toggleFailed: "Couldn't update the plan state — try again.",
+          unusedByAgents: "Not used by any Agent"
         }
       },
       developer: {
@@ -1217,10 +1249,10 @@ export const en = {
         logsSummary: "{{count}} files, {{size}} total",
         logsTitle: "Logs",
         mobileRemoteAccessSettingsDescription:
-          "Show Connection settings with phone pairing and remote access controls.",
-        mobileRemoteAccessSettingsLabel: "Show mobile remote access settings",
+          "Allow paired phones to connect to this computer and show the related Connection settings.",
+        mobileRemoteAccessSettingsLabel: "Enable mobile remote access",
         mobileRemoteAccessSettingsSaveFailed:
-          "We couldn't update mobile remote access visibility.",
+          "We couldn't update mobile remote access.",
         openDaemonLog: "Open daemon log",
         openDesktopLog: "Open desktop log",
         openLogsDirectory: "Open logs folder",

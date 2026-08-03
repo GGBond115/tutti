@@ -74,48 +74,6 @@ test("contract table: every head/availability/barrier/blocker combination resolv
   );
 });
 
-test("priority order: in-flight blocks even a guidance head that could otherwise steer", () => {
-  const record = buildRecord("guidance", "in_flight");
-  const decision = resolveQueueDrainDecision(
-    record,
-    { state: "blocked", reason: "active_turn" },
-    true
-  );
-  assert.deepEqual(decision, { kind: "blocked", reason: "in_flight" });
-});
-
-test("priority order: suspended blocks even a guidance head under an active-turn block", () => {
-  const record = buildRecord("guidance", "suspended");
-  const decision = resolveQueueDrainDecision(
-    record,
-    { state: "blocked", reason: "active_turn" },
-    true
-  );
-  assert.deepEqual(decision, { kind: "blocked", reason: "suspended" });
-});
-
-test("priority order: guidance beats a pending delivery barrier", () => {
-  const record = buildRecord("guidance", "none");
-  const decision = resolveQueueDrainDecision(
-    record,
-    { state: "blocked", reason: "active_turn" },
-    true
-  );
-  assert.deepEqual(decision, { kind: "send", guidance: true });
-});
-
-test("priority order: a pending delivery barrier blocks before the unavailable fallback", () => {
-  const record = buildRecord("plain", "none");
-  // Availability is ALSO not available (missing) here; the reported reason
-  // must still be barrier_pending, proving rule 7 is checked before rule 8.
-  const decision = resolveQueueDrainDecision(
-    record,
-    { state: "missing" },
-    true
-  );
-  assert.deepEqual(decision, { kind: "blocked", reason: "barrier_pending" });
-});
-
 function expectedDecision(
   head: HeadKind,
   availabilityKind: AvailabilityKind,

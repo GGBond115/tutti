@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useRef,
   type KeyboardEventHandler,
   type PointerEventHandler
@@ -22,6 +23,7 @@ export function AgentRichTextEditorSurface({
   handlePointerDownCapture,
   pasteClipboardText,
   placeholder,
+  testId,
   t
 }: {
   className?: string;
@@ -34,8 +36,21 @@ export function AgentRichTextEditorSurface({
   handlePointerDownCapture?: PointerEventHandler<HTMLDivElement>;
   pasteClipboardText: () => void | Promise<void>;
   placeholder: string;
+  testId?: string;
   t: TranslateFn;
 }): React.JSX.Element {
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!disabled);
+    editor.view.dom.setAttribute("aria-disabled", disabled ? "true" : "false");
+    editor.view.dom.setAttribute("aria-label", placeholder);
+    if (testId) editor.view.dom.setAttribute("data-testid", testId);
+    else editor.view.dom.removeAttribute("data-testid");
+    editor.view.dispatch(
+      editor.state.tr.setMeta("agentRichTextPlaceholder", placeholder)
+    );
+  }, [disabled, editor, placeholder, testId]);
+
   return (
     <div
       className="relative min-w-0"
@@ -50,6 +65,7 @@ export function AgentRichTextEditorSurface({
           aria-label={placeholder}
           aria-disabled={disabled ? "true" : "false"}
           aria-multiline="true"
+          data-testid={testId}
           className={cn(
             className,
             "overflow-y-auto whitespace-pre-wrap break-words [&_p]:m-0"

@@ -130,19 +130,26 @@ func TestWiringUsesSupervisedAgentHostRun(t *testing.T) {
 }
 
 func TestWiringComposesTuttiModeGoalReviewLifecycle(t *testing.T) {
-	raw, err := os.ReadFile("wiring_daemon_api.go")
-	if err != nil {
-		t.Fatalf("read wiring_daemon_api.go: %v", err)
+	var source strings.Builder
+	for _, file := range []string{
+		"wiring_daemon_api.go",
+		"wiring_daemon_cli.go",
+	} {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		source.Write(raw)
+		source.WriteByte('\n')
 	}
-	source := string(raw)
 	for _, required := range []string{
 		"tuttiModeExecutions.ReviewerTargets = tuttiModeReviewerAgentAdapter{",
 		"tuttiModeReviewerTurnObserver{",
 		"tuttigoalreviewcli.NewProvider(",
 		"TuttiModeGoalReviewService: tuttiModeExecutions",
-		"cliRegistry.AgentSessionCapabilities = agentSessionCLIProjectionResolver{",
+		"registry.AgentSessionCapabilities = agentSessionCLIProjectionResolver{",
 	} {
-		if !strings.Contains(source, required) {
+		if !strings.Contains(source.String(), required) {
 			t.Fatalf("production wiring is missing Goal Review composition: %s", required)
 		}
 	}

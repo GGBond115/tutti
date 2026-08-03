@@ -9,7 +9,7 @@ import {
 } from "react";
 import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 import { useOptionalAgentHostApi } from "../../../agentActivityHost";
-import { useOptionalAgentActivityRuntime } from "../../../agentActivityRuntime";
+import { useOptionalAgentGUIRuntime } from "../../../agentActivityRuntime";
 import { translate } from "../../../i18n/index";
 import type {
   AgentComposerDraft,
@@ -130,7 +130,7 @@ export function useComposerDraftAttachments({
   onLinkAction
 }: UseComposerDraftAttachmentsInput) {
   const agentHostApi = useOptionalAgentHostApi();
-  const agentActivityRuntime = useOptionalAgentActivityRuntime();
+  const agentActivityRuntime = useOptionalAgentGUIRuntime();
   const activeDraftScopeKeyRef = useRef(draftScopeKey);
   activeDraftScopeKeyRef.current = draftScopeKey;
   const reportContentEntered = useStableEventCallback(
@@ -761,8 +761,6 @@ export function useComposerDraftAttachments({
     ]
   );
   // 让 handleLinkClick(定义在前)能转发到此处:点击 workspace-reference chip 即定位打开 picker。
-  openReferencesForEntityRef.current = handleOpenReferencesForEntity;
-
   openReferencesForEntityRef.current = handleOpenReferencesForEntity;
 
   const handleLinkClick = useCallback(

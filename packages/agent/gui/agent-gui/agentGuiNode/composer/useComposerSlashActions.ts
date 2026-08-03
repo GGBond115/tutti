@@ -17,7 +17,7 @@ import type {
 } from "../model/agentGuiNodeTypes";
 import type { AgentRichTextEditorHandle } from "../agentRichText/AgentRichTextEditor";
 import { agentComposerFileMentionReferences } from "../agentRichText/agentMentionMarkdown";
-import { useOptionalAgentActivityRuntime } from "../../../agentActivityRuntime";
+import { useOptionalAgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { AgentSlashPaletteEntry } from "../AgentSlashCommandPalette";
 import type {
   AgentSlashCommand,
@@ -113,7 +113,7 @@ function useStableEventCallback<Args extends unknown[], Result>(
 }
 
 export function useComposerSlashActions(input: UseComposerSlashActionsInput) {
-  const agentActivityRuntime = useOptionalAgentActivityRuntime();
+  const agentActivityRuntime = useOptionalAgentGUIRuntime();
   const {
     workspaceId,
     provider,

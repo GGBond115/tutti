@@ -16,6 +16,7 @@ jobs:
     outputs:
       pack_all: ${{ steps.changed-files.outputs.pack_all }}
       pack_packages: ${{ steps.changed-files.outputs.pack_packages }}
+      run_agent_session_replay: ${{ steps.changed-files.outputs.run_agent_session_replay }}
       run_boundaries: ${{ steps.changed-files.outputs.run_boundaries }}
       run_contracts: ${{ steps.changed-files.outputs.run_contracts }}
       run_generated: ${{ steps.changed-files.outputs.run_generated }}
@@ -311,6 +312,7 @@ jobs:
             packages/agent/store-sqlite/canonical/go.mod
             packages/auth/bridge-go/go.mod
             packages/appcli/core/go.mod
+            packages/clients/device-authority-go/go.mod
             packages/events/stream-go/go.mod
             packages/workbench/service/go.mod
             packages/workspace/files/go.mod
@@ -361,6 +363,7 @@ jobs:
             packages/agent/runtimeprep/go.mod
             packages/agent/store-sqlite/canonical/go.mod
             packages/appcli/core/go.mod
+            packages/clients/device-authority-go/go.mod
             packages/workbench/service/go.mod
             packages/workspace/files/go.mod
             packages/workspace/issues/go.mod

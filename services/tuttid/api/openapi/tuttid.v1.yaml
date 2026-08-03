@@ -359,6 +359,71 @@ paths:
           $ref: "#/components/responses/PreferencesOperationError"
         "503":
           $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/desktop-update-admission:
+    get:
+      operationId: getDesktopUpdateAdmissionSnapshot
+      tags:
+        - desktop-update-admission
+      summary: Read the daemon-owned desktop update admission snapshot
+      responses:
+        "200":
+          description: Current desktop update admission snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DesktopUpdateAdmissionSnapshot"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowedError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/desktop-update-admission/startup:
+    get:
+      operationId: getDesktopUpdateAdmissionStartup
+      tags:
+        - desktop-update-admission
+      summary: Wait for the daemon-initiated startup admission check
+      responses:
+        "200":
+          description: Completed startup admission snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DesktopUpdateAdmissionSnapshot"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowedError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/desktop-update-admission/refresh:
+    post:
+      operationId: refreshDesktopUpdateAdmission
+      tags:
+        - desktop-update-admission
+      summary: Ask the daemon to refresh admission for a lifecycle trigger
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DesktopUpdateAdmissionRefreshRequest"
+      responses:
+        "200":
+          description: Desktop update admission refresh result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DesktopUpdateAdmissionRefreshResult"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowedError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
   /v1/agent-maintenance/deleted-conversations/purge:
     post:
       operationId: purgeDeletedAgentConversations
@@ -3185,6 +3250,28 @@ paths:
                 $ref: "#/components/schemas/ApiErrorResponse"
         "503":
           $ref: "#/components/responses/ServiceUnavailableError"
+    delete:
+      operationId: deleteAgentSessionRecording
+      tags:
+        - agent-session
+      summary: Delete one inactive developer Agent Session recording and its Cassette
+      responses:
+        "204":
+          description: Agent Session recording deleted
+        "404":
+          description: Recording not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "409":
+          description: Active recording cannot be deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
   /v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/complete:
     parameters:
       - $ref: "#/components/parameters/WorkspaceID"
@@ -3309,253 +3396,76 @@ paths:
                 $ref: "#/components/schemas/AgentSessionCassetteListResponse"
         "503":
           $ref: "#/components/responses/ServiceUnavailableError"
-  /v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs:
+  /v1/workspaces/{workspaceID}/agent-session-cassettes/import:
     parameters:
       - $ref: "#/components/parameters/WorkspaceID"
+    post:
+      operationId: importAgentSessionCassettes
+      tags:
+        - agent-session
+      summary: Import one or more portable Agent Session Cassette directories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportAgentSessionCassettesRequest"
+      responses:
+        "200":
+          description: Per-Cassette import results, including partial success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportAgentSessionCassettesResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/agent-session-replay-workspaces:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+    post:
+      operationId: prepareAgentSessionReplayWorkspace
+      tags:
+        - agent-session
+      summary: Validate a fixed batch of distinct replay Cassettes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrepareAgentSessionReplayWorkspaceRequest"
+      responses:
+        "201":
+          description: Portable Cassette launch handoffs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionReplayWorkspaceLaunch"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "404":
+          description: Cassette not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "409":
+          description: Cassette is corrupt or duplicated in this workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/agent-session-replay/cassettes/{cassetteID}/transport/verify:
+    parameters:
       - name: cassetteID
         in: path
         required: true
         schema:
           type: string
           format: uuid
-    get:
-      operationId: listAgentSessionReplayRuns
-      tags:
-        - agent-session
-      summary: List replay runs for one immutable Agent Session Cassette
-      responses:
-        "200":
-          description: Replay runs ordered by latest update
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AgentSessionReplayRunListResponse"
-        "404":
-          description: Cassette not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "503":
-          $ref: "#/components/responses/ServiceUnavailableError"
-    post:
-      operationId: prepareAgentSessionReplayRun
-      tags:
-        - agent-session
-      summary: Validate one Cassette and prepare an isolated replay run
-      responses:
-        "201":
-          description: Replay run and portable Cassette launch handoff
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AgentSessionReplayLaunch"
-        "404":
-          description: Cassette not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "409":
-          description: Cassette is corrupt or cannot be replayed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "503":
-          $ref: "#/components/responses/ServiceUnavailableError"
-  /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/running:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceID"
-      - name: runID
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    post:
-      operationId: markAgentSessionReplayRunRunning
-      tags:
-        - agent-session
-      summary: Mark a prepared replay run accepted by its runtime adapter
-      responses:
-        "200":
-          description: Replay run is running
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AgentSessionReplayRun"
-        "404":
-          description: Replay run not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "409":
-          description: Replay run cannot start in its current state
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "503":
-          $ref: "#/components/responses/ServiceUnavailableError"
-  /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/checkpoint:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceID"
-      - name: runID
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    post:
-      operationId: advanceAgentSessionReplayRunCheckpoint
-      tags:
-        - agent-session
-      summary: Persist a stable checkpoint reached by one replay run
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AdvanceAgentSessionReplayRunCheckpointRequest"
-      responses:
-        "200":
-          description: Replay run checkpoint advanced
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AgentSessionReplayRun"
-        "400":
-          $ref: "#/components/responses/InvalidRequestError"
-        "404":
-          description: Replay run not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "409":
-          description: Replay run checkpoint cannot advance in its current state
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "503":
-          $ref: "#/components/responses/ServiceUnavailableError"
-  /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/cancel:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceID"
-      - name: runID
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    post:
-      operationId: cancelAgentSessionReplayRun
-      tags:
-        - agent-session
-      summary: Cancel one active replay run
-      responses:
-        "200":
-          description: Replay run canceled
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AgentSessionReplayRun"
-        "404":
-          description: Replay run not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "409":
-          description: Replay run cannot cancel in its current state
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "503":
-          $ref: "#/components/responses/ServiceUnavailableError"
-  /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/complete:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceID"
-      - name: runID
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    post:
-      operationId: completeAgentSessionReplayRun
-      tags:
-        - agent-session
-      summary: Complete a replay run after transport and final-state verification
-      responses:
-        "200":
-          description: Replay run completed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AgentSessionReplayRun"
-        "404":
-          description: Replay run not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "409":
-          description: Replay run cannot complete in its current state
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "503":
-          $ref: "#/components/responses/ServiceUnavailableError"
-  /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/fail:
-    parameters:
-      - $ref: "#/components/parameters/WorkspaceID"
-      - name: runID
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    post:
-      operationId: failAgentSessionReplayRun
-      tags:
-        - agent-session
-      summary: Persist an explicit replay runtime or verification failure
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/FailAgentSessionReplayRunRequest"
-      responses:
-        "200":
-          description: Replay run failed with diagnostic evidence
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AgentSessionReplayRun"
-        "400":
-          $ref: "#/components/responses/InvalidRequestError"
-        "404":
-          description: Replay run not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "409":
-          description: Replay run cannot fail in its current state
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiErrorResponse"
-        "503":
-          $ref: "#/components/responses/ServiceUnavailableError"
-  /v1/agent-session-replay/transport/verify:
     post:
       operationId: verifyAgentSessionReplayTransport
       tags:
@@ -3572,7 +3482,14 @@ paths:
                 $ref: "#/components/schemas/ApiErrorResponse"
         "503":
           $ref: "#/components/responses/ServiceUnavailableError"
-  /v1/agent-session-replay/transport/playback:
+  /v1/agent-session-replay/cassettes/{cassetteID}/transport/playback:
+    parameters:
+      - name: cassetteID
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
     get:
       operationId: getAgentSessionReplayTransportPlayback
       tags:
@@ -3607,6 +3524,40 @@ paths:
                 $ref: "#/components/schemas/AgentSessionReplayTransportPlayback"
         "400":
           $ref: "#/components/responses/InvalidRequestError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/agent-session-replay/cassettes/{cassetteID}/checkpoints/{checkpointIndex}/verify:
+    parameters:
+      - name: cassetteID
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: checkpointIndex
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+    post:
+      operationId: verifyAgentSessionReplayCheckpoint
+      tags:
+        - agent-session
+      summary: Verify one Replay Checkpoint trigger and canonical readiness
+      responses:
+        "200":
+          description: Current semantic checkpoint verification state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionReplayCheckpointVerification"
+        "409":
+          description: Checkpoint identity, trigger, or observation mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiErrorResponse"
         "503":
           $ref: "#/components/responses/ServiceUnavailableError"
   /v1/workspaces/{workspaceID}/agent-sessions:
@@ -3693,6 +3644,8 @@ paths:
       tags:
         - agent-session
       summary: Create an agent session for one workspace
+      parameters:
+        - $ref: "#/components/parameters/AgentCommandOrigin"
       requestBody:
         required: true
         content:
@@ -4880,6 +4833,8 @@ paths:
       tags:
         - agent-session
       summary: Cancel one workspace agent turn
+      parameters:
+        - $ref: "#/components/parameters/AgentCommandOrigin"
       description: >-
         Idempotent turn-scoped cancellation (protocol v2). Canceling a turn
         that is already settled or unknown is a no-op success, not an error;
@@ -5025,6 +4980,8 @@ paths:
       tags:
         - agent-session
       summary: Submit one durable workspace agent plan decision
+      parameters:
+        - $ref: "#/components/parameters/AgentCommandOrigin"
       description: >-
         Prepares and advances an idempotent daemon-owned plan decision saga.
         The workspace, session, turn, request, and idempotency key form the
@@ -5092,6 +5049,8 @@ paths:
       tags:
         - agent-session
       summary: Perform a goal control action on one workspace agent session
+      parameters:
+        - $ref: "#/components/parameters/AgentCommandOrigin"
       requestBody:
         required: true
         content:
@@ -5152,6 +5111,8 @@ paths:
       tags:
         - agent-session
       summary: Send user input to one workspace agent session
+      parameters:
+        - $ref: "#/components/parameters/AgentCommandOrigin"
       requestBody:
         required: true
         content:
@@ -5186,6 +5147,8 @@ paths:
       tags:
         - agent-session
       summary: Update one workspace agent session settings
+      parameters:
+        - $ref: "#/components/parameters/AgentCommandOrigin"
       requestBody:
         required: true
         content:
@@ -5327,6 +5290,8 @@ paths:
       tags:
         - agent-session
       summary: Submit one workspace agent interactive response
+      parameters:
+        - $ref: "#/components/parameters/AgentCommandOrigin"
       requestBody:
         required: true
         content:
@@ -6433,6 +6398,18 @@ components:
       type: http
       scheme: bearer
   parameters:
+    AgentCommandOrigin:
+      name: X-Tutti-Agent-Command-Origin
+      in: header
+      required: false
+      description: >-
+        Typed caller provenance for Agent command recording. Renderer Engine
+        commands use renderer-engine; absent provenance identifies direct API
+        and CLI commands.
+      schema:
+        type: string
+        enum:
+          - renderer-engine
     CliCommandID:
       name: commandID
       in: path
@@ -7627,6 +7604,8 @@ components:
             - agent_quick_prompt_not_found
             - agent_quick_prompt_conflict
             - agent_quick_prompt_operation_failed
+            - agent_session_cassette_not_found
+            - agent_session_replay_workspace_conflict
             - agent_session_fork_operation_not_found
             - agent_target_not_found
             - model_plan_not_found
@@ -7981,6 +7960,235 @@ components:
       properties:
         preferences:
           $ref: "#/components/schemas/DesktopPreferences"
+    DesktopUpdateAdmissionProduct:
+      type: string
+      enum:
+        - tsh-desktop
+        - tutti-desktop
+      x-enum-varnames:
+        - DesktopUpdateAdmissionProductTshDesktop
+        - DesktopUpdateAdmissionProductTuttiDesktop
+    DesktopUpdateAdmissionPlatform:
+      type: string
+      enum:
+        - macos
+        - windows
+        - linux
+      x-enum-varnames:
+        - DesktopUpdateAdmissionPlatformMacos
+        - DesktopUpdateAdmissionPlatformWindows
+        - DesktopUpdateAdmissionPlatformLinux
+    DesktopUpdateAdmissionArchitecture:
+      type: string
+      enum:
+        - arm64
+        - x64
+      x-enum-varnames:
+        - DesktopUpdateAdmissionArchitectureArm64
+        - DesktopUpdateAdmissionArchitectureX64
+    DesktopUpdateAdmissionIdentity:
+      type: object
+      additionalProperties: false
+      required:
+        - product
+        - platform
+        - architecture
+        - currentVersion
+      properties:
+        product:
+          $ref: "#/components/schemas/DesktopUpdateAdmissionProduct"
+        platform:
+          $ref: "#/components/schemas/DesktopUpdateAdmissionPlatform"
+        architecture:
+          $ref: "#/components/schemas/DesktopUpdateAdmissionArchitecture"
+        currentVersion:
+          type: string
+          minLength: 1
+    DesktopUpdateAdmissionPolicyResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - channel
+        - decision
+        - reason
+        - policyRevision
+      properties:
+        channel:
+          type: string
+          enum:
+            - stable
+            - rc
+            - unmanaged
+          x-enum-varnames:
+            - DesktopUpdateAdmissionPolicyResponseChannelStable
+            - DesktopUpdateAdmissionPolicyResponseChannelRc
+            - DesktopUpdateAdmissionPolicyResponseChannelUnmanaged
+        minimumVersion:
+          type: string
+          minLength: 1
+        decision:
+          type: string
+          enum:
+            - allowed
+            - upgradeRequired
+            - notApplicable
+          x-enum-varnames:
+            - DesktopUpdateAdmissionPolicyResponseDecisionAllowed
+            - DesktopUpdateAdmissionPolicyResponseDecisionUpgradeRequired
+            - DesktopUpdateAdmissionPolicyResponseDecisionNotApplicable
+        reason:
+          type: string
+          enum:
+            - belowMinimum
+            - meetsMinimum
+            - minimumNotConfigured
+            - unmanagedPrerelease
+            - unsupportedRelease
+          x-enum-varnames:
+            - DesktopUpdateAdmissionPolicyResponseReasonBelowMinimum
+            - DesktopUpdateAdmissionPolicyResponseReasonMeetsMinimum
+            - DesktopUpdateAdmissionPolicyResponseReasonMinimumNotConfigured
+            - DesktopUpdateAdmissionPolicyResponseReasonUnmanagedPrerelease
+            - DesktopUpdateAdmissionPolicyResponseReasonUnsupportedRelease
+        policyRevision:
+          type: string
+          minLength: 1
+    DesktopUpdateAdmissionPolicyFailure:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+      properties:
+        kind:
+          type: string
+          enum:
+            - timeout
+            - transport
+            - invalidResponse
+          x-enum-varnames:
+            - DesktopUpdateAdmissionPolicyFailureKindTimeout
+            - DesktopUpdateAdmissionPolicyFailureKindTransport
+            - DesktopUpdateAdmissionPolicyFailureKindInvalidResponse
+    DesktopUpdateAdmissionPolicySnapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - checking
+            - resolved
+            - failedOpen
+            - skipped
+          x-enum-varnames:
+            - DesktopUpdateAdmissionPolicySnapshotStatusChecking
+            - DesktopUpdateAdmissionPolicySnapshotStatusResolved
+            - DesktopUpdateAdmissionPolicySnapshotStatusFailedOpen
+            - DesktopUpdateAdmissionPolicySnapshotStatusSkipped
+        response:
+          $ref: "#/components/schemas/DesktopUpdateAdmissionPolicyResponse"
+        failure:
+          $ref: "#/components/schemas/DesktopUpdateAdmissionPolicyFailure"
+        reason:
+          type: string
+          enum:
+            - checksDisabled
+          x-enum-varnames:
+            - DesktopUpdateAdmissionPolicySnapshotReasonChecksDisabled
+    DesktopUpdateAdmissionFeatureAvailability:
+      type: object
+      additionalProperties: false
+      required:
+        - keys
+        - source
+        - policyRevision
+        - fetchedAt
+      properties:
+        keys:
+          type: array
+          maxItems: 256
+          items:
+            type: string
+        source:
+          type: string
+          enum:
+            - remote
+            - cache
+            - empty
+          x-enum-varnames:
+            - DesktopUpdateAdmissionFeatureAvailabilitySourceRemote
+            - DesktopUpdateAdmissionFeatureAvailabilitySourceCache
+            - DesktopUpdateAdmissionFeatureAvailabilitySourceEmpty
+        policyRevision:
+          type: string
+          nullable: true
+        fetchedAt:
+          type: string
+          format: date-time
+          nullable: true
+    DesktopUpdateAdmissionSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+        - identity
+        - policy
+        - featureAvailability
+        - lastAttemptAt
+        - nextForegroundCheckAt
+      properties:
+        identity:
+          $ref: "#/components/schemas/DesktopUpdateAdmissionIdentity"
+        policy:
+          $ref: "#/components/schemas/DesktopUpdateAdmissionPolicySnapshot"
+        featureAvailability:
+          $ref: "#/components/schemas/DesktopUpdateAdmissionFeatureAvailability"
+        lastAttemptAt:
+          type: string
+          format: date-time
+          nullable: true
+        nextForegroundCheckAt:
+          type: string
+          format: date-time
+          nullable: true
+    DesktopUpdateAdmissionRefreshTrigger:
+      type: string
+      enum:
+        - foreground
+        - retry
+      x-enum-varnames:
+        - DesktopUpdateAdmissionRefreshTriggerForeground
+        - DesktopUpdateAdmissionRefreshTriggerRetry
+    DesktopUpdateAdmissionRefreshRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - trigger
+      properties:
+        trigger:
+          $ref: "#/components/schemas/DesktopUpdateAdmissionRefreshTrigger"
+    DesktopUpdateAdmissionRefreshResult:
+      type: object
+      additionalProperties: false
+      required:
+        - performed
+        - snapshot
+      properties:
+        performed:
+          type: boolean
+        skipReason:
+          type: string
+          enum:
+            - checksDisabled
+            - throttled
+            - requestInFlight
+          x-enum-varnames:
+            - DesktopUpdateAdmissionRefreshResultSkipReasonChecksDisabled
+            - DesktopUpdateAdmissionRefreshResultSkipReasonThrottled
+            - DesktopUpdateAdmissionRefreshResultSkipReasonRequestInFlight
+        snapshot:
+          $ref: "#/components/schemas/DesktopUpdateAdmissionSnapshot"
     AgentTargetProvider:
       type: string
       minLength: 1
@@ -12197,8 +12405,13 @@ components:
             - $ref: "#/components/schemas/WorkspaceAgentCapabilities"
           nullable: true
           description: >-
-            Protocol v2. Daemon-issued capability descriptor; clients must
-            branch on capabilities, never on provider identity.
+            Protocol v2. Authoritative session capability snapshot. Null means
+            no authoritative session snapshot is available, either because the
+            runtime has not reported one yet or because legacy persisted data is
+            ambiguous. A non-null object is complete, so false means explicitly
+            unsupported. Only while this field is null may clients fall back to
+            the authoritative provider composer descriptor; they must never
+            infer capabilities from provider identity.
         lifecycleCapabilities:
           $ref: "#/components/schemas/WorkspaceAgentSessionLifecycleCapabilities"
           description: >-
@@ -12473,6 +12686,7 @@ components:
       additionalProperties: false
       required:
         - session
+        - goal
         - kind
       properties:
         session:
@@ -12749,8 +12963,8 @@ components:
       description: >-
         Protocol v2 daemon-issued capability descriptor. Clients branch on
         these booleans instead of provider identity. Field names mirror the
-        canonical capability keys in
-        packages/agent/daemon/runtime/capabilities.go.
+        canonical capability vocabulary owned by
+        packages/agent/store-sqlite/canonical/provider.go.
       additionalProperties: false
       required:
         - imageInput
@@ -12881,7 +13095,6 @@ components:
       properties:
         objective:
           type: string
-          minLength: 1
         status:
           type: string
           enum:
@@ -13639,6 +13852,15 @@ components:
             - resume
             - clear
             - set
+          x-enum-varnames:
+            - WorkspaceAgentSessionGoalControlRequestActionPause
+            - WorkspaceAgentSessionGoalControlRequestActionResume
+            - WorkspaceAgentSessionGoalControlRequestActionClear
+            - WorkspaceAgentSessionGoalControlRequestActionSet
+        clientSubmitId:
+          type: string
+          minLength: 1
+          description: Caller-stable idempotency identity for this Goal Control mutation.
         objective:
           type: string
     WorkspaceAgentSessionGoalControlResponse:
@@ -13646,6 +13868,7 @@ components:
       additionalProperties: false
       required:
         - session
+        - goal
       properties:
         session:
           $ref: "#/components/schemas/WorkspaceAgentSession"
@@ -13721,6 +13944,27 @@ components:
           $ref: "#/components/schemas/WorkspaceAgentSession"
         state:
           $ref: "#/components/schemas/WorkspaceAgentSessionGoalState"
+    WorkspaceAgentInitialGoalControl:
+      type: object
+      additionalProperties: false
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum:
+            - pause
+            - resume
+            - clear
+            - set
+          x-enum-varnames:
+            - WorkspaceAgentInitialGoalControlActionPause
+            - WorkspaceAgentInitialGoalControlActionResume
+            - WorkspaceAgentInitialGoalControlActionClear
+            - WorkspaceAgentInitialGoalControlActionSet
+        objective:
+          type: string
+          minLength: 1
     CreateWorkspaceAgentSessionRequest:
       type: object
       additionalProperties: false
@@ -13750,9 +13994,13 @@ components:
           $ref: "#/components/schemas/AgentSubmitDiagnostics"
         initialContent:
           type: array
-          minItems: 1
           items:
             $ref: "#/components/schemas/AgentPromptContentBlock"
+        initialGoalControl:
+          allOf:
+            - $ref: "#/components/schemas/WorkspaceAgentInitialGoalControl"
+          nullable: true
+          description: Optional typed Goal Control applied after the Session is created without opening an initial Turn. Must not be combined with non-empty initialContent.
         initialDisplayPrompt:
           type: string
           nullable: true
@@ -13806,6 +14054,7 @@ components:
       additionalProperties: false
       required:
         - agentTargetId
+        - replayPrerequisites
       properties:
         agentTargetId:
           type: string
@@ -13815,6 +14064,37 @@ components:
           minLength: 1
           nullable: true
           description: Existing Session selecting continue-session mode. Omit for create-session mode.
+        replayPrerequisites:
+          $ref: "#/components/schemas/AgentSessionReplayPrerequisites"
+    AgentSessionReplayComposerDefaults:
+      type: object
+      additionalProperties: false
+      required:
+        - model
+        - permissionModeId
+        - reasoningEffort
+        - speed
+      properties:
+        model:
+          type: string
+          minLength: 1
+        permissionModeId:
+          type: string
+          minLength: 1
+        reasoningEffort:
+          type: string
+          minLength: 1
+        speed:
+          type: string
+          minLength: 1
+    AgentSessionReplayPrerequisites:
+      type: object
+      additionalProperties: false
+      required:
+        - composerDefaults
+      properties:
+        composerDefaults:
+          $ref: "#/components/schemas/AgentSessionReplayComposerDefaults"
     RenameAgentSessionRecordingRequest:
       type: object
       additionalProperties: false
@@ -13967,91 +14247,93 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AgentSessionRecording"
-    AgentSessionReplayRun:
+    ImportAgentSessionCassettesRequest:
       type: object
       additionalProperties: false
       required:
-        - id
-        - cassetteId
-        - status
-        - checkpoint
-        - createdAtUnixMs
-        - updatedAtUnixMs
+        - sourceDirectories
       properties:
-        id:
+        sourceDirectories:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+          description: Absolute local directories containing portable cassette.json manifests.
+    ImportAgentSessionCassettesResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - failures
+        - recordings
+      properties:
+        failures:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSessionCassetteImportFailure"
+        recordings:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSessionRecording"
+    AgentSessionCassetteImportFailure:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - sourceDirectory
+      properties:
+        code:
           type: string
-          format: uuid
+          enum:
+            - conflict
+            - invalid
+            - failed
+        sourceDirectory:
+          type: string
+          minLength: 1
+    AgentSessionReplayCassetteLaunch:
+      type: object
+      additionalProperties: false
+      required:
+        - cassetteId
+        - cassetteDirectory
+        - rootAgentSessionId
+      properties:
         cassetteId:
           type: string
           format: uuid
-        status:
-          type: string
-          enum:
-            - starting
-            - running
-            - complete
-            - failed
-            - canceled
-        checkpoint:
-          type: integer
-          format: int64
-          minimum: 0
-        errorCode:
-          type: string
-          nullable: true
-        errorMessage:
-          type: string
-          nullable: true
-        createdAtUnixMs:
-          type: integer
-          format: int64
-          minimum: 0
-        startedAtUnixMs:
-          type: integer
-          format: int64
-          minimum: 0
-          nullable: true
-        completedAtUnixMs:
-          type: integer
-          format: int64
-          minimum: 0
-          nullable: true
-        updatedAtUnixMs:
-          type: integer
-          format: int64
-          minimum: 0
-    AgentSessionReplayLaunch:
-      type: object
-      additionalProperties: false
-      required:
-        - run
-        - cassetteDirectory
-      properties:
-        run:
-          $ref: "#/components/schemas/AgentSessionReplayRun"
         cassetteDirectory:
           type: string
           minLength: 1
-    AgentSessionReplayRunListResponse:
+        rootAgentSessionId:
+          type: string
+          minLength: 1
+    PrepareAgentSessionReplayWorkspaceRequest:
       type: object
       additionalProperties: false
       required:
-        - runs
+        - cassetteIds
       properties:
-        runs:
+        cassetteIds:
           type: array
+          minItems: 1
+          uniqueItems: true
           items:
-            $ref: "#/components/schemas/AgentSessionReplayRun"
-    AdvanceAgentSessionReplayRunCheckpointRequest:
+            type: string
+            format: uuid
+    AgentSessionReplayWorkspaceLaunch:
       type: object
       additionalProperties: false
       required:
-        - checkpoint
+        - launches
       properties:
-        checkpoint:
-          type: integer
-          format: int64
-          minimum: 0
+        launches:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AgentSessionReplayCassetteLaunch"
     AgentSessionCassette:
       type: object
       additionalProperties: false
@@ -14059,7 +14341,6 @@ components:
         - id
         - name
         - sourceRecordingId
-        - workspaceId
         - agentTargetId
         - rootAgentSessionId
         - mode
@@ -14076,9 +14357,6 @@ components:
         sourceRecordingId:
           type: string
           format: uuid
-        workspaceId:
-          type: string
-          minLength: 1
         agentTargetId:
           type: string
           minLength: 1
@@ -14117,6 +14395,7 @@ components:
         - playbackElapsedMs
         - speed
         - timingMode
+        - providerConnections
       properties:
         drained:
           type: boolean
@@ -14140,6 +14419,54 @@ components:
           enum:
             - realtime
             - fast-forward
+        providerConnections:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSessionReplayProviderCursor"
+    AgentSessionReplayProviderCursor:
+      type: object
+      additionalProperties: false
+      required:
+        - connectionId
+        - chunkSeq
+        - unitIndex
+      properties:
+        connectionId:
+          type: string
+          minLength: 1
+        chunkSeq:
+          type: integer
+          format: int64
+          minimum: 0
+        unitIndex:
+          type: integer
+          format: int64
+          minimum: 0
+    AgentSessionReplayCheckpointVerification:
+      type: object
+      additionalProperties: false
+      required:
+        - checkpointIndex
+        - triggerMatched
+        - readinessSatisfied
+        - canonicalSessionUpdatedAtUnixMs
+        - canonicalMessageVersion
+      properties:
+        checkpointIndex:
+          type: integer
+          minimum: 0
+        triggerMatched:
+          type: boolean
+        readinessSatisfied:
+          type: boolean
+        canonicalSessionUpdatedAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
+        canonicalMessageVersion:
+          type: integer
+          format: int64
+          minimum: 0
     UpdateAgentSessionReplayTransportPlaybackRequest:
       type: object
       additionalProperties: false
@@ -14153,6 +14480,15 @@ components:
             - pause
             - resume
             - set-timing-mode
+            - set-provider-cursor
+            - clear-provider-cursor
+          x-enum-varnames:
+            - UpdateAgentSessionReplayTransportPlaybackRequestCommandSetSpeed
+            - UpdateAgentSessionReplayTransportPlaybackRequestCommandPause
+            - UpdateAgentSessionReplayTransportPlaybackRequestCommandResume
+            - UpdateAgentSessionReplayTransportPlaybackRequestCommandSetTimingMode
+            - UpdateAgentSessionReplayTransportPlaybackRequestCommandSetProviderCursor
+            - UpdateAgentSessionReplayTransportPlaybackRequestCommandClearProviderCursor
         speed:
           type: number
           format: double
@@ -14167,23 +14503,10 @@ components:
           enum:
             - realtime
             - fast-forward
-    FailAgentSessionReplayRunRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - errorCode
-        - errorMessage
-      properties:
-        checkpoint:
-          type: integer
-          format: int64
-          minimum: 0
-        errorCode:
-          type: string
-          minLength: 1
-        errorMessage:
-          type: string
-          minLength: 1
+        providerConnections:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSessionReplayProviderCursor"
     WorkspaceAgentRailPlacement:
       type: object
       additionalProperties: false

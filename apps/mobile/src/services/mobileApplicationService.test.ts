@@ -12,6 +12,7 @@ import type {
 } from "./servicePorts";
 
 const session: AccountSession = {
+  avatarURL: "https://example.com/person.png",
   email: "person@example.com",
   name: "Person",
   sessionId: "session-cookie",
@@ -43,10 +44,7 @@ describe("MobileApplicationService scopes", () => {
     expect(harness.legacyCookieClearCalls).toBe(1);
 
     const login = service.loginService!;
-    login.setEmail(session.email);
-    await login.submitEmail();
-    login.setCode("123456");
-    await login.submitEmail();
+    await login.submitLogin();
 
     expect(service.getSnapshot()).toMatchObject({
       device: null,
@@ -62,26 +60,109 @@ describe("MobileApplicationService scopes", () => {
     expect(harness.legacyCookieClearCalls).toBe(2);
   });
 
-  test("background grace closes DeviceLink only after the deadline", async () => {
-    const harness = createHarness(session);
+  test("reconnects after the native background deadline without dropping the workspace", async () => {
+    const harness = createHarness(session, [workspace]);
     const service = new MobileApplicationService(
       new InstantiationService(),
       harness.ports
     );
     await service.start();
+    await service.deviceService!.connect(pairing);
+    harness.emitAgentLiveConnection("connected");
+    const previousActivity = service.workspaceActivityService!;
+    previousActivity.startCreating();
+    previousActivity.setDraft("RECOVERY_DRAFT");
+    expect(service.getSnapshot()).toMatchObject({
+      connection: { phase: "connected" },
+      device: { pairingId: pairing.pairingId },
+      workspace: { id: workspace.id }
+    });
 
     harness.emitLifecycle("background");
     expect(harness.closeCalls).toBe(0);
-    harness.clock.advanceBy(14_999);
+    harness.clock.advanceBy(15_000);
     expect(harness.closeCalls).toBe(0);
-    harness.clock.advanceBy(1);
-    await flushPromises();
+    harness.emitLifecycle("foreground");
+    await service.retryDeviceConnection();
 
     expect(harness.closeCalls).toBe(1);
+    expect(harness.connectCalls).toBe(2);
     expect(service.getSnapshot()).toMatchObject({
-      device: null,
+      connection: {
+        phase: "synchronizing",
+        trigger: "background_expired"
+      },
+      device: { pairingId: pairing.pairingId },
       status: "authenticated",
-      workspace: null
+      workspace: { id: workspace.id }
+    });
+    harness.emitAgentLiveConnection("connected");
+    expect(service.getSnapshot()).toMatchObject({
+      connection: { phase: "connected" },
+      workspace: { id: workspace.id }
+    });
+    expect(service.workspaceActivityService).not.toBe(previousActivity);
+    expect(service.workspaceActivityService!.getSnapshot()).toMatchObject({
+      creating: true,
+      draft: "RECOVERY_DRAFT"
+    });
+  });
+
+  test("lets the live stream retry briefly before rebuilding a lost DeviceLink", async () => {
+    const harness = createHarness(session, [workspace]);
+    const service = new MobileApplicationService(
+      new InstantiationService(),
+      harness.ports
+    );
+    await service.start();
+    await service.deviceService!.connect(pairing);
+    harness.emitAgentLiveConnection("connected");
+
+    harness.emitAgentLiveConnection("disconnected");
+    expect(service.getSnapshot()).toMatchObject({
+      connection: { phase: "synchronizing", trigger: "transport_lost" },
+      workspace: { id: workspace.id }
+    });
+    harness.clock.advanceBy(1_499);
+    await flushPromises();
+    expect(harness.closeCalls).toBe(0);
+    expect(harness.connectCalls).toBe(1);
+
+    harness.clock.advanceBy(1);
+    await flushPromises();
+    expect(harness.closeCalls).toBe(1);
+    expect(harness.connectCalls).toBe(2);
+  });
+
+  test("keeps the workspace available after recovery fails and retries explicitly", async () => {
+    const harness = createHarness(session, [workspace]);
+    const service = new MobileApplicationService(
+      new InstantiationService(),
+      harness.ports
+    );
+    await service.start();
+    await service.deviceService!.connect(pairing);
+    harness.emitAgentLiveConnection("connected");
+    harness.failNextConnection();
+
+    harness.emitLifecycle("background");
+    harness.clock.advanceBy(15_000);
+    harness.emitLifecycle("foreground");
+    await service.retryDeviceConnection();
+    expect(service.getSnapshot()).toMatchObject({
+      connection: { phase: "failed", trigger: "background_expired" },
+      device: { pairingId: pairing.pairingId },
+      workspace: { id: workspace.id }
+    });
+
+    await service.retryDeviceConnection();
+    expect(service.getSnapshot()).toMatchObject({
+      connection: { phase: "synchronizing", trigger: "manual_retry" },
+      workspace: { id: workspace.id }
+    });
+    harness.emitAgentLiveConnection("connected");
+    expect(service.getSnapshot()).toMatchObject({
+      connection: { phase: "connected" }
     });
   });
 
@@ -121,6 +202,32 @@ describe("MobileApplicationService scopes", () => {
       status: "authenticated",
       workspace: { id: workspace.id }
     });
+  });
+
+  test("measures latency only while the DeviceLink is connected", async () => {
+    const harness = createHarness(session, [workspace]);
+    const service = new MobileApplicationService(
+      new InstantiationService(),
+      harness.ports
+    );
+    await service.start();
+
+    await expect(service.measureConnectionLatency()).resolves.toBeNull();
+    expect(harness.requestCalls).toBe(0);
+
+    await service.deviceService!.connect(pairing);
+    harness.emitAgentLiveConnection("connected");
+    const now = jest
+      .spyOn(Date, "now")
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_042);
+    await expect(service.measureConnectionLatency()).resolves.toBe(42);
+    now.mockRestore();
+    expect(harness.requestCalls).toBe(1);
+
+    harness.failNextLatencyProbe();
+    await expect(service.measureConnectionLatency()).resolves.toBeNull();
+    expect(harness.requestCalls).toBe(2);
   });
 
   test("clears the device atomically and blocks reconnect until close finishes", async () => {
@@ -195,29 +302,46 @@ function createHarness(
   clock: ManualClock;
   closeCalls: number;
   connectCalls: number;
+  emitAgentLiveConnection(status: "connected" | "disconnected"): void;
   emitLifecycle(state: AppLifecycleState): void;
+  failNextConnection(): void;
+  failNextLatencyProbe(): void;
   legacyCookieClearCalls: number;
   ports: MobileServicePorts;
   registerCalls: number;
+  requestCalls: number;
 } {
   const clock = new ManualClock();
   let lifecycleListener: ((state: AppLifecycleState) => void) | null = null;
+  let liveListener:
+    | Parameters<MobileServicePorts["deviceLink"]["subscribeAgentLive"]>[1]
+    | null = null;
+  let failNextConnection = false;
+  let failNextLatencyProbe = false;
   const harness = {
     clock,
     closeCalls: 0,
     connectCalls: 0,
+    emitAgentLiveConnection(status: "connected" | "disconnected") {
+      liveListener?.({ kind: "connection", status });
+    },
     legacyCookieClearCalls: 0,
     registerCalls: 0,
     emitLifecycle(state: AppLifecycleState) {
       lifecycleListener?.(state);
     },
-    ports: null as unknown as MobileServicePorts
+    failNextConnection() {
+      failNextConnection = true;
+    },
+    failNextLatencyProbe() {
+      failNextLatencyProbe = true;
+    },
+    ports: null as unknown as MobileServicePorts,
+    requestCalls: 0
   };
   harness.ports = {
     account: {
-      sendEmailCode: async () => undefined,
-      signInWithGitHub: async () => session,
-      verifyEmailCode: async () => session
+      signInWithBrowser: async () => session
     },
     appLifecycle: {
       subscribe(listener) {
@@ -234,6 +358,7 @@ function createHarness(
           preferences: { featureFlags: {} }
         }),
         listAgentTargets: async () => ({ targets: [] }),
+        listUserProjects: async () => ({ projects: [] }),
         listWorkspaceAgentSessionSections: async () => ({
           pinned: { hasMore: false, sessions: [], totalCount: 0 },
           sections: [],
@@ -246,14 +371,28 @@ function createHarness(
         harness.closeCalls += 1;
         await overrides.closeLink?.();
       },
-      requestAgentHTTP: async () => ({
-        body: "",
-        errorCode: "",
-        headers: {},
-        protocolEpoch: 1,
-        status: 204
-      }),
-      subscribeAgentLive: () => ({ close() {} })
+      requestAgentHTTP: async () => {
+        harness.requestCalls += 1;
+        if (failNextLatencyProbe) {
+          failNextLatencyProbe = false;
+          throw new Error("latency probe failed");
+        }
+        return {
+          body: "",
+          errorCode: "",
+          headers: {},
+          protocolEpoch: 1,
+          status: 204
+        };
+      },
+      subscribeAgentLive: (_workspaceId, listener) => {
+        liveListener = listener;
+        return {
+          close() {
+            if (liveListener === listener) liveListener = null;
+          }
+        };
+      }
     },
     diagnostics: {
       record: () => undefined
@@ -271,6 +410,11 @@ function createHarness(
       }),
       connectPairedDevice: async () => {
         harness.connectCalls += 1;
+        if (failNextConnection) {
+          failNextConnection = false;
+          throw new Error("connection failed");
+        }
+        return "local_subnet" as const;
       },
       getPairingChallenge: async () => ({
         challengeId: "challenge-1",

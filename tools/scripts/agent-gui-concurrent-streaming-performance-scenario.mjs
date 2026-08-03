@@ -278,7 +278,7 @@ async function prepareConcurrentAgentStreaming(context, options) {
           '[data-testid^="agent-gui-conversation-item-"][data-active="true"]'
         );
         const editor = shell?.querySelector(
-          '#agent-gui-detail [contenteditable="true"][role="textbox"]'
+          '[data-testid="agent-gui-composer-editor"]'
         );
         return {
           activeSessionID:
@@ -330,7 +330,7 @@ async function executeConcurrentAgentStreaming(context, prepared, options) {
         );
         const timeline = shell?.querySelector('[data-testid="agent-gui-timeline"]');
         const editor = shell?.querySelector(
-          '#agent-gui-detail [contenteditable="true"][role="textbox"]'
+          '[data-testid="agent-gui-composer-editor"]'
         );
         if (!(timeline instanceof HTMLElement) || !(editor instanceof HTMLElement)) {
           throw new Error('concurrent Agent streaming surface is unavailable');
@@ -364,9 +364,9 @@ async function executeConcurrentAgentStreaming(context, prepared, options) {
         ready: Boolean(
           state?.windows?.length === 2 &&
           state.windows.every(({ editor }) => {
-            const submit = editor.closest('form')?.querySelector(
-              'button[type="submit"]'
-            );
+            const submit = editor
+              .closest('[data-testid="agent-gui-composer-input-shell"]')
+              ?.querySelector('[data-testid="agent-gui-composer-send"]');
             return submit instanceof HTMLButtonElement && !submit.disabled;
           })
         )
@@ -460,7 +460,7 @@ async function executeConcurrentAgentStreaming(context, prepared, options) {
           '[data-workbench-window-id="' + CSS.escape(nodeID) + '"]'
         );
         return shell?.querySelector(
-          '[data-testid="agent-gui-composer-stop-symbol"]'
+          '[data-testid="agent-gui-composer-stop-active-turn"]'
         );
       }).length;
       return { ready: startedCount === 2, startedCount };
@@ -479,7 +479,7 @@ async function executeConcurrentAgentStreaming(context, prepared, options) {
           '[data-workbench-window-id="' + CSS.escape(nodeID) + '"]'
         );
         return !shell?.querySelector(
-          '[data-testid="agent-gui-composer-stop-symbol"]'
+          '[data-testid="agent-gui-composer-stop-active-turn"]'
         );
       }).length;
       const mutationBatches =

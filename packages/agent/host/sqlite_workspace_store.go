@@ -8,6 +8,7 @@ import (
 	"time"
 
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 const canonicalRuntimeSessionOrigin = "WORKSPACE_AGENT_SESSION_ORIGIN_RUNTIME"
@@ -356,6 +357,7 @@ func (s *SQLiteWorkspaceStore) InitializeRuntimeSession(ctx context.Context, inp
 			ProviderSessionID: strings.TrimSpace(session.ProviderSessionID),
 			Model:             composerSettingsModel(session.Settings),
 			Settings:          composerSettingsPayload(session.Settings),
+			Capabilities:      canonical.CloneCapabilitySnapshot(session.Capabilities),
 			RuntimeContext:    runtimeContext,
 			Cwd:               strings.TrimSpace(session.Cwd),
 			RailPlacement:     railPlacement,
@@ -519,6 +521,17 @@ func (s *SQLiteWorkspaceStore) ListLatestTurnInteractions(ctx context.Context, w
 	return store.ListLatestTurnInteractions(ctx, workspaceID, sessionIDs)
 }
 
+func (s *SQLiteWorkspaceStore) GetSessionInteractionTreeSnapshot(
+	ctx context.Context,
+	query storesqlite.SessionInteractionTreeQuery,
+) (storesqlite.SessionInteractionTreeSnapshot, bool, error) {
+	store, err := s.store(query.WorkspaceID)
+	if err != nil {
+		return storesqlite.SessionInteractionTreeSnapshot{}, false, err
+	}
+	return store.GetSessionInteractionTreeSnapshot(ctx, query)
+}
+
 func (s *SQLiteWorkspaceStore) ListSessionInteractions(ctx context.Context, input storesqlite.ListSessionInteractionsInput) ([]storesqlite.Interaction, error) {
 	store, err := s.store(input.WorkspaceID)
 	if err != nil {
@@ -676,6 +689,14 @@ func (s *SQLiteWorkspaceStore) AcceptSubmitClaim(ctx context.Context, workspaceI
 		return storesqlite.SubmitClaim{}, false, err
 	}
 	return store.AcceptSubmitClaim(ctx, workspaceID, sessionID, clientSubmitID, turnID, now)
+}
+
+func (s *SQLiteWorkspaceStore) RejectSubmitClaim(ctx context.Context, workspaceID, sessionID, clientSubmitID, turnID string, now int64) (storesqlite.SubmitClaim, bool, error) {
+	store, err := s.store(workspaceID)
+	if err != nil {
+		return storesqlite.SubmitClaim{}, false, err
+	}
+	return store.RejectSubmitClaim(ctx, workspaceID, sessionID, clientSubmitID, turnID, now)
 }
 
 func (s *SQLiteWorkspaceStore) DeleteSubmitClaim(ctx context.Context, workspaceID, sessionID, clientSubmitID string) (bool, error) {

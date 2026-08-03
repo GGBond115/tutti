@@ -18,6 +18,7 @@ type SessionSnapshot struct {
 	ProviderSessionID    string
 	Model                string
 	Settings             map[string]any
+	Capabilities         *CapabilitySnapshot
 	RuntimeContext       map[string]any
 	CWD                  string
 	Title                string
@@ -49,7 +50,9 @@ type SessionStateReport struct {
 	ProviderSessionID    string
 	Model                string
 	Settings             map[string]any
+	Capabilities         *CapabilitySnapshot
 	RuntimeContext       map[string]any
+	RuntimeContextPatch  *RuntimeContextPatch
 	CWD                  string
 	Title                string
 	Status               string
@@ -63,9 +66,13 @@ type SessionStateReport struct {
 
 type SessionProjection struct {
 	Accepted        bool
+	InvalidReason   string
 	LastEventUnixMS int64
 	Session         SessionSnapshot
 }
+
+const SessionProjectionInvalidRuntimeContextUpdate = "runtime_context_snapshot_and_patch"
+const SessionProjectionInvalidRuntimeContextPatchKey = "runtime_context_patch_reserved_key"
 
 func ProjectSessionState(
 	existing SessionSnapshot,
@@ -76,6 +83,20 @@ func ProjectSessionState(
 	lastEvent := report.OccurredAtUnixMS
 	if lastEvent <= 0 {
 		lastEvent = nowUnixMS
+	}
+	if report.RuntimeContext != nil && report.RuntimeContextPatch != nil {
+		return SessionProjection{
+			InvalidReason:   SessionProjectionInvalidRuntimeContextUpdate,
+			LastEventUnixMS: lastEvent,
+			Session:         existing,
+		}
+	}
+	if runtimeContextPatchContainsReservedKey(report.RuntimeContextPatch) {
+		return SessionProjection{
+			InvalidReason:   SessionProjectionInvalidRuntimeContextPatchKey,
+			LastEventUnixMS: lastEvent,
+			Session:         existing,
+		}
 	}
 	if hasExisting && existing.DeletedAtUnixMS > 0 {
 		return SessionProjection{
@@ -100,6 +121,7 @@ func ProjectSessionState(
 		ProviderSessionID:    strings.TrimSpace(report.ProviderSessionID),
 		Model:                strings.TrimSpace(report.Model),
 		Settings:             cloneJSONMap(report.Settings),
+		Capabilities:         CloneCapabilitySnapshot(report.Capabilities),
 		RuntimeContext:       cloneJSONMap(report.RuntimeContext),
 		CWD:                  strings.TrimSpace(report.CWD),
 		Title:                strings.TrimSpace(report.Title),
@@ -160,7 +182,10 @@ func ProjectSessionState(
 		if len(session.Settings) == 0 {
 			session.Settings = cloneJSONMap(existing.Settings)
 		}
-		if len(session.RuntimeContext) == 0 {
+		if report.Capabilities == nil {
+			session.Capabilities = CloneCapabilitySnapshot(existing.Capabilities)
+		}
+		if report.RuntimeContext == nil {
 			session.RuntimeContext = cloneJSONMap(existing.RuntimeContext)
 		}
 		if session.CWD == "" {
@@ -198,11 +223,56 @@ func ProjectSessionState(
 		}
 		session.UpdatedAtUnixMS = nextSessionUpdateUnixMS(nowUnixMS, existing.UpdatedAtUnixMS)
 	}
+	if report.RuntimeContextPatch != nil {
+		session.RuntimeContext = applyRuntimeContextPatch(session.RuntimeContext, report.RuntimeContextPatch)
+	}
 	return SessionProjection{
 		Accepted:        session.WorkspaceID != "" && session.AgentSessionID != "",
 		LastEventUnixMS: session.LastEventUnixMS,
 		Session:         session,
 	}
+}
+
+func runtimeContextPatchContainsReservedKey(patch *RuntimeContextPatch) bool {
+	if patch == nil {
+		return false
+	}
+	for key := range patch.Set {
+		if IsReservedRuntimeContextKey(key) {
+			return true
+		}
+	}
+	for _, key := range patch.Unset {
+		if IsReservedRuntimeContextKey(key) {
+			return true
+		}
+	}
+	return false
+}
+
+func applyRuntimeContextPatch(
+	existing map[string]any,
+	patch *RuntimeContextPatch,
+) map[string]any {
+	result := cloneJSONMap(existing)
+	if result == nil {
+		result = map[string]any{}
+	}
+	if patch == nil {
+		return result
+	}
+	for key, value := range patch.Set {
+		key = strings.TrimSpace(key)
+		if key != "" {
+			result[key] = value
+		}
+	}
+	for _, raw := range patch.Unset {
+		if key := strings.TrimSpace(raw); key != "" {
+			delete(result, key)
+		}
+	}
+	return result
 }
 
 func sessionTitleEstablished(runtimeContext map[string]any) bool {

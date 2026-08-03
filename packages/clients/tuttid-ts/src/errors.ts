@@ -11,6 +11,8 @@ const tuttidProtocolErrorCodes = new Set<TuttidProtocolErrorCode>([
   "agent_quick_prompt_not_found",
   "agent_quick_prompt_conflict",
   "agent_quick_prompt_operation_failed",
+  "agent_session_cassette_not_found",
+  "agent_session_replay_workspace_conflict",
   "workspace_not_found",
   "workspace_file_not_found",
   "workspace_issue_resource_exists",

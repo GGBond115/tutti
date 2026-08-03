@@ -1,12 +1,11 @@
-import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
+import type { AgentGUIRuntime } from "@tutti-os/agent-gui";
 import type { DesktopHostFilesApi, DesktopRuntimeApi } from "@preload/types";
 import type { IReporterService } from "@renderer/features/analytics";
-import type { IWorkspaceUserProjectService } from "../../../workspace-user-project/index.ts";
 import { createDesktopAgentActivityRuntime } from "../createDesktopAgentActivityRuntime.ts";
 import type { IWorkspaceAgentActivityService } from "../workspaceAgentActivityService.interface";
 
 export interface DesktopAgentActivityRuntimeServices {
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
 }
 
 export interface GetDesktopAgentActivityRuntimeServicesInput {
@@ -16,7 +15,6 @@ export interface GetDesktopAgentActivityRuntimeServicesInput {
   runtimeApi: DesktopRuntimeApi;
   workspaceAgentActivityService: IWorkspaceAgentActivityService;
   workspaceId: string;
-  workspaceUserProjectService?: IWorkspaceUserProjectService;
 }
 
 const runtimeServicesByActivityService = new WeakMap<
@@ -48,8 +46,7 @@ export function getDesktopAgentActivityRuntimeServices(
       reporterNow: input.reporterNow,
       reporterService: input.reporterService,
       hostFilesApi: input.hostFilesApi,
-      runtimeApi: input.runtimeApi,
-      workspaceUserProjectService: input.workspaceUserProjectService
+      runtimeApi: input.runtimeApi
     }
   );
   const services: DesktopAgentActivityRuntimeServices = {

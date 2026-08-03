@@ -99,6 +99,7 @@ export function ConversationScreen({ application, navigation, route }: Props) {
       onRespond={(interaction, input) =>
         service.respondToInteraction(interaction, input)
       }
+      onSelectProject={(path) => service.selectProject(path)}
       onSelectTarget={(id) => service.selectTarget(id)}
       onSend={() => void service.send()}
       onStop={() => service.stop()}

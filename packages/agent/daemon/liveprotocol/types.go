@@ -31,10 +31,11 @@ type DeliveryKind uint8
 type EventType string
 
 const (
-	EventTypeMessageDelta      EventType = "message_delta"
-	EventTypeTurnUpdate        EventType = "turn_update"
-	EventTypeInteractionUpdate EventType = "interaction_update"
-	EventTypeSessionAudit      EventType = "session_audit"
+	EventTypeMessageDelta        EventType = "message_delta"
+	EventTypeTurnUpdate          EventType = "turn_update"
+	EventTypeInteractionUpdate   EventType = "interaction_update"
+	EventTypeInteractionSnapshot EventType = "interaction_snapshot"
+	EventTypeSessionAudit        EventType = "session_audit"
 )
 
 // Event is the normalized AgentGUI live event. Data is kept as JSON so the
@@ -131,6 +132,17 @@ type InteractionUpdateData struct {
 	EventType        EventType        `json:"eventType"`
 	OccurredAtUnixMS int64            `json:"occurredAtUnixMs"`
 	Interaction      EventInteraction `json:"interaction"`
+}
+
+// InteractionSnapshotData replaces the complete interaction collection for
+// one attached Session projection. An empty Interactions slice is an explicit
+// clear, not an omitted update.
+type InteractionSnapshotData struct {
+	WorkspaceID      string             `json:"workspaceId"`
+	AgentSessionID   string             `json:"agentSessionId"`
+	EventType        EventType          `json:"eventType"`
+	OccurredAtUnixMS int64              `json:"occurredAtUnixMs"`
+	Interactions     []EventInteraction `json:"interactions"`
 }
 
 type EventInteraction struct {

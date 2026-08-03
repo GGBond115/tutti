@@ -12,6 +12,7 @@ import (
 
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	host "github.com/tutti-os/tutti/packages/agent/host"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 // RuntimeBackend is the daemon controller surface required by Agent Host.
@@ -58,6 +59,7 @@ var (
 	_ host.SessionForkRuntime                      = (*RuntimeController)(nil)
 	_ host.SessionForkTurnBindingRecoveryRuntime   = (*RuntimeController)(nil)
 	_ host.GoalRuntimeController                   = (*RuntimeController)(nil)
+	_ host.GoalRuntimeControlLifecycleRegistrar    = (*RuntimeController)(nil)
 	_ host.GoalRuntimeReconciler                   = (*RuntimeController)(nil)
 	_ host.GoalRuntimeRecoveryPolicyResolver       = (*RuntimeController)(nil)
 	_ host.GoalRuntimeGenerationFencer             = (*RuntimeController)(nil)
@@ -65,6 +67,7 @@ var (
 
 type sessionForkRuntimeBackend interface {
 	ForkCapabilities(context.Context, agentruntime.Session) (agentruntime.SessionForkCapabilities, error)
+	CanForkProviderTurn(context.Context, agentruntime.ProviderTurnForkabilityInput) (bool, error)
 	Fork(context.Context, agentruntime.SessionForkInput) (agentruntime.SessionForkResult, error)
 }
 
@@ -410,10 +413,10 @@ func (a *RuntimeController) ForkSession(
 		}, host.ErrSessionForkUnsupported
 	}
 	result, err := backend.Fork(ctx, agentruntime.SessionForkInput{
-		Source:                      runtimeSession(input.Source),
-		ProviderTurnID:              input.SourceProviderTurnID,
-		ProviderCheckpointMessageID: input.SourceProviderCheckpointMessageID,
-		TargetTitle:                 input.TargetTitle,
+		Source:                  runtimeSession(input.Source),
+		ProviderTurnID:          input.SourceProviderTurnID,
+		ProviderTurnBindingJSON: append([]byte(nil), input.SourceProviderTurnBindingJSON...),
+		TargetTitle:             input.TargetTitle,
 	})
 	mapped := host.RuntimeSessionForkResult{
 		ProviderSessionID: strings.TrimSpace(result.ProviderSessionID),
@@ -432,8 +435,11 @@ func (a *RuntimeController) ForkSession(
 		mapped.TargetProviderTurnBindings = append(
 			mapped.TargetProviderTurnBindings,
 			host.SessionForkProviderTurnBinding{
-				ProviderTurnID:      strings.TrimSpace(binding.ProviderTurnID),
-				CheckpointMessageID: strings.TrimSpace(binding.CheckpointMessageID),
+				ProviderTurnID: strings.TrimSpace(binding.ProviderTurnID),
+				ProviderTurnBindingJSON: append(
+					[]byte(nil),
+					binding.ProviderTurnBindingJSON...,
+				),
 			},
 		)
 	}
@@ -447,6 +453,28 @@ func (a *RuntimeController) ForkSession(
 		return mapped, mapRuntimeError(err)
 	}
 	return mapped, nil
+}
+
+func (a *RuntimeController) CanForkProviderTurn(
+	ctx context.Context,
+	input host.RuntimeProviderTurnForkabilityInput,
+) (bool, error) {
+	if err := a.requireBackend(); err != nil {
+		return false, err
+	}
+	backend, ok := a.Backend.(sessionForkRuntimeBackend)
+	if !ok {
+		return false, nil
+	}
+	return backend.CanForkProviderTurn(
+		ctx,
+		agentruntime.ProviderTurnForkabilityInput{
+			Source:                  runtimeSession(input.Source),
+			CanonicalTurnID:         strings.TrimSpace(input.CanonicalTurnID),
+			ProviderTurnID:          strings.TrimSpace(input.ProviderTurnID),
+			ProviderTurnBindingJSON: append([]byte(nil), input.ProviderTurnBindingJSON...),
+		},
+	)
 }
 
 func (a *RuntimeController) RecoverProviderTurnBinding(
@@ -472,9 +500,9 @@ func (a *RuntimeController) RecoverProviderTurnBinding(
 		},
 	)
 	return host.RuntimeProviderTurnBindingRecoveryResult{
-		ProviderSessionID:           result.ProviderSessionID,
-		ProviderTurnID:              result.ProviderTurnID,
-		ProviderCheckpointMessageID: result.ProviderCheckpointMessageID,
+		ProviderSessionID:       result.ProviderSessionID,
+		ProviderTurnID:          result.ProviderTurnID,
+		ProviderTurnBindingJSON: append([]byte(nil), result.ProviderTurnBindingJSON...),
 	}, mapRuntimeError(err)
 }
 
@@ -638,6 +666,7 @@ func (a *RuntimeController) sessionWithState(session agentruntime.Session) host.
 		settings := hostSettings(*state.Settings)
 		result.Settings = &settings
 	}
+	result.Capabilities = canonical.CloneCapabilitySnapshot(state.Capabilities)
 	result.RuntimeContext = cloneMap(state.RuntimeContext)
 	if state.UpdatedAtUnixMS > 0 {
 		result.UpdatedAtUnixMS = state.UpdatedAtUnixMS

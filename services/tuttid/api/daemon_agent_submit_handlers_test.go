@@ -82,10 +82,27 @@ func TestAgentSubmitMetadataWithoutDiagnosticsIsEmpty(t *testing.T) {
 }
 
 func TestDirectSessionSendRecordingExcludesActivityEngineSubmissions(t *testing.T) {
-	if !shouldRecordDirectSessionSend(nil) {
+	if !shouldRecordDirectSessionSend(nil, nil) {
 		t.Fatal("transport submission without renderer diagnostics was excluded")
 	}
-	if shouldRecordDirectSessionSend(&tuttigenerated.AgentSubmitDiagnostics{}) {
+	if shouldRecordDirectSessionSend(
+		&tuttigenerated.AgentSubmitDiagnostics{},
+		nil,
+	) {
 		t.Fatal("activity engine submission would be recorded twice")
+	}
+	origin := tuttigenerated.SendWorkspaceAgentSessionInputParamsXTuttiAgentCommandOriginRendererEngine
+	if shouldRecordDirectSessionSend(nil, &origin) {
+		t.Fatal("renderer Engine provenance would be recorded twice")
+	}
+}
+
+func TestRendererEngineCommandOriginIsExplicit(t *testing.T) {
+	origin := tuttigenerated.CancelWorkspaceAgentTurnParamsXTuttiAgentCommandOriginRendererEngine
+	if !isRendererEngineCommandOrigin(&origin) {
+		t.Fatal("renderer Engine origin was not recognized")
+	}
+	if isRendererEngineCommandOrigin[tuttigenerated.CancelWorkspaceAgentTurnParamsXTuttiAgentCommandOrigin](nil) {
+		t.Fatal("absent origin was treated as renderer Engine")
 	}
 }

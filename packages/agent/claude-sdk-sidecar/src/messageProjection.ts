@@ -1,6 +1,5 @@
 import {
   commandEntries,
-  goalStateFromContentBlocks,
   isThinkingBlock,
   isToolUseBlock,
   recordValue,
@@ -170,23 +169,6 @@ export class MessageProjection {
         parentToolUseID
       );
     }
-  }
-
-  emitGoalStatusFromBlocks(
-    blocks: ReadonlyArray<Record<string, unknown>>
-  ): void {
-    const goal = goalStateFromContentBlocks(blocks);
-    if (!goal) {
-      return;
-    }
-    this.emit({
-      type: "goal_updated",
-      payload: {
-        turnId: this.turns.activeId,
-        updateType: "thread_goal_update",
-        goal
-      }
-    });
   }
 
   private emitFastModeStateFromMessage(message: Record<string, unknown>): void {

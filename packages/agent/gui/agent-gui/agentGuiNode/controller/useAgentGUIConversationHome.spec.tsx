@@ -1,7 +1,7 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import type { SetStateAction } from "react";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { createLocalAgentGUIAgentTarget } from "../../../agentTargets";
 import type { AgentGUINodeData } from "../../../types";
 import {
@@ -52,7 +52,7 @@ describe("useAgentGUIConversationHome composer append", () => {
           activeConversationId,
           activeConversationIdRef,
           activePendingActivation: null,
-          agentActivityRuntime: {} as AgentActivityRuntime,
+          agentActivityRuntime: {} as AgentGUIRuntime,
           composerAppendRequest: {
             agentSessionId: "source-session",
             prompt: "Modify the managed issue",

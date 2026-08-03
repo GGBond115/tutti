@@ -154,11 +154,14 @@ func TestControllerSubmitInteractiveSyncsClaudeCodePermissionModeSelection(t *te
 			if patch.Settings["planMode"] != false {
 				t.Fatalf("patch settings planMode = %#v, want false", patch.Settings["planMode"])
 			}
-			if patch.RuntimeContext["permissionModeId"] != tt.wantMode {
-				t.Fatalf("patch runtime context = %#v, want permission mode %q", patch.RuntimeContext, tt.wantMode)
+			if patch.RuntimeContext != nil {
+				t.Fatalf("patch runtime context snapshot = %#v, want nil", patch.RuntimeContext)
 			}
-			if patch.RuntimeContext["planMode"] != false {
-				t.Fatalf("patch runtime context planMode = %#v, want false", patch.RuntimeContext["planMode"])
+			if patch.RuntimeContextPatch == nil || patch.RuntimeContextPatch.Set["permissionModeId"] != tt.wantMode {
+				t.Fatalf("patch runtime context update = %#v, want permission mode %q", patch.RuntimeContextPatch, tt.wantMode)
+			}
+			if patch.RuntimeContextPatch.Set["planMode"] != false {
+				t.Fatalf("patch runtime context planMode = %#v, want false", patch.RuntimeContextPatch.Set["planMode"])
 			}
 			if patch.LifecycleStatus != "" || patch.CurrentPhase != "" {
 				t.Fatalf("patch status fields = %q/%q, want empty permission-only patch", patch.LifecycleStatus, patch.CurrentPhase)
@@ -545,6 +548,9 @@ func TestInteractiveDenyFollowUpSkipsClaudeSDKAdapter(t *testing.T) {
 
 	if adapterShouldReceiveInteractiveDenyFollowUp(NewClaudeCodeSDKAdapter(nil)) {
 		t.Fatal("Claude SDK adapter should consume deny feedback without daemon follow-up")
+	}
+	if adapterShouldReceiveInteractiveDenyFollowUp(NewCodexAppServerAdapter(nil)) {
+		t.Fatal("Codex app-server adapter should steer deny feedback without daemon follow-up")
 	}
 	if !adapterShouldReceiveInteractiveDenyFollowUp(newBlockingExecAdapter()) {
 		t.Fatal("ACP-style adapter should keep daemon deny follow-up")

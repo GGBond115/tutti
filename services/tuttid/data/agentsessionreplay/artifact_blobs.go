@@ -1,7 +1,6 @@
 package agentsessionreplay
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -10,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -23,21 +23,23 @@ var (
 type blobManifest = replay.BlobManifest
 type blobManifestEntry = replay.BlobManifestEntry
 
-type fixtureRecord struct {
-	Table  string         `json:"table"`
-	Values map[string]any `json:"values"`
-}
-
 type attachmentReference struct {
 	AgentSessionID string
 	AttachmentID   string
 	MimeType       string
 }
 
+type generatedImageReference struct {
+	AgentSessionID        string
+	ProviderHomeDirectory string
+	RelativePath          string
+	MimeType              string
+}
+
 // exportFixtureBlobs adds file dependencies explicitly referenced by the
 // exported SessionGraph. It does not scan the workspace or copy a state tree.
-func (s *Store) exportFixtureBlobs(fixturePath, recordingDirectory string) error {
-	references, err := attachmentReferencesFromFixture(fixturePath)
+func (s *Store) exportFixtureBlobs(statePath, recordingDirectory string) error {
+	attachments, generatedImages, err := blobReferencesFromReplayState(statePath)
 	if err != nil {
 		return err
 	}
@@ -48,10 +50,14 @@ func (s *Store) exportFixtureBlobs(fixturePath, recordingDirectory string) error
 	}
 	known := make(map[string]struct{}, len(manifest.Blobs))
 	for _, entry := range manifest.Blobs {
-		known[blobReferenceKey(entry.AgentSessionID, entry.AttachmentID, entry.MimeType)] = struct{}{}
+		known[blobManifestEntryKey(entry)] = struct{}{}
 	}
-	for _, reference := range references {
-		key := blobReferenceKey(reference.AgentSessionID, reference.AttachmentID, reference.MimeType)
+	for _, reference := range attachments {
+		key := attachmentBlobReferenceKey(
+			reference.AgentSessionID,
+			reference.AttachmentID,
+			reference.MimeType,
+		)
 		if _, ok := known[key]; ok {
 			continue
 		}
@@ -62,54 +68,91 @@ func (s *Store) exportFixtureBlobs(fixturePath, recordingDirectory string) error
 		manifest.Blobs = append(manifest.Blobs, entry)
 		known[key] = struct{}{}
 	}
+	for _, reference := range generatedImages {
+		key := generatedImageBlobReferenceKey(
+			reference.AgentSessionID,
+			reference.RelativePath,
+			reference.MimeType,
+		)
+		if _, ok := known[key]; ok {
+			continue
+		}
+		entry, err := s.copyGeneratedImageBlob(recordingDirectory, reference)
+		if err != nil {
+			return err
+		}
+		manifest.Blobs = append(manifest.Blobs, entry)
+		known[key] = struct{}{}
+	}
 	return writeJSONAtomic(manifestPath, manifest)
 }
 
-func attachmentReferencesFromFixture(path string) ([]attachmentReference, error) {
-	file, err := os.Open(path)
+func blobReferencesFromReplayState(
+	statePath string,
+) ([]attachmentReference, []generatedImageReference, error) {
+	raw, err := os.ReadFile(statePath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	defer file.Close()
+	var state struct {
+		Agent struct {
+			Sessions []struct {
+				ID            string `json:"id"`
+				AgentTargetID string `json:"agentTargetId"`
+				Provider      string `json:"provider"`
+				Messages      []struct {
+					Payload map[string]any `json:"payload"`
+				} `json:"messages"`
+			} `json:"sessions"`
+		} `json:"agent"`
+	}
+	if err := json.Unmarshal(raw, &state); err != nil {
+		return nil, nil, fmt.Errorf("decode semantic replay state for blobs: %w", err)
+	}
 	seen := map[string]struct{}{}
-	var references []attachmentReference
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	for scanner.Scan() {
-		var record fixtureRecord
-		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
-			return nil, fmt.Errorf("decode fixture record for blobs: %w", err)
-		}
-		if record.Table != "workspace_agent_messages" {
-			continue
-		}
-		sessionID, _ := record.Values["agent_session_id"].(string)
-		payloadJSON, _ := record.Values["payload_json"].(string)
-		if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(payloadJSON) == "" {
-			continue
-		}
-		var payload any
-		if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
-			return nil, fmt.Errorf("decode message payload for blobs: %w", err)
-		}
-		for _, image := range findAttachmentImages(payload) {
-			reference := attachmentReference{
-				AgentSessionID: sessionID,
-				AttachmentID:   image.AttachmentID,
-				MimeType:       image.MimeType,
+	var attachments []attachmentReference
+	var generatedImages []generatedImageReference
+	for _, session := range state.Agent.Sessions {
+		descriptor, _ := replay.ResolveProviderReplay(
+			session.AgentTargetID,
+			session.Provider,
+		)
+		for _, message := range session.Messages {
+			for _, image := range findAttachmentImages(message.Payload) {
+				reference := attachmentReference{
+					AgentSessionID: session.ID,
+					AttachmentID:   image.AttachmentID,
+					MimeType:       image.MimeType,
+				}
+				key := attachmentBlobReferenceKey(
+					session.ID,
+					image.AttachmentID,
+					image.MimeType,
+				)
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				attachments = append(attachments, reference)
 			}
-			key := blobReferenceKey(sessionID, image.AttachmentID, image.MimeType)
-			if _, ok := seen[key]; ok {
-				continue
+			for _, image := range findGeneratedImages(message.Payload) {
+				image.AgentSessionID = session.ID
+				image.ProviderHomeDirectory =
+					descriptor.PortableRuntime.SessionHomeDirectory
+				key := generatedImageBlobReferenceKey(
+					session.ID,
+					image.RelativePath,
+					image.MimeType,
+				)
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				generatedImages = append(generatedImages, image)
 			}
-			seen[key] = struct{}{}
-			references = append(references, reference)
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return references, nil
+	return attachments, generatedImages, nil
 }
 
 func findAttachmentImages(value any) []attachmentReference {
@@ -141,6 +184,35 @@ func findAttachmentImages(value any) []attachmentReference {
 	return result
 }
 
+func findGeneratedImages(payload map[string]any) []generatedImageReference {
+	output, ok := payload["output"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	mimeType, _ := output["imageMimeType"].(string)
+	mimeType = strings.TrimSpace(mimeType)
+	if promptImageExtension(mimeType) == "" {
+		return nil
+	}
+	values := []any{output["savedPath"]}
+	if savedPaths, ok := output["savedPaths"].([]any); ok {
+		values = append(values, savedPaths...)
+	}
+	var result []generatedImageReference
+	for _, value := range values {
+		savedPath, _ := value.(string)
+		relativePath, ok := portableGeneratedImageRelativePath(savedPath)
+		if !ok || path.Ext(relativePath) != promptImageExtension(mimeType) {
+			continue
+		}
+		result = append(result, generatedImageReference{
+			RelativePath: relativePath,
+			MimeType:     mimeType,
+		})
+	}
+	return result
+}
+
 func (s *Store) copyAttachmentBlob(
 	recordingDirectory string,
 	reference attachmentReference,
@@ -159,50 +231,12 @@ func (s *Store) copyAttachmentBlob(
 		reference.AgentSessionID,
 		reference.AttachmentID+extension,
 	)
-	file, err := os.Open(source)
+	digest, size, err := copyPortableBlob(source, recordingDirectory)
 	if err != nil {
-		return blobManifestEntry{}, fmt.Errorf("open Agent Session attachment blob: %w", err)
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return blobManifestEntry{}, fmt.Errorf("stat Agent Session attachment blob: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Size() > maxPortablePromptAsset {
 		return blobManifestEntry{}, fmt.Errorf(
-			"agent session attachment blob is not a supported regular file: size=%d limit=%d",
-			info.Size(),
-			maxPortablePromptAsset,
+			"copy Agent Session attachment blob: %w",
+			err,
 		)
-	}
-	hash := sha256.New()
-	size, err := io.Copy(hash, file)
-	if err != nil {
-		return blobManifestEntry{}, fmt.Errorf("hash Agent Session attachment blob: %w", err)
-	}
-	digest := hex.EncodeToString(hash.Sum(nil))
-	destination := filepath.Join(recordingDirectory, "blobs", "sha256", digest)
-	if _, err := os.Stat(destination); errors.Is(err, os.ErrNotExist) {
-		if _, err := file.Seek(0, io.SeekStart); err != nil {
-			return blobManifestEntry{}, err
-		}
-		tempPath := destination + ".tmp"
-		output, err := os.OpenFile(tempPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-		if err != nil {
-			return blobManifestEntry{}, err
-		}
-		_, copyErr := io.Copy(output, file)
-		closeErr := output.Close()
-		if err := errors.Join(copyErr, closeErr); err != nil {
-			_ = os.Remove(tempPath)
-			return blobManifestEntry{}, err
-		}
-		if err := os.Rename(tempPath, destination); err != nil {
-			_ = os.Remove(tempPath)
-			return blobManifestEntry{}, err
-		}
-	} else if err != nil {
-		return blobManifestEntry{}, err
 	}
 	return blobManifestEntry{
 		Kind:           replay.BlobKindAgentPromptAttachment,
@@ -212,6 +246,93 @@ func (s *Store) copyAttachmentBlob(
 		AttachmentID:   reference.AttachmentID,
 		MimeType:       reference.MimeType,
 	}, nil
+}
+
+func (s *Store) copyGeneratedImageBlob(
+	recordingDirectory string,
+	reference generatedImageReference,
+) (blobManifestEntry, error) {
+	if !safeBlobSegment(reference.AgentSessionID) ||
+		!safeBlobSegment(reference.ProviderHomeDirectory) ||
+		!safeGeneratedImageRelativePath(reference.RelativePath) ||
+		path.Ext(reference.RelativePath) != promptImageExtension(reference.MimeType) {
+		return blobManifestEntry{}, errors.New("invalid generated image blob identity")
+	}
+	source := filepath.Join(
+		filepath.Clean(strings.TrimSpace(s.StateDir)),
+		"agent",
+		"runs",
+		reference.AgentSessionID,
+		reference.ProviderHomeDirectory,
+		filepath.FromSlash(reference.RelativePath),
+	)
+	digest, size, err := copyPortableBlob(source, recordingDirectory)
+	if err != nil {
+		return blobManifestEntry{}, fmt.Errorf(
+			"copy Agent Session generated image blob: %w",
+			err,
+		)
+	}
+	return blobManifestEntry{
+		Kind:           replay.BlobKindAgentGeneratedImage,
+		SHA256:         digest,
+		SizeBytes:      size,
+		AgentSessionID: reference.AgentSessionID,
+		RelativePath:   reference.RelativePath,
+		MimeType:       reference.MimeType,
+	}, nil
+}
+
+func copyPortableBlob(
+	source string,
+	recordingDirectory string,
+) (string, int64, error) {
+	file, err := os.Open(source)
+	if err != nil {
+		return "", 0, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", 0, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxPortablePromptAsset {
+		return "", 0, fmt.Errorf(
+			"blob is not a supported regular file: size=%d limit=%d",
+			info.Size(),
+			maxPortablePromptAsset,
+		)
+	}
+	hash := sha256.New()
+	size, err := io.Copy(hash, file)
+	if err != nil {
+		return "", 0, err
+	}
+	digest := hex.EncodeToString(hash.Sum(nil))
+	destination := filepath.Join(recordingDirectory, "blobs", "sha256", digest)
+	if _, err := os.Stat(destination); errors.Is(err, os.ErrNotExist) {
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return "", 0, err
+		}
+		tempPath := destination + ".tmp"
+		output, err := os.OpenFile(tempPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+		if err != nil {
+			return "", 0, err
+		}
+		_, copyErr := io.Copy(output, file)
+		closeErr := output.Close()
+		if err := errors.Join(copyErr, closeErr); err != nil {
+			_ = os.Remove(tempPath)
+			return "", 0, err
+		}
+		if err := os.Rename(tempPath, destination); err != nil {
+			_ = os.Remove(tempPath)
+			return "", 0, err
+		}
+	} else if err != nil {
+		return "", 0, err
+	}
+	return digest, size, nil
 }
 
 func readBlobManifest(path string) (blobManifest, error) {
@@ -251,43 +372,166 @@ func safeBlobSegment(value string) bool {
 		!strings.ContainsAny(value, `/\`) && filepath.Base(value) == value
 }
 
-func blobReferenceKey(sessionID, attachmentID, mimeType string) string {
-	return sessionID + "\x00" + attachmentID + "\x00" + mimeType
+func portableGeneratedImageRelativePath(value string) (string, bool) {
+	const prefix = replay.PortableReplayHomeToken + "/"
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, prefix) {
+		return "", false
+	}
+	relative := strings.TrimPrefix(value, prefix)
+	return relative, safeGeneratedImageRelativePath(relative)
 }
 
-// portableActivityEventPayload replaces accepted staged image paths with inline
-// bytes. The replay API can then persist the same input without reading the
-// recording machine's state directory.
-func (s *Store) portableActivityEventPayload(payload map[string]any) (map[string]any, error) {
-	if payload == nil {
-		return nil, nil
+func safeGeneratedImageRelativePath(value string) bool {
+	value = strings.TrimSpace(value)
+	return strings.HasPrefix(value, "generated_images/") &&
+		!strings.Contains(value, `\`) &&
+		path.Clean(value) == value
+}
+
+func attachmentBlobReferenceKey(sessionID, attachmentID, mimeType string) string {
+	return replay.BlobKindAgentPromptAttachment + "\x00" +
+		sessionID + "\x00" + attachmentID + "\x00" + mimeType
+}
+
+func generatedImageBlobReferenceKey(sessionID, relativePath, mimeType string) string {
+	return replay.BlobKindAgentGeneratedImage + "\x00" +
+		sessionID + "\x00" + relativePath + "\x00" + mimeType
+}
+
+func blobManifestEntryKey(entry blobManifestEntry) string {
+	switch entry.Kind {
+	case replay.BlobKindAgentPromptAttachment:
+		return attachmentBlobReferenceKey(
+			entry.AgentSessionID,
+			entry.AttachmentID,
+			entry.MimeType,
+		)
+	case replay.BlobKindAgentGeneratedImage:
+		return generatedImageBlobReferenceKey(
+			entry.AgentSessionID,
+			entry.RelativePath,
+			entry.MimeType,
+		)
+	default:
+		return ""
 	}
-	raw, err := json.Marshal(payload)
+}
+
+// portableActivityEvent projects runtime-owned fields before the mutable
+// recording candidate is written. User-authored content remains unchanged.
+func (s *Store) portableActivityEvent(
+	event replay.ActivityEvent,
+) (replay.ActivityEvent, error) {
+	if event.Payload == nil {
+		return event, nil
+	}
+	raw, err := json.Marshal(event.Payload)
 	if err != nil {
-		return nil, err
+		return replay.ActivityEvent{}, err
 	}
 	var portable map[string]any
 	if err := json.Unmarshal(raw, &portable); err != nil {
-		return nil, err
+		return replay.ActivityEvent{}, err
 	}
-	content, _ := portable["content"].([]any)
-	for _, item := range content {
-		block, _ := item.(map[string]any)
-		if block["type"] != "image" {
-			continue
+	for _, field := range []string{"content", "runtimeContent", "initialContent"} {
+		content, _ := portable[field].([]any)
+		for _, item := range content {
+			block, _ := item.(map[string]any)
+			if block["type"] != "image" {
+				continue
+			}
+			path, _ := block["path"].(string)
+			if strings.TrimSpace(path) == "" {
+				continue
+			}
+			data, err := s.readPortablePromptAsset(path)
+			if err != nil {
+				return replay.ActivityEvent{}, err
+			}
+			block["data"] = base64.StdEncoding.EncodeToString(data)
+			delete(block, "path")
 		}
-		path, _ := block["path"].(string)
-		if strings.TrimSpace(path) == "" {
-			continue
-		}
-		data, err := s.readPortablePromptAsset(path)
-		if err != nil {
-			return nil, err
-		}
-		block["data"] = base64.StdEncoding.EncodeToString(data)
-		delete(block, "path")
 	}
-	return portable, nil
+	if isSessionActivationActivityType(event.Type) {
+		projectPortableSessionActivationPaths(portable)
+	}
+	event.Payload = portable
+	return event, nil
+}
+
+func isSessionActivationActivityType(eventType string) bool {
+	return eventType == "activation/requested" ||
+		eventType == "session.create" ||
+		eventType == "session/activate"
+}
+
+func projectPortableSessionActivationPaths(payload map[string]any) {
+	cwd, _ := payload["cwd"].(string)
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return
+	}
+	payload["cwd"] = replay.PortableReplayCWDToken
+	railPlacement, _ := payload["railPlacement"].(map[string]any)
+	projectPath, _ := railPlacement["projectPath"].(string)
+	if mapped, ok := portableReplayPath(projectPath, cwd); ok {
+		railPlacement["projectPath"] = mapped
+	}
+	projectPortableRailSectionKey(railPlacement, "sectionKey", cwd)
+	projectPortableRailSectionKey(payload, "railSectionKey", cwd)
+}
+
+// projectPortableRailSectionKey rewrites a `project:<absolute path>` rail
+// section key to its portable `project:${REPLAY_CWD}...` form so recorded
+// activation stimuli replay against the replay runtime cwd instead of the
+// recording machine's absolute project path.
+func projectPortableRailSectionKey(
+	container map[string]any,
+	field, cwd string,
+) {
+	if container == nil {
+		return
+	}
+	key, _ := container[field].(string)
+	const prefix = "project:"
+	if !strings.HasPrefix(key, prefix) {
+		return
+	}
+	if mapped, ok := portableReplayPath(
+		strings.TrimPrefix(key, prefix),
+		cwd,
+	); ok {
+		container[field] = prefix + mapped
+	}
+}
+
+func portableReplayPath(path, root string) (string, bool) {
+	path = strings.TrimSpace(path)
+	root = strings.TrimSpace(root)
+	if path == "" || root == "" {
+		return path, false
+	}
+	normalizedPath := path
+	normalizedRoot := root
+	if evaluated, err := filepath.EvalSymlinks(path); err == nil {
+		normalizedPath = evaluated
+	}
+	if evaluated, err := filepath.EvalSymlinks(root); err == nil {
+		normalizedRoot = evaluated
+	}
+	normalizedPath = filepath.Clean(normalizedPath)
+	normalizedRoot = filepath.Clean(normalizedRoot)
+	relative, err := filepath.Rel(normalizedRoot, normalizedPath)
+	if err != nil || relative == ".." ||
+		strings.HasPrefix(relative, ".."+string(filepath.Separator)) ||
+		filepath.IsAbs(relative) {
+		return path, false
+	}
+	if relative == "." {
+		return replay.PortableReplayCWDToken, true
+	}
+	return replay.PortableReplayCWDToken + "/" + filepath.ToSlash(relative), true
 }
 
 func (s *Store) readPortablePromptAsset(path string) ([]byte, error) {

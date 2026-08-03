@@ -1,19 +1,23 @@
 import type {
   AgentActivityAdapter,
   AgentActivityGoalControlResult,
-  AgentActivitySession
+  AgentActivitySession,
+  EngineEffectOptions
 } from "@tutti-os/agent-activity-core";
-import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
+import { tuttiAgentSessionComposerSettingsFromActivity } from "@tutti-os/agent-activity-tuttid-adapter";
 import type { TuttidClient } from "@tutti-os/client-tuttid-ts";
 import type { DesktopRuntimeApi } from "@preload/types";
-import { agentActivitySessionFromTuttidSession } from "../desktopAgentActivityAdapter.ts";
+import {
+  agentActivitySessionFromTuttidSession,
+  type DesktopAgentActivityCommandAdapter
+} from "../desktopAgentActivityAdapter.ts";
 import { reportAgentSubmitTraceDiagnostic } from "../desktopAgentRuntimeSubmitDiagnostics.ts";
 import type { IWorkspaceAgentActivityService } from "../workspaceAgentActivityService.interface.ts";
 import { normalizeComposerSettings } from "./desktopAgentHostProjection.ts";
 import { normalizeWorkspaceId } from "./workspaceAgentActivityDiagnostics.ts";
 
 interface WorkspaceAgentActivityMutationCommandTarget {
-  adapter: AgentActivityAdapter;
+  adapter: DesktopAgentActivityCommandAdapter;
 }
 
 export interface WorkspaceAgentActivityMutationOperationsDependencies {
@@ -40,6 +44,20 @@ export class WorkspaceAgentActivityMutationOperations {
   async createSession(
     input: Parameters<AgentActivityAdapter["createSession"]>[0]
   ): Promise<AgentActivitySession> {
+    return this.createSessionWithOptions(input);
+  }
+
+  executeEngineCreateSession(
+    input: Parameters<AgentActivityAdapter["createSession"]>[0],
+    options: EngineEffectOptions
+  ): Promise<AgentActivitySession> {
+    return this.createSessionWithOptions(input, options);
+  }
+
+  private async createSessionWithOptions(
+    input: Parameters<AgentActivityAdapter["createSession"]>[0],
+    options?: EngineEffectOptions
+  ): Promise<AgentActivitySession> {
     reportAgentSubmitTraceDiagnostic(this.dependencies.runtimeApi, {
       agentSessionId: input.agentSessionId?.trim() ?? null,
       clientSubmitId: input.clientSubmitId,
@@ -59,7 +77,9 @@ export class WorkspaceAgentActivityMutationOperations {
       workspaceId: input.workspaceId,
       fields: { agentTargetId: input.agentTargetId ?? null }
     });
-    const session = await target.adapter.createSession(input);
+    const session = options
+      ? await target.adapter.createSession(input, options)
+      : await target.adapter.createSession(input);
     reportAgentSubmitTraceDiagnostic(this.dependencies.runtimeApi, {
       agentSessionId: session.agentSessionId,
       clientSubmitId: input.clientSubmitId,
@@ -69,6 +89,10 @@ export class WorkspaceAgentActivityMutationOperations {
       workspaceId: input.workspaceId,
       fields: { activeTurnPhase: session.activeTurn?.phase ?? null }
     });
+    this.dependencies.upsertAuthoritativeSession(
+      session,
+      "create_session_result"
+    );
     reportAgentSubmitTraceDiagnostic(this.dependencies.runtimeApi, {
       agentSessionId: session.agentSessionId,
       clientSubmitId: input.clientSubmitId,
@@ -89,26 +113,64 @@ export class WorkspaceAgentActivityMutationOperations {
   }): Promise<
     import("@tutti-os/agent-activity-core").AgentActivityTurnCancelResponse
   > {
+    return this.cancelTurnWithOptions(input);
+  }
+
+  executeEngineCancelTurn(
+    input: {
+      agentSessionId: string;
+      signal?: AbortSignal;
+      turnId: string;
+      workspaceId: string;
+    },
+    options: EngineEffectOptions
+  ): Promise<
+    import("@tutti-os/agent-activity-core").AgentActivityTurnCancelResponse
+  > {
+    return this.cancelTurnWithOptions(input, options);
+  }
+
+  private async cancelTurnWithOptions(
+    input: {
+      agentSessionId: string;
+      signal?: AbortSignal;
+      turnId: string;
+      workspaceId: string;
+    },
+    options?: EngineEffectOptions
+  ): Promise<
+    import("@tutti-os/agent-activity-core").AgentActivityTurnCancelResponse
+  > {
     const workspaceId = normalizeWorkspaceId(input.workspaceId);
-    return input.signal
-      ? this.dependencies.tuttidClient.cancelWorkspaceAgentTurn(
-          workspaceId,
-          input.agentSessionId,
-          input.turnId,
-          { signal: input.signal }
-        )
-      : this.dependencies.tuttidClient.cancelWorkspaceAgentTurn(
-          workspaceId,
-          input.agentSessionId,
-          input.turnId
-        );
+    return this.dependencies.tuttidClient.cancelWorkspaceAgentTurn(
+      workspaceId,
+      input.agentSessionId,
+      input.turnId,
+      agentCommandRequestOptions(options, input.signal)
+    );
   }
 
   async goalControl(
     input: Parameters<AgentActivityAdapter["goalControl"]>[0]
   ): Promise<AgentActivityGoalControlResult> {
+    return this.goalControlWithOptions(input);
+  }
+
+  executeEngineGoalControl(
+    input: Parameters<AgentActivityAdapter["goalControl"]>[0],
+    options?: EngineEffectOptions
+  ): Promise<AgentActivityGoalControlResult> {
+    return this.goalControlWithOptions(input, options);
+  }
+
+  private async goalControlWithOptions(
+    input: Parameters<AgentActivityAdapter["goalControl"]>[0],
+    options?: EngineEffectOptions
+  ): Promise<AgentActivityGoalControlResult> {
     const target = this.dependencies.sessionCommandTarget(input.workspaceId);
-    const result = await target.adapter.goalControl(input);
+    const result = options
+      ? await target.adapter.goalControl(input, options)
+      : await target.adapter.goalControl(input);
     this.dependencies.upsertAuthoritativeSession(
       result.session,
       "goal_control_result"
@@ -119,25 +181,66 @@ export class WorkspaceAgentActivityMutationOperations {
   async submitInteractive(
     input: Parameters<AgentActivityAdapter["submitInteractive"]>[0]
   ): ReturnType<IWorkspaceAgentActivityService["submitInteractive"]> {
-    return this.dependencies
-      .sessionCommandTarget(input.workspaceId)
-      .adapter.submitInteractive(input);
+    return this.submitInteractiveWithOptions(input);
+  }
+
+  executeEngineSubmitInteractive(
+    input: Parameters<AgentActivityAdapter["submitInteractive"]>[0],
+    options: EngineEffectOptions
+  ): ReturnType<IWorkspaceAgentActivityService["submitInteractive"]> {
+    return this.submitInteractiveWithOptions(input, options);
+  }
+
+  private submitInteractiveWithOptions(
+    input: Parameters<AgentActivityAdapter["submitInteractive"]>[0],
+    options?: EngineEffectOptions
+  ): ReturnType<IWorkspaceAgentActivityService["submitInteractive"]> {
+    const adapter = this.dependencies.sessionCommandTarget(
+      input.workspaceId
+    ).adapter;
+    return options
+      ? adapter.submitInteractive(input, options)
+      : adapter.submitInteractive(input);
   }
 
   async submitPlanDecision(
     input: Parameters<IWorkspaceAgentActivityService["submitPlanDecision"]>[0]
   ) {
-    return this.dependencies.tuttidClient.submitWorkspaceAgentPlanDecision(
-      input.workspaceId,
-      input.agentSessionId,
-      input.turnId,
-      input.requestId,
-      {
-        action: input.action,
-        idempotencyKey: input.idempotencyKey,
-        promptKind: input.promptKind
-      }
-    );
+    return this.submitPlanDecisionWithOptions(input);
+  }
+
+  executeEngineSubmitPlanDecision(
+    input: Parameters<IWorkspaceAgentActivityService["submitPlanDecision"]>[0],
+    options: EngineEffectOptions
+  ) {
+    return this.submitPlanDecisionWithOptions(input, options);
+  }
+
+  private async submitPlanDecisionWithOptions(
+    input: Parameters<IWorkspaceAgentActivityService["submitPlanDecision"]>[0],
+    options?: EngineEffectOptions
+  ) {
+    const request = {
+      action: input.action,
+      idempotencyKey: input.idempotencyKey,
+      promptKind: input.promptKind
+    };
+    return options
+      ? this.dependencies.tuttidClient.submitWorkspaceAgentPlanDecision(
+          input.workspaceId,
+          input.agentSessionId,
+          input.turnId,
+          input.requestId,
+          request,
+          agentCommandRequestOptions(options)
+        )
+      : this.dependencies.tuttidClient.submitWorkspaceAgentPlanDecision(
+          input.workspaceId,
+          input.agentSessionId,
+          input.turnId,
+          input.requestId,
+          request
+        );
   }
 
   async updateSessionSettings(input: {
@@ -146,22 +249,43 @@ export class WorkspaceAgentActivityMutationOperations {
     settings: Parameters<typeof normalizeComposerSettings>[0];
     workspaceId: string;
   }): ReturnType<IWorkspaceAgentActivityService["updateSessionSettings"]> {
-    const settingsInput = normalizeComposerSettings(input.settings);
-    const session = input.signal
-      ? await this.dependencies.tuttidClient.updateWorkspaceAgentSessionSettings(
-          input.workspaceId,
-          input.agentSessionId,
-          settingsInput,
-          { signal: input.signal }
-        )
-      : await this.dependencies.tuttidClient.updateWorkspaceAgentSessionSettings(
-          input.workspaceId,
-          input.agentSessionId,
-          settingsInput
-        );
+    return this.updateSessionSettingsWithOptions(input);
+  }
+
+  executeEngineUpdateSessionSettings(
+    input: {
+      agentSessionId: string;
+      signal?: AbortSignal;
+      settings: Parameters<typeof normalizeComposerSettings>[0];
+      workspaceId: string;
+    },
+    options: EngineEffectOptions
+  ): ReturnType<IWorkspaceAgentActivityService["updateSessionSettings"]> {
+    return this.updateSessionSettingsWithOptions(input, options);
+  }
+
+  private async updateSessionSettingsWithOptions(
+    input: {
+      agentSessionId: string;
+      signal?: AbortSignal;
+      settings: Parameters<typeof normalizeComposerSettings>[0];
+      workspaceId: string;
+    },
+    options?: EngineEffectOptions
+  ): ReturnType<IWorkspaceAgentActivityService["updateSessionSettings"]> {
+    const normalizedSettings = normalizeComposerSettings(input.settings);
+    const settingsInput =
+      tuttiAgentSessionComposerSettingsFromActivity(normalizedSettings);
+    const session =
+      await this.dependencies.tuttidClient.updateWorkspaceAgentSessionSettings(
+        input.workspaceId,
+        input.agentSessionId,
+        settingsInput,
+        agentCommandRequestOptions(options, input.signal)
+      );
     const settings = session.settings
       ? normalizeComposerSettings(session.settings)
-      : normalizeComposerSettings(input.settings);
+      : normalizedSettings;
     return {
       agentSessionId: input.agentSessionId,
       settings,
@@ -170,19 +294,33 @@ export class WorkspaceAgentActivityMutationOperations {
   }
 
   updateTuttiModeActivation(
-    input: Parameters<AgentActivityRuntime["updateTuttiModeActivation"]>[0]
-  ): ReturnType<AgentActivityRuntime["updateTuttiModeActivation"]> {
+    input: Parameters<
+      IWorkspaceAgentActivityService["updateTuttiModeActivation"]
+    >[0]
+  ): ReturnType<IWorkspaceAgentActivityService["updateTuttiModeActivation"]> {
     return this.dependencies
       .sessionCommandTarget(input.workspaceId)
       .adapter.updateTuttiModeActivation(input);
   }
 
   unactivateSession(
-    input: Parameters<AgentActivityRuntime["unactivateSession"]>[0]
+    input: Parameters<IWorkspaceAgentActivityService["unactivateSession"]>[0]
   ): ReturnType<IWorkspaceAgentActivityService["unactivateSession"]> {
     return Promise.resolve({
       agentSessionId: input.agentSessionId,
       buffered: false
     });
   }
+}
+
+function agentCommandRequestOptions(
+  options: EngineEffectOptions | undefined,
+  signal?: AbortSignal
+) {
+  return options?.origin === "engine"
+    ? {
+        agentCommandOrigin: "renderer-engine" as const,
+        signal
+      }
+    : { signal };
 }

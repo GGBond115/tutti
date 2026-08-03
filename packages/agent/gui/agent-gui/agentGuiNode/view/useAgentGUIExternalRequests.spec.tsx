@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import {
   dispatchAgentGuiWorkbenchCommand,
   type AgentGuiWorkbenchSessionAction
@@ -27,13 +27,13 @@ const LABELS = {
 
 const originalAgentHostApi = window.agentHostApi;
 const runtimeWindow = window as unknown as {
-  agentActivityRuntime?: AgentActivityRuntime;
+  agentGUIRuntime?: AgentGUIRuntime;
 };
-const originalAgentActivityRuntime = runtimeWindow.agentActivityRuntime;
+const originalAgentGUIRuntime = runtimeWindow.agentGUIRuntime;
 
 afterEach(() => {
   window.agentHostApi = originalAgentHostApi;
-  runtimeWindow.agentActivityRuntime = originalAgentActivityRuntime;
+  runtimeWindow.agentGUIRuntime = originalAgentGUIRuntime;
   vi.unstubAllGlobals();
   delete (window.navigator as { clipboard?: unknown }).clipboard;
 });
@@ -139,12 +139,12 @@ function installRuntime(
           }
         ]
       });
-  runtimeWindow.agentActivityRuntime = {
+  runtimeWindow.agentGUIRuntime = {
     listSessionMessages,
     ...(options.readSessionAttachment
       ? { readSessionAttachment: options.readSessionAttachment }
       : {})
-  } as unknown as AgentActivityRuntime;
+  } as unknown as AgentGUIRuntime;
   return { listSessionMessages };
 }
 

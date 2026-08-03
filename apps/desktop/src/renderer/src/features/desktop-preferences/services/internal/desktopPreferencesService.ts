@@ -76,6 +76,7 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
 
   private readonly dependencies: DesktopPreferencesServiceDependencies;
   private readonly agentComposerDefaultsPatchCoordinator: AgentComposerDefaultsPatchCoordinator;
+  private readonly initialPreferencesHydration: Promise<void>;
   private readonly unsubscribePreferencesUpdates: () => void;
   private disposed = false;
 
@@ -119,7 +120,12 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
           this.applyPreferences(preferences);
         }
       );
-    void this.initialize();
+    this.initialPreferencesHydration = this.hydrateInitialPreferences();
+    void this.connectAfterInitialPreferencesHydration();
+  }
+
+  whenInitialPreferencesHydrated(): Promise<void> {
+    return this.initialPreferencesHydration;
   }
 
   dispose(): void {
@@ -745,7 +751,7 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
     }
   }
 
-  private async initialize(): Promise<void> {
+  private async hydrateInitialPreferences(): Promise<void> {
     try {
       const preferences =
         await this.dependencies.client.getDesktopPreferences();
@@ -755,7 +761,10 @@ export class DesktopPreferencesService implements IDesktopPreferencesService {
     } catch {
       // Keep the current in-memory defaults when initial preference hydration fails.
     }
+  }
 
+  private async connectAfterInitialPreferencesHydration(): Promise<void> {
+    await this.initialPreferencesHydration;
     try {
       if (this.disposed) {
         return;

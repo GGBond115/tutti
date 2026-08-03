@@ -72,8 +72,20 @@ For live Turns, the UUID supplied on the outbound SDK user message is a
 `promptCorrelationId` only because Claude Code may rewrite it in the durable
 transcript. `SessionRuntime` causally binds the next expected root prompt echo
 to its canonical Turn, takes provider identity from the observed root
-user-message UUID, and emits `provider_turn_started`; the daemon persists only
-that observed identity.
+user-message UUID, and emits `provider_turn_identity_resolved`. Some successful
+SDK queries omit that echo from the live iterator. A shared, idempotent
+single-flight identity barrier runs before every root assistant, stream, tool,
+approval, user-input, and result projection. It uses the official
+`getSessionMessages()` transcript read to resolve exactly one root user message
+by the opaque correlation UUID, with a bounded cancellable retry window for
+transcript persistence lag.
+
+The daemon synchronously persists the canonical Turn, provider Session, and
+provider Turn binding when it receives `provider_turn_identity_resolved`. Only
+after that durable barrier succeeds does it publish canonical
+`root_provider_turn.started` and allow later output or interaction events to
+proceed. Checkpoint and terminal events use the same bound provider Turn ID and
+never fall back to the outbound correlation UUID.
 
 Interactive responses use `(turnId, requestId)` identity. The sidecar keeps a
 bounded terminal disposition registry so `submit_interactive` is idempotent:
@@ -82,6 +94,11 @@ promise twice, while a changed replay reports `conflict`.
 `interactive_disposition` lets the daemon recover when a submission was
 applied but its acknowledgment was lost; transport ambiguity therefore remains
 non-terminal until the sidecar reports an authoritative disposition.
+
+Claude plan files keep the SDK default directory unless the host opts in to a
+different location. A host can set `TUTTI_CLAUDE_PLANS_DIRECTORY` in the
+session environment; the sidecar forwards its non-empty value through the
+SDK-native `plansDirectory` setting.
 
 ## Module layout
 

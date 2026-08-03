@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	workspaceagentbiz "github.com/tutti-os/tutti/services/tuttid/biz/workspaceagent"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
@@ -100,34 +101,86 @@ func (p *ActivityProjection) canonicalizeAgentTargetID(
 	rawID string,
 	runtimeContext map[string]any,
 ) (string, map[string]any) {
+	canonicalID, diagnosticKey := p.resolveCanonicalAgentTargetID(ctx, workspaceID, rawID)
+	if diagnosticKey == "" {
+		return canonicalID, runtimeContext
+	}
+	return canonicalID, stashOriginalAgentTargetID(runtimeContext, diagnosticKey, rawID)
+}
+
+// canonicalizeAgentTargetState preserves the runtime-context update mode. A
+// target diagnostic joins a full snapshot when one was supplied, otherwise it
+// is folded into the provider-private patch instead of manufacturing a second
+// update representation.
+func (p *ActivityProjection) canonicalizeAgentTargetState(
+	ctx context.Context,
+	workspaceID string,
+	rawID string,
+	runtimeContext map[string]any,
+	runtimeContextPatch *canonical.RuntimeContextPatch,
+) (string, map[string]any, *canonical.RuntimeContextPatch) {
+	canonicalID, diagnosticKey := p.resolveCanonicalAgentTargetID(ctx, workspaceID, rawID)
+	if diagnosticKey == "" {
+		return canonicalID, runtimeContext, runtimeContextPatch
+	}
+	if runtimeContext != nil {
+		return canonicalID, stashOriginalAgentTargetID(runtimeContext, diagnosticKey, rawID), runtimeContextPatch
+	}
+	patch := canonical.CloneRuntimeContextPatch(runtimeContextPatch)
+	if patch == nil {
+		patch = &canonical.RuntimeContextPatch{}
+	}
+	if patch.Set == nil {
+		patch.Set = map[string]any{}
+	}
+	patch.Set[diagnosticKey] = strings.TrimSpace(rawID)
+	patch.Unset = removeRuntimeContextPatchKey(patch.Unset, diagnosticKey)
+	return canonicalID, nil, patch
+}
+
+func removeRuntimeContextPatchKey(keys []string, removed string) []string {
+	result := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if strings.TrimSpace(key) != removed {
+			result = append(result, key)
+		}
+	}
+	return result
+}
+
+func (p *ActivityProjection) resolveCanonicalAgentTargetID(
+	ctx context.Context,
+	workspaceID string,
+	rawID string,
+) (string, string) {
 	rawID = strings.TrimSpace(rawID)
 	if rawID == "" {
-		return "", runtimeContext
+		return "", ""
 	}
 	if p == nil || p.agentTargetResolver == nil {
-		return rawID, runtimeContext
+		return rawID, ""
 	}
 	exists, verified := p.agentTargetExists(ctx, strings.TrimSpace(workspaceID), rawID)
 	if exists || !verified {
-		return rawID, runtimeContext
+		return rawID, ""
 	}
 	if canonicalID, ok := p.agentTargetResolver.ResolveAgentTargetAlias(ctx, rawID); ok {
 		canonicalID = strings.TrimSpace(canonicalID)
 		if canonicalID == "" || canonicalID == rawID {
-			return rawID, runtimeContext
+			return rawID, ""
 		}
 		slog.Warn("rewrote aliased agent target id to registered target id",
 			"event", "workspace.agent_session.agent_target_id.alias_rewritten",
 			"original_agent_target_id", rawID,
 			"canonical_agent_target_id", canonicalID,
 		)
-		return canonicalID, stashOriginalAgentTargetID(runtimeContext, runtimeContextAliasedAgentTargetIDKey, rawID)
+		return canonicalID, runtimeContextAliasedAgentTargetIDKey
 	}
 	slog.Warn("dropped unresolved agent target id from session",
 		"event", "workspace.agent_session.agent_target_id.dropped",
 		"original_agent_target_id", rawID,
 	)
-	return "", stashOriginalAgentTargetID(runtimeContext, runtimeContextUnresolvedAgentTargetIDKey, rawID)
+	return "", runtimeContextUnresolvedAgentTargetIDKey
 }
 
 // agentTargetExists reports whether id resolves in the local target registry.

@@ -5,13 +5,16 @@ import {
   selectEngineSessionSettingsUpdate
 } from "@tutti-os/agent-activity-core";
 import { describe, expect, it, vi } from "vitest";
+import { createTestEngineCommandPort } from "../../../shared/testing/createTestAgentSessionEngine";
 import { useAgentGUISessionEngineState } from "./useAgentGUISessionEngineState";
 
 describe("useAgentGUISessionEngineState", () => {
   it("shows an optimistic session selection then silently restores canonical settings on failure", () => {
     const sessionEngine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: vi.fn(() => new Promise(() => undefined)) },
+      commandPort: createTestEngineCommandPort({
+        execute: vi.fn(() => new Promise(() => undefined))
+      }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -22,10 +25,12 @@ describe("useAgentGUISessionEngineState", () => {
           activeTurnId: null,
           agentSessionId: "session-1",
           agentTargetId: "local:opencode",
+          cwd: "/workspace",
           latestTurnInteractions: [],
           pendingInteractions: [],
           provider: "opencode",
           settings: { permissionModeId: "ask" },
+          title: "Session 1",
           workspaceId: "workspace-1"
         })
       ]
@@ -70,7 +75,9 @@ describe("useAgentGUISessionEngineState", () => {
   it("keeps the latest queued settings visible while the session runtime reconnects", () => {
     const sessionEngine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: vi.fn(() => new Promise(() => undefined)) },
+      commandPort: createTestEngineCommandPort({
+        execute: vi.fn(() => new Promise(() => undefined))
+      }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -78,10 +85,12 @@ describe("useAgentGUISessionEngineState", () => {
       normalizeAgentActivitySession({
         activeTurnId: null,
         agentSessionId: "session-1",
+        cwd: "/workspace",
         latestTurnInteractions: [],
         pendingInteractions: [],
         provider: "codex",
         settings,
+        title: "Session 1",
         workspaceId: "workspace-1"
       });
     sessionEngine.dispatch({
@@ -185,7 +194,9 @@ describe("useAgentGUISessionEngineState", () => {
   it("observes runtime availability for the selected session only", () => {
     const sessionEngine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: vi.fn(() => new Promise(() => undefined)) },
+      commandPort: createTestEngineCommandPort({
+        execute: vi.fn(() => new Promise(() => undefined))
+      }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -195,9 +206,11 @@ describe("useAgentGUISessionEngineState", () => {
         normalizeAgentActivitySession({
           activeTurnId: null,
           agentSessionId,
+          cwd: "/workspace",
           latestTurnInteractions: [],
           pendingInteractions: [],
           provider: "codex",
+          title: "Session 1",
           workspaceId: "workspace-1"
         })
       )

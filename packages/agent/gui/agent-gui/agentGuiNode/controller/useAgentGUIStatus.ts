@@ -6,7 +6,8 @@ import type { AgentComposerSlashStatus } from "../AgentComposer";
 import type { AgentGUINodeProps } from "../AgentGUINode.types";
 import {
   resolveAgentGUIRailStatusProvider,
-  slashStatusLimitsFromQuotas
+  slashStatusLimitsFromQuotas,
+  slashStatusUsageErrorMessage
 } from "../AgentGUINode.usage";
 import type { useAgentGUINodeController } from "./useAgentGUINodeController";
 import {
@@ -104,13 +105,18 @@ export function useAgentGUIStatus(input: {
       (value.limitsState === "available" || value.quotas.length > 0)
         ? {
             usage: {
+              accountTier: value.accountLabel ?? undefined,
               quotas: [...value.quotas],
               capturedAtUnixMs: value.limitsCapturedAtUnixMs ?? 0
             }
           }
         : {}),
       ...(value?.limitsState === "error"
-        ? { lastError: { code: "runtime_unavailable" } }
+        ? {
+            lastError: {
+              code: value.limitsErrorCode?.trim() || "runtime_unavailable"
+            }
+          }
         : {})
     };
   }, [activeAgentStatusSnapshot.value, input.activeProvider]);
@@ -247,6 +253,10 @@ export function useAgentGUIStatus(input: {
       limitsResolvedEmpty:
         value?.limitsState === "available" && agentStatusLimits.length === 0,
       limitsCapturedAtUnixMs: value?.limitsCapturedAtUnixMs ?? null,
+      limitsErrorMessage: slashStatusUsageErrorMessage(
+        value?.limitsErrorCode ?? activeAgentStatusSnapshot.errorCode,
+        t
+      ),
       refreshFailed:
         activeAgentStatusSnapshot.errorCode !== null ||
         value?.limitsState === "error",
@@ -259,10 +269,13 @@ export function useAgentGUIStatus(input: {
     activeAgentStatusSnapshot.value,
     activeStatusSessionId,
     agentStatusController,
-    agentStatusLimits
+    agentStatusLimits,
+    t
   ]);
   const controllerRailStatus = agentStatusController
     ? {
+        accountLabel:
+          railAgentStatusSnapshot.value?.accountLabel?.trim() || null,
         limits: railAgentStatusLimits,
         loading:
           railAgentStatusSnapshot.phase === "loading" &&
@@ -272,6 +285,11 @@ export function useAgentGUIStatus(input: {
         didFail:
           railAgentStatusSnapshot.errorCode !== null ||
           railAgentStatusSnapshot.value?.limitsState === "error",
+        errorMessage: slashStatusUsageErrorMessage(
+          railAgentStatusSnapshot.value?.limitsErrorCode ??
+            railAgentStatusSnapshot.errorCode,
+          t
+        ),
         attempted:
           railAgentStatusSnapshot.value !== null ||
           railAgentStatusSnapshot.errorCode !== null,

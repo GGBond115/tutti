@@ -15,12 +15,14 @@ final class AppLifecycleModule: RCTEventEmitter {
   }
 
   @objc
-  func isForeground() -> Bool {
+  func isForeground() -> NSNumber {
     if Thread.isMainThread {
-      return UIApplication.shared.applicationState != .background
+      return NSNumber(
+        value: UIApplication.shared.applicationState != .background
+      )
     }
     return DispatchQueue.main.sync {
-      UIApplication.shared.applicationState != .background
+      NSNumber(value: UIApplication.shared.applicationState != .background)
     }
   }
 

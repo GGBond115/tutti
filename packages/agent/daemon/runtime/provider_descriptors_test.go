@@ -85,7 +85,7 @@ func TestSharedAppServerAdapterKeepsTuttiAgentIdentity(t *testing.T) {
 	if adapter.config.rateLimits {
 		t.Fatal("Tutti Agent adapter must not probe ChatGPT rate limits")
 	}
-	if capabilities := adapter.SessionState(Session{AgentSessionID: "missing"}).RuntimeContext["capabilities"]; capabilities != nil {
+	if capabilities := capabilitySnapshotValues(adapter.SessionState(Session{AgentSessionID: "missing"}).Capabilities); len(capabilities) != 0 {
 		t.Fatalf("empty session capabilities = %#v, want nil", capabilities)
 	}
 }

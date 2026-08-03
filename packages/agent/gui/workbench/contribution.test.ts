@@ -291,6 +291,37 @@ describe("agent GUI workbench contribution copy", () => {
     expect(launchResult?.instanceId).toMatch(/^agent-gui:instance:/);
   });
 
+  it("opens forced replay launches as distinct in-workspace nodes", async () => {
+    const contribution = createTestAgentGuiWorkbenchContribution({
+      renderBody: () => null,
+      workspaceId: "workspace-1"
+    });
+    const baseRequest = {
+      dockEntryId: agentGuiWorkbenchUnifiedDockEntryId(),
+      layoutConstraints: testLaunchLayout.layoutConstraints,
+      payload: {
+        agentTargetId: "local:codex",
+        forceNewInstance: true,
+        provider: "codex"
+      },
+      reason: "host" as const,
+      surfaceSize: testLaunchLayout.surfaceSize,
+      typeId: agentGuiWorkbenchTypeId,
+      workspaceId: "workspace-1"
+    };
+
+    const firstLaunch = await contribution.onLaunchRequest?.(baseRequest);
+    const secondLaunch = await contribution.onLaunchRequest?.(baseRequest);
+
+    expect(firstLaunch).toMatchObject({
+      reuseDockEntryNode: false
+    });
+    expect(secondLaunch).toMatchObject({
+      reuseDockEntryNode: false
+    });
+    expect(firstLaunch?.instanceId).not.toBe(secondLaunch?.instanceId);
+  });
+
   it("clears stale target state when opening a session without a target payload", () => {
     const contribution = createTestAgentGuiWorkbenchContribution({
       renderBody: () => null,

@@ -3446,6 +3446,23 @@
       "migrationHints": []
     },
     {
+      "id": "native-avatar",
+      "layer": "base",
+      "name": "NativeAvatar",
+      "export": "NativeAvatar",
+      "from": "@tutti-os/ui-system/native",
+      "category": "primitive",
+      "status": "experimental",
+      "source": "src/native/avatar.tsx",
+      "propsType": "NativeAvatarProps",
+      "description": "Token-backed decorative identity image for React Native with loading and broken-image fallback states.",
+      "useCases": ["People and account identity", "Compact identity surfaces"],
+      "migrationHints": [
+        "Pass a stable label even when src is available so unavailable images have a meaningful initial fallback."
+      ],
+      "nativePreview": true
+    },
+    {
       "id": "native-button",
       "layer": "base",
       "name": "NativeButton",
@@ -3504,7 +3521,7 @@
       "status": "experimental",
       "source": "src/native/sheet.tsx",
       "propsType": "NativeSheetProps",
-      "description": "Controlled compact sheet backed by React Native Modal with a token-backed scrim and panel.",
+      "description": "Controlled keyboard-avoiding compact sheet backed by React Native Modal with a token-backed scrim and panel.",
       "useCases": ["Row actions", "Confirmation flows", "Compact forms"],
       "migrationHints": [
         "Provide a localized closeAccessibilityLabel and replace a single snapPoints value with height; keep multi-snap sheets app-owned."

@@ -146,6 +146,7 @@ class MobileSecurityModule(
                     putString("userId", session.optString("userId"))
                     putString("email", session.optString("email"))
                     putString("name", session.optString("name"))
+                    putString("avatarURL", session.optString("avatarURL"))
                 }
             }
         }.fold(promise::resolve) {
@@ -159,6 +160,7 @@ class MobileSecurityModule(
         userId: String,
         email: String,
         name: String,
+        avatarURL: String,
         promise: Promise,
     ) {
         runCatching {
@@ -167,7 +169,8 @@ class MobileSecurityModule(
                     .put("sessionId", sessionId.trim())
                     .put("userId", userId.trim())
                     .put("email", email.trim())
-                    .put("name", name.trim()),
+                    .put("name", name.trim())
+                    .put("avatarURL", avatarURL.trim()),
             )
         }.fold({ promise.resolve(null) }) {
             promise.reject("SESSION_WRITE_FAILED", "Unable to save account session", it)

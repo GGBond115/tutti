@@ -54,6 +54,40 @@ export class ToolEventProjector {
     return true;
   }
 
+  completeBackgroundLaunch(toolUseID: string, taskID = ""): boolean {
+    const tool = this.toolByID.get(toolUseID);
+    if (!tool) {
+      return false;
+    }
+    const payload = toolPayload(this.resolveTurnId(tool), tool, "completed");
+    const metadata = recordValue(payload.metadata);
+    if (metadata) {
+      metadata.backgroundProcess = {
+        ...(taskID ? { taskId: taskID } : {}),
+        status: "running"
+      };
+    }
+    this.appendParentTaskStep(tool, payload);
+    this.onTerminal(tool, payload);
+    this.emit({ type: "tool_completed", payload });
+    this.removeTool(toolUseID);
+    return true;
+  }
+
+  completePendingRootBackgroundLaunches(): void {
+    const toolUseIDs = [...this.toolByID.values()]
+      .filter(
+        (tool) =>
+          !tool.parentToolUseId &&
+          (tool.input.run_in_background === true ||
+            tool.input.runInBackground === true)
+      )
+      .map((tool) => tool.id);
+    for (const toolUseID of toolUseIDs) {
+      this.completeBackgroundLaunch(toolUseID);
+    }
+  }
+
   parentToolUseID(toolUseID: string): string {
     return stringValue(this.toolByID.get(toolUseID)?.parentToolUseId);
   }
@@ -115,13 +149,7 @@ export class ToolEventProjector {
       failed ? "failed" : "completed",
       result
     );
-    this.toolHookResultByID.delete(toolUseID);
-    this.toolByID.delete(toolUseID);
-    for (const [index, indexedTool] of this.toolByIndex) {
-      if (indexedTool.id === toolUseID) {
-        this.toolByIndex.delete(index);
-      }
-    }
+    this.removeTool(toolUseID);
   }
 
   handlePostToolUseHook(
@@ -236,6 +264,16 @@ export class ToolEventProjector {
       this.onTerminal(tool, payload);
     }
     this.emit({ type, payload });
+  }
+
+  private removeTool(toolUseID: string): void {
+    this.toolHookResultByID.delete(toolUseID);
+    this.toolByID.delete(toolUseID);
+    for (const [index, indexedTool] of this.toolByIndex) {
+      if (indexedTool.id === toolUseID) {
+        this.toolByIndex.delete(index);
+      }
+    }
   }
 
   private appendParentTaskStep(

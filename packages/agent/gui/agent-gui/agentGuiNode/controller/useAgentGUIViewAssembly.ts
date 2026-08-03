@@ -44,6 +44,9 @@ type SessionPresentationInput = Omit<
   | "isInterrupting"
   | "pendingApproval"
   | "providerReadinessGate"
+  | "selectedAgentTargetUnavailable"
+  | "selectedAgentTargetUnavailableReason"
+  | "selectedAgentTargetOwnerLabel"
   | "serverInteractivePrompt"
 >;
 type ProviderHomeInput = Parameters<typeof useAgentGUIProviderHome>[0];
@@ -151,12 +154,29 @@ export function useAgentGUIViewAssembly(input: UseAgentGUIViewAssemblyInput) {
       input.providerReadinessGates
     ]
   );
+  const selectedAgentTargetUnavailable =
+    input.activeConversationId === null &&
+    input.effectiveSelectedProviderTarget.disabled === true &&
+    !isAgentGUIAgentTargetComingSoon(
+      input.effectiveSelectedProviderTarget,
+      input.normalizedComingSoonProviders
+    );
+  const selectedAgentTargetUnavailableReason = selectedAgentTargetUnavailable
+    ? input.effectiveSelectedProviderTarget.availability?.reason?.trim() ||
+      input.effectiveSelectedProviderTarget.unavailableReason?.trim() ||
+      null
+    : null;
+  const selectedAgentTargetOwnerLabel =
+    input.effectiveSelectedProviderTarget.ownerLabel?.trim() || null;
   const session = useAgentGUISessionPresentation({
     ...input,
     activeConversation,
     currentUserId: input.currentUserId,
     ownerDeviceLabel: targetConnection.ownerDeviceLabel,
     providerReadinessGate,
+    selectedAgentTargetUnavailable,
+    selectedAgentTargetUnavailableReason,
+    selectedAgentTargetOwnerLabel,
     targetConnectionAgentTargetId: targetConnection.agentTargetId,
     activeLiveState: detail.activeLiveState,
     activationError: detail.activationError,

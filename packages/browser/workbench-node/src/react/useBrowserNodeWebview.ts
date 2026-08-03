@@ -19,6 +19,7 @@ export function useBrowserNodeWebview({
   feature,
   initialUrl,
   lifecycle,
+  materializeCold,
   navigationPolicy,
   nodeId,
   onGuestInteraction,
@@ -30,6 +31,7 @@ export function useBrowserNodeWebview({
   feature: BrowserNodeFeature;
   initialUrl: string;
   lifecycle: BrowserNodeLifecycle;
+  materializeCold?: boolean;
   navigationPolicy?: BrowserNodeNavigationPolicy | null;
   nodeId: string;
   onGuestInteraction?: () => void;
@@ -59,6 +61,7 @@ export function useBrowserNodeWebview({
         feature,
         initialUrl,
         lifecycle,
+        materializeCold,
         navigationPolicy,
         nodeId,
         onGuestInteraction: stableOnGuestInteraction,
@@ -71,6 +74,7 @@ export function useBrowserNodeWebview({
       automationTarget,
       initialUrl,
       lifecycle,
+      materializeCold,
       navigationPolicy,
       nodeId,
       stableOnGuestInteraction,
@@ -94,6 +98,7 @@ export function useBrowserNodeWebview({
     automationTarget,
     initialUrl,
     lifecycle,
+    materializeCold,
     navigationPolicy,
     nodeId,
     profileId,

@@ -78,6 +78,12 @@ export type PendingSubmitStatus =
   | "uncertain"
   | "failed";
 
+export type PendingSubmitSource = Readonly<{
+  kind: "plan-feedback";
+  requestId: string;
+  turnId: string;
+}>;
+
 export interface PendingSubmitIntentRecord {
   acceptedSessionVersion: number | null;
   agentSessionId: string;
@@ -90,6 +96,7 @@ export interface PendingSubmitIntentRecord {
   expiresAtUnixMs: number;
   submitDiagnostics?: Readonly<AgentActivitySubmitDiagnostics>;
   requestedAtUnixMs: number;
+  source?: PendingSubmitSource;
   status: PendingSubmitStatus;
   turnId: string | null;
   workspaceId: string;

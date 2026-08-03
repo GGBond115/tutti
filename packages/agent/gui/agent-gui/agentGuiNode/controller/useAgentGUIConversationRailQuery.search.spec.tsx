@@ -14,8 +14,8 @@ import {
 import { Profiler, useLayoutEffect, type PropsWithChildren } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
-  AgentActivityRuntimeProvider,
-  type AgentActivityRuntime,
+  AgentGUIRuntimeProvider,
+  type AgentGUIRuntime,
   type AgentActivityRuntimeListSessionsPageInput
 } from "../../../agentActivityRuntime";
 import type { AgentHostUserProjectsApi } from "../../../host/agentHostApi";
@@ -44,11 +44,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
         throw new Error("section membership unavailable");
       },
       reportDiagnostic
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     const wrapper = ({ children }: PropsWithChildren) => (
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         {children}
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
 
     const { unmount } = renderHook(
@@ -87,11 +87,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
       deleteSessionsBatch: vi.fn(),
       getSessionEngine: () => engine,
       reportDiagnostic
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     const wrapper = ({ children }: PropsWithChildren) => (
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         {children}
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
 
     const { result } = renderHook(
@@ -286,11 +286,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
           })
       ),
       listSessionSectionPage: vi.fn()
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     const wrapper = ({ children }: PropsWithChildren) => (
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         {children}
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
     const layoutObservations: Array<{
       agentTargetId: string;
@@ -363,11 +363,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
               workspaceId: input.workspaceId
             };
       }
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     const wrapper = ({ children }: PropsWithChildren) => (
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         {children}
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
 
     const { result } = renderHook(
@@ -445,11 +445,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
           workspaceId: input.workspaceId
         };
       }
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     const wrapper = ({ children }: PropsWithChildren) => (
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         {children}
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
     const { result } = renderHook(
       () =>
@@ -493,11 +493,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
     engine.dispatch({ type: "turn/upserted", turn: runningTurn(1) });
     const runtime = {
       getSessionEngine: () => engine
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     const wrapper = ({ children }: PropsWithChildren) => (
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         {children}
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
     let renderCount = 0;
     const { result } = renderHook(
@@ -550,7 +550,7 @@ describe("useAgentGUIConversationRailQuery search", () => {
     engine.dispatch({ type: "turn/upserted", turn: runningTurn(1) });
     const runtime = {
       getSessionEngine: () => engine
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     let railCommitCount = 0;
 
     function RailHarness(): React.JSX.Element {
@@ -614,11 +614,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
     }
 
     render(
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         <TooltipProvider>
           <RailHarness />
         </TooltipProvider>
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
     await screen.findByText("streaming session");
     const previousRailCommitCount = railCommitCount;
@@ -640,7 +640,7 @@ describe("useAgentGUIConversationRailQuery search", () => {
       async listSessionSectionPage() {
         throw new Error("section membership unavailable");
       }
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     const userProjectsApi = {
       service: {
         getSnapshot: () => ({
@@ -731,11 +731,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
     }
 
     render(
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         <TooltipProvider>
           <RailHarness />
         </TooltipProvider>
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
 
     const workspaceTitle = await screen.findByText("Workspace");
@@ -786,7 +786,7 @@ describe("useAgentGUIConversationRailQuery search", () => {
       async listSessionSectionPage() {
         throw new Error("section membership unavailable");
       }
-    } as unknown as AgentActivityRuntime;
+    } as unknown as AgentGUIRuntime;
     const userProjects = ["Alpha", "Beta", "Gamma"].map((label) => ({
       createdAtUnixMs: 1,
       id: label.toLowerCase(),
@@ -861,11 +861,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
     }
 
     const rendered = render(
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         <TooltipProvider>
           <RailHarness />
         </TooltipProvider>
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
     const alphaSection = (await screen.findByText("Alpha")).closest("section");
     const gammaSection = screen.getByText("Gamma").closest("section");
@@ -987,11 +987,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
     expect(dragEndImage.isConnected).toBe(false);
 
     rendered.rerender(
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         <TooltipProvider>
           <RailHarness isMutationPending />
         </TooltipProvider>
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
     const lockedHeader = screen.getByText("Alpha").closest("section")
       ?.firstElementChild as HTMLElement;
@@ -1001,11 +1001,11 @@ describe("useAgentGUIConversationRailQuery search", () => {
     expect(setDragImage).toHaveBeenCalledTimes(dragImageCallCount);
 
     rendered.rerender(
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         <TooltipProvider>
           <RailHarness />
         </TooltipProvider>
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
     const unlockedHeader = screen.getByText("Alpha").closest("section")
       ?.firstElementChild as HTMLElement;

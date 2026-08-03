@@ -24,13 +24,14 @@ import type {
   AgentComposerProps
 } from "./AgentComposer.types";
 import { SendFilledIcon } from "./AgentComposerDraftPreview";
-import { useOptionalAgentActivityRuntime } from "../../../agentActivityRuntime";
+import { useOptionalAgentGUIRuntime } from "../../../agentActivityRuntime";
 import { reportAgentComposerDiagnostic } from "./agentComposerDiagnostics";
 
 interface Input {
   draftContent: AgentComposerDraft;
   canQueueWhileBusy: boolean;
   showStopButton: boolean;
+  activeTurnId?: string | null;
   draftOverridesStopButton: boolean;
   stopDisabled: boolean;
   isInterrupting: boolean;
@@ -84,6 +85,7 @@ export function useComposerPresentation(input: Input) {
     draftContent,
     canQueueWhileBusy,
     showStopButton,
+    activeTurnId = null,
     draftOverridesStopButton,
     stopDisabled,
     isInterrupting,
@@ -116,7 +118,7 @@ export function useComposerPresentation(input: Input) {
     canUploadAttachment,
     promptImagesSupported
   } = input;
-  const agentActivityRuntime = useOptionalAgentActivityRuntime();
+  const agentActivityRuntime = useOptionalAgentGUIRuntime();
   const draftImages = agentComposerDraftImages(draftContent);
   const draftFiles = agentComposerDraftFiles(draftContent);
   const draftLargeTexts = agentComposerDraftLargeTexts(draftContent);
@@ -274,6 +276,10 @@ export function useComposerPresentation(input: Input) {
     <button
       type="button"
       className={`${styles.composerStopButton} relative inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-transparent bg-transparent p-0 text-[var(--text-primary)] transition-[color,opacity] duration-150 hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:color-mix(in_srgb,var(--text-primary)_34%,transparent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background-panel)] active:bg-transparent disabled:cursor-not-allowed disabled:opacity-45`}
+      data-testid={
+        activeTurnId?.trim() ? "agent-gui-composer-stop-active-turn" : undefined
+      }
+      data-agent-turn-id={activeTurnId?.trim() || undefined}
       disabled={isInterrupting || stopDisabled}
       aria-label={isInterrupting ? labels.stopping : labels.stop}
       title={isInterrupting ? labels.stopping : labels.stop}
@@ -289,13 +295,13 @@ export function useComposerPresentation(input: Input) {
       <span
         aria-hidden="true"
         className="pointer-events-none absolute left-1/2 top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-[2px] bg-current"
-        data-testid="agent-gui-composer-stop-symbol"
       />
     </button>
   ) : (
     <button
       type="submit"
       className={styles.composerSendButton}
+      data-testid="agent-gui-composer-send"
       data-state={sendButtonState}
       data-disabled-reason={sendDisabledReasonKey || undefined}
       data-plan-review-label={planReviewSendLabel ? "true" : undefined}

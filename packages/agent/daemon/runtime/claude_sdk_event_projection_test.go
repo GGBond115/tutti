@@ -81,6 +81,7 @@ func TestClaudeCodeSDKAdapterMapsSyntheticTurnStarted(t *testing.T) {
 		t.Fatalf("events = %#v, want root provider turn start", events)
 	}
 	if events[0].Payload.TurnID != "root-turn-1" || events[0].Payload.ProviderTurnID != "synthetic-1" ||
+		string(events[0].Payload.ProviderTurnBindingJSON) != `{"schemaVersion":1}` ||
 		events[0].Payload.TurnPhase != string(activityshared.TurnPhaseRunning) {
 		t.Fatalf("turn started payload = %#v", events[0].Payload)
 	}
@@ -139,7 +140,7 @@ func TestClaudeCodeSDKAdapterMapsObservedProviderTurnIdentity(t *testing.T) {
 		session,
 		"canonical-turn-1",
 		claudeSDKSidecarEvent{
-			Type: "provider_turn_started",
+			Type: "provider_turn_identity_resolved",
 			Payload: map[string]any{
 				"turnId":         "canonical-turn-1",
 				"providerTurnId": "persisted-claude-user-uuid",
@@ -147,12 +148,13 @@ func TestClaudeCodeSDKAdapterMapsObservedProviderTurnIdentity(t *testing.T) {
 		},
 	)
 	if err != nil || terminal {
-		t.Fatalf("provider_turn_started err=%v terminal=%v", err, terminal)
+		t.Fatalf("provider_turn_identity_resolved err=%v terminal=%v", err, terminal)
 	}
 	if len(events) != 1 ||
 		events[0].Type != activityshared.EventRootProviderTurnStarted ||
 		events[0].Payload.TurnID != "canonical-turn-1" ||
-		events[0].Payload.ProviderTurnID != "persisted-claude-user-uuid" {
+		events[0].Payload.ProviderTurnID != "persisted-claude-user-uuid" ||
+		string(events[0].Payload.ProviderTurnBindingJSON) != `{"schemaVersion":1}` {
 		t.Fatalf("events = %#v, want observed provider identity", events)
 	}
 	if adapter.claudeSDKRootTurnID(adapterSession, "") != "canonical-turn-1" {
@@ -196,7 +198,8 @@ func TestClaudeCodeSDKAdapterMapsProviderTurnCheckpoint(t *testing.T) {
 		events[0].Type != activityshared.EventRootProviderTurnCheckpoint ||
 		events[0].Payload.TurnID != "canonical-turn-1" ||
 		events[0].Payload.ProviderTurnID != "provider-prompt-1" ||
-		events[0].Payload.ProviderCheckpointMessageID != "provider-system-1" {
+		string(events[0].Payload.ProviderTurnBindingJSON) !=
+			`{"schemaVersion":1,"checkpointMessageId":"provider-system-1"}` {
 		t.Fatalf("events = %#v, want provider checkpoint", events)
 	}
 }
@@ -220,7 +223,7 @@ func TestClaudeCodeSDKAdapterCompletesCanonicalTurnByProviderIdentity(t *testing
 			published = append(published, events...)
 		}
 	})
-	adapter.dispatchClaudeSDKEvent(
+	_ = adapter.dispatchClaudeSDKEvent(
 		session.AgentSessionID,
 		adapterSession,
 		claudeSDKSidecarEvent{
@@ -323,6 +326,11 @@ func TestClaudeCodeSDKAdapterApprovalDoesNotMergeWithApprovedToolCall(t *testing
 		liveState:       newClaudeSDKLiveState(),
 	}
 	adapter.storeSession(session.AgentSessionID, adapterSession)
+	adapter.beginClaudeSDKRootTurn(
+		adapterSession,
+		"turn-web",
+		"provider-turn-web",
+	)
 
 	approvalEvents, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-web", claudeSDKSidecarEvent{
 		Type: "approval_requested",
@@ -690,7 +698,7 @@ func TestClaudeCodeSDKAdapterScopesChildApprovalAckEventsToChild(t *testing.T) {
 	}()
 	waitForCondition(t, func() bool { return len(conn.sentRequests()) == 1 })
 	request := conn.sentRequests()[0]
-	adapter.dispatchClaudeSDKEvent(session.AgentSessionID, adapterSession, claudeSDKSidecarEvent{
+	_ = adapter.dispatchClaudeSDKEvent(session.AgentSessionID, adapterSession, claudeSDKSidecarEvent{
 		ID:   request.ID,
 		Type: "ok",
 		Payload: map[string]any{
@@ -789,8 +797,11 @@ func TestClaudeCodeSDKAdapterKeepsDelegationCompletionOnParentAndUpdatesChildTit
 	}
 
 	settled, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-task", claudeSDKSidecarEvent{
-		Type:    "turn_completed",
-		Payload: map[string]any{"turnId": "turn-task"},
+		Type: "turn_completed",
+		Payload: map[string]any{
+			"turnId":         "turn-task",
+			"providerTurnId": "provider-turn-task",
+		},
 	})
 	if err != nil || !terminal {
 		t.Fatalf("turn_completed events=%#v terminal=%v err=%v", settled, terminal, err)
@@ -799,6 +810,77 @@ func TestClaudeCodeSDKAdapterKeepsDelegationCompletionOnParentAndUpdatesChildTit
 		if event.Type == activityshared.EventCallFailed {
 			t.Fatalf("parent delegation was left dangling: %#v", settled)
 		}
+	}
+}
+
+func TestClaudeCodeSDKAdapterSettlesDetachedProcessLaunchWithoutCreatingChildWork(t *testing.T) {
+	adapter := NewClaudeCodeSDKAdapter(nil)
+	session := standardTestSession(ProviderClaudeCode)
+	adapterSession := &claudeSDKAdapterSession{
+		conn:            &recordingClaudeSDKConnection{},
+		pendingRequests: make(map[string]*pendingInteractiveRequest),
+		liveState:       newClaudeSDKLiveState(),
+	}
+	adapter.storeSession(session.AgentSessionID, adapterSession)
+
+	started, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-bash", claudeSDKSidecarEvent{
+		Type: "tool_started",
+		Payload: map[string]any{
+			"turnId":     "turn-bash",
+			"toolCallId": "toolu-bash",
+			"toolName":   "Bash",
+			"callType":   "tool",
+			"input": map[string]any{
+				"command":           "python3 -m http.server 8000",
+				"run_in_background": true,
+			},
+		},
+	})
+	if err != nil || terminal || len(started) != 1 || started[0].Type != activityshared.EventCallStarted {
+		t.Fatalf("tool_started events=%#v terminal=%v err=%v", started, terminal, err)
+	}
+	if len(adapterSession.childSessions) != 0 {
+		t.Fatalf("detached process created child sessions: %#v", adapterSession.childSessions)
+	}
+
+	completed, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-bash", claudeSDKSidecarEvent{
+		Type: "tool_completed",
+		Payload: map[string]any{
+			"turnId":     "turn-bash",
+			"toolCallId": "toolu-bash",
+			"toolName":   "Bash",
+			"callType":   "tool",
+			"status":     "completed",
+			"input": map[string]any{
+				"command":           "python3 -m http.server 8000",
+				"run_in_background": true,
+			},
+			"metadata": map[string]any{
+				"backgroundProcess": map[string]any{"status": "running"},
+			},
+		},
+	})
+	if err != nil || terminal || len(completed) != 1 || completed[0].Type != activityshared.EventCallCompleted {
+		t.Fatalf("tool_completed events=%#v terminal=%v err=%v", completed, terminal, err)
+	}
+
+	settled, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-bash", claudeSDKSidecarEvent{
+		Type: "turn_completed",
+		Payload: map[string]any{
+			"turnId":         "turn-bash",
+			"providerTurnId": "provider-turn-bash",
+		},
+	})
+	if err != nil || !terminal {
+		t.Fatalf("turn_completed events=%#v terminal=%v err=%v", settled, terminal, err)
+	}
+	for _, event := range settled {
+		if event.Type == activityshared.EventCallFailed {
+			t.Fatalf("detached process launch was left dangling: %#v", settled)
+		}
+	}
+	if len(adapterSession.childSessions) != 0 {
+		t.Fatalf("completed detached process created child sessions: %#v", adapterSession.childSessions)
 	}
 }
 
@@ -1334,6 +1416,11 @@ func TestClaudeCodeSDKAdapterMapsAskUserQuestionInteractive(t *testing.T) {
 		liveState:       newClaudeSDKLiveState(),
 	}
 	adapter.storeSession(session.AgentSessionID, adapterSession)
+	adapter.beginClaudeSDKRootTurn(
+		adapterSession,
+		"turn-ask",
+		"provider-turn-ask",
+	)
 
 	events, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-ask", claudeSDKSidecarEvent{
 		Type: "user_input_requested",
@@ -1368,6 +1455,11 @@ func TestClaudeCodeSDKAdapterMapsExitPlanModeInteractive(t *testing.T) {
 		liveState:       newClaudeSDKLiveState(),
 	}
 	adapter.storeSession(session.AgentSessionID, adapterSession)
+	adapter.beginClaudeSDKRootTurn(
+		adapterSession,
+		"turn-plan",
+		"provider-turn-plan",
+	)
 
 	events, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-plan", claudeSDKSidecarEvent{
 		Type: "user_input_requested",
@@ -1420,6 +1512,11 @@ func TestClaudeCodeSDKAdapterCancelClearsPendingInteractive(t *testing.T) {
 		liveState:       newClaudeSDKLiveState(),
 	}
 	adapter.storeSession(session.AgentSessionID, adapterSession)
+	adapter.beginClaudeSDKRootTurn(
+		adapterSession,
+		"turn-cancel",
+		"provider-turn-cancel",
+	)
 
 	// A turn parked on an approval has a live Exec waiter in the registry; the
 	// interrupted terminal is stamped for that registered turnID, not for the
@@ -1617,8 +1714,11 @@ func TestClaudeCodeSDKAdapterTurnCanceledFailsOpenToolCalls(t *testing.T) {
 	}
 
 	events, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-write", claudeSDKSidecarEvent{
-		Type:    "turn_canceled",
-		Payload: map[string]any{"turnId": "turn-write"},
+		Type: "turn_canceled",
+		Payload: map[string]any{
+			"turnId":         "turn-write",
+			"providerTurnId": "turn-write",
+		},
 	})
 	if err != nil || !terminal {
 		t.Fatalf("turn_canceled err=%v terminal=%v", err, terminal)
@@ -1636,16 +1736,12 @@ func TestClaudeCodeSDKAdapterTurnCanceledFailsOpenToolCalls(t *testing.T) {
 	}
 }
 
-// TestClaudeCodeSDKAdapterReaderFailureFailsPendingInteractive guards against
-// a real bug found while investigating a Feishu report (LENj32): if the
-// sidecar connection/process dies while a permission dialog is still
-// unanswered (e.g. the user left it open for a while), failClaudeSDKReader
-// used to discard the pending approval bookkeeping silently along with the
-// rest of the session. The GUI would then see the request vanish on the next
-// reconnect with no terminal event explaining why, while the turn itself
-// failed for an unrelated-looking reason -- giving the impression the
-// approval was answered or bypassed when it never was.
-func TestClaudeCodeSDKAdapterReaderFailureFailsPendingInteractive(t *testing.T) {
+// TestClaudeCodeSDKAdapterReaderFailureConvergesPendingInteractiveAndProviderTurn
+// guards the disconnect path while a permission dialog is unanswered. The
+// authoritative sink must settle the interaction, call, and provider turn
+// before Exec is released; otherwise its stale return batch can be rejected
+// and leave the durable root turn running forever.
+func TestClaudeCodeSDKAdapterReaderFailureConvergesPendingInteractiveAndProviderTurn(t *testing.T) {
 	adapter := NewClaudeCodeSDKAdapter(nil)
 	session := standardTestSession(ProviderClaudeCode)
 	adapterSession := &claudeSDKAdapterSession{
@@ -1657,6 +1753,12 @@ func TestClaudeCodeSDKAdapterReaderFailureFailsPendingInteractive(t *testing.T) 
 		liveState:        newClaudeSDKLiveState(),
 	}
 	adapter.storeSession(session.AgentSessionID, adapterSession)
+	adapter.beginClaudeSDKRootTurn(
+		adapterSession,
+		"turn-disconnect",
+		"provider-turn-disconnect",
+	)
+	waiter := adapter.registerClaudeSDKTurn(adapterSession, "turn-disconnect", nil)
 
 	if _, _, err := adapter.sidecarTurnEvents(adapterSession, session, "turn-disconnect", claudeSDKSidecarEvent{
 		Type: "approval_requested",
@@ -1675,9 +1777,15 @@ func TestClaudeCodeSDKAdapterReaderFailureFailsPendingInteractive(t *testing.T) 
 
 	var mu sync.Mutex
 	var received []activityshared.Event
+	waiterReleasedBeforeSink := false
 	adapter.SetSessionEventSink(func(_ string, events []activityshared.Event) {
 		mu.Lock()
 		defer mu.Unlock()
+		select {
+		case <-waiter.done:
+			waiterReleasedBeforeSink = true
+		default:
+		}
 		received = append(received, events...)
 	})
 
@@ -1685,12 +1793,41 @@ func TestClaudeCodeSDKAdapterReaderFailureFailsPendingInteractive(t *testing.T) 
 
 	mu.Lock()
 	events := append([]activityshared.Event(nil), received...)
+	releasedBeforeSink := waiterReleasedBeforeSink
 	mu.Unlock()
-	if len(events) != 2 || events[0].Type != activityshared.EventInteractionSuperseded || events[1].Type != activityshared.EventCallFailed {
-		t.Fatalf("disconnect events = %#v, want superseded interaction and failed pending approval", events)
+	if releasedBeforeSink {
+		t.Fatal("turn waiter was released before authoritative disconnect events reached the session sink")
+	}
+	if len(events) != 3 ||
+		events[0].Type != activityshared.EventInteractionSuperseded ||
+		events[1].Type != activityshared.EventCallFailed ||
+		events[2].Type != activityshared.EventRootProviderTurnCompleted {
+		t.Fatalf("disconnect events = %#v, want superseded interaction, failed pending approval, and failed provider turn", events)
 	}
 	if msg, _ := events[1].Payload.Error["message"].(string); msg != "sidecar connection lost" {
 		t.Fatalf("failed approval error = %#v, want the disconnect reason", events[1].Payload.Error)
+	}
+	if events[2].Payload.TurnID != "turn-disconnect" ||
+		events[2].Payload.ProviderTurnID != "provider-turn-disconnect" ||
+		events[2].Payload.TurnOutcome != string(activityshared.TurnOutcomeFailed) {
+		t.Fatalf("provider failure = %#v, want matching root/provider identities and failed outcome", events[2])
+	}
+	select {
+	case result := <-waiter.done:
+		if result.err == nil || result.err.Error() != "sidecar connection lost" {
+			t.Fatalf("waiter error = %v, want the disconnect reason", result.err)
+		}
+	default:
+		t.Fatal("turn waiter was not released after terminal session events were emitted")
+	}
+	if duplicate := adapter.claudeSDKRootProviderFailureEvents(
+		adapterSession,
+		session,
+		"turn-disconnect",
+		"provider-turn-disconnect",
+		errors.New("sidecar connection lost"),
+	); len(activityEventsWithType(duplicate, activityshared.EventRootProviderTurnCompleted)) != 0 {
+		t.Fatalf("duplicate provider terminal events = %#v, want none after reader failure convergence", duplicate)
 	}
 	if adapter.getSession(session.AgentSessionID) != nil {
 		t.Fatal("session should be removed after the reader fails")

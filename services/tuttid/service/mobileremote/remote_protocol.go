@@ -382,6 +382,9 @@ func remoteRouteAllowed(method, path string) bool {
 		segments[1] == "agent-quick-prompts" {
 		return method == http.MethodGet
 	}
+	if len(segments) == 2 && segments[0] == "v1" && segments[1] == "user-projects" {
+		return method == http.MethodGet
+	}
 	if len(segments) == 2 && segments[0] == "v1" && segments[1] == "agent-targets" {
 		return method == http.MethodGet
 	}

@@ -42,6 +42,14 @@ export {
   sortRecommendedAppsForAllTab
 } from "./appCenterAppOrdering.ts";
 export {
+  countWorkspaceAppsInCategory,
+  filterWorkspaceAppsByCategory,
+  matchesWorkspaceAppCategory,
+  normalizeWorkspaceAppCategoryId,
+  resolveWorkspaceAppCategoryId,
+  workspaceAppCategoryIds
+} from "./workspaceAppCategory.ts";
+export {
   DEFAULT_APP_FACTORY_PROVIDER,
   resolveDefaultAppFactoryProvider,
   resolveSelectedAppFactoryProvider,

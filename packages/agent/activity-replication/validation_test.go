@@ -13,7 +13,7 @@ func TestValidateMutationAcceptsEveryProjectionSnapshot(t *testing.T) {
 
 	sessionScope := &activityreplication.SessionScope{
 		ExecutorOwnerUserID: "owner-1", SourceDeviceID: "device-1",
-		Visibility: activityreplication.VisibilityMembers,
+		SharedAgentBindingID: "binding-1", Visibility: activityreplication.VisibilityMembers,
 	}
 	base := func(entityType activityreplication.EntityType, key activityreplication.EntityKey) activityreplication.Mutation {
 		return activityreplication.Mutation{
@@ -57,6 +57,7 @@ func TestValidateMutationAcceptsEveryProjectionSnapshot(t *testing.T) {
 				mutation.Turn = &activityreplication.Turn{
 					WorkspaceID: "workspace-1", AgentSessionID: "session-1", TurnID: turnID,
 					Phase: canonical.TurnPhaseRunning, Origin: canonical.TurnOriginUserPrompt,
+					ProviderTurnBindingJSON: json.RawMessage(`{}`),
 				}
 				mutation.SessionScope = sessionScope
 				return mutation

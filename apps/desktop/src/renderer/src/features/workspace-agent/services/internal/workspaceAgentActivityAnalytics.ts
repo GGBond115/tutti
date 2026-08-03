@@ -1,4 +1,3 @@
-import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
 import type {
   AgentProviderStatusListResponse,
   WorkspaceAgentProvider
@@ -8,6 +7,10 @@ import type { IWorkspaceUserProjectService } from "../../../workspace-user-proje
 import type { IWorkspaceAgentActivityService } from "../workspaceAgentActivityService.interface.ts";
 import { promptContentDisplayText } from "../desktopAgentRuntimeSubmitDiagnostics.ts";
 import { createAgentMessageSentTracker } from "./agentMessageSentAnalytics.ts";
+import {
+  AgentAnalyticsErrorCode,
+  createAgentNodeResultTracker
+} from "./agentNodeResultAnalytics.ts";
 import {
   createAgentSessionStartedTracker,
   resolveAgentSessionSource
@@ -36,6 +39,9 @@ export class WorkspaceAgentActivityAnalytics {
   private readonly messageSentTracker: ReturnType<
     typeof createAgentMessageSentTracker
   >;
+  private readonly nodeResultTracker: ReturnType<
+    typeof createAgentNodeResultTracker
+  >;
   private readonly sessionStartedTracker: ReturnType<
     typeof createAgentSessionStartedTracker
   >;
@@ -49,6 +55,7 @@ export class WorkspaceAgentActivityAnalytics {
       }
     );
     this.messageSentTracker = createAgentMessageSentTracker(dependencies);
+    this.nodeResultTracker = createAgentNodeResultTracker(dependencies);
     this.sessionStartedTracker = createAgentSessionStartedTracker(dependencies);
   }
 
@@ -76,12 +83,31 @@ export class WorkspaceAgentActivityAnalytics {
   }
 
   trackEngineActivation(
-    input: Parameters<AgentActivityRuntime["activateSession"]>[0],
+    input: Parameters<IWorkspaceAgentActivityService["activateSession"]>[0],
     activation: Awaited<
       ReturnType<IWorkspaceAgentActivityService["activateSession"]>
     >
   ): void {
-    if (input.mode !== "new" || activation.activation.status === "failed") {
+    const activationFailed = activation.activation.status === "failed";
+    runBestEffortAnalytics(() =>
+      this.nodeResultTracker.track({
+        agentSessionId: activation.session.agentSessionId,
+        error: activationFailed
+          ? (activation.error?.message ??
+            activation.error?.code ??
+            "Agent session activation failed.")
+          : undefined,
+        fallbackErrorCode:
+          input.mode === "existing"
+            ? AgentAnalyticsErrorCode.SessionResumeFailed
+            : AgentAnalyticsErrorCode.SessionCreateFailed,
+        flow: "session_create",
+        node: "activate_session",
+        provider: activation.session.provider,
+        success: !activationFailed
+      })
+    );
+    if (input.mode !== "new" || activationFailed) {
       return;
     }
     runBestEffortAnalytics(() =>
@@ -102,6 +128,15 @@ export class WorkspaceAgentActivityAnalytics {
         source: resolveAgentSessionSource({ mode: input.mode })
       })
     );
+    runBestEffortAnalytics(() =>
+      this.nodeResultTracker.track({
+        agentSessionId: activation.session.agentSessionId,
+        flow: "session_create",
+        node: "session_started_reported",
+        provider: activation.session.provider,
+        success: true
+      })
+    );
     const initialPrompt =
       input.initialDisplayPrompt?.trim() ||
       promptContentDisplayText(input.initialContent ?? []);
@@ -114,13 +149,51 @@ export class WorkspaceAgentActivityAnalytics {
           provider: activation.session.provider
         })
       );
+      runBestEffortAnalytics(() =>
+        this.nodeResultTracker.track({
+          agentSessionId: activation.session.agentSessionId,
+          flow: "session_create",
+          node: "message_sent_reported",
+          provider: activation.session.provider,
+          success: true
+        })
+      );
     }
   }
 
+  trackEngineActivationFailure(
+    input: Parameters<IWorkspaceAgentActivityService["activateSession"]>[0],
+    error: unknown
+  ): void {
+    runBestEffortAnalytics(() =>
+      this.nodeResultTracker.track({
+        agentSessionId: input.agentSessionId,
+        error,
+        fallbackErrorCode:
+          input.mode === "existing"
+            ? AgentAnalyticsErrorCode.SessionResumeFailed
+            : AgentAnalyticsErrorCode.SessionCreateFailed,
+        flow: "session_create",
+        node: "activate_session",
+        provider: null,
+        success: false
+      })
+    );
+  }
+
   trackEngineSend(
-    input: Parameters<AgentActivityRuntime["sendInput"]>[0],
+    input: Parameters<IWorkspaceAgentActivityService["sendInput"]>[0],
     result: Awaited<ReturnType<IWorkspaceAgentActivityService["sendInput"]>>
   ): void {
+    runBestEffortAnalytics(() =>
+      this.nodeResultTracker.track({
+        agentSessionId: result.session.agentSessionId,
+        flow: "message_send",
+        node: "send_input_request",
+        provider: result.session.provider,
+        success: true
+      })
+    );
     runBestEffortAnalytics(() =>
       this.messageSentTracker.track({
         agentSessionId: result.session.agentSessionId,
@@ -130,6 +203,32 @@ export class WorkspaceAgentActivityAnalytics {
           input.displayPrompt?.trim() ||
           promptContentDisplayText(input.content),
         provider: result.session.provider
+      })
+    );
+    runBestEffortAnalytics(() =>
+      this.nodeResultTracker.track({
+        agentSessionId: result.session.agentSessionId,
+        flow: "message_send",
+        node: "message_sent_reported",
+        provider: result.session.provider,
+        success: true
+      })
+    );
+  }
+
+  trackEngineSendFailure(
+    input: Parameters<IWorkspaceAgentActivityService["sendInput"]>[0],
+    error: unknown
+  ): void {
+    runBestEffortAnalytics(() =>
+      this.nodeResultTracker.track({
+        agentSessionId: input.agentSessionId,
+        error,
+        fallbackErrorCode: AgentAnalyticsErrorCode.RuntimeExecFailed,
+        flow: "message_send",
+        node: "send_input_request",
+        provider: null,
+        success: false
       })
     );
   }

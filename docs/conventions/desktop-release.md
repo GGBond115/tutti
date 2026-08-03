@@ -264,6 +264,13 @@ updater reads `latest-mac.yml` for stable or `rc-mac.yml` for RC from that
 directory and verifies the signed ZIP normally. It does not discover desktop
 updates through GitHub Releases.
 
+Packaged Tutti also checks the shared public minimum-version policy before any
+Dashboard or Workspace window is created. The check has a three-second total
+startup budget and fails open on network/server errors. A required update uses
+the existing immutable pointer and updater flow, while keeping the user's
+normal update preference unchanged. Foreground checks are main-process owned,
+limited to once per 30 minutes, and prompt at most once per process.
+
 This makes a Draft RC intentionally updateable without exposing it on the
 public GitHub Releases page. Publish the immutable assets and updater YAML
 first, then mutate the relevant pointer; the current pointer cache is 60

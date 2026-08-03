@@ -1,52 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseInlineActivityMessages } from "./inlineActivityMessages.ts";
-import type {
-  AgentActivityEventTurn,
-  AgentActivityTurn,
-  AgentActivityUpdatedEvent
-} from "./types.ts";
-
-const completeTurnContract = {
-  agentSessionId: "session-contract",
-  capabilityRefs: [],
-  completedCommand: null,
-  error: null,
-  fileChanges: null,
-  origin: "goal_continuation",
-  outcome: "completed",
-  phase: "settled",
-  providerForkBindingAvailable: false,
-  providerForkBindingState: "recovery_required",
-  settledAtUnixMs: 2,
-  sourceGoalOperationId: "goal-operation-contract",
-  sourceGoalRepairEpoch: 3,
-  sourceGoalRevision: 4,
-  startedAtUnixMs: 1,
-  turnId: "turn-contract",
-  updatedAtUnixMs: 2
-} as const satisfies Required<AgentActivityTurn>;
-
-const completeRealtimeTurnContract = {
-  ...completeTurnContract,
-  agentSessionId: "session-realtime-contract",
-  turnId: "turn-realtime-contract"
-} as const satisfies Required<AgentActivityEventTurn>;
-
-test("canonical Turn contract is complete and exposes durable provenance", () => {
-  assert.equal(completeTurnContract.origin, "goal_continuation");
-  assert.equal(
-    completeTurnContract.sourceGoalOperationId,
-    "goal-operation-contract"
-  );
-  assert.equal(completeTurnContract.sourceGoalRevision, 4);
-  assert.equal(completeTurnContract.sourceGoalRepairEpoch, 3);
-  assert.equal(completeRealtimeTurnContract.origin, "goal_continuation");
-  assert.equal(
-    completeRealtimeTurnContract.sourceGoalOperationId,
-    "goal-operation-contract"
-  );
-});
+import type { AgentActivityUpdatedEvent } from "./types.ts";
 
 test("parses first-class session audit as a turnless transcript item", () => {
   const event: AgentActivityUpdatedEvent = {

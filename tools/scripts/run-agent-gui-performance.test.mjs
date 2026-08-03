@@ -18,12 +18,48 @@ import {
 import { summarizeProviderStatusFocusRefresh } from "./agent-provider-status-performance-scenario.mjs";
 import { buildAllProcessTimeProfileArgs } from "./all-process-time-profile.mjs";
 import { prepareConcurrentAgentStreamingWorkbenchSnapshot } from "./agent-gui-concurrent-streaming-performance-scenario.mjs";
+import { isDesktopBundleFresh } from "./prepared-desktop-launch.mjs";
 import {
   applyScenarioAssessment,
   findUnknownAgentTargetMigrationIDs,
+  parseDesktopStartupFailure,
   performanceRunFailureReasons,
   prepareWorkbenchSnapshotForPerformance
 } from "./run-agent-gui-performance.mjs";
+
+test("parses the structured Desktop startup failure from process output", () => {
+  assert.deepEqual(
+    parseDesktopStartupFailure(
+      [
+        "ordinary output",
+        '[tutti-desktop-startup-failed] {"message":"tuttid exited","cause":{"code":"managed_process_stderr","message":"unsupported process cassette schema version 2"}}',
+        "[desktop] bootstrap failed"
+      ].join("\n")
+    ),
+    {
+      cause: {
+        code: "managed_process_stderr",
+        message: "unsupported process cassette schema version 2"
+      },
+      message: "tuttid exited"
+    }
+  );
+});
+
+test("reuses a prepared Desktop bundle until source output is newer", () => {
+  assert.equal(
+    isDesktopBundleFresh({ outputMtimeMs: 20, sourceMtimeMs: 20 }),
+    true
+  );
+  assert.equal(
+    isDesktopBundleFresh({ outputMtimeMs: 19, sourceMtimeMs: 20 }),
+    false
+  );
+  assert.equal(
+    isDesktopBundleFresh({ outputMtimeMs: Number.NaN, sourceMtimeMs: 20 }),
+    false
+  );
+});
 
 test("scenario trace assessment turns report metrics into a gate", () => {
   const summary = {

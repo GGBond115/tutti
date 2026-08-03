@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
+
+	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 )
 
 func TestClaudeSDKProviderAcceptanceReportsPreDispatchFailures(t *testing.T) {
@@ -60,6 +63,7 @@ func TestClaudeSDKProviderAcceptanceReportsPreDispatchFailures(t *testing.T) {
 					default:
 					}
 				},
+				nil,
 			)
 			if err == nil {
 				t.Fatal("ExecWithProviderAcceptance() error=nil, want pre-dispatch failure")
@@ -74,5 +78,298 @@ func TestClaudeSDKProviderAcceptanceReportsPreDispatchFailures(t *testing.T) {
 				t.Fatal("provider dispatch was not reported")
 			}
 		})
+	}
+}
+
+func TestClaudeSDKProviderAcceptanceReportsExplicitAuthenticationRejection(t *testing.T) {
+	t.Parallel()
+
+	adapter := NewClaudeCodeSDKAdapter(nil)
+	conn := newBlockingClaudeSDKConnection()
+	session, adapterSession := newClaudeSDKLifecycleTestSession(t, adapter, conn)
+	adapterSession.providerSessionID = session.ProviderSessionID
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	dispatch := make(chan ProviderDispatchResult, 1)
+	emitted := make(chan activityshared.Event, 4)
+	execDone := make(chan error, 1)
+	go func() {
+		_, err := adapter.ExecWithProviderAcceptance(
+			ctx,
+			session,
+			[]PromptContentBlock{{Type: "text", Text: "hello"}},
+			"hello",
+			"canonical-turn-rejected",
+			func(events []activityshared.Event) {
+				for _, event := range events {
+					emitted <- event
+				}
+			},
+			nil,
+			func(result ProviderDispatchResult) {
+				dispatch <- result
+			},
+			func(ProviderAcceptanceReceipt) error {
+				return errors.New("acceptance barrier must not run")
+			},
+		)
+		execDone <- err
+	}()
+
+	waitForClaudeSDKSentRequest(t, conn, "exec")
+	conn.pushEvent(claudeSDKSidecarEvent{
+		Type: "turn_failed",
+		Payload: map[string]any{
+			"turnId":              "canonical-turn-rejected",
+			"dispatchDisposition": "rejected",
+			"code":                "authentication_failed",
+			"apiErrorStatus":      401,
+			"error":               "Failed to authenticate. API Error: 401",
+		},
+	})
+
+	select {
+	case result := <-dispatch:
+		if result.Disposition != DispatchDispositionRejected ||
+			result.Acceptance != nil || result.Failure == nil {
+			t.Fatalf("provider dispatch = %#v, want explicit rejection", result)
+		}
+		var appErr *AppError
+		if !errors.As(result.Failure, &appErr) || appErr.Code != "auth_required" {
+			t.Fatalf("provider failure = %#v, want auth_required AppError", result.Failure)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for provider rejection")
+	}
+	select {
+	case err := <-execDone:
+		var appErr *AppError
+		if !errors.As(err, &appErr) || appErr.Code != "auth_required" {
+			t.Fatalf("ExecWithProviderAcceptance error = %#v, want auth_required AppError", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for rejected execution")
+	}
+	select {
+	case event := <-emitted:
+		t.Fatalf("event %q escaped before rejected provider acceptance", event.Type)
+	default:
+	}
+}
+
+func TestClaudeSDKProviderAcceptanceUsesRecoveredSidecarIdentityBeforeCompletion(t *testing.T) {
+	t.Parallel()
+
+	adapter := NewClaudeCodeSDKAdapter(nil)
+	conn := newBlockingClaudeSDKConnection()
+	session, adapterSession := newClaudeSDKLifecycleTestSession(t, adapter, conn)
+	adapterSession.providerSessionID = session.ProviderSessionID
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	dispatch := make(chan ProviderDispatchResult, 1)
+	execDone := make(chan error, 1)
+	go func() {
+		_, err := adapter.ExecWithProviderAcceptance(
+			ctx,
+			session,
+			[]PromptContentBlock{{Type: "text", Text: "hello"}},
+			"hello",
+			"canonical-turn",
+			nil,
+			nil,
+			func(result ProviderDispatchResult) {
+				dispatch <- result
+			},
+			func(receipt ProviderAcceptanceReceipt) error {
+				dispatch <- ProviderDispatchResult{
+					Disposition: DispatchDispositionApplied,
+					Acceptance:  &receipt,
+				}
+				return nil
+			},
+		)
+		execDone <- err
+	}()
+
+	waitForClaudeSDKSentRequest(t, conn, "exec")
+	conn.pushEvent(claudeSDKSidecarEvent{
+		Type: "provider_turn_identity_resolved",
+		Payload: map[string]any{
+			"turnId":         "canonical-turn",
+			"providerTurnId": "persisted-claude-user-uuid",
+		},
+	})
+	conn.pushEvent(claudeSDKSidecarEvent{
+		Type: "provider_turn_checkpoint",
+		Payload: map[string]any{
+			"turnId":                      "canonical-turn",
+			"providerTurnId":              "persisted-claude-user-uuid",
+			"providerCheckpointMessageId": "persisted-claude-assistant-uuid",
+		},
+	})
+	conn.pushEvent(claudeSDKSidecarEvent{
+		Type: "turn_completed",
+		Payload: map[string]any{
+			"turnId":         "canonical-turn",
+			"providerTurnId": "persisted-claude-user-uuid",
+			"stopReason":     "end_turn",
+		},
+	})
+
+	select {
+	case result := <-dispatch:
+		if result.Disposition != DispatchDispositionApplied ||
+			result.Acceptance == nil ||
+			result.Acceptance.ProviderSessionID != session.ProviderSessionID ||
+			result.Acceptance.ProviderTurnID != "persisted-claude-user-uuid" {
+			t.Fatalf("provider dispatch = %#v, want recovered durable identity", result)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for provider acceptance")
+	}
+	select {
+	case err := <-execDone:
+		if err != nil {
+			t.Fatalf("ExecWithProviderAcceptance: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for turn completion")
+	}
+}
+
+func TestClaudeSDKDurableAcceptanceBlocksInteractionPublication(t *testing.T) {
+	t.Parallel()
+
+	adapter := NewClaudeCodeSDKAdapter(nil)
+	conn := newBlockingClaudeSDKConnection()
+	session, adapterSession := newClaudeSDKLifecycleTestSession(t, adapter, conn)
+	adapterSession.providerSessionID = session.ProviderSessionID
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	emitted := make(chan activityshared.Event, 16)
+	barrierEntered := make(chan ProviderAcceptanceReceipt, 1)
+	releaseBarrier := make(chan struct{})
+	execDone := make(chan error, 1)
+	go func() {
+		_, err := adapter.ExecWithProviderAcceptance(
+			ctx,
+			session,
+			[]PromptContentBlock{{Type: "text", Text: "write a file"}},
+			"write a file",
+			"canonical-turn",
+			func(events []activityshared.Event) {
+				for _, event := range events {
+					emitted <- event
+				}
+			},
+			nil,
+			func(ProviderDispatchResult) {},
+			func(receipt ProviderAcceptanceReceipt) error {
+				barrierEntered <- receipt
+				select {
+				case <-releaseBarrier:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			},
+		)
+		execDone <- err
+	}()
+
+	waitForClaudeSDKSentRequest(t, conn, "exec")
+	for {
+		select {
+		case <-emitted:
+			continue
+		default:
+		}
+		break
+	}
+	conn.pushEvent(claudeSDKSidecarEvent{
+		Type: "provider_turn_identity_resolved",
+		Payload: map[string]any{
+			"turnId":         "canonical-turn",
+			"providerTurnId": "provider-turn",
+		},
+	})
+	select {
+	case receipt := <-barrierEntered:
+		if receipt.ProviderTurnID != "provider-turn" {
+			t.Fatalf("acceptance receipt = %#v", receipt)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for acceptance barrier")
+	}
+	conn.pushEvent(claudeSDKSidecarEvent{
+		Type: "approval_requested",
+		Payload: map[string]any{
+			"turnId":     "canonical-turn",
+			"requestId":  "approval-1",
+			"toolCallId": "toolu-write",
+			"toolName":   "Write",
+			"input":      map[string]any{"file_path": "/workspace/file.txt"},
+			"options": []any{
+				map[string]any{
+					"kind":     "allow_once",
+					"name":     "Allow",
+					"optionId": "allow",
+				},
+			},
+		},
+	})
+	select {
+	case event := <-emitted:
+		t.Fatalf("event %q escaped before durable acceptance", event.Type)
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	close(releaseBarrier)
+	var ordered []activityshared.EventType
+	for len(ordered) < 8 {
+		select {
+		case event := <-emitted:
+			ordered = append(ordered, event.Type)
+			if event.Type == activityshared.EventInteractionRequested {
+				goto interactionObserved
+			}
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for accepted interaction")
+		}
+	}
+
+interactionObserved:
+	startedIndex := -1
+	interactionIndex := -1
+	for index, eventType := range ordered {
+		switch eventType {
+		case activityshared.EventRootProviderTurnStarted:
+			startedIndex = index
+		case activityshared.EventInteractionRequested:
+			interactionIndex = index
+		}
+	}
+	if startedIndex < 0 || interactionIndex <= startedIndex {
+		t.Fatalf("published order = %#v, want started before interaction", ordered)
+	}
+
+	conn.pushEvent(claudeSDKSidecarEvent{
+		Type: "turn_completed",
+		Payload: map[string]any{
+			"turnId":         "canonical-turn",
+			"providerTurnId": "provider-turn",
+			"stopReason":     "end_turn",
+		},
+	})
+	select {
+	case err := <-execDone:
+		if err != nil {
+			t.Fatalf("ExecWithProviderAcceptance: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for turn completion")
 	}
 }

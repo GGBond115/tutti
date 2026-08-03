@@ -62,6 +62,16 @@ cancel/fail/complete close dangling tool cards instead of leaving them
 in progress. Protocol-neutral session and interactive activity projection have
 their own modules, while Claude goal, command, usage, and interaction decoding
 stay inside the Claude SDK boundary.
+Claude Goal state comes only from provider-owned Goal observations. The
+sidecar normalizes both SDK `active_goal` messages and the native `/goal` Stop
+hook's top-level `goal_status` attachment into one `goal_observed` event. A
+non-null `active_goal` or `goal_status.met=false` keeps the condition active;
+`goal_status.met=true` completes it. A null `active_goal` is interpreted as
+explicit clear or completion using the exact command action and previous Goal
+observation. Ordinary Turn completion has no Goal semantics.
+Command-consumption evidence travels as the internal `goal.control_applied`
+event to the Host Goal lane and must never be embedded in session runtime
+context.
 New normalized session updates use `sessionUpdateKind`; the former ACP-named
 metadata key is accepted only while reading imported or durable historical
 events.
@@ -131,6 +141,24 @@ The dependency direction is from `main.ts` to `sessionRuntime.ts`, then to these
 collaborators. Collaborators must not import `main.ts` or own the stdio loop.
 Projection modules emit typed sidecar events; they do not call daemon or GUI
 code.
+
+The outbound root user UUID is correlation evidence, not provider identity.
+Normally the live SDK iterator returns the persisted root user message and the
+sidecar binds its UUID before projecting the provider Turn. A successful query
+may omit that echo and begin with assistant output or an interactive tool.
+Every root assistant, stream, tool, approval, user-input, and result path enters
+one shared single-flight identity barrier before projection. The barrier reads
+the official provider transcript, resolves exactly one root user message by the
+opaque correlation UUID, and emits `provider_turn_identity_resolved` with the
+latest persisted checkpoint. A bounded cancellable retry handles short
+transcript write delay; absence at the deadline and ambiguity fail explicitly.
+
+The Go adapter converts the resolved identity into a durable acceptance
+receipt. Its event reader blocks until the Host atomically persists the
+canonical Turn, provider Session, and provider Turn mapping. The canonical
+`root_provider_turn.started` is published exactly once before streaming or
+interactive activity is released. Provider start, checkpoint, and completion
+never derive identity from the outbound UUID alone.
 
 Raw sidecar stderr is never copied into activity, logs, or user-visible errors.
 The Go transport retains only a bounded failure classification; explicitly

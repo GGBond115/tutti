@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -12,10 +14,11 @@ import (
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	hostconformance "github.com/tutti-os/tutti/packages/agent/host/conformance"
-	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
+	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
 )
 
 func TestServiceAdapterAgentHostConformance(t *testing.T) {
@@ -39,6 +42,22 @@ func TestDirectHostApplicationCoreConformance(t *testing.T) {
 		t.Run(scenario.Name, func(t *testing.T) {
 			driver := &legacyHostConformanceDriver{t: t, directHost: true}
 			if err := hostconformance.Run(context.Background(), driver, scenario); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestHostHistoricalStateConformance(t *testing.T) {
+	for _, scenario := range hostconformance.HistoricalStateScenarios() {
+		scenario := scenario
+		t.Run(scenario.Name, func(t *testing.T) {
+			driver := &legacyHostConformanceDriver{t: t, directHost: true}
+			if err := hostconformance.RunHistoricalState(
+				context.Background(),
+				driver,
+				scenario,
+			); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -248,6 +267,7 @@ type legacyHostConformanceDriver struct {
 	deletionStore   *conformanceDeletionStore
 	deletionGuard   *conformanceDeletionGuard
 	deletionEvents  *[]string
+	historicalState *conformanceHistoricalStateStore
 }
 
 func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconformance.Fixture) error {
@@ -276,9 +296,12 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	d.service.CommitObserver = d.commitObserver
 	d.service.SessionReader = d.sessions
 	d.service.SessionPurgeStore = d.sessions
-	d.service.SessionInitializer = legacyHostConformanceSessionInitializer{sessions: d.sessions}
-	d.service.TurnSummaryReader = d.turns
 	canonicalStore := openAgentServiceSQLiteStore(d.t)
+	d.service.SessionInitializer = legacyHostConformanceSessionInitializer{
+		canonicalStore: canonicalStore,
+		sessions:       d.sessions,
+	}
+	d.service.TurnSummaryReader = d.turns
 	d.service.SubmitClaimStore = canonicalStore
 	d.service.RuntimeOperationStore = d.operationPort
 	d.service.StaleTurnSettler = conformanceStaleTurnSettler{steps: &steps}
@@ -295,10 +318,26 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 	if fixture.DisableGoalInbox {
 		d.service.GoalReconcileInboxStore = nil
 	}
-	d.service.SetApplicationHost(newApplicationHost(d.service, conformanceWorktreeGarbageCollector{
-		steps: &steps,
-		err:   fixture.WorktreeGCSweepErr,
-	}))
+	d.historicalState = &conformanceHistoricalStateStore{driver: d}
+	hostStore := serviceHostStore{service: d.service}
+	hostSupport := hostSupportPortsForService(
+		d.service,
+		nil,
+		conformanceWorktreeGarbageCollector{
+			steps: &steps,
+			err:   fixture.WorktreeGCSweepErr,
+		},
+	)
+	d.service.SetApplicationHost(composeApplicationHost(
+		hostSupport,
+		hostStore,
+		hostStore,
+		hostStore,
+		nil,
+		d.historicalState,
+		serviceHostRuntime{service: d.service},
+		serviceHostGoalRuntime{service: d.service},
+	))
 	deletionEvents := make([]string, 0)
 	d.deletionEvents = &deletionEvents
 	baseDeletionStore := serviceHostStore{service: d.service}
@@ -345,6 +384,10 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 		case "clear":
 			providerGoal = nil
 		}
+		resultGoal := providerGoal
+		if fixture.EmptyPauseResumeGoal && (input.Action == "pause" || input.Action == "resume") {
+			resultGoal = nil
+		}
 		providerPhase := "applied"
 		evidence := map[string]any{"confidence": "authoritative"}
 		if fixture.AcceptGoalControlsOnly {
@@ -352,7 +395,7 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 			evidence = map[string]any{"confidence": "accepted_only", "phase": "accepted"}
 		}
 		return RuntimeGoalControlResult{
-			AgentSessionID: input.AgentSessionID, Goal: clonePayload(providerGoal),
+			AgentSessionID: input.AgentSessionID, Goal: clonePayload(resultGoal),
 			Evidence: evidence, ProviderPhase: providerPhase,
 		}, nil
 	}
@@ -411,7 +454,7 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 		Provider: seed.Provider, ProviderSessionID: seed.ProviderSessionID, Cwd: seed.Cwd,
 		RailSectionKind: "conversations",
 		RailSectionKey:  "conversations", Settings: settings,
-		Metadata:               agentactivitybiz.SessionMetadata{Visible: true, Capabilities: []string{}},
+		Metadata:               agentactivitybiz.SessionMetadata{Visible: true},
 		InternalRuntimeContext: runtimeContext,
 		Title:                  seed.Title, ActiveTurnID: seed.ActiveTurnID,
 		PinnedAtUnixMS:  boolUnixMS(seed.Pinned),
@@ -433,7 +476,7 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 			Provider: additional.Provider, Cwd: additional.Cwd,
 			RailSectionKind: "conversations",
 			RailSectionKey:  "conversations",
-			Metadata:        agentactivitybiz.SessionMetadata{Visible: true, Capabilities: []string{}},
+			Metadata:        agentactivitybiz.SessionMetadata{Visible: true},
 			CreatedAtUnixMS: 1, UpdatedAtUnixMS: 2, LastEventUnixMS: 2,
 		}
 		if parentID := strings.TrimSpace(additional.ParentAgentSessionID); parentID != "" {
@@ -492,6 +535,7 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 			WorkspaceID: seed.WorkspaceID, AgentSessionID: seed.AgentSessionID,
 			TurnID: turn.TurnID, Phase: turn.Phase, Outcome: turn.Outcome,
 			RootProviderTurnID:      turn.RootProviderTurnID,
+			ProviderTurnBindingJSON: append([]byte(nil), turn.ProviderTurnBindingJSON...),
 			FinalAssistantMessageID: turn.FinalAssistantMessageID,
 			StartedAtUnixMS:         turn.StartedAtUnixMS, SettledAtUnixMS: turn.SettledAtUnixMS, Origin: turn.Origin,
 		}
@@ -502,6 +546,7 @@ func (d *legacyHostConformanceDriver) Reset(_ context.Context, fixture hostconfo
 			WorkspaceID: seed.WorkspaceID, AgentSessionID: seed.AgentSessionID,
 			TurnID: turn.TurnID, Phase: turn.Phase, Outcome: turn.Outcome,
 			RootProviderTurnID:      turn.RootProviderTurnID,
+			ProviderTurnBindingJSON: append([]byte(nil), turn.ProviderTurnBindingJSON...),
 			FinalAssistantMessageID: turn.FinalAssistantMessageID,
 			StartedAtUnixMS:         turn.StartedAtUnixMS, SettledAtUnixMS: turn.SettledAtUnixMS, Origin: turn.Origin,
 		}
@@ -565,7 +610,7 @@ func (d *legacyHostConformanceDriver) Create(
 	}
 	session, err := d.service.Create(ctx, workspaceID, CreateSessionInput{
 		AgentSessionID: input.AgentSessionID, AgentTargetID: agentTargetID, Provider: input.Provider,
-		InitialContent: input.InitialContent, InitialDisplayPrompt: input.InitialDisplayPrompt,
+		InitialContent: input.InitialContent, InitialGoalControl: input.InitialGoalControl, InitialDisplayPrompt: input.InitialDisplayPrompt,
 		Metadata: input.Metadata, ClientSubmitID: input.ClientSubmitID, Title: input.Title, Cwd: input.Cwd,
 		PermissionModeID: input.PermissionModeID, Model: input.Model, PlanMode: input.PlanMode,
 		BrowserUse: input.BrowserUse, ComputerUse: input.ComputerUse,
@@ -585,8 +630,11 @@ func (d *legacyHostConformanceDriver) Create(
 			d.createdTurns[clientSubmitID] = turnID
 		}
 	} else if clientSubmitID := strings.TrimSpace(input.ClientSubmitID); clientSubmitID != "" {
-		turnID = d.createdTurns[clientSubmitID]
-		if turnID == "" {
+		_, textGoal := agenthost.ParseTypedGoalControl(input.InitialContent, false)
+		if input.InitialGoalControl == nil && !textGoal {
+			turnID = d.createdTurns[clientSubmitID]
+		}
+		if input.InitialGoalControl == nil && !textGoal && turnID == "" {
 			return hostconformance.SessionObservation{}, "", fmt.Errorf("typed create submit %q has no canonical turn", clientSubmitID)
 		}
 	}
@@ -647,6 +695,138 @@ func (d *legacyHostConformanceDriver) SendInput(
 		}
 	}
 	return observation, nil
+}
+
+func (d *legacyHostConformanceDriver) ResetHistoricalState(ctx context.Context) error {
+	return d.Reset(ctx, hostconformance.Fixture{})
+}
+
+func (d *legacyHostConformanceDriver) RestoreHistoricalSessionGraph(
+	ctx context.Context,
+	workspaceID string,
+	graph agenthost.HistoricalSessionGraph,
+) error {
+	return d.service.ApplicationHost().RestoreHistoricalSessionGraph(
+		ctx,
+		workspaceID,
+		graph,
+	)
+}
+
+func (d *legacyHostConformanceDriver) CaptureHistoricalSessionGraph(
+	ctx context.Context,
+	ref agenthost.SessionRef,
+) (agenthost.HistoricalSessionGraph, error) {
+	return d.service.ApplicationHost().CaptureHistoricalSessionGraph(ctx, ref)
+}
+
+func (d *legacyHostConformanceDriver) EnsureHistoricalSession(
+	ctx context.Context,
+	ref agenthost.SessionRef,
+) error {
+	_, err := d.EnsureSession(ctx, ref)
+	return err
+}
+
+func (d *legacyHostConformanceDriver) SendHistoricalInput(
+	ctx context.Context,
+	ref agenthost.SessionRef,
+	input agenthost.SendInput,
+) error {
+	_, err := d.SendInput(ctx, ref, input)
+	return err
+}
+
+func (d *legacyHostConformanceDriver) HistoricalStateMetrics() hostconformance.HistoricalStateMetrics {
+	metrics := hostconformance.HistoricalStateMetrics{
+		ProviderStartCalls:  len(d.runtime.startCalls),
+		ProviderResumeCalls: len(d.runtime.resumeCalls),
+		ProviderExecCalls:   len(d.runtime.execCalls),
+	}
+	if len(d.runtime.resumeCalls) > 0 {
+		runtimeContext := d.runtime.resumeCalls[len(d.runtime.resumeCalls)-1].RuntimeContext
+		checkpoint, _ := runtimeContext[canonical.ProviderResumeCheckpointRuntimeContextKey].(map[string]any)
+		metrics.LastResumeProviderCheckpoint = clonePayload(checkpoint)
+	}
+	return metrics
+}
+
+type conformanceHistoricalStateStore struct {
+	driver      *legacyHostConformanceDriver
+	workspaceID string
+	graph       *agenthost.HistoricalSessionGraph
+}
+
+func (s *conformanceHistoricalStateStore) RestoreHistoricalSessionGraph(
+	_ context.Context,
+	workspaceID string,
+	graph agenthost.HistoricalSessionGraph,
+) error {
+	if s.graph != nil {
+		if s.workspaceID == workspaceID && reflect.DeepEqual(*s.graph, graph) {
+			return nil
+		}
+		return agenthost.ErrHistoricalStateConflict
+	}
+	copied := graph
+	s.workspaceID = workspaceID
+	s.graph = &copied
+	for _, historical := range graph.Sessions {
+		settingsRaw, err := json.Marshal(historical.Settings)
+		if err != nil {
+			return err
+		}
+		var settings ComposerSettings
+		if err := json.Unmarshal(settingsRaw, &settings); err != nil {
+			return err
+		}
+		key := workspaceID + ":" + historical.ID
+		s.driver.sessions.sessions[key] = PersistedSession{
+			ID: historical.ID, WorkspaceID: workspaceID, Kind: historical.Kind,
+			Origin: historical.Origin, Provider: historical.Provider,
+			AgentTargetID:     historical.AgentTargetID,
+			ProviderSessionID: historical.ProviderSessionID,
+			RailSectionKind:   "conversations", RailSectionKey: "conversations",
+			Settings: settings, Title: historical.Title,
+			InternalRuntimeContext: map[string]any{
+				canonical.ProviderResumeCheckpointRuntimeContextKey: clonePayload(
+					historical.ProviderResumeCheckpoint,
+				),
+			},
+			Metadata: agentactivitybiz.SessionMetadata{
+				Visible: true,
+			},
+			CreatedAtUnixMS: 1, UpdatedAtUnixMS: 1, LastEventUnixMS: 1,
+		}
+		s.driver.turns.sessions[historical.ID] = agentactivitybiz.Session{
+			ID: historical.ID, WorkspaceID: workspaceID, Kind: historical.Kind,
+			Provider:          historical.Provider,
+			ProviderSessionID: historical.ProviderSessionID,
+			Title:             historical.Title,
+		}
+		for _, turn := range historical.Turns {
+			s.driver.turns.turns[historical.ID+":"+turn.ID] = agentactivitybiz.Turn{
+				WorkspaceID: workspaceID, AgentSessionID: historical.ID,
+				TurnID: turn.ID, Phase: turn.Phase, Outcome: turn.Outcome,
+				Origin: turn.Origin, RootProviderTurnID: turn.RootProviderTurnID,
+				StartedAtUnixMS: 1, SettledAtUnixMS: 1,
+			}
+		}
+	}
+	s.driver.service.TurnStore = s.driver.turns
+	return nil
+}
+
+func (s *conformanceHistoricalStateStore) CaptureHistoricalSessionGraph(
+	_ context.Context,
+	workspaceID string,
+	rootSessionID string,
+) (agenthost.HistoricalSessionGraph, error) {
+	if s.graph == nil || s.workspaceID != workspaceID ||
+		s.graph.RootSessionID != rootSessionID {
+		return agenthost.HistoricalSessionGraph{}, agenthost.ErrHistoricalStateUnavailable
+	}
+	return *s.graph, nil
 }
 
 func (d *legacyHostConformanceDriver) CancelTurn(ctx context.Context, input agenthost.CancelTurnInput) (hostconformance.CancelObservation, error) {
@@ -847,7 +1027,14 @@ func (d *legacyHostConformanceDriver) GoalControl(ctx context.Context, input age
 		result, err := d.service.ApplicationHost().GoalControl(ctx, input)
 		return hostGoalControlObservation(result), err
 	}
-	result, err := d.service.goalControl(ctx, input.WorkspaceID, input.AgentSessionID, input.Action, input.Objective, input.SubmissionMetadata)
+	result, err := d.service.GoalControl(ctx, GoalControlInput{
+		WorkspaceID:        input.WorkspaceID,
+		AgentSessionID:     input.AgentSessionID,
+		Action:             input.Action,
+		Objective:          input.Objective,
+		ClientSubmitID:     input.ClientSubmitID,
+		SubmissionMetadata: input.SubmissionMetadata,
+	})
 	if err != nil {
 		return hostconformance.GoalObservation{}, err
 	}
@@ -994,8 +1181,8 @@ type conformanceDeletionStore struct {
 
 func (s *conformanceDeletionStore) PlanDeleteSessions(
 	ctx context.Context,
-	input storesqlite.DeleteSessionsBatchInput,
-) (storesqlite.DeleteSessionsPlan, error) {
+	input agentactivitybiz.DeleteSessionsBatchInput,
+) (agentactivitybiz.DeleteSessionsPlan, error) {
 	if len(s.plans) == 0 {
 		return s.SessionBatchManagementStore.PlanDeleteSessions(ctx, input)
 	}
@@ -1003,7 +1190,7 @@ func (s *conformanceDeletionStore) PlanDeleteSessions(
 	if index >= len(s.plans) {
 		index = len(s.plans) - 1
 	}
-	return storesqlite.DeleteSessionsPlan{
+	return agentactivitybiz.DeleteSessionsPlan{
 		WorkspaceID: input.WorkspaceID,
 		SessionIDs:  append([]string(nil), s.plans[index]...),
 	}, nil
@@ -1011,15 +1198,15 @@ func (s *conformanceDeletionStore) PlanDeleteSessions(
 
 func (s *conformanceDeletionStore) DeleteSessionsBatch(
 	ctx context.Context,
-	input storesqlite.DeleteSessionsBatchInput,
-) (storesqlite.DeleteSessionsBatchResult, error) {
+	input agentactivitybiz.DeleteSessionsBatchInput,
+) (agentactivitybiz.DeleteSessionsBatchResult, error) {
 	s.deleteCalls++
 	if s.events != nil {
 		*s.events = append(*s.events, "delete:"+strings.Join(input.ExpectedSessionIDs, ","))
 	}
 	if s.planIndex+1 < len(s.plans) {
 		s.planIndex++
-		return storesqlite.DeleteSessionsBatchResult{}, storesqlite.ErrDeleteSessionsPlanChanged
+		return agentactivitybiz.DeleteSessionsBatchResult{}, agentactivitybiz.ErrDeleteSessionsPlanChanged
 	}
 	return s.SessionBatchManagementStore.DeleteSessionsBatch(ctx, input)
 }
@@ -1146,7 +1333,8 @@ func (d *legacyHostConformanceDriver) recordSubmittedTurn(workspaceID, sessionID
 }
 
 type legacyHostConformanceSessionInitializer struct {
-	sessions *fakeSessionReader
+	canonicalStore *workspacedata.SQLiteStore
+	sessions       *fakeSessionReader
 }
 
 func (i legacyHostConformanceSessionInitializer) InitializeRuntimeSession(
@@ -1155,10 +1343,32 @@ func (i legacyHostConformanceSessionInitializer) InitializeRuntimeSession(
 	railPlacement *agenthost.RailPlacement,
 ) (PersistedSession, error) {
 	persisted, err := (fakeSessionInitializer{}).InitializeRuntimeSession(ctx, session, railPlacement)
-	if err == nil {
-		i.sessions.sessions[persisted.WorkspaceID+":"+persisted.ID] = persisted
+	if err != nil {
+		return PersistedSession{}, err
 	}
-	return persisted, err
+	i.sessions.sessions[persisted.WorkspaceID+":"+persisted.ID] = persisted
+	if i.canonicalStore != nil {
+		if _, err := i.canonicalStore.Get(ctx, persisted.WorkspaceID); errors.Is(err, workspacedata.ErrWorkspaceNotFound) {
+			if err := i.canonicalStore.Create(ctx, workspacebiz.Summary{
+				ID:   persisted.WorkspaceID,
+				Name: "Host conformance",
+			}); err != nil {
+				return PersistedSession{}, err
+			}
+		} else if err != nil {
+			return PersistedSession{}, err
+		}
+		if _, err := i.canonicalStore.ReportSessionState(ctx, agentactivitybiz.SessionStateReport{
+			WorkspaceID:       persisted.WorkspaceID,
+			AgentSessionID:    persisted.ID,
+			Provider:          persisted.Provider,
+			ProviderSessionID: persisted.ProviderSessionID,
+			OccurredAtUnixMS:  persisted.UpdatedAtUnixMS,
+		}); err != nil {
+			return PersistedSession{}, err
+		}
+	}
+	return persisted, nil
 }
 
 func legacyHostSessionObservation(session Session) hostconformance.SessionObservation {

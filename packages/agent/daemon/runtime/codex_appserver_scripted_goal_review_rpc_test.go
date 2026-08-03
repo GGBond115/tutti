@@ -32,7 +32,12 @@ func (s *fakeCodexAppServer) handleGoalReviewRPC(message scriptedAppServerMessag
 		previousGoal := clonePayload(s.goal)
 		goalStartsTurn := s.goalStartsTurn
 		goalTurnNumber := s.goalTurnsStarted
-		if goalStartsTurn && strings.TrimSpace(asString(message.Params["objective"])) != "" {
+		objective := firstNonEmpty(asString(message.Params["objective"]), asString(previousGoal["objective"]))
+		// Continuations may be status-only (active, no objective). Still start
+		// the next Goal turn when a prior objective exists.
+		if goalStartsTurn && strings.TrimSpace(objective) != "" &&
+			(strings.TrimSpace(asString(message.Params["objective"])) != "" ||
+				asString(message.Params["status"]) == "active") {
 			s.goalTurnsStarted++
 			goalTurnNumber = s.goalTurnsStarted
 		}
@@ -45,7 +50,7 @@ func (s *fakeCodexAppServer) handleGoalReviewRPC(message scriptedAppServerMessag
 		}
 		goal := map[string]any{
 			"threadId":        "codex-thread-1",
-			"objective":       firstNonEmpty(asString(message.Params["objective"]), asString(previousGoal["objective"])),
+			"objective":       objective,
 			"status":          goalStatus,
 			"tokensUsed":      int64(0),
 			"timeUsedSeconds": int64(0),

@@ -120,18 +120,22 @@ func TestServiceGetReturnsStoredDesktopPreferences(t *testing.T) {
 	}
 }
 
-func TestServicePutNotifiesAfterPutWithPreviousAndCurrentPreferences(t *testing.T) {
+func TestServicePutNotifiesChangeObserversWithPreviousAndCurrentPreferences(t *testing.T) {
 	store := &preferencesStoreStub{getResult: preferencesbiz.DesktopPreferences{
 		FeatureFlags: map[string]bool{"agent.extension.gemini": false},
 	}}
 	var previous, current preferencesbiz.DesktopPreferences
 	service := Service{
 		Store: store,
-		AfterPut: func(_ context.Context, before, after preferencesbiz.DesktopPreferences) {
-			previous = before
-			current = after
-		},
 	}
+	observed := 0
+	service.RegisterChangeObserver(func(_ context.Context, before, after preferencesbiz.DesktopPreferences) {
+		previous = before
+		current = after
+	})
+	service.RegisterChangeObserver(func(context.Context, preferencesbiz.DesktopPreferences, preferencesbiz.DesktopPreferences) {
+		observed++
+	})
 
 	_, err := service.Put(context.Background(), PutInput{
 		FeatureFlags: map[string]bool{"agent.extension.gemini": true},
@@ -144,6 +148,9 @@ func TestServicePutNotifiesAfterPutWithPreviousAndCurrentPreferences(t *testing.
 	}
 	if !current.FeatureFlags["agent.extension.gemini"] {
 		t.Fatalf("current feature flags = %#v", current.FeatureFlags)
+	}
+	if observed != 1 {
+		t.Fatalf("second observer calls = %d, want 1", observed)
 	}
 }
 

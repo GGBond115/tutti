@@ -23,6 +23,13 @@ func NewInteractionUpdateEvent(data InteractionUpdateData) (Event, error) {
 	return newTypedEvent(data.WorkspaceID, data.AgentSessionID, EventTypeInteractionUpdate, data)
 }
 
+func NewInteractionSnapshotEvent(data InteractionSnapshotData) (Event, error) {
+	if data.Interactions == nil {
+		data.Interactions = []EventInteraction{}
+	}
+	return newTypedEvent(data.WorkspaceID, data.AgentSessionID, EventTypeInteractionSnapshot, data)
+}
+
 func NewSessionAuditEvent(data SessionAuditData) (Event, error) {
 	return newTypedEvent(data.WorkspaceID, data.AgentSessionID, EventTypeSessionAudit, data)
 }
@@ -224,6 +231,42 @@ func validateEvent(event Event) error {
 		} {
 			if err := validateJSONObjectOrNull(raw, name); err != nil {
 				return err
+			}
+		}
+	case EventTypeInteractionSnapshot:
+		record, err := requiredJSONFields(event.Data, "workspaceId", "agentSessionId", "eventType", "occurredAtUnixMs", "interactions")
+		if err != nil {
+			return err
+		}
+		if string(record["interactions"]) == "null" {
+			return fmt.Errorf("%w: interactions must be an array", ErrInvalidLiveEvent)
+		}
+		var data InteractionSnapshotData
+		if err := strictDecode(event.Data, &data); err != nil {
+			return err
+		}
+		if data.EventType != event.EventType || data.WorkspaceID != event.WorkspaceID ||
+			data.AgentSessionID != event.AgentSessionID || data.OccurredAtUnixMS < 0 {
+			return fmt.Errorf("%w: invalid interaction snapshot identity", ErrInvalidLiveEvent)
+		}
+		seen := make(map[string]struct{}, len(data.Interactions))
+		for _, interaction := range data.Interactions {
+			if interaction.AgentSessionID != event.AgentSessionID ||
+				strings.TrimSpace(interaction.TurnID) == "" || strings.TrimSpace(interaction.RequestID) == "" ||
+				!validInteractionKind(interaction.Kind) || !validInteractionStatus(interaction.Status) ||
+				interaction.CreatedAtUnixMS < 0 || interaction.UpdatedAtUnixMS < 0 {
+				return fmt.Errorf("%w: invalid interaction snapshot item", ErrInvalidLiveEvent)
+			}
+			if _, duplicate := seen[interaction.RequestID]; duplicate {
+				return fmt.Errorf("%w: duplicate interaction snapshot request", ErrInvalidLiveEvent)
+			}
+			seen[interaction.RequestID] = struct{}{}
+			for name, raw := range map[string]json.RawMessage{
+				"input": interaction.Input, "output": interaction.Output, "metadata": interaction.Metadata,
+			} {
+				if err := validateJSONObjectOrNull(raw, name); err != nil {
+					return err
+				}
 			}
 		}
 	case EventTypeSessionAudit:

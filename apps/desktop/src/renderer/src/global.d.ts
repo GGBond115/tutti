@@ -1,8 +1,9 @@
-import type { DesktopApi } from "@preload/types";
+import type { DesktopApi, DesktopMinimumVersionApi } from "@preload/types";
 
 declare global {
   interface Window {
     tutti?: DesktopApi;
+    tuttiMinimumVersion?: DesktopMinimumVersionApi;
   }
 
   interface ImportMetaEnv {

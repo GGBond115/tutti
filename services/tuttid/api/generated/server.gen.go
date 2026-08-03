@@ -74,15 +74,18 @@ type ServerInterface interface {
 	// Update a device-local Agent quick prompt
 	// (PUT /v1/agent-quick-prompts/{promptId})
 	UpdateAgentQuickPrompt(w http.ResponseWriter, r *http.Request, promptId string)
+	// Verify one Replay Checkpoint trigger and canonical readiness
+	// (POST /v1/agent-session-replay/cassettes/{cassetteID}/checkpoints/{checkpointIndex}/verify)
+	VerifyAgentSessionReplayCheckpoint(w http.ResponseWriter, r *http.Request, cassetteID openapi_types.UUID, checkpointIndex int)
 	// Read playback timing for the isolated replay transport
-	// (GET /v1/agent-session-replay/transport/playback)
-	GetAgentSessionReplayTransportPlayback(w http.ResponseWriter, r *http.Request)
+	// (GET /v1/agent-session-replay/cassettes/{cassetteID}/transport/playback)
+	GetAgentSessionReplayTransportPlayback(w http.ResponseWriter, r *http.Request, cassetteID openapi_types.UUID)
 	// Update playback timing for the isolated replay transport
-	// (POST /v1/agent-session-replay/transport/playback)
-	UpdateAgentSessionReplayTransportPlayback(w http.ResponseWriter, r *http.Request)
+	// (POST /v1/agent-session-replay/cassettes/{cassetteID}/transport/playback)
+	UpdateAgentSessionReplayTransportPlayback(w http.ResponseWriter, r *http.Request, cassetteID openapi_types.UUID)
 	// Verify that the isolated replay transport consumed its complete Cassette
-	// (POST /v1/agent-session-replay/transport/verify)
-	VerifyAgentSessionReplayTransport(w http.ResponseWriter, r *http.Request)
+	// (POST /v1/agent-session-replay/cassettes/{cassetteID}/transport/verify)
+	VerifyAgentSessionReplayTransport(w http.ResponseWriter, r *http.Request, cassetteID openapi_types.UUID)
 	// List daemon-owned Agent Targets
 	// (GET /v1/agent-targets)
 	ListAgentTargets(w http.ResponseWriter, r *http.Request)
@@ -95,6 +98,15 @@ type ServerInterface interface {
 	// Invoke one registered CLI command
 	// (POST /v1/cli/commands/{commandID}/invoke)
 	InvokeCliCommand(w http.ResponseWriter, r *http.Request, commandID CliCommandID)
+	// Read the daemon-owned desktop update admission snapshot
+	// (GET /v1/desktop-update-admission)
+	GetDesktopUpdateAdmissionSnapshot(w http.ResponseWriter, r *http.Request)
+	// Ask the daemon to refresh admission for a lifecycle trigger
+	// (POST /v1/desktop-update-admission/refresh)
+	RefreshDesktopUpdateAdmission(w http.ResponseWriter, r *http.Request)
+	// Wait for the daemon-initiated startup admission check
+	// (GET /v1/desktop-update-admission/startup)
+	GetDesktopUpdateAdmissionStartup(w http.ResponseWriter, r *http.Request)
 	// Attach a WebSocket stream to daemon business events
 	// (GET /v1/events/ws)
 	AttachEventStream(w http.ResponseWriter, r *http.Request)
@@ -176,12 +188,9 @@ type ServerInterface interface {
 	// List immutable Agent Session Cassettes for one workspace
 	// (GET /v1/workspaces/{workspaceID}/agent-session-cassettes)
 	ListAgentSessionCassettes(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID)
-	// List replay runs for one immutable Agent Session Cassette
-	// (GET /v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs)
-	ListAgentSessionReplayRuns(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, cassetteID openapi_types.UUID)
-	// Validate one Cassette and prepare an isolated replay run
-	// (POST /v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs)
-	PrepareAgentSessionReplayRun(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, cassetteID openapi_types.UUID)
+	// Import one or more portable Agent Session Cassette directories
+	// (POST /v1/workspaces/{workspaceID}/agent-session-cassettes/import)
+	ImportAgentSessionCassettes(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID)
 	// Get one durable workspace agent session fork operation
 	// (GET /v1/workspaces/{workspaceID}/agent-session-fork-operations/{operationID})
 	GetWorkspaceAgentSessionForkOperation(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, operationID SessionForkOperationID)
@@ -194,6 +203,9 @@ type ServerInterface interface {
 	// Start one developer Agent Session recording
 	// (POST /v1/workspaces/{workspaceID}/agent-session-recordings)
 	StartAgentSessionRecording(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID)
+	// Delete one inactive developer Agent Session recording and its Cassette
+	// (DELETE /v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID})
+	DeleteAgentSessionRecording(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, recordingID openapi_types.UUID)
 	// Get one developer Agent Session recording
 	// (GET /v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID})
 	GetAgentSessionRecording(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, recordingID openapi_types.UUID)
@@ -209,21 +221,9 @@ type ServerInterface interface {
 	// Complete one active developer Agent Session recording
 	// (POST /v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/complete)
 	CompleteAgentSessionRecording(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, recordingID openapi_types.UUID)
-	// Cancel one active replay run
-	// (POST /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/cancel)
-	CancelAgentSessionReplayRun(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, runID openapi_types.UUID)
-	// Persist a stable checkpoint reached by one replay run
-	// (POST /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/checkpoint)
-	AdvanceAgentSessionReplayRunCheckpoint(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, runID openapi_types.UUID)
-	// Complete a replay run after transport and final-state verification
-	// (POST /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/complete)
-	CompleteAgentSessionReplayRun(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, runID openapi_types.UUID)
-	// Persist an explicit replay runtime or verification failure
-	// (POST /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/fail)
-	FailAgentSessionReplayRun(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, runID openapi_types.UUID)
-	// Mark a prepared replay run accepted by its runtime adapter
-	// (POST /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/running)
-	MarkAgentSessionReplayRunRunning(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, runID openapi_types.UUID)
+	// Validate a fixed batch of distinct replay Cassettes
+	// (POST /v1/workspaces/{workspaceID}/agent-session-replay-workspaces)
+	PrepareAgentSessionReplayWorkspace(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID)
 	// List agent session rail sections for one workspace
 	// (GET /v1/workspaces/{workspaceID}/agent-session-sections)
 	ListWorkspaceAgentSessionSections(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, params ListWorkspaceAgentSessionSectionsParams)
@@ -244,7 +244,7 @@ type ServerInterface interface {
 	ListWorkspaceAgentSessions(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, params ListWorkspaceAgentSessionsParams)
 	// Create an agent session for one workspace
 	// (POST /v1/workspaces/{workspaceID}/agent-sessions)
-	CreateWorkspaceAgentSession(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID)
+	CreateWorkspaceAgentSession(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, params CreateWorkspaceAgentSessionParams)
 	// Delete an exact snapshot of agent sessions for one workspace
 	// (DELETE /v1/workspaces/{workspaceID}/agent-sessions/batch)
 	DeleteWorkspaceAgentSessionsBatch(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID)
@@ -289,16 +289,16 @@ type ServerInterface interface {
 	GetWorkspaceAgentSessionGoal(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID)
 	// Perform a goal control action on one workspace agent session
 	// (POST /v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/goal)
-	GoalControlWorkspaceAgentSession(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID)
+	GoalControlWorkspaceAgentSession(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, params GoalControlWorkspaceAgentSessionParams)
 	// Reconcile the durable goal projection with provider evidence
 	// (POST /v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/goal/reconcile)
 	ReconcileWorkspaceAgentSessionGoal(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID)
 	// Send user input to one workspace agent session
 	// (POST /v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/input)
-	SendWorkspaceAgentSessionInput(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID)
+	SendWorkspaceAgentSessionInput(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, params SendWorkspaceAgentSessionInputParams)
 	// Submit one workspace agent interactive response
 	// (POST /v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/interactives/{requestID}/response)
-	SubmitWorkspaceAgentInteractive(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, requestID AgentPermissionRequestID)
+	SubmitWorkspaceAgentInteractive(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, requestID AgentPermissionRequestID, params SubmitWorkspaceAgentInteractiveParams)
 	// List persisted messages for one workspace agent session
 	// (GET /v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/messages)
 	ListWorkspaceAgentSessionMessages(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, params ListWorkspaceAgentSessionMessagesParams)
@@ -313,19 +313,19 @@ type ServerInterface interface {
 	UpdateWorkspaceAgentSessionPin(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID)
 	// Update one workspace agent session settings
 	// (POST /v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/settings)
-	UpdateWorkspaceAgentSessionSettings(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID)
+	UpdateWorkspaceAgentSessionSettings(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, params UpdateWorkspaceAgentSessionSettingsParams)
 	// Update one workspace agent session title
 	// (POST /v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/title)
 	UpdateWorkspaceAgentSessionTitle(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID)
 	// Cancel one workspace agent turn
 	// (POST /v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/turns/{turnID}/cancel)
-	CancelWorkspaceAgentTurn(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, turnID AgentTurnID)
+	CancelWorkspaceAgentTurn(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, turnID AgentTurnID, params CancelWorkspaceAgentTurnParams)
 	// Edit and retry the latest completed user turn
 	// (POST /v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/turns/{turnID}/edit-retry)
 	EditRetryWorkspaceAgentTurn(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, turnID AgentTurnID)
 	// Submit one durable workspace agent plan decision
 	// (POST /v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/turns/{turnID}/plan-decisions/{requestID})
-	SubmitWorkspaceAgentPlanDecision(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, turnID AgentTurnID, requestID AgentPermissionRequestID)
+	SubmitWorkspaceAgentPlanDecision(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, turnID AgentTurnID, requestID AgentPermissionRequestID, params SubmitWorkspaceAgentPlanDecisionParams)
 	// Get the independent Tutti mode activation for one agent session
 	// (GET /v1/workspaces/{workspaceID}/agent-sessions/{agentSessionID}/tutti-mode-activation)
 	GetWorkspaceAgentSessionTuttiModeActivation(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID)
@@ -1282,8 +1282,29 @@ func (siw *ServerInterfaceWrapper) UpdateAgentQuickPrompt(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
-// GetAgentSessionReplayTransportPlayback operation middleware
-func (siw *ServerInterfaceWrapper) GetAgentSessionReplayTransportPlayback(w http.ResponseWriter, r *http.Request) {
+// VerifyAgentSessionReplayCheckpoint operation middleware
+func (siw *ServerInterfaceWrapper) VerifyAgentSessionReplayCheckpoint(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "cassetteID" -------------
+	var cassetteID openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cassetteID", r.PathValue("cassetteID"), &cassetteID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cassetteID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "checkpointIndex" -------------
+	var checkpointIndex int
+
+	err = runtime.BindStyledParameterWithOptions("simple", "checkpointIndex", r.PathValue("checkpointIndex"), &checkpointIndex, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "checkpointIndex", Err: err})
+		return
+	}
 
 	ctx := r.Context()
 
@@ -1292,7 +1313,39 @@ func (siw *ServerInterfaceWrapper) GetAgentSessionReplayTransportPlayback(w http
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetAgentSessionReplayTransportPlayback(w, r)
+		siw.Handler.VerifyAgentSessionReplayCheckpoint(w, r, cassetteID, checkpointIndex)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAgentSessionReplayTransportPlayback operation middleware
+func (siw *ServerInterfaceWrapper) GetAgentSessionReplayTransportPlayback(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "cassetteID" -------------
+	var cassetteID openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cassetteID", r.PathValue("cassetteID"), &cassetteID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cassetteID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAgentSessionReplayTransportPlayback(w, r, cassetteID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1305,6 +1358,18 @@ func (siw *ServerInterfaceWrapper) GetAgentSessionReplayTransportPlayback(w http
 // UpdateAgentSessionReplayTransportPlayback operation middleware
 func (siw *ServerInterfaceWrapper) UpdateAgentSessionReplayTransportPlayback(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// ------------- Path parameter "cassetteID" -------------
+	var cassetteID openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cassetteID", r.PathValue("cassetteID"), &cassetteID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cassetteID", Err: err})
+		return
+	}
+
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
@@ -1312,7 +1377,7 @@ func (siw *ServerInterfaceWrapper) UpdateAgentSessionReplayTransportPlayback(w h
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateAgentSessionReplayTransportPlayback(w, r)
+		siw.Handler.UpdateAgentSessionReplayTransportPlayback(w, r, cassetteID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1325,6 +1390,18 @@ func (siw *ServerInterfaceWrapper) UpdateAgentSessionReplayTransportPlayback(w h
 // VerifyAgentSessionReplayTransport operation middleware
 func (siw *ServerInterfaceWrapper) VerifyAgentSessionReplayTransport(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// ------------- Path parameter "cassetteID" -------------
+	var cassetteID openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "cassetteID", r.PathValue("cassetteID"), &cassetteID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cassetteID", Err: err})
+		return
+	}
+
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
@@ -1332,7 +1409,7 @@ func (siw *ServerInterfaceWrapper) VerifyAgentSessionReplayTransport(w http.Resp
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.VerifyAgentSessionReplayTransport(w, r)
+		siw.Handler.VerifyAgentSessionReplayTransport(w, r, cassetteID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1495,6 +1572,66 @@ func (siw *ServerInterfaceWrapper) InvokeCliCommand(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.InvokeCliCommand(w, r, commandID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDesktopUpdateAdmissionSnapshot operation middleware
+func (siw *ServerInterfaceWrapper) GetDesktopUpdateAdmissionSnapshot(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDesktopUpdateAdmissionSnapshot(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RefreshDesktopUpdateAdmission operation middleware
+func (siw *ServerInterfaceWrapper) RefreshDesktopUpdateAdmission(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshDesktopUpdateAdmission(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDesktopUpdateAdmissionStartup operation middleware
+func (siw *ServerInterfaceWrapper) GetDesktopUpdateAdmissionStartup(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDesktopUpdateAdmissionStartup(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2253,8 +2390,8 @@ func (siw *ServerInterfaceWrapper) ListAgentSessionCassettes(w http.ResponseWrit
 	handler.ServeHTTP(w, r)
 }
 
-// ListAgentSessionReplayRuns operation middleware
-func (siw *ServerInterfaceWrapper) ListAgentSessionReplayRuns(w http.ResponseWriter, r *http.Request) {
+// ImportAgentSessionCassettes operation middleware
+func (siw *ServerInterfaceWrapper) ImportAgentSessionCassettes(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -2268,15 +2405,6 @@ func (siw *ServerInterfaceWrapper) ListAgentSessionReplayRuns(w http.ResponseWri
 		return
 	}
 
-	// ------------- Path parameter "cassetteID" -------------
-	var cassetteID openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "cassetteID", r.PathValue("cassetteID"), &cassetteID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cassetteID", Err: err})
-		return
-	}
-
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
@@ -2284,48 +2412,7 @@ func (siw *ServerInterfaceWrapper) ListAgentSessionReplayRuns(w http.ResponseWri
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListAgentSessionReplayRuns(w, r, workspaceID, cassetteID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PrepareAgentSessionReplayRun operation middleware
-func (siw *ServerInterfaceWrapper) PrepareAgentSessionReplayRun(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "workspaceID" -------------
-	var workspaceID WorkspaceID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "cassetteID" -------------
-	var cassetteID openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "cassetteID", r.PathValue("cassetteID"), &cassetteID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cassetteID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PrepareAgentSessionReplayRun(w, r, workspaceID, cassetteID)
+		siw.Handler.ImportAgentSessionCassettes(w, r, workspaceID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2472,6 +2559,47 @@ func (siw *ServerInterfaceWrapper) StartAgentSessionRecording(w http.ResponseWri
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.StartAgentSessionRecording(w, r, workspaceID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteAgentSessionRecording operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAgentSessionRecording(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceID" -------------
+	var workspaceID WorkspaceID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "recordingID" -------------
+	var recordingID openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "recordingID", r.PathValue("recordingID"), &recordingID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "recordingID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteAgentSessionRecording(w, r, workspaceID, recordingID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2686,8 +2814,8 @@ func (siw *ServerInterfaceWrapper) CompleteAgentSessionRecording(w http.Response
 	handler.ServeHTTP(w, r)
 }
 
-// CancelAgentSessionReplayRun operation middleware
-func (siw *ServerInterfaceWrapper) CancelAgentSessionReplayRun(w http.ResponseWriter, r *http.Request) {
+// PrepareAgentSessionReplayWorkspace operation middleware
+func (siw *ServerInterfaceWrapper) PrepareAgentSessionReplayWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -2701,15 +2829,6 @@ func (siw *ServerInterfaceWrapper) CancelAgentSessionReplayRun(w http.ResponseWr
 		return
 	}
 
-	// ------------- Path parameter "runID" -------------
-	var runID openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "runID", r.PathValue("runID"), &runID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runID", Err: err})
-		return
-	}
-
 	ctx := r.Context()
 
 	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
@@ -2717,171 +2836,7 @@ func (siw *ServerInterfaceWrapper) CancelAgentSessionReplayRun(w http.ResponseWr
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CancelAgentSessionReplayRun(w, r, workspaceID, runID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// AdvanceAgentSessionReplayRunCheckpoint operation middleware
-func (siw *ServerInterfaceWrapper) AdvanceAgentSessionReplayRunCheckpoint(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "workspaceID" -------------
-	var workspaceID WorkspaceID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "runID" -------------
-	var runID openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "runID", r.PathValue("runID"), &runID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AdvanceAgentSessionReplayRunCheckpoint(w, r, workspaceID, runID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CompleteAgentSessionReplayRun operation middleware
-func (siw *ServerInterfaceWrapper) CompleteAgentSessionReplayRun(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "workspaceID" -------------
-	var workspaceID WorkspaceID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "runID" -------------
-	var runID openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "runID", r.PathValue("runID"), &runID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CompleteAgentSessionReplayRun(w, r, workspaceID, runID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// FailAgentSessionReplayRun operation middleware
-func (siw *ServerInterfaceWrapper) FailAgentSessionReplayRun(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "workspaceID" -------------
-	var workspaceID WorkspaceID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "runID" -------------
-	var runID openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "runID", r.PathValue("runID"), &runID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.FailAgentSessionReplayRun(w, r, workspaceID, runID)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// MarkAgentSessionReplayRunRunning operation middleware
-func (siw *ServerInterfaceWrapper) MarkAgentSessionReplayRunRunning(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "workspaceID" -------------
-	var workspaceID WorkspaceID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "runID" -------------
-	var runID openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "runID", r.PathValue("runID"), &runID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "runID", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.MarkAgentSessionReplayRunRunning(w, r, workspaceID, runID)
+		siw.Handler.PrepareAgentSessionReplayWorkspace(w, r, workspaceID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3327,8 +3282,32 @@ func (siw *ServerInterfaceWrapper) CreateWorkspaceAgentSession(w http.ResponseWr
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateWorkspaceAgentSessionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Tutti-Agent-Command-Origin" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Tutti-Agent-Command-Origin")]; found {
+		var XTuttiAgentCommandOrigin CreateWorkspaceAgentSessionParamsXTuttiAgentCommandOrigin
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Tutti-Agent-Command-Origin", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Tutti-Agent-Command-Origin", valueList[0], &XTuttiAgentCommandOrigin, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Tutti-Agent-Command-Origin", Err: err})
+			return
+		}
+
+		params.XTuttiAgentCommandOrigin = &XTuttiAgentCommandOrigin
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateWorkspaceAgentSession(w, r, workspaceID)
+		siw.Handler.CreateWorkspaceAgentSession(w, r, workspaceID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3949,8 +3928,32 @@ func (siw *ServerInterfaceWrapper) GoalControlWorkspaceAgentSession(w http.Respo
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GoalControlWorkspaceAgentSessionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Tutti-Agent-Command-Origin" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Tutti-Agent-Command-Origin")]; found {
+		var XTuttiAgentCommandOrigin GoalControlWorkspaceAgentSessionParamsXTuttiAgentCommandOrigin
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Tutti-Agent-Command-Origin", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Tutti-Agent-Command-Origin", valueList[0], &XTuttiAgentCommandOrigin, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Tutti-Agent-Command-Origin", Err: err})
+			return
+		}
+
+		params.XTuttiAgentCommandOrigin = &XTuttiAgentCommandOrigin
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GoalControlWorkspaceAgentSession(w, r, workspaceID, agentSessionID)
+		siw.Handler.GoalControlWorkspaceAgentSession(w, r, workspaceID, agentSessionID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4031,8 +4034,32 @@ func (siw *ServerInterfaceWrapper) SendWorkspaceAgentSessionInput(w http.Respons
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SendWorkspaceAgentSessionInputParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Tutti-Agent-Command-Origin" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Tutti-Agent-Command-Origin")]; found {
+		var XTuttiAgentCommandOrigin SendWorkspaceAgentSessionInputParamsXTuttiAgentCommandOrigin
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Tutti-Agent-Command-Origin", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Tutti-Agent-Command-Origin", valueList[0], &XTuttiAgentCommandOrigin, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Tutti-Agent-Command-Origin", Err: err})
+			return
+		}
+
+		params.XTuttiAgentCommandOrigin = &XTuttiAgentCommandOrigin
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SendWorkspaceAgentSessionInput(w, r, workspaceID, agentSessionID)
+		siw.Handler.SendWorkspaceAgentSessionInput(w, r, workspaceID, agentSessionID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4081,8 +4108,32 @@ func (siw *ServerInterfaceWrapper) SubmitWorkspaceAgentInteractive(w http.Respon
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SubmitWorkspaceAgentInteractiveParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Tutti-Agent-Command-Origin" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Tutti-Agent-Command-Origin")]; found {
+		var XTuttiAgentCommandOrigin SubmitWorkspaceAgentInteractiveParamsXTuttiAgentCommandOrigin
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Tutti-Agent-Command-Origin", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Tutti-Agent-Command-Origin", valueList[0], &XTuttiAgentCommandOrigin, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Tutti-Agent-Command-Origin", Err: err})
+			return
+		}
+
+		params.XTuttiAgentCommandOrigin = &XTuttiAgentCommandOrigin
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SubmitWorkspaceAgentInteractive(w, r, workspaceID, agentSessionID, requestID)
+		siw.Handler.SubmitWorkspaceAgentInteractive(w, r, workspaceID, agentSessionID, requestID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4341,8 +4392,32 @@ func (siw *ServerInterfaceWrapper) UpdateWorkspaceAgentSessionSettings(w http.Re
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateWorkspaceAgentSessionSettingsParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Tutti-Agent-Command-Origin" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Tutti-Agent-Command-Origin")]; found {
+		var XTuttiAgentCommandOrigin UpdateWorkspaceAgentSessionSettingsParamsXTuttiAgentCommandOrigin
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Tutti-Agent-Command-Origin", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Tutti-Agent-Command-Origin", valueList[0], &XTuttiAgentCommandOrigin, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Tutti-Agent-Command-Origin", Err: err})
+			return
+		}
+
+		params.XTuttiAgentCommandOrigin = &XTuttiAgentCommandOrigin
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UpdateWorkspaceAgentSessionSettings(w, r, workspaceID, agentSessionID)
+		siw.Handler.UpdateWorkspaceAgentSessionSettings(w, r, workspaceID, agentSessionID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4432,8 +4507,32 @@ func (siw *ServerInterfaceWrapper) CancelWorkspaceAgentTurn(w http.ResponseWrite
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CancelWorkspaceAgentTurnParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Tutti-Agent-Command-Origin" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Tutti-Agent-Command-Origin")]; found {
+		var XTuttiAgentCommandOrigin CancelWorkspaceAgentTurnParamsXTuttiAgentCommandOrigin
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Tutti-Agent-Command-Origin", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Tutti-Agent-Command-Origin", valueList[0], &XTuttiAgentCommandOrigin, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Tutti-Agent-Command-Origin", Err: err})
+			return
+		}
+
+		params.XTuttiAgentCommandOrigin = &XTuttiAgentCommandOrigin
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CancelWorkspaceAgentTurn(w, r, workspaceID, agentSessionID, turnID)
+		siw.Handler.CancelWorkspaceAgentTurn(w, r, workspaceID, agentSessionID, turnID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4541,8 +4640,32 @@ func (siw *ServerInterfaceWrapper) SubmitWorkspaceAgentPlanDecision(w http.Respo
 
 	r = r.WithContext(ctx)
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SubmitWorkspaceAgentPlanDecisionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Tutti-Agent-Command-Origin" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Tutti-Agent-Command-Origin")]; found {
+		var XTuttiAgentCommandOrigin SubmitWorkspaceAgentPlanDecisionParamsXTuttiAgentCommandOrigin
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Tutti-Agent-Command-Origin", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Tutti-Agent-Command-Origin", valueList[0], &XTuttiAgentCommandOrigin, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Tutti-Agent-Command-Origin", Err: err})
+			return
+		}
+
+		params.XTuttiAgentCommandOrigin = &XTuttiAgentCommandOrigin
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SubmitWorkspaceAgentPlanDecision(w, r, workspaceID, agentSessionID, turnID, requestID)
+		siw.Handler.SubmitWorkspaceAgentPlanDecision(w, r, workspaceID, agentSessionID, turnID, requestID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10407,13 +10530,17 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/agent-quick-prompts/move", wrapper.MoveAgentQuickPrompt)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/agent-quick-prompts/{promptId}", wrapper.DeleteAgentQuickPrompt)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/agent-quick-prompts/{promptId}", wrapper.UpdateAgentQuickPrompt)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/agent-session-replay/transport/playback", wrapper.GetAgentSessionReplayTransportPlayback)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/agent-session-replay/transport/playback", wrapper.UpdateAgentSessionReplayTransportPlayback)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/agent-session-replay/transport/verify", wrapper.VerifyAgentSessionReplayTransport)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/agent-session-replay/cassettes/{cassetteID}/checkpoints/{checkpointIndex}/verify", wrapper.VerifyAgentSessionReplayCheckpoint)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/agent-session-replay/cassettes/{cassetteID}/transport/playback", wrapper.GetAgentSessionReplayTransportPlayback)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/agent-session-replay/cassettes/{cassetteID}/transport/playback", wrapper.UpdateAgentSessionReplayTransportPlayback)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/agent-session-replay/cassettes/{cassetteID}/transport/verify", wrapper.VerifyAgentSessionReplayTransport)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/agent-targets", wrapper.ListAgentTargets)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/agent-targets/{agentTargetID}/enabled", wrapper.SetSystemAgentTargetEnabled)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/cli/capabilities", wrapper.ListCliCapabilities)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/cli/commands/{commandID}/invoke", wrapper.InvokeCliCommand)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/desktop-update-admission", wrapper.GetDesktopUpdateAdmissionSnapshot)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/desktop-update-admission/refresh", wrapper.RefreshDesktopUpdateAdmission)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/desktop-update-admission/startup", wrapper.GetDesktopUpdateAdmissionStartup)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/events/ws", wrapper.AttachEventStream)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/health", wrapper.GetHealth)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/mobile-remote-access/pairing-challenges", wrapper.StartMobileRemotePairing)
@@ -10441,22 +10568,18 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-model-bindings", wrapper.ListAgentModelBindings)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-model-bindings/{agentTargetID}", wrapper.SetAgentModelBinding)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-cassettes", wrapper.ListAgentSessionCassettes)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs", wrapper.ListAgentSessionReplayRuns)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs", wrapper.PrepareAgentSessionReplayRun)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-cassettes/import", wrapper.ImportAgentSessionCassettes)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-fork-operations/{operationID}", wrapper.GetWorkspaceAgentSessionForkOperation)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-fork-operations/{operationID}/acknowledge", wrapper.AcknowledgeWorkspaceAgentSessionForkOperation)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-recordings", wrapper.ListAgentSessionRecordings)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-recordings", wrapper.StartAgentSessionRecording)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}", wrapper.DeleteAgentSessionRecording)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}", wrapper.GetAgentSessionRecording)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}", wrapper.RenameAgentSessionRecording)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/activity-events", wrapper.AppendAgentSessionRecordingActivityEvents)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/cancel", wrapper.CancelAgentSessionRecording)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/complete", wrapper.CompleteAgentSessionRecording)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/cancel", wrapper.CancelAgentSessionReplayRun)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/checkpoint", wrapper.AdvanceAgentSessionReplayRunCheckpoint)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/complete", wrapper.CompleteAgentSessionReplayRun)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/fail", wrapper.FailAgentSessionReplayRun)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/running", wrapper.MarkAgentSessionReplayRunRunning)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-replay-workspaces", wrapper.PrepareAgentSessionReplayWorkspace)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-sections", wrapper.ListWorkspaceAgentSessionSections)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-sections/deletion-candidates", wrapper.ListWorkspaceAgentSessionSectionDeletionCandidates)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/agent-session-sections/page", wrapper.ListWorkspaceAgentSessionSectionPage)
@@ -12348,7 +12471,61 @@ func (response UpdateAgentQuickPrompt503JSONResponse) VisitUpdateAgentQuickPromp
 	return err
 }
 
+type VerifyAgentSessionReplayCheckpointRequestObject struct {
+	CassetteID      openapi_types.UUID `json:"cassetteID"`
+	CheckpointIndex int                `json:"checkpointIndex"`
+}
+
+type VerifyAgentSessionReplayCheckpointResponseObject interface {
+	VisitVerifyAgentSessionReplayCheckpointResponse(w http.ResponseWriter) error
+}
+
+type VerifyAgentSessionReplayCheckpoint200JSONResponse AgentSessionReplayCheckpointVerification
+
+func (response VerifyAgentSessionReplayCheckpoint200JSONResponse) VisitVerifyAgentSessionReplayCheckpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type VerifyAgentSessionReplayCheckpoint409JSONResponse ApiErrorResponse
+
+func (response VerifyAgentSessionReplayCheckpoint409JSONResponse) VisitVerifyAgentSessionReplayCheckpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type VerifyAgentSessionReplayCheckpoint503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response VerifyAgentSessionReplayCheckpoint503JSONResponse) VisitVerifyAgentSessionReplayCheckpointResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetAgentSessionReplayTransportPlaybackRequestObject struct {
+	CassetteID openapi_types.UUID `json:"cassetteID"`
 }
 
 type GetAgentSessionReplayTransportPlaybackResponseObject interface {
@@ -12386,7 +12563,8 @@ func (response GetAgentSessionReplayTransportPlayback503JSONResponse) VisitGetAg
 }
 
 type UpdateAgentSessionReplayTransportPlaybackRequestObject struct {
-	Body *UpdateAgentSessionReplayTransportPlaybackJSONRequestBody
+	CassetteID openapi_types.UUID `json:"cassetteID"`
+	Body       *UpdateAgentSessionReplayTransportPlaybackJSONRequestBody
 }
 
 type UpdateAgentSessionReplayTransportPlaybackResponseObject interface {
@@ -12440,6 +12618,7 @@ func (response UpdateAgentSessionReplayTransportPlayback503JSONResponse) VisitUp
 }
 
 type VerifyAgentSessionReplayTransportRequestObject struct {
+	CassetteID openapi_types.UUID `json:"cassetteID"`
 }
 
 type VerifyAgentSessionReplayTransportResponseObject interface {
@@ -12840,6 +13019,224 @@ type InvokeCliCommand503JSONResponse struct {
 }
 
 func (response InvokeCliCommand503JSONResponse) VisitInvokeCliCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDesktopUpdateAdmissionSnapshotRequestObject struct {
+}
+
+type GetDesktopUpdateAdmissionSnapshotResponseObject interface {
+	VisitGetDesktopUpdateAdmissionSnapshotResponse(w http.ResponseWriter) error
+}
+
+type GetDesktopUpdateAdmissionSnapshot200JSONResponse DesktopUpdateAdmissionSnapshot
+
+func (response GetDesktopUpdateAdmissionSnapshot200JSONResponse) VisitGetDesktopUpdateAdmissionSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDesktopUpdateAdmissionSnapshot401JSONResponse struct{ UnauthorizedErrorJSONResponse }
+
+func (response GetDesktopUpdateAdmissionSnapshot401JSONResponse) VisitGetDesktopUpdateAdmissionSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDesktopUpdateAdmissionSnapshot405JSONResponse struct {
+	MethodNotAllowedErrorJSONResponse
+}
+
+func (response GetDesktopUpdateAdmissionSnapshot405JSONResponse) VisitGetDesktopUpdateAdmissionSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDesktopUpdateAdmissionSnapshot503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response GetDesktopUpdateAdmissionSnapshot503JSONResponse) VisitGetDesktopUpdateAdmissionSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RefreshDesktopUpdateAdmissionRequestObject struct {
+	Body *RefreshDesktopUpdateAdmissionJSONRequestBody
+}
+
+type RefreshDesktopUpdateAdmissionResponseObject interface {
+	VisitRefreshDesktopUpdateAdmissionResponse(w http.ResponseWriter) error
+}
+
+type RefreshDesktopUpdateAdmission200JSONResponse DesktopUpdateAdmissionRefreshResult
+
+func (response RefreshDesktopUpdateAdmission200JSONResponse) VisitRefreshDesktopUpdateAdmissionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RefreshDesktopUpdateAdmission400JSONResponse struct {
+	InvalidRequestErrorJSONResponse
+}
+
+func (response RefreshDesktopUpdateAdmission400JSONResponse) VisitRefreshDesktopUpdateAdmissionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RefreshDesktopUpdateAdmission401JSONResponse struct{ UnauthorizedErrorJSONResponse }
+
+func (response RefreshDesktopUpdateAdmission401JSONResponse) VisitRefreshDesktopUpdateAdmissionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RefreshDesktopUpdateAdmission405JSONResponse struct {
+	MethodNotAllowedErrorJSONResponse
+}
+
+func (response RefreshDesktopUpdateAdmission405JSONResponse) VisitRefreshDesktopUpdateAdmissionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RefreshDesktopUpdateAdmission503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response RefreshDesktopUpdateAdmission503JSONResponse) VisitRefreshDesktopUpdateAdmissionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDesktopUpdateAdmissionStartupRequestObject struct {
+}
+
+type GetDesktopUpdateAdmissionStartupResponseObject interface {
+	VisitGetDesktopUpdateAdmissionStartupResponse(w http.ResponseWriter) error
+}
+
+type GetDesktopUpdateAdmissionStartup200JSONResponse DesktopUpdateAdmissionSnapshot
+
+func (response GetDesktopUpdateAdmissionStartup200JSONResponse) VisitGetDesktopUpdateAdmissionStartupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDesktopUpdateAdmissionStartup401JSONResponse struct{ UnauthorizedErrorJSONResponse }
+
+func (response GetDesktopUpdateAdmissionStartup401JSONResponse) VisitGetDesktopUpdateAdmissionStartupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDesktopUpdateAdmissionStartup405JSONResponse struct {
+	MethodNotAllowedErrorJSONResponse
+}
+
+func (response GetDesktopUpdateAdmissionStartup405JSONResponse) VisitGetDesktopUpdateAdmissionStartupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDesktopUpdateAdmissionStartup503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response GetDesktopUpdateAdmissionStartup503JSONResponse) VisitGetDesktopUpdateAdmissionStartupResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -15291,18 +15688,18 @@ func (response ListAgentSessionCassettes503JSONResponse) VisitListAgentSessionCa
 	return err
 }
 
-type ListAgentSessionReplayRunsRequestObject struct {
-	WorkspaceID WorkspaceID        `json:"workspaceID"`
-	CassetteID  openapi_types.UUID `json:"cassetteID"`
+type ImportAgentSessionCassettesRequestObject struct {
+	WorkspaceID WorkspaceID `json:"workspaceID"`
+	Body        *ImportAgentSessionCassettesJSONRequestBody
 }
 
-type ListAgentSessionReplayRunsResponseObject interface {
-	VisitListAgentSessionReplayRunsResponse(w http.ResponseWriter) error
+type ImportAgentSessionCassettesResponseObject interface {
+	VisitImportAgentSessionCassettesResponse(w http.ResponseWriter) error
 }
 
-type ListAgentSessionReplayRuns200JSONResponse AgentSessionReplayRunListResponse
+type ImportAgentSessionCassettes200JSONResponse ImportAgentSessionCassettesResponse
 
-func (response ListAgentSessionReplayRuns200JSONResponse) VisitListAgentSessionReplayRunsResponse(w http.ResponseWriter) error {
+func (response ImportAgentSessionCassettes200JSONResponse) VisitImportAgentSessionCassettesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -15314,92 +15711,27 @@ func (response ListAgentSessionReplayRuns200JSONResponse) VisitListAgentSessionR
 	return err
 }
 
-type ListAgentSessionReplayRuns404JSONResponse ApiErrorResponse
+type ImportAgentSessionCassettes400JSONResponse struct {
+	InvalidRequestErrorJSONResponse
+}
 
-func (response ListAgentSessionReplayRuns404JSONResponse) VisitListAgentSessionReplayRunsResponse(w http.ResponseWriter) error {
+func (response ImportAgentSessionCassettes400JSONResponse) VisitImportAgentSessionCassettesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
+	w.WriteHeader(400)
 	_, err := buf.WriteTo(w)
 	return err
 }
 
-type ListAgentSessionReplayRuns503JSONResponse struct {
+type ImportAgentSessionCassettes503JSONResponse struct {
 	ServiceUnavailableErrorJSONResponse
 }
 
-func (response ListAgentSessionReplayRuns503JSONResponse) VisitListAgentSessionReplayRunsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(503)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PrepareAgentSessionReplayRunRequestObject struct {
-	WorkspaceID WorkspaceID        `json:"workspaceID"`
-	CassetteID  openapi_types.UUID `json:"cassetteID"`
-}
-
-type PrepareAgentSessionReplayRunResponseObject interface {
-	VisitPrepareAgentSessionReplayRunResponse(w http.ResponseWriter) error
-}
-
-type PrepareAgentSessionReplayRun201JSONResponse AgentSessionReplayLaunch
-
-func (response PrepareAgentSessionReplayRun201JSONResponse) VisitPrepareAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PrepareAgentSessionReplayRun404JSONResponse ApiErrorResponse
-
-func (response PrepareAgentSessionReplayRun404JSONResponse) VisitPrepareAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PrepareAgentSessionReplayRun409JSONResponse ApiErrorResponse
-
-func (response PrepareAgentSessionReplayRun409JSONResponse) VisitPrepareAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PrepareAgentSessionReplayRun503JSONResponse struct {
-	ServiceUnavailableErrorJSONResponse
-}
-
-func (response PrepareAgentSessionReplayRun503JSONResponse) VisitPrepareAgentSessionReplayRunResponse(w http.ResponseWriter) error {
+func (response ImportAgentSessionCassettes503JSONResponse) VisitImportAgentSessionCassettesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -15762,6 +16094,67 @@ func (response StartAgentSessionRecording503JSONResponse) VisitStartAgentSession
 	return err
 }
 
+type DeleteAgentSessionRecordingRequestObject struct {
+	WorkspaceID WorkspaceID        `json:"workspaceID"`
+	RecordingID openapi_types.UUID `json:"recordingID"`
+}
+
+type DeleteAgentSessionRecordingResponseObject interface {
+	VisitDeleteAgentSessionRecordingResponse(w http.ResponseWriter) error
+}
+
+type DeleteAgentSessionRecording204Response struct {
+}
+
+func (response DeleteAgentSessionRecording204Response) VisitDeleteAgentSessionRecordingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteAgentSessionRecording404JSONResponse ApiErrorResponse
+
+func (response DeleteAgentSessionRecording404JSONResponse) VisitDeleteAgentSessionRecordingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAgentSessionRecording409JSONResponse ApiErrorResponse
+
+func (response DeleteAgentSessionRecording409JSONResponse) VisitDeleteAgentSessionRecordingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteAgentSessionRecording503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response DeleteAgentSessionRecording503JSONResponse) VisitDeleteAgentSessionRecordingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetAgentSessionRecordingRequestObject struct {
 	WorkspaceID WorkspaceID        `json:"workspaceID"`
 	RecordingID openapi_types.UUID `json:"recordingID"`
@@ -16089,102 +16482,34 @@ func (response CompleteAgentSessionRecording503JSONResponse) VisitCompleteAgentS
 	return err
 }
 
-type CancelAgentSessionReplayRunRequestObject struct {
-	WorkspaceID WorkspaceID        `json:"workspaceID"`
-	RunID       openapi_types.UUID `json:"runID"`
+type PrepareAgentSessionReplayWorkspaceRequestObject struct {
+	WorkspaceID WorkspaceID `json:"workspaceID"`
+	Body        *PrepareAgentSessionReplayWorkspaceJSONRequestBody
 }
 
-type CancelAgentSessionReplayRunResponseObject interface {
-	VisitCancelAgentSessionReplayRunResponse(w http.ResponseWriter) error
+type PrepareAgentSessionReplayWorkspaceResponseObject interface {
+	VisitPrepareAgentSessionReplayWorkspaceResponse(w http.ResponseWriter) error
 }
 
-type CancelAgentSessionReplayRun200JSONResponse AgentSessionReplayRun
+type PrepareAgentSessionReplayWorkspace201JSONResponse AgentSessionReplayWorkspaceLaunch
 
-func (response CancelAgentSessionReplayRun200JSONResponse) VisitCancelAgentSessionReplayRunResponse(w http.ResponseWriter) error {
+func (response PrepareAgentSessionReplayWorkspace201JSONResponse) VisitPrepareAgentSessionReplayWorkspaceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
+	w.WriteHeader(201)
 	_, err := buf.WriteTo(w)
 	return err
 }
 
-type CancelAgentSessionReplayRun404JSONResponse ApiErrorResponse
-
-func (response CancelAgentSessionReplayRun404JSONResponse) VisitCancelAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CancelAgentSessionReplayRun409JSONResponse ApiErrorResponse
-
-func (response CancelAgentSessionReplayRun409JSONResponse) VisitCancelAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CancelAgentSessionReplayRun503JSONResponse struct {
-	ServiceUnavailableErrorJSONResponse
-}
-
-func (response CancelAgentSessionReplayRun503JSONResponse) VisitCancelAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(503)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type AdvanceAgentSessionReplayRunCheckpointRequestObject struct {
-	WorkspaceID WorkspaceID        `json:"workspaceID"`
-	RunID       openapi_types.UUID `json:"runID"`
-	Body        *AdvanceAgentSessionReplayRunCheckpointJSONRequestBody
-}
-
-type AdvanceAgentSessionReplayRunCheckpointResponseObject interface {
-	VisitAdvanceAgentSessionReplayRunCheckpointResponse(w http.ResponseWriter) error
-}
-
-type AdvanceAgentSessionReplayRunCheckpoint200JSONResponse AgentSessionReplayRun
-
-func (response AdvanceAgentSessionReplayRunCheckpoint200JSONResponse) VisitAdvanceAgentSessionReplayRunCheckpointResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type AdvanceAgentSessionReplayRunCheckpoint400JSONResponse struct {
+type PrepareAgentSessionReplayWorkspace400JSONResponse struct {
 	InvalidRequestErrorJSONResponse
 }
 
-func (response AdvanceAgentSessionReplayRunCheckpoint400JSONResponse) VisitAdvanceAgentSessionReplayRunCheckpointResponse(w http.ResponseWriter) error {
+func (response PrepareAgentSessionReplayWorkspace400JSONResponse) VisitPrepareAgentSessionReplayWorkspaceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -16196,76 +16521,9 @@ func (response AdvanceAgentSessionReplayRunCheckpoint400JSONResponse) VisitAdvan
 	return err
 }
 
-type AdvanceAgentSessionReplayRunCheckpoint404JSONResponse ApiErrorResponse
+type PrepareAgentSessionReplayWorkspace404JSONResponse ApiErrorResponse
 
-func (response AdvanceAgentSessionReplayRunCheckpoint404JSONResponse) VisitAdvanceAgentSessionReplayRunCheckpointResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type AdvanceAgentSessionReplayRunCheckpoint409JSONResponse ApiErrorResponse
-
-func (response AdvanceAgentSessionReplayRunCheckpoint409JSONResponse) VisitAdvanceAgentSessionReplayRunCheckpointResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type AdvanceAgentSessionReplayRunCheckpoint503JSONResponse struct {
-	ServiceUnavailableErrorJSONResponse
-}
-
-func (response AdvanceAgentSessionReplayRunCheckpoint503JSONResponse) VisitAdvanceAgentSessionReplayRunCheckpointResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(503)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CompleteAgentSessionReplayRunRequestObject struct {
-	WorkspaceID WorkspaceID        `json:"workspaceID"`
-	RunID       openapi_types.UUID `json:"runID"`
-}
-
-type CompleteAgentSessionReplayRunResponseObject interface {
-	VisitCompleteAgentSessionReplayRunResponse(w http.ResponseWriter) error
-}
-
-type CompleteAgentSessionReplayRun200JSONResponse AgentSessionReplayRun
-
-func (response CompleteAgentSessionReplayRun200JSONResponse) VisitCompleteAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CompleteAgentSessionReplayRun404JSONResponse ApiErrorResponse
-
-func (response CompleteAgentSessionReplayRun404JSONResponse) VisitCompleteAgentSessionReplayRunResponse(w http.ResponseWriter) error {
+func (response PrepareAgentSessionReplayWorkspace404JSONResponse) VisitPrepareAgentSessionReplayWorkspaceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -16277,93 +16535,9 @@ func (response CompleteAgentSessionReplayRun404JSONResponse) VisitCompleteAgentS
 	return err
 }
 
-type CompleteAgentSessionReplayRun409JSONResponse ApiErrorResponse
+type PrepareAgentSessionReplayWorkspace409JSONResponse ApiErrorResponse
 
-func (response CompleteAgentSessionReplayRun409JSONResponse) VisitCompleteAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type CompleteAgentSessionReplayRun503JSONResponse struct {
-	ServiceUnavailableErrorJSONResponse
-}
-
-func (response CompleteAgentSessionReplayRun503JSONResponse) VisitCompleteAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(503)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type FailAgentSessionReplayRunRequestObject struct {
-	WorkspaceID WorkspaceID        `json:"workspaceID"`
-	RunID       openapi_types.UUID `json:"runID"`
-	Body        *FailAgentSessionReplayRunJSONRequestBody
-}
-
-type FailAgentSessionReplayRunResponseObject interface {
-	VisitFailAgentSessionReplayRunResponse(w http.ResponseWriter) error
-}
-
-type FailAgentSessionReplayRun200JSONResponse AgentSessionReplayRun
-
-func (response FailAgentSessionReplayRun200JSONResponse) VisitFailAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type FailAgentSessionReplayRun400JSONResponse struct {
-	InvalidRequestErrorJSONResponse
-}
-
-func (response FailAgentSessionReplayRun400JSONResponse) VisitFailAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type FailAgentSessionReplayRun404JSONResponse ApiErrorResponse
-
-func (response FailAgentSessionReplayRun404JSONResponse) VisitFailAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type FailAgentSessionReplayRun409JSONResponse ApiErrorResponse
-
-func (response FailAgentSessionReplayRun409JSONResponse) VisitFailAgentSessionReplayRunResponse(w http.ResponseWriter) error {
+func (response PrepareAgentSessionReplayWorkspace409JSONResponse) VisitPrepareAgentSessionReplayWorkspaceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -16375,78 +16549,11 @@ func (response FailAgentSessionReplayRun409JSONResponse) VisitFailAgentSessionRe
 	return err
 }
 
-type FailAgentSessionReplayRun503JSONResponse struct {
+type PrepareAgentSessionReplayWorkspace503JSONResponse struct {
 	ServiceUnavailableErrorJSONResponse
 }
 
-func (response FailAgentSessionReplayRun503JSONResponse) VisitFailAgentSessionReplayRunResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(503)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type MarkAgentSessionReplayRunRunningRequestObject struct {
-	WorkspaceID WorkspaceID        `json:"workspaceID"`
-	RunID       openapi_types.UUID `json:"runID"`
-}
-
-type MarkAgentSessionReplayRunRunningResponseObject interface {
-	VisitMarkAgentSessionReplayRunRunningResponse(w http.ResponseWriter) error
-}
-
-type MarkAgentSessionReplayRunRunning200JSONResponse AgentSessionReplayRun
-
-func (response MarkAgentSessionReplayRunRunning200JSONResponse) VisitMarkAgentSessionReplayRunRunningResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type MarkAgentSessionReplayRunRunning404JSONResponse ApiErrorResponse
-
-func (response MarkAgentSessionReplayRunRunning404JSONResponse) VisitMarkAgentSessionReplayRunRunningResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type MarkAgentSessionReplayRunRunning409JSONResponse ApiErrorResponse
-
-func (response MarkAgentSessionReplayRunRunning409JSONResponse) VisitMarkAgentSessionReplayRunRunningResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type MarkAgentSessionReplayRunRunning503JSONResponse struct {
-	ServiceUnavailableErrorJSONResponse
-}
-
-func (response MarkAgentSessionReplayRunRunning503JSONResponse) VisitMarkAgentSessionReplayRunRunningResponse(w http.ResponseWriter) error {
+func (response PrepareAgentSessionReplayWorkspace503JSONResponse) VisitPrepareAgentSessionReplayWorkspaceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -17177,6 +17284,7 @@ func (response ListWorkspaceAgentSessions503JSONResponse) VisitListWorkspaceAgen
 
 type CreateWorkspaceAgentSessionRequestObject struct {
 	WorkspaceID WorkspaceID `json:"workspaceID"`
+	Params      CreateWorkspaceAgentSessionParams
 	Body        *CreateWorkspaceAgentSessionJSONRequestBody
 }
 
@@ -18963,6 +19071,7 @@ func (response GetWorkspaceAgentSessionGoal503JSONResponse) VisitGetWorkspaceAge
 type GoalControlWorkspaceAgentSessionRequestObject struct {
 	WorkspaceID    WorkspaceID    `json:"workspaceID"`
 	AgentSessionID AgentSessionID `json:"agentSessionID"`
+	Params         GoalControlWorkspaceAgentSessionParams
 	Body           *GoalControlWorkspaceAgentSessionJSONRequestBody
 }
 
@@ -19182,6 +19291,7 @@ func (response ReconcileWorkspaceAgentSessionGoal503JSONResponse) VisitReconcile
 type SendWorkspaceAgentSessionInputRequestObject struct {
 	WorkspaceID    WorkspaceID    `json:"workspaceID"`
 	AgentSessionID AgentSessionID `json:"agentSessionID"`
+	Params         SendWorkspaceAgentSessionInputParams
 	Body           *SendWorkspaceAgentSessionInputJSONRequestBody
 }
 
@@ -19309,6 +19419,7 @@ type SubmitWorkspaceAgentInteractiveRequestObject struct {
 	WorkspaceID    WorkspaceID              `json:"workspaceID"`
 	AgentSessionID AgentSessionID           `json:"agentSessionID"`
 	RequestID      AgentPermissionRequestID `json:"requestID"`
+	Params         SubmitWorkspaceAgentInteractiveParams
 	Body           *SubmitWorkspaceAgentInteractiveJSONRequestBody
 }
 
@@ -19882,6 +19993,7 @@ func (response UpdateWorkspaceAgentSessionPin503JSONResponse) VisitUpdateWorkspa
 type UpdateWorkspaceAgentSessionSettingsRequestObject struct {
 	WorkspaceID    WorkspaceID    `json:"workspaceID"`
 	AgentSessionID AgentSessionID `json:"agentSessionID"`
+	Params         UpdateWorkspaceAgentSessionSettingsParams
 	Body           *UpdateWorkspaceAgentSessionSettingsJSONRequestBody
 }
 
@@ -20119,6 +20231,7 @@ type CancelWorkspaceAgentTurnRequestObject struct {
 	WorkspaceID    WorkspaceID    `json:"workspaceID"`
 	AgentSessionID AgentSessionID `json:"agentSessionID"`
 	TurnID         AgentTurnID    `json:"turnID"`
+	Params         CancelWorkspaceAgentTurnParams
 }
 
 type CancelWorkspaceAgentTurnResponseObject interface {
@@ -20385,6 +20498,7 @@ type SubmitWorkspaceAgentPlanDecisionRequestObject struct {
 	AgentSessionID AgentSessionID           `json:"agentSessionID"`
 	TurnID         AgentTurnID              `json:"turnID"`
 	RequestID      AgentPermissionRequestID `json:"requestID"`
+	Params         SubmitWorkspaceAgentPlanDecisionParams
 	Body           *SubmitWorkspaceAgentPlanDecisionJSONRequestBody
 }
 
@@ -36515,14 +36629,17 @@ type StrictServerInterface interface {
 	// Update a device-local Agent quick prompt
 	// (PUT /v1/agent-quick-prompts/{promptId})
 	UpdateAgentQuickPrompt(ctx context.Context, request UpdateAgentQuickPromptRequestObject) (UpdateAgentQuickPromptResponseObject, error)
+	// Verify one Replay Checkpoint trigger and canonical readiness
+	// (POST /v1/agent-session-replay/cassettes/{cassetteID}/checkpoints/{checkpointIndex}/verify)
+	VerifyAgentSessionReplayCheckpoint(ctx context.Context, request VerifyAgentSessionReplayCheckpointRequestObject) (VerifyAgentSessionReplayCheckpointResponseObject, error)
 	// Read playback timing for the isolated replay transport
-	// (GET /v1/agent-session-replay/transport/playback)
+	// (GET /v1/agent-session-replay/cassettes/{cassetteID}/transport/playback)
 	GetAgentSessionReplayTransportPlayback(ctx context.Context, request GetAgentSessionReplayTransportPlaybackRequestObject) (GetAgentSessionReplayTransportPlaybackResponseObject, error)
 	// Update playback timing for the isolated replay transport
-	// (POST /v1/agent-session-replay/transport/playback)
+	// (POST /v1/agent-session-replay/cassettes/{cassetteID}/transport/playback)
 	UpdateAgentSessionReplayTransportPlayback(ctx context.Context, request UpdateAgentSessionReplayTransportPlaybackRequestObject) (UpdateAgentSessionReplayTransportPlaybackResponseObject, error)
 	// Verify that the isolated replay transport consumed its complete Cassette
-	// (POST /v1/agent-session-replay/transport/verify)
+	// (POST /v1/agent-session-replay/cassettes/{cassetteID}/transport/verify)
 	VerifyAgentSessionReplayTransport(ctx context.Context, request VerifyAgentSessionReplayTransportRequestObject) (VerifyAgentSessionReplayTransportResponseObject, error)
 	// List daemon-owned Agent Targets
 	// (GET /v1/agent-targets)
@@ -36536,6 +36653,15 @@ type StrictServerInterface interface {
 	// Invoke one registered CLI command
 	// (POST /v1/cli/commands/{commandID}/invoke)
 	InvokeCliCommand(ctx context.Context, request InvokeCliCommandRequestObject) (InvokeCliCommandResponseObject, error)
+	// Read the daemon-owned desktop update admission snapshot
+	// (GET /v1/desktop-update-admission)
+	GetDesktopUpdateAdmissionSnapshot(ctx context.Context, request GetDesktopUpdateAdmissionSnapshotRequestObject) (GetDesktopUpdateAdmissionSnapshotResponseObject, error)
+	// Ask the daemon to refresh admission for a lifecycle trigger
+	// (POST /v1/desktop-update-admission/refresh)
+	RefreshDesktopUpdateAdmission(ctx context.Context, request RefreshDesktopUpdateAdmissionRequestObject) (RefreshDesktopUpdateAdmissionResponseObject, error)
+	// Wait for the daemon-initiated startup admission check
+	// (GET /v1/desktop-update-admission/startup)
+	GetDesktopUpdateAdmissionStartup(ctx context.Context, request GetDesktopUpdateAdmissionStartupRequestObject) (GetDesktopUpdateAdmissionStartupResponseObject, error)
 	// Attach a WebSocket stream to daemon business events
 	// (GET /v1/events/ws)
 	AttachEventStream(ctx context.Context, request AttachEventStreamRequestObject) (AttachEventStreamResponseObject, error)
@@ -36617,12 +36743,9 @@ type StrictServerInterface interface {
 	// List immutable Agent Session Cassettes for one workspace
 	// (GET /v1/workspaces/{workspaceID}/agent-session-cassettes)
 	ListAgentSessionCassettes(ctx context.Context, request ListAgentSessionCassettesRequestObject) (ListAgentSessionCassettesResponseObject, error)
-	// List replay runs for one immutable Agent Session Cassette
-	// (GET /v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs)
-	ListAgentSessionReplayRuns(ctx context.Context, request ListAgentSessionReplayRunsRequestObject) (ListAgentSessionReplayRunsResponseObject, error)
-	// Validate one Cassette and prepare an isolated replay run
-	// (POST /v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs)
-	PrepareAgentSessionReplayRun(ctx context.Context, request PrepareAgentSessionReplayRunRequestObject) (PrepareAgentSessionReplayRunResponseObject, error)
+	// Import one or more portable Agent Session Cassette directories
+	// (POST /v1/workspaces/{workspaceID}/agent-session-cassettes/import)
+	ImportAgentSessionCassettes(ctx context.Context, request ImportAgentSessionCassettesRequestObject) (ImportAgentSessionCassettesResponseObject, error)
 	// Get one durable workspace agent session fork operation
 	// (GET /v1/workspaces/{workspaceID}/agent-session-fork-operations/{operationID})
 	GetWorkspaceAgentSessionForkOperation(ctx context.Context, request GetWorkspaceAgentSessionForkOperationRequestObject) (GetWorkspaceAgentSessionForkOperationResponseObject, error)
@@ -36635,6 +36758,9 @@ type StrictServerInterface interface {
 	// Start one developer Agent Session recording
 	// (POST /v1/workspaces/{workspaceID}/agent-session-recordings)
 	StartAgentSessionRecording(ctx context.Context, request StartAgentSessionRecordingRequestObject) (StartAgentSessionRecordingResponseObject, error)
+	// Delete one inactive developer Agent Session recording and its Cassette
+	// (DELETE /v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID})
+	DeleteAgentSessionRecording(ctx context.Context, request DeleteAgentSessionRecordingRequestObject) (DeleteAgentSessionRecordingResponseObject, error)
 	// Get one developer Agent Session recording
 	// (GET /v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID})
 	GetAgentSessionRecording(ctx context.Context, request GetAgentSessionRecordingRequestObject) (GetAgentSessionRecordingResponseObject, error)
@@ -36650,21 +36776,9 @@ type StrictServerInterface interface {
 	// Complete one active developer Agent Session recording
 	// (POST /v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}/complete)
 	CompleteAgentSessionRecording(ctx context.Context, request CompleteAgentSessionRecordingRequestObject) (CompleteAgentSessionRecordingResponseObject, error)
-	// Cancel one active replay run
-	// (POST /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/cancel)
-	CancelAgentSessionReplayRun(ctx context.Context, request CancelAgentSessionReplayRunRequestObject) (CancelAgentSessionReplayRunResponseObject, error)
-	// Persist a stable checkpoint reached by one replay run
-	// (POST /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/checkpoint)
-	AdvanceAgentSessionReplayRunCheckpoint(ctx context.Context, request AdvanceAgentSessionReplayRunCheckpointRequestObject) (AdvanceAgentSessionReplayRunCheckpointResponseObject, error)
-	// Complete a replay run after transport and final-state verification
-	// (POST /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/complete)
-	CompleteAgentSessionReplayRun(ctx context.Context, request CompleteAgentSessionReplayRunRequestObject) (CompleteAgentSessionReplayRunResponseObject, error)
-	// Persist an explicit replay runtime or verification failure
-	// (POST /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/fail)
-	FailAgentSessionReplayRun(ctx context.Context, request FailAgentSessionReplayRunRequestObject) (FailAgentSessionReplayRunResponseObject, error)
-	// Mark a prepared replay run accepted by its runtime adapter
-	// (POST /v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/running)
-	MarkAgentSessionReplayRunRunning(ctx context.Context, request MarkAgentSessionReplayRunRunningRequestObject) (MarkAgentSessionReplayRunRunningResponseObject, error)
+	// Validate a fixed batch of distinct replay Cassettes
+	// (POST /v1/workspaces/{workspaceID}/agent-session-replay-workspaces)
+	PrepareAgentSessionReplayWorkspace(ctx context.Context, request PrepareAgentSessionReplayWorkspaceRequestObject) (PrepareAgentSessionReplayWorkspaceResponseObject, error)
 	// List agent session rail sections for one workspace
 	// (GET /v1/workspaces/{workspaceID}/agent-session-sections)
 	ListWorkspaceAgentSessionSections(ctx context.Context, request ListWorkspaceAgentSessionSectionsRequestObject) (ListWorkspaceAgentSessionSectionsResponseObject, error)
@@ -37717,9 +37831,38 @@ func (sh *strictHandler) UpdateAgentQuickPrompt(w http.ResponseWriter, r *http.R
 	}
 }
 
+// VerifyAgentSessionReplayCheckpoint operation middleware
+func (sh *strictHandler) VerifyAgentSessionReplayCheckpoint(w http.ResponseWriter, r *http.Request, cassetteID openapi_types.UUID, checkpointIndex int) {
+	var request VerifyAgentSessionReplayCheckpointRequestObject
+
+	request.CassetteID = cassetteID
+	request.CheckpointIndex = checkpointIndex
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.VerifyAgentSessionReplayCheckpoint(ctx, request.(VerifyAgentSessionReplayCheckpointRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "VerifyAgentSessionReplayCheckpoint")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(VerifyAgentSessionReplayCheckpointResponseObject); ok {
+		if err := validResponse.VisitVerifyAgentSessionReplayCheckpointResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetAgentSessionReplayTransportPlayback operation middleware
-func (sh *strictHandler) GetAgentSessionReplayTransportPlayback(w http.ResponseWriter, r *http.Request) {
+func (sh *strictHandler) GetAgentSessionReplayTransportPlayback(w http.ResponseWriter, r *http.Request, cassetteID openapi_types.UUID) {
 	var request GetAgentSessionReplayTransportPlaybackRequestObject
+
+	request.CassetteID = cassetteID
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.GetAgentSessionReplayTransportPlayback(ctx, request.(GetAgentSessionReplayTransportPlaybackRequestObject))
@@ -37742,8 +37885,10 @@ func (sh *strictHandler) GetAgentSessionReplayTransportPlayback(w http.ResponseW
 }
 
 // UpdateAgentSessionReplayTransportPlayback operation middleware
-func (sh *strictHandler) UpdateAgentSessionReplayTransportPlayback(w http.ResponseWriter, r *http.Request) {
+func (sh *strictHandler) UpdateAgentSessionReplayTransportPlayback(w http.ResponseWriter, r *http.Request, cassetteID openapi_types.UUID) {
 	var request UpdateAgentSessionReplayTransportPlaybackRequestObject
+
+	request.CassetteID = cassetteID
 
 	var body UpdateAgentSessionReplayTransportPlaybackJSONRequestBody
 	decoder := json.NewDecoder(r.Body)
@@ -37775,8 +37920,10 @@ func (sh *strictHandler) UpdateAgentSessionReplayTransportPlayback(w http.Respon
 }
 
 // VerifyAgentSessionReplayTransport operation middleware
-func (sh *strictHandler) VerifyAgentSessionReplayTransport(w http.ResponseWriter, r *http.Request) {
+func (sh *strictHandler) VerifyAgentSessionReplayTransport(w http.ResponseWriter, r *http.Request, cassetteID openapi_types.UUID) {
 	var request VerifyAgentSessionReplayTransportRequestObject
+
+	request.CassetteID = cassetteID
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.VerifyAgentSessionReplayTransport(ctx, request.(VerifyAgentSessionReplayTransportRequestObject))
@@ -37911,6 +38058,87 @@ func (sh *strictHandler) InvokeCliCommand(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(InvokeCliCommandResponseObject); ok {
 		if err := validResponse.VisitInvokeCliCommandResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetDesktopUpdateAdmissionSnapshot operation middleware
+func (sh *strictHandler) GetDesktopUpdateAdmissionSnapshot(w http.ResponseWriter, r *http.Request) {
+	var request GetDesktopUpdateAdmissionSnapshotRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDesktopUpdateAdmissionSnapshot(ctx, request.(GetDesktopUpdateAdmissionSnapshotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDesktopUpdateAdmissionSnapshot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDesktopUpdateAdmissionSnapshotResponseObject); ok {
+		if err := validResponse.VisitGetDesktopUpdateAdmissionSnapshotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RefreshDesktopUpdateAdmission operation middleware
+func (sh *strictHandler) RefreshDesktopUpdateAdmission(w http.ResponseWriter, r *http.Request) {
+	var request RefreshDesktopUpdateAdmissionRequestObject
+
+	var body RefreshDesktopUpdateAdmissionJSONRequestBody
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RefreshDesktopUpdateAdmission(ctx, request.(RefreshDesktopUpdateAdmissionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RefreshDesktopUpdateAdmission")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RefreshDesktopUpdateAdmissionResponseObject); ok {
+		if err := validResponse.VisitRefreshDesktopUpdateAdmissionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetDesktopUpdateAdmissionStartup operation middleware
+func (sh *strictHandler) GetDesktopUpdateAdmissionStartup(w http.ResponseWriter, r *http.Request) {
+	var request GetDesktopUpdateAdmissionStartupRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDesktopUpdateAdmissionStartup(ctx, request.(GetDesktopUpdateAdmissionStartupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDesktopUpdateAdmissionStartup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDesktopUpdateAdmissionStartupResponseObject); ok {
+		if err := validResponse.VisitGetDesktopUpdateAdmissionStartupResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -38680,53 +38908,34 @@ func (sh *strictHandler) ListAgentSessionCassettes(w http.ResponseWriter, r *htt
 	}
 }
 
-// ListAgentSessionReplayRuns operation middleware
-func (sh *strictHandler) ListAgentSessionReplayRuns(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, cassetteID openapi_types.UUID) {
-	var request ListAgentSessionReplayRunsRequestObject
+// ImportAgentSessionCassettes operation middleware
+func (sh *strictHandler) ImportAgentSessionCassettes(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID) {
+	var request ImportAgentSessionCassettesRequestObject
 
 	request.WorkspaceID = workspaceID
-	request.CassetteID = cassetteID
+
+	var body ImportAgentSessionCassettesJSONRequestBody
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListAgentSessionReplayRuns(ctx, request.(ListAgentSessionReplayRunsRequestObject))
+		return sh.ssi.ImportAgentSessionCassettes(ctx, request.(ImportAgentSessionCassettesRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListAgentSessionReplayRuns")
+		handler = middleware(handler, "ImportAgentSessionCassettes")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListAgentSessionReplayRunsResponseObject); ok {
-		if err := validResponse.VisitListAgentSessionReplayRunsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// PrepareAgentSessionReplayRun operation middleware
-func (sh *strictHandler) PrepareAgentSessionReplayRun(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, cassetteID openapi_types.UUID) {
-	var request PrepareAgentSessionReplayRunRequestObject
-
-	request.WorkspaceID = workspaceID
-	request.CassetteID = cassetteID
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.PrepareAgentSessionReplayRun(ctx, request.(PrepareAgentSessionReplayRunRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "PrepareAgentSessionReplayRun")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(PrepareAgentSessionReplayRunResponseObject); ok {
-		if err := validResponse.VisitPrepareAgentSessionReplayRunResponse(w); err != nil {
+	} else if validResponse, ok := response.(ImportAgentSessionCassettesResponseObject); ok {
+		if err := validResponse.VisitImportAgentSessionCassettesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -38842,6 +39051,33 @@ func (sh *strictHandler) StartAgentSessionRecording(w http.ResponseWriter, r *ht
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(StartAgentSessionRecordingResponseObject); ok {
 		if err := validResponse.VisitStartAgentSessionRecordingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteAgentSessionRecording operation middleware
+func (sh *strictHandler) DeleteAgentSessionRecording(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, recordingID openapi_types.UUID) {
+	var request DeleteAgentSessionRecordingRequestObject
+
+	request.WorkspaceID = workspaceID
+	request.RecordingID = recordingID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteAgentSessionRecording(ctx, request.(DeleteAgentSessionRecordingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteAgentSessionRecording")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteAgentSessionRecordingResponseObject); ok {
+		if err := validResponse.VisitDeleteAgentSessionRecordingResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -39002,41 +39238,13 @@ func (sh *strictHandler) CompleteAgentSessionRecording(w http.ResponseWriter, r 
 	}
 }
 
-// CancelAgentSessionReplayRun operation middleware
-func (sh *strictHandler) CancelAgentSessionReplayRun(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, runID openapi_types.UUID) {
-	var request CancelAgentSessionReplayRunRequestObject
+// PrepareAgentSessionReplayWorkspace operation middleware
+func (sh *strictHandler) PrepareAgentSessionReplayWorkspace(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID) {
+	var request PrepareAgentSessionReplayWorkspaceRequestObject
 
 	request.WorkspaceID = workspaceID
-	request.RunID = runID
 
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CancelAgentSessionReplayRun(ctx, request.(CancelAgentSessionReplayRunRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CancelAgentSessionReplayRun")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CancelAgentSessionReplayRunResponseObject); ok {
-		if err := validResponse.VisitCancelAgentSessionReplayRunResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// AdvanceAgentSessionReplayRunCheckpoint operation middleware
-func (sh *strictHandler) AdvanceAgentSessionReplayRunCheckpoint(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, runID openapi_types.UUID) {
-	var request AdvanceAgentSessionReplayRunCheckpointRequestObject
-
-	request.WorkspaceID = workspaceID
-	request.RunID = runID
-
-	var body AdvanceAgentSessionReplayRunCheckpointJSONRequestBody
+	var body PrepareAgentSessionReplayWorkspaceJSONRequestBody
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&body); err != nil {
@@ -39046,108 +39254,18 @@ func (sh *strictHandler) AdvanceAgentSessionReplayRunCheckpoint(w http.ResponseW
 	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.AdvanceAgentSessionReplayRunCheckpoint(ctx, request.(AdvanceAgentSessionReplayRunCheckpointRequestObject))
+		return sh.ssi.PrepareAgentSessionReplayWorkspace(ctx, request.(PrepareAgentSessionReplayWorkspaceRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "AdvanceAgentSessionReplayRunCheckpoint")
+		handler = middleware(handler, "PrepareAgentSessionReplayWorkspace")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(AdvanceAgentSessionReplayRunCheckpointResponseObject); ok {
-		if err := validResponse.VisitAdvanceAgentSessionReplayRunCheckpointResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// CompleteAgentSessionReplayRun operation middleware
-func (sh *strictHandler) CompleteAgentSessionReplayRun(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, runID openapi_types.UUID) {
-	var request CompleteAgentSessionReplayRunRequestObject
-
-	request.WorkspaceID = workspaceID
-	request.RunID = runID
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.CompleteAgentSessionReplayRun(ctx, request.(CompleteAgentSessionReplayRunRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "CompleteAgentSessionReplayRun")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(CompleteAgentSessionReplayRunResponseObject); ok {
-		if err := validResponse.VisitCompleteAgentSessionReplayRunResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// FailAgentSessionReplayRun operation middleware
-func (sh *strictHandler) FailAgentSessionReplayRun(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, runID openapi_types.UUID) {
-	var request FailAgentSessionReplayRunRequestObject
-
-	request.WorkspaceID = workspaceID
-	request.RunID = runID
-
-	var body FailAgentSessionReplayRunJSONRequestBody
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.FailAgentSessionReplayRun(ctx, request.(FailAgentSessionReplayRunRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "FailAgentSessionReplayRun")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(FailAgentSessionReplayRunResponseObject); ok {
-		if err := validResponse.VisitFailAgentSessionReplayRunResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// MarkAgentSessionReplayRunRunning operation middleware
-func (sh *strictHandler) MarkAgentSessionReplayRunRunning(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, runID openapi_types.UUID) {
-	var request MarkAgentSessionReplayRunRunningRequestObject
-
-	request.WorkspaceID = workspaceID
-	request.RunID = runID
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.MarkAgentSessionReplayRunRunning(ctx, request.(MarkAgentSessionReplayRunRunningRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "MarkAgentSessionReplayRunRunning")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(MarkAgentSessionReplayRunRunningResponseObject); ok {
-		if err := validResponse.VisitMarkAgentSessionReplayRunRunningResponse(w); err != nil {
+	} else if validResponse, ok := response.(PrepareAgentSessionReplayWorkspaceResponseObject); ok {
+		if err := validResponse.VisitPrepareAgentSessionReplayWorkspaceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -39317,10 +39435,11 @@ func (sh *strictHandler) ListWorkspaceAgentSessions(w http.ResponseWriter, r *ht
 }
 
 // CreateWorkspaceAgentSession operation middleware
-func (sh *strictHandler) CreateWorkspaceAgentSession(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID) {
+func (sh *strictHandler) CreateWorkspaceAgentSession(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, params CreateWorkspaceAgentSessionParams) {
 	var request CreateWorkspaceAgentSessionRequestObject
 
 	request.WorkspaceID = workspaceID
+	request.Params = params
 
 	var body CreateWorkspaceAgentSessionJSONRequestBody
 	decoder := json.NewDecoder(r.Body)
@@ -39787,11 +39906,12 @@ func (sh *strictHandler) GetWorkspaceAgentSessionGoal(w http.ResponseWriter, r *
 }
 
 // GoalControlWorkspaceAgentSession operation middleware
-func (sh *strictHandler) GoalControlWorkspaceAgentSession(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID) {
+func (sh *strictHandler) GoalControlWorkspaceAgentSession(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, params GoalControlWorkspaceAgentSessionParams) {
 	var request GoalControlWorkspaceAgentSessionRequestObject
 
 	request.WorkspaceID = workspaceID
 	request.AgentSessionID = agentSessionID
+	request.Params = params
 
 	var body GoalControlWorkspaceAgentSessionJSONRequestBody
 	decoder := json.NewDecoder(r.Body)
@@ -39850,11 +39970,12 @@ func (sh *strictHandler) ReconcileWorkspaceAgentSessionGoal(w http.ResponseWrite
 }
 
 // SendWorkspaceAgentSessionInput operation middleware
-func (sh *strictHandler) SendWorkspaceAgentSessionInput(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID) {
+func (sh *strictHandler) SendWorkspaceAgentSessionInput(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, params SendWorkspaceAgentSessionInputParams) {
 	var request SendWorkspaceAgentSessionInputRequestObject
 
 	request.WorkspaceID = workspaceID
 	request.AgentSessionID = agentSessionID
+	request.Params = params
 
 	var body SendWorkspaceAgentSessionInputJSONRequestBody
 	decoder := json.NewDecoder(r.Body)
@@ -39886,12 +40007,13 @@ func (sh *strictHandler) SendWorkspaceAgentSessionInput(w http.ResponseWriter, r
 }
 
 // SubmitWorkspaceAgentInteractive operation middleware
-func (sh *strictHandler) SubmitWorkspaceAgentInteractive(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, requestID AgentPermissionRequestID) {
+func (sh *strictHandler) SubmitWorkspaceAgentInteractive(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, requestID AgentPermissionRequestID, params SubmitWorkspaceAgentInteractiveParams) {
 	var request SubmitWorkspaceAgentInteractiveRequestObject
 
 	request.WorkspaceID = workspaceID
 	request.AgentSessionID = agentSessionID
 	request.RequestID = requestID
+	request.Params = params
 
 	var body SubmitWorkspaceAgentInteractiveJSONRequestBody
 	decoder := json.NewDecoder(r.Body)
@@ -40050,11 +40172,12 @@ func (sh *strictHandler) UpdateWorkspaceAgentSessionPin(w http.ResponseWriter, r
 }
 
 // UpdateWorkspaceAgentSessionSettings operation middleware
-func (sh *strictHandler) UpdateWorkspaceAgentSessionSettings(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID) {
+func (sh *strictHandler) UpdateWorkspaceAgentSessionSettings(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, params UpdateWorkspaceAgentSessionSettingsParams) {
 	var request UpdateWorkspaceAgentSessionSettingsRequestObject
 
 	request.WorkspaceID = workspaceID
 	request.AgentSessionID = agentSessionID
+	request.Params = params
 
 	var body UpdateWorkspaceAgentSessionSettingsJSONRequestBody
 	decoder := json.NewDecoder(r.Body)
@@ -40122,12 +40245,13 @@ func (sh *strictHandler) UpdateWorkspaceAgentSessionTitle(w http.ResponseWriter,
 }
 
 // CancelWorkspaceAgentTurn operation middleware
-func (sh *strictHandler) CancelWorkspaceAgentTurn(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, turnID AgentTurnID) {
+func (sh *strictHandler) CancelWorkspaceAgentTurn(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, turnID AgentTurnID, params CancelWorkspaceAgentTurnParams) {
 	var request CancelWorkspaceAgentTurnRequestObject
 
 	request.WorkspaceID = workspaceID
 	request.AgentSessionID = agentSessionID
 	request.TurnID = turnID
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.CancelWorkspaceAgentTurn(ctx, request.(CancelWorkspaceAgentTurnRequestObject))
@@ -40187,13 +40311,14 @@ func (sh *strictHandler) EditRetryWorkspaceAgentTurn(w http.ResponseWriter, r *h
 }
 
 // SubmitWorkspaceAgentPlanDecision operation middleware
-func (sh *strictHandler) SubmitWorkspaceAgentPlanDecision(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, turnID AgentTurnID, requestID AgentPermissionRequestID) {
+func (sh *strictHandler) SubmitWorkspaceAgentPlanDecision(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID, turnID AgentTurnID, requestID AgentPermissionRequestID, params SubmitWorkspaceAgentPlanDecisionParams) {
 	var request SubmitWorkspaceAgentPlanDecisionRequestObject
 
 	request.WorkspaceID = workspaceID
 	request.AgentSessionID = agentSessionID
 	request.TurnID = turnID
 	request.RequestID = requestID
+	request.Params = params
 
 	var body SubmitWorkspaceAgentPlanDecisionJSONRequestBody
 	decoder := json.NewDecoder(r.Body)

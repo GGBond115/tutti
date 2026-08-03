@@ -8,6 +8,7 @@ import (
 
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	host "github.com/tutti-os/tutti/packages/agent/host"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 type stateRuntimeBackend struct {
@@ -21,6 +22,43 @@ type provenanceRuntimeBackend struct {
 	RuntimeBackend
 	input agentruntime.SubmitProvenanceInput
 	err   error
+}
+
+type goalLifecycleRuntimeBackend struct {
+	RuntimeBackend
+	observer agentruntime.GoalControlLifecycleObserver
+}
+
+func (b *goalLifecycleRuntimeBackend) SetGoalControlLifecycleObserver(observer agentruntime.GoalControlLifecycleObserver) {
+	b.observer = observer
+}
+
+func TestRuntimeControllerBridgesGoalLifecycleToHostSink(t *testing.T) {
+	t.Parallel()
+	backend := &goalLifecycleRuntimeBackend{}
+	controller := &RuntimeController{Backend: backend}
+	var received host.RuntimeGoalControlAppliedInput
+	controller.SetGoalControlAppliedSink(func(_ context.Context, input host.RuntimeGoalControlAppliedInput) error {
+		received = input
+		return nil
+	})
+	if backend.observer == nil {
+		t.Fatal("goal lifecycle observer was not registered")
+	}
+	err := backend.observer.ObserveGoalControlApplied(t.Context(), agentruntime.GoalControlAppliedObservation{
+		WorkspaceID: "workspace", AgentSessionID: "session", OperationID: "goal-op-1",
+		Revision: 3, RepairEpoch: 1, Action: "set", ProviderTurnID: "provider-turn-1",
+		Observed: map[string]any{"objective": "ship it", "status": "active"}, OccurredAtUnixMS: 42,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if received.WorkspaceID != "workspace" || received.AgentSessionID != "session" ||
+		received.OperationID != "goal-op-1" || received.GoalRevision != 3 || received.RepairEpoch != 1 ||
+		received.Action != "set" || received.ProviderTurnID != "provider-turn-1" ||
+		received.Observed["objective"] != "ship it" || received.OccurredAtUnixMS != 42 {
+		t.Fatalf("host goal lifecycle input=%#v", received)
+	}
 }
 
 func (b *provenanceRuntimeBackend) DurablyReportSubmitProvenance(_ context.Context, input agentruntime.SubmitProvenanceInput) error {
@@ -151,6 +189,7 @@ func TestRuntimeControllerProjectsProviderEnrichedLiveState(t *testing.T) {
 			Settings: &agentruntime.SessionSettings{
 				Model: "gpt-5.6", ReasoningEffort: "max", Speed: "fast",
 			},
+			Capabilities: canonical.NewCapabilitySnapshot([]string{canonical.CapabilityGoalPause}),
 			RuntimeContext: map[string]any{
 				"account":    map[string]any{"email": "agent@example.com"},
 				"rateLimits": map[string]any{"primary": 42},
@@ -174,6 +213,9 @@ func TestRuntimeControllerProjectsProviderEnrichedLiveState(t *testing.T) {
 	}
 	if projected.RuntimeContext["account"] == nil || projected.RuntimeContext["rateLimits"] == nil || projected.RuntimeContext["usage"] == nil || projected.RuntimeContext["commands"] == nil {
 		t.Fatalf("projected live runtime context = %#v", projected.RuntimeContext)
+	}
+	if projected.Capabilities == nil || len(projected.Capabilities.Values) != 1 || projected.Capabilities.Values[0] != canonical.CapabilityGoalPause {
+		t.Fatalf("projected live capabilities = %#v", projected.Capabilities)
 	}
 }
 

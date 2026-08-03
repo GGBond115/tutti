@@ -31,7 +31,7 @@ AgentGUI 收不到 `skills/list` 的结果。
 
 ```text
 AgentGUI
-  -> AgentActivityRuntime.getComposerOptions
+  -> AgentGUIRuntime.getComposerOptions
   -> POST /v1/agent-providers/{provider}/composer-options
   -> tuttid Service.GetComposerOptions
   -> listComposerCapabilityOptions

@@ -8,7 +8,7 @@ import type { AgentAskUserQuestionVM } from "./contracts/agentAskUserQuestionIte
  * exact class of bug that left the message-center card without its options).
  *
  * Input shape (codex / ACP): each entry may carry `id`, `header`, `question`,
- * `multiSelect`, `allowFreeText`, and `options: [{ label, description }]`.
+ * `multiSelect`, `allowFreeText`, and `options: [{ id, label, description }]`.
  * Answers are layered on by the caller (the live projection knows them; a
  * pending prompt has none), so this returns the answer-less base.
  */
@@ -17,14 +17,22 @@ export function normalizeAskUserQuestions(
   options: { missingText?: string } = {}
 ): AgentAskUserQuestionVM[] {
   const missingText = options.missingText ?? null;
+  const seenQuestionIds = new Set<string>();
   return arrayValue(rawQuestions).flatMap((value, index) => {
     const question = objectValue(value);
     if (!question) {
       return [];
     }
+    const questionId =
+      stringValue(question.id) ?? askUserContractId("question", question);
+    if (seenQuestionIds.has(questionId)) {
+      return [];
+    }
+    seenQuestionIds.add(questionId);
+    const seenOptionIds = new Set<string>();
     return [
       {
-        id: stringValue(question.id) ?? `question-${index + 1}`,
+        id: questionId,
         header:
           stringValue(question.header) ??
           missingText ??
@@ -40,10 +48,23 @@ export function normalizeAskUserQuestions(
           if (!label) {
             return [];
           }
+          const description = stringValue(option?.description) ?? "";
+          const optionId =
+            stringValue(option?.id) ??
+            askUserContractId("option", {
+              description,
+              label,
+              questionId
+            });
+          if (seenOptionIds.has(optionId)) {
+            return [];
+          }
+          seenOptionIds.add(optionId);
           return [
             {
+              id: optionId,
               label,
-              description: stringValue(option?.description) ?? ""
+              description
             }
           ];
         }),
@@ -55,6 +76,24 @@ export function normalizeAskUserQuestions(
       }
     ];
   });
+}
+
+/**
+ * Provider payloads may omit UI-facing question or option IDs. Create an
+ * opaque, deterministic contract identity at the normalization boundary so
+ * renderers and automation never fall back to array position or inspect
+ * rendered copy.
+ */
+function askUserContractId(
+  scope: "question" | "option",
+  value: unknown
+): string {
+  let hash = 0x811c9dc5;
+  for (const character of JSON.stringify(value)) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `contract-${scope}-${(hash >>> 0).toString(36)}`;
 }
 
 function stringValue(value: unknown): string | null {

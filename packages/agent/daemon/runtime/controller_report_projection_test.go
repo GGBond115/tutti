@@ -1,12 +1,62 @@
 package agentruntime
 
 import (
+	"context"
 	"testing"
 
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
+
+type captureGoalControlLifecycleObserver struct {
+	observations []GoalControlAppliedObservation
+}
+
+func (o *captureGoalControlLifecycleObserver) ObserveGoalControlApplied(
+	_ context.Context,
+	observation GoalControlAppliedObservation,
+) error {
+	o.observations = append(o.observations, observation)
+	return nil
+}
+
+func TestControllerRoutesGoalControlAppliedOutsideSessionMetadata(t *testing.T) {
+	t.Parallel()
+	controller := NewController(nil, nil)
+	observer := &captureGoalControlLifecycleObserver{}
+	controller.SetGoalControlLifecycleObserver(observer)
+	session := Session{
+		RoomID: "room-1", AgentSessionID: "agent-session-1", Provider: ProviderClaudeCode,
+		ProviderSessionID: "provider-session-1", CWD: "/workspace",
+	}
+	controller.store(session)
+	ctx, ok := activityEventContext(session, "goal-applied-1", "")
+	if !ok {
+		t.Fatal("goal control event context unavailable")
+	}
+	event := activityshared.NewGoalControlApplied(ctx, map[string]any{
+		"operationId": "goal-op-1", "revision": int64(3), "repairEpoch": int64(1),
+		"action": "set", "providerTurnId": "provider-turn-1",
+		"goal": map[string]any{"objective": "ship it", "status": "active"},
+	})
+
+	controller.applySessionEventsByAgentSessionID(session.AgentSessionID, []activityshared.Event{event})
+
+	if len(observer.observations) != 1 {
+		t.Fatalf("goal observations=%#v", observer.observations)
+	}
+	observation := observer.observations[0]
+	if observation.WorkspaceID != "room-1" || observation.AgentSessionID != "agent-session-1" ||
+		observation.OperationID != "goal-op-1" || observation.Revision != 3 || observation.RepairEpoch != 1 ||
+		observation.Action != "set" || observation.ProviderTurnID != "provider-turn-1" ||
+		observation.Observed["objective"] != "ship it" {
+		t.Fatalf("goal observation=%#v", observation)
+	}
+	if report := reportActivityInput(session, []activityshared.Event{event}); len(report.StatePatches) != 0 {
+		t.Fatalf("internal goal lifecycle leaked into session report=%#v", report.StatePatches)
+	}
+}
 
 func TestEnrichReportStatePatchesWithSessionMetadataFillsSnapshotTitleAndIdentity(t *testing.T) {
 	t.Parallel()

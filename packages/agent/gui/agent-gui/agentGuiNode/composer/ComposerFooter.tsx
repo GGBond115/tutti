@@ -311,7 +311,6 @@ export function ComposerFooter({
             </Select>
           ) : null}
           {quickPromptControl}
-          {footerAccessory}
           {composerSettings.supportsPlanMode && isPlanModeActive ? (
             <button
               type="button"
@@ -457,6 +456,11 @@ export function ComposerFooter({
           ) : null}
           {isHeroLayout ? composerActionButton : null}
         </div>
+        {footerAccessory ? (
+          <div className={styles.composerFooterAccessory}>
+            {footerAccessory}
+          </div>
+        ) : null}
       </div>
     </>
   );

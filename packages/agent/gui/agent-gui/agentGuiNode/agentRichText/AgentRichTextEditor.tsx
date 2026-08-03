@@ -81,6 +81,7 @@ export const AgentRichTextEditor = forwardRef<
     placeholder,
     removeMentionLabel,
     className,
+    testId,
     onChange,
     onContentLayoutInvalidated,
     onFocus,
@@ -740,18 +741,6 @@ export const AgentRichTextEditor = forwardRef<
   });
 
   useEffect(() => {
-    if (!editor) {
-      return;
-    }
-    editor.setEditable(!disabled);
-    editor.view.dom.setAttribute("aria-disabled", disabled ? "true" : "false");
-    editor.view.dom.setAttribute("aria-label", placeholder);
-    editor.view.dispatch(
-      editor.state.tr.setMeta("agentRichTextPlaceholder", placeholder)
-    );
-  }, [disabled, editor, placeholder]);
-
-  useEffect(() => {
     if (!editor || editor.isDestroyed) {
       return;
     }
@@ -794,6 +783,7 @@ export const AgentRichTextEditor = forwardRef<
       }
       pasteClipboardText={pasteClipboardText}
       placeholder={placeholder}
+      testId={testId}
       t={t}
     />
   );

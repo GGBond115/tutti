@@ -17,6 +17,10 @@ const standaloneAgentToolSidebarPanelSource = readFileSync(
   new URL("./StandaloneAgentToolSidebarPanel.tsx", import.meta.url),
   "utf8"
 );
+const standaloneAgentToolSidebarSource = readFileSync(
+  new URL("./StandaloneAgentToolSidebar.tsx", import.meta.url),
+  "utf8"
+);
 
 test("standalone Agent Files keeps the complete Open With menu", () => {
   assert.match(
@@ -26,6 +30,17 @@ test("standalone Agent Files keeps the complete Open With menu", () => {
   assert.doesNotMatch(
     standaloneAgentToolSidebarPanelSource,
     /showInternalOpenWithActions=\{false\}/
+  );
+});
+
+test("standalone Agent browser automation reveals the session Browser panel", () => {
+  assert.match(
+    standaloneAgentToolSidebarSource,
+    /request\.action === "create"[\s\S]*?openPanel\("browser", sessionId\)/
+  );
+  assert.doesNotMatch(
+    standaloneAgentToolSidebarSource,
+    /request\.action === "create"[\s\S]*?ensurePanel\("browser", sessionId\)/
   );
 });
 

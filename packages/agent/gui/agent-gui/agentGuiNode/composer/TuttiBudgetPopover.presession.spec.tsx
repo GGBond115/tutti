@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { createAgentSessionEngine } from "@tutti-os/agent-activity-core";
 import { describe, expect, it, vi } from "vitest";
+import { createTestEngineCommandPort } from "../../../shared/testing/createTestAgentSessionEngine";
 import {
   resolveAgentGUITuttiModeDraftKey,
   useAgentGUITuttiModeActivation
@@ -32,7 +33,9 @@ const labels = {
 function createTestEngine() {
   return createAgentSessionEngine({
     clock: { nowUnixMs: () => 1 },
-    commandPort: { execute: vi.fn(() => new Promise<never>(() => {})) },
+    commandPort: createTestEngineCommandPort({
+      execute: vi.fn(() => new Promise<never>(() => {}))
+    }),
     identity: { origin: "test", workspaceId: "workspace-1" },
     scheduler: { schedule: () => ({ cancel() {} }) }
   });

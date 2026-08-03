@@ -1,5 +1,4 @@
 import type {
-  AgentActivitySessionGoal,
   AgentActivityUsage,
   CanonicalAgentSession,
   SessionRuntimeAvailability
@@ -48,6 +47,7 @@ export interface AgentGUISessionChrome {
           | "activating"
           | "failed"
           | "warning"
+          | "agent-sharing-revoked"
           | "transport-connecting"
           | "transport-unavailable";
         message: string;
@@ -63,16 +63,17 @@ export interface AgentGUISessionChrome {
     | null;
   rawState:
     | (Pick<CanonicalAgentSession, "agentSessionId" | "goal"> & {
+        goalControlStatus:
+          | "idle"
+          | "pending_create"
+          | "pending"
+          | "accepted"
+          | "succeeded"
+          | "failed"
+          | "unknown";
         goalIsOptimistic: boolean;
       })
     | null;
-}
-
-export interface AgentGUIOptimisticGoalControl {
-  agentSessionId: string;
-  goal: AgentActivitySessionGoal | null;
-  reconcileOnObjectiveMatch: boolean;
-  requestId: string;
 }
 
 export interface AgentGUIInlineNotice {

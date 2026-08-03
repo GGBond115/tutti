@@ -23,6 +23,7 @@ func TestCodexAppServerAdapterSlashCompact(t *testing.T) {
 		nil,
 		nil,
 		func(result ProviderDispatchResult) { dispatches <- result },
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("Exec: %v", err)
@@ -133,6 +134,13 @@ func TestCodexAppServerAdapterSlashReview(t *testing.T) {
 		nil,
 		nil,
 		func(result ProviderDispatchResult) { dispatches <- result },
+		func(receipt ProviderAcceptanceReceipt) error {
+			dispatches <- ProviderDispatchResult{
+				Disposition: DispatchDispositionApplied,
+				Acceptance:  &receipt,
+			}
+			return nil
+		},
 	)
 	if err != nil {
 		t.Fatalf("Exec: %v", err)

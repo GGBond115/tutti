@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { AgentActivityMessage } from "@tutti-os/agent-activity-core";
 import { isWorkspaceAgentActivityOptimisticMessage } from "../../../shared/workspaceAgentMessageOverlay";
 import {
@@ -180,7 +180,7 @@ export interface AgentConversationMessagePagingInput {
   getActiveSessionId(): string | null;
   isMounted(): boolean;
   onOlderPageLoadingChanged(loading: boolean): void;
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   sessionEngine: import("@tutti-os/agent-activity-core").AgentSessionEngine;
   workspaceId: string;
 }

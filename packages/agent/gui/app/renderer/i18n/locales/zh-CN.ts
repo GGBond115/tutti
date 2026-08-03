@@ -4,7 +4,6 @@ import { zhCNAgentGui } from "./zh-CN.agentGui.ts";
 import { zhCNMessages } from "./zh-CN.messages.ts";
 import { zhCNSettingsPanel } from "./zh-CN.settingsPanel.ts";
 import { zhCNWebsiteNode } from "./zh-CN.websiteNode.ts";
-
 export const zhCN = {
   common: {
     add: "添加",
@@ -737,6 +736,7 @@ export const zhCN = {
     workspaceAgentProbeQuotaCost: "费用",
     workspaceAgentProbeErrorAuthRequired: "需要登录",
     workspaceAgentProbeErrorSessionExpired: "会话已过期",
+    workspaceAgentProbeErrorSubscriptionRequired: "需要订阅",
     workspaceAgentProbeErrorParseFailed: "无法解析用量输出",
     workspaceAgentProbeErrorNoData: "暂无用量数据",
     workspaceAgentProbeErrorTimeout: "用量探测超时",

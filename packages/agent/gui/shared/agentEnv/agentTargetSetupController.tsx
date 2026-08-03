@@ -21,6 +21,7 @@ import {
   createAgentTargetSetupFailureNotificationController,
   type AgentTargetSetupFailureNotification
 } from "./agentTargetSetupNotificationController.ts";
+import { resolveAgentErrorPresentation } from "./agentErrorPresentation.ts";
 
 const DISABLED_SETUP_STATE: AgentHostAgentTargetSetupState = {
   snapshot: null,
@@ -110,9 +111,10 @@ export function useCreateAgentTargetSetupController(
       showTargetSetupFailureNotification({
         hostToast: hostApi?.toast,
         notification,
+        providerLabel: agentTarget?.label ?? agentTargetId,
         t
       }),
-    [hostApi?.toast, t]
+    [agentTarget?.label, agentTargetId, hostApi?.toast, t]
   );
   const logCommandError = useCallback(
     (command: "authenticate" | "install", error: unknown) => {
@@ -288,6 +290,7 @@ function createAgentTargetSetupController(input: {
       return;
     }
     terminalLoginHandle = handle;
+    update({ dialogOpen: false });
     void handle.completion.then(
       (result) => settleTerminalLogin(generation, result),
       () => settleTerminalLogin(generation, "unavailable")
@@ -365,18 +368,25 @@ function createAgentTargetSetupController(input: {
 function showTargetSetupFailureNotification(input: {
   hostToast: AgentHostToastApi | undefined;
   notification: AgentTargetSetupFailureNotification;
+  providerLabel: string;
   t: ReturnType<typeof useTranslation>["t"];
 }): void {
   const title =
     input.notification.actionKind === "authenticate"
       ? input.t("agentHost.agentGui.targetSetupAuthFailed")
       : input.t("agentHost.agentGui.targetSetupFailed");
+  const presentation = resolveAgentErrorPresentation(
+    input.notification.errorCode
+  );
+  const description = presentation?.messageKey
+    ? input.t(presentation.messageKey, { provider: input.providerLabel })
+    : input.notification.errorMessage;
   if (input.hostToast?.error) {
-    input.hostToast.error(title, input.notification.errorMessage);
+    input.hostToast.error(title, description);
     return;
   }
   toast.error(title, {
-    description: input.notification.errorMessage,
+    description,
     id: `agent-target-setup-${input.notification.actionId}`
   });
 }

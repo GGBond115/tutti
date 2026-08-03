@@ -157,13 +157,17 @@ func (b *sqliteProjectionBuilder) seedMutation(ctx context.Context, mutation act
 		if err != nil {
 			return err
 		}
+		_, capabilities, err := storesqlite.DecodeSessionMetadataJSON(session.SessionMetadata)
+		if err != nil {
+			return err
+		}
 		result, err := b.store.ReportSessionState(ctx, storesqlite.SessionStateReport{
 			WorkspaceID: session.WorkspaceID, AgentSessionID: session.AgentSessionID, Kind: session.Kind,
 			RootAgentSessionID: dereference(session.RootAgentSessionID), RootTurnID: dereference(session.RootTurnID),
 			ParentAgentSessionID: dereference(session.ParentAgentSessionID), ParentTurnID: dereference(session.ParentTurnID),
 			ParentToolCallID: dereference(session.ParentToolCallID), Origin: session.Origin, UserID: session.UserID,
 			AgentTargetID: dereference(session.AgentTargetID), Provider: session.Provider, ProviderSessionID: session.ProviderSessionID,
-			Model: session.Model, Settings: settings, RuntimeContext: runtimeContext, Cwd: session.CWD, Title: session.Title,
+			Model: session.Model, Settings: settings, Capabilities: capabilities, RuntimeContext: runtimeContext, Cwd: session.CWD, Title: session.Title,
 			OccurredAtUnixMS: session.LastEventAtUnixMS, StartedAtUnixMS: session.StartedAtUnixMS,
 			EndedAtUnixMS: session.EndedAtUnixMS, CreatedAtUnixMS: session.CreatedAtUnixMS,
 		})
@@ -294,7 +298,7 @@ func (b *sqliteProjectionBuilder) buildMutation(ctx context.Context, descriptor 
 		if err != nil || !found {
 			return activityreplication.Mutation{}, found, err
 		}
-		metadata, err := json.Marshal(stored.Metadata)
+		metadata, err := storesqlite.EncodeSessionMetadataJSON(stored.Metadata, stored.Capabilities)
 		if err != nil {
 			return activityreplication.Mutation{}, false, err
 		}
@@ -375,7 +379,9 @@ func turnSnapshot(stored storesqlite.Turn) *activityreplication.Turn {
 		SourceGoalRepairEpoch: nullableInt64(stored.SourceGoalOperationID, stored.SourceGoalRepairEpoch),
 		StartedAtUnixMS:       stored.StartedAtUnixMS, SettledAtUnixMS: nullableInt64(stored.Outcome, stored.SettledAtUnixMS),
 		CreatedAtUnixMS: stored.CreatedAtUnixMS, UpdatedAtUnixMS: stored.UpdatedAtUnixMS,
-		RootProviderTurnID: nullable(stored.RootProviderTurnID), RootProviderTurnPhase: nullable(stored.RootProviderTurnPhase),
+		RootProviderTurnID:               nullable(stored.RootProviderTurnID),
+		ProviderTurnBindingJSON:          rawJSONOrEmptyObject(stored.ProviderTurnBindingJSON),
+		RootProviderTurnPhase:            nullable(stored.RootProviderTurnPhase),
 		RootProviderTurnOutcome:          nullable(stored.RootProviderTurnOutcome),
 		RootProviderTurnError:            structuredResult(stored.RootProviderTurnErrorMessage, stored.RootProviderTurnErrorCode),
 		RootProviderTurnCompletedCommand: structuredResult(stored.RootProviderTurnCompletedCommandKind, stored.RootProviderTurnCompletedCommandStatus),
@@ -455,6 +461,13 @@ func rawObject(value map[string]any) json.RawMessage {
 	}
 	raw, _ := json.Marshal(value)
 	return raw
+}
+
+func rawJSONOrEmptyObject(value json.RawMessage) json.RawMessage {
+	if len(value) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	return append(json.RawMessage(nil), value...)
 }
 
 func structuredResult(first, second string) json.RawMessage {

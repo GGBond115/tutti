@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 	agentservice "github.com/tutti-os/tutti/services/tuttid/service/agent"
 )
 
@@ -40,8 +41,8 @@ func TestGeneratedAgentSessionIncludesIndependentLatestTurnProjection(t *testing
 		MessageVersion:         11,
 		LatestTurn:             &latest,
 		LatestTurnInteractions: latestInteractions,
+		Capabilities:           canonical.NewCapabilitySnapshot([]string{"planMode", "planImplementation"}),
 		Metadata: agentactivitybiz.SessionMetadata{
-			Capabilities: []string{"planMode", "planImplementation"},
 			Usage: &agentactivitybiz.SessionUsage{
 				ContextWindow: &agentactivitybiz.SessionUsageContextWindow{UsedTokens: 7_460, TotalTokens: 200_000},
 				Quotas:        []agentactivitybiz.SessionUsageQuota{},

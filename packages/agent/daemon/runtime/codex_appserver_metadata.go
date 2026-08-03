@@ -452,5 +452,5 @@ func (a *CodexAppServerAdapter) emitSessionEvents(agentSessionID string, events 
 	if sink == nil {
 		return
 	}
-	sink(agentSessionID, events)
+	sink(agentSessionID, a.inputUnits.stamp(agentSessionID, events))
 }

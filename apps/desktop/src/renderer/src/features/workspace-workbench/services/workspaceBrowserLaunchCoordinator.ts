@@ -1,6 +1,6 @@
 import { WorkspaceScopedRegistrationRegistry } from "./internal/workspaceScopedRegistrationRegistry.ts";
 
-export interface WorkspaceBrowserLaunchRequest {
+export interface WorkspaceBrowserOpenRequest {
   reuseIfOpen?: boolean;
   source?:
     | "agent_command"
@@ -12,9 +12,23 @@ export interface WorkspaceBrowserLaunchRequest {
   workspaceId: string;
 }
 
+interface WorkspaceBrowserOpenLaunchRequest extends WorkspaceBrowserOpenRequest {
+  kind: "open";
+}
+
+interface WorkspaceBrowserFocusRequest {
+  kind: "focus";
+  preferredNodeId?: string;
+  workspaceId: string;
+}
+
+export type WorkspaceBrowserLaunchRequest =
+  | WorkspaceBrowserFocusRequest
+  | WorkspaceBrowserOpenLaunchRequest;
+
 export type WorkspaceBrowserLaunchHandler = (
   request: WorkspaceBrowserLaunchRequest
-) => Promise<boolean> | boolean;
+) => Promise<string | null> | string | null;
 
 const launchHandlers =
   new WorkspaceScopedRegistrationRegistry<WorkspaceBrowserLaunchHandler>();
@@ -28,7 +42,7 @@ export function registerWorkspaceBrowserLaunchHandler(
 }
 
 export async function requestWorkspaceBrowserLaunch(
-  request: WorkspaceBrowserLaunchRequest
+  request: WorkspaceBrowserOpenRequest
 ): Promise<boolean> {
   const normalizedWorkspaceId = request.workspaceId.trim();
   const normalizedUrl = normalizeWorkspaceBrowserLaunchUrl(request.url);
@@ -36,19 +50,43 @@ export async function requestWorkspaceBrowserLaunch(
     return false;
   }
 
-  return dispatchWorkspaceBrowserLaunch({
+  return Boolean(
+    await dispatchWorkspaceBrowserLaunch({
+      handler: launchHandlers.get(normalizedWorkspaceId),
+      request: {
+        kind: "open",
+        reuseIfOpen: request.reuseIfOpen,
+        ...(request.source ? { source: request.source } : {}),
+        url: normalizedUrl,
+        workspaceId: normalizedWorkspaceId
+      }
+    })
+  );
+}
+
+export async function requestWorkspaceBrowserSurfaceFocus(request: {
+  preferredNodeId?: string | null;
+  workspaceId: string;
+}): Promise<string | null> {
+  const normalizedWorkspaceId = request.workspaceId.trim();
+  if (!normalizedWorkspaceId) {
+    return null;
+  }
+
+  const preferredNodeId = request.preferredNodeId?.trim() ?? "";
+  const result = await dispatchWorkspaceBrowserLaunch({
     handler: launchHandlers.get(normalizedWorkspaceId),
     request: {
-      reuseIfOpen: request.reuseIfOpen,
-      ...(request.source ? { source: request.source } : {}),
-      url: normalizedUrl,
+      kind: "focus",
+      ...(preferredNodeId ? { preferredNodeId } : {}),
       workspaceId: normalizedWorkspaceId
     }
   });
+  return typeof result === "string" && result.trim() ? result.trim() : null;
 }
 
 export async function requestWorkspaceBrowserHostFileLaunch(
-  request: WorkspaceBrowserLaunchRequest
+  request: WorkspaceBrowserOpenRequest
 ): Promise<boolean> {
   const normalizedWorkspaceId = request.workspaceId.trim();
   const normalizedUrl = normalizeWorkspaceBrowserHostFileLaunchUrl(request.url);
@@ -56,31 +94,29 @@ export async function requestWorkspaceBrowserHostFileLaunch(
     return false;
   }
 
-  return dispatchWorkspaceBrowserLaunch({
-    handler: launchHandlers.get(normalizedWorkspaceId),
-    request: {
-      reuseIfOpen: request.reuseIfOpen,
-      source: request.source ?? "file_manager",
-      url: normalizedUrl,
-      workspaceId: normalizedWorkspaceId
-    }
-  });
+  return Boolean(
+    await dispatchWorkspaceBrowserLaunch({
+      handler: launchHandlers.get(normalizedWorkspaceId),
+      request: {
+        kind: "open",
+        reuseIfOpen: request.reuseIfOpen,
+        source: request.source ?? "file_manager",
+        url: normalizedUrl,
+        workspaceId: normalizedWorkspaceId
+      }
+    })
+  );
 }
 
 function dispatchWorkspaceBrowserLaunch(input: {
   handler: WorkspaceBrowserLaunchHandler | undefined;
-  request: WorkspaceBrowserLaunchRequest & { workspaceId: string; url: string };
-}): Promise<boolean> | boolean {
+  request: WorkspaceBrowserLaunchRequest;
+}): Promise<string | null> | string | null {
   if (!input.handler) {
-    return false;
+    return null;
   }
 
-  return input.handler({
-    reuseIfOpen: input.request.reuseIfOpen,
-    ...(input.request.source ? { source: input.request.source } : {}),
-    url: input.request.url,
-    workspaceId: input.request.workspaceId
-  });
+  return input.handler(input.request);
 }
 
 function normalizeWorkspaceBrowserLaunchUrl(url: string): string | null {

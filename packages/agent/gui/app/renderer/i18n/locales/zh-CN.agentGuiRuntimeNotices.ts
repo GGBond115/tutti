@@ -7,6 +7,11 @@ export const zhCNAgentGuiRuntimeNotices = {
   visibleErrorRequestTimedOut: "{{provider}} 请求超时",
   visibleErrorRuntimeUnavailable: "{{provider}} 因运行环境不可用而无法启动",
   visibleErrorQuotaOrRateLimit: "{{provider}} 请求失败：额度或频率限制已触发",
+  visibleErrorSubscriptionRequired:
+    "{{provider}} 需要有效订阅，或当前套餐不支持此请求",
+  visibleErrorModelNotAllowed: "{{provider}} 当前账号无法使用所选模型",
+  visibleErrorPluginUnavailable: "{{provider}} 暂时无法使用可选集成",
+  visibleErrorSessionInterrupted: "{{provider}} 在完成前意外停止，请重试",
   visibleErrorDetails: "查看详情",
   visibleErrorRawDetails: "原始错误",
   visibleErrorCliNotFound:
@@ -18,10 +23,12 @@ export const zhCNAgentGuiRuntimeNotices = {
     "{{provider}} 在请求超时前未能应用会话设置。请稍后重试。",
   visibleErrorStreamDisconnected:
     "{{provider}} 的响应在完成前被中断。请稍后重试。",
+  visibleErrorEmptyResponse:
+    "{{provider}} 没有返回响应，请检查提供商设置或重试",
   visibleErrorConcurrencyLimit:
     "{{provider}} 当前处理的请求过多。请在其他任务完成后再试。",
   visibleErrorInsufficientCreditsUnknown:
-    "Tutti 积分不足，请查看积分方案后继续",
+    "{{provider}} 的积分或账户余额不足，无法继续",
   visibleErrorActionInstall: "去连接",
   visibleErrorActionUpgrade: "去升级",
   visibleErrorActionRelogin: "登录",
@@ -34,6 +41,7 @@ export const zhCNAgentGuiRuntimeNotices = {
   systemNoticeWarning: "Agent 警告",
   systemNoticeDefault: "Agent 通知",
   sharedDeviceLabel: "共享设备",
+  agentSharingRevoked: "{{owner}} 已取消共享该智能体",
   runtimeConnecting: "正在连接 {{device}}…",
   runtimeReconnectingAttempt:
     "正在重新连接 {{device}} · 第 {{attempt}} 次重试…",

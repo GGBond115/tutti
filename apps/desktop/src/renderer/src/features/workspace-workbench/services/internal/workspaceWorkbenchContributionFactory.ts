@@ -44,9 +44,11 @@ import type {
 } from "../workspaceWorkbenchHostService.interface";
 import type { WorkspaceBrowserService } from "./workspaceBrowserService.ts";
 import type { WorkbenchCapabilityFactoryDescriptor } from "@tutti-os/workbench-host";
+import type { AgentSessionReplayDesktopComposition } from "../../../agent-session-replay/services/agentSessionReplayDesktopComposition.ts";
 
 export interface DesktopWorkbenchContributionContext {
   agentQuickPromptService?: AgentQuickPromptService;
+  agentSessionReplayComposition?: AgentSessionReplayDesktopComposition | null;
   appI18n: I18nRuntime<string>;
   appLocale: DesktopLocale;
   appCenterService: IWorkspaceAppCenterService;

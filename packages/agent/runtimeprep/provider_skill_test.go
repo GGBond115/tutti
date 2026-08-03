@@ -180,7 +180,7 @@ func TestRenderSkillBundleIncludesGuideAndOptionalSkills(t *testing.T) {
 	}
 	browser := skillBundleRecord(bundle.Skills, browserUseSkillName).Content
 	computer := skillBundleRecord(bundle.Skills, computerUseSkillName).Content
-	if !strings.Contains(browser, "tutti-dev browser navigate --url <url> --json") {
+	if !strings.Contains(browser, "tutti-dev browser open --url <url> --json") {
 		t.Fatalf("browser skill missing rendered command: %s", browser)
 	}
 	for _, want := range []string{

@@ -3,6 +3,7 @@ export interface PendingSubmission {
   agentTargetId: string | null;
   clientSubmitId: string;
   creating: boolean;
+  kind: "goalControl" | "prompt";
   text: string;
 }
 
@@ -12,6 +13,7 @@ export function resolvePendingSubmission(
     agentSessionId: string | null;
     agentTargetId: string | null;
     creating: boolean;
+    kind: PendingSubmission["kind"];
     text: string;
   }
 ): PendingSubmission {
@@ -19,6 +21,7 @@ export function resolvePendingSubmission(
     current &&
     current.text === input.text &&
     current.creating === input.creating &&
+    current.kind === input.kind &&
     (input.creating || current.agentSessionId === input.agentSessionId) &&
     current.agentTargetId === (input.creating ? input.agentTargetId : null)
   ) {
@@ -31,6 +34,7 @@ export function resolvePendingSubmission(
     agentTargetId: input.creating ? input.agentTargetId : null,
     clientSubmitId: createEntityId(),
     creating: input.creating,
+    kind: input.kind,
     text: input.text
   };
 }

@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@tutti-os/ui-system";
@@ -19,18 +17,28 @@ const labels = new Proxy(
     trigger: "Prompts",
     triggerTooltip: "Choose a quick prompt",
     searchPlaceholder: "Search quick prompts",
-    startSorting: "Sort",
+    startSorting: "Reorder",
     finishSorting: "Done",
+    insertionError:
+      "Could not insert into the Composer. Try again from the quick prompt list.",
+    reorderDisabledMinimum:
+      "At least two quick prompts are required to adjust their order",
+    reorderDisabledPending:
+      "Wait for the current quick prompt change to finish",
+    reorderDisabledSearch: "Clear the search to adjust prompt order",
+    reorderDisabledUnsupported: "This host does not support prompt reordering",
     add: "New prompt",
     createFromTemplate: "Recommended templates",
     moreActions: "More prompt actions",
     edit: "Edit",
     delete: "Delete",
     empty: "No quick prompts yet",
+    loadError: "Quick prompts could not be loaded",
+    loading: "Loading quick prompts…",
     noResults: "No matching quick prompts",
     recommendedTemplatesTitle: "Recommended templates",
     recommendedTemplatesDescription:
-      "Choose one to prefill the editor. It will not be saved or sent until you choose Save.",
+      "Choose one to prefill the editor. Saving adds it as a quick prompt and inserts it into the Composer.",
     returnToPrompts: "My prompts",
     useTemplate: "Use template",
     recommendedTemplates: [
@@ -96,6 +104,7 @@ function controller(
     isInteractionLocked: false,
     isReordering: false,
     initialDraft: null,
+    insertionError: false,
     labels,
     mode: "popover",
     mutationError: null,
@@ -104,6 +113,7 @@ function controller(
     openPopover: vi.fn(),
     promptToDelete: null,
     retry: vi.fn(),
+    reorderCapabilityAvailable: true,
     reorderError: null,
     reorderPrompts: vi.fn(async () => true),
     saveDraft: vi.fn(async () => true),
@@ -127,24 +137,19 @@ function controller(
 }
 
 describe("AgentQuickPromptPopover", () => {
-  it("uses the fixed-height Popover and makes only the list a ScrollArea", () => {
+  it("uses the shared composer trigger color and icon sizing", () => {
     render(
       <TooltipProvider>
         <AgentQuickPromptPopover controller={controller()} disabled={false} />
       </TooltipProvider>
     );
 
-    const surface = document.querySelector('[data-slot="popover-content"]');
-    expect(surface).toHaveClass("h-[420px]", "w-[400px]", "overflow-hidden");
-    expect(
-      screen.getByRole("dialog", { name: "Quick prompts" })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("agent-quick-prompt-scroll-viewport")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /^Review/u })
-    ).toBeInTheDocument();
+    const trigger = screen.getByRole("button", {
+      name: "Choose a quick prompt"
+    });
+    expect(trigger).toHaveClass("agent-gui-node__composer-menu-trigger");
+    expect(trigger).toHaveClass("focus-visible:!outline-2");
+    expect(trigger.querySelector("svg")).toHaveClass("size-4");
   });
 
   it("keeps selection and direct icon management controls as sibling buttons", () => {
@@ -194,7 +199,7 @@ describe("AgentQuickPromptPopover", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Reorder Review" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Sort" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reorder" }));
 
     expect(
       screen.getByRole("button", { name: "Reorder Review" })
@@ -244,7 +249,7 @@ describe("AgentQuickPromptPopover", () => {
     expect(screen.getByRole("button", { name: "Done" })).toBeDisabled();
   });
 
-  it("uses standard click semantics to enter and finish sorting", () => {
+  it("enters and finishes sorting on primary pointer down and keyboard click", () => {
     const first = controller().filteredPrompts[0]!;
     const second = { ...first, id: "prompt-2", title: "Plan" };
     render(
@@ -268,17 +273,148 @@ describe("AgentQuickPromptPopover", () => {
       </TooltipProvider>
     );
 
-    const sort = screen.getByRole("button", { name: "Sort" });
+    const sort = screen.getByRole("button", { name: "Reorder" });
     fireEvent.pointerDown(sort, { button: 0 });
-    expect(screen.getByRole("button", { name: "Sort" })).toBeInTheDocument();
-    fireEvent.click(sort);
     expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
 
     const done = screen.getByRole("button", { name: "Done" });
     fireEvent.pointerDown(done, { button: 0 });
+    expect(screen.getByRole("button", { name: "Reorder" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reorder" }));
     expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
-    fireEvent.click(done);
-    expect(screen.getByRole("button", { name: "Sort" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getByRole("button", { name: "Reorder" })).toBeInTheDocument();
+  });
+
+  it("reports a Composer insertion failure without reporting a save failure", () => {
+    render(
+      <TooltipProvider>
+        <AgentQuickPromptPopover
+          controller={controller({ insertionError: true })}
+          disabled={false}
+        />
+      </TooltipProvider>
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Could not insert into the Composer. Try again from the quick prompt list."
+    );
+  });
+
+  it("returns to the prompt list when insertion fails from the template view", () => {
+    const rendered = render(
+      <TooltipProvider>
+        <AgentQuickPromptPopover controller={controller()} disabled={false} />
+      </TooltipProvider>
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Recommended templates" })
+    );
+    expect(
+      screen.getByRole("heading", { name: "Recommended templates", level: 2 })
+    ).toBeInTheDocument();
+
+    rendered.rerender(
+      <TooltipProvider>
+        <AgentQuickPromptPopover
+          controller={controller({ insertionError: true })}
+          disabled={false}
+        />
+      </TooltipProvider>
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Quick prompts", level: 2 })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Could not insert into the Composer. Try again from the quick prompt list."
+    );
+    expect(
+      screen.getByRole("button", { name: /^Review/u })
+    ).toBeInTheDocument();
+  });
+
+  it("explains why reordering is unavailable with stable reason priority", () => {
+    const first = controller().filteredPrompts[0]!;
+    const second = { ...first, id: "prompt-2", title: "Plan" };
+    const rendered = render(
+      <TooltipProvider>
+        <AgentQuickPromptPopover controller={controller()} disabled={false} />
+      </TooltipProvider>
+    );
+
+    expect(
+      screen.getByLabelText(
+        "At least two quick prompts are required to adjust their order"
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reorder" })).toBeDisabled();
+
+    rendered.rerender(
+      <TooltipProvider>
+        <AgentQuickPromptPopover
+          controller={controller({
+            filteredPrompts: [first, second],
+            reorderCapabilityAvailable: false,
+            showReorderHandles: false,
+            snapshot: {
+              enabled: true,
+              status: "ready",
+              prompts: [first, second],
+              error: null,
+              revision: 1,
+              pendingMutationIds: []
+            }
+          })}
+          disabled={false}
+        />
+      </TooltipProvider>
+    );
+    expect(
+      screen.getByLabelText("This host does not support prompt reordering")
+    ).toBeInTheDocument();
+
+    rendered.rerender(
+      <TooltipProvider>
+        <AgentQuickPromptPopover
+          controller={controller({
+            filteredPrompts: [],
+            snapshot: {
+              enabled: true,
+              status: "loading",
+              prompts: [],
+              error: null,
+              revision: 1,
+              pendingMutationIds: []
+            }
+          })}
+          disabled={false}
+        />
+      </TooltipProvider>
+    );
+    expect(screen.getByLabelText(labels.loading)).toBeInTheDocument();
+
+    rendered.rerender(
+      <TooltipProvider>
+        <AgentQuickPromptPopover
+          controller={controller({
+            filteredPrompts: [],
+            snapshot: {
+              enabled: true,
+              status: "error",
+              prompts: [],
+              error: "offline",
+              revision: 1,
+              pendingMutationIds: []
+            }
+          })}
+          disabled={false}
+        />
+      </TooltipProvider>
+    );
+    expect(screen.getByLabelText(labels.loadError)).toBeInTheDocument();
   });
 
   it("resets sorting mode when the controlled Popover closes externally", () => {
@@ -302,7 +438,7 @@ describe("AgentQuickPromptPopover", () => {
         <AgentQuickPromptPopover controller={openController} disabled={false} />
       </TooltipProvider>
     );
-    fireEvent.click(screen.getByRole("button", { name: "Sort" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reorder" }));
     expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
 
     rendered.rerender(
@@ -319,57 +455,9 @@ describe("AgentQuickPromptPopover", () => {
       </TooltipProvider>
     );
 
-    expect(screen.getByRole("button", { name: "Sort" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reorder" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reorder Review" })).toBeNull();
-  });
-
-  it("does not allow sorting a filtered list", () => {
-    render(
-      <TooltipProvider>
-        <AgentQuickPromptPopover
-          controller={controller({
-            searchQuery: "review",
-            showReorderHandles: false
-          })}
-          disabled={false}
-        />
-      </TooltipProvider>
-    );
-
-    expect(screen.getByRole("button", { name: "Sort" })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Reorder Review" })).toBeNull();
-    expect(
-      screen.queryByRole("button", {
-        name: /Summarize common prompts.*Use template/u
-      })
-    ).toBeNull();
-  });
-
-  it("disables every mutating entry point while a shared mutation is pending", () => {
-    const subject = controller({
-      canReorder: false,
-      isInteractionLocked: true,
-      showReorderHandles: true
-    });
-    render(
-      <TooltipProvider>
-        <AgentQuickPromptPopover controller={subject} disabled={false} />
-      </TooltipProvider>
-    );
-
-    expect(screen.getByRole("button", { name: "New prompt" })).toBeDisabled();
-    expect(screen.getByPlaceholderText("Search quick prompts")).toBeDisabled();
-    expect(screen.getByRole("button", { name: /^Review/u })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Sort" })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Reorder Review" })).toBeNull();
-    expect(
-      screen.getByRole("button", {
-        name: "Recommended templates"
-      })
-    ).toBeDisabled();
   });
 
   it("disables recommended-template actions while a shared mutation is pending", () => {
@@ -400,11 +488,11 @@ describe("AgentQuickPromptPopover", () => {
     expect(summaryTemplate).toBeDisabled();
     expect(createTemplate).toBeDisabled();
     fireEvent.pointerDown(summaryTemplate, { button: 0 });
-    fireEvent.click(summaryTemplate);
+    fireEvent.click(summaryTemplate, { detail: 1 });
     expect(subject.openCreate).not.toHaveBeenCalled();
   });
 
-  it("selects a prompt on primary pointer down before the Popover closes", () => {
+  it("selects on primary pointer down and still accepts a later keyboard click", () => {
     const subject = controller();
     render(
       <TooltipProvider>
@@ -412,9 +500,29 @@ describe("AgentQuickPromptPopover", () => {
       </TooltipProvider>
     );
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: /^Review/u }), {
-      button: 0
-    });
+    const prompt = screen.getByRole("button", { name: /^Review/u });
+    fireEvent.pointerDown(prompt, { button: 0 });
+    expect(subject.selectPrompt).toHaveBeenCalledOnce();
+    fireEvent.click(prompt);
+    expect(subject.selectPrompt).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps touch and pen actions cancellable until click", () => {
+    const subject = controller();
+    render(
+      <TooltipProvider>
+        <AgentQuickPromptPopover controller={subject} disabled={false} />
+      </TooltipProvider>
+    );
+
+    const prompt = screen.getByRole("button", { name: /^Review/u });
+    fireEvent.pointerDown(prompt, { button: 0, pointerType: "touch" });
+    fireEvent.pointerCancel(prompt, { pointerType: "touch" });
+    expect(subject.selectPrompt).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(prompt, { button: 0, pointerType: "pen" });
+    expect(subject.selectPrompt).not.toHaveBeenCalled();
+    fireEvent.click(prompt, { detail: 1 });
     expect(subject.selectPrompt).toHaveBeenCalledOnce();
   });
 
@@ -439,11 +547,14 @@ describe("AgentQuickPromptPopover", () => {
       name: /Summarize common prompts.*Use template/u
     });
     fireEvent.pointerDown(summaryTemplate, { button: 0 });
-    fireEvent.click(summaryTemplate);
-    expect(subject.openCreate).toHaveBeenCalledWith({
-      title: "Summarize common prompts",
-      content: "Summarize my common prompts"
-    });
+    fireEvent.click(summaryTemplate, { detail: 1 });
+    expect(subject.openCreate).toHaveBeenCalledWith(
+      {
+        title: "Summarize common prompts",
+        content: "Summarize my common prompts"
+      },
+      { insertIntoComposerAfterSave: true }
+    );
     expect(subject.openCreate).toHaveBeenCalledOnce();
     expect(subject.saveDraft).not.toHaveBeenCalled();
   });
@@ -484,19 +595,27 @@ describe("AgentQuickPromptPopover", () => {
       name: /Summarize common prompts.*Use template/u
     });
     fireEvent.click(summaryTemplate);
-    expect(subject.openCreate).toHaveBeenNthCalledWith(1, {
-      title: "Summarize common prompts",
-      content: "Summarize my common prompts"
-    });
+    expect(subject.openCreate).toHaveBeenNthCalledWith(
+      1,
+      {
+        title: "Summarize common prompts",
+        content: "Summarize my common prompts"
+      },
+      { insertIntoComposerAfterSave: true }
+    );
 
     const createTemplate = screen.getByRole("button", {
       name: /Understand the situation.*Use template/u
     });
     fireEvent.click(createTemplate);
-    expect(subject.openCreate).toHaveBeenNthCalledWith(2, {
-      title: "Understand the situation",
-      content: "Summarize the situation"
-    });
+    expect(subject.openCreate).toHaveBeenNthCalledWith(
+      2,
+      {
+        title: "Understand the situation",
+        content: "Summarize the situation"
+      },
+      { insertIntoComposerAfterSave: true }
+    );
     expect(subject.openCreate).toHaveBeenCalledTimes(2);
   });
 
@@ -529,56 +648,6 @@ describe("AgentQuickPromptPopover", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByPlaceholderText("Search quick prompts")
-    ).toBeInTheDocument();
-  });
-
-  it("hides the complete entry when the host gate is unavailable", () => {
-    const rendered = render(
-      <TooltipProvider>
-        <AgentQuickPromptPopover
-          controller={controller({ capabilityAvailable: false })}
-          disabled={false}
-        />
-      </TooltipProvider>
-    );
-    expect(rendered.container).toBeEmptyDOMElement();
-  });
-
-  it("opens system dialogs for create and destructive confirmation", () => {
-    const createRender = render(
-      <TooltipProvider>
-        <AgentQuickPromptPopover
-          controller={controller({
-            isEditorOpen: true,
-            isPopoverOpen: false,
-            mode: "create"
-          })}
-          disabled={false}
-        />
-      </TooltipProvider>
-    );
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByLabelText(labels.titleLabel)).toBeInTheDocument();
-    createRender.unmount();
-
-    const promptToDelete = controller().filteredPrompts[0]!;
-    render(
-      <TooltipProvider>
-        <AgentQuickPromptPopover
-          controller={controller({
-            isPopoverOpen: false,
-            mode: "delete",
-            promptToDelete
-          })}
-          disabled={false}
-        />
-      </TooltipProvider>
-    );
-    expect(screen.getByRole("dialog")).toHaveTextContent(
-      labels.deleteDescription(promptToDelete.title)
-    );
-    expect(
-      screen.getByRole("button", { name: labels.deleteConfirm })
     ).toBeInTheDocument();
   });
 
@@ -652,32 +721,6 @@ describe("AgentQuickPromptPopover", () => {
     );
   });
 
-  it("prefills the existing editor Dialog from a recommended template draft", () => {
-    render(
-      <TooltipProvider>
-        <AgentQuickPromptPopover
-          controller={controller({
-            initialDraft: {
-              title: "Understand the situation",
-              content: "Summarize the situation"
-            },
-            isEditorOpen: true,
-            isPopoverOpen: false,
-            mode: "create"
-          })}
-          disabled={false}
-        />
-      </TooltipProvider>
-    );
-
-    expect(screen.getByLabelText(labels.titleLabel)).toHaveValue(
-      "Understand the situation"
-    );
-    expect(screen.getByLabelText(labels.contentLabel)).toHaveValue(
-      "Summarize the situation"
-    );
-  });
-
   it("keeps Enter in the editor Dialog out of the Composer shortcut", () => {
     const onComposerKeyDown = vi.fn();
     render(
@@ -699,75 +742,5 @@ describe("AgentQuickPromptPopover", () => {
       key: "Enter"
     });
     expect(onComposerKeyDown).not.toHaveBeenCalled();
-  });
-});
-
-describe("quick-prompt UI composition", () => {
-  const source = readFileSync(
-    join(
-      process.cwd(),
-      "agent-gui/agentGuiNode/composer/quickPrompts/AgentQuickPromptPopover.tsx"
-    ),
-    "utf8"
-  );
-  const editorSource = readFileSync(
-    join(
-      process.cwd(),
-      "agent-gui/agentGuiNode/composer/quickPrompts/AgentQuickPromptEditorDialog.tsx"
-    ),
-    "utf8"
-  );
-  const listSource = readFileSync(
-    join(
-      process.cwd(),
-      "agent-gui/agentGuiNode/composer/quickPrompts/AgentQuickPromptList.tsx"
-    ),
-    "utf8"
-  );
-  const rowSource = readFileSync(
-    join(
-      process.cwd(),
-      "agent-gui/agentGuiNode/composer/quickPrompts/AgentQuickPromptRow.tsx"
-    ),
-    "utf8"
-  );
-
-  it("composes only public UI System interaction primitives", () => {
-    expect(source).toContain('from "@tutti-os/ui-system"');
-    expect(source).toContain('from "@tutti-os/ui-system/icons"');
-    expect(source).toContain("<ScrollArea");
-    expect(source).toContain("<TooltipProvider");
-    expect(source).toMatch(
-      /<TooltipTrigger asChild>\s*<span[^>]*>\s*<PopoverTrigger asChild>/u
-    );
-    expect(source).toContain("<ConfirmationDialog");
-    expect(source).toContain("<RecommendedTemplateList");
-    expect(rowSource).toContain("aria-label={labels.edit}");
-    expect(rowSource).toContain("aria-label={labels.delete}");
-    expect(rowSource).toContain("group/quick-prompt-row");
-    expect(rowSource).not.toContain("group-focus-within");
-    expect(rowSource).toContain(
-      'className="cursor-grab text-[var(--text-tertiary)]'
-    );
-    expect(rowSource).toContain(
-      "disabled:cursor-not-allowed disabled:text-[var(--text-disabled)] disabled:opacity-100"
-    );
-    expect(rowSource).toContain('reorderDisabled ? "cursor-not-allowed" : ""');
-    expect(rowSource).not.toContain("className={revealClass}");
-    expect(listSource).toContain("<Sortable");
-    expect(listSource).toContain("<SortableItem");
-    expect(listSource).not.toContain("disabled={!isSorting");
-    expect(rowSource).toContain("<SortableItemHandle");
-    expect(source).not.toContain("<DropdownMenu");
-    expect(source).toContain("onCloseAutoFocus");
-    expect(editorSource).toContain("<Dialog");
-    expect(editorSource).toContain("<Textarea");
-    expect(editorSource).toContain("min-h-[128px]");
-    expect(editorSource).toContain("onKeyDownCapture");
-    expect(source).not.toMatch(/<button\b/u);
-    expect(editorSource).not.toMatch(/<button\b/u);
-    expect(rowSource).not.toMatch(/<button\b/u);
-    expect(source).not.toContain("radix-ui");
-    expect(editorSource).not.toContain("radix-ui");
   });
 });

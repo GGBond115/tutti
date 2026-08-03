@@ -23,6 +23,10 @@ import {
 import { DESKTOP_WORKSPACE_FILE_HOME_LOCATION_ID } from "../../workspace-file-manager/services/desktopWorkspaceFileLocations.ts";
 import { createDesktopAgentGUIWorkbenchHostInput } from "./createDesktopAgentGUIWorkbenchHostInput.ts";
 import type { IWorkspaceAgentActivityService } from "./workspaceAgentActivityService.interface.ts";
+import {
+  createAgentSessionReplayDesktopComposition,
+  type AgentSessionReplayActivityPort
+} from "../../agent-session-replay/services/agentSessionReplayDesktopComposition.ts";
 
 const workspaceId = "workspace-1";
 
@@ -131,6 +135,53 @@ test("desktop agent GUI workbench host input reuses workspace runtime services",
     secondHostInput.agentActivityRuntime,
     firstHostInput.agentActivityRuntime
   );
+});
+
+test("desktop agent GUI workbench host input creates no replay service without composition", () => {
+  const hostInput = createDesktopAgentGUIWorkbenchHostInput({
+    hostFilesApi: createHostFilesApi(),
+    tuttidClient: createTuttidClient(),
+    platformApi: createPlatformApi(),
+    richTextAtService: createRichTextAtService({ providers: [] }),
+    runtimeApi: createRuntimeApi(),
+    workspaceAgentActivityService: createWorkspaceAgentActivityService([]),
+    workspaceId
+  });
+
+  assert.equal(hostInput.agentSessionReplayService, null);
+});
+
+test("desktop agent GUI workbench host injects cassette import into the replay service", async () => {
+  const requests: Parameters<
+    DesktopRuntimeApi["importAgentSessionReplayCassettes"]
+  >[0][] = [];
+  const runtimeApi = createRuntimeApi({
+    async importAgentSessionReplayCassettes(input) {
+      requests.push(input);
+      return { canceled: false, failedCount: 2, importedCount: 0 };
+    }
+  });
+  const activityService = createWorkspaceAgentActivityService([]);
+  const hostInput = createDesktopAgentGUIWorkbenchHostInput({
+    agentSessionReplayComposition: createAgentSessionReplayDesktopComposition({
+      activityPort: activityService,
+      runtimeApi,
+      tuttidClient: createTuttidClient(),
+      workspaceId
+    }),
+    hostFilesApi: createHostFilesApi(),
+    tuttidClient: createTuttidClient(),
+    platformApi: createPlatformApi(),
+    richTextAtService: createRichTextAtService({ providers: [] }),
+    runtimeApi,
+    workspaceAgentActivityService: activityService,
+    workspaceId
+  });
+
+  const result = await hostInput.agentSessionReplayService!.importCassettes();
+
+  assert.deepEqual(requests, [{ workspaceId }]);
+  assert.equal(result.outcome, "failed");
 });
 
 test("desktop agent GUI references paths and prepares in-memory external files", async () => {
@@ -589,54 +640,6 @@ test("desktop agent GUI workbench host input passes an activity runtime backed b
   assert.deepEqual(calls, [`getSnapshot:${workspaceId}`]);
 });
 
-test("desktop agent GUI workbench host input tracks runtime prompt sends", async () => {
-  const reporterCalls: ReporterEventInput[][] = [];
-  const hostInput = createDesktopAgentGUIWorkbenchHostInput({
-    agentHostApi: {
-      meta: { workspaceId }
-    } as unknown as AgentHostInputApi,
-    hostFilesApi: createHostFilesApi(),
-    tuttidClient: createTuttidClient(),
-    platformApi: createPlatformApi(),
-    reporterNow: () => 1749124800000,
-    reporterService: createLegacyAgentReporterService(reporterCalls),
-    richTextAtService: createRichTextAtService(),
-    runtimeApi: createRuntimeApi(),
-    workspaceAgentActivityService: createWorkspaceAgentActivityService([]),
-    workspaceId
-  });
-
-  const sendInput = {
-    clientSubmitId: "submit-runtime-send-1",
-    workspaceId,
-    agentSessionId: "session-runtime-send-1",
-    content: [{ type: "text" as const, text: "Expanded runtime prompt" }],
-    displayPrompt:
-      "/review [src/App.tsx](mention://file/src%2FApp.tsx?workspaceId=workspace-1)",
-    submitDiagnostics: { queued: true }
-  };
-
-  await hostInput.agentActivityRuntime.sendInput(sendInput);
-  await hostInput.agentActivityRuntime.sendInput(sendInput);
-
-  assert.deepEqual(reporterCalls, [
-    [
-      {
-        clientTS: 1749124800000,
-        name: "agent.message_sent",
-        params: {
-          agent_session_id: "session-runtime-send-1",
-          conversation_index: 1,
-          has_file_mention: true,
-          has_slash_command: true,
-          is_queued: true,
-          provider: "codex"
-        }
-      }
-    ]
-  ]);
-});
-
 test("desktop agent GUI workbench host input tracks workspace file references", async () => {
   const reporterCalls: ReporterEventInput[][] = [];
   const hostInput = createDesktopAgentGUIWorkbenchHostInput({
@@ -811,76 +814,6 @@ test("desktop agent GUI workbench host input tracks privacy-safe engagement even
   assert.equal(JSON.stringify(reporterCalls).includes("path"), false);
 });
 
-test("desktop agent GUI workbench host input tracks runtime new session activation", async () => {
-  const reporterCalls: ReporterEventInput[][] = [];
-  const hostInput = createDesktopAgentGUIWorkbenchHostInput({
-    agentHostApi: {
-      meta: { workspaceId }
-    } as unknown as AgentHostInputApi,
-    hostFilesApi: createHostFilesApi(),
-    tuttidClient: createTuttidClient(),
-    platformApi: createPlatformApi(),
-    reporterNow: () => 1749124800000,
-    reporterService: createLegacyAgentReporterService(reporterCalls),
-    richTextAtService: createRichTextAtService(),
-    runtimeApi: createRuntimeApi(),
-    workspaceAgentActivityService: createWorkspaceAgentActivityService([]),
-    workspaceId
-  });
-
-  const activationInput = {
-    workspaceId,
-    agentSessionId: "session-runtime-start-1",
-    agentTargetId: "local:codex",
-    clientSubmitId: "submit-runtime-start-1",
-    cwd: "/workspace",
-    initialContent: [
-      { type: "text" as const, text: "Expanded initial runtime prompt" }
-    ],
-    initialDisplayPrompt:
-      "/review [src/App.tsx](mention://file/src%2FApp.tsx?workspaceId=workspace-1)",
-    mode: "new" as const,
-    settings: {
-      model: "gpt-5",
-      permissionModeId: "auto"
-    }
-  };
-
-  await hostInput.agentActivityRuntime.activateSession(activationInput);
-  await hostInput.agentActivityRuntime.activateSession(activationInput);
-
-  assert.deepEqual(reporterCalls, [
-    [
-      {
-        clientTS: 1749124800000,
-        name: "agent.session_started",
-        params: {
-          agent_session_id: "session-runtime-start-1",
-          has_custom_model: false,
-          has_project: true,
-          permission_mode: "auto",
-          provider: "codex",
-          source: "launchpad"
-        }
-      }
-    ],
-    [
-      {
-        clientTS: 1749124800000,
-        name: "agent.message_sent",
-        params: {
-          agent_session_id: "session-runtime-start-1",
-          conversation_index: 1,
-          has_file_mention: true,
-          has_slash_command: true,
-          is_queued: false,
-          provider: "codex"
-        }
-      }
-    ]
-  ]);
-});
-
 test("desktop agent GUI workbench host input tracks runtime session pin changes", async () => {
   const reporterCalls: ReporterEventInput[][] = [];
   const hostInput = createDesktopAgentGUIWorkbenchHostInput({
@@ -933,122 +866,7 @@ test("desktop agent GUI workbench host input tracks runtime session pin changes"
   ]);
 });
 
-test("desktop agent GUI workbench host input tracks runtime session settings changes", async () => {
-  const reporterCalls: ReporterEventInput[][] = [];
-  const terminalDiagnostics: Array<
-    Parameters<DesktopRuntimeApi["logTerminalDiagnostic"]>[0]
-  > = [];
-  const hostInput = createDesktopAgentGUIWorkbenchHostInput({
-    agentHostApi: {
-      meta: { workspaceId }
-    } as unknown as AgentHostInputApi,
-    hostFilesApi: createHostFilesApi(),
-    tuttidClient: createTuttidClient(),
-    platformApi: createPlatformApi(),
-    reporterNow: () => 1749124800000,
-    reporterService: createLegacyAgentReporterService(reporterCalls),
-    richTextAtService: createRichTextAtService(),
-    runtimeApi: createRuntimeApi({ terminalDiagnostics }),
-    workspaceAgentActivityService: createWorkspaceAgentActivityService([], {
-      controlStateSettings: {
-        model: "gpt-5",
-        permissionModeId: "auto",
-        reasoningEffort: "medium"
-      }
-    }),
-    workspaceId
-  });
-
-  await hostInput.agentActivityRuntime.updateSessionSettings({
-    workspaceId,
-    agentSessionId: "session-runtime-settings-1",
-    settings: {
-      model: "custom:local-model",
-      permissionModeId: "full-access",
-      reasoningEffort: "high"
-    }
-  });
-
-  assert.deepEqual(reporterCalls, [
-    [
-      {
-        clientTS: 1749124800000,
-        name: "agent.settings.model_changed",
-        params: {
-          agent_session_id: "session-runtime-settings-1",
-          is_custom_model: true,
-          provider: "codex"
-        }
-      }
-    ],
-    [
-      {
-        clientTS: 1749124800000,
-        name: "agent.settings.permission_mode_changed",
-        params: {
-          agent_session_id: "session-runtime-settings-1",
-          from_mode: "auto",
-          provider: "codex",
-          to_mode: "full-access"
-        }
-      }
-    ],
-    [
-      {
-        clientTS: 1749124800000,
-        name: "agent.settings.reasoning_effort_changed",
-        params: {
-          agent_session_id: "session-runtime-settings-1",
-          from_effort: "medium",
-          provider: "codex",
-          to_effort: "high"
-        }
-      }
-    ]
-  ]);
-  assert.deepEqual(terminalDiagnostics, [
-    {
-      details: {
-        agentSessionId: "session-runtime-settings-1",
-        changedFields: "model,permissionModeId,planMode,reasoningEffort",
-        modelFrom: "gpt-5",
-        modelTo: "custom:local-model",
-        permissionModeIdFrom: "auto",
-        permissionModeIdTo: "full-access",
-        planModeFrom: false,
-        planModeTo: null,
-        provider: "codex",
-        reasoningEffortFrom: "medium",
-        reasoningEffortTo: "high",
-        source: "session"
-      },
-      event: "agent.gui.composer_settings.update_requested",
-      level: "info",
-      sessionId: "session-runtime-settings-1",
-      workspaceId
-    },
-    {
-      details: {
-        agentSessionId: "session-runtime-settings-1",
-        changedFields: "model,permissionModeId,reasoningEffort",
-        modelFrom: "gpt-5",
-        modelTo: "custom:local-model",
-        permissionModeIdFrom: "auto",
-        permissionModeIdTo: "full-access",
-        provider: "codex",
-        reasoningEffortFrom: "medium",
-        reasoningEffortTo: "high",
-        source: "session"
-      },
-      event: "agent.gui.composer_settings.changed",
-      level: "info",
-      sessionId: "session-runtime-settings-1",
-      workspaceId
-    }
-  ]);
-});
-
-test("desktop agent GUI workbench host input tracks runtime project setting changes", async () => {
+test("desktop agent GUI workbench host input tracks draft project setting changes", async () => {
   const reporterCalls: ReporterEventInput[][] = [];
   const hostInput = createDesktopAgentGUIWorkbenchHostInput({
     agentHostApi: {
@@ -1067,7 +885,7 @@ test("desktop agent GUI workbench host input tracks runtime project setting chan
 
   await hostInput.agentActivityRuntime.trackSettingsProjectChange?.({
     workspaceId,
-    agentSessionId: "session-runtime-project-1",
+    agentSessionId: null,
     action: "select_existing",
     provider: "codex"
   });
@@ -1079,7 +897,7 @@ test("desktop agent GUI workbench host input tracks runtime project setting chan
         name: "agent.settings.project_changed",
         params: {
           action: "select_existing",
-          agent_session_id: "session-runtime-project-1",
+          agent_session_id: null,
           provider: "codex"
         }
       }
@@ -1185,41 +1003,6 @@ test("desktop agent GUI workbench host input wires runtime composer options thro
     }
   );
   assert.deepEqual(calls, ["getComposerOptions:workspace-1:codex:local:codex"]);
-});
-
-test("desktop agent GUI workbench host input wires runtime activation through the workspace activity service", async () => {
-  const calls: string[] = [];
-  const workspaceAgentActivityService =
-    createWorkspaceAgentActivityService(calls);
-
-  const hostInput = createDesktopAgentGUIWorkbenchHostInput({
-    agentHostApi: {
-      meta: { workspaceId }
-    } as unknown as AgentHostInputApi,
-    hostFilesApi: createHostFilesApi(),
-    tuttidClient: createTuttidClient(),
-    platformApi: createPlatformApi(),
-    richTextAtService: createRichTextAtService(),
-    runtimeApi: createRuntimeApi(),
-    workspaceAgentActivityService,
-    workspaceId
-  });
-
-  const result = await hostInput.agentActivityRuntime.activateSession({
-    workspaceId,
-    agentSessionId: "session-1",
-    mode: "existing"
-  });
-  assert.deepEqual(result.activation, {
-    mode: "existing",
-    status: "already_attached"
-  });
-  assert.equal(result.session.agentSessionId, "session-1");
-  assert.equal(result.session.provider, "codex");
-  assert.equal(result.session.activeTurnId, null);
-  assert.deepEqual(result.session.pendingInteractions, []);
-  assert.equal("status" in result.session, false);
-  assert.deepEqual(calls, ["activateSession:workspace-1:session-1:existing"]);
 });
 
 function createRichTextTriggerProvider(id: string): RichTextTriggerProvider {
@@ -1451,6 +1234,7 @@ function createPlatformApi(
 
 function createRuntimeApi(
   input: {
+    importAgentSessionReplayCassettes?: DesktopRuntimeApi["importAgentSessionReplayCassettes"];
     terminalDiagnostics?: Array<
       Parameters<DesktopRuntimeApi["logTerminalDiagnostic"]>[0]
     >;
@@ -1461,6 +1245,7 @@ function createRuntimeApi(
       return {
         active: false,
         paused: false,
+        playbackElapsedMs: 0,
         speed: 1,
         timingMode: "realtime"
       };
@@ -1468,13 +1253,25 @@ function createRuntimeApi(
     async getAgentSessionReplayStatus() {
       return { active: false };
     },
-    async launchAgentSessionReplay() {
-      return { runId: "replay-run-1" };
+    async importAgentSessionReplayCassettes(request) {
+      if (input.importAgentSessionReplayCassettes) {
+        return input.importAgentSessionReplayCassettes(request);
+      }
+      return { canceled: true, failedCount: 0, importedCount: 0 };
     },
+    async launchAgentSessionReplay(input) {
+      return {
+        launchId: input.launchId,
+        cassetteIds: ["replay-cassette-1"],
+        workspaceId: "workspace-1"
+      };
+    },
+    async revealAgentSessionReplayCassette() {},
     async setAgentSessionReplayPlayback() {
       return {
         active: false,
         paused: false,
+        playbackElapsedMs: 0,
         speed: 1,
         timingMode: "realtime"
       };
@@ -1483,7 +1280,7 @@ function createRuntimeApi(
       return;
     },
     async waitForAgentSessionReplay() {
-      return { runId: "replay-run-1" };
+      return { cassetteId: "replay-cassette-1" };
     },
     async getBackendConfig() {
       return {
@@ -1628,7 +1425,7 @@ function createWorkspaceAgentActivityService(
       reasoningEffort?: string | null;
     };
   } = {}
-): IWorkspaceAgentActivityService {
+): IWorkspaceAgentActivityService & AgentSessionReplayActivityPort {
   const snapshot: AgentActivitySnapshot = {
     workspaceId,
     presences: [],
@@ -1637,6 +1434,14 @@ function createWorkspaceAgentActivityService(
   };
   return {
     _serviceBrand: undefined,
+    armNextSessionRecording() {},
+    clearNextSessionRecording() {},
+    startSessionActivityEventRecording() {},
+    async sealSessionActivityEventRecording() {},
+    discardSessionActivityEventRecording() {},
+    addSessionEngineActivityObserver() {
+      return () => {};
+    },
     getSessionEngine() {
       throw new Error("not implemented");
     },

@@ -15,8 +15,11 @@ type pendingInteractiveRequest struct {
 	callID         string
 	callType       string
 	turnID         string
-	// providerTurnID is transport correlation; turnID remains canonical ownership.
+	// turnID is canonical ownership. providerTurnID is the authoritative
+	// provider lifecycle identity; transportTurnID is adapter-private
+	// correlation used only when replying to the originating request.
 	providerTurnID  string
+	transportTurnID string
 	input           map[string]any
 	kind            string
 	approvalPurpose string

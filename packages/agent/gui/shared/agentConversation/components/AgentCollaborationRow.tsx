@@ -11,7 +11,7 @@ import {
 import { toast } from "@tutti-os/ui-system";
 import { translate } from "../../../i18n/index";
 import { useOptionalAgentHostApi } from "../../../agentActivityHost";
-import { useOptionalAgentActivityRuntime } from "../../../agentActivityRuntime";
+import { useOptionalAgentGUIRuntime } from "../../../agentActivityRuntime";
 import {
   AgentMessageMarkdown,
   type AgentMessageMarkdownWorkspaceAppIcon
@@ -42,7 +42,7 @@ export function AgentCollaborationRow({
 }): JSX.Element {
   "use memo";
   const agentHostApi = useOptionalAgentHostApi();
-  const runtime = useOptionalAgentActivityRuntime();
+  const runtime = useOptionalAgentGUIRuntime();
   const [resultExpanded, setResultExpanded] = useState(false);
   const [adoptionPending, setAdoptionPending] = useState(false);
   // Optimistic echo until the daemon's in-place message update arrives.

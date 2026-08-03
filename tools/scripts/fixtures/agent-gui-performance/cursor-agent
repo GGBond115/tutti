@@ -66,7 +66,7 @@ function runACPFixture() {
         activeSessionId =
           message.params?.sessionId?.trim?.() || activeSessionId;
         canceled = false;
-        await streamPrompt(message.id);
+        await streamPrompt(message.id, fixtureExpectedToken(message.params));
         return;
       default:
         if (message.id !== undefined) {
@@ -82,7 +82,7 @@ function runACPFixture() {
     }
   }
 
-  async function streamPrompt(promptID) {
+  async function streamPrompt(promptID, expectedToken) {
     const oversizedToolCallCount = Number.parseInt(
       process.env.TUTTI_PERF_OVERSIZED_TOOL_CALLS ?? "",
       10
@@ -103,6 +103,15 @@ function runACPFixture() {
         }
       });
       await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    if (expectedToken && !canceled) {
+      notify("session/update", {
+        sessionId: activeSessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: expectedToken }
+        }
+      });
     }
     respond(promptID, { stopReason: canceled ? "canceled" : "end_turn" });
   }
@@ -144,6 +153,21 @@ function runACPFixture() {
     }
     respond(promptID, { stopReason: canceled ? "canceled" : "end_turn" });
   }
+}
+
+function fixtureExpectedToken(params) {
+  const prefix = "Reply with exactly this text: ";
+  const text = collectText(params?.prompt ?? params?.content);
+  const index = text.indexOf(prefix);
+  return index < 0 ? "" : text.slice(index + prefix.length).trim();
+}
+
+function collectText(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(collectText).join("");
+  if (!value || typeof value !== "object") return "";
+  if (typeof value.text === "string") return value.text;
+  return Object.values(value).map(collectText).join("");
 }
 
 function respond(id, result) {

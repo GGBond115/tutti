@@ -14,6 +14,9 @@
       "$ref": "#/$defs/interactionUpdate"
     },
     {
+      "$ref": "#/$defs/interactionSnapshot"
+    },
+    {
       "$ref": "#/$defs/sessionAudit"
     }
   ],
@@ -221,6 +224,39 @@
     },
     "interactionUpdate": {
       "$ref": "../../../../events/protocol/definitions/agent/activity.updated.event.json#/payloadSchema/oneOf/6"
+    },
+    "interactionSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "agentSessionId", "eventType", "data"],
+      "properties": {
+        "workspaceId": { "type": "string", "minLength": 1 },
+        "agentSessionId": { "type": "string", "minLength": 1 },
+        "eventType": { "const": "interaction_snapshot" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "workspaceId",
+            "agentSessionId",
+            "eventType",
+            "occurredAtUnixMs",
+            "interactions"
+          ],
+          "properties": {
+            "workspaceId": { "type": "string", "minLength": 1 },
+            "agentSessionId": { "type": "string", "minLength": 1 },
+            "eventType": { "const": "interaction_snapshot" },
+            "occurredAtUnixMs": { "type": "integer", "minimum": 0 },
+            "interactions": {
+              "type": "array",
+              "items": {
+                "$ref": "../../../../events/protocol/definitions/agent/activity.updated.event.json#/payloadSchema/oneOf/6/properties/data/properties/interaction"
+              }
+            }
+          }
+        }
+      }
     },
     "sessionAudit": {
       "$ref": "../../../../events/protocol/definitions/agent/activity.updated.event.json#/payloadSchema/oneOf/4"

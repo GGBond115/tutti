@@ -6,8 +6,8 @@ import type {
 import type { PropsWithChildren, RefObject } from "react";
 import { describe, expect, it } from "vitest";
 import {
-  AgentActivityRuntimeProvider,
-  type AgentActivityRuntime
+  AgentGUIRuntimeProvider,
+  type AgentGUIRuntime
 } from "../../../agentActivityRuntime";
 import { createTestAgentSessionEngine } from "../../../shared/testing/createTestAgentSessionEngine";
 import type { AgentGUINodeData } from "../../../types";
@@ -20,9 +20,9 @@ describe("useAgentGUISessionDetailTransport", () => {
       sessionMessagesById: { "session-1": [optimisticMessage] }
     } as unknown as AgentActivitySnapshot);
     const wrapper = ({ children }: PropsWithChildren) => (
-      <AgentActivityRuntimeProvider runtime={runtime}>
+      <AgentGUIRuntimeProvider runtime={runtime}>
         {children}
-      </AgentActivityRuntimeProvider>
+      </AgentGUIRuntimeProvider>
     );
     const rendered = renderHook(
       () =>
@@ -52,12 +52,12 @@ describe("useAgentGUISessionDetailTransport", () => {
   });
 });
 
-function createRuntime(snapshot: AgentActivitySnapshot): AgentActivityRuntime {
+function createRuntime(snapshot: AgentActivitySnapshot): AgentGUIRuntime {
   return {
     getSnapshot: () => snapshot,
     origin: "test",
     subscribe: () => () => {}
-  } as unknown as AgentActivityRuntime;
+  } as unknown as AgentGUIRuntime;
 }
 
 function message(): AgentActivityMessage {

@@ -199,10 +199,6 @@ export function WorkspaceAppCenterPane({
     () => createComingSoonWorkspaceApps(i18n, locale),
     [i18n, locale]
   );
-  const categoryLabels = useMemo(
-    () => createWorkspaceAppCategoryLabels(i18n),
-    [i18n]
-  );
   const loadFactoryProviderConfiguration = useMemo(
     () =>
       async (
@@ -344,12 +340,7 @@ export function WorkspaceAppCenterPane({
     ).filter((app) => shouldShowWorkspaceApp(app.appId));
 
     return createAppCenterViewModel({
-      apps: recommendedApps.map((app) =>
-        toWorkspaceAppRecord(
-          app,
-          resolveWorkspaceAppCategory(app.appId, categoryLabels)
-        )
-      ),
+      apps: recommendedApps.map((app) => toWorkspaceAppRecord(app)),
       factoryJobs: state.factoryJobs.map((job) => ({
         agentSessionId: job.agentSessionId,
         appId: job.appId,
@@ -371,14 +362,7 @@ export function WorkspaceAppCenterPane({
         toWorkspaceAppRuntimeState(app)
       )
     });
-  }, [
-    categoryLabels,
-    comingSoonApps,
-    i18n,
-    locale,
-    state.apps,
-    state.factoryJobs
-  ]);
+  }, [comingSoonApps, i18n, locale, state.apps, state.factoryJobs]);
 
   return (
     <>
@@ -488,60 +472,6 @@ function withComingSoonWorkspaceApps(
     : mergedApps;
 }
 
-function createWorkspaceAppCategoryLabels(i18n: {
-  readonly t: (key: string) => string;
-}): Record<WorkspaceAppCategoryID, string> {
-  return {
-    contentCreation: i18n.t("appCenter.categories.contentCreation"),
-    office: i18n.t("appCenter.categories.office"),
-    productDesign: i18n.t("appCenter.categories.productDesign"),
-    tools: i18n.t("appCenter.categories.tools")
-  };
-}
-
-type WorkspaceAppCategoryID =
-  | "contentCreation"
-  | "office"
-  | "productDesign"
-  | "tools";
-
-function resolveWorkspaceAppCategory(
-  appId: string,
-  labels: Record<WorkspaceAppCategoryID, string>
-): string | null {
-  switch (appId.trim().toLowerCase()) {
-    case "product-competition":
-    case "daily-product-radar":
-    case "daily-tech-radar":
-    case "radar":
-    case "design-review":
-    case "vibe-design":
-      return labels.productDesign;
-    case "ai-slide":
-    case "ai-doc":
-    case "ai-sheet":
-      return labels.office;
-    case "ai-media-canvas":
-    case "media-canvas":
-    case "open-cut":
-      return labels.contentCreation;
-    case "automation":
-    case "group-chat":
-    case "issue":
-    case "issues":
-    case "issue-manager":
-    case "workspace-issue":
-    case "workspace-issue-manager":
-    case "draw-topic-app":
-    case "answer-book":
-    case "app_answer_book":
-    case "idea-draw":
-      return labels.tools;
-    default:
-      return null;
-  }
-}
-
 function resolveAppCenterReadyAgentProviderOptions(
   statuses: readonly AgentProviderStatus[],
   agentTargets: readonly AgentTargetPresentation[]
@@ -567,10 +497,7 @@ function resolveAppCenterReadyAgentProviderOptions(
     }));
 }
 
-function toWorkspaceAppRecord(
-  app: WorkspaceAppCenterApp,
-  category: string | null
-): WorkspaceAppRecord {
+function toWorkspaceAppRecord(app: WorkspaceAppCenterApp): WorkspaceAppRecord {
   const manifest = toWorkspaceAppManifest(app);
   return {
     availableIconUrl: app.availableIconUrl,
@@ -592,7 +519,6 @@ function toWorkspaceAppRecord(
               : "local"
       }
     },
-    category,
     createdAtUnixMs: app.createdAtUnixMs,
     install: app.installed
       ? {

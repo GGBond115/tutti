@@ -12,6 +12,7 @@ const (
 	ActivityEventKindIntent         ActivityEventKind = "intent"
 	ActivityEventKindEffect         ActivityEventKind = "effect"
 	ActivityEventKindDirectStimulus ActivityEventKind = "direct-stimulus"
+	PortableReplayCWDToken                            = "${REPLAY_CWD}"
 )
 
 // ActivityEvent is one fact on the ordered user-activity timeline. Intents
@@ -26,10 +27,12 @@ type ActivityEvent struct {
 	EventID         string            `json:"eventId"`
 	CorrelationID   string            `json:"correlationId,omitempty"`
 	CausedByEventID string            `json:"causedByEventId,omitempty"`
-	ScopeID         string            `json:"scopeId"`
-	AgentSessionID  string            `json:"agentSessionId,omitempty"`
-	Payload         map[string]any    `json:"payload,omitempty"`
-	OccurredAtMS    int64             `json:"occurredAtUnixMs"`
+	// ScopeID is capture-only routing context. It is never serialized into a
+	// portable Cassette; replay injects its transient product scope.
+	ScopeID        string         `json:"-"`
+	AgentSessionID string         `json:"agentSessionId,omitempty"`
+	Payload        map[string]any `json:"payload,omitempty"`
+	OccurredAtMS   int64          `json:"occurredAtUnixMs"`
 }
 
 func ValidateActivityEvent(event ActivityEvent) error {
@@ -39,7 +42,6 @@ func ValidateActivityEvent(event ActivityEvent) error {
 	if event.Sequence == 0 ||
 		strings.TrimSpace(event.Type) == "" ||
 		strings.TrimSpace(event.EventID) == "" ||
-		strings.TrimSpace(event.ScopeID) == "" ||
 		event.OccurredAtMS <= 0 {
 		return errors.New("activity event is missing required identity or timing")
 	}
@@ -47,6 +49,14 @@ func ValidateActivityEvent(event ActivityEvent) error {
 	case ActivityEventKindIntent, ActivityEventKindDirectStimulus:
 		if strings.TrimSpace(event.CausedByEventID) != "" {
 			return fmt.Errorf("%s activity event cannot have causedByEventId", event.Kind)
+		}
+		if event.Kind == ActivityEventKindIntent {
+			if _, ok := PortableActivityContract.IntentContract(event.Type); !ok {
+				return fmt.Errorf(
+					"intent activity event type %q is not in the activity contract",
+					event.Type,
+				)
+			}
 		}
 	case ActivityEventKindEffect:
 		if strings.TrimSpace(event.CausedByEventID) == "" {
@@ -88,6 +98,14 @@ func ValidateActivityEvents(events []ActivityEvent) error {
 					eventID,
 				)
 			}
+			if !PortableActivityContract.AllowsEffect(cause.Type, event.Type) {
+				return fmt.Errorf(
+					"effect activity event %q type %q is not allowed for intent type %q",
+					eventID,
+					event.Type,
+					cause.Type,
+				)
+			}
 			correlationID := strings.TrimSpace(event.CorrelationID)
 			causeCorrelationID := strings.TrimSpace(cause.CorrelationID)
 			if correlationID != "" && causeCorrelationID != "" &&
@@ -99,6 +117,41 @@ func ValidateActivityEvents(events []ActivityEvent) error {
 			}
 		}
 		seen[eventID] = event
+	}
+	return nil
+}
+
+// ValidateActivityTimelineComplete validates one full recorded activity
+// timeline: the structural and contract rules of ValidateActivityEvents plus
+// completeness. Every intent whose contract type requires an effect must be
+// referenced by at least one effect before the recording may publish or a
+// cassette may be accepted for replay.
+func ValidateActivityTimelineComplete(events []ActivityEvent) error {
+	if err := ValidateActivityEvents(events); err != nil {
+		return err
+	}
+	covered := make(map[string]struct{}, len(events))
+	for _, event := range events {
+		if event.Kind == ActivityEventKindEffect {
+			covered[strings.TrimSpace(event.CausedByEventID)] = struct{}{}
+		}
+	}
+	for _, event := range events {
+		if event.Kind != ActivityEventKindIntent {
+			continue
+		}
+		intent, _ := PortableActivityContract.IntentContract(event.Type)
+		if !intent.RequiresEffect {
+			continue
+		}
+		if _, ok := covered[strings.TrimSpace(event.EventID)]; !ok {
+			return fmt.Errorf(
+				"intent activity event %q type %q correlation %q requires at least one effect",
+				event.EventID,
+				event.Type,
+				event.CorrelationID,
+			)
+		}
 	}
 	return nil
 }

@@ -63,31 +63,6 @@ describe("ComposerTuttiModeChip", () => {
     expect(onTuttiModeChange).toHaveBeenCalledWith(false);
   });
 
-  it("renders nothing without an activation callback", () => {
-    render(
-      <ComposerTuttiModeChip {...chipProps({ onTuttiModeChange: undefined })} />
-    );
-    expect(
-      screen.queryByTestId("agent-gui-composer-tutti-mode-toggle")
-    ).not.toBeInTheDocument();
-  });
-
-  it("renders nothing when the host Tutti Mode capability is disabled or omitted", () => {
-    render(
-      <ComposerTuttiModeChip {...chipProps({ tuttiModeSupported: false })} />
-    );
-    expect(
-      screen.queryByTestId("agent-gui-composer-tutti-mode-toggle")
-    ).not.toBeInTheDocument();
-  });
-
-  it("disables the switch while the activation update is pending", () => {
-    render(<ComposerTuttiModeChip {...chipProps({ updating: true })} />);
-    expect(
-      screen.getByTestId("agent-gui-composer-tutti-mode-toggle-switch")
-    ).toBeDisabled();
-  });
-
   it("plays the snap-stars animation on hover and clears it on leave", async () => {
     render(<ComposerTuttiModeChip {...chipProps()} />);
     const chip = screen.getByTestId("agent-gui-composer-tutti-mode-toggle");

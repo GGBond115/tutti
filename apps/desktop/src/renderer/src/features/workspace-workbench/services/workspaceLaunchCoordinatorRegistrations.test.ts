@@ -56,14 +56,14 @@ test("browser coordinator keeps a replacement after stale disposal", async () =>
     "workspace-browser-registration",
     () => {
       calls.push("first");
-      return false;
+      return null;
     }
   );
   const disposeReplacement = registerWorkspaceBrowserLaunchHandler(
     "workspace-browser-registration",
     () => {
       calls.push("replacement");
-      return true;
+      return "browser:replacement";
     }
   );
 

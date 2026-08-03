@@ -9,12 +9,31 @@ import (
 
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
+	replay "github.com/tutti-os/tutti/packages/agent/session-replay"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 func (c *Controller) enqueueSessionReport(ctx context.Context, session Session, events []activityshared.Event) {
+	c.observeGoalControlLifecycle(ctx, session, events)
+	c.mu.Lock()
+	provisional := c.provisionalSessions[sessionKey(session.RoomID, session.AgentSessionID)]
+	c.mu.Unlock()
+	if provisional {
+		// A still-provisional runtime has not crossed the durable submitted-intent
+		// barrier. Keep incidental provider events hidden until that barrier
+		// publishes the canonical prompt. The normal initial-content path removes
+		// this marker immediately after the barrier, so an explicit rejection is
+		// projected as a visible failed Turn rather than compensated away.
+		session.Visible = false
+	}
 	report := reportActivityInput(session, events)
 	c.enrichReportStatePatchesWithSessionMetadata(session, &report)
+	if provisional {
+		hideProvisionalSessionReport(&report)
+		report.MessageUpdates = nil
+		report.SessionAudits = nil
+	}
+	c.observeProviderObservations(ctx, session, report.ProviderObservations)
 	if len(report.GoalReconcileRequests) > 0 {
 		control := report
 		control.TimelineItems = nil
@@ -27,18 +46,137 @@ func (c *Controller) enqueueSessionReport(ctx context.Context, session Session, 
 	c.enqueueReport(ctx, report)
 }
 
+func (c *Controller) SetGoalControlLifecycleObserver(observer GoalControlLifecycleObserver) {
+	if c == nil {
+		return
+	}
+	c.goalControlObserverMu.Lock()
+	c.goalControlObserver = observer
+	c.goalControlObserverMu.Unlock()
+}
+
+func (c *Controller) observeGoalControlLifecycle(
+	ctx context.Context,
+	session Session,
+	events []activityshared.Event,
+) {
+	if c == nil || len(events) == 0 {
+		return
+	}
+	c.goalControlObserverMu.RLock()
+	observer := c.goalControlObserver
+	c.goalControlObserverMu.RUnlock()
+	if observer == nil {
+		return
+	}
+	for _, event := range events {
+		if event.Type != activityshared.EventGoalControlApplied {
+			continue
+		}
+		metadata := event.Payload.Metadata
+		observation := GoalControlAppliedObservation{
+			WorkspaceID:      session.RoomID,
+			AgentSessionID:   firstNonEmptyString(event.AgentSessionID, session.AgentSessionID),
+			OperationID:      stringFromPayload(metadata, "operationId"),
+			Revision:         payloadInt64(metadata, "revision"),
+			RepairEpoch:      payloadInt64(metadata, "repairEpoch"),
+			Action:           stringFromPayload(metadata, "action"),
+			ProviderTurnID:   stringFromPayload(metadata, "providerTurnId"),
+			Observed:         payloadObject(metadata["goal"]),
+			OccurredAtUnixMS: event.OccurredAtUnixMS,
+		}
+		if err := observer.ObserveGoalControlApplied(ctx, observation); err != nil {
+			slog.Warn(
+				"record runtime goal control application failed",
+				"event", "agent_session.goal_control.observe_applied_failed",
+				"room_id", observation.WorkspaceID,
+				"agent_session_id", observation.AgentSessionID,
+				"operation_id", observation.OperationID,
+				"revision", observation.Revision,
+				"error", err,
+			)
+		}
+	}
+}
+
+func (c *Controller) SetProviderObservationObserver(observer ProviderObservationObserver) {
+	if c == nil {
+		return
+	}
+	c.providerObservationMu.Lock()
+	c.providerObservationObserver = observer
+	c.providerObservationMu.Unlock()
+}
+
+func (c *Controller) observeProviderObservations(
+	ctx context.Context,
+	session Session,
+	observations []replay.ProviderObservationBatch,
+) {
+	if c == nil || len(observations) == 0 {
+		return
+	}
+	c.providerObservationMu.RLock()
+	observer := c.providerObservationObserver
+	c.providerObservationMu.RUnlock()
+	if observer == nil {
+		return
+	}
+	if err := observer.ObserveProviderObservations(
+		ctx,
+		session.RoomID,
+		session.AgentSessionID,
+		observations,
+	); err != nil {
+		slog.Warn(
+			"record provider observation candidate failed",
+			"event", "agent_session.provider_observation.record_failed",
+			"room_id", session.RoomID,
+			"agent_session_id", session.AgentSessionID,
+			"error", err,
+		)
+	}
+}
+
 // reportSubmittedTurnDurable is the acceptance barrier for a user submission.
 // The daemon reporter commits the submitted Turn and its session pointer before
 // Exec may publish the transition, start provider work, or return success.
-func (c *Controller) reportSubmittedTurnDurable(ctx context.Context, session Session, events []activityshared.Event) error {
+func (c *Controller) reportSubmittedTurnDurable(
+	ctx context.Context,
+	session Session,
+	events []activityshared.Event,
+	keepProvisional bool,
+) error {
 	if c == nil || c.reporter == nil {
 		// Reporter-less controllers are used as standalone runtimes and have no
 		// durable projection. The wired tuttid runtime always provides a reporter.
 		return nil
 	}
+	if keepProvisional {
+		session.Visible = false
+	}
 	report := reportActivityInput(session, events)
 	c.enrichReportStatePatchesWithSessionMetadata(session, &report)
+	if keepProvisional {
+		hideProvisionalSessionReport(&report)
+	}
 	return c.reporter.Report(ctx, report)
+}
+
+func hideProvisionalSessionReport(report *agentsessionstore.ReportActivityInput) {
+	if report == nil {
+		return
+	}
+	for index := range report.StatePatches {
+		report.StatePatches[index].RuntimeContext = clonePayload(
+			report.StatePatches[index].RuntimeContext,
+		)
+		if report.StatePatches[index].RuntimeContext == nil {
+			report.StatePatches[index].RuntimeContext = make(map[string]any)
+		}
+		report.StatePatches[index].RuntimeContext["visible"] = false
+		report.StatePatches[index].RuntimeContext["provisional"] = true
+	}
 }
 
 // reportProviderAcceptanceDurable is the acceptance barrier for a provider
@@ -53,6 +191,9 @@ func (c *Controller) reportProviderAcceptanceDurable(
 	}
 	report := reportActivityInput(session, events)
 	c.enrichReportStatePatchesWithSessionMetadata(session, &report)
+	// Mirror enqueueSessionReport: observe batches before the durable commit so
+	// checkpoint candidates exist when ObserveReplayCommitted runs.
+	c.observeProviderObservations(ctx, session, report.ProviderObservations)
 	reportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	request := reportRequest{
@@ -69,6 +210,32 @@ func (c *Controller) reportProviderAcceptanceDurable(
 		return true, err
 	case <-reportCtx.Done():
 		return true, reportCtx.Err()
+	}
+}
+
+// flushSessionReports waits until every report enqueued earlier for this
+// Session has crossed the durable reporter. Goal-generation fencing uses this
+// after the adapter's publication handoff, so Host cannot observe an idle
+// Session immediately before an already-published Goal start commits.
+func (c *Controller) flushSessionReports(ctx context.Context, session Session) error {
+	if c == nil || c.reportQueue == nil {
+		return nil
+	}
+	request := reportRequest{
+		ctx: context.WithoutCancel(ctx),
+		report: agentsessionstore.ReportActivityInput{
+			WorkspaceID: session.RoomID,
+			Source:      eventSourceFromSession(session),
+		},
+		barrier: true,
+		done:    make(chan error, 1),
+	}
+	c.reportQueue.enqueue(request)
+	select {
+	case err := <-request.done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -216,7 +383,11 @@ func enrichReportStatePatchesWithSessionMetadata(
 			continue
 		}
 		report.StatePatches[index].Settings = clonePayload(patch.Settings)
+		if patch.Capabilities != nil {
+			report.StatePatches[index].Capabilities = canonical.CloneCapabilitySnapshot(patch.Capabilities)
+		}
 		report.StatePatches[index].RuntimeContext = clonePayload(patch.RuntimeContext)
+		report.StatePatches[index].RuntimeContextPatch = nil
 		if report.StatePatches[index].Provider == "" {
 			report.StatePatches[index].Provider = patch.Provider
 		}
@@ -326,6 +497,9 @@ func (c *Controller) report(ctx context.Context, request reportRequest) (reportE
 			request.done <- reportErr
 			close(request.done)
 		}()
+	}
+	if request.barrier {
+		return nil
 	}
 	if c.reporter == nil {
 		return errors.New("agent session activity reporter is unavailable")

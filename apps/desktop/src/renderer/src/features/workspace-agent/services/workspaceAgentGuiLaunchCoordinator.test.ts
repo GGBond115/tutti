@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   registerWorkspaceAgentGuiLaunchHandler,
-  requestWorkspaceAgentGuiLaunch
+  requestWorkspaceAgentGuiLaunch,
+  requestWorkspaceAgentGuiNodeLaunch
 } from "./workspaceAgentGuiLaunchCoordinator.ts";
 
 test("workspace Agent GUI launch coordinator dispatches to the workspace handler", async () => {
@@ -65,4 +66,34 @@ test("workspace Agent GUI launch coordinator rejects empty workspace ids", async
     await requestWorkspaceAgentGuiLaunch({ workspaceId: " " }),
     false
   );
+});
+
+test("workspace Agent GUI launch coordinator returns the launched node id", async () => {
+  const requests: unknown[] = [];
+  const dispose = registerWorkspaceAgentGuiLaunchHandler(
+    "workspace-node",
+    (request) => {
+      requests.push(request);
+      return "node-1";
+    }
+  );
+
+  assert.equal(
+    await requestWorkspaceAgentGuiNodeLaunch({
+      agentSessionId: "session-1",
+      agentTargetId: "target-1",
+      forceNewInstance: true,
+      workspaceId: "workspace-node"
+    }),
+    "node-1"
+  );
+  assert.deepEqual(requests, [
+    {
+      agentSessionId: "session-1",
+      agentTargetId: "target-1",
+      forceNewInstance: true,
+      workspaceId: "workspace-node"
+    }
+  ]);
+  dispose();
 });

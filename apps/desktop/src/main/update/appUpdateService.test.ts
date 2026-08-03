@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ProgressInfo } from "electron-updater";
 import type { UpdateDownloadedEvent, UpdateInfo } from "electron-updater";
+import type { DesktopUpdateDevelopmentScenario } from "@tutti-os/desktop-update-admission/development";
 import {
   createAppUpdateService,
   createElectronAppUpdateDriver,
@@ -9,16 +10,14 @@ import {
 } from "./appUpdateService.ts";
 
 test("createAppUpdateService can enable dev updates with an injected current version", async () => {
-  const env = withAppUpdateEnv({
-    TUTTI_APP_UPDATE_CURRENT_VERSION: "0.2.0-rc.0",
-    TUTTI_APP_UPDATE_DEV: "1"
-  });
   const driver = createFakeDriver();
+  const scenario = createDevelopmentScenario();
 
+  const service = createAppUpdateService(driver, {
+    currentVersion: scenario.currentVersion,
+    developmentScenario: scenario
+  });
   try {
-    const service = createAppUpdateService(driver, {
-      supportsUpdates: undefined
-    });
     const state = await service.configure({
       channel: "rc",
       policy: "auto"
@@ -31,26 +30,22 @@ test("createAppUpdateService can enable dev updates with an injected current ver
         allowPrerelease: true,
         autoDownload: true,
         autoInstallOnAppQuit: true,
-        channel: "rc",
-        forceDevUpdateConfig: true
+        channel: "rc"
       }
     ]);
-    service.dispose();
   } finally {
-    env.restore();
+    service.dispose();
   }
 });
 
 test("createAppUpdateService can simulate a dev prerelease update", async () => {
-  const env = withAppUpdateEnv({
-    TUTTI_APP_UPDATE_CURRENT_VERSION: "0.2.0-rc.0",
-    TUTTI_APP_UPDATE_DEV: "1",
-    TUTTI_APP_UPDATE_LATEST_VERSION: "0.2.0-rc.1",
-    TUTTI_APP_UPDATE_MOCK: "available"
+  const scenario = createDevelopmentScenario();
+  const service = createAppUpdateService(undefined, {
+    currentVersion: scenario.currentVersion,
+    developmentScenario: scenario
   });
 
   try {
-    const service = createAppUpdateService();
     await service.configure({
       channel: "rc",
       policy: "prompt"
@@ -60,9 +55,60 @@ test("createAppUpdateService can simulate a dev prerelease update", async () => 
     assert.equal(state.currentVersion, "0.2.0-rc.0");
     assert.equal(state.latestVersion, "0.2.0-rc.1");
     assert.equal(state.status, "available");
-    service.dispose();
   } finally {
-    env.restore();
+    service.dispose();
+  }
+});
+
+test("mandatory update sessions exclusively own and restore the updater", async () => {
+  let checkCalls = 0;
+  const driver = createFakeDriver({
+    async checkForUpdates() {
+      checkCalls += 1;
+    }
+  });
+  const service = createAppUpdateService(driver, { supportsUpdates: true });
+
+  try {
+    await service.configure({ channel: "stable", policy: "auto" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const checksAfterNormalConfigure = checkCalls;
+    const session = await service.acquireMandatorySession({
+      channel: "rc",
+      minimumVersion: "2.0.0-rc.1",
+      policyRevision: "revision-1"
+    });
+
+    await session.prepare();
+    assert.equal(
+      checkCalls,
+      checksAfterNormalConfigure + 1,
+      "mandatory prepare owns exactly one update check"
+    );
+    await assert.rejects(
+      service.checkForUpdates(),
+      /owned by the mandatory update session/
+    );
+    await assert.rejects(
+      service.acquireMandatorySession({
+        channel: "stable",
+        minimumVersion: "2.0.0",
+        policyRevision: "revision-2"
+      }),
+      /already active/
+    );
+
+    await session.release();
+    await waitFor(
+      () => checkCalls === checksAfterNormalConfigure + 2,
+      "normal updater check did not resume after mandatory session release"
+    );
+    assert.equal(service.getState().channel, "stable");
+    assert.equal(service.getState().policy, "auto");
+    assert.equal(checkCalls, checksAfterNormalConfigure + 2);
+    await assert.rejects(session.prepare(), /no longer active/);
+  } finally {
+    service.dispose();
   }
 });
 
@@ -74,8 +120,7 @@ test("createElectronAppUpdateDriver keeps downgrade checks disabled after settin
     allowPrerelease: true,
     autoDownload: false,
     autoInstallOnAppQuit: false,
-    channel: "rc",
-    forceDevUpdateConfig: true
+    channel: "rc"
   });
 
   assert.equal(updater.channel, "rc");
@@ -87,10 +132,6 @@ test("createElectronAppUpdateDriver keeps downgrade checks disabled after settin
 });
 
 test("createAppUpdateService configures the static RC feed before checking", async () => {
-  const env = withAppUpdateEnv({
-    TUTTI_APP_UPDATE_CURRENT_VERSION: "0.0.1-rc.16",
-    TUTTI_APP_UPDATE_DEV: "1"
-  });
   const calls: string[] = [];
   const driver = createFakeDriver({
     checkForUpdates: async () => {
@@ -104,6 +145,7 @@ test("createAppUpdateService configures the static RC feed before checking", asy
 
   try {
     service = createAppUpdateService(driver, {
+      currentVersion: "0.0.1-rc.16",
       releaseFeedResolver: async ({ channel }) => {
         calls.push(`resolve:${channel}`);
         return {
@@ -129,7 +171,6 @@ test("createAppUpdateService configures the static RC feed before checking", asy
     ]);
   } finally {
     service?.dispose();
-    env.restore();
   }
 });
 
@@ -599,24 +640,16 @@ function createUpdateDownloadedInfoFixture(
   };
 }
 
-function withAppUpdateEnv(values: Record<string, string>): {
-  restore(): void;
-} {
-  const previous = new Map<string, string | undefined>();
-  for (const [key, value] of Object.entries(values)) {
-    previous.set(key, process.env[key]);
-    process.env[key] = value;
-  }
-
+function createDevelopmentScenario(): DesktopUpdateDevelopmentScenario {
   return {
-    restore() {
-      for (const [key, value] of previous) {
-        if (value === undefined) {
-          delete process.env[key];
-        } else {
-          process.env[key] = value;
-        }
-      }
+    currentVersion: "0.2.0-rc.0",
+    mockServerUrl: null,
+    transport: "in-process",
+    updater: {
+      check: "available",
+      download: "success",
+      install: "simulated",
+      latestVersion: "0.2.0-rc.1"
     }
   };
 }
@@ -626,7 +659,6 @@ type DriverConfigureCall = {
   autoDownload: boolean;
   autoInstallOnAppQuit: boolean;
   channel: string;
-  forceDevUpdateConfig: boolean;
 };
 
 function createFakeDriver(
@@ -671,6 +703,19 @@ function createFakeDriver(
 
 function noop() {}
 
+async function waitFor(
+  predicate: () => boolean,
+  failureMessage: string
+): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      assert.fail(failureMessage);
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
 function createDeferred<T>(): {
   promise: Promise<T>;
   resolve(value: T): void;
@@ -699,7 +744,6 @@ function createFakeElectronUpdater() {
     allowPrerelease: false,
     autoDownload: true,
     autoInstallOnAppQuit: true,
-    forceDevUpdateConfig: false,
     feedUrls,
     logger: null,
     get channel() {

@@ -16,21 +16,23 @@ type AgentSessionRecordingService interface {
 	List(context.Context, string) ([]agentsessionreplay.Recording, error)
 	Get(context.Context, string) (agentsessionreplay.Recording, error)
 	Rename(context.Context, string, string) (agentsessionreplay.Recording, error)
+	Delete(context.Context, string) error
 	Complete(context.Context, string) (agentsessionreplay.Recording, error)
 	Cancel(context.Context, string) (agentsessionreplay.Recording, error)
 	Bind(context.Context, agentsessionreplay.BindInput) (agentsessionreplay.Recording, error)
 	RecordActivityEvent(context.Context, agentsessionreplay.ActivityEvent) error
 	RecordActivityEvents(context.Context, []agentsessionreplay.ActivityEvent) (uint64, error)
-	PrepareReplayRun(context.Context, string) (agentsessionreplay.ReplayRequest, error)
-	ListReplayRuns(context.Context, string) ([]agentsessionreplay.ReplayRun, error)
-	GetReplayRun(context.Context, string) (agentsessionreplay.ReplayRun, error)
+	Import(
+		context.Context,
+		agentsessionreplay.ImportInput,
+	) (agentsessionreplay.ImportResult, error)
+	PrepareReplayWorkspace(
+		context.Context,
+		string,
+		[]string,
+	) (agentsessionreplay.ReplayWorkspaceRequest, error)
 	GetCassette(context.Context, string) (agentsessionreplay.Cassette, error)
 	ListCassettes(context.Context, string) ([]agentsessionreplay.Cassette, error)
-	MarkReplayRunRunning(context.Context, string) (agentsessionreplay.ReplayRun, error)
-	AdvanceReplayRunCheckpoint(context.Context, string, int64) (agentsessionreplay.ReplayRun, error)
-	CancelReplayRun(context.Context, string) (agentsessionreplay.ReplayRun, error)
-	CompleteReplayRun(context.Context, string, int64) (agentsessionreplay.ReplayRun, error)
-	FailReplayRun(context.Context, string, int64, string, error) (agentsessionreplay.ReplayRun, error)
 }
 
 func (api DaemonAPI) ListAgentSessionRecordings(
@@ -83,9 +85,10 @@ func (api DaemonAPI) StartAgentSessionRecording(
 		}, nil
 	}
 	recording, err := api.AgentSessionRecordingService.Start(ctx, agentsessionreplay.StartInput{
-		WorkspaceID:    string(request.WorkspaceID),
-		AgentTargetID:  request.Body.AgentTargetId,
-		AgentSessionID: stringPtrValue(request.Body.AgentSessionId),
+		WorkspaceID:         string(request.WorkspaceID),
+		AgentTargetID:       request.Body.AgentTargetId,
+		AgentSessionID:      stringPtrValue(request.Body.AgentSessionId),
+		ReplayPrerequisites: replayPrerequisitesFromGenerated(request.Body.ReplayPrerequisites),
 	})
 	if err != nil {
 		switch {
@@ -116,6 +119,19 @@ func (api DaemonAPI) StartAgentSessionRecording(
 		return nil, err
 	}
 	return tuttigenerated.StartAgentSessionRecording201JSONResponse(generated), nil
+}
+
+func replayPrerequisitesFromGenerated(
+	input tuttigenerated.AgentSessionReplayPrerequisites,
+) agentsessionreplay.ReplayPrerequisites {
+	return agentsessionreplay.ReplayPrerequisites{
+		ComposerDefaults: agentsessionreplay.ReplayComposerDefaults{
+			Model:            input.ComposerDefaults.Model,
+			PermissionModeID: input.ComposerDefaults.PermissionModeId,
+			ReasoningEffort:  input.ComposerDefaults.ReasoningEffort,
+			Speed:            input.ComposerDefaults.Speed,
+		},
+	}
 }
 
 func (api DaemonAPI) GetAgentSessionRecording(
@@ -195,6 +211,39 @@ func (api DaemonAPI) RenameAgentSessionRecording(
 		return nil, err
 	}
 	return tuttigenerated.RenameAgentSessionRecording200JSONResponse(generated), nil
+}
+
+func (api DaemonAPI) DeleteAgentSessionRecording(
+	ctx context.Context,
+	request tuttigenerated.DeleteAgentSessionRecordingRequestObject,
+) (tuttigenerated.DeleteAgentSessionRecordingResponseObject, error) {
+	if api.AgentSessionRecordingService == nil {
+		return tuttigenerated.DeleteAgentSessionRecording503JSONResponse{
+			ServiceUnavailableErrorJSONResponse: agentSessionRecordingUnavailableError(),
+		}, nil
+	}
+	existing, err := api.AgentSessionRecordingService.Get(ctx, request.RecordingID.String())
+	if err != nil || existing.ScopeID != string(request.WorkspaceID) {
+		return tuttigenerated.DeleteAgentSessionRecording404JSONResponse(
+			agentSessionRecordingError("agent_session_recording_not_found", agentsessionreplay.ErrNotFound),
+		), nil
+	}
+	if err := api.AgentSessionRecordingService.Delete(ctx, request.RecordingID.String()); err != nil {
+		if errors.Is(err, agentsessionreplay.ErrInvalidState) {
+			return tuttigenerated.DeleteAgentSessionRecording409JSONResponse(
+				agentSessionRecordingError("agent_session_recording_active", err),
+			), nil
+		}
+		return tuttigenerated.DeleteAgentSessionRecording503JSONResponse{
+			ServiceUnavailableErrorJSONResponse: serviceUnavailableError(
+				apierrors.ServiceUnavailable(
+					"agent_session_recording_delete_failed",
+					apierrors.WithCause(err),
+				),
+			),
+		}, nil
+	}
+	return tuttigenerated.DeleteAgentSessionRecording204Response{}, nil
 }
 
 func (api DaemonAPI) CompleteAgentSessionRecording(
@@ -409,4 +458,11 @@ func (api DaemonAPI) recordAgentStimulus(
 		AgentSessionID: agentSessionID,
 		Payload:        payload,
 	})
+}
+
+func isRendererEngineCommandOrigin[T ~string](
+	origin *T,
+) bool {
+	return origin != nil &&
+		string(*origin) == "renderer-engine"
 }

@@ -7,7 +7,7 @@ import {
   selectEngineInteractionsForSession,
   selectAllWorkspaceAgentConsumerSessions
 } from "./sessionLifecycle.selectors.ts";
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 
 const EMPTY_PRESENCES: AgentActivitySnapshot["presences"] = [];
 
@@ -19,8 +19,8 @@ const EMPTY_PRESENCES: AgentActivitySnapshot["presences"] = [];
  */
 export function createAgentActivitySnapshotProjector(
   workspaceId: string
-): (state: AgentSessionEngineState) => AgentActivitySnapshot {
-  let previousState: AgentSessionEngineState | null = null;
+): (state: AgentSessionEngineStateBase) => AgentActivitySnapshot {
+  let previousState: AgentSessionEngineStateBase | null = null;
   let previousSnapshot: AgentActivitySnapshot | null = null;
   return (state) => {
     if (state === previousState && previousSnapshot) return previousSnapshot;

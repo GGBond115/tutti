@@ -6,17 +6,15 @@ This spec covers provider-native child agents only:
 
 - Codex app-server multi-agent child threads.
 - Claude Code SDK `Task` / subagent sessions and turns.
-- Claude Code SDK task-system background work that is not a subagent launch,
-  such as `run_in_background` Bash shells. It follows the same child contract:
-  it gates the root turn, projects as a child, and is individually cancelable.
 - ACP providers that expose an equivalent nested/background agent concept.
 
 It does not cover Tutti launching another top-level AgentGUI session with
 `tutti-dev agent start`, handoff mentions, or another Codex/Claude Code process.
-A background command that merely tracks such a top-level session (for example
-`tutti agent wait` running in a background shell) is itself SDK task-system
-work and is covered: the tracked session stays out of scope, but the tracking
-task holds the root turn open for exactly as long as the wait runs.
+It also does not turn Claude Code SDK task-system processes into child agents.
+A detached `run_in_background` Bash shell, including one that merely tracks a
+top-level session such as `tutti agent wait`, remains a root-owned tool launch.
+Its provider task id is retained for explicit stop, but the process does not
+create a child session, gate the root turn, or reserve an agent continuation.
 
 ## Product Contract
 
@@ -544,21 +542,21 @@ Mapping:
 - A foreground `Task` may settle its child turn from the terminal parent tool
   result. An async/background `Task` does not settle from the launch tool
   result; it waits for the matching task lifecycle terminal.
-- SDK task-system work that has no subagent launch result — most importantly a
-  `run_in_background` Bash shell — announces itself only through `task_started`
-  carrying a `tool_use_id` and `task_id`. The sidecar registers such an
-  unclaimed task as delegated child work keyed by that launching tool-use id,
-  so it gates the root turn, counts in the final-child continuation gate, and
-  can be stopped individually. A task event without a launching tool-use id is
-  not registered this way: it may be a racing alias for a not-yet-registered
-  subagent launch, and binding it would poison the alias maps.
-- Background task lifecycle events frequently arrive after the launching root
-  provider turn already reached its terminal. The sidecar attributes them to
-  the most recent turn instead of dropping them for lack of an active turn id.
+- SDK task-system work that has no subagent identity — most importantly a
+  `run_in_background` Bash shell — is tracked separately from delegated child
+  work. The successful root result completes the launch tool call even when
+  `task_started` is delayed; an earlier `task_started` may complete it with the
+  provider task id. The detached process remains independently stoppable, but
+  its lifetime does not create a child session, gate the root turn, count in
+  the final-child continuation gate, or synthesize follow-up model work.
+- Task-system process events frequently arrive after the launching root
+  provider turn reached its terminal. The sidecar may retain their
+  `tool_use_id` / `task_id` correlation for stop routing, but must not project
+  them as late child activity.
 - A terminal `task_notification` for a task the current sidecar instance never
-  saw start — typically a task launched before a sidecar restart and reported
-  as `stopped` on the next prompt — is registered and settled in one step so
-  the child reaches a terminal state instead of the notice being dropped.
+  saw start may recreate delegated state only when the message carries explicit
+  subagent identity. An unclaimed generic task-system notice is not enough to
+  invent a child session.
 - `parent_tool_use_id` is the canonical child scope marker for nested messages.
 - `taskId` and `agentId` are aliases. They must bind back to the existing child
   session/turn, never to "the only running task" when that would cross-bind

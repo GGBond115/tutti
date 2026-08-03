@@ -17,7 +17,10 @@ import (
 	replay "github.com/tutti-os/tutti/packages/agent/session-replay"
 )
 
-const processCassetteSchemaVersion = 2
+const (
+	ProcessCassetteSchemaVersion     = replay.ProcessCassetteSchemaVersion
+	ProcessCassetteProjectionVersion = replay.ProcessCassetteProjectionVersion
+)
 
 var (
 	processCassetteManifestName = "manifest.json"
@@ -29,58 +32,27 @@ var (
 	processCassetteMaxStoredBytes  = uint64(replay.MaxProviderTapeBytes)
 )
 
-var ErrProcessCassetteSizeLimit = errors.New("process cassette size limit exceeded")
+var ErrProcessCassetteSizeLimit = replay.ErrProcessCassetteSizeLimit
 
-type ProcessCassetteStatus string
+type ProcessCassetteStatus = replay.ProcessCassetteStatus
 
 const (
-	ProcessCassetteStatusIncomplete ProcessCassetteStatus = "incomplete"
-	ProcessCassetteStatusComplete   ProcessCassetteStatus = "complete"
+	ProcessCassetteStatusIncomplete = replay.ProcessCassetteStatusIncomplete
+	ProcessCassetteStatusComplete   = replay.ProcessCassetteStatusComplete
 )
 
-type ProcessCassetteManifest struct {
-	SchemaVersion int                                 `json:"schemaVersion"`
-	Status        ProcessCassetteStatus               `json:"status"`
-	FrameCount    uint64                              `json:"frameCount"`
-	PayloadBytes  uint64                              `json:"payloadBytes"`
-	StoredBytes   uint64                              `json:"storedBytes"`
-	MaxFrameBytes uint64                              `json:"maxFrameBytes"`
-	Limits        ProcessCassetteLimits               `json:"limits"`
-	FramesByKind  map[string]ProcessCassetteKindStats `json:"framesByKind"`
-	FramesSHA256  string                              `json:"framesSha256"`
-	Connections   []ProcessCassetteConnectionRecord   `json:"connections"`
-}
+type ProcessCassetteManifest = replay.ProcessCassetteManifest
+type ProcessCassetteLimits = replay.ProcessCassetteLimits
+type ProcessCassetteKindStats = replay.ProcessCassetteKindStats
+type ProcessCassetteCaptureOrigin = replay.ProcessCassetteCaptureOrigin
 
-type ProcessCassetteLimits struct {
-	MaxFrameBytes  uint64 `json:"maxFrameBytes"`
-	MaxStoredBytes uint64 `json:"maxStoredBytes"`
-}
+const (
+	ProcessCassetteCaptureOriginProcessStart           = replay.ProcessCassetteCaptureOriginProcessStart
+	ProcessCassetteCaptureOriginAttachedLiveConnection = replay.ProcessCassetteCaptureOriginAttachedLiveConnection
+)
 
-type ProcessCassetteKindStats struct {
-	FrameCount   uint64 `json:"frameCount"`
-	PayloadBytes uint64 `json:"payloadBytes"`
-	StoredBytes  uint64 `json:"storedBytes"`
-}
-
-type ProcessCassetteConnectionRecord struct {
-	ConnectionID       string `json:"connectionId"`
-	Provider           string `json:"provider"`
-	AgentSessionID     string `json:"agentSessionId"`
-	RootAgentSessionID string `json:"rootAgentSessionId"`
-	LaunchOrdinal      uint64 `json:"launchOrdinal"`
-	CWDToken           string `json:"cwdToken"`
-}
-
-type processCassetteChunk struct {
-	ConnectionID string `json:"connectionId"`
-	ChunkSeq     uint64 `json:"chunkSeq"`
-	GlobalSeq    uint64 `json:"globalSeq"`
-	ElapsedMS    int64  `json:"elapsedMs"`
-	Kind         string `json:"kind"`
-	Data         string `json:"data,omitempty"`
-	ExitCode     *int   `json:"exitCode,omitempty"`
-	Message      string `json:"message,omitempty"`
-}
+type ProcessCassetteConnectionRecord = replay.ProcessCassetteConnectionRecord
+type processCassetteChunk = replay.ProcessCassetteChunk
 
 type processCassetteWriter struct {
 	mu              sync.Mutex
@@ -91,6 +63,8 @@ type processCassetteWriter struct {
 	nextGlobalSeq   uint64
 	sessionLaunches map[string]uint64
 	connectionCWD   map[string]processCassetteCWD
+	projections     map[string]*processCassetteProjection
+	pending         []*pendingProcessCassetteChunk
 	maxPayloadBytes uint64
 	maxStoredBytes  uint64
 	active          int
@@ -100,6 +74,11 @@ type processCassetteWriter struct {
 type processCassetteCWD struct {
 	recorded string
 	token    string
+}
+
+type pendingProcessCassetteChunk struct {
+	chunk processCassetteChunk
+	ready bool
 }
 
 func newProcessCassetteWriter(directory string) (*processCassetteWriter, error) {
@@ -122,8 +101,9 @@ func newProcessCassetteWriter(directory string) (*processCassetteWriter, error) 
 		directory: directory,
 		chunks:    chunks,
 		manifest: ProcessCassetteManifest{
-			SchemaVersion: processCassetteSchemaVersion,
-			Status:        ProcessCassetteStatusIncomplete,
+			SchemaVersion:     ProcessCassetteSchemaVersion,
+			ProjectionVersion: ProcessCassetteProjectionVersion,
+			Status:            ProcessCassetteStatusIncomplete,
 			Limits: ProcessCassetteLimits{
 				MaxFrameBytes:  processCassetteMaxPayloadBytes,
 				MaxStoredBytes: processCassetteMaxStoredBytes,
@@ -132,6 +112,7 @@ func newProcessCassetteWriter(directory string) (*processCassetteWriter, error) 
 		},
 		sessionLaunches: map[string]uint64{},
 		connectionCWD:   map[string]processCassetteCWD{},
+		projections:     map[string]*processCassetteProjection{},
 		maxPayloadBytes: processCassetteMaxPayloadBytes,
 		maxStoredBytes:  processCassetteMaxStoredBytes,
 	}
@@ -142,37 +123,55 @@ func newProcessCassetteWriter(directory string) (*processCassetteWriter, error) 
 	return writer, nil
 }
 
-func (w *processCassetteWriter) start(spec ProcessSpec) (string, error) {
+func (w *processCassetteWriter) start(
+	spec ProcessSpec,
+	captureOrigin ProcessCassetteCaptureOrigin,
+) (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.finalized {
 		return "", errors.New("process cassette is already finalized")
 	}
+	sessionKey := normalizeProcessCassetteIdentity(spec.AgentSessionID)
+	nextLaunch := w.sessionLaunches[sessionKey] + 1
+	cwd := processCassetteCWD{
+		recorded: processCassetteProtocolCWD(spec),
+		token:    fmt.Sprintf("${SESSION_CWD:%s:%d}", sessionKey, nextLaunch),
+	}
+	projection, err := newProcessCassetteProjection(spec, cwd)
+	if err != nil {
+		return "", err
+	}
 	w.nextConnection++
 	connectionID := fmt.Sprintf("connection-%d", w.nextConnection)
-	sessionKey := normalizeProcessCassetteIdentity(spec.AgentSessionID)
-	w.sessionLaunches[sessionKey]++
-	cwdToken := fmt.Sprintf("${SESSION_CWD:%s:%d}", sessionKey, w.sessionLaunches[sessionKey])
+	w.sessionLaunches[sessionKey] = nextLaunch
 	w.manifest.Connections = append(w.manifest.Connections, ProcessCassetteConnectionRecord{
 		ConnectionID:       connectionID,
 		Provider:           spec.Provider,
 		AgentSessionID:     spec.AgentSessionID,
 		RootAgentSessionID: rootProcessSessionID(spec),
-		LaunchOrdinal:      w.sessionLaunches[sessionKey],
-		CWDToken:           cwdToken,
+		LaunchOrdinal:      nextLaunch,
+		CWDToken:           cwd.token,
+		CaptureOrigin:      captureOrigin,
 	})
-	w.connectionCWD[connectionID] = processCassetteCWD{
-		recorded: strings.TrimSpace(spec.CWD),
-		token:    cwdToken,
-	}
+	w.connectionCWD[connectionID] = cwd
 	w.active++
 	if err := w.writeManifestLocked(); err != nil {
 		w.active--
 		w.manifest.Connections = w.manifest.Connections[:len(w.manifest.Connections)-1]
 		delete(w.connectionCWD, connectionID)
+		delete(w.projections, connectionID)
 		return "", err
 	}
+	w.projections[connectionID] = projection
 	return connectionID, nil
+}
+
+func processCassetteProtocolCWD(spec ProcessSpec) string {
+	if cwd := strings.TrimSpace(spec.ProtocolCWD); cwd != "" {
+		return cwd
+	}
+	return strings.TrimSpace(spec.CWD)
 }
 
 func (w *processCassetteWriter) append(chunk processCassetteChunk) error {
@@ -181,11 +180,47 @@ func (w *processCassetteWriter) append(chunk processCassetteChunk) error {
 	if w.finalized {
 		return errors.New("process cassette is already finalized")
 	}
+	payloadBytes, err := processCassetteChunkPayloadBytes(chunk)
+	if err != nil {
+		return err
+	}
+	if payloadBytes > w.maxPayloadBytes {
+		return fmt.Errorf(
+			"%w: %s frame payload is %d bytes, limit is %d bytes",
+			ErrProcessCassetteSizeLimit,
+			chunk.Kind,
+			payloadBytes,
+			w.maxPayloadBytes,
+		)
+	}
 	w.nextGlobalSeq++
 	chunk.GlobalSeq = w.nextGlobalSeq
-	if cwd := w.connectionCWD[chunk.ConnectionID]; cwd.recorded != "" {
-		chunk = mapProcessCassetteChunkPaths(chunk, cwd.recorded, cwd.token)
+	pending := &pendingProcessCassetteChunk{chunk: chunk}
+	w.pending = append(w.pending, pending)
+	if projection := w.projections[chunk.ConnectionID]; projection != nil {
+		if err := projection.project(pending); err != nil {
+			w.pending = w.pending[:len(w.pending)-1]
+			w.nextGlobalSeq--
+			return err
+		}
+	} else {
+		pending.ready = true
 	}
+	return w.flushPendingLocked()
+}
+
+func (w *processCassetteWriter) flushPendingLocked() error {
+	for len(w.pending) > 0 && w.pending[0].ready {
+		pending := w.pending[0]
+		if err := w.writeChunkLocked(pending.chunk); err != nil {
+			return err
+		}
+		w.pending = w.pending[1:]
+	}
+	return nil
+}
+
+func (w *processCassetteWriter) writeChunkLocked(chunk processCassetteChunk) error {
 	raw, err := json.Marshal(chunk)
 	if err != nil {
 		return fmt.Errorf("encode process cassette chunk: %w", err)
@@ -197,7 +232,7 @@ func (w *processCassetteWriter) append(chunk processCassetteChunk) error {
 	}
 	if payloadBytes > w.maxPayloadBytes {
 		return fmt.Errorf(
-			"%w: %s frame payload is %d bytes, limit is %d bytes",
+			"%w: %s projected frame payload is %d bytes, limit is %d bytes",
 			ErrProcessCassetteSizeLimit,
 			chunk.Kind,
 			payloadBytes,
@@ -242,23 +277,6 @@ func processCassetteChunkPayloadBytes(chunk processCassetteChunk) (uint64, error
 	return payloadBytes + uint64(len(data)), nil
 }
 
-func mapProcessCassetteChunkPaths(
-	chunk processCassetteChunk,
-	oldValue string,
-	newValue string,
-) processCassetteChunk {
-	if chunk.Data == "" {
-		return chunk
-	}
-	data, err := base64.StdEncoding.DecodeString(chunk.Data)
-	if err != nil {
-		return chunk
-	}
-	mapped := mapProcessCassetteFrameJSON(data, oldValue, newValue)
-	chunk.Data = base64.StdEncoding.EncodeToString(mapped)
-	return chunk
-}
-
 func (w *processCassetteWriter) finishConnection() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -276,6 +294,17 @@ func (w *processCassetteWriter) finalize() error {
 	}
 	if w.active != 0 {
 		return fmt.Errorf("cannot finalize process cassette with %d active connections", w.active)
+	}
+	for _, projection := range w.projections {
+		if err := projection.finish(); err != nil {
+			return err
+		}
+	}
+	if err := w.flushPendingLocked(); err != nil {
+		return err
+	}
+	if len(w.pending) != 0 {
+		return errors.New("process cassette projection left pending frames")
 	}
 	if err := w.chunks.Sync(); err != nil {
 		return fmt.Errorf("sync process cassette chunks: %w", err)

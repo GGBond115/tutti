@@ -103,11 +103,12 @@ process.
 
 AgentGUI submits through the shared `AgentSessionEngine` command port. The
 successful `session/activate` and `queue/sendPrompt` command boundaries own
-`agent.session_started` and `agent.message_sent` respectively. Do not attach
-these events only to the outer `AgentActivityRuntime` methods: engine commands
-are hosted by `WorkspaceAgentActivityService` and intentionally bypass that
-wrapper. Non-AgentGUI prompt-session integrations keep their explicit tracker
-because they call the activity service without entering the shared engine.
+`agent.session_started`, `agent.message_sent`, and their `agent.node_result`
+events. Keep this telemetry on the corresponding
+`WorkspaceAgentActivityService` Engine effects; `AgentGUIRuntime` contains no
+lifecycle writes. Non-AgentGUI prompt-session integrations keep their explicit
+tracker because they call the activity service without entering the shared
+engine.
 
 ## Event Naming Convention
 

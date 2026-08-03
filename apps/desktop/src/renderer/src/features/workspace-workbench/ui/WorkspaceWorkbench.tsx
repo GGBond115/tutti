@@ -11,6 +11,7 @@ import type {
   WorkspaceAgentProvider,
   WorkspaceSummary
 } from "@tutti-os/client-tuttid-ts";
+import { resolveAgentGUIProviderCatalogIdentity } from "@tutti-os/agent-gui/provider-catalog";
 import { defaultIssueManagerWorkbenchTypeId } from "@tutti-os/workspace-issue-manager/workbench";
 import {
   isEditableShortcutTarget,
@@ -31,13 +32,19 @@ import type { IWorkspaceFileManagerService } from "@renderer/features/workspace-
 import { useWorkspaceCatalogService } from "@renderer/features/workspace-catalog";
 import { AgentEnvPanel } from "@renderer/features/workspace-agent/ui/AgentEnvPanel.tsx";
 import { DesktopAgentProviderManageDialog } from "@renderer/features/workspace-agent/ui/DesktopAgentProviderManageDialog.tsx";
+import { WorkspaceAgentSessionActivityReplayBinding } from "@renderer/features/agent-session-replay/ui/AgentSessionActivityReplayBinding.tsx";
+import { AgentSessionReplayWorkspaceBinding } from "@renderer/features/agent-session-replay/ui/AgentSessionReplayWorkspaceBinding.tsx";
+import { AgentSessionReplayWorkspaceProvider } from "@renderer/features/agent-session-replay/ui/AgentSessionReplayWorkspaceContext.tsx";
+import { AgentSessionReplayWorkspaceCoordinator } from "@renderer/features/agent-session-replay/services/agentSessionReplayWorkspaceCoordinator.ts";
+import type { AgentSessionReplayDesktopComposition } from "@renderer/features/agent-session-replay/services/agentSessionReplayDesktopComposition.ts";
 import { IAgentProviderStatusService } from "@renderer/features/workspace-agent/services/agentProviderStatusService.interface.ts";
 import { IAgentsService } from "@renderer/features/workspace-agent/services/agentsService.interface.ts";
 import { IWorkspaceAgentActivityService } from "@renderer/features/workspace-agent/services/workspaceAgentActivityService.interface.ts";
 import { IAgentEnvService } from "@renderer/features/workspace-agent/services/agentEnvService.interface.ts";
 import {
   registerWorkspaceAgentGuiLaunchHandler,
-  requestWorkspaceAgentGuiLaunch
+  requestWorkspaceAgentGuiLaunch,
+  requestWorkspaceAgentGuiNodeLaunch
 } from "@renderer/features/workspace-agent/services/workspaceAgentGuiLaunchCoordinator.ts";
 import { registerWorkspaceTerminalLoginLaunchHandler } from "@renderer/features/workspace-agent/services/workspaceTerminalLoginLaunchCoordinator.ts";
 import {
@@ -53,6 +60,7 @@ import {
 import { useTranslation } from "@renderer/i18n";
 import { cn } from "@renderer/lib/format";
 import {
+  agentGuiWorkbenchOpenSessionActivationType,
   createWorkspaceAgentGuiDraftLaunchRequest,
   createWorkspaceAgentGuiSessionLaunchRequest
 } from "../services/workspaceAgentGuiLaunch.ts";
@@ -61,10 +69,8 @@ import {
   resolveWorkspaceAgentProviderLaunchIntent
 } from "../services/workspaceOpenFeatureRequest.ts";
 import type { WorkspaceLaunchpadOpenTrigger } from "../services/workspaceLaunchpadAnalytics.ts";
-import {
-  registerWorkspaceBrowserLaunchHandler,
-  type WorkspaceBrowserLaunchRequest
-} from "../services/workspaceBrowserLaunchCoordinator.ts";
+import { registerWorkspaceBrowserLaunchHandler } from "../services/workspaceBrowserLaunchCoordinator.ts";
+import { createWorkbenchWorkspaceBrowserPresenter } from "../services/workbenchWorkspaceBrowserPresenter.ts";
 import { isWorkspaceMissionControlLayoutShortcut } from "../services/workspaceMissionControlShortcut.ts";
 import {
   registerWorkspaceFilesLaunchHandler,
@@ -90,10 +96,7 @@ import {
   workspaceLaunchpadDockEntryId
 } from "../services/workspaceLaunchpadModel.ts";
 import { requestWorkspaceMessageCenterOpen } from "../services/workspaceMessageCenterCoordinator.ts";
-import {
-  workspaceBrowserNodeID,
-  workspaceFilesNodeID
-} from "../services/workspaceWorkbenchNodeIds.ts";
+import { workspaceFilesNodeID } from "../services/workspaceWorkbenchNodeIds.ts";
 import { WorkspaceChrome } from "./WorkspaceChrome";
 import { WorkspaceAppExternalBridge } from "./WorkspaceAppExternalBridge";
 import { WorkspaceLaunchpadOverlay } from "./WorkspaceLaunchpadOverlay.tsx";
@@ -105,7 +108,10 @@ import type { WorkspaceWorkbenchHostSessionBinding } from "../services/workspace
 import { useWorkspaceOnboardingAutoOpen } from "./useWorkspaceOnboardingAutoOpen.ts";
 import { resolveWorkspaceWorkbenchLayoutConstraints } from "./workspaceWorkbenchLayoutConstraints.ts";
 import { defaultWorkspaceTerminalWorkbenchTypeId } from "../services/workspaceWorkbenchNodeIds.ts";
-import type { DesktopWorkspaceAppExternalHostApi } from "@preload/types";
+import type {
+  DesktopRuntimeApi,
+  DesktopWorkspaceAppExternalHostApi
+} from "@preload/types";
 import type { DesktopWorkspaceAppExternalRendererEvent } from "@shared/contracts/ipc";
 import type {
   TuttiExternalFileOpenInput,
@@ -124,14 +130,18 @@ import {
 const workspaceDockRetentionActionPrefix = "workspace-dock-retention:";
 
 interface WorkspaceWorkbenchProps {
+  agentSessionReplayComposition: AgentSessionReplayDesktopComposition | null;
   enableWindowCloseGuard: boolean;
   headerSlot?: React.ReactNode;
+  runtimeApi: DesktopRuntimeApi;
   workspaceAppExternalApi?: DesktopWorkspaceAppExternalHostApi;
   workspaceID: string | null;
 }
 export function WorkspaceWorkbench({
+  agentSessionReplayComposition,
   enableWindowCloseGuard,
   headerSlot,
+  runtimeApi,
   workspaceAppExternalApi,
   workspaceID
 }: WorkspaceWorkbenchProps) {
@@ -164,8 +174,10 @@ export function WorkspaceWorkbench({
 
   return (
     <ReadyWorkspaceWorkbench
+      agentSessionReplayComposition={agentSessionReplayComposition}
       enableWindowCloseGuard={enableWindowCloseGuard}
       headerSlot={headerSlot}
+      runtimeApi={runtimeApi}
       state={{
         platform: state.platform,
         workspace: state.workspace
@@ -176,8 +188,10 @@ export function WorkspaceWorkbench({
 }
 
 interface ReadyWorkspaceWorkbenchProps {
+  agentSessionReplayComposition: AgentSessionReplayDesktopComposition | null;
   enableWindowCloseGuard: boolean;
   headerSlot?: React.ReactNode;
+  runtimeApi: DesktopRuntimeApi;
   state: {
     platform: NodeJS.Platform;
     workspace: WorkspaceSummary;
@@ -217,9 +231,11 @@ function ReadyWorkspaceWorkbench(props: ReadyWorkspaceWorkbenchProps) {
 }
 
 function ReadyWorkspaceWorkbenchWithSession({
+  agentSessionReplayComposition,
   enableWindowCloseGuard,
   headerSlot,
   hostSession,
+  runtimeApi,
   state,
   workspaceAppExternalApi
 }: ReadyWorkspaceWorkbenchProps & {
@@ -284,6 +300,71 @@ function ReadyWorkspaceWorkbenchWithSession({
   const hostInput = runtime.hostInput;
   const [workbenchHost, setWorkbenchHost] =
     useState<WorkbenchHostHandle | null>(null);
+  // Replay machinery mounts only inside the isolated replay Desktop runtime
+  // (TUTTI_AGENT_CASSETTE_MODE=replay). Normal workspace windows construct no
+  // coordinator and install nothing on globalThis.
+  const replayRuntimeActive = useMemo(
+    () => runtimeApi.isAgentSessionReplayRuntime?.() === true,
+    [runtimeApi]
+  );
+  const replayWorkspaceCoordinator = useMemo(
+    () =>
+      replayRuntimeActive
+        ? new AgentSessionReplayWorkspaceCoordinator(state.workspace.id)
+        : null,
+    [replayRuntimeActive, state.workspace.id]
+  );
+  const launchReplayAgentNode = useCallback(
+    async (replay: {
+      agentTargetId: string;
+      agentSessionId?: string;
+      nodeId?: string;
+    }) => {
+      const provider = resolveAgentGUIProviderCatalogIdentity(
+        replay.agentTargetId
+      )?.providerId;
+      if (!isDesktopAgentGUIProvider(provider)) {
+        throw new Error("Replay Agent Target provider is unavailable");
+      }
+      if (replay.nodeId && replay.agentSessionId) {
+        if (!workbenchHost) {
+          throw new Error("Replay Agent Node host is unavailable");
+        }
+        workbenchHost.activateNode(
+          { nodeId: replay.nodeId },
+          {
+            payload: { agentSessionId: replay.agentSessionId },
+            type: agentGuiWorkbenchOpenSessionActivationType
+          }
+        );
+        return replay.nodeId;
+      }
+      await agentsService.load();
+      return (
+        (await requestWorkspaceAgentGuiNodeLaunch({
+          agentTargetId: replay.agentTargetId,
+          ...(replay.agentSessionId
+            ? { agentSessionId: replay.agentSessionId }
+            : {}),
+          forceNewInstance: true,
+          openInNewWindow: false,
+          provider,
+          workspaceId: state.workspace.id
+        })) ?? null
+      );
+    },
+    [agentsService, state.workspace.id, workbenchHost]
+  );
+  const arrangeReplayAgentNodes = useCallback(
+    (nodeIds: readonly string[]) => {
+      runtime.missionControl.applyLayoutPreset(
+        nodeIds,
+        { kind: "balanced" },
+        nodeIds.length > 1
+      );
+    },
+    [runtime.missionControl.applyLayoutPreset]
+  );
   const [launchpadOpen, setLaunchpadOpen] = useState(false);
   const [launchpadOpenTrigger, setLaunchpadOpenTrigger] =
     useState<WorkspaceLaunchpadOpenTrigger>("dock");
@@ -443,6 +524,7 @@ function ReadyWorkspaceWorkbenchWithSession({
             agentTargetId,
             autoSubmit,
             draftPrompt,
+            forceNewInstance,
             model,
             modelPlanId,
             openInNewWindow,
@@ -451,7 +533,7 @@ function ReadyWorkspaceWorkbenchWithSession({
           }) => {
             const normalizedDraftPrompt = draftPrompt?.trim() ?? "";
             const normalizedAgentSessionId = agentSessionId?.trim() ?? "";
-            await host.launchNode(
+            return host.launchNode(
               normalizedAgentSessionId
                 ? createWorkspaceAgentGuiSessionLaunchRequest({
                     agentTargetId,
@@ -464,6 +546,7 @@ function ReadyWorkspaceWorkbenchWithSession({
                           }
                         }
                       : {}),
+                    forceNewInstance,
                     openInNewWindow,
                     provider
                   })
@@ -481,6 +564,7 @@ function ReadyWorkspaceWorkbenchWithSession({
                   : createWorkspaceAgentGuiSessionLaunchRequest({
                       agentTargetId,
                       agentSessionId,
+                      forceNewInstance,
                       openInNewWindow,
                       provider
                     })
@@ -511,9 +595,7 @@ function ReadyWorkspaceWorkbenchWithSession({
       unregisterBrowserLaunchRef.current =
         registerWorkspaceBrowserLaunchHandler(
           state.workspace.id,
-          async (request) => {
-            return openWorkspaceBrowserNode(host, request);
-          }
+          createWorkbenchWorkspaceBrowserPresenter({ host })
         );
       unregisterWorkbenchNodeLaunchRef.current =
         registerWorkspaceWorkbenchNodeLaunchHandler(
@@ -813,114 +895,151 @@ function ReadyWorkspaceWorkbenchWithSession({
   ]);
 
   return (
-    <RichTextMentionServiceProvider service={mentionService}>
-      <main
-        className={cn(
-          "relative h-screen min-h-0 overflow-hidden bg-background",
-          launchpadOpen && "workspace-workbench-shell--launchpad-open"
-        )}
-      >
-        <WorkspaceAppCenterIntegration workspaceId={state.workspace.id} />
-        <WorkbenchHost
-          captureNodePreviewImages={hostInput.captureNodePreviewImages}
-          className="h-full"
-          contributions={hostInput.contributions}
-          debugDiagnostics={hostInput.debugDiagnostics}
-          dockPreviewCache={hostInput.dockPreviewCache}
-          dockPlacement={runtime.dockPlacement}
-          dockEntries={hostInput.dockEntries}
-          dockEntryPresentationOverrides={dockEntryPresentationOverrides}
-          dockStateSource={hostInput.dockStateSource}
-          externalStateSource={hostInput.externalStateSource}
-          i18n={runtime.appI18n}
-          layoutConstraints={layoutConstraints}
-          missionControl={{
-            active: runtime.missionControl.isOpen,
-            nodeIds: runtime.missionControl.nodeIds ?? undefined,
-            onRequestClose: runtime.missionControl.close
-          }}
-          minimizeAnimation={runtime.minimizeAnimation}
-          nodes={hostInput.nodes}
-          onDockEntryAction={onDockEntryAction}
-          onDockEntryClick={onDockEntryClick}
-          onHandleReady={onWorkbenchHostHandleReady}
-          onLaunchRequest={hostInput.onLaunchRequest}
-          onMissionControlAdapterReady={runtime.onMissionControlAdapterReady}
-          onMissionControlRequestOpen={(request) => {
-            runtime.missionControl.open(
-              request
-                ? {
-                    nodeIds: request.nodeIds,
-                    trigger:
-                      request.trigger === "dock-context-menu"
-                        ? "button"
-                        : undefined
-                  }
-                : "button"
-            );
-          }}
-          onNodeCloseRequest={hostInput.onNodeCloseRequest}
-          renderTopChrome={(chromeContext) => (
-            <WorkspaceChrome
-              headerSlot={headerSlot}
-              launchNode={chromeContext.launchNode}
-              missionControl={runtime.missionControl}
-              onSelectWallpaper={runtime.selectWallpaper}
-              onSelectWallpaperDisplayMode={runtime.selectWallpaperDisplayMode}
-              platform={state.platform}
-              selectedWallpaperDisplayMode={
-                runtime.selectedWallpaperDisplayMode
-              }
-              selectedWallpaperID={runtime.selectedWallpaperID}
-              wallpaperAppearance={runtime.wallpaper.appearance}
-              workbenchController={chromeContext.controller}
-              workspace={state.workspace}
-            />
+    <AgentSessionReplayWorkspaceScope coordinator={replayWorkspaceCoordinator}>
+      <RichTextMentionServiceProvider service={mentionService}>
+        <main
+          className={cn(
+            "relative h-screen min-h-0 overflow-hidden bg-background",
+            launchpadOpen && "workspace-workbench-shell--launchpad-open"
           )}
-          snapshotRepository={hostInput.snapshotRepository}
-          shortcutsEnabled={runtime.shortcutsEnabled}
-          wallpaper={runtime.wallpaper}
-          windowManagement={windowManagement}
-          workspaceId={hostInput.workspaceId}
-        />
-        <WorkspaceAppExternalBridge
-          api={workspaceAppExternalApi}
-          openFile={openWorkspaceAppExternalFile}
-          workspaceId={state.workspace.id}
-        />
-        <DesktopAgentProviderManageDialog
-          agentProviderStatusService={agentProviderStatusService}
-          focusedProvider={agentProviderManageFocusedProvider}
-          open={agentProviderManageDialogOpen}
-          workbenchHost={workbenchHost}
-          workspaceId={state.workspace.id}
-          onChooseRuntime={(provider) => {
-            // Hand off to the setup wizard, which renders the runtime picker
-            // for the blocked provider. Close this table first so the two
-            // dialogs never stack.
-            setAgentProviderManageDialogOpen(false);
-            agentEnvService.open({ provider });
-          }}
-          onOpenChange={setAgentProviderManageDialogOpen}
-        />
-        <WorkspaceLaunchpadOverlay
-          dockIconStyle={runtime.dockIconStyle}
-          dockPlacement={runtime.dockPlacement}
-          host={workbenchHost}
-          open={launchpadOpen}
-          openTrigger={launchpadOpenTrigger}
-          themeAppearance={runtime.themeAppearance}
-          workspaceId={state.workspace.id}
-          onClose={closeLaunchpad}
-        />
-        <WorkspaceCloseGuardDialog
-          request={runtime.closeDialog.request}
-          onCancel={runtime.closeDialog.onCancel}
-          onConfirm={runtime.closeDialog.onConfirm}
-        />
-        <AgentEnvPanel />
-      </main>
-    </RichTextMentionServiceProvider>
+        >
+          {replayWorkspaceCoordinator ? (
+            <WorkspaceAgentSessionActivityReplayBinding
+              activitySource={agentSessionReplayComposition!.activityPort}
+              workspaceId={state.workspace.id}
+            />
+          ) : null}
+          {replayWorkspaceCoordinator && workbenchHost ? (
+            <AgentSessionReplayWorkspaceBinding
+              arrangeNodes={arrangeReplayAgentNodes}
+              coordinator={replayWorkspaceCoordinator}
+              launchNode={launchReplayAgentNode}
+            />
+          ) : null}
+          <WorkspaceAppCenterIntegration workspaceId={state.workspace.id} />
+          <WorkbenchHost
+            captureNodePreviewImages={hostInput.captureNodePreviewImages}
+            className="h-full"
+            contributions={hostInput.contributions}
+            debugDiagnostics={hostInput.debugDiagnostics}
+            dockPreviewCache={hostInput.dockPreviewCache}
+            dockPlacement={runtime.dockPlacement}
+            dockEntries={hostInput.dockEntries}
+            dockEntryPresentationOverrides={dockEntryPresentationOverrides}
+            dockStateSource={hostInput.dockStateSource}
+            externalStateSource={hostInput.externalStateSource}
+            i18n={runtime.appI18n}
+            layoutConstraints={layoutConstraints}
+            missionControl={{
+              active: runtime.missionControl.isOpen,
+              nodeIds: runtime.missionControl.nodeIds ?? undefined,
+              onRequestClose: runtime.missionControl.close
+            }}
+            minimizeAnimation={runtime.minimizeAnimation}
+            nodes={hostInput.nodes}
+            onDockEntryAction={onDockEntryAction}
+            onDockEntryClick={onDockEntryClick}
+            onHandleReady={onWorkbenchHostHandleReady}
+            onLaunchRequest={hostInput.onLaunchRequest}
+            onMissionControlAdapterReady={runtime.onMissionControlAdapterReady}
+            onMissionControlRequestOpen={(request) => {
+              runtime.missionControl.open(
+                request
+                  ? {
+                      nodeIds: request.nodeIds,
+                      trigger:
+                        request.trigger === "dock-context-menu"
+                          ? "button"
+                          : undefined
+                    }
+                  : "button"
+              );
+            }}
+            onNodeCloseRequest={hostInput.onNodeCloseRequest}
+            renderTopChrome={(chromeContext) => (
+              <WorkspaceChrome
+                externalAgentSessionImportPromptEnabled={!replayRuntimeActive}
+                headerSlot={headerSlot}
+                launchNode={chromeContext.launchNode}
+                missionControl={runtime.missionControl}
+                onSelectWallpaper={runtime.selectWallpaper}
+                onSelectWallpaperDisplayMode={
+                  runtime.selectWallpaperDisplayMode
+                }
+                platform={state.platform}
+                selectedWallpaperDisplayMode={
+                  runtime.selectedWallpaperDisplayMode
+                }
+                selectedWallpaperID={runtime.selectedWallpaperID}
+                wallpaperAppearance={runtime.wallpaper.appearance}
+                workbenchController={chromeContext.controller}
+                workspace={state.workspace}
+              />
+            )}
+            snapshotRepository={hostInput.snapshotRepository}
+            shortcutsEnabled={runtime.shortcutsEnabled}
+            wallpaper={runtime.wallpaper}
+            windowManagement={windowManagement}
+            workspaceId={hostInput.workspaceId}
+          />
+          <WorkspaceAppExternalBridge
+            api={workspaceAppExternalApi}
+            openFile={openWorkspaceAppExternalFile}
+            workspaceId={state.workspace.id}
+          />
+          <DesktopAgentProviderManageDialog
+            agentProviderStatusService={agentProviderStatusService}
+            focusedProvider={agentProviderManageFocusedProvider}
+            open={agentProviderManageDialogOpen}
+            workbenchHost={workbenchHost}
+            workspaceId={state.workspace.id}
+            onChooseRuntime={(provider) => {
+              // Hand off to the setup wizard, which renders the runtime picker
+              // for the blocked provider. Close this table first so the two
+              // dialogs never stack.
+              setAgentProviderManageDialogOpen(false);
+              agentEnvService.open({ provider });
+            }}
+            onOpenChange={setAgentProviderManageDialogOpen}
+          />
+          <WorkspaceLaunchpadOverlay
+            dockIconStyle={runtime.dockIconStyle}
+            dockPlacement={runtime.dockPlacement}
+            host={workbenchHost}
+            open={launchpadOpen}
+            openTrigger={launchpadOpenTrigger}
+            themeAppearance={runtime.themeAppearance}
+            workspaceId={state.workspace.id}
+            onClose={closeLaunchpad}
+          />
+          <WorkspaceCloseGuardDialog
+            request={runtime.closeDialog.request}
+            onCancel={runtime.closeDialog.onCancel}
+            onConfirm={runtime.closeDialog.onConfirm}
+          />
+          <AgentEnvPanel />
+        </main>
+      </RichTextMentionServiceProvider>
+    </AgentSessionReplayWorkspaceScope>
+  );
+}
+
+// Provides the replay coordinator context only inside the isolated replay
+// Desktop runtime; normal windows render children without any replay Provider.
+function AgentSessionReplayWorkspaceScope({
+  children,
+  coordinator
+}: {
+  children: React.ReactNode;
+  coordinator: AgentSessionReplayWorkspaceCoordinator | null;
+}) {
+  if (!coordinator) {
+    return <>{children}</>;
+  }
+  return (
+    <AgentSessionReplayWorkspaceProvider value={coordinator}>
+      {children}
+    </AgentSessionReplayWorkspaceProvider>
   );
 }
 
@@ -1194,53 +1313,4 @@ async function openGroupChatNode(
     }
   );
   return true;
-}
-
-async function openWorkspaceBrowserNode(
-  host: WorkbenchHostHandle,
-  request: WorkspaceBrowserLaunchRequest
-): Promise<boolean> {
-  const existingNodeId =
-    request.reuseIfOpen === false
-      ? null
-      : resolveCurrentWorkspaceBrowserNodeId(host);
-  const nodeId =
-    existingNodeId ??
-    (await host.launchNode({
-      launchSource: request.source,
-      reason: "host",
-      typeId: workspaceBrowserNodeID
-    }));
-  if (!nodeId) {
-    return false;
-  }
-
-  host.activateNode(
-    { nodeId },
-    {
-      payload: {
-        url: request.url
-      },
-      type: "open-url"
-    }
-  );
-  return true;
-}
-
-function resolveCurrentWorkspaceBrowserNodeId(
-  host: WorkbenchHostHandle
-): string | null {
-  const snapshot = host.getSnapshot();
-  const nodesById = new Map(snapshot.nodes.map((node) => [node.id, node]));
-  for (const nodeId of [...snapshot.nodeStack].reverse()) {
-    const node = nodesById.get(nodeId);
-    if (node?.data.typeId === workspaceBrowserNodeID) {
-      return node.id;
-    }
-  }
-
-  return (
-    snapshot.nodes.find((node) => node.data.typeId === workspaceBrowserNodeID)
-      ?.id ?? null
-  );
 }

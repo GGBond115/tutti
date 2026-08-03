@@ -12,14 +12,14 @@ func TestPublishedScenarioCatalogsHaveUniqueNames(t *testing.T) {
 		scenarios []Scenario
 		wantCount int
 	}{
-		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 23},
-		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 18},
+		{name: "adapter lifecycle", scenarios: Scenarios(), wantCount: 24},
+		{name: "application core", scenarios: ApplicationCoreScenarios(), wantCount: 19},
 		{name: "resume policy", scenarios: ResumePolicyScenarios(), wantCount: 5},
 		{name: "submission fence", scenarios: SubmissionFenceScenarios(), wantCount: 1},
 		{name: "title policy", scenarios: TitlePolicyScenarios(), wantCount: 1},
 		{name: "deletion admission", scenarios: DeletionAdmissionScenarios(), wantCount: 3},
 		{name: "coordinator", scenarios: CoordinatorScenarios(), wantCount: 7},
-		{name: "goal", scenarios: GoalScenarios(), wantCount: 12},
+		{name: "goal", scenarios: GoalScenarios(), wantCount: 14},
 		{name: "commit observer", scenarios: CommitObserverScenarios(), wantCount: 2},
 	}
 	for _, catalog := range catalogs {
@@ -40,6 +40,14 @@ func TestPublishedScenarioCatalogsHaveUniqueNames(t *testing.T) {
 				t.Fatalf("scenario count=%d, want %d", len(seen), catalog.wantCount)
 			}
 		})
+	}
+}
+
+func TestPublishedInteractionTreeScenarioCatalogHasUniqueNames(t *testing.T) {
+	t.Parallel()
+	scenarios := InteractionTreeScenarios()
+	if len(scenarios) != 1 || scenarios[0].Name == "" {
+		t.Fatalf("interaction tree scenarios=%#v", scenarios)
 	}
 }
 
@@ -66,6 +74,7 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 	wantAdapterLifecycle := []string{
 		"create empty session",
 		"create with initial content",
+		"create with typed initial goal",
 		"create with explicit rail placement",
 		"resume persisted session",
 		"send input",
@@ -91,6 +100,7 @@ func TestScenarioOwnershipIsExplicit(t *testing.T) {
 	wantApplicationCore := []string{
 		"create empty session",
 		"create with initial content",
+		"create with typed initial goal",
 		"create with explicit rail placement",
 		"resume persisted session",
 		"send input",

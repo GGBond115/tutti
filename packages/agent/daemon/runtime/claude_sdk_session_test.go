@@ -50,7 +50,10 @@ func TestClaudeCodeSDKAdapterSessionStateSeedsCommandsAndCapabilities(t *testing
 			t.Fatalf("commands = %#v, missing %q", commands, want)
 		}
 	}
-	capabilities, _ := state.RuntimeContext["capabilities"].([]string)
+	capabilities := state.Capabilities.Values
+	if _, duplicated := state.RuntimeContext["capabilities"]; duplicated {
+		t.Fatalf("runtime context duplicated typed capabilities: %#v", state.RuntimeContext)
+	}
 	for _, want := range []string{CapabilityImageInput, CapabilityCompact, CapabilityTokenUsage, CapabilityRateLimits, CapabilityPlanMode, CapabilityInterrupt, CapabilityActiveTurnGuidance, CapabilitySkills, "review"} {
 		if !containsString(capabilities, want) {
 			t.Fatalf("capabilities = %#v, missing %q", capabilities, want)
@@ -75,7 +78,7 @@ func TestClaudeCodeSDKAdapterSessionStateReflectsOptionalComposerCapabilities(t 
 	})
 
 	state := adapter.SessionState(session)
-	capabilities, _ := state.RuntimeContext["capabilities"].([]string)
+	capabilities := state.Capabilities.Values
 	for _, want := range []string{CapabilityBrowserUse, CapabilityComputerUse} {
 		if !containsString(capabilities, want) {
 			t.Fatalf("capabilities = %#v, missing %q", capabilities, want)
@@ -341,6 +344,10 @@ func TestClaudeCodeSDKAdapterStartPassesPreparedClaudeMetaPathsToSidecar(t *test
 	if got, _ := payload["planModeInstructions"].(string); !strings.Contains(got, "do not edit files") || !strings.Contains(got, "implementation plan") {
 		t.Fatalf("planModeInstructions = %#v, want Tutti plan workflow instructions", payload["planModeInstructions"])
 	}
+	settings := payloadMap(payload, "settings")
+	if _, ok := settings["plansDirectory"]; ok {
+		t.Fatalf("settings.plansDirectory = %#v, want Claude SDK default", settings["plansDirectory"])
+	}
 	allowedTools, ok := payload["allowedTools"].([]any)
 	grepAllowed := false
 	globAllowed := false
@@ -569,7 +576,7 @@ func TestClaudeCodeSDKAdapterAcceptsImagePromptContent(t *testing.T) {
 func TestClaudeCodeSDKAdapterExecSendsStructuredPromptContent(t *testing.T) {
 	conn := &scriptedClaudeSDKConnection{
 		frames: []ProcessFrame{{
-			Stdout: []byte(`{"type":"turn_completed","payload":{"turnId":"turn-image","stopReason":"end_turn"}}` + "\n"),
+			Stdout: []byte(`{"type":"provider_turn_identity_resolved","payload":{"turnId":"turn-image","providerTurnId":"provider-turn-image"}}` + "\n" + `{"type":"turn_completed","payload":{"turnId":"turn-image","providerTurnId":"provider-turn-image","stopReason":"end_turn"}}` + "\n"),
 		}},
 	}
 	adapter := NewClaudeCodeSDKAdapter(nil)

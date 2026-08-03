@@ -5,7 +5,7 @@ import type {
 } from "@tutti-os/client-tuttid-ts";
 import type { AgentActivityComposerOptions } from "@tutti-os/agent-activity-core";
 import type {
-  AgentActivityRuntime,
+  AgentGUIRuntime,
   TuttiModePlanAssignmentAgentDetail,
   TuttiModePlanAssignmentAgentOption,
   TuttiModePlanAssignmentOptionsSource
@@ -18,7 +18,7 @@ type AssignmentOptionsTuttidClient = Pick<
 >;
 
 type AssignmentComposerOptionsRuntime = Pick<
-  AgentActivityRuntime,
+  AgentGUIRuntime,
   "getComposerOptions"
 >;
 

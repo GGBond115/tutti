@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 )
 
 type GoalStateStore = agenthost.GoalStateStore
@@ -19,6 +19,15 @@ type GoalControlSessionResult struct {
 	GoalState   *agentactivitybiz.SessionGoalState
 }
 
+type GoalControlInput struct {
+	WorkspaceID        string
+	AgentSessionID     string
+	Action             string
+	Objective          string
+	ClientSubmitID     string
+	SubmissionMetadata map[string]any
+}
+
 func (s *Service) AdoptProviderGoal(ctx context.Context, input agenthost.ProviderGoalAdoptionInput) (agenthost.ProviderGoalAdoptionResult, error) {
 	result, err := s.ApplicationHost().AdoptProviderGoal(ctx, input)
 	if err != nil {
@@ -27,31 +36,26 @@ func (s *Service) AdoptProviderGoal(ctx context.Context, input agenthost.Provide
 	return result, nil
 }
 
-func (s *Service) GoalControl(ctx context.Context, workspaceID string, agentSessionID string, action string, objective string) (GoalControlSessionResult, error) {
-	return s.goalControl(ctx, workspaceID, agentSessionID, action, objective, nil)
-}
-
-func (s *Service) goalControl(
-	ctx context.Context,
-	workspaceID string,
-	agentSessionID string,
-	action string,
-	objective string,
-	submissionMetadata map[string]any,
-) (GoalControlSessionResult, error) {
+func (s *Service) GoalControl(ctx context.Context, input GoalControlInput) (GoalControlSessionResult, error) {
 	result, err := s.ApplicationHost().GoalControl(ctx, agenthost.GoalControlInput{
-		WorkspaceID: strings.TrimSpace(workspaceID), AgentSessionID: strings.TrimSpace(agentSessionID),
-		Action: strings.TrimSpace(action), Objective: strings.TrimSpace(objective),
-		SubmissionMetadata: clonePayload(submissionMetadata),
+		WorkspaceID:        strings.TrimSpace(input.WorkspaceID),
+		AgentSessionID:     strings.TrimSpace(input.AgentSessionID),
+		Action:             strings.TrimSpace(input.Action),
+		Objective:          strings.TrimSpace(input.Objective),
+		ClientSubmitID:     strings.TrimSpace(input.ClientSubmitID),
+		SubmissionMetadata: clonePayload(input.SubmissionMetadata),
 	})
 	if err != nil {
 		return GoalControlSessionResult{}, normalizeRuntimeError(err)
 	}
-	session, err := s.Get(ctx, workspaceID, agentSessionID)
+	session, err := s.Get(ctx, input.WorkspaceID, input.AgentSessionID)
 	if err != nil {
 		return GoalControlSessionResult{}, err
 	}
 	return GoalControlSessionResult{
-		Session: session, Goal: clonePayload(result.Goal), OperationID: result.OperationID, GoalState: result.GoalState,
+		Session:     session,
+		Goal:        clonePayload(result.Goal),
+		OperationID: result.OperationID,
+		GoalState:   result.GoalState,
 	}, nil
 }

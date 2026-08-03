@@ -109,6 +109,7 @@ type standardACPAdapter struct {
 	interactiveDispositionSink InteractiveDispositionSink
 	commandSink                CommandSnapshotSink
 	eventSink                  SessionEventSink
+	inputUnits                 *providerInputUnitTracker
 	configSink                 ConfigOptionsUpdateSink
 	promptImageMaterializer    providerPromptImageMaterializer
 	lifecycleMu                sync.Mutex
@@ -118,9 +119,12 @@ type standardACPAdapter struct {
 type standardACPSession struct {
 	client            *acpClient
 	providerSessionID string
-	agentInfo         map[string]any
-	promptImage       bool
-	sessionClose      bool
+	// resumeRuntimeContext preserves the historical adapter projection only
+	// when replay attaches at an already-initialized connection checkpoint.
+	resumeRuntimeContext map[string]any
+	agentInfo            map[string]any
+	promptImage          bool
+	sessionClose         bool
 	acpLiveState
 	pendingApprovals map[string]*pendingACPApproval
 	recentTurnID     string

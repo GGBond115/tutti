@@ -74,6 +74,10 @@ func SettlementCatalog() []Scenario {
 			run:  runGraphMutationRebindsPromotedSettlementBacklog,
 		},
 		{
+			Name: "ReworkRearmsSupersededTerminalCheckpoint",
+			run:  runReworkRearmsSupersededTerminalCheckpoint,
+		},
+		{
 			Name: "TimedOutRunCreatesFailedCheckpoint",
 			run:  runTimedOutRunCreatesFailedCheckpoint,
 		},

@@ -1,4 +1,9 @@
 export {
+  NativeAvatar,
+  type NativeAvatarProps,
+  type NativeAvatarSize
+} from "./avatar";
+export {
   NativeButton,
   type NativeButtonProps,
   type ButtonSize,

@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+
+	sessionreplay "github.com/tutti-os/tutti/packages/agent/session-replay"
 )
 
 const claudeSDKStderrTailLimit = 8192
@@ -75,7 +77,13 @@ func (s *claudeSDKAdapterSession) roundTripDirectResponse(ctx context.Context, r
 			return claudeSDKSidecarEvent{}, err
 		}
 		if strings.TrimSpace(event.ID) != strings.TrimSpace(request.ID) {
+			if err := completeClaudeSDKProviderInputUnit(ctx, s.conn, event); err != nil {
+				return claudeSDKSidecarEvent{}, err
+			}
 			continue
+		}
+		if err := completeClaudeSDKProviderInputUnit(ctx, s.conn, event); err != nil {
+			return claudeSDKSidecarEvent{}, err
 		}
 		return event, claudeSDKRoundTripResponseError(event)
 	}
@@ -94,15 +102,30 @@ func claudeSDKRoundTripResponseError(event claudeSDKSidecarEvent) error {
 
 func (r *claudeSDKLineReader) next(ctx context.Context) (claudeSDKSidecarEvent, error) {
 	for {
-		if line, ok := nextBufferedLine(&r.buffer); ok {
+		if r.trackInputUnits && len(r.lines) > 0 {
+			line := r.lines[0]
+			r.lines = r.lines[1:]
 			var event claudeSDKSidecarEvent
-			if err := json.Unmarshal([]byte(line), &event); err != nil {
+			if err := json.Unmarshal([]byte(line.value), &event); err != nil {
 				return claudeSDKSidecarEvent{}, err
 			}
 			if err := event.validate(); err != nil {
 				return claudeSDKSidecarEvent{}, err
 			}
+			event.inputUnit = &line.unit
 			return event, nil
+		}
+		if !r.trackInputUnits {
+			if line, ok := nextBufferedLine(&r.buffer); ok {
+				var event claudeSDKSidecarEvent
+				if err := json.Unmarshal([]byte(line), &event); err != nil {
+					return claudeSDKSidecarEvent{}, err
+				}
+				if err := event.validate(); err != nil {
+					return claudeSDKSidecarEvent{}, err
+				}
+				return event, nil
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -132,8 +155,60 @@ func (r *claudeSDKLineReader) next(ctx context.Context) (claudeSDKSidecarEvent, 
 		}
 		if len(frame.Stdout) > 0 {
 			r.buffer += string(frame.Stdout)
+			if !r.trackInputUnits {
+				continue
+			}
+			var unitIndex uint64
+			for {
+				index := strings.IndexByte(r.buffer, '\n')
+				if index < 0 {
+					break
+				}
+				line := strings.TrimSpace(r.buffer[:index])
+				r.buffer = r.buffer[index+1:]
+				if line == "" {
+					continue
+				}
+				unitIndex++
+				r.lines = append(r.lines, claudeSDKBufferedLine{
+					value: line,
+					unit: providerInputUnit(
+						frame,
+						unitIndex,
+						sessionreplay.ProviderInputUnitProtocolMessage,
+					),
+				})
+			}
 		}
 	}
+}
+
+func completeClaudeSDKProviderInputUnit(
+	ctx context.Context,
+	connection ProcessConnection,
+	event claudeSDKSidecarEvent,
+) error {
+	if event.inputUnit == nil {
+		return nil
+	}
+	completion, ok := connection.(ProviderInputUnitCompletion)
+	if !ok {
+		return nil
+	}
+	return completion.CompleteProviderInputUnit(ctx, *event.inputUnit)
+}
+
+func nextBufferedLine(buffer *string) (string, bool) {
+	if buffer == nil {
+		return "", false
+	}
+	index := strings.IndexByte(*buffer, '\n')
+	if index < 0 {
+		return "", false
+	}
+	line := strings.TrimSpace((*buffer)[:index])
+	*buffer = (*buffer)[index+1:]
+	return line, line != ""
 }
 
 func (r *claudeSDKLineReader) appendStderrTail(content []byte) {
@@ -184,17 +259,4 @@ func logClaudeSDKSidecarDebugStderr(content []byte) {
 			"payload_json", payloadJSON,
 		)
 	}
-}
-
-func nextBufferedLine(buffer *string) (string, bool) {
-	if buffer == nil {
-		return "", false
-	}
-	index := strings.IndexByte(*buffer, '\n')
-	if index < 0 {
-		return "", false
-	}
-	line := strings.TrimSpace((*buffer)[:index])
-	*buffer = (*buffer)[index+1:]
-	return line, line != ""
 }

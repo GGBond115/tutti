@@ -2,7 +2,16 @@ package agentruntime
 
 import (
 	"testing"
+
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
+
+func capabilitySnapshotValues(snapshot *canonical.CapabilitySnapshot) []string {
+	if snapshot == nil {
+		return nil
+	}
+	return snapshot.Values
+}
 
 func TestCodexAppServerCapabilitiesUseSharedVocabulary(t *testing.T) {
 	t.Parallel()

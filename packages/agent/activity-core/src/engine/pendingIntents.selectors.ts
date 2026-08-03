@@ -1,4 +1,4 @@
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 import type {
   PendingActivationIntentRecord,
   PendingSubmitIntentRecord
@@ -6,7 +6,7 @@ import type {
 import { canonicalTurnKey } from "./sessionEntityKeys.ts";
 
 export function selectPendingActivations(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineStateBase
 ): readonly PendingActivationIntentRecord[] {
   return Object.values(state.pendingIntents.activationsByRequestId).sort(
     (left, right) =>
@@ -16,7 +16,7 @@ export function selectPendingActivations(
 }
 
 export function selectPendingActivationByRequestId(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   requestId: string | null | undefined
 ): PendingActivationIntentRecord | null {
   const id = requestId?.trim() ?? "";
@@ -33,7 +33,7 @@ export interface SessionActivationPresentation {
 }
 
 export function selectPendingSubmitsForSession(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): readonly PendingSubmitIntentRecord[] {
   const id = agentSessionId?.trim() ?? "";
@@ -41,6 +41,40 @@ export function selectPendingSubmitsForSession(
     state.pendingIntents.submitsByClientSubmitId
   ).filter((pending) => pending.agentSessionId === id);
   return matches.length > 0 ? matches : EMPTY_PENDING_SUBMITS;
+}
+
+export function selectPendingPlanFeedbackSubmit(
+  state: Pick<AgentSessionEngineStateBase, "pendingIntents">,
+  agentSessionId: string | null | undefined,
+  turnId: string | null | undefined,
+  requestId: string | null | undefined
+): PendingSubmitIntentRecord | null {
+  const sessionId = agentSessionId?.trim() ?? "";
+  const expectedTurnId = turnId?.trim() ?? "";
+  const expectedRequestId = requestId?.trim() ?? "";
+  if (!sessionId || !expectedTurnId || !expectedRequestId) return null;
+  let latest: PendingSubmitIntentRecord | null = null;
+  for (const record of Object.values(
+    state.pendingIntents.submitsByClientSubmitId
+  )) {
+    if (
+      record.agentSessionId !== sessionId ||
+      record.source?.kind !== "plan-feedback" ||
+      record.source.turnId !== expectedTurnId ||
+      record.source.requestId !== expectedRequestId
+    ) {
+      continue;
+    }
+    if (
+      !latest ||
+      record.requestedAtUnixMs > latest.requestedAtUnixMs ||
+      (record.requestedAtUnixMs === latest.requestedAtUnixMs &&
+        record.clientSubmitId.localeCompare(latest.clientSubmitId) > 0)
+    ) {
+      latest = record;
+    }
+  }
+  return latest;
 }
 
 export function pendingSubmitRecordListsEqual(
@@ -54,7 +88,7 @@ export function pendingSubmitRecordListsEqual(
 }
 
 export function selectSessionIsSubmitting(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): boolean {
   const id = agentSessionId?.trim() ?? "";
@@ -75,7 +109,7 @@ export function selectSessionIsSubmitting(
 }
 
 export function selectSessionHasUnconfirmedSubmit(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): boolean {
   const id = agentSessionId?.trim() ?? "";
@@ -96,7 +130,7 @@ export function selectSessionHasUnconfirmedSubmit(
 }
 
 export function selectLatestPendingSubmitForSession(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): PendingSubmitIntentRecord | null {
   let latest: PendingSubmitIntentRecord | null = null;
@@ -109,7 +143,7 @@ export function selectLatestPendingSubmitForSession(
 }
 
 export function selectLatestActivationForSession(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined
 ): PendingActivationIntentRecord | null {
   const id = agentSessionId?.trim() ?? "";
@@ -128,7 +162,7 @@ export function selectLatestActivationForSession(
 }
 
 export function selectSessionActivationPresentations(
-  state: AgentSessionEngineState
+  state: AgentSessionEngineStateBase
 ): Readonly<Record<string, SessionActivationPresentation>> {
   const latestBySessionId = new Map<string, PendingActivationIntentRecord>();
   for (const activation of Object.values(

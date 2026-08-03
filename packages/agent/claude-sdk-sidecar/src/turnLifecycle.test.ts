@@ -19,7 +19,7 @@ test("turn lifecycle activates and settles a queued turn", () => {
   assert.equal(activations.count, 1);
   assert.equal(settlements.count, 1);
   assert.deepEqual(events[0], {
-    type: "provider_turn_started",
+    type: "provider_turn_identity_resolved",
     payload: {
       turnId: "turn-1",
       providerTurnId: "prompt-1"
@@ -47,6 +47,17 @@ test("turn lifecycle announces a goal arm before its first output", () => {
   lifecycle.activateForUserMessage("prompt-goal");
 
   assert.deepEqual(
+    events.find((event) => event.type === "provider_turn_identity_resolved"),
+    {
+      type: "provider_turn_identity_resolved",
+      payload: {
+        turnId: "goal-arm-1",
+        providerTurnId: "prompt-goal",
+        turnOrigin: "goal_arm"
+      }
+    }
+  );
+  assert.deepEqual(
     events.find((event) => event.type === "turn_started"),
     {
       type: "turn_started",
@@ -69,7 +80,7 @@ test("turn lifecycle uses Claude's persisted root user UUID as provider identity
 
   assert.deepEqual(events, [
     {
-      type: "provider_turn_started",
+      type: "provider_turn_identity_resolved",
       payload: {
         turnId: "turn-rewritten",
         providerTurnId: "persisted-claude-user-uuid"
@@ -80,6 +91,51 @@ test("turn lifecycle uses Claude's persisted root user UUID as provider identity
       payload: {
         turnId: "turn-rewritten",
         providerTurnId: "persisted-claude-user-uuid"
+      }
+    }
+  ]);
+});
+
+test("turn lifecycle never treats the outbound correlation UUID as provider identity", () => {
+  const { lifecycle, events } = createLifecycle();
+  lifecycle.enqueue({
+    turnId: "turn-without-provider-echo",
+    promptUuid: "outbound-correlation-id",
+    settled: false
+  });
+
+  lifecycle.expectProviderTurnIdentity("turn-without-provider-echo");
+  lifecycle.ensureActive("assistant");
+  lifecycle.settleActive("turn_completed");
+
+  assert.deepEqual(events, [
+    {
+      type: "turn_completed",
+      payload: {
+        turnId: "turn-without-provider-echo"
+      }
+    }
+  ]);
+});
+
+test("turn lifecycle confirms provider identity from the first durable checkpoint", () => {
+  const { lifecycle, events } = createLifecycle();
+  lifecycle.enqueue({
+    turnId: "turn-checkpoint",
+    promptUuid: "outbound-correlation-id",
+    settled: false
+  });
+
+  lifecycle.expectProviderTurnIdentity("turn-checkpoint");
+  lifecycle.ensureActive("assistant");
+  lifecycle.confirmProviderTurnStarted("outbound-correlation-id");
+
+  assert.deepEqual(events, [
+    {
+      type: "provider_turn_identity_resolved",
+      payload: {
+        turnId: "turn-checkpoint",
+        providerTurnId: "outbound-correlation-id"
       }
     }
   ]);
@@ -104,6 +160,13 @@ test("goal activation carries its immutable command identity", () => {
   assert.equal(applied?.payload?.operationId, "goal-op-1");
   assert.equal(applied?.payload?.revision, 1);
   assert.equal(applied?.payload?.repairEpoch, 7);
+  const identity = events.find(
+    (event) => event.type === "provider_turn_identity_resolved"
+  );
+  assert.equal(identity?.payload?.turnOrigin, "goal_arm");
+  assert.equal(identity?.payload?.sourceGoalOperationId, "goal-op-1");
+  assert.equal(identity?.payload?.sourceGoalRevision, 1);
+  assert.equal(identity?.payload?.sourceGoalRepairEpoch, 7);
   const started = events.find((event) => event.type === "turn_started");
   assert.equal(started?.payload?.sourceGoalOperationId, "goal-op-1");
   assert.equal(started?.payload?.sourceGoalRevision, 1);

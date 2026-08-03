@@ -76,3 +76,14 @@ that only exposes the official catalog can render:
 
 If the controlled active tab is not visible, the panel renders the first
 visible tab. An empty configuration falls back to the recommended tab.
+
+## Recommended App Categories
+
+Recommended category filtering uses the stable ids `product-design`,
+`content-creation`, `office`, and `tools`. The package classifies the supported
+official app ids and aliases in its core view-model layer, while the shared i18n
+resources own the labels shown to users. Hosts may provide one of the stable ids
+through `WorkspaceAppRecord.categoryId` for apps outside the built-in map. The
+legacy free-form `category` field remains supported for host compatibility, but
+new integrations should keep localized presentation labels out of category
+data.

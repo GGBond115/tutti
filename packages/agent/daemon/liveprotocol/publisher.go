@@ -155,6 +155,8 @@ func liveEventTurnFence(event *Event) (turnID string, terminal, rejectAfterTermi
 		if json.Unmarshal(event.Data, &data) == nil {
 			return strings.TrimSpace(data.Interaction.TurnID), false, false
 		}
+	case EventTypeInteractionSnapshot:
+		return "", false, false
 	}
 	return "", false, false
 }
@@ -499,7 +501,7 @@ func reconcileKeysForEvent(event *Event) []ReconcileKey {
 		}
 	case EventTypeTurnUpdate:
 		key.Kind = "turn"
-	case EventTypeInteractionUpdate:
+	case EventTypeInteractionUpdate, EventTypeInteractionSnapshot:
 		key.Kind = "interaction"
 	default:
 		key.Kind = "audit"

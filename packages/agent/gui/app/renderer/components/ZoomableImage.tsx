@@ -15,9 +15,9 @@ import {
   ToastRoot,
   ToastTitle,
   ToastViewport,
+  CloseIcon,
   CopyIcon,
-  DownloadIcon,
-  RestoreIcon
+  DownloadIcon
 } from "@tutti-os/ui-system";
 import { RotateCcwIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react";
 import { useTranslation } from "../../../i18n/index";
@@ -101,6 +101,25 @@ export function ZoomableImage({
     closeContextMenu();
     setIsImagePreviewClosing(false);
     setIsImagePreviewOpen(true);
+  };
+
+  const handlePreviewSurfaceClick = (
+    event: MouseEvent<HTMLDivElement>
+  ): void => {
+    const target = event.target;
+    if (target === event.currentTarget) {
+      closePreviewImage();
+      return;
+    }
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    if (
+      target.hasAttribute("data-rmiz-modal-overlay") ||
+      target.hasAttribute("data-rmiz-modal-content")
+    ) {
+      closePreviewImage();
+    }
   };
 
   useEffect(() => {
@@ -338,6 +357,7 @@ export function ZoomableImage({
               data-rmiz-modal=""
               role="dialog"
               tabIndex={-1}
+              onClick={handlePreviewSurfaceClick}
               onAnimationEnd={(event) => {
                 if (
                   isImagePreviewClosing &&
@@ -347,10 +367,7 @@ export function ZoomableImage({
                 }
               }}
             >
-              <div
-                data-rmiz-modal-overlay="visible"
-                onClick={closePreviewImage}
-              />
+              <div data-rmiz-modal-overlay="visible" />
               <div data-rmiz-modal-content="true">{previewContent}</div>
               <ImagePreviewZoomControls
                 canZoomIn={canZoomIn}
@@ -371,10 +388,10 @@ export function ZoomableImage({
               <div className="tsh-zoom-dialog__toolbar-actions nodrag tsh-desktop-no-drag">
                 {actionButtons}
                 <Button
-                  aria-label={t("common.minimizeImage")}
+                  aria-label={t("common.close")}
                   className="tsh-zoom-dialog__icon-button nodrag tsh-desktop-no-drag"
                   size="icon"
-                  title={t("common.minimizeImage")}
+                  title={t("common.close")}
                   onPointerDown={(event) => event.stopPropagation()}
                   variant="chrome"
                   onClick={(event) => {
@@ -383,7 +400,7 @@ export function ZoomableImage({
                     closePreviewImage();
                   }}
                 >
-                  <RestoreIcon aria-hidden="true" className="size-4" />
+                  <CloseIcon aria-hidden="true" className="size-4" />
                 </Button>
               </div>
               {contextMenuPosition?.inZoomDialog && actionButtons ? (

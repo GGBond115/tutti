@@ -348,6 +348,103 @@ func TestCodexUnprovenGoalTurnPrepareFailureForceClosesProvider(t *testing.T) {
 	}
 }
 
+// After pause/resume the live operation identity is the status-control op, but
+// generation ownership stays with set. Provider complete for that generation
+// must still update local goal state; otherwise the continuation nudge sees
+// status=active and revives a finished Goal.
+func TestCodexAppServerAdapterPauseResumeAcceptsProviderComplete(t *testing.T) {
+	t.Parallel()
+
+	adapter, transport, session := startedAppServerAdapter(t)
+	ledger := &memoryGoalProvenanceLedger{bindings: make(map[string]GoalProvenanceBinding)}
+	adapter.SetGoalProvenanceDurableSink(ledger)
+
+	if _, err := adapter.ApplyGoal(context.Background(), session, GoalApplyInput{
+		Action: GoalControlSet, Objective: "count carefully", OperationID: "goal-op-set", Revision: 1,
+	}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if _, err := adapter.ApplyGoal(context.Background(), session, GoalApplyInput{
+		Action: GoalControlPause, OperationID: "goal-op-pause", Revision: 2,
+	}); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	if _, err := adapter.ApplyGoal(context.Background(), session, GoalApplyInput{
+		Action: GoalControlResume, OperationID: "goal-op-resume", Revision: 3,
+	}); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+
+	transport.server.mu.Lock()
+	complete := clonePayload(transport.server.goal)
+	transport.server.mu.Unlock()
+	// Provider complete snapshots bump updatedAt, so the fingerprint no longer
+	// matches the set-time binding and must be accepted via generation lineage.
+	complete["status"] = "complete"
+	complete["updatedAt"] = int64(1750000099)
+	if adapter.providerGoalUpdateSuperseded(session.AgentSessionID, complete) {
+		t.Fatal("provider complete after pause/resume was treated as superseded")
+	}
+	reducer := newCodexAppServerReducer(adapter)
+	reducer.ReduceNotification(nil, session, "turn-final", acpMessage{
+		Method: appServerNotifyThreadGoalUpdated,
+		Params: mustJSONRawMessage(t, map[string]any{
+			"threadId": session.ProviderSessionID, "turnId": "turn-final", "goal": complete,
+		}),
+	}, nil, nil)
+	if status := asString(adapter.sessionGoal(session.AgentSessionID)["status"]); status != "complete" {
+		t.Fatalf("local goal status = %q, want complete", status)
+	}
+}
+
+// Pause/resume share the set-time generation fingerprint. Re-binding that
+// fingerprint to each status-control operation would mark provenance
+// permanently ambiguous and fail resume before the local status mirror runs.
+func TestCodexAppServerAdapterPauseResumeDoesNotRebindGeneration(t *testing.T) {
+	t.Parallel()
+
+	adapter, _, session := startedAppServerAdapter(t)
+	ledger := &memoryGoalProvenanceLedger{bindings: make(map[string]GoalProvenanceBinding)}
+	adapter.SetGoalProvenanceDurableSink(ledger)
+
+	if _, err := adapter.ApplyGoal(context.Background(), session, GoalApplyInput{
+		Action: GoalControlSet, Objective: "count carefully", OperationID: "goal-op-set", Revision: 1,
+	}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if _, err := adapter.ApplyGoal(context.Background(), session, GoalApplyInput{
+		Action: GoalControlPause, OperationID: "goal-op-pause", Revision: 2,
+	}); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	if status := asString(adapter.sessionGoal(session.AgentSessionID)["status"]); status != "paused" {
+		t.Fatalf("paused status = %q", status)
+	}
+	result, err := adapter.ApplyGoal(context.Background(), session, GoalApplyInput{
+		Action: GoalControlResume, OperationID: "goal-op-resume", Revision: 3,
+	})
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if status := asString(result.Observation["status"]); status != "active" {
+		t.Fatalf("resume observation = %#v, want active", result.Observation)
+	}
+	if status := asString(adapter.sessionGoal(session.AgentSessionID)["status"]); status != "active" {
+		t.Fatalf("active status = %q", status)
+	}
+	fingerprint := codexGoalGenerationFingerprint(map[string]any{
+		"threadId": session.ProviderSessionID, "objective": "count carefully",
+		"createdAt": int64(1750000000), "updatedAt": int64(1750000001),
+	})
+	binding, found, err := ledger.LookupGoalProvenance(context.Background(), session, fingerprint)
+	if err != nil || !found {
+		t.Fatalf("lookup fingerprint %q: found=%v err=%v", fingerprint, found, err)
+	}
+	if binding.Ambiguous || binding.OperationID != "goal-op-set" || binding.Revision != 1 {
+		t.Fatalf("binding after pause/resume = %#v, want set-time ownership", binding)
+	}
+}
+
 // thread/goal/updated notifications must reach the GUI as session events even
 // while no turn is running (the banner refreshes off this signal).
 func TestCodexAppServerAdapterGoalUpdateNotificationEmitsSessionEvent(t *testing.T) {

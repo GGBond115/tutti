@@ -18,6 +18,13 @@ beforeEach(() => {
   setClaudeOAuthKeychainReaderForTesting(async () => {
     throw new Error("test keychain credential not found");
   });
+  // Isolate from a developer's real Claude environment so custom-API settings
+  // (ANTHROPIC_BASE_URL / auth token) cannot shadow the OAuth/custom-API
+  // fixtures under test.
+  delete process.env.ANTHROPIC_BASE_URL;
+  delete process.env.ANTHROPIC_API_BASE_URL;
+  delete process.env.ANTHROPIC_AUTH_TOKEN;
+  delete process.env.ANTHROPIC_API_KEY;
 });
 
 test("listDesktopWorkspaceAgentProbes resolves provider aliases through the catalog", async () => {
@@ -30,6 +37,20 @@ test("listDesktopWorkspaceAgentProbes resolves provider aliases through the cata
 
   assert.equal(result.providers.length, 1);
   assert.equal(result.providers[0]?.provider, "opencode");
+});
+
+test("listDesktopWorkspaceAgentProbes keeps extension usage provider-neutral", async () => {
+  const result = await listDesktopWorkspaceAgentProbes({
+    includeUsage: true,
+    providers: ["acp:kimi-code"],
+    refresh: true,
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(result.providers.length, 1);
+  assert.equal(result.providers[0]?.provider, "acp:kimi-code");
+  assert.equal(result.providers[0]?.availability.status, "unknown");
+  assert.equal(result.providers[0]?.lastError?.code, "unsupported");
 });
 
 test("listDesktopWorkspaceAgentProbes maps Codex OAuth usage windows", async () => {

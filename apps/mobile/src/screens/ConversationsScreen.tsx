@@ -15,7 +15,8 @@ type Props = NativeStackScreenProps<
 export function ConversationsScreen({ application, navigation, route }: Props) {
   const service = application.workspaceActivityService!;
   const model = useServiceSnapshot(service);
-  const snapshot = application.getSnapshot();
+  const deviceModel = useServiceSnapshot(application.deviceService!);
+  const snapshot = useServiceSnapshot(application);
 
   useEffect(
     () =>
@@ -52,6 +53,7 @@ export function ConversationsScreen({ application, navigation, route }: Props) {
 
   return (
     <MobileConversationsView
+      connectionPhase={snapshot.connection.phase}
       deviceName={device.name}
       model={model}
       onBack={() => navigation.goBack()}
@@ -59,11 +61,13 @@ export function ConversationsScreen({ application, navigation, route }: Props) {
       onLoadMoreSessions={(sectionId) =>
         void service.loadMoreSessions(sectionId)
       }
+      onMeasureLatency={() => application.measureConnectionLatency()}
       onNewSession={() => openConversation(null)}
       onRenameSession={(id, title) => service.renameSession(id, title)}
       onRefreshSessions={() => service.refreshSessions()}
       onSelectSession={(id) => openConversation(id)}
       onTogglePinned={(id) => service.toggleSessionPinned(id)}
+      pathScope={deviceModel.pathScope}
       workspaceName={workspace.name}
     />
   );

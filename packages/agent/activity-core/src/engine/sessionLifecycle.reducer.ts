@@ -39,7 +39,6 @@ import {
   initialOperation,
   requestedCancel
 } from "./sessionLifecycle.state.ts";
-
 const NO_COMMANDS: readonly EngineCommand[] = [];
 const TURN_CANCEL_TIMEOUT_MS = 30_000;
 
@@ -324,12 +323,7 @@ function changeRuntimeAvailability(
   const operation = state.operationBySessionId[agentSessionId];
   if (!agentSessionId || !operation) return unchanged(state);
   const current = operation.runtimeAvailability;
-  if (
-    current.state === availability.state &&
-    (current.state !== "blocked" ||
-      (availability.state === "blocked" &&
-        current.reason === availability.reason))
-  ) {
+  if (runtimeAvailabilityEquals(current, availability)) {
     return unchanged(state);
   }
   const changed = updateOperation(state, agentSessionId, (value) => ({
@@ -339,6 +333,22 @@ function changeRuntimeAvailability(
   return availability.state === "available"
     ? resumeSettingsUpdateWhenRuntimeAvailable(changed.state, agentSessionId)
     : changed;
+}
+
+function runtimeAvailabilityEquals(
+  left: SessionOperationState["runtimeAvailability"],
+  right: SessionOperationState["runtimeAvailability"]
+): boolean {
+  if (left.state !== right.state) return false;
+  if (left.state === "available" || right.state === "available") return true;
+  if (left.reason !== right.reason) return false;
+  if (
+    left.reason === "agent_sharing_revoked" &&
+    right.reason === "agent_sharing_revoked"
+  ) {
+    return left.ownerLabel === right.ownerLabel;
+  }
+  return true;
 }
 
 function settleInteractionResponse(

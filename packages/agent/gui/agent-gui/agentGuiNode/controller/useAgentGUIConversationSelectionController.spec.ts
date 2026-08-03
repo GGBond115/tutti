@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { AgentSessionEngine } from "@tutti-os/agent-activity-core";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { createTestAgentSessionEngine } from "../../../shared/testing/createTestAgentSessionEngine";
 import type { AgentGUINodeData } from "../../../types";
 import type { AgentGUIConversationSummary } from "../model/agentGuiConversationModel";
@@ -71,7 +71,7 @@ describe("clearRolledBackAgentGUISelection", () => {
         activeConversationIdRef,
         activePendingActivation,
         activeSessionReconcileErrorCode: null,
-        agentActivityRuntime: {} as AgentActivityRuntime,
+        agentActivityRuntime: {} as AgentGUIRuntime,
         attentionReadRecordsBySessionId: {},
         conversationIdsRef: { current: new Set() },
         conversationsRef: { current: [] },
@@ -182,7 +182,7 @@ describe("clearRolledBackAgentGUISelection", () => {
         activeConversationIdRef,
         activePendingActivation: null,
         activeSessionReconcileErrorCode: "session.not_found",
-        agentActivityRuntime: {} as AgentActivityRuntime,
+        agentActivityRuntime: {} as AgentGUIRuntime,
         attentionReadRecordsBySessionId: {},
         conversationIdsRef: { current: new Set() },
         conversationsRef: { current: [] },
@@ -300,7 +300,7 @@ describe("clearRolledBackAgentGUISelection", () => {
               }
             : null,
         activeSessionReconcileErrorCode: null,
-        agentActivityRuntime: {} as AgentActivityRuntime,
+        agentActivityRuntime: {} as AgentGUIRuntime,
         attentionReadRecordsBySessionId: {},
         conversationIdsRef: { current: new Set() },
         conversationsRef: { current: [transientConversation] },
@@ -408,7 +408,7 @@ describe("conversation reload ownership", () => {
         activeConversationIdRef,
         activePendingActivation: null,
         activeSessionReconcileErrorCode: null,
-        agentActivityRuntime: {} as AgentActivityRuntime,
+        agentActivityRuntime: {} as AgentGUIRuntime,
         attentionReadRecordsBySessionId: {},
         conversationIdsRef: { current: new Set(["session-next"]) },
         conversationsRef: { current: [] },

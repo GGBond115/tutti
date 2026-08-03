@@ -160,7 +160,7 @@ func TestStandardACPAdapterIntersectsOpenProviderDeclaredCapabilitiesWithRuntime
 	}
 
 	state := adapter.SessionState(session)
-	capabilities, _ := state.RuntimeContext["capabilities"].([]string)
+	capabilities := capabilitySnapshotValues(state.Capabilities)
 	if !containsString(capabilities, CapabilityCompact) || !containsString(capabilities, CapabilityPlanMode) {
 		t.Fatalf("capabilities = %#v, want negotiated compact+planMode", capabilities)
 	}

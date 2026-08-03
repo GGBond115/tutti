@@ -20,6 +20,23 @@ func TestIsAuthenticationRequiredClassifiesGeminiMissingAPIKey(t *testing.T) {
 	}
 }
 
+func TestIsAuthenticationRequiredDoesNotHideAccountFailures(t *testing.T) {
+	for _, detail := range []string{
+		`Kimi Code models endpoint rejected OAuth credentials: error, status code: 402, message: We're unable to verify your membership benefits at this time. Please ensure your membership is active.`,
+		`Kimi Code models endpoint rejected the API key: error, status code: 401, message: Your current subscription does not have access to kimi-for-coding-highspeed.`,
+		`Kimi Code request rejected OAuth credentials: error, status code: 403, message: You've reached your usage limit for this billing cycle.`,
+		`Kimi Code request rejected OAuth credentials: 402 Payment Required`,
+	} {
+		err := errors.New(detail)
+		if IsAuthenticationRequired(err) {
+			t.Fatalf("IsAuthenticationRequired(%q) = true, want false", detail)
+		}
+		if ClassifyAccountFailure(err) == "" {
+			t.Fatalf("ClassifyAccountFailure(%q) = empty, want account-state code", detail)
+		}
+	}
+}
+
 func TestVisibleFailureCodeClassifiesProviderConcurrencyLimit(t *testing.T) {
 	detail := `stream disconnected before completion: Concurrency limit exceeded for user, please retry later`
 	if got := visibleFailureCode(detail); got != "provider_concurrency_limit" {
@@ -46,6 +63,33 @@ func TestVisibleFailureCodeClassifiesStreamDisconnected(t *testing.T) {
 	detail := `stream disconnected before completion: Transport error: network error: error decoding response body`
 	if got := visibleFailureCode(detail); got != "provider_stream_disconnected" {
 		t.Fatalf("visibleFailureCode() = %q, want provider_stream_disconnected", got)
+	}
+}
+
+func TestVisibleFailureCodeClassifiesProviderEmptyResponse(t *testing.T) {
+	detail := "provider_empty_response: ACP agent ended the turn without assistant output or tool activity"
+	if got := visibleFailureCode(detail); got != "provider_empty_response" {
+		t.Fatalf("visibleFailureCode() = %q, want provider_empty_response", got)
+	}
+	got := visibleFailureContent("acp:kimi-code", "turn", "provider_empty_response")
+	want := "Agent returned no response. Check the provider settings or try again."
+	if got != want {
+		t.Fatalf("visibleFailureContent() = %q, want %q", got, want)
+	}
+}
+
+func TestVisibleFailureCodeClassifiesProviderPlanAndBalanceFailures(t *testing.T) {
+	for _, tt := range []struct {
+		detail string
+		want   string
+	}{
+		{"Membership expired, please renew your plan", FailureCodeSubscriptionRequired},
+		{"Your account has insufficient balance", FailureCodeInsufficientCredits},
+		{"Account balance is insufficient", FailureCodeInsufficientCredits},
+	} {
+		if got := visibleFailureCode(tt.detail); got != tt.want {
+			t.Fatalf("visibleFailureCode(%q) = %q, want %q", tt.detail, got, tt.want)
+		}
 	}
 }
 
@@ -143,12 +187,17 @@ func TestVisibleFailureCodeClassifiesUsageLimitAsQuota(t *testing.T) {
 	if got := visibleFailureCode(detail); got != "quota_or_rate_limit" {
 		t.Fatalf("visibleFailureCode() = %q, want quota_or_rate_limit", got)
 	}
+	if got := visibleFailureCode("API Error: 403 Key limit exceeded (total limit)"); got != "quota_or_rate_limit" {
+		t.Fatalf("visibleFailureCode() = %q, want quota_or_rate_limit", got)
+	}
 }
 
-func TestVisibleFailureCodeClassifiesTuttiInsufficientCredits(t *testing.T) {
+func TestVisibleFailureCodeClassifiesInsufficientCredits(t *testing.T) {
 	for _, detail := range []string{
 		`unexpected status 402 Payment Required: pre-deduct credits failed, url: https://llm-api.tutti.sh/v1/responses`,
 		`unexpected status 402 Payment Required: {"error":{"message":"insufficient credits","type":"billing_error","code":"insufficient_credits"}}`,
+		`Kimi API request failed: 402 Payment Required: OAuth credentials rejected`,
+		`Provider request failed because the account balance is insufficient`,
 		`You've hit your usage limit. Insufficient credits. View Tutti plans at https://tutti.sh/profile/plan, or try again later.`,
 	} {
 		if got := visibleFailureCode(detail); got != "insufficient_credits" {
@@ -160,9 +209,22 @@ func TestVisibleFailureCodeClassifiesTuttiInsufficientCredits(t *testing.T) {
 	}
 }
 
-func TestVisibleFailureContentDescribesTuttiInsufficientCredits(t *testing.T) {
+func TestVisibleFailureCodeClassifiesSubscriptionAndQuotaBeforeAuthWrapper(t *testing.T) {
+	tests := map[string]string{
+		`Kimi Code models endpoint rejected OAuth credentials: error, status code: 402, message: We're unable to verify your membership benefits at this time. Please ensure your membership is active.`: "subscription_required",
+		`Kimi Code models endpoint rejected the API key: error, status code: 401, message: Your current subscription does not have access to kimi-for-coding-highspeed.`:                                 "subscription_required",
+		`Kimi Code request rejected OAuth credentials: error, status code: 403, message: You've reached your usage limit for this billing cycle.`:                                                        "quota_or_rate_limit",
+	}
+	for detail, want := range tests {
+		if got := visibleFailureCode(detail); got != want {
+			t.Fatalf("visibleFailureCode(%q) = %q, want %q", detail, got, want)
+		}
+	}
+}
+
+func TestVisibleFailureContentDescribesProviderInsufficientCredits(t *testing.T) {
 	got := visibleFailureContent(ProviderTuttiAgent, "turn", "insufficient_credits")
-	want := "Tutti Agent could not continue because your Tutti credits are insufficient."
+	want := "Tutti Agent could not continue because the account has insufficient credits or balance."
 	if got != want {
 		t.Fatalf("visibleFailureContent() = %q, want %q", got, want)
 	}
@@ -275,24 +337,6 @@ func TestVisibleFailureRetryableForNetworkButNotMissingCli(t *testing.T) {
 	}
 	if visibleFailureRetryable("cli_not_found", "ENOENT") {
 		t.Fatal("cli_not_found should not be retryable")
-	}
-}
-
-func TestVisibleFailureTimelineItemCarriesTimeoutCodeForTurnFailures(t *testing.T) {
-	session := reportTestSession()
-	event := newTurnActivityEvent(session, EventTurnFailed, "turn-1", SessionStatusFailed, "", "", map[string]any{
-		"error": "context deadline exceeded",
-	})
-
-	item, ok := visibleFailureTimelineItem("room-1", reportTestSource(), event, session.AgentSessionID, 123)
-	if !ok {
-		t.Fatal("visibleFailureTimelineItem() returned ok=false")
-	}
-	if got := item.Payload["code"]; got != "request_timed_out" {
-		t.Fatalf("visible failure code = %#v, want request_timed_out", got)
-	}
-	if got := item.Payload["phase"]; got != "turn" {
-		t.Fatalf("visible failure phase = %#v, want turn", got)
 	}
 }
 

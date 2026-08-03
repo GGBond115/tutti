@@ -47,6 +47,7 @@ const schemaMigrationWorkspaceAgentRuntimeOperationsV4 = "workspace_agent_runtim
 const schemaMigrationWorkspaceAgentRuntimeOperationsV5 = "workspace_agent_runtime_operations_v5"
 const schemaMigrationWorkspaceAgentSubmitClaimsV1 = "workspace_agent_submit_claims_v1"
 const schemaMigrationWorkspaceAgentSubmitClaimsV2 = "workspace_agent_submit_claims_v2"
+const schemaMigrationWorkspaceAgentSubmitClaimsV3 = "workspace_agent_submit_claims_v3"
 const schemaMigrationAgentTargetsV1 = "agent_targets_v1"
 const schemaMigrationAgentTargetsV2 = "agent_targets_v2"
 const schemaMigrationAgentTargetsV3 = "agent_targets_v3"
@@ -81,6 +82,7 @@ const schemaMigrationWorkspaceAgentEffectiveHistoryV1 = "workspace_agent_effecti
 const schemaMigrationWorkspaceAgentSessionForkV6 = "workspace_agent_session_fork_v6_optimistic"
 const schemaMigrationWorkspaceAgentSessionForkV7 = "workspace_agent_session_fork_v7_full_turn_bindings"
 const schemaMigrationWorkspaceAgentProviderCheckpointV1 = "workspace_agent_provider_checkpoint_v1"
+const schemaMigrationWorkspaceAgentProviderTurnBindingJSONV1 = "workspace_agent_provider_turn_binding_json_v1"
 
 // claimableMigrationIDs are the migration IDs that may already be recorded
 // in the legacy tuttid ledger; the claim copies exactly these.
@@ -212,6 +214,9 @@ CREATE TABLE IF NOT EXISTS `+schemaMigrationsTable+` (
 	if err := s.applyWorkspaceAgentSubmitClaimsV2(ctx); err != nil {
 		return err
 	}
+	if err := s.applyWorkspaceAgentSubmitClaimsV3(ctx); err != nil {
+		return err
+	}
 	if err := s.applyWorkspaceAgentSessionTitlesV1(ctx); err != nil {
 		return err
 	}
@@ -296,7 +301,10 @@ CREATE TABLE IF NOT EXISTS `+schemaMigrationsTable+` (
 	if err := s.applyWorkspaceAgentProviderCheckpointV1(ctx); err != nil {
 		return err
 	}
-	return s.applyWorkspaceAgentSessionForkV7(ctx)
+	if err := s.applyWorkspaceAgentSessionForkV7(ctx); err != nil {
+		return err
+	}
+	return s.applyWorkspaceAgentProviderTurnBindingJSONV1(ctx)
 }
 
 // claimLegacyMigrations copies agent-store migration records that were

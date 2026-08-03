@@ -1,11 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
-  ArrowLeftIcon,
   ArrowRightIcon,
   Button,
   PauseIcon,
   PlayIcon,
-  RefreshIcon,
   Select,
   SelectContent,
   SelectItem,
@@ -15,76 +13,29 @@ import {
   TooltipContent,
   TooltipTrigger
 } from "@tutti-os/ui-system";
-import type { DesktopRuntimeApi } from "@preload/types";
 import type {
-  DesktopAgentSessionReplayPlayback,
   DesktopAgentSessionReplayPlaybackSpeed,
-  DesktopAgentSessionReplayStatus,
   DesktopSendAgentSessionReplayControlInput
 } from "@shared/contracts/ipc";
 import { useTranslation } from "@renderer/i18n";
 import { Toast } from "@renderer/lib/toast";
-import {
-  areAgentSessionReplayPlaybackSnapshotsEqual,
-  shouldPollAgentSessionReplayPlayback
-} from "./agentSessionReplayPlaybackPolling.ts";
+import type {
+  AgentSessionReplayNodeRuntime,
+  AgentSessionReplayNodeSnapshot
+} from "../services/agentSessionReplayNodeRuntime.ts";
 import { resolveAgentSessionReplayControlAvailability } from "./agentSessionReplayPlaybackControls.ts";
 
 const playbackSpeeds = [0.25, 0.5, 1, 2, 4] as const;
-const playbackPollIntervalMs = 250;
-
-interface ReplayPlaybackSnapshot {
-  playback: DesktopAgentSessionReplayPlayback;
-  status: DesktopAgentSessionReplayStatus;
-}
 
 export function AgentSessionReplayPlaybackControls({
-  runtimeApi
+  runtime,
+  snapshot
 }: {
-  runtimeApi: Pick<
-    DesktopRuntimeApi,
-    | "getAgentSessionReplayPlayback"
-    | "getAgentSessionReplayStatus"
-    | "sendAgentSessionReplayControl"
-    | "setAgentSessionReplayPlayback"
-  >;
+  runtime: AgentSessionReplayNodeRuntime;
+  snapshot: AgentSessionReplayNodeSnapshot | null;
 }): React.JSX.Element | null {
   const { t } = useTranslation();
-  const [snapshot, setSnapshot] = useState<ReplayPlaybackSnapshot | null>(null);
   const [updating, setUpdating] = useState(false);
-
-  useEffect(() => {
-    let disposed = false;
-    let timer: number | undefined;
-    const poll = async (): Promise<void> => {
-      try {
-        const [playback, status] = await Promise.all([
-          runtimeApi.getAgentSessionReplayPlayback(),
-          runtimeApi.getAgentSessionReplayStatus()
-        ]);
-        if (disposed) return;
-        const next = { playback, status };
-        setSnapshot((current) =>
-          playback.active &&
-          !areAgentSessionReplayPlaybackSnapshotsEqual(current, next)
-            ? next
-            : playback.active
-              ? current
-              : null
-        );
-        if (shouldPollAgentSessionReplayPlayback(playback, status)) {
-          timer = window.setTimeout(poll, playbackPollIntervalMs);
-        }
-      } catch {
-        if (!disposed) setSnapshot(null);
-      }
-    };
-    void poll();
-    return () => {
-      disposed = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [runtimeApi]);
 
   if (!snapshot) {
     return null;
@@ -92,11 +43,12 @@ export function AgentSessionReplayPlaybackControls({
   const { playback, status } = snapshot;
   const currentCheckpoint = status.currentCheckpoint ?? 0;
   const lastCheckpoint = Math.max(0, (status.totalCheckpoints ?? 1) - 1);
-  const { canNext, canPause, canPrevious, canReplace, canSetSpeed } =
+  const { canNext, canPause, canSetSpeed } =
     resolveAgentSessionReplayControlAvailability({
       currentCheckpoint,
       lastCheckpoint,
       phase: status.phase,
+      playbackActive: playback.active,
       updating
     });
 
@@ -108,13 +60,11 @@ export function AgentSessionReplayPlaybackControls({
       return;
     }
     setUpdating(true);
-    void runtimeApi
-      .setAgentSessionReplayPlayback({ command: "set-speed", speed })
-      .then((next) =>
-        setSnapshot((current) =>
-          current ? { ...current, playback: next } : current
-        )
-      )
+    void runtime
+      .updatePlayback({
+        command: "set-speed",
+        speed
+      })
       .catch(() =>
         Toast.Error(t("workspace.agentGui.sessionReplay.replay.speedFailed"))
       )
@@ -122,34 +72,26 @@ export function AgentSessionReplayPlaybackControls({
   };
 
   const sendControl = (
-    command: Exclude<
-      DesktopSendAgentSessionReplayControlInput["command"],
-      "switch-cassette"
-    >
+    command: DesktopSendAgentSessionReplayControlInput["command"]
   ): void => {
     if (updating) return;
     setUpdating(true);
-    void runtimeApi
-      .sendAgentSessionReplayControl({ command })
+    void runtime
+      .sendControl(command)
       .catch(() =>
         Toast.Error(t("workspace.agentGui.sessionReplay.replay.controlFailed"))
       )
       .finally(() => setUpdating(false));
   };
-  const switchCassette = (cassetteId: string): void => {
-    if (updating || cassetteId === status.cassetteId) return;
-    setUpdating(true);
-    void runtimeApi
-      .sendAgentSessionReplayControl({
-        cassetteId,
-        command: "switch-cassette"
-      })
-      .catch(() =>
-        Toast.Error(t("workspace.agentGui.sessionReplay.replay.controlFailed"))
-      )
-      .finally(() => setUpdating(false));
-  };
-
+  const elapsedDuration = formatReplayElapsedDuration(
+    status.totalDurationMs === undefined
+      ? playback.playbackElapsedMs
+      : Math.min(playback.playbackElapsedMs, status.totalDurationMs)
+  );
+  const totalDuration =
+    status.totalDurationMs === undefined
+      ? "--:--"
+      : formatReplayElapsedDuration(status.totalDurationMs);
   return (
     <div
       aria-label={t("workspace.agentGui.sessionReplay.replay.toolbar")}
@@ -157,39 +99,6 @@ export function AgentSessionReplayPlaybackControls({
       data-testid="agent-session-replay-playback-controls"
       role="toolbar"
     >
-      {status.cassetteId && status.cassettes?.length ? (
-        <Select value={status.cassetteId} onValueChange={switchCassette}>
-          <SelectTrigger
-            aria-label={t("workspace.agentGui.sessionReplay.replay.cassette")}
-            className="h-7 min-w-28 max-w-44"
-            disabled={!canReplace}
-            size="sm"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent style={{ zIndex: "var(--z-panel-popover)" }}>
-            {status.cassettes.map((cassette) => (
-              <SelectItem key={cassette.id} value={cassette.id}>
-                {cassette.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : null}
-      <ReplayControlButton
-        disabled={!canReplace}
-        label={t("workspace.agentGui.sessionReplay.replay.restart")}
-        onClick={() => sendControl("restart")}
-      >
-        <RefreshIcon aria-hidden="true" />
-      </ReplayControlButton>
-      <ReplayControlButton
-        disabled={!canPrevious}
-        label={t("workspace.agentGui.sessionReplay.replay.previous")}
-        onClick={() => sendControl("previous-checkpoint")}
-      >
-        <ArrowLeftIcon aria-hidden="true" />
-      </ReplayControlButton>
       <ReplayControlButton
         disabled={!canPause}
         label={t(
@@ -220,6 +129,15 @@ export function AgentSessionReplayPlaybackControls({
         className="min-w-10 px-1 text-center text-xs tabular-nums text-[var(--text-secondary)]"
       >
         {currentCheckpoint}/{lastCheckpoint}
+      </span>
+      <span
+        aria-label={t("workspace.agentGui.sessionReplay.replay.elapsed", {
+          elapsed: elapsedDuration,
+          total: totalDuration
+        })}
+        className="min-w-24 px-1 text-center text-xs tabular-nums text-[var(--text-secondary)]"
+      >
+        {elapsedDuration} / {totalDuration}
       </span>
       <Select value={String(playback.speed)} onValueChange={updateSpeed}>
         <SelectTrigger
@@ -276,4 +194,11 @@ function formatPlaybackSpeed(
   speed: DesktopAgentSessionReplayPlaybackSpeed
 ): string {
   return `${speed}×`;
+}
+
+export function formatReplayElapsedDuration(elapsedMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1_000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }

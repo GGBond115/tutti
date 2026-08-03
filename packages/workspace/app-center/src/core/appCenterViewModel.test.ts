@@ -151,6 +151,7 @@ describe("createAppCenterViewModel", () => {
 
     assert.equal(viewModel.apps[0]?.name, "自动化");
     assert.equal(viewModel.apps[0]?.category, "工具");
+    assert.equal(viewModel.apps[0]?.categoryId, "tools");
     assert.equal(viewModel.apps[0]?.description, "管理工作区自动化任务。");
     assert.deepEqual(viewModel.apps[0]?.tags, ["自动化", "工作区"]);
   });

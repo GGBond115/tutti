@@ -3,6 +3,7 @@ import test from "node:test";
 import { createAgentActivitySnapshotProjector } from "./engine/agentActivitySnapshot.projector.ts";
 import { createAgentSessionEngine } from "./engine/createAgentSessionEngine.ts";
 import { canonicalTurnKey } from "./engine/sessionEntityKeys.ts";
+import { createTestEngineCommandPort } from "./engine/testEngineCommandPort.ts";
 import type { EngineExternalCommand } from "./engine/types.ts";
 import { normalizeAgentActivitySession } from "./sessionNormalization.ts";
 import type {
@@ -15,16 +16,10 @@ function createHarness() {
   const commands: EngineExternalCommand[] = [];
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 10 },
-    commandPort: {
-      execute(command) {
-        commands.push(command);
-        return Promise.resolve(undefined);
-      },
-      executePlanDecision(command) {
-        commands.push(command);
-        return Promise.reject(new Error("not used by coordinator tests"));
-      }
-    },
+    commandPort: createTestEngineCommandPort((command) => {
+      commands.push(command);
+      return Promise.resolve(undefined);
+    }),
     identity: { origin: "test", workspaceId: "workspace-1" },
     scheduler: {
       schedule(_delayMs, task) {

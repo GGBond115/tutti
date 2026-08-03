@@ -40,6 +40,7 @@ func TestCodexAppServerAdapterExecSteersActiveTurn(t *testing.T) {
 		nil,
 		nil,
 		func(result ProviderDispatchResult) { dispatches <- result },
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("steer Exec: %v", err)

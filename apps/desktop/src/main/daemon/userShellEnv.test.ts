@@ -4,13 +4,8 @@ import {
   parseAllowedUserShellEnv,
   resetCachedUserShellEnvForTest,
   resolveCachedUserShellEnv,
-  resolveUserShellEnvInvocation,
-  userShellEnvTimeoutMs
+  resolveUserShellEnvInvocation
 } from "./userShellEnv.ts";
-
-test("user shell env timeout allows slow interactive startup files", () => {
-  assert.equal(userShellEnvTimeoutMs, 10_000);
-});
 
 test("user shell env invocation uses interactive login shell for zsh", () => {
   assert.deepEqual(resolveUserShellEnvInvocation("darwin", "/bin/zsh"), {

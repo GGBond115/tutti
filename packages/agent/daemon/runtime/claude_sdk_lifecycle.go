@@ -39,10 +39,11 @@ func (a *ClaudeCodeSDKAdapter) Start(ctx context.Context, session Session) ([]ac
 		cleanupPreparedLaunch(cleanup)
 		return nil, err
 	}
+	trackInputUnits := providerInputUnitsEnabled(conn)
 	conn = wrapProviderLaunchCleanup(conn, cleanup)
 	adapterSession := &claudeSDKAdapterSession{
 		conn:              conn,
-		reader:            &claudeSDKLineReader{conn: conn},
+		reader:            newClaudeSDKLineReader(conn, trackInputUnits),
 		session:           session,
 		providerSessionID: providerSessionID,
 		resumeCursor:      claudeSDKResumeCursorFromSession(session),
@@ -86,11 +87,44 @@ func (a *ClaudeCodeSDKAdapter) Start(ctx context.Context, session Session) ([]ac
 			a.removeSession(session.AgentSessionID, adapterSession)
 			return nil, err
 		}
-		if next := a.applySidecarSessionEvent(adapterSession, session, event); next != nil {
+		eventCtx := context.Background()
+		if event.inputUnit != nil {
+			eventCtx = contextWithProviderInputUnit(eventCtx, *event.inputUnit)
+		}
+		endInputUnit := a.inputUnits.begin(eventCtx, session.AgentSessionID)
+		next := a.applySidecarSessionEvent(adapterSession, session, event)
+		next = a.inputUnits.stamp(session.AgentSessionID, next)
+		endInputUnit()
+		if next != nil {
 			a.mu.Lock()
 			adapterSession.session = applySessionEvents(session, next)
 			a.mu.Unlock()
+			// Controller.Start applies and publishes the returned events. Complete
+			// asynchronously so an exact replay barrier can wait for that publish
+			// without deadlocking inside Adapter.Start.
+			go func() {
+				if completeErr := completeClaudeSDKProviderInputUnit(
+					context.Background(),
+					adapterSession.conn,
+					event,
+				); completeErr != nil {
+					a.failClaudeSDKReader(
+						session.AgentSessionID,
+						adapterSession,
+						completeErr,
+					)
+				}
+			}()
 			return next, nil
+		}
+		if err := completeClaudeSDKProviderInputUnit(
+			ctx,
+			adapterSession.conn,
+			event,
+		); err != nil {
+			_ = conn.Close()
+			a.removeSession(session.AgentSessionID, adapterSession)
+			return nil, err
 		}
 		if event.Type == "error" {
 			_ = conn.Close()

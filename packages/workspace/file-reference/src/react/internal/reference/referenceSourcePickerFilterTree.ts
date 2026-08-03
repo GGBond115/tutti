@@ -22,6 +22,7 @@ export interface ReferenceSourcePickerFilteredTree {
 export async function buildReferenceSourcePickerFilteredTree(input: {
   aggregator: ReferenceSourceAggregator;
   filters: readonly string[];
+  rootNode?: ReferenceNode | null;
   scope: ReferenceScope;
   signal: AbortSignal;
   sourceId: string;
@@ -81,11 +82,16 @@ export async function buildReferenceSourcePickerFilteredTree(input: {
     folderLoadsByKey.set(key, pending);
   };
 
-  const rootRef = {
+  const scopedRootNode = input.rootNode ?? null;
+  const rootRef = scopedRootNode?.ref ?? {
     sourceId: input.sourceId,
     nodeId: SOURCE_ROOT_NODE_ID
   };
+  const rootKey = scopedRootNode
+    ? nodeRefKey(scopedRootNode.ref)
+    : ROOT_CHILDREN_KEY;
   const rootEntries = await runListTask(() => loadAllChildren(rootRef));
+  folderEntriesByKey.set(rootKey, rootEntries);
   for (const entry of rootEntries) {
     if (entry.kind === "folder") {
       scheduleFolderLoad(entry);
@@ -107,9 +113,11 @@ export async function buildReferenceSourcePickerFilteredTree(input: {
       filterEntries(entries, matchingFolderKeys, input.filters)
     );
   }
-  childrenByKey[ROOT_CHILDREN_KEY] = loadedChildrenState(
-    filterEntries(rootEntries, matchingFolderKeys, input.filters)
-  );
+  if (scopedRootNode) {
+    childrenByKey[ROOT_CHILDREN_KEY] = loadedChildrenState(
+      filterEntries([scopedRootNode], matchingFolderKeys, input.filters)
+    );
+  }
   throwIfAborted(input.signal);
   return { childrenByKey };
 }

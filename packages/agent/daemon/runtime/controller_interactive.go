@@ -10,6 +10,7 @@ import (
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 func (c *Controller) SubmitInteractive(ctx context.Context, input SubmitInteractiveInput) (SubmitInteractiveResult, error) {
@@ -221,13 +222,13 @@ func permissionModeStatePatch(session Session) agentsessionstore.WorkspaceAgentS
 		runtimeContext["title"] = strings.TrimSpace(session.Title)
 	}
 	return agentsessionstore.WorkspaceAgentStatePatch{
-		AgentSessionID:    strings.TrimSpace(session.AgentSessionID),
-		Provider:          strings.TrimSpace(session.Provider),
-		ProviderSessionID: strings.TrimSpace(session.ProviderSessionID),
-		PermissionModeID:  strings.TrimSpace(settings.PermissionModeID),
-		Settings:          sessionSettingsPayload(&settings),
-		RuntimeContext:    runtimeContext,
-		OccurredAtUnixMS:  session.UpdatedAtUnixMS,
+		AgentSessionID:      strings.TrimSpace(session.AgentSessionID),
+		Provider:            strings.TrimSpace(session.Provider),
+		ProviderSessionID:   strings.TrimSpace(session.ProviderSessionID),
+		PermissionModeID:    strings.TrimSpace(settings.PermissionModeID),
+		Settings:            sessionSettingsPayload(&settings),
+		RuntimeContextPatch: &canonical.RuntimeContextPatch{Set: runtimeContext},
+		OccurredAtUnixMS:    session.UpdatedAtUnixMS,
 	}
 }
 

@@ -10,7 +10,10 @@ import (
 	"strings"
 )
 
-const BlobKindAgentPromptAttachment = "agent-prompt-attachment"
+const (
+	BlobKindAgentPromptAttachment = "agent-prompt-attachment"
+	BlobKindAgentGeneratedImage   = "agent-generated-image"
+)
 
 type CassetteFile struct {
 	Path      string `json:"path"`
@@ -20,18 +23,19 @@ type CassetteFile struct {
 }
 
 type CassetteManifest struct {
-	SchemaVersion     int            `json:"schemaVersion"`
-	ID                string         `json:"id"`
-	Name              string         `json:"name"`
-	SourceRecordingID string         `json:"sourceRecordingId"`
-	ScopeID           string         `json:"scopeId"`
-	AgentTargetID     string         `json:"agentTargetId"`
-	RootSessionID     string         `json:"rootAgentSessionId"`
-	Mode              ScenarioMode   `json:"mode"`
-	TotalBytes        int64          `json:"totalBytes"`
-	MaxTotalBytes     int64          `json:"maxTotalBytes"`
-	Files             []CassetteFile `json:"files"`
-	CreatedAtUnixMS   int64          `json:"createdAtUnixMs"`
+	SchemaVersion       int                 `json:"schemaVersion"`
+	StateFormat         string              `json:"stateFormat"`
+	ID                  string              `json:"id"`
+	Name                string              `json:"name"`
+	SourceRecordingID   string              `json:"sourceRecordingId"`
+	AgentTargetID       string              `json:"agentTargetId"`
+	ReplayPrerequisites ReplayPrerequisites `json:"replayPrerequisites"`
+	RootSessionID       string              `json:"rootAgentSessionId"`
+	Mode                ScenarioMode        `json:"mode"`
+	TotalBytes          int64               `json:"totalBytes"`
+	MaxTotalBytes       int64               `json:"maxTotalBytes"`
+	Files               []CassetteFile      `json:"files"`
+	CreatedAtUnixMS     int64               `json:"createdAtUnixMs"`
 }
 
 type BlobManifest struct {
@@ -44,19 +48,21 @@ type BlobManifestEntry struct {
 	SHA256         string `json:"sha256"`
 	SizeBytes      int64  `json:"sizeBytes"`
 	AgentSessionID string `json:"agentSessionId"`
-	AttachmentID   string `json:"attachmentId"`
+	AttachmentID   string `json:"attachmentId,omitempty"`
+	RelativePath   string `json:"relativePath,omitempty"`
 	MimeType       string `json:"mimeType"`
 }
 
 type CassetteManifestInput struct {
-	ID                string
-	Name              string
-	SourceRecordingID string
-	ScopeID           string
-	AgentTargetID     string
-	RootSessionID     string
-	Mode              ScenarioMode
-	CreatedAtUnixMS   int64
+	ID                  string
+	Name                string
+	SourceRecordingID   string
+	AgentTargetID       string
+	ReplayPrerequisites ReplayPrerequisites
+	RootSessionID       string
+	Mode                ScenarioMode
+	CreatedAtUnixMS     int64
+	StateFormat         string
 }
 
 func BuildCassetteManifest(
@@ -70,9 +76,10 @@ func BuildCassetteManifest(
 	}
 	if strings.TrimSpace(input.ID) == "" ||
 		strings.TrimSpace(input.SourceRecordingID) == "" ||
-		strings.TrimSpace(input.ScopeID) == "" ||
 		strings.TrimSpace(input.RootSessionID) == "" ||
-		input.CreatedAtUnixMS <= 0 {
+		strings.TrimSpace(input.StateFormat) == "" ||
+		input.CreatedAtUnixMS <= 0 ||
+		!input.ReplayPrerequisites.valid() {
 		return CassetteManifest{}, ErrInvalidState
 	}
 	name, err := NormalizeRecordingName(input.Name)
@@ -122,25 +129,37 @@ func BuildCassetteManifest(
 		}
 		seen[file.Path] = struct{}{}
 	}
-	for _, required := range requiredCassetteFiles() {
+	for _, required := range requiredCassetteFiles(input.Mode) {
 		if _, ok := seen[required]; !ok {
 			return CassetteManifest{}, fmt.Errorf("cassette is missing required file %q", required)
 		}
 	}
+	if input.Mode == ScenarioModeCreateSession {
+		if _, ok := seen[InitialStateFile]; ok {
+			return CassetteManifest{}, fmt.Errorf(
+				"%s cassette must not contain %q",
+				ScenarioModeCreateSession,
+				InitialStateFile,
+			)
+		}
+	} else if input.Mode != ScenarioModeContinueSession {
+		return CassetteManifest{}, fmt.Errorf("cassette has unsupported mode %q", input.Mode)
+	}
 	sort.Slice(validated, func(i, j int) bool { return validated[i].Path < validated[j].Path })
 	return CassetteManifest{
-		SchemaVersion:     CassetteSchemaVersion,
-		ID:                input.ID,
-		Name:              name,
-		SourceRecordingID: input.SourceRecordingID,
-		ScopeID:           input.ScopeID,
-		AgentTargetID:     input.AgentTargetID,
-		RootSessionID:     input.RootSessionID,
-		Mode:              input.Mode,
-		TotalBytes:        total,
-		MaxTotalBytes:     MaxCassetteBytes,
-		Files:             validated,
-		CreatedAtUnixMS:   input.CreatedAtUnixMS,
+		SchemaVersion:       CassetteSchemaVersion,
+		StateFormat:         strings.TrimSpace(input.StateFormat),
+		ID:                  input.ID,
+		Name:                name,
+		SourceRecordingID:   input.SourceRecordingID,
+		AgentTargetID:       input.AgentTargetID,
+		ReplayPrerequisites: input.ReplayPrerequisites.normalized(),
+		RootSessionID:       input.RootSessionID,
+		Mode:                input.Mode,
+		TotalBytes:          total,
+		MaxTotalBytes:       MaxCassetteBytes,
+		Files:               validated,
+		CreatedAtUnixMS:     input.CreatedAtUnixMS,
 	}, nil
 }
 
@@ -184,19 +203,21 @@ func ValidateCassetteManifestPolicy(
 		return errors.New("unsupported cassette manifest schema or size policy")
 	}
 	rebuilt, err := BuildCassetteManifest(CassetteManifestInput{
-		ID:                manifest.ID,
-		Name:              manifest.Name,
-		SourceRecordingID: manifest.SourceRecordingID,
-		ScopeID:           manifest.ScopeID,
-		AgentTargetID:     manifest.AgentTargetID,
-		RootSessionID:     manifest.RootSessionID,
-		Mode:              manifest.Mode,
-		CreatedAtUnixMS:   manifest.CreatedAtUnixMS,
+		ID:                  manifest.ID,
+		StateFormat:         manifest.StateFormat,
+		Name:                manifest.Name,
+		SourceRecordingID:   manifest.SourceRecordingID,
+		AgentTargetID:       manifest.AgentTargetID,
+		ReplayPrerequisites: manifest.ReplayPrerequisites,
+		RootSessionID:       manifest.RootSessionID,
+		Mode:                manifest.Mode,
+		CreatedAtUnixMS:     manifest.CreatedAtUnixMS,
 	}, manifest.Files, blobs)
 	if err != nil {
 		return err
 	}
-	if rebuilt.TotalBytes != manifest.TotalBytes ||
+	if rebuilt.ReplayPrerequisites != manifest.ReplayPrerequisites ||
+		rebuilt.TotalBytes != manifest.TotalBytes ||
 		len(rebuilt.Files) != len(manifest.Files) {
 		return errors.New("cassette manifest inventory mismatch")
 	}
@@ -217,21 +238,75 @@ func AllowedCassetteFiles(blobs BlobManifest) (map[string]string, error) {
 	for _, blob := range blobs.Blobs {
 		digest := strings.ToLower(strings.TrimSpace(blob.SHA256))
 		if !validSHA256(digest) || blob.SizeBytes < 0 ||
-			blob.SizeBytes > MaxPortableBlobBytes ||
-			strings.TrimSpace(blob.Kind) == "" {
+			blob.SizeBytes > MaxPortableBlobBytes {
 			return nil, fmt.Errorf("cassette blob has invalid integrity evidence %q", blob.SHA256)
+		}
+		if err := validateBlobManifestEntry(blob); err != nil {
+			return nil, err
 		}
 		roles[path.Join("blobs", "sha256", digest)] = "referenced-blob"
 	}
 	return roles, nil
 }
 
-func requiredCassetteFiles() []string {
+func validateBlobManifestEntry(entry BlobManifestEntry) error {
+	if !safeBlobPathSegment(entry.AgentSessionID) ||
+		imageBlobExtension(entry.MimeType) == "" {
+		return errors.New("cassette blob entry is invalid or unsupported")
+	}
+	switch strings.TrimSpace(entry.Kind) {
+	case BlobKindAgentPromptAttachment:
+		if !safeBlobPathSegment(entry.AttachmentID) ||
+			strings.TrimSpace(entry.RelativePath) != "" {
+			return errors.New("cassette prompt attachment blob is invalid")
+		}
+	case BlobKindAgentGeneratedImage:
+		if strings.TrimSpace(entry.AttachmentID) != "" ||
+			!safeGeneratedImageRelativePath(entry.RelativePath) ||
+			path.Ext(entry.RelativePath) != imageBlobExtension(entry.MimeType) {
+			return errors.New("cassette generated image blob is invalid")
+		}
+	default:
+		return fmt.Errorf("cassette blob kind %q is unsupported", entry.Kind)
+	}
+	return nil
+}
+
+func safeBlobPathSegment(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && value != "." && value != ".." &&
+		!strings.ContainsAny(value, `/\`)
+}
+
+func safeGeneratedImageRelativePath(value string) bool {
+	value = strings.TrimSpace(value)
+	return strings.HasPrefix(value, "generated_images/") &&
+		!strings.Contains(value, `\`) &&
+		path.Clean(value) == value
+}
+
+func imageBlobExtension(mimeType string) string {
+	switch strings.TrimSpace(mimeType) {
+	case "image/png":
+		return ".png"
+	case "image/jpeg":
+		return ".jpg"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ""
+	}
+}
+
+func requiredCassetteFiles(mode ScenarioMode) []string {
 	required := []string{}
 	for _, file := range PortableCassettePolicy.Files {
 		if file.Required {
 			required = append(required, file.Path)
 		}
+	}
+	if mode == ScenarioModeContinueSession {
+		required = append(required, InitialStateFile)
 	}
 	sort.Strings(required)
 	return required

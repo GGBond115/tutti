@@ -10,6 +10,7 @@ import (
 
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
+	replay "github.com/tutti-os/tutti/packages/agent/session-replay"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
@@ -227,6 +228,7 @@ func reportActivityInput(session Session, events []activityshared.Event) agentse
 	}
 	now := time.Now().UnixMilli()
 	for _, event := range events {
+		appendProviderObservation(&input, event)
 		sessionID := firstNonEmptyString(event.AgentSessionID, source.AgentID, event.ProviderSessionID, source.ProviderSessionID)
 		if sessionID == "" {
 			continue
@@ -245,7 +247,9 @@ func reportActivityInput(session Session, events []activityshared.Event) agentse
 			input.GoalReconcileRequests = append(input.GoalReconcileRequests, request)
 		}
 		if shouldAppendVisibleFailure(events, event) {
-			if update, ok := visibleFailureMessageUpdate(source, event, sessionID, timestamp); ok {
+			if audit, ok := visibleFailureSessionAuditUpdate(source, event, sessionID, timestamp); ok {
+				input.SessionAudits = append(input.SessionAudits, audit)
+			} else if update, ok := visibleFailureMessageUpdate(source, event, sessionID, timestamp); ok {
 				input.MessageUpdates = append(input.MessageUpdates, update)
 			}
 		}
@@ -264,6 +268,174 @@ func reportActivityInput(session Session, events []activityshared.Event) agentse
 		}
 	}
 	return input
+}
+
+func appendProviderObservation(
+	input *agentsessionstore.ReportActivityInput,
+	event activityshared.Event,
+) {
+	position := event.ProviderInputUnit
+	if input == nil || position == nil || position.ConnectionID == "" ||
+		position.ChunkSeq == 0 || position.UnitIndex == 0 ||
+		position.EventIndex == 0 || !checkpointObservationEvent(event) {
+		return
+	}
+	batchIndex := -1
+	for index := range input.ProviderObservations {
+		candidate := input.ProviderObservations[index]
+		if candidate.RecordingID == position.RecordingID &&
+			candidate.ConnectionID == position.ConnectionID &&
+			candidate.ChunkSeq == position.ChunkSeq &&
+			candidate.UnitIndex == position.UnitIndex {
+			batchIndex = index
+			break
+		}
+	}
+	if batchIndex < 0 {
+		input.ProviderObservations = append(
+			input.ProviderObservations,
+			replay.ProviderObservationBatch{
+				RecordingID:  position.RecordingID,
+				ConnectionID: position.ConnectionID,
+				ChunkSeq:     position.ChunkSeq,
+				UnitIndex:    position.UnitIndex,
+				UnitKind:     position.UnitKind,
+			},
+		)
+		batchIndex = len(input.ProviderObservations) - 1
+	}
+	interactionID := ""
+	interactionKind := ""
+	if interaction := event.Payload.Interaction; interaction != nil {
+		interactionID = strings.TrimSpace(interaction.RequestID)
+		interactionKind = strings.TrimSpace(interaction.Kind)
+	}
+	observationType := string(event.Type)
+	messageKind, _ := event.Payload.Metadata["messageKind"].(string)
+	if isMessageActivityEvent(event.Type) &&
+		strings.TrimSpace(messageKind) == "plan" {
+		observationType = "plan.proposed"
+	}
+	messageID := strings.TrimSpace(payloadString(
+		event.Payload.Metadata,
+		"messageId",
+	))
+	if messageID == "" {
+		messageID = strings.TrimSpace(event.EventID)
+	}
+	messageStatus := strings.TrimSpace(payloadString(
+		event.Payload.Metadata,
+		"streamState",
+	))
+	noticeCommand := strings.TrimSpace(payloadString(
+		event.Payload.Metadata,
+		"noticeCommand",
+	))
+	noticeCommandStatus := strings.TrimSpace(payloadString(
+		event.Payload.Metadata,
+		"noticeCommandStatus",
+	))
+	attachmentCount := uint64(0)
+	for _, block := range payloadArray(event.Payload.Metadata["content"]) {
+		if strings.TrimSpace(payloadString(block, "attachmentId")) != "" {
+			attachmentCount++
+		}
+	}
+	if noticeCommand == "compact" {
+		observationType = "compaction.updated"
+	} else if attachmentCount > 0 {
+		observationType = "attachment.materialized"
+	}
+	input.ProviderObservations[batchIndex].Events = append(
+		input.ProviderObservations[batchIndex].Events,
+		replay.ProviderObservationEvent{
+			EventIndex:         position.EventIndex,
+			Type:               observationType,
+			AgentSessionID:     strings.TrimSpace(event.AgentSessionID),
+			SessionKind:        strings.TrimSpace(event.SessionKind),
+			RootAgentSessionID: strings.TrimSpace(event.RootAgentSessionID),
+			RootTurnID:         strings.TrimSpace(event.RootTurnID),
+			ParentAgentSessionID: strings.TrimSpace(
+				event.ParentAgentSessionID,
+			),
+			ParentTurnID: strings.TrimSpace(event.ParentTurnID),
+			ParentToolCallID: strings.TrimSpace(
+				event.ParentToolCallID,
+			),
+			TurnID:              strings.TrimSpace(event.Payload.TurnID),
+			MessageID:           messageID,
+			MessageKind:         strings.TrimSpace(messageKind),
+			NoticeCommand:       noticeCommand,
+			NoticeCommandStatus: noticeCommandStatus,
+			AttachmentCount:     attachmentCount,
+			CallID:              strings.TrimSpace(event.Payload.CallID),
+			InteractionID:       interactionID,
+			InteractionKind:     interactionKind,
+			TurnPhase:           strings.TrimSpace(event.Payload.TurnPhase),
+			TurnOutcome:         strings.TrimSpace(event.Payload.TurnOutcome),
+			Status: firstNonEmptyString(
+				event.Payload.Status,
+				messageStatus,
+			),
+		},
+	)
+}
+
+func checkpointObservationEvent(event activityshared.Event) bool {
+	if isMessageActivityEvent(event.Type) {
+		messageKind, _ := event.Payload.Metadata["messageKind"].(string)
+		return strings.TrimSpace(messageKind) == "plan" ||
+			strings.TrimSpace(payloadString(
+				event.Payload.Metadata,
+				"noticeCommand",
+			)) == "compact" ||
+			providerObservationAttachmentCount(event) > 0
+	}
+	switch event.Type {
+	case activityshared.EventSessionStarted,
+		activityshared.EventSessionUpdated,
+		activityshared.EventSessionCompleted,
+		activityshared.EventSessionFailed,
+		activityshared.EventRootProviderTurnStarted,
+		activityshared.EventRootProviderTurnCompleted,
+		activityshared.EventTurnStarted,
+		activityshared.EventTurnUpdated,
+		activityshared.EventTurnCompleted,
+		activityshared.EventTurnFailed,
+		activityshared.EventTurnCanceled,
+		activityshared.EventCallCompleted,
+		activityshared.EventCallFailed,
+		activityshared.EventInteractionRequested,
+		activityshared.EventInteractionSuperseded:
+		return true
+	case activityshared.EventCallStarted:
+		// commandExecution/outputDelta reuses call.started for live tool
+		// output. Those frames must not mint another tool.started checkpoint
+		// (no matching commit → checkpoint_commit_unconfirmed).
+		if event.Payload.Metadata != nil {
+			if _, ok := event.Payload.Metadata[liveToolOutputOperationMetadataKey]; ok {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+func providerObservationAttachmentCount(event activityshared.Event) uint64 {
+	var count uint64
+	for _, block := range payloadArray(event.Payload.Metadata["content"]) {
+		if strings.TrimSpace(payloadString(block, "attachmentId")) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func isMessageActivityEvent(eventType activityshared.EventType) bool {
+	return eventType == activityshared.EventMessageAppended ||
+		eventType == activityshared.EventMessageCreated
 }
 
 func (r Reporter) maxAttempts() int {

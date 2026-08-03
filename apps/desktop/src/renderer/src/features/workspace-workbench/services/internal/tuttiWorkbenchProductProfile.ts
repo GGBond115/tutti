@@ -70,6 +70,7 @@ export function createTuttiWorkbenchProductProfile(
         pickDesktopWorkbenchContributionContext(context, [
           "agentProviderStatusService",
           "agentQuickPromptService",
+          "agentSessionReplayComposition",
           "agentsService",
           "appCenterService",
           "appI18n",

@@ -3,6 +3,7 @@ import type { MobileApplicationSnapshot } from "../services/mobileApplicationSer
 export type MobileRootStackParamList = {
   Login: undefined;
   Devices: undefined;
+  Settings: undefined;
   Conversations: {
     pairingId: string;
     workspaceId: string;
@@ -21,8 +22,8 @@ export function availableMobileRoutes(
 ): readonly MobileRouteName[] {
   if (snapshot.status === "unauthenticated") return ["Login"];
   return snapshot.device && snapshot.workspace
-    ? ["Devices", "Conversations", "Conversation"]
-    : ["Devices"];
+    ? ["Devices", "Settings", "Conversations", "Conversation"]
+    : ["Devices", "Settings"];
 }
 
 export function shouldExitConversationRoute({

@@ -3,6 +3,7 @@ import {
   createAgentSessionEngine,
   type AgentActivityMessage
 } from "@tutti-os/agent-activity-core";
+import { createTestEngineCommandPort } from "../shared/testing/createTestAgentSessionEngine";
 import {
   resolveAgentGuiWorkbenchConversationIdentity,
   resolveAgentGuiWorkbenchTitleDisplayPrompt
@@ -26,7 +27,7 @@ describe("resolveAgentGuiWorkbenchTitleDisplayPrompt", () => {
       "[@img](mention://browser-element/browser-element%3A1?tag=img&workspaceId=workspace-1) 这张图片打出来给我看看";
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -118,7 +119,7 @@ describe("resolveAgentGuiWorkbenchConversationIdentity", () => {
   it("preserves the exact Session Agent target for Host header presentation", () => {
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });

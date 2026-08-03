@@ -8,7 +8,7 @@ import {
   dispatchSessionForkThroughTurn,
   type AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { useAgentHostApi } from "../../../agentActivityHost";
 import type { AgentHostUserProject } from "../../../host/agentHostApi";
 import { translate } from "../../../i18n/index";
@@ -30,7 +30,7 @@ export interface UseAgentGUIConversationMetadataActionsInput {
   setUserProjectsSnapshot: (projects: readonly AgentHostUserProject[]) => void;
   userProjectsRef: RefObject<AgentHostUserProject[]>;
   setDetailError: Dispatch<SetStateAction<string | null>>;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   dataRef: RefObject<AgentGUINodeData>;
   workspaceId: string;
   sessionEngine: AgentSessionEngine;

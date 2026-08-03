@@ -11,6 +11,7 @@ const styles = {
   composerChip: "agent-gui-node__composer-chip",
   composerControlsRow: "agent-gui-node__composer-controls-row",
   composerFooter: "agent-gui-node__composer-footer",
+  composerFooterAccessory: "agent-gui-node__composer-footer-accessory",
   composerFooterLeft: "agent-gui-node__composer-footer-left",
   composerFooterRight: "agent-gui-node__composer-footer-right",
   composerHero: "agent-gui-node__composer-hero",

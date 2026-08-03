@@ -1,4 +1,4 @@
-import type { AgentActivityRuntime } from "../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../agentActivityRuntime";
 
 export interface QueuedPromptImageLoadRequest {
   agentSessionId: string;
@@ -8,7 +8,7 @@ export interface QueuedPromptImageLoadRequest {
   name: string;
   path: string;
   remoteUrl: string;
-  runtime: AgentActivityRuntime;
+  runtime: AgentGUIRuntime;
   workspaceId: string;
 }
 

@@ -10,8 +10,12 @@ describe("normalizeAskUserQuestions", () => {
           header: "Plan topic",
           question: "Which kind of plan?",
           options: [
-            { label: "Health check", description: "Audit the repo" },
-            { label: "Feature plan" }
+            {
+              id: "health-check",
+              label: "Health check",
+              description: "Audit the repo"
+            },
+            { id: "feature-plan", label: "Feature plan" }
           ]
         }
       ])
@@ -21,25 +25,67 @@ describe("normalizeAskUserQuestions", () => {
         header: "Plan topic",
         question: "Which kind of plan?",
         options: [
-          { label: "Health check", description: "Audit the repo" },
-          { label: "Feature plan", description: "" }
+          {
+            id: "health-check",
+            label: "Health check",
+            description: "Audit the repo"
+          },
+          { id: "feature-plan", label: "Feature plan", description: "" }
         ],
         multiSelect: false
       }
     ]);
   });
 
-  it("defaults id/header/question and drops option entries without a label", () => {
+  it("generates deterministic contract IDs for missing provider identities", () => {
+    const rawQuestions = [
+      {
+        header: "Choose",
+        question: "Which path?",
+        options: [{ label: "Keep", description: "Reuse the renderer" }]
+      }
+    ];
+    const first = normalizeAskUserQuestions(rawQuestions);
+    const second = normalizeAskUserQuestions(rawQuestions);
+
+    expect(second).toEqual(first);
+    expect(first).toEqual([
+      {
+        id: expect.stringMatching(/^contract-question-/u),
+        header: "Choose",
+        question: "Which path?",
+        options: [
+          {
+            id: expect.stringMatching(/^contract-option-/u),
+            label: "Keep",
+            description: "Reuse the renderer"
+          }
+        ],
+        multiSelect: false
+      }
+    ]);
+  });
+
+  it("drops malformed entries and duplicate contract identities", () => {
     expect(
       normalizeAskUserQuestions([
-        { options: [{ description: "no label" }, { label: "Keep" }] }
+        null,
+        { id: "question-1", options: [{ description: "no label" }] },
+        {
+          id: "question-1",
+          options: [{ id: "keep", label: "Keep" }]
+        },
+        {
+          id: "question-1",
+          options: [{ id: "other", label: "Duplicate question" }]
+        }
       ])
     ).toEqual([
       {
         id: "question-1",
-        header: "Question 1",
-        question: "Question 1",
-        options: [{ label: "Keep", description: "" }],
+        header: "Question 2",
+        question: "Question 2",
+        options: [],
         multiSelect: false
       }
     ]);
@@ -67,7 +113,7 @@ describe("normalizeAskUserQuestions", () => {
         {
           id: "question-1",
           question: "Pick one",
-          options: [{ label: "A" }],
+          options: [{ id: "a", label: "A" }],
           allowFreeText: false
         }
       ])
@@ -76,7 +122,7 @@ describe("normalizeAskUserQuestions", () => {
         id: "question-1",
         header: "Question 1",
         question: "Pick one",
-        options: [{ label: "A", description: "" }],
+        options: [{ id: "a", label: "A", description: "" }],
         multiSelect: false,
         allowFreeText: false
       }

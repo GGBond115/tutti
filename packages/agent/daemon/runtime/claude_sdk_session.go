@@ -1,7 +1,6 @@
 package agentruntime
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +17,30 @@ func (a *ClaudeCodeSDKAdapter) storeSession(agentSessionID string, session *clau
 		session.childSessions = make(map[string]claudeSDKChildSession)
 	}
 	a.sessions[agentSessionID] = session
+}
+
+func (*ClaudeCodeSDKAdapter) applySidecarSessionEvent(
+	adapterSession *claudeSDKAdapterSession,
+	session Session,
+	event claudeSDKSidecarEvent,
+) []activityshared.Event {
+	if event.Type == "usage_updated" {
+		adapterSession.applyUsageUpdated(event.Payload)
+		return nil
+	}
+	if event.Type != "session_started" && event.Type != "session_state" {
+		return nil
+	}
+	adapterSession.applySessionPayload(&session, event.Payload)
+	if event.Type != "session_started" {
+		return nil
+	}
+	return []activityshared.Event{newSessionActivityEvent(
+		session,
+		EventSessionStarted,
+		SessionStatusReady,
+		claudeSDKRuntimeContext(session, adapterSession),
+	)}
 }
 
 func (a *ClaudeCodeSDKAdapter) getSession(agentSessionID string) *claudeSDKAdapterSession {
@@ -174,23 +197,6 @@ func claudeSDKRuntimeContext(session Session, adapterSession *claudeSDKAdapterSe
 	reasoningEffort := claudeSDKSessionReasoningEffort(session, liveState)
 	speed := claudeSDKSessionSpeed(session, liveState)
 	permissionMode := claudeSDKSessionPermissionMode(session, liveState)
-	capabilities := []string{
-		CapabilityImageInput,
-		CapabilityCompact,
-		CapabilityTokenUsage,
-		CapabilityRateLimits,
-		CapabilityPlanMode,
-		CapabilityInterrupt,
-		CapabilityActiveTurnGuidance,
-		CapabilityPermissionModeChangeDuringTurn,
-		CapabilitySkills,
-		"review",
-		// Goal set/clear/display only — no CapabilityGoalPause: Claude
-		// Code's goal has no paused state to control.
-		"goal",
-	}
-	capabilities = appendBrowserUseCapability(capabilities, session.Env)
-	capabilities = appendComputerUseCapability(capabilities, session.Env)
 	context := map[string]any{
 		"adapter":          claudeSDKSidecarAdapterName,
 		"configOptions":    claudeSDKConfigOptions(liveState, model, reasoningEffort, speed),
@@ -199,7 +205,6 @@ func claudeSDKRuntimeContext(session Session, adapterSession *claudeSDKAdapterSe
 		"planMode":         session.SettingsValue().PlanMode,
 		"reasoningEffort":  reasoningEffort,
 		"speed":            speed,
-		"capabilities":     capabilities,
 	}
 	if providerConfig := providerRuntimeConfig(session, session.Provider); len(providerConfig) > 0 {
 		context["providerConfig"] = providerConfig
@@ -225,6 +230,27 @@ func claudeSDKRuntimeContext(session Session, adapterSession *claudeSDKAdapterSe
 	return context
 }
 
+func claudeSDKCapabilities(session Session) []string {
+	capabilities := []string{
+		CapabilityImageInput,
+		CapabilityCompact,
+		CapabilityTokenUsage,
+		CapabilityRateLimits,
+		CapabilityPlanMode,
+		CapabilityInterrupt,
+		CapabilityActiveTurnGuidance,
+		CapabilityPermissionModeChangeDuringTurn,
+		CapabilitySkills,
+		"review",
+		// Goal set/clear/display only — no CapabilityGoalPause: Claude
+		// Code's goal has no paused state to control.
+		"goal",
+	}
+	capabilities = appendBrowserUseCapability(capabilities, session.Env)
+	capabilities = appendComputerUseCapability(capabilities, session.Env)
+	return capabilities
+}
+
 func (s *claudeSDKAdapterSession) mirrorGoalSlashPrompt(session Session, prompt string) (activityshared.Event, bool) {
 	if s == nil {
 		return activityshared.Event{}, false
@@ -239,28 +265,6 @@ func (s *claudeSDKAdapterSession) mirrorGoalSlashPrompt(session Session, prompt 
 		s.liveState.goal = nil
 	}
 	return normalizedGoalUpdatedEvent(session, updateType)
-}
-
-func (s *claudeSDKAdapterSession) applyGoalUpdated(payload map[string]any) string {
-	if s == nil {
-		return ""
-	}
-	updateType := strings.TrimSpace(payloadString(payload, "updateType"))
-	if updateType == "thread_goal_clear" || updateType == "thread_goal_cleared" {
-		s.liveState.goal = nil
-		return firstNonEmpty(updateType, "thread_goal_cleared")
-	}
-	if goal := payloadObject(payload["goal"]); len(goal) > 0 {
-		s.liveState.goal = clonePayload(goal)
-		return firstNonEmpty(updateType, "thread_goal_update")
-	}
-	if raw, err := json.Marshal(payload["sdkMessage"]); err == nil && len(raw) > 0 {
-		if goal, ok := claudeSDKGoalStatusPayload(raw); ok {
-			s.liveState.goal = clonePayload(goal)
-			return "thread_goal_update"
-		}
-	}
-	return ""
 }
 
 func claudeSDKResumeCursor(session Session, adapterSession *claudeSDKAdapterSession) map[string]any {

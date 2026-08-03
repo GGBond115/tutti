@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 func (a *standardACPAdapter) applyACPMode(ctx context.Context, client *acpClient, session Session, modeID string) error {
@@ -591,6 +592,7 @@ func (a *standardACPAdapter) SessionState(session Session) SessionStateSnapshot 
 		return snapshot
 	}
 	state := snapshotACPLiveState(acpSession.acpLiveState)
+	resumeRuntimeContext := clonePayload(acpSession.resumeRuntimeContext)
 	agentInfo := clonePayload(acpSession.agentInfo)
 	promptImage := acpSession.promptImage
 	var prompt *SessionInteractivePrompt
@@ -608,6 +610,12 @@ func (a *standardACPAdapter) SessionState(session Session) SessionStateSnapshot 
 	}
 	a.mu.Unlock()
 
+	for key, value := range resumeRuntimeContext {
+		snapshot.RuntimeContext[key] = value
+	}
+	snapshot.RuntimeContext["cwd"] = session.CWD
+	snapshot.RuntimeContext["title"] = session.Title
+	snapshot.RuntimeContext["permissionModeId"] = session.PermissionModeID
 	if len(agentInfo) > 0 {
 		snapshot.RuntimeContext["agent"] = agentInfo
 	}
@@ -646,9 +654,7 @@ func (a *standardACPAdapter) SessionState(session Session) SessionStateSnapshot 
 	if _, builtInProvider := providerregistry.Find(a.config.provider); !builtInProvider {
 		capabilities = filterDeclaredCapabilities(capabilities, a.config.capabilities)
 	}
-	if len(capabilities) > 0 {
-		snapshot.RuntimeContext["capabilities"] = capabilities
-	}
+	snapshot.Capabilities = canonical.NewCapabilitySnapshot(capabilities)
 	if a.config.restrictConfigOptions {
 		snapshot.Settings = sessionSettingsWithDeclaredACPConfig(
 			session.Settings,

@@ -18,3 +18,9 @@ export type DelegatedTaskState = {
   // nested agent launch is observed inside a child stream.
   parentTaskToolUseId?: string;
 };
+
+export type BackgroundProcessState = {
+  parentToolUseId: string;
+  taskId: string;
+  status: DelegatedTaskStatus;
+};

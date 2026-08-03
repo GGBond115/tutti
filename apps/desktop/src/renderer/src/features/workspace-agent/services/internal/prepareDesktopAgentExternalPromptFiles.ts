@@ -1,5 +1,5 @@
 import type {
-  AgentActivityRuntime,
+  AgentGUIRuntime,
   AgentActivityRuntimePromptContentBlock,
   AgentExternalPromptFilePreparationErrorCode,
   AgentExternalPromptFilePreparationResult,
@@ -34,7 +34,7 @@ type ExternalPromptFileSource =
     };
 
 export function createDesktopAgentExternalPromptFilePreparer(input: {
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   platformApi: Pick<DesktopPlatformApi, "resolveDroppedEntries">;
   workspaceId: string;
 }): AgentExternalPromptFilePreparer {

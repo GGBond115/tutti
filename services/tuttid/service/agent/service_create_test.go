@@ -387,10 +387,10 @@ func TestServiceCreateResolvesProviderFromAgentTarget(t *testing.T) {
 		t.Fatalf("runtime agent target id = %q, want %s", got, agenttargetbiz.IDLocalClaudeCode)
 	}
 	ref := visibleStart.ProviderTargetRef
-	if ref["kind"] != agenttargetbiz.LaunchRefTypeLocalCLI ||
+	if ref["kind"] != agenttargetbiz.LaunchRefTypeBuiltinLocal ||
 		ref["provider"] != "claude-code" ||
 		ref["targetId"] != agenttargetbiz.IDLocalClaudeCode {
-		t.Fatalf("runtime provider target ref = %#v, want daemon-derived local_cli claude target", ref)
+		t.Fatalf("runtime provider target ref = %#v, want daemon-derived builtin_local claude target", ref)
 	}
 }
 

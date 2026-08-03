@@ -1,51 +1,54 @@
 # Agent Session Replay has a shared application core
 
-**Accepted**
+**Accepted, amended 2026-07-29**
 
 Tutti and TSH both record and replay Agent Sessions, so provider-neutral
-Recording, Cassette, and Replay Run contracts live in
-`packages/agent/session-replay`. The package owns their identities, status
-transitions, Recording workflow, Replay Run workflow, Cassette schema,
+Recording and Cassette contracts live in `packages/agent/session-replay`. The
+package owns their identities, Recording status transitions and workflow,
+fixed-batch replay preparation, Cassette schema, semantic checkpoint model,
 allowlist, size policy, and integrity validation. Its ports cover metadata,
-SessionGraph fixtures, artifact publication, provider-tape recording, and
-optional in-process replay runtime composition. Products that launch replay
-through an external UI process use the same prepare/running/complete/fail
-workflow transitions.
+semantic Replay State, artifact publication, and provider-tape recording.
+Product runtime adapters own
+ephemeral replay process identity, progress, cancellation, and settlement.
 
 Recording is a mutable task that produces zero or one Cassette. Its replay
 payload is immutable, while its user-visible name may change.
 Cancelling a Recording discards its candidate artifact and metadata, so
 canceled Recordings do not appear in recording history.
 Cassette is a portable artifact whose local database row is only a rebuildable
-catalog entry. Each Replay Run belongs to one Cassette and is stored separately
-because one Cassette may be replayed many times.
+catalog entry. Cassette is the only persistent Replay artifact. A Replay Surface
+executes one Cassette inside a transient Replay Workspace; neither Surface
+playback state nor Workspace execution state is stored as product metadata.
 
 The name lives in `cassette.json`, defaults to the Recording creation timestamp,
 and may be edited from Desktop. A rename rewrites that manifest, recalculates
 its SHA-256, and commits the new Recording and Cassette metadata together.
 
-Each product supplies adapters. Tutti keeps SQLite migrations, fixture
-contributors, HTTP, local state-root resolution, daemon composition, and
+Each product supplies adapters. Tutti keeps SQLite migrations, semantic state
+capture/restore, HTTP, local state-root resolution, daemon composition, and
 Electron launch in `services/tuttid` and `apps/desktop`. TSH supplies equivalent
 adapters without importing Tutti product code. Tutti's filesystem artifact
 adapter lives under `services/tuttid/data/agentsessionreplay`; its service layer
-only maps Workspace DTOs and applies local target policy. Runtime metadata uses a durable
-product store locally and may use an isolated temporary store in CI. Cassette
-content never depends on either database.
+only maps Workspace DTOs and applies local target policy. Replay runtime state
+lives only in the isolated Desktop, daemon, and SQLite runtime and is discarded
+with that runtime. Cassette content never depends on a product database.
 
-Final replay verification compares durable Session behavior and settings. It
+The shared package remains the workflow owner. Tutti's service and Desktop
+layers own only their adapters and composition decisions; they must not grow a
+second Recording/Cassette state machine.
+
+Final replay verification compares typed Agent, Tutti Mode, Workflow, and Issue
+business state. It
 does not compare provider-discovered runtime context, capability catalogs, or
 usage counters because those values describe the current runtime environment,
-not the recorded scenario. Replay-generated Session and Turn identifiers are
-normalized through stable provider identity and per-Session Turn order before
-durable rows are compared; ambiguous identity matches remain validation
-failures.
+not the recorded scenario. Stable semantic identities are restored directly;
+comparison reports the first exact business-state path mismatch.
 
 Recording candidates and published Cassettes also have separate physical
 locations. A completed candidate is published under its own Cassette id only
-after an allowlist audit. The portable artifact may contain scenario metadata,
-ordered activity events, an optional seed SessionGraph, the expected SessionGraph,
-provider protocol tape, and blobs explicitly referenced by those fixtures. It
+after an allowlist audit. The portable artifact contains its sole top-level
+manifest, ordered Activity Events, optional semantic initial state, required
+semantic expected state, provider protocol tape, and explicitly referenced blobs. It
 must reject logs, screenshots, SQLite databases, workspace copies, credentials,
 and every other unrecognized file. Provider frames are limited to 8 MiB per
 decoded payload and 256 MiB on disk; the complete Cassette is limited to 384
@@ -53,11 +56,13 @@ MiB. Manifests record per-file and per-provider-frame size evidence so anomalous
 growth is attributable instead of hidden by compression.
 
 Provider protocol tape mechanics remain in `packages/agent/daemon/runtime`.
-Tutti Desktop asks the daemon to prepare and persist a Replay Run, then launches
-the separate Electron adapter with that daemon-owned Run id. The isolated
-daemon uses a fail-closed replay transport and does not install the real runtime
-preparer, provider command resolver, extension runtime resolver, or provider
-availability probe. Replay does not add a switch to `ProcessSpec`.
+Tutti Desktop asks the daemon to validate and resolve one fixed Cassette batch,
+then launches the separate Electron adapter with Cassette, root Session, and
+Cassette-directory bindings. This preparation creates no mutable execution
+metadata. The isolated daemon uses a fail-closed replay transport and does not
+install the real runtime preparer, provider command resolver, extension runtime
+resolver, or provider availability probe. Replay does not add a switch to
+`ProcessSpec`.
 
 The JavaScript replay runner remains a temporary Tutti Electron adapter. It
 reads the shared `cassette-policy.json`; it does not define a second Cassette
@@ -73,12 +78,12 @@ render Replay pause/checkpoint controls. AgentGUI exposes only generic host
 render slots and contains no recording/replay contracts, state, provider
 policy, controls, or copy.
 
-Replay playback is monotonic inside one Replay Run. Pause and resume keep the
-same Run. Moving to the next stable checkpoint temporarily fast-forwards
+Replay playback is monotonic inside one Replay Surface. Pause and resume keep
+the same Surface. Moving to the next stable checkpoint temporarily fast-forwards
 recorded timing, but still consumes every provider frame and performs every
-outbound assertion. Moving backward, restarting, or selecting another Cassette
-replaces the active Run; it must not rewind an already-mutated daemon, database,
-or provider cursor in place.
+outbound assertion. Moving backward or restarting must replace the transient
+Surface or Replay Workspace; it must not rewind an already-mutated daemon,
+database, or provider cursor in place.
 
 Provider frames and activity events share the daemon playback state. Activity
 events advance by their recorded `occurredAtUnixMs` offset, freeze while Replay
@@ -86,16 +91,45 @@ is paused, scale with Replay speed, and skip recorded waits during checkpoint
 fast-forward. Effect verification starts only when its recorded time is
 reached; a long-running Turn must not be shortened into a runner timeout.
 
-Cassette schema v3 is the only accepted schema. It stores one global ordered
-stream in `activity-events.jsonl`; no v2 reader, migration, or fallback exists.
+Cassette schema v7 is the only accepted schema. It stores the ordered
+`activity-events.jsonl` stimulus stream and a required
+`checkpoint-plan.json`, plus portable composer defaults under
+`replayPrerequisites`; no older reader, migration, or fallback exists.
+Published artifacts contain no source Workspace ID. Replay creates a
+fresh transient Workspace and binds it only at daemon-restore and product-event
+boundaries; user payload strings are not recursively rewritten.
 Queue and steer are recorded as activity-engine intents plus correlated command
 effects, so replay rebuilds the same transient engine state instead of reducing
 those actions to HTTP calls.
 
-Schema v3 records stable playback boundaries in `checkpoints.jsonl`. Checkpoint
-zero is the bootstrap state before activity events. Later checkpoints identify
-the last fully applied activity-event sequence, carry the expected queue
-projection, and may carry opaque per-connection provider cursors. The shared
-core validates the portable structure. The product replay adapter decides when
-the isolated runtime has actually reached that boundary and advances the
-durable Replay Run checkpoint monotonically.
+Schema v7 serializes Replay Checkpoints. Each checkpoint owns a vector Replay
+Cursor, a bootstrap, Activity-boundary, or Provider-observation Trigger,
+portable Logical Subjects, and canonical Readiness Predicates. Recording
+observes but never pauses. Replay holds every lane at the selected cursor and
+reports a checkpoint reached only after its trigger, canonical commit, and
+readiness are confirmed. Renderer hydration adds the runtime-only Inspectable
+Checkpoint gate.
+
+The replayable interaction contract has a single cross-language source:
+`activity-contract.json` in the shared core declares, per intent type, the
+allowed effect command types and whether an effect is required. The renderer
+keeps one registry module in sync with it for correlation, stable effect
+fields, readiness, and rebase rules; the Go core enforces it when an event is
+recorded, before a Recording completes, and when a Cassette is validated.
+Sealing is fail-closed: a replayable command without a resolvable causing
+intent, or still awaiting its result, fails recording completion instead of
+publishing a Cassette that can only fail later during replay. Replay bindings,
+drivers, and coordinators mount only inside the isolated replay runtime, and
+the renderer recorder exists only while a Recording is active; the normal
+Desktop path carries no replay machinery.
+
+The default-off `agent.sessionRecording` preference gates process composition
+at startup. The renderer waits for initial persisted preference hydration
+before constructing the Workspace service container; Replay consumes that
+hydrated decision without owning preference loading or update propagation.
+Disabled Desktop composition creates no Replay manager, access
+adapter, IPC handler, renderer Replay service, recording binding, recorder map,
+observer map, or Engine observer. Enabling composition preserves live recorder
+attachment only for an active Recording. A preference change does not
+retroactively rebuild a running daemon or renderer; it takes effect on the next
+process composition.

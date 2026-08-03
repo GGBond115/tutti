@@ -1,8 +1,7 @@
 import type { TranslateFn } from "../../i18n/index";
 import { toLocalShortDateTime } from "../../app/renderer/shell/utils/format";
 import type { AgentUsageQuota } from "../../shared/contracts/dto";
-import type { AgentProvider } from "../../contexts/settings/domain/agentSettings";
-import type { AgentGUIAgentTarget } from "../../types";
+import type { AgentGUIAgentTarget, AgentGUIProvider } from "../../types";
 import type { AgentComposerSlashStatusLimit } from "./AgentComposer";
 import type { useAgentGUINodeController } from "./controller/useAgentGUINodeController";
 
@@ -89,6 +88,29 @@ export function slashStatusLimitsFromQuotas(
     .filter((limit): limit is AgentComposerSlashStatusLimit => limit !== null);
 }
 
+export function slashStatusUsageErrorMessage(
+  code: string | null | undefined,
+  t: TranslateFn
+): string | null {
+  if (!code) {
+    return null;
+  }
+  switch (code) {
+    case "auth_required":
+      return t("agentHost.agentGui.slashStatusUsageAuthRequired");
+    case "session_expired":
+      return t("agentHost.agentGui.slashStatusUsageSessionExpired");
+    case "subscription_required":
+      return t("agentHost.agentGui.slashStatusUsageSubscriptionRequired");
+    case "quota_exhausted":
+      return t("agentHost.agentGui.slashStatusUsageQuotaExhausted");
+    case "parse_failed":
+      return t("agentHost.agentGui.slashStatusUsageParseFailed");
+    default:
+      return t("agentHost.agentGui.slashStatusUsageError");
+  }
+}
+
 function filterSlashStatusQuotasForModel(
   quotas: readonly AgentUsageQuota[] | undefined,
   selectedModel: string | null | undefined
@@ -121,20 +143,41 @@ function normalizeSlashStatusModelName(
   );
 }
 
+export function resolveAgentGUIRailStatusTarget(input: {
+  conversationFilter: ReturnType<
+    typeof useAgentGUINodeController
+  >["viewModel"]["rail"]["conversationFilter"];
+  agentTargets: readonly AgentGUIAgentTarget[];
+}): AgentGUIAgentTarget | null {
+  const filter = input.conversationFilter;
+  if (filter.kind !== "agentTarget") {
+    return null;
+  }
+  return (
+    input.agentTargets.find(
+      (candidate) =>
+        candidate.disabled !== true &&
+        ((candidate.agentTargetId?.trim() ?? "") === filter.agentTargetId ||
+          candidate.targetId.trim() === filter.agentTargetId)
+    ) ?? null
+  );
+}
+
 export function resolveAgentGUIRailStatusProvider(input: {
   conversationFilter: ReturnType<
     typeof useAgentGUINodeController
   >["viewModel"]["rail"]["conversationFilter"];
   agentTargets: readonly AgentGUIAgentTarget[];
-}): AgentProvider | null {
-  const filter = input.conversationFilter;
-  if (filter.kind !== "agentTarget") {
-    return null;
-  }
-  const target = input.agentTargets.find(
-    (candidate) =>
-      candidate.disabled !== true &&
-      (candidate.agentTargetId?.trim() ?? "") === filter.agentTargetId
-  );
-  return target ? (target.provider as AgentProvider) : null;
+}): AgentGUIProvider | null {
+  const target = resolveAgentGUIRailStatusTarget(input);
+  return target?.provider ?? null;
+}
+
+export function resolveAgentGUIRailConfigProvider(
+  railConfigProvider: AgentGUIProvider | null | undefined,
+  fallbackProvider: AgentGUIProvider
+): AgentGUIProvider | null {
+  return railConfigProvider === undefined
+    ? fallbackProvider
+    : railConfigProvider;
 }

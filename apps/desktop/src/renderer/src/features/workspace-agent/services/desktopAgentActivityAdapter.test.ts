@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { AgentActivitySessionSettings } from "@tutti-os/agent-activity-core";
 import type {
   CreateWorkspaceAgentSessionRequest,
   TuttidClient,
@@ -7,6 +8,7 @@ import type {
   SendWorkspaceAgentSessionInputRequest,
   SendWorkspaceAgentSessionInputResponse,
   WorkspaceAgentSession,
+  WorkspaceAgentSessionGoalControlRequest,
   WorkspaceAgentSessionForkOperation,
   WorkspaceAgentSessionMessage
 } from "@tutti-os/client-tuttid-ts";
@@ -18,6 +20,68 @@ import {
 } from "./desktopAgentActivityAdapter.ts";
 
 const workspaceId = "workspace-1";
+
+test("desktop Goal Control forwards Engine identity and maps durable evidence", async () => {
+  const calls: unknown[] = [];
+  const controller = new AbortController();
+  const adapter = createDesktopAgentActivityAdapter({
+    runtimeApi: createRuntimeApi(),
+    tuttidClient: createTuttidClient({
+      async goalControlWorkspaceAgentSession(
+        receivedWorkspaceId: string,
+        agentSessionId: string,
+        request: WorkspaceAgentSessionGoalControlRequest,
+        options?: Parameters<
+          TuttidClient["goalControlWorkspaceAgentSession"]
+        >[3]
+      ) {
+        calls.push({ agentSessionId, options, request, receivedWorkspaceId });
+        return {
+          goal: { objective: "ship it", status: "active" },
+          operationId: "operation-1",
+          session: createSession({
+            goal: { objective: "ship it", status: "active" }
+          }),
+          state: {
+            desired: { objective: "ship it", status: "active" },
+            lastEvidence: { source: "desktop-test" },
+            observed: { objective: "ship it", status: "active" },
+            pendingOperationId: null,
+            revision: 2,
+            syncStatus: "synced",
+            tombstoned: false,
+            updatedAtUnixMs: 3
+          }
+        };
+      }
+    })
+  });
+
+  const result = await adapter.goalControl({
+    action: "set",
+    agentSessionId: "agent-session-1",
+    clientSubmitId: "goal-submit-1",
+    objective: "ship it",
+    signal: controller.signal,
+    workspaceId
+  });
+
+  assert.deepEqual(calls, [
+    {
+      agentSessionId: "agent-session-1",
+      options: { signal: controller.signal },
+      receivedWorkspaceId: workspaceId,
+      request: {
+        action: "set",
+        clientSubmitId: "goal-submit-1",
+        objective: "ship it"
+      }
+    }
+  ]);
+  assert.equal(result.operationId, "operation-1");
+  assert.equal(result.state?.revision, 2);
+  assert.deepEqual(result.goal, { objective: "ship it", status: "active" });
+});
 
 test("desktop agent activity adapter preserves durable message sequence", () => {
   const message = agentActivityMessageFromTuttidMessage(
@@ -378,15 +442,24 @@ test("desktop agent activity adapter forwards typed submit diagnostics", async (
           signal: requestOptions?.signal,
           workspaceId: requestWorkspaceId
         });
-        return createSendInputResponse(
+        const response = createSendInputResponse(
           createSession({ id: agentSessionId, status: "running" })
         );
+        return {
+          ...response,
+          turn: {
+            ...response.turn,
+            capabilityRefs: [
+              { capability: "tutti" as const, source: "slash_command" as const }
+            ]
+          }
+        };
       }
     }),
     runtimeApi: createRuntimeApi()
   });
 
-  await adapter.sendInput({
+  const result = await adapter.sendInput({
     clientSubmitId: "submit-1",
     workspaceId,
     agentSessionId: "agent-session-1",
@@ -417,6 +490,9 @@ test("desktop agent activity adapter forwards typed submit diagnostics", async (
       signal: controller.signal,
       workspaceId
     }
+  ]);
+  assert.deepEqual(result.kind === "turn" ? result.turn.capabilityRefs : null, [
+    { capability: "tutti", source: "slash_command" }
   ]);
 });
 
@@ -484,6 +560,139 @@ test("desktop agent activity adapter accepts typed goal input without a Turn", a
   assert.equal(result.goal?.objective, "ship it");
 });
 
+test("desktop goal control marks the HTTP request as renderer Engine-originated", async () => {
+  const receivedOptions: unknown[] = [];
+  const controller = new AbortController();
+  const adapter = createDesktopAgentActivityAdapter({
+    tuttidClient: createTuttidClient({
+      async goalControlWorkspaceAgentSession(
+        _workspaceId,
+        agentSessionId,
+        _request,
+        options
+      ) {
+        receivedOptions.push(options);
+        return {
+          goal: null,
+          operationId: "goal-op-1",
+          session: createSession({ id: agentSessionId })
+        };
+      }
+    }),
+    runtimeApi: createRuntimeApi()
+  });
+
+  const input = {
+    action: "pause" as const,
+    agentSessionId: "agent-session-1",
+    clientSubmitId: "goal-submit-1",
+    signal: controller.signal,
+    workspaceId
+  };
+  await adapter.goalControl(input, {
+    commandId: "goal-command-1",
+    origin: "engine"
+  });
+  await adapter.goalControl(input);
+
+  assert.deepEqual(receivedOptions, [
+    {
+      agentCommandOrigin: "renderer-engine",
+      signal: controller.signal
+    },
+    { signal: controller.signal }
+  ]);
+});
+
+test("desktop lifecycle adapters preserve Engine provenance and omit it for direct calls", async () => {
+  const received: Array<{ kind: string; options: unknown }> = [];
+  const adapter = createDesktopAgentActivityAdapter({
+    tuttidClient: createTuttidClient({
+      async createWorkspaceAgentSession(_workspaceId, request, options) {
+        received.push({ kind: "create", options });
+        return createSession({ id: request.agentSessionId });
+      },
+      async sendWorkspaceAgentSessionInput(
+        _workspaceId,
+        agentSessionId,
+        _request,
+        options
+      ) {
+        received.push({ kind: "send", options });
+        return createSendInputResponse(
+          createSession({ id: agentSessionId, status: "running" })
+        );
+      },
+      async submitWorkspaceAgentInteractive(
+        _workspaceId,
+        agentSessionId,
+        _requestId,
+        _request,
+        options
+      ) {
+        received.push({ kind: "respond", options });
+        return createSession({ id: agentSessionId });
+      }
+    }),
+    runtimeApi: createRuntimeApi()
+  });
+  const engineOptions = {
+    commandId: "engine-command-1",
+    origin: "engine" as const
+  };
+
+  const createInput = {
+    agentSessionId: "agent-session-1",
+    agentTargetId: "local:codex",
+    clientSubmitId: "submit-create",
+    workspaceId
+  };
+  const sendInput = {
+    agentSessionId: "agent-session-1",
+    clientSubmitId: "submit-send",
+    content: [{ text: "continue", type: "text" as const }],
+    workspaceId
+  };
+  const responseInput = {
+    action: "accept",
+    agentSessionId: "agent-session-1",
+    requestId: "request-1",
+    turnId: "turn-1",
+    workspaceId
+  };
+
+  await adapter.createSession(createInput, engineOptions);
+  await adapter.sendInput(sendInput, engineOptions);
+  await adapter.submitInteractive(responseInput, engineOptions);
+  await adapter.createSession(createInput);
+  await adapter.sendInput(sendInput);
+  await adapter.submitInteractive(responseInput);
+
+  assert.deepEqual(
+    received.map(({ kind, options }) => ({
+      kind,
+      origin: (options as { agentCommandOrigin?: string }).agentCommandOrigin
+    })),
+    [
+      {
+        kind: "create",
+        origin: "renderer-engine"
+      },
+      {
+        kind: "send",
+        origin: "renderer-engine"
+      },
+      {
+        kind: "respond",
+        origin: "renderer-engine"
+      },
+      { kind: "create", origin: undefined },
+      { kind: "send", origin: undefined },
+      { kind: "respond", origin: undefined }
+    ]
+  );
+});
+
 test("desktop agent activity adapter marks empty-cwd creates as no-project", async () => {
   let createBody: unknown = null;
   const adapter = createDesktopAgentActivityAdapter({
@@ -507,6 +716,37 @@ test("desktop agent activity adapter marks empty-cwd creates as no-project", asy
   });
 
   assert.deepEqual((createBody as { noProject?: boolean }).noProject, true);
+});
+
+test("desktop agent activity adapter uses typed initial Goal without command text", async () => {
+  const createBodies: CreateWorkspaceAgentSessionRequest[] = [];
+  const adapter = createDesktopAgentActivityAdapter({
+    tuttidClient: createTuttidClient({
+      async createWorkspaceAgentSession(_workspaceId, body) {
+        createBodies.push(body);
+        return createSession({
+          id: body.agentSessionId,
+          goal: { objective: "ship it", status: "active" }
+        });
+      }
+    }),
+    runtimeApi: createRuntimeApi()
+  });
+
+  await adapter.createSession({
+    agentSessionId: "11111111-1111-4111-8111-111111111111",
+    agentTargetId: "local:codex",
+    clientSubmitId: "goal-submit-1",
+    initialContent: [{ type: "text", text: "/goal ship it" }],
+    initialGoalControl: { action: "set", objective: "ship it" },
+    workspaceId
+  });
+
+  assert.deepEqual(createBodies[0]?.initialContent, []);
+  assert.deepEqual(createBodies[0]?.initialGoalControl, {
+    action: "set",
+    objective: "ship it"
+  });
 });
 
 test("desktop agent activity adapter consumes the armed recording for one new session", async () => {
@@ -706,7 +946,10 @@ test("desktop agent activity adapter forwards HTTPS image URLs structurally", as
         mimeType: "image/png",
         url,
         attachmentId: "remote-image",
-        name: "image.png"
+        name: "image.png",
+        hostPath: "/tmp/local-only.png",
+        uploadStatus: "uploaded",
+        uri: "file:///tmp/local-only.png"
       }
     ],
     workspaceId
@@ -1232,7 +1475,7 @@ test("desktop agent activity adapter rejects unuploaded file prompt blocks", asy
       ],
       workspaceId
     }),
-    /File prompt blocks must be uploaded before desktop submission/
+    /File prompt blocks must be uploaded before submission/
   );
 });
 
@@ -1549,16 +1792,26 @@ test("desktop agent activity adapter loads Claude models via composer options re
     runtimeApi: createRuntimeApi()
   });
 
+  const settings: AgentActivitySessionSettings = {
+    browserUse: false,
+    computerUse: false,
+    model: "opus"
+  };
   const options = await adapter.loadComposerOptions({
     cwd: "/repo",
     provider: "claude-code",
+    settings,
     workspaceId
   });
 
   assert.deepEqual(composerOptionsCalls, [
     {
       provider: "claude-code",
-      request: { cwd: "/repo", settings: {}, workspaceId }
+      request: {
+        cwd: "/repo",
+        settings: { browserUse: false, model: "opus" },
+        workspaceId
+      }
     }
   ]);
   assert.equal(options.modelConfigurable, true);

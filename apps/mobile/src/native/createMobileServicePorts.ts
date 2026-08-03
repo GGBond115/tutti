@@ -1,11 +1,7 @@
 import { DeviceEventEmitter, NativeEventEmitter } from "react-native";
 import { createAppLifecyclePort } from "./appLifecyclePort";
 import { appLifecycle, deviceLink, mobileSecurity } from "./mobileNative";
-import {
-  sendEmailCode,
-  signInWithGitHub,
-  verifyEmailCode
-} from "../services/accountClient";
+import { signInWithBrowser } from "../services/accountClient";
 import {
   claimPairing,
   connectPairedDevice,
@@ -23,11 +19,10 @@ const AGENT_LIVE_EVENT_NAME = "TuttiDeviceLinkAgentLive";
 const appLifecycleEvents = new NativeEventEmitter(appLifecycle);
 
 export function createMobileServicePorts(): MobileServicePorts {
+  let nextAgentLiveSubscriptionGeneration = 0;
   return {
     account: {
-      sendEmailCode,
-      signInWithGitHub,
-      verifyEmailCode
+      signInWithBrowser
     },
     appLifecycle: createAppLifecyclePort(appLifecycle, appLifecycleEvents),
     clock: {
@@ -43,27 +38,31 @@ export function createMobileServicePorts(): MobileServicePorts {
         deviceLink.requestAgentHTTP(method, path, body, timeoutMillis),
       subscribeAgentLive(workspaceId, listener) {
         let active = true;
+        const subscriptionGeneration = ++nextAgentLiveSubscriptionGeneration;
         const subscription = DeviceEventEmitter.addListener(
           AGENT_LIVE_EVENT_NAME,
           (payload: string) => {
             if (!active) return;
             for (const delivery of parseAgentLiveDeliveries(
               workspaceId,
+              subscriptionGeneration,
               payload
             )) {
               listener(delivery);
             }
           }
         );
-        void deviceLink.startAgentLive(workspaceId).catch(() => {
-          if (active) {
-            listener({
-              kind: "connection",
-              reason: "subscribe_failed",
-              status: "disconnected"
-            });
-          }
-        });
+        void deviceLink
+          .startAgentLive(workspaceId, subscriptionGeneration)
+          .catch(() => {
+            if (active) {
+              listener({
+                kind: "connection",
+                reason: "subscribe_failed",
+                status: "disconnected"
+              });
+            }
+          });
         return {
           close() {
             if (!active) return;

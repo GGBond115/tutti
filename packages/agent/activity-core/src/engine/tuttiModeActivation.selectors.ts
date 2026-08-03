@@ -1,5 +1,5 @@
 import type { AgentActivityTuttiModeActivation } from "../types.ts";
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 
 export interface TuttiModeActivationPresentation {
   activation: AgentActivityTuttiModeActivation | null;
@@ -21,7 +21,7 @@ export interface ResolvedTuttiModeActivationPresentation extends TuttiModeActiva
 const DEFAULT_PREFERENCE = 50;
 
 export function selectTuttiModeDraftIsActive(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   draftKey: string
 ): boolean {
   return (
@@ -30,7 +30,7 @@ export function selectTuttiModeDraftIsActive(
 }
 
 export function selectTuttiModeDraftPreferences(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   draftKey: string
 ): { effect: number | null; speed: number | null } {
   const draft = state.tuttiModeActivation.draftsByKey[draftKey.trim()];
@@ -44,14 +44,14 @@ export function selectTuttiModeDraftPreferences(
  * @deprecated Use selectTuttiModeDraftPreferences.
  */
 export function selectTuttiModeDraftOrchestrationIntensity(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   draftKey: string
 ): number | null {
   return selectTuttiModeDraftPreferences(state, draftKey).effect;
 }
 
 export function selectTuttiModeActivationPresentation(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined,
   draftKey: string
 ): ResolvedTuttiModeActivationPresentation {

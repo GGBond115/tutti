@@ -7,9 +7,8 @@ import (
 
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
-	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 )
 
 var _ agenthost.CommitObserver = (*ActivityProjection)(nil)
@@ -22,8 +21,11 @@ func (p *ActivityProjection) ObserveCommitted(ctx context.Context, delta agentho
 		return nil
 	}
 	if committed := delta.ActivityState; committed != nil {
-		p.publishPersistedTurnState(ctx, committed.Input, committed.Result)
-		if committed.Result.State.Accepted {
+		provisional := activityStateIsProvisional(committed.Input)
+		if !provisional {
+			p.publishPersistedTurnState(ctx, committed.Input, committed.Result)
+		}
+		if committed.Result.State.Accepted && !provisional {
 			p.publishActivityUpdated(ctx, committed.Input.WorkspaceID, committed.Input.AgentSessionID,
 				"session_reconcile_required", activitySessionUpdateEventPayload(
 					committed.Input.WorkspaceID, committed.Input.AgentSessionID,
@@ -59,7 +61,13 @@ func (p *ActivityProjection) ObserveCommitted(ctx context.Context, delta agentho
 		}
 	}
 	for _, mutation := range delta.ProjectionDirty {
-		if mutation.EntityKind != storesqlite.MutationEntityTurn || mutation.Operation != "settle" {
+		if mutation.EntityKind != agentactivitybiz.MutationEntityTurn || mutation.Operation != "settle" {
+			continue
+		}
+		if session, found, err := p.repo.GetSession(ctx, mutation.WorkspaceID, mutation.AgentSessionID); err == nil && found && runtimeContextBool(session.InternalRuntimeContext, "provisional") {
+			// Provisional provider rejection is durably settled only long enough
+			// for Host compensation; never publish a hidden session's terminal
+			// Turn update to AgentGUI.
 			continue
 		}
 		turn, found, err := p.repo.GetTurn(ctx, mutation.WorkspaceID, mutation.AgentSessionID, mutation.EntityID)
@@ -67,15 +75,24 @@ func (p *ActivityProjection) ObserveCommitted(ctx context.Context, delta agentho
 			continue
 		}
 		p.publishActivityUpdated(ctx, mutation.WorkspaceID, mutation.AgentSessionID, "turn_update",
-			activityTurnUpdateEventPayload(mutation.WorkspaceID, mutation.AgentSessionID, turn, time.Now().UnixMilli()))
+			p.activityTurnUpdateEventPayload(ctx, mutation.WorkspaceID, mutation.AgentSessionID, turn, time.Now().UnixMilli()))
 	}
 	return nil
+}
+
+func activityStateIsProvisional(input canonical.ReportSessionStateInput) bool {
+	return runtimeContextBool(input.State.RuntimeContext, "provisional")
+}
+
+func runtimeContextBool(runtimeContext map[string]any, key string) bool {
+	value, _ := runtimeContext[key].(bool)
+	return value
 }
 
 func canonicalSessionDeleted(delta agenthost.CommittedDelta, invalidated agenthost.CanonicalViewInvalidated) bool {
 	for _, mutation := range delta.ProjectionDirty {
 		if mutation.WorkspaceID == invalidated.WorkspaceID && mutation.AgentSessionID == invalidated.AgentSessionID &&
-			mutation.EntityKind == storesqlite.MutationEntitySession && mutation.Operation == "delete" {
+			mutation.EntityKind == agentactivitybiz.MutationEntitySession && mutation.Operation == "delete" {
 			return true
 		}
 	}
@@ -86,7 +103,7 @@ func committedSessionVersion(delta agenthost.CommittedDelta, invalidated agentho
 	var version int64
 	for _, mutation := range delta.ProjectionDirty {
 		if mutation.WorkspaceID == invalidated.WorkspaceID && mutation.AgentSessionID == invalidated.AgentSessionID &&
-			mutation.EntityKind == storesqlite.MutationEntitySession && mutation.Version > version {
+			mutation.EntityKind == agentactivitybiz.MutationEntitySession && mutation.Version > version {
 			version = mutation.Version
 		}
 	}

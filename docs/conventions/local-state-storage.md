@@ -248,28 +248,39 @@ prompt attachments by agent session.
 
 ## Developer Agent Session Cassettes
 
-The daemon keeps mutable Recording, Cassette catalog, and Replay Run metadata in
-SQLite. It writes a Recording candidate under
+The daemon keeps mutable Recording metadata and the rebuildable Cassette catalog
+in SQLite. It does not persist Replay Workspace, Replay Surface, playback, or
+verification state. It writes a Recording candidate under
 `<TUTTI_STATE_DIR>/agent-session-recordings/<recording-id>/candidate/`.
-A recording is a capture window over one
-recursive SessionGraph. `create-session` starts with no seed.
-`continue-session` exports the selected root graph's canonical and workflow
-dependency closure to `seed/state.jsonl`. Explicit stop writes
-`expected/state.jsonl`, finalizes the provider tape, assigns a distinct
+A recording is a capture window over one recursive SessionGraph.
+`create-session` has no initial state. `continue-session` captures the selected
+root graph and related Tutti Mode, Workflow, and Issue business state in
+`initial-state.json`. Explicit stop writes `expected-state.json`, finalizes the
+provider tape, assigns a distinct
 Cassette id, audits the candidate, and atomically publishes it under
 `<TUTTI_STATE_DIR>/agent-session-cassettes/<cassette-id>`. Recording metadata
 does not enter the published Cassette. Canceling removes the candidate. Turn
 settlement does not stop recording. A daemon restart marks an active recording
-incomplete and discards its candidate.
+incomplete and discards its candidate. Deleting an inactive recording removes
+its Recording row, Cassette catalog row, and candidate or published directory.
 
-`pnpm e2e:agent-gui -- --record <directory>` exercises that UI flow in an
-isolated runtime and copies the completed recording to the requested directory.
+`pnpm e2e:agent-gui -- --record <directory> --scenario <id>` exercises one
+named scenario in an isolated runtime and copies the completed recording to
+the requested directory. The runner has no raw prompt or generic
+`--continue-session` recording mode; those semantics belong to the scenario
+and the finalized cassette action.
 The isolated daemon database and Electron `userData` live under the repository
 `.tmp` root and are removed unless `--keep-runtime` is set.
 
-The cassette contains `scenario.json`, `environment.json`, `stimuli.jsonl`,
-optional `seed/state.jsonl`, `provider/{manifest.json,frames.jsonl}`,
-`expected/state.jsonl`, content-addressed `blobs/`, and `cassette.json`.
+The schema-v7 cassette contains `cassette.json`, `activity-events.jsonl`,
+`checkpoint-plan.json`, optional `initial-state.json`,
+`provider/{manifest.json,frames.jsonl}`, `expected-state.json`,
+`blobs/manifest.json`, and any referenced content-addressed files under
+`blobs/`.
+Published files contain no source Workspace ID, database table/column names,
+row IDs, migrations, or absolute paths. The daemon creates the transient
+Workspace, restores semantic state before Host recovery, and captures actual
+semantic state for verification.
 Publication rejects every unrecognized file, including logs, screenshots,
 databases, credentials, unrelated Sessions, and Workspace copies. Provider
 payloads are capped at 8 MiB per frame and 256 MiB stored per tape; referenced
@@ -277,7 +288,7 @@ blobs are capped at 20 MiB each; the full audited file set is capped at 384 MiB.
 The manifests report per-kind and per-file byte counts and hashes. Provider
 frames and selected blobs may still contain private prompts, output, and files.
 The blob manifest selects persisted prompt attachments explicitly referenced by
-SessionGraph messages; replay verifies their SHA-256 and restores them into the
+semantic Agent messages; replay verifies their SHA-256 and restores them into the
 isolated attachment store. It does not scan the Workspace. Do not commit,
 upload, or share a cassette without reviewing those scoped artifacts.
 

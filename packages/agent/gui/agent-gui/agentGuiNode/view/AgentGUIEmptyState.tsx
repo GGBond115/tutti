@@ -45,10 +45,8 @@ import type {
 import type { ChromeLabels } from "./AgentGUINodeView.types";
 import { AgentGUIEmptyHeroCarouselStage } from "./AgentGUIEmptyHeroCarouselStage";
 import { AgentTargetSetupGate } from "./AgentTargetSetupGate.tsx";
-import {
-  AgentGUIAgentTargetName,
-  projectAgentGUIAgentTargetName
-} from "./AgentGUIAgentTargetName";
+import { projectAgentGUIAgentTargetName } from "../model/agentGuiTargetName";
+import { AgentGUIAgentTargetName } from "./AgentGUIAgentTargetName";
 import styles from "../AgentGUINode.styles";
 import { AgentGUIOwnerAvatar } from "../AgentGUIOwnerAvatar";
 
@@ -701,7 +699,7 @@ function EmptyHeroTitle({
         </Select>
       ) : selectedAgentTarget ? (
         <AgentGUIAgentTargetName
-          className={cn(styles.emptyHeroProvider, "max-w-[240px]")}
+          className={cn(styles.emptyHeroProvider, "inline-flex max-w-[240px]")}
           ownerSeparator={sharedAgentOwnerSeparator}
           target={selectedAgentTarget}
         />

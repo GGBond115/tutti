@@ -84,7 +84,7 @@ func TestDefaultPreparerKimiCodeMaterializesCanonicalSkillBundle(t *testing.T) {
 	if string(materialized) != canonical {
 		t.Fatalf("materialized Kimi skill diverged from canonical bundle:\n%s", materialized)
 	}
-	if !strings.Contains(canonical, "tutti-dev browser navigate --url <url> --json") ||
+	if !strings.Contains(canonical, "tutti-dev browser open --url <url> --json") ||
 		strings.Contains(canonical, "{{") {
 		t.Fatalf("canonical Kimi skill was not fully rendered:\n%s", canonical)
 	}

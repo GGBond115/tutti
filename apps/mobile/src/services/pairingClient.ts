@@ -3,6 +3,7 @@ import { controlPlaneBaseURL, mobileClientVersion } from "../config";
 import { deviceLink, mobileSecurity } from "../native/mobileNative";
 import type {
   DeviceIdentity,
+  DeviceLinkPathScope,
   DevicePairing,
   DevicePairingChallenge,
   UserDevice
@@ -119,7 +120,7 @@ export async function connectPairedDevice(
   sessionId: string,
   pairingId: string,
   isCurrent: () => boolean = () => true
-): Promise<void> {
+): Promise<DeviceLinkPathScope> {
   const identity = await mobileSecurity.getOrCreateIdentity();
   await requireCurrentConnection(isCurrent);
   await registerIdentity(sessionId, identity);
@@ -163,7 +164,7 @@ export async function connectPairedDevice(
         attempt.ownerIce &&
         attempt.ownerFingerprint
       ) {
-        await deviceLink.connectLink(
+        const scope = await deviceLink.connectLink(
           JSON.stringify({
             candidates: attempt.ownerIce.candidates,
             fingerprint: attempt.ownerFingerprint,
@@ -175,7 +176,7 @@ export async function connectPairedDevice(
           30_000
         );
         await requireCurrentConnection(isCurrent);
-        return;
+        return normalizeDeviceLinkPathScope(scope);
       }
       await delay(500);
       await requireCurrentConnection(isCurrent);
@@ -195,6 +196,12 @@ export async function connectPairedDevice(
     }
     throw error;
   }
+}
+
+function normalizeDeviceLinkPathScope(scope: string): DeviceLinkPathScope {
+  return scope === "local_subnet" || scope === "public_internet"
+    ? scope
+    : "private_network";
 }
 
 export async function registerCurrentDevice(

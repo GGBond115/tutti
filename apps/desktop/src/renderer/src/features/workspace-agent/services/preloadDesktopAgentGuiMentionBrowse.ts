@@ -1,5 +1,5 @@
 import { preloadAgentMentionBrowse } from "@tutti-os/agent-gui/mention-search";
-import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
+import type { AgentGUIRuntime } from "@tutti-os/agent-gui";
 import {
   AGENT_CONTEXT_MENTION_PROVIDER_IDS,
   type AgentContextMentionProvider
@@ -21,7 +21,7 @@ import { DESKTOP_AGENT_GUI_CURRENT_USER_ID } from "./desktopAgentGuiIdentity.ts"
 export function preloadDesktopAgentGuiMentionBrowse(input: {
   workspaceId: string;
   baseProviders: readonly AgentContextMentionProvider[];
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
 }): void {
   const workspaceId = input.workspaceId.trim();
   if (!workspaceId) {

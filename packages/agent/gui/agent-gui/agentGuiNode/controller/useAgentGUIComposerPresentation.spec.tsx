@@ -1,7 +1,7 @@
 import { renderHook } from "@testing-library/react";
 import type { AgentActivityComposerOptions } from "@tutti-os/agent-activity-core";
 import { describe, expect, it } from "vitest";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { AgentSessionComposerSettings } from "../../../shared/agentSessionTypes";
 import type { AgentGUINodeData } from "../../../types";
 import { composerSettingsSupportFromOptions } from "../model/composerSettingsSupport";
@@ -73,7 +73,7 @@ describe("useAgentGUIComposerPresentation", () => {
           activeSessionState: null,
           agentActivityRuntime: {
             projectPathIsRemote: false
-          } as AgentActivityRuntime,
+          } as AgentGUIRuntime,
           composerSupport: {
             ...composerSettingsSupportFromOptions(currentOptions, null),
             reasoning: false
@@ -219,7 +219,7 @@ describe("useAgentGUIComposerPresentation", () => {
           activeSessionState: null,
           agentActivityRuntime: {
             projectPathIsRemote: false
-          } as AgentActivityRuntime,
+          } as AgentGUIRuntime,
           composerSupport: composerSettingsSupportFromOptions(options, null),
           composerOptionsLoading: false,
           composerTargetProvider: "opencode",

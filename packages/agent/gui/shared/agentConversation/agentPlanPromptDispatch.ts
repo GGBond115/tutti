@@ -10,6 +10,7 @@ import {
   PLAN_IMPLEMENTATION_ACTION_IMPLEMENT,
   PLAN_IMPLEMENTATION_ACTION_SKIP
 } from "./planImplementationPresentation";
+import { createAgentClientId } from "./agentClientIdentity";
 
 export type AgentPlanPromptAction =
   | typeof PLAN_IMPLEMENTATION_ACTION_IMPLEMENT
@@ -104,7 +105,7 @@ export function dispatchAgentPlanPromptAction(input: {
           ]
         }
       : {}),
-    clientSubmitId: `${scopeKey}:feedback:${requestedAtUnixMs}`,
+    clientSubmitId: createAgentClientId(),
     content: [{ type: "text", text }],
     displayPrompt: text,
     expiresAtUnixMs: requestedAtUnixMs + 120_000,

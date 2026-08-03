@@ -32,15 +32,4 @@ describe("AgentPlanCard", () => {
     fireEvent.click(getByTestId("agent-plan-card-copy"));
     expect(writeText).toHaveBeenCalledWith("plan-copy-text");
   });
-
-  it("uses the provided title", () => {
-    const { getByTestId } = render(
-      <AgentPlanCard title="Custom plan" copyText="x">
-        <div>body</div>
-      </AgentPlanCard>
-    );
-    expect(getByTestId("agent-plan-card-title").textContent).toBe(
-      "Custom plan"
-    );
-  });
 });

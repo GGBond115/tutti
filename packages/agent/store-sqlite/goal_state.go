@@ -631,7 +631,7 @@ func reconcileObservedGoalFromSessionTx(ctx context.Context, tx *sql.Tx, session
 	if workspaceID == "" || agentSessionID == "" {
 		return nil
 	}
-	metadata, _, err := splitSessionRuntimeContext(session.RuntimeContext)
+	metadata, _, _, err := splitSessionRuntimeContext(session.RuntimeContext)
 	if err != nil {
 		return err
 	}
@@ -665,41 +665,6 @@ INSERT INTO workspace_agent_session_goals (
 	if err != nil {
 		return err
 	}
-	if evidence, ok := goalControlAppliedEvidence(session.RuntimeContext); !terminalFence && ok &&
-		state.PendingOperationID != "" &&
-		asJSONMapString(evidence, "operationId") == state.PendingOperationID &&
-		jsonMapInt64(evidence, "revision") == state.Revision &&
-		goalStateConverged(state.Desired, observed, state.Tombstoned) {
-		pending, pendingFound, err := getGoalControlOperationTx(ctx, tx, workspaceID, state.PendingOperationID)
-		if err != nil {
-			return err
-		}
-		if !pendingFound || (pending.RepairRequired && jsonMapInt64(evidence, "repairEpoch") != pending.RepairEpoch) {
-			return nil
-		}
-		evidenceJSON := marshalJSONMapOrEmpty(evidence)
-		if _, err := tx.ExecContext(ctx, `
-UPDATE workspace_agent_goal_control_operations
-SET status = ?, provider_phase = ?, evidence_json = ?, lease_owner = NULL,
-    lease_expires_at_unix_ms = NULL, next_attempt_at_unix_ms = NULL,
-    repair_required = 0,
-    updated_at_unix_ms = ?, completed_at_unix_ms = ?
-WHERE workspace_id = ? AND operation_id = ? AND goal_revision = ? AND status = ?
-`, GoalOperationStatusCompleted, GoalProviderPhaseApplied, evidenceJSON, occurredAt, occurredAt,
-			workspaceID, state.PendingOperationID, state.Revision, GoalOperationStatusDispatched); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `
-UPDATE workspace_agent_session_goals
-SET observed_json = ?, sync_status = ?, pending_operation_id = NULL,
-    last_evidence_json = ?, last_error = '', observed_at_unix_ms = ?, updated_at_unix_ms = ?
-WHERE workspace_id = ? AND agent_session_id = ? AND revision = ? AND pending_operation_id = ?
-`, nullableJSONMap(observed), GoalSyncStatusSynced, evidenceJSON, occurredAt, occurredAt,
-			workspaceID, agentSessionID, state.Revision, state.PendingOperationID); err != nil {
-			return err
-		}
-		return nil
-	}
 	if state.ObservedAtUnixMS > occurredAt {
 		return nil
 	}
@@ -725,17 +690,6 @@ WHERE workspace_id = ? AND agent_session_id = ? AND revision = ?
 		lastError, occurredAt, occurredAt, workspaceID, agentSessionID, state.Revision,
 		state.PendingOperationID, state.ObservedAtUnixMS)
 	return err
-}
-
-func goalControlAppliedEvidence(runtimeContext map[string]any) (map[string]any, bool) {
-	raw, ok := runtimeContext["goalControlEvidence"].(map[string]any)
-	if !ok || strings.TrimSpace(asJSONMapString(raw, "phase")) != "applied" {
-		return nil, false
-	}
-	if strings.TrimSpace(asJSONMapString(raw, "operationId")) == "" || jsonMapInt64(raw, "revision") <= 0 {
-		return nil, false
-	}
-	return cloneJSONMap(raw), true
 }
 
 func jsonMapInt64(value map[string]any, key string) int64 {

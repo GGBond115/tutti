@@ -148,6 +148,7 @@ func statePatchFromSessionStateSnapshot(snapshot SessionStateSnapshot) agentsess
 		Model:             strings.TrimSpace(runtimeContextString(runtimeContext, "model")),
 		PermissionModeID:  strings.TrimSpace(snapshot.PermissionModeID),
 		Settings:          sessionSettingsPayload(snapshot.Settings),
+		Capabilities:      canonical.CloneCapabilitySnapshot(snapshot.Capabilities),
 		RuntimeContext:    runtimeContext,
 		TurnLifecycle:     activityTurnLifecycleFromRuntime(snapshot.TurnLifecycle),
 		SubmitAvailability: activitySubmitAvailabilityFromRuntime(

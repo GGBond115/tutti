@@ -4,6 +4,7 @@ import {
   selectRootAgentSessionIdsWithPendingInteractions,
   selectEngineTurnsForSession,
   selectEngineInteractionResponse,
+  selectSessionGoalControlPresentation,
   selectEngineSessionRuntimeAvailability,
   selectComposerOptions,
   selectComposerOptionsLoadStatus,
@@ -24,6 +25,7 @@ import {
   type AgentConversationVM
 } from "@tutti-os/agent-gui/conversation-projection";
 import type { AgentTarget } from "@tutti-os/client-tuttid-ts";
+import type { MobileUserProjectDirectorySnapshot } from "./mobileUserProjectDirectoryService";
 import { projectWorkspaceConversationRail } from "./workspaceConversationRailProjection";
 import type { WorkspaceConversationRailSnapshot } from "./workspaceConversationRailService";
 import type { WorkspaceActivitySnapshot } from "./workspaceActivityTypes";
@@ -39,11 +41,13 @@ export interface WorkspaceComposerTarget {
 
 export function resolveWorkspaceComposerTarget({
   activity,
+  getDraftCwd,
   getDraftSettings,
   navigation,
   targets
 }: {
   activity: AgentActivitySnapshot;
+  getDraftCwd(): string | null;
   getDraftSettings(agentTargetId: string): AgentActivitySessionSettings;
   navigation: WorkspaceNavigationSnapshot;
   targets: readonly AgentTarget[];
@@ -57,7 +61,7 @@ export function resolveWorkspaceComposerTarget({
       ? {
           agentSessionId: null,
           agentTargetId: target.id,
-          cwd: null,
+          cwd: getDraftCwd(),
           provider: target.provider,
           settings: getDraftSettings(target.id)
         }
@@ -89,8 +93,10 @@ export function projectWorkspaceActivitySnapshot({
   navigation,
   previousConversation,
   rail,
+  selectedProjectPath,
   state,
   targets,
+  userProjects,
   workspaceId
 }: {
   activity: AgentActivitySnapshot;
@@ -102,8 +108,10 @@ export function projectWorkspaceActivitySnapshot({
   navigation: WorkspaceNavigationSnapshot;
   previousConversation: AgentConversationVM | null;
   rail: WorkspaceConversationRailSnapshot;
+  selectedProjectPath: string | null;
   state: ReturnType<AgentSessionEngine["getSnapshot"]>;
   targets: readonly AgentTarget[];
+  userProjects: MobileUserProjectDirectorySnapshot;
   workspaceId: string;
 }): WorkspaceActivitySnapshot {
   const sessions = selectRootAgentActivitySessions(activity).filter(
@@ -160,7 +168,11 @@ export function projectWorkspaceActivitySnapshot({
         !sessions.some(
           (session) => session.agentSessionId === record.agentSessionId
         )
-    );
+    ) ||
+    selectSessionGoalControlPresentation(
+      state,
+      navigation.selectedAgentSessionId
+    ).status === "pending";
   const pinningSessionIds = selectSessionMutations(state).flatMap((mutation) =>
     mutation.kind === "pin" && mutation.status === "inFlight"
       ? mutation.agentSessionIds
@@ -254,8 +266,12 @@ export function projectWorkspaceActivitySnapshot({
     railStatus: rail.status,
     selectedAgentSessionId: navigation.selectedAgentSessionId,
     selectedAgentTargetId: navigation.selectedAgentTargetId,
+    selectedProjectPath,
     selectedSession,
     sending,
-    targets
+    targets,
+    userProjectErrorCode: userProjects.errorCode,
+    userProjects: userProjects.projects,
+    userProjectsStatus: userProjects.status
   };
 }

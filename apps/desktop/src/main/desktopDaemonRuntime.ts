@@ -18,13 +18,25 @@ export interface DesktopDaemonRuntime {
   tuttidClient: TuttidClient;
 }
 
-export function createDesktopDaemonRuntime(): DesktopDaemonRuntime {
+export interface DesktopUpdateAdmissionDaemonConfig {
+  managed: boolean;
+  packaged: boolean;
+  currentVersion: string;
+  platform: "linux" | "macos" | "windows";
+  architecture: "arm64" | "x64";
+}
+
+export function createDesktopDaemonRuntime(options?: {
+  desktopUpdateAdmission?: DesktopUpdateAdmissionDaemonConfig;
+}): DesktopDaemonRuntime {
   const daemonEndpoint = resolveDesktopDaemonEndpoint();
   const tuttidClient = createTuttidClient({
     auth: daemonEndpoint.accessToken,
     fetch: createDesktopDaemonFetch(() => daemonEndpoint)
   });
-  const tuttid = createTuttidManager(daemonEndpoint, tuttidClient);
+  const tuttid = createTuttidManager(daemonEndpoint, tuttidClient, {
+    desktopUpdateAdmission: options?.desktopUpdateAdmission
+  });
 
   return {
     daemonEndpoint,

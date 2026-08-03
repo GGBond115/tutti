@@ -496,6 +496,27 @@ session-level child summaries.
   ordering still settles the child, while a late cancel-caused child terminal
   emits no second activity transition and produces no rejected-report log.
 
+### Claude reply completed but a detached command keeps the turn busy
+
+- Symptom: Claude has printed its final answer after starting a long-lived
+  `run_in_background` command, while the session rail and composer remain
+  loading. The launch tool may end as `turn_completed_without_call_result`.
+- Check: correlate the root `turn_completed` with SDK `task_started` and
+  `background_tasks_changed`. If the task has a `tool_use_id` but no subagent
+  identity (`agent_id` or explicit agent task type), inspect whether the Host
+  created a child session/turn for it or left the launch call running.
+- Cause: generic Claude task-system events were classified as delegated
+  subagents. A persistent server therefore became child work whose terminal
+  notification might never arrive, so it gated root activity indefinitely.
+- Fix: classify detached processes separately in the Claude sidecar. A
+  successful provider result completes a root `run_in_background` launch even
+  if `task_started` arrives later; retain the provider task id only for stop
+  routing. Do not emit child task lifecycle events or reserve a delegated
+  continuation for the process.
+- Validate: cover `task_started` both before and after the successful result,
+  leave the process running indefinitely, and assert the launch call and root
+  turn complete with no child session, call failure, or synthetic continuation.
+
 ### Deleted root leaves orphan child sessions
 
 - Symptom: a deleted conversation disappears from the rail, but its child

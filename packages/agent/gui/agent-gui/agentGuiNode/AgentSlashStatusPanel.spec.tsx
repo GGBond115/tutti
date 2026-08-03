@@ -85,4 +85,23 @@ describe("AgentSlashStatusPanel", () => {
     expect(onRefresh).toHaveBeenCalledOnce();
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it("renders the projected account error", () => {
+    render(
+      <AgentSlashStatusPanel
+        labels={labels}
+        status={{
+          limits: [],
+          limitsErrorMessage: "Account balance or quota is exhausted",
+          limitsUnavailable: true,
+          refreshFailed: true
+        }}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Account balance or quota is exhausted"
+    );
+  });
 });

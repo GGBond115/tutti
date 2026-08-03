@@ -85,11 +85,11 @@
     },
     "dark": {
       "accent": {
-        "native": "#ff6b4a",
+        "native": "#5a9bff",
         "web": "rgb(90 155 255)"
       },
       "accentPressed": {
-        "native": "#eb5839",
+        "native": "#4f8fff",
         "web": "rgb(79 143 255)"
       },
       "background": {

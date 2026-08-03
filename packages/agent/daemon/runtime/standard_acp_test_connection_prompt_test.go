@@ -5,6 +5,28 @@ import (
 	"maps"
 )
 
+func (c *standardACPConnection) streamSelectedPromptResult(promptID json.RawMessage) bool {
+	if c.promptResultUpdates == nil {
+		return false
+	}
+	for _, update := range c.promptResultUpdates {
+		c.sendJSON(map[string]any{
+			"jsonrpc": "2.0",
+			"method":  acpMethodUpdate,
+			"params": map[string]any{
+				"sessionId": c.sessionID,
+				"update":    update,
+			},
+		})
+	}
+	c.sendJSON(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      promptID,
+		"result":  map[string]any{"stopReason": "end_turn"},
+	})
+	return true
+}
+
 func (c *standardACPConnection) streamPromptResult(promptID json.RawMessage) {
 	c.sendJSON(map[string]any{
 		"jsonrpc": "2.0",

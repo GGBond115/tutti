@@ -5,6 +5,10 @@ import {
   ICON_WORKER_ROLE_ENV
 } from "./host/iconWorker/iconWorkerProtocol.ts";
 import { recordStartupFailureEvent } from "./startupFailureAnalytics.ts";
+import {
+  desktopStartupFailure,
+  desktopStartupFailurePrefix
+} from "./desktopStartupFailureProtocol.ts";
 
 if (process.env[ICON_WORKER_ROLE_ENV] === ICON_WORKER_ROLE) {
   // Disposable child process that owns crash-prone native icon generation.
@@ -17,6 +21,9 @@ if (process.env[ICON_WORKER_ROLE_ENV] === ICON_WORKER_ROLE) {
   );
 } else {
   void bootstrapDesktopApp().catch(async (error) => {
+    process.stderr.write(
+      `${desktopStartupFailurePrefix}${JSON.stringify(desktopStartupFailure(error))}\n`
+    );
     await recordStartupFailureEvent({
       error,
       name: "app.startup_failed",

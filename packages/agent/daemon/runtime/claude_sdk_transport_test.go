@@ -10,6 +10,7 @@ import (
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 	"github.com/tutti-os/tutti/packages/agent/daemon/liveprotocol"
+	sessionreplay "github.com/tutti-os/tutti/packages/agent/session-replay"
 )
 
 func TestClaudeCodeSDKAdapterExecWithSidecarTestDriver(t *testing.T) {
@@ -208,8 +209,19 @@ func TestClaudeCodeSDKAdapterReaderKeepsDrainingAfterTurnTerminal(t *testing.T) 
 	}()
 	waitForClaudeSDKSentRequest(t, conn, "exec")
 	conn.pushEvent(claudeSDKSidecarEvent{
-		Type:    "turn_completed",
-		Payload: map[string]any{"turnId": "turn-background", "stopReason": "end_turn"},
+		Type: "provider_turn_identity_resolved",
+		Payload: map[string]any{
+			"turnId":         "turn-background",
+			"providerTurnId": "provider-turn-background",
+		},
+	})
+	conn.pushEvent(claudeSDKSidecarEvent{
+		Type: "turn_completed",
+		Payload: map[string]any{
+			"turnId":         "turn-background",
+			"providerTurnId": "provider-turn-background",
+			"stopReason":     "end_turn",
+		},
 	})
 	select {
 	case err := <-done:
@@ -278,8 +290,19 @@ func TestClaudeCodeSDKAdapterDropsUntrackedTurnTerminalEvent(t *testing.T) {
 	}()
 	waitForClaudeSDKSentRequest(t, conn, "exec")
 	conn.pushEvent(claudeSDKSidecarEvent{
-		Type:    "turn_completed",
-		Payload: map[string]any{"turnId": "turn-real", "stopReason": "end_turn"},
+		Type: "provider_turn_identity_resolved",
+		Payload: map[string]any{
+			"turnId":         "turn-real",
+			"providerTurnId": "provider-turn-real",
+		},
+	})
+	conn.pushEvent(claudeSDKSidecarEvent{
+		Type: "turn_completed",
+		Payload: map[string]any{
+			"turnId":         "turn-real",
+			"providerTurnId": "provider-turn-real",
+			"stopReason":     "end_turn",
+		},
 	})
 	select {
 	case err := <-done:
@@ -346,25 +369,26 @@ func TestClaudeCodeSDKAdapterClosesSyntheticTurnLifecycleWithoutExecWaiter(t *te
 		}
 	})
 
-	adapter.dispatchClaudeSDKEvent(session.AgentSessionID, adapterSession, claudeSDKSidecarEvent{
+	_ = adapter.dispatchClaudeSDKEvent(session.AgentSessionID, adapterSession, claudeSDKSidecarEvent{
 		Type: "turn_started",
 		Payload: map[string]any{
 			"turnId":    "synthetic-continuation-1",
 			"synthetic": true,
 		},
 	})
-	adapter.dispatchClaudeSDKEvent(session.AgentSessionID, adapterSession, claudeSDKSidecarEvent{
+	_ = adapter.dispatchClaudeSDKEvent(session.AgentSessionID, adapterSession, claudeSDKSidecarEvent{
 		Type: "assistant_completed",
 		Payload: map[string]any{
 			"turnId":  "synthetic-continuation-1",
 			"content": "background agent summary",
 		},
 	})
-	adapter.dispatchClaudeSDKEvent(session.AgentSessionID, adapterSession, claudeSDKSidecarEvent{
+	_ = adapter.dispatchClaudeSDKEvent(session.AgentSessionID, adapterSession, claudeSDKSidecarEvent{
 		Type: "turn_completed",
 		Payload: map[string]any{
-			"turnId":     "synthetic-continuation-1",
-			"stopReason": "end_turn",
+			"turnId":         "synthetic-continuation-1",
+			"providerTurnId": "synthetic-continuation-1",
+			"stopReason":     "end_turn",
 		},
 	})
 
@@ -419,8 +443,19 @@ func TestClaudeCodeSDKAdapterRoundTripUsesReaderDispatcherAfterExec(t *testing.T
 	}()
 	waitForClaudeSDKSentRequest(t, conn, "exec")
 	conn.pushEvent(claudeSDKSidecarEvent{
-		Type:    "turn_completed",
-		Payload: map[string]any{"turnId": "turn-settings", "stopReason": "end_turn"},
+		Type: "provider_turn_identity_resolved",
+		Payload: map[string]any{
+			"turnId":         "turn-settings",
+			"providerTurnId": "provider-turn-settings",
+		},
+	})
+	conn.pushEvent(claudeSDKSidecarEvent{
+		Type: "turn_completed",
+		Payload: map[string]any{
+			"turnId":         "turn-settings",
+			"providerTurnId": "provider-turn-settings",
+			"stopReason":     "end_turn",
+		},
 	})
 	select {
 	case err := <-done:
@@ -474,6 +509,66 @@ func TestClaudeSDKLineReaderExitErrorSanitizesCapturedStderrTail(t *testing.T) {
 		if strings.Contains(err.Error(), sensitive) {
 			t.Fatalf("next() err = %q, leaked %q", err.Error(), sensitive)
 		}
+	}
+}
+
+func TestClaudeSDKLineReaderTracksNDJSONInputUnitsAtCompletionChunk(t *testing.T) {
+	conn := &inputUnitTestConnection{frames: []ProcessFrame{
+		{
+			RecordingID:  "recording-1",
+			ConnectionID: "connection-1",
+			ChunkSeq:     4,
+			Stdout:       []byte(`{"version":8,"type":"assistant_delta","payload":{"text":"hel`),
+		},
+		{
+			RecordingID:  "recording-1",
+			ConnectionID: "connection-1",
+			ChunkSeq:     5,
+			Stdout: []byte(
+				`lo"}}` + "\n" +
+					`{"version":8,"type":"turn_completed","payload":{"turnId":"turn-1"}}` + "\n",
+			),
+		},
+	}}
+	reader := newClaudeSDKLineReader(conn, true)
+
+	first, err := reader.next(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := reader.next(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.inputUnit == nil || second.inputUnit == nil ||
+		first.inputUnit.Position.ChunkSeq != 5 ||
+		first.inputUnit.Position.UnitIndex != 1 ||
+		second.inputUnit.Position.ChunkSeq != 5 ||
+		second.inputUnit.Position.UnitIndex != 2 {
+		t.Fatalf(
+			"input units = %#v %#v, want completion chunk 5 units 1 and 2",
+			first.inputUnit,
+			second.inputUnit,
+		)
+	}
+	if err := completeClaudeSDKProviderInputUnit(
+		context.Background(),
+		conn,
+		first,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := completeClaudeSDKProviderInputUnit(
+		context.Background(),
+		conn,
+		second,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(conn.units) != 2 ||
+		conn.units[0].Kind != sessionreplay.ProviderInputUnitProtocolMessage ||
+		conn.units[1].Position.UnitIndex != 2 {
+		t.Fatalf("completed input units = %#v", conn.units)
 	}
 }
 

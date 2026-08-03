@@ -21,6 +21,8 @@ export interface AgentStatusQuery {
 
 export interface AgentStatusValue {
   agentSessionId?: string | null;
+  /** Host-projected account or billing label for the active provider mode. */
+  accountLabel?: string | null;
   contextWindow?: {
     usedTokens?: number | null;
     totalTokens?: number | null;
@@ -28,6 +30,8 @@ export interface AgentStatusValue {
   contextState: AgentStatusSectionState;
   quotas: readonly AgentUsageQuota[];
   limitsState: AgentStatusSectionState;
+  /** Stable host error code for the limits section. Raw provider text is forbidden. */
+  limitsErrorCode?: string | null;
   limitsCapturedAtUnixMs?: number | null;
   limitsStale?: boolean;
 }

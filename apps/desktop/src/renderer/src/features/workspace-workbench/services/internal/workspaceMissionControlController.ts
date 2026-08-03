@@ -1,5 +1,6 @@
 import type {
   WorkbenchHostNodeData,
+  WorkbenchLayoutPreset,
   WorkbenchMissionControlAdapter
 } from "@tutti-os/workbench-surface";
 import { MissionControlActivatedReporter } from "../../../analytics/reporters/mission-control-activated/missionControlActivatedReporter.ts";
@@ -23,6 +24,11 @@ export interface WorkspaceMissionControlSnapshot {
 }
 
 export interface WorkspaceMissionControlController {
+  applyLayoutPreset: (
+    nodeIds: readonly string[],
+    preset: WorkbenchLayoutPreset,
+    lock?: boolean
+  ) => void;
   close: () => void;
   getSnapshot: () => WorkspaceMissionControlSnapshot;
   open: (
@@ -95,6 +101,15 @@ export function createWorkspaceMissionControlController(
   };
 
   return {
+    applyLayoutPreset: (nodeIds, preset, lock = false) => {
+      const uniqueNodeIds = [
+        ...new Set(nodeIds.map((nodeId) => nodeId.trim()))
+      ].filter(Boolean);
+      if (uniqueNodeIds.length === 0) {
+        return;
+      }
+      adapter?.applyLayoutPreset(uniqueNodeIds, preset, lock);
+    },
     close: () => {
       if (!snapshot.isOpen) {
         return;

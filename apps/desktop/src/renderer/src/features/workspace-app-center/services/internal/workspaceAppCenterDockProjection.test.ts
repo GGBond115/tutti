@@ -5,20 +5,10 @@ import {
   workspaceAppDockOrderStart
 } from "./workspaceAppCenterDockOrdering.ts";
 import { projectWorkspaceAppCenterDockApps } from "./workspaceAppCenterDockProjection.ts";
-import { workspaceAppCenterFrame } from "./workspaceAppCenterFrame.ts";
 
 test("workspace app center dock order stays before task and app entries", () => {
   assert.ok(workspaceAppCenterDockOrder < 0);
   assert.ok(workspaceAppCenterDockOrder < workspaceAppDockOrderStart);
-});
-
-test("workspace app center opens at the shared dialog-sized frame", () => {
-  assert.deepEqual(workspaceAppCenterFrame, {
-    height: 620,
-    width: 1040,
-    x: 140,
-    y: 48
-  });
 });
 
 test("projectWorkspaceAppCenterDockApps maps runtime status to dock state", () => {

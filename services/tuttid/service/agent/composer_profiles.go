@@ -63,7 +63,7 @@ type composerProfile struct {
 	// Capabilities is the conservative static capability list used to render
 	// the composer before a session exists. Once a session is live the
 	// adapter-reported typed session capabilities take precedence. Keys mirror
-	// packages/agent/daemon/runtime/capabilities.go.
+	// the vocabulary owned by packages/agent/store-sqlite/canonical/provider.go.
 	Capabilities []string
 	// PermissionConfigurable: the permission-mode selector is interactive.
 	PermissionConfigurable bool

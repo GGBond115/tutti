@@ -5,24 +5,19 @@ import type { AgentActivityInteraction, AgentActivityTurn } from "../types.ts";
 import { createAgentSessionEngine } from "./createAgentSessionEngine.ts";
 import { canonicalInteractionKey } from "./sessionEntityKeys.ts";
 import { selectEngineInteractionResponse } from "./sessionLifecycle.selectors.ts";
-import type {
-  EngineCommandPort,
-  EngineExternalCommand,
-  EngineScheduler
-} from "./types.ts";
+import { createTestEngineCommandPort } from "./testEngineCommandPort.ts";
+import type { EngineExternalCommand, EngineScheduler } from "./types.ts";
 
 function createHarness() {
   let nowUnixMs = 100;
   const commands: EngineExternalCommand[] = [];
   const rejecters = new Map<string, (error: unknown) => void>();
-  const commandPort: EngineCommandPort = {
-    execute(command) {
-      commands.push(command);
-      return new Promise((_resolve, reject) => {
-        rejecters.set(command.commandId, reject);
-      });
-    }
-  };
+  const commandPort = createTestEngineCommandPort((command) => {
+    commands.push(command);
+    return new Promise((_resolve, reject) => {
+      rejecters.set(command.commandId, reject);
+    });
+  });
   const scheduler: EngineScheduler = {
     schedule() {
       return { cancel() {} };

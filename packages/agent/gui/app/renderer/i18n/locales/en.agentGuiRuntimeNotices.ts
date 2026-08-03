@@ -10,6 +10,14 @@ export const enAgentGuiRuntimeNotices = {
     "{{provider}} could not start because the runtime is unavailable",
   visibleErrorQuotaOrRateLimit:
     "{{provider}} request failed because a quota or rate limit was reached",
+  visibleErrorSubscriptionRequired:
+    "{{provider}} requires an active subscription or an eligible plan for this request",
+  visibleErrorModelNotAllowed:
+    "{{provider}} cannot use the selected model with the current account",
+  visibleErrorPluginUnavailable:
+    "{{provider}} could not use an optional integration that is currently unavailable",
+  visibleErrorSessionInterrupted:
+    "{{provider}} stopped unexpectedly before it finished. Try again.",
   visibleErrorDetails: "View details",
   visibleErrorRawDetails: "Raw error",
   visibleErrorCliNotFound:
@@ -22,10 +30,12 @@ export const enAgentGuiRuntimeNotices = {
     "{{provider}} couldn't apply session settings before the request timed out. Try again in a moment.",
   visibleErrorStreamDisconnected:
     "{{provider}}'s response was interrupted before it completed. Try again in a moment.",
+  visibleErrorEmptyResponse:
+    "{{provider}} returned no response. Check the provider settings or try again.",
   visibleErrorConcurrencyLimit:
     "{{provider}} is handling too many requests right now. Try again after another task finishes.",
   visibleErrorInsufficientCreditsUnknown:
-    "Your Tutti credits are insufficient. Review credit options to continue",
+    "{{provider}} has insufficient credits or account balance to continue",
   visibleErrorActionInstall: "Connect",
   visibleErrorActionUpgrade: "Upgrade",
   visibleErrorActionRelogin: "Sign in",
@@ -39,6 +49,7 @@ export const enAgentGuiRuntimeNotices = {
   systemNoticeWarning: "Agent warning",
   systemNoticeDefault: "Agent notice",
   sharedDeviceLabel: "shared device",
+  agentSharingRevoked: "{{owner}} stopped sharing this agent",
   runtimeConnecting: "Connecting to {{device}}…",
   runtimeReconnectingAttempt: "Reconnecting to {{device}} · Retry {{attempt}}…",
   runtimeUnavailable:

@@ -19,9 +19,6 @@ import type {
   AddWorkspaceIssueTaskContextRefsData,
   AddWorkspaceIssueTaskContextRefsErrors,
   AddWorkspaceIssueTaskContextRefsResponses,
-  AdvanceAgentSessionReplayRunCheckpointData,
-  AdvanceAgentSessionReplayRunCheckpointErrors,
-  AdvanceAgentSessionReplayRunCheckpointResponses,
   AppendAgentSessionRecordingActivityEventsData,
   AppendAgentSessionRecordingActivityEventsErrors,
   AppendAgentSessionRecordingActivityEventsResponses,
@@ -40,9 +37,6 @@ import type {
   CancelAgentSessionRecordingData,
   CancelAgentSessionRecordingErrors,
   CancelAgentSessionRecordingResponses,
-  CancelAgentSessionReplayRunData,
-  CancelAgentSessionReplayRunErrors,
-  CancelAgentSessionReplayRunResponses,
   CancelCollaborationRunData,
   CancelCollaborationRunErrors,
   CancelCollaborationRunResponses,
@@ -73,9 +67,6 @@ import type {
   CompleteAgentSessionRecordingData,
   CompleteAgentSessionRecordingErrors,
   CompleteAgentSessionRecordingResponses,
-  CompleteAgentSessionReplayRunData,
-  CompleteAgentSessionReplayRunErrors,
-  CompleteAgentSessionReplayRunResponses,
   CompleteWorkspaceAppUploadData,
   CompleteWorkspaceAppUploadErrors,
   CompleteWorkspaceAppUploadResponses,
@@ -154,6 +145,9 @@ import type {
   DeleteAgentQuickPromptData,
   DeleteAgentQuickPromptErrors,
   DeleteAgentQuickPromptResponses,
+  DeleteAgentSessionRecordingData,
+  DeleteAgentSessionRecordingErrors,
+  DeleteAgentSessionRecordingResponses,
   DeleteAutomationRuleData,
   DeleteAutomationRuleErrors,
   DeleteAutomationRuleResponses,
@@ -214,9 +208,6 @@ import type {
   ExportWorkspaceAppData,
   ExportWorkspaceAppErrors,
   ExportWorkspaceAppResponses,
-  FailAgentSessionReplayRunData,
-  FailAgentSessionReplayRunErrors,
-  FailAgentSessionReplayRunResponses,
   FixWorkspaceAppFactoryJobData,
   FixWorkspaceAppFactoryJobErrors,
   FixWorkspaceAppFactoryJobResponses,
@@ -265,6 +256,12 @@ import type {
   GetDesktopPreferencesData,
   GetDesktopPreferencesErrors,
   GetDesktopPreferencesResponses,
+  GetDesktopUpdateAdmissionSnapshotData,
+  GetDesktopUpdateAdmissionSnapshotErrors,
+  GetDesktopUpdateAdmissionSnapshotResponses,
+  GetDesktopUpdateAdmissionStartupData,
+  GetDesktopUpdateAdmissionStartupErrors,
+  GetDesktopUpdateAdmissionStartupResponses,
   GetHealthData,
   GetHealthErrors,
   GetHealthResponses,
@@ -346,6 +343,9 @@ import type {
   GoalControlWorkspaceAgentSessionData,
   GoalControlWorkspaceAgentSessionErrors,
   GoalControlWorkspaceAgentSessionResponses,
+  ImportAgentSessionCassettesData,
+  ImportAgentSessionCassettesErrors,
+  ImportAgentSessionCassettesResponses,
   ImportWorkspaceAppData,
   ImportWorkspaceAppErrors,
   ImportWorkspaceAppResponses,
@@ -376,9 +376,6 @@ import type {
   ListAgentSessionRecordingsData,
   ListAgentSessionRecordingsErrors,
   ListAgentSessionRecordingsResponses,
-  ListAgentSessionReplayRunsData,
-  ListAgentSessionReplayRunsErrors,
-  ListAgentSessionReplayRunsResponses,
   ListAgentTargetsData,
   ListAgentTargetsErrors,
   ListAgentTargetsResponses,
@@ -484,9 +481,6 @@ import type {
   LogoutAccountData,
   LogoutAccountErrors,
   LogoutAccountResponses,
-  MarkAgentSessionReplayRunRunningData,
-  MarkAgentSessionReplayRunRunningErrors,
-  MarkAgentSessionReplayRunRunningResponses,
   MoveAgentQuickPromptData,
   MoveAgentQuickPromptErrors,
   MoveAgentQuickPromptResponses,
@@ -505,9 +499,9 @@ import type {
   PreflightUploadWorkspaceFilesData,
   PreflightUploadWorkspaceFilesErrors,
   PreflightUploadWorkspaceFilesResponses,
-  PrepareAgentSessionReplayRunData,
-  PrepareAgentSessionReplayRunErrors,
-  PrepareAgentSessionReplayRunResponses,
+  PrepareAgentSessionReplayWorkspaceData,
+  PrepareAgentSessionReplayWorkspaceErrors,
+  PrepareAgentSessionReplayWorkspaceResponses,
   PrepareWorkspaceAppFactoryJobModificationData,
   PrepareWorkspaceAppFactoryJobModificationErrors,
   PrepareWorkspaceAppFactoryJobModificationResponses,
@@ -544,6 +538,9 @@ import type {
   RecoverWorkspaceAgentEditRetryData,
   RecoverWorkspaceAgentEditRetryErrors,
   RecoverWorkspaceAgentEditRetryResponses,
+  RefreshDesktopUpdateAdmissionData,
+  RefreshDesktopUpdateAdmissionErrors,
+  RefreshDesktopUpdateAdmissionResponses,
   RefreshWorkspaceAppCatalogData,
   RefreshWorkspaceAppCatalogErrors,
   RefreshWorkspaceAppCatalogResponses,
@@ -706,6 +703,9 @@ import type {
   UseUserProjectData,
   UseUserProjectErrors,
   UseUserProjectResponses,
+  VerifyAgentSessionReplayCheckpointData,
+  VerifyAgentSessionReplayCheckpointErrors,
+  VerifyAgentSessionReplayCheckpointResponses,
   VerifyAgentSessionReplayTransportData,
   VerifyAgentSessionReplayTransportErrors,
   VerifyAgentSessionReplayTransportResponses,
@@ -966,6 +966,64 @@ export const putDesktopPreferences = <ThrowOnError extends boolean = false>(
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/v1/preferences/desktop",
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers
+    }
+  });
+
+/**
+ * Read the daemon-owned desktop update admission snapshot
+ */
+export const getDesktopUpdateAdmissionSnapshot = <
+  ThrowOnError extends boolean = false
+>(
+  options?: Options<GetDesktopUpdateAdmissionSnapshotData, ThrowOnError>
+) =>
+  (options?.client ?? client).get<
+    GetDesktopUpdateAdmissionSnapshotResponses,
+    GetDesktopUpdateAdmissionSnapshotErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/desktop-update-admission",
+    ...options
+  });
+
+/**
+ * Wait for the daemon-initiated startup admission check
+ */
+export const getDesktopUpdateAdmissionStartup = <
+  ThrowOnError extends boolean = false
+>(
+  options?: Options<GetDesktopUpdateAdmissionStartupData, ThrowOnError>
+) =>
+  (options?.client ?? client).get<
+    GetDesktopUpdateAdmissionStartupResponses,
+    GetDesktopUpdateAdmissionStartupErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/desktop-update-admission/startup",
+    ...options
+  });
+
+/**
+ * Ask the daemon to refresh admission for a lifecycle trigger
+ */
+export const refreshDesktopUpdateAdmission = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<RefreshDesktopUpdateAdmissionData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    RefreshDesktopUpdateAdmissionResponses,
+    RefreshDesktopUpdateAdmissionErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/desktop-update-admission/refresh",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -2730,6 +2788,24 @@ export const startAgentSessionRecording = <
   });
 
 /**
+ * Delete one inactive developer Agent Session recording and its Cassette
+ */
+export const deleteAgentSessionRecording = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<DeleteAgentSessionRecordingData, ThrowOnError>
+) =>
+  (options.client ?? client).delete<
+    DeleteAgentSessionRecordingResponses,
+    DeleteAgentSessionRecordingErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}",
+    ...options
+  });
+
+/**
  * Get one developer Agent Session recording
  */
 export const getAgentSessionRecording = <ThrowOnError extends boolean = false>(
@@ -2842,74 +2918,20 @@ export const listAgentSessionCassettes = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * List replay runs for one immutable Agent Session Cassette
+ * Import one or more portable Agent Session Cassette directories
  */
-export const listAgentSessionReplayRuns = <
+export const importAgentSessionCassettes = <
   ThrowOnError extends boolean = false
 >(
-  options: Options<ListAgentSessionReplayRunsData, ThrowOnError>
-) =>
-  (options.client ?? client).get<
-    ListAgentSessionReplayRunsResponses,
-    ListAgentSessionReplayRunsErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs",
-    ...options
-  });
-
-/**
- * Validate one Cassette and prepare an isolated replay run
- */
-export const prepareAgentSessionReplayRun = <
-  ThrowOnError extends boolean = false
->(
-  options: Options<PrepareAgentSessionReplayRunData, ThrowOnError>
+  options: Options<ImportAgentSessionCassettesData, ThrowOnError>
 ) =>
   (options.client ?? client).post<
-    PrepareAgentSessionReplayRunResponses,
-    PrepareAgentSessionReplayRunErrors,
+    ImportAgentSessionCassettesResponses,
+    ImportAgentSessionCassettesErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs",
-    ...options
-  });
-
-/**
- * Mark a prepared replay run accepted by its runtime adapter
- */
-export const markAgentSessionReplayRunRunning = <
-  ThrowOnError extends boolean = false
->(
-  options: Options<MarkAgentSessionReplayRunRunningData, ThrowOnError>
-) =>
-  (options.client ?? client).post<
-    MarkAgentSessionReplayRunRunningResponses,
-    MarkAgentSessionReplayRunRunningErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/running",
-    ...options
-  });
-
-/**
- * Persist a stable checkpoint reached by one replay run
- */
-export const advanceAgentSessionReplayRunCheckpoint = <
-  ThrowOnError extends boolean = false
->(
-  options: Options<AdvanceAgentSessionReplayRunCheckpointData, ThrowOnError>
-) =>
-  (options.client ?? client).post<
-    AdvanceAgentSessionReplayRunCheckpointResponses,
-    AdvanceAgentSessionReplayRunCheckpointErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/checkpoint",
+    url: "/v1/workspaces/{workspaceID}/agent-session-cassettes/import",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -2918,54 +2940,20 @@ export const advanceAgentSessionReplayRunCheckpoint = <
   });
 
 /**
- * Cancel one active replay run
+ * Validate a fixed batch of distinct replay Cassettes
  */
-export const cancelAgentSessionReplayRun = <
+export const prepareAgentSessionReplayWorkspace = <
   ThrowOnError extends boolean = false
 >(
-  options: Options<CancelAgentSessionReplayRunData, ThrowOnError>
+  options: Options<PrepareAgentSessionReplayWorkspaceData, ThrowOnError>
 ) =>
   (options.client ?? client).post<
-    CancelAgentSessionReplayRunResponses,
-    CancelAgentSessionReplayRunErrors,
+    PrepareAgentSessionReplayWorkspaceResponses,
+    PrepareAgentSessionReplayWorkspaceErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/cancel",
-    ...options
-  });
-
-/**
- * Complete a replay run after transport and final-state verification
- */
-export const completeAgentSessionReplayRun = <
-  ThrowOnError extends boolean = false
->(
-  options: Options<CompleteAgentSessionReplayRunData, ThrowOnError>
-) =>
-  (options.client ?? client).post<
-    CompleteAgentSessionReplayRunResponses,
-    CompleteAgentSessionReplayRunErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/complete",
-    ...options
-  });
-
-/**
- * Persist an explicit replay runtime or verification failure
- */
-export const failAgentSessionReplayRun = <ThrowOnError extends boolean = false>(
-  options: Options<FailAgentSessionReplayRunData, ThrowOnError>
-) =>
-  (options.client ?? client).post<
-    FailAgentSessionReplayRunResponses,
-    FailAgentSessionReplayRunErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: "bearer", type: "http" }],
-    url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/fail",
+    url: "/v1/workspaces/{workspaceID}/agent-session-replay-workspaces",
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -2979,15 +2967,15 @@ export const failAgentSessionReplayRun = <ThrowOnError extends boolean = false>(
 export const verifyAgentSessionReplayTransport = <
   ThrowOnError extends boolean = false
 >(
-  options?: Options<VerifyAgentSessionReplayTransportData, ThrowOnError>
+  options: Options<VerifyAgentSessionReplayTransportData, ThrowOnError>
 ) =>
-  (options?.client ?? client).post<
+  (options.client ?? client).post<
     VerifyAgentSessionReplayTransportResponses,
     VerifyAgentSessionReplayTransportErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/v1/agent-session-replay/transport/verify",
+    url: "/v1/agent-session-replay/cassettes/{cassetteID}/transport/verify",
     ...options
   });
 
@@ -2997,15 +2985,15 @@ export const verifyAgentSessionReplayTransport = <
 export const getAgentSessionReplayTransportPlayback = <
   ThrowOnError extends boolean = false
 >(
-  options?: Options<GetAgentSessionReplayTransportPlaybackData, ThrowOnError>
+  options: Options<GetAgentSessionReplayTransportPlaybackData, ThrowOnError>
 ) =>
-  (options?.client ?? client).get<
+  (options.client ?? client).get<
     GetAgentSessionReplayTransportPlaybackResponses,
     GetAgentSessionReplayTransportPlaybackErrors,
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/v1/agent-session-replay/transport/playback",
+    url: "/v1/agent-session-replay/cassettes/{cassetteID}/transport/playback",
     ...options
   });
 
@@ -3023,12 +3011,30 @@ export const updateAgentSessionReplayTransportPlayback = <
     ThrowOnError
   >({
     security: [{ scheme: "bearer", type: "http" }],
-    url: "/v1/agent-session-replay/transport/playback",
+    url: "/v1/agent-session-replay/cassettes/{cassetteID}/transport/playback",
     ...options,
     headers: {
       "Content-Type": "application/json",
       ...options.headers
     }
+  });
+
+/**
+ * Verify one Replay Checkpoint trigger and canonical readiness
+ */
+export const verifyAgentSessionReplayCheckpoint = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<VerifyAgentSessionReplayCheckpointData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    VerifyAgentSessionReplayCheckpointResponses,
+    VerifyAgentSessionReplayCheckpointErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/agent-session-replay/cassettes/{cassetteID}/checkpoints/{checkpointIndex}/verify",
+    ...options
   });
 
 /**

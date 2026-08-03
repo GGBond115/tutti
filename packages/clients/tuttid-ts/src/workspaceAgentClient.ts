@@ -6,8 +6,8 @@ import {
   cancelWorkspaceAgentTurn,
   clearWorkspaceAgentSessions,
   completeAgentSessionRecording,
-  completeAgentSessionReplayRun,
   createWorkspaceAgentSession,
+  deleteAgentSessionRecording,
   deleteWorkspaceAgentSession,
   deleteWorkspaceAgentSessionsBatch,
   forkWorkspaceAgentSession,
@@ -15,12 +15,13 @@ import {
   editRetryWorkspaceAgentTurn,
   getWorkspaceAgentSession,
   getAgentSessionRecording,
+  getAgentSessionReplayTransportPlayback,
   getWorkspaceAgentSessionGoal,
   goalControlWorkspaceAgentSession,
+  importAgentSessionCassettes,
   importWorkspaceExternalAgentSessions,
   listWorkspaceAgentGeneratedFiles,
   listAgentSessionRecordings,
-  listAgentSessionReplayRuns,
   listWorkspaceAgentPinnedSessionPage,
   listWorkspaceAgentSessionGitBranches,
   listWorkspaceAgentSessionMessages,
@@ -30,12 +31,10 @@ import {
   listWorkspaceAgentSessions,
   listWorkspaceGitBranches,
   readWorkspaceAgentSessionAttachment,
+  recoverWorkspaceAgentEditRetry,
   renameAgentSessionRecording,
   reconcileWorkspaceAgentSessionGoal,
-  failAgentSessionReplayRun,
-  markAgentSessionReplayRunRunning,
-  prepareAgentSessionReplayRun,
-  recoverWorkspaceAgentEditRetry,
+  prepareAgentSessionReplayWorkspace,
   resolveWorkspaceGitPatchSupport,
   scanWorkspaceExternalAgentSessionImports,
   sendWorkspaceAgentSessionInput,
@@ -43,13 +42,17 @@ import {
   submitWorkspaceAgentInteractive,
   submitWorkspaceAgentPlanDecision,
   updateWorkspaceAgentSessionPin,
+  updateAgentSessionReplayTransportPlayback,
   updateWorkspaceAgentSessionSettings,
   updateWorkspaceAgentSessionTitle,
   updateWorkspaceAgentSessionVisibility
 } from "./generated/index.ts";
 import type { Client } from "./generated/client/index.ts";
-import { unwrapData } from "./tuttidClientResponse.ts";
-import type { TuttidClient } from "./tuttidClientTypes.ts";
+import { unwrapAccepted, unwrapData } from "./tuttidClientResponse.ts";
+import type {
+  AgentCommandRequestOptions,
+  TuttidClient
+} from "./tuttidClientTypes.ts";
 
 type WorkspaceAgentClient = Pick<
   TuttidClient,
@@ -60,8 +63,8 @@ type WorkspaceAgentClient = Pick<
   | "cancelWorkspaceAgentTurn"
   | "clearWorkspaceAgentSessions"
   | "completeAgentSessionRecording"
-  | "completeAgentSessionReplayRun"
   | "createWorkspaceAgentSession"
+  | "deleteAgentSessionRecording"
   | "deleteWorkspaceAgentSession"
   | "deleteWorkspaceAgentSessionsBatch"
   | "forkWorkspaceAgentSession"
@@ -69,12 +72,13 @@ type WorkspaceAgentClient = Pick<
   | "editRetry"
   | "getWorkspaceAgentSession"
   | "getAgentSessionRecording"
+  | "getAgentSessionReplayTransportPlayback"
   | "getWorkspaceAgentSessionGoal"
   | "goalControlWorkspaceAgentSession"
+  | "importAgentSessionCassettes"
   | "importWorkspaceExternalAgentSessions"
   | "listWorkspaceAgentGeneratedFiles"
   | "listAgentSessionRecordings"
-  | "listAgentSessionReplayRuns"
   | "listWorkspaceAgentPinnedSessionPage"
   | "listWorkspaceAgentSessionGitBranches"
   | "listWorkspaceAgentSessionMessages"
@@ -84,12 +88,10 @@ type WorkspaceAgentClient = Pick<
   | "listWorkspaceAgentSessions"
   | "listWorkspaceGitBranches"
   | "readWorkspaceAgentSessionAttachment"
+  | "recoverEditRetry"
   | "renameAgentSessionRecording"
   | "reconcileWorkspaceAgentSessionGoal"
-  | "failAgentSessionReplayRun"
-  | "markAgentSessionReplayRunRunning"
-  | "prepareAgentSessionReplayRun"
-  | "recoverEditRetry"
+  | "prepareAgentSessionReplayWorkspace"
   | "resolveWorkspaceGitPatchSupport"
   | "scanWorkspaceExternalAgentSessionImports"
   | "sendWorkspaceAgentSessionInput"
@@ -97,6 +99,7 @@ type WorkspaceAgentClient = Pick<
   | "submitWorkspaceAgentInteractive"
   | "submitWorkspaceAgentPlanDecision"
   | "updateWorkspaceAgentSessionPin"
+  | "updateAgentSessionReplayTransportPlayback"
   | "updateWorkspaceAgentSessionSettings"
   | "updateWorkspaceAgentSessionTitle"
   | "updateWorkspaceAgentSessionVisibility"
@@ -143,6 +146,16 @@ export function createWorkspaceAgentClient(
         "List agent session recordings request failed."
       ).recordings;
     },
+    async importAgentSessionCassettes(workspaceID, request) {
+      return unwrapData(
+        await importAgentSessionCassettes({
+          client,
+          body: request,
+          path: { workspaceID }
+        }),
+        "Import agent session cassettes request failed."
+      );
+    },
     async startAgentSessionRecording(workspaceID, request) {
       return unwrapData(
         await startAgentSessionRecording({
@@ -172,6 +185,15 @@ export function createWorkspaceAgentClient(
         "Rename agent session recording request failed."
       );
     },
+    async deleteAgentSessionRecording(workspaceID, recordingID) {
+      unwrapAccepted(
+        await deleteAgentSessionRecording({
+          client,
+          path: { recordingID, workspaceID }
+        }),
+        "Delete agent session recording request failed."
+      );
+    },
     async completeAgentSessionRecording(workspaceID, recordingID) {
       return unwrapData(
         await completeAgentSessionRecording({
@@ -190,50 +212,37 @@ export function createWorkspaceAgentClient(
         "Cancel agent session recording request failed."
       );
     },
-    async prepareAgentSessionReplayRun(workspaceID, cassetteID) {
+    async prepareAgentSessionReplayWorkspace(workspaceID, request) {
       return unwrapData(
-        await prepareAgentSessionReplayRun({
-          client,
-          path: { cassetteID, workspaceID }
-        }),
-        "Prepare agent session replay run request failed."
-      );
-    },
-    async listAgentSessionReplayRuns(workspaceID, cassetteID) {
-      return unwrapData(
-        await listAgentSessionReplayRuns({
-          client,
-          path: { cassetteID, workspaceID }
-        }),
-        "List agent session replay runs request failed."
-      ).runs;
-    },
-    async markAgentSessionReplayRunRunning(workspaceID, runID) {
-      return unwrapData(
-        await markAgentSessionReplayRunRunning({
-          client,
-          path: { runID, workspaceID }
-        }),
-        "Mark agent session replay run running request failed."
-      );
-    },
-    async completeAgentSessionReplayRun(workspaceID, runID) {
-      return unwrapData(
-        await completeAgentSessionReplayRun({
-          client,
-          path: { runID, workspaceID }
-        }),
-        "Complete agent session replay run request failed."
-      );
-    },
-    async failAgentSessionReplayRun(workspaceID, runID, request) {
-      return unwrapData(
-        await failAgentSessionReplayRun({
-          client,
+        await prepareAgentSessionReplayWorkspace({
           body: request,
-          path: { runID, workspaceID }
+          client,
+          path: { workspaceID }
         }),
-        "Fail agent session replay run request failed."
+        "Prepare agent session replay workspace request failed."
+      );
+    },
+    async getAgentSessionReplayTransportPlayback(cassetteID) {
+      const response = await getAgentSessionReplayTransportPlayback({
+        client,
+        path: { cassetteID }
+      });
+      if (response.response?.status === 503) {
+        return null;
+      }
+      return unwrapData(
+        response,
+        "Get agent session replay transport playback request failed."
+      );
+    },
+    async updateAgentSessionReplayTransportPlayback(cassetteID, request) {
+      return unwrapData(
+        await updateAgentSessionReplayTransportPlayback({
+          body: request,
+          client,
+          path: { cassetteID }
+        }),
+        "Update agent session replay transport playback request failed."
       );
     },
     async createWorkspaceAgentSession(workspaceID, request, requestOptions) {
@@ -241,7 +250,7 @@ export function createWorkspaceAgentClient(
         client,
         body: request,
         path: { workspaceID },
-        ...requestOptions
+        ...agentCommandRequestOptions(requestOptions)
       });
       return unwrapData(
         response,
@@ -471,7 +480,7 @@ export function createWorkspaceAgentClient(
         await cancelWorkspaceAgentTurn({
           client,
           path: { agentSessionID, turnID, workspaceID },
-          ...requestOptions
+          ...agentCommandRequestOptions(requestOptions)
         }),
         "Cancel workspace agent turn failed."
       );
@@ -513,13 +522,15 @@ export function createWorkspaceAgentClient(
     async goalControlWorkspaceAgentSession(
       workspaceID,
       agentSessionID,
-      request
+      request,
+      requestOptions
     ) {
       return unwrapData(
         await goalControlWorkspaceAgentSession({
           client,
           body: request,
-          path: { agentSessionID, workspaceID }
+          path: { agentSessionID, workspaceID },
+          ...agentCommandRequestOptions(requestOptions)
         }),
         "Goal control failed."
       );
@@ -553,7 +564,7 @@ export function createWorkspaceAgentClient(
           client,
           body: request,
           path: { agentSessionID, workspaceID },
-          ...requestOptions
+          ...agentCommandRequestOptions(requestOptions)
         }),
         "Send workspace agent session input failed."
       );
@@ -563,13 +574,15 @@ export function createWorkspaceAgentClient(
       agentSessionID,
       turnID,
       requestID,
-      request
+      request,
+      requestOptions
     ) {
       return unwrapData(
         await submitWorkspaceAgentPlanDecision({
           client,
           body: request,
-          path: { agentSessionID, requestID, turnID, workspaceID }
+          path: { agentSessionID, requestID, turnID, workspaceID },
+          ...agentCommandRequestOptions(requestOptions)
         }),
         "Submit workspace agent plan decision failed."
       );
@@ -637,7 +650,7 @@ export function createWorkspaceAgentClient(
           client,
           body: request,
           path: { agentSessionID, workspaceID },
-          ...requestOptions
+          ...agentCommandRequestOptions(requestOptions)
         }),
         "Update workspace agent session settings failed."
       ).session;
@@ -700,10 +713,26 @@ export function createWorkspaceAgentClient(
           client,
           body: request,
           path: { agentSessionID, requestID, workspaceID },
-          ...requestOptions
+          ...agentCommandRequestOptions(requestOptions)
         }),
         "Submit workspace agent interactive response failed."
       ).session;
     }
+  };
+}
+
+function agentCommandRequestOptions(
+  requestOptions: AgentCommandRequestOptions | undefined
+) {
+  const { agentCommandOrigin, ...fetchOptions } = requestOptions ?? {};
+  return {
+    ...fetchOptions,
+    ...(agentCommandOrigin
+      ? {
+          headers: {
+            "X-Tutti-Agent-Command-Origin": agentCommandOrigin
+          }
+        }
+      : {})
   };
 }

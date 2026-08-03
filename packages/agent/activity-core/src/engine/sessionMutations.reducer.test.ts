@@ -4,7 +4,7 @@ import { normalizeAgentActivitySession } from "../sessionNormalization.ts";
 import { createAgentSessionEngine } from "./createAgentSessionEngine.ts";
 import {
   dispatchSessionForkThroughTurn,
-  dispatchSessionMutation
+  dispatchSessionMutationWithCancellation
 } from "./sessionMutationDispatch.ts";
 import { canonicalTurnKey } from "./sessionEntityKeys.ts";
 import {
@@ -17,10 +17,11 @@ import {
   selectPendingSessionForkThroughTurnIds,
   selectSessionForkThroughTurnMutation
 } from "./sessionMutations.selectors.ts";
+import { createTestEngineCommandPort } from "./testEngineCommandPort.ts";
 import type {
   AgentSessionEngineState,
   EngineClock,
-  EngineCommandPort,
+  EngineExtensionCommand,
   EngineExternalCommand,
   EngineScheduler
 } from "./types.ts";
@@ -179,15 +180,12 @@ async function flushCommandResults(): Promise<void> {
 
 test("pin result commits mutation and canonical session in one engine notification", async () => {
   let resolveCommand: (value: unknown) => void = () => {};
-  const commandPort: EngineCommandPort = {
-    executePlanDecision: async () => {
-      throw new Error("unexpected plan decision command");
-    },
-    execute: async () =>
+  const commandPort = createTestEngineCommandPort(
+    async () =>
       new Promise((resolve) => {
         resolveCommand = resolve;
       })
-  };
+  );
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 0 },
     commandPort,
@@ -200,7 +198,7 @@ test("pin result commits mutation and canonical session in one engine notificati
   const states: AgentSessionEngineState[] = [];
   engine.subscribe((state) => states.push(state));
 
-  const resultPromise = dispatchSessionMutation(engine, {
+  const resultPromise = dispatchSessionMutationWithCancellation(engine, {
     agentSessionId: "session-1",
     mutationId: "pin-1",
     pinned: true,
@@ -244,15 +242,12 @@ test("pin result commits mutation and canonical session in one engine notificati
 
 test("rename result commits mutation and canonical session in one engine notification", async () => {
   let resolveCommand: (value: unknown) => void = () => {};
-  const commandPort: EngineCommandPort = {
-    executePlanDecision: async () => {
-      throw new Error("unexpected plan decision command");
-    },
-    execute: async () =>
+  const commandPort = createTestEngineCommandPort(
+    async () =>
       new Promise((resolve) => {
         resolveCommand = resolve;
       })
-  };
+  );
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 0 },
     commandPort,
@@ -265,7 +260,7 @@ test("rename result commits mutation and canonical session in one engine notific
   const states: AgentSessionEngineState[] = [];
   engine.subscribe((state) => states.push(state));
 
-  const resultPromise = dispatchSessionMutation(engine, {
+  const resultPromise = dispatchSessionMutationWithCancellation(engine, {
     agentSessionId: "session-1",
     mutationId: "rename-1",
     title: "  Renamed session  ",
@@ -320,14 +315,12 @@ test("engine rename method owns mutation protocol and returns the canonical sess
   let command: EngineExternalCommand | null = null;
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 42 },
-    commandPort: {
-      execute: async (nextCommand) => {
-        command = nextCommand;
-        return new Promise((resolve) => {
-          resolveCommand = resolve;
-        });
-      }
-    },
+    commandPort: createTestEngineCommandPort(async (nextCommand) => {
+      command = nextCommand;
+      return new Promise((resolve) => {
+        resolveCommand = resolve;
+      });
+    }),
     identity: { origin: "local", workspaceId: "workspace-1" },
     scheduler: {
       schedule: () => ({ cancel() {} })
@@ -366,18 +359,16 @@ test("engine rename method aborts its host effect when the caller cancels", asyn
   let effectSignal: AbortSignal | undefined;
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 42 },
-    commandPort: {
-      execute: async (_command, options) => {
-        effectSignal = options?.signal;
-        return new Promise((_resolve, reject) => {
-          options?.signal?.addEventListener(
-            "abort",
-            () => reject(options.signal?.reason),
-            { once: true }
-          );
-        });
-      }
-    },
+    commandPort: createTestEngineCommandPort(async (_command, options) => {
+      effectSignal = options?.signal;
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener(
+          "abort",
+          () => reject(options.signal?.reason),
+          { once: true }
+        );
+      });
+    }),
     identity: { origin: "local", workspaceId: "workspace-1" },
     scheduler: {
       schedule: () => ({ cancel() {} })
@@ -448,11 +439,9 @@ test("rename rejects empty titles before reaching the command port", async () =>
   let commandCalls = 0;
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 0 },
-    commandPort: {
-      execute: async () => {
-        commandCalls += 1;
-      }
-    },
+    commandPort: createTestEngineCommandPort(async () => {
+      commandCalls += 1;
+    }),
     identity: { origin: "local", workspaceId: "workspace-1" },
     scheduler: {
       schedule: () => ({ cancel() {} })
@@ -461,7 +450,7 @@ test("rename rejects empty titles before reaching the command port", async () =>
   engine.dispatch({ session, type: "session/upserted" });
 
   await assert.rejects(
-    dispatchSessionMutation(engine, {
+    dispatchSessionMutationWithCancellation(engine, {
       agentSessionId: "session-1",
       mutationId: "rename-empty",
       title: "   ",
@@ -1191,34 +1180,32 @@ test("hung fork ACK times out, retries with the same identity, and stops after s
   const executedCommands: EngineExternalCommand[] = [];
   const engine = createAgentSessionEngine({
     clock: timer.clock,
-    commandPort: {
-      execute: async (command) => {
-        executedCommands.push(command);
-        if (command.type === "session/forkThroughTurn") {
-          const child = forkChild(
-            command.targetAgentSessionId,
-            `operation-${command.requestId}`,
-            command.sourceAgentSessionId,
-            command.turnId
-          );
-          return committedForkResult(child, {
-            requestId: command.requestId,
-            sourceAgentSessionId: command.sourceAgentSessionId,
-            turnId: command.turnId
-          });
-        }
-        if (command.type === "session/ackForkObserved") {
-          const attempts = executedCommands.filter(
-            (candidate) => candidate.type === "session/ackForkObserved"
-          ).length;
-          if (attempts === 1) {
-            return new Promise(() => {});
-          }
-          return {};
-        }
-        throw new Error(`unexpected command ${command.type}`);
+    commandPort: createTestEngineCommandPort(async (command) => {
+      executedCommands.push(command);
+      if (command.type === "session/forkThroughTurn") {
+        const child = forkChild(
+          command.targetAgentSessionId,
+          `operation-${command.requestId}`,
+          command.sourceAgentSessionId,
+          command.turnId
+        );
+        return committedForkResult(child, {
+          requestId: command.requestId,
+          sourceAgentSessionId: command.sourceAgentSessionId,
+          turnId: command.turnId
+        });
       }
-    },
+      if (command.type === "session/ackForkObserved") {
+        const attempts = executedCommands.filter(
+          (candidate) => candidate.type === "session/ackForkObserved"
+        ).length;
+        if (attempts === 1) {
+          return new Promise(() => {});
+        }
+        return {};
+      }
+      throw new Error(`unexpected command ${command.type}`);
+    }),
     identity: { origin: "local", workspaceId: "workspace-1" },
     scheduler: timer.scheduler
   });
@@ -1709,31 +1696,26 @@ test("through-turn fork facade allocates a new identity after a confirmed failur
     title: "Forked session"
   });
   const commands: Array<
-    Extract<
-      Parameters<EngineCommandPort["execute"]>[0],
-      { type: "session/forkThroughTurn" }
-    >
+    Extract<EngineExtensionCommand, { type: "session/forkThroughTurn" }>
   > = [];
   let resolveReplay: (value: unknown) => void = () => {};
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 0 },
-    commandPort: {
-      execute: async (command) => {
-        if (command.type === "session/ackForkObserved") {
-          return {};
-        }
-        if (command.type !== "session/forkThroughTurn") {
-          throw new Error(`unexpected command ${command.type}`);
-        }
-        commands.push(command);
-        if (commands.length === 1) {
-          throw new Error("definitive first failure");
-        }
-        return new Promise((resolve) => {
-          resolveReplay = resolve;
-        });
+    commandPort: createTestEngineCommandPort(async (command) => {
+      if (command.type === "session/ackForkObserved") {
+        return {};
       }
-    },
+      if (command.type !== "session/forkThroughTurn") {
+        throw new Error(`unexpected command ${command.type}`);
+      }
+      commands.push(command);
+      if (commands.length === 1) {
+        throw new Error("definitive first failure");
+      }
+      return new Promise((resolve) => {
+        resolveReplay = resolve;
+      });
+    }),
     identity: { origin: "local", workspaceId: "workspace-1" },
     scheduler: {
       schedule: () => ({ cancel() {} })
@@ -1818,33 +1800,28 @@ test("through-turn fork facade reuses an Engine-owned delivery-unknown identity"
     lifecycleCapabilities: { fork: true, forkThroughTurn: true }
   });
   const commands: Array<
-    Extract<
-      Parameters<EngineCommandPort["execute"]>[0],
-      { type: "session/forkThroughTurn" }
-    >
+    Extract<EngineExtensionCommand, { type: "session/forkThroughTurn" }>
   > = [];
   let resolveReplay: (value: unknown) => void = () => {};
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 0 },
-    commandPort: {
-      execute: async (command) => {
-        if (command.type === "session/ackForkObserved") {
-          return {};
-        }
-        if (command.type !== "session/forkThroughTurn") {
-          throw new Error(`unexpected command ${command.type}`);
-        }
-        commands.push(command);
-        if (commands.length === 1) {
-          throw Object.assign(new Error("delivery outcome unknown"), {
-            reason: "agent_session_fork_delivery_unknown"
-          });
-        }
-        return new Promise((resolve) => {
-          resolveReplay = resolve;
+    commandPort: createTestEngineCommandPort(async (command) => {
+      if (command.type === "session/ackForkObserved") {
+        return {};
+      }
+      if (command.type !== "session/forkThroughTurn") {
+        throw new Error(`unexpected command ${command.type}`);
+      }
+      commands.push(command);
+      if (commands.length === 1) {
+        throw Object.assign(new Error("delivery outcome unknown"), {
+          reason: "agent_session_fork_delivery_unknown"
         });
       }
-    },
+      return new Promise((resolve) => {
+        resolveReplay = resolve;
+      });
+    }),
     identity: { origin: "local", workspaceId: "workspace-1" },
     scheduler: {
       schedule: () => ({ cancel() {} })
@@ -1914,10 +1891,7 @@ test("through-turn fork facade reuses an Engine-owned in-flight identity", async
     lifecycleCapabilities: { fork: true, forkThroughTurn: true }
   });
   const commands: Array<
-    Extract<
-      Parameters<EngineCommandPort["execute"]>[0],
-      { type: "session/forkThroughTurn" }
-    >
+    Extract<EngineExtensionCommand, { type: "session/forkThroughTurn" }>
   > = [];
   let resolveCommands: (value: unknown) => void = () => {};
   const sharedExecution = new Promise((resolve) => {
@@ -1925,18 +1899,16 @@ test("through-turn fork facade reuses an Engine-owned in-flight identity", async
   });
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 0 },
-    commandPort: {
-      execute: async (command) => {
-        if (command.type === "session/ackForkObserved") {
-          return {};
-        }
-        if (command.type !== "session/forkThroughTurn") {
-          throw new Error(`unexpected command ${command.type}`);
-        }
-        commands.push(command);
-        return sharedExecution;
+    commandPort: createTestEngineCommandPort(async (command) => {
+      if (command.type === "session/ackForkObserved") {
+        return {};
       }
-    },
+      if (command.type !== "session/forkThroughTurn") {
+        throw new Error(`unexpected command ${command.type}`);
+      }
+      commands.push(command);
+      return sharedExecution;
+    }),
     identity: { origin: "local", workspaceId: "workspace-1" },
     scheduler: {
       schedule: () => ({ cancel() {} })
@@ -2005,24 +1977,22 @@ test("through-turn fork facade reuses the mutation key after committed recovery 
   let providerForkCalls = 0;
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 0 },
-    commandPort: {
-      execute: async (command) => {
-        if (command.type === "session/ackForkObserved") {
-          return new Promise(() => {});
-        }
-        if (command.type !== "session/forkThroughTurn") {
-          throw new Error(`unexpected command ${command.type}`);
-        }
-        providerForkCalls += 1;
-        return committedForkResult(
-          normalizeAgentActivitySession({
-            ...session,
-            agentSessionId: "durable-target"
-          }),
-          { requestId: "durable-request" }
-        );
+    commandPort: createTestEngineCommandPort(async (command) => {
+      if (command.type === "session/ackForkObserved") {
+        return new Promise(() => {});
       }
-    },
+      if (command.type !== "session/forkThroughTurn") {
+        throw new Error(`unexpected command ${command.type}`);
+      }
+      providerForkCalls += 1;
+      return committedForkResult(
+        normalizeAgentActivitySession({
+          ...session,
+          agentSessionId: "durable-target"
+        }),
+        { requestId: "durable-request" }
+      );
+    }),
     identity: { origin: "local", workspaceId: "workspace-1" },
     scheduler: {
       schedule: () => ({ cancel() {} })

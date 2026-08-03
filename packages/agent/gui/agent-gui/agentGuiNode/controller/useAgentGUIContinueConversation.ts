@@ -1,6 +1,6 @@
 import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import type { PendingActivationIntentRecord } from "@tutti-os/agent-activity-core";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { translate } from "../../../i18n/index";
 import type { AgentHostAccountUserProfile } from "../../../shared/contracts/dto";
 import type { AgentComposerDraft } from "../model/agentGuiNodeTypes";
@@ -32,7 +32,7 @@ interface UseAgentGUIContinueConversationInput {
   >;
   activeConversationIdRef: CurrentValue<string | null>;
   activePendingActivation: PendingActivationIntentRecord | null;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   conversations: readonly AgentGUIConversationSummary[];
   currentUserId: string | null | undefined;
   draftByScopeKey: Record<string, AgentComposerDraft>;

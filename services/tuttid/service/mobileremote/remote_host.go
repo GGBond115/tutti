@@ -92,6 +92,10 @@ func (s *Service) StartRemoteHost(handler http.Handler) {
 }
 
 func (s *Service) Close() {
+	s.StopRemoteHost()
+}
+
+func (s *Service) StopRemoteHost() {
 	if s == nil {
 		return
 	}

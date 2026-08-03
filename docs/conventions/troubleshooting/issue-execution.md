@@ -58,6 +58,38 @@ failed and canceled terminal-run paths, sparse rework, inherited launch
 settings, dependency redirect, and replacement scheduling in the execution
 conformance suite.
 
+## Final rework passes review but Tutti never reaches Goal Review
+
+If the last replacement Run is complete and its evidence passes review, but
+`plan issue acknowledge` returns `inactive_checkpoint` even after one refresh,
+inspect the ordered checkpoint backlog rather than weakening the caller or
+revision fence. The characteristic state is an active final `task_settled`
+checkpoint with no running Run and no later pending checkpoint, plus an older
+`all_tasks_terminal` row in `superseded` state.
+
+This state occurs when the previous final Run queued the deterministic
+`all_tasks_terminal` checkpoint, then the source Agent reworked that Run before
+the terminal checkpoint was promoted. The graph mutation correctly supersedes
+the stale terminal boundary. When the replacement Run later settles, terminal
+checkpoint creation must rearm that superseded singleton with the current graph
+revision and a sequence after the replacement settlement. Treating any existing
+terminal checkpoint ID as current strands the replacement in
+`pending_acceptance`: acknowledge has neither active work nor a later checkpoint
+to justify advancing, so the execution never reaches Goal Review.
+
+Validate the complete chain in the execution conformance suite: settle the
+original final Run, rework while its terminal checkpoint is pending, schedule
+and settle the replacement, acknowledge its settlement, and assert that the
+rearmed terminal checkpoint becomes the active `pending_goal_review` boundary.
+Do not bypass the failure with a generic Issue task update or by relaxing the
+checkpoint/revision fence.
+
+For an execution already persisted in this state, run the normal settlement
+recovery path (or restart a daemon that invokes it). Recovery only rearms a
+superseded terminal singleton when the execution is `awaiting_main`, a terminal
+task checkpoint is active, every active task is terminal, and every terminal
+Run already has a settlement checkpoint.
+
 ## Tutti composer stays busy after every task Turn settles
 
 The Tutti composer deliberately shows Stop while its managed Issue still has

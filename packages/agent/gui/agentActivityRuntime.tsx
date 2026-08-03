@@ -7,11 +7,8 @@ import {
   type PropsWithChildren
 } from "react";
 import type {
-  AgentActivityActivateSessionResult,
   AgentActivityCollaborationRun,
   AgentActivityComposerOptions,
-  AgentActivityGoalControlInput,
-  AgentActivityGoalControlResult,
   AgentActivityMessage,
   AgentActivityCreateSessionInput,
   AgentActivityDeleteSessionInput,
@@ -21,22 +18,14 @@ import type {
   AgentActivityRailPlacement,
   AgentActivityRenameSessionInput,
   AgentActivitySendInput,
-  AgentActivitySendInputResult,
   AgentActivitySession,
   AgentActivitySessionSettings,
   AgentActivitySetCollaborationAdoptionInput,
   AgentActivitySnapshot,
   AgentActivitySnapshotListener,
-  AgentActivitySubmitInteractiveInput,
-  AgentActivitySubmitInteractiveResult,
-  AgentActivityUpdateTuttiModeActivationInput,
-  AgentActivityUpdateTuttiModeActivationResult,
   AgentSessionEngine
 } from "@tutti-os/agent-activity-core";
-import type {
-  AgentHostAgentSessionComposerSettings,
-  AgentHostUnactivateAgentSessionResult
-} from "./shared/contracts/dto";
+import type { AgentHostAgentSessionComposerSettings } from "./shared/contracts/dto";
 import type {
   AgentConversationRailDeleteSessionsBatchInput,
   AgentConversationRailDeleteSessionsBatchResult,
@@ -131,7 +120,7 @@ export interface AgentActivityRuntimeSetSessionPinnedInput {
 
 export interface AgentActivityRuntimeTrackSettingsProjectChangeInput {
   action: "clear" | "create_new" | "select_existing";
-  agentSessionId: string;
+  agentSessionId: string | null;
   provider?: string | null;
   workspaceId: string;
 }
@@ -187,6 +176,7 @@ export type AgentActivityRuntimeActivateSessionInput =
   | (AgentActivityRuntimeActivateSessionInputBase & {
       agentTargetId: string;
       clientSubmitId: string;
+      initialGoalControl?: AgentActivityCreateSessionInput["initialGoalControl"];
       initialTuttiModeActivation?: AgentActivityCreateSessionInput["initialTuttiModeActivation"];
       mode: "new";
     })
@@ -286,7 +276,13 @@ export interface AgentActivityRuntimePromptAsset {
   data: string;
 }
 
-export interface AgentActivityRuntime {
+/**
+ * Host runtime surface consumed by AgentGUI. Session lifecycle writes are
+ * owned by the workspace {@link AgentSessionEngine}; this boundary contains
+ * only the reads, metadata actions, uploads, diagnostics, and subscriptions
+ * that remain host-owned.
+ */
+export interface AgentGUIRuntime {
   /**
    * Stable identity of this runtime instance (e.g. a local origin vs a
    * shared/room origin). The runtime owns one session engine per workspace and
@@ -310,18 +306,9 @@ export interface AgentActivityRuntime {
   };
   /** Set false to suppress AgentGUI diagnostics in development consoles. */
   devDiagnosticConsoleSink?: boolean;
-  goalControl(
-    input: AgentActivityGoalControlInput
-  ): Promise<AgentActivityGoalControlResult>;
-  createSession(
-    input: AgentActivityCreateSessionInput
-  ): Promise<AgentActivitySession>;
   deleteSession(
     input: AgentActivityDeleteSessionInput
   ): Promise<AgentActivityDeleteSessionResult>;
-  activateSession(
-    input: AgentActivityRuntimeActivateSessionInput
-  ): Promise<AgentActivityActivateSessionResult>;
   getSession(
     workspaceId: string,
     agentSessionId: string
@@ -329,12 +316,6 @@ export interface AgentActivityRuntime {
   getComposerOptions(
     input: AgentActivityRuntimeGetComposerOptionsInput
   ): Promise<AgentActivityComposerOptions>;
-  updateSessionSettings(
-    input: AgentActivityRuntimeUpdateSessionSettingsInput
-  ): Promise<AgentActivityRuntimeUpdateSessionSettingsResult>;
-  updateTuttiModeActivation(
-    input: AgentActivityUpdateTuttiModeActivationInput
-  ): Promise<AgentActivityUpdateTuttiModeActivationResult>;
   getSnapshot(workspaceId: string): AgentActivitySnapshot;
   getSessionEngine(workspaceId: string): AgentSessionEngine;
   listSessionMessages(
@@ -368,9 +349,6 @@ export interface AgentActivityRuntime {
   ensureSessionSynchronized?(
     input: AgentActivityRuntimeEnsureSessionSynchronizedInput
   ): () => void;
-  sendInput(
-    input: AgentActivitySendInput
-  ): Promise<AgentActivitySendInputResult>;
   uploadPromptContent?(
     input: AgentActivityRuntimeUploadPromptContentInput
   ): Promise<AgentActivityRuntimeUploadPromptContentResult>;
@@ -405,12 +383,6 @@ export interface AgentActivityRuntime {
   reportDiagnostic?(
     input: AgentActivityRuntimeDiagnosticInput
   ): Promise<void> | void;
-  unactivateSession(
-    input: AgentActivityRuntimeUnactivateSessionInput
-  ): Promise<AgentHostUnactivateAgentSessionResult>;
-  submitInteractive(
-    input: AgentActivitySubmitInteractiveInput
-  ): Promise<AgentActivitySubmitInteractiveResult>;
   subscribeSessionEvents(
     workspaceId: string,
     listener: (event: unknown) => void
@@ -421,15 +393,13 @@ export interface AgentActivityRuntime {
   ): () => void;
 }
 
-const AgentActivityRuntimeContext = createContext<AgentActivityRuntime | null>(
-  null
-);
+const AgentGUIRuntimeContext = createContext<AgentGUIRuntime | null>(null);
 
-function createTestAgentActivityRuntimeHolder(): {
-  get: () => AgentActivityRuntime | null;
-  set: (runtime: AgentActivityRuntime | null) => void;
+function createTestAgentGUIRuntimeHolder(): {
+  get: () => AgentGUIRuntime | null;
+  set: (runtime: AgentGUIRuntime | null) => void;
 } {
-  let runtime: AgentActivityRuntime | null = null;
+  let runtime: AgentGUIRuntime | null = null;
   return {
     get: () => runtime,
     set: (nextRuntime) => {
@@ -438,44 +408,42 @@ function createTestAgentActivityRuntimeHolder(): {
   };
 }
 
-const testAgentActivityRuntimeHolder = createTestAgentActivityRuntimeHolder();
+const testAgentGUIRuntimeHolder = createTestAgentGUIRuntimeHolder();
 
-export interface AgentActivityRuntimeProviderProps extends PropsWithChildren {
-  runtime?: AgentActivityRuntime | null;
+export interface AgentGUIRuntimeProviderProps extends PropsWithChildren {
+  runtime?: AgentGUIRuntime | null;
 }
 
-export function AgentActivityRuntimeProvider({
+export function AgentGUIRuntimeProvider({
   children,
   runtime
-}: AgentActivityRuntimeProviderProps): JSX.Element {
+}: AgentGUIRuntimeProviderProps): JSX.Element {
   return (
-    <AgentActivityRuntimeContext.Provider value={runtime ?? null}>
+    <AgentGUIRuntimeContext.Provider value={runtime ?? null}>
       {children}
-    </AgentActivityRuntimeContext.Provider>
+    </AgentGUIRuntimeContext.Provider>
   );
 }
 
-export function useAgentActivityRuntime(): AgentActivityRuntime {
+export function useAgentGUIRuntime(): AgentGUIRuntime {
   const runtime =
-    useContext(AgentActivityRuntimeContext) ?? getTestAgentActivityRuntime();
+    useContext(AgentGUIRuntimeContext) ?? getTestAgentGUIRuntime();
   if (!runtime) {
     throw new Error(
-      "AgentActivityRuntimeProvider is missing an AgentActivityRuntime instance."
+      "AgentGUIRuntimeProvider is missing an AgentGUIRuntime instance."
     );
   }
   return runtime;
 }
 
-export function useOptionalAgentActivityRuntime(): AgentActivityRuntime | null {
-  return (
-    useContext(AgentActivityRuntimeContext) ?? getTestAgentActivityRuntime()
-  );
+export function useOptionalAgentGUIRuntime(): AgentGUIRuntime | null {
+  return useContext(AgentGUIRuntimeContext) ?? getTestAgentGUIRuntime();
 }
 
 export function useAgentActivitySnapshot(
   workspaceId: string
 ): AgentActivitySnapshot {
-  const runtime = useAgentActivityRuntime();
+  const runtime = useAgentGUIRuntime();
   const normalizedWorkspaceId = workspaceId.trim();
   return useSyncExternalStore(
     (listener) => runtime.subscribe(normalizedWorkspaceId, listener),
@@ -488,7 +456,7 @@ export function useAgentActivitySessionMessages(
   workspaceId: string,
   agentSessionIds: readonly (string | null | undefined)[]
 ): AgentActivitySessionMessages {
-  const runtime = useAgentActivityRuntime();
+  const runtime = useAgentGUIRuntime();
   const normalizedWorkspaceId = workspaceId.trim();
   const sessionIdsKey = agentSessionIds
     .map((agentSessionId) => agentSessionId?.trim() ?? "")
@@ -513,17 +481,17 @@ export function useAgentActivitySessionMessages(
   return useEngineSelector(workspaceStore, selectMessages);
 }
 
-export function resetAgentActivityRuntimeForTests(): void {
+export function resetAgentGUIRuntimeForTests(): void {
   if (process.env.NODE_ENV === "test") {
-    testAgentActivityRuntimeHolder.set(null);
+    testAgentGUIRuntimeHolder.set(null);
   }
 }
 
-export function setAgentActivityRuntimeForTests(
-  runtime: AgentActivityRuntime | null
+export function setAgentGUIRuntimeForTests(
+  runtime: AgentGUIRuntime | null
 ): void {
   if (process.env.NODE_ENV === "test") {
-    testAgentActivityRuntimeHolder.set(runtime);
+    testAgentGUIRuntimeHolder.set(runtime);
   }
 }
 
@@ -551,39 +519,39 @@ function createSessionMessagesSelector(
   };
 }
 
-function getTestAgentActivityRuntime(): AgentActivityRuntime | null {
+function getTestAgentGUIRuntime(): AgentGUIRuntime | null {
   if (process.env.NODE_ENV !== "test") {
     return null;
   }
   if (typeof window === "undefined") {
     return null;
   }
-  const explicitRuntime = getExplicitWindowTestAgentActivityRuntime();
+  const explicitRuntime = getExplicitWindowTestAgentGUIRuntime();
   if (explicitRuntime) {
     return explicitRuntime;
   }
-  const testRuntimeOverride = testAgentActivityRuntimeHolder.get();
+  const testRuntimeOverride = testAgentGUIRuntimeHolder.get();
   if (testRuntimeOverride) {
     return testRuntimeOverride;
   }
   const testRuntime = (
     window as unknown as Window & {
-      agentActivityRuntime?: AgentActivityRuntime;
+      agentGUIRuntime?: AgentGUIRuntime;
     }
-  ).agentActivityRuntime;
+  ).agentGUIRuntime;
   return testRuntime ?? null;
 }
 
-function getExplicitWindowTestAgentActivityRuntime(): AgentActivityRuntime | null {
+function getExplicitWindowTestAgentGUIRuntime(): AgentGUIRuntime | null {
   if (process.env.NODE_ENV !== "test" || typeof window === "undefined") {
     return null;
   }
   const testDescriptor = Object.getOwnPropertyDescriptor(
     window,
-    "agentActivityRuntime"
+    "agentGUIRuntime"
   );
   if (!testDescriptor || !("value" in testDescriptor)) {
     return null;
   }
-  return (testDescriptor.value as AgentActivityRuntime | undefined) ?? null;
+  return (testDescriptor.value as AgentGUIRuntime | undefined) ?? null;
 }

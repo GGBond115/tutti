@@ -127,11 +127,15 @@ func (s *Store) DeleteSessionWithCommit(
 			return DeleteSessionResult{}, err
 		}
 	}
+	mutations, err := sessionDeleteMutationsTx(ctx, tx, workspaceID, removedSessionIDs, now)
+	if err != nil {
+		return DeleteSessionResult{}, err
+	}
 	removedMessages, removedSessions, err := deleteSessionTreeRowsTx(ctx, tx, workspaceID, removedSessionIDs, now)
 	if err != nil {
 		return DeleteSessionResult{}, err
 	}
-	delta, err := s.commitTransaction(ctx, tx, workspaceID, sessionDeleteMutations(workspaceID, removedSessionIDs, now))
+	delta, err := s.commitTransaction(ctx, tx, workspaceID, mutations)
 	if err != nil {
 		return DeleteSessionResult{}, fmt.Errorf("commit delete workspace agent session: %w", err)
 	}
@@ -208,11 +212,15 @@ func (s *Store) DeleteSessionsBatchTx(ctx context.Context, tx *sql.Tx, input Del
 			return DeleteSessionsBatchResult{}, err
 		}
 	}
+	mutations, err := sessionDeleteMutationsTx(ctx, tx, workspaceID, removedSessionIDs, now)
+	if err != nil {
+		return DeleteSessionsBatchResult{}, err
+	}
 	removedMessages, removedSessions, err := deleteSessionTreeRowsTx(ctx, tx, workspaceID, removedSessionIDs, now)
 	if err != nil {
 		return DeleteSessionsBatchResult{}, err
 	}
-	delta, err := s.participateTransaction(ctx, tx, workspaceID, sessionDeleteMutations(workspaceID, removedSessionIDs, now))
+	delta, err := s.participateTransaction(ctx, tx, workspaceID, mutations)
 	if err != nil {
 		return DeleteSessionsBatchResult{}, fmt.Errorf("participate in delete workspace agent sessions batch: %w", err)
 	}
@@ -317,11 +325,19 @@ func (s *Store) ClearSessions(
 		}
 	}()
 
+	removedSessionIDs, err := listAgentSessionIDsTx(ctx, tx, workspaceID)
+	if err != nil {
+		return ClearSessionsResult{}, err
+	}
+	mutations, err := sessionDeleteMutationsTx(ctx, tx, workspaceID, removedSessionIDs, unixMs(time.Now().UTC()))
+	if err != nil {
+		return ClearSessionsResult{}, err
+	}
 	result, err := s.clearSessionsTx(ctx, tx, workspaceID)
 	if err != nil {
 		return ClearSessionsResult{}, err
 	}
-	delta, err := s.commitTransaction(ctx, tx, workspaceID, sessionDeleteMutations(workspaceID, result.RemovedSessionIDs, unixMs(time.Now().UTC())))
+	delta, err := s.commitTransaction(ctx, tx, workspaceID, mutations)
 	if err != nil {
 		return ClearSessionsResult{}, fmt.Errorf("commit clear workspace agent sessions: %w", err)
 	}
@@ -342,11 +358,19 @@ func (s *Store) ClearSessionsTx(
 	tx *sql.Tx,
 	workspaceID string,
 ) (ClearSessionsResult, error) {
+	removedSessionIDs, err := listAgentSessionIDsTx(ctx, tx, workspaceID)
+	if err != nil {
+		return ClearSessionsResult{}, err
+	}
+	mutations, err := sessionDeleteMutationsTx(ctx, tx, workspaceID, removedSessionIDs, unixMs(time.Now().UTC()))
+	if err != nil {
+		return ClearSessionsResult{}, err
+	}
 	result, err := s.clearSessionsTx(ctx, tx, workspaceID)
 	if err != nil {
 		return ClearSessionsResult{}, err
 	}
-	delta, err := s.participateTransaction(ctx, tx, workspaceID, sessionDeleteMutations(workspaceID, result.RemovedSessionIDs, unixMs(time.Now().UTC())))
+	delta, err := s.participateTransaction(ctx, tx, workspaceID, mutations)
 	if err != nil {
 		return ClearSessionsResult{}, err
 	}

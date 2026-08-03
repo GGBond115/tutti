@@ -734,6 +734,50 @@ test("file-type filters keep browse mode until a keyword search starts", async (
   assert.deepEqual(searchInputs[0]?.kinds, ["file"]);
 });
 
+test("sources can route file-type-only filters through scoped search", async () => {
+  const searchInputs: SearchInput[] = [];
+  const controller = createReferenceSourcePickerController({
+    aggregator: fakeAggregator({
+      tabs: [
+        {
+          sourceId: "host-local-file",
+          label: "Local files",
+          capabilities: {
+            filterable: true,
+            filtersUseSearch: true,
+            paginated: false,
+            previewable: true,
+            searchable: true
+          }
+        }
+      ],
+      children: {
+        [`host-local-file:${SOURCE_ROOT_NODE_ID}`]: {
+          entries: [],
+          nextCursor: null
+        }
+      },
+      onSearch: (input) => searchInputs.push(input)
+    }),
+    scope,
+    searchDebounceMs: 0,
+    searchResultKind: "file"
+  });
+  controller.open();
+  await flush();
+
+  controller.setSearchFilters(["webpage"], "host-path-downloads");
+  await flush();
+
+  const tab = controller.getSnapshot().bySource["host-local-file"];
+  assert.equal(tab?.mode, "search");
+  assert.equal(searchInputs.length, 1);
+  assert.equal(searchInputs[0]?.query, "");
+  assert.deepEqual(searchInputs[0]?.filters, ["webpage"]);
+  assert.deepEqual(searchInputs[0]?.kinds, ["file"]);
+  assert.equal(searchInputs[0]?.withinNodeId, "host-path-downloads");
+});
+
 test("semantically equal provenance filters do not repeat the active search", async () => {
   const searchInputs: SearchInput[] = [];
   const controller = createReferenceSourcePickerController({

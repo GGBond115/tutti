@@ -1,6 +1,10 @@
 package agentsessionstore
 
-import "context"
+import (
+	"context"
+
+	replay "github.com/tutti-os/tutti/packages/agent/session-replay"
+)
 
 type ActivityReporter interface {
 	Report(ctx context.Context, input ReportActivityInput) error
@@ -9,6 +13,22 @@ type ActivityReporter interface {
 type SessionActivityReporter interface {
 	ReportSessionState(context.Context, ReportSessionStateInput) (ReportSessionStateReply, error)
 	ReportSessionMessages(context.Context, ReportSessionMessagesInput) (ReportSessionMessagesReply, error)
+}
+
+// SessionActivityCommitReporter joins noncanonical Replay observation
+// metadata to the Host post-commit notification without putting that metadata
+// in canonical Store command DTOs.
+type SessionActivityCommitReporter interface {
+	ReportSessionStateWithCommitContext(
+		context.Context,
+		ReportSessionStateInput,
+		replay.ProviderObservationCommitContext,
+	) (ReportSessionStateReply, error)
+	ReportSessionMessagesWithCommitContext(
+		context.Context,
+		ReportSessionMessagesInput,
+		replay.ProviderObservationCommitContext,
+	) (ReportSessionMessagesReply, error)
 }
 
 // GoalReconcileRequestReporter is an internal control-plane extension. Unlike

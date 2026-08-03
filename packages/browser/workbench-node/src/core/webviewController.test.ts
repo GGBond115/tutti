@@ -56,6 +56,55 @@ test("Browser Node webview controller derives render state and partition", () =>
   assert.equal(state.webviewSrc, "about:blank");
 });
 
+test("Browser Node webview controller materializes only explicitly requested cold targets", () => {
+  const feature = createBrowserNodeFeature({
+    hostApi: createBrowserNodeHostApi()
+  });
+
+  const ordinaryController = acquireBrowserNodeWebviewController({
+    automationTarget: {
+      agentSessionId: "agent-1",
+      focused: false,
+      selected: true,
+      surfaceId: "agent-browser",
+      surfaceRole: "agent",
+      tabId: "tab-1",
+      workspaceId: "workspace-1"
+    },
+    feature,
+    initialUrl: "about:blank",
+    lifecycle: "cold",
+    nodeId: "browser-automation-ordinary-cold",
+    profileId: null,
+    sessionMode: "shared"
+  });
+
+  assert.equal(ordinaryController.getState().shouldRenderWebview, false);
+  ordinaryController.release();
+
+  const pendingController = acquireBrowserNodeWebviewController({
+    automationTarget: {
+      agentSessionId: "agent-1",
+      focused: false,
+      selected: true,
+      surfaceId: "agent-browser",
+      surfaceRole: "agent",
+      tabId: "tab-2",
+      workspaceId: "workspace-1"
+    },
+    feature,
+    initialUrl: "about:blank",
+    lifecycle: "cold",
+    materializeCold: true,
+    nodeId: "browser-automation-pending-cold",
+    profileId: null,
+    sessionMode: "shared"
+  });
+
+  assert.equal(pendingController.getState().shouldRenderWebview, true);
+  pendingController.release();
+});
+
 test("Browser Node webview controller tolerates webviews before dom-ready exposes webContentsId", async () => {
   const registerCalls: number[] = [];
   const feature = createBrowserNodeFeature({

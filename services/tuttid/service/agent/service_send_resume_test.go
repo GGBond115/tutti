@@ -7,7 +7,7 @@ import (
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	reporterservice "github.com/tutti-os/tutti/services/tuttid/service/reporter"
 )
 
@@ -182,6 +182,45 @@ func TestServiceSendInputReportsRuntimeExecFailure(t *testing.T) {
 		if got := failure.Params[key]; got != want {
 			t.Fatalf("params[%q] = %#v, want %#v in %#v", key, got, want, failure.Params)
 		}
+	}
+}
+
+func TestServiceSendInputPersistsPromptAfterRuntimeDispatchError(t *testing.T) {
+	runtime := newFakeRuntime()
+	providerErr := errors.New("Claude provider rejected the Turn")
+	runtime.execHook = func(input RuntimeExecInput) (RuntimeExecResult, error) {
+		return RuntimeExecResult{
+			AgentSessionID: input.AgentSessionID,
+			TurnID:         input.TurnID,
+			ProviderDispatch: agenthost.RuntimeProviderDispatchResult{
+				Disposition: agenthost.RuntimeDispatchDispositionRejected,
+			},
+		}, providerErr
+	}
+	service := newIsolatedAgentService(runtime)
+	service.SessionReader = fakeSessionReader{
+		sessions: map[string]PersistedSession{
+			"ws-1:session-1": {
+				ID: "session-1", WorkspaceID: "ws-1", Provider: "codex",
+				ProviderSessionID: "provider-session-1", CreatedAtUnixMS: 1000,
+				UpdatedAtUnixMS: 2000,
+			},
+		},
+	}
+	input := SendInput{
+		ClientSubmitID: "submit-rejected-1",
+		Content:        TextPromptContent("keep this prompt"),
+	}
+	if _, err := service.SendInput(context.Background(), "ws-1", "session-1", input); !errors.Is(err, providerErr) {
+		t.Fatalf("SendInput() error = %v, want provider error", err)
+	}
+	if len(runtime.provenanceCalls) != 1 {
+		t.Fatalf("provenance calls = %d, want 1", len(runtime.provenanceCalls))
+	}
+	provenance := runtime.provenanceCalls[0]
+	if provenance.ClientSubmitID != input.ClientSubmitID || provenance.TurnID == "" ||
+		len(provenance.Content) != 1 || provenance.Content[0].Text != "keep this prompt" {
+		t.Fatalf("provenance = %#v, want rejected prompt preserved", provenance)
 	}
 }
 

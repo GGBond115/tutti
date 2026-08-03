@@ -22,12 +22,26 @@ type AgentComposerDefaultsPatchValidator interface {
 	ValidateAgentComposerDefaultsPatch(context.Context, string, preferencesbiz.AgentComposerDefaultsPatch) error
 }
 
+type ChangeObserver func(
+	context.Context,
+	preferencesbiz.DesktopPreferences,
+	preferencesbiz.DesktopPreferences,
+)
+
 type Service struct {
 	Store                          workspacedata.PreferencesStore
 	Publisher                      DesktopPreferencesPublisher
-	AfterPut                       func(context.Context, preferencesbiz.DesktopPreferences, preferencesbiz.DesktopPreferences)
 	AgentComposerDefaultsPublisher AgentComposerDefaultsPublisher
 	AgentComposerDefaultsValidator AgentComposerDefaultsPatchValidator
+	changeObservers                []ChangeObserver
+}
+
+// RegisterChangeObserver adds a startup-wired observer for successful preference changes.
+func (s *Service) RegisterChangeObserver(observer ChangeObserver) {
+	if s == nil || observer == nil {
+		return
+	}
+	s.changeObservers = append(s.changeObservers, observer)
 }
 
 type PatchAgentComposerDefaultsForTargetInput struct {
@@ -173,8 +187,8 @@ func (s Service) Put(ctx context.Context, input PutInput) (preferencesbiz.Deskto
 	if err != nil {
 		return preferencesbiz.DesktopPreferences{}, err
 	}
-	if s.AfterPut != nil {
-		s.AfterPut(ctx, stored, preferences)
+	for _, observer := range s.changeObservers {
+		observer(ctx, stored, preferences)
 	}
 	if s.Publisher != nil {
 		_ = s.Publisher.PublishDesktopPreferencesUpdated(ctx, preferences)

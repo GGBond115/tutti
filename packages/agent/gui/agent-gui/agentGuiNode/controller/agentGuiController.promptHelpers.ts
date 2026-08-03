@@ -9,6 +9,7 @@ import { mergeAgentGUITimelineItems } from "../model/agentGuiConversationModel";
 import { projectWorkspaceAgentMessagesToTimelineItems } from "../../../shared/agentConversation/projection/workspaceAgentMessageProjection";
 import { createWorkspaceAgentActivityUserMessageIdFromClientSubmitId } from "../../../shared/workspaceAgentMessageOverlay";
 import type { WorkspaceAgentActivityTimelineItem } from "../../../shared/workspaceAgentTimelineTypes";
+import { createAgentClientId } from "../../../shared/agentConversation/agentClientIdentity";
 
 export function stringPayloadValue(
   value: Record<string, unknown> | undefined,
@@ -19,11 +20,7 @@ export function stringPayloadValue(
 }
 
 export function createAgentGUIConversationId(): string {
-  if (typeof globalThis.crypto?.randomUUID === "function") {
-    return globalThis.crypto.randomUUID();
-  }
-  const fallbackHex = Math.random().toString(16).slice(2).padEnd(12, "0");
-  return `00000000-0000-4000-8000-${fallbackHex.slice(0, 12)}`;
+  return createAgentClientId();
 }
 
 export function createOptimisticPromptMessage(input: {

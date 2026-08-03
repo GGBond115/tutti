@@ -1,17 +1,23 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { createAgentSessionEngine } from "@tutti-os/agent-activity-core";
+import {
+  createAgentSessionEngine,
+  selectSessionGoalControlPresentation,
+  type AgentActivityGoalControlInput,
+  type AgentActivityGoalControlResult,
+  type AgentSessionGoalControlEffectInput,
+  type EngineEffectOptions
+} from "@tutti-os/agent-activity-core";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
-import type {
-  AgentComposerDraft,
-  AgentGUIOptimisticGoalControl
-} from "../model/agentGuiNodeTypes";
+import type { AgentComposerDraft } from "../model/agentGuiNodeTypes";
 import { agentComposerDraftPrompt } from "../model/agentComposerDraft";
 import {
   clearSubmittedAgentGUIHomeDraft,
   restoreFailedAgentGUIHomeDraft
 } from "./agentGuiController.homeDraftHelpers";
-import { useAgentGUISubmitInteractionActions } from "./useAgentGUISubmitInteractionActions";
+import {
+  typedGoalControlFromComposer,
+  useAgentGUISubmitInteractionActions
+} from "./useAgentGUISubmitInteractionActions";
 
 const draftKey = "node-default:codex:local:codex";
 
@@ -20,34 +26,61 @@ function draft(prompt: string): AgentComposerDraft {
 }
 
 function createGoalControlInput(
-  goalControl: AgentActivityRuntime["goalControl"]
+  goalControl: (
+    input: AgentActivityGoalControlInput
+  ) => Promise<AgentActivityGoalControlResult>
 ) {
+  const baseSession = {
+    activeTurnId: null,
+    agentSessionId: "session-1",
+    cwd: "/workspace",
+    goal: { objective: "existing goal", status: "active" as const },
+    latestTurnInteractions: [],
+    pendingInteractions: [],
+    provider: "codex",
+    title: "Session",
+    updatedAtUnixMs: 1,
+    workspaceId: "workspace-1"
+  };
   const sessionEngine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 1 },
-    commandPort: { execute: async () => undefined },
+    commandPort: {
+      kind: "typed",
+      effects: {
+        controlGoal: async (
+          effectInput: AgentSessionGoalControlEffectInput,
+          options?: EngineEffectOptions
+        ) => {
+          await goalControl({ ...effectInput, signal: options?.signal });
+          const goal =
+            effectInput.action === "clear"
+              ? null
+              : effectInput.action === "set"
+                ? {
+                    objective: effectInput.objective!,
+                    status: "active" as const
+                  }
+                : {
+                    ...baseSession.goal,
+                    status:
+                      effectInput.action === "pause"
+                        ? ("paused" as const)
+                        : ("active" as const)
+                  };
+          return {
+            goal,
+            session: { ...baseSession, goal, updatedAtUnixMs: 2 }
+          };
+        }
+      },
+      execute: async () => undefined
+    } as never,
     identity: { origin: "test", workspaceId: "workspace-1" },
     scheduler: { schedule: () => ({ cancel() {} }) }
   });
+  sessionEngine.dispatch({ session: baseSession, type: "session/upserted" });
   const setDetailError = vi.fn();
   const setGoalClearNoticeSequence = vi.fn();
-  const optimisticGoalControlRef = {
-    current: null as AgentGUIOptimisticGoalControl | null
-  };
-  const setOptimisticGoalControl = vi.fn(
-    (
-      update:
-        | AgentGUIOptimisticGoalControl
-        | null
-        | ((
-            current: AgentGUIOptimisticGoalControl | null
-          ) => AgentGUIOptimisticGoalControl | null)
-    ) => {
-      optimisticGoalControlRef.current =
-        typeof update === "function"
-          ? update(optimisticGoalControlRef.current)
-          : update;
-    }
-  );
   const draftByScopeKeyRef = {
     current: {} as Record<string, AgentComposerDraft>
   };
@@ -71,10 +104,11 @@ function createGoalControlInput(
       codeFor: vi.fn(() => null),
       errorFor: vi.fn(() => null)
     },
+    activeConversationId: "session-1",
     activeConversationIdRef: { current: "session-1" },
     activeEngineActiveTurn: null,
     activeEnginePendingInteractions: [],
-    agentActivityRuntime: { goalControl } as AgentActivityRuntime,
+    agentActivityRuntime: {},
     conversationListQuery: {},
     conversationsRef: { current: [] },
     dataRef: { current: {} },
@@ -90,14 +124,12 @@ function createGoalControlInput(
       current: { implement: vi.fn(), feedback: vi.fn(), skip: vi.fn() }
     },
     promptImagesSupported: true,
-    optimisticGoalControl: null,
     sessionEngine,
     setActiveConversationId: vi.fn(),
     setDetailError,
     setDraftByScopeKey,
     setGoalClearNoticeSequence,
     setIntent: vi.fn(),
-    setOptimisticGoalControl,
     submittedDraftSnapshotsRef: { current: {} },
     startConversation: vi.fn(() => null),
     submitPromptRef: { current: vi.fn() },
@@ -107,12 +139,10 @@ function createGoalControlInput(
   return {
     input,
     draftByScopeKeyRef,
-    optimisticGoalControlRef,
     sessionEngine,
     setDetailError,
     setDraftByScopeKey,
-    setGoalClearNoticeSequence,
-    setOptimisticGoalControl
+    setGoalClearNoticeSequence
   };
 }
 
@@ -290,9 +320,9 @@ describe("existing-session prompt submission", () => {
 });
 
 describe("goal controls", () => {
-  it("publishes an optimistic goal before the control API settles", async () => {
+  it("publishes the Engine-owned optimistic goal before transport settles", async () => {
     const goalControl = vi.fn(() => new Promise<void>(() => {}));
-    const { input, optimisticGoalControlRef } = createGoalControlInput(
+    const { input, sessionEngine } = createGoalControlInput(
       goalControl as never
     );
     const { result } = renderHook(() =>
@@ -305,19 +335,23 @@ describe("goal controls", () => {
       ])
     );
 
-    expect(optimisticGoalControlRef.current).toMatchObject({
-      agentSessionId: "session-1",
+    expect(
+      selectSessionGoalControlPresentation(
+        sessionEngine.getSnapshot(),
+        "session-1"
+      )
+    ).toMatchObject({
       goal: { objective: "count to ten", status: "active" },
-      reconcileOnObjectiveMatch: false
+      optimistic: true,
+      status: "pending"
     });
     await waitFor(() => expect(goalControl).toHaveBeenCalledTimes(1));
   });
 
-  it("publishes a new-session goal as soon as activation starts", () => {
+  it("delegates a new-session goal to the shared activation intent", () => {
     const goalControl = vi.fn(async () => undefined);
-    const { input, optimisticGoalControlRef } = createGoalControlInput(
-      goalControl as never
-    );
+    const { input } = createGoalControlInput(goalControl as never);
+    input.activeConversationId = null;
     input.activeConversationIdRef.current = null;
     input.isComposerHomeRef.current = true;
     input.startConversation = vi.fn(() => ({
@@ -341,12 +375,6 @@ describe("goal controls", () => {
       false,
       { action: "set", objective: "count to ten" }
     );
-    expect(optimisticGoalControlRef.current).toEqual({
-      agentSessionId: "session-new",
-      goal: { objective: "count to ten", status: "active" },
-      reconcileOnObjectiveMatch: true,
-      requestId: "goal-activation:activation-1"
-    });
     expect(goalControl).not.toHaveBeenCalled();
   });
 
@@ -358,7 +386,6 @@ describe("goal controls", () => {
     draftByScopeKeyRef.current = {
       [sessionDraftKey]: draft("/goal count to ten")
     };
-    const dispatch = vi.spyOn(sessionEngine, "dispatch");
     const { result } = renderHook(() =>
       useAgentGUISubmitInteractionActions(input)
     );
@@ -376,7 +403,12 @@ describe("goal controls", () => {
       ).toBe("")
     );
     expect(setDraftByScopeKey).toHaveBeenCalledTimes(1);
-    expect(dispatch).not.toHaveBeenCalled();
+    expect(
+      selectSessionGoalControlPresentation(
+        sessionEngine.getSnapshot(),
+        "session-1"
+      ).status
+    ).toBe("succeeded");
   });
 
   it("preserves a newer draft edit while a goal control request is pending", async () => {
@@ -416,15 +448,12 @@ describe("goal controls", () => {
 
   it("keeps the submitted goal draft when the control API rejects it", async () => {
     const goalControl = vi.fn(async () =>
-      Promise.reject(new Error("goal failed"))
+      Promise.reject(
+        Object.assign(new Error("goal failed"), { code: "invalid_request" })
+      )
     );
-    const {
-      input,
-      draftByScopeKeyRef,
-      optimisticGoalControlRef,
-      setDetailError,
-      setDraftByScopeKey
-    } = createGoalControlInput(goalControl as never);
+    const { input, draftByScopeKeyRef, setDetailError, setDraftByScopeKey } =
+      createGoalControlInput(goalControl as never);
     const sessionDraftKey = "session:session-1";
     draftByScopeKeyRef.current = {
       [sessionDraftKey]: draft("/goal count to ten")
@@ -446,14 +475,60 @@ describe("goal controls", () => {
       agentComposerDraftPrompt(draftByScopeKeyRef.current[sessionDraftKey]!)
     ).toBe("/goal count to ten");
     expect(setDraftByScopeKey).not.toHaveBeenCalled();
-    expect(optimisticGoalControlRef.current).toBeNull();
+  });
+
+  it("settles an outcome-unknown retry with the Engine's effective identity", async () => {
+    const goalControl = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(undefined);
+    const { input, draftByScopeKeyRef, sessionEngine } = createGoalControlInput(
+      goalControl as never
+    );
+    const sessionDraftKey = "session:session-1";
+    draftByScopeKeyRef.current = {
+      [sessionDraftKey]: draft("/goal count to ten")
+    };
+    const { result } = renderHook(() =>
+      useAgentGUISubmitInteractionActions(input)
+    );
+
+    act(() =>
+      result.current.submitPrompt([
+        { type: "text", text: "/goal count to ten" }
+      ])
+    );
+    await waitFor(() =>
+      expect(
+        selectSessionGoalControlPresentation(
+          sessionEngine.getSnapshot(),
+          "session-1"
+        ).status
+      ).toBe("unknown")
+    );
+    const firstClientSubmitId = goalControl.mock.calls[0]?.[0].clientSubmitId;
+
+    act(() =>
+      result.current.submitPrompt([
+        { type: "text", text: "/goal count to ten" }
+      ])
+    );
+
+    await waitFor(() => expect(goalControl).toHaveBeenCalledTimes(2));
+    expect(goalControl.mock.calls[1]?.[0].clientSubmitId).toBe(
+      firstClientSubmitId
+    );
+    await waitFor(() =>
+      expect(
+        agentComposerDraftPrompt(draftByScopeKeyRef.current[sessionDraftKey]!)
+      ).toBe("")
+    );
   });
 
   it("clears through the control API without creating a prompt submit", async () => {
     const goalControl = vi.fn(async () => undefined);
     const { input, sessionEngine, setGoalClearNoticeSequence } =
       createGoalControlInput(goalControl as never);
-    const dispatch = vi.spyOn(sessionEngine, "dispatch");
     const { result } = renderHook(() =>
       useAgentGUISubmitInteractionActions(input)
     );
@@ -461,18 +536,27 @@ describe("goal controls", () => {
     act(() => result.current.goalControl("clear"));
 
     await waitFor(() => expect(goalControl).toHaveBeenCalledTimes(1));
-    expect(goalControl).toHaveBeenCalledWith({
-      action: "clear",
-      agentSessionId: "session-1",
-      clientSubmitId: expect.stringMatching(/^goal-control:/),
-      workspaceId: "workspace-1"
-    });
+    expect(goalControl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "clear",
+        agentSessionId: "session-1",
+        clientSubmitId: expect.stringMatching(/^goal-control:/),
+        workspaceId: "workspace-1"
+      })
+    );
     expect(setGoalClearNoticeSequence).toHaveBeenCalledTimes(1);
-    expect(dispatch).not.toHaveBeenCalled();
+    expect(
+      selectSessionGoalControlPresentation(
+        sessionEngine.getSnapshot(),
+        "session-1"
+      ).goal
+    ).toBeNull();
   });
 
   it("reports a clear failure without showing a success toast", async () => {
-    const error = new Error("clear failed");
+    const error = Object.assign(new Error("clear failed"), {
+      code: "invalid_request"
+    });
     const goalControl = vi.fn(async () => Promise.reject(error));
     const { input, setDetailError, setGoalClearNoticeSequence } =
       createGoalControlInput(goalControl as never);
@@ -486,5 +570,22 @@ describe("goal controls", () => {
       expect(setDetailError).toHaveBeenCalledWith("clear failed")
     );
     expect(setGoalClearNoticeSequence).not.toHaveBeenCalled();
+  });
+});
+
+describe("typedGoalControlFromComposer", () => {
+  it("typed Goal semantics ignore presentation-only displayPrompt", () => {
+    expect(
+      typedGoalControlFromComposer(
+        [{ type: "text", text: "/goal clear" }],
+        "clear chip"
+      )
+    ).toEqual({ action: "clear" });
+    expect(
+      typedGoalControlFromComposer(
+        [{ type: "text", text: "ordinary prompt" }],
+        "/goal clear"
+      )
+    ).toBeNull();
   });
 });

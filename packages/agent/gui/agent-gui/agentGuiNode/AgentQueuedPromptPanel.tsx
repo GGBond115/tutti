@@ -47,8 +47,8 @@ import {
   queuedPromptImageLoadRequestIdentity
 } from "./queuedPromptImageLoadOwner";
 import {
-  useOptionalAgentActivityRuntime,
-  type AgentActivityRuntime
+  useOptionalAgentGUIRuntime,
+  type AgentGUIRuntime
 } from "../../agentActivityRuntime";
 
 const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
@@ -130,7 +130,7 @@ interface AgentQueuedPromptImageProps {
   agentSessionId?: string | null;
   image: QueuedPromptImageBlock;
   imageKey: string;
-  runtime: AgentActivityRuntime | null;
+  runtime: AgentGUIRuntime | null;
   workspaceId?: string | null;
 }
 
@@ -337,7 +337,7 @@ export function AgentQueuedPromptPanel({
   workspaceAppIcons = EMPTY_WORKSPACE_APP_ICONS
 }: AgentQueuedPromptPanelProps): React.JSX.Element {
   "use memo";
-  const runtime = useOptionalAgentActivityRuntime();
+  const runtime = useOptionalAgentGUIRuntime();
   const [isExpanded, setIsExpanded] = useState(false);
   const singlePromptTextRef = useRef<HTMLDivElement | null>(null);
   const queuedPromptListRef = useRef<HTMLDivElement | null>(null);

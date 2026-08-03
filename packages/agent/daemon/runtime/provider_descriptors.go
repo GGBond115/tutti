@@ -55,15 +55,17 @@ func newAdapterFromProviderDescriptor(
 			transport,
 			host,
 			appServerAdapterConfig{
-				provider:             descriptor.Identity.ID,
-				runtimeName:          descriptor.Runtime.Name,
-				displayName:          descriptor.Identity.DisplayName,
-				command:              append([]string(nil), descriptor.Runtime.Command...),
-				clientInfoName:       descriptor.Runtime.ClientInfoName,
-				authRequiredMessage:  descriptor.Runtime.AuthRequiredMessage,
-				rateLimits:           providerDescriptorHasCapability(descriptor, CapabilityRateLimits),
-				nativeSessionFork:    descriptor.Runtime.NativeSessionFork,
-				commandNetworkAccess: options.commandNetworkAccess,
+				provider:                         descriptor.Identity.ID,
+				runtimeName:                      descriptor.Runtime.Name,
+				displayName:                      descriptor.Identity.DisplayName,
+				command:                          append([]string(nil), descriptor.Runtime.Command...),
+				clientInfoName:                   descriptor.Runtime.ClientInfoName,
+				authRequiredMessage:              descriptor.Runtime.AuthRequiredMessage,
+				rateLimits:                       providerDescriptorHasCapability(descriptor, CapabilityRateLimits),
+				nativeSessionFork:                descriptor.Runtime.NativeSessionFork,
+				sessionForkUserAgentBrand:        descriptor.Runtime.AppServerFork.UserAgentBrand,
+				sessionForkThroughTurnMinVersion: descriptor.Runtime.AppServerFork.ThroughTurnMinVersion,
+				commandNetworkAccess:             options.commandNetworkAccess,
 			},
 			commandResolver,
 		)
@@ -141,9 +143,10 @@ func newStandardACPAdapterFromProviderDescriptor(
 			projectCurrentMode: standardACP.ProjectCurrentMode,
 			startupDiagnostics: standardACP.StartupDiagnostics,
 		},
-		transport: transport,
-		host:      host,
-		sessions:  make(map[string]*standardACPSession),
+		transport:  transport,
+		host:       host,
+		sessions:   make(map[string]*standardACPSession),
+		inputUnits: providerInputUnitTrackerForTransport(transport),
 	}
 }
 
@@ -224,6 +227,7 @@ func NewStandardACPAdapter(config StandardACPAdapterConfig, transport ProcessTra
 			env:                          func(session Session) []string { return standardACPEnv(session, host) },
 		},
 		transport: transport, host: host, sessions: make(map[string]*standardACPSession),
+		inputUnits: providerInputUnitTrackerForTransport(transport),
 	}
 	if decisions := automaticPermissionDecisionFromMap(config.AutomaticPermissionDecisions); decisions != nil {
 		adapter.config.automaticPermissionDecision = decisions

@@ -1,9 +1,6 @@
 package sessionreplay
 
-import (
-	"errors"
-	"strings"
-)
+import "strings"
 
 type RecordingTransition struct {
 	Status       RecordingStatus
@@ -96,80 +93,6 @@ func recordingTransitionAllowed(from, to RecordingStatus) bool {
 			to == RecordingStatusFailed ||
 			to == RecordingStatusCanceled ||
 			to == RecordingStatusIncomplete
-	default:
-		return false
-	}
-}
-
-type ReplayRunTransition struct {
-	Status       ReplayRunStatus
-	AtUnixMS     int64
-	Checkpoint   int64
-	ErrorCode    string
-	ErrorMessage string
-}
-
-func TransitionReplayRun(run *ReplayRun, transition ReplayRunTransition) error {
-	if run == nil ||
-		run.Checkpoint < 0 ||
-		transition.AtUnixMS <= 0 ||
-		transition.Checkpoint < run.Checkpoint {
-		return ErrInvalidState
-	}
-	if run.Status == ReplayRunStatusStarting && transition.Checkpoint != 0 {
-		return ErrInvalidState
-	}
-	if run.Status == transition.Status {
-		if run.Status == ReplayRunStatusRunning &&
-			transition.Checkpoint > run.Checkpoint {
-			run.Checkpoint = transition.Checkpoint
-			run.UpdatedAtUnixMS = transition.AtUnixMS
-			return nil
-		}
-		if transition.Checkpoint == run.Checkpoint {
-			return nil
-		}
-		return ErrInvalidState
-	}
-	if !replayRunTransitionAllowed(run.Status, transition.Status) {
-		return ErrInvalidState
-	}
-	if transition.Status == ReplayRunStatusFailed &&
-		(strings.TrimSpace(transition.ErrorCode) == "" ||
-			strings.TrimSpace(transition.ErrorMessage) == "") {
-		return errors.Join(ErrInvalidState, errors.New("failed replay run requires an error"))
-	}
-	switch transition.Status {
-	case ReplayRunStatusRunning:
-		if run.StartedAtUnixMS == 0 {
-			run.StartedAtUnixMS = transition.AtUnixMS
-		}
-	case ReplayRunStatusComplete, ReplayRunStatusFailed, ReplayRunStatusCanceled:
-		run.CompletedAtUnixMS = transition.AtUnixMS
-	}
-	if transition.Status == ReplayRunStatusFailed {
-		run.ErrorCode = strings.TrimSpace(transition.ErrorCode)
-		run.ErrorMessage = transition.ErrorMessage
-	} else {
-		run.ErrorCode = ""
-		run.ErrorMessage = ""
-	}
-	run.Status = transition.Status
-	run.Checkpoint = transition.Checkpoint
-	run.UpdatedAtUnixMS = transition.AtUnixMS
-	return nil
-}
-
-func replayRunTransitionAllowed(from, to ReplayRunStatus) bool {
-	switch from {
-	case ReplayRunStatusStarting:
-		return to == ReplayRunStatusRunning ||
-			to == ReplayRunStatusFailed ||
-			to == ReplayRunStatusCanceled
-	case ReplayRunStatusRunning:
-		return to == ReplayRunStatusComplete ||
-			to == ReplayRunStatusFailed ||
-			to == ReplayRunStatusCanceled
 	default:
 		return false
 	}

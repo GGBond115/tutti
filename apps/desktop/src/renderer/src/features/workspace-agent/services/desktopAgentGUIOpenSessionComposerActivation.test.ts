@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentSessionEngine } from "@tutti-os/agent-activity-core";
-import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
+import type { AgentGUIRuntime } from "@tutti-os/agent-gui";
 import { desktopAgentGUIOpenSessionActivationType } from "../desktopAgentGUINodeState.ts";
 import { consumeDesktopAgentGUIOpenSessionActivation } from "./desktopAgentGUIOpenSessionActivation.ts";
 import { clearDesktopAgentGUIOpenSessionComposerRequest } from "./desktopAgentGUIOpenSessionComposerActivation.ts";
@@ -19,7 +19,7 @@ test("source-session activation selects the exact session and requests a non-sub
         }
       } as AgentSessionEngine;
     }
-  } as Pick<AgentActivityRuntime, "getSessionEngine">;
+  } as Pick<AgentGUIRuntime, "getSessionEngine">;
 
   consumeDesktopAgentGUIOpenSessionActivation({
     activation: {

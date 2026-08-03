@@ -65,14 +65,19 @@ func backfillSessionMetadataV1(ctx context.Context, tx *sql.Tx) error {
 			return fmt.Errorf("decode legacy session runtime context: %w", err)
 		}
 		legacyGoal := normalizeLegacyGoal(runtimeContext)
-		metadata, internal, err := splitSessionRuntimeContext(runtimeContext)
+		metadata, capabilities, internal, err := splitSessionRuntimeContext(runtimeContext)
 		if err != nil {
 			return fmt.Errorf("normalize legacy session metadata: %w", err)
+		}
+		if capabilities != nil && len(capabilities.Values) == 0 {
+			// Legacy runtime_context_json always carried an empty capabilities
+			// array, so presence alone is not authoritative for migrated rows.
+			capabilities = nil
 		}
 		if legacyGoal != nil {
 			internal["providerGoal"] = legacyGoal
 		}
-		metadataJSON, err := marshalSessionMetadata(metadata)
+		metadataJSON, err := marshalSessionMetadata(metadata, capabilities)
 		if err != nil {
 			return err
 		}

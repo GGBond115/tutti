@@ -2,9 +2,14 @@ import {
   AGENT_SESSION_ENGINE_LOCAL_ORIGIN,
   createAgentSessionEngine,
   type AgentActivityAdapter,
+  type AgentActivityGoalControlInput,
+  type AgentActivityGoalControlResult,
   type AgentActivitySendInput,
+  type AgentActivitySubmitInteractiveInput,
+  type AgentActivitySubmitInteractiveResult,
   type AgentSessionActivateEffectResult,
   type AgentSessionEngine,
+  type EngineEffectOptions,
   type EngineExternalCommand,
   type EngineIntent,
   type PlanSubmitDecisionResult,
@@ -12,19 +17,24 @@ import {
   type SessionReconcileCommand,
   type TuttiModeActivationUpdateCommand
 } from "@tutti-os/agent-activity-core";
-import type { AgentActivityRuntime } from "@tutti-os/agent-gui";
+import type { AgentActivityRuntimeActivateSessionInput } from "@tutti-os/agent-gui";
 import type { TuttidClient } from "@tutti-os/client-tuttid-ts";
 import type { DesktopRuntimeApi } from "@preload/types";
 import type { AgentHostAgentSessionComposerSettings } from "@shared/contracts/dto";
-import { createDesktopAgentActivityAdapter } from "../desktopAgentActivityAdapter.ts";
+import {
+  createDesktopAgentActivityAdapter,
+  type DesktopAgentActivityCommandAdapter
+} from "../desktopAgentActivityAdapter.ts";
 import {
   readDesktopWorkspaceAgentReadState,
   writeDesktopWorkspaceAgentReadState
 } from "../createDesktopAgentHostApi.ts";
 import { editRetryResultFromTuttid } from "./workspaceAgentEditRetry.ts";
+import type { IWorkspaceAgentActivityService } from "../workspaceAgentActivityService.interface.ts";
 
 export interface WorkspaceAgentSessionEngineHost {
   adapter: AgentActivityAdapter;
+  commandAdapter: DesktopAgentActivityCommandAdapter;
   engine: AgentSessionEngine;
   dispose(): void;
 }
@@ -36,43 +46,65 @@ export interface WorkspaceAgentSessionEngineActivityObserver {
 
 interface CreateWorkspaceAgentSessionEngineHostInput {
   activityEventObserver?: WorkspaceAgentSessionEngineActivityObserver;
-  activateSession(
-    input: Parameters<AgentActivityRuntime["activateSession"]>[0]
+  executeEngineActivateSession(
+    input: AgentActivityRuntimeActivateSessionInput,
+    options: EngineEffectOptions
   ): Promise<AgentSessionActivateEffectResult>;
-  cancelTurn(input: {
-    agentSessionId: string;
-    signal?: AbortSignal;
-    turnId: string;
-    workspaceId: string;
-  }): Promise<unknown>;
+  executeEngineCancelTurn(
+    input: {
+      agentSessionId: string;
+      signal?: AbortSignal;
+      turnId: string;
+      workspaceId: string;
+    },
+    options: EngineEffectOptions
+  ): Promise<unknown>;
+  executeEngineGoalControl(
+    input: AgentActivityGoalControlInput,
+    options?: EngineEffectOptions
+  ): Promise<AgentActivityGoalControlResult>;
   reconcileSession(
     command: SessionReconcileCommand,
     signal?: AbortSignal
   ): Promise<unknown>;
   runtimeApi: Pick<DesktopRuntimeApi, "logTerminalDiagnostic">;
-  takePendingSessionRecording(workspaceId: string): string | null;
-  restorePendingSessionRecording(
+  takePendingSessionRecording?(workspaceId: string): string | null;
+  restorePendingSessionRecording?(
     workspaceId: string,
     recordingId: string
   ): void;
-  sendInput(input: AgentActivitySendInput): Promise<unknown>;
-  submitInteractive: AgentActivityRuntime["submitInteractive"];
-  submitPlanDecision(input: {
-    action: "implement";
-    agentSessionId: string;
-    idempotencyKey: string;
-    promptKind: "plan-implementation";
-    requestId: string;
-    turnId: string;
-    workspaceId: string;
-  }): Promise<PlanSubmitDecisionResult>;
+  executeEngineSendInput(
+    input: AgentActivitySendInput,
+    options: EngineEffectOptions
+  ): Promise<unknown>;
+  executeEngineSubmitInteractive(
+    input: AgentActivitySubmitInteractiveInput,
+    options: EngineEffectOptions
+  ): Promise<AgentActivitySubmitInteractiveResult>;
+  executeEngineSubmitPlanDecision(
+    input: {
+      action: "implement";
+      agentSessionId: string;
+      idempotencyKey: string;
+      promptKind: "plan-implementation";
+      requestId: string;
+      turnId: string;
+      workspaceId: string;
+    },
+    options: EngineEffectOptions
+  ): Promise<PlanSubmitDecisionResult>;
   subscribeSessionEvents(
     workspaceId: string,
     listener: (event: unknown) => void
   ): () => void;
-  unactivateSession: AgentActivityRuntime["unactivateSession"];
-  updateSessionSettings: AgentActivityRuntime["updateSessionSettings"];
-  updateTuttiModeActivation: AgentActivityRuntime["updateTuttiModeActivation"];
+  unactivateSession: IWorkspaceAgentActivityService["unactivateSession"];
+  executeEngineUpdateSessionSettings(
+    input: Parameters<
+      IWorkspaceAgentActivityService["updateSessionSettings"]
+    >[0],
+    options: EngineEffectOptions
+  ): ReturnType<IWorkspaceAgentActivityService["updateSessionSettings"]>;
+  updateTuttiModeActivation: IWorkspaceAgentActivityService["updateTuttiModeActivation"];
   tuttidClient: TuttidClient;
   workspaceId: string;
 }
@@ -139,18 +171,29 @@ export function createWorkspaceAgentSessionEngineHost(
       kind: "typed",
       effects: {
         activateSession: (effectInput, options) =>
-          input.activateSession({
-            ...effectInput,
-            ...(effectInput.settings
-              ? {
-                  settings:
-                    effectInput.settings as AgentHostAgentSessionComposerSettings
-                }
-              : {}),
-            signal: options?.signal
-          }),
+          input.executeEngineActivateSession(
+            {
+              ...effectInput,
+              ...(effectInput.settings
+                ? {
+                    settings:
+                      effectInput.settings as AgentHostAgentSessionComposerSettings
+                  }
+                : {}),
+              signal: options.signal
+            },
+            options
+          ),
         cancelTurn: (effectInput, options) =>
-          input.cancelTurn({ ...effectInput, signal: options?.signal }),
+          input.executeEngineCancelTurn(
+            { ...effectInput, signal: options.signal },
+            options
+          ),
+        controlGoal: (effectInput, options) =>
+          input.executeEngineGoalControl(
+            { ...effectInput, signal: options?.signal },
+            options
+          ),
         deleteSessions: (effectInput, options) =>
           adapter.deleteSessions({
             ...effectInput,
@@ -164,15 +207,21 @@ export function createWorkspaceAgentSessionEngineHost(
           return { session };
         },
         respondToInteraction: (effectInput, options) =>
-          input.submitInteractive({
-            ...effectInput,
-            signal: options?.signal
-          }),
+          input.executeEngineSubmitInteractive(
+            {
+              ...effectInput,
+              signal: options.signal
+            },
+            options
+          ),
         sendInput: (effectInput, options) =>
-          input.sendInput({
-            ...effectInput,
-            signal: options?.signal
-          }),
+          input.executeEngineSendInput(
+            {
+              ...effectInput,
+              signal: options.signal
+            },
+            options
+          ),
         setSessionPinned: async (effectInput, options) => {
           const session = await adapter.setSessionPinned({
             ...effectInput,
@@ -184,23 +233,29 @@ export function createWorkspaceAgentSessionEngineHost(
           { agentSessionId, settings, workspaceId },
           options
         ) =>
-          input.updateSessionSettings({
-            agentSessionId,
-            signal: options?.signal,
-            settings: settings as AgentHostAgentSessionComposerSettings,
-            workspaceId
-          })
+          input.executeEngineUpdateSessionSettings(
+            {
+              agentSessionId,
+              signal: options.signal,
+              settings: settings as AgentHostAgentSessionComposerSettings,
+              workspaceId
+            },
+            options
+          )
       },
-      executePlanDecision: (command) => {
-        return input.submitPlanDecision({
-          action: command.action,
-          agentSessionId: command.agentSessionId,
-          idempotencyKey: command.idempotencyKey,
-          promptKind: command.promptKind,
-          requestId: command.requestId,
-          turnId: command.turnId,
-          workspaceId: command.workspaceId
-        });
+      executePlanDecision: (command, options) => {
+        return input.executeEngineSubmitPlanDecision(
+          {
+            action: command.action,
+            agentSessionId: command.agentSessionId,
+            idempotencyKey: command.idempotencyKey,
+            promptKind: command.promptKind,
+            requestId: command.requestId,
+            turnId: command.turnId,
+            workspaceId: command.workspaceId
+          },
+          requiredEngineEffectOptions(options)
+        );
       },
       execute: async (command, options): Promise<unknown> => {
         switch (command.type) {
@@ -352,6 +407,7 @@ export function createWorkspaceAgentSessionEngineHost(
   );
   return {
     adapter,
+    commandAdapter: adapter,
     engine,
     dispose() {
       unsubscribeSessionEvents();
@@ -370,4 +426,12 @@ function observeWorkspaceAgentEngineCommand(
     // Recording is optional developer instrumentation. It must not block the
     // command that owns the actual product behavior.
   }
+}
+
+function requiredEngineEffectOptions(
+  options: EngineEffectOptions | undefined
+): EngineEffectOptions {
+  if (!options)
+    throw new Error("workspace_agent.engine_effect_options_required");
+  return options;
 }

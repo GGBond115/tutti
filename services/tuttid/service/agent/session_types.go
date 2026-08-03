@@ -9,7 +9,8 @@ import (
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	automationrulebiz "github.com/tutti-os/tutti/services/tuttid/biz/automationrule"
 	modelplanbiz "github.com/tutti-os/tutti/services/tuttid/biz/modelplan"
@@ -134,6 +135,7 @@ type SubmitClaimStore interface {
 	PrepareSubmitClaim(context.Context, agentactivitybiz.SubmitClaimPrepare) (agentactivitybiz.SubmitClaim, bool, error)
 	GetSubmitClaim(context.Context, string, string, string) (agentactivitybiz.SubmitClaim, bool, error)
 	AcceptSubmitClaim(context.Context, string, string, string, string, int64) (agentactivitybiz.SubmitClaim, bool, error)
+	RejectSubmitClaim(context.Context, string, string, string, string, int64) (agentactivitybiz.SubmitClaim, bool, error)
 	DeleteSubmitClaim(context.Context, string, string, string) (bool, error)
 	FindTurnByClientSubmitID(context.Context, string, string, string) (string, bool, error)
 }
@@ -253,6 +255,7 @@ type Session struct {
 	Visible              bool
 	Resumable            bool
 	Settings             *ComposerSettings
+	Capabilities         *canonical.CapabilitySnapshot
 	PermissionConfig     PermissionConfig
 	Title                *string
 	MessageVersion       uint64
@@ -408,6 +411,7 @@ type PersistedSession struct {
 	RailProjectPath        string
 	RailSectionKey         string
 	Settings               ComposerSettings
+	Capabilities           *canonical.CapabilitySnapshot
 	Metadata               agentactivitybiz.SessionMetadata
 	InternalRuntimeContext map[string]any
 	Title                  string
@@ -632,12 +636,15 @@ type CreateSessionInput struct {
 	// dedicated session cannot regain commands outside that set.
 	CommandCapabilityProjection *runtimeprep.CommandCapabilityProjection
 	InitialContent              []PromptContentBlock
-	InitialDisplayPrompt        string
-	Metadata                    map[string]any
-	ClientSubmitID              string
-	Title                       *string
-	Cwd                         *string
-	PermissionModeID            *string
+	// InitialGoalControl is delegated to Host as a typed lifecycle command and
+	// never becomes an initial Turn.
+	InitialGoalControl   *agenthost.TypedGoalControl
+	InitialDisplayPrompt string
+	Metadata             map[string]any
+	ClientSubmitID       string
+	Title                *string
+	Cwd                  *string
+	PermissionModeID     *string
 	// StrictPermissionMode rejects an explicit unsupported permission mode
 	// instead of applying the provider default. It is used by unattended
 	// automation so a typo cannot silently broaden authority.

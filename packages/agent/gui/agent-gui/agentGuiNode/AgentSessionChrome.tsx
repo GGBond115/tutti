@@ -114,6 +114,7 @@ export function AgentSessionChrome({
   "use memo";
   const visibleAuth =
     chrome.recovery?.kind === "activating" ||
+    chrome.recovery?.kind === "agent-sharing-revoked" ||
     chrome.recovery?.kind === "transport-connecting" ||
     chrome.recovery?.kind === "transport-unavailable"
       ? null
@@ -202,6 +203,7 @@ export function AgentSessionChrome({
         <section
           role={
             visibleRecovery.kind === "failed" ||
+            visibleRecovery.kind === "agent-sharing-revoked" ||
             visibleRecovery.kind === "transport-unavailable"
               ? "alert"
               : visibleRecovery.kind === "resume-unavailable" ||
@@ -211,6 +213,7 @@ export function AgentSessionChrome({
           }
           aria-live={
             visibleRecovery.kind === "failed" ||
+            visibleRecovery.kind === "agent-sharing-revoked" ||
             visibleRecovery.kind === "transport-unavailable"
               ? "assertive"
               : visibleRecovery.kind === "transport-connecting"
@@ -223,6 +226,7 @@ export function AgentSessionChrome({
           className={cn(
             styles.chromeCard,
             visibleRecovery.kind === "failed" ||
+              visibleRecovery.kind === "agent-sharing-revoked" ||
               visibleRecovery.kind === "transport-unavailable"
               ? styles.chromeCardDanger
               : visibleRecovery.kind === "resume-unavailable"

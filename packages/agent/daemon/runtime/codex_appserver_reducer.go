@@ -164,7 +164,20 @@ func (r codexAppServerReducer) reduceNotification(
 			return emit(nil)
 		}
 		if ctx, ok := activityEventContext(session, "root-provider-turn-started:"+providerTurnID, turnID); ok {
-			return emit([]activityshared.Event{activityshared.NewRootProviderTurnStarted(ctx, turnID, providerTurnID)})
+			started := activityshared.NewRootProviderTurnStarted(
+				ctx,
+				turnID,
+				providerTurnID,
+			)
+			if binding, err := a.WriteProviderTurnBinding(
+				ProviderTurnBindingWriteInput{
+					Kind:           ProviderTurnBindingWriteStarted,
+					ProviderTurnID: providerTurnID,
+				},
+			); err == nil {
+				started.Payload.ProviderTurnBindingJSON = binding
+			}
+			return emit([]activityshared.Event{started})
 		}
 		return emit(nil)
 	case appServerNotifyTurnCompleted:
@@ -276,6 +289,9 @@ func (r codexAppServerReducer) reduceNotification(
 		// (returned reduction events are dropped without an active turn).
 		goal := payloadObject(params["goal"])
 		a.observeGoalTurnGeneration(session, strings.TrimSpace(asString(params["turnId"])), goal)
+		if a.providerGoalUpdateSuperseded(session.AgentSessionID, goal) {
+			return codexAppServerReduction{}
+		}
 		_, newStatus, statusChanged := a.applyGoalUpdate(session.AgentSessionID, goal)
 		a.scheduleProviderGoalAdoption(session, goal)
 		goalEvents := []activityshared.Event{}

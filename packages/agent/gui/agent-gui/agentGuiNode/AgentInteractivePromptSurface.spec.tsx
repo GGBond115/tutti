@@ -99,6 +99,12 @@ describe("AgentInteractivePromptSurface", () => {
         .getByText("pnpm test --run renderer")
         .closest(".agent-gui-conversation__interactive-option-button")
     ).toBeNull();
+    expect(
+      screen.getByTestId("agent-interaction-request-approval")
+    ).toHaveAttribute("data-agent-interaction-kind", "approval");
+    expect(
+      screen.getByTestId("agent-approval-request-approval-approve")
+    ).toHaveAttribute("data-agent-approval-option-id", "allow_once");
 
     fireEvent.click(
       screen.getByRole("button", {
@@ -300,6 +306,9 @@ describe("AgentInteractivePromptSurface", () => {
     expect(
       screen.queryByPlaceholderText(labels.feedbackPlaceholder)
     ).toBeNull();
+    expect(
+      screen.getByTestId("agent-approval-request-approval-feedback")
+    ).toHaveAttribute("data-agent-approval-option-id", "abort");
     fireEvent.click(
       screen.getByRole("button", {
         name: "拒绝，然后发送新的指令"
@@ -332,6 +341,12 @@ describe("AgentInteractivePromptSurface", () => {
     expect(
       screen.getByRole("button", { name: labels.sendFeedback })
     ).toBeDisabled();
+    expect(
+      screen.getByTestId("agent-approval-request-approval-feedback-input")
+    ).toBe(screen.getByPlaceholderText(labels.feedbackPlaceholder));
+    expect(
+      screen.getByTestId("agent-approval-request-approval-feedback-submit")
+    ).toBe(screen.getByRole("button", { name: labels.sendFeedback }));
 
     const feedback = screen.getByPlaceholderText(labels.feedbackPlaceholder);
     fireEvent.change(feedback, {
@@ -411,7 +426,7 @@ describe("AgentInteractivePromptSurface", () => {
     });
   });
 
-  it("prefers explicit abort feedback options over plain reject options", () => {
+  it("prefers a non-terminal reject option for feedback over abort", () => {
     const onSubmit = vi.fn();
     render(
       <AgentInteractivePromptSurface
@@ -438,8 +453,8 @@ describe("AgentInteractivePromptSurface", () => {
             },
             {
               id: "abort",
-              label: "No, and tell Codex what to do differently",
-              kind: "reject_once"
+              label: "Deny and stop the turn",
+              kind: "reject_always"
             }
           ],
           output: null,
@@ -451,19 +466,29 @@ describe("AgentInteractivePromptSurface", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "No, don't run" })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "No, then send new instructions" })
     ).toBeTruthy();
+    expect(
+      screen.getByTestId("agent-approval-request-approval-feedback")
+    ).toHaveAttribute("data-agent-approval-option-id", "reject");
+    expect(
+      screen.getByTestId("agent-approval-request-approval-deny")
+    ).toHaveAttribute("data-agent-approval-option-id", "abort");
 
-    fireEvent.click(screen.getByRole("button", { name: "No, don't run" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "No, then send new instructions" })
+    );
+    fireEvent.change(screen.getByPlaceholderText(labels.feedbackPlaceholder), {
+      target: { value: "Use another command" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: labels.sendFeedback }));
     expect(onSubmit).toHaveBeenCalledWith({
       requestId: "request-approval",
-      optionId: "reject"
+      action: "deny",
+      optionId: "reject",
+      payload: { denyMessage: "Use another command" }
     });
-    expect(
-      screen.queryByPlaceholderText(labels.feedbackPlaceholder)
-    ).toBeNull();
   });
 
   it("uses localized feedback labels instead of provider reject copy", () => {
@@ -1278,8 +1303,16 @@ describe("AgentInteractivePromptSurface", () => {
               header: "Scope",
               question: "Which scope should we use?",
               options: [
-                { label: "Small", description: "Minimal change" },
-                { label: "Large", description: "Broader cleanup" }
+                {
+                  id: "small",
+                  label: "Small",
+                  description: "Minimal change"
+                },
+                {
+                  id: "large",
+                  label: "Large",
+                  description: "Broader cleanup"
+                }
               ],
               multiSelect: true
             }
@@ -1314,8 +1347,16 @@ describe("AgentInteractivePromptSurface", () => {
               header: "Scope",
               question: "Which scope should we use?",
               options: [
-                { label: "Small", description: "Minimal change" },
-                { label: "Large", description: "Broader cleanup" }
+                {
+                  id: "small",
+                  label: "Small",
+                  description: "Minimal change"
+                },
+                {
+                  id: "large",
+                  label: "Large",
+                  description: "Broader cleanup"
+                }
               ],
               multiSelect: false
             },
@@ -1341,6 +1382,16 @@ describe("AgentInteractivePromptSurface", () => {
       name: "Large Broader cleanup"
     });
 
+    expect(
+      screen.getByTestId("agent-question-request-ask-scope")
+    ).toHaveAttribute("data-agent-interaction-id", "request-ask");
+    expect(
+      screen.getByTestId("agent-question-request-ask-scope-option-small")
+    ).toBe(smallOption);
+    expect(
+      screen.getByTestId("agent-question-request-ask-scope-option-large")
+    ).toBe(largeOption);
+
     expect(smallOption.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(smallOption);
     expect(smallOption.getAttribute("aria-pressed")).toBe("true");
@@ -1348,9 +1399,15 @@ describe("AgentInteractivePromptSurface", () => {
     expect(onSubmit).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: labels.nextQuestion }));
+    expect(
+      screen.getByTestId("agent-question-request-ask-details-custom-answer")
+    ).toBeTruthy();
     fireEvent.change(screen.getByPlaceholderText(labels.answerPlaceholder), {
       target: { value: "Include API docs parity." }
     });
+    expect(
+      screen.getByTestId("agent-question-request-ask-details-submit")
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: labels.submitAnswers }));
 
     expect(onSubmit).toHaveBeenCalledWith({

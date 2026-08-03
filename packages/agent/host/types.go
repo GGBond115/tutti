@@ -1,6 +1,8 @@
 package agenthost
 
 import (
+	"encoding/json"
+
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
@@ -26,6 +28,20 @@ type InteractionRef struct {
 // session's latest turn. PendingInteractions is derived from Interactions so a
 // consumer never observes actionable state from a different turn or read.
 type SessionInteractionSnapshot struct {
+	Interactions        []storesqlite.Interaction
+	PendingInteractions []storesqlite.Interaction
+}
+
+// SessionInteractionTreeQuery selects one root Turn. Empty means the latest
+// non-retracted root Turn resolved atomically with the tree snapshot.
+type SessionInteractionTreeQuery struct {
+	RootTurnID string
+}
+
+// SessionInteractionTreeSnapshot contains the root Turn's interactions and
+// every descendant Session's latest-Turn interactions.
+type SessionInteractionTreeSnapshot struct {
+	RootTurnID          string
 	Interactions        []storesqlite.Interaction
 	PendingInteractions []storesqlite.Interaction
 }
@@ -100,6 +116,7 @@ type ProviderRuntimeSession struct {
 	Env                     []string
 	ProviderTargetRef       map[string]any
 	Settings                *ComposerSettings
+	Capabilities            *canonical.CapabilitySnapshot
 	RuntimeContext          map[string]any
 	Status                  string
 	TurnLifecycle           *TurnLifecycle
@@ -146,6 +163,14 @@ type SessionForkCapabilityInput struct {
 	SourceAgentSessionID string
 }
 
+type SessionTurnForkabilityInput struct {
+	WorkspaceID             string
+	SourceAgentSessionID    string
+	CanonicalTurnID         string
+	ProviderTurnID          string
+	ProviderTurnBindingJSON json.RawMessage
+}
+
 type SessionForkCapabilities struct {
 	FullSession bool
 	ThroughTurn bool
@@ -168,12 +193,12 @@ type SessionForkDriverDescriptor struct {
 }
 
 type RuntimeSessionForkInput struct {
-	Source                            ProviderRuntimeSession
-	SourceProviderTurnID              string
-	SourceProviderCheckpointMessageID string
-	TargetTitle                       string
-	RequestID                         string
-	Driver                            SessionForkDriverDescriptor
+	Source                        ProviderRuntimeSession
+	SourceProviderTurnID          string
+	SourceProviderTurnBindingJSON json.RawMessage
+	TargetTitle                   string
+	RequestID                     string
+	Driver                        SessionForkDriverDescriptor
 }
 
 type SessionForkDeliveryDisposition string
@@ -194,8 +219,15 @@ type RuntimeSessionForkResult struct {
 }
 
 type SessionForkProviderTurnBinding struct {
-	ProviderTurnID      string
-	CheckpointMessageID string
+	ProviderTurnID          string
+	ProviderTurnBindingJSON json.RawMessage
+}
+
+type RuntimeProviderTurnForkabilityInput struct {
+	Source                  ProviderRuntimeSession
+	CanonicalTurnID         string
+	ProviderTurnID          string
+	ProviderTurnBindingJSON json.RawMessage
 }
 
 type RuntimeProviderTurnBindingRecoveryInput struct {
@@ -207,9 +239,9 @@ type RuntimeProviderTurnBindingRecoveryInput struct {
 }
 
 type RuntimeProviderTurnBindingRecoveryResult struct {
-	ProviderSessionID           string
-	ProviderTurnID              string
-	ProviderCheckpointMessageID string
+	ProviderSessionID       string
+	ProviderTurnID          string
+	ProviderTurnBindingJSON json.RawMessage
 }
 
 type SessionForkStateBindingMode string
@@ -297,10 +329,7 @@ type RuntimeExecInput struct {
 	TuttiModeSnapshot               *TuttiModeTurnSnapshot
 }
 
-type CapabilityReference struct {
-	Capability string
-	Source     string
-}
+type CapabilityReference = storesqlite.CapabilityReference
 
 // TuttiModeTurnSnapshot is the immutable activation revision observed by one
 // turn. It is an execution input, not a reconstruction from capability refs.
@@ -542,10 +571,14 @@ type RailPlacement struct {
 // import paths, workspace resolution, identity, and transport state are not
 // part of this type.
 type CreateSessionInput struct {
-	AgentSessionID       string
-	AgentTargetID        string
-	Provider             string
-	InitialContent       []PromptContentBlock
+	AgentSessionID string
+	AgentTargetID  string
+	Provider       string
+	InitialContent []PromptContentBlock
+	// InitialGoalControl applies a Goal mutation after creating the Session
+	// without opening an initial Turn. It is mutually exclusive with
+	// InitialContent; ClientSubmitID is the durable mutation identity.
+	InitialGoalControl   *TypedGoalControl
 	InitialDisplayPrompt string
 	Metadata             map[string]any
 	// ClientSubmitID is the caller-owned idempotency identity for the optional
@@ -831,6 +864,21 @@ type RuntimeGoalControlResult struct {
 	ProviderPhase  string
 }
 
+// RuntimeGoalControlAppliedInput is an internal runtime-to-Host lifecycle
+// observation. Operation identity and revision are mandatory stale-event
+// fences; provider output alone is never allowed to settle another command.
+type RuntimeGoalControlAppliedInput struct {
+	WorkspaceID      string
+	AgentSessionID   string
+	OperationID      string
+	GoalRevision     int64
+	RepairEpoch      int64
+	Action           string
+	ProviderTurnID   string
+	Observed         map[string]any
+	OccurredAtUnixMS int64
+}
+
 type RuntimeGoalReconcileResult struct {
 	AgentSessionID string
 	Goal           map[string]any
@@ -883,7 +931,11 @@ type ProviderGoalAdoptionInput struct {
 	AgentSessionID    string
 	ProviderSessionID string
 	Fingerprint       string
-	Goal              map[string]any
+	// ExpectedRevision is the canonical Goal revision observed when the
+	// provider generation entered the adoption lane. Host rejects the
+	// adoption if a newer set/clear/pause/resume serialized first.
+	ExpectedRevision int64
+	Goal             map[string]any
 }
 
 type ProviderGoalAdoptionResult struct {

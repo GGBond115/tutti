@@ -4,10 +4,7 @@ import {
   BaseAnalyticsReporter,
   type AnalyticsReporterDependencies
 } from "./baseReporter.ts";
-import {
-  AgentAnalyticsErrorCode,
-  agentAnalyticsSuccessFields
-} from "../../workspace-agent/agentAnalyticsError.ts";
+import { AgentAnalyticsErrorCode } from "../../workspace-agent/agentAnalyticsError.ts";
 import type { ReporterEventInput } from "../services/reporterService.interface.ts";
 
 class AgentTestReporter extends BaseAnalyticsReporter<{
@@ -94,11 +91,4 @@ test("agent error reporters preserve explicit error fields", async () => {
       }
     }
   ]);
-});
-
-test("agentAnalyticsSuccessFields uses the no-error enum", () => {
-  assert.deepEqual(agentAnalyticsSuccessFields, {
-    errorCode: AgentAnalyticsErrorCode.None,
-    errorMessage: ""
-  });
 });

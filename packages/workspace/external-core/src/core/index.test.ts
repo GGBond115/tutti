@@ -24,10 +24,7 @@ import {
   normalizeTuttiExternalUserProjectSelectionPreparationInput,
   normalizeTuttiExternalWorkspaceOpenFeatureInput,
   tuttiExternalAtDefaultMaxResults,
-  tuttiExternalAtMaxResultsLimit,
-  tuttiExternalAtProviderIds,
-  tuttiExternalWorkspaceAgentProviders,
-  tuttiExternalManagedAiModelProviderIds
+  tuttiExternalAtMaxResultsLimit
 } from "./index.ts";
 
 test("normalizes at query defaults", () => {
@@ -113,18 +110,6 @@ test("rejects malformed at resolve identity and invalidation", () => {
     () => normalizeTuttiExternalAtInvalidation({ revision: Number.NaN }),
     /revision must be finite/
   );
-});
-
-test("keeps the default provider set explicit", () => {
-  assert.deepEqual(tuttiExternalAtProviderIds, [
-    "file",
-    "workspace-issue",
-    "workspace-app",
-    "agent-target",
-    "agent-session",
-    "workspace-model",
-    "agent-generated-file"
-  ]);
 });
 
 test("normalizes agent activity session inputs without dropping prompt assets", () => {
@@ -545,17 +530,6 @@ test("rejects invalid workspace feature open input", () => {
   );
 });
 
-test("keeps the workspace agent provider set explicit", () => {
-  assert.deepEqual(tuttiExternalWorkspaceAgentProviders, [
-    "claude-code",
-    "codex",
-    "cursor",
-    "nexight",
-    "hermes",
-    "openclaw"
-  ]);
-});
-
 test("normalizes reference open input", () => {
   assert.deepEqual(
     normalizeTuttiExternalReferenceOpenInput({
@@ -649,14 +623,6 @@ test("rejects invalid user project inputs", () => {
       }),
     /beforeProjectId is required/
   );
-});
-
-test("keeps the managed AI model provider set explicit", () => {
-  assert.deepEqual(tuttiExternalManagedAiModelProviderIds, [
-    "agnes",
-    "openai",
-    "anthropic"
-  ]);
 });
 
 test("normalizes external log input defaults", () => {

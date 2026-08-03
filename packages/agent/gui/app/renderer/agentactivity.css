@@ -9466,7 +9466,9 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
   justify-self: stretch;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  column-gap: 12px;
+  row-gap: 4px;
+  flex-wrap: wrap;
   padding-top: 0;
 }
 
@@ -9493,6 +9495,19 @@ html[data-theme="light"] [data-message-center-item-id].agent-gui-edge-glow {
 
 .agent-gui-node__composer-footer-left {
   gap: 4px;
+}
+
+.agent-gui-node__composer-footer-accessory {
+  display: flex;
+  flex: 0 0 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.agent-gui-node__composer-footer-accessory:empty {
+  display: none;
 }
 
 .agent-gui-node__composer-footer-right {

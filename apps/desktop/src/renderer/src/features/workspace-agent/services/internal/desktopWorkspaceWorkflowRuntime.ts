@@ -5,7 +5,7 @@ import type {
   WorkspaceWorkflowTaskAssignment
 } from "@tutti-os/client-tuttid-ts";
 import type {
-  AgentActivityRuntime,
+  AgentGUIRuntime,
   TuttiModePlanReviewSnapshot,
   TuttiModePlanReviewRuntime,
   TuttiModePlanTaskAssignmentInput,
@@ -15,7 +15,7 @@ import type {
 import { createDesktopTuttiModePlanAssignmentOptionsCache } from "./desktopTuttiModePlanAssignmentOptionsCache.ts";
 
 export interface DesktopTuttiModePlanReviewRuntimeInput {
-  composerOptionsRuntime: Pick<AgentActivityRuntime, "getComposerOptions">;
+  composerOptionsRuntime: Pick<AgentGUIRuntime, "getComposerOptions">;
   tuttidClient: Pick<
     TuttidClient,
     | "listPendingWorkspaceWorkflows"

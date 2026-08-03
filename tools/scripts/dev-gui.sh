@@ -11,13 +11,6 @@ PACKAGE_JSON_FILE="${ROOT_DIR}/package.json"
 
 export TUTTI_ENV="${DEV_GUI_TUTTI_ENV:-development}"
 
-# Side-load the in-repo kimi-code agent extension. Its discovery prefers the
-# developer's native Kimi Code CLI (API-key setups) and falls back to the
-# managed Python runtime (membership login), which the currently published
-# 1.0.0 release cannot express. Remove this once the official 1.0.1 extension
-# release ships; until then the side-load shadows extension updates in dev.
-export TUTTI_AGENT_EXTENSION_KIMI_CODE_PACKAGE_DIR="${TUTTI_AGENT_EXTENSION_KIMI_CODE_PACKAGE_DIR:-${ROOT_DIR}/tools/dev/agent-extensions/kimi-code}"
-
 GO_BIN=""
 DEV_GUI_CHILD_PID=""
 DEV_GUI_PID_PATH=""
@@ -481,6 +474,26 @@ configure_desktop_dev_version() {
   log "desktop version ${TUTTI_APP_VERSION}"
 }
 
+configure_agent_extension_sources() {
+  local package_dir="${DEV_GUI_KIMI_CODE_PACKAGE_DIR:-}"
+
+  if [[ -z "${package_dir}" ]]; then
+    # A stale shell or launchd override must not silently shadow the signed
+    # remote release used by the shipped product.
+    unset TUTTI_AGENT_EXTENSION_KIMI_CODE_PACKAGE_DIR
+    return
+  fi
+
+  [[ -d "${package_dir}" ]] || fail \
+    "local kimi-code agent extension directory does not exist: ${package_dir}"
+  [[ -f "${package_dir}/tutti.agent.json" ]] || fail \
+    "local kimi-code agent extension is not an unpacked package (missing tutti.agent.json): ${package_dir}"
+
+  package_dir="$(cd "${package_dir}" && pwd -P)"
+  export TUTTI_AGENT_EXTENSION_KIMI_CODE_PACKAGE_DIR="${package_dir}"
+  log "using local kimi-code agent extension at ${package_dir}"
+}
+
 resolve_tuttid_binary_name() {
   case "$(uname -s)" in
     CYGWIN*|MINGW*|MSYS*)
@@ -562,9 +575,6 @@ start_desktop_dev() {
   if [[ "${why_did_you_render}" == "1" ]]; then
     log "why-did-you-render diagnostics enabled"
   fi
-  if [[ -n "${TUTTI_APP_UPDATE_DEV:-}" || -n "${TUTTI_APP_UPDATE_MOCK:-}" || -n "${TUTTI_APP_UPDATE_CURRENT_VERSION:-}" || -n "${TUTTI_APP_UPDATE_LATEST_VERSION:-}" ]]; then
-    log "app update dev: enabled=${TUTTI_APP_UPDATE_DEV:-0} mock=${TUTTI_APP_UPDATE_MOCK:-none} current=${TUTTI_APP_UPDATE_CURRENT_VERSION:-default} latest=${TUTTI_APP_UPDATE_LATEST_VERSION:-default}"
-  fi
   prepare_dev_gui_runtime
   DEV_GUI_DESKTOP_STARTED=1
   (
@@ -588,6 +598,7 @@ main() {
   local binary_name
 
   check_runtime_prerequisites
+  configure_agent_extension_sources
   configure_desktop_dev_version
   ensure_workspace_dependencies
 

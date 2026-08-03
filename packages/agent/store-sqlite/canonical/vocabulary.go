@@ -3,6 +3,11 @@
 // import this package instead of duplicating these values.
 package canonical
 
+// ProviderResumeCheckpointRuntimeContextKey identifies the narrow, portable
+// provider protocol state required to resume an existing Session without
+// replaying provider initialization.
+const ProviderResumeCheckpointRuntimeContextKey = "providerResumeCheckpoint"
+
 const (
 	SessionKindRoot  = "root"
 	SessionKindChild = "child"

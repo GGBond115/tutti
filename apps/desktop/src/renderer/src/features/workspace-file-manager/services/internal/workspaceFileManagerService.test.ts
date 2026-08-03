@@ -638,12 +638,16 @@ test("desktop workspace file locations include projects and local entries", () =
 test("desktop workspace file manager adapter forwards recent and scoped search requests", async () => {
   const dependencies = createDependenciesStub();
   let recentLimit: number | undefined;
+  let recentSignal: AbortSignal | null = null;
   let searchWithin: string | undefined;
+  let searchSignal: AbortSignal | null = null;
   dependencies.tuttidClient.listWorkspaceRecentFiles = async (
     workspaceId,
-    input
+    input,
+    requestOptions
   ) => {
     recentLimit = input?.limit;
+    recentSignal = requestOptions?.signal ?? null;
     return {
       directoryPath: "/Users/local",
       entries: [],
@@ -653,9 +657,11 @@ test("desktop workspace file manager adapter forwards recent and scoped search r
   };
   dependencies.tuttidClient.searchWorkspaceFiles = async (
     workspaceId,
-    input
+    input,
+    requestOptions
   ) => {
     searchWithin = input.within;
+    searchSignal = requestOptions?.signal ?? null;
     return {
       entries: [],
       root: "/Users/local",
@@ -670,19 +676,25 @@ test("desktop workspace file manager adapter forwards recent and scoped search r
     },
     () => "en"
   );
+  const recentController = new AbortController();
+  const searchController = new AbortController();
 
   await adapter.listRecentEntries?.({
     limit: 7,
+    signal: recentController.signal,
     workspaceID: "workspace-1"
   });
   await adapter.search?.({
     query: "app",
+    signal: searchController.signal,
     within: "/Users/local/repo",
     workspaceID: "workspace-1"
   });
 
   assert.equal(recentLimit, 7);
+  assert.equal(recentSignal, recentController.signal);
   assert.equal(searchWithin, "/Users/local/repo");
+  assert.equal(searchSignal, searchController.signal);
 });
 
 async function flushMicrotasks(): Promise<void> {
@@ -839,19 +851,22 @@ function createDependenciesStub(): {
     },
     tuttidClient: {
       appendAgentSessionRecordingActivityEvents: fail,
+      deleteAgentSessionRecording: async () => {},
       listAgentSessionRecordings: async () => [],
+      importAgentSessionCassettes: async () => ({
+        failures: [],
+        recordings: []
+      }),
       startAgentSessionRecording: fail,
       getAgentSessionRecording: fail,
       renameAgentSessionRecording: fail,
       completeAgentSessionRecording: fail,
       cancelAgentSessionRecording: fail,
-      prepareAgentSessionReplayRun: fail,
-      listAgentSessionReplayRuns: fail,
-      markAgentSessionReplayRunRunning: fail,
-      completeAgentSessionReplayRun: fail,
-      failAgentSessionReplayRun: fail,
       editRetry: fail,
       recoverEditRetry: fail,
+      prepareAgentSessionReplayWorkspace: fail,
+      getAgentSessionReplayTransportPlayback: fail,
+      updateAgentSessionReplayTransportPlayback: fail,
       createAgentQuickPrompt: fail,
       deleteAgentQuickPrompt: fail,
       listAgentQuickPrompts: fail,
@@ -923,6 +938,9 @@ function createDependenciesStub(): {
       deleteWorkspaceIssueTask: fail,
       deleteWorkspaceFileEntry: fail,
       getDesktopPreferences: fail,
+      getDesktopUpdateAdmissionSnapshot: fail,
+      getDesktopUpdateAdmissionStartup: fail,
+      refreshDesktopUpdateAdmission: fail,
       getHealth: fail,
       getStartupWorkspace: fail,
       getWorkspace: fail,
@@ -1025,6 +1043,7 @@ function createDependenciesStub(): {
       listWorkspaceWorkflows: fail,
       decideWorkspaceWorkflowCheckpoint: fail,
       cancelWorkspaceIssueExecution: fail,
+      setCollaborationRunAdoption: fail,
       cancelTuttiModeExecution: fail
     },
     platformApi: {

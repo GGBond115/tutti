@@ -31,7 +31,7 @@ ownership.
 ## Data Source
 
 The injected workspace `AgentSessionEngine`, reached through
-`AgentActivityRuntime`, is AgentGUI's only source for canonical agent activity
+`AgentGUIRuntime`, is AgentGUI's only source for canonical agent activity
 data.
 
 Runtime-owned data includes:
@@ -48,7 +48,7 @@ Runtime-owned capability declarations are optional and default to enabled:
   interaction entries.
 - `canGoalControl`: shows goal banner controls, `/goal`, and the goal badge.
 - `canUploadAttachment`: enables prompt attachment paths. Pasted large text
-  additionally requires the explicit `AgentActivityRuntime.stagePastedText`
+  additionally requires the explicit `AgentGUIRuntime.stagePastedText`
   host method; AgentGUI does not infer that capability from generic file
   upload support. Ordinary `@` references and workspace-reference mentions
   remain available.
@@ -58,7 +58,7 @@ Runtime-owned capability declarations are optional and default to enabled:
 AgentGUI classifies plain-text clipboard content before delegating structured
 mention HTML. A trimmed payload of at least 5,000 characters is never inserted
 into the prompt automatically. It becomes a pasted-text draft attachment and
-is passed as raw text to `AgentActivityRuntime.stagePastedText`; the host owns
+is passed as raw text to `AgentGUIRuntime.stagePastedText`; the host owns
 local persistence and returns `{ path, name, sizeBytes }`.
 
 If the method is absent or staging fails, the attachment remains in an explicit

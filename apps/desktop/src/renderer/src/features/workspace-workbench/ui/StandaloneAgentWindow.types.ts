@@ -20,8 +20,10 @@ import type {
   WorkbenchContribution,
   WorkbenchHostHandle
 } from "@tutti-os/workbench-surface";
+import type { AgentSessionReplayDesktopComposition } from "@renderer/features/agent-session-replay/services/agentSessionReplayDesktopComposition.ts";
 
 export interface StandaloneAgentWindowProps {
+  agentSessionReplayComposition: AgentSessionReplayDesktopComposition | null;
   agentProviderStatusService: AgentProviderStatusService;
   defaultAgentProvider: DesktopAgentGUIProvider;
   desktopApi: DesktopApi;

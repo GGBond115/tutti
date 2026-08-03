@@ -14,11 +14,11 @@ import { IDesktopPreferencesService } from "./desktopPreferencesService.interfac
 import { createDesktopPreferencesClient } from "./internal/adapters/desktopPreferencesClient.ts";
 import { DesktopPreferencesService } from "./internal/desktopPreferencesService.ts";
 
-export function registerDesktopPreferencesServices(
+export async function registerDesktopPreferencesServices(
   registry: ServiceRegistry,
   tuttidClient: TuttidClient,
   eventStreamClient: TuttidEventStreamClient
-): IDesktopPreferencesService {
+): Promise<IDesktopPreferencesService> {
   const service = new DesktopPreferencesService({
     applyLocale,
     applyTheme,
@@ -28,6 +28,7 @@ export function registerDesktopPreferencesServices(
     initialTheme: getActiveTheme(),
     resolveTheme: resolveDesktopThemeState
   });
+  await service.whenInitialPreferencesHydrated();
   registry.registerInstance(IDesktopPreferencesService, service);
   return service;
 }

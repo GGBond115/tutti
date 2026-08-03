@@ -293,11 +293,19 @@ export function useReferenceSourcePickerView({
   const currentKey = currentNode
     ? nodeRefKey(currentNode.ref)
     : ROOT_CHILDREN_KEY;
+  // 左栏二级分组高亮 = 当前所在的「根 most 分组」(面包屑首项),而非最深叶子节点。
+  // 这样下钻进事项(topic → 事项 → 产物)时,左栏仍高亮其所属 topic;进 app 子目录时仍高亮该 app。
+  const rootGroupNode = breadcrumb[0] ?? null;
+  // 搜索限定范围 = 左栏选中的二级分组(面包屑根项)的源内 nodeId;无选中分组(本地根)→ null,
+  // 退回跨整源搜索。供「只搜选中应用」而非所有应用。
+  const searchScopeNodeId = rootGroupNode ? rootGroupNode.ref.nodeId : null;
+  const selectedGroupKey = rootGroupNode ? nodeRefKey(rootGroupNode.ref) : null;
 
   const activeTabState = activeSourceId
     ? snapshot.bySource[activeSourceId]
     : undefined;
-  // 已选文件类型筛选分类。无关键词时它只投影当前浏览树,不切成扁平查询态。
+  // 已选文件类型筛选分类。默认无关键词时只投影当前浏览树;
+  // 声明 filtersUseSearch 的源会由 controller 切到扁平查询态。
   const activeFilters = activeTabState?.searchFilters ?? [];
   const activeFiltersSerialized = JSON.stringify(activeFilters);
   const recursiveFilters = useMemo(
@@ -307,7 +315,7 @@ export function useReferenceSourcePickerView({
   const isQuery = activeTabState?.mode === "search";
   const recursiveFilterKey =
     activeSourceId && recursiveFilters.length > 0 && !isQuery
-      ? JSON.stringify([activeSourceId, recursiveFilters])
+      ? JSON.stringify([activeSourceId, searchScopeNodeId, recursiveFilters])
       : null;
   const recursiveFilterActive = recursiveFilterKey !== null;
   const recursiveFilterRequestKey = recursiveFilterKey
@@ -340,6 +348,7 @@ export function useReferenceSourcePickerView({
     void buildReferenceSourcePickerFilteredTree({
       aggregator,
       filters: recursiveFilters,
+      rootNode: rootGroupNode,
       scope,
       signal: abortController.signal,
       sourceId: activeSourceId
@@ -373,6 +382,7 @@ export function useReferenceSourcePickerView({
     recursiveFilterKey,
     recursiveFilterRequestKey,
     recursiveFilters,
+    rootGroupNode,
     scope
   ]);
 
@@ -488,14 +498,6 @@ export function useReferenceSourcePickerView({
   const sidebarGroups = activeSourceId
     ? (sidebarGroupsBySource[activeSourceId] ?? [])
     : [];
-
-  // 左栏二级分组高亮 = 当前所在的「根 most 分组」(面包屑首项),而非最深叶子节点。
-  // 这样下钻进事项(topic → 事项 → 产物)时,左栏仍高亮其所属 topic;进 app 子目录时仍高亮该 app。
-  const rootGroupNode = breadcrumb[0] ?? null;
-  // 搜索限定范围 = 左栏选中的二级分组(面包屑根项)的源内 nodeId;无选中分组(本地根)→ null,
-  // 退回跨整源搜索。供「只搜选中应用」而非所有应用。
-  const searchScopeNodeId = rootGroupNode ? rootGroupNode.ref.nodeId : null;
-  const selectedGroupKey = rootGroupNode ? nodeRefKey(rootGroupNode.ref) : null;
 
   // 搜索进行中切换左栏分组(选中应用变化)时,把搜索限定范围同步给 controller 并重搜。
   // controller 内部仅在范围实际变化且处于搜索态时才重搜,浏览态/范围未变为 no-op。

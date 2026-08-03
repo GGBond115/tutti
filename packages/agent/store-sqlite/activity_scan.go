@@ -76,7 +76,7 @@ WHERE workspace_id = ? AND agent_session_id = ?
 	session.ParentTurnID = strings.TrimSpace(parentTurnID.String)
 	session.ParentToolCallID = strings.TrimSpace(parentToolCallID.String)
 	session.AgentTargetID = strings.TrimSpace(agentTargetID.String)
-	metadata, err := unmarshalSessionMetadata(metadataJSON)
+	metadata, capabilities, err := unmarshalSessionMetadata(metadataJSON)
 	if err != nil {
 		return agentactivityprojection.SessionSnapshot{}, false, fmt.Errorf("decode workspace agent session metadata: %w", err)
 	}
@@ -87,6 +87,7 @@ WHERE workspace_id = ? AND agent_session_id = ?
 	if session.RuntimeContext, err = joinSessionRuntimeContext(metadata, internal); err != nil {
 		return agentactivityprojection.SessionSnapshot{}, false, fmt.Errorf("join workspace agent runtime context: %w", err)
 	}
+	session.Capabilities = agentactivityprojection.CloneCapabilitySnapshot(capabilities)
 	return session, true, nil
 }
 
@@ -157,7 +158,7 @@ func scanAgentSessionWithTrailingValues(
 	session.ParentAgentSessionID = strings.TrimSpace(parentAgentSessionID.String)
 	session.ParentTurnID = strings.TrimSpace(parentTurnID.String)
 	session.ParentToolCallID = strings.TrimSpace(parentToolCallID.String)
-	if session.Metadata, err = unmarshalSessionMetadata(metadataJSON); err != nil {
+	if session.Metadata, session.Capabilities, err = unmarshalSessionMetadata(metadataJSON); err != nil {
 		return Session{}, fmt.Errorf("decode workspace agent session metadata: %w", err)
 	}
 	if session.InternalRuntimeContext, err = unmarshalJSONMap(internalRuntimeContextJSON); err != nil {

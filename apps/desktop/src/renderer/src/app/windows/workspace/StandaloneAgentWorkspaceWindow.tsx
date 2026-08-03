@@ -10,6 +10,7 @@ export function StandaloneAgentWorkspaceWindow({
   return (
     <WorkspaceWindowContainerHost containerInput={containerInput}>
       {({
+        agentSessionReplayComposition,
         agentProviderStatusService,
         desktopApi,
         environmentMode,
@@ -25,6 +26,7 @@ export function StandaloneAgentWorkspaceWindow({
         workspaceUserProjectService
       }) => (
         <StandaloneAgentWorkbench
+          agentSessionReplayComposition={agentSessionReplayComposition}
           agentProviderStatusService={agentProviderStatusService}
           desktopApi={desktopApi}
           enableWindowCloseGuard={environmentMode === "desktop"}

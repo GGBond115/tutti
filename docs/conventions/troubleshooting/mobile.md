@@ -158,6 +158,35 @@
   `apps/mobile/src/components/MobileComposerDock.tsx`,
   `apps/mobile/src/components/MobileComposerSettingsSheet.tsx`
 
+## Browser login completes but leaves the browser in front
+
+- **Symptom:** Mobile completes provider login, but the browser stays in front.
+  Switching back to Tutti manually reveals that the account session is already
+  available or allows the login flow to finish.
+- **Quick checks:** Confirm the localhost callback received a transfer code and
+  that transfer-code redemption succeeds. If the hosted result page's manual
+  “open App” action works, the account flow is healthy and only the browser-to-App
+  return path failed.
+- **Root cause:** Opening a raw external browser makes the hosted result page
+  responsible for returning to `tutti://auth/login`. Mobile browsers can reject
+  a custom-scheme navigation started by delayed JavaScript because it no longer
+  carries a direct user gesture, even though the localhost bridge already
+  completed the account transfer.
+- **Fix:** Keep the shared hosted login page, localhost bridge, and one-time
+  transfer-code redemption. Present that flow with `ASWebAuthenticationSession`
+  on iOS and AndroidX Auth Tab when the Android browser provider supports it, so
+  the operating system owns callback matching and foreground return. Android
+  falls back to the external system browser when Auth Tab is unavailable; the
+  hosted manual return action remains the recovery path for that fallback.
+- **Validation:** On physical iOS and Android devices, complete a real provider
+  login and confirm the browser dismisses and Tutti becomes foreground without
+  a manual app switch. Also cancel once, exercise an Android browser without Auth
+  Tab support, and verify the transfer code is redeemed no more than once.
+- **References:** `apps/mobile/ios/TuttiMobile/MobileWebAuthenticationSession.swift`,
+  `apps/mobile/ios/TuttiMobile/MobileBrowserAuthBridge.swift`,
+  `apps/mobile/android/app/src/main/java/dev/tutti/mobile/MainActivity.kt`,
+  `apps/mobile/android/app/src/main/java/dev/tutti/mobile/MobileBrowserAuthBridge.kt`
+
 ## Browser login returns to the App but remains signed out
 
 - **Symptom:** Android opens the Tutti Web login page, completes the provider
@@ -179,7 +208,7 @@
   cookie store. During migration, clear the legacy native `session_id` cookie
   at startup and sign-out, but keep cookie installation outside the application
   port contract.
-- **Validation:** Complete a real system-browser login, verify the App reaches the
+- **Validation:** Complete a real browser login, verify the App reaches the
   device page, restart the App, and verify the same account session still
   authorizes device-list requests.
 - **References:** `apps/mobile/src/services/accountClient.ts`,
@@ -219,6 +248,96 @@ dev.tutti.mobile` and inspect a narrow logcat window for the Go fatal message.
   beyond the previous crash window with no new Go fatal message.
 - **References:** `packages/device-link/mobile/link.go`,
   `apps/mobile/android/app/src/main/java/dev/tutti/mobile/DeviceLinkModule.kt`
+
+## Mobile shows output from a completed Session after foreground resume
+
+- **Symptom:** After the App enters the background and is reopened, transcript
+  output from the previously selected Session continues streaming even though
+  that Session already ended on the host.
+- **Quick checks:** Compare App lifecycle events with Native `TuttiDeviceLink`
+  Agent Live logs. Capture the subscription generation on the last delivery
+  before background and the first delivery after foreground. If a delivery from
+  the closed generation reaches the replacement JavaScript listener, the fault
+  is lifecycle fencing rather than canonical Session state or server replay.
+- **Root cause:** DeviceLink intentionally stays open for a short background
+  grace period, but Agent Live used to share that lifetime. A suspended
+  JavaScript runtime could therefore miss or delay its stop call while Native
+  continued reading the old stream. React Native could queue those deliveries
+  and publish them to the newly attached listener after foreground resume. The
+  Native envelope carried workspace identity but no local subscription
+  generation, so the replacement listener could not distinguish queued old
+  output from its new stream.
+- **Fix:** Stop Agent Live immediately at the Android and iOS background
+  boundary while preserving the underlying DeviceLink grace interval. Give
+  every bridge subscription a caller-owned generation, include it in every
+  Native delivery, and reject mismatched generations in both the bridge parser
+  and workspace live lane. Queue canonical workspace and selected-Session
+  reconciliation before opening the replacement stream.
+- **Validation:** Background and foreground a connected workspace, invoke a
+  captured old listener after the replacement subscription exists, and verify
+  it cannot mark transport connected or change projected activity. Verify
+  matching-generation ready and event deliveries still apply, missing or stale
+  generations fail closed, and Android/iOS Native binding checks pass.
+- **References:**
+  `apps/mobile/src/native/createMobileServicePorts.ts`,
+  `apps/mobile/src/services/workspaceAgentLiveLane.ts`,
+  `apps/mobile/android/app/src/main/java/dev/tutti/mobile/DeviceLinkModule.kt`,
+  `apps/mobile/ios/TuttiMobile/DeviceLinkModule.mm`
+
+## Mobile stays connected after a long lock-screen interval but sends fail
+
+- **Symptom:** After Mobile remains locked or backgrounded for at least the
+  DeviceLink grace interval, the previous conversation is still visible but the
+  next command fails. Returning to the computer list and connecting again
+  restores service.
+- **Quick checks:** Compare `application.lifecycle_changed` and
+  `device_connection.phase_changed` diagnostics with Native `TuttiDeviceLink`
+  logs. If Native closed the link after its grace deadline while JavaScript
+  never published its own delayed disconnect, verify whether the foreground
+  transition used elapsed background time. Confirm the workspace runtime is
+  blocked until a replacement live lane reports ready.
+- **Root cause:** Native lifecycle handlers continue running while React Native
+  timers may be suspended. When both layers independently scheduled the same
+  background deadline, Native closed the real link but JavaScript canceled its
+  still pending timer on foreground and resumed a stale connected workspace.
+- **Fix:** Keep the close deadline Native-owned. Record background entry time in
+  the application service and decide short resume versus full reconnect from
+  elapsed time on foreground. Project one application-scoped connection phase,
+  retain the paused workspace until a hydrated replacement is ready, and let a
+  root overlay render that phase without owning recovery logic.
+- **Validation:** Cover foreground before and after the grace boundary, an
+  active live-stream loss, failed reconnect plus explicit retry, and generation
+  fencing when the app backgrounds during recovery. On a physical device, lock
+  beyond the deadline, unlock, observe reconnect/synchronize presentation, and
+  send from the original conversation without revisiting the computer list.
+- **References:**
+  `apps/mobile/src/services/mobileApplicationService.ts`,
+  `apps/mobile/android/app/src/main/java/dev/tutti/mobile/DeviceLinkModule.kt`
+
+## iOS App crashes after loading the JavaScript bundle
+
+- **Symptom:** A physical iOS device downloads or evaluates the React Native
+  bundle, then the App exits with `SIGSEGV`. The crash report points at
+  `objc_retain` or `objc_storeStrong` below
+  `ObjCTurboModule::performMethodInvocation` on the JavaScript thread.
+- **Quick checks:** Capture the App console and the latest `.ips` crash report.
+  If the last log is JavaScript bundle evaluation and the faulting stack is a
+  synchronous Objective-C TurboModule invocation, inspect every blocking
+  synchronous Swift export used during startup before investigating Metro or
+  DeviceLink.
+- **Root cause:** React Native's Objective-C interoperability path expects an
+  object from a blocking synchronous method. Exporting a Swift method with a
+  primitive `Bool` return can leave the invocation result buffer shaped like an
+  object pointer; retaining that value then causes an invalid-address crash.
+- **Fix:** Return `NSNumber` from the Swift export. React Native converts it to
+  a JavaScript boolean, so the TypeScript contract remains `boolean`.
+- **Validation:** Build and sign the physical-device target, install it, launch
+  it with the device console attached, and keep the process alive beyond the
+  previous post-bundle crash window. Confirm the initial lifecycle state still
+  arrives as a JavaScript boolean.
+- **References:** `apps/mobile/ios/TuttiMobile/AppLifecycleModule.swift`,
+  `apps/mobile/ios/TuttiMobile/MobileNativeModules.m`,
+  `apps/mobile/src/native/appLifecyclePort.ts`
 
 ## iOS pod install intermittently reports pathname contains null byte
 

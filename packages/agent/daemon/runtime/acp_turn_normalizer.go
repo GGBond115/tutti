@@ -35,6 +35,7 @@ type acpTurnNormalizer struct {
 	compactionMessageID       string
 	compactionTerminalStatus  string
 	suppressAssistantOutput   bool
+	systemNoticeOutputSeen    bool
 }
 
 // StartCompactionNotice atomically claims the compaction lifecycle's stable
@@ -196,6 +197,26 @@ func (n *acpTurnNormalizer) SeenToolCallCount() int {
 		return 0
 	}
 	return len(n.toolCallsSeen)
+}
+
+// HasObservableOutput reports whether the current provider turn produced
+// anything the user can observe. Thinking and system notices are valid
+// assistant output even when the provider emits no final assistant text.
+func (n *acpTurnNormalizer) HasObservableOutput() bool {
+	if n == nil {
+		return false
+	}
+	return strings.TrimSpace(n.CurrentAssistantText()) != "" ||
+		(!n.thinkingSegmentCompleted && strings.TrimSpace(n.thinkingContent.String()) != "") ||
+		n.SeenToolCallCount() > 0 ||
+		n.systemNoticeOutputSeen
+}
+
+func (n *acpTurnNormalizer) MarkSystemNoticeOutput() {
+	if n == nil {
+		return
+	}
+	n.systemNoticeOutputSeen = true
 }
 
 func (n *acpTurnNormalizer) ApplyAssistantFinalText(finalText string) {

@@ -324,11 +324,12 @@ func acpTextFromValue(value any) string {
 	return ""
 }
 
-func acpSystemNoticeEvents(session Session, turnID string, update map[string]any, _ *acpTurnNormalizer, fallbackKind string, allowSyntheticNotice bool) ([]activityshared.Event, bool) {
+func acpSystemNoticeEvents(session Session, turnID string, update map[string]any, normalizer *acpTurnNormalizer, fallbackKind string, allowSyntheticNotice bool) ([]activityshared.Event, bool) {
 	event, ok := acpSystemNoticeEvent(session, turnID, update, fallbackKind, allowSyntheticNotice)
 	if !ok {
 		return nil, false
 	}
+	normalizer.MarkSystemNoticeOutput()
 	return []activityshared.Event{event}, true
 }
 

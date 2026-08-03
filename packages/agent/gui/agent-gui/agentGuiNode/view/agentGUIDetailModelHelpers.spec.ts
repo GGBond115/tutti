@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAgentConversationHandoffPrompt,
   handoffProjectPathForConversation,
-  isAgentGUITransportNoticeVisible,
+  isAgentGUIHomeStatusNoticeVisible,
   resolveAgentGUITuttiStopTargets,
   resolveAgentGUIHomeNoticeChrome,
   resolveAgentGUIStopControl,
@@ -114,12 +114,16 @@ describe("resolveAgentGUITuttiStopTargets", () => {
   });
 });
 
-describe("transport availability presentation", () => {
-  it.each(["transport-connecting", "transport-unavailable"] as const)(
+describe("Home status presentation", () => {
+  it.each([
+    "agent-sharing-revoked",
+    "transport-connecting",
+    "transport-unavailable"
+  ] as const)(
     "gives %s recovery chrome priority over other bottom-dock notices",
     (kind) => {
       expect(
-        isAgentGUITransportNoticeVisible({
+        isAgentGUIHomeStatusNoticeVisible({
           kind,
           message: "Connection unavailable",
           canRetry: false
@@ -129,9 +133,9 @@ describe("transport availability presentation", () => {
   );
 
   it("does not hide existing chrome while reconnecting is still delayed", () => {
-    expect(isAgentGUITransportNoticeVisible(null)).toBe(false);
+    expect(isAgentGUIHomeStatusNoticeVisible(null)).toBe(false);
     expect(
-      isAgentGUITransportNoticeVisible({
+      isAgentGUIHomeStatusNoticeVisible({
         kind: "failed",
         message: "Existing failure",
         canRetry: false

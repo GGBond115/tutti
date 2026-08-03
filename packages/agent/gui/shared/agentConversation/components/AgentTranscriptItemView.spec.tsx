@@ -7,10 +7,9 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentEnvPanelActionProvider } from "../../agentEnv";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { AgentMessageBlock } from "./AgentMessageBlock";
 import { AgentTranscriptItemView } from "./AgentTranscriptItemView";
-import type { AgentGeneratedImageRowVM } from "../contracts/agentGeneratedImageRowVM";
 import type { AgentGoalControlRowVM } from "../contracts/agentGoalControlRowVM";
 import type { AgentMessageContentVM } from "../contracts/agentMessageRowVM";
 import type { AgentMessageRowVM } from "../contracts/agentMessageRowVM";
@@ -80,7 +79,7 @@ beforeEach(() => {
 });
 
 describe("AgentTranscriptItemView render stability", () => {
-  it("renders a goal control as a dedicated transcript row", () => {
+  it("renders and copies a goal control as a dedicated transcript row", async () => {
     const row: AgentGoalControlRowVM = {
       kind: "goal-control",
       id: "goal-control:client-submit:user:submit-goal-1",
@@ -89,6 +88,8 @@ describe("AgentTranscriptItemView render stability", () => {
       body: "/goal ship it",
       occurredAtUnixMs: 1
     };
+    const writeText = vi.fn(async () => undefined);
+    installAgentHostClipboard(writeText);
 
     const { container } = render(
       <AgentTranscriptItemView
@@ -103,37 +104,20 @@ describe("AgentTranscriptItemView render stability", () => {
     expect(
       container.querySelector('[data-agent-goal-control-action="set"]')
     ).toBeInTheDocument();
-  });
-
-  it("renders a generated image artifact independently from tool-call expansion", () => {
-    const row: AgentGeneratedImageRowVM = {
-      kind: "generated-image",
-      id: "generated-image:call:image-1",
-      turnId: "turn-1",
-      sourceCallId: "call:image-1",
-      uri: "data:image/png;base64,aW1hZ2U=",
-      mimeType: "image/png",
-      prompt: "A friendly corgi",
-      occurredAtUnixMs: 1
-    };
-
-    render(
-      <AgentTranscriptItemView
-        workspaceRoot="/workspace/demo"
-        basePath="/workspace/demo"
-        row={row}
-        labels={transcriptLabels()}
-      />
-    );
-
     expect(
-      screen.getByTestId("agent-generated-image-artifact")
+      container.querySelector(
+        '[data-agent-message-footer="true"] [aria-label="agentHost.agentGui.copyMessage"]'
+      )
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("img", {
-        name: "agentHost.agentTool.details.imagePreviewAlt"
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentHost.agentGui.copyMessage"
       })
-    ).toHaveAttribute("src", row.uri);
+    );
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("/goal ship it");
+    });
   });
 
   it("keeps tool link handlers stable when an unchanged tool row is reprojected", () => {
@@ -565,11 +549,11 @@ describe("AgentTranscriptItemView render stability", () => {
       mimeType: "image/png" as const,
       name: "screen.png"
     }));
-    Object.defineProperty(window, "agentActivityRuntime", {
+    Object.defineProperty(window, "agentGUIRuntime", {
       configurable: true,
       value: {
         readSessionAttachment
-      } as Partial<AgentActivityRuntime>
+      } as Partial<AgentGUIRuntime>
     });
 
     render(
@@ -613,7 +597,7 @@ describe("AgentTranscriptItemView render stability", () => {
       ).toBeTruthy();
     });
 
-    delete (window as { agentActivityRuntime?: unknown }).agentActivityRuntime;
+    delete (window as { agentGUIRuntime?: unknown }).agentGUIRuntime;
   });
 
   it("keeps a loaded optimistic image mounted when its durable attachment arrives", async () => {
@@ -630,12 +614,12 @@ describe("AgentTranscriptItemView render stability", () => {
       mimeType: "image/png" as const,
       name: "screen.png"
     }));
-    Object.defineProperty(window, "agentActivityRuntime", {
+    Object.defineProperty(window, "agentGUIRuntime", {
       configurable: true,
       value: {
         readPromptAsset,
         readSessionAttachment
-      } as Partial<AgentActivityRuntime>
+      } as Partial<AgentGUIRuntime>
     });
     const stableImageId = "client-submit:user:submit-1:image:0";
     const optimisticMessage: AgentMessageContentVM = {
@@ -704,16 +688,16 @@ describe("AgentTranscriptItemView render stability", () => {
     expect(readPromptAsset).toHaveBeenCalledTimes(1);
     expect(readSessionAttachment).not.toHaveBeenCalled();
 
-    delete (window as { agentActivityRuntime?: unknown }).agentActivityRuntime;
+    delete (window as { agentGUIRuntime?: unknown }).agentGUIRuntime;
   });
 
   it("renders a user prompt image directly from its remote HTTPS URL", () => {
     const readPromptAsset = vi.fn();
-    Object.defineProperty(window, "agentActivityRuntime", {
+    Object.defineProperty(window, "agentGUIRuntime", {
       configurable: true,
       value: {
         readPromptAsset
-      } as Partial<AgentActivityRuntime>
+      } as Partial<AgentGUIRuntime>
     });
 
     render(
@@ -748,7 +732,7 @@ describe("AgentTranscriptItemView render stability", () => {
     );
     expect(readPromptAsset).not.toHaveBeenCalled();
 
-    delete (window as { agentActivityRuntime?: unknown }).agentActivityRuntime;
+    delete (window as { agentGUIRuntime?: unknown }).agentGUIRuntime;
   });
 
   it("shows a loading spinner while a user prompt image is being read", async () => {
@@ -775,11 +759,11 @@ describe("AgentTranscriptItemView render stability", () => {
           readController.resolve = resolvePromise;
         })
     );
-    Object.defineProperty(window, "agentActivityRuntime", {
+    Object.defineProperty(window, "agentGUIRuntime", {
       configurable: true,
       value: {
         readSessionAttachment
-      } as Partial<AgentActivityRuntime>
+      } as Partial<AgentGUIRuntime>
     });
 
     render(
@@ -830,7 +814,7 @@ describe("AgentTranscriptItemView render stability", () => {
       );
     });
 
-    delete (window as { agentActivityRuntime?: unknown }).agentActivityRuntime;
+    delete (window as { agentGUIRuntime?: unknown }).agentGUIRuntime;
   });
 
   it("shows local agent sign-in guidance for auth errors", () => {

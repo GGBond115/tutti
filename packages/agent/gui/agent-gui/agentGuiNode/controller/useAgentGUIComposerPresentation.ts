@@ -3,7 +3,7 @@ import type {
   AgentActivitySession
 } from "@tutti-os/agent-activity-core";
 import { useMemo } from "react";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type {
   AgentSessionComposerSettings,
   AgentSessionReasoningEffort,
@@ -45,7 +45,7 @@ interface UseAgentGUIComposerPresentationInput {
   activeConversationId: string | null;
   activeEngineSession: Pick<AgentActivitySession, "settings"> | null;
   activeSessionState: AgentSessionState | null;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   composerSupport: ReturnType<typeof composerSettingsSupportFromOptions>;
   composerOptionsLoading: boolean;
   composerTargetProvider: AgentGUIProvider;

@@ -24,6 +24,10 @@ func (s *Store) upsertAgentSession(
 			_ = tx.Rollback()
 		}
 	}()
+	goalBefore, err := readSessionGoalProjectionTx(ctx, tx, input)
+	if err != nil {
+		return false, false, 0, Session{}, err
+	}
 	accepted, stateApplied, lastEventUnixMS, session, err := s.upsertAgentSessionTx(ctx, tx, input, now)
 	if err != nil {
 		return false, false, 0, Session{}, err
@@ -32,6 +36,11 @@ func (s *Store) upsertAgentSession(
 	if accepted {
 		mutations = append(mutations, transactionMutation(input.WorkspaceID, input.AgentSessionID, MutationEntitySession, input.AgentSessionID, "upsert", session.UpdatedAtUnixMS))
 	}
+	goalMutations, err := sessionGoalMutationsTx(ctx, tx, input, goalBefore)
+	if err != nil {
+		return false, false, 0, Session{}, err
+	}
+	mutations = append(mutations, goalMutations...)
 	delta, err := s.commitTransaction(ctx, tx, input.WorkspaceID, mutations)
 	if err != nil {
 		return false, false, 0, Session{}, fmt.Errorf("commit workspace agent session state report: %w", err)
@@ -104,7 +113,9 @@ SELECT EXISTS(
 			ProviderSessionID:    input.ProviderSessionID,
 			Model:                input.Model,
 			Settings:             cloneJSONMap(input.Settings),
-			RuntimeContext:       cloneJSONMap(input.RuntimeContext),
+			Capabilities:         agentactivityprojection.CloneCapabilitySnapshot(input.Capabilities),
+			RuntimeContext:       cloneOptionalJSONMap(input.RuntimeContext),
+			RuntimeContextPatch:  agentactivityprojection.CloneRuntimeContextPatch(input.RuntimeContextPatch),
 			CWD:                  input.Cwd,
 			Title:                input.Title,
 			Status:               input.Status,
@@ -117,6 +128,12 @@ SELECT EXISTS(
 		},
 		now,
 	)
+	if projected.InvalidReason != "" {
+		return false, false, 0, Session{}, fmt.Errorf(
+			"workspace agent session state projection is invalid: %s",
+			projected.InvalidReason,
+		)
+	}
 	if !projected.Accepted {
 		existingRail, railErr := getExistingAgentSessionRailSectionTx(
 			ctx,
@@ -147,11 +164,15 @@ SELECT EXISTS(
 	if err != nil {
 		return false, false, 0, Session{}, err
 	}
-	metadata, internalRuntimeContext, err := splitSessionRuntimeContext(session.RuntimeContext)
+	metadata, legacyCapabilities, internalRuntimeContext, err := splitSessionRuntimeContext(session.RuntimeContext)
 	if err != nil {
 		return false, false, 0, Session{}, fmt.Errorf("split workspace agent session runtime context: %w", err)
 	}
-	metadataJSON, err := marshalSessionMetadata(metadata)
+	capabilities := session.Capabilities
+	if capabilities == nil {
+		capabilities = legacyCapabilities
+	}
+	metadataJSON, err := marshalSessionMetadata(metadata, capabilities)
 	if err != nil {
 		return false, false, 0, Session{}, fmt.Errorf("encode workspace agent session metadata: %w", err)
 	}

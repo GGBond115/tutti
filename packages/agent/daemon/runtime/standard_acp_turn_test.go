@@ -107,6 +107,126 @@ func TestStandardACPAdaptersReportProviderLifecycleWithoutSettlingCanonicalRoot(
 	}
 }
 
+func TestStandardACPAdapterFailsEmptyCompletedTurn(t *testing.T) {
+	t.Parallel()
+
+	transport := newStandardACPTransport("Kimi Code", "kimi-session-empty")
+	transport.conn.emptyPromptResult = true
+	adapterRaw, err := NewStandardACPAdapter(StandardACPAdapterConfig{
+		Provider: "acp:kimi-code",
+		Name:     "kimi-code-acp",
+		Command:  []string{"kimi", "acp"},
+	}, transport, LegacyHostMetadata())
+	if err != nil {
+		t.Fatalf("NewStandardACPAdapter: %v", err)
+	}
+	adapter := adapterRaw.(*standardACPAdapter)
+	session := standardTestSession("acp:kimi-code")
+	if _, err := adapter.Start(context.Background(), session); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	session.ProviderSessionID = "kimi-session-empty"
+
+	events, err := adapter.Exec(
+		context.Background(),
+		session,
+		textPrompt("hello"),
+		"",
+		"turn-empty",
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	completed := eventsOfType(events, activityshared.EventRootProviderTurnCompleted)
+	if len(completed) != 1 ||
+		completed[0].Payload.TurnOutcome != string(activityshared.TurnOutcomeFailed) ||
+		!strings.Contains(asString(completed[0].Payload.Metadata["error"]), "provider_empty_response") {
+		t.Fatalf("provider turn completion = %#v, want failed empty response", completed)
+	}
+}
+
+func TestStandardACPAdapterCompletesObservableOutputWithoutAssistantText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		update map[string]any
+	}{
+		{
+			name: "thinking only",
+			update: map[string]any{
+				"sessionUpdate": "agent_thought_chunk",
+				"content": map[string]any{
+					"type": "text",
+					"text": "Considering the request.",
+				},
+			},
+		},
+		{
+			name: "system notice only",
+			update: map[string]any{
+				"sessionUpdate": "agent_message_chunk",
+				"content": map[string]any{
+					"type": "text",
+					"text": "Codex switched to HTTPS transport.",
+				},
+				"_meta": map[string]any{
+					"tsh": map[string]any{
+						"kind":       "agent_system_notice",
+						"noticeKind": "transport_fallback",
+						"severity":   "warning",
+						"title":      "Codex switched to HTTPS transport.",
+						"detail":     "Falling back from WebSockets to HTTPS transport.",
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			transport := newStandardACPTransport("Kimi Code", "kimi-session-observable")
+			transport.conn.promptResultUpdates = []map[string]any{tt.update}
+			adapterRaw, err := NewStandardACPAdapter(StandardACPAdapterConfig{
+				Provider: "acp:kimi-code",
+				Name:     "kimi-code-acp",
+				Command:  []string{"kimi", "acp"},
+			}, transport, LegacyHostMetadata())
+			if err != nil {
+				t.Fatalf("NewStandardACPAdapter: %v", err)
+			}
+			adapter := adapterRaw.(*standardACPAdapter)
+			session := standardTestSession("acp:kimi-code")
+			if _, err := adapter.Start(context.Background(), session); err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			session.ProviderSessionID = "kimi-session-observable"
+
+			events, err := adapter.Exec(
+				context.Background(),
+				session,
+				textPrompt("hello"),
+				"",
+				"turn-observable",
+				nil,
+				nil,
+			)
+			if err != nil {
+				t.Fatalf("Exec: %v", err)
+			}
+			completed := eventsOfType(events, activityshared.EventRootProviderTurnCompleted)
+			if len(completed) != 1 ||
+				completed[0].Payload.TurnOutcome != string(activityshared.TurnOutcomeCompleted) {
+				t.Fatalf("provider turn completion = %#v, want completed observable output", completed)
+			}
+		})
+	}
+}
+
 func TestStandardACPDropsLateTurnScopedUpdatesOutsidePromptCall(t *testing.T) {
 	t.Parallel()
 
@@ -233,9 +353,9 @@ func TestOpenCodeAdapterAllowsImagePromptWithoutInitializeCapability(t *testing.
 		t.Fatalf("ValidatePromptContent error = %v, want nil", err)
 	}
 	snapshot := adapter.SessionState(session)
-	capabilities, _ := snapshot.RuntimeContext["capabilities"].([]string)
+	capabilities := capabilitySnapshotValues(snapshot.Capabilities)
 	if !containsString(capabilities, CapabilityImageInput) {
-		t.Fatalf("runtime capabilities = %#v, want imageInput", snapshot.RuntimeContext["capabilities"])
+		t.Fatalf("runtime capabilities = %#v, want imageInput", capabilities)
 	}
 }
 
@@ -262,9 +382,9 @@ func TestCursorAdapterAllowsImagePromptWithoutInitializeCapability(t *testing.T)
 		t.Fatalf("ValidatePromptContent error = %v, want nil", err)
 	}
 	snapshot := adapter.SessionState(session)
-	capabilities, _ := snapshot.RuntimeContext["capabilities"].([]string)
+	capabilities := capabilitySnapshotValues(snapshot.Capabilities)
 	if !containsString(capabilities, CapabilityImageInput) {
-		t.Fatalf("runtime capabilities = %#v, want imageInput", snapshot.RuntimeContext["capabilities"])
+		t.Fatalf("runtime capabilities = %#v, want imageInput", capabilities)
 	}
 }
 
@@ -371,7 +491,7 @@ func TestStandardACPAdapterRejectsImagePromptWithoutCapability(t *testing.T) {
 		t.Fatalf("ValidatePromptContent error = %v, want ErrPromptImageUnsupported", err)
 	}
 	snapshot := adapter.SessionState(session)
-	capabilities, _ := snapshot.RuntimeContext["capabilities"].([]string)
+	capabilities := capabilitySnapshotValues(snapshot.Capabilities)
 	if containsString(capabilities, CapabilityImageInput) {
 		t.Fatalf("runtime promptCapabilities = %#v, want image unsupported", snapshot.RuntimeContext["promptCapabilities"])
 	}

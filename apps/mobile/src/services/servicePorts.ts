@@ -2,6 +2,7 @@ import type { TuttidClient } from "@tutti-os/client-tuttid-ts";
 import type { AgentActivityLiveEvent } from "@tutti-os/agent-activity-core";
 import type {
   AccountSession,
+  DeviceLinkPathScope,
   DevicePairingChallenge,
   DevicePairing,
   DevicePairingPhase,
@@ -10,9 +11,7 @@ import type {
 import type { PairingQRPayload } from "./pairingProtocol";
 
 export interface AccountPort {
-  sendEmailCode(email: string): Promise<void>;
-  signInWithGitHub(): Promise<AccountSession>;
-  verifyEmailCode(email: string, code: string): Promise<AccountSession>;
+  signInWithBrowser(): Promise<AccountSession>;
 }
 
 export interface SessionStoragePort {
@@ -22,7 +21,8 @@ export interface SessionStoragePort {
     sessionId: string,
     userId: string,
     email: string,
-    name: string
+    name: string,
+    avatarURL: string
   ): Promise<void>;
 }
 
@@ -117,7 +117,7 @@ export interface PairingPort {
     sessionId: string,
     pairingId: string,
     isCurrent: () => boolean
-  ): Promise<void>;
+  ): Promise<DeviceLinkPathScope>;
   getPairingChallenge(
     sessionId: string,
     challengeId: string
@@ -137,6 +137,16 @@ export type MobileDiagnosticEvent =
   | {
       name: "application.lifecycle_changed";
       state: AppLifecycleState;
+    }
+  | {
+      name: "device_connection.phase_changed";
+      phase: "connected" | "failed" | "idle" | "reconnecting" | "synchronizing";
+      trigger?:
+        | "background_expired"
+        | "foreground_resume"
+        | "initial_connect"
+        | "manual_retry"
+        | "transport_lost";
     }
   | {
       name: "device_pairing.phase_changed";

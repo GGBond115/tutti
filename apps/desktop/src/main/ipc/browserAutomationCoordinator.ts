@@ -34,7 +34,9 @@ export interface DesktopBrowserAutomationCoordinatorOptions {
     agentSessionId: string;
     workspaceId: string;
   }): Promise<void>;
+  ensureUserBrowserHost(input: { workspaceId: string }): Promise<void>;
   runtime: {
+    activateHost(sender: Electron.WebContents): void;
     ipc: Pick<IpcMain, "off" | "on">;
     randomId(): string;
     resolveHostContext(sender: Electron.WebContents): {
@@ -103,6 +105,9 @@ export function createDesktopBrowserAutomationCoordinator(
         targetKey(request.request.workspaceId, request.request.nodeId)
       );
     }
+    if (request.request.action === "create") {
+      runtime.activateHost(event.sender);
+    }
     request.resolve(response.nodeId);
   };
   runtime.ipc.on(
@@ -162,15 +167,21 @@ export function createDesktopBrowserAutomationCoordinator(
       request.workspaceId,
       request.surfaceRole
     );
-    if (hostIds.length === 0 && request.surfaceRole === "agent") {
-      const agentSessionId = request.agentSessionId?.trim() ?? "";
-      if (!agentSessionId) {
-        throw new Error("Agent Browser request requires an agent session");
+    if (hostIds.length === 0) {
+      if (request.surfaceRole === "agent") {
+        const agentSessionId = request.agentSessionId?.trim() ?? "";
+        if (!agentSessionId) {
+          throw new Error("Agent Browser request requires an agent session");
+        }
+        await options.ensureAgentBrowserHost({
+          agentSessionId,
+          workspaceId: request.workspaceId
+        });
+      } else {
+        await options.ensureUserBrowserHost({
+          workspaceId: request.workspaceId
+        });
       }
-      await options.ensureAgentBrowserHost({
-        agentSessionId,
-        workspaceId: request.workspaceId
-      });
       await waitForReadyHost(
         runtime,
         readyHostIds,
@@ -241,7 +252,7 @@ export function createDesktopBrowserAutomationCoordinator(
         action: "create",
         agentSessionId: input.agentSessionId,
         nodeId: input.requestedPageId ?? null,
-        surfaceRole: input.agentSessionId ? "agent" : "user",
+        surfaceRole: "user",
         url: input.url ?? null,
         workspaceId: input.workspaceId
       });

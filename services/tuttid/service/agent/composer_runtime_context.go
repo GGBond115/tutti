@@ -152,14 +152,13 @@ func (s *Service) composerRuntimeContextFromSession(
 			continue
 		}
 		runtimeContext := clonePayload(session.InternalRuntimeContext)
-		if len(session.Metadata.Capabilities) > 0 {
-			// Persistence splits capabilities into session metadata. Rejoin
-			// them only after the exact runtime identity has matched, then
-			// decide whether this session carries reusable composer evidence.
+		if session.Capabilities != nil && len(session.Capabilities.Values) > 0 {
+			// Capabilities remain typed persistence state. Project them into
+			// composer evidence only after the exact runtime identity matches.
 			if runtimeContext == nil {
 				runtimeContext = map[string]any{}
 			}
-			runtimeContext["capabilities"] = append([]string(nil), session.Metadata.Capabilities...)
+			runtimeContext["capabilities"] = append([]string(nil), session.Capabilities.Values...)
 		}
 		if !composerRuntimeContextHasComposerData(runtimeContext) {
 			continue

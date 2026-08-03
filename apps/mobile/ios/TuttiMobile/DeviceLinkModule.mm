@@ -301,6 +301,7 @@ RCT_REMAP_METHOD(requestAgentHTTP,
 
 RCT_REMAP_METHOD(startAgentLive,
                  startAgentLive:(NSString *)workspaceID
+                 subscriptionGeneration:(nonnull NSNumber *)subscriptionGeneration
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject) {
   NSString *normalized =
@@ -309,6 +310,14 @@ RCT_REMAP_METHOD(startAgentLive,
   if (normalized.length == 0) {
     reject(@"AGENT_LIVE_SUBSCRIBE_FAILED",
            @"Agent live workspace id is required", nil);
+    return;
+  }
+  if (subscriptionGeneration.longLongValue <= 0 ||
+      subscriptionGeneration.doubleValue !=
+          (double)subscriptionGeneration.longLongValue) {
+    reject(@"AGENT_LIVE_SUBSCRIBE_FAILED",
+           @"Agent live subscription generation must be a positive integer",
+           nil);
     return;
   }
   TUTMobileLink *selected = [self linkSnapshot];
@@ -391,6 +400,7 @@ RCT_REMAP_METHOD(startAgentLive,
       if ([self isAgentLiveCurrent:stream generation:generation]) {
         NSDictionary *delivery = @{
           @"workspaceId" : normalized,
+          @"subscriptionGeneration" : subscriptionGeneration,
           @"result" : [self objectFromJSONString:result] ?: @{},
         };
         NSData *encoded = TUTJSONData(delivery, nil);
@@ -407,6 +417,7 @@ RCT_REMAP_METHOD(startAgentLive,
     if (current) {
       NSData *encoded = TUTJSONData(@{
         @"workspaceId" : normalized,
+        @"subscriptionGeneration" : subscriptionGeneration,
         @"status" : @"disconnected",
         @"reason" : @"stream_closed",
       }, nil);
@@ -662,6 +673,7 @@ RCT_REMAP_METHOD(closeLink,
 }
 
 - (void)applicationDidEnterBackground {
+  [self closeCurrentAgentLiveStream];
   @synchronized(self) {
     if (self.backgroundClose != nil) {
       dispatch_block_cancel(self.backgroundClose);

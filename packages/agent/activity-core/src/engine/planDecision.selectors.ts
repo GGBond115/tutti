@@ -1,7 +1,7 @@
-import type { AgentSessionEngineState } from "./types.ts";
+import type { AgentSessionEngineStateBase } from "./types.ts";
 
 export function selectPlanDecisionForTurn(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined,
   turnId: string | null | undefined
 ) {
@@ -15,7 +15,7 @@ export function selectPlanDecisionForTurn(
 }
 
 export function selectPlanTurnDismissed(
-  state: AgentSessionEngineState,
+  state: AgentSessionEngineStateBase,
   agentSessionId: string | null | undefined,
   turnId: string | null | undefined
 ): boolean {

@@ -42,6 +42,7 @@ func (a *standardACPAdapter) Exec(
 		}
 		eventsMu.Lock()
 		defer eventsMu.Unlock()
+		next = a.inputUnits.stamp(session.AgentSessionID, next)
 		next = a.stampTurnLifecycleSnapshots(acpSession, next)
 		events = append(events, next...)
 		if emit != nil {
@@ -127,6 +128,8 @@ execLoop:
 			"sessionId": acpSession.providerSessionID,
 			"prompt":    promptParams,
 		}, func(ctx context.Context, message acpMessage) error {
+			endInputUnit := a.inputUnits.begin(ctx, session.AgentSessionID)
+			defer endInputUnit()
 			slog.Debug("agent session ACP exec received message",
 				"event", "agent_session.acp.exec.message",
 				"provider", a.config.provider,
@@ -179,6 +182,7 @@ execLoop:
 				terminalEvents = append(terminalEvents, standardACPRootProviderTurnCompletedEvent(session, turnID, activityshared.TurnOutcomeCanceled, map[string]any{
 					"error": err.Error(),
 				}))
+				terminalEvents = stampProviderInputUnitFromError(err, terminalEvents)
 				emitEvents(terminalEvents)
 			} else if planLimitMessage, ok := acpProviderPlanLimitMessage(err); ok {
 				// Match cursor-agent's soft plan-gate path: show the provider
@@ -192,6 +196,7 @@ execLoop:
 					"stopReason": "end_turn",
 					"planLimit":  true,
 				}))
+				terminalEvents = stampProviderInputUnitFromError(err, terminalEvents)
 				emitEvents(terminalEvents)
 				slog.Info("agent session ACP exec settled plan-limit without failure card",
 					"event", "agent_session.acp.exec.plan_limit",
@@ -208,6 +213,7 @@ execLoop:
 				terminalEvents = append(terminalEvents, standardACPRootProviderTurnCompletedEvent(session, turnID, activityshared.TurnOutcomeFailed, map[string]any{
 					"error": err.Error(),
 				}))
+				terminalEvents = stampProviderInputUnitFromError(err, terminalEvents)
 				emitEvents(terminalEvents)
 			}
 			return snapshotEvents(), nil
@@ -293,6 +299,26 @@ execLoop:
 			}))
 			emitEvents(terminalEvents)
 		default:
+			if !normalizer.HasObservableOutput() {
+				const emptyResponseError = "provider_empty_response: ACP agent ended the turn without assistant output or tool activity"
+				terminalEvents := normalizer.FinishFailed(session, turnID)
+				terminalEvents = append(terminalEvents, standardACPRootProviderTurnCompletedEvent(session, turnID, activityshared.TurnOutcomeFailed, map[string]any{
+					"error":      emptyResponseError,
+					"stopReason": firstNonEmpty(stopReason, "end_turn"),
+				}))
+				emitEvents(terminalEvents)
+				slog.Warn("agent session ACP turn ended without observable output",
+					"event", "agent_session.acp.exec.empty_response",
+					"provider", a.config.provider,
+					"adapter", a.config.adapterName,
+					"room_id", session.RoomID,
+					"agent_session_id", session.AgentSessionID,
+					"provider_session_id", session.ProviderSessionID,
+					"turn_id", turnID,
+					"stop_reason", firstNonEmpty(stopReason, "end_turn"),
+				)
+				break
+			}
 			terminalEvents := normalizer.FinishCompleted(session, turnID)
 			terminalEvents = append(terminalEvents, standardACPRootProviderTurnCompletedEvent(session, turnID, activityshared.TurnOutcomeCompleted, map[string]any{
 				"stopReason": firstNonEmpty(stopReason, "end_turn"),

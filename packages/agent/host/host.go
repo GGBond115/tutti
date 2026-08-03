@@ -8,12 +8,14 @@ import (
 
 type Config struct {
 	CanonicalStore         CanonicalStore
+	InteractionTrees       CanonicalInteractionTreeStore
 	TurnSubmissions        TurnSubmissionStore
 	EffectiveHistory       EffectiveHistoryStore
 	SessionManagement      SessionManagementStore
 	SessionBatchManagement SessionBatchManagementStore
 	SessionDeletionGuard   SessionDeletionGuard
 	SessionPurge           SessionPurgeStore
+	HistoricalState        HistoricalSessionStateStore
 	SessionForks           SessionForkStore
 	SessionForkRecovery    SessionForkRecoveryStore
 	SessionForkRuntime     SessionForkRuntime
@@ -60,12 +62,14 @@ type Config struct {
 
 type Host struct {
 	store                  CanonicalStore
+	interactionTrees       CanonicalInteractionTreeStore
 	turnSubmissions        TurnSubmissionStore
 	effectiveHistory       EffectiveHistoryStore
 	sessionManagement      SessionManagementStore
 	sessionBatchManagement SessionBatchManagementStore
 	sessionDeletionGuard   SessionDeletionGuard
 	sessionPurge           SessionPurgeStore
+	historicalState        HistoricalSessionStateStore
 	sessionForks           SessionForkStore
 	sessionForkRecovery    SessionForkRecoveryStore
 	sessionForkRuntime     SessionForkRuntime
@@ -114,9 +118,11 @@ func New(config Config) *Host {
 		sessionMutationActor = NewSessionActor()
 	}
 	host := &Host{
-		store: config.CanonicalStore, turnSubmissions: config.TurnSubmissions, effectiveHistory: config.EffectiveHistory,
+		store: config.CanonicalStore, interactionTrees: config.InteractionTrees,
+		turnSubmissions: config.TurnSubmissions, effectiveHistory: config.EffectiveHistory,
 		sessionManagement: config.SessionManagement, sessionBatchManagement: config.SessionBatchManagement, sessionDeletionGuard: config.SessionDeletionGuard, sessionPurge: config.SessionPurge,
 		sessionForks: config.SessionForks, sessionForkRuntime: config.SessionForkRuntime,
+		historicalState:    config.HistoricalState,
 		sessionForkContext: config.SessionForkContext, sessionForkState: config.SessionForkState,
 		sessionForkAttachments: config.SessionForkAttachments,
 		runtime:                config.Runtime,
@@ -135,6 +141,9 @@ func New(config Config) *Host {
 		goalActor: goalActor, sessionMutationActor: sessionMutationActor,
 		editRetryDisabled: config.EditRetryDisabled,
 	}
+	if host.interactionTrees == nil {
+		host.interactionTrees, _ = host.store.(CanonicalInteractionTreeStore)
+	}
 	if host.sessionForkRecovery == nil {
 		host.sessionForkRecovery, _ = host.sessionForks.(SessionForkRecoveryStore)
 	}
@@ -149,6 +158,9 @@ func New(config Config) *Host {
 	}
 	if host.goals != nil && host.commitObserver != nil {
 		host.goals = &observedGoalStateStore{GoalStateStore: host.goals, host: host}
+	}
+	if registrar, ok := config.GoalRuntime.(GoalRuntimeControlLifecycleRegistrar); ok {
+		registrar.SetGoalControlAppliedSink(host.ObserveRuntimeGoalControlApplied)
 	}
 	return host
 }

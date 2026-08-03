@@ -56,6 +56,27 @@ func TestValidateActivityEventsRejectsInvalidTimeline(t *testing.T) {
 			want: "duplicated",
 		},
 		{
+			name: "intent type outside the contract",
+			events: []ActivityEvent{
+				func() ActivityEvent {
+					event := intent
+					event.Type = "not-a-real-intent"
+					return event
+				}(),
+			},
+			want: "not in the activity contract",
+		},
+		{
+			name: "effect type not declared by its intent",
+			events: []ActivityEvent{intent, func() ActivityEvent {
+				event := validActivityEvent(2, ActivityEventKindEffect, "effect-1")
+				event.Type = "not-a-real-effect"
+				event.CausedByEventID = intent.EventID
+				return event
+			}()},
+			want: "not allowed for intent type",
+		},
+		{
 			name: "effect references non-intent",
 			events: []ActivityEvent{
 				func() ActivityEvent {
@@ -79,5 +100,44 @@ func TestValidateActivityEventsRejectsInvalidTimeline(t *testing.T) {
 				t.Fatalf("error = %v, want containing %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestValidateActivityTimelineCompleteRequiresEffectCoverage(t *testing.T) {
+	intentType, contract := contractIntentByRequirement(t, true, true)
+	intent := validActivityEvent(1, ActivityEventKindIntent, "intent-1")
+	intent.Type = intentType
+	intent.CorrelationID = "correlation-1"
+
+	err := ValidateActivityTimelineComplete([]ActivityEvent{intent})
+	if err == nil ||
+		!strings.Contains(err.Error(), "requires at least one effect") ||
+		!strings.Contains(err.Error(), intent.EventID) ||
+		!strings.Contains(err.Error(), intent.Type) ||
+		!strings.Contains(err.Error(), intent.CorrelationID) {
+		t.Fatalf("incomplete timeline error = %v", err)
+	}
+
+	effect := validActivityEvent(2, ActivityEventKindEffect, "effect-1")
+	effect.Type = contract.Effects[0]
+	effect.CausedByEventID = intent.EventID
+	effect.CorrelationID = intent.CorrelationID
+	if err := ValidateActivityTimelineComplete(
+		[]ActivityEvent{intent, effect},
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateActivityTimelineCompleteIgnoresDirectStimuli(t *testing.T) {
+	optionalType, _ := contractIntentByRequirement(t, false, false)
+	optional := validActivityEvent(1, ActivityEventKindIntent, "intent-1")
+	optional.Type = optionalType
+	direct := validActivityEvent(2, ActivityEventKindDirectStimulus, "direct-1")
+	direct.Type = "session.create"
+	if err := ValidateActivityTimelineComplete(
+		[]ActivityEvent{optional, direct},
+	); err != nil {
+		t.Fatal(err)
 	}
 }

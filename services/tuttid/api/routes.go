@@ -167,6 +167,30 @@ func RegisterRoutes(mux *http.ServeMux, routes Routes) {
 		}
 	})
 
+	mux.HandleFunc("/v1/desktop-update-admission", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			tuttitypes.WriteMethodNotAllowed(w)
+			return
+		}
+		wrapper.GetDesktopUpdateAdmissionSnapshot(w, r)
+	})
+
+	mux.HandleFunc("/v1/desktop-update-admission/startup", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			tuttitypes.WriteMethodNotAllowed(w)
+			return
+		}
+		wrapper.GetDesktopUpdateAdmissionStartup(w, r)
+	})
+
+	mux.HandleFunc("/v1/desktop-update-admission/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			tuttitypes.WriteMethodNotAllowed(w)
+			return
+		}
+		wrapper.RefreshDesktopUpdateAdmission(w, r)
+	})
+
 	mux.HandleFunc("/v1/agent-maintenance/deleted-conversations/purge", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			tuttitypes.WriteMethodNotAllowed(w)
@@ -509,7 +533,7 @@ func RegisterRoutes(mux *http.ServeMux, routes Routes) {
 	registerWorkspaceAgentSessionRoutes(mux, wrapper)
 	registerAgentEditRetryRoutes(mux, wrapper)
 	registerAgentSessionRecordingRoutes(mux, wrapper)
-	registerAgentSessionReplayRunRoutes(mux, wrapper)
+	registerAgentSessionReplayRoutes(mux, wrapper)
 
 	mux.HandleFunc("/v1/workspaces/{workspaceID}/git-branches", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

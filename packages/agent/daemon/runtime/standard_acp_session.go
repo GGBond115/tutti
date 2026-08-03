@@ -164,7 +164,7 @@ func (a *standardACPAdapter) Resume(ctx context.Context, session Session) error 
 	}
 	unlockLifecycle := a.lockSessionLifecycle(session.AgentSessionID)
 	defer unlockLifecycle()
-	client, initializeResult, err := a.startInitializedClient(ctx, session)
+	client, initializeResult, attachedCheckpoint, err := a.startClient(ctx, session, true)
 	if err != nil {
 		return err
 	}
@@ -183,6 +183,29 @@ func (a *standardACPAdapter) Resume(ctx context.Context, session Session) error 
 			}
 		}
 	}()
+	if attachedCheckpoint {
+		liveState := standardACPInitialLiveState()
+		liveState.currentMode = firstNonEmpty(
+			asString(session.RuntimeContext["mode"]),
+			a.startupModeID(session),
+		)
+		agentInfo, _ := session.RuntimeContext["agent"].(map[string]any)
+		acpSession := &standardACPSession{
+			client:               client,
+			providerSessionID:    session.ProviderSessionID,
+			resumeRuntimeContext: clonePayload(session.RuntimeContext),
+			agentInfo:            clonePayload(agentInfo),
+			acpLiveState:         liveState,
+			pendingApprovals:     make(map[string]*pendingACPApproval),
+			permissionModeID:     strings.TrimSpace(session.PermissionModeID),
+			planMode:             session.SettingsValue().PlanMode,
+		}
+		started = true
+		keepSession = true
+		a.storeSession(session.AgentSessionID, acpSession)
+		a.closeReplacedSession(previousSession, client)
+		return nil
+	}
 	acpSession := &standardACPSession{
 		client:            client,
 		providerSessionID: session.ProviderSessionID,
@@ -339,15 +362,24 @@ func (a *standardACPAdapter) startInitializedClient(
 	ctx context.Context,
 	session Session,
 ) (*acpClient, json.RawMessage, error) {
+	client, initializeResult, _, err := a.startClient(ctx, session, false)
+	return client, initializeResult, err
+}
+
+func (a *standardACPAdapter) startClient(
+	ctx context.Context,
+	session Session,
+	allowAttachedCheckpoint bool,
+) (*acpClient, json.RawMessage, bool, error) {
 	if a == nil || a.transport == nil {
-		return nil, nil, errors.New("ACP process transport is unavailable")
+		return nil, nil, false, errors.New("ACP process transport is unavailable")
 	}
 	command := append([]string(nil), a.config.command...)
 	env := append(a.config.env(session), session.Env...)
 	if a.config.commandResolver != nil {
 		resolved, err := a.config.commandResolver(ctx, a.config.provider)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		if len(resolved.Command) > 0 {
 			command = append([]string(nil), resolved.Command...)
@@ -364,7 +396,7 @@ func (a *standardACPAdapter) startInitializedClient(
 		command, err = applyStandardACPLaunchPermission(command, a.config.launchPermission, session.PermissionModeID)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	spec, cleanup, err := prepareProviderLaunch(ctx, a.preparer, session, ProcessSpec{
 		Provider:           a.config.provider,
@@ -372,6 +404,7 @@ func (a *standardACPAdapter) startInitializedClient(
 		RootAgentSessionID: session.RootAgentSessionID,
 		RoomID:             session.RoomID,
 		CWD:                session.CWD,
+		ProtocolCWD:        firstNonEmpty(session.CWD, "/"),
 		Command:            command,
 		Env:                env,
 		DirectStart:        false,
@@ -383,13 +416,13 @@ func (a *standardACPAdapter) startInitializedClient(
 			"agent_session_id": session.AgentSessionID,
 			"error":            err.Error(),
 		})
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	if a.config.finalizeEnv != nil {
 		spec.Env, err = a.config.finalizeEnv(spec.Env, session)
 		if err != nil {
 			cleanupPreparedLaunch(cleanup)
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 	}
 	processStartedAt := time.Now()
@@ -409,7 +442,7 @@ func (a *standardACPAdapter) startInitializedClient(
 			"elapsed_ms":       time.Since(processStartedAt).Milliseconds(),
 			"error":            err.Error(),
 		})
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	conn = wrapProviderLaunchCleanup(conn, cleanup)
 	a.logStandardACPStartupDiagnostics("process_start.succeeded", map[string]any{
@@ -419,6 +452,8 @@ func (a *standardACPAdapter) startInitializedClient(
 	})
 	client := newACPClientWithStderrMessageMapper(conn, a.config.stderrMessageMapper)
 	client.SetMessageHandler(func(ctx context.Context, message acpMessage) error {
+		endInputUnit := a.inputUnits.begin(ctx, session.AgentSessionID)
+		defer endInputUnit()
 		turnSession := session
 		turnID := a.sessionRecentTurnID(session.AgentSessionID)
 		if acpSession := a.getSession(session.AgentSessionID); acpSession != nil {
@@ -433,6 +468,16 @@ func (a *standardACPAdapter) startInitializedClient(
 			_ = client.Close()
 		}
 	}()
+	captureOrigin := processCassetteCaptureOrigin(conn)
+	if captureOrigin == ProcessCassetteCaptureOriginAttachedLiveConnection {
+		if !allowAttachedCheckpoint {
+			return nil, nil, false, errors.New(
+				"attached live provider checkpoint cannot start a new ACP session",
+			)
+		}
+		started = true
+		return client, nil, true, nil
+	}
 
 	initializeParams := defaultACPInitializeParams(a.host)
 	if a.config.initializeParams != nil {
@@ -455,7 +500,7 @@ func (a *standardACPAdapter) startInitializedClient(
 			"elapsed_ms":       time.Since(initializeStartedAt).Milliseconds(),
 			"error":            err.Error(),
 		})
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	a.logStandardACPStartupDiagnostics("initialize.succeeded", map[string]any{
 		"room_id":          session.RoomID,
@@ -479,9 +524,9 @@ func (a *standardACPAdapter) startInitializedClient(
 			})
 			var callErr *acpCallError
 			if errors.As(err, &callErr) && callErr.AuthRequired() {
-				return nil, nil, fmt.Errorf("%s: %w", a.config.authRequiredMessage, err)
+				return nil, nil, false, fmt.Errorf("%s: %w", a.config.authRequiredMessage, err)
 			}
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		a.logStandardACPStartupDiagnostics("before_new_session.succeeded", map[string]any{
 			"room_id":          session.RoomID,
@@ -491,5 +536,5 @@ func (a *standardACPAdapter) startInitializedClient(
 	}
 
 	started = true
-	return client, initializeResult, nil
+	return client, initializeResult, false, nil
 }

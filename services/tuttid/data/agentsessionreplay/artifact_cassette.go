@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	replay "github.com/tutti-os/tutti/packages/agent/session-replay"
+	replaybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentsessionreplay"
 )
 
 func (s *Store) Publish(
@@ -26,19 +28,21 @@ func (s *Store) Publish(
 		return replay.Artifact{}, replay.ErrInvalidState
 	}
 	layout, _ := s.LocateRecording(context.Background(), recording)
-	if err := writeJSONAtomic(filepath.Join(layout.StorageKey, replay.EnvironmentFile), map[string]any{
-		"schemaVersion": 1,
-		"pathTokens": map[string]string{
-			"stateDirectory": "${TUTTI_STATE_DIR}",
-			"workspace":      "${WORKSPACE}",
-		},
-	}); err != nil {
+	activityEvents, err := validateRecordedActivityEvents(
+		layout.StorageKey,
+		activityEventCount,
+	)
+	if err != nil {
 		return replay.Artifact{}, err
 	}
-	if err := validateRecordedActivityEvents(layout.StorageKey, activityEventCount); err != nil {
+	plan, err := loadAndValidateCheckpointPlan(layout.StorageKey, activityEvents)
+	if err != nil {
 		return replay.Artifact{}, err
 	}
-	if err := writeReplayCheckpoints(layout.StorageKey, activityEventCount); err != nil {
+	if err := replay.ValidatePublishedCheckpointPlan(plan); err != nil {
+		return replay.Artifact{}, err
+	}
+	if err := validateObservationJournal(layout.StorageKey, plan); err != nil {
 		return replay.Artifact{}, err
 	}
 	blobManifest, err := readBlobManifest(filepath.Join(layout.StorageKey, replay.BlobManifestFile))
@@ -50,14 +54,15 @@ func (s *Store) Publish(
 		return replay.Artifact{}, err
 	}
 	manifest, err := replay.BuildCassetteManifest(replay.CassetteManifestInput{
-		ID:                cassetteID,
-		Name:              recording.Name,
-		SourceRecordingID: recording.ID,
-		ScopeID:           recording.ScopeID,
-		AgentTargetID:     recording.AgentTargetID,
-		RootSessionID:     recording.RootAgentSessionID,
-		Mode:              recording.Mode,
-		CreatedAtUnixMS:   s.now().UnixMilli(),
+		ID:                  cassetteID,
+		StateFormat:         replaybiz.StateFormat,
+		Name:                recording.Name,
+		SourceRecordingID:   recording.ID,
+		AgentTargetID:       recording.AgentTargetID,
+		ReplayPrerequisites: recording.ReplayPrerequisites,
+		RootSessionID:       recording.RootAgentSessionID,
+		Mode:                recording.Mode,
+		CreatedAtUnixMS:     s.now().UnixMilli(),
 	}, files, blobManifest)
 	if err != nil {
 		return replay.Artifact{}, err
@@ -74,6 +79,9 @@ func (s *Store) Publish(
 	if err := os.MkdirAll(filepath.Dir(destination.StorageKey), 0o700); err != nil {
 		return replay.Artifact{}, err
 	}
+	if err := os.RemoveAll(filepath.Join(layout.StorageKey, ".recording")); err != nil {
+		return replay.Artifact{}, err
+	}
 	if err := os.Rename(layout.StorageKey, destination.StorageKey); err != nil {
 		return replay.Artifact{}, fmt.Errorf("publish cassette: %w", err)
 	}
@@ -81,7 +89,6 @@ func (s *Store) Publish(
 		ID:                 cassetteID,
 		Name:               manifest.Name,
 		SourceRecordingID:  recording.ID,
-		ScopeID:            recording.ScopeID,
 		AgentTargetID:      recording.AgentTargetID,
 		RootAgentSessionID: recording.RootAgentSessionID,
 		Mode:               recording.Mode,
@@ -93,45 +100,31 @@ func (s *Store) Publish(
 	return replay.Artifact{Cassette: cassette, Layout: destination}, nil
 }
 
-func writeReplayCheckpoints(directory string, activityEventCount uint64) error {
-	checkpoints := make([]replay.ReplayCheckpoint, 0, activityEventCount+1)
-	checkpoints = append(checkpoints, replay.ReplayCheckpoint{
-		SchemaVersion:              replay.CassetteSchemaVersion,
-		Index:                      0,
-		Kind:                       replay.ReplayCheckpointKindBootstrap,
-		ExpectedActivityProjection: replay.ActivityProjection{QueuedPromptIDs: []string{}},
-	})
-	for sequence := uint64(1); sequence <= activityEventCount; sequence++ {
-		checkpoints = append(checkpoints, replay.ReplayCheckpoint{
-			SchemaVersion:              replay.CassetteSchemaVersion,
-			Index:                      int64(sequence),
-			Kind:                       replay.ReplayCheckpointKindAfterActivityEvent,
-			AfterActivityEventSequence: sequence,
-			ExpectedActivityProjection: replay.ActivityProjection{QueuedPromptIDs: []string{}},
-		})
-	}
-	return writeJSONLinesAtomic(
-		filepath.Join(directory, replay.CheckpointsFile),
-		checkpoints,
-	)
-}
-
-func validateRecordedActivityEvents(directory string, expectedCount uint64) error {
+func validateRecordedActivityEvents(
+	directory string,
+	expectedCount uint64,
+) ([]replay.ActivityEvent, error) {
 	events, err := readJSONLines[replay.ActivityEvent](
 		filepath.Join(directory, replay.ActivityEventsFile),
 		"activity event",
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if uint64(len(events)) != expectedCount {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"activity event count is %d, want %d",
 			len(events),
 			expectedCount,
 		)
 	}
-	return replay.ValidateActivityEvents(events)
+	if err := replay.ValidateActivityEvents(events); err != nil {
+		return nil, err
+	}
+	if err := validatePortableActivityEvents(events); err != nil {
+		return nil, err
+	}
+	return events, nil
 }
 
 func validatePortableReplayFiles(directory string) error {
@@ -145,14 +138,190 @@ func validatePortableReplayFiles(directory string) error {
 	if err := replay.ValidateActivityEvents(events); err != nil {
 		return err
 	}
-	checkpoints, err := readJSONLines[replay.ReplayCheckpoint](
-		filepath.Join(directory, replay.CheckpointsFile),
-		"replay checkpoint",
+	if err := validatePortableActivityEvents(events); err != nil {
+		return err
+	}
+	if _, err := loadAndValidateCheckpointPlan(directory, events); err != nil {
+		return err
+	}
+	if err := rejectJSONLineScopeFields(
+		filepath.Join(directory, replay.ActivityEventsFile),
+		"activity event",
+	); err != nil {
+		return err
+	}
+	for _, statePath := range []string{
+		replay.InitialStateFile,
+		replay.ExpectedStateFile,
+	} {
+		path := filepath.Join(directory, filepath.FromSlash(statePath))
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		if _, _, err := readSemanticReplayState(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePortableActivityEvents(events []replay.ActivityEvent) error {
+	for _, event := range events {
+		if !isSessionActivationActivityType(event.Type) {
+			continue
+		}
+		if err := validatePortableReplayPath(
+			event.Payload["cwd"],
+			fmt.Sprintf("activity event %d payload.cwd", event.Sequence),
+		); err != nil {
+			return err
+		}
+		railPlacement, _ := event.Payload["railPlacement"].(map[string]any)
+		if err := validatePortableReplayPath(
+			railPlacement["projectPath"],
+			fmt.Sprintf("activity event %d payload.railPlacement.projectPath", event.Sequence),
+		); err != nil {
+			return err
+		}
+		if err := validatePortableRailSectionKey(
+			railPlacement["sectionKey"],
+			fmt.Sprintf("activity event %d payload.railPlacement.sectionKey", event.Sequence),
+		); err != nil {
+			return err
+		}
+		if err := validatePortableRailSectionKey(
+			event.Payload["railSectionKey"],
+			fmt.Sprintf("activity event %d payload.railSectionKey", event.Sequence),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePortableRailSectionKey(value any, label string) error {
+	key, ok := value.(string)
+	const prefix = "project:"
+	if !ok || !strings.HasPrefix(key, prefix) {
+		return nil
+	}
+	return validatePortableReplayPath(strings.TrimPrefix(key, prefix), label)
+}
+
+func validatePortableReplayPath(value any, label string) error {
+	path, ok := value.(string)
+	if !ok || strings.TrimSpace(path) == "" {
+		return nil
+	}
+	path = strings.TrimSpace(path)
+	if path == replay.PortableReplayCWDToken ||
+		strings.HasPrefix(path, replay.PortableReplayCWDToken+"/") {
+		return nil
+	}
+	if filepath.IsAbs(path) || strings.HasPrefix(path, "file://") {
+		return fmt.Errorf("%s contains an absolute recording path", label)
+	}
+	return nil
+}
+
+func loadAndValidateCheckpointPlan(
+	directory string,
+	events []replay.ActivityEvent,
+) (replay.CheckpointPlan, error) {
+	raw, err := os.ReadFile(filepath.Join(directory, replay.CheckpointPlanFile))
+	if err != nil {
+		return replay.CheckpointPlan{}, fmt.Errorf("read checkpoint plan: %w", err)
+	}
+	var plan replay.CheckpointPlan
+	if err := json.Unmarshal(raw, &plan); err != nil {
+		return replay.CheckpointPlan{}, fmt.Errorf("decode checkpoint plan: %w", err)
+	}
+	connectionIDs, err := readProviderConnectionIDs(directory)
+	if err != nil {
+		return replay.CheckpointPlan{}, err
+	}
+	if err := replay.ValidateCheckpointPlan(plan, connectionIDs, events); err != nil {
+		return replay.CheckpointPlan{}, fmt.Errorf("checkpoint_plan_invalid: %w", err)
+	}
+	return plan, nil
+}
+
+func validateObservationJournal(
+	directory string,
+	plan replay.CheckpointPlan,
+) error {
+	entries, err := readJSONLines[replay.ObservationJournalEntry](
+		filepath.Join(directory, observationJournalPath),
+		"observation journal entry",
 	)
 	if err != nil {
 		return err
 	}
-	return replay.ValidateReplayCheckpoints(checkpoints, uint64(len(events)))
+	return replay.ValidateCheckpointJournalAnchors(plan, entries)
+}
+
+func readProviderConnectionIDs(directory string) ([]string, error) {
+	raw, err := os.ReadFile(filepath.Join(directory, replay.ProviderManifestFile))
+	if err != nil {
+		return nil, fmt.Errorf("read provider manifest for checkpoint plan: %w", err)
+	}
+	var manifest replay.ProcessCassetteManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return nil, fmt.Errorf("decode provider manifest for checkpoint plan: %w", err)
+	}
+	if manifest.SchemaVersion != replay.ProcessCassetteSchemaVersion ||
+		manifest.ProjectionVersion != replay.ProcessCassetteProjectionVersion ||
+		manifest.Status != replay.ProcessCassetteStatusComplete {
+		return nil, errors.New("provider tape is not a completed projected recording")
+	}
+	frames, err := os.Open(filepath.Join(directory, replay.ProviderFramesFile))
+	if err != nil {
+		return nil, fmt.Errorf("open projected provider tape: %w", err)
+	}
+	auditErr := replay.AuditProjectedProcessCassetteFrames(
+		frames,
+		manifest.Connections,
+	)
+	closeErr := frames.Close()
+	if err := errors.Join(auditErr, closeErr); err != nil {
+		return nil, fmt.Errorf("audit projected provider tape: %w", err)
+	}
+	connectionIDs := make([]string, 0, len(manifest.Connections))
+	for _, connection := range manifest.Connections {
+		connectionIDs = append(connectionIDs, connection.ConnectionID)
+	}
+	return connectionIDs, nil
+}
+
+func rejectPortableScopeFields(raw []byte, label string) error {
+	var value map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return fmt.Errorf("decode %s: %w", label, err)
+	}
+	for _, field := range []string{"scopeId", "workspaceId"} {
+		if _, exists := value[field]; exists {
+			return fmt.Errorf("%s contains non-portable %s", label, field)
+		}
+	}
+	return nil
+}
+
+func rejectJSONLineScopeFields(path, label string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), int(replay.MaxCassetteBytes))
+	for scanner.Scan() {
+		if err := rejectPortableScopeFields(scanner.Bytes(), label); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
 }
 
 func readJSONLines[T any](path, label string) ([]T, error) {
@@ -190,14 +359,20 @@ func collectCassetteFiles(
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() {
-			return nil
-		}
 		relative, err := filepath.Rel(directory, path)
 		if err != nil {
 			return err
 		}
 		relative = filepath.ToSlash(relative)
+		if entry.IsDir() {
+			if len(expected) == 0 && relative == ".recording" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Name() == ".DS_Store" {
+			return nil
+		}
 		if relative == replay.CassetteManifestFile {
 			return nil
 		}

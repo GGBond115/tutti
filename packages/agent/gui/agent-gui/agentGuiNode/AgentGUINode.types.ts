@@ -38,7 +38,6 @@ import type {
   AgentGUIConversationRailLayout,
   AgentGUIAgentsEmptyRenderer,
   AgentGUIComposerFooterAccessoryRenderer,
-  AgentGUIProviderUnavailableStateRenderer,
   AgentMentionReferenceTargetResolver,
   AgentWorkspaceReferenceInitialTargetResolver
 } from "./AgentGUINodeView";
@@ -231,7 +230,6 @@ export interface AgentGUINodeRenderSlots {
   agentConfigAccount?: (context: AgentGUIAgentConfigMenuContext) => ReactNode;
   projectDirectoryPickerHeaderActions?: ReferenceSourcePickerProps["renderHeaderActions"];
   providerRailEmpty?: AgentGUIAgentsEmptyRenderer;
-  providerUnavailableState?: AgentGUIProviderUnavailableStateRenderer;
   sidebarFooter?: (ctx: AgentGUISidebarFooterContext) => ReactNode;
 }
 
@@ -457,7 +455,6 @@ export function areAgentGUINodePropsEqual(
     ps.agentTargetInfo === ns.agentTargetInfo &&
     ps.composerFooterAccessory === ns.composerFooterAccessory &&
     ps.providerRailEmpty === ns.providerRailEmpty &&
-    ps.providerUnavailableState === ns.providerUnavailableState &&
     ps.projectDirectoryPickerHeaderActions ===
       ns.projectDirectoryPickerHeaderActions &&
     ps.sidebarFooter === ns.sidebarFooter

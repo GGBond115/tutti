@@ -2,7 +2,10 @@ import {
   AGENT_SESSION_ENGINE_LOCAL_ORIGIN,
   createAgentActivitySnapshotProjector,
   createAgentSessionEngine,
+  parseAgentActivityGoalControlText,
   selectEngineSessionRuntimeAvailability,
+  selectPendingActivations,
+  selectSessionGoalControlSettlement,
   type AgentActivitySessionSettings,
   type AgentActivityInteraction,
   type AgentActivitySessionReconcileExecutor,
@@ -21,6 +24,7 @@ import type { AgentDirectoryService } from "./agentDirectoryService";
 import type { ComposerDraftService } from "./composerDraftService";
 import { createMobileAgentActivityMapping } from "./mobileAgentActivityMapping";
 import { createMobileAgentActivityReconcileExecutor } from "./mobileAgentActivityReconcileExecutor";
+import type { MobileUserProjectDirectoryService } from "./mobileUserProjectDirectoryService";
 import { ObservableService } from "./observableService";
 import {
   dismissPendingSubmission,
@@ -66,6 +70,8 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   private errorCode: "request_failed" | null = null;
   private loading = true;
   private observedSelectedSessionId: string | null = null;
+  private readonly requiresLiveTransport: boolean;
+  private transportConnected: boolean;
   private previousConversation: WorkspaceActivitySnapshot["conversation"] =
     null;
   private snapshotCache: WorkspaceActivitySnapshot | null = null;
@@ -80,13 +86,17 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     readonly workspace: WorkspaceSummary,
     private readonly client: TuttidClient,
     private readonly directory: AgentDirectoryService,
+    private readonly userProjects: MobileUserProjectDirectoryService,
     private readonly navigation: WorkspaceNavigationService,
     private readonly drafts: ComposerDraftService,
     private readonly clock: ClockPort,
     currentUserId: string,
-    deviceLink?: DeviceLinkPort
+    deviceLink?: DeviceLinkPort,
+    private readonly onTransportConnectionChanged?: (connected: boolean) => void
   ) {
     super();
+    this.requiresLiveTransport = deviceLink !== undefined;
+    this.transportConnected = !this.requiresLiveTransport;
     this.media = new WorkspaceMediaService(workspace.id, client);
     this.mapping = createMobileAgentActivityMapping({
       currentUserId,
@@ -95,6 +105,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     this.projectActivity = createAgentActivitySnapshotProjector(workspace.id);
     const commandContext = () => ({
       client: this.client,
+      mapGoalControlResult: this.mapping.mapGoalControlResult,
       mapSession: this.mapping.mapSession,
       mapSessionDetail: this.mapping.mapSessionDetail,
       reconcileSession: (
@@ -138,12 +149,14 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       navigation: this.navigation,
       onActivityChanged: () => this.onDependencyChanged(),
       onConnectionChanged: (connected) => {
+        this.setTransportConnected(connected);
         if (connected) {
           this.messagePollTask?.cancel();
           this.messagePollTask = null;
         } else {
           this.scheduleMessagesPoll();
         }
+        this.onTransportConnectionChanged?.(connected);
       },
       rail: this.rail,
       readCanonicalActivity: () =>
@@ -236,6 +249,21 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
         );
         this.onDependencyChanged();
         this.loadComposerOptions();
+      }),
+      this.userProjects.subscribe(() => {
+        const snapshot = this.userProjects.getSnapshot();
+        const selectedProjectPath = this.drafts.getSelectedProjectPath();
+        if (
+          snapshot.status === "ready" &&
+          !snapshot.errorCode &&
+          selectedProjectPath &&
+          !snapshot.projects.some(
+            (project) => project.path === selectedProjectPath
+          )
+        ) {
+          this.drafts.setSelectedProjectPath(null);
+        }
+        this.onDependencyChanged();
       })
     );
   }
@@ -262,8 +290,12 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       navigation,
       previousConversation: this.previousConversation,
       rail: railSnapshot,
+      selectedProjectPath: navigation.creating
+        ? this.drafts.getSelectedProjectPath()
+        : null,
       state,
       targets: this.directory.getSnapshot().targets,
+      userProjects: this.userProjects.getSnapshot(),
       workspaceId: this.workspace.id
     });
     this.previousConversation = this.snapshotCache.conversation;
@@ -273,21 +305,11 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   start(): Promise<void> {
     if (this.initializePromise) return this.initializePromise;
     if (this.disposed) return Promise.resolve();
-    this.engine.dispatch({
-      status: "connected",
-      type: "engine/connectionChanged",
-      workspaceId: this.workspace.id
-    });
-    for (const session of this.getSnapshot().activity.sessions) {
-      this.engine.dispatch({
-        agentSessionId: session.agentSessionId,
-        availability: { state: "available" },
-        type: "session/runtimeAvailabilityChanged"
-      });
-    }
+    this.setTransportConnected(this.transportConnected, true);
     this.initializePromise = Promise.all([
       this.directory.load(),
-      this.rail.start()
+      this.rail.start(),
+      this.userProjects.load()
     ])
       .then(() => undefined)
       .finally(() => {
@@ -298,6 +320,10 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
         this.onDependencyChanged();
       });
     return this.initializePromise;
+  }
+
+  isTransportConnected(): boolean {
+    return this.transportConnected;
   }
 
   setDraft(value: string): void {
@@ -315,7 +341,39 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   }
 
   selectTarget(agentTargetId: string): void {
+    const snapshot = this.getSnapshot();
+    if (
+      !snapshot.creating ||
+      snapshot.sending ||
+      snapshot.ambiguousSubmission ||
+      !snapshot.commandsAvailable
+    ) {
+      return;
+    }
     this.navigation.selectTarget(agentTargetId);
+  }
+
+  selectProject(path: string | null): void {
+    const snapshot = this.getSnapshot();
+    if (
+      !snapshot.creating ||
+      snapshot.sending ||
+      snapshot.ambiguousSubmission ||
+      !snapshot.commandsAvailable
+    ) {
+      return;
+    }
+    const normalizedPath = path?.trim() || null;
+    if (
+      normalizedPath &&
+      !this.userProjects
+        .getSnapshot()
+        .projects.some((project) => project.path === normalizedPath)
+    ) {
+      return;
+    }
+    this.drafts.setSelectedProjectPath(normalizedPath);
+    this.loadComposerOptions({ force: true });
   }
 
   updateComposerSettings(settings: AgentActivitySessionSettings): void {
@@ -337,6 +395,10 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
 
   startCreating(): void {
     const targets = this.directory.getSnapshot().targets;
+    if (this.navigation.getSnapshot().creating) {
+      this.navigation.reconcileTargetIds(targets.map((target) => target.id));
+      return;
+    }
     this.navigation.startCreating(targets.length === 1 ? targets[0]!.id : null);
   }
 
@@ -399,15 +461,20 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     const text = snapshot.draft.trim();
     if (!text || snapshot.sending || !snapshot.commandsAvailable) return;
     if (snapshot.creating && !snapshot.selectedAgentTargetId) return;
+    if (snapshot.creating && snapshot.composerOptionsLoadStatus === "loading") {
+      return;
+    }
     const draftKey = snapshot.creating
       ? "new"
       : (snapshot.selectedAgentSessionId ?? "none");
+    const goalControl = parseAgentActivityGoalControlText(text);
     const submission = resolvePendingSubmission(
       this.pendingSubmissionsByDraftKey.get(draftKey) ?? null,
       {
         agentSessionId: snapshot.selectedAgentSessionId,
         agentTargetId: snapshot.selectedAgentTargetId,
         creating: snapshot.creating,
+        kind: goalControl ? "goalControl" : "prompt",
         text
       }
     );
@@ -415,7 +482,9 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       await this.reconcileWorkspace().catch(() => undefined);
       this.reconcilePendingSubmissions();
       if (!this.pendingSubmissionsByDraftKey.has(draftKey)) return;
-      dismissPendingSubmission(this.engine, submission);
+      if (submission.kind === "prompt") {
+        dismissPendingSubmission(this.engine, submission);
+      }
       this.ambiguousDraftKeys.delete(draftKey);
       this.errorCode = null;
     }
@@ -429,16 +498,36 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       submittedAtUnixMs: now
     };
     if (snapshot.creating) {
+      const selectedProject = snapshot.selectedProjectPath
+        ? (snapshot.userProjects.find(
+            (project) => project.path === snapshot.selectedProjectPath
+          ) ?? null)
+        : null;
+      if (snapshot.selectedProjectPath && !selectedProject) return;
       const accepted = this.engine.activateSession({
         agentSessionId: submission.agentSessionId,
         agentTargetId: submission.agentTargetId!,
         clientSubmitId: submission.clientSubmitId,
         initialContent: content,
-        initialTurnExpected: true,
+        ...(goalControl ? { initialGoalControl: goalControl } : {}),
+        initialTurnExpected: !goalControl,
         mode: "new",
+        ...(selectedProject ? { cwd: selectedProject.path } : {}),
+        railPlacement: selectedProject
+          ? {
+              kind: "project",
+              projectPath: selectedProject.path,
+              sectionKey: selectedProject.sectionKey,
+              version: 1
+            }
+          : {
+              kind: "conversations",
+              sectionKey: "conversations",
+              version: 1
+            },
         requestId: submission.clientSubmitId,
         runtimeContent: content,
-        settings: snapshot.composerSettings,
+        settings: this.drafts.getSettings(snapshot.selectedAgentTargetId!),
         submitDiagnostics,
         visible: true
       });
@@ -448,6 +537,25 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
       return;
     }
     if (!snapshot.selectedAgentSessionId) return;
+    if (goalControl) {
+      const admission = this.engine.controlGoal({
+        action: goalControl.action,
+        agentSessionId: snapshot.selectedAgentSessionId,
+        clientSubmitId: submission.clientSubmitId,
+        ...(goalControl.objective ? { objective: goalControl.objective } : {})
+      });
+      // Keep the submitted text until Host durably accepts the Goal operation.
+      // The settlement pass clears it only if the user has not edited it.
+      if (!admission.accepted) {
+        this.pendingSubmissionsByDraftKey.delete(draftKey);
+      } else if (admission.clientSubmitId !== submission.clientSubmitId) {
+        this.pendingSubmissionsByDraftKey.set(draftKey, {
+          ...submission,
+          clientSubmitId: admission.clientSubmitId
+        });
+      }
+      return;
+    }
     const { accepted, queued } = this.engine.submitPrompt({
       agentSessionId: snapshot.selectedAgentSessionId,
       clientSubmitId: submission.clientSubmitId,
@@ -500,41 +608,14 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     this.liveLane.stop();
     this.cancelPolls();
     this.rail.pause();
-    this.engine.dispatch({
-      status: "disconnected",
-      type: "engine/connectionChanged",
-      workspaceId: this.workspace.id
-    });
-    for (const session of this.getSnapshot().activity.sessions) {
-      this.engine.dispatch({
-        agentSessionId: session.agentSessionId,
-        availability: {
-          reason: "transport_unavailable",
-          state: "blocked"
-        },
-        type: "session/runtimeAvailabilityChanged"
-      });
-    }
+    this.setTransportConnected(false, true);
   }
 
   resume(): void {
     if (!this.paused || this.disposed) return;
     this.paused = false;
     this.rail.resume();
-    this.liveLane.start();
-    this.engine.dispatch({
-      status: "connected",
-      type: "engine/connectionChanged",
-      workspaceId: this.workspace.id
-    });
-    for (const session of this.projectActivity(this.engine.getSnapshot())
-      .sessions) {
-      this.engine.dispatch({
-        agentSessionId: session.agentSessionId,
-        availability: { state: "available" },
-        type: "session/runtimeAvailabilityChanged"
-      });
-    }
+    this.setTransportConnected(!this.requiresLiveTransport, true);
     this.engine.dispatch({
       retry: true,
       type: "workspace/reconcileRequested",
@@ -551,6 +632,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
         workspaceId: this.workspace.id
       });
     }
+    this.liveLane.start();
     this.scheduleMessagesPoll();
   }
 
@@ -646,6 +728,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
   private currentComposerTarget() {
     return resolveWorkspaceComposerTarget({
       activity: this.projectActivity(this.engine.getSnapshot()),
+      getDraftCwd: () => this.drafts.getSelectedProjectPath(),
       getDraftSettings: (agentTargetId) =>
         this.drafts.getSettings(agentTargetId),
       navigation: this.navigation.getSnapshot(),
@@ -669,21 +752,51 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
 
   private markRailSessionsAvailable(agentSessionIds: readonly string[]): void {
     const state = this.engine.getSnapshot();
+    const availability = this.transportConnected
+      ? ({ state: "available" } as const)
+      : ({
+          reason: "transport_unavailable",
+          state: "blocked"
+        } as const);
     for (const agentSessionId of agentSessionIds) {
       if (
         selectEngineSessionRuntimeAvailability(state, agentSessionId)?.state ===
-        "available"
+        availability.state
       ) {
         continue;
       }
       this.engine.dispatch(
         {
           agentSessionId,
-          availability: { state: "available" },
+          availability,
           type: "session/runtimeAvailabilityChanged"
         },
         { batch: true }
       );
+    }
+  }
+
+  private setTransportConnected(connected: boolean, force = false): void {
+    if (!force && this.transportConnected === connected) return;
+    this.transportConnected = connected;
+    this.engine.dispatch({
+      status: connected ? "connected" : "disconnected",
+      type: "engine/connectionChanged",
+      workspaceId: this.workspace.id
+    });
+    const availability = connected
+      ? ({ state: "available" } as const)
+      : ({
+          reason: "transport_unavailable",
+          state: "blocked"
+        } as const);
+    for (const session of this.projectActivity(this.engine.getSnapshot())
+      .sessions) {
+      this.engine.dispatch({
+        agentSessionId: session.agentSessionId,
+        availability,
+        type: "session/runtimeAvailabilityChanged"
+      });
     }
   }
 
@@ -705,14 +818,56 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
           this.ambiguousDraftKeys.delete(draftKey);
           this.errorCode = null;
           this.drafts.clear(draftKey);
+          this.drafts.setSelectedProjectPath(null);
           this.navigation.selectSession(submission.agentSessionId);
           continue;
         }
-        const record =
-          state.pendingIntents.activationsByRequestId[
-            submission.clientSubmitId
-          ];
+        const record = selectPendingActivations(state).find(
+          (activation) =>
+            activation.mode === "new" &&
+            activation.clientSubmitId === submission.clientSubmitId
+        );
+        if (record?.status === "canceled") {
+          this.pendingSubmissionsByDraftKey.delete(draftKey);
+          this.ambiguousDraftKeys.delete(draftKey);
+          this.errorCode = null;
+          if (!this.drafts.get(draftKey)) {
+            this.drafts.set(draftKey, submission.text);
+          }
+          continue;
+        }
         if (record?.status === "failed" || record?.status === "uncertain") {
+          this.markSubmissionAmbiguous(draftKey, submission.text);
+        }
+        continue;
+      }
+      if (submission.kind === "goalControl") {
+        const settlement = selectSessionGoalControlSettlement(
+          state,
+          submission.agentSessionId
+        );
+        if (
+          settlement?.clientSubmitId === submission.clientSubmitId &&
+          (settlement.status === "accepted" ||
+            settlement.status === "succeeded")
+        ) {
+          if (this.drafts.get(draftKey).trim() === submission.text) {
+            this.drafts.clear(draftKey);
+          }
+          this.pendingSubmissionsByDraftKey.delete(draftKey);
+          this.ambiguousDraftKeys.delete(draftKey);
+          this.errorCode = null;
+        } else if (
+          settlement?.clientSubmitId === submission.clientSubmitId &&
+          settlement.status === "failed"
+        ) {
+          this.pendingSubmissionsByDraftKey.delete(draftKey);
+          this.ambiguousDraftKeys.delete(draftKey);
+          this.errorCode = "request_failed";
+        } else if (
+          settlement?.clientSubmitId === submission.clientSubmitId &&
+          settlement.status === "unknown"
+        ) {
           this.markSubmissionAmbiguous(draftKey, submission.text);
         }
         continue;

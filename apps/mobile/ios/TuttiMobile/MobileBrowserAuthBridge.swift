@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-import UIKit
 
 struct MobileBrowserAuthError: LocalizedError {
   let code: String
@@ -16,6 +15,7 @@ final class MobileBrowserAuthBridge {
   )
   private let lock = NSLock()
   private var active: BrowserLoginAttempt?
+  private let webAuthenticationSession = MobileWebAuthenticationSession()
   private var closed = false
   private var starting = false
 
@@ -85,20 +85,7 @@ final class MobileBrowserAuthBridge {
         self.lock.unlock()
 
         DispatchQueue.main.async {
-          UIApplication.shared.open(attempt.loginURL) { opened in
-            guard !opened else { return }
-            self.queue.async {
-              self.finish(
-                attempt,
-                result: .failure(
-                  MobileBrowserAuthError(
-                    code: "BROWSER_LOGIN_FAILED",
-                    message: "Unable to open the system browser"
-                  )
-                )
-              )
-            }
-          }
+          self.openAuthenticationSession(attempt)
         }
         self.serve(attempt)
       } catch {
@@ -124,6 +111,9 @@ final class MobileBrowserAuthBridge {
     active = nil
     lock.unlock()
 
+    DispatchQueue.main.async {
+      self.webAuthenticationSession.cancel()
+    }
     guard let attempt else { return }
     Self.closeSocket(attempt.server.fileDescriptor)
     DispatchQueue.main.async {
@@ -392,8 +382,60 @@ final class MobileBrowserAuthBridge {
           ])
         )
       case .failure(let error):
+        self.webAuthenticationSession.cancel()
         attempt.completion(.failure(error))
       }
+    }
+  }
+
+  private func openAuthenticationSession(_ attempt: BrowserLoginAttempt) {
+    guard isActive(attempt) else { return }
+    guard
+      let callbackScheme = URL(string: attempt.appCallbackURL)?.scheme,
+      !callbackScheme.isEmpty
+    else {
+      finish(
+        attempt,
+        result: .failure(
+          MobileBrowserAuthError(
+            code: "BROWSER_LOGIN_FAILED",
+            message: "Unable to present browser login"
+          )
+        )
+      )
+      return
+    }
+
+    let started = webAuthenticationSession.start(
+      url: attempt.loginURL,
+      callbackScheme: callbackScheme
+    ) { [weak self, weak attempt] result in
+      guard let self, let attempt else { return }
+      guard result != .callback else { return }
+      let cancelled = result == .cancelled
+      self.finish(
+        attempt,
+        result: .failure(
+          MobileBrowserAuthError(
+            code: cancelled ? "BROWSER_LOGIN_CANCELLED" : "BROWSER_LOGIN_FAILED",
+            message: cancelled
+              ? "Browser login was cancelled"
+              : "Browser authentication session failed"
+          )
+        )
+      )
+    }
+    guard started else {
+      finish(
+        attempt,
+        result: .failure(
+          MobileBrowserAuthError(
+            code: "BROWSER_LOGIN_FAILED",
+            message: "Unable to start browser authentication session"
+          )
+        )
+      )
+      return
     }
   }
 

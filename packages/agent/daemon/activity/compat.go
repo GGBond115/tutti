@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	replay "github.com/tutti-os/tutti/packages/agent/session-replay"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 func ReportActivityAsSessionUpdates(
@@ -16,6 +19,12 @@ func ReportActivityAsSessionUpdates(
 	}
 	if reporter == nil {
 		return reply, nil
+	}
+	replayContext, err := providerObservationCommitContext(
+		input.ProviderObservations,
+	)
+	if err != nil {
+		return reply, err
 	}
 	if len(input.GoalReconcileRequests) > 0 {
 		goalReporter, ok := reporter.(GoalReconcileRequestReporter)
@@ -41,7 +50,20 @@ func ReportActivityAsSessionUpdates(
 		return reply, err
 	}
 	reportState := func(stateInput ReportSessionStateInput) error {
-		stateReply, err := reporter.ReportSessionState(ctx, stateInput)
+		var stateReply ReportSessionStateReply
+		var err error
+		if contextual, ok := reporter.(SessionActivityCommitReporter); ok {
+			stateReply, err =
+				contextual.ReportSessionStateWithCommitContext(
+					ctx,
+					stateInput,
+					replayContext,
+				)
+		} else if len(input.ProviderObservations) == 0 {
+			stateReply, err = reporter.ReportSessionState(ctx, stateInput)
+		} else {
+			return fmt.Errorf("agent activity reporter does not support Replay commit context")
+		}
 		if err != nil {
 			return err
 		}
@@ -52,7 +74,21 @@ func ReportActivityAsSessionUpdates(
 		return nil
 	}
 	reportMessages := func(messagesInput ReportSessionMessagesInput, audit bool) error {
-		messagesReply, err := reporter.ReportSessionMessages(ctx, messagesInput)
+		var messagesReply ReportSessionMessagesReply
+		var err error
+		if contextual, ok := reporter.(SessionActivityCommitReporter); ok {
+			messagesReply, err =
+				contextual.ReportSessionMessagesWithCommitContext(
+					ctx,
+					messagesInput,
+					replayContext,
+				)
+		} else if len(input.ProviderObservations) == 0 {
+			messagesReply, err =
+				reporter.ReportSessionMessages(ctx, messagesInput)
+		} else {
+			return fmt.Errorf("agent activity reporter does not support Replay commit context")
+		}
 		if err != nil {
 			return err
 		}
@@ -144,6 +180,12 @@ func ReportActivityAsSessionUpdates(
 		}
 	}
 	return reply, nil
+}
+
+func providerObservationCommitContext(
+	batches []replay.ProviderObservationBatch,
+) (replay.ProviderObservationCommitContext, error) {
+	return replay.NewProviderObservationCommitContext(batches)
 }
 
 func settlementBarrierTurnID(input ReportSessionStateInput) (string, bool) {
@@ -381,7 +423,9 @@ func sessionStateUpdateFromPatch(patch WorkspaceAgentStatePatch) WorkspaceAgentS
 		ProviderSessionID:     strings.TrimSpace(patch.ProviderSessionID),
 		Model:                 strings.TrimSpace(patch.Model),
 		Settings:              clonePayloadMap(patch.Settings),
+		Capabilities:          canonical.CloneCapabilitySnapshot(patch.Capabilities),
 		RuntimeContext:        clonePayloadMap(patch.RuntimeContext),
+		RuntimeContextPatch:   canonical.CloneRuntimeContextPatch(patch.RuntimeContextPatch),
 		TurnLifecycle:         cloneTurnLifecycle(patch.TurnLifecycle),
 		SubmitAvailability:    cloneSubmitAvailability(patch.SubmitAvailability),
 		InteractionTransition: cloneInteractionTransition(patch.InteractionTransition),

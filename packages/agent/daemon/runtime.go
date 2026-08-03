@@ -37,6 +37,8 @@ type ProcessTransport = agentruntime.ProcessTransport
 type RecordingProcessTransport = agentruntime.RecordingProcessTransport
 type ReplayPlaybackState = agentruntime.ReplayPlaybackState
 type ReplayProcessTransport = agentruntime.ReplayProcessTransport
+type SessionReplayProcessRegistration = agentruntime.SessionReplayProcessRegistration
+type SessionReplayProcessTransport = agentruntime.SessionReplayProcessTransport
 type SessionRecordingProcessTransport = agentruntime.SessionRecordingProcessTransport
 type ProviderCommand = agentruntime.ProviderCommand
 type ProviderCommandResolver = agentruntime.ProviderCommandResolver
@@ -118,6 +120,12 @@ func NewRecordingProcessTransport(
 
 func NewReplayProcessTransport(directory string) (*ReplayProcessTransport, error) {
 	return agentruntime.NewReplayProcessTransport(directory)
+}
+
+func NewSessionReplayProcessTransport(
+	registrations []SessionReplayProcessRegistration,
+) (*SessionReplayProcessTransport, error) {
+	return agentruntime.NewSessionReplayProcessTransport(registrations)
 }
 
 func NewSessionRecordingProcessTransport(

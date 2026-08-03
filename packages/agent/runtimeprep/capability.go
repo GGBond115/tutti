@@ -208,6 +208,7 @@ func BrowserUsePack() CapabilityPack {
 		enabled := input.BrowserUse && BrowserUseDefaultEnabled() &&
 			input.commandCapabilities != nil &&
 			input.commandCapabilities.HasAll(
+				"browser.open",
 				"browser.navigate",
 				"browser.snapshot",
 				"browser.click",
@@ -219,6 +220,7 @@ func BrowserUsePack() CapabilityPack {
 				"browser.eval",
 				"browser.screenshot",
 			) &&
+			hasCommandInputs(input.commandCapabilities, "browser.open", "url") &&
 			hasCommandInputs(input.commandCapabilities, "browser.navigate", "url") &&
 			hasCommandInputs(input.commandCapabilities, "browser.click", "uid") &&
 			hasCommandInputs(input.commandCapabilities, "browser.fill", "uid", "value") &&

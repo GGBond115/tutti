@@ -69,6 +69,11 @@ defaults still use semantic tokens. Initial fallback content appears only when
 both the delivered image and its original fallback are unavailable, never
 while a valid image URL is still loading.
 
+`NativeAvatar` is the React Native counterpart for the same identity-image
+contract. It uses Native semantic tokens and finite control-backed sizes, keeps
+the image decorative, shows loading feedback while a valid source is pending,
+and falls back to the caller's stable label when the source is absent or fails.
+
 ## Current Package Role
 
 `@tutti-os/ui-system` is the single source of truth for:
@@ -328,11 +333,13 @@ component implementation.
 `NativeSheet` uses React Native's window-level `Modal` for its controlled
 overlay and does not require a portal provider. It owns the semantic scrim,
 bottom-aligned panel, system-back dismissal, screen-reader escape gesture,
-accessible backdrop dismissal, and optional fixed `height`. Callers must supply
-the localized `closeAccessibilityLabel`; one fixed height replaces the former
+accessible backdrop dismissal, keyboard avoidance, and optional fixed `height`.
+Its window-level keyboard container uses padding on iOS and height reduction on
+Android, with no caller-supplied keyboard height. Callers must supply the
+localized `closeAccessibilityLabel`; one fixed height replaces the former
 single-value `snapPoints` usage. Keep `@gorhom/bottom-sheet` app-owned for
-genuinely complex gesture, keyboard, or multi-snap-point sheets rather than
-routing the shared compact sheet through its React 19-incompatible portal.
+genuinely complex gesture, animated keyboard, or multi-snap-point sheets rather
+than routing the shared compact sheet through its React 19-incompatible portal.
 
 For cross-surface stacking, use shared semantic `z-index` tokens instead of
 local magic numbers. Current global layer tokens live in

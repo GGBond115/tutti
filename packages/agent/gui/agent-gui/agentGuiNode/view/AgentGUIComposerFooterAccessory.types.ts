@@ -7,6 +7,7 @@ export type AgentGUIComposerFooterAccessoryContext = Pick<
   | "isActive"
   | "isSendingTurn"
   | "isSubmittingPrompt"
+  | "composerSettings"
   | "selectedAgentTarget"
 >;
 

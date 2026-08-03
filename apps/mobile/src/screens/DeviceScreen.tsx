@@ -41,6 +41,7 @@ export function DeviceScreen({ application, navigation }: Props) {
 
   return (
     <DeviceScreenView
+      accountAvatarURL={snapshot.session.avatarURL}
       accountName={snapshot.session.name}
       manualPairingCode={manualPairingCode}
       manualPairingOpen={manualPairingOpen}
@@ -49,9 +50,9 @@ export function DeviceScreen({ application, navigation }: Props) {
       onManualPairingCodeChange={setManualPairingCode}
       onManualPairingOpen={() => setManualPairingOpen(true)}
       onManualPairingSubmit={() => void submitManualPairingCode()}
+      onOpenSettings={() => navigation.navigate("Settings")}
       onRefresh={() => void service.refresh()}
       onScanPairingCode={() => void service.scanAndPair()}
-      onSignOut={() => void application.signOut()}
     />
   );
 }

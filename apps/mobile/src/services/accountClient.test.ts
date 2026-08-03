@@ -7,7 +7,7 @@ jest.mock("../native/mobileNative", () => ({
 
 import { mobileSecurity } from "../native/mobileNative";
 import { accountAppID } from "../config";
-import { signInWithGitHub } from "./accountClient";
+import { signInWithBrowser } from "./accountClient";
 
 const mockStartBrowserLogin = jest.mocked(mobileSecurity.startBrowserLogin);
 
@@ -19,7 +19,7 @@ function accountResponse(data: unknown): Response {
   } as Response;
 }
 
-describe("signInWithGitHub", () => {
+describe("signInWithBrowser", () => {
   beforeEach(() => {
     jest.resetAllMocks();
   });
@@ -36,6 +36,7 @@ describe("signInWithGitHub", () => {
       .mockResolvedValueOnce(accountResponse({ session_id: "session-1" }))
       .mockResolvedValueOnce(
         accountResponse({
+          avatar: "https://example.com/alice.png",
           email: "alice@example.com",
           name: "Alice",
           user_id: "user-1"
@@ -43,7 +44,8 @@ describe("signInWithGitHub", () => {
       );
     globalThis.fetch = fetchMock;
 
-    await expect(signInWithGitHub()).resolves.toEqual({
+    await expect(signInWithBrowser()).resolves.toEqual({
+      avatarURL: "https://example.com/alice.png",
       email: "alice@example.com",
       name: "Alice",
       sessionId: "session-1",

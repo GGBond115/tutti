@@ -240,10 +240,11 @@ export function shouldShowAgentGUIStopButton(input: {
   );
 }
 
-export function isAgentGUITransportNoticeVisible(
+export function isAgentGUIHomeStatusNoticeVisible(
   recovery: AgentGUISessionChrome["recovery"]
 ): boolean {
   return (
+    recovery?.kind === "agent-sharing-revoked" ||
     recovery?.kind === "transport-connecting" ||
     recovery?.kind === "transport-unavailable"
   );
@@ -253,7 +254,7 @@ export function resolveAgentGUIHomeNoticeChrome(input: {
   inlineNoticeChrome: AgentGUISessionChrome | null;
   sessionChrome: AgentGUISessionChrome;
 }): AgentGUISessionChrome | null {
-  return isAgentGUITransportNoticeVisible(input.sessionChrome.recovery)
+  return isAgentGUIHomeStatusNoticeVisible(input.sessionChrome.recovery)
     ? input.sessionChrome
     : input.inlineNoticeChrome;
 }

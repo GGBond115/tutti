@@ -71,6 +71,17 @@ describe("provider identity catalog", () => {
     );
   });
 
+  it("resolves a provider identity from its generated Agent Target id", () => {
+    expect(resolveAgentGUIProviderCatalogIdentity("local:codex")).toMatchObject(
+      {
+        providerId: "codex",
+        target: {
+          id: "local:codex"
+        }
+      }
+    );
+  });
+
   it("does not silently invent an identity for unknown providers", () => {
     expect(resolveAgentGUIProviderCatalogIdentity("mystery")).toBeNull();
   });

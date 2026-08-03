@@ -1,4 +1,5 @@
 import type {
+  WorkspaceAppCategoryId,
   WorkspaceAppCatalogEntry,
   WorkspaceAppCatalogSourceKind,
   WorkspaceAppCatalogLocalization,
@@ -15,6 +16,10 @@ import type {
 import type { WorkspaceAppRuntimeState } from "../contracts/runtime.ts";
 import { mapWorkspaceAppRuntimeStatus } from "./statusMapping.ts";
 import { resolveWorkspaceAppStatusPresentation } from "./statusMapping.ts";
+import {
+  normalizeWorkspaceAppCategoryId,
+  resolveWorkspaceAppCategoryId
+} from "./workspaceAppCategory.ts";
 
 export interface CreateAppCenterViewModelInput {
   readonly apps: readonly WorkspaceAppRecord[];
@@ -114,6 +119,11 @@ export function createAppCenterViewModel({
       });
 
       const iconUrl = resolveWorkspaceAppIconUrl(app);
+      const category = app.category?.trim() || null;
+      const categoryId =
+        normalizeWorkspaceAppCategoryId(app.categoryId) ??
+        normalizeWorkspaceAppCategoryId(category) ??
+        resolveWorkspaceAppCategoryId(app.manifest.appId);
 
       return {
         id: app.manifest.appId,
@@ -127,7 +137,8 @@ export function createAppCenterViewModel({
         ...(app.availableVersion && !comingSoon
           ? { availableVersion: app.availableVersion }
           : {}),
-        ...(app.category?.trim() ? { category: app.category.trim() } : {}),
+        ...(category ? { category } : {}),
+        ...(categoryId ? { categoryId } : {}),
         updateAvailable: app.updateAvailable ?? false,
         ...(iconUrl
           ? {
@@ -519,6 +530,7 @@ function createFactoryJobViewModel(
 export function createWorkspaceAppRecord(input: {
   readonly catalog?: WorkspaceAppCatalogEntry | null;
   readonly category?: string | null;
+  readonly categoryId?: WorkspaceAppCategoryId | null;
   readonly createdAtUnixMs?: number | null;
   readonly install?: WorkspaceAppInstallRecord | null;
 }): WorkspaceAppRecord {
@@ -530,6 +542,7 @@ export function createWorkspaceAppRecord(input: {
   return {
     catalog: input.catalog,
     category: input.category,
+    categoryId: input.categoryId,
     createdAtUnixMs: input.createdAtUnixMs ?? null,
     install: input.install ?? null,
     manifest

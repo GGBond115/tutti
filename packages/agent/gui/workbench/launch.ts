@@ -82,6 +82,7 @@ export function createAgentGuiWorkbenchSessionLaunchRequest(input: {
   agentTargetId?: string | null;
   agentSessionId?: string;
   composerAppend?: AgentGuiWorkbenchOpenSessionComposerAppend;
+  forceNewInstance?: boolean;
   openInNewWindow?: boolean;
   provider: unknown;
 }) {
@@ -101,6 +102,7 @@ export function createAgentGuiWorkbenchSessionLaunchRequest(input: {
             }
           }
         : {}),
+      ...(input.forceNewInstance ? { forceNewInstance: true } : {}),
       ...(input.openInNewWindow ? { openInNewWindow: true } : {}),
       provider
     },
@@ -195,6 +197,7 @@ export function createAgentGuiWorkbenchLaunchDescriptor(
     request.payload
   );
   const openInNewWindow = openInNewWindowFromLaunchRequest(request);
+  const forceNewInstance = forceNewInstanceFromLaunchPayload(request.payload);
   const instanceId = createAgentGuiWorkbenchInstanceId();
 
   return {
@@ -211,11 +214,12 @@ export function createAgentGuiWorkbenchLaunchDescriptor(
     instanceId,
     openInNewWindow,
     provider,
-    reusePolicy: openInNewWindow
-      ? { kind: "none" }
-      : targetAgentSessionId
-        ? { agentSessionId: targetAgentSessionId, kind: "current-session" }
-        : { kind: "dock-entry" },
+    reusePolicy:
+      openInNewWindow || forceNewInstance
+        ? { kind: "none" }
+        : targetAgentSessionId
+          ? { agentSessionId: targetAgentSessionId, kind: "current-session" }
+          : { kind: "dock-entry" },
     targetAgentSessionId
   };
 }
@@ -323,6 +327,13 @@ function openInNewWindowFromLaunchPayload(payload: unknown): boolean {
     return false;
   }
   return (payload as { openInNewWindow?: unknown }).openInNewWindow === true;
+}
+
+function forceNewInstanceFromLaunchPayload(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return false;
+  }
+  return (payload as { forceNewInstance?: unknown }).forceNewInstance === true;
 }
 
 function openInNewWindowFromLaunchRequest(

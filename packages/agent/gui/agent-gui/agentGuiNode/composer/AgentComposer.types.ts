@@ -119,6 +119,8 @@ export interface AgentComposerProps {
   }) => void;
   onHandoffConversation?: (target: AgentGUIAgentTarget) => void;
   showStopButton: boolean;
+  /** Canonical active Turn; distinct from a cancellable session activation. */
+  activeTurnId?: string | null;
   /** Lets typed input replace an aggregate-work Stop control with Send. */
   draftOverridesStopButton?: boolean;
   stopDisabled: boolean;
@@ -280,6 +282,12 @@ export interface AgentComposerProps {
     slashStatusUsageUpdating: string;
     slashStatusUsageRefreshFailed: string;
     slashStatusUsageRefreshAria: string;
+    slashStatusUsageAuthRequired: string;
+    slashStatusUsageSessionExpired: string;
+    slashStatusUsageSubscriptionRequired: string;
+    slashStatusUsageQuotaExhausted: string;
+    slashStatusUsageParseFailed: string;
+    slashStatusUsageError: string;
     usageChipLabel: (input: { percent: number }) => string;
     usageTooltipLabel: string;
     usagePopoverTitle: string;
@@ -472,6 +480,7 @@ export interface AgentComposerSlashStatus {
   limitsUnavailable?: boolean;
   limitsResolvedEmpty?: boolean;
   limitsCapturedAtUnixMs?: number | null;
+  limitsErrorMessage?: string | null;
   refreshFailed?: boolean;
   isRefreshing?: boolean;
 }

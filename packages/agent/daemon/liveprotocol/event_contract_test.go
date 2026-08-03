@@ -113,3 +113,21 @@ func TestCanonicalVariantsRejectNonObjectPayloads(t *testing.T) {
 		t.Fatalf("interaction input error = %v, want ErrInvalidLiveEvent", err)
 	}
 }
+
+func TestInteractionSnapshotContractTreatsEmptyArrayAsExplicitClear(t *testing.T) {
+	t.Parallel()
+	event, err := NewInteractionSnapshotEvent(InteractionSnapshotData{
+		WorkspaceID: "workspace-1", AgentSessionID: "session-1",
+		EventType: EventTypeInteractionSnapshot, OccurredAtUnixMS: 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var data InteractionSnapshotData
+	if err := json.Unmarshal(event.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if data.Interactions == nil || len(data.Interactions) != 0 {
+		t.Fatalf("interactions = %#v, want explicit empty array", data.Interactions)
+	}
+}

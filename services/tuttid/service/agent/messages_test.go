@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	agenttargetbiz "github.com/tutti-os/tutti/services/tuttid/biz/agenttarget"
 	userprojectbiz "github.com/tutti-os/tutti/services/tuttid/biz/userproject"
 )
@@ -149,7 +149,7 @@ func TestServiceFallsBackToPersistedSessions(t *testing.T) {
 				ID:                "session-1",
 				WorkspaceID:       "ws-1",
 				Provider:          "codex",
-				Metadata:          agentactivitybiz.SessionMetadata{Visible: true, Capabilities: []string{}},
+				Metadata:          agentactivitybiz.SessionMetadata{Visible: true},
 				ProviderSessionID: "provider-session-1",
 				ActiveTurnID:      "turn-1",
 				Title:             "Persisted session",
@@ -674,7 +674,7 @@ func TestServiceListsActivePeersFromCanonicalSessionStatus(t *testing.T) {
 				WorkspaceID:     "ws-1",
 				UserID:          "user-1",
 				Provider:        "codex",
-				Metadata:        agentactivitybiz.SessionMetadata{Visible: true, Capabilities: []string{}},
+				Metadata:        agentactivitybiz.SessionMetadata{Visible: true},
 				ActiveTurnID:    "turn-1",
 				Title:           "Active work",
 				CreatedAtUnixMS: 1000,
@@ -685,7 +685,7 @@ func TestServiceListsActivePeersFromCanonicalSessionStatus(t *testing.T) {
 				WorkspaceID:     "ws-1",
 				UserID:          "user-2",
 				Provider:        "claude",
-				Metadata:        agentactivitybiz.SessionMetadata{Visible: true, Capabilities: []string{}},
+				Metadata:        agentactivitybiz.SessionMetadata{Visible: true},
 				Title:           "Done",
 				CreatedAtUnixMS: 2000,
 				UpdatedAtUnixMS: 3000,

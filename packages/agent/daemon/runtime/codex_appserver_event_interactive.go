@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
@@ -71,7 +72,7 @@ func (a *CodexAppServerAdapter) appServerInteractiveRequestScope(
 	return appServerChildSession(root, requestThreadID, child), child.turnID, child, nil
 }
 
-func (*CodexAppServerAdapter) respondAppServerServerRequest(
+func (a *CodexAppServerAdapter) respondAppServerServerRequest(
 	ctx context.Context,
 	client *codexAppServerClient,
 	session Session,
@@ -126,9 +127,57 @@ func (*CodexAppServerAdapter) respondAppServerServerRequest(
 		}
 		return
 	}
-	if pending.finish(pendingInteractiveRequestStateAnswered) && emit != nil {
-		emit(appServerEventsForChild(normalizedPermissionResolvedEvents(session, turnID, pending, selection, nil), child))
+	if pending.finish(pendingInteractiveRequestStateAnswered) {
+		if emit != nil {
+			emit(appServerEventsForChild(normalizedPermissionResolvedEvents(session, turnID, pending, selection, nil), child))
+		}
+		a.scheduleAppServerInteractiveDenyFeedback(ctx, client, session, pending, selection)
 	}
+}
+
+func (a *CodexAppServerAdapter) scheduleAppServerInteractiveDenyFeedback(
+	ctx context.Context,
+	client *codexAppServerClient,
+	session Session,
+	pending *pendingInteractiveRequest,
+	selection pendingInteractiveResponse,
+) {
+	feedback := strings.TrimSpace(asString(selection.payload["denyMessage"]))
+	if feedback == "" || !isDenyInteractiveSelectionValue(selection.optionID) {
+		return
+	}
+	threadID := strings.TrimSpace(session.ProviderSessionID)
+	providerTurnID := strings.TrimSpace(pending.providerTurnID)
+	if threadID == "" || providerTurnID == "" {
+		slog.Warn("agent interactive deny feedback cannot be steered without provider identity",
+			"agent_session_id", session.AgentSessionID,
+			"turn_id", pending.turnID,
+			"request_id", pending.requestID,
+		)
+		return
+	}
+	timeout := a.turnSteerTimeout
+	if timeout <= 0 {
+		timeout = defaultCodexAppServerTurnSteerTimeout
+	}
+	go func() {
+		_, err := client.TurnSteerNoHandler(context.WithoutCancel(ctx), timeout, map[string]any{
+			"threadId":       threadID,
+			"expectedTurnId": providerTurnID,
+			"input": appServerUserInput([]PromptContentBlock{{
+				Type: "text", Text: feedback,
+			}}),
+		})
+		if err != nil {
+			slog.Warn("agent interactive deny feedback steer failed",
+				"agent_session_id", session.AgentSessionID,
+				"provider_thread_id", threadID,
+				"provider_turn_id", providerTurnID,
+				"request_id", pending.requestID,
+				"error", err,
+			)
+		}
+	}()
 }
 
 func (a *CodexAppServerAdapter) appServerApprovalRequested(
@@ -174,6 +223,7 @@ func (a *CodexAppServerAdapter) appServerApprovalRequested(
 		callType:        "approval",
 		input:           input,
 		kind:            "approval",
+		providerTurnID:  strings.TrimSpace(asString(params["turnId"])),
 		approvalPurpose: approvalPurpose,
 		name:            title,
 		toolName:        "Approval",
@@ -198,6 +248,10 @@ func (a *CodexAppServerAdapter) appServerApprovalRequested(
 		),
 		normalizedInteractionRequestedEvent(session, turnID, pending),
 	}, pending, nil
+}
+
+func (*CodexAppServerAdapter) ControllerSendsInteractiveDenyFollowUp() bool {
+	return false
 }
 
 func appServerUnsupportedServerRequestEvents(

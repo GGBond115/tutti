@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createAgentSessionEngine } from "./createAgentSessionEngine.ts";
+import { createTestEngineCommandPort } from "./testEngineCommandPort.ts";
 import type {
-  EngineCommandPort,
   EngineExternalCommand,
   EngineIntent,
   EngineScheduler
@@ -12,12 +12,10 @@ function createHarness() {
   const commands: EngineExternalCommand[] = [];
   const observedIntents: EngineIntent[] = [];
   const scheduled: Array<{ canceled: boolean; delayMs: number }> = [];
-  const commandPort: EngineCommandPort = {
-    execute(command) {
-      commands.push(command);
-      return new Promise(() => undefined);
-    }
-  };
+  const commandPort = createTestEngineCommandPort((command) => {
+    commands.push(command);
+    return new Promise(() => undefined);
+  });
   const scheduler: EngineScheduler = {
     schedule(delayMs) {
       const task = { canceled: false, delayMs };

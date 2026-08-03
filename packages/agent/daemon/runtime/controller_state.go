@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 func (c *Controller) UpdateSettings(ctx context.Context, input UpdateSettingsInput) (UpdateSettingsResult, error) {
@@ -154,6 +155,9 @@ func (c *Controller) State(roomID, agentSessionID string) (SessionStateSnapshot,
 		if override.Settings != nil {
 			snapshot.Settings = normalizeOptionalSessionSettings(override.Settings, session.Provider, snapshot.PermissionModeID)
 		}
+		if override.Capabilities != nil {
+			snapshot.Capabilities = canonical.CloneCapabilitySnapshot(override.Capabilities)
+		}
 		if override.AuthState != "" {
 			snapshot.AuthState = override.AuthState
 		}
@@ -210,6 +214,11 @@ func sessionRuntimeContextSnapshot(session Session) map[string]any {
 	if runtimeContext == nil {
 		runtimeContext = map[string]any{}
 	}
+	// Session capabilities have a typed snapshot contract. Strip legacy
+	// runtime-context copies so partial provider state cannot become an
+	// accidental second source of truth.
+	delete(runtimeContext, "capabilities")
+	delete(runtimeContext, "capabilitiesReported")
 	runtimeContext["cwd"] = session.CWD
 	runtimeContext["title"] = session.Title
 	runtimeContext["permissionModeId"] = session.PermissionModeID

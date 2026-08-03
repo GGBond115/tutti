@@ -72,7 +72,13 @@ function CompactQuickAnswerSurface({
   question: AskUserPrompt["questions"][number];
 }): JSX.Element {
   return (
-    <section className={interactivePromptClassName(embedded)}>
+    <section
+      className={interactivePromptClassName(embedded)}
+      data-agent-interaction-id={prompt.requestId}
+      data-agent-interaction-kind="ask-user"
+      data-agent-question-id={question.id}
+      data-testid={`agent-question-${prompt.requestId}-${question.id}`}
+    >
       <div className={interactivePromptCardClassName(edgeGlow)}>
         <div className={styles.interactivePromptHeader}>
           <span className={styles.interactivePromptLead}>
@@ -92,6 +98,12 @@ function CompactQuickAnswerSurface({
                 option.label,
                 option.description
               )}
+              data-agent-question-option-id={option.id}
+              data-testid={
+                option.id
+                  ? `agent-question-${prompt.requestId}-${question.id}-option-${option.id}`
+                  : undefined
+              }
               disabled={isSubmitting}
               onClick={() =>
                 onSubmit({
@@ -159,7 +171,13 @@ function AskUserAnswerFlowSurface({
   }
 
   return (
-    <section className={interactivePromptClassName(embedded)}>
+    <section
+      className={interactivePromptClassName(embedded)}
+      data-agent-interaction-id={prompt.requestId}
+      data-agent-interaction-kind="ask-user"
+      data-agent-question-id={question.id}
+      data-testid={`agent-question-${prompt.requestId}-${question.id}`}
+    >
       <div className={interactivePromptCardClassName(edgeGlow)}>
         <div className={styles.interactivePromptHeader}>
           <span className={styles.interactivePromptLead}>
@@ -187,6 +205,12 @@ function AskUserAnswerFlowSurface({
                     option.label,
                     option.description
                   )}
+                  data-agent-question-option-id={option.id}
+                  data-testid={
+                    option.id
+                      ? `agent-question-${prompt.requestId}-${question.id}-option-${option.id}`
+                      : undefined
+                  }
                   disabled={isSubmitting}
                   onClick={() => flow.toggleOption(option.label)}
                 >
@@ -211,6 +235,7 @@ function AskUserAnswerFlowSurface({
             placeholder={labels.answerPlaceholder}
             disabled={isSubmitting}
             className={styles.interactivePromptTextarea}
+            data-testid={`agent-question-${prompt.requestId}-${question.id}-custom-answer`}
             onChange={(event) => flow.setFreeText(event.currentTarget.value)}
           />
         ) : null}
@@ -232,6 +257,7 @@ function AskUserAnswerFlowSurface({
               variant="default"
               size="sm"
               disabled={isSubmitting || !flow.allQuestionsAnswered}
+              data-testid={`agent-question-${prompt.requestId}-${question.id}-submit`}
               onClick={() =>
                 onSubmit({
                   requestId: prompt.requestId,

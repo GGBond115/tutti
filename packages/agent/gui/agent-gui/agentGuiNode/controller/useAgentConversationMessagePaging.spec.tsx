@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { AgentActivityMessagePage } from "@tutti-os/agent-activity-core";
 import { StrictMode, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { createTestAgentSessionEngine } from "../../../shared/testing/createTestAgentSessionEngine";
 import { useAgentConversationMessagePaging } from "./useAgentConversationMessagePaging";
 
@@ -47,7 +47,7 @@ describe("useAgentConversationMessagePaging", () => {
         onOlderPageLoadingChanged,
         runtime: {
           listSessionMessages
-        } as unknown as AgentActivityRuntime,
+        } as unknown as AgentGUIRuntime,
         sessionEngine: engine,
         workspaceId: "workspace-1"
       })
@@ -105,7 +105,7 @@ describe("useAgentConversationMessagePaging", () => {
               resolvePage = resolve;
             });
           }
-        } as unknown as AgentActivityRuntime,
+        } as unknown as AgentGUIRuntime,
         sessionEngine: engine,
         workspaceId: "workspace-1"
       })
@@ -154,7 +154,7 @@ describe("useAgentConversationMessagePaging", () => {
           onOlderPageLoadingChanged: vi.fn(),
           runtime: {
             listSessionMessages
-          } as unknown as AgentActivityRuntime,
+          } as unknown as AgentGUIRuntime,
           sessionEngine: engine,
           workspaceId: "workspace-1"
         }),

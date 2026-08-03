@@ -8,7 +8,6 @@ import (
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
 	storesqlite "github.com/tutti-os/tutti/packages/agent/store-sqlite"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 )
 
 var (
@@ -279,7 +278,7 @@ func (s *Service) withSessionForkCapabilities(
 	session.LifecycleCapabilities.Fork = false
 	if s == nil || strings.TrimSpace(workspaceID) == "" ||
 		strings.TrimSpace(session.ID) == "" ||
-		strings.TrimSpace(session.Kind) != agentactivitybiz.SessionKindRoot {
+		strings.TrimSpace(session.Kind) != storesqlite.SessionKindRoot {
 		return session
 	}
 	capabilities, err := s.ApplicationHost().GetSessionForkCapabilities(
@@ -294,6 +293,43 @@ func (s *Service) withSessionForkCapabilities(
 		session.LifecycleCapabilities.ForkThroughTurn = capabilities.ThroughTurn
 	}
 	return session
+}
+
+func (s *Service) withProviderTurnForkability(
+	ctx context.Context,
+	workspaceID string,
+	agentSessionID string,
+	turn storesqlite.Turn,
+) storesqlite.Turn {
+	turn.ProviderForkBindingAvailable = false
+	if s == nil ||
+		strings.TrimSpace(turn.Phase) != storesqlite.TurnPhaseSettled {
+		return turn
+	}
+	s.applicationHostMu.Lock()
+	hostProvider := s.applicationHostProvider
+	s.applicationHostMu.Unlock()
+	if hostProvider == nil {
+		return turn
+	}
+	host := hostProvider()
+	if host == nil {
+		return turn
+	}
+	forkable, err := host.CanForkSessionTurn(
+		ctx,
+		agenthost.SessionTurnForkabilityInput{
+			WorkspaceID:             strings.TrimSpace(workspaceID),
+			SourceAgentSessionID:    strings.TrimSpace(agentSessionID),
+			CanonicalTurnID:         strings.TrimSpace(turn.TurnID),
+			ProviderTurnID:          strings.TrimSpace(turn.RootProviderTurnID),
+			ProviderTurnBindingJSON: append([]byte(nil), turn.ProviderTurnBindingJSON...),
+		},
+	)
+	if err == nil {
+		turn.ProviderForkBindingAvailable = forkable
+	}
+	return turn
 }
 
 func normalizeSessionForkError(err error) error {

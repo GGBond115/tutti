@@ -1,30 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import * as conversationRailRuntimeModule from "./agentConversationRailRuntime";
 import {
   createAgentConversationRailRuntime,
   type AgentConversationRailRuntimeSource
 } from "./agentConversationRailRuntime";
 
 describe("createAgentConversationRailRuntime", () => {
-  it("publishes only the host runtime factory as a JavaScript value", () => {
-    expect(Object.keys(conversationRailRuntimeModule)).toEqual([
-      "createAgentConversationRailRuntime"
-    ]);
-  });
-
-  it("exposes one complete conversation rail capability cohort", () => {
-    const runtime = createAgentConversationRailRuntime(createSource());
-
-    expect(Object.keys(runtime).sort()).toEqual([
-      "deleteSessionsBatch",
-      "listPinnedSessionsPage",
-      "listSessionSectionDeletionCandidates",
-      "listSessionSectionPage",
-      "listSessionSections",
-      "listSessionsPage"
-    ]);
-  });
-
   it("forwards exact query and mutation inputs to the host source", async () => {
     const source = createSource();
     const runtime = createAgentConversationRailRuntime(source);

@@ -11,8 +11,8 @@ import {
   type AgentHostRuntimeApi
 } from "./host/agentHostApi";
 import {
-  AgentActivityRuntimeProvider,
-  type AgentActivityRuntime
+  AgentGUIRuntimeProvider,
+  type AgentGUIRuntime
 } from "./agentActivityRuntime";
 
 const AgentActivityHostContext = createContext<AgentHostRuntimeApi | null>(
@@ -21,27 +21,27 @@ const AgentActivityHostContext = createContext<AgentHostRuntimeApi | null>(
 
 let currentAgentHostApi: AgentHostRuntimeApi | null = null;
 
-export interface AgentActivityHostProviderProps extends PropsWithChildren {
-  agentActivityRuntime?: AgentActivityRuntime | null;
+export interface AgentGUIActivityHostProviderProps extends PropsWithChildren {
+  agentActivityRuntime?: AgentGUIRuntime | null;
   agentHostApi?: AgentHostInputApi | null;
 }
 
-export function AgentActivityHostProvider({
+export function AgentGUIActivityHostProvider({
   agentActivityRuntime,
   agentHostApi,
   children
-}: AgentActivityHostProviderProps): JSX.Element {
+}: AgentGUIActivityHostProviderProps): JSX.Element {
   const resolvedAgentHostApi = useMemo(
     () => (agentHostApi ? toAgentHostRuntimeApi(agentHostApi) : null),
     [agentHostApi]
   );
   currentAgentHostApi = resolvedAgentHostApi;
   return (
-    <AgentActivityRuntimeProvider runtime={agentActivityRuntime}>
+    <AgentGUIRuntimeProvider runtime={agentActivityRuntime}>
       <AgentActivityHostContext.Provider value={resolvedAgentHostApi}>
         {children}
       </AgentActivityHostContext.Provider>
-    </AgentActivityRuntimeProvider>
+    </AgentGUIRuntimeProvider>
   );
 }
 
@@ -50,7 +50,7 @@ export function useAgentHostApi(): AgentHostRuntimeApi {
     useContext(AgentActivityHostContext) ?? getTestAgentHostApi();
   if (!agentHostApi) {
     throw new Error(
-      "AgentActivityHostProvider is missing an agentHostApi instance."
+      "AgentGUIActivityHostProvider is missing an agentHostApi instance."
     );
   }
   return agentHostApi;

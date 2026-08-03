@@ -281,10 +281,6 @@ export function isExplicitFeedbackDenyApprovalOption(option: {
 }): boolean {
   for (const value of [option.id, option.kind]) {
     switch (normalizeApprovalOptionToken(value ?? "")) {
-      case "abort":
-      case "cancel":
-      case "cancelled":
-      case "canceled":
       case "denywithfeedback":
       case "rejectwithfeedback":
         return true;

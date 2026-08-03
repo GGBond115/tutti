@@ -8,7 +8,7 @@ import type {
 } from "@tutti-os/agent-activity-core";
 import type { AgentConversationVM } from "@tutti-os/agent-gui/conversation-projection";
 import type { AgentComposerSettingsSupport } from "@tutti-os/agent-gui/composer-projection";
-import type { AgentTarget } from "@tutti-os/client-tuttid-ts";
+import type { AgentTarget, UserProject } from "@tutti-os/client-tuttid-ts";
 import type { WorkspaceConversationRailSection } from "./workspaceConversationRailProjection";
 
 export interface WorkspaceActivitySnapshot {
@@ -41,7 +41,11 @@ export interface WorkspaceActivitySnapshot {
   railStatus: "idle" | "loading" | "ready";
   selectedAgentSessionId: string | null;
   selectedAgentTargetId: string | null;
+  selectedProjectPath: string | null;
   selectedSession: AgentActivitySession | null;
   sending: boolean;
   targets: readonly AgentTarget[];
+  userProjectErrorCode: "request_failed" | null;
+  userProjects: readonly UserProject[];
+  userProjectsStatus: "idle" | "loading" | "ready";
 }

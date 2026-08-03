@@ -1,10 +1,11 @@
 # DeviceLink
 
 `packages/device-link` is the release-enabled, transport-only DeviceLink core
-for Tutti Desktop, Android, and the pending TSH cutover. It owns ICE candidate
-negotiation, QUIC over the selected packet path, and mutual ephemeral
-certificate pinning. It does not own Agent, Session, Turn,
-Workspace, pairing, account, rendezvous, or Relay product policy.
+for Tutti Desktop, Android, iOS, and TSH. It owns ICE candidate negotiation,
+QUIC over the selected packet path, mutual ephemeral certificate pinning, and
+product-neutral Relay byte-stream mechanics. It does not own Agent, Session,
+Turn, Workspace, pairing, account, rendezvous, Relay authorization, or Relay
+product policy.
 
 The initial implementation was upstreamed from TSH's production
 `core/devicelink` package. It is eligible for Tutti's stable package cohort
@@ -67,6 +68,46 @@ per-connection sequence; projections must ignore older deliveries and treat
 Tutti's `mobileremote` Desktop owner is the first production adapter: it keeps
 pairing, identity proof, rendezvous, and Agent framing in `tuttid`, while the
 shared manager owns the authenticated link and incoming stream lifecycle.
+
+## Relay byte-stream transport
+
+The `relaytransport` package owns the reusable mechanics for Relay-backed byte
+streams. `Dial` turns binary WebSocket messages into a `net.Conn` for one
+caller stream. `OwnerHost` maintains one WebSocket/yamux owner tunnel while at
+least one product driver holds a reference, accepts remote streams only after
+the product readiness barrier succeeds, and reconnects with bounded full-jitter
+backoff plus `Retry-After`.
+
+The owner path has an explicit ownership split:
+
+```text
+product demand (zero -> one)
+  -> product OwnerLifecycle.Prepare
+  -> relaytransport WebSocket dial + liveness
+  -> product OwnerLifecycle.Activate readiness barrier
+  -> relaytransport yamux stream acceptance
+  -> product StreamHandler
+  -> final product demand release
+  -> stop tunnel and handlers
+  -> exact OwnerLifecycle.Release
+```
+
+The lifecycle factory creates isolated product state for every zero-to-one
+demand run. A final release may overlap a new acquire, but the old release can
+only clean up its own lifecycle. WebSocket ping/pong owns tunnel liveness, so
+yamux keepalive is disabled. Internal yamux logging is discarded; adapters map
+sanitized, typed `OwnerEvent` values into product logs or metrics. Retry events
+separate the backoff cap, chosen jitter, server `Retry-After`, and total delay;
+liveness events expose only ping/pong counts and timestamps, never payloads.
+
+Relay endpoints, headers, query values, credentials, leases, registrations,
+room or pairing state, application protocols, and token invalidation remain in
+consumer adapters. In particular, a shared transport error is evidence for the
+adapter to update its product state, not permission for this package to
+interpret HTTP status codes as product policy. `DialError` makes a bounded
+handshake response body available for adapter-owned wire-reason parsing, but
+does not include that body in its error string; adapters must not persist the
+raw value in ordinary logs or metrics.
 
 ## Trickle ICE and protocol migration
 

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createWorkspaceAppExternalBridge,
-  requireUserActivation,
   workspaceAppExternalChannels
 } from "./workspaceAppExternalBridge.ts";
 import type { DesktopWorkspaceAppContext } from "../../shared/contracts/ipc.ts";
@@ -1546,12 +1545,4 @@ test("workspace app external bridge ignores invalid log payloads", () => {
 
   assert.doesNotThrow(() => bridge.logs.write({ event: "" } as never));
   assert.deepEqual(calls, []);
-});
-
-test("requireUserActivation throws only when inactive", () => {
-  assert.doesNotThrow(() => requireUserActivation(true, "files.select"));
-  assert.throws(
-    () => requireUserActivation(false, "files.select"),
-    /files\.select requires a user action/
-  );
 });

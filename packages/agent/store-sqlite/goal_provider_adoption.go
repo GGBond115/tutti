@@ -23,7 +23,7 @@ func (s *Store) AdoptProviderGoalOperation(ctx context.Context, input ProviderGo
 	objective := strings.TrimSpace(asJSONMapString(input.Goal, "objective"))
 	status := strings.TrimSpace(asJSONMapString(input.Goal, "status"))
 	if input.OperationID == "" || input.WorkspaceID == "" || input.AgentSessionID == "" ||
-		input.ClientSubmitID == "" || input.OccurredAtUnixMS <= 0 {
+		input.ClientSubmitID == "" || input.ExpectedRevision < 0 || input.OccurredAtUnixMS <= 0 {
 		return GoalControlOperation{}, SessionGoalState{}, false, errors.New("provider goal adoption identity, scope, and occurred time are required")
 	}
 	if objective == "" || status != "active" {
@@ -82,6 +82,9 @@ func (s *Store) AdoptProviderGoalOperation(ctx context.Context, input ProviderGo
 	}
 	if state.PendingOperationID != "" {
 		return GoalControlOperation{}, state, false, ErrGoalOperationConflict
+	}
+	if state.Revision != input.ExpectedRevision {
+		return GoalControlOperation{}, state, false, ErrGoalGenerationSuperseded
 	}
 	if state.Revision > 0 && !providerGoalAdoptionMayAdvance(state) {
 		return GoalControlOperation{}, state, false, ErrGoalOperationConflict

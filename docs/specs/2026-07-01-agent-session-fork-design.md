@@ -306,7 +306,7 @@ lineage persistence completed.
 
 ## GUI Integration
 
-Extend `AgentActivityRuntime` with:
+Extend `AgentGUIRuntime` with:
 
 ```ts
 forkSession(input: AgentActivityForkSessionInput): Promise<AgentActivityForkSessionResult>

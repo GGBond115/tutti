@@ -160,7 +160,10 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 	if titleUpdated {
 		submitEvents = append([]activityshared.Event{newSessionTitleActivityEvent(session, session.Title)}, submitEvents...)
 	}
-	if err := c.reportSubmittedTurnDurable(ctx, session, submitEvents); err != nil {
+	// The submitted Turn is a durable user intent, not provider output. Keep
+	// the Session visible while the provider-identity acceptance barrier is
+	// pending so an explicit provider rejection cannot erase the prompt.
+	if err := c.reportSubmittedTurnDurable(ctx, session, submitEvents, false); err != nil {
 		cancel()
 		c.rollbackSubmittedTurn(previousSession, turnID)
 		logAgentSubmitTrace("runtime.exec.submitted_report_failed", session, turnID, metadata, map[string]any{
@@ -198,6 +201,27 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 			dispatchObserver.Report,
 		)
 	} else if acceptanceAdapter != nil {
+		acceptProviderTurn := func(receipt ProviderAcceptanceReceipt) error {
+			dispatch := ProviderDispatchResult{
+				Disposition: DispatchDispositionApplied,
+				Acceptance:  &receipt,
+			}
+			confirmed, confirmErr := c.confirmProviderDispatchDurable(
+				// Provider acceptance persistence must finish even when the
+				// caller concurrently cancels the submitted request.
+				context.WithoutCancel(runCtx),
+				session,
+				turnID,
+				dispatch,
+			)
+			if confirmErr != nil {
+				cancel()
+			}
+			// The waiting Exec caller is released only after the acceptance receipt
+			// has crossed the durable reporter (or has a typed rejection).
+			dispatchObserver.ReportWithError(confirmed, confirmErr)
+			return confirmErr
+		}
 		go c.runProviderAcceptanceTurn(
 			runCtx,
 			session,
@@ -206,6 +230,7 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 			displayPrompt,
 			turnID,
 			dispatchObserver.Report,
+			acceptProviderTurn,
 		)
 	} else {
 		go c.runExecTurn(runCtx, session, adapter, content, displayPrompt, turnID)
@@ -229,18 +254,30 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 		return result, nil
 	}
 	select {
-	case dispatch := <-dispatchObserver.result:
-		dispatch, confirmErr := c.confirmProviderDispatchDurable(
-			// Once the provider has positively accepted a Turn, user
-			// cancellation must not abort persistence of that identity.
-			context.WithoutCancel(runCtx),
-			session,
-			turnID,
-			dispatch,
-		)
+	case observation := <-dispatchObserver.result:
+		dispatch := observation.dispatch
+		confirmErr := observation.err
+		if acceptanceAdapter == nil {
+			dispatch, confirmErr = c.confirmProviderDispatchDurable(
+				// Once the provider has positively accepted a Turn, user
+				// cancellation must not abort persistence of that identity.
+				context.WithoutCancel(runCtx),
+				session,
+				turnID,
+				dispatch,
+			)
+		}
 		result.ProviderDispatch = &dispatch
 		if confirmErr != nil {
 			return result, confirmErr
+		}
+		if dispatch.Disposition == DispatchDispositionRejected ||
+			dispatch.Disposition == DispatchDispositionNotDispatched {
+			// The provider supplied a definite negative delivery result. The
+			// submitted Turn and prompt stay canonical so the failure is visible;
+			// runBlockingExecTurn settles the in-memory Turn without waiting for a
+			// provider-root aggregation that can never arrive.
+			cancel()
 		}
 		if dispatch.Disposition == DispatchDispositionAppliedWithoutProviderTurn &&
 			dispatch.Acceptance == nil {
@@ -248,6 +285,9 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 		}
 		if dispatch.Disposition != DispatchDispositionApplied || dispatch.Acceptance == nil {
 			if input.RequireProviderAcceptance {
+				if dispatch.Failure != nil {
+					return result, dispatch.Failure
+				}
 				return result, errors.New("provider turn was not durably accepted")
 			}
 			return result, nil

@@ -22,10 +22,15 @@ import {
 } from "@tutti-os/ui-system";
 import type { WorkbenchDockContext } from "../react/types.ts";
 import {
-  captureWorkbenchNodePreviewImage,
-  readCachedWorkbenchNodePreviewImage,
-  writeCachedWorkbenchNodePreviewImage
-} from "../react/useWorkbenchGenieAnimation.tsx";
+  readWorkbenchMinimizedDockPreviewImage,
+  resolveWorkbenchMinimizedDockPreviewImage,
+  resolveWorkbenchMinimizedDockPreviewRevision
+} from "./useWorkbenchMinimizedDockPreview.ts";
+import {
+  minimizedDockPreviewFreezeKey,
+  WorkbenchHostDockMinimizedNodePreview
+} from "./WorkbenchHostDockMinimizedPreview.tsx";
+export { renderMinimizedDockPreviewContent } from "./WorkbenchHostDockMinimizedPreview.tsx";
 import {
   canCreateNewWindow,
   canCreateNewWindowInDockPopup,
@@ -2435,7 +2440,12 @@ export function WorkbenchHostDock({
           placement={dockPlacement}
           debugDiagnostics={debugDiagnostics}
           capturePreview={async (item) => {
-            const src = await captureMinimizedNodePreview(item.node);
+            const src = await resolveWorkbenchMinimizedDockPreviewImage({
+              capturePreview: () => captureMinimizedNodePreview(item.node),
+              dockPreviewCache,
+              node: item.node,
+              workspaceId
+            });
             return src ? { kind: "image", src } : null;
           }}
           dockPreviewCache={dockPreviewCache}
@@ -2462,12 +2472,13 @@ export function WorkbenchHostDock({
                     ? null
                     : (() => {
                         const previewImageUrl =
-                          readCachedWorkbenchNodePreviewImage(node.id);
+                          readWorkbenchMinimizedDockPreviewImage(node.id);
                         return previewImageUrl
                           ? ({ kind: "image", src: previewImageUrl } as const)
                           : null;
                       })(),
-              previewRevision: null,
+              previewRevision:
+                resolveWorkbenchMinimizedDockPreviewRevision(node),
               subtitle: node.data.instanceKey ?? node.data.instanceId,
               title: node.title
             };
@@ -2529,302 +2540,6 @@ export function WorkbenchHostDock({
       ) : null}
     </div>
   );
-}
-
-function WorkbenchHostDockMinimizedNodePreview({
-  capturePreview,
-  className,
-  deferPreview = false,
-  dockPreviewCache,
-  node,
-  providePreview,
-  workspaceId
-}: {
-  capturePreview?: (
-    node: WorkbenchMinimizedDockNode
-  ) => Promise<string | null> | string | null;
-  className?: string;
-  deferPreview?: boolean;
-  dockPreviewCache?: WorkbenchDockPreviewCache;
-  node: WorkbenchMinimizedDockNode;
-  providePreview?: (
-    node: WorkbenchMinimizedDockNode
-  ) => WorkbenchDockPreviewContent | null;
-  workspaceId: string;
-}) {
-  const [componentPreview, setComponentPreview] = useState<
-    WorkbenchDockPreviewContent | null | undefined
-  >(undefined);
-  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(() =>
-    deferPreview ? null : readCachedWorkbenchNodePreviewImage(node.id)
-  );
-
-  useEffect(() => {
-    if (
-      deferPreview ||
-      !providePreview ||
-      componentPreview !== undefined ||
-      previewImageUrl
-    ) {
-      return undefined;
-    }
-
-    let cancelled = false;
-    let frameId: number | null = null;
-    let idleId: number | null = null;
-    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
-    const setDeferredComponentPreview = () => {
-      if (cancelled) {
-        return;
-      }
-      setComponentPreview(providePreview(node) ?? null);
-    };
-    const scheduler = globalThis as typeof globalThis & {
-      cancelIdleCallback?: (id: number) => void;
-      cancelAnimationFrame?: (id: number) => void;
-      requestIdleCallback?: (
-        callback: () => void,
-        options?: { timeout?: number }
-      ) => number;
-      requestAnimationFrame?: (callback: () => void) => number;
-    };
-
-    if (typeof scheduler.requestIdleCallback === "function") {
-      idleId = scheduler.requestIdleCallback(setDeferredComponentPreview, {
-        timeout: 250
-      });
-    } else if (typeof scheduler.requestAnimationFrame === "function") {
-      frameId = scheduler.requestAnimationFrame(() => {
-        frameId = null;
-        timeoutId = globalThis.setTimeout(setDeferredComponentPreview, 0);
-      });
-    } else {
-      timeoutId = globalThis.setTimeout(setDeferredComponentPreview, 0);
-    }
-
-    return () => {
-      cancelled = true;
-      if (
-        idleId !== null &&
-        typeof scheduler.cancelIdleCallback === "function"
-      ) {
-        scheduler.cancelIdleCallback(idleId);
-      }
-      if (
-        frameId !== null &&
-        typeof scheduler.cancelAnimationFrame === "function"
-      ) {
-        scheduler.cancelAnimationFrame(frameId);
-      }
-      if (timeoutId !== null) {
-        globalThis.clearTimeout(timeoutId);
-      }
-    };
-  }, [
-    componentPreview,
-    deferPreview,
-    node.data.instanceId,
-    node.data.instanceKey,
-    node.data.typeId,
-    node.id,
-    node.minimizedAtUnixMs,
-    previewImageUrl,
-    providePreview
-  ]);
-
-  useEffect(() => {
-    if (deferPreview) {
-      return undefined;
-    }
-
-    let cancelled = false;
-    const cachedPreviewImageUrl = readCachedWorkbenchNodePreviewImage(node.id);
-    setPreviewImageUrl(cachedPreviewImageUrl);
-    const cacheKey = resolveDockPreviewCacheKey(workspaceId, node);
-    if (!cachedPreviewImageUrl && dockPreviewCache) {
-      void dockPreviewCache
-        .read(cacheKey)
-        .catch(() => null)
-        .then((persistedPreview) => {
-          if (cancelled || !persistedPreview) {
-            return;
-          }
-          writeCachedWorkbenchNodePreviewImage(node.id, persistedPreview);
-          setPreviewImageUrl(persistedPreview);
-        });
-    }
-    if (capturePreview) {
-      void Promise.resolve(capturePreview(node))
-        .catch(() => null)
-        .then((nextPreview) => {
-          if (cancelled || !nextPreview) {
-            return;
-          }
-          writeCachedWorkbenchNodePreviewImage(node.id, nextPreview);
-          dockPreviewCache?.write({
-            key: cacheKey,
-            previewImageUrl: nextPreview
-          });
-          setPreviewImageUrl(nextPreview);
-        });
-    }
-    if (cachedPreviewImageUrl || node.isMinimized || capturePreview) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    void captureWorkbenchNodePreviewImage(node.id).then((nextPreview) => {
-      if (!cancelled) {
-        setPreviewImageUrl(nextPreview);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    capturePreview,
-    deferPreview,
-    dockPreviewCache,
-    node.data.instanceId,
-    node.data.instanceKey,
-    node.data.typeId,
-    node.id,
-    node.minimizedAtUnixMs,
-    providePreview,
-    workspaceId
-  ]);
-
-  if (deferPreview) {
-    return renderMinimizedDockPreviewPlaceholder(className);
-  }
-
-  if (previewImageUrl) {
-    return (
-      <span
-        className={[
-          "desktop-dock__minimized-preview",
-          "desktop-dock__minimized-preview--snapshot",
-          className
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        aria-hidden="true"
-      >
-        <img
-          alt=""
-          className="desktop-dock__minimized-preview-image"
-          draggable={false}
-          src={previewImageUrl}
-        />
-      </span>
-    );
-  }
-
-  if (componentPreview) {
-    return renderMinimizedDockPreviewContent(componentPreview, className);
-  }
-
-  return renderMinimizedDockPreviewPlaceholder(className);
-}
-
-function renderMinimizedDockPreviewPlaceholder(className?: string) {
-  return (
-    <span
-      className={["desktop-dock__minimized-preview", className]
-        .filter(Boolean)
-        .join(" ")}
-      aria-hidden="true"
-    >
-      <span className="desktop-dock__minimized-preview-line" />
-      <span className="desktop-dock__minimized-preview-line desktop-dock__minimized-preview-line--short" />
-      <span className="desktop-dock__minimized-preview-line desktop-dock__minimized-preview-line--accent" />
-    </span>
-  );
-}
-
-export function renderMinimizedDockPreviewContent(
-  preview: WorkbenchDockPreviewContent,
-  className?: string
-) {
-  if (preview.kind === "image") {
-    return (
-      <span
-        className={[
-          "desktop-dock__minimized-preview",
-          "desktop-dock__minimized-preview--snapshot",
-          className
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        aria-hidden="true"
-      >
-        <img
-          alt=""
-          className="desktop-dock__minimized-preview-image"
-          draggable={false}
-          src={preview.src}
-        />
-      </span>
-    );
-  }
-
-  return (
-    <WorkbenchHostDockFrozenComponentPreview
-      className={className}
-      preview={preview}
-    />
-  );
-}
-
-function WorkbenchHostDockFrozenComponentPreview({
-  className,
-  preview
-}: {
-  className?: string;
-  preview: Extract<WorkbenchDockPreviewContent, { kind: "component" }>;
-}) {
-  const sourceRef = useRef<HTMLSpanElement | null>(null);
-  const [frozenMarkup, setFrozenMarkup] = useState<string | null>(null);
-
-  useLayoutEffect(() => {
-    if (frozenMarkup !== null) {
-      return;
-    }
-    setFrozenMarkup(sourceRef.current?.innerHTML ?? "");
-  }, [frozenMarkup]);
-
-  return (
-    <span
-      className={[
-        "desktop-dock__minimized-preview",
-        "desktop-dock__minimized-preview--component",
-        className
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      aria-hidden="true"
-    >
-      {frozenMarkup === null ? (
-        <span
-          ref={sourceRef}
-          className="desktop-dock__minimized-preview-freeze-source"
-        >
-          {preview.element}
-        </span>
-      ) : (
-        <span
-          className="desktop-dock__minimized-preview-frozen-content"
-          dangerouslySetInnerHTML={{ __html: frozenMarkup }}
-        />
-      )}
-    </span>
-  );
-}
-
-function minimizedDockPreviewFreezeKey(
-  node: WorkbenchMinimizedDockNode
-): string {
-  return `${node.id}:${node.minimizedAtUnixMs ?? "pending"}`;
 }
 
 function dockEntryHasHoverPanel(entry: WorkbenchHostDockEntry): boolean {

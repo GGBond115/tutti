@@ -7,7 +7,8 @@ import (
 	"time"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 )
 
@@ -113,7 +114,7 @@ func serviceSession(session ProviderRuntimeSession, resumable bool) Session {
 	)
 	metadata, internalRuntimeContext, err := agentactivitybiz.SplitSessionRuntimeContext(session.RuntimeContext)
 	if err != nil {
-		metadata = agentactivitybiz.SessionMetadata{Visible: session.Visible, Capabilities: []string{}}
+		metadata = agentactivitybiz.SessionMetadata{Visible: session.Visible}
 	}
 	metadata.Visible = session.Visible
 	return Session{
@@ -127,6 +128,7 @@ func serviceSession(session ProviderRuntimeSession, resumable bool) Session {
 		Resumable:         resumable,
 		Visible:           session.Visible,
 		Settings:          cloneComposerSettingsPointer(&normalizedSettings),
+		Capabilities:      canonical.CloneCapabilitySnapshot(session.Capabilities),
 		PermissionConfig:  composerPermissionConfig(normalizedProvider, permissionModeIDFromSettings(&normalizedSettings), preferencesbiz.DefaultDesktopLocale),
 		Title:             title,
 		PinnedAtUnixMS:    session.PinnedAtUnixMS,
@@ -189,6 +191,7 @@ func sessionFromPersisted(session PersistedSession, resumable bool) Session {
 		UpdatedAtUnixMS:   updatedAtUnixMS,
 		Visible:           session.Metadata.Visible,
 		RuntimeContext:    persistedSessionRuntimeContext(session),
+		Capabilities:      canonical.CloneCapabilitySnapshot(session.Capabilities),
 	}, resumable)
 	result.ActiveTurnID = strings.TrimSpace(session.ActiveTurnID)
 	result.RailSectionKind = strings.TrimSpace(session.RailSectionKind)
@@ -205,6 +208,7 @@ func sessionFromPersisted(session PersistedSession, resumable bool) Session {
 	result.ParentToolCallID = strings.TrimSpace(session.ParentToolCallID)
 	result.MessageVersion = session.MessageVersion
 	result.Metadata = session.Metadata
+	result.Capabilities = canonical.CloneCapabilitySnapshot(session.Capabilities)
 	result.Isolation = sessionIsolationFromRuntimeContext(session.InternalRuntimeContext)
 	return result
 }
@@ -259,6 +263,9 @@ func mergePersistedSessionState(session Session, persisted PersistedSession) Ses
 		session.UpdatedAt = timeFromUnixMSPointer(persisted.UpdatedAtUnixMS)
 	}
 	session.Metadata = persisted.Metadata
+	if session.Capabilities == nil {
+		session.Capabilities = canonical.CloneCapabilitySnapshot(persisted.Capabilities)
+	}
 	if isolation := sessionIsolationFromRuntimeContext(persisted.InternalRuntimeContext); isolation != nil {
 		session.Isolation = isolation
 	}
@@ -283,6 +290,9 @@ func serviceSessionWithPersistedFreshness(session ProviderRuntimeSession, persis
 		service.Settings = normalizeComposerSettingsPointerForProvider(session.Provider, session.Settings)
 	}
 	service.PermissionConfig = composerPermissionConfig(service.Provider, permissionModeIDFromSettings(service.Settings), preferencesbiz.DefaultDesktopLocale)
+	if session.Capabilities != nil {
+		service.Capabilities = canonical.CloneCapabilitySnapshot(session.Capabilities)
+	}
 	return service
 }
 

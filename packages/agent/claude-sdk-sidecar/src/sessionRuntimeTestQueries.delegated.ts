@@ -545,6 +545,26 @@ export function fakeBackgroundBashAndSubagentQuery(
       yield delegatedAgentToolUse("toolu-agent", "Slow child");
       yield delegatedAgentToolResult("toolu-agent", "agent-1");
       yield {
+        type: "assistant",
+        uuid: "assistant-bash",
+        parent_tool_use_id: null,
+        session_id: "provider-session-1",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu-bash",
+              name: "Bash",
+              input: {
+                command: "python3 -m http.server 8000",
+                run_in_background: true
+              }
+            }
+          ]
+        }
+      } as unknown as SDKMessage;
+      yield {
         type: "system",
         subtype: "task_started",
         task_id: "task-1",
@@ -552,17 +572,15 @@ export function fakeBackgroundBashAndSubagentQuery(
         description: "Slow child"
       } as unknown as SDKMessage;
       yield {
-        type: "result",
-        subtype: "success"
-      } as unknown as SDKMessage;
-      // A run_in_background Bash announces itself only through the task
-      // system, after the provider turn already settled.
-      yield {
         type: "system",
         subtype: "task_started",
         task_id: "bs-1",
         tool_use_id: "toolu-bash",
-        description: "sleep 60"
+        description: "python3 -m http.server 8000"
+      } as unknown as SDKMessage;
+      yield {
+        type: "result",
+        subtype: "success"
       } as unknown as SDKMessage;
       yield {
         type: "system",
@@ -571,12 +589,87 @@ export function fakeBackgroundBashAndSubagentQuery(
         status: "completed",
         summary: "Child done"
       } as unknown as SDKMessage;
+      await hold;
+    },
+    async interrupt() {
+      releaseHold();
+    },
+    close() {
+      releaseHold();
+    }
+  };
+}
+
+export function fakeLongRunningBackgroundBashQuery(
+  prompt: AsyncIterable<SDKUserMessage>
+): AsyncIterable<SDKMessage> & {
+  interrupt: () => Promise<void>;
+  close: () => void;
+} {
+  let releaseHold: () => void = () => {};
+  const hold = new Promise<void>((resolve) => {
+    releaseHold = resolve;
+  });
+  return {
+    async *[Symbol.asyncIterator]() {
+      const firstPrompt = await prompt[Symbol.asyncIterator]().next();
+      const promptMessage = firstPrompt.value as SDKUserMessage & {
+        uuid?: string;
+      };
+      yield {
+        ...promptMessage,
+        uuid: promptMessage.uuid,
+        type: "user",
+        parent_tool_use_id: null,
+        session_id: "provider-session-1"
+      } as SDKMessage;
+      yield {
+        type: "assistant",
+        uuid: "assistant-bash",
+        parent_tool_use_id: null,
+        session_id: "provider-session-1",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu-bash",
+              name: "Bash",
+              input: {
+                command: "python3 -m http.server 8000",
+                run_in_background: true
+              }
+            }
+          ]
+        }
+      } as unknown as SDKMessage;
       yield {
         type: "system",
-        subtype: "task_notification",
+        subtype: "background_tasks_changed",
+        tasks: [{ task_id: "bs-1" }]
+      } as unknown as SDKMessage;
+      yield {
+        type: "assistant",
+        uuid: "assistant-final",
+        parent_tool_use_id: null,
+        session_id: "provider-session-1",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "Server started." }]
+        }
+      } as unknown as SDKMessage;
+      yield {
+        type: "result",
+        subtype: "success"
+      } as unknown as SDKMessage;
+      // The SDK may announce the detached task only after it has reported the
+      // provider turn successful.
+      yield {
+        type: "system",
+        subtype: "task_started",
         task_id: "bs-1",
-        status: "completed",
-        summary: "Command done"
+        tool_use_id: "toolu-bash",
+        description: "python3 -m http.server 8000"
       } as unknown as SDKMessage;
       await hold;
     },

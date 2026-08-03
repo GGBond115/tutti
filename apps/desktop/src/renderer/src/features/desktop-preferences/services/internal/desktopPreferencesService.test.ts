@@ -77,6 +77,68 @@ test("DesktopPreferencesService bootstraps persisted preferences before connecti
   cleanup();
 });
 
+test("initial preference hydration exposes persisted feature flags before composition", async () => {
+  let resolvePreferences: (
+    value: DesktopPreferencesStateResponse
+  ) => void = () => {};
+  const preferencesResponse = new Promise<DesktopPreferencesStateResponse>(
+    (resolve) => {
+      resolvePreferences = resolve;
+    }
+  );
+  const client = createDesktopPreferencesClient({
+    getDesktopPreferences: () => preferencesResponse
+  });
+  const service = new DesktopPreferencesService({
+    applyLocale() {},
+    applyTheme() {},
+    client,
+    initialLocale: "en",
+    initialTheme: { appearance: "light", source: "system" },
+    resolveTheme
+  });
+  let hydrationCompleted = false;
+  const hydration = service.whenInitialPreferencesHydrated().then(() => {
+    hydrationCompleted = true;
+  });
+
+  await Promise.resolve();
+  assert.equal(hydrationCompleted, false);
+  assert.deepEqual(service.store.featureFlags, {});
+
+  resolvePreferences({
+    initialized: true,
+    preferences: createPreferences({
+      featureFlags: { "test.persisted": true }
+    })
+  });
+  await hydration;
+
+  assert.equal(service.store.featureFlags["test.persisted"], true);
+  service.dispose();
+});
+
+test("initial preference hydration failure releases startup with defaults", async () => {
+  const client = createDesktopPreferencesClient({
+    getDesktopPreferences: async () => {
+      throw new Error("preferences unavailable");
+    }
+  });
+  const service = new DesktopPreferencesService({
+    applyLocale() {},
+    applyTheme() {},
+    client,
+    initialLocale: "en",
+    initialTheme: { appearance: "light", source: "system" },
+    resolveTheme
+  });
+
+  await service.whenInitialPreferencesHydrated();
+
+  assert.deepEqual(service.store.featureFlags, {});
+  service.dispose();
+});
+
 test("DesktopPreferencesService keeps in-memory defaults when preferences are not initialized", async () => {
   const updatedRequests: Preferences[] = [];
   const client = createDesktopPreferencesClient({

@@ -353,6 +353,7 @@ export const AgentGUIConversationRailItem = memo(
                 ) : null}
                 <BareIconButton
                   className={styles.conversationPinButton}
+                  data-testid="agent-gui-session-pin"
                   aria-label={pinned ? labels.unpinSession : labels.pinSession}
                   title={pinned ? labels.unpinSession : labels.pinSession}
                   size="md"

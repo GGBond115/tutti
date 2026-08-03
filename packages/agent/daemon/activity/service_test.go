@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 func TestStoreTracksRoomsAndClonesState(t *testing.T) {
@@ -914,6 +915,27 @@ func TestGoalTurnProvenanceSurvivesEventAndCompatibilityRoundTrip(t *testing.T) 
 		roundTrip.Turn.SourceGoalOperationID != "goal-op-1" || roundTrip.Turn.SourceGoalRevision != 7 ||
 		roundTrip.Turn.SourceGoalRepairEpoch != 3 {
 		t.Fatalf("round-trip provenance=%#v", roundTrip.Turn)
+	}
+}
+
+func TestCapabilityAndRuntimeContextPatchSurviveCompatibilityRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	patch := WorkspaceAgentStatePatch{
+		AgentSessionID: "session",
+		Capabilities:   canonical.NewCapabilitySnapshot([]string{canonical.CapabilityGoalPause}),
+		RuntimeContextPatch: &canonical.RuntimeContextPatch{
+			Set:   map[string]any{"planMode": true},
+			Unset: []string{"stale"},
+		},
+	}
+	state := sessionStateUpdateFromPatch(patch)
+	roundTrip := statePatchFromSessionState("session", state)
+	if roundTrip.Capabilities == nil || len(roundTrip.Capabilities.Values) != 1 || roundTrip.Capabilities.Values[0] != canonical.CapabilityGoalPause {
+		t.Fatalf("capabilities = %#v", roundTrip.Capabilities)
+	}
+	if roundTrip.RuntimeContextPatch == nil || roundTrip.RuntimeContextPatch.Set["planMode"] != true || len(roundTrip.RuntimeContextPatch.Unset) != 1 || roundTrip.RuntimeContextPatch.Unset[0] != "stale" {
+		t.Fatalf("runtime context patch = %#v", roundTrip.RuntimeContextPatch)
 	}
 }
 

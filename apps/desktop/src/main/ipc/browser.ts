@@ -47,6 +47,7 @@ import {
 } from "../../shared/featureFlags/catalog.ts";
 import { resolveBrowserNodeAutomationListenerInfoPath } from "../transport/paths.ts";
 import { createDesktopBrowserAutomationCoordinator } from "./browserAutomationCoordinator.ts";
+import { activateBrowserAutomationHost } from "../host/browserAutomationHostActivation.ts";
 import {
   getWorkspaceWindowKind,
   getWorkspaceWindowWorkspaceID
@@ -79,12 +80,14 @@ export async function registerBrowserIpc(
       agentSessionId: string;
       workspaceId: string;
     }): Promise<void>;
+    ensureUserBrowserHost(input: { workspaceId: string }): Promise<void>;
   }
 ): Promise<{ dispose(): void }> {
   const logger = getDesktopLogger();
   const automationCoordinator = createDesktopBrowserAutomationCoordinator({
     ...options,
     runtime: {
+      activateHost: activateBrowserAutomationHost,
       ipc: ipcMain,
       randomId: randomUUID,
       resolveHostContext(sender) {

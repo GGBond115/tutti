@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 	"github.com/tutti-os/tutti/packages/agent/daemon/liveprotocol"
@@ -641,6 +642,84 @@ func TestCodexAppServerAdapterRoutesChildFileChangeApprovalWithChildInput(t *tes
 	}
 	if len(responses) != 1 || asString(result["decision"]) != "accept" {
 		t.Fatalf("approval response = %#v, want accept", responses)
+	}
+}
+
+func TestCodexAppServerAdapterSteersChildApprovalFeedbackToExactProviderTurn(t *testing.T) {
+	t.Parallel()
+
+	adapter, transport, session := startedAppServerAdapter(t)
+	_, _ = adapter.rememberAppServerChildThreads(
+		session,
+		session.ProviderSessionID,
+		session.AgentSessionID,
+		"root-turn-1",
+		session.AgentSessionID,
+		"root-turn-1",
+		map[string]any{
+			"type":              "collabAgentToolCall",
+			"id":                "spawn-child-1",
+			"tool":              "spawnAgent",
+			"receiverThreadIds": []any{"child-thread-1"},
+		},
+	)
+	child, ok := adapter.appServerChildThread(session.AgentSessionID, "child-thread-1")
+	if !ok {
+		t.Fatal("child thread was not registered")
+	}
+	appSession := adapter.getSession(session.AgentSessionID)
+	if appSession == nil || appSession.client == nil {
+		t.Fatal("root app-server session is not live")
+	}
+	transport.server.mu.Lock()
+	transport.server.hangSteer = true
+	transport.server.mu.Unlock()
+	adapter.turnSteerTimeout = 25 * time.Millisecond
+	message := acpMessage{
+		ID:     json.RawMessage(`"child-approval-feedback-1"`),
+		Method: appServerMethodCommandApproval,
+		Params: mustJSONRawMessage(t, map[string]any{
+			"threadId": "child-thread-1",
+			"turnId":   "provider-child-turn-1",
+			"itemId":   "child-command-1",
+		}),
+	}
+	if _, err := adapter.appServerServerRequest(
+		context.Background(),
+		appSession.client,
+		session,
+		"root-turn-1",
+		message,
+		newACPTurnNormalizer(),
+		func([]activityshared.Event) {},
+	); err != nil {
+		t.Fatalf("appServerServerRequest: %v", err)
+	}
+	const feedback = "Do not run the command. Report that you stopped."
+	if _, err := adapter.SubmitInteractive(context.Background(), session, SubmitInteractiveInput{
+		AgentSessionID: child.agentSessionID,
+		TurnID:         child.turnID,
+		RequestID:      "child-approval-feedback-1",
+		OptionID:       "deny",
+		Payload:        map[string]any{"denyMessage": feedback},
+	}); err != nil {
+		t.Fatalf("SubmitInteractive: %v", err)
+	}
+	if got := adapter.InteractiveDispositionForTarget(session, child.agentSessionID, child.turnID, "child-approval-feedback-1"); got != InteractiveDispositionAnswered {
+		t.Fatalf("interactive disposition = %q, want answered while feedback steer is pending", got)
+	}
+
+	waitForCondition(t, func() bool {
+		return len(appServerRequestParamsList(t, transport.conn, appServerMethodTurnSteer)) == 1
+	})
+	steer := appServerRequestParams(t, transport.conn, appServerMethodTurnSteer)
+	if asString(steer["threadId"]) != "child-thread-1" ||
+		asString(steer["expectedTurnId"]) != "provider-child-turn-1" {
+		t.Fatalf("turn/steer target = %#v, want exact child thread and turn", steer)
+	}
+	input, _ := steer["input"].([]any)
+	if len(input) != 1 || asString(payloadObject(input[0])["text"]) != feedback {
+		t.Fatalf("turn/steer input = %#v, want full feedback", steer["input"])
 	}
 }
 

@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
+	agentactivitybiz "github.com/tutti-os/tutti/packages/agent/store-sqlite"
 	canonical "github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
-	agentactivitybiz "github.com/tutti-os/tutti/services/tuttid/biz/agentactivity"
 )
 
 func (p *ActivityProjection) PublishRuntimeOperationEvent(
@@ -61,7 +61,8 @@ func (p *ActivityProjection) PublishRuntimeOperationEvent(
 				event.WorkspaceID,
 				agentSessionID,
 				"turn_update",
-				activityTurnUpdateEventPayload(
+				p.activityTurnUpdateEventPayload(
+					ctx,
 					event.WorkspaceID,
 					agentSessionID,
 					turn,
@@ -88,7 +89,7 @@ func (p *ActivityProjection) PublishRuntimeOperationEvent(
 				event.WorkspaceID,
 				agentSessionID,
 				"turn_update",
-				activityTurnUpdateEventPayload(event.WorkspaceID, agentSessionID, turn, event.CreatedAtUnixMS),
+				p.activityTurnUpdateEventPayload(ctx, event.WorkspaceID, agentSessionID, turn, event.CreatedAtUnixMS),
 			); err != nil {
 				return err
 			}
@@ -115,7 +116,8 @@ func (p *ActivityProjection) PublishRuntimeOperationEvent(
 			event.WorkspaceID,
 			event.AgentSessionID,
 			"turn_update",
-			activityTurnUpdateEventPayload(
+			p.activityTurnUpdateEventPayload(
+				ctx,
 				event.WorkspaceID,
 				event.AgentSessionID,
 				turn,

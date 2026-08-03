@@ -1,6 +1,7 @@
 package events
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
@@ -27,6 +28,7 @@ const (
 	EventSessionCompleted           EventType = "session.completed"
 	EventSessionFailed              EventType = "session.failed"
 	EventSessionAudit               EventType = "session.audit"
+	EventGoalControlApplied         EventType = "goal.control_applied"
 	EventGoalReconcileRequired      EventType = "goal.reconcile_required"
 	EventTurnStarted                EventType = "turn.started"
 	EventTurnUpdated                EventType = "turn.updated"
@@ -129,6 +131,18 @@ type Event struct {
 	ParentToolCallID     string
 	OccurredAtUnixMS     int64
 	Payload              EventPayload
+	// ProviderInputUnit is capture-only causality. It is never serialized into
+	// canonical state or a portable Cassette.
+	ProviderInputUnit *ProviderInputUnitContext
+}
+
+type ProviderInputUnitContext struct {
+	RecordingID  string
+	ConnectionID string
+	ChunkSeq     uint64
+	UnitIndex    uint64
+	EventIndex   uint64
+	UnitKind     string
 }
 
 // InteractionTransition is the provider-independent runtime statement for an
@@ -146,31 +160,31 @@ type InteractionTransition struct {
 }
 
 type EventPayload struct {
-	PresenceStatus              string
-	LifecycleStatus             string
-	EffectiveStatus             string
-	TurnID                      string
-	TurnPhase                   string
-	TurnOutcome                 string
-	ProviderTurnID              string
-	ProviderCheckpointMessageID string
-	ActivityStatus              string
-	CWD                         string
-	Role                        MessageRole
-	Content                     string
-	CallID                      string
-	CallType                    string
-	Name                        string
-	Status                      string
-	Input                       map[string]any
-	Output                      map[string]any
-	Error                       map[string]any
-	EventKey                    string
-	ActivityKey                 string
-	Metadata                    map[string]any
-	LeaseTTLSeconds             int
-	Title                       string
-	Interaction                 *InteractionTransition
+	PresenceStatus          string
+	LifecycleStatus         string
+	EffectiveStatus         string
+	TurnID                  string
+	TurnPhase               string
+	TurnOutcome             string
+	ProviderTurnID          string
+	ProviderTurnBindingJSON json.RawMessage
+	ActivityStatus          string
+	CWD                     string
+	Role                    MessageRole
+	Content                 string
+	CallID                  string
+	CallType                string
+	Name                    string
+	Status                  string
+	Input                   map[string]any
+	Output                  map[string]any
+	Error                   map[string]any
+	EventKey                string
+	ActivityKey             string
+	Metadata                map[string]any
+	LeaseTTLSeconds         int
+	Title                   string
+	Interaction             *InteractionTransition
 }
 
 type EventContext struct {
@@ -294,6 +308,15 @@ func NewGoalReconcileRequired(ctx EventContext, metadata map[string]any) Event {
 	return event
 }
 
+// NewGoalControlApplied carries exact provider lifecycle evidence to the
+// Host-owned Goal state machine. It is internal control data, not transcript
+// content, session metadata, or a Turn lifecycle transition.
+func NewGoalControlApplied(ctx EventContext, metadata map[string]any) Event {
+	event := eventFromContext(ctx, EventGoalControlApplied, EventPayload{Metadata: cloneMap(metadata)})
+	event.Payload.TurnID = ""
+	return event
+}
+
 func NewTurnStarted(ctx EventContext, turnID string) Event {
 	return eventFromContext(ctx, EventTurnStarted, EventPayload{
 		TurnID:    strings.TrimSpace(turnID),
@@ -350,13 +373,13 @@ func NewRootProviderTurnCheckpoint(
 	ctx EventContext,
 	rootTurnID string,
 	providerTurnID string,
-	providerCheckpointMessageID string,
+	providerTurnBindingJSON json.RawMessage,
 ) Event {
 	return eventFromContext(ctx, EventRootProviderTurnCheckpoint, EventPayload{
-		TurnID:                      strings.TrimSpace(rootTurnID),
-		ProviderTurnID:              strings.TrimSpace(providerTurnID),
-		ProviderCheckpointMessageID: strings.TrimSpace(providerCheckpointMessageID),
-		CWD:                         strings.TrimSpace(ctx.CWD),
+		TurnID:                  strings.TrimSpace(rootTurnID),
+		ProviderTurnID:          strings.TrimSpace(providerTurnID),
+		ProviderTurnBindingJSON: append(json.RawMessage(nil), providerTurnBindingJSON...),
+		CWD:                     strings.TrimSpace(ctx.CWD),
 	})
 }
 

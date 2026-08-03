@@ -118,15 +118,22 @@ type standardACPConnection struct {
 	// omitAssistantTextInPromptResults drops the agent_message_chunk from
 	// normal prompt results, emulating a tool-calls-only turn.
 	omitAssistantTextInPromptResults bool
-	setConfigOptionSnapshots         []map[string]any
-	setModelSnapshots                []map[string]any
-	configOptions                    []map[string]any
-	models                           map[string]any
-	modes                            map[string]any
-	authMethods                      []map[string]any
-	authenticateResult               map[string]any
-	authenticateError                *acpError
-	requireAuthentication            bool
+	// emptyPromptResult returns a normal ACP end_turn without any session
+	// updates, matching providers that hide a model/account failure.
+	emptyPromptResult bool
+	// promptResultUpdates replaces the normal prompt stream with only these
+	// session updates followed by end_turn.
+	promptResultUpdates      []map[string]any
+	setConfigOptionSnapshots []map[string]any
+	setModelSnapshots        []map[string]any
+	configOptions            []map[string]any
+	models                   map[string]any
+	modes                    map[string]any
+	authMethods              []map[string]any
+	authenticateResult       map[string]any
+	authenticateError        *acpError
+	newSessionError          *acpError
+	requireAuthentication    bool
 }
 
 func (c *standardACPConnection) Recv() (ProcessFrame, error) {

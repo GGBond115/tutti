@@ -23,9 +23,6 @@ const (
 
 	LaunchRefTypeBuiltinLocal   = "builtin_local"
 	LaunchRefTypeAgentExtension = "agent_extension"
-	// LaunchRefTypeLocalCLI is retained as a source compatibility name while
-	// persisted and API output normalize to builtin_local.
-	LaunchRefTypeLocalCLI       = LaunchRefTypeBuiltinLocal
 	launchRefTypeLegacyLocalCLI = "local_cli"
 
 	SourceSystem = "system"

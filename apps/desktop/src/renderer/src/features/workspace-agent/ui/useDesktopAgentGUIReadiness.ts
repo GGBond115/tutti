@@ -7,7 +7,7 @@ import {
   useSyncExternalStore
 } from "react";
 import type {
-  AgentActivityRuntime,
+  AgentGUIRuntime,
   AgentGUIProvider,
   AgentGUIProviderReadinessGate,
   AgentGUIProviderReadinessGateAction,
@@ -43,7 +43,7 @@ import {
 } from "./desktopAgentGUIWorkbenchModel.ts";
 
 export function useDesktopAgentGUIReadiness(input: {
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   agentProviderStatusService?: IAgentProviderStatusService;
   computerUseApi?: Pick<DesktopComputerUseApi, "checkStatus">;
   host: WorkbenchHostNodeBodyContext["host"];

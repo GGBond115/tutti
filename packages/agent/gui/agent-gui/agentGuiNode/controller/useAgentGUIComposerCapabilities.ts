@@ -150,12 +150,10 @@ export function useAgentGUIComposerCapabilities(
     composerTargetData,
     defaultReasoningEffort,
     goalPauseSupported:
-      sessionCapabilities?.goalPause ??
       resolveAgentActivityCapability("goalPause", {
         composerOptions: providerComposerOptions,
         sessionCapabilities
-      }) ??
-      false,
+      }) ?? false,
     promptImagesSupported:
       (resolvedPromptImagesSupported ?? true) &&
       selectedModelImageInputSupported,

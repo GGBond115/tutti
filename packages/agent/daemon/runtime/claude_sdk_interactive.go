@@ -72,7 +72,7 @@ func (a *ClaudeCodeSDKAdapter) SubmitInteractive(ctx context.Context, session Se
 
 	payload := map[string]any{
 		"agentSessionId": providerAgentSessionID,
-		"turnId":         claudeSDKInteractiveProviderTurnID(pending),
+		"turnId":         claudeSDKInteractiveTransportTurnID(pending),
 		"requestId":      requestID,
 		"action":         response.action,
 		"optionId":       optionID,
@@ -201,7 +201,7 @@ func (a *ClaudeCodeSDKAdapter) queryClaudeSDKInteractiveDisposition(
 		Type: "interactive_disposition",
 		Payload: map[string]any{
 			"agentSessionId": providerAgentSessionID,
-			"turnId":         claudeSDKInteractiveProviderTurnID(pending),
+			"turnId":         claudeSDKInteractiveTransportTurnID(pending),
 			"requestId":      pending.requestID,
 			"action":         response.action,
 			"optionId":       response.optionID,
@@ -319,6 +319,15 @@ func (a *ClaudeCodeSDKAdapter) claudeSDKInteractiveRequested(
 		eventSession = claudeSDKChildRuntimeSession(session, child)
 		eventTurnID = child.TurnID
 	}
+	transportTurnID := firstNonEmptyString(
+		payloadString(payload, "turnId"),
+		payloadString(payload, "turnID"),
+	)
+	if transportTurnID == "" {
+		return nil, errors.New(
+			"claude SDK interaction omitted transport turn identity",
+		)
+	}
 	options := claudeSDKInteractiveOptions(payload, toolCall)
 	interactivePrompt := normalizedInteractivePrompt(toolCall, options, requestID)
 	title := firstNonEmpty(
@@ -373,17 +382,14 @@ func (a *ClaudeCodeSDKAdapter) claudeSDKInteractiveRequested(
 		}
 	}
 	pending := &pendingInteractiveRequest{
-		agentSessionID: strings.TrimSpace(eventSession.AgentSessionID),
-		requestID:      requestID,
-		eventID:        newID(),
-		callID:         callID,
-		callType:       callType,
-		turnID:         eventTurnID,
-		providerTurnID: firstNonEmptyString(
-			payloadString(payload, "turnId"),
-			payloadString(payload, "turnID"),
-			strings.TrimSpace(providerTurnID),
-		),
+		agentSessionID:  strings.TrimSpace(eventSession.AgentSessionID),
+		requestID:       requestID,
+		eventID:         newID(),
+		callID:          callID,
+		callType:        callType,
+		turnID:          eventTurnID,
+		providerTurnID:  strings.TrimSpace(providerTurnID),
+		transportTurnID: transportTurnID,
 		input:           input,
 		kind:            firstNonEmpty(interactivePromptKind(interactivePrompt), "approval"),
 		approvalPurpose: approvalPurpose,
@@ -419,11 +425,13 @@ func (a *ClaudeCodeSDKAdapter) claudeSDKInteractiveRequested(
 	return events, nil
 }
 
-func claudeSDKInteractiveProviderTurnID(pending *pendingInteractiveRequest) string {
+func claudeSDKInteractiveTransportTurnID(
+	pending *pendingInteractiveRequest,
+) string {
 	if pending == nil {
 		return ""
 	}
-	return firstNonEmptyString(strings.TrimSpace(pending.providerTurnID), strings.TrimSpace(pending.turnID))
+	return strings.TrimSpace(pending.transportTurnID)
 }
 
 func (a *ClaudeCodeSDKAdapter) claudeSDKInteractiveResolved(

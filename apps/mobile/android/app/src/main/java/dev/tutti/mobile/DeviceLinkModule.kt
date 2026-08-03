@@ -5,12 +5,16 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.UiThreadUtil
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import dev.tutti.mobile.bindings.liveprotocolmobile.Liveprotocolmobile
 import dev.tutti.mobile.bindings.mobile.Link
@@ -32,7 +36,8 @@ import org.json.JSONObject
 class DeviceLinkModule(
     reactContext: ReactApplicationContext,
 ) : ReactContextBaseJavaModule(reactContext),
-    LifecycleEventListener {
+    LifecycleEventListener,
+    DefaultLifecycleObserver {
     @Volatile
     private var link: Link? = null
     @Volatile
@@ -43,6 +48,9 @@ class DeviceLinkModule(
     private val agentLiveExecutor = Executors.newSingleThreadExecutor()
     private val closeExecutor = Executors.newSingleThreadExecutor()
     private val handler = Handler(Looper.getMainLooper())
+    private val processLifecycle = ProcessLifecycleOwner.get().lifecycle
+    @Volatile
+    private var invalidated = false
     private val executor =
         ThreadPoolExecutor(
             2,
@@ -55,6 +63,11 @@ class DeviceLinkModule(
 
     init {
         reactContext.addLifecycleEventListener(this)
+        UiThreadUtil.runOnUiThread {
+            if (!invalidated) {
+                processLifecycle.addObserver(this)
+            }
+        }
     }
 
     override fun getName(): String = "TuttiDeviceLink"
@@ -224,6 +237,7 @@ class DeviceLinkModule(
     @ReactMethod
     fun startAgentLive(
         workspaceId: String,
+        subscriptionGeneration: Double,
         promise: Promise,
     ) {
         val normalizedWorkspaceId = workspaceId.trim()
@@ -231,6 +245,17 @@ class DeviceLinkModule(
             promise.reject(
                 "AGENT_LIVE_SUBSCRIBE_FAILED",
                 "Agent live workspace id is required",
+            )
+            return
+        }
+        if (
+            !subscriptionGeneration.isFinite() ||
+            subscriptionGeneration <= 0 ||
+            subscriptionGeneration % 1.0 != 0.0
+        ) {
+            promise.reject(
+                "AGENT_LIVE_SUBSCRIBE_FAILED",
+                "Agent live subscription generation must be a positive integer",
             )
             return
         }
@@ -309,6 +334,10 @@ class DeviceLinkModule(
                             emitAgentLive(
                                 JSONObject()
                                     .put("workspaceId", normalizedWorkspaceId)
+                                    .put(
+                                        "subscriptionGeneration",
+                                        subscriptionGeneration,
+                                    )
                                     .put("result", result)
                                     .toString(),
                             )
@@ -326,6 +355,10 @@ class DeviceLinkModule(
                         emitAgentLive(
                             JSONObject()
                                 .put("workspaceId", normalizedWorkspaceId)
+                                .put(
+                                    "subscriptionGeneration",
+                                    subscriptionGeneration,
+                                )
                                 .put("status", "disconnected")
                                 .put("reason", "stream_closed")
                                 .toString(),
@@ -372,14 +405,22 @@ class DeviceLinkModule(
         handler.postDelayed(backgroundClose, BACKGROUND_GRACE_MILLIS)
     }
 
+    override fun onStop(owner: LifecycleOwner) {
+        closeCurrentAgentLiveStream()
+    }
+
     override fun onHostDestroy() {
         handler.removeCallbacks(backgroundClose)
         closeCurrentLink()
     }
 
     override fun invalidate() {
+        invalidated = true
         handler.removeCallbacks(backgroundClose)
         reactApplicationContext.removeLifecycleEventListener(this)
+        UiThreadUtil.runOnUiThread {
+            processLifecycle.removeObserver(this)
+        }
         closeCurrentLink()
         agentLiveExecutor.shutdownNow()
         executor.shutdownNow()

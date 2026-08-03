@@ -6,6 +6,7 @@ import type {
 
 export function parseAgentLiveDeliveries(
   workspaceId: string,
+  subscriptionGeneration: number,
   payload: string
 ): AgentLiveDelivery[] {
   try {
@@ -17,9 +18,15 @@ export function parseAgentLiveDeliveries(
         reconcileRequired?: unknown;
       };
       status?: unknown;
+      subscriptionGeneration?: unknown;
       workspaceId?: unknown;
     };
-    if (envelope.workspaceId !== workspaceId) return [];
+    if (
+      envelope.workspaceId !== workspaceId ||
+      envelope.subscriptionGeneration !== subscriptionGeneration
+    ) {
+      return [];
+    }
     if (envelope.status === "disconnected") {
       return [
         {

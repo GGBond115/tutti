@@ -30,6 +30,11 @@ interface DesktopLogRuntime {
 
 type DesktopLogSink = (content: string) => Promise<void> | void;
 
+interface ProcessStreamState {
+  available: boolean;
+  pending: Set<() => void>;
+}
+
 const levelPriority: Record<DesktopLogLevel, number> = {
   debug: 10,
   info: 20,
@@ -37,7 +42,12 @@ const levelPriority: Record<DesktopLogLevel, number> = {
   error: 40
 };
 
+const processStreamStates = new WeakMap<
+  NodeJS.WritableStream,
+  ProcessStreamState
+>();
 const desktopLogSessionID = resolveDesktopLogSessionID();
+const writeToProcessStderr = createBestEffortProcessSink(process.stderr);
 
 let currentRuntime: DesktopLogRuntime = createProcessRuntime({
   level: resolveDesktopDefaultsFromEnv().logging.defaultLevel
@@ -100,7 +110,7 @@ async function createFileAwareRuntime(options: {
     rotatingWriter.write(content);
   const sink =
     options.output === "tee"
-      ? createTeeSink(writeToFile, process.stdout)
+      ? createTeeSink(writeToFile, createBestEffortProcessSink(process.stdout))
       : writeToFile;
 
   return createWriterRuntime({
@@ -118,9 +128,7 @@ function createProcessRuntime(options: {
   return createWriterRuntime({
     level: options.level,
     sessionID: desktopLogSessionID,
-    sink: (content) => {
-      process.stdout.write(content);
-    },
+    sink: createBestEffortProcessSink(process.stdout),
     filePath: "",
     onClose: () => Promise.resolve()
   });
@@ -149,7 +157,7 @@ function createWriterRuntime(options: {
     pendingWrite = pendingWrite
       .then(() => Promise.resolve(options.sink(line)))
       .catch((error) => {
-        process.stderr.write(
+        void writeToProcessStderr(
           `[desktop-logger] write failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`
         );
       });
@@ -269,11 +277,52 @@ function resolveDesktopLogSessionID(): string {
 
 function createTeeSink(
   fileSink: DesktopLogSink,
-  processStream: NodeJS.WriteStream
+  processSink: DesktopLogSink
 ): DesktopLogSink {
   return async (content) => {
     await fileSink(content);
-    processStream.write(content);
+    await processSink(content);
+  };
+}
+
+export function createBestEffortProcessSink(
+  stream: NodeJS.WritableStream
+): DesktopLogSink {
+  let state = processStreamStates.get(stream);
+  if (!state) {
+    state = {
+      available: true,
+      pending: new Set()
+    };
+    processStreamStates.set(stream, state);
+    stream.on("error", () => {
+      state!.available = false;
+      for (const resolve of state!.pending) {
+        resolve();
+      }
+      state!.pending.clear();
+    });
+  }
+
+  return (content) => {
+    if (!state.available) {
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      const settle = () => {
+        state.pending.delete(settle);
+        resolve();
+      };
+      state.pending.add(settle);
+      try {
+        stream.write(content, settle);
+      } catch {
+        state.available = false;
+        for (const finish of state.pending) {
+          finish();
+        }
+      }
+    });
   };
 }
 

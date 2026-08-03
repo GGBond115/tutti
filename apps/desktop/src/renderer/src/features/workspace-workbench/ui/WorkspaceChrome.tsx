@@ -33,6 +33,7 @@ const WORKSPACE_CHROME_MAC_TRAFFIC_LIGHT_RESERVED_WIDTH_PX =
   WORKSPACE_CHROME_MAC_TRAFFIC_LIGHT_GUTTER_PX;
 
 export function WorkspaceChrome({
+  externalAgentSessionImportPromptEnabled,
   headerSlot,
   missionControl,
   onSelectWallpaper,
@@ -45,6 +46,7 @@ export function WorkspaceChrome({
   workbenchController,
   workspace
 }: {
+  externalAgentSessionImportPromptEnabled: boolean;
   headerSlot?: React.ReactNode;
   missionControl: {
     canOpen: boolean;
@@ -170,10 +172,12 @@ export function WorkspaceChrome({
           <WorkspaceAccountMenu workspaceId={workspace.id} />
         </div>
       </header>
-      <ExternalAgentSessionImportPrompt
-        workspaceId={workspace.id}
-        onOpenImport={openExternalAgentImport}
-      />
+      {externalAgentSessionImportPromptEnabled ? (
+        <ExternalAgentSessionImportPrompt
+          workspaceId={workspace.id}
+          onOpenImport={openExternalAgentImport}
+        />
+      ) : null}
       <ExternalAgentSessionImportWizard
         initialProviders={externalImportWizardProviders}
         open={externalImportWizardOpen}

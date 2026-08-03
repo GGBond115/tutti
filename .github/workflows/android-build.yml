@@ -73,51 +73,85 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare stable Android signing key
+        shell: bash
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          TUTTI_ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          TUTTI_ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          TUTTI_ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          if [[ -z "${ANDROID_RELEASE_KEYSTORE_BASE64}" ||
+                -z "${TUTTI_ANDROID_RELEASE_KEYSTORE_PASSWORD}" ||
+                -z "${TUTTI_ANDROID_RELEASE_KEY_ALIAS}" ||
+                -z "${TUTTI_ANDROID_RELEASE_KEY_PASSWORD}" ]]; then
+            echo "Stable Android release signing secrets are required." >&2
+            exit 1
+          fi
+
+          signing_dir="${RUNNER_TEMP}/tutti-android-signing"
+          keystore_path="${signing_dir}/release.keystore"
+          mkdir -p "${signing_dir}"
+          printf '%s' "${ANDROID_RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+          chmod 600 "${keystore_path}"
+          test -s "${keystore_path}"
+          keytool -list \
+            -keystore "${keystore_path}" \
+            -storepass "${TUTTI_ANDROID_RELEASE_KEYSTORE_PASSWORD}" \
+            -alias "${TUTTI_ANDROID_RELEASE_KEY_ALIAS}" \
+            >/dev/null
+          echo "TUTTI_ANDROID_RELEASE_KEYSTORE_PATH=${keystore_path}" >> "${GITHUB_ENV}"
+
       - name: Build Android release APK
+        env:
+          TUTTI_ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          TUTTI_ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          TUTTI_ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+          TUTTI_ANDROID_VERSION_CODE: ${{ github.run_number }}
         run: |
           pnpm --filter @tutti-os/mobile android:aar
           cd apps/mobile/android
           ./gradlew app:assembleRelease
 
-      - name: Sign internal APK
+      - name: Verify signed Android APK
         shell: bash
         run: |
-          signing_dir="${RUNNER_TEMP}/tutti-android-signing"
-          unsigned_apk="apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk"
-          aligned_apk="${signing_dir}/app-release-aligned.apk"
-          signed_apk="apps/mobile/android/app/build/outputs/apk/release/tutti-mobile-internal.apk"
+          signed_apk="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
+          expected_certificate="apps/mobile/android/release-certificate.pem"
           build_tools="${ANDROID_HOME}/build-tools/36.0.0"
 
-          test -f "${unsigned_apk}"
-          mkdir -p "${signing_dir}"
-          keytool -genkeypair \
-            -keystore "${signing_dir}/internal.keystore" \
-            -storepass android \
-            -keypass android \
-            -alias tutti-internal \
-            -dname "CN=Tutti Internal,O=Tutti,C=US" \
-            -keyalg RSA \
-            -validity 7300 \
-            >/dev/null 2>&1
-          "${build_tools}/zipalign" -p -f 4 "${unsigned_apk}" "${aligned_apk}"
-          "${build_tools}/apksigner" sign \
-            --ks "${signing_dir}/internal.keystore" \
-            --ks-pass pass:android \
-            --key-pass pass:android \
-            --out "${signed_apk}" \
-            "${aligned_apk}"
-          "${build_tools}/apksigner" verify --verbose "${signed_apk}"
+          test -f "${signed_apk}"
+          "${build_tools}/zipalign" -c -p 4 "${signed_apk}"
+          verification_output="$(
+            "${build_tools}/apksigner" verify --verbose --print-certs "${signed_apk}"
+          )"
+          printf '%s\n' "${verification_output}"
+
+          expected_digest="$(
+            keytool -printcert -file "${expected_certificate}" |
+              sed -n 's/^[[:space:]]*SHA256: //p' |
+              tr -d ':' |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          actual_digest="$(
+            printf '%s\n' "${verification_output}" |
+              sed -n 's/^Signer #1 certificate SHA-256 digest: //p'
+          )"
+          if [[ -z "${expected_digest}" || "${actual_digest}" != "${expected_digest}" ]]; then
+            echo "Android APK signing certificate does not match the pinned release certificate." >&2
+            exit 1
+          fi
 
       - name: Generate APK checksum
         working-directory: apps/mobile/android/app/build/outputs/apk/release
-        run: sha256sum tutti-mobile-internal.apk > SHA256SUMS
+        run: sha256sum app-release.apk > SHA256SUMS
 
       - name: Upload internal Android artifact
         uses: actions/upload-artifact@v4
         with:
           name: tutti-mobile-internal-${{ github.sha }}
           path: |
-            apps/mobile/android/app/build/outputs/apk/release/tutti-mobile-internal.apk
+            apps/mobile/android/app/build/outputs/apk/release/app-release.apk
             apps/mobile/android/app/build/outputs/apk/release/SHA256SUMS
           if-no-files-found: error
           retention-days: 14

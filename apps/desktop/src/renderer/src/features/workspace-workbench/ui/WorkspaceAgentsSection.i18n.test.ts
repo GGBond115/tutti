@@ -20,11 +20,6 @@ test("agent editor copy says Agent Runtime and never Harness", () => {
   }
 });
 
-test("description copy is a neutral description field", () => {
-  assert.equal(agentsCopyByLocale.en.descriptionLabel, "Description");
-  assert.equal(agentsCopyByLocale["zh-CN"].descriptionLabel, "描述");
-});
-
 test("removed editor sections have no orphaned agent copy keys", () => {
   const removedKeys = [
     // 2-1 smart generation

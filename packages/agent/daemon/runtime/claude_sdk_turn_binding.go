@@ -1,12 +1,22 @@
 package agentruntime
 
 import (
+	"encoding/json"
 	"strings"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 )
 
-func claudeSDKRootProviderTurnStartedEvent(
+func claudeSDKEventRequiresBoundProviderIdentity(eventType string) bool {
+	switch eventType {
+	case "provider_turn_identity_resolved", "provider_turn_checkpoint":
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *ClaudeCodeSDKAdapter) claudeSDKRootProviderTurnStartedEvent(
 	session Session,
 	rootTurnID string,
 	providerTurnID string,
@@ -14,7 +24,7 @@ func claudeSDKRootProviderTurnStartedEvent(
 ) activityshared.Event {
 	ctx, ok := activityEventContext(
 		session,
-		"claude-sdk:provider-turn-started:"+providerTurnID,
+		"root-provider-turn-started:"+providerTurnID,
 		rootTurnID,
 	)
 	if !ok {
@@ -25,11 +35,18 @@ func claudeSDKRootProviderTurnStartedEvent(
 		rootTurnID,
 		providerTurnID,
 	)
+	binding, err := a.WriteProviderTurnBinding(ProviderTurnBindingWriteInput{
+		Kind:           ProviderTurnBindingWriteStarted,
+		ProviderTurnID: providerTurnID,
+	})
+	if err == nil {
+		event.Payload.ProviderTurnBindingJSON = binding
+	}
 	event.Payload.Metadata = clonePayload(metadata)
 	return event
 }
 
-func claudeSDKRootProviderTurnCheckpointEvent(
+func (a *ClaudeCodeSDKAdapter) claudeSDKRootProviderTurnCheckpointEvent(
 	session Session,
 	rootTurnID string,
 	providerTurnID string,
@@ -43,11 +60,21 @@ func claudeSDKRootProviderTurnCheckpointEvent(
 	if !ok {
 		return activityshared.Event{}
 	}
+	binding, err := a.WriteProviderTurnBinding(ProviderTurnBindingWriteInput{
+		Kind:           ProviderTurnBindingWriteCheckpoint,
+		ProviderTurnID: providerTurnID,
+		Payload: map[string]any{
+			"checkpointMessageId": checkpointMessageID,
+		},
+	})
+	if err != nil {
+		binding = json.RawMessage(`{}`)
+	}
 	return activityshared.NewRootProviderTurnCheckpoint(
 		ctx,
 		rootTurnID,
 		providerTurnID,
-		checkpointMessageID,
+		binding,
 	)
 }
 
@@ -124,6 +151,23 @@ func (a *ClaudeCodeSDKAdapter) rememberClaudeSDKRootProviderTurn(
 	}
 	adapterSession.rootProviderTurns[strings.TrimSpace(providerTurnID)] = struct{}{}
 	a.mu.Unlock()
+}
+
+func (a *ClaudeCodeSDKAdapter) activeClaudeSDKRootProviderTurnID(
+	adapterSession *claudeSDKAdapterSession,
+) string {
+	if a == nil || adapterSession == nil {
+		return ""
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(adapterSession.rootProviderTurns) != 1 {
+		return ""
+	}
+	for providerTurnID := range adapterSession.rootProviderTurns {
+		return strings.TrimSpace(providerTurnID)
+	}
+	return ""
 }
 
 func (a *ClaudeCodeSDKAdapter) consumeClaudeSDKRootProviderTurn(

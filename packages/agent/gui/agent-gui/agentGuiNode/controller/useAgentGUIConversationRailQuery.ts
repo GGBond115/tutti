@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import {
-  useAgentActivityRuntime,
-  type AgentActivityRuntime
+  useAgentGUIRuntime,
+  type AgentGUIRuntime
 } from "../../../agentActivityRuntime";
 import {
   createAgentGUIConversationRailQueryController,
@@ -36,7 +36,7 @@ export function useAgentGUIConversationRailQuery({
   userProjects,
   workspaceId
 }: AgentGUIConversationRailInput) {
-  const runtime = useAgentActivityRuntime();
+  const runtime = useAgentGUIRuntime();
   const batchDeletionCapability = useMemo(
     () => inspectAgentConversationBatchDeletionCapability(runtime),
     [runtime]
@@ -173,7 +173,7 @@ function identitySnapshot(
 }
 
 function createAgentGUIConversationRailRuntimeAdapter(
-  runtime: AgentActivityRuntime,
+  runtime: AgentGUIRuntime,
   nodeId: string | null | undefined
 ): ConversationRailQueryRuntime {
   const adapter: ConversationRailQueryRuntime = {};

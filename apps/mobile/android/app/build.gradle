@@ -7,6 +7,16 @@ react {
 }
 
 def mobileGoAar = file("${rootDir}/app/libs/tutti-mobile-go.aar")
+def releaseSigningEnvironment = [
+    keystorePath: System.getenv("TUTTI_ANDROID_RELEASE_KEYSTORE_PATH"),
+    keystorePassword: System.getenv("TUTTI_ANDROID_RELEASE_KEYSTORE_PASSWORD"),
+    keyAlias: System.getenv("TUTTI_ANDROID_RELEASE_KEY_ALIAS"),
+    keyPassword: System.getenv("TUTTI_ANDROID_RELEASE_KEY_PASSWORD"),
+]
+def missingReleaseSigningVariables = releaseSigningEnvironment.findAll { _, value ->
+    value == null || value.trim().isEmpty()
+}.keySet()
+def androidVersionCode = (System.getenv("TUTTI_ANDROID_VERSION_CODE") ?: "1").toInteger()
 
 tasks.register("verifyMobileGoAar") {
     doLast {
@@ -14,6 +24,28 @@ tasks.register("verifyMobileGoAar") {
             throw new GradleException(
                 "Mobile Go AAR is missing. Run pnpm --filter @tutti-os/mobile android:aar first."
             )
+        }
+    }
+}
+
+tasks.register("verifyReleaseSigningConfiguration") {
+    doLast {
+        if (!missingReleaseSigningVariables.isEmpty()) {
+            def variableNames = [
+                keystorePath: "TUTTI_ANDROID_RELEASE_KEYSTORE_PATH",
+                keystorePassword: "TUTTI_ANDROID_RELEASE_KEYSTORE_PASSWORD",
+                keyAlias: "TUTTI_ANDROID_RELEASE_KEY_ALIAS",
+                keyPassword: "TUTTI_ANDROID_RELEASE_KEY_PASSWORD",
+            ]
+            def missingVariables = missingReleaseSigningVariables.collect { variableNames[it] }.sort()
+            throw new GradleException(
+                "Android release signing is not configured. Missing: ${missingVariables.join(', ')}"
+            )
+        }
+
+        def keystoreFile = file(releaseSigningEnvironment.keystorePath)
+        if (!keystoreFile.isFile()) {
+            throw new GradleException("Android release keystore does not exist: ${keystoreFile}")
         }
     }
 }
@@ -28,11 +60,22 @@ android {
         applicationId "dev.tutti.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        versionCode androidVersionCode
         versionName "0.1.0"
+    }
+    signingConfigs {
+        release {
+            if (missingReleaseSigningVariables.isEmpty()) {
+                storeFile file(releaseSigningEnvironment.keystorePath)
+                storePassword releaseSigningEnvironment.keystorePassword
+                keyAlias releaseSigningEnvironment.keyAlias
+                keyPassword releaseSigningEnvironment.keyPassword
+            }
+        }
     }
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
@@ -48,7 +91,12 @@ tasks.named("preBuild").configure {
     dependsOn("verifyMobileGoAar")
 }
 
+tasks.matching { task -> task.name == "preReleaseBuild" }.configureEach {
+    dependsOn("verifyReleaseSigningConfiguration")
+}
+
 dependencies {
+    implementation("androidx.browser:browser:1.10.0")
     implementation("androidx.lifecycle:lifecycle-process:2.6.2")
     implementation("com.facebook.react:react-android")
     implementation("com.facebook.react:hermes-android")

@@ -3,10 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentComposerProps } from "../AgentComposer";
 import type { AgentGUIViewLabels } from "../AgentGUINodeView";
-import {
-  AgentGUIEmptyHeroPane,
-  AgentGUIEmptyHomePane
-} from "./AgentGUIEmptyState";
+import { AgentGUIEmptyHomePane } from "./AgentGUIEmptyState";
 
 vi.mock("../AgentComposer", () => ({
   AgentComposer: () => <div data-testid="agent-composer" />
@@ -73,27 +70,32 @@ describe("AgentGUIEmptyHeroPane notices", () => {
     expect(screen.queryByText(/unknown/i)).not.toBeInTheDocument();
   });
 
-  it("renders target connection chrome above the Home composer", () => {
+  it("reuses the Home status chrome for revoked sharing above the disabled composer", () => {
     render(
-      <AgentGUIEmptyHeroPane
+      <AgentGUIEmptyHomePane
+        isActive
+        isVisible
         provider="codex"
-        emptyLabel="What can Codex help you with?"
-        emptyProvider="Codex"
-        avatarPresentations={[
+        providerReadinessGate={null}
+        showAllProviders={false}
+        agentTargets={[]}
+        selectedAgentTarget={null}
+        labels={
           {
-            agentTargetId: "shared:codex",
-            iconUrl: "/codex.png",
-            label: "Codex",
-            provider: "codex",
-            targetId: "shared:codex"
-          }
-        ]}
+            empty: "What can Agent help with?",
+            emptyForProvider: () => "What can Agent help with?",
+            emptyProvider: "Agent",
+            emptyProviderForProvider: () => "Agent",
+            providerSwitchLabel: "Select Agent",
+            sharedAgentOwnerSeparator: "'s"
+          } as unknown as AgentGUIViewLabels
+        }
         noticeChrome={{
           auth: null,
           approval: null,
           recovery: {
-            kind: "transport-connecting",
-            message: "Connecting to the device...",
+            kind: "agent-sharing-revoked",
+            message: "Jackson stopped sharing this agent",
             canRetry: false
           },
           rawState: null
@@ -102,29 +104,18 @@ describe("AgentGUIEmptyHeroPane notices", () => {
         onSubmitApprovalOption={vi.fn()}
         onRetryActivation={vi.fn()}
         onContinueInNewConversation={vi.fn()}
-        agentTargets={[]}
-        selectedAgentTarget={null}
-        chromeLabels={{
-          approvalRequired: "Approval required",
-          authRequired: "Authentication required",
-          activatingSession: "Connecting session...",
-          retryActivation: "Retry",
-          continueInNewConversation: "Continue in new session"
-        }}
+        chromeLabels={{} as never}
         composerProps={{} as AgentComposerProps}
-        providerSelectLabel="Select agent"
-        sharedAgentOwnerSeparator="'s "
         suggestions={[]}
         onSelectSuggestion={vi.fn()}
       />
     );
 
-    const connectionNotice = screen.getByRole("status");
+    const status = screen.getByRole("alert");
     const composer = screen.getByTestId("agent-composer");
-
-    expect(connectionNotice).toHaveTextContent("Connecting to the device");
+    expect(status).toHaveTextContent("Jackson stopped sharing this agent");
     expect(
-      connectionNotice.compareDocumentPosition(composer) &
+      status.compareDocumentPosition(composer) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
   });

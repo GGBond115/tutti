@@ -125,8 +125,8 @@ func TestCodexAppServerAdapterSlashGoalContinuesUntilTerminalGoal(t *testing.T) 
 	if asString(goalSets[1]["status"]) != "active" {
 		t.Fatalf("continuation goal/set params = %#v, want active status", goalSets[1])
 	}
-	if asString(goalSets[1]["objective"]) != "finish the DrawingML pass" {
-		t.Fatalf("continuation goal objective = %#v", goalSets[1])
+	if _, hasObjective := goalSets[1]["objective"]; hasObjective {
+		t.Fatalf("continuation nudge must be status-only, got %#v", goalSets[1])
 	}
 }
 
@@ -612,6 +612,7 @@ func TestCodexAppServerAdapterMidTurnGoalClearDoesNotSteer(t *testing.T) {
 		nil,
 		nil,
 		func(result ProviderDispatchResult) { dispatches <- result },
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("Exec /goal clear: %v", err)

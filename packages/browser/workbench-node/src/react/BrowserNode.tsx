@@ -82,6 +82,7 @@ export interface BrowserNodeProps {
   defaultUrl: string;
   feature: BrowserNodeFeature;
   hidden?: boolean;
+  materializeCold?: boolean;
   renderHome?: (context: BrowserNodeHomeRenderContext) => ReactNode;
   navigationPolicy?: BrowserNodeNavigationPolicy | null;
   navigationActions?: ReactNode;
@@ -106,6 +107,7 @@ export function BrowserNode({
   defaultUrl,
   feature,
   hidden = false,
+  materializeCold = false,
   renderHome,
   navigationPolicy = null,
   navigationActions,
@@ -156,6 +158,7 @@ export function BrowserNode({
       defaultUrl={defaultUrl}
       feature={feature}
       hidden={hidden}
+      materializeCold={materializeCold}
       renderHome={renderHome}
       navigationPolicy={navigationPolicy}
       navigationActions={navigationActions}
@@ -255,6 +258,7 @@ function TabbedBrowserNode({
                   defaultUrl={tab.defaultUrl}
                   feature={feature}
                   hidden={hidden || !active}
+                  materializeCold={tab.materializeCold === true}
                   renderHome={renderHome}
                   navigationPolicy={navigationPolicy}
                   nodeId={tab.nodeId}
@@ -283,6 +287,7 @@ function BrowserNodeContent({
   defaultUrl,
   feature,
   hidden = false,
+  materializeCold = false,
   renderHome,
   navigationPolicy = null,
   navigationActions,
@@ -344,6 +349,7 @@ function BrowserNodeContent({
     feature,
     initialUrl: state.displayUrl,
     lifecycle: runtime.lifecycle,
+    materializeCold,
     navigationPolicy,
     nodeId,
     onGuestInteraction: onFocusRequest,

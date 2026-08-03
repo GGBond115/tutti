@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	agenthost "github.com/tutti-os/tutti/packages/agent/host"
@@ -55,7 +56,12 @@ func runPlanDecision(ctx context.Context, driver Driver) error {
 
 func runRecoveryOrder(ctx context.Context, driver Driver) error {
 	fixture := liveSessionFixture("session-recovery", "turn-recovery")
-	fixture.Turn = &TurnSeed{TurnID: "turn-recovery", Phase: canonical.TurnPhaseWaiting}
+	fixture.Turn = &TurnSeed{
+		TurnID:                  "turn-recovery",
+		Phase:                   canonical.TurnPhaseWaiting,
+		RootProviderTurnID:      "provider-turn-recovery",
+		ProviderTurnBindingJSON: json.RawMessage(`{"schemaVersion":1}`),
+	}
 	fixture.Interaction = &InteractionSeed{
 		RequestID: "request-recovery", TurnID: "turn-recovery",
 		Kind: canonical.InteractionKindApproval, Status: canonical.InteractionStatusPending,
@@ -67,7 +73,14 @@ func runRecoveryOrder(ctx context.Context, driver Driver) error {
 	if err := driver.Recover(ctx); err != nil {
 		return fmt.Errorf("recover host: %w", err)
 	}
-	steps := driver.Metrics().RecoverySteps
+	metrics := driver.Metrics()
+	if metrics.ExecCalls != 0 {
+		return fmt.Errorf(
+			"accepted incomplete turn was re-dispatched during recovery: exec calls=%d",
+			metrics.ExecCalls,
+		)
+	}
+	steps := metrics.RecoverySteps
 	want := []string{"runtime_requeue", "runtime_complete", "goal_requeue", "goal_inbox_requeue", "stale_settle", "worktree_sweep"}
 	if len(steps) != len(want) {
 		return fmt.Errorf("recovery steps=%v, want %v", steps, want)

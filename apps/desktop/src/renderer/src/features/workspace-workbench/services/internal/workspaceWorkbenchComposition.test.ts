@@ -17,11 +17,9 @@ import {
   createWorkspaceFilesDockEntry,
   toWorkspaceFilesActivation,
   workspaceAgentGuiNodeID,
-  workspaceAgentGuiNodeFrame,
   workspaceAgentGuiProviderFromLaunchRequest,
   workspaceBrowserNodeID,
   workspaceFilePreviewNodeFrame,
-  workspaceFilesNodeFrame,
   workspaceFilesNodeID
 } from "./workspaceWorkbenchComposition.ts";
 
@@ -77,29 +75,11 @@ test("workspace agent GUI creates opaque multi-open instance ids", () => {
   assert.match(second, /^agent-gui:instance:/);
 });
 
-test("workspace files open in the wide three-column frame", () => {
-  assert.deepEqual(workspaceFilesNodeFrame, {
-    height: 1200,
-    width: 2520,
-    x: 96,
-    y: 28
-  });
-});
-
 test("workspace file previews open at the task center default height", () => {
   assert.equal(
     workspaceFilePreviewNodeFrame.height,
     defaultIssueManagerNodeFrame.height
   );
-});
-
-test("workspace Agent GUI keeps its focused default size", () => {
-  assert.deepEqual(workspaceAgentGuiNodeFrame, {
-    height: defaultIssueManagerNodeFrame.height,
-    width: 1040,
-    x: 140,
-    y: 48
-  });
 });
 
 test("workspaceAgentGuiProviderFromLaunchRequest requires launch payload providers", () => {

@@ -27,4 +27,17 @@ describe("workspace state services", () => {
     expect(service.get("new")).toBe("");
     expect(service.get("session-1")).toBe("follow up");
   });
+
+  test("keeps the selected new-session project with the process draft", () => {
+    const service = new ComposerDraftService();
+    service.setSelectedProjectPath(" /workspace/tutti ");
+
+    expect(service.getSelectedProjectPath()).toBe("/workspace/tutti");
+    expect(
+      new ComposerDraftService(service.getSnapshot()).getSelectedProjectPath()
+    ).toBe("/workspace/tutti");
+
+    service.setSelectedProjectPath(null);
+    expect(service.getSelectedProjectPath()).toBeNull();
+  });
 });

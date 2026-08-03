@@ -153,6 +153,10 @@ LIMIT ?
 		)
 		return MessagePage{}, false, fmt.Errorf("iterate workspace agent messages: %w", err)
 	}
+	if err := rows.Close(); err != nil {
+		return MessagePage{}, false,
+			fmt.Errorf("close workspace agent message rows: %w", err)
+	}
 	hasMore := false
 	if input.Limit > 0 && len(messages) > input.Limit {
 		hasMore = true

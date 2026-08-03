@@ -95,6 +95,10 @@ func (*Store) upsertAgentMessageTx(
 		if turnID != "" {
 			return Message{}, false, fmt.Errorf("workspace agent session audit must not reference turn %q", turnID)
 		}
+	} else if kind == "collaboration" {
+		if turnID != "" {
+			return Message{}, false, fmt.Errorf("workspace agent collaboration message must not reference turn %q", turnID)
+		}
 	} else if turnID == "" && !allowLegacyTurnless {
 		return Message{}, false, fmt.Errorf("workspace agent message %q kind %q is missing turn", message.MessageID, kind)
 	} else if turnID != "" {

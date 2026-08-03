@@ -69,6 +69,25 @@ export function isLocalAbsolutePath(path: string): boolean {
   );
 }
 
+export function resolveMarkdownWorkspaceMediaPath(src: string): string | null {
+  const candidate = src.trim();
+  if (!isLocalAbsolutePath(candidate)) {
+    return null;
+  }
+
+  try {
+    const decodedPath = decodeURIComponent(candidate);
+    return decodedPath.length > 1 &&
+      decodedPath.startsWith("/") &&
+      !decodedPath.startsWith("//") &&
+      !decodedPath.includes("\0")
+      ? decodedPath
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function isHomeRelativePath(path: string): boolean {
   const candidate = path.trim();
   return (

@@ -35,6 +35,7 @@ export function classifyChangedFiles(
   return {
     packAll: packSelection.packAll,
     packPackages: packSelection.packageNames,
+    runAgentSessionReplay: normalizedFiles.some(isAgentSessionReplayRelevant),
     runBoundaries: groups.has("boundaries"),
     runContracts: groups.has("contracts"),
     runGenerated: groups.has("generated"),
@@ -126,6 +127,7 @@ export function formatClassificationOutputs(classification) {
   return [
     ["pack_all", classification.packAll],
     ["pack_packages", JSON.stringify(classification.packPackages)],
+    ["run_agent_session_replay", classification.runAgentSessionReplay],
     ["run_boundaries", classification.runBoundaries],
     ["run_contracts", classification.runContracts],
     ["run_generated", classification.runGenerated],
@@ -146,6 +148,40 @@ export function buildTypeScriptTestShards(packageNames, maximum = 3) {
   return Array.from(
     { length: shardCount },
     (_, index) => `${index + 1}/${shardCount}`
+  );
+}
+
+export function isAgentSessionReplayRelevant(file) {
+  return (
+    file === "package.json" ||
+    file === "pnpm-lock.yaml" ||
+    file === "apps/desktop/package.json" ||
+    file === "apps/desktop/electron.vite.config.ts" ||
+    file === "config/tutti.defaults.json" ||
+    file.startsWith("tools/scripts/run-agent-session-replay") ||
+    file === "tools/scripts/fixtures/agent-gui-performance/cursor-agent" ||
+    file.startsWith("packages/agent/session-replay/") ||
+    file.startsWith("packages/agent/daemon/providerregistry/") ||
+    file.startsWith("packages/agent/daemon/runtime/") ||
+    file.startsWith(
+      "apps/desktop/src/renderer/src/features/agent-session-replay/"
+    ) ||
+    file.startsWith("apps/desktop/src/main/agentSessionReplay") ||
+    file.startsWith("apps/desktop/src/main/daemon/") ||
+    file.startsWith("apps/desktop/src/preload/") ||
+    file === "apps/desktop/src/main/desktopAppLifecycle.ts" ||
+    file === "apps/desktop/src/shared/contracts/ipc.ts" ||
+    file.startsWith("services/tuttid/service/agentsessionreplay/") ||
+    file.startsWith("services/tuttid/data/agentsessionreplay/") ||
+    /services\/tuttid\/(?:agent_process_cassette|agent_replay_composition|agent_session_recording)\S*\.go$/u.test(
+      file
+    ) ||
+    /services\/tuttid\/api\/\S*agent_session_(?:recording|replay)\S*\.go$/u.test(
+      file
+    ) ||
+    /services\/tuttid\/data\/workspace\/\S*agent_session_(?:fixture|replay)\S*\.go$/u.test(
+      file
+    )
   );
 }
 

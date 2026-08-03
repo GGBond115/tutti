@@ -4,14 +4,16 @@ import { invokeDesktopApi } from "./invoke";
 
 export function createRuntimeDesktopApi(): DesktopRuntimeApi {
   return {
-    getAgentSessionReplayPlayback() {
+    getAgentSessionReplayPlayback(input) {
       return invokeDesktopApi(
-        desktopIpcChannels.runtime.getAgentSessionReplayPlayback
+        desktopIpcChannels.runtime.getAgentSessionReplayPlayback,
+        input
       );
     },
-    getAgentSessionReplayStatus() {
+    getAgentSessionReplayStatus(input) {
       return invokeDesktopApi(
-        desktopIpcChannels.runtime.getAgentSessionReplayStatus
+        desktopIpcChannels.runtime.getAgentSessionReplayStatus,
+        input
       );
     },
     getBackendConfig() {
@@ -22,6 +24,17 @@ export function createRuntimeDesktopApi(): DesktopRuntimeApi {
         desktopIpcChannels.runtime.getBusinessEventStreamUrl
       );
     },
+    importAgentSessionReplayCassettes(input) {
+      return invokeDesktopApi(
+        desktopIpcChannels.runtime.importAgentSessionReplayCassettes,
+        input
+      );
+    },
+    isAgentSessionReplayRuntime() {
+      // The replay runner launches the isolated Desktop with this variable;
+      // renderer processes inherit it, so preload can read it synchronously.
+      return process.env.TUTTI_AGENT_CASSETTE_MODE === "replay";
+    },
     listWorkspaceAgentProbes(input) {
       return invokeDesktopApi(
         desktopIpcChannels.runtime.listWorkspaceAgentProbes,
@@ -31,6 +44,12 @@ export function createRuntimeDesktopApi(): DesktopRuntimeApi {
     launchAgentSessionReplay(input) {
       return invokeDesktopApi(
         desktopIpcChannels.runtime.launchAgentSessionReplay,
+        input
+      );
+    },
+    revealAgentSessionReplayCassette(input) {
+      return invokeDesktopApi(
+        desktopIpcChannels.runtime.revealAgentSessionReplayCassette,
         input
       );
     },

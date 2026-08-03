@@ -4,12 +4,33 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NativeSheet } from "./sheet";
 
 const nativeModal = vi.hoisted(() => ({
+  keyboardBehavior: null as string | null,
+  keyboardVerticalOffset: null as number | null,
   onAccessibilityEscape: null as (() => void) | null,
   onRequestClose: null as (() => void) | null,
   panelStyle: null as unknown
 }));
 
 vi.mock("react-native", () => ({
+  KeyboardAvoidingView: ({
+    accessible,
+    behavior,
+    children,
+    keyboardVerticalOffset,
+    onAccessibilityEscape
+  }: {
+    accessible?: boolean;
+    behavior?: string;
+    children: ReactNode;
+    keyboardVerticalOffset?: number;
+    onAccessibilityEscape?(): void;
+  }) => {
+    nativeModal.keyboardBehavior = behavior ?? null;
+    nativeModal.keyboardVerticalOffset = keyboardVerticalOffset ?? null;
+    nativeModal.onAccessibilityEscape =
+      onAccessibilityEscape ?? nativeModal.onAccessibilityEscape;
+    return <div data-accessible={String(accessible)}>{children}</div>;
+  },
   Modal: ({
     children,
     onRequestClose,
@@ -22,6 +43,7 @@ vi.mock("react-native", () => ({
     nativeModal.onRequestClose = onRequestClose;
     return visible ? <div>{children}</div> : null;
   },
+  Platform: { OS: "android" },
   Pressable: ({
     accessibilityLabel,
     accessibilityRole,
@@ -54,20 +76,7 @@ vi.mock("react-native", () => ({
       </div>
     );
   },
-  StyleSheet: { create: (styles: unknown) => styles },
-  View: ({
-    accessible,
-    children,
-    onAccessibilityEscape
-  }: {
-    accessible?: boolean;
-    children: ReactNode;
-    onAccessibilityEscape?(): void;
-  }) => {
-    nativeModal.onAccessibilityEscape =
-      onAccessibilityEscape ?? nativeModal.onAccessibilityEscape;
-    return <div data-accessible={String(accessible)}>{children}</div>;
-  }
+  StyleSheet: { create: (styles: unknown) => styles }
 }));
 
 vi.mock("./theme-provider", () => ({
@@ -84,6 +93,8 @@ vi.mock("./theme-provider", () => ({
 
 describe("NativeSheet", () => {
   beforeEach(() => {
+    nativeModal.keyboardBehavior = null;
+    nativeModal.keyboardVerticalOffset = null;
     nativeModal.onAccessibilityEscape = null;
     nativeModal.onRequestClose = null;
     nativeModal.panelStyle = null;
@@ -175,5 +186,20 @@ describe("NativeSheet", () => {
     expect(nativeModal.panelStyle).toEqual(
       expect.arrayContaining([{ height: "50%" }])
     );
+  });
+
+  it("keeps the panel above the Android keyboard", () => {
+    render(
+      <NativeSheet
+        closeAccessibilityLabel="Close sheet"
+        onOpenChange={() => undefined}
+        open
+      >
+        content
+      </NativeSheet>
+    );
+
+    expect(nativeModal.keyboardBehavior).toBe("height");
+    expect(nativeModal.keyboardVerticalOffset).toBe(0);
   });
 });

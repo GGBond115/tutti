@@ -24,6 +24,9 @@ function createAppUpdateState(): AppUpdateState {
 
 function createAppUpdateServiceStub(): AppUpdateService {
   return {
+    async acquireMandatorySession() {
+      throw new Error("not used");
+    },
     async checkForUpdates() {
       return createAppUpdateState();
     },

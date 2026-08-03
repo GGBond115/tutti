@@ -70,6 +70,11 @@ export async function listDesktopWorkspaceAgentProbes(
   };
 }
 
+type DesktopAgentUsageProbeHandler = (
+  input: AgentProviderProbeListInput,
+  capturedAtUnixMs: number
+) => Promise<AgentProbeProvider>;
+
 function normalizeProbeProviders(providers: readonly string[] | undefined) {
   const defaults = migratedAgentGUIProviderIdentityCatalog
     .filter((entry) => entry.desktop.usageProbeKind !== "")
@@ -184,11 +189,6 @@ async function resolveDesktopAgentProbe(
     provider
   };
 }
-
-type DesktopAgentUsageProbeHandler = (
-  input: AgentProviderProbeListInput,
-  capturedAtUnixMs: number
-) => Promise<AgentProbeProvider>;
 
 const desktopAgentUsageProbeHandlers = new Map<
   string,

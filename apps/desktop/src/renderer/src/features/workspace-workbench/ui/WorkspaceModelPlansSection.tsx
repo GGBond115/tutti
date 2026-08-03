@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import {
   AddIcon,
   Button,
@@ -15,6 +16,7 @@ import {
 } from "../services/workspaceModelPlanTemplates";
 import type {
   WorkspaceModelPlan,
+  WorkspaceModelPlanCreatedHandoff,
   WorkspaceModelPlanReferenceKind,
   WorkspaceModelPlanStatus,
   WorkspaceSettingsModelPlansSnapshotState
@@ -107,11 +109,14 @@ export function WorkspaceModelPlansSection() {
               onUpdate={(patch) => service.modelPlans.updateDraft(patch)}
             />
           ) : (
-            <WorkspaceModelPlanRow
-              key={plan.id}
-              modelPlans={modelPlans}
-              plan={plan}
-            />
+            <Fragment key={plan.id}>
+              <WorkspaceModelPlanRow modelPlans={modelPlans} plan={plan} />
+              {modelPlans.createdPlanHandoff?.planID === plan.id ? (
+                <WorkspaceModelPlanHandoffBanner
+                  handoff={modelPlans.createdPlanHandoff}
+                />
+              ) : null}
+            </Fragment>
           )
         )}
         {draft && draft.planId === null ? (
@@ -161,6 +166,47 @@ export function WorkspaceModelPlansSection() {
   );
 }
 
+/**
+ * One-shot follow-up under a freshly created plan: offers the hand-off into
+ * agent configuration while the "what's next" moment is still on screen.
+ */
+function WorkspaceModelPlanHandoffBanner({
+  handoff
+}: {
+  handoff: Readonly<WorkspaceModelPlanCreatedHandoff>;
+}) {
+  const { t } = useTranslation();
+  const { service } = useWorkspaceSettingsService();
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] border border-[var(--border-1)] bg-[var(--transparency-block)] p-3">
+      <p className="m-0 text-[12px] leading-[1.4] text-[var(--text-secondary)]">
+        {t("workspace.settings.apps.modelPlans.handoffSavedHint", {
+          plan: handoff.planName
+        })}
+      </p>
+      <div className="flex shrink-0 items-center gap-2">
+        <Button
+          size="sm"
+          type="button"
+          onClick={() => {
+            void service.openAgentDraftForModelPlan(handoff.planID);
+          }}
+        >
+          {t("workspace.settings.apps.modelPlans.handoffConfigureAgent")}
+        </Button>
+        <Button
+          size="sm"
+          type="button"
+          variant="ghost"
+          onClick={() => service.modelPlans.dismissCreatedPlanHandoff()}
+        >
+          {t("workspace.settings.apps.modelPlans.handoffDismiss")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function WorkspaceModelPlanRow({
   modelPlans,
   plan
@@ -184,6 +230,12 @@ function WorkspaceModelPlanRow({
     (group) => group.kind === plan.templateKind
   );
   const checkedAt = plan.detection.checkedAt;
+  // Only an explicit 0 may claim the plan is unused; an unknown count renders
+  // nothing. The hand-off banner already carries the same message for a plan
+  // that was just created, so the chip yields to it.
+  const unused =
+    modelPlans.planReferenceCounts[plan.id] === 0 &&
+    modelPlans.createdPlanHandoff?.planID !== plan.id;
 
   return (
     <section className="flex w-full flex-col gap-3 rounded-[10px] border border-[var(--border-1)] bg-[var(--transparency-block)] p-4">
@@ -199,6 +251,20 @@ function WorkspaceModelPlanRow({
                 {t(planStatusLabelKeys[plan.status])}
               </span>
             </span>
+            {unused ? (
+              <button
+                className="flex shrink-0 items-center rounded-full bg-[var(--transparency-block)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)] transition-colors duration-150 hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]"
+                title={t(
+                  "workspace.settings.apps.modelPlans.handoffConfigureAgent"
+                )}
+                type="button"
+                onClick={() => {
+                  void service.openAgentDraftForModelPlan(plan.id);
+                }}
+              >
+                {t("workspace.settings.apps.modelPlans.unusedByAgents")}
+              </button>
+            ) : null}
           </div>
           <p className="m-0 mt-1 truncate text-[11px] leading-[1.3] text-[var(--text-secondary)]">
             {[

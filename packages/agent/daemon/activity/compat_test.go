@@ -5,7 +5,40 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	replay "github.com/tutti-os/tutti/packages/agent/session-replay"
 )
+
+func TestReportActivityAsSessionUpdatesRejectsDroppedReplayCommitContext(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	_, err := ReportActivityAsSessionUpdates(
+		context.Background(),
+		&captureSessionReporter{},
+		ReportActivityInput{
+			WorkspaceID: "workspace-1",
+			Source: EventSource{
+				AgentID:       "session-1",
+				SessionOrigin: WorkspaceAgentSessionOriginRuntime,
+			},
+			StatePatches: []WorkspaceAgentStatePatch{{
+				AgentSessionID: "session-1",
+			}},
+			ProviderObservations: []replay.ProviderObservationBatch{{
+				RecordingID:  "recording-1",
+				ConnectionID: "provider-1",
+				ChunkSeq:     1,
+				UnitIndex:    1,
+			}},
+		},
+	)
+	if err == nil ||
+		!strings.Contains(err.Error(), "does not support Replay commit context") {
+		t.Fatalf("ReportActivityAsSessionUpdates() error = %v", err)
+	}
+}
 
 func TestSessionMessageDecodesDurableSequenceAsInternalID(t *testing.T) {
 	t.Parallel()

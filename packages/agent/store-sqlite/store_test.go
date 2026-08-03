@@ -511,6 +511,47 @@ func TestSessionAuditIsTurnlessAndDoesNotChangeActiveTurn(t *testing.T) {
 	}
 }
 
+func TestCollaborationMessageIsTurnlessAndDoesNotChangeActiveTurn(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, testOptions(&staticProjectPaths{}))
+	ctx := context.Background()
+	if _, err := store.ReportSessionState(ctx, SessionStateReport{
+		WorkspaceID: "ws-collaboration", AgentSessionID: "session-collaboration", Origin: "runtime", Provider: "codex",
+		Status: "running", CurrentPhase: "working", OccurredAtUnixMS: 100,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, accepted, err := store.RecordTurnTransition(ctx, TurnTransition{
+		WorkspaceID: "ws-collaboration", AgentSessionID: "session-collaboration", TurnID: "turn-active",
+		Phase: TurnPhaseRunning, Origin: TurnOriginUserPrompt, OccurredAtUnixMS: 101,
+	}); err != nil || !accepted {
+		t.Fatalf("RecordTurnTransition() accepted=%v error=%v", accepted, err)
+	}
+
+	result, err := store.ReportSessionMessages(ctx, SessionMessageReport{
+		WorkspaceID: "ws-collaboration", AgentSessionID: "session-collaboration", Origin: "runtime", Provider: "codex",
+		Messages: []MessageUpdate{{
+			MessageID: "collab:run-1", Role: "assistant", Kind: "collaboration", Status: "completed",
+			Payload: map[string]any{"runId": "run-1", "adoption": "pending"}, OccurredAtUnixMS: 102,
+		}},
+	})
+	if err != nil || result.AcceptedCount != 1 || result.Messages[0].TurnID != "" {
+		t.Fatalf("collaboration result=%#v error=%v", result, err)
+	}
+	turn, ok, err := store.GetTurn(ctx, "ws-collaboration", "session-collaboration", "turn-active")
+	if err != nil || !ok || turn.Phase != TurnPhaseRunning {
+		t.Fatalf("active turn=%#v ok=%v error=%v", turn, ok, err)
+	}
+	if _, err := store.ReportSessionMessages(ctx, SessionMessageReport{
+		WorkspaceID: "ws-collaboration", AgentSessionID: "session-collaboration", Origin: "runtime",
+		Messages: []MessageUpdate{{
+			MessageID: "collab:run-with-turn", TurnID: "turn-active", Role: "assistant", Kind: "collaboration", OccurredAtUnixMS: 103,
+		}},
+	}); err == nil {
+		t.Fatal("turn-scoped collaboration message was accepted")
+	}
+}
+
 func TestHistoricalImportCompatibilityCannotBeForgedByOrigin(t *testing.T) {
 	t.Parallel()
 	store := openTestStore(t, testOptions(&staticProjectPaths{}))

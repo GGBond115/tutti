@@ -6,6 +6,7 @@ import type {
 export interface AgentTargetSetupFailureNotification {
   actionId: string;
   actionKind: AgentHostAgentTargetSetupAction["kind"];
+  errorCode?: string;
   errorMessage?: string;
   kind: "action_failed";
 }
@@ -36,6 +37,7 @@ export function createAgentTargetSetupFailureNotificationController(
       return {
         actionId: action.actionId,
         actionKind: action.kind,
+        errorCode: action.errorCode?.trim() || undefined,
         errorMessage: action.errorMessage?.trim() || undefined,
         kind: "action_failed"
       };

@@ -88,10 +88,15 @@ func runRuntimeSetup(
 	}
 	methods := make([]RuntimeAuthMethod, 0, len(result.AuthMethods))
 	for _, method := range result.AuthMethods {
+		var declaration *AuthenticationMethodProfile
+		if declared, ok := binding.AuthenticationMethods[method.ID]; ok &&
+			strings.TrimSpace(method.Type) == strings.TrimSpace(declared.Type) {
+			declaration = &declared
+		}
 		methods = append(methods, RuntimeAuthMethod{
 			ID: method.ID, Name: method.Name, Description: method.Description,
 			Type:            method.Type,
-			TerminalCommand: terminalLoginCommand(binding.Command, method),
+			TerminalCommand: terminalLoginCommand(binding.Command, method, declaration),
 		})
 	}
 	var account *RuntimeAuthenticatedAccount
@@ -104,25 +109,36 @@ func runRuntimeSetup(
 	return RuntimeProbeResult{Status: RuntimeProbeStatus(result.Status), AuthMethods: methods, Account: account}, nil
 }
 
-// terminalLoginCommand renders the interactive sign-in command for
-// terminal-type auth methods. Provider-declared args come in two shapes: a
-// subcommand for the runtime binary (["login"] renders `<agent> login`), or
-// flags for the full ACP launch command (["--login"] renders
-// `<agent> acp --login` — the form the native Kimi Code CLI declares as its
-// ACP terminal-auth entry point).
-func terminalLoginCommand(command []string, method agentruntime.StandardACPAuthMethod) string {
-	if method.Type != "terminal" || len(command) == 0 || strings.TrimSpace(command[0]) == "" {
+// terminalLoginCommand renders the interactive sign-in command for a terminal
+// auth method. The fresh ACP method type remains authoritative. A compatible
+// signed extension declaration may replace only the terminal command args, so
+// provider-specific subcommands stay in the extension package without turning
+// a future browser or device-code method with the same ID into terminal auth.
+func terminalLoginCommand(
+	command []string,
+	method agentruntime.StandardACPAuthMethod,
+	declaration *AuthenticationMethodProfile,
+) string {
+	methodType := method.Type
+	args := method.Args
+	runtimeSubcommand := false
+	if declaration != nil &&
+		strings.TrimSpace(method.Type) == strings.TrimSpace(declaration.Type) {
+		args = declaration.Command.Args
+		runtimeSubcommand = declaration.Command.Strategy == "runtime-subcommand"
+	}
+	if methodType != "terminal" || len(command) == 0 || strings.TrimSpace(command[0]) == "" {
 		return ""
 	}
 	base := command[:1]
-	if len(method.Args) > 0 && strings.HasPrefix(method.Args[0], "-") {
+	if !runtimeSubcommand && len(args) > 0 && strings.HasPrefix(args[0], "-") {
 		base = command
 	}
-	parts := make([]string, 0, len(base)+len(method.Args))
+	parts := make([]string, 0, len(base)+len(args))
 	for _, element := range base {
 		parts = append(parts, shellQuote(element))
 	}
-	for _, arg := range method.Args {
+	for _, arg := range args {
 		parts = append(parts, shellQuote(arg))
 	}
 	return strings.Join(parts, " ")

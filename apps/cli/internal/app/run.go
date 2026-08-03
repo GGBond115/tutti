@@ -391,7 +391,7 @@ func printCommandPrefixHelp(stdout io.Writer, commandName string, prefix []strin
 	if len(matches) == 0 {
 		return false
 	}
-	fmt.Fprintf(stdout, "Usage: %s %s <command> [--json]\n", commandName, strings.Join(prefix, " "))
+	fmt.Fprintf(stdout, "Usage: %s %s <command>\n", commandName, strings.Join(prefix, " "))
 	fmt.Fprintln(stdout)
 	fmt.Fprintln(stdout, "Commands:")
 	printHelpRows(stdout, prefixHelpRows(prefix, matches))
@@ -404,7 +404,10 @@ func printCommandPrefixHelp(stdout io.Writer, commandName string, prefix []strin
 
 func printDynamicCommandHelp(stdout io.Writer, commandName string, command daemon.Capability) {
 	flags := waitCommandFlags(command, commandFlags(command.InputSchema))
-	fmt.Fprintf(stdout, "Usage: %s %s [--json]", commandName, strings.Join(command.Path, " "))
+	fmt.Fprintf(stdout, "Usage: %s %s", commandName, strings.Join(command.Path, " "))
+	if command.Output.JSON || command.Output.DefaultMode == "json" {
+		fmt.Fprint(stdout, " [--json]")
+	}
 	for _, flag := range flags {
 		if flag.Required {
 			fmt.Fprintf(stdout, " --%s <value>", flag.Name)

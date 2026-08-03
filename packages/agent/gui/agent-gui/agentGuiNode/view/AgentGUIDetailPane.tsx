@@ -2,7 +2,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../../shared/AgentMessageMarkdown";
 import { latestAssistantMessageText } from "../../../shared/agentConversation/projection/agentConversationProjection";
 import { AGENT_GUI_WORKBENCH_OPEN_EXTERNAL_IMPORT_EVENT } from "../../../workbench/contribution";
-import { resolveAgentGuiWorkbenchProviderLabel } from "../../../workbench/providerCatalog";
 import type { AgentComposerProps } from "../AgentComposer";
 import type { AgentHomeSuggestionAction } from "../model/agentGuiNodeTypes";
 import { updateAgentComposerDraft } from "../model/agentComposerDraft";
@@ -15,8 +14,7 @@ import {
 import { AgentGUIBottomDockPane } from "./AgentGUIBottomDockPane";
 import {
   AgentGUIEmptyHomePane,
-  EMPTY_HOME_SUGGESTIONS,
-  resolveAgentGUIHeroIconUrl
+  EMPTY_HOME_SUGGESTIONS
 } from "./AgentGUIEmptyState";
 import { AgentGUIContentToast } from "./AgentGUIContentToast";
 import { AgentGUIDetailTimeline } from "./AgentGUIDetailTimeline";
@@ -77,7 +75,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   onRequestGitBranches,
   onRequestComposerFocus,
   workspaceAppIcons = EMPTY_WORKSPACE_APP_ICONS,
-  renderProviderUnavailableState,
   renderComposerFooterAccessory
 }: AgentGUIDetailPaneProps): React.JSX.Element {
   "use memo";
@@ -130,7 +127,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     inlineNoticeChrome,
     interactivePromptLabels,
     isComposerSending,
-    selectedAgentTargetComingSoon,
     sessionChrome,
     showStopButton,
     stopDisabled,
@@ -312,7 +308,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     },
     [submitInteractivePrompt]
   );
-  const canSwitchComposerProvider = true;
   const isInteractionPending =
     viewModel.interaction.isRespondingApproval ||
     composerGate.runtime.status === "blocked";
@@ -397,11 +392,8 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       agentTargets: composerProviderTargets,
       handoffAgentTargets: composerHandoffProviderTargets,
       showHandoffTargetOwnershipLabels,
-      providerSelectReadonly:
-        !canSwitchComposerProvider ||
-        viewModel.rail.activeConversationId !== null,
+      providerSelectReadonly: viewModel.rail.activeConversationId !== null,
       onProviderSelect:
-        canSwitchComposerProvider &&
         viewModel.rail.activeConversationId === null
           ? selectHomeComposerAgentTargetAndFocus
           : undefined,
@@ -425,6 +417,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
         : labels.initialPlaceholder,
       showStopButton:
         showStopButton || tuttiWorkflowComposer.tuttiExecutionActive,
+      activeTurnId: sourceActiveTurn?.turnId ?? null,
       draftOverridesStopButton: tuttiWorkflowComposer.tuttiExecutionActive,
       stopDisabled:
         stopDisabled ||
@@ -505,7 +498,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     [
       capabilityMenuState,
       capabilityControlsReadOnly,
-      canSwitchComposerProvider,
       composerDisabledReason,
       composerGate,
       composerFocusRequestSequence,
@@ -543,6 +535,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       sendQueuedPromptNext,
       showPromptImagesUnsupported,
       showStopButton,
+      sourceActiveTurn?.turnId,
       showHandoffTargetOwnershipLabels,
       stopDisabled,
       slashStatus,
@@ -605,6 +598,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       isActive: baseComposerProps.isActive,
       isSendingTurn: baseComposerProps.isSendingTurn,
       isSubmittingPrompt: baseComposerProps.isSubmittingPrompt,
+      composerSettings: baseComposerProps.composerSettings,
       selectedAgentTarget: baseComposerProps.selectedAgentTarget
     }) ?? null;
   const bottomDockComposerProps = useMemo<AgentComposerProps>(
@@ -623,15 +617,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   );
   const emptyHeroProvider =
     composerSelectedProviderTarget?.provider ?? viewModel.shell.data.provider;
-  const disabledProviderTarget =
-    composerSelectedProviderTarget?.disabled === true ||
-    selectedAgentTargetComingSoon
-      ? composerSelectedProviderTarget
-      : null;
-  const shouldRenderProviderUnavailableState =
-    !hasActiveConversation &&
-    disabledProviderTarget !== null &&
-    renderProviderUnavailableState !== undefined;
   const bottomDockStoreRevision = [
     bottomDockLiftedPrompt?.requestId ?? "",
     bottomDockReplacementPrompt?.requestId ?? "",
@@ -670,52 +655,33 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     viewModel
   });
   const homeContent = !hasActiveConversation ? (
-    shouldRenderProviderUnavailableState && disabledProviderTarget ? (
-      <>
-        {renderProviderUnavailableState?.({
-          provider: disabledProviderTarget.provider,
-          providerLabel:
-            labels.emptyProviderForProvider?.(
-              disabledProviderTarget.provider
-            ) ??
-            resolveAgentGuiWorkbenchProviderLabel(
-              disabledProviderTarget.provider
-            ),
-          target: disabledProviderTarget,
-          iconUrl: resolveAgentGUIHeroIconUrl(disabledProviderTarget.provider),
-          unavailableReason: disabledProviderTarget.unavailableReason ?? null
-        })}
-      </>
-    ) : (
-      <AgentGUIEmptyHomePane
-        isActive={isActive}
-        isVisible={isVisible}
-        provider={emptyHeroProvider}
-        providerReadinessGate={emptyProviderReadinessGate}
-        showAllProviders={viewModel.rail.conversationFilter.kind === "all"}
-        agentTargets={composerProviderTargets}
-        selectedAgentTarget={composerSelectedProviderTarget}
-        onProviderSelect={
-          canSwitchComposerProvider &&
-          viewModel.rail.activeConversationId === null
-            ? selectHomeComposerAgentTargetAndFocus
-            : undefined
-        }
-        noticeChrome={homeNoticeChrome}
-        isRespondingApproval={isInteractionPending}
-        onSubmitApprovalOption={submitApprovalOption}
-        onRetryActivation={retryActivation}
-        onAuthLogin={authLogin}
-        onContinueInNewConversation={continueInNewConversation}
-        chromeLabels={chromeLabels}
-        composerProps={emptyHeroComposerProps}
-        labels={labels}
-        suggestions={labels.homeSuggestions ?? EMPTY_HOME_SUGGESTIONS}
-        suggestionsCloseLabel={labels.homeSuggestionsClose}
-        onSelectSuggestion={handleSelectHomeSuggestion}
-        onSelectSuggestionAction={handleHomeSuggestionAction}
-      />
-    )
+    <AgentGUIEmptyHomePane
+      isActive={isActive}
+      isVisible={isVisible}
+      provider={emptyHeroProvider}
+      providerReadinessGate={emptyProviderReadinessGate}
+      showAllProviders={viewModel.rail.conversationFilter.kind === "all"}
+      agentTargets={composerProviderTargets}
+      selectedAgentTarget={composerSelectedProviderTarget}
+      onProviderSelect={
+        viewModel.rail.activeConversationId === null
+          ? selectHomeComposerAgentTargetAndFocus
+          : undefined
+      }
+      noticeChrome={homeNoticeChrome}
+      isRespondingApproval={isInteractionPending}
+      onSubmitApprovalOption={submitApprovalOption}
+      onRetryActivation={retryActivation}
+      onAuthLogin={authLogin}
+      onContinueInNewConversation={continueInNewConversation}
+      chromeLabels={chromeLabels}
+      composerProps={emptyHeroComposerProps}
+      labels={labels}
+      suggestions={labels.homeSuggestions ?? EMPTY_HOME_SUGGESTIONS}
+      suggestionsCloseLabel={labels.homeSuggestionsClose}
+      onSelectSuggestion={handleSelectHomeSuggestion}
+      onSelectSuggestionAction={handleHomeSuggestionAction}
+    />
   ) : null;
   const forkedFrom =
     viewModel.detail.conversationDetail?.session.forkedFrom ?? null;

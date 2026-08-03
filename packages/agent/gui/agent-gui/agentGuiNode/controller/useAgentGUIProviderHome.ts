@@ -5,7 +5,7 @@ import {
   type Dispatch,
   type SetStateAction
 } from "react";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import {
   selectEngineSession,
   selectEngineSessionDeleted,
@@ -54,7 +54,7 @@ interface UseAgentGUIProviderHomeInput {
   activeConversationId: string | null;
   activeConversationIdRef: CurrentValue<string | null>;
   activePendingActivation: PendingActivationIntentRecord | null;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   clearRailRevealRequest(): void;
   conversationFilter: AgentGUIConversationFilter;
   conversationFilterRef: CurrentValue<AgentGUIConversationFilter>;

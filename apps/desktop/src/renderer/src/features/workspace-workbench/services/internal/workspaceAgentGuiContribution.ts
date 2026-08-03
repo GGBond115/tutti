@@ -60,9 +60,11 @@ import { requestWorkspaceIssueManagerLaunch } from "../workspaceIssueManagerLaun
 import { requestGroupChatLaunch } from "../groupChatLaunchCoordinator.ts";
 import { useExternalStoreValue } from "../../ui/useExternalStoreValue.ts";
 import { workspaceAgentGuiNodeFrame } from "./workspaceWorkbenchComposition.ts";
+import type { AgentSessionReplayDesktopComposition } from "@renderer/features/agent-session-replay/services/agentSessionReplayDesktopComposition.ts";
 
 export function createWorkspaceAgentGuiContribution(input: {
   agentQuickPromptService?: AgentQuickPromptService;
+  agentSessionReplayComposition?: AgentSessionReplayDesktopComposition | null;
   agentProviderStatusService: AgentProviderStatusService;
   appCenterService: IWorkspaceAppCenterService;
   appI18n: I18nRuntime<string>;
@@ -105,6 +107,7 @@ export function createWorkspaceAgentGuiContribution(input: {
     : null;
   const agentGUIWorkbenchHostInput = createDesktopAgentGUIWorkbenchHostInput({
     agentQuickPromptService: input.agentQuickPromptService,
+    agentSessionReplayComposition: input.agentSessionReplayComposition,
     hostFilesApi: input.hostFilesApi,
     eventStreamClient: input.eventStreamClient,
     tuttidClient: input.tuttidClient,
@@ -164,8 +167,6 @@ export function createWorkspaceAgentGuiContribution(input: {
     return createElement(DesktopWorkspaceAgentGUIWorkbenchBody, {
       agentActivityRuntime: agentGUIWorkbenchHostInput.agentActivityRuntime,
       agentHostApi: agentGUIWorkbenchHostInput.agentHostApi,
-      agentSessionActivityReplay:
-        agentGUIWorkbenchHostInput.agentSessionActivityReplay,
       agentSessionReplayService:
         agentGUIWorkbenchHostInput.agentSessionReplayService,
       agentStatusSource: workspaceAgentStatusSource,
@@ -329,8 +330,14 @@ function resolveWorkspaceAgentGuiProviderAvailability(
 ): Partial<Record<AgentGuiWorkbenchProvider, boolean>> {
   const availability: Partial<Record<AgentGuiWorkbenchProvider, boolean>> = {};
   for (const status of service.getSnapshot().statuses) {
-    if (isAgentGuiWorkbenchProvider(status.provider)) {
-      availability[status.provider] = status.availability.status === "ready";
+    if (!isAgentGuiWorkbenchProvider(status.provider)) {
+      continue;
+    }
+    // Only pin ready providers. Contribution rebuilds freeze this map; marking
+    // in-flight probes as false blocks dock launch until the next revision and
+    // Agent Session Replay clicks often land in that window.
+    if (status.availability.status === "ready") {
+      availability[status.provider] = true;
     }
   }
   return availability;

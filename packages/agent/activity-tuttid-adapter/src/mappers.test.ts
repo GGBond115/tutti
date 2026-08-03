@@ -1,14 +1,52 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type {
+  WorkspaceAgentSessionGoalControlResponse,
   WorkspaceAgentSession,
   WorkspaceAgentSessionMessage
 } from "@tutti-os/client-tuttid-ts";
 import {
+  agentActivityGoalControlResultFromTuttid,
   agentActivityMessageFromTuttidMessage,
   agentActivitySessionFromTuttidSession,
   agentActivityTuttiModeActivationFromTuttid
 } from "./index.ts";
+
+test("goal control mapping preserves operation evidence and explicit clear", () => {
+  const response = {
+    goal: null,
+    operationId: " operation-1 ",
+    session: {
+      ...createSession(),
+      goal: {
+        objective: "stale session projection",
+        status: "active"
+      }
+    },
+    state: {
+      desired: null,
+      lastEvidence: { source: "goal-control" },
+      observed: null,
+      observedAtUnixMs: null,
+      pendingOperationId: null,
+      revision: 3,
+      syncStatus: "synced",
+      tombstoned: true,
+      updatedAtUnixMs: 10
+    }
+  } satisfies WorkspaceAgentSessionGoalControlResponse;
+
+  const result = agentActivityGoalControlResultFromTuttid(
+    "workspace-1",
+    response,
+    { currentUserId: "account-user-1" }
+  );
+
+  assert.equal(result.goal, null);
+  assert.equal(result.operationId, "operation-1");
+  assert.deepEqual(result.state, response.state);
+  assert.notEqual(result.state?.lastEvidence, response.state.lastEvidence);
+});
 
 test("session mapping requires and preserves the host-owned user identity", () => {
   const session = agentActivitySessionFromTuttidSession(

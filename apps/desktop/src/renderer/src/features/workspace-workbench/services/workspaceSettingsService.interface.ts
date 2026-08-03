@@ -53,6 +53,7 @@ export interface WorkspaceSettingsWorkspaceInput {
  */
 export interface IWorkspaceAgentsController {
   beginDraft(): void;
+  beginDraftForModelPlan(planID: string): void;
   beginEditAgent(agentID: string): void;
   cancelDeleteAgent(): void;
   cancelDraft(): void;
@@ -88,6 +89,7 @@ export interface IWorkspaceModelPlansController {
   cancelDraft(): void;
   confirmDeletePlan(planID: string): Promise<void>;
   detectPlan(planID: string): Promise<void>;
+  dismissCreatedPlanHandoff(): void;
   duplicatePlan(planID: string): Promise<void>;
   fetchDraftModels(): Promise<void>;
   refresh(): Promise<void>;
@@ -136,6 +138,12 @@ export interface IWorkspaceSettingsService {
   ): void;
   selectSection(sectionID: WorkspaceSettingsSectionID): void;
   selectAgentTab(tab: WorkspaceSettingsAgentTab): void;
+  /**
+   * Hand-off from a saved model plan into agent configuration: switches to
+   * the custom-agents tab and opens (or adopts into) an agent draft with the
+   * plan prefilled when compatible.
+   */
+  openAgentDraftForModelPlan(planID: string): Promise<void>;
   setDeveloperPanelVisible(visible: boolean): void;
   setAgentTargetEnabled(agentTargetID: string, enabled: boolean): Promise<void>;
   changeDefaultAgentProvider(

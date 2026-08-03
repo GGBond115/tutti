@@ -1,5 +1,11 @@
 import type { WorkspaceAppManifest } from "./manifest.ts";
 
+export type WorkspaceAppCategoryId =
+  | "product-design"
+  | "content-creation"
+  | "office"
+  | "tools";
+
 export type WorkspaceAppCatalogSourceKind =
   | "bundled"
   | "local"
@@ -39,6 +45,7 @@ export interface WorkspaceAppRecord {
   readonly availableVersion?: string | null;
   readonly catalog?: WorkspaceAppCatalogEntry | null;
   readonly category?: string | null;
+  readonly categoryId?: WorkspaceAppCategoryId | null;
   readonly createdAtUnixMs?: number | null;
   readonly install?: WorkspaceAppInstallRecord | null;
   readonly manifest: WorkspaceAppManifest;

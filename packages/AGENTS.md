@@ -26,11 +26,13 @@ If you are editing `packages/ui/*`, also read [packages/ui/AGENTS.md](ui/AGENTS.
 ## Package groups
 
 - `clients/*`: shared domain-specific clients
-- `device-link`: shared ICE/QUIC peer transport and gomobile boundary
+- `connector/*`: reusable connector-domain contracts and application cores shared by daemon hosts
+- `device-link`: shared ICE/QUIC peer transport, product-neutral Relay stream mechanics, and gomobile boundary
 - `events/*`: shared schema-first business event protocol contracts and generated transport metadata
 - `agent/*`: Agent lifecycle Host, canonical store, frontend activity engine, replication contract, and GUI boundaries
 - `browser/*`: reusable browser/workbench node mechanics for desktop hosts
 - `configs/*`: shared TypeScript and formatting config
+- `desktop/*`: product-neutral desktop lifecycle and host-integration contracts shared by desktop products
 - `ui/*`: shared frontend-foundation packages
 - `workbench/*`: shared Workbench host lifecycle, snapshot contract, and reusable surface packages for the open-source desktop and TSH
 - `workspace/*`: narrow workspace-domain contracts and feature surfaces intended for reuse across the open-source desktop, TSH, and TACH
@@ -40,9 +42,11 @@ If you are editing `packages/ui/*`, also read [packages/ui/AGENTS.md](ui/AGENTS.
 - name packages by responsibility, not by audience
 - avoid vague names such as `shared`, `common`, `utils`, or `client-sdk`
 - keep `clients/*` focused on domain-specific access patterns
-- keep `device-link` transport-only: it may own candidate selection, authenticated peer streams, generation-fenced admission, product-neutral pooling/racing/probe mechanics, and platform build boundaries, but not account, pairing, rendezvous, path-specific authentication, Relay product policy, or Agent/Workspace DTOs
+- keep `connector/*` focused on host-neutral connector semantics, contracts, and state; concrete catalog endpoints, persistence, credentials, installation directories, and generated daemon clients stay in host adapters
+- keep `device-link` transport-only: it may own candidate selection, authenticated peer streams, generation-fenced admission, product-neutral pooling/racing/probe mechanics, WebSocket/yamux Relay byte-stream mechanics, and platform build boundaries, but not account, pairing, rendezvous, path-specific authentication, Relay authorization or product policy, or Agent/Workspace DTOs
 - keep `events/*` focused on repository-owned business event protocol contracts, topic catalogs, generated validators, and transport metadata rather than socket lifecycle or daemon business workflows
 - keep `browser/*` focused on browser mechanics, workbench node integration, bridge shape, Electron webview guest management, and package-local i18n defaults; host product globals, backend-token access, preview proxy behavior, and business bridge methods stay in host adapters
+- keep `desktop/*` focused on product-neutral desktop lifecycle, contracts, and adapters; product transport, release URLs, update feeds, assets, and business-window selection stay in host composition
 - keep `ui/*` focused on shared frontend-foundation concerns such as tokens, icons, styles, primitives, and host-agnostic i18n runtime support
 - keep `workbench/*` focused on product-neutral host lifecycle, snapshot compatibility, and Workbench interaction mechanics, not product-specific node UI or app workflows
 - keep `workspace/*` focused on reusable workspace-domain semantics and state; concrete host adapters stay in the owning service, app, or integration

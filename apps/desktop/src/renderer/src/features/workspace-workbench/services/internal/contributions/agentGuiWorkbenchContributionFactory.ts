@@ -8,6 +8,7 @@ type AgentGuiWorkbenchContributionContext = Pick<
   DesktopWorkbenchContributionContext,
   | "agentProviderStatusService"
   | "agentQuickPromptService"
+  | "agentSessionReplayComposition"
   | "agentsService"
   | "appCenterService"
   | "appI18n"
@@ -41,6 +42,7 @@ export const agentGuiWorkbenchContributionFactory: DesktopWorkbenchContributionF
     create(context) {
       return createWorkspaceAgentGuiContribution({
         agentQuickPromptService: context.agentQuickPromptService,
+        agentSessionReplayComposition: context.agentSessionReplayComposition,
         agentProviderStatusService: context.agentProviderStatusService,
         appCenterService: context.appCenterService,
         appI18n: context.appI18n,

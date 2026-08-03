@@ -5,7 +5,7 @@ import {
   type SetStateAction
 } from "react";
 import { flushSync } from "react-dom";
-import type { AgentActivityRuntime } from "../../../agentActivityRuntime";
+import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import type { useAgentHostApi } from "../../../agentActivityHost";
 import type { AgentSessionViewRef } from "../../../contexts/workspace/presentation/renderer/agentSessions/useAgentSessionPagingState";
 import type { AgentGUINodeData } from "../../../types";
@@ -50,7 +50,7 @@ export interface UseAgentGUIConversationBatchDeletionInput {
   removeConversations: (agentSessionIds: readonly string[]) => void;
   workspaceId: string;
   setIsDeletingProjectConversations: Dispatch<SetStateAction<boolean>>;
-  agentActivityRuntime: AgentActivityRuntime;
+  agentActivityRuntime: AgentGUIRuntime;
   dataRef: RefObject<AgentGUINodeData>;
   agentHostApi: ReturnType<typeof useAgentHostApi>;
 }

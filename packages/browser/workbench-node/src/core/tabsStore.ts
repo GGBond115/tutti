@@ -1,6 +1,7 @@
 export interface BrowserNodeTab {
   defaultUrl: string;
   id: string;
+  materializeCold?: boolean;
   nodeId: string;
 }
 
@@ -10,11 +11,16 @@ export interface BrowserNodeTabsState {
 }
 
 export interface BrowserNodeTabsStore {
-  addTab(surfaceNodeId: string, defaultUrl?: string): BrowserNodeTab;
+  addTab(
+    surfaceNodeId: string,
+    defaultUrl?: string,
+    options?: { materializeCold?: boolean }
+  ): BrowserNodeTab;
   closeTab(surfaceNodeId: string, tabId: string): BrowserNodeTab | null;
   ensureSurface(
     surfaceNodeId: string,
-    defaultUrl: string
+    defaultUrl: string,
+    options?: { materializeCold?: boolean }
   ): BrowserNodeTabsState;
   getActiveNodeId(surfaceNodeId: string): string;
   getSurfaceState(surfaceNodeId: string): BrowserNodeTabsState | null;
@@ -38,20 +44,23 @@ export function createBrowserNodeTabsStore(): BrowserNodeTabsStore {
 
   const createTab = (
     surfaceNodeId: string,
-    defaultUrl = defaultUrls.get(surfaceNodeId) ?? "about:blank"
+    defaultUrl = defaultUrls.get(surfaceNodeId) ?? "about:blank",
+    options?: { materializeCold?: boolean }
   ): BrowserNodeTab => {
     const sequence = nextSequences.get(surfaceNodeId) ?? 1;
     nextSequences.set(surfaceNodeId, sequence + 1);
     return {
       defaultUrl,
       id: `tab-${sequence}`,
+      ...(options?.materializeCold ? { materializeCold: true } : {}),
       nodeId: `${surfaceNodeId}:tab:${sequence}`
     };
   };
 
   const ensureSurface = (
     surfaceNodeId: string,
-    defaultUrl: string
+    defaultUrl: string,
+    options?: { materializeCold?: boolean }
   ): BrowserNodeTabsState => {
     const existing = states.get(surfaceNodeId);
     if (existing) {
@@ -59,7 +68,7 @@ export function createBrowserNodeTabsStore(): BrowserNodeTabsStore {
     }
 
     defaultUrls.set(surfaceNodeId, defaultUrl);
-    const tab = createTab(surfaceNodeId);
+    const tab = createTab(surfaceNodeId, undefined, options);
     const state = {
       activeTabId: tab.id,
       tabs: [tab]
@@ -69,14 +78,14 @@ export function createBrowserNodeTabsStore(): BrowserNodeTabsStore {
   };
 
   return {
-    addTab(surfaceNodeId, defaultUrl) {
+    addTab(surfaceNodeId, defaultUrl, options) {
       const current = states.get(surfaceNodeId);
       if (!current) {
         throw new Error(
           `Browser tab surface is not initialized: ${surfaceNodeId}`
         );
       }
-      const tab = createTab(surfaceNodeId, defaultUrl);
+      const tab = createTab(surfaceNodeId, defaultUrl, options);
       states.set(surfaceNodeId, {
         activeTabId: tab.id,
         tabs: [...current.tabs, tab]

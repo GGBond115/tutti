@@ -150,6 +150,34 @@ describe("AgentTargetSetupGate", () => {
     );
   });
 
+  it("shows the account failure returned by the runtime probe", async () => {
+    const setup = createWatch({
+      snapshot: {
+        agentTargetId: "extension:gemini",
+        status: "failed",
+        runtimeSource: "managed",
+        runtimeVersion: "0.28.0",
+        reason: "subscription_required",
+        authMethods: [],
+        account: null,
+        plan: null,
+        action: null
+      },
+      loading: false,
+      failed: false
+    });
+    installHost(new Map([["extension:gemini", setup.watch]]));
+
+    render(<Harness openDialog target={geminiTarget} />);
+
+    expect(
+      await screen.findAllByText(
+        "Gemini CLI requires an active subscription or an eligible plan for this request"
+      )
+    ).toHaveLength(3);
+    expect(screen.getByText("Runtime setup failed")).toBeTruthy();
+  });
+
   it("authenticates with the selected method and renders action errors", async () => {
     const authenticate =
       vi.fn<AgentHostAgentTargetSetupWatch["authenticate"]>();
@@ -278,8 +306,9 @@ describe("AgentTargetSetupGate", () => {
       command: "/opt/kimi-code/bin/kimi login"
     });
     expect(
-      await screen.findByText(/terminal has been opened in the workspace/)
+      await screen.findByRole("button", { name: "Open setup" })
     ).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     act(() => setup.publish(ready("extension:gemini")));
     await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
@@ -300,6 +329,7 @@ describe("AgentTargetSetupGate", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Start sign in" })
     );
+    fireEvent.click(await screen.findByRole("button", { name: "Open setup" }));
     expect(
       await screen.findByText(/terminal has been opened in the workspace/)
     ).toBeTruthy();
@@ -352,6 +382,7 @@ describe("AgentTargetSetupGate", () => {
     );
     complete?.("timed_out");
 
+    fireEvent.click(await screen.findByRole("button", { name: "Open setup" }));
     expect(await screen.findByText(/Timed out waiting/)).toBeTruthy();
     expect(close).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Copy command" })).toBeTruthy();

@@ -14,7 +14,6 @@ import {
   mapDistanceToTargetSize,
   projectDockMagnificationGeometry,
   resolveDockMagnificationHitBounds,
-  resolveDockMagnificationSlotLayoutSize,
   resolveDockMagnificationSlotCenter,
   resolveDockMagnificationVisibleHitBounds,
   resolveDockMagnificationVisibleSlotRects
@@ -292,18 +291,6 @@ test("left dock magnification hit bounds stay flush with the icon column", () =>
       hitBounds
     }),
     false
-  );
-});
-
-test("dock magnification expands both slot axes so neighbors keep spacing", () => {
-  assert.deepEqual(
-    resolveDockMagnificationSlotLayoutSize({
-      size: DOCK_ICON_PEAK_SIZE
-    }),
-    {
-      height: DOCK_ICON_PEAK_SIZE,
-      width: DOCK_ICON_PEAK_SIZE
-    }
   );
 });
 

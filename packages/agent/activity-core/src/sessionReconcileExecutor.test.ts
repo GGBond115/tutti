@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createAgentActivitySnapshotProjector } from "./engine/agentActivitySnapshot.projector.ts";
 import { createAgentSessionEngine } from "./engine/createAgentSessionEngine.ts";
+import { createTestEngineCommandPort } from "./engine/testEngineCommandPort.ts";
 import type {
   AgentActivitySessionDetailSnapshot,
   SessionReconcileCommand
@@ -561,9 +562,9 @@ function createHarness(
 ) {
   const engine = createAgentSessionEngine({
     clock: { nowUnixMs: () => 1 },
-    commandPort: {
-      execute: () => Promise.reject(new Error("unexpected engine command"))
-    },
+    commandPort: createTestEngineCommandPort(() =>
+      Promise.reject(new Error("unexpected engine command"))
+    ),
     identity: { origin: "test", workspaceId: WORKSPACE_ID },
     scheduler: {
       schedule: () => ({ cancel() {} })

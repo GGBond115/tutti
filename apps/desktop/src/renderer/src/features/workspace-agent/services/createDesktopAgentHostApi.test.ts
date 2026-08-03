@@ -919,6 +919,7 @@ function createRuntimeApi(): DesktopRuntimeApi {
       return {
         active: false,
         paused: false,
+        playbackElapsedMs: 0,
         speed: 1,
         timingMode: "realtime"
       };
@@ -926,13 +927,22 @@ function createRuntimeApi(): DesktopRuntimeApi {
     async getAgentSessionReplayStatus() {
       return { active: false };
     },
-    async launchAgentSessionReplay() {
-      return { runId: "replay-run-1" };
+    async importAgentSessionReplayCassettes() {
+      return { canceled: true, failedCount: 0, importedCount: 0 };
     },
+    async launchAgentSessionReplay(input) {
+      return {
+        launchId: input.launchId,
+        cassetteIds: ["replay-cassette-1"],
+        workspaceId: "workspace-1"
+      };
+    },
+    async revealAgentSessionReplayCassette() {},
     async setAgentSessionReplayPlayback() {
       return {
         active: false,
         paused: false,
+        playbackElapsedMs: 0,
         speed: 1,
         timingMode: "realtime"
       };
@@ -941,7 +951,7 @@ function createRuntimeApi(): DesktopRuntimeApi {
       return;
     },
     async waitForAgentSessionReplay() {
-      return { runId: "replay-run-1" };
+      return { cassetteId: "replay-cassette-1" };
     },
     async getBackendConfig() {
       return {

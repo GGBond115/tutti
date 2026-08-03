@@ -51,6 +51,37 @@ describe("projectWorkspaceAgentMessagesToConversationVM", () => {
     ).toBeNull();
   });
 
+  it("preserves message whitespace through the Mobile conversation projection", () => {
+    const selectedSession = session();
+    const selectedMessage = message({
+      messageId: "streaming-whitespace",
+      version: 1,
+      role: "assistant",
+      kind: "text",
+      payload: { text: "\nHello  \n" }
+    });
+    const activitySnapshot: AgentActivitySnapshot = {
+      workspaceId: "workspace-1",
+      sessions: [selectedSession],
+      presences: [],
+      sessionMessagesById: {
+        [selectedSession.agentSessionId]: [selectedMessage]
+      }
+    };
+
+    const conversation = projectAgentActivitySessionToConversationVM({
+      activitySnapshot,
+      agentSessionId: selectedSession.agentSessionId
+    });
+    const assistantRow = conversation?.rows.find(
+      (row) => row.kind === "message" && row.speaker === "assistant"
+    );
+
+    expect(
+      assistantRow?.kind === "message" ? assistantRow.messages[0]?.body : null
+    ).toBe("\nHello  \n");
+  });
+
   it("filters supplied Turns to the selected Session", () => {
     const selectedSession = session();
     const selectedMessage = message({
@@ -549,6 +580,49 @@ describe("projectWorkspaceAgentMessagesToConversationVM", () => {
         severity: "info"
       })
     );
+  });
+
+  it("preserves a turnless runtime failure audit as a visible error", () => {
+    const conversation = projectWorkspaceAgentMessagesToConversationVM({
+      activity: activity(),
+      session: session({ effectiveStatus: "failed", turnPhase: "failed" }),
+      messages: [
+        message({
+          messageId: "visible-error:session-failed-1",
+          version: 1,
+          turnId: undefined,
+          role: "assistant",
+          kind: "session_audit",
+          status: "failed",
+          payload: {
+            kind: "agent_visible_error",
+            severity: "error",
+            phase: "start",
+            code: "provider_stream_disconnected",
+            provider: "claude-code",
+            retryable: true,
+            content: "Claude Code connection was interrupted.",
+            text: "Claude Code connection was interrupted.",
+            detail: "sidecar stream disconnected"
+          },
+          occurredAtUnixMs: 100
+        })
+      ]
+    });
+
+    const assistantRow = conversation.rows.find(
+      (row) => row.kind === "message" && row.speaker === "assistant"
+    );
+    const item =
+      assistantRow?.kind === "message" ? assistantRow.messages[0] : null;
+    expect(item?.visibleError).toEqual({
+      code: "provider_stream_disconnected",
+      phase: "start",
+      provider: "claude-code",
+      detail: "sidecar stream disconnected",
+      retryable: true
+    });
+    expect(item?.systemNotice ?? null).toBeNull();
   });
 
   it("keeps turnless session audits in chronological conversation order", () => {

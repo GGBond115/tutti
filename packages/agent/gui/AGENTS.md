@@ -18,7 +18,7 @@ Before reviewing changes in this package, also read
 [REVIEW.md](./REVIEW.md) and report every triggered review lane with concrete
 evidence.
 
-When changing `AgentActivityRuntime`, `agent-activity-core`, workspace engine,
+When changing `AgentGUIRuntime`, `agent-activity-core`, workspace engine,
 event/reconcile behavior, package exports, or a host adapter, also read the
 package/activity boundary document:
 
@@ -32,7 +32,7 @@ reference architecture:
 
 ## AgentGUI Rules
 
-- Treat `AgentActivityRuntime` as the production source for agent activity data
+- Treat `AgentGUIRuntime` as the production source for agent activity data
   and commands.
 - Keep `AgentHostApi` usage limited to host capabilities such as files,
   clipboard, account/project lookup, Agent Target setup/probes, diagnostics,

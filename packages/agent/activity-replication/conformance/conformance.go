@@ -108,7 +108,16 @@ type ApplyReport struct {
 type Sink interface {
 	Reset(context.Context) error
 	Apply(context.Context, activityreplication.ChangeBatch) (ApplyReport, error)
-	Lookup(context.Context, activityreplication.EntityType, activityreplication.EntityKey) (json.RawMessage, bool, error)
+	Lookup(context.Context, activityreplication.EntityType, activityreplication.EntityKey) (SinkSnapshot, bool, error)
+}
+
+// SinkSnapshot is the persisted read model observed by the sink conformance
+// harness. Scopes are explicit because acknowledgements and entity payloads
+// alone cannot prove that routing and authorization attribution was retained.
+type SinkSnapshot struct {
+	Entity       json.RawMessage
+	TargetScope  *activityreplication.TargetScope
+	SessionScope *activityreplication.SessionScope
 }
 
 type SinkStep struct {
@@ -129,7 +138,7 @@ type SnapshotExpectation struct {
 	EntityType activityreplication.EntityType
 	Key        activityreplication.EntityKey
 	Present    bool
-	Snapshot   json.RawMessage
+	Snapshot   SinkSnapshot
 }
 
 type SinkFixture struct {
@@ -178,8 +187,17 @@ func RunSink(ctx context.Context, sink Sink, fixture SinkFixture) error {
 		if found != expectation.Present {
 			return fmt.Errorf("lookup %s: found %t, want %t", expectation.EntityType, found, expectation.Present)
 		}
-		if expectation.Present && !jsonEqual(got, expectation.Snapshot) {
-			return fmt.Errorf("lookup %s: snapshot %s, want %s", expectation.EntityType, got, expectation.Snapshot)
+		if !expectation.Present {
+			continue
+		}
+		if !jsonEqual(got.Entity, expectation.Snapshot.Entity) {
+			return fmt.Errorf("lookup %s: entity snapshot %s, want %s", expectation.EntityType, got.Entity, expectation.Snapshot.Entity)
+		}
+		if !reflect.DeepEqual(got.TargetScope, expectation.Snapshot.TargetScope) {
+			return fmt.Errorf("lookup %s: target scope %#v, want %#v", expectation.EntityType, got.TargetScope, expectation.Snapshot.TargetScope)
+		}
+		if !reflect.DeepEqual(got.SessionScope, expectation.Snapshot.SessionScope) {
+			return fmt.Errorf("lookup %s: session scope %#v, want %#v", expectation.EntityType, got.SessionScope, expectation.Snapshot.SessionScope)
 		}
 	}
 	return nil

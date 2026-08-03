@@ -335,6 +335,8 @@ export type ApiErrorDetails = {
     | "agent_quick_prompt_not_found"
     | "agent_quick_prompt_conflict"
     | "agent_quick_prompt_operation_failed"
+    | "agent_session_cassette_not_found"
+    | "agent_session_replay_workspace_conflict"
     | "agent_session_fork_operation_not_found"
     | "agent_target_not_found"
     | "model_plan_not_found"
@@ -515,6 +517,70 @@ export type WorkspaceAppAgentPreferencesResponse = {
 
 export type PutDesktopPreferencesRequest = {
   preferences: DesktopPreferences;
+};
+
+export type DesktopUpdateAdmissionProduct = "tsh-desktop" | "tutti-desktop";
+
+export type DesktopUpdateAdmissionPlatform = "macos" | "windows" | "linux";
+
+export type DesktopUpdateAdmissionArchitecture = "arm64" | "x64";
+
+export type DesktopUpdateAdmissionIdentity = {
+  product: DesktopUpdateAdmissionProduct;
+  platform: DesktopUpdateAdmissionPlatform;
+  architecture: DesktopUpdateAdmissionArchitecture;
+  currentVersion: string;
+};
+
+export type DesktopUpdateAdmissionPolicyResponse = {
+  channel: "stable" | "rc" | "unmanaged";
+  minimumVersion?: string;
+  decision: "allowed" | "upgradeRequired" | "notApplicable";
+  reason:
+    | "belowMinimum"
+    | "meetsMinimum"
+    | "minimumNotConfigured"
+    | "unmanagedPrerelease"
+    | "unsupportedRelease";
+  policyRevision: string;
+};
+
+export type DesktopUpdateAdmissionPolicyFailure = {
+  kind: "timeout" | "transport" | "invalidResponse";
+};
+
+export type DesktopUpdateAdmissionPolicySnapshot = {
+  status: "checking" | "resolved" | "failedOpen" | "skipped";
+  response?: DesktopUpdateAdmissionPolicyResponse;
+  failure?: DesktopUpdateAdmissionPolicyFailure;
+  reason?: "checksDisabled";
+};
+
+export type DesktopUpdateAdmissionFeatureAvailability = {
+  keys: Array<string>;
+  source: "remote" | "cache" | "empty";
+  policyRevision: string | null;
+  fetchedAt: string | null;
+};
+
+export type DesktopUpdateAdmissionSnapshot = {
+  identity: DesktopUpdateAdmissionIdentity;
+  policy: DesktopUpdateAdmissionPolicySnapshot;
+  featureAvailability: DesktopUpdateAdmissionFeatureAvailability;
+  lastAttemptAt: string | null;
+  nextForegroundCheckAt: string | null;
+};
+
+export type DesktopUpdateAdmissionRefreshTrigger = "foreground" | "retry";
+
+export type DesktopUpdateAdmissionRefreshRequest = {
+  trigger: DesktopUpdateAdmissionRefreshTrigger;
+};
+
+export type DesktopUpdateAdmissionRefreshResult = {
+  performed: boolean;
+  skipReason?: "checksDisabled" | "throttled" | "requestInFlight";
+  snapshot: DesktopUpdateAdmissionSnapshot;
 };
 
 export type AgentTargetProvider = string;
@@ -2368,7 +2434,7 @@ export type WorkspaceAgentSession = {
    */
   pendingInteractions: Array<WorkspaceAgentInteraction>;
   /**
-   * Protocol v2. Daemon-issued capability descriptor; clients must branch on capabilities, never on provider identity.
+   * Protocol v2. Authoritative session capability snapshot. Null means no authoritative session snapshot is available, either because the runtime has not reported one yet or because legacy persisted data is ambiguous. A non-null object is complete, so false means explicitly unsupported. Only while this field is null may clients fall back to the authoritative provider composer descriptor; they must never infer capabilities from provider identity.
    */
   capabilities: WorkspaceAgentCapabilities | null;
   lifecycleCapabilities: WorkspaceAgentSessionLifecycleCapabilities;
@@ -2511,7 +2577,7 @@ export type SendWorkspaceAgentSessionInputGoalControlResponse = {
    * Durable GoalControlOperation identity when kind is goalControl.
    */
   operationId?: string | null;
-  goal?: WorkspaceAgentSessionGoal | null;
+  goal: WorkspaceAgentSessionGoal | null;
   goalState?: WorkspaceAgentSessionGoalState | null;
 };
 
@@ -2628,7 +2694,7 @@ export type WorkspaceAgentInteraction = {
 };
 
 /**
- * Protocol v2 daemon-issued capability descriptor. Clients branch on these booleans instead of provider identity. Field names mirror the canonical capability keys in packages/agent/daemon/runtime/capabilities.go.
+ * Protocol v2 daemon-issued capability descriptor. Clients branch on these booleans instead of provider identity. Field names mirror the canonical capability vocabulary owned by packages/agent/store-sqlite/canonical/provider.go.
  */
 export type WorkspaceAgentCapabilities = {
   imageInput: boolean;
@@ -2972,12 +3038,16 @@ export type UpdateWorkspaceAgentSessionVisibilityRequest = {
 
 export type WorkspaceAgentSessionGoalControlRequest = {
   action: "pause" | "resume" | "clear" | "set";
+  /**
+   * Caller-stable idempotency identity for this Goal Control mutation.
+   */
+  clientSubmitId?: string;
   objective?: string;
 };
 
 export type WorkspaceAgentSessionGoalControlResponse = {
   session: WorkspaceAgentSession;
-  goal?: WorkspaceAgentSessionGoal | null;
+  goal: WorkspaceAgentSessionGoal | null;
   /**
    * Durable GoalControlOperation identity; null only for compatibility runtimes without a goal store.
    */
@@ -3011,6 +3081,11 @@ export type WorkspaceAgentSessionGoalStateResponse = {
   state: WorkspaceAgentSessionGoalState;
 };
 
+export type WorkspaceAgentInitialGoalControl = {
+  action: "pause" | "resume" | "clear" | "set";
+  objective?: string;
+};
+
 export type CreateWorkspaceAgentSessionRequest = {
   agentSessionId: string;
   /**
@@ -3024,6 +3099,10 @@ export type CreateWorkspaceAgentSessionRequest = {
   recordingId?: string | null;
   submitDiagnostics?: AgentSubmitDiagnostics;
   initialContent: Array<AgentPromptContentBlock>;
+  /**
+   * Optional typed Goal Control applied after the Session is created without opening an initial Turn. Must not be combined with non-empty initialContent.
+   */
+  initialGoalControl?: WorkspaceAgentInitialGoalControl | null;
   /**
    * Optional display-only text for the first turn (e.g. a folder bundle shown as one chip while initialContent carries the expanded files).
    */
@@ -3058,6 +3137,18 @@ export type StartAgentSessionRecordingRequest = {
    * Existing Session selecting continue-session mode. Omit for create-session mode.
    */
   agentSessionId?: string | null;
+  replayPrerequisites: AgentSessionReplayPrerequisites;
+};
+
+export type AgentSessionReplayComposerDefaults = {
+  model: string;
+  permissionModeId: string;
+  reasoningEffort: string;
+  speed: string;
+};
+
+export type AgentSessionReplayPrerequisites = {
+  composerDefaults: AgentSessionReplayComposerDefaults;
 };
 
 export type RenameAgentSessionRecordingRequest = {
@@ -3119,37 +3210,41 @@ export type AgentSessionRecordingListResponse = {
   recordings: Array<AgentSessionRecording>;
 };
 
-export type AgentSessionReplayRun = {
-  id: string;
+export type ImportAgentSessionCassettesRequest = {
+  /**
+   * Absolute local directories containing portable cassette.json manifests.
+   */
+  sourceDirectories: Array<string>;
+};
+
+export type ImportAgentSessionCassettesResponse = {
+  failures: Array<AgentSessionCassetteImportFailure>;
+  recordings: Array<AgentSessionRecording>;
+};
+
+export type AgentSessionCassetteImportFailure = {
+  code: "conflict" | "invalid" | "failed";
+  sourceDirectory: string;
+};
+
+export type AgentSessionReplayCassetteLaunch = {
   cassetteId: string;
-  status: "starting" | "running" | "complete" | "failed" | "canceled";
-  checkpoint: number;
-  errorCode?: string | null;
-  errorMessage?: string | null;
-  createdAtUnixMs: number;
-  startedAtUnixMs?: number | null;
-  completedAtUnixMs?: number | null;
-  updatedAtUnixMs: number;
-};
-
-export type AgentSessionReplayLaunch = {
-  run: AgentSessionReplayRun;
   cassetteDirectory: string;
+  rootAgentSessionId: string;
 };
 
-export type AgentSessionReplayRunListResponse = {
-  runs: Array<AgentSessionReplayRun>;
+export type PrepareAgentSessionReplayWorkspaceRequest = {
+  cassetteIds: Array<string>;
 };
 
-export type AdvanceAgentSessionReplayRunCheckpointRequest = {
-  checkpoint: number;
+export type AgentSessionReplayWorkspaceLaunch = {
+  launches: Array<AgentSessionReplayCassetteLaunch>;
 };
 
 export type AgentSessionCassette = {
   id: string;
   name: string;
   sourceRecordingId: string;
-  workspaceId: string;
   agentTargetId: string;
   rootAgentSessionId: string;
   mode: "create-session" | "continue-session";
@@ -3167,18 +3262,34 @@ export type AgentSessionReplayTransportPlayback = {
   playbackElapsedMs: number;
   speed: 0.25 | 0.5 | 1 | 2 | 4;
   timingMode: "realtime" | "fast-forward";
+  providerConnections: Array<AgentSessionReplayProviderCursor>;
+};
+
+export type AgentSessionReplayProviderCursor = {
+  connectionId: string;
+  chunkSeq: number;
+  unitIndex: number;
+};
+
+export type AgentSessionReplayCheckpointVerification = {
+  checkpointIndex: number;
+  triggerMatched: boolean;
+  readinessSatisfied: boolean;
+  canonicalSessionUpdatedAtUnixMs: number;
+  canonicalMessageVersion: number;
 };
 
 export type UpdateAgentSessionReplayTransportPlaybackRequest = {
-  command: "set-speed" | "pause" | "resume" | "set-timing-mode";
+  command:
+    | "set-speed"
+    | "pause"
+    | "resume"
+    | "set-timing-mode"
+    | "set-provider-cursor"
+    | "clear-provider-cursor";
   speed?: 0.25 | 0.5 | 1 | 2 | 4;
   timingMode?: "realtime" | "fast-forward";
-};
-
-export type FailAgentSessionReplayRunRequest = {
-  checkpoint?: number;
-  errorCode: string;
-  errorMessage: string;
+  providerConnections?: Array<AgentSessionReplayProviderCursor>;
 };
 
 export type WorkspaceAgentRailPlacement = {
@@ -4457,6 +4568,11 @@ export type MobileRemotePairingListResponse = {
   pairings: Array<MobileRemoteDevicePairing>;
 };
 
+/**
+ * Typed caller provenance for Agent command recording. Renderer Engine commands use renderer-engine; absent provenance identifies direct API and CLI commands.
+ */
+export type AgentCommandOrigin = "renderer-engine";
+
 export type CliCommandId = string;
 
 export type WorkspaceId = string;
@@ -5061,6 +5177,115 @@ export type PutDesktopPreferencesResponses = {
 
 export type PutDesktopPreferencesResponse =
   PutDesktopPreferencesResponses[keyof PutDesktopPreferencesResponses];
+
+export type GetDesktopUpdateAdmissionSnapshotData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/desktop-update-admission";
+};
+
+export type GetDesktopUpdateAdmissionSnapshotErrors = {
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type GetDesktopUpdateAdmissionSnapshotError =
+  GetDesktopUpdateAdmissionSnapshotErrors[keyof GetDesktopUpdateAdmissionSnapshotErrors];
+
+export type GetDesktopUpdateAdmissionSnapshotResponses = {
+  /**
+   * Current desktop update admission snapshot
+   */
+  200: DesktopUpdateAdmissionSnapshot;
+};
+
+export type GetDesktopUpdateAdmissionSnapshotResponse =
+  GetDesktopUpdateAdmissionSnapshotResponses[keyof GetDesktopUpdateAdmissionSnapshotResponses];
+
+export type GetDesktopUpdateAdmissionStartupData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/desktop-update-admission/startup";
+};
+
+export type GetDesktopUpdateAdmissionStartupErrors = {
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type GetDesktopUpdateAdmissionStartupError =
+  GetDesktopUpdateAdmissionStartupErrors[keyof GetDesktopUpdateAdmissionStartupErrors];
+
+export type GetDesktopUpdateAdmissionStartupResponses = {
+  /**
+   * Completed startup admission snapshot
+   */
+  200: DesktopUpdateAdmissionSnapshot;
+};
+
+export type GetDesktopUpdateAdmissionStartupResponse =
+  GetDesktopUpdateAdmissionStartupResponses[keyof GetDesktopUpdateAdmissionStartupResponses];
+
+export type RefreshDesktopUpdateAdmissionData = {
+  body: DesktopUpdateAdmissionRefreshRequest;
+  path?: never;
+  query?: never;
+  url: "/v1/desktop-update-admission/refresh";
+};
+
+export type RefreshDesktopUpdateAdmissionErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type RefreshDesktopUpdateAdmissionError =
+  RefreshDesktopUpdateAdmissionErrors[keyof RefreshDesktopUpdateAdmissionErrors];
+
+export type RefreshDesktopUpdateAdmissionResponses = {
+  /**
+   * Desktop update admission refresh result
+   */
+  200: DesktopUpdateAdmissionRefreshResult;
+};
+
+export type RefreshDesktopUpdateAdmissionResponse =
+  RefreshDesktopUpdateAdmissionResponses[keyof RefreshDesktopUpdateAdmissionResponses];
 
 export type PurgeDeletedAgentConversationsData = {
   body?: never;
@@ -9327,6 +9552,44 @@ export type StartAgentSessionRecordingResponses = {
 export type StartAgentSessionRecordingResponse =
   StartAgentSessionRecordingResponses[keyof StartAgentSessionRecordingResponses];
 
+export type DeleteAgentSessionRecordingData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    recordingID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/agent-session-recordings/{recordingID}";
+};
+
+export type DeleteAgentSessionRecordingErrors = {
+  /**
+   * Recording not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * Active recording cannot be deleted
+   */
+  409: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type DeleteAgentSessionRecordingError =
+  DeleteAgentSessionRecordingErrors[keyof DeleteAgentSessionRecordingErrors];
+
+export type DeleteAgentSessionRecordingResponses = {
+  /**
+   * Agent Session recording deleted
+   */
+  204: void;
+};
+
+export type DeleteAgentSessionRecordingResponse =
+  DeleteAgentSessionRecordingResponses[keyof DeleteAgentSessionRecordingResponses];
+
 export type GetAgentSessionRecordingData = {
   body?: never;
   path: {
@@ -9542,255 +9805,59 @@ export type ListAgentSessionCassettesResponses = {
 export type ListAgentSessionCassettesResponse =
   ListAgentSessionCassettesResponses[keyof ListAgentSessionCassettesResponses];
 
-export type ListAgentSessionReplayRunsData = {
-  body?: never;
+export type ImportAgentSessionCassettesData = {
+  body: ImportAgentSessionCassettesRequest;
   path: {
     workspaceID: string;
-    cassetteID: string;
   };
   query?: never;
-  url: "/v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs";
+  url: "/v1/workspaces/{workspaceID}/agent-session-cassettes/import";
 };
 
-export type ListAgentSessionReplayRunsErrors = {
-  /**
-   * Cassette not found
-   */
-  404: ApiErrorResponse;
-  /**
-   * Required daemon service dependency is unavailable
-   */
-  503: ApiErrorResponse;
-};
-
-export type ListAgentSessionReplayRunsError =
-  ListAgentSessionReplayRunsErrors[keyof ListAgentSessionReplayRunsErrors];
-
-export type ListAgentSessionReplayRunsResponses = {
-  /**
-   * Replay runs ordered by latest update
-   */
-  200: AgentSessionReplayRunListResponse;
-};
-
-export type ListAgentSessionReplayRunsResponse =
-  ListAgentSessionReplayRunsResponses[keyof ListAgentSessionReplayRunsResponses];
-
-export type PrepareAgentSessionReplayRunData = {
-  body?: never;
-  path: {
-    workspaceID: string;
-    cassetteID: string;
-  };
-  query?: never;
-  url: "/v1/workspaces/{workspaceID}/agent-session-cassettes/{cassetteID}/replay-runs";
-};
-
-export type PrepareAgentSessionReplayRunErrors = {
-  /**
-   * Cassette not found
-   */
-  404: ApiErrorResponse;
-  /**
-   * Cassette is corrupt or cannot be replayed
-   */
-  409: ApiErrorResponse;
-  /**
-   * Required daemon service dependency is unavailable
-   */
-  503: ApiErrorResponse;
-};
-
-export type PrepareAgentSessionReplayRunError =
-  PrepareAgentSessionReplayRunErrors[keyof PrepareAgentSessionReplayRunErrors];
-
-export type PrepareAgentSessionReplayRunResponses = {
-  /**
-   * Replay run and portable Cassette launch handoff
-   */
-  201: AgentSessionReplayLaunch;
-};
-
-export type PrepareAgentSessionReplayRunResponse =
-  PrepareAgentSessionReplayRunResponses[keyof PrepareAgentSessionReplayRunResponses];
-
-export type MarkAgentSessionReplayRunRunningData = {
-  body?: never;
-  path: {
-    workspaceID: string;
-    runID: string;
-  };
-  query?: never;
-  url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/running";
-};
-
-export type MarkAgentSessionReplayRunRunningErrors = {
-  /**
-   * Replay run not found
-   */
-  404: ApiErrorResponse;
-  /**
-   * Replay run cannot start in its current state
-   */
-  409: ApiErrorResponse;
-  /**
-   * Required daemon service dependency is unavailable
-   */
-  503: ApiErrorResponse;
-};
-
-export type MarkAgentSessionReplayRunRunningError =
-  MarkAgentSessionReplayRunRunningErrors[keyof MarkAgentSessionReplayRunRunningErrors];
-
-export type MarkAgentSessionReplayRunRunningResponses = {
-  /**
-   * Replay run is running
-   */
-  200: AgentSessionReplayRun;
-};
-
-export type MarkAgentSessionReplayRunRunningResponse =
-  MarkAgentSessionReplayRunRunningResponses[keyof MarkAgentSessionReplayRunRunningResponses];
-
-export type AdvanceAgentSessionReplayRunCheckpointData = {
-  body: AdvanceAgentSessionReplayRunCheckpointRequest;
-  path: {
-    workspaceID: string;
-    runID: string;
-  };
-  query?: never;
-  url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/checkpoint";
-};
-
-export type AdvanceAgentSessionReplayRunCheckpointErrors = {
+export type ImportAgentSessionCassettesErrors = {
   /**
    * Request payload or parameters are invalid
    */
   400: ApiErrorResponse;
   /**
-   * Replay run not found
-   */
-  404: ApiErrorResponse;
-  /**
-   * Replay run checkpoint cannot advance in its current state
-   */
-  409: ApiErrorResponse;
-  /**
    * Required daemon service dependency is unavailable
    */
   503: ApiErrorResponse;
 };
 
-export type AdvanceAgentSessionReplayRunCheckpointError =
-  AdvanceAgentSessionReplayRunCheckpointErrors[keyof AdvanceAgentSessionReplayRunCheckpointErrors];
+export type ImportAgentSessionCassettesError =
+  ImportAgentSessionCassettesErrors[keyof ImportAgentSessionCassettesErrors];
 
-export type AdvanceAgentSessionReplayRunCheckpointResponses = {
+export type ImportAgentSessionCassettesResponses = {
   /**
-   * Replay run checkpoint advanced
+   * Per-Cassette import results, including partial success
    */
-  200: AgentSessionReplayRun;
+  200: ImportAgentSessionCassettesResponse;
 };
 
-export type AdvanceAgentSessionReplayRunCheckpointResponse =
-  AdvanceAgentSessionReplayRunCheckpointResponses[keyof AdvanceAgentSessionReplayRunCheckpointResponses];
+export type ImportAgentSessionCassettesResponse2 =
+  ImportAgentSessionCassettesResponses[keyof ImportAgentSessionCassettesResponses];
 
-export type CancelAgentSessionReplayRunData = {
-  body?: never;
+export type PrepareAgentSessionReplayWorkspaceData = {
+  body: PrepareAgentSessionReplayWorkspaceRequest;
   path: {
     workspaceID: string;
-    runID: string;
   };
   query?: never;
-  url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/cancel";
+  url: "/v1/workspaces/{workspaceID}/agent-session-replay-workspaces";
 };
 
-export type CancelAgentSessionReplayRunErrors = {
-  /**
-   * Replay run not found
-   */
-  404: ApiErrorResponse;
-  /**
-   * Replay run cannot cancel in its current state
-   */
-  409: ApiErrorResponse;
-  /**
-   * Required daemon service dependency is unavailable
-   */
-  503: ApiErrorResponse;
-};
-
-export type CancelAgentSessionReplayRunError =
-  CancelAgentSessionReplayRunErrors[keyof CancelAgentSessionReplayRunErrors];
-
-export type CancelAgentSessionReplayRunResponses = {
-  /**
-   * Replay run canceled
-   */
-  200: AgentSessionReplayRun;
-};
-
-export type CancelAgentSessionReplayRunResponse =
-  CancelAgentSessionReplayRunResponses[keyof CancelAgentSessionReplayRunResponses];
-
-export type CompleteAgentSessionReplayRunData = {
-  body?: never;
-  path: {
-    workspaceID: string;
-    runID: string;
-  };
-  query?: never;
-  url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/complete";
-};
-
-export type CompleteAgentSessionReplayRunErrors = {
-  /**
-   * Replay run not found
-   */
-  404: ApiErrorResponse;
-  /**
-   * Replay run cannot complete in its current state
-   */
-  409: ApiErrorResponse;
-  /**
-   * Required daemon service dependency is unavailable
-   */
-  503: ApiErrorResponse;
-};
-
-export type CompleteAgentSessionReplayRunError =
-  CompleteAgentSessionReplayRunErrors[keyof CompleteAgentSessionReplayRunErrors];
-
-export type CompleteAgentSessionReplayRunResponses = {
-  /**
-   * Replay run completed
-   */
-  200: AgentSessionReplayRun;
-};
-
-export type CompleteAgentSessionReplayRunResponse =
-  CompleteAgentSessionReplayRunResponses[keyof CompleteAgentSessionReplayRunResponses];
-
-export type FailAgentSessionReplayRunData = {
-  body: FailAgentSessionReplayRunRequest;
-  path: {
-    workspaceID: string;
-    runID: string;
-  };
-  query?: never;
-  url: "/v1/workspaces/{workspaceID}/agent-session-replay-runs/{runID}/fail";
-};
-
-export type FailAgentSessionReplayRunErrors = {
+export type PrepareAgentSessionReplayWorkspaceErrors = {
   /**
    * Request payload or parameters are invalid
    */
   400: ApiErrorResponse;
   /**
-   * Replay run not found
+   * Cassette not found
    */
   404: ApiErrorResponse;
   /**
-   * Replay run cannot fail in its current state
+   * Cassette is corrupt or duplicated in this workspace
    */
   409: ApiErrorResponse;
   /**
@@ -9799,24 +9866,26 @@ export type FailAgentSessionReplayRunErrors = {
   503: ApiErrorResponse;
 };
 
-export type FailAgentSessionReplayRunError =
-  FailAgentSessionReplayRunErrors[keyof FailAgentSessionReplayRunErrors];
+export type PrepareAgentSessionReplayWorkspaceError =
+  PrepareAgentSessionReplayWorkspaceErrors[keyof PrepareAgentSessionReplayWorkspaceErrors];
 
-export type FailAgentSessionReplayRunResponses = {
+export type PrepareAgentSessionReplayWorkspaceResponses = {
   /**
-   * Replay run failed with diagnostic evidence
+   * Portable Cassette launch handoffs
    */
-  200: AgentSessionReplayRun;
+  201: AgentSessionReplayWorkspaceLaunch;
 };
 
-export type FailAgentSessionReplayRunResponse =
-  FailAgentSessionReplayRunResponses[keyof FailAgentSessionReplayRunResponses];
+export type PrepareAgentSessionReplayWorkspaceResponse =
+  PrepareAgentSessionReplayWorkspaceResponses[keyof PrepareAgentSessionReplayWorkspaceResponses];
 
 export type VerifyAgentSessionReplayTransportData = {
   body?: never;
-  path?: never;
+  path: {
+    cassetteID: string;
+  };
   query?: never;
-  url: "/v1/agent-session-replay/transport/verify";
+  url: "/v1/agent-session-replay/cassettes/{cassetteID}/transport/verify";
 };
 
 export type VerifyAgentSessionReplayTransportErrors = {
@@ -9845,9 +9914,11 @@ export type VerifyAgentSessionReplayTransportResponse =
 
 export type GetAgentSessionReplayTransportPlaybackData = {
   body?: never;
-  path?: never;
+  path: {
+    cassetteID: string;
+  };
   query?: never;
-  url: "/v1/agent-session-replay/transport/playback";
+  url: "/v1/agent-session-replay/cassettes/{cassetteID}/transport/playback";
 };
 
 export type GetAgentSessionReplayTransportPlaybackErrors = {
@@ -9872,9 +9943,11 @@ export type GetAgentSessionReplayTransportPlaybackResponse =
 
 export type UpdateAgentSessionReplayTransportPlaybackData = {
   body: UpdateAgentSessionReplayTransportPlaybackRequest;
-  path?: never;
+  path: {
+    cassetteID: string;
+  };
   query?: never;
-  url: "/v1/agent-session-replay/transport/playback";
+  url: "/v1/agent-session-replay/cassettes/{cassetteID}/transport/playback";
 };
 
 export type UpdateAgentSessionReplayTransportPlaybackErrors = {
@@ -9900,6 +9973,40 @@ export type UpdateAgentSessionReplayTransportPlaybackResponses = {
 
 export type UpdateAgentSessionReplayTransportPlaybackResponse =
   UpdateAgentSessionReplayTransportPlaybackResponses[keyof UpdateAgentSessionReplayTransportPlaybackResponses];
+
+export type VerifyAgentSessionReplayCheckpointData = {
+  body?: never;
+  path: {
+    cassetteID: string;
+    checkpointIndex: number;
+  };
+  query?: never;
+  url: "/v1/agent-session-replay/cassettes/{cassetteID}/checkpoints/{checkpointIndex}/verify";
+};
+
+export type VerifyAgentSessionReplayCheckpointErrors = {
+  /**
+   * Checkpoint identity, trigger, or observation mismatch
+   */
+  409: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type VerifyAgentSessionReplayCheckpointError =
+  VerifyAgentSessionReplayCheckpointErrors[keyof VerifyAgentSessionReplayCheckpointErrors];
+
+export type VerifyAgentSessionReplayCheckpointResponses = {
+  /**
+   * Current semantic checkpoint verification state
+   */
+  200: AgentSessionReplayCheckpointVerification;
+};
+
+export type VerifyAgentSessionReplayCheckpointResponse =
+  VerifyAgentSessionReplayCheckpointResponses[keyof VerifyAgentSessionReplayCheckpointResponses];
 
 export type ClearWorkspaceAgentSessionsData = {
   body?: never;
@@ -10013,6 +10120,12 @@ export type ListWorkspaceAgentSessionsResponse =
 
 export type CreateWorkspaceAgentSessionData = {
   body: CreateWorkspaceAgentSessionRequest;
+  headers?: {
+    /**
+     * Typed caller provenance for Agent command recording. Renderer Engine commands use renderer-engine; absent provenance identifies direct API and CLI commands.
+     */
+    "X-Tutti-Agent-Command-Origin"?: "renderer-engine";
+  };
   path: {
     workspaceID: string;
   };
@@ -11627,6 +11740,12 @@ export type ListWorkspaceAgentSessionGitBranchesResponse =
 
 export type CancelWorkspaceAgentTurnData = {
   body?: never;
+  headers?: {
+    /**
+     * Typed caller provenance for Agent command recording. Renderer Engine commands use renderer-engine; absent provenance identifies direct API and CLI commands.
+     */
+    "X-Tutti-Agent-Command-Origin"?: "renderer-engine";
+  };
   path: {
     workspaceID: string;
     agentSessionID: string;
@@ -11796,6 +11915,12 @@ export type RecoverWorkspaceAgentEditRetryResponse =
 
 export type SubmitWorkspaceAgentPlanDecisionData = {
   body: SubmitWorkspaceAgentPlanDecisionRequest;
+  headers?: {
+    /**
+     * Typed caller provenance for Agent command recording. Renderer Engine commands use renderer-engine; absent provenance identifies direct API and CLI commands.
+     */
+    "X-Tutti-Agent-Command-Origin"?: "renderer-engine";
+  };
   path: {
     workspaceID: string;
     agentSessionID: string;
@@ -11898,6 +12023,12 @@ export type GetWorkspaceAgentSessionGoalResponse =
 
 export type GoalControlWorkspaceAgentSessionData = {
   body: WorkspaceAgentSessionGoalControlRequest;
+  headers?: {
+    /**
+     * Typed caller provenance for Agent command recording. Renderer Engine commands use renderer-engine; absent provenance identifies direct API and CLI commands.
+     */
+    "X-Tutti-Agent-Command-Origin"?: "renderer-engine";
+  };
   path: {
     workspaceID: string;
     agentSessionID: string;
@@ -11994,6 +12125,12 @@ export type ReconcileWorkspaceAgentSessionGoalResponse =
 
 export type SendWorkspaceAgentSessionInputData = {
   body: SendWorkspaceAgentSessionInputRequest;
+  headers?: {
+    /**
+     * Typed caller provenance for Agent command recording. Renderer Engine commands use renderer-engine; absent provenance identifies direct API and CLI commands.
+     */
+    "X-Tutti-Agent-Command-Origin"?: "renderer-engine";
+  };
   path: {
     workspaceID: string;
     agentSessionID: string;
@@ -12044,6 +12181,12 @@ export type SendWorkspaceAgentSessionInputResponse2 =
 
 export type UpdateWorkspaceAgentSessionSettingsData = {
   body: AgentSessionComposerSettings;
+  headers?: {
+    /**
+     * Typed caller provenance for Agent command recording. Renderer Engine commands use renderer-engine; absent provenance identifies direct API and CLI commands.
+     */
+    "X-Tutti-Agent-Command-Origin"?: "renderer-engine";
+  };
   path: {
     workspaceID: string;
     agentSessionID: string;
@@ -12244,6 +12387,12 @@ export type UpdateWorkspaceAgentSessionPinResponse =
 
 export type SubmitWorkspaceAgentInteractiveData = {
   body: SubmitWorkspaceAgentInteractiveRequest;
+  headers?: {
+    /**
+     * Typed caller provenance for Agent command recording. Renderer Engine commands use renderer-engine; absent provenance identifies direct API and CLI commands.
+     */
+    "X-Tutti-Agent-Command-Origin"?: "renderer-engine";
+  };
   path: {
     workspaceID: string;
     agentSessionID: string;

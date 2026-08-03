@@ -11,13 +11,16 @@ Drive the browser only through `{{.CLICommand}} browser`. The Tutti daemon owns 
 
 ## Protocol
 
-1. Navigate when needed: `{{command "browser.navigate" (args "url" "<url>")}}`.
+1. Open a requested URL directly with `{{command "browser.open" (args "url" "<url>")}}`. This creates and selects a managed Browser page before loading the URL. Do not use a cold `navigate` call as the first command.
 2. Read the current page with `{{command "browser.snapshot"}}`; use returned `uid` values for interactions.
 3. Act with `{{command "browser.click" (args "uid" "<uid>")}}` or `{{command "browser.fill" (args "uid" "<uid>" "value" "<text>")}}`.
-4. Use `{{command "browser.list-pages"}}` to inspect the User Browser and your Agent Browser tabs. Select a stable target with `{{command "browser.select-page" (args "page-id" "<id>")}}` when needed.
-5. Create an Agent Browser tab with `{{command "browser.new-page" (args "url" "<url>")}}` and close a page you own with `{{command "browser.close-page" (args "page-id" "<id>")}}`.
-6. Use `{{command "browser.eval" (args "script" "'() => document.title'")}}` for page JS and `{{command "browser.screenshot"}}` for a PNG path.
-7. Re-run `snapshot` after navigation or UI-changing actions because `uid` values can change.
+4. Use `{{command "browser.list-pages"}}` to inspect the workspace Browser and any session-owned Agent Browser tabs. Select a stable target with `{{command "browser.select-page" (args "page-id" "<id>")}}` when needed.
+5. Create another managed Browser page with `{{command "browser.new-page" (args "url" "<url>")}}` and close a page you own with `{{command "browser.close-page" (args "page-id" "<id>")}}`.
+6. Navigate the selected page later with `{{command "browser.navigate" (args "url" "<url>")}}`.
+7. Use `{{command "browser.eval" (args "script" "'() => document.title'")}}` for page JS and `{{command "browser.screenshot"}}` for a PNG path.
+8. Re-run `snapshot` after navigation or UI-changing actions because `uid` values can change.
+
+Append `--json` only when the exact command's help advertises it. Browser commands support JSON, but plain output is normally sufficient for page text.
 
 ## Guardrails
 

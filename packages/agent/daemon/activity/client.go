@@ -34,6 +34,9 @@ func (c *Client) ReportActivity(ctx context.Context, input ReportActivityInput) 
 	if workspaceID == "" {
 		return ReportActivityReply{}, errors.New("workspace id is required")
 	}
+	// Provider observations are local Replay metadata. They never cross the
+	// canonical HTTP reporting boundary.
+	input.ProviderObservations = nil
 	return ReportActivityAsSessionUpdates(ctx, c, input)
 }
 

@@ -17,9 +17,14 @@ export type AgentRunErrorCode =
   | "request_timed_out"
   | "provider_config_timeout"
   | "provider_stream_disconnected"
+  | "provider_empty_response"
   | "provider_concurrency_limit"
   | "insufficient_credits"
+  | "model_not_allowed"
+  | "plugin_unavailable"
   | "quota_or_rate_limit"
+  | "session_interrupted"
+  | "subscription_required"
   | "process_exited"
   | "provider_error"
   | "unknown";
@@ -114,6 +119,11 @@ const PRESENTATIONS: Record<AgentRunErrorCode, AgentErrorPresentation> = {
     messageKey: "agentHost.agentGui.visibleErrorStreamDisconnected",
     ...NO_CTA
   },
+  provider_empty_response: {
+    messageKey: "agentHost.agentGui.visibleErrorEmptyResponse",
+    focus: "detect",
+    actionKey: "agentHost.agentGui.visibleErrorActionDetect"
+  },
   provider_concurrency_limit: {
     messageKey: "agentHost.agentGui.visibleErrorConcurrencyLimit",
     ...NO_CTA
@@ -122,8 +132,24 @@ const PRESENTATIONS: Record<AgentRunErrorCode, AgentErrorPresentation> = {
     messageKey: "agentHost.agentGui.visibleErrorInsufficientCreditsUnknown",
     ...NO_CTA
   },
+  model_not_allowed: {
+    messageKey: "agentHost.agentGui.visibleErrorModelNotAllowed",
+    ...NO_CTA
+  },
+  plugin_unavailable: {
+    messageKey: "agentHost.agentGui.visibleErrorPluginUnavailable",
+    ...NO_CTA
+  },
   quota_or_rate_limit: {
     messageKey: "agentHost.agentGui.visibleErrorQuotaOrRateLimit",
+    ...NO_CTA
+  },
+  session_interrupted: {
+    messageKey: "agentHost.agentGui.visibleErrorSessionInterrupted",
+    ...NO_CTA
+  },
+  subscription_required: {
+    messageKey: "agentHost.agentGui.visibleErrorSubscriptionRequired",
     ...NO_CTA
   },
   // Ambiguous hard failures → generic message + self-detect escape hatch.
@@ -149,6 +175,42 @@ export function resolveAgentErrorPresentation(
 const FAILED_MESSAGE_CODE_MARKERS: ReadonlyArray<
   readonly [AgentRunErrorCode, readonly string[]]
 > = [
+  [
+    "subscription_required",
+    [
+      "unable to verify your membership benefits",
+      "ensure your membership is active",
+      "subscription does not have access",
+      "current plan supports only",
+      "membership expired",
+      "subscription required"
+    ]
+  ],
+  [
+    "insufficient_credits",
+    [
+      "insufficient credits",
+      "insufficient balance",
+      "balance is insufficient",
+      "402 payment required"
+    ]
+  ],
+  ["provider_concurrency_limit", ["concurrency limit exceeded"]],
+  [
+    "quota_or_rate_limit",
+    [
+      "quota",
+      "rate limit",
+      "limit exceeded",
+      "usage limit",
+      "upgrade your plan to continue",
+      "add a payment method to continue",
+      "resource_exhausted",
+      "too many requests",
+      "status code: 429"
+    ]
+  ],
+  ["model_not_allowed", ["model_not_allowed"]],
   [
     "auth_required",
     [
@@ -177,10 +239,6 @@ const FAILED_MESSAGE_CODE_MARKERS: ReadonlyArray<
   [
     "network_error",
     ["enotfound", "econnrefused", "econnreset", "getaddrinfo", "socket hang up"]
-  ],
-  [
-    "quota_or_rate_limit",
-    ["upgrade your plan to continue", "add a payment method to continue"]
   ]
 ];
 

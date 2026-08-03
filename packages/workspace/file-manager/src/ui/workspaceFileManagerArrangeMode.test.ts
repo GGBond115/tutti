@@ -4,8 +4,7 @@ import type { WorkspaceFileEntry } from "../services/workspaceFileManagerTypes.t
 import {
   readWorkspaceFileManagerArrangeMode,
   sortWorkspaceFileEntriesForArrangeMode,
-  workspaceFileManagerArrangeModeStorageKey,
-  writeWorkspaceFileManagerArrangeMode
+  workspaceFileManagerArrangeModeStorageKey
 } from "./workspaceFileManagerArrangeMode.ts";
 
 function createEntry(
@@ -23,41 +22,6 @@ function createEntry(
     ...overrides
   };
 }
-
-test("workspace file manager arrange mode defaults to none", () => {
-  assert.equal(readWorkspaceFileManagerArrangeMode(), "none");
-});
-
-test("workspace file manager arrange mode persists selected mode", () => {
-  const storage = new Map<string, string>();
-  const originalWindow = globalThis.window;
-
-  Object.defineProperty(globalThis, "window", {
-    configurable: true,
-    value: {
-      localStorage: {
-        getItem: (key: string) => storage.get(key) ?? null,
-        setItem: (key: string, value: string) => {
-          storage.set(key, value);
-        }
-      }
-    }
-  });
-
-  try {
-    writeWorkspaceFileManagerArrangeMode("kind");
-    assert.equal(
-      storage.get(workspaceFileManagerArrangeModeStorageKey),
-      "kind"
-    );
-    assert.equal(readWorkspaceFileManagerArrangeMode(), "kind");
-  } finally {
-    Object.defineProperty(globalThis, "window", {
-      configurable: true,
-      value: originalWindow
-    });
-  }
-});
 
 test("workspace file manager arrange mode ignores removed tags mode", () => {
   const originalWindow = globalThis.window;

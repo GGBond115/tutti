@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 7,
   "blobManifestSchemaVersion": 1,
   "limits": {
     "maxProviderPayloadBytes": 8388608,
@@ -8,29 +8,19 @@
     "maxPortableBlobBytes": 20971520
   },
   "files": {
-    "scenario": {
-      "path": "scenario.json",
-      "role": "scenario",
-      "required": true
-    },
-    "environment": {
-      "path": "environment.json",
-      "role": "portable-environment",
-      "required": true
-    },
     "activityEvents": {
       "path": "activity-events.jsonl",
       "role": "activity-events",
       "required": true
     },
-    "checkpoints": {
-      "path": "checkpoints.jsonl",
-      "role": "stable-replay-checkpoints",
+    "checkpointPlan": {
+      "path": "checkpoint-plan.json",
+      "role": "checkpoint-plan",
       "required": true
     },
-    "seedFixture": {
-      "path": "seed/state.jsonl",
-      "role": "seed-session-graph",
+    "initialState": {
+      "path": "initial-state.json",
+      "role": "semantic-initial-state",
       "required": false
     },
     "providerManifest": {
@@ -43,9 +33,9 @@
       "role": "provider-tape-frames",
       "required": true
     },
-    "expectedFixture": {
-      "path": "expected/state.jsonl",
-      "role": "expected-session-graph",
+    "expectedState": {
+      "path": "expected-state.json",
+      "role": "semantic-expected-state",
       "required": true
     },
     "blobManifest": {

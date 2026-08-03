@@ -108,6 +108,77 @@ test("filter tree isolates an unreadable descendant folder", async () => {
   );
 });
 
+test("filter tree scopes recursive reads to the selected root node", async () => {
+  const downloads = folder(
+    "/Users/me/Downloads",
+    "Downloads",
+    "host-local-file"
+  );
+  const documents = folder(
+    "/Users/me/Documents",
+    "Documents",
+    "host-local-file"
+  );
+  const website = file(
+    "/Users/me/Downloads/site.html",
+    "site.html",
+    "host-local-file"
+  );
+  const documentWebsite = file(
+    "/Users/me/Documents/private.html",
+    "private.html",
+    "host-local-file"
+  );
+  const entriesByNodeId: Record<string, ReferenceNode[]> = {
+    [SOURCE_ROOT_NODE_ID]: [downloads, documents],
+    [downloads.ref.nodeId]: [website],
+    [documents.ref.nodeId]: [documentWebsite]
+  };
+  const listedNodeIds: string[] = [];
+  const aggregator = {
+    async listChildren(_scope, node) {
+      listedNodeIds.push(node.nodeId);
+      assert.notEqual(
+        node.nodeId,
+        SOURCE_ROOT_NODE_ID,
+        "scoped filter should not read the source root"
+      );
+      assert.notEqual(
+        node.nodeId,
+        documents.ref.nodeId,
+        "scoped filter should not read sibling folders"
+      );
+      return {
+        entries: entriesByNodeId[node.nodeId] ?? [],
+        nextCursor: null
+      };
+    }
+  } as ReferenceSourceAggregator;
+
+  const tree = await buildReferenceSourcePickerFilteredTree({
+    aggregator,
+    filters: ["webpage"],
+    rootNode: downloads,
+    scope: { workspaceId: "workspace-1" },
+    signal: new AbortController().signal,
+    sourceId: "host-local-file"
+  });
+
+  assert.deepEqual(listedNodeIds, [downloads.ref.nodeId]);
+  assert.deepEqual(
+    tree.childrenByKey[ROOT_CHILDREN_KEY]?.entries.map(
+      (entry) => entry.displayName
+    ),
+    ["Downloads"]
+  );
+  assert.deepEqual(
+    tree.childrenByKey[nodeRefKey(downloads.ref)]?.entries.map(
+      (entry) => entry.displayName
+    ),
+    ["site.html"]
+  );
+});
+
 test("filter tree terminates when folders form a cycle", async () => {
   const photos = folder("/workspace/photos", "photos");
   const nested = folder("/workspace/photos/nested", "nested");
@@ -175,19 +246,27 @@ test("filter tree still reports a source-root read failure", async () => {
   );
 });
 
-function folder(nodeId: string, displayName: string): ReferenceNode {
+function folder(
+  nodeId: string,
+  displayName: string,
+  sourceId = "workspace-file"
+): ReferenceNode {
   return {
     displayName,
     hasChildren: true,
     kind: "folder",
-    ref: { nodeId, sourceId: "workspace-file" }
+    ref: { nodeId, sourceId }
   };
 }
 
-function file(nodeId: string, displayName: string): ReferenceNode {
+function file(
+  nodeId: string,
+  displayName: string,
+  sourceId = "workspace-file"
+): ReferenceNode {
   return {
     displayName,
     kind: "file",
-    ref: { nodeId, sourceId: "workspace-file" }
+    ref: { nodeId, sourceId }
   };
 }

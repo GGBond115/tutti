@@ -40,7 +40,7 @@ function createAgentGUIProps(locale: AgentGUIProps["locale"]): AgentGUIProps {
 vi.mock("./agent-gui/agentGuiNode/AgentGUINode", async () => {
   const { useTranslation } =
     await vi.importActual<typeof import("./i18n/index")>("./i18n/index");
-  const { useOptionalAgentActivityRuntime } = await vi.importActual<
+  const { useOptionalAgentGUIRuntime } = await vi.importActual<
     typeof import("./agentActivityRuntime")
   >("./agentActivityRuntime");
   const { useOptionalTuttiModePlanReviewRuntime } = await vi.importActual<
@@ -54,7 +54,7 @@ vi.mock("./agent-gui/agentGuiNode/AgentGUINode", async () => {
     AgentGUINode: (props: AgentGUINodeProbeProps) => {
       agentGuiNodeSpy(props);
       const { t } = useTranslation();
-      const activityRuntime = useOptionalAgentActivityRuntime();
+      const activityRuntime = useOptionalAgentGUIRuntime();
       const workflowRuntime = useOptionalTuttiModePlanReviewRuntime();
       return (
         <>

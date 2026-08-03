@@ -13,8 +13,7 @@ import {
   waitForEvaluation
 } from "./agent-gui-performance-helpers.mjs";
 
-const editorSelector =
-  '#agent-gui-detail [contenteditable="true"][role="textbox"]';
+const editorSelector = '[data-testid="agent-gui-composer-editor"]';
 const paletteSelector = '[data-testid="agent-gui-mention-palette-surface"]';
 const ordinaryText =
   "Measure AgentGUI composer input one character at a time. ";
@@ -215,7 +214,7 @@ async function prepareComposerInput(context, options) {
     `(() => {
       const editor = document.querySelector(${JSON.stringify(editorSelector)});
       const activeSession = document.querySelector(${JSON.stringify(`[data-testid="agent-gui-conversation-item-${fixture.sessionID}"]`)});
-      const dockComposer = Boolean(editor?.closest('.agent-gui-node__composer-prompt-input-area'));
+      const dockComposer = Boolean(editor?.closest('[data-testid="agent-gui-composer-input-shell"]'));
       return {
         ready: editor instanceof HTMLElement && editor.getAttribute('contenteditable') === 'true' && activeSession?.dataset.active === 'true' && dockComposer,
         dockComposer,
@@ -384,8 +383,8 @@ async function waitForComposerGeometry(client, predicate, timeoutMs, label) {
 function composerGeometryExpression(predicate) {
   return `(() => {
     const editor = document.querySelector(${JSON.stringify(editorSelector)});
-    const inputArea = editor?.closest('.agent-gui-node__composer-prompt-input-area');
-    const actionButton = inputArea?.querySelector('.agent-gui-node__composer-send-button, .agent-gui-node__composer-stop-button');
+    const inputArea = editor?.closest('[data-testid="agent-gui-composer-input-shell"]');
+    const actionButton = document.querySelector('[data-testid="agent-gui-composer-send"], [data-testid="agent-gui-composer-stop-active-turn"]');
     if (!(inputArea instanceof HTMLElement) || !(actionButton instanceof HTMLElement)) {
       return { ready: false, buttonBottomOffset: -1, height: -1, targetHeight: -1 };
     }

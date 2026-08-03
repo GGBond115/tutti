@@ -2,13 +2,14 @@ import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { createAgentSessionEngine } from "@tutti-os/agent-activity-core";
 import { createLocalAgentGUIAgentTarget } from "../../../../../agentTargets";
+import { createTestEngineCommandPort } from "../../../../../shared/testing/createTestAgentSessionEngine";
 import { useAgentGuiConversationList } from "./useAgentGuiConversationList";
 
 describe("useAgentGuiConversationList", () => {
   it("projects a child interaction as user action on its root conversation", () => {
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -98,7 +99,7 @@ describe("useAgentGuiConversationList", () => {
   it("projects a plain @ title from a matching mention-rich initial prompt", () => {
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -145,7 +146,7 @@ describe("useAgentGuiConversationList", () => {
   it("shows only conversation text for a browser-element activation", () => {
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -191,7 +192,7 @@ describe("useAgentGuiConversationList", () => {
   it("shows only conversation text for a canonical browser-element session", () => {
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -259,7 +260,7 @@ describe("useAgentGuiConversationList", () => {
   it("shows a historical session marker after its first message is loaded", () => {
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -333,7 +334,7 @@ describe("useAgentGuiConversationList", () => {
   it("keeps the projected list stable while an assistant message streams", () => {
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -413,7 +414,7 @@ describe("useAgentGuiConversationList", () => {
   it("keeps the optimistic activation title until canonical title arrives", () => {
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -486,7 +487,7 @@ describe("useAgentGuiConversationList", () => {
   it("projects canonical sessions and pending activation records without a list store", () => {
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -552,7 +553,7 @@ describe("useAgentGuiConversationList", () => {
   it("keeps concurrent pending activations ordered and replaces only the canonicalized row", () => {
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
@@ -658,7 +659,7 @@ describe("useAgentGuiConversationList", () => {
   it("orders canonical sessions by latest turn start instead of update timestamps", () => {
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({ execute: async () => ({}) }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });
