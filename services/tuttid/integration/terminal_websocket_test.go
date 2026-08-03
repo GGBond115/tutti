@@ -177,6 +177,22 @@ func TestTuttidBlackBoxWorkspaceTerminalWebSocketExitFrameCarriesExitCode(t *tes
 			break
 		}
 	}
+	if runtime.GOOS == "windows" {
+		mustRequestJSON[tuttigenerated.WorkspaceTerminalResponse](
+			t,
+			daemon,
+			http.MethodDelete,
+			"/v1/workspaces/"+createdWorkspace.Workspace.Id+"/terminals/"+createdTerminal.Terminal.Id,
+			nil,
+			http.StatusOK,
+		)
+		for {
+			frame := readTerminalWebSocketTestFrame(t, ctx, conn)
+			if frame.Type == "exit" {
+				return
+			}
+		}
+	}
 
 	exitPayload, err := json.Marshal(map[string]string{
 		"type": "input",
