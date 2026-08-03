@@ -126,16 +126,23 @@ func (s Service) installTimeout() time.Duration {
 
 func runDefaultInstallCommand(ctx context.Context, input InstallCommandInput) (InstallCommandResult, error) {
 	ctx = baseContext(ctx)
-	command := strings.TrimSpace(input.Command)
-	if command == "" {
-		return InstallCommandResult{ExitCode: 1}, errors.New("installer command is empty")
-	}
-
 	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.CommandContext(ctx, resolveInstallerShell(), "/C", command)
+	if len(input.Args) > 0 {
+		program := strings.TrimSpace(input.Args[0])
+		if program == "" {
+			return InstallCommandResult{ExitCode: 1}, errors.New("installer program is empty")
+		}
+		cmd = newInstallExecCommand(ctx, program, input.Args[1:]...)
 	} else {
-		cmd = exec.CommandContext(ctx, resolveInstallerShell(), "-lc", command)
+		command := strings.TrimSpace(input.Command)
+		if command == "" {
+			return InstallCommandResult{ExitCode: 1}, errors.New("installer command is empty")
+		}
+		if runtime.GOOS == "windows" {
+			cmd = exec.CommandContext(ctx, resolveInstallerShell(), "/D", "/S", "/C", command)
+		} else {
+			cmd = exec.CommandContext(ctx, resolveInstallerShell(), "-lc", command)
+		}
 	}
 	cmd.Dir = strings.TrimSpace(input.CWD)
 	cmd.Env = input.Env

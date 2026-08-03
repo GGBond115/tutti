@@ -702,12 +702,30 @@ export function isLikelyTuttidProcess(command: string): boolean {
     return false;
   }
 
-  return normalized
-    .split(/\s+/)
-    .some((part) => part.split("/").pop() === "tuttid");
+  return normalized.split(/\s+/).some((part) => {
+    const executable = part
+      .replace(/^['"]|['"]$/g, "")
+      .split(/[\\/]/)
+      .pop();
+    return executable === "tuttid" || executable === "tuttid.exe";
+  });
 }
 
 function readProcessCommand(pid: number): string {
+  if (process.platform === "win32") {
+    const result = spawnSync(
+      "powershell.exe",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `(Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}").ExecutablePath`
+      ],
+      { encoding: "utf8", windowsHide: true }
+    );
+    return result.status === 0 ? result.stdout.trim() : "";
+  }
   const result = spawnSync(
     "ps",
     ["-p", String(pid), "-o", "comm=", "-o", "args="],
@@ -737,6 +755,11 @@ function terminateProcessTree(
     } catch {
       // Fall back to the direct child when the process group is already gone.
     }
+  }
+
+  if (process.platform === "win32") {
+    signalWindowsProcessTree(child.pid, signal);
+    return;
   }
 
   child.kill(signal);
@@ -808,6 +831,30 @@ export function signalProcessTree(pid: number, signal: NodeJS.Signals): void {
     }
   }
 
+  if (process.platform === "win32") {
+    signalWindowsProcessTree(pid, signal);
+    return;
+  }
+
+  try {
+    process.kill(pid, signal);
+  } catch {
+    // Process already exited.
+  }
+}
+
+function signalWindowsProcessTree(pid: number, signal: NodeJS.Signals): void {
+  const args = ["/PID", String(pid), "/T"];
+  if (signal === "SIGKILL") {
+    args.push("/F");
+  }
+  const result = spawnSync("taskkill.exe", args, {
+    encoding: "utf8",
+    windowsHide: true
+  });
+  if (result.status === 0) {
+    return;
+  }
   try {
     process.kill(pid, signal);
   } catch {

@@ -52,15 +52,12 @@ func TestResolveTerminalShellInvocation(t *testing.T) {
 }
 
 func TestTerminalServiceCreatesLocalPTYAndSnapshotsOutput(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows terminal support needs ConPTY-specific implementation")
-	}
-
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
 
 	service := &TerminalService{}
-	initialInput := "printf tutti-terminal-test\\n\r"
+	initialInput := terminalTestEchoCommand("tutti-terminal-test")
 
 	session, err := service.Create(context.Background(), "ws-1", CreateTerminalInput{
 		InitialInput: &initialInput,
@@ -238,10 +235,6 @@ func TestTerminalServiceCloseGuardRequiresConfirmationForForegroundProcess(t *te
 }
 
 func TestTerminalServiceAttachStreamWritesAndReceivesOutput(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows terminal support needs ConPTY-specific implementation")
-	}
-
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SHELL", "/bin/sh")
 
@@ -261,7 +254,7 @@ func TestTerminalServiceAttachStreamWritesAndReceivesOutput(t *testing.T) {
 	}
 	defer stream.Close()
 
-	if err := service.Write(context.Background(), "ws-1", session.ID, "printf stream-terminal-test\\n\r"); err != nil {
+	if err := service.Write(context.Background(), "ws-1", session.ID, terminalTestEchoCommand("stream-terminal-test")); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
 
@@ -282,10 +275,6 @@ func TestTerminalServiceAttachStreamWritesAndReceivesOutput(t *testing.T) {
 }
 
 func TestTerminalServiceAttachStreamReplaysMetadataAndDetachedStatus(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows terminal support needs ConPTY-specific implementation")
-	}
-
 	t.Setenv("HOME", t.TempDir())
 
 	service := &TerminalService{}
@@ -341,10 +330,6 @@ func TestTerminalServiceAttachStreamReplaysMetadataAndDetachedStatus(t *testing.
 }
 
 func TestTerminalServiceAttachStreamExitEventCarriesExitCode(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows terminal support needs ConPTY-specific implementation")
-	}
-
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SHELL", "/bin/sh")
 
@@ -362,7 +347,7 @@ func TestTerminalServiceAttachStreamExitEventCarriesExitCode(t *testing.T) {
 	defer stream.Close()
 
 	readyMarker := "tutti-terminal-exit-ready"
-	if err := service.Write(context.Background(), "ws-1", session.ID, "printf 'tutti-terminal-%s\\n' 'exit-ready'\r"); err != nil {
+	if err := service.Write(context.Background(), "ws-1", session.ID, terminalTestEchoCommand(readyMarker)); err != nil {
 		t.Fatalf("Write() ready error = %v", err)
 	}
 
@@ -398,6 +383,13 @@ func TestTerminalServiceAttachStreamExitEventCarriesExitCode(t *testing.T) {
 			t.Fatal("timed out waiting for exit event")
 		}
 	}
+}
+
+func terminalTestEchoCommand(value string) string {
+	if runtime.GOOS == "windows" {
+		return "echo " + value + "\r"
+	}
+	return "printf '" + value + "\\n'\r"
 }
 
 func waitForTerminalCloseGuard(

@@ -159,6 +159,20 @@ prepare_packaged_daemon() {
     return
   fi
 
+  if [[ "${VARIANT}" == "win" ]]; then
+    (
+      cd "${ROOT_DIR}/services/tuttid"
+      env CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+        go build -o "${DAEMON_BUNDLE_DIR}/${daemon_output_name}" .
+    )
+    (
+      cd "${ROOT_DIR}/apps/cli"
+      env CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+        go build -o "${CLI_BUNDLE_DIR}/${cli_output_name}" ./cmd/tutti
+    )
+    return
+  fi
+
   (
     cd "${ROOT_DIR}/services/tuttid"
     go build -o "${DAEMON_BUNDLE_DIR}/${daemon_output_name}" .

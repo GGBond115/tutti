@@ -81,6 +81,19 @@ def validate_manifest(root: Path, errors: list[str]) -> dict[str, Any] | None:
             errors.append("runtime.bootstrap must be a safe package-relative path")
         elif not (root / bootstrap).is_file():
             errors.append(f"runtime.bootstrap file does not exist: {bootstrap}")
+        entrypoints = runtime.get("entrypoints")
+        if entrypoints is not None:
+            if not isinstance(entrypoints, dict):
+                errors.append("runtime.entrypoints must be an object when provided")
+            else:
+                for platform_key, entrypoint in entrypoints.items():
+                    executable = entrypoint.get("executable") if isinstance(entrypoint, dict) else None
+                    if not isinstance(platform_key, str) or not platform_key or "/" in platform_key or "\\" in platform_key:
+                        errors.append("runtime.entrypoints keys must be platform keys")
+                    elif not is_safe_relative_path(executable):
+                        errors.append(f"runtime.entrypoints.{platform_key}.executable must be a safe package-relative path")
+                    elif not (root / executable).is_file():
+                        errors.append(f"runtime entrypoint file does not exist: {executable}")
         healthcheck = runtime.get("healthcheckPath")
         if not isinstance(healthcheck, str) or not healthcheck.startswith("/"):
             errors.append("runtime.healthcheckPath must start with /")

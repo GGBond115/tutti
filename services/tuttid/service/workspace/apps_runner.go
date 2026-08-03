@@ -47,6 +47,7 @@ type AppStartInput struct {
 	AppID           string
 	PackageDir      string
 	Bootstrap       string
+	Entrypoints     map[string]workspacebiz.AppManifestRuntimeEntrypoint
 	HealthcheckPath string
 	RuntimeProfile  string
 	RuntimeDir      string
@@ -198,11 +199,17 @@ func (r *AppRunner) startProcess(ctx context.Context, key string, input AppStart
 		return
 	}
 
-	bootstrap := input.Bootstrap
-	if bootstrap == "" {
-		bootstrap = "bootstrap.sh"
+	entrypoint, err := resolveAppEntrypoint(workspacebiz.AppManifestRuntime{
+		Bootstrap:   input.Bootstrap,
+		Entrypoints: input.Entrypoints,
+	}, currentAppPlatformKey())
+	if err != nil {
+		_ = logFile.Close()
+		logAppRuntimeControl("workspace_app_runtime_start_failed", input, port, "platform_not_supported", err)
+		r.setFailed(key, "platform_not_supported", err)
+		return
 	}
-	bootstrapPath := filepath.Join(input.PackageDir, filepath.Clean(bootstrap))
+	bootstrapPath := filepath.Join(input.PackageDir, filepath.FromSlash(entrypoint))
 	command := exec.Command(bootstrapPath)
 	prepareAppProcessCommand(command)
 	command.Dir = input.RuntimeDir

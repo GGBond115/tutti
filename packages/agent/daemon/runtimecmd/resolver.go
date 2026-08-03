@@ -91,16 +91,18 @@ func (r Resolver) ResolveAllNames(commandNames []string, env []string) []string 
 			if command == "" || strings.ContainsAny(command, `/\\`) {
 				continue
 			}
-			candidate := filepath.Join(dir, command)
-			if !r.isExecutableFile(candidate) {
-				continue
+			for _, executableName := range executableNameCandidates(command, env) {
+				candidate := filepath.Join(dir, executableName)
+				if !r.isExecutableFile(candidate) {
+					continue
+				}
+				key := executablePathKey(candidate)
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				result = append(result, candidate)
 			}
-			key := executablePathKey(candidate)
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			result = append(result, candidate)
 		}
 	}
 	return result
@@ -216,8 +218,7 @@ func (r Resolver) isExecutableFile(path string) bool {
 	if r.IsExecutableFile != nil {
 		return r.IsExecutableFile(path)
 	}
-	stat, err := os.Stat(path)
-	return err == nil && !stat.IsDir() && stat.Mode().Perm()&0111 != 0
+	return isExecutableFile(path)
 }
 
 func (r Resolver) lookPath(binaryName string) string {

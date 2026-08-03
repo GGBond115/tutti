@@ -158,16 +158,8 @@ func readLocalAppPackage(packageDir string) (workspacebiz.AppPackage, error) {
 }
 
 func validateLocalAppPackage(packageDir string, manifest workspacebiz.AppManifest) error {
-	bootstrapPath := filepath.Join(packageDir, filepath.FromSlash(strings.TrimSpace(manifest.Runtime.Bootstrap)))
-	info, err := os.Stat(bootstrapPath)
-	if err != nil {
-		return fmt.Errorf("%w: bootstrap %q is required: %w", ErrLocalAppPackageInvalid, manifest.Runtime.Bootstrap, err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("%w: bootstrap %q must be a file", ErrLocalAppPackageInvalid, manifest.Runtime.Bootstrap)
-	}
-	if info.Mode()&0o111 == 0 {
-		return fmt.Errorf("%w: bootstrap %q must be executable", ErrLocalAppPackageInvalid, manifest.Runtime.Bootstrap)
+	if _, err := validateAppEntrypointFile(packageDir, manifest.Runtime); err != nil {
+		return fmt.Errorf("%w: %w", ErrLocalAppPackageInvalid, err)
 	}
 	return nil
 }

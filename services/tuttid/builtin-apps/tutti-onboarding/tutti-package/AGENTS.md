@@ -3,11 +3,12 @@
 This package is the installed Tutti runtime for the Getting Started onboarding
 app.
 
-- `bootstrap.sh` is the runtime entrypoint called by Tutti. It prefers
-  `$TUTTI_APP_PACKAGE_DIR`, `$TUTTI_APP_HOST`, `$TUTTI_APP_PORT`,
-  `$TUTTI_APP_RUNTIME_DIR`, and `$TUTTI_APP_DATA_DIR`.
-- `server.go` is built into `bin/<platform>/tutti-onboarding-server` during
-  packaging. The binary serves packaged static assets, exposes `/healthz`,
+- `tutti.app.json` declares platform entrypoints for Darwin and Windows. New
+  hosts select the current platform executable; `bootstrap.sh` remains the
+  backward-compatible default for older Darwin hosts.
+- `server.go` is built into `bin/<platform>/tutti-onboarding-server[.exe]`
+  during packaging. One fat package carries all declared platform binaries.
+  The selected binary serves packaged static assets, exposes `/healthz`,
   and handles `POST /tutti/cli/read` for the `onboarding read` CLI command without
   requiring `$TUTTI_APP_NODE`.
 - `tutti.cli.json` exposes `onboarding read`, which returns the bundled

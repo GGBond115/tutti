@@ -47,9 +47,14 @@ type AppManifestIcon struct {
 }
 
 type AppManifestRuntime struct {
-	Bootstrap       string `json:"bootstrap"`
-	HealthcheckPath string `json:"healthcheckPath"`
-	Profile         string `json:"profile,omitempty"`
+	Bootstrap       string                                  `json:"bootstrap"`
+	Entrypoints     map[string]AppManifestRuntimeEntrypoint `json:"entrypoints,omitempty"`
+	HealthcheckPath string                                  `json:"healthcheckPath"`
+	Profile         string                                  `json:"profile,omitempty"`
+}
+
+type AppManifestRuntimeEntrypoint struct {
+	Executable string `json:"executable"`
 }
 
 type AppManifestCLI struct {
@@ -558,6 +563,19 @@ func ValidateAppManifest(manifest AppManifest) error {
 	bootstrap := strings.TrimSpace(manifest.Runtime.Bootstrap)
 	if strings.HasPrefix(bootstrap, "/") || strings.Contains(bootstrap, "..") {
 		return errors.New("app manifest runtime.bootstrap must be a relative package path")
+	}
+	for platformKey, entrypoint := range manifest.Runtime.Entrypoints {
+		platformKey = strings.TrimSpace(platformKey)
+		if platformKey == "" || strings.ContainsAny(platformKey, `/\\`) || strings.Contains(platformKey, "..") {
+			return errors.New("app manifest runtime.entrypoints keys must be platform keys")
+		}
+		executable := strings.TrimSpace(entrypoint.Executable)
+		if executable == "" {
+			return fmt.Errorf("app manifest runtime.entrypoints.%s.executable is required", platformKey)
+		}
+		if strings.HasPrefix(executable, "/") || strings.HasPrefix(executable, `\`) || strings.Contains(executable, "..") {
+			return fmt.Errorf("app manifest runtime.entrypoints.%s.executable must be a relative package path", platformKey)
+		}
 	}
 	if strings.TrimSpace(manifest.Runtime.HealthcheckPath) == "" {
 		return errors.New("app manifest runtime.healthcheckPath is required")

@@ -148,6 +148,7 @@ func (s Service) runManagedNPMPackageAction(
 		attemptCtx, cancel := context.WithTimeout(ctx, perRegistryInstallTimeout)
 		result, err = s.installCommand(attemptCtx, InstallCommandInput{
 			Command: command,
+			Args:    commandArgs,
 			Env:     withAgentNPMRegistry(slices.Clone(baseEnv), registry),
 			OnStdout: func(output string) {
 				appendActiveActionStdout(ctx, provider, output)
@@ -178,6 +179,7 @@ func (s Service) runManagedNPMPackageAction(
 			attemptCtx, cancel = context.WithTimeout(ctx, perRegistryInstallTimeout)
 			result, err = s.installCommand(attemptCtx, InstallCommandInput{
 				Command: command,
+				Args:    commandArgs,
 				Env:     withAgentNPMRegistry(slices.Clone(baseEnv), registry),
 				OnStdout: func(output string) {
 					appendActiveActionStdout(ctx, provider, output)

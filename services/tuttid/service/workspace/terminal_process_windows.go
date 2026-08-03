@@ -1,0 +1,65 @@
+//go:build windows
+
+package workspace
+
+import (
+	"context"
+	"sync"
+
+	"github.com/UserExistsError/conpty"
+	"golang.org/x/sys/windows"
+)
+
+type platformTerminalProcessFactory struct{}
+
+func NewPlatformTerminalProcessFactory() TerminalProcessFactory {
+	return platformTerminalProcessFactory{}
+}
+
+func (platformTerminalProcessFactory) Start(shell string, args []string, cwd string, env []string, cols int, rows int) (TerminalProcess, error) {
+	commandLine := windows.ComposeCommandLine(append([]string{shell}, args...))
+	process, err := conpty.Start(
+		commandLine,
+		conpty.ConPtyDimensions(cols, rows),
+		conpty.ConPtyWorkDir(cwd),
+		conpty.ConPtyEnv(env),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &windowsTerminalProcess{process: process}, nil
+}
+
+type windowsTerminalProcess struct {
+	process   *conpty.ConPty
+	closeOnce sync.Once
+	closeErr  error
+}
+
+func (p *windowsTerminalProcess) Read(data []byte) (int, error)  { return p.process.Read(data) }
+func (p *windowsTerminalProcess) Write(data []byte) (int, error) { return p.process.Write(data) }
+func (p *windowsTerminalProcess) FD() uintptr                    { return 0 }
+func (p *windowsTerminalProcess) PID() int                       { return p.process.Pid() }
+func (p *windowsTerminalProcess) Resize(cols int, rows int) error {
+	return p.process.Resize(cols, rows)
+}
+
+func (p *windowsTerminalProcess) Wait() error {
+	code, err := p.process.Wait(context.Background())
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return terminalProcessExitError{code: int(code)}
+	}
+	return nil
+}
+
+func (p *windowsTerminalProcess) Kill() error { return p.Close() }
+
+func (p *windowsTerminalProcess) Close() error {
+	p.closeOnce.Do(func() {
+		p.closeErr = p.process.Close()
+	})
+	return p.closeErr
+}

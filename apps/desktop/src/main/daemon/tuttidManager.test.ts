@@ -340,6 +340,10 @@ test("resolveLaunchSpec honors TUTTID_BIN override", () => {
 test("isLikelyTuttidProcess only matches tuttid executables", () => {
   assert.equal(isLikelyTuttidProcess("/tmp/tuttid"), true);
   assert.equal(
+    isLikelyTuttidProcess("C:\\Program Files\\Tutti\\tuttid.exe"),
+    true
+  );
+  assert.equal(
     isLikelyTuttidProcess(join(repoRoot, "apps/desktop/build/tuttid/tuttid")),
     true
   );

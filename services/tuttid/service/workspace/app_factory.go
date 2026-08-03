@@ -531,16 +531,8 @@ func (s *AppFactoryService) validatePackage(ctx context.Context, workspaceID str
 		return err
 	}
 
-	bootstrapPath := filepath.Join(draftPackageDir, filepath.Clean(manifest.Runtime.Bootstrap))
-	info, err := os.Stat(bootstrapPath)
-	if err != nil {
-		return fmt.Errorf("stat runtime bootstrap: %w", err)
-	}
-	if info.IsDir() {
-		return errors.New("runtime bootstrap must be a file")
-	}
-	if info.Mode()&0o111 == 0 {
-		return errors.New("runtime bootstrap must be executable")
+	if _, err := validateAppEntrypointFile(draftPackageDir, manifest.Runtime); err != nil {
+		return err
 	}
 
 	agentsData, err := readCleanAppFactoryAgentsFile(job)
@@ -562,6 +554,7 @@ func (s *AppFactoryService) validatePackage(ctx context.Context, workspaceID str
 		AppID:           manifest.AppID,
 		PackageDir:      draftPackageDir,
 		Bootstrap:       manifest.Runtime.Bootstrap,
+		Entrypoints:     manifest.Runtime.Entrypoints,
 		HealthcheckPath: manifest.Runtime.HealthcheckPath,
 		RuntimeProfile:  strings.TrimSpace(manifest.Runtime.Profile),
 		RuntimeDir:      job.RuntimeDir,

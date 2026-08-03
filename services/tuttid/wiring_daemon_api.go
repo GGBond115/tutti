@@ -767,7 +767,7 @@ func buildDaemonAPI(
 	}
 	agentRuntimePreparer.CommandCatalog = runtimePrepCommandCatalog{Catalog: cliRegistry}
 
-	terminalService := &workspaceservice.TerminalService{}
+	terminalService := workspaceservice.NewTerminalService(workspaceservice.NewPlatformTerminalProcessFactory())
 	tuttiAgentReadiness := configureReplayAwareTuttiAgentReadiness(
 		replayComposition, accountService, &agentStatusService, agentTargets,
 	)

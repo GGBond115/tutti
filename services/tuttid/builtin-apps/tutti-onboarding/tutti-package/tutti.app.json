@@ -10,6 +10,17 @@
   },
   "runtime": {
     "bootstrap": "bootstrap.sh",
+    "entrypoints": {
+      "darwin-arm64": {
+        "executable": "bin/darwin-arm64/tutti-onboarding-server"
+      },
+      "darwin-amd64": {
+        "executable": "bin/darwin-amd64/tutti-onboarding-server"
+      },
+      "windows-amd64": {
+        "executable": "bin/windows-amd64/tutti-onboarding-server.exe"
+      }
+    },
     "healthcheckPath": "/healthz",
     "profile": "standalone"
   },
