@@ -43,7 +43,7 @@ Current naming guidance:
 - when changing Microsoft Windows packaging or native resources, read
   [Windows Platform Support](../../docs/architecture/windows-platform-support.md)
   and keep platform selection at packaging or desktop composition boundaries
-- inject platform-native resources such as the managed Workspace App shell
+- inject platform-native resources such as the managed POSIX shell
   through the daemon launch environment; daemon consumers must depend on their
   capability contract rather than importing desktop packaging details
 - prefer calling `tuttid` or desktop IPC adapters instead of re-implementing workflows in Electron

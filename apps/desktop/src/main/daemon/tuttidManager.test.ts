@@ -20,7 +20,7 @@ import {
   resolveClaudeSDKSidecarDaemonEnv,
   resolveLaunchSpec,
   resolveManagedDaemonProcessEnv,
-  resolveWorkspaceAppShellDaemonEnv
+  resolveManagedPosixShellDaemonEnv
 } from "./tuttidManager.ts";
 
 const repoRoot = resolve(
@@ -220,11 +220,11 @@ test("resolveClaudeSDKSidecarDaemonEnv points the daemon at a vendored bundle wh
   }
 });
 
-test("resolveWorkspaceAppShellDaemonEnv respects an explicit operator override", () => {
+test("resolveManagedPosixShellDaemonEnv respects an explicit operator override", () => {
   const previousEnv = { ...process.env };
   try {
-    process.env.TUTTI_WORKSPACE_APP_SHELL = "C:\\custom\\bash.exe";
-    const got = resolveWorkspaceAppShellDaemonEnv({
+    process.env.TUTTI_MANAGED_POSIX_SHELL = "C:\\custom\\bash.exe";
+    const got = resolveManagedPosixShellDaemonEnv({
       isPackaged: true,
       resourcesPath: join(tmpdir(), "tutti-resources")
     });
@@ -234,15 +234,15 @@ test("resolveWorkspaceAppShellDaemonEnv respects an explicit operator override",
   }
 });
 
-test("resolveWorkspaceAppShellDaemonEnv points the daemon at the packaged shell", async () => {
+test("resolveManagedPosixShellDaemonEnv points the daemon at the packaged shell", async () => {
   const previousEnv = { ...process.env };
   try {
-    delete process.env.TUTTI_WORKSPACE_APP_SHELL;
+    delete process.env.TUTTI_MANAGED_POSIX_SHELL;
     const resourcesPath = await mkdtemp(join(tmpdir(), "tutti-resources-"));
     const shell = join(
       resourcesPath,
       "bin",
-      "workspace-app-shell",
+      "managed-posix-shell",
       "usr",
       "bin",
       "bash.exe"
@@ -250,12 +250,12 @@ test("resolveWorkspaceAppShellDaemonEnv points the daemon at the packaged shell"
     await mkdir(dirname(shell), { recursive: true });
     await writeFile(shell, "stub\n");
 
-    const got = resolveWorkspaceAppShellDaemonEnv({
+    const got = resolveManagedPosixShellDaemonEnv({
       isPackaged: true,
       resourcesPath
     });
     assert.deepEqual(got, {
-      TUTTI_WORKSPACE_APP_SHELL: shell
+      TUTTI_MANAGED_POSIX_SHELL: shell
     });
   } finally {
     restoreEnv(previousEnv);

@@ -39,7 +39,7 @@ workspace agent timeline, agent approvals, or interactive agent prompts, read
 path is supplied.
 
 If a request mentions Microsoft Windows support, Windows packaging, ConPTY,
-platform-specific process behavior, or Workspace App shell portability, read
+platform-specific process behavior, or managed POSIX shell portability, read
 `docs/architecture/windows-platform-support.md` before planning or editing.
 Keep product logic platform-neutral: callers depend on capability interfaces,
 and operating-system differences stay in the narrow owning adapter or

@@ -183,9 +183,10 @@ Supported daemon overrides:
 - `TUTTI_APP_RUNTIME_CATALOG`: HTTP(S) URL or local file path for the runtime catalog. Set it to an empty string to disable the default runtime catalog.
 - `TUTTI_APP_RUNTIME_CACHE_ROOT`: cache root for platform-specific runtime directories.
 - `TUTTI_APP_RUNTIME_ROOT`: exact prepared runtime root, mainly for tests and local debugging.
-- `TUTTI_WORKSPACE_APP_SHELL`: absolute path to the managed Windows Bash
-  executable. Packaged Desktop sets this automatically; the override exists for
-  development, tests, and packaging diagnostics.
+- `TUTTI_MANAGED_POSIX_SHELL`: absolute path to the managed POSIX shell
+  executable. Packaged Windows Desktop sets this automatically; the Workspace
+  App adapter consumes it, while the override exists for development, tests,
+  and packaging diagnostics.
 
 App packages must not set these variables. The runner injects `TUTTI_APP_PYTHON`, `TUTTI_APP_NODE`, `TUTTI_APP_NPM`, and `PATH` for app processes.
 Agent provider installers may also use the managed `TUTTI_APP_NPM` path to

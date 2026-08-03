@@ -16,23 +16,23 @@ import { spawnSync } from "node:child_process";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "../../..");
-const lockPath = join(repoRoot, "config/tutti.workspace-app-shell.lock.json");
+const lockPath = join(repoRoot, "config/tutti.managed-posix-shell.lock.json");
 const outputRoot = resolve(
-  process.env.TUTTI_WORKSPACE_APP_SHELL_STAGING_DIR?.trim() ||
-    join(repoRoot, "apps/desktop/build/workspace-app-shell")
+  process.env.TUTTI_MANAGED_POSIX_SHELL_STAGING_DIR?.trim() ||
+    join(repoRoot, "apps/desktop/build/managed-posix-shell")
 );
 
 const lock = JSON.parse(await readFile(lockPath, "utf8"));
-if (lock.schemaVersion !== "tutti.workspace-app-shell-lock.v1") {
+if (lock.schemaVersion !== "tutti.managed-posix-shell-lock.v1") {
   throw new Error(
-    `unsupported workspace app shell lock schema: ${lock.schemaVersion}`
+    `unsupported managed POSIX shell lock schema: ${lock.schemaVersion}`
   );
 }
 
 const platform = parsePlatformArgument(process.argv.slice(2));
 const config = lock.platforms?.[platform];
 if (!config) {
-  throw new Error(`workspace app shell lock does not contain ${platform}`);
+  throw new Error(`managed POSIX shell lock does not contain ${platform}`);
 }
 
 function parsePlatformArgument(args) {
@@ -41,18 +41,18 @@ function parsePlatformArgument(args) {
   );
   if (!platformArgument) {
     throw new Error(
-      "workspace app shell platform is required: --platform=<platform>"
+      "managed POSIX shell platform is required: --platform=<platform>"
     );
   }
   const platform = platformArgument.slice("--platform=".length).trim();
   if (!platform || args.length !== 1) {
-    throw new Error(`invalid workspace app shell arguments: ${args.join(" ")}`);
+    throw new Error(`invalid managed POSIX shell arguments: ${args.join(" ")}`);
   }
   return platform;
 }
 
 const archivePath = await resolveArchive(config);
-const extractRoot = await mkdtemp(join(tmpdir(), "tutti-workspace-app-shell-"));
+const extractRoot = await mkdtemp(join(tmpdir(), "tutti-managed-posix-shell-"));
 try {
   const selectedFiles = [...config.runtimeFiles, ...config.licenseFiles];
   extractArchive(archivePath, extractRoot, config.archiveRoot, selectedFiles);
@@ -79,7 +79,7 @@ try {
     join(outputRoot, "runtime.json"),
     `${JSON.stringify(
       {
-        schemaVersion: "tutti.workspace-app-shell.v1",
+        schemaVersion: "tutti.managed-posix-shell.v1",
         platform,
         distribution: config.distribution,
         version: config.version,
@@ -110,7 +110,7 @@ async function resolveArchive(config) {
     return path;
   }
 
-  const cacheRoot = join(tmpdir(), "tutti-build-cache", "workspace-app-shell");
+  const cacheRoot = join(tmpdir(), "tutti-build-cache", "managed-posix-shell");
   const path = join(cacheRoot, basename(config.archiveUrl));
   await mkdir(cacheRoot, { recursive: true });
   try {
@@ -123,7 +123,7 @@ async function resolveArchive(config) {
   const response = await fetch(config.archiveUrl, { redirect: "follow" });
   if (!response.ok || !response.body) {
     throw new Error(
-      `download workspace app shell archive: HTTP ${response.status}`
+      `download managed POSIX shell archive: HTTP ${response.status}`
     );
   }
   const bytes = Buffer.from(await response.arrayBuffer());
@@ -137,7 +137,7 @@ async function verifyArchive(path, expectedSha256) {
   const actualSha256 = await sha256File(path);
   if (actualSha256 !== expectedSha256) {
     throw new Error(
-      `workspace app shell archive checksum mismatch: got ${actualSha256}, want ${expectedSha256}`
+      `managed POSIX shell archive checksum mismatch: got ${actualSha256}, want ${expectedSha256}`
     );
   }
 }
@@ -157,7 +157,7 @@ function extractArchive(archivePath, targetRoot, archiveRoot, relativePaths) {
   );
   if (result.status !== 0) {
     throw new Error(
-      `extract workspace app shell archive: ${result.stderr || result.stdout || result.error}`
+      `extract managed POSIX shell archive: ${result.stderr || result.stdout || result.error}`
     );
   }
 }
@@ -169,7 +169,7 @@ function resolveTarCommand() {
   const systemRoot = process.env.SystemRoot?.trim();
   if (!systemRoot) {
     throw new Error(
-      "extract workspace app shell archive: SystemRoot is unavailable"
+      "extract managed POSIX shell archive: SystemRoot is unavailable"
     );
   }
   return join(systemRoot, "System32", "tar.exe");
@@ -182,9 +182,9 @@ function renderThirdPartyNotices(config) {
         `- ${component.name} ${component.version}: ${component.license}`
     )
     .join("\n");
-  return `# Workspace App Shell third-party notices
+  return `# Managed POSIX Shell third-party notices
 
-The Windows Workspace App shell runtime is assembled from the official MSYS2
+The Windows managed POSIX shell runtime is assembled from the official MSYS2
 base distribution ${config.version}. It contains unmodified copies of GNU Bash,
 selected GNU coreutils programs, GNU libiconv/libintl runtime libraries, and the
 MSYS2 POSIX runtime.

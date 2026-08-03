@@ -18,15 +18,15 @@ formal `latest` release path.
 
 Current implementation and evidence:
 
-| Area                     | Shared owner                                            | Windows boundary                                         | Status                                                                 |
-| ------------------------ | ------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Desktop daemon lifecycle | Electron main process                                   | packages `tuttid.exe` and injects native resource paths  | Windows Alpha CI packages it                                           |
-| Workspace Apps           | daemon app lifecycle, health, state, and events         | `AppShellAdapter` invokes the packaged managed Bash      | Onboarding fat package is exercised in Windows Alpha CI                |
-| Terminal                 | terminal service and shared terminal contracts          | `TerminalProcessFactory` uses ConPTY                     | focused adapter and daemon WebSocket tests run in Windows Alpha CI     |
-| Agent processes          | provider-neutral agent/runtime services                 | build-tagged executable, command, and process handling   | focused Windows tests run in Windows Alpha CI                          |
-| Browser                  | browser service contract                                | focused Windows executable/profile path behavior         | focused Windows tests exist; full browser E2E remains a promotion gate |
-| Files                    | workspace file APIs and portable Go filesystem behavior | add a narrow adapter only where Windows semantics differ | full Windows Files E2E remains a promotion gate                        |
-| Release                  | desktop release policy                                  | isolated unsigned NSIS Alpha artifact                    | not signed, mirrored, announced, or published to `latest`              |
+| Area                     | Shared owner                                            | Windows boundary                                           | Status                                                                 |
+| ------------------------ | ------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Desktop daemon lifecycle | Electron main process                                   | packages `tuttid.exe` and injects native resource paths    | Windows Alpha CI packages it                                           |
+| Workspace Apps           | daemon app lifecycle, health, state, and events         | `AppShellAdapter` invokes the packaged managed POSIX shell | Onboarding fat package is exercised in Windows Alpha CI                |
+| Terminal                 | terminal service and shared terminal contracts          | `TerminalProcessFactory` uses ConPTY                       | focused adapter and daemon WebSocket tests run in Windows Alpha CI     |
+| Agent processes          | provider-neutral agent/runtime services                 | build-tagged executable, command, and process handling     | focused Windows tests run in Windows Alpha CI                          |
+| Browser                  | browser service contract                                | focused Windows executable/profile path behavior           | focused Windows tests exist; full browser E2E remains a promotion gate |
+| Files                    | workspace file APIs and portable Go filesystem behavior | add a narrow adapter only where Windows semantics differ   | full Windows Files E2E remains a promotion gate                        |
+| Release                  | desktop release policy                                  | isolated unsigned NSIS Alpha artifact                      | not signed, mirrored, announced, or published to `latest`              |
 
 Passing `windows-latest` CI proves the build and automated paths above. It does
 not by itself prove the supported Windows 10 floor, installer UX, upgrade, or
@@ -87,8 +87,9 @@ App Center install
   -> state persistence and business events
 ```
 
-On packaged Windows Desktop, the desktop vendors a pinned minimal Bash runtime
-and injects its absolute path when starting `tuttid.exe`. The Windows
+On packaged Windows Desktop, the desktop vendors a pinned minimal POSIX shell
+runtime, currently implemented with Bash, and injects its absolute path when
+starting `tuttid.exe`. The Windows
 `AppShellAdapter` invokes that Bash with profiles disabled and exposes its
 managed command directory through `PATH`. Apps do not depend on Git for Windows
 or WSL, and the manifest does not duplicate platform entrypoints.
@@ -103,8 +104,11 @@ platform key should add an artifact and build job, not another app lifecycle.
 
 `AppRunner` owns app lifecycle and depends on `AppShellAdapter`. The adapter
 only answers how to invoke a package script and which managed command directory
-must be available. Shell download, verification, and desktop resource layout
-remain desktop packaging concerns.
+must be available. The reusable packaged resource is named
+`managed-posix-shell`; shell download, verification, and desktop resource
+layout remain desktop packaging concerns. Other domains may reuse that resource
+through their own narrow adapter, but must not depend on `AppShellAdapter` or
+expand the Workspace App contract.
 
 ### Terminal
 

@@ -75,8 +75,8 @@
       ],
       "extraResources": [
         {
-          "from": "build/workspace-app-shell",
-          "to": "bin/workspace-app-shell",
+          "from": "build/managed-posix-shell",
+          "to": "bin/managed-posix-shell",
           "filter": [
             "**/*"
           ]

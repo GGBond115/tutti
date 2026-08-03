@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "tutti.workspace-app-shell-lock.v1",
+  "schemaVersion": "tutti.managed-posix-shell-lock.v1",
   "platforms": {
     "windows-amd64": {
       "distribution": "msys2",

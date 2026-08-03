@@ -205,11 +205,11 @@ prepare_claude_sdk_sidecar() {
   node "${ROOT_DIR}/apps/desktop/scripts/vendor-claude-sdk-sidecar.mjs"
 }
 
-prepare_workspace_app_shell() {
+prepare_managed_posix_shell() {
   if [[ "${VARIANT}" != "win" ]]; then
     return
   fi
-  node "${ROOT_DIR}/apps/desktop/scripts/vendor-workspace-app-shell.mjs" --platform=windows-amd64
+  node "${ROOT_DIR}/apps/desktop/scripts/vendor-managed-posix-shell.mjs" --platform=windows-amd64
 }
 
 run_pnpm_build() {
@@ -291,7 +291,7 @@ case "${VARIANT}" in
     run_timed_phase "prepare_packaged_daemon" prepare_packaged_daemon
     run_timed_phase "prepare_browser_mcp" prepare_browser_mcp
     run_timed_phase "prepare_claude_sdk_sidecar" prepare_claude_sdk_sidecar
-    run_timed_phase "prepare_workspace_app_shell" prepare_workspace_app_shell
+    run_timed_phase "prepare_managed_posix_shell" prepare_managed_posix_shell
     (
       cd "${APP_DIR}"
       run_timed_phase "resolve_desktop_build_version" resolve_desktop_build_version

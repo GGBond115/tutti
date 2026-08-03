@@ -107,7 +107,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          $shell = Resolve-Path 'apps/desktop/dist/win-unpacked/resources/bin/workspace-app-shell/usr/bin/bash.exe'
+          $shell = Resolve-Path 'apps/desktop/dist/win-unpacked/resources/bin/managed-posix-shell/usr/bin/bash.exe'
           $shellBin = Split-Path -Parent $shell
           $package = Resolve-Path 'services/tuttid/builtin-apps/tutti-onboarding/build/package'
           $runtime = Join-Path $env:RUNNER_TEMP 'tutti-onboarding-runtime'

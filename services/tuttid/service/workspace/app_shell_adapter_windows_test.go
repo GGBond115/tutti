@@ -17,7 +17,7 @@ func TestPlatformAppShellAdapterUsesManagedShell(t *testing.T) {
 	if err := os.WriteFile(shellPath, []byte("stub"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	t.Setenv(workspaceAppShellEnv, shellPath)
+	t.Setenv(managedPosixShellEnv, shellPath)
 
 	scriptPath := filepath.Join(t.TempDir(), "bootstrap.sh")
 	command, binDirs, err := (platformAppShellAdapter{}).Command(context.Background(), scriptPath)
@@ -42,7 +42,7 @@ func TestPlatformAppShellAdapterUsesManagedShell(t *testing.T) {
 }
 
 func TestPlatformAppShellAdapterRequiresManagedShell(t *testing.T) {
-	t.Setenv(workspaceAppShellEnv, "")
+	t.Setenv(managedPosixShellEnv, "")
 	if _, _, err := (platformAppShellAdapter{}).Command(context.Background(), `C:\\app\\bootstrap.sh`); err == nil {
 		t.Fatal("Command() error = nil")
 	}

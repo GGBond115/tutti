@@ -301,9 +301,9 @@ const vendoredClaudeSDKSidecarRelPath = join(
   "src",
   "main.ts"
 );
-const vendoredWorkspaceAppShellRelPath = join(
+const vendoredManagedPosixShellRelPath = join(
   "bin",
-  "workspace-app-shell",
+  "managed-posix-shell",
   "usr",
   "bin",
   "bash.exe"
@@ -367,10 +367,10 @@ export function resolveClaudeSDKSidecarDaemonEnv(
   };
 }
 
-export function resolveWorkspaceAppShellDaemonEnv(
+export function resolveManagedPosixShellDaemonEnv(
   runtime?: DesktopElectronAppRuntime
 ): Record<string, string> {
-  if (process.env.TUTTI_WORKSPACE_APP_SHELL?.trim()) {
+  if (process.env.TUTTI_MANAGED_POSIX_SHELL?.trim()) {
     return {};
   }
   let appRuntime: DesktopElectronAppRuntime;
@@ -384,13 +384,13 @@ export function resolveWorkspaceAppShellDaemonEnv(
   }
   const shell = join(
     appRuntime.resourcesPath,
-    vendoredWorkspaceAppShellRelPath
+    vendoredManagedPosixShellRelPath
   );
   if (!existsSync(shell)) {
     return {};
   }
   return {
-    TUTTI_WORKSPACE_APP_SHELL: shell
+    TUTTI_MANAGED_POSIX_SHELL: shell
   };
 }
 
@@ -425,7 +425,7 @@ export function resolveManagedDaemonProcessEnv(
     ...resolveManagedRuntimeDaemonEnv(input.userShellEnv),
     ...resolveBrowserMcpDaemonEnv(),
     ...resolveClaudeSDKSidecarDaemonEnv(),
-    ...resolveWorkspaceAppShellDaemonEnv(),
+    ...resolveManagedPosixShellDaemonEnv(),
     TUTTI_APP_VERSION: process.env.TUTTI_APP_VERSION?.trim() ?? "",
     TUTTI_DESKTOP_UPDATE_ADMISSION_ARCHITECTURE:
       desktopUpdateAdmission?.architecture ?? "",
