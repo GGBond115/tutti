@@ -79,7 +79,7 @@ jobs:
           go test ./data/workspace -run 'Test(SQLiteDSNPathUsesFileURLFormOnWindows|SQLiteStoreListEmptyDatabase)$'
           go test ./service/agentstatus -run 'TestRunDefaultInstallCommandPreservesStructuredArguments$'
           go test ./service/browser -run 'TestStableChromeDevToolsActivePortPathUsesLocalAppDataOnWindows$'
-          go test ./service/workspace -run 'Test(ResolveAppEntrypoint|TerminalServiceCreatesLocalPTY|TerminalServiceAttachStream|AppCenterServiceInitializesBuiltinCatalogAndInstallState)'
+          go test ./service/workspace -run 'Test(ResolveAppEntrypoint|NormalizeWindowsTerminalInput|TerminalServiceCreatesLocalPTY|TerminalServiceAttachStream|AppCenterServiceInitializesBuiltinCatalogAndInstallState)'
           go test ./integration -run 'TestTuttidBlackBoxWorkspaceTerminalWebSocket'
           Pop-Location
 

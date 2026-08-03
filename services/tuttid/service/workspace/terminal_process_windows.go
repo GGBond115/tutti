@@ -36,10 +36,20 @@ type windowsTerminalProcess struct {
 	closeErr  error
 }
 
-func (p *windowsTerminalProcess) Read(data []byte) (int, error)  { return p.process.Read(data) }
-func (p *windowsTerminalProcess) Write(data []byte) (int, error) { return p.process.Write(data) }
-func (p *windowsTerminalProcess) FD() uintptr                    { return 0 }
-func (p *windowsTerminalProcess) PID() int                       { return p.process.Pid() }
+func (p *windowsTerminalProcess) Read(data []byte) (int, error) { return p.process.Read(data) }
+func (p *windowsTerminalProcess) Write(data []byte) (int, error) {
+	normalized := normalizeWindowsTerminalInput(data)
+	written, err := p.process.Write(normalized)
+	if err == nil {
+		return len(data), nil
+	}
+	if written > len(data) {
+		written = len(data)
+	}
+	return written, err
+}
+func (p *windowsTerminalProcess) FD() uintptr { return 0 }
+func (p *windowsTerminalProcess) PID() int    { return p.process.Pid() }
 func (p *windowsTerminalProcess) Resize(cols int, rows int) error {
 	return p.process.Resize(cols, rows)
 }
@@ -62,4 +72,15 @@ func (p *windowsTerminalProcess) Close() error {
 		p.closeErr = p.process.Close()
 	})
 	return p.closeErr
+}
+
+func normalizeWindowsTerminalInput(data []byte) []byte {
+	result := make([]byte, 0, len(data)+1)
+	for index, value := range data {
+		result = append(result, value)
+		if value == '\r' && (index+1 == len(data) || data[index+1] != '\n') {
+			result = append(result, '\n')
+		}
+	}
+	return result
 }
