@@ -31,6 +31,9 @@ func (CodexPreparer) Prepare(_ context.Context, input ProviderPrepareInput) (Pro
 		if err != nil {
 			return ProviderPrepareResult{}, err
 		}
+		if err := ensureCodexSaverDefaultRole(filepath.Join(codexHome, "config.toml")); err != nil {
+			return ProviderPrepareResult{}, err
+		}
 		if input.Manifest != nil {
 			input.Manifest.RecordManagedFile(rolePath, "codex-agent-role", true)
 		}
@@ -67,29 +70,6 @@ func (CodexPreparer) Prepare(_ context.Context, input ProviderPrepareInput) (Pro
 		Cwd: input.Cwd,
 		Env: env,
 	}, nil
-}
-
-const codexSaverModePolicy = `## Codex Saver Mode
-
-For substantial tasks with a bounded, self-contained subtask, prefer delegating that subtask with the custom role luna_worker. Keep quick or tightly coupled work in the main thread. Include the relevant context, boundaries, and expected output in the delegation, then verify the result before using it.`
-
-const codexLunaWorkerRole = `name = "luna_worker"
-description = "Cost-efficient worker for bounded, self-contained implementation, research, and verification tasks"
-model = "gpt-5.6-luna"
-model_reasoning_effort = "max"
-developer_instructions = "Complete only the delegated task. Respect its stated scope and expected output, report concrete evidence, and do not expand into unrelated work."
-`
-
-func installCodexLunaWorkerRole(codexHome string) (string, error) {
-	agentsDir := filepath.Join(codexHome, "agents")
-	if err := os.MkdirAll(agentsDir, 0o700); err != nil {
-		return "", fmt.Errorf("create Codex agents directory: %w", err)
-	}
-	rolePath := filepath.Join(agentsDir, "luna_worker.toml")
-	if err := os.WriteFile(rolePath, []byte(codexLunaWorkerRole), 0o600); err != nil {
-		return "", fmt.Errorf("write Codex Luna worker role: %w", err)
-	}
-	return rolePath, nil
 }
 
 func prepareCodexHome(codexHome string, input PrepareInput) error {
@@ -631,68 +611,6 @@ func codexConfigStringAssignmentValueAt(lines []string, index int, key string) (
 		builder.WriteString(lineValue)
 	}
 	return "", index, false
-}
-
-// Consume a complete multiline TOML array so stale marker entries do not remain
-// after replacing project_root_markers with the session-scoped override.
-func codexConfigAssignmentEndLine(lines []string, startIndex int) int {
-	if startIndex < 0 || startIndex >= len(lines) {
-		return startIndex
-	}
-	_, value, ok := strings.Cut(lines[startIndex], "=")
-	if !ok {
-		return startIndex
-	}
-	depth := tomlSquareBracketDelta(value)
-	if depth <= 0 {
-		return startIndex
-	}
-	for index := startIndex + 1; index < len(lines); index++ {
-		depth += tomlSquareBracketDelta(lines[index])
-		if depth <= 0 {
-			return index
-		}
-	}
-	return startIndex
-}
-
-func tomlSquareBracketDelta(line string) int {
-	depth := 0
-	escaped := false
-	quote := rune(0)
-	for _, char := range line {
-		switch quote {
-		case '"':
-			if escaped {
-				escaped = false
-				continue
-			}
-			if char == '\\' {
-				escaped = true
-				continue
-			}
-			if char == '"' {
-				quote = 0
-			}
-			continue
-		case '\'':
-			if char == '\'' {
-				quote = 0
-			}
-			continue
-		}
-		switch char {
-		case '#':
-			return depth
-		case '"', '\'':
-			quote = char
-		case '[':
-			depth++
-		case ']':
-			depth--
-		}
-	}
-	return depth
 }
 
 func exposeUserCodexSkillFolders(targetRoot string, input PrepareInput) error {
