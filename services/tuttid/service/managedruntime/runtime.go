@@ -214,6 +214,9 @@ func (r DefaultResolver) ensureRuntimeProfile(ctx context.Context, root string, 
 	if profile == appRuntimeBaselineProfile && RootReady(root) {
 		return nil
 	}
+	if profile == appRuntimeNodeStaticProfile && NodeReady(root) {
+		return nil
+	}
 	catalogSource := r.runtimeCatalogSource()
 	if catalogSource == "" {
 		return fmt.Errorf("managed app runtime is unavailable at %s and %s is not configured", root, tuttiAppRuntimeCatalogEnv)
