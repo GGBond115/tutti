@@ -374,7 +374,8 @@ func buildDaemonAPI(
 		},
 		Composer: agentservice.ServiceComposerConfig{
 			AvailabilityChecker:         availabilityChecker,
-			ModelCatalog:                agentModelCatalog,
+			ModelCatalog:                replayAgentModelCatalog(replayComposition, agentProcessComposition, agentModelCatalog),
+			ReplayMode:                  replayComposition,
 			ModelCapabilities:           agentModelCapabilities,
 			AgentTargetStore:            agentTargetStore,
 			WorkspaceAgentResolver:      workspaceAgents,

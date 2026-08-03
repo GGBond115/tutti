@@ -316,6 +316,12 @@ When enabled, Desktop injects its recording and replay controls through generic
 AgentGUI render slots. AgentGUI contains no recording/replay API, controller,
 state, provider branch, component, or copy.
 
+The provider-neutral renderer contract is published separately as
+`@tutti-os/agent-session-replay`. It owns the portable activity event type and
+interaction contract shared by Desktop and TSH; product adapters still own
+scope mapping, persistence, HTTP/Electron integration, replay runners, and
+provider/runtime setup.
+
 `packages/agent/session-replay` owns the provider-neutral Recording/Cassette
 workflow, status transitions, portable contracts, and validation policy.
 `services/tuttid/service/agentsessionreplay` is Tutti's HTTP/product adapter and
@@ -889,6 +895,12 @@ disable submission, but must not change editor editability.
   submitted draft only after that result confirms admission, and never
   construct raw `submit/requested` fields or rebuild admission from selectors.
   New-Session initial content continues to travel with activation.
+  Provider acceptance protects provider-turn identity and fork safety, but it
+  is not the prompt's durability boundary. If runtime delivery is explicitly
+  rejected or times out with an unknown outcome, Host persists the submitted
+  content and `clientSubmitId` independently of the canceled request. Existing
+  sessions then receive a terminal failed Turn or an uncertain-delivery claim;
+  only an unobserved provisional activation may be compensated away.
   Platform-only commands remain in each host's `EngineExtensionCommand`
   adapter. Every effect propagates its typed Engine origin and Engine-owned AbortSignal to its
   transport. Rename, pin, and delete settle through the shared Session-mutation
@@ -2014,7 +2026,10 @@ home composer submit
   -> authoritative Session/Turn replaces optimistic projection
 ```
 
-Initial-content create is one transaction. Failure compensates the provisional runtime/canonical shell; it must not leave a Turn-less Session.
+Initial content is one user-owned submit flow, but provider acceptance is not the prompt's durability boundary. Once the submitted Turn and prompt are durably recorded, a deterministic provider rejection keeps the visible Session, failed Turn, and user prompt so the failure can be rendered and retried. Only a pre-dispatch startup/validation failure may compensate an empty provisional shell; an outcome-unknown delivery keeps its recovery claim instead of guessing whether the provider ran.
+The rejected submit claim is terminal and remains bound to that failed Turn, so
+retrying the same `clientSubmitId` reuses the persisted failure and never
+dispatches a second provider Turn.
 The initiating composer snapshots Tutti activation plus effect and speed with
 that submit. An explicit active or inactive submit snapshot is authoritative
 over a later read of mutable home-draft state; non-composer callers may fall

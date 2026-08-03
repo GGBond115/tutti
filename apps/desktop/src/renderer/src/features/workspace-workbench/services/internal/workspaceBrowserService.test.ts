@@ -95,7 +95,7 @@ test("workspace browser service routes multiple features through one desktop sub
   );
 });
 
-test("workspace browser service launches open-url once from the owning route", async () => {
+test("workspace browser service opens Browser popups in tabs and launches app URLs", async () => {
   const requests: WorkspaceBrowserLaunchRequest[] = [];
   let emitDesktopBrowserEvent = (_event: BrowserNodeEvent): void => undefined;
   const service = createWorkspaceBrowserService({
@@ -111,15 +111,22 @@ test("workspace browser service launches open-url once from the owning route", a
   const browserFeature = createBrowserNodeFeature({
     hostApi: service.createFeatureHostApi({
       acceptsEvent: (event) => browserNodeOwnsEvent(event),
+      source: "browser",
       workspaceId: "workspace-browser-open-url"
     })
   });
   const appFeature = createBrowserNodeFeature({
     hostApi: service.createFeatureHostApi({
       acceptsEvent: (event) => workspaceAppOwnsEvent(event),
+      source: "workspace_app",
       workspaceId: "workspace-browser-open-url"
     })
   });
+  const surfaceNodeId = "browser:surface-1";
+  const initial = browserFeature.tabsStore.ensureSurface(
+    surfaceNodeId,
+    "https://www.baidu.com/"
+  );
   const disposeLaunchHandler = registerWorkspaceBrowserLaunchHandler(
     "workspace-browser-open-url",
     (request) => {
@@ -131,10 +138,10 @@ test("workspace browser service launches open-url once from the owning route", a
   service.ensureFeatureConnected(browserFeature);
   service.ensureFeatureConnected(appFeature);
   emitDesktopBrowserEvent({
-    reuseIfOpen: false,
-    sourceNodeId: "browser:node-1",
+    reuseIfOpen: true,
+    sourceNodeId: initial.tabs[0]!.nodeId,
     type: "open-url",
-    url: "https://example.com/browser-popup"
+    url: "https://www.baidu.com/s?wd=tutti"
   });
   emitDesktopBrowserEvent({
     reuseIfOpen: false,
@@ -145,20 +152,141 @@ test("workspace browser service launches open-url once from the owning route", a
   await Promise.resolve();
 
   disposeLaunchHandler();
+  const browserTabs = browserFeature.tabsStore.getSurfaceState(surfaceNodeId);
+  assert.equal(browserTabs?.tabs.length, 2);
+  assert.equal(
+    browserTabs?.tabs.find((tab) => tab.id === browserTabs.activeTabId)
+      ?.defaultUrl,
+    "https://www.baidu.com/s?wd=tutti"
+  );
   assert.deepEqual(requests, [
     {
       kind: "open",
       reuseIfOpen: false,
-      url: "https://example.com/browser-popup",
-      workspaceId: "workspace-browser-open-url"
-    },
-    {
-      kind: "open",
-      reuseIfOpen: false,
+      source: "workspace_app",
       url: "https://example.com/app-popup",
       workspaceId: "workspace-browser-open-url"
     }
   ]);
+});
+
+test("workspace browser service replaces stale feature routes before handling popups", () => {
+  let emitDesktopBrowserEvent = (_event: BrowserNodeEvent): void => undefined;
+  const service = createWorkspaceBrowserService({
+    browserApi: createBrowserNodeHostApi({
+      onEvent(listener) {
+        emitDesktopBrowserEvent = listener;
+        return () => {
+          emitDesktopBrowserEvent = () => undefined;
+        };
+      }
+    })
+  });
+  const createFeature = () => {
+    const feature = createBrowserNodeFeature({
+      hostApi: service.createFeatureHostApi({
+        acceptsEvent: (event) => browserNodeOwnsEvent(event),
+        source: "browser",
+        workspaceId: "workspace-browser-replacement"
+      })
+    });
+    feature.tabsStore.ensureSurface(
+      "browser:surface-replacement",
+      "https://www.baidu.com/"
+    );
+    service.ensureFeatureConnected(feature);
+    return feature;
+  };
+  const staleFeature = createFeature();
+  const currentFeature = createFeature();
+
+  emitDesktopBrowserEvent({
+    reuseIfOpen: true,
+    sourceNodeId: "browser:surface-replacement:tab:1",
+    type: "open-url",
+    url: "https://www.baidu.com/s?wd=tutti"
+  });
+
+  assert.equal(
+    staleFeature.tabsStore.getSurfaceState("browser:surface-replacement")?.tabs
+      .length,
+    1
+  );
+  assert.equal(
+    currentFeature.tabsStore.getSurfaceState("browser:surface-replacement")
+      ?.tabs.length,
+    2
+  );
+});
+
+test("workspace browser service disposes routes with their workspace session", () => {
+  let desktopDisconnectCount = 0;
+  let emitDesktopBrowserEvent = (_event: BrowserNodeEvent): void => undefined;
+  const service = createWorkspaceBrowserService({
+    browserApi: createBrowserNodeHostApi({
+      onEvent(listener) {
+        emitDesktopBrowserEvent = listener;
+        return () => {
+          desktopDisconnectCount += 1;
+          emitDesktopBrowserEvent = () => undefined;
+        };
+      }
+    })
+  });
+  const createFeature = (workspaceId: string, nodeIdPrefix: string) => {
+    const feature = createBrowserNodeFeature({
+      hostApi: service.createFeatureHostApi({
+        acceptsEvent: (event) => {
+          const nodeId =
+            event.type === "open-url" ? event.sourceNodeId : event.nodeId;
+          return nodeId.startsWith(nodeIdPrefix);
+        },
+        source: "browser",
+        workspaceId
+      })
+    });
+    service.ensureFeatureConnected(feature);
+    return feature;
+  };
+  const disposedFeature = createFeature("workspace-disposed", "browser-old:");
+  const activeFeature = createFeature("workspace-active", "browser-active:");
+
+  service.disposeWorkspace("workspace-disposed");
+  emitDesktopBrowserEvent({
+    canGoBack: false,
+    canGoForward: false,
+    isLoading: false,
+    isOccluded: false,
+    lifecycle: "active",
+    nodeId: "browser-old:tab:1",
+    title: "Disposed",
+    type: "state",
+    url: "https://disposed.example/"
+  });
+  emitDesktopBrowserEvent({
+    canGoBack: false,
+    canGoForward: false,
+    isLoading: false,
+    isOccluded: false,
+    lifecycle: "active",
+    nodeId: "browser-active:tab:1",
+    title: "Active",
+    type: "state",
+    url: "https://active.example/"
+  });
+
+  assert.equal(
+    disposedFeature.runtimeStore.getNodeState("browser-old:tab:1").url,
+    null
+  );
+  assert.equal(
+    activeFeature.runtimeStore.getNodeState("browser-active:tab:1").url,
+    "https://active.example/"
+  );
+  assert.equal(desktopDisconnectCount, 0);
+
+  service.disposeWorkspace("workspace-active");
+  assert.equal(desktopDisconnectCount, 1);
 });
 
 test("workspace app Browser features do not inherit Chrome Cookie import", () => {

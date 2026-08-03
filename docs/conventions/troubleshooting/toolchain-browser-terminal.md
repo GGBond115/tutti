@@ -386,6 +386,46 @@ delimited by ---`, and the composer skill picker may show partial or
   [workspaceBrowserService.ts](../../../apps/desktop/src/renderer/src/features/workspace-workbench/services/internal/workspaceBrowserService.ts)
   [BrowserNode.tsx](../../../packages/browser/workbench-node/src/react/BrowserNode.tsx)
 
+### Browser Node same-origin target-blank link does nothing
+
+- Symptom:
+  Clicking a `target="_blank"` link in the full workspace Browser leaves the
+  current page unchanged and opens no tab. Desktop logs show the guest preload
+  reporting `action=open-url` with `defaultPrevented=true`, followed by both
+  `Browser Node guest open-url IPC received` and the guest `open-url` emission,
+  but no navigation to the requested URL. Cross-origin popup links may still
+  appear to work.
+- Quick checks:
+  Compare the current and requested origins. Confirm the event's
+  `sourceNodeId` names an existing `:tab:*` child and that the workspace Browser
+  route is registered with source `browser`.
+- Root cause:
+  The guest preload correctly suppresses Chromium's native popup and delegates
+  the URL to the host. Reusing the Browser surface through Workbench activation
+  then changed only the active tab's `defaultUrl`. Browser Node's passive host
+  synchronization intentionally ignores same-origin differences to avoid
+  fighting in-page and authentication redirects, so the explicit popup URL was
+  never loaded.
+- Fix:
+  Keep the same-origin synchronization guard. Route Browser-owned `open-url`
+  events by their exact source child ID, create and select a new tab on that
+  Browser surface, and retain the existing Workbench launch fallback for URLs
+  emitted by Workspace Apps or unavailable Browser surfaces. Treat the route
+  registration as a Workbench-session resource: replace an earlier route for
+  the same workspace/source generation and dispose all workspace routes when
+  its session closes.
+- Validation:
+  Cover a same-origin popup from an existing Browser child and assert that a
+  second selected tab owns the requested URL while no Workbench launch occurs.
+  Rebuild the Browser contribution and assert only the latest feature receives
+  the popup, then dispose the workspace and assert its feature no longer
+  receives events. Also retain coverage that Workspace App URLs still launch
+  through the workspace Browser coordinator.
+- References:
+  [workspaceBrowserService.ts](../../../apps/desktop/src/renderer/src/features/workspace-workbench/services/internal/workspaceBrowserService.ts)
+  [tabsStore.ts](../../../packages/browser/workbench-node/src/core/tabsStore.ts)
+  [nodeController.ts](../../../packages/browser/workbench-node/src/core/nodeController.ts)
+
 ### Standalone Agent Browser Node is blank and never attaches a guest
 
 - Symptom:

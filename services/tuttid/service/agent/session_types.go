@@ -28,6 +28,7 @@ type Service struct {
 	AnalyticsReporter              reporterservice.Reporter
 	AvailabilityChecker            ProviderAvailabilityChecker
 	ModelCatalog                   AgentModelCatalog
+	ReplayMode                     bool
 	ModelCapabilities              ModelCapabilitiesResolver
 	AgentTargetStore               AgentTargetStore
 	SessionInitializer             SessionInitializer
@@ -135,6 +136,7 @@ type SubmitClaimStore interface {
 	PrepareSubmitClaim(context.Context, agentactivitybiz.SubmitClaimPrepare) (agentactivitybiz.SubmitClaim, bool, error)
 	GetSubmitClaim(context.Context, string, string, string) (agentactivitybiz.SubmitClaim, bool, error)
 	AcceptSubmitClaim(context.Context, string, string, string, string, int64) (agentactivitybiz.SubmitClaim, bool, error)
+	RejectSubmitClaim(context.Context, string, string, string, string, int64) (agentactivitybiz.SubmitClaim, bool, error)
 	DeleteSubmitClaim(context.Context, string, string, string) (bool, error)
 	FindTurnByClientSubmitID(context.Context, string, string, string) (string, bool, error)
 }
