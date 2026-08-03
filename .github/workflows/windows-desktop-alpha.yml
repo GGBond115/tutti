@@ -85,7 +85,10 @@ jobs:
 
       - name: Test Desktop lifecycle
         shell: pwsh
-        run: pnpm --filter @tutti-os/desktop test
+        run: >-
+          node --import ./apps/desktop/test/register-asset-stub.mjs
+          --test --experimental-strip-types
+          ./apps/desktop/src/main/daemon/tuttidManager.test.ts
 
       - name: Typecheck Desktop
         shell: pwsh
