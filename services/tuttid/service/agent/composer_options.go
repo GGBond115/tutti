@@ -72,6 +72,7 @@ type ComposerOptionsInput struct {
 	WorkspaceID              string
 	Settings                 ComposerSettings
 	IncludeCapabilityCatalog *bool
+	CodexSaverMode           *bool
 	// ResolvedModelPlan is a daemon-only exact plan override supplied by a
 	// WorkspaceAgent resolver. It may contain a credential and must never be
 	// serialized into runtime context or transport responses.
@@ -123,6 +124,7 @@ type ComposerReasoningProfile struct {
 }
 
 type ComposerOptions struct {
+	CodexSaverModeSupported bool
 	Provider                string
 	Capabilities            []string
 	Commands                []ComposerCommandOption
@@ -173,7 +175,15 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 		}
 		input.Settings = mergeComposerSettingsWithDefaults(input.Settings, defaults)
 	}
+	if input.CodexSaverMode != nil {
+		input.Settings.CodexSaverMode = *input.CodexSaverMode
+	}
+	codexSaverModeSupported := composerProviderSupportsSaverSubagentMode(provider)
+	if !codexSaverModeSupported {
+		input.Settings.CodexSaverMode = false
+	}
 	requestedSettings := ComposerSettings{
+		CodexSaverMode:   input.Settings.CodexSaverMode,
 		Model:            strings.TrimSpace(input.Settings.Model),
 		PermissionModeID: strings.TrimSpace(input.Settings.PermissionModeID),
 		PlanMode:         input.Settings.PlanMode,
@@ -439,6 +449,7 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 		options = applyExtensionComposerCapabilities(options, extensionProfile, s.computerUseAvailable())
 	}
 	options = applyResolvedModelPlanComposerOverlay(options, modelPlanResolution)
+	options.CodexSaverModeSupported = codexSaverModeSupported
 	return options, nil
 }
 
@@ -446,6 +457,9 @@ func mergeComposerSettingsWithDefaults(
 	requested ComposerSettings,
 	defaults preferencesbiz.AgentComposerDefaults,
 ) ComposerSettings {
+	if !requested.CodexSaverMode {
+		requested.CodexSaverMode = defaults.CodexSaverMode
+	}
 	if strings.TrimSpace(requested.Model) == "" {
 		requested.Model = defaults.Model
 	}
@@ -471,6 +485,7 @@ func resolveComposerEffectiveSettings(
 	defaultModel string,
 ) ComposerSettings {
 	effective := ComposerSettings{
+		CodexSaverMode:   requested.CodexSaverMode,
 		Model:            strings.TrimSpace(defaultModel),
 		PermissionModeID: defaultPermissionModeIDForProvider(provider),
 		ReasoningEffort:  composerDefaultReasoningEffort(provider),

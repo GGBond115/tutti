@@ -26,12 +26,24 @@ func (CodexPreparer) Prepare(_ context.Context, input ProviderPrepareInput) (Pro
 	if err := prepareCodexHome(codexHome, input.PrepareInput); err != nil {
 		return ProviderPrepareResult{}, err
 	}
+	if input.CodexSaverMode {
+		rolePath, err := installCodexLunaWorkerRole(codexHome)
+		if err != nil {
+			return ProviderPrepareResult{}, err
+		}
+		if input.Manifest != nil {
+			input.Manifest.RecordManagedFile(rolePath, "codex-agent-role", true)
+		}
+	}
 	logRuntimePrepareTrace("runtime_prepare.codex.home_prepared", input.PrepareInput, nil)
 	instructionsPath := filepath.Join(codexHome, "AGENTS.md")
 	logRuntimePrepareTrace("runtime_prepare.codex.instructions_write_requested", input.PrepareInput, nil)
 	policy, err := tuttiCLIPolicy(input.PrepareInput)
 	if err != nil {
 		return ProviderPrepareResult{}, err
+	}
+	if input.CodexSaverMode {
+		policy = strings.TrimSpace(policy) + "\n\n" + codexSaverModePolicy
 	}
 	writeResult, err := input.Store.WriteManagedBlock(instructionsPath, policy)
 	if err != nil {
@@ -55,6 +67,29 @@ func (CodexPreparer) Prepare(_ context.Context, input ProviderPrepareInput) (Pro
 		Cwd: input.Cwd,
 		Env: env,
 	}, nil
+}
+
+const codexSaverModePolicy = `## Codex Saver Mode
+
+For substantial tasks with a bounded, self-contained subtask, prefer delegating that subtask with the custom role luna_worker. Keep quick or tightly coupled work in the main thread. Include the relevant context, boundaries, and expected output in the delegation, then verify the result before using it.`
+
+const codexLunaWorkerRole = `name = "luna_worker"
+description = "Cost-efficient worker for bounded, self-contained implementation, research, and verification tasks"
+model = "gpt-5.6-luna"
+model_reasoning_effort = "max"
+developer_instructions = "Complete only the delegated task. Respect its stated scope and expected output, report concrete evidence, and do not expand into unrelated work."
+`
+
+func installCodexLunaWorkerRole(codexHome string) (string, error) {
+	agentsDir := filepath.Join(codexHome, "agents")
+	if err := os.MkdirAll(agentsDir, 0o700); err != nil {
+		return "", fmt.Errorf("create Codex agents directory: %w", err)
+	}
+	rolePath := filepath.Join(agentsDir, "luna_worker.toml")
+	if err := os.WriteFile(rolePath, []byte(codexLunaWorkerRole), 0o600); err != nil {
+		return "", fmt.Errorf("write Codex Luna worker role: %w", err)
+	}
+	return rolePath, nil
 }
 
 func prepareCodexHome(codexHome string, input PrepareInput) error {

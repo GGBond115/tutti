@@ -13,6 +13,16 @@ RPC service is only a transport/path/security adapter and must call the same
 `runtimeprep.DefaultPreparer`; it must not maintain separate Claude or Codex
 preparers.
 
+For a Codex Session launched with saver mode enabled, runtime preparation keeps
+the selected main-thread model unchanged and materializes a session-scoped
+`luna_worker` custom role plus a short managed `AGENTS.md` routing rule. The
+role pins only delegated work to the configured Luna model and reasoning
+effort. The routing rule is intentionally advisory and bounded: it favors
+self-contained substantial subtasks, leaves quick or tightly coupled work on
+the main thread, and requires the main thread to verify delegated output. It
+does not prescribe a concurrency count, worktree policy, or automatic retry
+loop.
+
 Deployment differences are expressed with `DeploymentProfile` and
 `CapabilityPack`. A pack resolves policy, skills, and environment together.
 Dynamic host skills use `SkillSource`; per-session skills use `ExtraSkills`.

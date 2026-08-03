@@ -375,6 +375,45 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 	}
 }
 
+func TestDefaultPreparerCodexSaverModeInstallsLunaWorkerAndRoutingPolicy(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	prepared, err := newTestPreparer(t.TempDir()).Prepare(t.Context(), PrepareInput{
+		WorkspaceID:    "workspace-1",
+		AgentSessionID: "session-1",
+		AgentTargetID:  "local:codex",
+		Provider:       "codex",
+		Cwd:            t.TempDir(),
+		CodexSaverMode: true,
+	})
+	if err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	codexHome := envValue(prepared.Env, "CODEX_HOME")
+	role, err := os.ReadFile(filepath.Join(codexHome, "agents", "luna_worker.toml"))
+	if err != nil {
+		t.Fatalf("read Luna worker role: %v", err)
+	}
+	for _, expected := range []string{
+		`name = "luna_worker"`,
+		`model = "gpt-5.6-luna"`,
+		`model_reasoning_effort = "max"`,
+		`developer_instructions = "Complete only the delegated task.`,
+	} {
+		if !strings.Contains(string(role), expected) {
+			t.Fatalf("role = %q, want %q", role, expected)
+		}
+	}
+	instructions, err := os.ReadFile(filepath.Join(codexHome, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("read Codex instructions: %v", err)
+	}
+	if !strings.Contains(string(instructions), "custom role luna_worker") ||
+		strings.Contains(string(instructions), "max_concurrent_threads") ||
+		strings.Contains(string(instructions), "parallel") {
+		t.Fatalf("Codex saver instructions are not lightweight: %q", instructions)
+	}
+}
+
 func TestDefaultPreparerCodexDedicatedProjectionNarrowsAutomaticCLIApproval(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	stateDir := t.TempDir()

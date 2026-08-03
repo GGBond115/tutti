@@ -114,6 +114,7 @@ export function useAgentGUINewConversationActivation(
   input: UseAgentGUINewConversationActivationInput
 ) {
   const {
+    codexSaverModeEntryEnabled,
     getCachedComposerOptions,
     selectedAgentTargetRef,
     selectedComposerTargetDataRef,
@@ -212,7 +213,13 @@ export function useAgentGUINewConversationActivation(
       // final provider validation are resolved from the latest daemon state.
       const settings = {
         ...initialNodeSettings,
-        ...submitOptions?.requiredSettingsPatch
+        ...submitOptions?.requiredSettingsPatch,
+        // Fail closed at the activation boundary. Presentation gating alone is
+        // insufficient because a remembered draft can outlive the lab flag.
+        codexSaverMode:
+          codexSaverModeEntryEnabled === true &&
+          snapshotComposerOptions?.codexSaverModeSupported === true &&
+          initialNodeSettings.codexSaverMode === true
       };
       const prewarmedSessionId =
         normalizedInitialContent.length > 0 &&
@@ -309,6 +316,7 @@ export function useAgentGUINewConversationActivation(
     },
     [
       activeSessionState,
+      codexSaverModeEntryEnabled,
       currentUserId,
       data,
       defaultReasoningEffort,

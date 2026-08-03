@@ -9,6 +9,8 @@ import { zhCNAgentGuiCollaboration } from "./zh-CN.agentGuiCollaboration.ts";
 import { zhCNTuttiModePlan } from "./zh-CN.tuttiModePlan.ts";
 
 export const zhCNAgentGui = {
+  codexSaverModeLabel: "Codex 省额度模式",
+  codexSaverModeDescription: "主模型保持不变，合适的独立子任务交给 Luna Max",
   initialPlaceholder: "输入 @ 引用会话、文件、任务和应用",
   followupPlaceholder: "要求 {{provider}} 继续后续变更",
   installRequiredPlaceholder: "请先连接 {{provider}}，然后再发送消息",

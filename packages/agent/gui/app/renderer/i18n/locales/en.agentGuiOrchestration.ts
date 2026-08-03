@@ -1,6 +1,9 @@
 import { enTuttiModePlan } from "./en.tuttiModePlan.ts";
 
 export const enAgentGuiOrchestration = {
+  codexSaverModeLabel: "Codex saver mode",
+  codexSaverModeDescription:
+    "Use Luna Max for suitable self-contained subtasks while keeping the selected main model",
   planModeLabel: "Plan Mode",
   normalModeLabel: "Normal",
   normalModeDescription: "Execute the request directly",

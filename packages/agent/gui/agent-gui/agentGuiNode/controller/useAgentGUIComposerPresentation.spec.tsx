@@ -23,6 +23,7 @@ describe("useAgentGUIComposerPresentation", () => {
     };
     const options: AgentActivityComposerOptions = {
       provider: "opencode",
+      codexSaverModeSupported: true,
       capabilities: null,
       models: [{ value: "opencode/old-model", label: "Old model" }],
       reasoningEfforts: [{ value: "low", label: "Low" }],
@@ -65,7 +66,7 @@ describe("useAgentGUIComposerPresentation", () => {
       }
     };
     const { result, rerender } = renderHook(
-      ({ currentOptions, drafts }) =>
+      ({ currentOptions, drafts, entryEnabled }) =>
         useAgentGUIComposerPresentation({
           activeConversation: null,
           activeConversationId: null,
@@ -80,6 +81,7 @@ describe("useAgentGUIComposerPresentation", () => {
           },
           composerOptionsLoading: false,
           composerTargetProvider: "opencode",
+          codexSaverModeEntryEnabled: entryEnabled,
           data,
           defaultReasoningEffort: null,
           draftSettingsBySessionId: drafts,
@@ -92,6 +94,7 @@ describe("useAgentGUIComposerPresentation", () => {
       {
         initialProps: {
           currentOptions: options,
+          entryEnabled: true,
           drafts: draftSettingsBySessionId as Record<
             string,
             AgentSessionComposerSettings
@@ -112,6 +115,9 @@ describe("useAgentGUIComposerPresentation", () => {
       selectedReasoningEffortValue: "high",
       selectedSpeedValue: "fast"
     });
+    expect(result.current.stableComposerSettings.supportsCodexSaverMode).toBe(
+      true
+    );
 
     rerender({
       currentOptions: {
@@ -137,6 +143,7 @@ describe("useAgentGUIComposerPresentation", () => {
           modes: [{ id: "sandbox", label: "Sandbox" }]
         }
       },
+      entryEnabled: false,
       drafts: {}
     });
     expect(result.current.stableComposerSettings).toMatchObject({
@@ -144,6 +151,10 @@ describe("useAgentGUIComposerPresentation", () => {
       selectedPermissionModeValue: "sandbox",
       selectedReasoningEffortValue: "medium",
       selectedSpeedValue: "normal"
+    });
+    expect(result.current.stableComposerSettings).toMatchObject({
+      supportsCodexSaverMode: false,
+      draftSettings: { codexSaverMode: false }
     });
   });
 
