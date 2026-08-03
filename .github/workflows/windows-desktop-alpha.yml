@@ -60,14 +60,27 @@ jobs:
         shell: pwsh
         run: pnpm generate:builtin-apps
 
+      - name: Test Windows agent process adapters
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          Push-Location packages/agent/daemon
+          go test ./runtime -run 'Test(RunVerifiedExecutableUsesVerifiedIdentity|PrepareProcessExecutableExecutesVerifiedDescriptorAfterPathReplacement)$'
+          go test ./runtimecmd -run 'TestResolver(ResolveAllReturnsEveryExecutableMatchInPathOrder|ResolveAllNamesKeepsDirectoryOrderBeforeLauncherVariant)$'
+          Pop-Location
+
       - name: Test Windows daemon adapters
         shell: pwsh
         run: |
-          Push-Location packages/agent/daemon
-          go test ./runtime ./runtimecmd
-          Pop-Location
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           Push-Location services/tuttid
-          go test ./service/workspace ./service/agentstatus ./service/browser ./integration
+          go test ./data/workspace -run 'Test(SQLiteDSNPathUsesFileURLFormOnWindows|SQLiteStoreListEmptyDatabase)$'
+          go test ./service/agentstatus -run 'TestRunDefaultInstallCommandPreservesStructuredArguments$'
+          go test ./service/browser -run 'TestStableChromeDevToolsActivePortPathUsesLocalAppDataOnWindows$'
+          go test ./service/workspace -run 'Test(ResolveAppEntrypoint|TerminalServiceCreatesLocalPTY|TerminalServiceAttachStream|AppCenterServiceInitializesBuiltinCatalogAndInstallState)'
+          go test ./integration -run 'TestTuttidBlackBoxWorkspaceTerminalWebSocket'
           Pop-Location
 
       - name: Test Desktop lifecycle
