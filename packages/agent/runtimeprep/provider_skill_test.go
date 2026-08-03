@@ -23,7 +23,7 @@ func TestProviderSkillsRenderFromCommandSnapshot(t *testing.T) {
 	}
 	for _, want := range []string{
 		"tutti-dev agent list --json",
-		"tutti-dev agent start --agent-id <agent-id> --prompt <prompt> --show --json",
+		"tutti-dev agent start --agent-id <targetId> --prompt <prompt> --show --json",
 		"Do not preflight the mentioned id with Agent list",
 		"start is the authoritative check for existence, enablement, and availability",
 		"tutti-dev agent get --session-id <session-id> --view turns --json",
@@ -70,7 +70,7 @@ func TestAgentTargetMentionStartsWithoutListCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"tutti-dev agent start --agent-id <agent-id> --prompt <prompt> --show --json",
+		"tutti-dev agent start --agent-id <targetId> --prompt <prompt> --show --json",
 		"treat its `<targetId>` as the exact opaque launch id",
 		"this Host cannot discover Agent ids",
 	} {
@@ -115,7 +115,7 @@ func TestTuttiCLIPolicyUsesPreparedCLIAndProviderRules(t *testing.T) {
 	}
 	for _, want := range []string{
 		"tutti-dev agent list --json",
-		"tutti-dev agent start --agent-id <agent-id> --prompt <prompt> --show --json",
+		"tutti-dev agent start --agent-id <targetId> --prompt <prompt> --show --json",
 		"tutti-dev agent wait --session-id <session-id> --json",
 		"tutti-dev app open --app-id <appId> --json",
 		"Run it normally first",

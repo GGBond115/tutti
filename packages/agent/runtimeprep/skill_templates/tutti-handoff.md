@@ -8,7 +8,7 @@ description: Use for any turn that mentions another agent (`mention://agent-targ
 This skill is the handoff contract between agents: who executes, what gets handed off, how results return, and where follow-ups go. Use `$tutti-cli` for command syntax and the command guide; this skill decides behavior, not flags.
 
 {{if has "agent-context.agent.start"}}
-When an `agent-target` mention carries an instruction, treat its `<targetId>` as the exact opaque launch id and pass it unchanged to `{{path "agent-context.agent.start"}}`. Do not preflight the mentioned id with Agent list; start is the authoritative check for existence, enablement, and availability. Start it with `{{if hasInput "agent-context.agent.start" "show"}}{{command "agent-context.agent.start" (args "show" "true")}}{{else}}{{command "agent-context.agent.start"}}{{end}}`.
+When an `agent-target` mention carries an instruction, treat its `<targetId>` as the exact opaque launch id and pass it unchanged to `{{path "agent-context.agent.start"}}`. Do not preflight the mentioned id with Agent list; start is the authoritative check for existence, enablement, and availability. Start it with `{{if hasInput "agent-context.agent.start" "show"}}{{command "agent-context.agent.start" (args "agent-id" "<targetId>" "show" "true")}}{{else}}{{command "agent-context.agent.start" (args "agent-id" "<targetId>")}}{{end}}`.
 
 {{if has "agent-context.agent.list"}}When no target was mentioned and the user asks you to choose one, discover exact Agent ids with `{{command "agent-context.agent.list"}}`. Do not infer an id from a provider name.{{else}}When no target was mentioned, this Host cannot discover Agent ids. Ask the user to mention a target instead of guessing.{{end}}
 {{else}}

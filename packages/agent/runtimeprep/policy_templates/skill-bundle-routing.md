@@ -45,7 +45,7 @@ Fallback only when the matching Skill is unavailable:
 {{end}}{{if has "agent-context.agent.wait"}}- Agent-session mention: `{{command "agent-context.agent.wait"}}` for the next stop point.
 {{end}}{{if has "agent-context.agent.session-summary"}}- Agent conversation recovery: `{{command "agent-context.agent.session-summary"}}`.
 {{else if has "agent-context.agent.get"}}- Agent conversation recovery: `{{command "agent-context.agent.get"}}`.
-{{end}}{{if has "agent-context.agent.start"}}- Agent-target mention: pass the exact mentioned target id unchanged to `{{command "agent-context.agent.start"}}`; do not preflight it with Agent list.
+{{end}}{{if has "agent-context.agent.start"}}- Agent-target mention: pass the exact mentioned target id unchanged to `{{command "agent-context.agent.start" (args "agent-id" "<targetId>")}}`; do not preflight it with Agent list.
 {{end}}{{if eq .HostFacts.TargetContinuation.Mode "except-prefixes"}}- Targets whose ids start with {{range .HostFacts.TargetContinuation.UnsupportedTargetIDPrefixes}}`{{.}}` {{end}}are start-only.
 {{end}}
 

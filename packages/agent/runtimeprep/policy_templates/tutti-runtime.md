@@ -14,13 +14,13 @@
 
 ### Routes
 
-| URI                                                             | Skill            | Fallback                                                                                                                                        |
-| --------------------------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mention://workspace-issue/<issueId>?workspaceId=...`           | `$issue-manager` | {{if has "issue-manager.issue.get"}}`{{command "issue-manager.issue.get"}}`{{else}}unavailable{{end}}                                           |
-| `mention://workspace-app/<appId>?workspaceId=...`               | `$workspace-app` | match `App id: <appId>` in command guide                                                                                                        |
-| `mention://workspace-reference/<id>?source=...&workspaceId=...` | `$reference`     | {{if has "references.task.list"}}`{{command "references.task.list" (args "source" "task" "id" "<id>")}}`{{else}}unavailable{{end}}              |
-| `mention://agent-session/<sessionId>?workspaceId=...`           | `$tutti-cli`     | {{if has "agent-context.agent.wait"}}`{{command "agent-context.agent.wait"}}`{{else}}unavailable{{end}}                                         |
-| `mention://agent-target/<targetId>?workspaceId=...`             | `$tutti-handoff` | {{if has "agent-context.agent.start"}}start the exact mentioned target with `{{command "agent-context.agent.start"}}`{{else}}unavailable{{end}} |
+| URI                                                             | Skill            | Fallback                                                                                                                           |
+| --------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `mention://workspace-issue/<issueId>?workspaceId=...`           | `$issue-manager` | {{if has "issue-manager.issue.get"}}`{{command "issue-manager.issue.get"}}`{{else}}unavailable{{end}}                              |
+| `mention://workspace-app/<appId>?workspaceId=...`               | `$workspace-app` | match `App id: <appId>` in command guide                                                                                           |
+| `mention://workspace-reference/<id>?source=...&workspaceId=...` | `$reference`     | {{if has "references.task.list"}}`{{command "references.task.list" (args "source" "task" "id" "<id>")}}`{{else}}unavailable{{end}} |
+| `mention://agent-session/<sessionId>?workspaceId=...`           | `$tutti-cli`     | {{if has "agent-context.agent.wait"}}`{{command "agent-context.agent.wait"}}`{{else}}unavailable{{end}}                            |
+| `mention://agent-target/<targetId>?workspaceId=...`             | `$tutti-handoff` | {{if has "agent-context.agent.start"}}direct start{{else}}unavailable{{end}}                                                       |
 
 ### Rules
 
@@ -51,8 +51,8 @@
 
 ## Agent Launchers
 
-{{if has "agent-context.agent.list"}}- Discover exact Agent ids with `{{command "agent-context.agent.list"}}` when no target was specified.
-{{end}}{{if has "agent-context.agent.start"}}- Start an exact mentioned target directly with `{{if hasInput "agent-context.agent.start" "show"}}{{command "agent-context.agent.start" (args "show" "true")}}{{else}}{{command "agent-context.agent.start"}}{{end}}`; Agent list is not a preflight requirement.
+{{if has "agent-context.agent.list"}}- Discover Agent ids with `{{command "agent-context.agent.list"}}` only when no target was specified.
+{{end}}{{if has "agent-context.agent.start"}}- Start a mentioned target directly with `{{if hasInput "agent-context.agent.start" "show"}}{{command "agent-context.agent.start" (args "agent-id" "<targetId>" "show" "true")}}{{else}}{{command "agent-context.agent.start" (args "agent-id" "<targetId>")}}{{end}}`.
 {{else}}- The current Host does not advertise Agent start.
 {{end}}{{if has "agent-context.agent.wait"}}
 
