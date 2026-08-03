@@ -315,26 +315,36 @@ export function ComposerFooter({
           ) : null}
           {quickPromptControl}
           {composerSettings.supportsCodexSaverMode ? (
-            <div
-              className={cn(
-                styles.composerMenuTrigger,
-                "flex w-auto cursor-pointer items-center gap-2 px-2",
-                codexSaverModeDisabled && "cursor-not-allowed opacity-60"
-              )}
-              title={labels.codexSaverModeDescription}
-            >
-              <span className="whitespace-nowrap text-xs">
-                {labels.codexSaverModeLabel}
-              </span>
-              <Switch
-                aria-label={labels.codexSaverModeLabel}
-                checked={composerSettings.draftSettings.codexSaverMode === true}
-                disabled={codexSaverModeDisabled}
-                onCheckedChange={(enabled) =>
-                  onSettingsChange({ codexSaverMode: enabled })
-                }
-              />
-            </div>
+            <TooltipProvider delayDuration={120}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div
+                    className={cn(
+                      styles.composerMenuTrigger,
+                      "flex w-auto cursor-pointer items-center gap-2 px-2",
+                      codexSaverModeDisabled && "cursor-not-allowed opacity-60"
+                    )}
+                  >
+                    <span className="whitespace-nowrap text-xs">
+                      {labels.codexSaverModeLabel}
+                    </span>
+                    <Switch
+                      aria-label={labels.codexSaverModeLabel}
+                      checked={
+                        composerSettings.draftSettings.codexSaverMode === true
+                      }
+                      disabled={codexSaverModeDisabled}
+                      onCheckedChange={(enabled) =>
+                        onSettingsChange({ codexSaverMode: enabled })
+                      }
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-72">
+                  {labels.codexSaverModeDescription}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           ) : null}
           {composerSettings.supportsPlanMode && isPlanModeActive ? (
             <button

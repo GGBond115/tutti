@@ -3,7 +3,7 @@ import { enTuttiModePlan } from "./en.tuttiModePlan.ts";
 export const enAgentGuiOrchestration = {
   codexSaverModeLabel: "Codex saver mode",
   codexSaverModeDescription:
-    "Use Luna Max for suitable self-contained subtasks while keeping the selected main model",
+    "Keep the selected main model. Suitable self-contained subtasks use Luna Max at roughly one-tenth the current quota cost of Sol High. Quality and speed vary by task.",
   planModeLabel: "Plan Mode",
   normalModeLabel: "Normal",
   normalModeDescription: "Execute the request directly",
