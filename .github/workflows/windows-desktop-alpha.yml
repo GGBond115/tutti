@@ -108,11 +108,16 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
           $shell = Resolve-Path 'apps/desktop/dist/win-unpacked/resources/bin/workspace-app-shell/usr/bin/bash.exe'
+          $shellBin = Split-Path -Parent $shell
           $package = Resolve-Path 'services/tuttid/builtin-apps/tutti-onboarding/build/package'
           $runtime = Join-Path $env:RUNNER_TEMP 'tutti-onboarding-runtime'
           $data = Join-Path $env:RUNNER_TEMP 'tutti-onboarding-data'
           New-Item -ItemType Directory -Force -Path $runtime, $data | Out-Null
 
+          $originalPath = $env:PATH
+          $env:PATH = $shellBin
+          & $shell --noprofile --norc -c 'set -eu; for command in cat cp dirname mkdir mv rm sleep uname; do case "$(command -v "$command")" in /usr/bin/*) ;; *) exit 1 ;; esac; done'
+          if ($LASTEXITCODE -ne 0) { throw 'packaged shell command validation failed' }
           & $shell --noprofile --norc -n (Join-Path $package 'bootstrap.sh')
           if ($LASTEXITCODE -ne 0) { throw 'bootstrap.sh syntax validation failed' }
 
@@ -140,7 +145,8 @@ jobs:
             }
             if (-not $healthy) { throw 'Onboarding /healthz did not become ready' }
           } finally {
-            if (-not $process.HasExited) { taskkill /PID $process.Id /T /F | Out-Null }
+            $env:PATH = $originalPath
+            if (-not $process.HasExited) { & (Join-Path $env:SystemRoot 'System32/taskkill.exe') /PID $process.Id /T /F | Out-Null }
           }
 
       - name: Upload Windows installer
