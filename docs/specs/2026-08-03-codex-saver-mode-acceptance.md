@@ -70,6 +70,36 @@ composer.effectiveSettings.model = gpt-5.6-sol
 
 关闭态会话仍可正常调用子线程，但不会生成 `agents/luna_worker.toml`，主线程与子线程均保持 Sol/low。
 
+### 4. 同任务开启/关闭 A/B（效果、耗时与成本）
+
+2026-08-03 使用相同主模型 `gpt-5.6-sol / low`、相同提示词和相同验收答案，分别创建开启与关闭会话。任务固定只创建 1 个无历史子线程，计算并复核 `1² + 2² + … + 100² = 338350`。模型与 token 均取自会话级 Codex `state_5.sqlite` 和 rollout 原始事件，不采用模型自报。
+
+| 指标                          | 开启省额度模式                                  | 关闭省额度模式                                 |
+| ----------------------------- | ----------------------------------------------- | ---------------------------------------------- |
+| 主线程                        | Sol / low                                       | Sol / low                                      |
+| 子线程                        | Luna / max                                      | Sol / low                                      |
+| 正确性                        | 主/子答案均正确                                 | 主/子答案均正确                                |
+| 子线程 token                  | 16,424（输入 16,224，其中缓存 5,888；输出 200） | 16,157（输入 16,104，其中缓存 9,984；输出 53） |
+| 主线程 + 子线程 token         | 66,252                                          | 65,833                                         |
+| 子线程耗时 / TTFT             | 8.320s / 8.019s                                 | 7.124s / 6.911s                                |
+| 整个主 Turn 耗时              | 20.622s                                         | 18.293s                                        |
+| API 等价估算：子线程          | 约 $0.0024                                      | 约 $0.0372                                     |
+| API 等价估算：主线程 + 子线程 | 约 $0.0672                                      | 约 $0.0929                                     |
+
+本次单样本中，Luna/max 子线程 token 略多且约慢 16.8%，但按 OpenAI 2026-07-30 公布的 API 单价（[Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol)：输入/缓存/输出分别为 $5/$0.50/$30 每百万 token；[Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna)：$0.20/$0.02/$1.20）折算，子线程约便宜 93.5%，整条工作流约便宜 27.7%。这说明该模式的主要收益来自 Luna 的更低计价，而不是保证减少 token 或降低延迟。
+
+上述美元数是 **API 等价估算，不是本次 Pro/Codex 订阅的实际扣费**。估算只计算 rollout 可区分的未缓存输入、缓存读取和输出，未计无法从该记录单独识别的 cache-write surcharge。OpenAI 明确说明 Codex 订阅价格和 quota budget 不变，Luna 会消耗更少 credits；本次运行前后 UI 只提供整数百分比额度，均显示 90% 剩余，粒度不足以测出单任务实际 credit 差值。单次简单算术任务也不能代表复杂代码任务，应通过多任务、多次重复的质量/成本评测再决定默认开启范围。
+
+公开资料：
+
+- [OpenAI：GPT-5.6 price-performance 更新](https://openai.com/index/advancing-the-price-performance-frontier-with-gpt-5-6/) 给出的推荐编码链路正是 Sol 处理不确定性和规划，Luna 执行定义清晰的实现、测试和评估；同时说明 Luna API 降价 80%，Codex 中会消耗更少 credits。
+- [OpenAI 在 X 的价格公告](https://x.com/OpenAI/status/2082878156483219672) 说明 Luna 降价 80%，并将更低价格反映到 Codex/ChatGPT Work 的 usage 计算。
+- [Viv 的 X 讨论](https://x.com/Vtrivedy10/status/2083197691429863687) 指出 Luna 并非 Codex Multi-Agent V2 原生推荐的协作子代理，建议将其作为独立 Thread 运行；其讨论中也有人报告“Luna Max 主线程 + Sol 顾问 Thread”用量更低，但属于个人单次经验。
+- [Eric Provencher 的 X 提醒](https://x.com/pvncher/status/2083300990350954981) 不建议修改 model catalog 强行开放 Luna，并认为需要主动代理间通信的任务仍应使用 Sol/Terra。本实现不修改 catalog，且提示词只把边界清楚、可独立验收的任务交给 Luna。
+- [社区价格/基准对比](https://x.com/_codemeow/status/2084095080705741153) 称 Luna/max 与 GPT-5.4/xhigh 在 Artificial Analysis 上同为 51 分、价格低 92%；这是社区转述，不作为本功能验收的权威质量证据。
+
+目前未找到针对“Sol 主线程 + Luna/max 独立子线程 + 本开关实现”的公开、可复现受控评测，因此公开讨论只能作为路由策略参考，不能替代本地 A/B 和后续业务任务评测。
+
 ## 数据链路验收
 
 ```text
@@ -112,12 +142,15 @@ pnpm check:changed
 2. 直接暴露 `agent_type` 会改变 Codex 保留工具 schema，当前 Sol 接口会以 400 拒绝，故未采用。
 3. Codex V1 与 V2 的无历史参数不同（V1 为 `fork_context`，V2 为 `fork_turns`），且完整继承主线程时上游不会应用不同 role/model。最终方案把 Luna 配成省额度会话的默认子代理，并用版本无关的轻量 `AGENTS.md` 指示子任务不要继承主会话历史，由模型按当前工具 schema 选择对应选项。最终真实会话选择了 `fork_turns=none`。
 4. 用户原配置若已定义 `agents.default`，会与自动发现的 Luna default 冲突。已改为只在省额度会话的隔离 `config.toml` 中显式声明 `agents.default → ./agents/luna_worker.toml`，不修改用户全局配置；标准表、quoted 表、`[agents]` 内联表、root dotted keys 及多行 description 均有冲突回归测试。
+5. 应用重启后，旧 runtime 观测值曾覆盖创建时的不可变 Session 快照，使数据库仍为 `true` 的会话被 API/UI 错误显示为 `false`。已改为从 runtime snapshot 恢复 `codexSaverMode`；开启、关闭和缺少该字段的旧会话均有回归测试。重启最终开发版后，截图中的会话 `b8560ee5-0c85-42fa-9acd-f9e91193e3c3` 已由 Session API 正确返回 `true`。
 
 ## 风险与待补
 
 - **UI 截图待补**：当前 Tutti 缺少 macOS Accessibility 与 Screen Recording 权限。授权后应补两张真实桌面截图：开发者设置中的入口开关、Composer 输入框的开启态。
 - “不继承主会话历史”依赖主模型遵循会话指令；若模型忽略并使用完整历史 fork，子线程会按 Codex 上游规则继承主模型。真实验收任务已正确选择当前工具的 no-history 选项并切到 Luna/max。
 - 该模式只改变适合独立委派的子线程，不保证每个任务都会拆分；轻量、强耦合任务继续由主线程处理属于预期行为。
+- Luna 当前不是公开讨论中 Multi-Agent V2 原生推荐的主动协作模型。应继续限制为上下文自包含、结果可由主线程复核的独立任务；复杂跨代理协作、频繁互发消息和高风险决策仍留给 Sol/Terra。
+- 当前成本结论只有一次微型任务样本；API 等价价格能证明单价差，但不能证明所有真实任务的总成本、质量或时延都更优。
 - 开启态只写会话级 Codex home；关闭或新建关闭态会话不会遗留 Luna 配置，不需要数据迁移。
 
 ## 最终人工复验步骤
