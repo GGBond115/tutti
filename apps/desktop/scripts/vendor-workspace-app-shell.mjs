@@ -151,8 +151,8 @@ async function sha256File(path) {
 function extractArchive(archivePath, targetRoot, archiveRoot, relativePaths) {
   const archivePaths = relativePaths.map((path) => `${archiveRoot}/${path}`);
   const result = spawnSync(
-    "tar",
-    ["-xJf", archivePath, "-C", targetRoot, ...archivePaths],
+    resolveTarCommand(),
+    ["-xf", archivePath, "-C", targetRoot, ...archivePaths],
     { encoding: "utf8" }
   );
   if (result.status !== 0) {
@@ -160,6 +160,19 @@ function extractArchive(archivePath, targetRoot, archiveRoot, relativePaths) {
       `extract workspace app shell archive: ${result.stderr || result.stdout || result.error}`
     );
   }
+}
+
+function resolveTarCommand() {
+  if (process.platform !== "win32") {
+    return "tar";
+  }
+  const systemRoot = process.env.SystemRoot?.trim();
+  if (!systemRoot) {
+    throw new Error(
+      "extract workspace app shell archive: SystemRoot is unavailable"
+    );
+  }
+  return join(systemRoot, "System32", "tar.exe");
 }
 
 function renderThirdPartyNotices(config) {
