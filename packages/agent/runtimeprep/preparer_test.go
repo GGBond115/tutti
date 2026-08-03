@@ -444,12 +444,23 @@ description = "Keep reviewer"
 	if err != nil {
 		t.Fatalf("read Codex instructions: %v", err)
 	}
-	if !strings.Contains(string(instructions), "without forking the main conversation history") ||
-		strings.Contains(string(instructions), "fork_turns") ||
+	for _, expected := range []string{
+		"default subagent as the Luna worker",
+		"tool calls, or waiting time",
+		"simple but long-running mechanical workflows",
+		"without forking the main conversation history",
+		"read-only or isolated-worktree units in parallel",
+		"allowed state-changing actions",
+		"blocking or event-driven wait command",
+		"acceptance criteria",
+	} {
+		if !strings.Contains(string(instructions), expected) {
+			t.Fatalf("Codex saver instructions = %q, want %q", instructions, expected)
+		}
+	}
+	if strings.Contains(string(instructions), "fork_turns") ||
 		strings.Contains(string(instructions), "fork_context") ||
-		!strings.Contains(string(instructions), "default subagent as the Luna worker") ||
-		strings.Contains(string(instructions), "max_concurrent_threads") ||
-		strings.Contains(string(instructions), "parallel") {
+		strings.Contains(string(instructions), "max_concurrent_threads") {
 		t.Fatalf("Codex saver instructions are not lightweight: %q", instructions)
 	}
 }

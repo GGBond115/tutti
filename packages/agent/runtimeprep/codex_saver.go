@@ -10,13 +10,17 @@ import (
 
 const codexSaverModePolicy = `## Codex Saver Mode
 
-For substantial tasks with a bounded, self-contained subtask, prefer delegating that subtask with spawn_agent without forking the main conversation history; use the no-history option exposed by the current tool. Saver mode configures the default subagent as the Luna worker. Keep quick or tightly coupled work in the main thread. Include the relevant context, boundaries, and expected output in the delegation, then verify the result before using it.`
+Saver mode configures the default subagent as the Luna worker. Prefer delegating bounded, self-contained work when it would otherwise consume meaningful main-thread reasoning, context, tool calls, or waiting time. This includes substantial independent subtasks and simple but long-running mechanical workflows such as repeated validation, multi-repository checks, CI monitoring, and authorized commit, push, and check flows. Keep only work that is both quick and tightly coupled to the current reasoning in the main thread.
+
+When a task has multiple independent units, spawn one Luna worker per unit without forking the main conversation history; use the no-history option exposed by the current tool. Run read-only or isolated-worktree units in parallel. If write scopes cannot be isolated, run them sequentially. Each delegation must be self-contained and state the relevant context and files, boundaries, allowed state-changing actions, acceptance criteria, retry limit, and expected evidence.
+
+For external waits, let one worker own the bounded end-to-end workflow and prefer a blocking or event-driven wait command over repeated model-driven polling. After workers finish, verify their evidence against the acceptance criteria and redispatch failed units only within the stated scope and retry limit.`
 
 const codexLunaWorkerRole = `name = "default"
-description = "Luna worker for cost-efficient, bounded, self-contained implementation, research, and verification tasks"
+description = "Luna worker for cost-efficient, bounded, self-contained implementation, research, verification, and tool-intensive workflows"
 model = "gpt-5.6-luna"
 model_reasoning_effort = "max"
-developer_instructions = "Complete only the delegated task. Respect its stated scope and expected output, report concrete evidence, and do not expand into unrelated work."
+developer_instructions = "Complete only the delegated task. Respect its stated scope, allowed state changes, retry limit, and expected output; report concrete evidence and do not expand into unrelated work. For long-running external operations, prefer blocking or event-driven waits over repeated polling."
 `
 
 func installCodexLunaWorkerRole(codexHome string) (string, error) {

@@ -18,10 +18,15 @@ the selected main-thread model unchanged and materializes a session-scoped
 default subagent role backed by `agents/luna_worker.toml`, plus a short managed
 `AGENTS.md` routing rule. The role pins only delegated work to the Luna model and reasoning
 effort. The routing rule is intentionally advisory and bounded: it favors
-self-contained substantial subtasks, leaves quick or tightly coupled work on
-the main thread, and requires the main thread to verify delegated output. It
-does not prescribe a concurrency count, worktree policy, or automatic retry
-loop.
+self-contained work that would otherwise consume meaningful main-thread
+reasoning, context, tool calls, or waiting time. Independent read-only or
+isolated-worktree units may run in parallel; write scopes that cannot be
+isolated remain sequential. A single worker may own a bounded long-running
+mechanical workflow, while blocking or event-driven waits avoid repeated
+model-driven polling. Delegations declare allowed state changes, acceptance
+criteria, evidence, and retry limits, and the main thread verifies their
+results. The policy does not prescribe a fixed concurrency count or an
+unbounded automatic retry loop.
 
 Deployment differences are expressed with `DeploymentProfile` and
 `CapabilityPack`. A pack resolves policy, skills, and environment together.
