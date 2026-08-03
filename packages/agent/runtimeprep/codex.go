@@ -2,6 +2,7 @@ package runtimeprep
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,17 +15,37 @@ const (
 	codexProjectRootMarkersDisabledConfig = `project_root_markers = []`
 )
 
-type CodexPreparer struct{}
+type CodexPreparer struct {
+	StableSkillBundleRoot       string
+	StableSystemSkillBundleRoot string
+}
 
 func (CodexPreparer) Provider() string {
 	return "codex"
 }
 
-func (CodexPreparer) Prepare(_ context.Context, input ProviderPrepareInput) (ProviderPrepareResult, error) {
+func (p CodexPreparer) Prepare(_ context.Context, input ProviderPrepareInput) (ProviderPrepareResult, error) {
 	codexHome := filepath.Join(input.RuntimeRoot, "codex-home")
 	logRuntimePrepareTrace("runtime_prepare.codex.entered", input.PrepareInput, nil)
-	if err := prepareCodexHome(codexHome, input.PrepareInput); err != nil {
+	stableSkillsEnabled := strings.TrimSpace(p.StableSkillBundleRoot) != ""
+	if err := prepareCodexHomeWithNativeSkills(codexHome, input.PrepareInput, !stableSkillsEnabled); err != nil {
 		return ProviderPrepareResult{}, err
+	}
+	extraSkillRoots := []string(nil)
+	if stableSkillsEnabled {
+		reservedNames, err := codexHomeSkillNames(codexHome)
+		if err != nil {
+			return ProviderPrepareResult{}, err
+		}
+		root, err := materializeStableProviderSkillsWithReservedNames(
+			p.StableSkillBundleRoot,
+			input.PrepareInput,
+			reservedNames,
+		)
+		if err != nil {
+			return ProviderPrepareResult{}, fmt.Errorf("materialize codex stable skills: %w", err)
+		}
+		extraSkillRoots = []string{root}
 	}
 	logRuntimePrepareTrace("runtime_prepare.codex.home_prepared", input.PrepareInput, nil)
 	instructionsPath := filepath.Join(codexHome, "AGENTS.md")
@@ -48,6 +69,20 @@ func (CodexPreparer) Prepare(_ context.Context, input ProviderPrepareInput) (Pro
 	env := []string{
 		"CODEX_HOME=" + codexHome,
 	}
+	if len(extraSkillRoots) > 0 {
+		encodedRoots, err := json.Marshal(extraSkillRoots)
+		if err != nil {
+			return ProviderPrepareResult{}, fmt.Errorf("encode codex extra skill roots: %w", err)
+		}
+		env = append(env, "TUTTI_AGENT_EXTRA_SKILL_ROOTS_JSON="+string(encodedRoots))
+	}
+	if root := strings.TrimSpace(p.StableSystemSkillBundleRoot); root != "" {
+		root = filepath.Clean(root)
+		if !filepath.IsAbs(root) {
+			return ProviderPrepareResult{}, fmt.Errorf("codex stable system skill bundle root must be absolute")
+		}
+		env = append(env, "TUTTI_AGENT_STABLE_SYSTEM_SKILLS_ROOT="+root)
+	}
 	if input.ModelEndpoint.supportsCodex() {
 		env = append(env, codexModelPlanAPIKeyEnv+"="+input.ModelEndpoint.APIKey)
 	}
@@ -57,7 +92,7 @@ func (CodexPreparer) Prepare(_ context.Context, input ProviderPrepareInput) (Pro
 	}, nil
 }
 
-func prepareCodexHome(codexHome string, input PrepareInput) error {
+func prepareCodexHomeWithNativeSkills(codexHome string, input PrepareInput, installNativeSkills bool) error {
 	logRuntimePrepareTrace("runtime_prepare.codex.home_dir_requested", input, nil)
 	if err := os.MkdirAll(codexHome, 0o700); err != nil {
 		return fmt.Errorf("create codex home: %w", err)
@@ -78,25 +113,53 @@ func prepareCodexHome(codexHome string, input PrepareInput) error {
 		return err
 	}
 	logRuntimePrepareTrace("runtime_prepare.codex.session_config_resolved", input, nil)
+	skillRoot := filepath.Join(codexHome, "skills")
+	if !installNativeSkills {
+		logRuntimePrepareTrace("runtime_prepare.codex.legacy_skills_cleanup_requested", input, nil)
+		if err := cleanupCodexSessionSkillsForStableRoots(skillRoot); err != nil {
+			return err
+		}
+		logRuntimePrepareTrace("runtime_prepare.codex.legacy_skills_cleanup_resolved", input, nil)
+	}
 	logRuntimePrepareTrace("runtime_prepare.codex.user_skills_requested", input, nil)
-	if err := exposeUserCodexSkillFolders(filepath.Join(codexHome, "skills"), input); err != nil {
+	if err := exposeUserCodexSkillFolders(skillRoot, input); err != nil {
 		return err
 	}
 	logRuntimePrepareTrace("runtime_prepare.codex.user_skills_resolved", input, nil)
-	logRuntimePrepareTrace("runtime_prepare.codex.native_skills_requested", input, nil)
-	skillPaths, err := installProviderNativeSkills(filepath.Join(codexHome, "skills"), input)
-	if err != nil {
-		return err
+	if installNativeSkills {
+		logRuntimePrepareTrace("runtime_prepare.codex.native_skills_requested", input, nil)
+		skillPaths, err := installProviderNativeSkills(skillRoot, input)
+		if err != nil {
+			return err
+		}
+		logRuntimePrepareTrace("runtime_prepare.codex.native_skills_resolved", input, map[string]any{
+			"skill_count": len(skillPaths),
+		})
 	}
-	logRuntimePrepareTrace("runtime_prepare.codex.native_skills_resolved", input, map[string]any{
-		"skill_count": len(skillPaths),
-	})
 	logRuntimePrepareTrace("runtime_prepare.codex.approval_rules_requested", input, nil)
 	if err := installCodexApprovalRules(codexHome, input); err != nil {
 		return err
 	}
 	logRuntimePrepareTrace("runtime_prepare.codex.approval_rules_resolved", input, nil)
 	return nil
+}
+
+func codexHomeSkillNames(codexHome string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(codexHome, "skills"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read codex home skills: %w", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := strings.TrimSpace(entry.Name())
+		if name != "" && !strings.HasPrefix(name, ".") {
+			names = append(names, name)
+		}
+	}
+	return names, nil
 }
 
 func installCodexApprovalRules(codexHome string, input PrepareInput) error {

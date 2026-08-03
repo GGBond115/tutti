@@ -155,6 +155,37 @@ func TestLiveTuttiAgentExtraRoots(t *testing.T) {
 	if os.Getenv("TUTTI_LIVE_TUTTI_AGENT_SKILLS_VERIFY") == "" {
 		t.Skip("set TUTTI_LIVE_TUTTI_AGENT_SKILLS_VERIFY=1 to run live tutti-agent verification")
 	}
+	verifyLiveAppServerStableSkillPaths(
+		t,
+		"TUTTI_AGENT_HOME",
+		[]string{"tutti-agent", "app-server"},
+		stabilizeTuttiAgentSystemSkills,
+	)
+}
+
+// Live verification for the native Codex app-server path used by local:codex.
+// This does not run a model turn or require provider auth.
+//
+//	TUTTI_LIVE_CODEX_SKILLS_VERIFY=1 go test ./runtime/ -run TestLiveCodexExtraRoots -v -count=1
+func TestLiveCodexExtraRoots(t *testing.T) {
+	if os.Getenv("TUTTI_LIVE_CODEX_SKILLS_VERIFY") == "" {
+		t.Skip("set TUTTI_LIVE_CODEX_SKILLS_VERIFY=1 to run live Codex verification")
+	}
+	verifyLiveAppServerStableSkillPaths(
+		t,
+		"CODEX_HOME",
+		[]string{"codex", "app-server"},
+		stabilizeCodexSystemSkills,
+	)
+}
+
+func verifyLiveAppServerStableSkillPaths(
+	t *testing.T,
+	homeEnv string,
+	command []string,
+	stabilize func(string, string) (string, string, error),
+) {
+	t.Helper()
 
 	cwd := t.TempDir()
 	extraRoot := filepath.Join(t.TempDir(), "skills")
@@ -173,18 +204,46 @@ func TestLiveTuttiAgentExtraRoots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	userSkillRoot := ""
+	expectedUserSkillPath := ""
+	if homeEnv == "CODEX_HOME" {
+		userSkillRoot = filepath.Join(t.TempDir(), "user-prefix-cache-verify")
+		userSkillPath := filepath.Join(userSkillRoot, "SKILL.md")
+		if err := os.MkdirAll(userSkillRoot, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(
+			userSkillPath,
+			[]byte("---\nname: user-prefix-cache-verify\ndescription: stable user skill verification\n---\n\n# Verify\n"),
+			0o644,
+		); err != nil {
+			t.Fatal(err)
+		}
+		expectedUserSkillPath, err = filepath.EvalSymlinks(userSkillPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	stableSystemStore := filepath.Join(t.TempDir(), "system-skill-bundles")
 	wantSystemPaths := map[string]string{}
 
 	for _, session := range []string{"session-a", "session-b"} {
-		home := filepath.Join(t.TempDir(), session, "tutti-agent-home")
+		home := filepath.Join(t.TempDir(), session, "provider-home")
 		if err := os.MkdirAll(home, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		env := append(os.Environ(), "TUTTI_AGENT_HOME="+home)
-		proc := startLiveAppServerCommand(t, env, "tutti-agent", "app-server")
+		if userSkillRoot != "" {
+			if err := os.MkdirAll(filepath.Join(home, "skills"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(userSkillRoot, filepath.Join(home, "skills", "user-prefix-cache-verify")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		env := append(os.Environ(), homeEnv+"="+home)
+		proc := startLiveAppServerCommand(t, env, command[0], command[1:]...)
 		proc.initialize(t)
-		if _, _, err := stabilizeTuttiAgentSystemSkills(home, stableSystemStore); err != nil {
+		if _, _, err := stabilize(home, stableSystemStore); err != nil {
 			proc.kill()
 			t.Fatalf("stabilize system skills for %s: %v", session, err)
 		}
@@ -203,6 +262,14 @@ func TestLiveTuttiAgentExtraRoots(t *testing.T) {
 		paths := liveSkillPaths(t, listResult)
 		if got := paths["prefix-cache-verify"]; got != expectedSkillPath {
 			t.Fatalf("session %s stable skill path = %q, want %q", session, got, expectedSkillPath)
+		}
+		if expectedUserSkillPath != "" && paths["user-prefix-cache-verify"] != expectedUserSkillPath {
+			t.Fatalf(
+				"session %s stable user skill path = %q, want %q",
+				session,
+				paths["user-prefix-cache-verify"],
+				expectedUserSkillPath,
+			)
 		}
 		for _, name := range []string{"skill-creator", "skill-installer"} {
 			got := paths[name]

@@ -164,6 +164,9 @@ func TestMigratedCodexDescriptorIsComplete(t *testing.T) {
 	if descriptor.Runtime.Kind != RuntimeKindCodexAppServer {
 		t.Fatalf("Runtime.Kind = %q", descriptor.Runtime.Kind)
 	}
+	if descriptor.Runtime.AppServerSkillRoots != AppServerSkillRootsStrategyCodexStable {
+		t.Fatalf("Runtime.AppServerSkillRoots = %q", descriptor.Runtime.AppServerSkillRoots)
+	}
 	if descriptor.Runtime.AppServerFork != (AppServerForkDescriptor{
 		UserAgentBrand:        "codex",
 		ThroughTurnMinVersion: CodexThroughTurnForkMinVersion,

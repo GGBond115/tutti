@@ -20,7 +20,7 @@ func TestTuttiAgentStartSetsExtraSkillRootsBeforeThread(t *testing.T) {
 	session.Provider = ProviderTuttiAgent
 	session.Env = []string{
 		"SESSION_ENV=1",
-		tuttiAgentExtraSkillRootsEnv + `=["` + root + `"]`,
+		appServerExtraSkillRootsEnv + `=["` + root + `"]`,
 	}
 	if _, err := adapter.Start(context.Background(), session); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -39,7 +39,7 @@ func TestTuttiAgentStartSetsExtraSkillRootsBeforeThread(t *testing.T) {
 	if len(transport.specs) != 1 {
 		t.Fatalf("process starts = %d, want 1", len(transport.specs))
 	}
-	if _, found := lastEnvironmentValue(transport.specs[0].Env, tuttiAgentExtraSkillRootsEnv); found {
+	if _, found := lastEnvironmentValue(transport.specs[0].Env, appServerExtraSkillRootsEnv); found {
 		t.Fatalf("internal extra roots metadata leaked to child env: %#v", transport.specs[0].Env)
 	}
 	if !containsString(transport.specs[0].Env, "SESSION_ENV=1") {
@@ -59,9 +59,9 @@ func TestTuttiAgentStartStabilizesSystemSkillsBeforeThread(t *testing.T) {
 	session := testAppServerSession()
 	session.Provider = ProviderTuttiAgent
 	session.Env = []string{
-		tuttiAgentHomeEnv + "=" + home,
-		tuttiAgentStableSystemSkillsEnv + "=" + stableStore,
-		tuttiAgentExtraSkillRootsEnv + `=["/stable/managed-skills"]`,
+		"TUTTI_AGENT_HOME=" + home,
+		appServerStableSystemSkillsEnv + "=" + stableStore,
+		appServerExtraSkillRootsEnv + `=["/stable/managed-skills"]`,
 	}
 	if _, err := adapter.Start(context.Background(), session); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -92,9 +92,100 @@ func TestTuttiAgentStartStabilizesSystemSkillsBeforeThread(t *testing.T) {
 		appServerMethodSkillsExtraRootsSet,
 		appServerMethodThreadStart,
 	)
-	if _, found := lastEnvironmentValue(transport.specs[0].Env, tuttiAgentStableSystemSkillsEnv); found {
+	if _, found := lastEnvironmentValue(transport.specs[0].Env, appServerStableSystemSkillsEnv); found {
 		t.Fatalf("internal system skill metadata leaked to child env: %#v", transport.specs[0].Env)
 	}
+}
+
+func TestCodexStartSetsStableSkillRootsBeforeThread(t *testing.T) {
+	t.Parallel()
+
+	transport := newScriptedAppServerTransport()
+	adapter := NewCodexAppServerAdapterWithHostMetadata(transport, LegacyHostMetadata())
+	temporary := t.TempDir()
+	home := filepath.Join(temporary, "run", "codex-home")
+	writeTestSystemSkillsWithMarker(
+		t,
+		filepath.Join(home, "skills", ".system"),
+		codexSystemSkillsMarkerFile,
+		"same-version",
+	)
+	stableStore := filepath.Join(temporary, "state", "system-skill-bundles")
+	extraRoot := filepath.Join(temporary, "state", "skill-bundles", "v1", "digest", "skills")
+	session := testAppServerSession()
+	session.Env = []string{
+		"CODEX_HOME=" + home,
+		appServerStableSystemSkillsEnv + "=" + stableStore,
+		appServerExtraSkillRootsEnv + `=["` + extraRoot + `"]`,
+	}
+	if _, err := adapter.Start(context.Background(), session); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Join(home, "skills", ".system"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalStore, err := filepath.EvalSymlinks(stableStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(resolved, filepath.Join(canonicalStore, "v1")+string(filepath.Separator)) {
+		t.Fatalf("stable Codex system skill target = %q", resolved)
+	}
+	params := appServerRequestParams(t, transport.conn, appServerMethodSkillsExtraRootsSet)
+	if got := appServerStringSlice(params["extraRoots"]); !slices.Equal(got, []string{extraRoot}) {
+		t.Fatalf("skills/extraRoots/set roots = %#v, want %#v", got, []string{extraRoot})
+	}
+	assertAppServerMethodOrder(t, appServerSentMethods(t, transport.conn),
+		appServerMethodInitialize,
+		appServerMethodInitialized,
+		appServerMethodSkillsExtraRootsSet,
+		appServerMethodThreadStart,
+	)
+}
+
+func TestCodexResumeSetsStableSkillRootsBeforeThread(t *testing.T) {
+	t.Parallel()
+
+	transport := newScriptedAppServerTransport()
+	adapter := NewCodexAppServerAdapterWithHostMetadata(transport, LegacyHostMetadata())
+	temporary := t.TempDir()
+	home := filepath.Join(temporary, "run", "codex-home")
+	writeTestSystemSkillsWithMarker(
+		t,
+		filepath.Join(home, "skills", ".system"),
+		codexSystemSkillsMarkerFile,
+		"same-version",
+	)
+	stableStore := filepath.Join(temporary, "state", "system-skill-bundles")
+	extraRoot := filepath.Join(temporary, "state", "skill-bundles", "v1", "digest", "skills")
+	session := testAppServerSession()
+	session.ProviderSessionID = "codex-thread-1"
+	session.Env = []string{
+		"CODEX_HOME=" + home,
+		appServerStableSystemSkillsEnv + "=" + stableStore,
+		appServerExtraSkillRootsEnv + `=["` + extraRoot + `"]`,
+	}
+	if err := adapter.Resume(context.Background(), session); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Join(home, "skills", ".system"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalStore, err := filepath.EvalSymlinks(stableStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(resolved, filepath.Join(canonicalStore, "v1")+string(filepath.Separator)) {
+		t.Fatalf("stable Codex system skill target = %q", resolved)
+	}
+	assertAppServerMethodOrder(t, appServerSentMethods(t, transport.conn),
+		appServerMethodInitialize,
+		appServerMethodInitialized,
+		appServerMethodSkillsExtraRootsSet,
+		appServerMethodThreadResume,
+	)
 }
 
 func TestTuttiAgentResumeSetsExtraSkillRootsBeforeThread(t *testing.T) {
@@ -106,7 +197,7 @@ func TestTuttiAgentResumeSetsExtraSkillRootsBeforeThread(t *testing.T) {
 	session := testAppServerSession()
 	session.Provider = ProviderTuttiAgent
 	session.ProviderSessionID = "codex-thread-1"
-	session.Env = []string{tuttiAgentExtraSkillRootsEnv + `=["` + root + `"]`}
+	session.Env = []string{appServerExtraSkillRootsEnv + `=["` + root + `"]`}
 	if err := adapter.Resume(context.Background(), session); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
@@ -127,9 +218,9 @@ func TestTuttiAgentExtraSkillRootsFailureStopsBeforeThread(t *testing.T) {
 	adapter := NewTuttiAgentAppServerAdapterWithHostMetadata(transport, LegacyHostMetadata())
 	session := testAppServerSession()
 	session.Provider = ProviderTuttiAgent
-	session.Env = []string{tuttiAgentExtraSkillRootsEnv + `=["/stable/skills"]`}
+	session.Env = []string{appServerExtraSkillRootsEnv + `=["/stable/skills"]`}
 	_, err := adapter.Start(context.Background(), session)
-	if err == nil || !strings.Contains(err.Error(), "configure tutti-agent extra skill roots") {
+	if err == nil || !strings.Contains(err.Error(), "configure app-server extra skill roots") {
 		t.Fatalf("Start error = %v, want extra roots failure", err)
 	}
 	if got := len(appServerRequestParamsList(t, transport.conn, appServerMethodThreadStart)); got != 0 {
@@ -144,7 +235,7 @@ func TestTuttiAgentExtraSkillRootsRejectInvalidMetadataBeforeSpawn(t *testing.T)
 	adapter := NewTuttiAgentAppServerAdapterWithHostMetadata(transport, LegacyHostMetadata())
 	session := testAppServerSession()
 	session.Provider = ProviderTuttiAgent
-	session.Env = []string{tuttiAgentExtraSkillRootsEnv + `=["relative/skills"]`}
+	session.Env = []string{appServerExtraSkillRootsEnv + `=["relative/skills"]`}
 	if _, err := adapter.Start(context.Background(), session); err == nil {
 		t.Fatal("Start error = nil, want relative root rejection")
 	}
@@ -163,11 +254,15 @@ func appServerStringSlice(value any) []string {
 }
 
 func writeTestSystemSkills(t *testing.T, root string, marker string) {
+	writeTestSystemSkillsWithMarker(t, root, systemSkillsMarkerFile, marker)
+}
+
+func writeTestSystemSkillsWithMarker(t *testing.T, root string, markerFile string, marker string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(root, "skill-creator"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, systemSkillsMarkerFile), []byte(marker+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, markerFile), []byte(marker+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(

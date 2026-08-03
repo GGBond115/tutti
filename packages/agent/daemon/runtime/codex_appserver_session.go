@@ -9,7 +9,6 @@ import (
 	"time"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
-	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
 )
 
 func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (events []activityshared.Event, err error) {
@@ -19,11 +18,11 @@ func (a *CodexAppServerAdapter) Start(ctx context.Context, session Session) (eve
 	defer func() {
 		trace.Finish(err)
 	}()
-	extraSkillRoots, err := tuttiAgentExtraSkillRoots(a.config.skillRootsStrategy, session.Env)
+	extraSkillRoots, err := appServerExtraSkillRoots(a.config.skillRootsStrategy, session.Env)
 	if err != nil {
 		return nil, err
 	}
-	stableSystemSkillsRoot, err := tuttiAgentStableSystemSkillsRoot(a.config.skillRootsStrategy, session.Env)
+	stableSystemSkillsRoot, err := appServerStableSystemSkillsRoot(a.config.skillRootsStrategy, session.Env)
 	if err != nil {
 		return nil, err
 	}
@@ -194,11 +193,11 @@ func (a *CodexAppServerAdapter) Resume(ctx context.Context, session Session) (er
 	trace.Log("resume.begin", map[string]any{
 		"thread_id": strings.TrimSpace(session.ProviderSessionID),
 	})
-	extraSkillRoots, err := tuttiAgentExtraSkillRoots(a.config.skillRootsStrategy, session.Env)
+	extraSkillRoots, err := appServerExtraSkillRoots(a.config.skillRootsStrategy, session.Env)
 	if err != nil {
 		return err
 	}
-	stableSystemSkillsRoot, err := tuttiAgentStableSystemSkillsRoot(a.config.skillRootsStrategy, session.Env)
+	stableSystemSkillsRoot, err := appServerStableSystemSkillsRoot(a.config.skillRootsStrategy, session.Env)
 	if err != nil {
 		return err
 	}
@@ -478,9 +477,9 @@ func (a *CodexAppServerAdapter) prepareInitializedClientLaunch(
 	if err != nil {
 		return ProcessSpec{}, nil, err
 	}
-	if a.config.skillRootsStrategy == providerregistry.AppServerSkillRootsStrategyTuttiStable {
-		spec.Env = withoutEnvironmentKey(spec.Env, tuttiAgentExtraSkillRootsEnv)
-		spec.Env = withoutEnvironmentKey(spec.Env, tuttiAgentStableSystemSkillsEnv)
+	if appServerUsesStableSkillRoots(a.config.skillRootsStrategy) {
+		spec.Env = withoutEnvironmentKey(spec.Env, appServerExtraSkillRootsEnv)
+		spec.Env = withoutEnvironmentKey(spec.Env, appServerStableSystemSkillsEnv)
 	}
 	return spec, cleanup, nil
 }

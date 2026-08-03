@@ -47,6 +47,14 @@ func materializeStableProviderSkills(
 	storeRoot string,
 	input PrepareInput,
 ) (string, error) {
+	return materializeStableProviderSkillsWithReservedNames(storeRoot, input, nil)
+}
+
+func materializeStableProviderSkillsWithReservedNames(
+	storeRoot string,
+	input PrepareInput,
+	reservedNames []string,
+) (string, error) {
 	storeRoot = filepath.Clean(strings.TrimSpace(storeRoot))
 	if storeRoot == "." || !filepath.IsAbs(storeRoot) {
 		return "", fmt.Errorf("stable provider skill bundle root must be absolute")
@@ -55,7 +63,11 @@ func materializeStableProviderSkills(
 	if err != nil {
 		return "", err
 	}
-	canonical, materialized, err := canonicalizeStableProviderSkills(input.Provider, specs)
+	canonical, materialized, err := canonicalizeStableProviderSkillsWithReservedNames(
+		input.Provider,
+		specs,
+		reservedNames,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -126,6 +138,14 @@ func canonicalizeStableProviderSkills(
 	provider string,
 	specs []providerSkillSpec,
 ) (canonicalStableSkillBundle, []materializedStableSkill, error) {
+	return canonicalizeStableProviderSkillsWithReservedNames(provider, specs, nil)
+}
+
+func canonicalizeStableProviderSkillsWithReservedNames(
+	provider string,
+	specs []providerSkillSpec,
+	reservedNames []string,
+) (canonicalStableSkillBundle, []materializedStableSkill, error) {
 	sorted := append([]providerSkillSpec(nil), specs...)
 	sort.Slice(sorted, func(left, right int) bool {
 		leftID, rightID := strings.TrimSpace(sorted[left].skillID), strings.TrimSpace(sorted[right].skillID)
@@ -140,7 +160,13 @@ func canonicalizeStableProviderSkills(
 		Skills:        make([]canonicalStableSkill, 0, len(sorted)),
 	}
 	materialized := make([]materializedStableSkill, 0, len(sorted))
-	usedDirectories := make(map[string]struct{}, len(sorted))
+	usedDirectories := make(map[string]struct{}, len(sorted)+len(reservedNames))
+	for _, name := range reservedNames {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			usedDirectories[name] = struct{}{}
+		}
+	}
 	for _, spec := range sorted {
 		directory, err := allocateStableBundleSkillDirectory(spec.baseName, usedDirectories)
 		if err != nil {

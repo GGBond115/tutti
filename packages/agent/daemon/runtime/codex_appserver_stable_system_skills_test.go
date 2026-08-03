@@ -36,6 +36,28 @@ func TestStableSystemSkillsReuseCanonicalTargetAcrossHomes(t *testing.T) {
 	}
 }
 
+func TestCodexStableSystemSkillsReuseCanonicalTargetAcrossHomes(t *testing.T) {
+	storeRoot := filepath.Join(t.TempDir(), "system-skill-bundles")
+	targets := make([]string, 0, 2)
+	for _, session := range []string{"session-a", "session-b"} {
+		home := filepath.Join(t.TempDir(), session, "codex-home")
+		writeTestSystemSkillsWithMarker(
+			t,
+			filepath.Join(home, "skills", ".system"),
+			codexSystemSkillsMarkerFile,
+			"same-version",
+		)
+		target, _, err := stabilizeCodexSystemSkills(home, storeRoot)
+		if err != nil {
+			t.Fatalf("stabilizeCodexSystemSkills(%s): %v", session, err)
+		}
+		targets = append(targets, target)
+	}
+	if targets[0] != targets[1] {
+		t.Fatalf("stable Codex targets differ: %q != %q", targets[0], targets[1])
+	}
+}
+
 func TestStableSystemSkillsDigestChangesWithProviderContent(t *testing.T) {
 	storeRoot := filepath.Join(t.TempDir(), "system-skill-bundles")
 	homeA := filepath.Join(t.TempDir(), "home-a")

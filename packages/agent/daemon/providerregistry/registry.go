@@ -173,7 +173,7 @@ func Validate(descriptor ProviderDescriptor) error {
 			return fmt.Errorf("provider %q runtime client info name is required", providerID)
 		}
 		switch descriptor.Runtime.AppServerSkillRoots {
-		case "", AppServerSkillRootsStrategyTuttiStable:
+		case "", AppServerSkillRootsStrategyTuttiStable, AppServerSkillRootsStrategyCodexStable:
 		default:
 			return fmt.Errorf(
 				"provider %q app-server skill roots strategy %q is unsupported",

@@ -28,7 +28,11 @@ func NewDefaultPreparer(stateDir string) *DefaultPreparer {
 		Profile:   StandardProfile(),
 		providers: make(map[string]ProviderPreparer),
 	}
-	preparer.RegisterProvider(CodexPreparer{})
+	stableAgentRoot := filepath.Join(stateDir, "agent")
+	preparer.RegisterProvider(CodexPreparer{
+		StableSkillBundleRoot:       filepath.Join(stableAgentRoot, "skill-bundles"),
+		StableSystemSkillBundleRoot: filepath.Join(stableAgentRoot, "system-skill-bundles"),
+	})
 	preparer.RegisterProvider(ClaudeCodePreparer{StateDir: stateDir})
 	preparer.RegisterProvider(CursorPreparer{})
 	preparer.RegisterProvider(OpenCodePreparer{})

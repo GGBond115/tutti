@@ -1,6 +1,7 @@
 package runtimeprep
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -88,6 +89,7 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 	if codexHome == "" {
 		t.Fatalf("prepared env = %#v, want CODEX_HOME", prepared.Env)
 	}
+	managedSkillRoot := codexManagedSkillRoot(t, prepared.Env)
 	codexAgents, err := os.ReadFile(filepath.Join(codexHome, "AGENTS.md"))
 	if err != nil {
 		t.Fatalf("codex AGENTS.md missing: %v", err)
@@ -255,7 +257,7 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 	if _, err := os.Lstat(filepath.Join(codexHome, "skills", "broken-frontmatter")); !os.IsNotExist(err) {
 		t.Fatalf("broken-frontmatter skill exposed, err = %v", err)
 	}
-	skill, err := os.ReadFile(filepath.Join(codexHome, "skills", "tutti-cli", "SKILL.md"))
+	skill, err := os.ReadFile(filepath.Join(managedSkillRoot, "tutti-cli", "SKILL.md"))
 	if err != nil {
 		t.Fatalf("tutti skill missing: %v", err)
 	}
@@ -265,7 +267,7 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 		!strings.Contains(string(skill), "handed off, not absorbed") {
 		t.Fatalf("skill content = %q", string(skill))
 	}
-	commandGuideReference, err := os.ReadFile(filepath.Join(codexHome, "skills", "tutti-cli", commandGuideReferencePath))
+	commandGuideReference, err := os.ReadFile(filepath.Join(managedSkillRoot, "tutti-cli", commandGuideReferencePath))
 	if err != nil {
 		t.Fatalf("tutti command guide reference missing: %v", err)
 	}
@@ -285,7 +287,7 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 	if strings.Contains(string(skill), "### Mention-driven issue handoff") {
 		t.Fatalf("tutti skill should stay reference-focused: %q", string(skill))
 	}
-	issueSkill, err := os.ReadFile(filepath.Join(codexHome, "skills", "issue-manager", "SKILL.md"))
+	issueSkill, err := os.ReadFile(filepath.Join(managedSkillRoot, "issue-manager", "SKILL.md"))
 	if err != nil {
 		t.Fatalf("issue-manager skill missing: %v", err)
 	}
@@ -313,7 +315,7 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 	if envValue(prepared.Env, "TUTTI_AGENT_CWD") != cwd {
 		t.Fatalf("prepared env = %#v, want TUTTI_AGENT_CWD", prepared.Env)
 	}
-	workspaceAppSkill, err := os.ReadFile(filepath.Join(codexHome, "skills", "workspace-app", "SKILL.md"))
+	workspaceAppSkill, err := os.ReadFile(filepath.Join(managedSkillRoot, "workspace-app", "SKILL.md"))
 	if err != nil {
 		t.Fatalf("workspace-app skill missing: %v", err)
 	}
@@ -334,14 +336,14 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 	if strings.Contains(string(workspaceAppSkill), "plugin root `tutti-cli/SKILL.md`") {
 		t.Fatalf("workspace-app skill should not anchor agents to plugin-root paths: %q", string(workspaceAppSkill))
 	}
-	appFactorySkill, err := os.ReadFile(filepath.Join(codexHome, "skills", "app-factory", "SKILL.md"))
+	appFactorySkill, err := os.ReadFile(filepath.Join(managedSkillRoot, "app-factory", "SKILL.md"))
 	if err != nil {
 		t.Fatalf("app-factory skill missing: %v", err)
 	}
 	if !strings.Contains(string(appFactorySkill), "mention://workspace-app-factory/create") {
 		t.Fatalf("app-factory skill content = %q", string(appFactorySkill))
 	}
-	appFactoryReference, err := os.ReadFile(filepath.Join(codexHome, "skills", "app-factory", "references", "manifest-contract.md"))
+	appFactoryReference, err := os.ReadFile(filepath.Join(managedSkillRoot, "app-factory", "references", "manifest-contract.md"))
 	if err != nil {
 		t.Fatalf("app-factory reference missing: %v", err)
 	}
@@ -789,6 +791,7 @@ func TestDefaultPreparerCodexUserSkillNameWinsBeforeTuttiInjection(t *testing.T)
 	}
 
 	codexHome := envValue(prepared.Env, "CODEX_HOME")
+	managedSkillRoot := codexManagedSkillRoot(t, prepared.Env)
 	userSkillPath := filepath.Join(codexHome, "skills", "tutti-cli")
 	userSkillInfo, err := os.Lstat(userSkillPath)
 	if err != nil {
@@ -804,7 +807,7 @@ func TestDefaultPreparerCodexUserSkillNameWinsBeforeTuttiInjection(t *testing.T)
 	if !strings.Contains(string(userSkill), "User tutti skill") {
 		t.Fatalf("user tutti-cli skill = %q", string(userSkill))
 	}
-	tuttiSkill, err := os.ReadFile(filepath.Join(codexHome, "skills", "tutti-cli-tutti", "SKILL.md"))
+	tuttiSkill, err := os.ReadFile(filepath.Join(managedSkillRoot, "tutti-cli-tutti", "SKILL.md"))
 	if err != nil {
 		t.Fatalf("tutti fallback skill missing: %v", err)
 	}
@@ -812,7 +815,7 @@ func TestDefaultPreparerCodexUserSkillNameWinsBeforeTuttiInjection(t *testing.T)
 		!strings.Contains(string(tuttiSkill), "this skill's `command-guide.md`") {
 		t.Fatalf("tutti fallback skill = %q", string(tuttiSkill))
 	}
-	tuttiReference, err := os.ReadFile(filepath.Join(codexHome, "skills", "tutti-cli-tutti", commandGuideReferencePath))
+	tuttiReference, err := os.ReadFile(filepath.Join(managedSkillRoot, "tutti-cli-tutti", commandGuideReferencePath))
 	if err != nil {
 		t.Fatalf("tutti fallback command guide reference missing: %v", err)
 	}
@@ -1780,7 +1783,7 @@ func TestCodexPreparerSkipsUserBrowserSkillWhenBrowserUseEnabled(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(codexHome, "skills", "caveman")); err != nil {
 		t.Fatalf("unrelated user skill should still be exposed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(codexHome, "skills", "browser-use", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(codexManagedSkillRoot(t, prepared.Env), "browser-use", "SKILL.md")); err != nil {
 		t.Fatalf("browser-use skill missing: %v", err)
 	}
 	codexAgents, err := os.ReadFile(filepath.Join(codexHome, "AGENTS.md"))
@@ -2120,6 +2123,18 @@ func TestDefaultPreparerCodexRejectsMissingAbsoluteModelInstructionsFile(t *test
 	if strings.Contains(err.Error(), filepath.Dir(missingPath)) {
 		t.Fatalf("public error leaks absolute parent path: %q", err.Error())
 	}
+}
+
+func codexManagedSkillRoot(t *testing.T, env []string) string {
+	t.Helper()
+	var roots []string
+	if err := json.Unmarshal([]byte(envValue(env, "TUTTI_AGENT_EXTRA_SKILL_ROOTS_JSON")), &roots); err != nil {
+		t.Fatalf("decode Codex extra skill roots from %#v: %v", env, err)
+	}
+	if len(roots) != 1 || !filepath.IsAbs(roots[0]) {
+		t.Fatalf("Codex extra skill roots = %#v, want one absolute root", roots)
+	}
+	return roots[0]
 }
 
 func writeSidecarTestFile(t *testing.T, path string, content string) {

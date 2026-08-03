@@ -11,13 +11,37 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/tutti-os/tutti/packages/agent/daemon/providerregistry"
 )
 
 const (
-	stableSystemSkillsSchemaVersion = 1
-	stableSystemSkillsMaxFiles      = 4096
-	stableSystemSkillsMaxBytes      = 32 << 20
-	systemSkillsMarkerFile          = ".tutti-agent-system-skills.marker"
+	stableSystemSkillsSchemaVersion  = 1
+	stableSystemSkillsMaxFiles       = 4096
+	stableSystemSkillsMaxBytes       = 32 << 20
+	tuttiAgentSystemSkillsMarkerFile = ".tutti-agent-system-skills.marker"
+	codexSystemSkillsMarkerFile      = ".codex-system-skills.marker"
+	// Retained for focused tutti-agent tests and fixtures.
+	systemSkillsMarkerFile = tuttiAgentSystemSkillsMarkerFile
+)
+
+type appServerSystemSkillsLayout struct {
+	homeEnv      string
+	markerFile   string
+	digestPrefix string
+}
+
+var (
+	tuttiAgentSystemSkillsLayout = appServerSystemSkillsLayout{
+		homeEnv:      "TUTTI_AGENT_HOME",
+		markerFile:   tuttiAgentSystemSkillsMarkerFile,
+		digestPrefix: "tutti-agent-system-skills-v1\x00",
+	}
+	codexSystemSkillsLayout = appServerSystemSkillsLayout{
+		homeEnv:      "CODEX_HOME",
+		markerFile:   codexSystemSkillsMarkerFile,
+		digestPrefix: "codex-system-skills-v1\x00",
+	}
 )
 
 type stableSystemSkillFile struct {
@@ -31,7 +55,7 @@ type stableSystemSkillsSnapshot struct {
 	files       []stableSystemSkillFile
 }
 
-func (*CodexAppServerAdapter) stabilizeSystemSkillPaths(
+func (a *CodexAppServerAdapter) stabilizeSystemSkillPaths(
 	session Session,
 	storeRoot string,
 	trace *codexAppServerStartupTrace,
@@ -39,18 +63,22 @@ func (*CodexAppServerAdapter) stabilizeSystemSkillPaths(
 	if strings.TrimSpace(storeRoot) == "" {
 		return nil
 	}
-	home, found := lastEnvironmentValue(session.Env, tuttiAgentHomeEnv)
+	layout, err := systemSkillsLayoutForStrategy(a.config.skillRootsStrategy)
+	if err != nil {
+		return err
+	}
+	home, found := lastEnvironmentValue(session.Env, layout.homeEnv)
 	if !found {
-		return errors.New("stabilize tutti-agent system skills: TUTTI_AGENT_HOME is missing")
+		return fmt.Errorf("stabilize app-server system skills: %s is missing", layout.homeEnv)
 	}
 	home = filepath.Clean(strings.TrimSpace(home))
 	if home == "." || !filepath.IsAbs(home) {
-		return errors.New("stabilize tutti-agent system skills: TUTTI_AGENT_HOME must be absolute")
+		return fmt.Errorf("stabilize app-server system skills: %s must be absolute", layout.homeEnv)
 	}
 	trace.Log("skills.system_paths.stabilize.begin", nil)
-	target, digest, err := stabilizeTuttiAgentSystemSkills(home, storeRoot)
+	target, digest, err := stabilizeAppServerSystemSkills(home, storeRoot, layout)
 	if err != nil {
-		return fmt.Errorf("stabilize tutti-agent system skills: %w", err)
+		return fmt.Errorf("stabilize app-server system skills: %w", err)
 	}
 	trace.Log("skills.system_paths.stabilize.succeeded", map[string]any{
 		"fingerprint": digest[:12],
@@ -59,11 +87,39 @@ func (*CodexAppServerAdapter) stabilizeSystemSkillPaths(
 	return nil
 }
 
+func systemSkillsLayoutForStrategy(
+	strategy providerregistry.AppServerSkillRootsStrategy,
+) (appServerSystemSkillsLayout, error) {
+	switch strategy {
+	case providerregistry.AppServerSkillRootsStrategyTuttiStable:
+		return tuttiAgentSystemSkillsLayout, nil
+	case providerregistry.AppServerSkillRootsStrategyCodexStable:
+		return codexSystemSkillsLayout, nil
+	default:
+		return appServerSystemSkillsLayout{}, fmt.Errorf(
+			"app-server skill roots strategy %q has no stable system skill layout",
+			strategy,
+		)
+	}
+}
+
 func stabilizeTuttiAgentSystemSkills(home string, storeRoot string) (string, string, error) {
+	return stabilizeAppServerSystemSkills(home, storeRoot, tuttiAgentSystemSkillsLayout)
+}
+
+func stabilizeCodexSystemSkills(home string, storeRoot string) (string, string, error) {
+	return stabilizeAppServerSystemSkills(home, storeRoot, codexSystemSkillsLayout)
+}
+
+func stabilizeAppServerSystemSkills(
+	home string,
+	storeRoot string,
+	layout appServerSystemSkillsLayout,
+) (string, string, error) {
 	home = filepath.Clean(strings.TrimSpace(home))
 	storeRoot = filepath.Clean(strings.TrimSpace(storeRoot))
 	if home == "." || !filepath.IsAbs(home) {
-		return "", "", errors.New("tutti-agent home must be absolute")
+		return "", "", errors.New("app-server home must be absolute")
 	}
 	if storeRoot == "." || !filepath.IsAbs(storeRoot) {
 		return "", "", errors.New("stable system skill store must be absolute")
@@ -74,25 +130,25 @@ func stabilizeTuttiAgentSystemSkills(home string, storeRoot string) (string, str
 		return "", "", fmt.Errorf("inspect provider system skills: %w", err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		target, digest, err := validateStableSystemSkillSymlink(systemRoot, storeRoot)
+		target, digest, err := validateStableSystemSkillSymlink(systemRoot, storeRoot, layout)
 		return target, digest, err
 	}
 	if !info.IsDir() {
 		return "", "", fmt.Errorf("provider system skill root is not a directory: %s", systemRoot)
 	}
 
-	snapshot, err := snapshotStableSystemSkills(systemRoot)
+	snapshot, err := snapshotStableSystemSkills(systemRoot, layout)
 	if err != nil {
 		return "", "", err
 	}
 	versionRoot := filepath.Join(storeRoot, fmt.Sprintf("v%d", stableSystemSkillsSchemaVersion))
 	bundleRoot := filepath.Join(versionRoot, snapshot.digest)
 	target := filepath.Join(bundleRoot, ".system")
-	if err := validateStableSystemSkillTarget(target, snapshot.digest); err != nil {
+	if err := validateStableSystemSkillTarget(target, snapshot.digest, layout); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return "", "", err
 		}
-		if err := materializeStableSystemSkillTarget(versionRoot, bundleRoot, snapshot); err != nil {
+		if err := materializeStableSystemSkillTarget(versionRoot, bundleRoot, snapshot, layout); err != nil {
 			return "", "", err
 		}
 	}
@@ -102,7 +158,7 @@ func stabilizeTuttiAgentSystemSkills(home string, storeRoot string) (string, str
 	return target, snapshot.digest, nil
 }
 
-func snapshotStableSystemSkills(root string) (stableSystemSkillsSnapshot, error) {
+func snapshotStableSystemSkills(root string, layout appServerSystemSkillsLayout) (stableSystemSkillsSnapshot, error) {
 	root = filepath.Clean(root)
 	directories := make([]string, 0)
 	files := make([]stableSystemSkillFile, 0)
@@ -145,7 +201,7 @@ func snapshotStableSystemSkills(root string) (stableSystemSkillsSnapshot, error)
 		if totalBytes > stableSystemSkillsMaxBytes {
 			return errors.New("provider system skills exceed byte limit")
 		}
-		hasMarker = hasMarker || relative == systemSkillsMarkerFile
+		hasMarker = hasMarker || relative == layout.markerFile
 		hasSkill = hasSkill || filepath.Base(relative) == "SKILL.md"
 		files = append(files, stableSystemSkillFile{relativePath: relative, content: content})
 		return nil
@@ -161,7 +217,7 @@ func snapshotStableSystemSkills(root string) (stableSystemSkillsSnapshot, error)
 		return files[left].relativePath < files[right].relativePath
 	})
 	digest := sha256.New()
-	_, _ = digest.Write([]byte("tutti-agent-system-skills-v1\x00"))
+	_, _ = digest.Write([]byte(layout.digestPrefix))
 	for _, directory := range directories {
 		writeStableSystemSkillDigestPart(digest, 'd', directory, nil)
 	}
@@ -195,6 +251,7 @@ func materializeStableSystemSkillTarget(
 	versionRoot string,
 	bundleRoot string,
 	snapshot stableSystemSkillsSnapshot,
+	layout appServerSystemSkillsLayout,
 ) error {
 	if err := os.MkdirAll(versionRoot, 0o755); err != nil {
 		return fmt.Errorf("create stable system skill store: %w", err)
@@ -222,13 +279,14 @@ func materializeStableSystemSkillTarget(
 			return err
 		}
 	}
-	if err := validateStableSystemSkillTarget(temporarySystemRoot, snapshot.digest); err != nil {
+	if err := validateStableSystemSkillTarget(temporarySystemRoot, snapshot.digest, layout); err != nil {
 		return fmt.Errorf("validate staged system skills: %w", err)
 	}
 	if err := os.Rename(temporaryRoot, bundleRoot); err != nil {
 		if validationErr := validateStableSystemSkillTarget(
 			filepath.Join(bundleRoot, ".system"),
 			snapshot.digest,
+			layout,
 		); validationErr == nil {
 			return nil
 		}
@@ -237,8 +295,12 @@ func materializeStableSystemSkillTarget(
 	return nil
 }
 
-func validateStableSystemSkillTarget(target string, wantDigest string) error {
-	snapshot, err := snapshotStableSystemSkills(target)
+func validateStableSystemSkillTarget(
+	target string,
+	wantDigest string,
+	layout appServerSystemSkillsLayout,
+) error {
+	snapshot, err := snapshotStableSystemSkills(target, layout)
 	if err != nil {
 		return err
 	}
@@ -251,6 +313,7 @@ func validateStableSystemSkillTarget(target string, wantDigest string) error {
 func validateStableSystemSkillSymlink(
 	systemRoot string,
 	storeRoot string,
+	layout appServerSystemSkillsLayout,
 ) (string, string, error) {
 	target, err := filepath.EvalSymlinks(systemRoot)
 	if err != nil {
@@ -276,7 +339,7 @@ func validateStableSystemSkillSymlink(
 	if _, err := hex.DecodeString(parts[0]); err != nil {
 		return "", "", errors.New("provider system skill symlink has invalid digest")
 	}
-	if err := validateStableSystemSkillTarget(target, parts[0]); err != nil {
+	if err := validateStableSystemSkillTarget(target, parts[0], layout); err != nil {
 		return "", "", err
 	}
 	return target, parts[0], nil

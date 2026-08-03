@@ -57,6 +57,7 @@ func TestCodexVersionMeetsMinimum(t *testing.T) {
 	}{
 		{"equal to minimum", MinSupportedCodexVersion, true},
 		{"above minimum", "999.0.0", true},
+		{"before extra roots support", "0.135.9", false},
 		{"below minimum", "0.0.1", false},
 		{"empty allowed (unknown, not blocked here)", "", true},
 		{"unparseable allowed (unknown, not blocked here)", "garbage", true},

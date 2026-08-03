@@ -5,7 +5,7 @@ import canonical "github.com/tutti-os/tutti/packages/agent/store-sqlite/canonica
 const (
 	CodexProviderID                = canonical.CodexProviderID
 	CodexTargetID                  = "local:codex"
-	CodexMinVersion                = "0.126.0"
+	CodexMinVersion                = "0.136.0"
 	CodexThroughTurnForkMinVersion = "0.144.0"
 )
 
@@ -18,6 +18,7 @@ func codexDescriptor() ProviderDescriptor {
 			Command:             []string{"codex", "app-server"},
 			ClientInfoName:      "codex_cli_rs",
 			AuthRequiredMessage: "Codex requires authentication. Run `codex login` on the host (or sync Codex credentials), then retry this session.",
+			AppServerSkillRoots: AppServerSkillRootsStrategyCodexStable,
 			NativeSessionFork:   true,
 			AppServerFork: AppServerForkDescriptor{
 				UserAgentBrand:        "codex",

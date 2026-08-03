@@ -19,20 +19,22 @@ Dynamic host skills use `SkillSource`; per-session skills use `ExtraSkills`.
 The canonical template and shared skill bodies remain in runtimeprep so hosts
 do not fork the actual prompt content.
 
-Tutti Agent keeps auth, configuration, transcripts, and other mutable state in
-its session-scoped `TUTTI_AGENT_HOME`, while Tutti-managed Skills use a
-daemon-owned content-addressed store. Runtimeprep computes the stable bundle,
-then carries its absolute root as internal launch metadata through the existing
-environment overlay. `CodexAppServerAdapter` consumes and strips that metadata,
-then applies the full root list with `skills/extraRoots/set` after app-server
-initialization and before starting or resuming a thread. This is an
-adapter-only contract: materialized bundle roots do not enter the Host public
-lifecycle types or user-visible runtime context. A failed RPC fails startup so
-the thread cannot silently run without its managed Skills.
+Codex-compatible app-server providers keep auth, configuration, transcripts,
+and other mutable state in their session-scoped provider Home, while
+Tutti-managed Skills use a daemon-owned content-addressed store. Runtimeprep
+computes the stable bundle, then carries its absolute root as internal launch
+metadata through the existing environment overlay. `CodexAppServerAdapter`
+consumes and strips that metadata, then applies the full root list with
+`skills/extraRoots/set` after app-server initialization and before starting or
+resuming a thread. This is an adapter-only contract: materialized bundle roots
+do not enter the Host public lifecycle types or user-visible runtime context. A
+failed RPC fails startup so the thread cannot silently run without its managed
+Skills. Native Codex requires version `0.136.0` or newer for this RPC.
 
-Tutti Agent installs its provider-owned embedded Skills beneath the run-scoped
-home during app-server initialization. Before the same extra-roots refresh,
-the Adapter content-addresses that installed tree under
+Native Codex and Tutti Agent install their provider-owned embedded Skills
+beneath the run-scoped Home during app-server initialization. Before the same
+extra-roots refresh, the Adapter selects the provider-specific Home and marker,
+then content-addresses the installed tree under
 `agent/system-skill-bundles/v1/<digest>/.system` and atomically replaces the
 run-scoped `.system` directory with a symlink to the immutable tree. The RPC
 then clears the provider Skill cache before `thread/start` or `thread/resume`,

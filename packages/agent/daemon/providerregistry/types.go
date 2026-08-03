@@ -33,6 +33,7 @@ type AppServerSkillRootsStrategy string
 
 const (
 	AppServerSkillRootsStrategyTuttiStable AppServerSkillRootsStrategy = "tutti_stable"
+	AppServerSkillRootsStrategyCodexStable AppServerSkillRootsStrategy = "codex_stable"
 )
 
 // EndpointConfigKind identifies an optional provider-owned config source for

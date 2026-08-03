@@ -13,50 +13,49 @@ import (
 )
 
 const (
-	tuttiAgentExtraSkillRootsEnv    = "TUTTI_AGENT_EXTRA_SKILL_ROOTS_JSON"
-	tuttiAgentStableSystemSkillsEnv = "TUTTI_AGENT_STABLE_SYSTEM_SKILLS_ROOT"
-	tuttiAgentHomeEnv               = "TUTTI_AGENT_HOME"
+	appServerExtraSkillRootsEnv    = "TUTTI_AGENT_EXTRA_SKILL_ROOTS_JSON"
+	appServerStableSystemSkillsEnv = "TUTTI_AGENT_STABLE_SYSTEM_SKILLS_ROOT"
 )
 
-func tuttiAgentStableSystemSkillsRoot(strategy providerregistry.AppServerSkillRootsStrategy, env []string) (string, error) {
-	if strategy != providerregistry.AppServerSkillRootsStrategyTuttiStable {
+func appServerStableSystemSkillsRoot(strategy providerregistry.AppServerSkillRootsStrategy, env []string) (string, error) {
+	if !appServerUsesStableSkillRoots(strategy) {
 		return "", nil
 	}
-	value, found := lastEnvironmentValue(env, tuttiAgentStableSystemSkillsEnv)
+	value, found := lastEnvironmentValue(env, appServerStableSystemSkillsEnv)
 	if !found {
 		return "", nil
 	}
 	root := filepath.Clean(strings.TrimSpace(value))
 	if root == "." || !filepath.IsAbs(root) {
-		return "", fmt.Errorf("tutti-agent stable system skill root must be absolute")
+		return "", fmt.Errorf("app-server stable system skill root must be absolute")
 	}
 	return root, nil
 }
 
-func tuttiAgentExtraSkillRoots(strategy providerregistry.AppServerSkillRootsStrategy, env []string) ([]string, error) {
-	if strategy != providerregistry.AppServerSkillRootsStrategyTuttiStable {
+func appServerExtraSkillRoots(strategy providerregistry.AppServerSkillRootsStrategy, env []string) ([]string, error) {
+	if !appServerUsesStableSkillRoots(strategy) {
 		return nil, nil
 	}
-	value, found := lastEnvironmentValue(env, tuttiAgentExtraSkillRootsEnv)
+	value, found := lastEnvironmentValue(env, appServerExtraSkillRootsEnv)
 	if !found {
 		return nil, nil
 	}
 	var roots []string
 	if err := json.Unmarshal([]byte(value), &roots); err != nil {
-		return nil, fmt.Errorf("decode tutti-agent extra skill roots: %w", err)
+		return nil, fmt.Errorf("decode app-server extra skill roots: %w", err)
 	}
 	if len(roots) == 0 {
-		return nil, fmt.Errorf("tutti-agent extra skill roots must not be empty")
+		return nil, fmt.Errorf("app-server extra skill roots must not be empty")
 	}
 	if len(roots) > 16 {
-		return nil, fmt.Errorf("tutti-agent extra skill roots exceed limit")
+		return nil, fmt.Errorf("app-server extra skill roots exceed limit")
 	}
 	cleaned := make([]string, 0, len(roots))
 	seen := make(map[string]struct{}, len(roots))
 	for _, root := range roots {
 		root = filepath.Clean(strings.TrimSpace(root))
 		if root == "." || !filepath.IsAbs(root) {
-			return nil, fmt.Errorf("tutti-agent extra skill root must be absolute")
+			return nil, fmt.Errorf("app-server extra skill root must be absolute")
 		}
 		if _, exists := seen[root]; exists {
 			continue
@@ -65,6 +64,16 @@ func tuttiAgentExtraSkillRoots(strategy providerregistry.AppServerSkillRootsStra
 		cleaned = append(cleaned, root)
 	}
 	return cleaned, nil
+}
+
+func appServerUsesStableSkillRoots(strategy providerregistry.AppServerSkillRootsStrategy) bool {
+	switch strategy {
+	case providerregistry.AppServerSkillRootsStrategyTuttiStable,
+		providerregistry.AppServerSkillRootsStrategyCodexStable:
+		return true
+	default:
+		return false
+	}
 }
 
 func lastEnvironmentValue(env []string, key string) (string, bool) {
@@ -137,7 +146,7 @@ func (a *CodexAppServerAdapter) configureExtraSkillRoots(
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("configure tutti-agent extra skill roots: %w", err)
+		return fmt.Errorf("configure app-server extra skill roots: %w", err)
 	}
 	trace.Log("skills.extra_roots.set.succeeded", map[string]any{
 		"root_count":  len(roots),
