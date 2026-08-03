@@ -398,9 +398,6 @@ func terminalTestEchoCommand(value string) string {
 }
 
 func terminalTestExitCommand(code int) string {
-	if runtime.GOOS == "windows" {
-		return fmt.Sprintf("exit /b %d\r", code)
-	}
 	return fmt.Sprintf("exit %d\r", code)
 }
 
