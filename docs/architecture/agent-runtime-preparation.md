@@ -20,13 +20,19 @@ default subagent role backed by `agents/luna_worker.toml`, plus a short managed
 effort. The routing rule is intentionally advisory and bounded: it favors
 self-contained work that would otherwise consume meaningful main-thread
 reasoning, context, tool calls, or waiting time. Independent read-only or
-isolated-worktree units may run in parallel; write scopes that cannot be
-isolated remain sequential. A single worker may own a bounded long-running
-mechanical workflow, while blocking or event-driven waits avoid repeated
-model-driven polling. Delegations declare allowed state changes, acceptance
-criteria, evidence, and retry limits, and the main thread verifies their
-results. The policy does not prescribe a fixed concurrency count or an
-unbounded automatic retry loop.
+isolated-worktree units may run in parallel. A coding task expected to exceed a
+few minutes and spanning implementation plus non-trivial tests, compatibility
+analysis, or verification defaults to two focused workers: one for source and
+implementation semantics, and one for tests, verification, and compatibility
+risks. A third worker requires another genuinely independent non-trivial unit.
+Workers start before the main thread inspects their assigned questions or
+files, and the main thread may continue only with non-overlapping scope while
+they run. Write scopes that cannot be isolated remain sequential. A single
+worker may own a bounded long-running mechanical workflow, while blocking or
+event-driven waits avoid repeated model-driven polling. Delegations declare
+allowed state changes, acceptance criteria, evidence, and retry limits, and the
+main thread verifies their results. The policy does not create an unbounded
+automatic retry loop.
 
 Deployment differences are expressed with `DeploymentProfile` and
 `CapabilityPack`. A pack resolves policy, skills, and environment together.
