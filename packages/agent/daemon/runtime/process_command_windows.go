@@ -54,7 +54,7 @@ func killManagedProcessTree(command *exec.Cmd) error {
 		return nil
 	}
 	err := exec.Command("taskkill.exe", "/PID", strconv.Itoa(command.Process.Pid), "/T", "/F").Run()
-	if err == nil || !processStillRunning(command.Process) {
+	if err == nil {
 		return nil
 	}
 	if killErr := command.Process.Kill(); killErr != nil {
