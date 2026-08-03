@@ -261,8 +261,9 @@ func (m *terminalSessionManager) list(workspaceID string) []TerminalSession {
 func (m *terminalSessionManager) create(workspaceID string, cwd string, input CreateTerminalInput) (TerminalSession, error) {
 	cols := normalizeTerminalDimension(input.Cols, defaultTerminalCols)
 	rows := normalizeTerminalDimension(input.Rows, defaultTerminalRows)
-	shell := defaultShellPath()
-	shellArgs := resolveTerminalShellInvocation(shell)
+	shellSpec := m.processFactory.DefaultShell()
+	shell := shellSpec.Executable
+	shellArgs := shellSpec.Args
 	now := time.Now().UTC()
 	id := uuid.NewString()
 

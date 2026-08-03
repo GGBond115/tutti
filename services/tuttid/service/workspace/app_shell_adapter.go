@@ -9,12 +9,17 @@ import (
 // platform. Callers own lifecycle and environment setup; implementations only
 // decide how a package script is invoked.
 type AppShellAdapter interface {
+	ValidateScript(string) error
 	Command(context.Context, string) (command *exec.Cmd, binDirs []string, err error)
 }
 
 type platformAppShellAdapter struct{}
 
-func appShellAdapterOrDefault(adapter AppShellAdapter) AppShellAdapter {
+func NewPlatformAppShellAdapter() AppShellAdapter {
+	return platformAppShellAdapter{}
+}
+
+func resolveAppShellAdapter(adapter AppShellAdapter) AppShellAdapter {
 	if adapter != nil {
 		return adapter
 	}

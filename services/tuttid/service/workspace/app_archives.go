@@ -501,8 +501,8 @@ func appManifestFileExists(packageDir string) (bool, error) {
 	return false, err
 }
 
-func validateExtractedAppPackage(packageRoot string, manifest workspacebiz.AppManifest) error {
-	if err := validateAppBootstrapFile(packageRoot, manifest.Runtime.Bootstrap); err != nil {
+func validateExtractedAppPackage(adapter AppShellAdapter, packageRoot string, manifest workspacebiz.AppManifest) error {
+	if err := validateAppBootstrapFile(adapter, packageRoot, manifest.Runtime.Bootstrap); err != nil {
 		return err
 	}
 	agentsData, err := os.ReadFile(filepath.Join(packageRoot, "AGENTS.md"))

@@ -623,26 +623,20 @@ func buildDaemonAPI(
 			}
 		}
 	}
+	appShellAdapter := workspaceservice.NewPlatformAppShellAdapter()
 	appCenterService := &workspaceservice.AppCenterService{
 		Store:                 appStore,
 		AppFactoryStore:       appFactoryStore,
 		WorkspaceStore:        store,
 		PreferencesStore:      preferencesStore,
-		Runner:                &workspaceservice.AppRunner{RuntimeResolver: managedRuntimeResolver},
+		Runner:                &workspaceservice.AppRunner{RuntimeResolver: managedRuntimeResolver, ShellAdapter: appShellAdapter},
+		ShellAdapter:          appShellAdapter,
 		StateDir:              tuttitypes.DefaultStateDir(),
 		HostTuttiVersion:      tuttitypes.ResolveAppVersion(),
 		HostTuttiCapabilities: tuttitypes.ResolveAppCapabilities(),
 		Publisher:             eventstreamservice.WorkspaceAppPublisher{Service: events},
 	}
-	go func() {
-		startedAt := time.Now()
-		slog.Info("managed runtime profile preload started", "event", "tutti.managed_runtime.profile_preload_started", "profile", managedruntime.NodeStaticProfile)
-		if err := managedRuntimeResolver.PreloadProfile(context.Background(), managedruntime.NodeStaticProfile); err != nil {
-			slog.Warn("managed runtime profile preload failed", "event", "tutti.managed_runtime.profile_preload_failed", "profile", managedruntime.NodeStaticProfile, "durationMs", time.Since(startedAt).Milliseconds(), "error", err)
-			return
-		}
-		slog.Info("managed runtime profile preload completed", "event", "tutti.managed_runtime.profile_preload_completed", "profile", managedruntime.NodeStaticProfile, "durationMs", time.Since(startedAt).Milliseconds())
-	}()
+	startManagedRuntimeProfilePreload(managedRuntimeResolver)
 	go func() {
 		// The packaged sidecar bundle no longer carries the native claude
 		// binary; provision it up front so the first Claude session does not
@@ -679,7 +673,8 @@ func buildDaemonAPI(
 		AgentMessageReader:    agentActivityProjection,
 		AgentSessionReader:    agentActivityProjection,
 		AgentSessionState:     agentActivityProjection,
-		Runner:                &workspaceservice.AppRunner{RuntimeResolver: managedRuntimeResolver},
+		Runner:                &workspaceservice.AppRunner{RuntimeResolver: managedRuntimeResolver, ShellAdapter: appShellAdapter},
+		ShellAdapter:          appShellAdapter,
 		StateDir:              tuttitypes.DefaultStateDir(),
 		Publisher:             eventstreamservice.WorkspaceAppFactoryPublisher{Service: events},
 	}
@@ -798,9 +793,8 @@ func buildDaemonAPI(
 		ModelPolicyService:        modelPolicies,
 		CollaborationRunService:   collabRuns,
 		AutomationRuleService:     automationRules,
-
-		EventStreamService: events,
-		WorkspaceService:   workspaceService,
+		EventStreamService:        events,
+		WorkspaceService:          workspaceService,
 		WorkbenchService: workspaceservice.WorkbenchService{
 			Store: workspaceStore,
 			SnapshotReconciler: workspaceservice.TerminalWorkbenchSnapshotReconciler{
@@ -823,11 +817,9 @@ func buildDaemonAPI(
 		TuttiModePlanService:         tuttiModePlans,
 		TuttiModeExecutionService:    tuttiModeExecutions,
 		TuttiModeActivationService:   tuttiModeActivations,
-
-		TuttiModeGoalReviewService: tuttiModeExecutions,
-
-		CLIRegistry:       cliRegistry,
-		AnalyticsReporter: analyticsReporter,
+		TuttiModeGoalReviewService:   tuttiModeExecutions,
+		CLIRegistry:                  cliRegistry,
+		AnalyticsReporter:            analyticsReporter,
 		OnListenerReady: func() {
 			tuttiModeMainWakeRecovery.MarkReady()
 			for _, workspace := range workspaces {

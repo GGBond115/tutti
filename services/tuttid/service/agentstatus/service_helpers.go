@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 
@@ -138,11 +137,7 @@ func runDefaultInstallCommand(ctx context.Context, input InstallCommandInput) (I
 		if command == "" {
 			return InstallCommandResult{ExitCode: 1}, errors.New("installer command is empty")
 		}
-		if runtime.GOOS == "windows" {
-			cmd = exec.CommandContext(ctx, resolveInstallerShell(), "/D", "/S", "/C", command)
-		} else {
-			cmd = exec.CommandContext(ctx, resolveInstallerShell(), "-lc", command)
-		}
+		cmd = newInstallShellCommand(ctx, command)
 	}
 	cmd.Dir = strings.TrimSpace(input.CWD)
 	cmd.Env = input.Env
@@ -189,19 +184,6 @@ func baseContext(ctx context.Context) context.Context {
 		return ctx
 	}
 	return context.Background()
-}
-
-func resolveInstallerShell() string {
-	if runtime.GOOS == "windows" {
-		if shell := strings.TrimSpace(os.Getenv("ComSpec")); shell != "" {
-			return shell
-		}
-		return "cmd.exe"
-	}
-	if shell := strings.TrimSpace(os.Getenv("SHELL")); shell != "" {
-		return shell
-	}
-	return "/bin/zsh"
 }
 
 func (s Service) resolveAuth(ctx context.Context, spec ProviderSpec, installed bool, binaryPath string) AuthInfo {
@@ -615,10 +597,7 @@ func (s Service) executableFile(path string) bool {
 	if err != nil || stat.IsDir() {
 		return false
 	}
-	if runtime.GOOS == "windows" {
-		return true
-	}
-	return stat.Mode().Perm()&0o111 != 0
+	return platformExecutableFile(stat)
 }
 
 func (s Service) homeDir() (string, error) {

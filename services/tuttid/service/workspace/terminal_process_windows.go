@@ -25,6 +25,22 @@ func NewPlatformTerminalProcessFactory() TerminalProcessFactory {
 	return platformTerminalProcessFactory{}
 }
 
+func (platformTerminalProcessFactory) DefaultShell() TerminalShellSpec {
+	shell := defaultShellPath()
+	return TerminalShellSpec{Executable: shell, Args: resolveTerminalShellInvocation(shell)}
+}
+
+func defaultShellPath() string {
+	return "cmd.exe"
+}
+
+func resolveTerminalShellInvocation(string) []string {
+	// Disable per-user cmd.exe AutoRun hooks and command echo. AutoRun can
+	// replace or wrap the interactive shell, while echo makes callers mistake
+	// typed input for command output when synchronizing with the terminal.
+	return []string{"/D", "/Q"}
+}
+
 func (platformTerminalProcessFactory) Start(shell string, args []string, cwd string, env []string, cols int, rows int) (TerminalProcess, error) {
 	commandLine := windows.ComposeCommandLine(append([]string{shell}, args...))
 	process, err := conpty.Start(
@@ -57,8 +73,7 @@ func (p *windowsTerminalProcess) Write(data []byte) (int, error) {
 	}
 	return written, err
 }
-func (p *windowsTerminalProcess) FD() uintptr { return 0 }
-func (p *windowsTerminalProcess) PID() int    { return p.process.Pid() }
+func (p *windowsTerminalProcess) PID() int { return p.process.Pid() }
 func (p *windowsTerminalProcess) Resize(cols int, rows int) error {
 	return p.process.Resize(cols, rows)
 }

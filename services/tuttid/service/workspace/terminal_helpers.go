@@ -50,35 +50,6 @@ func resolveTerminalCwd(requested *string) (string, error) {
 	return cwd, nil
 }
 
-func defaultShellPath() string {
-	if runtime.GOOS == "windows" {
-		return "cmd.exe"
-	}
-	if shell := strings.TrimSpace(os.Getenv("SHELL")); shell != "" {
-		return shell
-	}
-	return "/bin/sh"
-}
-
-func resolveTerminalShellInvocation(shell string) []string {
-	if runtime.GOOS == "windows" {
-		// Disable per-user cmd.exe AutoRun hooks and command echo. AutoRun can
-		// replace or wrap the interactive shell, while echo makes callers mistake
-		// typed input for command output when synchronizing with the terminal.
-		return []string{"/D", "/Q"}
-	}
-
-	shellName := filepath.Base(strings.TrimSpace(shell))
-	switch shellName {
-	case "bash", "zsh":
-		return []string{"-il"}
-	case "fish":
-		return []string{"-l", "-i"}
-	default:
-		return nil
-	}
-}
-
 func terminalProcessEnv(cwd string) []string {
 	// Inject the macOS system proxy so commands run in the workspace terminal —
 	// notably agent `login` flows — reach the upstream API through the same proxy

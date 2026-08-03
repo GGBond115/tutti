@@ -20,8 +20,12 @@ func (s *terminalRuntimeSession) foregroundProcess() (terminalForegroundProcess,
 	if process == nil {
 		return terminalForegroundProcess{}, false
 	}
+	fdProvider, ok := process.(interface{ terminalFD() uintptr })
+	if !ok {
+		return terminalForegroundProcess{}, false
+	}
 
-	foregroundPgrp, err := unix.IoctlGetInt(int(process.FD()), unix.TIOCGPGRP)
+	foregroundPgrp, err := unix.IoctlGetInt(int(fdProvider.terminalFD()), unix.TIOCGPGRP)
 	if err != nil || foregroundPgrp <= 0 {
 		return terminalForegroundProcess{}, false
 	}

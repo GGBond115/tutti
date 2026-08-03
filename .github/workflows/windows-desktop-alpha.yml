@@ -4,9 +4,6 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main]
-  push:
-    branches:
-      - codex/windows-desktop-alpha-v2
 
 concurrency:
   group: windows-desktop-alpha-${{ github.event.pull_request.number || github.ref }}
@@ -78,7 +75,7 @@ jobs:
           Push-Location services/tuttid
           go test ./data/workspace -run 'Test(SQLiteDSNPathUsesFileURLFormOnWindows|SQLiteStoreListEmptyDatabase)$'
           go test ./service/managedruntime -run 'TestNodeReadyAcceptsOfficialWindowsCorepackLayout$'
-          go test ./service/agentstatus -run 'TestRunDefaultInstallCommandPreservesStructuredArguments$'
+          go test ./service/agentstatus -run 'Test(NewInstallShellCommandUsesCmdInterpreter|PlatformExecutableFileAcceptsPlainWindowsFile|RunDefaultInstallCommandPreservesStructuredArguments)$'
           go test ./service/browser -run 'TestStableChromeDevToolsActivePortPathUsesLocalAppDataOnWindows$'
           go test ./service/workspace -run 'Test(PlatformAppShellAdapter|NormalizeWindowsTerminalInput|TerminalServiceCreatesLocalPTY|TerminalServiceAttachStream|AppCenterServiceInitializesBuiltinCatalogAndInstallState)'
           go test ./integration -run 'TestTuttidBlackBoxWorkspaceTerminalWebSocketStreamsInputAndOutput$'
@@ -107,7 +104,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          $shell = Resolve-Path 'apps/desktop/dist/win-unpacked/resources/bin/managed-posix-shell/usr/bin/bash.exe'
+          $shellRuntimeRoot = Resolve-Path 'apps/desktop/dist/win-unpacked/resources/bin/managed-posix-shell'
+          $shellMetadata = Get-Content (Join-Path $shellRuntimeRoot 'runtime.json') -Raw | ConvertFrom-Json
+          $shell = Resolve-Path (Join-Path $shellRuntimeRoot $shellMetadata.executable)
           $shellBin = Split-Path -Parent $shell
           $package = Resolve-Path 'services/tuttid/builtin-apps/tutti-onboarding/build/package'
           $runtime = Join-Path $env:RUNNER_TEMP 'tutti-onboarding-runtime'

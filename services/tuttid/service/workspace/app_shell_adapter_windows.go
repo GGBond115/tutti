@@ -13,6 +13,17 @@ import (
 
 const managedPosixShellEnv = "TUTTI_MANAGED_POSIX_SHELL"
 
+func (platformAppShellAdapter) ValidateScript(scriptPath string) error {
+	info, err := os.Stat(scriptPath)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("must be a file")
+	}
+	return nil
+}
+
 func (platformAppShellAdapter) Command(ctx context.Context, scriptPath string) (*exec.Cmd, []string, error) {
 	shellPath := strings.TrimSpace(os.Getenv(managedPosixShellEnv))
 	if shellPath == "" {

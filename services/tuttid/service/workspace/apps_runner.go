@@ -204,7 +204,7 @@ func (r *AppRunner) startProcess(ctx context.Context, key string, input AppStart
 		bootstrap = "bootstrap.sh"
 	}
 	bootstrapPath := filepath.Join(input.PackageDir, filepath.FromSlash(bootstrap))
-	command, shellBinDirs, err := appShellAdapterOrDefault(r.ShellAdapter).Command(ctx, bootstrapPath)
+	command, shellBinDirs, err := resolveAppShellAdapter(r.ShellAdapter).Command(ctx, bootstrapPath)
 	if err != nil {
 		_ = logFile.Close()
 		logAppRuntimeControl("workspace_app_runtime_start_failed", input, port, "bootstrap_unavailable", err)

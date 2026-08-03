@@ -7,6 +7,7 @@
       "archiveUrl": "https://repo.msys2.org/distrib/x86_64/msys2-base-x86_64-20260611.tar.xz",
       "archiveSha256": "a2d047e8ee213c3c6a49a8de427eb1069df12207c0422ff1b3cbb5c905c34221",
       "archiveRoot": "msys64",
+      "executable": "usr/bin/bash.exe",
       "components": [
         {
           "name": "bash",

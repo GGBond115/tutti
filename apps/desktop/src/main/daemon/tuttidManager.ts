@@ -1,7 +1,13 @@
 import { readFile, rm } from "node:fs/promises";
-import { accessSync, constants, existsSync, statSync } from "node:fs";
+import {
+  accessSync,
+  constants,
+  existsSync,
+  readFileSync,
+  statSync
+} from "node:fs";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import type {
@@ -301,13 +307,7 @@ const vendoredClaudeSDKSidecarRelPath = join(
   "src",
   "main.ts"
 );
-const vendoredManagedPosixShellRelPath = join(
-  "bin",
-  "managed-posix-shell",
-  "usr",
-  "bin",
-  "bash.exe"
-);
+const vendoredManagedPosixShellRootRelPath = join("bin", "managed-posix-shell");
 
 // resolveBrowserMcpDaemonEnv points the daemon at a vendored chrome-devtools-mcp
 // in packaged builds so browser use never has to fetch it over the network at
@@ -382,11 +382,34 @@ export function resolveManagedPosixShellDaemonEnv(
   if (!appRuntime.isPackaged) {
     return {};
   }
-  const shell = join(
+  const runtimeRoot = resolve(
     appRuntime.resourcesPath,
-    vendoredManagedPosixShellRelPath
+    vendoredManagedPosixShellRootRelPath
   );
-  if (!existsSync(shell)) {
+  let executable: unknown;
+  try {
+    const metadata = JSON.parse(
+      readFileSync(join(runtimeRoot, "runtime.json"), "utf8")
+    ) as { schemaVersion?: unknown; executable?: unknown };
+    if (metadata.schemaVersion !== "tutti.managed-posix-shell.v1") {
+      return {};
+    }
+    executable = metadata.executable;
+  } catch {
+    return {};
+  }
+  if (typeof executable !== "string" || executable.trim() !== executable) {
+    return {};
+  }
+  const shell = resolve(runtimeRoot, executable);
+  const relativeShell = relative(runtimeRoot, shell);
+  if (
+    executable === "" ||
+    relativeShell === ".." ||
+    relativeShell.startsWith(`..${sep}`) ||
+    isAbsolute(relativeShell) ||
+    !existsSync(shell)
+  ) {
     return {};
   }
   return {

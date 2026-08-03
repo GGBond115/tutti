@@ -47,3 +47,17 @@ func TestPlatformAppShellAdapterRequiresManagedShell(t *testing.T) {
 		t.Fatal("Command() error = nil")
 	}
 }
+
+func TestPlatformAppShellAdapterValidatesPlainWindowsScriptFile(t *testing.T) {
+	adapter := platformAppShellAdapter{}
+	scriptPath := filepath.Join(t.TempDir(), "bootstrap.sh")
+	if err := os.WriteFile(scriptPath, []byte("exit 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := adapter.ValidateScript(scriptPath); err != nil {
+		t.Fatalf("ValidateScript() error = %v", err)
+	}
+	if err := adapter.ValidateScript(t.TempDir()); err == nil {
+		t.Fatal("ValidateScript(directory) error = nil")
+	}
+}

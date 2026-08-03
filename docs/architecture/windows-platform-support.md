@@ -103,8 +103,11 @@ platform key should add an artifact and build job, not another app lifecycle.
 ### Workspace App shell
 
 `AppRunner` owns app lifecycle and depends on `AppShellAdapter`. The adapter
-only answers how to invoke a package script and which managed command directory
-must be available. The reusable packaged resource is named
+validates host script semantics, answers how to invoke a package script, and
+returns the managed command directory that must be available. Production wiring
+creates one platform adapter and injects it into App Center, AppRunner, and App
+Factory; those consumers do not branch on the operating system. The reusable
+packaged resource is named
 `managed-posix-shell`; shell download, verification, and desktop resource
 layout remain desktop packaging concerns. Other domains may reuse that resource
 through their own narrow adapter, but must not depend on `AppShellAdapter` or
@@ -113,6 +116,9 @@ expand the Workspace App contract.
 ### Terminal
 
 The terminal service depends on `TerminalProcessFactory` and `TerminalProcess`.
+The factory supplies both the default `TerminalShellSpec` and process creation.
+Unix PTY file descriptors stay on a Unix-private capability and are not part of
+the shared process contract; Windows therefore does not provide a fake FD.
 Unix PTY and Windows ConPTY libraries remain private to their implementations.
 Session lifecycle, resize semantics, snapshots, WebSocket transport, and exit
 events remain shared daemon behavior.

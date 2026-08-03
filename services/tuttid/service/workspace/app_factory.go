@@ -460,28 +460,22 @@ func (s *AppFactoryService) PrepareModification(ctx context.Context, workspaceID
 	return s.putAndPublishReturn(ctx, job)
 }
 
-func prepareAppFactoryJob(ctx context.Context, job workspacebiz.AppFactoryJob) error {
-	return prepareAppFactoryJobWithShell(ctx, job, nil)
-}
-
 func prepareAppFactoryJobWithShell(ctx context.Context, job workspacebiz.AppFactoryJob, adapter AppShellAdapter) error {
 	draftPackageDir := appFactoryDraftPackageDir(job)
 	if draftPackageDir == "" {
 		return errors.New("app factory draft package directory is missing")
 	}
 	preparePath := filepath.Join(draftPackageDir, "prepare.sh")
-	info, err := os.Stat(preparePath)
+	_, err := os.Stat(preparePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		return fmt.Errorf("stat prepare.sh: %w", err)
 	}
-	if info.IsDir() {
-		return errors.New("prepare.sh must be a file")
-	}
-	if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
-		return errors.New("prepare.sh must be executable")
+	adapter = resolveAppShellAdapter(adapter)
+	if err := adapter.ValidateScript(preparePath); err != nil {
+		return fmt.Errorf("validate prepare.sh: %w", err)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, defaultFactoryPrepareTimeout)
@@ -495,7 +489,7 @@ func prepareAppFactoryJobWithShell(ctx context.Context, job workspacebiz.AppFact
 	if err != nil {
 		return fmt.Errorf("resolve managed app runtime: %w", err)
 	}
-	command, shellBinDirs, err := appShellAdapterOrDefault(adapter).Command(runCtx, preparePath)
+	command, shellBinDirs, err := adapter.Command(runCtx, preparePath)
 	if err != nil {
 		return fmt.Errorf("prepare app shell command: %w", err)
 	}
@@ -541,7 +535,7 @@ func (s *AppFactoryService) validatePackage(ctx context.Context, workspaceID str
 		return err
 	}
 
-	if err := validateAppBootstrapFile(draftPackageDir, manifest.Runtime.Bootstrap); err != nil {
+	if err := validateAppBootstrapFile(s.ShellAdapter, draftPackageDir, manifest.Runtime.Bootstrap); err != nil {
 		return err
 	}
 

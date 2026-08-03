@@ -941,11 +941,14 @@ test("desktop Windows package and daemon agree on the managed POSIX shell resour
     }
   ]);
   assert.match(buildScript, /vendor-managed-posix-shell\.mjs/);
-  assert.match(
-    alphaWorkflow,
-    /resources\/bin\/managed-posix-shell\/usr\/bin\/bash\.exe/
-  );
+  assert.match(alphaWorkflow, /managed-posix-shell/);
+  assert.match(alphaWorkflow, /runtime\.json/);
+  assert.match(alphaWorkflow, /shellMetadata\.executable/);
   assert.match(tuttidManager, /"managed-posix-shell"/);
   assert.match(tuttidManager, /TUTTI_MANAGED_POSIX_SHELL/);
+  assert.match(tuttidManager, /runtime\.json/);
+  assert.doesNotMatch(tuttidManager, /bash\.exe/);
   assert.equal(lock.schemaVersion, "tutti.managed-posix-shell-lock.v1");
+  assert.equal(lock.platforms["windows-amd64"].executable, "usr/bin/bash.exe");
+  assert.doesNotMatch(alphaWorkflow, /\n\s+push:/);
 });

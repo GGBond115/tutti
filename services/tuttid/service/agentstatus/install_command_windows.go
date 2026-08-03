@@ -21,9 +21,21 @@ func newInstallExecCommand(ctx context.Context, executable string, args ...strin
 	return exec.CommandContext(ctx, installCommandInterpreter(), "/D", "/S", "/C", commandLine)
 }
 
-func installCommandInterpreter() string {
+func newInstallShellCommand(ctx context.Context, command string) *exec.Cmd {
+	return exec.CommandContext(ctx, resolveInstallerShell(), "/D", "/S", "/C", command)
+}
+
+func platformExecutableFile(os.FileInfo) bool {
+	return true
+}
+
+func resolveInstallerShell() string {
 	if value := strings.TrimSpace(os.Getenv("ComSpec")); value != "" {
 		return value
 	}
 	return "cmd.exe"
+}
+
+func installCommandInterpreter() string {
+	return resolveInstallerShell()
 }

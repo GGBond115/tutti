@@ -249,6 +249,13 @@ test("resolveManagedPosixShellDaemonEnv points the daemon at the packaged shell"
     );
     await mkdir(dirname(shell), { recursive: true });
     await writeFile(shell, "stub\n");
+    await writeFile(
+      join(resourcesPath, "bin", "managed-posix-shell", "runtime.json"),
+      JSON.stringify({
+        schemaVersion: "tutti.managed-posix-shell.v1",
+        executable: "usr/bin/bash.exe"
+      })
+    );
 
     const got = resolveManagedPosixShellDaemonEnv({
       isPackaged: true,
@@ -257,6 +264,34 @@ test("resolveManagedPosixShellDaemonEnv points the daemon at the packaged shell"
     assert.deepEqual(got, {
       TUTTI_MANAGED_POSIX_SHELL: shell
     });
+  } finally {
+    restoreEnv(previousEnv);
+  }
+});
+
+test("resolveManagedPosixShellDaemonEnv rejects an executable outside its runtime root", async () => {
+  const previousEnv = { ...process.env };
+  try {
+    delete process.env.TUTTI_MANAGED_POSIX_SHELL;
+    const resourcesPath = await mkdtemp(join(tmpdir(), "tutti-resources-"));
+    const runtimeRoot = join(resourcesPath, "bin", "managed-posix-shell");
+    const outsideShell = join(resourcesPath, "bin", "outside", "bash.exe");
+    await mkdir(runtimeRoot, { recursive: true });
+    await mkdir(dirname(outsideShell), { recursive: true });
+    await writeFile(outsideShell, "stub\n");
+    await writeFile(
+      join(runtimeRoot, "runtime.json"),
+      JSON.stringify({
+        schemaVersion: "tutti.managed-posix-shell.v1",
+        executable: "../outside/bash.exe"
+      })
+    );
+
+    const got = resolveManagedPosixShellDaemonEnv({
+      isPackaged: true,
+      resourcesPath
+    });
+    assert.deepEqual(got, {});
   } finally {
     restoreEnv(previousEnv);
   }

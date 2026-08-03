@@ -34,6 +34,14 @@ const config = lock.platforms?.[platform];
 if (!config) {
   throw new Error(`managed POSIX shell lock does not contain ${platform}`);
 }
+if (
+  typeof config.executable !== "string" ||
+  !config.runtimeFiles?.includes(config.executable)
+) {
+  throw new Error(
+    `managed POSIX shell executable must be listed in runtimeFiles: ${config.executable}`
+  );
+}
 
 function parsePlatformArgument(args) {
   const platformArgument = args.find((argument) =>
@@ -75,6 +83,7 @@ try {
       sizeBytes: (await stat(target)).size
     });
   }
+  await access(join(outputRoot, config.executable));
   await writeFile(
     join(outputRoot, "runtime.json"),
     `${JSON.stringify(
@@ -83,6 +92,7 @@ try {
         platform,
         distribution: config.distribution,
         version: config.version,
+        executable: config.executable,
         components: config.components,
         sourceArchive: basename(config.archiveUrl),
         sourceArchiveSha256: config.archiveSha256,
