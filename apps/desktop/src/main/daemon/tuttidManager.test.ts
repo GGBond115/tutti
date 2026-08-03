@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { constants } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
@@ -240,15 +240,12 @@ test("resolveManagedDaemonProcessEnv seeds the managed runtime cache root", () =
       sessionID: "session-1"
     });
     assert.equal(
-      got.TUTTI_APP_RUNTIME_CACHE_ROOT?.endsWith("/app-runtimes"),
-      true
+      basename(got.TUTTI_APP_RUNTIME_CACHE_ROOT ?? ""),
+      "app-runtimes"
     );
-    assert.equal(
-      got.TUTTI_BROWSER_NODE_LISTENER_INFO?.endsWith(
-        "/run/browser-node-automation.json"
-      ),
-      true
-    );
+    const browserListenerInfo = got.TUTTI_BROWSER_NODE_LISTENER_INFO ?? "";
+    assert.equal(basename(browserListenerInfo), "browser-node-automation.json");
+    assert.equal(basename(dirname(browserListenerInfo)), "run");
   } finally {
     restoreEnv(previousEnv);
   }
