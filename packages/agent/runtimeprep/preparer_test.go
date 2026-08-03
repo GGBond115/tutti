@@ -414,7 +414,11 @@ description = "Keep reviewer"
 		`description = "Luna worker`,
 		`model = "gpt-5.6-luna"`,
 		`model_reasoning_effort = "max"`,
-		`developer_instructions = "Complete only the delegated task.`,
+		`developer_instructions = "Complete only the delegated task using the minimum analysis and tools needed.`,
+		`Do not spawn or delegate to another worker unless the parent task explicitly authorizes nested delegation`,
+		`supplies a total nested-worker and tool-call budget`,
+		`For read-only analysis, do not modify files, run tests, or repair environments unless explicitly asked.`,
+		`Do not inspect unrelated repository history or use external research unless requested.`,
 	} {
 		if !strings.Contains(string(role), expected) {
 			t.Fatalf("role = %q, want %q", role, expected)
@@ -446,18 +450,29 @@ description = "Keep reviewer"
 	}
 	for _, expected := range []string{
 		"default subagent as the Luna worker",
-		"tool calls, or waiting time",
-		"simple but long-running mechanical workflows",
-		"Make the delegation decision early",
-		"default to at least two focused Luna workers",
-		"source behavior and implementation semantics",
-		"tests, verification, and compatibility risks",
+		"will replace meaningful main-thread reasoning",
+		"merely because a task is complex",
+		"mechanical workflow in the main thread",
+		"require multiple model-driven tool turns",
+		"default to one Luna worker",
+		"multiple genuinely independent, non-trivial units",
+		"Do not split one cohesive investigation",
 		"without forking the main conversation history",
-		"read-only or isolated-worktree units in parallel",
+		"isolated-worktree units in parallel",
 		"Continue only with non-overlapping work",
-		"do not inspect or implement the questions or files assigned to them",
-		"allowed state-changing actions",
-		"blocking or event-driven wait command",
+		"do not inspect or implement",
+		"minimum analysis and tools needed",
+		"concrete tool-call budget",
+		"8 tool calls and implementation at 20",
+		"does not run tests, repair environments, or modify files",
+		"return the best available evidence immediately",
+		"Workers must not spawn or delegate to additional workers",
+		"total nested-worker and tool-call budget",
+		"interrupt the worker",
+		"hour-long wait",
+		"do not repeat the delegated investigation",
+		"allowed state changes",
+		"blocking or event-driven waits",
 		"acceptance criteria",
 	} {
 		if !strings.Contains(string(instructions), expected) {
@@ -466,7 +481,8 @@ description = "Keep reviewer"
 	}
 	if strings.Contains(string(instructions), "fork_turns") ||
 		strings.Contains(string(instructions), "fork_context") ||
-		strings.Contains(string(instructions), "max_concurrent_threads") {
+		strings.Contains(string(instructions), "max_concurrent_threads") ||
+		strings.Contains(string(instructions), "default to at least two") {
 		t.Fatalf("Codex saver instructions are not lightweight: %q", instructions)
 	}
 }
