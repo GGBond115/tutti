@@ -498,3 +498,109 @@ func TestLateStartInitializationDoesNotOverwriteEarlyProviderState(
 		)
 	}
 }
+
+func TestCompletedFirstTurnBindsBirthAddressFromPlan(t *testing.T) {
+	startedPos := replay.ProviderObservationPosition{
+		ConnectionID: "connection-1",
+		ChunkSeq:     21,
+		UnitIndex:    1,
+		EventIndex:   1,
+	}
+	completedPos := replay.ProviderObservationPosition{
+		ConnectionID: "connection-1",
+		ChunkSeq:     30,
+		UnitIndex:    1,
+		EventIndex:   1,
+	}
+	plan := replay.NewCheckpointPlan([]replay.ReplayCheckpoint{
+		{
+			ID:    "checkpoint-0001",
+			Index: 0,
+			Kind:  "turn.working",
+			Trigger: replay.CheckpointTrigger{
+				Source:   replay.CheckpointTriggerProviderObservation,
+				Position: &startedPos,
+				UnitKind: replay.ProviderInputUnitProtocolMessage,
+				Type:     "root_provider_turn.started",
+			},
+			Subjects: []replay.EntityAddress{{
+				Kind: replay.EntityKindTurn,
+				Origin: replay.EntityOrigin{
+					Source:              replay.EntityOriginProviderObservation,
+					ProviderObservation: &startedPos,
+				},
+			}},
+		},
+		{
+			ID:    "checkpoint-0003",
+			Index: 1,
+			Kind:  "turn.terminal",
+			Trigger: replay.CheckpointTrigger{
+				Source:   replay.CheckpointTriggerProviderObservation,
+				Position: &completedPos,
+				UnitKind: replay.ProviderInputUnitProtocolMessage,
+				Type:     "root_provider_turn.completed",
+			},
+			Subjects: []replay.EntityAddress{{
+				Kind: replay.EntityKindTurn,
+				Origin: replay.EntityOrigin{
+					Source:              replay.EntityOriginProviderObservation,
+					ProviderObservation: &startedPos,
+				},
+			}},
+		},
+	})
+
+	registry := newReplayEntityRegistry("session-1")
+	completedAddresses, ok := registry.providerAddressesForPlan(
+		completedPos,
+		replay.ProviderObservationEvent{
+			EventIndex:     1,
+			Type:           "root_provider_turn.completed",
+			AgentSessionID: "session-1",
+			TurnID:         "turn-1",
+			TurnPhase:      "settled",
+			TurnOutcome:    "canceled",
+		},
+		plan,
+	)
+	if !ok || len(completedAddresses) != 1 {
+		t.Fatalf("completed bind failed: %#v ok=%v", completedAddresses, ok)
+	}
+	wantAddress := providerAddress(replay.EntityKindTurn, startedPos, "")
+	if !replay.EntityAddressesEqual(completedAddresses[0], wantAddress) {
+		t.Fatalf(
+			"completed-first address=%#v want birth %#v",
+			completedAddresses[0],
+			wantAddress,
+		)
+	}
+
+	startedFP, err := replay.ObservationFingerprint(replay.ProviderObservation{
+		SchemaVersion: replay.ObservationSchemaVersion,
+		Type:          "root_provider_turn.completed",
+		Address:       wantAddress,
+		Stable: map[string]any{
+			"turnOutcome": "canceled",
+			"turnPhase":   "settled",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualFP, err := replay.ObservationFingerprint(replay.ProviderObservation{
+		SchemaVersion: replay.ObservationSchemaVersion,
+		Type:          "root_provider_turn.completed",
+		Address:       completedAddresses[0],
+		Stable: map[string]any{
+			"turnOutcome": "canceled",
+			"turnPhase":   "settled",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actualFP != startedFP {
+		t.Fatalf("fingerprint diverged: got %s want %s", actualFP, startedFP)
+	}
+}
