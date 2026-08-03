@@ -301,6 +301,13 @@ const vendoredClaudeSDKSidecarRelPath = join(
   "src",
   "main.ts"
 );
+const vendoredWorkspaceAppShellRelPath = join(
+  "bin",
+  "workspace-app-shell",
+  "usr",
+  "bin",
+  "bash.exe"
+);
 
 // resolveBrowserMcpDaemonEnv points the daemon at a vendored chrome-devtools-mcp
 // in packaged builds so browser use never has to fetch it over the network at
@@ -360,6 +367,33 @@ export function resolveClaudeSDKSidecarDaemonEnv(
   };
 }
 
+export function resolveWorkspaceAppShellDaemonEnv(
+  runtime?: DesktopElectronAppRuntime
+): Record<string, string> {
+  if (process.env.TUTTI_WORKSPACE_APP_SHELL?.trim()) {
+    return {};
+  }
+  let appRuntime: DesktopElectronAppRuntime;
+  try {
+    appRuntime = runtime ?? resolveElectronAppRuntime();
+  } catch {
+    return {};
+  }
+  if (!appRuntime.isPackaged) {
+    return {};
+  }
+  const shell = join(
+    appRuntime.resourcesPath,
+    vendoredWorkspaceAppShellRelPath
+  );
+  if (!existsSync(shell)) {
+    return {};
+  }
+  return {
+    TUTTI_WORKSPACE_APP_SHELL: shell
+  };
+}
+
 function resolveManagedRuntimeDaemonEnv(
   userShellEnv?: Record<string, string>
 ): Record<string, string> {
@@ -391,6 +425,7 @@ export function resolveManagedDaemonProcessEnv(
     ...resolveManagedRuntimeDaemonEnv(input.userShellEnv),
     ...resolveBrowserMcpDaemonEnv(),
     ...resolveClaudeSDKSidecarDaemonEnv(),
+    ...resolveWorkspaceAppShellDaemonEnv(),
     TUTTI_APP_VERSION: process.env.TUTTI_APP_VERSION?.trim() ?? "",
     TUTTI_DESKTOP_UPDATE_ADMISSION_ARCHITECTURE:
       desktopUpdateAdmission?.architecture ?? "",

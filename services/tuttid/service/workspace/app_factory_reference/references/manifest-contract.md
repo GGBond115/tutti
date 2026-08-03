@@ -51,7 +51,7 @@ Rules:
 - Use a package-local icon asset and make sure the referenced file exists.
 - Do not include `runtime.kind`; Tutti manages the runtime baseline outside the app package.
 - `runtime.bootstrap` must be a relative package path.
-- `runtime.entrypoints` is an optional map keyed by Go-style platform keys such as `darwin-arm64` and `windows-amd64`. Each value requires a package-relative `executable`; a fat package must contain every declared executable. The host selects the current platform entry and falls back to `runtime.bootstrap` for older packages.
+- `runtime.bootstrap` is the single cross-platform package entrypoint. Fat packages select platform-native binaries inside that script using the host-provided `TUTTI_PLATFORM` value, such as `darwin-arm64` or `windows-amd64`.
 - `runtime.healthcheckPath` must start with `/`.
 - `runtime.profile` is optional. Use `"node-static"` only for apps whose bootstrap launches a Node/static server and does not need Python. Use `"standalone"` only for apps whose package includes its own executable server and does not need the managed Python or Node runtime. Omit it for the default baseline runtime.
 - `cli` is optional. Include it only when the app exposes commands through the Tutti CLI.

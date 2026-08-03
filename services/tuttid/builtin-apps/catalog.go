@@ -137,17 +137,6 @@ func embeddedCatalog() []App {
 				},
 				Runtime: workspacebiz.AppManifestRuntime{
 					Bootstrap: "bootstrap.sh",
-					Entrypoints: map[string]workspacebiz.AppManifestRuntimeEntrypoint{
-						"darwin-arm64": {
-							Executable: "bin/darwin-arm64/tutti-onboarding-server",
-						},
-						"darwin-amd64": {
-							Executable: "bin/darwin-amd64/tutti-onboarding-server",
-						},
-						"windows-amd64": {
-							Executable: "bin/windows-amd64/tutti-onboarding-server.exe",
-						},
-					},
 					HealthcheckPath: "/healthz",
 					Profile:         "standalone",
 				},

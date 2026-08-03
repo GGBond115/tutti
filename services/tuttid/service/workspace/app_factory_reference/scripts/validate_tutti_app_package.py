@@ -81,19 +81,6 @@ def validate_manifest(root: Path, errors: list[str]) -> dict[str, Any] | None:
             errors.append("runtime.bootstrap must be a safe package-relative path")
         elif not (root / bootstrap).is_file():
             errors.append(f"runtime.bootstrap file does not exist: {bootstrap}")
-        entrypoints = runtime.get("entrypoints")
-        if entrypoints is not None:
-            if not isinstance(entrypoints, dict):
-                errors.append("runtime.entrypoints must be an object when provided")
-            else:
-                for platform_key, entrypoint in entrypoints.items():
-                    executable = entrypoint.get("executable") if isinstance(entrypoint, dict) else None
-                    if not isinstance(platform_key, str) or not platform_key or "/" in platform_key or "\\" in platform_key:
-                        errors.append("runtime.entrypoints keys must be platform keys")
-                    elif not is_safe_relative_path(executable):
-                        errors.append(f"runtime.entrypoints.{platform_key}.executable must be a safe package-relative path")
-                    elif not (root / executable).is_file():
-                        errors.append(f"runtime entrypoint file does not exist: {executable}")
         healthcheck = runtime.get("healthcheckPath")
         if not isinstance(healthcheck, str) or not healthcheck.startswith("/"):
             errors.append("runtime.healthcheckPath must start with /")
@@ -195,9 +182,12 @@ def validate_scripts(root: Path, manifest: dict[str, Any] | None, errors: list[s
                 errors.append("Missing bootstrap.sh")
             continue
         mode = path.stat().st_mode
-        if not mode & stat.S_IXUSR:
+        if os.name != "nt" and not mode & stat.S_IXUSR:
             errors.append(f"{name} must be executable")
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        script_bytes = path.read_bytes()
+        if b"\r" in script_bytes:
+            errors.append(f"{name} must use LF line endings")
+        text = script_bytes.decode("utf-8", errors="ignore")
         for line_number, line in enumerate(text.splitlines(), start=1):
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):

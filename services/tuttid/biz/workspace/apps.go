@@ -47,14 +47,9 @@ type AppManifestIcon struct {
 }
 
 type AppManifestRuntime struct {
-	Bootstrap       string                                  `json:"bootstrap"`
-	Entrypoints     map[string]AppManifestRuntimeEntrypoint `json:"entrypoints,omitempty"`
-	HealthcheckPath string                                  `json:"healthcheckPath"`
-	Profile         string                                  `json:"profile,omitempty"`
-}
-
-type AppManifestRuntimeEntrypoint struct {
-	Executable string `json:"executable"`
+	Bootstrap       string `json:"bootstrap"`
+	HealthcheckPath string `json:"healthcheckPath"`
+	Profile         string `json:"profile,omitempty"`
 }
 
 type AppManifestCLI struct {
@@ -564,18 +559,6 @@ func ValidateAppManifest(manifest AppManifest) error {
 	if !isRelativePackagePath(bootstrap) {
 		return errors.New("app manifest runtime.bootstrap must be a relative package path")
 	}
-	for platformKey, entrypoint := range manifest.Runtime.Entrypoints {
-		if !isAppPlatformKey(platformKey) {
-			return errors.New("app manifest runtime.entrypoints keys must be platform keys")
-		}
-		executable := strings.TrimSpace(entrypoint.Executable)
-		if executable == "" {
-			return fmt.Errorf("app manifest runtime.entrypoints.%s.executable is required", platformKey)
-		}
-		if !isRelativePackagePath(executable) {
-			return fmt.Errorf("app manifest runtime.entrypoints.%s.executable must be a relative package path", platformKey)
-		}
-	}
 	if strings.TrimSpace(manifest.Runtime.HealthcheckPath) == "" {
 		return errors.New("app manifest runtime.healthcheckPath is required")
 	}
@@ -650,21 +633,6 @@ func ValidateAppManifest(manifest AppManifest) error {
 		}
 	}
 	return validateAppManifestLocalizationInfo(manifest.LocalizationInfo)
-}
-
-func isAppPlatformKey(value string) bool {
-	parts := strings.Split(value, "-")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return false
-	}
-	for _, part := range parts {
-		for _, char := range []byte(part) {
-			if (char < 'a' || char > 'z') && (char < '0' || char > '9') {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 func isSupportedAppManifestSchemaVersion(schemaVersion string) bool {

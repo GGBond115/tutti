@@ -80,7 +80,7 @@ jobs:
           go test ./service/managedruntime -run 'TestNodeReadyAcceptsOfficialWindowsCorepackLayout$'
           go test ./service/agentstatus -run 'TestRunDefaultInstallCommandPreservesStructuredArguments$'
           go test ./service/browser -run 'TestStableChromeDevToolsActivePortPathUsesLocalAppDataOnWindows$'
-          go test ./service/workspace -run 'Test(ResolveAppEntrypoint|NormalizeWindowsTerminalInput|TerminalServiceCreatesLocalPTY|TerminalServiceAttachStream|AppCenterServiceInitializesBuiltinCatalogAndInstallState)'
+          go test ./service/workspace -run 'Test(PlatformAppShellAdapter|NormalizeWindowsTerminalInput|TerminalServiceCreatesLocalPTY|TerminalServiceAttachStream|AppCenterServiceInitializesBuiltinCatalogAndInstallState)'
           go test ./integration -run 'TestTuttidBlackBoxWorkspaceTerminalWebSocketStreamsInputAndOutput$'
           go test ./integration -run 'TestTuttidBlackBoxWorkspaceTerminalWebSocketExitFrameCarriesExitCode$'
           Pop-Location
@@ -101,6 +101,47 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: pnpm --filter @tutti-os/desktop build:win
+
+      - name: Smoke test packaged Workspace App shell and Onboarding
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $shell = Resolve-Path 'apps/desktop/dist/win-unpacked/resources/bin/workspace-app-shell/usr/bin/bash.exe'
+          $package = Resolve-Path 'services/tuttid/builtin-apps/tutti-onboarding/build/package'
+          $runtime = Join-Path $env:RUNNER_TEMP 'tutti-onboarding-runtime'
+          $data = Join-Path $env:RUNNER_TEMP 'tutti-onboarding-data'
+          New-Item -ItemType Directory -Force -Path $runtime, $data | Out-Null
+
+          & $shell --noprofile --norc -n (Join-Path $package 'bootstrap.sh')
+          if ($LASTEXITCODE -ne 0) { throw 'bootstrap.sh syntax validation failed' }
+
+          $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+          $listener.Start()
+          $port = $listener.LocalEndpoint.Port
+          $listener.Stop()
+          $env:TUTTI_PLATFORM = 'windows-amd64'
+          $env:TUTTI_APP_PACKAGE_DIR = $package
+          $env:TUTTI_APP_RUNTIME_DIR = $runtime
+          $env:TUTTI_APP_DATA_DIR = $data
+          $env:TUTTI_APP_HOST = '127.0.0.1'
+          $env:TUTTI_APP_PORT = "$port"
+
+          $process = Start-Process -FilePath $shell -ArgumentList '--noprofile', '--norc', (Join-Path $package 'bootstrap.sh') -WorkingDirectory $runtime -PassThru -NoNewWindow
+          try {
+            $healthy = $false
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              if ($process.HasExited) { throw "Onboarding exited early with code $($process.ExitCode)" }
+              try {
+                $response = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/healthz" -TimeoutSec 2
+                if ($response.StatusCode -eq 200) { $healthy = $true; break }
+              } catch {}
+              Start-Sleep -Milliseconds 500
+            }
+            if (-not $healthy) { throw 'Onboarding /healthz did not become ready' }
+          } finally {
+            if (-not $process.HasExited) { taskkill /PID $process.Id /T /F | Out-Null }
+          }
 
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7

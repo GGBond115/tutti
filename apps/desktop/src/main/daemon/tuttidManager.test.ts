@@ -19,7 +19,8 @@ import {
   resolveBrowserMcpDaemonEnv,
   resolveClaudeSDKSidecarDaemonEnv,
   resolveLaunchSpec,
-  resolveManagedDaemonProcessEnv
+  resolveManagedDaemonProcessEnv,
+  resolveWorkspaceAppShellDaemonEnv
 } from "./tuttidManager.ts";
 
 const repoRoot = resolve(
@@ -213,6 +214,48 @@ test("resolveClaudeSDKSidecarDaemonEnv points the daemon at a vendored bundle wh
     });
     assert.deepEqual(got, {
       TUTTI_CLAUDE_SDK_SIDECAR_ENTRY_PATH: entry
+    });
+  } finally {
+    restoreEnv(previousEnv);
+  }
+});
+
+test("resolveWorkspaceAppShellDaemonEnv respects an explicit operator override", () => {
+  const previousEnv = { ...process.env };
+  try {
+    process.env.TUTTI_WORKSPACE_APP_SHELL = "C:\\custom\\bash.exe";
+    const got = resolveWorkspaceAppShellDaemonEnv({
+      isPackaged: true,
+      resourcesPath: join(tmpdir(), "tutti-resources")
+    });
+    assert.deepEqual(got, {});
+  } finally {
+    restoreEnv(previousEnv);
+  }
+});
+
+test("resolveWorkspaceAppShellDaemonEnv points the daemon at the packaged shell", async () => {
+  const previousEnv = { ...process.env };
+  try {
+    delete process.env.TUTTI_WORKSPACE_APP_SHELL;
+    const resourcesPath = await mkdtemp(join(tmpdir(), "tutti-resources-"));
+    const shell = join(
+      resourcesPath,
+      "bin",
+      "workspace-app-shell",
+      "usr",
+      "bin",
+      "bash.exe"
+    );
+    await mkdir(dirname(shell), { recursive: true });
+    await writeFile(shell, "stub\n");
+
+    const got = resolveWorkspaceAppShellDaemonEnv({
+      isPackaged: true,
+      resourcesPath
+    });
+    assert.deepEqual(got, {
+      TUTTI_WORKSPACE_APP_SHELL: shell
     });
   } finally {
     restoreEnv(previousEnv);

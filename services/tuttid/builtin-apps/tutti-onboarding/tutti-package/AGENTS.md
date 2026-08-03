@@ -3,9 +3,9 @@
 This package is the installed Tutti runtime for the Getting Started onboarding
 app.
 
-- `tutti.app.json` declares platform entrypoints for Darwin and Windows. New
-  hosts select the current platform executable; `bootstrap.sh` remains the
-  backward-compatible default for older Darwin hosts.
+- `tutti.app.json` declares `bootstrap.sh` as the single runtime entrypoint.
+  Tutti invokes it through the host shell adapter, and the script selects the
+  matching binary from the fat package by `TUTTI_PLATFORM`.
 - `server.go` is built into `bin/<platform>/tutti-onboarding-server[.exe]`
   during packaging. One fat package carries all declared platform binaries.
   The selected binary serves packaged static assets, exposes `/healthz`,

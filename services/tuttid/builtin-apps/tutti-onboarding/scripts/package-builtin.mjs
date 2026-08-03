@@ -392,16 +392,6 @@ async function validatePackageRoot(root) {
   if (manifest.runtime?.profile !== "standalone") {
     throw new Error("builtin onboarding must use standalone runtime profile.");
   }
-  for (const [platformKey, entrypoint] of Object.entries(
-    manifest.runtime?.entrypoints ?? {}
-  )) {
-    const executable = entrypoint?.executable;
-    validatePackageRelativePath(
-      executable,
-      `runtime.entrypoints.${platformKey}.executable`
-    );
-    await access(path.join(root, executable));
-  }
   if (manifest.cli?.manifest) {
     validatePackageRelativePath(manifest.cli.manifest, "cli.manifest");
     const cliManifest = await readJson(path.join(root, manifest.cli.manifest));
@@ -416,6 +406,10 @@ async function validatePackageRoot(root) {
   const agents = await readFile(path.join(root, "AGENTS.md"), "utf8");
   if (agents.trim().length === 0) {
     throw new Error("AGENTS.md must be non-empty.");
+  }
+  const bootstrap = await readFile(path.join(root, "bootstrap.sh"));
+  if (bootstrap.includes(0x0d)) {
+    throw new Error("bootstrap.sh must use LF line endings.");
   }
   if (process.platform !== "win32") {
     const bootstrapStat = await stat(path.join(root, "bootstrap.sh"));

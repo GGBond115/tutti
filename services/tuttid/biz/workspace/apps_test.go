@@ -92,7 +92,7 @@ func TestValidateAppManifestRejectsInvalidLocalizationInfo(t *testing.T) {
 	}
 }
 
-func TestValidateAppManifestRejectsEntrypointsOutsidePackage(t *testing.T) {
+func TestValidateAppManifestRejectsBootstrapOutsidePackage(t *testing.T) {
 	t.Parallel()
 
 	for _, executable := range []string{
@@ -105,29 +105,9 @@ func TestValidateAppManifestRejectsEntrypointsOutsidePackage(t *testing.T) {
 		t.Run(executable, func(t *testing.T) {
 			t.Parallel()
 			manifest := validTestAppManifest()
-			manifest.Runtime.Entrypoints = map[string]AppManifestRuntimeEntrypoint{
-				"windows-amd64": {Executable: executable},
-			}
+			manifest.Runtime.Bootstrap = executable
 			if err := ValidateAppManifest(manifest); err == nil {
-				t.Fatal("ValidateAppManifest() error = nil, want unsafe entrypoint error")
-			}
-		})
-	}
-}
-
-func TestValidateAppManifestRejectsNonCanonicalEntrypointPlatformKeys(t *testing.T) {
-	t.Parallel()
-
-	for _, platformKey := range []string{" windows-amd64", "windows-amd64 ", "Windows-amd64", "windows amd64", "windows", "win_dows-amd64", "windows-amd64!", "win　dows-amd64"} {
-		platformKey := platformKey
-		t.Run(platformKey, func(t *testing.T) {
-			t.Parallel()
-			manifest := validTestAppManifest()
-			manifest.Runtime.Entrypoints = map[string]AppManifestRuntimeEntrypoint{
-				platformKey: {Executable: "bin/windows-amd64/server.exe"},
-			}
-			if err := ValidateAppManifest(manifest); err == nil {
-				t.Fatal("ValidateAppManifest() error = nil, want invalid platform key error")
+				t.Fatal("ValidateAppManifest() error = nil, want unsafe bootstrap error")
 			}
 		})
 	}

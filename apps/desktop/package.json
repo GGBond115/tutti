@@ -72,6 +72,15 @@
     "win": {
       "target": [
         "nsis"
+      ],
+      "extraResources": [
+        {
+          "from": "build/workspace-app-shell",
+          "to": "bin/workspace-app-shell",
+          "filter": [
+            "**/*"
+          ]
+        }
       ]
     },
     "linux": {
