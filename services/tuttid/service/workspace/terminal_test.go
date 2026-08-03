@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"runtime"
 	"strings"
@@ -107,7 +108,11 @@ func TestTerminalServiceCreatesLocalPTYAndSnapshotsOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CloseGuard() error = %v", err)
 	}
-	if guard.RequiresConfirmation || guard.Reason != "not-running" {
+	if runtime.GOOS == "windows" {
+		if !guard.RequiresConfirmation || guard.Reason != "unknown" {
+			t.Fatalf("close guard = %#v, want conservative Windows fallback", guard)
+		}
+	} else if guard.RequiresConfirmation || guard.Reason != "not-running" {
 		t.Fatalf("close guard = %#v, want idle terminal without confirmation", guard)
 	}
 
@@ -364,7 +369,7 @@ func TestTerminalServiceAttachStreamExitEventCarriesExitCode(t *testing.T) {
 		}
 	}
 
-	if err := service.Write(context.Background(), "ws-1", session.ID, "exit 7\r"); err != nil {
+	if err := service.Write(context.Background(), "ws-1", session.ID, terminalTestExitCommand(7)); err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
 
@@ -390,6 +395,13 @@ func terminalTestEchoCommand(value string) string {
 		return "echo " + value + "\r"
 	}
 	return "printf '" + value + "\\n'\r"
+}
+
+func terminalTestExitCommand(code int) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("exit /b %d\r", code)
+	}
+	return fmt.Sprintf("exit %d\r", code)
 }
 
 func waitForTerminalCloseGuard(

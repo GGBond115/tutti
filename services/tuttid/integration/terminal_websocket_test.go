@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"runtime"
 	"strings"
@@ -179,7 +180,7 @@ func TestTuttidBlackBoxWorkspaceTerminalWebSocketExitFrameCarriesExitCode(t *tes
 
 	exitPayload, err := json.Marshal(map[string]string{
 		"type": "input",
-		"data": "exit 9\r",
+		"data": terminalWebSocketExitCommand(9),
 	})
 	if err != nil {
 		t.Fatalf("Marshal exit payload error = %v", err)
@@ -205,6 +206,13 @@ func terminalWebSocketEchoCommand(value string) string {
 		return "echo " + value + "\r"
 	}
 	return "printf '" + value + "\\n'\r"
+}
+
+func terminalWebSocketExitCommand(code int) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("exit /b %d\r", code)
+	}
+	return fmt.Sprintf("exit %d\r", code)
 }
 
 func readTerminalWebSocketTestFrame(t *testing.T, ctx context.Context, conn *websocket.Conn) terminalWebSocketTestFrame {
