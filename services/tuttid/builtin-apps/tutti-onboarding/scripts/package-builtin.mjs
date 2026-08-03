@@ -213,7 +213,13 @@ async function sleep(ms) {
 }
 
 async function runViteBuild() {
-  await run("pnpm", ["exec", "vite", "build"], { cwd: appDir });
+  // Invoke Vite through the current Node runtime so packaging does not depend
+  // on a platform-specific pnpm/pnpm.cmd launcher.
+  await run(
+    process.execPath,
+    [path.join(appDir, "node_modules", "vite", "bin", "vite.js"), "build"],
+    { cwd: appDir }
+  );
 }
 
 async function createPackageZip(targetPath) {
