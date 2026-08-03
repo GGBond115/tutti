@@ -136,7 +136,7 @@ func embeddedCatalog() []App {
 					Src:  "icon.webp",
 				},
 				Runtime: workspacebiz.AppManifestRuntime{
-					Bootstrap:       "bootstrap.sh",
+					Bootstrap: "bootstrap.sh",
 					HealthcheckPath: "/healthz",
 					Profile:         "standalone",
 				},

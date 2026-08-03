@@ -255,7 +255,8 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 		settings.Model = planEndpoint.Model
 	}
 	var catalogLoad <-chan composerModelCatalogLoadResult
-	if planEndpoint == nil && composerOptionsProviderUsesModelCatalog(provider) {
+	if planEndpoint == nil && (composerOptionsProviderUsesModelCatalog(provider) ||
+		(s.ReplayMode && s.ModelCatalog != nil)) {
 		catalogLoad = startComposerModelCatalogLoad(
 			ctx,
 			s.ModelCatalog,
@@ -425,7 +426,7 @@ func (s *Service) GetComposerOptions(ctx context.Context, input ComposerOptionsI
 		Behavior:                composerProfileFor(provider).Behavior,
 		SlashCommandPolicy:      slashCommandPolicy,
 	}
-	if planEndpoint == nil && (composerProfileFor(provider).LiveModelDiscovery ||
+	if planEndpoint == nil && !s.ReplayMode && (composerProfileFor(provider).LiveModelDiscovery ||
 		providerTargetRefKind(input.providerTargetRef) == "agent_extension") {
 		var err error
 		options, err = s.mergeLiveComposerModelsForComposerOptions(ctx, input, effectiveSettings, options)

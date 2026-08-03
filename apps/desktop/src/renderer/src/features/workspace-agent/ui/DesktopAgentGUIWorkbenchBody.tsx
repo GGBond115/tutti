@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   memo,
@@ -13,7 +15,6 @@ import {
   type AgentHostInputApi,
   type AgentVisibleErrorOverrides
 } from "@tutti-os/agent-gui";
-import { useAgentSessionReplayNodeReadiness } from "../../agent-session-replay/ui/AgentSessionReplayWorkspaceBinding.tsx";
 import { resolveInsufficientCreditsSemantic } from "@tutti-os/commerce";
 import { useService } from "@tutti-os/infra/di";
 import { requestWorkspaceAgentGuiLaunch } from "../services/workspaceAgentGuiLaunchCoordinator.ts";
@@ -90,6 +91,12 @@ import {
   LAB_CODEX_SAVER_MODE_FLAG
 } from "../../../../../shared/featureFlags/catalog.ts";
 
+const AgentSessionReplayNodeReadiness = lazy(() =>
+  import("../../agent-session-replay/ui/AgentSessionReplayNodeReadiness.tsx").then(
+    (module) => ({ default: module.AgentSessionReplayNodeReadiness })
+  )
+);
+
 function DesktopAgentGUISurfaceImpl({
   agentActivityRuntime,
   agentHostApi,
@@ -131,6 +138,8 @@ function DesktopAgentGUISurfaceImpl({
   workspaceId
 }: DesktopAgentGUISurfaceProps): JSX.Element {
   const agents = agentDirectory.agents;
+  const replayRuntimeActive =
+    runtimeApi?.isAgentSessionReplayRuntime?.() === true;
   const { i18n, locale } = useTranslation();
   const commerceEnabled = hasDesktopLocalTuttiAgent(agents);
   const { accountState, handleAgentConfigMenuOpen, renderAgentConfigAccount } =
@@ -224,13 +233,6 @@ function DesktopAgentGUISurfaceImpl({
     workbenchStateRef.current = rawWorkbenchState;
   }
   const workbenchState = workbenchStateRef.current;
-  useAgentSessionReplayNodeReadiness({
-    agentActivityRuntime,
-    nodeId: surface.nodeId,
-    selectedAgentSessionId:
-      workbenchState.lastActiveAgentSessionId?.trim() || null,
-    workspaceId
-  });
   const workbenchAgentTargetId = workbenchState.agentTargetId?.trim() || null;
   const nodeProvider = useMemo(
     () =>
@@ -661,39 +663,53 @@ function DesktopAgentGUISurfaceImpl({
   });
 
   return (
-    <AgentGUI
-      agentDirectory={agentDirectory}
-      allAgentsPresentation={allAgentsPresentation}
-      renderAgentsEmpty={renderAgentsEmpty}
-      agentActivityRuntime={agentActivityRuntime}
-      agentHostApi={agentHostApiWithToast}
-      tuttiModePlanReviewRuntime={
-        capabilityMenuState?.tuttiMode?.enabled === false
-          ? null
-          : tuttiModePlanReviewRuntime
-      }
-      i18n={i18n}
-      locale={locale}
-      identity={agentGUIHostProps.identity}
-      workspace={agentGUIHostProps.workspace}
-      frame={{
-        conversationRailAutoCollapseMode:
-          surface.conversationRailAutoCollapseMode,
-        position: DESKTOP_AGENT_GUI_POSITION,
-        width: frame.width,
-        height: frame.height,
-        desktopSize,
-        isMaximized: surface.displayMode === "fullscreen",
-        isActive: surface.isFocused,
-        isVisible: surface.isVisible,
-        embedded: true
-      }}
-      state={nodeState}
-      runtimeRequests={agentGUIHostProps.runtimeRequests}
-      hostCapabilities={agentGUIHostProps.hostCapabilities}
-      hostActions={agentGUIHostProps.hostActions}
-      renderSlots={agentGUIHostProps.renderSlots}
-    />
+    <>
+      {replayRuntimeActive ? (
+        <Suspense fallback={null}>
+          <AgentSessionReplayNodeReadiness
+            agentActivityRuntime={agentActivityRuntime}
+            nodeId={surface.nodeId}
+            selectedAgentSessionId={
+              workbenchState.lastActiveAgentSessionId?.trim() || null
+            }
+            workspaceId={workspaceId}
+          />
+        </Suspense>
+      ) : null}
+      <AgentGUI
+        agentDirectory={agentDirectory}
+        allAgentsPresentation={allAgentsPresentation}
+        renderAgentsEmpty={renderAgentsEmpty}
+        agentActivityRuntime={agentActivityRuntime}
+        agentHostApi={agentHostApiWithToast}
+        tuttiModePlanReviewRuntime={
+          capabilityMenuState?.tuttiMode?.enabled === false
+            ? null
+            : tuttiModePlanReviewRuntime
+        }
+        i18n={i18n}
+        locale={locale}
+        identity={agentGUIHostProps.identity}
+        workspace={agentGUIHostProps.workspace}
+        frame={{
+          conversationRailAutoCollapseMode:
+            surface.conversationRailAutoCollapseMode,
+          position: DESKTOP_AGENT_GUI_POSITION,
+          width: frame.width,
+          height: frame.height,
+          desktopSize,
+          isMaximized: surface.displayMode === "fullscreen",
+          isActive: surface.isFocused,
+          isVisible: surface.isVisible,
+          embedded: true
+        }}
+        state={nodeState}
+        runtimeRequests={agentGUIHostProps.runtimeRequests}
+        hostCapabilities={agentGUIHostProps.hostCapabilities}
+        hostActions={agentGUIHostProps.hostActions}
+        renderSlots={agentGUIHostProps.renderSlots}
+      />
+    </>
   );
 }
 
