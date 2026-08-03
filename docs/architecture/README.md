@@ -30,6 +30,7 @@ Stable change rules live in [Conventions](../conventions/README.md).
 
 ## Desktop And Transport
 
+- [Connector Market](./connector-market.md)
 - [Desktop Backend Access](./desktop-backend-access.md)
 - [Desktop Update Admission](./desktop-update-admission.md)
 - [Desktop Transport](./desktop-transport.md)
