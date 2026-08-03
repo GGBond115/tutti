@@ -339,6 +339,28 @@ func TestTerminalServiceAttachStreamReplaysMetadataAndDetachedStatus(t *testing.
 }
 
 func TestTerminalServiceAttachStreamExitEventCarriesExitCode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		cwd := t.TempDir()
+		process, err := NewPlatformTerminalProcessFactory().Start(
+			"cmd.exe",
+			[]string{"/D", "/C", "ping -n 2 127.0.0.1 >nul & exit 7"},
+			cwd,
+			terminalProcessEnv(cwd),
+			defaultTerminalCols,
+			defaultTerminalRows,
+		)
+		if err != nil {
+			t.Fatalf("Start() error = %v", err)
+		}
+		defer process.Close()
+		err = process.Wait()
+		code, _ := describeTerminalExit(err)
+		if code == nil || *code != 7 {
+			t.Fatalf("Wait() error = %v, exit code = %v, want 7", err, code)
+		}
+		return
+	}
+
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SHELL", "/bin/sh")
 
