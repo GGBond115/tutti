@@ -139,8 +139,11 @@ func (r Resolver) UserBinInstallDirs(overrides []string) []string {
 	}
 	home, err := r.homeDir()
 	if err == nil && strings.TrimSpace(home) != "" {
+		localBinDir := filepath.Join(home, ".local", "bin")
+		npmLayout := ResolveNPMGlobalLayout(localBinDir)
 		candidates = append(candidates, []string{
-			filepath.Join(home, ".local", "bin"),
+			npmLayout.BinDir,
+			localBinDir,
 			filepath.Join(home, "bin"),
 		})
 	}
@@ -180,10 +183,13 @@ func (r Resolver) fallbackExecutableDirs() []string {
 	homeDirs := []string{}
 	home, err := r.homeDir()
 	if err == nil && strings.TrimSpace(home) != "" {
+		localBinDir := filepath.Join(home, ".local", "bin")
+		npmLayout := ResolveNPMGlobalLayout(localBinDir)
 		homeDirs = []string{
 			filepath.Join(home, ".tutti", "bin"),
 			filepath.Join(home, ".opencode", "bin"),
-			filepath.Join(home, ".local", "bin"),
+			npmLayout.BinDir,
+			localBinDir,
 			filepath.Join(home, "bin"),
 			filepath.Join(home, ".npm-global", "bin"),
 			filepath.Join(home, ".n", "bin"),

@@ -683,9 +683,12 @@ func isStandaloneCorepackWrapper(path string) bool {
 		return false
 	}
 	normalized := strings.ReplaceAll(string(content), `\`, "/")
-	return strings.Contains(
+	if strings.Contains(normalized, "lib/node_modules/corepack/dist/corepack.js") {
+		return true
+	}
+	return runtime.GOOS == "windows" && strings.Contains(
 		normalized,
-		"lib/node_modules/corepack/dist/corepack.js",
+		"node_modules/corepack/dist/corepack.js",
 	)
 }
 

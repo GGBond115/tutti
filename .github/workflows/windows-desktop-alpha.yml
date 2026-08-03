@@ -67,7 +67,7 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           Push-Location packages/agent/daemon
           go test ./runtime -run 'Test(RunVerifiedExecutableUsesVerifiedIdentity|PrepareProcessExecutableExecutesVerifiedDescriptorAfterPathReplacement)$'
-          go test ./runtimecmd -run 'TestResolver(ResolveAllReturnsEveryExecutableMatchInPathOrder|ResolveAllNamesKeepsDirectoryOrderBeforeLauncherVariant)$'
+          go test ./runtimecmd -run 'Test(ResolverResolveAllReturnsEveryExecutableMatchInPathOrder|ResolverResolveAllNamesKeepsDirectoryOrderBeforeLauncherVariant|ResolveNPMGlobalLayoutUsesPrefixRootForWindowsShims|ResolverFindsWindowsNPMGlobalShim)$'
           Pop-Location
 
       - name: Test Windows daemon adapters
@@ -77,10 +77,12 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           Push-Location services/tuttid
           go test ./data/workspace -run 'Test(SQLiteDSNPathUsesFileURLFormOnWindows|SQLiteStoreListEmptyDatabase)$'
+          go test ./service/managedruntime -run 'TestNodeReadyAcceptsOfficialWindowsCorepackLayout$'
           go test ./service/agentstatus -run 'TestRunDefaultInstallCommandPreservesStructuredArguments$'
           go test ./service/browser -run 'TestStableChromeDevToolsActivePortPathUsesLocalAppDataOnWindows$'
           go test ./service/workspace -run 'Test(ResolveAppEntrypoint|NormalizeWindowsTerminalInput|TerminalServiceCreatesLocalPTY|TerminalServiceAttachStream|AppCenterServiceInitializesBuiltinCatalogAndInstallState)'
-          go test ./integration -run 'TestTuttidBlackBoxWorkspaceTerminalWebSocket'
+          go test ./integration -run 'TestTuttidBlackBoxWorkspaceTerminalWebSocketStreamsInputAndOutput$'
+          go test ./integration -run 'TestTuttidBlackBoxWorkspaceTerminalWebSocketExitFrameCarriesExitCode$'
           Pop-Location
 
       - name: Test Desktop lifecycle

@@ -3,8 +3,8 @@
 package workspace
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"sync"
 
 	"github.com/UserExistsError/conpty"
@@ -36,19 +36,13 @@ func (platformTerminalProcessFactory) Start(shell string, args []string, cwd str
 	if err != nil {
 		return nil, err
 	}
-	hostProcess, err := os.FindProcess(process.Pid())
-	if err != nil {
-		_ = process.Close()
-		return nil, fmt.Errorf("open terminal process %d: %w", process.Pid(), err)
-	}
-	return &windowsTerminalProcess{hostProcess: hostProcess, process: process}, nil
+	return &windowsTerminalProcess{process: process}, nil
 }
 
 type windowsTerminalProcess struct {
-	hostProcess *os.Process
-	process     *conpty.ConPty
-	closeOnce   sync.Once
-	closeErr    error
+	process   *conpty.ConPty
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func (p *windowsTerminalProcess) Read(data []byte) (int, error) { return p.process.Read(data) }
@@ -70,13 +64,12 @@ func (p *windowsTerminalProcess) Resize(cols int, rows int) error {
 }
 
 func (p *windowsTerminalProcess) Wait() error {
-	state, err := p.hostProcess.Wait()
+	code, err := p.process.Wait(context.Background())
 	if err != nil {
 		return err
 	}
-	code := state.ExitCode()
 	if code != 0 {
-		return terminalProcessExitError{code: code}
+		return terminalProcessExitError{code: int(code)}
 	}
 	return nil
 }

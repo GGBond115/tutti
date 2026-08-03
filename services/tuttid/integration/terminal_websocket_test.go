@@ -193,7 +193,6 @@ func TestTuttidBlackBoxWorkspaceTerminalWebSocketExitFrameCarriesExitCode(t *tes
 			}
 		}
 	}
-
 	exitPayload, err := json.Marshal(map[string]string{
 		"type": "input",
 		"data": terminalWebSocketExitCommand(9),

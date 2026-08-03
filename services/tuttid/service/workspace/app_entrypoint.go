@@ -45,7 +45,14 @@ func validateAppEntrypointFile(packageDir string, config workspacebiz.AppManifes
 	if err != nil {
 		return "", err
 	}
+	if filepath.IsAbs(entrypoint) || filepath.VolumeName(entrypoint) != "" {
+		return "", fmt.Errorf("runtime entrypoint %q must be a relative package path", entrypoint)
+	}
 	entrypointPath := filepath.Join(packageDir, filepath.FromSlash(entrypoint))
+	relativePath, err := filepath.Rel(packageDir, entrypointPath)
+	if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("runtime entrypoint %q escapes the package directory", entrypoint)
+	}
 	info, err := os.Stat(entrypointPath)
 	if err != nil {
 		return "", fmt.Errorf("stat runtime entrypoint %q: %w", entrypoint, err)

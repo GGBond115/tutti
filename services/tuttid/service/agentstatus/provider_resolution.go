@@ -441,7 +441,7 @@ func (s Service) resolveManagedRuntimeForProvider(ctx context.Context, require b
 			if root == "" {
 				root = managed.DefaultRoot()
 			}
-			if !managedruntime.RootReady(root) {
+			if !managedruntime.NodeReady(root) {
 				return managedruntime.ResolvedRuntime{}, false
 			}
 		}

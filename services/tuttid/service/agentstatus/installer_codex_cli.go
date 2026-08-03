@@ -94,7 +94,7 @@ func (s Service) runManagedNPMPackageAction(
 			return InstallCommandResult{ExitCode: 1, Stderr: err.Error()}, nil
 		}
 	}
-	installPrefix := filepath.Dir(installBinDir)
+	installPrefix := runtimecmd.ResolveNPMGlobalLayout(installBinDir).PrefixDir
 	step := "install"
 	// Repair-in-place: when an existing @openai/codex launcher is already on
 	// PATH but its platform subpackage is missing (or it is outdated), installing
