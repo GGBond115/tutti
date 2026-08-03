@@ -417,9 +417,11 @@ async function validatePackageRoot(root) {
   if (agents.trim().length === 0) {
     throw new Error("AGENTS.md must be non-empty.");
   }
-  const bootstrapStat = await stat(path.join(root, "bootstrap.sh"));
-  if ((bootstrapStat.mode & 0o111) === 0) {
-    throw new Error("bootstrap.sh must be executable.");
+  if (process.platform !== "win32") {
+    const bootstrapStat = await stat(path.join(root, "bootstrap.sh"));
+    if ((bootstrapStat.mode & 0o111) === 0) {
+      throw new Error("bootstrap.sh must be executable.");
+    }
   }
   await assertNoSymlinks(root);
 }
