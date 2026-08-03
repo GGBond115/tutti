@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"io"
 	"reflect"
 	"runtime"
 	"strings"
@@ -353,6 +354,9 @@ func TestTerminalServiceAttachStreamExitEventCarriesExitCode(t *testing.T) {
 			t.Fatalf("Start() error = %v", err)
 		}
 		defer process.Close()
+		go func() {
+			_, _ = io.Copy(io.Discard, process)
+		}()
 		err = process.Wait()
 		code, _ := describeTerminalExit(err)
 		if code == nil || *code != 7 {
