@@ -142,6 +142,45 @@ describe("P0 new-conversation placement scenarios", () => {
     });
   });
 
+  it("uses the authoritative remembered saver mode when no local draft exists", async () => {
+    const scenario = renderNewConversationScenario({
+      activeConversation: null,
+      authoritativeSettings: { codexSaverMode: true },
+      codexSaverModeEntryEnabled: true,
+      initialHomeProjectPath: null,
+      userProjects: []
+    });
+
+    act(() => scenario.requestNewConversation());
+    act(() =>
+      scenario.submitPrompt([{ type: "text", text: "use remembered mode" }])
+    );
+
+    expect(await scenario.waitForActivation()).toMatchObject({
+      settings: { codexSaverMode: true }
+    });
+  });
+
+  it("keeps an explicit local saver opt-out above authoritative defaults", async () => {
+    const scenario = renderNewConversationScenario({
+      activeConversation: null,
+      authoritativeSettings: { codexSaverMode: true },
+      codexSaverModeEntryEnabled: true,
+      initialHomeProjectPath: null,
+      rememberedSettings: { codexSaverMode: false },
+      userProjects: []
+    });
+
+    act(() => scenario.requestNewConversation());
+    act(() =>
+      scenario.submitPrompt([{ type: "text", text: "keep saver disabled" }])
+    );
+
+    expect(await scenario.waitForActivation()).toMatchObject({
+      settings: { codexSaverMode: false }
+    });
+  });
+
   it("keeps the logical project when the active session runs in an isolated worktree", async () => {
     const projectPath = "/workspace/project-a";
     const sectionKey = "project:workspace-1:/workspace/project-a";
@@ -215,6 +254,7 @@ describe("P0 new-conversation placement scenarios", () => {
 
 function renderNewConversationScenario(input: {
   activeConversation: AgentGUIConversationSummary | null;
+  authoritativeSettings?: AgentSessionComposerSettings;
   codexSaverModeEntryEnabled?: boolean;
   initialHomeProjectPath: string | null;
   rememberedSettings?: AgentSessionComposerSettings;
@@ -351,6 +391,7 @@ function renderNewConversationScenario(input: {
         },
         capabilities: null,
         codexSaverModeSupported: true,
+        effectiveSettings: input.authoritativeSettings,
         loadedAtUnixMs: 1,
         models: [],
         provider: "codex",

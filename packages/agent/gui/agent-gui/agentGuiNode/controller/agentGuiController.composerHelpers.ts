@@ -402,7 +402,7 @@ export function sameComposerSettings(
   right: AgentSessionComposerSettings | null
 ): boolean {
   return (
-    (left?.codexSaverMode ?? false) === (right?.codexSaverMode ?? false) &&
+    left?.codexSaverMode === right?.codexSaverMode &&
     (left?.model ?? null) === (right?.model ?? null) &&
     (left?.reasoningEffort ?? null) === (right?.reasoningEffort ?? null) &&
     (left?.speed ?? null) === (right?.speed ?? null) &&

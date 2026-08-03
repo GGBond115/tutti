@@ -263,8 +263,8 @@ function agentGuiStateEquals(
       left.conversationRailCollapsed === right.conversationRailCollapsed &&
       (left.composerOverrides?.model ?? null) ===
         (right.composerOverrides?.model ?? null) &&
-      (left.composerOverrides?.codexSaverMode ?? false) ===
-        (right.composerOverrides?.codexSaverMode ?? false) &&
+      left.composerOverrides?.codexSaverMode ===
+        right.composerOverrides?.codexSaverMode &&
       (left.composerOverrides?.reasoningEffort ?? null) ===
         (right.composerOverrides?.reasoningEffort ?? null) &&
       (left.composerOverrides?.planMode ?? null) ===
@@ -297,8 +297,7 @@ function composerOverridesByProviderEqual(
     const leftSettings = left?.[key] ?? null;
     const rightSettings = right?.[key] ?? null;
     if (
-      (leftSettings?.codexSaverMode ?? false) !==
-        (rightSettings?.codexSaverMode ?? false) ||
+      leftSettings?.codexSaverMode !== rightSettings?.codexSaverMode ||
       (leftSettings?.model ?? null) !== (rightSettings?.model ?? null) ||
       (leftSettings?.reasoningEffort ?? null) !==
         (rightSettings?.reasoningEffort ?? null) ||
@@ -324,8 +323,7 @@ function composerOverridesByAgentTargetIdEqual(
     const leftSettings = left?.[key] ?? null;
     const rightSettings = right?.[key] ?? null;
     if (
-      (leftSettings?.codexSaverMode ?? false) !==
-        (rightSettings?.codexSaverMode ?? false) ||
+      leftSettings?.codexSaverMode !== rightSettings?.codexSaverMode ||
       (leftSettings?.model ?? null) !== (rightSettings?.model ?? null) ||
       (leftSettings?.reasoningEffort ?? null) !==
         (rightSettings?.reasoningEffort ?? null) ||

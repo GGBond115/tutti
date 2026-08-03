@@ -186,7 +186,9 @@ export function useAgentGUIComposerPresentation(
       normalizePermissionModeId(permissionConfig?.defaultValue);
     const protectedSettings = overlayComposerDefaults(
       {
-        codexSaverMode: false,
+        codexSaverMode:
+          input.providerComposerOptions?.effectiveSettings?.codexSaverMode ===
+          true,
         model: draftModel,
         permissionModeId: selectedPermissionModeValue,
         reasoningEffort: optionsReasoningEffort,

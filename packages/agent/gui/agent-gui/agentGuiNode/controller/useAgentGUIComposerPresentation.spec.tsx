@@ -46,6 +46,7 @@ describe("useAgentGUIComposerPresentation", () => {
       },
       loadedAtUnixMs: 1,
       effectiveSettings: {
+        codexSaverMode: true,
         model: "opencode/old-model",
         permissionModeId: "ask",
         reasoningEffort: "low",
@@ -104,6 +105,7 @@ describe("useAgentGUIComposerPresentation", () => {
     );
 
     expect(result.current.stableComposerSettings.draftSettings).toMatchObject({
+      codexSaverMode: true,
       model: "opencode/new-model",
       permissionModeId: "full-access",
       reasoningEffort: "high",
@@ -118,6 +120,22 @@ describe("useAgentGUIComposerPresentation", () => {
     expect(result.current.stableComposerSettings.supportsCodexSaverMode).toBe(
       true
     );
+
+    rerender({
+      currentOptions: options,
+      entryEnabled: true,
+      drafts: {
+        "__agent_gui_node_defaults__:target:local:opencode": {
+          ...draftSettingsBySessionId[
+            "__agent_gui_node_defaults__:target:local:opencode"
+          ],
+          codexSaverMode: false
+        }
+      }
+    });
+    expect(
+      result.current.stableComposerSettings.draftSettings.codexSaverMode
+    ).toBe(false);
 
     rerender({
       currentOptions: {

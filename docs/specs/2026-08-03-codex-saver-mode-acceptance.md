@@ -4,7 +4,7 @@
 
 ## 结论
 
-**核心功能链路通过，桌面 UI 截图待补。** 真实 Tutti Desktop、tuttid、Codex provider 和模型调用链已启动并完成开启态、持久化、真实子线程模型、关闭态对照验证。macOS 当前未授予 Tutti Accessibility 与 Screen Recording 权限，无法合规采集桌面窗口截图；本文中的三张图是由真实 API、会话文件和 Codex 状态库结果整理的**验收证据图**，不是 UI 截图。
+**核心功能链路与桌面 UI 验收均通过。** 真实 Tutti Desktop、tuttid、Codex provider 和模型调用链已启动并完成入口展示、开启态、持久化、真实子线程模型和关闭态对照验证。macOS 系统录屏权限不可用时，使用 Electron `webContents.capturePage()` 仅截取 Tutti 自身窗口；会话验收附件中同时保留已有会话只读态与重启后新会话可操作开启态截图。
 
 ## 执行信息
 
@@ -23,9 +23,9 @@
 
 | ID  | 场景               | 操作与通过标准                                                                                                                | 结果                                                                                                                                                                 |
 | --- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S01 | 开发者入口控制     | `lab.codexSaverMode` 关闭时不展示输入框开关；开启后仅支持该能力的 Codex target 展示。                                         | ✅ 自动化测试与真实 Preferences/Composer API 通过；UI 人工截图待补。                                                                                                 |
-| S02 | 单一输入框开关     | 输入框旁只出现一个“Codex 省额度模式”开关，不增加模型/role/线程数选择。                                                        | ✅ 组件与文案测试通过；UI 人工截图待补。                                                                                                                             |
-| S03 | 目标级记忆         | 对 `local:codex` 开启后，新会话与应用/daemon 重启后仍为开启。                                                                 | ✅ 完整重启后 Preferences 与 Composer Options 均为 `true`。                                                                                                          |
+| S01 | 开发者入口控制     | `lab.codexSaverMode` 关闭时不展示输入框开关；开启后仅支持该能力的 Codex target 展示。                                         | ✅ 自动化测试、真实 Preferences/Composer API 与桌面截图通过。                                                                                                        |
+| S02 | 单一输入框开关     | 输入框旁只出现一个“Codex 省额度模式”开关，不增加模型/role/线程数选择。                                                        | ✅ 真实桌面截图显示单一开关；已有会话为只读，新会话可操作。                                                                                                          |
+| S03 | 目标级记忆         | 对 `local:codex` 开启后，新会话与应用/daemon 重启后仍为开启。                                                                 | ✅ 完整重启后 API 均为 `true`；新会话 DOM 为 `checked`、`disabled=false`，截图显示紫色开启态。                                                                       |
 | S04 | 主模型不变         | 开启省额度模式后，新建会话仍使用用户选择的 `gpt-5.6-sol` / `low`。                                                            | ✅ Session API 与 Codex 状态库一致。                                                                                                                                 |
 | S05 | Luna 配置注入      | 开启后，会话级 `CODEX_HOME/agents/luna_worker.toml` 为 Luna/max，并向会话 `AGENTS.md` 注入轻量路由规则。                      | ✅ 文件真实存在；未修改用户全局 `$CODEX_HOME`。                                                                                                                      |
 | S06 | 真实子线程切模     | 给主线程一个边界明确、可独立执行的任务；主线程调用 `spawn_agent`，子线程实际为 Luna/max。                                     | ✅ 最终代码会话 `ce09a5f5-17a3-4aaf-aee7-1ffe30eecf02` 完成，1 个子线程；状态库为 Luna/max。前一诊断会话确认模型按版本无关提示选择当前 schema 的 `fork_turns=none`。 |
@@ -143,10 +143,12 @@ pnpm check:changed
 3. Codex V1 与 V2 的无历史参数不同（V1 为 `fork_context`，V2 为 `fork_turns`），且完整继承主线程时上游不会应用不同 role/model。最终方案把 Luna 配成省额度会话的默认子代理，并用版本无关的轻量 `AGENTS.md` 指示子任务不要继承主会话历史，由模型按当前工具 schema 选择对应选项。最终真实会话选择了 `fork_turns=none`。
 4. 用户原配置若已定义 `agents.default`，会与自动发现的 Luna default 冲突。已改为只在省额度会话的隔离 `config.toml` 中显式声明 `agents.default → ./agents/luna_worker.toml`，不修改用户全局配置；标准表、quoted 表、`[agents]` 内联表、root dotted keys 及多行 description 均有冲突回归测试。
 5. 应用重启后，旧 runtime 观测值曾覆盖创建时的不可变 Session 快照，使数据库仍为 `true` 的会话被 API/UI 错误显示为 `false`。已改为从 runtime snapshot 恢复 `codexSaverMode`；开启、关闭和缺少该字段的旧会话均有回归测试。重启最终开发版后，截图中的会话 `b8560ee5-0c85-42fa-9acd-f9e91193e3c3` 已由 Session API 正确返回 `true`。
+6. Composer Options 进入 activity engine 时，clone 曾漏掉 `codexSaverModeSupported`，导致后端返回支持但 UI 展示层收到 `undefined`，输入框入口被隐藏。已补字段克隆和 reducer 回归测试。
+7. 重启后服务端 `effectiveSettings.codexSaverMode=true` 曾未回填到新会话 UI/创建请求；同时稳定化比较把“未设置”和“显式关闭”都视为 `false`，可能吞掉用户 opt-out。已改为服务端默认值仅在本地三态值缺失时回填，并补充 authority=true 下无本地值、显式 false 两组展示与 activation 回归。
 
 ## 风险与待补
 
-- **UI 截图待补**：当前 Tutti 缺少 macOS Accessibility 与 Screen Recording 权限。授权后应补两张真实桌面截图：开发者设置中的入口开关、Composer 输入框的开启态。
+- 系统级 Accessibility 与 Screen Recording 权限仍未授予，因此无法使用桌面 CUA；本次截图只使用 Electron 自身窗口捕获，不包含其他应用或系统区域的交互验证。
 - “不继承主会话历史”依赖主模型遵循会话指令；若模型忽略并使用完整历史 fork，子线程会按 Codex 上游规则继承主模型。真实验收任务已正确选择当前工具的 no-history 选项并切到 Luna/max。
 - 该模式只改变适合独立委派的子线程，不保证每个任务都会拆分；轻量、强耦合任务继续由主线程处理属于预期行为。
 - Luna 当前不是公开讨论中 Multi-Agent V2 原生推荐的主动协作模型。应继续限制为上下文自包含、结果可由主线程复核的独立任务；复杂跨代理协作、频繁互发消息和高风险决策仍留给 Sol/Terra。

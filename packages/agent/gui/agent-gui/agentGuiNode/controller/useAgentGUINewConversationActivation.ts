@@ -219,7 +219,8 @@ export function useAgentGUINewConversationActivation(
         codexSaverMode:
           codexSaverModeEntryEnabled === true &&
           snapshotComposerOptions?.codexSaverModeSupported === true &&
-          initialNodeSettings.codexSaverMode === true
+          (initialNodeSettings.codexSaverMode ??
+            snapshotComposerOptions.effectiveSettings?.codexSaverMode) === true
       };
       const prewarmedSessionId =
         normalizedInitialContent.length > 0 &&
