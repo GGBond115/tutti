@@ -7,10 +7,12 @@ description: Use for any turn that mentions another agent (`mention://agent-targ
 
 This skill is the handoff contract between agents: who executes, what gets handed off, how results return, and where follow-ups go. Use `$tutti-cli` for command syntax and the command guide; this skill decides behavior, not flags.
 
-{{if hasAll "agent-context.agent.list" "agent-context.agent.start"}}
-Before starting a new Agent session, run `{{command "agent-context.agent.list"}}`. Select the exact Agent id from the current result or verify the id carried by an `agent-target` mention. Do not infer an id from a provider name. Start it with `{{if hasInput "agent-context.agent.start" "show"}}{{command "agent-context.agent.start" (args "show" "true")}}{{else}}{{command "agent-context.agent.start"}}{{end}}`.
+{{if has "agent-context.agent.start"}}
+When an `agent-target` mention carries an instruction, treat its `<targetId>` as the exact opaque launch id and pass it unchanged to `{{path "agent-context.agent.start"}}`. Do not preflight the mentioned id with Agent list; start is the authoritative check for existence, enablement, and availability. Start it with `{{if hasInput "agent-context.agent.start" "show"}}{{command "agent-context.agent.start" (args "show" "true")}}{{else}}{{command "agent-context.agent.start"}}{{end}}`.
+
+{{if has "agent-context.agent.list"}}When no target was mentioned and the user asks you to choose one, discover exact Agent ids with `{{command "agent-context.agent.list"}}`. Do not infer an id from a provider name.{{else}}When no target was mentioned, this Host cannot discover Agent ids. Ask the user to mention a target instead of guessing.{{end}}
 {{else}}
-The current Host does not advertise the complete Agent list/start workflow. Do not invent a launcher command.
+The current Host does not advertise Agent start. Do not invent a launcher command.
 {{end}}
 
 ## Forward Image Context
@@ -38,7 +40,9 @@ When a message mentions another Agent, decide who the message is addressed to:
 
 - Agent mention + instruction: the mentioned Agent executes. Package and hand off. Do not do the task yourself.
 - Agent mention that is only discussed: no task transfers. Handle the turn yourself, reading the mentioned session as context if useful.
-- A question about available Agents: query the current Agent list and answer from it. Do not start a session unless work was requested.
+  {{if has "agent-context.agent.list"}}- A question about available Agents: query the current Agent list and answer from it. Do not start a session unless work was requested.
+  {{else}}- A question about available Agents: report that the current Host exposes no Agent-list command. Do not guess availability or start a session.
+  {{end}}
 
 ## Decide What to Hand Off
 

@@ -27,7 +27,7 @@ Tutti mention links are internal handoffs. Parse them as data; do not open them 
 - `mention://workspace-issue/<issueId>?workspaceId=...`: use `$issue-manager`.
 - `mention://workspace-app/<appId>?workspaceId=...`: use `$workspace-app`.
   {{if has "agent-context.agent.wait"}}- `mention://agent-session/<sessionId>?workspaceId=...`: a context reference to an existing session, not a work order. Use `{{command "agent-context.agent.wait"}}` to await its next stop point. {{if has "agent-context.agent.session-summary"}}Use `{{command "agent-context.agent.session-summary"}}` for conversation recovery. {{end}}{{if has "agent-context.agent.get"}}Use `{{command "agent-context.agent.get"}}` only for the context exposed by this Host.{{end}}
-  {{end}}{{if has "agent-context.agent.list"}}- `mention://agent-target/<targetId>?workspaceId=...`: behavior per `$tutti-handoff`. Verify the id with `{{if hasInput "agent-context.agent.list" "agent-id"}}{{command "agent-context.agent.list" (args "agent-id" "<targetId>")}}{{else}}{{command "agent-context.agent.list"}}{{end}}`, then use the generic agent workflow. An instruction for the mentioned agent is handed off, not absorbed.
+  {{end}}{{if has "agent-context.agent.start"}}- `mention://agent-target/<targetId>?workspaceId=...`: behavior per `$tutti-handoff`. Treat `<targetId>` as an exact opaque launch id and pass it unchanged to Agent start; do not preflight it with Agent list. An instruction for the mentioned agent is handed off, not absorbed.
   {{end}}- Unknown `mention://...`: parse the URI and ask for clarification if no command family or skill matches.
 
 {{if and (has "agent-context.agent.get") (hasInput "agent-context.agent.get" "view")}}
@@ -60,7 +60,7 @@ Use this protocol for every Tutti CLI command:
 2. If exact flags are unclear for a known command, re-check current CLI help such as `{{.CLICommand}} <scope> --help` before guessing.
 3. If app-specific commands look missing or stale, refresh the command guide or skill bundle capability reference that preserves `App id:` metadata before deciding the app has no CLI support. Do not use CLI help alone to map a workspace app id to a CLI scope.
 4. Prefer JSON output whenever the capability advertises it and output becomes reasoning context, workflow state, or input to another command.
-5. Use IDs from mention URIs, prior command output, or list/get commands. {{if has "agent-context.agent.list"}}Before an Agent start, use `{{command "agent-context.agent.list"}}`. {{end}}Do not invent workspace ids, app scopes, issue ids, task ids, run ids, agent ids, provider names, or session ids.
+5. Use IDs from mention URIs, prior command output, or list/get commands. An explicit `agent-target` mention supplies the exact id for Agent start; use Agent list only when no target was specified or after start fails. Do not invent workspace ids, app scopes, issue ids, task ids, run ids, agent ids, provider names, or session ids.
 6. If a required input is missing, ask the user or run the relevant discovery command. Follow daemon recovery hints when an error includes one.
 7. Treat unknown-input or invalid-input errors as a signal to re-read current command help or the guide, not to retry with guessed flags.
 8. Treat the Tutti daemon and CLI as the only supported control plane. Never inspect or modify `~/.tutti*/*.db` or another backing SQLite database to recover state or bypass a rejected command. If the current CLI snapshot and documented recovery command do not resolve an error, report the exact command error instead.

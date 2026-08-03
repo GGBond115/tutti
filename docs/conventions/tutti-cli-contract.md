@@ -590,7 +590,11 @@ The command must not collapse several agents that share one provider or make
 callers guess a default from list order. Callers select an exact id and start it with
 `agent start --agent-id <agent-id> ...`; provider-specific command
 families such as `codex start` and `claude start` are not part of the
-agent-facing CLI contract. A disabled Agent Target is absent from `agent list`,
+agent-facing CLI contract. A structured `agent-target` mention already carries
+that exact opaque launch id, so callers pass it unchanged to `agent start`
+without requiring an `agent list` preflight. Start is the authoritative check
+for whether a mentioned target exists, is enabled, and is currently available;
+list remains discovery and launch-failure recovery. A disabled Agent Target is absent from `agent list`,
 and an explicit `agent start` for its id must fail before session creation; CLI
 callers cannot bypass the daemon-owned enablement state.
 

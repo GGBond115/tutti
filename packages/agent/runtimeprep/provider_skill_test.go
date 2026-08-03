@@ -24,6 +24,8 @@ func TestProviderSkillsRenderFromCommandSnapshot(t *testing.T) {
 	for _, want := range []string{
 		"tutti-dev agent list --json",
 		"tutti-dev agent start --agent-id <agent-id> --prompt <prompt> --show --json",
+		"Do not preflight the mentioned id with Agent list",
+		"start is the authoritative check for existence, enablement, and availability",
 		"tutti-dev agent get --session-id <session-id> --view turns --json",
 		"tutti-dev agent turn-resources --session-id <session-id> --turn-id <turn-id> --json",
 		"images[].localPath",
@@ -47,6 +49,58 @@ func TestProviderSkillsRenderFromCommandSnapshot(t *testing.T) {
 		if strings.Contains(content, "{{") {
 			t.Fatalf("%s contains unresolved template syntax: %s", label, content)
 		}
+	}
+}
+
+func TestAgentTargetMentionStartsWithoutListCapability(t *testing.T) {
+	commands := testCommandCapabilities()
+	withoutList := make([]CommandCapability, 0, len(commands)-1)
+	for _, capability := range commands {
+		if capability.ID != "agent-context.agent.list" {
+			withoutList = append(withoutList, capability)
+		}
+	}
+	resolver, err := newCommandResolver("tutti-dev", withoutList)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := PrepareInput{CLICommand: "tutti-dev", Provider: "codex", commandCapabilities: resolver}
+	handoff, err := tuttiHandoffSkill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"tutti-dev agent start --agent-id <agent-id> --prompt <prompt> --show --json",
+		"treat its `<targetId>` as the exact opaque launch id",
+		"this Host cannot discover Agent ids",
+	} {
+		if !strings.Contains(handoff, want) {
+			t.Fatalf("start-only handoff skill missing %q: %s", want, handoff)
+		}
+	}
+	if strings.Contains(handoff, "tutti-dev agent list") || strings.Contains(handoff, "complete Agent list/start workflow") {
+		t.Fatalf("start-only handoff incorrectly requires Agent list: %s", handoff)
+	}
+}
+
+func TestTuttiCLIAgentTargetMentionDoesNotUseListAsPreflight(t *testing.T) {
+	content, err := tuttiCLISkill(testInputWithCommands(t, PrepareInput{
+		CLICommand: "tutti-dev",
+		Provider:   "codex",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Treat `<targetId>` as an exact opaque launch id",
+		"use Agent list only when no target was specified or after start fails",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("tutti CLI skill missing %q: %s", want, content)
+		}
+	}
+	if strings.Contains(content, "agent list --agent-id") {
+		t.Fatalf("tutti CLI skill uses exact list lookup as launch preflight: %s", content)
 	}
 }
 
@@ -240,6 +294,7 @@ func TestRenderProviderSkillBundleIncludesClaudeRouting(t *testing.T) {
 		`Skill(skill="tutti-cli:workspace-app")`,
 		`Skill(skill="tutti-cli:tutti-handoff")`,
 		"Do not use `ToolSearch`",
+		"exact-mentioned-target workflow",
 	} {
 		if !strings.Contains(bundle.RecommendedSystemPrompt.Content, want) {
 			t.Fatalf("recommended prompt missing %q: %s", want, bundle.RecommendedSystemPrompt.Content)
