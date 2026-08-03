@@ -817,9 +817,11 @@ func buildDaemonAPI(
 		TuttiModePlanService:         tuttiModePlans,
 		TuttiModeExecutionService:    tuttiModeExecutions,
 		TuttiModeActivationService:   tuttiModeActivations,
-		TuttiModeGoalReviewService:   tuttiModeExecutions,
-		CLIRegistry:                  cliRegistry,
-		AnalyticsReporter:            analyticsReporter,
+
+		TuttiModeGoalReviewService: tuttiModeExecutions,
+
+		CLIRegistry:       cliRegistry,
+		AnalyticsReporter: analyticsReporter,
 		OnListenerReady: func() {
 			tuttiModeMainWakeRecovery.MarkReady()
 			for _, workspace := range workspaces {
