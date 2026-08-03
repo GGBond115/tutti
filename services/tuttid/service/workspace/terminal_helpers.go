@@ -62,7 +62,10 @@ func defaultShellPath() string {
 
 func resolveTerminalShellInvocation(shell string) []string {
 	if runtime.GOOS == "windows" {
-		return nil
+		// Disable per-user cmd.exe AutoRun hooks and command echo. AutoRun can
+		// replace or wrap the interactive shell, while echo makes callers mistake
+		// typed input for command output when synchronizing with the terminal.
+		return []string{"/D", "/Q"}
 	}
 
 	shellName := filepath.Base(strings.TrimSpace(shell))

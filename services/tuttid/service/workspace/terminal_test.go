@@ -12,7 +12,11 @@ import (
 
 func TestResolveTerminalShellInvocation(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("Windows shell invocation keeps default behavior")
+		want := []string{"/D", "/Q"}
+		if got := resolveTerminalShellInvocation("cmd.exe"); !reflect.DeepEqual(got, want) {
+			t.Fatalf("resolveTerminalShellInvocation(cmd.exe) = %#v, want %#v", got, want)
+		}
+		return
 	}
 
 	tests := []struct {

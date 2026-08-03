@@ -84,16 +84,20 @@ func (p *windowsTerminalProcess) Close() error {
 }
 
 func normalizeWindowsTerminalInput(data []byte) []byte {
-	result := make([]byte, 0, len(data))
+	result := make([]byte, 0, len(data)+1)
 	for index := 0; index < len(data); index++ {
-		if data[index] != '\r' {
+		if data[index] == '\r' {
+			result = append(result, '\r', '\n')
+			if index+1 < len(data) && data[index+1] == '\n' {
+				index++
+			}
+			continue
+		}
+		if data[index] != '\n' {
 			result = append(result, data[index])
 			continue
 		}
-		result = append(result, '\n')
-		if index+1 < len(data) && data[index+1] == '\n' {
-			index++
-		}
+		result = append(result, '\r', '\n')
 	}
 	return result
 }
