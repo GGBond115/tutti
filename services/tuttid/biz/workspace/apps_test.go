@@ -115,6 +115,24 @@ func TestValidateAppManifestRejectsEntrypointsOutsidePackage(t *testing.T) {
 	}
 }
 
+func TestValidateAppManifestRejectsNonCanonicalEntrypointPlatformKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, platformKey := range []string{" windows-amd64", "windows-amd64 ", "Windows-amd64", "windows amd64", "windows", "win_dows-amd64", "windows-amd64!", "win　dows-amd64"} {
+		platformKey := platformKey
+		t.Run(platformKey, func(t *testing.T) {
+			t.Parallel()
+			manifest := validTestAppManifest()
+			manifest.Runtime.Entrypoints = map[string]AppManifestRuntimeEntrypoint{
+				platformKey: {Executable: "bin/windows-amd64/server.exe"},
+			}
+			if err := ValidateAppManifest(manifest); err == nil {
+				t.Fatal("ValidateAppManifest() error = nil, want invalid platform key error")
+			}
+		})
+	}
+}
+
 func TestAppPackageMinimizeBehaviorDefaultsToKeepMounted(t *testing.T) {
 	t.Parallel()
 

@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	workspacebiz "github.com/tutti-os/tutti/services/tuttid/biz/workspace"
@@ -40,28 +42,48 @@ func resolveAppEntrypoint(config workspacebiz.AppManifestRuntime, platformKey st
 	return bootstrap, nil
 }
 
-func validateAppEntrypointFile(packageDir string, config workspacebiz.AppManifestRuntime) (string, error) {
-	entrypoint, err := resolveAppEntrypoint(config, currentAppPlatformKey())
-	if err != nil {
-		return "", err
+func validateAppEntrypointFiles(packageDir string, config workspacebiz.AppManifestRuntime) error {
+	if len(config.Entrypoints) == 0 {
+		return validateAppEntrypointFile(packageDir, config.Bootstrap, runtime.GOOS != "windows")
 	}
-	if filepath.IsAbs(entrypoint) || filepath.VolumeName(entrypoint) != "" {
-		return "", fmt.Errorf("runtime entrypoint %q must be a relative package path", entrypoint)
+
+	platforms := make([]string, 0, len(config.Entrypoints))
+	for platform := range config.Entrypoints {
+		platforms = append(platforms, platform)
 	}
-	entrypointPath := filepath.Join(packageDir, filepath.FromSlash(entrypoint))
-	relativePath, err := filepath.Rel(packageDir, entrypointPath)
-	if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("runtime entrypoint %q escapes the package directory", entrypoint)
+	sort.Strings(platforms)
+	for _, platform := range platforms {
+		entrypoint := strings.TrimSpace(config.Entrypoints[platform].Executable)
+		if entrypoint == "" {
+			return fmt.Errorf("runtime entrypoint for %s is empty", platform)
+		}
+		requireExecutable := runtime.GOOS != "windows" && !strings.HasPrefix(platform, "windows-")
+		if err := validateAppEntrypointFile(packageDir, entrypoint, requireExecutable); err != nil {
+			return fmt.Errorf("validate runtime entrypoint for %s: %w", platform, err)
+		}
 	}
+	return nil
+}
+
+func validateAppEntrypointFile(packageDir string, entrypoint string, requireExecutable bool) error {
+	entrypoint = strings.TrimSpace(entrypoint)
+	cleanEntrypoint := path.Clean(entrypoint)
+	if entrypoint == "" || cleanEntrypoint == "." || strings.Contains(entrypoint, "\\") || path.IsAbs(entrypoint) || filepath.IsAbs(entrypoint) || filepath.VolumeName(entrypoint) != "" {
+		return fmt.Errorf("runtime entrypoint %q must be a relative package path", entrypoint)
+	}
+	if cleanEntrypoint == ".." || strings.HasPrefix(cleanEntrypoint, "../") {
+		return fmt.Errorf("runtime entrypoint %q escapes the package directory", entrypoint)
+	}
+	entrypointPath := filepath.Join(packageDir, filepath.FromSlash(cleanEntrypoint))
 	info, err := os.Stat(entrypointPath)
 	if err != nil {
-		return "", fmt.Errorf("stat runtime entrypoint %q: %w", entrypoint, err)
+		return fmt.Errorf("stat runtime entrypoint %q: %w", entrypoint, err)
 	}
 	if info.IsDir() {
-		return "", fmt.Errorf("runtime entrypoint %q must be a file", entrypoint)
+		return fmt.Errorf("runtime entrypoint %q must be a file", entrypoint)
 	}
-	if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
-		return "", fmt.Errorf("runtime entrypoint %q must be executable", entrypoint)
+	if requireExecutable && info.Mode()&0o111 == 0 {
+		return fmt.Errorf("runtime entrypoint %q must be executable", entrypoint)
 	}
-	return entrypoint, nil
+	return nil
 }

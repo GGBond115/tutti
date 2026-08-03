@@ -531,7 +531,7 @@ func (s *AppFactoryService) validatePackage(ctx context.Context, workspaceID str
 		return err
 	}
 
-	if _, err := validateAppEntrypointFile(draftPackageDir, manifest.Runtime); err != nil {
+	if err := validateAppEntrypointFiles(draftPackageDir, manifest.Runtime); err != nil {
 		return err
 	}
 

@@ -502,7 +502,7 @@ func appManifestFileExists(packageDir string) (bool, error) {
 }
 
 func validateExtractedAppPackage(packageRoot string, manifest workspacebiz.AppManifest) error {
-	if _, err := validateAppEntrypointFile(packageRoot, manifest.Runtime); err != nil {
+	if err := validateAppEntrypointFiles(packageRoot, manifest.Runtime); err != nil {
 		return err
 	}
 	agentsData, err := os.ReadFile(filepath.Join(packageRoot, "AGENTS.md"))

@@ -158,7 +158,7 @@ func readLocalAppPackage(packageDir string) (workspacebiz.AppPackage, error) {
 }
 
 func validateLocalAppPackage(packageDir string, manifest workspacebiz.AppManifest) error {
-	if _, err := validateAppEntrypointFile(packageDir, manifest.Runtime); err != nil {
+	if err := validateAppEntrypointFiles(packageDir, manifest.Runtime); err != nil {
 		return fmt.Errorf("%w: %w", ErrLocalAppPackageInvalid, err)
 	}
 	return nil
