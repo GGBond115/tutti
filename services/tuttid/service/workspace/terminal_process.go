@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"fmt"
 	"io"
 )
 
@@ -19,12 +18,4 @@ type TerminalProcess interface {
 	PID() int
 	Resize(cols int, rows int) error
 	Wait() error
-}
-
-type terminalProcessExitError struct {
-	code int
-}
-
-func (e terminalProcessExitError) Error() string {
-	return fmt.Sprintf("terminal process exited with code %d", e.code)
 }

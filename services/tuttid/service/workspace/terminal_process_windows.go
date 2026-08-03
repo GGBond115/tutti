@@ -4,6 +4,7 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/UserExistsError/conpty"
@@ -11,6 +12,14 @@ import (
 )
 
 type platformTerminalProcessFactory struct{}
+
+type terminalProcessExitError struct {
+	code int
+}
+
+func (e terminalProcessExitError) Error() string {
+	return fmt.Sprintf("terminal process exited with code %d", e.code)
+}
 
 func NewPlatformTerminalProcessFactory() TerminalProcessFactory {
 	return platformTerminalProcessFactory{}

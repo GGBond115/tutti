@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestInstallCommandArgvHelper(t *testing.T) {
+func TestInstallCommandArgvHelper(_ *testing.T) {
 	if os.Getenv("TUTTI_TEST_INSTALL_COMMAND_ARGV_HELPER") != "1" {
 		return
 	}
