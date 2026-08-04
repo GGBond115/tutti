@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -101,6 +102,98 @@ func TestApplicationReconcilesInstalledDurableWorkspaceIntentAtStartup(t *testin
 	}
 }
 
+func TestSecurityRevocationIsStickyAcrossCatalogProjectionFailureAndHigherRevision(t *testing.T) {
+	connector := testConnector("github")
+	connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest}
+	connector.WorkspaceBinding = &WorkspaceBinding{WorkspaceID: "workspace-1", Enabled: true}
+	repository := newMemoryRepository(connector)
+	operation := Operation{OperationID: "refresh-1", ClientRequestID: "refresh-request-1", Kind: OperationKindRefreshCatalog,
+		State: OperationStateRunning, Stage: OperationStageRefreshing, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	repository.operations[operation.OperationID] = operation
+	repository.failTransactionCall = 2 // update stage commits; catalog projection fails.
+	revoked := ReleaseCatalogStatus{ConnectorKey: connector.Key, ReleaseDigest: connector.Release.ReleaseDigest, Status: ReleaseStatusSecurityRevoked}
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{
+		SourceRevision: "catalog-2", Statuses: []ReleaseCatalogStatus{revoked}, Trust: repository.trust,
+	})
+	if err := application.executeRefresh(context.Background(), operation); err == nil {
+		t.Fatal("refresh projection unexpectedly succeeded")
+	}
+	if len(repository.revocations) != 1 {
+		t.Fatalf("durable revocations = %#v", repository.revocations)
+	}
+	if _, err := application.SetWorkspaceEnabled(context.Background(), SetWorkspaceEnabledCommand{
+		ConnectorMutation: ConnectorMutation{Mutation: Mutation{ClientRequestID: "enable-after-revoke", ExpectedRevision: repository.revision}, ConnectorKey: connector.Key},
+		WorkspaceID:       "workspace-1", Enabled: true,
+	}); err == nil {
+		t.Fatal("enable accepted a denylisted digest after catalog projection failure")
+	}
+
+	higherRevision := connector.Release
+	higherRevision.Status = ReleaseStatusAvailable
+	operation = Operation{OperationID: "refresh-2", ClientRequestID: "refresh-request-2", Kind: OperationKindRefreshCatalog,
+		State: OperationStateRunning, Stage: OperationStageRefreshing, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	repository.operations[operation.OperationID] = operation
+	application = newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{
+		SourceRevision: "catalog-3", Releases: []Release{higherRevision}, Trust: repository.trust,
+	})
+	if err := application.executeRefresh(context.Background(), operation); err != nil {
+		t.Fatal(err)
+	}
+	stored := repository.connectors[connector.Key]
+	if stored.ReleaseStatuses[connector.Release.ReleaseDigest] != ReleaseStatusSecurityRevoked {
+		t.Fatalf("release statuses = %#v", stored.ReleaseStatuses)
+	}
+	if err := application.requireReleaseNotSecurityRevoked(context.Background(), connector.Key, connector.Release.ReleaseDigest); err == nil {
+		t.Fatal("security-revoked digest became authorized")
+	}
+	newDigest := strings.Repeat("f", 64)
+	if err := application.requireReleaseNotSecurityRevoked(context.Background(), connector.Key, newDigest); err != nil {
+		t.Fatalf("new trusted release digest should be recoverable: %v", err)
+	}
+}
+
+func TestEnableReconcileCompensatesWhenDurableCompletionFails(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		completionErr  error
+		revokeErr      error
+		wantFailClosed int
+	}{
+		{name: "transaction failure uses exact revoke", completionErr: errors.New("simulated transaction failure")},
+		{name: "lease loss uses exact revoke", completionErr: ErrOperationLeaseLost},
+		{name: "global fence after revoke failure", completionErr: errors.New("simulated transaction failure"), revokeErr: errors.New("simulated revoke failure"), wantFailClosed: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			connector := testConnector("github")
+			connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+				InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest}
+			repository := newMemoryRepository(connector)
+			enabled := true
+			operation := Operation{OperationID: "enable-1", ClientRequestID: "enable-request-1", ConnectorKey: connector.Key,
+				Kind: OperationKindSetWorkspaceEnabled, State: OperationStateAccepted, Stage: OperationStageAccepted,
+				Target:      &OperationTarget{ConnectorKey: connector.Key, ReleaseDigest: connector.Release.ReleaseDigest, Release: &connector.Release},
+				WorkspaceID: "workspace-1", WorkspaceEnabled: &enabled, HostGeneration: HostGeneration{BootEpoch: "boot-1", Generation: 2},
+				CreatedAt: time.Now(), UpdatedAt: time.Now()}
+			repository.operations[operation.OperationID] = operation
+			repository.failTransactionCall = 2 // mark running commits; durable completion fails.
+			repository.failTransactionErr = test.completionErr
+			host := &memoryInstallRuntime{revokeErr: test.revokeErr}
+			application := newTestApplication(t, repository, &memoryScheduler{}, host, CatalogSnapshot{})
+			if err := application.ExecuteOperation(context.Background(), operation.OperationID); err == nil {
+				t.Fatal("enable completion unexpectedly succeeded")
+			}
+			stored := repository.operations[operation.OperationID]
+			if stored.State != OperationStateRunning {
+				t.Fatalf("operation state = %q, want recoverable running", stored.State)
+			}
+			if host.reconciles != 1 || host.deactivations != 1 || host.failClosed != test.wantFailClosed {
+				t.Fatalf("host reconciles=%d revokes=%d failClosed=%d", host.reconciles, host.deactivations, host.failClosed)
+			}
+		})
+	}
+}
+
 func TestApplicationRecoveryObservesActivatedRuntimeBeforeCompleting(t *testing.T) {
 	repository := newMemoryRepository(testConnector("github"))
 	installationHost := &memoryInstallRuntime{}
@@ -137,6 +230,39 @@ func TestApplicationRecoveryObservesActivatedRuntimeBeforeCompleting(t *testing.
 	}
 	if repository.connectors["github"].Installation.InstalledReleaseDigest != release.ReleaseDigest {
 		t.Fatalf("installation = %#v", repository.connectors["github"].Installation)
+	}
+}
+
+func TestApplicationRecoveryAdoptsInstallAndUninstallIntoCurrentBootEpoch(t *testing.T) {
+	repository := newMemoryRepository(testConnector("github"))
+	scheduler := &memoryScheduler{}
+	application := newTestApplication(t, repository, scheduler, &memoryInstallRuntime{}, CatalogSnapshot{})
+	accepted, err := application.Install(context.Background(), ConnectorMutation{
+		Mutation: Mutation{ClientRequestID: "request-1", ExpectedRevision: 0}, ConnectorKey: "github", WorkspaceID: "workspace-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	install := repository.operations[accepted.Operation.OperationID]
+	install.HostGeneration.BootEpoch = "previous-boot"
+	repository.operations[install.OperationID] = install
+	uninstall := install
+	uninstall.OperationID = "recover-uninstall"
+	uninstall.ClientRequestID = "request-2"
+	uninstall.Kind = OperationKindUninstall
+	repository.operations[uninstall.OperationID] = uninstall
+
+	if err := application.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, operationID := range []string{install.OperationID, uninstall.OperationID} {
+		operation := repository.operations[operationID]
+		if operation.HostGeneration.BootEpoch == "previous-boot" || operation.HostGeneration.BootEpoch == "" {
+			t.Fatalf("operation %s was not adopted: %#v", operationID, operation.HostGeneration)
+		}
+	}
+	if len(scheduler.operationIDs) != 3 { // Install acceptance plus both recovery schedules.
+		t.Fatalf("scheduled operations = %#v", scheduler.operationIDs)
 	}
 }
 
@@ -191,6 +317,7 @@ func TestApplicationSingleFlightsConcurrentOperationExecution(t *testing.T) {
 	accepted, err := application.Install(context.Background(), ConnectorMutation{
 		Mutation:     Mutation{ClientRequestID: "request-1", ExpectedRevision: 0},
 		ConnectorKey: "github",
+		WorkspaceID:  "workspace-1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -237,6 +364,7 @@ func TestApplicationSharesConcurrentOperationFailureAndClearsFlight(t *testing.T
 	accepted, err := application.Install(context.Background(), ConnectorMutation{
 		Mutation:     Mutation{ClientRequestID: "request-1", ExpectedRevision: 0},
 		ConnectorKey: "github",
+		WorkspaceID:  "workspace-1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -440,6 +568,8 @@ type memoryInstallRuntime struct {
 	activeDigest  string
 	reconciles    int
 	lastReconcile WorkspaceReconcileRequest
+	revokeErr     error
+	failClosed    int
 }
 
 func (host *memoryInstallRuntime) Reconcile(_ context.Context, request WorkspaceReconcileRequest) (WorkspaceRuntimeReceipt, error) {
@@ -451,7 +581,15 @@ func (host *memoryInstallRuntime) Reconcile(_ context.Context, request Workspace
 
 func (host *memoryInstallRuntime) Revoke(context.Context, SecurityRevocationRequest) error {
 	host.deactivations++
+	if host.revokeErr != nil {
+		return host.revokeErr
+	}
 	host.activeDigest = ""
+	return nil
+}
+
+func (host *memoryInstallRuntime) FailClosed(context.Context, time.Time) error {
+	host.failClosed++
 	return nil
 }
 
@@ -562,13 +700,18 @@ func (compatibilityEvaluatorStub) Evaluate(Manifest) Compatibility {
 }
 
 type memoryRepository struct {
-	revision       uint64
-	catalogState   CatalogState
-	sourceRevision string
-	connectors     map[string]Connector
-	operations     map[string]Operation
-	events         []ChangedEvent
-	trust          CatalogTrustState
+	revision            uint64
+	catalogState        CatalogState
+	sourceRevision      string
+	connectors          map[string]Connector
+	operations          map[string]Operation
+	events              []ChangedEvent
+	trust               CatalogTrustState
+	revocations         map[string]ReleaseCatalogStatus
+	transactionErr      error
+	transactionCalls    int
+	failTransactionCall int
+	failTransactionErr  error
 }
 
 func newMemoryRepository(connectors ...Connector) *memoryRepository {
@@ -577,6 +720,7 @@ func newMemoryRepository(connectors ...Connector) *memoryRepository {
 		trust:        CatalogTrustState{Sequence: 1, EnvelopeDigest: "test", IssuedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC), WallHighWater: time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)},
 		connectors:   map[string]Connector{},
 		operations:   map[string]Operation{},
+		revocations:  map[string]ReleaseCatalogStatus{},
 	}
 	for _, connector := range connectors {
 		repository.connectors[connector.Key] = connector
@@ -586,6 +730,23 @@ func newMemoryRepository(connectors ...Connector) *memoryRepository {
 
 func (repository *memoryRepository) CatalogTrustState(context.Context) (CatalogTrustState, error) {
 	return repository.trust, nil
+}
+
+func (repository *memoryRepository) RecordSecurityRevocations(_ context.Context, revocations []ReleaseCatalogStatus) error {
+	for _, revocation := range revocations {
+		if revocation.Status == ReleaseStatusSecurityRevoked {
+			repository.revocations[revocation.ConnectorKey+"\x00"+revocation.ReleaseDigest] = revocation
+		}
+	}
+	return nil
+}
+
+func (repository *memoryRepository) SecurityRevocations(context.Context) ([]ReleaseCatalogStatus, error) {
+	result := make([]ReleaseCatalogStatus, 0, len(repository.revocations))
+	for _, revocation := range repository.revocations {
+		result = append(result, revocation)
+	}
+	return result, nil
 }
 
 func (repository *memoryRepository) Snapshot(_ context.Context, _ string) (Snapshot, error) {
@@ -643,17 +804,32 @@ func (repository *memoryRepository) ClaimOperation(
 	}
 	expiresAt := leaseExpiresAt
 	operation.LeaseOwner = owner
+	operation.LeaseToken++
 	operation.LeaseExpiresAt = &expiresAt
 	repository.operations[operationID] = operation
 	return operation, true, nil
 }
 
-func (repository *memoryRepository) ReleaseOperationLease(_ context.Context, operationID, owner string) error {
+func (repository *memoryRepository) RenewOperationLease(_ context.Context, operationID, owner string, token uint64, now, leaseExpiresAt time.Time) error {
 	operation, ok := repository.operations[operationID]
 	if !ok {
 		return ErrNotFound
 	}
-	if operation.LeaseOwner == owner {
+	if operation.LeaseOwner != owner || operation.LeaseToken != token || operation.LeaseExpiresAt == nil || !operation.LeaseExpiresAt.After(now) {
+		return ErrOperationLeaseLost
+	}
+	expiresAt := leaseExpiresAt
+	operation.LeaseExpiresAt = &expiresAt
+	repository.operations[operationID] = operation
+	return nil
+}
+
+func (repository *memoryRepository) ReleaseOperationLease(_ context.Context, operationID, owner string, token uint64) error {
+	operation, ok := repository.operations[operationID]
+	if !ok {
+		return ErrNotFound
+	}
+	if operation.LeaseOwner == owner && operation.LeaseToken == token {
 		operation.LeaseOwner = ""
 		operation.LeaseExpiresAt = nil
 		repository.operations[operationID] = operation
@@ -661,7 +837,33 @@ func (repository *memoryRepository) ReleaseOperationLease(_ context.Context, ope
 	return nil
 }
 
+func (repository *memoryRepository) InstalledRelease(_ context.Context, connectorKey, releaseDigest string) (Release, error) {
+	for _, operation := range repository.operations {
+		if operation.Kind == OperationKindInstall && operation.State == OperationStateCompleted && operation.ConnectorKey == connectorKey &&
+			operation.Target != nil && operation.Target.Release != nil && operation.Target.ReleaseDigest == releaseDigest {
+			return *operation.Target.Release, nil
+		}
+	}
+	connector, ok := repository.connectors[connectorKey]
+	if ok && connector.Release.ReleaseDigest == releaseDigest {
+		return connector.Release, nil
+	}
+	return Release{}, ErrNotFound
+}
+
 func (repository *memoryRepository) Transaction(_ context.Context, fn func(Transaction) error) error {
+	repository.transactionCalls++
+	if repository.failTransactionCall == repository.transactionCalls {
+		if repository.failTransactionErr != nil {
+			return repository.failTransactionErr
+		}
+		return errors.New("simulated transaction failure")
+	}
+	if repository.transactionErr != nil {
+		err := repository.transactionErr
+		repository.transactionErr = nil
+		return err
+	}
 	transaction := &memoryTransaction{
 		revision:       repository.revision,
 		catalogState:   repository.catalogState,
@@ -758,7 +960,7 @@ func (transaction *memoryTransaction) OperationByClientRequestID(clientRequestID
 
 func (transaction *memoryTransaction) ActiveOperation(connectorKey string) (*Operation, error) {
 	for _, operation := range transaction.operations {
-		if operation.ConnectorKey == connectorKey &&
+		if (connectorKey == "" || operation.ConnectorKey == "" || operation.ConnectorKey == connectorKey) &&
 			(operation.State == OperationStateAccepted || operation.State == OperationStateRunning) {
 			copy := operation
 			return &copy, nil

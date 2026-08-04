@@ -10,7 +10,6 @@ import type {
   IConnectorMarketService
 } from "./connectorMarketService.interface.ts";
 import {
-  applyConnector,
   applyConnectorMarketSnapshot,
   applyConnectorMutationResult,
   clearConnectorMarketStoreState,
@@ -42,7 +41,11 @@ export class ConnectorMarketService implements IConnectorMarketService {
   private eventUnsubscribe: (() => void) | null = null;
   private eventConnectionUnsubscribe: (() => void) | null = null;
   private refreshInFlight: Promise<void> | null = null;
-  private loadSequence = 0;
+  private loadInFlight: {
+    generation: number;
+    promise: Promise<void>;
+  } | null = null;
+  private authoritativeLoadEpoch = 0;
   private workspaceGeneration = 0;
   private started = false;
   private disposed = false;
@@ -67,6 +70,9 @@ export class ConnectorMarketService implements IConnectorMarketService {
     this.eventConnectionUnsubscribe = this.subscribeToEventConnection(
       this.dependencies.events
     );
+    if (this.dependencies.events) {
+      this.requestAuthoritativeLoad();
+    }
   }
 
   ensureLoaded(): Promise<void> {
@@ -165,13 +171,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
       if (!this.isCurrentMutation(connectorKey, token, generation)) {
         return;
       }
-      applyConnector(this.dataStore, result.connector);
-      this.dataStore.operationsByConnectorKey[connectorKey] = result.operation;
-      this.dataStore.revision = Math.max(
-        this.dataStore.revision,
-        result.revision
-      );
-      this.dataStore.lastError = null;
+      applyConnectorMutationResult(this.dataStore, result);
       if (result.authorizationUrl && this.dependencies.openAuthorizationUrl) {
         await this.dependencies.openAuthorizationUrl(result.authorizationUrl);
       }
@@ -224,13 +224,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
       if (!this.isCurrentMutation(connectorKey, token, generation)) {
         return;
       }
-      applyConnector(this.dataStore, result.connector);
-      this.dataStore.operationsByConnectorKey[connectorKey] = result.operation;
-      this.dataStore.revision = Math.max(
-        this.dataStore.revision,
-        result.revision
-      );
-      this.dataStore.lastError = null;
+      applyConnectorMutationResult(this.dataStore, result);
     } catch (error) {
       if (this.isCurrentMutation(connectorKey, token, generation)) {
         if (connector) {
@@ -249,7 +243,6 @@ export class ConnectorMarketService implements IConnectorMarketService {
       return;
     }
     this.workspaceGeneration += 1;
-    this.loadSequence += 1;
     this.connectorMutations.clear();
     this.refreshInFlight = null;
     resetConnectorMarketWorkspaceState(this.dataStore, workspaceId);
@@ -262,7 +255,6 @@ export class ConnectorMarketService implements IConnectorMarketService {
     }
     this.disposed = true;
     this.workspaceGeneration += 1;
-    this.loadSequence += 1;
     this.connectorMutations.clear();
     this.refreshInFlight = null;
     this.eventUnsubscribe?.();
@@ -273,26 +265,85 @@ export class ConnectorMarketService implements IConnectorMarketService {
   }
 
   private async load(showLoading: boolean): Promise<void> {
-    const sequence = ++this.loadSequence;
     const generation = this.workspaceGeneration;
     const workspaceId = this.dataStore.workspaceId;
+    if (this.loadInFlight?.generation === generation) {
+      return this.loadInFlight.promise;
+    }
+    let promise!: Promise<void>;
+    promise = this.runLoadLoop(generation, workspaceId, showLoading).finally(
+      () => {
+        if (this.loadInFlight?.promise === promise) {
+          this.loadInFlight = null;
+        }
+      }
+    );
+    this.loadInFlight = { generation, promise };
+    return promise;
+  }
+
+  private async runLoadLoop(
+    generation: number,
+    workspaceId: string | undefined,
+    showLoading: boolean
+  ): Promise<void> {
+    let firstRequest = true;
+    while (this.isCurrent(generation)) {
+      const authorityEpoch = this.authoritativeLoadEpoch;
+      try {
+        await this.loadSnapshot(
+          generation,
+          workspaceId,
+          showLoading && firstRequest
+        );
+      } catch (error) {
+        if (
+          !this.isCurrent(generation) ||
+          authorityEpoch === this.authoritativeLoadEpoch
+        ) {
+          throw error;
+        }
+      }
+      firstRequest = false;
+      if (
+        !this.isCurrent(generation) ||
+        authorityEpoch === this.authoritativeLoadEpoch
+      ) {
+        return;
+      }
+    }
+  }
+
+  private async loadSnapshot(
+    generation: number,
+    workspaceId: string | undefined,
+    showLoading: boolean
+  ): Promise<void> {
     if (showLoading && this.dataStore.loadState === "idle") {
       this.dataStore.loadState = "loading";
     }
     try {
       const next = await this.dependencies.backend.getSnapshot({ workspaceId });
-      if (!this.isCurrent(generation) || sequence !== this.loadSequence) {
+      if (!this.isCurrent(generation)) {
         return;
       }
       applyConnectorMarketSnapshot(this.dataStore, next);
     } catch (error) {
-      if (!this.isCurrent(generation) || sequence !== this.loadSequence) {
+      if (!this.isCurrent(generation)) {
         return;
       }
       this.dataStore.loadState = "error";
       this.recordError(error);
       throw error;
     }
+  }
+
+  private requestAuthoritativeLoad(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.authoritativeLoadEpoch += 1;
+    void this.load(false).catch(() => undefined);
   }
 
   private async runConnectorMutation(
@@ -362,7 +413,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
         if (this.disposed || event.revision <= this.dataStore.revision) {
           return;
         }
-        void this.load(false).catch(() => undefined);
+        this.requestAuthoritativeLoad();
       }) ?? null
     );
   }
@@ -370,17 +421,12 @@ export class ConnectorMarketService implements IConnectorMarketService {
   private subscribeToEventConnection(
     events: ConnectorMarketEventSource | undefined
   ): (() => void) | null {
-    let hasConnected = false;
     return (
       events?.subscribeConnectionState?.((state) => {
         if (this.disposed || state !== "connected") {
           return;
         }
-        if (!hasConnected) {
-          hasConnected = true;
-          return;
-        }
-        void this.load(false).catch(() => undefined);
+        this.requestAuthoritativeLoad();
       }) ?? null
     );
   }

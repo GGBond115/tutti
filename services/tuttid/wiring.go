@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,13 +11,19 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	agentdaemon "github.com/tutti-os/tutti/packages/agent/daemon"
+	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
+	marketartifact "github.com/tutti-os/tutti/packages/connector/market/artifact"
+	market "github.com/tutti-os/tutti/packages/connector/market/daemon"
 	tuttiapi "github.com/tutti-os/tutti/services/tuttid/api"
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
+	connectormarketdata "github.com/tutti-os/tutti/services/tuttid/data/connectormarket"
 	workspacedata "github.com/tutti-os/tutti/services/tuttid/data/workspace"
 	tuttiserver "github.com/tutti-os/tutti/services/tuttid/server"
 	accountservice "github.com/tutti-os/tutti/services/tuttid/service/account"
@@ -23,9 +31,12 @@ import (
 	agentextensionservice "github.com/tutti-os/tutti/services/tuttid/service/agentextension"
 	agentstatusservice "github.com/tutti-os/tutti/services/tuttid/service/agentstatus"
 	browsersvc "github.com/tutti-os/tutti/services/tuttid/service/browser"
+	cliservice "github.com/tutti-os/tutti/services/tuttid/service/cli"
 	computersvc "github.com/tutti-os/tutti/services/tuttid/service/computer"
+	connectormarketservice "github.com/tutti-os/tutti/services/tuttid/service/connectormarket"
 	desktopupdateadmissionservice "github.com/tutti-os/tutti/services/tuttid/service/desktopupdateadmission"
 	eventstreamservice "github.com/tutti-os/tutti/services/tuttid/service/eventstream"
+	managedruntimeservice "github.com/tutti-os/tutti/services/tuttid/service/managedruntime"
 	mobileremoteservice "github.com/tutti-os/tutti/services/tuttid/service/mobileremote"
 	modelgatewayservice "github.com/tutti-os/tutti/services/tuttid/service/modelgateway"
 	preferencesservice "github.com/tutti-os/tutti/services/tuttid/service/preferences"
@@ -35,10 +46,26 @@ import (
 	tuttitypes "github.com/tutti-os/tutti/services/tuttid/types"
 )
 
+const connectorMarketProductionKeyringVersion uint64 = 2026080401
+
+// connectorMarketProductionKeyring is intentionally embedded and reviewed as
+// code. Rotate it in two releases: first ship old+new, then ship new-only after
+// the signing service and the minimum supported client population have moved.
+var connectorMarketProductionKeyring = map[string]string{
+	"tutti-market-prod-2026-01": "7f2b582e12d716d3d56f1bbd87376bd914c7e5084f772c764a61f783ec2b416f",
+}
+
+const connectorRuntimeProductionKeyID = "tutti-runtime-prod-2026-01"
+const connectorRuntimeProductionPublicKeyHex = "2b9f4f23d9c3d4c38881bf4a87d92f02c0769a998736fe04718b58379df2c44a"
+const connectorRuntimeCatalogURL = "https://d1x7gb6wqsqmnm.cloudfront.net/tutti-app-runtimes/connector-v3/catalog.json"
+const connectorArtifactDownloadHost = "nextop-app-releases-250509935467-us-east-1.s3.us-east-1.amazonaws.com"
+
 type tuttiWiring struct {
 	api                          tuttiapi.DaemonAPI
 	appCenterService             *workspaceservice.AppCenterService
 	workspaceStore               *workspacedata.SQLiteStore
+	connectorMarketStore         *connectormarketdata.Store
+	connectorMarketHost          *connectormarketservice.Host
 	analyticsReporter            reporterservice.Reporter
 	browserService               *browsersvc.Service
 	computerService              *computersvc.Service
@@ -194,6 +221,135 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		_ = modelGateway.Close()
 		w.modelGateway = nil
 		return err
+	}
+	connectorMarketStore, err := connectormarketdata.Open(ctx, workspacedata.DefaultDBPath())
+	if err != nil {
+		agentRuntime.Close()
+		providerAuthWatcher.Close()
+		return fmt.Errorf("open connector market store: %w", err)
+	}
+	connectorMarketBaseURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_MARKET_BASE_URL"))
+	if connectorMarketBaseURL == "" {
+		connectorMarketBaseURL = "https://api.tutti.sh"
+	}
+	connectorMarketType := strings.ToLower(strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_MARKET_TYPE")))
+	if connectorMarketType == "" {
+		connectorMarketType = "overseas"
+	}
+	accountService, ok := api.AccountService.(*accountservice.Service)
+	if !ok || accountService == nil {
+		return errors.New("connector market account session adapter is unavailable")
+	}
+	marketAuthorizer, err := connectormarketservice.NewAccountSessionAuthorizer(accountService.AuthJSONPath)
+	if err != nil {
+		return fmt.Errorf("configure connector market account authorization: %w", err)
+	}
+	marketKeys := make(map[string]ed25519.PublicKey, len(connectorMarketProductionKeyring))
+	for keyID, encodedKey := range connectorMarketProductionKeyring {
+		decodedKey, decodeErr := hex.DecodeString(encodedKey)
+		if decodeErr != nil || len(decodedKey) != ed25519.PublicKeySize {
+			return fmt.Errorf("embedded connector market production trust key %q is invalid", keyID)
+		}
+		marketKeys[keyID] = ed25519.PublicKey(decodedKey)
+	}
+	connectorMarketVerifier, err := market.NewTrustVerifier(market.TrustVerifierConfig{Keyring: &market.TrustKeyring{
+		Version: connectorMarketProductionKeyringVersion,
+		Keys:    marketKeys,
+	}})
+	if err != nil {
+		return fmt.Errorf("configure connector market trust: %w", err)
+	}
+	connectorCatalog, err := connectormarketservice.NewCatalogSource(connectormarketservice.CatalogSourceConfig{
+		BaseURL:            connectorMarketBaseURL,
+		ExpectedMarketType: connectorMarketType,
+		AuthorizeRequest:   marketAuthorizer.Authorize,
+		TrustVerifier:      connectorMarketVerifier,
+		TrustStateReader:   connectorMarketStore,
+	})
+	if err != nil {
+		_ = connectorMarketStore.Close()
+		agentRuntime.Close()
+		providerAuthWatcher.Close()
+		return fmt.Errorf("configure connector market catalog: %w", err)
+	}
+	events, eventsOK := api.EventStreamService.(*eventstreamservice.Service)
+	if !eventsOK {
+		_ = connectorMarketStore.Close()
+		agentRuntime.Close()
+		providerAuthWatcher.Close()
+		return errors.New("connector market event stream wiring is invalid")
+	}
+	artifactFetcher, err := connectormarketservice.NewArtifactGrantFetcher(connectormarketservice.ArtifactGrantFetcherConfig{
+		BaseURL: connectorMarketBaseURL, AllowedDownloadHosts: []string{connectorArtifactDownloadHost}, AuthorizeRequest: marketAuthorizer.Authorize,
+	})
+	if err != nil {
+		return fmt.Errorf("configure connector artifact grants: %w", err)
+	}
+	connectorStateRoot := filepath.Join(tuttitypes.DefaultStateDir(), "connectors")
+	artifactPreparer, err := marketartifact.NewPreparer(marketartifact.Config{RootDir: filepath.Join(connectorStateRoot, "artifacts"), Fetcher: artifactFetcher})
+	if err != nil {
+		return fmt.Errorf("configure connector artifact preparer: %w", err)
+	}
+	runtimePublicKey, err := hex.DecodeString(connectorRuntimeProductionPublicKeyHex)
+	if err != nil || len(runtimePublicKey) != ed25519.PublicKeySize {
+		return errors.New("embedded connector runtime production trust root is invalid")
+	}
+	runtimeResolver, err := managedruntimeservice.NewConnectorRuntimeResolver(managedruntimeservice.ConnectorRuntimeResolverConfig{
+		RuntimeRoot: filepath.Join(connectorStateRoot, "runtimes"), CatalogURL: connectorRuntimeCatalogURL,
+		CatalogPublicKey: ed25519.PublicKey(runtimePublicKey), CatalogKeyID: connectorRuntimeProductionKeyID,
+		ApplicationVersion: tuttitypes.ResolveAppVersion(),
+	})
+	if err != nil {
+		return fmt.Errorf("configure connector managed runtime: %w", err)
+	}
+	processTransport, err := agentruntime.NewConnectorProcessTransport()
+	if err != nil {
+		return fmt.Errorf("configure connector process sandbox: %w", err)
+	}
+	connectorCommands := connectormarketservice.NewConnectorCommandRegistry()
+	implementationHost, err := connectormarketservice.NewImplementationHost(connectormarketservice.ImplementationHostConfig{
+		Artifacts: artifactPreparer, Runtimes: runtimeResolver, Processes: processTransport, Commands: connectorCommands,
+		StateRoot: filepath.Join(connectorStateRoot, "workspace-state"),
+	})
+	if err != nil {
+		return fmt.Errorf("configure connector implementation host: %w", err)
+	}
+	connectorRuntime, connectorAuthorization, compatibility, implementations := connectormarketservice.ProductionPorts(implementationHost)
+	if api.CLIRegistry == nil {
+		return errors.New("connector command registry cannot attach to daemon CLI")
+	}
+	api.CLIRegistry.AppCommands = cliservice.CompositeDynamicCommandRegistry{Registries: []cliservice.DynamicCommandRegistry{
+		api.CLIRegistry.AppCommands, connectorCommands,
+	}}
+	connectorMarketHost, err := connectormarketservice.NewHost(ctx, connectormarketservice.HostConfig{
+		Repository: connectorMarketStore, CatalogSource: connectorCatalog,
+		ArtifactPreparer: artifactPreparer, ImplementationHost: connectorRuntime,
+		Authorization: connectorAuthorization, Compatibility: compatibility,
+		ImplementationRegistry: implementations, Outbox: connectorMarketStore,
+		Publisher: eventstreamservice.ConnectorMarketPublisher{Service: events},
+	})
+	if err != nil {
+		_ = connectorMarketStore.Close()
+		agentRuntime.Close()
+		providerAuthWatcher.Close()
+		return fmt.Errorf("start connector market host: %w", err)
+	}
+	api.ConnectorMarketService = connectorMarketHost.Application
+	existingAccountLoginCompleted := accountService.OnLoginCompleted
+	accountService.OnLoginCompleted = func(loginContext context.Context) {
+		if existingAccountLoginCompleted != nil {
+			existingAccountLoginCompleted(loginContext)
+		}
+		go bootstrapConnectorMarket(connectorMarketHost)
+	}
+	w.connectorMarketStore = connectorMarketStore
+	w.connectorMarketHost = connectorMarketHost
+	startExistingListenerWork := api.OnListenerReady
+	api.OnListenerReady = func() {
+		if startExistingListenerWork != nil {
+			startExistingListenerWork()
+		}
+		go bootstrapConnectorMarket(connectorMarketHost)
 	}
 	agentTargetSetup, ok := api.AgentTargetSetupService.(*agentextensionservice.SetupService)
 	if !ok {
@@ -424,6 +580,18 @@ func openWorkspaceStore(ctx context.Context) (*workspacedata.SQLiteStore, error)
 	return workspaceStore, nil
 }
 
+func bootstrapConnectorMarket(host *connectormarketservice.Host) {
+	if host == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	err := host.Bootstrap(ctx)
+	if err != nil {
+		slog.Warn("connector market bootstrap failed; routes remain fenced", "error", err)
+	}
+}
+
 func (w *tuttiWiring) Close() error {
 	if w == nil {
 		return nil
@@ -465,6 +633,14 @@ func (w *tuttiWiring) Close() error {
 	}
 	if w.modelGateway != nil {
 		if err := w.modelGateway.Close(); err != nil && closeErr == nil {
+			closeErr = err
+		}
+	}
+	if w.connectorMarketHost != nil {
+		w.connectorMarketHost.Close()
+	}
+	if w.connectorMarketStore != nil {
+		if err := w.connectorMarketStore.Close(); err != nil && closeErr == nil {
 			closeErr = err
 		}
 	}

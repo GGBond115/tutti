@@ -9,6 +9,7 @@ import {
 } from "@renderer/features/analytics";
 import { startPredefinePageviewAnalytics } from "@renderer/features/analytics/predefinePageviewAnalytics.ts";
 import { registerAppUpdateServices } from "@renderer/features/app-update/services/registerAppUpdateServices";
+import { registerConnectorMarketServices } from "@renderer/features/connector-market";
 import { registerDesktopPreferencesServices } from "@renderer/features/desktop-preferences/services/registerDesktopPreferencesServices.ts";
 import { registerRichTextAtServices } from "@renderer/features/rich-text-at/services/registerRichTextAtServices";
 import { createDesktopAgentSessionStatusViewResolver } from "@renderer/features/rich-text-at/providers/desktopAgentSessionStatusView.ts";
@@ -59,6 +60,7 @@ import type {
   DesktopWorkspaceAppExternalHostApi
 } from "@preload/types";
 import type {
+  ConnectorMarketClient,
   TuttidClient,
   TuttidEventStreamClient
 } from "@tutti-os/client-tuttid-ts";
@@ -83,7 +85,7 @@ export interface WorkspaceWindowContainerResult {
   reporterService: Pick<IReporterService, "trackEvents">;
   richTextAtService: IDesktopRichTextAtService;
   startupWorkspaceID: string | null;
-  tuttidClient: TuttidClient;
+  tuttidClient: TuttidClient & ConnectorMarketClient;
   workspaceAgentActivityService: WorkspaceAgentActivityService;
   workspaceAppExternalApi?: DesktopWorkspaceAppExternalHostApi;
   workspaceAppCenterService: IWorkspaceAppCenterService;
@@ -154,6 +156,42 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
     reporterService
   });
   let disposeAgentOutcomeNotificationController: (() => void) | null = null;
+  const connectorMarketService = registerConnectorMarketServices(registry, {
+    client: tuttidClient,
+    eventStreamClient: tuttidEventStreamClient,
+    openAuthorizationUrl: (url) => desktopApi.host.files.openExternal(url),
+    reportDiagnostic: (error) => {
+      void desktopApi.runtime
+        .logRendererDiagnostic({
+          details: {
+            message: error instanceof Error ? error.message : String(error)
+          },
+          event: "connector_market.service_error",
+          level: "warn",
+          source: "workspace-renderer"
+        })
+        .catch(() => undefined);
+    },
+    workspaceId: activeWorkspaceID
+  });
+  let connectorMarketResumeRefresh: Promise<void> | null = null;
+  const disposeConnectorMarketResumeRefresh = windowLifecycle.subscribe(
+    (event) => {
+      const resumed =
+        event.kind === "focused" ||
+        (event.kind === "visibility_changed" && event.visibility === "visible");
+      if (!resumed || connectorMarketResumeRefresh) {
+        return;
+      }
+      const refresh = connectorMarketService
+        .reload()
+        .catch(() => undefined)
+        .finally(() => {
+          connectorMarketResumeRefresh = null;
+        });
+      connectorMarketResumeRefresh = refresh;
+    }
+  );
   registerAppUpdateServices(registry, desktopApi, {
     reporterService
   });
@@ -336,6 +374,8 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
     disposeAgentOutcomeNotificationController = null;
     agentAvailabilitySnapshotAnalytics?.dispose();
     predefinePageviewAnalytics?.dispose();
+    disposeConnectorMarketResumeRefresh();
+    connectorMarketService.dispose();
     workspaceAgentServices.dispose();
     windowLifecycle.dispose();
     daemonConnectionAnalytics.release();

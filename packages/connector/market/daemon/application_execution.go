@@ -29,6 +29,37 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 			return invalidManifest("active catalog releases must have available status", nil)
 		}
 	}
+	if err := application.config.Repository.RecordSecurityRevocations(ctx, catalog.Statuses); err != nil {
+		return NewDomainError(ErrorCodeUnavailable, "connector security revocations could not be persisted", true, err)
+	}
+	durableRevocations, err := application.config.Repository.SecurityRevocations(ctx)
+	if err != nil {
+		return NewDomainError(ErrorCodeUnavailable, "connector security revocations could not be read", true, err)
+	}
+	denied := make(map[string]struct{}, len(durableRevocations))
+	for _, revocation := range durableRevocations {
+		denied[releaseAuthorizationKey(revocation.ConnectorKey, revocation.ReleaseDigest)] = struct{}{}
+	}
+	effectiveReleases := make([]Release, 0, len(catalog.Releases))
+	for _, release := range catalog.Releases {
+		if _, revoked := denied[releaseAuthorizationKey(release.ConnectorKey, release.ReleaseDigest)]; revoked {
+			continue
+		}
+		effectiveReleases = append(effectiveReleases, release)
+	}
+	catalog.Releases = effectiveReleases
+	statusIndex := make(map[string]int, len(catalog.Statuses))
+	for index, status := range catalog.Statuses {
+		statusIndex[releaseAuthorizationKey(status.ConnectorKey, status.ReleaseDigest)] = index
+	}
+	for _, revocation := range durableRevocations {
+		key := releaseAuthorizationKey(revocation.ConnectorKey, revocation.ReleaseDigest)
+		if index, exists := statusIndex[key]; exists {
+			catalog.Statuses[index].Status = ReleaseStatusSecurityRevoked
+			continue
+		}
+		catalog.Statuses = append(catalog.Statuses, revocation)
+	}
 	// Security revocation is enforced before the new catalog generation is
 	// accepted. If any workspace cannot be fenced and killed, the refresh stays
 	// retryable and the durable catalog is not reported as ready.
@@ -52,7 +83,7 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 				}
 				if revokeErr := application.config.Host.Revoke(ctx, SecurityRevocationRequest{
 					WorkspaceID: binding.WorkspaceID, ConnectorKey: connector.Key, ReleaseDigest: status.ReleaseDigest,
-					Generation: HostGeneration{BootEpoch: application.config.BootEpoch, Generation: ^uint64(0)},
+					Generation: HostGeneration{BootEpoch: application.config.BootEpoch, Generation: maxGeneration(connector.Revision)},
 					Deadline:   application.config.Now().UTC().Add(5 * time.Second),
 				}); revokeErr != nil {
 					return NewDomainError(ErrorCodeUnavailable, "security revocation could not be enforced", false, revokeErr)
@@ -75,8 +106,13 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 			byKey[connector.Key] = connector
 		}
 		statusByRelease := make(map[string]ReleaseStatus, len(catalog.Statuses))
+		statusesByConnector := make(map[string]map[string]ReleaseStatus)
 		for _, status := range catalog.Statuses {
 			statusByRelease[status.ConnectorKey+"\x00"+status.ReleaseDigest] = status.Status
+			if statusesByConnector[status.ConnectorKey] == nil {
+				statusesByConnector[status.ConnectorKey] = make(map[string]ReleaseStatus)
+			}
+			statusesByConnector[status.ConnectorKey][status.ReleaseDigest] = status.Status
 		}
 		revision := tx.AdvanceRevision()
 		accepted := make(map[string]bool, len(catalog.Releases))
@@ -87,6 +123,7 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 				connector = newCatalogConnector(release)
 			}
 			connector.Release = release
+			connector.ReleaseStatuses = statusesByConnector[release.ConnectorKey]
 			compatibility, err := application.compatibilityFor(release.Manifest)
 			if err != nil {
 				return err
@@ -98,6 +135,7 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 			}
 		}
 		for _, connector := range existing {
+			connector.ReleaseStatuses = statusesByConnector[connector.Key]
 			if accepted[connector.Key] {
 				continue
 			}
@@ -153,6 +191,9 @@ func (application *Application) executeInstall(ctx context.Context, operation Op
 	if err := application.config.ImplementationRegistry.Validate(release.Manifest); err != nil {
 		return err
 	}
+	if err := application.requireReleaseNotSecurityRevoked(ctx, release.ConnectorKey, release.ReleaseDigest); err != nil {
+		return err
+	}
 
 	operation, err = application.updateOperationStage(ctx, operation.OperationID, OperationStageDownloading, nil)
 	if err != nil {
@@ -182,7 +223,14 @@ func (application *Application) executeInstall(ctx context.Context, operation Op
 	if err := application.requireFreshCatalog(ctx); err != nil {
 		return err
 	}
-	return application.completeConnectorOperation(ctx, operation.OperationID, func(connector Connector) Connector {
+	if err := application.requireReleaseNotSecurityRevoked(ctx, release.ConnectorKey, release.ReleaseDigest); err != nil {
+		return err
+	}
+	rollout, err := application.rolloutInstalledBindings(ctx, operation, release)
+	if err != nil {
+		return err
+	}
+	err = application.completeConnectorOperation(ctx, operation.OperationID, func(connector Connector) Connector {
 		connector.Installation = Installation{
 			State:                  InstallationStateInstalled,
 			InstalledVersion:       release.Version,
@@ -191,6 +239,133 @@ func (application *Application) executeInstall(ctx context.Context, operation Op
 		}
 		return connector
 	})
+	if err != nil {
+		return errors.Join(err, application.rollbackInstalledBindings(context.WithoutCancel(ctx), operation, rollout))
+	}
+	return nil
+}
+
+type installRollout struct {
+	previous *Release
+	applied  []WorkspaceBinding
+}
+
+func (application *Application) rolloutInstalledBindings(ctx context.Context, operation Operation, release Release) (installRollout, error) {
+	bindingSnapshot, err := application.config.Repository.WorkspaceBindings(ctx, operation.ConnectorKey)
+	if err != nil {
+		return installRollout{}, err
+	}
+	rollout := installRollout{}
+	connector, err := application.config.Repository.Connector(ctx, operation.ConnectorKey, "")
+	if err != nil {
+		return rollout, err
+	}
+	if connector.Installation.InstalledReleaseDigest != "" && connector.Installation.InstalledReleaseDigest != release.ReleaseDigest {
+		previous, evidenceErr := application.installedReleaseEvidence(ctx, connector)
+		if evidenceErr != nil {
+			return rollout, evidenceErr
+		}
+		rollout.previous = &previous
+	}
+	connector.Release = release
+	connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: release.Version,
+		InstalledReleaseID: release.ReleaseID, InstalledReleaseDigest: release.ReleaseDigest}
+	generation := operation.HostGeneration
+	if strings.TrimSpace(generation.BootEpoch) == "" || generation.Generation == 0 {
+		return rollout, invalidOperationReceipt("install rollout generation is missing")
+	}
+	for _, binding := range bindingSnapshot {
+		if !binding.Enabled {
+			continue
+		}
+		if err := application.requireReleaseNotSecurityRevoked(ctx, operation.ConnectorKey, release.ReleaseDigest); err != nil {
+			return rollout, err
+		}
+		operationID := operation.OperationID + "/rollout/" + binding.WorkspaceID
+		receipt, reconcileErr := application.config.Host.Reconcile(ctx, WorkspaceReconcileRequest{
+			OperationID: operationID, WorkspaceID: binding.WorkspaceID, Connector: connector, Enabled: true, Generation: generation,
+		})
+		if reconcileErr == nil {
+			reconcileErr = validateWorkspaceRuntimeReceipt(receipt, operationID, binding.WorkspaceID,
+				operation.ConnectorKey, release.ReleaseDigest, generation)
+		}
+		if reconcileErr != nil {
+			rollbackErr := application.rollbackInstalledBindings(context.WithoutCancel(ctx), operation, rollout)
+			return rollout, NewDomainError(ErrorCodeInstallFailed, "enabled connector workspaces could not be rolled forward", true, errors.Join(reconcileErr, rollbackErr))
+		}
+		rollout.applied = append(rollout.applied, binding)
+	}
+	return rollout, nil
+}
+
+func releaseAuthorized(connector Connector, releaseDigest string) bool {
+	if len(connector.ReleaseStatuses) != 0 {
+		return connector.ReleaseStatuses[releaseDigest] == ReleaseStatusAvailable
+	}
+	return connector.Release.ReleaseDigest == releaseDigest && connector.Release.Status == ReleaseStatusAvailable
+}
+
+func releaseAuthorizationKey(connectorKey, releaseDigest string) string {
+	return connectorKey + "\x00" + releaseDigest
+}
+
+func (application *Application) requireReleaseNotSecurityRevoked(ctx context.Context, connectorKey, releaseDigest string) error {
+	revocations, err := application.config.Repository.SecurityRevocations(ctx)
+	if err != nil {
+		return NewDomainError(ErrorCodeUnavailable, "connector security revocations could not be read", true, err)
+	}
+	for _, revocation := range revocations {
+		if revocation.ConnectorKey == connectorKey && revocation.ReleaseDigest == releaseDigest {
+			return NewDomainError(ErrorCodeUnavailable, "connector release is security revoked", false, nil)
+		}
+	}
+	return nil
+}
+
+func (application *Application) rollbackInstalledBindings(ctx context.Context, operation Operation, rollout installRollout) error {
+	if len(rollout.applied) == 0 {
+		return nil
+	}
+	var rollbackErrors []error
+	for index := len(rollout.applied) - 1; index >= 0; index-- {
+		binding := rollout.applied[index]
+		if rollout.previous == nil {
+			rollbackErrors = append(rollbackErrors, application.config.Host.Revoke(ctx, SecurityRevocationRequest{
+				WorkspaceID: binding.WorkspaceID, ConnectorKey: operation.ConnectorKey,
+				ReleaseDigest: operation.Target.ReleaseDigest, Generation: operation.HostGeneration,
+				Deadline: application.config.Now().UTC().Add(5 * time.Second),
+			}))
+			continue
+		}
+		previousConnector, err := application.config.Repository.Connector(ctx, operation.ConnectorKey, "")
+		if err != nil {
+			rollbackErrors = append(rollbackErrors, err)
+			continue
+		}
+		previousConnector.Release = *rollout.previous
+		previousConnector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: rollout.previous.Version,
+			InstalledReleaseID: rollout.previous.ReleaseID, InstalledReleaseDigest: rollout.previous.ReleaseDigest}
+		rollbackOperationID := operation.OperationID + "/rollback/" + binding.WorkspaceID
+		receipt, err := application.config.Host.Reconcile(ctx, WorkspaceReconcileRequest{OperationID: rollbackOperationID,
+			WorkspaceID: binding.WorkspaceID, Connector: previousConnector, Enabled: true, Generation: operation.HostGeneration})
+		if err == nil {
+			err = validateWorkspaceRuntimeReceipt(receipt, rollbackOperationID, binding.WorkspaceID,
+				operation.ConnectorKey, rollout.previous.ReleaseDigest, operation.HostGeneration)
+		}
+		rollbackErrors = append(rollbackErrors, err)
+	}
+	return errors.Join(rollbackErrors...)
+}
+
+func (application *Application) installedReleaseEvidence(ctx context.Context, connector Connector) (Release, error) {
+	release, err := application.config.Repository.InstalledRelease(ctx, connector.Key, connector.Installation.InstalledReleaseDigest)
+	if err == nil {
+		return release, nil
+	}
+	if connector.Release.ReleaseDigest == connector.Installation.InstalledReleaseDigest {
+		return connector.Release, nil
+	}
+	return Release{}, NewDomainError(ErrorCodeUnavailable, "installed connector release evidence is unavailable", false, err)
 }
 
 func (application *Application) executeUninstall(ctx context.Context, operation Operation) error {
@@ -211,7 +386,7 @@ func (application *Application) executeUninstall(ctx context.Context, operation 
 		}
 		if err := application.config.Host.Revoke(ctx, SecurityRevocationRequest{
 			WorkspaceID: binding.WorkspaceID, ConnectorKey: operation.Target.ConnectorKey, ReleaseDigest: operation.Target.ReleaseDigest,
-			Generation: HostGeneration{BootEpoch: application.config.BootEpoch, Generation: ^uint64(0)},
+			Generation: operation.HostGeneration,
 			Deadline:   application.config.Now().UTC().Add(5 * time.Second),
 		}); err != nil {
 			return NewDomainError(ErrorCodeInstallFailed, "connector workspace routes could not be revoked", true, err)
@@ -225,10 +400,41 @@ func (application *Application) executeUninstall(ctx context.Context, operation 
 	}); err != nil {
 		return NewDomainError(ErrorCodeInstallFailed, "connector prepared artifact cleanup failed", true, err)
 	}
-	return application.completeConnectorOperation(ctx, operation.OperationID, func(connector Connector) Connector {
+	return application.completeUninstall(ctx, operation.OperationID, bindings)
+}
+
+func (application *Application) completeUninstall(ctx context.Context, operationID string, bindings []WorkspaceBinding) error {
+	return application.config.Repository.Transaction(ctx, func(tx Transaction) error {
+		operation, err := tx.Operation(operationID)
+		if err != nil {
+			return err
+		}
+		if operation.State == OperationStateCompleted {
+			return nil
+		}
+		connector, err := tx.Connector(operation.ConnectorKey)
+		if err != nil {
+			return err
+		}
+		revision := tx.AdvanceRevision()
+		for _, binding := range bindings {
+			if _, err := tx.SetWorkspaceBinding(operation.ConnectorKey, WorkspaceBinding{WorkspaceID: binding.WorkspaceID, Enabled: false}); err != nil {
+				return err
+			}
+		}
 		connector.Installation = Installation{State: InstallationStateNotInstalled}
 		connector.Authorization = initialAuthorization(connector.Release.Manifest.AuthorizationKind)
-		return connector
+		connector.WorkspaceBinding = nil
+		connector.Revision = revision
+		operation.State, operation.Stage, operation.FailureCode = OperationStateCompleted, OperationStageCompleted, ""
+		operation.UpdatedAt = application.config.Now().UTC()
+		if err := tx.SaveConnector(connector); err != nil {
+			return err
+		}
+		if err := tx.SaveOperation(operation); err != nil {
+			return err
+		}
+		return tx.EnqueueConnectorMarketChanged(ChangedEvent{ConnectorKey: connector.Key, OperationID: operation.OperationID, Revision: revision})
 	})
 }
 
@@ -249,6 +455,9 @@ func (application *Application) executeWorkspaceReconcile(ctx context.Context, o
 		if err := application.requireFreshCatalog(ctx); err != nil {
 			return err
 		}
+		if err := application.requireReleaseNotSecurityRevoked(ctx, operation.ConnectorKey, operation.Target.ReleaseDigest); err != nil {
+			return err
+		}
 	}
 	receipt, err := application.config.Host.Reconcile(ctx, WorkspaceReconcileRequest{
 		OperationID: operation.OperationID, WorkspaceID: operation.WorkspaceID,
@@ -261,8 +470,27 @@ func (application *Application) executeWorkspaceReconcile(ctx context.Context, o
 		operation.ConnectorKey, operation.Target.ReleaseDigest, operation.HostGeneration); err != nil {
 		return err
 	}
-	return application.completeWorkspaceReconcile(ctx, operation.OperationID)
+	completionErr := application.completeWorkspaceReconcile(ctx, operation.OperationID)
+	if completionErr == nil || !*operation.WorkspaceEnabled {
+		return completionErr
+	}
+	compensationContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	compensationErr := application.config.Host.Revoke(compensationContext, SecurityRevocationRequest{
+		WorkspaceID: operation.WorkspaceID, ConnectorKey: operation.ConnectorKey,
+		ReleaseDigest: operation.Target.ReleaseDigest, Generation: operation.HostGeneration,
+		Deadline: application.config.Now().UTC().Add(5 * time.Second),
+	})
+	if compensationErr != nil {
+		compensationErr = errors.Join(compensationErr, application.config.Host.FailClosed(compensationContext, application.config.Now().UTC().Add(5*time.Second)))
+	}
+	return workspaceReconcileCompletionError{err: errors.Join(completionErr, compensationErr)}
 }
+
+type workspaceReconcileCompletionError struct{ err error }
+
+func (failure workspaceReconcileCompletionError) Error() string { return failure.err.Error() }
+func (failure workspaceReconcileCompletionError) Unwrap() error { return failure.err }
 
 func validateWorkspaceRuntimeReceipt(receipt WorkspaceRuntimeReceipt, operationID, workspaceID, connectorKey,
 	releaseDigest string, generation HostGeneration) error {
@@ -555,7 +783,15 @@ func (application *Application) failOperation(ctx context.Context, operationID s
 			}
 			if err == nil {
 				switch operation.Kind {
-				case OperationKindInstall, OperationKindUninstall:
+				case OperationKindInstall:
+					if connector.Installation.InstalledReleaseDigest != "" {
+						connector.Installation.State = InstallationStateInstalled
+						connector.Installation.FailureCode = string(code)
+						break
+					}
+					connector.Installation.State = InstallationStateFailed
+					connector.Installation.FailureCode = string(code)
+				case OperationKindUninstall:
 					connector.Installation.State = InstallationStateFailed
 					connector.Installation.FailureCode = string(code)
 				case OperationKindStartAuthorization, OperationKindDisconnectAuthorization:

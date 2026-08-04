@@ -99,6 +99,9 @@ importers:
       "@tutti-os/config-tsconfig":
         specifier: workspace:*
         version: link:../../packages/configs/tsconfig
+      "@tutti-os/connector-market":
+        specifier: workspace:*
+        version: link:../../packages/connector/market
       "@tutti-os/desktop-update-admission":
         specifier: workspace:*
         version: link:../../packages/desktop/update-admission

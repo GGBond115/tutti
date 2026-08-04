@@ -190,6 +190,14 @@ func validateManagedStdio(managed ManagedStdioImplementation, authorizationKind 
 		names := make([]string, 0, len(managed.CLI.Commands))
 		for _, command := range managed.CLI.Commands {
 			names = append(names, command.Name)
+			if command.InputSchema == nil || command.InputSchema["type"] != "object" || command.TimeoutMS < 100 || command.TimeoutMS > 120_000 {
+				return invalidManifest("managed CLI commands require an object inputSchema and timeoutMs between 100 and 120000", nil)
+			}
+			for _, argument := range command.Arguments {
+				if strings.ContainsRune(argument, '\x00') {
+					return invalidManifest("managed CLI command arguments must not contain NUL", nil)
+				}
+			}
 		}
 		if err := validateUniqueIdentifiers("CLI command", names); err != nil {
 			return err

@@ -287,8 +287,27 @@ func (application *Application) SetWorkspaceEnabled(
 	if strings.TrimSpace(command.WorkspaceID) == "" {
 		return WorkspaceBindingResult{}, invalidRequest("workspaceId is required")
 	}
+	installedConnector, err := application.config.Repository.Connector(ctx, command.ConnectorKey, "")
+	if err != nil {
+		return WorkspaceBindingResult{}, err
+	}
+	if installedConnector.Installation.State != InstallationStateInstalled || installedConnector.Installation.InstalledReleaseDigest == "" {
+		return WorkspaceBindingResult{}, invalidTransition("workspace binding", string(installedConnector.Installation.State), "enabled")
+	}
+	installedRelease, err := application.config.Repository.InstalledRelease(ctx, command.ConnectorKey, installedConnector.Installation.InstalledReleaseDigest)
+	if err != nil {
+		return WorkspaceBindingResult{}, NewDomainError(ErrorCodeUnavailable, "installed connector release evidence is unavailable", false, err)
+	}
+	if command.Enabled && !releaseAuthorized(installedConnector, installedRelease.ReleaseDigest) {
+		return WorkspaceBindingResult{}, NewDomainError(ErrorCodeUnavailable, "installed connector release is not authorized by the catalog", false, nil)
+	}
+	if command.Enabled {
+		if err := application.requireReleaseNotSecurityRevoked(ctx, command.ConnectorKey, installedRelease.ReleaseDigest); err != nil {
+			return WorkspaceBindingResult{}, err
+		}
+	}
 	var result WorkspaceBindingResult
-	err := application.config.Repository.Transaction(ctx, func(tx Transaction) error {
+	err = application.config.Repository.Transaction(ctx, func(tx Transaction) error {
 		existing, err := tx.OperationByClientRequestID(command.ClientRequestID)
 		if err != nil {
 			return err
@@ -321,6 +340,9 @@ func (application *Application) SetWorkspaceEnabled(
 			return err
 		}
 		enabled := command.Enabled
+		target := &OperationTarget{ConnectorKey: installedRelease.ConnectorKey, Version: installedRelease.Version,
+			ReleaseID: installedRelease.ReleaseID, ReleaseDigest: installedRelease.ReleaseDigest,
+			ArtifactSHA256: installedRelease.Artifact.SHA256, Release: &installedRelease}
 		operation := Operation{
 			OperationID:      operationID,
 			ClientRequestID:  command.ClientRequestID,
@@ -328,7 +350,7 @@ func (application *Application) SetWorkspaceEnabled(
 			Kind:             OperationKindSetWorkspaceEnabled,
 			State:            OperationStateAccepted,
 			Stage:            OperationStageAccepted,
-			Target:           operationTarget(OperationKindSetWorkspaceEnabled, connector),
+			Target:           target,
 			WorkspaceID:      command.WorkspaceID,
 			WorkspaceEnabled: &enabled,
 			HostGeneration:   HostGeneration{BootEpoch: application.config.BootEpoch, Generation: revision},
@@ -416,17 +438,23 @@ func (application *Application) executeOperation(ctx context.Context, operationI
 	if !claimed {
 		return nil
 	}
+	executionContext, cancelExecution := context.WithCancel(ctx)
+	heartbeatDone := make(chan error, 1)
+	go application.renewOperationLease(executionContext, cancelExecution, operation, heartbeatDone)
 	defer func() {
+		cancelExecution()
+		<-heartbeatDone
 		_ = application.config.Repository.ReleaseOperationLease(
 			context.WithoutCancel(ctx),
 			operationID,
 			application.config.WorkerID,
+			operation.LeaseToken,
 		)
 	}()
 	if operation.State == OperationStateCompleted || operation.State == OperationStateFailed {
 		return nil
 	}
-	operation, err = application.markOperationRunning(ctx, operation.OperationID)
+	operation, err = application.markOperationRunning(executionContext, operation.OperationID)
 	if err != nil {
 		return err
 	}
@@ -434,21 +462,25 @@ func (application *Application) executeOperation(ctx context.Context, operationI
 	var executeErr error
 	switch operation.Kind {
 	case OperationKindRefreshCatalog:
-		executeErr = application.executeRefresh(ctx, operation)
+		executeErr = application.executeRefresh(executionContext, operation)
 	case OperationKindInstall:
-		executeErr = application.executeInstall(ctx, operation)
+		executeErr = application.executeInstall(executionContext, operation)
 	case OperationKindUninstall:
-		executeErr = application.executeUninstall(ctx, operation)
+		executeErr = application.executeUninstall(executionContext, operation)
 	case OperationKindDisconnectAuthorization:
-		executeErr = application.executeDisconnectAuthorization(ctx, operation)
+		executeErr = application.executeDisconnectAuthorization(executionContext, operation)
 	case OperationKindStartAuthorization:
-		_, executeErr = application.beginAuthorizationSession(ctx, operation)
+		_, executeErr = application.beginAuthorizationSession(executionContext, operation)
 	case OperationKindSetWorkspaceEnabled:
-		executeErr = application.executeWorkspaceReconcile(ctx, operation)
+		executeErr = application.executeWorkspaceReconcile(executionContext, operation)
 	default:
 		executeErr = invalidRequest(fmt.Sprintf("operation kind %q is not executable", operation.Kind))
 	}
 	if executeErr != nil {
+		var recoverableCompletion workspaceReconcileCompletionError
+		if errors.As(executeErr, &recoverableCompletion) {
+			return executeErr
+		}
 		code := ErrorCodeInstallFailed
 		if operation.Kind == OperationKindRefreshCatalog {
 			code = ErrorCodeUpstreamUnavailable
@@ -457,10 +489,38 @@ func (application *Application) executeOperation(ctx context.Context, operationI
 			operation.Kind == OperationKindDisconnectAuthorization {
 			code = ErrorCodeAuthorizationFailed
 		}
-		_ = application.failOperation(ctx, operation.OperationID, code)
+		_ = application.failOperation(executionContext, operation.OperationID, code)
 		return executeErr
 	}
 	return nil
+}
+
+func (application *Application) renewOperationLease(ctx context.Context, cancel context.CancelFunc, operation Operation, done chan<- error) {
+	interval := application.config.LeaseDuration / 3
+	if interval < 10*time.Millisecond {
+		interval = 10 * time.Millisecond
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	defer close(done)
+	for {
+		select {
+		case <-ctx.Done():
+			done <- nil
+			return
+		case <-ticker.C:
+			now := application.config.Now().UTC()
+			renewContext, renewCancel := context.WithTimeout(context.WithoutCancel(ctx), interval)
+			err := application.config.Repository.RenewOperationLease(renewContext, operation.OperationID,
+				application.config.WorkerID, operation.LeaseToken, now, now.Add(application.config.LeaseDuration))
+			renewCancel()
+			if err != nil {
+				cancel()
+				done <- err
+				return
+			}
+		}
+	}
 }
 
 func (application *Application) requireFreshCatalog(ctx context.Context) error {
@@ -480,6 +540,12 @@ func (application *Application) Recover(ctx context.Context) error {
 		return err
 	}
 	for _, operation := range operations {
+		if operationTouchesImplementationHost(operation.Kind) && operation.HostGeneration.BootEpoch != application.config.BootEpoch {
+			operation, err = application.adoptWorkspaceOperation(ctx, operation.OperationID)
+			if err != nil {
+				return err
+			}
+		}
 		if operation.LeaseExpiresAt != nil && operation.LeaseExpiresAt.After(application.config.Now().UTC()) &&
 			operation.LeaseOwner != "" && operation.LeaseOwner != application.config.WorkerID {
 			delay := operation.LeaseExpiresAt.Sub(application.config.Now().UTC())
@@ -503,6 +569,41 @@ func (application *Application) Recover(ctx context.Context) error {
 	return nil
 }
 
+func operationTouchesImplementationHost(kind OperationKind) bool {
+	switch kind {
+	case OperationKindInstall, OperationKindUninstall, OperationKindSetWorkspaceEnabled:
+		return true
+	default:
+		return false
+	}
+}
+
+func (application *Application) adoptWorkspaceOperation(ctx context.Context, operationID string) (Operation, error) {
+	var adopted Operation
+	err := application.config.Repository.Transaction(ctx, func(tx Transaction) error {
+		operation, err := tx.Operation(operationID)
+		if err != nil {
+			return err
+		}
+		if operation.State == OperationStateCompleted || operation.State == OperationStateFailed {
+			adopted = operation
+			return nil
+		}
+		revision := tx.AdvanceRevision()
+		operation.HostGeneration = HostGeneration{BootEpoch: application.config.BootEpoch, Generation: revision}
+		operation.UpdatedAt = application.config.Now().UTC()
+		if err := tx.SaveOperation(operation); err != nil {
+			return err
+		}
+		if err := tx.EnqueueConnectorMarketChanged(ChangedEvent{ConnectorKey: operation.ConnectorKey, OperationID: operation.OperationID, Revision: revision}); err != nil {
+			return err
+		}
+		adopted = operation
+		return nil
+	})
+	return adopted, err
+}
+
 // ReconcileDurableBindings rebuilds the daemon-owned runtime projection from
 // committed workspace intent after every daemon restart. A successful install
 // is only an artifact fact; enabled bindings are the authoritative source for
@@ -518,13 +619,8 @@ func (application *Application) ReconcileDurableBindings(ctx context.Context) er
 	if err := application.requireFreshCatalog(ctx); err != nil {
 		return err
 	}
-	installedReleases := make(map[string]Release)
 	effectiveIntent := make(map[string]Operation)
 	for _, operation := range snapshot.Operations {
-		if operation.Kind == OperationKindInstall && operation.State == OperationStateCompleted &&
-			operation.Target != nil && operation.Target.Release != nil {
-			installedReleases[operation.ConnectorKey+"\x00"+operation.Target.ReleaseDigest] = *operation.Target.Release
-		}
 		if operation.Kind != OperationKindSetWorkspaceEnabled || operation.WorkspaceEnabled == nil ||
 			(operation.State != OperationStateAccepted && operation.State != OperationStateRunning) {
 			continue
@@ -539,13 +635,12 @@ func (application *Application) ReconcileDurableBindings(ctx context.Context) er
 		if connector.Installation.State != InstallationStateInstalled {
 			continue
 		}
-		installedRelease, ok := installedReleases[connector.Key+"\x00"+connector.Installation.InstalledReleaseDigest]
-		if !ok && connector.Release.ReleaseDigest == connector.Installation.InstalledReleaseDigest {
-			installedRelease = connector.Release
-			ok = true
-		}
-		if !ok || installedRelease.Status != ReleaseStatusAvailable {
+		installedRelease, evidenceErr := application.config.Repository.InstalledRelease(ctx, connector.Key, connector.Installation.InstalledReleaseDigest)
+		if evidenceErr != nil || !releaseAuthorized(connector, installedRelease.ReleaseDigest) {
 			return NewDomainError(ErrorCodeUnavailable, "installed connector release evidence is unavailable", false, nil)
+		}
+		if err := application.requireReleaseNotSecurityRevoked(ctx, connector.Key, installedRelease.ReleaseDigest); err != nil {
+			return err
 		}
 		installedConnector := connector
 		installedConnector.Release = installedRelease
@@ -563,10 +658,15 @@ func (application *Application) ReconcileDurableBindings(ctx context.Context) er
 				desired = *pending.WorkspaceEnabled
 			}
 			if !desired {
+				revokeGeneration := maxGeneration(connector.Revision)
+				if pending, exists := effectiveIntent[connector.Key+"\x00"+binding.WorkspaceID]; exists &&
+					pending.HostGeneration.Generation > revokeGeneration {
+					revokeGeneration = pending.HostGeneration.Generation
+				}
 				if err := application.config.Host.Revoke(ctx, SecurityRevocationRequest{
 					WorkspaceID: binding.WorkspaceID, ConnectorKey: connector.Key,
 					ReleaseDigest: connector.Installation.InstalledReleaseDigest,
-					Generation:    HostGeneration{BootEpoch: application.config.BootEpoch, Generation: ^uint64(0)},
+					Generation:    HostGeneration{BootEpoch: application.config.BootEpoch, Generation: revokeGeneration},
 					Deadline:      application.config.Now().UTC().Add(5 * time.Second),
 				}); err != nil {
 					return NewDomainError(ErrorCodeUnavailable, "connector pending disable intent could not be fenced", false, err)
@@ -589,6 +689,47 @@ func (application *Application) ReconcileDurableBindings(ctx context.Context) er
 		}
 	}
 	return nil
+}
+
+// FenceDurableBindings removes every runtime projection authorized by the
+// last accepted catalog without deleting installation facts or workspace
+// intent. It is used when catalog expiry is reached before a trusted refresh;
+// a later accepted catalog can safely rebuild intent at a higher revision.
+func (application *Application) FenceDurableBindings(ctx context.Context) error {
+	if application == nil {
+		return NewDomainError(ErrorCodeUnavailable, "connector application is unavailable", false, nil)
+	}
+	snapshot, err := application.config.Repository.Snapshot(ctx, "")
+	if err != nil {
+		return err
+	}
+	var fenceErrors []error
+	for _, connector := range snapshot.Connectors {
+		bindings, bindingsErr := application.config.Repository.WorkspaceBindings(ctx, connector.Key)
+		if bindingsErr != nil {
+			fenceErrors = append(fenceErrors, bindingsErr)
+			continue
+		}
+		for _, binding := range bindings {
+			if !binding.Enabled {
+				continue
+			}
+			fenceErrors = append(fenceErrors, application.config.Host.Revoke(ctx, SecurityRevocationRequest{
+				WorkspaceID: binding.WorkspaceID, ConnectorKey: connector.Key,
+				ReleaseDigest: connector.Installation.InstalledReleaseDigest,
+				Generation:    HostGeneration{BootEpoch: application.config.BootEpoch, Generation: maxGeneration(connector.Revision)},
+				Deadline:      application.config.Now().UTC().Add(5 * time.Second),
+			}))
+		}
+	}
+	return errors.Join(fenceErrors...)
+}
+
+func maxGeneration(generation uint64) uint64 {
+	if generation == 0 {
+		return 1
+	}
+	return generation
 }
 
 func (application *Application) acceptConnectorOperation(
@@ -649,6 +790,9 @@ func (application *Application) acceptConnectorOperation(
 			WorkspaceID:     mutation.WorkspaceID,
 			CreatedAt:       now,
 			UpdatedAt:       now,
+		}
+		if kind == OperationKindInstall || kind == OperationKindUninstall {
+			operation.HostGeneration = HostGeneration{BootEpoch: application.config.BootEpoch, Generation: revision}
 		}
 		if err := tx.SaveConnector(connector); err != nil {
 			return err

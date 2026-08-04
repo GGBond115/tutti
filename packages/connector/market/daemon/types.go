@@ -175,8 +175,11 @@ type ManagedCLIInterface struct {
 }
 
 type CLICommand struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Arguments   []string       `json:"arguments,omitempty"`
+	InputSchema map[string]any `json:"inputSchema"`
+	TimeoutMS   int            `json:"timeoutMs"`
 }
 
 type RemoteStreamableHTTPImplementation struct {
@@ -208,13 +211,14 @@ type WorkspaceBinding struct {
 }
 
 type Connector struct {
-	Key              string            `json:"key"`
-	Release          Release           `json:"release"`
-	Installation     Installation      `json:"installation"`
-	Authorization    Authorization     `json:"authorization"`
-	Compatibility    Compatibility     `json:"compatibility"`
-	WorkspaceBinding *WorkspaceBinding `json:"workspaceBinding,omitempty"`
-	Revision         uint64            `json:"revision"`
+	Key              string                   `json:"key"`
+	Release          Release                  `json:"release"`
+	ReleaseStatuses  map[string]ReleaseStatus `json:"releaseStatuses,omitempty"`
+	Installation     Installation             `json:"installation"`
+	Authorization    Authorization            `json:"authorization"`
+	Compatibility    Compatibility            `json:"compatibility"`
+	WorkspaceBinding *WorkspaceBinding        `json:"workspaceBinding,omitempty"`
+	Revision         uint64                   `json:"revision"`
 }
 
 type Operation struct {
@@ -231,6 +235,7 @@ type Operation struct {
 	Execution        OperationExecution `json:"execution,omitempty"`
 	Attempt          uint32             `json:"attempt"`
 	LeaseOwner       string             `json:"leaseOwner,omitempty"`
+	LeaseToken       uint64             `json:"leaseToken,omitempty"`
 	LeaseExpiresAt   *time.Time         `json:"leaseExpiresAt,omitempty"`
 	FailureCode      string             `json:"failureCode,omitempty"`
 	CreatedAt        time.Time          `json:"createdAt"`

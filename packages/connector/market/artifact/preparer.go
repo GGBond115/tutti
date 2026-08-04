@@ -70,6 +70,27 @@ type Preparer struct {
 
 var _ market.ArtifactPreparer = (*Preparer)(nil)
 
+// ResolvePrepared revalidates the content-addressed receipt, packaged
+// manifest, and full inventory before a durable workspace route is restored.
+// A receipt is never treated as an authenticity root by itself.
+func (preparer *Preparer) ResolvePrepared(ctx context.Context, release market.Release) (market.PreparedArtifactReceipt, error) {
+	if err := ctx.Err(); err != nil {
+		return market.PreparedArtifactReceipt{}, err
+	}
+	if err := market.ValidateReleaseShape(release); err != nil {
+		return market.PreparedArtifactReceipt{}, err
+	}
+	target, err := preparer.preparedPath(release)
+	if err != nil {
+		return market.PreparedArtifactReceipt{}, err
+	}
+	receipt, ok := readExistingReceipt(target, market.PrepareArtifactRequest{Release: release})
+	if !ok {
+		return market.PreparedArtifactReceipt{}, errors.New("prepared connector artifact receipt or inventory is invalid")
+	}
+	return receipt, nil
+}
+
 func NewPreparer(config Config) (*Preparer, error) {
 	if strings.TrimSpace(config.RootDir) == "" {
 		return nil, errors.New("connector artifact root directory is required")

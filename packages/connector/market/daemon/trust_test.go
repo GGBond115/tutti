@@ -63,6 +63,79 @@ func TestTrustVerifierRejectsRollbackEquivocationAndExpiredSnapshot(t *testing.T
 	}
 }
 
+func TestTrustVerifierAcceptsKMSDigestSignature(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := NewTrustVerifier(TrustVerifierConfig{Keys: map[string]ed25519.PublicKey{"key-1": publicKey}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope := signedTestRelease(t, privateKey)
+	message := append([]byte(releaseSignatureContext), envelope.Payload...)
+	digest := sha256.Sum256(message)
+	envelope.Algorithm = signatureAlgorithmEd25519SHA256
+	envelope.Signature = ed25519.Sign(privateKey, digest[:])
+	if _, _, err := verifier.VerifyRelease(envelope); err != nil {
+		t.Fatalf("VerifyRelease() error = %v", err)
+	}
+}
+
+func TestTrustKeyringOverlapThenNewOnlyRotationPreservesEquivocationDefense(t *testing.T) {
+	oldPublic, oldPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPublic, newPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 4, 1, 0, 0, 0, time.UTC)
+	newVerifier := func(version uint64, keys map[string]ed25519.PublicKey) *TrustVerifier {
+		t.Helper()
+		verifier, verifierErr := NewTrustVerifier(TrustVerifierConfig{Keyring: &TrustKeyring{Version: version, Keys: keys},
+			Now: func() time.Time { return now }, MaxSnapshotTTL: time.Hour, MaxClockSkew: time.Second})
+		if verifierErr != nil {
+			t.Fatal(verifierErr)
+		}
+		return verifier
+	}
+	overlap := newVerifier(2, map[string]ed25519.PublicKey{"old": oldPublic, "new": newPublic})
+	oldRelease := signedTestRelease(t, oldPrivate)
+	oldRelease.KeyID = "old"
+	newRelease := signedTestRelease(t, newPrivate)
+	newRelease.KeyID = "new"
+	if _, _, err := overlap.VerifyRelease(oldRelease); err != nil {
+		t.Fatalf("overlap rejected old key: %v", err)
+	}
+	if _, _, err := overlap.VerifyRelease(newRelease); err != nil {
+		t.Fatalf("overlap rejected new key: %v", err)
+	}
+
+	newOnly := newVerifier(3, map[string]ed25519.PublicKey{"new": newPublic})
+	if _, _, err := newOnly.VerifyRelease(oldRelease); err == nil {
+		t.Fatal("new-only keyring accepted retired old key")
+	}
+	if _, _, err := newOnly.VerifyRelease(newRelease); err != nil {
+		t.Fatalf("new-only keyring rejected new key: %v", err)
+	}
+
+	payload := CatalogSnapshotPayload{Sequence: 9, IssuedAt: now.Add(-time.Minute), NextUpdateAt: now.Add(10 * time.Minute),
+		ExpiresAt: now.Add(20 * time.Minute), Catalog: CatalogIndex{SchemaVersion: "1", Releases: []CatalogReleaseStatus{}}}
+	first := signTestEnvelopeWithKeyID(t, oldPrivate, "old", catalogSignatureContext, payload)
+	_, state, err := overlap.VerifyCatalog(first, CatalogTrustState{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	equivocated := payload
+	equivocated.NextUpdateAt = equivocated.NextUpdateAt.Add(time.Minute)
+	second := signTestEnvelopeWithKeyID(t, newPrivate, "new", catalogSignatureContext, equivocated)
+	if _, _, err := overlap.VerifyCatalog(second, state); err == nil {
+		t.Fatal("overlap key transition accepted same-sequence equivocation")
+	}
+}
+
 func signedTestRelease(t *testing.T, privateKey ed25519.PrivateKey) SignedEnvelope {
 	t.Helper()
 	payload := ReleaseEnvelopePayload{SchemaVersion: "1", ItemType: "connector", ItemKey: "github", Version: "1.0.0",
@@ -76,13 +149,17 @@ func signedTestRelease(t *testing.T, privateKey ed25519.PrivateKey) SignedEnvelo
 }
 
 func signTestEnvelope(t *testing.T, privateKey ed25519.PrivateKey, context string, payload any) SignedEnvelope {
+	return signTestEnvelopeWithKeyID(t, privateKey, "key-1", context, payload)
+}
+
+func signTestEnvelopeWithKeyID(t *testing.T, privateKey ed25519.PrivateKey, keyID, context string, payload any) SignedEnvelope {
 	t.Helper()
 	canonical, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 	message := append([]byte(context), canonical...)
-	return SignedEnvelope{KeyID: "key-1", Algorithm: signatureAlgorithmEd25519, Payload: canonical, Signature: ed25519.Sign(privateKey, message)}
+	return SignedEnvelope{KeyID: keyID, Algorithm: signatureAlgorithmEd25519, Payload: canonical, Signature: ed25519.Sign(privateKey, message)}
 }
 
 func testTrustedRelease() Release {

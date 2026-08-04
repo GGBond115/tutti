@@ -35,6 +35,13 @@ await connectorMarket.ensureLoaded();
 The backend adapter wraps the host's generated daemon client and maps transport
 DTOs into package domain types. Daemon events are invalidation hints; the
 service re-reads the authoritative daemon snapshot before publishing new state.
+Starting an event subscription and every observed `connected` state trigger an
+authoritative reconciliation, including the first connection. Snapshot reads
+are coalesced per workspace generation and a connection/event arriving during
+an in-flight read schedules a serialized follow-up. Mutation responses are
+revision-fenced so an older response cannot overwrite a newer daemon snapshot;
+host generated-client adapters must preserve connector-market error code,
+retryability, and structured details when rejecting a command.
 The service follows the shared renderer-domain convention: it is a constructor-
 injected class, exposes its only writable state source as `readonly dataStore`,
 owns asynchronous commands directly, and has explicit idempotent `start()` and

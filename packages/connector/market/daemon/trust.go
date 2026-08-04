@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	signatureAlgorithmEd25519 = "Ed25519"
-	releaseSignatureContext   = "tutti.connector.release.v1\x00"
-	catalogSignatureContext   = "tutti.connector.catalog.v1\x00"
+	signatureAlgorithmEd25519       = "Ed25519"
+	signatureAlgorithmEd25519SHA256 = "Ed25519-SHA256"
+	releaseSignatureContext         = "tutti.connector.release.v1\x00"
+	catalogSignatureContext         = "tutti.connector.catalog.v1\x00"
 )
 
 // SignedEnvelope transports the exact canonical bytes signed by the market.
@@ -98,9 +99,19 @@ func (state CatalogTrustState) Fresh(now time.Time, maxClockSkew time.Duration) 
 
 type TrustVerifierConfig struct {
 	Keys           map[string]ed25519.PublicKey
+	Keyring        *TrustKeyring
 	MaxSnapshotTTL time.Duration
 	MaxClockSkew   time.Duration
 	Now            func() time.Time
+}
+
+// TrustKeyring is an explicitly versioned set of simultaneously trusted
+// market signing keys. A rotation is shipped as two successive versions:
+// old+new during the overlap window, then new-only after publishers have
+// moved. Version is operational metadata; signatures remain bound to KeyID.
+type TrustKeyring struct {
+	Version uint64
+	Keys    map[string]ed25519.PublicKey
 }
 
 type TrustVerifier struct {
@@ -111,11 +122,21 @@ type TrustVerifier struct {
 }
 
 func NewTrustVerifier(config TrustVerifierConfig) (*TrustVerifier, error) {
-	if len(config.Keys) == 0 {
+	configuredKeys := config.Keys
+	if config.Keyring != nil {
+		if len(config.Keys) != 0 {
+			return nil, errors.New("connector market trust config cannot mix legacy keys and a versioned keyring")
+		}
+		if config.Keyring.Version == 0 {
+			return nil, errors.New("connector market trust keyring version is required")
+		}
+		configuredKeys = config.Keyring.Keys
+	}
+	if len(configuredKeys) == 0 {
 		return nil, errors.New("connector market production trust roots are required")
 	}
-	keys := make(map[string]ed25519.PublicKey, len(config.Keys))
-	for keyID, key := range config.Keys {
+	keys := make(map[string]ed25519.PublicKey, len(configuredKeys))
+	for keyID, key := range configuredKeys {
 		if strings.TrimSpace(keyID) == "" || len(key) != ed25519.PublicKeySize {
 			return nil, errors.New("connector market trust root is invalid")
 		}
@@ -206,7 +227,8 @@ func (verifier *TrustVerifier) VerifyRelease(envelope SignedEnvelope) (ReleaseEn
 }
 
 func (verifier *TrustVerifier) verifyEnvelope(context string, envelope SignedEnvelope) error {
-	if envelope.Algorithm != signatureAlgorithmEd25519 || len(envelope.Signature) != ed25519.SignatureSize || len(envelope.Payload) == 0 {
+	if (envelope.Algorithm != signatureAlgorithmEd25519 && envelope.Algorithm != signatureAlgorithmEd25519SHA256) ||
+		len(envelope.Signature) != ed25519.SignatureSize || len(envelope.Payload) == 0 {
 		return errors.New("connector market signature envelope is invalid")
 	}
 	key, ok := verifier.keys[envelope.KeyID]
@@ -216,7 +238,12 @@ func (verifier *TrustVerifier) verifyEnvelope(context string, envelope SignedEnv
 	message := make([]byte, 0, len(context)+len(envelope.Payload))
 	message = append(message, context...)
 	message = append(message, envelope.Payload...)
-	if !ed25519.Verify(key, message, envelope.Signature) {
+	verifiedMessage := message
+	if envelope.Algorithm == signatureAlgorithmEd25519SHA256 {
+		digest := sha256.Sum256(message)
+		verifiedMessage = digest[:]
+	}
+	if !ed25519.Verify(key, verifiedMessage, envelope.Signature) {
 		return errors.New("connector market signature verification failed")
 	}
 	return nil

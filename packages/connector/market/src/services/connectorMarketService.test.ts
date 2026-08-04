@@ -239,7 +239,93 @@ test("rolls back optimistic workspace enablement when the daemon rejects it", as
   service.dispose();
 });
 
-test("connects events only during start and disposes the subscription once", async () => {
+test("does not let a stale authorization response overwrite a newer daemon snapshot", async () => {
+  const authorization =
+    deferred<
+      Awaited<ReturnType<ConnectorMarketBackend["beginAuthorization"]>>
+    >();
+  let snapshotRevision = 1;
+  const openedUrls: string[] = [];
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => {
+        const current = connector("github", snapshotRevision);
+        current.authorization = {
+          state: snapshotRevision === 1 ? "disconnected" : "connected"
+        };
+        return snapshot(snapshotRevision, [current]);
+      },
+      beginAuthorization: async () => authorization.promise
+    }),
+    workspaceId: "workspace-1",
+    openAuthorizationUrl: async (url) => {
+      openedUrls.push(url);
+    }
+  });
+  await service.ensureLoaded();
+
+  const mutation = service.beginAuthorization("github");
+  snapshotRevision = 3;
+  await service.reload();
+  const staleConnector = connector("github", 2);
+  staleConnector.authorization = { state: "pending" };
+  authorization.resolve({
+    connector: staleConnector,
+    operation: operation("start_authorization", 2),
+    authorizationUrl: "https://authorization.example/start",
+    revision: 2
+  });
+  await mutation;
+
+  assert.equal(service.dataStore.revision, 3);
+  assert.equal(
+    service.dataStore.connectorsByKey.github?.authorization.state,
+    "connected"
+  );
+  assert.deepEqual(openedUrls, ["https://authorization.example/start"]);
+  service.dispose();
+});
+
+test("does not let a stale workspace-binding response overwrite a newer daemon snapshot", async () => {
+  const binding =
+    deferred<
+      Awaited<ReturnType<ConnectorMarketBackend["setWorkspaceEnabled"]>>
+    >();
+  let snapshotRevision = 1;
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () =>
+        snapshot(snapshotRevision, [connector("github", snapshotRevision)]),
+      setWorkspaceEnabled: async () => binding.promise
+    }),
+    workspaceId: "workspace-1"
+  });
+  await service.ensureLoaded();
+
+  const mutation = service.setWorkspaceEnabled("github", true);
+  snapshotRevision = 3;
+  await service.reload();
+  const staleConnector = connector("github", 2);
+  staleConnector.workspaceBinding = {
+    workspaceId: "workspace-1",
+    enabled: true
+  };
+  binding.resolve({
+    connector: staleConnector,
+    operation: operation("set_workspace_enabled", 2),
+    revision: 2
+  });
+  await mutation;
+
+  assert.equal(service.dataStore.revision, 3);
+  assert.equal(
+    service.dataStore.connectorsByKey.github?.workspaceBinding?.enabled,
+    false
+  );
+  service.dispose();
+});
+
+test("late event subscription reconciles the authoritative snapshot and disposes once", async () => {
   const events = new TestEventSource();
   let revision = 1;
   let loads = 0;
@@ -261,8 +347,9 @@ test("connects events only during start and disposes the subscription once", asy
 
   service.start();
   service.start();
-  events.emit({ type: "connector.market.changed", revision: 2 });
   await waitFor(() => service.dataStore.revision === 2);
+  events.emit({ type: "connector.market.changed", revision: 2 });
+  await Promise.resolve();
   assert.equal(loads, 2);
   assert.equal(events.subscribeCalls, 1);
 
@@ -291,7 +378,7 @@ test("does not publish an in-flight response after disposal", async () => {
   assert.equal(service.dataStore.workspaceId, undefined);
 });
 
-test("reloads the authoritative snapshot after daemon event-stream reconnect", async () => {
+test("reconciles on the first connection and every daemon event-stream reconnect", async () => {
   const events = new TestEventSource();
   let revision = 1;
   let loads = 0;
@@ -307,15 +394,56 @@ test("reloads the authoritative snapshot after daemon event-stream reconnect", a
 
   service.start();
   await service.ensureLoaded();
-  events.emitConnection("connected");
   revision = 2;
-  events.emitConnection("disconnected");
   events.emitConnection("connected");
   await waitFor(() => service.dataStore.revision === 2);
+  revision = 3;
+  events.emitConnection("disconnected");
+  events.emitConnection("connected");
+  await waitFor(() => service.dataStore.revision === 3);
 
-  assert.equal(loads, 2);
+  assert.equal(loads, 3);
   service.dispose();
   assert.equal(events.connectionUnsubscribeCalls, 1);
+});
+
+test("serializes loads and retries when a queued reconnect follows a failed snapshot", async () => {
+  const events = new TestEventSource();
+  const first = deferred<ConnectorMarketSnapshot>();
+  const second = deferred<ConnectorMarketSnapshot>();
+  let calls = 0;
+  let active = 0;
+  let maxActive = 0;
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => {
+        calls += 1;
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        try {
+          return await (calls === 1 ? first.promise : second.promise);
+        } finally {
+          active -= 1;
+        }
+      }
+    }),
+    events
+  });
+
+  service.start();
+  const load = service.ensureLoaded();
+  assert.equal(calls, 1);
+  events.emitConnection("connected");
+  assert.equal(calls, 1);
+  first.reject(new Error("connection changed during failed snapshot"));
+  await waitFor(() => calls === 2);
+  second.resolve(snapshot(2, [connector("github", 2)]));
+  await load;
+
+  assert.equal(maxActive, 1);
+  assert.equal(service.dataStore.revision, 2);
+  assert.equal(service.dataStore.loadState, "ready");
+  service.dispose();
 });
 
 class TestEventSource implements ConnectorMarketEventSource {
@@ -361,6 +489,22 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, reject, resolve };
+}
+
+function operation(
+  kind: "start_authorization" | "set_workspace_enabled",
+  revision: number
+) {
+  return {
+    operationId: `${kind}-${revision}`,
+    clientRequestId: `request-${revision}`,
+    connectorKey: "github",
+    kind,
+    state: "accepted" as const,
+    attempt: 0,
+    createdAt: "2026-08-03T00:00:00Z",
+    updatedAt: "2026-08-03T00:00:00Z"
+  };
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {

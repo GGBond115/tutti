@@ -27,11 +27,15 @@ type Repository interface {
 	Connector(ctx context.Context, connectorKey, workspaceID string) (Connector, error)
 	Operation(ctx context.Context, operationID string) (Operation, error)
 	ClaimOperation(ctx context.Context, operationID, owner string, now, leaseExpiresAt time.Time) (Operation, bool, error)
-	ReleaseOperationLease(ctx context.Context, operationID, owner string) error
+	RenewOperationLease(ctx context.Context, operationID, owner string, token uint64, now, leaseExpiresAt time.Time) error
+	ReleaseOperationLease(ctx context.Context, operationID, owner string, token uint64) error
 	Transaction(ctx context.Context, fn func(Transaction) error) error
 	RecoverableOperations(ctx context.Context) ([]Operation, error)
 	WorkspaceBindings(ctx context.Context, connectorKey string) ([]WorkspaceBinding, error)
 	CatalogTrustState(ctx context.Context) (CatalogTrustState, error)
+	InstalledRelease(ctx context.Context, connectorKey, releaseDigest string) (Release, error)
+	RecordSecurityRevocations(ctx context.Context, revocations []ReleaseCatalogStatus) error
+	SecurityRevocations(ctx context.Context) ([]ReleaseCatalogStatus, error)
 }
 
 type Transaction interface {
@@ -88,6 +92,8 @@ type RuntimeObservation struct {
 type ImplementationHost interface {
 	Reconcile(ctx context.Context, request WorkspaceReconcileRequest) (WorkspaceRuntimeReceipt, error)
 	Revoke(ctx context.Context, request SecurityRevocationRequest) error
+	// FailClosed stops all capability publication before best-effort fencing.
+	FailClosed(ctx context.Context, deadline time.Time) error
 }
 
 type WorkspaceReconcileRequest struct {
