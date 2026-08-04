@@ -2372,3 +2372,55 @@ test("shared tuttid connector client preserves structured market errors", async 
     }
   );
 });
+
+test("shared tuttid connector client preserves category and cursor pagination", async () => {
+  const categories = {
+    categories: [
+      {
+        categoryId: "development",
+        kind: "category" as const,
+        sortOrder: 20,
+        itemCount: 1
+      }
+    ]
+  };
+  const page = {
+    sectionId: "development",
+    items: [],
+    nextPageToken: "next-page",
+    revision: 8
+  };
+  const { client, requests } = captureClient((request) =>
+    jsonResponse(request.path.endsWith("/categories") ? categories : page)
+  );
+
+  assert.deepEqual(await client.listConnectorMarketCategories(), categories);
+  assert.deepEqual(
+    await client.listConnectorMarketCatalog({
+      sectionId: "development",
+      pageSize: 20,
+      pageToken: "cursor-1",
+      workspaceId: "workspace-1"
+    }),
+    page
+  );
+  assertRequest(requests[0]!, {
+    authorization: null,
+    body: null,
+    method: "GET",
+    path: "/v1/connector-market/categories",
+    query: {}
+  });
+  assertRequest(requests[1]!, {
+    authorization: null,
+    body: null,
+    method: "GET",
+    path: "/v1/connector-market/catalog",
+    query: {
+      pageSize: "20",
+      pageToken: "cursor-1",
+      sectionId: "development",
+      workspaceId: "workspace-1"
+    }
+  });
+});

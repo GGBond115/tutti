@@ -65,6 +65,16 @@ Each host composes this fragment into its aggregate OpenAPI document, generates
 its own server and client, and provides transport mapping. The local daemon is
 the authoritative source for renderer state.
 
+Market placement is not part of the immutable release manifest. ZK owns each
+listing's primary category, ranks, and optional featured placement; TSH exposes
+the selected deployment market through category and cursor-paginated item
+endpoints. Tutti forwards that model through daemon-owned category/page APIs.
+The shared Valtio service maintains independent page state for every section,
+and the renderer does not infer category membership from connector keys or
+manifest JSON. `featured` is an overlapping collection, while authoritative
+runtime refreshes enumerate every primary `category` section and deduplicate by
+connector key.
+
 ## Package And Host Ownership
 
 The shared package owns:

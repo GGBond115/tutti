@@ -11,10 +11,14 @@ import type {
 } from "./connectorMarketService.interface.ts";
 import {
   applyConnectorMarketSnapshot,
+  applyConnectorMarketCatalogPage,
+  applyConnectorMarketCategories,
   applyConnectorMutationResult,
   clearConnectorMarketStoreState,
   createConnectorMarketStoreState,
   normalizeConnectorMarketError,
+  markConnectorMarketSectionError,
+  markConnectorMarketSectionLoading,
   resetConnectorMarketWorkspaceState
 } from "./connectorMarketState.ts";
 
@@ -41,6 +45,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
   private eventUnsubscribe: (() => void) | null = null;
   private eventConnectionUnsubscribe: (() => void) | null = null;
   private refreshInFlight: Promise<void> | null = null;
+  private readonly sectionLoads = new Map<string, Promise<void>>();
   private loadInFlight: {
     generation: number;
     promise: Promise<void>;
@@ -121,6 +126,34 @@ export class ConnectorMarketService implements IConnectorMarketService {
         }
       });
     this.refreshInFlight = promise;
+    return promise;
+  }
+
+  loadMore(sectionId: string): Promise<void> {
+    if (this.disposed) {
+      return Promise.resolve();
+    }
+    const existing = this.sectionLoads.get(sectionId);
+    if (existing) {
+      return existing;
+    }
+    const section = this.dataStore.catalogSections.find(
+      (candidate) => candidate.categoryId === sectionId
+    );
+    if (!section || section.loadState === "loading" || !section.nextPageToken) {
+      return Promise.resolve();
+    }
+    const generation = this.workspaceGeneration;
+    const promise = this.loadCatalogPage(
+      generation,
+      sectionId,
+      section.nextPageToken
+    ).finally(() => {
+      if (this.sectionLoads.get(sectionId) === promise) {
+        this.sectionLoads.delete(sectionId);
+      }
+    });
+    this.sectionLoads.set(sectionId, promise);
     return promise;
   }
 
@@ -245,6 +278,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
     this.workspaceGeneration += 1;
     this.connectorMutations.clear();
     this.refreshInFlight = null;
+    this.sectionLoads.clear();
     resetConnectorMarketWorkspaceState(this.dataStore, workspaceId);
     await this.load(false);
   }
@@ -257,6 +291,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
     this.workspaceGeneration += 1;
     this.connectorMutations.clear();
     this.refreshInFlight = null;
+    this.sectionLoads.clear();
     this.eventUnsubscribe?.();
     this.eventUnsubscribe = null;
     this.eventConnectionUnsubscribe?.();
@@ -323,17 +358,56 @@ export class ConnectorMarketService implements IConnectorMarketService {
       this.dataStore.loadState = "loading";
     }
     try {
-      const next = await this.dependencies.backend.getSnapshot({ workspaceId });
+      const [next, categories] = await Promise.all([
+        this.dependencies.backend.getSnapshot({ workspaceId }),
+        this.dependencies.backend.listCategories()
+      ]);
       if (!this.isCurrent(generation)) {
         return;
       }
       applyConnectorMarketSnapshot(this.dataStore, next);
+      applyConnectorMarketCategories(this.dataStore, categories);
+      await Promise.all(
+        categories
+          .filter((category) => category.itemCount > 0)
+          .map((category) =>
+            this.loadCatalogPage(generation, category.categoryId)
+          )
+      );
     } catch (error) {
       if (!this.isCurrent(generation)) {
         return;
       }
       this.dataStore.loadState = "error";
       this.recordError(error);
+      throw error;
+    }
+  }
+
+  private async loadCatalogPage(
+    generation: number,
+    sectionId: string,
+    pageToken?: string
+  ): Promise<void> {
+    if (!this.isCurrent(generation)) {
+      return;
+    }
+    markConnectorMarketSectionLoading(this.dataStore, sectionId);
+    try {
+      const page = await this.dependencies.backend.listCatalogPage({
+        sectionId,
+        pageSize: 20,
+        pageToken,
+        workspaceId: this.dataStore.workspaceId
+      });
+      if (this.isCurrent(generation)) {
+        applyConnectorMarketCatalogPage(this.dataStore, page);
+      }
+    } catch (error) {
+      if (this.isCurrent(generation)) {
+        markConnectorMarketSectionError(this.dataStore, sectionId);
+        this.recordError(error);
+      }
       throw error;
     }
   }

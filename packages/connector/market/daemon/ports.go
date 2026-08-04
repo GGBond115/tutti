@@ -6,7 +6,54 @@ import (
 )
 
 type CatalogSource interface {
+	ListCategories(context.Context) ([]CatalogCategory, error)
+	ListPage(context.Context, CatalogSourcePageQuery) (CatalogSourcePage, error)
 	Refresh(context.Context) (CatalogSnapshot, error)
+}
+
+type CatalogSourcePageQuery struct {
+	SectionID string
+	PageSize  int
+	PageToken string
+}
+
+type CatalogPageQuery struct {
+	SectionID   string
+	PageSize    int
+	PageToken   string
+	WorkspaceID string
+}
+
+type CatalogCategory struct {
+	CategoryID string `json:"categoryId"`
+	Kind       string `json:"kind"`
+	SortOrder  int32  `json:"sortOrder"`
+	ItemCount  int64  `json:"itemCount"`
+}
+
+type CatalogEntry struct {
+	CategoryID string  `json:"categoryId"`
+	Featured   bool    `json:"featured"`
+	Release    Release `json:"release"`
+}
+
+type CatalogSourcePage struct {
+	SectionID     string
+	Entries       []CatalogEntry
+	NextPageToken string
+}
+
+type CatalogListing struct {
+	CategoryID string    `json:"categoryId"`
+	Featured   bool      `json:"featured"`
+	Connector  Connector `json:"connector"`
+}
+
+type CatalogPage struct {
+	SectionID     string           `json:"sectionId"`
+	Items         []CatalogListing `json:"items"`
+	NextPageToken string           `json:"nextPageToken,omitempty"`
+	Revision      uint64           `json:"revision"`
 }
 
 type CatalogSnapshot struct {

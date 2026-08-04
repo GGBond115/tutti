@@ -403,6 +403,12 @@ import type {
   ListCollaborationRunsData,
   ListCollaborationRunsErrors,
   ListCollaborationRunsResponses,
+  ListConnectorMarketCatalogData,
+  ListConnectorMarketCatalogErrors,
+  ListConnectorMarketCatalogResponses,
+  ListConnectorMarketCategoriesData,
+  ListConnectorMarketCategoriesErrors,
+  ListConnectorMarketCategoriesResponses,
   ListMobileRemotePairingsData,
   ListMobileRemotePairingsErrors,
   ListMobileRemotePairingsResponses,
@@ -5249,6 +5255,42 @@ export const getConnectorMarket = <ThrowOnError extends boolean = false>(
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/v1/connector-market",
+    ...options
+  });
+
+/**
+ * List server-owned connector-market sections
+ */
+export const listConnectorMarketCategories = <
+  ThrowOnError extends boolean = false
+>(
+  options?: Options<ListConnectorMarketCategoriesData, ThrowOnError>
+) =>
+  (options?.client ?? client).get<
+    ListConnectorMarketCategoriesResponses,
+    ListConnectorMarketCategoriesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/connector-market/categories",
+    ...options
+  });
+
+/**
+ * List one server-owned connector-market section
+ */
+export const listConnectorMarketCatalog = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<ListConnectorMarketCatalogData, ThrowOnError>
+) =>
+  (options.client ?? client).get<
+    ListConnectorMarketCatalogResponses,
+    ListConnectorMarketCatalogErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/connector-market/catalog",
     ...options
   });
 

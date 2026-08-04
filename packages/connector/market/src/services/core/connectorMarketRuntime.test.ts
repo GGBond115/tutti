@@ -20,7 +20,26 @@ test("module activation runs all service startup jobs before ready", async () =>
         getSnapshot: async () => {
           snapshotLoads += 1;
           return snapshot(1, [connector("github")]);
-        }
+        },
+        listCategories: async () => [
+          {
+            categoryId: "development",
+            kind: "category",
+            sortOrder: 20,
+            itemCount: 1
+          }
+        ],
+        listCatalogPage: async () => ({
+          sectionId: "development",
+          items: [
+            {
+              categoryId: "development",
+              featured: false,
+              connector: connector("github")
+            }
+          ],
+          revision: 1
+        })
       }),
       events: eventSource({
         onSubscribe: () => {
@@ -206,6 +225,8 @@ function backendWith(
     getConnector: unsupported,
     getOperation: unsupported,
     getSnapshot: async () => snapshot(0, []),
+    listCategories: async () => [],
+    listCatalogPage: unsupported,
     installConnector: unsupported,
     refreshCatalog: unsupported,
     setWorkspaceEnabled: unsupported,

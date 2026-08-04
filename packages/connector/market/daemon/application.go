@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -93,6 +94,112 @@ func NewApplication(config ApplicationConfig) (*Application, error) {
 
 func (application *Application) Snapshot(ctx context.Context, workspaceID string) (Snapshot, error) {
 	return application.config.Repository.Snapshot(ctx, workspaceID)
+}
+
+func (application *Application) ListCatalogCategories(ctx context.Context) ([]CatalogCategory, error) {
+	categories, err := application.config.CatalogSource.ListCategories(ctx)
+	if err != nil {
+		return nil, NewDomainError(ErrorCodeUpstreamUnavailable, "connector catalog categories could not be loaded", true, err)
+	}
+	seen := make(map[string]struct{}, len(categories))
+	for _, category := range categories {
+		if strings.TrimSpace(category.CategoryID) == "" ||
+			(category.Kind != "category" && category.Kind != "featured") ||
+			category.ItemCount < 0 {
+			return nil, invalidManifest("connector catalog returned an invalid category", nil)
+		}
+		if _, exists := seen[category.CategoryID]; exists {
+			return nil, invalidManifest("connector catalog returned duplicate categories", nil)
+		}
+		seen[category.CategoryID] = struct{}{}
+	}
+	return categories, nil
+}
+
+func (application *Application) ListCatalogPage(ctx context.Context, query CatalogPageQuery) (CatalogPage, error) {
+	query.SectionID = strings.TrimSpace(query.SectionID)
+	query.PageToken = strings.TrimSpace(query.PageToken)
+	query.WorkspaceID = strings.TrimSpace(query.WorkspaceID)
+	if query.SectionID == "" || query.PageSize < 1 || query.PageSize > 100 {
+		return CatalogPage{}, invalidRequest("sectionId and a pageSize between 1 and 100 are required")
+	}
+	page, err := application.config.CatalogSource.ListPage(ctx, CatalogSourcePageQuery{
+		SectionID: query.SectionID, PageSize: query.PageSize, PageToken: query.PageToken,
+	})
+	if err != nil {
+		return CatalogPage{}, NewDomainError(ErrorCodeUpstreamUnavailable, "connector catalog page could not be loaded", true, err)
+	}
+	if page.SectionID != query.SectionID {
+		return CatalogPage{}, invalidManifest("connector catalog page section does not match the request", nil)
+	}
+	seen := make(map[string]struct{}, len(page.Entries))
+	compatibilityByKey := make(map[string]Compatibility, len(page.Entries))
+	for _, entry := range page.Entries {
+		if strings.TrimSpace(entry.CategoryID) == "" {
+			return CatalogPage{}, invalidManifest("connector catalog item category is required", nil)
+		}
+		if _, exists := seen[entry.Release.ConnectorKey]; exists {
+			return CatalogPage{}, invalidManifest("connector catalog page contains duplicate connectors", nil)
+		}
+		seen[entry.Release.ConnectorKey] = struct{}{}
+		if err := ValidateReleaseShape(entry.Release); err != nil {
+			return CatalogPage{}, err
+		}
+		compatibility, err := application.compatibilityFor(entry.Release.Manifest)
+		if err != nil {
+			return CatalogPage{}, err
+		}
+		compatibilityByKey[entry.Release.ConnectorKey] = compatibility
+	}
+
+	// Browsing is a cache-aside catalog sync. Persisting newly observed releases
+	// makes an item immediately installable without waiting for the background
+	// authoritative refresh; unseen items are never removed by a partial page.
+	var revision uint64
+	err = application.config.Repository.Transaction(ctx, func(tx Transaction) error {
+		revision = tx.Revision()
+		changed := make([]Connector, 0, len(page.Entries))
+		for _, entry := range page.Entries {
+			connector, lookupErr := tx.Connector(entry.Release.ConnectorKey)
+			if lookupErr != nil && !errors.Is(lookupErr, ErrNotFound) {
+				return lookupErr
+			}
+			if errors.Is(lookupErr, ErrNotFound) {
+				connector = newCatalogConnector(entry.Release)
+			}
+			compatibility := compatibilityByKey[entry.Release.ConnectorKey]
+			if lookupErr == nil && reflect.DeepEqual(connector.Release, entry.Release) && reflect.DeepEqual(connector.Compatibility, compatibility) {
+				continue
+			}
+			connector.Release = entry.Release
+			connector.Compatibility = compatibility
+			changed = append(changed, connector)
+		}
+		if len(changed) == 0 {
+			return nil
+		}
+		revision = tx.AdvanceRevision()
+		for _, connector := range changed {
+			connector.Revision = revision
+			if err := tx.SaveConnector(connector); err != nil {
+				return err
+			}
+		}
+		return tx.EnqueueConnectorMarketChanged(ChangedEvent{Revision: revision})
+	})
+	if err != nil {
+		return CatalogPage{}, err
+	}
+
+	result := CatalogPage{SectionID: page.SectionID, Items: make([]CatalogListing, 0, len(page.Entries)), NextPageToken: page.NextPageToken, Revision: revision}
+	for _, entry := range page.Entries {
+		connector, err := application.config.Repository.Connector(ctx, entry.Release.ConnectorKey, query.WorkspaceID)
+		if err != nil {
+			return CatalogPage{}, err
+		}
+		result.Items = append(result.Items, CatalogListing{CategoryID: entry.CategoryID, Featured: entry.Featured, Connector: connector})
+	}
+	return result, nil
 }
 
 func (application *Application) GetConnector(

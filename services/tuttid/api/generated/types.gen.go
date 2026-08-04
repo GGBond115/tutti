@@ -1381,6 +1381,24 @@ func (e ConnectorMarketCatalogState) Valid() bool {
 	}
 }
 
+// Defines values for ConnectorMarketCategoryKind.
+const (
+	Category ConnectorMarketCategoryKind = "category"
+	Featured ConnectorMarketCategoryKind = "featured"
+)
+
+// Valid indicates whether the value is a known member of the ConnectorMarketCategoryKind enum.
+func (e ConnectorMarketCategoryKind) Valid() bool {
+	switch e {
+	case Category:
+		return true
+	case Featured:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConnectorMarketCompatibilityState.
 const (
 	Supported                 ConnectorMarketCompatibilityState = "supported"
@@ -5855,8 +5873,39 @@ type ConnectorMarketAuthorizationResponse struct {
 // ConnectorMarketAuthorizationState defines model for ConnectorMarketAuthorizationState.
 type ConnectorMarketAuthorizationState string
 
+// ConnectorMarketCatalogItem defines model for ConnectorMarketCatalogItem.
+type ConnectorMarketCatalogItem struct {
+	CategoryId string                   `json:"categoryId"`
+	Connector  ConnectorMarketConnector `json:"connector"`
+	Featured   bool                     `json:"featured"`
+}
+
+// ConnectorMarketCatalogPage defines model for ConnectorMarketCatalogPage.
+type ConnectorMarketCatalogPage struct {
+	Items         []ConnectorMarketCatalogItem `json:"items"`
+	NextPageToken *string                      `json:"nextPageToken,omitempty"`
+	Revision      int64                        `json:"revision"`
+	SectionId     string                       `json:"sectionId"`
+}
+
 // ConnectorMarketCatalogState defines model for ConnectorMarketCatalogState.
 type ConnectorMarketCatalogState string
+
+// ConnectorMarketCategoriesResponse defines model for ConnectorMarketCategoriesResponse.
+type ConnectorMarketCategoriesResponse struct {
+	Categories []ConnectorMarketCategory `json:"categories"`
+}
+
+// ConnectorMarketCategory defines model for ConnectorMarketCategory.
+type ConnectorMarketCategory struct {
+	CategoryId string                      `json:"categoryId"`
+	ItemCount  int64                       `json:"itemCount"`
+	Kind       ConnectorMarketCategoryKind `json:"kind"`
+	SortOrder  int32                       `json:"sortOrder"`
+}
+
+// ConnectorMarketCategoryKind defines model for ConnectorMarketCategory.Kind.
+type ConnectorMarketCategoryKind string
 
 // ConnectorMarketCompatibility defines model for ConnectorMarketCompatibility.
 type ConnectorMarketCompatibility struct {
@@ -9458,6 +9507,15 @@ type ConnectorMarketConnectorKey = string
 // ConnectorMarketOperationID defines model for ConnectorMarketOperationID.
 type ConnectorMarketOperationID = string
 
+// ConnectorMarketPageSize defines model for ConnectorMarketPageSize.
+type ConnectorMarketPageSize = int
+
+// ConnectorMarketPageToken defines model for ConnectorMarketPageToken.
+type ConnectorMarketPageToken = string
+
+// ConnectorMarketSectionID defines model for ConnectorMarketSectionID.
+type ConnectorMarketSectionID = string
+
 // ConnectorMarketWorkspaceID defines model for ConnectorMarketWorkspaceID.
 type ConnectorMarketWorkspaceID = string
 
@@ -9683,6 +9741,14 @@ type ListCliCapabilitiesParams struct {
 
 // GetConnectorMarketParams defines parameters for GetConnectorMarket.
 type GetConnectorMarketParams struct {
+	WorkspaceId *ConnectorMarketWorkspaceID `form:"workspaceId,omitempty" json:"workspaceId,omitempty"`
+}
+
+// ListConnectorMarketCatalogParams defines parameters for ListConnectorMarketCatalog.
+type ListConnectorMarketCatalogParams struct {
+	SectionId   ConnectorMarketSectionID    `form:"sectionId" json:"sectionId"`
+	PageSize    *ConnectorMarketPageSize    `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+	PageToken   *ConnectorMarketPageToken   `form:"pageToken,omitempty" json:"pageToken,omitempty"`
 	WorkspaceId *ConnectorMarketWorkspaceID `form:"workspaceId,omitempty" json:"workspaceId,omitempty"`
 }
 

@@ -32,6 +32,63 @@ func (api DaemonAPI) GetConnectorMarket(
 	return tuttigenerated.GetConnectorMarket200JSONResponse(projected), nil
 }
 
+func (api DaemonAPI) ListConnectorMarketCategories(
+	ctx context.Context,
+	_ tuttigenerated.ListConnectorMarketCategoriesRequestObject,
+) (tuttigenerated.ListConnectorMarketCategoriesResponseObject, error) {
+	if api.ConnectorMarketService == nil {
+		return tuttigenerated.ListConnectorMarketCategories503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
+	}
+	categories, err := api.ConnectorMarketService.ListCatalogCategories(ctx)
+	if err != nil {
+		payload, _ := connectorMarketError(err)
+		return tuttigenerated.ListConnectorMarketCategories503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: unavailableConnectorMarketResponse(payload)}, nil
+	}
+	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketCategoriesResponse](struct {
+		Categories []market.CatalogCategory `json:"categories"`
+	}{Categories: categories})
+	if err != nil {
+		return nil, err
+	}
+	return tuttigenerated.ListConnectorMarketCategories200JSONResponse(projected), nil
+}
+
+func (api DaemonAPI) ListConnectorMarketCatalog(
+	ctx context.Context,
+	request tuttigenerated.ListConnectorMarketCatalogRequestObject,
+) (tuttigenerated.ListConnectorMarketCatalogResponseObject, error) {
+	if api.ConnectorMarketService == nil {
+		return tuttigenerated.ListConnectorMarketCatalog503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: connectorMarketUnavailableError()}, nil
+	}
+	pageSize := 20
+	if request.Params.PageSize != nil {
+		pageSize = *request.Params.PageSize
+	}
+	pageToken := ""
+	if request.Params.PageToken != nil {
+		pageToken = *request.Params.PageToken
+	}
+	workspaceID := ""
+	if request.Params.WorkspaceId != nil {
+		workspaceID = *request.Params.WorkspaceId
+	}
+	page, err := api.ConnectorMarketService.ListCatalogPage(ctx, market.CatalogPageQuery{
+		SectionID: request.Params.SectionId, PageSize: pageSize, PageToken: pageToken, WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		payload, status := connectorMarketError(err)
+		if status == 400 {
+			return tuttigenerated.ListConnectorMarketCatalog400JSONResponse{ConnectorMarketInvalidRequestErrorJSONResponse: invalidConnectorMarketResponse(payload)}, nil
+		}
+		return tuttigenerated.ListConnectorMarketCatalog503JSONResponse{ConnectorMarketUnavailableErrorJSONResponse: unavailableConnectorMarketResponse(payload)}, nil
+	}
+	projected, err := projectConnectorMarket[tuttigenerated.ConnectorMarketCatalogPage](page)
+	if err != nil {
+		return nil, err
+	}
+	return tuttigenerated.ListConnectorMarketCatalog200JSONResponse(projected), nil
+}
+
 func (api DaemonAPI) GetConnectorMarketConnector(
 	ctx context.Context,
 	request tuttigenerated.GetConnectorMarketConnectorRequestObject,

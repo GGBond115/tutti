@@ -77,6 +77,8 @@ function backendWith(
   };
   return {
     getSnapshot: async () => snapshot(0, []),
+    listCategories: async () => [],
+    listCatalogPage: unsupported,
     getConnector: unsupported,
     getOperation: unsupported,
     refreshCatalog: unsupported,
@@ -100,6 +102,53 @@ test("exposes commands directly on a class service and state through dataStore",
 
   assert.deepEqual(service.dataStore.connectorKeys, ["github"]);
   assert.equal(service.dataStore.loadState, "ready");
+  service.dispose();
+});
+
+test("loads server categories and appends cursor pages", async () => {
+  const pageTokens: (string | undefined)[] = [];
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      listCategories: async () => [
+        {
+          categoryId: "development",
+          kind: "category",
+          sortOrder: 20,
+          itemCount: 2
+        }
+      ],
+      listCatalogPage: async ({ pageToken }) => {
+        pageTokens.push(pageToken);
+        const item = connector(
+          pageToken ? "linear" : "github",
+          pageToken ? 2 : 1
+        );
+        return {
+          sectionId: "development",
+          items: [
+            { categoryId: "development", featured: false, connector: item }
+          ],
+          ...(pageToken ? {} : { nextPageToken: "page-2" }),
+          revision: pageToken ? 2 : 1
+        };
+      }
+    })
+  });
+
+  await service.ensureLoaded();
+  assert.deepEqual(service.dataStore.catalogSections[0]?.connectorKeys, [
+    "github"
+  ]);
+  assert.equal(service.dataStore.catalogSections[0]?.nextPageToken, "page-2");
+
+  await service.loadMore("development");
+  assert.deepEqual(service.dataStore.catalogSections[0]?.connectorKeys, [
+    "github",
+    "linear"
+  ]);
+  assert.equal(service.dataStore.catalogSections[0]?.nextPageToken, undefined);
+  assert.deepEqual(pageTokens, [undefined, "page-2"]);
+  assert.equal(service.dataStore.revision, 2);
   service.dispose();
 });
 

@@ -4,6 +4,8 @@ import {
   getConnectorMarketConnector,
   getConnectorMarketOperation,
   installConnectorMarketConnector,
+  listConnectorMarketCatalog,
+  listConnectorMarketCategories,
   refreshConnectorMarket,
   setConnectorMarketWorkspaceBinding,
   startConnectorMarketAuthorization,
@@ -11,6 +13,8 @@ import {
 } from "./generated/index.ts";
 import type {
   ConnectorMarketAuthorizationResponse,
+  ConnectorMarketCatalogPage,
+  ConnectorMarketCategoriesResponse,
   ConnectorMarketConnector,
   ConnectorMarketConnectorResponse,
   ConnectorMarketError,
@@ -56,6 +60,13 @@ export function isConnectorMarketClientError(
 
 export interface ConnectorMarketClient {
   getConnectorMarket(workspaceId?: string): Promise<ConnectorMarketSnapshot>;
+  listConnectorMarketCategories(): Promise<ConnectorMarketCategoriesResponse>;
+  listConnectorMarketCatalog(input: {
+    sectionId: string;
+    pageSize?: number;
+    pageToken?: string;
+    workspaceId?: string;
+  }): Promise<ConnectorMarketCatalogPage>;
   getConnectorMarketConnector(
     connectorKey: string,
     workspaceId?: string
@@ -99,6 +110,18 @@ export function createConnectorMarketClient(
           ...(workspaceId ? { query: { workspaceId } } : {})
         }),
         "Get connector market request failed."
+      );
+    },
+    async listConnectorMarketCategories() {
+      return unwrapConnectorMarketData(
+        await listConnectorMarketCategories({ client }),
+        "List connector market categories request failed."
+      );
+    },
+    async listConnectorMarketCatalog(input) {
+      return unwrapConnectorMarketData(
+        await listConnectorMarketCatalog({ client, query: input }),
+        "List connector market catalog request failed."
       );
     },
     async getConnectorMarketConnector(connectorKey, workspaceId) {

@@ -19,27 +19,49 @@ export function buildConnectorMarketView(
     connectorHasInstalledArtifact
   ).length;
   const query = uiState.query.trim().toLocaleLowerCase();
-  const visible = allConnectors
-    .filter((connector) =>
-      uiState.segment === "installed"
-        ? connectorHasInstalledArtifact(connector)
-        : !connectorHasInstalledArtifact(connector)
-    )
-    .filter((connector) => {
-      if (!query) {
-        return true;
-      }
-      return [
-        connector.key,
-        connector.release.manifest.displayName,
-        connector.release.manifest.description ?? ""
-      ].some((value) => value.toLocaleLowerCase().includes(query));
-    })
-    .sort((left, right) =>
-      left.release.manifest.displayName.localeCompare(
-        right.release.manifest.displayName
-      )
-    );
+  const matchesQuery = (connector: Connector) => {
+    if (!query) {
+      return true;
+    }
+    return [
+      connector.key,
+      connector.release.manifest.displayName,
+      connector.release.manifest.description ?? ""
+    ].some((value) => value.toLocaleLowerCase().includes(query));
+  };
+  const sections =
+    uiState.segment === "installed"
+      ? [
+          {
+            id: "installed",
+            connectorKeys: allConnectors
+              .filter(connectorHasInstalledArtifact)
+              .filter(matchesQuery)
+              .sort((left, right) =>
+                left.release.manifest.displayName.localeCompare(
+                  right.release.manifest.displayName
+                )
+              )
+              .map((connector) => connector.key),
+            hasMore: false,
+            itemCount: installedCount,
+            loading: false
+          }
+        ]
+      : market.catalogSections.map((section) => ({
+          id: section.categoryId,
+          connectorKeys: section.connectorKeys.filter((key) => {
+            const connector = market.connectorsByKey[key];
+            return (
+              connector !== undefined &&
+              !connectorHasInstalledArtifact(connector) &&
+              matchesQuery(connector)
+            );
+          }),
+          hasMore: Boolean(section.nextPageToken),
+          itemCount: section.itemCount,
+          loading: section.loadState === "loading"
+        }));
   const cardsByKey = Object.fromEntries(
     allConnectors.map((connector) => [
       connector.key,
@@ -61,18 +83,19 @@ export function buildConnectorMarketView(
     installedCount,
     lastErrorCode: market.lastError?.code ?? null,
     refreshing: market.catalogState === "refreshing",
-    sections: [
-      {
-        id: "connectors",
-        connectorKeys: visible.map((connector) => connector.key)
-      }
-    ],
+    sections: sections.filter(
+      (section) =>
+        section.connectorKeys.length > 0 || section.loading || section.hasMore
+    ),
     status:
       market.loadState === "loading" || market.loadState === "idle"
         ? "loading"
         : market.loadState === "error"
           ? "error"
-          : allConnectors.length === 0
+          : sections.every(
+                (section) =>
+                  section.connectorKeys.length === 0 && !section.loading
+              )
             ? "empty"
             : "ready"
   };

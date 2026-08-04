@@ -33,8 +33,11 @@ export interface ConnectorCardView {
 }
 
 export interface ConnectorSectionView {
-  id: "connectors";
+  id: string;
   connectorKeys: string[];
+  hasMore: boolean;
+  itemCount: number;
+  loading: boolean;
 }
 
 export interface ConnectorPermissionView {

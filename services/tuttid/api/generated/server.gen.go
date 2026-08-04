@@ -101,6 +101,12 @@ type ServerInterface interface {
 	// Get the authoritative connector-market snapshot
 	// (GET /v1/connector-market)
 	GetConnectorMarket(w http.ResponseWriter, r *http.Request, params GetConnectorMarketParams)
+	// List one server-owned connector-market section
+	// (GET /v1/connector-market/catalog)
+	ListConnectorMarketCatalog(w http.ResponseWriter, r *http.Request, params ListConnectorMarketCatalogParams)
+	// List server-owned connector-market sections
+	// (GET /v1/connector-market/categories)
+	ListConnectorMarketCategories(w http.ResponseWriter, r *http.Request)
 	// Get one connector projection
 	// (GET /v1/connector-market/connectors/{connectorKey})
 	GetConnectorMarketConnector(w http.ResponseWriter, r *http.Request, connectorKey ConnectorMarketConnectorKey, params GetConnectorMarketConnectorParams)
@@ -1638,6 +1644,104 @@ func (siw *ServerInterfaceWrapper) GetConnectorMarket(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetConnectorMarket(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListConnectorMarketCatalog operation middleware
+func (siw *ServerInterfaceWrapper) ListConnectorMarketCatalog(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListConnectorMarketCatalogParams
+
+	// ------------- Required query parameter "sectionId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "sectionId", r.URL.Query(), &params.SectionId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sectionId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sectionId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pageSize" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pageSize", r.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pageSize"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pageToken" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pageToken", r.URL.Query(), &params.PageToken, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pageToken"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageToken", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "workspaceId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "workspaceId", r.URL.Query(), &params.WorkspaceId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "workspaceId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceId", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListConnectorMarketCatalog(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListConnectorMarketCategories operation middleware
+func (siw *ServerInterfaceWrapper) ListConnectorMarketCategories(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListConnectorMarketCategories(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10865,6 +10969,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/cli/capabilities", wrapper.ListCliCapabilities)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/cli/commands/{commandID}/invoke", wrapper.InvokeCliCommand)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/connector-market", wrapper.GetConnectorMarket)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/connector-market/catalog", wrapper.ListConnectorMarketCatalog)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/connector-market/categories", wrapper.ListConnectorMarketCategories)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/connector-market/connectors/{connectorKey}", wrapper.GetConnectorMarketConnector)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/connector-market/connectors/{connectorKey}/authorization:disconnect", wrapper.DisconnectConnectorMarketAuthorization)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/connector-market/connectors/{connectorKey}/authorization:start", wrapper.StartConnectorMarketAuthorization)
@@ -13436,6 +13542,129 @@ type GetConnectorMarket503JSONResponse struct {
 }
 
 func (response GetConnectorMarket503JSONResponse) VisitGetConnectorMarketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectorMarketCatalogRequestObject struct {
+	Params ListConnectorMarketCatalogParams
+}
+
+type ListConnectorMarketCatalogResponseObject interface {
+	VisitListConnectorMarketCatalogResponse(w http.ResponseWriter) error
+}
+
+type ListConnectorMarketCatalog200JSONResponse ConnectorMarketCatalogPage
+
+func (response ListConnectorMarketCatalog200JSONResponse) VisitListConnectorMarketCatalogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectorMarketCatalog400JSONResponse struct {
+	ConnectorMarketInvalidRequestErrorJSONResponse
+}
+
+func (response ListConnectorMarketCatalog400JSONResponse) VisitListConnectorMarketCatalogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectorMarketCatalog401JSONResponse struct {
+	ConnectorMarketUnauthorizedErrorJSONResponse
+}
+
+func (response ListConnectorMarketCatalog401JSONResponse) VisitListConnectorMarketCatalogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectorMarketCatalog503JSONResponse struct {
+	ConnectorMarketUnavailableErrorJSONResponse
+}
+
+func (response ListConnectorMarketCatalog503JSONResponse) VisitListConnectorMarketCatalogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectorMarketCategoriesRequestObject struct {
+}
+
+type ListConnectorMarketCategoriesResponseObject interface {
+	VisitListConnectorMarketCategoriesResponse(w http.ResponseWriter) error
+}
+
+type ListConnectorMarketCategories200JSONResponse ConnectorMarketCategoriesResponse
+
+func (response ListConnectorMarketCategories200JSONResponse) VisitListConnectorMarketCategoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectorMarketCategories401JSONResponse struct {
+	ConnectorMarketUnauthorizedErrorJSONResponse
+}
+
+func (response ListConnectorMarketCategories401JSONResponse) VisitListConnectorMarketCategoriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectorMarketCategories503JSONResponse struct {
+	ConnectorMarketUnavailableErrorJSONResponse
+}
+
+func (response ListConnectorMarketCategories503JSONResponse) VisitListConnectorMarketCategoriesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -37863,6 +38092,12 @@ type StrictServerInterface interface {
 	// Get the authoritative connector-market snapshot
 	// (GET /v1/connector-market)
 	GetConnectorMarket(ctx context.Context, request GetConnectorMarketRequestObject) (GetConnectorMarketResponseObject, error)
+	// List one server-owned connector-market section
+	// (GET /v1/connector-market/catalog)
+	ListConnectorMarketCatalog(ctx context.Context, request ListConnectorMarketCatalogRequestObject) (ListConnectorMarketCatalogResponseObject, error)
+	// List server-owned connector-market sections
+	// (GET /v1/connector-market/categories)
+	ListConnectorMarketCategories(ctx context.Context, request ListConnectorMarketCategoriesRequestObject) (ListConnectorMarketCategoriesResponseObject, error)
 	// Get one connector projection
 	// (GET /v1/connector-market/connectors/{connectorKey})
 	GetConnectorMarketConnector(ctx context.Context, request GetConnectorMarketConnectorRequestObject) (GetConnectorMarketConnectorResponseObject, error)
@@ -39318,6 +39553,56 @@ func (sh *strictHandler) GetConnectorMarket(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetConnectorMarketResponseObject); ok {
 		if err := validResponse.VisitGetConnectorMarketResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListConnectorMarketCatalog operation middleware
+func (sh *strictHandler) ListConnectorMarketCatalog(w http.ResponseWriter, r *http.Request, params ListConnectorMarketCatalogParams) {
+	var request ListConnectorMarketCatalogRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListConnectorMarketCatalog(ctx, request.(ListConnectorMarketCatalogRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListConnectorMarketCatalog")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListConnectorMarketCatalogResponseObject); ok {
+		if err := validResponse.VisitListConnectorMarketCatalogResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListConnectorMarketCategories operation middleware
+func (sh *strictHandler) ListConnectorMarketCategories(w http.ResponseWriter, r *http.Request) {
+	var request ListConnectorMarketCategoriesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListConnectorMarketCategories(ctx, request.(ListConnectorMarketCategoriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListConnectorMarketCategories")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListConnectorMarketCategoriesResponseObject); ok {
+		if err := validResponse.VisitListConnectorMarketCategoriesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

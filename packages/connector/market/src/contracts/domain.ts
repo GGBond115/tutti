@@ -195,6 +195,28 @@ export interface ConnectorMarketSnapshot {
   sourceRevision?: string;
 }
 
+export type ConnectorMarketCategoryKind = "category" | "featured";
+
+export interface ConnectorMarketCategory {
+  categoryId: string;
+  kind: ConnectorMarketCategoryKind;
+  sortOrder: number;
+  itemCount: number;
+}
+
+export interface ConnectorMarketCatalogItem {
+  categoryId: string;
+  featured: boolean;
+  connector: Connector;
+}
+
+export interface ConnectorMarketCatalogPage {
+  sectionId: string;
+  items: ConnectorMarketCatalogItem[];
+  nextPageToken?: string;
+  revision: number;
+}
+
 export interface ConnectorMarketMutationInput {
   clientRequestId: string;
   expectedRevision: number;

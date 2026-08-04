@@ -742,6 +742,20 @@ func registerConnectorMarketRoutes(mux *http.ServeMux, wrapper *tuttigenerated.S
 		}
 		wrapper.GetConnectorMarket(w, r)
 	})
+	mux.HandleFunc("/v1/connector-market/categories", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			tuttitypes.WriteMethodNotAllowed(w)
+			return
+		}
+		wrapper.ListConnectorMarketCategories(w, r)
+	})
+	mux.HandleFunc("/v1/connector-market/catalog", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			tuttitypes.WriteMethodNotAllowed(w)
+			return
+		}
+		wrapper.ListConnectorMarketCatalog(w, r)
+	})
 	mux.HandleFunc("/v1/connector-market:refresh", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			tuttitypes.WriteMethodNotAllowed(w)

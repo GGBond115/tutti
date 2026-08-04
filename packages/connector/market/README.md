@@ -58,6 +58,14 @@ an in-flight read schedules a serialized follow-up. Mutation responses are
 revision-fenced so an older response cannot overwrite a newer daemon snapshot;
 host generated-client adapters must preserve connector-market error code,
 retryability, and structured details when rejecting a command.
+Catalog placement is server-owned mutable metadata. The renderer first reads
+the daemon's category list, then reads each section with an opaque cursor and
+keeps independent Valtio loading and next-page state per section. `featured`
+is an overlapping collection; primary category membership is never inferred
+from the immutable connector release manifest. A browsed page is cached by the
+daemon so a newly observed connector is immediately installable, while the
+scheduled authoritative refresh still traverses every primary category for
+runtime reconciliation.
 Activation creates a child service container and executes the complete startup
 flow before the host renders the module:
 

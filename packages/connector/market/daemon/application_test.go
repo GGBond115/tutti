@@ -493,6 +493,38 @@ func TestApplicationRejectsStaleRevisionBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestApplicationCatalogPageCachesNewConnectorForImmediateInstall(t *testing.T) {
+	repository := newMemoryRepository()
+	release := testReleaseWithImplementation("github", "1.0.0", ImplementationKindManagedStdio)
+	source := catalogSourceStub{page: CatalogSourcePage{
+		SectionID:     "development",
+		Entries:       []CatalogEntry{{CategoryID: "development", Release: release}},
+		NextPageToken: "next-page",
+	}}
+	application := newTestApplicationWithCatalogSource(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, source)
+
+	page, err := application.ListCatalogPage(context.Background(), CatalogPageQuery{
+		SectionID: "development", PageSize: 20, WorkspaceID: "workspace-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Revision != 1 || page.NextPageToken != "next-page" || len(page.Items) != 1 || page.Items[0].Connector.Key != "github" {
+		t.Fatalf("page = %#v", page)
+	}
+	if _, err := repository.Connector(context.Background(), "github", "workspace-1"); err != nil {
+		t.Fatalf("cached connector: %v", err)
+	}
+
+	repeated, err := application.ListCatalogPage(context.Background(), CatalogPageQuery{SectionID: "development", PageSize: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repeated.Revision != 1 || repository.revision != 1 {
+		t.Fatalf("repeated page revision = %d, repository revision = %d", repeated.Revision, repository.revision)
+	}
+}
+
 func newTestApplication(
 	t *testing.T,
 	repository *memoryRepository,
@@ -503,11 +535,30 @@ func newTestApplication(
 	},
 	catalog CatalogSnapshot,
 ) *Application {
+	return newTestApplicationWithCatalogSource(
+		t,
+		repository,
+		scheduler,
+		installationHost,
+		catalogSourceFunc(func(context.Context) (CatalogSnapshot, error) { return catalog, nil }),
+	)
+}
+
+func newTestApplicationWithCatalogSource(
+	t *testing.T,
+	repository *memoryRepository,
+	scheduler *memoryScheduler,
+	installationHost interface {
+		ArtifactPreparer
+		ImplementationHost
+	},
+	catalogSource CatalogSource,
+) *Application {
 	t.Helper()
 	nextID := 0
 	application, err := NewApplication(ApplicationConfig{
 		Repository:             repository,
-		CatalogSource:          catalogSourceFunc(func(context.Context) (CatalogSnapshot, error) { return catalog, nil }),
+		CatalogSource:          catalogSource,
 		ArtifactPreparer:       installationHost,
 		Host:                   installationHost,
 		Authorization:          authorizationProviderStub{},
@@ -565,8 +616,34 @@ func testReleaseWithImplementation(key, version, implementationKind string) Rele
 
 type catalogSourceFunc func(context.Context) (CatalogSnapshot, error)
 
+func (catalogSourceFunc) ListCategories(context.Context) ([]CatalogCategory, error) {
+	return nil, nil
+}
+
+func (catalogSourceFunc) ListPage(context.Context, CatalogSourcePageQuery) (CatalogSourcePage, error) {
+	return CatalogSourcePage{}, nil
+}
+
 func (source catalogSourceFunc) Refresh(ctx context.Context) (CatalogSnapshot, error) {
 	return source(ctx)
+}
+
+type catalogSourceStub struct {
+	categories []CatalogCategory
+	page       CatalogSourcePage
+	snapshot   CatalogSnapshot
+}
+
+func (source catalogSourceStub) ListCategories(context.Context) ([]CatalogCategory, error) {
+	return source.categories, nil
+}
+
+func (source catalogSourceStub) ListPage(context.Context, CatalogSourcePageQuery) (CatalogSourcePage, error) {
+	return source.page, nil
+}
+
+func (source catalogSourceStub) Refresh(context.Context) (CatalogSnapshot, error) {
+	return source.snapshot, nil
 }
 
 type memoryScheduler struct {

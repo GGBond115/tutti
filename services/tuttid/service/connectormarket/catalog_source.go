@@ -21,6 +21,7 @@ import (
 )
 
 const connectorCatalogPath = "/v1/market/items"
+const connectorCategoriesPath = "/v1/market/categories"
 const maxCatalogResponseBytes = 8 << 20
 
 type RequestAuthorizer func(*http.Request) error
@@ -62,59 +63,146 @@ func NewCatalogSource(config CatalogSourceConfig) (*CatalogSource, error) {
 }
 
 func (source *CatalogSource) Refresh(ctx context.Context) (market.CatalogSnapshot, error) {
-	endpoint := source.baseURL.ResolveReference(&url.URL{Path: connectorCatalogPath})
-	query := endpoint.Query()
-	query.Set("itemType", "connector")
+	categories, err := source.ListCategories(ctx)
+	if err != nil {
+		return market.CatalogSnapshot{}, err
+	}
+	releases := make([]market.Release, 0)
+	seen := make(map[string]struct{})
+	primarySections := 0
+	for _, category := range categories {
+		if category.Kind != "category" {
+			continue
+		}
+		primarySections++
+		pageToken := ""
+		seenPageTokens := make(map[string]struct{})
+		for {
+			page, err := source.ListPage(ctx, market.CatalogSourcePageQuery{SectionID: category.CategoryID, PageSize: 100, PageToken: pageToken})
+			if err != nil {
+				return market.CatalogSnapshot{}, err
+			}
+			for _, entry := range page.Entries {
+				if _, exists := seen[entry.Release.ConnectorKey]; exists {
+					return market.CatalogSnapshot{}, errors.New("connector market catalog contains duplicate primary placements")
+				}
+				seen[entry.Release.ConnectorKey] = struct{}{}
+				releases = append(releases, entry.Release)
+			}
+			if page.NextPageToken == "" {
+				break
+			}
+			if _, exists := seenPageTokens[page.NextPageToken]; exists {
+				return market.CatalogSnapshot{}, errors.New("connector market catalog returned a cyclic page token")
+			}
+			seenPageTokens[page.NextPageToken] = struct{}{}
+			pageToken = page.NextPageToken
+		}
+	}
+	if primarySections == 0 {
+		return market.CatalogSnapshot{}, errors.New("connector market catalog returned no primary categories")
+	}
+	revisionHash := sha256.New()
+	for _, release := range releases {
+		_, _ = io.WriteString(revisionHash, release.ConnectorKey)
+		_, _ = io.WriteString(revisionHash, "\x00")
+		_, _ = io.WriteString(revisionHash, release.ReleaseDigest)
+		_, _ = io.WriteString(revisionHash, "\n")
+	}
+	return market.CatalogSnapshot{SourceRevision: hex.EncodeToString(revisionHash.Sum(nil)), Releases: releases}, nil
+}
+
+func (source *CatalogSource) ListCategories(ctx context.Context) ([]market.CatalogCategory, error) {
+	var payload wireMarketCategoriesResponse
+	if _, err := source.getJSON(ctx, connectorCategoriesPath, url.Values{"itemType": {"connector"}}, &payload); err != nil {
+		return nil, err
+	}
+	if payload.MarketType != source.expectedMarketType {
+		return nil, errors.New("connector market type does not match configured market")
+	}
+	categories := make([]market.CatalogCategory, 0, len(payload.Categories))
+	seen := make(map[string]struct{}, len(payload.Categories))
+	for _, category := range payload.Categories {
+		if strings.TrimSpace(category.CategoryID) == "" || (category.Kind != "category" && category.Kind != "featured") || category.ItemCount < 0 {
+			return nil, errors.New("connector market category is invalid")
+		}
+		if _, exists := seen[category.CategoryID]; exists {
+			return nil, errors.New("connector market category is duplicated")
+		}
+		seen[category.CategoryID] = struct{}{}
+		categories = append(categories, market.CatalogCategory{CategoryID: category.CategoryID, Kind: category.Kind, SortOrder: category.SortOrder, ItemCount: int64(category.ItemCount)})
+	}
+	return categories, nil
+}
+
+func (source *CatalogSource) ListPage(ctx context.Context, input market.CatalogSourcePageQuery) (market.CatalogSourcePage, error) {
+	query := url.Values{
+		"itemType":  {"connector"},
+		"sectionId": {strings.TrimSpace(input.SectionID)},
+		"pageSize":  {strconv.Itoa(input.PageSize)},
+	}
+	if token := strings.TrimSpace(input.PageToken); token != "" {
+		query.Set("pageToken", token)
+	}
+	var payload wireMarketResponse
+	if _, err := source.getJSON(ctx, connectorCatalogPath, query, &payload); err != nil {
+		return market.CatalogSourcePage{}, err
+	}
+	if payload.MarketType != source.expectedMarketType {
+		return market.CatalogSourcePage{}, errors.New("connector market type does not match configured market")
+	}
+	entries := make([]market.CatalogEntry, 0, len(payload.Items))
+	for _, item := range payload.Items {
+		release, err := source.mapItem(item)
+		if err != nil {
+			return market.CatalogSourcePage{}, err
+		}
+		if strings.TrimSpace(item.CategoryID) == "" {
+			return market.CatalogSourcePage{}, errors.New("connector market item category is missing")
+		}
+		entries = append(entries, market.CatalogEntry{CategoryID: item.CategoryID, Featured: item.Featured, Release: release})
+	}
+	return market.CatalogSourcePage{SectionID: strings.TrimSpace(input.SectionID), Entries: entries, NextPageToken: payload.NextPageToken}, nil
+}
+
+func (source *CatalogSource) getJSON(ctx context.Context, requestPath string, query url.Values, target any) ([]byte, error) {
+	endpoint := source.baseURL.ResolveReference(&url.URL{Path: requestPath})
 	endpoint.RawQuery = query.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return market.CatalogSnapshot{}, err
+		return nil, err
 	}
 	request.Header.Set("Accept", "application/json")
 	if source.authorizeRequest != nil {
 		if err := source.authorizeRequest(request); err != nil {
-			return market.CatalogSnapshot{}, err
+			return nil, err
 		}
 	}
 	response, err := source.httpClient.Do(request)
 	if err != nil {
-		return market.CatalogSnapshot{}, fmt.Errorf("request connector market catalog: %w", err)
+		return nil, fmt.Errorf("request connector market catalog: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		message, _ := io.ReadAll(io.LimitReader(response.Body, 4<<10))
-		return market.CatalogSnapshot{}, fmt.Errorf("request connector market catalog: status %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
+		return nil, fmt.Errorf("request connector market catalog: status %d: %s", response.StatusCode, strings.TrimSpace(string(message)))
 	}
 	payloadBytes, err := io.ReadAll(io.LimitReader(response.Body, maxCatalogResponseBytes+1))
 	if err != nil {
-		return market.CatalogSnapshot{}, err
+		return nil, err
 	}
 	if len(payloadBytes) > maxCatalogResponseBytes {
-		return market.CatalogSnapshot{}, errors.New("decode connector market catalog: response exceeds size limit")
+		return nil, errors.New("decode connector market catalog: response exceeds size limit")
 	}
-	var payload wireMarketResponse
 	decoder := json.NewDecoder(bytes.NewReader(payloadBytes))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
-		return market.CatalogSnapshot{}, fmt.Errorf("decode connector market catalog: %w", err)
+	if err := decoder.Decode(target); err != nil {
+		return nil, fmt.Errorf("decode connector market catalog: %w", err)
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return market.CatalogSnapshot{}, errors.New("decode connector market catalog: trailing JSON value")
+		return nil, errors.New("decode connector market catalog: trailing JSON value")
 	}
-	if payload.MarketType != source.expectedMarketType {
-		return market.CatalogSnapshot{}, errors.New("connector market type does not match configured market")
-	}
-	releases := make([]market.Release, 0, len(payload.Items))
-	for _, item := range payload.Items {
-		release, err := source.mapItem(item)
-		if err != nil {
-			return market.CatalogSnapshot{}, err
-		}
-		releases = append(releases, release)
-	}
-	digest := sha256.Sum256(payloadBytes)
-	revision := hex.EncodeToString(digest[:])
-	return market.CatalogSnapshot{SourceRevision: revision, Releases: releases}, nil
+	return payloadBytes, nil
 }
 
 func (source *CatalogSource) mapItem(item wireMarketItem) (market.Release, error) {
@@ -159,8 +247,21 @@ func (source *CatalogSource) mapItem(item wireMarketItem) (market.Release, error
 }
 
 type wireMarketResponse struct {
-	MarketType string           `json:"marketType"`
-	Items      []wireMarketItem `json:"items"`
+	MarketType    string           `json:"marketType"`
+	Items         []wireMarketItem `json:"items"`
+	NextPageToken string           `json:"nextPageToken"`
+}
+
+type wireMarketCategoriesResponse struct {
+	MarketType string               `json:"marketType"`
+	Categories []wireMarketCategory `json:"categories"`
+}
+
+type wireMarketCategory struct {
+	CategoryID string    `json:"categoryId"`
+	Kind       string    `json:"kind"`
+	SortOrder  int32     `json:"sortOrder"`
+	ItemCount  wireInt64 `json:"itemCount"`
 }
 
 type wireMarketItem struct {
@@ -171,6 +272,8 @@ type wireMarketItem struct {
 	Artifact      *wireArtifact  `json:"artifact"`
 	Manifest      map[string]any `json:"manifest"`
 	PublishedAtMS wireInt64      `json:"publishedAtMs"`
+	CategoryID    string         `json:"categoryId"`
+	Featured      bool           `json:"featured"`
 }
 
 type wireArtifact struct {

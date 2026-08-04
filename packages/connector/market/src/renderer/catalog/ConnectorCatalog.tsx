@@ -1,6 +1,7 @@
 import { Button, Spinner } from "@tutti-os/ui-system/components";
 import { useSnapshot } from "valtio";
 
+import type { ConnectorMarketI18nRuntime } from "../../i18n/connectorMarketI18n.ts";
 import { useConnectorMarketServices } from "../ConnectorMarketServicesContext.tsx";
 import { ConnectorCard } from "./ConnectorCard.tsx";
 
@@ -41,8 +42,7 @@ export function ConnectorCatalog() {
     );
   }
 
-  const connectorKeys = snapshot.sections[0]?.connectorKeys ?? [];
-  if (connectorKeys.length === 0) {
+  if (snapshot.sections.length === 0) {
     return (
       <div className="flex min-h-48 items-center justify-center rounded-lg border border-dashed border-[var(--border-1)] text-[13px] text-[var(--text-tertiary)]">
         {i18n.t("catalogEmpty")}
@@ -51,15 +51,61 @@ export function ConnectorCatalog() {
   }
 
   return (
-    <section aria-label={i18n.t("catalogSection")}>
-      <h3 className="mb-3 mt-0 text-[13px] font-semibold text-[var(--text-secondary)]">
-        {i18n.t("catalogSection")}
-      </h3>
-      <div className="grid grid-cols-2 gap-3 max-[760px]:grid-cols-1">
-        {connectorKeys.map((connectorKey) => (
-          <ConnectorCard key={connectorKey} connectorKey={connectorKey} />
-        ))}
-      </div>
-    </section>
+    <div className="flex flex-col gap-6" aria-label={i18n.t("catalogSection")}>
+      {snapshot.sections.map((section) => (
+        <section key={section.id} aria-label={sectionTitle(section.id, i18n)}>
+          <h3 className="mb-3 mt-0 text-[13px] font-semibold text-[var(--text-secondary)]">
+            {sectionTitle(section.id, i18n)}
+          </h3>
+          <div className="grid grid-cols-2 gap-3 max-[760px]:grid-cols-1">
+            {section.connectorKeys.map((connectorKey) => (
+              <ConnectorCard key={connectorKey} connectorKey={connectorKey} />
+            ))}
+          </div>
+          {section.loading && section.connectorKeys.length === 0 ? (
+            <div className="flex min-h-20 items-center justify-center gap-2 text-[12px] text-[var(--text-tertiary)]">
+              <Spinner size={14} />
+              {i18n.t("loading")}
+            </div>
+          ) : null}
+          {section.hasMore ? (
+            <div className="mt-3 flex justify-center">
+              <Button
+                size="sm"
+                type="button"
+                variant="secondary"
+                disabled={section.loading}
+                onClick={() =>
+                  void market.loadMore(section.id).catch(() => undefined)
+                }
+              >
+                {section.loading ? <Spinner size={14} /> : null}
+                {i18n.t("loadMore")}
+              </Button>
+            </div>
+          ) : null}
+        </section>
+      ))}
+    </div>
   );
+}
+
+function sectionTitle(
+  sectionId: string,
+  i18n: ConnectorMarketI18nRuntime
+): string {
+  switch (sectionId) {
+    case "featured":
+      return i18n.t("categoryFeatured");
+    case "productivity":
+      return i18n.t("categoryProductivity");
+    case "development":
+      return i18n.t("categoryDevelopment");
+    case "other":
+      return i18n.t("categoryOther");
+    case "installed":
+      return i18n.t("categoryInstalled");
+    default:
+      return sectionId;
+  }
 }

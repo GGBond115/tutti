@@ -1,6 +1,8 @@
 import type {
   Connector,
   ConnectorAuthorizationResult,
+  ConnectorMarketCatalogPage,
+  ConnectorMarketCategory,
   ConnectorMarketMutationInput,
   ConnectorMarketSnapshot,
   ConnectorMutationInput,
@@ -15,6 +17,13 @@ export interface ConnectorMarketBackend {
   getSnapshot(input: {
     workspaceId?: string;
   }): Promise<ConnectorMarketSnapshot>;
+  listCategories(): Promise<ConnectorMarketCategory[]>;
+  listCatalogPage(input: {
+    sectionId: string;
+    pageSize: number;
+    pageToken?: string;
+    workspaceId?: string;
+  }): Promise<ConnectorMarketCatalogPage>;
   getConnector(input: {
     connectorKey: string;
     workspaceId?: string;

@@ -8,6 +8,12 @@ export function createDesktopConnectorMarketBackend(
     getSnapshot({ workspaceId }) {
       return client.getConnectorMarket(workspaceId);
     },
+    async listCategories() {
+      return (await client.listConnectorMarketCategories()).categories;
+    },
+    listCatalogPage(input) {
+      return client.listConnectorMarketCatalog(input);
+    },
     getConnector({ connectorKey, workspaceId }) {
       return client.getConnectorMarketConnector(connectorKey, workspaceId);
     },

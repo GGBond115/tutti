@@ -13,10 +13,23 @@ import (
 
 func TestCatalogSourceMapsPublishedConnectorItems(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != connectorCatalogPath || request.URL.Query().Get("itemType") != "connector" || request.Header.Get("Authorization") != "Bearer catalog-token" {
+		if request.URL.Query().Get("itemType") != "connector" || request.Header.Get("Authorization") != "Bearer catalog-token" {
 			t.Fatalf("request path=%q query=%q authorization=%q", request.URL.Path, request.URL.RawQuery, request.Header.Get("Authorization"))
 		}
 		writer.Header().Set("Content-Type", "application/json")
+		if request.URL.Path == connectorCategoriesPath {
+			_, _ = writer.Write([]byte(`{
+  "marketType": "overseas",
+  "categories": [
+    {"categoryId": "featured", "kind": "featured", "sortOrder": 10, "itemCount": "1"},
+    {"categoryId": "development", "kind": "category", "sortOrder": 20, "itemCount": "1"}
+  ]
+}`))
+			return
+		}
+		if request.URL.Path != connectorCatalogPath || request.URL.Query().Get("sectionId") != "development" || request.URL.Query().Get("pageSize") != "100" {
+			t.Fatalf("request path=%q query=%q", request.URL.Path, request.URL.RawQuery)
+		}
 		_, _ = writer.Write([]byte(`{
   "marketType": "overseas",
   "items": [{
@@ -51,8 +64,11 @@ func TestCatalogSourceMapsPublishedConnectorItems(t *testing.T) {
         }
       }
     },
-    "publishedAtMs": "1785801600000"
-  }]
+    "publishedAtMs": "1785801600000",
+    "categoryId": "development",
+    "featured": true
+  }],
+  "nextPageToken": ""
 }`))
 	}))
 	defer server.Close()

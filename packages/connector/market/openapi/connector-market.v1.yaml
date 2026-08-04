@@ -26,6 +26,45 @@ paths:
           $ref: "#/components/responses/ConnectorMarketUnauthorizedError"
         "503":
           $ref: "#/components/responses/ConnectorMarketUnavailableError"
+  /v1/connector-market/categories:
+    get:
+      operationId: listConnectorMarketCategories
+      tags: [connector-market]
+      summary: List server-owned connector-market sections
+      responses:
+        "200":
+          description: Connector-market sections
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorMarketCategoriesResponse"
+        "401":
+          $ref: "#/components/responses/ConnectorMarketUnauthorizedError"
+        "503":
+          $ref: "#/components/responses/ConnectorMarketUnavailableError"
+  /v1/connector-market/catalog:
+    get:
+      operationId: listConnectorMarketCatalog
+      tags: [connector-market]
+      summary: List one server-owned connector-market section
+      parameters:
+        - $ref: "#/components/parameters/ConnectorMarketSectionID"
+        - $ref: "#/components/parameters/ConnectorMarketPageSize"
+        - $ref: "#/components/parameters/ConnectorMarketPageToken"
+        - $ref: "#/components/parameters/ConnectorMarketWorkspaceID"
+      responses:
+        "200":
+          description: Connector-market section page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorMarketCatalogPage"
+        "400":
+          $ref: "#/components/responses/ConnectorMarketInvalidRequestError"
+        "401":
+          $ref: "#/components/responses/ConnectorMarketUnauthorizedError"
+        "503":
+          $ref: "#/components/responses/ConnectorMarketUnavailableError"
   /v1/connector-market/connectors/{connectorKey}:
     parameters:
       - $ref: "#/components/parameters/ConnectorMarketConnectorKey"
@@ -273,6 +312,29 @@ components:
       schema:
         type: string
         minLength: 1
+    ConnectorMarketSectionID:
+      name: sectionId
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    ConnectorMarketPageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    ConnectorMarketPageToken:
+      name: pageToken
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
   responses:
     ConnectorMarketInvalidRequestError:
       description: Invalid connector-market request
@@ -311,6 +373,63 @@ components:
           schema:
             $ref: "#/components/schemas/ConnectorMarketError"
   schemas:
+    ConnectorMarketCategory:
+      type: object
+      additionalProperties: false
+      required: [categoryId, kind, sortOrder, itemCount]
+      properties:
+        categoryId:
+          type: string
+          minLength: 1
+        kind:
+          type: string
+          enum: [category, featured]
+        sortOrder:
+          type: integer
+          format: int32
+        itemCount:
+          type: integer
+          format: int64
+          minimum: 0
+    ConnectorMarketCategoriesResponse:
+      type: object
+      additionalProperties: false
+      required: [categories]
+      properties:
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectorMarketCategory"
+    ConnectorMarketCatalogItem:
+      type: object
+      additionalProperties: false
+      required: [categoryId, featured, connector]
+      properties:
+        categoryId:
+          type: string
+          minLength: 1
+        featured:
+          type: boolean
+        connector:
+          $ref: "#/components/schemas/ConnectorMarketConnector"
+    ConnectorMarketCatalogPage:
+      type: object
+      additionalProperties: false
+      required: [sectionId, items, revision]
+      properties:
+        sectionId:
+          type: string
+          minLength: 1
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectorMarketCatalogItem"
+        nextPageToken:
+          type: string
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
     ConnectorMarketSnapshot:
       type: object
       additionalProperties: false

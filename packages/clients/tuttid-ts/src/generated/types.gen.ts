@@ -4536,6 +4536,30 @@ export type CancelIssueManagerExecutionResponse = {
   canceledRunCount: number;
 };
 
+export type ConnectorMarketCategory = {
+  categoryId: string;
+  kind: "category" | "featured";
+  sortOrder: number;
+  itemCount: number;
+};
+
+export type ConnectorMarketCategoriesResponse = {
+  categories: Array<ConnectorMarketCategory>;
+};
+
+export type ConnectorMarketCatalogItem = {
+  categoryId: string;
+  featured: boolean;
+  connector: ConnectorMarketConnector;
+};
+
+export type ConnectorMarketCatalogPage = {
+  sectionId: string;
+  items: Array<ConnectorMarketCatalogItem>;
+  nextPageToken?: string;
+  revision: number;
+};
+
 export type ConnectorMarketSnapshot = {
   catalogState: ConnectorMarketCatalogState;
   connectors: Array<ConnectorMarketConnector>;
@@ -4892,6 +4916,12 @@ export type ConnectorMarketConnectorKey = string;
 export type ConnectorMarketOperationId = string;
 
 export type ConnectorMarketWorkspaceId = string;
+
+export type ConnectorMarketSectionId = string;
+
+export type ConnectorMarketPageSize = number;
+
+export type ConnectorMarketPageToken = string;
 
 export type MobileRemoteChallengeId = string;
 
@@ -16105,6 +16135,77 @@ export type GetConnectorMarketResponses = {
 
 export type GetConnectorMarketResponse =
   GetConnectorMarketResponses[keyof GetConnectorMarketResponses];
+
+export type ListConnectorMarketCategoriesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: "/v1/connector-market/categories";
+};
+
+export type ListConnectorMarketCategoriesErrors = {
+  /**
+   * Daemon authorization is required
+   */
+  401: ConnectorMarketError;
+  /**
+   * Connector-market capability is temporarily unavailable
+   */
+  503: ConnectorMarketError;
+};
+
+export type ListConnectorMarketCategoriesError =
+  ListConnectorMarketCategoriesErrors[keyof ListConnectorMarketCategoriesErrors];
+
+export type ListConnectorMarketCategoriesResponses = {
+  /**
+   * Connector-market sections
+   */
+  200: ConnectorMarketCategoriesResponse;
+};
+
+export type ListConnectorMarketCategoriesResponse =
+  ListConnectorMarketCategoriesResponses[keyof ListConnectorMarketCategoriesResponses];
+
+export type ListConnectorMarketCatalogData = {
+  body?: never;
+  path?: never;
+  query: {
+    sectionId: string;
+    pageSize?: number;
+    pageToken?: string;
+    workspaceId?: string;
+  };
+  url: "/v1/connector-market/catalog";
+};
+
+export type ListConnectorMarketCatalogErrors = {
+  /**
+   * Invalid connector-market request
+   */
+  400: ConnectorMarketError;
+  /**
+   * Daemon authorization is required
+   */
+  401: ConnectorMarketError;
+  /**
+   * Connector-market capability is temporarily unavailable
+   */
+  503: ConnectorMarketError;
+};
+
+export type ListConnectorMarketCatalogError =
+  ListConnectorMarketCatalogErrors[keyof ListConnectorMarketCatalogErrors];
+
+export type ListConnectorMarketCatalogResponses = {
+  /**
+   * Connector-market section page
+   */
+  200: ConnectorMarketCatalogPage;
+};
+
+export type ListConnectorMarketCatalogResponse =
+  ListConnectorMarketCatalogResponses[keyof ListConnectorMarketCatalogResponses];
 
 export type GetConnectorMarketConnectorData = {
   body?: never;
