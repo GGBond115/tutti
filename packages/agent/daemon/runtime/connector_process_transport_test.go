@@ -34,16 +34,17 @@ func TestConnectorProcessFixture(_ *testing.T) {
 	}
 }
 
-func TestNewConnectorProcessTransportFailsClosedWithoutSandbox(t *testing.T) {
+func TestNewConnectorProcessTransportDefersUnsupportedSandboxFailureToLaunch(t *testing.T) {
 	transport, err := NewConnectorProcessTransport()
+	if err != nil || transport == nil {
+		t.Fatalf("NewConnectorProcessTransport() = %#v, %v", transport, err)
+	}
 	if runtime.GOOS == "darwin" {
-		if err != nil || transport == nil {
-			t.Fatalf("NewConnectorProcessTransport() = %#v, %v", transport, err)
-		}
 		return
 	}
-	if transport != nil || !errors.Is(err, ErrConnectorProcessSandboxUnsupported) {
-		t.Fatalf("NewConnectorProcessTransport() = %#v, %v", transport, err)
+	connection, err := transport.Start(context.Background(), ProcessSpec{})
+	if connection != nil || !errors.Is(err, ErrConnectorProcessSandboxUnsupported) {
+		t.Fatalf("Start() = %#v, %v", connection, err)
 	}
 }
 

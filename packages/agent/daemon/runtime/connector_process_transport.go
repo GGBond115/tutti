@@ -37,14 +37,11 @@ type connectorProcessTransport struct {
 }
 
 // NewConnectorProcessTransport returns the hardened transport used for
-// third-party connector MCP and CLI processes. No platform sandbox backend is
-// currently shipped, so production construction fails closed instead of
-// silently falling back to the unsandboxed local process transport.
+// third-party connector MCP and CLI processes. When the current platform has
+// no sandbox backend, the transport remains available so the daemon can serve
+// non-execution capabilities, but every connector process launch fails closed.
 func NewConnectorProcessTransport() (ProcessTransport, error) {
 	sandbox := platformConnectorProcessSandbox()
-	if sandbox == nil {
-		return nil, ErrConnectorProcessSandboxUnsupported
-	}
 	return newConnectorProcessTransport(sandbox, defaultConnectorStdoutLimit, defaultConnectorStderrLimit), nil
 }
 
