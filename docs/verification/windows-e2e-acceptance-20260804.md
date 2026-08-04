@@ -1,9 +1,9 @@
 # Tutti Windows E2E 验收记录
 
-> 状态：核心主路径已验收；P1/P2 扩展场景保留在附录，未执行项已明确标注。  
-> 日期：2026-08-04  
-> 分支：`codex/windows-followup-v2`  
-> 基线：`9fe7ce954`  
+> 状态：核心主路径已验收；P1/P2 扩展场景保留在附录，未执行项已明确标注。
+> 日期：2026-08-04
+> 分支：`codex/windows-followup-v2`
+> 基线：`9fe7ce954`
 > 环境：Windows 11 家庭中文版，10.0.26200；Tutti Dev（Electron）
 
 ## 1. 验收范围与判定口径
