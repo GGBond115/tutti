@@ -4569,6 +4569,7 @@ export type ConnectorMarketRelease = {
 
 export type ConnectorMarketManifest = {
   schemaVersion: "1";
+  category?: "featured" | "productivity" | "development" | "other";
   displayName: string;
   description?: string;
   permissions: Array<string>;

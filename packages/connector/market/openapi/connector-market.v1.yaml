@@ -412,6 +412,9 @@ components:
         schemaVersion:
           type: string
           enum: ["1"]
+        category:
+          type: string
+          enum: [featured, productivity, development, other]
         displayName:
           type: string
         description:

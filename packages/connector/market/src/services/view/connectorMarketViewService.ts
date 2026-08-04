@@ -21,7 +21,7 @@ export class ConnectorMarketViewService implements IConnectorMarketViewService {
     installedCount: 0,
     lastErrorCode: null,
     refreshing: false,
-    sections: [{ id: "connectors", connectorKeys: [] }],
+    sections: [],
     status: "loading"
   });
 

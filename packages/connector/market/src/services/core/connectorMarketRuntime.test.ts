@@ -41,6 +41,7 @@ test("module activation runs all service startup jobs before ready", async () =>
   assert.equal(subscriptions, 1);
   assert.equal(module.root.uiState.dataStore.started, true);
   assert.equal(module.root.view.dataStore.status, "ready");
+  assert.equal(module.root.view.dataStore.sections[0]?.id, "other");
   assert.deepEqual(module.root.view.dataStore.sections[0]?.connectorKeys, [
     "github"
   ]);
@@ -48,6 +49,40 @@ test("module activation runs all service startup jobs before ready", async () =>
   module.dispose();
   assert.equal(module.lifecycle.phase, "disposed");
   assert.equal(unsubscriptions, 1);
+});
+
+test("groups visible connectors by stable Market category order", async () => {
+  const module = new ConnectorMarketModule({
+    market: {
+      backend: backendWith({
+        getSnapshot: async () =>
+          snapshot(1, [
+            connector("uncategorized"),
+            connector("linear", {}, "productivity"),
+            connector("github", {}, "development"),
+            connector("notion", {}, "featured")
+          ])
+      }),
+      events: eventSource({})
+    },
+    scope: { workspaceId: "workspace-1" }
+  });
+
+  await module.activate(new InstantiationService());
+
+  assert.deepEqual(
+    module.root.view.dataStore.sections.map((section) => ({
+      id: section.id,
+      connectorKeys: [...section.connectorKeys]
+    })),
+    [
+      { id: "featured", connectorKeys: ["notion"] },
+      { id: "productivity", connectorKeys: ["linear"] },
+      { id: "development", connectorKeys: ["github"] },
+      { id: "other", connectorKeys: ["uncategorized"] }
+    ]
+  );
+  module.dispose();
 });
 
 test("module activation rejects and releases started services when synchronization fails", async () => {
@@ -146,7 +181,11 @@ test("a failed first install remains available for retry", async () => {
   module.dispose();
 });
 
-function connector(key: string, overrides: Partial<Connector> = {}): Connector {
+function connector(
+  key: string,
+  overrides: Partial<Connector> = {},
+  category: Connector["release"]["manifest"]["category"] = "other"
+): Connector {
   const value: Connector = {
     authorization: { state: "not_required" },
     compatibility: { state: "supported" },
@@ -163,6 +202,7 @@ function connector(key: string, overrides: Partial<Connector> = {}): Connector {
       connectorKey: key,
       manifest: {
         authorizationKind: "none",
+        category,
         displayName: "GitHub",
         implementation: {
           builtin: { cli: true, mcp: true, providerId: key },

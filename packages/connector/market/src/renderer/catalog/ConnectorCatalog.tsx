@@ -1,6 +1,8 @@
 import { Button, Spinner } from "@tutti-os/ui-system/components";
 import { useSnapshot } from "valtio";
 
+import type { ConnectorCategory } from "../../contracts/index.ts";
+import type { ConnectorMarketI18nRuntime } from "../../i18n/connectorMarketI18n.ts";
 import { useConnectorMarketServices } from "../ConnectorMarketServicesContext.tsx";
 import { ConnectorCard } from "./ConnectorCard.tsx";
 
@@ -41,8 +43,11 @@ export function ConnectorCatalog() {
     );
   }
 
-  const connectorKeys = snapshot.sections[0]?.connectorKeys ?? [];
-  if (connectorKeys.length === 0) {
+  const connectorCount = snapshot.sections.reduce(
+    (count, section) => count + section.connectorKeys.length,
+    0
+  );
+  if (connectorCount === 0) {
     return (
       <div className="flex min-h-48 items-center justify-center rounded-lg border border-dashed border-[var(--border-1)] text-[13px] text-[var(--text-tertiary)]">
         {i18n.t("catalogEmpty")}
@@ -51,15 +56,36 @@ export function ConnectorCatalog() {
   }
 
   return (
-    <section aria-label={i18n.t("catalogSection")}>
-      <h3 className="mb-3 mt-0 text-[13px] font-semibold text-[var(--text-secondary)]">
-        {i18n.t("catalogSection")}
-      </h3>
-      <div className="grid grid-cols-2 gap-3 max-[760px]:grid-cols-1">
-        {connectorKeys.map((connectorKey) => (
-          <ConnectorCard key={connectorKey} connectorKey={connectorKey} />
-        ))}
-      </div>
-    </section>
+    <div
+      aria-label={i18n.t("catalogSection")}
+      className="flex flex-col gap-5"
+      role="region"
+    >
+      {snapshot.sections.map((section) => (
+        <section key={section.id}>
+          <h3 className="mb-3 mt-0 text-[13px] font-semibold text-[var(--text-secondary)]">
+            {categoryLabel(section.id, i18n)}
+          </h3>
+          <div className="grid grid-cols-2 gap-3 max-[760px]:grid-cols-1">
+            {section.connectorKeys.map((connectorKey) => (
+              <ConnectorCard key={connectorKey} connectorKey={connectorKey} />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
   );
+}
+
+function categoryLabel(
+  category: ConnectorCategory,
+  i18n: ConnectorMarketI18nRuntime
+): string {
+  const keys = {
+    development: "categoryDevelopment",
+    featured: "categoryFeatured",
+    other: "categoryOther",
+    productivity: "categoryProductivity"
+  } as const;
+  return i18n.t(keys[category]);
 }

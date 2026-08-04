@@ -100,8 +100,18 @@ type Release struct {
 	Status         ReleaseStatus `json:"status"`
 }
 
+type ConnectorCategory string
+
+const (
+	ConnectorCategoryFeatured     ConnectorCategory = "featured"
+	ConnectorCategoryProductivity ConnectorCategory = "productivity"
+	ConnectorCategoryDevelopment  ConnectorCategory = "development"
+	ConnectorCategoryOther        ConnectorCategory = "other"
+)
+
 type Manifest struct {
 	SchemaVersion     string                    `json:"schemaVersion"`
+	Category          ConnectorCategory         `json:"category,omitempty"`
 	DisplayName       string                    `json:"displayName"`
 	Description       string                    `json:"description,omitempty"`
 	Permissions       []string                  `json:"permissions"`

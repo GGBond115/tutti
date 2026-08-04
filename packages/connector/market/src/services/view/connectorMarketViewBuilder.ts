@@ -1,4 +1,4 @@
-import type { Connector } from "../../contracts/index.ts";
+import type { Connector, ConnectorCategory } from "../../contracts/index.ts";
 import type { ConnectorMarketStoreState } from "../connectorMarketService.interface.ts";
 import type { ConnectorMarketUiState } from "../ui-state/connectorMarketUiStateService.interface.ts";
 import type {
@@ -61,12 +61,7 @@ export function buildConnectorMarketView(
     installedCount,
     lastErrorCode: market.lastError?.code ?? null,
     refreshing: market.catalogState === "refreshing",
-    sections: [
-      {
-        id: "connectors",
-        connectorKeys: visible.map((connector) => connector.key)
-      }
-    ],
+    sections: buildCategorySections(visible),
     status:
       market.loadState === "loading" || market.loadState === "idle"
         ? "loading"
@@ -103,6 +98,7 @@ function buildConnectorCardView(
             : "manage",
     authorizationState: connector.authorization.state,
     compatibilityState: connector.compatibility.state,
+    category: connectorCategory(connector),
     connectorKey: connector.key,
     description: connector.release.manifest.description ?? "",
     displayName: connector.release.manifest.displayName,
@@ -119,6 +115,28 @@ function buildConnectorCardView(
             ? "authorization_required"
             : "connected"
   };
+}
+
+const categoryOrder: ConnectorCategory[] = [
+  "featured",
+  "productivity",
+  "development",
+  "other"
+];
+
+function buildCategorySections(connectors: Connector[]) {
+  return categoryOrder
+    .map((category) => ({
+      id: category,
+      connectorKeys: connectors
+        .filter((connector) => connectorCategory(connector) === category)
+        .map((connector) => connector.key)
+    }))
+    .filter((section) => section.connectorKeys.length > 0);
+}
+
+function connectorCategory(connector: Connector): ConnectorCategory {
+  return connector.release.manifest.category ?? "other";
 }
 
 function buildConnectorDialogView(

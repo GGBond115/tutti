@@ -103,6 +103,9 @@ func ValidateManifestShape(manifest Manifest) error {
 	if strings.TrimSpace(manifest.DisplayName) == "" {
 		return invalidManifest("displayName is required", nil)
 	}
+	if manifest.Category != "" && !ValidConnectorCategory(manifest.Category) {
+		return invalidManifest("category must be featured, productivity, development, or other", nil)
+	}
 	if err := validateUniqueIdentifiers("permission", manifest.Permissions); err != nil {
 		return err
 	}
@@ -154,6 +157,22 @@ func ValidateManifestShape(manifest Manifest) error {
 		return invalidManifest("implementation.kind is unsupported", nil)
 	}
 	return nil
+}
+
+func ValidConnectorCategory(category ConnectorCategory) bool {
+	switch category {
+	case ConnectorCategoryFeatured, ConnectorCategoryProductivity, ConnectorCategoryDevelopment, ConnectorCategoryOther:
+		return true
+	default:
+		return false
+	}
+}
+
+func NormalizeConnectorCategory(category ConnectorCategory) ConnectorCategory {
+	if ValidConnectorCategory(category) {
+		return category
+	}
+	return ConnectorCategoryOther
 }
 
 func validateManagedStdio(managed ManagedStdioImplementation, authorizationKind string) error {

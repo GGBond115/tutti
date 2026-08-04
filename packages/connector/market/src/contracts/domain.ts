@@ -23,6 +23,12 @@ export type ConnectorCompatibilityState =
 
 export type ConnectorCatalogState = "ready" | "refreshing" | "stale" | "failed";
 
+export type ConnectorCategory =
+  | "featured"
+  | "productivity"
+  | "development"
+  | "other";
+
 export type ConnectorOperationKind =
   | "refresh_catalog"
   | "install"
@@ -111,6 +117,7 @@ export interface ConnectorCompatibilityRequirements {
 
 export interface ConnectorManifest {
   schemaVersion: "1";
+  category?: ConnectorCategory;
   displayName: string;
   description?: string;
   permissions: string[];
