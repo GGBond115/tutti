@@ -1,11 +1,72 @@
 import type { WorkspaceAgentMessageCenterItem } from "@tutti-os/agent-gui/agent-message-center";
 import type {
   AgentActivityMessage,
+  AgentSessionEngine,
   CanonicalAgentSession
 } from "@tutti-os/agent-activity-core";
 import type { IssueManagerLatestRunStatusRenderInput } from "@tutti-os/workspace-issue-manager/ui";
+import type { IWorkspaceAgentActivityService } from "@renderer/features/workspace-agent";
 
 type MessageCenterAgentSession = CanonicalAgentSession;
+
+export interface IssueManagerMessageCenterPromptSubmitInput {
+  action?: string;
+  optionId?: string;
+  payload?: Record<string, unknown>;
+  requestId: string;
+}
+
+/**
+ * An Issue card is an explicit owner of its latest-run session. Ambient
+ * session pages intentionally omit invisible delegates, so request the exact
+ * canonical session (and its child state/messages) while this card is mounted.
+ */
+export function synchronizeIssueManagerLatestRunSession({
+  agentSessionId,
+  service,
+  workspaceId
+}: {
+  agentSessionId: string;
+  service: Pick<IWorkspaceAgentActivityService, "ensureSessionSynchronized">;
+  workspaceId: string;
+}): () => void {
+  const normalizedAgentSessionId = agentSessionId.trim();
+  if (!normalizedAgentSessionId) {
+    return () => {};
+  }
+  return service.ensureSessionSynchronized({
+    agentSessionId: normalizedAgentSessionId,
+    workspaceId
+  });
+}
+
+/**
+ * The display item may represent a root conversation while its actionable
+ * prompt belongs to a child session. Preserve the engine-owned exact target
+ * tuple instead of reconstructing identity from the card subject.
+ */
+export function submitIssueManagerPendingInteraction({
+  engine,
+  item,
+  submitInput
+}: {
+  engine: Pick<AgentSessionEngine, "submitInteractionResponse">;
+  item: Pick<WorkspaceAgentMessageCenterItem, "pendingInteractionTarget">;
+  submitInput: IssueManagerMessageCenterPromptSubmitInput;
+}): boolean {
+  const target = item.pendingInteractionTarget;
+  if (!target || target.requestId !== submitInput.requestId) {
+    return false;
+  }
+  return engine.submitInteractionResponse({
+    agentSessionId: target.agentSessionId,
+    requestId: target.requestId,
+    turnId: target.turnId,
+    ...(submitInput.action ? { action: submitInput.action } : {}),
+    ...(submitInput.optionId ? { optionId: submitInput.optionId } : {}),
+    ...(submitInput.payload ? { payload: submitInput.payload } : {})
+  });
+}
 
 // Item resolution for the Issue task card. The delegate session may be
 // invisible (Tutti Mode hides mass-dispatched runs from the conversation
@@ -45,14 +106,15 @@ export function findWorkspaceAgentMessageCenterItem({
   itemCandidates: readonly WorkspaceAgentMessageCenterItem[];
   session: MessageCenterAgentSession | null;
 }): WorkspaceAgentMessageCenterItem | null {
-  const aliases = new Set([
+  const canonicalSessionIds = new Set([
     agentSessionId.trim(),
-    ...(session ? workspaceAgentSessionMessageAliases(session) : [])
+    session?.agentSessionId.trim() ?? ""
   ]);
-  aliases.delete("");
+  canonicalSessionIds.delete("");
   return (
-    itemCandidates.find((item) => aliases.has(item.agentSessionId.trim())) ??
-    null
+    itemCandidates.find((item) =>
+      canonicalSessionIds.has(item.agentSessionId.trim())
+    ) ?? null
   );
 }
 

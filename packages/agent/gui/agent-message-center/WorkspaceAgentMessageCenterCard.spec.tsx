@@ -4,6 +4,7 @@ import {
   createAgentSessionEngine,
   normalizeAgentActivitySession
 } from "@tutti-os/agent-activity-core";
+import { createTestEngineCommandPort } from "../shared/testing/createTestAgentSessionEngine";
 import {
   messageCenterStackPreviewNodes,
   messageCenterStackPreviewText,
@@ -81,7 +82,9 @@ describe("WorkspaceAgentMessageCenterCard hidden delegate sessions", () => {
   it("renders an answerable pending prompt for an allowlisted hidden delegate session", () => {
     const engine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
-      commandPort: { execute: async () => ({}) },
+      commandPort: createTestEngineCommandPort({
+        execute: async () => ({})
+      }),
       identity: { origin: "test", workspaceId: "workspace-1" },
       scheduler: { schedule: () => ({ cancel() {} }) }
     });

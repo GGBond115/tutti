@@ -653,6 +653,27 @@ describe("workspaceAgentConsumerSelectors", () => {
     expect(model.items).toHaveLength(0);
   });
 
+  it("does not treat a provider-native id as a hidden-session opt-in", () => {
+    const engine = createEngine();
+    engine.dispatch({
+      type: "session/snapshotReceived",
+      sessions: [
+        session({
+          visible: false,
+          providerSessionId: "provider-session-1"
+        })
+      ]
+    });
+
+    const model = buildWorkspaceAgentMessageCenterModelFromEngine(
+      selectWorkspaceAgentMessageCenterPresentation(engine.getSnapshot()),
+      { workspaceId: "workspace-1", sessionMessagesById: {} },
+      { includeHiddenSessionIds: ["provider-session-1"] }
+    );
+
+    expect(model.items).toHaveLength(0);
+  });
+
   it("keeps an allowlisted hidden delegate session and its pending prompt", () => {
     const engine = createEngine();
     engine.dispatch({

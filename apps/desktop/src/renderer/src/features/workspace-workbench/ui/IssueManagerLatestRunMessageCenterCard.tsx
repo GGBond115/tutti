@@ -18,7 +18,6 @@ import {
   type WorkspaceAgentMessageCenterCardProps
 } from "@tutti-os/agent-gui/agent-message-center";
 import {
-  selectEnginePendingInteractions,
   selectWorkspaceAgentConsumerSession,
   type AgentActivityMessage
 } from "@tutti-os/agent-activity-core";
@@ -28,7 +27,9 @@ import type { IssueManagerLatestRunStatusRenderInput } from "@tutti-os/workspace
 import type { IWorkspaceAgentActivityService } from "@renderer/features/workspace-agent";
 import {
   hasCachedWorkspaceAgentSessionMessages,
-  resolveIssueManagerLatestRunMessageCenterItem
+  resolveIssueManagerLatestRunMessageCenterItem,
+  submitIssueManagerPendingInteraction,
+  synchronizeIssueManagerLatestRunSession
 } from "./issueManagerLatestRunMessageCenterItem.ts";
 
 const MESSAGE_CENTER_SUMMARY_MESSAGE_LIMIT = 20;
@@ -95,6 +96,16 @@ function IssueManagerLatestRunMessageCenterCard({
       [agentSessionId]
     ),
     workspaceAgentConsumerSessionEqual
+  );
+
+  useEffect(
+    () =>
+      synchronizeIssueManagerLatestRunSession({
+        agentSessionId,
+        service: workspaceAgentActivityService,
+        workspaceId
+      }),
+    [agentSessionId, workspaceAgentActivityService, workspaceId]
   );
 
   const model = useMemo(
@@ -226,22 +237,20 @@ function IssueManagerLatestRunMessageCenterCard({
           workspaceId
         });
       } else {
-        const interaction = selectEnginePendingInteractions(
-          sessionEngine.getSnapshot(),
-          item.agentSessionId
-        ).find((candidate) => candidate.requestId === submitInput.requestId);
-        if (!interaction) return;
-        sessionEngine.submitInteractionResponse({
-          agentSessionId: item.agentSessionId,
-          requestId: submitInput.requestId,
-          turnId: interaction.turnId,
-          ...(submitInput.action ? { action: submitInput.action } : {}),
-          ...(submitInput.optionId ? { optionId: submitInput.optionId } : {}),
-          ...(submitInput.payload ? { payload: submitInput.payload } : {})
+        submitIssueManagerPendingInteraction({
+          engine: sessionEngine,
+          item,
+          submitInput
         });
       }
     },
-    [item.agentSessionId, item.pendingPrompt?.kind, sessionEngine, workspaceId]
+    [
+      item.agentSessionId,
+      item.pendingInteractionTarget,
+      item.pendingPrompt?.kind,
+      sessionEngine,
+      workspaceId
+    ]
   );
 
   return (

@@ -54,10 +54,7 @@ export function buildWorkspaceAgentMessageCenterModelFromEngine(
     .filter(
       (consumer) =>
         consumer.session.visible !== false ||
-        includeHiddenSessionIds.has(consumer.session.agentSessionId.trim()) ||
-        includeHiddenSessionIds.has(
-          consumer.session.providerSessionId?.trim() ?? ""
-        )
+        includeHiddenSessionIds.has(consumer.session.agentSessionId.trim())
     )
     .map((consumer) => {
       const interaction = latestPendingInteraction(consumer);

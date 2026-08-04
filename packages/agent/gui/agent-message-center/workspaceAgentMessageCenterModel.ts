@@ -84,7 +84,8 @@ export interface BuildWorkspaceAgentMessageCenterOptions {
   avoidGroupingEdits?: boolean;
   identityBySessionId?: Record<string, WorkspaceAgentMessageCenterIdentity>;
   /**
-   * Sessions to keep in the model even when `session.visible === false`.
+   * Canonical Agent Session ids to keep in the model even when
+   * `session.visible === false`.
    * Ambient surfaces (the global Message Center) never list hidden sessions;
    * a surface whose subject IS a specific session (e.g. the Issue task card
    * over a hidden delegate run) opts that exact session in so its pending
