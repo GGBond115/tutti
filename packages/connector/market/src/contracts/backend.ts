@@ -4,6 +4,7 @@ import type {
   ConnectorMarketMutationInput,
   ConnectorMarketSnapshot,
   ConnectorMutationInput,
+  ConnectorWorkspaceMutationInput,
   ConnectorMutationResult,
   ConnectorOperation,
   ConnectorWorkspaceBindingResult,
@@ -23,13 +24,13 @@ export interface ConnectorMarketBackend {
     input: ConnectorMarketMutationInput
   ): Promise<ConnectorMutationResult>;
   installConnector(
-    input: ConnectorMutationInput
+    input: ConnectorWorkspaceMutationInput
   ): Promise<ConnectorMutationResult>;
   uninstallConnector(
     input: ConnectorMutationInput
   ): Promise<ConnectorMutationResult>;
   beginAuthorization(
-    input: ConnectorMutationInput
+    input: ConnectorWorkspaceMutationInput
   ): Promise<ConnectorAuthorizationResult>;
   disconnectAuthorization(
     input: ConnectorMutationInput

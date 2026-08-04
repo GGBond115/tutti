@@ -20,20 +20,46 @@ function connector(
 ): Connector {
   return {
     key,
-    manifest: {
+    release: {
       schemaVersion: "1",
-      key,
+      releaseId: `${key}@1.0.0`,
+      connectorKey: key,
       version: "1.0.0",
-      displayName: key,
-      permissions: [],
+      releaseDigest:
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      manifestDigest:
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      manifest: {
+        schemaVersion: "1",
+        displayName: key,
+        permissions: [],
+        implementation: {
+          kind: "builtin",
+          builtin: { providerId: key, mcp: true, cli: false }
+        },
+        authorizationKind: "none"
+      },
       artifact: {
         key: `connectors/${key}/1.0.0.tgz`,
+        objectVersion: "version-1",
         sha256:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        sizeBytes: 1024
+        sizeBytes: 1024,
+        mediaType: "application/vnd.tutti.connector+tar+gzip"
       },
-      implementation: { kind: "mcp_stdio" },
-      authorizationKind: "none"
+      publishedAt: "2026-08-03T00:00:00Z",
+      status: "available",
+      publisher: {
+        subject: "publisher",
+        sourceRepository: "tutti/connectors",
+        commitSha: "0123456789012345678901234567890123456789",
+        workflow: "publish.yml",
+        trustTier: "verified"
+      },
+      provenanceDigest:
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      envelopeDigest:
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     },
     installation: { state: "not_installed" },
     authorization: { state: "not_required" },
@@ -136,6 +162,7 @@ test("coalesces concurrent catalog refreshes", async () => {
       clientRequestId: "request-1",
       kind: "refresh_catalog",
       state: "accepted",
+      attempt: 0,
       createdAt: "2026-08-03T00:00:00Z",
       updatedAt: "2026-08-03T00:00:00Z"
     },
@@ -155,6 +182,7 @@ test("rejects overlapping mutations for one connector", async () => {
     backend: backendWith({ installConnector: async () => install.promise }),
     createRequestId: () => "request-1"
   });
+  await service.setWorkspace("workspace-1");
 
   const first = service.install("github");
   await assert.rejects(service.install("github"), ConnectorMarketBusyError);
@@ -166,6 +194,7 @@ test("rejects overlapping mutations for one connector", async () => {
       connectorKey: "github",
       kind: "install",
       state: "accepted",
+      attempt: 0,
       createdAt: "2026-08-03T00:00:00Z",
       updatedAt: "2026-08-03T00:00:00Z"
     },
@@ -261,10 +290,39 @@ test("does not publish an in-flight response after disposal", async () => {
   assert.equal(service.dataStore.workspaceId, undefined);
 });
 
+test("reloads the authoritative snapshot after daemon event-stream reconnect", async () => {
+  const events = new TestEventSource();
+  let revision = 1;
+  let loads = 0;
+  const service = new ConnectorMarketService({
+    backend: backendWith({
+      getSnapshot: async () => {
+        loads += 1;
+        return snapshot(revision, [connector("github", revision)]);
+      }
+    }),
+    events
+  });
+
+  service.start();
+  await service.ensureLoaded();
+  events.emitConnection("connected");
+  revision = 2;
+  events.emitConnection("disconnected");
+  events.emitConnection("connected");
+  await waitFor(() => service.dataStore.revision === 2);
+
+  assert.equal(loads, 2);
+  service.dispose();
+  assert.equal(events.connectionUnsubscribeCalls, 1);
+});
+
 class TestEventSource implements ConnectorMarketEventSource {
+  connectionUnsubscribeCalls = 0;
   subscribeCalls = 0;
   unsubscribeCalls = 0;
   private listener?: (event: ConnectorMarketChangedEvent) => void;
+  private connectionListener?: (state: "connected" | "disconnected") => void;
 
   subscribe(listener: (event: ConnectorMarketChangedEvent) => void) {
     this.subscribeCalls += 1;
@@ -277,6 +335,20 @@ class TestEventSource implements ConnectorMarketEventSource {
 
   emit(event: ConnectorMarketChangedEvent) {
     this.listener?.(event);
+  }
+
+  subscribeConnectionState(
+    listener: (state: "connected" | "disconnected") => void
+  ) {
+    this.connectionListener = listener;
+    return () => {
+      this.connectionUnsubscribeCalls += 1;
+      this.connectionListener = undefined;
+    };
+  }
+
+  emitConnection(state: "connected" | "disconnected") {
+    this.connectionListener?.(state);
   }
 }
 
