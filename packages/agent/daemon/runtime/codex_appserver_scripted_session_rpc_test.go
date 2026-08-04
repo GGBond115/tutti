@@ -31,7 +31,6 @@ type scriptedSessionState struct {
 	replayTokenUsageOnResume       bool
 	threadResumeError              bool
 	extraRootsError                bool
-	forkNotificationBeforeResponse bool
 }
 
 func (s *fakeCodexAppServer) handleSessionRPC(message scriptedAppServerMessage) bool {
