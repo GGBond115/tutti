@@ -58,7 +58,7 @@ function normalizeMessageDelta(
   const operation = text(content.operation);
   const contentValue =
     operation === "append_text"
-      ? text(content.text) || text(content.value)
+      ? rawText(content.text) || rawText(content.value)
       : cloneValue(content.value ?? content.text ?? "");
   const normalizedContent: AgentActivityMessageDeltaEvent["data"]["content"] =
     operation === "append_text"
@@ -71,11 +71,11 @@ function normalizeMessageDelta(
     toolOperation === "append_text"
       ? {
           operation: "append_text",
-          text: text(toolOutput.text),
+          text: rawText(toolOutput.text),
           offsetBytes: positiveInteger(toolOutput.offsetBytes) ?? 0
         }
       : toolOperation === "set"
-        ? { operation: "set", text: text(toolOutput.text) }
+        ? { operation: "set", text: rawText(toolOutput.text) }
         : undefined;
   return {
     workspaceId: event.workspaceId,
@@ -117,7 +117,7 @@ function normalizeMessageUpdate(
 ): AgentActivityMessage {
   const data = record(event.data);
   const payload = record(data.payload);
-  const contentDelta = text(data.contentDelta);
+  const contentDelta = rawText(data.contentDelta);
   if (contentDelta && typeof payload.text !== "string") {
     payload.text = contentDelta;
     payload.content = contentDelta;
@@ -280,6 +280,10 @@ function recordOrNull(value: unknown): Record<string, unknown> | null {
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function rawText(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function positiveInteger(value: unknown): number | null {

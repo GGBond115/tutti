@@ -250,6 +250,9 @@ func (c *Controller) Close(ctx context.Context, input CloseInput) (CloseResult, 
 		delete(c.pendingSideEvents, key)
 	}
 	c.mu.Unlock()
+	if provisional || input.PreserveCanonicalState {
+		c.forgetSideStreamEvents(session)
+	}
 	if closeErr != nil {
 		return CloseResult{AgentSessionID: session.AgentSessionID, Disconnected: true}, closeErr
 	}
@@ -274,6 +277,7 @@ func (c *Controller) Close(ctx context.Context, input CloseInput) (CloseResult, 
 	delete(c.goalGenerationFences, key)
 	delete(c.pendingSideEvents, key)
 	c.mu.Unlock()
+	c.forgetSideStreamEvents(session)
 	return CloseResult{AgentSessionID: session.AgentSessionID, Disconnected: true}, nil
 }
 

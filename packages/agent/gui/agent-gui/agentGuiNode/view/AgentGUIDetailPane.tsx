@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef } from "react";
 import type { AgentTranscriptVirtualScrollController } from "../../../shared/agentConversation/components/AgentTranscriptView";
 import { latestAssistantMessageText } from "../../../shared/agentConversation/projection/agentConversationProjection";
 import { AGENT_GUI_WORKBENCH_OPEN_EXTERNAL_IMPORT_EVENT } from "../../../workbench/contribution";
@@ -105,10 +105,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   const timelineScrollAnchorRef = useRef<TimelineScrollAnchor | null>(null);
   const virtualScrollControllerRef =
     useRef<AgentTranscriptVirtualScrollController | null>(null);
-  const [
-    bottomDockDismissedPromptRequestId,
-    setBottomDockDismissedPromptRequestId
-  ] = useState<string | null>(null);
   const {
     bottomDockLiftedPrompt,
     bottomDockReplacementPrompt,
@@ -120,6 +116,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     conversation,
     conversationFlowEmpty,
     conversationFlowLabels,
+    dismissBottomDockPrompt,
     emptyProviderReadinessGate,
     goalBannerLabels,
     hasActiveConversation,
@@ -136,7 +133,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     timelineConversationId,
     timelineInteractionLocked
   } = useAgentGUIDetailModel({
-    bottomDockDismissedPromptRequestId,
     labels,
     slashStatusLimits,
     slashStatusLimitsLoading,
@@ -307,9 +303,9 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       payload?: Record<string, unknown>;
     }) => {
       submitInteractivePrompt(input);
-      setBottomDockDismissedPromptRequestId(input.requestId);
+      dismissBottomDockPrompt(input.requestId);
     },
-    [submitInteractivePrompt]
+    [dismissBottomDockPrompt, submitInteractivePrompt]
   );
   const isInteractionPending =
     viewModel.interaction.isRespondingApproval ||

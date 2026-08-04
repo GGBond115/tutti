@@ -22,6 +22,7 @@ func (c *Controller) ensureLiveAdapterSession(ctx context.Context, session Sessi
 		// Ephemeral provider threads are deliberately not durable/resumable.
 		// A lost process therefore expires the side instead of silently
 		// reconnecting it as if it were a canonical session.
+		c.forgetSideStreamEvents(session)
 		return ErrSideConversationExpired
 	}
 	if strings.TrimSpace(session.ProviderSessionID) == "" {

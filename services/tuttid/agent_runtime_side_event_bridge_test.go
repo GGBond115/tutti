@@ -7,6 +7,7 @@ import (
 	"time"
 
 	agentsessionstore "github.com/tutti-os/tutti/packages/agent/daemon/activity"
+	"github.com/tutti-os/tutti/packages/agent/daemon/liveprotocol"
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	eventstreamservice "github.com/tutti-os/tutti/services/tuttid/service/eventstream"
 )
@@ -113,6 +114,128 @@ func TestAgentRuntimeSideEventBridgePublishesOnlyOnTransientTopic(t *testing.T) 
 		}
 		if payload.Sequence != 1 {
 			t.Fatalf("sequence after terminal cleanup = %d, want 1", payload.Sequence)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for restarted Side event")
+	}
+}
+
+func TestAgentRuntimeSideEventBridgeDoesNotAdvanceSequenceForSkippedOrFailedEvents(t *testing.T) {
+	events := eventstreamservice.NewService(eventstreamservice.DefaultCatalog(), nil)
+	subscriber := events.OpenSession()
+	defer events.CloseSession(subscriber)
+	if err := events.Subscribe(
+		subscriber,
+		[]string{eventstreamservice.TopicAgentSideUpdated},
+		eventstreamservice.EventScope{WorkspaceID: "workspace-1"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	bridge := &agentRuntimeSideEventBridge{
+		publisher: eventstreamservice.AgentSidePublisher{Service: events},
+		session: func(workspaceID, sideID string) (agentruntime.Session, bool) {
+			return agentruntime.Session{
+				RoomID: workspaceID, AgentSessionID: sideID,
+				Scope:                agentruntime.RuntimeSessionScopeSide,
+				SourceAgentSessionID: "source-1",
+			}, true
+		},
+	}
+	validEvent := agentruntime.StreamEvent{
+		EventType: agentruntime.StreamEventStatePatch,
+		Data:      map[string]any{"status": "running"},
+	}
+	identityMismatch := liveprotocol.Event{
+		WorkspaceID:    "other-workspace",
+		AgentSessionID: "other-side",
+		EventType:      liveprotocol.EventTypeSessionAudit,
+		Data:           json.RawMessage(`{"status":"ignored"}`),
+	}
+	if err := bridge.ObserveRuntimeStreamEvents(
+		context.Background(), "workspace-1", "side-1", []agentruntime.StreamEvent{
+			{EventType: agentruntime.StreamEventSessionAudit, Data: identityMismatch},
+			validEvent,
+			{EventType: agentruntime.StreamEventStatePatch, Data: make(chan int)},
+			validEvent,
+		},
+	); err == nil {
+		t.Fatal("expected rejected Side events to be reported")
+	}
+	for wantSequence := int64(1); wantSequence <= 2; wantSequence++ {
+		select {
+		case published := <-events.Events(subscriber):
+			var payload struct {
+				Sequence int64 `json:"sequence"`
+			}
+			if err := json.Unmarshal(published.Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Sequence != wantSequence {
+				t.Fatalf("published sequence = %d, want %d", payload.Sequence, wantSequence)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for Side event sequence %d", wantSequence)
+		}
+	}
+	select {
+	case event := <-events.Events(subscriber):
+		t.Fatalf("rejected Side event was published: %#v", event)
+	default:
+	}
+}
+
+func TestAgentRuntimeSideEventBridgeForgetResetsSequence(t *testing.T) {
+	events := eventstreamservice.NewService(eventstreamservice.DefaultCatalog(), nil)
+	subscriber := events.OpenSession()
+	defer events.CloseSession(subscriber)
+	if err := events.Subscribe(
+		subscriber,
+		[]string{eventstreamservice.TopicAgentSideUpdated},
+		eventstreamservice.EventScope{WorkspaceID: "workspace-1"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	bridge := &agentRuntimeSideEventBridge{
+		publisher: eventstreamservice.AgentSidePublisher{Service: events},
+		session: func(workspaceID, sideID string) (agentruntime.Session, bool) {
+			return agentruntime.Session{
+				RoomID: workspaceID, AgentSessionID: sideID,
+				Scope:                agentruntime.RuntimeSessionScopeSide,
+				SourceAgentSessionID: "source-1",
+			}, true
+		},
+	}
+	input := []agentruntime.StreamEvent{{
+		EventType: agentruntime.StreamEventStatePatch,
+		Data:      map[string]any{"status": "running"},
+	}}
+	if err := bridge.ObserveRuntimeStreamEvents(
+		context.Background(), "workspace-1", "side-1", input,
+	); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-events.Events(subscriber):
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for initial Side event")
+	}
+
+	bridge.ForgetSideConversation("workspace-1", "side-1")
+	if err := bridge.ObserveRuntimeStreamEvents(
+		context.Background(), "workspace-1", "side-1", input,
+	); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case published := <-events.Events(subscriber):
+		var payload struct {
+			Sequence int64 `json:"sequence"`
+		}
+		if err := json.Unmarshal(published.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.Sequence != 1 {
+			t.Fatalf("sequence after explicit cleanup = %d, want 1", payload.Sequence)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for restarted Side event")

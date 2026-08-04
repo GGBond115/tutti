@@ -312,4 +312,5 @@ func (c *Controller) removeRuntimeSession(session Session) {
 	delete(c.pendingSideEvents, key)
 	delete(c.goalGenerationFences, key)
 	c.mu.Unlock()
+	c.forgetSideStreamEvents(session)
 }

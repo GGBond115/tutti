@@ -786,7 +786,7 @@ export const zhCNAgentGui = {
   sideResize: "调整 Side 会话宽度",
   sideClose: "关闭",
   sideInteractionTitle: "Side 需要你的响应",
-  sideContentUnsupported: "Side 临时会话暂不支持这种附件类型。",
-  sideOperationFailed: "Side 会话未能完成该操作。请关闭后重试。",
+  sideContentUnsupported: "Side 临时会话暂不支持这种附件类型",
+  sideOperationFailed: "Side 会话未能完成该操作。请关闭后重试",
   ...zhCNAgentGuiCollaboration
 } as const;

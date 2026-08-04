@@ -54,27 +54,41 @@ export function useAgentGUIDetailSideChrome({
     submitInteraction,
     submitSide
   } = controller;
-  const hostFooterAccessory =
-    renderComposerFooterAccessory?.({
-      agentSessionId: baseComposerProps.agentSessionId,
-      isActive: baseComposerProps.isActive,
-      isSendingTurn: baseComposerProps.isSendingTurn,
-      isSubmittingPrompt: baseComposerProps.isSubmittingPrompt,
-      composerSettings: baseComposerProps.composerSettings,
-      selectedAgentTarget: baseComposerProps.selectedAgentTarget
-    }) ?? null;
-  const footerAccessory = (
-    <>
-      {entryError ? (
-        <span className="text-xs text-destructive">
-          {entryError === "content_unsupported"
-            ? t("agentHost.agentGui.sideContentUnsupported")
-            : t("agentHost.agentGui.sideOperationFailed")}
-        </span>
-      ) : null}
-      {hostFooterAccessory}
-    </>
+  const hostFooterAccessory = useMemo(
+    () =>
+      renderComposerFooterAccessory?.({
+        agentSessionId: baseComposerProps.agentSessionId,
+        isActive: baseComposerProps.isActive,
+        isSendingTurn: baseComposerProps.isSendingTurn,
+        isSubmittingPrompt: baseComposerProps.isSubmittingPrompt,
+        composerSettings: baseComposerProps.composerSettings,
+        selectedAgentTarget: baseComposerProps.selectedAgentTarget
+      }) ?? null,
+    [
+      baseComposerProps.agentSessionId,
+      baseComposerProps.composerSettings,
+      baseComposerProps.isActive,
+      baseComposerProps.isSendingTurn,
+      baseComposerProps.isSubmittingPrompt,
+      baseComposerProps.selectedAgentTarget,
+      renderComposerFooterAccessory
+    ]
   );
+  const footerAccessory = useMemo(() => {
+    if (!entryError && hostFooterAccessory === null) return null;
+    return (
+      <>
+        {entryError ? (
+          <span className="text-xs text-destructive">
+            {entryError === "content_unsupported"
+              ? t("agentHost.agentGui.sideContentUnsupported")
+              : t("agentHost.agentGui.sideOperationFailed")}
+          </span>
+        ) : null}
+        {hostFooterAccessory}
+      </>
+    );
+  }, [entryError, hostFooterAccessory, t]);
   const bottomDockComposerProps = useMemo<AgentComposerProps>(
     () => ({ ...baseComposerProps, footerAccessory }),
     [baseComposerProps, footerAccessory]

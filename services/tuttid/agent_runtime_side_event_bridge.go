@@ -58,11 +58,6 @@ func (b *agentRuntimeSideEventBridge) ObserveRuntimeStreamEvents(
 	defer b.mu.Unlock()
 	terminal := false
 	for _, event := range events {
-		if b.sequences == nil {
-			b.sequences = make(map[string]int64)
-		}
-		b.sequences[key]++
-		sequence := b.sequences[key]
 		data := event.Data
 		if liveEvent, ok := event.Data.(liveprotocol.Event); ok {
 			if strings.TrimSpace(liveEvent.WorkspaceID) != strings.TrimSpace(workspaceID) ||
@@ -75,6 +70,7 @@ func (b *agentRuntimeSideEventBridge) ObserveRuntimeStreamEvents(
 			}
 			data = json.RawMessage(liveEvent.Data)
 		}
+		sequence := b.sequences[key] + 1
 		if err := b.publisher.PublishAgentSideUpdated(
 			ctx,
 			workspaceID,
@@ -85,7 +81,12 @@ func (b *agentRuntimeSideEventBridge) ObserveRuntimeStreamEvents(
 			data,
 		); err != nil {
 			publishErrors = append(publishErrors, err)
+			continue
 		}
+		if b.sequences == nil {
+			b.sequences = make(map[string]int64)
+		}
+		b.sequences[key] = sequence
 		if patch, ok := event.Data.(agentsessionstore.WorkspaceAgentStatePatch); ok {
 			switch strings.TrimSpace(patch.LifecycleStatus) {
 			case agentruntime.SessionStatusCompleted, agentruntime.SessionStatusFailed:
@@ -97,4 +98,17 @@ func (b *agentRuntimeSideEventBridge) ObserveRuntimeStreamEvents(
 		delete(b.sequences, key)
 	}
 	return errors.Join(publishErrors...)
+}
+
+func (b *agentRuntimeSideEventBridge) ForgetSideConversation(
+	workspaceID string,
+	sideAgentSessionID string,
+) {
+	if b == nil {
+		return
+	}
+	key := strings.TrimSpace(workspaceID) + "\x00" + strings.TrimSpace(sideAgentSessionID)
+	b.mu.Lock()
+	delete(b.sequences, key)
+	b.mu.Unlock()
 }
