@@ -11,6 +11,7 @@ import (
 type AppShellAdapter interface {
 	ValidateScript(string) error
 	Command(context.Context, string) (command *exec.Cmd, binDirs []string, err error)
+	EnvironmentOverrides() []string
 }
 
 type platformAppShellAdapter struct{}

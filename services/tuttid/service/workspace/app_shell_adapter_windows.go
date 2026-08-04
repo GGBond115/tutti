@@ -41,3 +41,17 @@ func (platformAppShellAdapter) Command(ctx context.Context, scriptPath string) (
 	}
 	return exec.CommandContext(ctx, shellPath, "--noprofile", "--norc", scriptPath), []string{filepath.Dir(shellPath)}, nil
 }
+
+func (platformAppShellAdapter) EnvironmentOverrides() []string {
+	shellPath := strings.TrimSpace(os.Getenv(managedPosixShellEnv))
+	if shellPath == "" {
+		return nil
+	}
+	// The app process receives a deliberately filtered environment. Preserve the
+	// managed shell contract explicitly so nested scripts and MSYS2 do not have
+	// to infer the shell from PATH alone.
+	return []string{
+		managedPosixShellEnv + "=" + shellPath,
+		"MSYS2_PATH_TYPE=inherit",
+	}
+}

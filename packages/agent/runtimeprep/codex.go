@@ -177,9 +177,9 @@ func exposeUserCodexFiles(codexHome string) error {
 		if _, err := os.Lstat(target); err == nil {
 			continue
 		}
-		if err := os.Symlink(source, target); err != nil {
+		if err := exposeCodexFile(source, target, 0o600); err != nil {
 			if copyErr := copyFile(source, target, 0o600); copyErr != nil {
-				return fmt.Errorf("expose codex %s: symlink failed: %v; copy failed: %w", name, err, copyErr)
+				return fmt.Errorf("expose codex %s: link failed: %v; copy failed: %w", name, err, copyErr)
 			}
 		}
 	}
@@ -244,7 +244,7 @@ func exposeCodexImportedRolloutFile(codexHome string, sourcePath string) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return fmt.Errorf("create codex imported rollout parent dir: %w", err)
 	}
-	if err := os.Symlink(sourcePath, target); err != nil {
+	if err := exposeCodexFile(sourcePath, target, 0o600); err != nil {
 		return fmt.Errorf("expose codex imported rollout file: %w", err)
 	}
 	return nil
@@ -267,7 +267,7 @@ func exposeUserCodexPluginState(codexHome string, userCodexHome string) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return fmt.Errorf("create codex plugin state parent: %w", err)
 		}
-		if err := os.Symlink(source, target); err != nil {
+		if err := exposeCodexDirectory(source, target); err != nil {
 			return fmt.Errorf("expose codex plugin state %s: %w", rel, err)
 		}
 	}
@@ -663,7 +663,7 @@ func exposeUserCodexSkillFolders(targetRoot string, input PrepareInput) error {
 		} else if !os.IsNotExist(err) {
 			return fmt.Errorf("inspect codex skill %s: %w", name, err)
 		}
-		if err := os.Symlink(source, target); err != nil {
+		if err := exposeCodexDirectory(source, target); err != nil {
 			return fmt.Errorf("expose codex skill %s: %w", name, err)
 		}
 	}

@@ -104,9 +104,9 @@ func (s *AppCenterService) ImportPackage(ctx context.Context, archivePath string
 	} else if !errors.Is(err, workspacedata.ErrWorkspaceAppNotFound) {
 		return workspacebiz.WorkspaceApp{}, err
 	}
-	packageDir := s.packageCacheDir(manifest.AppID, manifest.Version)
-	if err := os.RemoveAll(packageDir); err != nil {
-		return workspacebiz.WorkspaceApp{}, fmt.Errorf("replace imported app package dir: %w", err)
+	packageDir, err := replaceWorkspaceAppPackageDir(s.packageCacheDir(manifest.AppID, manifest.Version))
+	if err != nil {
+		return workspacebiz.WorkspaceApp{}, err
 	}
 	if err := copyDirectory(packageRoot, packageDir); err != nil {
 		return workspacebiz.WorkspaceApp{}, fmt.Errorf("copy imported app package: %w", err)

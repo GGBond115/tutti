@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/tutti-os/tutti/packages/agent/daemon/httpx"
 	"github.com/tutti-os/tutti/packages/agent/daemon/runtimecmd"
@@ -82,6 +83,9 @@ func (s Service) resolveProviderRuntime(ctx context.Context, spec ProviderSpec) 
 		return result
 	}
 	cliPath := resolveBinaryWithResolver(resolver, spec.BinaryNames, nil)
+	if isClaudeStatusSpec(spec) && strings.TrimSpace(cliPath) == "" {
+		cliPath = s.managedClaudeCodeExecutable()
+	}
 	adapterPath := resolveBinaryWithResolver(resolver, adapterBinaryNames(spec), spec.AdapterEnv)
 	if isCodexStatusSpec(spec) && len(spec.AdapterCommand) > 0 && s.executableFile(spec.AdapterCommand[0]) {
 		if cliPath == "" {
@@ -523,7 +527,13 @@ func (s Service) shellCommandInstallerEnv(ctx context.Context, spec InstallerSpe
 
 func shellCommandUsesNPM(command string) bool {
 	fields := strings.Fields(command)
-	return len(fields) > 0 && fields[0] == npmBinaryName()
+	if len(fields) == 0 {
+		return false
+	}
+	// Registry/descriptors use the portable command name `npm`, while a
+	// Windows PATH lookup resolves it to npm.cmd. Treat both spellings as the
+	// same installer so managed Node is still prepended on Windows.
+	return strings.EqualFold(fields[0], "npm") || strings.EqualFold(fields[0], "npm.cmd")
 }
 
 func installerLockCommand(spec InstallerSpec) string {
@@ -548,6 +558,13 @@ func installerLockCommand(spec InstallerSpec) string {
 }
 
 func (s Service) runOfficialScriptInstaller(ctx context.Context, provider string, spec InstallerSpec) (InstallCommandResult, error) {
+	if runtime.GOOS == "windows" && strings.TrimSpace(provider) == "claude-code" {
+		// Claude's official install.sh deliberately rejects Windows. The daemon
+		// already provisions the signed native Claude Code runtime from the SDK
+		// manifest, so use that same verified path instead of feeding a Unix
+		// installer to MSYS2 and reporting a misleading shell failure.
+		return s.runManagedClaudeCodeInstaller(ctx)
+	}
 	installerFile, err := os.CreateTemp("", "tutti-agent-provider-install-*.sh")
 	if err != nil {
 		return InstallCommandResult{ExitCode: 1}, err
@@ -571,12 +588,58 @@ func (s Service) runOfficialScriptInstaller(ctx context.Context, provider string
 			Stderr:   err.Error(),
 		}, nil
 	}
+	command, args, env := officialScriptInvocation(
+		spec.ScriptShell,
+		scriptPath,
+		s.commandResolver().Env(nil),
+	)
 	return s.installCommand(ctx, InstallCommandInput{
-		Command:  joinShellCommand([]string{spec.ScriptShell, scriptPath}),
-		Args:     []string{spec.ScriptShell, scriptPath},
-		Env:      s.commandResolver().Env(nil),
+		Command:  command,
+		Args:     args,
+		Env:      env,
 		OnStdout: activeActionStdoutAppender(ctx, provider),
 	})
+}
+
+func (s Service) runManagedClaudeCodeInstaller(ctx context.Context) (InstallCommandResult, error) {
+	startedAt := time.Now()
+	slog.Info(
+		"claude code managed runtime install started",
+		"event", "tutti.claude_code.managed_install.started",
+	)
+	status, err := s.EnsureClaudeCodeBinary(ctx)
+	if err != nil {
+		slog.Warn(
+			"claude code managed runtime install failed",
+			"event", "tutti.claude_code.managed_install.failed",
+			"durationMs", time.Since(startedAt).Milliseconds(),
+			"error", err,
+		)
+		return InstallCommandResult{ExitCode: 1, Stderr: err.Error()}, nil
+	}
+	if strings.TrimSpace(status.Path) == "" {
+		err := fmt.Errorf("managed Claude Code runtime is unavailable (source=%s)", status.Source)
+		slog.Warn(
+			"claude code managed runtime install unavailable",
+			"event", "tutti.claude_code.managed_install.failed",
+			"durationMs", time.Since(startedAt).Milliseconds(),
+			"source", status.Source,
+			"error", err,
+		)
+		return InstallCommandResult{ExitCode: 1, Stderr: err.Error()}, nil
+	}
+	slog.Info(
+		"claude code managed runtime install completed",
+		"event", "tutti.claude_code.managed_install.completed",
+		"durationMs", time.Since(startedAt).Milliseconds(),
+		"source", status.Source,
+		"version", status.Version,
+		"path", status.Path,
+	)
+	return InstallCommandResult{
+		ExitCode: 0,
+		Stdout:   fmt.Sprintf("Claude Code managed runtime ready: %s", status.Path),
+	}, nil
 }
 
 func (s Service) runReleaseBinaryInstaller(
@@ -675,6 +738,13 @@ func (s Service) runExternalAgentRegistryNPMInstaller(ctx context.Context, provi
 		packageSpec,
 	}
 	command := joinShellCommand(commandArgs)
+	slog.Info(
+		"agent provider external registry npm command prepared",
+		"provider", provider,
+		"npmPath", appRuntime.NPM,
+		"installPrefix", npmSpec.PrefixDir,
+		"runner", managedNPMInstallRunner(),
+	)
 	baseEnv := managedruntime.ProcessEnv(append(appRuntime.EnvOverrides, envMapToList(npmSpec.Env)...)...)
 	// Use a dedicated, tutti-owned npm cache inside the install prefix rather than
 	// the user's global ~/.npm, which on some machines holds root-owned files that

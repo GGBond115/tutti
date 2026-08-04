@@ -222,9 +222,9 @@ func (s *AppCenterService) materializeBuiltinArchivePackage(ctx context.Context,
 		return workspacebiz.AppPackage{}, fmt.Errorf("remote builtin app manifest mismatch for %q", builtin.Manifest.AppID)
 	}
 
-	packageDir := s.packageCacheDir(manifest.AppID, manifest.Version)
-	if err := os.RemoveAll(packageDir); err != nil {
-		return workspacebiz.AppPackage{}, fmt.Errorf("replace builtin app package dir: %w", err)
+	packageDir, err := replaceWorkspaceAppPackageDir(s.packageCacheDir(manifest.AppID, manifest.Version))
+	if err != nil {
+		return workspacebiz.AppPackage{}, err
 	}
 	if err := copyDirectory(packageRoot, packageDir); err != nil {
 		return workspacebiz.AppPackage{}, fmt.Errorf("copy builtin app package: %w", err)

@@ -41,6 +41,22 @@ func TestPlatformAppShellAdapterUsesManagedShell(t *testing.T) {
 	}
 }
 
+func TestPlatformAppShellAdapterPreservesManagedShellEnvironment(t *testing.T) {
+	shellPath := filepath.Join(t.TempDir(), "usr", "bin", "bash.exe")
+	t.Setenv(managedPosixShellEnv, shellPath)
+
+	got := (platformAppShellAdapter{}).EnvironmentOverrides()
+	if len(got) != 2 {
+		t.Fatalf("EnvironmentOverrides() = %#v, want managed shell and MSYS2 overrides", got)
+	}
+	if got[0] != managedPosixShellEnv+"="+shellPath {
+		t.Fatalf("managed shell override = %q, want %q", got[0], managedPosixShellEnv+"="+shellPath)
+	}
+	if got[1] != "MSYS2_PATH_TYPE=inherit" {
+		t.Fatalf("MSYS2 override = %q, want inherit", got[1])
+	}
+}
+
 func TestPlatformAppShellAdapterRequiresManagedShell(t *testing.T) {
 	t.Setenv(managedPosixShellEnv, "")
 	if _, _, err := (platformAppShellAdapter{}).Command(context.Background(), `C:\\app\\bootstrap.sh`); err == nil {

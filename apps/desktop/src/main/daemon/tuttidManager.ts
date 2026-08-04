@@ -132,24 +132,27 @@ class ManagedTuttid implements TuttidManager {
     const logger = getDesktopLogger();
     const userShellEnv = await resolveManagedDaemonUserShellEnv();
     void applyUserShellProxyToSession(userShellEnv);
+    const processEnv = resolveManagedDaemonProcessEnv({
+      endpoint: this.endpoint,
+      desktopUpdateAdmission: this.desktopUpdateAdmission,
+      logOutput,
+      userShellEnv
+    });
     logger.info("starting managed tuttid", {
       command: launchSpec.command,
       args: launchSpec.args,
       cwd: launchSpec.cwd ?? process.cwd(),
       listener_info_path: this.endpoint.listenerInfoPath,
       pid_path: this.endpoint.pidPath,
-      log_output: logOutput
+      log_output: logOutput,
+      managed_posix_shell: processEnv.TUTTI_MANAGED_POSIX_SHELL ?? "",
+      managed_runtime_root: processEnv.TUTTI_APP_RUNTIME_ROOT ?? ""
     });
 
     const child = spawn(launchSpec.command, launchSpec.args, {
       cwd: launchSpec.cwd,
       detached: process.platform !== "win32",
-      env: resolveManagedDaemonProcessEnv({
-        endpoint: this.endpoint,
-        desktopUpdateAdmission: this.desktopUpdateAdmission,
-        logOutput,
-        userShellEnv
-      }),
+      env: processEnv,
       stdio: ["ignore", forwardStdout ? "pipe" : "ignore", "pipe"]
     });
 

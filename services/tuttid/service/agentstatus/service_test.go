@@ -3111,7 +3111,17 @@ func standardACPFakeScript(extraBody string) string {
 
 func isTestExecutable(path string) bool {
 	stat, err := os.Stat(path)
-	return err == nil && !stat.IsDir() && stat.Mode().Perm()&0111 != 0
+	if err != nil || stat.IsDir() {
+		return false
+	}
+	// Windows does not expose Unix executable permission bits. The production
+	// implementation uses the Windows platform rule as well, so test fixtures
+	// must not reject an ordinary file merely because Mode().Perm() has no 0111
+	// bits.
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return stat.Mode().Perm()&0111 != 0
 }
 
 func fileExistsForTest(path string) bool {
@@ -3134,7 +3144,13 @@ func isTestExecutableUnderHome(home string) func(string) bool {
 			return false
 		}
 		stat, err := os.Stat(path)
-		return err == nil && !stat.IsDir() && stat.Mode().Perm()&0111 != 0
+		if err != nil || stat.IsDir() {
+			return false
+		}
+		if runtime.GOOS == "windows" {
+			return true
+		}
+		return stat.Mode().Perm()&0111 != 0
 	}
 }
 
@@ -3196,10 +3212,14 @@ func fakeManagedRuntimeRoot(t *testing.T) string {
 	writeExecutable(t, filepath.Join(root, "python", "bin", pythonBinaryNameForTest()), "#!/bin/sh\nexit 0\n")
 	writeExecutable(t, filepath.Join(root, "node", "bin", nodeBinaryNameForTest()), "#!/bin/sh\nexit 0\n")
 	writeExecutable(t, filepath.Join(root, "node", "bin", npmBinaryNameForTest()), "#!/bin/sh\nexit 0\n")
+	corepackContents := "#!/bin/sh\nexec \"$(dirname \"$0\")/node\" \"$(dirname \"$0\")/../lib/node_modules/corepack/dist/corepack.js\" \"$@\"\n"
+	if runtime.GOOS == "windows" {
+		corepackContents = `@IF EXIST "%~dp0\node.exe" ("%~dp0\node.exe" "%~dp0\node_modules\corepack\dist\corepack.js" %*)`
+	}
 	writeExecutable(
 		t,
 		filepath.Join(root, "node", "bin", corepackBinaryNameForTest()),
-		"#!/bin/sh\nexec \"$(dirname \"$0\")/node\" \"$(dirname \"$0\")/../lib/node_modules/corepack/dist/corepack.js\" \"$@\"\n",
+		corepackContents,
 	)
 	return root
 }

@@ -204,7 +204,8 @@ func (r *AppRunner) startProcess(ctx context.Context, key string, input AppStart
 		bootstrap = "bootstrap.sh"
 	}
 	bootstrapPath := filepath.Join(input.PackageDir, filepath.FromSlash(bootstrap))
-	command, shellBinDirs, err := resolveAppShellAdapter(r.ShellAdapter).Command(ctx, bootstrapPath)
+	shellAdapter := resolveAppShellAdapter(r.ShellAdapter)
+	command, shellBinDirs, err := shellAdapter.Command(ctx, bootstrapPath)
 	if err != nil {
 		_ = logFile.Close()
 		logAppRuntimeControl("workspace_app_runtime_start_failed", input, port, "bootstrap_unavailable", err)
@@ -239,8 +240,9 @@ func (r *AppRunner) startProcess(ctx context.Context, key string, input AppStart
 	}
 	envOverrides = append(envOverrides, appRuntime.EnvOverrides...)
 	envOverrides = append(envOverrides, appRuntimePathWithCLIShim(appRuntime, tuttiCLIShim, shellBinDirs...))
+	envOverrides = append(envOverrides, shellAdapter.EnvironmentOverrides()...)
 	command.Env = workspaceAppProcessEnv(envOverrides...)
-	writeAppStartupDiagnostic(logFile, input, bootstrapPath, port, appRuntime, command.Env)
+	writeAppStartupDiagnostic(logFile, input, bootstrapPath, port, appRuntime, command, shellBinDirs)
 
 	launchURL := "http://127.0.0.1:" + strconv.Itoa(port)
 	startedAt := unixMsNow()
@@ -537,10 +539,11 @@ func currentRuntimeStateOrIdle(state workspacebiz.AppRuntimeState) workspacebiz.
 	return state
 }
 
-func writeAppStartupDiagnostic(logFile *os.File, input AppStartInput, bootstrapPath string, port int, appRuntime ResolvedAppRuntime, env []string) {
+func writeAppStartupDiagnostic(logFile *os.File, input AppStartInput, bootstrapPath string, port int, appRuntime ResolvedAppRuntime, command *exec.Cmd, shellBinDirs []string) {
 	if logFile == nil {
 		return
 	}
+	env := command.Env
 	_, _ = fmt.Fprintf(logFile, "tutti workspace app startup\n")
 	_, _ = fmt.Fprintf(logFile, "  appId=%s\n", input.AppID)
 	_, _ = fmt.Fprintf(logFile, "  workspaceId=%s\n", input.WorkspaceID)
@@ -556,6 +559,10 @@ func writeAppStartupDiagnostic(logFile *os.File, input AppStartInput, bootstrapP
 	_, _ = fmt.Fprintf(logFile, "  databaseDir=%s\n", input.DatabaseDir)
 	_, _ = fmt.Fprintf(logFile, "  logDir=%s\n", input.LogDir)
 	_, _ = fmt.Fprintf(logFile, "  toolchainRoot=%s\n", appRuntimeEnvValue(env, "TUTTI_APP_TOOLCHAIN_ROOT"))
+	_, _ = fmt.Fprintf(logFile, "  managedPosixShell=%s\n", appRuntimeEnvValue(env, "TUTTI_MANAGED_POSIX_SHELL"))
+	_, _ = fmt.Fprintf(logFile, "  shellBinDirs=%s\n", strings.Join(shellBinDirs, string(os.PathListSeparator)))
+	_, _ = fmt.Fprintf(logFile, "  msys2PathType=%s\n", appRuntimeEnvValue(env, "MSYS2_PATH_TYPE"))
+	_, _ = fmt.Fprintf(logFile, "  command=%s\n", strings.Join(command.Args, " "))
 	_, _ = fmt.Fprintf(logFile, "  host=127.0.0.1\n")
 	_, _ = fmt.Fprintf(logFile, "  port=%d\n", port)
 	_, _ = fmt.Fprintf(logFile, "  path=%s\n", appRuntimeEnvValue(env, "PATH"))

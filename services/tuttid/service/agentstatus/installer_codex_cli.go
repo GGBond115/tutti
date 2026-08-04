@@ -122,6 +122,14 @@ func (s Service) runManagedNPMPackageAction(
 		commandArgs = append(commandArgs, "--include=optional")
 	}
 	command := joinShellCommand(commandArgs)
+	slog.Info(
+		"agent provider managed npm command prepared",
+		"provider", provider,
+		"npmPath", npmPath,
+		"installPrefix", installPrefix,
+		"nodeTarget", nodeTarget,
+		"runner", managedNPMInstallRunner(),
+	)
 	// Pin a dedicated, tutti-owned npm cache instead of the user's global ~/.npm,
 	// which on some machines holds root-owned files that make every user-mode npm
 	// install fail with EACCES before any registry is hit.

@@ -26,3 +26,7 @@ func (platformAppShellAdapter) ValidateScript(scriptPath string) error {
 func (platformAppShellAdapter) Command(ctx context.Context, scriptPath string) (*exec.Cmd, []string, error) {
 	return exec.CommandContext(ctx, scriptPath), nil, nil
 }
+
+func (platformAppShellAdapter) EnvironmentOverrides() []string {
+	return nil
+}

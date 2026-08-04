@@ -98,7 +98,7 @@ test("desktop release workflow publishes rc tags as prereleases and keeps stable
   assert.match(workflow, /default:\s*patch_rc_release/);
   assert.match(
     workflow,
-    /release_mode:[\s\S]*?options:\s*\n\s*-\s*unsigned_dry_run\n\s*-\s*patch_beta_release\n\s*-\s*patch_rc_release\n\s*-\s*patch_release\n\s*-\s*minor_release\n\s*-\s*major_release\n\s*-\s*explicit_version_release/
+    /release_mode:[\s\S]*?options:\s*\r?\n\s*-\s*unsigned_dry_run\r?\n\s*-\s*patch_beta_release\r?\n\s*-\s*patch_rc_release\r?\n\s*-\s*patch_release\r?\n\s*-\s*minor_release\r?\n\s*-\s*major_release\r?\n\s*-\s*explicit_version_release/
   );
   assert.match(
     workflow,
@@ -647,7 +647,7 @@ test("desktop release workflow refreshes the stable alias without taking Latest"
   assert.ok(releaseDeleteIndex < releaseCreateIndex);
 });
 
-test("desktop release workflow publishes only macOS release assets for now", async () => {
+test("desktop release workflow keeps Windows packaging opt-in and stages unsigned assets", async () => {
   const workflow = await readFile(workflowPath, "utf8");
   const stageJobMatch = workflow.match(
     /stage:[\s\S]*?(?=\n\s{2}[a-z][a-z0-9_-]+:\n|$)/
@@ -658,14 +658,39 @@ test("desktop release workflow publishes only macOS release assets for now", asy
 
   assert.ok(stageJobMatch, "stage job should exist");
   assert.ok(notifyJobMatch, "draft notify job should exist");
-  assert.doesNotMatch(workflow, /\n\s{2}build-windows:\n/);
+  assert.match(
+    workflow,
+    /include_windows:[\s\S]*?type:\s+boolean[\s\S]*?default:\s+false/
+  );
+  assert.match(workflow, /id:\s+windows[\s\S]*?include_windows=false/);
+  assert.match(workflow, /\n\s{2}build-windows:\n/);
   assert.doesNotMatch(workflow, /\n\s{2}build-linux:\n/);
-  assert.match(stageJobMatch[0], /needs:\s+\[resolve, build-macos\]/);
-  assert.doesNotMatch(stageJobMatch[0], /build-windows|build-linux/);
+  assert.match(
+    workflow,
+    /build-windows:[\s\S]*?if:\s+\$\{\{\s*needs\.resolve\.outputs\.include_windows\s*==\s*'true'\s*\}\}/
+  );
+  assert.match(
+    workflow,
+    /build-windows:[\s\S]*?CSC_IDENTITY_AUTO_DISCOVERY:\s+"false"[\s\S]*?build:win/
+  );
+  assert.match(
+    stageJobMatch[0],
+    /needs:\s+\[resolve, build-macos, build-windows\]/
+  );
+  assert.match(stageJobMatch[0], /always\(\)/);
+  assert.match(
+    stageJobMatch[0],
+    /needs\.build-windows\.result\s*==\s*'skipped'/
+  );
   assert.match(
     stageJobMatch[0],
     /pattern:\s+tutti-desktop-release-assets-macos-\*/
   );
+  assert.match(
+    stageJobMatch[0],
+    /name:\s+tutti-desktop-release-assets-windows/
+  );
+  assert.match(stageJobMatch[0], /name:\s+Add Windows release artifacts/);
   assert.match(stageJobMatch[0], /merge-multiple:\s+false/);
   assert.doesNotMatch(
     notifyJobMatch[0],

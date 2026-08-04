@@ -393,7 +393,11 @@ other: value
 	if err := yaml.Unmarshal([]byte(got), &parsed); err != nil {
 		t.Fatalf("merged YAML should parse: %v\n%s", err, got)
 	}
-	want := []string{"/user/first", "/tutti/root", "/home/.hermes/skills"}
+	want := []string{
+		"/user/first",
+		filepath.Clean(filepath.FromSlash("/tutti/root")),
+		filepath.Clean(filepath.FromSlash("/home/.hermes/skills")),
+	}
 	if !slices.Equal(parsed.Skills.ExternalDirs, want) {
 		t.Fatalf("external_dirs = %#v, want %#v\n%s", parsed.Skills.ExternalDirs, want, got)
 	}

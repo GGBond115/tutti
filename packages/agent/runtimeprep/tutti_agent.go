@@ -151,15 +151,25 @@ func exposeTuttiAgentAuth(home string, source string, allowMissingSource bool) e
 		}
 	}
 	target := filepath.Join(home, "auth.json")
-	if current, err := os.Readlink(target); err == nil {
-		if current == source {
-			return nil
+	if info, err := os.Lstat(target); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			current, readErr := os.Readlink(target)
+			if readErr != nil {
+				return fmt.Errorf("read tutti-agent auth target: %w", readErr)
+			}
+			if current == source {
+				return nil
+			}
+			return fmt.Errorf("tutti-agent auth target already links to a different source")
 		}
-		return fmt.Errorf("tutti-agent auth target already links to a different source")
+		// Windows uses a hard link when the process lacks symlink privilege.
+		// The target is run-scoped, so an existing regular file is already a
+		// materialized auth view and does not need to be replaced.
+		return nil
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("inspect tutti-agent auth target: %w", err)
 	}
-	if err := os.Symlink(source, target); err != nil {
+	if err := exposeCodexFile(source, target, 0o600); err != nil {
 		return fmt.Errorf("expose tutti-agent auth.json: %w", err)
 	}
 	return nil

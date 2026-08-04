@@ -120,8 +120,10 @@ func agentModelCatalogSpecFromDescriptor(descriptor providerregistry.ProviderDes
 					return c.Codex
 				}
 				return CodexCLIModelLister{
-					Command: command[0],
-					Args:    append([]string(nil), command[1:]...),
+					Command:          command[0],
+					Args:             append([]string(nil), command[1:]...),
+					Provider:         descriptor.Identity.ID,
+					ProviderCommands: c.ProviderCommands,
 				}
 			},
 			configuredDefaultModel:    readCodexConfiguredDefaultModel,

@@ -168,12 +168,16 @@ func TestCodexModelCatalogListerUsesDescriptorRuntimeCommand(t *testing.T) {
 	if err != nil || !registered {
 		t.Fatalf("agentModelCatalogSpecFromDescriptor() = (_, %v, %v)", registered, err)
 	}
-	lister, ok := spec.lister(&CachedAgentModelCatalog{}, AgentModelCatalogInput{}).(CodexCLIModelLister)
+	resolver := &fakeProviderCommandResolver{}
+	lister, ok := spec.lister(&CachedAgentModelCatalog{ProviderCommands: resolver}, AgentModelCatalogInput{}).(CodexCLIModelLister)
 	if !ok {
-		t.Fatalf("lister = %T, want CodexCLIModelLister", spec.lister(&CachedAgentModelCatalog{}, AgentModelCatalogInput{}))
+		t.Fatalf("lister = %T, want CodexCLIModelLister", spec.lister(&CachedAgentModelCatalog{ProviderCommands: resolver}, AgentModelCatalogInput{}))
 	}
 	if lister.Command != "poison-codex" || !reflect.DeepEqual(lister.Args, []string{"poison-app-server"}) {
 		t.Fatalf("lister command = %q %#v", lister.Command, lister.Args)
+	}
+	if lister.Provider != agentprovider.Codex || lister.ProviderCommands != resolver {
+		t.Fatalf("lister provider wiring = provider %q resolver %T, want %q and injected resolver", lister.Provider, lister.ProviderCommands, agentprovider.Codex)
 	}
 }
 

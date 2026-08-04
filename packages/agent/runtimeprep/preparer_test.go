@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 
 func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	userCodexHome := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(userCodexHome, 0o700); err != nil {
 		t.Fatal(err)
@@ -128,15 +129,21 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 	if err != nil {
 		t.Fatalf("codex models cache not exposed: %v", err)
 	}
-	if modelsCacheInfo.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("codex models cache should be a symlink, got mode %v", modelsCacheInfo.Mode())
-	}
-	modelsCacheTarget, err := os.Readlink(modelsCachePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := filepath.Join(userCodexHome, "models_cache.json"); modelsCacheTarget != want {
-		t.Fatalf("codex models cache symlink target = %q, want %q", modelsCacheTarget, want)
+	if runtime.GOOS == "windows" {
+		if modelsCacheInfo.Mode()&os.ModeSymlink != 0 {
+			t.Fatalf("codex models cache should use a Windows-compatible file link, got symlink")
+		}
+	} else {
+		if modelsCacheInfo.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("codex models cache should be a symlink, got mode %v", modelsCacheInfo.Mode())
+		}
+		modelsCacheTarget, err := os.Readlink(modelsCachePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := filepath.Join(userCodexHome, "models_cache.json"); modelsCacheTarget != want {
+			t.Fatalf("codex models cache symlink target = %q, want %q", modelsCacheTarget, want)
+		}
 	}
 	if err := os.WriteFile(modelsCachePath, []byte(`{"models":["refreshed"]}`), 0o600); err != nil {
 		t.Fatalf("refresh run-scoped codex models cache: %v", err)
@@ -170,7 +177,7 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 	if err != nil {
 		t.Fatalf("codex model catalog not exposed: %v", err)
 	}
-	if catalogLink.Mode()&os.ModeSymlink == 0 {
+	if runtime.GOOS != "windows" && catalogLink.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("codex model catalog should be a symlink, got mode %v", catalogLink.Mode())
 	}
 	for _, rel := range []string{
@@ -182,7 +189,7 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 		if err != nil {
 			t.Fatalf("codex plugin state %s not exposed: %v", rel, err)
 		}
-		if info.Mode()&os.ModeSymlink == 0 {
+		if runtime.GOOS != "windows" && info.Mode()&os.ModeSymlink == 0 {
 			t.Fatalf("codex plugin state %s should be exposed as symlink", rel)
 		}
 	}
@@ -222,15 +229,17 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 	if err != nil {
 		t.Fatalf("caveman skill not exposed: %v", err)
 	}
-	if cavemanInfo.Mode()&os.ModeSymlink == 0 {
+	if runtime.GOOS != "windows" && cavemanInfo.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("caveman skill mode = %v, want symlink", cavemanInfo.Mode())
 	}
-	cavemanTarget, err := os.Readlink(cavemanPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cavemanTarget != filepath.Join(userCodexHome, "skills", "caveman") {
-		t.Fatalf("caveman symlink target = %q", cavemanTarget)
+	if runtime.GOOS != "windows" {
+		cavemanTarget, err := os.Readlink(cavemanPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cavemanTarget != filepath.Join(userCodexHome, "skills", "caveman") {
+			t.Fatalf("caveman symlink target = %q", cavemanTarget)
+		}
 	}
 	cavemanSkill, err := os.ReadFile(filepath.Join(cavemanPath, "SKILL.md"))
 	if err != nil {
@@ -243,7 +252,7 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 	if err != nil {
 		t.Fatalf("grill-me skill not exposed: %v", err)
 	}
-	if grillMeInfo.Mode()&os.ModeSymlink == 0 {
+	if runtime.GOOS != "windows" && grillMeInfo.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("grill-me skill mode = %v, want symlink", grillMeInfo.Mode())
 	}
 	if _, err := os.Lstat(filepath.Join(codexHome, "skills", ".system")); !os.IsNotExist(err) {
@@ -279,7 +288,7 @@ func TestDefaultPreparerCodexWritesInstructionsSkillManifestAndEnv(t *testing.T)
 		!strings.Contains(string(skill), "Issue execution sequencing belongs to `$issue-manager`") {
 		t.Fatalf("skill content = %q, want local daemon environment guidance", string(skill))
 	}
-	if !strings.HasPrefix(string(skill), "---\nname: tutti-cli\n") {
+	if !strings.HasPrefix(strings.ReplaceAll(string(skill), "\r\n", "\n"), "---\nname: tutti-cli\n") {
 		t.Fatalf("skill missing YAML frontmatter: %q", string(skill))
 	}
 	if strings.Contains(string(skill), "### Mention-driven issue handoff") {
@@ -615,7 +624,7 @@ value = "different role"
 }
 
 func TestDefaultPreparerCodexDedicatedProjectionNarrowsAutomaticCLIApproval(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	stateDir := t.TempDir()
 	cwd := t.TempDir()
 	catalog := append(testCommandCapabilities(), CommandCapability{
@@ -684,7 +693,7 @@ func TestDefaultPreparerCodexDedicatedProjectionNarrowsAutomaticCLIApproval(t *t
 
 func TestExposeUserCodexModelsCacheSharesFirstRefreshAcrossSessions(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	userCodexHome := filepath.Join(home, ".codex")
 	firstCodexHome := t.TempDir()
 	if err := exposeUserCodexModelsCache(firstCodexHome, userCodexHome); err != nil {
@@ -696,12 +705,10 @@ func TestExposeUserCodexModelsCacheSharesFirstRefreshAcrossSessions(t *testing.T
 	if err != nil {
 		t.Fatalf("first session models cache link missing: %v", err)
 	}
-	if info.Mode()&os.ModeSymlink == 0 {
+	if runtime.GOOS != "windows" && info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("first session models cache mode = %v, want symlink", info.Mode())
 	}
-	if _, err := os.Stat(filepath.Join(userCodexHome, "models_cache.json")); !os.IsNotExist(err) {
-		t.Fatalf("shared models cache should not exist before first provider refresh, err = %v", err)
-	}
+	assertCodexModelsCacheCleared(t, filepath.Join(userCodexHome, "models_cache.json"), "shared models cache should be absent before first provider refresh")
 	if err := os.WriteFile(firstCachePath, []byte(`{"models":["first-refresh"]}`), 0o600); err != nil {
 		t.Fatalf("write first session models cache: %v", err)
 	}
@@ -721,7 +728,7 @@ func TestExposeUserCodexModelsCacheSharesFirstRefreshAcrossSessions(t *testing.T
 
 func TestDefaultPreparerCodexRefreshesRunConfigFromCurrentUserConfig(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	userCodexHome := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(userCodexHome, 0o700); err != nil {
 		t.Fatal(err)
@@ -785,7 +792,7 @@ func TestDefaultPreparerCodexRefreshesRunConfigFromCurrentUserConfig(t *testing.
 
 func TestDefaultPreparerCodexRemovesRunConfigWhenUserConfigDisappears(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	userCodexHome := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(userCodexHome, 0o700); err != nil {
 		t.Fatal(err)
@@ -849,12 +856,10 @@ func TestExposeUserCodexModelsCacheDropsUnfencedRunCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode()&os.ModeSymlink == 0 {
+	if runtime.GOOS != "windows" && info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("run cache mode = %v, want authority-scoped shared-cache symlink", info.Mode())
 	}
-	if _, err := os.Stat(filepath.Join(userCodexHome, "models_cache.json")); !os.IsNotExist(err) {
-		t.Fatalf("unfenced shared cache should be removed, err = %v", err)
-	}
+	assertCodexModelsCacheCleared(t, filepath.Join(userCodexHome, "models_cache.json"), "unfenced shared cache should be removed")
 	if _, err := os.Stat(filepath.Join(userCodexHome, codexModelsCacheAuthorityFile)); err != nil {
 		t.Fatalf("models cache authority fence missing: %v", err)
 	}
@@ -885,10 +890,8 @@ func TestExposeUserCodexModelsCacheInvalidatesWhenGlobalConfigChanges(t *testing
 	if err := exposeUserCodexModelsCache(secondCodexHome, userCodexHome); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(userCodexHome, "models_cache.json")); !os.IsNotExist(err) {
-		t.Fatalf("cache from previous global config should be removed, err = %v", err)
-	}
-	if info, err := os.Lstat(filepath.Join(secondCodexHome, "models_cache.json")); err != nil || info.Mode()&os.ModeSymlink == 0 {
+	assertCodexModelsCacheCleared(t, filepath.Join(userCodexHome, "models_cache.json"), "cache from previous global config should be removed")
+	if info, err := os.Lstat(filepath.Join(secondCodexHome, "models_cache.json")); err != nil || runtime.GOOS != "windows" && info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("second run cache link missing after config invalidation: info=%#v err=%v", info, err)
 	}
 }
@@ -928,9 +931,7 @@ func TestExposeUserCodexModelsCacheInvalidatesWhenGlobalCatalogChanges(t *testin
 	if err := exposeUserCodexModelsCache(secondCodexHome, userCodexHome); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(userCodexHome, "models_cache.json")); !os.IsNotExist(err) {
-		t.Fatalf("cache from previous global catalog should be removed, err = %v", err)
-	}
+	assertCodexModelsCacheCleared(t, filepath.Join(userCodexHome, "models_cache.json"), "cache from previous global catalog should be removed")
 	secondFence, err := os.ReadFile(filepath.Join(userCodexHome, codexModelsCacheAuthorityFile))
 	if err != nil {
 		t.Fatal(err)
@@ -938,14 +939,14 @@ func TestExposeUserCodexModelsCacheInvalidatesWhenGlobalCatalogChanges(t *testin
 	if string(firstFence) == string(secondFence) {
 		t.Fatalf("models cache authority fence did not change after global catalog update")
 	}
-	if info, err := os.Lstat(filepath.Join(secondCodexHome, "models_cache.json")); err != nil || info.Mode()&os.ModeSymlink == 0 {
+	if info, err := os.Lstat(filepath.Join(secondCodexHome, "models_cache.json")); err != nil || runtime.GOOS != "windows" && info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("second run cache link missing after invalidation: info=%#v err=%v", info, err)
 	}
 }
 
 func TestDefaultPreparerCodexExposesRelativeModelCatalogJSON(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	userCodexHome := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(userCodexHome, 0o700); err != nil {
 		t.Fatal(err)
@@ -991,15 +992,17 @@ func TestDefaultPreparerCodexExposesRelativeModelCatalogJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("relative model catalog not exposed into sandbox: %v", err)
 	}
-	if info.Mode()&os.ModeSymlink == 0 {
+	if runtime.GOOS != "windows" && info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("sandbox model catalog mode = %v, want symlink", info.Mode())
 	}
-	linkTarget, err := os.Readlink(sandboxCatalog)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if linkTarget != filepath.Join(userCodexHome, catalogName) {
-		t.Fatalf("sandbox catalog symlink target = %q, want user catalog", linkTarget)
+	if runtime.GOOS != "windows" {
+		linkTarget, err := os.Readlink(sandboxCatalog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if linkTarget != filepath.Join(userCodexHome, catalogName) {
+			t.Fatalf("sandbox catalog symlink target = %q, want user catalog", linkTarget)
+		}
 	}
 	got, err := os.ReadFile(sandboxCatalog)
 	if err != nil {
@@ -1012,7 +1015,7 @@ func TestDefaultPreparerCodexExposesRelativeModelCatalogJSON(t *testing.T) {
 
 func TestDefaultPreparerCodexUserSkillNameWinsBeforeTuttiInjection(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	userCodexHome := filepath.Join(home, ".codex")
 	writeSidecarTestFile(t, filepath.Join(userCodexHome, "skills", "tutti-cli", "SKILL.md"), "---\nname: tutti-cli\n---\nUser tutti skill\n")
 
@@ -1033,7 +1036,7 @@ func TestDefaultPreparerCodexUserSkillNameWinsBeforeTuttiInjection(t *testing.T)
 	if err != nil {
 		t.Fatalf("user tutti-cli skill not exposed: %v", err)
 	}
-	if userSkillInfo.Mode()&os.ModeSymlink == 0 {
+	if runtime.GOOS != "windows" && userSkillInfo.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("user tutti-cli skill mode = %v, want symlink", userSkillInfo.Mode())
 	}
 	userSkill, err := os.ReadFile(filepath.Join(userSkillPath, "SKILL.md"))
@@ -1062,7 +1065,7 @@ func TestDefaultPreparerCodexUserSkillNameWinsBeforeTuttiInjection(t *testing.T)
 
 func TestDefaultPreparerCodexWritesProjectRootMarkersDisabledConfigWithoutUserConfig(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 
 	stateDir := t.TempDir()
 	cwd := t.TempDir()
@@ -1095,7 +1098,7 @@ func TestDefaultPreparerCodexWritesProjectRootMarkersDisabledConfigWithoutUserCo
 
 func TestDefaultPreparerCodexWritesGeneralConversationDetailModeToSessionConfig(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 
 	stateDir := t.TempDir()
 	cwd := t.TempDir()
@@ -1655,8 +1658,14 @@ func TestDefaultPreparerClaudeCodeUsesSessionScopedSystemPrompt(t *testing.T) {
 
 func TestDefaultPreparerClaudeCodeSetsFallbackExecutableFromPath(t *testing.T) {
 	binDir := t.TempDir()
-	claudePath := filepath.Join(binDir, "claude")
-	if err := os.WriteFile(claudePath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	claudeName := "claude"
+	claudeBody := []byte("#!/bin/sh\n")
+	if runtime.GOOS == "windows" {
+		claudeName = "claude.cmd"
+		claudeBody = []byte("@echo off\r\n")
+	}
+	claudePath := filepath.Join(binDir, claudeName)
+	if err := os.WriteFile(claudePath, claudeBody, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir)
@@ -1799,7 +1808,7 @@ func TestDefaultPreparerCursorUsesRuntimePluginDir(t *testing.T) {
 // `set_mode("plan")` call instead.
 func TestDefaultPreparerClaudePlanModeDoesNotOverrideConfigDir(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	userClaudeDir := filepath.Join(home, ".claude")
 	if err := os.MkdirAll(userClaudeDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -1985,7 +1994,7 @@ func TestDefaultPreparerCleanupRemovesClaudeSystemPromptRuntimeRoot(t *testing.T
 
 func TestCodexPreparerSkipsUserBrowserSkillWhenBrowserUseEnabled(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	t.Setenv(browserUseSwitchEnv, "")
 	userCodexHome := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(userCodexHome, 0o700); err != nil {
@@ -2033,7 +2042,7 @@ func TestCodexPreparerSkipsUserBrowserSkillWhenBrowserUseEnabled(t *testing.T) {
 
 func TestExposeCodexImportedRolloutFileSymlinksMatchingRelativePath(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	rel := filepath.Join("sessions", "2026", "07", "04", "rollout-abc.jsonl")
 	sourcePath := filepath.Join(home, ".codex", rel)
 	writeSidecarTestFile(t, sourcePath, `{"type":"session_meta"}`)
@@ -2048,21 +2057,23 @@ func TestExposeCodexImportedRolloutFileSymlinksMatchingRelativePath(t *testing.T
 	if err != nil {
 		t.Fatalf("imported rollout file not exposed: %v", err)
 	}
-	if info.Mode()&os.ModeSymlink == 0 {
+	if runtime.GOOS != "windows" && info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("imported rollout file mode = %v, want symlink", info.Mode())
 	}
-	linkTarget, err := os.Readlink(target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if linkTarget != sourcePath {
-		t.Fatalf("symlink target = %q, want %q", linkTarget, sourcePath)
+	if runtime.GOOS != "windows" {
+		linkTarget, err := os.Readlink(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if linkTarget != sourcePath {
+			t.Fatalf("symlink target = %q, want %q", linkTarget, sourcePath)
+		}
 	}
 }
 
 func TestExposeCodexImportedRolloutFileNoopWhenSourcePathEmpty(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	codexHome := t.TempDir()
 	if err := exposeCodexImportedRolloutFile(codexHome, ""); err != nil {
 		t.Fatalf("exposeCodexImportedRolloutFile() error = %v", err)
@@ -2078,7 +2089,7 @@ func TestExposeCodexImportedRolloutFileNoopWhenSourcePathEmpty(t *testing.T) {
 
 func TestExposeCodexImportedRolloutFileGracefulWhenSourceFileMissing(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	sourcePath := filepath.Join(home, ".codex", "sessions", "2026", "07", "04", "rollout-gone.jsonl")
 
 	codexHome := t.TempDir()
@@ -2092,7 +2103,7 @@ func TestExposeCodexImportedRolloutFileGracefulWhenSourceFileMissing(t *testing.
 
 func TestExposeCodexImportedRolloutFileGracefulWhenSourceOutsideRealCodexHome(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	outsidePath := filepath.Join(t.TempDir(), "rollout.jsonl")
 	writeSidecarTestFile(t, outsidePath, `{"type":"session_meta"}`)
 
@@ -2111,7 +2122,7 @@ func TestExposeCodexImportedRolloutFileGracefulWhenSourceOutsideRealCodexHome(t 
 
 func TestDefaultPreparerCodexExposesImportedRolloutFileFromPrepareInput(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	rel := filepath.Join("sessions", "2026", "07", "04", "rollout-abc.jsonl")
 	sourcePath := filepath.Join(home, ".codex", rel)
 	writeSidecarTestFile(t, sourcePath, `{"type":"session_meta"}`)
@@ -2138,14 +2149,14 @@ func TestDefaultPreparerCodexExposesImportedRolloutFileFromPrepareInput(t *testi
 	if err != nil {
 		t.Fatalf("imported rollout file not exposed via Prepare(): %v", err)
 	}
-	if info.Mode()&os.ModeSymlink == 0 {
+	if runtime.GOOS != "windows" && info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("imported rollout file mode = %v, want symlink", info.Mode())
 	}
 }
 
 func TestDefaultPreparerCodexSkipsRolloutExposureForNonImportedSession(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	stateDir := t.TempDir()
 	cwd := t.TempDir()
 	prepared, err := newTestPreparer(stateDir).Prepare(t.Context(), PrepareInput{
@@ -2177,9 +2188,23 @@ func envValue(env []string, key string) string {
 	return ""
 }
 
+func assertCodexModelsCacheCleared(t *testing.T, path string, message string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		t.Fatalf("%s, err = %v", message, err)
+	}
+	if runtime.GOOS != "windows" || len(content) != 0 {
+		t.Fatalf("%s, content = %q, err = %v", message, content, err)
+	}
+}
+
 func TestDefaultPreparerCodexExposesRelativeModelInstructionsFile(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	userCodexHome := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(userCodexHome, 0o700); err != nil {
 		t.Fatal(err)
@@ -2222,15 +2247,17 @@ func TestDefaultPreparerCodexExposesRelativeModelInstructionsFile(t *testing.T) 
 	if err != nil {
 		t.Fatalf("relative model instructions file not exposed into sandbox: %v", err)
 	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("sandbox model instructions file mode = %v, want symlink", info.Mode())
-	}
-	linkTarget, err := os.Readlink(sandboxInstructions)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if linkTarget != filepath.Join(userCodexHome, instructionsName) {
-		t.Fatalf("sandbox instructions symlink target = %q, want user instructions", linkTarget)
+	if runtime.GOOS != "windows" {
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("sandbox model instructions file mode = %v, want symlink", info.Mode())
+		}
+		linkTarget, err := os.Readlink(sandboxInstructions)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if linkTarget != filepath.Join(userCodexHome, instructionsName) {
+			t.Fatalf("sandbox instructions symlink target = %q, want user instructions", linkTarget)
+		}
 	}
 	got, err := os.ReadFile(sandboxInstructions)
 	if err != nil {
@@ -2243,7 +2270,7 @@ func TestDefaultPreparerCodexExposesRelativeModelInstructionsFile(t *testing.T) 
 
 func TestDefaultPreparerCodexRejectsMissingModelInstructionsFile(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	userCodexHome := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(userCodexHome, 0o700); err != nil {
 		t.Fatal(err)
@@ -2288,7 +2315,7 @@ func TestDefaultPreparerCodexRejectsMissingModelInstructionsFile(t *testing.T) {
 
 func TestDefaultPreparerCodexPreservesAbsoluteModelInstructionsFile(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	userCodexHome := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(userCodexHome, 0o700); err != nil {
 		t.Fatal(err)
@@ -2301,7 +2328,7 @@ func TestDefaultPreparerCodexPreservesAbsoluteModelInstructionsFile(t *testing.T
 		t.Fatal(err)
 	}
 	userCodexConfig := strings.Join([]string{
-		`model_instructions_file = "` + absPath + `"`,
+		`model_instructions_file = "` + filepath.ToSlash(absPath) + `"`,
 		`model = "gpt-5.5"`,
 		"",
 	}, "\n")
@@ -2330,13 +2357,13 @@ func TestDefaultPreparerCodexPreservesAbsoluteModelInstructionsFile(t *testing.T
 
 func TestDefaultPreparerCodexRejectsMissingAbsoluteModelInstructionsFile(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	userCodexHome := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(userCodexHome, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	missingPath := filepath.Join(t.TempDir(), "missing-absolute-instructions.md")
-	config := `model_instructions_file = "` + missingPath + `"` + "\n"
+	config := `model_instructions_file = "` + filepath.ToSlash(missingPath) + `"` + "\n"
 	if err := os.WriteFile(filepath.Join(userCodexHome, "config.toml"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}

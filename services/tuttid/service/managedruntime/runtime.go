@@ -92,7 +92,11 @@ func (r DefaultResolver) Resolve(ctx context.Context) (ResolvedRuntime, error) {
 	if err := r.ensureRuntime(ctx, root); err != nil {
 		return ResolvedRuntime{}, err
 	}
-	return r.resolvedRuntimeForComponents(root, []string{"python", "node"})
+	components, err := r.baselineRuntimeComponents(ctx, root)
+	if err != nil {
+		return ResolvedRuntime{}, err
+	}
+	return r.resolvedRuntimeForComponents(root, components)
 }
 
 func (r DefaultResolver) PreloadProfile(ctx context.Context, profile string) error {
@@ -189,16 +193,47 @@ func (r DefaultResolver) resolvedRuntimeForComponents(root string, components []
 }
 
 func (r DefaultResolver) ensureRuntime(ctx context.Context, root string) error {
-	if RootReady(root) {
+	components, err := r.baselineRuntimeComponents(ctx, root)
+	if err != nil {
+		return err
+	}
+	if runtimeComponentsReady(root, components) {
 		return nil
 	}
 	if err := r.ensureRuntimeProfile(ctx, root, appRuntimeBaselineProfile); err != nil {
 		return err
 	}
-	if !RootReady(root) {
-		return fmt.Errorf("managed app runtime artifact does not contain python and node baseline")
+	if !runtimeComponentsReady(root, components) {
+		return fmt.Errorf("managed app runtime artifact does not contain required baseline components: %s", strings.Join(components, ", "))
 	}
 	return nil
+}
+
+func (r DefaultResolver) baselineRuntimeComponents(ctx context.Context, root string) ([]string, error) {
+	if RootReady(root) {
+		return []string{"python", "node"}, nil
+	}
+	components, err := r.runtimeProfileComponentNames(ctx, appRuntimeBaselineProfile)
+	if err == nil {
+		return components, nil
+	}
+	// A fully materialized legacy runtime can still be resolved without a
+	// catalog. Keep that offline behavior for existing Unix installations while
+	// allowing platform catalogs (notably Windows) to define a node-only
+	// baseline.
+	return nil, err
+}
+
+func runtimeComponentsReady(root string, components []string) bool {
+	if len(components) == 0 {
+		return false
+	}
+	for _, component := range components {
+		if !appRuntimeComponentReady(root, component) {
+			return false
+		}
+	}
+	return true
 }
 
 func (r DefaultResolver) ensureRuntimeProfile(ctx context.Context, root string, profile string) error {
