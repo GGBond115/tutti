@@ -254,6 +254,8 @@ func (o *sessionRecordingObserver) ObserveRuntimeStreamEvents(
 	return nil
 }
 
+func (*sessionRecordingObserver) ForgetSideConversation(string, string) {}
+
 func (o *sessionRecordingObserver) contains(sessionID string) bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()

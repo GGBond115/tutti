@@ -31,6 +31,8 @@ func (o *sideRoutingObserver) ObserveRuntimeStreamEvents(
 	return nil
 }
 
+func (*sideRoutingObserver) ForgetSideConversation(string, string) {}
+
 func (o *sideRoutingObserver) containsText(
 	sessionID string,
 	text string,

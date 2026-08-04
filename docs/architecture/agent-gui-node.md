@@ -267,6 +267,11 @@ provider Side runtime observation
   -> Side timeline + composer instances
 ```
 
+The runtime `SideStreamObserver` seam includes both event observation and
+explicit ephemeral-identity cleanup. Host calls the cleanup operation when a
+Side closes, is removed, or expires, so bridge-local ordering state cannot
+outlive the Side identity.
+
 The provider adapter owns provider-specific context snapshot mechanics. Host
 owns Side identity, idempotent open, exact-Turn commands, scope isolation, and
 cleanup. tuttid projects those commands through generated OpenAPI contracts and

@@ -6,10 +6,6 @@ import (
 	"strings"
 )
 
-type sideStreamEventCleanupObserver interface {
-	ForgetSideConversation(string, string)
-}
-
 // SetStreamEventObserver binds the daemon-local business-event projection.
 // The observer is intentionally singular: one Controller has one ordered
 // external fan-out boundary, while EventHub remains responsible for arbitrary
@@ -26,7 +22,7 @@ func (c *Controller) SetStreamEventObserver(observer RuntimeStreamEventObserver)
 // SetSideStreamEventObserver binds the transient-only side-conversation event
 // projection. Side events never reach the canonical observer or durable
 // reporter, even though both scopes reuse the same adapter event vocabulary.
-func (c *Controller) SetSideStreamEventObserver(observer RuntimeStreamEventObserver) {
+func (c *Controller) SetSideStreamEventObserver(observer SideStreamEventObserver) {
 	if c == nil {
 		return
 	}
@@ -83,8 +79,8 @@ func (c *Controller) forgetSideStreamEvents(session Session) {
 	c.streamObserverMu.RLock()
 	observer := c.sideStreamObserver
 	c.streamObserverMu.RUnlock()
-	cleanup, ok := observer.(sideStreamEventCleanupObserver)
-	if ok {
-		cleanup.ForgetSideConversation(session.RoomID, session.AgentSessionID)
+	if observer == nil {
+		return
 	}
+	observer.ForgetSideConversation(session.RoomID, session.AgentSessionID)
 }

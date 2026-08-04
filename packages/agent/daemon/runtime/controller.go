@@ -55,7 +55,7 @@ type Controller struct {
 	streamObserver              RuntimeStreamEventObserver
 	providerObservationObserver ProviderObservationObserver
 	goalControlObserver         GoalControlLifecycleObserver
-	sideStreamObserver          RuntimeStreamEventObserver
+	sideStreamObserver          SideStreamEventObserver
 }
 
 // RuntimeStreamEventObserver receives the ordered precommit stream projection
@@ -69,6 +69,13 @@ type RuntimeStreamEventObserver interface {
 		string,
 		[]StreamEvent,
 	) error
+}
+
+// SideStreamEventObserver receives transient Side events and must release
+// bridge-local ordering state when the ephemeral identity expires or closes.
+type SideStreamEventObserver interface {
+	RuntimeStreamEventObserver
+	ForgetSideConversation(string, string)
 }
 
 // ProviderObservationObserver receives capture-only provider observations
