@@ -218,16 +218,19 @@ transport、Agent live Subscriber 和产品 adapter 的现有所有权，不把 
 
 移动端连接分成两个边界，不能把控制面轮询和数据面建流混为一谈：
 
-| 边界                                       | 当前策略                                                                                                                              | 所有者                                                                 |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| DeviceLink attempt / Relay descriptor 准备 | direct attempt 与 Relay descriptor 并行；Relay 只有完成一次对端 Agent 请求/响应后才可成为可用路径；direct attempt 仍按 500ms 轮询状态 | `apps/mobile/src/services/pairingClient.ts` + 原生 bridge              |
-| Agent HTTP / live 数据流                   | direct 与 Relay 的底层拨号仍可并行；两条路径先完成 DeviceLink transport probe，收到对端 ACK 后才选中，应用帧仍由原生 bridge 处理      | `packages/device-link/mobile` + `services/tuttid/service/mobileremote` |
+| 边界                                       | 当前策略                                                                                                                                                            | 所有者                                                                 |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| DeviceLink attempt / Relay descriptor 准备 | direct attempt 与 Relay descriptor 并行；Relay 只有完成一次对端 Agent 请求/响应后才可成为可用路径；WebSocket 事件优先唤醒 direct attempt，丢失时仍按 500ms 轮询状态 | `apps/mobile/src/services/pairingClient.ts` + 原生 bridge              |
+| Agent HTTP / live 数据流                   | direct 与 Relay 的底层拨号仍可并行；两条路径先完成 DeviceLink transport probe，收到对端 ACK 后才选中，应用帧仍由原生 bridge 处理                                    | `packages/device-link/mobile` + `services/tuttid/service/mobileremote` |
 
-移动端目前没有已确认的 `device_link.attempt.changed` 控制面 WebSocket 契约，因此不
-凭空增加推送协议；控制面仍保留轮询作为事实来源。Relay descriptor 先准备好时，
-原生层先通过 DeviceLink transport probe 确认对端 tunnel，再让 Relay 参与连接结果
-竞速；具体 Agent 请求仍在探测成功后发送，direct attempt 仍在后台完成。TSH Desktop
-的默认 3 秒 Relay 兜底策略属于另一套已上线产品策略，本改动不改变它。
+控制面 WebSocket 复用已上线的设备级 V2 长连接：握手携带当前 session cookie 和
+`deviceId`，只接收 `device_link.attempt.changed` 作为唤醒提示；HTTP attempt API
+仍是唯一事实来源，推送丢失、重连或乱序都由重读和 500ms 轮询兜底。paired-device
+attempt 不绑定 room，服务端按 `userId + deviceId` 精确投递，因此连接功能未开启时
+不会建立这条长连接。Relay descriptor 先准备好时，原生层先通过 DeviceLink
+transport probe 确认对端 tunnel，再让 Relay 参与连接结果竞速；具体 Agent 请求仍在
+探测成功后发送，direct attempt 仍在后台完成。TSH Desktop 的默认 3 秒 Relay 兜底策略
+属于另一套已上线产品策略，本改动不改变它。
 
 ### 账号浏览器认证边界
 

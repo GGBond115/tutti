@@ -19,6 +19,9 @@ import {
   type PairingQRPayload
 } from "./pairingProtocol";
 import { PAIRING_OPERATION_SUSPENDED } from "./servicePorts";
+import type { MobileDiagnosticsPort } from "./servicePorts";
+import { DeviceLinkAttemptWake } from "./deviceLinkAttemptWake";
+import type { DeviceLinkAttemptEventSource } from "./deviceLinkAttemptEvents";
 import { raceSuccessful } from "./pairingTransportRace";
 
 interface RegisteredDevice {
@@ -58,6 +61,11 @@ export interface AgentRelayDescriptor {
 }
 
 const RELAY_STREAM_SUBPROTOCOL = "tsh.relay.stream.v1";
+
+export interface PairedDeviceConnectionOptions {
+  attemptEvents?: DeviceLinkAttemptEventSource;
+  diagnostics?: MobileDiagnosticsPort;
+}
 
 export async function claimPairing(
   sessionId: string,
@@ -129,7 +137,8 @@ export async function listDevices(sessionId: string): Promise<UserDevice[]> {
 export async function connectPairedDevice(
   sessionId: string,
   pairingId: string,
-  isCurrent: () => boolean = () => true
+  isCurrent: () => boolean = () => true,
+  options: PairedDeviceConnectionOptions = {}
 ): Promise<DeviceLinkPathScope> {
   const identity = await mobileSecurity.getOrCreateIdentity();
   requireCurrentConnection(isCurrent);
@@ -137,13 +146,22 @@ export async function connectPairedDevice(
   requireCurrentConnection(isCurrent);
   const relayController = new AbortController();
   const directController = new AbortController();
+  const raceStartedAt = Date.now();
+  const attemptWake = new DeviceLinkAttemptWake();
+  const attemptEvents = options.attemptEvents?.start(
+    sessionId,
+    identity.deviceId,
+    (attemptId) => attemptWake.notify(attemptId)
+  );
   const directTask = connectDirectDevice(
     sessionId,
     pairingId,
     identity,
     isCurrent,
-    directController.signal
-  );
+    directController.signal,
+    attemptWake,
+    options.diagnostics
+  ).finally(() => attemptEvents?.close());
   const relayTask = configureRelayTransport(
     sessionId,
     pairingId,
@@ -152,12 +170,22 @@ export async function connectPairedDevice(
     relayController.signal
   ).then(async (descriptor) => {
     if (descriptor === null) return null;
+    recordDeviceLinkStage(
+      options.diagnostics,
+      "relay_descriptor_ready",
+      raceStartedAt
+    );
     // A descriptor only makes Relay dialable. The native probe opens a Relay
     // stream and waits for the paired desktop Agent endpoint to acknowledge a
     // authenticated Agent request before this path can win the connection race.
     requireCurrentConnection(isCurrent, relayController.signal);
     await deviceLink.probeRelay(10_000);
     requireCurrentConnection(isCurrent, relayController.signal);
+    recordDeviceLinkStage(
+      options.diagnostics,
+      "relay_probe_ready",
+      raceStartedAt
+    );
     return descriptor;
   });
   try {
@@ -200,7 +228,9 @@ async function connectDirectDevice(
   pairingId: string,
   identity: DeviceIdentity,
   isCurrent: () => boolean,
-  signal: AbortSignal
+  signal: AbortSignal,
+  wake: DeviceLinkAttemptWake,
+  diagnostics?: MobileDiagnosticsPort
 ): Promise<DeviceLinkPathScope> {
   let prepared = await deviceLink.prepareLink("[]", 10_000);
   let local = parseDeviceLinkDescription(prepared.descriptionJSON);
@@ -213,6 +243,8 @@ async function connectDirectDevice(
     signal
   );
   requireCurrentConnection(isCurrent, signal);
+  const startedAt = Date.now();
+  recordDeviceLinkStage(diagnostics, "direct_attempt_created", startedAt);
   if ((attempt.stunEndpoints?.length ?? 0) > 0) {
     prepared = await deviceLink.prepareLink(
       JSON.stringify(attempt.stunEndpoints),
@@ -236,6 +268,7 @@ async function connectDirectDevice(
     )
   );
   const deadline = Date.parse(attempt.expiresAt);
+  let wakeVersion = wake.version(attempt.attemptId);
   while (Date.now() < deadline) {
     requireCurrentConnection(isCurrent, signal);
     if (
@@ -255,9 +288,10 @@ async function connectDirectDevice(
         30_000
       );
       requireCurrentConnection(isCurrent, signal);
+      recordDeviceLinkStage(diagnostics, "direct_connected", startedAt);
       return normalizeDeviceLinkPathScope(scope);
     }
-    await delay(500, signal);
+    await waitForAttemptChange(wake, attempt.attemptId, wakeVersion, signal);
     requireCurrentConnection(isCurrent, signal);
     attempt = await getDeviceLinkAttempt(
       sessionId,
@@ -267,6 +301,14 @@ async function connectDirectDevice(
       getSignature,
       signal
     );
+    wakeVersion = wake.version(attempt.attemptId);
+    if (
+      attempt.state === "ready" &&
+      attempt.ownerIce &&
+      attempt.ownerFingerprint
+    ) {
+      recordDeviceLinkStage(diagnostics, "direct_attempt_ready", startedAt);
+    }
   }
   throw new Error("device-link attempt expired");
 }
@@ -532,6 +574,43 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
       reject(new Error("device-link connection race was cancelled"));
     };
     signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function waitForAttemptChange(
+  wake: DeviceLinkAttemptWake,
+  attemptId: string,
+  version: number,
+  signal: AbortSignal
+): Promise<void> {
+  const waitController = new AbortController();
+  const abortWait = () => waitController.abort();
+  signal.addEventListener("abort", abortWait, { once: true });
+  try {
+    await Promise.race([
+      wake.wait(attemptId, version, waitController.signal),
+      delay(500, signal)
+    ]);
+  } finally {
+    signal.removeEventListener("abort", abortWait);
+    waitController.abort();
+  }
+}
+
+function recordDeviceLinkStage(
+  diagnostics: MobileDiagnosticsPort | undefined,
+  stage:
+    | "direct_attempt_created"
+    | "direct_attempt_ready"
+    | "direct_connected"
+    | "relay_descriptor_ready"
+    | "relay_probe_ready",
+  startedAt: number
+): void {
+  diagnostics?.record({
+    elapsedMs: Math.max(0, Date.now() - startedAt),
+    name: "device_link.stage",
+    stage
   });
 }
 

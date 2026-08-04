@@ -572,9 +572,13 @@ Mobile 在直连准备阶段并行请求短期 Relay descriptor；原生层对�
 数据流先完成共享 DeviceLink transport probe，收到对端 ACK 后才让该路径赢得竞速，
 再发送应用帧；不会取消 direct attempt，后者继续到成功或当前连接代际失效。
 Android/iOS native adapter 不能把 WebSocket 101 或本地 QUIC stream allocation 单独
-当作成功路径。因此 UI、生成客户端和 Agent DTO 不变。pairing 的 active 快照仍由现有
-控制面轮询刷新，Relay stream
-在本地快照中找不到 pairing 时 fail closed；快照刷新间隔是当前 2 秒轮询周期。
+当作成功路径。因此 UI、生成客户端和 Agent DTO 不变。paired-device attempt 的
+`device_link.attempt.changed` 通过已上线的设备级 V2 WebSocket 作为唤醒提示，连接
+建立时携带 session cookie 与 `deviceId`；客户端收到提示后仍通过 HTTP attempt API
+读取权威状态，推送丢失、重连或乱序时回退到 500ms 状态轮询。服务端对没有 room 的
+paired-device attempt 使用 `userId + deviceId` 精确投递；未开启连接功能的 Desktop
+不会建立这条长连接。pairing 的 active 快照仍在本地使用当前 2 秒周期轮询，Relay
+stream 在本地快照中找不到 pairing 时 fail closed。
 
 这里依赖的 Relay descriptor、Device Authority 和 `tsh-tunnel-relay` Agent channel
 是跨仓库的增量契约；服务端部署状态不在 Tutti 仓库内，须以对应 tsh-server/relay
