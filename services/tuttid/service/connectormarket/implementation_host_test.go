@@ -207,7 +207,7 @@ func (stub *connectorConnectionStub) Recv() (agentruntime.ProcessFrame, error) {
 	return frame, nil
 }
 
-func TestImplementationHostRegistersWorkspaceFencedCLIAndRevokesIt(t *testing.T) {
+func TestImplementationHostRegistersWorkspaceFencedCLIAndDeactivatesIt(t *testing.T) {
 	root := t.TempDir()
 	entrypoint := filepath.Join(root, "connector.js")
 	if err := os.WriteFile(entrypoint, []byte("// connector"), 0o600); err != nil {
@@ -261,12 +261,12 @@ func TestImplementationHostRegistersWorkspaceFencedCLIAndRevokesIt(t *testing.T)
 	if err != nil || output.Value["ok"] != true || processes.starts != 1 {
 		t.Fatalf("invoke = %#v, %v starts=%d", output, err, processes.starts)
 	}
-	if err := host.Revoke(context.Background(), market.SecurityRevocationRequest{WorkspaceID: "workspace-1", ConnectorKey: "github",
+	if err := host.DeactivateWorkspace(context.Background(), market.WorkspaceDeactivationRequest{WorkspaceID: "workspace-1", ConnectorKey: "github",
 		ReleaseDigest: "release-digest", Generation: market.HostGeneration{BootEpoch: "boot-1", Generation: 3}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := commands.Invoke(context.Background(), cliservice.InvokeRequest{CommandID: receipt.RouteIDs[0], Context: cliservice.InvokeContext{WorkspaceID: "workspace-1"}}); err == nil {
-		t.Fatal("revoked connector CLI command remained routable")
+		t.Fatal("deactivated connector CLI command remained routable")
 	}
 }
 
@@ -329,7 +329,7 @@ func TestImplementationHostPublishesStagedRoutesAtomically(t *testing.T) {
 	}
 }
 
-func TestImplementationHostRevokeCancelsBlockingStartWithoutWaitingForCLICommandTimeout(t *testing.T) {
+func TestImplementationHostDeactivationCancelsBlockingStartWithoutWaitingForCLICommandTimeout(t *testing.T) {
 	processes := &blockingStartProcessStub{started: make(chan struct{})}
 	host, commands, connector, generation := testCLIHost(t, processes)
 	receipt, err := host.Reconcile(context.Background(), market.WorkspaceReconcileRequest{OperationID: "op-1", WorkspaceID: "workspace-1",
@@ -349,12 +349,12 @@ func TestImplementationHostRevokeCancelsBlockingStartWithoutWaitingForCLICommand
 		t.Fatal("CLI process start did not block")
 	}
 	deadline := time.Now().Add(100 * time.Millisecond)
-	if err := host.Revoke(context.Background(), market.SecurityRevocationRequest{WorkspaceID: "workspace-1", ConnectorKey: "github",
+	if err := host.DeactivateWorkspace(context.Background(), market.WorkspaceDeactivationRequest{WorkspaceID: "workspace-1", ConnectorKey: "github",
 		ReleaseDigest: "release-digest", Generation: market.HostGeneration{BootEpoch: "boot-1", Generation: 3}, Deadline: deadline}); err != nil {
 		t.Fatal(err)
 	}
 	if time.Now().After(deadline) {
-		t.Fatal("revoke waited past its deadline for blocking Start")
+		t.Fatal("deactivation waited past its deadline for blocking Start")
 	}
 	select {
 	case <-invokeDone:
@@ -395,17 +395,17 @@ func TestImplementationHostRetainsFencedRouteUntilCloseCanBeRetried(t *testing.T
 		}
 		time.Sleep(time.Millisecond)
 	}
-	revoke := market.SecurityRevocationRequest{WorkspaceID: "workspace-1", ConnectorKey: "github", ReleaseDigest: "release-digest",
+	deactivation := market.WorkspaceDeactivationRequest{WorkspaceID: "workspace-1", ConnectorKey: "github", ReleaseDigest: "release-digest",
 		Generation: market.HostGeneration{BootEpoch: "boot-1", Generation: 3}, Deadline: time.Now().Add(time.Second)}
-	if err := host.Revoke(context.Background(), revoke); err == nil {
-		t.Fatal("first revoke unexpectedly hid close failure")
+	if err := host.DeactivateWorkspace(context.Background(), deactivation); err == nil {
+		t.Fatal("first deactivation unexpectedly hid close failure")
 	}
 	if capabilities := commands.Capabilities(context.Background(), cliservice.InvokeContext{WorkspaceID: "workspace-1"}); len(capabilities) != 0 {
 		t.Fatalf("fenced capabilities remained visible: %#v", capabilities)
 	}
-	revoke.Deadline = time.Now().Add(time.Second)
-	if err := host.Revoke(context.Background(), revoke); err != nil {
-		t.Fatalf("retry revoke failed: %v", err)
+	deactivation.Deadline = time.Now().Add(time.Second)
+	if err := host.DeactivateWorkspace(context.Background(), deactivation); err != nil {
+		t.Fatalf("retry deactivation failed: %v", err)
 	}
 	connection.mu.Lock()
 	closeCalls := connection.closeCalls

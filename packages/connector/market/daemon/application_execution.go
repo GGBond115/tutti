@@ -29,69 +29,6 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 			return invalidManifest("active catalog releases must have available status", nil)
 		}
 	}
-	if err := application.config.Repository.RecordSecurityRevocations(ctx, catalog.Statuses); err != nil {
-		return NewDomainError(ErrorCodeUnavailable, "connector security revocations could not be persisted", true, err)
-	}
-	durableRevocations, err := application.config.Repository.SecurityRevocations(ctx)
-	if err != nil {
-		return NewDomainError(ErrorCodeUnavailable, "connector security revocations could not be read", true, err)
-	}
-	denied := make(map[string]struct{}, len(durableRevocations))
-	for _, revocation := range durableRevocations {
-		denied[releaseAuthorizationKey(revocation.ConnectorKey, revocation.ReleaseDigest)] = struct{}{}
-	}
-	effectiveReleases := make([]Release, 0, len(catalog.Releases))
-	for _, release := range catalog.Releases {
-		if _, revoked := denied[releaseAuthorizationKey(release.ConnectorKey, release.ReleaseDigest)]; revoked {
-			continue
-		}
-		effectiveReleases = append(effectiveReleases, release)
-	}
-	catalog.Releases = effectiveReleases
-	statusIndex := make(map[string]int, len(catalog.Statuses))
-	for index, status := range catalog.Statuses {
-		statusIndex[releaseAuthorizationKey(status.ConnectorKey, status.ReleaseDigest)] = index
-	}
-	for _, revocation := range durableRevocations {
-		key := releaseAuthorizationKey(revocation.ConnectorKey, revocation.ReleaseDigest)
-		if index, exists := statusIndex[key]; exists {
-			catalog.Statuses[index].Status = ReleaseStatusSecurityRevoked
-			continue
-		}
-		catalog.Statuses = append(catalog.Statuses, revocation)
-	}
-	// Security revocation is enforced before the new catalog generation is
-	// accepted. If any workspace cannot be fenced and killed, the refresh stays
-	// retryable and the durable catalog is not reported as ready.
-	existingSnapshot, err := application.config.Repository.Snapshot(ctx, "")
-	if err != nil {
-		return err
-	}
-	for _, connector := range existingSnapshot.Connectors {
-		for _, status := range catalog.Statuses {
-			if status.Status != ReleaseStatusSecurityRevoked || status.ConnectorKey != connector.Key ||
-				status.ReleaseDigest != connector.Installation.InstalledReleaseDigest {
-				continue
-			}
-			bindings, bindingsErr := application.config.Repository.WorkspaceBindings(ctx, connector.Key)
-			if bindingsErr != nil {
-				return bindingsErr
-			}
-			for _, binding := range bindings {
-				if !binding.Enabled {
-					continue
-				}
-				if revokeErr := application.config.Host.Revoke(ctx, SecurityRevocationRequest{
-					WorkspaceID: binding.WorkspaceID, ConnectorKey: connector.Key, ReleaseDigest: status.ReleaseDigest,
-					Generation: HostGeneration{BootEpoch: application.config.BootEpoch, Generation: maxGeneration(connector.Revision)},
-					Deadline:   application.config.Now().UTC().Add(5 * time.Second),
-				}); revokeErr != nil {
-					return NewDomainError(ErrorCodeUnavailable, "security revocation could not be enforced", false, revokeErr)
-				}
-			}
-		}
-	}
-
 	err = application.config.Repository.Transaction(ctx, func(tx Transaction) error {
 		storedOperation, err := tx.Operation(operation.OperationID)
 		if err != nil {
@@ -105,15 +42,6 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 		for _, connector := range existing {
 			byKey[connector.Key] = connector
 		}
-		statusByRelease := make(map[string]ReleaseStatus, len(catalog.Statuses))
-		statusesByConnector := make(map[string]map[string]ReleaseStatus)
-		for _, status := range catalog.Statuses {
-			statusByRelease[status.ConnectorKey+"\x00"+status.ReleaseDigest] = status.Status
-			if statusesByConnector[status.ConnectorKey] == nil {
-				statusesByConnector[status.ConnectorKey] = make(map[string]ReleaseStatus)
-			}
-			statusesByConnector[status.ConnectorKey][status.ReleaseDigest] = status.Status
-		}
 		revision := tx.AdvanceRevision()
 		accepted := make(map[string]bool, len(catalog.Releases))
 		for _, release := range catalog.Releases {
@@ -123,7 +51,6 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 				connector = newCatalogConnector(release)
 			}
 			connector.Release = release
-			connector.ReleaseStatuses = statusesByConnector[release.ConnectorKey]
 			compatibility, err := application.compatibilityFor(release.Manifest)
 			if err != nil {
 				return err
@@ -135,7 +62,6 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 			}
 		}
 		for _, connector := range existing {
-			connector.ReleaseStatuses = statusesByConnector[connector.Key]
 			if accepted[connector.Key] {
 				continue
 			}
@@ -144,9 +70,6 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 					return err
 				}
 				continue
-			}
-			if status, ok := statusByRelease[connector.Key+"\x00"+connector.Release.ReleaseDigest]; ok {
-				connector.Release.Status = status
 			}
 			connector.Compatibility = Compatibility{
 				State:  CompatibilityStateUnsupportedVersion,
@@ -164,9 +87,6 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 			return err
 		}
 		if err := tx.SaveCatalogRevision(catalog.SourceRevision); err != nil {
-			return err
-		}
-		if err := tx.SaveCatalogTrustState(catalog.Trust); err != nil {
 			return err
 		}
 		if err := tx.SetCatalogState(CatalogStateReady); err != nil {
@@ -191,17 +111,12 @@ func (application *Application) executeInstall(ctx context.Context, operation Op
 	if err := application.config.ImplementationRegistry.Validate(release.Manifest); err != nil {
 		return err
 	}
-	if err := application.requireReleaseNotSecurityRevoked(ctx, release.ConnectorKey, release.ReleaseDigest); err != nil {
-		return err
-	}
-
 	operation, err = application.updateOperationStage(ctx, operation.OperationID, OperationStageDownloading, nil)
 	if err != nil {
 		return err
 	}
 	prepared, prepareErr := application.config.ArtifactPreparer.Prepare(ctx, PrepareArtifactRequest{
 		OperationID: operation.OperationID,
-		WorkspaceID: operation.WorkspaceID,
 		Release:     release,
 	})
 	if prepareErr != nil {
@@ -220,12 +135,6 @@ func (application *Application) executeInstall(ctx context.Context, operation Op
 		return err
 	}
 
-	if err := application.requireFreshCatalog(ctx); err != nil {
-		return err
-	}
-	if err := application.requireReleaseNotSecurityRevoked(ctx, release.ConnectorKey, release.ReleaseDigest); err != nil {
-		return err
-	}
 	rollout, err := application.rolloutInstalledBindings(ctx, operation, release)
 	if err != nil {
 		return err
@@ -278,9 +187,6 @@ func (application *Application) rolloutInstalledBindings(ctx context.Context, op
 		if !binding.Enabled {
 			continue
 		}
-		if err := application.requireReleaseNotSecurityRevoked(ctx, operation.ConnectorKey, release.ReleaseDigest); err != nil {
-			return rollout, err
-		}
 		operationID := operation.OperationID + "/rollout/" + binding.WorkspaceID
 		receipt, reconcileErr := application.config.Host.Reconcile(ctx, WorkspaceReconcileRequest{
 			OperationID: operationID, WorkspaceID: binding.WorkspaceID, Connector: connector, Enabled: true, Generation: generation,
@@ -298,30 +204,6 @@ func (application *Application) rolloutInstalledBindings(ctx context.Context, op
 	return rollout, nil
 }
 
-func releaseAuthorized(connector Connector, releaseDigest string) bool {
-	if len(connector.ReleaseStatuses) != 0 {
-		return connector.ReleaseStatuses[releaseDigest] == ReleaseStatusAvailable
-	}
-	return connector.Release.ReleaseDigest == releaseDigest && connector.Release.Status == ReleaseStatusAvailable
-}
-
-func releaseAuthorizationKey(connectorKey, releaseDigest string) string {
-	return connectorKey + "\x00" + releaseDigest
-}
-
-func (application *Application) requireReleaseNotSecurityRevoked(ctx context.Context, connectorKey, releaseDigest string) error {
-	revocations, err := application.config.Repository.SecurityRevocations(ctx)
-	if err != nil {
-		return NewDomainError(ErrorCodeUnavailable, "connector security revocations could not be read", true, err)
-	}
-	for _, revocation := range revocations {
-		if revocation.ConnectorKey == connectorKey && revocation.ReleaseDigest == releaseDigest {
-			return NewDomainError(ErrorCodeUnavailable, "connector release is security revoked", false, nil)
-		}
-	}
-	return nil
-}
-
 func (application *Application) rollbackInstalledBindings(ctx context.Context, operation Operation, rollout installRollout) error {
 	if len(rollout.applied) == 0 {
 		return nil
@@ -330,7 +212,7 @@ func (application *Application) rollbackInstalledBindings(ctx context.Context, o
 	for index := len(rollout.applied) - 1; index >= 0; index-- {
 		binding := rollout.applied[index]
 		if rollout.previous == nil {
-			rollbackErrors = append(rollbackErrors, application.config.Host.Revoke(ctx, SecurityRevocationRequest{
+			rollbackErrors = append(rollbackErrors, application.config.Host.DeactivateWorkspace(ctx, WorkspaceDeactivationRequest{
 				WorkspaceID: binding.WorkspaceID, ConnectorKey: operation.ConnectorKey,
 				ReleaseDigest: operation.Target.ReleaseDigest, Generation: operation.HostGeneration,
 				Deadline: application.config.Now().UTC().Add(5 * time.Second),
@@ -359,7 +241,7 @@ func (application *Application) rollbackInstalledBindings(ctx context.Context, o
 
 func (application *Application) installedReleaseEvidence(ctx context.Context, connector Connector) (Release, error) {
 	release, err := application.config.Repository.InstalledRelease(ctx, connector.Key, connector.Installation.InstalledReleaseDigest)
-	if err == nil {
+	if err == nil && release.ReleaseDigest == connector.Installation.InstalledReleaseDigest {
 		return release, nil
 	}
 	if connector.Release.ReleaseDigest == connector.Installation.InstalledReleaseDigest {
@@ -384,12 +266,12 @@ func (application *Application) executeUninstall(ctx context.Context, operation 
 		if !binding.Enabled {
 			continue
 		}
-		if err := application.config.Host.Revoke(ctx, SecurityRevocationRequest{
+		if err := application.config.Host.DeactivateWorkspace(ctx, WorkspaceDeactivationRequest{
 			WorkspaceID: binding.WorkspaceID, ConnectorKey: operation.Target.ConnectorKey, ReleaseDigest: operation.Target.ReleaseDigest,
 			Generation: operation.HostGeneration,
 			Deadline:   application.config.Now().UTC().Add(5 * time.Second),
 		}); err != nil {
-			return NewDomainError(ErrorCodeInstallFailed, "connector workspace routes could not be revoked", true, err)
+			return NewDomainError(ErrorCodeInstallFailed, "connector workspace routes could not be deactivated", true, err)
 		}
 	}
 	if err := application.config.ArtifactPreparer.Remove(ctx, RemoveArtifactRequest{
@@ -452,13 +334,8 @@ func (application *Application) executeWorkspaceReconcile(ctx context.Context, o
 			connector.Installation.InstalledReleaseDigest != operation.Target.ReleaseDigest {
 			return invalidOperationReceipt("workspace reconcile release is not installed")
 		}
-		if err := application.requireFreshCatalog(ctx); err != nil {
-			return err
-		}
-		if err := application.requireReleaseNotSecurityRevoked(ctx, operation.ConnectorKey, operation.Target.ReleaseDigest); err != nil {
-			return err
-		}
 	}
+	connector.Release = *operation.Target.Release
 	receipt, err := application.config.Host.Reconcile(ctx, WorkspaceReconcileRequest{
 		OperationID: operation.OperationID, WorkspaceID: operation.WorkspaceID,
 		Connector: connector, Enabled: *operation.WorkspaceEnabled, Generation: operation.HostGeneration,
@@ -476,7 +353,7 @@ func (application *Application) executeWorkspaceReconcile(ctx context.Context, o
 	}
 	compensationContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	compensationErr := application.config.Host.Revoke(compensationContext, SecurityRevocationRequest{
+	compensationErr := application.config.Host.DeactivateWorkspace(compensationContext, WorkspaceDeactivationRequest{
 		WorkspaceID: operation.WorkspaceID, ConnectorKey: operation.ConnectorKey,
 		ReleaseDigest: operation.Target.ReleaseDigest, Generation: operation.HostGeneration,
 		Deadline: application.config.Now().UTC().Add(5 * time.Second),
@@ -693,11 +570,6 @@ func (application *Application) completeConnectorOperation(
 		connector, err := tx.Connector(operation.ConnectorKey)
 		if err != nil {
 			return err
-		}
-		if operation.Kind == OperationKindInstall && (operation.Target == nil ||
-			connector.Release.ReleaseDigest != operation.Target.ReleaseDigest ||
-			connector.Release.Status != ReleaseStatusAvailable) {
-			return NewDomainError(ErrorCodeInstallFailed, "connector release is no longer authorized by the catalog", false, nil)
 		}
 		revision := tx.AdvanceRevision()
 		connector = update(connector)

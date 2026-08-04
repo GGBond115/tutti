@@ -40,27 +40,14 @@ function connector(
         authorizationKind: "none"
       },
       artifact: {
-        storageRealm: "tutti.connector.artifacts.v1",
         key: `connectors/${key}/1.0.0.tgz`,
-        objectVersion: "version-1",
         sha256:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         sizeBytes: 1024,
         mediaType: "application/vnd.tutti.connector+tar+gzip"
       },
       publishedAt: "2026-08-03T00:00:00Z",
-      status: "available",
-      publisher: {
-        subject: "publisher",
-        sourceRepository: "tutti/connectors",
-        commitSha: "0123456789012345678901234567890123456789",
-        workflow: "publish.yml",
-        trustTier: "verified"
-      },
-      provenanceDigest:
-        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      envelopeDigest:
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      status: "available"
     },
     installation: { state: "not_installed" },
     authorization: { state: "not_required" },

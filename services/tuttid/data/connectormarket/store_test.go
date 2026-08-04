@@ -2,16 +2,52 @@ package connectormarket
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	market "github.com/tutti-os/tutti/packages/connector/market/daemon"
 )
+
+func TestStoreMigrationDropsLegacyTrustTables(t *testing.T) {
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "tuttid.db")
+	legacy, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE connector_market_catalog_trust (id INTEGER PRIMARY KEY, trust_json TEXT NOT NULL)`,
+		`CREATE TABLE connector_market_security_revocations (connector_key TEXT NOT NULL, release_digest TEXT NOT NULL)`,
+	} {
+		if _, err := legacy.ExecContext(ctx, statement); err != nil {
+			_ = legacy.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := Open(ctx, databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, table := range []string{"connector_market_catalog_trust", "connector_market_security_revocations"} {
+		var count int
+		if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("legacy table %q still exists", table)
+		}
+	}
+}
 
 func TestStorePersistsRevisionOperationBindingAndOutboxAtomically(t *testing.T) {
 	ctx := context.Background()
@@ -186,40 +222,6 @@ func TestStoreOperationLeaseHasSingleWinnerAcrossConnections(t *testing.T) {
 	}
 }
 
-func TestStoreSecurityRevocationPersistsAcrossReopenAndIsAppendOnly(t *testing.T) {
-	ctx := context.Background()
-	databasePath := filepath.Join(t.TempDir(), "tuttid.db")
-	store, err := Open(ctx, databasePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	revocation := market.ReleaseCatalogStatus{ConnectorKey: "github", ReleaseDigest: strings.Repeat("a", 64), Status: market.ReleaseStatusSecurityRevoked}
-	if err := store.RecordSecurityRevocations(ctx, []market.ReleaseCatalogStatus{revocation}); err != nil {
-		t.Fatal(err)
-	}
-	// A later available status is deliberately ignored by the denylist writer.
-	available := revocation
-	available.Status = market.ReleaseStatusAvailable
-	if err := store.RecordSecurityRevocations(ctx, []market.ReleaseCatalogStatus{available}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store, err = Open(ctx, databasePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	stored, err := store.SecurityRevocations(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(stored) != 1 || stored[0] != revocation {
-		t.Fatalf("security revocations = %#v", stored)
-	}
-}
-
 func testConnector() market.Connector {
 	release := market.Release{
 		SchemaVersion: "1", ReleaseID: "42", ConnectorKey: "github", Version: "1.0.0",
@@ -233,15 +235,11 @@ func testConnector() market.Connector {
 			AuthorizationKind: "none",
 		},
 		Artifact: market.Artifact{
-			StorageRealm: market.ConnectorArtifactStorageRealmV1,
-			Key:          "connectors/github/1.0.0.zip", ObjectVersion: "generation-1",
+			Key:       "connectors/github/1.0.0.zip",
 			SHA256:    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 			SizeBytes: 123, MediaType: "application/vnd.tutti.connector+zip",
 		},
 		PublishedAt: time.Unix(1, 0).UTC(), Status: market.ReleaseStatusAvailable,
-		Publisher:        market.PublisherIdentity{Subject: "ci", SourceRepository: "tutti/github", CommitSHA: "0123456789abcdef", Workflow: "release", TrustTier: "managed"},
-		ProvenanceDigest: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-		EnvelopeDigest:   "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 	}
 	return market.Connector{
 		Key: "github", Release: release,

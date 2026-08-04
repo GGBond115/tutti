@@ -97,9 +97,7 @@ export interface ConnectorManifestImplementation {
 }
 
 export interface ConnectorReleaseArtifact {
-  storageRealm: "tutti.connector.artifacts.v1";
   key: string;
-  objectVersion: string;
   sha256: string;
   sizeBytes: number;
   mediaType: string;
@@ -121,14 +119,6 @@ export interface ConnectorManifest {
   compatibility?: ConnectorCompatibilityRequirements;
 }
 
-export interface ConnectorPublisherIdentity {
-  subject: string;
-  sourceRepository: string;
-  commitSha: string;
-  workflow: string;
-  trustTier: string;
-}
-
 export interface ConnectorRelease {
   schemaVersion: "1";
   releaseId: string;
@@ -139,10 +129,7 @@ export interface ConnectorRelease {
   manifest: ConnectorManifest;
   artifact: ConnectorReleaseArtifact;
   publishedAt: string;
-  status: "available" | "superseded" | "security_revoked";
-  publisher: ConnectorPublisherIdentity;
-  provenanceDigest: string;
-  envelopeDigest: string;
+  status: "available" | "superseded";
 }
 
 export interface ConnectorInstallation {

@@ -553,7 +553,6 @@ export type {
   ConnectorMarketOperationStage,
   ConnectorMarketOperationState,
   ConnectorMarketOperationTarget,
-  ConnectorMarketPublisherIdentity,
   ConnectorMarketRelease,
   ConnectorMarketSnapshot,
   ConnectorMarketWorkspaceBinding,

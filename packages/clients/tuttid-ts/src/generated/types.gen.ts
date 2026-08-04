@@ -4564,10 +4564,7 @@ export type ConnectorMarketRelease = {
   manifest: ConnectorMarketManifest;
   artifact: ConnectorMarketArtifact;
   publishedAt: string;
-  status: "available" | "superseded" | "security_revoked";
-  publisher: ConnectorMarketPublisherIdentity;
-  provenanceDigest: string;
-  envelopeDigest: string;
+  status: "available" | "superseded";
 };
 
 export type ConnectorMarketManifest = {
@@ -4581,9 +4578,7 @@ export type ConnectorMarketManifest = {
 };
 
 export type ConnectorMarketArtifact = {
-  storageRealm: "tutti.connector.artifacts.v1";
   key: string;
-  objectVersion: string;
   sha256: string;
   sizeBytes: number;
   mediaType: string;
@@ -4600,14 +4595,6 @@ export type ConnectorMarketCompatibilityRequirements = {
  */
 export type ConnectorMarketImplementation = {
   kind: "builtin" | "managed_stdio" | "remote_streamable_http";
-};
-
-export type ConnectorMarketPublisherIdentity = {
-  subject: string;
-  sourceRepository: string;
-  commitSha: string;
-  workflow: string;
-  trustTier: string;
 };
 
 export type ConnectorMarketInstallation = {

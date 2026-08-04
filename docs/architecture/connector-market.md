@@ -8,8 +8,8 @@ other hosts consume exact released Go and npm package versions.
 
 Connector market uses two independent APIs:
 
-- the remote Connector Market API publishes immutable connector releases,
-  manifests, artifact metadata, and download resolution
+- the remote Connector Market API publishes connector releases, manifests,
+  and immutable artifact metadata
 - the local daemon API exposes the accepted catalog, installation,
   authorization, compatibility, workspace binding, and durable operation state
   owned by one desktop host
@@ -79,16 +79,24 @@ expanded bytes, and compression ratio. Artifact code is not executed before
 verification and preparation complete.
 
 The staging and active directories must be on the same filesystem when atomic
-rename is used. Activation failure preserves the previous active version. A
-download URL is attempt-scoped and is never durable state; operations persist
-the artifact key, immutable release identity, digest, and size instead.
+rename is used. Activation failure preserves the previous active version. The
+daemon resolves the artifact key against its configured artifact base URL. The
+production base URL is the public-assets CloudFront prefix
+`https://d27a59zdy4534h.cloudfront.net/tutti/connector-market/`; CloudFront
+serves immutable versioned objects from the private `tsh-public-assets` S3
+origin. The daemon never addresses S3 directly. Downloading is an ordinary
+direct GET without workspace identity. Operations persist the artifact key,
+release identity, digest, and size; the preparer verifies the downloaded bytes
+before installation. Staging and local integration may override the CDN prefix
+with `TUTTI_CONNECTOR_ARTIFACT_BASE_URL`; production should leave the public
+CloudFront default in place.
 
 The package owns the implementation-host port and durable reconcile semantics;
 the daemon owns the concrete process runtime. In Tutti, `managed_stdio`
-connectors resolve an exact signed Node/Python runtime profile. MCP servers are
+connectors resolve an exact Node/Python runtime profile. MCP servers are
 long-lived daemon children, while CLI commands are one-shot children. Both use
 the same generation fence, process registry, artifact snapshot, sandbox, and
-security-revocation path. TSH may reuse the public contracts while providing a
+workspace deactivation path. TSH may reuse the public contracts while providing a
 different concrete daemon adapter.
 
 ## Durable Operations And Recovery
@@ -189,10 +197,9 @@ enums, revisions, operations, and error codes.
 
 ## State Boundaries
 
-Installation, authorization, compatibility, and catalog freshness are
-independent state machines. A connector can therefore be installed but
-disconnected, supported but stale, or visible but blocked by an unsupported
-implementation without overloading one ambiguous status field.
+Installation, authorization, and compatibility are independent state machines.
+A connector can therefore be installed but disconnected, or visible but blocked
+by an unsupported implementation, without overloading one ambiguous status field.
 
 Credentials and sensitive implementation configuration are never part of the
 renderer projection. Unknown or incomplete implementation kinds remain visible
@@ -215,12 +222,14 @@ adapters, activates it as part of workspace startup, and renders its shared
 panel from Settings > Agent > Connectors. Event-stream reconnect causes an
 authoritative snapshot reload.
 
-The registered Tutti Host now verifies signed ZK catalog/release documents,
-resolves TSH artifact grants, prepares immutable content-addressed artifacts,
-selects a signed local Node/Python runtime, and exposes daemon-owned MCP and CLI
-capabilities per workspace. Crash recovery adopts every host-touching operation
-into the current boot epoch; bootstrap and catalog expiry fence capabilities,
-and security revocation is complete only after tracked processes have exited.
+The registered Tutti Host reads the ordinary TSH market item API, downloads an
+artifact directly from the configured artifact base URL, verifies its declared
+SHA-256 and size, prepares a content-addressed snapshot, selects the local
+Node/Python runtime, and exposes daemon-owned MCP and CLI capabilities per
+workspace. Crash recovery adopts every host-touching operation into the current
+boot epoch. Startup requires one successful catalog refresh before restoring
+routes; later refresh failures preserve installed last-known-good capabilities
+while the daemon retries.
 
 The first production compatibility boundary is deliberately narrow:
 `managed_stdio`, authorization kind `none`, and platforms with the production

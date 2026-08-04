@@ -60,6 +60,8 @@ func (store *Store) Close() error {
 
 func (store *Store) migrate(ctx context.Context) error {
 	statements := []string{
+		`DROP TABLE IF EXISTS connector_market_catalog_trust`,
+		`DROP TABLE IF EXISTS connector_market_security_revocations`,
 		`CREATE TABLE IF NOT EXISTS connector_market_metadata (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   revision INTEGER NOT NULL,
@@ -71,10 +73,6 @@ VALUES (1, 0, 'stale', '') ON CONFLICT(id) DO NOTHING`,
 		`CREATE TABLE IF NOT EXISTS connector_market_connectors (
   connector_key TEXT PRIMARY KEY,
   connector_json TEXT NOT NULL
-)`,
-		`CREATE TABLE IF NOT EXISTS connector_market_catalog_trust (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  trust_json TEXT NOT NULL
 )`,
 		`CREATE TABLE IF NOT EXISTS connector_market_workspace_bindings (
   connector_key TEXT NOT NULL,
@@ -102,11 +100,6 @@ WHERE state IN ('accepted', 'running')`,
   revision INTEGER NOT NULL,
   event_json TEXT NOT NULL,
   published_at_unix_ms INTEGER
-)`,
-		`CREATE TABLE IF NOT EXISTS connector_market_security_revocations (
-  connector_key TEXT NOT NULL,
-  release_digest TEXT NOT NULL,
-  PRIMARY KEY (connector_key, release_digest)
 )`,
 		`CREATE INDEX IF NOT EXISTS connector_market_outbox_pending
 ON connector_market_outbox(published_at_unix_ms, sequence)`,
@@ -374,59 +367,6 @@ ORDER BY workspace_id`, connectorKey)
 	return bindings, rows.Err()
 }
 
-func (store *Store) CatalogTrustState(ctx context.Context) (market.CatalogTrustState, error) {
-	var payload string
-	if err := store.db.QueryRowContext(ctx, `SELECT trust_json FROM connector_market_catalog_trust WHERE id = 1`).Scan(&payload); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return market.CatalogTrustState{}, nil
-		}
-		return market.CatalogTrustState{}, err
-	}
-	var state market.CatalogTrustState
-	if err := json.Unmarshal([]byte(payload), &state); err != nil {
-		return market.CatalogTrustState{}, fmt.Errorf("decode connector catalog trust state: %w", err)
-	}
-	return state, nil
-}
-
-func (store *Store) RecordSecurityRevocations(ctx context.Context, revocations []market.ReleaseCatalogStatus) error {
-	tx, err := store.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	for _, revocation := range revocations {
-		if revocation.Status != market.ReleaseStatusSecurityRevoked {
-			continue
-		}
-		if strings.TrimSpace(revocation.ConnectorKey) == "" || strings.TrimSpace(revocation.ReleaseDigest) == "" {
-			return errors.New("connector security revocation identity is invalid")
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO connector_market_security_revocations (connector_key, release_digest) VALUES (?, ?) ON CONFLICT(connector_key, release_digest) DO NOTHING`,
-			revocation.ConnectorKey, revocation.ReleaseDigest); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func (store *Store) SecurityRevocations(ctx context.Context) ([]market.ReleaseCatalogStatus, error) {
-	rows, err := store.db.QueryContext(ctx, `SELECT connector_key, release_digest FROM connector_market_security_revocations ORDER BY connector_key, release_digest`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var result []market.ReleaseCatalogStatus
-	for rows.Next() {
-		status := market.ReleaseCatalogStatus{Status: market.ReleaseStatusSecurityRevoked}
-		if err := rows.Scan(&status.ConnectorKey, &status.ReleaseDigest); err != nil {
-			return nil, err
-		}
-		result = append(result, status)
-	}
-	return result, rows.Err()
-}
-
 func (store *Store) Transaction(ctx context.Context, fn func(market.Transaction) error) error {
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -574,17 +514,6 @@ WHERE connector_key IN ('', ?) AND state IN ('accepted', 'running') LIMIT 1`
 func (transaction *transaction) SaveCatalogRevision(sourceRevision string) error {
 	_, err := transaction.tx.ExecContext(transaction.ctx, `
 UPDATE connector_market_metadata SET source_revision = ? WHERE id = ?`, sourceRevision, metadataID)
-	return err
-}
-
-func (transaction *transaction) SaveCatalogTrustState(state market.CatalogTrustState) error {
-	payload, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	_, err = transaction.tx.ExecContext(transaction.ctx, `
-INSERT INTO connector_market_catalog_trust (id, trust_json) VALUES (1, ?)
-ON CONFLICT(id) DO UPDATE SET trust_json = excluded.trust_json`, string(payload))
 	return err
 }
 

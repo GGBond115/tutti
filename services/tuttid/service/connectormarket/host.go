@@ -81,11 +81,11 @@ func (gate *activationGateHost) Reconcile(ctx context.Context, request market.Wo
 		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation}, nil
 }
 
-func (gate *activationGateHost) Revoke(ctx context.Context, request market.SecurityRevocationRequest) error {
+func (gate *activationGateHost) DeactivateWorkspace(ctx context.Context, request market.WorkspaceDeactivationRequest) error {
 	gate.mu.Lock()
 	delete(gate.staged, request.WorkspaceID+"\x00"+request.ConnectorKey)
 	gate.mu.Unlock()
-	return gate.delegate.Revoke(ctx, request)
+	return gate.delegate.DeactivateWorkspace(ctx, request)
 }
 
 func (gate *activationGateHost) FailClosed(ctx context.Context, deadline time.Time) error {
@@ -166,7 +166,7 @@ func NewHost(parent context.Context, config HostConfig) (*Host, error) {
 	return host, nil
 }
 
-// Bootstrap refreshes and accepts the current signed catalog before any
+// Bootstrap refreshes and accepts the current market catalog before any
 // durable workspace intent is allowed to recreate MCP/CLI routes. Failed
 // bootstrap attempts leave the connector host fenced and may be retried.
 func (host *Host) Bootstrap(ctx context.Context) error {
@@ -209,7 +209,7 @@ func (host *Host) Bootstrap(ctx context.Context) error {
 	}()
 	// Fence any route left by an interrupted previous bootstrap before recovery
 	// can replay host-touching operations. Reconcile calls remain staged behind
-	// activationGate until a fresh signed catalog has been accepted.
+	// activationGate until a fresh market catalog has been accepted.
 	if fencer, ok := host.implementationHost.(runtimeProjectionFencer); ok {
 		if err := fencer.FenceAll(ctx, time.Now().Add(10*time.Second)); err != nil {
 			return err
@@ -326,14 +326,7 @@ func (host *Host) runCatalogRefreshWorker() {
 			}
 			continue
 		}
-		state, err := host.repository.CatalogTrustState(host.scheduler.ctx)
 		wait := retry
-		if err == nil && !state.NextUpdateAt.IsZero() {
-			wait = time.Until(state.NextUpdateAt)
-			if wait < time.Second {
-				wait = time.Second
-			}
-		}
 		timer := time.NewTimer(wait)
 		select {
 		case <-host.scheduler.ctx.Done():
@@ -342,7 +335,7 @@ func (host *Host) runCatalogRefreshWorker() {
 		case <-timer.C:
 		}
 		refreshContext, cancel := context.WithTimeout(host.scheduler.ctx, 45*time.Second)
-		err = host.refreshAndWait(refreshContext)
+		err := host.refreshAndWait(refreshContext)
 		if err == nil {
 			err = host.Application.ReconcileDurableBindings(refreshContext)
 			if err == nil && host.activationGate.requiresRecovery() {
@@ -355,15 +348,6 @@ func (host *Host) runCatalogRefreshWorker() {
 		cancel()
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Warn("connector market scheduled refresh failed", "error", err)
-			state, stateErr := host.repository.CatalogTrustState(host.scheduler.ctx)
-			if stateErr == nil && !state.ExpiresAt.After(time.Now().UTC()) {
-				fenceContext, fenceCancel := context.WithTimeout(host.scheduler.ctx, 10*time.Second)
-				fenceErr := host.Application.FenceDurableBindings(fenceContext)
-				fenceCancel()
-				if fenceErr != nil {
-					slog.Error("connector market expired catalog fence failed", "error", fenceErr)
-				}
-			}
 			if retry < 5*time.Minute {
 				retry *= 2
 			}
@@ -417,7 +401,7 @@ func (unavailableRuntime) Reconcile(context.Context, market.WorkspaceReconcileRe
 	return market.WorkspaceRuntimeReceipt{}, errors.New("connector implementation host is not registered")
 }
 
-func (unavailableRuntime) Revoke(context.Context, market.SecurityRevocationRequest) error {
+func (unavailableRuntime) DeactivateWorkspace(context.Context, market.WorkspaceDeactivationRequest) error {
 	return errors.New("connector runtime is not registered")
 }
 

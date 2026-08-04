@@ -86,9 +86,7 @@ function buildConnectorCardView(
     connector.installation.state
   );
   const installed = connectorHasInstalledArtifact(connector);
-  const unavailable =
-    connector.compatibility.state !== "supported" ||
-    connector.release.status === "security_revoked";
+  const unavailable = connector.compatibility.state !== "supported";
   const requiresAuthorization = !["connected", "not_required"].includes(
     connector.authorization.state
   );
@@ -138,18 +136,11 @@ function buildConnectorDialogView(
       name: permission
     }))
   };
-  if (
-    connector.compatibility.state !== "supported" ||
-    connector.release.status === "security_revoked"
-  ) {
+  if (connector.compatibility.state !== "supported") {
     return {
       ...base,
       kind: "blocked",
-      reason:
-        connector.compatibility.reason ??
-        (connector.release.status === "security_revoked"
-          ? connector.release.status
-          : connector.compatibility.state)
+      reason: connector.compatibility.reason ?? connector.compatibility.state
     };
   }
   if (!connectorHasInstalledArtifact(connector)) {
@@ -190,10 +181,6 @@ function buildDetailFields(connector: Connector): ConnectorDetailFieldView[] {
   return [
     { id: "version", value: connector.release.version },
     { id: "releaseStatus", value: connector.release.status },
-    {
-      id: "publisher",
-      value: `${connector.release.publisher.subject} · ${connector.release.publisher.trustTier}`
-    },
     { id: "compatibility", value: connector.compatibility.state },
     { id: "transport", value: implementationTags(connector).join(" + ") },
     { id: "implementation", value: implementation.kind },

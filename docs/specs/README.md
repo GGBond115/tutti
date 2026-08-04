@@ -19,4 +19,3 @@ There are currently nine active specs:
 - [Agent Session Fork Design](./2026-07-27-agent-session-fork-design.md): throughTurn implemented; supersedes the 2026-07-01 draft and implementation plan.
 - [Tutti Agent `skills/list` Integration](./2026-07-30-tutti-agent-skills-list-integration.md): implemented; local Desktop end-to-end validation passed, pending cross-platform artifact validation.
 - [Connector Market Shared Domain](./2026-08-03-connector-market-shared-domain.md): signed shared core, Tutti daemon implementation host, and renderer service implemented; credential-backed connectors remain outside the initial compatibility boundary.
-- [Connector Market Release Rollout](./connector-market-release-rollout.md): required Tutti release, ZK authority, TSH projection, client keyring, and rollback order.

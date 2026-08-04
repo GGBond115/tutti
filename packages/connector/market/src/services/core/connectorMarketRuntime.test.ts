@@ -156,15 +156,11 @@ function connector(key: string, overrides: Partial<Connector> = {}): Connector {
       artifact: {
         key: `connectors/${key}.tgz`,
         mediaType: "application/vnd.tutti.connector+tar+gzip",
-        objectVersion: "1",
         sha256:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        sizeBytes: 1,
-        storageRealm: "tutti.connector.artifacts.v1"
+        sizeBytes: 1
       },
       connectorKey: key,
-      envelopeDigest:
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       manifest: {
         authorizationKind: "none",
         displayName: "GitHub",
@@ -177,16 +173,7 @@ function connector(key: string, overrides: Partial<Connector> = {}): Connector {
       },
       manifestDigest:
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      provenanceDigest:
-        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       publishedAt: "2026-08-04T00:00:00Z",
-      publisher: {
-        commitSha: "0123456789012345678901234567890123456789",
-        sourceRepository: "tutti/connectors",
-        subject: "publisher",
-        trustTier: "verified",
-        workflow: "publish.yml"
-      },
       releaseDigest:
         "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
       releaseId: `${key}@1.0.0`,

@@ -27,9 +27,7 @@ type Fetcher interface {
 }
 
 type FetchRequest struct {
-	OperationID string
-	WorkspaceID string
-	Release     market.Release
+	Release market.Release
 }
 
 type FetchResponse struct {
@@ -153,8 +151,8 @@ func (preparer *Preparer) Prepare(
 		return market.PreparedArtifactReceipt{}, err
 	}
 	// A local receipt is not an authenticity root. Reuse is allowed only after
-	// extracting the signed artifact blob for this attempt and proving that the
-	// prepared tree has the same inventory as those freshly verified bytes.
+	// extracting the digest-verified artifact blob for this attempt and proving
+	// that the prepared tree has the same inventory as those freshly verified bytes.
 	if existing, ok := readExistingReceipt(target, request); ok && existing.InventoryDigest == inventoryDigest {
 		existing.OperationID = request.OperationID
 		return existing, nil
@@ -241,7 +239,7 @@ func (preparer *Preparer) fetchAndVerify(
 	staging string,
 	request market.PrepareArtifactRequest,
 ) (string, error) {
-	response, err := preparer.fetcher.Fetch(ctx, FetchRequest{OperationID: request.OperationID, WorkspaceID: request.WorkspaceID, Release: request.Release})
+	response, err := preparer.fetcher.Fetch(ctx, FetchRequest{Release: request.Release})
 	if err != nil {
 		return "", fmt.Errorf("fetch connector artifact: %w", err)
 	}

@@ -185,7 +185,7 @@ func (host *ImplementationHost) SetCapabilityPublication(enabled bool) {
 	}
 }
 
-// FenceAll revokes every staged or published route, including a route whose
+// FenceAll deactivates every staged or published route, including a route whose
 // operation failed before its durable binding was committed.
 func (host *ImplementationHost) FenceAll(_ context.Context, deadline time.Time) error {
 	if host == nil {
@@ -217,7 +217,7 @@ func (host *ImplementationHost) FailClosed(ctx context.Context, deadline time.Ti
 	return host.FenceAll(ctx, deadline)
 }
 
-func (host *ImplementationHost) Revoke(ctx context.Context, request market.SecurityRevocationRequest) error {
+func (host *ImplementationHost) DeactivateWorkspace(ctx context.Context, request market.WorkspaceDeactivationRequest) error {
 	if host == nil {
 		return errors.New("connector implementation host is unavailable")
 	}
@@ -692,11 +692,11 @@ func (host *ImplementationHost) removeRoute(key string, generation market.HostGe
 	}
 	if releaseDigest != "" && current.releaseDigest != releaseDigest {
 		host.mu.Unlock()
-		return errors.New("connector security revocation release digest does not match active route")
+		return errors.New("connector workspace deactivation release digest does not match active route")
 	}
 	if generation.BootEpoch != current.generation.BootEpoch {
 		host.mu.Unlock()
-		return errors.New("connector security revocation boot epoch does not match active route")
+		return errors.New("connector workspace deactivation boot epoch does not match active route")
 	}
 	if generation.Generation < current.generation.Generation {
 		host.mu.Unlock()

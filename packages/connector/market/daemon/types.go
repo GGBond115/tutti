@@ -46,9 +46,8 @@ const (
 type ReleaseStatus string
 
 const (
-	ReleaseStatusAvailable       ReleaseStatus = "available"
-	ReleaseStatusSuperseded      ReleaseStatus = "superseded"
-	ReleaseStatusSecurityRevoked ReleaseStatus = "security_revoked"
+	ReleaseStatusAvailable  ReleaseStatus = "available"
+	ReleaseStatusSuperseded ReleaseStatus = "superseded"
 )
 
 type OperationKind string
@@ -89,19 +88,16 @@ const (
 // Release is the immutable catalog fact selected for an install operation.
 // Hosts map their generated remote-market DTOs into this host-neutral shape.
 type Release struct {
-	SchemaVersion    string            `json:"schemaVersion"`
-	ReleaseID        string            `json:"releaseId"`
-	ConnectorKey     string            `json:"connectorKey"`
-	Version          string            `json:"version"`
-	ReleaseDigest    string            `json:"releaseDigest"`
-	ManifestDigest   string            `json:"manifestDigest"`
-	Manifest         Manifest          `json:"manifest"`
-	Artifact         Artifact          `json:"artifact"`
-	PublishedAt      time.Time         `json:"publishedAt"`
-	Status           ReleaseStatus     `json:"status"`
-	Publisher        PublisherIdentity `json:"publisher"`
-	ProvenanceDigest string            `json:"provenanceDigest"`
-	EnvelopeDigest   string            `json:"envelopeDigest"`
+	SchemaVersion  string        `json:"schemaVersion"`
+	ReleaseID      string        `json:"releaseId"`
+	ConnectorKey   string        `json:"connectorKey"`
+	Version        string        `json:"version"`
+	ReleaseDigest  string        `json:"releaseDigest"`
+	ManifestDigest string        `json:"manifestDigest"`
+	Manifest       Manifest      `json:"manifest"`
+	Artifact       Artifact      `json:"artifact"`
+	PublishedAt    time.Time     `json:"publishedAt"`
+	Status         ReleaseStatus `json:"status"`
 }
 
 type Manifest struct {
@@ -115,20 +111,10 @@ type Manifest struct {
 }
 
 type Artifact struct {
-	StorageRealm  string `json:"storageRealm"`
-	Key           string `json:"key"`
-	ObjectVersion string `json:"objectVersion"`
-	SHA256        string `json:"sha256"`
-	SizeBytes     int64  `json:"sizeBytes"`
-	MediaType     string `json:"mediaType"`
-}
-
-type PublisherIdentity struct {
-	Subject          string `json:"subject"`
-	SourceRepository string `json:"sourceRepository"`
-	CommitSHA        string `json:"commitSha"`
-	Workflow         string `json:"workflow"`
-	TrustTier        string `json:"trustTier"`
+	Key       string `json:"key"`
+	SHA256    string `json:"sha256"`
+	SizeBytes int64  `json:"sizeBytes"`
+	MediaType string `json:"mediaType"`
 }
 
 type CompatibilityRequirements struct {
@@ -211,14 +197,13 @@ type WorkspaceBinding struct {
 }
 
 type Connector struct {
-	Key              string                   `json:"key"`
-	Release          Release                  `json:"release"`
-	ReleaseStatuses  map[string]ReleaseStatus `json:"releaseStatuses,omitempty"`
-	Installation     Installation             `json:"installation"`
-	Authorization    Authorization            `json:"authorization"`
-	Compatibility    Compatibility            `json:"compatibility"`
-	WorkspaceBinding *WorkspaceBinding        `json:"workspaceBinding,omitempty"`
-	Revision         uint64                   `json:"revision"`
+	Key              string            `json:"key"`
+	Release          Release           `json:"release"`
+	Installation     Installation      `json:"installation"`
+	Authorization    Authorization     `json:"authorization"`
+	Compatibility    Compatibility     `json:"compatibility"`
+	WorkspaceBinding *WorkspaceBinding `json:"workspaceBinding,omitempty"`
+	Revision         uint64            `json:"revision"`
 }
 
 type Operation struct {
@@ -276,9 +261,9 @@ type RuntimeActivationReceipt struct {
 	RuntimeID     string `json:"runtimeId,omitempty"`
 }
 
-// HostGeneration fences every route, credential lease and resource grant.
-// BootEpoch changes on daemon restart and Generation changes on reconcile or
-// security revocation.
+// HostGeneration fences every MCP/CLI route and child process. BootEpoch
+// changes on daemon restart and Generation changes on reconcile or workspace
+// deactivation.
 type HostGeneration struct {
 	BootEpoch  string `json:"bootEpoch"`
 	Generation uint64 `json:"generation"`

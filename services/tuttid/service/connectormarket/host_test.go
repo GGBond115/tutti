@@ -9,8 +9,8 @@ import (
 )
 
 type activationGateDelegate struct {
-	reconciles int
-	revokes    int
+	reconciles    int
+	deactivations int
 }
 
 func (delegate *activationGateDelegate) Reconcile(_ context.Context, request market.WorkspaceReconcileRequest) (market.WorkspaceRuntimeReceipt, error) {
@@ -18,13 +18,13 @@ func (delegate *activationGateDelegate) Reconcile(_ context.Context, request mar
 	return market.WorkspaceRuntimeReceipt{OperationID: request.OperationID, WorkspaceID: request.WorkspaceID,
 		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation}, nil
 }
-func (delegate *activationGateDelegate) Revoke(context.Context, market.SecurityRevocationRequest) error {
-	delegate.revokes++
+func (delegate *activationGateDelegate) DeactivateWorkspace(context.Context, market.WorkspaceDeactivationRequest) error {
+	delegate.deactivations++
 	return nil
 }
 func (*activationGateDelegate) FailClosed(context.Context, time.Time) error { return nil }
 
-func TestActivationGateStagesRecoveryUntilTrustedBootstrapCommit(t *testing.T) {
+func TestActivationGateStagesRecoveryUntilInitialCatalogRefresh(t *testing.T) {
 	delegate := &activationGateDelegate{}
 	gate := newActivationGateHost(delegate)
 	request := market.WorkspaceReconcileRequest{OperationID: "recover-1", WorkspaceID: "workspace-1", Enabled: true,
@@ -46,13 +46,13 @@ func TestActivationGateStagesRecoveryUntilTrustedBootstrapCommit(t *testing.T) {
 	}
 }
 
-func TestActivationGateNeverStagesSecurityRevocation(t *testing.T) {
+func TestActivationGateNeverStagesWorkspaceDeactivation(t *testing.T) {
 	delegate := &activationGateDelegate{}
 	gate := newActivationGateHost(delegate)
-	if err := gate.Revoke(context.Background(), market.SecurityRevocationRequest{WorkspaceID: "workspace-1", ConnectorKey: "github"}); err != nil {
+	if err := gate.DeactivateWorkspace(context.Background(), market.WorkspaceDeactivationRequest{WorkspaceID: "workspace-1", ConnectorKey: "github"}); err != nil {
 		t.Fatal(err)
 	}
-	if delegate.revokes != 1 {
-		t.Fatalf("revokes = %d, want 1", delegate.revokes)
+	if delegate.deactivations != 1 {
+		t.Fatalf("deactivations = %d, want 1", delegate.deactivations)
 	}
 }

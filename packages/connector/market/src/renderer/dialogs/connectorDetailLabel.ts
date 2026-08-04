@@ -9,7 +9,6 @@ export function connectorDetailLabel(
     authorization: "detailAuthorization",
     compatibility: "detailCompatibility",
     implementation: "detailImplementation",
-    publisher: "detailPublisher",
     releaseStatus: "detailReleaseStatus",
     runtime: "detailRuntime",
     transport: "detailTransport",

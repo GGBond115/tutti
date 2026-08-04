@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -102,67 +101,89 @@ func TestApplicationReconcilesInstalledDurableWorkspaceIntentAtStartup(t *testin
 	}
 }
 
-func TestSecurityRevocationIsStickyAcrossCatalogProjectionFailureAndHigherRevision(t *testing.T) {
+func TestInstalledReleaseRemainsRunnableAfterCatalogAdvances(t *testing.T) {
+	installedRelease := testReleaseWithImplementation("github", "1.0.0", ImplementationKindManagedStdio)
+	currentRelease := testReleaseWithImplementation("github", "2.0.0", ImplementationKindManagedStdio)
+	currentRelease.ReleaseDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	currentRelease.ManifestDigest = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 	connector := testConnector("github")
-	connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
-		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest}
-	connector.WorkspaceBinding = &WorkspaceBinding{WorkspaceID: "workspace-1", Enabled: true}
+	connector.Release = currentRelease
+	connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: installedRelease.Version,
+		InstalledReleaseID: installedRelease.ReleaseID, InstalledReleaseDigest: installedRelease.ReleaseDigest}
 	repository := newMemoryRepository(connector)
-	operation := Operation{OperationID: "refresh-1", ClientRequestID: "refresh-request-1", Kind: OperationKindRefreshCatalog,
-		State: OperationStateRunning, Stage: OperationStageRefreshing, CreatedAt: time.Now(), UpdatedAt: time.Now()}
-	repository.operations[operation.OperationID] = operation
-	repository.failTransactionCall = 2 // update stage commits; catalog projection fails.
-	revoked := ReleaseCatalogStatus{ConnectorKey: connector.Key, ReleaseDigest: connector.Release.ReleaseDigest, Status: ReleaseStatusSecurityRevoked}
-	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{
-		SourceRevision: "catalog-2", Statuses: []ReleaseCatalogStatus{revoked}, Trust: repository.trust,
-	})
-	if err := application.executeRefresh(context.Background(), operation); err == nil {
-		t.Fatal("refresh projection unexpectedly succeeded")
+	repository.operations["install-evidence"] = Operation{
+		OperationID: "install-evidence", ClientRequestID: "install-request", ConnectorKey: connector.Key,
+		Kind: OperationKindInstall, State: OperationStateCompleted, Stage: OperationStageCompleted,
+		Target: &OperationTarget{ConnectorKey: connector.Key, Version: installedRelease.Version,
+			ReleaseID: installedRelease.ReleaseID, ReleaseDigest: installedRelease.ReleaseDigest, Release: &installedRelease},
+		CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
 	}
-	if len(repository.revocations) != 1 {
-		t.Fatalf("durable revocations = %#v", repository.revocations)
-	}
-	if _, err := application.SetWorkspaceEnabled(context.Background(), SetWorkspaceEnabledCommand{
-		ConnectorMutation: ConnectorMutation{Mutation: Mutation{ClientRequestID: "enable-after-revoke", ExpectedRevision: repository.revision}, ConnectorKey: connector.Key},
-		WorkspaceID:       "workspace-1", Enabled: true,
-	}); err == nil {
-		t.Fatal("enable accepted a denylisted digest after catalog projection failure")
-	}
+	host := &memoryInstallRuntime{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, host, CatalogSnapshot{})
 
-	higherRevision := connector.Release
-	higherRevision.Status = ReleaseStatusAvailable
-	operation = Operation{OperationID: "refresh-2", ClientRequestID: "refresh-request-2", Kind: OperationKindRefreshCatalog,
-		State: OperationStateRunning, Stage: OperationStageRefreshing, CreatedAt: time.Now(), UpdatedAt: time.Now()}
-	repository.operations[operation.OperationID] = operation
-	application = newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{
-		SourceRevision: "catalog-3", Releases: []Release{higherRevision}, Trust: repository.trust,
+	result, err := application.SetWorkspaceEnabled(context.Background(), SetWorkspaceEnabledCommand{
+		ConnectorMutation: ConnectorMutation{Mutation: Mutation{ClientRequestID: "enable-request"}, ConnectorKey: connector.Key},
+		WorkspaceID:       "workspace-1",
+		Enabled:           true,
 	})
-	if err := application.executeRefresh(context.Background(), operation); err != nil {
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ExecuteOperation(context.Background(), result.Operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if host.lastReconcile.Connector.Release.ReleaseDigest != installedRelease.ReleaseDigest {
+		t.Fatalf("enable reconciled release = %q, want installed %q", host.lastReconcile.Connector.Release.ReleaseDigest, installedRelease.ReleaseDigest)
+	}
+	if err := application.ReconcileDurableBindings(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if host.reconciles != 2 || host.lastReconcile.Connector.Release.ReleaseDigest != installedRelease.ReleaseDigest {
+		t.Fatalf("restart reconcile = %#v, count=%d", host.lastReconcile, host.reconciles)
+	}
+}
+
+func TestInstallCompletionUsesFrozenReleaseAfterCatalogAdvances(t *testing.T) {
+	installRelease := testReleaseWithImplementation("github", "1.0.0", ImplementationKindManagedStdio)
+	currentRelease := testReleaseWithImplementation("github", "2.0.0", ImplementationKindManagedStdio)
+	currentRelease.ReleaseDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	currentRelease.ManifestDigest = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	connector := testConnector("github")
+	connector.Release = currentRelease
+	connector.Installation = Installation{State: InstallationStateInstalling}
+	repository := newMemoryRepository(connector)
+	operation := Operation{
+		OperationID: "install-1", ClientRequestID: "install-request", ConnectorKey: connector.Key,
+		Kind: OperationKindInstall, State: OperationStateAccepted, Stage: OperationStageAccepted,
+		Target: &OperationTarget{ConnectorKey: connector.Key, Version: installRelease.Version,
+			ReleaseID: installRelease.ReleaseID, ReleaseDigest: installRelease.ReleaseDigest,
+			ArtifactSHA256: installRelease.Artifact.SHA256, Release: &installRelease},
+		WorkspaceID: "workspace-1", HostGeneration: HostGeneration{BootEpoch: "boot-1", Generation: 1},
+		CreatedAt: time.Unix(1, 0).UTC(), UpdatedAt: time.Unix(1, 0).UTC(),
+	}
+	repository.operations[operation.OperationID] = operation
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+
+	if err := application.ExecuteOperation(context.Background(), operation.OperationID); err != nil {
 		t.Fatal(err)
 	}
 	stored := repository.connectors[connector.Key]
-	if stored.ReleaseStatuses[connector.Release.ReleaseDigest] != ReleaseStatusSecurityRevoked {
-		t.Fatalf("release statuses = %#v", stored.ReleaseStatuses)
-	}
-	if err := application.requireReleaseNotSecurityRevoked(context.Background(), connector.Key, connector.Release.ReleaseDigest); err == nil {
-		t.Fatal("security-revoked digest became authorized")
-	}
-	newDigest := strings.Repeat("f", 64)
-	if err := application.requireReleaseNotSecurityRevoked(context.Background(), connector.Key, newDigest); err != nil {
-		t.Fatalf("new trusted release digest should be recoverable: %v", err)
+	if stored.Installation.InstalledReleaseDigest != installRelease.ReleaseDigest ||
+		stored.Release.ReleaseDigest != currentRelease.ReleaseDigest {
+		t.Fatalf("connector after frozen install = %#v", stored)
 	}
 }
 
 func TestEnableReconcileCompensatesWhenDurableCompletionFails(t *testing.T) {
 	for _, test := range []struct {
-		name           string
-		completionErr  error
-		revokeErr      error
-		wantFailClosed int
+		name            string
+		completionErr   error
+		deactivationErr error
+		wantFailClosed  int
 	}{
-		{name: "transaction failure uses exact revoke", completionErr: errors.New("simulated transaction failure")},
-		{name: "lease loss uses exact revoke", completionErr: ErrOperationLeaseLost},
-		{name: "global fence after revoke failure", completionErr: errors.New("simulated transaction failure"), revokeErr: errors.New("simulated revoke failure"), wantFailClosed: 1},
+		{name: "transaction failure uses exact deactivation", completionErr: errors.New("simulated transaction failure")},
+		{name: "lease loss uses exact deactivation", completionErr: ErrOperationLeaseLost},
+		{name: "global fence after deactivation failure", completionErr: errors.New("simulated transaction failure"), deactivationErr: errors.New("simulated deactivation failure"), wantFailClosed: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			connector := testConnector("github")
@@ -178,7 +199,7 @@ func TestEnableReconcileCompensatesWhenDurableCompletionFails(t *testing.T) {
 			repository.operations[operation.OperationID] = operation
 			repository.failTransactionCall = 2 // mark running commits; durable completion fails.
 			repository.failTransactionErr = test.completionErr
-			host := &memoryInstallRuntime{revokeErr: test.revokeErr}
+			host := &memoryInstallRuntime{deactivationErr: test.deactivationErr}
 			application := newTestApplication(t, repository, &memoryScheduler{}, host, CatalogSnapshot{})
 			if err := application.ExecuteOperation(context.Background(), operation.OperationID); err == nil {
 				t.Fatal("enable completion unexpectedly succeeded")
@@ -188,7 +209,7 @@ func TestEnableReconcileCompensatesWhenDurableCompletionFails(t *testing.T) {
 				t.Fatalf("operation state = %q, want recoverable running", stored.State)
 			}
 			if host.reconciles != 1 || host.deactivations != 1 || host.failClosed != test.wantFailClosed {
-				t.Fatalf("host reconciles=%d revokes=%d failClosed=%d", host.reconciles, host.deactivations, host.failClosed)
+				t.Fatalf("host reconciles=%d deactivations=%d failClosed=%d", host.reconciles, host.deactivations, host.failClosed)
 			}
 		})
 	}
@@ -536,12 +557,9 @@ func testReleaseWithImplementation(key, version, implementationKind string) Rele
 			Implementation:    implementation,
 			AuthorizationKind: "none",
 		},
-		Artifact:         testArtifact(),
-		PublishedAt:      time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC),
-		Status:           ReleaseStatusAvailable,
-		Publisher:        PublisherIdentity{Subject: "ci", SourceRepository: "tutti/" + key, CommitSHA: "0123456789abcdef", Workflow: "release", TrustTier: "managed"},
-		ProvenanceDigest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-		EnvelopeDigest:   "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+		Artifact:    testArtifact(),
+		PublishedAt: time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC),
+		Status:      ReleaseStatusAvailable,
 	}
 }
 
@@ -561,15 +579,15 @@ func (scheduler *memoryScheduler) Schedule(_ context.Context, operationID string
 }
 
 type memoryInstallRuntime struct {
-	prepares      int
-	removes       int
-	activations   int
-	deactivations int
-	activeDigest  string
-	reconciles    int
-	lastReconcile WorkspaceReconcileRequest
-	revokeErr     error
-	failClosed    int
+	prepares        int
+	removes         int
+	activations     int
+	deactivations   int
+	activeDigest    string
+	reconciles      int
+	lastReconcile   WorkspaceReconcileRequest
+	deactivationErr error
+	failClosed      int
 }
 
 func (host *memoryInstallRuntime) Reconcile(_ context.Context, request WorkspaceReconcileRequest) (WorkspaceRuntimeReceipt, error) {
@@ -579,10 +597,10 @@ func (host *memoryInstallRuntime) Reconcile(_ context.Context, request Workspace
 		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation}, nil
 }
 
-func (host *memoryInstallRuntime) Revoke(context.Context, SecurityRevocationRequest) error {
+func (host *memoryInstallRuntime) DeactivateWorkspace(context.Context, WorkspaceDeactivationRequest) error {
 	host.deactivations++
-	if host.revokeErr != nil {
-		return host.revokeErr
+	if host.deactivationErr != nil {
+		return host.deactivationErr
 	}
 	host.activeDigest = ""
 	return nil
@@ -706,8 +724,6 @@ type memoryRepository struct {
 	connectors          map[string]Connector
 	operations          map[string]Operation
 	events              []ChangedEvent
-	trust               CatalogTrustState
-	revocations         map[string]ReleaseCatalogStatus
 	transactionErr      error
 	transactionCalls    int
 	failTransactionCall int
@@ -717,36 +733,13 @@ type memoryRepository struct {
 func newMemoryRepository(connectors ...Connector) *memoryRepository {
 	repository := &memoryRepository{
 		catalogState: CatalogStateStale,
-		trust:        CatalogTrustState{Sequence: 1, EnvelopeDigest: "test", IssuedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC), WallHighWater: time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)},
 		connectors:   map[string]Connector{},
 		operations:   map[string]Operation{},
-		revocations:  map[string]ReleaseCatalogStatus{},
 	}
 	for _, connector := range connectors {
 		repository.connectors[connector.Key] = connector
 	}
 	return repository
-}
-
-func (repository *memoryRepository) CatalogTrustState(context.Context) (CatalogTrustState, error) {
-	return repository.trust, nil
-}
-
-func (repository *memoryRepository) RecordSecurityRevocations(_ context.Context, revocations []ReleaseCatalogStatus) error {
-	for _, revocation := range revocations {
-		if revocation.Status == ReleaseStatusSecurityRevoked {
-			repository.revocations[revocation.ConnectorKey+"\x00"+revocation.ReleaseDigest] = revocation
-		}
-	}
-	return nil
-}
-
-func (repository *memoryRepository) SecurityRevocations(context.Context) ([]ReleaseCatalogStatus, error) {
-	result := make([]ReleaseCatalogStatus, 0, len(repository.revocations))
-	for _, revocation := range repository.revocations {
-		result = append(result, revocation)
-	}
-	return result, nil
 }
 
 func (repository *memoryRepository) Snapshot(_ context.Context, _ string) (Snapshot, error) {
@@ -871,7 +864,6 @@ func (repository *memoryRepository) Transaction(_ context.Context, fn func(Trans
 		connectors:     cloneConnectors(repository.connectors),
 		operations:     cloneOperations(repository.operations),
 		events:         append([]ChangedEvent(nil), repository.events...),
-		trust:          repository.trust,
 	}
 	if err := fn(transaction); err != nil {
 		return err
@@ -882,7 +874,6 @@ func (repository *memoryRepository) Transaction(_ context.Context, fn func(Trans
 	repository.connectors = transaction.connectors
 	repository.operations = transaction.operations
 	repository.events = transaction.events
-	repository.trust = transaction.trust
 	return nil
 }
 
@@ -914,7 +905,6 @@ type memoryTransaction struct {
 	connectors     map[string]Connector
 	operations     map[string]Operation
 	events         []ChangedEvent
-	trust          CatalogTrustState
 }
 
 func (transaction *memoryTransaction) Revision() uint64 { return transaction.revision }
@@ -971,11 +961,6 @@ func (transaction *memoryTransaction) ActiveOperation(connectorKey string) (*Ope
 
 func (transaction *memoryTransaction) SaveCatalogRevision(sourceRevision string) error {
 	transaction.sourceRevision = sourceRevision
-	return nil
-}
-
-func (transaction *memoryTransaction) SaveCatalogTrustState(state CatalogTrustState) error {
-	transaction.trust = state
 	return nil
 }
 

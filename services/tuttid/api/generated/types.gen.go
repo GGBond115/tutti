@@ -1327,21 +1327,6 @@ func (e CollaborationRunTriggerSource) Valid() bool {
 	}
 }
 
-// Defines values for ConnectorMarketArtifactStorageRealm.
-const (
-	TuttiConnectorArtifactsV1 ConnectorMarketArtifactStorageRealm = "tutti.connector.artifacts.v1"
-)
-
-// Valid indicates whether the value is a known member of the ConnectorMarketArtifactStorageRealm enum.
-func (e ConnectorMarketArtifactStorageRealm) Valid() bool {
-	switch e {
-	case TuttiConnectorArtifactsV1:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ConnectorMarketAuthorizationState.
 const (
 	ConnectorMarketAuthorizationStateConnected    ConnectorMarketAuthorizationState = "connected"
@@ -1647,17 +1632,14 @@ func (e ConnectorMarketReleaseSchemaVersion) Valid() bool {
 
 // Defines values for ConnectorMarketReleaseStatus.
 const (
-	ConnectorMarketReleaseStatusAvailable       ConnectorMarketReleaseStatus = "available"
-	ConnectorMarketReleaseStatusSecurityRevoked ConnectorMarketReleaseStatus = "security_revoked"
-	ConnectorMarketReleaseStatusSuperseded      ConnectorMarketReleaseStatus = "superseded"
+	ConnectorMarketReleaseStatusAvailable  ConnectorMarketReleaseStatus = "available"
+	ConnectorMarketReleaseStatusSuperseded ConnectorMarketReleaseStatus = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the ConnectorMarketReleaseStatus enum.
 func (e ConnectorMarketReleaseStatus) Valid() bool {
 	switch e {
 	case ConnectorMarketReleaseStatusAvailable:
-		return true
-	case ConnectorMarketReleaseStatusSecurityRevoked:
 		return true
 	case ConnectorMarketReleaseStatusSuperseded:
 		return true
@@ -5850,16 +5832,11 @@ type CompleteWorkspaceAppUploadResponse struct {
 
 // ConnectorMarketArtifact defines model for ConnectorMarketArtifact.
 type ConnectorMarketArtifact struct {
-	Key           string                              `json:"key"`
-	MediaType     string                              `json:"mediaType"`
-	ObjectVersion string                              `json:"objectVersion"`
-	Sha256        string                              `json:"sha256"`
-	SizeBytes     int64                               `json:"sizeBytes"`
-	StorageRealm  ConnectorMarketArtifactStorageRealm `json:"storageRealm"`
+	Key       string `json:"key"`
+	MediaType string `json:"mediaType"`
+	Sha256    string `json:"sha256"`
+	SizeBytes int64  `json:"sizeBytes"`
 }
-
-// ConnectorMarketArtifactStorageRealm defines model for ConnectorMarketArtifact.StorageRealm.
-type ConnectorMarketArtifactStorageRealm string
 
 // ConnectorMarketAuthorization defines model for ConnectorMarketAuthorization.
 type ConnectorMarketAuthorization struct {
@@ -6008,30 +5985,18 @@ type ConnectorMarketOperationTarget struct {
 	Version        string  `json:"version"`
 }
 
-// ConnectorMarketPublisherIdentity defines model for ConnectorMarketPublisherIdentity.
-type ConnectorMarketPublisherIdentity struct {
-	CommitSha        string `json:"commitSha"`
-	SourceRepository string `json:"sourceRepository"`
-	Subject          string `json:"subject"`
-	TrustTier        string `json:"trustTier"`
-	Workflow         string `json:"workflow"`
-}
-
 // ConnectorMarketRelease defines model for ConnectorMarketRelease.
 type ConnectorMarketRelease struct {
-	Artifact         ConnectorMarketArtifact             `json:"artifact"`
-	ConnectorKey     string                              `json:"connectorKey"`
-	EnvelopeDigest   string                              `json:"envelopeDigest"`
-	Manifest         ConnectorMarketManifest             `json:"manifest"`
-	ManifestDigest   string                              `json:"manifestDigest"`
-	ProvenanceDigest string                              `json:"provenanceDigest"`
-	PublishedAt      time.Time                           `json:"publishedAt"`
-	Publisher        ConnectorMarketPublisherIdentity    `json:"publisher"`
-	ReleaseDigest    string                              `json:"releaseDigest"`
-	ReleaseId        string                              `json:"releaseId"`
-	SchemaVersion    ConnectorMarketReleaseSchemaVersion `json:"schemaVersion"`
-	Status           ConnectorMarketReleaseStatus        `json:"status"`
-	Version          string                              `json:"version"`
+	Artifact       ConnectorMarketArtifact             `json:"artifact"`
+	ConnectorKey   string                              `json:"connectorKey"`
+	Manifest       ConnectorMarketManifest             `json:"manifest"`
+	ManifestDigest string                              `json:"manifestDigest"`
+	PublishedAt    time.Time                           `json:"publishedAt"`
+	ReleaseDigest  string                              `json:"releaseDigest"`
+	ReleaseId      string                              `json:"releaseId"`
+	SchemaVersion  ConnectorMarketReleaseSchemaVersion `json:"schemaVersion"`
+	Status         ConnectorMarketReleaseStatus        `json:"status"`
+	Version        string                              `json:"version"`
 }
 
 // ConnectorMarketReleaseSchemaVersion defines model for ConnectorMarketRelease.SchemaVersion.

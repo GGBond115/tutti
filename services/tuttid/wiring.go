@@ -20,7 +20,6 @@ import (
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	marketartifact "github.com/tutti-os/tutti/packages/connector/market/artifact"
-	market "github.com/tutti-os/tutti/packages/connector/market/daemon"
 	tuttiapi "github.com/tutti-os/tutti/services/tuttid/api"
 	preferencesbiz "github.com/tutti-os/tutti/services/tuttid/biz/preferences"
 	connectormarketdata "github.com/tutti-os/tutti/services/tuttid/data/connectormarket"
@@ -46,19 +45,10 @@ import (
 	tuttitypes "github.com/tutti-os/tutti/services/tuttid/types"
 )
 
-const connectorMarketProductionKeyringVersion uint64 = 2026080401
-
-// connectorMarketProductionKeyring is intentionally embedded and reviewed as
-// code. Rotate it in two releases: first ship old+new, then ship new-only after
-// the signing service and the minimum supported client population have moved.
-var connectorMarketProductionKeyring = map[string]string{
-	"tutti-market-prod-2026-01": "7f2b582e12d716d3d56f1bbd87376bd914c7e5084f772c764a61f783ec2b416f",
-}
-
 const connectorRuntimeProductionKeyID = "tutti-runtime-prod-2026-01"
 const connectorRuntimeProductionPublicKeyHex = "2b9f4f23d9c3d4c38881bf4a87d92f02c0769a998736fe04718b58379df2c44a"
 const connectorRuntimeCatalogURL = "https://d1x7gb6wqsqmnm.cloudfront.net/tutti-app-runtimes/connector-v3/catalog.json"
-const connectorArtifactDownloadHost = "nextop-app-releases-250509935467-us-east-1.s3.us-east-1.amazonaws.com"
+const connectorArtifactBaseURL = "https://d27a59zdy4534h.cloudfront.net/tutti/connector-market/"
 
 type tuttiWiring struct {
 	api                          tuttiapi.DaemonAPI
@@ -244,27 +234,10 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("configure connector market account authorization: %w", err)
 	}
-	marketKeys := make(map[string]ed25519.PublicKey, len(connectorMarketProductionKeyring))
-	for keyID, encodedKey := range connectorMarketProductionKeyring {
-		decodedKey, decodeErr := hex.DecodeString(encodedKey)
-		if decodeErr != nil || len(decodedKey) != ed25519.PublicKeySize {
-			return fmt.Errorf("embedded connector market production trust key %q is invalid", keyID)
-		}
-		marketKeys[keyID] = ed25519.PublicKey(decodedKey)
-	}
-	connectorMarketVerifier, err := market.NewTrustVerifier(market.TrustVerifierConfig{Keyring: &market.TrustKeyring{
-		Version: connectorMarketProductionKeyringVersion,
-		Keys:    marketKeys,
-	}})
-	if err != nil {
-		return fmt.Errorf("configure connector market trust: %w", err)
-	}
 	connectorCatalog, err := connectormarketservice.NewCatalogSource(connectormarketservice.CatalogSourceConfig{
 		BaseURL:            connectorMarketBaseURL,
 		ExpectedMarketType: connectorMarketType,
 		AuthorizeRequest:   marketAuthorizer.Authorize,
-		TrustVerifier:      connectorMarketVerifier,
-		TrustStateReader:   connectorMarketStore,
 	})
 	if err != nil {
 		_ = connectorMarketStore.Close()
@@ -279,11 +252,13 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		providerAuthWatcher.Close()
 		return errors.New("connector market event stream wiring is invalid")
 	}
-	artifactFetcher, err := connectormarketservice.NewArtifactGrantFetcher(connectormarketservice.ArtifactGrantFetcherConfig{
-		BaseURL: connectorMarketBaseURL, AllowedDownloadHosts: []string{connectorArtifactDownloadHost}, AuthorizeRequest: marketAuthorizer.Authorize,
-	})
+	artifactBaseURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_ARTIFACT_BASE_URL"))
+	if artifactBaseURL == "" {
+		artifactBaseURL = connectorArtifactBaseURL
+	}
+	artifactFetcher, err := connectormarketservice.NewDirectArtifactFetcher(connectormarketservice.DirectArtifactFetcherConfig{BaseURL: artifactBaseURL})
 	if err != nil {
-		return fmt.Errorf("configure connector artifact grants: %w", err)
+		return fmt.Errorf("configure connector artifact download: %w", err)
 	}
 	connectorStateRoot := filepath.Join(tuttitypes.DefaultStateDir(), "connectors")
 	artifactPreparer, err := marketartifact.NewPreparer(marketartifact.Config{RootDir: filepath.Join(connectorStateRoot, "artifacts"), Fetcher: artifactFetcher})

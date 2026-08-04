@@ -127,9 +127,6 @@ func (application *Application) Install(
 	if strings.TrimSpace(mutation.WorkspaceID) == "" {
 		return MutationResult{}, invalidRequest("workspaceId is required for installation")
 	}
-	if err := application.requireFreshCatalog(ctx); err != nil {
-		return MutationResult{}, err
-	}
 	var target InstallationState
 	result, err := application.acceptConnectorOperation(
 		ctx,
@@ -196,9 +193,6 @@ func (application *Application) BeginAuthorization(
 ) (AuthorizationResult, error) {
 	if strings.TrimSpace(mutation.WorkspaceID) == "" {
 		return AuthorizationResult{}, invalidRequest("workspaceId is required for authorization")
-	}
-	if err := application.requireFreshCatalog(ctx); err != nil {
-		return AuthorizationResult{}, err
 	}
 	accepted, err := application.acceptConnectorOperation(
 		ctx,
@@ -276,11 +270,6 @@ func (application *Application) SetWorkspaceEnabled(
 	ctx context.Context,
 	command SetWorkspaceEnabledCommand,
 ) (WorkspaceBindingResult, error) {
-	if command.Enabled {
-		if err := application.requireFreshCatalog(ctx); err != nil {
-			return WorkspaceBindingResult{}, err
-		}
-	}
 	if err := validateConnectorMutation(command.ConnectorMutation); err != nil {
 		return WorkspaceBindingResult{}, err
 	}
@@ -294,17 +283,9 @@ func (application *Application) SetWorkspaceEnabled(
 	if installedConnector.Installation.State != InstallationStateInstalled || installedConnector.Installation.InstalledReleaseDigest == "" {
 		return WorkspaceBindingResult{}, invalidTransition("workspace binding", string(installedConnector.Installation.State), "enabled")
 	}
-	installedRelease, err := application.config.Repository.InstalledRelease(ctx, command.ConnectorKey, installedConnector.Installation.InstalledReleaseDigest)
+	installedRelease, err := application.installedReleaseEvidence(ctx, installedConnector)
 	if err != nil {
 		return WorkspaceBindingResult{}, NewDomainError(ErrorCodeUnavailable, "installed connector release evidence is unavailable", false, err)
-	}
-	if command.Enabled && !releaseAuthorized(installedConnector, installedRelease.ReleaseDigest) {
-		return WorkspaceBindingResult{}, NewDomainError(ErrorCodeUnavailable, "installed connector release is not authorized by the catalog", false, nil)
-	}
-	if command.Enabled {
-		if err := application.requireReleaseNotSecurityRevoked(ctx, command.ConnectorKey, installedRelease.ReleaseDigest); err != nil {
-			return WorkspaceBindingResult{}, err
-		}
 	}
 	var result WorkspaceBindingResult
 	err = application.config.Repository.Transaction(ctx, func(tx Transaction) error {
@@ -523,17 +504,6 @@ func (application *Application) renewOperationLease(ctx context.Context, cancel 
 	}
 }
 
-func (application *Application) requireFreshCatalog(ctx context.Context) error {
-	state, err := application.config.Repository.CatalogTrustState(ctx)
-	if err != nil {
-		return NewDomainError(ErrorCodeUnavailable, "connector catalog trust state is unavailable", true, err)
-	}
-	if !state.Fresh(application.config.Now().UTC(), 30*time.Second) {
-		return NewDomainError(ErrorCodeUpstreamUnavailable, "connector catalog trust is stale", true, nil)
-	}
-	return nil
-}
-
 func (application *Application) Recover(ctx context.Context) error {
 	operations, err := application.config.Repository.RecoverableOperations(ctx)
 	if err != nil {
@@ -616,9 +586,6 @@ func (application *Application) ReconcileDurableBindings(ctx context.Context) er
 	if err != nil {
 		return err
 	}
-	if err := application.requireFreshCatalog(ctx); err != nil {
-		return err
-	}
 	effectiveIntent := make(map[string]Operation)
 	for _, operation := range snapshot.Operations {
 		if operation.Kind != OperationKindSetWorkspaceEnabled || operation.WorkspaceEnabled == nil ||
@@ -635,12 +602,9 @@ func (application *Application) ReconcileDurableBindings(ctx context.Context) er
 		if connector.Installation.State != InstallationStateInstalled {
 			continue
 		}
-		installedRelease, evidenceErr := application.config.Repository.InstalledRelease(ctx, connector.Key, connector.Installation.InstalledReleaseDigest)
-		if evidenceErr != nil || !releaseAuthorized(connector, installedRelease.ReleaseDigest) {
+		installedRelease, evidenceErr := application.installedReleaseEvidence(ctx, connector)
+		if evidenceErr != nil {
 			return NewDomainError(ErrorCodeUnavailable, "installed connector release evidence is unavailable", false, nil)
-		}
-		if err := application.requireReleaseNotSecurityRevoked(ctx, connector.Key, installedRelease.ReleaseDigest); err != nil {
-			return err
 		}
 		installedConnector := connector
 		installedConnector.Release = installedRelease
@@ -658,15 +622,15 @@ func (application *Application) ReconcileDurableBindings(ctx context.Context) er
 				desired = *pending.WorkspaceEnabled
 			}
 			if !desired {
-				revokeGeneration := maxGeneration(connector.Revision)
+				deactivationGeneration := maxGeneration(connector.Revision)
 				if pending, exists := effectiveIntent[connector.Key+"\x00"+binding.WorkspaceID]; exists &&
-					pending.HostGeneration.Generation > revokeGeneration {
-					revokeGeneration = pending.HostGeneration.Generation
+					pending.HostGeneration.Generation > deactivationGeneration {
+					deactivationGeneration = pending.HostGeneration.Generation
 				}
-				if err := application.config.Host.Revoke(ctx, SecurityRevocationRequest{
+				if err := application.config.Host.DeactivateWorkspace(ctx, WorkspaceDeactivationRequest{
 					WorkspaceID: binding.WorkspaceID, ConnectorKey: connector.Key,
 					ReleaseDigest: connector.Installation.InstalledReleaseDigest,
-					Generation:    HostGeneration{BootEpoch: application.config.BootEpoch, Generation: revokeGeneration},
+					Generation:    HostGeneration{BootEpoch: application.config.BootEpoch, Generation: deactivationGeneration},
 					Deadline:      application.config.Now().UTC().Add(5 * time.Second),
 				}); err != nil {
 					return NewDomainError(ErrorCodeUnavailable, "connector pending disable intent could not be fenced", false, err)
@@ -691,10 +655,9 @@ func (application *Application) ReconcileDurableBindings(ctx context.Context) er
 	return nil
 }
 
-// FenceDurableBindings removes every runtime projection authorized by the
-// last accepted catalog without deleting installation facts or workspace
-// intent. It is used when catalog expiry is reached before a trusted refresh;
-// a later accepted catalog can safely rebuild intent at a higher revision.
+// FenceDurableBindings removes every runtime projection without deleting
+// installation facts or workspace intent. Startup and recovery use it to clear
+// processes from an earlier daemon generation before rebuilding current intent.
 func (application *Application) FenceDurableBindings(ctx context.Context) error {
 	if application == nil {
 		return NewDomainError(ErrorCodeUnavailable, "connector application is unavailable", false, nil)
@@ -714,7 +677,7 @@ func (application *Application) FenceDurableBindings(ctx context.Context) error 
 			if !binding.Enabled {
 				continue
 			}
-			fenceErrors = append(fenceErrors, application.config.Host.Revoke(ctx, SecurityRevocationRequest{
+			fenceErrors = append(fenceErrors, application.config.Host.DeactivateWorkspace(ctx, WorkspaceDeactivationRequest{
 				WorkspaceID: binding.WorkspaceID, ConnectorKey: connector.Key,
 				ReleaseDigest: connector.Installation.InstalledReleaseDigest,
 				Generation:    HostGeneration{BootEpoch: application.config.BootEpoch, Generation: maxGeneration(connector.Revision)},

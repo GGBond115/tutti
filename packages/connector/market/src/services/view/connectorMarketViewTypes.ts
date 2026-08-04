@@ -47,7 +47,6 @@ export interface ConnectorDetailFieldView {
     | "authorization"
     | "compatibility"
     | "implementation"
-    | "publisher"
     | "releaseStatus"
     | "runtime"
     | "transport"

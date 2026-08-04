@@ -368,10 +368,7 @@ components:
           manifest,
           artifact,
           publishedAt,
-          status,
-          publisher,
-          provenanceDigest,
-          envelopeDigest
+          status
         ]
       properties:
         schemaVersion:
@@ -399,15 +396,7 @@ components:
           format: date-time
         status:
           type: string
-          enum: [available, superseded, security_revoked]
-        publisher:
-          $ref: "#/components/schemas/ConnectorMarketPublisherIdentity"
-        provenanceDigest:
-          type: string
-          pattern: "^[a-f0-9]{64}$"
-        envelopeDigest:
-          type: string
-          pattern: "^[a-f0-9]{64}$"
+          enum: [available, superseded]
     ConnectorMarketManifest:
       type: object
       additionalProperties: false
@@ -440,15 +429,9 @@ components:
     ConnectorMarketArtifact:
       type: object
       additionalProperties: false
-      required: [storageRealm, key, objectVersion, sha256, sizeBytes, mediaType]
+      required: [key, sha256, sizeBytes, mediaType]
       properties:
-        storageRealm:
-          type: string
-          enum: [tutti.connector.artifacts.v1]
         key:
-          type: string
-          minLength: 1
-        objectVersion:
           type: string
           minLength: 1
         sha256:
@@ -484,26 +467,6 @@ components:
         kind:
           type: string
           enum: [builtin, managed_stdio, remote_streamable_http]
-    ConnectorMarketPublisherIdentity:
-      type: object
-      additionalProperties: false
-      required: [subject, sourceRepository, commitSha, workflow, trustTier]
-      properties:
-        subject:
-          type: string
-          minLength: 1
-        sourceRepository:
-          type: string
-          minLength: 1
-        commitSha:
-          type: string
-          minLength: 7
-        workflow:
-          type: string
-          minLength: 1
-        trustTier:
-          type: string
-          minLength: 1
     ConnectorMarketInstallation:
       type: object
       additionalProperties: false

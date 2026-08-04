@@ -11,15 +11,7 @@ type CatalogSource interface {
 
 type CatalogSnapshot struct {
 	SourceRevision string
-	Trust          CatalogTrustState
 	Releases       []Release
-	Statuses       []ReleaseCatalogStatus
-}
-
-type ReleaseCatalogStatus struct {
-	ConnectorKey  string
-	ReleaseDigest string
-	Status        ReleaseStatus
 }
 
 type Repository interface {
@@ -32,10 +24,7 @@ type Repository interface {
 	Transaction(ctx context.Context, fn func(Transaction) error) error
 	RecoverableOperations(ctx context.Context) ([]Operation, error)
 	WorkspaceBindings(ctx context.Context, connectorKey string) ([]WorkspaceBinding, error)
-	CatalogTrustState(ctx context.Context) (CatalogTrustState, error)
 	InstalledRelease(ctx context.Context, connectorKey, releaseDigest string) (Release, error)
-	RecordSecurityRevocations(ctx context.Context, revocations []ReleaseCatalogStatus) error
-	SecurityRevocations(ctx context.Context) ([]ReleaseCatalogStatus, error)
 }
 
 type Transaction interface {
@@ -47,7 +36,6 @@ type Transaction interface {
 	OperationByClientRequestID(clientRequestID string) (*Operation, error)
 	ActiveOperation(connectorKey string) (*Operation, error)
 	SaveCatalogRevision(sourceRevision string) error
-	SaveCatalogTrustState(CatalogTrustState) error
 	SetCatalogState(state CatalogState) error
 	SaveConnector(Connector) error
 	DeleteConnector(connectorKey string) error
@@ -63,7 +51,6 @@ type ArtifactPreparer interface {
 
 type PrepareArtifactRequest struct {
 	OperationID string
-	WorkspaceID string
 	Release     Release
 }
 
@@ -91,7 +78,7 @@ type RuntimeObservation struct {
 // CLI registrations. Installing an artifact never starts a connector process.
 type ImplementationHost interface {
 	Reconcile(ctx context.Context, request WorkspaceReconcileRequest) (WorkspaceRuntimeReceipt, error)
-	Revoke(ctx context.Context, request SecurityRevocationRequest) error
+	DeactivateWorkspace(ctx context.Context, request WorkspaceDeactivationRequest) error
 	// FailClosed stops all capability publication before best-effort fencing.
 	FailClosed(ctx context.Context, deadline time.Time) error
 }
@@ -104,7 +91,7 @@ type WorkspaceReconcileRequest struct {
 	Generation  HostGeneration
 }
 
-type SecurityRevocationRequest struct {
+type WorkspaceDeactivationRequest struct {
 	WorkspaceID   string
 	ConnectorKey  string
 	ReleaseDigest string

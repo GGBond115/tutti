@@ -53,12 +53,10 @@ func TestImplementationRegistryRejectsUnknownImplementation(t *testing.T) {
 
 func testArtifact() Artifact {
 	return Artifact{
-		StorageRealm:  ConnectorArtifactStorageRealmV1,
-		Key:           "connectors/github/1.0.0.tgz",
-		ObjectVersion: "generation-1",
-		SHA256:        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-		SizeBytes:     1024,
-		MediaType:     "application/vnd.tutti.connector+tar+gzip",
+		Key:       "connectors/github/1.0.0.tgz",
+		SHA256:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		SizeBytes: 1024,
+		MediaType: "application/vnd.tutti.connector+tar+gzip",
 	}
 }
 

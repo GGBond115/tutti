@@ -14,7 +14,6 @@ const (
 	ImplementationKindManagedStdio         = "managed_stdio"
 	ImplementationKindRemoteStreamableHTTP = "remote_streamable_http"
 	CredentialBrokerProtocolV1             = "tutti.connector.credentials.v1"
-	ConnectorArtifactStorageRealmV1        = "tutti.connector.artifacts.v1"
 )
 
 var connectorKeyPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$`)
@@ -81,31 +80,18 @@ func ValidateReleaseShape(release Release) error {
 		return invalidManifest("manifestDigest must be a lowercase SHA-256", nil)
 	}
 	switch release.Status {
-	case ReleaseStatusAvailable, ReleaseStatusSuperseded, ReleaseStatusSecurityRevoked:
+	case ReleaseStatusAvailable, ReleaseStatusSuperseded:
 	default:
-		return invalidManifest("status must be available, superseded, or security_revoked", nil)
+		return invalidManifest("status must be available or superseded", nil)
 	}
 	if release.PublishedAt.IsZero() {
 		return invalidManifest("publishedAt is required", nil)
 	}
 	if strings.TrimSpace(release.Artifact.Key) == "" ||
-		release.Artifact.StorageRealm != ConnectorArtifactStorageRealmV1 ||
-		strings.TrimSpace(release.Artifact.ObjectVersion) == "" ||
 		!artifactSHA256Pattern.MatchString(release.Artifact.SHA256) ||
 		release.Artifact.SizeBytes <= 0 ||
 		strings.TrimSpace(release.Artifact.MediaType) == "" {
-		return invalidManifest("artifact key, immutable objectVersion, lowercase SHA-256, positive sizeBytes, and mediaType are required", nil)
-	}
-	if strings.TrimSpace(release.Publisher.Subject) == "" ||
-		strings.TrimSpace(release.Publisher.SourceRepository) == "" ||
-		strings.TrimSpace(release.Publisher.CommitSHA) == "" ||
-		strings.TrimSpace(release.Publisher.Workflow) == "" ||
-		strings.TrimSpace(release.Publisher.TrustTier) == "" {
-		return invalidManifest("verified publisher identity is required", nil)
-	}
-	if !artifactSHA256Pattern.MatchString(release.ProvenanceDigest) ||
-		!artifactSHA256Pattern.MatchString(release.EnvelopeDigest) {
-		return invalidManifest("provenanceDigest and envelopeDigest must be lowercase SHA-256 values", nil)
+		return invalidManifest("artifact key, lowercase SHA-256, positive sizeBytes, and mediaType are required", nil)
 	}
 	return ValidateManifestShape(release.Manifest)
 }

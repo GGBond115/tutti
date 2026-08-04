@@ -1,8 +1,8 @@
 # Connector Market Shared Domain
 
-Status: shared core, signed release delivery, Tutti daemon implementation host,
-and renderer service implemented; exact package-cohort release and downstream
-TSH pin remain rollout gates.
+Status: shared core, ordinary market delivery, Tutti daemon implementation
+host, and renderer service implemented; exact package-cohort release and
+downstream TSH pin remain rollout gates.
 
 ## Goal
 
@@ -25,8 +25,8 @@ independent durable state and runtime-specific adapters.
 ### Remote Connector Market API
 
 The Connector Market service owns the authoritative, versioned schema and
-publishes a generated Go client. It exposes immutable published releases and
-attempt-scoped artifact download resolution.
+publishes a generated Go client. It exposes published market items with
+immutable artifact keys, digests, and sizes.
 
 This is the first production connector release contract. The existing
 unreleased connector publish and read shape is changed in place and remains
@@ -40,11 +40,15 @@ A release descriptor must bind at least:
 - typed implementation kind and configuration schema version
 - permissions and authorization kind
 - product, platform, and minimum-host-version constraints
-- publication and revocation state
+- publication metadata
 
-Release authenticity must be defined explicitly. The preferred root solution
-is a signed release envelope in addition to authenticated transport and digest
-verification. Download URLs are short-lived responses and are not persisted.
+Publishing is protected by the market service's existing request token.
+Reading and downloading do not introduce a second workspace permission model.
+The daemon resolves the returned artifact key against its configured artifact
+base URL. Production uses the immutable Connector prefix on the public-assets
+CloudFront distribution; the private `tsh-public-assets` bucket is only the CDN
+origin and is never addressed by the daemon. The daemon verifies downloaded
+bytes against the declared digest and size before installation.
 
 The shared package may provide a default `CatalogSource` and artifact resolver
 over the generated market client. It must not copy the remote schema into the
@@ -121,7 +125,8 @@ Package archive handling rejects absolute paths, parent traversal, symlink and
 hardlink escape, and archives that exceed file-count, individual-size,
 expanded-size, or compression-ratio limits. It validates redirects, content
 type, timeout, declared size, digest, and the packaged manifest before any
-artifact code can execute.
+artifact code can execute. Artifact download is an ordinary direct GET and does
+not carry workspace identity.
 
 Staging and active directories use the same filesystem when relying on atomic
 rename. Updates preserve the previous active version until new activation is
@@ -297,11 +302,13 @@ The Tutti Host includes:
 - the shared connector-market panel mounted in Settings > Agent > Connectors
 
 Tutti now advertises the production `managed_stdio` implementation when its
-signed platform/runtime constraints match. It verifies ZK signatures and TSH
-artifact grants, prepares an immutable artifact snapshot, and hosts MCP as a
-daemon-owned long-lived child or CLI as a sandboxed one-shot Node/Python child.
-Routes and every child process are fenced by workspace generation, boot epoch,
-catalog freshness, and security revocation.
+platform/runtime constraints match. It reads the TSH market item API, downloads
+the artifact directly from configured storage, verifies and prepares an
+immutable artifact snapshot, and hosts MCP as a daemon-owned long-lived child
+or CLI as a sandboxed one-shot Node/Python child. Routes and every child process
+are fenced by workspace generation and boot epoch. Startup waits for a catalog
+refresh, while later market outages preserve the installed last-known-good
+runtime projection.
 
 Authorization remains intentionally limited to `none`; connectors that require
 credentials remain visible as unsupported until the daemon credential broker
