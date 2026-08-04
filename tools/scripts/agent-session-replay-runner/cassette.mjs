@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, realpathSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -323,6 +323,34 @@ function resolvePortableRailSectionKey(value, replayCWD) {
   );
 }
 
+function resolvePortableReplayPath(value, replayCWD) {
+  if (typeof value !== "string") return value;
+  let resolved = value;
+  let fromPortableToken = false;
+  if (value === portableReplayCWDToken) {
+    resolved = replayCWD;
+    fromPortableToken = true;
+  } else if (value.startsWith(`${portableReplayCWDToken}/`)) {
+    resolved = join(
+      replayCWD,
+      ...value.slice(portableReplayCWDToken.length + 1).split("/")
+    );
+    fromPortableToken = true;
+  }
+  if (
+    typeof resolved !== "string" ||
+    !resolved ||
+    (!fromPortableToken && !resolved.startsWith("/"))
+  ) {
+    return resolved;
+  }
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 export function parseActivityEvents(contents) {
   const events = parseJSONLines(contents);
   const eventKinds = new Map();
@@ -499,18 +527,6 @@ function promptImageExtension(mimeType) {
     default:
       return "";
   }
-}
-
-function resolvePortableReplayPath(value, replayCWD) {
-  if (typeof value !== "string") return value;
-  if (value === portableReplayCWDToken) return replayCWD;
-  if (value.startsWith(`${portableReplayCWDToken}/`)) {
-    return join(
-      replayCWD,
-      ...value.slice(portableReplayCWDToken.length + 1).split("/")
-    );
-  }
-  return value;
 }
 
 function stimulusPrompt(payload) {

@@ -85,6 +85,7 @@ Turn state, loading, cancel, restore, rail projection, event updates, imports, a
 - [AgentGUI changed-files summary shows negative lines for a new file](./agent-session-lifecycle.md#agentgui-changed-files-summary-shows-negative-lines-for-a-new-file)
 - [Cursor deleted files appear as created or modified](./agent-session-lifecycle.md#cursor-deleted-files-appear-as-created-or-modified)
 - [AgentGUI compaction timer keeps running after compaction completed](./agent-session-lifecycle.md#agentgui-compaction-timer-keeps-running-after-compaction-completed)
+- [Claude `/compact` finishes without a compaction divider](./agent-session-lifecycle.md#claude-compact-finishes-without-a-compaction-divider)
 - [AgentActivity replication repeatedly rejects message batches as invalid](./agent-session-lifecycle.md#agentactivity-replication-repeatedly-rejects-message-batches-as-invalid)
 - [Remote agent cancel does not stop the local turn](./agent-session-lifecycle.md#remote-agent-cancel-does-not-stop-the-local-turn)
 - [Claude Code cancel leaves Write/tool cards stuck in progress](./agent-session-lifecycle.md#claude-code-cancel-leaves-writetool-cards-stuck-in-progress)

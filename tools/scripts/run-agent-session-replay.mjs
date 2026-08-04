@@ -52,6 +52,11 @@ import {
   setAgentComposerDefaults
 } from "./agent-session-replay-runner/runtime.mjs";
 import {
+  assertDesktopLogHasNoCatalogMismatch,
+  clearPreparedElectronEnv,
+  reconcileEventStreamCatalogForLaunch
+} from "./agent-session-replay-runner/event-stream-catalog.mjs";
+import {
   assertForbiddenPathAbsent,
   resolveAgentSessionReplayProjectRoot,
   resolveRecordScenarioProject,
@@ -584,10 +589,25 @@ async function runReplayWorkspaceOrchestration(bootstrap, options) {
       )
     ])
   );
+  const catalogLaunch = await reconcileEventStreamCatalogForLaunch({
+    daemonPath: bootstrap.runtime.daemonPath,
+    managed: Boolean(options.managed),
+    preparedElectron: Boolean(desktopLaunch),
+    workspaceRoot
+  });
+  let effectiveDesktopLaunch = desktopLaunch;
+  if (catalogLaunch.fallbackToPnpmDev) {
+    log(
+      catalogLaunch.message ??
+        "stale prepared desktop out; falling back to pnpm-dev-desktop"
+    );
+    clearPreparedElectronEnv();
+    effectiveDesktopLaunch = undefined;
+  }
   const desktop = startDesktop({
-    args: desktopLaunch?.args,
+    args: effectiveDesktopLaunch?.args,
     cdpPort,
-    command: desktopLaunch?.command,
+    command: effectiveDesktopLaunch?.command,
     daemonPath: bootstrap.runtime.daemonPath,
     desktopLogPath: logPath,
     environment: {
@@ -613,6 +633,7 @@ async function runReplayWorkspaceOrchestration(bootstrap, options) {
       desktop,
       options.timeoutMs
     );
+    await assertDesktopLogHasNoCatalogMismatch(logPath);
     client = await CdpClient.connect(pageWebSocket);
     await client.send("Runtime.enable");
     await bootstrapRendererReplayWorkspace(
@@ -1427,10 +1448,25 @@ async function runDesktopAction(input) {
     input.mode === "replay"
       ? requiredReplayRegistrations(input.replayRegistrations)
       : null;
+  const catalogLaunch = await reconcileEventStreamCatalogForLaunch({
+    daemonPath: input.daemonPath,
+    managed: Boolean(input.keepDesktopOpen && input.desktopLaunch),
+    preparedElectron: Boolean(input.desktopLaunch),
+    workspaceRoot
+  });
+  let desktopLaunch = input.desktopLaunch;
+  if (catalogLaunch.fallbackToPnpmDev) {
+    log(
+      catalogLaunch.message ??
+        "stale prepared desktop out; falling back to pnpm-dev-desktop"
+    );
+    clearPreparedElectronEnv();
+    desktopLaunch = undefined;
+  }
   const desktop = startDesktop({
-    args: input.desktopLaunch?.args,
+    args: desktopLaunch?.args,
     cdpPort,
-    command: input.desktopLaunch?.command,
+    command: desktopLaunch?.command,
     daemonPath: input.daemonPath,
     desktopLogPath: input.logPath,
     environment:
@@ -1471,6 +1507,9 @@ async function runDesktopAction(input) {
       desktop,
       input.timeoutMs
     );
+    // Catalog mismatch is logged as soon as the renderer handshake runs.
+    // Fail here instead of waiting for scenario assistantText timeouts.
+    await assertDesktopLogHasNoCatalogMismatch(input.logPath);
     pageClient = await CdpClient.connect(pageWebSocket);
     await pageClient.send("Runtime.enable");
     await pageClient.send("Page.enable");

@@ -115,6 +115,30 @@ incomplete`, while a newly created session can still launch.
 - **Validation:** Launch a managed Replay Workspace and prove its isolated
   daemon becomes discoverable without waiting for the startup timeout.
 
+### Replay fails because Desktop and tuttid use different event catalogs
+
+- **Symptom:** Replay stops during Desktop startup with
+  `desktop/tuttid event stream catalog mismatch (fail-fast)`, or the isolated
+  Desktop log contains `Event stream catalog revision mismatch`.
+- **Quick checks:** Compare the revisions reported by the runner for the
+  prepared `apps/desktop/out` bundle, the event-protocol source, and the
+  `tuttid` binary. A prepared Electron bundle can be stale even when the
+  current source checkout and daemon build match.
+- **Root cause:** The Desktop renderer and daemon perform a strict event-stream
+  catalog handshake. Reusing a prepared renderer or daemon from a different
+  generated-protocol revision makes the handshake fail before Replay can drive
+  a Session.
+- **Fix:** For an unmanaged launch, the runner falls back to
+  `pnpm-dev-desktop` when the current event-protocol source matches `tuttid`.
+  For a managed launch, rebuild `apps/desktop/out` and `tuttid` from the same
+  checkout, or clear the prepared Electron environment before retrying.
+- **Validation:** Confirm the runner reports matching revisions before launch,
+  then run the Replay scenario and require the first checkpoint to become
+  ready without a catalog mismatch in `desktop.log`.
+- **References:**
+  [event-stream-catalog.mjs](../../../tools/scripts/agent-session-replay-runner/event-stream-catalog.mjs),
+  [agent-session-replay.md](../../../docs/architecture/agent-session-replay.md)
+
 ### Replay starts but the first Turn never becomes idle
 
 - **Symptom:** The isolated Replay Workspace is ready, but playback waits on the
@@ -3564,6 +3588,55 @@ inline data URL instead`. Claude or standard ACP may instead receive no
   [compaction.ts](../../../packages/agent/claude-sdk-sidecar/src/compaction.ts)
   [messageRouter.ts](../../../packages/agent/claude-sdk-sidecar/src/messageRouter.ts)
   [sessionRuntime.session.test.ts](../../../packages/agent/claude-sdk-sidecar/src/sessionRuntime.session.test.ts)
+
+### Claude `/compact` finishes without a compaction divider
+
+- Symptom:
+  After Claude Code `/compact`, AgentGUI shows only the turn duration footer
+  (for example `总用时 22 秒`) and never renders the
+  `Compacting context` / `Context compacted.` divider. Context usage may still
+  drop correctly.
+- Quick checks:
+  Confirm the provider is Claude Code SDK. Inspect the Claude transcript under
+  `~/.claude/projects/.../<provider-session-id>.jsonl` for `compact_boundary`
+  or `<local-command-stdout>Compacted`. Check tuttíd for a
+  `claude-sdk:compact:<turnId>` system notice; if tokens fell but that notice is
+  missing, the sidecar never published `compact_started`.
+- Root cause:
+  Claude Code 2.1.x often completes manual compaction without streaming
+  `status:compacting` or `compact_boundary` to the query iterator (the boundary
+  may exist only on disk, or arrive as `local_command` /
+  camelCase `compactMetadata`). Compaction banners were driven only by those
+  signals, so a silent success left no notice for AgentGUI to project. Even when
+  the sidecar emits `compact_started` immediately on `/compact`, that assistant
+  system notice arrives before provider-turn acceptance; the Claude acceptance
+  gate previously treated it as premature provider output and dropped it. The
+  daemon already settles an active compact notice when the turn closes; it needs
+  a held `compact_started` (or an adapter-emitted running notice) first.
+- Fix:
+  Emit a running compact notice from the Claude adapter when `/compact` is
+  selected, allow compact system notices to precede provider-turn acceptance,
+  accept `local_command` / `local_command_output` and camelCase boundary
+  metadata in the sidecar, and map known failure copy to `compact_failed`
+  before a successful result can settle the banner as completed. When the
+  acceptance barrier later flushes those held events, restamp their
+  `ProviderInputUnit` onto the acceptance unit so Session Replay does not
+  observe an earlier chunk after the durable `turn.working` checkpoint (that
+  regression fails recording with
+  `provider cursor moved backward`).
+- Validation:
+  Add daemon coverage that `/compact` banners stay held until durable
+  acceptance, then flush on the acceptance unit; add sidecar coverage for
+  silent `/compact` (result only), local_command failure, and camelCase
+  `compactMetadata`. Re-run L04-CLAUDE recording and confirm the progress
+  divider appears, then becomes `Context compacted.` (or the interrupted
+  divider with the failure detail), and that recording status stays
+  `recording` through compact.
+- References:
+  [compaction.ts](../../../packages/agent/claude-sdk-sidecar/src/compaction.ts)
+  [claude_sdk_execution.go](../../../packages/agent/daemon/runtime/claude_sdk_execution.go)
+  [claude_sdk_turn.go](../../../packages/agent/daemon/runtime/claude_sdk_turn.go)
+  [AgentMessageBlock.tsx](../../../packages/agent/gui/shared/agentConversation/components/AgentMessageBlock.tsx)
 
 ### AgentGUI compaction timer keeps running after compaction completed
 

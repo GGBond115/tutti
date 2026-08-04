@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { realpathSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -3734,12 +3735,13 @@ test("PROJECT_ROOT remaps portable REPLAY_CWD outside Tutti checkout", () => {
 
 test("P01 selects an in-cwd project and requires portable binding artifacts", async () => {
   const root = await mkdtemp(join(tmpdir(), "agent-replay-project-binding-"));
+  const canonicalRoot = realpathSync(root);
   const project = resolveRecordScenarioProject(
-    { label: basename(root), relativePath: "." },
+    { label: basename(canonicalRoot), relativePath: "." },
     root
   );
-  assert.equal(project.path, root);
-  assert.equal(project.label, basename(root));
+  assert.equal(project.path, canonicalRoot);
+  assert.equal(project.label, basename(canonicalRoot));
   assert.equal(project.portablePath, "${REPLAY_CWD}");
   assert.throws(
     () =>
@@ -3768,7 +3770,10 @@ test("P01 selects an in-cwd project and requires portable binding artifacts", as
     databasePath,
     "SELECT path || '|' || label FROM user_projects;"
   ]);
-  assert.equal(seeded.stdout.trim(), `${root}|${basename(root)}`);
+  assert.equal(
+    seeded.stdout.trim(),
+    `${canonicalRoot}|${basename(canonicalRoot)}`
+  );
 
   await writeFile(
     join(root, cassettePolicy.files.activityEvents.path),
