@@ -12,9 +12,7 @@ The package deliberately owns three matching contracts:
 - `services`: a module-scoped Root, Runtime, lifecycle, StartupJobs, Valtio
   domain services, and host adapter contracts
 - `renderer`: the reusable catalog, authorization dialog, and connected-state
-  management dialog built only from `@tutti-os/ui-system`; catalog entries are
-  grouped by the stable `featured`, `productivity`, `development`, and `other`
-  category identifiers
+  management dialog built only from `@tutti-os/ui-system`
 - `i18n`: the connector-market resource bundle and scoped runtime factory
 
 The package does not construct an HTTP client, read Electron globals, choose a

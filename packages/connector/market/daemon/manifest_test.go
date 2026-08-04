@@ -17,7 +17,6 @@ func TestImplementationRegistryValidatesSupportedManifest(t *testing.T) {
 
 	err := registry.Validate(Manifest{
 		SchemaVersion: "1",
-		Category:      ConnectorCategoryDevelopment,
 		DisplayName:   "GitHub",
 		Permissions:   []string{"repository.read"},
 		Implementation: Implementation{
@@ -32,25 +31,6 @@ func TestImplementationRegistryValidatesSupportedManifest(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestConnectorCategoryValidationAndLegacyFallback(t *testing.T) {
-	for _, category := range []ConnectorCategory{
-		ConnectorCategoryFeatured,
-		ConnectorCategoryProductivity,
-		ConnectorCategoryDevelopment,
-		ConnectorCategoryOther,
-	} {
-		if !ValidConnectorCategory(category) {
-			t.Fatalf("category %q should be valid", category)
-		}
-	}
-	if ValidConnectorCategory("unknown") {
-		t.Fatal("unknown category should be rejected")
-	}
-	if got := NormalizeConnectorCategory(""); got != ConnectorCategoryOther {
-		t.Fatalf("legacy empty category normalized to %q, want other", got)
 	}
 }
 

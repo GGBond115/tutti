@@ -91,13 +91,6 @@ before installation. Staging and local integration may override the CDN prefix
 with `TUTTI_CONNECTOR_ARTIFACT_BASE_URL`; production should leave the public
 CloudFront default in place.
 
-Connector releases carry one stable Market category: `featured`,
-`productivity`, `development`, or `other`. The remote manifest is the single
-source of truth; TSH projects it unchanged, the daemon normalizes legacy
-missing values to `other`, and the shared View service materializes ordered
-category sections before React renders them. Renderer code must not maintain a
-connector-key-to-category lookup.
-
 The package owns the implementation-host port and durable reconcile semantics;
 the daemon owns the concrete process runtime. In Tutti, `managed_stdio`
 connectors resolve an exact Node/Python runtime profile. MCP servers are

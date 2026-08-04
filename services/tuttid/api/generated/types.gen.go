@@ -1504,30 +1504,6 @@ func (e ConnectorMarketInstallationState) Valid() bool {
 	}
 }
 
-// Defines values for ConnectorMarketManifestCategory.
-const (
-	Development  ConnectorMarketManifestCategory = "development"
-	Featured     ConnectorMarketManifestCategory = "featured"
-	Other        ConnectorMarketManifestCategory = "other"
-	Productivity ConnectorMarketManifestCategory = "productivity"
-)
-
-// Valid indicates whether the value is a known member of the ConnectorMarketManifestCategory enum.
-func (e ConnectorMarketManifestCategory) Valid() bool {
-	switch e {
-	case Development:
-		return true
-	case Featured:
-		return true
-	case Other:
-		return true
-	case Productivity:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ConnectorMarketManifestSchemaVersion.
 const (
 	ConnectorMarketManifestSchemaVersionN1 ConnectorMarketManifestSchemaVersion = "1"
@@ -5950,7 +5926,6 @@ type ConnectorMarketInstallationState string
 // ConnectorMarketManifest defines model for ConnectorMarketManifest.
 type ConnectorMarketManifest struct {
 	AuthorizationKind string                                    `json:"authorizationKind"`
-	Category          *ConnectorMarketManifestCategory          `json:"category,omitempty"`
 	Compatibility     *ConnectorMarketCompatibilityRequirements `json:"compatibility,omitempty"`
 	Description       *string                                   `json:"description,omitempty"`
 	DisplayName       string                                    `json:"displayName"`
@@ -5960,9 +5935,6 @@ type ConnectorMarketManifest struct {
 	Permissions    []string                             `json:"permissions"`
 	SchemaVersion  ConnectorMarketManifestSchemaVersion `json:"schemaVersion"`
 }
-
-// ConnectorMarketManifestCategory defines model for ConnectorMarketManifest.Category.
-type ConnectorMarketManifestCategory string
 
 // ConnectorMarketManifestSchemaVersion defines model for ConnectorMarketManifest.SchemaVersion.
 type ConnectorMarketManifestSchemaVersion string

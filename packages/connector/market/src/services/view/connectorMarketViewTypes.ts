@@ -1,6 +1,5 @@
 import type {
   ConnectorAuthorizationState,
-  ConnectorCategory,
   ConnectorCompatibilityState,
   ConnectorInstallationState,
   ConnectorOperationStage
@@ -19,7 +18,6 @@ export interface ConnectorCardView {
   action: ConnectorCardAction;
   authorizationState: ConnectorAuthorizationState;
   compatibilityState: ConnectorCompatibilityState;
-  category: ConnectorCategory;
   connectorKey: string;
   description: string;
   displayName: string;
@@ -35,7 +33,7 @@ export interface ConnectorCardView {
 }
 
 export interface ConnectorSectionView {
-  id: ConnectorCategory;
+  id: "connectors";
   connectorKeys: string[];
 }
 

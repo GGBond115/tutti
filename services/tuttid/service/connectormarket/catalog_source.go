@@ -143,7 +143,6 @@ func (source *CatalogSource) mapItem(item wireMarketItem) (market.Release, error
 	manifestDigest := sha256.Sum256(manifestBytes)
 	releaseDigest := sha256.Sum256([]byte(item.ItemKey + "\x00" + item.Version + "\x00" + item.Artifact.SHA256))
 	manifest := market.Manifest{SchemaVersion: "1", DisplayName: connectorManifest.Display.Name,
-		Category:    market.NormalizeConnectorCategory(market.ConnectorCategory(connectorManifest.Display.Category)),
 		Description: connectorManifest.Display.Description, Permissions: connectorManifest.Payload.Permissions,
 		Implementation: implementation, AuthorizationKind: connectorManifest.Payload.Authorization.Kind,
 		Compatibility: connectorManifest.Payload.Compatibility}
@@ -210,7 +209,6 @@ type wireConnectorMarketManifest struct {
 type wireConnectorDisplay struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	Category    string `json:"category,omitempty"`
 }
 
 type wireConnectorManifestPayload struct {
