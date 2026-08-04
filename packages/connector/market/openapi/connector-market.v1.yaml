@@ -88,7 +88,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ConnectorMarketMutationRequest"
+              $ref: "#/components/schemas/ConnectorMarketWorkspaceMutationRequest"
       responses:
         "202":
           description: Installation operation accepted
@@ -150,7 +150,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ConnectorMarketMutationRequest"
+              $ref: "#/components/schemas/ConnectorMarketWorkspaceMutationRequest"
       responses:
         "200":
           description: Authorization attempt started
@@ -336,12 +336,12 @@ components:
       type: object
       additionalProperties: false
       required:
-        [key, manifest, installation, authorization, compatibility, revision]
+        [key, release, installation, authorization, compatibility, revision]
       properties:
         key:
           type: string
-        manifest:
-          $ref: "#/components/schemas/ConnectorMarketManifest"
+        release:
+          $ref: "#/components/schemas/ConnectorMarketRelease"
         installation:
           $ref: "#/components/schemas/ConnectorMarketInstallation"
         authorization:
@@ -354,17 +354,68 @@ components:
           type: integer
           format: int64
           minimum: 0
+    ConnectorMarketRelease:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          schemaVersion,
+          releaseId,
+          connectorKey,
+          version,
+          releaseDigest,
+          manifestDigest,
+          manifest,
+          artifact,
+          publishedAt,
+          status,
+          publisher,
+          provenanceDigest,
+          envelopeDigest
+        ]
+      properties:
+        schemaVersion:
+          type: string
+          enum: ["1"]
+        releaseId:
+          type: string
+          minLength: 1
+        connectorKey:
+          type: string
+        version:
+          type: string
+        releaseDigest:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        manifestDigest:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        manifest:
+          $ref: "#/components/schemas/ConnectorMarketManifest"
+        artifact:
+          $ref: "#/components/schemas/ConnectorMarketArtifact"
+        publishedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [available, superseded, security_revoked]
+        publisher:
+          $ref: "#/components/schemas/ConnectorMarketPublisherIdentity"
+        provenanceDigest:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        envelopeDigest:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
     ConnectorMarketManifest:
       type: object
       additionalProperties: false
       required:
         [
           schemaVersion,
-          key,
-          version,
           displayName,
           permissions,
-          artifact,
           implementation,
           authorizationKind
         ]
@@ -372,10 +423,6 @@ components:
         schemaVersion:
           type: string
           enum: ["1"]
-        key:
-          type: string
-        version:
-          type: string
         displayName:
           type: string
         description:
@@ -384,8 +431,6 @@ components:
           type: array
           items:
             type: string
-        artifact:
-          $ref: "#/components/schemas/ConnectorMarketArtifact"
         implementation:
           $ref: "#/components/schemas/ConnectorMarketImplementation"
         authorizationKind:
@@ -395,9 +440,12 @@ components:
     ConnectorMarketArtifact:
       type: object
       additionalProperties: false
-      required: [key, sha256, sizeBytes]
+      required: [key, objectVersion, sha256, sizeBytes, mediaType]
       properties:
         key:
+          type: string
+          minLength: 1
+        objectVersion:
           type: string
           minLength: 1
         sha256:
@@ -407,6 +455,9 @@ components:
           type: integer
           format: int64
           minimum: 1
+        mediaType:
+          type: string
+          minLength: 1
     ConnectorMarketCompatibilityRequirements:
       type: object
       additionalProperties: false
@@ -429,6 +480,27 @@ components:
       properties:
         kind:
           type: string
+          enum: [builtin, managed_stdio, remote_streamable_http]
+    ConnectorMarketPublisherIdentity:
+      type: object
+      additionalProperties: false
+      required: [subject, sourceRepository, commitSha, workflow, trustTier]
+      properties:
+        subject:
+          type: string
+          minLength: 1
+        sourceRepository:
+          type: string
+          minLength: 1
+        commitSha:
+          type: string
+          minLength: 7
+        workflow:
+          type: string
+          minLength: 1
+        trustTier:
+          type: string
+          minLength: 1
     ConnectorMarketInstallation:
       type: object
       additionalProperties: false
@@ -438,6 +510,11 @@ components:
           $ref: "#/components/schemas/ConnectorMarketInstallationState"
         installedVersion:
           type: string
+        installedReleaseId:
+          type: string
+        installedReleaseDigest:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
         failureCode:
           type: string
     ConnectorMarketAuthorization:
@@ -471,7 +548,15 @@ components:
       type: object
       additionalProperties: false
       required:
-        [operationId, clientRequestId, kind, state, createdAt, updatedAt]
+        [
+          operationId,
+          clientRequestId,
+          kind,
+          state,
+          attempt,
+          createdAt,
+          updatedAt
+        ]
       properties:
         operationId:
           type: string
@@ -484,7 +569,13 @@ components:
         state:
           $ref: "#/components/schemas/ConnectorMarketOperationState"
         stage:
-          type: string
+          $ref: "#/components/schemas/ConnectorMarketOperationStage"
+        target:
+          $ref: "#/components/schemas/ConnectorMarketOperationTarget"
+        attempt:
+          type: integer
+          format: int32
+          minimum: 0
         failureCode:
           type: string
         createdAt:
@@ -493,6 +584,23 @@ components:
         updatedAt:
           type: string
           format: date-time
+    ConnectorMarketOperationTarget:
+      type: object
+      additionalProperties: false
+      required: [connectorKey, version, releaseId, releaseDigest]
+      properties:
+        connectorKey:
+          type: string
+        version:
+          type: string
+        releaseId:
+          type: string
+        releaseDigest:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+        artifactSha256:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
     ConnectorMarketMutationRequest:
       type: object
       additionalProperties: false
@@ -505,6 +613,21 @@ components:
           type: integer
           format: int64
           minimum: 0
+    ConnectorMarketWorkspaceMutationRequest:
+      type: object
+      additionalProperties: false
+      required: [clientRequestId, expectedRevision, workspaceId]
+      properties:
+        clientRequestId:
+          type: string
+          minLength: 1
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        workspaceId:
+          type: string
+          minLength: 1
     SetConnectorMarketWorkspaceBindingRequest:
       type: object
       additionalProperties: false
@@ -611,6 +734,19 @@ components:
     ConnectorMarketOperationState:
       type: string
       enum: [accepted, running, completed, failed]
+    ConnectorMarketOperationStage:
+      type: string
+      enum:
+        - accepted
+        - refreshing
+        - downloading
+        - prepared
+        - activating
+        - deactivating
+        - authorizing
+        - disconnecting
+        - completed
+        - failed
     ConnectorMarketErrorCode:
       type: string
       enum:

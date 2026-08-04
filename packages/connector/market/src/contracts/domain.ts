@@ -37,14 +37,71 @@ export type ConnectorOperationState =
   | "completed"
   | "failed";
 
-export interface ConnectorManifestImplementation {
-  kind: string;
+export type ConnectorOperationStage =
+  | "accepted"
+  | "refreshing"
+  | "downloading"
+  | "prepared"
+  | "activating"
+  | "deactivating"
+  | "authorizing"
+  | "disconnecting"
+  | "completed"
+  | "failed";
+
+export interface ConnectorBuiltinImplementation {
+  providerId: string;
+  mcp: boolean;
+  cli: boolean;
 }
 
-export interface ConnectorManifestArtifact {
+export interface ConnectorRuntimeRequirement {
+  language: "node" | "python";
+  profile: string;
+  abi: string;
+}
+
+export interface ConnectorManagedMcpInterface {
+  entrypoint: string;
+  arguments?: string[];
+}
+
+export interface ConnectorManagedCliCommand {
+  name: string;
+  description?: string;
+}
+
+export interface ConnectorManagedCliInterface {
+  entrypoint: string;
+  arguments?: string[];
+  commands: ConnectorManagedCliCommand[];
+}
+
+export interface ConnectorManagedStdioImplementation {
+  runtime: ConnectorRuntimeRequirement;
+  mcp?: ConnectorManagedMcpInterface;
+  cli?: ConnectorManagedCliInterface;
+  credentialBrokerProtocol?: string;
+}
+
+export interface ConnectorRemoteStreamableHttpImplementation {
+  endpoint: string;
+  allowedHosts: string[];
+}
+
+export interface ConnectorManifestImplementation {
+  kind: "builtin" | "managed_stdio" | "remote_streamable_http";
+  builtin?: ConnectorBuiltinImplementation;
+  managedStdio?: ConnectorManagedStdioImplementation;
+  remoteStreamableHttp?: ConnectorRemoteStreamableHttpImplementation;
+}
+
+export interface ConnectorReleaseArtifact {
   key: string;
+  objectVersion: string;
   sha256: string;
   sizeBytes: number;
+  mediaType: string;
 }
 
 export interface ConnectorCompatibilityRequirements {
@@ -55,20 +112,43 @@ export interface ConnectorCompatibilityRequirements {
 
 export interface ConnectorManifest {
   schemaVersion: "1";
-  key: string;
-  version: string;
   displayName: string;
   description?: string;
   permissions: string[];
-  artifact: ConnectorManifestArtifact;
   implementation: ConnectorManifestImplementation;
   authorizationKind: string;
   compatibility?: ConnectorCompatibilityRequirements;
 }
 
+export interface ConnectorPublisherIdentity {
+  subject: string;
+  sourceRepository: string;
+  commitSha: string;
+  workflow: string;
+  trustTier: string;
+}
+
+export interface ConnectorRelease {
+  schemaVersion: "1";
+  releaseId: string;
+  connectorKey: string;
+  version: string;
+  releaseDigest: string;
+  manifestDigest: string;
+  manifest: ConnectorManifest;
+  artifact: ConnectorReleaseArtifact;
+  publishedAt: string;
+  status: "available" | "superseded" | "security_revoked";
+  publisher: ConnectorPublisherIdentity;
+  provenanceDigest: string;
+  envelopeDigest: string;
+}
+
 export interface ConnectorInstallation {
   state: ConnectorInstallationState;
   installedVersion?: string;
+  installedReleaseId?: string;
+  installedReleaseDigest?: string;
   failureCode?: string;
 }
 
@@ -89,7 +169,7 @@ export interface ConnectorWorkspaceBinding {
 
 export interface Connector {
   key: string;
-  manifest: ConnectorManifest;
+  release: ConnectorRelease;
   installation: ConnectorInstallation;
   authorization: ConnectorAuthorization;
   compatibility: ConnectorCompatibility;
@@ -103,10 +183,20 @@ export interface ConnectorOperation {
   connectorKey?: string;
   kind: ConnectorOperationKind;
   state: ConnectorOperationState;
-  stage?: string;
+  stage?: ConnectorOperationStage;
+  target?: ConnectorOperationTarget;
+  attempt: number;
   failureCode?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ConnectorOperationTarget {
+  connectorKey: string;
+  version: string;
+  releaseId: string;
+  releaseDigest: string;
+  artifactSha256?: string;
 }
 
 export interface ConnectorMarketSnapshot {
@@ -126,8 +216,11 @@ export interface ConnectorMutationInput extends ConnectorMarketMutationInput {
   connectorKey: string;
 }
 
-export interface SetConnectorWorkspaceEnabledInput extends ConnectorMutationInput {
+export interface ConnectorWorkspaceMutationInput extends ConnectorMutationInput {
   workspaceId: string;
+}
+
+export interface SetConnectorWorkspaceEnabledInput extends ConnectorWorkspaceMutationInput {
   enabled: boolean;
 }
 

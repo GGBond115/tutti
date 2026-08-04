@@ -69,15 +69,16 @@ The Go module path is:
 github.com/tutti-os/tutti/packages/connector/market
 ```
 
-Host daemons implement repository, catalog, artifact installation,
+Host daemons implement repository, catalog transport, runtime activation,
 authorization, scheduling, and event ports. The public package owns shared
-state semantics; host adapters own storage and product integration.
+state semantics and secure artifact preparation; host adapters own storage and
+product integration.
 
 `Repository.Transaction` must be atomic and advance the daemon-wide market
-revision monotonically. `ArtifactInstaller`, `AuthorizationProvider`, and
-`OperationScheduler` must be idempotent for the operation or client request id
-they receive because daemon recovery can replay accepted or running work after
-a crash.
+revision monotonically. `ArtifactPreparer`, `ImplementationHost`,
+`AuthorizationProvider`, and `OperationScheduler` receive immutable operation
+and release identity and must tolerate replay because daemon recovery can
+re-execute accepted or running work after a crash.
 
 `Application.ExecuteOperation` also provides process-local single-flight
 semantics: concurrent dispatches for the same operation ID share one execution
@@ -86,3 +87,8 @@ schedulable. This in-memory ownership is intentionally limited to one
 `Application` instance; after a process restart, durable accepted/running
 operations are replayed through `Recover`, so adapters must still tolerate
 uncertain external side effects from a crash.
+
+`artifact.Preparer` provides bounded download, digest verification, safe
+extraction, packaged-manifest verification, and atomic content-addressed
+promotion. Hosts retain remote endpoint/authentication configuration, runtime
+activation, persistence, credentials, and state-root selection.

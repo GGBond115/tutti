@@ -40,6 +40,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
   private readonly reportDiagnostic: (error: unknown) => void;
   private readonly connectorMutations = new Map<string, symbol>();
   private eventUnsubscribe: (() => void) | null = null;
+  private eventConnectionUnsubscribe: (() => void) | null = null;
   private refreshInFlight: Promise<void> | null = null;
   private loadSequence = 0;
   private workspaceGeneration = 0;
@@ -63,6 +64,9 @@ export class ConnectorMarketService implements IConnectorMarketService {
     }
     this.started = true;
     this.eventUnsubscribe = this.subscribeToEvents(this.dependencies.events);
+    this.eventConnectionUnsubscribe = this.subscribeToEventConnection(
+      this.dependencies.events
+    );
   }
 
   ensureLoaded(): Promise<void> {
@@ -115,9 +119,16 @@ export class ConnectorMarketService implements IConnectorMarketService {
   }
 
   install(connectorKey: string): Promise<void> {
+    const workspaceId = this.dataStore.workspaceId;
+    if (!workspaceId) {
+      return Promise.reject(
+        new Error("A workspace is required to install a connector")
+      );
+    }
     return this.runConnectorMutation(connectorKey, () =>
       this.dependencies.backend.installConnector({
         connectorKey,
+        workspaceId,
         clientRequestId: this.createRequestId(),
         expectedRevision: this.dataStore.revision
       })
@@ -138,11 +149,16 @@ export class ConnectorMarketService implements IConnectorMarketService {
     if (this.disposed) {
       return;
     }
+    const workspaceId = this.dataStore.workspaceId;
+    if (!workspaceId) {
+      throw new Error("A workspace is required to authorize a connector");
+    }
     const token = this.acquireConnectorMutation(connectorKey);
     const generation = this.workspaceGeneration;
     try {
       const result = await this.dependencies.backend.beginAuthorization({
         connectorKey,
+        workspaceId,
         clientRequestId: this.createRequestId(),
         expectedRevision: this.dataStore.revision
       });
@@ -251,6 +267,8 @@ export class ConnectorMarketService implements IConnectorMarketService {
     this.refreshInFlight = null;
     this.eventUnsubscribe?.();
     this.eventUnsubscribe = null;
+    this.eventConnectionUnsubscribe?.();
+    this.eventConnectionUnsubscribe = null;
     clearConnectorMarketStoreState(this.dataStore);
   }
 
@@ -342,6 +360,24 @@ export class ConnectorMarketService implements IConnectorMarketService {
     return (
       events?.subscribe((event) => {
         if (this.disposed || event.revision <= this.dataStore.revision) {
+          return;
+        }
+        void this.load(false).catch(() => undefined);
+      }) ?? null
+    );
+  }
+
+  private subscribeToEventConnection(
+    events: ConnectorMarketEventSource | undefined
+  ): (() => void) | null {
+    let hasConnected = false;
+    return (
+      events?.subscribeConnectionState?.((state) => {
+        if (this.disposed || state !== "connected") {
+          return;
+        }
+        if (!hasConnected) {
+          hasConnected = true;
           return;
         }
         void this.load(false).catch(() => undefined);

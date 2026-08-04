@@ -14,10 +14,11 @@ import (
 func TestApplicationInstallIsDurableAndIdempotent(t *testing.T) {
 	repository := newMemoryRepository(testConnector("github"))
 	scheduler := &memoryScheduler{}
-	application := newTestApplication(t, repository, scheduler, &memoryInstaller{}, CatalogSnapshot{})
+	application := newTestApplication(t, repository, scheduler, &memoryInstallRuntime{}, CatalogSnapshot{})
 	command := ConnectorMutation{
 		Mutation:     Mutation{ClientRequestID: "request-1", ExpectedRevision: 0},
 		ConnectorKey: "github",
+		WorkspaceID:  "workspace-1",
 	}
 
 	accepted, err := application.Install(context.Background(), command)
@@ -49,11 +50,12 @@ func TestApplicationInstallIsDurableAndIdempotent(t *testing.T) {
 func TestApplicationExecutesAcceptedInstall(t *testing.T) {
 	repository := newMemoryRepository(testConnector("github"))
 	scheduler := &memoryScheduler{}
-	installer := &memoryInstaller{}
-	application := newTestApplication(t, repository, scheduler, installer, CatalogSnapshot{})
+	installationHost := &memoryInstallRuntime{}
+	application := newTestApplication(t, repository, scheduler, installationHost, CatalogSnapshot{})
 	accepted, err := application.Install(context.Background(), ConnectorMutation{
 		Mutation:     Mutation{ClientRequestID: "request-1", ExpectedRevision: 0},
 		ConnectorKey: "github",
+		WorkspaceID:  "workspace-1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -73,8 +75,111 @@ func TestApplicationExecutesAcceptedInstall(t *testing.T) {
 	if installed.Installation.State != InstallationStateInstalled || installed.Installation.InstalledVersion != "1.0.0" {
 		t.Fatalf("installation = %#v", installed.Installation)
 	}
-	if operation.State != OperationStateCompleted || installer.installs != 1 {
-		t.Fatalf("operation = %#v, installs = %d", operation, installer.installs)
+	if operation.State != OperationStateCompleted || installationHost.prepares != 1 || installationHost.activations != 0 {
+		t.Fatalf("operation = %#v, prepares = %d, activations = %d", operation, installationHost.prepares, installationHost.activations)
+	}
+}
+
+func TestApplicationReconcilesInstalledDurableWorkspaceIntentAtStartup(t *testing.T) {
+	connector := testConnector("github")
+	connector.Revision = 7
+	connector.Installation = Installation{
+		State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest,
+	}
+	connector.WorkspaceBinding = &WorkspaceBinding{WorkspaceID: "workspace-1", Enabled: true}
+	repository := newMemoryRepository(connector)
+	host := &memoryInstallRuntime{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, host, CatalogSnapshot{})
+
+	if err := application.ReconcileDurableBindings(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if host.reconciles != 1 || host.lastReconcile.WorkspaceID != "workspace-1" ||
+		host.lastReconcile.Generation.Generation != 7 || host.lastReconcile.Generation.BootEpoch == "" {
+		t.Fatalf("startup reconcile = %#v, count=%d", host.lastReconcile, host.reconciles)
+	}
+}
+
+func TestApplicationRecoveryObservesActivatedRuntimeBeforeCompleting(t *testing.T) {
+	repository := newMemoryRepository(testConnector("github"))
+	installationHost := &memoryInstallRuntime{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, installationHost, CatalogSnapshot{})
+	accepted, err := application.Install(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "request-1", ExpectedRevision: 0},
+		ConnectorKey: "github",
+		WorkspaceID:  "workspace-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := repository.connectors["github"].Release
+	operation := repository.operations[accepted.Operation.OperationID]
+	operation.State = OperationStateRunning
+	operation.Stage = OperationStageActivating
+	operation.Execution.PreparedArtifact = &PreparedArtifactReceipt{
+		OperationID:    operation.OperationID,
+		ConnectorKey:   release.ConnectorKey,
+		Version:        release.Version,
+		ReleaseDigest:  release.ReleaseDigest,
+		ArtifactSHA256: release.Artifact.SHA256,
+		PreparedPath:   "/prepared/" + release.ReleaseDigest,
+	}
+	repository.operations[operation.OperationID] = operation
+	installationHost.activeDigest = release.ReleaseDigest
+
+	if err := application.ExecuteOperation(context.Background(), operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	completed := repository.operations[operation.OperationID]
+	if completed.State != OperationStateCompleted || installationHost.activations != 0 {
+		t.Fatalf("operation = %#v, activations = %d", completed, installationHost.activations)
+	}
+	if repository.connectors["github"].Installation.InstalledReleaseDigest != release.ReleaseDigest {
+		t.Fatalf("installation = %#v", repository.connectors["github"].Installation)
+	}
+}
+
+func TestApplicationWritesChangedEventsInsideRepositoryTransactions(t *testing.T) {
+	repository := newMemoryRepository(testConnector("github"))
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
+	accepted, err := application.Install(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "request-1", ExpectedRevision: 0},
+		ConnectorKey: "github",
+		WorkspaceID:  "workspace-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.events) != 1 || repository.events[0].OperationID != accepted.Operation.OperationID ||
+		repository.events[0].Revision != accepted.Revision {
+		t.Fatalf("events = %#v", repository.events)
+	}
+}
+
+func TestApplicationDoesNotExecuteOperationHeldByAnotherWorker(t *testing.T) {
+	repository := newMemoryRepository(testConnector("github"))
+	installationHost := &memoryInstallRuntime{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, installationHost, CatalogSnapshot{})
+	accepted, err := application.Install(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "request-1", ExpectedRevision: 0},
+		ConnectorKey: "github",
+		WorkspaceID:  "workspace-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := repository.operations[accepted.Operation.OperationID]
+	expiresAt := time.Date(2026, 8, 3, 1, 0, 0, 0, time.UTC)
+	operation.LeaseOwner = "other-worker"
+	operation.LeaseExpiresAt = &expiresAt
+	repository.operations[operation.OperationID] = operation
+
+	if err := application.ExecuteOperation(context.Background(), operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if installationHost.prepares != 0 || installationHost.activations != 0 {
+		t.Fatalf("prepares = %d, activations = %d", installationHost.prepares, installationHost.activations)
 	}
 }
 
@@ -184,10 +289,11 @@ func TestApplicationSharesConcurrentOperationFailureAndClearsFlight(t *testing.T
 
 func TestApplicationRejectsConcurrentConnectorOperation(t *testing.T) {
 	repository := newMemoryRepository(testConnector("github"))
-	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstaller{}, CatalogSnapshot{})
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
 	if _, err := application.Install(context.Background(), ConnectorMutation{
 		Mutation:     Mutation{ClientRequestID: "install-1", ExpectedRevision: 0},
 		ConnectorKey: "github",
+		WorkspaceID:  "workspace-1",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -201,20 +307,12 @@ func TestApplicationRejectsConcurrentConnectorOperation(t *testing.T) {
 	}
 }
 
-func TestApplicationRefreshKeepsUnknownImplementationVisible(t *testing.T) {
+func TestApplicationRefreshRejectsUnknownImplementation(t *testing.T) {
 	repository := newMemoryRepository()
 	scheduler := &memoryScheduler{}
-	application := newTestApplication(t, repository, scheduler, &memoryInstaller{}, CatalogSnapshot{
+	application := newTestApplication(t, repository, scheduler, &memoryInstallRuntime{}, CatalogSnapshot{
 		SourceRevision: "catalog-2",
-		Manifests: []Manifest{{
-			SchemaVersion:     "1",
-			Key:               "future-connector",
-			Version:           "2.0.0",
-			DisplayName:       "Future Connector",
-			Artifact:          testArtifact(),
-			Implementation:    Implementation{Kind: "future_runtime"},
-			AuthorizationKind: "none",
-		}},
+		Releases:       []Release{testReleaseWithImplementation("future-connector", "2.0.0", "future_runtime")},
 	})
 	accepted, err := application.RefreshCatalog(context.Background(), Mutation{
 		ClientRequestID:  "refresh-1",
@@ -223,28 +321,19 @@ func TestApplicationRefreshKeepsUnknownImplementationVisible(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err != nil {
-		t.Fatal(err)
-	}
-	connector, err := repository.Connector(context.Background(), "future-connector", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if connector.Compatibility.State != CompatibilityStateUnsupportedImplementation {
-		t.Fatalf("compatibility = %#v", connector.Compatibility)
-	}
-	if repository.catalogState != CatalogStateReady || repository.sourceRevision != "catalog-2" {
-		t.Fatalf("catalog state = %q, source revision = %q", repository.catalogState, repository.sourceRevision)
+	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err == nil {
+		t.Fatal("ExecuteOperation() expected strict manifest rejection")
 	}
 }
 
 func TestApplicationRejectsStaleRevisionBeforeMutation(t *testing.T) {
 	repository := newMemoryRepository(testConnector("github"))
 	repository.revision = 4
-	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstaller{}, CatalogSnapshot{})
+	application := newTestApplication(t, repository, &memoryScheduler{}, &memoryInstallRuntime{}, CatalogSnapshot{})
 	_, err := application.Install(context.Background(), ConnectorMutation{
 		Mutation:     Mutation{ClientRequestID: "request-1", ExpectedRevision: 3},
 		ConnectorKey: "github",
+		WorkspaceID:  "workspace-1",
 	})
 	var domainError *DomainError
 	if !errors.As(err, &domainError) || domainError.Code != ErrorCodeRevisionConflict {
@@ -259,7 +348,10 @@ func newTestApplication(
 	t *testing.T,
 	repository *memoryRepository,
 	scheduler *memoryScheduler,
-	installer ArtifactInstaller,
+	installationHost interface {
+		ArtifactPreparer
+		ImplementationHost
+	},
 	catalog CatalogSnapshot,
 ) *Application {
 	t.Helper()
@@ -267,12 +359,12 @@ func newTestApplication(
 	application, err := NewApplication(ApplicationConfig{
 		Repository:             repository,
 		CatalogSource:          catalogSourceFunc(func(context.Context) (CatalogSnapshot, error) { return catalog, nil }),
-		Installer:              installer,
+		ArtifactPreparer:       installationHost,
+		Host:                   installationHost,
 		Authorization:          authorizationProviderStub{},
 		Compatibility:          compatibilityEvaluatorStub{},
 		Scheduler:              scheduler,
-		Events:                 eventPublisherStub{},
-		ImplementationRegistry: NewImplementationRegistry(map[string]ImplementationValidator{"mcp_stdio": nil}),
+		ImplementationRegistry: NewImplementationRegistry(map[string]ImplementationValidator{ImplementationKindManagedStdio: nil}),
 		Now:                    func() time.Time { return time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC) },
 		NewID: func() (string, error) {
 			nextID++
@@ -287,19 +379,41 @@ func newTestApplication(
 
 func testConnector(key string) Connector {
 	return Connector{
-		Key: key,
-		Manifest: Manifest{
-			SchemaVersion:     "1",
-			Key:               key,
-			Version:           "1.0.0",
-			DisplayName:       key,
-			Artifact:          testArtifact(),
-			Implementation:    Implementation{Kind: "mcp_stdio"},
-			AuthorizationKind: "none",
-		},
+		Key:           key,
+		Release:       testReleaseWithImplementation(key, "1.0.0", "mcp_stdio"),
 		Installation:  Installation{State: InstallationStateNotInstalled},
 		Authorization: Authorization{State: AuthorizationStateNotRequired},
 		Compatibility: Compatibility{State: CompatibilityStateSupported},
+	}
+}
+
+func testReleaseWithImplementation(key, version, implementationKind string) Release {
+	implementation := Implementation{Kind: implementationKind, Builtin: &BuiltinImplementation{ProviderID: key, MCP: true}}
+	if implementationKind == "mcp_stdio" || implementationKind == ImplementationKindManagedStdio {
+		implementation = Implementation{Kind: ImplementationKindManagedStdio, ManagedStdio: &ManagedStdioImplementation{
+			Runtime: RuntimeRequirement{Language: "node", Profile: "connector-node-static", ABI: "node20-darwin-arm64"},
+			MCP:     &ManagedMCPInterface{Entrypoint: "bin/connector.js"},
+		}}
+	}
+	return Release{
+		SchemaVersion:  "1",
+		ReleaseID:      key + "@" + version,
+		ConnectorKey:   key,
+		Version:        version,
+		ReleaseDigest:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ManifestDigest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		Manifest: Manifest{
+			SchemaVersion:     "1",
+			DisplayName:       key,
+			Implementation:    implementation,
+			AuthorizationKind: "none",
+		},
+		Artifact:         testArtifact(),
+		PublishedAt:      time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC),
+		Status:           ReleaseStatusAvailable,
+		Publisher:        PublisherIdentity{Subject: "ci", SourceRepository: "tutti/" + key, CommitSHA: "0123456789abcdef", Workflow: "release", TrustTier: "managed"},
+		ProvenanceDigest: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		EnvelopeDigest:   "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
 	}
 }
 
@@ -318,22 +432,73 @@ func (scheduler *memoryScheduler) Schedule(_ context.Context, operationID string
 	return nil
 }
 
-type memoryInstaller struct {
-	installs   int
-	uninstalls int
+type memoryInstallRuntime struct {
+	prepares      int
+	removes       int
+	activations   int
+	deactivations int
+	activeDigest  string
+	reconciles    int
+	lastReconcile WorkspaceReconcileRequest
 }
 
-func (installer *memoryInstaller) Install(context.Context, Manifest) error {
-	installer.installs++
+func (host *memoryInstallRuntime) Reconcile(_ context.Context, request WorkspaceReconcileRequest) (WorkspaceRuntimeReceipt, error) {
+	host.reconciles++
+	host.lastReconcile = request
+	return WorkspaceRuntimeReceipt{OperationID: request.OperationID, WorkspaceID: request.WorkspaceID,
+		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation}, nil
+}
+
+func (host *memoryInstallRuntime) Revoke(context.Context, SecurityRevocationRequest) error {
+	host.deactivations++
+	host.activeDigest = ""
 	return nil
 }
 
-func (installer *memoryInstaller) Uninstall(context.Context, Connector) error {
-	installer.uninstalls++
+func (host *memoryInstallRuntime) Prepare(_ context.Context, request PrepareArtifactRequest) (PreparedArtifactReceipt, error) {
+	host.prepares++
+	return PreparedArtifactReceipt{
+		OperationID:     request.OperationID,
+		ConnectorKey:    request.Release.ConnectorKey,
+		Version:         request.Release.Version,
+		ReleaseDigest:   request.Release.ReleaseDigest,
+		ArtifactSHA256:  request.Release.Artifact.SHA256,
+		InventoryDigest: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+		PreparedPath:    "/prepared/" + request.Release.ReleaseDigest,
+	}, nil
+}
+
+func (host *memoryInstallRuntime) Remove(context.Context, RemoveArtifactRequest) error {
+	host.removes++
+	return nil
+}
+
+func (host *memoryInstallRuntime) Observe(context.Context, RuntimeObserveRequest) (RuntimeObservation, error) {
+	if host.activeDigest == "" {
+		return RuntimeObservation{State: RuntimeStateInactive}, nil
+	}
+	return RuntimeObservation{State: RuntimeStateActive, ReleaseDigest: host.activeDigest}, nil
+}
+
+func (host *memoryInstallRuntime) Activate(_ context.Context, request RuntimeActivationRequest) (RuntimeActivationReceipt, error) {
+	host.activations++
+	host.activeDigest = request.Release.ReleaseDigest
+	return RuntimeActivationReceipt{
+		OperationID:   request.OperationID,
+		ConnectorKey:  request.Release.ConnectorKey,
+		ReleaseDigest: request.Release.ReleaseDigest,
+		RuntimeID:     "runtime-1",
+	}, nil
+}
+
+func (host *memoryInstallRuntime) Deactivate(context.Context, RuntimeDeactivationRequest) error {
+	host.deactivations++
+	host.activeDigest = ""
 	return nil
 }
 
 type blockingInstaller struct {
+	memoryInstallRuntime
 	started  chan struct{}
 	release  chan struct{}
 	once     sync.Once
@@ -353,28 +518,40 @@ func newBlockingInstallerWithError(err error) *blockingInstaller {
 	}
 }
 
-func (installer *blockingInstaller) Install(ctx context.Context, _ Manifest) error {
+func (installer *blockingInstaller) Prepare(ctx context.Context, request PrepareArtifactRequest) (PreparedArtifactReceipt, error) {
 	installer.installs.Add(1)
 	installer.once.Do(func() { close(installer.started) })
 	select {
 	case <-installer.release:
-		return installer.err
+		if installer.err != nil {
+			return PreparedArtifactReceipt{}, installer.err
+		}
+		return PreparedArtifactReceipt{
+			OperationID:     request.OperationID,
+			ConnectorKey:    request.Release.ConnectorKey,
+			Version:         request.Release.Version,
+			ReleaseDigest:   request.Release.ReleaseDigest,
+			ArtifactSHA256:  request.Release.Artifact.SHA256,
+			InventoryDigest: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+			PreparedPath:    "/prepared/" + request.Release.ReleaseDigest,
+		}, nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return PreparedArtifactReceipt{}, ctx.Err()
 	}
-}
-
-func (installer *blockingInstaller) Uninstall(context.Context, Connector) error {
-	return nil
 }
 
 type authorizationProviderStub struct{}
 
-func (authorizationProviderStub) Begin(context.Context, Connector, string) (string, error) {
-	return "https://example.test/authorize", nil
+func (authorizationProviderStub) Begin(_ context.Context, request AuthorizationStartRequest) (AuthorizationSession, error) {
+	return AuthorizationSession{
+		OperationID:      request.OperationID,
+		ConnectorKey:     request.Connector.Key,
+		SessionID:        "session-1",
+		AuthorizationURL: "https://example.test/authorize",
+	}, nil
 }
 
-func (authorizationProviderStub) Disconnect(context.Context, Connector) error {
+func (authorizationProviderStub) Disconnect(context.Context, AuthorizationDisconnectRequest) error {
 	return nil
 }
 
@@ -384,23 +561,20 @@ func (compatibilityEvaluatorStub) Evaluate(Manifest) Compatibility {
 	return Compatibility{State: CompatibilityStateSupported}
 }
 
-type eventPublisherStub struct{}
-
-func (eventPublisherStub) ConnectorMarketChanged(context.Context, ChangedEvent) error {
-	return nil
-}
-
 type memoryRepository struct {
 	revision       uint64
 	catalogState   CatalogState
 	sourceRevision string
 	connectors     map[string]Connector
 	operations     map[string]Operation
+	events         []ChangedEvent
+	trust          CatalogTrustState
 }
 
 func newMemoryRepository(connectors ...Connector) *memoryRepository {
 	repository := &memoryRepository{
 		catalogState: CatalogStateStale,
+		trust:        CatalogTrustState{Sequence: 1, EnvelopeDigest: "test", IssuedAt: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC), WallHighWater: time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)},
 		connectors:   map[string]Connector{},
 		operations:   map[string]Operation{},
 	}
@@ -408,6 +582,10 @@ func newMemoryRepository(connectors ...Connector) *memoryRepository {
 		repository.connectors[connector.Key] = connector
 	}
 	return repository
+}
+
+func (repository *memoryRepository) CatalogTrustState(context.Context) (CatalogTrustState, error) {
+	return repository.trust, nil
 }
 
 func (repository *memoryRepository) Snapshot(_ context.Context, _ string) (Snapshot, error) {
@@ -445,6 +623,44 @@ func (repository *memoryRepository) Operation(_ context.Context, operationID str
 	return operation, nil
 }
 
+func (repository *memoryRepository) ClaimOperation(
+	_ context.Context,
+	operationID string,
+	owner string,
+	now time.Time,
+	leaseExpiresAt time.Time,
+) (Operation, bool, error) {
+	operation, ok := repository.operations[operationID]
+	if !ok {
+		return Operation{}, false, ErrNotFound
+	}
+	if operation.State == OperationStateCompleted || operation.State == OperationStateFailed {
+		return operation, false, nil
+	}
+	if operation.LeaseOwner != "" && operation.LeaseOwner != owner &&
+		operation.LeaseExpiresAt != nil && operation.LeaseExpiresAt.After(now) {
+		return operation, false, nil
+	}
+	expiresAt := leaseExpiresAt
+	operation.LeaseOwner = owner
+	operation.LeaseExpiresAt = &expiresAt
+	repository.operations[operationID] = operation
+	return operation, true, nil
+}
+
+func (repository *memoryRepository) ReleaseOperationLease(_ context.Context, operationID, owner string) error {
+	operation, ok := repository.operations[operationID]
+	if !ok {
+		return ErrNotFound
+	}
+	if operation.LeaseOwner == owner {
+		operation.LeaseOwner = ""
+		operation.LeaseExpiresAt = nil
+		repository.operations[operationID] = operation
+	}
+	return nil
+}
+
 func (repository *memoryRepository) Transaction(_ context.Context, fn func(Transaction) error) error {
 	transaction := &memoryTransaction{
 		revision:       repository.revision,
@@ -452,6 +668,8 @@ func (repository *memoryRepository) Transaction(_ context.Context, fn func(Trans
 		sourceRevision: repository.sourceRevision,
 		connectors:     cloneConnectors(repository.connectors),
 		operations:     cloneOperations(repository.operations),
+		events:         append([]ChangedEvent(nil), repository.events...),
+		trust:          repository.trust,
 	}
 	if err := fn(transaction); err != nil {
 		return err
@@ -461,6 +679,8 @@ func (repository *memoryRepository) Transaction(_ context.Context, fn func(Trans
 	repository.sourceRevision = transaction.sourceRevision
 	repository.connectors = transaction.connectors
 	repository.operations = transaction.operations
+	repository.events = transaction.events
+	repository.trust = transaction.trust
 	return nil
 }
 
@@ -474,12 +694,25 @@ func (repository *memoryRepository) RecoverableOperations(context.Context) ([]Op
 	return operations, nil
 }
 
+func (repository *memoryRepository) WorkspaceBindings(_ context.Context, connectorKey string) ([]WorkspaceBinding, error) {
+	connector, ok := repository.connectors[connectorKey]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if connector.WorkspaceBinding == nil {
+		return nil, nil
+	}
+	return []WorkspaceBinding{*connector.WorkspaceBinding}, nil
+}
+
 type memoryTransaction struct {
 	revision       uint64
 	catalogState   CatalogState
 	sourceRevision string
 	connectors     map[string]Connector
 	operations     map[string]Operation
+	events         []ChangedEvent
+	trust          CatalogTrustState
 }
 
 func (transaction *memoryTransaction) Revision() uint64 { return transaction.revision }
@@ -539,6 +772,11 @@ func (transaction *memoryTransaction) SaveCatalogRevision(sourceRevision string)
 	return nil
 }
 
+func (transaction *memoryTransaction) SaveCatalogTrustState(state CatalogTrustState) error {
+	transaction.trust = state
+	return nil
+}
+
 func (transaction *memoryTransaction) SetCatalogState(state CatalogState) error {
 	transaction.catalogState = state
 	return nil
@@ -569,6 +807,11 @@ func (transaction *memoryTransaction) SetWorkspaceBinding(
 	}
 	connector.WorkspaceBinding = &binding
 	return connector, nil
+}
+
+func (transaction *memoryTransaction) EnqueueConnectorMarketChanged(event ChangedEvent) error {
+	transaction.events = append(transaction.events, event)
+	return nil
 }
 
 func cloneConnectors(source map[string]Connector) map[string]Connector {
