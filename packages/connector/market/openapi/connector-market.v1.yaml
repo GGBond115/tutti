@@ -440,8 +440,11 @@ components:
     ConnectorMarketArtifact:
       type: object
       additionalProperties: false
-      required: [key, objectVersion, sha256, sizeBytes, mediaType]
+      required: [storageRealm, key, objectVersion, sha256, sizeBytes, mediaType]
       properties:
+        storageRealm:
+          type: string
+          enum: [tutti.connector.artifacts.v1]
         key:
           type: string
           minLength: 1

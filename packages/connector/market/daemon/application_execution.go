@@ -74,6 +74,10 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 		for _, connector := range existing {
 			byKey[connector.Key] = connector
 		}
+		statusByRelease := make(map[string]ReleaseStatus, len(catalog.Statuses))
+		for _, status := range catalog.Statuses {
+			statusByRelease[status.ConnectorKey+"\x00"+status.ReleaseDigest] = status.Status
+		}
 		revision := tx.AdvanceRevision()
 		accepted := make(map[string]bool, len(catalog.Releases))
 		for _, release := range catalog.Releases {
@@ -102,6 +106,9 @@ func (application *Application) executeRefresh(ctx context.Context, operation Op
 					return err
 				}
 				continue
+			}
+			if status, ok := statusByRelease[connector.Key+"\x00"+connector.Release.ReleaseDigest]; ok {
+				connector.Release.Status = status
 			}
 			connector.Compatibility = Compatibility{
 				State:  CompatibilityStateUnsupportedVersion,
@@ -250,12 +257,20 @@ func (application *Application) executeWorkspaceReconcile(ctx context.Context, o
 	if err != nil {
 		return NewDomainError(ErrorCodeUnavailable, "connector workspace reconcile failed", true, err)
 	}
-	if receipt.OperationID != operation.OperationID || receipt.WorkspaceID != operation.WorkspaceID ||
-		receipt.ConnectorKey != operation.ConnectorKey || receipt.ReleaseDigest != operation.Target.ReleaseDigest ||
-		receipt.Generation != operation.HostGeneration {
-		return invalidOperationReceipt("implementation host returned a mismatched workspace receipt")
+	if err := validateWorkspaceRuntimeReceipt(receipt, operation.OperationID, operation.WorkspaceID,
+		operation.ConnectorKey, operation.Target.ReleaseDigest, operation.HostGeneration); err != nil {
+		return err
 	}
 	return application.completeWorkspaceReconcile(ctx, operation.OperationID)
+}
+
+func validateWorkspaceRuntimeReceipt(receipt WorkspaceRuntimeReceipt, operationID, workspaceID, connectorKey,
+	releaseDigest string, generation HostGeneration) error {
+	if receipt.OperationID != operationID || receipt.WorkspaceID != workspaceID ||
+		receipt.ConnectorKey != connectorKey || receipt.ReleaseDigest != releaseDigest || receipt.Generation != generation {
+		return invalidOperationReceipt("implementation host returned a mismatched workspace receipt")
+	}
+	return nil
 }
 
 func (application *Application) completeWorkspaceReconcile(ctx context.Context, operationID string) error {
