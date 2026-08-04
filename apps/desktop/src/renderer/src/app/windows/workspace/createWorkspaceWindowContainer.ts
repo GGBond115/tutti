@@ -9,7 +9,7 @@ import {
 } from "@renderer/features/analytics";
 import { startPredefinePageviewAnalytics } from "@renderer/features/analytics/predefinePageviewAnalytics.ts";
 import { registerAppUpdateServices } from "@renderer/features/app-update/services/registerAppUpdateServices";
-import { registerConnectorMarketServices } from "@renderer/features/connector-market";
+import { registerConnectorMarketModule } from "@renderer/features/connector-market";
 import { registerDesktopPreferencesServices } from "@renderer/features/desktop-preferences/services/registerDesktopPreferencesServices.ts";
 import { registerRichTextAtServices } from "@renderer/features/rich-text-at/services/registerRichTextAtServices";
 import { createDesktopAgentSessionStatusViewResolver } from "@renderer/features/rich-text-at/providers/desktopAgentSessionStatusView.ts";
@@ -156,7 +156,7 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
     reporterService
   });
   let disposeAgentOutcomeNotificationController: (() => void) | null = null;
-  const connectorMarketService = registerConnectorMarketServices(registry, {
+  const connectorMarketModule = registerConnectorMarketModule(registry, {
     client: tuttidClient,
     eventStreamClient: tuttidEventStreamClient,
     openAuthorizationUrl: (url) => desktopApi.host.files.openExternal(url),
@@ -174,24 +174,6 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
     },
     workspaceId: activeWorkspaceID
   });
-  let connectorMarketResumeRefresh: Promise<void> | null = null;
-  const disposeConnectorMarketResumeRefresh = windowLifecycle.subscribe(
-    (event) => {
-      const resumed =
-        event.kind === "focused" ||
-        (event.kind === "visibility_changed" && event.visibility === "visible");
-      if (!resumed || connectorMarketResumeRefresh) {
-        return;
-      }
-      const refresh = connectorMarketService
-        .reload()
-        .catch(() => undefined)
-        .finally(() => {
-          connectorMarketResumeRefresh = null;
-        });
-      connectorMarketResumeRefresh = refresh;
-    }
-  );
   registerAppUpdateServices(registry, desktopApi, {
     reporterService
   });
@@ -352,6 +334,25 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
     }
   });
   const container = new InstantiationService(registry.makeCollection());
+  await connectorMarketModule.activate(container);
+  let connectorMarketResumeRefresh: Promise<void> | null = null;
+  const disposeConnectorMarketResumeRefresh = windowLifecycle.subscribe(
+    (event) => {
+      const resumed =
+        event.kind === "focused" ||
+        (event.kind === "visibility_changed" && event.visibility === "visible");
+      if (!resumed || connectorMarketResumeRefresh) {
+        return;
+      }
+      const refresh = connectorMarketModule.root.market
+        .reload()
+        .catch(() => undefined)
+        .finally(() => {
+          connectorMarketResumeRefresh = null;
+        });
+      connectorMarketResumeRefresh = refresh;
+    }
+  );
   let committed = false;
   let disposed = false;
   const dispose = () => {
@@ -375,7 +376,6 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
     agentAvailabilitySnapshotAnalytics?.dispose();
     predefinePageviewAnalytics?.dispose();
     disposeConnectorMarketResumeRefresh();
-    connectorMarketService.dispose();
     workspaceAgentServices.dispose();
     windowLifecycle.dispose();
     daemonConnectionAnalytics.release();

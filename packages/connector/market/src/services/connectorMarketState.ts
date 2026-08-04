@@ -122,8 +122,7 @@ export function normalizeConnectorMarketError(
   }
   return {
     code: "connector_market_unknown",
-    message:
-      error instanceof Error ? error.message : "Unknown connector market error",
+    message: error instanceof Error ? error.message : String(error),
     retryable: false
   };
 }

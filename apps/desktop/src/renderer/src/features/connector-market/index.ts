@@ -1,1 +1,1 @@
-export { registerConnectorMarketServices } from "./services/registerConnectorMarketServices.ts";
+export { registerConnectorMarketModule } from "./services/registerConnectorMarketModule.ts";

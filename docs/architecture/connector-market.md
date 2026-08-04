@@ -37,8 +37,9 @@ The public package owns:
   staging layout, atomic promotion mechanics, cleanup, and reconcile rules
 - the reusable local daemon OpenAPI fragment under
   `openapi/connector-market.v1.yaml`
-- the renderer `ConnectorMarketBackend` contract and Valtio-backed domain
-  service
+- the renderer `ConnectorMarketBackend` contract, module Root/Runtime,
+  lifecycle and StartupJobs, Valtio-backed domain services, reusable renderer,
+  and connector-market i18n bundle
 
 Each host daemon owns:
 
@@ -144,20 +145,35 @@ maps wire DTOs into `@tutti-os/connector-market` domain types. The public
 renderer package never constructs a daemon client and never reads preload or
 window globals.
 
-The renderer domain follows the same service boundary as TSH Room Chat:
+The renderer domain follows the same Root + Runtime + StartupJob boundary as
+TSH Room Chat:
 
-- `IConnectorMarketService` is the typed DI contract and
-  `ConnectorMarketService` is the constructor-injected class implementation
-- `readonly dataStore = proxy(...)` is the only writable renderer state source;
-  only the owning service mutates it
-- `start()` owns long-lived event subscription setup, while host startup jobs
-  decide when to call it and when to perform the initial load
+- `ConnectorMarketModule.activate()` creates a child DI container and is called
+  by the workspace module startup flow before the settings UI can render
+- `ConnectorMarketRuntime` owns the lifecycle sequence `created -> starting ->
+synchronizing -> materializing -> ready`; failure is terminal and disposes
+  the child container
+- Market, UiState, and View each have one StartupJob; the Market job places an
+  initial-load barrier in `synchronizing`, and View materialization starts only
+  after that barrier resolves
+- `ConnectorMarketRoot` exposes the three stable services to renderer context;
+  React never resolves or constructs individual services
+- every service exposes a `readonly dataStore = proxy(...)` as its only writable
+  state source, and only its owning service mutates it
 - asynchronous responses are fenced by request sequence, workspace generation,
   and daemon revision; `dispose()` is idempotent and terminal
 - event refreshes are coalesced, daemon reconnect performs a full reload, and
   accepted commands are followed through the operation endpoint or events
-- React subscribes at the rendering leaf and does not own transport, startup,
-  disposal, or business-state reconciliation
+- the shared renderer subscribes at leaf components through a stable context,
+  uses `@tutti-os/ui-system`, and owns no transport, startup, disposal, or
+  business-state reconciliation
+
+Connector details are represented by one modal state machine, never by a fixed
+right-hand pane. An unconnected installed connector opens the authorization
+dialog; an authorized connector opens the management dialog. Blocked releases
+open the blocked-state dialog. Only one dialog host is mounted at a time, so
+the catalog keeps the full settings content width and never leaves an empty
+right column.
 
 ## Local OpenAPI Reuse
 
@@ -187,13 +203,17 @@ but cannot be installed.
 The shared package now contains immutable operation targets and execution
 receipts, recoverable install/uninstall/authorization flows, secure
 content-addressed artifact preparation, host ports, the local daemon OpenAPI
-fragment, and the Valtio renderer service.
+fragment, and the complete reusable renderer module: Root, Runtime, lifecycle,
+per-service StartupJobs, UiState, render-ready View, i18n, catalog, and modal
+state branches.
 
 Tutti now composes that fragment, persists catalog/operations/leases/bindings
 and a transactional outbox in SQLite, reads the typed remote catalog, exposes
 generated local handlers and clients, publishes invalidation events, and
-registers the shared renderer service through injected daemon-client and event
-adapters. Event-stream reconnect causes an authoritative snapshot reload.
+registers the shared renderer module through injected daemon-client and event
+adapters, activates it as part of workspace startup, and renders its shared
+panel from Settings > Agent > Connectors. Event-stream reconnect causes an
+authoritative snapshot reload.
 
 The registered Tutti Host now verifies signed ZK catalog/release documents,
 resolves TSH artifact grants, prepares immutable content-addressed artifacts,

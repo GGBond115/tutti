@@ -28,19 +28,25 @@ test("workspace settings gives Model an independent Plan-only section", () => {
   assert.doesNotMatch(panelSource, /WorkspaceAgentModelBindingSection/);
 });
 
-test("workspace settings makes Custom Agents the third Agent tab", () => {
+test("workspace settings places Connectors between Agent Runtime and Custom Agents", () => {
   const general = panelSource.indexOf('value: "general" as const');
   const runtimes = panelSource.indexOf('value: "agents" as const');
+  const connectors = panelSource.indexOf('value: "connectors" as const');
   const customAgents = panelSource.indexOf('value: "customAgents" as const');
   const automation = panelSource.indexOf('value: "automation" as const');
 
   assert.ok(general >= 0);
   assert.ok(runtimes > general);
-  assert.ok(customAgents > runtimes);
+  assert.ok(connectors > runtimes);
+  assert.ok(customAgents > connectors);
   assert.ok(automation > customAgents);
   assert.match(
     panelSource,
     /agentTab === "customAgents"[\s\S]{0,220}<WorkspaceAgentsSection \/>/
+  );
+  assert.match(
+    panelSource,
+    /agentTab === "connectors"[\s\S]{0,260}<ConnectorMarketPanel/
   );
   assert.doesNotMatch(runtimeTabSource, /WorkspaceAgentsSection/);
 });

@@ -2,6 +2,7 @@ import type * as React from "react";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore
@@ -10,6 +11,9 @@ import { createPortal } from "react-dom";
 import { useService } from "@tutti-os/infra/di";
 import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
 import { INotificationService } from "@tutti-os/ui-notifications";
+import { createConnectorMarketI18nRuntime } from "@tutti-os/connector-market/i18n";
+import { ConnectorMarketPanel } from "@tutti-os/connector-market/renderer";
+import { IConnectorMarketModule } from "@tutti-os/connector-market/services";
 import type {
   DesktopComputerUsePermissionPane,
   DesktopComputerUsePermissionsStatus,
@@ -172,7 +176,12 @@ export function WorkspaceSettingsPanel({
   selectedWallpaperID: WorkspaceWallpaperId;
   workspace: WorkspaceSummary;
 }) {
-  const { t } = useTranslation();
+  const { i18n: appI18n, t } = useTranslation();
+  const connectorMarketI18n = useMemo(
+    () => createConnectorMarketI18nRuntime(appI18n),
+    [appI18n]
+  );
+  const { t: translateConnectorMarket } = connectorMarketI18n;
   const notifications = useService(INotificationService);
   const { service: desktopPreferencesService, state: desktopPreferencesState } =
     useDesktopPreferencesService();
@@ -192,6 +201,7 @@ export function WorkspaceSettingsPanel({
   const agentsService = useService(IAgentsService);
   const agentProviderStatusService = useService(IAgentProviderStatusService);
   const agentEnvService = useService(IAgentEnvService);
+  const connectorMarketModule = useService(IConnectorMarketModule);
   const automationRulesEnabled = isFeatureEnabled(
     pendingFeatureFlags,
     LAB_AUTOMATION_RULES_FLAG
@@ -415,6 +425,10 @@ export function WorkspaceSettingsPanel({
                       label: t("workspace.settings.agent.tabs.agents")
                     },
                     {
+                      value: "connectors" as const,
+                      label: translateConnectorMarket("title")
+                    },
+                    {
                       value: "customAgents" as const,
                       label: t("workspace.settings.agent.tabs.customAgents")
                     },
@@ -478,6 +492,11 @@ export function WorkspaceSettingsPanel({
                     onOpenEnvironment={(provider) =>
                       agentEnvService.open({ focus: "detect", provider })
                     }
+                  />
+                ) : settingsState.agentTab === "connectors" ? (
+                  <ConnectorMarketPanel
+                    i18n={connectorMarketI18n}
+                    root={connectorMarketModule.root}
                   />
                 ) : settingsState.agentTab === "customAgents" ? (
                   <SettingsRows>

@@ -208,13 +208,22 @@ becomes an empty catalog.
 
 ## Renderer Integration
 
-Each Host renderer injects a backend adapter over its generated local daemon
-client. The shared service owns the Valtio store, initial load, command flow,
-workspace switching, revision fencing, and coalesced invalidation reloads.
+Each Host renderer injects backend and event adapters over its generated local
+daemon client. `ConnectorMarketModule` creates a child DI container and runs
+Market, UiState, and View StartupJobs through the shared lifecycle. The Market
+job blocks `synchronizing` on the initial authoritative snapshot; View starts
+in `materializing`; only `ready` exposes the Root to React.
 
-The Host lifecycle starts the service and connects it to an existing daemon
-event fanout. React does not create clients, connect WebSockets, start loads,
-dispose services, or merge daemon business state.
+The shared services own Valtio state, command flow, workspace scoping, revision
+fencing, coalesced invalidation reloads, and the render-ready projection. The
+Host activates the module in its workspace startup flow. React receives only
+the Root through stable context and does not create clients, connect
+WebSockets, start loads, dispose services, or merge daemon business state.
+
+The shared renderer provides the settings catalog and one modal state machine:
+unconnected connectors render authorization content, connected connectors
+render management content, and blocked connectors render a blocked-state
+dialog. There is no persistent details column.
 
 Daemon reconnect performs a full reload. An accepted command is followed
 through events or the operation endpoint until terminal state.
@@ -232,9 +241,9 @@ through events or the operation endpoint until terminal state.
    credentials, durable outbox, scheduler, and startup recovery.
 5. Compose the local fragment, implement handlers, and regenerate Go and
    TypeScript clients.
-6. Register the shared renderer service with Tutti's generated-client and event
-   adapters; validate the headless end-to-end flow before adding UI.
-7. Add the Tutti connector-market UI using the shared renderer service.
+6. Register and activate the shared renderer module with Tutti's
+   generated-client and event adapters.
+7. Add the shared connector-market UI to Tutti Settings > Agent > Connectors.
 8. Publish one exact package release cohort.
 9. Install the exact Go and npm versions in TSH and implement only its Host
    adapters.
@@ -269,9 +278,12 @@ The shared package includes:
   manifest verification, content addressing, and atomic promotion
 - the shared local daemon OpenAPI fragment
 - package-resolved fragment support for cross-repository hosts
-- the class/interface/dataStore/start/dispose Valtio renderer service with
-  stale-response fencing, refresh singleflight, mutation locks, workspace
-  switching, invalidation reload, and reconnect reconciliation
+- the Root/Runtime/lifecycle/StartupJob renderer module with Market, UiState,
+  and View Valtio services, stale-response fencing, refresh singleflight,
+  mutation locks, workspace scoping, invalidation reload, and reconnect
+  reconciliation
+- the reusable `@tutti-os/ui-system` catalog, toolbar, authorization,
+  management, and blocked-state dialogs plus scoped i18n resources
 
 The Tutti Host includes:
 
@@ -281,7 +293,8 @@ The Tutti Host includes:
 - operation scheduling and startup recovery
 - aggregate OpenAPI composition, generated Go handlers and TypeScript client
 - a generated-client/event-stream Renderer adapter registered in the workspace
-  service container
+  service container and activated by the workspace startup flow
+- the shared connector-market panel mounted in Settings > Agent > Connectors
 
 Tutti now advertises the production `managed_stdio` implementation when its
 signed platform/runtime constraints match. It verifies ZK signatures and TSH
@@ -292,6 +305,7 @@ catalog freshness, and security revocation.
 
 Authorization remains intentionally limited to `none`; connectors that require
 credentials remain visible as unsupported until the daemon credential broker
-lands. Durable event replay and connector-market UI presentation remain outside
-this checkpoint. The renderer domain service and Tutti adapter are wired and
-use authoritative reloads on reconnect, resume, and command completion.
+lands. Durable event replay remains outside this checkpoint. The renderer
+module and Tutti adapter are wired and use authoritative reloads on reconnect,
+resume, and command completion; the UI presents daemon-authoritative
+unsupported and blocked states instead of synthesizing installability.
