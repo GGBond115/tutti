@@ -395,6 +395,15 @@ func Validate(descriptor ProviderDescriptor) error {
 	default:
 		return fmt.Errorf("provider %q installer kind %q is unsupported", providerID, descriptor.Status.Install.Kind)
 	}
+	switch descriptor.Status.Install.WindowsFallback {
+	case "":
+	case InstallerWindowsFallbackManagedRuntime:
+		if descriptor.Status.Install.Kind != InstallerKindOfficialScript {
+			return fmt.Errorf("provider %q Windows installer fallback requires an official script installer", providerID)
+		}
+	default:
+		return fmt.Errorf("provider %q installer Windows fallback %q is unsupported", providerID, descriptor.Status.Install.WindowsFallback)
+	}
 	if descriptor.Status.Install.Kind != "" && strings.TrimSpace(descriptor.Status.Install.DisplayCommand) == "" {
 		return fmt.Errorf("provider %q installer display command is required", providerID)
 	}

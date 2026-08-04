@@ -102,6 +102,15 @@ const (
 	InstallerKindShellCommand   InstallerKind = "shell_command"
 )
 
+// InstallerWindowsFallback identifies a provider-owned Windows fallback for
+// an installer whose canonical command is Unix-only. Consumers dispatch on
+// this strategy rather than on provider identity.
+type InstallerWindowsFallback string
+
+const (
+	InstallerWindowsFallbackManagedRuntime InstallerWindowsFallback = "managed_runtime"
+)
+
 type StatusKind string
 
 const (
@@ -229,6 +238,7 @@ type InstallerDescriptor struct {
 	IncludeOptional      bool
 	ScriptURL            string
 	ScriptShell          string
+	WindowsFallback      InstallerWindowsFallback
 	ShellCommand         string
 	FailureReasonMarkers map[string][]string
 }

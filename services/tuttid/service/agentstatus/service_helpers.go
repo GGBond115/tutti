@@ -369,7 +369,7 @@ func (s Service) cliVersionOutput(ctx context.Context, binaryPath string, env []
 		defer release()
 		commandCtx, cancel := context.WithTimeout(ctx, authStatusCommandTimeout)
 		defer cancel()
-		command := exec.CommandContext(commandCtx, binaryPath, "--version")
+		command := newInstallExecCommand(commandCtx, binaryPath, "--version")
 		if env != nil {
 			command.Env = env
 		}
@@ -427,7 +427,7 @@ func runAuthStatusCommand(ctx context.Context, spec ProviderSpec, binaryPath str
 		}
 		defer claudecodeservice.DefaultStartupGate.Release()
 	}
-	command := exec.CommandContext(commandCtx, binaryPath, spec.AuthStatusCommand...)
+	command := newInstallExecCommand(commandCtx, binaryPath, spec.AuthStatusCommand...)
 	// Inject the macOS system proxy so the auth-status probe reaches the upstream
 	// API through the same proxy as spawned agents (mirroring agent install &
 	// login), instead of connecting directly and hitting `403 Request not allowed`

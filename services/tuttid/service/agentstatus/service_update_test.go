@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -514,10 +515,16 @@ func updateTestService(t *testing.T, version string) (Service, string) {
 	if err := os.WriteFile(filepath.Join(packageDir, "package.json"), []byte(packageJSON), 0o644); err != nil {
 		t.Fatalf("write package.json: %v", err)
 	}
-	packageBinaryPath := filepath.Join(packageBinDir, "tutti-agent")
+	binaryName := "tutti-agent"
+	if runtime.GOOS == "windows" {
+		binaryName += ".cmd"
+	}
+	packageBinaryPath := filepath.Join(packageBinDir, binaryName)
 	writeUpdateTestCLI(t, packageBinaryPath, version)
-	binaryPath := filepath.Join(binDir, "tutti-agent")
-	if err := os.Symlink(packageBinaryPath, binaryPath); err != nil {
+	binaryPath := filepath.Join(binDir, binaryName)
+	if runtime.GOOS == "windows" {
+		writeUpdateTestCLI(t, binaryPath, version)
+	} else if err := os.Symlink(packageBinaryPath, binaryPath); err != nil {
 		t.Fatalf("symlink test CLI: %v", err)
 	}
 	service := testService(func(name string) (string, error) {
@@ -548,6 +555,13 @@ func updateTestService(t *testing.T, version string) (Service, string) {
 
 func writeUpdateTestCLI(t *testing.T, path string, version string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		content := "@echo off\r\nif /I \"%~1\"==\"--version\" echo tutti-agent " + version + "\r\n"
+		if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+			t.Fatalf("write test CLI: %v", err)
+		}
+		return
+	}
 	content := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"tutti-agent " + version + "\"; exit 0; fi\nsleep 1\n"
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write test CLI: %v", err)
