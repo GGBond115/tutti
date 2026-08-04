@@ -1,9 +1,13 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
+import type { AgentTranscriptVirtualScrollController } from "../../../shared/agentConversation/components/AgentTranscriptView";
 import { latestAssistantMessageText } from "../../../shared/agentConversation/projection/agentConversationProjection";
 import { AGENT_GUI_WORKBENCH_OPEN_EXTERNAL_IMPORT_EVENT } from "../../../workbench/contribution";
 import type { AgentComposerProps } from "../AgentComposer";
 import type { AgentHomeSuggestionAction } from "../model/agentGuiNodeTypes";
-import { updateAgentComposerDraft } from "../model/agentComposerDraft";
+import {
+  emptyAgentComposerDraft,
+  updateAgentComposerDraft
+} from "../model/agentComposerDraft";
 import { resolveAgentComposerDraftScopeKey } from "../model/agentComposerDraftScope";
 import {
   buildAgentConversationHandoffPrompt,
@@ -30,7 +34,7 @@ import type { AgentGUIDetailPaneProps } from "./AgentGUINodeView.types";
 import { useAgentGUIDetailEditRetry } from "./useAgentGUIDetailEditRetry";
 import { useAgentGUIDetailSideConversation } from "./useAgentGUIDetailSideConversation";
 import { useAgentGUIDetailSideChrome } from "./useAgentGUIDetailSideChrome";
-import { useAgentGUIDetailScrollRefs } from "./useAgentGUIDetailScrollRefs";
+import type { TimelineScrollAnchor } from "./agentGUIScrollMemory";
 export const EMPTY_WORKSPACE_APP_ICONS = [] as const;
 export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   shell,
@@ -87,15 +91,20 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     readiness,
     operations
   };
-  const {
-    bottomDockRef,
-    pendingPrependScrollAnchorRef,
-    submittedPromptScrollConversationRef,
-    timelineContentRef,
-    timelineRef,
-    timelineScrollAnchorRef,
-    virtualScrollControllerRef
-  } = useAgentGUIDetailScrollRefs();
+  // Keep Hook calls at component level: React Compiler may cache an object
+  // returned by a custom Hook and skip nested useRef calls on later renders.
+  const bottomDockRef = useRef<HTMLDivElement | null>(null);
+  const pendingPrependScrollAnchorRef = useRef<{
+    conversationId: string;
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
+  const submittedPromptScrollConversationRef = useRef<string | null>(null);
+  const timelineContentRef = useRef<HTMLDivElement | null>(null);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
+  const timelineScrollAnchorRef = useRef<TimelineScrollAnchor | null>(null);
+  const virtualScrollControllerRef =
+    useRef<AgentTranscriptVirtualScrollController | null>(null);
   const [
     bottomDockDismissedPromptRequestId,
     setBottomDockDismissedPromptRequestId
@@ -165,6 +174,9 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     actions.continueInNewConversation
   );
   const updateDraftContent = useStableEventCallback(actions.updateDraftContent);
+  const clearMainDraft = useStableEventCallback(() =>
+    updateDraftContent(emptyAgentComposerDraft())
+  );
   const updateSelectedProjectPath = useOptionalStableEventCallback(
     actions.updateSelectedProjectPath
   );
@@ -360,10 +372,10 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   const sideConversation = useAgentGUIDetailSideConversation({
     workspaceId: viewModel.shell.workspaceId,
     sourceAgentSessionId: viewModel.rail.activeConversationId,
-    sourceTurnActive: showStopButton,
     provider: composerProvider,
     cwd: viewModel.shell.workspacePath ?? null,
     availableCommands: viewModel.composer.availableCommands,
+    clearMainDraft,
     submitPrompt: tuttiWorkflowComposer.submitPromptOrDecidePlan
   });
   const sideComposerFocused = sideConversation.focused;

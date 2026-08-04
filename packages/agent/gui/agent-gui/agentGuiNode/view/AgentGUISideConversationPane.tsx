@@ -118,30 +118,16 @@ export function AgentGUISideConversationPane({
           );
         }}
       />
-      <header className={styles.sideHeader}>
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium">
-            {t("agentHost.agentGui.sidePanelTitle")}
-          </div>
-          <div className="truncate text-xs text-muted-foreground">
-            {active.status === "opening"
-              ? t("agentHost.agentGui.sideOpening")
-              : active.status === "closing"
-                ? t("agentHost.agentGui.sideClosing")
-                : t("agentHost.agentGui.sideEphemeralHint")}
-          </div>
-        </div>
-        <button
-          type="button"
-          className={styles.sideCloseButton}
-          aria-label={t("agentHost.agentGui.sideClose")}
-          title={t("agentHost.agentGui.sideClose")}
-          onClick={onClose}
-          disabled={active.status === "closing"}
-        >
-          <X aria-hidden="true" size={16} />
-        </button>
-      </header>
+      <button
+        type="button"
+        className={styles.sideCloseButton}
+        aria-label={t("agentHost.agentGui.sideClose")}
+        title={t("agentHost.agentGui.sideClose")}
+        onClick={onClose}
+        disabled={active.status === "closing"}
+      >
+        <X aria-hidden="true" size={16} />
+      </button>
       <ScrollArea
         scrollbarMode="native"
         className={styles.sideTimelineFrame}
@@ -168,11 +154,7 @@ export function AgentGUISideConversationPane({
           isLoadingOlderMessages={false}
           isVisible={isVisible}
           loadingLabel={loadingLabel}
-          empty={
-            <p className={styles.sideEmpty}>
-              {t("agentHost.agentGui.sideEmpty")}
-            </p>
-          }
+          empty={<></>}
           onLinkAction={onLinkAction}
           availableSkills={availableSkills}
           workspaceAppIcons={workspaceAppIcons}

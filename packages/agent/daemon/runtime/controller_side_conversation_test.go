@@ -415,6 +415,73 @@ func TestExpiredSideConversationNeverResumes(t *testing.T) {
 	}
 }
 
+func TestSideCapabilitiesResumesCanonicalSourceAfterIdleRelease(t *testing.T) {
+	adapter := newSideConformanceAdapter()
+	controller := NewController([]Adapter{adapter}, nil)
+	if _, err := controller.Resume(t.Context(), ResumeInput{
+		RoomID:            "workspace-side",
+		AgentSessionID:    "parent",
+		Provider:          adapter.Provider(),
+		ProviderSessionID: "provider-parent",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	adapter.mu.Lock()
+	resumeCalls := adapter.resumeCalls
+	adapter.live["parent"] = false
+	adapter.mu.Unlock()
+
+	capabilities, err := controller.SideCapabilities(
+		t.Context(), "workspace-side", "parent",
+	)
+	if err != nil {
+		t.Fatalf("SideCapabilities: %v", err)
+	}
+	if !validRequiredSideCapabilities(capabilities) {
+		t.Fatalf("capabilities = %#v, want all required capabilities", capabilities)
+	}
+	adapter.mu.Lock()
+	defer adapter.mu.Unlock()
+	if adapter.resumeCalls != resumeCalls+1 {
+		t.Fatalf("source resume calls = %d, want %d", adapter.resumeCalls, resumeCalls+1)
+	}
+}
+
+func TestOpenSideResumesCanonicalSourceAfterIdleRelease(t *testing.T) {
+	adapter := newSideConformanceAdapter()
+	controller := NewController([]Adapter{adapter}, nil)
+	if _, err := controller.Resume(t.Context(), ResumeInput{
+		RoomID:            "workspace-side",
+		AgentSessionID:    "parent",
+		Provider:          adapter.Provider(),
+		ProviderSessionID: "provider-parent",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	adapter.mu.Lock()
+	resumeCalls := adapter.resumeCalls
+	adapter.live["parent"] = false
+	adapter.mu.Unlock()
+
+	opened, err := controller.OpenSide(t.Context(), SideConversationOpenInput{
+		RoomID:               "workspace-side",
+		SourceAgentSessionID: "parent",
+		SideAgentSessionID:   "side-after-release",
+		RequestID:            "open-after-release",
+	})
+	if err != nil {
+		t.Fatalf("OpenSide: %v", err)
+	}
+	if opened.Session.SourceAgentSessionID != "parent" {
+		t.Fatalf("opened side = %#v, want parent source", opened.Session)
+	}
+	adapter.mu.Lock()
+	defer adapter.mu.Unlock()
+	if adapter.resumeCalls != resumeCalls+1 {
+		t.Fatalf("source resume calls = %d, want %d", adapter.resumeCalls, resumeCalls+1)
+	}
+}
+
 func TestSideConversationRequiredCapabilitiesFailClosed(t *testing.T) {
 	full := SideConversationCapabilities{
 		Supported: true, ActiveSourceTurn: true, Ephemeral: true,

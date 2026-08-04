@@ -44,6 +44,13 @@ func (d *sideHostConformanceDriver) ResetSideConversation(context.Context) error
 	return nil
 }
 
+func (d *sideHostConformanceDriver) SettleSideParent(context.Context) error {
+	parent := d.runtime.sessions["parent"]
+	parent.TurnLifecycle = nil
+	d.runtime.sessions["parent"] = parent
+	return nil
+}
+
 func (d *sideHostConformanceDriver) OpenSideConversation(
 	ctx context.Context,
 	input agenthost.OpenSideConversationInput,

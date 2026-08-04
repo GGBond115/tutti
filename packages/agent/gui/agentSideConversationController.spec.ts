@@ -80,6 +80,15 @@ function transportHarness() {
 }
 
 describe("AgentSideConversationController", () => {
+  it("returns a stable empty snapshot before a Side opens", () => {
+    const harness = transportHarness();
+    const runtime = createAgentSideConversationRuntime(harness.transport);
+
+    expect(runtime.getSnapshot("workspace-1")).toBe(
+      runtime.getSnapshot("workspace-1")
+    );
+  });
+
   it("keeps open/send state in the transient store", async () => {
     const harness = transportHarness();
     const runtime = createAgentSideConversationRuntime(harness.transport);

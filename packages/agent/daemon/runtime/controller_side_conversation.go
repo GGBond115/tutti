@@ -16,22 +16,46 @@ func (c *Controller) SideCapabilities(
 	roomID string,
 	sourceAgentSessionID string,
 ) (SideConversationCapabilities, error) {
+	release, err := c.acquireLifecycleLockContext(
+		ctx, strings.TrimSpace(roomID), strings.TrimSpace(sourceAgentSessionID),
+	)
+	if err != nil {
+		return SideConversationCapabilities{}, err
+	}
+	defer release()
+	_, _, capabilities, err := c.sideSourceCapabilitiesLocked(
+		ctx, roomID, sourceAgentSessionID,
+	)
+	return capabilities, err
+}
+
+func (c *Controller) sideSourceCapabilitiesLocked(
+	ctx context.Context,
+	roomID string,
+	sourceAgentSessionID string,
+) (Session, Adapter, SideConversationCapabilities, error) {
 	source, adapter, err := c.sessionAndAdapter(
 		strings.TrimSpace(roomID),
 		strings.TrimSpace(sourceAgentSessionID),
 	)
 	if err != nil {
-		return SideConversationCapabilities{}, err
+		return Session{}, nil, SideConversationCapabilities{}, err
 	}
-	liveProbe, ok := adapter.(LiveSessionProbeAdapter)
-	if !ok || !liveProbe.HasLiveSession(source) {
-		return SideConversationCapabilities{}, ErrSideConversationExpired
+	if source.IsSideConversation() {
+		return Session{}, nil, SideConversationCapabilities{}, ErrSideConversationUnsupported
+	}
+	if err := c.ensureLiveAdapterSession(ctx, source, adapter); err != nil {
+		return Session{}, nil, SideConversationCapabilities{}, err
+	}
+	if refreshed, ok := c.get(source.RoomID, source.AgentSessionID); ok {
+		source = refreshed
 	}
 	sideAdapter, ok := adapter.(SideConversationAdapter)
 	if !ok {
-		return SideConversationCapabilities{}, nil
+		return source, adapter, SideConversationCapabilities{}, nil
 	}
-	return sideAdapter.SideCapabilities(ctx, source)
+	capabilities, err := sideAdapter.SideCapabilities(ctx, source)
+	return source, adapter, capabilities, err
 }
 
 // OpenSide reserves the side identity before invoking the provider. That
@@ -71,7 +95,9 @@ func (c *Controller) OpenSide(
 		if existing.IsSideConversation() &&
 			existing.SourceAgentSessionID == sourceID &&
 			existing.SideRequestID == requestID {
-			capabilities, err := c.SideCapabilities(ctx, roomID, sourceID)
+			_, _, capabilities, err := c.sideSourceCapabilitiesLocked(
+				ctx, roomID, sourceID,
+			)
 			return SideConversationOpenResult{
 				Session: existing, Capabilities: capabilities,
 			}, err
@@ -79,27 +105,15 @@ func (c *Controller) OpenSide(
 		return SideConversationOpenResult{}, ErrSideConversationConflict
 	}
 
-	source, adapter, err := c.sessionAndAdapter(roomID, sourceID)
+	source, adapter, capabilities, err := c.sideSourceCapabilitiesLocked(
+		ctx, roomID, sourceID,
+	)
 	if err != nil {
 		return SideConversationOpenResult{}, err
-	}
-	if source.IsSideConversation() {
-		return SideConversationOpenResult{}, fmt.Errorf(
-			"nested side conversations are not supported: %w",
-			ErrSideConversationUnsupported,
-		)
-	}
-	liveProbe, ok := adapter.(LiveSessionProbeAdapter)
-	if !ok || !liveProbe.HasLiveSession(source) {
-		return SideConversationOpenResult{}, ErrSideConversationExpired
 	}
 	sideAdapter, ok := adapter.(SideConversationAdapter)
 	if !ok {
 		return SideConversationOpenResult{}, ErrSideConversationUnsupported
-	}
-	capabilities, err := sideAdapter.SideCapabilities(ctx, source)
-	if err != nil {
-		return SideConversationOpenResult{}, err
 	}
 	if !validRequiredSideCapabilities(capabilities) ||
 		(c.HasActiveTurn(roomID, sourceID) && !capabilities.ActiveSourceTurn) {

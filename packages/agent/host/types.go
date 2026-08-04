@@ -144,7 +144,9 @@ const (
 )
 
 type SideConversationCapabilities struct {
-	Supported             bool
+	Supported bool
+	// ActiveSourceTurn means the provider can snapshot a source with an active
+	// Turn; it does not require the source to remain active after Side opens.
 	ActiveSourceTurn      bool
 	Ephemeral             bool
 	HideInheritedTurns    bool

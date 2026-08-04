@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   supportsAgentSideConversation,
   useAgentSideConversationSnapshot,
@@ -49,20 +49,20 @@ export function appendAgentSidePromptToDraft(
 interface UseAgentGUIDetailSideConversationInput {
   workspaceId: string;
   sourceAgentSessionId: string | null;
-  sourceTurnActive: boolean;
   provider: string;
   cwd: string | null;
   availableCommands: AgentComposerProps["availableCommands"];
+  clearMainDraft: () => void;
   submitPrompt: NonNullable<AgentComposerProps["onSubmit"]>;
 }
 
 export function useAgentGUIDetailSideConversation({
   workspaceId,
   sourceAgentSessionId,
-  sourceTurnActive,
   provider,
   cwd,
   availableCommands,
+  clearMainDraft,
   submitPrompt
 }: UseAgentGUIDetailSideConversationInput) {
   const { t } = useTranslation();
@@ -77,12 +77,7 @@ export function useAgentGUIDetailSideConversation({
     runtime: typeof runtime;
     code: "content_unsupported" | "operation_failed";
   } | null>(null);
-  const capabilityIdentity = `${workspaceId}:${sourceAgentSessionId ?? ""}:${provider}:${cwd ?? ""}:${sourceTurnActive ? "active" : "idle"}`;
-  const lifecycleTokenRef = useRef<{
-    runtime: typeof runtime;
-    sourceAgentSessionId: string | null;
-    workspaceId: string;
-  } | null>(null);
+  const capabilityIdentity = `${workspaceId}:${sourceAgentSessionId ?? ""}:${provider}:${cwd ?? ""}`;
   const entryError =
     entryErrorState?.identity === capabilityIdentity &&
     entryErrorState.runtime === runtime
@@ -90,9 +85,7 @@ export function useAgentGUIDetailSideConversation({
       : null;
   useEffect(() => {
     let canceled = false;
-    const lifecycleToken = { runtime, sourceAgentSessionId, workspaceId };
-    lifecycleTokenRef.current = lifecycleToken;
-    if (runtime && sourceAgentSessionId && sourceTurnActive) {
+    if (runtime && sourceAgentSessionId) {
       void runtime
         .resolveCapabilities({
           workspaceId,
@@ -120,23 +113,6 @@ export function useAgentGUIDetailSideConversation({
     }
     return () => {
       canceled = true;
-      queueMicrotask(() => {
-        const next = lifecycleTokenRef.current;
-        const ownershipEnded =
-          next === lifecycleToken ||
-          next?.runtime !== runtime ||
-          next?.sourceAgentSessionId !== sourceAgentSessionId ||
-          next?.workspaceId !== workspaceId;
-        if (!ownershipEnded || !runtime || !sourceAgentSessionId) return;
-        const ownedSide = runtime.getSnapshot(workspaceId).active;
-        if (ownedSide?.sourceAgentSessionId !== sourceAgentSessionId) return;
-        void runtime
-          .close({
-            workspaceId,
-            sideAgentSessionId: ownedSide.sideAgentSessionId
-          })
-          .catch(() => {});
-      });
     };
   }, [
     capabilityIdentity,
@@ -144,7 +120,6 @@ export function useAgentGUIDetailSideConversation({
     provider,
     runtime,
     sourceAgentSessionId,
-    sourceTurnActive,
     workspaceId
   ]);
   const sideSupported =
@@ -279,6 +254,10 @@ export function useAgentGUIDetailSideConversation({
         submitPrompt(content, displayPrompt, options);
         return;
       }
+      if (!sideSupported) {
+        submitPrompt(content, displayPrompt, options);
+        return;
+      }
       if (!invocation.contentSupported) {
         setEntryErrorState({
           identity: capabilityIdentity,
@@ -287,9 +266,18 @@ export function useAgentGUIDetailSideConversation({
         });
         return;
       }
-      void open(invocation.prompt).catch(() => {});
+      void open(invocation.prompt)
+        .then(() => clearMainDraft())
+        .catch(() => {});
     },
-    [capabilityIdentity, open, runtime, submitPrompt]
+    [
+      capabilityIdentity,
+      clearMainDraft,
+      open,
+      runtime,
+      sideSupported,
+      submitPrompt
+    ]
   );
 
   const submitSide = useCallback<NonNullable<AgentComposerProps["onSubmit"]>>(
@@ -308,21 +296,33 @@ export function useAgentGUIDetailSideConversation({
     [active, runtime, workspaceId]
   );
 
-  const commands = useMemo(
-    () =>
-      runtime && sourceAgentSessionId && sideSupported
-        ? [
-            ...availableCommands.filter(
-              (command) => command.name.trim().toLowerCase() !== "side"
-            ),
-            {
-              name: "side",
-              description: t("agentHost.agentGui.sideCommandDescription")
-            }
-          ]
-        : availableCommands,
-    [availableCommands, runtime, sideSupported, sourceAgentSessionId, t]
-  );
+  const commands = useMemo(() => {
+    const commandsWithoutSide = availableCommands.filter(
+      (command) => command.name.trim().toLowerCase() !== "side"
+    );
+    if (
+      !runtime ||
+      !sourceAgentSessionId ||
+      !sideSupported ||
+      (active && active.sourceAgentSessionId !== sourceAgentSessionId)
+    ) {
+      return commandsWithoutSide;
+    }
+    return [
+      ...commandsWithoutSide,
+      {
+        name: "side",
+        description: t("agentHost.agentGui.sideCommandDescription")
+      }
+    ];
+  }, [
+    active,
+    availableCommands,
+    runtime,
+    sideSupported,
+    sourceAgentSessionId,
+    t
+  ]);
 
   const interrupt = useCallback(() => {
     if (!runtime || !active?.activeTurnId) return;

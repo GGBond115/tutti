@@ -7278,7 +7278,6 @@ button.agent-gui-node__conversation-section-toggle:hover
   min-height: 0;
   overflow: hidden;
   border-left: 1px solid var(--line-1, var(--tutti-line-1));
-  background: var(--background-fronted, var(--tutti-surface-1));
 }
 
 .agent-gui-node__side-resize-handle {
@@ -7312,18 +7311,11 @@ button.agent-gui-node__conversation-section-toggle:hover
   outline: none;
 }
 
-.agent-gui-node__side-header {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 56px;
-  padding: 10px 12px 10px 16px;
-  border-bottom: 1px solid var(--line-1, var(--tutti-line-1));
-}
-
 .agent-gui-node__side-close-button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 4;
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
@@ -7361,15 +7353,6 @@ button.agent-gui-node__conversation-section-toggle:hover
   scroll-padding-bottom: 112px;
 }
 
-.agent-gui-node__side-empty {
-  margin: 24px auto;
-  max-width: 280px;
-  color: var(--text-secondary, var(--tutti-text-secondary));
-  font-size: 13px;
-  line-height: 20px;
-  text-align: center;
-}
-
 .agent-gui-node__side-error {
   margin: 0 12px 12px;
   color: var(--destructive, var(--tutti-destructive));
@@ -7382,7 +7365,6 @@ button.agent-gui-node__conversation-section-toggle:hover
   bottom: 0;
   z-index: 4;
   flex: 0 0 auto;
-  padding: 0 0 10px;
   background: linear-gradient(
     to bottom,
     transparent,

@@ -160,9 +160,9 @@ func InteractionTreeScenarios() []InteractionTreeScenario {
 	}}
 }
 
-// SideConversationScenarios fixes the provider-neutral contract: an active
-// parent remains untouched, all side output is transient, and close releases
-// the runtime-only child.
+// SideConversationScenarios fixes the provider-neutral contract: the source
+// remains untouched, Side output is transient, a Side survives source Turn
+// settlement, and explicit close releases the child.
 func SideConversationScenarios() []SideConversationScenario {
 	return []SideConversationScenario{{
 		Name: "active parent side stays transient",

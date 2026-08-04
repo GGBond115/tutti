@@ -8,6 +8,7 @@ import type { AgentActivityEphemeralConversationProjection } from "@tutti-os/age
 
 export interface AgentSideCapabilities {
   supported: boolean;
+  /** Provider can snapshot a source while its Turn is active. */
   activeSourceTurn: boolean;
   ephemeral: boolean;
   hideInheritedTurns: boolean;

@@ -1,5 +1,4 @@
 import { useMemo, type ReactNode } from "react";
-import { PanelRightOpen } from "lucide-react";
 import type { AgentComposerProps } from "../AgentComposer";
 import type { AgentGUIDetailPaneProps } from "./AgentGUINodeView.types";
 import type { useAgentGUIDetailSideConversation } from "./useAgentGUIDetailSideConversation";
@@ -8,7 +7,6 @@ import {
   projectAgentSideComposerSettings
 } from "../model/agentGuiSideComposerPolicy";
 import { useTranslation } from "../../../i18n/index";
-import styles from "../AgentGUINode.styles";
 import {
   AgentGUISideConversationPane,
   type AgentGUISideConversationPaneProps
@@ -43,7 +41,6 @@ export function useAgentGUIDetailSideChrome({
   const { t } = useTranslation();
   const {
     active,
-    canOpen,
     close,
     draftContent,
     entryError,
@@ -51,7 +48,6 @@ export function useAgentGUIDetailSideChrome({
     interactionSubmitting,
     interactivePrompt,
     interrupt,
-    open,
     setDraftContent,
     setFocused,
     sourceAgentSessionId,
@@ -69,21 +65,6 @@ export function useAgentGUIDetailSideChrome({
     }) ?? null;
   const footerAccessory = (
     <>
-      {canOpen && !active && baseComposerProps.showStopButton ? (
-        <button
-          type="button"
-          className={`${styles.composerMenuTrigger} w-auto`}
-          aria-label={t("agentHost.agentGui.sideOpen")}
-          title={t("agentHost.agentGui.sideOpen")}
-          data-testid="agent-gui-open-side"
-          onClick={() => void open().catch(() => {})}
-        >
-          <span className="flex min-w-0 items-center gap-1.5">
-            <PanelRightOpen aria-hidden="true" className="size-3.5" />
-            <span>{t("agentHost.agentGui.sideOpen")}</span>
-          </span>
-        </button>
-      ) : null}
       {entryError ? (
         <span className="text-xs text-destructive">
           {entryError === "content_unsupported"

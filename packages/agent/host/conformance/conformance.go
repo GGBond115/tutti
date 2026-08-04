@@ -235,6 +235,7 @@ type SideConversationMetrics struct {
 // provider-specific protocol details belong in adapter tests.
 type SideConversationDriver interface {
 	ResetSideConversation(context.Context) error
+	SettleSideParent(context.Context) error
 	OpenSideConversation(context.Context, agenthost.OpenSideConversationInput) (agenthost.OpenSideConversationResult, error)
 	SendSideConversation(context.Context, agenthost.RuntimeExecInput) (agenthost.RuntimeExecResult, error)
 	CloseSideConversation(context.Context, string, string) error

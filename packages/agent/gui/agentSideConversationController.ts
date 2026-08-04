@@ -458,7 +458,11 @@ export function createAgentSideConversationRuntime(
       }
     },
     getSnapshot(workspaceId) {
-      return snapshots.get(workspaceId) ?? { workspaceId, active: null };
+      const snapshot = snapshots.get(workspaceId);
+      if (snapshot) return snapshot;
+      const empty = { workspaceId, active: null };
+      snapshots.set(workspaceId, empty);
+      return empty;
     },
     subscribe(workspaceId, listener) {
       ensureTransportSubscriptions();

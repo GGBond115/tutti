@@ -29,17 +29,34 @@ func (h *Host) ResolveSideConversation(
 	if h == nil || h.runtime == nil || h.sideRuntime == nil {
 		return SideConversationCapabilities{}, ErrSideConversationUnsupported
 	}
-	source, found := h.runtime.Session(
-		strings.TrimSpace(workspaceID),
-		strings.TrimSpace(sourceAgentSessionID),
-	)
-	if !found {
-		return SideConversationCapabilities{}, ErrRuntimeSessionDisconnected
+	workspaceID = strings.TrimSpace(workspaceID)
+	sourceAgentSessionID = strings.TrimSpace(sourceAgentSessionID)
+	if h.store != nil {
+		if _, err := h.EnsureRuntimeSession(ctx, SessionRef{
+			WorkspaceID: workspaceID, AgentSessionID: sourceAgentSessionID,
+		}); err != nil {
+			return SideConversationCapabilities{}, err
+		}
+	}
+	source, err := h.sideSourceRuntime(workspaceID, sourceAgentSessionID)
+	if err != nil {
+		return SideConversationCapabilities{}, err
 	}
 	if source.Scope == RuntimeSessionScopeSide {
 		return SideConversationCapabilities{}, ErrSideConversationUnsupported
 	}
 	return h.sideRuntime.ResolveSideConversation(ctx, source)
+}
+
+func (h *Host) sideSourceRuntime(
+	workspaceID string,
+	sourceAgentSessionID string,
+) (ProviderRuntimeSession, error) {
+	source, found := h.runtime.Session(workspaceID, sourceAgentSessionID)
+	if !found {
+		return ProviderRuntimeSession{}, ErrRuntimeSessionDisconnected
+	}
+	return source, nil
 }
 
 func (h *Host) OpenSideConversation(
@@ -120,10 +137,10 @@ func (h *Host) openSideConversation(
 		delete(h.sideConversations, key)
 		h.sideMu.Unlock()
 	}
-	source, found := h.runtime.Session(workspaceID, sourceID)
-	if !found {
+	source, err := h.ensureSideSourceRuntimeLocked(ctx, workspaceID, sourceID)
+	if err != nil {
 		rollback()
-		return OpenSideConversationResult{}, ErrRuntimeSessionDisconnected
+		return OpenSideConversationResult{}, err
 	}
 	if source.Scope == RuntimeSessionScopeSide {
 		rollback()
@@ -176,6 +193,21 @@ func (h *Host) openSideConversation(
 	}
 	h.sideMu.Unlock()
 	return result, nil
+}
+
+func (h *Host) ensureSideSourceRuntimeLocked(
+	ctx context.Context,
+	workspaceID string,
+	sourceAgentSessionID string,
+) (ProviderRuntimeSession, error) {
+	if h.store != nil {
+		if _, err := h.ensureRuntimeSessionLocked(ctx, SessionRef{
+			WorkspaceID: workspaceID, AgentSessionID: sourceAgentSessionID,
+		}); err != nil {
+			return ProviderRuntimeSession{}, err
+		}
+	}
+	return h.sideSourceRuntime(workspaceID, sourceAgentSessionID)
 }
 
 func (h *Host) SendSideConversation(
