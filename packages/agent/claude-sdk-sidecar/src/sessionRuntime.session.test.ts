@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type {
+  Options as ClaudeQueryOptions,
+  SDKMessage
+} from "@anthropic-ai/claude-agent-sdk";
 import { withSidecarEventSinkForTest } from "./eventSink.ts";
 import { SessionRuntime } from "./sessionRuntime.ts";
 import { sidecarClaudeOptionsFromPayload } from "./options.ts";
@@ -978,6 +982,7 @@ test("SDK api_retry authentication error fails before retrying", async () => {
 test("guidance prompt stays on the active SDK turn", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   const prompts: string[] = [];
+  const interrupts = { count: 0 };
   const restoreSink = withSidecarEventSinkForTest((event) =>
     events.push(event)
   );
@@ -997,7 +1002,7 @@ test("guidance prompt stays on the active SDK turn", async () => {
       },
       sidecarClaudeOptionsFromPayload({}),
       undefined,
-      ({ prompt }) => fakeGuidancePromptQuery(prompt, prompts)
+      ({ prompt }) => fakeGuidancePromptQuery(prompt, prompts, interrupts)
     );
 
     await session.start();
@@ -1006,12 +1011,24 @@ test("guidance prompt stays on the active SDK turn", async () => {
     await waitForEvent(events, "turn_completed");
 
     assert.deepEqual(prompts, ["start working", "prefer the focused path"]);
+    assert.equal(interrupts.count, 1);
     const completed = events.find((event) => event.type === "turn_completed");
     assert.equal(completed?.payload?.turnId, "turn-1");
     assert.equal(
       events.some(
         (event) =>
           event.type === "turn_completed" && event.payload?.turnId !== "turn-1"
+      ),
+      false
+    );
+    assert.equal(
+      events.some((event) => event.type === "turn_failed"),
+      false
+    );
+    assert.equal(
+      events.some(
+        (event) =>
+          event.type === "turn_started" && event.payload?.synthetic === true
       ),
       false
     );
@@ -1721,6 +1738,162 @@ test("turn completion does not wait for context usage and stale snapshots are dr
       ),
       false,
       "the delayed first-turn snapshot must not overwrite the newer turn"
+    );
+  } finally {
+    restoreSink();
+  }
+});
+
+test("follow-up after settled turn resumes a fresh Claude query", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  let queryCount = 0;
+  let resumedOptions: ClaudeQueryOptions | undefined;
+  try {
+    const session = new SessionRuntime(
+      "provider-session-continue",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt, options }) => {
+        queryCount += 1;
+        if (queryCount === 1) {
+          return fakeSimpleResultQuery(prompt, {
+            text: "first reply"
+          });
+        }
+        resumedOptions = options;
+        return fakeSimpleResultQuery(prompt, {
+          text: "continue reply"
+        });
+      }
+    );
+
+    await session.start();
+    session.exec("turn-1", "first");
+    await waitForEvent(events, "turn_completed");
+    assert.equal(queryCount, 1);
+
+    session.exec("turn-2", "follow-up in the same conversation");
+    await waitForCondition(
+      () =>
+        events.some(
+          (event) =>
+            event.type === "turn_completed" &&
+            event.payload?.turnId === "turn-2"
+        ) ||
+        events.some(
+          (event) =>
+            event.type === "turn_failed" && event.payload?.turnId === "turn-2"
+        ),
+      `follow-up turn terminal; events=${JSON.stringify(events)}`
+    );
+    assert.equal(
+      events.some(
+        (event) =>
+          event.type === "turn_completed" && event.payload?.turnId === "turn-2"
+      ),
+      true,
+      `follow-up should complete; events=${JSON.stringify(events)}`
+    );
+
+    assert.equal(queryCount, 2);
+    assert.equal(resumedOptions?.resume, "provider-session-1");
+    assert.equal(Object.hasOwn(resumedOptions ?? {}, "sessionId"), false);
+  } finally {
+    restoreSink();
+  }
+});
+
+test("settings effort after idle-retire bakes into resumed query settings without applyFlagSettings", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  let queryCount = 0;
+  let resumedOptions: ClaudeQueryOptions | undefined;
+  const applyFlagSettingsCalls: unknown[] = [];
+  try {
+    const session = new SessionRuntime(
+      "provider-session-effort",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "medium",
+        speed: "standard"
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt, options }) => {
+        queryCount += 1;
+        const query = fakeSimpleResultQuery(prompt, {
+          text: queryCount === 1 ? "first reply" : "high effort reply"
+        }) as AsyncIterable<SDKMessage> & {
+          applyFlagSettings?: (settings: unknown) => Promise<void>;
+          close?: () => void;
+        };
+        query.applyFlagSettings = async (settings) => {
+          applyFlagSettingsCalls.push(settings);
+        };
+        if (queryCount > 1) {
+          resumedOptions = options;
+        }
+        return query;
+      }
+    );
+
+    await session.start();
+    session.exec("turn-1", "first");
+    await waitForEvent(events, "turn_completed");
+    applyFlagSettingsCalls.length = 0;
+
+    await session.applySettings({ effort: "high" });
+    session.exec("turn-2", "follow-up after effort change");
+    await waitForCondition(
+      () =>
+        events.some(
+          (event) =>
+            event.type === "turn_completed" &&
+            event.payload?.turnId === "turn-2"
+        ) ||
+        events.some(
+          (event) =>
+            event.type === "turn_failed" && event.payload?.turnId === "turn-2"
+        ),
+      `effort follow-up terminal; events=${JSON.stringify(events)}`
+    );
+
+    assert.equal(queryCount, 2);
+    assert.equal(resumedOptions?.resume, "provider-session-1");
+    assert.deepEqual(
+      (resumedOptions as { settings?: Record<string, unknown> } | undefined)
+        ?.settings,
+      {
+        effortLevel: "high",
+        fastMode: false
+      }
+    );
+    assert.deepEqual(
+      applyFlagSettingsCalls,
+      [],
+      "resumed quiet query must not receive live applyFlagSettings"
     );
   } finally {
     restoreSink();

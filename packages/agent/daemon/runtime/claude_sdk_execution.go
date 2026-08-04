@@ -213,6 +213,7 @@ func (a *ClaudeCodeSDKAdapter) ExecWithProviderAcceptance(
 				accepted = acceptanceErr == nil
 				if accepted {
 					acceptedProviderTurnID = providerTurnID
+					a.signalClaudeSDKProviderTurnAccepted(adapterSession)
 				}
 			})
 			if acceptanceErr != nil {
@@ -435,18 +436,43 @@ func (a *ClaudeCodeSDKAdapter) GuideActiveTurn(
 }
 
 func (a *ClaudeCodeSDKAdapter) Cancel(ctx context.Context, session Session, _ string) ([]activityshared.Event, error) {
+	return a.cancelClaudeSDKTurn(ctx, session, "", "")
+}
+
+func (a *ClaudeCodeSDKAdapter) cancelClaudeSDKTurn(
+	ctx context.Context,
+	session Session,
+	turnID string,
+	_ string,
+) ([]activityshared.Event, error) {
 	adapterSession := a.getSession(session.AgentSessionID)
 	if adapterSession == nil {
 		return nil, ErrSessionDisconnected
 	}
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		turnID = a.claudeSDKRootTurnID(adapterSession, "")
+	} else {
+		_ = a.claudeSDKRootTurnID(adapterSession, turnID)
+	}
 	cancelCtx, cancel := context.WithTimeout(ctx, claudeSDKGoalCommandTimeout)
 	defer cancel()
+	// Durable cancel settlement marks HasSettledTurn. Waiting here ensures
+	// root_provider_turn_id is already committed (Established) before that
+	// settlement, so a cancel→resend cannot hit provider_session_not_established.
+	if err := a.waitClaudeSDKProviderTurnAccepted(cancelCtx, adapterSession); err != nil {
+		return nil, err
+	}
+	payload := map[string]any{
+		"agentSessionId": session.AgentSessionID,
+	}
+	if turnID != "" {
+		payload["turnId"] = turnID
+	}
 	if err := a.roundTripClaudeSDK(cancelCtx, session.AgentSessionID, adapterSession, claudeSDKSidecarRequest{
-		ID:   newID(),
-		Type: "cancel",
-		Payload: map[string]any{
-			"agentSessionId": session.AgentSessionID,
-		},
+		ID:      newID(),
+		Type:    "cancel",
+		Payload: payload,
 	}); err != nil {
 		return nil, err
 	}
@@ -462,7 +488,7 @@ func (a *ClaudeCodeSDKAdapter) Cancel(ctx context.Context, session Session, _ st
 		claudeSDKTurnFinishInterrupted,
 		"user_interrupt",
 	)...)
-	a.markClaudeSDKTurnClosed(adapterSession, a.claudeSDKRootTurnID(adapterSession, ""), "cancel_requested")
+	a.markClaudeSDKTurnClosed(adapterSession, a.claudeSDKRootTurnID(adapterSession, turnID), "cancel_requested")
 	return a.stampTurnLifecycleSnapshots(adapterSession, events), nil
 }
 
@@ -473,6 +499,7 @@ func (a *ClaudeCodeSDKAdapter) CancelTargets(ctx context.Context, rootSession Se
 			if adapterSession == nil {
 				return TargetedCancelResult{}, ErrSessionDisconnected
 			}
+			rootTurnID := strings.TrimSpace(target.TurnID)
 			// services/tuttid owns the exact durable cancellation target set.
 			// Close those projection boundaries before asking the SDK to stop so
 			// cancellation-caused task/tool terminal events cannot race the
@@ -483,7 +510,7 @@ func (a *ClaudeCodeSDKAdapter) CancelTargets(ctx context.Context, rootSession Se
 			// Claude SDK exposes cancellation for the root query. That provider
 			// operation stops its nested Task executions as part of the same
 			// query; services/tuttid supplied the exact durable target set.
-			events, err := a.Cancel(ctx, rootSession, reason)
+			events, err := a.cancelClaudeSDKTurn(ctx, rootSession, rootTurnID, reason)
 			if err != nil {
 				return TargetedCancelResult{}, err
 			}

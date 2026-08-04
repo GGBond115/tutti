@@ -600,7 +600,8 @@ function drainSession(
   const decision = resolveQueueDrainDecision(
     record,
     availability,
-    barrierPending
+    barrierPending,
+    isSettingsUpdateBlockingDrain(lifecycle, agentSessionId)
   );
   if (decision.kind === "blocked") {
     return state === originalState ? unchanged(state) : result(state);
@@ -663,6 +664,20 @@ function sendCommandFromQueuedPrompt(
   };
 }
 
+function isSettingsUpdateBlockingDrain(
+  lifecycle: CanonicalSessionLifecycleView,
+  agentSessionId: string
+): boolean {
+  const status =
+    lifecycle.operationBySessionId[agentSessionId]?.settingsUpdate.status;
+  return (
+    status === "inFlight" ||
+    status === "waitingForRuntime" ||
+    status === "unknown" ||
+    status === "failed"
+  );
+}
+
 function affectedSessionIds(
   state: PromptQueueState,
   intent: EngineIntent,
@@ -699,6 +714,12 @@ function affectedSessionIds(
       ([, record]) => record.inFlight?.commandId === intent.commandId
     );
     if (queueEntry) ids.push(queueEntry[0]);
+    // Settings results (success or settle-to-unknown/failed) must re-enter
+    // drain so a queued send either proceeds after idle or stays gated.
+    if (intent.commandType === "session/updateSettings") {
+      const settingsSessionId = intent.correlationId?.trim();
+      if (settingsSessionId) ids.push(settingsSessionId);
+    }
     const validatedSessionIds = [
       context.sendResultValidation?.kind === "valid"
         ? context.sendResultValidation.result.session.agentSessionId

@@ -82,6 +82,7 @@ Turn state, loading, cancel, restore, rail projection, event updates, imports, a
 - [Agent session restore breaks when durable snapshot ownership is split](./agent-session-lifecycle.md#agent-session-restore-breaks-when-durable-snapshot-ownership-is-split)
 - [Agent activity live updates fail after event schema changes](./agent-session-lifecycle.md#agent-activity-live-updates-fail-after-event-schema-changes)
 - [AgentGUI file-change undo reports a generic failure](./agent-session-lifecycle.md#agentgui-file-change-undo-reports-a-generic-failure)
+- [AgentGUI changed-files summary shows negative lines for a new file](./agent-session-lifecycle.md#agentgui-changed-files-summary-shows-negative-lines-for-a-new-file)
 - [Cursor deleted files appear as created or modified](./agent-session-lifecycle.md#cursor-deleted-files-appear-as-created-or-modified)
 - [AgentGUI compaction timer keeps running after compaction completed](./agent-session-lifecycle.md#agentgui-compaction-timer-keeps-running-after-compaction-completed)
 - [AgentActivity replication repeatedly rejects message batches as invalid](./agent-session-lifecycle.md#agentactivity-replication-repeatedly-rejects-message-batches-as-invalid)

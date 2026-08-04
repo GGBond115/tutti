@@ -2463,6 +2463,38 @@ inline data URL instead`. Claude or standard ACP may instead receive no
   [agentPatchMetadata.ts](../../../packages/agent/gui/shared/agentConversation/rules/agentPatchMetadata.ts)
   [git_patch.go](../../../services/tuttid/service/agent/git_patch.go)
 
+### AgentGUI changed-files summary shows negative lines for a new file
+
+- Symptom:
+  The file-edit row reports additions, but the settled changed-files summary
+  reports deletions, often matching the number of Markdown list items that
+  begin with `-`. The worktree file itself is present and complete.
+- Quick checks:
+  Compare the final file's line count with the tool row, then inspect the
+  canonical `turn.fileChanges.files[]` entry. A real unified diff has a hunk
+  header such as `@@ -0,0 +1,13 @@`; a file body stored in `unifiedDiff` is
+  malformed metadata, not a diff.
+- Root cause:
+  The summary projection used any non-empty `unifiedDiff` as a valid patch and
+  counted every line beginning with `-` as a removal. Its content fallback also
+  discarded blank lines, so the summary and tool row could use different line
+  totals for the same write.
+- Fix:
+  Normalize `fileChanges` at the runtime and durable-payload boundaries: a
+  created file's raw body becomes `newString`, while `unifiedDiff` is retained
+  only when it has a real hunk. AgentGUI also requires a hunk before parsing
+  historical payloads and shares the line-count helper with tool render data,
+  so blank lines are counted consistently.
+- Validation:
+  Cover a created Markdown body containing list items and blank lines at both
+  canonicalization boundaries, then run the Agent runtime and AgentGUI tests
+  and typechecks.
+- References:
+  [tool_file_changes.go](../../../packages/agent/daemon/runtime/tool_file_changes.go)
+  [tool_payload.go](../../../packages/agent/store-sqlite/canonical/tool_payload.go)
+  [agentUnifiedDiff.ts](../../../packages/agent/gui/shared/agentConversation/components/tool-renderers/file-diff/agentUnifiedDiff.ts)
+  [AgentTurnSummaryRow.tsx](../../../packages/agent/gui/shared/agentConversation/components/AgentTurnSummaryRow.tsx)
+
 ### Cursor deleted files appear as created or modified
 
 - Symptom:
@@ -2755,6 +2787,46 @@ inline data URL instead`. Claude or standard ACP may instead receive no
   [sessionRuntime.ts](../../../packages/agent/claude-sdk-sidecar/src/sessionRuntime.ts)
   [queryGeneration.ts](../../../packages/agent/claude-sdk-sidecar/src/queryGeneration.ts)
   [activity_turns.go](../../../packages/agent/store-sqlite/activity_turns.go)
+
+### Claude Code follow-up, settings, or cancel-resend becomes silent
+
+- Symptom:
+  A completed Claude Code conversation accepts a follow-up but emits no SDK
+  frames. Changing model, reasoning, or speed can time out and make later sends
+  appear disabled. Canceling immediately after submit can leave the next send
+  rejected as `provider_session_not_established` even though the provider
+  Session exists.
+- Quick checks:
+  Compare the sidecar request with the SDK Query generation. A follow-up on the
+  same quiet post-result generation, or `apply_settings` waiting inside that
+  generation, identifies the idle-query path. For cancel-resend, compare the
+  canonical Turn settlement with its durable provider-Turn binding; settlement
+  before the binding explains `HasSettledTurn && !Established`.
+- Root cause:
+  A naturally completed SDK iterator was treated as a terminal Session, while
+  follow-up and live settings reused or mutated the now-quiet Query. Separately,
+  cancel could settle the canonical Turn before provider acceptance crossed the
+  durable identity barrier. The frontend could then race another send against
+  an unsettled settings write.
+- Fix:
+  Keep Session lifetime separate from Query-generation lifetime. Retire an idle
+  post-turn Query and resume a fresh generation for the next prompt; serialize
+  settings flag application with turn dispatch and retire the idle generation
+  before a live settings mutation. The workspace Engine and composer gate both
+  block send while the settings operation is unsettled. For cancel, carry the
+  exact Turn ID to the sidecar and wait for durable provider acceptance before
+  publishing cancel settlement; a pre-acceptance cancellation reports applied
+  without a provider Turn rather than poisoning the delivery claim as unknown.
+- Validation:
+  Cover follow-up resume, settings timeout/retry gating, exact targeted cancel,
+  cancel before acceptance, and cancel followed by a new send. Native guidance
+  must interrupt active tool work before enqueueing the steering prompt.
+- References:
+  [sessionRuntime.ts](../../../packages/agent/claude-sdk-sidecar/src/sessionRuntime.ts)
+  [claude_sdk_execution.go](../../../packages/agent/daemon/runtime/claude_sdk_execution.go)
+  [controller_exec.go](../../../packages/agent/daemon/runtime/controller_exec.go)
+  [promptQueue.reducer.ts](../../../packages/agent/activity-core/src/engine/promptQueue.reducer.ts)
+  [agentGuiComposerGate.ts](../../../packages/agent/gui/agent-gui/agentGuiNode/model/agentGuiComposerGate.ts)
 
 ### AgentGUI freezes when session history is large
 

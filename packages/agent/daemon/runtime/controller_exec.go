@@ -285,6 +285,19 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 		}
 		if dispatch.Disposition != DispatchDispositionApplied || dispatch.Acceptance == nil {
 			if input.RequireProviderAcceptance {
+				// Durable submit already published the Turn. Any outcome that
+				// never bound a provider Turn identity (cancel-before-accept,
+				// pre-acceptance interrupt races where adapter cancel settles
+				// before runCtx is canceled, caller disconnect) must not become
+				// delivery-unknown — that locks the Session for the next submit.
+				if dispatch.Acceptance == nil &&
+					dispatch.Disposition != DispatchDispositionRejected &&
+					dispatch.Disposition != DispatchDispositionNotDispatched {
+					result.ProviderDispatch = &ProviderDispatchResult{
+						Disposition: DispatchDispositionAppliedWithoutProviderTurn,
+					}
+					return result, nil
+				}
 				if dispatch.Failure != nil {
 					return result, dispatch.Failure
 				}
@@ -294,6 +307,15 @@ func (c *Controller) Exec(ctx context.Context, input ExecInput) (result ExecResu
 		}
 		return result, nil
 	case <-ctx.Done():
+		// Caller context can end (HTTP cancel / stall) while provider acceptance
+		// is still pending. The Turn is already durable; do not leave
+		// OutcomeUnknown on the claim fence.
+		if input.RequireProviderAcceptance {
+			result.ProviderDispatch = &ProviderDispatchResult{
+				Disposition: DispatchDispositionAppliedWithoutProviderTurn,
+			}
+			return result, nil
+		}
 		result.ProviderDispatch = &ProviderDispatchResult{
 			Disposition: DispatchDispositionOutcomeUnknown,
 		}

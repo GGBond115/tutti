@@ -13,9 +13,17 @@ import { fakeDelegatedTaskQuery } from "./sessionRuntimeTestQueries.delegated.ts
 
 export function fakeGuidancePromptQuery(
   prompt: AsyncIterable<SDKUserMessage>,
-  prompts: string[]
-): AsyncIterable<SDKMessage> {
+  prompts: string[],
+  interrupts?: { count: number }
+): AsyncIterable<SDKMessage> & { interrupt: () => Promise<void> } {
+  let interrupted = false;
   return {
+    async interrupt() {
+      interrupted = true;
+      if (interrupts) {
+        interrupts.count += 1;
+      }
+    },
     async *[Symbol.asyncIterator]() {
       const iterator = prompt[Symbol.asyncIterator]();
       const firstPrompt = await iterator.next();
@@ -31,7 +39,17 @@ export function fakeGuidancePromptQuery(
         session_id: "provider-session-1"
       } as SDKMessage;
 
+      // guide() interrupts then enqueues; the next prompt read wakes after
+      // interrupt, so emit the real Claude abort result before the steer text.
       const guidancePrompt = await iterator.next();
+      if (interrupted) {
+        yield {
+          type: "result",
+          subtype: "error_during_execution",
+          is_error: true,
+          result: "interrupted"
+        } as unknown as SDKMessage;
+      }
       const guidancePromptMessage = guidancePrompt.value as SDKUserMessage & {
         uuid?: string;
       };
@@ -52,7 +70,7 @@ export function fakeGuidancePromptQuery(
       } as unknown as SDKMessage;
     },
     close() {}
-  } as AsyncIterable<SDKMessage>;
+  } as AsyncIterable<SDKMessage> & { interrupt: () => Promise<void> };
 }
 
 export function userPromptText(message: SDKUserMessage): string {

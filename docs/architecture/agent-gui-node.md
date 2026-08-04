@@ -354,13 +354,16 @@ consumer of the hydrated feature flag and does not add a parallel event center.
 The main-process Replay composition module owns manager/access/control creation
 and all Replay IPC bindings; general runtime IPC supplies only Electron and
 daemon adapters. When disabled, Desktop main does not create the Replay process
-manager, access adapters, control writer, or Replay IPC handlers. The renderer does not create
-the Replay service, recording binding, recorder/observer maps, or Engine
-intent/command observer. Enabled composition creates the renderer recorder only
-for the lifetime of an active Recording and mounts isolated Replay observers
-only inside the Replay runtime. Changing the preference does not claim to
-recompose a running daemon or renderer; the next process composition applies
-the new value.
+manager, access adapters, control writer, or Replay IPC handlers, and the
+renderer keeps the replay activity bridge inert: it creates no recording
+binding, recorder map, or Engine observer. When enabled, the
+`agent-session-replay` feature-local activity bridge owns the recording binding,
+recorder map, and Engine observer fan-out; `WorkspaceAgentActivityService`
+remains the Activity Engine/reconcile facade and delegates that replay boundary
+to the bridge. The renderer creates recorder state only for the lifetime of an
+active Recording and mounts isolated Replay observers only inside the Replay
+runtime. Changing the preference does not claim to recompose a running daemon
+or renderer; the next process composition applies the new value.
 
 A Recording captures a time window over the root SessionGraph. Root Turn
 settlement, child creation, and Goal continuation do not complete it. Explicit
