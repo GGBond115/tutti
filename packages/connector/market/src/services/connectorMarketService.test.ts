@@ -40,6 +40,7 @@ function connector(
         authorizationKind: "none"
       },
       artifact: {
+        storageRealm: "tutti.connector.artifacts.v1",
         key: `connectors/${key}/1.0.0.tgz`,
         objectVersion: "version-1",
         sha256:

@@ -39,6 +39,7 @@ type ReleaseEnvelopePayload struct {
 	WorkflowRef           string   `json:"workflowRef"`
 	ProvenanceDigest      string   `json:"provenanceDigest"`
 	ArtifactKey           string   `json:"artifactKey"`
+	ArtifactStorageRealm  string   `json:"artifactStorageRealm"`
 	ArtifactObjectVersion string   `json:"artifactObjectVersion"`
 	ArtifactSHA256        string   `json:"artifactSha256"`
 	ArtifactSizeBytes     int64    `json:"artifactSizeBytes"`
@@ -193,7 +194,8 @@ func (verifier *TrustVerifier) VerifyRelease(envelope SignedEnvelope) (ReleaseEn
 		strings.TrimSpace(payload.WorkflowRef) == "" || strings.TrimSpace(payload.TrustTier) == "" ||
 		!artifactSHA256Pattern.MatchString(payload.ProvenanceDigest) || !artifactSHA256Pattern.MatchString(payload.ManifestSHA256) ||
 		!artifactSHA256Pattern.MatchString(payload.ArtifactSHA256) || payload.ArtifactSizeBytes <= 0 ||
-		strings.TrimSpace(payload.ArtifactKey) == "" || strings.TrimSpace(payload.ArtifactObjectVersion) == "" || strings.TrimSpace(payload.ArtifactMediaType) == "" {
+		strings.TrimSpace(payload.ArtifactKey) == "" || payload.ArtifactStorageRealm != ConnectorArtifactStorageRealmV1 ||
+		strings.TrimSpace(payload.ArtifactObjectVersion) == "" || strings.TrimSpace(payload.ArtifactMediaType) == "" {
 		return ReleaseEnvelopePayload{}, "", errors.New("signed connector release payload is invalid")
 	}
 	if err := validateUniqueIdentifiers("permission", payload.Permissions); err != nil {

@@ -14,6 +14,7 @@ const (
 	ImplementationKindManagedStdio         = "managed_stdio"
 	ImplementationKindRemoteStreamableHTTP = "remote_streamable_http"
 	CredentialBrokerProtocolV1             = "tutti.connector.credentials.v1"
+	ConnectorArtifactStorageRealmV1        = "tutti.connector.artifacts.v1"
 )
 
 var connectorKeyPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$`)
@@ -88,6 +89,7 @@ func ValidateReleaseShape(release Release) error {
 		return invalidManifest("publishedAt is required", nil)
 	}
 	if strings.TrimSpace(release.Artifact.Key) == "" ||
+		release.Artifact.StorageRealm != ConnectorArtifactStorageRealmV1 ||
 		strings.TrimSpace(release.Artifact.ObjectVersion) == "" ||
 		!artifactSHA256Pattern.MatchString(release.Artifact.SHA256) ||
 		release.Artifact.SizeBytes <= 0 ||

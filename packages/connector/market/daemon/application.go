@@ -515,10 +515,40 @@ func (application *Application) ReconcileDurableBindings(ctx context.Context) er
 	if err != nil {
 		return err
 	}
+	if err := application.requireFreshCatalog(ctx); err != nil {
+		return err
+	}
+	installedReleases := make(map[string]Release)
+	effectiveIntent := make(map[string]Operation)
+	for _, operation := range snapshot.Operations {
+		if operation.Kind == OperationKindInstall && operation.State == OperationStateCompleted &&
+			operation.Target != nil && operation.Target.Release != nil {
+			installedReleases[operation.ConnectorKey+"\x00"+operation.Target.ReleaseDigest] = *operation.Target.Release
+		}
+		if operation.Kind != OperationKindSetWorkspaceEnabled || operation.WorkspaceEnabled == nil ||
+			(operation.State != OperationStateAccepted && operation.State != OperationStateRunning) {
+			continue
+		}
+		key := operation.ConnectorKey + "\x00" + operation.WorkspaceID
+		previous, exists := effectiveIntent[key]
+		if !exists || operation.CreatedAt.After(previous.CreatedAt) {
+			effectiveIntent[key] = operation
+		}
+	}
 	for _, connector := range snapshot.Connectors {
 		if connector.Installation.State != InstallationStateInstalled {
 			continue
 		}
+		installedRelease, ok := installedReleases[connector.Key+"\x00"+connector.Installation.InstalledReleaseDigest]
+		if !ok && connector.Release.ReleaseDigest == connector.Installation.InstalledReleaseDigest {
+			installedRelease = connector.Release
+			ok = true
+		}
+		if !ok || installedRelease.Status != ReleaseStatusAvailable {
+			return NewDomainError(ErrorCodeUnavailable, "installed connector release evidence is unavailable", false, nil)
+		}
+		installedConnector := connector
+		installedConnector.Release = installedRelease
 		bindings, err := application.config.Repository.WorkspaceBindings(ctx, connector.Key)
 		if err != nil {
 			return err
@@ -528,17 +558,33 @@ func (application *Application) ReconcileDurableBindings(ctx context.Context) er
 			generation = 1
 		}
 		for _, binding := range bindings {
-			if !binding.Enabled {
+			desired := binding.Enabled
+			if pending, exists := effectiveIntent[connector.Key+"\x00"+binding.WorkspaceID]; exists {
+				desired = *pending.WorkspaceEnabled
+			}
+			if !desired {
+				if err := application.config.Host.Revoke(ctx, SecurityRevocationRequest{
+					WorkspaceID: binding.WorkspaceID, ConnectorKey: connector.Key,
+					ReleaseDigest: connector.Installation.InstalledReleaseDigest,
+					Generation:    HostGeneration{BootEpoch: application.config.BootEpoch, Generation: ^uint64(0)},
+					Deadline:      application.config.Now().UTC().Add(5 * time.Second),
+				}); err != nil {
+					return NewDomainError(ErrorCodeUnavailable, "connector pending disable intent could not be fenced", false, err)
+				}
 				continue
 			}
 			operationID := "reconcile/" + application.config.BootEpoch + "/" + connector.Key + "/" + binding.WorkspaceID
-			_, err := application.config.Host.Reconcile(ctx, WorkspaceReconcileRequest{
+			receipt, err := application.config.Host.Reconcile(ctx, WorkspaceReconcileRequest{
 				OperationID: operationID, WorkspaceID: binding.WorkspaceID,
-				Connector: connector, Enabled: true,
+				Connector: installedConnector, Enabled: true,
 				Generation: HostGeneration{BootEpoch: application.config.BootEpoch, Generation: generation},
 			})
 			if err != nil {
 				return NewDomainError(ErrorCodeUnavailable, "connector durable workspace intent could not be reconciled", true, err)
+			}
+			if err := validateWorkspaceRuntimeReceipt(receipt, operationID, binding.WorkspaceID, connector.Key,
+				installedRelease.ReleaseDigest, HostGeneration{BootEpoch: application.config.BootEpoch, Generation: generation}); err != nil {
+				return err
 			}
 		}
 	}

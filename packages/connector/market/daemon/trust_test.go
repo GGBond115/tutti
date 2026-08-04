@@ -68,7 +68,7 @@ func signedTestRelease(t *testing.T, privateKey ed25519.PrivateKey) SignedEnvelo
 	payload := ReleaseEnvelopePayload{SchemaVersion: "1", ItemType: "connector", ItemKey: "github", Version: "1.0.0",
 		PublisherSubject: "ci", SourceRepository: "tutti/github", CommitSHA: "0123456789abcdef", WorkflowRef: "release",
 		ProvenanceDigest: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-		ArtifactKey:      "connectors/github.zip", ArtifactObjectVersion: "generation-1",
+		ArtifactKey:      "connectors/github.zip", ArtifactStorageRealm: ConnectorArtifactStorageRealmV1, ArtifactObjectVersion: "generation-1",
 		ArtifactSHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", ArtifactSizeBytes: 42,
 		ArtifactMediaType: "application/zip", ManifestSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		TrustTier: "managed", Permissions: []string{"repository.read"}}
@@ -95,7 +95,7 @@ func testTrustedRelease() Release {
 				Runtime: RuntimeRequirement{Language: "node", Profile: "connector-node-static", ABI: "node20-darwin-arm64"},
 				MCP:     &ManagedMCPInterface{Entrypoint: "bin/github.js"},
 			}}},
-		Artifact: Artifact{Key: "connectors/github.zip", ObjectVersion: "generation-1",
+		Artifact: Artifact{StorageRealm: ConnectorArtifactStorageRealmV1, Key: "connectors/github.zip", ObjectVersion: "generation-1",
 			SHA256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", SizeBytes: 42, MediaType: "application/zip"},
 		PublishedAt: time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC), Status: ReleaseStatusAvailable,
 		Publisher:        PublisherIdentity{Subject: "ci", SourceRepository: "tutti/github", CommitSHA: "0123456789abcdef", Workflow: "release", TrustTier: "managed"},

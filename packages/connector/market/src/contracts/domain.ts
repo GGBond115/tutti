@@ -97,6 +97,7 @@ export interface ConnectorManifestImplementation {
 }
 
 export interface ConnectorReleaseArtifact {
+  storageRealm: "tutti.connector.artifacts.v1";
   key: string;
   objectVersion: string;
   sha256: string;

@@ -115,6 +115,7 @@ type Manifest struct {
 }
 
 type Artifact struct {
+	StorageRealm  string `json:"storageRealm"`
 	Key           string `json:"key"`
 	ObjectVersion string `json:"objectVersion"`
 	SHA256        string `json:"sha256"`
