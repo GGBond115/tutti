@@ -210,6 +210,34 @@ describe("conversation stop", () => {
 });
 
 describe("interaction submissions", () => {
+  it.each([
+    ["implement", "implement"],
+    ["feedback", "feedback"],
+    ["skip", "skip"]
+  ] as const)(
+    "returns the plan %s handler admission result",
+    (action, handler) => {
+      const goalControl = vi.fn(async () => undefined);
+      const { input } = createGoalControlInput(goalControl as never);
+      input.planActionsRef.current[handler] = vi.fn(() => false);
+      const { result } = renderHook(() =>
+        useAgentGUISubmitInteractionActions(input)
+      );
+
+      let admitted = true;
+      act(() => {
+        admitted = result.current.submitInteractivePrompt({
+          action,
+          payload: action === "feedback" ? { text: "revise" } : undefined,
+          requestId: "turn-1"
+        });
+      });
+
+      expect(admitted).toBe(false);
+      expect(input.planActionsRef.current[handler]).toHaveBeenCalledOnce();
+    }
+  );
+
   it("routes the explicit answer through the Engine semantic operation", () => {
     const goalControl = vi.fn(async () => undefined);
     const { input, sessionEngine, setDetailError } = createGoalControlInput(

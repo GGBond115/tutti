@@ -276,10 +276,10 @@ export function useAgentGUINodeController({
   // Bridges submitInteractivePrompt (defined earlier) to the client-side plan
   // decision handlers (defined later); assigned after those callbacks.
   const planActionsRef = useRef<{
-    implement: () => void;
-    feedback: (text: string) => void;
-    skip: () => void;
-  }>({ implement: () => {}, feedback: () => {}, skip: () => {} });
+    implement: () => boolean;
+    feedback: (text: string) => boolean;
+    skip: () => boolean;
+  }>({ implement: () => false, feedback: () => false, skip: () => false });
   const composerCapabilities = useAgentGUIComposerCapabilities({
     activeConversationId,
     activeEngineSession,

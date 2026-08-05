@@ -103,9 +103,9 @@ interface UseAgentGUISubmitInteractionActionsInput {
   isSessionMarkedNonResumable(agentSessionId: string): boolean;
   persistActiveConversation(agentSessionId: string | null): void;
   planActionsRef: RefObject<{
-    implement(): void;
-    feedback(value: string): void;
-    skip(): void;
+    implement(): boolean;
+    feedback(value: string): boolean;
+    skip(): boolean;
   }>;
   promptImagesSupported: boolean;
   sessionEngine: AgentSessionEngine;
@@ -626,18 +626,15 @@ export function useAgentGUISubmitInteractionActions(
       // Plan-implementation actions are client-orchestrated; route them to the
       // plan decision handlers instead of submitInteractive.
       if (input.action === PLAN_IMPLEMENTATION_ACTION_IMPLEMENT) {
-        planActionsRef.current.implement();
-        return true;
+        return planActionsRef.current.implement();
       }
       if (input.action === PLAN_IMPLEMENTATION_ACTION_FEEDBACK) {
-        planActionsRef.current.feedback(
+        return planActionsRef.current.feedback(
           typeof input.payload?.text === "string" ? input.payload.text : ""
         );
-        return true;
       }
       if (input.action === PLAN_IMPLEMENTATION_ACTION_SKIP) {
-        planActionsRef.current.skip();
-        return true;
+        return planActionsRef.current.skip();
       }
       const normalizedOptionId = input.optionId?.trim() ?? "";
       const target = resolveAgentGUIInteractionReadinessIdentity({
