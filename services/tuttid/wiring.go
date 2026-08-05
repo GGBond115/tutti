@@ -48,6 +48,7 @@ import (
 const connectorRuntimeProductionKeyID = "tutti-runtime-prod-2026-01"
 const connectorRuntimeProductionPublicKeyHex = "2b9f4f23d9c3d4c38881bf4a87d92f02c0769a998736fe04718b58379df2c44a"
 const connectorRuntimeCatalogURL = "https://d1x7gb6wqsqmnm.cloudfront.net/tutti-app-runtimes/connector-v3/catalog.json"
+const connectorMarketDefaultBaseURL = "https://api.tutti.sh/api/desktop"
 const connectorArtifactBaseURL = "https://d27a59zdy4534h.cloudfront.net/tutti/connector-market/"
 
 type tuttiWiring struct {
@@ -220,7 +221,7 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 	}
 	connectorMarketBaseURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_MARKET_BASE_URL"))
 	if connectorMarketBaseURL == "" {
-		connectorMarketBaseURL = "https://api.tutti.sh"
+		connectorMarketBaseURL = connectorMarketDefaultBaseURL
 	}
 	connectorMarketType := strings.ToLower(strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_MARKET_TYPE")))
 	if connectorMarketType == "" {

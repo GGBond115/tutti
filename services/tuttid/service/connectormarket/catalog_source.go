@@ -166,7 +166,14 @@ func (source *CatalogSource) ListPage(ctx context.Context, input market.CatalogS
 }
 
 func (source *CatalogSource) getJSON(ctx context.Context, requestPath string, query url.Values, target any) ([]byte, error) {
-	endpoint := source.baseURL.ResolveReference(&url.URL{Path: requestPath})
+	joined, err := url.JoinPath(source.baseURL.String(), requestPath)
+	if err != nil {
+		return nil, fmt.Errorf("build connector market catalog URL: %w", err)
+	}
+	endpoint, err := url.Parse(joined)
+	if err != nil {
+		return nil, fmt.Errorf("parse connector market catalog URL: %w", err)
+	}
 	endpoint.RawQuery = query.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {

@@ -107,6 +107,28 @@ func TestCatalogSourceRejectsInvalidConfiguration(t *testing.T) {
 	}
 }
 
+func TestCatalogSourcePreservesGatewayBasePath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/desktop/v1/market/categories" {
+			t.Fatalf("request path = %q", request.URL.Path)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"marketType":"overseas","categories":[]}`))
+	}))
+	defer server.Close()
+
+	source, err := NewCatalogSource(CatalogSourceConfig{
+		BaseURL:            server.URL + "/api/desktop",
+		ExpectedMarketType: "overseas",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.ListCategories(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCatalogSourceRejectsOversizedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		_, _ = response.Write([]byte(strings.Repeat(" ", maxCatalogResponseBytes+1)))
