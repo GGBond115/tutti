@@ -115,6 +115,7 @@ interface UseAgentGUISessionPresentationInput {
   composerSupport: ReturnType<typeof composerSettingsSupportFromOptions>;
   conversation: AgentConversationVM | null;
   currentUserId?: string | null;
+  hasUnconfirmedSubmit: boolean;
   isCreatingConversation: boolean;
   isInterrupting: boolean;
   isLoadingMessages: boolean;
@@ -186,7 +187,10 @@ export function useAgentGUISessionPresentation(
     input.serverInteractivePrompt ?? planImplementationPrompt;
 
   const activeHasPendingSubmittedTurn = Boolean(
-    input.activeConversationId && input.activeLatestPendingSubmitTurnId
+    input.activeConversationId &&
+    (input.hasUnconfirmedSubmit ||
+      input.isSubmitting ||
+      (!input.activeEngineSession && input.activeLatestPendingSubmitTurnId))
   );
   const activeSubmitBlocked = input.activeEngineAvailability === "blocked";
   const sessionRuntimeBlock =
@@ -203,12 +207,13 @@ export function useAgentGUISessionPresentation(
     input.activeEngineActiveTurn?.turnId,
     input.observationGapSource
   );
-  const activeConversationBusy = input.activeEngineSession
-    ? input.activeEngineAvailability === "blocked"
-    : agentActivityDisplayStatusBusy(input.activityDisplayStatus) ||
-      conversationBusyStatus(input.activeConversation?.status ?? null) ||
-      activeHasPendingSubmittedTurn ||
-      activeSubmitBlocked;
+  const activeConversationBusy =
+    activeHasPendingSubmittedTurn ||
+    (input.activeEngineSession
+      ? input.activeEngineAvailability === "blocked"
+      : agentActivityDisplayStatusBusy(input.activityDisplayStatus) ||
+        conversationBusyStatus(input.activeConversation?.status ?? null) ||
+        activeSubmitBlocked);
   const activeSessionResumable =
     input.activeEngineSession?.resumable ??
     input.activeConversation?.resumable ??

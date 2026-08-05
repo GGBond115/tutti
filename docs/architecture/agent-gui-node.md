@@ -819,6 +819,11 @@ queue submission while keeping the editor editable. Draft emptiness, upload
 progress/failure, project existence, and other draft-local conditions may
 disable submission, but must not change editor editability.
 
+Engine submitting and unconfirmed-submit selectors remain busy facts after a
+canonical Session first appears. Session existence or an `available` runtime
+must not create an idle frame before the exact Turn claims and settles the
+submission, or before the pending submit otherwise reaches a terminal state.
+
 ### 4.1 Read/write rules
 
 - reads use exported selectors or memoized `AgentActivitySnapshot`

@@ -73,6 +73,87 @@ describe("useAgentGUISessionPresentation", () => {
     });
   });
 
+  it("keeps a confirmed Session busy until its pending submit is confirmed by a Turn", () => {
+    const sessionEngine = createAgentSessionEngine({
+      clock: { nowUnixMs: () => 1 },
+      commandPort: createTestEngineCommandPort({
+        execute: vi.fn(() => new Promise(() => undefined))
+      }),
+      identity: { origin: "test", workspaceId: "workspace-1" },
+      scheduler: { schedule: () => ({ cancel() {} }) }
+    });
+    const input = {
+      activeConversation: null,
+      activeConversationId: "session-1",
+      activeEngineActiveTurn: null,
+      activeEngineAvailability: "available",
+      activeEngineHasPendingInteractions: false,
+      activeEngineLatestTurn: null,
+      activeEngineRuntimeAvailability: null,
+      activeEngineSession: {
+        agentSessionId: "session-1",
+        goal: null,
+        resumable: true
+      },
+      activeEngineSettingsUpdate: null,
+      activeGoalControlPresentation: {
+        agentSessionId: "session-1",
+        goal: null,
+        optimistic: false,
+        status: "idle"
+      },
+      activeLatestPendingSubmitTurnId: null as string | null,
+      activeLiveState: "active",
+      activeMessages: [],
+      activePendingActivation: null,
+      activeSessionState: null,
+      activeTimelineItems: [],
+      activationError: null,
+      activationErrorCode: null,
+      activationState: "active",
+      activityDisplayStatus: null,
+      agentActivityRuntime: {},
+      agentTargetsLoading: false,
+      composerSupport: {
+        model: false,
+        reasoningEffort: false,
+        permissionMode: false,
+        planMode: false,
+        planImplementation: false,
+        plan: false
+      },
+      conversation: null,
+      currentUserId: "user-1",
+      hasUnconfirmedSubmit: true,
+      isCreatingConversation: false,
+      isInterrupting: false,
+      isLoadingMessages: false,
+      isRespondingToInteraction: false,
+      isSubmitting: false,
+      lastRenderStateDiagnosticKeyRef: { current: null },
+      pendingApproval: null,
+      planImplementationTurnIdRef: { current: null },
+      providerReadinessGate: null,
+      selectedAgentTargetOwnerLabel: null,
+      selectedAgentTargetUnavailable: false,
+      selectedAgentTargetUnavailableReason: null,
+      serverInteractivePrompt: null,
+      sessionEngine,
+      targetConnectionAgentTargetId: null,
+      workspaceId: "workspace-1"
+    } as unknown as Parameters<typeof useAgentGUISessionPresentation>[0];
+
+    const rendered = renderHook(() => useAgentGUISessionPresentation(input));
+
+    expect(rendered.result.current.activeConversationBusy).toBe(true);
+
+    input.activeLatestPendingSubmitTurnId = "turn-1";
+    input.hasUnconfirmedSubmit = false;
+    rendered.rerender();
+
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+  });
+
   it("does not expose manual retry for failed activation", () => {
     const sessionEngine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
