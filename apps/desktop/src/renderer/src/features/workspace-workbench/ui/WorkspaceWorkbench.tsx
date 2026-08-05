@@ -134,6 +134,7 @@ const AgentSessionReplayWorkspaceRuntime = lazy(() =>
 );
 
 interface WorkspaceWorkbenchProps {
+  appName: string;
   agentSessionReplayComposition: AgentSessionReplayDesktopComposition | null;
   enableWindowCloseGuard: boolean;
   headerSlot?: React.ReactNode;
@@ -142,6 +143,7 @@ interface WorkspaceWorkbenchProps {
   workspaceID: string | null;
 }
 export function WorkspaceWorkbench({
+  appName,
   agentSessionReplayComposition,
   enableWindowCloseGuard,
   headerSlot,
@@ -178,6 +180,7 @@ export function WorkspaceWorkbench({
 
   return (
     <ReadyWorkspaceWorkbench
+      appName={appName}
       agentSessionReplayComposition={agentSessionReplayComposition}
       enableWindowCloseGuard={enableWindowCloseGuard}
       headerSlot={headerSlot}
@@ -192,6 +195,7 @@ export function WorkspaceWorkbench({
 }
 
 interface ReadyWorkspaceWorkbenchProps {
+  appName: string;
   agentSessionReplayComposition: AgentSessionReplayDesktopComposition | null;
   enableWindowCloseGuard: boolean;
   headerSlot?: React.ReactNode;
@@ -235,6 +239,7 @@ function ReadyWorkspaceWorkbench(props: ReadyWorkspaceWorkbenchProps) {
 }
 
 function ReadyWorkspaceWorkbenchWithSession({
+  appName,
   agentSessionReplayComposition,
   enableWindowCloseGuard,
   headerSlot,
@@ -928,6 +933,7 @@ function ReadyWorkspaceWorkbenchWithSession({
           onNodeCloseRequest={hostInput.onNodeCloseRequest}
           renderTopChrome={(chromeContext) => (
             <WorkspaceChrome
+              appName={appName}
               externalAgentSessionImportPromptEnabled={!replayRuntimeActive}
               headerSlot={headerSlot}
               launchNode={chromeContext.launchNode}

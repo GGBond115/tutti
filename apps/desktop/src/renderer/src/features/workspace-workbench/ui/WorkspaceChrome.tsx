@@ -39,6 +39,7 @@ const WORKSPACE_CHROME_MAC_TRAFFIC_LIGHT_RESERVED_WIDTH_PX =
   WORKSPACE_CHROME_MAC_TRAFFIC_LIGHT_GUTTER_PX;
 
 export function WorkspaceChrome({
+  appName,
   externalAgentSessionImportPromptEnabled,
   headerSlot,
   missionControl,
@@ -52,6 +53,7 @@ export function WorkspaceChrome({
   workbenchController,
   workspace
 }: {
+  appName: string;
   externalAgentSessionImportPromptEnabled: boolean;
   headerSlot?: React.ReactNode;
   missionControl: {
@@ -133,7 +135,7 @@ export function WorkspaceChrome({
         style={headerStyle}
       >
         <div className="flex items-center gap-2 [-webkit-app-region:no-drag]">
-          {isWindows ? (
+          {isWindows && appName ? (
             <div className="flex items-center gap-2 px-1 text-sm font-medium text-white/80 [-webkit-app-region:drag]">
               <img
                 alt=""
@@ -141,7 +143,7 @@ export function WorkspaceChrome({
                 draggable={false}
                 src={tuttiWindowIconUrl}
               />
-              <span>Tutti Dev</span>
+              <span>{appName}</span>
             </div>
           ) : null}
           {isDarwin && !chromeState.useCompactTitlebar ? (

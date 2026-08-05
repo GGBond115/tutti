@@ -76,9 +76,19 @@ import { WorkspaceModelPlansController } from "./workspaceModelPlansController.t
 import { WorkspaceAgentsController } from "./workspaceAgentsController.ts";
 import { WorkspaceAutomationRulesController } from "./workspaceAutomationRulesController.ts";
 
+export interface WorkspaceUiModeChangeErrorInput {
+  error: unknown;
+  mode: "agent" | "os";
+  previousMode: "agent" | "os";
+  workspaceId: string | null;
+}
+
 export interface WorkspaceSettingsServiceDependencies {
   client: DesktopWorkspaceSettingsClient;
   onAgentTargetsChanged?: () => void | Promise<void>;
+  onWorkspaceUiModeChangeError?: (
+    input: WorkspaceUiModeChangeErrorInput
+  ) => void;
   replaceWorkspaceWindow?: (input: {
     clientTs: number;
     mode: "agent" | "os";
@@ -558,7 +568,13 @@ export class WorkspaceSettingsService implements IWorkspaceSettingsService {
           workspaceId: this.store.workspaceID
         });
       }
-    } catch {
+    } catch (error) {
+      this.dependencies.onWorkspaceUiModeChangeError?.({
+        error,
+        mode,
+        previousMode,
+        workspaceId: this.store.workspaceID
+      });
       this.notifications.error({
         title: createActiveTranslator().t(
           "workspace.settings.general.workspaceUiModeSaveFailed"

@@ -138,6 +138,10 @@ export async function bootstrapDesktopApp(): Promise<void> {
   if (developmentAppName) {
     app.setName(developmentAppName);
   }
+  // Preload cannot import Electron's main-only `app` module. Publish the
+  // already-resolved native name through the process environment so every
+  // renderer can use the same value as the Windows title bar.
+  process.env.TUTTI_DESKTOP_APP_NAME = app.getName();
   const logger = await setupDesktopLogger();
 
   // A single live desktop instance per environment. The managed tuttid daemon is
