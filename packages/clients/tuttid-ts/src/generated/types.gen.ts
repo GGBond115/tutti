@@ -1402,6 +1402,7 @@ export type WorkspaceApp = {
   launchUrl: string | null;
   port: number | null;
   failureReason: string | null;
+  failurePhase?: "downloading" | "installing" | "starting" | "runtime";
   lastError: string | null;
   startedAtUnixMs: number | null;
   updatedAtUnixMs: number | null;

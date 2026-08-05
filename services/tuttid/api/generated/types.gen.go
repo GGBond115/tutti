@@ -3718,6 +3718,30 @@ func (e WorkspaceAgentTurnPhase) Valid() bool {
 	}
 }
 
+// Defines values for WorkspaceAppFailurePhase.
+const (
+	Downloading WorkspaceAppFailurePhase = "downloading"
+	Installing  WorkspaceAppFailurePhase = "installing"
+	Runtime     WorkspaceAppFailurePhase = "runtime"
+	Starting    WorkspaceAppFailurePhase = "starting"
+)
+
+// Valid indicates whether the value is a known member of the WorkspaceAppFailurePhase enum.
+func (e WorkspaceAppFailurePhase) Valid() bool {
+	switch e {
+	case Downloading:
+		return true
+	case Installing:
+		return true
+	case Runtime:
+		return true
+	case Starting:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WorkspaceAppCatalogLoadStatus.
 const (
 	WorkspaceAppCatalogLoadStatusDisabled WorkspaceAppCatalogLoadStatus = "disabled"
@@ -8895,6 +8919,7 @@ type WorkspaceApp struct {
 	DisplayName      string                       `json:"displayName"`
 	Enabled          bool                         `json:"enabled"`
 	Exportable       bool                         `json:"exportable"`
+	FailurePhase     *WorkspaceAppFailurePhase    `json:"failurePhase,omitempty"`
 	FailureReason    *string                      `json:"failureReason"`
 	IconUrl          *string                      `json:"iconUrl"`
 	InstallProgress  *WorkspaceAppInstallProgress `json:"installProgress,omitempty"`
@@ -8920,6 +8945,9 @@ type WorkspaceApp struct {
 	WindowMinHeight  *int                         `json:"windowMinHeight"`
 	WindowMinWidth   *int                         `json:"windowMinWidth"`
 }
+
+// WorkspaceAppFailurePhase defines model for WorkspaceApp.FailurePhase.
+type WorkspaceAppFailurePhase string
 
 // WorkspaceAppAgentPreferencesResponse defines model for WorkspaceAppAgentPreferencesResponse.
 type WorkspaceAppAgentPreferencesResponse struct {

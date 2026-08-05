@@ -10092,6 +10092,14 @@ components:
         failureReason:
           type: string
           nullable: true
+        failurePhase:
+          type: string
+          nullable: true
+          enum:
+            - downloading
+            - installing
+            - starting
+            - runtime
         lastError:
           type: string
           nullable: true

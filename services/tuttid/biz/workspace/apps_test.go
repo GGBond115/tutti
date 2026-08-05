@@ -269,7 +269,24 @@ func TestParseAppManifestJSONAcceptsRuntimeProfile(t *testing.T) {
 		t.Fatalf("ParseAppManifestJSON() error = %v, want nil for runtime.profile", err)
 	}
 	if manifest.Runtime.Profile != "connector-node-static" {
-		t.Fatalf("Runtime.Profile = %q, want node-static", manifest.Runtime.Profile)
+		t.Fatalf("Runtime.Profile = %q, want connector-node-static", manifest.Runtime.Profile)
+	}
+}
+
+func TestParseAppManifestJSONNormalizesLegacyRuntimeProfile(t *testing.T) {
+	t.Parallel()
+
+	manifest, normalized, err := ParseAppManifestJSON([]byte(
+		`{"schemaVersion":"tutti.app.manifest.v1","appId":"test-app","version":"0.1.0","name":"Test App","description":"Test app","icon":{"type":"asset","src":"icon.png"},"runtime":{"bootstrap":"bootstrap.sh","healthcheckPath":"/healthz","profile":"node-static"}}`,
+	))
+	if err != nil {
+		t.Fatalf("ParseAppManifestJSON() error = %v, want legacy runtime.profile accepted", err)
+	}
+	if manifest.Runtime.Profile != "connector-node-static" {
+		t.Fatalf("Runtime.Profile = %q, want connector-node-static", manifest.Runtime.Profile)
+	}
+	if !strings.Contains(normalized, `"profile":"connector-node-static"`) {
+		t.Fatalf("normalized manifest = %s, want canonical runtime.profile", normalized)
 	}
 }
 

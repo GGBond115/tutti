@@ -611,6 +611,10 @@ export const workspaceWorkspaceAppSchema = {
     failureReason: {
       type: ["string", "null"]
     },
+    failurePhase: {
+      type: ["string", "null"],
+      enum: ["downloading", "installing", "starting", "runtime", null]
+    },
     lastError: {
       type: ["string", "null"]
     },
@@ -2715,6 +2719,10 @@ export const workspaceAppUpdatedPayloadSchema = {
         },
         failureReason: {
           type: ["string", "null"]
+        },
+        failurePhase: {
+          type: ["string", "null"],
+          enum: ["downloading", "installing", "starting", "runtime", null]
         },
         lastError: {
           type: ["string", "null"]

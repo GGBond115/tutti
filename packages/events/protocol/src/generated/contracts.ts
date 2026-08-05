@@ -214,6 +214,7 @@ export interface WorkspaceWorkspaceAppV1 {
   launchUrl: string | null;
   port: number | null;
   failureReason: string | null;
+  failurePhase?: "downloading" | "installing" | "starting" | "runtime" | null;
   lastError: string | null;
   startedAtUnixMs: number | null;
   updatedAtUnixMs: number | null;

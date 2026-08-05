@@ -6,7 +6,7 @@ import "encoding/json"
 
 const (
 	BusinessEventProtocolVersion = 1
-	BusinessEventCatalogRevision = "sha256:4ad6cabfbf1a1951"
+	BusinessEventCatalogRevision = "sha256:d3cf3b4c5b26811b"
 )
 
 type Topic string
@@ -210,6 +210,7 @@ type WorkspaceWorkspaceApp struct {
 	LaunchUrl       *string  `json:"launchUrl"`
 	Port            *int     `json:"port"`
 	FailureReason   *string  `json:"failureReason"`
+	FailurePhase    *string  `json:"failurePhase,omitempty"`
 	LastError       *string  `json:"lastError"`
 	StartedAtUnixMs *int64   `json:"startedAtUnixMs"`
 	UpdatedAtUnixMs *int64   `json:"updatedAtUnixMs"`

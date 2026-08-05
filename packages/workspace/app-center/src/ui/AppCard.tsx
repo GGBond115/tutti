@@ -37,6 +37,7 @@ import type {
   WorkspaceAppLocalRepairRequest
 } from "../contracts/host.ts";
 import { isCommunityRecommendedApp } from "../core/appCenterAppOrdering.ts";
+import { resolveWorkspaceAppFailureMessageKey } from "../core/appFailurePresentation.ts";
 import {
   resolveFactoryPublishActionKey,
   type AppCenterFactoryPresentationMode
@@ -258,7 +259,6 @@ export const AppCard = memo(function AppCard({
 
   return (
     <article
-      aria-disabled={canOpenFromCard ? undefined : true}
       className={cn(
         "group flex h-full min-h-[168px] min-w-0 flex-col rounded-[12px] border border-[color:var(--line-2)] bg-[var(--background-fronted)] p-[12px] text-left text-[var(--text-primary)] transition-transform duration-200 ease-out hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--border-focus)_70%,transparent)] motion-reduce:transition-none motion-reduce:hover:translate-y-0",
         canOpenFromCard ? "cursor-pointer" : "cursor-default",
@@ -362,13 +362,13 @@ export const AppCard = memo(function AppCard({
           ) : null}
         </div>
 
-        {app.errorMessage ? (
+        {app.status === "failed" ? (
           <div className="mt-auto flex min-w-0 flex-col gap-3 pt-3">
             <p
               className="min-w-0 rounded-[6px] bg-[color-mix(in_srgb,var(--state-danger)_10%,transparent)] px-2 py-1 text-[11px] leading-4 text-[var(--state-danger)]"
               title={app.errorMessage}
             >
-              {copy.t("messages.appRuntimeFailed")}
+              {copy.t(resolveWorkspaceAppFailureMessageKey(app.failurePhase))}
             </p>
           </div>
         ) : null}
