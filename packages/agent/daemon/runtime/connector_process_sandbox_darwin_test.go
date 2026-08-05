@@ -3,12 +3,41 @@
 package agentruntime
 
 import (
+	"debug/macho"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func sandboxCompatibleNodePathForTest(t *testing.T) string {
+	t.Helper()
+	nodePath, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node runtime is unavailable")
+	}
+	nodePath, err = filepath.EvalSymlinks(nodePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, err := macho.Open(nodePath)
+	if err != nil {
+		t.Skipf("node runtime is not a Mach-O executable: %v", err)
+	}
+	t.Cleanup(func() { _ = binary.Close() })
+	libraries, err := binary.ImportedLibraries()
+	if err != nil {
+		t.Skipf("node runtime dependencies are unavailable: %v", err)
+	}
+	for _, library := range libraries {
+		if strings.HasPrefix(library, "/System/") || strings.HasPrefix(library, "/usr/lib/") {
+			continue
+		}
+		t.Skipf("node runtime is not self-contained managed Node: depends on %s", library)
+	}
+	return nodePath
+}
 
 func TestDarwinConnectorSandboxProfileRunsOnlyThePinnedExecutableWithoutBroadProcessOrMachAccess(t *testing.T) {
 	profile, err := darwinConnectorSandboxProfile(ConnectorSandboxPolicy{ReadOnlyPaths: []string{"/bin"}}, "/bin/echo")
@@ -29,23 +58,17 @@ func TestDarwinConnectorSandboxProfileRunsOnlyThePinnedExecutableWithoutBroadPro
 }
 
 func TestDarwinConnectorSandboxProfileRunsManagedNodeEntrypoint(t *testing.T) {
-	nodePath, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node runtime is unavailable")
-	}
-	nodePath, err = filepath.EvalSymlinks(nodePath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	nodePath := sandboxCompatibleNodePathForTest(t)
 	artifactRoot := t.TempDir()
 	entrypoint := filepath.Join(artifactRoot, "connector.js")
 	if err := os.WriteFile(entrypoint, []byte(`process.stdout.write("node-sandbox-ok")`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	entrypoint, err = filepath.EvalSymlinks(entrypoint)
+	resolvedEntrypoint, err := filepath.EvalSymlinks(entrypoint)
 	if err != nil {
 		t.Fatal(err)
 	}
+	entrypoint = resolvedEntrypoint
 	profile, err := darwinConnectorSandboxProfile(ConnectorSandboxPolicy{ReadOnlyPaths: []string{artifactRoot, filepath.Dir(nodePath)}}, nodePath)
 	if err != nil {
 		t.Fatal(err)
@@ -60,14 +83,7 @@ func TestDarwinConnectorSandboxProfileRunsManagedNodeEntrypoint(t *testing.T) {
 }
 
 func TestDarwinConnectorSandboxDeniesNodeNetworkAndSecondaryExec(t *testing.T) {
-	nodePath, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node runtime is unavailable")
-	}
-	nodePath, err = filepath.EvalSymlinks(nodePath)
-	if err != nil {
-		t.Fatal(err)
-	}
+	nodePath := sandboxCompatibleNodePathForTest(t)
 	artifactRoot := t.TempDir()
 	entrypoint := filepath.Join(artifactRoot, "deny-check.js")
 	script := `
