@@ -1,6 +1,7 @@
 package sessionreplay
 
 import (
+	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -623,5 +624,82 @@ func TestCompareTuttiReplayStateTreatsAttachmentIDsAsAlphaEquivalent(
 			"attachment identities must be alpha-equivalent, got %v",
 			err,
 		)
+	}
+}
+
+func TestCompareTuttiReplayStateIgnoresVolatileGoalTimingFields(
+	t *testing.T,
+) {
+	buildState := func(
+		desiredStartedAt, observedStartedAt, durationMs int64,
+	) TuttiReplayState {
+		return TuttiReplayState{
+			SchemaVersion: SchemaVersion,
+			Agent: TuttiReplayAgent{
+				RootSessionID: "session-1",
+				Sessions: []agenthost.HistoricalSession{{
+					ID:                "session-1",
+					Kind:              "root",
+					AgentTargetID:     "local:claude-code",
+					Provider:          "claude-code",
+					ProviderSessionID: "provider-session-1",
+					Goal: &agenthost.HistoricalGoal{
+						Desired: map[string]any{
+							"objective":       "count to three",
+							"status":          "active",
+							"startedAtUnixMs": desiredStartedAt,
+						},
+						Observed: map[string]any{
+							"objective":       "count to three",
+							"status":          "complete",
+							"reason":          "done",
+							"startedAtUnixMs": observedStartedAt,
+							"durationMs":      durationMs,
+							"iterations":      1,
+						},
+						Revision:   1,
+						SyncStatus: "synced",
+						LastEvidence: map[string]any{
+							"confidence": "provider_observed",
+						},
+					},
+				}},
+			},
+			TuttiMode: TuttiReplayTuttiMode{
+				Activations:   []TuttiReplayActivation{},
+				TurnSnapshots: []TuttiReplayTurnSnapshot{},
+			},
+			Workflows: []TuttiReplayWorkflow{},
+			Issues:    []TuttiReplayIssue{},
+		}
+	}
+
+	if err := CompareTuttiReplayState(
+		buildState(1_000, 1_001, 50),
+		buildState(9_000, 9_500, 999),
+	); err != nil {
+		t.Fatalf(
+			"Goal startedAtUnixMs/durationMs must be ignored for compare, got %v",
+			err,
+		)
+	}
+
+	err := CompareTuttiReplayState(
+		buildState(1_000, 1_001, 50),
+		func() TuttiReplayState {
+			state := buildState(9_000, 9_500, 999)
+			state.Agent.Sessions[0].Goal.Observed["status"] = "active"
+			return state
+		}(),
+	)
+	if err == nil {
+		t.Fatal("Goal status mismatch must still fail comparison")
+	}
+	var conflict *TuttiReplayStateConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected TuttiReplayStateConflictError, got %v", err)
+	}
+	if conflict.Path != "$.agent.sessions[0].goal.observed.status" {
+		t.Fatalf("conflict path = %q", conflict.Path)
 	}
 }

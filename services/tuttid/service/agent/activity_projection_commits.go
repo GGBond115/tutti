@@ -50,6 +50,13 @@ func (p *ActivityProjection) ObserveCommitted(ctx context.Context, delta agentho
 	if committed := delta.GoalOperation; committed != nil && committed.Stage == agenthost.GoalOperationPrepared && committed.Audit != nil {
 		p.PublishGoalControlAudit(ctx, committed.Operation.WorkspaceID, committed.Operation.AgentSessionID, *committed.Audit)
 	}
+	// Bottom-up session reports attach GoalOperation on ActivityStateDelta but
+	// NotifyCommitted only targets ActivityProjection. Forward those Goal
+	// checkpoints to the Replay observer (Host GoalOperation path already
+	// reaches it through the commit-observer relay).
+	if delta.GoalOperation != nil && delta.ActivityState != nil {
+		agenthost.NotifyCommitted(ctx, p.replayCommitObserver, delta)
+	}
 	if delta.ActivityState == nil && delta.SessionMessages == nil && delta.RuntimeOperation == nil && delta.GoalOperation == nil {
 		for _, invalidated := range delta.ViewsInvalidated {
 			if canonicalSessionDeleted(delta, invalidated) {

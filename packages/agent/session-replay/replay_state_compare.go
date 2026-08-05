@@ -19,11 +19,35 @@ func normalizeReplayStateForComparison(state TuttiReplayState) TuttiReplayState 
 	replacements := map[string]string{}
 	registerReplayIDs(replacements, value)
 	replaceReplayIDs(value, replacements)
+	stripVolatileGoalTimingFields(value)
 
 	normalized, _ := json.Marshal(value)
 	var result TuttiReplayState
 	_ = json.Unmarshal(normalized, &result)
 	return result
+}
+
+// stripVolatileGoalTimingFields drops Goal wall-clock / duration fields that
+// rematerialize differently across record→replay while leaving semantic Goal
+// fields (objective, status, reason, …) in the comparison contract.
+func stripVolatileGoalTimingFields(value map[string]any) {
+	agent, _ := value["agent"].(map[string]any)
+	sessions, _ := agent["sessions"].([]any)
+	for _, item := range sessions {
+		session, _ := item.(map[string]any)
+		goal, _ := session["goal"].(map[string]any)
+		if goal == nil {
+			continue
+		}
+		for _, side := range []string{"desired", "observed"} {
+			payload, ok := goal[side].(map[string]any)
+			if !ok || payload == nil {
+				continue
+			}
+			delete(payload, "startedAtUnixMs")
+			delete(payload, "durationMs")
+		}
+	}
 }
 
 func registerReplayIDs(replacements map[string]string, value map[string]any) {
