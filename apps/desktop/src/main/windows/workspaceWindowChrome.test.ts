@@ -5,11 +5,11 @@ import { resolveWorkspaceWindowChromeOptions } from "./workspaceWindowChrome.ts"
 test("Windows workspace and agent modes use native window chrome", () => {
   assert.deepEqual(
     resolveWorkspaceWindowChromeOptions("win32", "workspace"),
-    { autoHideMenuBar: false }
+    { autoHideMenuBar: true }
   );
   assert.deepEqual(
     resolveWorkspaceWindowChromeOptions("win32", "agent"),
-    { autoHideMenuBar: false }
+    { autoHideMenuBar: true }
   );
 });
 
