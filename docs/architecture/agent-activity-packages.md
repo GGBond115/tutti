@@ -489,6 +489,10 @@ Hosts must pass those calls through to the daemon section endpoints so project
 sections come from current user projects and session membership comes from
 persisted `rail_section_key`, not frontend cwd grouping or project-root
 filters.
+Hosts whose first-page section endpoint accepts less than AgentGUI's default
+refresh limit declare the positive backend maximum through
+`conversationRailQueryLimits.sectionRefreshLimitMax`; AgentGUI clamps adaptive
+same-scope and scope-switch refreshes before calling `listSessionSections`.
 The published `@tutti-os/agent-gui/conversation-rail-runtime` entrypoint owns
 the host-neutral Rail query/mutation cohort. Its stable host surface is the
 typed `createAgentConversationRailRuntime` factory plus the runtime/source

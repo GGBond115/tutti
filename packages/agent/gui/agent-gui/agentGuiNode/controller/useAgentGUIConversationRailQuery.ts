@@ -55,6 +55,8 @@ export function useAgentGUIConversationRailQuery({
         engine,
         getActiveConversationId: () => activeConversationIdRef.current,
         runtime: railRuntime,
+        sectionRefreshLimitMax:
+          runtime.conversationRailQueryLimits?.sectionRefreshLimitMax,
         workspaceId
       }),
     [engine, railRuntime, workspaceId]

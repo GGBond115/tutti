@@ -315,6 +315,13 @@ export interface AgentGUIRuntime {
    */
   origin?: string;
   /**
+   * Host query limits for the Conversation Rail. Omit when the backend accepts
+   * AgentGUI's default limits.
+   */
+  conversationRailQueryLimits?: {
+    sectionRefreshLimitMax: number;
+  };
+  /**
    * The session cwd is not resolvable on the local filesystem (e.g. a
    * shared/cloud sandbox not mounted locally), so AgentGUI must not run its
    * local stat-based "working directory missing" existence check — it would

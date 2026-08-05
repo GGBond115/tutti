@@ -1104,6 +1104,12 @@ adapter-owned diagnostic context: the Desktop runtime adapter enriches
 diagnostic payloads instead of passing it into the headless controller
 interface.
 
+The full AgentGUI surface reads the optional
+`AgentGUIRuntime.conversationRailQueryLimits.sectionRefreshLimitMax` backend
+contract and passes it to that same controller. A host whose section endpoint
+accepts less than AgentGUI's default refresh limit must declare its positive
+maximum instead of relying on transport rejection or adapter-side truncation.
+
 Resolved query results may be reused from the workspace cache. In-flight
 first-page entity payloads are controller-generation scoped and must not be
 shared across mounted controllers: detach, pause, or a scope change must fence
