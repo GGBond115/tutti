@@ -253,6 +253,7 @@ function createWebDeveloperApi(): DesktopDeveloperApi {
 function createWebPlatformApi(): DesktopPlatformApi {
   return {
     appName: "",
+    distribution: "direct",
     homeDirectory: "",
     os: inferPlatform(),
     resolveDroppedEntries() {

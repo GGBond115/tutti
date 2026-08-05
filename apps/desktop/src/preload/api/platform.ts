@@ -2,6 +2,7 @@ import { webUtils } from "electron";
 import { homedir } from "node:os";
 import { statSync } from "node:fs";
 import type { DesktopPlatformApi } from "../types";
+import { resolveDesktopDistribution } from "../../shared/distribution/desktopDistribution.ts";
 
 export function createPlatformDesktopApi(): DesktopPlatformApi {
   return {
@@ -9,6 +10,11 @@ export function createPlatformDesktopApi(): DesktopPlatformApi {
     // in the development environment). Keep the renderer bound to that native
     // value instead of duplicating the product name in UI code.
     appName: process.env.TUTTI_DESKTOP_APP_NAME?.trim() ?? "",
+    distribution: resolveDesktopDistribution({
+      platform: process.platform,
+      windowsStore: (process as NodeJS.Process & { windowsStore?: boolean })
+        .windowsStore
+    }),
     homeDirectory: homedir(),
     os: process.platform,
     resolveDroppedEntries(files: File[]) {
