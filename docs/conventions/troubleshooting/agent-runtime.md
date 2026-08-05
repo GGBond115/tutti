@@ -43,6 +43,7 @@ Provider discovery, installation, authentication, models, configuration, and run
 - [Codex Model Plan turns fail or stay waiting against a Chat-only endpoint](./agent-provider-setup.md#codex-model-plan-turns-fail-or-stay-waiting-against-a-chat-only-endpoint)
 - [Claude Code sessions fail with `effectiveSource: "none"` when CC-Switch or similar proxy tools are used](./agent-provider-setup.md#claude-code-sessions-fail-with-effectivesource-none-when-cc-switch-or-similar-proxy-tools-are-used)
 - [Tutti Agent retries a 402 and shows generic provider setup](./agent-provider-setup.md#tutti-agent-retries-a-402-and-shows-generic-provider-setup)
+- [Tutti Agent repeatedly reconnects after a Codex Apps HTTP 451](./agent-provider-setup.md#tutti-agent-repeatedly-reconnects-after-a-codex-apps-http-451)
 - [OpenCode effort changes fail with `effort not found`](./agent-provider-setup.md#opencode-effort-changes-fail-with-effort-not-found)
 - [OpenCode model picker has fewer models than the terminal](./agent-provider-setup.md#opencode-model-picker-has-fewer-models-than-the-terminal)
 - [Provider setup notice flashes after switching to an already-connected agent](./agent-provider-setup.md#provider-setup-notice-flashes-after-switching-to-an-already-connected-agent)

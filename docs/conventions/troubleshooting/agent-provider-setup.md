@@ -1555,6 +1555,34 @@ invalid_grant`. Search `tuttid.log` for
   header, daemon visible-error classification, and rendered plans-page action as
   separate boundary tests.
 
+### Tutti Agent repeatedly reconnects after a Codex Apps HTTP 451
+
+- Symptom:
+  One Tutti Agent session repeatedly displays `Reconnecting...` while other
+  sessions continue normally. Provider logs contain a Codex Apps or MCP request
+  failing with HTTP 451 such as `no_biscuit_no_service`, followed by rejected
+  terminal-state transitions.
+- Root cause:
+  `tutti-agent login --with-tutti-llm-tokens` replaces authentication state but
+  does not write feature flags to `config.toml`. A run-scoped home created from
+  an explicit auth source may not copy the user's global config at all. Because
+  upstream Apps and Plugins default to enabled, that session can register a
+  Codex-hosted namespace that Tutti Agent auth cannot use.
+- Fix:
+  Runtimeprep must enforce the Tutti Agent hosted-capability policy in every
+  session-scoped config, replacing existing enabled values as well as filling
+  missing values. Disable Apps, plugins, other hosted or namespace features,
+  orchestrator MCP and Skills, hosted web search, and copied MCP server tables.
+  Do not rely on login and do not mutate `~/.tutti-agent/config.toml`.
+- Validation:
+  Start from a session config containing enabled feature values, orchestrator
+  tables, and nested MCP server tables. Prepare the home twice and assert the
+  unsupported sources are disabled exactly once, unrelated settings survive,
+  and the second preparation is byte-for-byte idempotent.
+- References:
+  [runtimeprep tutti_agent.go](../../../packages/agent/runtimeprep/tutti_agent.go)
+  [runtimeprep feature policy](../../../packages/agent/runtimeprep/tutti_agent_features.go)
+
 ### OpenCode effort changes fail with `effort not found`
 
 - Symptom:

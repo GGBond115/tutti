@@ -176,6 +176,91 @@ func TestPrepareTuttiAgentHomeRemovesLegacyPinnedProvider(t *testing.T) {
 	}
 }
 
+func TestPrepareTuttiAgentHomeDisablesUnsupportedHostedFeatures(t *testing.T) {
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.toml")
+	config := strings.Join([]string{
+		`web_search = "live"`,
+		``,
+		`[mcp_servers.example]`,
+		`command = "example"`,
+		``,
+		`[mcp_servers.example.env]`,
+		`MODE = "test"`,
+		``,
+		`[features]`,
+		`apps = true`,
+		`plugins = true`,
+		`memories = true`,
+		`js_repl = false`,
+		``,
+		`[orchestrator.mcp]`,
+		`enabled = true`,
+		``,
+		`[orchestrator.skills]`,
+		`enabled = true`,
+		``,
+		`[projects."/tmp/work"]`,
+		`trust_level = "trusted"`,
+	}, "\n")
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	input := testResolvedInput(t, PrepareInput{Provider: "tutti-agent"})
+	if err := PrepareTuttiAgentHome(home, input); err != nil {
+		t.Fatalf("PrepareTuttiAgentHome() error = %v", err)
+	}
+	first, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared := string(first)
+	if strings.Contains(prepared, "[mcp_servers") || strings.Contains(prepared, `web_search = "live"`) {
+		t.Fatalf("prepared config retains unsupported hosted tools:\n%s", prepared)
+	}
+	if strings.Count(prepared, `web_search = "disabled"`) != 1 {
+		t.Fatalf("prepared config must disable web search exactly once:\n%s", prepared)
+	}
+	for _, feature := range []string{
+		"apps",
+		"current_time_reminder",
+		"image_generation",
+		"imagegenext",
+		"memories",
+		"multi_agent",
+		"multi_agent_v2",
+		"plugins",
+		"standalone_web_search",
+		"tool_suggest",
+	} {
+		if strings.Count(prepared, feature+" = false") != 1 || strings.Contains(prepared, feature+" = true") {
+			t.Fatalf("prepared config must disable %s exactly once:\n%s", feature, prepared)
+		}
+	}
+	for _, table := range []string{"orchestrator.mcp", "orchestrator.skills"} {
+		if !containsConfigBlock(prepared, "["+table+"]\nenabled = false") {
+			t.Fatalf("prepared config must disable %s:\n%s", table, prepared)
+		}
+	}
+	for _, preserved := range []string{`js_repl = false`, `[projects."/tmp/work"]`, `trust_level = "trusted"`} {
+		if !strings.Contains(prepared, preserved) {
+			t.Fatalf("prepared config lost %q:\n%s", preserved, prepared)
+		}
+	}
+
+	if err := PrepareTuttiAgentHome(home, input); err != nil {
+		t.Fatalf("second PrepareTuttiAgentHome() error = %v", err)
+	}
+	second, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(second) != prepared {
+		t.Fatalf("Tutti Agent feature policy is not idempotent:\nfirst:\n%s\nsecond:\n%s", prepared, second)
+	}
+}
+
 func TestPrepareTuttiAgentHomeWritesResponsesModelPlanEndpoint(t *testing.T) {
 	home := t.TempDir()
 	endpoint := &ModelEndpointConfig{

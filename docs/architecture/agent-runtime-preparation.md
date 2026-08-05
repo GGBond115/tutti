@@ -60,6 +60,15 @@ adapter-only contract: materialized bundle roots do not enter the Host public
 lifecycle types or user-visible runtime context. A failed RPC fails startup so
 the thread cannot silently run without its managed Skills.
 
+Runtimeprep also owns Tutti Agent's hosted-capability boundary. Every prepared
+session config disables Codex Apps, plugins, hosted search and image tools,
+memories, native multi-agent features, tool suggestions, orchestrator MCP and
+orchestrator Skills, and removes copied user MCP server tables. Those features
+depend on Codex-hosted services or namespace transports that Tutti Agent auth
+does not provide. The rewrite applies to the session-scoped config copy on
+every preparation, including resumed homes and explicitly sourced auth; it
+must never mutate the user's global `~/.tutti-agent/config.toml`.
+
 Tutti Agent installs its provider-owned embedded Skills beneath the run-scoped
 home during app-server initialization. Before the same extra-roots refresh,
 the Adapter content-addresses that installed tree under

@@ -197,6 +197,10 @@ func ensureTuttiAgentSessionConfig(configPath string, input PrepareInput) error 
 		next = planNext
 		changed = true
 	}
+	if featureNext, featureChanged := tuttiAgentConfigWithUnsupportedFeaturesDisabled(next); featureChanged {
+		next = featureNext
+		changed = true
+	}
 	// Tutti Agent uses the same Codex-derived app-server sandbox runtime as
 	// Codex, but it is launched by Tutti's non-elevated desktop daemon. Keep
 	// the Windows implementation aligned with Codex session homes so an
