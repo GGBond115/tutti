@@ -31,6 +31,7 @@ import {
 const connectorMarketModule = new ConnectorMarketModule({
   market: {
     backend: hostConnectorMarketBackend,
+    canRequest: () => hostAccountState.authenticated,
     events: hostConnectorMarketEvents
   },
   scope: { workspaceId }
@@ -51,6 +52,10 @@ await connectorMarketModule.activate(workspaceServices);
 The backend adapter wraps the host's generated daemon client and maps transport
 DTOs into package domain types. Daemon events are invalidation hints; the
 service re-reads the authoritative daemon snapshot before publishing new state.
+Hosts whose market requires authentication must provide `canRequest`. A false
+result keeps startup, reconnect, resume, and command paths transport-silent
+while still allowing the module lifecycle to reach `ready`; after the host
+observes an authenticated transition it calls `root.market.reload()`.
 Starting an event subscription and every observed `connected` state trigger an
 authoritative reconciliation, including the first connection. Snapshot reads
 are coalesced per workspace generation and a connection/event arriving during

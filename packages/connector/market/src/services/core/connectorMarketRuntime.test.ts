@@ -69,6 +69,43 @@ test("module activation runs all service startup jobs before ready", async () =>
   assert.equal(unsubscriptions, 1);
 });
 
+test("module activation skips market requests until the host admits them", async () => {
+  let requestAllowed = false;
+  let snapshotLoads = 0;
+  let categoryLoads = 0;
+  const module = new ConnectorMarketModule({
+    market: {
+      backend: backendWith({
+        getSnapshot: async () => {
+          snapshotLoads += 1;
+          return snapshot(1, []);
+        },
+        listCategories: async () => {
+          categoryLoads += 1;
+          return [];
+        }
+      }),
+      canRequest: () => requestAllowed,
+      events: eventSource({})
+    },
+    scope: { workspaceId: "workspace-1" }
+  });
+
+  await module.activate(new InstantiationService());
+
+  assert.equal(module.lifecycle.phase, "ready");
+  assert.equal(snapshotLoads, 0);
+  assert.equal(categoryLoads, 0);
+
+  requestAllowed = true;
+  await module.root.market.reload();
+
+  assert.equal(snapshotLoads, 1);
+  assert.equal(categoryLoads, 1);
+  assert.equal(module.root.view.dataStore.status, "empty");
+  module.dispose();
+});
+
 test("module activation rejects and releases started services when synchronization fails", async () => {
   let unsubscriptions = 0;
   const failure = new Error("catalog unavailable");

@@ -33,6 +33,8 @@ export interface ConnectorMarketStoreState {
 
 export interface ConnectorMarketServiceDependencies {
   backend: ConnectorMarketBackend;
+  /** Host-owned admission check for transport requests. */
+  canRequest?: () => boolean;
   events?: ConnectorMarketEventSource;
   workspaceId?: string;
   createRequestId?: () => string;

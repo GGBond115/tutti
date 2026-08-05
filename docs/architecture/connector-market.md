@@ -172,6 +172,10 @@ synchronizing -> materializing -> ready`; failure is terminal and disposes
   and daemon revision; `dispose()` is idempotent and terminal
 - event refreshes are coalesced, daemon reconnect performs a full reload, and
   accepted commands are followed through the operation endpoint or events
+- hosts gate connector-market transport through `canRequest`; Tutti binds it to
+  account authentication, activates the module without network access while
+  signed out, reloads after login, and keeps reconnect/resume paths silent
+  after logout
 - the shared renderer subscribes at leaf components through a stable context,
   uses `@tutti-os/ui-system`, and owns no transport, startup, disposal, or
   business-state reconciliation

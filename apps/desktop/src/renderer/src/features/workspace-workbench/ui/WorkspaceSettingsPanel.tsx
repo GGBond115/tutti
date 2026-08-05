@@ -135,6 +135,7 @@ import {
 } from "../services/workspaceWallpaper";
 import { WorkspaceModelPlansSection } from "./WorkspaceModelPlansSection";
 import { WorkspaceConnectionSettingsSection } from "./WorkspaceConnectionSettingsSection";
+import { useAccountService } from "./useAccountService";
 import {
   workspaceSettingsInputClass,
   workspaceSettingsSelectContentClass,
@@ -187,6 +188,7 @@ export function WorkspaceSettingsPanel({
     useDesktopPreferencesService();
   const { service: settingsService, state: settingsState } =
     useWorkspaceSettingsService();
+  const { state: accountState } = useAccountService();
   const versionTapCountRef = useRef(0);
   const pendingFeatureFlags =
     desktopPreferencesState.changingFeatureFlags ??
@@ -241,6 +243,12 @@ export function WorkspaceSettingsPanel({
       settingsService.selectAgentTab("general");
     }
   }, [automationRulesEnabled, settingsService, settingsState.agentTab]);
+
+  useEffect(() => {
+    if (!accountState.user && settingsState.agentTab === "connectors") {
+      settingsService.selectAgentTab("general");
+    }
+  }, [accountState.user, settingsService, settingsState.agentTab]);
 
   const handleVersionTap = () => {
     if (settingsState.developerPanelVisible) {
@@ -424,10 +432,14 @@ export function WorkspaceSettingsPanel({
                       value: "agents" as const,
                       label: t("workspace.settings.agent.tabs.agents")
                     },
-                    {
-                      value: "connectors" as const,
-                      label: translateConnectorMarket("title")
-                    },
+                    ...(accountState.user
+                      ? [
+                          {
+                            value: "connectors" as const,
+                            label: translateConnectorMarket("title")
+                          }
+                        ]
+                      : []),
                     {
                       value: "customAgents" as const,
                       label: t("workspace.settings.agent.tabs.customAgents")
@@ -493,7 +505,8 @@ export function WorkspaceSettingsPanel({
                       agentEnvService.open({ focus: "detect", provider })
                     }
                   />
-                ) : settingsState.agentTab === "connectors" ? (
+                ) : settingsState.agentTab === "connectors" &&
+                  accountState.user ? (
                   <ConnectorMarketPanel
                     i18n={connectorMarketI18n}
                     root={connectorMarketModule.root}

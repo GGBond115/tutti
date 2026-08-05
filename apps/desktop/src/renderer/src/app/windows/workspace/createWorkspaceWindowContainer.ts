@@ -69,6 +69,7 @@ import type { IDesktopRichTextAtService } from "@renderer/features/rich-text-at/
 import type { IWorkspaceUserProjectService } from "@renderer/features/workspace-user-project/services/workspaceUserProjectService.interface.ts";
 import type { IWorkspaceAppCenterService } from "@renderer/features/workspace-app-center/services/workspaceAppCenterService.interface.ts";
 import type { AgentSessionReplayDesktopComposition } from "@renderer/features/agent-session-replay/services/agentSessionReplayDesktopComposition.ts";
+import { subscribe } from "valtio/vanilla";
 
 const workspaceRendererInstanceId =
   createWorkspaceWindowInstanceId("workspace-renderer");
@@ -156,24 +157,6 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
     reporterService
   });
   let disposeAgentOutcomeNotificationController: (() => void) | null = null;
-  const connectorMarketModule = registerConnectorMarketModule(registry, {
-    client: tuttidClient,
-    eventStreamClient: tuttidEventStreamClient,
-    openAuthorizationUrl: (url) => desktopApi.host.files.openExternal(url),
-    reportDiagnostic: (error) => {
-      void desktopApi.runtime
-        .logRendererDiagnostic({
-          details: {
-            message: error instanceof Error ? error.message : String(error)
-          },
-          event: "connector_market.service_error",
-          level: "warn",
-          source: "workspace-renderer"
-        })
-        .catch(() => undefined);
-    },
-    workspaceId: activeWorkspaceID
-  });
   registerAppUpdateServices(registry, desktopApi, {
     reporterService
   });
@@ -227,6 +210,25 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
   const accountService = registerWorkspaceAccountService(registry, {
     hostFilesApi: desktopApi.host.files,
     tuttidClient
+  });
+  const connectorMarketModule = registerConnectorMarketModule(registry, {
+    canRequest: () => accountService.store.user !== null,
+    client: tuttidClient,
+    eventStreamClient: tuttidEventStreamClient,
+    openAuthorizationUrl: (url) => desktopApi.host.files.openExternal(url),
+    reportDiagnostic: (error) => {
+      void desktopApi.runtime
+        .logRendererDiagnostic({
+          details: {
+            message: error instanceof Error ? error.message : String(error)
+          },
+          event: "connector_market.service_error",
+          level: "warn",
+          source: "workspace-renderer"
+        })
+        .catch(() => undefined);
+    },
+    workspaceId: activeWorkspaceID
   });
   const workspaceAgentServices = registerWorkspaceAgentServices(registry, {
     accountLogin: accountService,
@@ -335,6 +337,20 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
   });
   const container = new InstantiationService(registry.makeCollection());
   await connectorMarketModule.activate(container);
+  let connectorMarketAccountAuthenticated = accountService.store.user !== null;
+  const disposeConnectorMarketAccountRefresh = subscribe(
+    accountService.store,
+    () => {
+      const authenticated = accountService.store.user !== null;
+      if (authenticated === connectorMarketAccountAuthenticated) {
+        return;
+      }
+      connectorMarketAccountAuthenticated = authenticated;
+      if (authenticated) {
+        void connectorMarketModule.root.market.reload().catch(() => undefined);
+      }
+    }
+  );
   let connectorMarketResumeRefresh: Promise<void> | null = null;
   const disposeConnectorMarketResumeRefresh = windowLifecycle.subscribe(
     (event) => {
@@ -375,6 +391,7 @@ export async function createWorkspaceWindowContainer(): Promise<WorkspaceWindowC
     disposeAgentOutcomeNotificationController = null;
     agentAvailabilitySnapshotAnalytics?.dispose();
     predefinePageviewAnalytics?.dispose();
+    disposeConnectorMarketAccountRefresh();
     disposeConnectorMarketResumeRefresh();
     workspaceAgentServices.dispose();
     windowLifecycle.dispose();

@@ -13,6 +13,7 @@ import { createDesktopConnectorMarketBackend } from "./internal/desktopConnector
 import { createDesktopConnectorMarketEvents } from "./internal/desktopConnectorMarketEvents.ts";
 
 export interface ConnectorMarketModuleRegistrationInput {
+  canRequest?: () => boolean;
   client: ConnectorMarketClient;
   eventStreamClient: TuttidEventStreamClient;
   openAuthorizationUrl?: (url: string) => Promise<void>;
@@ -28,6 +29,7 @@ export function registerConnectorMarketModule(
   const module = new ConnectorMarketModule({
     market: {
       backend: createDesktopConnectorMarketBackend(input.client),
+      canRequest: input.canRequest,
       events: createDesktopConnectorMarketEvents(input.eventStreamClient),
       openAuthorizationUrl: input.openAuthorizationUrl,
       reportDiagnostic: input.reportDiagnostic

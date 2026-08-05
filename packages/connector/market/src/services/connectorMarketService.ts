@@ -81,21 +81,25 @@ export class ConnectorMarketService implements IConnectorMarketService {
   }
 
   ensureLoaded(): Promise<void> {
-    if (this.disposed || this.dataStore.loadState !== "idle") {
+    if (
+      this.disposed ||
+      !this.canRequest() ||
+      this.dataStore.loadState !== "idle"
+    ) {
       return Promise.resolve();
     }
     return this.load(true);
   }
 
   reload(): Promise<void> {
-    if (this.disposed) {
+    if (this.disposed || !this.canRequest()) {
       return Promise.resolve();
     }
     return this.load(this.dataStore.loadState === "idle");
   }
 
   refreshCatalog(): Promise<void> {
-    if (this.disposed) {
+    if (this.disposed || !this.canRequest()) {
       return Promise.resolve();
     }
     if (this.refreshInFlight) {
@@ -130,7 +134,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
   }
 
   loadMore(sectionId: string): Promise<void> {
-    if (this.disposed) {
+    if (this.disposed || !this.canRequest()) {
       return Promise.resolve();
     }
     const existing = this.sectionLoads.get(sectionId);
@@ -185,7 +189,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
   }
 
   async beginAuthorization(connectorKey: string): Promise<void> {
-    if (this.disposed) {
+    if (this.disposed || !this.canRequest()) {
       return;
     }
     const workspaceId = this.dataStore.workspaceId;
@@ -232,7 +236,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
     connectorKey: string,
     enabled: boolean
   ): Promise<void> {
-    if (this.disposed) {
+    if (this.disposed || !this.canRequest()) {
       return;
     }
     const workspaceId = this.dataStore.workspaceId;
@@ -300,6 +304,9 @@ export class ConnectorMarketService implements IConnectorMarketService {
   }
 
   private async load(showLoading: boolean): Promise<void> {
+    if (!this.canRequest()) {
+      return;
+    }
     const generation = this.workspaceGeneration;
     const workspaceId = this.dataStore.workspaceId;
     if (this.loadInFlight?.generation === generation) {
@@ -424,7 +431,7 @@ export class ConnectorMarketService implements IConnectorMarketService {
     connectorKey: string,
     operation: () => Promise<ConnectorMutationResult>
   ): Promise<void> {
-    if (this.disposed) {
+    if (this.disposed || !this.canRequest()) {
       return;
     }
     const token = this.acquireConnectorMutation(connectorKey);
@@ -461,6 +468,10 @@ export class ConnectorMarketService implements IConnectorMarketService {
 
   private isCurrent(generation: number): boolean {
     return !this.disposed && generation === this.workspaceGeneration;
+  }
+
+  private canRequest(): boolean {
+    return this.dependencies.canRequest?.() ?? true;
   }
 
   private isCurrentMutation(
