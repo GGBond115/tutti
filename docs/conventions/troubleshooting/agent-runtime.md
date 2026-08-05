@@ -16,6 +16,7 @@ Provider discovery, installation, authentication, models, configuration, and run
 - [Claude SDK context window shows 200k for 1M models](./agent-provider-setup.md#claude-sdk-context-window-shows-200k-for-1m-models)
 - [Codex npm install misses the platform package](./agent-provider-setup.md#codex-npm-install-misses-the-platform-package)
 - [Tutti Agent npm install misses the platform package](./agent-provider-setup.md#tutti-agent-npm-install-misses-the-platform-package)
+- [Managed npm install fails before reaching every registry](./agent-provider-setup.md#managed-npm-install-fails-before-reaching-every-registry)
 - [Tutti Agent unexpectedly loses login after a host auth read failure](./agent-provider-setup.md#tutti-agent-unexpectedly-loses-login-after-a-host-auth-read-failure)
 - [Agent sandbox cannot reach local daemon](./agent-provider-setup.md#agent-sandbox-cannot-reach-local-daemon)
 - [Codex provider install fails with missing npm](./agent-provider-setup.md#codex-provider-install-fails-with-missing-npm)
