@@ -527,9 +527,11 @@ test("WorkspaceSettingsService does not replace or track when UI mode persistenc
   assert.equal(replacements, 0);
   assert.deepEqual(reporterCalls, []);
   assert.equal(modeErrors.length, 1);
-  assert.equal((modeErrors[0]?.error as Error).message, "save failed");
+  const modeError = modeErrors[0];
+  assert.ok(modeError);
+  assert.equal((modeError.error as Error).message, "save failed");
   assert.deepEqual(modeErrors[0], {
-    error: modeErrors[0]?.error,
+    error: modeError.error,
     mode: "agent",
     previousMode: "os",
     workspaceId: "workspace-1"
