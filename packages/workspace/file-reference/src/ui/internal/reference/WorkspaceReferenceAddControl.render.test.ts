@@ -86,6 +86,8 @@ test("reference add control forwards dropdown trigger interactions", async () =>
 
     const menu = dom.window.document.querySelector('[role="menu"]');
     assert.ok(menu);
+    assert.match(menu.className, /w-max/);
+    assert.match(menu.className, /whitespace-nowrap/);
     assert.match(menu.textContent ?? "", /Upload file/);
     assert.match(menu.textContent ?? "", /Browse files/);
   } finally {
@@ -144,9 +146,11 @@ function buildReferenceAddControlRenderModule(tempDir: string): string {
         }
         return h("button", null, children);
       }
-      export function DropdownMenuContent({ children }) {
+      export function DropdownMenuContent({ children, className }) {
         const menu = useContext(MenuContext);
-        return menu.open ? h("div", { role: "menu" }, children) : null;
+        return menu.open
+          ? h("div", { className, role: "menu" }, children)
+          : null;
       }
       export function DropdownMenuItem({ children, onSelect }) {
         return h("button", { role: "menuitem", onClick: onSelect }, children);

@@ -80,7 +80,10 @@ export function WorkspaceReferenceAddControl({
           label={labels.addContent}
         />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="nodrag min-w-40">
+      <DropdownMenuContent
+        align="start"
+        className="nodrag w-max min-w-40 whitespace-nowrap"
+      >
         <DropdownMenuItem onSelect={onUploadFile}>
           <UploadIcon aria-hidden="true" className="size-4" />
           {labels.uploadFile ?? labels.addContent}
