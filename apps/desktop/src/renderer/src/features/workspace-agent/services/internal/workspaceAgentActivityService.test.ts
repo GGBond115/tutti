@@ -817,8 +817,21 @@ test("WorkspaceAgentActivityService does not wait for pending activation analyti
 test("WorkspaceAgentActivityService isolates rejected send analytics from the prompt command", async (t) => {
   let sendCalls = 0;
   const readySession = workspaceAgentSession({ status: "ready" });
+  const submittedTurn = {
+    ...workspaceAgentTurn({ phase: "submitted" }),
+    turnId: "turn-analytics-rejected"
+  };
   const service = new WorkspaceAgentActivityService({
     tuttidClient: {
+      getWorkspaceAgentSession: async (
+        ...args: Parameters<TuttidClient["getWorkspaceAgentSession"]>
+      ) => ({
+        ...sessionDetailProjection(args[2]),
+        childSessions: [],
+        editRetry: workspaceAgentEditRetryAvailability(),
+        session: readySession,
+        turns: [submittedTurn]
+      }),
       listWorkspaceAgentSessions: async () => ({
         hasMore: false,
         sessions: [readySession],
@@ -830,7 +843,7 @@ test("WorkspaceAgentActivityService isolates rejected send analytics from the pr
           kind: "turn",
           session: readySession,
           turnId: "turn-analytics-rejected",
-          turn: workspaceAgentTurn({ phase: "submitted" })
+          turn: submittedTurn
         };
       }
     } as unknown as TuttidClient,
