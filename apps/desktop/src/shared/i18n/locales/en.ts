@@ -1296,6 +1296,9 @@ export const en = {
         automationRulesDescription:
           "Shows Automation Rule configuration and session overrides.",
         automationRulesLabel: "Automation Rules",
+        conversationActivityViewDescription:
+          "Shows the Activity View for conversations in the Agent sidebar.",
+        conversationActivityViewLabel: "Conversation Activity View",
         clearShortcutLabel: "Clear {{label}}",
         newAgentConversationShortcutLabel: "New Agent conversation",
         newSameTypeWindowShortcutLabel: "New same-type window",

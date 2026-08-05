@@ -74,7 +74,7 @@ Activity View 的核心价值是把 Conversation Rail 从“目录”临时切�
 4. 视图复用现有 canonical lifecycle 和 attention/read facts，不创建第二套会话状态。
 5. 实时状态变化无需刷新即可更新行状态；成员与顺序按 Codex activation snapshot/incremental-merge 规则保持稳定。
 6. 普通 Rail 的项目组织、搜索、置顶、会话操作和选择行为保持兼容。
-7. Desktop host 显式启用该能力；共享 `agent-gui` 的外部 host 可通过 runtime capability 关闭且不受行为影响。
+7. Desktop host 通过【实验室】中的 Activity View 开关选择性启用该能力，默认关闭；共享 `agent-gui` 的外部 host 仍可通过 runtime capability 关闭且不受行为影响。
 
 ### 3.2 非目标
 
@@ -197,7 +197,7 @@ interface AgentGUIRuntime {
 }
 ```
 
-- Desktop Workbench 与独立 Agent 窗口使用的 Desktop runtime 显式传入 `conversationActivityViewEnabled: true`；
+- Desktop Workbench 与独立 Agent 窗口使用的 Desktop runtime 仍显式声明 `conversationActivityViewEnabled: true`，但最终入口还受【实验室】`lab.conversationActivityView` 开关控制，默认关闭；
 - 外部 host 传入 `false` 或不提供 `conversationActivityViewEnabled` 时视为禁用；
 - 有效启用条件为 runtime capability 严格等于 `true`；
 - 禁用时不注册入口，不创建 activation；
