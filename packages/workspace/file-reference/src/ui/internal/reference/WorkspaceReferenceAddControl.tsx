@@ -8,7 +8,7 @@ import {
   FolderOpenLinedIcon,
   UploadIcon
 } from "@tutti-os/ui-system";
-import { forwardRef } from "react";
+import { forwardRef, type ComponentPropsWithoutRef } from "react";
 
 export interface WorkspaceReferenceAddControlLabels {
   addContent: string;
@@ -26,24 +26,22 @@ export interface WorkspaceReferenceAddControlProps {
 
 const AddButton = forwardRef<
   HTMLButtonElement,
-  {
-    className?: string;
-    disabled?: boolean;
+  Omit<
+    ComponentPropsWithoutRef<typeof Button>,
+    "aria-label" | "children" | "size" | "title" | "type" | "variant"
+  > & {
     label: string;
-    onClick?: () => void;
   }
->(function AddButton({ className, disabled, label, onClick }, ref) {
+>(function AddButton({ label, ...props }, ref) {
   return (
     <Button
+      {...props}
       ref={ref}
       aria-label={label}
-      className={className}
-      disabled={disabled}
       size="icon-sm"
       title={label}
       type="button"
       variant="ghost"
-      onClick={onClick}
     >
       <AddLinedIcon aria-hidden="true" className="size-4" />
     </Button>
