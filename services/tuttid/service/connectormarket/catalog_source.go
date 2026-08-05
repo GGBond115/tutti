@@ -224,11 +224,13 @@ func (source *CatalogSource) mapItem(item wireMarketItem) (market.Release, error
 		!containsString(connectorManifest.SupportedMarkets, source.expectedMarketType) {
 		return market.Release{}, errors.New("connector manifest identity or market does not match item")
 	}
+	if !isSHA256Hex(connectorManifest.Payload.PackageManifestSHA256) {
+		return market.Release{}, errors.New("connector manifest package digest is invalid")
+	}
 	implementation, ok := connectorManifest.Payload.Implementations[source.expectedMarketType]
 	if !ok {
 		return market.Release{}, errors.New("connector manifest does not provide the configured market implementation")
 	}
-	manifestDigest := sha256.Sum256(manifestBytes)
 	releaseDigest := sha256.Sum256([]byte(item.ItemKey + "\x00" + item.Version + "\x00" + item.Artifact.SHA256))
 	manifest := market.Manifest{SchemaVersion: "1", DisplayName: connectorManifest.Display.Name,
 		Description: connectorManifest.Display.Description, Permissions: connectorManifest.Payload.Permissions,
@@ -236,7 +238,7 @@ func (source *CatalogSource) mapItem(item wireMarketItem) (market.Release, error
 		Compatibility: connectorManifest.Payload.Compatibility}
 	release := market.Release{SchemaVersion: "1", ReleaseID: item.ItemKey + "@" + item.Version,
 		ConnectorKey: item.ItemKey, Version: item.Version,
-		ReleaseDigest: hex.EncodeToString(releaseDigest[:]), ManifestDigest: hex.EncodeToString(manifestDigest[:]),
+		ReleaseDigest: hex.EncodeToString(releaseDigest[:]), ManifestDigest: connectorManifest.Payload.PackageManifestSHA256,
 		Manifest: manifest, Artifact: market.Artifact{Key: item.Artifact.Key, SHA256: item.Artifact.SHA256,
 			SizeBytes: int64(item.Artifact.SizeBytes), MediaType: artifactMediaType(item.Artifact.Key)},
 		PublishedAt: time.UnixMilli(int64(item.PublishedAtMS)).UTC(), Status: market.ReleaseStatusAvailable}
@@ -315,10 +317,11 @@ type wireConnectorDisplay struct {
 }
 
 type wireConnectorManifestPayload struct {
-	Permissions     []string                         `json:"permissions"`
-	Authorization   wireConnectorAuthorization       `json:"authorization"`
-	Compatibility   market.CompatibilityRequirements `json:"compatibility"`
-	Implementations map[string]market.Implementation `json:"implementations"`
+	Permissions           []string                         `json:"permissions"`
+	PackageManifestSHA256 string                           `json:"packageManifestSha256"`
+	Authorization         wireConnectorAuthorization       `json:"authorization"`
+	Compatibility         market.CompatibilityRequirements `json:"compatibility"`
+	Implementations       map[string]market.Implementation `json:"implementations"`
 }
 
 type wireConnectorAuthorization struct {
@@ -353,4 +356,16 @@ func isLoopbackHost(host string) bool {
 func safeArtifactKey(key string) bool {
 	cleaned := path.Clean(strings.TrimSpace(key))
 	return cleaned != "." && cleaned != ".." && cleaned == key && !path.IsAbs(cleaned) && !strings.HasPrefix(cleaned, "../") && !strings.Contains(cleaned, "\\")
+}
+
+func isSHA256Hex(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
 }

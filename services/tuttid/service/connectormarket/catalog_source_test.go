@@ -51,6 +51,7 @@ func TestCatalogSourceMapsPublishedConnectorItems(t *testing.T) {
       "supportedMarkets": ["overseas"],
       "payload": {
         "permissions": ["repository.read"],
+        "packageManifestSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "authorization": {"kind": "none"},
         "compatibility": {},
         "implementations": {
@@ -92,7 +93,7 @@ func TestCatalogSourceMapsPublishedConnectorItems(t *testing.T) {
 		t.Fatalf("snapshot = %#v", result)
 	}
 	got := result.Releases[0]
-	if got.ConnectorKey != "github" || got.ReleaseID != "github@1.0.0" || got.Artifact.SizeBytes != 123 || got.Artifact.MediaType != "application/zip" || got.Manifest.Implementation.ManagedStdio == nil {
+	if got.ConnectorKey != "github" || got.ReleaseID != "github@1.0.0" || got.ManifestDigest != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" || got.Artifact.SizeBytes != 123 || got.Artifact.MediaType != "application/zip" || got.Manifest.Implementation.ManagedStdio == nil {
 		t.Fatalf("release = %#v", got)
 	}
 }
