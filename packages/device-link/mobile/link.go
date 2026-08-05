@@ -205,12 +205,20 @@ func (l *Link) OpenStreamWithRelay(
 		Fallback: linkmanager.DialPath{
 			Name: transportRelay,
 			Dial: func(dialCtx context.Context) (net.Conn, error) {
-				return relaytransport.Dial(dialCtx, relaytransport.DialRequest{
+				conn, dialErr := relaytransport.Dial(dialCtx, relaytransport.DialRequest{
 					Endpoint:    endpoint,
 					Query:       query,
 					Header:      http.Header(headers),
 					Subprotocol: subprotocol,
 				})
+				if dialErr != nil {
+					return nil, dialErr
+				}
+				if probeErr := devicelink.ProbeStream(dialCtx, conn); probeErr != nil {
+					_ = conn.Close()
+					return nil, fmt.Errorf("probe Relay stream: %w", probeErr)
+				}
+				return conn, nil
 			},
 		},
 		FallbackDelay: 0,

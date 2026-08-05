@@ -145,6 +145,17 @@ func TestOpenStreamWithRelayStartsBeforeConnect(t *testing.T) {
 	if got := stream.transport; got != "relay" {
 		t.Fatalf("transport = %q, want relay", got)
 	}
+	if err := stream.SetDeadline(5_000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Write([]byte("relay-payload")); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, len("relay-payload"))
+	count := stream.ReadInto(buffer)
+	if count != len(buffer) || string(buffer[:count]) != "relay-payload" {
+		t.Fatalf("relay echo = %q (%d bytes)", buffer[:max(count, 0)], count)
+	}
 }
 
 func TestOpenStreamWithRelayDoesNotSelectUnresponsiveDirectStream(t *testing.T) {
