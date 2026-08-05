@@ -787,6 +787,7 @@ export function StandaloneAgentWindow({
               toolSidebar={isContentLoading ? null : toolSidebar}
               showConversationRailToggle={!isContentLoading}
               showAppTitle
+              showWindowControls={desktopApi.platform.os !== "win32"}
               title={i18n.t("workspace.agentGui.fallbackAgentLabel")}
               windowActions={{
                 close: () => {

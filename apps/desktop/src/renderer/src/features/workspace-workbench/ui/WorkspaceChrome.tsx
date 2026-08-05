@@ -17,7 +17,6 @@ import { WorkspaceAccountMenu } from "./WorkspaceAccountMenu";
 import { WorkspaceFeedbackGroupPopover } from "./WorkspaceFeedbackGroupPopover";
 import { WorkspaceAgentMessageCenterAction } from "./WorkspaceAgentMessageCenterAction";
 import {
-  WorkspaceExportLogsAction,
   WorkspaceMissionControlActions,
   WorkspaceSettingsTrigger
 } from "./WorkspaceChromeActions";
@@ -158,7 +157,6 @@ export function WorkspaceChrome({
             setOpen={setMessageCenterOpen}
             workspace={workspace}
           />
-          <WorkspaceExportLogsAction platform={platform} />
           <WorkspaceMissionControlActions
             missionControl={missionControl}
             platform={platform}
