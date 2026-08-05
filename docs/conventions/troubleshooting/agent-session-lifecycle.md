@@ -818,6 +818,42 @@ Turn state, loading, cancel, restore, file-change undo, rail projection, event u
   [sessionReconcile.reducer.ts](../../../packages/agent/activity-core/src/engine/sessionReconcile.reducer.ts)
   [useAgentGUIConversationSelectionController.ts](../../../packages/agent/gui/agent-gui/agentGuiNode/controller/useAgentGUIConversationSelectionController.ts)
 
+### New Goal spinner stops before the first reply, then starts after it appears
+
+- Symptom:
+  Creating a Session with an initial Goal starts the processing indicator, then
+  stops it as soon as the canonical Session appears. The provider continues
+  working without an indicator. When the first assistant message and canonical
+  Turn arrive, the indicator starts again until the Turn settles.
+- Quick checks:
+  Compare the Claude SDK `session_state_changed` lifecycle log, activity stream
+  connection, Engine runtime activity, canonical Session, and canonical latest
+  Turn. The characteristic gap has SDK state `running`, a canonical Session, no
+  latest Turn, and Engine runtime activity still `idle`. Do not use assistant
+  message arrival as Turn identity. If the desktop log reports `Event stream
+catalog revision mismatch`, fully restart `dev:desktop`; renderer HMR cannot
+  replace the already running Go daemon binary.
+- Root cause:
+  Claude emits an exact session-level `running` observation before the first
+  provider Turn identity, but the daemon previously logged and discarded it.
+  Goal-only creation correctly has `initialTurnExpected = false`, so neither a
+  pending prompt nor a canonical Turn can bridge that interval.
+- Fix:
+  Normalize the SDK observation to provider-neutral `running`/`idle` runtime
+  activity, publish it as an ephemeral activity-stream event, and let the
+  workspace Engine drive AgentGUI and rail busy projection. Clear ephemeral
+  runtime activity on disconnect. Keep Goal turnless and do not invent
+  lifecycle state, provider-specific timers, or synthetic Turn IDs.
+- Validation:
+  Cover SDK projection without Turn identity, post-commit event publication,
+  activity-stream ingestion before canonical Session hydration, AgentGUI busy
+  projection, `idle`, and disconnect cleanup.
+- References:
+  [claude_sdk_events.go](../../../packages/agent/daemon/runtime/claude_sdk_events.go)
+  [workspaceEventCoordinator.ts](../../../packages/agent/activity-core/src/workspaceEventCoordinator.ts)
+  [useAgentGUISessionPresentation.ts](../../../packages/agent/gui/agent-gui/agentGuiNode/controller/useAgentGUISessionPresentation.ts)
+  [agent-gui-node.md](../../architecture/agent-gui-node.md)
+
 ### AgentGUI detail misses or misplaces a canonical Turn error
 
 - Symptom:
@@ -901,6 +937,30 @@ Turn state, loading, cancel, restore, file-change undo, rail projection, event u
   [controller_root_turn.go](../../../packages/agent/daemon/runtime/controller_root_turn.go)
   [visible_error.go](../../../packages/agent/daemon/runtime/visible_error.go)
   [agent_runtime_adapter.go](../../../services/tuttid/agent_runtime_adapter.go)
+
+### Failed Claude Turn looks like no reply or renders raw 522 payload
+
+- Symptom:
+  Claude produces no normal assistant reply, and the eventual failed message is
+  a raw `API Error: 522` payload instead of the standard timeout card.
+- Quick checks:
+  Confirm the canonical Turn settled as failed with `request_timed_out`, while
+  its persisted assistant message is plain failed text containing the explicit
+  522 signature rather than a structured visible error.
+- Root cause:
+  The SDK can report a gateway timeout as a failed assistant text message. The
+  generic failed-message recovery recognized network socket markers but not the
+  unambiguous HTTP 522 signature, so the raw provider payload reached Markdown.
+- Fix:
+  Classify only explicit 522 markers as `request_timed_out` in the shared failed
+  message presentation. Keep generic timeout prose unclassified to avoid
+  rewriting ordinary assistant content.
+- Validation:
+  Cover both classification and rendered output: the timeout card is visible
+  and the raw payload is absent.
+- References:
+  [agentErrorPresentation.ts](../../../packages/agent/gui/shared/agentEnv/agentErrorPresentation.ts)
+  [AgentMessageBlock.tsx](../../../packages/agent/gui/shared/agentConversation/components/AgentMessageBlock.tsx)
 
 ### Codex WebSocket reconnect rejects a long prompt metadata header
 

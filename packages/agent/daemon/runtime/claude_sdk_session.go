@@ -227,6 +227,9 @@ func claudeSDKRuntimeContext(session Session, adapterSession *claudeSDKAdapterSe
 	if len(liveState.goal) > 0 {
 		context["goal"] = clonePayload(liveState.goal)
 	}
+	if liveState.runtimeActivity != "" {
+		context["runtimeActivityState"] = liveState.runtimeActivity
+	}
 	return context
 }
 

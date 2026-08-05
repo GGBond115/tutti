@@ -1,5 +1,9 @@
 import { act, renderHook } from "@testing-library/react";
-import { createAgentSessionEngine } from "@tutti-os/agent-activity-core";
+import {
+  createAgentSessionEngine,
+  type AgentActivityTurn,
+  type PendingActivationIntentRecord
+} from "@tutti-os/agent-activity-core";
 import { describe, expect, it, vi } from "vitest";
 import { createTestEngineCommandPort } from "../../../shared/testing/createTestAgentSessionEngine";
 import type {
@@ -73,7 +77,7 @@ describe("useAgentGUISessionPresentation", () => {
     });
   });
 
-  it("keeps a confirmed Session busy until its pending submit is confirmed by a Turn", () => {
+  it("keeps a confirmed Session busy until its expected Turn exists", () => {
     const sessionEngine = createAgentSessionEngine({
       clock: { nowUnixMs: () => 1 },
       commandPort: createTestEngineCommandPort({
@@ -88,8 +92,9 @@ describe("useAgentGUISessionPresentation", () => {
       activeEngineActiveTurn: null,
       activeEngineAvailability: "available",
       activeEngineHasPendingInteractions: false,
-      activeEngineLatestTurn: null,
+      activeEngineLatestTurn: null as AgentActivityTurn | null,
       activeEngineRuntimeAvailability: null,
+      activeEngineRuntimeActivity: "idle" as "idle" | "running",
       activeEngineSession: {
         agentSessionId: "session-1",
         goal: null,
@@ -105,7 +110,7 @@ describe("useAgentGUISessionPresentation", () => {
       activeLatestPendingSubmitTurnId: null as string | null,
       activeLiveState: "active",
       activeMessages: [],
-      activePendingActivation: null,
+      activePendingActivation: null as PendingActivationIntentRecord | null,
       activeSessionState: null,
       activeTimelineItems: [],
       activationError: null,
@@ -151,6 +156,51 @@ describe("useAgentGUISessionPresentation", () => {
     input.hasUnconfirmedSubmit = false;
     rendered.rerender();
 
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+
+    input.activePendingActivation = {
+      agentSessionId: "session-1",
+      agentTargetId: "local:claude-code",
+      clientSubmitId: "submit-1",
+      content: [{ type: "text", text: "hello" }],
+      cwd: "/workspace",
+      errorCode: null,
+      errorMessage: null,
+      expiresAtUnixMs: Number.MAX_SAFE_INTEGER,
+      initialPromptRetracted: false,
+      initialTurnExpected: true,
+      mode: "new",
+      requestedAtUnixMs: 1,
+      requestId: "request-1",
+      status: "confirmed",
+      title: null,
+      workspaceId: "workspace-1"
+    };
+    rendered.rerender();
+    expect(rendered.result.current.activeConversationBusy).toBe(true);
+
+    input.activeEngineLatestTurn = {
+      agentSessionId: "session-1",
+      origin: "user_prompt",
+      outcome: "completed",
+      phase: "settled",
+      settledAtUnixMs: 3,
+      startedAtUnixMs: 2,
+      turnId: "turn-1",
+      updatedAtUnixMs: 3
+    };
+    rendered.rerender();
+
+    expect(rendered.result.current.activeConversationBusy).toBe(false);
+
+    input.activePendingActivation = null;
+    input.activeEngineLatestTurn = null;
+    input.activeEngineRuntimeActivity = "running";
+    rendered.rerender();
+    expect(rendered.result.current.activeConversationBusy).toBe(true);
+
+    input.activeEngineRuntimeActivity = "idle";
+    rendered.rerender();
     expect(rendered.result.current.activeConversationBusy).toBe(false);
   });
 

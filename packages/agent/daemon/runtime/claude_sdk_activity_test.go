@@ -31,6 +31,32 @@ func TestClaudeCodeSDKAdapterMapsSessionTitleUpdated(t *testing.T) {
 	}
 }
 
+func TestClaudeCodeSDKAdapterProjectsSDKRuntimeActivityWithoutTurnIdentity(t *testing.T) {
+	adapter := NewClaudeCodeSDKAdapter(nil)
+	adapterSession := &claudeSDKAdapterSession{liveState: newClaudeSDKLiveState()}
+	session := standardTestSession(ProviderClaudeCode)
+
+	for _, state := range []string{"running", "idle"} {
+		events, terminal, err := adapter.sidecarTurnEvents(adapterSession, session, "", claudeSDKSidecarEvent{
+			Type: "sdk_lifecycle_observed",
+			Payload: map[string]any{
+				"sdkMessageType":    "system",
+				"sdkMessageSubtype": "session_state_changed",
+				"state":             state,
+			},
+		})
+		if err != nil || terminal {
+			t.Fatalf("state=%q terminal=%v err=%v", state, terminal, err)
+		}
+		if len(events) != 1 || events[0].Type != activityshared.EventSessionUpdated {
+			t.Fatalf("state=%q events=%#v, want session.updated", state, events)
+		}
+		if got := claudeSDKRuntimeContext(session, adapterSession)["runtimeActivityState"]; got != state {
+			t.Fatalf("state=%q runtimeActivityState=%#v", state, got)
+		}
+	}
+}
+
 func TestClaudeCodeSDKAdapterPreservesResolvedModelDescriptor(t *testing.T) {
 	adapterSession := &claudeSDKAdapterSession{
 		liveState: newClaudeSDKLiveState(),

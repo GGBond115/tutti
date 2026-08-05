@@ -14,6 +14,12 @@ type agentActivitySessionUpdateData struct {
 	LastEventUnixMS *int64 `json:"lastEventUnixMs"`
 }
 
+type agentActivityRuntimeActivityUpdateData struct {
+	agentActivityUpdatedDataHeader
+	State            string `json:"state"`
+	OccurredAtUnixMS *int64 `json:"occurredAtUnixMs"`
+}
+
 type agentActivitySessionDeletedData struct {
 	agentActivityUpdatedDataHeader
 	DeletedAtUnixMS *int64 `json:"deletedAtUnixMs"`

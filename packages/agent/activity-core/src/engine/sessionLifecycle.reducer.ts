@@ -123,6 +123,8 @@ export function sessionLifecycleReducer(
         intent.agentSessionId,
         intent.availability
       );
+    case "session/runtimeActivityChanged":
+      return changeRuntimeActivity(state, intent.agentSessionId, intent.state);
     case "turn/upserted":
       return reconcilePendingCancels(
         state,
@@ -256,6 +258,21 @@ export function sessionLifecycleReducer(
     default:
       return unchanged(state);
   }
+}
+
+function changeRuntimeActivity(
+  state: SessionLifecycleState,
+  rawAgentSessionId: string,
+  runtimeActivity: SessionOperationState["runtimeActivity"]
+): EngineReducerResult<SessionLifecycleState> {
+  const agentSessionId = rawAgentSessionId.trim();
+  if (!agentSessionId) return unchanged(state);
+  const operation =
+    state.operationBySessionId[agentSessionId] ?? initialOperation();
+  if (operation.runtimeActivity === runtimeActivity) return unchanged(state);
+  return result(
+    setOperation(state, agentSessionId, { ...operation, runtimeActivity })
+  );
 }
 
 function requestInteractionResponse(

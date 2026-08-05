@@ -821,8 +821,15 @@ disable submission, but must not change editor editability.
 
 Engine submitting and unconfirmed-submit selectors remain busy facts after a
 canonical Session first appears. Session existence or an `available` runtime
-must not create an idle frame before the exact Turn claims and settles the
-submission, or before the pending submit otherwise reaches a terminal state.
+must not create an idle frame before the exact Turn claims the submission. A
+viable new-Session activation with `initialTurnExpected` remains the same busy
+bridge while no canonical latest Turn exists. Goal-only activation deliberately
+does not expect a Turn. When a provider exposes an exact session-level
+`running`/`idle` observation before Turn identity, the daemon projects that
+ephemeral runtime activity through `agent.activity.updated`; the workspace
+Engine uses it as a busy bridge without reserving or fabricating a Turn. A
+disconnect clears the ephemeral observation, while canonical Turn state remains
+authoritative once it exists.
 
 ### 4.1 Read/write rules
 

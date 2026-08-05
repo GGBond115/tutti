@@ -3,6 +3,10 @@ import test from "node:test";
 import { createAgentActivitySnapshotProjector } from "./engine/agentActivitySnapshot.projector.ts";
 import { createAgentSessionEngine } from "./engine/createAgentSessionEngine.ts";
 import { canonicalTurnKey } from "./engine/sessionEntityKeys.ts";
+import {
+  selectEngineSessionRuntimeActivity,
+  selectWorkspaceAgentConsumerSession
+} from "./engine/sessionLifecycle.selectors.ts";
 import { createTestEngineCommandPort } from "./engine/testEngineCommandPort.ts";
 import type { EngineExternalCommand } from "./engine/types.ts";
 import { normalizeAgentActivitySession } from "./sessionNormalization.ts";
@@ -37,6 +41,88 @@ function createHarness() {
   });
   return { commands, coordinator, engine, readCanonicalSnapshot };
 }
+
+test("projects provider runtime activity before a canonical Turn and clears it on disconnect", () => {
+  const harness = createHarness();
+  const running = harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "runtime_activity_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "runtime_activity_update",
+      state: "running",
+      occurredAtUnixMs: 10
+    }
+  });
+
+  assert.equal(running.accepted, true);
+  assert.equal(
+    selectEngineSessionRuntimeActivity(
+      harness.engine.getSnapshot(),
+      "session-1"
+    ),
+    "running"
+  );
+
+  harness.engine.dispatch({
+    session: session(null, 10),
+    type: "session/upserted"
+  });
+  assert.equal(
+    selectWorkspaceAgentConsumerSession(
+      harness.engine.getSnapshot(),
+      "session-1"
+    )?.displayStatus,
+    "working"
+  );
+
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "runtime_activity_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "runtime_activity_update",
+      state: "idle",
+      occurredAtUnixMs: 11
+    }
+  });
+  assert.equal(
+    selectWorkspaceAgentConsumerSession(
+      harness.engine.getSnapshot(),
+      "session-1"
+    )?.displayStatus,
+    "idle"
+  );
+
+  harness.coordinator.ingestEvent({
+    workspaceId: "workspace-1",
+    agentSessionId: "session-1",
+    eventType: "runtime_activity_update",
+    data: {
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      eventType: "runtime_activity_update",
+      state: "running",
+      occurredAtUnixMs: 12
+    }
+  });
+
+  harness.coordinator.eventStreamConnectionChanged({ status: "disconnected" });
+  assert.equal(
+    selectEngineSessionRuntimeActivity(
+      harness.engine.getSnapshot(),
+      "session-1"
+    ),
+    "idle"
+  );
+
+  harness.coordinator.dispose();
+  harness.engine.dispose();
+});
 
 test("projects message deltas and clears them on authoritative deletion", () => {
   const harness = createHarness();

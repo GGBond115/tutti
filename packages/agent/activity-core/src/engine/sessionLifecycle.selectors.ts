@@ -53,6 +53,16 @@ export function selectEngineSessionRuntimeAvailability(
   );
 }
 
+export function selectEngineSessionRuntimeActivity(
+  state: AgentSessionEngineStateBase,
+  agentSessionId: string | null | undefined
+) {
+  const id = agentSessionId?.trim() ?? "";
+  return (
+    state.sessionLifecycle.operationBySessionId[id]?.runtimeActivity ?? "idle"
+  );
+}
+
 const EMPTY_CONSUMER_COUNTS: WorkspaceAgentConsumerCounts = {
   canceled: 0,
   completed: 0,
@@ -459,7 +469,10 @@ export function selectAllWorkspaceAgentConsumerSessions(
           latestTurn
         ),
         latestTurn,
-        pendingInteractions
+        pendingInteractions,
+        runtimeActivity:
+          state.sessionLifecycle.operationBySessionId[session.agentSessionId]
+            ?.runtimeActivity ?? "idle"
       }),
       latestTurn,
       pendingInteractions,
@@ -488,7 +501,10 @@ export function selectWorkspaceAgentConsumerSession(
         latestTurn
       ),
       latestTurn,
-      pendingInteractions
+      pendingInteractions,
+      runtimeActivity:
+        state.sessionLifecycle.operationBySessionId[id]?.runtimeActivity ??
+        "idle"
     }),
     latestTurn,
     pendingInteractions,
@@ -513,11 +529,13 @@ function displayStatusFromCanonicalState(state: {
   initialActivationTurnPending: boolean;
   latestTurn: AgentActivityTurn | null;
   pendingInteractions: readonly AgentActivityInteraction[];
+  runtimeActivity: SessionOperationState["runtimeActivity"];
 }): AgentActivityDisplayStatus {
   if (state.pendingInteractions.length > 0) return "waiting";
   if (state.activeTurn && state.activeTurn.phase !== "settled") {
     return state.activeTurn.phase === "waiting" ? "waiting" : "working";
   }
+  if (state.runtimeActivity === "running") return "working";
   if (!state.latestTurn) {
     return state.initialActivationTurnPending ? "working" : "idle";
   }

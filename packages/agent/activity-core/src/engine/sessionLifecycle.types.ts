@@ -31,10 +31,13 @@ export interface SessionCancelState {
 
 export interface SessionOperationState {
   runtimeAvailability: SessionRuntimeAvailability;
+  runtimeActivity: SessionRuntimeActivity;
   cancel: SessionCancelState;
   operationError: string | null;
   settingsUpdate: SessionSettingsUpdateState;
 }
+
+export type SessionRuntimeActivity = "idle" | "running";
 
 /**
  * Host-projected, session-scoped availability for commands that must reach the
@@ -277,6 +280,12 @@ export interface SessionRuntimeAvailabilityChangedIntent {
   availability: SessionRuntimeAvailability;
 }
 
+export interface SessionRuntimeActivityChangedIntent {
+  type: "session/runtimeActivityChanged";
+  agentSessionId: string;
+  state: SessionRuntimeActivity;
+}
+
 export type SessionLifecycleIntent =
   | InteractionUpsertedIntent
   | InteractionResponseRequestedIntent
@@ -287,6 +296,7 @@ export type SessionLifecycleIntent =
   | SessionHistoryAuthoritativeSnapshotReceivedIntent
   | SessionMetadataPatchedIntent
   | SessionRemovedIntent
+  | SessionRuntimeActivityChangedIntent
   | SessionRuntimeAvailabilityChangedIntent
   | SessionSettingsActivationRequestedIntent
   | SessionSettingsPreconditionRequestedIntent

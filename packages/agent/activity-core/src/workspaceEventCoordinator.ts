@@ -198,6 +198,17 @@ export function createAgentActivityWorkspaceEventCoordinator({
       const recovered =
         connectionStatus === "disconnected" && input.status === "connected";
       connectionStatus = input.status;
+      if (input.status === "disconnected" && transitioned) {
+        for (const agentSessionId of Object.keys(
+          engine.getSnapshot().sessionLifecycle.operationBySessionId
+        )) {
+          engine.dispatch({
+            agentSessionId,
+            state: "idle",
+            type: "session/runtimeActivityChanged"
+          });
+        }
+      }
       if (input.status !== "connected" || !transitioned) return;
 
       engine.dispatch({
@@ -264,6 +275,18 @@ export function createAgentActivityWorkspaceEventCoordinator({
           });
         }
         return eventResult(eventType, false, "identity_mismatch");
+      }
+
+      if (event.eventType === "runtime_activity_update") {
+        if (event.data.state !== "idle" && event.data.state !== "running") {
+          return eventResult(eventType, false, "identity_mismatch");
+        }
+        engine.dispatch({
+          agentSessionId,
+          state: event.data.state,
+          type: "session/runtimeActivityChanged"
+        });
+        return eventResult(eventType, true, "applied");
       }
 
       if (event.eventType === "message_delta") {

@@ -8,6 +8,7 @@ import type {
 export function initialOperation(): SessionOperationState {
   return {
     runtimeAvailability: { state: "available" },
+    runtimeActivity: "idle",
     cancel: initialCancel(),
     operationError: null,
     settingsUpdate: createInitialSettingsUpdate()

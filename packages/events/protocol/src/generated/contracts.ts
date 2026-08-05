@@ -240,6 +240,18 @@ export type AgentActivityUpdatedPayloadV1 =
   | {
       workspaceId: string;
       agentSessionId: string;
+      eventType: "runtime_activity_update";
+      data: {
+        workspaceId: string;
+        agentSessionId: string;
+        eventType: "runtime_activity_update";
+        state: "idle" | "running";
+        occurredAtUnixMs: number;
+      };
+    }
+  | {
+      workspaceId: string;
+      agentSessionId: string;
       eventType: "session_reconcile_required";
       data: {
         workspaceId: string;
