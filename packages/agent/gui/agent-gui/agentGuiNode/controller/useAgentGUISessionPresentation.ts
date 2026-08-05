@@ -3,6 +3,7 @@ import {
   selectPlanDecisionForTurn,
   selectPlanTurnDismissed,
   type AgentActivityDisplayStatus,
+  type AgentActivityInteraction,
   type AgentActivityMessage,
   type AgentActivityTurn,
   type CanonicalAgentSession,
@@ -24,6 +25,8 @@ import type { AgentSessionState } from "../../../shared/agentSessionTypes";
 import type { AppErrorCode } from "../../../shared/contracts/dto";
 import type {
   AgentGUIObservationGapSource,
+  AgentGUIInteractionReadiness,
+  AgentGUIInteractionReadinessSource,
   AgentGUITargetConnectionSource
 } from "../../../types";
 import { useEngineSelector } from "../../../shared/engine/useEngineSelector";
@@ -47,6 +50,8 @@ import { promptRequestId } from "./agentGuiController.diagnostics";
 import { reportAgentGUIRenderStateDiagnostic } from "./agentGuiController.reporting";
 import { useAgentGUITargetConnectionState } from "./useAgentGUITargetConnectionState";
 import { useAgentObservationGap } from "../../../shared/agentConversation/AgentObservationGapContext";
+import { resolveAgentGUIInteractionReadinessIdentity } from "./agentGuiController.interactionHelpers";
+import { useAgentGUIInteractionReadiness } from "./useAgentGUIInteractionReadiness";
 
 interface CurrentValue<T> {
   current: T;
@@ -93,6 +98,7 @@ interface UseAgentGUISessionPresentationInput {
   activeEngineAvailability: "available" | "blocked" | "missing";
   activeEngineHasPendingInteractions: boolean;
   activeEngineLatestTurn: AgentActivityTurn | null;
+  activePendingInteractions: readonly AgentActivityInteraction[];
   activeEngineRuntimeAvailability: SessionRuntimeAvailability | null;
   activeEngineRuntimeActivity: "idle" | "running";
   activeEngineSession: CanonicalAgentSession | null;
@@ -138,6 +144,7 @@ interface UseAgentGUISessionPresentationInput {
   sessionEngine: AgentSessionEngine;
   targetConnectionAgentTargetId?: string | null;
   targetConnectionSource?: AgentGUITargetConnectionSource | null;
+  interactionReadinessSource?: AgentGUIInteractionReadinessSource | null;
   observationGapSource?: AgentGUIObservationGapSource | null;
   workspaceId: string;
 }
@@ -162,10 +169,6 @@ export function useAgentGUISessionPresentation(
       planImplementationTurnId
     )
   );
-  const isRespondingApproval =
-    input.isRespondingToInteraction ||
-    activePlanDecision?.status === "requested" ||
-    activePlanDecision?.status === "unknown";
   const activePlanTurnDismissed = useEngineSelector(
     input.sessionEngine,
     (state) =>
@@ -187,6 +190,54 @@ export function useAgentGUISessionPresentation(
       : null;
   const pendingInteractivePrompt =
     input.serverInteractivePrompt ?? planImplementationPrompt;
+  const approvalReadinessIdentity = useMemo(
+    () =>
+      resolveAgentGUIInteractionReadinessIdentity({
+        interactions: input.activePendingInteractions,
+        requestId: input.pendingApproval?.requestId,
+        workspaceId: input.workspaceId
+      }),
+    [
+      input.activePendingInteractions,
+      input.pendingApproval?.requestId,
+      input.workspaceId
+    ]
+  );
+  const promptReadinessIdentity = useMemo(
+    () =>
+      resolveAgentGUIInteractionReadinessIdentity({
+        interactions: input.activePendingInteractions,
+        requestId: input.serverInteractivePrompt?.requestId,
+        workspaceId: input.workspaceId
+      }),
+    [
+      input.activePendingInteractions,
+      input.serverInteractivePrompt?.requestId,
+      input.workspaceId
+    ]
+  );
+  const approvalReadiness = useAgentGUIInteractionReadiness({
+    identity: approvalReadinessIdentity,
+    required: input.pendingApproval !== null,
+    source: input.interactionReadinessSource
+  });
+  const promptReadiness = useAgentGUIInteractionReadiness({
+    identity: promptReadinessIdentity,
+    required: input.serverInteractivePrompt !== null,
+    source: input.interactionReadinessSource
+  });
+  const interactionReadinessBlock = mostRestrictiveInteractionReadiness(
+    approvalReadiness,
+    promptReadiness
+  );
+  const interactionReadinessOwnsInteraction =
+    input.interactionReadinessSource != null &&
+    (input.pendingApproval !== null || input.serverInteractivePrompt !== null);
+  const interactionResponsePending =
+    input.isRespondingToInteraction ||
+    interactionReadinessBlock !== null ||
+    activePlanDecision?.status === "requested" ||
+    activePlanDecision?.status === "unknown";
 
   const activeActivationAwaitsInitialTurn = Boolean(
     input.activeConversationId &&
@@ -257,25 +308,70 @@ export function useAgentGUISessionPresentation(
     input.activeGoalControlPresentation
   ]);
   const sessionChrome = useMemo<AgentGUISessionChrome>(() => {
-    const sharingRevokedRecovery = resolveAgentGUISharingRevokedRecovery({
-      activeConversationId: input.activeConversationId,
-      selectedAgentTargetOwnerLabel: input.selectedAgentTargetOwnerLabel,
-      selectedAgentTargetUnavailable: input.selectedAgentTargetUnavailable,
-      selectedAgentTargetUnavailableReason:
-        input.selectedAgentTargetUnavailableReason,
-      sessionRuntimeBlock
-    });
-    if (sharingRevokedRecovery) {
+    if (interactionReadinessBlock?.reason === "binding_revoked") {
       return {
         auth: null,
         approval: null,
-        recovery: sharingRevokedRecovery,
+        recovery: {
+          kind: "agent-sharing-revoked",
+          message: translate("agentHost.agentGui.agentSharingRevoked", {
+            owner:
+              input.selectedAgentTargetOwnerLabel ??
+              translate("agentHost.agentGui.sharedDeviceLabel")
+          }),
+          canRetry: false
+        },
         rawState: sessionChromeRawState
       };
     }
+    if (interactionReadinessBlock !== null) {
+      const synchronizing =
+        interactionReadinessBlock.reason === "synchronizing";
+      const device =
+        input.ownerDeviceLabel?.trim() ||
+        translate("agentHost.agentGui.sharedDeviceLabel");
+      return {
+        auth: null,
+        approval: input.pendingApproval,
+        recovery: {
+          kind: synchronizing
+            ? "transport-connecting"
+            : "transport-unavailable",
+          message: translate(
+            synchronizing
+              ? "agentHost.agentGui.runtimeSynchronizingProgress"
+              : input.activeEngineActiveTurn !== null
+                ? "agentHost.agentGui.runtimeUnavailableActive"
+                : "agentHost.agentGui.runtimeUnavailable",
+            { device }
+          ),
+          canRetry: false
+        },
+        rawState: sessionChromeRawState
+      };
+    }
+    if (!interactionReadinessOwnsInteraction) {
+      const sharingRevokedRecovery = resolveAgentGUISharingRevokedRecovery({
+        activeConversationId: input.activeConversationId,
+        selectedAgentTargetOwnerLabel: input.selectedAgentTargetOwnerLabel,
+        selectedAgentTargetUnavailable: input.selectedAgentTargetUnavailable,
+        selectedAgentTargetUnavailableReason:
+          input.selectedAgentTargetUnavailableReason,
+        sessionRuntimeBlock
+      });
+      if (sharingRevokedRecovery) {
+        return {
+          auth: null,
+          approval: null,
+          recovery: sharingRevokedRecovery,
+          rawState: sessionChromeRawState
+        };
+      }
+    }
     if (
-      targetConnection.visibleState?.status === "connecting" ||
-      targetConnection.visibleState?.status === "unavailable"
+      !interactionReadinessOwnsInteraction &&
+      (targetConnection.visibleState?.status === "connecting" ||
+        targetConnection.visibleState?.status === "unavailable")
     ) {
       const device =
         input.ownerDeviceLabel?.trim() ||
@@ -303,7 +399,7 @@ export function useAgentGUISessionPresentation(
         rawState: sessionChromeRawState
       };
     }
-    if (observationGap !== null) {
+    if (!interactionReadinessOwnsInteraction && observationGap !== null) {
       return {
         auth: null,
         approval: null,
@@ -382,6 +478,8 @@ export function useAgentGUISessionPresentation(
     input.selectedAgentTargetOwnerLabel,
     input.selectedAgentTargetUnavailable,
     input.selectedAgentTargetUnavailableReason,
+    interactionReadinessBlock,
+    interactionReadinessOwnsInteraction,
     sessionRuntimeBlock,
     targetConnection.visibleState,
     observationGap,
@@ -427,7 +525,9 @@ export function useAgentGUISessionPresentation(
         settingsUpdatePending,
         sessionRuntimeBlockedReason,
         targetConnectionBlocked:
-          targetConnection.blocked || observationGap !== null
+          targetConnection.blocked ||
+          observationGap !== null ||
+          interactionReadinessBlock !== null
       }),
     [
       activeConversationBusy,
@@ -449,9 +549,14 @@ export function useAgentGUISessionPresentation(
       sessionRuntimeBlockedReason,
       settingsUpdatePending,
       targetConnection.blocked,
-      observationGap
+      observationGap,
+      interactionReadinessBlock
     ]
   );
+  const isRespondingApproval =
+    interactionResponsePending ||
+    (!interactionReadinessOwnsInteraction &&
+      composerGate.runtime.status === "blocked");
   const canSubmit = composerGate.submission.status === "ready";
   const canQueueWhileBusy = composerGate.submission.status === "queue";
   const hasSentUserMessage = input.activeTimelineItems.some(
@@ -558,4 +663,21 @@ export function useAgentGUISessionPresentation(
     pendingInteractivePrompt,
     sessionChrome
   };
+}
+
+function mostRestrictiveInteractionReadiness(
+  ...values: readonly (AgentGUIInteractionReadiness | null)[]
+): Extract<AgentGUIInteractionReadiness, { status: "blocked" }> | null {
+  const blocked = values.filter(
+    (
+      value
+    ): value is Extract<AgentGUIInteractionReadiness, { status: "blocked" }> =>
+      value?.status === "blocked"
+  );
+  return (
+    blocked.find((value) => value.reason === "binding_revoked") ??
+    blocked.find((value) => value.reason === "owner_offline") ??
+    blocked[0] ??
+    null
+  );
 }

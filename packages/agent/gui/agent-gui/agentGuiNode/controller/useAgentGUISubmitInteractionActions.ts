@@ -11,7 +11,10 @@ import { useCallback, useEffect, useRef } from "react";
 import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { translate } from "../../../i18n/index";
 import type { AgentPromptContentBlock } from "../../../shared/contracts/dto";
-import type { AgentGUINodeData } from "../../../types";
+import type {
+  AgentGUINodeData,
+  AgentGUIInteractionReadinessSource
+} from "../../../types";
 import {
   agentPromptContentDisplayText,
   agentPromptContentHasImage,
@@ -56,7 +59,8 @@ import {
   reportAgentSubmitTraceDiagnostic,
   scheduleAgentSubmitTracePaint
 } from "./agentGuiController.reporting";
-import { resolveAgentGUIInteractionTarget } from "./agentGuiController.interactionHelpers";
+import { resolveAgentGUIInteractionReadinessIdentity } from "./agentGuiController.interactionHelpers";
+import { readAgentGUIInteractionReadiness } from "./useAgentGUIInteractionReadiness";
 import {
   resolveConversationSummaryById,
   type ConversationIntent
@@ -94,6 +98,7 @@ interface UseAgentGUISubmitInteractionActionsInput {
   isComposerHomeRef: RefObject<boolean>;
   isCurrentConversation(agentSessionId: string): boolean;
   isRespondingToInteraction: boolean;
+  interactionReadinessSource?: AgentGUIInteractionReadinessSource | null;
   isSessionMarkedNonResumable(agentSessionId: string): boolean;
   persistActiveConversation(agentSessionId: string | null): void;
   planActionsRef: RefObject<{
@@ -160,6 +165,7 @@ export function useAgentGUISubmitInteractionActions(
     isComposerHomeRef,
     isCurrentConversation,
     isRespondingToInteraction,
+    interactionReadinessSource,
     isSessionMarkedNonResumable,
     persistActiveConversation,
     planActionsRef,
@@ -639,17 +645,27 @@ export function useAgentGUISubmitInteractionActions(
       }
       const normalizedRequestId = input.requestId.trim();
       const normalizedOptionId = input.optionId?.trim() ?? "";
-      const target = resolveAgentGUIInteractionTarget(
-        activeEnginePendingInteractions,
-        normalizedRequestId
-      );
+      const target = resolveAgentGUIInteractionReadinessIdentity({
+        interactions: activeEnginePendingInteractions,
+        requestId: normalizedRequestId,
+        workspaceId
+      });
       const agentSessionId = target?.agentSessionId ?? "";
       const turnId = target?.turnId ?? "";
       if (
+        !target ||
         !agentSessionId ||
         !normalizedRequestId ||
         !turnId ||
         isRespondingToInteraction
+      ) {
+        return;
+      }
+      if (
+        readAgentGUIInteractionReadiness({
+          identity: target,
+          source: interactionReadinessSource
+        })?.status === "blocked"
       ) {
         return;
       }
@@ -663,7 +679,13 @@ export function useAgentGUISubmitInteractionActions(
         turnId
       });
     },
-    [activeEnginePendingInteractions, isRespondingToInteraction, sessionEngine]
+    [
+      activeEnginePendingInteractions,
+      interactionReadinessSource,
+      isRespondingToInteraction,
+      sessionEngine,
+      workspaceId
+    ]
   );
 
   const submitApprovalOption = useCallback(

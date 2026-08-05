@@ -308,9 +308,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     },
     [submitInteractivePrompt]
   );
-  const isInteractionPending =
-    viewModel.interaction.isRespondingApproval ||
-    composerGate.runtime.status === "blocked";
+  const isInteractionPending = viewModel.interaction.isRespondingApproval;
   const homeComposerProviderTargets = homeTargetProjection.agentTargets;
   const selectedHomeComposerTarget = homeTargetProjection.selectedAgentTarget;
   const composerProviderTargets =
@@ -579,7 +577,6 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       viewModel.composer.tuttiModeEffect,
       viewModel.composer.tuttiModeSpeed,
       viewModel.interaction.isRespondingApproval,
-      composerGate.runtime.status,
       viewModel.composer.promptImagesSupported,
       viewModel.composer.queueStatus,
       viewModel.composer.queuedPrompts,

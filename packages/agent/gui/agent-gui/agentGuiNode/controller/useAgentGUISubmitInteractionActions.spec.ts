@@ -247,6 +247,58 @@ describe("interaction submissions", () => {
     });
     expect(setDetailError).toHaveBeenCalledWith(null);
   });
+
+  it("rechecks exact Host readiness at the interaction boundary", () => {
+    const goalControl = vi.fn(async () => undefined);
+    const { input, sessionEngine } = createGoalControlInput(
+      goalControl as never
+    );
+    const submitInteractionResponse = vi
+      .spyOn(sessionEngine, "submitInteractionResponse")
+      .mockReturnValue(true);
+    let readiness: "ready" | "blocked" = "blocked";
+    const interactionReadinessSource = {
+      getInteractionReadiness: vi.fn(() =>
+        readiness === "ready"
+          ? ({ status: "ready" } as const)
+          : ({ status: "blocked", reason: "synchronizing" } as const)
+      ),
+      subscribe: vi.fn(() => () => undefined)
+    };
+    const { result } = renderHook(() =>
+      useAgentGUISubmitInteractionActions({
+        ...input,
+        interactionReadinessSource,
+        activeEnginePendingInteractions: [
+          {
+            agentSessionId: "session-1",
+            createdAtUnixMs: 1,
+            kind: "question",
+            requestId: "request-1",
+            status: "pending",
+            turnId: "turn-1",
+            updatedAtUnixMs: 1
+          }
+        ]
+      })
+    );
+
+    act(() => result.current.submitApprovalOption("request-1", "allow"));
+    expect(submitInteractionResponse).not.toHaveBeenCalled();
+
+    readiness = "ready";
+    act(() => result.current.submitApprovalOption("request-1", "allow"));
+
+    expect(
+      interactionReadinessSource.getInteractionReadiness
+    ).toHaveBeenLastCalledWith({
+      workspaceId: "workspace-1",
+      agentSessionId: "session-1",
+      turnId: "turn-1",
+      requestId: "request-1"
+    });
+    expect(submitInteractionResponse).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("existing-session prompt submission", () => {

@@ -7,6 +7,8 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { createTestEngineCommandPort } from "../../../shared/testing/createTestAgentSessionEngine";
 import type {
+  AgentGUIInteractionReadiness,
+  AgentGUIInteractionReadinessSource,
   AgentGUIObservationGap,
   AgentGUIObservationGapSource,
   AgentGUITargetConnectionSource,
@@ -57,6 +59,18 @@ class FakeObservationGapSource implements AgentGUIObservationGapSource {
   clear(): void {
     this.gap = null;
     for (const listener of this.listeners) listener();
+  }
+}
+
+class StaticInteractionSource implements AgentGUIInteractionReadinessSource {
+  constructor(private readonly state: AgentGUIInteractionReadiness) {}
+
+  getInteractionReadiness() {
+    return this.state;
+  }
+
+  subscribe(): () => void {
+    return () => undefined;
   }
 }
 
@@ -490,7 +504,68 @@ describe("useAgentGUISessionPresentation", () => {
       reason: "target_connection"
     });
 
-    act(() => observationGapSource.clear());
+    act(() => {
+      targetConnectionSource.set({ status: "unavailable", retryAttempt: 1 });
+    });
+    expect(rendered.result.current.sessionChrome.recovery).toMatchObject({
+      kind: "transport-unavailable"
+    });
+
+    input.activePendingInteractions = [
+      {
+        agentSessionId: "session-1",
+        createdAtUnixMs: 1,
+        kind: "approval",
+        requestId: "request-1",
+        status: "pending",
+        turnId: "turn-1",
+        updatedAtUnixMs: 1
+      }
+    ];
+    input.interactionReadinessSource = new StaticInteractionSource({
+      status: "ready"
+    });
+    input.pendingApproval = {
+      kind: "approval",
+      id: "approval-1",
+      turnId: "turn-1",
+      requestId: "request-1",
+      callId: "call-1",
+      title: "Allow command?",
+      toolName: "shell",
+      status: "pending",
+      input: null,
+      options: [],
+      occurredAtUnixMs: 1
+    };
+    rendered.rerender();
+
+    expect(rendered.result.current.sessionChrome).toMatchObject({
+      approval: { requestId: "request-1" },
+      recovery: null
+    });
+    expect(rendered.result.current.isRespondingApproval).toBe(false);
+
+    input.interactionReadinessSource = new StaticInteractionSource({
+      status: "blocked",
+      reason: "synchronizing"
+    });
+    rendered.rerender();
+
+    expect(rendered.result.current.sessionChrome).toMatchObject({
+      approval: { requestId: "request-1" },
+      recovery: { kind: "transport-connecting" }
+    });
+    expect(rendered.result.current.isRespondingApproval).toBe(true);
+
+    input.interactionReadinessSource = new StaticInteractionSource({
+      status: "ready"
+    });
+    rendered.rerender();
+    act(() => {
+      targetConnectionSource.set({ status: "connected", retryAttempt: 0 });
+      observationGapSource.clear();
+    });
 
     expect(rendered.result.current.sessionChrome.recovery).toBeNull();
     expect(rendered.result.current.composerGate.runtime).toMatchObject({

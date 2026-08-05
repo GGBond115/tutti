@@ -1,4 +1,5 @@
 import type { AgentActivityInteraction } from "@tutti-os/agent-activity-core";
+import type { AgentGUIInteractionReadinessIdentity } from "../../../types";
 
 export interface AgentGUIInteractionTarget {
   agentSessionId: string;
@@ -20,4 +21,20 @@ export function resolveAgentGUIInteractionTarget(
     return { agentSessionId, turnId };
   }
   return null;
+}
+
+export function resolveAgentGUIInteractionReadinessIdentity(input: {
+  interactions: readonly AgentActivityInteraction[];
+  requestId: string | null | undefined;
+  workspaceId: string;
+}): AgentGUIInteractionReadinessIdentity | null {
+  const target = resolveAgentGUIInteractionTarget(
+    input.interactions,
+    input.requestId?.trim() ?? ""
+  );
+  const workspaceId = input.workspaceId.trim();
+  const requestId = input.requestId?.trim() ?? "";
+  return target && workspaceId && requestId
+    ? { workspaceId, requestId, ...target }
+    : null;
 }
