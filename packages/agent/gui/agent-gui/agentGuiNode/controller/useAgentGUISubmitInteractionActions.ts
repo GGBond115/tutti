@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { AgentGUIRuntime } from "../../../agentActivityRuntime";
 import { translate } from "../../../i18n/index";
 import type { AgentPromptContentBlock } from "../../../shared/contracts/dto";
+import type { AgentInteractionResponseInput } from "../../../shared/agentConversation/contracts/agentConversationVM";
 import type {
   AgentGUINodeData,
   AgentGUIInteractionReadinessSource
@@ -621,45 +622,41 @@ export function useAgentGUISubmitInteractionActions(
   }, []);
 
   const submitInteractivePrompt = useCallback(
-    (input: {
-      requestId: string;
-      action?: string;
-      optionId?: string;
-      payload?: Record<string, unknown>;
-    }) => {
+    (input: AgentInteractionResponseInput): boolean => {
       // Plan-implementation actions are client-orchestrated; route them to the
       // plan decision handlers instead of submitInteractive.
       if (input.action === PLAN_IMPLEMENTATION_ACTION_IMPLEMENT) {
         planActionsRef.current.implement();
-        return;
+        return true;
       }
       if (input.action === PLAN_IMPLEMENTATION_ACTION_FEEDBACK) {
         planActionsRef.current.feedback(
           typeof input.payload?.text === "string" ? input.payload.text : ""
         );
-        return;
+        return true;
       }
       if (input.action === PLAN_IMPLEMENTATION_ACTION_SKIP) {
         planActionsRef.current.skip();
-        return;
+        return true;
       }
-      const normalizedRequestId = input.requestId.trim();
       const normalizedOptionId = input.optionId?.trim() ?? "";
       const target = resolveAgentGUIInteractionReadinessIdentity({
-        interactions: activeEnginePendingInteractions,
-        requestId: normalizedRequestId,
+        agentSessionId: input.agentSessionId,
+        requestId: input.requestId,
+        turnId: input.turnId,
         workspaceId
       });
-      const agentSessionId = target?.agentSessionId ?? "";
-      const turnId = target?.turnId ?? "";
-      if (
-        !target ||
-        !agentSessionId ||
-        !normalizedRequestId ||
-        !turnId ||
-        isRespondingToInteraction
-      ) {
-        return;
+      const exactPendingInteraction =
+        target !== null &&
+        activeEnginePendingInteractions.some(
+          (interaction) =>
+            interaction.status === "pending" &&
+            interaction.agentSessionId.trim() === target.agentSessionId &&
+            interaction.turnId.trim() === target.turnId &&
+            interaction.requestId.trim() === target.requestId
+        );
+      if (!target || !exactPendingInteraction || isRespondingToInteraction) {
+        return false;
       }
       if (
         readAgentGUIInteractionReadiness({
@@ -667,16 +664,16 @@ export function useAgentGUISubmitInteractionActions(
           source: interactionReadinessSource
         })?.status === "blocked"
       ) {
-        return;
+        return false;
       }
       setDetailError(null);
-      sessionEngine.submitInteractionResponse({
+      return sessionEngine.submitInteractionResponse({
         ...(input.action?.trim() ? { action: input.action.trim() } : {}),
-        agentSessionId,
+        agentSessionId: target.agentSessionId,
         ...(normalizedOptionId ? { optionId: normalizedOptionId } : {}),
         ...(input.payload ? { payload: { ...input.payload } } : {}),
-        requestId: normalizedRequestId,
-        turnId
+        requestId: target.requestId,
+        turnId: target.turnId
       });
     },
     [
@@ -689,9 +686,8 @@ export function useAgentGUISubmitInteractionActions(
   );
 
   const submitApprovalOption = useCallback(
-    (requestId: string, optionId: string) => {
-      void submitInteractivePrompt({ requestId, optionId });
-    },
+    (input: AgentInteractionResponseInput): boolean =>
+      submitInteractivePrompt(input),
     [submitInteractivePrompt]
   );
 

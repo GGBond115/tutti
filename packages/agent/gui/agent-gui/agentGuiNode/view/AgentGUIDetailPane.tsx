@@ -30,6 +30,7 @@ import { useAgentGUITuttiWorkflow } from "./useAgentGUITuttiWorkflow";
 import type { AgentTranscriptVirtualScrollController } from "../../../shared/agentConversation/components/AgentTranscriptView";
 import type { AgentGUIDetailPaneProps } from "./AgentGUINodeView.types";
 import { useAgentGUIDetailEditRetry } from "./useAgentGUIDetailEditRetry";
+import { submitAgentInteractionResponseAndDismiss } from "../../../shared/agentConversation/interactionResponseAdmission";
 export const EMPTY_WORKSPACE_APP_ICONS: readonly AgentMessageMarkdownWorkspaceAppIcon[] =
   [];
 export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
@@ -297,14 +298,12 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     useOptionalStableEventCallback(onRequestGitBranches);
   const authLogin = useOptionalStableEventCallback(onAgentProviderLogin);
   const submitBottomDockInteractivePrompt = useCallback(
-    (input: {
-      requestId: string;
-      action?: string;
-      optionId?: string;
-      payload?: Record<string, unknown>;
-    }) => {
-      submitInteractivePrompt(input);
-      setBottomDockDismissedPromptRequestId(input.requestId);
+    (input: Parameters<typeof submitInteractivePrompt>[0]) => {
+      return submitAgentInteractionResponseAndDismiss({
+        response: input,
+        submit: submitInteractivePrompt,
+        dismiss: setBottomDockDismissedPromptRequestId
+      });
     },
     [submitInteractivePrompt]
   );

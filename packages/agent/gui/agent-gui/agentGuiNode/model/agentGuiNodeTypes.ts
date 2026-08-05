@@ -53,6 +53,11 @@ export interface AgentGUISessionChrome {
         message: string;
         canRetry?: boolean;
         followupAction?: never;
+        /**
+         * The recovery only gates the currently displayed interaction. Keep
+         * that prompt visible while rendering the recovery as inline chrome.
+         */
+        interactionScoped?: boolean;
       }
     | {
         kind: "resume-unavailable";

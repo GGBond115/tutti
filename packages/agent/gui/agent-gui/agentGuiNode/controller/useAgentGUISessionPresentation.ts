@@ -3,7 +3,6 @@ import {
   selectPlanDecisionForTurn,
   selectPlanTurnDismissed,
   type AgentActivityDisplayStatus,
-  type AgentActivityInteraction,
   type AgentActivityMessage,
   type AgentActivityTurn,
   type CanonicalAgentSession,
@@ -25,7 +24,6 @@ import type { AgentSessionState } from "../../../shared/agentSessionTypes";
 import type { AppErrorCode } from "../../../shared/contracts/dto";
 import type {
   AgentGUIObservationGapSource,
-  AgentGUIInteractionReadiness,
   AgentGUIInteractionReadinessSource,
   AgentGUITargetConnectionSource
 } from "../../../types";
@@ -98,7 +96,6 @@ interface UseAgentGUISessionPresentationInput {
   activeEngineAvailability: "available" | "blocked" | "missing";
   activeEngineHasPendingInteractions: boolean;
   activeEngineLatestTurn: AgentActivityTurn | null;
-  activePendingInteractions: readonly AgentActivityInteraction[];
   activeEngineRuntimeAvailability: SessionRuntimeAvailability | null;
   activeEngineRuntimeActivity: "idle" | "running";
   activeEngineSession: CanonicalAgentSession | null;
@@ -190,49 +187,37 @@ export function useAgentGUISessionPresentation(
       : null;
   const pendingInteractivePrompt =
     input.serverInteractivePrompt ?? planImplementationPrompt;
-  const approvalReadinessIdentity = useMemo(
+  const displayedInteractionPrompt =
+    pendingInteractivePrompt ?? input.pendingApproval;
+  const interactionReadinessPrompt =
+    displayedInteractionPrompt?.kind === "plan-implementation"
+      ? null
+      : displayedInteractionPrompt;
+  const interactionReadinessIdentity = useMemo(
     () =>
       resolveAgentGUIInteractionReadinessIdentity({
-        interactions: input.activePendingInteractions,
-        requestId: input.pendingApproval?.requestId,
+        agentSessionId: interactionReadinessPrompt?.agentSessionId,
+        requestId: interactionReadinessPrompt?.requestId,
+        turnId: interactionReadinessPrompt?.turnId,
         workspaceId: input.workspaceId
       }),
     [
-      input.activePendingInteractions,
-      input.pendingApproval?.requestId,
+      interactionReadinessPrompt?.agentSessionId,
+      interactionReadinessPrompt?.requestId,
+      interactionReadinessPrompt?.turnId,
       input.workspaceId
     ]
   );
-  const promptReadinessIdentity = useMemo(
-    () =>
-      resolveAgentGUIInteractionReadinessIdentity({
-        interactions: input.activePendingInteractions,
-        requestId: input.serverInteractivePrompt?.requestId,
-        workspaceId: input.workspaceId
-      }),
-    [
-      input.activePendingInteractions,
-      input.serverInteractivePrompt?.requestId,
-      input.workspaceId
-    ]
-  );
-  const approvalReadiness = useAgentGUIInteractionReadiness({
-    identity: approvalReadinessIdentity,
-    required: input.pendingApproval !== null,
+  const interactionReadiness = useAgentGUIInteractionReadiness({
+    identity: interactionReadinessIdentity,
+    required: interactionReadinessPrompt !== null,
     source: input.interactionReadinessSource
   });
-  const promptReadiness = useAgentGUIInteractionReadiness({
-    identity: promptReadinessIdentity,
-    required: input.serverInteractivePrompt !== null,
-    source: input.interactionReadinessSource
-  });
-  const interactionReadinessBlock = mostRestrictiveInteractionReadiness(
-    approvalReadiness,
-    promptReadiness
-  );
+  const interactionReadinessBlock =
+    interactionReadiness?.status === "blocked" ? interactionReadiness : null;
   const interactionReadinessOwnsInteraction =
     input.interactionReadinessSource != null &&
-    (input.pendingApproval !== null || input.serverInteractivePrompt !== null);
+    interactionReadinessPrompt !== null;
   const interactionResponsePending =
     input.isRespondingToInteraction ||
     interactionReadinessBlock !== null ||
@@ -345,7 +330,8 @@ export function useAgentGUISessionPresentation(
                 : "agentHost.agentGui.runtimeUnavailable",
             { device }
           ),
-          canRetry: false
+          canRetry: false,
+          interactionScoped: true
         },
         rawState: sessionChromeRawState
       };
@@ -663,21 +649,4 @@ export function useAgentGUISessionPresentation(
     pendingInteractivePrompt,
     sessionChrome
   };
-}
-
-function mostRestrictiveInteractionReadiness(
-  ...values: readonly (AgentGUIInteractionReadiness | null)[]
-): Extract<AgentGUIInteractionReadiness, { status: "blocked" }> | null {
-  const blocked = values.filter(
-    (
-      value
-    ): value is Extract<AgentGUIInteractionReadiness, { status: "blocked" }> =>
-      value?.status === "blocked"
-  );
-  return (
-    blocked.find((value) => value.reason === "binding_revoked") ??
-    blocked.find((value) => value.reason === "owner_offline") ??
-    blocked[0] ??
-    null
-  );
 }

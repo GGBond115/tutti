@@ -133,6 +133,8 @@ export type AgentGUIInteractivePrompt =
   | AgentGUIApprovalRequest
   | {
       kind: "ask-user";
+      agentSessionId?: string;
+      turnId?: string;
       requestId: string;
       title: string;
       questions: AgentGUIInteractiveQuestion[];

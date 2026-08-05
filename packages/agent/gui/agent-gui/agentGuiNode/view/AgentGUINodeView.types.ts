@@ -22,6 +22,7 @@ import type {
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../../shared/AgentMessageMarkdown";
 import type { PlanIssueBudgetPreset } from "../../../shared/agentConversation/planImplementationPresentation";
 import type { AgentPromptContentBlock } from "../../../shared/contracts/dto";
+import type { AgentInteractionResponseInput } from "../../../shared/agentConversation/contracts/agentConversationVM";
 import type {
   AgentComposerGitBranchLoader,
   AgentComposerProps,
@@ -611,13 +612,8 @@ export interface AgentGUINodeViewProps {
     ) => void;
     loadOlderConversationMessages: () => void;
     showPromptImagesUnsupported: () => void;
-    submitApprovalOption: (requestId: string, optionId: string) => void;
-    submitInteractivePrompt: (input: {
-      requestId: string;
-      action?: string;
-      optionId?: string;
-      payload?: Record<string, unknown>;
-    }) => void;
+    submitApprovalOption: (input: AgentInteractionResponseInput) => boolean;
+    submitInteractivePrompt: (input: AgentInteractionResponseInput) => boolean;
     interruptCurrentTurn: (noRunningResponseMessage: string) => void;
     updateDraftContent: (
       draftContent: AgentComposerDraft,

@@ -511,23 +511,13 @@ describe("useAgentGUISessionPresentation", () => {
       kind: "transport-unavailable"
     });
 
-    input.activePendingInteractions = [
-      {
-        agentSessionId: "session-1",
-        createdAtUnixMs: 1,
-        kind: "approval",
-        requestId: "request-1",
-        status: "pending",
-        turnId: "turn-1",
-        updatedAtUnixMs: 1
-      }
-    ];
     input.interactionReadinessSource = new StaticInteractionSource({
       status: "ready"
     });
     input.pendingApproval = {
       kind: "approval",
       id: "approval-1",
+      agentSessionId: "session-1",
       turnId: "turn-1",
       requestId: "request-1",
       callId: "call-1",
@@ -554,13 +544,50 @@ describe("useAgentGUISessionPresentation", () => {
 
     expect(rendered.result.current.sessionChrome).toMatchObject({
       approval: { requestId: "request-1" },
-      recovery: { kind: "transport-connecting" }
+      recovery: {
+        kind: "transport-connecting",
+        interactionScoped: true
+      }
     });
     expect(rendered.result.current.isRespondingApproval).toBe(true);
+
+    const promptAwareReadinessSource = {
+      getInteractionReadiness: vi.fn((identity: { requestId: string }) =>
+        identity.requestId === "question-1"
+          ? ({ status: "ready" } as const)
+          : ({ status: "blocked", reason: "synchronizing" } as const)
+      ),
+      subscribe: vi.fn(() => () => undefined)
+    };
+    input.interactionReadinessSource = promptAwareReadinessSource;
+    input.serverInteractivePrompt = {
+      kind: "ask-user",
+      agentSessionId: "session-1",
+      turnId: "turn-2",
+      requestId: "question-1",
+      title: "Choose a deployment",
+      questions: []
+    };
+    rendered.rerender();
+
+    expect(
+      promptAwareReadinessSource.getInteractionReadiness
+    ).toHaveBeenLastCalledWith({
+      agentSessionId: "session-1",
+      requestId: "question-1",
+      turnId: "turn-2",
+      workspaceId: "workspace-1"
+    });
+    expect(rendered.result.current.pendingInteractivePrompt).toMatchObject({
+      requestId: "question-1"
+    });
+    expect(rendered.result.current.sessionChrome.recovery).toBeNull();
+    expect(rendered.result.current.isRespondingApproval).toBe(false);
 
     input.interactionReadinessSource = new StaticInteractionSource({
       status: "ready"
     });
+    input.serverInteractivePrompt = null;
     rendered.rerender();
     act(() => {
       targetConnectionSource.set({ status: "connected", retryAttempt: 0 });
