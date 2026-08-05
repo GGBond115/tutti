@@ -640,6 +640,13 @@ export function AgentGUINodeView({
             <AgentConversationClockProvider isVisible={isVisible}>
               <AgentGUIConversationRailController
                 {...conversationRailStoreState}
+                activityContextKey={[
+                  viewModel.shell.currentUserId?.trim() ?? "",
+                  viewModel.shell.data.provider?.trim() ?? "",
+                  viewModel.rail.selectedAgentTarget.agentTargetId?.trim() ??
+                    "",
+                  viewModel.shell.nodeId?.trim() ?? ""
+                ].join("\u0000")}
                 conversations={viewModel.rail.conversations}
                 nodeId={viewModel.shell.nodeId}
                 registerInteractionLockProbe={registerRailInteractionLockProbe}

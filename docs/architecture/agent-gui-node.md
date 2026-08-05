@@ -1246,6 +1246,32 @@ unchanged. The conflict parser recognizes only the daemon's typed
 `tutti_execution_active` payload; archive/view commands remain an optional
 host capability until the generated execution adapter is present.
 
+### Conversation Rail Activity View
+
+`AgentGUIRuntime.conversationActivityViewEnabled` is the fail-closed host
+boundary for the Conversation Rail Activity View. Desktop opts in explicitly;
+external hosts that omit or disable it retain the ordinary Rail unchanged.
+
+The view is a presentation-only activation over the current workspace Engine:
+it reads visible root Session summaries, root-aggregated descendant
+working/waiting state, attention/read state, and already-cached Session
+messages. Opening it must not call list pagination or transcript hydration.
+Its membership input is the canonical mounted Engine summary collection, never
+the ordinary Rail's transient `runtimeRailConversations` overlay; stale page
+projections therefore cannot leak into Activity View.
+Membership and recency are snapshotted when the view opens; subsequent Engine
+pushes reconcile incrementally, while deletion removes a member immediately.
+Search temporarily takes over the content area and clearing search restores the
+same activation. Closing the view discards the activation and its retained-idle
+markers. A retained-idle marker stores the exact unread recency and expires as
+soon as that recency changes. Existing workspace, authenticated-user, Agent
+target, and Engine identities fence the activation internally; no Activity
+filter or additional host scope contract is introduced. Disabled hosts use an
+empty Activity selector and do not scan root Sessions. Activity rows omit the
+minute-clock subscription together with their hidden timestamp. The full
+product contract is recorded in
+`docs/specs/2026-08-05-agent-conversation-activity-view-prd.md`.
+
 The full first-page query is the only Rail read that resolves a navigation
 scope and clears its pending state. Targeted section refresh and pagination may
 update only an already-resolved matching scope. A subordinate result must not

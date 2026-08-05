@@ -2099,6 +2099,20 @@
       "iconVariant": "filled"
     },
     {
+      "id": "activity-view-lined-icon",
+      "layer": "base",
+      "name": "ActivityViewLinedIcon",
+      "export": "ActivityViewLinedIcon",
+      "from": "@tutti-os/ui-system/icons",
+      "category": "icon",
+      "status": "stable",
+      "source": "src/icons/system-icons.tsx",
+      "description": "Bell icon for toggling a conversation Activity View.",
+      "useCases": ["Conversation activity view toggle"],
+      "migrationHints": [],
+      "iconVariant": "lined"
+    },
+    {
       "id": "minimize-lined-icon",
       "layer": "base",
       "name": "MinimizeIcon",

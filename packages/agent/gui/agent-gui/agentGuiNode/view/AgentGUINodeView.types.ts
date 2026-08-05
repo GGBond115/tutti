@@ -218,6 +218,19 @@ export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   searchNoConversations: string;
   searchFailed: string;
   retrySearch: string;
+  activityPriority: string;
+  activityNothingNeedsAttention: string;
+  activityToday: string;
+  activityYesterday: string;
+  activityLocalSource: string;
+  activityStatusFailed: string;
+  activityStatusRecentlyActive: string;
+  activityStatusUnread: string;
+  activityStatusWaiting: string;
+  activityStatusWorking: string;
+  viewActivity: string;
+  viewActivityNeedsAttention: string;
+  turnOffActivityView: string;
   conversationUnavailable: string;
   fallbackAgentTitle: string;
   untitledConversationTitle: string;
@@ -463,6 +476,16 @@ export type InteractivePromptLabels = {
 export type AgentGUIConversationRailLabels = Pick<
   AgentGUIViewLabels,
   | "batchDeleteConversations"
+  | "activityPriority"
+  | "activityNothingNeedsAttention"
+  | "activityToday"
+  | "activityYesterday"
+  | "activityLocalSource"
+  | "activityStatusFailed"
+  | "activityStatusRecentlyActive"
+  | "activityStatusUnread"
+  | "activityStatusWaiting"
+  | "activityStatusWorking"
   | "batchDeleteConversationsBody"
   | "batchDeleteConversationsConfirm"
   | "batchDeleteConversationsTitle"
@@ -520,9 +543,12 @@ export type AgentGUIConversationRailLabels = Pick<
   | "showLessConversations"
   | "showMoreConversations"
   | "startConversation"
+  | "turnOffActivityView"
   | "unpinProject"
   | "unpinSession"
   | "untitledConversationTitle"
+  | "viewActivity"
+  | "viewActivityNeedsAttention"
 >;
 export interface AgentGUINodeViewProps {
   viewModel: AgentGUINodeViewModel;
