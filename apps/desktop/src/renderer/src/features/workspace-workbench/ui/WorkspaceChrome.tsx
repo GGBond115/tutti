@@ -10,7 +10,6 @@ import type {
   WorkbenchHostNodeData
 } from "@tutti-os/workbench-surface";
 import { AGENT_GUI_WORKBENCH_OPEN_EXTERNAL_IMPORT_EVENT } from "@tutti-os/agent-gui/workbench/contribution";
-import { TuttiMark } from "@tutti-os/ui-system/icons";
 import { cn } from "@renderer/lib/format";
 import { ExternalAgentSessionImportPrompt } from "./ExternalAgentSessionImportPrompt";
 import { ExternalAgentSessionImportWizard } from "./ExternalAgentSessionImportWizard";
@@ -27,6 +26,11 @@ import type {
   WorkspaceWallpaperDisplayMode,
   WorkspaceWallpaperId
 } from "../services/workspaceWallpaper";
+
+const tuttiWindowIconUrl = new URL(
+  "../../app-update/assets/tutti.png",
+  import.meta.url
+).href;
 
 const WORKSPACE_CHROME_MAC_TRAFFIC_LIGHT_INSET_PX = 16;
 const WORKSPACE_CHROME_MAC_TRAFFIC_LIGHT_GUTTER_PX = 64;
@@ -131,7 +135,12 @@ export function WorkspaceChrome({
         <div className="flex items-center gap-2 [-webkit-app-region:no-drag]">
           {isWindows ? (
             <div className="flex items-center gap-2 px-1 text-sm font-medium text-white/80 [-webkit-app-region:drag]">
-              <TuttiMark aria-label="Tutti" size={20} />
+              <img
+                alt=""
+                className="size-5 shrink-0 object-contain"
+                draggable={false}
+                src={tuttiWindowIconUrl}
+              />
               <span>Tutti Dev</span>
             </div>
           ) : null}
