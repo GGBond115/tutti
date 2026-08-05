@@ -5,6 +5,7 @@ import {
   recordValue
 } from "./normalizer.ts";
 import { ClaudeGoalProjection } from "./goalProjection.ts";
+import { ClaudeGoalTranscript } from "./goalTranscript.ts";
 import type { ClaudeSDKSidecarEventEmitter } from "./protocol.ts";
 import {
   readQueuedTaskNotificationPrompt,
@@ -46,6 +47,11 @@ export class SDKMessageRouter {
   private readonly compaction: CompactionTracker;
   private readonly emit: ClaudeSDKSidecarEventEmitter;
   private readonly goals: ClaudeGoalProjection;
+  private readonly goalTranscript: ClaudeGoalTranscript;
+  private readonly resolveGoalTranscriptPath: (
+    sessionId: string,
+    cwd: string
+  ) => string;
   private readonly emitProviderCheckpointEvent: (
     turnId: string,
     providerTurnId: string,
@@ -88,6 +94,7 @@ export class SDKMessageRouter {
      */
     peekGuidanceInterrupt?: () => boolean;
     clearGuidanceInterrupt?: () => void;
+    resolveGoalTranscriptPath: (sessionId: string, cwd: string) => string;
   }) {
     this.getProviderSessionId = options.getProviderSessionId;
     this.setProviderSessionId = options.setProviderSessionId;
@@ -103,11 +110,16 @@ export class SDKMessageRouter {
     this.compaction = options.compaction;
     this.emit = options.emit;
     this.goals = new ClaudeGoalProjection(options.turns, options.emit);
+    this.goalTranscript = new ClaudeGoalTranscript((message) => {
+      this.emitGoalTranscriptDiagnostic(message);
+      this.goals.handle(message);
+    });
     this.emitProviderCheckpointEvent = options.emitProviderCheckpoint;
     this.ensureProviderTurnAcceptance = options.ensureProviderTurnAcceptance;
     this.peekGuidanceInterrupt = options.peekGuidanceInterrupt ?? (() => false);
     this.clearGuidanceInterrupt =
       options.clearGuidanceInterrupt ?? (() => undefined);
+    this.resolveGoalTranscriptPath = options.resolveGoalTranscriptPath;
   }
 
   async handle(message: SDKMessage): Promise<void> {
@@ -129,6 +141,19 @@ export class SDKMessageRouter {
     }
 
     const rawMessage = message as unknown as Record<string, unknown>;
+    const systemSubtype =
+      message.type === "system" ? stringValue(rawMessage.subtype) : "";
+    if (
+      !parentToolUseID &&
+      sessionId &&
+      (systemSubtype === "init" || systemSubtype === "compact_boundary")
+    ) {
+      await this.observeRootSession(
+        sessionId,
+        stringValue(rawMessage.cwd),
+        systemSubtype === "init" ? "system_init" : "compact_boundary"
+      );
+    }
     if (this.goals.handle(rawMessage)) {
       return;
     }
@@ -145,7 +170,6 @@ export class SDKMessageRouter {
 
     if (message.type === "system") {
       const raw = message as unknown as Record<string, unknown>;
-      const systemSubtype = stringValue(raw.subtype);
       const sdkErrorStatus =
         typeof raw.error_status === "number" ? raw.error_status : undefined;
       const sdkAssistantError = stringValue(raw.error);
@@ -273,8 +297,103 @@ export class SDKMessageRouter {
     }
 
     if (message.type === "result") {
+      if (!parentToolUseID) {
+        // The local SDK stream drops goal_status attachments. Drain the
+        // provider transcript before settling the root Turn so downstream
+        // Goal state observes the terminal evidence in causal order.
+        await this.goalTranscript.drain();
+      }
       await this.handleResult(message, parentToolUseID);
     }
+  }
+
+  async observeSessionStartHook(input: unknown): Promise<void> {
+    const hookInput = recordValue(input);
+    const agentId = stringValue(hookInput?.agent_id);
+    const transcriptPath = stringValue(hookInput?.transcript_path);
+    this.emit({
+      type: "sdk_lifecycle_observed",
+      payload: {
+        diagnosticMarker: "TEMP_CLAUDE_GOAL_SDK_STREAM",
+        diagnosticBoundary: "session_start_hook",
+        sdkMessageType: "hook",
+        sdkMessageSubtype: "SessionStart",
+        status: agentId ? "subagent_ignored" : "root_observed",
+        ...(agentId ? { agentId } : {}),
+        transcriptPathPresent: Boolean(transcriptPath),
+        activeTurnIdBefore: this.turns.activeId
+      }
+    });
+    // Programmatic hooks also run inside delegated agents. Their transcript
+    // must never retarget the root Session's Goal observer.
+    if (agentId) {
+      return;
+    }
+    if (transcriptPath) {
+      await this.goalTranscript.start(transcriptPath);
+    }
+  }
+
+  async observeRootSession(
+    sessionId: string,
+    cwd: string,
+    source: "resume" | "system_init" | "compact_boundary"
+  ): Promise<void> {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) {
+      return;
+    }
+    const transcriptPath = this.resolveGoalTranscriptPath(
+      normalizedSessionId,
+      cwd
+    );
+    this.emit({
+      type: "sdk_lifecycle_observed",
+      payload: {
+        diagnosticMarker: "TEMP_CLAUDE_GOAL_SDK_STREAM",
+        diagnosticBoundary: "transcript_start",
+        sdkMessageType: "system",
+        sdkMessageSubtype: source,
+        transcriptPathPresent: Boolean(transcriptPath),
+        activeTurnIdBefore: this.turns.activeId
+      }
+    });
+    await this.goalTranscript.start(transcriptPath);
+  }
+
+  async close(): Promise<void> {
+    await this.goalTranscript.close();
+  }
+
+  private emitGoalTranscriptDiagnostic(message: Record<string, unknown>): void {
+    const attachment = recordValue(message.attachment);
+    this.emit({
+      type: "sdk_lifecycle_observed",
+      payload: {
+        diagnosticMarker: "TEMP_CLAUDE_GOAL_SDK_STREAM",
+        diagnosticBoundary: "transcript_drain",
+        routeDecision: "project",
+        sdkMessageType: stringValue(message.type),
+        ...(stringValue(message.uuid)
+          ? { sdkMessageUuid: stringValue(message.uuid) }
+          : {}),
+        ...(stringValue(attachment?.type)
+          ? { attachmentType: stringValue(attachment?.type) }
+          : {}),
+        goalMetFieldType:
+          typeof attachment?.met === "boolean" ? "boolean" : "missing",
+        goalSentinelFieldType:
+          typeof attachment?.sentinel === "boolean" ? "boolean" : "missing",
+        goalConditionPresent: Boolean(stringValue(attachment?.condition)),
+        ...(typeof attachment?.met === "boolean"
+          ? { goalMetValue: attachment.met }
+          : {}),
+        ...(typeof attachment?.sentinel === "boolean"
+          ? { goalSentinelValue: attachment.sentinel }
+          : {}),
+        activeTurnIdBefore: this.turns.activeId
+      }
+    });
   }
 
   private emitLifecycleObservation(

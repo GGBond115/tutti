@@ -44,6 +44,7 @@ import { claudeSettingsEnv } from "./settingsEnv.ts";
 import { CompactionTracker } from "./compaction.ts";
 import { MessageProjection } from "./messageProjection.ts";
 import { SDKMessageRouter } from "./messageRouter.ts";
+import { claudeGoalTranscriptPath } from "./goalTranscript.ts";
 import { emit } from "./eventSink.ts";
 import {
   resolveClaudeTurnBindingByRecoveryToken,
@@ -288,7 +289,17 @@ export class SessionRuntime {
       peekGuidanceInterrupt: () => this.pendingGuidanceInterrupt,
       clearGuidanceInterrupt: () => {
         this.pendingGuidanceInterrupt = false;
-      }
+      },
+      resolveGoalTranscriptPath: (sessionId, providerCwd) =>
+        claudeGoalTranscriptPath({
+          sessionId,
+          cwd: providerCwd.trim() || this.cwd || process.cwd(),
+          env: {
+            ...process.env,
+            ...claudeSettingsEnv(this.cwd || process.cwd()),
+            ...this.env
+          }
+        })
     });
     this.claudeOptions = claudeOptions;
     this.queryFactory = queryFactory;
@@ -306,13 +317,17 @@ export class SessionRuntime {
       initialized: this.initialized,
       queryClosed: this.sessionClosed
     });
+    if (this.restore) {
+      await this.router.observeRootSession(
+        this.providerSessionId,
+        this.cwd,
+        "resume"
+      );
+    }
     await this.ensureQuery({ initialize: true });
     await this.runConfigurationTask(() =>
       this.configuration.applyPendingFlags()
     );
-    if (this.restore) {
-      await this.compaction.emitContextUsageSnapshot("");
-    }
     emit({
       type: "session_started",
       payload: {
@@ -321,6 +336,13 @@ export class SessionRuntime {
         resumeCursor: this.currentResumeCursor()
       }
     });
+    // Restore must not await getContextUsage before session_started: the SDK
+    // call can hang for minutes with no timeout, and Host Resume/Send blocks
+    // on this start handshake. Refresh usage in the background like turn
+    // completion already does.
+    if (this.restore) {
+      void this.compaction.emitContextUsageSnapshot("");
+    }
     const generation = this.queryGeneration;
     if (generation && this.isQueryGenerationActive(generation)) {
       // The SDK publishes its per-user resolved model in system/init before it
@@ -625,6 +647,7 @@ export class SessionRuntime {
     this.providerTurnAcceptance.cancel();
     this.interactions.rejectAll(new Error("Tool use aborted"));
     this.activities.close();
+    await this.router.close();
     this.turns.close();
     const generation = this.queryGeneration;
     this.queryGeneration = undefined;
@@ -720,7 +743,9 @@ export class SessionRuntime {
             break;
           }
           const message = next.value;
-          if (!generation.shouldRouteMessage(message)) {
+          const shouldRoute = generation.shouldRouteMessage(message);
+          this.emitGoalSDKStreamDiagnostic(message, shouldRoute);
+          if (!shouldRoute) {
             continue;
           }
           await this.router.handle(message);
@@ -752,6 +777,75 @@ export class SessionRuntime {
         }
       }
     })();
+  }
+
+  private emitGoalSDKStreamDiagnostic(
+    message: SDKMessage,
+    shouldRoute: boolean
+  ): void {
+    const raw = message as unknown as Record<string, unknown>;
+    const messageType = stringValue(raw.type);
+    const messageSubtype = stringValue(raw.subtype);
+    const isHookLifecycle =
+      messageType === "system" &&
+      (messageSubtype === "hook_started" ||
+        messageSubtype === "hook_progress" ||
+        messageSubtype === "hook_response");
+    if (
+      messageType !== "attachment" &&
+      messageType !== "active_goal" &&
+      messageType !== "result" &&
+      !isHookLifecycle
+    ) {
+      return;
+    }
+    const attachment = recordValue(raw.attachment);
+    emit({
+      type: "sdk_lifecycle_observed",
+      payload: {
+        diagnosticMarker: "TEMP_CLAUDE_GOAL_SDK_STREAM",
+        diagnosticBoundary: "query_iterator",
+        routeDecision: shouldRoute ? "route" : "drop",
+        sdkMessageType: messageType,
+        ...(messageSubtype ? { sdkMessageSubtype: messageSubtype } : {}),
+        ...(stringValue(raw.uuid)
+          ? { sdkMessageUuid: stringValue(raw.uuid) }
+          : {}),
+        ...(stringValue(attachment?.type)
+          ? { attachmentType: stringValue(attachment?.type) }
+          : {}),
+        ...(attachment
+          ? {
+              goalMetFieldType: diagnosticValueType(attachment.met),
+              goalSentinelFieldType: diagnosticValueType(attachment.sentinel),
+              goalConditionPresent: Boolean(stringValue(attachment.condition)),
+              ...(typeof attachment.met === "boolean"
+                ? { goalMetValue: attachment.met }
+                : {}),
+              ...(typeof attachment.sentinel === "boolean"
+                ? { goalSentinelValue: attachment.sentinel }
+                : {})
+            }
+          : {}),
+        ...(messageType === "active_goal"
+          ? { activeGoalValueType: diagnosticValueType(raw.value) }
+          : {}),
+        ...(isHookLifecycle
+          ? {
+              hookEvent: stringValue(raw.hook_event),
+              hookName: stringValue(raw.hook_name),
+              hookOutcome: stringValue(raw.outcome),
+              hookOutputPresent: Boolean(stringValue(raw.output)),
+              hookStdoutPresent: Boolean(stringValue(raw.stdout)),
+              hookStderrPresent: Boolean(stringValue(raw.stderr)),
+              ...(typeof raw.exit_code === "number"
+                ? { hookExitCode: raw.exit_code }
+                : {})
+            }
+          : {}),
+        activeTurnIdBefore: this.turns.activeId
+      }
+    });
   }
 
   private nextQueryMessage(
@@ -829,6 +923,7 @@ export class SessionRuntime {
         ? { pathToClaudeCodeExecutable: claudeExecutablePath }
         : {}),
       includePartialMessages: true,
+      includeHookEvents: true,
       canUseTool: (toolName, toolInput, callbackOptions) =>
         this.handleToolPermission(
           generation,
@@ -851,6 +946,10 @@ export class SessionRuntime {
       hooks: queryGenerationHooks({
         generation,
         isActive: () => this.isQueryGenerationActive(generation),
+        onSessionStart: async (input) => {
+          await this.router.observeSessionStartHook(input);
+          return { continue: true };
+        },
         onPostToolUse: (input, toolUseID) =>
           this.activities.handlePostToolUseHook(input, toolUseID),
         onTaskLifecycle: (input) =>
@@ -1093,4 +1192,17 @@ export class SessionRuntime {
       // Claude Code has not written session metadata yet.
     }
   }
+}
+
+function diagnosticValueType(value: unknown): string {
+  if (value === undefined) {
+    return "missing";
+  }
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  return typeof value;
 }

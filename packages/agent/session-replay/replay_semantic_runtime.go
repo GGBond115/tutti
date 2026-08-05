@@ -14,9 +14,10 @@ import (
 )
 
 type SemanticRegistration struct {
-	CassetteID    string
-	RootSessionID string
-	WorkspaceID   string
+	CassetteID          string
+	RootSessionID       string
+	WorkspaceID         string
+	AgentTargetRewrites map[string]string
 }
 
 type SemanticCassetteSource interface {
@@ -113,6 +114,17 @@ func PrepareSemanticRuntime(
 				"agent session replay registration requires cassette, root Session, and Workspace",
 			)
 		}
+		normalizedTargetRewrites, err := normalizeReplayAgentTargetRewrites(
+			registration.AgentTargetRewrites,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"normalize Replay Cassette %q target rewrites: %w",
+				registration.CassetteID,
+				err,
+			)
+		}
+		registration.AgentTargetRewrites = normalizedTargetRewrites
 		if workspaceID == "" {
 			workspaceID = registration.WorkspaceID
 		} else if workspaceID != registration.WorkspaceID {
@@ -140,7 +152,17 @@ func PrepareSemanticRuntime(
 					registration.CassetteID,
 				)
 			}
-			state := *artifact.InitialState
+			state, err := rewriteReplayAgentTargetFields(
+				*artifact.InitialState,
+				registration.AgentTargetRewrites,
+			)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"rewrite Replay Cassette %q initial state targets: %w",
+					registration.CassetteID,
+					err,
+				)
+			}
 			if state.Agent.RootSessionID != registration.RootSessionID {
 				return nil, fmt.Errorf(
 					"replay cassette %q initial-state root Session mismatch",
@@ -151,7 +173,17 @@ func PrepareSemanticRuntime(
 		}
 		// Expected state stays in its portable form for final comparison. The
 		// captured actual state is projected to the same form before Compare.
-		expected := artifact.ExpectedState
+		expected, err := rewriteReplayAgentTargetFields(
+			artifact.ExpectedState,
+			registration.AgentTargetRewrites,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"rewrite Replay Cassette %q expected state targets: %w",
+				registration.CassetteID,
+				err,
+			)
+		}
 		plan := artifact.CheckpointPlan
 		byID[registration.CassetteID] = registration
 		plans[registration.CassetteID] = plan

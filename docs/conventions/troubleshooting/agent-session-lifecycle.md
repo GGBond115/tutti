@@ -3612,31 +3612,75 @@ inline data URL instead`. Claude or standard ACP may instead receive no
   system notice arrives before provider-turn acceptance; the Claude acceptance
   gate previously treated it as premature provider output and dropped it. The
   daemon already settles an active compact notice when the turn closes; it needs
-  a held `compact_started` (or an adapter-emitted running notice) first.
+  a held `compact_started` (or an adapter-emitted running notice) first. Flushing
+  those held events after acceptance must not re-observe their earlier provider
+  input units: that either regresses the Replay cursor or coalesces conflicting
+  `compaction.status` readiness onto the durable `turn.working` checkpoint.
 - Fix:
   Emit a running compact notice from the Claude adapter when `/compact` is
   selected, allow compact system notices to precede provider-turn acceptance,
   accept `local_command` / `local_command_output` and camelCase boundary
   metadata in the sidecar, and map known failure copy to `compact_failed`
   before a successful result can settle the banner as completed. When the
-  acceptance barrier later flushes those held events, restamp their
-  `ProviderInputUnit` onto the acceptance unit so Session Replay does not
-  observe an earlier chunk after the durable `turn.working` checkpoint (that
-  regression fails recording with
-  `provider cursor moved backward`).
+  acceptance barrier later flushes held events, strip their
+  `ProviderInputUnit` so they publish transcript/state only.
 - Validation:
   Add daemon coverage that `/compact` banners stay held until durable
-  acceptance, then flush on the acceptance unit; add sidecar coverage for
+  acceptance, then flush without provider-input units; add sidecar coverage for
   silent `/compact` (result only), local_command failure, and camelCase
   `compactMetadata`. Re-run L04-CLAUDE recording and confirm the progress
   divider appears, then becomes `Context compacted.` (or the interrupted
-  divider with the failure detail), and that recording status stays
-  `recording` through compact.
+  divider with the failure detail), and that record+replay both pass.
 - References:
   [compaction.ts](../../../packages/agent/claude-sdk-sidecar/src/compaction.ts)
   [claude_sdk_execution.go](../../../packages/agent/daemon/runtime/claude_sdk_execution.go)
   [claude_sdk_turn.go](../../../packages/agent/daemon/runtime/claude_sdk_turn.go)
   [AgentMessageBlock.tsx](../../../packages/agent/gui/shared/agentConversation/components/AgentMessageBlock.tsx)
+
+### Inactive Claude resume times out then later sends stay queued
+
+- Symptom:
+  On a large inactive Claude session, `/compact` or any send shows working then
+  fails after ~30s with `engine command timed out` / tuttíd `context canceled`.
+  Compact never runs. A later send shows 排队中 and never reaches tuttíd
+  (`api.send.received` missing).
+- Quick checks:
+  Confirm `activeLiveState=inactive` and `resumable=true` before send. Order
+  desktop `renderer_adapter.send.http_requested` → tuttíd
+  `process_start.env_diagnostics` → `api.send.failed` (~30s, no
+  `runtime.exec`). Check Claude transcript size under
+  `~/.claude/projects/.../<provider-session-id>.jsonl`. After the timeout,
+  inspect whether a second submit stamps `queued:true` without a daemon send.
+- Root cause:
+  `SendInput` blocks on `ensureRuntimeSession` / Claude `Resume`→`Start` until
+  the sidecar emits `session_started`. On restore, the sidecar previously
+  awaited `query.getContextUsage()` before that event; the SDK call has no
+  timeout and has hung for minutes. The Engine then treated the client send
+  timeout as `uncertainDelivery`, which blocks all queue drain and prevents
+  remove/send-now of the timed-out head, so later prompts stay visible as
+  排队中 forever even after reconcile finds no delivery proof.
+- Fix:
+  Emit `session_started` before the restore usage snapshot, and refresh usage
+  in the background (same as turn completion). Keep queue send timeout at 90s
+  inside the 120s confirmation window as defense in depth. When an owned
+  `queue:reconcile:*` completes without exact turn proof, drop the timed-out
+  prompt (definitive non-delivery) or release uncertainty into a retryable
+  failed head so later queued work can drain.
+- Validation:
+  Sidecar coverage that restore `start()` reaches `session_started` while
+  `getContextUsage` never resolves, then still emits `usage_updated` after
+  resolve. `promptQueue.reducer` coverage for owned reconcile without turn
+  proof. Manually: open a large inactive Claude session, send `/compact`,
+  confirm Resume completes without waiting on usage and later messages are not
+  stuck behind uncertain delivery.
+- References:
+  [sessionRuntime.ts](../../../packages/agent/claude-sdk-sidecar/src/sessionRuntime.ts)
+  [compaction.ts](../../../packages/agent/claude-sdk-sidecar/src/compaction.ts)
+  [promptQueue.reducer.ts](../../../packages/agent/activity-core/src/engine/promptQueue.reducer.ts)
+  [promptQueue.ownedReconcile.ts](../../../packages/agent/activity-core/src/engine/promptQueue.ownedReconcile.ts)
+  [promptQueue.drainDecision.ts](../../../packages/agent/activity-core/src/engine/promptQueue.drainDecision.ts)
+  [lifecycle.go](../../../packages/agent/host/lifecycle.go)
+  [claude_sdk_lifecycle.go](../../../packages/agent/daemon/runtime/claude_sdk_lifecycle.go)
 
 ### AgentGUI compaction timer keeps running after compaction completed
 
@@ -3825,6 +3869,48 @@ inline data URL instead`. Claude or standard ACP may instead receive no
   [Agent Goal Control Design](../../specs/2026-07-15-agent-goal-control-design.md)
   [controller_exec.go](../../../packages/agent/daemon/runtime/controller_exec.go)
   [goal_state.go](../../../packages/agent/store-sqlite/goal_state.go)
+
+### Claude Goal completes but the UI remains active
+
+- Symptom:
+  Claude finishes the requested work and its session JSONL contains an
+  `attachment.type=goal_status` row with `met=true`, but Tutti emits no
+  `goal_observed`; durable desired and observed Goal state remain active.
+- Quick checks:
+  Correlate the Tutti Session with the Claude provider Session ID. Inspect the
+  provider transcript for the final `goal_status` attachment, then check dev
+  logs for a matching sidecar `goal_observed`. Do not infer Goal completion
+  from a successful root result or from a successful Stop hook process.
+- Root cause:
+  Local Claude Agent SDK `SDKMessage` streams through `0.3.222` omit transcript
+  attachments. `SDKActiveGoalMessage` is also absent from the public
+  `SDKMessage` union, and local Claude Code only publishes `active_goal` on its
+  remote path. A test that manually yielded `type=attachment` therefore proved
+  the projection but not the real SDK boundary.
+- Fix:
+  Locate the provider transcript from root `system/init.session_id + cwd`
+  using the pinned SDK's project-key algorithm. Start restored Sessions from
+  their already known provider Session ID. Keep
+  `SessionStart.transcript_path` as an exact-path auxiliary signal, not the
+  required trigger. Read only newly appended complete JSONL rows, forward only
+  `goal_status` attachments through the existing Goal projection, drain before
+  root Turn completion, and keep following after the SDK result because the
+  native evaluator can flush its terminal row slightly later. Late evidence
+  retains the latest settled root Turn identity. Do not parse evaluator hook
+  stdout and do not configure an alpha `SessionStore` solely for this signal;
+  both change a larger and less reliable boundary.
+- Validation:
+  Run a query fixture whose SDK iterator emits root `system/init`, the root
+  user message, and result. Reproduce the observed ordering where transcript
+  `met=false` precedes `turn_completed` and `met=true` lands afterward; require
+  the late completion to retain the original Turn identity. Also cover resume
+  without another init, delegated init exclusion, watcher cleanup,
+  historical-row skipping, partial JSONL rows, and repeated-drain
+  deduplication.
+- References:
+  [goalTranscript.ts](../../../packages/agent/claude-sdk-sidecar/src/goalTranscript.ts)
+  [messageRouter.ts](../../../packages/agent/claude-sdk-sidecar/src/messageRouter.ts)
+  [Anthropic SDK issue #336](https://github.com/anthropics/claude-agent-sdk-typescript/issues/336)
 
 ### Accepted Goal clear is sent repeatedly until convergence times out
 
