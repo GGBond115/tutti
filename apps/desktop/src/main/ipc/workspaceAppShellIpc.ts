@@ -3,6 +3,7 @@ import { ipcMain } from "electron";
 import { desktopIpcChannels } from "../../shared/contracts/ipc.ts";
 import {
   normalizeTuttiExternalAtQueryInput,
+  normalizeTuttiExternalAtQueryDirectoryInput,
   normalizeTuttiExternalAtResolveInput,
   normalizeTuttiExternalLogInput,
   normalizeTuttiExternalReferenceOpenInput,
@@ -33,6 +34,7 @@ import {
 import { dispatchWorkspaceAppOpenUrl } from "./workspaceAppWindowOpen.ts";
 import { isRecord } from "./workspaceAppPayloadValidation.ts";
 import { requestWorkspaceAppExternalRenderer } from "./workspaceAppRendererBridge.ts";
+import { createWorkspaceAppAtQueryDirectoryRequest } from "./workspaceAppAtQueryDirectoryRequest.ts";
 
 export function registerWorkspaceAppShellIpc(input: {
   endpoint: DesktopDaemonEndpoint;
@@ -62,6 +64,21 @@ export function registerWorkspaceAppShellIpc(input: {
           requestId: randomUUID(),
           workspaceId: context.workspaceID
         }
+      );
+    }
+  );
+  registerDesktopIpcHandler(
+    desktopIpcChannels.appExternal.atQueryDirectory,
+    async (event, payload) => {
+      const context = requireWorkspaceAppGuestContext(event.sender);
+      const input = normalizeTuttiExternalAtQueryDirectoryInput(payload);
+      return requestWorkspaceAppExternalRenderer<TuttiExternalAtQueryResult[]>(
+        context,
+        createWorkspaceAppAtQueryDirectoryRequest({
+          context,
+          query: input,
+          requestId: randomUUID()
+        })
       );
     }
   );

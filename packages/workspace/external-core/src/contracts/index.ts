@@ -47,6 +47,20 @@ export interface TuttiExternalAtQueryInput {
   providers?: readonly TuttiExternalAtProviderId[];
 }
 
+export interface TuttiExternalAtQueryDirectoryInput {
+  /** Empty string addresses the provider-owned root directory. */
+  directoryPath: string;
+  maxResults?: number;
+  providerId: TuttiExternalAtProviderId;
+}
+
+export interface TuttiExternalAtDirectoryDescriptor {
+  /** Canonical provider-owned directory path used for direct-child queries. */
+  path: string;
+  /** Number of direct children when the provider can determine it. */
+  childCount?: number | null;
+}
+
 export interface TuttiExternalAtQueryResult {
   providerId: TuttiExternalAtProviderId;
   itemId: string;
@@ -54,6 +68,7 @@ export interface TuttiExternalAtQueryResult {
   subtitle?: string;
   thumbnailUrl?: string | null;
   insert: TuttiExternalAtInsertResult;
+  directory?: TuttiExternalAtDirectoryDescriptor;
 }
 
 export interface TuttiExternalAtResolveInput {
@@ -385,6 +400,9 @@ export interface TuttiExternalBridge {
     query(
       input: TuttiExternalAtQueryInput
     ): Promise<TuttiExternalAtQueryResult[]>;
+    queryDirectory?(
+      input: TuttiExternalAtQueryDirectoryInput
+    ): Promise<TuttiExternalAtQueryResult[]>;
     resolve?(
       input: TuttiExternalAtResolveInput
     ): Promise<TuttiExternalAtResolveResult | null>;
@@ -512,6 +530,13 @@ export type TuttiExternalRendererRequest =
       appId: string;
       input: TuttiExternalAtQueryInput;
       operation: "at.query";
+      requestId: string;
+      workspaceId: string;
+    }
+  | {
+      appId: string;
+      input: TuttiExternalAtQueryDirectoryInput;
+      operation: "at.queryDirectory";
       requestId: string;
       workspaceId: string;
     }

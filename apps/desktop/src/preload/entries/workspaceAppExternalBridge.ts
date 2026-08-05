@@ -6,6 +6,7 @@ import type {
 } from "../../shared/contracts/ipc";
 import type {
   TuttiExternalAtQueryInput,
+  TuttiExternalAtQueryDirectoryInput,
   TuttiExternalAtQueryResult,
   TuttiExternalAtInvalidation,
   TuttiExternalAtResolveInput,
@@ -106,6 +107,7 @@ export const workspaceAppExternalChannels = {
   agentActivityListTargets: "workspace-app-agent-activity:list-targets",
   agentActivitySendInput: "workspace-app-agent-activity:send-input",
   atQuery: "workspace-app-at:query",
+  atQueryDirectory: "workspace-app-at:query-directory",
   atResolve: "workspace-app-at:resolve",
   browserOpenUrl: "workspace-app:open-url",
   filesOpen: "workspace-app-files:open",
@@ -209,6 +211,12 @@ export function createWorkspaceAppExternalBridge(
       query(input: TuttiExternalAtQueryInput) {
         return dependencies.invoke<TuttiExternalAtQueryResult[]>(
           workspaceAppExternalChannels.atQuery,
+          input
+        );
+      },
+      queryDirectory(input: TuttiExternalAtQueryDirectoryInput) {
+        return dependencies.invoke<TuttiExternalAtQueryResult[]>(
+          workspaceAppExternalChannels.atQueryDirectory,
           input
         );
       },

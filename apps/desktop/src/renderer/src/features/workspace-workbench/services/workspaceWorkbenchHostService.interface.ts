@@ -39,6 +39,7 @@ import type {
   DesktopWorkspaceOpenFeatureRequest
 } from "@shared/contracts/ipc";
 import type {
+  TuttiExternalAtQueryDirectoryInput,
   TuttiExternalAtQueryInput,
   TuttiExternalAtQueryResult,
   TuttiExternalAtResolveInput,
@@ -170,6 +171,10 @@ export interface IWorkspaceWorkbenchHostService {
   openExternal(url: string): Promise<void>;
   queryWorkspaceAppExternalAt(input: {
     query: TuttiExternalAtQueryInput;
+    workspaceId: string;
+  }): Promise<TuttiExternalAtQueryResult[]>;
+  queryWorkspaceAppExternalAtDirectory(input: {
+    query: TuttiExternalAtQueryDirectoryInput;
     workspaceId: string;
   }): Promise<TuttiExternalAtQueryResult[]>;
   resolveWorkspaceAppExternalAt(input: {

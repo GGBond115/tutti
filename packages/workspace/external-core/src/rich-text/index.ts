@@ -1,6 +1,7 @@
 import {
   tuttiExternalAtProviderIds,
   type TuttiExternalAtInvalidation,
+  type TuttiExternalAtQueryDirectoryInput,
   type TuttiExternalAtProviderId,
   type TuttiExternalAtQueryInput,
   type TuttiExternalAtQueryResult,
@@ -22,6 +23,11 @@ export interface TuttiExternalAtRichTextBridge {
   at?: {
     query(
       input: TuttiExternalAtQueryInput
+    ):
+      | Promise<readonly TuttiExternalAtQueryResult[]>
+      | readonly TuttiExternalAtQueryResult[];
+    queryDirectory?(
+      input: TuttiExternalAtQueryDirectoryInput
     ):
       | Promise<readonly TuttiExternalAtQueryResult[]>
       | readonly TuttiExternalAtQueryResult[];
@@ -100,6 +106,27 @@ export function createTuttiExternalAtRichTextTriggerProvider(
         providerIds: [input.providerId]
       });
     },
+    ...(input.providerId === "file" &&
+    (input.getBridge?.() ?? input.bridge)?.at?.queryDirectory
+      ? {
+          getItemDirectory(item: TuttiExternalAtQueryResult) {
+            return item.directory;
+          },
+          async queryDirectory(queryInput) {
+            const bridge = (input.getBridge?.() ?? input.bridge)?.at;
+            if (!bridge?.queryDirectory) {
+              throw new Error(
+                "Tutti external @ bridge does not support directory browsing."
+              );
+            }
+            return bridge.queryDirectory({
+              directoryPath: queryInput.directoryPath,
+              maxResults: queryInput.maxResults ?? input.maxResults,
+              providerId: input.providerId
+            });
+          }
+        }
+      : {}),
     async resolveMention(identity) {
       const bridge = (input.getBridge?.() ?? input.bridge)?.at;
       if (!bridge) return null;

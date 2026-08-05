@@ -38,6 +38,7 @@ import { useWorkspaceWorkbenchHostService } from "./useWorkspaceWorkbenchHostSer
 import { useWorkspaceSettingsService } from "./useWorkspaceSettingsService";
 import { requestWorkspaceIssueManagerLaunch } from "../services/workspaceIssueManagerLaunchCoordinator";
 import { serializeWorkspaceAppExternalAgentIconUrl } from "../services/workspaceAppExternalAgentIconSerialization.ts";
+import { dispatchWorkspaceAppExternalAtRequest } from "../services/workspaceAppExternalAtRequest.ts";
 
 const workspaceFileReferenceLocaleKeyByPickerKey: Record<string, string> = {
   "actions.cancel": "common.cancel",
@@ -333,13 +334,11 @@ export function WorkspaceAppExternalBridge({
         case "agentActivity.getSnapshot":
           return workspaceAgentActivityService.load(workspaceId);
         case "at.query":
-          return hostService.queryWorkspaceAppExternalAt({
-            query: request.input,
-            workspaceId
-          });
+        case "at.queryDirectory":
         case "at.resolve":
-          return hostService.resolveWorkspaceAppExternalAt({
-            mention: request.input,
+          return dispatchWorkspaceAppExternalAtRequest({
+            hostService,
+            request,
             workspaceId
           });
         case "files.select":

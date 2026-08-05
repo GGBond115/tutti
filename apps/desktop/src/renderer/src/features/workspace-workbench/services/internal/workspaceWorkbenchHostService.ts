@@ -78,6 +78,7 @@ import type { RichTextTriggerProvider } from "@tutti-os/ui-rich-text/types";
 import { tuttiExternalAtProviderIds } from "@tutti-os/workspace-external-core/core";
 import type {
   TuttiExternalAtQueryInput,
+  TuttiExternalAtQueryDirectoryInput,
   TuttiExternalAtQueryResult,
   TuttiExternalAtResolveInput,
   TuttiExternalAtResolveResult
@@ -321,6 +322,29 @@ export class WorkspaceWorkbenchHostService implements IWorkspaceWorkbenchHostSer
           workspaceId: input.workspaceId
         }
       }
+    });
+    return matches
+      .map(serializeWorkspaceAppExternalAtMatch)
+      .filter(
+        (result): result is TuttiExternalAtQueryResult => result !== null
+      );
+  }
+
+  async queryWorkspaceAppExternalAtDirectory(input: {
+    query: TuttiExternalAtQueryDirectoryInput;
+    workspaceId: string;
+  }): Promise<TuttiExternalAtQueryResult[]> {
+    const providers = this.createWorkspaceAppExternalAtProviders(
+      new Set([input.query.providerId]),
+      input.workspaceId
+    );
+    const registry = createRichTextTriggerRegistry(providers);
+    const matches = await registry.queryDirectory(input.query.providerId, {
+      context: { metadata: { workspaceId: input.workspaceId } },
+      directoryPath: input.query.directoryPath,
+      keyword: "",
+      maxResults: input.query.maxResults,
+      trigger: "@"
     });
     return matches
       .map(serializeWorkspaceAppExternalAtMatch)

@@ -64,6 +64,58 @@ test("queries the external bridge with the provider filter", async () => {
   );
 });
 
+test("file provider exposes external directory browsing when the host supports it", async () => {
+  const calls: unknown[] = [];
+  const directory = createQueryResult("file", "/workspace/docs", "docs", {
+    directory: { childCount: 2, path: "/workspace/docs" },
+    insert: {
+      href: "/workspace/docs/",
+      kind: "markdown-link",
+      label: "docs"
+    }
+  });
+  const provider = createTuttiExternalAtRichTextTriggerProvider({
+    providerId: "file",
+    bridge: {
+      at: {
+        query: () => [],
+        queryDirectory(input) {
+          calls.push(input);
+          return [directory];
+        }
+      }
+    }
+  });
+
+  assert.deepEqual(provider.getItemDirectory?.(directory), directory.directory);
+  assert.deepEqual(
+    await provider.queryDirectory?.({
+      context: {},
+      directoryPath: "/workspace",
+      keyword: "",
+      maxResults: 12,
+      trigger: "@"
+    }),
+    [directory]
+  );
+  assert.deepEqual(calls, [
+    {
+      directoryPath: "/workspace",
+      maxResults: 12,
+      providerId: "file"
+    }
+  ]);
+});
+
+test("file provider keeps directory browsing absent on an older bridge", () => {
+  const provider = createTuttiExternalAtRichTextTriggerProvider({
+    providerId: "file",
+    bridge: { at: { query: () => [] } }
+  });
+  assert.equal(provider.queryDirectory, undefined);
+  assert.equal(provider.getItemDirectory, undefined);
+});
+
 test("defaults external at rich text providers to include agent targets", () => {
   const providers = createTuttiExternalAtRichTextTriggerProviders({
     bridge: null
