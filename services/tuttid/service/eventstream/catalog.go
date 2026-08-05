@@ -626,16 +626,7 @@ func validateAgentActivityUpdatedData(decoded agentActivityUpdatedPayload) error
 	}
 	switch eventType {
 	case "runtime_activity_update":
-		var data agentActivityRuntimeActivityUpdateData
-		if err := decodeJSONStrict(decoded.Data, &data); err != nil {
-			return fmt.Errorf("decode runtime_activity_update data: %w", err)
-		}
-		if !isOneOf(strings.TrimSpace(data.State), "idle", "running") {
-			return fmt.Errorf("data.state is invalid")
-		}
-		if data.OccurredAtUnixMS == nil || *data.OccurredAtUnixMS <= 0 {
-			return fmt.Errorf("data.occurredAtUnixMs is required")
-		}
+		return validateAgentActivityRuntimeActivityUpdateData(decoded.Data)
 	case "session_reconcile_required":
 		var data agentActivitySessionUpdateData
 		if err := decodeJSONStrict(decoded.Data, &data); err != nil {

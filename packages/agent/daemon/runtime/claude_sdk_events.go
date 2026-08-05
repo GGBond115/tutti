@@ -112,14 +112,14 @@ func (a *ClaudeCodeSDKAdapter) sidecarTurnEvents(adapterSession *claudeSDKAdapte
 		if !changed {
 			return nil, false, nil
 		}
-		metadata := claudeSDKRuntimeContext(session, adapterSession)
-		metadata["runtimeActivityState"] = state
-		return []activityshared.Event{newSessionActivityEvent(
+		event := newSessionActivityEvent(
 			session,
 			EventSessionUpdated,
 			firstNonEmpty(session.Status, SessionStatusReady),
-			metadata,
-		)}, false, nil
+			claudeSDKRuntimeContext(session, adapterSession),
+		)
+		event.Payload.RuntimeActivity = activityshared.RuntimeActivityState(state)
+		return []activityshared.Event{event}, false, nil
 	case "session_state":
 		return []activityshared.Event{newSessionActivityEvent(session, EventSessionUpdated, firstNonEmpty(session.Status, SessionStatusReady), claudeSDKRuntimeContext(session, adapterSession))}, false, nil
 	case "provider_turn_identity_resolved":

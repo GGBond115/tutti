@@ -2,6 +2,31 @@
 
 [Agent runtime index](./agent-runtime.md) · [All troubleshooting](./README.md)
 
+### Claude Goal stays active after the model becomes idle
+
+- **Symptom:** Claude has stopped producing output and the Session becomes
+  idle, but the Goal banner remains active indefinitely. The elapsed time may
+  also reset after leaving and reopening the workspace.
+- **Quick checks:** Inspect sidecar events and the root Claude transcript. A
+  failed evaluator has an active `active_goal` or `goal_status.met=false`, a
+  root `session_state_changed(state=idle)`, and no later
+  `goal_status.met=true`.
+- **Root cause:** Claude's SDK stream may omit top-level `goal_status`
+  attachments. A native evaluator timeout can then reach idle without a
+  terminal verdict. Separately, a timer based on React mount time cannot
+  survive workspace navigation.
+- **Fix:** Tail only new root transcript rows, drain once more at provider idle,
+  and transition a still-active Goal to canonical `blocked`. Persist one
+  `startedAtUnixMs` per Goal generation and derive active elapsed time from it.
+- **Validation:** Cover both boundaries: terminal transcript evidence written
+  immediately before idle must win, while idle without terminal evidence must
+  emit `blocked`. Unmount and remount the Goal banner with the same canonical
+  start and require the elapsed value not to reset.
+- **References:**
+  [goalProjection.ts](../../../packages/agent/claude-sdk-sidecar/src/goalProjection.ts),
+  [messageRouter.ts](../../../packages/agent/claude-sdk-sidecar/src/messageRouter.ts),
+  [AgentGoalBanner.tsx](../../../packages/agent/gui/agent-gui/agentGuiNode/AgentGoalBanner.tsx)
+
 ### Older extension session fails because its launch identity is incomplete
 
 - **Symptom:** Sending a new message to a previously created extension session

@@ -318,11 +318,7 @@ export class SessionRuntime {
       queryClosed: this.sessionClosed
     });
     if (this.restore) {
-      await this.router.observeRootSession(
-        this.providerSessionId,
-        this.cwd,
-        "resume"
-      );
+      await this.router.observeRootSession(this.providerSessionId, this.cwd);
     }
     await this.ensureQuery({ initialize: true });
     await this.runConfigurationTask(() =>
@@ -473,6 +469,9 @@ export class SessionRuntime {
         generation.expectPromptEcho(turn.promptUuid);
         this.turns.expectProviderTurnIdentity(turn.turnId);
         this.providerTurnAcceptance.markDispatched(turn.turnId);
+        if (goal) {
+          this.router.trackGoalCommand(goal.action, prompt);
+        }
         generation.promptQueue.push({
           uuid: turn.promptUuid,
           type: "user",
@@ -744,7 +743,6 @@ export class SessionRuntime {
           }
           const message = next.value;
           const shouldRoute = generation.shouldRouteMessage(message);
-          this.emitGoalSDKStreamDiagnostic(message, shouldRoute);
           if (!shouldRoute) {
             continue;
           }
@@ -777,75 +775,6 @@ export class SessionRuntime {
         }
       }
     })();
-  }
-
-  private emitGoalSDKStreamDiagnostic(
-    message: SDKMessage,
-    shouldRoute: boolean
-  ): void {
-    const raw = message as unknown as Record<string, unknown>;
-    const messageType = stringValue(raw.type);
-    const messageSubtype = stringValue(raw.subtype);
-    const isHookLifecycle =
-      messageType === "system" &&
-      (messageSubtype === "hook_started" ||
-        messageSubtype === "hook_progress" ||
-        messageSubtype === "hook_response");
-    if (
-      messageType !== "attachment" &&
-      messageType !== "active_goal" &&
-      messageType !== "result" &&
-      !isHookLifecycle
-    ) {
-      return;
-    }
-    const attachment = recordValue(raw.attachment);
-    emit({
-      type: "sdk_lifecycle_observed",
-      payload: {
-        diagnosticMarker: "TEMP_CLAUDE_GOAL_SDK_STREAM",
-        diagnosticBoundary: "query_iterator",
-        routeDecision: shouldRoute ? "route" : "drop",
-        sdkMessageType: messageType,
-        ...(messageSubtype ? { sdkMessageSubtype: messageSubtype } : {}),
-        ...(stringValue(raw.uuid)
-          ? { sdkMessageUuid: stringValue(raw.uuid) }
-          : {}),
-        ...(stringValue(attachment?.type)
-          ? { attachmentType: stringValue(attachment?.type) }
-          : {}),
-        ...(attachment
-          ? {
-              goalMetFieldType: diagnosticValueType(attachment.met),
-              goalSentinelFieldType: diagnosticValueType(attachment.sentinel),
-              goalConditionPresent: Boolean(stringValue(attachment.condition)),
-              ...(typeof attachment.met === "boolean"
-                ? { goalMetValue: attachment.met }
-                : {}),
-              ...(typeof attachment.sentinel === "boolean"
-                ? { goalSentinelValue: attachment.sentinel }
-                : {})
-            }
-          : {}),
-        ...(messageType === "active_goal"
-          ? { activeGoalValueType: diagnosticValueType(raw.value) }
-          : {}),
-        ...(isHookLifecycle
-          ? {
-              hookEvent: stringValue(raw.hook_event),
-              hookName: stringValue(raw.hook_name),
-              hookOutcome: stringValue(raw.outcome),
-              hookOutputPresent: Boolean(stringValue(raw.output)),
-              hookStdoutPresent: Boolean(stringValue(raw.stdout)),
-              hookStderrPresent: Boolean(stringValue(raw.stderr)),
-              ...(typeof raw.exit_code === "number"
-                ? { hookExitCode: raw.exit_code }
-                : {})
-            }
-          : {}),
-        activeTurnIdBefore: this.turns.activeId
-      }
-    });
   }
 
   private nextQueryMessage(
@@ -1192,17 +1121,4 @@ export class SessionRuntime {
       // Claude Code has not written session metadata yet.
     }
   }
-}
-
-function diagnosticValueType(value: unknown): string {
-  if (value === undefined) {
-    return "missing";
-  }
-  if (value === null) {
-    return "null";
-  }
-  if (Array.isArray(value)) {
-    return "array";
-  }
-  return typeof value;
 }

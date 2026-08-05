@@ -9,6 +9,7 @@ export function initialOperation(): SessionOperationState {
   return {
     runtimeAvailability: { state: "available" },
     runtimeActivity: "idle",
+    runtimeActivityOccurredAtUnixMs: 0,
     cancel: initialCancel(),
     operationError: null,
     settingsUpdate: createInitialSettingsUpdate()

@@ -8612,12 +8612,13 @@ type WorkspaceAgentSessionGitBranchesResponse struct {
 
 // WorkspaceAgentSessionGoal Protocol v2 explicit field extracted from runtimeContext.
 type WorkspaceAgentSessionGoal struct {
-	DurationMs *int64                          `json:"durationMs,omitempty"`
-	Iterations *int                            `json:"iterations,omitempty"`
-	Objective  string                          `json:"objective"`
-	Reason     *string                         `json:"reason,omitempty"`
-	Status     WorkspaceAgentSessionGoalStatus `json:"status"`
-	Tokens     *int64                          `json:"tokens,omitempty"`
+	DurationMs      *int64                          `json:"durationMs,omitempty"`
+	Iterations      *int                            `json:"iterations,omitempty"`
+	Objective       string                          `json:"objective"`
+	Reason          *string                         `json:"reason,omitempty"`
+	StartedAtUnixMs *int64                          `json:"startedAtUnixMs,omitempty"`
+	Status          WorkspaceAgentSessionGoalStatus `json:"status"`
+	Tokens          *int64                          `json:"tokens,omitempty"`
 }
 
 // WorkspaceAgentSessionGoalStatus defines model for WorkspaceAgentSessionGoal.Status.

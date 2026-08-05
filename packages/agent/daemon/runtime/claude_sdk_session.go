@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
+	"time"
 
 	activityshared "github.com/tutti-os/tutti/packages/agent/daemon/activity/events"
 )
@@ -227,9 +228,6 @@ func claudeSDKRuntimeContext(session Session, adapterSession *claudeSDKAdapterSe
 	if len(liveState.goal) > 0 {
 		context["goal"] = clonePayload(liveState.goal)
 	}
-	if liveState.runtimeActivity != "" {
-		context["runtimeActivityState"] = liveState.runtimeActivity
-	}
 	return context
 }
 
@@ -263,7 +261,7 @@ func (s *claudeSDKAdapterSession) mirrorGoalSlashPrompt(session Session, prompt 
 		return activityshared.Event{}, false
 	}
 	if updateType == "thread_goal_update" {
-		s.liveState.goal = clonePayload(goal)
+		s.liveState.goal = normalizeClaudeGoalTiming(goal, s.liveState.goal, time.Now().UnixMilli())
 	} else {
 		s.liveState.goal = nil
 	}

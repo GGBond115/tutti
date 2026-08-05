@@ -471,8 +471,8 @@ export function selectAllWorkspaceAgentConsumerSessions(
         latestTurn,
         pendingInteractions,
         runtimeActivity:
-          state.sessionLifecycle.operationBySessionId[session.agentSessionId]
-            ?.runtimeActivity ?? "idle"
+          state.sessionLifecycle.operationBySessionId[session.agentSessionId] ??
+          null
       }),
       latestTurn,
       pendingInteractions,
@@ -502,9 +502,7 @@ export function selectWorkspaceAgentConsumerSession(
       ),
       latestTurn,
       pendingInteractions,
-      runtimeActivity:
-        state.sessionLifecycle.operationBySessionId[id]?.runtimeActivity ??
-        "idle"
+      runtimeActivity: state.sessionLifecycle.operationBySessionId[id] ?? null
     }),
     latestTurn,
     pendingInteractions,
@@ -529,13 +527,13 @@ function displayStatusFromCanonicalState(state: {
   initialActivationTurnPending: boolean;
   latestTurn: AgentActivityTurn | null;
   pendingInteractions: readonly AgentActivityInteraction[];
-  runtimeActivity: SessionOperationState["runtimeActivity"];
+  runtimeActivity: SessionOperationState | null;
 }): AgentActivityDisplayStatus {
   if (state.pendingInteractions.length > 0) return "waiting";
   if (state.activeTurn && state.activeTurn.phase !== "settled") {
     return state.activeTurn.phase === "waiting" ? "waiting" : "working";
   }
-  if (state.runtimeActivity === "running") return "working";
+  if (runtimeActivityCanOverrideCanonicalTurn(state)) return "working";
   if (!state.latestTurn) {
     return state.initialActivationTurnPending ? "working" : "idle";
   }
@@ -551,6 +549,22 @@ function displayStatusFromCanonicalState(state: {
     default:
       return "idle";
   }
+}
+
+function runtimeActivityCanOverrideCanonicalTurn(state: {
+  latestTurn: AgentActivityTurn | null;
+  runtimeActivity: SessionOperationState | null;
+}): boolean {
+  if (state.runtimeActivity?.runtimeActivity !== "running") return false;
+  if (!state.latestTurn || state.latestTurn.phase !== "settled") return true;
+  const canonicalTerminalAtUnixMs = Math.max(
+    state.latestTurn.updatedAtUnixMs,
+    state.latestTurn.settledAtUnixMs ?? 0
+  );
+  return (
+    state.runtimeActivity.runtimeActivityOccurredAtUnixMs >
+    canonicalTerminalAtUnixMs
+  );
 }
 
 function initialActivationTurnIsPending(

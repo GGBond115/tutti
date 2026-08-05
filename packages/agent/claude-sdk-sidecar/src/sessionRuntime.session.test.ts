@@ -1209,6 +1209,83 @@ test("SDK active_goal messages normalize provider goal lifecycle", async () => {
   }
 });
 
+test("provider idle blocks an active Goal without a terminal verdict", async () => {
+  const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+  const restoreSink = withSidecarEventSinkForTest((event) =>
+    events.push(event)
+  );
+  try {
+    const session = new SessionRuntime(
+      "provider-session-goal-timeout",
+      "/repo",
+      {},
+      false,
+      false,
+      {
+        model: "",
+        permissionModeId: "default",
+        planMode: false,
+        effort: "",
+        speed: ""
+      },
+      sidecarClaudeOptionsFromPayload({}),
+      undefined,
+      ({ prompt }) => ({
+        async *[Symbol.asyncIterator]() {
+          const outbound = await prompt[Symbol.asyncIterator]().next();
+          yield {
+            ...outbound.value,
+            uuid: "provider-goal-timeout-turn",
+            type: "user",
+            parent_tool_use_id: null,
+            session_id: "provider-session-goal-timeout"
+          } as never;
+          yield { type: "result", subtype: "success" } as never;
+          yield {
+            type: "system",
+            subtype: "session_state_changed",
+            state: "idle",
+            session_id: "provider-session-goal-timeout"
+          } as never;
+        },
+        close() {}
+      })
+    );
+
+    await session.start();
+    session.exec(
+      "goal-timeout-turn",
+      "/goal finish the task",
+      undefined,
+      undefined,
+      {
+        operationId: "goal-timeout-operation",
+        revision: 1,
+        action: "set"
+      }
+    );
+    await waitForCondition(
+      () =>
+        events.some(
+          (event) =>
+            event.type === "goal_observed" &&
+            isRecord(event.payload?.goal) &&
+            event.payload.goal.status === "blocked"
+        ),
+      "blocked Goal at provider idle"
+    );
+
+    const updates = events.filter((event) => event.type === "goal_observed");
+    assert.equal(updates.length, 1);
+    assert.deepEqual(updates[0]?.payload?.goal, {
+      objective: "finish the task",
+      status: "blocked"
+    });
+  } finally {
+    restoreSink();
+  }
+});
+
 test("SDK active_goal clear keeps the exact goal command action", async () => {
   const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
   const restoreSink = withSidecarEventSinkForTest((event) =>
@@ -1359,6 +1436,12 @@ test("system init follows goal_status written after SDK result", async () => {
             })}\n`,
             "utf8"
           );
+          yield {
+            type: "system",
+            subtype: "session_state_changed",
+            state: "idle",
+            session_id: "provider-session-goal-status"
+          } as never;
         },
         close() {}
       })

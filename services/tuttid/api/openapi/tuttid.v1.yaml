@@ -13117,6 +13117,10 @@ components:
             - complete
         reason:
           type: string
+        startedAtUnixMs:
+          type: integer
+          format: int64
+          minimum: 0
         iterations:
           type: integer
           minimum: 0

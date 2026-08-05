@@ -44,12 +44,15 @@ func TestActivityProjectionPublishesRuntimeActivityObservation(t *testing.T) {
 				AgentSessionID: "session-1",
 				State: canonical.WorkspaceAgentSessionStateUpdate{
 					OccurredAtUnixMS: 42,
-					RuntimeContext:   map[string]any{"runtimeActivityState": "running"},
+					RuntimeActivity: &canonical.WorkspaceAgentRuntimeActivityObservation{
+						State: "running", OccurredAtUnixMS: 42,
+					},
 				},
 			},
 			Result: agentactivitybiz.ActivityStateReportResult{
 				State: agentactivitybiz.StateReportResult{
 					Accepted:        true,
+					StateApplied:    true,
 					LastEventUnixMS: 42,
 				},
 			},
@@ -66,6 +69,38 @@ func TestActivityProjectionPublishesRuntimeActivityObservation(t *testing.T) {
 	if event.eventType != "runtime_activity_update" || event.payload["state"] != "running" ||
 		event.payload["occurredAtUnixMs"] != int64(42) {
 		t.Fatalf("runtime activity event=%#v", event)
+	}
+}
+
+func TestActivityProjectionDoesNotPublishStaleRuntimeActivityObservation(t *testing.T) {
+	publisher := &activityUpdatePublisherStub{}
+	projection := NewActivityProjection(&activityProjectionRepoStub{})
+	projection.SetPublisher(publisher)
+	err := projection.ObserveCommitted(context.Background(), agenthost.CommittedDelta{
+		ActivityState: &agenthost.ActivityStateCommitted{
+			Input: canonical.ReportSessionStateInput{
+				WorkspaceID:    "workspace-1",
+				AgentSessionID: "session-1",
+				State: canonical.WorkspaceAgentSessionStateUpdate{
+					RuntimeActivity: &canonical.WorkspaceAgentRuntimeActivityObservation{
+						State: "running", OccurredAtUnixMS: 41,
+					},
+				},
+			},
+			Result: agentactivitybiz.ActivityStateReportResult{
+				State: agentactivitybiz.StateReportResult{
+					Accepted: true, StateApplied: false, LastEventUnixMS: 42,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range publisher.events {
+		if event.eventType == "runtime_activity_update" {
+			t.Fatalf("stale runtime activity was published: %#v", publisher.events)
+		}
 	}
 }
 

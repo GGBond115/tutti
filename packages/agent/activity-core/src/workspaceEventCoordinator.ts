@@ -204,6 +204,7 @@ export function createAgentActivityWorkspaceEventCoordinator({
         )) {
           engine.dispatch({
             agentSessionId,
+            occurredAtUnixMs: 0,
             state: "idle",
             type: "session/runtimeActivityChanged"
           });
@@ -277,18 +278,6 @@ export function createAgentActivityWorkspaceEventCoordinator({
         return eventResult(eventType, false, "identity_mismatch");
       }
 
-      if (event.eventType === "runtime_activity_update") {
-        if (event.data.state !== "idle" && event.data.state !== "running") {
-          return eventResult(eventType, false, "identity_mismatch");
-        }
-        engine.dispatch({
-          agentSessionId,
-          state: event.data.state,
-          type: "session/runtimeActivityChanged"
-        });
-        return eventResult(eventType, true, "applied");
-      }
-
       if (event.eventType === "message_delta") {
         const parsed = parseAgentActivityMessageDeltaEvent(event);
         if (!parsed) {
@@ -352,6 +341,22 @@ export function createAgentActivityWorkspaceEventCoordinator({
         engine.getSnapshot().sessionLifecycle.deletedSessionIds[agentSessionId]
       ) {
         return eventResult(eventType, false, "tombstoned");
+      }
+      if (event.eventType === "runtime_activity_update") {
+        if (
+          (event.data.state !== "idle" && event.data.state !== "running") ||
+          !Number.isSafeInteger(event.data.occurredAtUnixMs) ||
+          event.data.occurredAtUnixMs <= 0
+        ) {
+          return eventResult(eventType, false, "identity_mismatch");
+        }
+        engine.dispatch({
+          agentSessionId,
+          occurredAtUnixMs: event.data.occurredAtUnixMs,
+          state: event.data.state,
+          type: "session/runtimeActivityChanged"
+        });
+        return eventResult(eventType, true, "applied");
       }
       if (event.eventType === "turn_update") {
         const projection = agentActivityTurnProjectionFromEvent(event);

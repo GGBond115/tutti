@@ -51,8 +51,17 @@ func TestClaudeCodeSDKAdapterProjectsSDKRuntimeActivityWithoutTurnIdentity(t *te
 		if len(events) != 1 || events[0].Type != activityshared.EventSessionUpdated {
 			t.Fatalf("state=%q events=%#v, want session.updated", state, events)
 		}
-		if got := claudeSDKRuntimeContext(session, adapterSession)["runtimeActivityState"]; got != state {
-			t.Fatalf("state=%q runtimeActivityState=%#v", state, got)
+		if got := string(events[0].Payload.RuntimeActivity); got != state {
+			t.Fatalf("state=%q runtime activity=%q", state, got)
+		}
+		if _, persisted := claudeSDKRuntimeContext(session, adapterSession)["runtimeActivityState"]; persisted {
+			t.Fatalf("state=%q leaked into persistent runtime context", state)
+		}
+		report := reportActivityInput(session, events)
+		if len(report.StatePatches) != 1 || report.StatePatches[0].RuntimeActivity == nil ||
+			report.StatePatches[0].RuntimeActivity.State != state ||
+			report.StatePatches[0].RuntimeActivity.OccurredAtUnixMS <= 0 {
+			t.Fatalf("state=%q report runtime activity=%#v", state, report.StatePatches)
 		}
 	}
 }

@@ -105,6 +105,7 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
   const goalStatus = goal ? stringValue(goal.status) : "";
   const goalTokenBudget = goal ? numberValue(goal.tokenBudget) : null;
   const goalTokensUsed = goal ? numberValue(goal.tokens) : null;
+  const goalStartedAtUnixMs = goal ? numberValue(goal.startedAtUnixMs) : null;
   const goalDurationMs = goal ? numberValue(goal.durationMs) : null;
   const goalIsOptimistic = sessionChrome.rawState?.goalIsOptimistic === true;
   const goalControlPending =
@@ -181,6 +182,7 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
               status={goalStatus}
               tokenBudget={goalTokenBudget ?? undefined}
               tokensUsed={goalTokensUsed ?? undefined}
+              startedAtUnixMs={goalStartedAtUnixMs ?? undefined}
               durationMs={goalDurationMs ?? undefined}
               optimistic={goalIsOptimistic}
               labels={goalBannerLabels}

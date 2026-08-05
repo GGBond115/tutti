@@ -124,7 +124,12 @@ export function sessionLifecycleReducer(
         intent.availability
       );
     case "session/runtimeActivityChanged":
-      return changeRuntimeActivity(state, intent.agentSessionId, intent.state);
+      return changeRuntimeActivity(
+        state,
+        intent.agentSessionId,
+        intent.state,
+        intent.occurredAtUnixMs
+      );
     case "turn/upserted":
       return reconcilePendingCancels(
         state,
@@ -263,15 +268,44 @@ export function sessionLifecycleReducer(
 function changeRuntimeActivity(
   state: SessionLifecycleState,
   rawAgentSessionId: string,
-  runtimeActivity: SessionOperationState["runtimeActivity"]
+  runtimeActivity: SessionOperationState["runtimeActivity"],
+  occurredAtUnixMs: number
 ): EngineReducerResult<SessionLifecycleState> {
   const agentSessionId = rawAgentSessionId.trim();
   if (!agentSessionId) return unchanged(state);
   const operation =
     state.operationBySessionId[agentSessionId] ?? initialOperation();
-  if (operation.runtimeActivity === runtimeActivity) return unchanged(state);
+  if (occurredAtUnixMs <= 0) {
+    if (
+      operation.runtimeActivity === "idle" &&
+      operation.runtimeActivityOccurredAtUnixMs === 0
+    ) {
+      return unchanged(state);
+    }
+    return result(
+      setOperation(state, agentSessionId, {
+        ...operation,
+        runtimeActivity: "idle",
+        runtimeActivityOccurredAtUnixMs: 0
+      })
+    );
+  }
+  if (
+    occurredAtUnixMs < operation.runtimeActivityOccurredAtUnixMs ||
+    (occurredAtUnixMs === operation.runtimeActivityOccurredAtUnixMs &&
+      operation.runtimeActivity === "idle" &&
+      runtimeActivity === "running") ||
+    (occurredAtUnixMs === operation.runtimeActivityOccurredAtUnixMs &&
+      operation.runtimeActivity === runtimeActivity)
+  ) {
+    return unchanged(state);
+  }
   return result(
-    setOperation(state, agentSessionId, { ...operation, runtimeActivity })
+    setOperation(state, agentSessionId, {
+      ...operation,
+      runtimeActivity,
+      runtimeActivityOccurredAtUnixMs: occurredAtUnixMs
+    })
   );
 }
 

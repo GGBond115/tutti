@@ -636,6 +636,7 @@ export interface AgentActivitySessionGoal {
     | "budgetLimited"
     | "complete";
   reason?: string;
+  startedAtUnixMs?: number;
   iterations?: number;
   durationMs?: number;
   tokens?: number;

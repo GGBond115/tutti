@@ -216,8 +216,10 @@ Provider adapters may also publish exact session-level `running`/`idle`
 observations as `runtime_activity_update` before a canonical Turn identity
 exists. The workspace event coordinator stores this ephemeral runtime activity
 outside the canonical Session so consumers can bridge processing presentation
-without fabricating a Turn. `idle`, session removal, or event-stream disconnect
-clears it; canonical Turn state remains the lifecycle authority.
+without fabricating a Turn. The coordinator consumes `occurredAtUnixMs` as a
+monotonic fence, and a settled canonical Turn wins over an older `running`
+observation. `idle`, session removal, or event-stream disconnect clears it;
+canonical Turn state remains the lifecycle authority.
 
 ## Event Shape
 

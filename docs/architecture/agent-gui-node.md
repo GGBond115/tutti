@@ -826,10 +826,12 @@ viable new-Session activation with `initialTurnExpected` remains the same busy
 bridge while no canonical latest Turn exists. Goal-only activation deliberately
 does not expect a Turn. When a provider exposes an exact session-level
 `running`/`idle` observation before Turn identity, the daemon projects that
-ephemeral runtime activity through `agent.activity.updated`; the workspace
-Engine uses it as a busy bridge without reserving or fabricating a Turn. A
-disconnect clears the ephemeral observation, while canonical Turn state remains
-authoritative once it exists.
+typed, non-persistent runtime activity through `agent.activity.updated` after
+the associated state report wins canonical ordering. Desktop and Mobile Live
+consume the same event variant. The workspace Engine uses its occurrence time
+to reject reordering and prevents an older `running` observation from
+overriding a settled Turn. A disconnect clears the ephemeral observation,
+while canonical Turn state remains authoritative once it exists.
 
 ### 4.1 Read/write rules
 

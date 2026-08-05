@@ -32,6 +32,7 @@ export interface SessionCancelState {
 export interface SessionOperationState {
   runtimeAvailability: SessionRuntimeAvailability;
   runtimeActivity: SessionRuntimeActivity;
+  runtimeActivityOccurredAtUnixMs: number;
   cancel: SessionCancelState;
   operationError: string | null;
   settingsUpdate: SessionSettingsUpdateState;
@@ -284,6 +285,8 @@ export interface SessionRuntimeActivityChangedIntent {
   type: "session/runtimeActivityChanged";
   agentSessionId: string;
   state: SessionRuntimeActivity;
+  /** Zero clears the disconnected transport's transient observation and fence. */
+  occurredAtUnixMs: number;
 }
 
 export type SessionLifecycleIntent =
