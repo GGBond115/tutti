@@ -1729,9 +1729,13 @@ projection cannot overwrite newer local input; a value not emitted locally
 remains an authoritative external replacement.
 
 An existing-Session composer derives input history from that Session's
-canonical user-message projection; it does not persist a second history store.
-The host must opt in explicitly; Desktop maps the default-off
-`lab.agentInputHistory` Lab preference to that capability.
+canonical user-message projection and its turnless Goal-control audit entries;
+it does not persist a second history store. These sources are merged by their
+timeline timestamps so Goal commands participate in the same Up/Down sequence
+as ordinary prompts.
+The host capability remains explicit so unsupported hosts can fail closed, but
+Tutti Desktop always supplies `sessionInputHistoryEnabled: true`; historical
+`lab.agentInputHistory` preference values do not hide or disable the feature.
 Bare Up/Down recalls older/newer structured drafts only from an empty composer
 or an unchanged recalled entry, and only when the collapsed caret is at a
 whole-document boundary. Palette handling and IME composition take precedence,

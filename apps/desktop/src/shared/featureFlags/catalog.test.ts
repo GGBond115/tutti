@@ -14,7 +14,6 @@ import {
   isFeatureEnabled,
   labFeatureDefinitions,
   LAB_ENABLED_FLAG,
-  LAB_AGENT_INPUT_HISTORY_FLAG,
   LAB_AGENT_SESSION_FORK_FLAG,
   LAB_AUTOMATION_RULES_FLAG,
   MOBILE_REMOTE_ACCESS_SETTINGS_FLAG,
@@ -104,7 +103,7 @@ test("labFeatureDefinitions excludes the master switch", () => {
 });
 
 test("experimental Agent features require independent Lab opt-ins", () => {
-  const flags = [LAB_AGENT_INPUT_HISTORY_FLAG, LAB_AUTOMATION_RULES_FLAG];
+  const flags = [LAB_AUTOMATION_RULES_FLAG];
 
   for (const flag of flags) {
     assert.equal(isFeatureEnabled({}, flag), false);
@@ -132,6 +131,7 @@ test("session Fork keeps its durable flag without appearing in Lab settings", ()
 test("graduated Agent features are not registered as Lab flags", () => {
   const definitions = labFeatureDefinitions();
   for (const retiredKey of [
+    "lab.agentInputHistory",
     "lab.tuttiMode",
     "lab.modelPlans",
     "lab.workspaceAgents"

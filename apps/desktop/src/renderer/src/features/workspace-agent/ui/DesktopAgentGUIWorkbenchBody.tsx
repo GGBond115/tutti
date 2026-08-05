@@ -86,7 +86,6 @@ import {
   AGENT_SESSION_RECORDING_FLAG,
   AGENT_REFERENCE_PROVENANCE_FILTER_FLAG,
   isFeatureEnabled,
-  LAB_AGENT_INPUT_HISTORY_FLAG,
   LAB_AGENT_SESSION_FORK_FLAG,
   LAB_CODEX_SAVER_MODE_FLAG
 } from "../../../../../shared/featureFlags/catalog.ts";
@@ -538,10 +537,7 @@ function DesktopAgentGUISurfaceImpl({
     desktopPreferencesState.featureFlags,
     AGENT_REFERENCE_PROVENANCE_FILTER_FLAG
   );
-  const sessionInputHistoryEnabled = isFeatureEnabled(
-    desktopPreferencesState.featureFlags,
-    LAB_AGENT_INPUT_HISTORY_FLAG
-  );
+  const sessionInputHistoryEnabled = true;
   const sessionForkEnabled = isFeatureEnabled(
     desktopPreferencesState.featureFlags,
     LAB_AGENT_SESSION_FORK_FLAG

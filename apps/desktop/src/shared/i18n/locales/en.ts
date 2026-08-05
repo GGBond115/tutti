@@ -1292,9 +1292,6 @@ export const en = {
         visibilityLabel: "Show developer panel"
       },
       lab: {
-        agentInputHistoryDescription:
-          "Use Up and Down in Agent input to recall earlier prompts from the current session.",
-        agentInputHistoryLabel: "Agent input history",
         backLabel: "Back",
         automationRulesDescription:
           "Shows Automation Rule configuration and session overrides.",
