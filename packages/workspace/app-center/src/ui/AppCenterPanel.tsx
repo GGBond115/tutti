@@ -20,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
   FileCreateIcon,
+  ImageWithFallback,
   ImportLinedIcon as ImportIcon,
   Input,
   OpenSessionsIcon as OpenSessionsFilledIcon,
@@ -1412,30 +1413,23 @@ function AppCenterAgentProviderIcon({
   iconUrl?: string | null;
 }): ReactElement {
   const normalizedIconUrl = iconUrl?.trim();
-  const [failedIconUrl, setFailedIconUrl] = useState<string | null>(null);
   if (!normalizedIconUrl) {
     return (
       <span aria-hidden="true" className="size-4 shrink-0 rounded-[4px]" />
     );
   }
 
-  if (failedIconUrl === normalizedIconUrl) {
-    return (
-      <span aria-hidden="true" className="size-4 shrink-0 rounded-[4px]" />
-    );
-  }
-
   return (
-    <img
+    <ImageWithFallback
       alt=""
       aria-hidden="true"
       className="size-4 shrink-0 rounded-[4px] object-contain"
       decoding="async"
       draggable={false}
       src={normalizedIconUrl}
-      onError={() => {
-        setFailedIconUrl(normalizedIconUrl);
-      }}
+      fallback={
+        <span aria-hidden="true" className="size-4 shrink-0 rounded-[4px]" />
+      }
     />
   );
 }

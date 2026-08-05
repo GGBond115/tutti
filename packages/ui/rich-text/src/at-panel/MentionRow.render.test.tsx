@@ -5,7 +5,7 @@ import { renderMentionRow } from "./MentionRow.tsx";
 afterEach(() => cleanup());
 
 describe("MentionRow image fallbacks", () => {
-  test("replaces a failed app icon with the kind glyph", () => {
+  test("retries an app icon once before showing the kind glyph", async () => {
     const view = render(
       renderMentionRow({
         kind: "app",
@@ -14,15 +14,23 @@ describe("MentionRow image fallbacks", () => {
       })
     );
 
-    fireEvent.error(view.container.querySelector("img") as HTMLImageElement);
+    const firstImage = view.container.querySelector("img") as HTMLImageElement;
+    fireEvent.error(firstImage);
+    const retriedImage = await waitFor(() => {
+      const image = view.container.querySelector("img");
+      expect(image).not.toBeNull();
+      expect(image).not.toBe(firstImage);
+      return image as HTMLImageElement;
+    });
+    fireEvent.error(retriedImage);
 
-    expect(view.container.querySelector("img")).toBeNull();
+    await waitFor(() => expect(view.container.querySelector("img")).toBeNull());
     expect(
       view.container.querySelector(".rich-text-at-mention-kind-icon--app")
     ).not.toBeNull();
   });
 
-  test("replaces a failed image thumbnail with the file glyph", () => {
+  test("retries an image thumbnail once before showing the file glyph", async () => {
     const view = render(
       renderMentionRow({
         kind: "file",
@@ -32,9 +40,17 @@ describe("MentionRow image fallbacks", () => {
       })
     );
 
-    fireEvent.error(view.container.querySelector("img") as HTMLImageElement);
+    const firstImage = view.container.querySelector("img") as HTMLImageElement;
+    fireEvent.error(firstImage);
+    const retriedImage = await waitFor(() => {
+      const image = view.container.querySelector("img");
+      expect(image).not.toBeNull();
+      expect(image).not.toBe(firstImage);
+      return image as HTMLImageElement;
+    });
+    fireEvent.error(retriedImage);
 
-    expect(view.container.querySelector("img")).toBeNull();
+    await waitFor(() => expect(view.container.querySelector("img")).toBeNull());
     expect(
       view.container.querySelector(
         '[data-rich-text-at-mention-file-visual-kind="image"]'
@@ -57,6 +73,17 @@ describe("MentionRow image fallbacks", () => {
       "[data-rich-text-at-mention-user-avatar] img"
     ) as HTMLImageElement;
     fireEvent.error(userAvatar);
+    const retriedUserAvatar = await waitFor(() => {
+      const image = view.container.querySelector(
+        "[data-rich-text-at-mention-user-avatar] img"
+      );
+      expect(image).not.toBe(userAvatar);
+      expect(image?.getAttribute("src")).toBe(
+        "https://cdn.example.test/user.png"
+      );
+      return image as HTMLImageElement;
+    });
+    fireEvent.error(retriedUserAvatar);
     await waitFor(() => {
       expect(
         view.container
@@ -64,11 +91,21 @@ describe("MentionRow image fallbacks", () => {
           ?.getAttribute("src")
       ).toBe("https://cdn.example.test/placeholder.png");
     });
-    fireEvent.error(
-      view.container.querySelector(
+    const firstPlaceholder = view.container.querySelector(
+      "[data-rich-text-at-mention-user-avatar] img"
+    ) as HTMLImageElement;
+    fireEvent.error(firstPlaceholder);
+    const retriedPlaceholder = await waitFor(() => {
+      const image = view.container.querySelector(
         "[data-rich-text-at-mention-user-avatar] img"
-      ) as HTMLImageElement
-    );
+      );
+      expect(image).not.toBe(firstPlaceholder);
+      expect(image?.getAttribute("src")).toBe(
+        "https://cdn.example.test/placeholder.png"
+      );
+      return image as HTMLImageElement;
+    });
+    fireEvent.error(retriedPlaceholder);
     await waitFor(() => {
       expect(
         view.container.querySelector(

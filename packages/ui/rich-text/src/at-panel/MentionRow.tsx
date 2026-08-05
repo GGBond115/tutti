@@ -6,6 +6,7 @@ import {
   FileCodeIcon,
   FileTextIcon,
   FolderIcon,
+  ImageWithFallback,
   ImageFileIcon,
   ProductIcon,
   StatusDot,
@@ -14,7 +15,7 @@ import {
   cn,
   type IconProps
 } from "@tutti-os/ui-system";
-import { Fragment, useState } from "react";
+import { Fragment } from "react";
 import type { MentionFileVisualKind } from "./mentionFileVisualKind.ts";
 import {
   mentionRowDataAttribute,
@@ -449,7 +450,7 @@ function MentionFileIcon({
         {...mentionRowDataAttribute(dataAttributeMode, "fileThumb", "true")}
         aria-hidden="true"
       >
-        <MentionImageWithFallback
+        <ImageWithFallback
           src={thumbnailUrl}
           alt=""
           className="rich-text-at-mention-row__media"
@@ -545,7 +546,7 @@ function MentionEntityIcon({
       aria-hidden="true"
     >
       {normalizedIconUrl ? (
-        <MentionImageWithFallback
+        <ImageWithFallback
           src={normalizedIconUrl}
           alt=""
           className="rich-text-at-mention-row__media"
@@ -570,36 +571,6 @@ function MentionEntityIcon({
   );
 }
 
-function MentionImageWithFallback({
-  src,
-  alt,
-  className,
-  fallback
-}: {
-  src: string;
-  alt: string;
-  className: string;
-  fallback: React.JSX.Element;
-}): React.JSX.Element {
-  const [failedSource, setFailedSource] = useState<string | null>(null);
-  if (failedSource === src) {
-    return fallback;
-  }
-  return (
-    <img
-      src={src}
-      alt={alt}
-      className={className}
-      decoding="async"
-      loading="lazy"
-      draggable={false}
-      onError={() => {
-        setFailedSource(src);
-      }}
-    />
-  );
-}
-
 function MentionSessionAvatarStack({
   item,
   classNames,
@@ -609,9 +580,6 @@ function MentionSessionAvatarStack({
   classNames: Required<MentionRowClassNames>;
   dataAttributeMode: MentionRowDataAttributeMode;
 }): React.JSX.Element {
-  const [failedUserAvatarUrls, setFailedUserAvatarUrls] = useState<
-    readonly string[]
-  >([]);
   const showUserAvatar = item.showUserAvatar !== false;
   if (!showUserAvatar) {
     return (
@@ -626,7 +594,7 @@ function MentionSessionAvatarStack({
           className="rich-text-at-mention-avatar rich-text-at-mention-avatar--agent"
           {...mentionRowDataAttribute(dataAttributeMode, "agentAvatar", "true")}
         >
-          <MentionImageWithFallback
+          <ImageWithFallback
             src={item.agentIconUrl}
             alt=""
             className="rich-text-at-mention-row__media"
@@ -644,48 +612,67 @@ function MentionSessionAvatarStack({
 
   const userAvatarUrl = item.userAvatarUrl?.trim() ?? "";
   const placeholderUrl = item.userAvatarPlaceholderUrl.trim();
-  const userImageUrl = [userAvatarUrl, placeholderUrl].find(
-    (url) => url && !failedUserAvatarUrls.includes(url)
-  );
+  const userAvatarFallback =
+    placeholderUrl && placeholderUrl !== userAvatarUrl ? (
+      <ImageWithFallback
+        src={placeholderUrl}
+        alt=""
+        className={cn(
+          "rich-text-at-mention-row__media",
+          classNames.avatarImgUserPlaceholder
+        )}
+        decoding="async"
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        draggable={false}
+        fallback={
+          <UserLinedIcon
+            aria-hidden="true"
+            className="size-3.5 text-[var(--rich-text-at-mention-text-secondary)]"
+          />
+        }
+      />
+    ) : (
+      <UserLinedIcon
+        aria-hidden="true"
+        className="size-3.5 text-[var(--rich-text-at-mention-text-secondary)]"
+      />
+    );
+  const userImageUrl = userAvatarUrl || placeholderUrl;
   return (
     <span className="rich-text-at-mention-avatar-stack" aria-hidden="true">
       <span
         className="rich-text-at-mention-avatar rich-text-at-mention-avatar--user"
         {...mentionRowDataAttribute(dataAttributeMode, "userAvatar", "true")}
       >
-        {userImageUrl ? (
-          <img
-            src={userImageUrl}
-            alt=""
-            className={cn(
-              "rich-text-at-mention-row__media",
-              userImageUrl === placeholderUrl &&
-                classNames.avatarImgUserPlaceholder
-            )}
-            decoding="async"
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            draggable={false}
-            onError={() => {
-              setFailedUserAvatarUrls((failedUrls) =>
-                failedUrls.includes(userImageUrl)
-                  ? failedUrls
-                  : [...failedUrls, userImageUrl]
-              );
-            }}
-          />
-        ) : (
-          <UserLinedIcon
-            aria-hidden="true"
-            className="size-3.5 text-[var(--rich-text-at-mention-text-secondary)]"
-          />
-        )}
+        <ImageWithFallback
+          src={userImageUrl}
+          alt=""
+          className={cn(
+            "rich-text-at-mention-row__media",
+            !userAvatarUrl && classNames.avatarImgUserPlaceholder
+          )}
+          decoding="async"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          draggable={false}
+          fallback={
+            userAvatarUrl ? (
+              userAvatarFallback
+            ) : (
+              <UserLinedIcon
+                aria-hidden="true"
+                className="size-3.5 text-[var(--rich-text-at-mention-text-secondary)]"
+              />
+            )
+          }
+        />
       </span>
       <span
         className="rich-text-at-mention-avatar rich-text-at-mention-avatar--agent"
         {...mentionRowDataAttribute(dataAttributeMode, "agentAvatar", "true")}
       >
-        <MentionImageWithFallback
+        <ImageWithFallback
           src={item.agentIconUrl}
           alt=""
           className="rich-text-at-mention-row__media"

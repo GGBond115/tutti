@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
   FolderIcon,
   GitHubBrandIcon,
+  ImageWithFallback,
   MoreHorizontalIcon,
   NavApplicationsFilledIcon,
   Popover,
@@ -662,43 +663,36 @@ function AuthorAvatar({
   readonly author: WorkspaceAppAuthorViewModel;
   readonly fallbackIconUrl?: string | null;
 }): ReactElement {
-  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
   const avatarUrl = author.avatarUrl?.trim() ?? "";
-  if (avatarUrl && failedImageUrl !== avatarUrl) {
-    return (
-      <img
-        alt=""
-        className="size-5 shrink-0 rounded-full border border-[var(--background-fronted)] object-cover"
-        draggable={false}
-        src={avatarUrl}
-        onError={() => {
-          setFailedImageUrl(avatarUrl);
-        }}
-      />
-    );
-  }
   const normalizedFallbackIconUrl = fallbackIconUrl?.trim() ?? "";
-  if (
-    normalizedFallbackIconUrl &&
-    failedImageUrl !== normalizedFallbackIconUrl
-  ) {
-    return (
-      <img
-        alt=""
-        className="size-5 shrink-0 rounded-[5px] border border-[var(--background-fronted)] object-contain"
-        draggable={false}
-        src={normalizedFallbackIconUrl}
-        onError={() => {
-          setFailedImageUrl(normalizedFallbackIconUrl);
-        }}
-      />
-    );
-  }
-  return (
+  const initialsFallback = (
     <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-[var(--background-fronted)] bg-[var(--transparency-block)] text-[10px] font-semibold uppercase text-[var(--text-secondary)]">
       {author.name.slice(0, 1)}
     </span>
   );
+  const fallback = normalizedFallbackIconUrl ? (
+    <ImageWithFallback
+      alt=""
+      className="size-5 shrink-0 rounded-[5px] border border-[var(--background-fronted)] object-contain"
+      draggable={false}
+      src={normalizedFallbackIconUrl}
+      fallback={initialsFallback}
+    />
+  ) : (
+    initialsFallback
+  );
+  if (avatarUrl) {
+    return (
+      <ImageWithFallback
+        alt=""
+        className="size-5 shrink-0 rounded-full border border-[var(--background-fronted)] object-cover"
+        draggable={false}
+        src={avatarUrl}
+        fallback={fallback}
+      />
+    );
+  }
+  return fallback;
 }
 
 function isOfficialAuthor(name: string | null | undefined): boolean {
@@ -1007,25 +1001,25 @@ function AppIcon({
   readonly onReplaceIcon: () => void;
   readonly replaceIconLabel: string;
 }): ReactElement {
-  const [failedIconUrl, setFailedIconUrl] = useState<string | null>(null);
   const iconUrl = app.icon?.type === "asset" ? app.icon.src.trim() : "";
-  const icon =
-    iconUrl && failedIconUrl !== iconUrl ? (
-      <img
-        alt=""
-        className="size-11 flex-none rounded-[10px] object-contain object-center select-none"
-        decoding="async"
-        draggable={false}
-        src={iconUrl}
-        onError={() => {
-          setFailedIconUrl(iconUrl);
-        }}
-      />
-    ) : (
-      <span className="flex size-11 flex-none items-center justify-center rounded-[10px] bg-[var(--transparency-block)] text-[var(--text-secondary)]">
-        <NavApplicationsFilledIcon className="size-[22px]" />
-      </span>
-    );
+  const icon = iconUrl ? (
+    <ImageWithFallback
+      alt=""
+      className="size-11 flex-none rounded-[10px] object-contain object-center select-none"
+      decoding="async"
+      draggable={false}
+      src={iconUrl}
+      fallback={
+        <span className="flex size-11 flex-none items-center justify-center rounded-[10px] bg-[var(--transparency-block)] text-[var(--text-secondary)]">
+          <NavApplicationsFilledIcon className="size-[22px]" />
+        </span>
+      }
+    />
+  ) : (
+    <span className="flex size-11 flex-none items-center justify-center rounded-[10px] bg-[var(--transparency-block)] text-[var(--text-secondary)]">
+      <NavApplicationsFilledIcon className="size-[22px]" />
+    </span>
+  );
 
   return (
     <span className="group/app-icon relative block size-11 flex-none">

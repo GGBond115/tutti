@@ -1,4 +1,5 @@
-import { useState, type JSX, type MouseEvent } from "react";
+import type { JSX, MouseEvent } from "react";
+import { ImageWithFallback } from "@tutti-os/ui-system";
 import { FileIcon, FolderFilledIcon } from "@tutti-os/ui-system/icons";
 
 type RichTextTriggerMenuItemProps = {
@@ -58,7 +59,6 @@ function RichTextTriggerMenuIcon({
   workspaceReferenceFileKind?: "file" | "folder";
 }): JSX.Element {
   const normalizedIconUrl = iconUrl?.trim() ?? "";
-  const [failedIconUrl, setFailedIconUrl] = useState<string | null>(null);
 
   if (workspaceReferenceFileKind) {
     const Icon =
@@ -80,17 +80,17 @@ function RichTextTriggerMenuIcon({
       className="inline-grid size-4 flex-none place-items-center overflow-hidden rounded bg-[var(--bg-block,var(--transparency-block))]"
       data-rich-text-trigger-icon="true"
     >
-      {normalizedIconUrl && failedIconUrl !== normalizedIconUrl ? (
-        <img
+      {normalizedIconUrl ? (
+        <ImageWithFallback
           alt=""
           className="block size-full object-cover object-center"
           decoding="async"
           draggable={false}
           loading="lazy"
           src={normalizedIconUrl}
-          onError={() => {
-            setFailedIconUrl(normalizedIconUrl);
-          }}
+          fallback={
+            <span className="block size-3 rounded-[3px] bg-[var(--transparency-block)]" />
+          }
         />
       ) : (
         <span className="block size-3 rounded-[3px] bg-[var(--transparency-block)]" />
