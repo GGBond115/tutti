@@ -774,6 +774,9 @@ export function StandaloneAgentWindow({
               data-agent-gui-standalone-window-content-loading={
                 isContentLoading ? "true" : "false"
               }
+              data-tutti-titlebar-overlay={
+                desktopApi.platform.os === "win32" ? "true" : undefined
+              }
               displayMode={isWindowMaximized ? "fullscreen" : "floating"}
               data-agent-gui-standalone-window-header="true"
               data-workbench-drag-handle="true"

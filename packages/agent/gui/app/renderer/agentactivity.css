@@ -5216,6 +5216,26 @@ aside.workspace-agents-status-panel
   user-select: none;
 }
 
+/*
+ * Windows keeps the native caption buttons, but Electron overlays them on the
+ * app-owned header when titleBarStyle is hidden. Match that overlay's height
+ * and reserve its right-side hit area so Agent content never sits underneath
+ * the native minimize/maximize/close buttons.
+ */
+.agent-gui-workbench-header[data-tutti-titlebar-overlay="true"] {
+  --agent-gui-workbench-header-height: 52px;
+  box-sizing: border-box;
+  padding-right: calc(
+    100vw - env(titlebar-area-width, calc(100vw - 138px)) + 10px
+  );
+}
+
+.agent-gui-workbench-header[data-tutti-titlebar-overlay="true"]
+  .agent-gui-workbench-header__traffic-lights {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .agent-gui-workbench-header:active {
   cursor: grabbing;
 }
