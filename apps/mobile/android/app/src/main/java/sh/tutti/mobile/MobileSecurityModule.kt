@@ -2,7 +2,9 @@ package sh.tutti.mobile
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -146,41 +148,72 @@ class MobileSecurityModule(
         expectedSHA256: String,
         promise: Promise,
     ) {
-        updateExecutor.execute {
+        UiThreadUtil.runOnUiThread {
             try {
-                val apkFile = downloadUpdate(apkURL, expectedSHA256)
-                UiThreadUtil.runOnUiThread {
+                val activity = reactContext.currentActivity
+                require(activity != null) { "No active Android activity" }
+                if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    !reactContext.packageManager.canRequestPackageInstalls()
+                ) {
+                    activity.startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:${reactContext.packageName}"),
+                        ),
+                    )
+                    promise.reject(
+                        "UPDATE_INSTALL_PERMISSION_REQUIRED",
+                        "Allow Tutti to install unknown apps, then try again",
+                    )
+                    return@runOnUiThread
+                }
+
+                updateExecutor.execute {
                     try {
-                        val activity = reactContext.currentActivity
-                        require(activity != null) { "No active Android activity" }
-                        val uri = FileProvider.getUriForFile(
-                            reactContext,
-                            "${BuildConfig.APPLICATION_ID}.fileprovider",
-                            apkFile,
-                        )
-                        activity.startActivity(
-                            Intent(Intent.ACTION_VIEW).apply {
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                setDataAndType(
-                                    uri,
-                                    "application/vnd.android.package-archive",
+                        val apkFile = downloadUpdate(apkURL, expectedSHA256)
+                        UiThreadUtil.runOnUiThread {
+                            try {
+                                val installerActivity = reactContext.currentActivity
+                                require(installerActivity != null) {
+                                    "No active Android activity"
+                                }
+                                val uri = FileProvider.getUriForFile(
+                                    reactContext,
+                                    "${BuildConfig.APPLICATION_ID}.fileprovider",
+                                    apkFile,
                                 )
-                            },
-                        )
-                        promise.resolve(null)
+                                installerActivity.startActivity(
+                                    Intent(Intent.ACTION_VIEW).apply {
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        setDataAndType(
+                                            uri,
+                                            "application/vnd.android.package-archive",
+                                        )
+                                    },
+                                )
+                                promise.resolve(null)
+                            } catch (cause: Throwable) {
+                                promise.reject(
+                                    "UPDATE_INSTALL_FAILED",
+                                    "Unable to open the Android package installer",
+                                    cause,
+                                )
+                            }
+                        }
                     } catch (cause: Throwable) {
                         promise.reject(
-                            "UPDATE_INSTALL_FAILED",
-                            "Unable to open the Android package installer",
+                            "UPDATE_DOWNLOAD_FAILED",
+                            cause.message ?: "Unable to download the Android update",
                             cause,
                         )
                     }
                 }
             } catch (cause: Throwable) {
                 promise.reject(
-                    "UPDATE_DOWNLOAD_FAILED",
-                    cause.message ?: "Unable to download the Android update",
+                    "UPDATE_INSTALL_FAILED",
+                    "Unable to open Android install settings",
                     cause,
                 )
             }
