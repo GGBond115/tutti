@@ -686,6 +686,45 @@ func TestReplayProcessTransportMatchesJSONRPCRequestSemanticsAndMapsResponseID(t
 	}
 }
 
+func TestReplayProcessTransportIgnoresVolatileInitializeClientInfo(t *testing.T) {
+	expected := []byte(
+		`{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex-cli","title":"Codex","version":"0.146.0"},"capabilities":{"experimentalApi":true}}}` + "\n",
+	)
+	actual := []byte(
+		`{"id":7,"method":"initialize","params":{"capabilities":{"experimentalApi":true},"clientInfo":{"name":"codex-cli","title":"TSH","version":"0.146.1"}}}` + "\n",
+	)
+
+	descriptor := codexReplayDescriptorForCassetteTest(t)
+	responseIDs, _, matches := processCassetteJSONMatch(
+		descriptor,
+		expected,
+		actual,
+		"",
+		"",
+		"",
+		nil,
+	)
+	if !matches {
+		t.Fatal("initialize clientInfo version/title drift did not match")
+	}
+	if got := responseIDs["1"]; got != json.Number("7") {
+		t.Fatalf("mapped response id = %#v, want 7", got)
+	}
+
+	changedName := bytes.Replace(actual, []byte(`"name":"codex-cli"`), []byte(`"name":"other-cli"`), 1)
+	if _, _, matches := processCassetteJSONMatch(
+		descriptor,
+		expected,
+		changedName,
+		"",
+		"",
+		"",
+		nil,
+	); matches {
+		t.Fatal("initialize clientInfo.name mismatch matched")
+	}
+}
+
 func TestClaudeSidecarRecordingAndReplayProjectsEnvironmentAndGeneratedIdentities(t *testing.T) {
 	directory := t.TempDir()
 	base := &cassetteTestConnection{received: []ProcessFrame{
