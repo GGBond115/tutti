@@ -1,0 +1,62 @@
+name: Retry Desktop Store Test Submission
+
+on:
+  push:
+    branches:
+      - store-origin-main-20260806
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: desktop-store-test-retry-v0.2.12
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    name: Submit validated Store artifact
+    environment: microsoft-store-test
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      TUTTI_MICROSOFT_STORE_PRODUCT_ID: ${{ vars.TUTTI_MICROSOFT_STORE_PRODUCT_ID }}
+
+    steps:
+      - name: Download validated package
+        uses: actions/download-artifact@v7
+        with:
+          name: tutti-desktop-store-v0.2.12
+          path: store-artifact
+          github-token: ${{ github.token }}
+          run-id: 31081544278
+
+      - name: Setup Microsoft Store Developer CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+
+      - name: Authenticate Partner Center
+        shell: pwsh
+        env:
+          MICROSOFT_STORE_CLIENT_ID: ${{ secrets.MICROSOFT_STORE_CLIENT_ID }}
+          MICROSOFT_STORE_CLIENT_SECRET: ${{ secrets.MICROSOFT_STORE_CLIENT_SECRET }}
+          MICROSOFT_STORE_SELLER_ID: ${{ secrets.MICROSOFT_STORE_SELLER_ID }}
+          MICROSOFT_STORE_TENANT_ID: ${{ secrets.MICROSOFT_STORE_TENANT_ID }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          msstore reconfigure `
+            --tenantId $env:MICROSOFT_STORE_TENANT_ID `
+            --sellerId $env:MICROSOFT_STORE_SELLER_ID `
+            --clientId $env:MICROSOFT_STORE_CLIENT_ID `
+            --clientSecret $env:MICROSOFT_STORE_CLIENT_SECRET
+
+      - name: Submit package for Microsoft certification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packages = @(Get-ChildItem 'store-artifact' -Filter '*.appx' -File -Recurse)
+          if ($packages.Count -ne 1) {
+            throw "Expected exactly one validated AppX package, found $($packages.Count)"
+          }
+          $msixPath = [System.IO.Path]::ChangeExtension($packages[0].FullName, '.msix')
+          Copy-Item -LiteralPath $packages[0].FullName -Destination $msixPath -Force
+          msstore publish $msixPath -id "$env:TUTTI_MICROSOFT_STORE_PRODUCT_ID"

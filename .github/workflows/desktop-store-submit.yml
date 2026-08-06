@@ -1,9 +1,6 @@
 name: Submit Desktop to Microsoft Store
 
 on:
-  push:
-    branches:
-      - store-origin-main-20260806
   workflow_call:
     inputs:
       release_tag:
