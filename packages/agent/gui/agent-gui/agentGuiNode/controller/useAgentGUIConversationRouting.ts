@@ -135,10 +135,12 @@ export function useAgentGUIConversationRouting(
 
     if (intent.tag !== "home") {
       if (
-        !(intent.tag === "active" && intent.source === "user-selection") &&
         selectFailedNewActivationResolution(
           sessionEngine.getSnapshot(),
-          intent.id
+          intent.id,
+          intent.tag === "active"
+            ? { selectionSource: intent.source }
+            : undefined
         ) === "rollback"
       ) {
         // Terminal activation settlement clears the optimistic selection in an

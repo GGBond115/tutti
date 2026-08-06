@@ -292,6 +292,25 @@ func (s *Service) CreateWithResult(ctx context.Context, workspaceID string, inpu
 	}
 	if hostResult.Kind == "goalControl" {
 		result, getErr := s.Get(ctx, workspaceID, session.ID)
+		if getErr != nil {
+			// Host has already created and published the Session. A follow-up
+			// projection read may be unavailable while the runtime is settling,
+			// but that read failure must not erase the Session-created result.
+			fallback := serviceSessionWithPersistedFreshness(
+				session,
+				persistedSession,
+				s.controller().CanResume(runtimeResumeInputFromRuntimeSession(session)),
+			)
+			if projected, projectErr := s.projectSessionForResponse(ctx, workspaceID, fallback); projectErr == nil {
+				fallback = projected
+			}
+			return CreateSessionResult{
+				Session:           decorateIsolatedSession(fallback, isolation, isolationWarnings),
+				TurnID:            strings.TrimSpace(hostResult.TurnID),
+				SessionStatus:     hostResult.SessionStatus,
+				InitialGoalStatus: hostResult.InitialGoalStatus,
+			}, getErr
+		}
 		return CreateSessionResult{
 			Session:           decorateIsolatedSession(result, isolation, isolationWarnings),
 			TurnID:            strings.TrimSpace(hostResult.TurnID),

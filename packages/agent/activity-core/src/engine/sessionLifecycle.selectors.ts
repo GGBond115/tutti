@@ -55,8 +55,12 @@ export type FailedNewActivationResolution =
 
 export function selectFailedNewActivationResolution(
   state: AgentSessionEngineStateBase,
-  agentSessionId: string | null | undefined
+  agentSessionId: string | null | undefined,
+  options?: { selectionSource?: "activation" | "user-selection" }
 ): FailedNewActivationResolution {
+  if (options?.selectionSource === "user-selection") {
+    return "not-applicable";
+  }
   const activation = selectLatestActivationForSession(state, agentSessionId);
   if (activation?.mode !== "new" || isPendingActivationViable(activation)) {
     return "not-applicable";
@@ -65,6 +69,21 @@ export function selectFailedNewActivationResolution(
     selectEngineSession(state, agentSessionId)
     ? "preserve"
     : "rollback";
+}
+
+/**
+ * Session selection may reload after a failed or canceled activation. Only an
+ * activation whose delivery is still pending/uncertain must wait for an
+ * authoritative result before starting detail hydration.
+ */
+export function selectEngineSessionCanReload(
+  state: AgentSessionEngineStateBase,
+  agentSessionId: string | null | undefined
+): boolean {
+  const activation = selectLatestActivationForSession(state, agentSessionId);
+  return (
+    activation?.status !== "requested" && activation?.status !== "uncertain"
+  );
 }
 
 export function selectEngineSessionRuntimeAvailability(

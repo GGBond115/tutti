@@ -224,6 +224,7 @@ export {
   selectEngineLatestTurn,
   selectEnginePendingInteractions,
   selectEngineSession,
+  selectEngineSessionCanReload,
   selectFailedNewActivationResolution,
   selectEngineSessionDeleted,
   selectEngineSessionIsRespondingToInteraction,

@@ -6,6 +6,7 @@ import {
 } from "./rootReducer.ts";
 import {
   selectEngineSessionOperationError,
+  selectEngineSessionCanReload,
   selectEngineSubmitAvailability,
   selectFailedNewActivationResolution,
   selectEngineSessionDeleted,
@@ -119,6 +120,13 @@ test("failed new activation preserves a canonical session after runtime failure"
     selectFailedNewActivationResolution(state, " session-1 "),
     "preserve"
   );
+  assert.equal(
+    selectFailedNewActivationResolution(state, "session-1", {
+      selectionSource: "user-selection"
+    }),
+    "not-applicable"
+  );
+  assert.equal(selectEngineSessionCanReload(state, "session-1"), true);
 });
 
 test("consumer collections hide presentation-invisible sessions without removing exact lookup", () => {
