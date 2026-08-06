@@ -494,6 +494,16 @@ reloading the page.
 
 A Session holds identity, target, provider metadata, cwd, title, settings, resume information, a Goal reference, and the current active Turn reference.
 
+Session title has an explicit ownership rule in the runtime. A user title
+(explicit rename) is immutable from the turn-execution path: a running turn may
+fold provider/event titles as candidates, but the controller's current Session
+is the only accepted state, and the turn-completion commit merges only the
+turn-owned lifecycle/status fields back. A title the user set is never
+overwritten by a late provider title or by a stale turn-completion snapshot,
+and neither the stream projection nor the durable report may carry a stale
+provider title over an established user title. On resume the runtime fails
+closed and treats a persisted title as user-established.
+
 A Session does not copy Turn phase/outcome, own pending Interactions, or persist lifecycle inferred from transcript.
 
 Provider-native subagents use child Sessions:
@@ -1249,6 +1259,32 @@ unchanged. The conflict parser recognizes only the daemon's typed
 `tutti_execution_active` payload; archive/view commands remain an optional
 host capability until the generated execution adapter is present.
 
+### Conversation Rail Activity View
+
+`AgentGUIRuntime.conversationActivityViewEnabled` is the fail-closed host
+boundary for the Conversation Rail Activity View. Desktop opts in explicitly;
+external hosts that omit or disable it retain the ordinary Rail unchanged.
+
+The view is a presentation-only activation over the current workspace Engine:
+it reads visible root Session summaries, root-aggregated descendant
+working/waiting state, attention/read state, and already-cached Session
+messages. Opening it must not call list pagination or transcript hydration.
+Its membership input is the canonical mounted Engine summary collection, never
+the ordinary Rail's transient `runtimeRailConversations` overlay; stale page
+projections therefore cannot leak into Activity View.
+Membership and recency are snapshotted when the view opens; subsequent Engine
+pushes reconcile incrementally, while deletion removes a member immediately.
+Search temporarily takes over the content area and clearing search restores the
+same activation. Closing the view discards the activation and its retained-idle
+markers. A retained-idle marker stores the exact unread recency and expires as
+soon as that recency changes. Existing workspace, authenticated-user, Agent
+target, and Engine identities fence the activation internally; no Activity
+filter or additional host scope contract is introduced. Disabled hosts use an
+empty Activity selector and do not scan root Sessions. Activity rows omit the
+minute-clock subscription together with their hidden timestamp. The full
+product contract is recorded in
+`docs/specs/2026-08-05-agent-conversation-activity-view-prd.md`.
+
 The full first-page query is the only Rail read that resolves a navigation
 scope and clears its pending state. Targeted section refresh and pagination may
 update only an already-resolved matching scope. A subordinate result must not
@@ -1497,14 +1533,17 @@ requests only `skills/list` and retains the ordinary Skill projection through
 the shared app-server transport, capability contract, cache, and structured
 prompt-item submission path.
 
-Tutti Desktop's slash connector section is a local-installation projection,
+Tutti Desktop's slash connector section is a local catalog projection,
 not a Provider connector catalog. `services/tuttid/service/agent` reads the
-daemon-owned connector-market SQLite store through a read-only snapshot port,
-keeps only records whose installation state is `installed`, and replaces any
-Provider-reported connector capabilities before returning composer options.
-AgentGUI renders the resulting provider-neutral capability status; it does not
-scan external MCP, plugin, or package-manager configuration and does not infer
-installation from a remote market response.
+daemon-owned connector-market application through its read-only snapshot port;
+the Agent service never opens or receives the underlying repository directly.
+It projects manifest presentation (including the catalog icon) plus installation,
+authorization, and compatibility into a provider-neutral capability option, and
+replaces any Provider-reported connector capabilities before returning composer
+options. This keeps installable connectors visible in the slash menu while
+ensuring that only installed and authorized connectors can be invoked. AgentGUI
+does not scan external MCP, plugin, or package-manager configuration and does not
+infer installation from a remote market response.
 
 ### 5.3 Agent Directory and setup
 

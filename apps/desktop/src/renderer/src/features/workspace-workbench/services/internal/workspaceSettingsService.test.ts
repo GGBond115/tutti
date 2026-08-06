@@ -493,12 +493,21 @@ test("WorkspaceSettingsService does not duplicate a UI mode change that is alrea
 test("WorkspaceSettingsService does not replace or track when UI mode persistence fails", async () => {
   let replacements = 0;
   const reporterCalls: ReporterEventInput[][] = [];
+  const modeErrors: Array<{
+    error: unknown;
+    mode: string;
+    previousMode: string;
+    workspaceId: string | null;
+  }> = [];
   const notifications = createNotificationRecorder();
   const service = new WorkspaceSettingsService(
     {
       client: createWorkspaceSettingsClient({}),
       replaceWorkspaceWindow: async () => {
         replacements += 1;
+      },
+      onWorkspaceUiModeChangeError: (input) => {
+        modeErrors.push(input);
       }
     },
     createDesktopPreferencesService({
@@ -517,6 +526,16 @@ test("WorkspaceSettingsService does not replace or track when UI mode persistenc
 
   assert.equal(replacements, 0);
   assert.deepEqual(reporterCalls, []);
+  assert.equal(modeErrors.length, 1);
+  const modeError = modeErrors[0];
+  assert.ok(modeError);
+  assert.equal((modeError.error as Error).message, "save failed");
+  assert.deepEqual(modeErrors[0], {
+    error: modeError.error,
+    mode: "agent",
+    previousMode: "os",
+    workspaceId: "workspace-1"
+  });
   assert.deepEqual(notifications.items, [
     "We couldn't update the startup interface right now."
   ]);

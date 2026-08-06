@@ -240,6 +240,24 @@ export interface TuttiExternalReferenceOpenInput {
   href: string;
 }
 
+export type TuttiExternalReferenceSelection =
+  | {
+      selectionKind: "path";
+      reference: WorkspaceFileReference;
+    }
+  | {
+      selectionKind: "workspace-reference";
+      displayName: string;
+      fileCount?: number;
+      groupId?: string;
+      id: string;
+      source: "app";
+      workspaceId: string;
+    };
+
+export type TuttiExternalReferenceSelectResult =
+  TuttiExternalReferenceSelection[];
+
 export type TuttiExternalAgentAvailabilityStatus =
   | "ready"
   | "checking"
@@ -435,6 +453,7 @@ export interface TuttiExternalBridge {
     openFeature(input: TuttiExternalWorkspaceOpenFeatureInput): Promise<void>;
   };
   references: {
+    select?(): Promise<TuttiExternalReferenceSelectResult>;
     open(input: TuttiExternalReferenceOpenInput): Promise<void>;
   };
   pdf: {
@@ -565,6 +584,12 @@ export type TuttiExternalRendererRequest =
       appId: string;
       input: TuttiExternalReferenceOpenInput;
       operation: "references.open";
+      requestId: string;
+      workspaceId: string;
+    }
+  | {
+      appId: string;
+      operation: "references.select";
       requestId: string;
       workspaceId: string;
     }

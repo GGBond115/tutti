@@ -8,6 +8,8 @@ export const LAB_ENABLED_FLAG = "lab.enabled";
 export const BROWSER_CHROME_COOKIE_IMPORT_FLAG = "browser.chromeCookieImport";
 export const LAB_AUTOMATION_RULES_FLAG = "lab.automationRules";
 export const LAB_WORKBENCH_SHORTCUTS_FLAG = "lab.workbenchShortcuts";
+export const LAB_CONVERSATION_ACTIVITY_VIEW_FLAG =
+  "lab.conversationActivityView";
 export const LAB_AGENT_SESSION_FORK_FLAG = "lab.agentSessionFork";
 export const LAB_CODEX_SAVER_MODE_FLAG = "lab.codexSaverMode";
 // Keep the durable key for existing profiles while naming the product concept
@@ -167,6 +169,13 @@ export const FEATURE_FLAG_DEFINITIONS: readonly FeatureFlagDefinition[] = [
     group: "lab",
     labelKey: "workspace.settings.lab.workbenchShortcutsLabel",
     descriptionKey: "workspace.settings.lab.workbenchShortcutsDescription"
+  },
+  {
+    key: LAB_CONVERSATION_ACTIVITY_VIEW_FLAG,
+    default: false,
+    group: "lab",
+    labelKey: "workspace.settings.lab.conversationActivityViewLabel",
+    descriptionKey: "workspace.settings.lab.conversationActivityViewDescription"
   },
   {
     key: LAB_AGENT_SESSION_FORK_FLAG,

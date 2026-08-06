@@ -12,7 +12,8 @@ import {
 } from "@tutti-os/workspace-external-core/core";
 import type {
   TuttiExternalAtQueryResult,
-  TuttiExternalAtResolveResult
+  TuttiExternalAtResolveResult,
+  TuttiExternalReferenceSelectResult
 } from "@tutti-os/workspace-external-core/contracts";
 import type { DesktopHostPreferencesState } from "../desktopHostPreferences";
 import type { DesktopLogger } from "../logging";
@@ -125,6 +126,21 @@ export function registerWorkspaceAppShellIpc(input: {
         requestId: randomUUID(),
         workspaceId: context.workspaceID
       });
+    }
+  );
+  registerDesktopIpcHandler(
+    desktopIpcChannels.appExternal.referencesSelect,
+    async (event) => {
+      const context = requireWorkspaceAppGuestContext(event.sender);
+      return requestWorkspaceAppExternalRenderer<TuttiExternalReferenceSelectResult>(
+        context,
+        {
+          appId: context.appID,
+          operation: "references.select",
+          requestId: randomUUID(),
+          workspaceId: context.workspaceID
+        }
+      );
     }
   );
   ipcMain.on(

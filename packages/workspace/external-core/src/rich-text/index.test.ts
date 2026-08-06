@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  appendTuttiExternalReferenceSelections,
   createTuttiExternalAtRichTextTriggerProvider,
   createTuttiExternalAtRichTextTriggerProviders,
   createTuttiExternalRichTextMentionService,
@@ -10,6 +11,66 @@ import type {
   TuttiExternalAtQueryInput,
   TuttiExternalAtQueryResult
 } from "../contracts/index.ts";
+
+test("appends selected paths and application reference bundles", () => {
+  assert.equal(
+    appendTuttiExternalReferenceSelections("Create a summary", [
+      {
+        selectionKind: "path",
+        reference: {
+          displayName: "notes.md",
+          kind: "file",
+          path: "/workspace/notes.md"
+        }
+      },
+      {
+        selectionKind: "path",
+        reference: {
+          displayName: "Sources",
+          kind: "folder",
+          path: "/workspace/sources"
+        }
+      },
+      {
+        selectionKind: "workspace-reference",
+        displayName: "Canvas outputs",
+        fileCount: 3,
+        groupId: "outputs",
+        id: "ai-canvas",
+        source: "app",
+        workspaceId: "workspace-1"
+      }
+    ]),
+    "Create a summary [notes.md](/workspace/notes.md) [Sources](/workspace/sources/) [@Canvas outputs](mention://workspace-reference/ai-canvas?count=3&groupId=outputs&source=app&workspaceId=workspace-1)"
+  );
+});
+
+test("deduplicates existing selected paths and application reference bundles", () => {
+  const content =
+    "Use [notes.md](/workspace/notes.md) [@Canvas outputs](mention://workspace-reference/ai-canvas?count=2&groupId=outputs&source=app&workspaceId=workspace-1)";
+  assert.equal(
+    appendTuttiExternalReferenceSelections(content, [
+      {
+        selectionKind: "path",
+        reference: {
+          displayName: "notes.md",
+          kind: "file",
+          path: "/workspace/notes.md"
+        }
+      },
+      {
+        selectionKind: "workspace-reference",
+        displayName: "Canvas outputs",
+        fileCount: 3,
+        groupId: "outputs",
+        id: "ai-canvas",
+        source: "app",
+        workspaceId: "workspace-1"
+      }
+    ]),
+    content
+  );
+});
 
 test("creates one rich text provider per requested external at provider", () => {
   const providers = createTuttiExternalAtRichTextTriggerProviders({

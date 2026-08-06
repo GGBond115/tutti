@@ -85,6 +85,7 @@ import { DESKTOP_AGENT_GUI_CURRENT_USER_ID } from "../services/desktopAgentGuiId
 import {
   AGENT_SESSION_RECORDING_FLAG,
   AGENT_REFERENCE_PROVENANCE_FILTER_FLAG,
+  LAB_CONVERSATION_ACTIVITY_VIEW_FLAG,
   isFeatureEnabled,
   LAB_AGENT_SESSION_FORK_FLAG,
   LAB_CODEX_SAVER_MODE_FLAG
@@ -97,7 +98,7 @@ const AgentSessionReplayNodeReadiness = lazy(() =>
 );
 
 function DesktopAgentGUISurfaceImpl({
-  agentActivityRuntime,
+  agentActivityRuntime: hostAgentActivityRuntime,
   agentHostApi,
   agentSessionReplayService,
   agentStatusSource,
@@ -145,6 +146,26 @@ function DesktopAgentGUISurfaceImpl({
     useDesktopAgentConfigCommerce(commerceEnabled);
   const { service: desktopPreferencesService, state: desktopPreferencesState } =
     useDesktopPreferencesService();
+  const agentActivityRuntime = useMemo<
+    AgentGUIProps["agentActivityRuntime"]
+  >(() => {
+    const activityViewEnabled =
+      hostAgentActivityRuntime.conversationActivityViewEnabled === true &&
+      isFeatureEnabled(
+        desktopPreferencesState.featureFlags,
+        LAB_CONVERSATION_ACTIVITY_VIEW_FLAG
+      );
+    if (
+      hostAgentActivityRuntime.conversationActivityViewEnabled ===
+      activityViewEnabled
+    ) {
+      return hostAgentActivityRuntime;
+    }
+    return {
+      ...hostAgentActivityRuntime,
+      conversationActivityViewEnabled: activityViewEnabled
+    };
+  }, [desktopPreferencesState.featureFlags, hostAgentActivityRuntime]);
   const rawWorkbenchState = normalizeDesktopAgentGUIWorkbenchState(
     surface.state
   );

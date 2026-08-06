@@ -58,6 +58,7 @@ import type {
   TuttiExternalPdfPrintHtmlInput,
   TuttiExternalPdfPrintHtmlResult,
   TuttiExternalReferenceOpenInput,
+  TuttiExternalReferenceSelectResult,
   TuttiExternalRendererRequest,
   TuttiExternalAtResolveResult,
   TuttiExternalAtResolveInput,
@@ -131,6 +132,7 @@ export const desktopIpcChannels = {
     permissionsRequest: "workspace-app-permissions:request",
     pdfPrintHtml: "workspace-app-pdf:print-html",
     referencesOpen: "workspace-app-references:open",
+    referencesSelect: "workspace-app-references:select",
     guestEvent: "workspace-app-external:guest-event",
     rendererEvent: "workspace-app-external:renderer-event",
     rendererRequest: "workspace-app-external:renderer-request",
@@ -799,6 +801,7 @@ export type DesktopWorkspaceAppExternalRendererResult =
   | TuttiExternalAtQueryResult[]
   | TuttiExternalAtResolveResult
   | TuttiExternalFileSelectResult
+  | TuttiExternalReferenceSelectResult
   | WorkspaceUserProject
   | WorkspaceUserProjectDefaultSelection
   | WorkspaceUserProjectPathCheck
@@ -1083,6 +1086,7 @@ export interface DesktopInvokePayloadByChannel {
   [desktopIpcChannels.appExternal.pdfPrintHtml]: TuttiExternalPdfPrintHtmlInput;
   [desktopIpcChannels.appExternal
     .referencesOpen]: TuttiExternalReferenceOpenInput;
+  [desktopIpcChannels.appExternal.referencesSelect]: undefined;
   [desktopIpcChannels.appExternal.settingsOpen]: TuttiExternalSettingsOpenInput;
   [desktopIpcChannels.appExternal
     .userProjectsCheckPath]: TuttiExternalUserProjectPathInput;
@@ -1280,6 +1284,8 @@ export interface DesktopInvokeResultByChannel {
   [desktopIpcChannels.appExternal
     .pdfPrintHtml]: TuttiExternalPdfPrintHtmlResult;
   [desktopIpcChannels.appExternal.referencesOpen]: void;
+  [desktopIpcChannels.appExternal
+    .referencesSelect]: TuttiExternalReferenceSelectResult;
   [desktopIpcChannels.appExternal.settingsOpen]: void;
   [desktopIpcChannels.appExternal
     .userProjectsCheckPath]: WorkspaceUserProjectPathCheck;

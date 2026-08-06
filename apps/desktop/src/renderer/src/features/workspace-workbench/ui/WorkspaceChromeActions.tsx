@@ -4,8 +4,14 @@ import type { WorkspaceSummary } from "@tutti-os/client-tuttid-ts";
 import {
   AppWindowIcon,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  AskLinedIcon,
   LockLayoutLinedIcon,
-  DownloadIcon,
   SettingsIcon,
   ShortcutBadge,
   Tooltip,
@@ -88,15 +94,16 @@ export function WorkspaceMissionControlActions({
 }
 
 /**
- * Windows keeps the workspace in a custom chrome surface, while the native
- * Help menu is not discoverable from that surface. Keep the existing native
- * menu action as the fallback, but expose the same export operation directly
- * in the Windows header so support logs remain reachable.
+ * Windows keeps the native application menu available through Alt, but does
+ * not render its extra menu row in the normal workspace chrome. Keep the
+ * support-facing Help actions discoverable in the existing custom header.
  */
-export function WorkspaceExportLogsAction({
-  platform
+export function WorkspaceHelpMenu({
+  platform,
+  workspace
 }: {
   platform: NodeJS.Platform;
+  workspace: WorkspaceSummary;
 }) {
   const { t } = useTranslation();
   const { service: settingsService, state: settingsState } =
@@ -106,33 +113,68 @@ export function WorkspaceExportLogsAction({
     return null;
   }
 
-  const label = t("workspace.settings.developer.exportLogs");
-  const exporting = settingsState.developerLogs.exporting;
+  const exportLogs = (input: {
+    includeAgentSessions: boolean;
+    scope: "recent-10-minutes" | "recent-3-days";
+  }) => {
+    void settingsService.exportDeveloperLogs(input);
+  };
+
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-flex">
-          <Button
-            aria-label={label}
-            className="text-[var(--workbench-chrome-foreground)]"
-            disabled={exporting}
-            size="icon-sm"
-            title={label}
-            type="button"
-            variant="ghost"
-            onClick={() =>
-              void settingsService.exportDeveloperLogs({
-                includeAgentSessions: true,
-                scope: "recent-10-minutes"
-              })
-            }
-          >
-            <DownloadIcon className="size-4" />
-          </Button>
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          aria-label={t("desktop.menu.help")}
+          className="text-[var(--workbench-chrome-foreground)]"
+          size="icon-sm"
+          title={t("desktop.menu.help")}
+          type="button"
+          variant="ghost"
+        >
+          <AskLinedIcon className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="w-72"
+        style={{ zIndex: "var(--z-panel-popover)" }}
+      >
+        <DropdownMenuLabel>{t("desktop.menu.help")}</DropdownMenuLabel>
+        <DropdownMenuItem
+          onSelect={() =>
+            settingsService.openPanel(
+              { id: workspace.id },
+              { section: "about" }
+            )
+          }
+        >
+          {t("workspace.settings.nav.about")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={settingsState.developerLogs.exporting}
+          onSelect={() =>
+            exportLogs({
+              includeAgentSessions: true,
+              scope: "recent-10-minutes"
+            })
+          }
+        >
+          {t("workspace.settings.developer.exportRecentTenMinutesLogsWithSessions")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={settingsState.developerLogs.exporting}
+          onSelect={() =>
+            exportLogs({
+              includeAgentSessions: false,
+              scope: "recent-10-minutes"
+            })
+          }
+        >
+          {t("workspace.settings.developer.exportRecentTenMinutesLogsOnly")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

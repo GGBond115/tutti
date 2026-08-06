@@ -609,6 +609,75 @@ test("workspace app external bridge invokes file open with activation", async ()
   ]);
 });
 
+test("workspace app external bridge invokes reference select with activation", async () => {
+  const calls: Array<{ channel: string; payload?: unknown }> = [];
+  const bridge = createWorkspaceAppExternalBridge({
+    appContext: {
+      async get() {
+        return { locale: "en" };
+      },
+      subscribe() {
+        throw new Error("unexpected subscribe");
+      }
+    },
+    isUserActivationActive: () => true,
+    send: unexpectedSend,
+    async invoke<TResult>(channel: string, payload?: unknown) {
+      calls.push({ channel, payload });
+      return [
+        {
+          displayName: "Canvas outputs",
+          id: "canvas",
+          selectionKind: "workspace-reference",
+          source: "app",
+          workspaceId: "workspace-1"
+        }
+      ] as TResult;
+    }
+  });
+
+  assert.ok(bridge.references.select);
+  assert.deepEqual(await bridge.references.select(), [
+    {
+      displayName: "Canvas outputs",
+      id: "canvas",
+      selectionKind: "workspace-reference",
+      source: "app",
+      workspaceId: "workspace-1"
+    }
+  ]);
+  assert.deepEqual(calls, [
+    {
+      channel: workspaceAppExternalChannels.referencesSelect,
+      payload: undefined
+    }
+  ]);
+});
+
+test("workspace app external bridge requires activation for reference select", () => {
+  const bridge = createWorkspaceAppExternalBridge({
+    appContext: {
+      async get() {
+        return { locale: "en" };
+      },
+      subscribe() {
+        throw new Error("unexpected subscribe");
+      }
+    },
+    isUserActivationActive: () => false,
+    send: unexpectedSend,
+    async invoke() {
+      throw new Error("unexpected invoke");
+    }
+  });
+
+  assert.ok(bridge.references.select);
+  assert.throws(
+    () => bridge.references.select?.(),
+    /references\.select requires a user action/
+  );
+});
+
 test("workspace app external bridge uploads files without user activation", async () => {
   const calls: Array<{ channel: string; payload?: unknown }> = [];
   let fetchUrl = "";

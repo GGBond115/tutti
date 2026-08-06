@@ -364,6 +364,7 @@ type PromptContentBlock struct {
 	AttachmentID string `json:"attachmentId,omitempty"`
 	Name         string `json:"name,omitempty"`
 	Path         string `json:"path,omitempty"`
+	ConnectorKey string `json:"connectorKey,omitempty"`
 }
 
 type Session struct {
@@ -399,6 +400,13 @@ type Session struct {
 	// InitialTitleEstablished prevents a first-submit title candidate from
 	// overwriting a title established concurrently in this runtime.
 	InitialTitleEstablished bool `json:"-"`
+	// UserTitleSet records that the title was explicitly set by the user through
+	// SetTitle. It is runtime-only (never persisted): once set, provider/event
+	// title candidates are no longer applied, so a late provider title cannot
+	// revert a user rename. On resume the value fails closed to the established
+	// title so a restarted runtime never lets a provider title clobber a
+	// persisted user title.
+	UserTitleSet bool `json:"-"`
 }
 
 type SessionInteractivePrompt struct {

@@ -174,7 +174,11 @@ func (c *Controller) Resume(ctx context.Context, input ResumeInput) (Session, er
 		Status:                  firstNonEmpty(normalizeSessionStatus(input.Status), SessionStatusReady),
 		Title:                   strings.TrimSpace(input.Title),
 		InitialTitleEstablished: initialTitleEstablished,
-		Visible:                 sessionVisible(input.Visible),
+		// UserTitleSet fails closed on resume: the persisted title (or a legacy
+		// fail-closed marker) is treated as user-established so a late provider
+		// title cannot clobber a title the user set before restart.
+		UserTitleSet: initialTitleEstablished,
+		Visible:      sessionVisible(input.Visible),
 		RuntimeContext: runtimeContextWithInitialTitleEstablished(
 			input.RuntimeContext,
 			initialTitleEstablished,
@@ -320,6 +324,7 @@ func (c *Controller) SetTitle(ctx context.Context, roomID, agentSessionID string
 	if session.Title == title {
 		if !session.InitialTitleEstablished {
 			session = markInitialTitleEstablished(session)
+			session.UserTitleSet = true
 			session.UpdatedAtUnixMS = unixMS(now())
 			c.store(session)
 			c.enqueueSessionReport(ctx, session, []activityshared.Event{
@@ -335,6 +340,7 @@ func (c *Controller) SetTitle(ctx context.Context, roomID, agentSessionID string
 	}
 	session.Title = title
 	session = markInitialTitleEstablished(session)
+	session.UserTitleSet = true
 	session.UpdatedAtUnixMS = unixMS(now())
 	c.store(session)
 	events := []activityshared.Event{newSessionTitleActivityEvent(session, title)}
@@ -432,12 +438,15 @@ func cloneSessionSettings(settings SessionSettings) *SessionSettings {
 // provider session id, title, runtime context, and last error. It is the
 // shared core of the legacy applySessionEvents fold and the ADR 0008
 // authority path (which derives status purely from the lifecycle instead).
+//
+// A provider/event title is a candidate, not the owner: once the user set the
+// title explicitly (UserTitleSet) it is never overwritten by an event title.
 func applySessionEventsBase(session Session, events []activityshared.Event) Session {
 	for _, event := range events {
 		if strings.TrimSpace(event.ProviderSessionID) != "" {
 			session.ProviderSessionID = strings.TrimSpace(event.ProviderSessionID)
 		}
-		if title := strings.TrimSpace(event.Payload.Title); title != "" {
+		if title := strings.TrimSpace(event.Payload.Title); title != "" && !session.UserTitleSet {
 			session.Title = title
 		}
 		if runtimeContext := payloadMap(event.Payload.Metadata, "runtimeContext"); len(runtimeContext) > 0 {
@@ -458,7 +467,7 @@ func applySessionEvents(session Session, events []activityshared.Event) Session 
 		if strings.TrimSpace(event.ProviderSessionID) != "" {
 			session.ProviderSessionID = strings.TrimSpace(event.ProviderSessionID)
 		}
-		if title := strings.TrimSpace(event.Payload.Title); title != "" {
+		if title := strings.TrimSpace(event.Payload.Title); title != "" && !session.UserTitleSet {
 			session.Title = title
 		}
 		if runtimeContext := payloadMap(event.Payload.Metadata, "runtimeContext"); len(runtimeContext) > 0 {

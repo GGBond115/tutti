@@ -1214,6 +1214,9 @@ export const zhCN = {
         backLabel: "返回",
         automationRulesDescription: "显示自动化规则配置与会话覆盖选项",
         automationRulesLabel: "自动化规则",
+        conversationActivityViewDescription:
+          "在 Agent 侧边栏中显示会话 Activity View",
+        conversationActivityViewLabel: "会话 Activity View",
         clearShortcutLabel: "清除 {{label}}",
         newAgentConversationShortcutLabel: "新建 Agent 对话",
         newSameTypeWindowShortcutLabel: "新建同类型窗口",

@@ -34,6 +34,7 @@ import type {
   TuttiExternalPdfPrintHtmlInput,
   TuttiExternalPdfPrintHtmlResult,
   TuttiExternalReferenceOpenInput,
+  TuttiExternalReferenceSelectResult,
   TuttiExternalSettingsOpenInput,
   TuttiExternalUserProjectCreateInput,
   TuttiExternalUserProjectPathInput,
@@ -119,6 +120,7 @@ export const workspaceAppExternalChannels = {
   permissionsRequest: "workspace-app-permissions:request",
   pdfPrintHtml: "workspace-app-pdf:print-html",
   referencesOpen: "workspace-app-references:open",
+  referencesSelect: "workspace-app-references:select",
   settingsOpen: "workspace-app-settings:open",
   userProjectsCheckPath: "workspace-app-user-projects:check-path",
   userProjectsCreate: "workspace-app-user-projects:create",
@@ -317,6 +319,15 @@ export function createWorkspaceAppExternalBridge(
       }
     },
     references: {
+      select() {
+        requireUserActivation(
+          dependencies.isUserActivationActive(),
+          "references.select"
+        );
+        return dependencies.invoke<TuttiExternalReferenceSelectResult>(
+          workspaceAppExternalChannels.referencesSelect
+        );
+      },
       open(input: TuttiExternalReferenceOpenInput) {
         requireUserActivation(
           dependencies.isUserActivationActive(),

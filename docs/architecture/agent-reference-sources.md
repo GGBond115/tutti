@@ -15,6 +15,9 @@ resolution after selection are documented in
   desktop sources and transport adapters.
 - AgentGUI consumes injected picker capabilities. It does not fetch daemon
   references or interpret source-specific node ids.
+- External workspace apps request the host-owned picker through
+  `tuttiExternal.references.select()` and receive only serialized selections;
+  they do not construct a desktop source registry or query artifact APIs.
 - Daemon and workspace-app APIs own artifact listing and search; desktop maps
   those responses into the shared source contract.
 
@@ -53,6 +56,20 @@ desktop source registry
   -> composer mention
   -> workspace-reference runtime resolution when required
 ```
+
+Tutti Desktop composes a restricted registry for external workspace apps:
+`user-project`, `workspace-file`, and `app-artifact`. `issue-file` remains
+available to owning Desktop surfaces but is deliberately excluded from this
+external picker. A selected file or folder crosses the bridge as a concrete
+`WorkspaceFileReference`; a selected application group crosses as a lazy
+`workspace-reference` handle with app/group identity and workspace scope.
+External apps append those values to the prompt through the shared rich-text
+helper and must not enumerate a whole application artifact group eagerly.
+
+The standard external-app composer plus control is also host-neutral. With an
+app-owned upload callback it presents Upload and Browse actions; without one it
+opens Browse directly. The control owns only this interaction shape and icons.
+Apps continue to own localized labels, their upload pipeline, and prompt state.
 
 List-style app and issue sources adapt their backend responses through the
 shared `ReferenceListBackend` / `createReferenceListSource` protocol. Local

@@ -46,6 +46,7 @@ import type {
   TuttiExternalAtResolveResult
 } from "@tutti-os/workspace-external-core/contracts";
 import type { WorkspaceFileReferenceAdapter } from "@tutti-os/workspace-file-reference/contracts";
+import type { ReferenceSourceAggregator } from "@tutti-os/workspace-file-reference/core";
 import type { WorkspaceUserProjectApi } from "@tutti-os/workspace-user-project/contracts";
 import type { DesktopWorkspaceAppOpenFileResolvedPayload } from "@shared/contracts/ipc";
 
@@ -92,7 +93,8 @@ export interface WorkspaceWorkbenchBodyRendererContext {
 
 export type WorkspaceWorkbenchCapabilitySettingsTarget =
   | "browserUse"
-  | "computerUse";
+  | "computerUse"
+  | { kind: "connector"; connectorKey: string };
 
 export interface WorkspaceWorkbenchHostInput {
   readonly captureNodePreviewImages?: WorkbenchHostProps["captureNodePreviewImages"];
@@ -167,6 +169,12 @@ export interface IWorkspaceWorkbenchHostService {
   createWorkspaceAppExternalFileReferenceAdapter(
     workspaceId: string
   ): WorkspaceFileReferenceAdapter;
+  createWorkspaceAppExternalReferenceSourceAggregator(input: {
+    appSourceLabel: string;
+    localSourceLabel: string;
+    projectSourceLabel: string;
+    workspaceId: string;
+  }): ReferenceSourceAggregator;
   createWorkspaceAppExternalUserProjectApi(): WorkspaceUserProjectApi;
   openExternal(url: string): Promise<void>;
   queryWorkspaceAppExternalAt(input: {

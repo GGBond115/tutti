@@ -20,6 +20,13 @@ trusted app APIs may read or update host workspace state directly.
   `at.resolve()` and `at.subscribe()` for exact mention hydration and dirty
   invalidation.
 - `files.select()` for user-activated workspace file picking.
+- `references.select()` for the user-activated multi-source reference picker.
+  Tutti Desktop currently offers project files, local files, and application
+  artifacts on this workspace-app surface. The result contains concrete paths
+  for files/folders and lazy `workspace-reference` handles for whole
+  application artifact groups; issue artifacts are not part of this surface.
+- `references.open()` for user-activated navigation from a serialized
+  `mention://` reference back to its owning workspace surface.
 - `files.open()` for user-activated host opening/revealing of a known workspace file path.
 - `files.upload()` for trusted app upload of a browser `File`/`Blob` into the
   app's managed durable data path, with optional progress and `AbortSignal`
@@ -136,3 +143,17 @@ invalidation.
 
 See `@tutti-os/ui-rich-text` for the generic trigger-provider and at-panel
 contracts.
+
+## Composer Reference Selection
+
+Workspace apps should feature-detect `window.tuttiExternal.references.select`
+before exposing a reference action. The host owns the available source set and
+the picker interaction. Apps append the returned references to their serialized
+rich-text prompt with `appendTuttiExternalReferenceSelections`; they must not
+expand an application artifact group into every child path.
+
+For a standard composer entry, use `WorkspaceReferenceAddControl` from
+`@tutti-os/workspace-file-reference/ui`. Apps with an upload workflow pass
+`onUploadFile` and receive an Upload / Browse menu. Apps without upload support
+omit it and the plus button opens the reference picker directly. All visible
+labels remain app-owned i18n input.

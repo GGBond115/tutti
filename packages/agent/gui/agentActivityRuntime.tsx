@@ -315,6 +315,11 @@ export interface AgentGUIRuntime {
    */
   origin?: string;
   /**
+   * Enables the Codex-aligned in-memory conversation Activity View. Missing or
+   * false fails closed so external hosts opt in explicitly.
+   */
+  conversationActivityViewEnabled?: boolean;
+  /**
    * Host query limits for the Conversation Rail. Omit when the backend accepts
    * AgentGUI's default limits.
    */

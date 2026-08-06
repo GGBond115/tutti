@@ -84,6 +84,11 @@ import type {
   TuttiExternalAtResolveResult
 } from "@tutti-os/workspace-external-core/contracts";
 import type { WorkspaceFileReferenceAdapter } from "@tutti-os/workspace-file-reference/contracts";
+import {
+  createReferenceSourceAggregator,
+  createStaticReferenceSourceRegistry,
+  type ReferenceSourceAggregator
+} from "@tutti-os/workspace-file-reference/core";
 import type { WorkspaceUserProjectApi } from "@tutti-os/workspace-user-project/contracts";
 import { serializeWorkspaceAppExternalAtMatch } from "./workspaceAppExternalAtSerialization.ts";
 import { requestWorkspaceWorkbenchNodeLaunch } from "../workspaceWorkbenchNodeLaunchCoordinator.ts";
@@ -109,6 +114,11 @@ import {
   type WorkspaceWorkbenchHostInputResolverDependencies
 } from "./workspaceWorkbenchHostInputResolver.ts";
 import { createWorkspaceDockRetentionController } from "./workspaceDockRetentionController.ts";
+import {
+  createAppArtifactReferenceSource,
+  createWorkspaceFileLocationReferenceSources
+} from "../../../agent-reference-sources/index.ts";
+import { loadDesktopWorkspaceFileLocationSections } from "../../../workspace-file-manager/services/desktopWorkspaceFileLocations.ts";
 
 export interface WorkspaceWorkbenchHostServiceDependencies extends WorkspaceWorkbenchHostInputResolverDependencies {
   hostNotificationsApi: Pick<DesktopHostNotificationsApi, "onNavigate">;
@@ -287,6 +297,40 @@ export class WorkspaceWorkbenchHostService implements IWorkspaceWorkbenchHostSer
       tuttidClient: this.dependencies.tuttidClient,
       workspaceId
     });
+  }
+
+  createWorkspaceAppExternalReferenceSourceAggregator(input: {
+    appSourceLabel: string;
+    localSourceLabel: string;
+    projectSourceLabel: string;
+    workspaceId: string;
+  }): ReferenceSourceAggregator {
+    const adapter = this.createWorkspaceAppExternalFileReferenceAdapter(
+      input.workspaceId
+    );
+    return createReferenceSourceAggregator(
+      createStaticReferenceSourceRegistry([
+        ...createWorkspaceFileLocationReferenceSources({
+          adapter,
+          getLocationSections: () =>
+            loadDesktopWorkspaceFileLocationSections({
+              homeDirectory: this.dependencies.platformApi.homeDirectory,
+              workspaceUserProjectService:
+                this.dependencies.workspaceUserProjectService
+            }),
+          localLabel: input.localSourceLabel,
+          localOrder: 0,
+          projectLabel: input.projectSourceLabel,
+          projectOrder: -1
+        }),
+        createAppArtifactReferenceSource({
+          adapter,
+          label: input.appSourceLabel,
+          order: 1,
+          tuttidClient: this.dependencies.tuttidClient
+        })
+      ])
+    );
   }
 
   createWorkspaceAppExternalUserProjectApi(): WorkspaceUserProjectApi {
