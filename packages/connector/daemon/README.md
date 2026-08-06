@@ -27,4 +27,6 @@ the synchronous implementation-host publication gate.
 
 Account logout and switching use `Host.FenceForScope` to close remote
 publication, fail-close all processes, and force a later bootstrap even when
-the same account logs in again.
+the same account logs in again. The account-boundary fence never admits or
+starts a runtime with retired authority; per-Connector deactivation remains a
+normal uninstall/reconcile concern.

@@ -275,8 +275,7 @@ func (host *Host) FenceForScope(ctx context.Context, scope market.OperationScope
 	host.bootstrapScope = scope
 	publicationErr := host.applyCapabilityPublication(ctx, scope, false)
 	fenceErr := host.activationGate.FailClosed(ctx, time.Now().Add(10*time.Second))
-	projectionErr := host.Application.FenceInstalledRuntimesForScope(ctx, scope)
-	return errors.Join(publicationErr, fenceErr, projectionErr)
+	return errors.Join(publicationErr, fenceErr)
 }
 
 func (host *Host) applyCapabilityPublication(ctx context.Context, scope market.OperationScope, enabled bool) error {
