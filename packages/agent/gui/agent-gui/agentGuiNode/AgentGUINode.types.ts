@@ -153,8 +153,13 @@ export interface AgentGUINodeHostCapabilities {
   providerReadinessGates?: Partial<
     Record<AgentGUIProvider, AgentGUIProviderReadinessGate | null>
   > | null;
+  /** Target-level connection for new-conversation and ordinary Composer admission. */
   targetConnectionSource?: AgentGUITargetConnectionSource | null;
-  /** Host-owned write readiness keyed by exact pending Interaction identity. */
+  /**
+   * Host-owned write readiness keyed by exact pending Interaction identity.
+   * When present for the displayed prompt, it takes precedence over target
+   * connection and exact-Turn observation-gap presentation.
+   */
   interactionReadinessSource?: AgentGUIInteractionReadinessSource | null;
   /** Host-owned, ephemeral projection gap keyed by exact Session and Turn. */
   observationGapSource?: AgentGUIObservationGapSource | null;

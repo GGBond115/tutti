@@ -413,7 +413,7 @@ describe("useAgentGUISessionPresentation", () => {
     expect(rendered.result.current.composerGate).toBe(readyGate);
   });
 
-  it("keeps recovery chrome and commands blocked until an exact observation gap clears", () => {
+  it("keeps target and Turn recovery outside exact Interaction readiness authority", () => {
     const targetConnectionSource = new FakeTargetConnectionSource();
     targetConnectionSource.set({ status: "connected", retryAttempt: 0 });
     const observationGapSource = new FakeObservationGapSource();
@@ -534,22 +534,50 @@ describe("useAgentGUISessionPresentation", () => {
       approval: { requestId: "request-1" },
       recovery: null
     });
+    expect(rendered.result.current.composerGate.runtime).toMatchObject({
+      status: "blocked",
+      reason: "target_connection"
+    });
     expect(rendered.result.current.isRespondingApproval).toBe(false);
 
-    input.interactionReadinessSource = new StaticInteractionSource({
-      status: "blocked",
-      reason: "synchronizing"
-    });
-    rendered.rerender();
-
-    expect(rendered.result.current.sessionChrome).toMatchObject({
-      approval: { requestId: "request-1" },
-      recovery: {
-        kind: "transport-connecting",
-        interactionScoped: true
+    const blockedInteractionCases = [
+      {
+        reason: "synchronizing",
+        recoveryKind: "transport-connecting",
+        preservesApproval: true
+      },
+      {
+        reason: "owner_offline",
+        recoveryKind: "transport-unavailable",
+        preservesApproval: true
+      },
+      {
+        reason: "binding_revoked",
+        recoveryKind: "agent-sharing-revoked",
+        preservesApproval: false
       }
-    });
-    expect(rendered.result.current.isRespondingApproval).toBe(true);
+    ] as const;
+    for (const blockedCase of blockedInteractionCases) {
+      input.interactionReadinessSource = new StaticInteractionSource({
+        status: "blocked",
+        reason: blockedCase.reason
+      });
+      rendered.rerender();
+
+      expect(rendered.result.current.sessionChrome.recovery).toMatchObject({
+        kind: blockedCase.recoveryKind
+      });
+      expect(rendered.result.current.sessionChrome.approval).toEqual(
+        blockedCase.preservesApproval
+          ? expect.objectContaining({ requestId: "request-1" })
+          : null
+      );
+      expect(rendered.result.current.composerGate.runtime).toMatchObject({
+        status: "blocked",
+        reason: "target_connection"
+      });
+      expect(rendered.result.current.isRespondingApproval).toBe(true);
+    }
 
     const promptAwareReadinessSource = {
       getInteractionReadiness: vi.fn((identity: { requestId: string }) =>
@@ -582,6 +610,10 @@ describe("useAgentGUISessionPresentation", () => {
       requestId: "question-1"
     });
     expect(rendered.result.current.sessionChrome.recovery).toBeNull();
+    expect(rendered.result.current.composerGate.runtime).toMatchObject({
+      status: "blocked",
+      reason: "target_connection"
+    });
     expect(rendered.result.current.isRespondingApproval).toBe(false);
 
     input.interactionReadinessSource = new StaticInteractionSource({

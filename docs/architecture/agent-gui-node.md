@@ -244,6 +244,12 @@ canonical Turn. The Host owns reconnect and catch-up fencing and must remove
 the gap only after the same Turn is authoritative again. When the capability
 is absent, AgentGUI preserves its existing lifecycle presentation.
 
+An exact pending Interaction is a separate admission scope. When its Host
+supplies interaction readiness, that exact result owns transport presentation
+and early write admission for the pending card. An observation gap may still
+govern the active Turn before or after that Interaction, but it cannot override
+the exact ready or blocked readiness result while the card is presented.
+
 ### 2.6 On-demand status
 
 AgentGUI owns one provider-neutral `AgentStatusController` for `/status`, Agent
@@ -794,18 +800,25 @@ revoked a Session's shared Agent relationship, the host projects
 that relationship. Device reconnect and automatic retry presentation begins
 only while the sharing relationship is active.
 
-AgentGUI projects a blocked target connection through the chrome above the
-composer and gives it precedence over other recovery, approval, or prompt
-notices because those actions cannot complete while the target is blocked.
-An explicitly terminal `unavailable` state appears immediately. Initial
-`connecting` appears only after a 300-millisecond controller delay so short
-background connections do not flash. A recoverable host retry, including a
-dormant low-frequency retry, remains a neutral `connecting` presentation and
-updates the visible retry attempt without restarting the delay. During the
-initial delay, the raw target state already blocks commands, but AgentGUI keeps
-the existing recovery, approval, or prompt chrome visible until the connection
-notice replaces it. Recovery removes the notice without a success banner. The
-notice does not offer a manual retry because transport recovery is host-owned.
+Outside an exact pending Interaction, AgentGUI projects a blocked target
+connection through the chrome above the composer and gives it precedence over
+other non-interaction recovery notices because ordinary Composer writes cannot
+complete while the target is blocked. An explicitly terminal `unavailable`
+state appears immediately. Initial `connecting` appears only after a
+300-millisecond controller delay so short background connections do not flash.
+A recoverable host retry, including a dormant low-frequency retry, remains a
+neutral `connecting` presentation and updates the visible retry attempt without
+restarting the delay. During the initial delay, the raw target state already
+blocks commands, but AgentGUI keeps the existing non-interaction recovery
+chrome visible until the connection notice replaces it. Recovery removes the
+notice without a success banner. The notice does not offer a manual retry
+because transport recovery is host-owned.
+
+When the Host supplies readiness for the exact approval or interactive prompt
+being presented, that readiness result is the sole transport-chrome and early
+write-admission authority for the card. Target connection and exact-Turn
+observation gaps continue to gate ordinary Composer commands, but neither may
+hide the card or override an exact ready or blocked interaction result.
 
 Session presentation derives one canonical Composer gate from target
 connection, Session runtime availability, provider readiness, ownership,
