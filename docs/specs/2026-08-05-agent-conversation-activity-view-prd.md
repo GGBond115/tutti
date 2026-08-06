@@ -4,7 +4,7 @@ Status: implemented; pending code review
 
 - 日期：2026-08-05
 - 产品范围：Tutti Agent GUI Conversation Rail
-- 交付承载：Desktop Workbench 与独立 Agent 窗口
+- 交付承载：Desktop Workbench、独立 Agent 窗口与 Native Mobile
 - 共享边界：`@tutti-os/agent-gui`、`@tutti-os/agent-activity-core`、Conversation Rail runtime、Desktop daemon 实时会话投影
 - 参考实现：Codex.app 左侧会话列表的 Activity View
 - Golden reference：Codex.app `26.730.61639`（build `6234`），验证日期 2026-08-05
@@ -23,9 +23,15 @@ Status: implemented; pending code review
 
 展示范围以当前 Engine 内存态为准，而不是以 React 此刻挂载的 DOM 行为准。未加载进内存的历史会话不因开启 Activity View 而额外加载；用户本次没有加载、daemon 也没有实时推送的会话不在本功能的关注范围内。
 
-首期不改变普通 Rail 的项目分区、每次显示 5 条和“显示更多”逻辑。普通视图与 Activity View 是同一 Conversation Rail 的两种 presentation mode。
+Desktop 首期不改变普通 Rail 的项目分区、每次显示 5 条和“显示更多”逻辑。普通视图与 Activity View 是同一 Conversation Rail 的两种 presentation mode；Mobile 会话首页直接使用 Activity View，不再提供项目分组目录视图。
 
 Activity View 是一个专用的列表展示模式，不是通用筛选器。本功能不新增筛选入口、筛选条件、筛选状态、组合规则或可复用的 filter API，也不把 Tutti 现有的 Agent target 选择能力纳入 Codex 体验对齐范围。Activity View 直接消费当前挂载 `AgentSessionEngine` 中的内存态 canonical sessions，不定义或改变上游数据语义。
+
+### 1.0 Mobile adoption amendment（2026-08-06）
+
+Native Mobile 会话首页从本次实现起固定使用 Activity View。Mobile 不再展示旧的 pinned / project / conversations 项目分组目录，也不提供会话 Pin 或 Unpin 操作。Priority 与最近 7 个自然日的分组、会话行的生命周期状态和稳定排序复用本 PRD 及 `@tutti-os/agent-gui` 的共享投影规则。
+
+搜索仍然临时接管内容区，但由共享 Conversation Rail query controller 负责服务端分页查询，从而可以查找当前 Engine 尚未载入的历史会话；清空搜索后恢复 Activity View。该 Mobile 差异只改变承载视图和历史搜索入口，不改变 canonical session、attention/read 或 pin durable owner；Desktop 的普通 Rail 和 Activity View 行为不变。
 
 ### 1.1 Codex 体验同构原则
 
@@ -73,7 +79,7 @@ Activity View 的核心价值是把 Conversation Rail 从“目录”临时切�
 3. 打开视图后立即完成本地投影，不为该视图额外等待网络查询。
 4. 视图复用现有 canonical lifecycle 和 attention/read facts，不创建第二套会话状态。
 5. 实时状态变化无需刷新即可更新行状态；成员与顺序按 Codex activation snapshot/incremental-merge 规则保持稳定。
-6. 普通 Rail 的项目组织、搜索、置顶、会话操作和选择行为保持兼容。
+6. Desktop 普通 Rail 的项目组织、搜索、置顶、会话操作和选择行为保持兼容；Mobile 会话首页固定使用 Activity View，不提供项目分组和置顶入口。
 7. Desktop host 通过【实验室】中的 Activity View 开关选择性启用该能力，默认关闭；共享 `agent-gui` 的外部 host 仍可通过 runtime capability 关闭且不受行为影响。
 
 ### 3.2 非目标
@@ -88,25 +94,25 @@ Activity View 的核心价值是把 Conversation Rail 从“目录”临时切�
 - 不改变现有单条删除及其他页面已有的删除能力；
 - 不在首期提供用户自定义权重、拖拽调整优先级或 AI 自动评分；
 - 不新增或改造 Agent target、workspace、provider 等通用筛选器能力；
-- Mobile 不在本 PRD 的设计、实现、验收或发布范围内；
+- 不把 Mobile 的旧项目分组目录继续作为会话首页；Mobile 采用本节已批准的 Activity View 承载差异；
 - 不要求外部 AgentGUI host 实现、展示或对齐 Activity View；
 - 不把普通项目分区永久替换成优先级分组。
 
 ## 4. 关键产品决策
 
-| 编号 | 决策                                                                    | 理由                                                   |
-| ---- | ----------------------------------------------------------------------- | ------------------------------------------------------ |
-| D1   | 功能名称为 Activity View；Priority 是视图顶部的固定标题区段             | 不再把整个能力称为 Priority View                       |
-| D2   | 默认关闭，由用户显式开启                                                | 保留既有项目目录心智，不突然改变导航结构               |
-| D3   | 最近范围固定为最近 7 个自然日                                           | 覆盖一周工作上下文，避免无边界加载历史                 |
-| D4   | Priority 顺序复刻 Codex：`waiting`、`unread`、`active`、retained `idle` | 不按失败/成功再创造一套 Tutti 排序标准                 |
-| D5   | `waiting` 由 Tutti canonical `needsUserAction` 映射                     | UI 语义跟随 Codex，事实来源仍由 Tutti lifecycle 保证   |
-| D6   | 子 Session 不作为左栏独立行                                             | Codex 将子线程作为独立实体管理，但左栏由根线程代表     |
-| D7   | Priority 与近期日期段之间去重                                           | 一个 Session 只在最靠前的可见位置出现一次              |
-| D8   | 搜索临时接管内容区，清空搜索后恢复 Activity View                        | 搜索是明确查找意图，避免搜索结果与工作队列结构混杂     |
-| D9   | Activity View 不新增或改造通用筛选器                                    | 当前 Engine 是完整输入边界，不增加 host context 契约   |
-| D10  | 仅投影当前 Engine 内存态，不因开启视图补页                              | Activity View 聚焦当前工作；历史发现仍由普通 Rail 负责 |
-| D11  | Activity View 不提供批量归档或批量删除入口                              | Archive chats 映射为 Tutti 删除，但首期不纳入标题菜单  |
+| 编号 | 决策                                                                    | 理由                                                              |
+| ---- | ----------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| D1   | 功能名称为 Activity View；Priority 是视图顶部的固定标题区段             | 不再把整个能力称为 Priority View                                  |
+| D2   | Desktop 默认关闭，由用户显式开启；Mobile 会话首页固定开启               | Desktop 保留既有项目目录心智；Mobile 直接采用已批准的新首页承载   |
+| D3   | 最近范围固定为最近 7 个自然日                                           | 覆盖一周工作上下文，避免无边界加载历史                            |
+| D4   | Priority 顺序复刻 Codex：`waiting`、`unread`、`active`、retained `idle` | 不按失败/成功再创造一套 Tutti 排序标准                            |
+| D5   | `waiting` 由 Tutti canonical `needsUserAction` 映射                     | UI 语义跟随 Codex，事实来源仍由 Tutti lifecycle 保证              |
+| D6   | 子 Session 不作为左栏独立行                                             | Codex 将子线程作为独立实体管理，但左栏由根线程代表                |
+| D7   | Priority 与近期日期段之间去重                                           | 一个 Session 只在最靠前的可见位置出现一次                         |
+| D8   | 搜索临时接管内容区，清空搜索后恢复 Activity View                        | 搜索是明确查找意图，避免搜索结果与工作队列结构混杂                |
+| D9   | Activity View 不新增或改造通用筛选器                                    | 当前 Engine 是完整输入边界，不增加 host context 契约              |
+| D10  | Activity View 开启本身仅投影当前 Engine 内存态，不因开启视图补页        | Desktop Activity View 聚焦当前工作；Mobile 的显式搜索另走分页查询 |
+| D11  | Activity View 不提供批量归档或批量删除入口                              | Archive chats 映射为 Tutti 删除，但首期不纳入标题菜单             |
 
 ### 4.1 已识别的体验差异与数据映射
 
@@ -205,7 +211,7 @@ interface AgentGUIRuntime {
 
 ### 7.2 首期无标题菜单
 
-首期不在 Priority 标题右侧提供 `Activity view options` 或其他标题操作入口，因此不实现 Pinned、Mark all as read、Restore defaults 和 Archive chats。现有 pin/unpin、单条标记已读和单条删除能力仍在原有位置按原行为工作；Activity View 不新增批量操作。近期日期段始终显示，不提供“显示最近会话”开关。
+首期不在 Priority 标题右侧提供 `Activity view options` 或其他标题操作入口，因此不实现 Pinned、Mark all as read、Restore defaults 和 Archive chats。Desktop 现有 pin/unpin、单条标记已读和单条删除能力仍在原有位置按原行为工作；Mobile Activity View 不提供 pin/unpin，仅保留单条会话操作和删除能力。Activity View 不新增批量操作。近期日期段始终显示，不提供“显示最近会话”开关。
 
 Activity View 开启状态属于当前 surface 的临时状态。首期没有 Activity View 专属可持久化选项。滚动不创建 Activity View 专用位置，复用该 Rail mode 的现有 scroll state。
 

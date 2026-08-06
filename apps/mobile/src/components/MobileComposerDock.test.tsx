@@ -229,6 +229,7 @@ function createModel(): WorkspaceActivitySnapshot {
       sessions: [],
       workspaceId: "workspace"
     },
+    activityConversations: [],
     ambiguousSubmission: false,
     composerOptions: {
       behavior: {
@@ -274,6 +275,15 @@ function createModel(): WorkspaceActivitySnapshot {
     railErrorCode: null,
     railSections: [],
     railStatus: "ready",
+    search: {
+      failed: false,
+      hasMore: false,
+      loadingMore: false,
+      pending: false,
+      query: "",
+      resolvedQuery: "",
+      sessionIds: []
+    },
     selectedAgentSessionId: null,
     selectedAgentTargetId: null,
     selectedProjectPath: null,

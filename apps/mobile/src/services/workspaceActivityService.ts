@@ -90,7 +90,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     private readonly navigation: WorkspaceNavigationService,
     private readonly drafts: ComposerDraftService,
     private readonly clock: ClockPort,
-    currentUserId: string,
+    private readonly currentUserId: string,
     deviceLink?: DeviceLinkPort,
     private readonly onTransportConnectionChanged?: (connected: boolean) => void
   ) {
@@ -283,6 +283,7 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
     this.snapshotCache = projectWorkspaceActivitySnapshot({
       activity,
       ambiguousSubmission: this.ambiguousDraftKeys.has(draftKey),
+      currentUserId: this.currentUserId,
       draftSettings,
       draft: this.drafts.get(draftKey),
       errorCode: this.errorCode,
@@ -404,6 +405,18 @@ export class WorkspaceActivityService extends ObservableService<WorkspaceActivit
 
   loadMoreSessions(sectionId: string): Promise<void> {
     return this.rail.loadMore(sectionId);
+  }
+
+  setSearchQuery(query: string): void {
+    this.rail.setSearchQuery(query);
+  }
+
+  loadMoreSearch(): void {
+    this.rail.loadMoreSearch();
+  }
+
+  retrySearch(): void {
+    this.rail.retrySearch();
   }
 
   refreshSessions(): Promise<void> {

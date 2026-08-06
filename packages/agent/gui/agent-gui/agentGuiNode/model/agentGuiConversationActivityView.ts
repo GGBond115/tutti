@@ -9,6 +9,16 @@ export type AgentGUIConversationActivityPriorityReason =
   | "active"
   | "retained-idle";
 
+export type AgentGUIConversationActivityCandidate = Pick<
+  AgentGUIConversationSummary,
+  | "hasUnreadCompletion"
+  | "id"
+  | "needsUserAction"
+  | "sortTimeUnixMs"
+  | "status"
+  | "updatedAtUnixMs"
+>;
+
 export interface AgentGUIConversationActivityMember {
   id: string;
   admissionOrder: number;
@@ -42,7 +52,7 @@ export interface AgentGUIConversationActivityProjection {
 }
 
 export function createAgentGUIConversationActivityActivation(
-  conversations: readonly AgentGUIConversationSummary[],
+  conversations: readonly AgentGUIConversationActivityCandidate[],
   openedAtUnixMs: number,
   priorityRetentionRecencyById: ReadonlyMap<string, number> = new Map()
 ): AgentGUIConversationActivityActivation {
@@ -100,7 +110,7 @@ export function createAgentGUIConversationActivityActivation(
 
 export function reconcileAgentGUIConversationActivityActivation(
   activation: AgentGUIConversationActivityActivation,
-  conversations: readonly AgentGUIConversationSummary[]
+  conversations: readonly AgentGUIConversationActivityCandidate[]
 ): AgentGUIConversationActivityActivation {
   const conversationsById = new Map(
     conversations.map((conversation) => [conversation.id, conversation])
@@ -231,7 +241,7 @@ export function localDayStartUnixMs(value: number): number {
 }
 
 function livePriorityReason(
-  conversation: AgentGUIConversationSummary
+  conversation: AgentGUIConversationActivityCandidate
 ): Exclude<AgentGUIConversationActivityPriorityReason, "retained-idle"> | null {
   if (conversation.needsUserAction || conversation.status === "waiting") {
     return "waiting";

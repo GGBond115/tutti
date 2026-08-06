@@ -19,6 +19,7 @@ export interface NativeListRowProps {
   selected?: boolean;
   style?: StyleProp<ViewStyle>;
   title: string;
+  titleNumberOfLines?: number;
   trailing?: ReactNode;
 }
 
@@ -31,6 +32,7 @@ export function NativeListRow({
   selected = false,
   style,
   title,
+  titleNumberOfLines = 2,
   trailing
 }: NativeListRowProps) {
   const theme = useNativeTheme();
@@ -57,7 +59,7 @@ export function NativeListRow({
         {leading ? <View style={styles.leading}>{leading}</View> : null}
         <View style={styles.copy}>
           <Text
-            numberOfLines={2}
+            numberOfLines={titleNumberOfLines}
             style={[styles.title, selected ? styles.titleSelected : undefined]}
           >
             {title}
