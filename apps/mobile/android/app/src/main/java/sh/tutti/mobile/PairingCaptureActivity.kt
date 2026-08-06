@@ -1,4 +1,4 @@
-package dev.tutti.mobile
+package sh.tutti.mobile
 
 import android.app.Activity
 import android.content.Intent

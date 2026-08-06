@@ -1,4 +1,4 @@
-package dev.tutti.mobile
+package sh.tutti.mobile
 
 import android.content.Context
 import com.facebook.react.bridge.Promise

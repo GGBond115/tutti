@@ -1,4 +1,4 @@
-package dev.tutti.mobile
+package sh.tutti.mobile
 
 import android.net.Uri
 import android.os.Bundle

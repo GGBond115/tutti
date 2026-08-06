@@ -1,4 +1,4 @@
-package dev.tutti.mobile
+package sh.tutti.mobile
 
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle

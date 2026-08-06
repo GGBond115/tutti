@@ -368,7 +368,7 @@ private final class MobileSecureStore {
 
 private final class MobileKeychain {
   private let service =
-    (Bundle.main.bundleIdentifier ?? "dev.tutti.mobile") + ".secure-state"
+    (Bundle.main.bundleIdentifier ?? "sh.tutti.mobile") + ".secure-state"
 
   func read(account: String) throws -> Data? {
     var query = baseQuery(account: account)

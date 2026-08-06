@@ -31,7 +31,7 @@
   confirm no background event is emitted during the
   `MainActivity -> CaptureActivity -> MainActivity` sequence.
 - **References:**
-  `apps/mobile/android/app/src/main/java/dev/tutti/mobile/AppLifecycleModule.kt`,
+  `apps/mobile/android/app/src/main/java/sh/tutti/mobile/AppLifecycleModule.kt`,
   `apps/mobile/ios/TuttiMobile/AppLifecycleModule.swift`,
   `apps/mobile/src/native/appLifecyclePort.ts`
 
@@ -184,8 +184,8 @@
   Tab support, and verify the transfer code is redeemed no more than once.
 - **References:** `apps/mobile/ios/TuttiMobile/MobileWebAuthenticationSession.swift`,
   `apps/mobile/ios/TuttiMobile/MobileBrowserAuthBridge.swift`,
-  `apps/mobile/android/app/src/main/java/dev/tutti/mobile/MainActivity.kt`,
-  `apps/mobile/android/app/src/main/java/dev/tutti/mobile/MobileBrowserAuthBridge.kt`
+  `apps/mobile/android/app/src/main/java/sh/tutti/mobile/MainActivity.kt`,
+  `apps/mobile/android/app/src/main/java/sh/tutti/mobile/MobileBrowserAuthBridge.kt`
 
 ## Browser login returns to the App but remains signed out
 
@@ -212,7 +212,7 @@
   device page, restart the App, and verify the same account session still
   authorizes device-list requests.
 - **References:** `apps/mobile/src/services/accountClient.ts`,
-  `apps/mobile/android/app/src/main/java/dev/tutti/mobile/MobileSecurityModule.kt`
+  `apps/mobile/android/app/src/main/java/sh/tutti/mobile/MobileSecurityModule.kt`
 
 ## Android DeviceLink opens a session and then repeatedly restarts
 
@@ -222,7 +222,7 @@
   `fatal error: bulkBarrierPreWrite: unaligned arguments` instead of a Java or
   React Native exception.
 - **Quick checks:** Run `adb shell dumpsys activity exit-info
-dev.tutti.mobile` and inspect a narrow logcat window for the Go fatal message.
+sh.tutti.mobile` and inspect a narrow logcat window for the Go fatal message.
   This distinguishes a Go runtime abort from an Android lifecycle transition or
   a React Native development reload.
 - **Root cause:** A gomobile-exported Go method returned a pointer-bearing value,
@@ -247,7 +247,7 @@ dev.tutti.mobile` and inspect a narrow logcat window for the Go fatal message.
   connect on an ARM64 Android device, receive Agent Live frames, and observe
   beyond the previous crash window with no new Go fatal message.
 - **References:** `packages/device-link/mobile/link.go`,
-  `apps/mobile/android/app/src/main/java/dev/tutti/mobile/DeviceLinkModule.kt`
+  `apps/mobile/android/app/src/main/java/sh/tutti/mobile/DeviceLinkModule.kt`
 
 ## Mobile shows output from a completed Session after foreground resume
 
@@ -281,7 +281,7 @@ dev.tutti.mobile` and inspect a narrow logcat window for the Go fatal message.
 - **References:**
   `apps/mobile/src/native/createMobileServicePorts.ts`,
   `apps/mobile/src/services/workspaceAgentLiveLane.ts`,
-  `apps/mobile/android/app/src/main/java/dev/tutti/mobile/DeviceLinkModule.kt`,
+  `apps/mobile/android/app/src/main/java/sh/tutti/mobile/DeviceLinkModule.kt`,
   `apps/mobile/ios/TuttiMobile/DeviceLinkModule.mm`
 
 ## Mobile stays connected after a long lock-screen interval but sends fail
@@ -312,7 +312,7 @@ dev.tutti.mobile` and inspect a narrow logcat window for the Go fatal message.
   send from the original conversation without revisiting the computer list.
 - **References:**
   `apps/mobile/src/services/mobileApplicationService.ts`,
-  `apps/mobile/android/app/src/main/java/dev/tutti/mobile/DeviceLinkModule.kt`
+  `apps/mobile/android/app/src/main/java/sh/tutti/mobile/DeviceLinkModule.kt`
 
 ## iOS App crashes after loading the JavaScript bundle
 

@@ -1,4 +1,4 @@
-package dev.tutti.mobile
+package sh.tutti.mobile
 
 import android.app.Application
 import com.facebook.react.PackageList

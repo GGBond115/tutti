@@ -400,7 +400,7 @@ Connect 仍需把处理完成的构建分配给对应的内部或外部测试组
 ```sh
 adb devices
 adb shell pm list packages | grep tutti
-adb shell am force-stop dev.tutti.mobile
+adb shell am force-stop sh.tutti.mobile
 adb logcat
 adb logcat -c
 adb logcat -s 'TuttiMobileSecurity:E' 'ReactNativeJS:V' '*:S'

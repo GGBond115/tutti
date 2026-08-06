@@ -55,9 +55,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "dev.tutti.mobile"
+    namespace "sh.tutti.mobile"
     defaultConfig {
-        applicationId "dev.tutti.mobile"
+        applicationId "sh.tutti.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode androidVersionCode

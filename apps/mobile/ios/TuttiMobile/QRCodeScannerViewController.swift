@@ -20,7 +20,7 @@ final class QRCodeScannerViewController: UIViewController,
 
   private let captureSession = AVCaptureSession()
   private let captureQueue = DispatchQueue(
-    label: "dev.tutti.mobile.qr-capture",
+    label: "sh.tutti.mobile.qr-capture",
     qos: .userInitiated
   )
   private let previewLayer = AVCaptureVideoPreviewLayer()

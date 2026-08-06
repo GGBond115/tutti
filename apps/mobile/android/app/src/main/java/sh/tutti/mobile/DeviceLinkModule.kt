@@ -1,4 +1,4 @@
-package dev.tutti.mobile
+package sh.tutti.mobile
 
 import android.os.Handler
 import android.os.Looper
@@ -17,10 +17,10 @@ import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.UiThreadUtil
 import com.facebook.react.modules.core.DeviceEventManagerModule
-import dev.tutti.mobile.bindings.liveprotocolmobile.Liveprotocolmobile
-import dev.tutti.mobile.bindings.mobile.Link
-import dev.tutti.mobile.bindings.mobile.Mobile
-import dev.tutti.mobile.bindings.mobile.Stream
+import sh.tutti.mobile.bindings.liveprotocolmobile.Liveprotocolmobile
+import sh.tutti.mobile.bindings.mobile.Link
+import sh.tutti.mobile.bindings.mobile.Mobile
+import sh.tutti.mobile.bindings.mobile.Stream
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
