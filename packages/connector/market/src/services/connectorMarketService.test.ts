@@ -216,6 +216,10 @@ test("rejects overlapping mutations for one connector", async () => {
     createRequestId: () => "request-1"
   });
   const first = service.install("github");
+  assert.equal(
+    service.dataStore.pendingInstallationsByConnectorKey.github,
+    true
+  );
   await assert.rejects(service.install("github"), ConnectorMarketBusyError);
   install.resolve({
     connector: connector("github", 1),
@@ -234,8 +238,33 @@ test("rejects overlapping mutations for one connector", async () => {
   await first;
 
   assert.equal(
+    service.dataStore.pendingInstallationsByConnectorKey.github,
+    undefined
+  );
+  assert.equal(
     service.dataStore.operationsByConnectorKey.github?.operationId,
     "operation-1"
+  );
+  service.dispose();
+});
+
+test("clears the projected pending installation when install fails", async () => {
+  const install = deferred<never>();
+  const service = new ConnectorMarketService({
+    backend: backendWith({ installConnector: async () => install.promise })
+  });
+
+  const pending = service.install("github");
+  assert.equal(
+    service.dataStore.pendingInstallationsByConnectorKey.github,
+    true
+  );
+  install.reject(new Error("install failed"));
+  await assert.rejects(pending, /install failed/);
+
+  assert.equal(
+    service.dataStore.pendingInstallationsByConnectorKey.github,
+    undefined
   );
   service.dispose();
 });

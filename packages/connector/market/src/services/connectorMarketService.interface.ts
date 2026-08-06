@@ -25,6 +25,7 @@ export interface ConnectorMarketStoreState {
   catalogSections: ConnectorMarketSectionState[];
   connectorsByKey: Record<string, Connector>;
   connectorKeys: string[];
+  pendingInstallationsByConnectorKey: Record<string, true>;
   operationsByConnectorKey: Record<string, ConnectorOperation>;
   authorizingConnectorKeys: Record<string, boolean>;
   lastError: ConnectorMarketErrorShape | null;

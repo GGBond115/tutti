@@ -65,6 +65,21 @@ test("keeps connector details open through installation and advances to authoriz
     beforeInstall?.description,
     "Manage repositories and pull requests"
   );
+  assert.equal(
+    beforeInstall?.kind === "installation" && beforeInstall.installing,
+    false
+  );
+
+  market.pendingInstallationsByConnectorKey[connector.key] = true;
+  const pendingInstall = buildConnectorMarketView(market, dialogState);
+  assert.equal(pendingInstall.cardsByKey[connector.key]?.action, "busy");
+  assert.equal(pendingInstall.cardsByKey[connector.key]?.status, "installing");
+  assert.equal(
+    pendingInstall.dialog?.kind === "installation" &&
+      pendingInstall.dialog.installing,
+    true
+  );
+  delete market.pendingInstallationsByConnectorKey[connector.key];
 
   connector.installation = { state: "installing" };
   market.connectorsByKey[connector.key] = connector;

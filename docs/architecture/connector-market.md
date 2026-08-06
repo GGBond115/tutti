@@ -264,6 +264,11 @@ synchronizing -> materializing -> ready`; failure is terminal and disposes
   state source, and only its owning service mutates it
 - asynchronous responses are fenced by request sequence, service generation,
   and daemon revision; `dispose()` is idempotent and terminal
+- installation intent is projected into the reactive Market store before the
+  host request starts, so cards and dialogs become busy immediately even when a
+  host keeps the mutation request open until runtime work completes; the local
+  projection is cleared on both success and failure and never replaces daemon
+  installation truth
 - event refreshes are coalesced, daemon reconnect performs a full reload, and
   accepted commands are followed through the operation endpoint or events
 - hosts gate connector-market transport through `canRequest`; Tutti binds it to

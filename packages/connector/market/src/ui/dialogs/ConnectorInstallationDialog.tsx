@@ -31,7 +31,11 @@ export function ConnectorInstallationDialog({
   onInstall: () => void;
 }) {
   return (
-    <DialogContent className="max-h-[min(720px,calc(100vh-32px))] overflow-y-auto sm:max-w-[500px]">
+    <DialogContent
+      aria-busy={installing}
+      className="max-h-[min(720px,calc(100vh-32px))] overflow-y-auto sm:max-w-[500px]"
+      showCloseButton={!installing}
+    >
       <DialogHeader className="items-center gap-3 px-6 pt-4 text-center">
         <ConnectorIcon displayName={displayName} iconUrl={iconUrl} size="lg" />
         <DialogTitle>
@@ -49,6 +53,7 @@ export function ConnectorInstallationDialog({
 
       <DialogFooter className="gap-2.5 pt-2 sm:justify-center">
         <Button
+          disabled={installing}
           size="dialog"
           type="button"
           variant="secondary"

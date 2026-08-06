@@ -180,12 +180,15 @@ export class ConnectorMarketService implements IConnectorMarketService {
   }
 
   install(connectorKey: string): Promise<void> {
-    return this.runConnectorMutation(connectorKey, () =>
-      this.dependencies.backend.installConnector({
-        connectorKey,
-        clientRequestId: this.createRequestId(),
-        expectedRevision: this.dataStore.revision
-      })
+    return this.runConnectorMutation(
+      connectorKey,
+      () =>
+        this.dependencies.backend.installConnector({
+          connectorKey,
+          clientRequestId: this.createRequestId(),
+          expectedRevision: this.dataStore.revision
+        }),
+      true
     );
   }
 
@@ -494,13 +497,17 @@ export class ConnectorMarketService implements IConnectorMarketService {
 
   private async runConnectorMutation(
     connectorKey: string,
-    operation: () => Promise<ConnectorMutationResult>
+    operation: () => Promise<ConnectorMutationResult>,
+    projectPendingInstallation = false
   ): Promise<void> {
     if (this.disposed || !this.canRequest()) {
       return;
     }
     const token = this.acquireConnectorMutation(connectorKey);
     const generation = this.dataGeneration;
+    if (projectPendingInstallation) {
+      this.dataStore.pendingInstallationsByConnectorKey[connectorKey] = true;
+    }
     try {
       let result: ConnectorMutationResult;
       try {
@@ -530,6 +537,12 @@ export class ConnectorMarketService implements IConnectorMarketService {
       }
       throw error;
     } finally {
+      if (
+        projectPendingInstallation &&
+        this.connectorMutations.get(connectorKey) === token
+      ) {
+        delete this.dataStore.pendingInstallationsByConnectorKey[connectorKey];
+      }
       this.releaseConnectorMutation(connectorKey, token);
     }
   }

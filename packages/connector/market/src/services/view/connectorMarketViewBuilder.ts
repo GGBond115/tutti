@@ -68,7 +68,8 @@ export function buildConnectorMarketView(
       connector.key,
       buildConnectorCardView(
         connector,
-        market.operationsByConnectorKey[connector.key]?.stage ?? null
+        market.operationsByConnectorKey[connector.key]?.stage ?? null,
+        market.pendingInstallationsByConnectorKey[connector.key] === true
       )
     ])
   );
@@ -83,6 +84,11 @@ export function buildConnectorMarketView(
         : undefined,
       uiState.dialog
         ? Boolean(market.authorizingConnectorKeys[uiState.dialog.connectorKey])
+        : false,
+      uiState.dialog
+        ? market.pendingInstallationsByConnectorKey[
+            uiState.dialog.connectorKey
+          ] === true
         : false
     ),
     installedCount,
@@ -125,9 +131,11 @@ function buildCatalogErrorView(
 
 function buildConnectorCardView(
   connector: Connector,
-  operationStage: ConnectorCardView["operationStage"]
+  operationStage: ConnectorCardView["operationStage"],
+  pendingInstallation: boolean
 ): ConnectorCardView {
   const busy =
+    pendingInstallation ||
     ["installing", "updating", "uninstalling"].includes(
       connector.installation.state
     ) ||
@@ -182,7 +190,8 @@ function buildConnectorCardView(
 
 function buildConnectorDialogView(
   connector: Connector | undefined,
-  authorizing: boolean
+  authorizing: boolean,
+  pendingInstallation: boolean
 ): ConnectorDialogView | null {
   if (!connector) {
     return null;
@@ -210,9 +219,9 @@ function buildConnectorDialogView(
   if (!installed || !currentReleaseInstalled) {
     return {
       ...base,
-      installing: ["installing", "updating"].includes(
-        connector.installation.state
-      ),
+      installing:
+        pendingInstallation ||
+        ["installing", "updating"].includes(connector.installation.state),
       kind: "installation",
       updating: installed
     };

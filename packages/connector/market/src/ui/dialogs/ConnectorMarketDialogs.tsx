@@ -16,7 +16,14 @@ export function ConnectorMarketDialogs() {
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && uiState.closeDialog()}>
+    <Dialog
+      open
+      onOpenChange={(open) =>
+        !open &&
+        !(dialog.kind === "installation" && dialog.installing) &&
+        uiState.closeDialog()
+      }
+    >
       {dialog.kind === "installation" ? (
         <ConnectorInstallationDialog
           description={dialog.description}
