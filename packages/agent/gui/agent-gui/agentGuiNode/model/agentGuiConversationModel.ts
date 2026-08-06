@@ -498,10 +498,7 @@ function resolveConversationProject(
   if (isExternalImportNoProjectSession(session)) {
     return null;
   }
-  return (
-    projectResolver.resolveSectionKey(session?.railSectionKey) ??
-    projectResolver.resolve(session?.cwd)
-  );
+  return projectResolver.resolve(session?.cwd);
 }
 
 function isExternalImportNoProjectSession(

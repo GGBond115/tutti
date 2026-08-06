@@ -37,41 +37,6 @@ describe("agentGuiConversationModel", () => {
     });
   });
 
-  it("preserves the canonical user project when cwd is unavailable", () => {
-    const snapshot: AgentActivitySnapshot = {
-      workspaceId: "workspace-1",
-      sessionMessagesById: {},
-      presences: [],
-      sessions: [
-        workspaceAgentSession({
-          agentSessionId: "session-with-project-key",
-          cwd: "",
-          railSectionKey: "project:/workspace/app",
-          title: "Session"
-        })
-      ]
-    };
-
-    expect(
-      buildAgentGUIConversationSummaries({
-        snapshot,
-        provider: "codex",
-        userProjects: [
-          {
-            ...userProject("app", "/workspace/app", "App"),
-            sectionKey: "project:/workspace/app"
-          }
-        ]
-      })[0]?.project
-    ).toEqual(
-      expect.objectContaining({
-        id: "app",
-        label: "App",
-        sectionKey: "project:/workspace/app"
-      })
-    );
-  });
-
   it("resolves a project when cwd is inside a project directory", () => {
     expect(
       resolveAgentGUIConversationProject("/workspace/app/packages/web", [
