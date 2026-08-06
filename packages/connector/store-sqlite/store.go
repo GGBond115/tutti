@@ -26,6 +26,7 @@ type Store struct {
 var _ market.Repository = (*Store)(nil)
 var _ market.ChangedEventOutbox = (*Store)(nil)
 var _ market.LifecycleCleanupStore = (*Store)(nil)
+var _ market.AuthorizationProjectionStore = (*Store)(nil)
 
 func Open(ctx context.Context, dbPath string) (*Store, error) {
 	dbPath = strings.TrimSpace(dbPath)
@@ -97,6 +98,12 @@ VALUES (1, 0, 'stale', '') ON CONFLICT(id) DO NOTHING`,
   connector_key TEXT PRIMARY KEY,
   release_digest TEXT NOT NULL,
   release_json TEXT NOT NULL
+)`,
+		`CREATE TABLE IF NOT EXISTS connector_market_authorization_projections (
+  account_id TEXT NOT NULL,
+  connector_key TEXT NOT NULL,
+  projection_json TEXT NOT NULL,
+  PRIMARY KEY (account_id, connector_key)
 )`,
 		`CREATE TABLE IF NOT EXISTS connector_market_operations (
   operation_id TEXT PRIMARY KEY,
@@ -183,6 +190,39 @@ SELECT operation_json FROM connector_market_operations WHERE operation_id = ?`, 
 		return market.Operation{}, mapNotFound(err)
 	}
 	return decodeOperation(payload)
+}
+
+func (store *Store) AuthorizationProjection(
+	ctx context.Context,
+	accountID, connectorKey string,
+) (market.AuthorizationProjection, error) {
+	var payload string
+	if err := store.db.QueryRowContext(ctx, `
+SELECT projection_json FROM connector_market_authorization_projections
+WHERE account_id = ? AND connector_key = ?`, accountID, connectorKey).Scan(&payload); err != nil {
+		return market.AuthorizationProjection{}, mapNotFound(err)
+	}
+	var projection market.AuthorizationProjection
+	if err := json.Unmarshal([]byte(payload), &projection); err != nil {
+		return market.AuthorizationProjection{}, fmt.Errorf("decode connector authorization projection: %w", err)
+	}
+	return projection, nil
+}
+
+func (store *Store) SaveAuthorizationProjection(
+	ctx context.Context,
+	projection market.AuthorizationProjection,
+) error {
+	payload, err := json.Marshal(projection)
+	if err != nil {
+		return fmt.Errorf("encode connector authorization projection: %w", err)
+	}
+	_, err = store.db.ExecContext(ctx, `
+INSERT INTO connector_market_authorization_projections (account_id, connector_key, projection_json)
+VALUES (?, ?, ?)
+ON CONFLICT(account_id, connector_key) DO UPDATE SET projection_json = excluded.projection_json`,
+		projection.AccountID, projection.ConnectorKey, string(payload))
+	return err
 }
 
 func (store *Store) ClaimOperation(

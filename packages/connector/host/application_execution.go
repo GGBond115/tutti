@@ -114,6 +114,8 @@ func (application *Application) executeInstall(ctx context.Context, operation Op
 	}
 	prepared, prepareErr := application.config.ArtifactPreparer.Prepare(ctx, PrepareArtifactRequest{
 		OperationID: operation.OperationID,
+		Scope:       operation.Scope,
+		Generation:  operation.HostGeneration,
 		Release:     release,
 	})
 	if prepareErr != nil {
@@ -141,6 +143,8 @@ func (application *Application) executeInstall(ctx context.Context, operation Op
 		}
 		installed, installErr := application.config.CLIInstallations.InstallCLI(ctx, InstallCLIRequest{
 			OperationID: operation.OperationID,
+			Scope:       operation.Scope,
+			Generation:  operation.HostGeneration,
 			Release:     release,
 		})
 		if installErr != nil {
@@ -200,10 +204,15 @@ func (application *Application) rolloutInstalledBindings(ctx context.Context, op
 	if strings.TrimSpace(generation.BootEpoch) == "" || generation.Generation == 0 {
 		return rollout, invalidOperationReceipt("install rollout generation is missing")
 	}
-	for _, connectionID := range []string{defaultConnectorConnectionID} {
+	binding, err := application.resolveRuntimeBinding(ctx, operation, connector, release, RuntimeBindingPurposeReconcile)
+	if err != nil {
+		return rollout, err
+	}
+	for _, connectionID := range []string{binding.ConnectionID} {
 		operationID := operation.OperationID + "/rollout/" + connectionID
-		receipt, reconcileErr := application.config.Host.Reconcile(ctx, RuntimeReconcileRequest{
-			OperationID: operationID, ConnectionID: connectionID, Connector: connector, Enabled: true, Generation: generation,
+		receipt, reconcileErr := application.reconcileRuntime(ctx, RuntimeReconcileRequest{
+			OperationID: operationID, Scope: operation.Scope, ConnectionID: connectionID, Connector: connector,
+			Enabled: binding.Enabled, Generation: generation, CredentialBrokerGrant: binding.CredentialBrokerGrant,
 		})
 		if reconcileErr == nil {
 			reconcileErr = validateRuntimeReceipt(receipt, operationID, connectionID,
@@ -227,7 +236,7 @@ func (application *Application) rollbackInstalledBindings(ctx context.Context, o
 		connectionID := rollout.applied[index]
 		if rollout.previous == nil {
 			rollbackErrors = append(rollbackErrors, application.config.Host.DeactivateRuntime(ctx, RuntimeDeactivationRequest{
-				ConnectionID: connectionID, ConnectorKey: operation.ConnectorKey,
+				Scope: operation.Scope, ConnectionID: connectionID, ConnectorKey: operation.ConnectorKey,
 				ReleaseDigest: operation.Target.ReleaseDigest, Generation: operation.HostGeneration,
 				Deadline: application.config.Now().UTC().Add(5 * time.Second),
 			}))
@@ -241,11 +250,17 @@ func (application *Application) rollbackInstalledBindings(ctx context.Context, o
 		previousConnector.Release = *rollout.previous
 		previousConnector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: rollout.previous.Version,
 			InstalledReleaseID: rollout.previous.ReleaseID, InstalledReleaseDigest: rollout.previous.ReleaseDigest}
+		binding, bindingErr := application.resolveRuntimeBinding(ctx, operation, previousConnector, *rollout.previous, RuntimeBindingPurposeReconcile)
+		if bindingErr != nil {
+			rollbackErrors = append(rollbackErrors, bindingErr)
+			continue
+		}
 		rollbackOperationID := operation.OperationID + "/rollback/" + connectionID
-		receipt, err := application.config.Host.Reconcile(ctx, RuntimeReconcileRequest{OperationID: rollbackOperationID,
-			ConnectionID: connectionID, Connector: previousConnector, Enabled: true, Generation: operation.HostGeneration})
+		receipt, err := application.reconcileRuntime(ctx, RuntimeReconcileRequest{OperationID: rollbackOperationID,
+			Scope: operation.Scope, ConnectionID: binding.ConnectionID, Connector: previousConnector,
+			Enabled: binding.Enabled, Generation: operation.HostGeneration, CredentialBrokerGrant: binding.CredentialBrokerGrant})
 		if err == nil {
-			err = validateRuntimeReceipt(receipt, rollbackOperationID, connectionID,
+			err = validateRuntimeReceipt(receipt, rollbackOperationID, binding.ConnectionID,
 				operation.ConnectorKey, rollout.previous.ReleaseDigest, operation.HostGeneration)
 		}
 		rollbackErrors = append(rollbackErrors, err)
@@ -272,8 +287,21 @@ func (application *Application) executeUninstall(ctx context.Context, operation 
 	if err != nil {
 		return err
 	}
+	connector, err := application.config.Repository.Connector(ctx, operation.ConnectorKey)
+	if err != nil {
+		return err
+	}
+	release, err := application.installedReleaseEvidence(ctx, connector)
+	if err != nil {
+		return err
+	}
+	binding, err := application.resolveRuntimeBinding(ctx, operation, connector, release, RuntimeBindingPurposeDeactivate)
+	if err != nil {
+		return err
+	}
+	clear(binding.CredentialBrokerGrant)
 	if err := application.config.Host.DeactivateRuntime(ctx, RuntimeDeactivationRequest{
-		ConnectionID: defaultConnectorConnectionID, ConnectorKey: operation.Target.ConnectorKey, ReleaseDigest: operation.Target.ReleaseDigest,
+		Scope: operation.Scope, ConnectionID: binding.ConnectionID, ConnectorKey: operation.Target.ConnectorKey, ReleaseDigest: operation.Target.ReleaseDigest,
 		Generation: operation.HostGeneration,
 		Deadline:   application.config.Now().UTC().Add(5 * time.Second),
 	}); err != nil {
@@ -284,7 +312,8 @@ func (application *Application) executeUninstall(ctx context.Context, operation 
 			return NewDomainError(ErrorCodeInstallFailed, "connector CLI installation is not registered", false, nil)
 		}
 		if err := application.config.CLIInstallations.RemoveCLI(ctx, RemoveCLIRequest{
-			OperationID: operation.OperationID, ConnectorKey: operation.Target.ConnectorKey,
+			OperationID: operation.OperationID, Scope: operation.Scope, ConnectorKey: operation.Target.ConnectorKey,
+			Generation:    operation.HostGeneration,
 			ReleaseDigest: operation.Target.ReleaseDigest,
 		}); err != nil {
 			return NewDomainError(ErrorCodeInstallFailed, "connector CLI installation cleanup failed", true, err)
@@ -292,6 +321,8 @@ func (application *Application) executeUninstall(ctx context.Context, operation 
 	}
 	if err := application.config.ArtifactPreparer.Remove(ctx, RemoveArtifactRequest{
 		OperationID:   operation.OperationID,
+		Scope:         operation.Scope,
+		Generation:    operation.HostGeneration,
 		ConnectorKey:  operation.Target.ConnectorKey,
 		Version:       operation.Target.Version,
 		ReleaseDigest: operation.Target.ReleaseDigest,
@@ -368,6 +399,7 @@ func (application *Application) beginAuthorizationSession(
 	session, err := application.config.Authorization.Begin(ctx, AuthorizationStartRequest{
 		OperationID:     operation.OperationID,
 		ClientRequestID: operation.ClientRequestID,
+		Scope:           operation.Scope,
 		Connector:       connector,
 		Release:         release,
 	})
@@ -402,6 +434,7 @@ func (application *Application) executeDisconnectAuthorization(ctx context.Conte
 	}
 	if err := application.config.Authorization.Disconnect(ctx, AuthorizationDisconnectRequest{
 		OperationID: operation.OperationID,
+		Scope:       operation.Scope,
 		Connector:   connector,
 	}); err != nil {
 		return NewDomainError(ErrorCodeAuthorizationFailed, "connector authorization disconnect failed", true, err)
@@ -704,7 +737,7 @@ func validatePreparedArtifact(
 		receipt.ReleaseDigest != release.ReleaseDigest ||
 		receipt.ArtifactSHA256 != release.Artifact.SHA256 ||
 		!artifactSHA256Pattern.MatchString(receipt.InventoryDigest) ||
-		strings.TrimSpace(receipt.PreparedPath) == "" {
+		(strings.TrimSpace(receipt.PreparedPath) == "" && strings.TrimSpace(receipt.OpaqueArtifactRef) == "") {
 		return invalidOperationReceipt("artifact preparer returned a mismatched receipt")
 	}
 	return nil
@@ -726,10 +759,14 @@ func validateCLIInstallationReceipt(operation Operation, release Release, instal
 		receipt.LaunchKind != install.Launch.Kind || receipt.EntrypointSize <= 0 ||
 		!artifactSHA256Pattern.MatchString(receipt.NodeSHA256) ||
 		!artifactSHA256Pattern.MatchString(receipt.EntrypointSHA256) ||
-		!artifactSHA256Pattern.MatchString(receipt.LockSHA256) ||
 		strings.TrimSpace(receipt.RuntimeProfile) == "" || strings.TrimSpace(receipt.RuntimeABI) == "" ||
-		strings.TrimSpace(receipt.NodeVersion) == "" || !filepath.IsAbs(receipt.InstallRoot) ||
-		!filepath.IsAbs(receipt.StoreRoot) || !safeRelativeEntrypoint(receipt.Entrypoint) {
+		strings.TrimSpace(receipt.NodeVersion) == "" || !safeRelativeEntrypoint(receipt.Entrypoint) {
+		return invalidOperationReceipt("CLI installer returned a mismatched receipt")
+	}
+	localReceipt := filepath.IsAbs(receipt.InstallRoot) && filepath.IsAbs(receipt.StoreRoot) &&
+		artifactSHA256Pattern.MatchString(receipt.LockSHA256)
+	remoteReceipt := strings.TrimSpace(receipt.OpaqueInstallationRef) != ""
+	if !localReceipt && !remoteReceipt {
 		return invalidOperationReceipt("CLI installer returned a mismatched receipt")
 	}
 	return nil

@@ -34,6 +34,14 @@ schema versions belong to different APIs and do not imply compatibility.
 The renderer never calls the remote market. The local daemon is authoritative
 for every state rendered by the desktop application.
 
+Installation is a device fact. Authorization is an account projection. A
+Connector may therefore be installed while inactive for the current account;
+authorization completion or expiry schedules a normal durable runtime
+reconcile without changing installed truth. Every durable lifecycle command
+freezes its `accountId` in `OperationScope`, while short-lived artifact and
+credential grants are passed only through execution ports and are never
+serialized into SQLite.
+
 Connector Manifest v3 keeps one signed release and adds an execution-target
 matrix keyed by canonical Go platform tuples such as `darwin-arm64` and
 `linux-arm64`. The catalog adapter selects the daemon's exact target and
@@ -87,15 +95,17 @@ application or renderer semantics.
 
 ## Artifact And Runtime Boundary
 
-Artifact preparation and runtime activation are different responsibilities:
+Artifact preparation and runtime activation are different responsibilities.
+They may also live on different machines:
 
 ```text
 durable operation
-    -> connector/runtime artifact resolver/downloader
+    -> host artifact port (direct download or account grant issuance)
+    -> connector/runtime artifact resolver/downloader, local or VM-owned
     -> bounded staging download
     -> size and digest verification
     -> safe extraction and packaged-manifest verification
-    -> prepared artifact
+    -> prepared artifact receipt (local path or opaque runtime reference)
     -> connector/runtime implementation adapter
     -> generation-fenced MCP/CLI routes and observed process state
     -> repository result commit
@@ -192,10 +202,14 @@ daemon resolves the artifact key against its configured artifact base URL. The
 production base URL is the public-assets CloudFront prefix
 `https://d27a59zdy4534h.cloudfront.net/tutti/connector-market/`; CloudFront
 serves immutable versioned objects from the private `tsh-public-assets` S3
-origin. The daemon never addresses S3 directly. Downloading is an ordinary
-direct GET without workspace identity. Operations persist the artifact key,
-release identity, digest, and size; the preparer verifies the downloaded bytes
-before installation. Staging and local integration may override the CDN prefix
+origin. The daemon never addresses S3 directly. The Tutti desktop host uses an
+ordinary direct GET without workspace identity. A split control-plane/runtime
+host may instead issue a short-lived presigned artifact grant under the frozen
+account scope and let its runtime machine download directly. The grant is not
+persisted or logged. Both modes verify the immutable object version, release
+digest, artifact digest, and size before installation. Operations persist the
+artifact key, release identity, object version, digest, and size. Staging and
+local integration may override the CDN prefix
 with `TUTTI_CONNECTOR_ARTIFACT_BASE_URL`; production should leave the public
 CloudFront default in place.
 
@@ -217,7 +231,7 @@ use at-least-once execution. Exactly-once execution is not assumed across
 SQLite, the filesystem, runtime activation, and process restarts.
 
 An installation request carries an immutable operation identity and release
-identity. Each stage is idempotent for at least:
+identity plus an explicit account execution scope. Each stage is idempotent for at least:
 
 ```text
 operationId + connectorKey + version + releaseDigest
@@ -264,6 +278,13 @@ Authorization operations must follow the same recovery rule or remain fully
 synchronous without leaving a recoverable `running` operation. A provider uses
 the operation or client request identity to resume without creating duplicate
 external authorization sessions.
+
+For account-scoped runtimes, `AccountRuntimeBindingResolver` maps `none`
+authorization to an always-active device connection. OAuth/API-key connectors
+remain inactive until the current account projection is `connected`; only then
+does the resolver request a one-shot credential-broker grant. `expired`,
+`disconnected`, and missing projections reconcile inactive. Daemon or guest
+restart uses `BootstrapForScope` to rebuild the same projection explicitly.
 
 ## Event Consistency
 

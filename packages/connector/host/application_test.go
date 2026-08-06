@@ -141,6 +141,33 @@ func TestApplicationExecutesTypedCLIInstallationBeforeCompletion(t *testing.T) {
 	}
 }
 
+func TestCrossMachineReceiptsUseOpaqueReferences(t *testing.T) {
+	release := testReleaseWithImplementation("lark", "1.0.0", ImplementationKindManagedStdio)
+	release.Manifest.Implementation.ManagedStdio.MCP = nil
+	release.Manifest.Implementation.ManagedStdio.CLI = &ManagedCLIInterface{Entrypoint: "lark-cli", Install: &CLIInstallation{
+		Kind: "node_package", NodePackage: &NodePackageInstallation{Package: "@larksuite/cli", Version: "1.0.83",
+			Integrity: "sha512-qbJYoJtNch6dV8RvYBO2wpcKO9+6Io3Cuf5alYFzvLbtkSntOKqoc+xHI7p6wRq4oH4F9fydgNJbTGy79ibPdg==",
+			Launch:    NodePackageLaunch{Kind: "native", Entrypoint: "bin/lark-cli", SHA256: strings.Repeat("c", 64)}},
+	}}
+	operation := Operation{OperationID: "operation-1", ConnectorKey: "lark"}
+	prepared := PreparedArtifactReceipt{OperationID: operation.OperationID, ConnectorKey: "lark", Version: release.Version,
+		ReleaseDigest: release.ReleaseDigest, ArtifactSHA256: release.Artifact.SHA256,
+		InventoryDigest: strings.Repeat("e", 64), OpaqueArtifactRef: "guest-artifact-1"}
+	if err := validatePreparedArtifact(operation, release, prepared); err != nil {
+		t.Fatal(err)
+	}
+	install := releaseCLIInstallation(release)
+	installed := CLIInstallationReceipt{SchemaVersion: "tutti.connector.cli-installation.v1", OperationID: operation.OperationID,
+		ConnectorKey: "lark", ReleaseDigest: release.ReleaseDigest, RuntimeProfile: "connector-node-static",
+		RuntimeABI: "node24-linux-arm64", NodeVersion: "24.18.0", NodeSHA256: strings.Repeat("1", 64),
+		Package: install.Package, PackageVersion: install.Version, PackageIntegrity: install.Integrity,
+		LaunchKind: install.Launch.Kind, Entrypoint: "node_modules/@larksuite/cli/bin/lark-cli",
+		EntrypointSHA256: strings.Repeat("2", 64), EntrypointSize: 7, OpaqueInstallationRef: "guest-install-1"}
+	if err := validateCLIInstallationReceipt(operation, release, *install, installed); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestApplicationReconcilesInstalledRuntimeAtStartup(t *testing.T) {
 	connector := testConnector("github")
 	connector.Revision = 7
@@ -158,6 +185,134 @@ func TestApplicationReconcilesInstalledRuntimeAtStartup(t *testing.T) {
 	if host.reconciles != 1 || host.lastReconcile.ConnectionID != defaultConnectorConnectionID ||
 		host.lastReconcile.Generation.Generation != 7 || host.lastReconcile.Generation.BootEpoch == "" {
 		t.Fatalf("startup reconcile = %#v, count=%d", host.lastReconcile, host.reconciles)
+	}
+}
+
+func TestApplicationInstallUsesAccountScopedInactiveRuntimeBinding(t *testing.T) {
+	repository := newMemoryRepository(testConnector("github"))
+	host := &memoryInstallRuntime{}
+	resolver := &runtimeBindingResolverStub{binding: RuntimeBinding{ConnectionID: "account-connection", Enabled: false}}
+	application := newTestApplication(t, repository, &memoryScheduler{}, host, CatalogSnapshot{})
+	application.config.RuntimeBindings = resolver
+
+	accepted, err := application.Install(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "install-account", ExpectedRevision: 0},
+		ConnectorKey: "github", AccountID: "account-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	operation := repository.operations[accepted.Operation.OperationID]
+	if operation.Scope.AccountID != "account-1" || host.lastPrepare.Scope.AccountID != "account-1" ||
+		host.lastPrepare.Generation != operation.HostGeneration ||
+		host.lastReconcile.Scope.AccountID != "account-1" || host.lastReconcile.ConnectionID != "account-connection" ||
+		host.lastReconcile.Enabled {
+		t.Fatalf("operation=%#v prepare=%#v reconcile=%#v", operation, host.lastPrepare, host.lastReconcile)
+	}
+	if repository.connectors["github"].Installation.State != InstallationStateInstalled {
+		t.Fatalf("installation = %#v", repository.connectors["github"].Installation)
+	}
+}
+
+func TestApplicationCredentialGrantIsNotPersistedAndIsCleared(t *testing.T) {
+	repository := newMemoryRepository(testConnector("github"))
+	host := &memoryInstallRuntime{}
+	grant := []byte("one-shot-grant")
+	application := newTestApplication(t, repository, &memoryScheduler{}, host, CatalogSnapshot{})
+	application.config.RuntimeBindings = &runtimeBindingResolverStub{binding: RuntimeBinding{
+		ConnectionID: "account-connection", Enabled: true, CredentialBrokerGrant: grant,
+	}}
+	accepted, err := application.Install(context.Background(), ConnectorMutation{
+		Mutation: Mutation{ClientRequestID: "install-grant"}, ConnectorKey: "github", AccountID: "account-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if host.lastCredentialGrant != "one-shot-grant" {
+		t.Fatalf("runtime grant = %q", host.lastCredentialGrant)
+	}
+	if string(grant) != strings.Repeat("\x00", len(grant)) {
+		t.Fatalf("credential grant was not cleared: %v", grant)
+	}
+	payload := fmt.Sprintf("%#v", repository.operations[accepted.Operation.OperationID])
+	if strings.Contains(payload, "one-shot-grant") {
+		t.Fatalf("operation persisted credential authority: %s", payload)
+	}
+}
+
+func TestApplicationReconcileRuntimeKeepsDeviceInstallationTruth(t *testing.T) {
+	connector := testConnector("github")
+	connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest}
+	repository := newMemoryRepository(connector)
+	host := &memoryInstallRuntime{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, host, CatalogSnapshot{})
+	application.config.RuntimeBindings = &runtimeBindingResolverStub{binding: RuntimeBinding{ConnectionID: "account-connection", Enabled: false}}
+	accepted, err := application.ReconcileRuntime(context.Background(), ConnectorMutation{
+		Mutation: Mutation{ClientRequestID: "reconcile-account"}, ConnectorKey: "github", AccountID: "account-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	stored := repository.connectors["github"]
+	if stored.Installation.State != InstallationStateInstalled || stored.Installation.InstalledReleaseDigest != connector.Release.ReleaseDigest ||
+		host.lastReconcile.Enabled {
+		t.Fatalf("connector=%#v reconcile=%#v", stored, host.lastReconcile)
+	}
+}
+
+func TestApplicationAuthorizationObservationReconcilesWithoutChangingInstallation(t *testing.T) {
+	connector := testConnector("github")
+	connector.Release.Manifest.AuthorizationKind = "oauth2"
+	connector.Authorization = Authorization{State: AuthorizationStateDisconnected}
+	connector.Installation = Installation{State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest}
+	repository := newMemoryRepository(connector)
+	host := &memoryInstallRuntime{}
+	projections := &recordingAuthorizationProjectionStore{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, host, CatalogSnapshot{})
+	application.config.AuthorizationProjections = projections
+	application.config.RuntimeBindings = AccountRuntimeBindingResolver{
+		Projections: projections, Credentials: &credentialGrantIssuerStub{grant: []byte("credential-grant")},
+	}
+	connected := AuthorizationProjection{AccountID: "account-1", ConnectorKey: "github",
+		ConnectionID: "server-connection", State: AuthorizationStateConnected}
+	accepted, err := application.ObserveAuthorization(context.Background(), ConnectorMutation{
+		Mutation: Mutation{ClientRequestID: "authorization-connected"}, ConnectorKey: "github", AccountID: "account-1",
+	}, connected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if !host.lastReconcile.Enabled || host.lastReconcile.ConnectionID != "server-connection" ||
+		host.lastCredentialGrant != "credential-grant" {
+		t.Fatalf("connected reconcile = %#v", host.lastReconcile)
+	}
+	expired := connected
+	expired.State = AuthorizationStateExpired
+	accepted, err = application.ObserveAuthorization(context.Background(), ConnectorMutation{
+		Mutation:     Mutation{ClientRequestID: "authorization-expired", ExpectedRevision: repository.revision},
+		ConnectorKey: "github", AccountID: "account-1",
+	}, expired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ExecuteOperation(context.Background(), accepted.Operation.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	if host.lastReconcile.Enabled || repository.connectors["github"].Installation.State != InstallationStateInstalled {
+		t.Fatalf("expired reconcile = %#v connector = %#v", host.lastReconcile, repository.connectors["github"])
 	}
 }
 
@@ -750,22 +905,25 @@ func (scheduler *memoryScheduler) Schedule(_ context.Context, operationID string
 }
 
 type memoryInstallRuntime struct {
-	prepares        int
-	removes         int
-	activations     int
-	deactivations   int
-	activeDigest    string
-	reconciles      int
-	lastReconcile   RuntimeReconcileRequest
-	deactivationErr error
-	failClosed      int
-	cliInstalls     int
-	cliRemoves      int
+	prepares            int
+	removes             int
+	activations         int
+	deactivations       int
+	activeDigest        string
+	reconciles          int
+	lastReconcile       RuntimeReconcileRequest
+	lastPrepare         PrepareArtifactRequest
+	lastCredentialGrant string
+	deactivationErr     error
+	failClosed          int
+	cliInstalls         int
+	cliRemoves          int
 }
 
 func (host *memoryInstallRuntime) Reconcile(_ context.Context, request RuntimeReconcileRequest) (RuntimeReceipt, error) {
 	host.reconciles++
 	host.lastReconcile = request
+	host.lastCredentialGrant = string(request.CredentialBrokerGrant)
 	return RuntimeReceipt{OperationID: request.OperationID, ConnectionID: request.ConnectionID,
 		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation}, nil
 }
@@ -786,6 +944,7 @@ func (host *memoryInstallRuntime) FailClosed(context.Context, time.Time) error {
 
 func (host *memoryInstallRuntime) Prepare(_ context.Context, request PrepareArtifactRequest) (PreparedArtifactReceipt, error) {
 	host.prepares++
+	host.lastPrepare = request
 	return PreparedArtifactReceipt{
 		OperationID:     request.OperationID,
 		ConnectorKey:    request.Release.ConnectorKey,
@@ -795,6 +954,30 @@ func (host *memoryInstallRuntime) Prepare(_ context.Context, request PrepareArti
 		InventoryDigest: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 		PreparedPath:    "/prepared/" + request.Release.ReleaseDigest,
 	}, nil
+}
+
+type runtimeBindingResolverStub struct {
+	binding RuntimeBinding
+}
+
+type recordingAuthorizationProjectionStore struct {
+	projection AuthorizationProjection
+}
+
+func (store *recordingAuthorizationProjectionStore) AuthorizationProjection(context.Context, string, string) (AuthorizationProjection, error) {
+	if store.projection.AccountID == "" {
+		return AuthorizationProjection{}, ErrNotFound
+	}
+	return store.projection, nil
+}
+
+func (store *recordingAuthorizationProjectionStore) SaveAuthorizationProjection(_ context.Context, projection AuthorizationProjection) error {
+	store.projection = projection
+	return nil
+}
+
+func (resolver *runtimeBindingResolverStub) ResolveRuntimeBinding(context.Context, RuntimeBindingRequest) (RuntimeBinding, error) {
+	return resolver.binding, nil
 }
 
 func (host *memoryInstallRuntime) Remove(context.Context, RemoveArtifactRequest) error {

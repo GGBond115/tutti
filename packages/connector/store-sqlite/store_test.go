@@ -121,6 +121,38 @@ func TestStorePersistsRevisionOperationBindingAndOutboxAtomically(t *testing.T) 
 	}
 }
 
+func TestStorePersistsAuthorizationProjectionByAccount(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "tuttid.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	first := market.AuthorizationProjection{AccountID: "account-1", ConnectorKey: "github",
+		ConnectionID: "connection-1", State: market.AuthorizationStateConnected, UpdatedAt: time.Unix(1, 0).UTC()}
+	second := market.AuthorizationProjection{AccountID: "account-2", ConnectorKey: "github",
+		ConnectionID: "connection-2", State: market.AuthorizationStateExpired, UpdatedAt: time.Unix(2, 0).UTC()}
+	for _, projection := range []market.AuthorizationProjection{first, second} {
+		if err := store.SaveAuthorizationProjection(ctx, projection); err != nil {
+			t.Fatal(err)
+		}
+	}
+	loaded, err := store.AuthorizationProjection(ctx, first.AccountID, first.ConnectorKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded != first {
+		t.Fatalf("projection = %#v, want %#v", loaded, first)
+	}
+	loaded, err = store.AuthorizationProjection(ctx, second.AccountID, second.ConnectorKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded != second {
+		t.Fatalf("projection = %#v, want %#v", loaded, second)
+	}
+}
+
 func TestStoreOperationLeaseFencesOtherWorkersAndExpires(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(ctx, filepath.Join(t.TempDir(), "tuttid.db"))

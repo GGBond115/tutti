@@ -15,3 +15,8 @@ The module provides the market catalog projection, while hosts inject their
 HTTP client/proxy policy, request authorization, event publication,
 persistence, and execution ports. Product account policy and generated HTTP
 handlers remain in the consuming daemon.
+
+Hosts with an account-scoped runtime call `BootstrapForScope`; the daemon
+reuses that explicit scope for recovery retries. The legacy `Bootstrap` method
+retains Tutti's device-global behavior through the default runtime-binding
+resolver.

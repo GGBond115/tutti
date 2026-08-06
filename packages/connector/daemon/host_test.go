@@ -16,16 +16,24 @@ type activationGateDelegate struct {
 	reconciles        int
 	reconcileFailures int
 	deactivations     int
+	lastReconcile     market.RuntimeReconcileRequest
 }
 
 func (delegate *activationGateDelegate) Reconcile(_ context.Context, request market.RuntimeReconcileRequest) (market.RuntimeReceipt, error) {
 	delegate.reconciles++
+	delegate.lastReconcile = request
 	if delegate.reconcileFailures > 0 {
 		delegate.reconcileFailures--
 		return market.RuntimeReceipt{}, errors.New("simulated runtime reconcile failure")
 	}
 	return market.RuntimeReceipt{OperationID: request.OperationID, ConnectionID: request.ConnectionID,
 		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation}, nil
+}
+
+type runtimeBindingResolverFunc func(context.Context, market.RuntimeBindingRequest) (market.RuntimeBinding, error)
+
+func (resolve runtimeBindingResolverFunc) ResolveRuntimeBinding(ctx context.Context, request market.RuntimeBindingRequest) (market.RuntimeBinding, error) {
+	return resolve(ctx, request)
 }
 func (delegate *activationGateDelegate) DeactivateRuntime(context.Context, market.RuntimeDeactivationRequest) error {
 	delegate.deactivations++
@@ -160,11 +168,19 @@ func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T)
 
 	source := &countingCatalogSource{release: release, refreshErr: errors.New("catalog returned 403")}
 	runtime := &activationGateDelegate{reconcileFailures: 1}
+	bindings := runtimeBindingResolverFunc(func(_ context.Context, request market.RuntimeBindingRequest) (market.RuntimeBinding, error) {
+		connectionID := "device-github"
+		if request.Scope.AccountID != "" {
+			connectionID = "account-" + request.Scope.AccountID
+		}
+		return market.RuntimeBinding{ConnectionID: connectionID, Enabled: true}, nil
+	})
 	host, err := NewHost(ctx, HostConfig{
 		Repository:             store,
 		CatalogSource:          source,
 		ArtifactPreparer:       unavailableArtifactPreparer{},
 		ImplementationHost:     runtime,
+		RuntimeBindings:        bindings,
 		Authorization:          unavailableAuthorization{},
 		Compatibility:          rejectingCompatibility{},
 		ImplementationRegistry: market.NewImplementationRegistry(nil),
@@ -187,11 +203,23 @@ func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T)
 	if source.refreshes != 0 || runtime.reconciles != 2 {
 		t.Fatalf("bootstrap refreshes=%d reconciles=%d, want 0 and 2", source.refreshes, runtime.reconciles)
 	}
+	if err := host.BootstrapForScope(ctx, market.OperationScope{AccountID: "account-1"}); err != nil {
+		t.Fatalf("account bootstrap failed: %v", err)
+	}
+	if runtime.reconciles != 3 || runtime.lastReconcile.ConnectionID != "account-account-1" {
+		t.Fatalf("account reconcile = %#v, count = %d", runtime.lastReconcile, runtime.reconciles)
+	}
+	if err := host.BootstrapForScope(ctx, market.OperationScope{AccountID: "account-1"}); err != nil {
+		t.Fatalf("idempotent account bootstrap failed: %v", err)
+	}
+	if runtime.reconciles != 3 {
+		t.Fatalf("unchanged account scope reconciled %d times", runtime.reconciles)
+	}
 
 	if err := host.refreshAndWait(ctx); err == nil || !strings.Contains(err.Error(), "refresh failed") {
 		t.Fatalf("refresh error = %v, want catalog failure", err)
 	}
-	if source.refreshes != 1 || runtime.reconciles != 2 {
+	if source.refreshes != 1 || runtime.reconciles != 3 {
 		t.Fatalf("refreshes=%d reconciles=%d, want catalog retry isolated from runtime", source.refreshes, runtime.reconciles)
 	}
 }

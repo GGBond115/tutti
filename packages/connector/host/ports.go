@@ -104,22 +104,30 @@ type CLIInstallationManager interface {
 
 type InstallCLIRequest struct {
 	OperationID string
+	Scope       OperationScope
+	Generation  HostGeneration
 	Release     Release
 }
 
 type RemoveCLIRequest struct {
 	OperationID   string
+	Scope         OperationScope
+	Generation    HostGeneration
 	ConnectorKey  string
 	ReleaseDigest string
 }
 
 type PrepareArtifactRequest struct {
 	OperationID string
+	Scope       OperationScope
+	Generation  HostGeneration
 	Release     Release
 }
 
 type RemoveArtifactRequest struct {
 	OperationID   string
+	Scope         OperationScope
+	Generation    HostGeneration
 	ConnectorKey  string
 	Version       string
 	ReleaseDigest string
@@ -149,18 +157,63 @@ type ImplementationHost interface {
 
 type RuntimeReconcileRequest struct {
 	OperationID  string
+	Scope        OperationScope
 	ConnectionID string
 	Connector    Connector
 	Enabled      bool
 	Generation   HostGeneration
+	// CredentialBrokerGrant is a one-shot authority passed directly to the
+	// runtime adapter. Implementations must not log or persist it.
+	CredentialBrokerGrant []byte
 }
 
 type RuntimeDeactivationRequest struct {
+	Scope         OperationScope
 	ConnectionID  string
 	ConnectorKey  string
 	ReleaseDigest string
 	Generation    HostGeneration
 	Deadline      time.Time
+}
+
+// RuntimeBindingResolver converts device installation plus an explicit
+// operation scope into account-aware runtime intent. It is the only port that
+// may obtain a short-lived credential grant; the Application clears the grant
+// after the ImplementationHost call returns.
+type RuntimeBindingResolver interface {
+	ResolveRuntimeBinding(context.Context, RuntimeBindingRequest) (RuntimeBinding, error)
+}
+
+type RuntimeBindingRequest struct {
+	OperationID string
+	Scope       OperationScope
+	Purpose     RuntimeBindingPurpose
+	Connector   Connector
+	Release     Release
+}
+
+type RuntimeBindingPurpose string
+
+const (
+	RuntimeBindingPurposeReconcile  RuntimeBindingPurpose = "reconcile"
+	RuntimeBindingPurposeDeactivate RuntimeBindingPurpose = "deactivate"
+)
+
+type RuntimeBinding struct {
+	ConnectionID          string
+	Enabled               bool
+	CredentialBrokerGrant []byte
+}
+
+// AuthorizationProjectionStore keeps account authorization separate from the
+// device-scoped Connector installation fact.
+type AuthorizationProjectionStore interface {
+	AuthorizationProjection(ctx context.Context, accountID, connectorKey string) (AuthorizationProjection, error)
+	SaveAuthorizationProjection(ctx context.Context, projection AuthorizationProjection) error
+}
+
+type CredentialBrokerGrantIssuer interface {
+	IssueCredentialBrokerGrant(ctx context.Context, accountID, connectorKey, connectionID string) ([]byte, error)
 }
 
 type AuthorizationProvider interface {
@@ -171,12 +224,14 @@ type AuthorizationProvider interface {
 type AuthorizationStartRequest struct {
 	OperationID     string
 	ClientRequestID string
+	Scope           OperationScope
 	Connector       Connector
 	Release         Release
 }
 
 type AuthorizationDisconnectRequest struct {
 	OperationID string
+	Scope       OperationScope
 	Connector   Connector
 }
 

@@ -56,6 +56,7 @@ const (
 	OperationKindRefreshCatalog          OperationKind = "refresh_catalog"
 	OperationKindInstall                 OperationKind = "install"
 	OperationKindUninstall               OperationKind = "uninstall"
+	OperationKindReconcileRuntime        OperationKind = "reconcile_runtime"
 	OperationKindStartAuthorization      OperationKind = "start_authorization"
 	OperationKindDisconnectAuthorization OperationKind = "disconnect_authorization"
 )
@@ -111,10 +112,11 @@ type Manifest struct {
 }
 
 type Artifact struct {
-	Key       string `json:"key"`
-	SHA256    string `json:"sha256"`
-	SizeBytes int64  `json:"sizeBytes"`
-	MediaType string `json:"mediaType"`
+	Key           string `json:"key"`
+	SHA256        string `json:"sha256"`
+	SizeBytes     int64  `json:"sizeBytes"`
+	MediaType     string `json:"mediaType"`
+	ObjectVersion string `json:"objectVersion,omitempty"`
 }
 
 type CompatibilityRequirements struct {
@@ -248,6 +250,7 @@ type Operation struct {
 	ClientRequestID string             `json:"clientRequestId"`
 	ConnectorKey    string             `json:"connectorKey,omitempty"`
 	Kind            OperationKind      `json:"kind"`
+	Scope           OperationScope     `json:"scope,omitempty"`
 	State           OperationState     `json:"state"`
 	Stage           OperationStage     `json:"stage,omitempty"`
 	Target          *OperationTarget   `json:"target,omitempty"`
@@ -260,6 +263,14 @@ type Operation struct {
 	FailureCode     string             `json:"failureCode,omitempty"`
 	CreatedAt       time.Time          `json:"createdAt"`
 	UpdatedAt       time.Time          `json:"updatedAt"`
+}
+
+// OperationScope freezes the external authority under which a durable
+// operation was accepted. AccountID is intentionally the only persisted
+// authority fact: short-lived artifact and credential grants belong to ports
+// and must never be serialized into an operation.
+type OperationScope struct {
+	AccountID string `json:"accountId,omitempty"`
 }
 
 // OperationTarget freezes the exact release identity at command acceptance so
@@ -299,6 +310,10 @@ type CLIInstallationReceipt struct {
 	EntrypointSHA256 string `json:"entrypointSha256"`
 	EntrypointSize   int64  `json:"entrypointSizeBytes"`
 	LockSHA256       string `json:"lockSha256"`
+	// OpaqueInstallationRef identifies an installation owned by a remote or
+	// isolated runtime. Cross-machine hosts persist this value instead of guest
+	// filesystem paths.
+	OpaqueInstallationRef string `json:"opaqueInstallationRef,omitempty"`
 }
 
 type PreparedArtifactReceipt struct {
@@ -309,6 +324,9 @@ type PreparedArtifactReceipt struct {
 	ArtifactSHA256  string `json:"artifactSha256"`
 	InventoryDigest string `json:"inventoryDigest"`
 	PreparedPath    string `json:"preparedPath"`
+	// OpaqueArtifactRef identifies a prepared artifact owned by a remote or
+	// isolated runtime. It is deliberately meaningless to the control plane.
+	OpaqueArtifactRef string `json:"opaqueArtifactRef,omitempty"`
 }
 
 type RuntimeActivationReceipt struct {
@@ -359,6 +377,19 @@ type Mutation struct {
 type ConnectorMutation struct {
 	Mutation
 	ConnectorKey string `json:"connectorKey"`
+	AccountID    string `json:"accountId,omitempty"`
+}
+
+// AuthorizationProjection is account-scoped runtime intent. Installation is
+// still device-scoped on Connector; switching accounts changes only this
+// projection and the runtime binding derived from it.
+type AuthorizationProjection struct {
+	AccountID    string             `json:"accountId"`
+	ConnectorKey string             `json:"connectorKey"`
+	ConnectionID string             `json:"connectionId,omitempty"`
+	State        AuthorizationState `json:"state"`
+	FailureCode  string             `json:"failureCode,omitempty"`
+	UpdatedAt    time.Time          `json:"updatedAt"`
 }
 
 type MutationResult struct {
