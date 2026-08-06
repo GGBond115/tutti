@@ -31,9 +31,10 @@ type connectorProcessSandbox interface {
 }
 
 type connectorProcessTransport struct {
-	sandbox     connectorProcessSandbox
-	stdoutLimit int64
-	stderrLimit int64
+	sandbox        connectorProcessSandbox
+	requireSandbox bool
+	stdoutLimit    int64
+	stderrLimit    int64
 }
 
 // NewConnectorProcessTransport returns the hardened transport used for
@@ -42,19 +43,28 @@ type connectorProcessTransport struct {
 // non-execution capabilities, but every connector process launch fails closed.
 func NewConnectorProcessTransport() (ProcessTransport, error) {
 	sandbox := platformConnectorProcessSandbox()
-	return newConnectorProcessTransport(sandbox, defaultConnectorStdoutLimit, defaultConnectorStderrLimit), nil
+	return newConnectorProcessTransport(sandbox, true, defaultConnectorStdoutLimit, defaultConnectorStderrLimit), nil
 }
 
-func newConnectorProcessTransport(sandbox connectorProcessSandbox, stdoutLimit, stderrLimit int64) ProcessTransport {
+// NewPermissiveConnectorProcessTransport preserves the Connector transport's
+// verified-executable, bounded-output, process-group, and sensitive-FD
+// semantics without applying an OS sandbox. Products may select this only
+// when their VM boundary is the intended Connector authority boundary.
+func NewPermissiveConnectorProcessTransport() ProcessTransport {
+	return newConnectorProcessTransport(nil, false, defaultConnectorStdoutLimit, defaultConnectorStderrLimit)
+}
+
+func newConnectorProcessTransport(sandbox connectorProcessSandbox, requireSandbox bool, stdoutLimit, stderrLimit int64) ProcessTransport {
 	return connectorProcessTransport{
-		sandbox:     sandbox,
-		stdoutLimit: stdoutLimit,
-		stderrLimit: stderrLimit,
+		sandbox:        sandbox,
+		requireSandbox: requireSandbox,
+		stdoutLimit:    stdoutLimit,
+		stderrLimit:    stderrLimit,
 	}
 }
 
 func (transport connectorProcessTransport) Start(ctx context.Context, spec ProcessSpec) (ProcessConnection, error) {
-	if transport.sandbox == nil {
+	if transport.requireSandbox && transport.sandbox == nil {
 		return nil, ErrConnectorProcessSandboxUnsupported
 	}
 	if err := validateConnectorProcessSpec(spec); err != nil {
@@ -92,9 +102,11 @@ func (transport connectorProcessTransport) Start(ctx context.Context, spec Proce
 		cancel()
 		return nil, err
 	}
-	if err := transport.sandbox.Apply(cmd, spec); err != nil {
-		cancel()
-		return nil, fmt.Errorf("apply connector process sandbox: %w", err)
+	if transport.sandbox != nil {
+		if err := transport.sandbox.Apply(cmd, spec); err != nil {
+			cancel()
+			return nil, fmt.Errorf("apply connector process sandbox: %w", err)
+		}
 	}
 	prepareConnectorProcessGroup(cmd)
 

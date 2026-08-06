@@ -48,8 +48,16 @@ func TestNewConnectorProcessTransportDefersUnsupportedSandboxFailureToLaunch(t *
 	}
 }
 
+func TestPermissiveConnectorProcessTransportUsesConnectorValidationWithoutSandbox(t *testing.T) {
+	transport := NewPermissiveConnectorProcessTransport()
+	connection, err := transport.Start(context.Background(), ProcessSpec{})
+	if connection != nil || err == nil || errors.Is(err, ErrConnectorProcessSandboxUnsupported) || !strings.Contains(err.Error(), "command is required") {
+		t.Fatalf("Start() = %#v, %v", connection, err)
+	}
+}
+
 func TestConnectorProcessTransportRequiresAbsoluteVerifiedExecutable(t *testing.T) {
-	transport := newConnectorProcessTransport(testConnectorSandbox{}, 1024, 1024)
+	transport := newConnectorProcessTransport(testConnectorSandbox{}, true, 1024, 1024)
 	if _, err := transport.Start(context.Background(), ProcessSpec{Command: []string{"node"}}); err == nil || !strings.Contains(err.Error(), "absolute") {
 		t.Fatalf("relative command error = %v", err)
 	}
@@ -61,7 +69,7 @@ func TestConnectorProcessTransportRequiresAbsoluteVerifiedExecutable(t *testing.
 
 func TestConnectorProcessTransportRejectsReservedOrMalformedEnvironmentKeys(t *testing.T) {
 	path, identity := copyCurrentExecutableWithIdentity(t)
-	transport := newConnectorProcessTransport(testConnectorSandbox{}, 1024, 1024)
+	transport := newConnectorProcessTransport(testConnectorSandbox{}, true, 1024, 1024)
 	for _, environment := range [][]string{
 		{"TUTTI_CONNECTOR_FD_CREDENTIAL=3"},
 		{" BAD=value"},
@@ -91,7 +99,7 @@ func TestConnectorProcessTransportUsesExplicitEnvironmentAndSensitiveFD(t *testi
 	if _, err := credential.Seek(0, 0); err != nil {
 		t.Fatal(err)
 	}
-	transport := newConnectorProcessTransport(testConnectorSandbox{}, 4096, 4096)
+	transport := newConnectorProcessTransport(testConnectorSandbox{}, true, 4096, 4096)
 	connection, err := transport.Start(context.Background(), ProcessSpec{
 		Command:            []string{path, "-test.run=TestConnectorProcessFixture"},
 		ExecutableIdentity: identity,
@@ -126,7 +134,7 @@ func TestConnectorProcessTransportUsesExplicitEnvironmentAndSensitiveFD(t *testi
 
 func TestConnectorProcessTransportEnforcesOutputLimit(t *testing.T) {
 	path, identity := copyCurrentExecutableWithIdentity(t)
-	transport := newConnectorProcessTransport(testConnectorSandbox{}, 32, 4096)
+	transport := newConnectorProcessTransport(testConnectorSandbox{}, true, 32, 4096)
 	connection, err := transport.Start(context.Background(), ProcessSpec{
 		Command:            []string{path, "-test.run=TestConnectorProcessFixture"},
 		ExecutableIdentity: identity,
@@ -166,7 +174,7 @@ func TestConnectorProcessTransportRejectsPreparedTreeMutationAtLaunch(t *testing
 	if err := os.WriteFile(entrypoint, []byte("tampered"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	transport := newConnectorProcessTransport(testConnectorSandbox{}, 4096, 4096)
+	transport := newConnectorProcessTransport(testConnectorSandbox{}, true, 4096, 4096)
 	_, err = transport.Start(context.Background(), ProcessSpec{Command: []string{path}, ExecutableIdentity: identity,
 		ConnectorSandbox: &ConnectorSandboxPolicy{ReadOnlyPaths: []string{artifactRoot},
 			ReadOnlyTreeIdentities: []ReadOnlyTreeIdentity{{Root: artifactRoot, SHA256: inventory}}}})
