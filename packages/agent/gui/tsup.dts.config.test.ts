@@ -120,6 +120,20 @@ describe("Agent GUI declaration build groups", () => {
     });
   });
 
+  it("builds and publishes the DOM-free conversation activity projection", () => {
+    expect(agentGUIBuildEntries["conversation-activity-projection"]).toBe(
+      "conversation-activity-projection.ts"
+    );
+    expect(
+      packageManifest.publishConfig.exports[
+        "./conversation-activity-projection"
+      ]
+    ).toEqual({
+      types: "./dist/conversation-activity-projection.d.ts",
+      import: "./dist/conversation-activity-projection.js"
+    });
+  });
+
   it("builds and publishes the DOM-free composer projection", () => {
     expect(agentGUIBuildEntries["composer-projection"]).toBe(
       "composerProjection.ts"
