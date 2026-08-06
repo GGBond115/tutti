@@ -11,6 +11,21 @@ const workflow = YAML.parse(
   readFileSync(join(workspaceRoot, ".github/workflows/pr-checks.yml"), "utf8")
 );
 
+const windowsWorkflows = [
+  [
+    ".github/workflows/windows-desktop-alpha.yml",
+    ["apps/desktop/**", "services/tuttid/builtin-apps/**"]
+  ],
+  [
+    ".github/workflows/windows-agent-adapters.yml",
+    ["packages/agent/daemon/**", "services/tuttid/**"]
+  ]
+].map(([path, expectedPaths]) => ({
+  expectedPaths,
+  path,
+  workflow: YAML.parse(readFileSync(join(workspaceRoot, path), "utf8"))
+}));
+
 test("PR checks route repository groups through shared scripts", () => {
   const changes = workflow.jobs.changes;
   const classificationStep = changes.steps.find(
@@ -100,6 +115,17 @@ test("TypeScript Tests preserves its required context across package shards", ()
     requireShardsStep.env.SHARDS_RESULT,
     "${{ needs.ts-test-shards.result }}"
   );
+});
+
+test("Windows workflows route source changes without self-triggering", () => {
+  for (const { expectedPaths, path, workflow } of windowsWorkflows) {
+    const paths = workflow.on?.pull_request?.paths ?? [];
+    assert.ok(paths.length > 0, path);
+    assert.ok(!paths.includes(path), `${path} must not trigger itself`);
+    for (const expectedPath of expectedPaths) {
+      assert.ok(paths.includes(expectedPath), `${path}: ${expectedPath}`);
+    }
+  }
 });
 
 function stepScripts(job) {

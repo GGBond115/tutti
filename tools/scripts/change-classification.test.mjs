@@ -87,7 +87,7 @@ test("workflow and hook changes select repository tool contracts", () => {
   }
 });
 
-test("Go CI and shared selector changes select Go validation", () => {
+test("Go CI and shared selector changes use tool contracts instead of all Go lanes", () => {
   for (const file of [
     ".github/workflows/pr-checks.yml",
     "tools/scripts/run-changed-go-validation.mjs",
@@ -96,7 +96,8 @@ test("Go CI and shared selector changes select Go validation", () => {
     const classification = classifyChangedFiles([file], {
       releasePackages
     });
-    assert.equal(classification.runGo, true, file);
+    assert.equal(classification.runGo, false, file);
+    assert.equal(classification.runContracts, true, file);
   }
 });
 

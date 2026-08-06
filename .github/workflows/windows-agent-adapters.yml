@@ -3,7 +3,6 @@ name: Windows Agent Adapters
 on:
   pull_request:
     paths:
-      - ".github/workflows/windows-agent-adapters.yml"
       - "packages/agent/daemon/**"
       - "services/tuttid/**"
   workflow_dispatch:

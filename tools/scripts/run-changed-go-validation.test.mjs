@@ -110,7 +110,7 @@ describe("buildChangedGoValidationLanes", () => {
     assert.deepEqual(lanes, []);
   });
 
-  it("falls back to every module when shared selection code changes", () => {
+  it("does not create Go lanes for shared selection code changes", () => {
     const lanes = buildChangedGoValidationLanes({
       changedFiles: ["tools/scripts/run-changed-go-validation.mjs"],
       kind: "test",
@@ -119,13 +119,7 @@ describe("buildChangedGoValidationLanes", () => {
       root: "/repo"
     });
 
-    assert.deepEqual(
-      lanes.map((lane) => lane.label),
-      moduleRoots.map((moduleRoot) => `test:go (${moduleRoot})`)
-    );
-    for (const lane of lanes) {
-      assert.match(lane.command[2], /go test \.\/\.\.\./);
-    }
+    assert.deepEqual(lanes, []);
   });
 
   it("ensures builtin assets only for the selected tuttid lane", () => {
