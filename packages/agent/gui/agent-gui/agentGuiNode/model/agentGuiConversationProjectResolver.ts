@@ -42,6 +42,9 @@ export interface AgentGUIConversationProjectResolver {
   resolve: (
     cwd: string | null | undefined
   ) => AgentGUIConversationProjectSummary | null;
+  resolveSectionKey: (
+    sectionKey: string | null | undefined
+  ) => AgentGUIConversationProjectSummary | null;
 }
 
 export function createAgentGUIConversationProjectResolver(
@@ -50,6 +53,8 @@ export function createAgentGUIConversationProjectResolver(
 ): AgentGUIConversationProjectResolver {
   const projectByNormalizedPath =
     buildAgentGUIConversationProjectIndex(userProjects);
+  const projectBySectionKey =
+    buildAgentGUIConversationSectionKeyIndex(userProjects);
   const resolvedByNormalizedCwd = new Map<
     string,
     AgentGUIConversationProjectSummary | null
@@ -71,6 +76,16 @@ export function createAgentGUIConversationProjectResolver(
       );
       resolvedByNormalizedCwd.set(normalizedCwd, resolved);
       return resolved;
+    },
+    resolveSectionKey: (sectionKey) => {
+      const normalizedSectionKey = sectionKey?.trim() ?? "";
+      if (!normalizedSectionKey) {
+        return null;
+      }
+      const project = projectBySectionKey.get(normalizedSectionKey);
+      return project
+        ? agentGUIConversationProjectSummaryFromProject(project)
+        : null;
     }
   };
 }
@@ -101,6 +116,23 @@ function buildAgentGUIConversationProjectIndex(
     projectByNormalizedPath.set(projectPath, project);
   }
   return projectByNormalizedPath;
+}
+
+function buildAgentGUIConversationSectionKeyIndex(
+  userProjects: readonly AgentGUIConversationUserProject[]
+): ReadonlyMap<string, AgentGUIConversationUserProject> {
+  const projectBySectionKey = new Map<
+    string,
+    AgentGUIConversationUserProject
+  >();
+  for (const project of userProjects) {
+    const sectionKey = project.sectionKey?.trim() ?? "";
+    if (!sectionKey || projectBySectionKey.has(sectionKey)) {
+      continue;
+    }
+    projectBySectionKey.set(sectionKey, project);
+  }
+  return projectBySectionKey;
 }
 
 function resolveAgentGUIConversationProjectFromIndex(
