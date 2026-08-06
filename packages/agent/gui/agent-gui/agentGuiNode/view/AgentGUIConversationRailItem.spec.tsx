@@ -136,6 +136,10 @@ describe("AgentGUIConversationRailItem interaction lock", () => {
       container.querySelector('[data-presentation="activity"]')
     ).not.toBeNull();
     expect(container.textContent).toContain("Session 1Tutti");
+    expect(
+      container.querySelector(".agent-gui-node__conversation-title-row")
+        ?.textContent
+    ).toBe("Session 1");
     expect(container.textContent).toContain(secondary);
     expect(
       screen.getByRole("button", { name: "Session 1, Tutti, Working" })

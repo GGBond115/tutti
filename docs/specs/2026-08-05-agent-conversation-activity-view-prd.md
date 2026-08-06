@@ -264,9 +264,8 @@ Activity View 跨项目扁平化。列表的展示单位始终是根 Session，�
 
 单条会话行严格复刻 Codex 的两层布局：
 
-1. **第一行：会话标题 + 项目 label + 尾部状态栏**
+1. **第一行：会话标题 + 尾部状态栏**
    - 会话标题是主信息；过长时按 Codex 当前行布局截断；
-   - 有 canonical 项目归属时，项目 label 紧跟标题，以 tertiary 弱化样式作为 `titleSuffix` 展示；
    - 右侧尾部状态栏展示现有运行状态、未读提示和单条 hover actions，并在两行布局下与标题行对齐；
    - Activity View 会话行不显示时间戳，也不在尾部重复显示 remote host environment icon。
 2. **第二行：项目/source context**
@@ -517,7 +516,7 @@ interface AgentConversationActivityViewModel {
 16. 日期段使用会话首次进入本次 activation 时的 recency，持续打开跨午夜不自动换组。
 17. Activity View 不注册前 9 个 Priority 会话快捷导航，也不新增 Rail 级全局快捷键。
 18. Activity View 的展示单位是根 Session；项目只作为行内上下文，不出现项目卡片、项目标题、项目分组或折叠控件。
-19. 会话行第一行显示标题和弱化项目 label，右侧状态栏与标题行对齐；该行不显示时间戳，也不重复显示 remote host environment icon。
+19. 会话行第一行只显示主标题，右侧状态栏与标题行对齐；该行不显示时间戳，也不重复显示 remote host environment icon。
 20. 会话行第二行只显示项目/source context；不得为补齐该内容新增 Turn 或 transcript 请求。
 21. 第二行不展示会话 prompt 或 Agent 回复；有精确项目归属时显示项目 icon 和 user project label，没有精确项目归属时显示 source fallback。
 22. 标题溢出、secondary content 截断、状态图标、未读提示及 hover actions 的可观察布局与目标 Codex build 一致。
@@ -587,7 +586,7 @@ interface AgentConversationActivityViewModel {
 - 核对首期不展示 coachmark，也不创建对应 preference；
 - 核对 Activity View 不注册 Rail 级会话快捷键，现有会话内部快捷键不受影响；
 - 核对 Priority 标题右侧不存在 options 菜单或其他标题操作；
-- 核对单条会话行第一行的标题、弱化项目 label、标题行对齐的尾部状态栏，以及隐藏时间戳和重复 remote host environment icon；
+- 核对单条会话行第一行只显示主标题、标题行对齐的尾部状态栏，以及隐藏时间戳和重复 remote host environment icon；
 - 核对第二行不显示会话 prompt 或 Agent 回复，并显示项目/source context；
 - 核对标题溢出与 secondary content 的布局，不因补齐 secondary content 产生 Turn/transcript 请求；
 - Codex 同构的 Priority empty；开启动作没有额外 loading；
@@ -650,7 +649,7 @@ interface AgentConversationActivityViewModel {
 
 ## 19. 已确认的范围边界
 
-1. Activity View 的单项是根 Session，不是项目卡片；第一行显示标题与弱化项目 label，第二行只显示项目/source context，不展示会话 prompt 或 Agent 回复，且不额外读取 Turn。
+1. Activity View 的单项是根 Session，不是项目卡片；第一行只显示主标题，第二行只显示项目/source context，不展示会话 prompt 或 Agent 回复，且不额外读取 Turn。
 2. Tutti 没有 canonical scheduled Session，首期不显示 Scheduled。
 3. Activity View 只投影 Engine 当前内存态，不补近期日期段分页或历史 attention 会话。
 4. 首期不提供 Activity view options 标题菜单，因此不实现 Pinned、Mark all as read、Restore defaults 和 Archive chats。
@@ -673,7 +672,7 @@ interface AgentConversationActivityViewModel {
 - ChatGPT 会话分支没有上述 retained-idle marker；当前 snapshot 仍保持，下一次重建时通常进入对应日期段；
 - 子线程通过 `parentThreadId`/sub-agent source 建模；左栏过滤子线程，父线程承担导航表示；
 - Priority 区段不会加载完整 transcript；Tutti 进一步约束为不因该视图执行任何 Turn hydration；
-- Activity View 本地任务行使用两层布局：第一行是标题、弱化项目 label 和标题行对齐的尾部状态栏，不显示时间戳；第二行只显示项目/source 信息，不展示会话 prompt 或 Agent 回复；
+- Activity View 本地任务行使用两层布局：第一行只显示标题和标题行对齐的尾部状态栏，不显示时间戳；第二行只显示项目/source 信息，不展示会话 prompt 或 Agent 回复；
 - 公开的 `thread/list` 是 cursor 分页接口，优先级本身是客户端 presentation policy，而非公开的服务端排序参数。
 
 公开接口参考：[Codex App Server](https://learn.chatgpt.com/docs/app-server)

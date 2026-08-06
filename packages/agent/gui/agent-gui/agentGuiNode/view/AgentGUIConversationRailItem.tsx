@@ -287,11 +287,6 @@ export const AgentGUIConversationRailItem = memo(
       <span className={styles.conversationTitleRow}>
         {conversationIconNode}
         <span className={styles.conversationTitle}>{conversationTitle}</span>
-        {activityPresentation?.projectLabel ? (
-          <span className={styles.conversationActivityProjectLabel}>
-            {activityPresentation.projectLabel}
-          </span>
-        ) : null}
       </span>
     );
     const conversationSelect = (

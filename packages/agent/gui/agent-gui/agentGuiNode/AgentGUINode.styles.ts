@@ -78,8 +78,6 @@ const styles = {
   conversationDeleteConfirmText:
     "agent-gui-node__conversation-delete-confirm-text",
   conversationActions: "agent-gui-node__conversation-actions",
-  conversationActivityProjectLabel:
-    "agent-gui-node__conversation-activity-project-label",
   conversationActivitySecondary:
     "agent-gui-node__conversation-activity-secondary",
   conversationActivitySecondaryIcon:
