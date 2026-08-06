@@ -2,15 +2,44 @@ package implementationhost
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
+	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 )
+
+func TestAttachCredentialBrokerPreservesEmptyNativeCLIArguments(t *testing.T) {
+	preparedPath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(preparedPath, "credential-broker.mjs"), []byte("export {};\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	route := &connectorRoute{cliLaunch: &managedCLILaunch{
+		arguments: []string{}, cwd: preparedPath,
+		executable: connectorruntime.ConnectorExecutable{Path: "/managed/lark-cli"},
+	}}
+	err := (&Host{}).attachCredentialBroker(route, &market.ManagedCredentialBroker{
+		Entrypoint: "credential-broker.mjs", TimeoutMS: 300_000,
+	}, market.PreparedArtifactReceipt{PreparedPath: preparedPath}, connectorruntime.ConnectorExecutable{}, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(route.credentialBrokerLaunch.cliLaunch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), `"arguments":[]`) {
+		t.Fatalf("credential broker CLI launch = %s, want empty JSON array", payload)
+	}
+}
 
 type credentialAuthorizationHostStub struct {
 	route       *connectorRoute

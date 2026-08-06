@@ -26,3 +26,10 @@ do not use an OS process sandbox. `NewConnectorProcessTransport()` preserves
 the security boundary through pinned packages, verified artifact receipts,
 immutable execution snapshots, executable SHA-256/size verification, an
 explicit environment, process groups, timeouts, and bounded output.
+
+Node package installation keeps the managed Node directory first on `PATH`,
+then appends the desktop-resolved login-shell `PATH` so declared lifecycle
+scripts can invoke host tools such as `curl` and `tar`. Only transport,
+certificate, locale, and platform process variables are forwarded; private
+home, temporary, package-manager cache, and package-manager home paths remain
+owned by Tutti.

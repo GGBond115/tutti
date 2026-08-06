@@ -83,8 +83,12 @@ func TestNodePackageInstallerUsesOneManagedNodeAndSharedContentStore(t *testing.
 	runtimeResolver := nodePackageRuntimeStub{root: runtimeRoot, node: ConnectorExecutable{Path: nodePath,
 		SHA256: strings.Repeat("a", 64), SizeBytes: 7}}
 	root := t.TempDir()
+	externalBin := t.TempDir()
+	inheritedPath := strings.Join([]string{externalBin, filepath.Join(runtimeRoot, "node", "bin"), ""}, string(os.PathListSeparator))
 	installer, err := NewNodePackageInstaller(NodePackageInstallerConfig{RootDir: root, Runtimes: runtimeResolver,
-		Processes: processes, PnpmVersion: "10.11.0"})
+		Processes: processes, PnpmVersion: "10.11.0", Environ: func() []string {
+			return []string{"PATH=" + inheritedPath, "HTTPS_PROXY=http://127.0.0.1:7890", "SECRET_TOKEN=hidden"}
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,6 +135,16 @@ func TestNodePackageInstallerUsesOneManagedNodeAndSharedContentStore(t *testing.
 		}
 		if !containsEnvironmentPrefix(spec.Env, "NPM_CONFIG_CACHE="+filepath.Join(root, "shared", "npm-cache")) {
 			t.Fatalf("installer environment does not share npm cache: %#v", spec.Env)
+		}
+		wantPath := strings.Join([]string{filepath.Join(runtimeRoot, "node", "bin"), externalBin}, string(os.PathListSeparator))
+		if !containsEnvironmentPrefix(spec.Env, "PATH="+wantPath) {
+			t.Fatalf("installer PATH does not prefer managed Node and preserve user tools: %#v", spec.Env)
+		}
+		if !containsEnvironmentPrefix(spec.Env, "HTTPS_PROXY=http://127.0.0.1:7890") {
+			t.Fatalf("installer environment does not preserve the user proxy: %#v", spec.Env)
+		}
+		if containsEnvironmentKey(spec.Env, "SECRET_TOKEN") {
+			t.Fatalf("installer environment leaked a non-allowlisted value: %#v", spec.Env)
 		}
 	}
 	if packageInstalls != 2 || lifecycleRuns != 2 {
@@ -221,6 +235,16 @@ func containsCommandPair(command []string, key, value string) bool {
 func containsEnvironmentPrefix(environment []string, expected string) bool {
 	for _, value := range environment {
 		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEnvironmentKey(environment []string, expected string) bool {
+	for _, value := range environment {
+		key, _, ok := strings.Cut(value, "=")
+		if ok && strings.EqualFold(key, expected) {
 			return true
 		}
 	}

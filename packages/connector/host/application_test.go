@@ -183,7 +183,7 @@ func TestApplicationReconcilesInstalledRuntimeAtStartup(t *testing.T) {
 		t.Fatal(err)
 	}
 	if host.reconciles != 1 || host.lastReconcile.ConnectionID != defaultConnectorConnectionID ||
-		host.lastReconcile.Generation.Generation != 7 || host.lastReconcile.Generation.BootEpoch == "" {
+		host.lastReconcile.Generation.Generation != 8 || host.lastReconcile.Generation.BootEpoch == "" {
 		t.Fatalf("startup reconcile = %#v, count=%d", host.lastReconcile, host.reconciles)
 	}
 }
@@ -313,6 +313,28 @@ func TestApplicationAuthorizationObservationReconcilesWithoutChangingInstallatio
 	}
 	if host.lastReconcile.Enabled || repository.connectors["github"].Installation.State != InstallationStateInstalled {
 		t.Fatalf("expired reconcile = %#v connector = %#v", host.lastReconcile, repository.connectors["github"])
+	}
+}
+
+func TestApplicationStartupReconcileAdvancesPastFence(t *testing.T) {
+	connector := testConnector("github")
+	connector.Revision = 7
+	connector.Installation = Installation{
+		State: InstallationStateInstalled, InstalledVersion: connector.Release.Version,
+		InstalledReleaseID: connector.Release.ReleaseID, InstalledReleaseDigest: connector.Release.ReleaseDigest,
+	}
+	repository := newMemoryRepository(connector)
+	host := &memoryInstallRuntime{}
+	application := newTestApplication(t, repository, &memoryScheduler{}, host, CatalogSnapshot{})
+
+	if err := application.FenceInstalledRuntimes(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := application.ReconcileInstalledRuntimes(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if host.lastDeactivation.Generation.Generation != 7 || host.lastReconcile.Generation.Generation != 8 {
+		t.Fatalf("startup generations: fence=%#v reconcile=%#v", host.lastDeactivation.Generation, host.lastReconcile.Generation)
 	}
 }
 
@@ -912,6 +934,7 @@ type memoryInstallRuntime struct {
 	activeDigest        string
 	reconciles          int
 	lastReconcile       RuntimeReconcileRequest
+	lastDeactivation    RuntimeDeactivationRequest
 	lastPrepare         PrepareArtifactRequest
 	lastCredentialGrant string
 	deactivationErr     error
@@ -928,8 +951,9 @@ func (host *memoryInstallRuntime) Reconcile(_ context.Context, request RuntimeRe
 		ConnectorKey: request.Connector.Key, ReleaseDigest: request.Connector.Release.ReleaseDigest, Generation: request.Generation}, nil
 }
 
-func (host *memoryInstallRuntime) DeactivateRuntime(context.Context, RuntimeDeactivationRequest) error {
+func (host *memoryInstallRuntime) DeactivateRuntime(_ context.Context, request RuntimeDeactivationRequest) error {
 	host.deactivations++
+	host.lastDeactivation = request
 	if host.deactivationErr != nil {
 		return host.deactivationErr
 	}

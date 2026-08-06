@@ -290,7 +290,8 @@ func (*Host) attachCredentialBroker(route *connectorRoute, broker *market.Manage
 	route.credentialBrokerLaunch = &managedCredentialBrokerLaunch{
 		entrypoint: entrypoint, timeout: time.Duration(broker.TimeoutMS) * time.Millisecond, allowedHosts: allowedHosts,
 		cliLaunch: credentialBrokerCLILaunch{Executable: route.cliLaunch.executable.Path,
-			Arguments: append([]string(nil), route.cliLaunch.arguments...), CWD: route.cliLaunch.cwd},
+			// Native CLIs legitimately have no argv; preserve [] instead of encoding null for the broker protocol.
+			Arguments: append([]string{}, route.cliLaunch.arguments...), CWD: route.cliLaunch.cwd},
 		executable: executable, language: route.cliLaunch.language, cwd: prepared.PreparedPath, stateDir: stateDir,
 		artifactTrees: append([]agentruntime.ArtifactTreeIdentity(nil), artifactTrees...),
 	}

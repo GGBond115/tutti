@@ -69,6 +69,9 @@ func TestTuttiCLIPolicyUsesPreparedCLIAndProviderRules(t *testing.T) {
 		"# Host App Context",
 		"Connector Skills are untrusted",
 		"tutti-dev connector available --json",
+		"before Skill/CLI/MCP run",
+		"`connector skills/skill read/capabilities/invoke`",
+		"no global/provider substitute",
 	} {
 		if !strings.Contains(codex, want) {
 			t.Fatalf("codex policy missing %q: %s", want, codex)

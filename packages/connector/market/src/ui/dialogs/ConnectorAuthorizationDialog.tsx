@@ -7,7 +7,7 @@ import {
   DialogTitle,
   Spinner
 } from "@tutti-os/ui-system/components";
-import { LinkIcon } from "@tutti-os/ui-system/icons";
+import { LinkIcon, TuttiMark } from "@tutti-os/ui-system/icons";
 
 import type { ConnectorMarketI18nRuntime } from "../../i18n/connectorMarketI18n.ts";
 import { ConnectorIcon } from "../catalog/ConnectorIcon.tsx";
@@ -42,8 +42,8 @@ export function ConnectorAuthorizationDialog({
             size="lg"
           />
           <LinkIcon className="size-4 text-[var(--text-tertiary)]" />
-          <span className="flex size-12 items-center justify-center rounded-xl bg-[var(--accent-bg)] text-[18px] font-bold text-[var(--accent)]">
-            T
+          <span className="flex size-12 items-center justify-center rounded-xl bg-[var(--accent-bg)] text-[var(--accent)]">
+            <TuttiMark size={28} />
           </span>
         </div>
         <DialogTitle>

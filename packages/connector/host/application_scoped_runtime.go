@@ -95,7 +95,10 @@ func (application *Application) ReconcileInstalledRuntimesForScope(ctx context.C
 		}
 		installedConnector := connector
 		installedConnector.Release = installedRelease
-		generation := maxGeneration(connector.Revision)
+		// Bootstrap first fences durable runtime intent at the connector's
+		// current revision. Recovery must publish a strictly newer generation;
+		// otherwise RouteTable correctly rejects it as a stale resurrection.
+		generation := nextGeneration(connector.Revision)
 		operationID := "reconcile/" + application.config.BootEpoch + "/" + connector.Key
 		operation := Operation{OperationID: operationID, ConnectorKey: connector.Key, Scope: scope}
 		binding, err := application.resolveRuntimeBinding(ctx, operation, installedConnector, installedRelease, RuntimeBindingPurposeReconcile)
@@ -166,4 +169,8 @@ func maxGeneration(generation uint64) uint64 {
 		return 1
 	}
 	return generation
+}
+
+func nextGeneration(generation uint64) uint64 {
+	return maxGeneration(generation) + 1
 }
