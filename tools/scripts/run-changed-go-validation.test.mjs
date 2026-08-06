@@ -18,6 +18,8 @@ describe("parseChangedGoValidationArgs", () => {
       parseChangedGoValidationArgs([
         "--base",
         "base-sha",
+        "--head",
+        "head-sha",
         "--kind",
         "test",
         "--max-parallel",
@@ -27,6 +29,7 @@ describe("parseChangedGoValidationArgs", () => {
       ]),
       {
         baseRef: "base-sha",
+        headRef: "head-sha",
         kind: "test",
         maxParallel: 2,
         tailLines: 400
@@ -79,6 +82,20 @@ describe("buildChangedGoValidationLanes", () => {
     assert.match(lanes[0].command[2], /golangci-lint run/);
     assert.match(lanes[0].command[2], / \.\/runtime$/);
     assert.doesNotMatch(lanes[0].command[2], /generate:builtin-apps/);
+  });
+
+  it("keeps a changed module-root package scoped to the module root", () => {
+    const lanes = buildChangedGoValidationLanes({
+      changedFiles: ["services/tuttid/wiring.go"],
+      kind: "test",
+      moduleRoots,
+      pathExists: () => true,
+      root: "/repo"
+    });
+
+    assert.equal(lanes.length, 1);
+    assert.match(lanes[0].command[2], /cd services\/tuttid && .*go test \.$/u);
+    assert.doesNotMatch(lanes[0].command[2], /go test \.\/\.\.\./u);
   });
 
   it("does not expand lint beyond the established lint module set", () => {

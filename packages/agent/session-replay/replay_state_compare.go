@@ -146,8 +146,17 @@ func replaceReplayIDs(value any, replacements map[string]string) {
 }
 
 func firstReplayStateMismatch(path string, expected, actual any) string {
-	expectedValue := replayComparableValue(expected)
-	actualValue := replayComparableValue(actual)
+	return firstReplayStateMismatchComparable(
+		path,
+		replayComparableValue(expected),
+		replayComparableValue(actual),
+	)
+}
+
+func firstReplayStateMismatchComparable(
+	path string,
+	expectedValue, actualValue any,
+) string {
 	if isComposerSettingsPath(path) {
 		expectedSettings, expectedOK := expectedValue.(map[string]any)
 		actualSettings, actualOK := actualValue.(map[string]any)
@@ -192,7 +201,11 @@ func firstReplayStateMismatch(path string, expected, actual any) string {
 			if !expectedOK || !actualOK {
 				return path + "." + key
 			}
-			if mismatch := firstReplayStateMismatch(path+"."+key, expectedChild, actualChild); mismatch != "" {
+			if mismatch := firstReplayStateMismatchComparable(
+				path+"."+key,
+				expectedChild,
+				actualChild,
+			); mismatch != "" {
 				return mismatch
 			}
 		}
@@ -202,7 +215,11 @@ func firstReplayStateMismatch(path string, expected, actual any) string {
 			return path
 		}
 		for index := range expectedValue {
-			if mismatch := firstReplayStateMismatch(fmt.Sprintf("%s[%d]", path, index), expectedValue[index], actualValue[index]); mismatch != "" {
+			if mismatch := firstReplayStateMismatchComparable(
+				fmt.Sprintf("%s[%d]", path, index),
+				expectedValue[index],
+				actualValue[index],
+			); mismatch != "" {
 				return mismatch
 			}
 		}

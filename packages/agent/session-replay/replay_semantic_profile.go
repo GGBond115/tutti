@@ -97,7 +97,7 @@ func MergeTuttiReplayStatesForProfile(
 		}
 		profileStates[index] = projectTuttiReplayStateForProfile(state, profile)
 	}
-	return MergeTuttiReplayStates(profileStates)
+	return mergeTuttiReplayStatesValidated(profileStates)
 }
 
 func CompareTuttiReplayStateForProfile(
@@ -111,7 +111,7 @@ func CompareTuttiReplayStateForProfile(
 	if err := ValidateTuttiReplayStateForProfile(actual, profile); err != nil {
 		return fmt.Errorf("invalid actual Tutti Replay State: %w", err)
 	}
-	return CompareTuttiReplayState(
+	return compareTuttiReplayStateValidated(
 		projectTuttiReplayStateForProfile(expected, profile),
 		projectTuttiReplayStateForProfile(actual, profile),
 	)

@@ -22,9 +22,12 @@ test("PR checks route repository groups through shared scripts", () => {
     classificationStep.run,
     /tools\/scripts\/change-classification\.mjs/u
   );
+  assert.match(classificationStep.run, /--base/u);
+  assert.match(classificationStep.run, /--head/u);
   for (const group of ["contracts", "generated", "boundaries"]) {
     assert.match(toolingScripts, new RegExp(`--group ${group}`, "u"));
   }
+  assert.match(toolingScripts, /--head/u);
 });
 
 test("language jobs do not own repository checks", () => {

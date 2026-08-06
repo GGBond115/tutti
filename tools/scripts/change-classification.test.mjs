@@ -281,6 +281,37 @@ test("package manifest comparison ignores only test scripts", () => {
       committedBuildChangeIsRelevant("packages/agent/gui/package.json"),
       true
     );
+
+    const headRef = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      env: gitEnv
+    }).trim();
+    writeFileSync(
+      manifestPath,
+      `${JSON.stringify({
+        name: "@tutti-os/agent-gui",
+        scripts: {
+          build: "tsup --working-copy",
+          test: "vitest run --working-copy"
+        }
+      })}\n`
+    );
+    assert.equal(
+      createPackageManifestPackRelevance({
+        baseRef: "HEAD",
+        headRef,
+        root
+      })("packages/agent/gui/package.json"),
+      false
+    );
+    assert.equal(
+      createPackageManifestPackRelevance({
+        baseRef: "HEAD",
+        root
+      })("packages/agent/gui/package.json"),
+      true
+    );
   } finally {
     rmSync(root, { force: true, recursive: true });
   }

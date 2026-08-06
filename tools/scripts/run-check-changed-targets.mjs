@@ -148,7 +148,11 @@ export function resolveGoValidationTargets(
     if (lintModuleRootSet.has(moduleRoot)) {
       addGoTarget(lintByModule, moduleRoot, packagePattern);
     }
-    addGoTarget(testByModule, moduleRoot, `${packagePattern}/...`);
+    addGoTarget(
+      testByModule,
+      moduleRoot,
+      packagePattern === "." ? "." : `${packagePattern}/...`
+    );
   }
 
   if (lintByModule.size === 0 && testByModule.size === 0) {
