@@ -102,6 +102,15 @@ func (discardChangedEventPublisher) PublishConnectorMarketChanged(context.Contex
 	return nil
 }
 
+type recordingPublicationController struct {
+	values []bool
+}
+
+func (controller *recordingPublicationController) ApplyCapabilityPublication(_ context.Context, _ market.OperationScope, enabled bool) error {
+	controller.values = append(controller.values, enabled)
+	return nil
+}
+
 func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T) {
 	ctx := context.Background()
 	store, err := marketdata.Open(ctx, filepath.Join(t.TempDir(), "tuttid.db"))
@@ -168,6 +177,7 @@ func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T)
 
 	source := &countingCatalogSource{release: release, refreshErr: errors.New("catalog returned 403")}
 	runtime := &activationGateDelegate{reconcileFailures: 1}
+	publication := &recordingPublicationController{}
 	bindings := runtimeBindingResolverFunc(func(_ context.Context, request market.RuntimeBindingRequest) (market.RuntimeBinding, error) {
 		connectionID := "device-github"
 		if request.Scope.AccountID != "" {
@@ -187,6 +197,7 @@ func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T)
 		Outbox:                 store,
 		Lifecycle:              store,
 		Publisher:              discardChangedEventPublisher{},
+		Publication:            publication,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -214,6 +225,9 @@ func TestBootstrapRestoresInstalledRuntimeWithoutRefreshingCatalog(t *testing.T)
 	}
 	if runtime.reconciles != 3 {
 		t.Fatalf("unchanged account scope reconciled %d times", runtime.reconciles)
+	}
+	if len(publication.values) == 0 || !publication.values[len(publication.values)-1] {
+		t.Fatalf("publication transitions = %#v, want final open", publication.values)
 	}
 
 	if err := host.refreshAndWait(ctx); err == nil || !strings.Contains(err.Error(), "refresh failed") {

@@ -20,3 +20,7 @@ Hosts with an account-scoped runtime call `BootstrapForScope`; the daemon
 reuses that explicit scope for recovery retries. The legacy `Bootstrap` method
 retains Tutti's device-global behavior through the default runtime-binding
 resolver.
+
+Remote runtimes inject `CapabilityPublicationController`; bootstrap awaits its
+fail-closed/open commands. Same-process Tutti runtimes remain compatible with
+the synchronous implementation-host publication gate.

@@ -27,6 +27,13 @@ type HostConfig struct {
 	Lifecycle                market.LifecycleCleanupStore
 	LifecyclePolicy          LifecycleCleanupPolicy
 	Publisher                ChangedEventPublisher
+	Publication              CapabilityPublicationController
+}
+
+// CapabilityPublicationController is the daemon-level publication boundary
+// for runtimes owned by another process or machine.
+type CapabilityPublicationController interface {
+	ApplyCapabilityPublication(context.Context, market.OperationScope, bool) error
 }
 
 type Host struct {
@@ -45,6 +52,7 @@ type Host struct {
 	implementationHost   market.ImplementationHost
 	activationGate       *activationGateHost
 	publicationGate      capabilityPublicationGate
+	publication          CapabilityPublicationController
 }
 
 type capabilityPublicationGate interface {
@@ -160,10 +168,13 @@ func NewHost(parent context.Context, config HostConfig) (*Host, error) {
 		repository:         config.Repository,
 		implementationHost: config.ImplementationHost,
 		activationGate:     activationGate,
+		publication:        config.Publication,
 	}
 	if publicationGate, ok := config.ImplementationHost.(capabilityPublicationGate); ok {
 		host.publicationGate = publicationGate
-		publicationGate.SetCapabilityPublication(false)
+		if host.publication == nil {
+			publicationGate.SetCapabilityPublication(false)
+		}
 	}
 	dispatcher := OutboxDispatcher{Outbox: config.Outbox, Publisher: config.Publisher}
 	go func() {
@@ -205,8 +216,8 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 		go host.runCatalogRefreshWorker()
 	}
 	host.activationGate.setOpen(false)
-	if host.publicationGate != nil {
-		host.publicationGate.SetCapabilityPublication(false)
+	if err := host.applyCapabilityPublication(ctx, scope, false); err != nil {
+		return err
 	}
 	committed := false
 	defer func() {
@@ -214,9 +225,7 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 			return
 		}
 		host.activationGate.setOpen(false)
-		if host.publicationGate != nil {
-			host.publicationGate.SetCapabilityPublication(false)
-		}
+		_ = host.applyCapabilityPublication(context.Background(), scope, false)
 		fenceContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := host.implementationHost.FailClosed(fenceContext, time.Now().Add(10*time.Second)); err != nil {
@@ -242,12 +251,22 @@ func (host *Host) BootstrapForScope(ctx context.Context, scope market.OperationS
 	if err := host.Application.ReconcileInstalledRuntimesForScope(ctx, scope); err != nil {
 		return err
 	}
-	if host.publicationGate != nil {
-		host.publicationGate.SetCapabilityPublication(true)
+	if err := host.applyCapabilityPublication(ctx, scope, true); err != nil {
+		return err
 	}
 	host.activationGate.markRecovered()
 	host.bootstrapped = true
 	committed = true
+	return nil
+}
+
+func (host *Host) applyCapabilityPublication(ctx context.Context, scope market.OperationScope, enabled bool) error {
+	if host.publication != nil {
+		return host.publication.ApplyCapabilityPublication(ctx, scope, enabled)
+	}
+	if host.publicationGate != nil {
+		host.publicationGate.SetCapabilityPublication(enabled)
+	}
 	return nil
 }
 
