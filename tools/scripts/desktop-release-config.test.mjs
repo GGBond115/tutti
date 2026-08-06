@@ -59,6 +59,10 @@ const desktopBuildIconPath = new URL(
   "../../apps/desktop/build/icon.png",
   import.meta.url
 );
+const desktopStoreManifestPath = new URL(
+  "../../apps/desktop/build/appxmanifest.xml",
+  import.meta.url
+);
 
 test("desktop package includes runtime outputs without repository source", async () => {
   const packageJson = JSON.parse(await readFile(desktopPackagePath, "utf8"));
@@ -144,13 +148,23 @@ test("desktop release submits only stable builds to an isolated Store workflow",
 test("desktop Store packaging reuses the Windows payload and emits AppX only", async () => {
   const packageJson = JSON.parse(await readFile(desktopPackagePath, "utf8"));
   const buildScript = await readFile(buildScriptPath, "utf8");
+  const storeManifest = await readFile(desktopStoreManifestPath, "utf8");
 
   assert.equal(
     packageJson.scripts["build:win:store"],
     "bash ../../tools/scripts/build-desktop-package.sh win-store"
   );
   assert.equal(packageJson.build.appx.electronUpdaterAware, false);
+  assert.equal(
+    packageJson.build.appx.customManifestPath,
+    "build/appxmanifest.xml"
+  );
   assert.deepEqual(packageJson.build.appx.capabilities, ["runFullTrust"]);
+  assert.match(
+    storeManifest,
+    /<Properties>[\s\S]*?<DisplayName>\$\{displayName\}<\/DisplayName>/
+  );
+  assert.match(storeManifest, /<uap:VisualElements[\s\S]*?DisplayName="Tutti"/);
   assert.deepEqual(packageJson.build.win.protocols, [
     {
       name: "Tutti login callback",

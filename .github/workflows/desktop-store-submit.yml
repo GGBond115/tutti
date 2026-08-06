@@ -42,7 +42,7 @@ on:
         type: boolean
 
 concurrency:
-  group: desktop-store-${{ github.event_name == 'push' && 'microsoft-store-test' || inputs.store_environment }}-${{ github.event_name == 'push' && 'v0.2.13' || inputs.release_tag }}
+  group: desktop-store-${{ github.event_name == 'push' && 'microsoft-store-test' || inputs.store_environment }}-${{ github.event_name == 'push' && 'v0.2.14' || inputs.release_tag }}
   cancel-in-progress: false
 
 permissions:
@@ -58,7 +58,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      TUTTI_DESKTOP_RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.2.13' || inputs.release_tag }}
+      TUTTI_DESKTOP_RELEASE_TAG: ${{ github.event_name == 'push' && 'v0.2.14' || inputs.release_tag }}
       TUTTI_DESKTOP_RELEASE_TARGET: ${{ github.event_name == 'push' && github.sha || inputs.target_commit }}
       TUTTI_MICROSOFT_STORE_PRODUCT_ID: ${{ vars.TUTTI_MICROSOFT_STORE_PRODUCT_ID }}
       TUTTI_STORE_APPLICATION_ID: ${{ vars.TUTTI_STORE_APPLICATION_ID }}

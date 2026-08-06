@@ -94,6 +94,7 @@
     "appx": {
       "applicationId": "Tutti",
       "artifactName": "${productName}-${version}-store-${arch}.${ext}",
+      "customManifestPath": "build/appxmanifest.xml",
       "capabilities": [
         "runFullTrust"
       ],
