@@ -253,7 +253,12 @@ jobs:
       - name: Submit package for Microsoft certification
         if: ${{ github.event_name == 'push' || inputs.submit }}
         shell: pwsh
-        run: msstore publish '${{ steps.package.outputs.path }}' -id "$env:TUTTI_MICROSOFT_STORE_PRODUCT_ID"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $appxPath = '${{ steps.package.outputs.path }}'
+          $msixPath = [System.IO.Path]::ChangeExtension($appxPath, '.msix')
+          Copy-Item -LiteralPath $appxPath -Destination $msixPath -Force
+          msstore publish $msixPath -id "$env:TUTTI_MICROSOFT_STORE_PRODUCT_ID"
 
       - name: Record submission summary
         shell: pwsh
