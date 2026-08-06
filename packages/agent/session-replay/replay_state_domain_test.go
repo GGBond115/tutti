@@ -627,6 +627,79 @@ func TestCompareTuttiReplayStateTreatsAttachmentIDsAsAlphaEquivalent(
 	}
 }
 
+func TestCompareTuttiReplayStateIgnoresLiveOnlyComposerSettingsDefaults(
+	t *testing.T,
+) {
+	buildState := func(settings map[string]any) TuttiReplayState {
+		return TuttiReplayState{
+			SchemaVersion: SchemaVersion,
+			Agent: TuttiReplayAgent{
+				RootSessionID: "session-1",
+				Sessions: []agenthost.HistoricalSession{{
+					ID:                "session-1",
+					Kind:              "root",
+					AgentTargetID:     "local:codex",
+					Provider:          "codex",
+					ProviderSessionID: "provider-session-1",
+					Settings:          settings,
+				}},
+			},
+			TuttiMode: TuttiReplayTuttiMode{
+				Activations:   []TuttiReplayActivation{},
+				TurnSnapshots: []TuttiReplayTurnSnapshot{},
+			},
+			Workflows: []TuttiReplayWorkflow{},
+			Issues:    []TuttiReplayIssue{},
+		}
+	}
+
+	expected := buildState(map[string]any{
+		"model":            "gpt-5.3-codex-spark",
+		"permissionModeId": "read-only",
+		"planMode":         false,
+		"reasoningEffort":  "medium",
+	})
+	actual := buildState(map[string]any{
+		"codexSaverMode":   false,
+		"futureDefaultOff": false,
+		"model":            "gpt-5.3-codex-spark",
+		"permissionModeId": "read-only",
+		"planMode":         false,
+		"reasoningEffort":  "medium",
+		"speed":            "standard",
+	})
+	if err := CompareTuttiReplayState(expected, actual); err != nil {
+		t.Fatalf(
+			"live-only composer defaults must match recorded settings, got %v",
+			err,
+		)
+	}
+	if !composerSettingsEqual(actual.Agent.Sessions[0].Settings, expected.Agent.Sessions[0].Settings) {
+		t.Fatal("final compare and settings.equal must share composer contract")
+	}
+
+	err := CompareTuttiReplayState(
+		buildState(map[string]any{
+			"codexSaverMode": true,
+			"model":          "gpt-5.3-codex-spark",
+		}),
+		buildState(map[string]any{
+			"codexSaverMode": false,
+			"model":          "gpt-5.3-codex-spark",
+		}),
+	)
+	if err == nil {
+		t.Fatal("explicit non-default composer setting must still fail compare")
+	}
+	var conflict *TuttiReplayStateConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected TuttiReplayStateConflictError, got %v", err)
+	}
+	if conflict.Path != "$.agent.sessions[0].settings.codexSaverMode" {
+		t.Fatalf("conflict path = %q", conflict.Path)
+	}
+}
+
 func TestCompareTuttiReplayStateIgnoresVolatileGoalTimingFields(
 	t *testing.T,
 ) {

@@ -182,8 +182,9 @@ checkout. A caller may supply an absolute
 run-scoped Git project under the operating-system temporary directory and
 removes it on exit. `--keep-runtime` retains that project for diagnosis.
 Semantic settings readiness compares every recorded composer setting with the
-live canonical value but ignores live-only default fields. A Replay recorded
-before a provider began materializing a new default such as `speed` therefore
-remains valid, while a missing or changed recorded model, reasoning,
-permission, plan, or speed value that is not equivalent to an omitted default
-still fails closed.
+live canonical value but ignores live-only default fields. Final-state
+transport verification uses the same composer-settings contract for
+`Session.settings`, so a Replay recorded before a provider began materializing
+a new default such as `speed` or `codexSaverMode:false` remains valid, while a
+missing or changed recorded model, reasoning, permission, plan, or non-default
+speed / saver value still fails closed.

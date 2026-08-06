@@ -942,23 +942,81 @@ func TestRecordingAndReplayProcessTransportProjectsPlanDecisionClientUserMessage
 	}
 }
 
-func TestReplayProcessTransportKeepsOrdinaryClientUserMessageIDStrict(t *testing.T) {
+func TestReplayProcessTransportRemapsOrdinaryClientUserMessageIDConsistently(t *testing.T) {
 	expected := []byte(
 		`{"id":9,"method":"turn/start","params":{"clientUserMessageId":"user-submit-1"}}` + "\n",
 	)
 	actual := []byte(
 		`{"id":10,"method":"turn/start","params":{"clientUserMessageId":"user-submit-2"}}` + "\n",
 	)
-	if _, _, matches := processCassetteJSONMatch(
-		codexReplayDescriptorForCassetteTest(t),
+	descriptor := codexReplayDescriptorForCassetteTest(t)
+	_, learned, matches := processCassetteJSONMatch(
+		descriptor,
 		expected,
 		actual,
 		"",
 		"",
 		"",
 		nil,
+	)
+	if !matches {
+		t.Fatal("ordinary clientUserMessageId runtime identity did not match")
+	}
+	if got := learned["user-submit-1"]; got != "user-submit-2" {
+		t.Fatalf("learned clientUserMessageId = %q, want user-submit-2", got)
+	}
+
+	followupExpected := []byte(
+		`{"id":11,"method":"turn/start","params":{"clientUserMessageId":"user-submit-1"}}` + "\n",
+	)
+	followupActual := []byte(
+		`{"id":12,"method":"turn/start","params":{"clientUserMessageId":"user-submit-2"}}` + "\n",
+	)
+	if _, _, matches := processCassetteJSONMatch(
+		descriptor,
+		followupExpected,
+		followupActual,
+		"",
+		"",
+		"",
+		learned,
+	); !matches {
+		t.Fatal("consistent clientUserMessageId mapping did not match")
+	}
+
+	conflictingActual := bytes.Replace(
+		followupActual,
+		[]byte("user-submit-2"),
+		[]byte("user-submit-3"),
+		1,
+	)
+	if _, _, matches := processCassetteJSONMatch(
+		descriptor,
+		followupExpected,
+		conflictingActual,
+		"",
+		"",
+		"",
+		learned,
 	); matches {
-		t.Fatal("ordinary clientUserMessageId mismatch matched")
+		t.Fatal("conflicting clientUserMessageId mapping matched")
+	}
+
+	mappedInbound := mapProcessCassetteFrameJSON(
+		[]byte(`{"method":"turn/completed","params":{"clientUserMessageId":"user-submit-1"}}`+"\n"),
+		"",
+		"",
+		"",
+		descriptor,
+		learned,
+	)
+	var inboundMessage map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(mappedInbound), &inboundMessage); err != nil {
+		t.Fatal(err)
+	}
+	inboundParams, _ := inboundMessage["params"].(map[string]any)
+	if got := payloadString(inboundParams, "clientUserMessageId"); got != "user-submit-2" {
+		t.Fatalf("mapped inbound clientUserMessageId = %q, want user-submit-2", got)
 	}
 }
 
