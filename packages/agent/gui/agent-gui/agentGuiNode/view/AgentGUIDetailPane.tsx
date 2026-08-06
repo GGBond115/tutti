@@ -111,6 +111,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
   ] = useState<string | null>(null);
   const {
     activePromptRequestId,
+    activePromptResponsePending,
     bottomDockLiftedPrompt,
     bottomDockReplacementPrompt,
     chromeLabels,
@@ -307,7 +308,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     },
     [submitInteractivePrompt]
   );
-  const isInteractionPending = viewModel.interaction.isRespondingApproval;
+  const isInteractionPending = activePromptResponsePending;
   const homeComposerProviderTargets = homeTargetProjection.agentTargets;
   const selectedHomeComposerTarget = homeTargetProjection.selectedAgentTarget;
   const composerProviderTargets =
@@ -575,7 +576,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       viewModel.composer.isTuttiModeUpdating,
       viewModel.composer.tuttiModeEffect,
       viewModel.composer.tuttiModeSpeed,
-      viewModel.interaction.isRespondingApproval,
+      isInteractionPending,
       viewModel.composer.promptImagesSupported,
       viewModel.composer.queueStatus,
       viewModel.composer.queuedPrompts,

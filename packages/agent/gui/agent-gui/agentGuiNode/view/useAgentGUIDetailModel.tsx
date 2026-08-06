@@ -85,6 +85,10 @@ export function useAgentGUIDetailModel(input: Input) {
   const activePrompt =
     viewModel.interaction.pendingInteractivePrompt ??
     viewModel.interaction.pendingApproval;
+  const activePromptResponsePending =
+    activePrompt?.kind === "approval"
+      ? viewModel.interaction.isRespondingApproval
+      : viewModel.interaction.isRespondingInteractivePrompt;
   const activePromptRequestId = activePrompt?.requestId ?? null;
   const sessionChrome = useMemo<AgentGUISessionChrome>(
     () => ({ ...viewModel.interaction.sessionChrome, approval: null }),
@@ -720,6 +724,7 @@ export function useAgentGUIDetailModel(input: Input) {
   return {
     activeConversationTurnBusy,
     activePromptRequestId,
+    activePromptResponsePending,
     bottomDockLiftedPrompt,
     bottomDockReplacementPrompt,
     chromeLabels,

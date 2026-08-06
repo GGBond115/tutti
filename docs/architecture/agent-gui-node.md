@@ -1904,6 +1904,11 @@ ready or blocked result. Synchronizing and owner-offline results keep the
 pending card visible while disabling its actions; binding revocation is the
 terminal exception.
 
+If an approval and a server-projected prompt coexist, AgentGUI reads readiness
+for both exact identities. Each surface consumes only its own admission result;
+selecting one as the active prompt must not reuse its readiness for the sibling
+Interaction.
+
 Do not restore flat compatibility props or hide workflow inside a render slot.
 The optional `renderSlots.projectDirectoryPickerHeaderActions` slot is limited
 to host presentation beside the directory picker's title. AgentGUI owns picker

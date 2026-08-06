@@ -510,6 +510,7 @@ export interface AgentGUIComposerViewModel {
 
 export interface AgentGUIInteractionViewModel {
   isRespondingApproval: boolean;
+  isRespondingInteractivePrompt: boolean;
   pendingApproval: AgentGUIApprovalRequest | null;
   pendingInteractivePrompt: AgentGUIInteractivePrompt | null;
   sessionChrome: AgentGUISessionChrome;

@@ -55,6 +55,43 @@ interface CurrentValue<T> {
   current: T;
 }
 
+interface ExactInteractionPromptIdentity {
+  agentSessionId?: string | null;
+  requestId?: string | null;
+  turnId?: string | null;
+}
+
+function useExactInteractionReadiness(input: {
+  prompt: ExactInteractionPromptIdentity | null;
+  source?: AgentGUIInteractionReadinessSource | null;
+  workspaceId: string;
+}) {
+  const identity = useMemo(
+    () =>
+      resolveAgentGUIInteractionReadinessIdentity({
+        agentSessionId: input.prompt?.agentSessionId,
+        requestId: input.prompt?.requestId,
+        turnId: input.prompt?.turnId,
+        workspaceId: input.workspaceId
+      }),
+    [
+      input.prompt?.agentSessionId,
+      input.prompt?.requestId,
+      input.prompt?.turnId,
+      input.workspaceId
+    ]
+  );
+  const readiness = useAgentGUIInteractionReadiness({
+    identity,
+    required: input.prompt !== null,
+    source: input.source
+  });
+  return {
+    block: readiness?.status === "blocked" ? readiness : null,
+    ownsInteraction: input.source != null && input.prompt !== null
+  };
+}
+
 export function resolveAgentGUISharingRevokedRecovery(input: {
   activeConversationId: string | null;
   selectedAgentTargetOwnerLabel: string | null;
@@ -185,44 +222,48 @@ export function useAgentGUISessionPresentation(
           input.activeConversation?.title ?? ""
         )
       : null;
-  const pendingInteractivePrompt =
+  const unresolvedInteractivePrompt =
     input.serverInteractivePrompt ?? planImplementationPrompt;
-  const displayedInteractionPrompt =
-    pendingInteractivePrompt ?? input.pendingApproval;
-  const interactionReadinessPrompt =
-    displayedInteractionPrompt?.kind === "plan-implementation"
+  const interactiveReadinessPrompt =
+    unresolvedInteractivePrompt?.kind === "plan-implementation"
       ? null
-      : displayedInteractionPrompt;
-  const interactionReadinessIdentity = useMemo(
-    () =>
-      resolveAgentGUIInteractionReadinessIdentity({
-        agentSessionId: interactionReadinessPrompt?.agentSessionId,
-        requestId: interactionReadinessPrompt?.requestId,
-        turnId: interactionReadinessPrompt?.turnId,
-        workspaceId: input.workspaceId
-      }),
-    [
-      interactionReadinessPrompt?.agentSessionId,
-      interactionReadinessPrompt?.requestId,
-      interactionReadinessPrompt?.turnId,
-      input.workspaceId
-    ]
-  );
-  const interactionReadiness = useAgentGUIInteractionReadiness({
-    identity: interactionReadinessIdentity,
-    required: interactionReadinessPrompt !== null,
-    source: input.interactionReadinessSource
+      : unresolvedInteractivePrompt;
+  const interactiveReadiness = useExactInteractionReadiness({
+    prompt: interactiveReadinessPrompt,
+    source: input.interactionReadinessSource,
+    workspaceId: input.workspaceId
   });
-  const interactionReadinessBlock =
-    interactionReadiness?.status === "blocked" ? interactionReadiness : null;
+  const approvalReadiness = useExactInteractionReadiness({
+    prompt: input.pendingApproval,
+    source: input.interactionReadinessSource,
+    workspaceId: input.workspaceId
+  });
+  const pendingInteractivePrompt =
+    interactiveReadiness.block?.reason === "binding_revoked"
+      ? null
+      : unresolvedInteractivePrompt;
+  const pendingApproval =
+    approvalReadiness.block?.reason === "binding_revoked"
+      ? null
+      : input.pendingApproval;
+  const activeInteractionReadiness =
+    pendingInteractivePrompt !== null
+      ? interactiveReadiness
+      : pendingApproval !== null
+        ? approvalReadiness
+        : unresolvedInteractivePrompt !== null
+          ? interactiveReadiness
+          : approvalReadiness;
+  const interactionReadinessBlock = activeInteractionReadiness.block;
   const interactionReadinessOwnsInteraction =
-    input.interactionReadinessSource != null &&
-    interactionReadinessPrompt !== null;
-  const interactionResponsePending =
+    activeInteractionReadiness.ownsInteraction;
+  const interactivePromptResponsePending =
     input.isRespondingToInteraction ||
-    interactionReadinessBlock !== null ||
+    interactiveReadiness.block !== null ||
     activePlanDecision?.status === "requested" ||
     activePlanDecision?.status === "unknown";
+  const approvalResponsePending =
+    input.isRespondingToInteraction || approvalReadiness.block !== null;
 
   const activeActivationAwaitsInitialTurn = Boolean(
     input.activeConversationId &&
@@ -317,7 +358,7 @@ export function useAgentGUISessionPresentation(
         translate("agentHost.agentGui.sharedDeviceLabel");
       return {
         auth: null,
-        approval: input.pendingApproval,
+        approval: pendingApproval,
         recovery: {
           kind: synchronizing
             ? "transport-connecting"
@@ -426,7 +467,7 @@ export function useAgentGUISessionPresentation(
           : isAuthError
             ? { message: normalizedError }
             : null,
-      approval: input.pendingApproval,
+      approval: pendingApproval,
       recovery:
         input.activeLiveState === "activating" &&
         input.activePendingActivation?.mode !== "new"
@@ -459,13 +500,13 @@ export function useAgentGUISessionPresentation(
     input.activeLiveState,
     input.activeSessionState,
     input.activePendingActivation?.mode,
-    input.pendingApproval,
     input.ownerDeviceLabel,
     input.selectedAgentTargetOwnerLabel,
     input.selectedAgentTargetUnavailable,
     input.selectedAgentTargetUnavailableReason,
     interactionReadinessBlock,
     interactionReadinessOwnsInteraction,
+    pendingApproval,
     sessionRuntimeBlock,
     targetConnection.visibleState,
     observationGap,
@@ -480,7 +521,7 @@ export function useAgentGUISessionPresentation(
     conversationUserId: input.activeConversation?.userId,
     currentUserId: input.currentUserId
   });
-  const pendingApproval = input.pendingApproval !== null;
+  const hasPendingApproval = pendingApproval !== null;
   const hasPendingInteractivePrompt = pendingInteractivePrompt !== null;
   const settingsUpdateStatus = input.activeEngineSettingsUpdate?.status;
   const settingsUpdatePending =
@@ -504,7 +545,7 @@ export function useAgentGUISessionPresentation(
         isCreatingConversation: input.isCreatingConversation,
         isInterrupting: input.isInterrupting,
         isSubmitting: input.isSubmitting,
-        pendingApproval,
+        pendingApproval: hasPendingApproval,
         pendingInteractivePrompt: hasPendingInteractivePrompt,
         providerReadinessGate: input.providerReadinessGate,
         selectedAgentTargetUnavailable: input.selectedAgentTargetUnavailable,
@@ -531,7 +572,7 @@ export function useAgentGUISessionPresentation(
       input.providerReadinessGate,
       input.selectedAgentTargetUnavailable,
       isCollaboratorConversation,
-      pendingApproval,
+      hasPendingApproval,
       sessionRuntimeBlockedReason,
       settingsUpdatePending,
       targetConnection.blocked,
@@ -540,8 +581,12 @@ export function useAgentGUISessionPresentation(
     ]
   );
   const isRespondingApproval =
-    interactionResponsePending ||
-    (!interactionReadinessOwnsInteraction &&
+    approvalResponsePending ||
+    (!approvalReadiness.ownsInteraction &&
+      composerGate.runtime.status === "blocked");
+  const isRespondingInteractivePrompt =
+    interactivePromptResponsePending ||
+    (!interactiveReadiness.ownsInteraction &&
       composerGate.runtime.status === "blocked");
   const canSubmit = composerGate.submission.status === "ready";
   const canQueueWhileBusy = composerGate.submission.status === "queue";
@@ -567,7 +612,7 @@ export function useAgentGUISessionPresentation(
       activeConversationBusy ? "busy" : "ready",
       activeHasPendingSubmittedTurn ? "pending-turn" : "no-pending-turn",
       activeSubmitBlocked ? "submit-blocked" : "submit-open",
-      input.pendingApproval?.requestId ?? "",
+      pendingApproval?.requestId ?? "",
       promptRequestId(pendingInteractivePrompt) ?? "",
       input.conversation?.activity.status ?? "",
       input.conversation?.sourceDetail.showProcessingIndicator
@@ -609,7 +654,7 @@ export function useAgentGUISessionPresentation(
       isCreatingConversation: input.isCreatingConversation,
       isLoadingMessages: input.isLoadingMessages,
       isSubmitting: input.isSubmitting,
-      pendingApproval: input.pendingApproval,
+      pendingApproval,
       pendingInteractivePrompt,
       runtime: input.agentActivityRuntime,
       workspaceId: input.workspaceId
@@ -637,8 +682,8 @@ export function useAgentGUISessionPresentation(
     input.isLoadingMessages,
     input.isSubmitting,
     input.lastRenderStateDiagnosticKeyRef,
-    input.pendingApproval,
     input.workspaceId,
+    pendingApproval,
     pendingInteractivePrompt
   ]);
   return {
@@ -646,6 +691,8 @@ export function useAgentGUISessionPresentation(
     composerGate,
     hasSentUserMessage,
     isRespondingApproval,
+    isRespondingInteractivePrompt,
+    pendingApproval,
     pendingInteractivePrompt,
     sessionChrome
   };

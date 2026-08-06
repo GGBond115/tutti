@@ -600,21 +600,50 @@ describe("useAgentGUISessionPresentation", () => {
 
     expect(
       promptAwareReadinessSource.getInteractionReadiness
-    ).toHaveBeenLastCalledWith({
+    ).toHaveBeenCalledWith({
       agentSessionId: "session-1",
       requestId: "question-1",
       turnId: "turn-2",
       workspaceId: "workspace-1"
     });
+    expect(
+      promptAwareReadinessSource.getInteractionReadiness
+    ).toHaveBeenCalledWith({
+      agentSessionId: "session-1",
+      requestId: "request-1",
+      turnId: "turn-1",
+      workspaceId: "workspace-1"
+    });
     expect(rendered.result.current.pendingInteractivePrompt).toMatchObject({
       requestId: "question-1"
+    });
+    expect(rendered.result.current.pendingApproval).toMatchObject({
+      requestId: "request-1"
     });
     expect(rendered.result.current.sessionChrome.recovery).toBeNull();
     expect(rendered.result.current.composerGate.runtime).toMatchObject({
       status: "blocked",
       reason: "target_connection"
     });
+    expect(rendered.result.current.isRespondingApproval).toBe(true);
+    expect(rendered.result.current.isRespondingInteractivePrompt).toBe(false);
+
+    input.interactionReadinessSource = {
+      getInteractionReadiness: vi.fn((identity: { requestId: string }) =>
+        identity.requestId === "question-1"
+          ? ({ status: "blocked", reason: "synchronizing" } as const)
+          : ({ status: "ready" } as const)
+      ),
+      subscribe: vi.fn(() => () => undefined)
+    };
+    rendered.rerender();
+
+    expect(rendered.result.current.sessionChrome.recovery).toMatchObject({
+      kind: "transport-connecting",
+      interactionScoped: true
+    });
     expect(rendered.result.current.isRespondingApproval).toBe(false);
+    expect(rendered.result.current.isRespondingInteractivePrompt).toBe(true);
 
     input.interactionReadinessSource = new StaticInteractionSource({
       status: "ready"
