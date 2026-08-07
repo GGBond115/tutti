@@ -24,7 +24,6 @@ export const en = {
   capture: {
     error: "Could not start the Agent. Try again.",
     loading: "Preparing screenshot…",
-    notePlaceholder: "Ask the Agent to inspect, explain, or change this…",
     screenPreviewAlt: "Screen ready for area selection",
     selectHint: "Drag to select an area · Esc to cancel",
     taskPrompt:

@@ -192,7 +192,6 @@ export function DesktopCaptureWindow({
                   snapshot.submitting || snapshot.refreshingAgentOptions
                 }
                 locale={snapshot.capture.locale}
-                placeholder={translator.t("capture.notePlaceholder")}
                 projectPath={snapshot.projectPath}
                 selectedAgentTargetId={snapshot.agentTargetId}
                 taskActionHint={translator.t("capture.taskPromptHint")}

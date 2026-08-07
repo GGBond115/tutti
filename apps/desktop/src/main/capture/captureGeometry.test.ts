@@ -40,6 +40,20 @@ test("resolveCaptureComposerBounds flips above a bottom-edge selection", () => {
   );
 });
 
+test("resolveCaptureComposerBounds restores and clamps the remembered position", () => {
+  assert.deepEqual(
+    resolveCaptureComposerBounds({
+      composerHeight: 500,
+      composerWidth: 760,
+      displayBounds: { x: 1440, y: 0, width: 1920, height: 1080 },
+      rememberedPosition: { x: -500, y: 900 },
+      selection: { x: 20, y: 20, width: 100, height: 100 },
+      workArea: { x: 1440, y: 24, width: 1920, height: 1016 }
+    }),
+    { x: 1440, y: 540, width: 760, height: 500 }
+  );
+});
+
 test("resolveCaptureTitle uses the note first line and screenshot fallback", () => {
   assert.equal(
     resolveCaptureTitle("  Fix this layout\nMore details", "shot.png"),

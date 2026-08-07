@@ -51,9 +51,14 @@ Agent Host
   blocks.
 
 The capture targets the display nearest the pointer. Electron captures that
-display before the transparent selection window is shown, then crops the
-selected rectangle using the display scale factor. This keeps Retina/HiDPI
-pixels intact while positioning the selection UI in display-independent
+display before the transparent selection window is shown. The selection window
+then enters native full-screen on that display; macOS uses simple full-screen so
+the selector covers the menu bar and Dock without creating a separate Space.
+After selection it exits full-screen before becoming the floating Composer.
+This keeps the captured pixels and selection viewport on the same full-display
+geometry instead of scaling the screenshot into the smaller work area. The
+selected rectangle is cropped using the display scale factor, preserving
+Retina/HiDPI pixels while the selection UI uses display-independent
 coordinates. The shortcut contains exactly three keys and avoids shifted
 number-row symbols, whose interpretation varies by keyboard layout. Agent
 metadata loads concurrently with screen capture but does not delay showing the
@@ -100,6 +105,16 @@ hosts remain content-sized unless they make the same explicit request. The
 floating window owns the visible perimeter, so this host also selects the
 Quick Composer's borderless input-surface variant instead of rendering a
 redundant nested outline.
+
+The capture host does not override the Composer placeholder; it uses the same
+AgentGUI-owned default wording as the normal new-conversation Composer. The
+main-process window adapter persists only the last manually dragged Composer
+coordinates in the Desktop user-data directory. Later captures restore that
+position and clamp it into the active display work area, so a removed monitor
+or changed resolution cannot place the Composer off-screen. Before the first
+manual move, selection-relative placement remains the fallback. This placement
+record is native presentation state, not an AgentGUI preference or business
+fact.
 
 The screenshot appears as an image draft block. The user chooses an Agent,
 adds or edits prompt text, and sends with the Composer button or its existing

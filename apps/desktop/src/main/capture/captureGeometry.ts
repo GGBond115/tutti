@@ -32,9 +32,30 @@ export function resolveCaptureComposerBounds(input: {
   composerHeight: number;
   composerWidth: number;
   displayBounds: CaptureBounds;
+  rememberedPosition?: Pick<CaptureBounds, "x" | "y"> | null;
   selection: DesktopCaptureSelectionInput;
   workArea: CaptureBounds;
 }): CaptureBounds {
+  if (input.rememberedPosition) {
+    return {
+      height: input.composerHeight,
+      width: input.composerWidth,
+      x: Math.round(
+        clamp(
+          input.rememberedPosition.x,
+          input.workArea.x,
+          input.workArea.x + input.workArea.width - input.composerWidth
+        )
+      ),
+      y: Math.round(
+        clamp(
+          input.rememberedPosition.y,
+          input.workArea.y,
+          input.workArea.y + input.workArea.height - input.composerHeight
+        )
+      )
+    };
+  }
   const preferredX =
     input.displayBounds.x +
     input.selection.x +
@@ -64,6 +85,10 @@ export function resolveCaptureComposerBounds(input: {
     x: Math.round(x),
     y: Math.round(y)
   };
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(value, maximum));
 }
 
 export function resolveCaptureTitle(note: string, displayName: string): string {

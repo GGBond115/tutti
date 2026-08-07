@@ -25,7 +25,6 @@ export const zhCN = {
   capture: {
     error: "Agent 启动失败，请重试",
     loading: "正在准备截图…",
-    notePlaceholder: "让 Agent 检查、解释或修改截图中的内容…",
     screenPreviewAlt: "等待选择区域的屏幕",
     selectHint: "拖动选择区域 · Esc 取消",
     taskPrompt:

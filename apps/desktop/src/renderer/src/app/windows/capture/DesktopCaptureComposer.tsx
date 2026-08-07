@@ -17,7 +17,6 @@ export function DesktopCaptureComposer({
   controller,
   disabled,
   locale,
-  placeholder,
   projectPath,
   selectedAgentTargetId,
   taskActionLabel,
@@ -34,7 +33,6 @@ export function DesktopCaptureComposer({
   controller: DesktopCaptureWindowController;
   disabled: boolean;
   locale: DesktopLocale;
-  placeholder: string;
   projectPath: string | null;
   selectedAgentTargetId: string;
   taskActionHint: string;
@@ -85,7 +83,6 @@ export function DesktopCaptureComposer({
       locale={locale}
       mentionService={mentionService}
       menuViewportTopInset={48}
-      placeholder={placeholder}
       selectedAgentTargetId={selectedAgentTargetId}
       selectedProjectPath={projectPath}
       userProjectApi={controller.userProjectApi}

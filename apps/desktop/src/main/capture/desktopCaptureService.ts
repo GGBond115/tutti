@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import {
   BrowserWindow,
   app,
@@ -60,10 +60,15 @@ import {
 import {
   normalizeCaptureSelection,
   resolveCaptureComposerBounds,
-  resolveCaptureTitle
+  resolveCaptureTitle,
+  type CaptureBounds
 } from "./captureGeometry.ts";
 import { normalizeCapturePromptContent } from "./captureAgentPrompt.ts";
 import { resolveCaptureAgentCapabilities } from "./captureAgentCapabilities.ts";
+import {
+  createCaptureComposerPlacementStore,
+  type CaptureComposerPosition
+} from "./captureComposerPlacement.ts";
 import { desktopCaptureAccelerator } from "./captureShortcut.ts";
 import type { DesktopFileDialogAccess } from "../host/desktopFileDialogAccess.ts";
 
@@ -77,6 +82,8 @@ type DesktopCaptureComposerOptionsLoad =
 
 interface ActiveCapture {
   closing: boolean;
+  composerBounds: CaptureBounds | null;
+  composerMovementTrackingEnabled: boolean;
   composerOptions: Promise<DesktopCaptureComposerOptionsLoad>;
   display: Display;
   image: NativeImage;
@@ -111,9 +118,44 @@ export function createDesktopCaptureService(input: {
   const workspaceRendererReadiness = createWorkspaceAppRendererReadiness({
     ipc: ipcMain
   });
+  const composerPlacementStore = createCaptureComposerPlacementStore(
+    join(app.getPath("userData"), "capture-composer-placement.json")
+  );
   let activeCapture: ActiveCapture | null = null;
+  let composerPositionDirty = false;
   let openingCapture = false;
   let lastWorkspaceId = resolveFocusedWorkspaceId();
+  let rememberedComposerPosition: CaptureComposerPosition | null = null;
+  const composerPositionLoaded = composerPlacementStore
+    .read()
+    .then((position) => {
+      if (!composerPositionDirty) {
+        rememberedComposerPosition = position;
+      }
+    })
+    .catch((error) => {
+      input.logger.warn("failed to restore screenshot composer position", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+
+  const rememberComposerPosition = (position: CaptureComposerPosition) => {
+    rememberedComposerPosition = position;
+    composerPositionDirty = true;
+  };
+  const persistComposerPosition = () => {
+    const position = rememberedComposerPosition;
+    if (!composerPositionDirty || !position) {
+      return;
+    }
+    composerPositionDirty = false;
+    void composerPlacementStore.write(position).catch((error) => {
+      composerPositionDirty = true;
+      input.logger.warn("failed to persist screenshot composer position", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  };
 
   const onBrowserWindowFocus = (
     _event: Electron.Event,
@@ -240,7 +282,8 @@ export function createDesktopCaptureService(input: {
         ...loaded.options
       };
       capture.selected = selected;
-      presentComposer(capture, normalized);
+      await composerPositionLoaded;
+      await presentComposer(capture, normalized, rememberedComposerPosition);
       return { attachment: selected, ...loaded.options };
     }
   );
@@ -369,9 +412,11 @@ export function createDesktopCaptureService(input: {
         workspaceId,
         returnFocusToExternalApplication,
         workspaceRendererReadiness,
+        rememberComposerPosition,
         (capture) => {
           activeCapture = capture;
           capture.window.once("closed", () => {
+            persistComposerPosition();
             if (activeCapture?.window === capture.window) {
               activeCapture = null;
             }
@@ -411,6 +456,7 @@ export function createDesktopCaptureService(input: {
 
   return {
     dispose() {
+      persistComposerPosition();
       app.removeListener("browser-window-focus", onBrowserWindowFocus);
       globalShortcut.unregister(desktopCaptureAccelerator);
       workspaceRendererReadiness.dispose();
@@ -430,6 +476,7 @@ async function createCaptureWindow(
   workspaceId: string,
   returnFocusToExternalApplication: boolean,
   workspaceRendererReadiness: WorkspaceAppRendererReadiness,
+  rememberComposerPosition: (position: CaptureComposerPosition) => void,
   activate: (capture: ActiveCapture) => void
 ): Promise<ActiveCapture> {
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
@@ -462,13 +509,16 @@ async function createCaptureWindow(
   const captureWindow = new BrowserWindow({
     ...display.bounds,
     alwaysOnTop: true,
+    autoHideMenuBar: true,
     backgroundColor: "#00000000",
     frame: false,
-    fullscreenable: false,
+    fullscreen: process.platform !== "darwin",
+    fullscreenable: true,
     hasShadow: false,
     movable: true,
     resizable: false,
     show: false,
+    simpleFullscreen: process.platform === "darwin",
     skipTaskbar: true,
     transparent: true,
     webPreferences: {
@@ -480,6 +530,11 @@ async function createCaptureWindow(
     }
   });
   captureWindow.setAlwaysOnTop(true, "screen-saver");
+  if (process.platform === "darwin") {
+    captureWindow.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true
+    });
+  }
   const state: DesktopCaptureState = {
     agents: [],
     displayHeight: display.bounds.height,
@@ -491,6 +546,8 @@ async function createCaptureWindow(
   };
   const capture: ActiveCapture = {
     closing: false,
+    composerBounds: null,
+    composerMovementTrackingEnabled: false,
     composerOptions,
     display,
     image: source.thumbnail,
@@ -501,6 +558,27 @@ async function createCaptureWindow(
     window: captureWindow,
     workspaceRendererReadiness
   };
+  captureWindow.on("will-move", (_event, newBounds) => {
+    if (capture.selected) {
+      rememberComposerPosition({ x: newBounds.x, y: newBounds.y });
+    }
+  });
+  if (process.platform === "linux") {
+    captureWindow.on("move", () => {
+      if (!capture.selected || !capture.composerMovementTrackingEnabled) {
+        return;
+      }
+      const bounds = captureWindow.getBounds();
+      if (
+        capture.composerBounds?.x === bounds.x &&
+        capture.composerBounds.y === bounds.y
+      ) {
+        return;
+      }
+      capture.composerBounds = bounds;
+      rememberComposerPosition({ x: bounds.x, y: bounds.y });
+    });
+  }
   activate(capture);
   if (input.rendererUrl) {
     await captureWindow.loadURL(`${input.rendererUrl}/capture.html`);
@@ -667,10 +745,11 @@ async function loadCaptureAgentOption(
   };
 }
 
-function presentComposer(
+async function presentComposer(
   capture: ActiveCapture,
-  selection: DesktopCaptureSelectionInput
-): void {
+  selection: DesktopCaptureSelectionInput,
+  rememberedPosition: CaptureComposerPosition | null
+): Promise<void> {
   const bounds = resolveCaptureComposerBounds({
     composerHeight: Math.min(
       captureComposerHeight,
@@ -681,15 +760,48 @@ function presentComposer(
       capture.display.workArea.width
     ),
     displayBounds: capture.display.bounds,
+    rememberedPosition,
     selection,
     workArea: capture.display.workArea
   });
   capture.window.setOpacity(0);
+  capture.composerMovementTrackingEnabled = false;
+  await leaveCaptureSelectionFullscreen(capture.window);
+  capture.window.setFullScreenable(false);
   capture.window.setResizable(true);
   capture.window.setBounds(bounds);
+  capture.composerBounds = bounds;
   capture.window.setResizable(false);
   capture.window.setBackgroundColor("#00000000");
   capture.window.setOpacity(1);
+  capture.composerMovementTrackingEnabled = true;
+}
+
+async function leaveCaptureSelectionFullscreen(
+  window: BrowserWindow
+): Promise<void> {
+  if (process.platform === "darwin") {
+    if (window.isSimpleFullScreen()) {
+      window.setSimpleFullScreen(false);
+    }
+    return;
+  }
+  if (!window.isFullScreen()) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const finish = () => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      window.removeListener("leave-full-screen", finish);
+      resolve();
+    };
+    window.once("leave-full-screen", finish);
+    timeout = setTimeout(finish, 1_000);
+    window.setFullScreen(false);
+  });
 }
 
 async function submitCapture(
