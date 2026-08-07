@@ -1,5 +1,8 @@
 import { useMemo, type JSX } from "react";
-import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
+import type {
+  AgentActivityComposerOptions,
+  AgentPromptContentBlock
+} from "@tutti-os/agent-activity-core";
 import type { I18nRuntime } from "@tutti-os/ui-i18n-runtime";
 import { TooltipProvider } from "@tutti-os/ui-system";
 import type { RichTextMentionService } from "@tutti-os/ui-rich-text/service";
@@ -24,6 +27,13 @@ import {
   useTranslation
 } from "./i18n/index";
 import type { AgentGUIAgentTarget } from "./types";
+import {
+  pickQuickComposerSettings,
+  projectQuickComposerSettings,
+  type AgentGUIQuickComposerSettings
+} from "./quickComposerSettings";
+
+export type { AgentGUIQuickComposerSettings } from "./quickComposerSettings";
 
 const readyGate: AgentGUIComposerGate = {
   conversationBusy: false,
@@ -35,36 +45,9 @@ const readyGate: AgentGUIComposerGate = {
   },
   submission: { reason: null, status: "ready" }
 };
-
-const quickComposerSettings: AgentGUIComposerSettingsVM = {
-  availableModels: [],
-  availablePermissionModes: [],
-  availableReasoningEfforts: [],
-  availableSpeeds: [],
-  draftSettings: {
-    browserUse: true,
-    computerUse: true,
-    model: null,
-    permissionModeId: null,
-    planMode: false,
-    reasoningEffort: null,
-    speed: null
-  },
-  isSettingsLoading: false,
-  modelUnavailable: false,
-  permissionModeUnavailable: false,
-  reasoningUnavailable: false,
-  selectedProjectPath: null,
-  selectedProjectSectionKey: "conversations",
-  shouldApplyPreparedProjectSelection: false,
-  sessionSettings: null,
-  speedUnavailable: false,
-  supportsModel: false,
-  supportsPermissionMode: false,
-  supportsPlanMode: false,
-  supportsReasoningEffort: false,
-  supportsSpeed: false
-};
+const emptyQuickComposerSettings: AgentGUIQuickComposerSettings = Object.freeze(
+  {}
+);
 
 export type AgentGUIQuickComposerAgentTarget = Omit<
   AgentGUIAgentTarget,
@@ -78,10 +61,20 @@ export interface AgentGUIQuickComposerTargetCapabilities {
   workspaceReferences: boolean;
 }
 
+export interface AgentGUIQuickComposerSettingsCapability {
+  /** Host-owned authoritative options for the exact selected target/cwd. */
+  options: AgentActivityComposerOptions | null;
+  loading: boolean;
+  /** Controlled sparse pre-session settings selected in this draft. */
+  value: AgentGUIQuickComposerSettings;
+  onChange(patch: AgentGUIQuickComposerSettings): void;
+}
+
 export interface AgentGUIQuickComposerSubmission {
   agentTargetId: string;
   content: AgentPromptContentBlock[];
   displayPrompt?: string;
+  settings?: AgentGUIQuickComposerSettings;
 }
 
 export interface AgentGUIQuickComposerProps {
@@ -91,6 +84,8 @@ export interface AgentGUIQuickComposerProps {
   >;
   composerActionAccessory?: AgentComposerProps["composerActionAccessory"];
   composerActionPlacement?: AgentComposerProps["composerActionPlacement"];
+  /** Omit the whole capability when the host cannot persist settings changes. */
+  composerSettings?: AgentGUIQuickComposerSettingsCapability;
   content: readonly AgentPromptContentBlock[];
   disabled?: boolean;
   /** Fill a height explicitly assigned by the embedding host. */
@@ -142,6 +137,7 @@ function AgentGUIQuickComposerInner({
   capabilitiesByAgentTargetId,
   composerActionAccessory,
   composerActionPlacement,
+  composerSettings: settingsCapability,
   content,
   disabled = false,
   fillAvailableHeight = false,
@@ -173,6 +169,16 @@ function AgentGUIQuickComposerInner({
     selectedTargetCapabilities !== null;
   const draftHasImages = content.some((block) => block.type === "image");
   const provider = selectedAgentTarget?.provider ?? "";
+  const composerOptions = settingsCapability?.options ?? null;
+  const composerOptionsLoading = settingsCapability?.loading ?? false;
+  const settingsCapabilityValue = settingsCapability?.value;
+  const settings = useMemo(
+    () =>
+      settingsCapabilityValue
+        ? pickQuickComposerSettings(settingsCapabilityValue)
+        : emptyQuickComposerSettings,
+    [settingsCapabilityValue]
+  );
   const composerAgentTargets = useMemo<AgentGUIAgentTarget[]>(
     () =>
       agentTargets.map((target) => ({
@@ -203,12 +209,23 @@ function AgentGUIQuickComposerInner({
     [content]
   );
   const composerSettings = useMemo<AgentGUIComposerSettingsVM>(
-    () => ({
-      ...quickComposerSettings,
-      projectLocked: disabled,
-      selectedProjectPath
-    }),
-    [disabled, selectedProjectPath]
+    () =>
+      projectQuickComposerSettings({
+        loading: composerOptionsLoading,
+        options: composerOptions,
+        projectLocked: disabled,
+        provider,
+        selectedProjectPath,
+        settings
+      }),
+    [
+      composerOptions,
+      composerOptionsLoading,
+      disabled,
+      provider,
+      selectedProjectPath,
+      settings
+    ]
   );
 
   return (
@@ -246,6 +263,7 @@ function AgentGUIQuickComposerInner({
         presentationEditorDisabled={disabled}
         presentationSubmitDisabled={
           disabled ||
+          composerOptionsLoading ||
           !selectedTargetReady ||
           (draftHasImages && selectedTargetCapabilities?.imageInput !== true)
         }
@@ -295,7 +313,9 @@ function AgentGUIQuickComposerInner({
             : undefined
         }
         onSendQueuedPromptNext={() => {}}
-        onSettingsChange={() => {}}
+        onSettingsChange={(patch) =>
+          settingsCapability?.onChange(pickQuickComposerSettings(patch))
+        }
         onSubmit={(nextContent, displayPrompt) => {
           if (
             !selectedTargetReady ||
@@ -310,7 +330,10 @@ function AgentGUIQuickComposerInner({
             agentTargetId: selectedAgentTarget.agentTargetId,
             content: nextContent,
             displayPrompt:
-              displayPrompt ?? agentComposerDraftPrompt(draftContent)
+              displayPrompt ?? agentComposerDraftPrompt(draftContent),
+            ...(settingsCapability && Object.keys(settings).length > 0
+              ? { settings }
+              : {})
           });
         }}
         onSubmitInteractivePrompt={() => false}

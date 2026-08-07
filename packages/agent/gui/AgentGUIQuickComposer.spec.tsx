@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { AgentActivityComposerOptions } from "@tutti-os/agent-activity-core";
 import { createI18nRuntime } from "@tutti-os/ui-i18n-runtime";
 import { createRichTextMentionService } from "@tutti-os/ui-rich-text/service";
 import type { RichTextTriggerProvider } from "@tutti-os/ui-rich-text/types";
@@ -19,6 +20,35 @@ const agentTargets = [
 const capabilitiesByAgentTargetId = {
   "agent:codex": { imageInput: true, workspaceReferences: true }
 } as const;
+
+const composerOptions = {
+  behavior: {
+    collapseModelOptionsToLatest: false,
+    modelOptionsAuthoritative: true,
+    planModeExclusiveWithPermissionMode: false,
+    prewarmDraftSession: false,
+    refreshModelOptionsAfterSettings: true
+  },
+  capabilities: null,
+  effectiveSettings: {
+    model: "gpt-5.6-sol",
+    reasoningEffort: "high"
+  },
+  loadedAtUnixMs: 1,
+  modelConfigurable: true,
+  models: [
+    { label: "GPT-5.6-Sol", value: "gpt-5.6-sol" },
+    { label: "GPT-5.5", value: "gpt-5.5" }
+  ],
+  provider: "codex",
+  reasoningConfigurable: true,
+  reasoningEfforts: [
+    { label: "Medium", value: "medium" },
+    { label: "High", value: "high" }
+  ],
+  skills: [],
+  speeds: []
+} satisfies AgentActivityComposerOptions;
 
 describe("AgentGUIQuickComposer", () => {
   it("fails closed when the controlled Agent target is missing or disabled", () => {
@@ -86,6 +116,112 @@ describe("AgentGUIQuickComposer", () => {
       content: [{ text: "Inspect this", type: "text" }],
       displayPrompt: "Inspect this"
     });
+  });
+
+  it("reuses the standard model and reasoning controls", async () => {
+    const onSettingsChange = vi.fn();
+    const { container } = render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
+        composerSettings={{
+          loading: false,
+          onChange: onSettingsChange,
+          options: composerOptions,
+          value: { model: "gpt-5.6-sol", reasoningEffort: "high" }
+        }}
+        content={[{ text: "Inspect this", type: "text" }]}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-model-reasoning-trigger="true"]'
+    );
+    expect(trigger).toHaveTextContent("GPT-5.6-Sol");
+    expect(trigger).toHaveTextContent("High");
+
+    fireEvent.pointerDown(trigger!, { button: 0, ctrlKey: false });
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-agent-model-value="gpt-5.5"]')
+      ).not.toBeNull()
+    );
+    fireEvent.pointerDown(
+      document.querySelector<HTMLElement>(
+        '[data-agent-model-value="gpt-5.5"]'
+      )!,
+      { button: 0 }
+    );
+
+    expect(onSettingsChange).toHaveBeenCalledWith({ model: "gpt-5.5" });
+  });
+
+  it("keeps prompt entry and references available while options load", () => {
+    const { container } = render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
+        composerSettings={{
+          loading: true,
+          onChange: vi.fn(),
+          options: null,
+          value: {}
+        }}
+        content={[{ text: "Inspect this", type: "text" }]}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onRequestWorkspaceReferences={vi.fn().mockResolvedValue({
+          files: [],
+          mentionItems: []
+        })}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    expect(
+      container.querySelector<HTMLElement>('[role="textbox"]')
+    ).toHaveAttribute("aria-disabled", "false");
+    expect(
+      container
+        .querySelector('[data-agent-reference-add-icon="true"]')
+        ?.closest("button")
+    ).not.toBeDisabled();
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-agent-model-reasoning-trigger="true"]'
+      )
+    ).toBeDisabled();
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-testid="agent-gui-composer-send"]'
+      )
+    ).toBeDisabled();
+  });
+
+  it("hides settings controls when the host omits the controlled capability", () => {
+    const { container } = render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
+        content={[{ text: "Inspect this", type: "text" }]}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    expect(
+      container.querySelector('[data-agent-model-reasoning-trigger="true"]')
+    ).toBeNull();
   });
 
   it("maps provider selection to the canonical Agent target identity", () => {

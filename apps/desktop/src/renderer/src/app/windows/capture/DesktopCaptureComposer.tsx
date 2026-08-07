@@ -1,5 +1,8 @@
 import { useEffect, useMemo } from "react";
-import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
+import type {
+  AgentActivityComposerOptions,
+  AgentPromptContentBlock
+} from "@tutti-os/agent-activity-core";
 import {
   AgentGUIQuickComposer,
   type AgentGUIQuickComposerAgentTarget,
@@ -7,12 +10,16 @@ import {
 } from "@tutti-os/agent-gui/quick-composer";
 import { Switch } from "@tutti-os/ui-system";
 import { createTuttiExternalRichTextMentionService } from "@tutti-os/workspace-external-core/rich-text";
+import type { DesktopCaptureComposerSettings } from "../../../../../shared/contracts/capture.ts";
 import type { DesktopLocale } from "../../../../../shared/i18n/core/locale.ts";
 import type { DesktopCaptureWindowController } from "./desktopCaptureWindowController.ts";
 
 export function DesktopCaptureComposer({
   agentTargets,
   capabilitiesByAgentTargetId,
+  composerOptions,
+  composerOptionsLoading,
+  composerSettings,
   content,
   controller,
   disabled,
@@ -29,6 +36,9 @@ export function DesktopCaptureComposer({
   capabilitiesByAgentTargetId: Readonly<
     Record<string, AgentGUIQuickComposerTargetCapabilities | undefined>
   >;
+  composerOptions: AgentActivityComposerOptions | null;
+  composerOptionsLoading: boolean;
+  composerSettings: DesktopCaptureComposerSettings;
   content: readonly AgentPromptContentBlock[];
   controller: DesktopCaptureWindowController;
   disabled: boolean;
@@ -76,6 +86,12 @@ export function DesktopCaptureComposer({
         </div>
       }
       composerActionPlacement="footer"
+      composerSettings={{
+        loading: composerOptionsLoading,
+        onChange: (patch) => controller.setComposerSettings(patch),
+        options: composerOptions,
+        value: composerSettings
+      }}
       content={content}
       disabled={disabled}
       fillAvailableHeight={true}

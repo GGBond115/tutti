@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type {
   DesktopCaptureApi,
+  DesktopCaptureComposerOptionsInput,
   DesktopCaptureSubmitInput
 } from "../../../../../shared/contracts/capture.ts";
 import {
@@ -10,24 +11,29 @@ import {
 } from "./desktopCaptureWindowController.ts";
 
 test("DesktopCaptureWindowController owns selection and submission retry state", async () => {
+  const composerOptionInputs: DesktopCaptureComposerOptionsInput[] = [];
   const submissions: DesktopCaptureSubmitInput[] = [];
   let failSubmission = true;
   const api: DesktopCaptureApi = {
     cancel: async () => undefined,
-    getComposerOptions: async () => ({
-      agents: [
-        {
-          capabilities: {
-            imageInput: true,
-            workspaceReferences: true
-          },
-          iconUrl: "data:image/png;base64,aWNvbg==",
-          id: "agent-1",
-          name: "Agent",
-          provider: "codex"
-        }
-      ]
-    }),
+    getComposerOptions: async (input) => {
+      composerOptionInputs.push(input);
+      return {
+        agents: [
+          {
+            capabilities: {
+              imageInput: true,
+              workspaceReferences: true
+            },
+            iconUrl: "data:image/png;base64,aWNvbg==",
+            id: "agent-1",
+            name: "Agent",
+            composerOptions: null,
+            provider: "codex"
+          }
+        ]
+      };
+    },
     getState: async () => ({
       agents: [],
       displayHeight: 800,
@@ -50,6 +56,7 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
           iconUrl: "data:image/png;base64,aWNvbg==",
           id: "agent-1",
           name: "Agent",
+          composerOptions: null,
           provider: "codex"
         }
       ],
@@ -87,6 +94,10 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
     ...controller.getSnapshot().content.filter((block) => block.type !== "text")
   ]);
   controller.setTrackWithTask(true);
+  controller.setComposerSettings({
+    model: "gpt-5.6-sol",
+    reasoningEffort: "high"
+  });
   await controller.setProjectPath(
     (await controller.userProjectApi.selectDirectory?.())?.path ?? null
   );
@@ -128,7 +139,19 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
       }
     ],
     cwd: "/workspace/alpha",
-    displayPrompt: "Fix the selected bug"
+    displayPrompt: "Fix the selected bug",
+    settings: {
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high"
+    }
+  });
+  assert.deepEqual(composerOptionInputs.at(-1), {
+    agentTargetId: "agent-1",
+    cwd: "/workspace/alpha",
+    settings: {
+      model: "gpt-5.6-sol",
+      reasoningEffort: "high"
+    }
   });
   const visibleText = controller.getSnapshot().content[0];
   assert.equal(
@@ -171,6 +194,7 @@ test("DesktopCaptureWindowController restores and remembers an available Agent T
       iconUrl: "data:image/png;base64,Y29kZXg=",
       id: "agent-codex",
       name: "Codex",
+      composerOptions: null,
       provider: "codex"
     },
     {
@@ -181,6 +205,7 @@ test("DesktopCaptureWindowController restores and remembers an available Agent T
       iconUrl: "data:image/png;base64,dHV0dGk=",
       id: "agent-tutti",
       name: "Tutti Agent",
+      composerOptions: null,
       provider: "tutti-agent"
     }
   ];
@@ -240,6 +265,7 @@ test("DesktopCaptureWindowController refreshes only the selected Agent capabilit
   const submissions: DesktopCaptureSubmitInput[] = [];
   const agent = (imageInput: boolean) => ({
     capabilities: { imageInput, workspaceReferences: true },
+    composerOptions: null,
     iconUrl: "data:image/png;base64,aWNvbg==",
     id: "agent-1",
     name: "Agent",
@@ -316,6 +342,7 @@ test("DesktopCaptureWindowController discards an older project capability respon
   const deferred = new Map<string, (imageInput: boolean) => void>();
   const agent = (imageInput: boolean) => ({
     capabilities: { imageInput, workspaceReferences: true },
+    composerOptions: null,
     iconUrl: "data:image/png;base64,aWNvbg==",
     id: "agent-1",
     name: "Agent",

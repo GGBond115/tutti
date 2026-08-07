@@ -1696,6 +1696,22 @@ The Quick Composer public target omits legacy `targetId` and AgentGUI-internal
 Composer VM. Provider-menu selection therefore cannot cross or collide with a
 second identifier namespace.
 
+When an embedding host supports pre-session settings, it passes one explicit
+settings capability containing authoritative `AgentActivityComposerOptions`,
+a controlled sparse settings draft, its change callback, and option-loading
+state for the exact target and project. Omitting any persistence path means
+omitting the whole capability, so Quick Composer fails closed instead of
+rendering interactive no-op controls. It projects supported values into the
+same model, reasoning, speed, permission, plan, and browser controls rendered
+by the full Composer; it does not maintain a second menu implementation or
+fetch options itself. `computerUse` and gated `codexSaverMode` remain hidden
+until an embedding activation seam preserves and authorizes them end to end. A
+settings change returns a typed patch to the host, which refreshes authority
+and forwards the settled draft through its existing activation command. While
+authority refreshes, only settings controls and submit are locked. Rich-text
+entry, references, target selection, and project selection remain usable
+unless the host independently disables the whole draft.
+
 The Quick Composer uses the Composer's `embedded` layout contract. Unlike
 `dock`, which intentionally grows attachments and long drafts upward over a
 conversation timeline, `embedded` keeps the entire draft in normal document

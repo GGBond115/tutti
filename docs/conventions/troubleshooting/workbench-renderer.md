@@ -1213,3 +1213,62 @@
 - References:
   [workspaceAppRendererReadiness.ts](../../../apps/desktop/src/main/ipc/workspaceAppRendererReadiness.ts)
   [workspaceAppExternal.ts](../../../apps/desktop/src/preload/api/workspaceAppExternal.ts)
+
+### Embedded Composer loses model controls or locks the whole draft while options load
+
+- Symptom:
+  A launch surface built from Quick Composer has no model or reasoning control,
+  or loading those options disables prompt editing, attachments, and project
+  selection together with send.
+- Quick checks:
+  Inspect the exact target/project composer-options response at the host
+  boundary. If it contains models and reasoning but Quick Composer receives
+  only a reduced image-capability flag, the adapter discarded presentation
+  authority. If the response is pending and `presentationEditorDisabled` is
+  true, loading was promoted into the whole-draft gate.
+- Root cause:
+  Quick Composer intentionally owns no option-loading lifecycle. A host that
+  drops `AgentActivityComposerOptions` must fabricate an empty settings VM, and
+  a host that maps its refresh flag to the top-level `disabled` prop also locks
+  unrelated canonical Composer controls.
+- Fix:
+  Pass authoritative options, controlled sparse draft settings, their change
+  callback, and the loading flag as one all-or-nothing Quick Composer
+  capability. Reuse the canonical Composer settings projection and menus, and
+  expose only fields the embedding activation adapter preserves. During
+  refresh, disable settings controls and submit only; reserve the whole-draft
+  disabled gate for an actual host-level lock.
+- Validation:
+  Cover visible model and reasoning values, settings patch delivery, editable
+  rich text and references during refresh, and disabled settings/send controls.
+- References:
+  [AgentGUIQuickComposer.tsx](../../../packages/agent/gui/AgentGUIQuickComposer.tsx)
+  [DesktopCaptureWindow.tsx](../../../apps/desktop/src/renderer/src/app/windows/capture/DesktopCaptureWindow.tsx)
+
+### Frameless capture close action is inert and the next shortcut appears stuck
+
+- Symptom:
+  The floating capture Composer ignores its close button and Escape. A later
+  global shortcut may focus nothing or appear to do no work.
+- Quick checks:
+  Inspect Electron app-region ownership around the close control and record
+  keydown listeners in capture and bubble phases. Then inspect whether the main
+  process marked the active capture `closing` without receiving `closed`.
+- Root cause:
+  Native drag-region hit testing can consume a descendant action before React,
+  while portaled dropdowns can consume a bubble-phase Escape first. If
+  cancellation then uses a preventable close path, the main process can retain
+  a live window already marked as closing.
+- Fix:
+  Make the expanding title strip the drag region and keep close as a sibling
+  no-drag action. Observe Escape at the window capture phase. Destroy the
+  ephemeral capture BrowserWindow on cancellation, clear ownership from its
+  `closed` event, and replace any closing, destroyed, or hidden window on the
+  next shortcut.
+- Validation:
+  Verify close and Escape with model, Agent, project, and mention portals open,
+  then invoke the global shortcut again and confirm a new capture window owns
+  the request.
+- References:
+  [DesktopCaptureWindow.tsx](../../../apps/desktop/src/renderer/src/app/windows/capture/DesktopCaptureWindow.tsx)
+  [desktopCaptureService.ts](../../../apps/desktop/src/main/capture/desktopCaptureService.ts)

@@ -94,10 +94,12 @@ the native background, and avoids a clipped CSS shadow at the window boundary.
 The Composer window requests a `760 × 520` DIP surface and clamps that request
 to the current display work area. This gives the portaled mention and Agent
 menus enough usable height without allowing them to escape the native window.
-Only the post-selection header is an Electron drag region, so the full-screen
-selection surface stays fixed while the compact Composer can move. Editor
-controls remain no-drag regions. The drag region publishes `grab`/`grabbing`
-cursor feedback instead of relying on the native drag region alone. The
+Only the expanding title portion of the post-selection header is an Electron
+drag region, so the full-screen selection surface stays fixed while the compact
+Composer can move. The close action is a sibling outside that native hit-test
+region, and editor controls remain no-drag regions. The drag region publishes
+`grab`/`grabbing` cursor feedback instead of relying on the native drag region
+alone. The
 Composer uses its in-flow `embedded` layout; timeline-oriented dock overhang is
 not valid inside the fixed native window. Portaled Composer menus receive the
 header's viewport inset, so collision handling keeps Agent and mention menus
@@ -162,14 +164,18 @@ Storage failures remain non-blocking and never prevent capture. The native title
 is the product name, `Tutti`, in every locale.
 
 If Agent activation fails, the composer stays open with its draft intact so the
-user can retry. Escape and the close button cancel before submission. When the
-shortcut was invoked from another application on macOS, cancellation closes the
-capture window first and hides Tutti from the window's `closed` event, so a
-hidden-but-live capture cannot swallow the next shortcut. A closing, destroyed,
-or unexpectedly hidden capture is replaced rather than focused. A shortcut
-invoked from a focused Tutti window keeps Tutti active. At least one ready Agent
-is required. The capture window closes only after the workspace Engine confirms
-activation, then focus returns to the workspace window.
+user can retry. Escape is observed at the window capture phase so a portaled
+Composer menu cannot consume it before the window; Escape and the close button
+cancel before submission. Cancellation destroys this ephemeral BrowserWindow
+instead of permitting renderer close handlers to strand it in a closing state.
+When the shortcut was invoked from another application on macOS, cancellation
+destroys the capture window first and hides Tutti from the window's `closed`
+event, so a hidden-but-live capture cannot swallow the next shortcut. A
+closing, destroyed, or unexpectedly hidden capture is replaced rather than
+focused. A shortcut invoked from a focused Tutti window keeps Tutti active. At
+least one ready Agent is required. The capture window closes only after the
+workspace Engine confirms activation, then focus returns to the workspace
+window.
 
 ## Attachment Contract And Storage
 
@@ -245,15 +251,20 @@ The plan-materialization request uses a separate issue schema without inline
 attachments. This prevents the API from accepting attachment bytes that the
 atomic Issue-and-task materializer does not own.
 
-Agent image capability is resolved with the same target, effective settings,
-and selected project directory (`cwd`) signature used by the full Composer.
-Changing projects refreshes the target capability snapshot and temporarily
-disables submit. Both refresh and submit query only the selected target, so an
-unrelated VM-backed target cannot delay the active local target. Renderer
-revision fencing discards an older project response, and main keeps no mutable
-capability catalog. Main re-resolves the selected target with the actual `cwd`
-immediately before activation, so a stale renderer snapshot cannot send an
-image to a text-only effective model.
+Agent image capability and Composer options are resolved with the same target,
+controlled settings draft, and selected project directory (`cwd`) signature
+used by the full Composer. The capture host passes those options through one
+controlled Quick Composer settings capability and exposes only values its
+activation adapter preserves: model, reasoning, speed, permission, plan, and
+browser use. Changing a setting or project refreshes the target snapshot and
+temporarily disables only settings controls and submit; prompt editing,
+references, Agent selection, and project selection remain available. Both
+refresh and submit query only the selected target, so an unrelated VM-backed
+target cannot delay the active local target. Renderer revision fencing discards
+an older response, and main keeps no mutable capability catalog. Main
+re-resolves the selected target with the actual settings and `cwd` immediately
+before activation, so a stale renderer snapshot cannot send an image to a
+text-only effective model.
 
 ## Open-Source Component Evaluation
 

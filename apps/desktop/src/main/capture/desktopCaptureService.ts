@@ -20,6 +20,8 @@ import type {
 } from "@tutti-os/workspace-external-core/contracts";
 import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 import {
+  normalizeTuttiExternalAgentActivityActivateSessionInput,
+  normalizeTuttiExternalAgentActivityComposerOptionsInput,
   normalizeTuttiExternalAtQueryDirectoryInput,
   normalizeTuttiExternalAtQueryInput,
   normalizeTuttiExternalAtResolveInput,
@@ -46,6 +48,7 @@ import type {
   DesktopCaptureAgentOption,
   DesktopCaptureAttachment,
   DesktopCaptureComposerOptions,
+  DesktopCaptureComposerOptionsInput,
   DesktopCaptureSelectionInput,
   DesktopCaptureState,
   DesktopCaptureSubmitInput,
@@ -202,7 +205,8 @@ export function createDesktopCaptureService(input: {
       const agent = await loadCaptureAgentOptionForCapture(
         capture,
         agentTargetId,
-        cwd
+        cwd,
+        payload.settings ?? null
       );
       return { agents: [agent] };
     }
@@ -635,7 +639,10 @@ function cancelCapture(capture: ActiveCapture): void {
   ) {
     capture.window.once("closed", () => app.hide());
   }
-  capture.window.close();
+  // Capture windows are ephemeral. Destroying is intentional here: a renderer
+  // lifecycle handler must never keep a cancelled capture alive and block the
+  // next global-shortcut invocation.
+  capture.window.destroy();
 }
 
 function cropSelection(
@@ -681,6 +688,7 @@ async function loadCaptureAgentCatalog(
     .map(
       (target): DesktopCaptureAgentOption => ({
         capabilities: { imageInput: false, workspaceReferences: true },
+        composerOptions: null,
         ...(target.description ? { description: target.description } : {}),
         iconUrl: target.iconUrl,
         id: target.agentTargetId,
@@ -697,7 +705,8 @@ async function loadCaptureAgentCatalog(
 async function loadCaptureAgentOptionForCapture(
   capture: ActiveCapture,
   agentTargetId: string,
-  cwd: string
+  cwd: string,
+  settings: DesktopCaptureComposerOptionsInput["settings"] = null
 ): Promise<DesktopCaptureAgentOption> {
   const workspaceWindow = resolveWorkspaceWindow(capture.state.workspaceId);
   if (!workspaceWindow) {
@@ -708,7 +717,8 @@ async function loadCaptureAgentOptionForCapture(
     workspaceWindow,
     capture.state.workspaceId,
     agentTargetId,
-    cwd
+    cwd,
+    settings
   );
 }
 
@@ -716,7 +726,8 @@ async function loadCaptureAgentOption(
   workspaceWindow: BrowserWindow,
   workspaceId: string,
   agentTargetId: string,
-  cwd: string
+  cwd: string,
+  settings: DesktopCaptureComposerOptionsInput["settings"] = null
 ): Promise<DesktopCaptureAgentOption> {
   const catalog =
     await requestWorkspaceOwnerRenderer<TuttiExternalAgentTargetCatalog>(
@@ -741,12 +752,12 @@ async function loadCaptureAgentOption(
       workspaceWindow,
       {
         appId: captureRendererAppId,
-        input: {
+        input: normalizeTuttiExternalAgentActivityComposerOptionsInput({
           agentTargetId: target.agentTargetId,
           cwd: cwd || null,
           provider: target.provider,
-          settings: null
-        },
+          settings: settings ?? null
+        }),
         operation: "agentActivity.getComposerOptions",
         requestId: randomUUID(),
         workspaceId
@@ -754,6 +765,7 @@ async function loadCaptureAgentOption(
     );
   return {
     capabilities: resolveCaptureAgentCapabilities(options),
+    composerOptions: options,
     ...(target.description ? { description: target.description } : {}),
     iconUrl: target.iconUrl,
     id: target.agentTargetId,
@@ -839,7 +851,8 @@ async function submitCapture(
   const agent = await loadCaptureAgentOptionForCapture(
     capture,
     agentTargetId,
-    cwd
+    cwd,
+    input.settings ?? null
   );
   if (!agent.capabilities.imageInput) {
     throw new Error("Screenshot Agent target does not support image input");
@@ -849,16 +862,17 @@ async function submitCapture(
     capture,
     {
       appId: captureRendererAppId,
-      input: {
+      input: normalizeTuttiExternalAgentActivityActivateSessionInput({
         agentSessionId,
         agentTargetId,
         clientSubmitId: randomUUID(),
         ...(cwd ? { cwd } : {}),
         initialContent: content,
         ...(displayPrompt ? { initialDisplayPrompt: displayPrompt } : {}),
+        ...(input.settings ? { settings: input.settings } : {}),
         title: resolveCaptureTitle(displayPrompt, attachment.displayName),
         visible: true
-      },
+      }),
       operation: "agentActivity.activateSession",
       requestId: randomUUID(),
       workspaceId: capture.state.workspaceId

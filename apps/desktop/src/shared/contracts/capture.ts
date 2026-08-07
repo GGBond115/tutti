@@ -1,6 +1,10 @@
 import type { DesktopLocale } from "../i18n/core/locale.ts";
 import type { DesktopThemeAppearance } from "../theme/core.ts";
-import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
+import type {
+  AgentActivityComposerOptions,
+  AgentActivitySessionSettings,
+  AgentPromptContentBlock
+} from "@tutti-os/agent-activity-core";
 import type {
   WorkspaceUserProject,
   WorkspaceUserProjectSelectionPreparation,
@@ -20,6 +24,8 @@ export interface DesktopCaptureAgentOption {
     imageInput: boolean;
     workspaceReferences: boolean;
   };
+  /** Authoritative options for this target and the currently selected cwd/settings. */
+  composerOptions: AgentActivityComposerOptions | null;
   description?: string | null;
   id: string;
   iconUrl: string;
@@ -41,9 +47,20 @@ export interface DesktopCaptureComposerOptions {
   agents: DesktopCaptureAgentOption[];
 }
 
+export type DesktopCaptureComposerSettings = Pick<
+  AgentActivitySessionSettings,
+  | "browserUse"
+  | "model"
+  | "permissionModeId"
+  | "planMode"
+  | "reasoningEffort"
+  | "speed"
+>;
+
 export interface DesktopCaptureComposerOptionsInput {
   agentTargetId: string;
   cwd?: string | null;
+  settings?: DesktopCaptureComposerSettings | null;
 }
 
 export interface DesktopCaptureSelectionInput {
@@ -71,6 +88,7 @@ export interface DesktopCaptureSubmitInput {
   content: AgentPromptContentBlock[];
   cwd?: string;
   displayPrompt?: string;
+  settings?: DesktopCaptureComposerSettings;
 }
 
 export interface DesktopCaptureSubmitResult {

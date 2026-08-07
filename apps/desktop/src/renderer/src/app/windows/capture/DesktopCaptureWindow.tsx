@@ -51,6 +51,13 @@ export function DesktopCaptureWindow({
       ),
     [snapshot.capture?.agents]
   );
+  const composerOptions = useMemo(
+    () =>
+      snapshot.capture?.agents.find(
+        (agent) => agent.id === snapshot.agentTargetId
+      )?.composerOptions ?? null,
+    [snapshot.agentTargetId, snapshot.capture?.agents]
+  );
   useEffect(() => {
     void controller.initialize();
   }, [controller]);
@@ -68,12 +75,17 @@ export function DesktopCaptureWindow({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        controller.cancelSelection();
+      if (event.key !== "Escape") {
+        return;
       }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      controller.cancelSelection();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    // Composer menus render in portals and handle Escape themselves. Capture
+    // at the window boundary so Escape always cancels the ephemeral window.
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [controller]);
 
   const pointerPosition = (
@@ -153,15 +165,15 @@ export function DesktopCaptureWindow({
   return (
     <main className="fixed inset-0 flex overflow-hidden bg-transparent font-[var(--font-ui)] text-[var(--text-primary)]">
       <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--border-1)] bg-[var(--background-fronted)]">
-        <header className="flex h-10 shrink-0 !cursor-grab items-center justify-between gap-3 border-b border-[var(--border-1)] px-3 [-webkit-app-region:drag] active:!cursor-grabbing">
-          <div className="flex min-w-0 items-center gap-2">
+        <header className="flex h-10 shrink-0 items-center border-b border-[var(--border-1)]">
+          <div className="flex h-full min-w-0 flex-1 !cursor-grab items-center gap-2 pl-3 [-webkit-app-region:drag] active:!cursor-grabbing">
             <h1 className="m-0 truncate text-[13px] leading-5 font-medium">
               {translator.t("capture.title")}
             </h1>
           </div>
           <Button
             aria-label={translator.t("common.close")}
-            className="[-webkit-app-region:no-drag]"
+            className="mr-2 shrink-0 [-webkit-app-region:no-drag]"
             disabled={snapshot.submitting}
             onClick={() => controller.cancelSelection()}
             size="icon-sm"
@@ -186,11 +198,12 @@ export function DesktopCaptureWindow({
               <DesktopCaptureComposer
                 agentTargets={agentTargets}
                 capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
+                composerOptions={composerOptions}
+                composerOptionsLoading={snapshot.refreshingAgentOptions}
+                composerSettings={snapshot.composerSettings}
                 content={snapshot.content}
                 controller={controller}
-                disabled={
-                  snapshot.submitting || snapshot.refreshingAgentOptions
-                }
+                disabled={snapshot.submitting}
                 locale={snapshot.capture.locale}
                 projectPath={snapshot.projectPath}
                 selectedAgentTargetId={snapshot.agentTargetId}

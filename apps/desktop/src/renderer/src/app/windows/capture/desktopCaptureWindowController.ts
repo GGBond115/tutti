@@ -1,6 +1,7 @@
 import type {
   DesktopCaptureApi,
   DesktopCaptureAttachment,
+  DesktopCaptureComposerSettings,
   DesktopCaptureSelectionInput,
   DesktopCaptureState
 } from "../../../../../shared/contracts/capture.ts";
@@ -17,6 +18,7 @@ export interface DesktopCaptureWindowSnapshot {
   attachment: DesktopCaptureAttachment | null;
   agentTargetId: string;
   capture: DesktopCaptureState | null;
+  composerSettings: DesktopCaptureComposerSettings;
   content: AgentPromptContentBlock[];
   failed: boolean;
   projectPath: string | null;
@@ -31,6 +33,7 @@ const initialSnapshot: DesktopCaptureWindowSnapshot = {
   attachment: null,
   agentTargetId: "",
   capture: null,
+  composerSettings: {},
   content: [],
   failed: false,
   projectPath: null,
@@ -161,6 +164,7 @@ export class DesktopCaptureWindowController {
           }
         ],
         failed: false,
+        composerSettings: {},
         stage: "composing"
       });
       if (this.snapshot.agentTargetId) {
@@ -188,8 +192,12 @@ export class DesktopCaptureWindowController {
       return;
     }
     this.agentTargetPreference?.write(capture.workspaceId, agentTargetId);
-    this.update({ agentTargetId });
-    void this.refreshComposerOptions(agentTargetId, this.snapshot.projectPath);
+    this.update({ agentTargetId, composerSettings: {} });
+    void this.refreshComposerOptions(
+      agentTargetId,
+      this.snapshot.projectPath,
+      {}
+    );
   }
 
   setContent(content: AgentPromptContentBlock[]): void {
@@ -198,6 +206,21 @@ export class DesktopCaptureWindowController {
 
   setTrackWithTask(trackWithTask: boolean): void {
     this.update({ trackWithTask });
+  }
+
+  setComposerSettings(patch: DesktopCaptureComposerSettings): void {
+    if (this.snapshot.submitting) {
+      return;
+    }
+    const composerSettings = { ...this.snapshot.composerSettings, ...patch };
+    this.update({ composerSettings });
+    if (this.snapshot.agentTargetId) {
+      void this.refreshComposerOptions(
+        this.snapshot.agentTargetId,
+        this.snapshot.projectPath,
+        composerSettings
+      );
+    }
   }
 
   selectFiles(): Promise<readonly WorkspaceFileReference[]> {
@@ -217,7 +240,8 @@ export class DesktopCaptureWindowController {
     if (this.snapshot.agentTargetId) {
       await this.refreshComposerOptions(
         this.snapshot.agentTargetId,
-        normalizedProjectPath
+        normalizedProjectPath,
+        this.snapshot.composerSettings
       );
     }
   };
@@ -231,6 +255,7 @@ export class DesktopCaptureWindowController {
     const {
       agentTargetId: selectedAgentTargetId,
       attachment,
+      composerSettings,
       projectPath,
       refreshingAgentOptions,
       submitting,
@@ -259,7 +284,10 @@ export class DesktopCaptureWindowController {
           ? prependCapturePromptInstruction(content, taskInstruction)
           : content,
         ...(projectPath ? { cwd: projectPath } : {}),
-        ...(visiblePrompt ? { displayPrompt: visiblePrompt } : {})
+        ...(visiblePrompt ? { displayPrompt: visiblePrompt } : {}),
+        ...(Object.keys(composerSettings).length > 0
+          ? { settings: composerSettings }
+          : {})
       });
     } catch {
       this.update({ failed: true, submitting: false });
@@ -268,14 +296,16 @@ export class DesktopCaptureWindowController {
 
   private async refreshComposerOptions(
     agentTargetId: string,
-    projectPath: string | null
+    projectPath: string | null,
+    settings: DesktopCaptureComposerSettings = this.snapshot.composerSettings
   ): Promise<void> {
     const revision = ++this.composerOptionsRequestRevision;
     this.update({ failed: false, refreshingAgentOptions: true });
     try {
       const options = await this.api.getComposerOptions({
         agentTargetId,
-        cwd: projectPath
+        cwd: projectPath,
+        settings: Object.keys(settings).length > 0 ? settings : null
       });
       if (revision !== this.composerOptionsRequestRevision) {
         return;
@@ -316,7 +346,8 @@ export class DesktopCaptureWindowController {
                       capabilities: {
                         ...agent.capabilities,
                         imageInput: false
-                      }
+                      },
+                      composerOptions: null
                     }
                   : agent
               )
