@@ -243,6 +243,23 @@ export function AgentComposerView(input: Props): React.JSX.Element {
   );
   const showComposerActionInFooter =
     isHeroLayout || input.props.composerActionPlacement === "footer";
+  const showProjectSelectorInFooter =
+    !isHeroLayout && input.props.showProjectSelectorInFooter === true;
+  const projectSelectorNode =
+    showHeroProjectSelector || showProjectSelectorInFooter ? (
+      <AgentProjectDropdown
+        composerSettings={composerSettings}
+        i18n={workspaceUserProjectI18n}
+        labels={{
+          projectLocked: labels.projectLocked,
+          projectMissingDescription: labels.projectMissingDescription
+        }}
+        selectProjectDirectory={selectProjectDirectory}
+        onDismissAutoFocus={input.onDismissProjectMenuAutoFocus}
+        onProjectMissingChange={input.setIsSelectedProjectMissing}
+        onProjectPathChange={onProjectPathChange}
+      />
+    ) : null;
 
   return (
     <form
@@ -659,6 +676,9 @@ export function AgentComposerView(input: Props): React.JSX.Element {
             onTuttiModeChange={input.props.onTuttiModeChange}
             onClearPlanMode={input.onClearPlanMode}
             composerAction={composerActionNode}
+            projectControl={
+              showProjectSelectorInFooter ? projectSelectorNode : null
+            }
             quickPromptControl={
               <AgentQuickPromptPopover
                 controller={input.quickPromptLibrary}
@@ -700,20 +720,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
               input.isSelectedProjectMissing ? "true" : undefined
             }
           >
-            {showHeroProjectSelector ? (
-              <AgentProjectDropdown
-                composerSettings={composerSettings}
-                i18n={workspaceUserProjectI18n}
-                labels={{
-                  projectLocked: labels.projectLocked,
-                  projectMissingDescription: labels.projectMissingDescription
-                }}
-                selectProjectDirectory={selectProjectDirectory}
-                onDismissAutoFocus={input.onDismissProjectMenuAutoFocus}
-                onProjectMissingChange={input.setIsSelectedProjectMissing}
-                onProjectPathChange={onProjectPathChange}
-              />
-            ) : null}
+            {showHeroProjectSelector ? projectSelectorNode : null}
             {activePromptTip ? (
               <div
                 className={styles.composerPromptTips}

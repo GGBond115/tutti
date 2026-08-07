@@ -78,7 +78,10 @@ export interface DesktopCaptureService {
 
 export function createDesktopCaptureService(input: {
   ensureWorkspaceOwner(workspaceId: string): Promise<void>;
-  fileDialogs: Pick<DesktopFileDialogAccess, "selectUploadFiles">;
+  fileDialogs: Pick<
+    DesktopFileDialogAccess,
+    "selectDirectory" | "selectUploadFiles"
+  >;
   logger: DesktopLogger;
   preferences: Pick<
     DesktopHostPreferencesState,
@@ -212,6 +215,14 @@ export function createDesktopCaptureService(input: {
         allowDirectories: false
       });
       return paths.map(toHostFileReference);
+    }
+  );
+  registerDesktopIpcHandler(
+    desktopIpcChannels.capture.selectProjectDirectory,
+    async (event) => {
+      const capture = trustedActiveCapture(event.sender);
+      const path = await input.fileDialogs.selectDirectory(capture.window);
+      return path ? { path } : null;
     }
   );
   registerDesktopIpcHandler(
@@ -518,6 +529,7 @@ async function submitCapture(
     throw new Error("Screenshot Agent target is invalid");
   }
   const content = normalizeCapturePromptContent(input.content);
+  const cwd = typeof input.cwd === "string" ? input.cwd.trim() : "";
   const displayPrompt = input.displayPrompt?.trim() ?? "";
   const workspaceWindow = resolveWorkspaceWindow(capture.state.workspaceId);
   if (!workspaceWindow) {
@@ -532,6 +544,7 @@ async function submitCapture(
         agentSessionId,
         agentTargetId,
         clientSubmitId: randomUUID(),
+        ...(cwd ? { cwd } : {}),
         initialContent: content,
         ...(displayPrompt ? { initialDisplayPrompt: displayPrompt } : {}),
         title: resolveCaptureTitle(displayPrompt, attachment.displayName),

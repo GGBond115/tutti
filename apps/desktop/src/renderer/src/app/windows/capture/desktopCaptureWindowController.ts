@@ -8,6 +8,7 @@ import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
 import type { TuttiExternalAtRichTextBridge } from "@tutti-os/workspace-external-core/rich-text";
 import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 import type { DesktopCaptureAgentTargetPreference } from "./desktopCaptureAgentTargetPreference.ts";
+import type { DesktopCaptureProjectPreference } from "./desktopCaptureProjectPreference.ts";
 
 export type DesktopCaptureStage = "loading" | "selecting" | "composing";
 
@@ -17,6 +18,7 @@ export interface DesktopCaptureWindowSnapshot {
   capture: DesktopCaptureState | null;
   content: AgentPromptContentBlock[];
   failed: boolean;
+  projectPath: string | null;
   selection: DesktopCaptureSelectionInput | null;
   stage: DesktopCaptureStage;
   submitting: boolean;
@@ -29,6 +31,7 @@ const initialSnapshot: DesktopCaptureWindowSnapshot = {
   capture: null,
   content: [],
   failed: false,
+  projectPath: null,
   selection: null,
   stage: "loading",
   submitting: false,
@@ -38,6 +41,7 @@ const initialSnapshot: DesktopCaptureWindowSnapshot = {
 export class DesktopCaptureWindowController {
   private readonly api: DesktopCaptureApi;
   private readonly agentTargetPreference: DesktopCaptureAgentTargetPreference | null;
+  private readonly projectPreference: DesktopCaptureProjectPreference | null;
   private dragStart: { x: number; y: number } | null = null;
   private initializePromise: Promise<void> | null = null;
   private readonly listeners = new Set<() => void>();
@@ -46,10 +50,12 @@ export class DesktopCaptureWindowController {
 
   constructor(
     api: DesktopCaptureApi,
-    agentTargetPreference: DesktopCaptureAgentTargetPreference | null = null
+    agentTargetPreference: DesktopCaptureAgentTargetPreference | null = null,
+    projectPreference: DesktopCaptureProjectPreference | null = null
   ) {
     this.api = api;
     this.agentTargetPreference = agentTargetPreference;
+    this.projectPreference = projectPreference;
     this.mentionBridge = {
       at: {
         query: (input) => this.api.queryMentions(input),
@@ -75,6 +81,8 @@ export class DesktopCaptureWindowController {
             this.agentTargetPreference?.read(capture.workspaceId) ?? "",
           capture,
           failed: false,
+          projectPath:
+            this.projectPreference?.read(capture.workspaceId) ?? null,
           stage: "selecting"
         });
       })
@@ -177,13 +185,31 @@ export class DesktopCaptureWindowController {
     return this.api.selectFiles();
   }
 
+  readonly selectProjectDirectory = (): Promise<{ path: string } | null> =>
+    this.api.selectProjectDirectory();
+
+  readonly setProjectPath = (projectPath: string | null): void => {
+    const capture = this.snapshot.capture;
+    const normalizedProjectPath = projectPath?.trim() || null;
+    if (!capture) {
+      return;
+    }
+    this.projectPreference?.write(capture.workspaceId, normalizedProjectPath);
+    this.update({ projectPath: normalizedProjectPath });
+  };
+
   async submit(
     content: AgentPromptContentBlock[] = this.snapshot.content,
     displayPrompt?: string,
     taskInstruction?: string
   ): Promise<void> {
-    const { agentTargetId, attachment, submitting, trackWithTask } =
-      this.snapshot;
+    const {
+      agentTargetId,
+      attachment,
+      projectPath,
+      submitting,
+      trackWithTask
+    } = this.snapshot;
     if (!attachment || !agentTargetId || submitting || content.length === 0) {
       return;
     }
@@ -196,6 +222,7 @@ export class DesktopCaptureWindowController {
         content: trackWithTask
           ? prependCapturePromptInstruction(content, taskInstruction)
           : content,
+        ...(projectPath ? { cwd: projectPath } : {}),
         ...(visiblePrompt ? { displayPrompt: visiblePrompt } : {})
       });
     } catch {

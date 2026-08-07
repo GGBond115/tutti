@@ -100,8 +100,11 @@ adds or edits prompt text, and sends with the Composer button or its existing
 keyboard behavior. Send creates and starts a visible Agent Session; it does not
 create an Issue directly.
 
-The bottom toolbar keeps `+`, `@`, the exact Agent Target selector, the **Create
-Task and track** switch, and the primary send action on one alignment baseline.
+The bottom toolbar keeps `+`, `@`, the exact Agent Target selector, the project
+selector, the **Create Task and track** switch, and the primary send action on
+one alignment baseline. The project selector reuses AgentGUI's canonical
+no-project/existing-project control. Its existing-project action opens the
+operating system's native folder picker through the restricted capture preload.
 The switch is a submit modifier, not an editor mutation. When selected, the capture
 controller prepends a localized
 instruction to the typed Agent prompt only at submission, while the visible
@@ -122,8 +125,12 @@ existing workspace external bridge.
 The selected Agent Target is remembered per workspace in a versioned capture UI
 preference. A later capture restores the exact Target only while it remains in
 the ready catalog; a deleted or unavailable Target falls back to the first ready
-entry. Storage failures remain non-blocking and never prevent capture. The
-native title is the product name, `Tutti`, in every locale.
+entry. The selected project path is remembered by a separate versioned,
+workspace-scoped capture preference; choosing no project clears it. Submission
+passes a non-empty selected path as the existing activation `cwd`, so the
+workspace Engine and Agent Host remain the only Session lifecycle owners.
+Storage failures remain non-blocking and never prevent capture. The native title
+is the product name, `Tutti`, in every locale.
 
 If Agent activation fails, the composer stays open with its draft intact so the
 user can retry. Escape and the close button cancel before submission. When the

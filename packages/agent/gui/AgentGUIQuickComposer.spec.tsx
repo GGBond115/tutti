@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { createRichTextMentionService } from "@tutti-os/ui-rich-text/service";
 import type { RichTextTriggerProvider } from "@tutti-os/ui-rich-text/types";
 import { describe, expect, it, vi } from "vitest";
@@ -101,6 +101,40 @@ describe("AgentGUIQuickComposer", () => {
       '[data-agent-reference-add-icon="true"]'
     );
     expect(addIcon?.closest("button")?.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("shows the canonical project selector when the embedding host supplies directory selection", async () => {
+    const { container } = render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        content={[{ text: "", type: "text" }]}
+        selectedAgentTargetId="agent:codex"
+        selectedProjectPath={null}
+        selectProjectDirectory={vi.fn().mockResolvedValue({
+          path: "/workspace/alpha"
+        })}
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onProjectPathChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const noProjectIcon = container.querySelector(
+      '[data-agent-project-trigger-no-workspace-icon="true"]'
+    );
+
+    await waitFor(() =>
+      expect(noProjectIcon?.closest("button")?.hasAttribute("disabled")).toBe(
+        false
+      )
+    );
+    expect(
+      container
+        .querySelector(".agent-gui-node__composer-footer")
+        ?.contains(noProjectIcon)
+    ).toBe(true);
   });
 
   it("renders a host action accessory beside send inside the AgentGUI token scope", () => {

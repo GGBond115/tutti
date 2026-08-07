@@ -107,6 +107,7 @@ export const desktopIpcChannels = {
     resolveMention: "capture:resolve-mention",
     select: "capture:select",
     selectFiles: "capture:select-files",
+    selectProjectDirectory: "capture:select-project-directory",
     submit: "capture:submit"
   },
   computerUse: {
@@ -1072,6 +1073,7 @@ export interface DesktopInvokePayloadByChannel {
   [desktopIpcChannels.capture.resolveMention]: TuttiExternalAtResolveInput;
   [desktopIpcChannels.capture.select]: DesktopCaptureSelectionInput;
   [desktopIpcChannels.capture.selectFiles]: undefined;
+  [desktopIpcChannels.capture.selectProjectDirectory]: undefined;
   [desktopIpcChannels.capture.submit]: DesktopCaptureSubmitInput;
   [desktopIpcChannels.computerUse.checkStatus]: undefined;
   [desktopIpcChannels.computerUse.install]: undefined;
@@ -1277,6 +1279,7 @@ export interface DesktopInvokeResultByChannel {
     .resolveMention]: TuttiExternalAtResolveResult | null;
   [desktopIpcChannels.capture.select]: DesktopCaptureSelectionResult;
   [desktopIpcChannels.capture.selectFiles]: WorkspaceFileReference[];
+  [desktopIpcChannels.capture.selectProjectDirectory]: { path: string } | null;
   [desktopIpcChannels.capture.submit]: DesktopCaptureSubmitResult;
   [desktopIpcChannels.computerUse.checkStatus]: DesktopComputerUseStatus;
   [desktopIpcChannels.computerUse.install]: DesktopComputerUseActionResult;

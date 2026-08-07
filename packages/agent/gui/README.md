@@ -209,6 +209,14 @@ and mention menus must avoid. A host with a definite height may set
 may set `composerActionPlacement="footer"`. Both are optional presentation
 contracts and do not change prompt or Session ownership.
 
+A launcher that owns a native directory picker may pass
+`selectProjectDirectory`, `selectedProjectPath`, and `onProjectPathChange`.
+Quick Composer then renders the canonical project selector in its footer. A
+directory-only host may offer no registered-project catalog; the selector still
+supports the explicit no-project state and one native existing-directory action.
+The host remains responsible for carrying the selected path through its normal
+new-Session activation input.
+
 ## Standalone Conversation Participant Presentation
 
 The `@tutti-os/agent-gui/agent-conversation` entrypoint exposes one optional,

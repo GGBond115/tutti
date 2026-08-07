@@ -6,7 +6,7 @@ import {
 } from "@tutti-os/workspace-user-project/ui";
 import type { WorkspaceUserProject } from "@tutti-os/workspace-user-project/contracts";
 import type { WorkspaceUserProjectI18nRuntime } from "@tutti-os/workspace-user-project/i18n";
-import { useAgentHostApi } from "../../agentActivityHost";
+import { useOptionalAgentHostApi } from "../../agentActivityHost";
 import { NewWorkspaceLinedIcon, cn } from "@tutti-os/ui-system";
 import type { AgentGUIComposerSettingsVM } from "./model/agentGuiNodeTypes";
 import styles from "./AgentGUINode.styles";
@@ -50,14 +50,14 @@ export function AgentProjectDropdown({
   ) => void;
 }): React.JSX.Element {
   "use memo";
-  const agentHostApi = useAgentHostApi();
+  const agentHostApi = useOptionalAgentHostApi();
   const userProjectApi = useMemo(
     () =>
       createAgentGUIUserProjectSelectionApi({
         selectProjectDirectory,
-        userProjects: agentHostApi.userProjects
+        userProjects: agentHostApi?.userProjects
       }),
-    [agentHostApi.userProjects, selectProjectDirectory]
+    [agentHostApi?.userProjects, selectProjectDirectory]
   );
 
   return (
@@ -87,7 +87,7 @@ export function AgentProjectDropdown({
         />
       )}
       selectedProjectPath={composerSettings.selectedProjectPath}
-      service={agentHostApi.userProjects?.service ?? null}
+      service={agentHostApi?.userProjects?.service ?? null}
       shouldApplyPreparedSelection={
         composerSettings.shouldApplyPreparedProjectSelection === true
       }

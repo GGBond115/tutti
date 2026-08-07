@@ -14,6 +14,7 @@ export function DesktopCaptureComposer({
   disabled,
   locale,
   placeholder,
+  projectPath,
   selectedAgentTargetId,
   taskActionLabel,
   taskActionHint,
@@ -27,6 +28,7 @@ export function DesktopCaptureComposer({
   disabled: boolean;
   locale: DesktopLocale;
   placeholder: string;
+  projectPath: string | null;
   selectedAgentTargetId: string;
   taskActionHint: string;
   taskActionLabel: string;
@@ -76,11 +78,14 @@ export function DesktopCaptureComposer({
       menuViewportTopInset={48}
       placeholder={placeholder}
       selectedAgentTargetId={selectedAgentTargetId}
+      selectedProjectPath={projectPath}
+      selectProjectDirectory={controller.selectProjectDirectory}
       workspaceId={workspaceId}
       onAgentTargetChange={(agentTargetId) =>
         controller.setAgentTargetId(agentTargetId)
       }
       onContentChange={(nextContent) => controller.setContent(nextContent)}
+      onProjectPathChange={controller.setProjectPath}
       onRequestWorkspaceReferences={async () => ({
         files: await controller.selectFiles(),
         mentionItems: []

@@ -38,4 +38,28 @@ describe("createAgentGUIUserProjectSelectionApi", () => {
 
     expect(api?.selectDirectory).toBeUndefined();
   });
+
+  it("supports a directory-only host without a registered project catalog", async () => {
+    const selectProjectDirectory = vi.fn(async () => ({
+      path: "/workspace/existing"
+    }));
+    const api = createAgentGUIUserProjectSelectionApi({
+      selectProjectDirectory,
+      userProjects: null
+    });
+
+    await expect(api?.list()).resolves.toEqual({ projects: [] });
+    await expect(api?.selectDirectory?.()).resolves.toEqual({
+      path: "/workspace/existing"
+    });
+    await expect(
+      api?.prepareSelection?.({
+        projectLocked: false,
+        selectedPath: "/workspace/existing"
+      })
+    ).resolves.toMatchObject({
+      projects: [{ path: "/workspace/existing" }],
+      selection: { kind: "none" }
+    });
+  });
 });

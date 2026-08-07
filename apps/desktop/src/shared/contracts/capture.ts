@@ -55,6 +55,7 @@ export interface DesktopCaptureSelectionResult extends DesktopCaptureComposerOpt
 export interface DesktopCaptureSubmitInput {
   agentTargetId: string;
   content: AgentPromptContentBlock[];
+  cwd?: string;
   displayPrompt?: string;
 }
 
@@ -78,5 +79,6 @@ export interface DesktopCaptureApi {
     input: DesktopCaptureSelectionInput
   ): Promise<DesktopCaptureSelectionResult>;
   selectFiles(): Promise<WorkspaceFileReference[]>;
+  selectProjectDirectory(): Promise<{ path: string } | null>;
   submit(input: DesktopCaptureSubmitInput): Promise<DesktopCaptureSubmitResult>;
 }

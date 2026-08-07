@@ -117,6 +117,8 @@ export interface AgentComposerProps {
   composerActionAccessory?: ReactNode;
   /** Places the primary action cluster in the prompt row or Composer footer. */
   composerActionPlacement?: "input" | "footer";
+  /** Shows the canonical new-Session project selector in a non-hero footer. */
+  showProjectSelectorInFooter?: boolean;
   footerAccessory?: ReactNode;
   agentTargets?: readonly AgentGUIAgentTarget[];
   handoffAgentTargets?: readonly AgentGUIAgentTarget[];

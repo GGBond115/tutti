@@ -45,6 +45,7 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
       }
     }),
     selectFiles: async () => [],
+    selectProjectDirectory: async () => ({ path: "/workspace/alpha" }),
     submit: async (input) => {
       submissions.push(input);
       if (failSubmission) {
@@ -67,6 +68,9 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
     ...controller.getSnapshot().content.filter((block) => block.type !== "text")
   ]);
   controller.setTrackWithTask(true);
+  controller.setProjectPath(
+    (await controller.selectProjectDirectory())?.path ?? null
+  );
 
   await controller.submit(
     undefined,
@@ -95,6 +99,7 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
         type: "image"
       }
     ],
+    cwd: "/workspace/alpha",
     displayPrompt: "Fix the selected bug"
   });
   const visibleText = controller.getSnapshot().content[0];
@@ -169,6 +174,7 @@ test("DesktopCaptureWindowController restores and remembers an available Agent T
       }
     }),
     selectFiles: async () => [],
+    selectProjectDirectory: async () => null,
     submit: async () => ({ agentSessionId: "session-1" })
   };
   const controller = new DesktopCaptureWindowController(api, {

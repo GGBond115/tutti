@@ -1696,6 +1696,12 @@ insertion to `AgentComposer`; it does not own a parallel mention catalog or
 picker. A constrained host may also declare a top viewport inset for portaled
 menus. Provider Select collision padding and mention-palette geometry must
 honor that inset so host chrome is never treated as usable menu space.
+An embedding host may also opt into the canonical project selector with a
+controlled selected path and native directory callback. When no registered
+project catalog is available, AgentGUI exposes only the explicit no-project and
+native existing-directory choices; it does not invent a project registry or
+Session state. The host carries the resulting path through its existing
+activation command as `cwd`.
 Quick Composer also establishes the canonical AgentGUI semantic-token scope,
 so embedded placeholder, foreground, border, and menu colors never fall back
 to inherited host text styles. Hosts may provide a compact action accessory;

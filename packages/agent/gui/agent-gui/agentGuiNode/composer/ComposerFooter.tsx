@@ -58,6 +58,7 @@ interface Props {
   tuttiModeSupported: boolean;
   onTuttiModeChange?: (active: boolean) => void;
   composerAction: ReactNode;
+  projectControl?: ReactNode;
   quickPromptControl?: ReactNode;
   footerAccessory?: ReactNode;
   showHandoffSelect: boolean;
@@ -108,6 +109,7 @@ export function ComposerFooter({
   tuttiModeSupported,
   onTuttiModeChange,
   composerAction,
+  projectControl,
   quickPromptControl,
   footerAccessory,
   showHandoffSelect,
@@ -323,6 +325,7 @@ export function ComposerFooter({
               </SelectContent>
             </Select>
           ) : null}
+          {projectControl}
           {quickPromptControl}
           {composerSettings.supportsCodexSaverMode ? (
             <TooltipProvider delayDuration={120}>

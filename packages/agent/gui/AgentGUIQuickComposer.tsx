@@ -78,10 +78,13 @@ export interface AgentGUIQuickComposerProps {
   menuViewportTopInset?: number;
   onAgentTargetChange(agentTargetId: string): void;
   onContentChange(content: AgentPromptContentBlock[]): void;
+  onProjectPathChange?: AgentComposerProps["onProjectPathChange"];
   onRequestWorkspaceReferences?: AgentComposerProps["onRequestWorkspaceReferences"];
   onSubmit(content: AgentPromptContentBlock[], displayPrompt?: string): void;
   placeholder?: string;
+  selectedProjectPath?: string | null;
   selectedAgentTargetId: string;
+  selectProjectDirectory?: AgentComposerProps["selectProjectDirectory"];
   workspaceId: string;
 }
 
@@ -114,10 +117,13 @@ function AgentGUIQuickComposerInner({
   menuViewportTopInset,
   onAgentTargetChange,
   onContentChange,
+  onProjectPathChange,
   onRequestWorkspaceReferences,
   onSubmit,
   placeholder,
   selectedAgentTargetId,
+  selectedProjectPath = null,
+  selectProjectDirectory,
   workspaceId
 }: AgentGUIQuickComposerProps): JSX.Element {
   const { i18n, locale, t } = useTranslation();
@@ -145,6 +151,14 @@ function AgentGUIQuickComposerInner({
     () => agentPromptContentToComposerDraft(content, "quick-composer"),
     [content]
   );
+  const composerSettings = useMemo<AgentGUIComposerSettingsVM>(
+    () => ({
+      ...quickComposerSettings,
+      projectLocked: disabled,
+      selectedProjectPath
+    }),
+    [disabled, selectedProjectPath]
+  );
 
   return (
     <div className="agent-gui-node__shell">
@@ -156,7 +170,7 @@ function AgentGUIQuickComposerInner({
         canUploadAttachment={true}
         composerActionAccessory={composerActionAccessory}
         composerActionPlacement={composerActionPlacement}
-        composerSettings={quickComposerSettings}
+        composerSettings={composerSettings}
         drainingQueuedPromptId={null}
         draftContent={draftContent}
         gate={readyGate}
@@ -180,6 +194,10 @@ function AgentGUIQuickComposerInner({
         providerSelectLabel={labels.providerSwitchLabel}
         queuedPrompts={[]}
         selectedAgentTarget={selectedAgentTarget}
+        selectProjectDirectory={selectProjectDirectory}
+        showProjectSelectorInFooter={Boolean(
+          selectProjectDirectory && onProjectPathChange
+        )}
         showStopButton={false}
         stopDisabled={true}
         uiLanguage={locale}
@@ -200,6 +218,7 @@ function AgentGUIQuickComposerInner({
             onAgentTargetChange(agentTargetId);
           }
         }}
+        onProjectPathChange={onProjectPathChange}
         onRemoveQueuedPrompt={() => {}}
         onRequestWorkspaceReferences={onRequestWorkspaceReferences}
         onSendQueuedPromptNext={() => {}}

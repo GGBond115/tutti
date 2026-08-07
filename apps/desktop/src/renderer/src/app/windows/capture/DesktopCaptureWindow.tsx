@@ -182,6 +182,7 @@ export function DesktopCaptureWindow({
                 disabled={snapshot.submitting}
                 locale={snapshot.capture.locale}
                 placeholder={translator.t("capture.notePlaceholder")}
+                projectPath={snapshot.projectPath}
                 selectedAgentTargetId={snapshot.agentTargetId}
                 taskActionHint={translator.t("capture.taskPromptHint")}
                 taskActionLabel={translator.t("capture.taskPromptAction")}
