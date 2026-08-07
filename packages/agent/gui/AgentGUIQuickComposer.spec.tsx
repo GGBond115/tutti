@@ -108,6 +108,7 @@ describe("AgentGUIQuickComposer", () => {
       <AgentGUIQuickComposer
         agentTargets={agentTargets}
         content={[{ text: "", type: "text" }]}
+        locale="zh-CN"
         selectedAgentTargetId="agent:codex"
         selectedProjectPath={null}
         selectProjectDirectory={vi.fn().mockResolvedValue({
@@ -130,6 +131,7 @@ describe("AgentGUIQuickComposer", () => {
         false
       )
     );
+    expect(noProjectIcon?.closest("button")).toHaveTextContent("不使用项目");
     expect(
       container
         .querySelector(".agent-gui-node__composer-footer")

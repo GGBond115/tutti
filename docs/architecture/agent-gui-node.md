@@ -1702,6 +1702,10 @@ project catalog is available, AgentGUI exposes only the explicit no-project and
 native existing-directory choices; it does not invent a project registry or
 Session state. The host carries the resulting path through its existing
 activation command as `cwd`.
+AgentGUI's standalone locale runtime includes the scoped defaults of package
+surfaces it mounts, including workspace-user-project. A host-supplied app
+runtime may override those keys, but a standalone Quick Composer must never
+render an unresolved scoped key as user-visible copy.
 Quick Composer also establishes the canonical AgentGUI semantic-token scope,
 so embedded placeholder, foreground, border, and menu colors never fall back
 to inherited host text styles. Hosts may provide a compact action accessory;
