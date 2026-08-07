@@ -31,10 +31,16 @@ describe("AgentGUIQuickComposer", () => {
       />
     );
 
+    const composer = container.querySelector(
+      'form[data-layout="embedded"][data-fill-available-height="true"]'
+    );
+
+    expect(composer).not.toBeNull();
     expect(
-      container.querySelector(
-        'form[data-layout="embedded"][data-fill-available-height="true"]'
-      )
+      composer?.querySelector(".agent-gui-node__rich-text-editor-surface")
+    ).not.toBeNull();
+    expect(
+      composer?.querySelector(".agent-gui-node__rich-text-editor-content")
     ).not.toBeNull();
   });
 

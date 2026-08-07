@@ -8366,9 +8366,18 @@ button.agent-gui-node__conversation-section-toggle:hover
 
 .agent-gui-node__composer[data-layout="embedded"][data-fill-available-height="true"]
   .agent-gui-node__composer-prompt-input-line {
+  align-items: stretch;
   height: 100%;
   min-height: 0;
   flex: 1 1 auto;
+}
+
+.agent-gui-node__composer[data-layout="embedded"][data-fill-available-height="true"]
+  .agent-gui-node__rich-text-editor-surface,
+.agent-gui-node__composer[data-layout="embedded"][data-fill-available-height="true"]
+  .agent-gui-node__rich-text-editor-content {
+  height: 100%;
+  min-height: 0;
 }
 
 .agent-gui-node__composer[data-layout="embedded"][data-fill-available-height="true"]

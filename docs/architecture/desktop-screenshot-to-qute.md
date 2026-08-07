@@ -90,7 +90,9 @@ header's viewport inset, so collision handling keeps Agent and mention menus
 inside the usable window instead of placing them behind the title bar.
 The screenshot host opts into the embedded Composer's full-height contract, so
 the bordered input surface consumes all space below the draggable header while
-attachments and footer controls keep their intrinsic height. Other embedded
+attachments and footer controls keep their intrinsic height. The TipTap surface
+and content wrappers fill that editor row as well, making the whole empty area
+a native input target rather than only the placeholder line. Other embedded
 hosts remain content-sized unless they make the same explicit request.
 
 The screenshot appears as an image draft block. The user chooses an Agent,

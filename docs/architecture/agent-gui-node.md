@@ -1703,8 +1703,10 @@ to inherited host text styles. Hosts may provide a compact action accessory;
 non-hero layouts instead of requiring consumer CSS to position controls over
 the Composer DOM. An embedding host with a definite block size may opt into
 `fillAvailableHeight`; the embedded Composer then gives its input group and
-editor the remaining height while keeping attachment and footer rows
-intrinsic. This remains explicit so ordinary launch surfaces keep the default
+each rich-text editor wrapper the remaining height while keeping attachment and
+footer rows intrinsic. The entire assigned editor block remains a native
+contenteditable hit target instead of relying on a host-level click-to-focus
+proxy. This remains explicit so ordinary launch surfaces keep the default
 content-sized behavior.
 
 The canonical Composer gate belongs to the Session-presentation projection and
