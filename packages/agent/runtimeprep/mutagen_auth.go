@@ -156,7 +156,7 @@ func (p MutagenAuthFileProjector) cleanupCallback(executable, sessionName, marke
 			return fmt.Errorf("decode Mutagen auth state; runtime preserved: %w", err)
 		}
 		if mutagenStateHasConflicts(state) {
-			return errors.New("Mutagen auth synchronization conflict; runtime preserved for recovery")
+			return errors.New("mutagen auth synchronization conflict; runtime preserved for recovery")
 		}
 		if _, err := p.run(cleanupCtx, executable, []string{"sync", "terminate", sessionName}); err != nil {
 			return fmt.Errorf("terminate Mutagen auth session; runtime preserved: %w", err)
@@ -410,7 +410,7 @@ func extractMutagenExecutable(archive []byte) ([]byte, error) {
 			continue
 		}
 		if header.Size <= 0 || header.Size > mutagenMaxArchiveSize {
-			return nil, errors.New("Mutagen archive contains an invalid executable")
+			return nil, errors.New("mutagen archive contains an invalid executable")
 		}
 		return io.ReadAll(io.LimitReader(tarReader, header.Size))
 	}
