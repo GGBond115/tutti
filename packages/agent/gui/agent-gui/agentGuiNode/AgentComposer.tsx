@@ -131,6 +131,7 @@ export function AgentComposer(props: AgentComposerProps): React.JSX.Element {
     canUploadAttachment = true,
     composerFocusRequestSequence = null,
     layoutMode = "dock",
+    menuViewportTopInset = 8,
     handoffLabel,
     handoffMenuLabel,
     labels,
@@ -340,7 +341,8 @@ export function AgentComposer(props: AgentComposerProps): React.JSX.Element {
   );
   const mentionFrame = useMentionPaletteFrame(
     inputShellRef,
-    showFileMentionPalette
+    showFileMentionPalette,
+    menuViewportTopInset
   );
 
   useEffect(() => {

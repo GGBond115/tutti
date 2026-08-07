@@ -665,6 +665,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
             providerSelectLabel={providerSelectLabel}
             selectedProviderLabel={selectedProviderLabel}
             providerMenuTargets={providerMenuTargets}
+            menuViewportTopInset={input.props.menuViewportTopInset}
             onProviderSelect={onProviderSelect}
             onLinkAction={onLinkAction}
             onRequestWorkspaceReferences={onRequestWorkspaceReferences}

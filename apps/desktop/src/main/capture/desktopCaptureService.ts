@@ -10,9 +10,17 @@ import {
   type NativeImage
 } from "electron";
 import type {
+  TuttiExternalAtQueryResult,
+  TuttiExternalAtResolveResult,
   TuttiExternalAgentActivityActivateSessionResult,
-  TuttiExternalAgentTargetCatalog
+  TuttiExternalAgentTargetCatalog,
+  TuttiExternalReferenceSelectResult
 } from "@tutti-os/workspace-external-core/contracts";
+import {
+  normalizeTuttiExternalAtQueryDirectoryInput,
+  normalizeTuttiExternalAtQueryInput,
+  normalizeTuttiExternalAtResolveInput
+} from "@tutti-os/workspace-external-core/core";
 import type { DesktopHostPreferencesState } from "../desktopHostPreferences.ts";
 import type { DesktopLogger } from "../logging.ts";
 import { getDesktopThemeState } from "../desktopTheme.ts";
@@ -20,7 +28,11 @@ import {
   findWorkspaceWindow,
   getWorkspaceWindowWorkspaceID
 } from "../windows/workspaceWindow.ts";
-import { desktopIpcChannels } from "../../shared/contracts/ipc.ts";
+import {
+  desktopIpcChannels,
+  type DesktopWorkspaceAppExternalRendererRequest,
+  type DesktopWorkspaceAppExternalRendererResult
+} from "../../shared/contracts/ipc.ts";
 import type {
   DesktopCaptureAttachment,
   DesktopCaptureComposerOptions,
@@ -40,7 +52,7 @@ import { normalizeCapturePromptContent } from "./captureAgentPrompt.ts";
 import { desktopCaptureAccelerator } from "./captureShortcut.ts";
 
 const captureComposerWidth = 620;
-const captureComposerHeight = 300;
+const captureComposerHeight = 260;
 const captureRendererAppId = "desktop-capture";
 
 type DesktopCaptureComposerOptionsLoad =
@@ -103,6 +115,57 @@ export function createDesktopCaptureService(input: {
     desktopIpcChannels.capture.getState,
     (event) => trustedActiveCapture(event.sender).state
   );
+  registerDesktopIpcHandler(
+    desktopIpcChannels.capture.queryMentions,
+    async (event, payload) => {
+      const capture = trustedActiveCapture(event.sender);
+      const query = normalizeTuttiExternalAtQueryInput(payload);
+      return requestCaptureWorkspaceOwner<TuttiExternalAtQueryResult[]>(
+        capture,
+        {
+          appId: captureRendererAppId,
+          input: query,
+          operation: "at.query",
+          requestId: randomUUID(),
+          workspaceId: capture.state.workspaceId
+        }
+      );
+    }
+  );
+  registerDesktopIpcHandler(
+    desktopIpcChannels.capture.queryMentionDirectory,
+    async (event, payload) => {
+      const capture = trustedActiveCapture(event.sender);
+      const query = normalizeTuttiExternalAtQueryDirectoryInput(payload);
+      return requestCaptureWorkspaceOwner<TuttiExternalAtQueryResult[]>(
+        capture,
+        {
+          appId: captureRendererAppId,
+          input: query,
+          operation: "at.queryDirectory",
+          requestId: randomUUID(),
+          workspaceId: capture.state.workspaceId
+        }
+      );
+    }
+  );
+  registerDesktopIpcHandler(
+    desktopIpcChannels.capture.resolveMention,
+    async (event, payload) => {
+      const capture = trustedActiveCapture(event.sender);
+      const mention = normalizeTuttiExternalAtResolveInput(payload);
+      return requestCaptureWorkspaceOwner<TuttiExternalAtResolveResult | null>(
+        capture,
+        {
+          appId: captureRendererAppId,
+          input: mention,
+          operation: "at.resolve",
+          requestId: randomUUID(),
+          workspaceId: capture.state.workspaceId
+        }
+      );
+    }
+  );
   registerDesktopIpcHandler(desktopIpcChannels.capture.cancel, (event) => {
     const capture = trustedActiveCapture(event.sender);
     if (!capture.submission) {
@@ -133,6 +196,13 @@ export function createDesktopCaptureService(input: {
       capture.selected = selected;
       presentComposer(capture, normalized);
       return { attachment: selected, ...loaded.options };
+    }
+  );
+  registerDesktopIpcHandler(
+    desktopIpcChannels.capture.selectReferences,
+    async (event) => {
+      const capture = trustedActiveCapture(event.sender);
+      return requestCaptureReferenceSelection(capture);
     }
   );
   registerDesktopIpcHandler(
@@ -397,12 +467,7 @@ async function submitCapture(
     throw new Error("Screenshot Agent target is invalid");
   }
   const content = normalizeCapturePromptContent(input.content);
-  const promptText = content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text?.trim() ?? "")
-    .filter(Boolean)
-    .join("\n");
-  const displayPrompt = input.displayPrompt?.trim() || promptText;
+  const displayPrompt = input.displayPrompt?.trim() ?? "";
   const workspaceWindow = resolveWorkspaceWindow(capture.state.workspaceId);
   if (!workspaceWindow) {
     throw new Error("Workspace renderer is unavailable");
@@ -418,7 +483,7 @@ async function submitCapture(
         clientSubmitId: randomUUID(),
         initialContent: content,
         ...(displayPrompt ? { initialDisplayPrompt: displayPrompt } : {}),
-        title: resolveCaptureTitle(promptText, attachment.displayName),
+        title: resolveCaptureTitle(displayPrompt, attachment.displayName),
         visible: true
       },
       operation: "agentActivity.activateSession",
@@ -463,4 +528,49 @@ function focusWorkspace(workspaceId: string): void {
   }
   window.show();
   window.focus();
+}
+
+function requestCaptureWorkspaceOwner<
+  Result extends DesktopWorkspaceAppExternalRendererResult
+>(
+  capture: ActiveCapture,
+  request: DesktopWorkspaceAppExternalRendererRequest
+): Promise<Result> {
+  const workspaceWindow = resolveWorkspaceWindow(capture.state.workspaceId);
+  if (!workspaceWindow) {
+    throw new Error("Workspace renderer is unavailable");
+  }
+  return requestWorkspaceOwnerRenderer<Result>(workspaceWindow, request);
+}
+
+async function requestCaptureReferenceSelection(
+  capture: ActiveCapture
+): Promise<TuttiExternalReferenceSelectResult> {
+  const workspaceWindow = resolveWorkspaceWindow(capture.state.workspaceId);
+  if (!workspaceWindow) {
+    throw new Error("Workspace renderer is unavailable");
+  }
+  capture.window.hide();
+  if (workspaceWindow.isMinimized()) {
+    workspaceWindow.restore();
+  }
+  workspaceWindow.show();
+  workspaceWindow.focus();
+  try {
+    return await requestWorkspaceOwnerRenderer<TuttiExternalReferenceSelectResult>(
+      workspaceWindow,
+      {
+        appId: captureRendererAppId,
+        operation: "references.select",
+        requestId: randomUUID(),
+        workspaceId: capture.state.workspaceId
+      }
+    );
+  } finally {
+    if (!capture.window.isDestroyed()) {
+      capture.window.setAlwaysOnTop(true, "screen-saver");
+      capture.window.show();
+      capture.window.focus();
+    }
+  }
 }

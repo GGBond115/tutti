@@ -4,7 +4,10 @@ import type {
   DesktopCaptureApi,
   DesktopCaptureSubmitInput
 } from "../../../../../shared/contracts/capture.ts";
-import { DesktopCaptureWindowController } from "./desktopCaptureWindowController.ts";
+import {
+  DesktopCaptureWindowController,
+  prependCapturePromptInstruction
+} from "./desktopCaptureWindowController.ts";
 
 test("DesktopCaptureWindowController owns selection and submission retry state", async () => {
   const submissions: DesktopCaptureSubmitInput[] = [];
@@ -20,6 +23,9 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
       themeAppearance: "light",
       workspaceId: "workspace-1"
     }),
+    queryMentionDirectory: async () => [],
+    queryMentions: async () => [],
+    resolveMention: async () => null,
     select: async () => ({
       agents: [
         {
@@ -38,6 +44,7 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
         width: 100
       }
     }),
+    selectReferences: async () => [],
     submit: async (input) => {
       submissions.push(input);
       if (failSubmission) {
@@ -55,24 +62,67 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
   controller.updateSelection({ x: 110, y: 100 });
   assert.equal(await controller.finishSelection(), true);
   assert.equal(controller.getSnapshot().stage, "composing");
-  controller.insertPrompt("Create and manage the task");
-  controller.insertPrompt("Create and manage the task");
+  controller.setContent([
+    { text: "Fix the selected bug", type: "text" },
+    ...controller.getSnapshot().content.filter((block) => block.type !== "text")
+  ]);
+  controller.setTrackWithTask(true);
 
-  await controller.submit();
+  await controller.submit(
+    undefined,
+    "Fix the selected bug",
+    "Create a Task, start the work, and keep the Task updated"
+  );
   assert.equal(controller.getSnapshot().failed, true);
   assert.equal(controller.getSnapshot().submitting, false);
-  await controller.submit();
+  await controller.submit(
+    undefined,
+    "Fix the selected bug",
+    "Create a Task, start the work, and keep the Task updated"
+  );
   assert.equal(submissions.length, 2);
   assert.deepEqual(submissions[1], {
     agentTargetId: "agent-1",
     content: [
-      { text: "Create and manage the task", type: "text" },
+      {
+        text: "Create a Task, start the work, and keep the Task updated\n\nFix the selected bug",
+        type: "text"
+      },
       {
         data: "cG5n",
         mimeType: "image/png",
         name: "capture.png",
         type: "image"
       }
-    ]
+    ],
+    displayPrompt: "Fix the selected bug"
   });
+  const visibleText = controller.getSnapshot().content[0];
+  assert.equal(
+    visibleText?.type === "text" ? visibleText.text : null,
+    "Fix the selected bug"
+  );
+});
+
+test("prependCapturePromptInstruction adds an instruction without mutating image-only content", () => {
+  const content = [
+    {
+      data: "cG5n",
+      mimeType: "image/png",
+      name: "capture.png",
+      type: "image" as const
+    }
+  ];
+  assert.deepEqual(
+    prependCapturePromptInstruction(content, "Create and track the Task"),
+    [{ text: "Create and track the Task", type: "text" }, content[0]]
+  );
+  assert.deepEqual(content, [
+    {
+      data: "cG5n",
+      mimeType: "image/png",
+      name: "capture.png",
+      type: "image"
+    }
+  ]);
 });

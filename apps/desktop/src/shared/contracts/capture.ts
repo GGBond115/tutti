@@ -1,6 +1,14 @@
 import type { DesktopLocale } from "../i18n/core/locale.ts";
 import type { DesktopThemeAppearance } from "../theme/core.ts";
 import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
+import type {
+  TuttiExternalAtQueryDirectoryInput,
+  TuttiExternalAtQueryInput,
+  TuttiExternalAtQueryResult,
+  TuttiExternalAtResolveInput,
+  TuttiExternalAtResolveResult,
+  TuttiExternalReferenceSelectResult
+} from "@tutti-os/workspace-external-core/contracts";
 
 export interface DesktopCaptureAgentOption {
   description?: string | null;
@@ -57,8 +65,18 @@ export interface DesktopCaptureSubmitResult {
 export interface DesktopCaptureApi {
   cancel(): Promise<void>;
   getState(): Promise<DesktopCaptureState>;
+  queryMentions(
+    input: TuttiExternalAtQueryInput
+  ): Promise<TuttiExternalAtQueryResult[]>;
+  queryMentionDirectory(
+    input: TuttiExternalAtQueryDirectoryInput
+  ): Promise<TuttiExternalAtQueryResult[]>;
+  resolveMention(
+    input: TuttiExternalAtResolveInput
+  ): Promise<TuttiExternalAtResolveResult | null>;
   select(
     input: DesktopCaptureSelectionInput
   ): Promise<DesktopCaptureSelectionResult>;
+  selectReferences(): Promise<TuttiExternalReferenceSelectResult>;
   submit(input: DesktopCaptureSubmitInput): Promise<DesktopCaptureSubmitResult>;
 }

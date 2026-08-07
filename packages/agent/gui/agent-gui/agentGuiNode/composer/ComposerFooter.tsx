@@ -73,6 +73,7 @@ interface Props {
   providerSelectLabel: string;
   selectedProviderLabel: string;
   providerMenuTargets: readonly AgentGUIAgentTarget[];
+  menuViewportTopInset?: number;
   onProviderSelect: AgentComposerProps["onProviderSelect"];
   onLinkAction: AgentComposerProps["onLinkAction"];
   onRequestWorkspaceReferences: AgentComposerProps["onRequestWorkspaceReferences"];
@@ -122,6 +123,7 @@ export function ComposerFooter({
   providerSelectLabel,
   selectedProviderLabel,
   providerMenuTargets,
+  menuViewportTopInset = 8,
   onProviderSelect,
   onLinkAction,
   onRequestWorkspaceReferences,
@@ -292,6 +294,14 @@ export function ComposerFooter({
               <SelectContent
                 align="start"
                 className={cn(styles.composerMenuContent, "min-w-[190px]")}
+                collisionPadding={{
+                  top: menuViewportTopInset,
+                  right: 8,
+                  bottom: 8,
+                  left: 8
+                }}
+                side="top"
+                sideOffset={6}
               >
                 {providerMenuTargets.map((target) => (
                   <SelectItem

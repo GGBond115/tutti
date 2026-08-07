@@ -6,7 +6,15 @@ import { invokeDesktopApi } from "../api/invoke.ts";
 const captureApi: DesktopCaptureApi = {
   cancel: () => invokeDesktopApi(desktopIpcChannels.capture.cancel),
   getState: () => invokeDesktopApi(desktopIpcChannels.capture.getState),
+  queryMentionDirectory: (input) =>
+    invokeDesktopApi(desktopIpcChannels.capture.queryMentionDirectory, input),
+  queryMentions: (input) =>
+    invokeDesktopApi(desktopIpcChannels.capture.queryMentions, input),
+  resolveMention: (input) =>
+    invokeDesktopApi(desktopIpcChannels.capture.resolveMention, input),
   select: (input) => invokeDesktopApi(desktopIpcChannels.capture.select, input),
+  selectReferences: () =>
+    invokeDesktopApi(desktopIpcChannels.capture.selectReferences),
   submit: (input) => invokeDesktopApi(desktopIpcChannels.capture.submit, input)
 };
 

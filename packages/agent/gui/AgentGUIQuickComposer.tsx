@@ -1,9 +1,12 @@
 import { useMemo, type JSX } from "react";
 import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
 import { TooltipProvider } from "@tutti-os/ui-system";
+import type { RichTextMentionService } from "@tutti-os/ui-rich-text/service";
 import { createWorkspaceUserProjectI18nRuntime } from "@tutti-os/workspace-user-project/i18n";
 import { AgentComposer } from "./agent-gui/agentGuiNode/AgentComposer";
+import { AgentGUIMentionServiceBoundary } from "./agent-gui/agentGuiNode/AgentGUIMentionServiceBoundary";
 import { useAgentGUIViewLabels } from "./agent-gui/agentGuiNode/AgentGUINode.labels";
+import type { AgentComposerProps } from "./agent-gui/agentGuiNode/composer/AgentComposer.types";
 import type {
   AgentGUIComposerGate,
   AgentGUIComposerSettingsVM
@@ -65,8 +68,13 @@ export interface AgentGUIQuickComposerProps {
   content: readonly AgentPromptContentBlock[];
   disabled?: boolean;
   locale?: AgentGuiI18nLocale;
+  /** Mention providers supplied by the embedding host. */
+  mentionService?: RichTextMentionService;
+  /** Reserved host chrome above portaled composer menus. */
+  menuViewportTopInset?: number;
   onAgentTargetChange(agentTargetId: string): void;
   onContentChange(content: AgentPromptContentBlock[]): void;
+  onRequestWorkspaceReferences?: AgentComposerProps["onRequestWorkspaceReferences"];
   onSubmit(content: AgentPromptContentBlock[], displayPrompt?: string): void;
   placeholder?: string;
   selectedAgentTargetId: string;
@@ -84,7 +92,9 @@ export function AgentGUIQuickComposer(
   return (
     <AgentGuiI18nProvider locale={props.locale}>
       <TooltipProvider delayDuration={120} skipDelayDuration={0}>
-        <AgentGUIQuickComposerInner {...props} />
+        <AgentGUIMentionServiceBoundary service={props.mentionService}>
+          <AgentGUIQuickComposerInner {...props} />
+        </AgentGUIMentionServiceBoundary>
       </TooltipProvider>
     </AgentGuiI18nProvider>
   );
@@ -94,8 +104,10 @@ function AgentGUIQuickComposerInner({
   agentTargets,
   content,
   disabled = false,
+  menuViewportTopInset,
   onAgentTargetChange,
   onContentChange,
+  onRequestWorkspaceReferences,
   onSubmit,
   placeholder,
   selectedAgentTargetId,
@@ -142,6 +154,7 @@ function AgentGUIQuickComposerInner({
       isSendingTurn={false}
       isSubmittingPrompt={disabled}
       layoutMode="embedded"
+      menuViewportTopInset={menuViewportTopInset}
       labels={{
         ...labels,
         approvalLead: labels.approvalRequired,
@@ -177,6 +190,7 @@ function AgentGUIQuickComposerInner({
         }
       }}
       onRemoveQueuedPrompt={() => {}}
+      onRequestWorkspaceReferences={onRequestWorkspaceReferences}
       onSendQueuedPromptNext={() => {}}
       onSettingsChange={() => {}}
       onSubmit={(nextContent, displayPrompt) => {

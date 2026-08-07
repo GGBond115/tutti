@@ -1689,6 +1689,14 @@ conversation timeline, `embedded` keeps the entire draft in normal document
 flow. Compact host surfaces must select that layout instead of compensating for
 dock overhang with consumer-specific offsets or clipping.
 
+Embedding hosts may inject the same `RichTextMentionService` and workspace
+reference-picker callback used by a full AgentGUI surface. Quick Composer wraps
+those inputs in the canonical mention-service boundary and delegates reference
+insertion to `AgentComposer`; it does not own a parallel mention catalog or
+picker. A constrained host may also declare a top viewport inset for portaled
+menus. Provider Select collision padding and mention-palette geometry must
+honor that inset so host chrome is never treated as usable menu space.
+
 The canonical Composer gate belongs to the Session-presentation projection and
 travels through the Composer view-model slice as one object. View-local
 transition or workflow locks may layer on top as explicit presentation locks;

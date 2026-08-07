@@ -28,9 +28,9 @@ export const en = {
     screenPreviewAlt: "Screen ready for area selection",
     selectHint: "Drag to select an area · Esc to cancel",
     taskPrompt:
-      "Create a Qute Task first, then keep it updated and manage it while you work.",
-    taskPromptAction: "Create and manage Task",
-    taskPromptHint: "Inserts an editable instruction into the prompt",
+      "Before starting, create a Qute Task to track this request. Then immediately carry out the request, using the Task as the ongoing work record and keeping its status and notes updated. Do not stop after creating the Task.",
+    taskPromptAction: "Create Task and track",
+    taskPromptHint: "Agent works now and keeps the Task updated",
     title: "Ask Agent about screenshot"
   },
   dashboard: {

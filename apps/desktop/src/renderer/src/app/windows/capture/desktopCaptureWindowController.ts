@@ -5,6 +5,8 @@ import type {
   DesktopCaptureState
 } from "../../../../../shared/contracts/capture.ts";
 import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
+import type { TuttiExternalReferenceSelection } from "@tutti-os/workspace-external-core/contracts";
+import type { TuttiExternalAtRichTextBridge } from "@tutti-os/workspace-external-core/rich-text";
 
 export type DesktopCaptureStage = "loading" | "selecting" | "composing";
 
@@ -17,6 +19,7 @@ export interface DesktopCaptureWindowSnapshot {
   selection: DesktopCaptureSelectionInput | null;
   stage: DesktopCaptureStage;
   submitting: boolean;
+  trackWithTask: boolean;
 }
 
 const initialSnapshot: DesktopCaptureWindowSnapshot = {
@@ -27,7 +30,8 @@ const initialSnapshot: DesktopCaptureWindowSnapshot = {
   failed: false,
   selection: null,
   stage: "loading",
-  submitting: false
+  submitting: false,
+  trackWithTask: false
 };
 
 export class DesktopCaptureWindowController {
@@ -36,9 +40,17 @@ export class DesktopCaptureWindowController {
   private initializePromise: Promise<void> | null = null;
   private readonly listeners = new Set<() => void>();
   private snapshot = initialSnapshot;
+  readonly mentionBridge: TuttiExternalAtRichTextBridge;
 
   constructor(api: DesktopCaptureApi) {
     this.api = api;
+    this.mentionBridge = {
+      at: {
+        query: (input) => this.api.queryMentions(input),
+        queryDirectory: (input) => this.api.queryMentionDirectory(input),
+        resolve: (input) => this.api.resolveMention(input)
+      }
+    };
   }
 
   readonly getSnapshot = (): DesktopCaptureWindowSnapshot => this.snapshot;
@@ -142,45 +154,34 @@ export class DesktopCaptureWindowController {
     this.update({ content });
   }
 
-  insertPrompt(prompt: string): void {
-    const normalizedPrompt = prompt.trim();
-    if (!normalizedPrompt) {
-      return;
-    }
-    const content = this.snapshot.content;
-    const currentText = content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text?.trim() ?? "")
-      .filter(Boolean)
-      .join("\n");
-    if (currentText.includes(normalizedPrompt)) {
-      return;
-    }
-    const nextText = currentText
-      ? `${currentText}\n\n${normalizedPrompt}`
-      : normalizedPrompt;
-    this.update({
-      content: [
-        { text: nextText, type: "text" },
-        ...content.filter((block) => block.type !== "text")
-      ]
-    });
+  setTrackWithTask(trackWithTask: boolean): void {
+    this.update({ trackWithTask });
+  }
+
+  selectReferences(): Promise<readonly TuttiExternalReferenceSelection[]> {
+    return this.api.selectReferences();
   }
 
   async submit(
     content: AgentPromptContentBlock[] = this.snapshot.content,
-    displayPrompt?: string
+    displayPrompt?: string,
+    taskInstruction?: string
   ): Promise<void> {
-    const { agentTargetId, attachment, submitting } = this.snapshot;
+    const { agentTargetId, attachment, submitting, trackWithTask } =
+      this.snapshot;
     if (!attachment || !agentTargetId || submitting || content.length === 0) {
       return;
     }
     this.update({ content, failed: false, submitting: true });
     try {
+      const visiblePrompt =
+        displayPrompt?.trim() || capturePromptText(content).trim();
       await this.api.submit({
         agentTargetId,
-        content,
-        ...(displayPrompt?.trim() ? { displayPrompt } : {})
+        content: trackWithTask
+          ? prependCapturePromptInstruction(content, taskInstruction)
+          : content,
+        ...(visiblePrompt ? { displayPrompt: visiblePrompt } : {})
       });
     } catch {
       this.update({ failed: true, submitting: false });
@@ -193,4 +194,40 @@ export class DesktopCaptureWindowController {
       listener();
     }
   }
+}
+
+export function prependCapturePromptInstruction(
+  content: readonly AgentPromptContentBlock[],
+  instruction: string | null | undefined
+): AgentPromptContentBlock[] {
+  const normalizedInstruction = instruction?.trim() ?? "";
+  if (!normalizedInstruction) {
+    return [...content];
+  }
+  const textIndex = content.findIndex((block) => block.type === "text");
+  if (textIndex < 0) {
+    return [{ text: normalizedInstruction, type: "text" }, ...content];
+  }
+  return content.map((block, index) => {
+    if (index !== textIndex || block.type !== "text") {
+      return block;
+    }
+    const text = block.text ?? "";
+    return {
+      ...block,
+      text: text.trim()
+        ? `${normalizedInstruction}\n\n${text}`
+        : normalizedInstruction
+    };
+  });
+}
+
+function capturePromptText(
+  content: readonly AgentPromptContentBlock[]
+): string {
+  return content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text?.trim() ?? "")
+    .filter(Boolean)
+    .join("\n");
 }

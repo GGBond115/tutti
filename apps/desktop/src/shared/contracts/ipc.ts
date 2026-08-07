@@ -101,7 +101,11 @@ export const desktopIpcChannels = {
   capture: {
     cancel: "capture:cancel",
     getState: "capture:get-state",
+    queryMentionDirectory: "capture:query-mention-directory",
+    queryMentions: "capture:query-mentions",
+    resolveMention: "capture:resolve-mention",
     select: "capture:select",
+    selectReferences: "capture:select-references",
     submit: "capture:submit"
   },
   computerUse: {
@@ -1061,7 +1065,12 @@ export type DesktopBrowserAutomationResponse =
 export interface DesktopInvokePayloadByChannel {
   [desktopIpcChannels.capture.cancel]: undefined;
   [desktopIpcChannels.capture.getState]: undefined;
+  [desktopIpcChannels.capture
+    .queryMentionDirectory]: TuttiExternalAtQueryDirectoryInput;
+  [desktopIpcChannels.capture.queryMentions]: TuttiExternalAtQueryInput;
+  [desktopIpcChannels.capture.resolveMention]: TuttiExternalAtResolveInput;
   [desktopIpcChannels.capture.select]: DesktopCaptureSelectionInput;
+  [desktopIpcChannels.capture.selectReferences]: undefined;
   [desktopIpcChannels.capture.submit]: DesktopCaptureSubmitInput;
   [desktopIpcChannels.computerUse.checkStatus]: undefined;
   [desktopIpcChannels.computerUse.install]: undefined;
@@ -1260,7 +1269,14 @@ export interface DesktopInvokePayloadByChannel {
 export interface DesktopInvokeResultByChannel {
   [desktopIpcChannels.capture.cancel]: void;
   [desktopIpcChannels.capture.getState]: DesktopCaptureState;
+  [desktopIpcChannels.capture
+    .queryMentionDirectory]: TuttiExternalAtQueryResult[];
+  [desktopIpcChannels.capture.queryMentions]: TuttiExternalAtQueryResult[];
+  [desktopIpcChannels.capture
+    .resolveMention]: TuttiExternalAtResolveResult | null;
   [desktopIpcChannels.capture.select]: DesktopCaptureSelectionResult;
+  [desktopIpcChannels.capture
+    .selectReferences]: TuttiExternalReferenceSelectResult;
   [desktopIpcChannels.capture.submit]: DesktopCaptureSubmitResult;
   [desktopIpcChannels.computerUse.checkStatus]: DesktopComputerUseStatus;
   [desktopIpcChannels.computerUse.install]: DesktopComputerUseActionResult;

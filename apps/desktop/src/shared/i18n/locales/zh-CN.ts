@@ -28,9 +28,10 @@ export const zhCN = {
     notePlaceholder: "让 Agent 检查、解释或修改截图中的内容…",
     screenPreviewAlt: "等待选择区域的屏幕",
     selectHint: "拖动选择区域 · Esc 取消",
-    taskPrompt: "请先创建一个 Qute Task，并在执行过程中持续更新和管理它",
-    taskPromptAction: "创建并管理 Task",
-    taskPromptHint: "将可编辑的指令插入输入框",
+    taskPrompt:
+      "开始处理前，请创建一个 Qute Task 来记录这项请求；随后立即执行请求，把 Task 作为持续跟进的工作记录，并及时更新状态和备注，不要在创建 Task 后停止",
+    taskPromptAction: "创建 Task 并跟进",
+    taskPromptHint: "Agent 会立即处理，并持续更新 Task",
     title: "让 Agent 处理截图"
   },
   dashboard: {

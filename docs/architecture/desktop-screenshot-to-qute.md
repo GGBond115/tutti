@@ -69,19 +69,34 @@ The window is transparent from creation, removes outer padding that could reveal
 the native background, and avoids a clipped CSS shadow at the window boundary.
 Only the post-selection header is an Electron drag region, so the full-screen
 selection surface stays fixed while the compact Composer can move. Editor
-controls remain no-drag regions. The Composer uses its in-flow `embedded`
-layout; timeline-oriented dock overhang is not valid inside the fixed native
-window.
+controls remain no-drag regions. The drag region publishes `grab`/`grabbing`
+cursor feedback instead of relying on the native drag region alone. The
+Composer uses its in-flow `embedded` layout; timeline-oriented dock overhang is
+not valid inside the fixed native window. Portaled Composer menus receive the
+header's viewport inset, so collision handling keeps Agent and mention menus
+inside the usable window instead of placing them behind the title bar.
 
 The screenshot appears as an image draft block. The user chooses an Agent,
 adds or edits prompt text, and sends with the Composer button or its existing
 keyboard behavior. Send creates and starts a visible Agent Session; it does not
 create an Issue directly.
 
-The **Create and manage Task** action inserts a localized, visible instruction
-into the prompt. The instruction remains ordinary editable prompt content. It
-asks the Agent to create a Qute Task and keep it updated during execution,
-rather than giving the desktop capture surface a second Task workflow.
+The **Create Task and track** action is a submit modifier, not an editor
+mutation. When selected, the capture controller prepends a localized
+instruction to the typed Agent prompt only at submission, while the visible
+draft and transcript display prompt remain the user's own text. The instruction
+requires the Agent to create a Qute Task as the work record, immediately carry
+out the request, and keep the Task status and notes updated; creating the Task
+is not a terminal action. This preserves one Agent execution path and does not
+give the desktop capture surface a second Task workflow.
+
+The Quick Composer's `+` and `@` controls use the workspace owner instead of a
+capture-local reference catalog. The restricted preload proxies typed
+`references.select`, `at.query`, `at.queryDirectory`, and `at.resolve`
+requests through the existing workspace external bridge. The reference picker
+temporarily returns focus to the workspace owner and restores the always-on-top
+capture window after selection. Selected files and lazy workspace-reference
+handles re-enter the canonical Composer as ordinary mention items.
 
 If Agent activation fails, the composer stays open with its draft intact so the
 user can retry. Escape cancels before submission. At least one ready Agent is
