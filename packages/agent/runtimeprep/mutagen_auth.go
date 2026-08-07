@@ -183,7 +183,7 @@ func (p MutagenAuthFileProjector) Project(ctx context.Context, input AuthFilePro
 	return p.cleanupCallback(executable, sessionName, markerPath), nil
 }
 
-func (p MutagenAuthFileProjector) copyFallbackCleanup(input AuthFileProjection, baseline authFileSnapshot) func(context.Context) error {
+func (_ MutagenAuthFileProjector) copyFallbackCleanup(input AuthFileProjection, baseline authFileSnapshot) func(context.Context) error {
 	return func(context.Context) error {
 		run, err := readValidAuthFile(input.TargetPath)
 		if err != nil {
@@ -382,10 +382,10 @@ func (p MutagenAuthFileProjector) resolveExecutable(ctx context.Context) (string
 		return path, nil
 	}
 	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
-		return "", fmt.Errorf("Mutagen is unavailable on %s/%s", runtime.GOOS, runtime.GOARCH)
+		return "", fmt.Errorf("mutagen is unavailable on %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 	if !p.AllowDownload {
-		return "", errors.New("Mutagen is unavailable")
+		return "", errors.New("mutagen is unavailable")
 	}
 	return p.installWindowsAMD64(ctx)
 }
