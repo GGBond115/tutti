@@ -9,7 +9,10 @@ import {
   type Display,
   type NativeImage
 } from "electron";
-import type { TuttidClient } from "@tutti-os/client-tuttid-ts";
+import type {
+  TuttiExternalAgentActivityActivateSessionResult,
+  TuttiExternalAgentTargetCatalog
+} from "@tutti-os/workspace-external-core/contracts";
 import type { DesktopHostPreferencesState } from "../desktopHostPreferences.ts";
 import type { DesktopLogger } from "../logging.ts";
 import { getDesktopThemeState } from "../desktopTheme.ts";
@@ -27,15 +30,18 @@ import type {
   DesktopCaptureSubmitResult
 } from "../../shared/contracts/capture.ts";
 import { registerDesktopIpcHandler } from "../ipc/handle.ts";
+import { requestWorkspaceOwnerRenderer } from "../ipc/workspaceAppRendererBridge.ts";
 import {
   normalizeCaptureSelection,
   resolveCaptureComposerBounds,
   resolveCaptureTitle
 } from "./captureGeometry.ts";
+import { normalizeCapturePromptContent } from "./captureAgentPrompt.ts";
 import { desktopCaptureAccelerator } from "./captureShortcut.ts";
 
-const captureComposerWidth = 480;
-const captureComposerHeight = 500;
+const captureComposerWidth = 620;
+const captureComposerHeight = 360;
+const captureRendererAppId = "desktop-capture";
 
 type DesktopCaptureComposerOptionsLoad =
   | { error: null; options: DesktopCaptureComposerOptions }
@@ -43,7 +49,6 @@ type DesktopCaptureComposerOptionsLoad =
 
 interface ActiveCapture {
   composerOptions: Promise<DesktopCaptureComposerOptionsLoad>;
-  createdIssueId: string | null;
   display: Display;
   image: NativeImage;
   selected: DesktopCaptureAttachment | null;
@@ -65,13 +70,6 @@ export function createDesktopCaptureService(input: {
   preloadPath: string;
   rendererFilePath: string;
   rendererUrl?: string;
-  tuttidClient: Pick<
-    TuttidClient,
-    | "createWorkspaceIssue"
-    | "startWorkspaceIssueRun"
-    | "listAgentTargets"
-    | "listWorkspaceIssueTopics"
-  >;
 }): DesktopCaptureService {
   let activeCapture: ActiveCapture | null = null;
   let openingCapture = false;
@@ -141,11 +139,7 @@ export function createDesktopCaptureService(input: {
     desktopIpcChannels.capture.submit,
     async (event, submission) => {
       const capture = trustedActiveCapture(event.sender);
-      capture.submission ??= submitCapture(
-        input.tuttidClient,
-        capture,
-        submission
-      );
+      capture.submission ??= submitCapture(capture, submission);
       try {
         const result = await capture.submission;
         const workspaceId = capture.state.workspaceId;
@@ -243,8 +237,12 @@ async function createCaptureWindow(
     width: Math.max(1, Math.round(display.size.width * display.scaleFactor)),
     height: Math.max(1, Math.round(display.size.height * display.scaleFactor))
   };
+  const workspaceWindow = resolveWorkspaceWindow(workspaceId);
+  if (!workspaceWindow) {
+    throw new Error("Workspace renderer is unavailable");
+  }
   const composerOptions = loadCaptureComposerOptions(
-    input.tuttidClient,
+    workspaceWindow,
     workspaceId
   ).then<DesktopCaptureComposerOptionsLoad, DesktopCaptureComposerOptionsLoad>(
     (options) => ({ error: null, options }),
@@ -267,14 +265,15 @@ async function createCaptureWindow(
   const captureWindow = new BrowserWindow({
     ...display.bounds,
     alwaysOnTop: true,
-    backgroundColor: "#000000",
+    backgroundColor: "#00000000",
     frame: false,
     fullscreenable: false,
     hasShadow: false,
-    movable: false,
+    movable: true,
     resizable: false,
     show: false,
     skipTaskbar: true,
+    transparent: true,
     webPreferences: {
       backgroundThrottling: false,
       contextIsolation: true,
@@ -286,18 +285,15 @@ async function createCaptureWindow(
   captureWindow.setAlwaysOnTop(true, "screen-saver");
   const state: DesktopCaptureState = {
     agents: [],
-    defaultTopicId: "",
     displayHeight: display.bounds.height,
     displayWidth: display.bounds.width,
     locale: input.preferences.getLocale(),
     screenshotDataUrl: source.thumbnail.toDataURL(),
     themeAppearance: theme.appearance,
-    topics: [],
     workspaceId
   };
   const capture: ActiveCapture = {
     composerOptions,
-    createdIssueId: null,
     display,
     image: source.thumbnail,
     selected: null,
@@ -341,33 +337,32 @@ function cropSelection(
 }
 
 async function loadCaptureComposerOptions(
-  client: Pick<TuttidClient, "listAgentTargets" | "listWorkspaceIssueTopics">,
+  workspaceWindow: BrowserWindow,
   workspaceId: string
 ): Promise<DesktopCaptureComposerOptions> {
-  const [topicResponse, targetResponse] = await Promise.all([
-    client.listWorkspaceIssueTopics(workspaceId),
-    client.listAgentTargets()
-  ]);
-  const topics = topicResponse.topics.map((topic) => ({
-    id: topic.topicId,
-    isDefault: topic.isDefault,
-    title: topic.title
-  }));
-  const defaultTopicId =
-    topics.find((topic) => topic.isDefault)?.id ?? topics[0]?.id ?? "";
-  if (!defaultTopicId) {
-    throw new Error("Screenshot capture requires an Issue topic");
+  const catalog =
+    await requestWorkspaceOwnerRenderer<TuttiExternalAgentTargetCatalog>(
+      workspaceWindow,
+      {
+        appId: captureRendererAppId,
+        operation: "agentActivity.listTargets",
+        requestId: randomUUID(),
+        workspaceId
+      }
+    );
+  const agents = catalog.agents
+    .filter((target) => target.availability.status === "ready")
+    .map((target) => ({
+      description: target.description,
+      iconUrl: target.iconUrl,
+      id: target.agentTargetId,
+      name: target.name,
+      provider: target.provider
+    }));
+  if (agents.length === 0) {
+    throw new Error("Screenshot capture requires an available Agent");
   }
-  const agents = targetResponse.targets
-    .filter(
-      (target) =>
-        target.enabled &&
-        !["auth_required", "not_installed", "unsupported"].includes(
-          target.availability?.status ?? "ready"
-        )
-    )
-    .map((target) => ({ id: target.id, name: target.name }));
-  return { agents, defaultTopicId, topics };
+  return { agents };
 }
 
 function presentComposer(
@@ -390,7 +385,6 @@ function presentComposer(
 }
 
 async function submitCapture(
-  client: Pick<TuttidClient, "createWorkspaceIssue" | "startWorkspaceIssueRun">,
   capture: ActiveCapture,
   input: DesktopCaptureSubmitInput
 ): Promise<DesktopCaptureSubmitResult> {
@@ -398,49 +392,41 @@ async function submitCapture(
   if (!attachment) {
     throw new Error("Screenshot selection is unavailable");
   }
-  const topicId = input.topicId.trim();
-  if (!capture.state.topics.some((topic) => topic.id === topicId)) {
-    throw new Error("Screenshot topic is invalid");
-  }
-  if (input.action !== "create" && input.action !== "create-and-run") {
-    throw new Error("Screenshot action is invalid");
-  }
-  const agentTargetId = input.agentTargetId?.trim() ?? "";
-  if (
-    input.action === "create-and-run" &&
-    !capture.state.agents.some((agent) => agent.id === agentTargetId)
-  ) {
+  const agentTargetId = input.agentTargetId.trim();
+  if (!capture.state.agents.some((agent) => agent.id === agentTargetId)) {
     throw new Error("Screenshot Agent target is invalid");
   }
-  const note = input.note.trim();
-  const title = resolveCaptureTitle(note, attachment.displayName);
-  let issueId = capture.createdIssueId;
-  if (!issueId) {
-    const issue = await client.createWorkspaceIssue(capture.state.workspaceId, {
-      attachments: [
-        {
-          attachmentId: randomUUID(),
-          dataBase64: attachment.dataBase64,
-          displayName: attachment.displayName,
-          mimeType: attachment.mimeType
-        }
-      ],
-      content: note,
-      topicId,
-      title
-    });
-    issueId = issue.issueId;
-    // A run request can fail after Issue creation. Keep the durable Issue ID so
-    // retrying from the composer starts the run instead of duplicating the task.
-    capture.createdIssueId = issueId;
+  const content = normalizeCapturePromptContent(input.content);
+  const promptText = content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text?.trim() ?? "")
+    .filter(Boolean)
+    .join("\n");
+  const displayPrompt = input.displayPrompt?.trim() || promptText;
+  const workspaceWindow = resolveWorkspaceWindow(capture.state.workspaceId);
+  if (!workspaceWindow) {
+    throw new Error("Workspace renderer is unavailable");
   }
-  if (input.action === "create-and-run") {
-    await client.startWorkspaceIssueRun(capture.state.workspaceId, issueId, {
-      agentTargetId
-    });
-    return { issueId, runStarted: true };
-  }
-  return { issueId, runStarted: false };
+  const agentSessionId = randomUUID();
+  await requestWorkspaceOwnerRenderer<TuttiExternalAgentActivityActivateSessionResult>(
+    workspaceWindow,
+    {
+      appId: captureRendererAppId,
+      input: {
+        agentSessionId,
+        agentTargetId,
+        clientSubmitId: randomUUID(),
+        initialContent: content,
+        ...(displayPrompt ? { initialDisplayPrompt: displayPrompt } : {}),
+        title: resolveCaptureTitle(promptText, attachment.displayName),
+        visible: true
+      },
+      operation: "agentActivity.activateSession",
+      requestId: randomUUID(),
+      workspaceId: capture.state.workspaceId
+    }
+  );
+  return { agentSessionId };
 }
 
 function resolveFocusedWorkspaceId(): string | null {
@@ -460,10 +446,15 @@ function resolveFocusedWorkspaceId(): string | null {
   return null;
 }
 
-function focusWorkspace(workspaceId: string): void {
-  const window =
+function resolveWorkspaceWindow(workspaceId: string): BrowserWindow | null {
+  return (
     findWorkspaceWindow(workspaceId, "workspace") ??
-    findWorkspaceWindow(workspaceId, "agent");
+    findWorkspaceWindow(workspaceId, "agent")
+  );
+}
+
+function focusWorkspace(workspaceId: string): void {
+  const window = resolveWorkspaceWindow(workspaceId);
   if (!window || window.isDestroyed()) {
     return;
   }

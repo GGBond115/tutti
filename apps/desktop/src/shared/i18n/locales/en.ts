@@ -22,20 +22,16 @@ export const en = {
     zipArchive: "ZIP Archive"
   },
   capture: {
-    agentLabel: "Agent",
-    createAndRun: "Create & run",
-    createOnly: "Create task",
-    error: "Could not create the screenshot task. Try again.",
+    error: "Could not start the Agent. Try again.",
     loading: "Preparing screenshot…",
-    noAgent: "No Agent available",
-    notePlaceholder: "What should Qute do with this screenshot?",
+    notePlaceholder: "Ask the Agent to inspect, explain, or change this…",
     screenPreviewAlt: "Screen ready for area selection",
     selectHint: "Drag to select an area · Esc to cancel",
-    selectionPreviewAlt: "Selected screenshot",
-    submitting: "Creating…",
-    subtitle: "Add context, then save it or start an Agent",
-    title: "Capture to Qute",
-    topicLabel: "Topic"
+    taskPrompt:
+      "Create a Qute Task first, then keep it updated and manage it while you work.",
+    taskPromptAction: "Create and manage Task",
+    taskPromptHint: "Inserts an editable instruction into the prompt",
+    title: "Ask Agent about screenshot"
   },
   dashboard: {
     chooseWorkspaceTitle: "Choose a workspace",

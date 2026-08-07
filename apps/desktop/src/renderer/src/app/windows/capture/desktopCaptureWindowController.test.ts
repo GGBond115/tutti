@@ -13,17 +13,22 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
     cancel: async () => undefined,
     getState: async () => ({
       agents: [],
-      defaultTopicId: "",
       displayHeight: 800,
       displayWidth: 1200,
       locale: "en",
       screenshotDataUrl: "data:image/png;base64,c2NyZWVu",
       themeAppearance: "light",
-      topics: [],
       workspaceId: "workspace-1"
     }),
     select: async () => ({
-      agents: [{ id: "agent-1", name: "Agent" }],
+      agents: [
+        {
+          iconUrl: "data:image/png;base64,aWNvbg==",
+          id: "agent-1",
+          name: "Agent",
+          provider: "codex"
+        }
+      ],
       attachment: {
         dataBase64: "cG5n",
         dataUrl: "data:image/png;base64,cG5n",
@@ -31,9 +36,7 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
         height: 80,
         mimeType: "image/png",
         width: 100
-      },
-      defaultTopicId: "topic-1",
-      topics: [{ id: "topic-1", isDefault: true, title: "Inbox" }]
+      }
     }),
     submit: async (input) => {
       submissions.push(input);
@@ -41,30 +44,35 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
         failSubmission = false;
         throw new Error("run unavailable");
       }
-      return { issueId: "issue-1", runStarted: true };
+      return { agentSessionId: "session-1" };
     }
   };
   const controller = new DesktopCaptureWindowController(api);
   await controller.initialize();
   assert.equal(controller.getSnapshot().stage, "selecting");
-  assert.equal(controller.getSnapshot().topicId, "");
 
   controller.beginSelection({ x: 10, y: 20 });
   controller.updateSelection({ x: 110, y: 100 });
   assert.equal(await controller.finishSelection(), true);
   assert.equal(controller.getSnapshot().stage, "composing");
-  assert.equal(controller.getSnapshot().topicId, "topic-1");
-  controller.setNote("Inspect this");
+  controller.insertPrompt("Create and manage the task");
+  controller.insertPrompt("Create and manage the task");
 
-  await controller.submit("create-and-run");
+  await controller.submit();
   assert.equal(controller.getSnapshot().failed, true);
   assert.equal(controller.getSnapshot().submitting, false);
-  await controller.submit("create-and-run");
+  await controller.submit();
   assert.equal(submissions.length, 2);
   assert.deepEqual(submissions[1], {
-    action: "create-and-run",
     agentTargetId: "agent-1",
-    note: "Inspect this",
-    topicId: "topic-1"
+    content: [
+      { text: "Create and manage the task", type: "text" },
+      {
+        data: "cG5n",
+        mimeType: "image/png",
+        name: "capture.png",
+        type: "image"
+      }
+    ]
   });
 });

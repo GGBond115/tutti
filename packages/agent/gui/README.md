@@ -188,6 +188,15 @@ The daemon DTO mapper belongs to
 `@tutti-os/agent-activity-tuttid-adapter`, so Desktop and Mobile do not keep
 separate parser implementations for Composer capabilities or option catalogs.
 
+## Quick Composer
+
+`@tutti-os/agent-gui/quick-composer` renders the canonical DOM Composer for a
+launcher that needs text, image drafts, and exact Agent Target selection without
+the Rail or timeline. It is controlled by typed prompt content and returns the
+same prompt envelope on submit. It intentionally owns no Session lifecycle or
+Composer-options loading; the host must route submit through its existing
+workspace `AgentSessionEngine`.
+
 ## Standalone Conversation Participant Presentation
 
 The `@tutti-os/agent-gui/agent-conversation` entrypoint exposes one optional,

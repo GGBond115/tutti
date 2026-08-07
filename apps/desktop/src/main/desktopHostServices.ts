@@ -40,13 +40,9 @@ export interface CreateDesktopHostServicesOptions {
   logger: DesktopLogger;
   tuttidClient: Pick<
     TuttidClient,
-    | "createWorkspaceIssue"
     | "getDesktopPreferences"
     | "getStartupWorkspace"
-    | "listAgentTargets"
-    | "listWorkspaceIssueTopics"
     | "putDesktopPreferences"
-    | "startWorkspaceIssueRun"
     | "trackEvents"
   >;
   preloadPath: string;
@@ -94,8 +90,7 @@ export async function createDesktopHostServices(
     preferences,
     preloadPath: options.capturePreloadPath,
     rendererFilePath: options.captureRendererFilePath,
-    rendererUrl: options.rendererUrl,
-    tuttidClient: options.tuttidClient
+    rendererUrl: options.rendererUrl
   });
 
   return {

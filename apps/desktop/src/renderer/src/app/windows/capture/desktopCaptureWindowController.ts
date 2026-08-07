@@ -4,6 +4,7 @@ import type {
   DesktopCaptureSelectionInput,
   DesktopCaptureState
 } from "../../../../../shared/contracts/capture.ts";
+import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
 
 export type DesktopCaptureStage = "loading" | "selecting" | "composing";
 
@@ -11,24 +12,22 @@ export interface DesktopCaptureWindowSnapshot {
   attachment: DesktopCaptureAttachment | null;
   agentTargetId: string;
   capture: DesktopCaptureState | null;
+  content: AgentPromptContentBlock[];
   failed: boolean;
-  note: string;
   selection: DesktopCaptureSelectionInput | null;
   stage: DesktopCaptureStage;
   submitting: boolean;
-  topicId: string;
 }
 
 const initialSnapshot: DesktopCaptureWindowSnapshot = {
   attachment: null,
   agentTargetId: "",
   capture: null,
+  content: [],
   failed: false,
-  note: "",
   selection: null,
   stage: "loading",
-  submitting: false,
-  topicId: ""
+  submitting: false
 };
 
 export class DesktopCaptureWindowController {
@@ -57,8 +56,7 @@ export class DesktopCaptureWindowController {
           agentTargetId: capture.agents[0]?.id ?? "",
           capture,
           failed: false,
-          stage: "selecting",
-          topicId: capture.defaultTopicId
+          stage: "selecting"
         });
       })
       .catch(() => this.update({ failed: true }));
@@ -109,13 +107,19 @@ export class DesktopCaptureWindowController {
         attachment: result.attachment,
         capture: {
           ...capture,
-          agents: result.agents,
-          defaultTopicId: result.defaultTopicId,
-          topics: result.topics
+          agents: result.agents
         },
+        content: [
+          { text: "", type: "text" },
+          {
+            data: result.attachment.dataBase64,
+            mimeType: result.attachment.mimeType,
+            name: result.attachment.displayName,
+            type: "image"
+          }
+        ],
         failed: false,
-        stage: "composing",
-        topicId: result.defaultTopicId
+        stage: "composing"
       });
       return true;
     } catch {
@@ -134,32 +138,49 @@ export class DesktopCaptureWindowController {
     this.update({ agentTargetId });
   }
 
-  setNote(note: string): void {
-    this.update({ note });
+  setContent(content: AgentPromptContentBlock[]): void {
+    this.update({ content });
   }
 
-  setTopicId(topicId: string): void {
-    this.update({ topicId });
-  }
-
-  async submit(action: "create" | "create-and-run"): Promise<void> {
-    const { agentTargetId, attachment, note, submitting, topicId } =
-      this.snapshot;
-    if (
-      !attachment ||
-      !topicId ||
-      submitting ||
-      (action === "create-and-run" && !agentTargetId)
-    ) {
+  insertPrompt(prompt: string): void {
+    const normalizedPrompt = prompt.trim();
+    if (!normalizedPrompt) {
       return;
     }
-    this.update({ failed: false, submitting: true });
+    const content = this.snapshot.content;
+    const currentText = content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text?.trim() ?? "")
+      .filter(Boolean)
+      .join("\n");
+    if (currentText.includes(normalizedPrompt)) {
+      return;
+    }
+    const nextText = currentText
+      ? `${currentText}\n\n${normalizedPrompt}`
+      : normalizedPrompt;
+    this.update({
+      content: [
+        { text: nextText, type: "text" },
+        ...content.filter((block) => block.type !== "text")
+      ]
+    });
+  }
+
+  async submit(
+    content: AgentPromptContentBlock[] = this.snapshot.content,
+    displayPrompt?: string
+  ): Promise<void> {
+    const { agentTargetId, attachment, submitting } = this.snapshot;
+    if (!attachment || !agentTargetId || submitting || content.length === 0) {
+      return;
+    }
+    this.update({ content, failed: false, submitting: true });
     try {
       await this.api.submit({
-        action,
-        ...(action === "create-and-run" ? { agentTargetId } : {}),
-        note,
-        topicId
+        agentTargetId,
+        content,
+        ...(displayPrompt?.trim() ? { displayPrompt } : {})
       });
     } catch {
       this.update({ failed: true, submitting: false });

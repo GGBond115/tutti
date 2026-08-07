@@ -1,7 +1,8 @@
 # Desktop Screenshot To Qute
 
-The desktop can turn an arbitrary rectangular screen region into a Qute Issue
-with a durable image attachment. The default global shortcut is
+The desktop can send an arbitrary rectangular screen region directly to an
+Agent as a multimodal prompt. The Agent can optionally be instructed to create
+and manage a Qute Task while it works. The default global shortcut is
 `CommandOrControl+Shift+S`, and it works while another application has focus as
 long as Tutti is running and has a workspace window to target.
 
@@ -15,21 +16,24 @@ Electron main process
         |
         v
 restricted capture preload + renderer
-  region selection -> note/topic/Agent composer
+  region selection -> AgentGUI quick composer
         |
         v
-tuttid Issue Manager API
-  create Issue + persist image ContextRef
+workspace renderer
+  existing AgentSessionEngine activation
         |
-        +-- create only
-        |
-        `-- start Run -> Agent Host prompt with text + image block
+        v
+Agent Host
+  create Session + initial Turn from text and image blocks
 ```
 
 - `apps/desktop` owns the operating-system shortcut, screen capture, crop,
-  floating window, and narrow IPC bridge. The renderer never receives the
-  daemon client and cannot submit arbitrary image bytes; the main process keeps
-  the selected image and accepts only the note, topic, Agent target, and action.
+  floating window, and narrow IPC bridge. The capture surface does not create a
+  second activity Engine. Its main-process adapter sends typed launch requests
+  to the renderer that already owns the workspace Engine.
+- `packages/agent/gui` owns the reusable `quick-composer` entry. It reuses the
+  canonical rich-text Composer, image preview, Agent Target selector, keyboard
+  submission behavior, and localized copy while owning no Session lifecycle.
 - `packages/workspace/issue-manager` owns the reusable Issue Manager contract,
   attachment presentation, and localized labels.
 - `services/tuttid/service/workspace` owns validation, ContextRef lifecycle,
@@ -38,7 +42,9 @@ tuttid Issue Manager API
   immutable launch snapshot and codec live in `services/tuttid/biz/workspace`
   so service and data share an explicit contract without exposing host paths
   through reusable workspace packages.
-- `packages/agent/host` remains the lifecycle owner. The explicit
+- `packages/agent/host` remains the lifecycle owner. Screenshot launch uses the
+  existing `AgentSessionEngine.activateSession` path, which delegates to Host
+  with provider-neutral text and image blocks. The separate explicit
   `startWorkspaceIssueRun` use case resolves attachments and creates the Issue
   Run plus a durable launch intent before the existing adapter delegates Agent
   session/turn creation to Host with provider-neutral text and image prompt
@@ -49,31 +55,39 @@ display before the transparent selection window is shown, then crops the
 selected rectangle using the display scale factor. This keeps Retina/HiDPI
 pixels intact while positioning the selection UI in display-independent
 coordinates. The shortcut contains exactly three keys and avoids shifted
-number-row symbols, whose interpretation varies by keyboard layout. Topic and
-Agent metadata load concurrently with screen capture but do not delay showing
-the selector; the metadata is joined only when selection completes.
+number-row symbols, whose interpretation varies by keyboard layout. Agent
+metadata loads concurrently with screen capture but does not delay showing the
+selector; the metadata is joined only when selection completes.
 
 ## Floating Composer
 
-After selection, the same frameless window becomes a compact composer. It uses
-UI System `Textarea`, `Select`, and `Button` primitives, semantic color tokens,
-and the Agent composer typography and spacing conventions.
+After selection, the same frameless window becomes a compact AgentGUI Composer.
+The window is transparent from creation, removes outer padding that could reveal
+the native background, and avoids a clipped CSS shadow at the window boundary.
+Only the post-selection header is an Electron drag region, so the full-screen
+selection surface stays fixed while the compact Composer can move. Editor
+controls remain no-drag regions.
 
-The composer always creates the Issue first and then offers two outcomes:
+The screenshot appears as an image draft block. The user chooses an Agent,
+adds or edits prompt text, and sends with the Composer button or its existing
+keyboard behavior. Send creates and starts a visible Agent Session; it does not
+create an Issue directly.
 
-- **Create task** saves the screenshot, optional note, and selected topic.
-- **Create and run** also starts an Issue Run with the selected Agent. The
-  keyboard equivalent is Command/Ctrl+Enter.
+The **Create and manage Task** action inserts a localized, visible instruction
+into the prompt. The instruction remains ordinary editable prompt content. It
+asks the Agent to create a Qute Task and keep it updated during execution,
+rather than giving the desktop capture surface a second Task workflow.
 
-If Agent launch fails after the Issue was saved, the composer retains the
-created Issue ID. A retry starts a Run against that Issue instead of creating a
-duplicate Issue. Escape cancels before submission. A workspace must already
-have a topic, and at least one ready Agent is required only for the
-create-and-run path.
+If Agent activation fails, the composer stays open with its draft intact so the
+user can retry. Escape cancels before submission. At least one ready Agent is
+required. The capture window closes only after the workspace Engine confirms
+activation, then focus returns to the workspace window.
 
 ## Attachment Contract And Storage
 
-`CreateIssueManagerIssueRequest.attachments` accepts up to eight inline PNG,
+The Issue Manager attachment contract remains available for Task workflows
+created by Agents or other callers. `CreateIssueManagerIssueRequest.attachments`
+accepts up to eight inline PNG,
 JPEG, or WebP images. Each decoded image is limited to 20 MiB. `tuttid`
 validates the declared MIME type against the file signature, allocates or
 validates a UUID, and creates the restricted file exclusively so a supplied ID

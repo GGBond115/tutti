@@ -4,16 +4,9 @@ import {
   useSyncExternalStore,
   type PointerEvent
 } from "react";
-import {
-  Button,
-  CloseIcon,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Textarea
-} from "@tutti-os/ui-system";
+import type { AgentGUIAgentTarget } from "@tutti-os/agent-gui";
+import { AgentGUIQuickComposer } from "@tutti-os/agent-gui/quick-composer";
+import { Button, CloseIcon } from "@tutti-os/ui-system";
 import { createTranslator } from "../../../../../shared/i18n/index.ts";
 import type { DesktopCaptureWindowController } from "./desktopCaptureWindowController.ts";
 
@@ -31,6 +24,19 @@ export function DesktopCaptureWindow({
     () => createTranslator(snapshot.capture?.locale ?? "en"),
     [snapshot.capture?.locale]
   );
+  const agentTargets = useMemo<AgentGUIAgentTarget[]>(
+    () =>
+      (snapshot.capture?.agents ?? []).map((agent) => ({
+        agentTargetId: agent.id,
+        description: agent.description ?? undefined,
+        iconUrl: agent.iconUrl,
+        label: agent.name,
+        provider: agent.provider,
+        ref: { kind: "desktop-capture", provider: agent.provider },
+        targetId: agent.id
+      })),
+    [snapshot.capture?.agents]
+  );
 
   useEffect(() => {
     void controller.initialize();
@@ -43,27 +49,19 @@ export function DesktopCaptureWindow({
     }
     document.documentElement.lang = capture.locale;
     document.documentElement.dataset.theme = capture.themeAppearance;
+    document.documentElement.style.background = "transparent";
+    document.body.style.background = "transparent";
   }, [snapshot.capture]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         controller.cancelSelection();
-        return;
-      }
-      if (
-        snapshot.stage === "composing" &&
-        event.key === "Enter" &&
-        (event.metaKey || event.ctrlKey) &&
-        snapshot.agentTargetId
-      ) {
-        event.preventDefault();
-        void controller.submit("create-and-run");
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [controller, snapshot.agentTargetId, snapshot.stage]);
+  }, [controller]);
 
   const pointerPosition = (
     event: PointerEvent<HTMLDivElement>
@@ -138,21 +136,26 @@ export function DesktopCaptureWindow({
     );
   }
 
-  const attachment = snapshot.attachment;
   return (
-    <main className="fixed inset-0 flex overflow-hidden bg-transparent p-2.5 font-[var(--font-ui)] text-[var(--text-primary)]">
-      <section className="flex min-h-0 w-full flex-1 flex-col gap-2.5 rounded-xl border border-[var(--border-1)] bg-[var(--background-fronted)] p-3 shadow-[0_16px_48px_var(--shadow-elevated)]">
-        <header className="flex items-start justify-between gap-3">
-          <div>
-            <h1 className="m-0 text-[14px] leading-5 font-medium">
+    <main className="fixed inset-0 flex overflow-hidden bg-transparent font-[var(--font-ui)] text-[var(--text-primary)]">
+      <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--border-1)] bg-[var(--background-fronted)]">
+        <header className="flex h-10 shrink-0 cursor-grab items-center justify-between gap-3 border-b border-[var(--border-1)] px-3 [-webkit-app-region:drag] active:cursor-grabbing">
+          <div className="flex min-w-0 items-center gap-2">
+            {snapshot.attachment ? (
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-6 shrink-0 rounded border border-[var(--border-1)] object-cover"
+                src={snapshot.attachment.dataUrl}
+              />
+            ) : null}
+            <h1 className="m-0 truncate text-[13px] leading-5 font-medium">
               {translator.t("capture.title")}
             </h1>
-            <p className="mt-0.5 mb-0 text-[12px] leading-[18px] text-[var(--text-secondary)]">
-              {translator.t("capture.subtitle")}
-            </p>
           </div>
           <Button
             aria-label={translator.t("common.close")}
+            className="[-webkit-app-region:no-drag]"
             disabled={snapshot.submitting}
             onClick={() => controller.cancelSelection()}
             size="icon-sm"
@@ -162,97 +165,51 @@ export function DesktopCaptureWindow({
           </Button>
         </header>
 
-        {attachment ? (
-          <div className="relative grid min-h-[120px] max-h-40 place-items-center overflow-hidden rounded-lg border border-[var(--border-1)] bg-[var(--transparency-block)]">
-            <img
-              alt={translator.t("capture.selectionPreviewAlt")}
-              className="min-h-[120px] max-h-40 h-full w-full object-contain"
-              src={attachment.dataUrl}
-            />
-            <span className="absolute right-1.5 bottom-1.5 rounded bg-[color-mix(in_srgb,var(--black-stationary)_64%,transparent)] px-[5px] py-0.5 text-[10px] text-[var(--white-stationary)]">
-              {attachment.width} × {attachment.height}
+        <div className="flex min-h-0 flex-1 flex-col gap-2 p-2.5 [-webkit-app-region:no-drag]">
+          <div className="flex items-center gap-2">
+            <Button
+              disabled={snapshot.submitting}
+              onClick={() =>
+                controller.insertPrompt(translator.t("capture.taskPrompt"))
+              }
+              size="sm"
+              variant="secondary"
+            >
+              {translator.t("capture.taskPromptAction")}
+            </Button>
+            <span className="text-[11px] leading-4 text-[var(--text-secondary)]">
+              {translator.t("capture.taskPromptHint")}
             </span>
           </div>
-        ) : null}
 
-        <Textarea
-          autoFocus
-          className="min-h-[72px] resize-none"
-          disabled={snapshot.submitting}
-          onChange={(event) => controller.setNote(event.currentTarget.value)}
-          placeholder={translator.t("capture.notePlaceholder")}
-          value={snapshot.note}
-        />
-
-        <div className="grid grid-cols-2 gap-2">
-          <label className="flex min-w-0 flex-col gap-1 text-[11px] text-[var(--text-secondary)]">
-            <span>{translator.t("capture.topicLabel")}</span>
-            <Select
+          <div className="min-h-0 flex-1">
+            <AgentGUIQuickComposer
+              agentTargets={agentTargets}
+              content={snapshot.content}
               disabled={snapshot.submitting}
-              onValueChange={(value) => controller.setTopicId(value)}
-              value={snapshot.topicId}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {snapshot.capture.topics.map((topic) => (
-                  <SelectItem key={topic.id} value={topic.id}>
-                    {topic.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1 text-[11px] text-[var(--text-secondary)]">
-            <span>{translator.t("capture.agentLabel")}</span>
-            <Select
-              disabled={
-                snapshot.submitting || snapshot.capture.agents.length === 0
+              locale={snapshot.capture.locale}
+              placeholder={translator.t("capture.notePlaceholder")}
+              selectedAgentTargetId={snapshot.agentTargetId}
+              workspaceId={snapshot.capture.workspaceId}
+              onAgentTargetChange={(agentTargetId) =>
+                controller.setAgentTargetId(agentTargetId)
               }
-              onValueChange={(value) => controller.setAgentTargetId(value)}
-              value={snapshot.agentTargetId}
+              onContentChange={(content) => controller.setContent(content)}
+              onSubmit={(content, displayPrompt) =>
+                void controller.submit(content, displayPrompt)
+              }
+            />
+          </div>
+
+          {snapshot.failed ? (
+            <p
+              className="m-0 text-[11px] leading-4 text-[var(--state-danger)]"
+              role="alert"
             >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={translator.t("capture.noAgent")} />
-              </SelectTrigger>
-              <SelectContent>
-                {snapshot.capture.agents.map((agent) => (
-                  <SelectItem key={agent.id} value={agent.id}>
-                    {agent.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
+              {translator.t("capture.error")}
+            </p>
+          ) : null}
         </div>
-
-        {snapshot.failed ? (
-          <p
-            className="m-0 text-[11px] leading-4 text-[var(--state-danger)]"
-            role="alert"
-          >
-            {translator.t("capture.error")}
-          </p>
-        ) : null}
-
-        <footer className="mt-auto flex justify-end gap-2">
-          <Button
-            disabled={snapshot.submitting}
-            onClick={() => void controller.submit("create")}
-            variant="secondary"
-          >
-            {translator.t("capture.createOnly")}
-          </Button>
-          <Button
-            disabled={snapshot.submitting || !snapshot.agentTargetId}
-            onClick={() => void controller.submit("create-and-run")}
-          >
-            {snapshot.submitting
-              ? translator.t("capture.submitting")
-              : translator.t("capture.createAndRun")}
-          </Button>
-        </footer>
       </section>
     </main>
   );

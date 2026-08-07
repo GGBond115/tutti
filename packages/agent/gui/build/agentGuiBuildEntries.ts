@@ -2,6 +2,7 @@ export const agentGUIBuildEntries = {
   index: "index.ts",
   "agent-gui": "AgentGUI.tsx",
   "startup-shell": "AgentGUIStartupShell.tsx",
+  "quick-composer": "AgentGUIQuickComposer.tsx",
   agents: "agents.ts",
   "custom-mention": "custom-mention.ts",
   "dock-icons": "dockIcons.ts",
@@ -53,6 +54,7 @@ export const agentGUIDtsEntryGroups = [
   [
     "agent-gui",
     "startup-shell",
+    "quick-composer",
     "agents",
     "mention-search",
     "agent-message-center/index",

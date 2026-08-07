@@ -1,33 +1,27 @@
 import type { DesktopLocale } from "../i18n/core/locale.ts";
 import type { DesktopThemeAppearance } from "../theme/core.ts";
-
-export interface DesktopCaptureTopicOption {
-  id: string;
-  isDefault: boolean;
-  title: string;
-}
+import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
 
 export interface DesktopCaptureAgentOption {
+  description?: string | null;
   id: string;
+  iconUrl: string;
   name: string;
+  provider: string;
 }
 
 export interface DesktopCaptureState {
   agents: DesktopCaptureAgentOption[];
-  defaultTopicId: string;
   displayHeight: number;
   displayWidth: number;
   locale: DesktopLocale;
   screenshotDataUrl: string;
   themeAppearance: DesktopThemeAppearance;
-  topics: DesktopCaptureTopicOption[];
   workspaceId: string;
 }
 
 export interface DesktopCaptureComposerOptions {
   agents: DesktopCaptureAgentOption[];
-  defaultTopicId: string;
-  topics: DesktopCaptureTopicOption[];
 }
 
 export interface DesktopCaptureSelectionInput {
@@ -51,15 +45,13 @@ export interface DesktopCaptureSelectionResult extends DesktopCaptureComposerOpt
 }
 
 export interface DesktopCaptureSubmitInput {
-  action: "create" | "create-and-run";
-  agentTargetId?: string;
-  note: string;
-  topicId: string;
+  agentTargetId: string;
+  content: AgentPromptContentBlock[];
+  displayPrompt?: string;
 }
 
 export interface DesktopCaptureSubmitResult {
-  issueId: string;
-  runStarted: boolean;
+  agentSessionId: string;
 }
 
 export interface DesktopCaptureApi {

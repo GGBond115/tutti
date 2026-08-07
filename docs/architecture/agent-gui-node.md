@@ -1675,6 +1675,14 @@ A controller may compose flows but cannot become a second lifecycle state machin
 
 Activation and existing-Session submit share a canonical prompt envelope. Submit eligibility includes text and renderable structured content; an individual composer does not redefine it.
 
+`@tutti-os/agent-gui/quick-composer` is the draft-only public entry for
+launch surfaces that need the canonical DOM Composer without a Rail or
+timeline. It may present rich text, image draft blocks, and an exact Agent
+Target selector, but it owns no Session, Turn, option-loading, or recovery
+state. The host receives its typed prompt envelope and must route new Session
+creation through the workspace's existing `AgentSessionEngine`; the entry must
+never construct a second Engine or call a lifecycle transport.
+
 The canonical Composer gate belongs to the Session-presentation projection and
 travels through the Composer view-model slice as one object. View-local
 transition or workflow locks may layer on top as explicit presentation locks;
