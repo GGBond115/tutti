@@ -183,7 +183,7 @@ func (p MutagenAuthFileProjector) Project(ctx context.Context, input AuthFilePro
 	return p.cleanupCallback(executable, sessionName, markerPath), nil
 }
 
-func (_ MutagenAuthFileProjector) copyFallbackCleanup(input AuthFileProjection, baseline authFileSnapshot) func(context.Context) error {
+func (MutagenAuthFileProjector) copyFallbackCleanup(input AuthFileProjection, baseline authFileSnapshot) func(context.Context) error {
 	return func(context.Context) error {
 		run, err := readValidAuthFile(input.TargetPath)
 		if err != nil {
