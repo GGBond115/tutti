@@ -69,6 +69,10 @@ import {
   createCaptureComposerPlacementStore,
   type CaptureComposerPosition
 } from "./captureComposerPlacement.ts";
+import {
+  enterCaptureSelectionFullscreen,
+  resolveCaptureSelectionFullscreenOptions
+} from "./captureSelectionFullscreen.ts";
 import { desktopCaptureAccelerator } from "./captureShortcut.ts";
 import type { DesktopFileDialogAccess } from "../host/desktopFileDialogAccess.ts";
 
@@ -508,17 +512,16 @@ async function createCaptureWindow(
   const theme = getDesktopThemeState(input.preferences.getThemeSource());
   const captureWindow = new BrowserWindow({
     ...display.bounds,
+    ...resolveCaptureSelectionFullscreenOptions(process.platform),
     alwaysOnTop: true,
     autoHideMenuBar: true,
     backgroundColor: "#00000000",
     frame: false,
-    fullscreen: process.platform !== "darwin",
     fullscreenable: true,
     hasShadow: false,
     movable: true,
     resizable: false,
     show: false,
-    simpleFullscreen: process.platform === "darwin",
     skipTaskbar: true,
     transparent: true,
     webPreferences: {
@@ -585,8 +588,22 @@ async function createCaptureWindow(
   } else {
     await captureWindow.loadFile(input.rendererFilePath);
   }
+  const fullscreenState = enterCaptureSelectionFullscreen(
+    captureWindow,
+    process.platform
+  );
+  if (process.platform === "darwin" && !fullscreenState.simpleFullScreen) {
+    throw new Error("Screenshot selector failed to enter simple fullscreen");
+  }
   captureWindow.show();
   captureWindow.focus();
+  input.logger.info("screenshot selector presented", {
+    displayBounds: display.bounds,
+    displayWorkArea: display.workArea,
+    fullScreen: fullscreenState.fullScreen,
+    simpleFullScreen: fullscreenState.simpleFullScreen,
+    windowBounds: captureWindow.getBounds()
+  });
   return capture;
 }
 

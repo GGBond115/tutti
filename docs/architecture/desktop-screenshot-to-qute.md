@@ -54,6 +54,12 @@ The capture targets the display nearest the pointer. Electron captures that
 display before the transparent selection window is shown. The selection window
 then enters native full-screen on that display; macOS uses simple full-screen so
 the selector covers the menu bar and Dock without creating a separate Space.
+Electron's `simpleFullscreen` constructor option selects the macOS full-screen
+implementation but does not enter that state by itself. The capture adapter
+therefore requests `fullscreen` and explicitly verifies or enters simple
+full-screen before showing the selector. It records the selected display bounds,
+work area, resulting window bounds, and native full-screen state so a future
+WindowServer or Electron regression is diagnosable from Desktop logs.
 After selection it exits full-screen before becoming the floating Composer.
 This keeps the captured pixels and selection viewport on the same full-display
 geometry instead of scaling the screenshot into the smaller work area. The

@@ -80,6 +80,7 @@ Electron startup, daemon supervision, macOS packaging, updates, and performance 
 - [App update diagnostics flood with identical download progress states](./desktop-release.md#app-update-diagnostics-flood-with-identical-download-progress-states)
 - [macOS in-app update closes Tutti but does not install the new version](./desktop-release.md#macos-in-app-update-closes-tutti-but-does-not-install-the-new-version)
 - [Desktop Performance trace export runs out of memory](./desktop-release.md#desktop-performance-trace-export-runs-out-of-memory)
+- [macOS screenshot selector leaves the menu bar and Dock uncovered](./desktop-release.md#macos-screenshot-selector-leaves-the-menu-bar-and-dock-uncovered)
 
 ## [Workbench And Renderer](./workbench-renderer.md)
 
