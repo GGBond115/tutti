@@ -35,6 +35,9 @@ const aliases = {
   "@tutti-os/workspace-external-core/core": resolve(
     "../../packages/workspace/external-core/src/core/index.ts"
   ),
+  "@tutti-os/workspace-external-core/rich-text": resolve(
+    "../../packages/workspace/external-core/src/rich-text/index.ts"
+  ),
   "@tutti-os/workspace-external-core": resolve(
     "../../packages/workspace/external-core/src/index.ts"
   ),

@@ -2,6 +2,32 @@
 
 [Back to troubleshooting index](./README.md)
 
+### Renderer Vite cannot resolve a workspace package subpath
+
+- Symptom:
+  The Electron development overlay reports
+  `[plugin:vite:import-analysis] Failed to resolve import` for a public
+  workspace package subpath, while Node can import that same subpath and its
+  package `exports` entry exists.
+- Quick checks:
+  Inspect `apps/desktop/electron.vite.config.ts` for a source alias on the
+  package root, then compare its explicit child aliases with the import that
+  failed. A string root alias also matches subpath prefixes, so Vite may rewrite
+  `@scope/package/feature` as `src/index.ts/feature` before package exports can
+  resolve it.
+- Root cause:
+  The public child entry is missing from a consumer alias map that already
+  redirects the package root to a source file.
+- Fix:
+  Add the public child entry to the Electron Vite alias map before the
+  package-root alias and add the matching source path to
+  `apps/desktop/tsconfig.json`. Keep the package's `exports` and
+  `publishConfig.exports` declarations aligned; do not bypass the public
+  subpath with a consumer-relative source import.
+- Validation:
+  Run the desktop renderer build, which exercises Vite import analysis for
+  every entry, including secondary windows such as screenshot capture.
+
 ### Tabbed standalone Browser remains blank with a cold lifecycle
 
 - Symptom:
