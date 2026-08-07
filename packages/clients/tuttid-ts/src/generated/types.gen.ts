@@ -2624,6 +2624,7 @@ export type WorkspaceAgentTurnOutcome =
 export type WorkspaceAgentTurnError = {
   message: string;
   code?: string;
+  detail?: string;
 };
 
 /**

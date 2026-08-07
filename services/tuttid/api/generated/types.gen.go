@@ -8896,6 +8896,7 @@ type WorkspaceAgentTurnCancelResultReason string
 // WorkspaceAgentTurnError Protocol v2 turn-scoped error; never pollutes session state.
 type WorkspaceAgentTurnError struct {
 	Code    *string `json:"code,omitempty"`
+	Detail  *string `json:"detail,omitempty"`
 	Message string  `json:"message"`
 }
 
