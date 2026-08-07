@@ -159,11 +159,6 @@ func prepareTuttiAgentHomeWithProjector(ctx context.Context, home string, input 
 	return cleanup, nil
 }
 
-func exposeUserTuttiAgentFiles(home string, explicitAuthSource string, explicitAuthSourceConfigured bool) error {
-	_, err := exposeUserTuttiAgentFilesWithProjector(context.Background(), home, explicitAuthSource, explicitAuthSourceConfigured, nil)
-	return err
-}
-
 func exposeUserTuttiAgentFilesWithProjector(ctx context.Context, home string, explicitAuthSource string, explicitAuthSourceConfigured bool, projector AuthFileProjector) (func(context.Context) error, error) {
 	if explicitAuthSourceConfigured {
 		if explicitAuthSource == "" {
@@ -194,11 +189,6 @@ func exposeUserTuttiAgentFilesWithProjector(ctx context.Context, home string, ex
 		}
 	}
 	return cleanup, nil
-}
-
-func exposeTuttiAgentAuth(home string, source string, allowMissingSource bool) error {
-	_, err := exposeTuttiAgentAuthWithProjector(context.Background(), home, source, allowMissingSource, nil)
-	return err
 }
 
 func exposeTuttiAgentAuthWithProjector(ctx context.Context, home string, source string, allowMissingSource bool, projector AuthFileProjector) (func(context.Context) error, error) {

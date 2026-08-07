@@ -245,7 +245,7 @@ func (p MutagenAuthFileProjector) projectLock(input AuthFileProjection) error {
 	return nil
 }
 
-func (p MutagenAuthFileProjector) removeProjectionTargets(input AuthFileProjection) {
+func (MutagenAuthFileProjector) removeProjectionTargets(input AuthFileProjection) {
 	_ = os.Remove(input.TargetPath)
 	_ = os.Remove(input.LockTargetPath)
 }
@@ -355,7 +355,7 @@ func (p MutagenAuthFileProjector) installWindowsAMD64(ctx context.Context) (stri
 		return "", fmt.Errorf("read Mutagen archive: %w", err)
 	}
 	if len(archive) > mutagenMaxArchiveSize {
-		return "", errors.New("Mutagen archive exceeds 100 MiB limit")
+		return "", errors.New("mutagen archive exceeds 100 MiB limit")
 	}
 	wantDigest := strings.TrimSpace(p.ArchiveSHA256)
 	if wantDigest == "" {
@@ -363,7 +363,7 @@ func (p MutagenAuthFileProjector) installWindowsAMD64(ctx context.Context) (stri
 	}
 	digest := sha256.Sum256(archive)
 	if !strings.EqualFold(hex.EncodeToString(digest[:]), wantDigest) {
-		return "", errors.New("Mutagen archive SHA-256 mismatch")
+		return "", errors.New("mutagen archive SHA-256 mismatch")
 	}
 	binary, err := extractMutagenExecutable(archive)
 	if err != nil {
@@ -414,5 +414,5 @@ func extractMutagenExecutable(archive []byte) ([]byte, error) {
 		}
 		return io.ReadAll(io.LimitReader(tarReader, header.Size))
 	}
-	return nil, errors.New("Mutagen archive does not contain mutagen.exe")
+	return nil, errors.New("mutagen archive does not contain mutagen.exe")
 }

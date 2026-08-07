@@ -126,7 +126,7 @@ func TestMutagenAuthProjectorSharesRefreshLockFileObject(t *testing.T) {
 	lockTarget := filepath.Join(root, "run", ".refresh.lock")
 	projector := MutagenAuthFileProjector{
 		StateDir: root,
-		Symlink: func(oldname, newname string) error {
+		Symlink: func(_ string, newname string) error {
 			if strings.HasSuffix(newname, "auth.json") {
 				return nil
 			}
