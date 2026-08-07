@@ -233,6 +233,16 @@ export function AgentComposerView(input: Props): React.JSX.Element {
     visibleActivePrompt,
     visibleDraftLargeTexts
   } = input.presentation;
+  const composerActionNode = composerActionAccessory ? (
+    <div className="inline-flex shrink-0 items-center gap-2">
+      {composerActionAccessory}
+      {composerActionButton}
+    </div>
+  ) : (
+    composerActionButton
+  );
+  const showComposerActionInFooter =
+    isHeroLayout || input.props.composerActionPlacement === "footer";
 
   return (
     <form
@@ -450,16 +460,9 @@ export function AgentComposerView(input: Props): React.JSX.Element {
                         : undefined
                     }
                   />
-                  {!isHeroLayout ? (
-                    composerActionAccessory ? (
-                      <div className="inline-flex shrink-0 items-center gap-2 self-end">
-                        {composerActionAccessory}
-                        {composerActionButton}
-                      </div>
-                    ) : (
-                      composerActionButton
-                    )
-                  ) : null}
+                  {!isHeroLayout && !showComposerActionInFooter
+                    ? composerActionNode
+                    : null}
                 </div>
               </div>
             </PopoverAnchor>
@@ -645,7 +648,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
             }
             permissionModeControlsDisabled={permissionModeControlsDisabled}
             isSendingTurn={input.props.isSendingTurn}
-            isHeroLayout={isHeroLayout}
+            showComposerAction={showComposerActionInFooter}
             isGoalModeActive={input.isGoalModeActive}
             isPlanModeActive={input.isPlanModeActive}
             isTuttiModeActive={input.isTuttiModeActive}
@@ -655,7 +658,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
             }
             onTuttiModeChange={input.props.onTuttiModeChange}
             onClearPlanMode={input.onClearPlanMode}
-            composerActionButton={composerActionButton}
+            composerAction={composerActionNode}
             quickPromptControl={
               <AgentQuickPromptPopover
                 controller={input.quickPromptLibrary}

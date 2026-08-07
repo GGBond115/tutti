@@ -7,6 +7,7 @@ import type {
 import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
 import type { TuttiExternalAtRichTextBridge } from "@tutti-os/workspace-external-core/rich-text";
 import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
+import type { DesktopCaptureAgentTargetPreference } from "./desktopCaptureAgentTargetPreference.ts";
 
 export type DesktopCaptureStage = "loading" | "selecting" | "composing";
 
@@ -36,14 +37,19 @@ const initialSnapshot: DesktopCaptureWindowSnapshot = {
 
 export class DesktopCaptureWindowController {
   private readonly api: DesktopCaptureApi;
+  private readonly agentTargetPreference: DesktopCaptureAgentTargetPreference | null;
   private dragStart: { x: number; y: number } | null = null;
   private initializePromise: Promise<void> | null = null;
   private readonly listeners = new Set<() => void>();
   private snapshot = initialSnapshot;
   readonly mentionBridge: TuttiExternalAtRichTextBridge;
 
-  constructor(api: DesktopCaptureApi) {
+  constructor(
+    api: DesktopCaptureApi,
+    agentTargetPreference: DesktopCaptureAgentTargetPreference | null = null
+  ) {
     this.api = api;
+    this.agentTargetPreference = agentTargetPreference;
     this.mentionBridge = {
       at: {
         query: (input) => this.api.queryMentions(input),
@@ -65,7 +71,8 @@ export class DesktopCaptureWindowController {
       .getState()
       .then((capture) => {
         this.update({
-          agentTargetId: capture.agents[0]?.id ?? "",
+          agentTargetId:
+            this.agentTargetPreference?.read(capture.workspaceId) ?? "",
           capture,
           failed: false,
           stage: "selecting"
@@ -115,7 +122,10 @@ export class DesktopCaptureWindowController {
         return false;
       }
       this.update({
-        agentTargetId: result.agents[0]?.id ?? "",
+        agentTargetId: resolveAvailableAgentTargetId(
+          result.agents,
+          this.snapshot.agentTargetId
+        ),
         attachment: result.attachment,
         capture: {
           ...capture,
@@ -147,6 +157,11 @@ export class DesktopCaptureWindowController {
   }
 
   setAgentTargetId(agentTargetId: string): void {
+    const capture = this.snapshot.capture;
+    if (!capture?.agents.some((agent) => agent.id === agentTargetId)) {
+      return;
+    }
+    this.agentTargetPreference?.write(capture.workspaceId, agentTargetId);
     this.update({ agentTargetId });
   }
 
@@ -194,6 +209,15 @@ export class DesktopCaptureWindowController {
       listener();
     }
   }
+}
+
+function resolveAvailableAgentTargetId(
+  agents: DesktopCaptureState["agents"],
+  preferredAgentTargetId: string
+): string {
+  return agents.some((agent) => agent.id === preferredAgentTargetId)
+    ? preferredAgentTargetId
+    : (agents[0]?.id ?? "");
 }
 
 export function prependCapturePromptInstruction(

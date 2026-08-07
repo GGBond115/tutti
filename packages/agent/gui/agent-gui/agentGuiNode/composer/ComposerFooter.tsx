@@ -50,14 +50,14 @@ interface Props {
   codexSaverModeDisabled: boolean;
   permissionModeControlsDisabled: boolean;
   isSendingTurn: boolean;
-  isHeroLayout: boolean;
+  showComposerAction: boolean;
   isGoalModeActive: boolean;
   isPlanModeActive: boolean;
   isTuttiModeActive: boolean;
   isTuttiModeUpdating: boolean;
   tuttiModeSupported: boolean;
   onTuttiModeChange?: (active: boolean) => void;
-  composerActionButton: ReactNode;
+  composerAction: ReactNode;
   quickPromptControl?: ReactNode;
   footerAccessory?: ReactNode;
   showHandoffSelect: boolean;
@@ -100,14 +100,14 @@ export function ComposerFooter({
   codexSaverModeDisabled,
   permissionModeControlsDisabled,
   isSendingTurn,
-  isHeroLayout,
+  showComposerAction,
   isGoalModeActive,
   isPlanModeActive,
   isTuttiModeActive,
   isTuttiModeUpdating,
   tuttiModeSupported,
   onTuttiModeChange,
-  composerActionButton,
+  composerAction,
   quickPromptControl,
   footerAccessory,
   showHandoffSelect,
@@ -499,7 +499,7 @@ export function ComposerFooter({
               onSettingsChange={onSettingsChange}
             />
           ) : null}
-          {isHeroLayout ? composerActionButton : null}
+          {showComposerAction ? composerAction : null}
         </div>
         {footerAccessory ? (
           <div className={styles.composerFooterAccessory}>

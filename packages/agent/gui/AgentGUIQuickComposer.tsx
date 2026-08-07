@@ -66,6 +66,7 @@ const quickComposerSettings: AgentGUIComposerSettingsVM = {
 export interface AgentGUIQuickComposerProps {
   agentTargets: readonly AgentGUIAgentTarget[];
   composerActionAccessory?: AgentComposerProps["composerActionAccessory"];
+  composerActionPlacement?: AgentComposerProps["composerActionPlacement"];
   content: readonly AgentPromptContentBlock[];
   disabled?: boolean;
   /** Fill a height explicitly assigned by the embedding host. */
@@ -106,6 +107,7 @@ export function AgentGUIQuickComposer(
 function AgentGUIQuickComposerInner({
   agentTargets,
   composerActionAccessory,
+  composerActionPlacement,
   content,
   disabled = false,
   fillAvailableHeight = false,
@@ -153,6 +155,7 @@ function AgentGUIQuickComposerInner({
         canGoalControl={false}
         canUploadAttachment={true}
         composerActionAccessory={composerActionAccessory}
+        composerActionPlacement={composerActionPlacement}
         composerSettings={quickComposerSettings}
         drainingQueuedPromptId={null}
         draftContent={draftContent}

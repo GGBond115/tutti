@@ -126,3 +126,66 @@ test("prependCapturePromptInstruction adds an instruction without mutating image
     }
   ]);
 });
+
+test("DesktopCaptureWindowController restores and remembers an available Agent Target", async () => {
+  const writes: Array<{ agentTargetId: string; workspaceId: string }> = [];
+  const agents = [
+    {
+      iconUrl: "data:image/png;base64,Y29kZXg=",
+      id: "agent-codex",
+      name: "Codex",
+      provider: "codex"
+    },
+    {
+      iconUrl: "data:image/png;base64,dHV0dGk=",
+      id: "agent-tutti",
+      name: "Tutti Agent",
+      provider: "tutti-agent"
+    }
+  ];
+  const api: DesktopCaptureApi = {
+    cancel: async () => undefined,
+    getState: async () => ({
+      agents: [],
+      displayHeight: 800,
+      displayWidth: 1200,
+      locale: "en",
+      screenshotDataUrl: "data:image/png;base64,c2NyZWVu",
+      themeAppearance: "light",
+      workspaceId: "workspace-1"
+    }),
+    queryMentionDirectory: async () => [],
+    queryMentions: async () => [],
+    resolveMention: async () => null,
+    select: async () => ({
+      agents,
+      attachment: {
+        dataBase64: "cG5n",
+        dataUrl: "data:image/png;base64,cG5n",
+        displayName: "capture.png",
+        height: 80,
+        mimeType: "image/png",
+        width: 100
+      }
+    }),
+    selectFiles: async () => [],
+    submit: async () => ({ agentSessionId: "session-1" })
+  };
+  const controller = new DesktopCaptureWindowController(api, {
+    read: () => "agent-tutti",
+    write: (workspaceId, agentTargetId) =>
+      writes.push({ agentTargetId, workspaceId })
+  });
+
+  await controller.initialize();
+  controller.beginSelection({ x: 10, y: 20 });
+  controller.updateSelection({ x: 110, y: 100 });
+  assert.equal(await controller.finishSelection(), true);
+  assert.equal(controller.getSnapshot().agentTargetId, "agent-tutti");
+
+  controller.setAgentTargetId("agent-codex");
+  assert.equal(controller.getSnapshot().agentTargetId, "agent-codex");
+  assert.deepEqual(writes, [
+    { agentTargetId: "agent-codex", workspaceId: "workspace-1" }
+  ]);
+});

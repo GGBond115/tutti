@@ -67,6 +67,7 @@ export function DesktopCaptureComposer({
           />
         </div>
       }
+      composerActionPlacement="footer"
       content={content}
       disabled={disabled}
       fillAvailableHeight={true}

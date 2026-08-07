@@ -132,6 +132,38 @@ describe("AgentGUIQuickComposer", () => {
     expect(accessory?.parentElement).toBe(send?.parentElement);
   });
 
+  it("can place the host action cluster in the Composer footer", () => {
+    const { container } = render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        composerActionAccessory={
+          <span data-testid="quick-composer-footer-accessory">Track Task</span>
+        }
+        composerActionPlacement="footer"
+        content={[{ text: "Inspect this", type: "text" }]}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const footer = container.querySelector(
+      ".agent-gui-node__composer-footer-right"
+    );
+    const accessory = container.querySelector(
+      '[data-testid="quick-composer-footer-accessory"]'
+    );
+    const send = container.querySelector(
+      '[data-testid="agent-gui-composer-send"]'
+    );
+
+    expect(footer?.contains(accessory)).toBe(true);
+    expect(footer?.contains(send)).toBe(true);
+    expect(accessory?.parentElement).toBe(send?.parentElement);
+  });
+
   it("installs the mention service supplied by the embedding host", () => {
     const query = vi.fn().mockResolvedValue([]);
     const provider: RichTextTriggerProvider<{ id: string; label: string }> = {

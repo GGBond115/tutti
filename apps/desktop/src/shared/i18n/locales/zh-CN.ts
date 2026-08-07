@@ -32,7 +32,7 @@ export const zhCN = {
       "开始处理前，请创建一个 Qute Task 来记录这项请求；随后立即执行请求，把 Task 作为持续跟进的工作记录，并及时更新状态和备注，不要在创建 Task 后停止",
     taskPromptAction: "创建 Task 并跟进",
     taskPromptHint: "Agent 会立即处理，并持续更新 Task",
-    title: "让 Agent 处理截图"
+    title: "Tutti"
   },
   dashboard: {
     chooseWorkspaceTitle: "选择一个工作区",

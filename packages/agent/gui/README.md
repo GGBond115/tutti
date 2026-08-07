@@ -204,7 +204,10 @@ that enable the `+` control pass `onRequestWorkspaceReferences`. Quick Composer
 installs both through the same AgentGUI Composer boundaries used by the full
 surface and never owns a second reference source. Fixed or frameless launchers
 should pass `menuViewportTopInset` for title-bar chrome that portaled provider
-and mention menus must avoid.
+and mention menus must avoid. A host with a definite height may set
+`fillAvailableHeight`; a host that needs every bottom control on one baseline
+may set `composerActionPlacement="footer"`. Both are optional presentation
+contracts and do not change prompt or Session ownership.
 
 ## Standalone Conversation Participant Presentation
 

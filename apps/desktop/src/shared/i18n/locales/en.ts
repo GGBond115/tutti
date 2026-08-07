@@ -31,7 +31,7 @@ export const en = {
       "Before starting, create a Qute Task to track this request. Then immediately carry out the request, using the Task as the ongoing work record and keeping its status and notes updated. Do not stop after creating the Task.",
     taskPromptAction: "Create Task and track",
     taskPromptHint: "Agent works now and keeps the Task updated",
-    title: "Ask Agent about screenshot"
+    title: "Tutti"
   },
   dashboard: {
     chooseWorkspaceTitle: "Choose a workspace",

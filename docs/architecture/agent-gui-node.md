@@ -1709,6 +1709,13 @@ contenteditable hit target instead of relying on a host-level click-to-focus
 proxy. This remains explicit so ordinary launch surfaces keep the default
 content-sized behavior.
 
+An embedded host may also choose `composerActionPlacement="footer"`. In that
+mode the same primary action cluster (including an optional host accessory)
+joins the canonical Composer footer instead of the prompt row. This keeps the
+reference controls, Agent selector, host modifier, and send button on one
+alignment baseline without host positioning CSS; the default remains `input`
+for existing consumers.
+
 The canonical Composer gate belongs to the Session-presentation projection and
 travels through the Composer view-model slice as one object. View-local
 transition or workflow locks may layer on top as explicit presentation locks;

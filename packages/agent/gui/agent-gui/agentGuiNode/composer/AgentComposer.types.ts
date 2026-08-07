@@ -115,6 +115,8 @@ export interface AgentComposerProps {
   selectedAgentTarget?: AgentGUIAgentTarget | null;
   /** Content rendered immediately before the primary non-hero action. */
   composerActionAccessory?: ReactNode;
+  /** Places the primary action cluster in the prompt row or Composer footer. */
+  composerActionPlacement?: "input" | "footer";
   footerAccessory?: ReactNode;
   agentTargets?: readonly AgentGUIAgentTarget[];
   handoffAgentTargets?: readonly AgentGUIAgentTarget[];
