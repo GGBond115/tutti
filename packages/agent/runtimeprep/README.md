@@ -71,9 +71,11 @@ the default real-time watcher. Cleanup flushes the session and refuses to
 delete the run home if Mutagen reports a conflict; otherwise it terminates the
 session before runtime deletion. `.refresh.lock` is always a symlink or hard
 link to the stable lock so both homes coordinate through one OS file object.
-Mutagen resolution prefers `TUTTI_MUTAGEN_BIN`, then `PATH`; Windows amd64 can
-download the pinned v0.18.1 archive into `<state>/bin` after SHA-256
-verification. Other automatic-download platforms remain to be confirmed.
+Mutagen resolution prefers `TUTTI_MUTAGEN_BIN`, then `PATH`. Packaged Windows
+amd64 Desktop builds inject the verified v0.18.1 executable bundled at build
+time, so production Agent and Workspace App runs do not download it. The
+daemon's SHA-256-verified downloader remains only as a compatibility fallback
+for unpackaged or older hosts. Other bundled platforms remain to be confirmed.
 
 When `TuttiAgentPreparer.StableSkillBundleRoot` is configured, Tutti-managed
 Skills are content-addressed under
