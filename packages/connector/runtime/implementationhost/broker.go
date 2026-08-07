@@ -15,7 +15,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const invocationQueueLimit = 16
+const (
+	invocationQueueLimit       = 16
+	connectorSkillEntryName    = "SKILL.md"
+	connectorSkillMaxDepth     = 8
+	connectorSkillMaxEntries   = 128
+	connectorSkillMaxEntrySize = 512 * 1024
+)
 
 type ConnectorSummary struct {
 	Key         string         `json:"key"`
@@ -31,6 +37,7 @@ type ConnectorRoutingHint struct {
 	Key         string
 	DisplayName string
 	Aliases     []string
+	SkillRoot   string
 }
 
 type CapabilitySummary struct {
@@ -45,6 +52,8 @@ type SkillSummary struct {
 	Name        string `json:"name"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
+	EntryPath   string `json:"entryPath"`
+	BasePath    string `json:"basePath"`
 }
 
 type Skill struct {
@@ -97,8 +106,9 @@ func (broker *ConnectorBroker) RoutingHints() []ConnectorRoutingHint {
 	routes := broker.commands.Routes()
 	hints := make([]ConnectorRoutingHint, 0, len(routes))
 	for _, route := range routes {
+		skillRoot := activeConnectorSkillRoot(route.InstalledRoot)
 		hints = append(hints, ConnectorRoutingHint{Key: route.ConnectorKey, DisplayName: route.DisplayName,
-			Aliases: append([]string(nil), route.RoutingAliases...)})
+			Aliases: append([]string(nil), route.RoutingAliases...), SkillRoot: skillRoot})
 	}
 	return hints
 }
@@ -212,7 +222,6 @@ func (broker *ConnectorBroker) activeRoute(connectorKey string) (RouteDescriptor
 type installedConnectorManifest struct {
 	Name        json.RawMessage `json:"name"`
 	Description json.RawMessage `json:"description"`
-	Skills      []string        `json:"skills"`
 }
 
 type connectorDescriptor struct {
@@ -281,46 +290,85 @@ func connectorLocalizedText(raw json.RawMessage) (string, error) {
 }
 
 func loadConnectorSkills(root string) ([]connectorSkill, error) {
-	manifest, err := loadInstalledConnectorManifest(root)
+	skillRoot := filepath.Join(filepath.Clean(root), "skills")
+	info, err := os.Lstat(skillRoot)
+	if os.IsNotExist(err) {
+		return []connectorSkill{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	skills := make([]connectorSkill, 0, len(manifest.Skills))
-	seen := make(map[string]struct{}, len(manifest.Skills))
-	for _, relative := range manifest.Skills {
-		path, err := safeConnectorSkillPath(root, relative)
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, errors.New("connector skills root must be a directory, not a symlink")
+	}
+	skills := make([]connectorSkill, 0)
+	seen := make(map[string]struct{})
+	err = filepath.WalkDir(skillRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == skillRoot {
+			return nil
+		}
+		relative, err := filepath.Rel(skillRoot, path)
 		if err != nil {
-			return nil, err
+			return err
+		}
+		depth := strings.Count(filepath.ToSlash(relative), "/") + 1
+		if depth > connectorSkillMaxDepth {
+			return fmt.Errorf("connector Skill tree path %q exceeds depth %d", filepath.ToSlash(relative), connectorSkillMaxDepth)
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("connector Skill tree contains symlink %q", filepath.ToSlash(relative))
+		}
+		if entry.IsDir() || entry.Name() != connectorSkillEntryName {
+			return nil
+		}
+		entryInfo, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !entryInfo.Mode().IsRegular() {
+			return fmt.Errorf("connector Skill entry %q must be a regular file", filepath.ToSlash(relative))
+		}
+		if entryInfo.Size() > connectorSkillMaxEntrySize {
+			return fmt.Errorf("connector Skill entry %q exceeds %d bytes", filepath.ToSlash(relative), connectorSkillMaxEntrySize)
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		metadata, err := parseConnectorSkill(string(content))
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", relative, err)
+			return fmt.Errorf("%s: %w", filepath.ToSlash(relative), err)
 		}
 		if _, duplicate := seen[metadata.Name]; duplicate {
-			return nil, fmt.Errorf("duplicate Connector Skill %q", metadata.Name)
+			return fmt.Errorf("duplicate Connector Skill %q", metadata.Name)
+		}
+		if len(skills) >= connectorSkillMaxEntries {
+			return fmt.Errorf("connector Skill count exceeds %d", connectorSkillMaxEntries)
 		}
 		seen[metadata.Name] = struct{}{}
 		metadata.path = path
+		metadata.EntryPath = path
+		metadata.BasePath = filepath.Dir(path)
 		skills = append(skills, metadata)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	sort.Slice(skills, func(left, right int) bool { return skills[left].Name < skills[right].Name })
 	return skills, nil
 }
 
-func safeConnectorSkillPath(root, relative string) (string, error) {
-	if !strings.HasPrefix(relative, "./") || !strings.HasSuffix(relative, "/SKILL.md") {
-		return "", errors.New("connector Skill path is invalid")
+func activeConnectorSkillRoot(root string) string {
+	skillRoot := filepath.Join(filepath.Clean(root), "skills")
+	info, err := os.Lstat(skillRoot)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return ""
 	}
-	root = filepath.Clean(root)
-	path := filepath.Clean(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(relative, "./"))))
-	if path == root || !strings.HasPrefix(path, root+string(filepath.Separator)) {
-		return "", errors.New("connector Skill path escapes the installed package")
-	}
-	return path, nil
+	return skillRoot
 }
 
 func parseConnectorSkill(content string) (connectorSkill, error) {
@@ -350,8 +398,11 @@ func parseConnectorSkill(content string) (connectorSkill, error) {
 			break
 		}
 	}
-	if metadata.Name == "" || metadata.Description == "" || metadata.Title == "" {
-		return connectorSkill{}, errors.New("SKILL.md name, description, and level-1 title are required")
+	if metadata.Name == "" || metadata.Description == "" {
+		return connectorSkill{}, errors.New("SKILL.md name and description are required")
+	}
+	if metadata.Title == "" {
+		metadata.Title = metadata.Name
 	}
 	return metadata, nil
 }

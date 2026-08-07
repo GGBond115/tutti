@@ -59,6 +59,8 @@ type PrepareInput struct {
 	// ConnectorRoutingHints is a non-secret snapshot of Connector routes that
 	// are active when this provider runtime is prepared. Connector keys and
 	// display names are host-owned; aliases are declared by connector releases.
+	// SkillRoot points at the active release's verified, content-addressed Skill
+	// tree and remains stable across Connector runtime restarts.
 	ConnectorRoutingHints []ConnectorRoutingHint
 	// ExtensionSkillRoots carries the skill root paths declared by an agent
 	// extension's composer profile (Skills.Roots[].Path). When non-empty,
@@ -104,6 +106,7 @@ type ConnectorRoutingHint struct {
 	ConnectorKey string
 	DisplayName  string
 	Aliases      []string
+	SkillRoot    string
 }
 
 type PreparedRuntime struct {

@@ -41,7 +41,10 @@ func (p TuttiAgentPreparer) Prepare(ctx context.Context, input ProviderPrepareIn
 	if err := prepareTuttiAgentHome(home, input.PrepareInput, authSource, authSourceConfigured); err != nil {
 		return ProviderPrepareResult{}, err
 	}
-	extraSkillRoots := []string(nil)
+	extraSkillRoots, err := connectorSkillRoots(input.ConnectorRoutingHints)
+	if err != nil {
+		return ProviderPrepareResult{}, err
+	}
 	if strings.TrimSpace(p.StableSkillBundleRoot) == "" {
 		if _, err := installProviderNativeSkills(filepath.Join(home, "skills"), input.PrepareInput); err != nil {
 			return ProviderPrepareResult{}, fmt.Errorf("install tutti-agent native skills: %w", err)
@@ -51,7 +54,7 @@ func (p TuttiAgentPreparer) Prepare(ctx context.Context, input ProviderPrepareIn
 		if err != nil {
 			return ProviderPrepareResult{}, fmt.Errorf("materialize tutti-agent stable skills: %w", err)
 		}
-		extraSkillRoots = []string{root}
+		extraSkillRoots = append([]string{root}, extraSkillRoots...)
 	}
 	logRuntimePrepareTrace("runtime_prepare.tutti_agent.home_prepared", input.PrepareInput, nil)
 	instructionsPath := filepath.Join(home, "AGENTS.md")
@@ -90,6 +93,34 @@ func (p TuttiAgentPreparer) Prepare(ctx context.Context, input ProviderPrepareIn
 		Cwd: input.Cwd,
 		Env: env,
 	}, nil
+}
+
+func connectorSkillRoots(hints []ConnectorRoutingHint) ([]string, error) {
+	roots := make([]string, 0, len(hints))
+	seen := make(map[string]struct{}, len(hints))
+	for _, hint := range hints {
+		root := strings.TrimSpace(hint.SkillRoot)
+		if root == "" {
+			continue
+		}
+		root = filepath.Clean(root)
+		if !filepath.IsAbs(root) {
+			return nil, fmt.Errorf("connector %q Skill root must be absolute", hint.ConnectorKey)
+		}
+		info, err := os.Lstat(root)
+		if err != nil {
+			return nil, fmt.Errorf("inspect connector %q Skill root: %w", hint.ConnectorKey, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return nil, fmt.Errorf("connector %q Skill root must be a directory, not a symlink", hint.ConnectorKey)
+		}
+		if _, exists := seen[root]; exists {
+			continue
+		}
+		seen[root] = struct{}{}
+		roots = append(roots, root)
+	}
+	return roots, nil
 }
 
 // PrepareTuttiAgentHome materializes a TUTTI_AGENT_HOME with the user's auth

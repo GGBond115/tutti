@@ -328,7 +328,7 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 			hints := make([]runtimeprep.ConnectorRoutingHint, 0, len(routes))
 			for _, route := range routes {
 				hints = append(hints, runtimeprep.ConnectorRoutingHint{ConnectorKey: route.Key,
-					DisplayName: route.DisplayName, Aliases: append([]string(nil), route.Aliases...)})
+					DisplayName: route.DisplayName, Aliases: append([]string(nil), route.Aliases...), SkillRoot: route.SkillRoot})
 			}
 			return hints
 		}

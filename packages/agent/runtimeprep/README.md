@@ -72,6 +72,12 @@ the validated roots through the internal
 removes that handoff from the child environment and calls
 `skills/extraRoots/set` after `initialized` and before `thread/start` or
 `thread/resume`. A zero-value root preserves the legacy run-scoped layout.
+Active Connector routes may contribute their verified, content-addressed
+`skills/` directories to the same handoff. Runtime preparation validates that
+each contributed path is absolute, exists as a directory, and is not a symlink;
+duplicate roots are removed. Connector processes use separate disposable
+execution snapshots, so restarting a process does not invalidate the Skill
+paths held by an Agent session.
 Stable bundles are immutable rebuildable cache entries and are not removed by
 single-session cleanup. When `StableSystemSkillBundleRoot` is also configured,
 runtimeprep passes that store as internal launch metadata. After the provider
