@@ -16,7 +16,17 @@ const captureApi: DesktopCaptureApi = {
   selectFiles: () => invokeDesktopApi(desktopIpcChannels.capture.selectFiles),
   selectProjectDirectory: () =>
     invokeDesktopApi(desktopIpcChannels.capture.selectProjectDirectory),
-  submit: (input) => invokeDesktopApi(desktopIpcChannels.capture.submit, input)
+  submit: (input) => invokeDesktopApi(desktopIpcChannels.capture.submit, input),
+  userProjects: {
+    list: () => invokeDesktopApi(desktopIpcChannels.capture.userProjectsList),
+    prepareSelection: (input) =>
+      invokeDesktopApi(
+        desktopIpcChannels.capture.userProjectsPrepareSelection,
+        input
+      ),
+    use: (input) =>
+      invokeDesktopApi(desktopIpcChannels.capture.userProjectsUse, input)
+  }
 };
 
 contextBridge.exposeInMainWorld("tuttiCapture", captureApi);

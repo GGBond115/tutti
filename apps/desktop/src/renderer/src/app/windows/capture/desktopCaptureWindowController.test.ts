@@ -53,7 +53,8 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
         throw new Error("run unavailable");
       }
       return { agentSessionId: "session-1" };
-    }
+    },
+    userProjects: createUserProjectsApi()
   };
   const controller = new DesktopCaptureWindowController(api);
   await controller.initialize();
@@ -69,7 +70,7 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
   ]);
   controller.setTrackWithTask(true);
   controller.setProjectPath(
-    (await controller.selectProjectDirectory())?.path ?? null
+    (await controller.userProjectApi.selectDirectory?.())?.path ?? null
   );
 
   await controller.submit(
@@ -175,7 +176,8 @@ test("DesktopCaptureWindowController restores and remembers an available Agent T
     }),
     selectFiles: async () => [],
     selectProjectDirectory: async () => null,
-    submit: async () => ({ agentSessionId: "session-1" })
+    submit: async () => ({ agentSessionId: "session-1" }),
+    userProjects: createUserProjectsApi()
   };
   const controller = new DesktopCaptureWindowController(api, {
     read: () => "agent-tutti",
@@ -195,3 +197,20 @@ test("DesktopCaptureWindowController restores and remembers an available Agent T
     { agentTargetId: "agent-codex", workspaceId: "workspace-1" }
   ]);
 });
+
+function createUserProjectsApi(): DesktopCaptureApi["userProjects"] {
+  return {
+    list: async () => ({ projects: [] }),
+    prepareSelection: async () => ({
+      isSelectedPathMissing: false,
+      projects: [],
+      selection: { kind: "none" }
+    }),
+    use: async ({ path }) => ({
+      id: path,
+      label: path,
+      path,
+      pinnedAtUnixMs: 0
+    })
+  };
+}

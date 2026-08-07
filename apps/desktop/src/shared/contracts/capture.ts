@@ -2,6 +2,11 @@ import type { DesktopLocale } from "../i18n/core/locale.ts";
 import type { DesktopThemeAppearance } from "../theme/core.ts";
 import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
 import type {
+  WorkspaceUserProject,
+  WorkspaceUserProjectSelectionPreparation,
+  WorkspaceUserProjectSelectionPreparationInput
+} from "@tutti-os/workspace-user-project/contracts";
+import type {
   TuttiExternalAtQueryDirectoryInput,
   TuttiExternalAtQueryInput,
   TuttiExternalAtQueryResult,
@@ -81,4 +86,11 @@ export interface DesktopCaptureApi {
   selectFiles(): Promise<WorkspaceFileReference[]>;
   selectProjectDirectory(): Promise<{ path: string } | null>;
   submit(input: DesktopCaptureSubmitInput): Promise<DesktopCaptureSubmitResult>;
+  userProjects: {
+    list(): Promise<{ projects: WorkspaceUserProject[] }>;
+    prepareSelection(
+      input: WorkspaceUserProjectSelectionPreparationInput
+    ): Promise<WorkspaceUserProjectSelectionPreparation>;
+    use(input: { path: string }): Promise<WorkspaceUserProject>;
+  };
 }

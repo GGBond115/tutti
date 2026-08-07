@@ -8,6 +8,7 @@ import type {
 import type { AgentMessageMarkdownWorkspaceAppIcon } from "../../../shared/AgentMessageMarkdown";
 import type { AgentPromptContentBlock } from "../../../shared/contracts/dto/agentSession";
 import type { WorkspaceUserProjectI18nRuntime } from "@tutti-os/workspace-user-project/i18n";
+import type { WorkspaceUserProjectApi } from "@tutti-os/workspace-user-project/contracts";
 import type { WorkspaceLinkAction } from "../../../actions/workspaceLinkActions";
 import type { AgentContextMentionItem } from "../agentRichText/agentFileMentionExtension";
 import type { AgentExternalPromptEntryResolver } from "../model/agentExternalPromptEntries";
@@ -444,6 +445,8 @@ export interface AgentComposerProps {
   prepareExternalPromptFiles?: AgentExternalPromptFilePreparer | null;
   promptAssetLimit?: number | null;
   selectProjectDirectory?: () => Promise<{ path: string } | null>;
+  /** Explicit project capability for lifecycle-free Composer embeddings. */
+  userProjectApi?: WorkspaceUserProjectApi | null;
   onRequestGitBranches?: AgentComposerGitBranchLoader | null;
   referenceProvenanceFilters?: AgentComposerReferenceProvenanceFilters | null;
 }

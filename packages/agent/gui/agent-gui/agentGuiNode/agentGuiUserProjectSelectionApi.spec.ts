@@ -39,7 +39,7 @@ describe("createAgentGUIUserProjectSelectionApi", () => {
     expect(api?.selectDirectory).toBeUndefined();
   });
 
-  it("supports a directory-only host without a registered project catalog", async () => {
+  it("does not fabricate a project catalog for a directory-only host", () => {
     const selectProjectDirectory = vi.fn(async () => ({
       path: "/workspace/existing"
     }));
@@ -48,18 +48,7 @@ describe("createAgentGUIUserProjectSelectionApi", () => {
       userProjects: null
     });
 
-    await expect(api?.list()).resolves.toEqual({ projects: [] });
-    await expect(api?.selectDirectory?.()).resolves.toEqual({
-      path: "/workspace/existing"
-    });
-    await expect(
-      api?.prepareSelection?.({
-        projectLocked: false,
-        selectedPath: "/workspace/existing"
-      })
-    ).resolves.toMatchObject({
-      projects: [{ path: "/workspace/existing" }],
-      selection: { kind: "none" }
-    });
+    expect(api).toBeNull();
+    expect(selectProjectDirectory).not.toHaveBeenCalled();
   });
 });

@@ -142,6 +142,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
     onRequestWorkspaceReferences,
     referenceProvenanceFilters,
     selectProjectDirectory,
+    userProjectApi,
     onProjectPathChange = () => {},
     onSettingsChange,
     onLinkAction,
@@ -255,6 +256,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
           projectMissingDescription: labels.projectMissingDescription
         }}
         selectProjectDirectory={selectProjectDirectory}
+        userProjectApi={userProjectApi}
         onDismissAutoFocus={input.onDismissProjectMenuAutoFocus}
         onProjectMissingChange={input.setIsSelectedProjectMissing}
         onProjectPathChange={onProjectPathChange}

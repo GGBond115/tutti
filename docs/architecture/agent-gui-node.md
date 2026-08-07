@@ -1697,10 +1697,12 @@ picker. A constrained host may also declare a top viewport inset for portaled
 menus. Provider Select collision padding and mention-palette geometry must
 honor that inset so host chrome is never treated as usable menu space.
 An embedding host may also opt into the canonical project selector with a
-controlled selected path and native directory callback. When no registered
-project catalog is available, AgentGUI exposes only the explicit no-project and
-native existing-directory choices; it does not invent a project registry or
-Session state. The host carries the resulting path through its existing
+controlled selected path and an explicit `WorkspaceUserProjectApi`. That
+capability supplies the real registered-project catalog, selection preparation,
+native directory choice, and project registration. A native directory callback
+alone is insufficient: Quick Composer does not invent a project registry or
+Session state, so it hides the project selector when no real project capability
+is available. The host carries the resulting path through its existing
 activation command as `cwd`.
 AgentGUI's standalone locale runtime includes the scoped defaults of package
 surfaces it mounts, including workspace-user-project. A host-supplied app

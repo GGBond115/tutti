@@ -2,6 +2,7 @@ import { useMemo, type JSX } from "react";
 import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
 import { TooltipProvider } from "@tutti-os/ui-system";
 import type { RichTextMentionService } from "@tutti-os/ui-rich-text/service";
+import type { WorkspaceUserProjectApi } from "@tutti-os/workspace-user-project/contracts";
 import { createWorkspaceUserProjectI18nRuntime } from "@tutti-os/workspace-user-project/i18n";
 import { AgentComposer } from "./agent-gui/agentGuiNode/AgentComposer";
 import { AgentGUIMentionServiceBoundary } from "./agent-gui/agentGuiNode/AgentGUIMentionServiceBoundary";
@@ -54,6 +55,7 @@ const quickComposerSettings: AgentGUIComposerSettingsVM = {
   reasoningUnavailable: false,
   selectedProjectPath: null,
   selectedProjectSectionKey: "conversations",
+  shouldApplyPreparedProjectSelection: false,
   sessionSettings: null,
   speedUnavailable: false,
   supportsModel: false,
@@ -85,6 +87,8 @@ export interface AgentGUIQuickComposerProps {
   selectedProjectPath?: string | null;
   selectedAgentTargetId: string;
   selectProjectDirectory?: AgentComposerProps["selectProjectDirectory"];
+  /** Real project catalog and registration capability supplied by the host. */
+  userProjectApi?: WorkspaceUserProjectApi | null;
   workspaceId: string;
 }
 
@@ -124,6 +128,7 @@ function AgentGUIQuickComposerInner({
   selectedAgentTargetId,
   selectedProjectPath = null,
   selectProjectDirectory,
+  userProjectApi,
   workspaceId
 }: AgentGUIQuickComposerProps): JSX.Element {
   const { i18n, locale, t } = useTranslation();
@@ -196,13 +201,14 @@ function AgentGUIQuickComposerInner({
         selectedAgentTarget={selectedAgentTarget}
         selectProjectDirectory={selectProjectDirectory}
         showProjectSelectorInFooter={Boolean(
-          selectProjectDirectory && onProjectPathChange
+          userProjectApi && onProjectPathChange
         )}
         showStopButton={false}
         stopDisabled={true}
         uiLanguage={locale}
         workspaceId={workspaceId}
         workspaceUserProjectI18n={workspaceUserProjectI18n}
+        userProjectApi={userProjectApi}
         onDraftContentChange={(nextDraft) => {
           onContentChange(
             agentComposerDraftToPromptContent({

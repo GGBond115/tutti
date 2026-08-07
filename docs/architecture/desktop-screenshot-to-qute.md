@@ -69,8 +69,11 @@ workspace) and asks `WorkspaceLaunch` to prepare an invisible standalone Agent
 window as the workspace Engine owner. Composer metadata starts loading through
 that owner concurrently with screen capture, so closing the main window does
 not disable the shortcut or force a visible workspace window back onto the
-screen. Successful submission may then reveal that Agent window; cancellation
-leaves it hidden.
+screen. Main-process requests wait for an explicit renderer-ready signal emitted
+only after the React workspace-external request handler is installed;
+`did-finish-load` alone is not a sufficient application-readiness boundary.
+Successful submission may then reveal that Agent window; cancellation leaves it
+hidden.
 
 ## Floating Composer
 
@@ -103,8 +106,10 @@ create an Issue directly.
 The bottom toolbar keeps `+`, `@`, the exact Agent Target selector, the project
 selector, the **Create Task and track** switch, and the primary send action on
 one alignment baseline. The project selector reuses AgentGUI's canonical
-no-project/existing-project control. Its existing-project action opens the
-operating system's native folder picker through the restricted capture preload.
+no-project/existing-project control. The capture preload proxies the workspace
+owner's real `WorkspaceUserProjectApi` for catalog reads, selection preparation,
+and project registration; only the directory dialog itself remains native to
+the capture window. Quick Composer never fabricates a directory-only catalog.
 The switch is a submit modifier, not an editor mutation. When selected, the capture
 controller prepends a localized
 instruction to the typed Agent prompt only at submission, while the visible
@@ -134,9 +139,10 @@ is the product name, `Tutti`, in every locale.
 
 If Agent activation fails, the composer stays open with its draft intact so the
 user can retry. Escape and the close button cancel before submission. When the
-shortcut was invoked from another application on macOS, cancellation hides the
-Tutti application before closing the capture window so focus returns to the
-previous application instead of revealing a Tutti workspace. A shortcut
+shortcut was invoked from another application on macOS, cancellation closes the
+capture window first and hides Tutti from the window's `closed` event, so a
+hidden-but-live capture cannot swallow the next shortcut. A closing, destroyed,
+or unexpectedly hidden capture is replaced rather than focused. A shortcut
 invoked from a focused Tutti window keeps Tutti active. At least one ready Agent
 is required. The capture window closes only after the workspace Engine confirms
 activation, then focus returns to the workspace window.

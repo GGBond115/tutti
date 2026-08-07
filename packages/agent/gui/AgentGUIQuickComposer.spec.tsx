@@ -103,7 +103,13 @@ describe("AgentGUIQuickComposer", () => {
     expect(addIcon?.closest("button")?.hasAttribute("disabled")).toBe(false);
   });
 
-  it("shows the canonical project selector when the embedding host supplies directory selection", async () => {
+  it("shows the canonical project selector only with a real project capability", async () => {
+    const project = {
+      id: "project-alpha",
+      label: "Alpha",
+      path: "/workspace/alpha",
+      pinnedAtUnixMs: 0
+    };
     const { container } = render(
       <AgentGUIQuickComposer
         agentTargets={agentTargets}
@@ -111,9 +117,16 @@ describe("AgentGUIQuickComposer", () => {
         locale="zh-CN"
         selectedAgentTargetId="agent:codex"
         selectedProjectPath={null}
-        selectProjectDirectory={vi.fn().mockResolvedValue({
-          path: "/workspace/alpha"
-        })}
+        userProjectApi={{
+          list: vi.fn().mockResolvedValue({ projects: [project] }),
+          prepareSelection: vi.fn().mockResolvedValue({
+            isSelectedPathMissing: false,
+            projects: [project],
+            selection: { kind: "none" }
+          }),
+          selectDirectory: vi.fn().mockResolvedValue({ path: project.path }),
+          use: vi.fn().mockResolvedValue(project)
+        }}
         workspaceId="workspace:test"
         onAgentTargetChange={vi.fn()}
         onContentChange={vi.fn()}
@@ -137,6 +150,30 @@ describe("AgentGUIQuickComposer", () => {
         .querySelector(".agent-gui-node__composer-footer")
         ?.contains(noProjectIcon)
     ).toBe(true);
+  });
+
+  it("does not fabricate a project catalog for a directory-only embedding", () => {
+    const { container } = render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        content={[{ text: "", type: "text" }]}
+        selectedAgentTargetId="agent:codex"
+        selectProjectDirectory={vi.fn().mockResolvedValue({
+          path: "/workspace/alpha"
+        })}
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onProjectPathChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    expect(
+      container.querySelector(
+        '[data-agent-project-trigger-no-workspace-icon="true"]'
+      )
+    ).toBeNull();
   });
 
   it("renders a host action accessory beside send inside the AgentGUI token scope", () => {

@@ -14,14 +14,21 @@ import type {
   TuttiExternalAtQueryResult,
   TuttiExternalAtResolveResult,
   TuttiExternalAgentActivityActivateSessionResult,
-  TuttiExternalAgentTargetCatalog
+  TuttiExternalAgentTargetCatalog,
+  TuttiExternalUserProjectPathInput
 } from "@tutti-os/workspace-external-core/contracts";
 import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 import {
   normalizeTuttiExternalAtQueryDirectoryInput,
   normalizeTuttiExternalAtQueryInput,
-  normalizeTuttiExternalAtResolveInput
+  normalizeTuttiExternalAtResolveInput,
+  normalizeTuttiExternalUserProjectPathInput,
+  normalizeTuttiExternalUserProjectSelectionPreparationInput
 } from "@tutti-os/workspace-external-core/core";
+import type {
+  WorkspaceUserProject,
+  WorkspaceUserProjectSelectionPreparation
+} from "@tutti-os/workspace-user-project/contracts";
 import type { DesktopHostPreferencesState } from "../desktopHostPreferences.ts";
 import type { DesktopLogger } from "../logging.ts";
 import { getDesktopThemeState } from "../desktopTheme.ts";
@@ -45,6 +52,10 @@ import type {
 import { registerDesktopIpcHandler } from "../ipc/handle.ts";
 import { requestWorkspaceOwnerRenderer } from "../ipc/workspaceAppRendererBridge.ts";
 import {
+  createWorkspaceAppRendererReadiness,
+  type WorkspaceAppRendererReadiness
+} from "../ipc/workspaceAppRendererReadiness.ts";
+import {
   normalizeCaptureSelection,
   resolveCaptureComposerBounds,
   resolveCaptureTitle
@@ -62,6 +73,7 @@ type DesktopCaptureComposerOptionsLoad =
   | { error: Error; options: null };
 
 interface ActiveCapture {
+  closing: boolean;
   composerOptions: Promise<DesktopCaptureComposerOptionsLoad>;
   display: Display;
   image: NativeImage;
@@ -70,6 +82,7 @@ interface ActiveCapture {
   state: DesktopCaptureState;
   submission: Promise<DesktopCaptureSubmitResult> | null;
   window: BrowserWindow;
+  workspaceRendererReadiness: WorkspaceAppRendererReadiness;
 }
 
 export interface DesktopCaptureService {
@@ -92,6 +105,9 @@ export function createDesktopCaptureService(input: {
   rendererUrl?: string;
   resolveStartupWorkspaceId(): Promise<string | null>;
 }): DesktopCaptureService {
+  const workspaceRendererReadiness = createWorkspaceAppRendererReadiness({
+    ipc: ipcMain
+  });
   let activeCapture: ActiveCapture | null = null;
   let openingCapture = false;
   let lastWorkspaceId = resolveFocusedWorkspaceId();
@@ -112,6 +128,7 @@ export function createDesktopCaptureService(input: {
   ): ActiveCapture => {
     if (
       !activeCapture ||
+      activeCapture.closing ||
       activeCapture.window.isDestroyed() ||
       activeCapture.window.webContents !== sender
     ) {
@@ -226,6 +243,54 @@ export function createDesktopCaptureService(input: {
     }
   );
   registerDesktopIpcHandler(
+    desktopIpcChannels.capture.userProjectsList,
+    async (event) => {
+      const capture = trustedActiveCapture(event.sender);
+      return requestCaptureWorkspaceOwner<{ projects: WorkspaceUserProject[] }>(
+        capture,
+        {
+          appId: captureRendererAppId,
+          operation: "userProjects.list",
+          requestId: randomUUID(),
+          workspaceId: capture.state.workspaceId
+        }
+      );
+    }
+  );
+  registerDesktopIpcHandler(
+    desktopIpcChannels.capture.userProjectsPrepareSelection,
+    async (event, payload) => {
+      const capture = trustedActiveCapture(event.sender);
+      const projectInput =
+        normalizeTuttiExternalUserProjectSelectionPreparationInput(payload);
+      return requestCaptureWorkspaceOwner<WorkspaceUserProjectSelectionPreparation>(
+        capture,
+        {
+          appId: captureRendererAppId,
+          input: projectInput,
+          operation: "userProjects.prepareSelection",
+          requestId: randomUUID(),
+          workspaceId: capture.state.workspaceId
+        }
+      );
+    }
+  );
+  registerDesktopIpcHandler(
+    desktopIpcChannels.capture.userProjectsUse,
+    async (event, payload) => {
+      const capture = trustedActiveCapture(event.sender);
+      const projectInput: TuttiExternalUserProjectPathInput =
+        normalizeTuttiExternalUserProjectPathInput(payload, "use");
+      return requestCaptureWorkspaceOwner<WorkspaceUserProject>(capture, {
+        appId: captureRendererAppId,
+        input: projectInput,
+        operation: "userProjects.use",
+        requestId: randomUUID(),
+        workspaceId: capture.state.workspaceId
+      });
+    }
+  );
+  registerDesktopIpcHandler(
     desktopIpcChannels.capture.submit,
     async (event, submission) => {
       const capture = trustedActiveCapture(event.sender);
@@ -247,9 +312,21 @@ export function createDesktopCaptureService(input: {
   const openCapture = async (
     returnFocusToExternalApplication: boolean
   ): Promise<void> => {
-    if (activeCapture && !activeCapture.window.isDestroyed()) {
-      activeCapture.window.focus();
-      return;
+    if (activeCapture) {
+      const destroyed = activeCapture.window.isDestroyed();
+      const shouldReplace =
+        activeCapture.closing || destroyed || !activeCapture.window.isVisible();
+      if (shouldReplace) {
+        if (!destroyed) {
+          activeCapture.window.destroy();
+        }
+        activeCapture = null;
+      } else {
+        app.show();
+        activeCapture.window.show();
+        activeCapture.window.focus();
+        return;
+      }
     }
     if (openingCapture) {
       return;
@@ -271,6 +348,7 @@ export function createDesktopCaptureService(input: {
         input,
         workspaceId,
         returnFocusToExternalApplication,
+        workspaceRendererReadiness,
         (capture) => {
           activeCapture = capture;
           capture.window.once("closed", () => {
@@ -315,6 +393,7 @@ export function createDesktopCaptureService(input: {
     dispose() {
       app.removeListener("browser-window-focus", onBrowserWindowFocus);
       globalShortcut.unregister(desktopCaptureAccelerator);
+      workspaceRendererReadiness.dispose();
       for (const channel of Object.values(desktopIpcChannels.capture)) {
         ipcMain.removeHandler(channel);
       }
@@ -330,6 +409,7 @@ async function createCaptureWindow(
   input: Parameters<typeof createDesktopCaptureService>[0],
   workspaceId: string,
   returnFocusToExternalApplication: boolean,
+  workspaceRendererReadiness: WorkspaceAppRendererReadiness,
   activate: (capture: ActiveCapture) => void
 ): Promise<ActiveCapture> {
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
@@ -339,7 +419,8 @@ async function createCaptureWindow(
   };
   const composerOptions = loadCaptureComposerOptionsWithOwner(
     input,
-    workspaceId
+    workspaceId,
+    workspaceRendererReadiness
   ).then<DesktopCaptureComposerOptionsLoad, DesktopCaptureComposerOptionsLoad>(
     (options) => ({ error: null, options }),
     (cause) => ({
@@ -389,6 +470,7 @@ async function createCaptureWindow(
     workspaceId
   };
   const capture: ActiveCapture = {
+    closing: false,
     composerOptions,
     display,
     image: source.thumbnail,
@@ -396,7 +478,8 @@ async function createCaptureWindow(
     selected: null,
     state,
     submission: null,
-    window: captureWindow
+    window: captureWindow,
+    workspaceRendererReadiness
   };
   activate(capture);
   if (input.rendererUrl) {
@@ -411,7 +494,8 @@ async function createCaptureWindow(
 
 async function loadCaptureComposerOptionsWithOwner(
   input: Parameters<typeof createDesktopCaptureService>[0],
-  workspaceId: string
+  workspaceId: string,
+  workspaceRendererReadiness: WorkspaceAppRendererReadiness
 ): Promise<DesktopCaptureComposerOptions> {
   let workspaceWindow = resolveWorkspaceWindow(workspaceId);
   if (!workspaceWindow) {
@@ -421,19 +505,20 @@ async function loadCaptureComposerOptionsWithOwner(
   if (!workspaceWindow) {
     throw new Error("Workspace renderer is unavailable");
   }
+  await workspaceRendererReadiness.waitFor(workspaceWindow);
   return loadCaptureComposerOptions(workspaceWindow, workspaceId);
 }
 
 function cancelCapture(capture: ActiveCapture): void {
-  if (capture.window.isDestroyed()) {
+  if (capture.closing || capture.window.isDestroyed()) {
     return;
   }
+  capture.closing = true;
   if (
     capture.returnFocusToExternalApplication &&
     process.platform === "darwin"
   ) {
-    capture.window.hide();
-    app.hide();
+    capture.window.once("closed", () => app.hide());
   }
   capture.window.close();
 }
@@ -531,13 +616,9 @@ async function submitCapture(
   const content = normalizeCapturePromptContent(input.content);
   const cwd = typeof input.cwd === "string" ? input.cwd.trim() : "";
   const displayPrompt = input.displayPrompt?.trim() ?? "";
-  const workspaceWindow = resolveWorkspaceWindow(capture.state.workspaceId);
-  if (!workspaceWindow) {
-    throw new Error("Workspace renderer is unavailable");
-  }
   const agentSessionId = randomUUID();
-  await requestWorkspaceOwnerRenderer<TuttiExternalAgentActivityActivateSessionResult>(
-    workspaceWindow,
+  await requestCaptureWorkspaceOwner<TuttiExternalAgentActivityActivateSessionResult>(
+    capture,
     {
       appId: captureRendererAppId,
       input: {
@@ -604,7 +685,11 @@ function requestCaptureWorkspaceOwner<
   if (!workspaceWindow) {
     throw new Error("Workspace renderer is unavailable");
   }
-  return requestWorkspaceOwnerRenderer<Result>(workspaceWindow, request);
+  return capture.workspaceRendererReadiness
+    .waitFor(workspaceWindow)
+    .then(() =>
+      requestWorkspaceOwnerRenderer<Result>(workspaceWindow, request)
+    );
 }
 
 function toHostFileReference(path: string): WorkspaceFileReference {

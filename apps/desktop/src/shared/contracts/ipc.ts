@@ -108,6 +108,9 @@ export const desktopIpcChannels = {
     select: "capture:select",
     selectFiles: "capture:select-files",
     selectProjectDirectory: "capture:select-project-directory",
+    userProjectsList: "capture:user-projects:list",
+    userProjectsPrepareSelection: "capture:user-projects:prepare-selection",
+    userProjectsUse: "capture:user-projects:use",
     submit: "capture:submit"
   },
   computerUse: {
@@ -154,6 +157,7 @@ export const desktopIpcChannels = {
     referencesSelect: "workspace-app-references:select",
     guestEvent: "workspace-app-external:guest-event",
     rendererEvent: "workspace-app-external:renderer-event",
+    rendererReady: "workspace-app-external:renderer-ready",
     rendererRequest: "workspace-app-external:renderer-request",
     rendererResponse: "workspace-app-external:renderer-response",
     settingsOpen: "workspace-app-settings:open",
@@ -836,6 +840,10 @@ export interface DesktopWorkspaceAppExternalRendererResponse {
   result: DesktopIpcResult<DesktopWorkspaceAppExternalRendererResult>;
 }
 
+export interface DesktopWorkspaceAppExternalRendererReadiness {
+  ready: boolean;
+}
+
 export type DesktopWorkspaceAppExternalRendererEvent =
   | {
       invalidation: TuttiExternalAtInvalidation;
@@ -1074,6 +1082,11 @@ export interface DesktopInvokePayloadByChannel {
   [desktopIpcChannels.capture.select]: DesktopCaptureSelectionInput;
   [desktopIpcChannels.capture.selectFiles]: undefined;
   [desktopIpcChannels.capture.selectProjectDirectory]: undefined;
+  [desktopIpcChannels.capture.userProjectsList]: undefined;
+  [desktopIpcChannels.capture
+    .userProjectsPrepareSelection]: WorkspaceUserProjectSelectionPreparationInput;
+  [desktopIpcChannels.capture
+    .userProjectsUse]: TuttiExternalUserProjectPathInput;
   [desktopIpcChannels.capture.submit]: DesktopCaptureSubmitInput;
   [desktopIpcChannels.computerUse.checkStatus]: undefined;
   [desktopIpcChannels.computerUse.install]: undefined;
@@ -1280,6 +1293,12 @@ export interface DesktopInvokeResultByChannel {
   [desktopIpcChannels.capture.select]: DesktopCaptureSelectionResult;
   [desktopIpcChannels.capture.selectFiles]: WorkspaceFileReference[];
   [desktopIpcChannels.capture.selectProjectDirectory]: { path: string } | null;
+  [desktopIpcChannels.capture.userProjectsList]: {
+    projects: WorkspaceUserProject[];
+  };
+  [desktopIpcChannels.capture
+    .userProjectsPrepareSelection]: WorkspaceUserProjectSelectionPreparation;
+  [desktopIpcChannels.capture.userProjectsUse]: WorkspaceUserProject;
   [desktopIpcChannels.capture.submit]: DesktopCaptureSubmitResult;
   [desktopIpcChannels.computerUse.checkStatus]: DesktopComputerUseStatus;
   [desktopIpcChannels.computerUse.install]: DesktopComputerUseActionResult;

@@ -7,6 +7,7 @@ import type {
 import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
 import type { TuttiExternalAtRichTextBridge } from "@tutti-os/workspace-external-core/rich-text";
 import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
+import type { WorkspaceUserProjectApi } from "@tutti-os/workspace-user-project/contracts";
 import type { DesktopCaptureAgentTargetPreference } from "./desktopCaptureAgentTargetPreference.ts";
 import type { DesktopCaptureProjectPreference } from "./desktopCaptureProjectPreference.ts";
 
@@ -47,6 +48,7 @@ export class DesktopCaptureWindowController {
   private readonly listeners = new Set<() => void>();
   private snapshot = initialSnapshot;
   readonly mentionBridge: TuttiExternalAtRichTextBridge;
+  readonly userProjectApi: WorkspaceUserProjectApi;
 
   constructor(
     api: DesktopCaptureApi,
@@ -62,6 +64,13 @@ export class DesktopCaptureWindowController {
         queryDirectory: (input) => this.api.queryMentionDirectory(input),
         resolve: (input) => this.api.resolveMention(input)
       }
+    };
+    this.userProjectApi = {
+      list: () => this.api.userProjects.list(),
+      prepareSelection: (input) =>
+        this.api.userProjects.prepareSelection(input),
+      selectDirectory: () => this.api.selectProjectDirectory(),
+      use: (input) => this.api.userProjects.use(input)
     };
   }
 
@@ -184,9 +193,6 @@ export class DesktopCaptureWindowController {
   selectFiles(): Promise<readonly WorkspaceFileReference[]> {
     return this.api.selectFiles();
   }
-
-  readonly selectProjectDirectory = (): Promise<{ path: string } | null> =>
-    this.api.selectProjectDirectory();
 
   readonly setProjectPath = (projectPath: string | null): void => {
     const capture = this.snapshot.capture;

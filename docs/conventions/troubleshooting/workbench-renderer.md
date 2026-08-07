@@ -1183,3 +1183,33 @@
   [snapshotLayout.ts](../../../packages/workbench/surface/src/core/snapshotLayout.ts)
   [session.ts](../../../packages/workbench/surface/src/host/session.ts)
   [reducer.ts](../../../packages/workbench/surface/src/core/reducer.ts)
+
+### Hidden workspace owner loads but its first IPC request times out
+
+- Symptom:
+  A launcher creates a hidden standalone workspace or Agent window and Electron
+  reports `did-finish-load`, but the first request to the renderer times out.
+  Repeated launcher shortcuts may appear inert while the temporary surface is
+  still waiting on that request.
+- Quick checks:
+  Compare the hidden window's load/ready timestamps with registration of the
+  React/preload request handler. A fixed timeout after `did-finish-load` with no
+  matching renderer response indicates that the request was sent before the
+  application handler existed, not that the daemon or Agent provider was slow.
+- Root cause:
+  Browser-window load readiness is a document boundary, while the request owner
+  is installed later by a React effect. IPC delivery is not replayed for a
+  listener registered after the message, so a one-shot request can be lost.
+- Fix:
+  Have the preload announce readiness only after installing the request
+  listener, clear readiness when it detaches, reloads, crashes, or is destroyed,
+  and make the main-process caller await that signal before sending. Do not use
+  sleeps or `did-finish-load` as a substitute for capability readiness.
+- Validation:
+  Assert that a pending main-process request remains blocked before the ready
+  signal, proceeds afterward, and returns to pending when the listener detaches
+  or the renderer reloads. Cover StrictMode's setup/cleanup replay so a listener
+  removed in the same turn never announces stale readiness.
+- References:
+  [workspaceAppRendererReadiness.ts](../../../apps/desktop/src/main/ipc/workspaceAppRendererReadiness.ts)
+  [workspaceAppExternal.ts](../../../apps/desktop/src/preload/api/workspaceAppExternal.ts)

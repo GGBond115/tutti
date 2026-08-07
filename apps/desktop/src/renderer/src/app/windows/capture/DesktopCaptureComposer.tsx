@@ -79,7 +79,7 @@ export function DesktopCaptureComposer({
       placeholder={placeholder}
       selectedAgentTargetId={selectedAgentTargetId}
       selectedProjectPath={projectPath}
-      selectProjectDirectory={controller.selectProjectDirectory}
+      userProjectApi={controller.userProjectApi}
       workspaceId={workspaceId}
       onAgentTargetChange={(agentTargetId) =>
         controller.setAgentTargetId(agentTargetId)
