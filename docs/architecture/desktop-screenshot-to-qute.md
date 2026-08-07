@@ -84,7 +84,9 @@ screen. Main-process requests wait for an explicit renderer-ready signal emitted
 only after the React workspace-external request handler is installed;
 `did-finish-load` alone is not a sufficient application-readiness boundary.
 Successful submission may then reveal that Agent window; cancellation leaves it
-hidden.
+hidden. Submission activates with the external contract's `reveal` request, so
+the workspace owner opens its Agent GUI on the created session before the
+window is focused; a failed navigation never fails the activation result.
 
 ## Floating Composer
 
@@ -131,7 +133,9 @@ create an Issue directly.
 
 The bottom toolbar keeps `+`, `@`, the exact Agent Target selector, the project
 selector, the **Create Task and track** switch, and the primary send action on
-one alignment baseline. The project selector reuses AgentGUI's canonical
+one alignment baseline. The Quick Composer hides the connector capability
+control: quick-composer hosts expose no capability-settings channel, so it
+could only render as a dead trigger and pushed the toolbar onto a second line. The project selector reuses AgentGUI's canonical
 no-project/existing-project control. The capture preload proxies the workspace
 owner's real `WorkspaceUserProjectApi` for catalog reads, selection preparation,
 and project registration; only the directory dialog itself remains native to
@@ -175,7 +179,9 @@ closing, destroyed, or unexpectedly hidden capture is replaced rather than
 focused. A shortcut invoked from a focused Tutti window keeps Tutti active. At
 least one ready Agent is required. The capture window closes only after the
 workspace Engine confirms activation, then focus returns to the workspace
-window.
+window. Like cancellation, the submitted window is destroyed rather than
+closed, so a renderer close handler cannot strand a submitted capture on
+screen.
 
 ## Attachment Contract And Storage
 

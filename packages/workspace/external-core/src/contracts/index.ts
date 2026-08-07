@@ -304,6 +304,12 @@ export interface TuttiExternalAgentActivityActivateSessionInput {
   cwd?: string | null;
   initialContent: AgentPromptContentBlock[];
   initialDisplayPrompt?: string | null;
+  /**
+   * Host-owned navigation request. When true, the workspace owner opens its
+   * Agent GUI on the activated session after activation succeeds. Missing
+   * preserves the existing activate-without-navigation behavior.
+   */
+  reveal?: boolean;
   settings?: AgentActivitySessionSettings;
   title?: string;
   visible?: boolean;

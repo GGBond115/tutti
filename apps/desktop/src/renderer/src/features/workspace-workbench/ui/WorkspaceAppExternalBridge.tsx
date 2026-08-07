@@ -36,6 +36,7 @@ import { IAgentsService } from "@renderer/features/workspace-agent/services/agen
 import type { AgentHostAgentSessionComposerSettings } from "@shared/contracts/dto";
 import { useService } from "@tutti-os/infra/di";
 import { requestGroupChatLaunch } from "../services/groupChatLaunchCoordinator.ts";
+import { normalizeDesktopAgentGUIProvider } from "@renderer/features/workspace-agent/desktopAgentGUINodeState.ts";
 import { requestWorkspaceAgentGuiLaunch } from "@renderer/features/workspace-agent/services/workspaceAgentGuiLaunchCoordinator.ts";
 import { useWorkspaceAppCenterService } from "@renderer/features/workspace-app-center";
 import { useTranslation } from "@renderer/i18n";
@@ -354,26 +355,45 @@ export function WorkspaceAppExternalBridge({
             settings: toAgentHostComposerSettings(request.input.settings),
             workspaceId
           })) as TuttiExternalAgentActivityComposerOptions;
-        case "agentActivity.activateSession":
-          return workspaceAgentActivityService.activateSession({
-            agentSessionId: request.input.agentSessionId,
-            agentTargetId: request.input.agentTargetId,
-            clientSubmitId: request.input.clientSubmitId,
-            ...(request.input.cwd ? { cwd: request.input.cwd } : {}),
-            initialContent: request.input.initialContent,
-            ...(request.input.initialDisplayPrompt !== undefined
-              ? { initialDisplayPrompt: request.input.initialDisplayPrompt }
-              : {}),
-            mode: "new",
-            ...(request.input.settings
-              ? { settings: request.input.settings }
-              : {}),
-            ...(request.input.title ? { title: request.input.title } : {}),
-            ...(request.input.visible !== undefined
-              ? { visible: request.input.visible }
-              : {}),
-            workspaceId
-          });
+        case "agentActivity.activateSession": {
+          const activation =
+            await workspaceAgentActivityService.activateSession({
+              agentSessionId: request.input.agentSessionId,
+              agentTargetId: request.input.agentTargetId,
+              clientSubmitId: request.input.clientSubmitId,
+              ...(request.input.cwd ? { cwd: request.input.cwd } : {}),
+              initialContent: request.input.initialContent,
+              ...(request.input.initialDisplayPrompt !== undefined
+                ? { initialDisplayPrompt: request.input.initialDisplayPrompt }
+                : {}),
+              mode: "new",
+              ...(request.input.settings
+                ? { settings: request.input.settings }
+                : {}),
+              ...(request.input.title ? { title: request.input.title } : {}),
+              ...(request.input.visible !== undefined
+                ? { visible: request.input.visible }
+                : {}),
+              workspaceId
+            });
+          if (request.input.reveal === true) {
+            // Navigation is best-effort: the session already exists, so a
+            // failed launch must not fail the activation result.
+            try {
+              await requestWorkspaceAgentGuiLaunch({
+                agentSessionId: activation.session.agentSessionId,
+                agentTargetId: request.input.agentTargetId,
+                provider: normalizeDesktopAgentGUIProvider(
+                  activation.session.provider
+                ),
+                workspaceId
+              });
+            } catch {
+              // Ignore navigation failures; the caller still gets the session.
+            }
+          }
+          return activation;
+        }
         case "agentActivity.sendInput":
           return workspaceAgentActivityService.sendInput({
             agentSessionId: request.input.agentSessionId,

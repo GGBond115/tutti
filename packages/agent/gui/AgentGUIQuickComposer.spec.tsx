@@ -549,6 +549,27 @@ describe("AgentGUIQuickComposer", () => {
     expect(accessory?.parentElement).toBe(send?.parentElement);
   });
 
+  it("hides the connector capability control quick-composer hosts cannot service", () => {
+    const { container } = render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
+        content={[{ text: "Inspect this", type: "text" }]}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    expect(
+      container.querySelector(
+        '[data-testid="agent-gui-composer-connectors-trigger"]'
+      )
+    ).toBeNull();
+  });
+
   it("installs the mention service supplied by the embedding host", () => {
     const query = vi.fn().mockResolvedValue([]);
     const provider: RichTextTriggerProvider<{ id: string; label: string }> = {

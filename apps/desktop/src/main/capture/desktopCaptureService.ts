@@ -369,9 +369,7 @@ export function createDesktopCaptureService(input: {
       try {
         const result = await capture.submission;
         const workspaceId = capture.state.workspaceId;
-        if (!capture.window.isDestroyed()) {
-          capture.window.close();
-        }
+        closeSubmittedCapture(capture);
         focusWorkspace(workspaceId);
         return result;
       } finally {
@@ -645,6 +643,16 @@ function cancelCapture(capture: ActiveCapture): void {
   capture.window.destroy();
 }
 
+function closeSubmittedCapture(capture: ActiveCapture): void {
+  if (capture.closing || capture.window.isDestroyed()) {
+    return;
+  }
+  capture.closing = true;
+  // Same rationale as cancelCapture: `close()` can be held open by renderer
+  // lifecycle handlers, leaving a submitted capture stranded on screen.
+  capture.window.destroy();
+}
+
 function cropSelection(
   capture: ActiveCapture,
   raw: DesktopCaptureSelectionInput
@@ -869,6 +877,7 @@ async function submitCapture(
         ...(cwd ? { cwd } : {}),
         initialContent: content,
         ...(displayPrompt ? { initialDisplayPrompt: displayPrompt } : {}),
+        reveal: true,
         ...(input.settings ? { settings: input.settings } : {}),
         title: resolveCaptureTitle(displayPrompt, attachment.displayName),
         visible: true

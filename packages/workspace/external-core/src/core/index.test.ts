@@ -153,6 +153,7 @@ test("normalizes agent activity session inputs without dropping prompt assets", 
         }
       ],
       initialDisplayPrompt: " provider smoke test ",
+      reveal: true,
       settings: {
         browserUse: false,
         model: " test-model ",
@@ -176,6 +177,7 @@ test("normalizes agent activity session inputs without dropping prompt assets", 
         }
       ],
       initialDisplayPrompt: "provider smoke test",
+      reveal: true,
       settings: {
         browserUse: false,
         model: "test-model",
@@ -184,6 +186,16 @@ test("normalizes agent activity session inputs without dropping prompt assets", 
       title: "Provider Core Lab",
       visible: true
     }
+  );
+  assert.equal(
+    "reveal" in
+      normalizeTuttiExternalAgentActivityActivateSessionInput({
+        agentSessionId: "session-1",
+        agentTargetId: "codex",
+        clientSubmitId: "batch-1",
+        initialContent: [{ type: "text", text: "test" }]
+      }),
+    false
   );
   assert.deepEqual(
     normalizeTuttiExternalAgentActivitySendInput({
@@ -257,6 +269,17 @@ test("rejects malformed agent activity inputs", () => {
         visible: "yes"
       }),
     /visible must be a boolean/
+  );
+  assert.throws(
+    () =>
+      normalizeTuttiExternalAgentActivityActivateSessionInput({
+        agentSessionId: "session-1",
+        agentTargetId: "codex",
+        clientSubmitId: "batch-1",
+        initialContent: [{ type: "text", text: "test" }],
+        reveal: "yes"
+      }),
+    /reveal must be a boolean/
   );
 });
 

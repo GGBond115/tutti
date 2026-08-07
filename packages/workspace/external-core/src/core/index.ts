@@ -209,6 +209,7 @@ export function normalizeTuttiExternalAgentActivityActivateSessionInput(
       "initialDisplayPrompt",
       true
     ),
+    ...normalizeAgentActivityReveal(input.reveal),
     ...(input.settings === undefined || input.settings === null
       ? {}
       : { settings: normalizeAgentActivitySettings(input.settings) }),
@@ -909,6 +910,18 @@ function normalizeAgentActivityVisible(
     throw new Error("agentActivity visible must be a boolean.");
   }
   return { visible: value };
+}
+
+function normalizeAgentActivityReveal(
+  value: unknown
+): Partial<Pick<TuttiExternalAgentActivityActivateSessionInput, "reveal">> {
+  if (value === undefined) {
+    return {};
+  }
+  if (typeof value !== "boolean") {
+    throw new Error("agentActivity reveal must be a boolean.");
+  }
+  return { reveal: value };
 }
 
 function normalizeAgentActivityContent(

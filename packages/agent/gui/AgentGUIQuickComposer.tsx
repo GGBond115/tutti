@@ -237,6 +237,10 @@ function AgentGUIQuickComposerInner({
         activePrompt={null}
         agentTargets={composerAgentTargets}
         availableCommands={[]}
+        // Quick Composer hosts expose no capability-settings channel, so the
+        // connector control could only render as a dead trigger. Hiding it
+        // also keeps the footer controls on one alignment baseline.
+        capabilityMenuState={{ connectors: { enabled: false } }}
         canGoalControl={false}
         canUploadAttachment={Boolean(
           selectedTargetCapabilities?.imageInput ||
