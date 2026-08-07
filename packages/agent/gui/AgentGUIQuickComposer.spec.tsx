@@ -17,6 +17,27 @@ const agentTargets = [
 ] satisfies AgentGUIAgentTarget[];
 
 describe("AgentGUIQuickComposer", () => {
+  it("fills host-owned height only when requested", () => {
+    const { container } = render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        content={[{ text: "", type: "text" }]}
+        fillAvailableHeight={true}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    expect(
+      container.querySelector(
+        'form[data-layout="embedded"][data-fill-available-height="true"]'
+      )
+    ).not.toBeNull();
+  });
+
   it("uses the in-flow embedded layout for image drafts", () => {
     const { container } = render(
       <AgentGUIQuickComposer

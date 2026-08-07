@@ -4,7 +4,7 @@ The desktop can send an arbitrary rectangular screen region directly to an
 Agent as a multimodal prompt. The Agent can optionally be instructed to create
 and manage a Qute Task while it works. The default global shortcut is
 `CommandOrControl+Shift+S`, and it works while another application has focus as
-long as Tutti is running and has a workspace window to target.
+long as Tutti is running and can resolve a current or startup workspace.
 
 ## Ownership And Flow
 
@@ -62,6 +62,16 @@ AgentGUI Composer chunk is not part of the selector's initial module graph. It
 starts preloading on pointer-down so the drag interval hides most of the
 transition cost without delaying the first capture frame.
 
+The capture service retains only the most recently focused workspace identity,
+not a renderer reference. If the user closes every visible Tutti window, the
+next shortcut resolves that retained identity (or the daemon's startup
+workspace) and asks `WorkspaceLaunch` to prepare an invisible standalone Agent
+window as the workspace Engine owner. Composer metadata starts loading through
+that owner concurrently with screen capture, so closing the main window does
+not disable the shortcut or force a visible workspace window back onto the
+screen. Successful submission may then reveal that Agent window; cancellation
+leaves it hidden.
+
 ## Floating Composer
 
 After selection, the same frameless window becomes a compact AgentGUI Composer.
@@ -78,6 +88,10 @@ Composer uses its in-flow `embedded` layout; timeline-oriented dock overhang is
 not valid inside the fixed native window. Portaled Composer menus receive the
 header's viewport inset, so collision handling keeps Agent and mention menus
 inside the usable window instead of placing them behind the title bar.
+The screenshot host opts into the embedded Composer's full-height contract, so
+the bordered input surface consumes all space below the draggable header while
+attachments and footer controls keep their intrinsic height. Other embedded
+hosts remain content-sized unless they make the same explicit request.
 
 The screenshot appears as an image draft block. The user chooses an Agent,
 adds or edits prompt text, and sends with the Composer button or its existing
@@ -103,8 +117,12 @@ the workspace owner rather than a capture-local reference catalog: its typed
 existing workspace external bridge.
 
 If Agent activation fails, the composer stays open with its draft intact so the
-user can retry. Escape cancels before submission. At least one ready Agent is
-required. The capture window closes only after the workspace Engine confirms
+user can retry. Escape and the close button cancel before submission. When the
+shortcut was invoked from another application on macOS, cancellation hides the
+Tutti application before closing the capture window so focus returns to the
+previous application instead of revealing a Tutti workspace. A shortcut
+invoked from a focused Tutti window keeps Tutti active. At least one ready Agent
+is required. The capture window closes only after the workspace Engine confirms
 activation, then focus returns to the workspace window.
 
 ## Attachment Contract And Storage

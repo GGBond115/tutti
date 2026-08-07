@@ -152,6 +152,8 @@ export interface AgentComposerProps {
    * normal flow for compact host surfaces.
    */
   layoutMode?: "dock" | "embedded" | "hero";
+  /** Lets an embedded composer consume a height explicitly owned by its host. */
+  fillAvailableHeight?: boolean;
   /** Host chrome inset that portaled menus must not overlap. */
   menuViewportTopInset?: number;
   providerSelectLabel?: string;

@@ -8329,6 +8329,55 @@ button.agent-gui-node__conversation-section-toggle:hover
   overflow-y: auto;
 }
 
+/* Full-height launch surfaces explicitly assign the available block size.
+   Keep that contract opt-in so compact embedded composers continue sizing to
+   their content. */
+.agent-gui-node__composer[data-layout="embedded"][data-fill-available-height="true"] {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.agent-gui-node__composer[data-layout="embedded"][data-fill-available-height="true"]
+  .agent-gui-node__composer-input-group {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.agent-gui-node__composer[data-layout="embedded"][data-fill-available-height="true"]
+  .agent-gui-node__composer-input-shell {
+  grid-template-rows: minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.agent-gui-node__composer[data-layout="embedded"][data-fill-available-height="true"]
+  .agent-gui-node__composer-prompt-input-area {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.agent-gui-node__composer[data-layout="embedded"][data-fill-available-height="true"]
+  .agent-gui-node__composer-prompt-input-line {
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.agent-gui-node__composer[data-layout="embedded"][data-fill-available-height="true"]
+  .agent-gui-node__composer-textarea {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+}
+
 .agent-gui-node__composer[data-layout="dock"]
   .agent-gui-node__composer-input-shell {
   /* Reserve only the collapsed input height (56px, keep in sync with

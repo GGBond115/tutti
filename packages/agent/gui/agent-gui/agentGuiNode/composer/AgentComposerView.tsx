@@ -244,6 +244,9 @@ export function AgentComposerView(input: Props): React.JSX.Element {
           : undefined
       }
       data-agent-turn-id={input.props.activeTurnId?.trim() || undefined}
+      data-fill-available-height={
+        input.props.fillAvailableHeight ? "true" : undefined
+      }
       data-layout={layoutMode}
       style={composerStyle}
       onSubmit={submit}

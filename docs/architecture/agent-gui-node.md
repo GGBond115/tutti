@@ -1701,7 +1701,11 @@ so embedded placeholder, foreground, border, and menu colors never fall back
 to inherited host text styles. Hosts may provide a compact action accessory;
 `AgentComposer` renders it immediately before the primary send/stop action in
 non-hero layouts instead of requiring consumer CSS to position controls over
-the Composer DOM.
+the Composer DOM. An embedding host with a definite block size may opt into
+`fillAvailableHeight`; the embedded Composer then gives its input group and
+editor the remaining height while keeping attachment and footer rows
+intrinsic. This remains explicit so ordinary launch surfaces keep the default
+content-sized behavior.
 
 The canonical Composer gate belongs to the Session-presentation projection and
 travels through the Composer view-model slice as one object. View-local

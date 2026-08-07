@@ -86,12 +86,16 @@ export async function createDesktopHostServices(
     tuttidClient: options.tuttidClient
   });
   const capture = createDesktopCaptureService({
+    ensureWorkspaceOwner: (workspaceId) =>
+      workspaceLaunch.ensureAgentBrowserHost({ workspaceID: workspaceId }),
     fileDialogs,
     logger: options.logger,
     preferences,
     preloadPath: options.capturePreloadPath,
     rendererFilePath: options.captureRendererFilePath,
-    rendererUrl: options.rendererUrl
+    rendererUrl: options.rendererUrl,
+    resolveStartupWorkspaceId: async () =>
+      (await options.tuttidClient.getStartupWorkspace())?.id ?? null
   });
 
   return {

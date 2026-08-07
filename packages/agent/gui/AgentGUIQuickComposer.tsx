@@ -68,6 +68,8 @@ export interface AgentGUIQuickComposerProps {
   composerActionAccessory?: AgentComposerProps["composerActionAccessory"];
   content: readonly AgentPromptContentBlock[];
   disabled?: boolean;
+  /** Fill a height explicitly assigned by the embedding host. */
+  fillAvailableHeight?: boolean;
   locale?: AgentGuiI18nLocale;
   /** Mention providers supplied by the embedding host. */
   mentionService?: RichTextMentionService;
@@ -106,6 +108,7 @@ function AgentGUIQuickComposerInner({
   composerActionAccessory,
   content,
   disabled = false,
+  fillAvailableHeight = false,
   menuViewportTopInset,
   onAgentTargetChange,
   onContentChange,
@@ -154,6 +157,7 @@ function AgentGUIQuickComposerInner({
         drainingQueuedPromptId={null}
         draftContent={draftContent}
         gate={readyGate}
+        fillAvailableHeight={fillAvailableHeight}
         isInterrupting={false}
         isSendingTurn={false}
         isSubmittingPrompt={disabled}

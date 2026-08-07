@@ -65,6 +65,7 @@ interface ActiveCapture {
   composerOptions: Promise<DesktopCaptureComposerOptionsLoad>;
   display: Display;
   image: NativeImage;
+  returnFocusToExternalApplication: boolean;
   selected: DesktopCaptureAttachment | null;
   state: DesktopCaptureState;
   submission: Promise<DesktopCaptureSubmitResult> | null;
@@ -76,6 +77,7 @@ export interface DesktopCaptureService {
 }
 
 export function createDesktopCaptureService(input: {
+  ensureWorkspaceOwner(workspaceId: string): Promise<void>;
   fileDialogs: Pick<DesktopFileDialogAccess, "selectUploadFiles">;
   logger: DesktopLogger;
   preferences: Pick<
@@ -85,6 +87,7 @@ export function createDesktopCaptureService(input: {
   preloadPath: string;
   rendererFilePath: string;
   rendererUrl?: string;
+  resolveStartupWorkspaceId(): Promise<string | null>;
 }): DesktopCaptureService {
   let activeCapture: ActiveCapture | null = null;
   let openingCapture = false;
@@ -172,7 +175,7 @@ export function createDesktopCaptureService(input: {
   registerDesktopIpcHandler(desktopIpcChannels.capture.cancel, (event) => {
     const capture = trustedActiveCapture(event.sender);
     if (!capture.submission) {
-      capture.window.close();
+      cancelCapture(capture);
     }
   });
   registerDesktopIpcHandler(
@@ -230,7 +233,9 @@ export function createDesktopCaptureService(input: {
     }
   );
 
-  const openCapture = async (): Promise<void> => {
+  const openCapture = async (
+    returnFocusToExternalApplication: boolean
+  ): Promise<void> => {
     if (activeCapture && !activeCapture.window.isDestroyed()) {
       activeCapture.window.focus();
       return;
@@ -238,18 +243,23 @@ export function createDesktopCaptureService(input: {
     if (openingCapture) {
       return;
     }
-    const workspaceId = lastWorkspaceId ?? resolveFocusedWorkspaceId();
-    if (!workspaceId) {
-      input.logger.warn("screenshot capture skipped", {
-        reason: "workspace_unavailable"
-      });
-      return;
-    }
     openingCapture = true;
     try {
+      const workspaceId =
+        resolveFocusedWorkspaceId() ??
+        lastWorkspaceId ??
+        (await input.resolveStartupWorkspaceId());
+      if (!workspaceId) {
+        input.logger.warn("screenshot capture skipped", {
+          reason: "workspace_unavailable"
+        });
+        return;
+      }
+      lastWorkspaceId = workspaceId;
       activeCapture = await createCaptureWindow(
         input,
         workspaceId,
+        returnFocusToExternalApplication,
         (capture) => {
           activeCapture = capture;
           capture.window.once("closed", () => {
@@ -273,10 +283,12 @@ export function createDesktopCaptureService(input: {
   };
 
   const registered = globalShortcut.register(desktopCaptureAccelerator, () => {
+    const returnFocusToExternalApplication =
+      BrowserWindow.getFocusedWindow() === null;
     input.logger.info("screenshot shortcut activated", {
       accelerator: desktopCaptureAccelerator
     });
-    void openCapture();
+    void openCapture(returnFocusToExternalApplication);
   });
   if (!registered || !globalShortcut.isRegistered(desktopCaptureAccelerator)) {
     input.logger.warn("screenshot shortcut registration failed", {
@@ -306,6 +318,7 @@ export function createDesktopCaptureService(input: {
 async function createCaptureWindow(
   input: Parameters<typeof createDesktopCaptureService>[0],
   workspaceId: string,
+  returnFocusToExternalApplication: boolean,
   activate: (capture: ActiveCapture) => void
 ): Promise<ActiveCapture> {
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
@@ -313,12 +326,8 @@ async function createCaptureWindow(
     width: Math.max(1, Math.round(display.size.width * display.scaleFactor)),
     height: Math.max(1, Math.round(display.size.height * display.scaleFactor))
   };
-  const workspaceWindow = resolveWorkspaceWindow(workspaceId);
-  if (!workspaceWindow) {
-    throw new Error("Workspace renderer is unavailable");
-  }
-  const composerOptions = loadCaptureComposerOptions(
-    workspaceWindow,
+  const composerOptions = loadCaptureComposerOptionsWithOwner(
+    input,
     workspaceId
   ).then<DesktopCaptureComposerOptionsLoad, DesktopCaptureComposerOptionsLoad>(
     (options) => ({ error: null, options }),
@@ -372,6 +381,7 @@ async function createCaptureWindow(
     composerOptions,
     display,
     image: source.thumbnail,
+    returnFocusToExternalApplication,
     selected: null,
     state,
     submission: null,
@@ -386,6 +396,35 @@ async function createCaptureWindow(
   captureWindow.show();
   captureWindow.focus();
   return capture;
+}
+
+async function loadCaptureComposerOptionsWithOwner(
+  input: Parameters<typeof createDesktopCaptureService>[0],
+  workspaceId: string
+): Promise<DesktopCaptureComposerOptions> {
+  let workspaceWindow = resolveWorkspaceWindow(workspaceId);
+  if (!workspaceWindow) {
+    await input.ensureWorkspaceOwner(workspaceId);
+    workspaceWindow = resolveWorkspaceWindow(workspaceId);
+  }
+  if (!workspaceWindow) {
+    throw new Error("Workspace renderer is unavailable");
+  }
+  return loadCaptureComposerOptions(workspaceWindow, workspaceId);
+}
+
+function cancelCapture(capture: ActiveCapture): void {
+  if (capture.window.isDestroyed()) {
+    return;
+  }
+  if (
+    capture.returnFocusToExternalApplication &&
+    process.platform === "darwin"
+  ) {
+    capture.window.hide();
+    app.hide();
+  }
+  capture.window.close();
 }
 
 function cropSelection(
