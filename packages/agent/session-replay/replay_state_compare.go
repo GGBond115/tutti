@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/tutti-os/tutti/packages/agent/store-sqlite/canonical"
 )
 
 // normalizeReplayStateForComparison preserves relationships while replacing
@@ -21,11 +23,62 @@ func normalizeReplayStateForComparison(state TuttiReplayState) TuttiReplayState 
 	registerReplayIDs(replacements, value)
 	replaceReplayIDs(value, replacements)
 	stripVolatileGoalTimingFields(value)
+	canonicalizeTurnFileChanges(value)
 
 	normalized, _ := json.Marshal(value)
 	var result TuttiReplayState
 	_ = json.Unmarshal(normalized, &result)
 	return result
+}
+
+// canonicalizeTurnFileChanges folds recorded and live turn.fileChanges into the
+// shared tool fileChanges contract so older cassettes that still store raw
+// created-file bodies under diff/unifiedDiff compare equal to live newString.
+// Trailing EOLs on text bodies are stripped: apply_patch rematerialization often
+// adds a final newline that older expected-state tokens omitted.
+func canonicalizeTurnFileChanges(value map[string]any) {
+	agent, _ := value["agent"].(map[string]any)
+	sessions, _ := agent["sessions"].([]any)
+	for _, item := range sessions {
+		session, _ := item.(map[string]any)
+		turns, _ := session["turns"].([]any)
+		for _, turnItem := range turns {
+			turn, _ := turnItem.(map[string]any)
+			if turn == nil {
+				continue
+			}
+			normalized := canonical.NormalizeToolFileChanges(turn["fileChanges"])
+			if normalized == nil {
+				delete(turn, "fileChanges")
+				continue
+			}
+			normalizeFileChangeTextFields(normalized)
+			turn["fileChanges"] = normalized
+		}
+	}
+}
+
+func normalizeFileChangeTextFields(fileChanges map[string]any) {
+	files, _ := fileChanges["files"].([]any)
+	for _, item := range files {
+		file, _ := item.(map[string]any)
+		if file == nil {
+			continue
+		}
+		for _, key := range []string{
+			"content",
+			"diff",
+			"newString",
+			"oldString",
+			"unifiedDiff",
+		} {
+			text, ok := file[key].(string)
+			if !ok {
+				continue
+			}
+			file[key] = strings.TrimRight(text, "\r\n")
+		}
+	}
 }
 
 // stripVolatileGoalTimingFields drops Goal wall-clock / duration fields that
@@ -78,6 +131,9 @@ func registerReplayIDs(replacements map[string]string, value map[string]any) {
 			if payload, ok := message["payload"].(map[string]any); ok {
 				delete(payload, "seq")
 				registerReplayID(replacements, payload["operationId"], fmt.Sprintf("session:%d/message:%d/operation", sessionIndex, messageIndex))
+				// tool_call / approval callId remints across record→replay while
+				// the structural message slot stays the same.
+				registerReplayID(replacements, payload["callId"], fmt.Sprintf("session:%d/message:%d/call", sessionIndex, messageIndex))
 				content, _ := payload["content"].([]any)
 				for contentIndex, contentItem := range content {
 					block, _ := contentItem.(map[string]any)
