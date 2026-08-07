@@ -1683,6 +1683,12 @@ state. The host receives its typed prompt envelope and must route new Session
 creation through the workspace's existing `AgentSessionEngine`; the entry must
 never construct a second Engine or call a lifecycle transport.
 
+The Quick Composer uses the Composer's `embedded` layout contract. Unlike
+`dock`, which intentionally grows attachments and long drafts upward over a
+conversation timeline, `embedded` keeps the entire draft in normal document
+flow. Compact host surfaces must select that layout instead of compensating for
+dock overhang with consumer-specific offsets or clipping.
+
 The canonical Composer gate belongs to the Session-presentation projection and
 travels through the Composer view-model slice as one object. View-local
 transition or workflow locks may layer on top as explicit presentation locks;

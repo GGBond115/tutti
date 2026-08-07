@@ -8289,6 +8289,46 @@ button.agent-gui-node__conversation-section-toggle:hover
   background: var(--agent-gui-session-flow-background);
 }
 
+/* Compact host surfaces are not conversation timelines. Keep attachments and
+   growing text in normal flow so they cannot overhang unrelated host chrome. */
+.agent-gui-node__composer[data-layout="embedded"] {
+  position: relative;
+  bottom: auto;
+  z-index: 1;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.agent-gui-node__composer[data-layout="embedded"]
+  .agent-gui-node__composer-input-shell {
+  gap: 8px;
+}
+
+.agent-gui-node__composer[data-layout="embedded"]
+  .agent-gui-node__composer-prompt-input-area {
+  display: grid;
+  min-width: 0;
+}
+
+.agent-gui-node__composer[data-layout="embedded"]
+  .agent-gui-node__composer-prompt-input-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agent-gui-node__composer[data-layout="embedded"]
+  .agent-gui-node__composer-textarea {
+  min-height: 46px;
+  max-height: 96px;
+  overflow-y: auto;
+}
+
 .agent-gui-node__composer[data-layout="dock"]
   .agent-gui-node__composer-input-shell {
   /* Reserve only the collapsed input height (56px, keep in sync with

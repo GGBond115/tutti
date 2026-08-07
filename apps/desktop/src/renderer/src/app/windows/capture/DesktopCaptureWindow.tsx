@@ -1,14 +1,21 @@
 import {
+  lazy,
+  Suspense,
   useEffect,
   useMemo,
   useSyncExternalStore,
   type PointerEvent
 } from "react";
 import type { AgentGUIAgentTarget } from "@tutti-os/agent-gui";
-import { AgentGUIQuickComposer } from "@tutti-os/agent-gui/quick-composer";
 import { Button, CloseIcon } from "@tutti-os/ui-system";
 import { createTranslator } from "../../../../../shared/i18n/index.ts";
 import type { DesktopCaptureWindowController } from "./desktopCaptureWindowController.ts";
+
+const loadAgentGUIQuickComposer = () =>
+  import("@tutti-os/agent-gui/quick-composer");
+const AgentGUIQuickComposer = lazy(async () => ({
+  default: (await loadAgentGUIQuickComposer()).AgentGUIQuickComposer
+}));
 
 export function DesktopCaptureWindow({
   controller
@@ -86,6 +93,7 @@ export function DesktopCaptureWindow({
       <div
         className="fixed inset-0 cursor-crosshair overflow-hidden bg-transparent select-none"
         onPointerDown={(event) => {
+          void loadAgentGUIQuickComposer();
           event.currentTarget.setPointerCapture(event.pointerId);
           controller.beginSelection(pointerPosition(event));
         }}
@@ -141,14 +149,6 @@ export function DesktopCaptureWindow({
       <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-[14px] border border-[var(--border-1)] bg-[var(--background-fronted)]">
         <header className="flex h-10 shrink-0 cursor-grab items-center justify-between gap-3 border-b border-[var(--border-1)] px-3 [-webkit-app-region:drag] active:cursor-grabbing">
           <div className="flex min-w-0 items-center gap-2">
-            {snapshot.attachment ? (
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6 shrink-0 rounded border border-[var(--border-1)] object-cover"
-                src={snapshot.attachment.dataUrl}
-              />
-            ) : null}
             <h1 className="m-0 truncate text-[13px] leading-5 font-medium">
               {translator.t("capture.title")}
             </h1>
@@ -165,7 +165,7 @@ export function DesktopCaptureWindow({
           </Button>
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-2 p-2.5 [-webkit-app-region:no-drag]">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2.5 [-webkit-app-region:no-drag]">
           <div className="flex items-center gap-2">
             <Button
               disabled={snapshot.submitting}
@@ -183,22 +183,33 @@ export function DesktopCaptureWindow({
           </div>
 
           <div className="min-h-0 flex-1">
-            <AgentGUIQuickComposer
-              agentTargets={agentTargets}
-              content={snapshot.content}
-              disabled={snapshot.submitting}
-              locale={snapshot.capture.locale}
-              placeholder={translator.t("capture.notePlaceholder")}
-              selectedAgentTargetId={snapshot.agentTargetId}
-              workspaceId={snapshot.capture.workspaceId}
-              onAgentTargetChange={(agentTargetId) =>
-                controller.setAgentTargetId(agentTargetId)
+            <Suspense
+              fallback={
+                <div
+                  className="grid min-h-24 place-items-center rounded-[10px] border border-[var(--border-1)] text-[12px] text-[var(--text-secondary)]"
+                  role="status"
+                >
+                  {translator.t("capture.loading")}
+                </div>
               }
-              onContentChange={(content) => controller.setContent(content)}
-              onSubmit={(content, displayPrompt) =>
-                void controller.submit(content, displayPrompt)
-              }
-            />
+            >
+              <AgentGUIQuickComposer
+                agentTargets={agentTargets}
+                content={snapshot.content}
+                disabled={snapshot.submitting}
+                locale={snapshot.capture.locale}
+                placeholder={translator.t("capture.notePlaceholder")}
+                selectedAgentTargetId={snapshot.agentTargetId}
+                workspaceId={snapshot.capture.workspaceId}
+                onAgentTargetChange={(agentTargetId) =>
+                  controller.setAgentTargetId(agentTargetId)
+                }
+                onContentChange={(content) => controller.setContent(content)}
+                onSubmit={(content, displayPrompt) =>
+                  void controller.submit(content, displayPrompt)
+                }
+              />
+            </Suspense>
           </div>
 
           {snapshot.failed ? (

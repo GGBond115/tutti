@@ -141,6 +141,7 @@ function AgentGUIQuickComposerInner({
       isInterrupting={false}
       isSendingTurn={false}
       isSubmittingPrompt={disabled}
+      layoutMode="embedded"
       labels={{
         ...labels,
         approvalLead: labels.approvalRequired,

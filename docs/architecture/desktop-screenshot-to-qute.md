@@ -57,7 +57,10 @@ pixels intact while positioning the selection UI in display-independent
 coordinates. The shortcut contains exactly three keys and avoids shifted
 number-row symbols, whose interpretation varies by keyboard layout. Agent
 metadata loads concurrently with screen capture but does not delay showing the
-selector; the metadata is joined only when selection completes.
+selector; the metadata is joined only when selection completes. The heavy
+AgentGUI Composer chunk is not part of the selector's initial module graph. It
+starts preloading on pointer-down so the drag interval hides most of the
+transition cost without delaying the first capture frame.
 
 ## Floating Composer
 
@@ -66,7 +69,9 @@ The window is transparent from creation, removes outer padding that could reveal
 the native background, and avoids a clipped CSS shadow at the window boundary.
 Only the post-selection header is an Electron drag region, so the full-screen
 selection surface stays fixed while the compact Composer can move. Editor
-controls remain no-drag regions.
+controls remain no-drag regions. The Composer uses its in-flow `embedded`
+layout; timeline-oriented dock overhang is not valid inside the fixed native
+window.
 
 The screenshot appears as an image draft block. The user chooses an Agent,
 adds or edits prompt text, and sends with the Composer button or its existing

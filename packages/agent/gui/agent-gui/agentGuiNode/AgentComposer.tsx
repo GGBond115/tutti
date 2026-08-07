@@ -620,6 +620,7 @@ export function AgentComposer(props: AgentComposerProps): React.JSX.Element {
   const { fileDropOverlayActive, fileDropOverlayHost } = focusAndDrop;
   const layout = useComposerLayout({
     isActive,
+    isDockLayout: layoutMode === "dock",
     isHeroLayout,
     inputDisabled,
     projectMissingProbeEnabled,

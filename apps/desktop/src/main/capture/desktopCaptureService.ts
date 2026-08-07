@@ -40,7 +40,7 @@ import { normalizeCapturePromptContent } from "./captureAgentPrompt.ts";
 import { desktopCaptureAccelerator } from "./captureShortcut.ts";
 
 const captureComposerWidth = 620;
-const captureComposerHeight = 360;
+const captureComposerHeight = 300;
 const captureRendererAppId = "desktop-capture";
 
 type DesktopCaptureComposerOptionsLoad =

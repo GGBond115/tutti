@@ -195,7 +195,9 @@ launcher that needs text, image drafts, and exact Agent Target selection without
 the Rail or timeline. It is controlled by typed prompt content and returns the
 same prompt envelope on submit. It intentionally owns no Session lifecycle or
 Composer-options loading; the host must route submit through its existing
-workspace `AgentSessionEngine`.
+workspace `AgentSessionEngine`. Its embedded layout keeps attachments and long
+drafts in normal flow; hosts must not wrap the timeline-oriented dock layout in
+fixed-height launch surfaces.
 
 ## Standalone Conversation Participant Presentation
 

@@ -144,7 +144,12 @@ export interface AgentComposerProps {
   canGoalControl?: boolean;
   canUploadAttachment?: boolean;
   composerFocusRequestSequence?: number | null;
-  layoutMode?: "dock" | "hero";
+  /**
+   * `dock` overhangs growing drafts above a conversation timeline, `hero`
+   * presents the home composer, and `embedded` keeps all draft content in
+   * normal flow for compact host surfaces.
+   */
+  layoutMode?: "dock" | "embedded" | "hero";
   providerSelectLabel?: string;
   handoffLabel?: string;
   handoffMenuLabel?: string;
