@@ -65,6 +65,7 @@ const quickComposerSettings: AgentGUIComposerSettingsVM = {
 
 export interface AgentGUIQuickComposerProps {
   agentTargets: readonly AgentGUIAgentTarget[];
+  composerActionAccessory?: AgentComposerProps["composerActionAccessory"];
   content: readonly AgentPromptContentBlock[];
   disabled?: boolean;
   locale?: AgentGuiI18nLocale;
@@ -102,6 +103,7 @@ export function AgentGUIQuickComposer(
 
 function AgentGUIQuickComposerInner({
   agentTargets,
+  composerActionAccessory,
   content,
   disabled = false,
   menuViewportTopInset,
@@ -140,66 +142,69 @@ function AgentGUIQuickComposerInner({
   );
 
   return (
-    <AgentComposer
-      activePrompt={null}
-      agentTargets={agentTargets}
-      availableCommands={[]}
-      canGoalControl={false}
-      canUploadAttachment={true}
-      composerSettings={quickComposerSettings}
-      drainingQueuedPromptId={null}
-      draftContent={draftContent}
-      gate={readyGate}
-      isInterrupting={false}
-      isSendingTurn={false}
-      isSubmittingPrompt={disabled}
-      layoutMode="embedded"
-      menuViewportTopInset={menuViewportTopInset}
-      labels={{
-        ...labels,
-        approvalLead: labels.approvalRequired,
-        fileChangeApprovalLead: labels.fileChangeApprovalRequired
-      }}
-      placeholder={placeholder ?? labels.initialPlaceholder}
-      presentationEditorDisabled={disabled}
-      presentationSubmitDisabled={disabled || selectedAgentTarget === null}
-      projectMissingProbeEnabled={false}
-      promptImagesSupported={true}
-      provider={provider}
-      providerSelectLabel={labels.providerSwitchLabel}
-      queuedPrompts={[]}
-      selectedAgentTarget={selectedAgentTarget}
-      showStopButton={false}
-      stopDisabled={true}
-      uiLanguage={locale}
-      workspaceId={workspaceId}
-      workspaceUserProjectI18n={workspaceUserProjectI18n}
-      onDraftContentChange={(nextDraft) => {
-        onContentChange(
-          agentComposerDraftToPromptContent({
-            draft: nextDraft,
-            skills: []
-          })
-        );
-      }}
-      onEditQueuedPrompt={() => {}}
-      onInterruptCurrentTurn={() => {}}
-      onProviderSelect={({ agentTargetId }) => {
-        if (agentTargetId) {
-          onAgentTargetChange(agentTargetId);
-        }
-      }}
-      onRemoveQueuedPrompt={() => {}}
-      onRequestWorkspaceReferences={onRequestWorkspaceReferences}
-      onSendQueuedPromptNext={() => {}}
-      onSettingsChange={() => {}}
-      onSubmit={(nextContent, displayPrompt) => {
-        onSubmit(
-          nextContent,
-          displayPrompt ?? agentComposerDraftPrompt(draftContent)
-        );
-      }}
-      onSubmitInteractivePrompt={() => false}
-    />
+    <div className="agent-gui-node__shell">
+      <AgentComposer
+        activePrompt={null}
+        agentTargets={agentTargets}
+        availableCommands={[]}
+        canGoalControl={false}
+        canUploadAttachment={true}
+        composerActionAccessory={composerActionAccessory}
+        composerSettings={quickComposerSettings}
+        drainingQueuedPromptId={null}
+        draftContent={draftContent}
+        gate={readyGate}
+        isInterrupting={false}
+        isSendingTurn={false}
+        isSubmittingPrompt={disabled}
+        layoutMode="embedded"
+        menuViewportTopInset={menuViewportTopInset}
+        labels={{
+          ...labels,
+          approvalLead: labels.approvalRequired,
+          fileChangeApprovalLead: labels.fileChangeApprovalRequired
+        }}
+        placeholder={placeholder ?? labels.initialPlaceholder}
+        presentationEditorDisabled={disabled}
+        presentationSubmitDisabled={disabled || selectedAgentTarget === null}
+        projectMissingProbeEnabled={false}
+        promptImagesSupported={true}
+        provider={provider}
+        providerSelectLabel={labels.providerSwitchLabel}
+        queuedPrompts={[]}
+        selectedAgentTarget={selectedAgentTarget}
+        showStopButton={false}
+        stopDisabled={true}
+        uiLanguage={locale}
+        workspaceId={workspaceId}
+        workspaceUserProjectI18n={workspaceUserProjectI18n}
+        onDraftContentChange={(nextDraft) => {
+          onContentChange(
+            agentComposerDraftToPromptContent({
+              draft: nextDraft,
+              skills: []
+            })
+          );
+        }}
+        onEditQueuedPrompt={() => {}}
+        onInterruptCurrentTurn={() => {}}
+        onProviderSelect={({ agentTargetId }) => {
+          if (agentTargetId) {
+            onAgentTargetChange(agentTargetId);
+          }
+        }}
+        onRemoveQueuedPrompt={() => {}}
+        onRequestWorkspaceReferences={onRequestWorkspaceReferences}
+        onSendQueuedPromptNext={() => {}}
+        onSettingsChange={() => {}}
+        onSubmit={(nextContent, displayPrompt) => {
+          onSubmit(
+            nextContent,
+            displayPrompt ?? agentComposerDraftPrompt(draftContent)
+          );
+        }}
+        onSubmitInteractivePrompt={() => false}
+      />
+    </div>
   );
 }

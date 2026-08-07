@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { basename } from "node:path";
 import {
   BrowserWindow,
   app,
@@ -13,9 +14,9 @@ import type {
   TuttiExternalAtQueryResult,
   TuttiExternalAtResolveResult,
   TuttiExternalAgentActivityActivateSessionResult,
-  TuttiExternalAgentTargetCatalog,
-  TuttiExternalReferenceSelectResult
+  TuttiExternalAgentTargetCatalog
 } from "@tutti-os/workspace-external-core/contracts";
+import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 import {
   normalizeTuttiExternalAtQueryDirectoryInput,
   normalizeTuttiExternalAtQueryInput,
@@ -50,9 +51,10 @@ import {
 } from "./captureGeometry.ts";
 import { normalizeCapturePromptContent } from "./captureAgentPrompt.ts";
 import { desktopCaptureAccelerator } from "./captureShortcut.ts";
+import type { DesktopFileDialogAccess } from "../host/desktopFileDialogAccess.ts";
 
-const captureComposerWidth = 620;
-const captureComposerHeight = 260;
+const captureComposerWidth = 760;
+const captureComposerHeight = 520;
 const captureRendererAppId = "desktop-capture";
 
 type DesktopCaptureComposerOptionsLoad =
@@ -74,6 +76,7 @@ export interface DesktopCaptureService {
 }
 
 export function createDesktopCaptureService(input: {
+  fileDialogs: Pick<DesktopFileDialogAccess, "selectUploadFiles">;
   logger: DesktopLogger;
   preferences: Pick<
     DesktopHostPreferencesState,
@@ -199,10 +202,13 @@ export function createDesktopCaptureService(input: {
     }
   );
   registerDesktopIpcHandler(
-    desktopIpcChannels.capture.selectReferences,
+    desktopIpcChannels.capture.selectFiles,
     async (event) => {
       const capture = trustedActiveCapture(event.sender);
-      return requestCaptureReferenceSelection(capture);
+      const paths = await input.fileDialogs.selectUploadFiles(capture.window, {
+        allowDirectories: false
+      });
+      return paths.map(toHostFileReference);
     }
   );
   registerDesktopIpcHandler(
@@ -440,8 +446,14 @@ function presentComposer(
   selection: DesktopCaptureSelectionInput
 ): void {
   const bounds = resolveCaptureComposerBounds({
-    composerHeight: captureComposerHeight,
-    composerWidth: captureComposerWidth,
+    composerHeight: Math.min(
+      captureComposerHeight,
+      capture.display.workArea.height
+    ),
+    composerWidth: Math.min(
+      captureComposerWidth,
+      capture.display.workArea.width
+    ),
     displayBounds: capture.display.bounds,
     selection,
     workArea: capture.display.workArea
@@ -543,34 +555,12 @@ function requestCaptureWorkspaceOwner<
   return requestWorkspaceOwnerRenderer<Result>(workspaceWindow, request);
 }
 
-async function requestCaptureReferenceSelection(
-  capture: ActiveCapture
-): Promise<TuttiExternalReferenceSelectResult> {
-  const workspaceWindow = resolveWorkspaceWindow(capture.state.workspaceId);
-  if (!workspaceWindow) {
-    throw new Error("Workspace renderer is unavailable");
-  }
-  capture.window.hide();
-  if (workspaceWindow.isMinimized()) {
-    workspaceWindow.restore();
-  }
-  workspaceWindow.show();
-  workspaceWindow.focus();
-  try {
-    return await requestWorkspaceOwnerRenderer<TuttiExternalReferenceSelectResult>(
-      workspaceWindow,
-      {
-        appId: captureRendererAppId,
-        operation: "references.select",
-        requestId: randomUUID(),
-        workspaceId: capture.state.workspaceId
-      }
-    );
-  } finally {
-    if (!capture.window.isDestroyed()) {
-      capture.window.setAlwaysOnTop(true, "screen-saver");
-      capture.window.show();
-      capture.window.focus();
-    }
-  }
+function toHostFileReference(path: string): WorkspaceFileReference {
+  return {
+    displayName: basename(path),
+    hostPath: path,
+    kind: "file",
+    path,
+    sourceId: "host-local-file"
+  };
 }

@@ -7,7 +7,7 @@ import {
   type PointerEvent
 } from "react";
 import type { AgentGUIAgentTarget } from "@tutti-os/agent-gui";
-import { Button, CloseIcon, TaskIcon } from "@tutti-os/ui-system";
+import { Button, CloseIcon } from "@tutti-os/ui-system";
 import { createTranslator } from "../../../../../shared/i18n/index.ts";
 import type { DesktopCaptureWindowController } from "./desktopCaptureWindowController.ts";
 
@@ -164,22 +164,6 @@ export function DesktopCaptureWindow({
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2 [-webkit-app-region:no-drag]">
-          <div className="flex items-center">
-            <Button
-              aria-pressed={snapshot.trackWithTask}
-              disabled={snapshot.submitting}
-              onClick={() =>
-                controller.setTrackWithTask(!snapshot.trackWithTask)
-              }
-              size="sm"
-              title={translator.t("capture.taskPromptHint")}
-              variant={snapshot.trackWithTask ? "default" : "secondary"}
-            >
-              <TaskIcon size={14} />
-              {translator.t("capture.taskPromptAction")}
-            </Button>
-          </div>
-
           <div className="min-h-0 flex-1">
             <Suspense
               fallback={
@@ -199,7 +183,10 @@ export function DesktopCaptureWindow({
                 locale={snapshot.capture.locale}
                 placeholder={translator.t("capture.notePlaceholder")}
                 selectedAgentTargetId={snapshot.agentTargetId}
+                taskActionHint={translator.t("capture.taskPromptHint")}
+                taskActionLabel={translator.t("capture.taskPromptAction")}
                 taskInstruction={translator.t("capture.taskPrompt")}
+                trackWithTask={snapshot.trackWithTask}
                 workspaceId={snapshot.capture.workspaceId}
               />
             </Suspense>

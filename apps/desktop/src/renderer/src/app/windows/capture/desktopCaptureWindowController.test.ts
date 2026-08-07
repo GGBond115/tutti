@@ -44,7 +44,7 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
         width: 100
       }
     }),
-    selectReferences: async () => [],
+    selectFiles: async () => [],
     submit: async (input) => {
       submissions.push(input);
       if (failSubmission) {

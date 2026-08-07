@@ -1696,6 +1696,12 @@ insertion to `AgentComposer`; it does not own a parallel mention catalog or
 picker. A constrained host may also declare a top viewport inset for portaled
 menus. Provider Select collision padding and mention-palette geometry must
 honor that inset so host chrome is never treated as usable menu space.
+Quick Composer also establishes the canonical AgentGUI semantic-token scope,
+so embedded placeholder, foreground, border, and menu colors never fall back
+to inherited host text styles. Hosts may provide a compact action accessory;
+`AgentComposer` renders it immediately before the primary send/stop action in
+non-hero layouts instead of requiring consumer CSS to position controls over
+the Composer DOM.
 
 The canonical Composer gate belongs to the Session-presentation projection and
 travels through the Composer view-model slice as one object. View-local

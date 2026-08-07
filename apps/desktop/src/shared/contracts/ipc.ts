@@ -44,6 +44,7 @@ import type {
   BrowserNodeUnregisterGuestInput,
   BrowserNodeUpdateAutomationTargetInput
 } from "@tutti-os/browser-node";
+import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 import type {
   DesktopCaptureSelectionInput,
   DesktopCaptureSelectionResult,
@@ -105,7 +106,7 @@ export const desktopIpcChannels = {
     queryMentions: "capture:query-mentions",
     resolveMention: "capture:resolve-mention",
     select: "capture:select",
-    selectReferences: "capture:select-references",
+    selectFiles: "capture:select-files",
     submit: "capture:submit"
   },
   computerUse: {
@@ -1070,7 +1071,7 @@ export interface DesktopInvokePayloadByChannel {
   [desktopIpcChannels.capture.queryMentions]: TuttiExternalAtQueryInput;
   [desktopIpcChannels.capture.resolveMention]: TuttiExternalAtResolveInput;
   [desktopIpcChannels.capture.select]: DesktopCaptureSelectionInput;
-  [desktopIpcChannels.capture.selectReferences]: undefined;
+  [desktopIpcChannels.capture.selectFiles]: undefined;
   [desktopIpcChannels.capture.submit]: DesktopCaptureSubmitInput;
   [desktopIpcChannels.computerUse.checkStatus]: undefined;
   [desktopIpcChannels.computerUse.install]: undefined;
@@ -1275,8 +1276,7 @@ export interface DesktopInvokeResultByChannel {
   [desktopIpcChannels.capture
     .resolveMention]: TuttiExternalAtResolveResult | null;
   [desktopIpcChannels.capture.select]: DesktopCaptureSelectionResult;
-  [desktopIpcChannels.capture
-    .selectReferences]: TuttiExternalReferenceSelectResult;
+  [desktopIpcChannels.capture.selectFiles]: WorkspaceFileReference[];
   [desktopIpcChannels.capture.submit]: DesktopCaptureSubmitResult;
   [desktopIpcChannels.computerUse.checkStatus]: DesktopComputerUseStatus;
   [desktopIpcChannels.computerUse.install]: DesktopComputerUseActionResult;

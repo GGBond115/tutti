@@ -131,6 +131,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
     promptImagesSupported = true,
     layoutMode = "dock",
     providerSelectLabel = "",
+    composerActionAccessory,
     labels,
     workspaceUserProjectI18n,
     isSubmittingPrompt,
@@ -446,7 +447,16 @@ export function AgentComposerView(input: Props): React.JSX.Element {
                         : undefined
                     }
                   />
-                  {!isHeroLayout ? composerActionButton : null}
+                  {!isHeroLayout ? (
+                    composerActionAccessory ? (
+                      <div className="inline-flex shrink-0 items-center gap-2 self-end">
+                        {composerActionAccessory}
+                        {composerActionButton}
+                      </div>
+                    ) : (
+                      composerActionButton
+                    )
+                  ) : null}
                 </div>
               </div>
             </PopoverAnchor>

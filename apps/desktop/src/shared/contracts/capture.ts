@@ -6,9 +6,9 @@ import type {
   TuttiExternalAtQueryInput,
   TuttiExternalAtQueryResult,
   TuttiExternalAtResolveInput,
-  TuttiExternalAtResolveResult,
-  TuttiExternalReferenceSelectResult
+  TuttiExternalAtResolveResult
 } from "@tutti-os/workspace-external-core/contracts";
+import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 
 export interface DesktopCaptureAgentOption {
   description?: string | null;
@@ -77,6 +77,6 @@ export interface DesktopCaptureApi {
   select(
     input: DesktopCaptureSelectionInput
   ): Promise<DesktopCaptureSelectionResult>;
-  selectReferences(): Promise<TuttiExternalReferenceSelectResult>;
+  selectFiles(): Promise<WorkspaceFileReference[]>;
   submit(input: DesktopCaptureSubmitInput): Promise<DesktopCaptureSubmitResult>;
 }

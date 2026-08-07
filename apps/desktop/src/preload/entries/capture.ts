@@ -13,8 +13,7 @@ const captureApi: DesktopCaptureApi = {
   resolveMention: (input) =>
     invokeDesktopApi(desktopIpcChannels.capture.resolveMention, input),
   select: (input) => invokeDesktopApi(desktopIpcChannels.capture.select, input),
-  selectReferences: () =>
-    invokeDesktopApi(desktopIpcChannels.capture.selectReferences),
+  selectFiles: () => invokeDesktopApi(desktopIpcChannels.capture.selectFiles),
   submit: (input) => invokeDesktopApi(desktopIpcChannels.capture.submit, input)
 };
 

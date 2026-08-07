@@ -1,12 +1,8 @@
 import { useEffect, useMemo } from "react";
 import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
 import type { AgentGUIAgentTarget } from "@tutti-os/agent-gui";
-import {
-  AgentGUIQuickComposer,
-  type AgentGUIQuickComposerProps
-} from "@tutti-os/agent-gui/quick-composer";
-import { createRichTextMentionHref } from "@tutti-os/ui-rich-text/core";
-import type { TuttiExternalReferenceSelection } from "@tutti-os/workspace-external-core/contracts";
+import { AgentGUIQuickComposer } from "@tutti-os/agent-gui/quick-composer";
+import { Switch } from "@tutti-os/ui-system";
 import { createTuttiExternalRichTextMentionService } from "@tutti-os/workspace-external-core/rich-text";
 import type { DesktopLocale } from "../../../../../shared/i18n/core/locale.ts";
 import type { DesktopCaptureWindowController } from "./desktopCaptureWindowController.ts";
@@ -19,7 +15,10 @@ export function DesktopCaptureComposer({
   locale,
   placeholder,
   selectedAgentTargetId,
+  taskActionLabel,
+  taskActionHint,
   taskInstruction,
+  trackWithTask,
   workspaceId
 }: {
   agentTargets: readonly AgentGUIAgentTarget[];
@@ -29,7 +28,10 @@ export function DesktopCaptureComposer({
   locale: DesktopLocale;
   placeholder: string;
   selectedAgentTargetId: string;
+  taskActionHint: string;
+  taskActionLabel: string;
   taskInstruction: string;
+  trackWithTask: boolean;
   workspaceId: string;
 }) {
   const mentionService = useMemo(
@@ -45,6 +47,26 @@ export function DesktopCaptureComposer({
   return (
     <AgentGUIQuickComposer
       agentTargets={agentTargets}
+      composerActionAccessory={
+        <div
+          className="inline-flex shrink-0 items-center gap-2"
+          title={taskActionHint}
+        >
+          <span
+            className="text-[12px] leading-4 text-[var(--text-secondary)]"
+            id="capture-track-with-task-label"
+          >
+            {taskActionLabel}
+          </span>
+          <Switch
+            aria-labelledby="capture-track-with-task-label"
+            checked={trackWithTask}
+            disabled={disabled}
+            size="sm"
+            onCheckedChange={(checked) => controller.setTrackWithTask(checked)}
+          />
+        </div>
+      }
       content={content}
       disabled={disabled}
       locale={locale}
@@ -57,62 +79,13 @@ export function DesktopCaptureComposer({
         controller.setAgentTargetId(agentTargetId)
       }
       onContentChange={(nextContent) => controller.setContent(nextContent)}
-      onRequestWorkspaceReferences={async () =>
-        toCaptureReferencePickResult(await controller.selectReferences())
-      }
+      onRequestWorkspaceReferences={async () => ({
+        files: await controller.selectFiles(),
+        mentionItems: []
+      })}
       onSubmit={(nextContent, displayPrompt) =>
         void controller.submit(nextContent, displayPrompt, taskInstruction)
       }
     />
   );
-}
-
-type CaptureReferencePickResult = Awaited<
-  ReturnType<
-    NonNullable<AgentGUIQuickComposerProps["onRequestWorkspaceReferences"]>
-  >
->;
-
-function toCaptureReferencePickResult(
-  selections: readonly TuttiExternalReferenceSelection[]
-): CaptureReferencePickResult {
-  const files = selections.flatMap((selection) =>
-    selection.selectionKind === "path" ? [selection.reference] : []
-  );
-  const mentionItems = selections.flatMap((selection) =>
-    selection.selectionKind === "workspace-reference"
-      ? [toCaptureWorkspaceReferenceMention(selection)]
-      : []
-  );
-  return { files, mentionItems };
-}
-
-function toCaptureWorkspaceReferenceMention(
-  selection: Extract<
-    TuttiExternalReferenceSelection,
-    { selectionKind: "workspace-reference" }
-  >
-) {
-  return {
-    kind: "workspace-reference" as const,
-    href: createRichTextMentionHref({
-      providerId: "workspace-reference",
-      entityId: selection.id,
-      label: selection.displayName,
-      scope: {
-        workspaceId: selection.workspaceId,
-        source: selection.source,
-        ...(selection.groupId ? { groupId: selection.groupId } : {}),
-        ...(selection.fileCount && selection.fileCount > 0
-          ? { count: String(selection.fileCount) }
-          : {})
-      }
-    }),
-    workspaceId: selection.workspaceId,
-    targetId: selection.id,
-    source: selection.source,
-    ...(selection.groupId ? { groupId: selection.groupId } : {}),
-    name: selection.displayName,
-    fileCount: selection.fileCount ?? 0
-  };
 }

@@ -5,8 +5,8 @@ import type {
   DesktopCaptureState
 } from "../../../../../shared/contracts/capture.ts";
 import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
-import type { TuttiExternalReferenceSelection } from "@tutti-os/workspace-external-core/contracts";
 import type { TuttiExternalAtRichTextBridge } from "@tutti-os/workspace-external-core/rich-text";
+import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 
 export type DesktopCaptureStage = "loading" | "selecting" | "composing";
 
@@ -158,8 +158,8 @@ export class DesktopCaptureWindowController {
     this.update({ trackWithTask });
   }
 
-  selectReferences(): Promise<readonly TuttiExternalReferenceSelection[]> {
-    return this.api.selectReferences();
+  selectFiles(): Promise<readonly WorkspaceFileReference[]> {
+    return this.api.selectFiles();
   }
 
   async submit(

@@ -86,6 +86,7 @@ export async function createDesktopHostServices(
     tuttidClient: options.tuttidClient
   });
   const capture = createDesktopCaptureService({
+    fileDialogs,
     logger: options.logger,
     preferences,
     preloadPath: options.capturePreloadPath,

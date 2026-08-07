@@ -113,6 +113,8 @@ export interface AgentComposerProps {
   drainingQueuedPromptId: string | null;
   workspaceAppIcons?: readonly AgentMessageMarkdownWorkspaceAppIcon[];
   selectedAgentTarget?: AgentGUIAgentTarget | null;
+  /** Content rendered immediately before the primary non-hero action. */
+  composerActionAccessory?: ReactNode;
   footerAccessory?: ReactNode;
   agentTargets?: readonly AgentGUIAgentTarget[];
   handoffAgentTargets?: readonly AgentGUIAgentTarget[];

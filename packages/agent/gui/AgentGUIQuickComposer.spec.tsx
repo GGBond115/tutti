@@ -76,6 +76,35 @@ describe("AgentGUIQuickComposer", () => {
     expect(addIcon?.closest("button")?.hasAttribute("disabled")).toBe(false);
   });
 
+  it("renders a host action accessory beside send inside the AgentGUI token scope", () => {
+    const { container } = render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        composerActionAccessory={
+          <span data-testid="quick-composer-action-accessory">Track Task</span>
+        }
+        content={[{ text: "Inspect this", type: "text" }]}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    const scope = container.querySelector(".agent-gui-node__shell");
+    const accessory = container.querySelector(
+      '[data-testid="quick-composer-action-accessory"]'
+    );
+    const send = container.querySelector(
+      '[data-testid="agent-gui-composer-send"]'
+    );
+
+    expect(scope).not.toBeNull();
+    expect(scope?.contains(accessory)).toBe(true);
+    expect(accessory?.parentElement).toBe(send?.parentElement);
+  });
+
   it("installs the mention service supplied by the embedding host", () => {
     const query = vi.fn().mockResolvedValue([]);
     const provider: RichTextTriggerProvider<{ id: string; label: string }> = {
