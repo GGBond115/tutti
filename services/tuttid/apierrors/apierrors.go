@@ -112,6 +112,7 @@ const (
 	ReasonWorkspaceIssueResourceExists                   = "workspace_issue_resource_exists"
 	ReasonWorkspaceIssueRunNotFound                      = "workspace_issue_run_not_found"
 	ReasonWorkspaceIssueRunExists                        = "workspace_issue_run_already_exists"
+	ReasonWorkspaceIssueRunLaunchPending                 = "workspace_issue_run_launch_pending"
 	ReasonWorkspaceIssueServiceUnavailable               = "workspace_issue_service_unavailable"
 	ReasonWorkspaceIssueTaskExists                       = "workspace_issue_task_already_exists"
 	ReasonWorkspaceIssueTaskNotFound                     = "workspace_issue_task_not_found"
@@ -482,6 +483,8 @@ func Classify(err error) *ProtocolError {
 		return WorkspaceIssueResourceNotFound(ReasonWorkspaceIssueRunNotFound, WithCause(err))
 	case errors.Is(err, workspaceissues.ErrRunAlreadyExists):
 		return WorkspaceIssueResourceExists(ReasonWorkspaceIssueRunExists, WithCause(err))
+	case errors.Is(err, workspaceservice.ErrIssueRunLaunchPending):
+		return WorkspaceIssueResourceExists(ReasonWorkspaceIssueRunLaunchPending, WithCause(err))
 	case errors.Is(err, workspaceissues.ErrContextRefNotFound):
 		return WorkspaceIssueResourceNotFound(ReasonWorkspaceIssueContextRefNotFound, WithCause(err))
 	case errors.Is(err, workspaceissues.ErrContextRefAlreadyExists):

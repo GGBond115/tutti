@@ -115,6 +115,14 @@ func registerIssueRoutes(mux *http.ServeMux, wrapper *tuttigenerated.ServerInter
 		}
 	})
 
+	mux.HandleFunc("/v1/workspaces/{workspaceID}/issues/{issueID}/run-launches", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			tuttitypes.WriteMethodNotAllowed(w)
+			return
+		}
+		wrapper.StartWorkspaceIssueRun(w, r)
+	})
+
 	mux.HandleFunc("/v1/workspaces/{workspaceID}/issues/{issueID}/runs/{runID}", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:

@@ -4345,7 +4345,7 @@ export type IssueManagerIssueListResponse = {
 };
 
 export type CreateIssueManagerIssueFromPlanRequest = {
-  issue: CreateIssueManagerIssueRequest;
+  issue: CreateIssueManagerPlannedIssueRequest;
   tasks: Array<CreateIssueManagerTaskRequest>;
 };
 
@@ -4442,6 +4442,39 @@ export type CreateIssueManagerIssueRequest = {
   parallelExecution?: boolean;
   executionProfile?: IssueManagerExecutionProfile;
   budget?: IssueManagerBudget;
+  /**
+   * Inline image attachments persisted as managed issue context references.
+   */
+  attachments?: Array<CreateIssueManagerImageAttachmentRequest>;
+};
+
+export type CreateIssueManagerPlannedIssueRequest = {
+  issueId?: string;
+  topicId: string;
+  title: string;
+  content?: string;
+  planningSource?: IssueManagerPlanningSource;
+  sourceSessionId?: string;
+  /**
+   * Persist the user's Create-and-Start choice so successor dispatch survives desktop restarts.
+   */
+  sequentialExecution?: boolean;
+  /**
+   * Persist the user's parallel Create-and-Start choice. Mutually exclusive with sequentialExecution.
+   */
+  parallelExecution?: boolean;
+  executionProfile?: IssueManagerExecutionProfile;
+  budget?: IssueManagerBudget;
+};
+
+export type CreateIssueManagerImageAttachmentRequest = {
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  /**
+   * Base64-encoded image bytes. Decoded content is limited to 20 MiB.
+   */
+  dataBase64: string;
+  displayName?: string;
+  attachmentId?: string;
 };
 
 export type CreateIssueManagerTopicRequest = {
@@ -4514,6 +4547,11 @@ export type CreateIssueManagerRunRequest = {
   agentProvider?: string;
   agentUserId?: string;
   agentSessionId?: string;
+  executionDirectory?: string;
+};
+
+export type StartIssueManagerRunRequest = {
+  agentTargetId: string;
   executionDirectory?: string;
 };
 
@@ -15353,6 +15391,60 @@ export type CreateWorkspaceIssueRunResponses = {
 
 export type CreateWorkspaceIssueRunResponse =
   CreateWorkspaceIssueRunResponses[keyof CreateWorkspaceIssueRunResponses];
+
+export type StartWorkspaceIssueRunData = {
+  body: StartIssueManagerRunRequest;
+  path: {
+    workspaceID: string;
+    issueID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/issues/{issueID}/run-launches";
+};
+
+export type StartWorkspaceIssueRunErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace issue-manager resource was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Workspace issue-manager resource conflicts with durable state
+   */
+  409: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type StartWorkspaceIssueRunError =
+  StartWorkspaceIssueRunErrors[keyof StartWorkspaceIssueRunErrors];
+
+export type StartWorkspaceIssueRunResponses = {
+  /**
+   * Workspace issue run created and accepted for Agent delivery
+   */
+  201: IssueManagerRunResponse;
+};
+
+export type StartWorkspaceIssueRunResponse =
+  StartWorkspaceIssueRunResponses[keyof StartWorkspaceIssueRunResponses];
 
 export type GetWorkspaceIssueRunData = {
   body?: never;

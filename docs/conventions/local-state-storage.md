@@ -198,6 +198,9 @@ Migrated agent runtime state should derive from the same root:
     attachments/
       <agent-session-id>/
         <attachment-id>.<ext>
+  agent-prompt-assets/
+    issues/
+      <attachment-id>.<ext>
     codex/
       tutti/
         current/
@@ -251,6 +254,20 @@ rebuildable snapshots of the embedded Skills installed by the active Tutti
 Agent binary; run-scoped homes link to the matching digest before thread
 startup. Session cleanup never removes either shared cache. `agent/attachments`
 stores persisted prompt attachments by agent session.
+
+`agent-prompt-assets/issues` stores daemon-managed PNG, JPEG, and WebP source
+files attached to Qute Issues. Their metadata and Issue/Task ownership remain
+in SQLite ContextRefs. The source root is intentionally inside the Agent prompt
+attachment allowlist: when an Issue Run starts, the prompt attachment store
+copies each image into `agent/attachments/<agent-session-id>` before provider
+preparation. Removing the owning Issue, Task, or ContextRef removes only
+matching files inside this managed directory. New image bytes are staged
+before the Issue and its ContextRefs are committed together in one SQLite
+transaction. Daemon startup reconciles the directory against durable SQLite
+ContextRefs and prepared/leased Issue Run payload snapshots. A launch snapshot
+pins its managed image paths until delivery is confirmed or the Run is settled,
+so editing an Issue cannot change an admitted prompt. Reconciliation removes
+files orphaned before the Issue transaction, or by a prior cleanup failure.
 
 ## Developer Agent Session Cassettes
 

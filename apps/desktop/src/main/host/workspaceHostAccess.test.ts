@@ -227,6 +227,9 @@ function createTransportClient(
     async createWorkspaceIssueRun() {
       throw new Error("not used");
     },
+    async startWorkspaceIssueRun() {
+      throw new Error("not used");
+    },
     async createWorkspace() {
       throw new Error("not used");
     },

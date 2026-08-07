@@ -103,6 +103,31 @@ Issue run creation is target-first. UI, CLI, and AgentGUI sidecar flows pass
 `agentTargetId`/`--agent-target-id` as the launch authority; the daemon derives
 and persists the provider for display, filtering, and legacy compatibility.
 
+An explicit manual create-and-run operation commits its `Run` and prepared
+launch intent in one SQLite transaction. The intent carries stable Agent
+session/client-submit identities and an immutable prompt plus attachment-path
+snapshot, and is leased before external delivery. Prepared and leased payloads
+pin their managed files independently of mutable ContextRefs. Confirmed
+delivery marks the intent dispatched; authoritative evidence that no Agent turn
+started settles the intent, Run, task/Issue projections, and topic activity in
+one transaction. A delivery-unknown result returns it to `prepared`, and
+startup/periodic Issue execution recovery retries the same payload and
+identities. Deleting the Issue or claimed Task is rejected while its intent is
+`prepared` or `leased`, so cascade deletion cannot remove the recovery record
+or attachment pin during Agent delivery. These launch-intent rows, lease helpers, and recovery semantics
+belong to the generic workspace Issue boundary; Tutti Mode adds its execution
+fences and checkpoint policy on top of them.
+
+Daemon-managed Issue attachments follow the same atomicity rule at the
+aggregate boundary: bytes are staged first, while the Issue, image
+ContextRefs, and topic activity commit together. Startup file reconciliation
+removes only managed files that never gained a committed ContextRef or were
+left by a failed cleanup. ContextRef removal shares the Issue mutation lock
+with Run admission. Automatic Runs also hold a transient source-file pin from
+their durable claim until the Agent adapter finishes copying the image; an
+explicit prepared or leased launch intent provides the corresponding durable
+pin for retryable manual delivery.
+
 ## Plan Conversion And Execution Orchestration
 
 Issue Manager accepts two distinct planning origins:
@@ -267,6 +292,19 @@ search, delete, upload, prompt construction, and future audit behavior stable.
 The shared model should support references attached to either an issue or a
 task. A task-level reference is used for agent execution context. Issue-level
 references are available for higher-level planning and task creation flows.
+
+Hosts may accept inline image attachments while creating an Issue and project
+them into ContextRefs after validating and durably storing the bytes. Issue Run
+launches inherit supported Issue-level image references and append Task-level
+image references, preserving text and image blocks as provider-neutral Agent
+prompt content. Host adapters own byte storage and safe-path policy; the shared
+domain continues to own only the ContextRef relationship.
+
+The daemon exposes a distinct top-level start-and-launch use case for manual
+Issues. It resolves managed ContextRefs before creating the durable Run and
+then delegates session/turn creation through Agent Host. Attachment lookup
+failure must not create or launch an incomplete Run. Planned Issue
+materialization intentionally uses a request schema without inline attachments.
 
 ## Agent Run Boundary
 

@@ -106,6 +106,7 @@ type IssueManagerService interface {
 	AddTaskContextRefs(context.Context, string, string, string, workspaceservice.AddIssueManagerContextRefsInput) ([]workspaceissues.ContextRef, error)
 	ListRuns(context.Context, string, string, string) ([]workspaceissues.Run, error)
 	CreateRun(context.Context, string, string, string, workspaceservice.CreateIssueManagerRunInput) (workspaceissues.Run, error)
+	StartIssueRun(context.Context, string, string, workspaceservice.StartIssueManagerRunInput) (workspaceissues.Run, error)
 	GetRunDetail(context.Context, string, string, string, string) (workspaceissues.RunDetail, error)
 	CompleteRun(context.Context, string, string, string, string, workspaceservice.CompleteIssueManagerRunInput) (workspaceissues.RunDetail, error)
 	RemoveIssueContextRef(context.Context, string, string, string) (bool, error)

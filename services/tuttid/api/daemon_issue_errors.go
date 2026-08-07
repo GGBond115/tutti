@@ -379,6 +379,22 @@ func writeCreateWorkspaceIssueRunError(err error) tuttigenerated.CreateWorkspace
 	}
 }
 
+func writeStartWorkspaceIssueRunError(err error) tuttigenerated.StartWorkspaceIssueRunResponseObject {
+	protocolErr := apierrors.Classify(err)
+	switch protocolErr.Code {
+	case tuttigenerated.InvalidRequest:
+		return tuttigenerated.StartWorkspaceIssueRun400JSONResponse{InvalidRequestErrorJSONResponse: invalidRequestError(protocolErr)}
+	case tuttigenerated.WorkspaceIssueResourceNotFound:
+		return tuttigenerated.StartWorkspaceIssueRun404JSONResponse{WorkspaceIssueResourceNotFoundErrorJSONResponse: workspaceIssueResourceNotFoundError(protocolErr)}
+	case tuttigenerated.WorkspaceIssueResourceExists:
+		return tuttigenerated.StartWorkspaceIssueRun409JSONResponse{WorkspaceIssueResourceExistsErrorJSONResponse: workspaceIssueResourceExistsError(protocolErr)}
+	case tuttigenerated.ServiceUnavailable:
+		return tuttigenerated.StartWorkspaceIssueRun503JSONResponse{ServiceUnavailableErrorJSONResponse: serviceUnavailableError(protocolErr)}
+	default:
+		return tuttigenerated.StartWorkspaceIssueRun502JSONResponse{WorkspaceOperationErrorJSONResponse: workspaceOperationError(protocolErr)}
+	}
+}
+
 func writeGetWorkspaceIssueRunError(err error) tuttigenerated.GetWorkspaceIssueRunResponseObject {
 	protocolErr := apierrors.Classify(err)
 	switch protocolErr.Code {

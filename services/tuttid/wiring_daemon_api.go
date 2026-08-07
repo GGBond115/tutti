@@ -530,8 +530,10 @@ func buildDaemonAPI(
 		Executions: tuttiModeExecutions,
 	}
 	sourceActivityObservers.Add(tuttiModeSourceActivity)
-	tuttiModeMainWakeRecovery := &tuttiModeMainWakeReadyRecovery{
-		Delegate: tuttiModeExecutions,
+	tuttiModeMainWakeRecovery := &tuttiModeMainWakeReadyRecovery{Delegate: tuttiModeExecutions}
+	issueAttachmentFiles, err := reconcileIssueAttachmentFiles(ctx, store)
+	if err != nil {
+		return tuttiapi.DaemonAPI{}, nil, nil, nil, err
 	}
 	issueService := workspaceservice.IssueManagerService{
 		RunLauncher:                  issueRunAgentLauncher{Sessions: agentSessionService, Host: agentHost},
@@ -540,6 +542,8 @@ func buildDaemonAPI(
 		SourceSessionContextResolver: issueSourceSessionContextResolver{Sessions: agentActivityProjection},
 		Publisher:                    eventstreamservice.WorkspaceIssuePublisher{Service: events},
 		Store:                        issueStore,
+		AttachmentFiles:              issueAttachmentFiles,
+		AttachmentLaunchPins:         workspaceservice.NewIssueAttachmentLaunchPins(),
 		AgentTargetReader:            agentTargetStore,
 		PlanningTimeline:             agentservice.IssuePlanningTimelineReporter{Projection: agentActivityProjection},
 		TuttiModeExecutions:          tuttiModeExecutions,
@@ -593,7 +597,7 @@ func buildDaemonAPI(
 				ctx,
 				workspaceID,
 				tuttiModeMainWakeOwner,
-				issueExecutionCoordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns,
+				issueExecutionCoordinator.ReconcileIssueExecutions,
 				tuttiModeMainWakeRecovery,
 			)
 			if err != nil {
@@ -716,10 +720,10 @@ func buildDaemonAPI(
 		)
 	}
 	for _, workspace := range workspaces {
-		if _, err := issueExecutionCoordinator.ReconcileTuttiModeRunLaunchesAndRunningRuns(ctx, workspace.ID); err != nil {
+		if _, err := issueExecutionCoordinator.ReconcileIssueExecutions(ctx, workspace.ID); err != nil {
 			agentRuntime.Close()
 			return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
-				"recover Tutti mode Run launch intents at startup for workspace %q: %w",
+				"recover Issue executions at startup for workspace %q: %w",
 				workspace.ID,
 				err,
 			)

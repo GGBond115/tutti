@@ -41,6 +41,7 @@ import type {
   CheckUserProjectPathRequest,
   CreateIssueManagerIssueRequest,
   CreateIssueManagerRunRequest,
+  StartIssueManagerRunRequest,
   CreateIssueManagerTaskRequest,
   CreateIssueManagerTasksRequest,
   CancelIssueManagerExecutionResponse,
@@ -324,6 +325,11 @@ export interface TuttidClient
     workspaceID: string,
     issueID: string,
     request: CreateIssueManagerRunRequest
+  ): Promise<IssueManagerRun>;
+  startWorkspaceIssueRun(
+    workspaceID: string,
+    issueID: string,
+    request: StartIssueManagerRunRequest
   ): Promise<IssueManagerRun>;
   createWorkspaceFile(
     workspaceID: string,

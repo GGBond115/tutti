@@ -914,6 +914,7 @@ function createDependenciesStub(): {
       createWorkspaceIssueTasks: fail,
       createWorkspaceIssueTaskRun: fail,
       createWorkspaceIssueRun: fail,
+      startWorkspaceIssueRun: fail,
       createWorkspace: fail,
       createWorkspaceAgentSession: fail,
       forkWorkspaceAgentSession: fail,

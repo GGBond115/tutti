@@ -45,6 +45,13 @@ import type {
   BrowserNodeUpdateAutomationTargetInput
 } from "@tutti-os/browser-node";
 import type {
+  DesktopCaptureSelectionInput,
+  DesktopCaptureSelectionResult,
+  DesktopCaptureState,
+  DesktopCaptureSubmitInput,
+  DesktopCaptureSubmitResult
+} from "./capture.ts";
+import type {
   TuttiExternalAtQueryDirectoryInput,
   TuttiExternalAtQueryInput,
   TuttiExternalAtQueryResult,
@@ -91,6 +98,12 @@ import type {
 } from "@tutti-os/workspace-user-project/contracts";
 
 export const desktopIpcChannels = {
+  capture: {
+    cancel: "capture:cancel",
+    getState: "capture:get-state",
+    select: "capture:select",
+    submit: "capture:submit"
+  },
   computerUse: {
     checkStatus: "computerUse:checkStatus",
     install: "computerUse:install",
@@ -1046,6 +1059,10 @@ export type DesktopBrowserAutomationResponse =
     };
 
 export interface DesktopInvokePayloadByChannel {
+  [desktopIpcChannels.capture.cancel]: undefined;
+  [desktopIpcChannels.capture.getState]: undefined;
+  [desktopIpcChannels.capture.select]: DesktopCaptureSelectionInput;
+  [desktopIpcChannels.capture.submit]: DesktopCaptureSubmitInput;
   [desktopIpcChannels.computerUse.checkStatus]: undefined;
   [desktopIpcChannels.computerUse.install]: undefined;
   [desktopIpcChannels.computerUse.uninstall]: undefined;
@@ -1241,6 +1258,10 @@ export interface DesktopInvokePayloadByChannel {
 }
 
 export interface DesktopInvokeResultByChannel {
+  [desktopIpcChannels.capture.cancel]: void;
+  [desktopIpcChannels.capture.getState]: DesktopCaptureState;
+  [desktopIpcChannels.capture.select]: DesktopCaptureSelectionResult;
+  [desktopIpcChannels.capture.submit]: DesktopCaptureSubmitResult;
   [desktopIpcChannels.computerUse.checkStatus]: DesktopComputerUseStatus;
   [desktopIpcChannels.computerUse.install]: DesktopComputerUseActionResult;
   [desktopIpcChannels.computerUse.uninstall]: DesktopComputerUseActionResult;

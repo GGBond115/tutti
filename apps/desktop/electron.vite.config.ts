@@ -184,6 +184,7 @@ export default defineConfig({
           "browser-node-guest": resolve(
             "src/preload/entries/browserNodeGuest.ts"
           ),
+          capture: resolve("src/preload/entries/capture.ts"),
           index: resolve("src/preload/index.ts"),
           "minimum-version": resolve("src/preload/entries/minimumVersion.ts"),
           "workspace-app": resolve("src/preload/entries/workspaceApp.ts")
@@ -208,6 +209,7 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
+          capture: resolve("src/renderer/capture.html"),
           index: resolve("src/renderer/index.html"),
           "minimum-version": resolve("src/renderer/minimum-version.html")
         }

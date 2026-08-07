@@ -22,6 +22,22 @@ export const zhCN = {
     workspace: "工作区",
     zipArchive: "ZIP 压缩包"
   },
+  capture: {
+    agentLabel: "Agent",
+    createAndRun: "创建并运行",
+    createOnly: "创建任务",
+    error: "截图任务创建失败，请重试",
+    loading: "正在准备截图…",
+    noAgent: "没有可用 Agent",
+    notePlaceholder: "希望 Qute 如何处理这张截图？",
+    screenPreviewAlt: "等待选择区域的屏幕",
+    selectHint: "拖动选择区域 · Esc 取消",
+    selectionPreviewAlt: "已选择的截图",
+    submitting: "正在创建…",
+    subtitle: "补充说明后保存，或直接交给 Agent",
+    title: "截图到 Qute",
+    topicLabel: "主题"
+  },
   dashboard: {
     chooseWorkspaceTitle: "选择一个工作区",
     chooseWorkspaceDescription: "选择一个工作区继续",

@@ -614,6 +614,9 @@ type ServerInterface interface {
 	// Remove one issue-manager context reference
 	// (DELETE /v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID})
 	RemoveWorkspaceIssueContextRef(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, issueID IssueManagerIssueID, contextRefID IssueManagerContextRefID)
+	// Create and launch one Agent-backed run for an issue-manager issue
+	// (POST /v1/workspaces/{workspaceID}/issues/{issueID}/run-launches)
+	StartWorkspaceIssueRun(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, issueID IssueManagerIssueID)
 	// List runs for one issue-manager issue
 	// (GET /v1/workspaces/{workspaceID}/issues/{issueID}/runs)
 	ListWorkspaceIssueRuns(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, issueID IssueManagerIssueID)
@@ -8619,6 +8622,47 @@ func (siw *ServerInterfaceWrapper) RemoveWorkspaceIssueContextRef(w http.Respons
 	handler.ServeHTTP(w, r)
 }
 
+// StartWorkspaceIssueRun operation middleware
+func (siw *ServerInterfaceWrapper) StartWorkspaceIssueRun(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceID" -------------
+	var workspaceID WorkspaceID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "issueID" -------------
+	var issueID IssueManagerIssueID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "issueID", r.PathValue("issueID"), &issueID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "issueID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartWorkspaceIssueRun(w, r, workspaceID, issueID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListWorkspaceIssueRuns operation middleware
 func (siw *ServerInterfaceWrapper) ListWorkspaceIssueRuns(w http.ResponseWriter, r *http.Request) {
 
@@ -11057,6 +11101,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/cancel-execution", wrapper.CancelWorkspaceIssueExecution)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/context-refs", wrapper.AddWorkspaceIssueContextRefs)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID}", wrapper.RemoveWorkspaceIssueContextRef)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/run-launches", wrapper.StartWorkspaceIssueRun)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/runs", wrapper.ListWorkspaceIssueRuns)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/runs", wrapper.CreateWorkspaceIssueRun)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/runs/{runID}", wrapper.GetWorkspaceIssueRun)
@@ -32039,6 +32084,140 @@ func (response RemoveWorkspaceIssueContextRef503JSONResponse) VisitRemoveWorkspa
 	return err
 }
 
+type StartWorkspaceIssueRunRequestObject struct {
+	WorkspaceID WorkspaceID         `json:"workspaceID"`
+	IssueID     IssueManagerIssueID `json:"issueID"`
+	Body        *StartWorkspaceIssueRunJSONRequestBody
+}
+
+type StartWorkspaceIssueRunResponseObject interface {
+	VisitStartWorkspaceIssueRunResponse(w http.ResponseWriter) error
+}
+
+type StartWorkspaceIssueRun201JSONResponse IssueManagerRunResponse
+
+func (response StartWorkspaceIssueRun201JSONResponse) VisitStartWorkspaceIssueRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartWorkspaceIssueRun400JSONResponse struct {
+	InvalidRequestErrorJSONResponse
+}
+
+func (response StartWorkspaceIssueRun400JSONResponse) VisitStartWorkspaceIssueRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartWorkspaceIssueRun401JSONResponse struct{ UnauthorizedErrorJSONResponse }
+
+func (response StartWorkspaceIssueRun401JSONResponse) VisitStartWorkspaceIssueRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartWorkspaceIssueRun404JSONResponse struct {
+	WorkspaceIssueResourceNotFoundErrorJSONResponse
+}
+
+func (response StartWorkspaceIssueRun404JSONResponse) VisitStartWorkspaceIssueRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartWorkspaceIssueRun405JSONResponse struct {
+	MethodNotAllowedErrorJSONResponse
+}
+
+func (response StartWorkspaceIssueRun405JSONResponse) VisitStartWorkspaceIssueRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartWorkspaceIssueRun409JSONResponse struct {
+	WorkspaceIssueResourceExistsErrorJSONResponse
+}
+
+func (response StartWorkspaceIssueRun409JSONResponse) VisitStartWorkspaceIssueRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartWorkspaceIssueRun502JSONResponse struct {
+	WorkspaceOperationErrorJSONResponse
+}
+
+func (response StartWorkspaceIssueRun502JSONResponse) VisitStartWorkspaceIssueRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartWorkspaceIssueRun503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response StartWorkspaceIssueRun503JSONResponse) VisitStartWorkspaceIssueRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListWorkspaceIssueRunsRequestObject struct {
 	WorkspaceID WorkspaceID         `json:"workspaceID"`
 	IssueID     IssueManagerIssueID `json:"issueID"`
@@ -38416,6 +38595,9 @@ type StrictServerInterface interface {
 	// Remove one issue-manager context reference
 	// (DELETE /v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID})
 	RemoveWorkspaceIssueContextRef(ctx context.Context, request RemoveWorkspaceIssueContextRefRequestObject) (RemoveWorkspaceIssueContextRefResponseObject, error)
+	// Create and launch one Agent-backed run for an issue-manager issue
+	// (POST /v1/workspaces/{workspaceID}/issues/{issueID}/run-launches)
+	StartWorkspaceIssueRun(ctx context.Context, request StartWorkspaceIssueRunRequestObject) (StartWorkspaceIssueRunResponseObject, error)
 	// List runs for one issue-manager issue
 	// (GET /v1/workspaces/{workspaceID}/issues/{issueID}/runs)
 	ListWorkspaceIssueRuns(ctx context.Context, request ListWorkspaceIssueRunsRequestObject) (ListWorkspaceIssueRunsResponseObject, error)
@@ -44609,6 +44791,42 @@ func (sh *strictHandler) RemoveWorkspaceIssueContextRef(w http.ResponseWriter, r
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RemoveWorkspaceIssueContextRefResponseObject); ok {
 		if err := validResponse.VisitRemoveWorkspaceIssueContextRefResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartWorkspaceIssueRun operation middleware
+func (sh *strictHandler) StartWorkspaceIssueRun(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, issueID IssueManagerIssueID) {
+	var request StartWorkspaceIssueRunRequestObject
+
+	request.WorkspaceID = workspaceID
+	request.IssueID = issueID
+
+	var body StartWorkspaceIssueRunJSONRequestBody
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartWorkspaceIssueRun(ctx, request.(StartWorkspaceIssueRunRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartWorkspaceIssueRun")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartWorkspaceIssueRunResponseObject); ok {
+		if err := validResponse.VisitStartWorkspaceIssueRunResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

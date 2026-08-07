@@ -57,6 +57,11 @@ type CreateIssueWithTasksInput struct {
 	Tasks []CreateTaskItemInput
 }
 
+type CreateIssueWithContextRefsInput struct {
+	Issue CreateIssueInput
+	Refs  []AddContextRefInput
+}
+
 type CreateTopicInput struct {
 	TopicID     string
 	WorkspaceID string
@@ -191,6 +196,12 @@ type CreateRunInput struct {
 	ExecutionDirectory string
 }
 
+type PreparedRun struct {
+	Run   Run
+	Task  Task
+	Issue Issue
+}
+
 type CompleteRunOutputInput struct {
 	OutputID    string
 	Path        string
@@ -307,6 +318,42 @@ func (s Service) CreateRun(ctx context.Context, input CreateRunInput) (Run, erro
 	if err != nil {
 		return Run{}, err
 	}
+	prepared, err := s.PrepareRun(ctx, input)
+	if err != nil {
+		return Run{}, err
+	}
+	created, err := store.CreateRun(ctx, prepared.Run)
+	if err != nil {
+		return Run{}, err
+	}
+	task := prepared.Task
+	task.Status = StatusRunning
+	// A fresh run is a new Agent completion claim; any earlier acceptance
+	// verdict or review evidence belongs to the previous run.
+	task.AcceptanceState = AcceptanceAgentClaimed
+	task.AcceptanceSummary = ""
+	task.LatestRunID = created.RunID
+	task.UpdatedAtUnixMS = prepared.Run.UpdatedAtUnixMS
+	if _, err := store.UpdateTask(ctx, task); err != nil {
+		return Run{}, err
+	}
+	if _, err := store.RecalculateIssueProjection(ctx, prepared.Run.WorkspaceID, prepared.Run.IssueID); err != nil {
+		return Run{}, err
+	}
+	if err := store.TouchTopicActivity(ctx, prepared.Run.WorkspaceID, prepared.Issue.TopicID, prepared.Run.UpdatedAtUnixMS); err != nil {
+		return Run{}, err
+	}
+	return created, nil
+}
+
+// PrepareRun validates and normalizes a Run without claiming it durably. A
+// product adapter uses this before atomically committing the Run and a durable
+// external-launch intent in one transaction.
+func (s Service) PrepareRun(ctx context.Context, input CreateRunInput) (PreparedRun, error) {
+	store, err := s.store()
+	if err != nil {
+		return PreparedRun{}, err
+	}
 	workspaceID := strings.TrimSpace(input.WorkspaceID)
 	issueID := strings.TrimSpace(input.IssueID)
 	taskID := strings.TrimSpace(input.TaskID)
@@ -314,27 +361,27 @@ func (s Service) CreateRun(ctx context.Context, input CreateRunInput) (Run, erro
 	agentTargetID := strings.TrimSpace(input.AgentTargetID)
 	agentProvider := strings.ToLower(strings.TrimSpace(input.AgentProvider))
 	if workspaceID == "" || issueID == "" || actorUserID == "" {
-		return Run{}, ErrInvalidArgument
+		return PreparedRun{}, ErrInvalidArgument
 	}
 	issue, task, err := getRunParent(ctx, store, workspaceID, issueID, taskID)
 	if err != nil {
-		return Run{}, err
+		return PreparedRun{}, err
 	}
 	if err := RejectManagedIssueMutation(issue); err != nil {
-		return Run{}, err
+		return PreparedRun{}, err
 	}
 	if task == nil {
 		task, err = s.ensureIssueRunTask(ctx, store, issue, actorUserID)
 		if err != nil {
-			return Run{}, err
+			return PreparedRun{}, err
 		}
 		taskID = task.TaskID
 	}
 	if !IssueBudgetAllowsNextAutomaticRun(issue) {
-		return Run{}, ErrIssueBudgetSoftLimited
+		return PreparedRun{}, ErrIssueBudgetSoftLimited
 	}
 	if !taskDependenciesAccepted(ctx, store, workspaceID, issueID, *task) {
-		return Run{}, ErrTaskDependenciesIncomplete
+		return PreparedRun{}, ErrTaskDependenciesIncomplete
 	}
 	if agentTargetID == "" {
 		agentTargetID = strings.TrimSpace(task.AgentTargetID)
@@ -346,13 +393,13 @@ func (s Service) CreateRun(ctx context.Context, input CreateRunInput) (Run, erro
 		agentProvider = agentProviderForAgentTargetID(agentTargetID)
 	}
 	if agentTargetID == "" {
-		return Run{}, ErrInvalidArgument
+		return PreparedRun{}, ErrInvalidArgument
 	}
 	modelPlanID := firstNonEmpty(input.ModelPlanID, task.ModelPlanID)
 	model := firstNonEmpty(input.Model, task.Model)
 	reasoningIntensity := issue.ExecutionProfile.ReasoningIntensity
 	if reasoningIntensity < 0 || reasoningIntensity > 100 {
-		return Run{}, ErrInvalidArgument
+		return PreparedRun{}, ErrInvalidArgument
 	}
 	executionDirectory := firstNonEmpty(input.ExecutionDirectory, task.ExecutionDirectory)
 	now := s.nowUnixMS()
@@ -377,29 +424,9 @@ func (s Service) CreateRun(ctx context.Context, input CreateRunInput) (Run, erro
 		UpdatedAtUnixMS:    now,
 	}
 	if run.RunID == "" {
-		return Run{}, ErrInvalidArgument
+		return PreparedRun{}, ErrInvalidArgument
 	}
-	created, err := store.CreateRun(ctx, run)
-	if err != nil {
-		return Run{}, err
-	}
-	task.Status = StatusRunning
-	// A fresh run is a new Agent completion claim; any earlier acceptance
-	// verdict or review evidence belongs to the previous run.
-	task.AcceptanceState = AcceptanceAgentClaimed
-	task.AcceptanceSummary = ""
-	task.LatestRunID = created.RunID
-	task.UpdatedAtUnixMS = now
-	if _, err := store.UpdateTask(ctx, *task); err != nil {
-		return Run{}, err
-	}
-	if _, err := store.RecalculateIssueProjection(ctx, workspaceID, issueID); err != nil {
-		return Run{}, err
-	}
-	if err := store.TouchTopicActivity(ctx, workspaceID, issue.TopicID, now); err != nil {
-		return Run{}, err
-	}
-	return created, nil
+	return PreparedRun{Run: run, Task: *task, Issue: issue}, nil
 }
 
 func taskDependenciesAccepted(ctx context.Context, store Store, workspaceID string, issueID string, task Task) bool {
@@ -664,28 +691,9 @@ func (s Service) AddContextRefs(ctx context.Context, input AddContextRefsInput) 
 	if err := RejectManagedIssueMutation(issue); err != nil {
 		return nil, err
 	}
-	refs := make([]ContextRef, 0, len(input.Refs))
-	now := s.nowUnixMS()
-	for _, ref := range input.Refs {
-		refPath := strings.TrimSpace(ref.Path)
-		if refPath == "" {
-			return nil, ErrInvalidArgument
-		}
-		displayName := strings.TrimSpace(ref.DisplayName)
-		if displayName == "" {
-			displayName = path.Base(refPath)
-		}
-		refs = append(refs, ContextRef{
-			ContextRefID:    s.resolveID(IDKindContextRef, ref.ContextRefID),
-			WorkspaceID:     workspaceID,
-			IssueID:         issueID,
-			TaskID:          taskID,
-			ParentKind:      parentKind,
-			RefType:         strings.TrimSpace(ref.RefType),
-			Path:            refPath,
-			DisplayName:     displayName,
-			CreatedAtUnixMS: now,
-		})
+	refs, err := s.buildContextRefs(issue, taskID, parentKind, input.Refs)
+	if err != nil {
+		return nil, err
 	}
 	if len(refs) == 0 {
 		return nil, nil
@@ -694,10 +702,46 @@ func (s Service) AddContextRefs(ctx context.Context, input AddContextRefsInput) 
 	if err != nil {
 		return nil, err
 	}
-	if err := store.TouchTopicActivity(ctx, workspaceID, issue.TopicID, now); err != nil {
+	if err := store.TouchTopicActivity(ctx, workspaceID, issue.TopicID, refs[0].CreatedAtUnixMS); err != nil {
 		return nil, err
 	}
 	return saved, nil
+}
+
+func (s Service) buildContextRefs(
+	issue Issue,
+	taskID string,
+	parentKind ContextRefParentKind,
+	input []AddContextRefInput,
+) ([]ContextRef, error) {
+	refs := make([]ContextRef, 0, len(input))
+	now := s.nowUnixMS()
+	for _, ref := range input {
+		refPath := strings.TrimSpace(ref.Path)
+		if refPath == "" {
+			return nil, ErrInvalidArgument
+		}
+		displayName := strings.TrimSpace(ref.DisplayName)
+		if displayName == "" {
+			displayName = path.Base(refPath)
+		}
+		contextRefID := s.resolveID(IDKindContextRef, ref.ContextRefID)
+		if contextRefID == "" {
+			return nil, ErrInvalidArgument
+		}
+		refs = append(refs, ContextRef{
+			ContextRefID:    contextRefID,
+			WorkspaceID:     issue.WorkspaceID,
+			IssueID:         issue.IssueID,
+			TaskID:          taskID,
+			ParentKind:      parentKind,
+			RefType:         strings.TrimSpace(ref.RefType),
+			Path:            refPath,
+			DisplayName:     displayName,
+			CreatedAtUnixMS: now,
+		})
+	}
+	return refs, nil
 }
 
 func (s Service) RemoveContextRef(ctx context.Context, input RemoveContextRefInput) (bool, error) {

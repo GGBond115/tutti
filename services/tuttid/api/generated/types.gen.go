@@ -1681,6 +1681,27 @@ func (e ConnectorMarketReleaseStatus) Valid() bool {
 	}
 }
 
+// Defines values for CreateIssueManagerImageAttachmentRequestMimeType.
+const (
+	IssueAttachmentMimeTypeJPEG CreateIssueManagerImageAttachmentRequestMimeType = "image/jpeg"
+	IssueAttachmentMimeTypePNG  CreateIssueManagerImageAttachmentRequestMimeType = "image/png"
+	IssueAttachmentMimeTypeWebP CreateIssueManagerImageAttachmentRequestMimeType = "image/webp"
+)
+
+// Valid indicates whether the value is a known member of the CreateIssueManagerImageAttachmentRequestMimeType enum.
+func (e CreateIssueManagerImageAttachmentRequestMimeType) Valid() bool {
+	switch e {
+	case IssueAttachmentMimeTypeJPEG:
+		return true
+	case IssueAttachmentMimeTypePNG:
+		return true
+	case IssueAttachmentMimeTypeWebP:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DecideWorkspaceWorkflowCheckpointRequestDecision.
 const (
 	DecideWorkspaceWorkflowCheckpointRequestDecisionAccepted DecideWorkspaceWorkflowCheckpointRequestDecision = "accepted"
@@ -6166,14 +6187,49 @@ type CreateCollaborationRunRequest struct {
 	TriggerSource       CollaborationRunTriggerSource `json:"triggerSource"`
 }
 
+// CreateIssueManagerImageAttachmentRequest defines model for CreateIssueManagerImageAttachmentRequest.
+type CreateIssueManagerImageAttachmentRequest struct {
+	AttachmentId *openapi_types.UUID `json:"attachmentId,omitempty"`
+
+	// DataBase64 Base64-encoded image bytes. Decoded content is limited to 20 MiB.
+	DataBase64  string                                           `json:"dataBase64"`
+	DisplayName *string                                          `json:"displayName,omitempty"`
+	MimeType    CreateIssueManagerImageAttachmentRequestMimeType `json:"mimeType"`
+}
+
+// CreateIssueManagerImageAttachmentRequestMimeType defines model for CreateIssueManagerImageAttachmentRequest.MimeType.
+type CreateIssueManagerImageAttachmentRequestMimeType string
+
 // CreateIssueManagerIssueFromPlanRequest defines model for CreateIssueManagerIssueFromPlanRequest.
 type CreateIssueManagerIssueFromPlanRequest struct {
-	Issue CreateIssueManagerIssueRequest  `json:"issue"`
-	Tasks []CreateIssueManagerTaskRequest `json:"tasks"`
+	Issue CreateIssueManagerPlannedIssueRequest `json:"issue"`
+	Tasks []CreateIssueManagerTaskRequest       `json:"tasks"`
 }
 
 // CreateIssueManagerIssueRequest defines model for CreateIssueManagerIssueRequest.
 type CreateIssueManagerIssueRequest struct {
+	// Attachments Inline image attachments persisted as managed issue context references.
+	Attachments      *[]CreateIssueManagerImageAttachmentRequest `json:"attachments,omitempty"`
+	Budget           *IssueManagerBudget                         `json:"budget,omitempty"`
+	Content          *string                                     `json:"content,omitempty"`
+	ExecutionProfile *IssueManagerExecutionProfile               `json:"executionProfile,omitempty"`
+	IssueId          *string                                     `json:"issueId,omitempty"`
+
+	// ParallelExecution Persist the user's parallel Create-and-Start choice. Mutually exclusive with sequentialExecution.
+	ParallelExecution *bool `json:"parallelExecution,omitempty"`
+
+	// PlanningSource How the issue entered the durable execution workflow.
+	PlanningSource *IssueManagerPlanningSource `json:"planningSource,omitempty"`
+
+	// SequentialExecution Persist the user's Create-and-Start choice so successor dispatch survives desktop restarts.
+	SequentialExecution *bool   `json:"sequentialExecution,omitempty"`
+	SourceSessionId     *string `json:"sourceSessionId,omitempty"`
+	Title               string  `json:"title"`
+	TopicId             string  `json:"topicId"`
+}
+
+// CreateIssueManagerPlannedIssueRequest defines model for CreateIssueManagerPlannedIssueRequest.
+type CreateIssueManagerPlannedIssueRequest struct {
 	Budget           *IssueManagerBudget           `json:"budget,omitempty"`
 	Content          *string                       `json:"content,omitempty"`
 	ExecutionProfile *IssueManagerExecutionProfile `json:"executionProfile,omitempty"`
@@ -7770,6 +7826,12 @@ type StartAgentSessionRecordingRequest struct {
 	AgentSessionId      *string                         `json:"agentSessionId,omitempty"`
 	AgentTargetId       string                          `json:"agentTargetId"`
 	ReplayPrerequisites AgentSessionReplayPrerequisites `json:"replayPrerequisites"`
+}
+
+// StartIssueManagerRunRequest defines model for StartIssueManagerRunRequest.
+type StartIssueManagerRunRequest struct {
+	AgentTargetId      string  `json:"agentTargetId"`
+	ExecutionDirectory *string `json:"executionDirectory,omitempty"`
 }
 
 // StartupWorkspaceResponse defines model for StartupWorkspaceResponse.
@@ -10313,6 +10375,9 @@ type UpdateWorkspaceIssueJSONRequestBody = UpdateIssueManagerIssueRequest
 
 // AddWorkspaceIssueContextRefsJSONRequestBody defines body for AddWorkspaceIssueContextRefs for application/json ContentType.
 type AddWorkspaceIssueContextRefsJSONRequestBody = AddIssueManagerContextRefsRequest
+
+// StartWorkspaceIssueRunJSONRequestBody defines body for StartWorkspaceIssueRun for application/json ContentType.
+type StartWorkspaceIssueRunJSONRequestBody = StartIssueManagerRunRequest
 
 // CreateWorkspaceIssueRunJSONRequestBody defines body for CreateWorkspaceIssueRun for application/json ContentType.
 type CreateWorkspaceIssueRunJSONRequestBody = CreateIssueManagerRunRequest

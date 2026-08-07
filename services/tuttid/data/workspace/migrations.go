@@ -86,6 +86,7 @@ const schemaMigrationWorkspaceTuttiModeSourceActivityInboxV3 = "workspace_tutti_
 const schemaMigrationWorkspaceTuttiModeGoalReviewV4 = "workspace_tutti_mode_goal_review_v4"
 const schemaMigrationWorkspaceTuttiModeLegacyRepairV5 = "workspace_tutti_mode_legacy_repair_v5"
 const schemaMigrationWorkspaceTuttiModeLegacyRecoveryCleanupV6 = "workspace_tutti_mode_legacy_recovery_cleanup_v6"
+const schemaMigrationWorkspaceIssueRunLaunchPayloadV1 = "workspace_issue_run_launch_payload_v1"
 const schemaMigrationAgentSessionReplayV1 = "agent_session_replay_v1"
 const schemaMigrationAgentSessionReplayV2 = "agent_session_replay_v2"
 const schemaMigrationAgentProviderRuntimeSelectionsV1 = "agent_provider_runtime_selections_v1"
@@ -383,6 +384,9 @@ INSERT OR IGNORE INTO tuttid_schema_migrations (id, applied_at_unix_ms)
 		return err
 	}
 	if err := s.applyWorkspaceTuttiModeLegacyRecoveryCleanupV6(ctx); err != nil {
+		return err
+	}
+	if err := s.applyWorkspaceIssueRunLaunchPayloadV1(ctx); err != nil {
 		return err
 	}
 	if err := s.applyAgentSessionReplayV1(ctx); err != nil {
