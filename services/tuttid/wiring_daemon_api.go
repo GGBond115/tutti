@@ -711,28 +711,15 @@ func buildDaemonAPI(
 		agentRuntime.Close()
 		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf("reconcile interrupted app factory jobs: %w", err)
 	}
-	workspaces, err := workspaceService.List(ctx)
+	workspaces, err := recoverIssueExecutionsAtStartup(
+		ctx,
+		workspaceService,
+		issueExecutionCoordinator,
+		tuttiModeExecutions,
+	)
 	if err != nil {
 		agentRuntime.Close()
-		return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
-			"list workspaces for Issue Run startup recovery: %w",
-			err,
-		)
-	}
-	for _, workspace := range workspaces {
-		if _, err := issueExecutionCoordinator.ReconcileIssueExecutions(ctx, workspace.ID); err != nil {
-			agentRuntime.Close()
-			return tuttiapi.DaemonAPI{}, nil, nil, nil, fmt.Errorf(
-				"recover Issue executions at startup for workspace %q: %w",
-				workspace.ID,
-				err,
-			)
-		}
-		repairTuttiModeMainWakesAtStartup(
-			ctx,
-			tuttiModeExecutions,
-			workspace.ID,
-		)
+		return tuttiapi.DaemonAPI{}, nil, nil, nil, err
 	}
 	tuttiModeWatchdogWorker := newTuttiModeWatchdogWorker(
 		ctx, tuttiModeExecutions, tuttiModeMainWakeOwner,
