@@ -1,5 +1,6 @@
 import { useMemo, type JSX } from "react";
 import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
+import type { I18nRuntime } from "@tutti-os/ui-i18n-runtime";
 import { TooltipProvider } from "@tutti-os/ui-system";
 import type { RichTextMentionService } from "@tutti-os/ui-rich-text/service";
 import type { WorkspaceUserProjectApi } from "@tutti-os/workspace-user-project/contracts";
@@ -65,8 +66,29 @@ const quickComposerSettings: AgentGUIComposerSettingsVM = {
   supportsSpeed: false
 };
 
+export type AgentGUIQuickComposerAgentTarget = Omit<
+  AgentGUIAgentTarget,
+  "agentTargetId" | "ref" | "targetId"
+> & {
+  agentTargetId: string;
+};
+
+export interface AgentGUIQuickComposerTargetCapabilities {
+  imageInput: boolean;
+  workspaceReferences: boolean;
+}
+
+export interface AgentGUIQuickComposerSubmission {
+  agentTargetId: string;
+  content: AgentPromptContentBlock[];
+  displayPrompt?: string;
+}
+
 export interface AgentGUIQuickComposerProps {
-  agentTargets: readonly AgentGUIAgentTarget[];
+  agentTargets: readonly AgentGUIQuickComposerAgentTarget[];
+  capabilitiesByAgentTargetId: Readonly<
+    Record<string, AgentGUIQuickComposerTargetCapabilities | undefined>
+  >;
   composerActionAccessory?: AgentComposerProps["composerActionAccessory"];
   composerActionPlacement?: AgentComposerProps["composerActionPlacement"];
   content: readonly AgentPromptContentBlock[];
@@ -75,6 +97,8 @@ export interface AgentGUIQuickComposerProps {
   fillAvailableHeight?: boolean;
   /** Visual treatment for the canonical Composer input surface. */
   inputSurfaceVariant?: "default" | "borderless";
+  /** Host i18n runtime, matching the full AgentGUI embedding contract. */
+  i18n?: I18nRuntime<string> | null;
   locale?: AgentGuiI18nLocale;
   /** Mention providers supplied by the embedding host. */
   mentionService?: RichTextMentionService;
@@ -84,7 +108,7 @@ export interface AgentGUIQuickComposerProps {
   onContentChange(content: AgentPromptContentBlock[]): void;
   onProjectPathChange?: AgentComposerProps["onProjectPathChange"];
   onRequestWorkspaceReferences?: AgentComposerProps["onRequestWorkspaceReferences"];
-  onSubmit(content: AgentPromptContentBlock[], displayPrompt?: string): void;
+  onSubmit(submission: AgentGUIQuickComposerSubmission): void;
   placeholder?: string;
   selectedProjectPath?: string | null;
   selectedAgentTargetId: string;
@@ -103,7 +127,7 @@ export function AgentGUIQuickComposer(
   props: AgentGUIQuickComposerProps
 ): JSX.Element {
   return (
-    <AgentGuiI18nProvider locale={props.locale}>
+    <AgentGuiI18nProvider locale={props.locale} runtime={props.i18n}>
       <TooltipProvider delayDuration={120} skipDelayDuration={0}>
         <AgentGUIMentionServiceBoundary service={props.mentionService}>
           <AgentGUIQuickComposerInner {...props} />
@@ -115,6 +139,7 @@ export function AgentGUIQuickComposer(
 
 function AgentGUIQuickComposerInner({
   agentTargets,
+  capabilitiesByAgentTargetId,
   composerActionAccessory,
   composerActionPlacement,
   content,
@@ -137,13 +162,31 @@ function AgentGUIQuickComposerInner({
   const { i18n, locale, t } = useTranslation();
   const selectedAgentTarget =
     agentTargets.find(
-      (target) =>
-        target.targetId === selectedAgentTargetId ||
-        target.agentTargetId === selectedAgentTargetId
-    ) ??
-    agentTargets[0] ??
-    null;
-  const provider = selectedAgentTarget?.provider ?? "codex";
+      (target) => target.agentTargetId === selectedAgentTargetId
+    ) ?? null;
+  const selectedTargetCapabilities = selectedAgentTarget
+    ? (capabilitiesByAgentTargetId[selectedAgentTarget.agentTargetId] ?? null)
+    : null;
+  const selectedTargetReady =
+    selectedAgentTarget !== null &&
+    selectedAgentTarget.disabled !== true &&
+    selectedTargetCapabilities !== null;
+  const draftHasImages = content.some((block) => block.type === "image");
+  const provider = selectedAgentTarget?.provider ?? "";
+  const composerAgentTargets = useMemo<AgentGUIAgentTarget[]>(
+    () =>
+      agentTargets.map((target) => ({
+        ...target,
+        agentTargetId: target.agentTargetId,
+        ref: { kind: "quick-composer", provider: target.provider },
+        targetId: target.agentTargetId
+      })),
+    [agentTargets]
+  );
+  const selectedComposerAgentTarget =
+    composerAgentTargets.find(
+      (target) => target.agentTargetId === selectedAgentTargetId
+    ) ?? null;
   const labels = useAgentGUIViewLabels({
     displayProviderLabel: selectedAgentTarget?.label ?? provider,
     fallbackAgentTitle: selectedAgentTarget?.label ?? provider,
@@ -175,10 +218,13 @@ function AgentGUIQuickComposerInner({
     >
       <AgentComposer
         activePrompt={null}
-        agentTargets={agentTargets}
+        agentTargets={composerAgentTargets}
         availableCommands={[]}
         canGoalControl={false}
-        canUploadAttachment={true}
+        canUploadAttachment={Boolean(
+          selectedTargetCapabilities?.imageInput ||
+          selectedTargetCapabilities?.workspaceReferences
+        )}
         composerActionAccessory={composerActionAccessory}
         composerActionPlacement={composerActionPlacement}
         composerSettings={composerSettings}
@@ -198,13 +244,17 @@ function AgentGUIQuickComposerInner({
         }}
         placeholder={placeholder ?? labels.initialPlaceholder}
         presentationEditorDisabled={disabled}
-        presentationSubmitDisabled={disabled || selectedAgentTarget === null}
+        presentationSubmitDisabled={
+          disabled ||
+          !selectedTargetReady ||
+          (draftHasImages && selectedTargetCapabilities?.imageInput !== true)
+        }
         projectMissingProbeEnabled={false}
-        promptImagesSupported={true}
+        promptImagesSupported={selectedTargetCapabilities?.imageInput === true}
         provider={provider}
         providerSelectLabel={labels.providerSwitchLabel}
         queuedPrompts={[]}
-        selectedAgentTarget={selectedAgentTarget}
+        selectedAgentTarget={selectedComposerAgentTarget}
         selectProjectDirectory={selectProjectDirectory}
         showProjectSelectorInFooter={Boolean(
           userProjectApi && onProjectPathChange
@@ -226,20 +276,42 @@ function AgentGUIQuickComposerInner({
         onEditQueuedPrompt={() => {}}
         onInterruptCurrentTurn={() => {}}
         onProviderSelect={({ agentTargetId }) => {
-          if (agentTargetId) {
+          if (
+            agentTargetId &&
+            agentTargets.some(
+              (target) =>
+                target.agentTargetId === agentTargetId &&
+                target.disabled !== true
+            )
+          ) {
             onAgentTargetChange(agentTargetId);
           }
         }}
         onProjectPathChange={onProjectPathChange}
         onRemoveQueuedPrompt={() => {}}
-        onRequestWorkspaceReferences={onRequestWorkspaceReferences}
+        onRequestWorkspaceReferences={
+          selectedTargetCapabilities?.workspaceReferences === true
+            ? onRequestWorkspaceReferences
+            : undefined
+        }
         onSendQueuedPromptNext={() => {}}
         onSettingsChange={() => {}}
         onSubmit={(nextContent, displayPrompt) => {
-          onSubmit(
-            nextContent,
-            displayPrompt ?? agentComposerDraftPrompt(draftContent)
-          );
+          if (
+            !selectedTargetReady ||
+            !selectedAgentTarget ||
+            !selectedTargetCapabilities ||
+            (nextContent.some((block) => block.type === "image") &&
+              selectedTargetCapabilities.imageInput !== true)
+          ) {
+            return;
+          }
+          onSubmit({
+            agentTargetId: selectedAgentTarget.agentTargetId,
+            content: nextContent,
+            displayPrompt:
+              displayPrompt ?? agentComposerDraftPrompt(draftContent)
+          });
         }}
         onSubmitInteractivePrompt={() => false}
       />

@@ -303,7 +303,7 @@ export function IssueManagerAttachmentSection({
   refs
 }: {
   copy: IssueManagerI18nRuntime;
-  onOpen: (reference: IssueManagerFileReference) => Promise<void>;
+  onOpen: (reference: IssueManagerContextRef) => Promise<void>;
   refs: readonly IssueManagerContextRef[];
 }): JSX.Element | null {
   const attachments = refs.filter((ref) => ref.refType.startsWith("image/"));
@@ -323,13 +323,7 @@ export function IssueManagerAttachmentSection({
               className="flex w-full items-center gap-3 border-b border-[var(--line-2)] px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-transparency-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-inset"
               key={ref.contextRefId}
               type="button"
-              onClick={() =>
-                void onOpen({
-                  displayName: ref.displayName,
-                  kind: "file",
-                  path: ref.path
-                })
-              }
+              onClick={() => void onOpen(ref)}
             >
               <span
                 aria-hidden="true"

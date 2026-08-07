@@ -614,6 +614,9 @@ type ServerInterface interface {
 	// Remove one issue-manager context reference
 	// (DELETE /v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID})
 	RemoveWorkspaceIssueContextRef(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, issueID IssueManagerIssueID, contextRefID IssueManagerContextRefID)
+	// Read one managed issue attachment by opaque ContextRef identity
+	// (GET /v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID}/attachment)
+	ReadWorkspaceIssueAttachment(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, issueID IssueManagerIssueID, contextRefID IssueManagerContextRefID)
 	// Create and launch one Agent-backed run for an issue-manager issue
 	// (POST /v1/workspaces/{workspaceID}/issues/{issueID}/run-launches)
 	StartWorkspaceIssueRun(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, issueID IssueManagerIssueID)
@@ -8622,6 +8625,56 @@ func (siw *ServerInterfaceWrapper) RemoveWorkspaceIssueContextRef(w http.Respons
 	handler.ServeHTTP(w, r)
 }
 
+// ReadWorkspaceIssueAttachment operation middleware
+func (siw *ServerInterfaceWrapper) ReadWorkspaceIssueAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceID" -------------
+	var workspaceID WorkspaceID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "issueID" -------------
+	var issueID IssueManagerIssueID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "issueID", r.PathValue("issueID"), &issueID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "issueID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "contextRefID" -------------
+	var contextRefID IssueManagerContextRefID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "contextRefID", r.PathValue("contextRefID"), &contextRefID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "contextRefID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadWorkspaceIssueAttachment(w, r, workspaceID, issueID, contextRefID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // StartWorkspaceIssueRun operation middleware
 func (siw *ServerInterfaceWrapper) StartWorkspaceIssueRun(w http.ResponseWriter, r *http.Request) {
 
@@ -11101,6 +11154,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/cancel-execution", wrapper.CancelWorkspaceIssueExecution)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/context-refs", wrapper.AddWorkspaceIssueContextRefs)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID}", wrapper.RemoveWorkspaceIssueContextRef)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID}/attachment", wrapper.ReadWorkspaceIssueAttachment)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/run-launches", wrapper.StartWorkspaceIssueRun)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/runs", wrapper.ListWorkspaceIssueRuns)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/issues/{issueID}/runs", wrapper.CreateWorkspaceIssueRun)
@@ -32084,6 +32138,124 @@ func (response RemoveWorkspaceIssueContextRef503JSONResponse) VisitRemoveWorkspa
 	return err
 }
 
+type ReadWorkspaceIssueAttachmentRequestObject struct {
+	WorkspaceID  WorkspaceID              `json:"workspaceID"`
+	IssueID      IssueManagerIssueID      `json:"issueID"`
+	ContextRefID IssueManagerContextRefID `json:"contextRefID"`
+}
+
+type ReadWorkspaceIssueAttachmentResponseObject interface {
+	VisitReadWorkspaceIssueAttachmentResponse(w http.ResponseWriter) error
+}
+
+type ReadWorkspaceIssueAttachment200JSONResponse IssueManagerAttachmentContentResponse
+
+func (response ReadWorkspaceIssueAttachment200JSONResponse) VisitReadWorkspaceIssueAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceIssueAttachment400JSONResponse struct {
+	InvalidRequestErrorJSONResponse
+}
+
+func (response ReadWorkspaceIssueAttachment400JSONResponse) VisitReadWorkspaceIssueAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceIssueAttachment401JSONResponse struct{ UnauthorizedErrorJSONResponse }
+
+func (response ReadWorkspaceIssueAttachment401JSONResponse) VisitReadWorkspaceIssueAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceIssueAttachment404JSONResponse struct {
+	WorkspaceIssueResourceNotFoundErrorJSONResponse
+}
+
+func (response ReadWorkspaceIssueAttachment404JSONResponse) VisitReadWorkspaceIssueAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceIssueAttachment405JSONResponse struct {
+	MethodNotAllowedErrorJSONResponse
+}
+
+func (response ReadWorkspaceIssueAttachment405JSONResponse) VisitReadWorkspaceIssueAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceIssueAttachment502JSONResponse struct {
+	WorkspaceOperationErrorJSONResponse
+}
+
+func (response ReadWorkspaceIssueAttachment502JSONResponse) VisitReadWorkspaceIssueAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceIssueAttachment503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response ReadWorkspaceIssueAttachment503JSONResponse) VisitReadWorkspaceIssueAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type StartWorkspaceIssueRunRequestObject struct {
 	WorkspaceID WorkspaceID         `json:"workspaceID"`
 	IssueID     IssueManagerIssueID `json:"issueID"`
@@ -38595,6 +38767,9 @@ type StrictServerInterface interface {
 	// Remove one issue-manager context reference
 	// (DELETE /v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID})
 	RemoveWorkspaceIssueContextRef(ctx context.Context, request RemoveWorkspaceIssueContextRefRequestObject) (RemoveWorkspaceIssueContextRefResponseObject, error)
+	// Read one managed issue attachment by opaque ContextRef identity
+	// (GET /v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID}/attachment)
+	ReadWorkspaceIssueAttachment(ctx context.Context, request ReadWorkspaceIssueAttachmentRequestObject) (ReadWorkspaceIssueAttachmentResponseObject, error)
 	// Create and launch one Agent-backed run for an issue-manager issue
 	// (POST /v1/workspaces/{workspaceID}/issues/{issueID}/run-launches)
 	StartWorkspaceIssueRun(ctx context.Context, request StartWorkspaceIssueRunRequestObject) (StartWorkspaceIssueRunResponseObject, error)
@@ -44791,6 +44966,34 @@ func (sh *strictHandler) RemoveWorkspaceIssueContextRef(w http.ResponseWriter, r
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RemoveWorkspaceIssueContextRefResponseObject); ok {
 		if err := validResponse.VisitRemoveWorkspaceIssueContextRefResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadWorkspaceIssueAttachment operation middleware
+func (sh *strictHandler) ReadWorkspaceIssueAttachment(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, issueID IssueManagerIssueID, contextRefID IssueManagerContextRefID) {
+	var request ReadWorkspaceIssueAttachmentRequestObject
+
+	request.WorkspaceID = workspaceID
+	request.IssueID = issueID
+	request.ContextRefID = contextRefID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadWorkspaceIssueAttachment(ctx, request.(ReadWorkspaceIssueAttachmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadWorkspaceIssueAttachment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadWorkspaceIssueAttachmentResponseObject); ok {
+		if err := validResponse.VisitReadWorkspaceIssueAttachmentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

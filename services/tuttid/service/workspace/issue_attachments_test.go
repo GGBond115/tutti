@@ -28,6 +28,14 @@ func (f *memoryIssueAttachmentFiles) WriteExclusive(attachmentID string, extensi
 	return path, nil
 }
 
+func (f *memoryIssueAttachmentFiles) Read(path string) ([]byte, error) {
+	data, ok := f.files[path]
+	if !ok {
+		return nil, fs.ErrNotExist
+	}
+	return append([]byte(nil), data...), nil
+}
+
 func (f *memoryIssueAttachmentFiles) Remove(path string) error {
 	delete(f.files, path)
 	return nil
@@ -67,6 +75,31 @@ func TestIssueAttachmentValidationRejectsMismatchedImageData(t *testing.T) {
 	}})
 	if !errors.Is(err, workspaceissues.ErrInvalidArgument) {
 		t.Fatalf("persistIssueAttachments() error = %v, want ErrInvalidArgument", err)
+	}
+}
+
+func TestIssueAttachmentProjectionUsesManagedPathOwnership(t *testing.T) {
+	service := IssueManagerService{AttachmentFiles: newMemoryIssueAttachmentFiles()}
+	views := service.ProjectIssueManagerContextRefs([]workspaceissues.ContextRef{
+		{
+			ContextRefID: "attachment-caller-controlled",
+			RefType:      "image/png",
+			Path:         "/workspace/not-managed.png",
+		},
+		{
+			ContextRefID: "ordinary-id",
+			RefType:      "image/png",
+			Path:         "/managed/issues/private.png",
+		},
+	})
+	if len(views) != 2 {
+		t.Fatalf("ProjectIssueManagerContextRefs() len = %d, want 2", len(views))
+	}
+	if views[0].AccessKind != IssueManagerContextRefAccessWorkspacePath || views[0].Path == nil {
+		t.Fatalf("caller-prefixed workspace ref view = %#v", views[0])
+	}
+	if views[1].AccessKind != IssueManagerContextRefAccessManagedAttachment || views[1].Path != nil {
+		t.Fatalf("managed ref view = %#v", views[1])
 	}
 }
 
@@ -121,7 +154,29 @@ func TestIssueManagerCreateIssuePersistsProjectsAndDeletesAttachment(t *testing.
 	if len(detail.ContextRefs) != 1 {
 		t.Fatalf("ContextRefs = %#v, want one attachment", detail.ContextRefs)
 	}
+	attachment, err := service.ReadIssueAttachment(
+		ctx,
+		workspaceID,
+		issue.IssueID,
+		detail.ContextRefs[0].ContextRefID,
+	)
+	if err != nil {
+		t.Fatalf("ReadIssueAttachment() error = %v", err)
+	}
+	if attachment.MimeType != "image/png" || string(attachment.Data) != "\x89PNG\r\n\x1a\ncontent" {
+		t.Fatalf("ReadIssueAttachment() = %#v", attachment)
+	}
 	attachmentPath := detail.ContextRefs[0].Path
+	delete(files.files, attachmentPath)
+	if _, err := service.ReadIssueAttachment(
+		ctx,
+		workspaceID,
+		issue.IssueID,
+		detail.ContextRefs[0].ContextRefID,
+	); !errors.Is(err, workspaceissues.ErrContextRefNotFound) {
+		t.Fatalf("ReadIssueAttachment() missing file error = %v, want ErrContextRefNotFound", err)
+	}
+	files.files[attachmentPath] = append([]byte(nil), attachment.Data...)
 	launchAttachments, err := service.issueRunImageAttachments(ctx, issue, workspaceissues.Task{})
 	if err != nil {
 		t.Fatalf("issueRunImageAttachments() error = %v", err)

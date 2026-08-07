@@ -20,6 +20,7 @@ export interface DesktopCaptureWindowSnapshot {
   content: AgentPromptContentBlock[];
   failed: boolean;
   projectPath: string | null;
+  refreshingAgentOptions: boolean;
   selection: DesktopCaptureSelectionInput | null;
   stage: DesktopCaptureStage;
   submitting: boolean;
@@ -33,6 +34,7 @@ const initialSnapshot: DesktopCaptureWindowSnapshot = {
   content: [],
   failed: false,
   projectPath: null,
+  refreshingAgentOptions: false,
   selection: null,
   stage: "loading",
   submitting: false,
@@ -44,6 +46,7 @@ export class DesktopCaptureWindowController {
   private readonly agentTargetPreference: DesktopCaptureAgentTargetPreference | null;
   private readonly projectPreference: DesktopCaptureProjectPreference | null;
   private dragStart: { x: number; y: number } | null = null;
+  private composerOptionsRequestRevision = 0;
   private initializePromise: Promise<void> | null = null;
   private readonly listeners = new Set<() => void>();
   private snapshot = initialSnapshot;
@@ -160,6 +163,12 @@ export class DesktopCaptureWindowController {
         failed: false,
         stage: "composing"
       });
+      if (this.snapshot.agentTargetId) {
+        await this.refreshComposerOptions(
+          this.snapshot.agentTargetId,
+          this.snapshot.projectPath
+        );
+      }
       return true;
     } catch {
       this.update({ failed: true });
@@ -180,6 +189,7 @@ export class DesktopCaptureWindowController {
     }
     this.agentTargetPreference?.write(capture.workspaceId, agentTargetId);
     this.update({ agentTargetId });
+    void this.refreshComposerOptions(agentTargetId, this.snapshot.projectPath);
   }
 
   setContent(content: AgentPromptContentBlock[]): void {
@@ -194,7 +204,9 @@ export class DesktopCaptureWindowController {
     return this.api.selectFiles();
   }
 
-  readonly setProjectPath = (projectPath: string | null): void => {
+  readonly setProjectPath = async (
+    projectPath: string | null
+  ): Promise<void> => {
     const capture = this.snapshot.capture;
     const normalizedProjectPath = projectPath?.trim() || null;
     if (!capture) {
@@ -202,21 +214,39 @@ export class DesktopCaptureWindowController {
     }
     this.projectPreference?.write(capture.workspaceId, normalizedProjectPath);
     this.update({ projectPath: normalizedProjectPath });
+    if (this.snapshot.agentTargetId) {
+      await this.refreshComposerOptions(
+        this.snapshot.agentTargetId,
+        normalizedProjectPath
+      );
+    }
   };
 
   async submit(
+    agentTargetId: string,
     content: AgentPromptContentBlock[] = this.snapshot.content,
     displayPrompt?: string,
     taskInstruction?: string
   ): Promise<void> {
     const {
-      agentTargetId,
+      agentTargetId: selectedAgentTargetId,
       attachment,
       projectPath,
+      refreshingAgentOptions,
       submitting,
       trackWithTask
     } = this.snapshot;
-    if (!attachment || !agentTargetId || submitting || content.length === 0) {
+    if (
+      !attachment ||
+      !agentTargetId ||
+      agentTargetId !== selectedAgentTargetId ||
+      !this.snapshot.capture?.agents.some(
+        (agent) => agent.id === agentTargetId && agent.capabilities.imageInput
+      ) ||
+      refreshingAgentOptions ||
+      submitting ||
+      content.length === 0
+    ) {
       return;
     }
     this.update({ content, failed: false, submitting: true });
@@ -233,6 +263,68 @@ export class DesktopCaptureWindowController {
       });
     } catch {
       this.update({ failed: true, submitting: false });
+    }
+  }
+
+  private async refreshComposerOptions(
+    agentTargetId: string,
+    projectPath: string | null
+  ): Promise<void> {
+    const revision = ++this.composerOptionsRequestRevision;
+    this.update({ failed: false, refreshingAgentOptions: true });
+    try {
+      const options = await this.api.getComposerOptions({
+        agentTargetId,
+        cwd: projectPath
+      });
+      if (revision !== this.composerOptionsRequestRevision) {
+        return;
+      }
+      const capture = this.snapshot.capture;
+      if (!capture) {
+        return;
+      }
+      const refreshedAgent = options.agents.find(
+        (agent) => agent.id === agentTargetId
+      );
+      if (!refreshedAgent) {
+        throw new Error("Selected screenshot Agent target is unavailable");
+      }
+      this.update({
+        capture: {
+          ...capture,
+          agents: capture.agents.map((agent) =>
+            agent.id === agentTargetId ? refreshedAgent : agent
+          )
+        },
+        failed: false,
+        refreshingAgentOptions: false
+      });
+    } catch {
+      if (revision !== this.composerOptionsRequestRevision) {
+        return;
+      }
+      const capture = this.snapshot.capture;
+      this.update({
+        capture: capture
+          ? {
+              ...capture,
+              agents: capture.agents.map((agent) =>
+                agent.id === agentTargetId
+                  ? {
+                      ...agent,
+                      capabilities: {
+                        ...agent.capabilities,
+                        imageInput: false
+                      }
+                    }
+                  : agent
+              )
+            }
+          : capture,
+        failed: true,
+        refreshingAgentOptions: false
+      });
     }
   }
 

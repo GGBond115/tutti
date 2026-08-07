@@ -310,7 +310,7 @@ export function IssueManagerTaskDrawerReadBody({
       />
       <IssueManagerAttachmentSection
         copy={copy}
-        onOpen={controller.openReference}
+        onOpen={controller.openContextRef}
         refs={controller.taskDetail.value?.contextRefs ?? []}
       />
       <IssueManagerLatestRunStatusSection

@@ -490,6 +490,30 @@ ORDER BY created_at_unix_ms ASC, id ASC
 	return items, nil
 }
 
+func (s *SQLiteStore) GetIssueAttachmentContextRef(
+	ctx context.Context,
+	workspaceID string,
+	issueID string,
+	contextRefID string,
+) (workspaceissues.ContextRef, error) {
+	if err := s.ensureIssueDatabase(); err != nil {
+		return workspaceissues.ContextRef{}, err
+	}
+	item, err := scanWorkspaceIssueContextRef(s.readDB.QueryRowContext(ctx, `
+SELECT id, context_ref_id, workspace_id, issue_id, task_id, parent_kind,
+       ref_type, path, display_name, created_at_unix_ms
+FROM workspace_issue_context_refs
+WHERE workspace_id = ? AND issue_id = ? AND context_ref_id = ?
+`, strings.TrimSpace(workspaceID), strings.TrimSpace(issueID), strings.TrimSpace(contextRefID)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return workspaceissues.ContextRef{}, workspaceissues.ErrContextRefNotFound
+	}
+	if err != nil {
+		return workspaceissues.ContextRef{}, fmt.Errorf("get workspace issue attachment ContextRef: %w", err)
+	}
+	return item, nil
+}
+
 func (s *SQLiteStore) HasIssueAttachmentReferencePath(ctx context.Context, path string) (bool, error) {
 	if err := s.ensureIssueDatabase(); err != nil {
 		return false, err

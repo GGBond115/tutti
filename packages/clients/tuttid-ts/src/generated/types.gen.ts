@@ -4302,13 +4302,21 @@ export type IssueManagerContextRef =
       parentKind: "task";
     } & IssueManagerTaskContextRef);
 
+export type IssueManagerAttachmentContentResponse = {
+  contextRefId: string;
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  displayName: string;
+  data: string;
+};
+
 export type IssueManagerIssueContextRef = {
   contextRefId: string;
   workspaceId: string;
   issueId: string;
   parentKind: "issue";
   refType: string;
-  path: string;
+  accessKind: "workspace_path" | "managed_attachment";
+  path?: string;
   displayName: string;
   createdAtUnix: number;
 };
@@ -4320,7 +4328,8 @@ export type IssueManagerTaskContextRef = {
   taskId: string;
   parentKind: "task";
   refType: string;
-  path: string;
+  accessKind: "workspace_path" | "managed_attachment";
+  path?: string;
   displayName: string;
   createdAtUnix: number;
 };
@@ -15233,6 +15242,57 @@ export type RemoveWorkspaceIssueContextRefResponses = {
 
 export type RemoveWorkspaceIssueContextRefResponse =
   RemoveWorkspaceIssueContextRefResponses[keyof RemoveWorkspaceIssueContextRefResponses];
+
+export type ReadWorkspaceIssueAttachmentData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    issueID: string;
+    contextRefID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID}/attachment";
+};
+
+export type ReadWorkspaceIssueAttachmentErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace issue-manager resource was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type ReadWorkspaceIssueAttachmentError =
+  ReadWorkspaceIssueAttachmentErrors[keyof ReadWorkspaceIssueAttachmentErrors];
+
+export type ReadWorkspaceIssueAttachmentResponses = {
+  /**
+   * Managed issue attachment content
+   */
+  200: IssueManagerAttachmentContentResponse;
+};
+
+export type ReadWorkspaceIssueAttachmentResponse =
+  ReadWorkspaceIssueAttachmentResponses[keyof ReadWorkspaceIssueAttachmentResponses];
 
 export type CancelWorkspaceIssueExecutionData = {
   body?: never;

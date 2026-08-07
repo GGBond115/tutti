@@ -199,6 +199,18 @@ workspace `AgentSessionEngine`. Its embedded layout keeps attachments and long
 drafts in normal flow; hosts must not wrap the timeline-oriented dock layout in
 fixed-height launch surfaces.
 
+Agent selection is fail-closed. The host passes the canonical `agentTargetId`
+and a capability snapshot for every selectable target. Quick Composer resolves
+only that exact identifier: an unknown, disabled, or capability-less target
+keeps submit unavailable instead of falling back to the first target or
+guessing a provider. Image drafts are accepted only when the selected target's
+declared content types include images. The submit envelope returns the resolved
+`agentTargetId`, content, and display prompt so the host cannot activate a
+different target from the one the user saw.
+The public target contract does not accept AgentGUI's legacy `targetId` or
+internal `ref`; Quick Composer derives both internal fields from the canonical
+`agentTargetId` before rendering the shared selector.
+
 Hosts that need canonical `@` results pass a `RichTextMentionService`; hosts
 that enable the `+` control pass `onRequestWorkspaceReferences`. Quick Composer
 installs both through the same AgentGUI Composer boundaries used by the full
@@ -211,6 +223,10 @@ contracts and do not change prompt or Session ownership. A host whose own
 window chrome already defines the visual perimeter may set
 `inputSurfaceVariant="borderless"` to suppress the redundant inner outline
 without overriding AgentGUI implementation selectors.
+
+Standalone hosts may inject an AgentGUI i18n runtime. Otherwise Quick Composer
+uses the package defaults; hosts must not render translation keys or hardcode a
+second copy of Composer-visible text.
 
 A launcher that owns project selection passes a real `WorkspaceUserProjectApi`
 as `userProjectApi`, together with `selectedProjectPath` and

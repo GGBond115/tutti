@@ -553,6 +553,9 @@ import type {
   ReadWorkspaceFilePreviewData,
   ReadWorkspaceFilePreviewErrors,
   ReadWorkspaceFilePreviewResponses,
+  ReadWorkspaceIssueAttachmentData,
+  ReadWorkspaceIssueAttachmentErrors,
+  ReadWorkspaceIssueAttachmentResponses,
   ReconcileWorkspaceAgentSessionGoalData,
   ReconcileWorkspaceAgentSessionGoalErrors,
   ReconcileWorkspaceAgentSessionGoalResponses,
@@ -4919,6 +4922,24 @@ export const removeWorkspaceIssueContextRef = <
   >({
     security: [{ scheme: "bearer", type: "http" }],
     url: "/v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID}",
+    ...options
+  });
+
+/**
+ * Read one managed issue attachment by opaque ContextRef identity
+ */
+export const readWorkspaceIssueAttachment = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<ReadWorkspaceIssueAttachmentData, ThrowOnError>
+) =>
+  (options.client ?? client).get<
+    ReadWorkspaceIssueAttachmentResponses,
+    ReadWorkspaceIssueAttachmentErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID}/attachment",
     ...options
   });
 

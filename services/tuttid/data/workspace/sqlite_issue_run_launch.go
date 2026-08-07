@@ -39,6 +39,11 @@ func (s *SQLiteStore) CreateIssueRunWithLaunchIntent(
 		return workspaceissues.Run{}, fmt.Errorf("begin Issue Run launch admission: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if prepared.TaskIsNew {
+		if _, err := insertWorkspaceIssueTask(ctx, tx, prepared.Task); err != nil {
+			return workspaceissues.Run{}, err
+		}
+	}
 	if err := insertWorkspaceIssueRun(ctx, tx, prepared.Run); err != nil {
 		return workspaceissues.Run{}, err
 	}

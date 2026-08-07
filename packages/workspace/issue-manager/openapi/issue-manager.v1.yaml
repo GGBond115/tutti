@@ -451,6 +451,35 @@ paths:
           $ref: "#/components/responses/WorkspaceOperationError"
         "503":
           $ref: "#/components/responses/ServiceUnavailableError"
+  /v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID}/attachment:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceID"
+      - $ref: "#/components/parameters/IssueManagerIssueID"
+      - $ref: "#/components/parameters/IssueManagerContextRefID"
+    get:
+      operationId: readWorkspaceIssueAttachment
+      tags:
+        - issue
+      summary: Read one managed issue attachment by opaque ContextRef identity
+      responses:
+        "200":
+          description: Managed issue attachment content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssueManagerAttachmentContentResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequestError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+        "404":
+          $ref: "#/components/responses/WorkspaceIssueResourceNotFoundError"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowedError"
+        "502":
+          $ref: "#/components/responses/WorkspaceOperationError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailableError"
   /v1/workspaces/{workspaceID}/issues/{issueID}/cancel-execution:
     parameters:
       - $ref: "#/components/parameters/WorkspaceID"
@@ -1738,6 +1767,28 @@ components:
         mapping:
           issue: "#/components/schemas/IssueManagerIssueContextRef"
           task: "#/components/schemas/IssueManagerTaskContextRef"
+    IssueManagerAttachmentContentResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - contextRefId
+        - mimeType
+        - displayName
+        - data
+      properties:
+        contextRefId:
+          type: string
+        mimeType:
+          type: string
+          enum:
+            - image/png
+            - image/jpeg
+            - image/webp
+        displayName:
+          type: string
+        data:
+          type: string
+          format: byte
     IssueManagerIssueContextRef:
       type: object
       additionalProperties: false
@@ -1747,7 +1798,7 @@ components:
         - issueId
         - parentKind
         - refType
-        - path
+        - accessKind
         - displayName
         - createdAtUnix
       properties:
@@ -1765,6 +1816,11 @@ components:
             - IssueManagerIssueContextRefParentKindIssue
         refType:
           type: string
+        accessKind:
+          type: string
+          enum:
+            - workspace_path
+            - managed_attachment
         path:
           type: string
         displayName:
@@ -1783,7 +1839,7 @@ components:
         - taskId
         - parentKind
         - refType
-        - path
+        - accessKind
         - displayName
         - createdAtUnix
       properties:
@@ -1803,6 +1859,11 @@ components:
             - IssueManagerTaskContextRefParentKindTask
         refType:
           type: string
+        accessKind:
+          type: string
+          enum:
+            - workspace_path
+            - managed_attachment
         path:
           type: string
         displayName:

@@ -46,6 +46,8 @@ import type {
 } from "@tutti-os/browser-node";
 import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 import type {
+  DesktopCaptureComposerOptions,
+  DesktopCaptureComposerOptionsInput,
   DesktopCaptureSelectionInput,
   DesktopCaptureSelectionResult,
   DesktopCaptureState,
@@ -101,6 +103,7 @@ import type {
 export const desktopIpcChannels = {
   capture: {
     cancel: "capture:cancel",
+    getComposerOptions: "capture:get-composer-options",
     getState: "capture:get-state",
     queryMentionDirectory: "capture:query-mention-directory",
     queryMentions: "capture:query-mentions",
@@ -1074,6 +1077,8 @@ export type DesktopBrowserAutomationResponse =
 
 export interface DesktopInvokePayloadByChannel {
   [desktopIpcChannels.capture.cancel]: undefined;
+  [desktopIpcChannels.capture
+    .getComposerOptions]: DesktopCaptureComposerOptionsInput;
   [desktopIpcChannels.capture.getState]: undefined;
   [desktopIpcChannels.capture
     .queryMentionDirectory]: TuttiExternalAtQueryDirectoryInput;
@@ -1284,6 +1289,8 @@ export interface DesktopInvokePayloadByChannel {
 
 export interface DesktopInvokeResultByChannel {
   [desktopIpcChannels.capture.cancel]: void;
+  [desktopIpcChannels.capture
+    .getComposerOptions]: DesktopCaptureComposerOptions;
   [desktopIpcChannels.capture.getState]: DesktopCaptureState;
   [desktopIpcChannels.capture
     .queryMentionDirectory]: TuttiExternalAtQueryResult[];

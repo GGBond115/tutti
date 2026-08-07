@@ -1,26 +1,196 @@
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createI18nRuntime } from "@tutti-os/ui-i18n-runtime";
 import { createRichTextMentionService } from "@tutti-os/ui-rich-text/service";
 import type { RichTextTriggerProvider } from "@tutti-os/ui-rich-text/types";
 import { describe, expect, it, vi } from "vitest";
 import { AgentGUIQuickComposer } from "./AgentGUIQuickComposer";
-import type { AgentGUIAgentTarget } from "./types";
+import type { AgentGUIQuickComposerAgentTarget } from "./AgentGUIQuickComposer";
+import { agentGuiI18nResources } from "./i18n/index";
 
 const agentTargets = [
   {
     agentTargetId: "agent:codex",
     iconUrl: "/codex.png",
     label: "Codex",
-    provider: "codex",
-    ref: { kind: "test", provider: "codex" },
-    targetId: "agent:codex"
+    provider: "codex"
   }
-] satisfies AgentGUIAgentTarget[];
+] satisfies AgentGUIQuickComposerAgentTarget[];
+
+const capabilitiesByAgentTargetId = {
+  "agent:codex": { imageInput: true, workspaceReferences: true }
+} as const;
 
 describe("AgentGUIQuickComposer", () => {
+  it("fails closed when the controlled Agent target is missing or disabled", () => {
+    const { container, rerender } = render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
+        content={[{ text: "Inspect this", type: "text" }]}
+        selectedAgentTargetId="agent:missing"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-testid="agent-gui-composer-send"]'
+      )?.disabled
+    ).toBe(true);
+
+    rerender(
+      <AgentGUIQuickComposer
+        agentTargets={[{ ...agentTargets[0]!, disabled: true }]}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
+        content={[{ text: "Inspect this", type: "text" }]}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[data-testid="agent-gui-composer-send"]'
+      )?.disabled
+    ).toBe(true);
+  });
+
+  it("submits the exact resolved Agent target identity", () => {
+    const onSubmit = vi.fn();
+    const { container } = render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
+        content={[{ text: "Inspect this", type: "text" }]}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSubmit={onSubmit}
+      />
+    );
+
+    fireEvent.click(
+      container.querySelector<HTMLButtonElement>(
+        '[data-testid="agent-gui-composer-send"]'
+      )!
+    );
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      agentTargetId: "agent:codex",
+      content: [{ text: "Inspect this", type: "text" }],
+      displayPrompt: "Inspect this"
+    });
+  });
+
+  it("maps provider selection to the canonical Agent target identity", () => {
+    const onAgentTargetChange = vi.fn();
+    render(
+      <AgentGUIQuickComposer
+        agentTargets={[
+          ...agentTargets,
+          {
+            agentTargetId: "agent:claude",
+            label: "Claude Code",
+            provider: "claude-code"
+          }
+        ]}
+        capabilitiesByAgentTargetId={{
+          ...capabilitiesByAgentTargetId,
+          "agent:claude": { imageInput: true, workspaceReferences: true }
+        }}
+        content={[{ text: "Inspect this", type: "text" }]}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={onAgentTargetChange}
+        onContentChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Switch provider" }));
+    fireEvent.click(screen.getByRole("option", { name: "Claude Code" }));
+
+    expect(onAgentTargetChange).toHaveBeenCalledWith("agent:claude");
+  });
+
+  it("fails closed for unknown or image-incompatible target capabilities", () => {
+    const imageContent = [
+      {
+        data: "iVBORw0KGgo=",
+        mimeType: "image/png" as const,
+        type: "image" as const
+      }
+    ];
+    const { container, rerender } = render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={{}}
+        content={imageContent}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+    const send = container.querySelector<HTMLButtonElement>(
+      '[data-testid="agent-gui-composer-send"]'
+    );
+    expect(send?.disabled).toBe(true);
+
+    rerender(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={{
+          "agent:codex": { imageInput: false, workspaceReferences: true }
+        }}
+        content={imageContent}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+    expect(send?.disabled).toBe(true);
+  });
+
+  it("uses a host-injected i18n runtime", () => {
+    const i18n = createI18nRuntime({
+      dictionaries: [agentGuiI18nResources.en]
+    });
+    const translate = vi.spyOn(i18n, "t");
+    render(
+      <AgentGUIQuickComposer
+        agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
+        content={[{ text: "", type: "text" }]}
+        i18n={i18n}
+        selectedAgentTargetId="agent:codex"
+        workspaceId="workspace:test"
+        onAgentTargetChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    );
+
+    expect(translate).toHaveBeenCalledWith(
+      "agentHost.agentGui.initialPlaceholder",
+      expect.any(Object)
+    );
+  });
+
   it("fills host-owned height only when requested", () => {
     const { container } = render(
       <AgentGUIQuickComposer
         agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
         content={[{ text: "", type: "text" }]}
         fillAvailableHeight={true}
         selectedAgentTargetId="agent:codex"
@@ -48,6 +218,7 @@ describe("AgentGUIQuickComposer", () => {
     const { container } = render(
       <AgentGUIQuickComposer
         agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
         content={[
           { text: "Inspect this screenshot", type: "text" },
           {
@@ -84,6 +255,7 @@ describe("AgentGUIQuickComposer", () => {
     const { container } = render(
       <AgentGUIQuickComposer
         agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
         content={[{ text: "", type: "text" }]}
         selectedAgentTargetId="agent:codex"
         workspaceId="workspace:test"
@@ -113,6 +285,7 @@ describe("AgentGUIQuickComposer", () => {
     const { container } = render(
       <AgentGUIQuickComposer
         agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
         content={[{ text: "", type: "text" }]}
         locale="zh-CN"
         selectedAgentTargetId="agent:codex"
@@ -156,6 +329,7 @@ describe("AgentGUIQuickComposer", () => {
     const { container } = render(
       <AgentGUIQuickComposer
         agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
         content={[{ text: "", type: "text" }]}
         selectedAgentTargetId="agent:codex"
         selectProjectDirectory={vi.fn().mockResolvedValue({
@@ -180,6 +354,7 @@ describe("AgentGUIQuickComposer", () => {
     const { container } = render(
       <AgentGUIQuickComposer
         agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
         composerActionAccessory={
           <span data-testid="quick-composer-action-accessory">Track Task</span>
         }
@@ -209,6 +384,7 @@ describe("AgentGUIQuickComposer", () => {
     const { container } = render(
       <AgentGUIQuickComposer
         agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
         composerActionAccessory={
           <span data-testid="quick-composer-footer-accessory">Track Task</span>
         }
@@ -258,6 +434,7 @@ describe("AgentGUIQuickComposer", () => {
     const { unmount } = render(
       <AgentGUIQuickComposer
         agentTargets={agentTargets}
+        capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
         content={[{ text: "", type: "text" }]}
         mentionService={mentionService}
         selectedAgentTargetId="agent:codex"

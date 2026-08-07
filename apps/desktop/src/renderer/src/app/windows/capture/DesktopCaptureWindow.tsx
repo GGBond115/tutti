@@ -6,7 +6,7 @@ import {
   useSyncExternalStore,
   type PointerEvent
 } from "react";
-import type { AgentGUIAgentTarget } from "@tutti-os/agent-gui";
+import type { AgentGUIQuickComposerAgentTarget } from "@tutti-os/agent-gui/quick-composer";
 import { Button, CloseIcon } from "@tutti-os/ui-system";
 import { createTranslator } from "../../../../../shared/i18n/index.ts";
 import type { DesktopCaptureWindowController } from "./desktopCaptureWindowController.ts";
@@ -30,17 +30,25 @@ export function DesktopCaptureWindow({
     () => createTranslator(snapshot.capture?.locale ?? "en"),
     [snapshot.capture?.locale]
   );
-  const agentTargets = useMemo<AgentGUIAgentTarget[]>(
+  const agentTargets = useMemo<AgentGUIQuickComposerAgentTarget[]>(
     () =>
       (snapshot.capture?.agents ?? []).map((agent) => ({
         agentTargetId: agent.id,
         description: agent.description ?? undefined,
         iconUrl: agent.iconUrl,
         label: agent.name,
-        provider: agent.provider,
-        ref: { kind: "desktop-capture", provider: agent.provider },
-        targetId: agent.id
+        provider: agent.provider
       })),
+    [snapshot.capture?.agents]
+  );
+  const capabilitiesByAgentTargetId = useMemo(
+    () =>
+      Object.fromEntries(
+        (snapshot.capture?.agents ?? []).map((agent) => [
+          agent.id,
+          agent.capabilities
+        ])
+      ),
     [snapshot.capture?.agents]
   );
   useEffect(() => {
@@ -177,9 +185,12 @@ export function DesktopCaptureWindow({
             >
               <DesktopCaptureComposer
                 agentTargets={agentTargets}
+                capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
                 content={snapshot.content}
                 controller={controller}
-                disabled={snapshot.submitting}
+                disabled={
+                  snapshot.submitting || snapshot.refreshingAgentOptions
+                }
                 locale={snapshot.capture.locale}
                 placeholder={translator.t("capture.notePlaceholder")}
                 projectPath={snapshot.projectPath}

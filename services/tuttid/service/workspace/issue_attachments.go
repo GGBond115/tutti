@@ -19,8 +19,94 @@ const (
 // The concrete local filesystem adapter belongs to data/workspace.
 type IssueAttachmentFiles interface {
 	WriteExclusive(attachmentID string, extension string, data []byte) (string, error)
+	Read(path string) ([]byte, error)
 	Remove(path string) error
 	IsManagedPath(path string) bool
+}
+
+type IssueManagerAttachmentContent struct {
+	ContextRefID string
+	MimeType     string
+	DisplayName  string
+	Data         []byte
+}
+
+type IssueManagerContextRefAccessKind string
+
+const (
+	IssueManagerContextRefAccessWorkspacePath     IssueManagerContextRefAccessKind = "workspace_path"
+	IssueManagerContextRefAccessManagedAttachment IssueManagerContextRefAccessKind = "managed_attachment"
+)
+
+// IssueManagerContextRefView is the host-owned public projection of a stored
+// ContextRef. Managed attachment paths stay private to tuttid.
+type IssueManagerContextRefView struct {
+	Ref        workspaceissues.ContextRef
+	AccessKind IssueManagerContextRefAccessKind
+	Path       *string
+}
+
+func (s IssueManagerService) ProjectIssueManagerContextRefs(
+	items []workspaceissues.ContextRef,
+) []IssueManagerContextRefView {
+	views := make([]IssueManagerContextRefView, 0, len(items))
+	for _, item := range items {
+		path := item.Path
+		view := IssueManagerContextRefView{
+			Ref:        item,
+			AccessKind: IssueManagerContextRefAccessWorkspacePath,
+			Path:       &path,
+		}
+		if s.AttachmentFiles != nil && s.AttachmentFiles.IsManagedPath(item.Path) {
+			view.AccessKind = IssueManagerContextRefAccessManagedAttachment
+			view.Path = nil
+		}
+		views = append(views, view)
+	}
+	return views
+}
+
+type issueAttachmentContextRefReader interface {
+	GetIssueAttachmentContextRef(context.Context, string, string, string) (workspaceissues.ContextRef, error)
+}
+
+func (s IssueManagerService) ReadIssueAttachment(
+	ctx context.Context,
+	workspaceID, issueID, contextRefID string,
+) (IssueManagerAttachmentContent, error) {
+	workspaceID = strings.TrimSpace(workspaceID)
+	issueID = strings.TrimSpace(issueID)
+	contextRefID = strings.TrimSpace(contextRefID)
+	if workspaceID == "" || issueID == "" || contextRefID == "" || s.AttachmentFiles == nil {
+		return IssueManagerAttachmentContent{}, workspaceissues.ErrInvalidArgument
+	}
+	reader, ok := s.Store.(issueAttachmentContextRefReader)
+	if !ok {
+		return IssueManagerAttachmentContent{}, workspaceissues.ErrStoreNotConfigured
+	}
+	ref, err := reader.GetIssueAttachmentContextRef(ctx, workspaceID, issueID, contextRefID)
+	if err != nil {
+		return IssueManagerAttachmentContent{}, err
+	}
+	if !strings.HasPrefix(ref.RefType, "image/") || !s.AttachmentFiles.IsManagedPath(ref.Path) {
+		return IssueManagerAttachmentContent{}, workspaceissues.ErrContextRefNotFound
+	}
+	data, err := s.AttachmentFiles.Read(ref.Path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return IssueManagerAttachmentContent{}, workspaceissues.ErrContextRefNotFound
+		}
+		return IssueManagerAttachmentContent{}, err
+	}
+	if int64(len(data)) > maxIssueImageBytes || !matchesIssueImageType(data, ref.RefType) {
+		return IssueManagerAttachmentContent{}, workspaceissues.ErrInvalidArgument
+	}
+	return IssueManagerAttachmentContent{
+		ContextRefID: ref.ContextRefID,
+		MimeType:     ref.RefType,
+		DisplayName:  ref.DisplayName,
+		Data:         data,
+	}, nil
 }
 
 func (s IssueManagerService) persistIssueAttachments(items []CreateIssueManagerImageAttachmentInput) ([]workspaceissues.AddContextRefInput, error) {

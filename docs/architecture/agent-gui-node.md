@@ -1683,6 +1683,19 @@ state. The host receives its typed prompt envelope and must route new Session
 creation through the workspace's existing `AgentSessionEngine`; the entry must
 never construct a second Engine or call a lifecycle transport.
 
+The embedding host owns target readiness and capability loading. It passes the
+canonical `agentTargetId` plus a capability snapshot for each selectable
+target. Quick Composer resolves only the exact identifier and fails closed for
+unknown, disabled, or capability-less targets; it never falls back to array
+position, legacy `targetId`, or an inferred provider. Structured image content
+is accepted only when the selected target declares image support. Submit emits
+the resolved target identity with the prompt envelope, preserving the target
+the user actually selected across the host activation boundary.
+The Quick Composer public target omits legacy `targetId` and AgentGUI-internal
+`ref`; the adapter derives both from canonical `agentTargetId` for the shared
+Composer VM. Provider-menu selection therefore cannot cross or collide with a
+second identifier namespace.
+
 The Quick Composer uses the Composer's `embedded` layout contract. Unlike
 `dock`, which intentionally grows attachments and long drafts upward over a
 conversation timeline, `embedded` keeps the entire draft in normal document

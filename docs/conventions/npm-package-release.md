@@ -295,6 +295,7 @@ The stable package entrypoints are:
 @tutti-os/agent-gui/agent-message-center
 @tutti-os/agent-gui/context-mention-palette
 @tutti-os/agent-gui/i18n
+@tutti-os/agent-gui/quick-composer
 @tutti-os/agent-gui/styles.css
 @tutti-os/agent-gui/workbench
 @tutti-os/agent-gui/workbench/browser-element-context

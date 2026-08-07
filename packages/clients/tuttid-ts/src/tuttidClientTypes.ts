@@ -82,6 +82,7 @@ import type {
   ImportExternalAgentSessionsRequest,
   LoadLocalWorkspaceAppRequest,
   IssueManagerContextRefsResponse,
+  IssueManagerAttachmentContentResponse,
   IssueManagerIssue,
   IssueManagerIssueDetailResponse,
   IssueManagerIssueListResponse,
@@ -852,6 +853,11 @@ export interface TuttidClient
     issueID: string,
     contextRefID: string
   ): Promise<DeleteIssueManagerContextRefResponse>;
+  readWorkspaceIssueAttachment(
+    workspaceID: string,
+    issueID: string,
+    contextRefID: string
+  ): Promise<IssueManagerAttachmentContentResponse>;
   removeWorkspaceIssueTaskContextRef(
     workspaceID: string,
     issueID: string,

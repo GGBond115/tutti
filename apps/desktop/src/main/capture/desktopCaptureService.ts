@@ -14,6 +14,7 @@ import type {
   TuttiExternalAtQueryResult,
   TuttiExternalAtResolveResult,
   TuttiExternalAgentActivityActivateSessionResult,
+  TuttiExternalAgentActivityComposerOptions,
   TuttiExternalAgentTargetCatalog,
   TuttiExternalUserProjectPathInput
 } from "@tutti-os/workspace-external-core/contracts";
@@ -42,6 +43,7 @@ import {
   type DesktopWorkspaceAppExternalRendererResult
 } from "../../shared/contracts/ipc.ts";
 import type {
+  DesktopCaptureAgentOption,
   DesktopCaptureAttachment,
   DesktopCaptureComposerOptions,
   DesktopCaptureSelectionInput,
@@ -61,6 +63,7 @@ import {
   resolveCaptureTitle
 } from "./captureGeometry.ts";
 import { normalizeCapturePromptContent } from "./captureAgentPrompt.ts";
+import { resolveCaptureAgentCapabilities } from "./captureAgentCapabilities.ts";
 import { desktopCaptureAccelerator } from "./captureShortcut.ts";
 import type { DesktopFileDialogAccess } from "../host/desktopFileDialogAccess.ts";
 
@@ -140,6 +143,23 @@ export function createDesktopCaptureService(input: {
   registerDesktopIpcHandler(
     desktopIpcChannels.capture.getState,
     (event) => trustedActiveCapture(event.sender).state
+  );
+  registerDesktopIpcHandler(
+    desktopIpcChannels.capture.getComposerOptions,
+    async (event, payload) => {
+      const capture = trustedActiveCapture(event.sender);
+      const agentTargetId = payload.agentTargetId.trim();
+      if (!agentTargetId) {
+        throw new Error("Screenshot Agent target is required");
+      }
+      const cwd = typeof payload.cwd === "string" ? payload.cwd.trim() : "";
+      const agent = await loadCaptureAgentOptionForCapture(
+        capture,
+        agentTargetId,
+        cwd
+      );
+      return { agents: [agent] };
+    }
   );
   registerDesktopIpcHandler(
     desktopIpcChannels.capture.queryMentions,
@@ -506,7 +526,7 @@ async function loadCaptureComposerOptionsWithOwner(
     throw new Error("Workspace renderer is unavailable");
   }
   await workspaceRendererReadiness.waitFor(workspaceWindow);
-  return loadCaptureComposerOptions(workspaceWindow, workspaceId);
+  return loadCaptureAgentCatalog(workspaceWindow, workspaceId);
 }
 
 function cancelCapture(capture: ActiveCapture): void {
@@ -547,7 +567,7 @@ function cropSelection(
   };
 }
 
-async function loadCaptureComposerOptions(
+async function loadCaptureAgentCatalog(
   workspaceWindow: BrowserWindow,
   workspaceId: string
 ): Promise<DesktopCaptureComposerOptions> {
@@ -563,17 +583,88 @@ async function loadCaptureComposerOptions(
     );
   const agents = catalog.agents
     .filter((target) => target.availability.status === "ready")
-    .map((target) => ({
-      description: target.description,
-      iconUrl: target.iconUrl,
-      id: target.agentTargetId,
-      name: target.name,
-      provider: target.provider
-    }));
+    .map(
+      (target): DesktopCaptureAgentOption => ({
+        capabilities: { imageInput: false, workspaceReferences: true },
+        ...(target.description ? { description: target.description } : {}),
+        iconUrl: target.iconUrl,
+        id: target.agentTargetId,
+        name: target.name,
+        provider: target.provider
+      })
+    );
   if (agents.length === 0) {
     throw new Error("Screenshot capture requires an available Agent");
   }
   return { agents };
+}
+
+async function loadCaptureAgentOptionForCapture(
+  capture: ActiveCapture,
+  agentTargetId: string,
+  cwd: string
+): Promise<DesktopCaptureAgentOption> {
+  const workspaceWindow = resolveWorkspaceWindow(capture.state.workspaceId);
+  if (!workspaceWindow) {
+    throw new Error("Workspace renderer is unavailable");
+  }
+  await capture.workspaceRendererReadiness.waitFor(workspaceWindow);
+  return loadCaptureAgentOption(
+    workspaceWindow,
+    capture.state.workspaceId,
+    agentTargetId,
+    cwd
+  );
+}
+
+async function loadCaptureAgentOption(
+  workspaceWindow: BrowserWindow,
+  workspaceId: string,
+  agentTargetId: string,
+  cwd: string
+): Promise<DesktopCaptureAgentOption> {
+  const catalog =
+    await requestWorkspaceOwnerRenderer<TuttiExternalAgentTargetCatalog>(
+      workspaceWindow,
+      {
+        appId: captureRendererAppId,
+        operation: "agentActivity.listTargets",
+        requestId: randomUUID(),
+        workspaceId
+      }
+    );
+  const target = catalog.agents.find(
+    (candidate) =>
+      candidate.agentTargetId === agentTargetId &&
+      candidate.availability.status === "ready"
+  );
+  if (!target) {
+    throw new Error("Screenshot Agent target is unavailable");
+  }
+  const options =
+    await requestWorkspaceOwnerRenderer<TuttiExternalAgentActivityComposerOptions>(
+      workspaceWindow,
+      {
+        appId: captureRendererAppId,
+        input: {
+          agentTargetId: target.agentTargetId,
+          cwd: cwd || null,
+          provider: target.provider,
+          settings: null
+        },
+        operation: "agentActivity.getComposerOptions",
+        requestId: randomUUID(),
+        workspaceId
+      }
+    );
+  return {
+    capabilities: resolveCaptureAgentCapabilities(options),
+    ...(target.description ? { description: target.description } : {}),
+    iconUrl: target.iconUrl,
+    id: target.agentTargetId,
+    name: target.name,
+    provider: target.provider
+  };
 }
 
 function presentComposer(
@@ -610,12 +701,20 @@ async function submitCapture(
     throw new Error("Screenshot selection is unavailable");
   }
   const agentTargetId = input.agentTargetId.trim();
-  if (!capture.state.agents.some((agent) => agent.id === agentTargetId)) {
-    throw new Error("Screenshot Agent target is invalid");
+  if (!agentTargetId) {
+    throw new Error("Screenshot Agent target is required");
   }
   const content = normalizeCapturePromptContent(input.content);
   const cwd = typeof input.cwd === "string" ? input.cwd.trim() : "";
   const displayPrompt = input.displayPrompt?.trim() ?? "";
+  const agent = await loadCaptureAgentOptionForCapture(
+    capture,
+    agentTargetId,
+    cwd
+  );
+  if (!agent.capabilities.imageInput) {
+    throw new Error("Screenshot Agent target does not support image input");
+  }
   const agentSessionId = randomUUID();
   await requestCaptureWorkspaceOwner<TuttiExternalAgentActivityActivateSessionResult>(
     capture,

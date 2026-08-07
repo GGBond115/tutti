@@ -2338,6 +2338,27 @@ func (e IssueManagerAcceptanceState) Valid() bool {
 	}
 }
 
+// Defines values for IssueManagerAttachmentContentResponseMimeType.
+const (
+	IssueManagerAttachmentContentResponseMimeTypeImagejpeg IssueManagerAttachmentContentResponseMimeType = "image/jpeg"
+	IssueManagerAttachmentContentResponseMimeTypeImagepng  IssueManagerAttachmentContentResponseMimeType = "image/png"
+	IssueManagerAttachmentContentResponseMimeTypeImagewebp IssueManagerAttachmentContentResponseMimeType = "image/webp"
+)
+
+// Valid indicates whether the value is a known member of the IssueManagerAttachmentContentResponseMimeType enum.
+func (e IssueManagerAttachmentContentResponseMimeType) Valid() bool {
+	switch e {
+	case IssueManagerAttachmentContentResponseMimeTypeImagejpeg:
+		return true
+	case IssueManagerAttachmentContentResponseMimeTypeImagepng:
+		return true
+	case IssueManagerAttachmentContentResponseMimeTypeImagewebp:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IssueManagerBudgetMode.
 const (
 	IssueManagerBudgetModeAuto  IssueManagerBudgetMode = "auto"
@@ -2368,6 +2389,24 @@ func (e IssueManagerBudgetStatus) Valid() bool {
 	case IssueManagerBudgetStatusActive:
 		return true
 	case IssueManagerBudgetStatusSoftLimited:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IssueManagerIssueContextRefAccessKind.
+const (
+	IssueManagerIssueContextRefAccessKindManagedAttachment IssueManagerIssueContextRefAccessKind = "managed_attachment"
+	IssueManagerIssueContextRefAccessKindWorkspacePath     IssueManagerIssueContextRefAccessKind = "workspace_path"
+)
+
+// Valid indicates whether the value is a known member of the IssueManagerIssueContextRefAccessKind enum.
+func (e IssueManagerIssueContextRefAccessKind) Valid() bool {
+	switch e {
+	case IssueManagerIssueContextRefAccessKindManagedAttachment:
+		return true
+	case IssueManagerIssueContextRefAccessKindWorkspacePath:
 		return true
 	default:
 		return false
@@ -2509,6 +2548,24 @@ func (e IssueManagerStatusFilter) Valid() bool {
 	case IssueManagerStatusFilterPendingAcceptance:
 		return true
 	case IssueManagerStatusFilterRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IssueManagerTaskContextRefAccessKind.
+const (
+	IssueManagerTaskContextRefAccessKindManagedAttachment IssueManagerTaskContextRefAccessKind = "managed_attachment"
+	IssueManagerTaskContextRefAccessKindWorkspacePath     IssueManagerTaskContextRefAccessKind = "workspace_path"
+)
+
+// Valid indicates whether the value is a known member of the IssueManagerTaskContextRefAccessKind enum.
+func (e IssueManagerTaskContextRefAccessKind) Valid() bool {
+	switch e {
+	case IssueManagerTaskContextRefAccessKindManagedAttachment:
+		return true
+	case IssueManagerTaskContextRefAccessKindWorkspacePath:
 		return true
 	default:
 		return false
@@ -3378,19 +3435,19 @@ func (e WorkspaceAgentRailPlacementVersion) Valid() bool {
 
 // Defines values for WorkspaceAgentSessionAttachmentResponseMimeType.
 const (
-	WorkspaceAgentSessionAttachmentResponseMimeTypeImagejpeg WorkspaceAgentSessionAttachmentResponseMimeType = "image/jpeg"
-	WorkspaceAgentSessionAttachmentResponseMimeTypeImagepng  WorkspaceAgentSessionAttachmentResponseMimeType = "image/png"
-	WorkspaceAgentSessionAttachmentResponseMimeTypeImagewebp WorkspaceAgentSessionAttachmentResponseMimeType = "image/webp"
+	Imagejpeg WorkspaceAgentSessionAttachmentResponseMimeType = "image/jpeg"
+	Imagepng  WorkspaceAgentSessionAttachmentResponseMimeType = "image/png"
+	Imagewebp WorkspaceAgentSessionAttachmentResponseMimeType = "image/webp"
 )
 
 // Valid indicates whether the value is a known member of the WorkspaceAgentSessionAttachmentResponseMimeType enum.
 func (e WorkspaceAgentSessionAttachmentResponseMimeType) Valid() bool {
 	switch e {
-	case WorkspaceAgentSessionAttachmentResponseMimeTypeImagejpeg:
+	case Imagejpeg:
 		return true
-	case WorkspaceAgentSessionAttachmentResponseMimeTypeImagepng:
+	case Imagepng:
 		return true
-	case WorkspaceAgentSessionAttachmentResponseMimeTypeImagewebp:
+	case Imagewebp:
 		return true
 	default:
 		return false
@@ -6942,6 +6999,17 @@ type InstallWorkspaceAppRequest struct {
 // IssueManagerAcceptanceState Three-step completion ladder. Only user_accepted closes a successful task.
 type IssueManagerAcceptanceState string
 
+// IssueManagerAttachmentContentResponse defines model for IssueManagerAttachmentContentResponse.
+type IssueManagerAttachmentContentResponse struct {
+	ContextRefId string                                        `json:"contextRefId"`
+	Data         []byte                                        `json:"data"`
+	DisplayName  string                                        `json:"displayName"`
+	MimeType     IssueManagerAttachmentContentResponseMimeType `json:"mimeType"`
+}
+
+// IssueManagerAttachmentContentResponseMimeType defines model for IssueManagerAttachmentContentResponse.MimeType.
+type IssueManagerAttachmentContentResponseMimeType string
+
 // IssueManagerAutoTokenBudgetEstimate defines model for IssueManagerAutoTokenBudgetEstimate.
 type IssueManagerAutoTokenBudgetEstimate struct {
 	// DeterministicTokenLimit Scale and intensity estimate before historical calibration.
@@ -7055,15 +7123,19 @@ type IssueManagerIssue struct {
 
 // IssueManagerIssueContextRef defines model for IssueManagerIssueContextRef.
 type IssueManagerIssueContextRef struct {
+	AccessKind    IssueManagerIssueContextRefAccessKind `json:"accessKind"`
 	ContextRefId  string                                `json:"contextRefId"`
 	CreatedAtUnix int64                                 `json:"createdAtUnix"`
 	DisplayName   string                                `json:"displayName"`
 	IssueId       string                                `json:"issueId"`
 	ParentKind    IssueManagerIssueContextRefParentKind `json:"parentKind"`
-	Path          string                                `json:"path"`
+	Path          *string                               `json:"path,omitempty"`
 	RefType       string                                `json:"refType"`
 	WorkspaceId   string                                `json:"workspaceId"`
 }
+
+// IssueManagerIssueContextRefAccessKind defines model for IssueManagerIssueContextRef.AccessKind.
+type IssueManagerIssueContextRefAccessKind string
 
 // IssueManagerIssueContextRefParentKind defines model for IssueManagerIssueContextRef.ParentKind.
 type IssueManagerIssueContextRefParentKind string
@@ -7244,16 +7316,20 @@ type IssueManagerTask struct {
 
 // IssueManagerTaskContextRef defines model for IssueManagerTaskContextRef.
 type IssueManagerTaskContextRef struct {
+	AccessKind    IssueManagerTaskContextRefAccessKind `json:"accessKind"`
 	ContextRefId  string                               `json:"contextRefId"`
 	CreatedAtUnix int64                                `json:"createdAtUnix"`
 	DisplayName   string                               `json:"displayName"`
 	IssueId       string                               `json:"issueId"`
 	ParentKind    IssueManagerTaskContextRefParentKind `json:"parentKind"`
-	Path          string                               `json:"path"`
+	Path          *string                              `json:"path,omitempty"`
 	RefType       string                               `json:"refType"`
 	TaskId        string                               `json:"taskId"`
 	WorkspaceId   string                               `json:"workspaceId"`
 }
+
+// IssueManagerTaskContextRefAccessKind defines model for IssueManagerTaskContextRef.AccessKind.
+type IssueManagerTaskContextRefAccessKind string
 
 // IssueManagerTaskContextRefParentKind defines model for IssueManagerTaskContextRef.ParentKind.
 type IssueManagerTaskContextRefParentKind string

@@ -96,6 +96,14 @@ func registerIssueRoutes(mux *http.ServeMux, wrapper *tuttigenerated.ServerInter
 		wrapper.RemoveWorkspaceIssueContextRef(w, r)
 	})
 
+	mux.HandleFunc("/v1/workspaces/{workspaceID}/issues/{issueID}/context-refs/{contextRefID}/attachment", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			tuttitypes.WriteMethodNotAllowed(w)
+			return
+		}
+		wrapper.ReadWorkspaceIssueAttachment(w, r)
+	})
+
 	mux.HandleFunc("/v1/workspaces/{workspaceID}/issues/{issueID}/cancel-execution", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			tuttitypes.WriteMethodNotAllowed(w)

@@ -16,6 +16,10 @@ import type {
 import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 
 export interface DesktopCaptureAgentOption {
+  capabilities: {
+    imageInput: boolean;
+    workspaceReferences: boolean;
+  };
   description?: string | null;
   id: string;
   iconUrl: string;
@@ -35,6 +39,11 @@ export interface DesktopCaptureState {
 
 export interface DesktopCaptureComposerOptions {
   agents: DesktopCaptureAgentOption[];
+}
+
+export interface DesktopCaptureComposerOptionsInput {
+  agentTargetId: string;
+  cwd?: string | null;
 }
 
 export interface DesktopCaptureSelectionInput {
@@ -70,6 +79,9 @@ export interface DesktopCaptureSubmitResult {
 
 export interface DesktopCaptureApi {
   cancel(): Promise<void>;
+  getComposerOptions(
+    input: DesktopCaptureComposerOptionsInput
+  ): Promise<DesktopCaptureComposerOptions>;
   getState(): Promise<DesktopCaptureState>;
   queryMentions(
     input: TuttiExternalAtQueryInput

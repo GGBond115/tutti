@@ -137,7 +137,10 @@ func (api DaemonAPI) CreateWorkspaceIssueFromPlan(ctx context.Context, request t
 		return writeCreateWorkspaceIssueFromPlanError(err), nil
 	}
 	return tuttigenerated.CreateWorkspaceIssueFromPlan201JSONResponse(
-		workspaceapi.GeneratedIssueManagerIssueDetailResponseFromDomain(detail),
+		workspaceapi.GeneratedIssueManagerIssueDetailResponseFromDomain(
+			detail,
+			api.IssueService.ProjectIssueManagerContextRefs(detail.ContextRefs),
+		),
 	), nil
 }
 
@@ -169,18 +172,6 @@ func (api DaemonAPI) EstimateWorkspaceIssueAutoTokenBudget(ctx context.Context, 
 		HistoricalTokenEstimate: estimate.HistoricalTokenEstimate,
 		MatchedTaskCount:        estimate.MatchedHistoricalTaskCount,
 	}, nil
-}
-
-func (api DaemonAPI) RemoveWorkspaceIssueContextRef(ctx context.Context, request tuttigenerated.RemoveWorkspaceIssueContextRefRequestObject) (tuttigenerated.RemoveWorkspaceIssueContextRefResponseObject, error) {
-	if api.IssueService == nil {
-		return tuttigenerated.RemoveWorkspaceIssueContextRef503JSONResponse{ServiceUnavailableErrorJSONResponse: issueManagerServiceUnavailableError()}, nil
-	}
-
-	removed, err := api.IssueService.RemoveIssueContextRef(ctx, string(request.WorkspaceID), string(request.IssueID), string(request.ContextRefID))
-	if err != nil {
-		return writeRemoveWorkspaceIssueContextRefError(err), nil
-	}
-	return tuttigenerated.RemoveWorkspaceIssueContextRef200JSONResponse{Removed: removed}, nil
 }
 
 func (api DaemonAPI) RemoveWorkspaceIssueTaskContextRef(ctx context.Context, request tuttigenerated.RemoveWorkspaceIssueTaskContextRefRequestObject) (tuttigenerated.RemoveWorkspaceIssueTaskContextRefResponseObject, error) {
@@ -228,7 +219,10 @@ func (api DaemonAPI) GetWorkspaceIssueDetail(ctx context.Context, request tuttig
 		return writeGetWorkspaceIssueDetailError(err), nil
 	}
 	return tuttigenerated.GetWorkspaceIssueDetail200JSONResponse(
-		workspaceapi.GeneratedIssueManagerIssueDetailResponseFromDomain(detail),
+		workspaceapi.GeneratedIssueManagerIssueDetailResponseFromDomain(
+			detail,
+			api.IssueService.ProjectIssueManagerContextRefs(detail.ContextRefs),
+		),
 	), nil
 }
 
@@ -299,7 +293,9 @@ func (api DaemonAPI) AddWorkspaceIssueContextRefs(ctx context.Context, request t
 		return writeAddWorkspaceIssueContextRefsError(err), nil
 	}
 	return tuttigenerated.AddWorkspaceIssueContextRefs200JSONResponse(
-		workspaceapi.GeneratedIssueManagerContextRefsResponseFromDomain(refs),
+		workspaceapi.GeneratedIssueManagerContextRefsResponseFromService(
+			api.IssueService.ProjectIssueManagerContextRefs(refs),
+		),
 	), nil
 }
 
@@ -391,7 +387,10 @@ func (api DaemonAPI) GetWorkspaceIssueTaskDetail(ctx context.Context, request tu
 		return writeGetWorkspaceIssueTaskDetailError(err), nil
 	}
 	return tuttigenerated.GetWorkspaceIssueTaskDetail200JSONResponse(
-		workspaceapi.GeneratedIssueManagerTaskDetailResponseFromDomain(detail),
+		workspaceapi.GeneratedIssueManagerTaskDetailResponseFromDomain(
+			detail,
+			api.IssueService.ProjectIssueManagerContextRefs(detail.ContextRefs),
+		),
 	), nil
 }
 
@@ -448,7 +447,9 @@ func (api DaemonAPI) AddWorkspaceIssueTaskContextRefs(ctx context.Context, reque
 		return writeAddWorkspaceIssueTaskContextRefsError(err), nil
 	}
 	return tuttigenerated.AddWorkspaceIssueTaskContextRefs200JSONResponse(
-		workspaceapi.GeneratedIssueManagerContextRefsResponseFromDomain(refs),
+		workspaceapi.GeneratedIssueManagerContextRefsResponseFromService(
+			api.IssueService.ProjectIssueManagerContextRefs(refs),
+		),
 	), nil
 }
 

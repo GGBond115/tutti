@@ -197,9 +197,10 @@ type CreateRunInput struct {
 }
 
 type PreparedRun struct {
-	Run   Run
-	Task  Task
-	Issue Issue
+	Run       Run
+	Task      Task
+	TaskIsNew bool
+	Issue     Issue
 }
 
 type CompleteRunOutputInput struct {
@@ -322,6 +323,16 @@ func (s Service) CreateRun(ctx context.Context, input CreateRunInput) (Run, erro
 	if err != nil {
 		return Run{}, err
 	}
+	if prepared.TaskIsNew {
+		createdTasks, err := store.AppendTasks(ctx, []Task{prepared.Task})
+		if err != nil {
+			return Run{}, err
+		}
+		if len(createdTasks) != 1 {
+			return Run{}, ErrInvalidArgument
+		}
+		prepared.Task = createdTasks[0]
+	}
 	created, err := store.CreateRun(ctx, prepared.Run)
 	if err != nil {
 		return Run{}, err
@@ -370,11 +381,14 @@ func (s Service) PrepareRun(ctx context.Context, input CreateRunInput) (Prepared
 	if err := RejectManagedIssueMutation(issue); err != nil {
 		return PreparedRun{}, err
 	}
+	taskIsNew := false
 	if task == nil {
-		task, err = s.ensureIssueRunTask(ctx, store, issue, actorUserID)
+		preparedTask, preparedTaskIsNew, err := s.prepareIssueRunTask(ctx, store, issue, actorUserID)
 		if err != nil {
 			return PreparedRun{}, err
 		}
+		task = &preparedTask
+		taskIsNew = preparedTaskIsNew
 		taskID = task.TaskID
 	}
 	if !IssueBudgetAllowsNextAutomaticRun(issue) {
@@ -426,7 +440,7 @@ func (s Service) PrepareRun(ctx context.Context, input CreateRunInput) (Prepared
 	if run.RunID == "" {
 		return PreparedRun{}, ErrInvalidArgument
 	}
-	return PreparedRun{Run: run, Task: *task, Issue: issue}, nil
+	return PreparedRun{Run: run, Task: *task, TaskIsNew: taskIsNew, Issue: issue}, nil
 }
 
 func taskDependenciesAccepted(ctx context.Context, store Store, workspaceID string, issueID string, task Task) bool {
@@ -459,46 +473,28 @@ func agentProviderForAgentTargetID(agentTargetID string) string {
 	return ""
 }
 
-func (s Service) ensureIssueRunTask(ctx context.Context, store Store, issue Issue, actorUserID string) (*Task, error) {
+func (s Service) prepareIssueRunTask(ctx context.Context, store Store, issue Issue, actorUserID string) (Task, bool, error) {
 	tasks, err := store.ListTasks(ctx, TaskListFilter{
 		WorkspaceID: issue.WorkspaceID,
 		IssueID:     issue.IssueID,
 		ReturnAll:   true,
 	})
 	if err != nil {
-		return nil, err
+		return Task{}, false, err
 	}
 	if len(tasks.Items) > 0 {
-		task := tasks.Items[0]
-		return &task, nil
+		return tasks.Items[0], false, nil
 	}
-	now := s.nowUnixMS()
-	task := Task{
-		TaskID:          s.resolveID(IDKindTask, ""),
-		IssueID:         issue.IssueID,
-		WorkspaceID:     issue.WorkspaceID,
-		Title:           strings.TrimSpace(issue.Title),
-		Status:          StatusNotStarted,
-		Priority:        PriorityMedium,
-		AcceptanceState: AcceptanceAgentClaimed,
-		CreatorUserID:   actorUserID,
-		CreatedAtUnixMS: now,
-		UpdatedAtUnixMS: now,
-	}
-	if task.TaskID == "" || task.Title == "" {
-		return nil, ErrInvalidArgument
-	}
-	created, err := store.AppendTasks(ctx, []Task{task})
+	prepared, err := s.buildTasks(issue, actorUserID, []CreateTaskItemInput{{
+		Title: issue.Title,
+	}})
 	if err != nil {
-		return nil, err
+		return Task{}, false, err
 	}
-	if len(created) != 1 {
-		return nil, ErrInvalidArgument
+	if len(prepared) != 1 {
+		return Task{}, false, ErrInvalidArgument
 	}
-	if _, err := store.RecalculateIssueProjection(ctx, issue.WorkspaceID, issue.IssueID); err != nil {
-		return nil, err
-	}
-	return &created[0], nil
+	return prepared[0], true, nil
 }
 
 func findIssueRunTaskID(ctx context.Context, store Store, workspaceID string, issueID string, runID string) (string, error) {

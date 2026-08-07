@@ -264,7 +264,7 @@ export function IssueManagerIssuePane({
               />
               <IssueManagerAttachmentSection
                 copy={copy}
-                onOpen={controller.openReference}
+                onOpen={controller.openContextRef}
                 refs={controller.issueDetail.value?.contextRefs ?? []}
               />
               <IssueManagerLatestRunStatusSection

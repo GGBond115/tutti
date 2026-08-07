@@ -86,6 +86,10 @@ func buildDaemonAPI(
 	workflowStore, _ := store.(tuttimodeplanservice.Store)
 	tuttiModeActivationStore, _ := store.(tuttimodeactivationservice.Store)
 	fileAdapter := workspacedata.LocalFilesAdapter{}
+	issueAttachmentFiles, err := reconcileIssueAttachmentFiles(ctx, store)
+	if err != nil {
+		return tuttiapi.DaemonAPI{}, nil, nil, nil, err
+	}
 
 	events := eventstreamservice.NewService(eventstreamservice.DefaultCatalog(), nil)
 	preferencesPublisher := eventstreamservice.DesktopPreferencesPublisher{Service: events}
@@ -531,10 +535,6 @@ func buildDaemonAPI(
 	}
 	sourceActivityObservers.Add(tuttiModeSourceActivity)
 	tuttiModeMainWakeRecovery := &tuttiModeMainWakeReadyRecovery{Delegate: tuttiModeExecutions}
-	issueAttachmentFiles, err := reconcileIssueAttachmentFiles(ctx, store)
-	if err != nil {
-		return tuttiapi.DaemonAPI{}, nil, nil, nil, err
-	}
 	issueService := workspaceservice.IssueManagerService{
 		RunLauncher:                  issueRunAgentLauncher{Sessions: agentSessionService, Host: agentHost},
 		RunLaunchGate:                issueRunLaunchGate,

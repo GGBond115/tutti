@@ -19,6 +19,25 @@ type IssueAttachmentFiles struct {
 	StateDir string
 }
 
+func (s IssueAttachmentFiles) Read(path string) ([]byte, error) {
+	if !s.IsManagedPath(path) {
+		return nil, errors.New("issue attachment path is not managed")
+	}
+	clean := filepath.Clean(strings.TrimSpace(path))
+	info, err := os.Lstat(clean)
+	if err != nil {
+		return nil, fmt.Errorf("stat issue attachment: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("issue attachment is not a regular file")
+	}
+	data, err := os.ReadFile(clean)
+	if err != nil {
+		return nil, fmt.Errorf("read issue attachment: %w", err)
+	}
+	return data, nil
+}
+
 func (s IssueAttachmentFiles) WriteExclusive(attachmentID string, extension string, data []byte) (string, error) {
 	root, err := s.root()
 	if err != nil {
@@ -49,7 +68,7 @@ func (s IssueAttachmentFiles) WriteExclusive(attachmentID string, extension stri
 	if err := file.Close(); err != nil {
 		return "", fmt.Errorf("close issue attachment: %w", err)
 	}
-	if err := syncDirectory(root); err != nil {
+	if err := syncIssueAttachmentDirectory(root); err != nil {
 		return "", err
 	}
 	published = true
@@ -67,7 +86,7 @@ func (s IssueAttachmentFiles) Remove(path string) error {
 	if err != nil {
 		return err
 	}
-	return syncDirectory(root)
+	return syncIssueAttachmentDirectory(root)
 }
 
 // Reconcile removes managed image files that have neither a durable ContextRef
@@ -108,7 +127,7 @@ func (s IssueAttachmentFiles) Reconcile(ctx context.Context, refs IssueAttachmen
 		removed = true
 	}
 	if removed {
-		return syncDirectory(root)
+		return syncIssueAttachmentDirectory(root)
 	}
 	return nil
 }
@@ -142,16 +161,4 @@ func isManagedIssueAttachmentName(name string) bool {
 	default:
 		return false
 	}
-}
-
-func syncDirectory(path string) error {
-	directory, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open issue attachment directory: %w", err)
-	}
-	defer directory.Close()
-	if err := directory.Sync(); err != nil {
-		return fmt.Errorf("sync issue attachment directory: %w", err)
-	}
-	return nil
 }

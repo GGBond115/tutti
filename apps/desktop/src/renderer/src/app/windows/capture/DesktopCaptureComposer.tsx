@@ -1,7 +1,10 @@
 import { useEffect, useMemo } from "react";
 import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
-import type { AgentGUIAgentTarget } from "@tutti-os/agent-gui";
-import { AgentGUIQuickComposer } from "@tutti-os/agent-gui/quick-composer";
+import {
+  AgentGUIQuickComposer,
+  type AgentGUIQuickComposerAgentTarget,
+  type AgentGUIQuickComposerTargetCapabilities
+} from "@tutti-os/agent-gui/quick-composer";
 import { Switch } from "@tutti-os/ui-system";
 import { createTuttiExternalRichTextMentionService } from "@tutti-os/workspace-external-core/rich-text";
 import type { DesktopLocale } from "../../../../../shared/i18n/core/locale.ts";
@@ -9,6 +12,7 @@ import type { DesktopCaptureWindowController } from "./desktopCaptureWindowContr
 
 export function DesktopCaptureComposer({
   agentTargets,
+  capabilitiesByAgentTargetId,
   content,
   controller,
   disabled,
@@ -22,7 +26,10 @@ export function DesktopCaptureComposer({
   trackWithTask,
   workspaceId
 }: {
-  agentTargets: readonly AgentGUIAgentTarget[];
+  agentTargets: readonly AgentGUIQuickComposerAgentTarget[];
+  capabilitiesByAgentTargetId: Readonly<
+    Record<string, AgentGUIQuickComposerTargetCapabilities | undefined>
+  >;
   content: readonly AgentPromptContentBlock[];
   controller: DesktopCaptureWindowController;
   disabled: boolean;
@@ -49,6 +56,7 @@ export function DesktopCaptureComposer({
   return (
     <AgentGUIQuickComposer
       agentTargets={agentTargets}
+      capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
       composerActionAccessory={
         <div
           className="inline-flex shrink-0 items-center gap-2"
@@ -91,8 +99,13 @@ export function DesktopCaptureComposer({
         files: await controller.selectFiles(),
         mentionItems: []
       })}
-      onSubmit={(nextContent, displayPrompt) =>
-        void controller.submit(nextContent, displayPrompt, taskInstruction)
+      onSubmit={({ agentTargetId, content: nextContent, displayPrompt }) =>
+        void controller.submit(
+          agentTargetId,
+          nextContent,
+          displayPrompt,
+          taskInstruction
+        )
       }
     />
   );

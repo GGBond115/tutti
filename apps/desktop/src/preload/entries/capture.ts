@@ -5,6 +5,8 @@ import { invokeDesktopApi } from "../api/invoke.ts";
 
 const captureApi: DesktopCaptureApi = {
   cancel: () => invokeDesktopApi(desktopIpcChannels.capture.cancel),
+  getComposerOptions: (input) =>
+    invokeDesktopApi(desktopIpcChannels.capture.getComposerOptions, input),
   getState: () => invokeDesktopApi(desktopIpcChannels.capture.getState),
   queryMentionDirectory: (input) =>
     invokeDesktopApi(desktopIpcChannels.capture.queryMentionDirectory, input),

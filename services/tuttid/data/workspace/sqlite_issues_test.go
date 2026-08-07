@@ -948,6 +948,85 @@ func TestSQLiteIssueStoreRollsBackIssueWhenContextRefInsertFails(t *testing.T) {
 	}
 }
 
+func TestSQLiteIssueStoreRollsBackImplicitTaskWhenLaunchIntentAdmissionFails(t *testing.T) {
+	t.Parallel()
+
+	store := openTestSQLiteStore(t)
+	ctx := context.Background()
+	const workspaceID = "ws-explicit-launch-admission-rollback"
+	if err := store.Create(ctx, workspacebiz.Summary{ID: workspaceID, Name: "Launch admission rollback"}); err != nil {
+		t.Fatal(err)
+	}
+	service := testIssueService(store)
+	issue, err := service.CreateIssue(ctx, workspaceissues.CreateIssueInput{
+		WorkspaceID: workspaceID,
+		TopicID:     workspaceissues.DefaultTopicID,
+		ActorUserID: "user-1",
+		Title:       "Atomic implicit task",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := service.PrepareRun(ctx, workspaceissues.CreateRunInput{
+		WorkspaceID:   workspaceID,
+		IssueID:       issue.IssueID,
+		ActorUserID:   "user-1",
+		RunID:         "run-admission-rollback",
+		AgentTargetID: "local:codex",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prepared.TaskIsNew {
+		t.Fatal("PrepareRun() TaskIsNew = false, want true")
+	}
+	if _, err := store.writeDB.ExecContext(ctx, `
+CREATE TRIGGER reject_explicit_launch_intent_admission
+BEFORE INSERT ON workspace_issue_run_launch_intents
+BEGIN
+  SELECT RAISE(ABORT, 'injected launch intent admission failure');
+END;
+`); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.CreateIssueRunWithLaunchIntent(
+		ctx,
+		prepared,
+		workspaceissues.IssueRunClientSubmitID(prepared.Run.RunID),
+		`{}`,
+	); err == nil {
+		t.Fatal("CreateIssueRunWithLaunchIntent() error = nil, want injected rollback")
+	}
+	tasks, err := store.ListTasks(ctx, workspaceissues.TaskListFilter{
+		WorkspaceID: workspaceID,
+		IssueID:     issue.IssueID,
+		ReturnAll:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks.Items) != 0 {
+		t.Fatalf("tasks after rollback = %+v, want none", tasks.Items)
+	}
+	if _, err := store.GetRun(
+		ctx,
+		workspaceID,
+		issue.IssueID,
+		prepared.Task.TaskID,
+		prepared.Run.RunID,
+	); !errors.Is(err, workspaceissues.ErrRunNotFound) {
+		t.Fatalf("GetRun() after rollback error = %v, want ErrRunNotFound", err)
+	}
+	detail, err := service.GetIssueDetail(ctx, workspaceID, issue.IssueID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Issue.TaskCount != 0 || detail.Issue.RunningCount != 0 {
+		t.Fatalf("Issue projection after rollback = %+v", detail.Issue)
+	}
+}
+
 func TestSQLiteIssueStoreSettlesExplicitLaunchAtomically(t *testing.T) {
 	t.Parallel()
 

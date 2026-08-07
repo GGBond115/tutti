@@ -1045,7 +1045,8 @@ function createDependenciesStub(): {
       decideWorkspaceWorkflowCheckpoint: fail,
       cancelWorkspaceIssueExecution: fail,
       setCollaborationRunAdoption: fail,
-      cancelTuttiModeExecution: fail
+      cancelTuttiModeExecution: fail,
+      readWorkspaceIssueAttachment: fail
     },
     platformApi: {
       homeDirectory: "/Users/local",

@@ -164,9 +164,20 @@ Attachment metadata uses the existing ContextRef relationship instead of a
 parallel attachment model:
 
 - `refType` is the image MIME type;
-- `path` is the daemon-managed absolute source path;
 - `displayName` is shown in Issue and Task attachment sections;
-- `contextRefId` is prefixed with `attachment-`.
+- `contextRefId` is prefixed with `attachment-`;
+- public responses set `accessKind` to `managed_attachment` and omit `path`.
+
+Inside `tuttid`, the persistence adapter retains the daemon-managed absolute
+source path for validation, cleanup, and Agent delivery. That path does not
+cross the Issue Manager or reusable package boundary. A host opens a managed
+attachment by its workspace, Issue, and ContextRef IDs, fetches validated bytes,
+materializes them in its own trusted attachment store, and opens the local copy.
+Ordinary project files use `accessKind: workspace_path`. This makes the same
+contract safe for local Desktop and VM consumers whose filesystem roots differ.
+`tuttid` service orchestration classifies managed access through the concrete
+attachment adapter's safe-path policy; the HTTP mapper never guesses from a
+caller-controlled ContextRef ID or MIME type.
 
 Issue-level images are inherited by each Issue Run. Task-level image ContextRefs
 are appended for task Runs. The Issue adapter projects both as
@@ -183,18 +194,24 @@ committed in one SQLite transaction. A failed transaction removes the staged
 files; a committed Issue is therefore never visible without its attachments.
 Before the daemon serves requests, the file adapter reconciles the managed root
 against SQLite ContextRefs and removes files orphaned before the transaction,
-plus cleanup left behind by a prior delete. ContextRef removal and Run
-admission share the Issue mutation lock. Automatic Runs retain a transient
-attachment pin until the Agent adapter has copied each source; explicit
-prepared and leased intents retain a durable pin across retry and restart.
+plus cleanup left behind by a prior delete. This reconciliation runs before
+Agent Host and background workers start. Attachment files are synced on all
+platforms; directory-entry syncing is used where supported and is intentionally
+a no-op on Windows, where portable directory `fsync` is unavailable. ContextRef
+removal and Run admission share the Issue mutation lock. Automatic Runs retain
+a transient attachment pin until the Agent adapter has copied each source;
+explicit prepared and leased intents retain a durable pin across retry and
+restart.
 
-The explicit create-and-run path atomically commits the Run and a prepared
-launch intent containing stable Agent session/client-submit identities plus an
-immutable prompt and attachment-path snapshot. Prepared or leased snapshots
-pin their managed attachment files even if the user later edits the Issue or
-removes its ContextRef. Delivery first leases that intent. A confirmed delivery
-marks it dispatched; authoritative evidence that no Agent turn started settles
-the intent, Run, task projection, Issue projection, and topic activity in one
+The explicit create-and-run path atomically commits any required implicit Task,
+the Run, and a prepared launch intent containing stable Agent
+session/client-submit identities plus an immutable prompt and attachment-path
+snapshot. Preparation is side-effect free; if intent admission fails, no Task,
+Run, or Issue projection survives. Prepared or leased snapshots pin their
+managed attachment files even if the user later edits the Issue or removes its
+ContextRef. Delivery first leases that intent. A confirmed delivery marks it
+dispatched; authoritative evidence that no Agent turn started settles the
+intent, Run, task projection, Issue projection, and topic activity in one
 transaction. An unknown delivery result releases it to prepared instead of
 falsely failing the task. Startup and periodic workspace recovery re-deliver
 the snapshot with the same identities, so Agent Host can reconcile or
@@ -206,6 +223,16 @@ delivered before the error is retried, so no running claim is stranded.
 The plan-materialization request uses a separate issue schema without inline
 attachments. This prevents the API from accepting attachment bytes that the
 atomic Issue-and-task materializer does not own.
+
+Agent image capability is resolved with the same target, effective settings,
+and selected project directory (`cwd`) signature used by the full Composer.
+Changing projects refreshes the target capability snapshot and temporarily
+disables submit. Both refresh and submit query only the selected target, so an
+unrelated VM-backed target cannot delay the active local target. Renderer
+revision fencing discards an older project response, and main keeps no mutable
+capability catalog. Main re-resolves the selected target with the actual `cwd`
+immediately before activation, so a stale renderer snapshot cannot send an
+image to a text-only effective model.
 
 ## Open-Source Component Evaluation
 
