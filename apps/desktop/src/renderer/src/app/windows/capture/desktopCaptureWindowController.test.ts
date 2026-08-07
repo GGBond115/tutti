@@ -12,23 +12,28 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
   const api: DesktopCaptureApi = {
     cancel: async () => undefined,
     getState: async () => ({
-      agents: [{ id: "agent-1", name: "Agent" }],
-      defaultTopicId: "topic-1",
+      agents: [],
+      defaultTopicId: "",
       displayHeight: 800,
       displayWidth: 1200,
       locale: "en",
       screenshotDataUrl: "data:image/png;base64,c2NyZWVu",
       themeAppearance: "light",
-      topics: [{ id: "topic-1", isDefault: true, title: "Inbox" }],
+      topics: [],
       workspaceId: "workspace-1"
     }),
     select: async () => ({
-      dataBase64: "cG5n",
-      dataUrl: "data:image/png;base64,cG5n",
-      displayName: "capture.png",
-      height: 80,
-      mimeType: "image/png",
-      width: 100
+      agents: [{ id: "agent-1", name: "Agent" }],
+      attachment: {
+        dataBase64: "cG5n",
+        dataUrl: "data:image/png;base64,cG5n",
+        displayName: "capture.png",
+        height: 80,
+        mimeType: "image/png",
+        width: 100
+      },
+      defaultTopicId: "topic-1",
+      topics: [{ id: "topic-1", isDefault: true, title: "Inbox" }]
     }),
     submit: async (input) => {
       submissions.push(input);
@@ -42,12 +47,13 @@ test("DesktopCaptureWindowController owns selection and submission retry state",
   const controller = new DesktopCaptureWindowController(api);
   await controller.initialize();
   assert.equal(controller.getSnapshot().stage, "selecting");
-  assert.equal(controller.getSnapshot().topicId, "topic-1");
+  assert.equal(controller.getSnapshot().topicId, "");
 
   controller.beginSelection({ x: 10, y: 20 });
   controller.updateSelection({ x: 110, y: 100 });
   assert.equal(await controller.finishSelection(), true);
   assert.equal(controller.getSnapshot().stage, "composing");
+  assert.equal(controller.getSnapshot().topicId, "topic-1");
   controller.setNote("Inspect this");
 
   await controller.submit("create-and-run");

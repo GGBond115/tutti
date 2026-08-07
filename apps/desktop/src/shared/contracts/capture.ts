@@ -24,6 +24,12 @@ export interface DesktopCaptureState {
   workspaceId: string;
 }
 
+export interface DesktopCaptureComposerOptions {
+  agents: DesktopCaptureAgentOption[];
+  defaultTopicId: string;
+  topics: DesktopCaptureTopicOption[];
+}
+
 export interface DesktopCaptureSelectionInput {
   height: number;
   width: number;
@@ -31,13 +37,17 @@ export interface DesktopCaptureSelectionInput {
   y: number;
 }
 
-export interface DesktopCaptureSelectionResult {
+export interface DesktopCaptureAttachment {
   dataBase64: string;
   dataUrl: string;
   displayName: string;
   height: number;
   mimeType: "image/png";
   width: number;
+}
+
+export interface DesktopCaptureSelectionResult extends DesktopCaptureComposerOptions {
+  attachment: DesktopCaptureAttachment;
 }
 
 export interface DesktopCaptureSubmitInput {

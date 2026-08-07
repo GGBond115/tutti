@@ -2,7 +2,7 @@
 
 The desktop can turn an arbitrary rectangular screen region into a Qute Issue
 with a durable image attachment. The default global shortcut is
-`CommandOrControl+Shift+2`, and it works while another application has focus as
+`CommandOrControl+Shift+S`, and it works while another application has focus as
 long as Tutti is running and has a workspace window to target.
 
 ## Ownership And Flow
@@ -48,7 +48,10 @@ The capture targets the display nearest the pointer. Electron captures that
 display before the transparent selection window is shown, then crops the
 selected rectangle using the display scale factor. This keeps Retina/HiDPI
 pixels intact while positioning the selection UI in display-independent
-coordinates.
+coordinates. The shortcut contains exactly three keys and avoids shifted
+number-row symbols, whose interpretation varies by keyboard layout. Topic and
+Agent metadata load concurrently with screen capture but do not delay showing
+the selector; the metadata is joined only when selection completes.
 
 ## Floating Composer
 

@@ -19,8 +19,9 @@ import {
 } from "../windows/workspaceWindow.ts";
 import { desktopIpcChannels } from "../../shared/contracts/ipc.ts";
 import type {
+  DesktopCaptureAttachment,
+  DesktopCaptureComposerOptions,
   DesktopCaptureSelectionInput,
-  DesktopCaptureSelectionResult,
   DesktopCaptureState,
   DesktopCaptureSubmitInput,
   DesktopCaptureSubmitResult
@@ -31,16 +32,21 @@ import {
   resolveCaptureComposerBounds,
   resolveCaptureTitle
 } from "./captureGeometry.ts";
+import { desktopCaptureAccelerator } from "./captureShortcut.ts";
 
-const captureAccelerator = "CommandOrControl+Shift+2";
 const captureComposerWidth = 480;
 const captureComposerHeight = 500;
 
+type DesktopCaptureComposerOptionsLoad =
+  | { error: null; options: DesktopCaptureComposerOptions }
+  | { error: Error; options: null };
+
 interface ActiveCapture {
+  composerOptions: Promise<DesktopCaptureComposerOptionsLoad>;
   createdIssueId: string | null;
   display: Display;
   image: NativeImage;
-  selected: DesktopCaptureSelectionResult | null;
+  selected: DesktopCaptureAttachment | null;
   state: DesktopCaptureState;
   submission: Promise<DesktopCaptureSubmitResult> | null;
   window: BrowserWindow;
@@ -107,16 +113,28 @@ export function createDesktopCaptureService(input: {
   });
   registerDesktopIpcHandler(
     desktopIpcChannels.capture.select,
-    (event, selection) => {
+    async (event, selection) => {
       const capture = trustedActiveCapture(event.sender);
       const normalized = normalizeCaptureSelection(selection, {
         height: capture.state.displayHeight,
         width: capture.state.displayWidth
       });
       const selected = cropSelection(capture, normalized);
+      const loaded = await capture.composerOptions;
+      if (loaded.error) {
+        input.logger.warn("screenshot composer metadata unavailable", {
+          error: loaded.error.message,
+          workspaceId: capture.state.workspaceId
+        });
+        throw loaded.error;
+      }
+      capture.state = {
+        ...capture.state,
+        ...loaded.options
+      };
       capture.selected = selected;
       presentComposer(capture, normalized);
-      return selected;
+      return { attachment: selected, ...loaded.options };
     }
   );
   registerDesktopIpcHandler(
@@ -184,16 +202,26 @@ export function createDesktopCaptureService(input: {
     }
   };
 
-  if (!globalShortcut.register(captureAccelerator, () => void openCapture())) {
+  const registered = globalShortcut.register(desktopCaptureAccelerator, () => {
+    input.logger.info("screenshot shortcut activated", {
+      accelerator: desktopCaptureAccelerator
+    });
+    void openCapture();
+  });
+  if (!registered || !globalShortcut.isRegistered(desktopCaptureAccelerator)) {
     input.logger.warn("screenshot shortcut registration failed", {
-      accelerator: captureAccelerator
+      accelerator: desktopCaptureAccelerator
+    });
+  } else {
+    input.logger.info("screenshot shortcut registered", {
+      accelerator: desktopCaptureAccelerator
     });
   }
 
   return {
     dispose() {
       app.removeListener("browser-window-focus", onBrowserWindowFocus);
-      globalShortcut.unregister(captureAccelerator);
+      globalShortcut.unregister(desktopCaptureAccelerator);
       for (const channel of Object.values(desktopIpcChannels.capture)) {
         ipcMain.removeHandler(channel);
       }
@@ -215,36 +243,26 @@ async function createCaptureWindow(
     width: Math.max(1, Math.round(display.size.width * display.scaleFactor)),
     height: Math.max(1, Math.round(display.size.height * display.scaleFactor))
   };
-  const [sources, topicResponse, targetResponse] = await Promise.all([
-    desktopCapturer.getSources({ types: ["screen"], thumbnailSize }),
-    input.tuttidClient.listWorkspaceIssueTopics(workspaceId),
-    input.tuttidClient.listAgentTargets()
-  ]);
+  const composerOptions = loadCaptureComposerOptions(
+    input.tuttidClient,
+    workspaceId
+  ).then<DesktopCaptureComposerOptionsLoad, DesktopCaptureComposerOptionsLoad>(
+    (options) => ({ error: null, options }),
+    (cause) => ({
+      error: cause instanceof Error ? cause : new Error(String(cause)),
+      options: null
+    })
+  );
+  const sources = await desktopCapturer.getSources({
+    types: ["screen"],
+    thumbnailSize
+  });
   const source =
     sources.find((candidate) => candidate.display_id === String(display.id)) ??
     sources[0];
   if (!source || source.thumbnail.isEmpty()) {
     throw new Error("Screen capture permission is unavailable");
   }
-  const topics = topicResponse.topics.map((topic) => ({
-    id: topic.topicId,
-    isDefault: topic.isDefault,
-    title: topic.title
-  }));
-  const defaultTopicId =
-    topics.find((topic) => topic.isDefault)?.id ?? topics[0]?.id ?? "";
-  if (!defaultTopicId) {
-    throw new Error("Screenshot capture requires an Issue topic");
-  }
-  const agents = targetResponse.targets
-    .filter(
-      (target) =>
-        target.enabled &&
-        !["auth_required", "not_installed", "unsupported"].includes(
-          target.availability?.status ?? "ready"
-        )
-    )
-    .map((target) => ({ id: target.id, name: target.name }));
   const theme = getDesktopThemeState(input.preferences.getThemeSource());
   const captureWindow = new BrowserWindow({
     ...display.bounds,
@@ -267,17 +285,18 @@ async function createCaptureWindow(
   });
   captureWindow.setAlwaysOnTop(true, "screen-saver");
   const state: DesktopCaptureState = {
-    agents,
-    defaultTopicId,
+    agents: [],
+    defaultTopicId: "",
     displayHeight: display.bounds.height,
     displayWidth: display.bounds.width,
     locale: input.preferences.getLocale(),
     screenshotDataUrl: source.thumbnail.toDataURL(),
     themeAppearance: theme.appearance,
-    topics,
+    topics: [],
     workspaceId
   };
   const capture: ActiveCapture = {
+    composerOptions,
     createdIssueId: null,
     display,
     image: source.thumbnail,
@@ -300,7 +319,7 @@ async function createCaptureWindow(
 function cropSelection(
   capture: ActiveCapture,
   raw: DesktopCaptureSelectionInput
-): DesktopCaptureSelectionResult {
+): DesktopCaptureAttachment {
   const imageSize = capture.image.getSize();
   const scaleX = imageSize.width / capture.state.displayWidth;
   const scaleY = imageSize.height / capture.state.displayHeight;
@@ -319,6 +338,36 @@ function cropSelection(
     mimeType: "image/png",
     width: cropped.getSize().width
   };
+}
+
+async function loadCaptureComposerOptions(
+  client: Pick<TuttidClient, "listAgentTargets" | "listWorkspaceIssueTopics">,
+  workspaceId: string
+): Promise<DesktopCaptureComposerOptions> {
+  const [topicResponse, targetResponse] = await Promise.all([
+    client.listWorkspaceIssueTopics(workspaceId),
+    client.listAgentTargets()
+  ]);
+  const topics = topicResponse.topics.map((topic) => ({
+    id: topic.topicId,
+    isDefault: topic.isDefault,
+    title: topic.title
+  }));
+  const defaultTopicId =
+    topics.find((topic) => topic.isDefault)?.id ?? topics[0]?.id ?? "";
+  if (!defaultTopicId) {
+    throw new Error("Screenshot capture requires an Issue topic");
+  }
+  const agents = targetResponse.targets
+    .filter(
+      (target) =>
+        target.enabled &&
+        !["auth_required", "not_installed", "unsupported"].includes(
+          target.availability?.status ?? "ready"
+        )
+    )
+    .map((target) => ({ id: target.id, name: target.name }));
+  return { agents, defaultTopicId, topics };
 }
 
 function presentComposer(

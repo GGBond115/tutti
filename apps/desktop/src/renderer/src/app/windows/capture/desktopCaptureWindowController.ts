@@ -1,14 +1,14 @@
 import type {
   DesktopCaptureApi,
+  DesktopCaptureAttachment,
   DesktopCaptureSelectionInput,
-  DesktopCaptureSelectionResult,
   DesktopCaptureState
 } from "../../../../../shared/contracts/capture.ts";
 
 export type DesktopCaptureStage = "loading" | "selecting" | "composing";
 
 export interface DesktopCaptureWindowSnapshot {
-  attachment: DesktopCaptureSelectionResult | null;
+  attachment: DesktopCaptureAttachment | null;
   agentTargetId: string;
   capture: DesktopCaptureState | null;
   failed: boolean;
@@ -99,8 +99,24 @@ export class DesktopCaptureWindowController {
       return false;
     }
     try {
-      const attachment = await this.api.select(selection);
-      this.update({ attachment, failed: false, stage: "composing" });
+      const result = await this.api.select(selection);
+      const capture = this.snapshot.capture;
+      if (!capture) {
+        return false;
+      }
+      this.update({
+        agentTargetId: result.agents[0]?.id ?? "",
+        attachment: result.attachment,
+        capture: {
+          ...capture,
+          agents: result.agents,
+          defaultTopicId: result.defaultTopicId,
+          topics: result.topics
+        },
+        failed: false,
+        stage: "composing",
+        topicId: result.defaultTopicId
+      });
       return true;
     } catch {
       this.update({ failed: true });
