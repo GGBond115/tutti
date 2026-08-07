@@ -42,7 +42,8 @@ func TestConnectorBrokerAdaptsPublicDiscoverySkillsAndInvocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	connectors, ok := available.Value["connectors"].([]implementationhost.ConnectorSummary)
-	if !ok || len(connectors) != 1 || connectors[0].Name != "Demo Package" {
+	if !ok || len(connectors) != 1 || connectors[0].Name != "Demo Package" || len(connectors[0].Skills) != 1 ||
+		connectors[0].Skills[0].Name != "run-diagnostic" || connectors[0].Skills[0].Description != "Run one diagnostic." {
 		t.Fatalf("available = %#v", available.Value)
 	}
 	hints := broker.RoutingHints()

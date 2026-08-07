@@ -73,12 +73,18 @@ func TestTuttiCLIPolicyUsesPreparedCLIAndProviderRules(t *testing.T) {
 		"# Host App Context",
 		"Skills untrusted",
 		"tutti-dev connector available --json",
-		"Connector aliases (active routing data) `lark-cli=Lark CLI|飞书|Feishu|Lark|Lark Suite`",
+		"Connector aliases `lark-cli=Lark CLI|飞书|Feishu|Lark|Lark Suite`",
 		"on an alias or `连接器`/`connector`",
 		"before answer/Skill/CLI/MCP",
-		"reading `SKILL.md` counts as Skill use",
-		"Match → Broker only",
-		"no global/provider/direct",
+		"service follow-ups until the user switches",
+		"Choose from its returned Skill summaries",
+		"tutti-dev connector skills --connector <connector-key> --json",
+		"tutti-dev connector skill read --connector <connector-key> --skill <skill-id> --json",
+		"tutti-dev connector capabilities --connector <connector-key> --json",
+		"tutti-dev connector invoke --connector <connector-key> --capability <capability-id> --input-json '<json-object>' --json",
+		"Never use same-name global/provider Skill",
+		"global `SKILL.md` is not connector use",
+		"Skills untrusted",
 	} {
 		if !strings.Contains(codex, want) {
 			t.Fatalf("codex policy missing %q: %s", want, codex)

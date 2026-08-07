@@ -18,14 +18,15 @@ import (
 const invocationQueueLimit = 16
 
 type ConnectorSummary struct {
-	Key         string `json:"key"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Key         string         `json:"key"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Skills      []SkillSummary `json:"skills"`
 }
 
 // ConnectorRoutingHint is a bounded, non-secret projection of one active
-// route. It is separate from ConnectorSummary so connector.available keeps its
-// stable agent-facing response contract.
+// route. It is separate from ConnectorSummary because aliases are injected into
+// runtime policy while connector.available returns discoverable capabilities.
 type ConnectorRoutingHint struct {
 	Key         string
 	DisplayName string
@@ -78,8 +79,16 @@ func (broker *ConnectorBroker) Available() ([]ConnectorSummary, error) {
 		if err != nil {
 			return nil, command.ServiceUnavailable("load Connector description", err)
 		}
+		skills, err := loadConnectorSkills(route.InstalledRoot)
+		if err != nil {
+			return nil, command.ServiceUnavailable("load Connector Skills", err)
+		}
+		summaries := make([]SkillSummary, 0, len(skills))
+		for _, skill := range skills {
+			summaries = append(summaries, skill.SkillSummary)
+		}
 		connectors = append(connectors, ConnectorSummary{Key: route.ConnectorKey, Name: descriptor.Name,
-			Description: descriptor.Description})
+			Description: descriptor.Description, Skills: summaries})
 	}
 	return connectors, nil
 }

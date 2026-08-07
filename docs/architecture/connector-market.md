@@ -189,8 +189,10 @@ stable product or brand names. Connector id and display name are included by
 the host automatically; authors use aliases for additional language and legacy
 brand forms, not generic capability words. After activation, the implementation
 host projects this bounded, validated routing data into new Agent runtimes. An
-alias match makes `connector available` the first discovery step; capability
-and Skill discovery still happens lazily through the Connector Broker. Market
+alias match makes `connector available` the first discovery step. Its connector
+summaries include Skill names, titles, and descriptions so the Agent can route
+without reading global files; full Skill content and capabilities still load
+lazily through the Connector Broker. Market
 listings that are not installed and routes that are not active are never added
 to Agent instructions.
 
@@ -428,9 +430,11 @@ while the daemon retries.
 The public `connector available`, `connector capabilities`, `connector skills`,
 `connector skill read`, and `connector invoke` commands expose installed
 connectors through the local daemon CLI channel to every Agent and the local
-Tutti CLI. Discovery returns connector summary first, canonical capability
-metadata on request, Skill frontmatter metadata next, and full `SKILL.md`
-content only on explicit read. `connector invoke --capability` accepts only the
+Tutti CLI. Discovery returns connector summaries with Skill frontmatter
+metadata first; `connector skills` remains the connector-scoped compatibility
+and refresh endpoint. Full `SKILL.md` content is returned only by explicit
+read, while canonical capability metadata remains on demand.
+`connector invoke --capability` accepts only the
 canonical ID returned by capability discovery. Connector invocations use a
 bounded, serialized admission gate by default.
 
