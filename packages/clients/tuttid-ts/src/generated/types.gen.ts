@@ -4616,10 +4616,15 @@ export type ConnectorMarketManifest = {
   displayName: string;
   iconUrl: string;
   description?: string;
+  agentRouting?: ConnectorMarketAgentRouting;
   permissions: Array<string>;
   implementation: ConnectorMarketImplementation;
   authorizationKind: string;
   compatibility?: ConnectorMarketCompatibilityRequirements;
+};
+
+export type ConnectorMarketAgentRouting = {
+  aliases: Array<string>;
 };
 
 export type ConnectorMarketArtifact = {

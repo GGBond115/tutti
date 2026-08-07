@@ -262,7 +262,8 @@ func (source *CatalogSource) mapItem(item wireMarketItem) (market.Release, error
 	// contract. V3 selects one target first. Both project into the stable host
 	// manifest contract; these schema versions describe different boundaries.
 	manifest := market.Manifest{SchemaVersion: "1", DisplayName: connectorManifest.Display.Name, IconURL: iconURL,
-		Description: connectorManifest.Display.Description, Permissions: connectorManifest.Payload.Permissions,
+		Description: connectorManifest.Display.Description, AgentRouting: connectorManifest.Payload.AgentRouting,
+		Permissions:    connectorManifest.Payload.Permissions,
 		Implementation: implementation, AuthorizationKind: connectorManifest.Payload.Authorization.Kind,
 		Compatibility: connectorManifest.Payload.Compatibility}
 	release := market.Release{SchemaVersion: "1", ReleaseID: item.ItemKey + "@" + item.Version,
@@ -365,6 +366,7 @@ type wireConnectorDisplay struct {
 
 type wireConnectorManifestPayload struct {
 	Permissions           []string                         `json:"permissions"`
+	AgentRouting          *market.AgentRouting             `json:"agentRouting,omitempty"`
 	PackageManifestSHA256 string                           `json:"packageManifestSha256"`
 	Authorization         wireConnectorAuthorization       `json:"authorization"`
 	Compatibility         market.CompatibilityRequirements `json:"compatibility"`

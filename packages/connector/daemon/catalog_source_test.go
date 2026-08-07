@@ -58,6 +58,7 @@ func TestCatalogSourceMapsPublishedConnectorItemsWithAdditiveFields(t *testing.T
       "display": {"name": "GitHub", "description": "GitHub connector", "iconUrl": "data:image/png;base64,iVBORw0KGgo=", "badge": "new"},
       "payload": {
         "permissions": ["network:*"],
+        "agentRouting": {"aliases": ["Git Hub", "代码托管"]},
         "packageManifestSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "authorization": {"kind": "none"},
         "compatibility": {},
@@ -104,7 +105,8 @@ func TestCatalogSourceMapsPublishedConnectorItemsWithAdditiveFields(t *testing.T
 	got := result.Releases[0]
 	if got.ConnectorKey != "github" || got.ReleaseID != "github@1.0.0" || got.Manifest.SchemaVersion != "1" ||
 		got.ManifestDigest != strings.Repeat("b", 64) || got.Artifact.SizeBytes != 123 || got.Artifact.MediaType != "application/zip" ||
-		got.Manifest.Implementation.ManagedStdio == nil || len(got.Manifest.Permissions) != 1 || got.Manifest.Permissions[0] != "network:*" {
+		got.Manifest.Implementation.ManagedStdio == nil || len(got.Manifest.Permissions) != 1 || got.Manifest.Permissions[0] != "network:*" ||
+		got.Manifest.AgentRouting == nil || len(got.Manifest.AgentRouting.Aliases) != 2 || got.Manifest.AgentRouting.Aliases[1] != "代码托管" {
 		t.Fatalf("release = %#v", got)
 	}
 	page, err := source.ListPage(context.Background(), market.CatalogSourcePageQuery{SectionID: "development", PageSize: 100})

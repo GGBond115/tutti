@@ -67,6 +67,7 @@ type Service struct {
 	WorkspaceIDs                   func(context.Context) ([]string, error)
 	PromptAttachmentStore          PromptAttachmentStore
 	RuntimePreparer                runtimeprep.Preparer
+	ConnectorRoutingHints          func() []runtimeprep.ConnectorRoutingHint
 	ModelGateway                   ModelGatewayRegistry
 	ComputerUseAvailable           func() bool
 	CapabilityLister               ComposerCapabilityLister

@@ -584,6 +584,7 @@ func (s *Service) prepareRuntimeWithModelEndpoint(
 		AgentSkills:               append([]string(nil), input.AgentSkills...),
 		AgentTools:                append([]string(nil), input.AgentTools...),
 		ExtraSkills:               sessionSkillBundlesToProviderSkillBundles(input.ExtraSkills),
+		ConnectorRoutingHints:     s.activeConnectorRoutingHints(),
 		Metadata:                  input.Metadata,
 		CommandCapabilityProjection: cloneCommandCapabilityProjection(
 			input.CommandCapabilityProjection,

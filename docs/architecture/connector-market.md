@@ -184,6 +184,16 @@ exactly and never derives a short name by splitting the ID. The selected
 connector remains a separate routing and policy boundary, and invocation fails
 when the canonical ID belongs to a different connector.
 
+Connector releases may declare optional `agentRouting.aliases` containing only
+stable product or brand names. Connector id and display name are included by
+the host automatically; authors use aliases for additional language and legacy
+brand forms, not generic capability words. After activation, the implementation
+host projects this bounded, validated routing data into new Agent runtimes. An
+alias match makes `connector available` the first discovery step; capability
+and Skill discovery still happens lazily through the Connector Broker. Market
+listings that are not installed and routes that are not active are never added
+to Agent instructions.
+
 The initial Lark profile is representative: it pins `@larksuite/cli@1.0.83`
 and its npm sha512 integrity, requires the shared Node 22 profile, runs only the
 package's declared `scripts/install.js` lifecycle with `curl` and `tar`

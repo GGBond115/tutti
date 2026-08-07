@@ -23,6 +23,8 @@ type ConnectorBroker struct {
 	broker *implementationhost.ConnectorBroker
 }
 
+type ConnectorRoutingHint = implementationhost.ConnectorRoutingHint
+
 func NewConnectorBroker(commands *ConnectorCommandRegistry) (*ConnectorBroker, error) {
 	if commands == nil {
 		return nil, errors.New("connector command registry is required")
@@ -32,6 +34,13 @@ func NewConnectorBroker(commands *ConnectorCommandRegistry) (*ConnectorBroker, e
 		return nil, err
 	}
 	return &ConnectorBroker{broker: broker}, nil
+}
+
+func (broker *ConnectorBroker) RoutingHints() []ConnectorRoutingHint {
+	if broker == nil || broker.broker == nil {
+		return nil
+	}
+	return broker.broker.RoutingHints()
 }
 
 func (*ConnectorBroker) Capabilities(context.Context, cliservice.InvokeContext) []cliservice.Capability {

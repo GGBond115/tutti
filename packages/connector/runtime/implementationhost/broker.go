@@ -23,6 +23,15 @@ type ConnectorSummary struct {
 	Description string `json:"description"`
 }
 
+// ConnectorRoutingHint is a bounded, non-secret projection of one active
+// route. It is separate from ConnectorSummary so connector.available keeps its
+// stable agent-facing response contract.
+type ConnectorRoutingHint struct {
+	Key         string
+	DisplayName string
+	Aliases     []string
+}
+
 type CapabilitySummary struct {
 	ID          string         `json:"id"`
 	Kind        string         `json:"kind"`
@@ -73,6 +82,16 @@ func (broker *ConnectorBroker) Available() ([]ConnectorSummary, error) {
 			Description: descriptor.Description})
 	}
 	return connectors, nil
+}
+
+func (broker *ConnectorBroker) RoutingHints() []ConnectorRoutingHint {
+	routes := broker.commands.Routes()
+	hints := make([]ConnectorRoutingHint, 0, len(routes))
+	for _, route := range routes {
+		hints = append(hints, ConnectorRoutingHint{Key: route.ConnectorKey, DisplayName: route.DisplayName,
+			Aliases: append([]string(nil), route.RoutingAliases...)})
+	}
+	return hints
 }
 
 func (broker *ConnectorBroker) Skills(connectorKey string) ([]SkillSummary, error) {

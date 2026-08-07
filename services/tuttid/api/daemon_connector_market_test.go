@@ -67,6 +67,11 @@ func TestDaemonAPIConnectorMarketSnapshotHidesImplementationConfig(t *testing.T)
 	if implementation["kind"] != market.ImplementationKindManagedStdio {
 		t.Fatalf("implementation.kind = %#v, want managed_stdio", implementation["kind"])
 	}
+	routing := manifest["agentRouting"].(map[string]any)
+	aliases := routing["aliases"].([]any)
+	if len(aliases) != 2 || aliases[0] != "Notion" || aliases[1] != "Notion AI" {
+		t.Fatalf("public agent routing aliases = %#v", aliases)
+	}
 }
 
 func TestDaemonAPIConnectorMarketInstallMapsUnsupportedImplementation(t *testing.T) {
@@ -163,6 +168,7 @@ func connectorMarketTestConnector() market.Connector {
 				IconURL:       "data:image/png;base64,iVBORw0KGgo=",
 				SchemaVersion: "1",
 				DisplayName:   "Notion",
+				AgentRouting:  &market.AgentRouting{Aliases: []string{"Notion", "Notion AI"}},
 				Permissions:   []string{"pages.read"},
 				Implementation: market.Implementation{
 					Kind: market.ImplementationKindManagedStdio,

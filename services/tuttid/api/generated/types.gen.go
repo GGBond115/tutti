@@ -5904,6 +5904,11 @@ type CompleteWorkspaceAppUploadResponse struct {
 	File WorkspaceAppUploadedFile `json:"file"`
 }
 
+// ConnectorMarketAgentRouting defines model for ConnectorMarketAgentRouting.
+type ConnectorMarketAgentRouting struct {
+	Aliases []string `json:"aliases"`
+}
+
 // ConnectorMarketArtifact defines model for ConnectorMarketArtifact.
 type ConnectorMarketArtifact struct {
 	Key       string `json:"key"`
@@ -6029,6 +6034,7 @@ type ConnectorMarketInstallationState string
 
 // ConnectorMarketManifest defines model for ConnectorMarketManifest.
 type ConnectorMarketManifest struct {
+	AgentRouting      *ConnectorMarketAgentRouting              `json:"agentRouting,omitempty"`
 	AuthorizationKind string                                    `json:"authorizationKind"`
 	Compatibility     *ConnectorMarketCompatibilityRequirements `json:"compatibility,omitempty"`
 	Description       *string                                   `json:"description,omitempty"`

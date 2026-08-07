@@ -105,10 +105,18 @@ type Manifest struct {
 	DisplayName       string                    `json:"displayName"`
 	IconURL           string                    `json:"iconUrl"`
 	Description       string                    `json:"description,omitempty"`
+	AgentRouting      *AgentRouting             `json:"agentRouting,omitempty"`
 	Permissions       []string                  `json:"permissions"`
 	Implementation    Implementation            `json:"implementation"`
 	AuthorizationKind string                    `json:"authorizationKind"`
 	Compatibility     CompatibilityRequirements `json:"compatibility,omitempty"`
+}
+
+// AgentRouting carries connector-owned brand and product aliases used only to
+// select the Connector Broker. Capability intent remains connector-owned and
+// is discovered lazily after the connector has been selected.
+type AgentRouting struct {
+	Aliases []string `json:"aliases"`
 }
 
 type Artifact struct {

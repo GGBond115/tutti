@@ -115,11 +115,16 @@ export interface ConnectorCompatibilityRequirements {
   minimumHostVersion?: string;
 }
 
+export interface ConnectorAgentRouting {
+  aliases: string[];
+}
+
 export interface ConnectorManifest {
   schemaVersion: "1";
   displayName: string;
   iconUrl: string;
   description?: string;
+  agentRouting?: ConnectorAgentRouting;
   permissions: string[];
   implementation: ConnectorManifestImplementation;
   authorizationKind: string;

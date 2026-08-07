@@ -323,6 +323,15 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 	}
 	if service, ok := api.AgentSessionService.(*agentservice.Service); ok {
 		service.ConnectorMarketSnapshots = connectorMarketHost.Application
+		service.ConnectorRoutingHints = func() []runtimeprep.ConnectorRoutingHint {
+			routes := connectorBroker.RoutingHints()
+			hints := make([]runtimeprep.ConnectorRoutingHint, 0, len(routes))
+			for _, route := range routes {
+				hints = append(hints, runtimeprep.ConnectorRoutingHint{ConnectorKey: route.Key,
+					DisplayName: route.DisplayName, Aliases: append([]string(nil), route.Aliases...)})
+			}
+			return hints
+		}
 	}
 	api.ConnectorMarketService = connectorMarketHost.Application
 	existingAccountLoginCompleted := accountService.OnLoginCompleted
