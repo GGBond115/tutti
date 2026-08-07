@@ -73,6 +73,7 @@ export function DesktopCaptureComposer({
       content={content}
       disabled={disabled}
       fillAvailableHeight={true}
+      inputSurfaceVariant="borderless"
       locale={locale}
       mentionService={mentionService}
       menuViewportTopInset={48}

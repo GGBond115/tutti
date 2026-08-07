@@ -8307,6 +8307,16 @@ button.agent-gui-node__conversation-section-toggle:hover
   gap: 8px;
 }
 
+.agent-gui-node__shell[data-quick-composer-input-surface="borderless"]
+  .agent-gui-node__composer-input-shell,
+.agent-gui-node__shell[data-quick-composer-input-surface="borderless"]
+  .agent-gui-node__composer-input-shell:hover,
+.agent-gui-node__shell[data-quick-composer-input-surface="borderless"]
+  .agent-gui-node__composer-input-shell:focus-within {
+  border-color: transparent;
+  box-shadow: none;
+}
+
 .agent-gui-node__composer[data-layout="embedded"]
   .agent-gui-node__composer-prompt-input-area {
   display: grid;

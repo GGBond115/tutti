@@ -207,7 +207,10 @@ should pass `menuViewportTopInset` for title-bar chrome that portaled provider
 and mention menus must avoid. A host with a definite height may set
 `fillAvailableHeight`; a host that needs every bottom control on one baseline
 may set `composerActionPlacement="footer"`. Both are optional presentation
-contracts and do not change prompt or Session ownership.
+contracts and do not change prompt or Session ownership. A host whose own
+window chrome already defines the visual perimeter may set
+`inputSurfaceVariant="borderless"` to suppress the redundant inner outline
+without overriding AgentGUI implementation selectors.
 
 A launcher that owns project selection passes a real `WorkspaceUserProjectApi`
 as `userProjectApi`, together with `selectedProjectPath` and

@@ -73,6 +73,8 @@ export interface AgentGUIQuickComposerProps {
   disabled?: boolean;
   /** Fill a height explicitly assigned by the embedding host. */
   fillAvailableHeight?: boolean;
+  /** Visual treatment for the canonical Composer input surface. */
+  inputSurfaceVariant?: "default" | "borderless";
   locale?: AgentGuiI18nLocale;
   /** Mention providers supplied by the embedding host. */
   mentionService?: RichTextMentionService;
@@ -118,6 +120,7 @@ function AgentGUIQuickComposerInner({
   content,
   disabled = false,
   fillAvailableHeight = false,
+  inputSurfaceVariant = "default",
   menuViewportTopInset,
   onAgentTargetChange,
   onContentChange,
@@ -166,7 +169,10 @@ function AgentGUIQuickComposerInner({
   );
 
   return (
-    <div className="agent-gui-node__shell">
+    <div
+      className="agent-gui-node__shell"
+      data-quick-composer-input-surface={inputSurfaceVariant}
+    >
       <AgentComposer
         activePrompt={null}
         agentTargets={agentTargets}
