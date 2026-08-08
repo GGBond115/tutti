@@ -258,6 +258,22 @@ and early write admission for the pending card. An observation gap may still
 govern the active Turn before or after that Interaction, but it cannot override
 the exact ready or blocked readiness result while the card is presented.
 
+When an exact Interaction is blocked, AgentGUI keeps the pending action visible
+but disables its controls. The disabled action group remains focusable and
+hoverable so the same readiness reason is discoverable in the conversation
+chrome and Message Center; this is presentation only and does not change the
+Host-owned admission decision.
+
+Message Center and attention-card consumers preserve this separation in their
+presentation contract: `isSubmitting` describes an in-flight response, while
+an independently supplied interaction-disabled state blocks the nested prompt
+controls without hiding the pending card or its conversation navigation. A
+host-provided blocked reason is exposed through a focusable, hoverable
+description so a blocked card remains understandable without making Tooltip
+the command authority. If the Host omits the reason, the disabled wrapper stays
+out of the tab order and does not create an empty Tooltip. The final semantic
+command admission check remains in the consumer/controller path.
+
 ### 2.6 On-demand status
 
 AgentGUI owns one provider-neutral `AgentStatusController` for `/status`, Agent
@@ -886,6 +902,14 @@ while canonical Turn state remains authoritative once it exists.
   Mobile retain transport execution in their `EngineExtensionCommand`
   adapters and delegate pure generated-DTO projection to
   `@tutti-os/agent-activity-tuttid-adapter`
+- A composer-option failure with no signature-matching cached value remains an
+  explicit Engine `error` state. AgentGUI renders a compact failure and retry
+  action in the existing options slot instead of presenting an empty list or a
+  stale/default selection; a last valid cached value remains renderable while
+  its load status is reconciled. The retry is the same semantic
+  `engine.loadComposerOptions` operation with `force` left false, so request
+  identity, cache reuse, and identical in-flight joining remain Engine-owned;
+  a view must not call the transport adapter directly.
 - an acknowledged home Composer default remains an optimistic draft until a
   later authoritative Composer-options response reports the same effective
   field value. A successful read alone must not retire the draft because a
@@ -2641,6 +2665,35 @@ Runtime destination also bumps `agentFocus` to scroll and briefly highlight the 
 a link to a hidden preview agent surfaces an "enable Preview Agents" hint rather
 than failing silently. This is a settings surface, not a second Agent Target
 state store.
+
+### 8.2 Deleted-conversation settings surface
+
+Deleted conversations are maintained by a top-level desktop Settings section
+immediately before About; they do not belong to the Agent subsection. The page
+is scoped to the current Workspace, while its 15/30-day automatic-cleanup
+preference is device-global. Its fixed header owns the title-only search,
+project filter, retention selector, and destructive “delete all” action so the
+controls remain discoverable while the list scrolls.
+
+Each row represents one topmost deleted Session component—a canonical root or
+a child whose parent is not deleted—and reuses the two-line Activity View
+summary convention: title first, then original project identity and the
+pre-delete `updated_at`. The row body is not navigation. Restore and
+permanent delete are the only row actions; restore has no confirmation and does
+not navigate, while permanent delete uses the ordinary destructive
+confirmation. Legacy lossy tombstones explain why restore is unavailable.
+“Delete all” ignores search/project filters, confirms against the Workspace
+component count with a typed phrase, and remains subject to the daemon idle gate.
+
+The list uses stable cursor paging plus virtual scrolling and automatically
+loads near its end. Project options include the unscoped case and original
+paths whose project registration has since disappeared. Renderer state may
+optimistically remove a row only after a successful restore/purge response; it
+does not copy lifecycle semantics out of Host or trigger provider resume. The
+canonical restore commit emits `session_restored`; the workspace engine clears
+only that Session's deletion tombstone and performs an authoritative detail
+reconcile before AgentGUI renders it again. Generic activity events remain
+unable to resurrect a deleted Session.
 
 ## 9. Folder guide
 

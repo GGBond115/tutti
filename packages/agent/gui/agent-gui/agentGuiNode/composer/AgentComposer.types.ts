@@ -138,6 +138,8 @@ export interface AgentComposerProps {
   draftOverridesStopButton?: boolean;
   stopDisabled: boolean;
   activePrompt: AgentConversationPromptVM | null;
+  /** Host readiness reason for the active prompt's disabled controls. */
+  activePromptDisabledReason?: string | null;
   activePromptKeyboardShortcutsEnabled?: boolean;
   promptTips?: readonly AgentComposerPromptTip[];
   isInterrupting: boolean;
@@ -180,6 +182,9 @@ export interface AgentComposerProps {
     modelTooltipVersionLabel: string;
     defaultModel: string;
     loadingOptions: string;
+    composerOptionsLoadFailed?: string;
+    retry?: string;
+    composerOptionsRetryTooltip?: string;
     inheritedUnavailable: string;
     loadingConversation: string;
     reasoningLabel: string;
@@ -404,6 +409,8 @@ export interface AgentComposerProps {
     computerUse?: boolean;
     permissionModeId?: string | null;
   }) => void;
+  /** Retries the target-scoped composer options request after a terminal failure. */
+  onRetryComposerOptions?: () => void;
   onTuttiModeChange?: (active: boolean) => void;
   onTuttiModeEffectChange?: (value: number) => void;
   onTuttiModeSpeedChange?: (value: number) => void;

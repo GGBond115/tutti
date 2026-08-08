@@ -399,6 +399,74 @@ export type DeletedAgentConversationPurgeResult = {
   payloadBytes: number;
 };
 
+export type WorkspaceDeletedAgentSessionUnavailableReason =
+  | "legacyDataUnavailable"
+  | "incompleteSessionTree";
+
+export type WorkspaceDeletedAgentSession = {
+  /**
+   * Identity of the topmost Session in this deleted component. It may be a canonical root or a child whose parent is not deleted.
+   */
+  agentSessionId: string;
+  /**
+   * Original canonical title. Empty titles remain empty.
+   */
+  title: string;
+  /**
+   * Persisted original project path; null means the conversations section.
+   */
+  projectPath: string | null;
+  /**
+   * Last session update before deletion. This value is not the deletion time.
+   */
+  updatedAtUnixMs: number;
+  /**
+   * Tombstone time used by the retention policy.
+   */
+  deletedAtUnixMs: number;
+  restorable: boolean;
+  /**
+   * Null when the complete deleted Session component can be restored.
+   */
+  unavailableReason: WorkspaceDeletedAgentSessionUnavailableReason | null;
+};
+
+export type WorkspaceDeletedAgentSessionProjectOption = {
+  projectPath: string;
+  projectLabel: string;
+  /**
+   * Whether the original project is still registered in the current project catalog.
+   */
+  projectAvailable: boolean;
+};
+
+export type WorkspaceDeletedAgentSessionListResponse = {
+  workspaceId: string;
+  sessions: Array<WorkspaceDeletedAgentSession>;
+  /**
+   * Distinct original tombstone projects for the workspace, independent of search, project filter, cursor, and limit.
+   */
+  projectOptions: Array<WorkspaceDeletedAgentSessionProjectOption>;
+  hasMore: boolean;
+  /**
+   * Opaque cursor for the next older matching page.
+   */
+  nextCursor?: string;
+  /**
+   * Total matching topmost soft-deleted Session components before cursor pagination.
+   */
+  totalCount: number;
+  /**
+   * Total topmost soft-deleted Session components in this workspace before search, project filtering, and cursor pagination.
+   */
+  workspaceTotalCount: number;
+};
+
+export type RestoreWorkspaceDeletedAgentSessionResponse = {
+  agentSessionId: string;
+  restored: boolean;
+};
+
 export type DesktopPreferences = {
   /**
    * Whether tuttid may periodically discover newer managed agent CLI releases on this device. This never authorizes automatic installation.
@@ -10560,6 +10628,226 @@ export type DeleteWorkspaceAgentSessionsBatchResponses = {
 
 export type DeleteWorkspaceAgentSessionsBatchResponse2 =
   DeleteWorkspaceAgentSessionsBatchResponses[keyof DeleteWorkspaceAgentSessionsBatchResponses];
+
+export type PurgeWorkspaceDeletedAgentSessionsData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/deleted-agent-sessions";
+};
+
+export type PurgeWorkspaceDeletedAgentSessionsErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type PurgeWorkspaceDeletedAgentSessionsError =
+  PurgeWorkspaceDeletedAgentSessionsErrors[keyof PurgeWorkspaceDeletedAgentSessionsErrors];
+
+export type PurgeWorkspaceDeletedAgentSessionsResponses = {
+  /**
+   * Workspace soft-deleted agent sessions permanently purged
+   */
+  200: DeletedAgentConversationPurgeResult;
+};
+
+export type PurgeWorkspaceDeletedAgentSessionsResponse =
+  PurgeWorkspaceDeletedAgentSessionsResponses[keyof PurgeWorkspaceDeletedAgentSessionsResponses];
+
+export type ListWorkspaceDeletedAgentSessionsData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+  };
+  query?: {
+    /**
+     * Case-insensitive search over the original session title only.
+     */
+    searchQuery?: string;
+    /**
+     * Select sessions without an original project. Mutually exclusive with projectPath; omit both project filters to list every location.
+     */
+    projectScope?: "unscoped";
+    /**
+     * Select sessions by their persisted original project path. Mutually exclusive with projectScope.
+     */
+    projectPath?: string;
+    /**
+     * Opaque cursor returned by the previous page.
+     */
+    cursor?: string;
+    limit?: number;
+  };
+  url: "/v1/workspaces/{workspaceID}/deleted-agent-sessions";
+};
+
+export type ListWorkspaceDeletedAgentSessionsErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type ListWorkspaceDeletedAgentSessionsError =
+  ListWorkspaceDeletedAgentSessionsErrors[keyof ListWorkspaceDeletedAgentSessionsErrors];
+
+export type ListWorkspaceDeletedAgentSessionsResponses = {
+  /**
+   * Topmost soft-deleted agent session components in the workspace
+   */
+  200: WorkspaceDeletedAgentSessionListResponse;
+};
+
+export type ListWorkspaceDeletedAgentSessionsResponse =
+  ListWorkspaceDeletedAgentSessionsResponses[keyof ListWorkspaceDeletedAgentSessionsResponses];
+
+export type PurgeWorkspaceDeletedAgentSessionData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    agentSessionID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/deleted-agent-sessions/{agentSessionID}";
+};
+
+export type PurgeWorkspaceDeletedAgentSessionErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type PurgeWorkspaceDeletedAgentSessionError =
+  PurgeWorkspaceDeletedAgentSessionErrors[keyof PurgeWorkspaceDeletedAgentSessionErrors];
+
+export type PurgeWorkspaceDeletedAgentSessionResponses = {
+  /**
+   * Soft-deleted agent session tree permanently purged
+   */
+  200: DeletedAgentConversationPurgeResult;
+};
+
+export type PurgeWorkspaceDeletedAgentSessionResponse =
+  PurgeWorkspaceDeletedAgentSessionResponses[keyof PurgeWorkspaceDeletedAgentSessionResponses];
+
+export type RestoreWorkspaceDeletedAgentSessionData = {
+  body?: never;
+  path: {
+    workspaceID: string;
+    agentSessionID: string;
+  };
+  query?: never;
+  url: "/v1/workspaces/{workspaceID}/deleted-agent-sessions/{agentSessionID}/restore";
+};
+
+export type RestoreWorkspaceDeletedAgentSessionErrors = {
+  /**
+   * Request payload or parameters are invalid
+   */
+  400: ApiErrorResponse;
+  /**
+   * Bearer token is missing or invalid
+   */
+  401: ApiErrorResponse;
+  /**
+   * Workspace id was not found
+   */
+  404: ApiErrorResponse;
+  /**
+   * HTTP method is not supported on this route
+   */
+  405: ApiErrorResponse;
+  /**
+   * The deleted session is unavailable for restoration
+   */
+  409: ApiErrorResponse;
+  /**
+   * Workspace operation failed in an upstream adapter or command
+   */
+  502: ApiErrorResponse;
+  /**
+   * Required daemon service dependency is unavailable
+   */
+  503: ApiErrorResponse;
+};
+
+export type RestoreWorkspaceDeletedAgentSessionError =
+  RestoreWorkspaceDeletedAgentSessionErrors[keyof RestoreWorkspaceDeletedAgentSessionErrors];
+
+export type RestoreWorkspaceDeletedAgentSessionResponses = {
+  /**
+   * Soft-deleted agent session tree restored
+   */
+  200: RestoreWorkspaceDeletedAgentSessionResponse;
+};
+
+export type RestoreWorkspaceDeletedAgentSessionResponse2 =
+  RestoreWorkspaceDeletedAgentSessionResponses[keyof RestoreWorkspaceDeletedAgentSessionResponses];
 
 export type ListWorkspaceAgentSessionSectionsData = {
   body?: never;

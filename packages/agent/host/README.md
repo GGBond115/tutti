@@ -317,15 +317,45 @@ and local view cleanup remain adapter responsibilities.
 batches of canonical tombstones. Host owns the command boundary and delegates
 the atomic hard delete to its narrow `SessionPurgeStore`; retention timing,
 daemon-idle scheduling, HTTP exposure, and optional compaction stay in the host
-adapter. The current retention adapter deliberately performs no filesystem
-deletion. Each candidate is fenced by the exact persisted
-`deleted_at` value, so a concurrently restored or recreated row is preserved.
-Leaf-first selection retains an ancestor while any child or nested descendant
-row remains without starving deep trees, so a restored descendant can never be
-orphaned by maintenance. Purge results expose only content-free session
-descriptors and aggregate message/payload counts. The shared conformance
-scenario verifies live and too-new preservation, exact-cutoff removal, and
-idempotent replay through Host.
+adapter. When durable adapter-owned filesystem cleanup is required, its intent
+must commit in the same product transaction as the canonical hard delete; the
+adapter performs that work after commit and retries failures. Host neither
+chooses those paths nor treats cleanup failure as a canonical purge failure.
+Each candidate is
+fenced by the exact persisted `deleted_at` value, so a concurrently restored or
+recreated row is preserved.
+Candidate selection groups each topmost tombstone with its complete descendant
+tree. A tree containing a live or too-new member is retained, while an eligible
+tree is removed in one transaction even when its row or payload count exceeds a
+normal batch bound; unrelated eligible trees cannot be starved by blocked
+ancestors. Purge results expose only content-free session descriptors and
+aggregate message/payload counts. The shared conformance scenario verifies
+live and too-new preservation, exact-cutoff removal, complete-tree atomicity,
+and idempotent replay through Host.
+
+Recoverable deletion is a separate lossless tombstone lifecycle. New deletes
+preserve every selected root/child Session component, its Turns, Messages,
+Interactions, effective-history records, provider resume identity, and
+attachment references; only live work is terminalized. Batch deletion computes
+component size from connectivity inside that exact delete set, so sibling child
+subtrees under one canonical root remain independently restorable. If a later
+delete selects a live ancestor, complete current-version descendant tombstones
+are absorbed into one new component generation without settling their work a
+second time. Legacy or incomplete descendants are never upgraded: the new
+topmost component stays unavailable for restore but remains permanently
+deletable.
+Stable Goal and effective-history state is left byte-for-byte unchanged. A
+pending Goal operation is failed and detached from the state, while its desired
+Goal, observed Goal, revision, and tombstone semantics remain available after
+restore.
+`ListDeletedSessions` exposes workspace-scoped topmost tombstones—those with no
+tombstoned parent—with stable `updatedAt + sessionId` paging and explicitly
+marks legacy lossy tombstones unavailable. `RestoreDeletedSession` restores the
+exact component atomically without starting or resuming a provider.
+`PurgeDeletedSessionTrees` permanently removes selected topmost components, or
+all such components in one Workspace. The optional
+`DeletedSessionLifecycleScenarios` conformance catalog verifies that
+delete-to-restore boundary independently from retention maintenance.
 
 `ForkSession` creates an independent root Session through an inclusive
 canonical `SessionForkPoint`. The provider driver must attest native

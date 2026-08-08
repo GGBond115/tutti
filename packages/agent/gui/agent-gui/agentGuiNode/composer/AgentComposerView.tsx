@@ -127,6 +127,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
     queuedPrompts,
     drainingQueuedPromptId,
     workspaceAppIcons = EMPTY_WORKSPACE_APP_ICONS,
+    activePromptDisabledReason = null,
     activePromptKeyboardShortcutsEnabled = true,
     promptImagesSupported = true,
     layoutMode = "dock",
@@ -292,6 +293,8 @@ export function AgentComposerView(input: Props): React.JSX.Element {
             edgeGlow={true}
             keyboardShortcuts={activePromptKeyboardShortcutsEnabled}
             isSubmitting={isSubmittingPrompt}
+            isInteractionDisabled={Boolean(activePromptDisabledReason)}
+            interactionDisabledReason={activePromptDisabledReason}
             onSubmit={submitInteractivePromptAndDismiss}
             labels={{
               approvalLead: labels.approvalLead,
@@ -720,6 +723,7 @@ export function AgentComposerView(input: Props): React.JSX.Element {
             onWorkspaceReferencePicker={handleWorkspaceReferencePicker}
             onMentionPaletteButton={handleMentionPaletteButton}
             onSettingsChange={onSettingsChange}
+            onRetryComposerOptions={input.props.onRetryComposerOptions}
             onSubmit={onSubmit}
             onClearGoalMode={clearGoalModeBadge}
             draftPrompt={draftPrompt}

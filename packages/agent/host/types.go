@@ -861,19 +861,6 @@ type DeleteSessionsReport struct {
 
 type ClearSessionsResult = DeleteSessionsResult
 
-type PurgeDeletedSessionsInput struct {
-	CutoffUnixMS    int64
-	MaxSessions     int
-	MaxPayloadBytes int64
-}
-
-type PurgeDeletedSessionsResult struct {
-	Sessions        []storesqlite.PurgedSession
-	RemovedMessages int
-	PayloadBytes    int64
-	HasMore         bool
-}
-
 type RuntimeGoalControlInput struct {
 	WorkspaceID        string
 	AgentSessionID     string

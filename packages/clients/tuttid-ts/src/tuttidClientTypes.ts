@@ -163,6 +163,8 @@ import type {
   WorkspaceAgentSessionSectionsResponse,
   WorkspaceAgentSessionMessagesResponse,
   WorkspaceAgentSessionListResponse,
+  WorkspaceDeletedAgentSessionListResponse,
+  RestoreWorkspaceDeletedAgentSessionResponse,
   WorkspaceFileDirectoryResponse,
   WorkspaceFileEntryResponse,
   WorkspaceFileFilterKind,
@@ -452,6 +454,31 @@ export interface TuttidClient
   clearWorkspaceAgentSessions(
     workspaceID: string
   ): Promise<ClearWorkspaceAgentSessionsResponse>;
+  listWorkspaceDeletedAgentSessions(
+    workspaceID: string,
+    request?: {
+      cursor?: string;
+      limit?: number;
+      projectPath?: string;
+      projectScope?: "unscoped";
+      searchQuery?: string;
+    },
+    requestOptions?: TuttidRequestOptions
+  ): Promise<WorkspaceDeletedAgentSessionListResponse>;
+  restoreWorkspaceDeletedAgentSession(
+    workspaceID: string,
+    agentSessionID: string,
+    requestOptions?: TuttidRequestOptions
+  ): Promise<RestoreWorkspaceDeletedAgentSessionResponse>;
+  purgeWorkspaceDeletedAgentSession(
+    workspaceID: string,
+    agentSessionID: string,
+    requestOptions?: TuttidRequestOptions
+  ): Promise<DeletedAgentConversationPurgeResult>;
+  purgeWorkspaceDeletedAgentSessions(
+    workspaceID: string,
+    requestOptions?: TuttidRequestOptions
+  ): Promise<DeletedAgentConversationPurgeResult>;
   moveWorkspaceFileEntry(
     workspaceID: string,
     request: MoveWorkspaceFileEntryRequest

@@ -518,6 +518,18 @@ type ServerInterface interface {
 	// Cancel a running consult
 	// (POST /v1/workspaces/{workspaceID}/collaboration-runs/{collaborationRunID}/cancel)
 	CancelCollaborationRun(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, collaborationRunID CollaborationRunID)
+	// Permanently purge all soft-deleted agent sessions in one workspace
+	// (DELETE /v1/workspaces/{workspaceID}/deleted-agent-sessions)
+	PurgeWorkspaceDeletedAgentSessions(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID)
+	// List topmost soft-deleted agent session components for one workspace
+	// (GET /v1/workspaces/{workspaceID}/deleted-agent-sessions)
+	ListWorkspaceDeletedAgentSessions(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, params ListWorkspaceDeletedAgentSessionsParams)
+	// Permanently purge one topmost soft-deleted agent session component
+	// (DELETE /v1/workspaces/{workspaceID}/deleted-agent-sessions/{agentSessionID})
+	PurgeWorkspaceDeletedAgentSession(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID)
+	// Restore one topmost soft-deleted agent session component
+	// (POST /v1/workspaces/{workspaceID}/deleted-agent-sessions/{agentSessionID}/restore)
+	RestoreWorkspaceDeletedAgentSession(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID)
 	// List direct children for one workspace directory
 	// (GET /v1/workspaces/{workspaceID}/files/directory)
 	ListWorkspaceFileDirectory(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, params ListWorkspaceFileDirectoryParams)
@@ -7223,6 +7235,220 @@ func (siw *ServerInterfaceWrapper) CancelCollaborationRun(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// PurgeWorkspaceDeletedAgentSessions operation middleware
+func (siw *ServerInterfaceWrapper) PurgeWorkspaceDeletedAgentSessions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceID" -------------
+	var workspaceID WorkspaceID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PurgeWorkspaceDeletedAgentSessions(w, r, workspaceID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListWorkspaceDeletedAgentSessions operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaceDeletedAgentSessions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceID" -------------
+	var workspaceID WorkspaceID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListWorkspaceDeletedAgentSessionsParams
+
+	// ------------- Optional query parameter "searchQuery" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "searchQuery", r.URL.Query(), &params.SearchQuery, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "searchQuery"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "searchQuery", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "projectScope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectScope", r.URL.Query(), &params.ProjectScope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectScope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectScope", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "projectPath" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "projectPath", r.URL.Query(), &params.ProjectPath, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "projectPath"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectPath", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaceDeletedAgentSessions(w, r, workspaceID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PurgeWorkspaceDeletedAgentSession operation middleware
+func (siw *ServerInterfaceWrapper) PurgeWorkspaceDeletedAgentSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceID" -------------
+	var workspaceID WorkspaceID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "agentSessionID" -------------
+	var agentSessionID AgentSessionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentSessionID", r.PathValue("agentSessionID"), &agentSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentSessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PurgeWorkspaceDeletedAgentSession(w, r, workspaceID, agentSessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestoreWorkspaceDeletedAgentSession operation middleware
+func (siw *ServerInterfaceWrapper) RestoreWorkspaceDeletedAgentSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "workspaceID" -------------
+	var workspaceID WorkspaceID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "workspaceID", r.PathValue("workspaceID"), &workspaceID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "workspaceID", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "agentSessionID" -------------
+	var agentSessionID AgentSessionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentSessionID", r.PathValue("agentSessionID"), &agentSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentSessionID", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestoreWorkspaceDeletedAgentSession(w, r, workspaceID, agentSessionID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListWorkspaceFileDirectory operation middleware
 func (siw *ServerInterfaceWrapper) ListWorkspaceFileDirectory(w http.ResponseWriter, r *http.Request) {
 
@@ -11122,6 +11348,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/collaboration-runs", wrapper.CreateCollaborationRun)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/collaboration-runs/{collaborationRunID}/adoption", wrapper.SetCollaborationRunAdoption)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/collaboration-runs/{collaborationRunID}/cancel", wrapper.CancelCollaborationRun)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/deleted-agent-sessions", wrapper.PurgeWorkspaceDeletedAgentSessions)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/deleted-agent-sessions", wrapper.ListWorkspaceDeletedAgentSessions)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/deleted-agent-sessions/{agentSessionID}", wrapper.PurgeWorkspaceDeletedAgentSession)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/deleted-agent-sessions/{agentSessionID}/restore", wrapper.RestoreWorkspaceDeletedAgentSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/files/directory", wrapper.ListWorkspaceFileDirectory)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/files/directory", wrapper.CreateWorkspaceFileDirectory)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/workspaces/{workspaceID}/files/entry", wrapper.DeleteWorkspaceFileEntry)
@@ -28247,6 +28477,487 @@ func (response CancelCollaborationRun503JSONResponse) VisitCancelCollaborationRu
 	return err
 }
 
+type PurgeWorkspaceDeletedAgentSessionsRequestObject struct {
+	WorkspaceID WorkspaceID `json:"workspaceID"`
+}
+
+type PurgeWorkspaceDeletedAgentSessionsResponseObject interface {
+	VisitPurgeWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error
+}
+
+type PurgeWorkspaceDeletedAgentSessions200JSONResponse DeletedAgentConversationPurgeResult
+
+func (response PurgeWorkspaceDeletedAgentSessions200JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSessions400JSONResponse struct {
+	InvalidRequestErrorJSONResponse
+}
+
+func (response PurgeWorkspaceDeletedAgentSessions400JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSessions401JSONResponse struct{ UnauthorizedErrorJSONResponse }
+
+func (response PurgeWorkspaceDeletedAgentSessions401JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSessions404JSONResponse struct {
+	WorkspaceNotFoundErrorJSONResponse
+}
+
+func (response PurgeWorkspaceDeletedAgentSessions404JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSessions405JSONResponse struct {
+	MethodNotAllowedErrorJSONResponse
+}
+
+func (response PurgeWorkspaceDeletedAgentSessions405JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSessions502JSONResponse struct {
+	WorkspaceOperationErrorJSONResponse
+}
+
+func (response PurgeWorkspaceDeletedAgentSessions502JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSessions503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response PurgeWorkspaceDeletedAgentSessions503JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceDeletedAgentSessionsRequestObject struct {
+	WorkspaceID WorkspaceID `json:"workspaceID"`
+	Params      ListWorkspaceDeletedAgentSessionsParams
+}
+
+type ListWorkspaceDeletedAgentSessionsResponseObject interface {
+	VisitListWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error
+}
+
+type ListWorkspaceDeletedAgentSessions200JSONResponse WorkspaceDeletedAgentSessionListResponse
+
+func (response ListWorkspaceDeletedAgentSessions200JSONResponse) VisitListWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceDeletedAgentSessions400JSONResponse struct {
+	InvalidRequestErrorJSONResponse
+}
+
+func (response ListWorkspaceDeletedAgentSessions400JSONResponse) VisitListWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceDeletedAgentSessions401JSONResponse struct{ UnauthorizedErrorJSONResponse }
+
+func (response ListWorkspaceDeletedAgentSessions401JSONResponse) VisitListWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceDeletedAgentSessions404JSONResponse struct {
+	WorkspaceNotFoundErrorJSONResponse
+}
+
+func (response ListWorkspaceDeletedAgentSessions404JSONResponse) VisitListWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceDeletedAgentSessions405JSONResponse struct {
+	MethodNotAllowedErrorJSONResponse
+}
+
+func (response ListWorkspaceDeletedAgentSessions405JSONResponse) VisitListWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceDeletedAgentSessions502JSONResponse struct {
+	WorkspaceOperationErrorJSONResponse
+}
+
+func (response ListWorkspaceDeletedAgentSessions502JSONResponse) VisitListWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceDeletedAgentSessions503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response ListWorkspaceDeletedAgentSessions503JSONResponse) VisitListWorkspaceDeletedAgentSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSessionRequestObject struct {
+	WorkspaceID    WorkspaceID    `json:"workspaceID"`
+	AgentSessionID AgentSessionID `json:"agentSessionID"`
+}
+
+type PurgeWorkspaceDeletedAgentSessionResponseObject interface {
+	VisitPurgeWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error
+}
+
+type PurgeWorkspaceDeletedAgentSession200JSONResponse DeletedAgentConversationPurgeResult
+
+func (response PurgeWorkspaceDeletedAgentSession200JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSession400JSONResponse struct {
+	InvalidRequestErrorJSONResponse
+}
+
+func (response PurgeWorkspaceDeletedAgentSession400JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSession401JSONResponse struct{ UnauthorizedErrorJSONResponse }
+
+func (response PurgeWorkspaceDeletedAgentSession401JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSession404JSONResponse struct {
+	WorkspaceNotFoundErrorJSONResponse
+}
+
+func (response PurgeWorkspaceDeletedAgentSession404JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSession405JSONResponse struct {
+	MethodNotAllowedErrorJSONResponse
+}
+
+func (response PurgeWorkspaceDeletedAgentSession405JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSession502JSONResponse struct {
+	WorkspaceOperationErrorJSONResponse
+}
+
+func (response PurgeWorkspaceDeletedAgentSession502JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeWorkspaceDeletedAgentSession503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response PurgeWorkspaceDeletedAgentSession503JSONResponse) VisitPurgeWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreWorkspaceDeletedAgentSessionRequestObject struct {
+	WorkspaceID    WorkspaceID    `json:"workspaceID"`
+	AgentSessionID AgentSessionID `json:"agentSessionID"`
+}
+
+type RestoreWorkspaceDeletedAgentSessionResponseObject interface {
+	VisitRestoreWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error
+}
+
+type RestoreWorkspaceDeletedAgentSession200JSONResponse RestoreWorkspaceDeletedAgentSessionResponse
+
+func (response RestoreWorkspaceDeletedAgentSession200JSONResponse) VisitRestoreWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreWorkspaceDeletedAgentSession400JSONResponse struct {
+	InvalidRequestErrorJSONResponse
+}
+
+func (response RestoreWorkspaceDeletedAgentSession400JSONResponse) VisitRestoreWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreWorkspaceDeletedAgentSession401JSONResponse struct{ UnauthorizedErrorJSONResponse }
+
+func (response RestoreWorkspaceDeletedAgentSession401JSONResponse) VisitRestoreWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreWorkspaceDeletedAgentSession404JSONResponse struct {
+	WorkspaceNotFoundErrorJSONResponse
+}
+
+func (response RestoreWorkspaceDeletedAgentSession404JSONResponse) VisitRestoreWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreWorkspaceDeletedAgentSession405JSONResponse struct {
+	MethodNotAllowedErrorJSONResponse
+}
+
+func (response RestoreWorkspaceDeletedAgentSession405JSONResponse) VisitRestoreWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(405)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreWorkspaceDeletedAgentSession409JSONResponse ApiErrorResponse
+
+func (response RestoreWorkspaceDeletedAgentSession409JSONResponse) VisitRestoreWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreWorkspaceDeletedAgentSession502JSONResponse struct {
+	WorkspaceOperationErrorJSONResponse
+}
+
+func (response RestoreWorkspaceDeletedAgentSession502JSONResponse) VisitRestoreWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreWorkspaceDeletedAgentSession503JSONResponse struct {
+	ServiceUnavailableErrorJSONResponse
+}
+
+func (response RestoreWorkspaceDeletedAgentSession503JSONResponse) VisitRestoreWorkspaceDeletedAgentSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListWorkspaceFileDirectoryRequestObject struct {
 	WorkspaceID WorkspaceID `json:"workspaceID"`
 	Params      ListWorkspaceFileDirectoryParams
@@ -38671,6 +39382,18 @@ type StrictServerInterface interface {
 	// Cancel a running consult
 	// (POST /v1/workspaces/{workspaceID}/collaboration-runs/{collaborationRunID}/cancel)
 	CancelCollaborationRun(ctx context.Context, request CancelCollaborationRunRequestObject) (CancelCollaborationRunResponseObject, error)
+	// Permanently purge all soft-deleted agent sessions in one workspace
+	// (DELETE /v1/workspaces/{workspaceID}/deleted-agent-sessions)
+	PurgeWorkspaceDeletedAgentSessions(ctx context.Context, request PurgeWorkspaceDeletedAgentSessionsRequestObject) (PurgeWorkspaceDeletedAgentSessionsResponseObject, error)
+	// List topmost soft-deleted agent session components for one workspace
+	// (GET /v1/workspaces/{workspaceID}/deleted-agent-sessions)
+	ListWorkspaceDeletedAgentSessions(ctx context.Context, request ListWorkspaceDeletedAgentSessionsRequestObject) (ListWorkspaceDeletedAgentSessionsResponseObject, error)
+	// Permanently purge one topmost soft-deleted agent session component
+	// (DELETE /v1/workspaces/{workspaceID}/deleted-agent-sessions/{agentSessionID})
+	PurgeWorkspaceDeletedAgentSession(ctx context.Context, request PurgeWorkspaceDeletedAgentSessionRequestObject) (PurgeWorkspaceDeletedAgentSessionResponseObject, error)
+	// Restore one topmost soft-deleted agent session component
+	// (POST /v1/workspaces/{workspaceID}/deleted-agent-sessions/{agentSessionID}/restore)
+	RestoreWorkspaceDeletedAgentSession(ctx context.Context, request RestoreWorkspaceDeletedAgentSessionRequestObject) (RestoreWorkspaceDeletedAgentSessionResponseObject, error)
 	// List direct children for one workspace directory
 	// (GET /v1/workspaces/{workspaceID}/files/directory)
 	ListWorkspaceFileDirectory(ctx context.Context, request ListWorkspaceFileDirectoryRequestObject) (ListWorkspaceFileDirectoryResponseObject, error)
@@ -43955,6 +44678,113 @@ func (sh *strictHandler) CancelCollaborationRun(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CancelCollaborationRunResponseObject); ok {
 		if err := validResponse.VisitCancelCollaborationRunResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PurgeWorkspaceDeletedAgentSessions operation middleware
+func (sh *strictHandler) PurgeWorkspaceDeletedAgentSessions(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID) {
+	var request PurgeWorkspaceDeletedAgentSessionsRequestObject
+
+	request.WorkspaceID = workspaceID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PurgeWorkspaceDeletedAgentSessions(ctx, request.(PurgeWorkspaceDeletedAgentSessionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PurgeWorkspaceDeletedAgentSessions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PurgeWorkspaceDeletedAgentSessionsResponseObject); ok {
+		if err := validResponse.VisitPurgeWorkspaceDeletedAgentSessionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListWorkspaceDeletedAgentSessions operation middleware
+func (sh *strictHandler) ListWorkspaceDeletedAgentSessions(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, params ListWorkspaceDeletedAgentSessionsParams) {
+	var request ListWorkspaceDeletedAgentSessionsRequestObject
+
+	request.WorkspaceID = workspaceID
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListWorkspaceDeletedAgentSessions(ctx, request.(ListWorkspaceDeletedAgentSessionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListWorkspaceDeletedAgentSessions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListWorkspaceDeletedAgentSessionsResponseObject); ok {
+		if err := validResponse.VisitListWorkspaceDeletedAgentSessionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PurgeWorkspaceDeletedAgentSession operation middleware
+func (sh *strictHandler) PurgeWorkspaceDeletedAgentSession(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID) {
+	var request PurgeWorkspaceDeletedAgentSessionRequestObject
+
+	request.WorkspaceID = workspaceID
+	request.AgentSessionID = agentSessionID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PurgeWorkspaceDeletedAgentSession(ctx, request.(PurgeWorkspaceDeletedAgentSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PurgeWorkspaceDeletedAgentSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PurgeWorkspaceDeletedAgentSessionResponseObject); ok {
+		if err := validResponse.VisitPurgeWorkspaceDeletedAgentSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestoreWorkspaceDeletedAgentSession operation middleware
+func (sh *strictHandler) RestoreWorkspaceDeletedAgentSession(w http.ResponseWriter, r *http.Request, workspaceID WorkspaceID, agentSessionID AgentSessionID) {
+	var request RestoreWorkspaceDeletedAgentSessionRequestObject
+
+	request.WorkspaceID = workspaceID
+	request.AgentSessionID = agentSessionID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestoreWorkspaceDeletedAgentSession(ctx, request.(RestoreWorkspaceDeletedAgentSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestoreWorkspaceDeletedAgentSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestoreWorkspaceDeletedAgentSessionResponseObject); ok {
+		if err := validResponse.VisitRestoreWorkspaceDeletedAgentSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

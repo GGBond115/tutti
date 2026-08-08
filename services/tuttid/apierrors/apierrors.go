@@ -89,6 +89,7 @@ const (
 	ReasonWorkspaceFileNotFound                          = "workspace_file_not_found"
 	ReasonWorkspaceFileServiceUnavailable                = "workspace_file_service_unavailable"
 	ReasonWorkspaceAgentSessionNotFound                  = "workspace_agent_session_not_found"
+	ReasonWorkspaceAgentSessionNotRestorable             = "workspace_agent_session_not_restorable"
 	ReasonWorkspaceAgentSessionTitleTooLong              = "workspace_agent_session_title_too_long"
 	ReasonWorkspaceAgentSessionUnavailable               = "workspace_agent_session_service_unavailable"
 	ReasonUnsupportedPermissionModeID                    = "unsupported_permission_mode_id"

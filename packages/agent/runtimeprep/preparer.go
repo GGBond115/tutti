@@ -224,6 +224,9 @@ func (p *DefaultPreparer) Cleanup(ctx context.Context, input CleanupInput) error
 	if err := recoverMutagenAuthSessions(ctx, p.StateDir, runtimeRoot); err != nil {
 		return err
 	}
+	if input.PreserveRuntimeRoot {
+		return nil
+	}
 	return p.runtimeStore().CleanupRuntime(StoreCleanupInput{
 		WorkspaceID:    workspaceID,
 		AgentSessionID: agentSessionID,

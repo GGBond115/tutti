@@ -463,6 +463,9 @@ import type {
   ListWorkspaceAppsData,
   ListWorkspaceAppsErrors,
   ListWorkspaceAppsResponses,
+  ListWorkspaceDeletedAgentSessionsData,
+  ListWorkspaceDeletedAgentSessionsErrors,
+  ListWorkspaceDeletedAgentSessionsResponses,
   ListWorkspaceFileDirectoryData,
   ListWorkspaceFileDirectoryErrors,
   ListWorkspaceFileDirectoryResponses,
@@ -538,6 +541,12 @@ import type {
   PurgeDeletedAgentConversationsData,
   PurgeDeletedAgentConversationsErrors,
   PurgeDeletedAgentConversationsResponses,
+  PurgeWorkspaceDeletedAgentSessionData,
+  PurgeWorkspaceDeletedAgentSessionErrors,
+  PurgeWorkspaceDeletedAgentSessionResponses,
+  PurgeWorkspaceDeletedAgentSessionsData,
+  PurgeWorkspaceDeletedAgentSessionsErrors,
+  PurgeWorkspaceDeletedAgentSessionsResponses,
   PutDesktopPreferencesData,
   PutDesktopPreferencesErrors,
   PutDesktopPreferencesResponses,
@@ -595,6 +604,9 @@ import type {
   ResolveWorkspaceGitPatchSupportData,
   ResolveWorkspaceGitPatchSupportErrors,
   ResolveWorkspaceGitPatchSupportResponses,
+  RestoreWorkspaceDeletedAgentSessionData,
+  RestoreWorkspaceDeletedAgentSessionErrors,
+  RestoreWorkspaceDeletedAgentSessionResponses,
   RetryWorkspaceAppData,
   RetryWorkspaceAppErrors,
   RetryWorkspaceAppFactoryJobValidationData,
@@ -3151,6 +3163,78 @@ export const deleteWorkspaceAgentSessionsBatch = <
       "Content-Type": "application/json",
       ...options.headers
     }
+  });
+
+/**
+ * Permanently purge all soft-deleted agent sessions in one workspace
+ */
+export const purgeWorkspaceDeletedAgentSessions = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<PurgeWorkspaceDeletedAgentSessionsData, ThrowOnError>
+) =>
+  (options.client ?? client).delete<
+    PurgeWorkspaceDeletedAgentSessionsResponses,
+    PurgeWorkspaceDeletedAgentSessionsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/deleted-agent-sessions",
+    ...options
+  });
+
+/**
+ * List topmost soft-deleted agent session components for one workspace
+ */
+export const listWorkspaceDeletedAgentSessions = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<ListWorkspaceDeletedAgentSessionsData, ThrowOnError>
+) =>
+  (options.client ?? client).get<
+    ListWorkspaceDeletedAgentSessionsResponses,
+    ListWorkspaceDeletedAgentSessionsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/deleted-agent-sessions",
+    ...options
+  });
+
+/**
+ * Permanently purge one topmost soft-deleted agent session component
+ */
+export const purgeWorkspaceDeletedAgentSession = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<PurgeWorkspaceDeletedAgentSessionData, ThrowOnError>
+) =>
+  (options.client ?? client).delete<
+    PurgeWorkspaceDeletedAgentSessionResponses,
+    PurgeWorkspaceDeletedAgentSessionErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/deleted-agent-sessions/{agentSessionID}",
+    ...options
+  });
+
+/**
+ * Restore one topmost soft-deleted agent session component
+ */
+export const restoreWorkspaceDeletedAgentSession = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<RestoreWorkspaceDeletedAgentSessionData, ThrowOnError>
+) =>
+  (options.client ?? client).post<
+    RestoreWorkspaceDeletedAgentSessionResponses,
+    RestoreWorkspaceDeletedAgentSessionErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: "bearer", type: "http" }],
+    url: "/v1/workspaces/{workspaceID}/deleted-agent-sessions/{agentSessionID}/restore",
+    ...options
   });
 
 /**

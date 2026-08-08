@@ -159,6 +159,16 @@ func SessionForkScenarios() []SessionForkScenario {
 	}
 }
 
+// DeletedSessionLifecycleScenarios verifies the lifecycle boundary separately
+// from retention purge: deletion produces a restorable canonical tombstone,
+// and restore never starts or resumes provider work.
+func DeletedSessionLifecycleScenarios() []DeletedSessionLifecycleScenario {
+	return []DeletedSessionLifecycleScenario{{
+		Name: "lossless deleted session restores without provider resume",
+		run:  runLosslessDeletedSessionRestore,
+	}}
+}
+
 // InteractionTreeScenarios covers the canonical cross-session interaction
 // read without expanding the base lifecycle Driver contract.
 func InteractionTreeScenarios() []InteractionTreeScenario {

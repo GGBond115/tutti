@@ -8,6 +8,7 @@ import { zhCNAgentGuiSlashPalette } from "./zh-CN.agentGuiSlashPalette.ts";
 import { zhCNAgentGuiSessionActions } from "./zh-CN.agentGuiSessionActions.ts";
 import { zhCNAgentGuiCollaboration } from "./zh-CN.agentGuiCollaboration.ts";
 import { zhCNTuttiModePlan } from "./zh-CN.tuttiModePlan.ts";
+import { zhCNAgentGuiComposer } from "./zh-CN.agentGuiComposer.ts";
 
 export const zhCNAgentGui = {
   imageDownloaded: "图片已下载",
@@ -98,8 +99,7 @@ export const zhCNAgentGui = {
   modelLabel: "模型",
   modelSelectionLabel: "模型选择",
   defaultModel: "默认模型",
-  loadingOptions: "正在加载",
-  inheritedUnavailable: "继承 / 不可用",
+  ...zhCNAgentGuiComposer,
   reasoningLabel: "推理强度",
   reasoningDegreeLabel: "推理程度",
   reasoningOptionDefault: "默认",

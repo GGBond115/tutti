@@ -370,6 +370,7 @@ func buildDaemonAPI(
 		Sessions: agentservice.ServiceSessionConfig{
 			Initializer:       agentActivityProjection,
 			Reader:            agentActivityProjection,
+			DeletedSessions:   agentActivityProjection,
 			PurgeStore:        agentSessionPurgeStore,
 			DeletionGuard:     sessionDeletionGuard,
 			UserProjectReader: userProjectService,
@@ -503,7 +504,8 @@ func buildDaemonAPI(
 	if maintenanceState, ok := store.(agentmaintenanceservice.StateStore); ok {
 		agentMaintenance = &agentmaintenanceservice.Service{
 			Host: agentHost, Preferences: preferences, State: maintenanceState,
-			IsIdle: agentSessionService.IdleForDataMaintenance,
+			Resources: agentSessionService,
+			IsIdle:    agentSessionService.IdleForDataMaintenance,
 		}
 		if compactor, ok := store.(agentmaintenanceservice.DatabaseCompactor); ok {
 			agentMaintenance.Compactor = compactor

@@ -15,6 +15,7 @@ export const en = {
     loading: "Loading",
     neverOpened: "Never opened",
     ok: "OK",
+    retry: "Try again",
     selectFolder: "Select folder",
     unknownError: "Unknown error",
     unreachable: "unreachable",
@@ -915,6 +916,58 @@ export const en = {
         updatePolicySaveFailed: "We couldn't update the update mode right now.",
         versionLabel: "Desktop version"
       },
+      deletedConversations: {
+        allProjects: "All projects",
+        clearFilters: "Clear filters",
+        deleteAll: "Delete all",
+        deleteAllCompleted: "Permanently deleted {{count}} conversations.",
+        deleteAllConfirm: "Permanently delete all",
+        deleteAllConfirmationLabel: "Confirmation phrase",
+        deleteAllConfirmationPhrase: "permanently delete",
+        deleteAllDescription:
+          "This permanently deletes all {{count}} deleted conversations in this workspace, regardless of the current search or project filter. Type “{{phrase}}” to continue.",
+        deleteAllTitle: "Permanently delete all conversations?",
+        deleteAction: "Delete",
+        deleteCompleted: "Conversation permanently deleted.",
+        deleteDescription:
+          "“{{title}}” will be permanently deleted and cannot be restored.",
+        deleteTitle: "Permanently delete this conversation?",
+        deleting: "Deleting…",
+        deletingAll: "Deleting all…",
+        emptyDescription:
+          "Deleted conversations remain here until the automatic cleanup period ends.",
+        emptyTitle: "No deleted conversations",
+        legacyRestoreUnavailable:
+          "This older record does not contain the complete conversation data required for restore.",
+        incompleteRestoreUnavailable:
+          "This conversation does not contain the complete data required for restore.",
+        listLabel: "Deleted conversations",
+        loadFailedDescription:
+          "The deleted conversation list could not be loaded. Try again.",
+        loadFailedTitle: "Couldn't load deleted conversations",
+        loadingMore: "Loading more…",
+        noResultsDescription:
+          "Try another title or clear the current project filter.",
+        noResultsTitle: "No matching conversations",
+        permanentDelete: "Permanently delete",
+        permanentDeleteFailed:
+          "The conversations could not be permanently deleted. Finish active Agent work and try again.",
+        projectFilterLabel: "Filter by project",
+        removedProject: "{{project}} (removed)",
+        restore: "Restore conversation",
+        restoreCompleted: "Conversation restored.",
+        restoreFailed: "The conversation could not be restored. Try again.",
+        restoring: "Restoring…",
+        retentionDays: "{{count}} days",
+        retentionDescription:
+          "Deleted conversations are permanently removed after this period. This setting applies to every workspace on this device.",
+        retentionLabel: "Automatic cleanup",
+        searchLabel: "Search deleted conversations by title",
+        searchPlaceholder: "Search deleted conversations",
+        title: "Deleted conversations",
+        unscoped: "Chat (no project)",
+        untitled: "Untitled conversation"
+      },
       nav: {
         about: "About",
         apps: "Apps",
@@ -922,6 +975,7 @@ export const en = {
         appearance: "Appearance",
         agent: "Agent",
         connection: "Connection",
+        deletedConversations: "Trash",
         developer: "Developer",
         general: "General",
         lab: "Lab",

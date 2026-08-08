@@ -254,6 +254,17 @@ export type AgentActivityUpdatedPayloadV1 =
   | {
       workspaceId: string;
       agentSessionId: string;
+      eventType: "session_restored";
+      data: {
+        workspaceId: string;
+        agentSessionId: string;
+        eventType: "session_restored";
+        restoredAtUnixMs: number;
+      };
+    }
+  | {
+      workspaceId: string;
+      agentSessionId: string;
       eventType: "session_reconcile_required";
       data: {
         workspaceId: string;

@@ -9,6 +9,7 @@ import { enAgentGuiSlashPalette } from "./en.agentGuiSlashPalette.ts";
 import { enAgentGuiSessionActions } from "./en.agentGuiSessionActions.ts";
 import { enAgentGuiCollaboration } from "./en.agentGuiCollaboration.ts";
 import { enAgentGuiUsageStatus } from "./en.agentGuiUsageStatus.ts";
+import { enAgentGuiComposer } from "./en.agentGuiComposer.ts";
 
 export const enAgentGui = {
   imageDownloaded: "Image downloaded",
@@ -102,8 +103,7 @@ export const enAgentGui = {
   modelLabel: "Model",
   modelSelectionLabel: "Model selection",
   defaultModel: "Default model",
-  loadingOptions: "Loading…",
-  inheritedUnavailable: "Inherited / unavailable",
+  ...enAgentGuiComposer,
   reasoningLabel: "Reasoning",
   reasoningDegreeLabel: "Reasoning level",
   reasoningOptionDefault: "Default",

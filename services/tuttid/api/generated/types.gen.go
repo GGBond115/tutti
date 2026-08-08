@@ -4051,6 +4051,24 @@ func (e WorkspaceAppUploadPurpose) Valid() bool {
 	}
 }
 
+// Defines values for WorkspaceDeletedAgentSessionUnavailableReason.
+const (
+	IncompleteSessionTree WorkspaceDeletedAgentSessionUnavailableReason = "incompleteSessionTree"
+	LegacyDataUnavailable WorkspaceDeletedAgentSessionUnavailableReason = "legacyDataUnavailable"
+)
+
+// Valid indicates whether the value is a known member of the WorkspaceDeletedAgentSessionUnavailableReason enum.
+func (e WorkspaceDeletedAgentSessionUnavailableReason) Valid() bool {
+	switch e {
+	case IncompleteSessionTree:
+		return true
+	case LegacyDataUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WorkspaceFileEntryKind.
 const (
 	Directory WorkspaceFileEntryKind = "directory"
@@ -4654,6 +4672,21 @@ const (
 func (e SubmitWorkspaceAgentPlanDecisionParamsXTuttiAgentCommandOrigin) Valid() bool {
 	switch e {
 	case SubmitWorkspaceAgentPlanDecisionParamsXTuttiAgentCommandOriginRendererEngine:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListWorkspaceDeletedAgentSessionsParamsProjectScope.
+const (
+	Unscoped ListWorkspaceDeletedAgentSessionsParamsProjectScope = "unscoped"
+)
+
+// Valid indicates whether the value is a known member of the ListWorkspaceDeletedAgentSessionsParamsProjectScope enum.
+func (e ListWorkspaceDeletedAgentSessionsParamsProjectScope) Valid() bool {
+	switch e {
+	case Unscoped:
 		return true
 	default:
 		return false
@@ -7803,6 +7836,12 @@ type ResizeWorkspaceTerminalRequest struct {
 	Rows int `json:"rows"`
 }
 
+// RestoreWorkspaceDeletedAgentSessionResponse defines model for RestoreWorkspaceDeletedAgentSessionResponse.
+type RestoreWorkspaceDeletedAgentSessionResponse struct {
+	AgentSessionId string `json:"agentSessionId"`
+	Restored       bool   `json:"restored"`
+}
+
 // RollbackWorkspaceAppRequest defines model for RollbackWorkspaceAppRequest.
 type RollbackWorkspaceAppRequest struct {
 	Version string `json:"version"`
@@ -9286,6 +9325,58 @@ type WorkspaceAppUploadedFile struct {
 	SizeBytes int64  `json:"sizeBytes"`
 }
 
+// WorkspaceDeletedAgentSession defines model for WorkspaceDeletedAgentSession.
+type WorkspaceDeletedAgentSession struct {
+	// AgentSessionId Identity of the topmost Session in this deleted component. It may be a canonical root or a child whose parent is not deleted.
+	AgentSessionId string `json:"agentSessionId"`
+
+	// DeletedAtUnixMs Tombstone time used by the retention policy.
+	DeletedAtUnixMs int64 `json:"deletedAtUnixMs"`
+
+	// ProjectPath Persisted original project path; null means the conversations section.
+	ProjectPath *string `json:"projectPath"`
+	Restorable  bool    `json:"restorable"`
+
+	// Title Original canonical title. Empty titles remain empty.
+	Title string `json:"title"`
+
+	// UnavailableReason Null when the complete deleted Session component can be restored.
+	UnavailableReason *WorkspaceDeletedAgentSessionUnavailableReason `json:"unavailableReason"`
+
+	// UpdatedAtUnixMs Last session update before deletion. This value is not the deletion time.
+	UpdatedAtUnixMs int64 `json:"updatedAtUnixMs"`
+}
+
+// WorkspaceDeletedAgentSessionListResponse defines model for WorkspaceDeletedAgentSessionListResponse.
+type WorkspaceDeletedAgentSessionListResponse struct {
+	HasMore bool `json:"hasMore"`
+
+	// NextCursor Opaque cursor for the next older matching page.
+	NextCursor *string `json:"nextCursor,omitempty"`
+
+	// ProjectOptions Distinct original tombstone projects for the workspace, independent of search, project filter, cursor, and limit.
+	ProjectOptions []WorkspaceDeletedAgentSessionProjectOption `json:"projectOptions"`
+	Sessions       []WorkspaceDeletedAgentSession              `json:"sessions"`
+
+	// TotalCount Total matching topmost soft-deleted Session components before cursor pagination.
+	TotalCount  int    `json:"totalCount"`
+	WorkspaceId string `json:"workspaceId"`
+
+	// WorkspaceTotalCount Total topmost soft-deleted Session components in this workspace before search, project filtering, and cursor pagination.
+	WorkspaceTotalCount int `json:"workspaceTotalCount"`
+}
+
+// WorkspaceDeletedAgentSessionProjectOption defines model for WorkspaceDeletedAgentSessionProjectOption.
+type WorkspaceDeletedAgentSessionProjectOption struct {
+	// ProjectAvailable Whether the original project is still registered in the current project catalog.
+	ProjectAvailable bool   `json:"projectAvailable"`
+	ProjectLabel     string `json:"projectLabel"`
+	ProjectPath      string `json:"projectPath"`
+}
+
+// WorkspaceDeletedAgentSessionUnavailableReason defines model for WorkspaceDeletedAgentSessionUnavailableReason.
+type WorkspaceDeletedAgentSessionUnavailableReason string
+
 // WorkspaceFileDirectoryResponse defines model for WorkspaceFileDirectoryResponse.
 type WorkspaceFileDirectoryResponse struct {
 	DirectoryPath string               `json:"directoryPath"`
@@ -10099,6 +10190,25 @@ type ListCollaborationRunsParams struct {
 	SourceSessionId *string `form:"sourceSessionId,omitempty" json:"sourceSessionId,omitempty"`
 	Limit           *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// ListWorkspaceDeletedAgentSessionsParams defines parameters for ListWorkspaceDeletedAgentSessions.
+type ListWorkspaceDeletedAgentSessionsParams struct {
+	// SearchQuery Case-insensitive search over the original session title only.
+	SearchQuery *string `form:"searchQuery,omitempty" json:"searchQuery,omitempty"`
+
+	// ProjectScope Select sessions without an original project. Mutually exclusive with projectPath; omit both project filters to list every location.
+	ProjectScope *ListWorkspaceDeletedAgentSessionsParamsProjectScope `form:"projectScope,omitempty" json:"projectScope,omitempty"`
+
+	// ProjectPath Select sessions by their persisted original project path. Mutually exclusive with projectScope.
+	ProjectPath *string `form:"projectPath,omitempty" json:"projectPath,omitempty"`
+
+	// Cursor Opaque cursor returned by the previous page.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListWorkspaceDeletedAgentSessionsParamsProjectScope defines parameters for ListWorkspaceDeletedAgentSessions.
+type ListWorkspaceDeletedAgentSessionsParamsProjectScope string
 
 // ListWorkspaceFileDirectoryParams defines parameters for ListWorkspaceFileDirectory.
 type ListWorkspaceFileDirectoryParams struct {

@@ -35,6 +35,14 @@ const managedPosixShellLockPath = new URL(
   "../../config/tutti.managed-posix-shell.lock.json",
   import.meta.url
 );
+const mutagenVendorScriptPath = new URL(
+  "../../apps/desktop/scripts/vendor-mutagen.mjs",
+  import.meta.url
+);
+const mutagenLockPath = new URL(
+  "../../config/tutti.mutagen.lock.json",
+  import.meta.url
+);
 const tuttidManagerPath = new URL(
   "../../apps/desktop/src/main/daemon/tuttidManager.ts",
   import.meta.url
@@ -1146,6 +1154,11 @@ test("desktop Windows package and daemon agree on the managed POSIX shell resour
       from: "build/managed-posix-shell",
       to: "bin/managed-posix-shell",
       filter: ["**/*"]
+    },
+    {
+      from: "build/mutagen",
+      to: "bin/mutagen",
+      filter: ["**/*"]
     }
   ]);
   assert.match(buildScript, /vendor-managed-posix-shell\.mjs/);
@@ -1159,4 +1172,27 @@ test("desktop Windows package and daemon agree on the managed POSIX shell resour
   assert.equal(lock.schemaVersion, "tutti.managed-posix-shell-lock.v1");
   assert.equal(lock.platforms["windows-amd64"].executable, "usr/bin/bash.exe");
   assert.doesNotMatch(alphaWorkflow, /\n\s+push:/);
+});
+
+test("desktop Windows package and daemon agree on the bundled Mutagen resource", async () => {
+  const packageJson = JSON.parse(await readFile(desktopPackagePath, "utf8"));
+  const buildScript = await readFile(buildScriptPath, "utf8");
+  const alphaWorkflow = await readFile(windowsAlphaWorkflowPath, "utf8");
+  const tuttidManager = await readFile(tuttidManagerPath, "utf8");
+  const lock = JSON.parse(await readFile(mutagenLockPath, "utf8"));
+
+  await access(mutagenVendorScriptPath);
+  assert.deepEqual(packageJson.build.win.extraResources[1], {
+    from: "build/mutagen",
+    to: "bin/mutagen",
+    filter: ["**/*"]
+  });
+  assert.match(buildScript, /vendor-mutagen\.mjs/);
+  assert.match(alphaWorkflow, /bin\/mutagen/);
+  assert.match(alphaWorkflow, /mutagenMetadata\.executable/);
+  assert.match(tuttidManager, /"mutagen"/);
+  assert.match(tuttidManager, /TUTTI_MUTAGEN_BIN/);
+  assert.match(tuttidManager, /tutti\.mutagen\.v1/);
+  assert.equal(lock.schemaVersion, "tutti.mutagen-lock.v1");
+  assert.equal(lock.platforms["windows-amd64"].executable, "mutagen.exe");
 });

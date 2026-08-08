@@ -801,6 +801,50 @@ export const agentActivityUpdatedPayloadSchema = {
           minLength: 1
         },
         eventType: {
+          const: "session_restored"
+        },
+        data: {
+          type: "object",
+          required: [
+            "workspaceId",
+            "agentSessionId",
+            "eventType",
+            "restoredAtUnixMs"
+          ],
+          properties: {
+            workspaceId: {
+              type: "string",
+              minLength: 1
+            },
+            agentSessionId: {
+              type: "string",
+              minLength: 1
+            },
+            eventType: {
+              const: "session_restored"
+            },
+            restoredAtUnixMs: {
+              type: "integer",
+              minimum: 0
+            }
+          }
+        }
+      }
+    },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: ["workspaceId", "agentSessionId", "eventType", "data"],
+      properties: {
+        workspaceId: {
+          type: "string",
+          minLength: 1
+        },
+        agentSessionId: {
+          type: "string",
+          minLength: 1
+        },
+        eventType: {
           const: "session_reconcile_required"
         },
         data: {
@@ -1569,6 +1613,7 @@ export const agentActivityUpdatedPayloadSchema = {
       enum: [
         "session_reconcile_required",
         "session_deleted",
+        "session_restored",
         "session_audit",
         "message_delta",
         "message_update",

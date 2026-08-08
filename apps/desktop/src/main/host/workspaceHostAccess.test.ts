@@ -281,6 +281,18 @@ function createTransportClient(
     async clearWorkspaceAgentSessions() {
       throw new Error("not used");
     },
+    async listWorkspaceDeletedAgentSessions() {
+      throw new Error("not used");
+    },
+    async restoreWorkspaceDeletedAgentSession() {
+      throw new Error("not used");
+    },
+    async purgeWorkspaceDeletedAgentSession() {
+      throw new Error("not used");
+    },
+    async purgeWorkspaceDeletedAgentSessions() {
+      throw new Error("not used");
+    },
     async deleteWorkspaceIssue() {
       throw new Error("not used");
     },

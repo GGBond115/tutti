@@ -196,6 +196,23 @@ type Scenario struct {
 	run  func(context.Context, Driver) error
 }
 
+// DeletedSessionLifecycleDriver is separate from Driver so adapters adopt the
+// lossless tombstone contract explicitly while rolling out its new canonical
+// storage capability.
+type DeletedSessionLifecycleDriver interface {
+	Reset(context.Context, Fixture) error
+	DeleteSession(context.Context, agenthost.SessionRef) (agenthost.DeleteSessionResult, error)
+	ListDeletedSessions(context.Context, agenthost.ListDeletedSessionsInput) (agenthost.DeletedSessionPage, error)
+	RestoreDeletedSession(context.Context, agenthost.RestoreDeletedSessionInput) (agenthost.RestoreDeletedSessionResult, error)
+	GetCanonicalSession(context.Context, agenthost.SessionRef) (SessionObservation, error)
+	Metrics() Metrics
+}
+
+type DeletedSessionLifecycleScenario struct {
+	Name string
+	run  func(context.Context, DeletedSessionLifecycleDriver) error
+}
+
 // SessionForkFixture describes fault and recovery states at the public Host
 // boundary. Implementations may seed those states using their own test-only
 // canonical/runtime adapters.
@@ -257,6 +274,20 @@ func RunSessionFork(
 	}
 	if scenario.run == nil {
 		return fmt.Errorf("agent host session fork conformance scenario %q has no runner", scenario.Name)
+	}
+	return scenario.run(ctx, driver)
+}
+
+func RunDeletedSessionLifecycle(
+	ctx context.Context,
+	driver DeletedSessionLifecycleDriver,
+	scenario DeletedSessionLifecycleScenario,
+) error {
+	if driver == nil {
+		return fmt.Errorf("agent host deleted session lifecycle conformance driver is required")
+	}
+	if scenario.run == nil {
+		return fmt.Errorf("agent host deleted session lifecycle conformance scenario %q has no runner", scenario.Name)
 	}
 	return scenario.run(ctx, driver)
 }
