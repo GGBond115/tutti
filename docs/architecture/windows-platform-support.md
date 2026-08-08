@@ -169,6 +169,13 @@ dynamic official-download fallback. Node, Python, Kimi, Hermes, and other agent
 payloads remain dynamically installed, so this adds roughly one compressed uv
 archive per architecture rather than a complete cross-language toolchain.
 
+The signed macOS release is the one packaging exception. The upstream macOS
+archives contain nested `uv` and `uvx` executables without Tutti's Developer ID
+signature, so Apple notarization rejects the archive when it is embedded in the
+app. macOS therefore uses the same pinned, checksum-verified dynamic download
+fallback at first use; Windows and Linux continue to ship their bundled uv
+archive.
+
 For generic ACP providers such as OpenCode, provider resolution rewrites the
 adapter command once and every status, login, model-catalog, and session path
 uses that resolved executable. On Windows a complete isolated npm package is
