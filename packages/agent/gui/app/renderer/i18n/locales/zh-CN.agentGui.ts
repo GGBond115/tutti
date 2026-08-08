@@ -9,7 +9,6 @@ import { zhCNAgentGuiSessionActions } from "./zh-CN.agentGuiSessionActions.ts";
 import { zhCNAgentGuiCollaboration } from "./zh-CN.agentGuiCollaboration.ts";
 import { zhCNTuttiModePlan } from "./zh-CN.tuttiModePlan.ts";
 import { zhCNAgentGuiComposer } from "./zh-CN.agentGuiComposer.ts";
-
 export const zhCNAgentGui = {
   imageDownloaded: "图片已下载",
   imageLoadFailed: "图片加载失败",
@@ -469,6 +468,7 @@ export const zhCNAgentGui = {
   startConversation: "开始会话",
   selectConversation: "选择一个会话",
   loadingConversations: "正在加载会话...",
+  conversationsLoadFailed: "无法加载会话",
   loadingConversation: "正在加载会话...",
   scrollToBottom: "滚动至底部",
   searchNoConversations: "暂无相关会话",

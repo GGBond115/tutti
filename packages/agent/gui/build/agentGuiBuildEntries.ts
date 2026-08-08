@@ -3,6 +3,7 @@ export const agentGUIBuildEntries = {
   "agent-gui": "AgentGUI.tsx",
   "startup-shell": "AgentGUIStartupShell.tsx",
   "quick-composer": "AgentGUIQuickComposer.tsx",
+  "composer-settings-core/index": "composer-settings-core/index.ts",
   agents: "agents.ts",
   "custom-mention": "custom-mention.ts",
   "dock-icons": "dockIcons.ts",
@@ -89,7 +90,8 @@ export const agentGUIDtsEntryGroups = [
     "conversation-rail-runtime",
     "conversation-rail-projection",
     "conversation-projection",
-    "composer-projection"
+    "composer-projection",
+    "composer-settings-core/index"
   ],
   [
     "dock-icons",

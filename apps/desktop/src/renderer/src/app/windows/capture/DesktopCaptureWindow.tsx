@@ -109,7 +109,7 @@ export function DesktopCaptureWindow({
   if (snapshot.stage === "selecting") {
     return (
       <div
-        className="fixed inset-0 cursor-crosshair overflow-hidden bg-transparent select-none"
+        className={`fixed inset-0 overflow-hidden bg-transparent select-none ${snapshot.selectionPending ? "cursor-progress" : "cursor-crosshair"}`}
         onPointerDown={(event) => {
           void loadDesktopCaptureComposer();
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -148,7 +148,9 @@ export function DesktopCaptureWindow({
           <div className="pointer-events-none absolute inset-0 bg-[color-mix(in_srgb,var(--black-stationary)_46%,transparent)]" />
         )}
         <div className="pointer-events-none absolute top-6 left-1/2 z-[2] -translate-x-1/2 rounded-lg border border-[color-mix(in_srgb,var(--white-stationary)_18%,transparent)] bg-[color-mix(in_srgb,var(--black-stationary)_78%,transparent)] px-3 py-[7px] font-[var(--font-ui)] text-[13px] leading-[1.4] text-[var(--white-stationary)] shadow-[0_8px_30px_color-mix(in_srgb,var(--black-stationary)_26%,transparent)]">
-          {translator.t("capture.selectHint")}
+          {translator.t(
+            snapshot.selectionPending ? "capture.loading" : "capture.selectHint"
+          )}
         </div>
         {snapshot.failed ? (
           <p
@@ -184,39 +186,50 @@ export function DesktopCaptureWindow({
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2 [-webkit-app-region:no-drag]">
-          <div className="min-h-0 flex-1">
-            <Suspense
-              fallback={
-                <div
-                  className="grid min-h-24 place-items-center rounded-[10px] border border-[var(--border-1)] text-[12px] text-[var(--text-secondary)]"
-                  role="status"
-                >
-                  {translator.t("capture.loading")}
-                </div>
-              }
+          {snapshot.stage === "preparing" ? (
+            <div
+              className={`grid min-h-0 flex-1 place-items-center rounded-[10px] border border-[var(--border-1)] text-[12px] ${snapshot.failed ? "text-[var(--state-danger)]" : "text-[var(--text-secondary)]"}`}
+              role={snapshot.failed ? "alert" : "status"}
             >
-              <DesktopCaptureComposer
-                agentTargets={agentTargets}
-                capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
-                composerOptions={composerOptions}
-                composerOptionsLoading={snapshot.refreshingAgentOptions}
-                composerSettings={snapshot.composerSettings}
-                content={snapshot.content}
-                controller={controller}
-                disabled={snapshot.submitting}
-                locale={snapshot.capture.locale}
-                projectPath={snapshot.projectPath}
-                selectedAgentTargetId={snapshot.agentTargetId}
-                taskActionHint={translator.t("capture.taskPromptHint")}
-                taskActionLabel={translator.t("capture.taskPromptAction")}
-                taskInstruction={translator.t("capture.taskPrompt")}
-                trackWithTask={snapshot.trackWithTask}
-                workspaceId={snapshot.capture.workspaceId}
-              />
-            </Suspense>
-          </div>
+              {translator.t(
+                snapshot.failed ? "capture.error" : "capture.loading"
+              )}
+            </div>
+          ) : (
+            <div className="min-h-0 flex-1">
+              <Suspense
+                fallback={
+                  <div
+                    className="grid min-h-24 place-items-center rounded-[10px] border border-[var(--border-1)] text-[12px] text-[var(--text-secondary)]"
+                    role="status"
+                  >
+                    {translator.t("capture.loading")}
+                  </div>
+                }
+              >
+                <DesktopCaptureComposer
+                  agentTargets={agentTargets}
+                  capabilitiesByAgentTargetId={capabilitiesByAgentTargetId}
+                  composerOptions={composerOptions}
+                  composerOptionsLoading={snapshot.refreshingAgentOptions}
+                  composerSettings={snapshot.composerSettings}
+                  content={snapshot.content}
+                  controller={controller}
+                  disabled={snapshot.submitting}
+                  locale={snapshot.capture.locale}
+                  projectPath={snapshot.projectPath}
+                  selectedAgentTargetId={snapshot.agentTargetId}
+                  taskActionHint={translator.t("capture.taskPromptHint")}
+                  taskActionLabel={translator.t("capture.taskPromptAction")}
+                  taskInstruction={translator.t("capture.taskPrompt")}
+                  trackWithTask={snapshot.trackWithTask}
+                  workspaceId={snapshot.capture.workspaceId}
+                />
+              </Suspense>
+            </div>
+          )}
 
-          {snapshot.failed ? (
+          {snapshot.failed && snapshot.stage === "composing" ? (
             <p
               className="m-0 text-[11px] leading-4 text-[var(--state-danger)]"
               role="alert"

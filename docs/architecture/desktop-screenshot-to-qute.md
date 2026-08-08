@@ -4,7 +4,13 @@ The desktop can send an arbitrary rectangular screen region directly to an
 Agent as a multimodal prompt. The Agent can optionally be instructed to create
 and manage a Qute Task while it works. The default global shortcut is
 `CommandOrControl+Shift+S`, and it works while another application has focus as
-long as Tutti is running and can resolve a current or startup workspace.
+long as Tutti is running and can resolve a current or startup workspace. The
+binding is adjustable in Settings → General: it persists as the
+`captureScreenshot` workbench-shortcut preference, where null keeps the
+built-in default rather than meaning unbound. The recorder and the
+main-process accelerator resolver both require a Meta/Ctrl/Alt modifier, and
+an unregisterable binding falls back to the last working accelerator so a bad
+preference can never disable capture.
 
 ## Ownership And Flow
 
@@ -61,17 +67,29 @@ full-screen before showing the selector. It records the selected display bounds,
 work area, resulting window bounds, and native full-screen state so a future
 WindowServer or Electron regression is diagnosable from Desktop logs.
 After selection it exits full-screen before becoming the floating Composer.
+On macOS, requesting `setSimpleFullScreen(false)` is not the exit boundary:
+native fullscreen transitions are asynchronous. The adapter waits for
+Electron's `leave-full-screen` event before changing resizability or bounds, so
+the WindowServer cannot defer the compact geometry until a later Escape key.
 This keeps the captured pixels and selection viewport on the same full-display
 geometry instead of scaling the screenshot into the smaller work area. The
 selected rectangle is cropped using the display scale factor, preserving
 Retina/HiDPI pixels while the selection UI uses display-independent
 coordinates. The shortcut contains exactly three keys and avoids shifted
 number-row symbols, whose interpretation varies by keyboard layout. Agent
-metadata loads concurrently with screen capture but does not delay showing the
-selector; the metadata is joined only when selection completes. The heavy
-AgentGUI Composer chunk is not part of the selector's initial module graph. It
-starts preloading on pointer-down so the drag interval hides most of the
-transition cost without delaying the first capture frame.
+metadata loads concurrently with screen capture but does not delay showing or
+leaving the selector. The first valid pointer-up freezes selection and
+immediately changes the same native window into a compact preparing surface;
+the metadata join controls only when the interactive Composer replaces that
+surface. Renderer and main process both coalesce repeated selection requests.
+Every native capture also has a unique capture ID, and every asynchronous
+continuation must prove that ID still owns the active, live window before or
+after changing native presentation. Replacing or cancelling a capture therefore
+invalidates its pending metadata result instead of allowing a late result to
+present a second floating Composer. The heavy AgentGUI Composer chunk is not
+part of the selector's initial module graph. It starts preloading on pointer-down
+so the drag interval hides most of the transition cost without delaying the
+first capture frame.
 
 The capture service retains only the most recently focused workspace identity,
 not a renderer reference. If the user closes every visible Tutti window, the
@@ -84,7 +102,9 @@ screen. Main-process requests wait for an explicit renderer-ready signal emitted
 only after the React workspace-external request handler is installed;
 `did-finish-load` alone is not a sufficient application-readiness boundary.
 Successful submission may then reveal that Agent window; cancellation leaves it
-hidden.
+hidden. Submission activates with the external contract's `reveal` request, so
+the workspace owner opens its Agent GUI on the created session before the
+window is focused; a failed navigation never fails the activation result.
 
 ## Floating Composer
 
@@ -131,7 +151,9 @@ create an Issue directly.
 
 The bottom toolbar keeps `+`, `@`, the exact Agent Target selector, the project
 selector, the **Create Task and track** switch, and the primary send action on
-one alignment baseline. The project selector reuses AgentGUI's canonical
+one alignment baseline. The Quick Composer hides the connector capability
+control: quick-composer hosts expose no capability-settings channel, so it
+could only render as a dead trigger and pushed the toolbar onto a second line. The project selector reuses AgentGUI's canonical
 no-project/existing-project control. The capture preload proxies the workspace
 owner's real `WorkspaceUserProjectApi` for catalog reads, selection preparation,
 and project registration; only the directory dialog itself remains native to
@@ -172,10 +194,16 @@ When the shortcut was invoked from another application on macOS, cancellation
 destroys the capture window first and hides Tutti from the window's `closed`
 event, so a hidden-but-live capture cannot swallow the next shortcut. A
 closing, destroyed, or unexpectedly hidden capture is replaced rather than
-focused. A shortcut invoked from a focused Tutti window keeps Tutti active. At
-least one ready Agent is required. The capture window closes only after the
-workspace Engine confirms activation, then focus returns to the workspace
-window.
+focused. A repeated shortcut while a live capture remains visible focuses that
+same capture; it does not create another selector. A shortcut invoked from a
+focused Tutti window keeps Tutti active. At least one ready Agent is required.
+The capture window closes only after the workspace Engine confirms activation.
+The main process then restores macOS's regular application activation policy,
+unhides and foregrounds Tutti, and finally shows and focuses the workspace
+window. Application activation and window focus are one shared host operation;
+showing a `BrowserWindow` alone is not a sufficient menu-bar or Dock contract.
+Like cancellation, the submitted window is destroyed rather than closed, so a
+renderer close handler cannot strand a submitted capture on screen.
 
 ## Attachment Contract And Storage
 
@@ -253,18 +281,24 @@ atomic Issue-and-task materializer does not own.
 
 Agent image capability and Composer options are resolved with the same target,
 controlled settings draft, and selected project directory (`cwd`) signature
-used by the full Composer. The capture host passes those options through one
-controlled Quick Composer settings capability and exposes only values its
-activation adapter preserves: model, reasoning, speed, permission, plan, and
-browser use. Changing a setting or project refreshes the target snapshot and
-temporarily disables only settings controls and submit; prompt editing,
-references, Agent selection, and project selection remain available. Both
-refresh and submit query only the selected target, so an unrelated VM-backed
-target cannot delay the active local target. Renderer revision fencing discards
-an older response, and main keeps no mutable capability catalog. Main
-re-resolves the selected target with the actual settings and `cwd` immediately
-before activation, so a stale renderer snapshot cannot send an image to a
-text-only effective model.
+used by the full Composer. The capture controller delegates that settings
+policy to the shared `composer-settings-core`: the core owns the sparse
+draft, a revision-fenced options lifecycle, and last-good retention, so a
+failed or slow refresh never blanks the model menu, and only the first load
+for a target locks settings and submit. Display seeds from the daemon's
+defaults-merged `effectiveSettings` — the same per-target composer-defaults
+ledger the full Composer reads — and explicit picks are written back to that
+ledger through the workspace owner (`agentActivity.rememberComposerDefaults`),
+so a capture pick is remembered exactly like a main-composer pick. Submission
+always carries the core's resolved settings — the values the panel displays —
+so the daemon never re-interprets empty fields against another surface's
+memory; the main process logs the submitted settings as the durable record of
+what the panel showed. Both refresh and submit query only the selected
+target, so an unrelated VM-backed target cannot delay the active local
+target, and the selected target's capabilities derive from the same fenced
+options snapshot. Main re-resolves the selected target with the actual
+settings and `cwd` immediately before activation, so a stale renderer
+snapshot cannot send an image to a text-only effective model.
 
 ## Open-Source Component Evaluation
 
@@ -297,7 +331,8 @@ composer reuse Tutti's UI System.
   source. Wayland global shortcuts additionally depend on the environment's
   shortcut portal support.
 - Global shortcut registration can fail when another application owns the same
-  accelerator. The desktop logs that failure; making the accelerator a durable
-  user preference is a separate settings slice.
+  accelerator. The desktop logs that failure and re-registers the previous
+  working accelerator (or the built-in default) so capture stays reachable.
+  The accelerator is a durable user preference under Settings → General.
 - Region selection currently stays within the display nearest the pointer when
   the shortcut is pressed; it does not span display boundaries.

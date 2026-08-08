@@ -1353,6 +1353,14 @@ update only an already-resolved matching scope. A subordinate result must not
 cancel the full query, publish partial membership for an unresolved scope, or
 unlock Rail interactions.
 
+When Activity View has a non-null in-memory projection, that projection remains
+visible while the unrelated initial Rail membership query is pending; Rail
+loading, empty, or failure placeholders must not replace it. A refresh or page
+failure after Rail rows already exist preserves those rows and reports a
+non-blocking error through the host toast capability, falling back to the UI
+System toast when that optional capability is absent. An unresolved empty Rail
+scope retains the centered error state and its retry action.
+
 Presentation-invisible Sessions remain canonical engine entities and stay
 available through exact Session selectors for trusted open, reconcile, and
 command flows. Plural consumer selectors exclude them before Rail and Message
@@ -1764,10 +1772,25 @@ by the full Composer; it does not maintain a second menu implementation or
 fetch options itself. `computerUse` and gated `codexSaverMode` remain hidden
 until an embedding activation seam preserves and authorizes them end to end. A
 settings change returns a typed patch to the host, which refreshes authority
-and forwards the settled draft through its existing activation command. While
-authority refreshes, only settings controls and submit are locked. Rich-text
-entry, references, target selection, and project selection remain usable
-unless the host independently disables the whole draft.
+and forwards the settled draft through its existing activation command. Only
+the very first options load for a target locks settings controls and submit;
+once a good options snapshot exists, background refreshes keep every control
+interactive and a failed refresh keeps the last good snapshot instead of
+blanking the menus.
+
+`@tutti-os/agent-gui/composer-settings-core` is the host-agnostic policy for
+that settings capability. `ComposerSettingsCore` is a headless controller
+(`subscribe`/`getSnapshot`, no React, no Engine dependency) that owns the
+sparse settings draft, a revision-fenced options lifecycle with last-good
+retention, defaults seeding via the daemon's defaults-merged
+`effectiveSettings`, and trailing-edge write-back of explicit picks into the
+canonical per-target composer-defaults ledger through injected ports
+(`fetchOptions`, `rememberDefaults`). `resolveSubmitSettings()` returns the
+exact values the composer displays; hosts must submit them verbatim so the
+daemon never re-interprets empty fields against another surface's memory. A
+Quick Composer host embeds this core instead of hand-rolling fencing,
+failure semantics, or a parallel settings store; the desktop capture window
+is the first adopter.
 
 The Quick Composer uses the Composer's `embedded` layout contract. Unlike
 `dock`, which intentionally grows attachments and long drafts upward over a

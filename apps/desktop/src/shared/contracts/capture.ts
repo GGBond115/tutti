@@ -95,6 +95,22 @@ export interface DesktopCaptureSubmitResult {
   agentSessionId: string;
 }
 
+/**
+ * Explicit composer picks persisted into the canonical per-target
+ * composer-defaults ledger through the workspace owner. Absent fields stay
+ * untouched; null clears a field.
+ */
+export interface DesktopCaptureRememberComposerDefaultsInput {
+  agentTargetId: string;
+  defaults: {
+    codexSaverMode?: boolean;
+    model?: string | null;
+    permissionModeId?: string | null;
+    reasoningEffort?: string | null;
+    speed?: string | null;
+  };
+}
+
 export interface DesktopCaptureApi {
   cancel(): Promise<void>;
   getComposerOptions(
@@ -110,6 +126,9 @@ export interface DesktopCaptureApi {
   resolveMention(
     input: TuttiExternalAtResolveInput
   ): Promise<TuttiExternalAtResolveResult | null>;
+  rememberComposerDefaults(
+    input: DesktopCaptureRememberComposerDefaultsInput
+  ): Promise<void>;
   select(
     input: DesktopCaptureSelectionInput
   ): Promise<DesktopCaptureSelectionResult>;

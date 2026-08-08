@@ -1,5 +1,5 @@
 import type { AgentActivityComposerOptions } from "@tutti-os/agent-activity-core";
-import type { DesktopCaptureAgentOption } from "../../shared/contracts/capture.ts";
+import type { DesktopCaptureAgentOption } from "../contracts/capture.ts";
 
 export function resolveCaptureAgentCapabilities(
   options: AgentActivityComposerOptions

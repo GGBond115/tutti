@@ -8086,6 +8086,11 @@ components:
           nullable: true
           maxLength: 80
           description: Keyboard shortcut binding for opening a new window of the active workbench node type, or null when unbound.
+        captureScreenshot:
+          type: string
+          nullable: true
+          maxLength: 80
+          description: Keyboard shortcut binding for the global screenshot capture, or null/absent when the built-in CommandOrControl+Shift+S default applies. Unlike the other bindings, null does not mean unbound.
     DesktopWorkbenchWindowSnapping:
       type: object
       additionalProperties: false

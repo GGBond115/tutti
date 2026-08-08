@@ -59,18 +59,15 @@ export interface AgentWorkspaceReferenceInitialTargetInput {
   composerSelectedProjectPath: string | null;
   userProjects: AgentGUINodeViewModel["rail"]["userProjects"];
 }
-
 export type AgentWorkspaceReferenceInitialTargetResolver = (
   input: AgentWorkspaceReferenceInitialTargetInput
 ) => ReferenceLocateTarget | null;
-
 export interface AgentGUIConversationRailLayout {
   providerRailWidthPx: number;
   conversationRailWidthPx: number;
   leftPanelWidthPx: number;
   resizing: boolean;
 }
-
 // Provider-gate labels live on AgentGUIProviderReadinessLabels; extend it
 // rather than restating every key here.
 export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
@@ -214,11 +211,13 @@ export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   startConversation: string;
   selectConversation: string;
   loadingConversations: string;
+  conversationsLoadFailed: string;
   loadingConversation: string;
   continuedFromTask: string;
   scrollToBottom: string;
   searchNoConversations: string;
   searchFailed: string;
+  retryConversations: string;
   retrySearch: string;
   activityPriority: string;
   activityNothingNeedsAttention: string;
@@ -461,7 +460,6 @@ export type ChromeLabels = {
   retryActivation: string;
   continueInNewConversation: string;
 };
-
 export type InteractivePromptLabels = {
   approvalLead: string;
   fileChangeApprovalLead: string;
@@ -515,6 +513,7 @@ export type AgentGUIConversationRailLabels = Pick<
   | "conversationCopyPreviousMessages"
   | "copiedToClipboard"
   | "copyFailed"
+  | "conversationsLoadFailed"
   | "moreSessionActions"
   | "deleteSession"
   | "deleteSessionConfirm"
@@ -542,6 +541,7 @@ export type AgentGUIConversationRailLabels = Pick<
   | "removeProjectConfirmDescription"
   | "removeProjectConfirmTitle"
   | "renameSession"
+  | "retryConversations"
   | "retrySearch"
   | "searchFailed"
   | "searchNoConversations"

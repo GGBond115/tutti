@@ -439,6 +439,7 @@ export const enAgentGui = {
   startConversation: "Start session",
   selectConversation: "Select a session",
   loadingConversations: "Loading sessions...",
+  conversationsLoadFailed: "Could not load sessions",
   loadingConversation: "Loading session...",
   scrollToBottom: "Scroll to bottom",
   searchNoConversations: "No related sessions",

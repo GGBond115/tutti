@@ -22,6 +22,7 @@ import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/
 import {
   normalizeTuttiExternalAgentActivityActivateSessionInput,
   normalizeTuttiExternalAgentActivityComposerOptionsInput,
+  normalizeTuttiExternalAgentActivityRememberComposerDefaultsInput,
   normalizeTuttiExternalAtQueryDirectoryInput,
   normalizeTuttiExternalAtQueryInput,
   normalizeTuttiExternalAtResolveInput,
@@ -50,6 +51,7 @@ import type {
   DesktopCaptureComposerOptions,
   DesktopCaptureComposerOptionsInput,
   DesktopCaptureSelectionInput,
+  DesktopCaptureSelectionResult,
   DesktopCaptureState,
   DesktopCaptureSubmitInput,
   DesktopCaptureSubmitResult
@@ -67,17 +69,27 @@ import {
   type CaptureBounds
 } from "./captureGeometry.ts";
 import { normalizeCapturePromptContent } from "./captureAgentPrompt.ts";
-import { resolveCaptureAgentCapabilities } from "./captureAgentCapabilities.ts";
+import { resolveCaptureAgentCapabilities } from "../../shared/capture/captureAgentCapabilities.ts";
 import {
   createCaptureComposerPlacementStore,
   type CaptureComposerPosition
 } from "./captureComposerPlacement.ts";
 import {
   enterCaptureSelectionFullscreen,
-  resolveCaptureSelectionFullscreenOptions
+  leaveCaptureSelectionFullscreen,
+  resolveCaptureSelectionFullscreenOptions,
+  type CaptureSelectionFullscreenExit
 } from "./captureSelectionFullscreen.ts";
-import { desktopCaptureAccelerator } from "./captureShortcut.ts";
+import {
+  desktopCaptureAccelerator,
+  resolveCaptureAccelerator
+} from "./captureShortcut.ts";
 import type { DesktopFileDialogAccess } from "../host/desktopFileDialogAccess.ts";
+import { activateDesktopWindow } from "../host/desktopWindowActivation.ts";
+import {
+  CaptureSelectionSupersededError,
+  runCaptureSelectionTransition
+} from "./captureSelectionTransition.ts";
 
 const captureComposerWidth = 760;
 const captureComposerHeight = 520;
@@ -88,6 +100,7 @@ type DesktopCaptureComposerOptionsLoad =
   | { error: Error; options: null };
 
 interface ActiveCapture {
+  captureId: string;
   closing: boolean;
   composerBounds: CaptureBounds | null;
   composerMovementTrackingEnabled: boolean;
@@ -96,6 +109,7 @@ interface ActiveCapture {
   image: NativeImage;
   returnFocusToExternalApplication: boolean;
   selected: DesktopCaptureAttachment | null;
+  selection: Promise<DesktopCaptureSelectionResult> | null;
   state: DesktopCaptureState;
   submission: Promise<DesktopCaptureSubmitResult> | null;
   window: BrowserWindow;
@@ -115,7 +129,7 @@ export function createDesktopCaptureService(input: {
   logger: DesktopLogger;
   preferences: Pick<
     DesktopHostPreferencesState,
-    "getLocale" | "getThemeSource"
+    "getLocale" | "getThemeSource" | "getWorkbenchShortcuts" | "subscribe"
   >;
   preloadPath: string;
   rendererFilePath: string;
@@ -145,6 +159,11 @@ export function createDesktopCaptureService(input: {
         error: error instanceof Error ? error.message : String(error)
       });
     });
+
+  const isCurrentCapture = (capture: ActiveCapture): boolean =>
+    activeCapture === capture &&
+    !capture.closing &&
+    !capture.window.isDestroyed();
 
   const rememberComposerPosition = (position: CaptureComposerPosition) => {
     rememberedComposerPosition = position;
@@ -265,34 +284,105 @@ export function createDesktopCaptureService(input: {
   registerDesktopIpcHandler(desktopIpcChannels.capture.cancel, (event) => {
     const capture = trustedActiveCapture(event.sender);
     if (!capture.submission) {
+      input.logger.info("screenshot capture cancelled", {
+        captureId: capture.captureId,
+        workspaceId: capture.state.workspaceId
+      });
       cancelCapture(capture);
     }
   });
   registerDesktopIpcHandler(
+    desktopIpcChannels.capture.rememberComposerDefaults,
+    async (event, payload) => {
+      const capture = trustedActiveCapture(event.sender);
+      const defaultsInput =
+        normalizeTuttiExternalAgentActivityRememberComposerDefaultsInput(
+          payload
+        );
+      await requestCaptureWorkspaceOwner<void>(capture, {
+        appId: captureRendererAppId,
+        input: defaultsInput,
+        operation: "agentActivity.rememberComposerDefaults",
+        requestId: randomUUID(),
+        workspaceId: capture.state.workspaceId
+      });
+    }
+  );
+  registerDesktopIpcHandler(
     desktopIpcChannels.capture.select,
     async (event, selection) => {
       const capture = trustedActiveCapture(event.sender);
-      const normalized = normalizeCaptureSelection(selection, {
-        height: capture.state.displayHeight,
-        width: capture.state.displayWidth
+      const joined = capture.selection !== null;
+      input.logger.info("screenshot selection requested", {
+        captureId: capture.captureId,
+        joined,
+        workspaceId: capture.state.workspaceId
       });
-      const selected = cropSelection(capture, normalized);
-      const loaded = await capture.composerOptions;
-      if (loaded.error) {
-        input.logger.warn("screenshot composer metadata unavailable", {
-          error: loaded.error.message,
+      capture.selection ??= (async () => {
+        const normalized = normalizeCaptureSelection(selection, {
+          height: capture.state.displayHeight,
+          width: capture.state.displayWidth
+        });
+        const selected = cropSelection(capture, normalized);
+        capture.selected = selected;
+        let loaded: DesktopCaptureComposerOptionsLoad;
+        try {
+          loaded = await runCaptureSelectionTransition({
+            captureId: capture.captureId,
+            isCurrent: () => isCurrentCapture(capture),
+            metadata: capture.composerOptions,
+            present: async (assertCurrent) => {
+              await composerPositionLoaded;
+              assertCurrent();
+              const fullscreenExit = await presentComposer(
+                capture,
+                normalized,
+                rememberedComposerPosition,
+                assertCurrent
+              );
+              input.logger.info("screenshot composer presented", {
+                captureId: capture.captureId,
+                fullscreenExit,
+                workspaceId: capture.state.workspaceId
+              });
+            }
+          });
+        } catch (error) {
+          if (error instanceof CaptureSelectionSupersededError) {
+            input.logger.info("screenshot selection superseded", {
+              captureId: error.captureId,
+              phase: error.phase,
+              workspaceId: capture.state.workspaceId
+            });
+          }
+          throw error;
+        }
+        if (loaded.error) {
+          input.logger.warn("screenshot composer metadata unavailable", {
+            captureId: capture.captureId,
+            error: loaded.error.message,
+            workspaceId: capture.state.workspaceId
+          });
+          throw loaded.error;
+        }
+        capture.state = {
+          ...capture.state,
+          ...loaded.options
+        };
+        input.logger.info("screenshot composer metadata ready", {
+          captureId: capture.captureId,
           workspaceId: capture.state.workspaceId
         });
-        throw loaded.error;
+        return { attachment: selected, ...loaded.options };
+      })();
+      const selectionPromise = capture.selection;
+      try {
+        return await selectionPromise;
+      } finally {
+        if (capture.selection === selectionPromise) {
+          capture.selection = null;
+        }
       }
-      capture.state = {
-        ...capture.state,
-        ...loaded.options
-      };
-      capture.selected = selected;
-      await composerPositionLoaded;
-      await presentComposer(capture, normalized, rememberedComposerPosition);
-      return { attachment: selected, ...loaded.options };
     }
   );
   registerDesktopIpcHandler(
@@ -366,13 +456,21 @@ export function createDesktopCaptureService(input: {
     async (event, submission) => {
       const capture = trustedActiveCapture(event.sender);
       capture.submission ??= submitCapture(capture, submission);
+      // Panel interactions have no diagnostics channel, so the resolved
+      // settings are recorded here — the only durable record of what the
+      // composer displayed at submit time.
+      input.logger.info("screenshot capture submitted", {
+        agentTargetId: submission.agentTargetId,
+        captureId: capture.captureId,
+        cwd: submission.cwd ?? null,
+        settings: submission.settings ?? null,
+        workspaceId: capture.state.workspaceId
+      });
       try {
         const result = await capture.submission;
         const workspaceId = capture.state.workspaceId;
-        if (!capture.window.isDestroyed()) {
-          capture.window.close();
-        }
-        focusWorkspace(workspaceId);
+        closeSubmittedCapture(capture);
+        focusWorkspace(workspaceId, input.logger);
         return result;
       } finally {
         capture.submission = null;
@@ -388,14 +486,31 @@ export function createDesktopCaptureService(input: {
       const shouldReplace =
         activeCapture.closing || destroyed || !activeCapture.window.isVisible();
       if (shouldReplace) {
+        const replacedCapture = activeCapture;
+        input.logger.info("screenshot capture replaced", {
+          captureId: replacedCapture.captureId,
+          closing: replacedCapture.closing,
+          destroyed,
+          visible: destroyed ? false : replacedCapture.window.isVisible(),
+          workspaceId: replacedCapture.state.workspaceId
+        });
+        replacedCapture.closing = true;
         if (!destroyed) {
-          activeCapture.window.destroy();
+          replacedCapture.window.destroy();
         }
-        activeCapture = null;
+        if (activeCapture === replacedCapture) {
+          activeCapture = null;
+        }
       } else {
         app.show();
         activeCapture.window.show();
         activeCapture.window.focus();
+        input.logger.info("screenshot capture reused", {
+          captureId: activeCapture.captureId,
+          selectionPending: activeCapture.selection !== null,
+          selected: activeCapture.selected !== null,
+          workspaceId: activeCapture.state.workspaceId
+        });
         return;
       }
     }
@@ -425,6 +540,11 @@ export function createDesktopCaptureService(input: {
           activeCapture = capture;
           capture.window.once("closed", () => {
             persistComposerPosition();
+            input.logger.info("screenshot capture window closed", {
+              captureId: capture.captureId,
+              selected: capture.selected !== null,
+              workspaceId: capture.state.workspaceId
+            });
             if (activeCapture?.window === capture.window) {
               activeCapture = null;
             }
@@ -433,7 +553,8 @@ export function createDesktopCaptureService(input: {
       );
     } catch (error) {
       if (activeCapture && !activeCapture.window.isDestroyed()) {
-        activeCapture.window.close();
+        activeCapture.closing = true;
+        activeCapture.window.destroy();
       }
       activeCapture = null;
       input.logger.warn("screenshot capture failed", {
@@ -444,35 +565,76 @@ export function createDesktopCaptureService(input: {
     }
   };
 
-  const registered = globalShortcut.register(desktopCaptureAccelerator, () => {
+  const captureShortcutCallback = () => {
     const returnFocusToExternalApplication =
       BrowserWindow.getFocusedWindow() === null;
     input.logger.info("screenshot shortcut activated", {
-      accelerator: desktopCaptureAccelerator
+      activeCaptureId: activeCapture?.captureId ?? null,
+      accelerator: registeredAccelerator
     });
     void openCapture(returnFocusToExternalApplication);
-  });
-  if (!registered || !globalShortcut.isRegistered(desktopCaptureAccelerator)) {
+  };
+  let registeredAccelerator: string | null = null;
+  const tryRegisterCaptureShortcut = (accelerator: string): boolean => {
+    try {
+      return (
+        globalShortcut.register(accelerator, captureShortcutCallback) &&
+        globalShortcut.isRegistered(accelerator)
+      );
+    } catch {
+      return false;
+    }
+  };
+  const applyCaptureShortcut = () => {
+    const accelerator = resolveCaptureAccelerator(
+      input.preferences.getWorkbenchShortcuts().captureScreenshot
+    );
+    if (accelerator === registeredAccelerator) {
+      return;
+    }
+    const previousAccelerator = registeredAccelerator;
+    if (previousAccelerator) {
+      globalShortcut.unregister(previousAccelerator);
+      registeredAccelerator = null;
+    }
+    if (tryRegisterCaptureShortcut(accelerator)) {
+      registeredAccelerator = accelerator;
+      input.logger.info("screenshot shortcut registered", { accelerator });
+      return;
+    }
     input.logger.warn("screenshot shortcut registration failed", {
-      accelerator: desktopCaptureAccelerator
+      accelerator
     });
-  } else {
-    input.logger.info("screenshot shortcut registered", {
-      accelerator: desktopCaptureAccelerator
-    });
-  }
+    // Keep capture reachable: restore the last working accelerator, or the
+    // built-in default when this was the initial registration.
+    const fallback = previousAccelerator ?? desktopCaptureAccelerator;
+    if (fallback !== accelerator && tryRegisterCaptureShortcut(fallback)) {
+      registeredAccelerator = fallback;
+      input.logger.info("screenshot shortcut registered", {
+        accelerator: fallback
+      });
+    }
+  };
+  applyCaptureShortcut();
+  const unsubscribePreferences =
+    input.preferences.subscribe(applyCaptureShortcut);
 
   return {
     dispose() {
       persistComposerPosition();
       app.removeListener("browser-window-focus", onBrowserWindowFocus);
-      globalShortcut.unregister(desktopCaptureAccelerator);
+      unsubscribePreferences();
+      if (registeredAccelerator) {
+        globalShortcut.unregister(registeredAccelerator);
+        registeredAccelerator = null;
+      }
       workspaceRendererReadiness.dispose();
       for (const channel of Object.values(desktopIpcChannels.capture)) {
         ipcMain.removeHandler(channel);
       }
       if (activeCapture && !activeCapture.window.isDestroyed()) {
-        activeCapture.window.close();
+        activeCapture.closing = true;
+        activeCapture.window.destroy();
       }
       activeCapture = null;
     }
@@ -487,6 +649,7 @@ async function createCaptureWindow(
   rememberComposerPosition: (position: CaptureComposerPosition) => void,
   activate: (capture: ActiveCapture) => void
 ): Promise<ActiveCapture> {
+  const captureId = randomUUID();
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const thumbnailSize = {
     width: Math.max(1, Math.round(display.size.width * display.scaleFactor)),
@@ -552,6 +715,7 @@ async function createCaptureWindow(
     workspaceId
   };
   const capture: ActiveCapture = {
+    captureId,
     closing: false,
     composerBounds: null,
     composerMovementTrackingEnabled: false,
@@ -560,6 +724,7 @@ async function createCaptureWindow(
     image: source.thumbnail,
     returnFocusToExternalApplication,
     selected: null,
+    selection: null,
     state,
     submission: null,
     window: captureWindow,
@@ -602,6 +767,7 @@ async function createCaptureWindow(
   captureWindow.show();
   captureWindow.focus();
   input.logger.info("screenshot selector presented", {
+    captureId,
     displayBounds: display.bounds,
     displayWorkArea: display.workArea,
     fullScreen: fullscreenState.fullScreen,
@@ -642,6 +808,16 @@ function cancelCapture(capture: ActiveCapture): void {
   // Capture windows are ephemeral. Destroying is intentional here: a renderer
   // lifecycle handler must never keep a cancelled capture alive and block the
   // next global-shortcut invocation.
+  capture.window.destroy();
+}
+
+function closeSubmittedCapture(capture: ActiveCapture): void {
+  if (capture.closing || capture.window.isDestroyed()) {
+    return;
+  }
+  capture.closing = true;
+  // Same rationale as cancelCapture: `close()` can be held open by renderer
+  // lifecycle handlers, leaving a submitted capture stranded on screen.
   capture.window.destroy();
 }
 
@@ -777,8 +953,9 @@ async function loadCaptureAgentOption(
 async function presentComposer(
   capture: ActiveCapture,
   selection: DesktopCaptureSelectionInput,
-  rememberedPosition: CaptureComposerPosition | null
-): Promise<void> {
+  rememberedPosition: CaptureComposerPosition | null,
+  assertCurrent: () => void
+): Promise<CaptureSelectionFullscreenExit> {
   const bounds = resolveCaptureComposerBounds({
     composerHeight: Math.min(
       captureComposerHeight,
@@ -793,9 +970,14 @@ async function presentComposer(
     selection,
     workArea: capture.display.workArea
   });
-  capture.window.setOpacity(0);
+  assertCurrent();
   capture.composerMovementTrackingEnabled = false;
-  await leaveCaptureSelectionFullscreen(capture.window);
+  const fullscreenExit = await leaveCaptureSelectionFullscreen(
+    capture.window,
+    process.platform
+  );
+  assertCurrent();
+  capture.window.setOpacity(0);
   capture.window.setFullScreenable(false);
   capture.window.setResizable(true);
   capture.window.setBounds(bounds);
@@ -804,33 +986,7 @@ async function presentComposer(
   capture.window.setBackgroundColor("#00000000");
   capture.window.setOpacity(1);
   capture.composerMovementTrackingEnabled = true;
-}
-
-async function leaveCaptureSelectionFullscreen(
-  window: BrowserWindow
-): Promise<void> {
-  if (process.platform === "darwin") {
-    if (window.isSimpleFullScreen()) {
-      window.setSimpleFullScreen(false);
-    }
-    return;
-  }
-  if (!window.isFullScreen()) {
-    return;
-  }
-  await new Promise<void>((resolve) => {
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-    const finish = () => {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-      window.removeListener("leave-full-screen", finish);
-      resolve();
-    };
-    window.once("leave-full-screen", finish);
-    timeout = setTimeout(finish, 1_000);
-    window.setFullScreen(false);
-  });
+  return fullscreenExit;
 }
 
 async function submitCapture(
@@ -869,6 +1025,7 @@ async function submitCapture(
         ...(cwd ? { cwd } : {}),
         initialContent: content,
         ...(displayPrompt ? { initialDisplayPrompt: displayPrompt } : {}),
+        reveal: true,
         ...(input.settings ? { settings: input.settings } : {}),
         title: resolveCaptureTitle(displayPrompt, attachment.displayName),
         visible: true
@@ -905,16 +1062,29 @@ function resolveWorkspaceWindow(workspaceId: string): BrowserWindow | null {
   );
 }
 
-function focusWorkspace(workspaceId: string): void {
+function focusWorkspace(workspaceId: string, logger: DesktopLogger): void {
   const window = resolveWorkspaceWindow(workspaceId);
-  if (!window || window.isDestroyed()) {
+  if (!window) {
+    logger.warn("screenshot workspace activation skipped", {
+      reason: "workspace_window_unavailable",
+      workspaceId
+    });
     return;
   }
-  if (window.isMinimized()) {
-    window.restore();
-  }
-  window.show();
-  window.focus();
+  const activated = activateDesktopWindow(app, window);
+  setTimeout(() => {
+    logger.info("screenshot workspace activation completed", {
+      activated,
+      appActive: process.platform === "darwin" ? app.isActive() : null,
+      appHidden: process.platform === "darwin" ? app.isHidden() : null,
+      dockVisible:
+        process.platform === "darwin" ? (app.dock?.isVisible() ?? null) : null,
+      windowDestroyed: window.isDestroyed(),
+      windowFocused: window.isDestroyed() ? false : window.isFocused(),
+      windowVisible: window.isDestroyed() ? false : window.isVisible(),
+      workspaceId
+    });
+  }, 0);
 }
 
 function requestCaptureWorkspaceOwner<

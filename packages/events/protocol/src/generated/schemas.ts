@@ -271,6 +271,10 @@ export const preferencesDesktopPreferencesSchema = {
         newSameTypeWindow: {
           type: ["string", "null"],
           maxLength: 80
+        },
+        captureScreenshot: {
+          type: ["string", "null"],
+          maxLength: 80
         }
       }
     },
@@ -2160,6 +2164,10 @@ export const preferencesDesktopUpdateRequestedPayloadSchema = {
             newSameTypeWindow: {
               type: ["string", "null"],
               maxLength: 80
+            },
+            captureScreenshot: {
+              type: ["string", "null"],
+              maxLength: 80
             }
           }
         },
@@ -2506,6 +2514,10 @@ export const preferencesDesktopUpdatedPayloadSchema = {
               maxLength: 80
             },
             newSameTypeWindow: {
+              type: ["string", "null"],
+              maxLength: 80
+            },
+            captureScreenshot: {
               type: ["string", "null"],
               maxLength: 80
             }

@@ -1245,7 +1245,8 @@ function createPreferencesState(
     updatePolicy: "prompt",
     workbenchShortcuts: {
       newAgentConversation: null,
-      newSameTypeWindow: null
+      newSameTypeWindow: null,
+      captureScreenshot: null
     },
     workbenchWindowSnapping: {
       enabled: false,

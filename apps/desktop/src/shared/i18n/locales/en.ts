@@ -898,6 +898,10 @@ export const en = {
           zhCN: "Simplified Chinese"
         },
         localeSaveFailed: "We couldn't switch the app language right now.",
+        captureShortcutDefaultPlaceholder: "Default: Cmd/Ctrl+Shift+S",
+        captureShortcutDescription:
+          "Global shortcut that starts a screen capture. Include Cmd, Ctrl, or Alt; clear to restore the default.",
+        captureShortcutLabel: "Screenshot shortcut",
         preventSleepDescription: "Controls whether the system can enter sleep",
         preventSleepLabel: "Sleep prevention",
         preventSleepOptions: {

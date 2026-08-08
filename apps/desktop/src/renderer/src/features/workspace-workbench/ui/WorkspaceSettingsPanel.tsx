@@ -412,12 +412,16 @@ export function WorkspaceSettingsPanel({
                 onSleepPreventionModeChange={(mode) => {
                   void settingsService.changeSleepPreventionMode(mode);
                 }}
+                onWorkbenchShortcutsChange={(shortcuts) => {
+                  void settingsService.changeWorkbenchShortcuts(shortcuts);
+                }}
                 onWorkspaceUiModeChange={(mode) => {
                   void settingsService.changeWorkspaceUiMode(mode);
                 }}
                 sleepPreventionMode={
                   desktopPreferencesState.sleepPreventionMode
                 }
+                workbenchShortcuts={desktopPreferencesState.workbenchShortcuts}
               />
             ) : settingsState.activeSection === "agent" ? (
               <div className="flex min-h-0 flex-col gap-5 pt-5">
@@ -770,24 +774,46 @@ function WorkspaceLabSettingsSection({
 }
 
 function WorkspaceLabShortcutRow({
+  className,
+  description,
   disabled,
   label,
+  placeholder,
+  requireNonShiftModifier = false,
   value,
   onChange
 }: {
+  className?: string;
+  description?: string;
   disabled: boolean;
   label: string;
+  placeholder?: string;
+  /**
+   * Reject bindings without Meta/Ctrl/Alt. Global accelerators must not
+   * shadow plain or shift-only typing in other applications.
+   */
+  requireNonShiftModifier?: boolean;
   value: string | null;
   onChange: (binding: string | null) => void;
 }) {
   const { t } = useTranslation();
   const clearLabel = t("workspace.settings.lab.clearShortcutLabel", { label });
   return (
-    <div className="flex w-full items-center justify-between gap-4 max-[560px]:flex-col max-[560px]:items-stretch">
+    <div
+      className={cn(
+        "flex w-full items-center justify-between gap-4 max-[560px]:flex-col max-[560px]:items-stretch",
+        className
+      )}
+    >
       <div className="flex min-w-0 flex-1 flex-col gap-1 max-[560px]:w-full">
         <strong className="text-[13px] font-semibold text-[var(--text-primary)]">
           {label}
         </strong>
+        {description ? (
+          <p className="m-0 text-[13px] leading-[1.3] text-[var(--text-secondary)]">
+            {description}
+          </p>
+        ) : null}
       </div>
       <div className="flex w-[220px] min-w-[220px] items-center gap-2 max-[560px]:w-full max-[560px]:min-w-0">
         <Input
@@ -798,7 +824,9 @@ function WorkspaceLabShortcutRow({
             disabled && "opacity-70"
           )}
           disabled={disabled}
-          placeholder={t("workspace.settings.lab.shortcutUnbound")}
+          placeholder={
+            placeholder ?? t("workspace.settings.lab.shortcutUnbound")
+          }
           readOnly
           value={value ?? ""}
           onKeyDown={(event) => {
@@ -813,6 +841,14 @@ function WorkspaceLabShortcutRow({
               event.key === "Escape"
             ) {
               onChange(null);
+              return;
+            }
+            if (
+              requireNonShiftModifier &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              !event.altKey
+            ) {
               return;
             }
             const binding = formatDesktopShortcutBinding({
@@ -2489,8 +2525,10 @@ function WorkspaceGeneralSettingsSection({
   locale,
   onLocaleChange,
   onSleepPreventionModeChange,
+  onWorkbenchShortcutsChange,
   onWorkspaceUiModeChange,
-  sleepPreventionMode
+  sleepPreventionMode,
+  workbenchShortcuts
 }: {
   changingFeatureFlags: DesktopFeatureFlags | null;
   changingLocale: DesktopLocale | null;
@@ -2499,8 +2537,10 @@ function WorkspaceGeneralSettingsSection({
   locale: DesktopLocale;
   onLocaleChange: (locale: DesktopLocale) => void;
   onSleepPreventionModeChange: (mode: DesktopSleepPreventionMode) => void;
+  onWorkbenchShortcutsChange: (shortcuts: DesktopWorkbenchShortcuts) => void;
   onWorkspaceUiModeChange: (mode: DesktopWorkspaceUiMode) => void;
   sleepPreventionMode: DesktopSleepPreventionMode;
+  workbenchShortcuts: DesktopWorkbenchShortcuts;
 }) {
   const { t } = useTranslation();
   const agentDiagnosticsReporting = useAgentDiagnosticsConsent();
@@ -2683,6 +2723,23 @@ function WorkspaceGeneralSettingsSection({
           onCheckedChange={setAgentDiagnosticsConsent}
         />
       </div>
+      <WorkspaceLabShortcutRow
+        className="order-5"
+        description={t("workspace.settings.general.captureShortcutDescription")}
+        disabled={false}
+        label={t("workspace.settings.general.captureShortcutLabel")}
+        placeholder={t(
+          "workspace.settings.general.captureShortcutDefaultPlaceholder"
+        )}
+        requireNonShiftModifier
+        value={workbenchShortcuts.captureScreenshot}
+        onChange={(binding) => {
+          onWorkbenchShortcutsChange({
+            ...workbenchShortcuts,
+            captureScreenshot: binding
+          });
+        }}
+      />
     </div>
   );
 }
