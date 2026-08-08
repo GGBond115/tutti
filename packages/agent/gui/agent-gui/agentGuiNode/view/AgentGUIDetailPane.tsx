@@ -9,6 +9,7 @@ import { resolveAgentComposerDraftScopeKey } from "../model/agentComposerDraftSc
 import {
   buildAgentConversationHandoffPrompt,
   handoffProjectPathForConversation,
+  resolveAgentGUIInteractionDisabledReason,
   resolveAgentGUITuttiStopTargets
 } from "./agentGUIDetailModelHelpers";
 import { AgentGUIBottomDockPane } from "./AgentGUIBottomDockPane";
@@ -310,6 +311,13 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
     [submitInteractivePrompt]
   );
   const isInteractionPending = activePromptResponsePending;
+  const composerActivePromptDisabledReason =
+    resolveAgentGUIInteractionDisabledReason({
+      promptKind: composerActivePrompt?.kind,
+      approvalReason: viewModel.interaction.approvalDisabledReason,
+      interactivePromptReason:
+        viewModel.interaction.interactivePromptDisabledReason
+    });
   const homeComposerProviderTargets = homeTargetProjection.agentTargets;
   const selectedHomeComposerTarget = homeTargetProjection.selectedAgentTarget;
   const composerProviderTargets =
@@ -425,6 +433,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       workspaceReferencePickerOpen,
       referenceProvenanceFilters,
       activePrompt: composerActivePrompt,
+      activePromptDisabledReason: composerActivePromptDisabledReason,
       activePromptKeyboardShortcutsEnabled: isActive,
       promptTips: labels.promptTips,
       composerFocusRequestSequence,
@@ -526,6 +535,7 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
       onSlashStatusRefresh,
       workspaceReferencePickerOpen,
       composerActivePrompt,
+      composerActivePromptDisabledReason,
       editQueuedPrompt,
       onCapabilitySettingsRequest,
       removeQueuedPrompt,

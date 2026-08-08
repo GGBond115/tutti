@@ -138,6 +138,8 @@ export interface AgentComposerProps {
   draftOverridesStopButton?: boolean;
   stopDisabled: boolean;
   activePrompt: AgentConversationPromptVM | null;
+  /** Host readiness reason for the active prompt's disabled controls. */
+  activePromptDisabledReason?: string | null;
   activePromptKeyboardShortcutsEnabled?: boolean;
   promptTips?: readonly AgentComposerPromptTip[];
   isInterrupting: boolean;

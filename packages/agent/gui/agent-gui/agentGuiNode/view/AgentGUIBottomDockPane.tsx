@@ -15,6 +15,7 @@ import {
   TuttiWorkflowDock,
   type TuttiWorkflowDockLabels
 } from "../TuttiWorkflowDock";
+import { resolveAgentGUIInteractionDisabledReason } from "./agentGUIDetailModelHelpers";
 import type {
   TuttiModePlanPanelLabels,
   TuttiPlanIssuePanelLabels
@@ -102,14 +103,17 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
 }: AgentGUIBottomDockPaneProps): React.JSX.Element {
   "use memo";
 
-  const liftedPromptDisabledReason =
-    bottomDockLiftedPrompt?.kind === "approval"
-      ? approvalDisabledReason
-      : interactivePromptDisabledReason;
+  const liftedPromptDisabledReason = resolveAgentGUIInteractionDisabledReason({
+    promptKind: bottomDockLiftedPrompt?.kind,
+    approvalReason: approvalDisabledReason,
+    interactivePromptReason: interactivePromptDisabledReason
+  });
   const replacementPromptDisabledReason =
-    bottomDockReplacementPrompt?.kind === "approval"
-      ? approvalDisabledReason
-      : interactivePromptDisabledReason;
+    resolveAgentGUIInteractionDisabledReason({
+      promptKind: bottomDockReplacementPrompt?.kind,
+      approvalReason: approvalDisabledReason,
+      interactivePromptReason: interactivePromptDisabledReason
+    });
 
   // Active thread goal rides the same runtimeContext channel as account /
   // rateLimits, so we read it straight off the session chrome's raw state.
