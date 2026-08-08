@@ -68,8 +68,15 @@ export interface DeviceLinkPort {
 export type AgentLiveDelivery =
   | {
       kind: "connection";
-      reason?: string;
-      status: "connected" | "disconnected";
+      status: "connected";
+    }
+  | {
+      expectedRevision?: string;
+      kind: "connection";
+      reason: string;
+      receivedRevision?: string;
+      retryable: boolean;
+      status: "disconnected";
     }
   | {
       event: AgentActivityLiveEvent;
@@ -149,6 +156,9 @@ export type MobileDiagnosticEvent =
   | {
       name: "device_connection.phase_changed";
       phase: "connected" | "failed" | "idle" | "reconnecting" | "synchronizing";
+      expectedRevision?: string;
+      reasonCode?: "connection_unavailable" | "protocol_revision_mismatch";
+      receivedRevision?: string;
       trigger?:
         | "background_expired"
         | "foreground_resume"

@@ -35,6 +35,7 @@ export function parseAgentLiveDeliveries(
             typeof envelope.reason === "string"
               ? envelope.reason
               : "stream_closed",
+          retryable: true,
           status: "disconnected"
         }
       ];
@@ -91,9 +92,20 @@ export function parseAgentLiveDeliveries(
         continue;
       }
       if (accepted.kind === "rejected") {
+        const rejected = isRecord(accepted.rejected) ? accepted.rejected : {};
         deliveries.push({
+          ...(typeof rejected.expectedRevision === "string"
+            ? { expectedRevision: rejected.expectedRevision }
+            : {}),
           kind: "connection",
-          reason: "protocol_rejected",
+          reason:
+            typeof rejected.reason === "string"
+              ? rejected.reason
+              : "stream_rejected",
+          ...(typeof rejected.receivedRevision === "string"
+            ? { receivedRevision: rejected.receivedRevision }
+            : {}),
+          retryable: false,
           status: "disconnected"
         });
         continue;

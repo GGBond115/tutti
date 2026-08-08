@@ -1,5 +1,41 @@
 # Mobile Troubleshooting
 
+## Android stays on “Syncing the latest data” after pairing
+
+- **Symptom:** Device pairing and the direct DeviceLink handshake succeed, but
+  the mobile App remains on **Syncing the latest data**. The native log repeats
+  `Agent live stream rejected`, often once per retry interval.
+- **Quick checks:** Correlate the pairing ID and workspace across the phone and
+  computer logs. If DeviceLink reaches its connected stage and the Agent live
+  rejection reports `protocol_revision_mismatch`, compare the safe
+  `expectedRevision` and `receivedRevision` hashes. This is a protocol
+  compatibility failure, not a local-network or pairing failure.
+- **Root cause:** The computer rejects an Agent live subscription whose protocol
+  revision does not match its own. If the native rejection is collapsed into a
+  generic disconnect, the live lane treats a deterministic incompatibility as
+  transient and retries forever. Repeated disconnect callbacks can also keep
+  replacing the connection-ready deadline, so the App never reaches a visible
+  failed state.
+- **Fix:** Preserve the typed rejection reason and revision hashes through the
+  native bridge. Classify `protocol_revision_mismatch` as terminal for the
+  current connection attempt, close the rejected subscription without
+  scheduling another live retry, and keep the original synchronization
+  deadline for retryable transport failures. Present an explicit incompatible
+  version message with a mobile update action; do not automatically restart a
+  terminal attempt after foreground resume.
+- **Validation:** Verify an ordinary stream close still retries and rebuilds
+  DeviceLink after the recovery grace period. Inject a protocol-revision
+  rejection and assert that the connection enters the failed state once, emits
+  a `device_connection.phase_changed` diagnostic with stable
+  `protocol_revision_mismatch`, preserves both revision hashes, schedules no
+  additional subscription, and stays terminal across background and foreground
+  transitions. Confirm the failure UI offers **Check for updates** instead of
+  **Reconnect**.
+- **References:** `apps/mobile/src/native/agentLiveNativeBridge.ts`,
+  `apps/mobile/src/services/workspaceAgentLiveLane.ts`,
+  `apps/mobile/src/services/mobileApplicationService.ts`,
+  `apps/mobile/src/components/MobileConnectionRecoveryOverlay.tsx`
+
 ## Android QR scan closes without advancing pairing
 
 - **Symptom:** The pairing scanner opens, reads a valid Desktop QR code, and

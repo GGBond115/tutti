@@ -11,10 +11,11 @@ import { type NativeTheme, useNativeTheme } from "@tutti-os/ui-system/native";
 import { useServiceSnapshot } from "./bindings/useServiceSnapshot";
 import { MobileConnectionRecoveryOverlay } from "./components/MobileConnectionRecoveryOverlay";
 import { MobileUIProviders } from "./components/MobileUIProviders";
+import { presentMobileSoftwareUpdate } from "./components/presentMobileSoftwareUpdate";
 import { NativeComponentGallery } from "./dev/NativeComponentGallery";
 import { t } from "./i18n";
 import "@tutti-os/ui-system/native.css";
-import { mobileApplicationService } from "./mobileRuntime";
+import { mobileApplicationService, mobileUpdateService } from "./mobileRuntime";
 import { MobileNavigator } from "./navigation/MobileNavigator";
 
 export default function App() {
@@ -64,6 +65,9 @@ function AppContent() {
               connection={snapshot.connection}
               onBackToDevices={() =>
                 void mobileApplicationService.disconnectDevice()
+              }
+              onCheckForUpdates={() =>
+                presentMobileSoftwareUpdate(mobileUpdateService)
               }
               onRetry={() =>
                 void mobileApplicationService.retryDeviceConnection()

@@ -162,6 +162,7 @@ CLI behavior, CI, package assets, skills, Browser Node, and terminal input.
 Android app login, native bridge, secure identity, and mobile transport diagnostics.
 
 - [Android QR scan closes without advancing pairing](./mobile.md#android-qr-scan-closes-without-advancing-pairing)
+- [Android stays on “Syncing the latest data” after pairing](./mobile.md#android-stays-on-syncing-the-latest-data-after-pairing)
 - [Android release bundling cannot resolve the JSX transform](./mobile.md#android-release-bundling-cannot-resolve-the-jsx-transform)
 - [Android update stays on MainActivity without opening the installer](./mobile.md#android-update-stays-on-mainactivity-without-opening-the-installer)
 - [Mobile quick prompts are missing from the plus menu](./mobile.md#mobile-quick-prompts-are-missing-from-the-plus-menu)

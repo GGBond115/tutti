@@ -30,6 +30,7 @@ const messages = {
     copyAsMarkdown: "Copy as Markdown",
     copyImageUrl: "Copy image URL",
     changedFiles: "{count} changed files",
+    checkForUpdates: "Check for updates",
     closeSheet: "Close sheet",
     collapseSection: "Collapse section",
     connecting: "Connecting securely…",
@@ -52,6 +53,10 @@ const messages = {
       "Make sure Tutti is running on your computer, then try again or return to your computers.",
     connectionRecoveryFailedTitle: "Could not reconnect",
     connectionSynchronizingTitle: "Syncing the latest data",
+    connectionVersionIncompatibleDescription:
+      "Update Tutti on your phone or computer, then connect again.",
+    connectionVersionIncompatibleTitle:
+      "Computer and phone versions are incompatible",
     connectionStatus: "Status",
     connectionTransport: "Channel",
     connectionTransportP2p: "End-to-end encrypted P2P",
@@ -230,6 +235,7 @@ const messages = {
     copyAsMarkdown: "复制为 Markdown",
     copyImageUrl: "复制图片链接",
     changedFiles: "已变更 {count} 个文件",
+    checkForUpdates: "检查手机更新",
     closeSheet: "关闭面板",
     collapseSection: "收起分组",
     connecting: "正在建立安全连接…",
@@ -251,6 +257,9 @@ const messages = {
       "请确认电脑端 Tutti 正在运行，然后重试或返回电脑列表",
     connectionRecoveryFailedTitle: "无法重新连接",
     connectionSynchronizingTitle: "正在同步最新数据",
+    connectionVersionIncompatibleDescription:
+      "请更新手机或电脑上的 Tutti，然后重新连接",
+    connectionVersionIncompatibleTitle: "电脑版本与手机不兼容",
     connectionStatus: "状态",
     connectionTransport: "传输通道",
     connectionTransportP2p: "端到端加密 P2P",
