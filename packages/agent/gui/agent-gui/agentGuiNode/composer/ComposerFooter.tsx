@@ -82,6 +82,7 @@ interface Props {
   onWorkspaceReferencePicker: () => void;
   onMentionPaletteButton: () => void;
   onSettingsChange: AgentComposerProps["onSettingsChange"];
+  onRetryComposerOptions: AgentComposerProps["onRetryComposerOptions"];
   onSubmit: AgentComposerProps["onSubmit"];
   onClearGoalMode: () => void;
   draftPrompt: string;
@@ -136,6 +137,7 @@ export function ComposerFooter({
   onWorkspaceReferencePicker: handleWorkspaceReferencePicker,
   onMentionPaletteButton: handleMentionPaletteButton,
   onSettingsChange,
+  onRetryComposerOptions,
   onSubmit,
   onClearGoalMode: clearGoalModeBadge,
   draftPrompt: _draftPrompt,
@@ -437,8 +439,9 @@ export function ComposerFooter({
               }}
             />
           ) : null}
-          {showSettingsLoadingPlaceholders ||
-          composerSettings.supportsPermissionMode ? (
+          {!composerSettings.composerOptionsError &&
+          (showSettingsLoadingPlaceholders ||
+            composerSettings.supportsPermissionMode) ? (
             <AgentPermissionModeDropdown
               composerSettings={composerSettings}
               disabled={permissionModeControlsDisabled}
@@ -458,10 +461,12 @@ export function ComposerFooter({
           ) : null}
           {showSettingsLoadingPlaceholders ||
           composerSettings.supportsModel ||
-          composerSettings.supportsReasoningEffort ? (
+          composerSettings.supportsReasoningEffort ||
+          composerSettings.composerOptionsError ? (
             <AgentModelReasoningDropdown
               composerSettings={composerSettings}
               disabled={settingsControlsDisabled}
+              onRetryComposerOptions={onRetryComposerOptions}
               labels={{
                 modelLabel: labels.modelLabel,
                 modelSelectionLabel: labels.modelSelectionLabel,
@@ -489,6 +494,7 @@ export function ComposerFooter({
                 modelDescriptions: labels.modelDescriptions,
                 defaultModel: labels.defaultModel,
                 loadingOptions: labels.loadingOptions,
+                retry: labels.retry,
                 inheritedUnavailable: labels.inheritedUnavailable
               }}
               onSettingsChange={onSettingsChange}

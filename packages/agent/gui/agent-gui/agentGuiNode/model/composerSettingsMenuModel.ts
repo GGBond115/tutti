@@ -15,6 +15,7 @@ export type AgentComposerSettingsMenuLabels = {
   modelTooltipVersionLabel: string;
   defaultModel: string;
   loadingOptions: string;
+  retry?: string;
   inheritedUnavailable: string;
   reasoningLabel: string;
   reasoningDegreeLabel: string;

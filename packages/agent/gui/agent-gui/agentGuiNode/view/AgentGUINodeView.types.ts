@@ -50,7 +50,6 @@ import type {
 } from "../../../workspaceWorkflow";
 import type { TuttiWorkflowDockLabels } from "../TuttiWorkflowDock";
 import type { AgentGUIComposerFooterAccessoryRenderer } from "./AgentGUIComposerFooterAccessory.types";
-
 export type AgentMentionReferenceTargetResolver = (
   item: AgentContextMentionItem
 ) => ReferenceLocateTarget | null;
@@ -91,6 +90,7 @@ export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   modelTooltipVersionLabel: string;
   defaultModel: string;
   loadingOptions: string;
+  composerOptionsRetry?: string;
   inheritedUnavailable: string;
   reasoningLabel: string;
   reasoningDegreeLabel: string;

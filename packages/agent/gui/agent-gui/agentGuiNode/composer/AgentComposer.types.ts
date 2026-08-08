@@ -180,6 +180,7 @@ export interface AgentComposerProps {
     modelTooltipVersionLabel: string;
     defaultModel: string;
     loadingOptions: string;
+    retry?: string;
     inheritedUnavailable: string;
     loadingConversation: string;
     reasoningLabel: string;
@@ -404,6 +405,8 @@ export interface AgentComposerProps {
     computerUse?: boolean;
     permissionModeId?: string | null;
   }) => void;
+  /** Retries the target-scoped composer options request after a terminal failure. */
+  onRetryComposerOptions?: () => void;
   onTuttiModeChange?: (active: boolean) => void;
   onTuttiModeEffectChange?: (value: number) => void;
   onTuttiModeSpeedChange?: (value: number) => void;

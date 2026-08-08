@@ -385,6 +385,7 @@ export function useAgentGUIDetailModel(input: Input) {
       modelTooltipVersionLabel: labels.modelTooltipVersionLabel,
       defaultModel: labels.defaultModel,
       loadingOptions: labels.loadingOptions,
+      retry: labels.composerOptionsRetry ?? labels.retryActivation,
       inheritedUnavailable: labels.inheritedUnavailable,
       loadingConversation: labels.loadingConversation,
       reasoningLabel: labels.reasoningLabel,
@@ -566,6 +567,7 @@ export function useAgentGUIDetailModel(input: Input) {
     }),
     [
       interactivePromptLabels,
+      labels.composerOptionsRetry,
       labels.defaultModel,
       labels.tuttiModePlanSendAccept,
       labels.tuttiModePlanSendRequestChanges,

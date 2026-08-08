@@ -100,6 +100,53 @@ describe("AgentModelReasoningDropdown", () => {
     ).toBe('["gpt-5.4"]');
     expect(screen.getByText("Model selection")).toBeInTheDocument();
   });
+
+  it("retries composer options from the compact error state", () => {
+    const onRetryComposerOptions = vi.fn();
+    render(
+      <AgentModelReasoningDropdown
+        composerSettings={{
+          ...composerSettings(),
+          composerOptionsError: true
+        }}
+        labels={{ ...modelSettingsLabels, retry: "Try again" }}
+        onRetryComposerOptions={onRetryComposerOptions}
+        onSettingsChange={vi.fn()}
+      />
+    );
+
+    const retryButton = screen.getByRole("button", { name: "Try again" });
+    expect(retryButton).toHaveAttribute(
+      "data-agent-composer-options-state",
+      "error"
+    );
+    fireEvent.click(retryButton);
+
+    expect(onRetryComposerOptions).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Model selection")).not.toBeInTheDocument();
+  });
+
+  it("disables the compact retry while composer options are loading", () => {
+    const onRetryComposerOptions = vi.fn();
+    render(
+      <AgentModelReasoningDropdown
+        composerSettings={{
+          ...composerSettings(),
+          composerOptionsError: true,
+          composerOptionsLoadStatus: "loading"
+        }}
+        labels={{ ...modelSettingsLabels, retry: "Try again" }}
+        onRetryComposerOptions={onRetryComposerOptions}
+        onSettingsChange={vi.fn()}
+      />
+    );
+
+    const retryButton = screen.getByRole("button", { name: "Try again" });
+    expect(retryButton).toBeDisabled();
+    fireEvent.click(retryButton);
+
+    expect(onRetryComposerOptions).not.toHaveBeenCalled();
+  });
 });
 
 describe("AgentPermissionModeDropdown", () => {
@@ -373,6 +420,7 @@ const modelSettingsLabels: AgentComposerSettingsMenuLabels = {
   modelTooltipVersionLabel: "Version",
   defaultModel: "Default model",
   loadingOptions: "Loading…",
+  retry: "Try again",
   inheritedUnavailable: "Unavailable",
   reasoningLabel: "Reasoning",
   reasoningDegreeLabel: "Reasoning degree",

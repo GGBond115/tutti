@@ -1,5 +1,6 @@
 import type {
   AgentActivityUsage,
+  AgentActivityComposerOptionsLoadStatus,
   CanonicalAgentSession,
   SessionRuntimeAvailability
 } from "@tutti-os/agent-activity-core";
@@ -310,6 +311,10 @@ export interface AgentGUIComposerSettingsVM {
   permissionModeChangeDuringTurn?: boolean;
   slashCommandPolicy?: AgentSlashCommandPolicy | null;
   isSettingsLoading: boolean;
+  /** Terminal composer-options failure with no cached catalog to render. */
+  composerOptionsError?: boolean;
+  /** Activity-core request lifecycle for the target-scoped options catalog. */
+  composerOptionsLoadStatus?: AgentActivityComposerOptionsLoadStatus;
   /** Initial slash command and capability catalog request is in flight. */
   isCapabilityOptionsLoading?: boolean;
   isModelOptionsLoading?: boolean;
