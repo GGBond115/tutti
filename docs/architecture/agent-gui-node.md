@@ -902,6 +902,14 @@ while canonical Turn state remains authoritative once it exists.
   Mobile retain transport execution in their `EngineExtensionCommand`
   adapters and delegate pure generated-DTO projection to
   `@tutti-os/agent-activity-tuttid-adapter`
+- A composer-option failure with no signature-matching cached value remains an
+  explicit Engine `error` state. AgentGUI renders a compact failure and retry
+  action in the existing options slot instead of presenting an empty list or a
+  stale/default selection; a last valid cached value remains renderable while
+  its load status is reconciled. The retry is the same semantic
+  `engine.loadComposerOptions` operation with `force` left false, so request
+  identity, cache reuse, and identical in-flight joining remain Engine-owned;
+  a view must not call the transport adapter directly.
 - an acknowledged home Composer default remains an optimistic draft until a
   later authoritative Composer-options response reports the same effective
   field value. A successful read alone must not retire the draft because a

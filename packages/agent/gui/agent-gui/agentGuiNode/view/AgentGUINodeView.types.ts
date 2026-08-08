@@ -50,7 +50,6 @@ import type {
 } from "../../../workspaceWorkflow";
 import type { TuttiWorkflowDockLabels } from "../TuttiWorkflowDock";
 import type { AgentGUIComposerFooterAccessoryRenderer } from "./AgentGUIComposerFooterAccessory.types";
-
 export type AgentMentionReferenceTargetResolver = (
   item: AgentContextMentionItem
 ) => ReferenceLocateTarget | null;
@@ -72,9 +71,8 @@ export interface AgentGUIConversationRailLayout {
   resizing: boolean;
 }
 
-// The provider-gate content labels (checking / install / login / coming-soon /
-// unavailable / runtime-selection) live on AgentGUIProviderReadinessLabels;
-// extend it rather than restating every key here.
+// Provider-gate labels live on AgentGUIProviderReadinessLabels; extend it
+// rather than restating every key here.
 export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   initialPlaceholder: string;
   followupPlaceholder: string;
@@ -91,6 +89,9 @@ export interface AgentGUIViewLabels extends AgentGUIProviderReadinessLabels {
   modelTooltipVersionLabel: string;
   defaultModel: string;
   loadingOptions: string;
+  composerOptionsLoadFailed?: string;
+  composerOptionsRetry?: string;
+  composerOptionsRetryTooltip?: string;
   inheritedUnavailable: string;
   reasoningLabel: string;
   reasoningDegreeLabel: string;
@@ -792,7 +793,6 @@ export interface AgentGUISidebarFooterContext {
   currentUserId?: string | null;
   activeConversation: AgentGUINodeViewModel["rail"]["activeConversation"];
 }
-
 export type AgentGUISidebarFooterRenderer = (
   ctx: AgentGUISidebarFooterContext
 ) => ReactNode;
