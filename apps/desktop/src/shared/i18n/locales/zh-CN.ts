@@ -845,6 +845,10 @@ export const zhCN = {
           zhCN: "简体中文"
         },
         localeSaveFailed: "暂时无法切换应用语言",
+        captureShortcutDefaultPlaceholder: "默认：Cmd/Ctrl+Shift+S",
+        captureShortcutDescription:
+          "全局截图快捷键，需包含 Cmd、Ctrl 或 Alt 修饰键；清除后恢复默认",
+        captureShortcutLabel: "截图快捷键",
         preventSleepDescription: "可控制系统是否进入休眠",
         preventSleepLabel: "防止休眠",
         preventSleepOptions: {

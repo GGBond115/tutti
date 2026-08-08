@@ -135,6 +135,7 @@ export interface PreferencesDesktopPreferencesV1 {
   workbenchShortcuts: {
     newAgentConversation: string | null;
     newSameTypeWindow: string | null;
+    captureScreenshot?: string | null;
   };
   locale: "en" | "zh-CN";
   minimizeAnimation: "scale" | "genie" | "off";

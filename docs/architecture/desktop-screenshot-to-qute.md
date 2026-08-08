@@ -4,7 +4,13 @@ The desktop can send an arbitrary rectangular screen region directly to an
 Agent as a multimodal prompt. The Agent can optionally be instructed to create
 and manage a Qute Task while it works. The default global shortcut is
 `CommandOrControl+Shift+S`, and it works while another application has focus as
-long as Tutti is running and can resolve a current or startup workspace.
+long as Tutti is running and can resolve a current or startup workspace. The
+binding is adjustable in Settings → General: it persists as the
+`captureScreenshot` workbench-shortcut preference, where null keeps the
+built-in default rather than meaning unbound. The recorder and the
+main-process accelerator resolver both require a Meta/Ctrl/Alt modifier, and
+an unregisterable binding falls back to the last working accelerator so a bad
+preference can never disable capture.
 
 ## Ownership And Flow
 
@@ -303,7 +309,8 @@ composer reuse Tutti's UI System.
   source. Wayland global shortcuts additionally depend on the environment's
   shortcut portal support.
 - Global shortcut registration can fail when another application owns the same
-  accelerator. The desktop logs that failure; making the accelerator a durable
-  user preference is a separate settings slice.
+  accelerator. The desktop logs that failure and re-registers the previous
+  working accelerator (or the built-in default) so capture stays reachable.
+  The accelerator is a durable user preference under Settings → General.
 - Region selection currently stays within the display nearest the pointer when
   the shortcut is pressed; it does not span display boundaries.

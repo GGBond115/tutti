@@ -76,7 +76,10 @@ import {
   enterCaptureSelectionFullscreen,
   resolveCaptureSelectionFullscreenOptions
 } from "./captureSelectionFullscreen.ts";
-import { desktopCaptureAccelerator } from "./captureShortcut.ts";
+import {
+  desktopCaptureAccelerator,
+  resolveCaptureAccelerator
+} from "./captureShortcut.ts";
 import type { DesktopFileDialogAccess } from "../host/desktopFileDialogAccess.ts";
 
 const captureComposerWidth = 760;
@@ -115,7 +118,7 @@ export function createDesktopCaptureService(input: {
   logger: DesktopLogger;
   preferences: Pick<
     DesktopHostPreferencesState,
-    "getLocale" | "getThemeSource"
+    "getLocale" | "getThemeSource" | "getWorkbenchShortcuts" | "subscribe"
   >;
   preloadPath: string;
   rendererFilePath: string;
@@ -442,29 +445,68 @@ export function createDesktopCaptureService(input: {
     }
   };
 
-  const registered = globalShortcut.register(desktopCaptureAccelerator, () => {
+  const captureShortcutCallback = () => {
     const returnFocusToExternalApplication =
       BrowserWindow.getFocusedWindow() === null;
     input.logger.info("screenshot shortcut activated", {
-      accelerator: desktopCaptureAccelerator
+      accelerator: registeredAccelerator
     });
     void openCapture(returnFocusToExternalApplication);
-  });
-  if (!registered || !globalShortcut.isRegistered(desktopCaptureAccelerator)) {
+  };
+  let registeredAccelerator: string | null = null;
+  const tryRegisterCaptureShortcut = (accelerator: string): boolean => {
+    try {
+      return (
+        globalShortcut.register(accelerator, captureShortcutCallback) &&
+        globalShortcut.isRegistered(accelerator)
+      );
+    } catch {
+      return false;
+    }
+  };
+  const applyCaptureShortcut = () => {
+    const accelerator = resolveCaptureAccelerator(
+      input.preferences.getWorkbenchShortcuts().captureScreenshot
+    );
+    if (accelerator === registeredAccelerator) {
+      return;
+    }
+    const previousAccelerator = registeredAccelerator;
+    if (previousAccelerator) {
+      globalShortcut.unregister(previousAccelerator);
+      registeredAccelerator = null;
+    }
+    if (tryRegisterCaptureShortcut(accelerator)) {
+      registeredAccelerator = accelerator;
+      input.logger.info("screenshot shortcut registered", { accelerator });
+      return;
+    }
     input.logger.warn("screenshot shortcut registration failed", {
-      accelerator: desktopCaptureAccelerator
+      accelerator
     });
-  } else {
-    input.logger.info("screenshot shortcut registered", {
-      accelerator: desktopCaptureAccelerator
-    });
-  }
+    // Keep capture reachable: restore the last working accelerator, or the
+    // built-in default when this was the initial registration.
+    const fallback = previousAccelerator ?? desktopCaptureAccelerator;
+    if (fallback !== accelerator && tryRegisterCaptureShortcut(fallback)) {
+      registeredAccelerator = fallback;
+      input.logger.info("screenshot shortcut registered", {
+        accelerator: fallback
+      });
+    }
+  };
+  applyCaptureShortcut();
+  const unsubscribePreferences =
+    input.preferences.subscribe(applyCaptureShortcut);
 
   return {
     dispose() {
       persistComposerPosition();
       app.removeListener("browser-window-focus", onBrowserWindowFocus);
-      globalShortcut.unregister(desktopCaptureAccelerator);
+      unsubscribePreferences();
+      if (registeredAccelerator) {
+        globalShortcut.unregister(registeredAccelerator);
+        registeredAccelerator = null;
+      }
       workspaceRendererReadiness.dispose();
       for (const channel of Object.values(desktopIpcChannels.capture)) {
         ipcMain.removeHandler(channel);

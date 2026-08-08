@@ -6,7 +6,7 @@ import "encoding/json"
 
 const (
 	BusinessEventProtocolVersion = 1
-	BusinessEventCatalogRevision = "sha256:0634d21b53d490cf"
+	BusinessEventCatalogRevision = "sha256:e22b1c247f39c553"
 )
 
 type Topic string
@@ -143,6 +143,7 @@ type PreferencesDesktopPreferences struct {
 	WorkbenchShortcuts                    struct {
 		NewAgentConversation *string `json:"newAgentConversation"`
 		NewSameTypeWindow    *string `json:"newSameTypeWindow"`
+		CaptureScreenshot    *string `json:"captureScreenshot,omitempty"`
 	} `json:"workbenchShortcuts"`
 	Locale                  string `json:"locale"`
 	MinimizeAnimation       string `json:"minimizeAnimation"`

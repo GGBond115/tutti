@@ -441,6 +441,10 @@ export type DesktopWorkbenchShortcuts = {
    * Keyboard shortcut binding for opening a new window of the active workbench node type, or null when unbound.
    */
   newSameTypeWindow: string | null;
+  /**
+   * Keyboard shortcut binding for the global screenshot capture, or null/absent when the built-in CommandOrControl+Shift+S default applies. Unlike the other bindings, null does not mean unbound.
+   */
+  captureScreenshot?: string | null;
 };
 
 export type DesktopWorkbenchWindowSnapping = {

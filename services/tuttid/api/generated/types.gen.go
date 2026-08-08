@@ -6757,6 +6757,9 @@ type DesktopUpdatePolicy string
 
 // DesktopWorkbenchShortcuts defines model for DesktopWorkbenchShortcuts.
 type DesktopWorkbenchShortcuts struct {
+	// CaptureScreenshot Keyboard shortcut binding for the global screenshot capture, or null/absent when the built-in CommandOrControl+Shift+S default applies. Unlike the other bindings, null does not mean unbound.
+	CaptureScreenshot *string `json:"captureScreenshot,omitempty"`
+
 	// NewAgentConversation Keyboard shortcut binding for opening an AgentGUI new conversation, or null when unbound.
 	NewAgentConversation *string `json:"newAgentConversation"`
 
