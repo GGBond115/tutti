@@ -159,7 +159,10 @@ export function AgentInteractivePromptSurface({
             role="group"
             tabIndex={0}
           >
-            {promptSurface}
+            {/* Disabled form controls do not reliably dispatch pointer events.
+                Keep the actual prompt out of hit testing so the wrapper can
+                receive hover/focus events and expose the disabled reason. */}
+            <div className="pointer-events-none">{promptSurface}</div>
           </div>
         </TooltipTrigger>
         <TooltipContent

@@ -102,6 +102,15 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
 }: AgentGUIBottomDockPaneProps): React.JSX.Element {
   "use memo";
 
+  const liftedPromptDisabledReason =
+    bottomDockLiftedPrompt?.kind === "approval"
+      ? approvalDisabledReason
+      : interactivePromptDisabledReason;
+  const replacementPromptDisabledReason =
+    bottomDockReplacementPrompt?.kind === "approval"
+      ? approvalDisabledReason
+      : interactivePromptDisabledReason;
+
   // Active thread goal rides the same runtimeContext channel as account /
   // rateLimits, so we read it straight off the session chrome's raw state.
   const goal = objectRecord(sessionChrome.rawState?.goal);
@@ -152,8 +161,8 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
               edgeGlow={true}
               keyboardShortcuts={keyboardShortcutsEnabled}
               isSubmitting={isRespondingApproval}
-              isInteractionDisabled={Boolean(interactivePromptDisabledReason)}
-              interactionDisabledReason={interactivePromptDisabledReason}
+              isInteractionDisabled={Boolean(liftedPromptDisabledReason)}
+              interactionDisabledReason={liftedPromptDisabledReason}
               onSubmit={onSubmitBottomDockInteractivePrompt}
               labels={promptLabels}
             />
@@ -263,8 +272,8 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
               edgeGlow={true}
               keyboardShortcuts={keyboardShortcutsEnabled}
               isSubmitting={isRespondingApproval}
-              isInteractionDisabled={Boolean(interactivePromptDisabledReason)}
-              interactionDisabledReason={interactivePromptDisabledReason}
+              isInteractionDisabled={Boolean(replacementPromptDisabledReason)}
+              interactionDisabledReason={replacementPromptDisabledReason}
               onSubmit={onSubmitBottomDockInteractivePrompt}
               labels={promptLabels}
             />
