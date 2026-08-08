@@ -1217,7 +1217,12 @@ test("desktop packages and daemon agree on the bundled uv archive root", async (
   });
   assert.match(buildScript, /vendor-managed-uv\.mjs/);
   assert.match(buildScript, /windows-amd64/);
-  assert.match(buildScript, /darwin-amd64 darwin-arm64/);
+  assert.match(
+    buildScript,
+    /upstream macOS uv archives contain the uv and uvx executables/
+  );
+  assert.match(buildScript, /rm -rf "\$\{APP_DIR\}\/build\/managed-uv"/);
+  assert.match(buildScript, /mkdir -p "\$\{APP_DIR\}\/build\/managed-uv"/);
   assert.match(tuttidManager, /TUTTI_BUNDLED_UV_ROOT/);
   assert.equal(defaults.agentRuntimeTools.uv.version, "0.11.31");
   assert.ok(defaults.agentRuntimeTools.uv.artifacts.length >= 5);
