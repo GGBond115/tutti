@@ -494,7 +494,9 @@ export function ComposerFooter({
                 modelDescriptions: labels.modelDescriptions,
                 defaultModel: labels.defaultModel,
                 loadingOptions: labels.loadingOptions,
+                optionsLoadFailed: labels.composerOptionsLoadFailed,
                 retry: labels.retry,
+                retryTooltip: labels.composerOptionsRetryTooltip,
                 inheritedUnavailable: labels.inheritedUnavailable
               }}
               onSettingsChange={onSettingsChange}

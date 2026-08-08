@@ -180,7 +180,9 @@ export interface AgentComposerProps {
     modelTooltipVersionLabel: string;
     defaultModel: string;
     loadingOptions: string;
+    composerOptionsLoadFailed?: string;
     retry?: string;
+    composerOptionsRetryTooltip?: string;
     inheritedUnavailable: string;
     loadingConversation: string;
     reasoningLabel: string;
