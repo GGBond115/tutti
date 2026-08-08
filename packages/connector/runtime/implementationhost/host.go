@@ -46,6 +46,9 @@ type Config struct {
 	UserHome               string
 	MCPStartupTimeout      time.Duration
 	RemoteHTTPClient       *http.Client
+	RemoteMCPBaseURL       string
+	RemoteMCPTimeout       time.Duration
+	RemoteMCPMaxResponse   int
 	AuthorizeRemoteRequest mcp.RequestAuthorizer
 }
 
@@ -62,6 +65,9 @@ type Host struct {
 	authorizationMu        sync.Mutex
 	authorizationRoutes    map[string]*connectorRoute
 	remoteHTTPClient       *http.Client
+	remoteMCPBaseURL       string
+	remoteMCPTimeout       time.Duration
+	remoteMCPMaxResponse   int
 	authorizeRemoteRequest mcp.RequestAuthorizer
 	mcpRegistry            *MCPRegistry
 	binDir                 string
@@ -76,7 +82,7 @@ type connectorRoute struct {
 	mcpTools               map[string]registeredMCPTool
 	closeMu                sync.Mutex
 	mcpClient              *mcp.StdioClient
-	remoteMCP              *mcp.StreamableHTTPClient
+	remoteMCP              *mcp.ModernStreamableHTTPClient
 	executionRoot          string
 	installedRoot          string
 	displayName            string
@@ -111,6 +117,12 @@ func New(config Config) (*Host, error) {
 	if config.MCPStartupTimeout <= 0 {
 		config.MCPStartupTimeout = 15 * time.Second
 	}
+	if config.RemoteMCPTimeout <= 0 {
+		config.RemoteMCPTimeout = 30 * time.Second
+	}
+	if config.RemoteMCPMaxResponse <= 0 {
+		config.RemoteMCPMaxResponse = 4 * 1024 * 1024
+	}
 	snapshots, err := connectorruntime.NewExecutionSnapshotter(config.StateRoot)
 	if err != nil {
 		return nil, err
@@ -135,6 +147,9 @@ func New(config Config) (*Host, error) {
 		snapshots:              snapshots,
 		authorizationRoutes:    make(map[string]*connectorRoute),
 		remoteHTTPClient:       config.RemoteHTTPClient,
+		remoteMCPBaseURL:       strings.TrimRight(strings.TrimSpace(config.RemoteMCPBaseURL), "/"),
+		remoteMCPTimeout:       config.RemoteMCPTimeout,
+		remoteMCPMaxResponse:   config.RemoteMCPMaxResponse,
 		authorizeRemoteRequest: config.AuthorizeRemoteRequest,
 		mcpRegistry:            config.MCP,
 		binDir:                 config.BinDir,
@@ -173,6 +188,14 @@ func (host *Host) Reconcile(ctx context.Context, request ReconcileRequest) (mark
 	var err error
 	if runtimeRequest.Connector.Release.Manifest.Implementation.Kind == market.ImplementationKindRemoteStreamableHTTP {
 		route, err = host.buildRemoteRoute(ctx, runtimeRequest)
+		if err == nil {
+			prepared, resolveErr := host.artifacts.ResolvePrepared(ctx, runtimeRequest.Connector.Release)
+			if resolveErr != nil {
+				_ = route.Close(time.Now().Add(3 * time.Second))
+				return market.RuntimeReceipt{}, fmt.Errorf("resolve remote connector artifact: %w", resolveErr)
+			}
+			route.installedRoot = prepared.PreparedPath
+		}
 	} else {
 		prepared, resolveErr := host.artifacts.ResolvePrepared(ctx, runtimeRequest.Connector.Release)
 		if resolveErr != nil {

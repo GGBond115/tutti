@@ -34,6 +34,9 @@ type ImplementationHostConfig struct {
 	UserHome               string
 	MCPStartupTimeout      time.Duration
 	RemoteHTTPClient       *http.Client
+	RemoteMCPBaseURL       string
+	RemoteMCPTimeout       time.Duration
+	RemoteMCPMaxResponse   int
 	AuthorizeRemoteRequest runtimemcp.RequestAuthorizer
 }
 
@@ -69,7 +72,9 @@ func NewImplementationHost(config ImplementationHostConfig) (*ImplementationHost
 		Artifacts: config.Artifacts, CLIInstallations: config.CLIInstallations, Runtimes: config.Runtimes,
 		Processes: config.Processes, Registry: config.Registry.runtime, MCP: config.Registry.mcp, StateRoot: config.StateRoot, BinDir: config.BinDir,
 		UserHome: config.UserHome, MCPStartupTimeout: config.MCPStartupTimeout,
-		RemoteHTTPClient: config.RemoteHTTPClient, AuthorizeRemoteRequest: config.AuthorizeRemoteRequest,
+		RemoteHTTPClient: config.RemoteHTTPClient, RemoteMCPBaseURL: config.RemoteMCPBaseURL,
+		RemoteMCPTimeout: config.RemoteMCPTimeout, RemoteMCPMaxResponse: config.RemoteMCPMaxResponse,
+		AuthorizeRemoteRequest: config.AuthorizeRemoteRequest,
 	})
 	if err != nil {
 		return nil, err

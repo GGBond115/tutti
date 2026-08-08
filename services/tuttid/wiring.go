@@ -19,6 +19,7 @@ import (
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	runtimeprep "github.com/tutti-os/tutti/packages/agent/runtimeprep"
 	connectormarketdaemon "github.com/tutti-os/tutti/packages/connector/daemon"
+	connectormarkethost "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
 	marketartifact "github.com/tutti-os/tutti/packages/connector/runtime/artifact"
 	connectormarketdata "github.com/tutti-os/tutti/packages/connector/store-sqlite"
@@ -48,6 +49,7 @@ import (
 )
 
 const connectorMarketDefaultBaseURL = "https://api.tutti.sh/api/desktop"
+const connectorMCPDefaultBaseURL = "https://api.tutti.sh"
 const connectorArtifactBaseURL = "https://d27a59zdy4534h.cloudfront.net/tutti/connector-market/"
 
 type tuttiWiring struct {
@@ -298,13 +300,20 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 	if err != nil || !filepath.IsAbs(userHome) {
 		return errors.New("configure connector implementation host: user home is unavailable")
 	}
+	connectorMCPBaseURL := strings.TrimSpace(os.Getenv("TUTTI_CONNECTOR_MCP_BASE_URL"))
+	if connectorMCPBaseURL == "" {
+		connectorMCPBaseURL = connectorMCPDefaultBaseURL
+	}
 	implementationHost, err := connectormarketservice.NewImplementationHost(connectormarketservice.ImplementationHostConfig{
 		Artifacts: artifactPreparer, CLIInstallations: nodePackageInstaller,
 		Runtimes: runtimeResolver, Processes: processTransport, Registry: connectorRegistry,
-		RemoteHTTPClient: agenthttpx.NewClient(2 * time.Minute), AuthorizeRemoteRequest: marketAuthorizer.Authorize,
-		StateRoot: filepath.Join(connectorStateRoot, "user-state"),
-		BinDir:    filepath.Join(tuttitypes.DefaultStateDir(), "bin"),
-		UserHome:  userHome,
+		RemoteHTTPClient: agenthttpx.NewClient(2 * time.Minute),
+		RemoteMCPBaseURL: connectorMCPBaseURL,
+		RemoteMCPTimeout: 30 * time.Second, RemoteMCPMaxResponse: 4 * 1024 * 1024,
+		AuthorizeRemoteRequest: marketAuthorizer.Authorize,
+		StateRoot:              filepath.Join(connectorStateRoot, "user-state"),
+		BinDir:                 filepath.Join(tuttitypes.DefaultStateDir(), "bin"),
+		UserHome:               userHome,
 	})
 	if err != nil {
 		return fmt.Errorf("configure connector implementation host: %w", err)
@@ -326,7 +335,9 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		Repository: connectorMarketStore, CatalogSource: connectorCatalog,
 		ReleaseInstallations: releaseInstaller, ImplementationHost: connectorRuntime,
 		Authorization: connectorAuthorization, Compatibility: compatibility,
-		ImplementationRegistry: implementations, Outbox: connectorMarketStore, Lifecycle: connectorMarketStore,
+		AuthorizationProjections: connectorMarketStore,
+		RuntimeBindings:          connectormarkethost.AccountRuntimeBindingResolver{Projections: connectorMarketStore},
+		ImplementationRegistry:   implementations, Outbox: connectorMarketStore, Lifecycle: connectorMarketStore,
 		Publisher: eventstreamservice.ConnectorMarketPublisher{Service: events},
 	})
 	if err != nil {
@@ -360,12 +371,31 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		service.ConnectorMCPRevoke = connectorMCPServer.Revoke
 	}
 	api.ConnectorMarketService = connectorMarketHost.Application
+	connectorMarketScope := func() connectormarkethost.OperationScope {
+		session, sessionErr := accountService.ReadSession()
+		if sessionErr != nil || session == nil {
+			return connectormarkethost.OperationScope{}
+		}
+		return connectormarkethost.OperationScope{AccountID: strings.TrimSpace(session.UserID)}
+	}
+	api.ConnectorMarketScope = connectorMarketScope
 	existingAccountLoginCompleted := accountService.OnLoginCompleted
 	accountService.OnLoginCompleted = func(loginContext context.Context) {
 		if existingAccountLoginCompleted != nil {
 			existingAccountLoginCompleted(loginContext)
 		}
-		go bootstrapConnectorMarket(connectorMarketHost)
+		go bootstrapConnectorMarket(connectorMarketHost, connectorMarketScope)
+	}
+	existingAccountLogoutCompleted := accountService.OnLogoutCompleted
+	accountService.OnLogoutCompleted = func(logoutContext context.Context) {
+		if existingAccountLogoutCompleted != nil {
+			existingAccountLogoutCompleted(logoutContext)
+		}
+		fenceContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if fenceErr := connectorMarketHost.FenceForScope(fenceContext, connectormarkethost.OperationScope{}); fenceErr != nil {
+			slog.Warn("connector market logout fence failed", "error", fenceErr)
+		}
 	}
 	w.connectorMarketStore = connectorMarketStore
 	w.connectorMarketHost = connectorMarketHost
@@ -375,7 +405,7 @@ func (w *tuttiWiring) buildWorkspaceModule(ctx context.Context) error {
 		if startExistingListenerWork != nil {
 			startExistingListenerWork()
 		}
-		go bootstrapConnectorMarket(connectorMarketHost)
+		go bootstrapConnectorMarket(connectorMarketHost, connectorMarketScope)
 	}
 	agentTargetSetup, ok := api.AgentTargetSetupService.(*agentextensionservice.SetupService)
 	if !ok {
@@ -606,13 +636,17 @@ func openWorkspaceStore(ctx context.Context) (*workspacedata.SQLiteStore, error)
 	return workspaceStore, nil
 }
 
-func bootstrapConnectorMarket(host *connectormarketdaemon.Host) {
+func bootstrapConnectorMarket(host *connectormarketdaemon.Host, scope func() connectormarkethost.OperationScope) {
 	if host == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	err := host.Bootstrap(ctx)
+	operationScope := connectormarkethost.OperationScope{}
+	if scope != nil {
+		operationScope = scope()
+	}
+	err := host.BootstrapForScope(ctx, operationScope)
 	if err != nil {
 		slog.Warn("connector market bootstrap failed; routes remain fenced", "error", err)
 	}

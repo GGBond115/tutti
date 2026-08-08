@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
+	"net/url"
 	"strings"
-	"time"
 
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	"github.com/tutti-os/tutti/packages/connector/runtime/mcp"
@@ -18,43 +17,41 @@ func (host *Host) buildRemoteRoute(ctx context.Context, request market.RuntimeRe
 	if remote == nil {
 		return nil, errors.New("remote_streamable_http connector config is unavailable")
 	}
-	var authorizer mcp.RequestAuthorizer
-	switch remote.Authentication.Type {
-	case "none":
-	case "host_session":
-		if host.authorizeRemoteRequest == nil {
-			return nil, errors.New("remote MCP host-session authentication is unavailable")
-		}
-		connectorVersion := strings.TrimSpace(request.Connector.Release.Version)
-		authorizer = func(httpRequest *http.Request) error {
-			httpRequest.Header.Set("Tutti-Connector-Version", connectorVersion)
-			return host.authorizeRemoteRequest(httpRequest)
-		}
-	default:
-		return nil, errors.New("remote MCP authentication type is unsupported")
+	if host.authorizeRemoteRequest == nil {
+		return nil, errors.New("remote MCP host-session authentication is unavailable")
 	}
-	client, err := mcp.NewStreamableHTTPClient(mcp.StreamableHTTPClientConfig{
-		Endpoint: remote.Endpoint, AllowedHosts: remote.AllowedHosts, HTTPClient: host.remoteHTTPClient,
-		AuthorizeRequest: authorizer, Timeout: time.Duration(remote.Limits.TimeoutMS) * time.Millisecond,
-		MaxResponseBytes: remote.Limits.MaxResponseBytes,
+	base, err := url.Parse(host.remoteMCPBaseURL)
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return nil, errors.New("remote MCP Gateway base URL is unavailable")
+	}
+	endpoint, err := url.JoinPath(base.String(), "mcp", "connectors", request.Connector.Key)
+	if err != nil {
+		return nil, errors.New("build remote MCP Gateway endpoint")
+	}
+	connectorVersion := strings.TrimSpace(request.Connector.Release.Version)
+	client, err := mcp.NewModernStreamableHTTPClient(mcp.ModernStreamableHTTPClientConfig{
+		Endpoint: endpoint, AllowedHosts: []string{base.Hostname()}, ConnectorVersion: connectorVersion,
+		HTTPClient: host.remoteHTTPClient, AuthorizeRequest: host.authorizeRemoteRequest,
+		Timeout: host.remoteMCPTimeout, MaxResponseBytes: host.remoteMCPMaxResponse,
 	})
 	if err != nil {
 		return nil, err
 	}
 	closeClient := func() { _ = client.Close(context.Background()) }
-	if _, err := client.Call(ctx, "initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{},
-		"clientInfo": map[string]any{"name": "tutti-connector-host", "version": "1"}}); err != nil {
+	if _, err := client.Call(ctx, "server/discover", map[string]any{}); err != nil {
 		closeClient()
-		return nil, fmt.Errorf("initialize remote connector MCP: %w", err)
+		return nil, fmt.Errorf("discover remote connector MCP: %w", err)
 	}
-	if err := client.Notify(ctx, "notifications/initialized", map[string]any{}); err != nil {
-		closeClient()
-		return nil, err
-	}
-	tools, err := listMCPTools(ctx, client)
+	tools, err := listModernMCPTools(ctx, client)
 	if err != nil {
 		closeClient()
 		return nil, err
+	}
+	for _, tool := range tools {
+		if err := client.RegisterTool(tool.Name, tool.InputSchema); err != nil {
+			closeClient()
+			return nil, fmt.Errorf("register remote connector MCP Tool %q: %w", tool.Name, err)
+		}
 	}
 	route := newConnectorRoute(request)
 	if err := host.registerMCPTools(route, client, tools); err != nil {
@@ -97,40 +94,49 @@ type mcpTool struct {
 }
 
 func listMCPTools(ctx context.Context, client mcpCaller) ([]mcpTool, error) {
+	return listMCPToolsWithProtocol(ctx, client, false)
+}
+
+func listModernMCPTools(ctx context.Context, client mcpCaller) ([]mcpTool, error) {
+	return listMCPToolsWithProtocol(ctx, client, true)
+}
+
+func listMCPToolsWithProtocol(ctx context.Context, client mcpCaller, requireComplete bool) ([]mcpTool, error) {
 	const maxPages = 64
 	const maxTools = 512
 	result := make([]mcpTool, 0)
-	cursor := ""
+	var cursor *string
 	seen := map[string]struct{}{}
 	for page := 0; page < maxPages; page++ {
 		params := map[string]any{}
-		if cursor != "" {
-			params["cursor"] = cursor
+		if cursor != nil {
+			params["cursor"] = *cursor
 		}
 		raw, err := client.Call(ctx, "tools/list", params)
 		if err != nil {
 			return nil, fmt.Errorf("list connector MCP tools: %w", err)
 		}
 		var listing struct {
+			ResultType string    `json:"resultType"`
 			Tools      []mcpTool `json:"tools"`
-			NextCursor string    `json:"nextCursor"`
+			NextCursor *string   `json:"nextCursor"`
 		}
-		if err := json.Unmarshal(raw, &listing); err != nil {
+		if err := json.Unmarshal(raw, &listing); err != nil || (requireComplete && listing.ResultType != "complete") {
 			return nil, errors.New("connector MCP tools/list response is invalid")
 		}
 		result = append(result, listing.Tools...)
 		if len(result) > maxTools {
 			return nil, errors.New("connector MCP tools/list exceeds tool limit")
 		}
-		next := strings.TrimSpace(listing.NextCursor)
-		if next == "" {
+		if listing.NextCursor == nil {
 			return result, nil
 		}
+		next := *listing.NextCursor
 		if _, duplicate := seen[next]; duplicate {
 			return nil, errors.New("connector MCP tools/list cursor repeated")
 		}
 		seen[next] = struct{}{}
-		cursor = next
+		cursor = &next
 	}
 	return nil, errors.New("connector MCP tools/list exceeds page limit")
 }

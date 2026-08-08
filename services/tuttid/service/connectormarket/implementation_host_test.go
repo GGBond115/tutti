@@ -20,6 +20,7 @@ import (
 	agentruntime "github.com/tutti-os/tutti/packages/agent/daemon/runtime"
 	market "github.com/tutti-os/tutti/packages/connector/host"
 	connectorruntime "github.com/tutti-os/tutti/packages/connector/runtime"
+	"github.com/tutti-os/tutti/packages/connector/runtime/mcp"
 )
 
 const implementationHostTestReleaseDigest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
@@ -314,42 +315,44 @@ func TestImplementationHostDiscoversAndInvokesRemoteStreamableHTTPMCP(t *testing
 		if request.Header.Get("Tutti-Connector-Version") != "1.0.0" {
 			t.Errorf("Tutti-Connector-Version = %q", request.Header.Get("Tutti-Connector-Version"))
 		}
-		if request.Method == http.MethodDelete {
-			response.WriteHeader(http.StatusNoContent)
-			return
-		}
 		var message struct {
 			ID     json.RawMessage `json:"id"`
 			Method string          `json:"method"`
+			Params map[string]any  `json:"params"`
 		}
 		if err := json.NewDecoder(request.Body).Decode(&message); err != nil {
 			t.Error(err)
 			return
 		}
-		if len(message.ID) == 0 {
-			response.WriteHeader(http.StatusAccepted)
-			return
+		if request.Header.Get("MCP-Protocol-Version") != mcp.ModernProtocolVersion || request.Header.Get("Mcp-Method") != message.Method {
+			t.Errorf("modern MCP metadata = %#v", request.Header)
 		}
 		calls = append(calls, message.Method)
 		result := map[string]any{}
 		switch message.Method {
-		case "initialize":
-			result = map[string]any{"protocolVersion": "2025-06-18"}
+		case "server/discover":
+			result = map[string]any{"resultType": "complete", "supportedVersions": []string{mcp.ModernProtocolVersion}, "capabilities": map[string]any{"tools": map[string]any{}}}
 		case "tools/list":
-			result = map[string]any{"tools": []any{map[string]any{
+			result = map[string]any{"resultType": "complete", "tools": []any{map[string]any{
 				"name": "status", "description": "Read status",
 				"inputSchema": map[string]any{"type": "object"},
 			}}}
 		case "tools/call":
-			result = map[string]any{"content": []any{map[string]any{"type": "text", "text": "ready"}}}
+			result = map[string]any{"resultType": "complete", "content": []any{map[string]any{"type": "text", "text": "ready"}}}
 		}
 		response.Header().Set("Content-Type", "application/json")
-		response.Header().Set("Mcp-Session-Id", "mcp-session")
 		_ = json.NewEncoder(response).Encode(map[string]any{"jsonrpc": "2.0", "id": message.ID, "result": result})
 	}))
 	defer server.Close()
 
 	root := t.TempDir()
+	skillDir := filepath.Join(root, "skills", "document-search")
+	if err := os.MkdirAll(skillDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: document-search\ndescription: Search Tencent Docs.\n---\n\nUse the Connector MCP tools.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	runtimePath := filepath.Join(root, "node")
 	if err := os.WriteFile(runtimePath, []byte("runtime"), 0o700); err != nil {
 		t.Fatal(err)
@@ -359,11 +362,13 @@ func TestImplementationHostDiscoversAndInvokesRemoteStreamableHTTPMCP(t *testing
 	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
 	}
+	endpoint := strings.Replace(server.URL, "127.0.0.1", "example.com", 1)
 	host, err := NewImplementationHost(ImplementationHostConfig{
-		Artifacts: preparedResolverStub{}, Runtimes: connectorRuntimeStub{executable: connectorruntime.ConnectorExecutable{
+		Artifacts: preparedResolverStub{receipt: market.PreparedArtifactReceipt{PreparedPath: root}}, Runtimes: connectorRuntimeStub{executable: connectorruntime.ConnectorExecutable{
 			Path: runtimePath, SHA256: strings.Repeat("a", 64), SizeBytes: 7,
 		}}, Processes: &connectorProcessStub{}, Registry: commands, StateRoot: t.TempDir(),
-		RemoteHTTPClient: &http.Client{Transport: transport}, AuthorizeRemoteRequest: func(request *http.Request) error {
+		RemoteHTTPClient: &http.Client{Transport: transport}, RemoteMCPBaseURL: endpoint,
+		AuthorizeRemoteRequest: func(request *http.Request) error {
 			request.Header.Set("Cookie", "session_id=user-session")
 			return nil
 		},
@@ -372,17 +377,16 @@ func TestImplementationHostDiscoversAndInvokesRemoteStreamableHTTPMCP(t *testing
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = host.Close() })
-	endpoint := strings.Replace(server.URL, "127.0.0.1", "example.com", 1)
 	connector := market.Connector{Key: "github", Installation: market.Installation{
 		State: market.InstallationStateInstalled, InstalledReleaseDigest: implementationHostTestReleaseDigest,
 	}, Authorization: market.Authorization{State: market.AuthorizationStateNotRequired}}
 	connector.Release = completeImplementationHostTestRelease(market.Release{Manifest: market.Manifest{
 		AuthorizationKind: "none", IconURL: "data:image/png;base64,iVBORw0KGgo=",
+		RequiredCapabilities: []string{"tools"},
 		Implementation: market.Implementation{Kind: market.ImplementationKindRemoteStreamableHTTP,
 			RemoteStreamableHTTP: &market.RemoteStreamableHTTPImplementation{
-				Endpoint: endpoint, AllowedHosts: []string{"example.com"},
-				Authentication: market.RemoteTransportAuthentication{Type: "host_session"},
-				Limits:         market.RemoteTransportLimits{TimeoutMS: 10_000, MaxResponseBytes: 4096},
+				ProtocolVersion: mcp.ModernProtocolVersion, BindingRef: "github.primary", ContractVersion: 1,
+				BindingContractHash: "sha256:" + strings.Repeat("b", 64),
 			}},
 	}})
 	generation := market.HostGeneration{BootEpoch: "boot-1", Generation: 2}
@@ -406,8 +410,16 @@ func TestImplementationHostDiscoversAndInvokesRemoteStreamableHTTPMCP(t *testing
 	if len(output) == 0 {
 		t.Fatalf("output = %#v", output)
 	}
-	if len(calls) != 3 || calls[0] != "initialize" || calls[1] != "tools/list" || calls[2] != "tools/call" {
+	if len(calls) != 3 || calls[0] != "server/discover" || calls[1] != "tools/list" || calls[2] != "tools/call" {
 		t.Fatalf("calls = %#v", calls)
+	}
+	broker, err := NewConnectorBroker(commands)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hints := broker.RoutingHints()
+	if len(hints) != 1 || hints[0].SkillRoot != filepath.Join(root, "skills") {
+		t.Fatalf("remote Connector routing hints = %#v", hints)
 	}
 }
 
