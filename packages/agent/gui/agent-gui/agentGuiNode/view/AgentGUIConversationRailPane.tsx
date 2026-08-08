@@ -393,8 +393,10 @@ export const AgentGUIConversationRailPane = memo(
       userProjects
     ]);
     const groupedConversations = groupedConversationResult.groups;
-    const hasConversations = groupedConversations.some(
-      (section) => section.items.length > 0
+    const hasRailContent = groupedConversations.some(
+      (section) =>
+        section.items.length > 0 ||
+        (section.kind === "project" && section.project !== null)
     );
     const appendProjectRailHeader =
       groupedConversations.length > 0 &&
@@ -490,7 +492,7 @@ export const AgentGUIConversationRailPane = memo(
     });
     const projectDragLocked = projectDragBaseLocked || isProjectMovePending;
     useEffect(() => {
-      if (!conversationRailError || !hasConversations) {
+      if (!conversationRailError || !hasRailContent) {
         railFailureToastShownRef.current = false;
       } else if (!railFailureToastShownRef.current) {
         railFailureToastShownRef.current = true;
@@ -502,7 +504,7 @@ export const AgentGUIConversationRailPane = memo(
       return installProjectDragGlobalListeners();
     }, [
       conversationRailError,
-      hasConversations,
+      hasRailContent,
       hostToast,
       installProjectDragGlobalListeners,
       labels.conversationsLoadFailed
@@ -540,7 +542,7 @@ export const AgentGUIConversationRailPane = memo(
           <AgentGUIConversationRailContentState
             conversationQuery={conversationQuery}
             conversations={conversations}
-            hasConversations={hasConversations}
+            hasRailContent={hasRailContent}
             isLoading={shouldShowConversationSkeleton && !activityViewVisible}
             labels={labels}
             onRetry={() => {

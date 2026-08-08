@@ -9,7 +9,7 @@ export function AgentGUIConversationRailContentState({
   children,
   conversationQuery,
   conversations,
-  hasConversations,
+  hasRailContent,
   isLoading,
   labels,
   onRetry,
@@ -21,7 +21,7 @@ export function AgentGUIConversationRailContentState({
   children: React.ReactNode;
   conversationQuery: string;
   conversations: AgentGUINodeViewModel["rail"]["conversations"];
-  hasConversations: boolean;
+  hasRailContent: boolean;
   isLoading: boolean;
   labels: AgentGUIConversationRailLabels;
   onRetry: () => void;
@@ -60,14 +60,14 @@ export function AgentGUIConversationRailContentState({
 
   return (
     <>
-      {railError && !hasConversations ? (
+      {railError && !hasRailContent ? (
         <AgentGUIConversationRailLoadError
           errorLabel={labels.conversationsLoadFailed}
           onRetry={onRetry}
           retryLabel={labels.retryConversations}
         />
       ) : null}
-      {railError && !hasConversations ? null : content}
+      {railError && !hasRailContent ? null : content}
     </>
   );
 }
