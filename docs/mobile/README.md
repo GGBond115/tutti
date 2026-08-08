@@ -366,8 +366,11 @@ https://<mobile-release-base-url>/latest.json
 ```
 
 `latest.json` 使用 `tutti.android.mobile.latest.v1`，包含 `versionName`、
-`versionCode`、APK URL、APK 大小和 SHA-256。版本目录使用长期 immutable 缓存，
-根目录指针使用短缓存，遵循 Desktop release 的发布模式。当前 App 内置的检查地址是
+`versionCode`、APK URL、APK 大小和 SHA-256。APK 和校验和写入
+`<tag>/<sha256>/` 内容寻址目录并使用长期 immutable 缓存；同一版本的失败发布即使因
+新的 Actions run number 生成了不同 APK，也会落到新的摘要目录。工作流会先预检 APK
+和校验和是否缺失或内容一致，再补传缺失对象，最后更新使用短缓存的根目录指针，避免
+部分发布把后续重试卡在不可覆盖的旧对象上。当前 App 内置的检查地址是
 `https://d1x7gb6wqsqmnm.cloudfront.net/tutti-mobile-release-assets/latest.json`，
 所以 `TUTTI_MOBILE_RELEASE_ASSETS_BASE_URL` 必须指向同一个
 `tutti-mobile-release-assets` 前缀。发布需要以下仓库变量：
