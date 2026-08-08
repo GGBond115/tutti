@@ -1245,6 +1245,53 @@
   [AgentGUIQuickComposer.tsx](../../../packages/agent/gui/AgentGUIQuickComposer.tsx)
   [DesktopCaptureWindow.tsx](../../../apps/desktop/src/renderer/src/app/windows/capture/DesktopCaptureWindow.tsx)
 
+### Screenshot selection appears stuck and later opens duplicate floating Composers
+
+- Symptom:
+  The first valid screenshot region remains on the full-screen selector for
+  several seconds. Retrying the shortcut or selection eventually produces two
+  compact capture windows.
+- Quick checks:
+  Correlate `screenshot shortcut activated`, `screenshot selection requested`,
+  `screenshot composer presented`, and `screenshot composer metadata ready` by
+  `captureId`. One selection request followed by a long
+  `agent.composer_options.load` proves that pointer delivery succeeded and the
+  native transition was incorrectly coupled to metadata. Two different IDs
+  reaching presentation prove a cross-capture lifecycle race; repeated requests
+  for one ID are an input single-flight failure. If the Composer appears only
+  after Escape, verify that `composer presented` includes
+  `fullscreenExit: "event"`; logging presentation before that native event is a
+  false-positive lifecycle boundary.
+- Root cause:
+  The selector renderer waited for a selection IPC response, while Main waited
+  for workspace-owned Agent metadata before leaving native full-screen. A user
+  retry could create or revive another capture while the old asynchronous
+  continuation had no active-window identity fence. Input coalescing alone
+  cannot prevent that older continuation from presenting late. Independently,
+  macOS simple-fullscreen exit is asynchronous: setting it to false and then
+  immediately applying compact bounds leaves those bounds suppressed until the
+  native transition completes, which an Escape key can accidentally trigger.
+- Fix:
+  Enter a compact preparing stage on the first valid pointer-up and perform the
+  native full-screen-to-floating transition before awaiting metadata. Give each
+  capture a unique ID, coalesce selection within that capture, reuse a visible
+  active capture on repeated shortcuts, and require every asynchronous window
+  continuation to prove it still owns the active live capture. Destroying or
+  replacing a capture must invalidate that proof. On macOS, wait for the
+  `leave-full-screen` event before applying compact bounds; do not treat the
+  synchronous setter call or immediate fullscreen getter as completion.
+- Validation:
+  Defer composer metadata and assert that native presentation occurs first.
+  Supersede the capture both during the native transition and while metadata is
+  pending, and assert that neither path can continue. At runtime, one shortcut
+  and one selection should log one ID in the order `selection requested` →
+  `composer presented` → `composer metadata ready`, with presentation reporting
+  `fullscreenExit: "event"` on macOS.
+- References:
+  [captureSelectionTransition.ts](../../../apps/desktop/src/main/capture/captureSelectionTransition.ts)
+  [desktopCaptureService.ts](../../../apps/desktop/src/main/capture/desktopCaptureService.ts)
+  [desktopCaptureWindowController.ts](../../../apps/desktop/src/renderer/src/app/windows/capture/desktopCaptureWindowController.ts)
+
 ### Frameless capture close action is inert and the next shortcut appears stuck
 
 - Symptom:

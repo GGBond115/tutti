@@ -5,6 +5,7 @@ import type {
   DesktopCaptureApi,
   DesktopCaptureComposerOptionsInput,
   DesktopCaptureRememberComposerDefaultsInput,
+  DesktopCaptureSelectionResult,
   DesktopCaptureSubmitInput
 } from "../../../../../shared/contracts/capture.ts";
 import {
@@ -114,6 +115,66 @@ function createUserProjectsApi(): DesktopCaptureApi["userProjects"] {
     })
   };
 }
+
+test("coalesces repeated selection gestures while the first selection is loading", async () => {
+  let resolveSelection!: (result: DesktopCaptureSelectionResult) => void;
+  const pendingSelection = new Promise<DesktopCaptureSelectionResult>(
+    (resolve) => {
+      resolveSelection = resolve;
+    }
+  );
+  let selectionCalls = 0;
+  const api: DesktopCaptureApi = {
+    cancel: async () => undefined,
+    getComposerOptions: async () => ({
+      agents: [agentFixture({ composerOptions: composerOptionsFixture({}) })]
+    }),
+    getState: async () => captureStateFixture,
+    queryMentionDirectory: async () => [],
+    queryMentions: async () => [],
+    rememberComposerDefaults: async () => undefined,
+    resolveMention: async () => null,
+    select: () => {
+      selectionCalls += 1;
+      return pendingSelection;
+    },
+    selectFiles: async () => [],
+    selectProjectDirectory: async () => null,
+    submit: async () => ({ agentSessionId: "session-1" }),
+    userProjects: createUserProjectsApi()
+  };
+  const controller = new DesktopCaptureWindowController(api);
+  await controller.initialize();
+  controller.beginSelection({ x: 10, y: 20 });
+  controller.updateSelection({ x: 110, y: 100 });
+
+  const first = controller.finishSelection();
+  assert.equal(controller.getSnapshot().selectionPending, true);
+  assert.equal(controller.getSnapshot().stage, "preparing");
+  controller.beginSelection({ x: 200, y: 200 });
+  controller.updateSelection({ x: 300, y: 300 });
+  const second = controller.finishSelection();
+
+  assert.equal(first, second);
+  assert.equal(selectionCalls, 1);
+  assert.deepEqual(controller.getSnapshot().selection, {
+    height: 80,
+    width: 100,
+    x: 10,
+    y: 20
+  });
+
+  resolveSelection({
+    agents: [agentFixture({})],
+    attachment: attachmentFixture
+  });
+  assert.equal(await first, true);
+  assert.equal(await second, true);
+  assert.equal(controller.getSnapshot().selectionPending, false);
+  assert.equal(controller.getSnapshot().stage, "composing");
+  assert.equal(await controller.finishSelection(), false);
+  assert.equal(selectionCalls, 1);
+});
 
 test("DesktopCaptureWindowController owns selection and submission retry state", async () => {
   const composerOptionInputs: DesktopCaptureComposerOptionsInput[] = [];

@@ -18,7 +18,11 @@ import type { WorkspaceUserProjectApi } from "@tutti-os/workspace-user-project/c
 import type { DesktopCaptureAgentTargetPreference } from "./desktopCaptureAgentTargetPreference.ts";
 import type { DesktopCaptureProjectPreference } from "./desktopCaptureProjectPreference.ts";
 
-export type DesktopCaptureStage = "loading" | "selecting" | "composing";
+export type DesktopCaptureStage =
+  | "loading"
+  | "selecting"
+  | "preparing"
+  | "composing";
 
 export interface DesktopCaptureWindowSnapshot {
   attachment: DesktopCaptureAttachment | null;
@@ -30,6 +34,7 @@ export interface DesktopCaptureWindowSnapshot {
   projectPath: string | null;
   refreshingAgentOptions: boolean;
   selection: DesktopCaptureSelectionInput | null;
+  selectionPending: boolean;
   stage: DesktopCaptureStage;
   submitting: boolean;
   trackWithTask: boolean;
@@ -45,6 +50,7 @@ const initialSnapshot: DesktopCaptureWindowSnapshot = {
   projectPath: null,
   refreshingAgentOptions: false,
   selection: null,
+  selectionPending: false,
   stage: "loading",
   submitting: false,
   trackWithTask: false
@@ -58,6 +64,7 @@ export class DesktopCaptureWindowController {
   private dragStart: { x: number; y: number } | null = null;
   private initializePromise: Promise<void> | null = null;
   private readonly listeners = new Set<() => void>();
+  private selectionPromise: Promise<boolean> | null = null;
   private snapshot = initialSnapshot;
   /** Base state without core-derived fields; merged on every emit. */
   private base = initialSnapshot;
@@ -148,7 +155,7 @@ export class DesktopCaptureWindowController {
   }
 
   beginSelection(point: { x: number; y: number }): void {
-    if (this.snapshot.stage !== "selecting") {
+    if (this.snapshot.stage !== "selecting" || this.snapshot.selectionPending) {
       return;
     }
     this.dragStart = point;
@@ -159,6 +166,9 @@ export class DesktopCaptureWindowController {
   }
 
   updateSelection(point: { x: number; y: number }): void {
+    if (this.snapshot.selectionPending) {
+      return;
+    }
     const start = this.dragStart;
     if (!start) {
       return;
@@ -173,17 +183,41 @@ export class DesktopCaptureWindowController {
     });
   }
 
-  async finishSelection(): Promise<boolean> {
+  finishSelection(): Promise<boolean> {
+    if (this.selectionPromise) {
+      return this.selectionPromise;
+    }
+    if (this.snapshot.stage !== "selecting") {
+      return Promise.resolve(false);
+    }
     const selection = this.snapshot.selection;
     this.dragStart = null;
     if (!selection || selection.width < 8 || selection.height < 8) {
       this.update({ selection: null });
-      return false;
+      return Promise.resolve(false);
     }
+    this.update({
+      failed: false,
+      selectionPending: true,
+      stage: "preparing"
+    });
+    const selectionPromise = this.completeSelection(selection).finally(() => {
+      if (this.selectionPromise === selectionPromise) {
+        this.selectionPromise = null;
+      }
+    });
+    this.selectionPromise = selectionPromise;
+    return selectionPromise;
+  }
+
+  private async completeSelection(
+    selection: DesktopCaptureSelectionInput
+  ): Promise<boolean> {
     try {
       const result = await this.api.select(selection);
       const capture = this.base.capture;
       if (!capture) {
+        this.update({ selectionPending: false });
         return false;
       }
       const agentTargetId = resolveAvailableAgentTargetId(
@@ -207,6 +241,7 @@ export class DesktopCaptureWindowController {
           }
         ],
         failed: false,
+        selectionPending: false,
         stage: "composing"
       });
       // The core context starts empty, so this transition always issues the
@@ -217,7 +252,7 @@ export class DesktopCaptureWindowController {
       });
       return true;
     } catch {
-      this.update({ failed: true });
+      this.update({ failed: true, selectionPending: false });
       return false;
     }
   }

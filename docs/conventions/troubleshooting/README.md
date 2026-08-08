@@ -112,6 +112,7 @@ React rendering, Workbench state, external stores, input composition, and UI per
 - [Mask-backed icon renders as a solid color block](./workbench-renderer.md#mask-backed-icon-renders-as-a-solid-color-block)
 - [Restored fullscreen window overflows after the host surface becomes smaller](./workbench-renderer.md#restored-fullscreen-window-overflows-after-the-host-surface-becomes-smaller)
 - [Hidden workspace owner loads but its first IPC request times out](./workbench-renderer.md#hidden-workspace-owner-loads-but-its-first-ipc-request-times-out)
+- [Screenshot selection appears stuck and later opens duplicate floating Composers](./workbench-renderer.md#screenshot-selection-appears-stuck-and-later-opens-duplicate-floating-composers)
 
 ## [Workspace Apps And Files](./workspace-apps-files.md)
 
