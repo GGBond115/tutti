@@ -220,12 +220,16 @@ func (s Service) resolveGenericProviderSpec(spec ProviderSpec) ProviderSpec {
 	if len(spec.AdapterCommand) == 0 {
 		return spec
 	}
+	adapterBinaryNames := cloneStrings(spec.AdapterBinaryNames)
+	if len(adapterBinaryNames) == 0 {
+		adapterBinaryNames = []string{spec.AdapterCommand[0]}
+	}
 	path := ""
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" && managedNPMProvidesAdapter(spec, adapterBinaryNames) {
 		path = s.resolveManagedNPMPackageBinary(spec)
 	}
 	if path == "" {
-		path = s.commandResolver().ResolveBinary(spec.BinaryNames, spec.AdapterEnv)
+		path = s.commandResolver().ResolveBinary(adapterBinaryNames, spec.AdapterEnv)
 	}
 	if strings.TrimSpace(path) == "" {
 		return spec
@@ -234,6 +238,19 @@ func (s Service) resolveGenericProviderSpec(spec ProviderSpec) ProviderSpec {
 	command[0] = path
 	spec.AdapterCommand = command
 	return spec
+}
+
+func managedNPMProvidesAdapter(spec ProviderSpec, adapterBinaryNames []string) bool {
+	if spec.Install.ManagedNPM == nil {
+		return false
+	}
+	managedBinaryName := strings.TrimSpace(spec.Install.ManagedNPM.BinaryName)
+	for _, name := range adapterBinaryNames {
+		if strings.EqualFold(strings.TrimSpace(name), managedBinaryName) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s Service) resolveManagedNPMPackageBinary(spec ProviderSpec) string {

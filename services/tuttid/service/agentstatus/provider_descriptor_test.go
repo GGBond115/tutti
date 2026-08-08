@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,26 @@ func TestResolveStaticGenericProviderDoesNotRewriteClaudeSDKSidecar(t *testing.T
 	resolved := service.resolveStaticProviderSpec(context.Background(), spec, false)
 	if !reflect.DeepEqual(resolved.AdapterCommand, spec.AdapterCommand) {
 		t.Fatalf("AdapterCommand = %#v, want sidecar command %#v", resolved.AdapterCommand, spec.AdapterCommand)
+	}
+}
+
+func TestResolveStaticGenericProviderUsesSeparateAdapterBinary(t *testing.T) {
+	specs, err := DefaultRegistry().Select([]string{providerregistry.NexightProviderID})
+	if err != nil || len(specs) != 1 {
+		t.Fatalf("Select(nexight) = %#v, %v", specs, err)
+	}
+	spec := specs[0]
+	service := Service{
+		LookPath: func(name string) (string, error) {
+			return filepath.Join(t.TempDir(), name), nil
+		},
+		IsExecutableFile: func(string) bool { return true },
+	}
+	resolved := service.resolveStaticProviderSpec(context.Background(), spec, false)
+	got := filepath.Base(resolved.AdapterCommand[0])
+	got = strings.TrimSuffix(got, filepath.Ext(got))
+	if !strings.EqualFold(got, spec.AdapterBinaryNames[0]) {
+		t.Fatalf("AdapterCommand[0] = %q, want resolved %q adapter", resolved.AdapterCommand[0], spec.AdapterBinaryNames[0])
 	}
 }
 
