@@ -258,6 +258,12 @@ and early write admission for the pending card. An observation gap may still
 govern the active Turn before or after that Interaction, but it cannot override
 the exact ready or blocked readiness result while the card is presented.
 
+When an exact Interaction is blocked, AgentGUI keeps the pending action visible
+but disables its controls. The disabled action group remains focusable and
+hoverable so the same readiness reason is discoverable in the conversation
+chrome and Message Center; this is presentation only and does not change the
+Host-owned admission decision.
+
 Message Center and attention-card consumers preserve this separation in their
 presentation contract: `isSubmitting` describes an in-flight response, while
 an independently supplied interaction-disabled state blocks the nested prompt

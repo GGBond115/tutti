@@ -736,6 +736,10 @@ export const AgentGUIDetailPane = memo(function AgentGUIDetailPane({
           bottomDockLiftedPrompt={bottomDockLiftedPrompt}
           bottomDockReplacementPrompt={bottomDockReplacementPrompt}
           composerProps={bottomDockComposerProps}
+          approvalDisabledReason={viewModel.interaction.approvalDisabledReason}
+          interactivePromptDisabledReason={
+            viewModel.interaction.interactivePromptDisabledReason
+          }
           inlineNoticeChrome={inlineNoticeChrome}
           isRespondingApproval={isInteractionPending}
           sessionChrome={sessionChrome}

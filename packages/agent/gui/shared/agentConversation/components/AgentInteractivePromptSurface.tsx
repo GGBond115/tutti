@@ -1,4 +1,10 @@
 import type { JSX } from "react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from "@tutti-os/ui-system";
 import type {
   AgentConversationPromptVM,
   AgentInteractionResponseInput
@@ -28,6 +34,7 @@ export interface AgentInteractivePromptSurfaceProps {
   keyboardShortcuts?: boolean;
   isSubmitting: boolean;
   isInteractionDisabled?: boolean;
+  interactionDisabledReason?: string | null;
   onSubmit: (input: AgentInteractionResponseInput) => boolean | void;
   labels: {
     approvalLead: string;
@@ -58,6 +65,7 @@ export function AgentInteractivePromptSurface({
   keyboardShortcuts = true,
   isSubmitting,
   isInteractionDisabled = false,
+  interactionDisabledReason = null,
   onSubmit,
   labels
 }: AgentInteractivePromptSurfaceProps & {
@@ -78,8 +86,9 @@ export function AgentInteractivePromptSurface({
     });
   };
 
+  let promptSurface: JSX.Element;
   if (prompt.kind === "approval") {
-    return (
+    promptSurface = (
       <ApprovalPromptSurface
         prompt={prompt}
         embedded={embedded}
@@ -91,9 +100,8 @@ export function AgentInteractivePromptSurface({
         labels={labels}
       />
     );
-  }
-  if (prompt.kind === "exit-plan") {
-    return (
+  } else if (prompt.kind === "exit-plan") {
+    promptSurface = (
       <ExitPlanPromptSurface
         prompt={prompt}
         variant={variant}
@@ -105,9 +113,8 @@ export function AgentInteractivePromptSurface({
         labels={labels}
       />
     );
-  }
-  if (prompt.kind === "plan-implementation") {
-    return (
+  } else if (prompt.kind === "plan-implementation") {
+    promptSurface = (
       <PlanImplementationSurface
         prompt={prompt}
         variant={variant}
@@ -119,18 +126,50 @@ export function AgentInteractivePromptSurface({
         labels={labels}
       />
     );
+  } else {
+    promptSurface = (
+      <AgentAskUserPromptSurface
+        key={prompt.requestId}
+        prompt={prompt}
+        variant={variant}
+        embedded={embedded}
+        edgeGlow={edgeGlow}
+        isSubmitting={isSubmitting}
+        isInteractionDisabled={isInteractionDisabled}
+        onSubmit={submitPrompt}
+        labels={labels}
+      />
+    );
   }
+
+  const normalizedReason = interactionDisabledReason?.trim() ?? "";
+  if (!isInteractionDisabled || !normalizedReason) {
+    return promptSurface;
+  }
+
   return (
-    <AgentAskUserPromptSurface
-      key={prompt.requestId}
-      prompt={prompt}
-      variant={variant}
-      embedded={embedded}
-      edgeGlow={edgeGlow}
-      isSubmitting={isSubmitting}
-      isInteractionDisabled={isInteractionDisabled}
-      onSubmit={submitPrompt}
-      labels={labels}
-    />
+    <TooltipProvider delayDuration={120} skipDelayDuration={0}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div
+            aria-disabled="true"
+            aria-label={normalizedReason}
+            className="cursor-not-allowed rounded-md outline-none"
+            data-agent-interaction-disabled="true"
+            role="group"
+            tabIndex={0}
+          >
+            {promptSurface}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          align="start"
+          className="max-w-[min(360px,calc(100vw-32px))] whitespace-normal text-left [overflow-wrap:anywhere]"
+        >
+          {normalizedReason}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

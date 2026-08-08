@@ -509,6 +509,8 @@ export interface AgentGUIComposerViewModel {
 }
 
 export interface AgentGUIInteractionViewModel {
+  approvalDisabledReason: string | null;
+  interactivePromptDisabledReason: string | null;
   isRespondingApproval: boolean;
   isRespondingInteractivePrompt: boolean;
   pendingApproval: AgentGUIApprovalRequest | null;

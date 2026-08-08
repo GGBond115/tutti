@@ -47,6 +47,8 @@ interface AgentGUIBottomDockPaneProps {
     | AgentGUINodeViewModel["interaction"]["pendingApproval"]
     | AgentGUINodeViewModel["interaction"]["pendingInteractivePrompt"];
   composerProps: AgentComposerProps;
+  approvalDisabledReason: string | null;
+  interactivePromptDisabledReason: string | null;
   inlineNoticeChrome: AgentGUISessionChrome | null;
   isRespondingApproval: boolean;
   sessionChrome: AgentGUISessionChrome;
@@ -76,6 +78,8 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
   bottomDockLiftedPrompt,
   bottomDockReplacementPrompt,
   composerProps,
+  approvalDisabledReason,
+  interactivePromptDisabledReason,
   inlineNoticeChrome,
   isRespondingApproval,
   sessionChrome,
@@ -148,6 +152,8 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
               edgeGlow={true}
               keyboardShortcuts={keyboardShortcutsEnabled}
               isSubmitting={isRespondingApproval}
+              isInteractionDisabled={Boolean(interactivePromptDisabledReason)}
+              interactionDisabledReason={interactivePromptDisabledReason}
               onSubmit={onSubmitBottomDockInteractivePrompt}
               labels={promptLabels}
             />
@@ -159,6 +165,7 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
           {inlineNoticeChrome ? (
             <AgentSessionChrome
               chrome={inlineNoticeChrome}
+              approvalDisabledReason={approvalDisabledReason}
               isRespondingApproval={isRespondingApproval}
               onSubmitApprovalOption={onSubmitApprovalOption}
               onAuthLogin={onAuthLogin}
@@ -169,6 +176,7 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
           ) : null}
           <AgentSessionChrome
             chrome={sessionChrome}
+            approvalDisabledReason={approvalDisabledReason}
             isRespondingApproval={isRespondingApproval}
             onSubmitApprovalOption={onSubmitApprovalOption}
             onAuthLogin={onAuthLogin}
@@ -255,6 +263,8 @@ export const AgentGUIBottomDockPane = memo(function AgentGUIBottomDockPane({
               edgeGlow={true}
               keyboardShortcuts={keyboardShortcutsEnabled}
               isSubmitting={isRespondingApproval}
+              isInteractionDisabled={Boolean(interactivePromptDisabledReason)}
+              interactionDisabledReason={interactivePromptDisabledReason}
               onSubmit={onSubmitBottomDockInteractivePrompt}
               labels={promptLabels}
             />
