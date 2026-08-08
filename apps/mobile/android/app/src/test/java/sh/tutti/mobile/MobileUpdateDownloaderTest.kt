@@ -21,9 +21,11 @@ class MobileUpdateDownloaderTest {
                 "https://updates.example.test/app.apk",
                 "a".repeat(64),
                 1024.0,
+                2.0,
             )
 
         assertEquals(1024L, request.expectedSizeBytes)
+        assertEquals(2, request.targetVersionCode)
         assertEquals("tutti-update-${"a".repeat(64)}.apk", request.fileName)
     }
 
@@ -33,6 +35,7 @@ class MobileUpdateDownloaderTest {
             "http://updates.example.test/app.apk",
             "a".repeat(64),
             1024.0,
+            2.0,
         )
     }
 
@@ -42,6 +45,7 @@ class MobileUpdateDownloaderTest {
             "https://user:secret@updates.example.test/app.apk",
             "a".repeat(64),
             1024.0,
+            2.0,
         )
     }
 
@@ -51,6 +55,17 @@ class MobileUpdateDownloaderTest {
             "https://updates.example.test/app.apk",
             "a".repeat(64),
             (MAX_MOBILE_UPDATE_BYTES + 1).toDouble(),
+            2.0,
+        )
+    }
+
+    @Test(expected = MobileUpdateDownloadFailure::class)
+    fun `rejects an invalid target version code`() {
+        validateMobileUpdateArtifactRequest(
+            "https://updates.example.test/app.apk",
+            "a".repeat(64),
+            1024.0,
+            0.0,
         )
     }
 
@@ -67,6 +82,7 @@ class MobileUpdateDownloaderTest {
                 "https://updates.example.test/app.apk",
                 sha256,
                 content.size.toDouble(),
+                2.0,
             )
 
         verifyMobileUpdateArtifact(file, request)
@@ -80,6 +96,7 @@ class MobileUpdateDownloaderTest {
                 "https://updates.example.test/app.apk",
                 "a".repeat(64),
                 4.0,
+                2.0,
             )
 
         val failure =
@@ -98,6 +115,7 @@ class MobileUpdateDownloaderTest {
                 "https://updates.example.test/app.apk",
                 "a".repeat(64),
                 file.length().toDouble(),
+                2.0,
             )
 
         val failure =
@@ -113,17 +131,55 @@ class MobileUpdateDownloaderTest {
         val cancelled =
             classifyMobileUpdateInstallOutcome(
                 Activity.RESULT_CANCELED,
-                PackageInstaller.STATUS_FAILURE_ABORTED,
+                null,
             )
         val conflict =
             classifyMobileUpdateInstallOutcome(
-                Activity.RESULT_CANCELED,
-                PackageInstaller.STATUS_FAILURE_CONFLICT,
+                Activity.RESULT_FIRST_USER,
+                packageInstallerStatusForInstallResult(-7),
+            )
+        val aborted =
+            classifyMobileUpdateInstallOutcome(
+                Activity.RESULT_FIRST_USER,
+                packageInstallerStatusForInstallResult(-115),
             )
 
         assertEquals(MobileUpdateInstallOutcomeKind.CANCELLED, cancelled.kind)
         assertEquals(MobileUpdateInstallOutcomeKind.FAILED, conflict.kind)
         assertEquals("UPDATE_INSTALL_CONFLICT", conflict.errorCode)
+        assertEquals(MobileUpdateInstallOutcomeKind.FAILED, aborted.kind)
+        assertEquals("UPDATE_INSTALL_FAILED", aborted.errorCode)
+    }
+
+    @Test
+    fun `maps legacy package manager install results to public statuses`() {
+        assertEquals(
+            PackageInstaller.STATUS_FAILURE_STORAGE,
+            packageInstallerStatusForInstallResult(-4),
+        )
+        assertEquals(
+            PackageInstaller.STATUS_FAILURE_CONFLICT,
+            packageInstallerStatusForInstallResult(-7),
+        )
+        assertEquals(
+            PackageInstaller.STATUS_FAILURE_INCOMPATIBLE,
+            packageInstallerStatusForInstallResult(-12),
+        )
+        assertEquals(
+            PackageInstaller.STATUS_FAILURE_BLOCKED,
+            packageInstallerStatusForInstallResult(-129),
+        )
+        assertEquals(
+            PackageInstaller.STATUS_FAILURE_INVALID,
+            packageInstallerStatusForInstallResult(-2),
+        )
+    }
+
+    @Test
+    fun `cleans a pending artifact only after the target version is installed`() {
+        assertEquals(false, shouldCleanupPendingMobileUpdate(41, 42))
+        assertEquals(true, shouldCleanupPendingMobileUpdate(42, 42))
+        assertEquals(true, shouldCleanupPendingMobileUpdate(43, 42))
     }
 
     @Test

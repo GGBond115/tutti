@@ -61,7 +61,12 @@ export interface MobileUpdateProgress {
 
 export interface MobileUpdateInstaller {
   cancel(): Promise<void>;
-  install(apkURL: string, sha256: string, sizeBytes: number): Promise<void>;
+  install(
+    apkURL: string,
+    sha256: string,
+    sizeBytes: number,
+    targetVersionCode: number
+  ): Promise<void>;
   subscribe(listener: (progress: MobileUpdateProgress) => void): () => void;
 }
 
@@ -188,7 +193,8 @@ export class MobileUpdateService extends ObservableService<MobileUpdateSnapshot>
       await this.installer!.install(
         release.apkURL,
         release.sha256,
-        release.sizeBytes
+        release.sizeBytes,
+        release.versionCode
       );
       return this.snapshot;
     } catch (error) {

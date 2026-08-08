@@ -46,7 +46,7 @@ test("does not offer an older or equal release", async () => {
 });
 
 test("passes the verified release to the native installer", async () => {
-  const install = jest.fn<Promise<void>, [string, string, number]>(
+  const install = jest.fn<Promise<void>, [string, string, number, number]>(
     async () => undefined
   );
   const service = createService(releaseFeed, install);
@@ -57,7 +57,8 @@ test("passes the verified release to the native installer", async () => {
   expect(install).toHaveBeenCalledWith(
     releaseFeed.apkUrl,
     "a".repeat(64),
-    releaseFeed.sizeBytes
+    releaseFeed.sizeBytes,
+    releaseFeed.versionCode
   );
   expect(snapshot.status).toBe("installing");
   await service.installUpdate();
@@ -65,9 +66,11 @@ test("passes the verified release to the native installer", async () => {
 });
 
 test("keeps the release available when Android install permission is required", async () => {
-  const install = jest.fn<Promise<void>, [string, string, number]>(async () => {
-    throw { code: MOBILE_UPDATE_INSTALL_PERMISSION_REQUIRED };
-  });
+  const install = jest.fn<Promise<void>, [string, string, number, number]>(
+    async () => {
+      throw { code: MOBILE_UPDATE_INSTALL_PERMISSION_REQUIRED };
+    }
+  );
   const service = createService(releaseFeed, install);
 
   await service.checkForUpdates();
@@ -238,7 +241,8 @@ function createService(
     | ((
         apkURL: string,
         sha256: string,
-        sizeBytes: number
+        sizeBytes: number,
+        targetVersionCode: number
       ) => Promise<void>) = async () => undefined
 ): MobileUpdateService {
   const installer: MobileUpdateInstaller =

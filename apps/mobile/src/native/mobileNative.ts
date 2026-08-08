@@ -22,7 +22,8 @@ interface MobileSecurityNative {
   installUpdate?(
     apkURL: string,
     sha256: string,
-    sizeBytes: number
+    sizeBytes: number,
+    targetVersionCode: number
   ): Promise<void>;
   getOrCreateIdentity(): Promise<DeviceIdentity>;
   loadSession(): Promise<AccountSession | null>;

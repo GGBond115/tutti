@@ -397,7 +397,9 @@ release keystore 必须在 GitHub 之外另做加密备份。GitHub Secret 的�
 Android 更新要求安装包保持相同的 application ID 和 release 签名，并且新包的
 `versionCode` 高于已安装版本。已经安装 debug 签名包的设备不能直接覆盖安装
 release 包，需要先卸载 debug 包。普通 Android 设备会在下载完成后显示系统安装
-确认，不支持静默安装。
+确认，不支持静默安装。通过校验的 APK 会保留给权限恢复、安装取消或安装失败后的重试；
+安装成功回调会立即删除它，如果升级时旧进程被系统替换，则新版本首次启动会根据记录的
+目标 `versionCode` 完成清理。
 
 在 iOS 真机上测试时，运行同一工作流并选择 `ios`。它使用仓库已有的 App Store
 Connect API Key 和 `IOS_DEVELOPMENT_TEAM` 仓库变量，让 Xcode 自动管理云签名并

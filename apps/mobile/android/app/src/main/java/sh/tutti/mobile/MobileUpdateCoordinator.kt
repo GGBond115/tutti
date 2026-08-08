@@ -1,6 +1,5 @@
 package sh.tutti.mobile
 
-import android.app.Activity
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -31,50 +30,6 @@ internal data class MobileUpdateProgressEvent(
     val phase: String,
     val totalBytes: Long?,
 )
-
-internal enum class MobileUpdateInstallOutcomeKind {
-    CANCELLED,
-    COMPLETED,
-    FAILED,
-}
-
-internal data class MobileUpdateInstallOutcome(
-    val errorCode: String?,
-    val kind: MobileUpdateInstallOutcomeKind,
-)
-
-internal fun classifyMobileUpdateInstallOutcome(
-    resultCode: Int,
-    packageInstallerStatus: Int?,
-): MobileUpdateInstallOutcome {
-    if (
-        resultCode == Activity.RESULT_OK ||
-        packageInstallerStatus == PackageInstaller.STATUS_SUCCESS
-    ) {
-        return MobileUpdateInstallOutcome(null, MobileUpdateInstallOutcomeKind.COMPLETED)
-    }
-    if (
-        packageInstallerStatus == PackageInstaller.STATUS_FAILURE_ABORTED ||
-        (resultCode == Activity.RESULT_CANCELED && packageInstallerStatus == null)
-    ) {
-        return MobileUpdateInstallOutcome(null, MobileUpdateInstallOutcomeKind.CANCELLED)
-    }
-    val errorCode =
-        when (packageInstallerStatus) {
-            PackageInstaller.STATUS_FAILURE_STORAGE ->
-                "UPDATE_INSTALL_STORAGE_INSUFFICIENT"
-            PackageInstaller.STATUS_FAILURE_INCOMPATIBLE ->
-                "UPDATE_INSTALL_INCOMPATIBLE"
-            PackageInstaller.STATUS_FAILURE_CONFLICT ->
-                "UPDATE_INSTALL_CONFLICT"
-            PackageInstaller.STATUS_FAILURE_BLOCKED ->
-                "UPDATE_INSTALL_BLOCKED"
-            PackageInstaller.STATUS_FAILURE_INVALID ->
-                "UPDATE_INSTALL_PACKAGE_INVALID"
-            else -> "UPDATE_INSTALL_FAILED"
-        }
-    return MobileUpdateInstallOutcome(errorCode, MobileUpdateInstallOutcomeKind.FAILED)
-}
 
 internal fun mobileUpdateDownloadFailureForReason(
     reason: Int,
@@ -117,6 +72,8 @@ internal class MobileUpdateCoordinator(
         reactContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
     private val preferences =
         reactContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+    private val pendingInstallStore =
+        MobileUpdatePendingInstallStore(reactContext, preferences)
     private val executor = Executors.newSingleThreadScheduledExecutor()
     private val lock = Any()
     private var activeUpdate: ActiveUpdate? = null
@@ -149,7 +106,7 @@ internal class MobileUpdateCoordinator(
             TimeUnit.MILLISECONDS,
         )
         executor.execute {
-            runCatching { File(reactContext.cacheDir, "updates").deleteRecursively() }
+            pendingInstallStore.cleanupInstalledArtifact(BuildConfig.VERSION_CODE)
         }
     }
 
@@ -157,6 +114,7 @@ internal class MobileUpdateCoordinator(
         apkURL: String,
         expectedSHA256: String,
         expectedSizeBytes: Double,
+        targetVersionCode: Double,
         promise: Promise,
     ) {
         val request = try {
@@ -164,6 +122,7 @@ internal class MobileUpdateCoordinator(
                 apkURL,
                 expectedSHA256,
                 expectedSizeBytes,
+                targetVersionCode,
             )
         } catch (cause: MobileUpdateDownloadFailure) {
             promise.reject(cause.code, cause.message, cause)
@@ -194,10 +153,20 @@ internal class MobileUpdateCoordinator(
     fun cancel(promise: Promise) {
         val cancellation = synchronized(lock) {
             val current = activeUpdate
+            if (current?.installerHandoffStarted == true) {
+                return@synchronized Cancellation(null, null, unavailable = true)
+            }
             val persistedId = preferences.getLong(KEY_DOWNLOAD_ID, -1L)
             activeUpdate = null
             current?.cancelled = true
-            Cancellation(current, persistedId.takeIf { it >= 0 })
+            Cancellation(current, persistedId.takeIf { it >= 0 }, unavailable = false)
+        }
+        if (cancellation.unavailable) {
+            promise.reject(
+                "UPDATE_CANCEL_UNAVAILABLE",
+                "The Android package installer has already started",
+            )
+            return
         }
         setOfNotNull(cancellation.persistedDownloadId, cancellation.update?.downloadId)
             .forEach { downloadId -> downloadManager.remove(downloadId) }
@@ -205,6 +174,7 @@ internal class MobileUpdateCoordinator(
         val update = cancellation.update
         if (update != null) {
             update.artifactFile.delete()
+            pendingInstallStore.clearIfMatches(update.request)
             publishProgress(
                 MobileUpdateProgressEvent(
                     downloadedBytes = 0,
@@ -224,9 +194,16 @@ internal class MobileUpdateCoordinator(
         intent: Intent?,
     ): Boolean {
         if (requestCode != INSTALL_REQUEST_CODE) return false
+        val installResult =
+            intent?.takeIf { it.hasExtra(MOBILE_UPDATE_INSTALL_RESULT_EXTRA) }
+                ?.getIntExtra(MOBILE_UPDATE_INSTALL_RESULT_EXTRA, 0)
         val packageInstallerStatus =
-            intent?.takeIf { it.hasExtra(PackageInstaller.EXTRA_STATUS) }
-                ?.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
+            if (installResult != null) {
+                packageInstallerStatusForInstallResult(installResult)
+            } else {
+                intent?.takeIf { it.hasExtra(PackageInstaller.EXTRA_STATUS) }
+                    ?.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
+            }
         val outcome = classifyMobileUpdateInstallOutcome(resultCode, packageInstallerStatus)
         val phase =
             when (outcome.kind) {
@@ -237,8 +214,12 @@ internal class MobileUpdateCoordinator(
         Log.i(
             LOG_TAG,
             "Android package installer finished: resultCode=$resultCode, " +
-                "status=$packageInstallerStatus, outcome=${outcome.kind}",
+                "installResult=$installResult, status=$packageInstallerStatus, " +
+                "outcome=${outcome.kind}",
         )
+        if (outcome.kind == MobileUpdateInstallOutcomeKind.COMPLETED) {
+            pendingInstallStore.deleteArtifact()
+        }
         publishProgress(
             MobileUpdateProgressEvent(
                 downloadedBytes = 0,
@@ -496,6 +477,12 @@ internal class MobileUpdateCoordinator(
     private fun launchInstaller(update: ActiveUpdate) {
         UiThreadUtil.runOnUiThread {
             if (!isActive(update)) return@runOnUiThread
+            try {
+                pendingInstallStore.persist(update.request)
+            } catch (cause: MobileUpdateDownloadFailure) {
+                fail(update, cause, deleteArtifact = false)
+                return@runOnUiThread
+            }
             val activity = reactContext.currentActivity
             if (activity == null) {
                 fail(
@@ -562,6 +549,10 @@ internal class MobileUpdateCoordinator(
                         cause,
                     ),
                 )
+                return@runOnUiThread
+            }
+            if (!claimInstallerHandoff(update)) {
+                pendingInstallStore.clearIfMatches(update.request)
                 return@runOnUiThread
             }
             try {
@@ -701,7 +692,10 @@ internal class MobileUpdateCoordinator(
         if (update.settled.get()) return
         update.downloadId?.let { downloadId -> downloadManager.remove(downloadId) }
         clearPersistedDownload()
-        if (deleteArtifact) update.artifactFile.delete()
+        if (deleteArtifact) {
+            update.artifactFile.delete()
+            pendingInstallStore.clearIfMatches(update.request)
+        }
         Log.e(LOG_TAG, "Android update failed: code=${failure.code}", failure)
         rejectOnce(update, failure.code, failure.message ?: "Android update failed", failure)
         clearActive(update)
@@ -743,13 +737,28 @@ internal class MobileUpdateCoordinator(
             }
         }
 
+    private fun claimInstallerHandoff(update: ActiveUpdate): Boolean =
+        synchronized(lock) {
+            if (invalidated || update.cancelled || activeUpdate !== update) {
+                false
+            } else {
+                update.installerHandoffStarted = true
+                true
+            }
+        }
+
     private fun isActive(update: ActiveUpdate): Boolean =
         synchronized(lock) {
             !invalidated && !update.cancelled && activeUpdate === update
         }
 
     private fun clearPersistedDownload() {
-        preferences.edit().clear().apply()
+        preferences.edit()
+            .remove(KEY_DOWNLOAD_ID)
+            .remove(KEY_SHA256)
+            .remove(KEY_SIZE_BYTES)
+            .remove(KEY_URL)
+            .apply()
     }
 
     private data class DownloadSnapshot(
@@ -762,6 +771,7 @@ internal class MobileUpdateCoordinator(
     private data class Cancellation(
         val update: ActiveUpdate?,
         val persistedDownloadId: Long?,
+        val unavailable: Boolean,
     )
 
     private class ActiveUpdate(
@@ -772,6 +782,7 @@ internal class MobileUpdateCoordinator(
         @Volatile var cancelled = false
         @Volatile var awaitingInstallPermission = false
         @Volatile var downloadId: Long? = null
+        @Volatile var installerHandoffStarted = false
         @Volatile var lastProgressKey = ""
         @Volatile var queryFailureCount = 0
         val completionStarted = AtomicBoolean(false)

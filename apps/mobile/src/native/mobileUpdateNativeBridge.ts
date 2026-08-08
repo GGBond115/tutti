@@ -31,8 +31,13 @@ export function createMobileUpdateInstaller():
   const events = new NativeEventEmitter(mobileSecurity);
   return {
     cancel: () => mobileSecurity.cancelUpdate!(),
-    install: (apkURL, sha256, sizeBytes) =>
-      mobileSecurity.installUpdate!(apkURL, sha256, sizeBytes),
+    install: (apkURL, sha256, sizeBytes, targetVersionCode) =>
+      mobileSecurity.installUpdate!(
+        apkURL,
+        sha256,
+        sizeBytes,
+        targetVersionCode
+      ),
     subscribe(listener) {
       const subscription = events.addListener(
         MOBILE_UPDATE_PROGRESS_EVENT_NAME,

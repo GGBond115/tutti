@@ -10,15 +10,20 @@ import java.util.Locale
 internal data class MobileUpdateArtifactRequest(
     val expectedSHA256: String,
     val expectedSizeBytes: Long,
+    val targetVersionCode: Int,
     val url: URL,
 ) {
-    val fileName: String = "tutti-update-$expectedSHA256.apk"
+    val fileName: String = mobileUpdateArtifactFileName(expectedSHA256)
 }
+
+internal fun mobileUpdateArtifactFileName(expectedSHA256: String): String =
+    "tutti-update-$expectedSHA256.apk"
 
 internal fun validateMobileUpdateArtifactRequest(
     apkURL: String,
     expectedSHA256: String,
     expectedSizeBytes: Double,
+    targetVersionCode: Double,
 ): MobileUpdateArtifactRequest {
     val url = try {
         URL(apkURL.trim())
@@ -53,9 +58,21 @@ internal fun validateMobileUpdateArtifactRequest(
             "Update size is invalid or exceeds the supported limit",
         )
     }
+    if (
+        !targetVersionCode.isFinite() ||
+        targetVersionCode % 1.0 != 0.0 ||
+        targetVersionCode <= 0.0 ||
+        targetVersionCode > Int.MAX_VALUE.toDouble()
+    ) {
+        throw MobileUpdateDownloadFailure(
+            "UPDATE_VERSION_INVALID",
+            "Update version code is invalid",
+        )
+    }
     return MobileUpdateArtifactRequest(
         expectedSHA256 = expected,
         expectedSizeBytes = expectedSizeBytes.toLong(),
+        targetVersionCode = targetVersionCode.toInt(),
         url = url,
     )
 }

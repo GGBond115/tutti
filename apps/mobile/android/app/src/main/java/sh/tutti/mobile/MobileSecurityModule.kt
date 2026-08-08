@@ -144,12 +144,14 @@ class MobileSecurityModule(
         apkURL: String,
         expectedSHA256: String,
         expectedSizeBytes: Double,
+        targetVersionCode: Double,
         promise: Promise,
     ) {
         updateCoordinator.install(
             apkURL,
             expectedSHA256,
             expectedSizeBytes,
+            targetVersionCode,
             promise,
         )
     }

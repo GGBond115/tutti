@@ -118,9 +118,13 @@
   `DownloadManager` owns network reconnection and background continuation. The
   App persists its download id and release metadata so reopening the App and
   choosing the same release reconnects to the job or reuses a verified cached
-  APK. The in-App cancel action removes the system job and cached artifact.
+  APK. After verification it also records the target `versionCode`: a confirmed
+  install deletes the APK immediately, while a process replacement during
+  upgrade is handled on the next launch once the installed version reaches the
+  target. Installer cancellation or failure retains the APK for retry. The
+  in-App download cancel action removes the system job and cached artifact.
 
-- **Relevant error codes:** `UPDATE_URL_INVALID`,
+- **Relevant error codes:** `UPDATE_URL_INVALID`, `UPDATE_VERSION_INVALID`,
   `UPDATE_SIZE_INVALID`, `UPDATE_SIZE_MISMATCH`,
   `UPDATE_STORAGE_INSUFFICIENT`, `UPDATE_DOWNLOAD_FILE_FAILED`,
   `UPDATE_DOWNLOAD_SERVER_FAILED`, `UPDATE_DOWNLOAD_MANAGER_FAILED`,
@@ -134,9 +138,11 @@
   per-app unknown-source permission is missing, `UPDATE_INSTALL_PERMISSION_REQUIRED`
   means the user returned without granting it rather than an APK failure;
   `UPDATE_PERMISSION_SETTINGS_FAILED` means the system settings page itself
-  could not be opened. Installer cancellation stays distinct from a package
-  failure, while Android installer status is projected to the matching
-  install error code for an actionable in-App prompt.
+  could not be opened. The `EXTRA_RETURN_RESULT` flow reports the package
+  manager result through `android.intent.extra.INSTALL_RESULT`; project that
+  legacy result to the public `PackageInstaller` status before choosing the
+  in-App error. A cancelled activity without an install result is user
+  cancellation; an aborted or rejected result remains a failure.
 - **Root cause:** The release feed, Android system download, artifact
   verification, FileProvider, and PackageInstaller are separate trust
   boundaries. A stale or malformed `sizeBytes`, a reused version URL with
@@ -149,9 +155,11 @@
   opens. If the permission settings page opens, enable **Allow from this
   source** and return to the App; the verified cached APK continues to the
   installer automatically. Returning without granting permission produces a
-  localized recovery prompt and keeps the package for an explicit retry. For
-  paused downloads, restore an allowed network or cancel and retry rather than
-  deleting app data.
+  localized recovery prompt and keeps the package for an explicit retry. Keep
+  the target version with that pending artifact, delete it on confirmed
+  success, and repeat cleanup on the first launch whose installed
+  `versionCode` reaches the target. For paused downloads, restore an allowed
+  network or cancel and retry rather than deleting app data.
 - **Validation:** Run `pnpm --filter @tutti-os/mobile check`,
   `./gradlew app:testDebugUnitTest`, and
   `./gradlew app:compileDebugKotlin` from `apps/mobile/android`. On a physical
@@ -163,13 +171,18 @@
   Android settings, return to the App, and confirm the installer opens without
   another download action. Also deny the permission once and confirm the App
   explains how to recover. Exercise an installer rejection and confirm it is
-  reported as failure rather than cancellation. For release recovery, simulate
-  an APK-only upload, rerun the same version with a different APK digest, and
-  confirm the missing objects are published before `latest.json` moves.
+  reported with the mapped failure rather than cancellation. Cancel once and
+  confirm the verified APK remains reusable; complete an update and confirm
+  the pending APK is gone either from the success callback or after the updated
+  App starts. For release recovery, simulate an APK-only upload, rerun the same
+  version with a different APK digest, and confirm the missing objects are
+  published before `latest.json` moves.
 - **References:**
   `apps/mobile/android/app/src/main/java/sh/tutti/mobile/MobileSecurityModule.kt`,
   `apps/mobile/android/app/src/main/java/sh/tutti/mobile/MobileUpdateArtifact.kt`,
   `apps/mobile/android/app/src/main/java/sh/tutti/mobile/MobileUpdateCoordinator.kt`,
+  `apps/mobile/android/app/src/main/java/sh/tutti/mobile/MobileUpdateInstallResult.kt`,
+  `apps/mobile/android/app/src/main/java/sh/tutti/mobile/MobileUpdatePendingInstallStore.kt`,
   `apps/mobile/src/services/mobileUpdateService.ts`,
   `tools/scripts/build-mobile-release-latest.mjs`
 
