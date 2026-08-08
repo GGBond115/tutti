@@ -12,6 +12,11 @@ const captureApi: DesktopCaptureApi = {
     invokeDesktopApi(desktopIpcChannels.capture.queryMentionDirectory, input),
   queryMentions: (input) =>
     invokeDesktopApi(desktopIpcChannels.capture.queryMentions, input),
+  rememberComposerDefaults: (input) =>
+    invokeDesktopApi(
+      desktopIpcChannels.capture.rememberComposerDefaults,
+      input
+    ),
   resolveMention: (input) =>
     invokeDesktopApi(desktopIpcChannels.capture.resolveMention, input),
   select: (input) => invokeDesktopApi(desktopIpcChannels.capture.select, input),

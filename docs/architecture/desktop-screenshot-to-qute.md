@@ -265,18 +265,24 @@ atomic Issue-and-task materializer does not own.
 
 Agent image capability and Composer options are resolved with the same target,
 controlled settings draft, and selected project directory (`cwd`) signature
-used by the full Composer. The capture host passes those options through one
-controlled Quick Composer settings capability and exposes only values its
-activation adapter preserves: model, reasoning, speed, permission, plan, and
-browser use. Changing a setting or project refreshes the target snapshot and
-temporarily disables only settings controls and submit; prompt editing,
-references, Agent selection, and project selection remain available. Both
-refresh and submit query only the selected target, so an unrelated VM-backed
-target cannot delay the active local target. Renderer revision fencing discards
-an older response, and main keeps no mutable capability catalog. Main
-re-resolves the selected target with the actual settings and `cwd` immediately
-before activation, so a stale renderer snapshot cannot send an image to a
-text-only effective model.
+used by the full Composer. The capture controller delegates that settings
+policy to the shared `composer-settings-core`: the core owns the sparse
+draft, a revision-fenced options lifecycle, and last-good retention, so a
+failed or slow refresh never blanks the model menu, and only the first load
+for a target locks settings and submit. Display seeds from the daemon's
+defaults-merged `effectiveSettings` — the same per-target composer-defaults
+ledger the full Composer reads — and explicit picks are written back to that
+ledger through the workspace owner (`agentActivity.rememberComposerDefaults`),
+so a capture pick is remembered exactly like a main-composer pick. Submission
+always carries the core's resolved settings — the values the panel displays —
+so the daemon never re-interprets empty fields against another surface's
+memory; the main process logs the submitted settings as the durable record of
+what the panel showed. Both refresh and submit query only the selected
+target, so an unrelated VM-backed target cannot delay the active local
+target, and the selected target's capabilities derive from the same fenced
+options snapshot. Main re-resolves the selected target with the actual
+settings and `cwd` immediately before activation, so a stale renderer
+snapshot cannot send an image to a text-only effective model.
 
 ## Open-Source Component Evaluation
 

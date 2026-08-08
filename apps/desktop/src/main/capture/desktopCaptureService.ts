@@ -22,6 +22,7 @@ import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/
 import {
   normalizeTuttiExternalAgentActivityActivateSessionInput,
   normalizeTuttiExternalAgentActivityComposerOptionsInput,
+  normalizeTuttiExternalAgentActivityRememberComposerDefaultsInput,
   normalizeTuttiExternalAtQueryDirectoryInput,
   normalizeTuttiExternalAtQueryInput,
   normalizeTuttiExternalAtResolveInput,
@@ -67,7 +68,7 @@ import {
   type CaptureBounds
 } from "./captureGeometry.ts";
 import { normalizeCapturePromptContent } from "./captureAgentPrompt.ts";
-import { resolveCaptureAgentCapabilities } from "./captureAgentCapabilities.ts";
+import { resolveCaptureAgentCapabilities } from "../../shared/capture/captureAgentCapabilities.ts";
 import {
   createCaptureComposerPlacementStore,
   type CaptureComposerPosition
@@ -272,6 +273,23 @@ export function createDesktopCaptureService(input: {
     }
   });
   registerDesktopIpcHandler(
+    desktopIpcChannels.capture.rememberComposerDefaults,
+    async (event, payload) => {
+      const capture = trustedActiveCapture(event.sender);
+      const defaultsInput =
+        normalizeTuttiExternalAgentActivityRememberComposerDefaultsInput(
+          payload
+        );
+      await requestCaptureWorkspaceOwner<void>(capture, {
+        appId: captureRendererAppId,
+        input: defaultsInput,
+        operation: "agentActivity.rememberComposerDefaults",
+        requestId: randomUUID(),
+        workspaceId: capture.state.workspaceId
+      });
+    }
+  );
+  registerDesktopIpcHandler(
     desktopIpcChannels.capture.select,
     async (event, selection) => {
       const capture = trustedActiveCapture(event.sender);
@@ -369,6 +387,15 @@ export function createDesktopCaptureService(input: {
     async (event, submission) => {
       const capture = trustedActiveCapture(event.sender);
       capture.submission ??= submitCapture(capture, submission);
+      // Panel interactions have no diagnostics channel, so the resolved
+      // settings are recorded here — the only durable record of what the
+      // composer displayed at submit time.
+      input.logger.info("screenshot capture submitted", {
+        agentTargetId: submission.agentTargetId,
+        cwd: submission.cwd ?? null,
+        settings: submission.settings ?? null,
+        workspaceId: capture.state.workspaceId
+      });
       try {
         const result = await capture.submission;
         const workspaceId = capture.state.workspaceId;

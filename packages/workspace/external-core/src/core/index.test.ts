@@ -7,6 +7,7 @@ import {
   normalizeTuttiExternalAtInvalidation,
   normalizeTuttiExternalAgentActivityActivateSessionInput,
   normalizeTuttiExternalAgentActivityCancelTurnInput,
+  normalizeTuttiExternalAgentActivityRememberComposerDefaultsInput,
   normalizeTuttiExternalAgentActivityComposerOptionsInput,
   normalizeTuttiExternalAgentActivitySendInput,
   normalizeTuttiExternalBrowserOpenUrlInput,
@@ -212,6 +213,45 @@ test("normalizes agent activity session inputs without dropping prompt assets", 
       displayPrompt: "image assertion",
       guidance: false
     }
+  );
+});
+
+test("normalizes remember-composer-defaults input", () => {
+  assert.deepEqual(
+    normalizeTuttiExternalAgentActivityRememberComposerDefaultsInput({
+      agentTargetId: " local:codex ",
+      defaults: {
+        codexSaverMode: false,
+        model: " gpt-5.6-sol ",
+        permissionModeId: null,
+        reasoningEffort: "  ",
+        speed: undefined
+      }
+    }),
+    {
+      agentTargetId: "local:codex",
+      defaults: {
+        codexSaverMode: false,
+        model: "gpt-5.6-sol",
+        permissionModeId: null,
+        reasoningEffort: null
+      }
+    }
+  );
+  assert.throws(
+    () =>
+      normalizeTuttiExternalAgentActivityRememberComposerDefaultsInput({
+        agentTargetId: "local:codex",
+        defaults: { model: 5 }
+      }),
+    /model must be a string or null/
+  );
+  assert.throws(
+    () =>
+      normalizeTuttiExternalAgentActivityRememberComposerDefaultsInput({
+        agentTargetId: "local:codex"
+      }),
+    /defaults must be an object/
   );
 });
 

@@ -328,6 +328,21 @@ export interface TuttiExternalAgentActivityCancelTurnInput {
   turnId: string;
 }
 
+/**
+ * Explicit composer picks a launcher persists into the canonical per-target
+ * composer-defaults ledger. Absent fields stay untouched; null clears a field.
+ */
+export interface TuttiExternalAgentActivityRememberComposerDefaultsInput {
+  agentTargetId: string;
+  defaults: {
+    codexSaverMode?: boolean;
+    model?: string | null;
+    permissionModeId?: string | null;
+    reasoningEffort?: string | null;
+    speed?: string | null;
+  };
+}
+
 export type TuttiExternalAgentActivityActivateSessionResult =
   AgentActivityActivateSessionResult;
 export type TuttiExternalAgentActivityComposerOptions =
@@ -413,6 +428,9 @@ export interface TuttiExternalBridge {
     ): Promise<TuttiExternalAgentActivityComposerOptions>;
     getSnapshot(): Promise<TuttiExternalAgentActivitySnapshot>;
     listTargets(): Promise<TuttiExternalAgentTargetCatalog>;
+    rememberComposerDefaults(
+      input: TuttiExternalAgentActivityRememberComposerDefaultsInput
+    ): Promise<void>;
     sendInput(
       input: TuttiExternalAgentActivitySendInput
     ): Promise<TuttiExternalAgentActivitySendResult>;
@@ -534,6 +552,13 @@ export type TuttiExternalRendererRequest =
   | {
       appId: string;
       operation: "agentActivity.listTargets";
+      requestId: string;
+      workspaceId: string;
+    }
+  | {
+      appId: string;
+      input: TuttiExternalAgentActivityRememberComposerDefaultsInput;
+      operation: "agentActivity.rememberComposerDefaults";
       requestId: string;
       workspaceId: string;
     }

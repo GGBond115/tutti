@@ -5,6 +5,7 @@ import {
   type TuttiExternalAtProviderId,
   type TuttiExternalAgentActivityActivateSessionInput,
   type TuttiExternalAgentActivityCancelTurnInput,
+  type TuttiExternalAgentActivityRememberComposerDefaultsInput,
   type TuttiExternalAgentActivityComposerOptionsInput,
   type TuttiExternalAgentActivitySendInput,
   type TuttiExternalAtQueryInput,
@@ -216,6 +217,69 @@ export function normalizeTuttiExternalAgentActivityActivateSessionInput(
     ...normalizeAgentActivityTitle(input.title),
     ...normalizeAgentActivityVisible(input.visible)
   };
+}
+
+export function normalizeTuttiExternalAgentActivityRememberComposerDefaultsInput(
+  input: unknown
+): TuttiExternalAgentActivityRememberComposerDefaultsInput {
+  if (!isRecord(input)) {
+    throw new Error(
+      "agentActivity.rememberComposerDefaults input must be an object."
+    );
+  }
+  if (!isRecord(input.defaults)) {
+    throw new Error(
+      "agentActivity.rememberComposerDefaults defaults must be an object."
+    );
+  }
+  const defaults = input.defaults;
+  if (
+    defaults.codexSaverMode !== undefined &&
+    typeof defaults.codexSaverMode !== "boolean"
+  ) {
+    throw new Error(
+      "agentActivity.rememberComposerDefaults codexSaverMode must be a boolean."
+    );
+  }
+  return {
+    agentTargetId: normalizeRequiredString(
+      input.agentTargetId,
+      "agentActivity.rememberComposerDefaults agentTargetId"
+    ),
+    defaults: {
+      ...(typeof defaults.codexSaverMode === "boolean"
+        ? { codexSaverMode: defaults.codexSaverMode }
+        : {}),
+      ...normalizeComposerDefaultsField(defaults.model, "model"),
+      ...normalizeComposerDefaultsField(
+        defaults.permissionModeId,
+        "permissionModeId"
+      ),
+      ...normalizeComposerDefaultsField(
+        defaults.reasoningEffort,
+        "reasoningEffort"
+      ),
+      ...normalizeComposerDefaultsField(defaults.speed, "speed")
+    }
+  };
+}
+
+function normalizeComposerDefaultsField<
+  Key extends "model" | "permissionModeId" | "reasoningEffort" | "speed"
+>(value: unknown, field: Key): Partial<Record<Key, string | null>> {
+  if (value === undefined) {
+    return {};
+  }
+  if (value === null) {
+    return { [field]: null } as Partial<Record<Key, string | null>>;
+  }
+  if (typeof value !== "string") {
+    throw new Error(
+      `agentActivity.rememberComposerDefaults ${field} must be a string or null.`
+    );
+  }
+  const normalized = value.trim();
+  return { [field]: normalized || null } as Partial<Record<Key, string | null>>;
 }
 
 export function normalizeTuttiExternalAgentActivityCancelTurnInput(

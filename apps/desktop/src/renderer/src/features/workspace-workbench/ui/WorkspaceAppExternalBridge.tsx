@@ -39,6 +39,7 @@ import { requestGroupChatLaunch } from "../services/groupChatLaunchCoordinator.t
 import { normalizeDesktopAgentGUIProvider } from "@renderer/features/workspace-agent/desktopAgentGUINodeState.ts";
 import { requestWorkspaceAgentGuiLaunch } from "@renderer/features/workspace-agent/services/workspaceAgentGuiLaunchCoordinator.ts";
 import { useWorkspaceAppCenterService } from "@renderer/features/workspace-app-center";
+import { useDesktopPreferencesService } from "@renderer/features/desktop-preferences/ui/useDesktopPreferencesService";
 import { useTranslation } from "@renderer/i18n";
 import { useWorkspaceWorkbenchHostService } from "./useWorkspaceWorkbenchHostService";
 import { useWorkspaceSettingsService } from "./useWorkspaceSettingsService";
@@ -138,6 +139,7 @@ export function WorkspaceAppExternalBridge({
     IWorkspaceAgentActivityService
   );
   const agentsService = useService(IAgentsService);
+  const { service: desktopPreferencesService } = useDesktopPreferencesService();
   const { t } = useTranslation();
   const [pendingFileSelect, setPendingFileSelect] =
     useState<PendingFileSelect | null>(null);
@@ -394,6 +396,12 @@ export function WorkspaceAppExternalBridge({
           }
           return activation;
         }
+        case "agentActivity.rememberComposerDefaults":
+          await desktopPreferencesService.rememberAgentComposerDefaultsForAgentTarget(
+            request.input.agentTargetId,
+            request.input.defaults
+          );
+          return undefined;
         case "agentActivity.sendInput":
           return workspaceAgentActivityService.sendInput({
             agentSessionId: request.input.agentSessionId,
@@ -507,6 +515,7 @@ export function WorkspaceAppExternalBridge({
     },
     [
       appCenterService,
+      desktopPreferencesService,
       hostService,
       openFile,
       openFileSelect,

@@ -48,6 +48,7 @@ import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/
 import type {
   DesktopCaptureComposerOptions,
   DesktopCaptureComposerOptionsInput,
+  DesktopCaptureRememberComposerDefaultsInput,
   DesktopCaptureSelectionInput,
   DesktopCaptureSelectionResult,
   DesktopCaptureState,
@@ -79,6 +80,7 @@ import type {
   TuttiExternalAgentActivityCancelTurnInput,
   TuttiExternalAgentActivityComposerOptions,
   TuttiExternalAgentActivityComposerOptionsInput,
+  TuttiExternalAgentActivityRememberComposerDefaultsInput,
   TuttiExternalAgentActivitySendInput,
   TuttiExternalAgentActivitySendResult,
   TuttiExternalAgentActivitySnapshot,
@@ -107,6 +109,7 @@ export const desktopIpcChannels = {
     getState: "capture:get-state",
     queryMentionDirectory: "capture:query-mention-directory",
     queryMentions: "capture:query-mentions",
+    rememberComposerDefaults: "capture:remember-composer-defaults",
     resolveMention: "capture:resolve-mention",
     select: "capture:select",
     selectFiles: "capture:select-files",
@@ -144,6 +147,8 @@ export const desktopIpcChannels = {
       "workspace-app-agent-activity:get-composer-options",
     agentActivityGetSnapshot: "workspace-app-agent-activity:get-snapshot",
     agentActivityListTargets: "workspace-app-agent-activity:list-targets",
+    agentActivityRememberComposerDefaults:
+      "workspace-app-agent-activity:remember-composer-defaults",
     agentActivitySendInput: "workspace-app-agent-activity:send-input",
     atQuery: "workspace-app-at:query",
     atQueryDirectory: "workspace-app-at:query-directory",
@@ -1090,6 +1095,8 @@ export interface DesktopInvokePayloadByChannel {
   [desktopIpcChannels.capture
     .queryMentionDirectory]: TuttiExternalAtQueryDirectoryInput;
   [desktopIpcChannels.capture.queryMentions]: TuttiExternalAtQueryInput;
+  [desktopIpcChannels.capture
+    .rememberComposerDefaults]: DesktopCaptureRememberComposerDefaultsInput;
   [desktopIpcChannels.capture.resolveMention]: TuttiExternalAtResolveInput;
   [desktopIpcChannels.capture.select]: DesktopCaptureSelectionInput;
   [desktopIpcChannels.capture.selectFiles]: undefined;
@@ -1121,6 +1128,8 @@ export interface DesktopInvokePayloadByChannel {
     .agentActivityGetComposerOptions]: TuttiExternalAgentActivityComposerOptionsInput;
   [desktopIpcChannels.appExternal.agentActivityGetSnapshot]: undefined;
   [desktopIpcChannels.appExternal.agentActivityListTargets]: undefined;
+  [desktopIpcChannels.appExternal
+    .agentActivityRememberComposerDefaults]: TuttiExternalAgentActivityRememberComposerDefaultsInput;
   [desktopIpcChannels.appExternal
     .agentActivitySendInput]: TuttiExternalAgentActivitySendInput;
   [desktopIpcChannels.appExternal.atQuery]: TuttiExternalAtQueryInput;
@@ -1302,6 +1311,7 @@ export interface DesktopInvokeResultByChannel {
   [desktopIpcChannels.capture
     .queryMentionDirectory]: TuttiExternalAtQueryResult[];
   [desktopIpcChannels.capture.queryMentions]: TuttiExternalAtQueryResult[];
+  [desktopIpcChannels.capture.rememberComposerDefaults]: void;
   [desktopIpcChannels.capture
     .resolveMention]: TuttiExternalAtResolveResult | null;
   [desktopIpcChannels.capture.select]: DesktopCaptureSelectionResult;
@@ -1338,6 +1348,7 @@ export interface DesktopInvokeResultByChannel {
     .agentActivityGetSnapshot]: TuttiExternalAgentActivitySnapshot;
   [desktopIpcChannels.appExternal
     .agentActivityListTargets]: TuttiExternalAgentTargetCatalog;
+  [desktopIpcChannels.appExternal.agentActivityRememberComposerDefaults]: void;
   [desktopIpcChannels.appExternal
     .agentActivitySendInput]: TuttiExternalAgentActivitySendResult;
   [desktopIpcChannels.appExternal.atQuery]: TuttiExternalAtQueryResult[];

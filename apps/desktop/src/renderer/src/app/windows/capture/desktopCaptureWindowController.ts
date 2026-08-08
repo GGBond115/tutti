@@ -5,7 +5,13 @@ import type {
   DesktopCaptureSelectionInput,
   DesktopCaptureState
 } from "../../../../../shared/contracts/capture.ts";
+import { resolveCaptureAgentCapabilities } from "../../../../../shared/capture/captureAgentCapabilities.ts";
 import type { AgentPromptContentBlock } from "@tutti-os/agent-activity-core";
+import {
+  ComposerSettingsCore,
+  type ComposerSettingsCoreSnapshot,
+  type ComposerSettingsDraft
+} from "@tutti-os/agent-gui/composer-settings-core";
 import type { TuttiExternalAtRichTextBridge } from "@tutti-os/workspace-external-core/rich-text";
 import type { WorkspaceFileReference } from "@tutti-os/workspace-file-reference/contracts";
 import type { WorkspaceUserProjectApi } from "@tutti-os/workspace-user-project/contracts";
@@ -48,11 +54,13 @@ export class DesktopCaptureWindowController {
   private readonly api: DesktopCaptureApi;
   private readonly agentTargetPreference: DesktopCaptureAgentTargetPreference | null;
   private readonly projectPreference: DesktopCaptureProjectPreference | null;
+  private readonly settingsCore: ComposerSettingsCore;
   private dragStart: { x: number; y: number } | null = null;
-  private composerOptionsRequestRevision = 0;
   private initializePromise: Promise<void> | null = null;
   private readonly listeners = new Set<() => void>();
   private snapshot = initialSnapshot;
+  /** Base state without core-derived fields; merged on every emit. */
+  private base = initialSnapshot;
   readonly mentionBridge: TuttiExternalAtRichTextBridge;
   readonly userProjectApi: WorkspaceUserProjectApi;
 
@@ -64,6 +72,40 @@ export class DesktopCaptureWindowController {
     this.api = api;
     this.agentTargetPreference = agentTargetPreference;
     this.projectPreference = projectPreference;
+    // Settings policy (draft, fenced options lifecycle, defaults write-back)
+    // lives in the shared core; this controller keeps only capture lifecycle
+    // and window-local presentation state.
+    this.settingsCore = new ComposerSettingsCore(
+      {
+        fetchOptions: async ({ agentTargetId, cwd, settings }) => {
+          const result = await this.api.getComposerOptions({
+            agentTargetId,
+            cwd,
+            settings:
+              settings && Object.keys(settings).length > 0 ? settings : null
+          });
+          const agent = result.agents.find(
+            (candidate) => candidate.id === agentTargetId
+          );
+          if (!agent?.composerOptions) {
+            throw new Error("Selected screenshot Agent target is unavailable");
+          }
+          // No side effects here: capabilities derive from the fenced core
+          // options in mergeSnapshot, so a stale response can never leak a
+          // stale capability verdict past the fence.
+          return agent.composerOptions;
+        },
+        rememberDefaults: async (agentTargetId, patch) => {
+          const defaults = composerDefaultsPatchFromDraft(patch);
+          if (Object.keys(defaults).length === 0) {
+            return;
+          }
+          await this.api.rememberComposerDefaults({ agentTargetId, defaults });
+        }
+      },
+      { agentTargetId: "", cwd: null }
+    );
+    this.settingsCore.subscribe(() => this.emit());
     this.mentionBridge = {
       at: {
         query: (input) => this.api.queryMentions(input),
@@ -140,15 +182,16 @@ export class DesktopCaptureWindowController {
     }
     try {
       const result = await this.api.select(selection);
-      const capture = this.snapshot.capture;
+      const capture = this.base.capture;
       if (!capture) {
         return false;
       }
+      const agentTargetId = resolveAvailableAgentTargetId(
+        result.agents,
+        this.snapshot.agentTargetId
+      );
       this.update({
-        agentTargetId: resolveAvailableAgentTargetId(
-          result.agents,
-          this.snapshot.agentTargetId
-        ),
+        agentTargetId,
         attachment: result.attachment,
         capture: {
           ...capture,
@@ -164,15 +207,14 @@ export class DesktopCaptureWindowController {
           }
         ],
         failed: false,
-        composerSettings: {},
         stage: "composing"
       });
-      if (this.snapshot.agentTargetId) {
-        await this.refreshComposerOptions(
-          this.snapshot.agentTargetId,
-          this.snapshot.projectPath
-        );
-      }
+      // The core context starts empty, so this transition always issues the
+      // first with-context options fetch for the selected target.
+      this.settingsCore.setContext({
+        agentTargetId,
+        cwd: this.snapshot.projectPath
+      });
       return true;
     } catch {
       this.update({ failed: true });
@@ -187,17 +229,16 @@ export class DesktopCaptureWindowController {
   }
 
   setAgentTargetId(agentTargetId: string): void {
-    const capture = this.snapshot.capture;
+    const capture = this.base.capture;
     if (!capture?.agents.some((agent) => agent.id === agentTargetId)) {
       return;
     }
     this.agentTargetPreference?.write(capture.workspaceId, agentTargetId);
-    this.update({ agentTargetId, composerSettings: {} });
-    void this.refreshComposerOptions(
+    this.update({ agentTargetId });
+    this.settingsCore.setContext({
       agentTargetId,
-      this.snapshot.projectPath,
-      {}
-    );
+      cwd: this.snapshot.projectPath
+    });
   }
 
   setContent(content: AgentPromptContentBlock[]): void {
@@ -212,15 +253,7 @@ export class DesktopCaptureWindowController {
     if (this.snapshot.submitting) {
       return;
     }
-    const composerSettings = { ...this.snapshot.composerSettings, ...patch };
-    this.update({ composerSettings });
-    if (this.snapshot.agentTargetId) {
-      void this.refreshComposerOptions(
-        this.snapshot.agentTargetId,
-        this.snapshot.projectPath,
-        composerSettings
-      );
-    }
+    this.settingsCore.setSettings(patch);
   }
 
   selectFiles(): Promise<readonly WorkspaceFileReference[]> {
@@ -230,20 +263,17 @@ export class DesktopCaptureWindowController {
   readonly setProjectPath = async (
     projectPath: string | null
   ): Promise<void> => {
-    const capture = this.snapshot.capture;
+    const capture = this.base.capture;
     const normalizedProjectPath = projectPath?.trim() || null;
     if (!capture) {
       return;
     }
     this.projectPreference?.write(capture.workspaceId, normalizedProjectPath);
     this.update({ projectPath: normalizedProjectPath });
-    if (this.snapshot.agentTargetId) {
-      await this.refreshComposerOptions(
-        this.snapshot.agentTargetId,
-        normalizedProjectPath,
-        this.snapshot.composerSettings
-      );
-    }
+    this.settingsCore.setContext({
+      agentTargetId: this.snapshot.agentTargetId,
+      cwd: normalizedProjectPath
+    });
   };
 
   async submit(
@@ -255,9 +285,7 @@ export class DesktopCaptureWindowController {
     const {
       agentTargetId: selectedAgentTargetId,
       attachment,
-      composerSettings,
       projectPath,
-      refreshingAgentOptions,
       submitting,
       trackWithTask
     } = this.snapshot;
@@ -268,7 +296,6 @@ export class DesktopCaptureWindowController {
       !this.snapshot.capture?.agents.some(
         (agent) => agent.id === agentTargetId && agent.capabilities.imageInput
       ) ||
-      refreshingAgentOptions ||
       submitting ||
       content.length === 0
     ) {
@@ -278,6 +305,10 @@ export class DesktopCaptureWindowController {
     try {
       const visiblePrompt =
         displayPrompt?.trim() || capturePromptText(content).trim();
+      // Submit exactly what the composer displays: the core resolves the
+      // draft over the loaded effective settings, so the daemon never has to
+      // re-interpret empty fields against another surface's memory.
+      const settings = this.settingsCore.resolveSubmitSettings();
       await this.api.submit({
         agentTargetId,
         content: trackWithTask
@@ -285,86 +316,74 @@ export class DesktopCaptureWindowController {
           : content,
         ...(projectPath ? { cwd: projectPath } : {}),
         ...(visiblePrompt ? { displayPrompt: visiblePrompt } : {}),
-        ...(Object.keys(composerSettings).length > 0
-          ? { settings: composerSettings }
-          : {})
+        ...(Object.keys(settings).length > 0 ? { settings } : {})
       });
     } catch {
       this.update({ failed: true, submitting: false });
     }
   }
 
-  private async refreshComposerOptions(
-    agentTargetId: string,
-    projectPath: string | null,
-    settings: DesktopCaptureComposerSettings = this.snapshot.composerSettings
-  ): Promise<void> {
-    const revision = ++this.composerOptionsRequestRevision;
-    this.update({ failed: false, refreshingAgentOptions: true });
-    try {
-      const options = await this.api.getComposerOptions({
-        agentTargetId,
-        cwd: projectPath,
-        settings: Object.keys(settings).length > 0 ? settings : null
-      });
-      if (revision !== this.composerOptionsRequestRevision) {
-        return;
-      }
-      const capture = this.snapshot.capture;
-      if (!capture) {
-        return;
-      }
-      const refreshedAgent = options.agents.find(
-        (agent) => agent.id === agentTargetId
-      );
-      if (!refreshedAgent) {
-        throw new Error("Selected screenshot Agent target is unavailable");
-      }
-      this.update({
-        capture: {
-          ...capture,
-          agents: capture.agents.map((agent) =>
-            agent.id === agentTargetId ? refreshedAgent : agent
-          )
-        },
-        failed: false,
-        refreshingAgentOptions: false
-      });
-    } catch {
-      if (revision !== this.composerOptionsRequestRevision) {
-        return;
-      }
-      const capture = this.snapshot.capture;
-      this.update({
-        capture: capture
-          ? {
-              ...capture,
-              agents: capture.agents.map((agent) =>
-                agent.id === agentTargetId
-                  ? {
-                      ...agent,
-                      capabilities: {
-                        ...agent.capabilities,
-                        imageInput: false
-                      },
-                      composerOptions: null
-                    }
-                  : agent
-              )
-            }
-          : capture,
-        failed: true,
-        refreshingAgentOptions: false
-      });
-    }
+  private update(patch: Partial<DesktopCaptureWindowSnapshot>): void {
+    this.base = { ...this.base, ...patch };
+    this.emit();
   }
 
-  private update(patch: Partial<DesktopCaptureWindowSnapshot>): void {
-    this.snapshot = { ...this.snapshot, ...patch };
+  private emit(): void {
+    this.snapshot = mergeSnapshot(this.base, this.settingsCore.getSnapshot());
     for (const listener of this.listeners) {
       listener();
     }
   }
+}
+
+function mergeSnapshot(
+  base: DesktopCaptureWindowSnapshot,
+  core: ComposerSettingsCoreSnapshot
+): DesktopCaptureWindowSnapshot {
+  // The selected agent's options and capabilities both derive from the
+  // fenced core options: last good on failure, never a stale interleave.
+  const capture = base.capture
+    ? {
+        ...base.capture,
+        agents: base.capture.agents.map((agent) =>
+          agent.id === base.agentTargetId && core.options
+            ? {
+                ...agent,
+                capabilities: resolveCaptureAgentCapabilities(core.options),
+                composerOptions: core.options
+              }
+            : agent
+        )
+      }
+    : base.capture;
+  return {
+    ...base,
+    capture,
+    composerSettings: core.draft,
+    // Only the very first options load blocks composing; background
+    // refreshes keep the last good menu interactive.
+    refreshingAgentOptions: core.initialLoading,
+    failed: base.failed || (core.degraded && core.options === null)
+  };
+}
+
+function composerDefaultsPatchFromDraft(patch: ComposerSettingsDraft): {
+  model?: string | null;
+  permissionModeId?: string | null;
+  reasoningEffort?: string | null;
+  speed?: string | null;
+} {
+  // browserUse/planMode are session choices, not ledger defaults.
+  return {
+    ...(patch.model !== undefined ? { model: patch.model } : {}),
+    ...(patch.permissionModeId !== undefined
+      ? { permissionModeId: patch.permissionModeId }
+      : {}),
+    ...(patch.reasoningEffort !== undefined
+      ? { reasoningEffort: patch.reasoningEffort }
+      : {}),
+    ...(patch.speed !== undefined ? { speed: patch.speed } : {})
+  };
 }
 
 function resolveAvailableAgentTargetId(

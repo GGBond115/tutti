@@ -9,6 +9,7 @@
     "./agent-gui": "./AgentGUI.tsx",
     "./startup-shell": "./AgentGUIStartupShell.tsx",
     "./quick-composer": "./AgentGUIQuickComposer.tsx",
+    "./composer-settings-core": "./composer-settings-core/index.ts",
     "./agents": "./agents.ts",
     "./custom-mention": "./custom-mention.ts",
     "./dock-icons": "./dockIcons.ts",
@@ -150,6 +151,10 @@
       "./quick-composer": {
         "types": "./dist/quick-composer.d.ts",
         "import": "./dist/quick-composer.js"
+      },
+      "./composer-settings-core": {
+        "types": "./dist/composer-settings-core/index.d.ts",
+        "import": "./dist/composer-settings-core/index.js"
       },
       "./agents": {
         "types": "./dist/agents.d.ts",
