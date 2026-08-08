@@ -7953,6 +7953,28 @@ button.agent-gui-node__conversation-section-toggle:hover
   text-align: center;
 }
 
+.agent-gui-node__conversation-rail-load-error {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.agent-gui-node__conversation-rail-load-error-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--text-secondary);
+}
+
 .agent-gui-node__unavailable-chat-empty {
   display: flex;
   flex-direction: column;

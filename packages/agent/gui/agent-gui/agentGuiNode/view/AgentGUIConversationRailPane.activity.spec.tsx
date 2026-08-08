@@ -3,6 +3,7 @@ import { useState } from "react";
 import { TooltipProvider } from "@tutti-os/ui-system";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentActivitySnapshot } from "@tutti-os/agent-activity-core";
+import { setAgentHostApiForTests } from "../../../agentActivityHost";
 import {
   AgentGUIRuntimeProvider,
   type AgentGUIRuntime
@@ -18,6 +19,60 @@ describe("AgentGUIConversationRailPane Activity capability", () => {
     renderPane({ capability: false });
 
     expect(screen.queryByTestId("agent-gui-activity-view-toggle")).toBeNull();
+  });
+
+  it("surfaces a rail load failure with a retry action", () => {
+    const retryRuntimeRail = vi.fn(() => Promise.resolve());
+    renderPane({
+      activityConversations: [],
+      capability: false,
+      conversations: [],
+      retryRuntimeRail,
+      runtimeRailFailed: true,
+      runtimeSectionsEnabled: true
+    });
+
+    expect(
+      screen.getByTestId("agent-gui-conversation-rail-load-error")
+    ).toHaveTextContent("Could not load sessions");
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(retryRuntimeRail).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains existing sessions while reporting a rail refresh failure through a toast", () => {
+    const toastError = vi.fn();
+    setAgentHostApiForTests({
+      clipboard: {},
+      filesystem: {},
+      toast: { error: toastError },
+      workspace: {}
+    } as never);
+    renderPane({
+      capability: false,
+      conversations: [
+        { ...conversationFixture(), railSectionKey: "conversations" }
+      ],
+      retryRuntimeRail: vi.fn(() => Promise.resolve()),
+      runtimeRailFailed: true,
+      runtimeRailMemberships: [
+        {
+          id: "conversations",
+          kind: "conversations",
+          project: null,
+          sessionIds: ["session-1"]
+        }
+      ],
+      runtimeSectionsEnabled: true
+    });
+
+    expect(
+      screen.queryByTestId("agent-gui-conversation-rail-load-error")
+    ).toBeNull();
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError).toHaveBeenCalledWith("Could not load sessions");
+    expect(screen.getByText("Session 1")).toBeTruthy();
   });
 
   it("toggles an in-memory Activity View without requesting another page", () => {
@@ -121,6 +176,10 @@ function renderPane({
   hasUnreadCompletion = false,
   listPage = vi.fn(),
   runtimeRailConversations = [],
+  runtimeRailFailed = false,
+  runtimeRailMemberships = null,
+  runtimeSectionsEnabled = false,
+  retryRuntimeRail = vi.fn(() => Promise.resolve()),
   activityConversations: requestedActivityConversations,
   conversations: requestedConversations
 }: {
@@ -128,6 +187,12 @@ function renderPane({
   hasUnreadCompletion?: boolean;
   listPage?: ReturnType<typeof vi.fn>;
   runtimeRailConversations?: AgentGUIConversationSummary[];
+  runtimeRailFailed?: boolean;
+  runtimeRailMemberships?: ReturnType<
+    typeof useAgentGUIConversationRailQuery
+  >["runtimeRailMemberships"];
+  runtimeSectionsEnabled?: boolean;
+  retryRuntimeRail?: () => Promise<void>;
   activityConversations?: AgentGUIConversationSummary[];
   conversations?: AgentGUIConversationSummary[];
 }) {
@@ -174,7 +239,11 @@ function renderPane({
           ...RAIL_QUERY,
           activityController,
           activityConversations,
-          runtimeRailConversations
+          runtimeRailConversations,
+          runtimeRailFailed,
+          runtimeRailMemberships,
+          runtimeSectionsEnabled,
+          retryRuntimeRail
         }}
         revealRequest={null}
         uiLanguage="en"
@@ -241,10 +310,12 @@ const RAIL_QUERY = {
     sessionIds: []
   },
   runtimeRailConversations: [],
+  runtimeRailFailed: false,
   runtimeRailMemberships: null,
   runtimeRailReconcilingSessionIds: new Set<string>(),
   runtimeRailScopeResolved: true,
   runtimeRailSectionsPending: false,
+  retryRuntimeRail: () => Promise.resolve(),
   runtimeSectionsEnabled: false,
   sectionPageStates: new Map()
 } as unknown as ReturnType<typeof useAgentGUIConversationRailQuery>;
@@ -266,11 +337,13 @@ const LABELS = {
   activityToday: "Today",
   activityYesterday: "Yesterday",
   conversationUnavailable: "Session unavailable",
+  conversationsLoadFailed: "Could not load sessions",
   loadingConversations: "Loading sessions",
   newConversation: "New session",
   noConversations: "No sessions",
   projectRailCreateProject: "New project",
   projectRailLinkExistingProject: "Link project",
+  retryConversations: "Retry",
   retrySearch: "Retry",
   searchFailed: "Search failed",
   searchNoConversations: "No results",
