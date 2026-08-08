@@ -14,6 +14,7 @@
     "AgentGUI.tsx",
     "AgentGUIStartupShell.tsx",
     "AgentGUIQuickComposer.tsx",
+    "composer-settings-core/index.ts",
     "agents.ts",
     "custom-mention.ts",
     "dockIcons.ts",
