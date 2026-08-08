@@ -7,6 +7,7 @@ import { useOptionalAgentHostApi } from "../../../agentActivityHost";
 import type { AgentGUINodeViewModel } from "../model/agentGuiNodeTypes";
 import { matchesAgentGUIConversationSummaryFilter } from "../model/agentGuiConversationFilter";
 import type { ConversationSection } from "../agentGuiNodeViewConversation";
+import { showAgentGUIControllerErrorToast } from "../controller/agentGuiController.reporting";
 import {
   isConversationRailInitialLoadPending,
   projectConversationRailMemberships,
@@ -449,12 +450,16 @@ export const AgentGUIConversationRailPane = memo(
       backendSearchActive &&
       railSearch.failed &&
       railSearch.sessionIds.length === 0;
+    const activityProjection = activityView.presentationActive
+      ? activityView.projection
+      : null;
+    const activityViewVisible = activityProjection !== null;
     const conversationRailError =
       runtimeSectionsEnabled &&
       railQuery.runtimeRailFailed &&
       runtimeRailScopeResolved &&
       !backendSearchActive &&
-      !activityView.presentationActive;
+      !activityViewVisible;
     const hostToast = agentHostApi?.toast;
     const railViewState = useAgentGUIConversationRailViewState({
       activeConversationId,
@@ -487,9 +492,12 @@ export const AgentGUIConversationRailPane = memo(
     useEffect(() => {
       if (!conversationRailError || !hasConversations) {
         railFailureToastShownRef.current = false;
-      } else if (!railFailureToastShownRef.current && hostToast) {
+      } else if (!railFailureToastShownRef.current) {
         railFailureToastShownRef.current = true;
-        hostToast.error(labels.conversationsLoadFailed);
+        showAgentGUIControllerErrorToast(
+          hostToast,
+          labels.conversationsLoadFailed
+        );
       }
       return installProjectDragGlobalListeners();
     }, [
@@ -533,7 +541,7 @@ export const AgentGUIConversationRailPane = memo(
             conversationQuery={conversationQuery}
             conversations={conversations}
             hasConversations={hasConversations}
-            isLoading={shouldShowConversationSkeleton}
+            isLoading={shouldShowConversationSkeleton && !activityViewVisible}
             labels={labels}
             onRetry={() => {
               void railQuery.retryRuntimeRail();
@@ -543,7 +551,7 @@ export const AgentGUIConversationRailPane = memo(
             searchError={shouldShowConversationSearchError}
             showEmptyState={shouldShowConversationEmptyState}
           >
-            {activityView.presentationActive && activityView.projection ? (
+            {activityProjection ? (
               <AgentGUIConversationActivityView
                 activeConversationId={activeConversationId}
                 conversationsById={activityView.conversationsById}
@@ -551,7 +559,7 @@ export const AgentGUIConversationRailPane = memo(
                 isRailInteractionLocked={isInteractionLocked}
                 labels={labels}
                 pendingDeleteConversationId={pendingDeleteConversationId}
-                projection={activityView.projection}
+                projection={activityProjection}
                 registerItemElement={
                   railViewState.registerConversationItemElement
                 }

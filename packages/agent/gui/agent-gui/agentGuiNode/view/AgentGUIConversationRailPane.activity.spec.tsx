@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { TooltipProvider } from "@tutti-os/ui-system";
+import { toast, TooltipProvider } from "@tutti-os/ui-system";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentActivitySnapshot } from "@tutti-os/agent-activity-core";
 import { setAgentHostApiForTests } from "../../../agentActivityHost";
@@ -73,6 +73,56 @@ describe("AgentGUIConversationRailPane Activity capability", () => {
     expect(toastError).toHaveBeenCalledTimes(1);
     expect(toastError).toHaveBeenCalledWith("Could not load sessions");
     expect(screen.getByText("Session 1")).toBeTruthy();
+  });
+
+  it("falls back to the UI toast when the host does not provide one", () => {
+    const fallbackToastError = vi.spyOn(toast, "error");
+    setAgentHostApiForTests({
+      clipboard: {},
+      filesystem: {},
+      workspace: {}
+    } as never);
+    renderPane({
+      capability: false,
+      conversations: [
+        { ...conversationFixture(), railSectionKey: "conversations" }
+      ],
+      retryRuntimeRail: vi.fn(() => Promise.resolve()),
+      runtimeRailFailed: true,
+      runtimeRailMemberships: [
+        {
+          id: "conversations",
+          kind: "conversations",
+          project: null,
+          sessionIds: ["session-1"]
+        }
+      ],
+      runtimeSectionsEnabled: true
+    });
+
+    expect(fallbackToastError).toHaveBeenCalledWith("Could not load sessions");
+    fallbackToastError.mockRestore();
+  });
+
+  it("keeps Activity View visible while the rail list is loading", async () => {
+    vi.useFakeTimers();
+    try {
+      renderPane({
+        capability: true,
+        runtimeRailSectionsPending: true,
+        runtimeSectionsEnabled: true
+      });
+      fireEvent.click(screen.getByTestId("agent-gui-activity-view-toggle"));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+
+      expect(screen.getByRole("heading", { name: "Priority" })).toBeTruthy();
+      expect(screen.queryByText("Loading sessions")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("toggles an in-memory Activity View without requesting another page", () => {
@@ -178,6 +228,7 @@ function renderPane({
   runtimeRailConversations = [],
   runtimeRailFailed = false,
   runtimeRailMemberships = null,
+  runtimeRailSectionsPending = false,
   runtimeSectionsEnabled = false,
   retryRuntimeRail = vi.fn(() => Promise.resolve()),
   activityConversations: requestedActivityConversations,
@@ -191,6 +242,7 @@ function renderPane({
   runtimeRailMemberships?: ReturnType<
     typeof useAgentGUIConversationRailQuery
   >["runtimeRailMemberships"];
+  runtimeRailSectionsPending?: boolean;
   runtimeSectionsEnabled?: boolean;
   retryRuntimeRail?: () => Promise<void>;
   activityConversations?: AgentGUIConversationSummary[];
@@ -242,6 +294,7 @@ function renderPane({
           runtimeRailConversations,
           runtimeRailFailed,
           runtimeRailMemberships,
+          runtimeRailSectionsPending,
           runtimeSectionsEnabled,
           retryRuntimeRail
         }}

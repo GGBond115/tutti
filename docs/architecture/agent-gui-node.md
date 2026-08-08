@@ -1353,6 +1353,14 @@ update only an already-resolved matching scope. A subordinate result must not
 cancel the full query, publish partial membership for an unresolved scope, or
 unlock Rail interactions.
 
+When Activity View has a non-null in-memory projection, that projection remains
+visible while the unrelated initial Rail membership query is pending; Rail
+loading, empty, or failure placeholders must not replace it. A refresh or page
+failure after Rail rows already exist preserves those rows and reports a
+non-blocking error through the host toast capability, falling back to the UI
+System toast when that optional capability is absent. An unresolved empty Rail
+scope retains the centered error state and its retry action.
+
 Presentation-invisible Sessions remain canonical engine entities and stay
 available through exact Session selectors for trusted open, reconcile, and
 command flows. Plural consumer selectors exclude them before Rail and Message
