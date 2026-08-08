@@ -229,11 +229,15 @@ prepare_managed_uv() {
       platforms=(linux-amd64)
       ;;
     mac|mac-unsigned|mac-signed)
-      case "${MAC_ARCH}" in
-        x64) platforms=(darwin-amd64) ;;
-        arm64) platforms=(darwin-arm64) ;;
-        all|universal) platforms=(darwin-amd64 darwin-arm64) ;;
-      esac
+      # The upstream macOS uv archives contain the uv and uvx executables.
+      # They are intentionally left out of the signed app: Apple notarization
+      # recursively validates executable members in nested tar.gz files and
+      # rejects these upstream binaries because they are not signed with the
+      # app's Developer ID identity. macOS keeps the daemon's verified dynamic
+      # download fallback; Windows and Linux still receive the bundled archive.
+      rm -rf "${APP_DIR}/build/managed-uv"
+      mkdir -p "${APP_DIR}/build/managed-uv"
+      return
       ;;
     unpack)
       platforms=("$(node -e 'const os = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : "linux"; const arch = process.arch === "arm64" ? "arm64" : "amd64"; process.stdout.write(`${os}-${arch}`)')")
