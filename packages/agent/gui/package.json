@@ -61,7 +61,7 @@
     "directory": "packages/agent/gui"
   },
   "scripts": {
-    "build": "tsup --config tsup.config.ts && tsup --config tsup.dts.config.ts && node ../../../tools/scripts/copy-package-assets.mjs app/renderer/agentactivity.css dist/app/renderer/agentactivity.css app/renderer/assets/icons dist/app/renderer/assets/icons",
+    "build": "tsup --config tsup.config.ts && node ../../../node_modules/@typescript/native-preview/bin/tsgo.js -p tsconfig.dts.json && tsup --config tsup.dts.config.ts && node build/cleanupAgentGUIDtsIntermediates.mjs && node ../../../tools/scripts/copy-package-assets.mjs app/renderer/agentactivity.css dist/app/renderer/agentactivity.css app/renderer/assets/icons dist/app/renderer/assets/icons",
     "test": "vitest run",
     "typecheck": "node ../../../tools/scripts/run-tsgo-typecheck.mjs"
   },

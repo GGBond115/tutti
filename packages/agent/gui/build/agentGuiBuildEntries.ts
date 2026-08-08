@@ -49,6 +49,13 @@ export const agentGUIBuildEntries = {
 
 type AgentGUIBuildEntry = keyof typeof agentGUIBuildEntries;
 
+export const agentGUIDtsBuildEntries = Object.fromEntries(
+  Object.entries(agentGUIBuildEntries).map(([name, source]) => [
+    name,
+    `dist/.dts/${source.replace(/\.tsx?$/, ".d.ts")}`
+  ])
+) as Readonly<Record<AgentGUIBuildEntry, string>>;
+
 export const agentGUIDtsEntryGroups = [
   ["index"],
   [
