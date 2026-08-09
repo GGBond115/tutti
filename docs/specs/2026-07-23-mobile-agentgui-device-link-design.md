@@ -426,6 +426,26 @@ MVP 优先共享 conversation projection、稳定 row identity、相邻消息合
 
 所有移动端文案仍进入 i18n。不得在 Native 组件中硬编码用户可见文案。
 
+### 11.4 会话详情展示节奏
+
+Native Mobile 会话详情保持正常时间顺序，不在展示层重组 Turn 或推断新的
+Interaction 状态。页面 Header 使用两层信息展示会话标题与现有 workspace/device
+上下文；Transcript 在宽屏上限制阅读宽度，用户消息使用紧凑气泡，Assistant 正文保持
+平面排版，Reasoning、Tool、Processing 和文件摘要使用低权重的渐进披露样式。
+会话首次进入时在最终布局帧跟随最新消息；用户已离开底部并触摸历史内容时，应先退出
+follow-end，再处理 Reasoning、Tool 或文件摘要的展开，避免内容高度变化把阅读位置强制跳回
+末尾。离开底部后保留明确的“回到底部”动作。
+
+Pending Interaction 是 Composer 前的 normal-flow sibling，并且仍是当前 exact
+Interaction 的唯一 actionable 挂载点。多个 pending 项在有限高度的独立滚动区中保持
+canonical 顺序和 exact identity；页面不把它复制为第二张 transcript 操作卡，也不使用
+absolute overlay，也不参与 Transcript 的滚动锚点或 follow-end 几何计算。Composer 使用单一 token-backed surface
+组织草稿、现有设置入口和 Send/Stop action，继续服从原有 Engine projection、草稿、
+readiness 和 overlay activation fence，不在 Native presentation 中重解释业务状态。
+窄屏上的 Composer 设置入口允许水平滚动，并使用跨平台边缘方向提示表达仍有更多设置
+（Android 同时保留原生渐隐）；键盘弹起时
+Composer 整体上移，Transcript 继续保留可阅读区域。
+
 ## 12. Composer
 
 MVP 支持：
